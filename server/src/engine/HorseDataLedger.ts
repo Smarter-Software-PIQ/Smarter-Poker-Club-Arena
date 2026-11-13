@@ -69,8 +69,14 @@ export interface LedgerEntry {
   ratioOf?: string;
   /** receipt entries: fires(key) / fires(ratioOf) must be at least this on a
    *  normal fleet day (ratioOf fires >= 1000), else the audit raises
-   *  data_unread. Omitted = the read depends on table mix (documented in
-   *  note) and only a zero against a big denominator is reported. */
+   *  data_unread (critical at zero fires, warn below the floor). A floored
+   *  key on its first partial day, or one deployed after the audited day,
+   *  is reported as info instead. Omitted = the receipt audit raises
+   *  NOTHING for this key, a zero included (fn_audit_data_receipts judges
+   *  only rows with a min_ratio); the read depends on table mix or is not
+   *  yet measured (its note, or the comment above the entry, says which).
+   *  Such a key is still judged against its own history by the drift
+   *  audit. Write a floor only from a measured live day. */
   minRatio?: number;
   /** table entries with a nightly cadence: the day column and how many days
    *  old the newest row may be before the audit raises data_stale */
@@ -986,6 +992,143 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'v85CashAction',
     '2026-11-09 (owner direction after a real player reported, for the fourth time, that the cash horses play far too tight: "FOR A 9 HANDED GAME, THESE NUMBERS NEED TO BE INCREASED TO 25-30% VPIP, AND INCREASE THE 3 BETTING ... WHILE MAINTAINING GTO DISCIPLINE ... REAL CASH GAME OPENS ARE 2.5-4.5 BB OR LARGER IF THERE ARE LIMPERS", then "FULLY ADJUSTED FOR 6 HANDED GAMES AND SHORT HANDED PLAY AS WELL") no-limit hold\'em cash at every table size: per-seat raise-first-in widths V85_CASH_OPEN_TARGET (SB 50 / BTN 52 / CO 35 / HJ 27 / LJ 22.5 / 20.5 / 18.5 / nine-handed UTG 17, three-handed 50 / 55, heads-up 80) on the unchanged per-seat reference order; the facing-open base without the per-player collapse (V85_DEFEND_TARGET, V85_DEFEND_TARGET_IP, 0.4 points of continue per player behind instead of 2, an 18% floor) re-based on a 3bb open, the same base answering an open that was called (squeeze, overcall, the multiway big blind) and the heads-up big blind; more linear 3-bets (V85_VALUE_SHIFT) with the bluff trim at 0.6; cash opens 2.5-4.5bb (NLH_OPEN_BANDS_CASH_ACTION); all of it tapered by effective stack (none at 50bb or less, full from 85bb); production before (2026-11-10 UTC, engine 391f7bc0): nine-handed 15.9% VPIP / 11.8% PFR / 4.0% 3-bet, seats behind an open folded 94.0%; offline all-horse probe at 250bb (HoldemCashActionProbe, 8,000 hands a table): nine-handed 15.5 -> 24.8% VPIP, 3-bet 3.6 -> 6.6%, six-handed 22.8 -> 32.0% and 5.5 -> 8.7%; widths are past the solver bands by owner direction and are conditional ranges, never a VPIP quota; tournaments, ante-free short stacks, pot limit, fixed limit, short deck and pineapple unchanged; explicit off arm keeps the prior ranges and sizes',
     'V85'
+  ),
+  flag(
+    'styleValueBettorNotManiac',
+    "2026-11-13 STYLE READ #2 (HorseOpponentStyle, STYLE-READ-CONTRACT.md): a value bettor is not a maniac. The legacy postflop aggression factor above 2.5 (callDownMod 1.2, which switches off the one-pair fold layers V61/62/65/66/67/68/79) keeps neutral respect against a player whose betting-range evidence is value-weighted at 15+ decayed hands in this format (shown strength of big river bets engaged from 3 shown, discounted for showdown selection bias, or credibly tight with aggression not credibly high), unless the fast or recent window releases the read (stand-down from a release fraction of 0.5); hold'em family only, cash and tournament alike; 'raises more than Horses' alone is not a maniac; default off, explicit true only; the PLO lane owns the Omaha consumers",
+    '2026-11-13',
+    'HorseMind.legacyExploit via HorseLogic.decide'
+  ),
+  flag(
+    'styleBigBetHonesty',
+    '2026-11-13 STYLE READ #3: a large river bet (0.66 pot or more) from a player whose betting-range evidence is value-weighted earns extra call-down respect, capped at the existing +0.15 together with the V16 tell; a large turn bet and any river raise read the frequency evidence only at half weight (shown strength was measured on big river bets and is not generalised); never a small bet, never the flop; halved when hero holds a blocker; scaled down proportionally and stood down by the fast window; stands down in bounty events; only ever adds respect (never widens a call); the tournament utility arbiter keeps the last word; default off, explicit true only',
+    '2026-11-13'
+  ),
+  flag(
+    'styleRaiseRespect',
+    '2026-11-13 STYLE READ #4: a flop or turn raise from a player whose postflop bet-and-raise share is credibly below the Horse mean (the raise-frequency proxy) shades a one-pair-or-worse call by up to 0.06 equity, scaled by the DECISION-TIME stack-to-pot ratio (effective stack behind before the decision over the pot including his bet): nothing at SPR 2 or below (one pair is a correct stack-off), full from SPR 6; heads-up, no side pots, no bounty event, no maniac read; released proportionally by the fast window; only ever adds a shade (never widens a call); default off, explicit true only',
+    '2026-11-13'
+  ),
+  flag(
+    'styleTightReRaiserRespect',
+    "2026-11-13 STYLE READ #6: against a credibly tight opener the exploit read's narrow facing-an-open branch becomes reachable (bounded 3-bet bar move up to 0.1, call bar +0.04) and against a credibly tight 3-bettor (3-bets per opportunity credibly low) the 4-bet bar rises 0.03 and the call bar 0.06; hold'em only; stands down at 25bb effective and below (push/fold depths: the existing tables decide), in bounty events and when the read is released; a preflop range change, default off, explicit true only, and not to be enabled while a range-change hold stands",
+    '2026-11-13'
+  ),
+  flag(
+    'styleFoldRatePreRepair',
+    "2026-11-13 STYLE READ pre-repair: the legacy over-folder branch (postflop fold rate above 0.62) stands down while the decision's exact profile is a pre-repair cash table-speed row whose fold-to-bet has fewer than 60 post-release opportunities; hold'em only; default off, explicit true only",
+    '2026-11-13'
+  ),
+  flag(
+    'styleValueExtraction',
+    "2026-11-13 STYLE READ A4 value extraction: against a credible caller (fold-to-bet credibly low or river call credibly high) whose shown big bets are not value-weighted, value sizing up to +25%, value bar up to 0.03 thinner, slow-play cut up to 50% only when he rarely bets; released by a rising fast-window fold rate; hold'em heads-up, not bounty; default off, explicit true only",
+    '2026-11-13'
+  ),
+  flag(
+    'styleFoldBluff',
+    "2026-11-13 STYLE READ postflop-fold bluffing: bluff frequency follows this street's fold-to-bet (river: river call), up to +25% against a folder and down to -30% against a caller, increase withheld against possible fold-faking trappers, pre-repair rows excluded; hold'em heads-up, not bounty; default off, explicit true only",
+    '2026-11-13'
+  ),
+  flag(
+    'styleCarryOverWeight',
+    "2026-11-13 STYLE READ cross-format transfer: weight (0 to 1) of the same player's other-format counters in the style read; default 0 = format-specific evidence only; one player being tighter in tournaments does not establish that everyone is, so a non-zero weight needs validation first",
+    '2026-11-13'
+  ),
+  receipt(
+    'legacy_fold_rate_branch_seen',
+    'HorseMind.legacyExploit',
+    'the legacy fold-rate branch (postflop fold rate above 0.62) was taken; observability only, no behaviour change; occurrence counter; named *_seen',
+    '2026-11-13'
+  ),
+  receipt(
+    'legacy_aggression_factor_branch_seen',
+    'HorseMind.legacyExploit',
+    'the legacy aggression-factor branch (postflop AF above 2.5) was entered, before the V83 and style guards decide; observability only, no behaviour change; occurrence counter; named *_seen',
+    '2026-11-13'
+  ),
+  receipt(
+    'style_pre_repair_fold_rate_discounted_seen',
+    'HorseMind.legacyExploit (STYLE READ pre-repair)',
+    'the legacy over-folder branch stood down because the exact profile is pre-repair and its fold-to-bet is excluded; occurrence counter; named *_seen',
+    '2026-11-13'
+  ),
+  receipt(
+    'style_value_extraction_seen',
+    'HorseLogic (STYLE READ A4)',
+    'value sizing, value bar or slow-play frequency moved by the value-extraction read; occurrence counter; named *_seen',
+    '2026-11-13'
+  ),
+  receipt(
+    'style_fold_bluff_seen',
+    'HorseLogic (STYLE READ postflop-fold bluffing)',
+    "the bluff multiplier moved by this street's fold-to-bet read; occurrence counter; named *_seen",
+    '2026-11-13'
+  ),
+  receipt(
+    'style_bluff_catch_cap_seen',
+    'HorseLogic (STYLE READ #3 river bluff-catch equity cap)',
+    "a one-pair river bluff-catcher's equity was capped at the bluff share the bettor's called river bets left (90% one-sided); occurrence counter; named *_seen",
+    '2026-11-13'
+  ),
+  receipt(
+    'style_boot_inputs_hydrated_seen',
+    'HorseExploitHydrator (STYLE READ boot inputs)',
+    "the boot replay rebuilt the style read's post-release counts and size buckets from the hand history it read (only when HORSE_STYLE_BOOT_RELEASE_START_MS is set); occurrence counter; named *_seen",
+    '2026-11-13'
+  ),
+  receipt(
+    'style_boot_release_start_rejected_seen',
+    'HorseExploitHydrator (STYLE READ boot inputs)',
+    'the configured release start was not epoch milliseconds between 2026-01-01 and now, so the style boot inputs stayed off; occurrence counter; named *_seen',
+    '2026-11-13'
+  ),
+  receipt(
+    'style_bluff_catch_cap_bounty_priced_seen',
+    'HorseLogic (STYLE READ #3 bluff-catch cap in bounty events)',
+    'in a bounty event the bluff-catch cap was raised by the knockout credit the call earns (V23/V37 pricing), so it applied against the call price including the bounty; occurrence counter; named *_seen',
+    '2026-11-13'
+  ),
+  receipt(
+    'style_value_bettor_not_maniac_seen',
+    'HorseMind.legacyExploit (STYLE READ #2)',
+    'a postflop aggression factor above 2.5 kept neutral respect because the style read says the bettor is value-weighted; occurrence counter (counts reads, not decisions); named *_seen',
+    '2026-11-13'
+  ),
+  receipt(
+    'style_big_bet_honesty_seen',
+    'HorseLogic.decide V12 respect block (STYLE READ #3)',
+    'a large river bet, a large turn bet or a river raise from a value-weighted bettor added respect (at most 0.15 including the V16 tell); named *_seen',
+    '2026-11-13'
+  ),
+  receipt(
+    'style_raise_respect_seen',
+    'HorseLogic.decide V66 raise shade (STYLE READ #4)',
+    'a flop or turn raise from a credibly low-raise-frequency player added a decision-time-SPR-scaled shade to a one-pair-or-worse call; named *_seen',
+    '2026-11-13'
+  ),
+  receipt(
+    'style_tight_opener_respect_seen',
+    'HorsePreflop via HorseLogic (STYLE READ #6)',
+    'facing one open from a credibly tight opener the 3-bet bar moved up and the call bar rose, bounded; named *_seen',
+    '2026-11-13'
+  ),
+  receipt(
+    'style_tight_reraiser_respect_seen',
+    'HorsePreflop via HorseLogic (STYLE READ #6)',
+    'facing a 3-bet or more from a credibly tight re-raiser the 4-bet and call bars rose, bounded; named *_seen',
+    '2026-11-13'
+  ),
+  receipt(
+    'style_read_released_seen',
+    'HorseMind.styleRead (STYLE READ)',
+    'a style read was taken for a player whose fast or recent window released it to stand-down (release fraction 0.5 or more); counts reads; named *_seen',
+    '2026-11-13'
+  ),
+  receipt(
+    'style_label_*',
+    'HorseMind.styleRead (STYLE READ)',
+    'a style read was taken and labelled (maniac, loose-aggressive, loose-passive, tight-aggressive, tight-passive, value-heavy-passive, balanced, unknown): style_label_<label>_seen; a telemetry-only label per read, never an input to a decision; counts reads, so it is only taken when a style option is on',
+    '2026-11-13'
   ),
   flag(
     'v87DeepDiveDiscipline',
@@ -2024,6 +2167,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   receipt('decide_tournament', 'HorseLogic.decide', 'every live tournament decision', 'Phase6'),
   receipt(
+    'decide_postflop',
+    'HorseLogic.decide',
+    'every live decision that enters the postflop brain: the opportunity count for the postflop upgrade counters',
+    '2026-11-13'
+  ),
+  receipt(
     'decide_tournament_preflop',
     'HorseLogic.decide',
     'every live tournament preflop decision',
@@ -2665,8 +2814,9 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   // path, so "enabled" is provable from the serving release
   // (HORSE_UPGRADE_LIVE_EVIDENCE, HorseUpgradeLiveEvidence.law.test.ts).
   // Evidence only; each depends on table mix and none is a health ratio.
-  // Per-decision upgrade counters name their denominator (every live
-  // decision) and carry NO floor yet. A floor was set here on 2026-11-12
+  // Per-decision upgrade counters name their denominator (decide_postflop,
+  // every live decision that enters the postflop brain, from 2026-11-13;
+  // before that it was every decision, preflop included) and carry NO floor yet. A floor was set here on 2026-11-12
   // before any of these counters had served, and the receipt audit reads a
   // floor as fact: zero fires against 1,000 decisions is reported critical
   // whether or not an eligible postflop decision occurred, and an audit that
@@ -2682,14 +2832,14 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic postflop (computeActionLinePosterior)',
     'a telemetry-on postflop decision computed the public action-line posterior',
     '2026-11-12',
-    'decide'
+    'decide_postflop'
   ),
   receipt(
     'upgrade02_card_removal_scored',
     'HorseLogic postflop (scoreCardRemoval)',
     'a telemetry-on postflop decision scored its blockers',
     '2026-11-12',
-    'decide'
+    'decide_postflop'
   ),
   receipt(
     'phase14_kernel_eligible_seen',
@@ -2714,7 +2864,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic think-time hint',
     'the think-time difficulty hint came from public complexity',
     '2026-11-12',
-    'decide'
+    'decide_postflop'
   ),
   receipt(
     'upgrade08_*',

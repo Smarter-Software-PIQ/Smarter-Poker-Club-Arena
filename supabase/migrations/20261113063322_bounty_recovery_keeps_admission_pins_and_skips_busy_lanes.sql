@@ -4,6 +4,8 @@
 -- Admit one available due event without waiting; keep pending and due-time
 -- output for the existing causal contention backoff. Payment, generation,
 -- ordering, markers, permissions and lock custody remain unchanged.
+-- Successor to the fully rolled-back 20261113054116 installation: the
+-- linked MTT admission definition pin moves atomically with this function.
 BEGIN;
 SET LOCAL lock_timeout='1s';
 SET LOCAL statement_timeout='8s';
@@ -234,4 +236,43 @@ END;
 $function$;
 REVOKE ALL ON FUNCTION public.fn_sweep_pending_tournament_bounties(uuid,integer) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_sweep_pending_tournament_bounties(uuid,integer) TO service_role;
+-- The admission guard pins the sweep's complete definition, owner and ACL.
+-- Move exactly this pin in the same transaction; every other pin and every
+-- executable byte of the guard stays unchanged. No stale-pin exception.
+DO $bounty_admission_pin$
+DECLARE
+  target constant text := 'public.fn_sweep_pending_tournament_bounties(uuid,integer)';
+  guard constant text := 'public.fn_ca_guard_mtt_admission_contract()';
+  old_hash constant text := '30ca1181317d0f76d7a549ceab37b493';
+  new_hash text; original text; patched text; before_meta jsonb; after_meta jsonb;
+  prepared jsonb; after_prepared jsonb; pin jsonb; pin_count integer; pin_index integer;
+BEGIN
+  new_hash := md5(pg_get_functiondef(target::regprocedure));
+  original := pg_get_functiondef(guard::regprocedure);
+  SELECT to_jsonb(p)-'prosrc' INTO before_meta FROM pg_proc p WHERE oid=guard::regprocedure;
+  prepared := split_part(original,'$prepared$',2)::jsonb;
+  SELECT count(*),min(ordinality::integer-1) INTO pin_count,pin_index
+    FROM jsonb_array_elements(prepared->'functions') WITH ORDINALITY x(value,ordinality)
+   WHERE value->>'signature'=target;
+  IF pin_count IS DISTINCT FROM 1 OR new_hash=old_hash THEN
+    RAISE EXCEPTION 'Bounty admission pin target is missing, duplicated or unchanged';
+  END IF;
+  pin := prepared->'functions'->pin_index;
+  IF pin IS DISTINCT FROM jsonb_build_object('signature',target,'definition_md5',old_hash,
+       'owner','postgres','acl',jsonb_build_array('postgres=X/postgres','service_role=X/postgres'))
+     OR (length(original)-length(replace(original,old_hash,'')))/length(old_hash)<>1 THEN
+    RAISE EXCEPTION 'Bounty admission pin preimage changed; qualify current source';
+  END IF;
+  patched := replace(original,old_hash,new_hash);
+  EXECUTE patched;
+  SELECT to_jsonb(p)-'prosrc' INTO after_meta FROM pg_proc p WHERE oid=guard::regprocedure;
+  after_prepared := split_part(pg_get_functiondef(guard::regprocedure),'$prepared$',2)::jsonb;
+  IF before_meta IS DISTINCT FROM after_meta
+     OR pg_get_functiondef(guard::regprocedure) IS DISTINCT FROM patched
+     OR after_prepared IS DISTINCT FROM jsonb_set(prepared,
+          ARRAY['functions',pin_index::text,'definition_md5'],to_jsonb(new_hash),false) THEN
+    RAISE EXCEPTION 'Bounty admission pin rotation changed unrelated guard evidence';
+  END IF;
+END $bounty_admission_pin$;
+
 COMMIT;

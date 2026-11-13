@@ -53,7 +53,7 @@ describe('omahaNeutralUnknown: an unknown Omaha opponent is read as neutral', ()
     }
   });
 
-  it('on: no read, no presumed raise width, no bettor pressure, for people and Horses alike', () => {
+  it('on: no presumed raise width and no bettor pressure, for people and Horses alike', () => {
     enableBrainTelemetry();
     drainFires();
     for (const variant of ['plo4', 'plo5', 'plo6']) {
@@ -63,6 +63,9 @@ describe('omahaNeutralUnknown: an unknown Omaha opponent is read as neutral', ()
           HorseMind.setDecisionReadOptions({ omahaNeutralUnknown: true });
           for (const id of [PERSON, HORSE]) {
             const read = HorseMind.opponentRead(id);
+            // Still a read (measured statistics, nothing engaged), so detectors
+            // that fall back to measured evidence keep running.
+            expect(read, `${variant} ${sc} ${mode}`).not.toBeNull();
             expect(read?.presumed, `${variant} ${sc} ${mode}`).toBeUndefined();
             expect(maniacRaiseWidth(read)).toBeNull();
             expect(aggressiveBettorPressure(read)).toBeNull();
@@ -85,6 +88,51 @@ describe('omahaNeutralUnknown: an unknown Omaha opponent is read as neutral', ()
     const read = HorseMind.opponentRead(PERSON);
     expect(read?.presumed).toBeUndefined();
     expect(maniacRaiseWidth(read)).not.toBeNull();
+  });
+
+  it('a player whose own hands disproved the presumption reads exactly as today, with no neutral receipt', () => {
+    const quiet = freshExploitCounters();
+    const inc = exploitHandIncrements([{ userId: PERSON, action: 'call', stage: 'preflop' }]).get(
+      PERSON
+    )!;
+    for (let n = 0; n < 200; n++) decayAndAdd(quiet, inc);
+    const seat = (neutral: boolean) => {
+      HorseMind.reset();
+      HorseMind.setDecisionScope('omaha:short', 'plo5', 'cash');
+      HorseMind.setDecisionReadOptions(neutral ? { omahaNeutralUnknown: true } : {});
+      (
+        HorseMind as unknown as { exploitCounters: Map<string, ExploitCounters> }
+      ).exploitCounters.set(`omaha:short|${PERSON}`, quiet);
+      return HorseMind.opponentRead(PERSON);
+    };
+    enableBrainTelemetry();
+    drainFires();
+    const off = seat(false);
+    const on = seat(true);
+    expect(on).toEqual(off);
+    expect(drainFires().find((f) => f.feature === 'plo_opponent_neutral_unknown')).toBeUndefined();
+  });
+
+  it('the measured-evidence bully detector answers the same with the option on and off', () => {
+    const lag = {
+      hands: 60,
+      vpip: 45,
+      pfr: 24,
+      threeBet: 8,
+      aggr: 90,
+      passive: 20,
+      folds: 10,
+      facedAggr: 40,
+      postAggr: 40,
+      postPassive: 8,
+    };
+    for (const neutral of [false, true]) {
+      HorseMind.reset();
+      HorseMind.setDecisionScope('omaha:short', 'plo5', 'cash');
+      HorseMind.setDecisionReadOptions(neutral ? { omahaNeutralUnknown: true } : {});
+      (HorseMind as unknown as { stats: Map<string, unknown> }).stats.set(PERSON, { ...lag });
+      expect([neutral, HorseMind.isLagBully(PERSON)]).toEqual([neutral, true]);
+    }
   });
 
   it("hold'em is untouched", () => {

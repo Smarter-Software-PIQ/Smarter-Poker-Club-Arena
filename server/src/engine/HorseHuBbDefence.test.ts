@@ -234,3 +234,62 @@ describe('outside the scope the flag is inert', () => {
     same({ seats: 2, openBB: 2.5, stackBB: 18, mode: 'cash' });
   });
 });
+
+/**
+ * HU-NLH-001 (2026-11-12). V85 (owner direction 2026-11-09) widens the cash
+ * big blind only above V85_DEPTH_NONE_BB (50bb, the cash minimum buy-in). At
+ * 50bb or less the V11 heads-up bars still decide, and they read neither the
+ * price nor the opener's width. Live defaults here: V85 is NOT pinned off.
+ */
+describe('HU-NLH-001: at 50bb or less V85 leaves the heads-up big blind on the V11 bars', () => {
+  const live = (spot: Spot, cls: string, s: number, on: boolean): string => {
+    const { hero, gs } = stateFor(spot, holeFor(cls, s));
+    seedFastRandom(1 + s * 7919 + cls.charCodeAt(0) * 31 + cls.charCodeAt(1));
+    return HorseLogic.decide(
+      hero,
+      gs,
+      hybrid.style,
+      { ...hybrid.mods },
+      {
+        mind: false,
+        decisionTimeMs: Date.UTC(2026, 10, 7, 12, 0, 0),
+        ...(on ? { huBbDefendsToPrice: true } : {}),
+      }
+    ).action;
+  };
+  const liveFoldShare = (spot: Spot, on: boolean): number => {
+    let fold = 0;
+    let total = 0;
+    for (const h of HAND_CLASSES)
+      for (let s = 0; s < 2; s++) {
+        if (live(spot, h.cls, s, on) === 'fold') fold += h.combos;
+        total += h.combos;
+      }
+    return (100 * fold) / total;
+  };
+  const at = (stackBB: number, openBB: number): Spot => ({
+    seats: 2,
+    openBB,
+    stackBB,
+    mode: 'cash',
+  });
+
+  it('MEASURED: at 40bb the fold share is over half and the same at 2bb, 2.5bb and 3bb', () => {
+    const shares = [2, 2.5, 3].map((open) => liveFoldShare(at(40, open), false));
+    // A min-raise needs half its opens to fold to profit with any two cards.
+    for (const share of shares) expect(share).toBeGreaterThan(50);
+    expect(Math.max(...shares) - Math.min(...shares)).toBeLessThan(1);
+  });
+
+  it('above the taper V85 already answers a min-raise with under a third folded', () => {
+    expect(liveFoldShare(at(80, 2), false)).toBeLessThan(33);
+  });
+
+  it('the flag is what changes the 40bb answer, and it reads the price', () => {
+    const min = liveFoldShare(at(40, 2), true);
+    const three = liveFoldShare(at(40, 3), true);
+    expect(min).toBeLessThan(10);
+    expect(three).toBeGreaterThan(min + 20);
+    expect(three).toBeLessThan(liveFoldShare(at(40, 3), false));
+  });
+});

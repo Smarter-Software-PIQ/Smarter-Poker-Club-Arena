@@ -83,3 +83,40 @@ already on the felt stay hard. A seat's own face-down fan, drawn over its
 portrait like its tag and badge, is passable for that seat only; the amount
 lane is a fixed 108 px centred on its seat. The fixture pins one size for
 every opponent and a centred transform on every portrait.
+
+## Sizes Never Change Once Set
+
+Dan, November 12: avatars were flickering between large and small; they must
+stay the same size 100% of the time, with no size changes.
+
+Causes, all fixed: (1) any layout-key change (an iOS toolbar collapsing
+resizes the scaler) cleared the fitted paint and dropped every portrait to its
+small baseline until a refit; (2) each pass removed and restored the image's
+filter, restarting its 0.25 s filter transition, which the opponent layout
+reads as a running animation and so never settled, so the refit never came;
+(3) the uniform size was searched afresh on every refit.
+
+Now a pass that cannot refit carries the displayed paint over on any layout
+that still takes it, and requests its own refit (bounded); the reset before a
+pass removes only the zoom, translation and plate frames (what moves a box),
+never the filter or torso clip; the table's chosen sizes are locked and a
+refit confirms them before searching; fitted choices and their reservations
+survive key changes, rescaled to the current render ratio; row placement
+measures the resting portrait slot, never the zoomed paint on screen. A layout
+that no longer takes the paint (kill table, landscape, narrow phone) drops all
+of it. The fixture pins it: a viewport height change and the relayouts after
+it keep every portrait's paint byte-for-byte.
+
+## The Lock Is Absolute
+
+Measured live after release 088a8778 (every frame for 75 s per table, through
+viewport-height changes and live hands): no portrait ever dropped to its small
+baseline, but a refit could still re-decide the size. A PLO6 table stepped once
+from 1.55x to 1.5x after a height change, and a Lightning table stepped
+1.7x, 1.6x, 1.55x, 1.45x as players came and went. Once a table's sizes are
+set they are now final for that ring: every later refit (resize, toolbar, new
+hand, new player) reuses them exactly with no search. Existing portraits keep
+their exact transform, rescaled to the current render ratio; a new arrival
+takes the locked size, straight up from its plate, centred, cropped at its
+plate. Only a different ring (capacity, or the viewer sitting down or standing
+up) starts over.

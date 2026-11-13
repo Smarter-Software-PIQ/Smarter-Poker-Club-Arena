@@ -8,11 +8,11 @@ In Omaha every opponent without a disproof is read as an aggressive raiser (Hors
 
 ## Change
 
-Option `omahaNeutralUnknown` (DEFAULT OFF). With it on, HorseMind.opponentRead for the Omaha family skips the presumption and returns the opponent's own measured read only: no read means no exploit layer engages, exactly as against an opponent at the Horse mean; protective layers are untouched; an opponent whose own hands engage a read keeps it. Receipt `plo_opponent_neutral_unknown`. presumedAggressorRead, its constants and the presumed flag are unchanged. A bounded population prior (the shared style-read contract) is not part of this change.
+Option `omahaNeutralUnknown` (DEFAULT OFF). With it on, the Omaha read (HorseOpponentExploit `neutralUnknownRead`) is identical to today's in every outcome except the one where the presumption would apply (an opponent with no engaged raise read and no disproof). There it is the opponent's own measured statistics with nothing engaged and no `presumed` flag: the read a measured opponent at the Horse mean gets. It stays non-null, so the detectors that fall back to measured evidence when nothing is engaged (isLagBully, streetBullyRead) run exactly as before. Receipt `plo_opponent_neutral_unknown` fires only in that case; disproved and evidenced opponents read and count as today. presumedAggressorRead, its constants and the `presumed` flag are unchanged. A bounded population prior (the shared style-read contract, #10699) is not part of this change.
 
 ## League (Development, Seed 31337)
 
-Six-handed, Horse field, 3,000 duplicate pairs per cell, option on minus off, bb/100 (stderr): PLO4 cash +13.4 (6.1), PLO4 MTT 40 BB +7.9 (5.3), PLO5 cash -4.4 (7.3), PLO5 MTT -5.9 (5.1), PLO6 cash -0.9 (6.6), PLO6 MTT +3.4 (3.4). Inconclusive; no cell significantly negative. The human-calibrated population is qualified for Hold'em only and was not used.
+Six-handed, Horse field, 3,000 duplicate pairs per cell, option on minus off, bb/100 (stderr): PLO4 cash +14.1 (6.4), PLO4 MTT 40 BB +5.2 (5.4), PLO5 cash +0.7 (7.4), PLO5 MTT -4.0 (5.0), PLO6 cash -3.3 (6.2), PLO6 MTT +4.3 (3.4). One cell (PLO4 cash) is positive at about 2.2 standard errors; six cells together are inconclusive; no cell is significantly negative. The human-calibrated population is qualified for Hold'em only and was not used. A first run measured an earlier version that returned no read at all (it also switched off the two detectors above); it is superseded. The runner is kept with the evidence (plo-handoff-review-01a1cbbd/plo-neutral/NeutralLeague.scratch.test.ts.txt; run from server/ with NL_OUT, NL_VARIANTS, NL_FORMATS, NL_FIELDS, NL_PAIRS).
 
 ## Limits
 

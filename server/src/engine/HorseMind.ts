@@ -113,6 +113,7 @@ import {
   openerRangeWidth,
   opponentExploitRead,
   presumedAggressorRead,
+  neutralUnknownRead,
   postflopBluffMod,
   reRaiseLineWidth,
   reRaiseWidth,
@@ -128,6 +129,31 @@ import {
   observeFastCalldownRiver,
   type FastCalldownRead,
 } from './HorseFastCalldownRead.js';
+import {
+  classifyOpponentStyle,
+  isValueBettor,
+  postReleaseOpportunitiesFromHistory,
+  sizeBucketsFromHistory,
+  type PersistedHandForStyle,
+  preRepairDiscount,
+  type PersistedHandForProvenance,
+  riverFirstBetFractions,
+  inFormatShownTallies,
+  inFormatAggressionTallies,
+  postflopAggressionIncrements,
+  addStreetAggression,
+  type StreetAggression,
+  type StyleTallies,
+  sizeBucketOf,
+  type SizeBucketTallies,
+  preRepairKeyed,
+  profileQualification,
+  unknownStyle,
+  PRE_REPAIR_STATS,
+  type OpponentStyleRead,
+  type PostReleaseOpportunities,
+  type StyleProvenance,
+} from './HorseOpponentStyle.js';
 
 /** Match the controller's full-raise marker: an all-in button can be a call
  * or a short raise and must not invent an aggressive read. */
@@ -307,6 +333,23 @@ export interface ExploitReadOptions {
    * pre-V83 read.
    */
   aggressionNeedsBluffs?: boolean;
+  /**
+   * STYLE READ #2 (2026-11-13, HorseOpponentStyle), default off. A value
+   * bettor is not a maniac: when the postflop aggression factor is above 2.5
+   * but the style read says this player's bets are credibly value (shown
+   * strength of his big bets, or credibly tight with low frequencies, not
+   * released by the fast window), respect stays neutral instead of callDownMod
+   * 1.2, so the one-pair fold layers stay on. Only an explicit true engages.
+   */
+  styleValueBettor?: boolean;
+  /**
+   * STYLE READ pre-repair (item 10, 2026-11-13): the legacy over-folder branch (postflop fold rate above 0.62:
+   * bluffMod 1.45, valueThinMod 0.85) stands down when this decision's exact profile is a pre-repair cash
+   * table-speed row whose fold-to-bet is still excluded by HorseOpponentStyle.preRepairDiscount (fewer than 60
+   * post-release opportunities). Hold'em scopes only. Receipt style_pre_repair_fold_rate_discounted_seen.
+   * Only an explicit true engages.
+   */
+  styleFoldRatePreRepair?: boolean;
 }
 
 /** V83: big river bets that reached showdown before the value share counts. */
@@ -364,6 +407,9 @@ export interface DecisionReadOptions {
   /** A thin scoped bucket is shrunk toward its own game's population
    *  instead of falling back to the pooled bucket (see readStats). */
   scopedShrink?: boolean;
+  /** STYLE READ (2026-11-13): weight of the other format's counters in the style read.
+   *  Absent / 0 = format-specific evidence only (the default). Needs validation to be non-zero. */
+  styleCarryWeight?: number;
   /** Omaha EV fold model: the bet engine's per-opponent fold multiplier is
    *  the measured Omaha fold-over-MDF ratio scaled by the opponent's shrunk
    *  postflop fold-to-bet read (see OMAHA_EV_FOLD_MODEL below). */
@@ -645,6 +691,9 @@ const MAX_TRACKED_PLAYERS = 4000;
 /** 2026-10-16: the exploit store holds (scope, player) rows, up to four
  *  scopes a player on average; evicted least recently updated first. */
 const EXPLOIT_ROW_CAP = MAX_TRACKED_PLAYERS * 4;
+/** STYLE READ A2 / H1: river size buckets are kept per (player, variant, format, table size). */
+const styleSizeKey = (userId: string, variant: string, mode: string, size: string): string =>
+  `${variant}|${mode}|${size}|${userId.toLowerCase()}`;
 const EMPTY_EXPLOIT_ROWS: ReadonlyMap<string, ExploitCounters> = new Map();
 const MAX_SEEN_ACTIONS = 60_000;
 const MAX_HAND_FLAGS = 20_000;
@@ -1063,6 +1112,34 @@ export class HorseMind {
   private static decisionMode: MemoryMode = 'cash';
   private static durableOpponentMemory = false;
   private static durableOpponentVersions = new Map<string, number>();
+  /** STYLE READ provenance (2026-11-13): whether each imported durable profile was built with
+   *  complete observations (HorseOpponentStyle.profileQualification). Bookkeeping only: it
+   *  changes no read; deleted with the version entry and cleared by reset. */
+  private static durableProfileComplete = new Map<string, boolean>();
+  /** STYLE READ pre-repair provenance (item 10): keyed from each imported durable profile's own mode and
+   *  public domain (HorseOpponentStyle.preRepairKeyed). Bookkeeping only; cleared with the row. */
+  private static durableProfilePreRepair = new Map<string, boolean | null>();
+  /** Post-release opportunity counts per row (the m of the pre-repair discount), SUPPLIED by importPostReleaseObservations
+   *  from a persisted or recomputed source. Never incremented here: a process-memory counter would reset with the daily
+   *  engine restart and never lift the discount. */
+  private static postReleaseObservations = new Map<string, PostReleaseOpportunities>();
+  /** STYLE READ A2: river first bets by size bucket per player (memory only, live only, LRU-capped). */
+  private static styleSizeShown = new Map<string, SizeBucketTallies>();
+  /** STYLE READ #4: postflop aggression and raise opportunities per street, per (variant, format, table size, player). */
+  private static styleAggression = new Map<string, StreetAggression>();
+  /** TEST-HARNESS ONLY (league and tournament simulations): let the style learner record inside a sandbox, into the
+   *  process maps. Never set by a production path; a live engine keeps the default false. */
+  private static harnessStyleLearning = false;
+  static enableHarnessStyleLearning(on = true): void {
+    this.harnessStyleLearning = on;
+  }
+  /** TEST-HARNESS ONLY: forget the style learner's per-context rows (one cell or tournament per arm pairing). */
+  static clearHarnessStyleMemory(): void {
+    if (!this.harnessStyleLearning)
+      throw new Error('clearHarnessStyleMemory is for test harnesses only');
+    this.styleSizeShown.clear();
+    this.styleAggression.clear();
+  }
   /** Item 12 (2026-11-05): the player's pooled hand clock (OpponentStats.hands
    *  in this process) at the moment each durable row was last imported. A
    *  donor bucket's staleness is the distance from this mark to the player's
@@ -1590,6 +1667,8 @@ export class HorseMind {
       this.exploitCounters.delete(key);
       this.exploitCounters.set(key, { ...p.counters });
       this.durableOpponentVersions.set(key, version);
+      this.durableProfileComplete.set(key, profileQualification(p).complete);
+      this.durableProfilePreRepair.set(key, preRepairKeyed(p.mode, p.public_memory_domain));
       this.durableOpponentImportClock.set(key, this.stats.get(p.user_id)?.hands ?? 0);
       applied++;
     }
@@ -1597,17 +1676,254 @@ export class HorseMind {
       const key = this.exploitCounters.keys().next().value!;
       this.exploitCounters.delete(key);
       this.durableOpponentVersions.delete(key);
+      this.durableProfileComplete.delete(key);
+      this.durableProfilePreRepair.delete(key);
+      this.postReleaseObservations.delete(key);
       this.durableOpponentImportClock.delete(key);
     }
     if (this.durableOpponentVersions.size > EXPLOIT_ROW_CAP)
       for (const key of this.durableOpponentVersions.keys()) {
         if (!this.exploitCounters.has(key)) {
           this.durableOpponentVersions.delete(key);
+          this.durableProfileComplete.delete(key);
+          this.durableProfilePreRepair.delete(key);
+          this.postReleaseObservations.delete(key);
           this.durableOpponentImportClock.delete(key);
         }
         if (this.durableOpponentVersions.size <= EXPLOIT_ROW_CAP) break;
       }
     return applied;
+  }
+
+  /**
+   * STYLE READ pre-repair discount input (item 10). Supply, per (player, variant, mode, size), the number of
+   * opportunities of each showdown-dependent statistic observed AT OR AFTER the release carrying the repaired learner
+   * (the m of 0.5^(m/30)). The supplier recomputes it at boot from hand history (read-only) or reads a persisted
+   * snapshot; this method writes nothing anywhere and counts nothing itself. Without it m is 0 and an affected row's
+   * showdown-dependent statistics stay out of the style read (never full weight). Refused inside a sandbox or an effect
+   * capture, like the profile import; a malformed row refuses the whole call.
+   */
+  static importPostReleaseObservations(
+    rows: ReadonlyArray<{
+      user_id: string;
+      variant: string;
+      mode: MemoryMode;
+      size: MemorySize;
+      opportunities: PostReleaseOpportunities;
+    }>
+  ): number {
+    if (this.sandboxDepth > 0 || this.decisionEffectSink)
+      throw new Error('post-release observation import outside live boundary');
+    const valid = (r: (typeof rows)[number]): boolean =>
+      !!r &&
+      typeof r.user_id === 'string' &&
+      /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(r.user_id) &&
+      memoryVariant(r.variant) !== null &&
+      ['cash', 'tournament'].includes(r.mode) &&
+      ['hu', 'short', 'full'].includes(r.size) &&
+      !!r.opportunities &&
+      typeof r.opportunities === 'object' &&
+      Object.entries(r.opportunities).every(
+        ([stat, m]) =>
+          (PRE_REPAIR_STATS as readonly string[]).includes(stat) &&
+          (m === null || m === undefined || (Number.isFinite(m) && m >= 0))
+      );
+    if (!Array.isArray(rows) || rows.length > 50 || !rows.every(valid))
+      throw new Error('invalid post-release observation row');
+    for (const r of rows) {
+      const key = opponentMemoryKey(r.user_id, r.variant as MemoryVariant, r.mode, r.size);
+      this.postReleaseObservations.delete(key);
+      this.postReleaseObservations.set(key, { ...r.opportunities });
+    }
+    while (this.postReleaseObservations.size > EXPLOIT_ROW_CAP)
+      this.postReleaseObservations.delete(this.postReleaseObservations.keys().next().value!);
+    return rows.length;
+  }
+
+  /** True when this decision's Hold'em exact profile is pre-repair and its fold-to-bet is still excluded. */
+  private static foldToBetPreRepairExcluded(userId: string): boolean {
+    const scope = this.decisionScope;
+    if (!scope || !scope.startsWith('holdem:')) return false;
+    const variant = memoryVariant(this.decisionVariant);
+    if (!variant) return false;
+    const prov = this.styleProvenanceOf(
+      userId,
+      variant,
+      this.decisionMode,
+      scope.split(':')[1] as MemorySize
+    );
+    return preRepairDiscount(prov, 'foldToBet').excluded;
+  }
+
+  /**
+   * A2: rebuild size buckets from persisted hand history (read-only rows) at boot. Replaces the player's in-memory
+   * buckets, so a restart that re-imports the same rows rebuilds them exactly. Live boundary only.
+   */
+  static importSizeBucketsFromHistory(
+    rows: ReadonlyArray<{
+      user_id: string;
+      variant: string;
+      mode: MemoryMode;
+      size: MemorySize;
+      hands: readonly PersistedHandForStyle[];
+    }>
+  ): number {
+    return this.importSizeBuckets(
+      rows.map((r) => ({
+        user_id: r.user_id,
+        variant: r.variant,
+        mode: r.mode,
+        size: r.size,
+        buckets: sizeBucketsFromHistory(r.hands, r.user_id),
+      }))
+    );
+  }
+
+  /** #4: supply in-format postflop aggression for one context (boot rebuild from hand history); replaces that row. */
+  static importStyleAggression(
+    rows: ReadonlyArray<{
+      user_id: string;
+      variant: string;
+      mode: MemoryMode;
+      size: MemorySize;
+      aggression: StreetAggression;
+    }>
+  ): number {
+    if ((this.sandboxDepth > 0 || this.decisionEffectSink) && !this.harnessStyleLearning)
+      throw new Error('style aggression import outside live boundary');
+    let applied = 0;
+    for (const r of rows) {
+      const v = memoryVariant(r?.variant);
+      if (
+        !r ||
+        typeof r.user_id !== 'string' ||
+        !v ||
+        !['cash', 'tournament'].includes(r.mode) ||
+        !['hu', 'short', 'full'].includes(r.size) ||
+        !r.aggression
+      )
+        continue;
+      const key = styleSizeKey(r.user_id, v, r.mode, r.size);
+      this.styleAggression.delete(key);
+      this.styleAggression.set(key, addStreetAggression(undefined, r.aggression));
+      applied++;
+    }
+    while (this.styleAggression.size > MAX_TRACKED_PLAYERS)
+      this.styleAggression.delete(this.styleAggression.keys().next().value!);
+    return applied;
+  }
+
+  /** A2: supply river size buckets for one (player, variant, format, table size) context; replaces that context's row. */
+  static importSizeBuckets(
+    rows: ReadonlyArray<{
+      user_id: string;
+      variant: string;
+      mode: MemoryMode;
+      size: MemorySize;
+      buckets: SizeBucketTallies;
+    }>
+  ): number {
+    if (this.sandboxDepth > 0 || this.decisionEffectSink)
+      throw new Error('size bucket import outside live boundary');
+    let applied = 0;
+    for (const r of rows) {
+      const v = memoryVariant(r?.variant);
+      if (
+        !r ||
+        typeof r.user_id !== 'string' ||
+        !v ||
+        !['cash', 'tournament'].includes(r.mode) ||
+        !['hu', 'short', 'full'].includes(r.size)
+      )
+        continue;
+      if (!r.buckets || Object.keys(r.buckets).length === 0) continue;
+      const key = styleSizeKey(r.user_id, v, r.mode, r.size);
+      this.styleSizeShown.delete(key);
+      this.styleSizeShown.set(key, { ...r.buckets });
+      applied++;
+    }
+    while (this.styleSizeShown.size > MAX_TRACKED_PLAYERS)
+      this.styleSizeShown.delete(this.styleSizeShown.keys().next().value!);
+    return applied;
+  }
+
+  /**
+   * A3: supply m by RECOUNTING it from persisted hand history (read-only rows of each exact context, completed at or
+   * after releaseStartMs) with the learner's own increment function. Same history, same m, after every restart.
+   */
+  static importPostReleaseFromHistory(
+    rows: ReadonlyArray<{
+      user_id: string;
+      variant: string;
+      mode: MemoryMode;
+      size: MemorySize;
+      hands: readonly PersistedHandForProvenance[];
+    }>,
+    releaseStartMs: number
+  ): number {
+    return this.importPostReleaseObservations(
+      rows.map((r) => ({
+        user_id: r.user_id,
+        variant: r.variant,
+        mode: r.mode,
+        size: r.size,
+        opportunities: postReleaseOpportunitiesFromHistory(r.hands, r.user_id, releaseStartMs),
+      }))
+    );
+  }
+
+  /**
+   * The provenance of the counters a style read of this opponent in this context stands on: the exact row and the donor
+   * row a thin read may borrow. A row is affected when ANY row consulted is (a cash, table-speed profile, or a cash
+   * profile with no domain on file); its post-release weight is the LEAST discounted (smallest m) among them.
+   */
+  private static styleProvenanceOf(
+    userId: string,
+    variant: MemoryVariant | null,
+    mode: MemoryMode,
+    size: MemorySize
+  ): StyleProvenance {
+    const durableMemoryOn = this.durableOpponentMemory && variant !== null;
+    const keys = variant
+      ? [
+          opponentMemoryKey(userId, variant, mode, size),
+          ...opponentMemoryDonors(mode, size).map(([m, sz]) =>
+            opponentMemoryKey(userId, variant, m, sz)
+          ),
+        ]
+      : [];
+    const known = keys.filter((k) => this.durableProfileComplete.has(k));
+    const exactKey = keys[0];
+    const complete: boolean | null =
+      exactKey !== undefined && this.durableProfileComplete.has(exactKey)
+        ? (this.durableProfileComplete.get(exactKey) as boolean)
+        : durableMemoryOn
+          ? null
+          : true;
+    // Rows this process learned itself carry the repaired learner: not affected. Imported durable rows are keyed.
+    let preRepair: boolean | null = false;
+    for (const k of known) {
+      const f = this.durableProfilePreRepair.get(k);
+      if (f === true) preRepair = true;
+      else if (f === null && preRepair !== true) preRepair = null;
+    }
+    const postRelease: PostReleaseOpportunities = {};
+    for (const stat of PRE_REPAIR_STATS) {
+      let m: number | null = null;
+      for (const k of known) {
+        if (this.durableProfilePreRepair.get(k) === false) continue;
+        const v = this.postReleaseObservations.get(k)?.[stat];
+        const mm = typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0;
+        m = m === null ? mm : Math.min(m, mm);
+      }
+      postRelease[stat] = m;
+    }
+    return {
+      source: durableMemoryOn ? 'durable' : 'live',
+      complete,
+      preRepair,
+      postRelease,
+    };
   }
 
   private static blendDurableRead(
@@ -1775,11 +2091,18 @@ export class HorseMind {
     // against people and horses. Every unknown Omaha opponent receives the
     // same presumption, withdrawn by that opponent's actual evidence.
     if (family === 'omaha' && this.decisionReadOptions.omahaNeutralUnknown === true) {
-      // Neutral: the opponent's own measured read only. No read means no
-      // exploit layer engages, exactly as against an opponent at the Horse
-      // mean; protective layers are untouched.
-      if (maniacRaiseWidth(read) === null) noteFire('plo_opponent_neutral_unknown');
-      return read;
+      // Neutral: identical to the presumption path in every outcome except the
+      // one where the presumption would apply; there the opponent's own
+      // measured statistics with nothing engaged (see neutralUnknownRead).
+      const neutral = neutralUnknownRead(
+        read,
+        this.probeAdjusted(userId, durable ?? this.exploitCounters.get(`${scope}|${userId}`)),
+        scope,
+        this.decisionVariant
+      );
+      if (neutral.outcome === 'presumed') noteFire('plo_opponent_neutral_unknown');
+      else if (neutral.outcome === 'disproved') noteFire('plo_opponent_presumption_disproved');
+      return neutral.read;
     }
     if (family === 'omaha') {
       const presumed = presumedAggressorRead(
@@ -1793,6 +2116,86 @@ export class HorseMind {
       return presumed.read;
     }
     return read;
+  }
+
+  /**
+   * STYLE READ (2026-11-13, HorseOpponentStyle): how this opponent plays, on
+   * two axes (entry: loose to tight; honesty: bluff-heavy to value-heavy) with
+   * confidence and a telemetry-only label, for the decision in flight. It reads
+   * the same decayed counters opponentRead is built from (the exact context's
+   * durable row with its donors) plus the same player's counters from the OTHER
+   * format (carried at a shrunk weight by the classifier) and the lifetime
+   * tallies legacyExploit reads. A SEPARATE function: OpponentExploitRead and
+   * opponentRead are unchanged, so the Omaha presumption and every other
+   * consumer of them are untouched. Unknown (no scope, no evidence) is the
+   * neutral read. Pure: no random draws, no writes. Only the consumers behind
+   * the default-off style flags call it, so with every flag off nothing here
+   * runs.
+   */
+  static styleRead(userId: string): OpponentStyleRead {
+    const scope = this.decisionScope;
+    if (!scope) return unknownStyle('no_decision_scope');
+    const variant = memoryVariant(this.decisionVariant);
+    const mode = this.decisionMode;
+    const size = scope.split(':')[1] as MemorySize;
+    const own = this.decisionExploitCounters(userId);
+    const pooled = this.stats.get(userId);
+    const counters =
+      own && this.probeAwareAggression
+        ? probeAdjustedCounters(own, pooled?.ctBets, pooled?.ctProbes)
+        : own;
+    const carryWeight = this.decisionReadOptions.styleCarryWeight ?? 0;
+    const carry =
+      variant && carryWeight > 0
+        ? this.exploitCounters.get(
+            opponentMemoryKey(userId, variant, mode === 'cash' ? 'tournament' : 'cash', size)
+          )
+        : undefined;
+    // Provenance: a durable profile imported without complete observations is
+    // discounted; a counter row built live by this process is complete; a
+    // durable context nobody qualified is "not known" (capped, not trusted).
+    const provenance = this.styleProvenanceOf(userId, variant, mode, size);
+    // H1 (review 2026-11-13): evidence of THIS format and variant only. Shown strength comes from this context's
+    // river size buckets. The scoped lifetime tallies (variant and table size, but cash and tournament mixed) enter
+    // only as an explicit carry-over at styleCarryWeight (default 0); the all-variant pooled fallback never does.
+    const sizeBuckets = variant
+      ? (this.styleSizeShown.get(styleSizeKey(userId, variant, mode, size)) ?? null)
+      : null;
+    const s = carryWeight > 0 ? this.scoped.get(`${scope}|${userId}`) : undefined;
+    const w = carryWeight;
+    const agg = variant
+      ? this.styleAggression.get(styleSizeKey(userId, variant, mode, size))
+      : undefined;
+    const inFormat: StyleTallies = {
+      ...inFormatShownTallies(sizeBuckets),
+      ...inFormatAggressionTallies(agg),
+    };
+    const style = classifyOpponentStyle({
+      scope,
+      variant: this.decisionVariant,
+      domain: mode,
+      counters,
+      carry,
+      carryWeight,
+      provenance,
+      sizeBuckets,
+      tallies: s
+        ? {
+            bigBetSD: (inFormat.bigBetSD ?? 0) + w * s.bigBetSD,
+            bigBetSDStrong: (inFormat.bigBetSDStrong ?? 0) + w * s.bigBetSDStrong,
+            shownOpportunities: (inFormat.shownOpportunities ?? 0) + w * s.postAggr,
+            postAggr: (inFormat.postAggr ?? 0) + w * s.postAggr,
+            postPassive: (inFormat.postPassive ?? 0) + w * s.postPassive,
+            rAggr: w * s.rAggr,
+            rPassive: w * s.rPassive,
+            ctBets: w * (s.ctBets ?? 0),
+            ctProbes: w * (s.ctProbes ?? 0),
+          }
+        : inFormat,
+    });
+    noteFire(`style_label_${style.label}_seen`);
+    if (style.release.standDown) noteFire('style_read_released_seen');
+    return style;
   }
 
   static targetingOf(heroId: string, oppId: string): number {
@@ -1994,6 +2397,11 @@ export class HorseMind {
     this.flopStabCounters.clear();
     this.hydratedHandKeys.clear();
     this.durableOpponentVersions.clear();
+    this.durableProfileComplete.clear();
+    this.durableProfilePreRepair.clear();
+    this.postReleaseObservations.clear();
+    this.styleSizeShown.clear();
+    this.styleAggression.clear();
     this.durableOpponentImportClock.clear();
     this.planFingerprints.clear();
     this.durableOpponentMemory = false;
@@ -3080,13 +3488,18 @@ export class HorseMind {
     const foldRate = this.foldVsAggressionRate(userId, recencyBlend);
     if (foldRate !== null) {
       if (foldRate > 0.62) {
-        bluffMod = blend(1.45);
-        // V28 AUDIT FIX: valueThinMod was only ever RAISED (stations), so the
-        // documented "a nit calls only what a smaller bet asks" half of V18
-        // exploit sizing was dead — the consumer multiplies by
-        // (valueThinMod - 1) and the term could never be negative. A folder
-        // now thins the value bar downward too.
-        valueThinMod = blend(0.85);
+        noteFire('legacy_fold_rate_branch_seen');
+        if (options.styleFoldRatePreRepair === true && this.foldToBetPreRepairExcluded(userId)) {
+          noteFire('style_pre_repair_fold_rate_discounted_seen');
+        } else {
+          bluffMod = blend(1.45);
+          // V28 AUDIT FIX: valueThinMod was only ever RAISED (stations), so the
+          // documented "a nit calls only what a smaller bet asks" half of V18
+          // exploit sizing was dead — the consumer multiplies by
+          // (valueThinMod - 1) and the term could never be negative. A folder
+          // now thins the value bar downward too.
+          valueThinMod = blend(0.85);
+        }
       } else if (foldRate < 0.35) {
         bluffMod = blend(0.55);
         valueThinMod = blend(1.25);
@@ -3120,6 +3533,7 @@ export class HorseMind {
     }
     if (s.aggr + s.passive >= 12) {
       if (af > 2.5) {
+        noteFire('legacy_aggression_factor_branch_seen');
         // V83 (2026-11-06): the ratio alone is not a maniac. Horse-vs-horse
         // play sits at AF ~2.43, just under this line, so a small change in
         // how often a player is checked to pushed a value-heavy bettor over
@@ -3132,6 +3546,10 @@ export class HorseMind {
         // neutral respect.
         if (options.aggressionNeedsBluffs !== false && aggressionShownAsValue(s)) {
           noteFire('v83_aggression_shown_as_value');
+        } else if (options.styleValueBettor === true && isValueBettor(this.styleRead(userId))) {
+          // STYLE READ #2: a credibly low-raise-frequency or high
+          // shown-strength bettor is not a maniac on the ratio alone.
+          noteFire('style_value_bettor_not_maniac_seen');
         } else {
           callDownMod = blend(1.2);
         }
@@ -3892,7 +4310,9 @@ export class HorseMind {
     scope?: ReadScope | null,
     durableExploit = false,
     riverCallContext?: RiverCallContext,
-    retainedRiverCalls?: readonly RiverCallSample[]
+    retainedRiverCalls?: readonly RiverCallSample[],
+    /** STYLE READ A2: the hand's format, so river size buckets are kept per format; absent = not recorded */
+    styleMode?: MemoryMode
   ): void {
     // V45: settlement runs outside any decision; the scope travels with the
     // hand and is cleared on the way out.
@@ -3998,6 +4418,44 @@ export class HorseMind {
             s.cbetOpps++;
             if (a.action === 'fold') s.cbetFolds++;
           }
+        }
+      }
+
+      // STYLE READ A2 (2026-11-13): river first bets by size bucket, with
+      // the shown-versus-unshown split. Memory only (does not survive a
+      // restart) and live only: a sandbox or an effect capture records nothing.
+      const styleVariant = memoryVariant(riverCallContext?.variant ?? null);
+      const styleScope = this.decisionScope;
+      const styleLearn =
+        (this.sandboxDepth === 0 && !this.decisionEffectSink) || this.harnessStyleLearning;
+      if (styleLearn && styleMode && styleVariant && styleScope) {
+        const styleSize = styleScope.split(':')[1] as MemorySize;
+        for (const [uid, inc] of postflopAggressionIncrements(actions)) {
+          const key = styleSizeKey(uid, styleVariant, styleMode, styleSize);
+          const next = addStreetAggression(this.styleAggression.get(key), inc);
+          this.styleAggression.delete(key);
+          this.styleAggression.set(key, next);
+          while (this.styleAggression.size > MAX_TRACKED_PLAYERS)
+            this.styleAggression.delete(this.styleAggression.keys().next().value!);
+        }
+        const shownBy = new Map<string, { mucked: boolean; hand_name?: string }>();
+        for (const sd of showdown ?? []) if (sd?.user_id) shownBy.set(sd.user_id, sd);
+        for (const [uid, frac] of riverFirstBetFractions(actions)) {
+          const key = styleSizeKey(uid, styleVariant, styleMode, styleSize);
+          const row = this.styleSizeShown.get(key) ?? {};
+          const b = sizeBucketOf(frac);
+          const cell = { ...(row[b] ?? { bets: 0, shown: 0, strong: 0 }) };
+          cell.bets++;
+          const sd = shownBy.get(uid);
+          if (sd) {
+            cell.shown++;
+            if (!sd.mucked && STRONG_HAND_NAMES.has((sd.hand_name ?? '').toLowerCase()))
+              cell.strong++;
+          }
+          this.styleSizeShown.delete(key);
+          this.styleSizeShown.set(key, { ...row, [b]: cell });
+          while (this.styleSizeShown.size > MAX_TRACKED_PLAYERS)
+            this.styleSizeShown.delete(this.styleSizeShown.keys().next().value!);
         }
       }
 

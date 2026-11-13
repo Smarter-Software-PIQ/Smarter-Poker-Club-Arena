@@ -37,6 +37,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       "the limp-reraise read (2026-11-07): the shrunk limp-reraise rate and the no-limit hold'em isolation bar against a limper seen to limp-reraise",
     'src/engine/HorseFastCalldownRead.ts':
       'the fast call-down read (2026-11-07): recent river call rate from the river recency and exploit fast windows, the station and calling-more flags and the fold-rate input the river bluff layers price with',
+    'src/engine/HorseOpponentStyle.ts':
+      'the opponent style read (2026-11-13): in-format axes, pre-repair discount and the bounded default-off style consumers (value bettor, big-bet respect and river bluff-catch cap, raise respect, tight opener respect, value extraction, fold bluffing)',
     'src/engine/HorseMultiwayRiverRead.ts':
       'bounded exact-context public river checkraise observations with canonical chip conservation for originally multiway hands',
     'src/engine/horseDecision/riverNodeSidecar.ts':

@@ -5,7 +5,10 @@ import { expect, it } from 'vitest';
 
 const root = resolve(__dirname, '../..');
 const migration = readFileSync(
-  join(root, 'supabase/migrations/20261113054116_bounty_recovery_skips_busy_settlement_lanes.sql'),
+  join(
+    root,
+    'supabase/migrations/20261113063322_bounty_recovery_keeps_admission_pins_and_skips_busy_lanes.sql'
+  ),
   'utf8'
 );
 
