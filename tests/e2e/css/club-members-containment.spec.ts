@@ -383,7 +383,7 @@ for (const adminLoadsLast of [false, true]) {
         <span class="member-main"><span class="member-identity"><span class="member-alias">${m.alias}</span>${
           m.upline ? `<span class="member-upline">Upline: ${m.upline}</span>` : ''
         }</span><span class="member-subline">${m.role ? `<span class="member-role">${m.role}</span>` : ''}<span class="member-number">PlayerID: ${m.id}</span><span class="member-seen">${m.status}</span></span>
-        <span class="member-simple-balance"><strong>5.73</strong><span>Fees This Week</span><span>Rakeback 70%</span>${
+        <span class="member-simple-balance"><strong>5.73</strong><span>Fees This Week</span><span class="member-simple-balance__secondary member-winloss--up">Today +433</span>${
           m.downline
             ? `<span class="member-simple-balance__downline">Downline ${m.downline}</span>`
             : ''

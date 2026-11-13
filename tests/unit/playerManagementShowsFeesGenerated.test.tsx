@@ -53,21 +53,44 @@ function simpleRow(overrides: Record<string, unknown>) {
 }
 
 describe('Player Management shows fees generated', () => {
-  it.each([true, false])(
-    'shows effective rakeback beside the upline in Simple=%s',
-    (simpleMode) => {
-      const row = simpleRow({ effective_rakeback_rate: '0.7000', upline_name: 'Danimal' });
-      const { container } = render({ ...row, props: { ...row.props, simpleMode } });
-      expect(screen.getByText('Danimal', { exact: false })).toBeVisible();
-      expect(container.textContent).toContain('70%');
-      expect(container.textContent).toContain('Rakeback');
-    }
-  );
-  it.each([true, false])('redacts rakeback for a restricted viewer in Simple=%s', (simpleMode) => {
-    const row = simpleRow({ effective_rakeback_rate: 0.7, can_view_financials: false });
+  /* Dan, 2026-11-12: the rakeback percentage is off the roster summary; the
+     row carries a second net instead ("I want to see today's +/- total").
+     Rakeback still lives on the player record. */
+  it.each([true, false])('carries no rakeback percentage in Simple=%s', (simpleMode) => {
+    const row = simpleRow({ effective_rakeback_rate: '0.7000', upline_name: 'Danimal' });
     const { container } = render({ ...row, props: { ...row.props, simpleMode } });
+    expect(screen.getByText('Danimal', { exact: false })).toBeVisible();
     expect(container.textContent).not.toContain('Rakeback');
     expect(container.textContent).not.toContain('70%');
+  });
+
+  it.each([true, false])(
+    "prints today's net beside the chosen window's net in Simple=%s",
+    (simpleMode) => {
+      const row = simpleRow({});
+      const { container } = render({
+        ...row,
+        props: {
+          ...row.props,
+          simpleMode,
+          secondaryWinLoss: { cash: 400, mtt: 33, net: 433, fees: 1, downline_fees: 0 },
+          secondaryWinLossLabel: 'Today',
+        },
+      });
+      const today = screen.getByLabelText('Today W/L +433');
+      expect(today).toBeVisible();
+      expect(today.className).toContain('member-winloss--up');
+      // The chosen window's figure is still there and still red.
+      expect(container.textContent).toContain('-15');
+    }
+  );
+
+  it('says "..." for the second net while it loads and "Unavailable" after a failed read', () => {
+    const row = simpleRow({});
+    const { rerender } = render(row);
+    expect(screen.getByLabelText('Today W/L ...')).toBeInTheDocument();
+    rerender({ ...row, props: { ...row.props, secondaryWinLossUnavailable: true } });
+    expect(screen.getByLabelText('Today W/L Unavailable')).toBeInTheDocument();
   });
 
   it('prints the fee figure and never the wallet in Simple mode', () => {
