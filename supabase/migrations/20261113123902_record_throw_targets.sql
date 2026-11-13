@@ -58,7 +58,7 @@ CREATE INDEX IF NOT EXISTS throw_targets_target_created_idx
   ON public.throw_targets (target_user_id, created_at DESC);
 
 ALTER TABLE public.throw_targets ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON public.throw_targets FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON public.throw_targets FROM PUBLIC, anon, authenticated, service_role;
 GRANT SELECT ON public.throw_targets TO service_role;
 
 CREATE OR REPLACE FUNCTION public.fn_record_throw_target(
