@@ -149,7 +149,6 @@ export async function checkFixedMobileArtwork(page: Page, bundle: string) {
     const before = await read();
     if (!spectator) {
       expect(Number(before.paint[0][0]), 'hero grows').toBeGreaterThan(1);
-      if (settings.seats === '6') expect(Number(before.paint[0][0])).toBeGreaterThanOrEqual(2);
       if (settings.seats === '9')
         expect(
           before.paint.slice(1).some((p) => Number(p[0]) > 1),

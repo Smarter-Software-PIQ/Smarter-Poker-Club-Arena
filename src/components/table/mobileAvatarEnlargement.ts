@@ -19,6 +19,11 @@ const fixed = (scale: number, px = 0): MobileAvatarProfile => ({ scale, px, py: 
  * amount tags, plates, badges, dealer button, pot, board, controls, neighbours)
  * stays a hard obstacle, so a seat gets the largest zoom those leave room for. */
 export const MOBILE_AVATAR_MAX_SCALE = 2.5;
+/** The seated hero keeps the owner-approved 2x head-and-shoulders zoom: its
+ * crown room is the pot's edge, so a larger zoom can only sink the character
+ * behind its plate, and the hero's portrait is never the smaller one
+ * (Dan 2026-11-11, pinned by tests/live-turn/phone-table-layout.pw.ts). */
+export const MOBILE_HERO_MAX_SCALE = 2;
 const MOBILE_PROFILES: Record<string, Record<number, MobileAvatarProfile>> = {
   'cash|6|seated': Object.fromEntries(
     Array.from({ length: 6 }, (_, i) => [i, fixed(MOBILE_AVATAR_MAX_SCALE)])
@@ -709,7 +714,7 @@ export function enlargeMobileAvatars(
           obstacles,
           felt,
           page.getBoundingClientRect(),
-          Math.min(profile.scale, e === hero ? profile.scale : heroHeight / rect.height),
+          Math.min(profile.scale, e === hero ? MOBILE_HERO_MAX_SCALE : heroHeight / rect.height),
           e === hero ? Infinity : heroPaintHeight,
           undefined,
           e.info.getBoundingClientRect().top
