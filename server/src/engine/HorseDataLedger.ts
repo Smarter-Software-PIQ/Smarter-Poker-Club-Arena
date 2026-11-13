@@ -1084,7 +1084,37 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'style_boot_post_release_failed_seen',
     'HorseExploitHydrator (STYLE READ boot inputs)',
-    'every post-release count batch of the boot rebuild failed, so the pre-repair discount stays on; the hydrated receipt is withheld; occurrence counter; named *_seen',
+    'every post-release count batch of the boot rebuild failed, so the pre-repair discount stays on (a partial failure fires style_boot_post_release_partial_failed_seen instead); the hydrated receipt is withheld; occurrence counter; named *_seen',
+    '2026-11-13'
+  ),
+  receipt(
+    'style_boot_post_release_partial_failed_seen',
+    'HorseExploitHydrator (STYLE READ boot inputs)',
+    'some, not all, post-release count batches of the boot rebuild failed; fires once per failed batch, so its count is the failed count; no batch is imported, so the pre-repair discount stays on for every player; the hydrated receipt is withheld; occurrence counter; named *_seen',
+    '2026-11-13'
+  ),
+  receipt(
+    'style_boot_size_buckets_failed_seen',
+    'HorseExploitHydrator (STYLE READ boot inputs)',
+    'the boot rebuild of the river size buckets threw; the aggression and Horse reference rebuilds still ran; occurrence counter; named *_seen',
+    '2026-11-13'
+  ),
+  receipt(
+    'style_boot_aggression_failed_seen',
+    'HorseExploitHydrator (STYLE READ boot inputs)',
+    'the boot rebuild of in-format aggression threw; the size bucket and Horse reference rebuilds still ran; occurrence counter; named *_seen',
+    '2026-11-13'
+  ),
+  receipt(
+    'style_boot_horse_reference_failed_seen',
+    'HorseExploitHydrator (STYLE READ boot inputs)',
+    'the boot rebuild of the Horse population reference threw; the size bucket and aggression rebuilds still ran; occurrence counter; named *_seen',
+    '2026-11-13'
+  ),
+  receipt(
+    'style_boot_size_from_players_seen',
+    'HorseExploitHydrator (STYLE READ boot inputs)',
+    'with HORSE_STYLE_BOOT_RELEASE_START_MS set, at least one boot row had no stored dealt-in count (horse_exploit_dealt_count), so its table size came from the players list instead of the count the live scope uses; once per boot; occurrence counter; named *_seen',
     '2026-11-13'
   ),
   receipt(
