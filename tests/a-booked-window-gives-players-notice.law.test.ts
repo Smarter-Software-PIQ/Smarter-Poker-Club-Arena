@@ -337,3 +337,17 @@ it('gives the authorized rebuy DB window its own primary lead without changing p
   );
   expect(bookedMaintenanceNotice(own.notAfterMs)).toBeNull();
 });
+
+it('publishes the owner-ordered :55 break cutover promise with its lead and fixed expiry', () => {
+  const own = BOOKED_MAINTENANCE_NOTICES.find(
+    (n) => n.id === '2026-11-13-owner-now-55-break-engine-0347z'
+  );
+  expect(own?.noticeAtMs).toBe(Date.parse('2026-11-13T03:25:00Z'));
+  expect(own?.notBeforeMs).toBe(Date.parse('2026-11-13T03:47:30Z'));
+  expect(own?.notAfterMs).toBe(Date.parse('2026-11-13T04:57:00Z'));
+  expect((own?.notBeforeMs ?? 0) - (own?.noticeAtMs ?? 0)).toBeGreaterThanOrEqual(20 * 60_000);
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-13T03:24:59.999Z'))).toBeNull();
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-13T03:25:00Z'))?.id).toBe(own?.id);
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-13T04:56:59.999Z'))?.id).toBe(own?.id);
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-13T04:57:00Z'))).toBeNull();
+});
