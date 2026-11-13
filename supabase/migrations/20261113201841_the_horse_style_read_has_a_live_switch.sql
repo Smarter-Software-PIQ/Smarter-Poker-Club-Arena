@@ -1,7 +1,7 @@
 -- THE HORSE STYLE READ HAS A LIVE SWITCH (2026-11-13)
 --
 -- Each of the seven opponent-style options (server/src/engine/HorseStyleSwitch.ts) has a runtime state: off,
--- shadow, canary or on. The engine reads the states once a minute through fn_ca_horse_style_switch_effective and
+-- shadow, canary or on. The engine reads the states every 30 seconds through fn_ca_horse_style_switch_effective and
 -- hands them to every decision worker. This is the owner's required live off switch: an option can be stopped
 -- without an engine release.
 --
@@ -87,6 +87,8 @@ BEGIN
     RAISE EXCEPTION 'the note is longer than 500 characters';
   END IF;
 
+  -- one writer per option at a time, also for the first write (no row yet to lock), so old_state is always true
+  PERFORM pg_advisory_xact_lock(hashtext('ca_horse_style_switch:' || p_option));
   SELECT s.state INTO v_old FROM public.ca_horse_style_switch s WHERE s.option = p_option FOR UPDATE;
 
   INSERT INTO public.ca_horse_style_switch AS s (option, state, updated_by, updated_at, note)
@@ -118,8 +120,15 @@ BEGIN
      OR has_function_privilege('anon', 'public.fn_ca_horse_style_switch_set(text, text, text, text)', 'EXECUTE')
      OR has_function_privilege('authenticated', 'public.fn_ca_horse_style_switch_set(text, text, text, text)', 'EXECUTE')
      OR has_table_privilege('anon', 'public.ca_horse_style_switch', 'SELECT')
-     OR has_table_privilege('authenticated', 'public.ca_horse_style_switch', 'SELECT') THEN
+     OR has_table_privilege('authenticated', 'public.ca_horse_style_switch', 'SELECT')
+     OR has_table_privilege('anon', 'public.ca_horse_style_switch_audit', 'SELECT')
+     OR has_table_privilege('authenticated', 'public.ca_horse_style_switch_audit', 'SELECT') THEN
     RAISE EXCEPTION 'a browser role can reach the style switch';
+  END IF;
+  -- every write goes through fn_ca_horse_style_switch_set, so the audit trail cannot be bypassed or erased
+  IF has_table_privilege('service_role', 'public.ca_horse_style_switch', 'INSERT, UPDATE, DELETE, TRUNCATE')
+     OR has_table_privilege('service_role', 'public.ca_horse_style_switch_audit', 'INSERT, UPDATE, DELETE, TRUNCATE') THEN
+    RAISE EXCEPTION 'service_role can write the style switch tables directly';
   END IF;
 END
 $readback$;

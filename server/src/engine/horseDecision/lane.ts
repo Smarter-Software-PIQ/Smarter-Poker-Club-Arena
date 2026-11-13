@@ -833,10 +833,10 @@ export async function startLiveHorseDecisionWorker(
   }
   await singleton.ready();
   if (!styleSwitchDelivery && singleton && options.styleSwitchRead !== false) {
-    const pool = singleton;
     styleSwitchDelivery = createStyleSwitchDelivery({
       read: options.styleSwitchRead ?? readStyleSwitchFromDatabase,
-      broadcast: (message) => pool.broadcastStyleSwitch(message),
+      // whichever pool is live now, never one captured at start (review 72615f60 L2)
+      broadcast: (message) => singleton?.broadcastStyleSwitch(message),
     });
     styleSwitchDelivery.start();
   }

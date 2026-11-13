@@ -2,7 +2,7 @@
  * STYLE READ LIVE SWITCH, DELIVERY LEG (2026-11-13): the database configuration reaches every decision worker, and
  * every failure on the way (nothing delivered, unreadable, invalid, stale, a dead worker) reads as off.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
@@ -20,28 +20,44 @@ import {
   type StyleSwitchStateMessage,
 } from './styleSwitchDelivery.js';
 
+const WALL = Date.UTC(2026, 10, 13, 21, 0);
 const ok = (seq: number, options: Record<string, string>): StyleSwitchStateMessage => ({
   type: 'STYLE_SWITCH_STATE',
   seq,
   status: 'ok',
+  readAtEpochMs: WALL,
   config: { version: 1, options },
 });
 const unreadable = (seq: number): StyleSwitchStateMessage => ({
   type: 'STYLE_SWITCH_STATE',
   seq,
   status: 'unreadable',
+  readAtEpochMs: WALL,
   config: null,
 });
 
 function workerRig() {
   let now = 1_000;
   const notes: string[] = [];
-  const inbox = createStyleSwitchWorkerInbox(() => now);
+  let wall = WALL;
+  const inbox = createStyleSwitchWorkerInbox(
+    () => now,
+    () => wall
+  );
   const holder = new StyleSwitchHolder(inbox.source, (f) => notes.push(f));
   return {
     inbox,
     notes,
-    advance: (ms: number) => (now += ms),
+    advance: (ms: number) => {
+      now += ms;
+      wall += ms;
+    },
+    wall: () => wall,
+    /** the worker is busy: wall time passes before it handles its next message, its own refresh clock too */
+    busyFor: (ms: number) => {
+      now += ms;
+      wall += ms;
+    },
     states: () => holder.refresh(now),
   };
 }
@@ -98,7 +114,7 @@ describe('the worker inbox feeds the holder', () => {
     const w = workerRig();
     let seq = 0;
     for (let i = 0; i < 10; i++) {
-      w.inbox.receive(ok(++seq, { styleBigBetHonesty: 'on' }));
+      w.inbox.receive({ ...ok(++seq, { styleBigBetHonesty: 'on' }), readAtEpochMs: w.wall() });
       expect(w.states().styleBigBetHonesty).toBe('on');
       w.advance(STYLE_SWITCH_DELIVERY_MS);
     }
@@ -119,10 +135,10 @@ describe('the worker inbox feeds the holder', () => {
 
   it('turns everything off on a malformed envelope or a configuration the parser refuses', () => {
     for (const bad of [
-      { type: 'STYLE_SWITCH_STATE', seq: 2, status: 'ok', config: {}, extra: true },
+      { ...ok(2, {}), extra: true },
       ok(2, { notAnOption: 'on' }),
       ok(2, { styleFoldBluff: 'maybe' }),
-      { type: 'STYLE_SWITCH_STATE', seq: 2, status: 'ok', config: null },
+      { ...ok(2, {}), config: null },
     ]) {
       const w = workerRig();
       w.inbox.receive(ok(1, { styleFoldBluff: 'on' }));
@@ -132,6 +148,34 @@ describe('the worker inbox feeds the holder', () => {
       expect(Object.values(w.states()).every((s) => s === 'off')).toBe(true);
       expect(w.notes).toContain('style_switch_config_invalid_seen');
     }
+  });
+
+  it('measures freshness from the database read: a reading that sat unhandled past the stale bound never applies', () => {
+    const w = workerRig();
+    const message = ok(1, { styleFoldBluff: 'on' });
+    w.busyFor(STYLE_SWITCH_STALE_MS + 1_000);
+    w.inbox.receive(message);
+    expect(w.states().styleFoldBluff).toBe('off');
+    expect(w.notes).toContain('style_switch_config_stale_seen');
+  });
+
+  it('one failed read then silence: the last delivery ends at the stale bound', () => {
+    const w = workerRig();
+    w.inbox.receive(ok(1, { styleFoldBluff: 'on' }));
+    expect(w.states().styleFoldBluff).toBe('on');
+    w.advance(STYLE_SWITCH_STALE_MS - 1_000);
+    expect(w.states().styleFoldBluff).toBe('on');
+    w.advance(2_000);
+    expect(w.states().styleFoldBluff).toBe('off');
+  });
+
+  it('an invalid envelope does not let an older delivery back in', () => {
+    const w = workerRig();
+    w.inbox.receive(ok(5, {}));
+    w.inbox.receive({ type: 'STYLE_SWITCH_STATE', nonsense: true });
+    w.inbox.receive(ok(4, { styleFoldBluff: 'on' }));
+    w.advance(STYLE_SWITCH_POLL_MS);
+    expect(w.states().styleFoldBluff).toBe('off');
   });
 
   it('never lets an older delivery replace a newer one', () => {
@@ -146,7 +190,7 @@ describe('the main-thread delivery', () => {
   function mainRig(reads: Array<() => Promise<unknown>>) {
     const sent: StyleSwitchStateMessage[] = [];
     const warnings: string[] = [];
-    let at = 0;
+    let at = WALL;
     let i = 0;
     const delivery = createStyleSwitchDelivery({
       read: () => (reads[Math.min(i++, reads.length - 1)] as () => Promise<unknown>)(),
@@ -179,7 +223,53 @@ describe('the main-thread delivery', () => {
     expect(r.sent[1]).toEqual(unreadable(2));
     await r.delivery.tick();
     expect(r.sent[2]).toEqual(ok(3, {}));
+    // the first failure says the last delivery stands, and the recovery is logged
+    expect(r.warnings).toHaveLength(2);
+    expect(r.warnings[0]).toContain('the last delivery stands');
+    expect(r.warnings[1]).toContain('reads again');
+  });
+
+  it('reports a long outage at most once per five minutes after its first failure', async () => {
+    const r = mainRig([bad]);
+    await r.delivery.tick();
+    for (let k = 0; k < 5; k++) await r.delivery.tick();
     expect(r.warnings).toHaveLength(1);
+    r.setNow(WALL + 5 * 60_000);
+    await r.delivery.tick();
+    expect(r.warnings).toHaveLength(2);
+    expect(r.warnings[1]).toContain('every option now reads off');
+  });
+
+  it('start reads at once, then on the interval, on a timer that never holds the process, and only once', async () => {
+    vi.useFakeTimers();
+    try {
+      const setSpy = vi.spyOn(globalThis, 'setInterval');
+      let reads = 0;
+      const delivery = createStyleSwitchDelivery({
+        read: () => {
+          reads++;
+          return Promise.resolve({ version: 1, options: {} });
+        },
+        broadcast: () => {},
+        intervalMs: 1_000,
+        warn: () => {},
+      });
+      delivery.start();
+      delivery.start();
+      expect(setSpy).toHaveBeenCalledTimes(1);
+      const timer = setSpy.mock.results[0]!.value as { hasRef?: () => boolean };
+      expect(timer.hasRef?.()).toBe(false);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(reads).toBe(1);
+      await vi.advanceTimersByTimeAsync(3_000);
+      expect(reads).toBe(4);
+      delivery.stop();
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(reads).toBe(4);
+      setSpy.mockRestore();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('counts a read that never answers as a failure', async () => {
@@ -223,6 +313,7 @@ describe('the main-thread delivery', () => {
     const delivery = createStyleSwitchDelivery({
       read: () => Promise.resolve({ version: 1, options: { styleRaiseRespect: 'shadow' } }),
       broadcast: (m) => w.inbox.receive(JSON.parse(JSON.stringify(m))),
+      now: () => w.wall(),
       warn: () => {},
     });
     await delivery.tick();
@@ -240,6 +331,7 @@ describe('the wiring and the migration agree with the engine', () => {
     expect(worker).toContain('if (styleSwitchInbox.receive(message)) return;');
     const lane = read('lane.ts');
     expect(lane).toContain('read: options.styleSwitchRead ?? readStyleSwitchFromDatabase');
+    expect(lane).toContain('broadcast: (message) => singleton?.broadcastStyleSwitch(message)');
     expect(lane).toContain('styleSwitchDelivery?.stop();');
   });
 
@@ -268,6 +360,9 @@ describe('the wiring and the migration agree with the engine', () => {
       'REVOKE ALL ON FUNCTION public.fn_ca_horse_style_switch_set(text, text, text, text) FROM PUBLIC, anon, authenticated;'
     );
     expect(code).not.toMatch(/GRANT[^;]*TO (anon|authenticated|PUBLIC)/i);
+    expect(code).not.toMatch(
+      /GRANT\s+(?!SELECT ON TABLE|EXECUTE ON FUNCTION)[^;]*TO service_role/i
+    );
     expect(code.trimStart().startsWith('BEGIN;')).toBe(true);
     expect(code.trimEnd().endsWith('COMMIT;')).toBe(true);
   });

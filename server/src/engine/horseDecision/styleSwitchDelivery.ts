@@ -19,8 +19,10 @@
  * A configuration is re-delivered on every read even when unchanged, because the holder measures freshness from
  * the moment a worker received it. No acknowledgement is needed: an undelivered message is the stale case.
  *
- * The receive time is stamped on the WORKER's monotonic clock (performance.now()), the clock the worker passes to
- * StyleSwitchHolder.refresh.
+ * FRESHNESS IS MEASURED FROM THE DATABASE READ, not from the moment a worker got round to the message (review
+ * 72615f60 L1): each message carries the main thread's wall-clock read time, the worker subtracts the age the
+ * message already has, and stamps the result on its own monotonic clock (performance.now()), the clock it passes
+ * to StyleSwitchHolder.refresh. A worker that was busy for minutes therefore receives an already-stale reading.
  */
 import { STYLE_SWITCH_POLL_MS, type StyleSwitchSource } from '../HorseStyleSwitch.js';
 
@@ -29,6 +31,8 @@ export interface StyleSwitchStateMessage {
   /** Increases by one per delivery within one engine process; a worker ignores an older one. */
   seq: number;
   status: 'ok' | 'unreadable';
+  /** Main-thread wall clock (Date.now()) when the read answered or failed. */
+  readAtEpochMs: number;
   /** The database answer exactly as read when status is ok; null when unreadable. */
   config: unknown;
 }
@@ -38,7 +42,10 @@ export function styleSwitchMessageValid(value: unknown): value is StyleSwitchSta
   const v = value as Record<string, unknown>;
   return (
     v.type === 'STYLE_SWITCH_STATE' &&
-    Object.keys(v).sort().join(',') === 'config,seq,status,type' &&
+    Object.keys(v).sort().join(',') === 'config,readAtEpochMs,seq,status,type' &&
+    typeof v.readAtEpochMs === 'number' &&
+    Number.isFinite(v.readAtEpochMs) &&
+    v.readAtEpochMs > 0 &&
     Number.isSafeInteger(v.seq) &&
     (v.seq as number) >= 0 &&
     (v.status === 'ok' || (v.status === 'unreadable' && v.config === null))
@@ -51,11 +58,16 @@ type Delivered =
   | { kind: 'invalid' };
 
 /** The worker side: takes STYLE_SWITCH_STATE messages and serves the last one as a StyleSwitchSource. */
-export function createStyleSwitchWorkerInbox(clock: () => number = () => performance.now()): {
+export function createStyleSwitchWorkerInbox(
+  clock: () => number = () => performance.now(),
+  wallClock: () => number = () => Date.now()
+): {
   receive(input: unknown): boolean;
   source: StyleSwitchSource;
 } {
   let last: Delivered | null = null;
+  /** the highest sequence ever accepted; an invalid envelope does not reset it */
+  let highestSeq = -1;
   return {
     receive(input: unknown): boolean {
       if ((input as { type?: unknown } | null)?.type !== 'STYLE_SWITCH_STATE') return false;
@@ -64,10 +76,14 @@ export function createStyleSwitchWorkerInbox(clock: () => number = () => perform
         return true;
       }
       // an older delivery never replaces a newer one
-      if (last && last.kind !== 'invalid' && input.seq <= last.seq) return true;
+      if (input.seq <= highestSeq) return true;
+      highestSeq = input.seq;
+      // the age the reading already has (never negative: a clock step back counts as fresh, the holder still
+      // bounds it by its own stale rule from here)
+      const ageMs = Math.max(0, wallClock() - input.readAtEpochMs);
       last =
         input.status === 'ok'
-          ? { kind: 'ok', seq: input.seq, raw: input.config, receivedAtMs: clock() }
+          ? { kind: 'ok', seq: input.seq, raw: input.config, receivedAtMs: clock() - ageMs }
           : { kind: 'unreadable', seq: input.seq };
       return true;
     },
@@ -96,6 +112,7 @@ export interface StyleSwitchDeliveryDeps {
   broadcast: (message: StyleSwitchStateMessage) => void;
   intervalMs?: number;
   readTimeoutMs?: number;
+  /** wall clock: stamps each message and throttles the warning */
   now?: () => number;
   warn?: (message: string) => void;
 }
@@ -141,18 +158,30 @@ export function createStyleSwitchDelivery(deps: StyleSwitchDeliveryDeps): {
         }),
       ]);
       if (stopped) return;
+      if (failures > 0)
+        warn(`[HorseStyleSwitch] the style switch reads again after ${failures} failed read(s)`);
       failures = 0;
-      post({ type: 'STYLE_SWITCH_STATE', seq: ++seq, status: 'ok', config });
+      post({ type: 'STYLE_SWITCH_STATE', seq: ++seq, status: 'ok', readAtEpochMs: now(), config });
     } catch (error) {
       if (stopped) return;
       failures += 1;
       if (failures >= STYLE_SWITCH_FAILURES_BEFORE_UNREADABLE)
-        post({ type: 'STYLE_SWITCH_STATE', seq: ++seq, status: 'unreadable', config: null });
+        post({
+          type: 'STYLE_SWITCH_STATE',
+          seq: ++seq,
+          status: 'unreadable',
+          readAtEpochMs: now(),
+          config: null,
+        });
       const at = now();
-      if (at - lastReported >= REPORT_EVERY_MS) {
+      // the first failure of an outage is always reported; repeats at most once per REPORT_EVERY_MS
+      if (failures === 1 || at - lastReported >= REPORT_EVERY_MS) {
         lastReported = at;
         warn(
-          `[HorseStyleSwitch] the style switch could not be read (${failures} in a row); every option reads off: ` +
+          `[HorseStyleSwitch] the style switch could not be read (${failures} in a row); ` +
+            (failures >= STYLE_SWITCH_FAILURES_BEFORE_UNREADABLE
+              ? 'every option now reads off: '
+              : 'the last delivery stands until it is 120 s old: ') +
             (error instanceof Error ? error.message : String(error))
         );
       }

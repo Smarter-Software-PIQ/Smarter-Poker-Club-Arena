@@ -601,6 +601,7 @@ describe('STYLE READ LIVE SWITCH delivery through the pool (2026-11-13)', () => 
       type: 'STYLE_SWITCH_STATE' as const,
       seq: 1,
       status: 'ok' as const,
+      readAtEpochMs: 1,
       config: { version: 1, options: {} },
     };
     workers[0]!.postMessage = () => {
