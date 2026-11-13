@@ -2509,7 +2509,7 @@ export interface HorseDecideOpts {
    * (PLO6-AUDIT-005). OPT-IN, default off. The pricing gap is real (the
    * arithmetic treats a call as final), but the rule as built sends the
    * call to a price-blind range bar that folds it, and the value check
-   * does not support that: the folded hands hold 42% to 55% equity at a
+   * does not support that: the folded hands hold 40% to 55% equity at a
    * price near 38%, and in the study's 54 recorded calls of this class the
    * call was final 29 times, overcalled 14 and re-raised 11 with the seat
    * calling off every time, never forfeiting. Read as `=== true`. */
@@ -8081,7 +8081,9 @@ export class HorseLogic {
       const effCall38 = Math.min(toCall, player.stack);
       const maniacPrice38 =
         observedManiacRaiser && (raiserAllIn38 || raises >= 2 || effCall38 >= player.stack * 0.25);
-      // PLO6-AUDIT-005 (2026-11-12): the arithmetic below prices a FINAL
+      // PLO6-AUDIT-005 (2026-11-12), OPT-IN ARM, off unless
+      // opts.omahaPreflopCallWithActionBehind === true (production never sets
+      // it; see the option's comment). The arithmetic below prices a FINAL
       // call against the players already in at this price. An Omaha call of
       // 40% of the stack that leaves chips behind while an opponent still
       // owes a decision to this price is not final: that opponent can raise
