@@ -130,9 +130,15 @@ import { cashoutStatusLabel, waitingFor } from '../utils/cashoutStatus';
 import styles from './CashierTradePage.module.css';
 import { playerDisplayName, PLAYER_NAME_COLUMNS } from '../utils/playerDisplayName';
 import {
+  compareCashierRoster,
+  DEFAULT_CASHIER_ROSTER_SORT,
   mapCashierRoster,
+  mapCashierRosterSortKeys,
+  nextCashierRosterSort,
   sortCashierRosterMatches,
   type CashierRosterRpcRow,
+  type CashierRosterSort,
+  type CashierRosterSortKeys,
   type DownlineRow,
 } from '../lib/cashierRoster';
 import { UnionService } from '../services/UnionService';
@@ -603,9 +609,12 @@ function CashierTradeWorkspace() {
   const rosterSearchRef = useRef<HTMLInputElement>(null);
   const [roleFilter, setRoleFilter] = usePlayerPreference('CashierTradePage:roleFilter', 'all');
   const [groupByRole, setGroupByRole] = usePlayerPreference('CashierTradePage:groupByRole', false);
-  const [sortKey, setSortKey] = usePlayerPreference<'recent' | 'balance' | 'name'>(
-    'CashierTradePage:sortKey',
-    'recent'
+  /* Dan 2026-11-13: the roster opens on Last Transaction every visit; the
+  Agent Wallet and Player Wallet buttons beside the result count sort the
+  whole roster High To Low on the first tap and flip on the next. */
+  const [rosterSort, setRosterSort] = useState<CashierRosterSort>(DEFAULT_CASHIER_ROSTER_SORT);
+  const [rosterSortKeys, setRosterSortKeys] = useState<Map<string, CashierRosterSortKeys>>(
+    () => new Map()
   );
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [visibleCount, setVisibleCount] = useState(25);
@@ -2347,7 +2356,7 @@ function CashierTradeWorkspace() {
     [downline]
   );
 
-  const { recentIds, addRecipient } = useRecentRecipients(user?.id, clubUuid, 'cashier');
+  const { addRecipient } = useRecentRecipients(user?.id, clubUuid, 'cashier');
   const [showCashoutRequest, setShowCashoutRequest] = useState(false);
 
   const rosterById = useMemo(() => new Map(downline.map((row) => [row.userId, row])), [downline]);
@@ -2359,15 +2368,7 @@ function CashierTradeWorkspace() {
     // club and nothing on the row said which of them were theirs.
     if (mineOnly) rows = rows.filter((r) => r.isMine);
     if (roleFilter !== 'all') rows = rows.filter((r) => r.role === roleFilter);
-    const bySort = (a: DownlineRow, b: DownlineRow) =>
-      sortKey === 'recent'
-        ? (recentIds.includes(a.userId) ? recentIds.indexOf(a.userId) : Infinity) -
-            (recentIds.includes(b.userId) ? recentIds.indexOf(b.userId) : Infinity) ||
-          b.chipBalance - a.chipBalance ||
-          a.name.localeCompare(b.name)
-        : sortKey === 'balance'
-          ? b.chipBalance - a.chipBalance
-          : a.name.localeCompare(b.name);
+    const bySort = compareCashierRoster(rosterSort, rosterSortKeys);
     // A search is a question about a NAME. Answer it by match quality first
     // (rosterMatchRank), and only then by the chosen sort - a balance sort on
     // a search put the owner, at 0.00, twenty-first behind twenty horses
@@ -2383,7 +2384,37 @@ function CashierTradeWorkspace() {
       rows = [...rows].sort((a, b) => roleRank(b.role as ClubRole) - roleRank(a.role as ClubRole));
     }
     return rows;
-  }, [downline, search, sortKey, groupByRole, mineOnly, roleFilter, recentIds]);
+  }, [downline, search, rosterSort, rosterSortKeys, groupByRole, mineOnly, roleFilter]);
+
+  /* Sort keys for the WHOLE roster (fn_cashier_roster_sort_keys): the agent
+  wallet, player wallet and last cashier transaction of every member in the
+  viewer's scope. Re-read whenever the roster is re-read (after every send,
+  claim or refresh), once its last page has landed. */
+  useEffect(() => {
+    setRosterSortKeys(new Map());
+  }, [clubUuid]);
+  useEffect(() => {
+    if (!clubUuid || !roleResolved || myRole === 'player' || rosterLoadingMore) return;
+    if (downline.length === 0) return;
+    let live = true;
+    void (async () => {
+      const { data, error } = await supabase.rpc('fn_cashier_roster_sort_keys', {
+        p_club_id: clubUuid,
+      });
+      if (!live) return;
+      if (error || !Array.isArray(data)) {
+        reportError(
+          error ?? new Error('Roster Sort Keys Missing'),
+          'CashierTradePage.rosterSortKeys'
+        );
+        return;
+      }
+      setRosterSortKeys(mapCashierRosterSortKeys(data as Array<Record<string, unknown>>));
+    })();
+    return () => {
+      live = false;
+    };
+  }, [clubUuid, roleResolved, myRole, rosterLoadingMore, downline]);
 
   const [rosterWalletBalances, setRosterWalletBalances] = useState<
     Record<string, Partial<Record<SendDestination, number>>>
@@ -2472,7 +2503,7 @@ function CashierTradeWorkspace() {
 
   useEffect(() => {
     setVisibleCount(25);
-  }, [clubUuid, search, mineOnly, groupByRole, sortKey, roleFilter]);
+  }, [clubUuid, search, mineOnly, groupByRole, rosterSort, roleFilter]);
 
   // A selection had no relationship to what was on screen. Select three
   // players, type a search, select a fourth, press Send Out - and chips went
@@ -4762,9 +4793,45 @@ function CashierTradeWorkspace() {
                   </button>
                 )}
               </div>
-              <span className={styles.memberCount} role="status" aria-live="polite">
-                {list.length.toLocaleString()} Results
-              </span>
+              <div className={styles.resultsBar}>
+                <span className={styles.memberCount} role="status" aria-live="polite">
+                  {list.length.toLocaleString()} Results
+                </span>
+                <div className={styles.walletSorts} role="group" aria-label="Sort The Roster">
+                  {(
+                    [
+                      ['agent_wallet', 'Agent Wallet'],
+                      ['player_wallet', 'Player Wallet'],
+                    ] as const
+                  ).map(([by, label]) => {
+                    const active = rosterSort.by === by ? rosterSort.dir : null;
+                    return (
+                      <button
+                        key={by}
+                        type="button"
+                        className={`${styles.walletSortBtn} ${active ? styles.walletSortActive : ''}`}
+                        aria-pressed={active !== null}
+                        aria-label={`Sort By ${label} ${
+                          active === 'desc' ? 'Low To High' : 'High To Low'
+                        }`}
+                        title={
+                          active === 'desc'
+                            ? `${label}: High To Low. Tap For Low To High`
+                            : active === 'asc'
+                              ? `${label}: Low To High. Tap For High To Low`
+                              : `Sort By ${label}, High To Low`
+                        }
+                        onClick={() => setRosterSort((s) => nextCashierRosterSort(s, by))}
+                      >
+                        {label}
+                        <span className={styles.walletSortArrow} aria-hidden="true">
+                          {active === 'asc' ? '\u25B2' : '\u25BC'}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
               <div className={styles.filterRow}>
                 <label className={styles.roleFilter}>
                   Role
@@ -4821,21 +4888,15 @@ function CashierTradeWorkspace() {
                   />
                   Group By Role
                 </label>
-                <button
-                  className={styles.sortBtn}
-                  onClick={() =>
-                    setSortKey((k) =>
-                      k === 'recent' ? 'balance' : k === 'balance' ? 'name' : 'recent'
-                    )
-                  }
-                >
-                  Sort By{' '}
-                  {sortKey === 'recent'
-                    ? 'Most Recent'
-                    : sortKey === 'balance'
-                      ? 'Chip Balance'
-                      : 'Name'}
-                </button>
+                {rosterSort.by !== 'last_transaction' && (
+                  <button
+                    type="button"
+                    className={styles.sortBtn}
+                    onClick={() => setRosterSort(DEFAULT_CASHIER_ROSTER_SORT)}
+                  >
+                    Sort By Last Transaction
+                  </button>
+                )}
               </div>
 
               {/* Downline list */}
