@@ -66,6 +66,40 @@ export function onDuty(
   return offDutyReason(horseId, state, nowMs, chicagoWeekday, todayKey) === null;
 }
 
+/**
+ * MAY THIS OFF-DUTY HORSE GO HOME THIS CYCLE? (2026-11-13)
+ *
+ * Horses sharing a work window reach its end together, so a table could
+ * otherwise stand up all at once and leave a person playing alone. At most one
+ * off-duty exit per table per cycle. While a person is playing there and the
+ * table would drop below `personFloor`, the exit waits up to
+ * OFF_DUTY_PERSON_GRACE_MS for an on-duty replacement; past that the horse goes
+ * home anyway (the schedule is always kept) and the seeder's rescue, which
+ * fires below the same floor, refills the person's game. HIT AND RUN or a
+ * big-pot orbit still decides WHEN, never WHETHER.
+ */
+export const OFF_DUTY_PERSON_GRACE_MS = 10 * 60_000;
+export function offDutyPersonShort(p: {
+  playingHumansHere: number;
+  seatedHere: number;
+  personFloor: number;
+}): boolean {
+  return p.playingHumansHere > 0 && p.seatedHere - 1 < p.personFloor;
+}
+export function offDutyExitNow(p: {
+  offDutyLeftHereThisCycle: number;
+  playingHumansHere: number;
+  seatedHere: number;
+  personFloor: number;
+  owesHandsOrOrbit: boolean;
+  /** How long this horse has already waited for a person's sake, in ms. */
+  personHoldMs?: number;
+}): boolean {
+  if (p.offDutyLeftHereThisCycle >= 1) return false;
+  if (offDutyPersonShort(p) && (p.personHoldMs ?? 0) < OFF_DUTY_PERSON_GRACE_MS) return false;
+  return !p.owesHandsOrOrbit;
+}
+
 /* ── EVIDENCE (owner 2026-11-12: "fully wired in and tested") ──────────────
    Counts only, no horse identities or amounts, read by /health so anyone can
    see the work schedule being kept without engine logs. Cumulative since the
