@@ -231,7 +231,7 @@ export function useProtectedCardLayout(
       const protectedEntries = Array.from(
         page.querySelectorAll(
           (withMarkers ? '.seat__bet-chips, ' : '') +
-            '.community-area, .seat__avatar-img, .pot-area, .pot-display, .seat__info, .seat__strength, .seat__action, .seat__bounty, .seat__position-badge, .pot-display__pile, .action-panel, .bbj-widget, .bbj-mini-plate, .cch-column, .chat-collapsed'
+            '.community-area, .table-brand, .seat__avatar-img, .pot-area, .pot-display, .seat__info, .seat__strength, .seat__action, .seat__bounty, .seat__position-badge, .pot-display__pile, .action-panel, .bbj-widget, .bbj-mini-plate, .cch-column, .chat-collapsed'
         )
       ).flatMap((element) => {
         // Transparent canvas is not a foreign character. Retain the same
@@ -1039,7 +1039,7 @@ export function useProtectedCardLayout(
         const wagerOnFelt = (box: CardBox) => wagerOnFeltWithMargin(box, feltMarginPx);
         const obstacles = Array.from(
           page.querySelectorAll(
-            '.community-area, .table-brand, .pot-display, .pot-display__pile, .seat__avatar-img, .seat__info, .seat__action, .seat__bounty, .seat__position-badge, .seat__cards--hero .seat__card, .seat__cards--revealed .seat__card, .bbj-widget, .bbj-mini-plate, .chat-collapsed, .mtp-lobby-btn'
+            '.community-area, .table-brand, .pot-display, .pot-display__pile, .seat__avatar-img, .seat__info, .seat__action, .seat__bounty, .seat__position-badge, .seat__cards .seat__card, .bbj-widget, .bbj-mini-plate, .chat-collapsed, .mtp-lobby-btn'
           )
         )
           .map(visibleBox)
@@ -1168,7 +1168,7 @@ export function useProtectedCardLayout(
           ...(reservedDealer ? [reservedDealer] : []),
           ...Array.from(
             page.querySelectorAll(
-              '.community-area,.seat__avatar-img,.seat__info,.seat__action,.seat__bounty,.seat__position-badge,.seat__cards--hero .seat__card,.seat__cards--revealed .seat__card,.pot-display,.pot-display__pile,.bbj-widget,.bbj-mini-plate,.chat-collapsed,.mtp-lobby-btn'
+              '.community-area,.seat__avatar-img,.seat__info,.seat__action,.seat__bounty,.seat__position-badge,.seat__cards .seat__card,.pot-display,.pot-display__pile,.bbj-widget,.bbj-mini-plate,.chat-collapsed,.mtp-lobby-btn'
             )
           )
             .map(visibleBox)
@@ -1189,7 +1189,7 @@ export function useProtectedCardLayout(
           const obstacles = trial
             ? Array.from(
                 page.querySelectorAll(
-                  '.community-area,.table-brand,.pot-display,.pot-display__pile,.seat__avatar-img,.seat__info,.seat__action,.seat__bounty,.seat__position-badge,.seat__cards--hero .seat__card,.seat__cards--revealed .seat__card,.bbj-widget,.bbj-mini-plate,.chat-collapsed,.mtp-lobby-btn'
+                  '.community-area,.table-brand,.pot-display,.pot-display__pile,.seat__avatar-img,.seat__info,.seat__action,.seat__bounty,.seat__position-badge,.seat__cards .seat__card,.bbj-widget,.bbj-mini-plate,.chat-collapsed,.mtp-lobby-btn'
                 )
               )
                 .map(visibleBox)
@@ -1672,7 +1672,7 @@ export function useProtectedCardLayout(
               });
               const keepouts = Array.from(
                 page.querySelectorAll(
-                  '.community-area,.seat__avatar-img,.seat__info,.seat__action,.seat__bounty,.seat__position-badge,.seat__cards--hero .seat__card,.seat__cards--revealed .seat__card,.pot-display,.pot-display__pile,.bbj-widget,.bbj-mini-plate,.chat-collapsed'
+                  '.community-area,.seat__avatar-img,.seat__info,.seat__action,.seat__bounty,.seat__position-badge,.seat__cards .seat__card,.pot-display,.pot-display__pile,.bbj-widget,.bbj-mini-plate,.chat-collapsed'
                 )
               )
                 .map(visibleBox)
@@ -2071,7 +2071,7 @@ export function useProtectedCardLayout(
             if (!retained.length) return [];
             const fixed = Array.from(
               page.querySelectorAll(
-                '.community-area,.table-brand,.seat__info,.seat__action,.seat__bounty,.seat__position-badge,.seat__cards--hero .seat__card,.seat__cards--revealed .seat__card,.pot-display,.pot-display__pile,.bbj-widget,.bbj-mini-plate,.chat-collapsed,.mtp-lobby-btn'
+                '.community-area,.table-brand,.seat__info,.seat__action,.seat__bounty,.seat__position-badge,.seat__cards .seat__card,.pot-display,.pot-display__pile,.bbj-widget,.bbj-mini-plate,.chat-collapsed,.mtp-lobby-btn'
               )
             )
               .filter((element) => !compactNine || !element.matches('.table-brand'))
@@ -2261,7 +2261,7 @@ export function useProtectedCardLayout(
               >();
               const proposalObstacles = Array.from(
                 page.querySelectorAll(
-                  '.community-area,.table-brand,.seat__avatar-img,.seat__info,.seat__action,.seat__bounty,.seat__position-badge,.seat__cards--hero .seat__card,.seat__cards--revealed .seat__card,.pot-display,.pot-display__pile,.bbj-widget,.bbj-mini-plate,.chat-collapsed,.mtp-lobby-btn'
+                  '.community-area,.table-brand,.seat__avatar-img,.seat__info,.seat__action,.seat__bounty,.seat__position-badge,.seat__cards .seat__card,.pot-display,.pot-display__pile,.bbj-widget,.bbj-mini-plate,.chat-collapsed,.mtp-lobby-btn'
                 )
               )
                 .filter((element) => !compactNine || !element.matches('.table-brand'))
@@ -2373,7 +2373,7 @@ export function useProtectedCardLayout(
                     return false;
                   const keepouts = Array.from(
                     page.querySelectorAll(
-                      '.community-area,.table-brand,.seat__avatar-img,.seat__info,.seat__action,.seat__bounty,.seat__position-badge,.seat__cards--hero .seat__card,.seat__cards--revealed .seat__card,.pot-display,.pot-display__pile,.bbj-widget,.bbj-mini-plate,.chat-collapsed,.mtp-lobby-btn'
+                      '.community-area,.table-brand,.seat__avatar-img,.seat__info,.seat__action,.seat__bounty,.seat__position-badge,.seat__cards .seat__card,.pot-display,.pot-display__pile,.bbj-widget,.bbj-mini-plate,.chat-collapsed,.mtp-lobby-btn'
                     )
                   )
                     .filter((element) => !compactNine || !element.matches('.table-brand'))

@@ -490,7 +490,16 @@ export function seatPodPx(
   const pod = isHero ? rung.hero : rung.villain;
   if (!canvasWidthPx || !Number.isFinite(canvasWidthPx)) return pod;
   const avatar = Math.min(124, Math.max(50, canvasWidthPx * 0.158));
-  const proportionalWidth = isHero ? avatar * (4 / 3) * (8 / 7) : avatar * 1.143;
+  // Six/nine portrait tables use the same hero slot as the other chairs.
+  // Match SeatSlot.css so marker clearance measures the actual player pod.
+  const heroRatio =
+    viewportWidthPx > PHONE_TABLE_MAX_DEVICE_WIDTH_PX &&
+    viewportWidthPx <= PORTRAIT_CARD_LANE_MAX_VIEWPORT_PX &&
+    (ring?.canvasHeightPx ?? 0) > canvasWidthPx &&
+    [6, 9].includes(ring?.seats ?? 0)
+      ? 1
+      : 4 / 3;
+  const proportionalWidth = isHero ? avatar * heroRatio * (8 / 7) : avatar * 1.143;
   const minWidth = Math.min(112, Math.max(66, canvasWidthPx * 0.235));
   const mobile = viewportWidthPx <= 640;
   const minimumHeight = mobile ? Math.min(48, Math.max(40, canvasWidthPx * 0.105)) : 54;
@@ -499,7 +508,7 @@ export function seatPodPx(
   const padding = mobile ? Math.min(7, Math.max(3, canvasWidthPx * 0.012)) : 8;
   // Two 1.3-line-height lines, both vertical pads and the 1.5px border.
   const plateHeight = Math.max(minimumHeight, (nameFont + stackFont) * 1.3 + padding * 2 + 3);
-  const slot = isHero ? avatar * (4 / 3) : avatar;
+  const slot = isHero ? avatar * heroRatio : avatar;
   return {
     w: Math.max(minWidth, proportionalWidth),
     h: slot + plateHeight - Math.max(3, slot * 0.0714),

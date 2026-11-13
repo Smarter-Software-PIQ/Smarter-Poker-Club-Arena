@@ -5363,3 +5363,14 @@ button.post-bb-overlay-button {
     --sp-page-inset-top: max(env(safe-area-inset-top, 0px), var(--sp-phone-safe-top, 0px));
   }
 }
+
+/* November 13 layout preview: recover rail space without shrinking controls. */
+@media (min-width: 481px) and (max-width: 768px) and (orientation: portrait) {
+  .table-page:where([data-seats='6'], [data-seats='9']) .table-scaler {
+    width: min(88%, calc(var(--sp-table-h, 100svh) * 0.7));
+  }
+  .table-page[data-seats='6'] .table-scaler {
+    height: calc(var(--sp-table-h, 100svh) * 0.88);
+    margin-top: calc(var(--sp-table-h, 100svh) * 0.06);
+  }
+}

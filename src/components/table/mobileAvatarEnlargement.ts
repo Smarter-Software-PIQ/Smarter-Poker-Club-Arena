@@ -682,7 +682,8 @@ export type MobilePaintState = {
  * the one every table state can take, and a size a table has already shown
  * is never changed by this. Kept on the device, not per tab, so a new visit
  * does not start a different size. */
-const SHARED_SIZE_STORE = 'sp-mobile-avatar-size-v1';
+// New rail geometry and preallocated portrait scale require a fresh size fit.
+const SHARED_SIZE_STORE = 'sp-mobile-avatar-size-v2';
 const sharedSizes: Map<string, number> = (() => {
   try {
     return new Map(Object.entries(JSON.parse(localStorage.getItem(SHARED_SIZE_STORE) || '{}')));
@@ -877,7 +878,6 @@ export function enlargeMobileAvatars(
   const apply = (item: Prepared, choice: PaintChoice, clipBottom: number) => {
     const { e } = item;
     state?.choices.set(e.image, choice);
-    if (choice.scale === 1) return;
     // Keep brightness/saturation (including folds). An enlarged soft shadow
     // must not spread onto felt that the original art left clear.
     const filter = getComputedStyle(e.image)
@@ -1077,12 +1077,15 @@ export function enlargeMobileAvatars(
     };
     // The game type's displayed height, shared by every table of that type.
     const sizeType = `${profileKey.split('|').slice(0, 2).join('|')}|${innerWidth}`;
-    // The portrait's unscaled box height in layout px (no transform counts).
-    const restingHeight = Math.max(...prepared.map((item) => item.e.image.offsetHeight));
+    // Include the CSS bust gain and normalized slot, but remove the retained
+    // paint zoom. offsetHeight alone omits the new preallocated portrait gain.
+    const restingHeight = Math.max(
+      ...prepared.map((item) => restingAvatarBox(item.e.image, ratio).height / ratio)
+    );
     const shared = sharedSizes.get(sizeType);
     const rungs = [
       2.5, 2.45, 2.4, 2.35, 2.3, 2.25, 2.2, 2.15, 2.1, 2.05, 2, 1.95, 1.9, 1.85, 1.8, 1.75, 1.7,
-      1.65, 1.6, 1.55, 1.5, 1.45, 1.4, 1.35, 1.3, 1.25, 1.2, 1.15, 1.1, 1.05, 1.02,
+      1.65, 1.6, 1.55, 1.5, 1.45, 1.4, 1.35, 1.3, 1.25, 1.2, 1.15, 1.1, 1.05, 1.02, 1,
     ].filter(
       (scale) =>
         scale <= MOBILE_AVATAR_MAX_SCALE &&

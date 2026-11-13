@@ -22,7 +22,11 @@ export async function waitForMobileAvatarGrowth(page: Page) {
               [2, 3, 4, 5, 6].includes(Number((table as HTMLElement).dataset.holeCardCount));
             if (!supported) return true;
             return Array.from(table.querySelectorAll<HTMLElement>('.seat__avatar')).some(
-              (avatar) => Number(avatar.style.getPropertyValue('--sp-mobile-art-scale')) > 1
+              (avatar) =>
+                Boolean(avatar.style.getPropertyValue('--sp-mobile-art-scale')) &&
+                Number(avatar.style.getPropertyValue('--sp-mobile-art-scale')) *
+                  (parseFloat(getComputedStyle(avatar).getPropertyValue('--sp-bust-scale')) || 1) >
+                  1
             );
           }),
       {
