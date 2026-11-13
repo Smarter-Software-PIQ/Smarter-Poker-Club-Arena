@@ -131,6 +131,7 @@ import {
 import {
   classifyOpponentStyle,
   isValueBettor,
+  preRepairDiscount,
   preRepairKeyed,
   profileQualification,
   unknownStyle,
@@ -327,6 +328,14 @@ export interface ExploitReadOptions {
    * 1.2, so the one-pair fold layers stay on. Only an explicit true engages.
    */
   styleValueBettor?: boolean;
+  /**
+   * STYLE READ pre-repair (item 10, 2026-11-13): the legacy over-folder branch (postflop fold rate above 0.62:
+   * bluffMod 1.45, valueThinMod 0.85) stands down when this decision's exact profile is a pre-repair cash
+   * table-speed row whose fold-to-bet is still excluded by HorseOpponentStyle.preRepairDiscount (fewer than 60
+   * post-release opportunities). Hold'em scopes only. Receipt style_pre_repair_fold_rate_discounted_seen.
+   * Only an explicit true engages.
+   */
+  styleFoldRatePreRepair?: boolean;
 }
 
 /** V83: big river bets that reached showdown before the value share counts. */
@@ -1691,6 +1700,16 @@ export class HorseMind {
     while (this.postReleaseObservations.size > EXPLOIT_ROW_CAP)
       this.postReleaseObservations.delete(this.postReleaseObservations.keys().next().value!);
     return rows.length;
+  }
+
+  /** True when this decision's Hold'em exact profile is pre-repair and its fold-to-bet is still excluded. */
+  private static foldToBetPreRepairExcluded(userId: string): boolean {
+    const scope = this.decisionScope;
+    if (!scope || !scope.startsWith('holdem:')) return false;
+    const variant = memoryVariant(this.decisionVariant);
+    if (!variant) return false;
+    const prov = this.styleProvenanceOf(userId, variant, this.decisionMode, scope.split(':')[1] as MemorySize);
+    return preRepairDiscount(prov, 'foldToBet').excluded;
   }
 
   /**
@@ -3278,6 +3297,9 @@ export class HorseMind {
     if (foldRate !== null) {
       if (foldRate > 0.62) {
         noteFire('legacy_fold_rate_branch_seen');
+        if (options.styleFoldRatePreRepair === true && this.foldToBetPreRepairExcluded(userId)) {
+          noteFire('style_pre_repair_fold_rate_discounted_seen');
+        } else {
         bluffMod = blend(1.45);
         // V28 AUDIT FIX: valueThinMod was only ever RAISED (stations), so the
         // documented "a nit calls only what a smaller bet asks" half of V18
@@ -3285,6 +3307,7 @@ export class HorseMind {
         // (valueThinMod - 1) and the term could never be negative. A folder
         // now thins the value bar downward too.
         valueThinMod = blend(0.85);
+        }
       } else if (foldRate < 0.35) {
         bluffMod = blend(0.55);
         valueThinMod = blend(1.25);

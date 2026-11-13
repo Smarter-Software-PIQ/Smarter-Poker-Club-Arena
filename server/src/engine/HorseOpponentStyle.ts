@@ -347,6 +347,25 @@ export const STYLE_THRESHOLDS = Object.freeze({
   bigBetBlockerShare: 0.5,
   /** #4: the most equity a one-pair-or-worse call of a raise is shaded by. CALIBRATE. */
   raiseShadeCap: 0.06,
+  /**
+   * VALUE EXTRACTION (A4): against a credible caller whose shown holdings are not value-weighted. Value size up to
+   * +valueSizeMax, value bar thinner by up to valueThinShiftMax equity, slow-play frequency cut by up to
+   * valueSlowplayCut only when he rarely bets himself (traps stay when he bets for us). Scaled by the calling
+   * signal's confidence, the confidence cap and (1 - calling release); calling release ramps as his fast-window
+   * fold-to-bet rises credibly above the Horse mean (a falling call rate).
+   */
+  valueSizeMax: 0.25,
+  valueThinShiftMax: 0.03,
+  valueSlowplayCut: 0.5,
+  /**
+   * POSTFLOP-FOLD BLUFFING (item 3): bluff frequency follows fold-to-bet BY STREET (river: 1 - river call; flop and
+   * turn: postflop fold-to-bet), never the all-street rate. Up to +foldBluffUpMax against a credible folder, down to
+   * -foldBluffDownMax against a credible caller. The increase is withheld (multiplier capped at 1) against anyone
+   * whose aggression or bet-when-checked-to is credibly high, or whose shown big bets are bluff-weighted: a player who
+   * folds to bets but attacks when checked to can be faking folds to trap.
+   */
+  foldBluffUpMax: 0.25,
+  foldBluffDownMax: 0.3,
   /** #4: DECISION-TIME stack-to-pot ratio (effective stack behind before the decision over the
    *  pot including his bet). Stands down at or below, full at or above. DEVELOPMENT-derived. */
   raiseSprStandDown: 2,
@@ -377,6 +396,16 @@ export const STYLE_CONSUMER_BOUNDS = Object.freeze({
     unit: 'equity shaded off a one-pair-or-worse call',
     max: STYLE_THRESHOLDS.raiseShadeCap,
     note: 'ramps with decision-time SPR; zero at or below raiseSprStandDown',
+  }),
+  valueExtraction: Object.freeze({
+    unit: 'value size multiplier / value equity bar / slow-play multiplier',
+    max: STYLE_THRESHOLDS.valueSizeMax,
+    note: 'size up to +0.25, bar up to 0.03 thinner, slow-play cut up to 50% only against a non-bettor',
+  }),
+  postflopFoldBluff: Object.freeze({
+    unit: 'bluff frequency multiplier',
+    max: STYLE_THRESHOLDS.foldBluffUpMax,
+    note: 'per street; down to 0.3 against callers; increase withheld against possible fold-faking trappers',
   }),
   tightOpener: Object.freeze({
     unit: 'preflop strength bar',
@@ -696,6 +725,8 @@ export interface OpponentStyleRead {
     readonly availability: ObservationAvailability;
   };
   readonly release: StyleRelease;
+  /** 0..1: how far his recent (fast window) fold-to-bet has risen above the Horse mean; releases value extraction */
+  readonly callingRelease: number;
   /** multiplier in (0,1] every confidence carries: provenance and release */
   readonly confidenceCap: number;
   readonly signals: OpponentStyleSignals;
@@ -864,6 +895,7 @@ function buildRead(
     signals: OpponentStyleSignals;
     label: StyleLabel;
     pattern?: StylePattern | null;
+    callingRelease?: number;
   }
 ): OpponentStyleRead {
   const prior = populationPriorFor(family, hands);
@@ -931,6 +963,7 @@ function buildRead(
       availability: parts.availability,
     }),
     release: Object.freeze(parts.release),
+    callingRelease: round4(parts.callingRelease ?? 0),
     confidenceCap: parts.cap,
     signals: parts.signals,
     receipt,
@@ -1135,6 +1168,10 @@ export function classifyOpponentStyle(input: OpponentStyleInput): OpponentStyleR
     consider(fastAbove(num(c.fThreeBet), num(c.fThreeBetOpp), threeCell.mean, T.margin.threeBet * ms), 'fast_three_bet');
     consider(fastAbove(num(c.fBetCheckedTo), num(c.fBetCheckedToOpp), betCell.mean, T.margin.betCheckedTo * ms), 'fast_bet_checked_to');
   }
+  const callingRelease =
+    c && num(c.fFoldToBetOpp) >= EXPLOIT_FAST_MIN_N
+      ? ramp(posterior(num(c.fFoldToBet), num(c.fFoldToBetOpp), foldCell.mean, T.margin.foldToBet * ms).pAbove)
+      : 0;
   const rn = Math.max(0, num(tallies.rAggr)) + Math.max(0, num(tallies.rPassive));
   if (horseShare !== null && rn >= T.releaseRecentActions)
     consider(ramp(posterior(num(tallies.rAggr), rn, horseShare, T.releaseRecentShareMargin).pAbove), 'recent_aggression');
@@ -1276,6 +1313,7 @@ export function classifyOpponentStyle(input: OpponentStyleInput): OpponentStyleR
     signals,
     label,
     pattern,
+    callingRelease,
   });
 }
 
@@ -1529,4 +1567,70 @@ export function tightReRaiserRespect(style: OpponentStyleRead | null | undefined
   const T = STYLE_THRESHOLDS;
   const k = clamp(viaThreeBet ? style.signals.threeBet.confidence : style.participation.confidence, 0, 1) * style.confidenceCap * (1 - style.release.fraction);
   return { fourBetBump: T.tightReRaiserFourBetBump * k, callBump: T.tightReRaiserCallBump * k };
+}
+
+/**
+ * A4 VALUE EXTRACTION.
+ *  mechanism   value sizing x(1 + up to 0.25), value bar thinner by up to 0.03 equity, slow-play cut by up to 50%
+ *  applies     hold'em family, cash and tournament, postflop value spots; never on the Nash/push-fold path
+ *  evidence    a credible calling tendency (fold-to-bet credibly LOW or river call credibly HIGH) and shown big-bet
+ *              holdings not value-weighted; slow-play cut only when he rarely bets (bet-when-checked-to credibly low
+ *              or aggression passive): traps stay available when he bets for us
+ *  confidence  the calling signal's confidence x confidenceCap; pre-repair rows have these signals excluded
+ *  magnitude   bounded above; never 'always value-bet': only sizes and bars move, no action is forced
+ *  stand-down  release >= 0.5; scaled by (1 - callingRelease), a falling call rate in the fast window
+ */
+export interface ValueExtraction {
+  sizeMul: number;
+  thinShift: number;
+  slowplayMul: number;
+}
+export function valueExtraction(style: OpponentStyleRead | null | undefined): ValueExtraction | null {
+  if (!actionable(style)) return null;
+  const T = STYLE_THRESHOLDS;
+  const sg = style.signals;
+  const calls = [sg.foldToBet.side === 'low' ? sg.foldToBet.confidence : 0, sg.riverCall.side === 'high' ? sg.riverCall.confidence : 0];
+  const conf = Math.max(...calls);
+  // 'weak shown holdings': what his CALLED big bets showed, never the frequency-based range estimate (a passive
+  // caller's low bet frequency reads value-weighted by frequency and says nothing about what he calls with).
+  if (!(conf > 0) || sg.shownStrength.side === 'value') return null;
+  const k = clamp(conf * style.confidenceCap * (1 - style.callingRelease) * (1 - style.release.fraction), 0, 1);
+  if (!(k > 0)) return null;
+  const rarelyBets = sg.betCheckedTo.side === 'low' || style.aggression.side === 'passive';
+  return {
+    sizeMul: 1 + T.valueSizeMax * k,
+    thinShift: T.valueThinShiftMax * k,
+    slowplayMul: rarelyBets ? 1 - T.valueSlowplayCut * k : 1,
+  };
+}
+
+/**
+ * ITEM 3 POSTFLOP-FOLD BLUFFING. Returns the bluff-frequency multiplier for this street, or null (no adjustment).
+ *  evidence    river: river call credibly low (folds) or high (calls); flop/turn: fold-to-bet credibly high or low
+ *  confidence  that signal's confidence x confidenceCap x (1 - release); pre-repair rows: signal excluded, null
+ *  magnitude   1 + up to 0.25 against a folder, 1 - up to 0.3 against a caller
+ *  trap guard  the increase is withheld against credibly high aggression / bet-when-checked-to or bluff-weighted
+ *              shown big bets (folds to bets, attacks when checked to: can be faking folds)
+ */
+export function postflopFoldBluffScale(
+  style: OpponentStyleRead | null | undefined,
+  street: 'flop' | 'turn' | 'river'
+): number | null {
+  if (!actionable(style)) return null;
+  const T = STYLE_THRESHOLDS;
+  const sg = style.signals;
+  let folds: 'more' | 'less' | null = null;
+  let conf = 0;
+  if (street === 'river') {
+    if (sg.riverCall.side === 'low') (folds = 'more'), (conf = sg.riverCall.confidence);
+    else if (sg.riverCall.side === 'high') (folds = 'less'), (conf = sg.riverCall.confidence);
+  } else if (sg.foldToBet.side === 'high') (folds = 'more'), (conf = sg.foldToBet.confidence);
+  else if (sg.foldToBet.side === 'low') (folds = 'less'), (conf = sg.foldToBet.confidence);
+  if (!folds) return null;
+  const k = clamp(conf * style.confidenceCap * (1 - style.release.fraction), 0, 1);
+  if (!(k > 0)) return null;
+  if (folds === 'less') return 1 - T.foldBluffDownMax * k;
+  const trap =
+    style.aggression.side === 'aggressive' || sg.betCheckedTo.side === 'high' || sg.shownStrength.side === 'bluff';
+  return trap ? 1 : 1 + T.foldBluffUpMax * k;
 }

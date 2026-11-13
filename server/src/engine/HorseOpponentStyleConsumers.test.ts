@@ -1,9 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
 import { HorseMind } from './HorseMind.js';
-import { ALL_SPOTS, HERO, VILLAIN, VILLAINS, decide, install, preflopJam, preflopOpen, preflopThreeBet, turnPotBet, type Mode, type Villain } from './HorseOpponentStyle.contexts.test-support.js';
+import { ALL_SPOTS, checkedTo, HERO, VILLAIN, VILLAINS, decide, install, preflopJam, preflopOpen, preflopThreeBet, turnPotBet, type Mode, type Villain } from './HorseOpponentStyle.contexts.test-support.js';
 import { counters } from './HorseOpponentStyle.test-support.js';
 
-const ALL_ON = { styleValueBettorNotManiac: true, styleBigBetHonesty: true, styleRaiseRespect: true, styleTightReRaiserRespect: true };
+const drain = (): Record<string, number> => {
+  enableBrainTelemetry();
+  return Object.fromEntries(drainFires().map((r) => [r.feature, r.fires]));
+};
+const ALL_ON = { styleValueBettorNotManiac: true, styleBigBetHonesty: true, styleRaiseRespect: true, styleTightReRaiserRespect: true, styleFoldRatePreRepair: true, styleFoldBluff: true };
 const RANK: Record<string, number> = { fold: 0, call: 1, raise: 2, all_in: 3 };
 const MODES: Mode[] = ['cash', 'tournament', 'bubble'];
 afterEach(() => vi.restoreAllMocks());
@@ -148,5 +153,90 @@ describe('style read: pre-repair provenance reaches the decision-time read (item
     const b = read('cash', 75);
     expect(JSON.stringify(b.receipt)).toBe(JSON.stringify(a.receipt));
     expect(read('cash', null).receipt.provenance.discounted.length).toBe(4);
+  });
+});
+
+const caller = (fast?: { fFoldToBetOpp: number; fFoldToBet: number }, shown?: { bigBetSD: number; bigBetSDStrong: number }): Villain => {
+  const c = counters({ hands: 80, vpip: 0.3, pfr: 0.12, betCheckedToOpp: 40, betCheckedTo: 7, foldToBetOpp: 40, foldToBet: 11, fast: { hands: 10 } });
+  if (fast) Object.assign(c, fast);
+  return { stats: { hands: 300, postAggr: 40, postPassive: 150, ...(shown ?? {}) }, counters: c, complete: true };
+};
+
+describe('A4 value extraction (cash and tournament)', () => {
+  for (const mode of ['cash', 'tournament'] as Mode[]) {
+    it(`${mode}: a credible caller gets a larger river value bet, bounded, with a receipt`, () => {
+      const spot = checkedTo(mode, 'KsQd');
+      install(caller(), mode);
+      supply(120);
+      const off = decide(spot);
+      install(caller(), mode);
+      supply(120);
+      const on = decide(spot, { styleValueExtraction: true });
+      expect(on.fires.style_value_extraction_seen).toBeGreaterThan(0);
+      expect(on.decision.action).toBe(off.decision.action);
+      expect(on.decision.amount!).toBeGreaterThan(off.decision.amount!);
+      expect(on.decision.amount!).toBeLessThanOrEqual(off.decision.amount! * 1.3 + 2);
+    });
+    it(`${mode}: released by a rising fast-window fold rate; withheld when his shown big bets are value`, () => {
+      const spot = checkedTo(mode, 'KsQd');
+      for (const v of [caller({ fFoldToBetOpp: 10, fFoldToBet: 9 }), caller(undefined, { bigBetSD: 10, bigBetSDStrong: 9 })]) {
+        install(v, mode);
+        supply(120);
+        const off = decide(spot);
+        install(v, mode);
+        supply(120);
+        const on = decide(spot, { styleValueExtraction: true });
+        expect(on.fires.style_value_extraction_seen ?? 0).toBe(0);
+        expect(on.digest).toBe(off.digest);
+      }
+    });
+    it(`${mode}: pre-repair cash rows without post-release m do not engage it`, () => {
+      install(caller(), mode);
+      const on = decide(checkedTo(mode, 'KsQd'), { styleValueExtraction: true });
+      if (mode === 'cash') expect(on.fires.style_value_extraction_seen ?? 0).toBe(0);
+      else expect(on.fires.style_value_extraction_seen).toBeGreaterThan(0);
+    });
+  }
+});
+
+describe('item 3 postflop-fold bluffing (cash and tournament)', () => {
+  for (const mode of ['cash', 'tournament'] as Mode[])
+    it(`${mode}: against a credible caller a flop semi-bluff becomes a check, with a receipt`, () => {
+      const spot = checkedTo(mode, 'QcJc', 'flop');
+      install(VILLAINS.station!, mode);
+      supply(120);
+      const off = decide(spot);
+      install(VILLAINS.station!, mode);
+      supply(120);
+      const on = decide(spot, { styleFoldBluff: true });
+      expect(on.fires.style_fold_bluff_seen).toBeGreaterThan(0);
+      expect([off.decision.action, on.decision.action]).toEqual(['bet', 'check']);
+    });
+});
+
+describe('item 1 pre-repair discount on the legacy over-folder branch', () => {
+  const run = (m: number | null, on: boolean) => {
+    HorseMind.reset();
+    HorseMind.importStats([{ user_id: VILLAIN, hands: 100, folds: 40, facedAggr: 50 } as never]);
+    const c = counters({ hands: 80, vpip: 0.2, pfr: 0.14, foldToBetOpp: 40, foldToBet: 29 });
+    HorseMind.importDurableOpponentProfiles([{ user_id: VILLAIN, variant: 'nlh', mode: 'cash', size: 'full', observed_hands: 80, initialized: true, public_memory_domain: { version: 1, speed: 'table', ante: 'none' }, counters: c } as never]);
+    if (m !== null) HorseMind.importPostReleaseObservations([{ user_id: VILLAIN, variant: 'nlh', mode: 'cash', size: 'full', opportunities: { foldToBet: m } }]);
+    HorseMind.setDecisionScope('holdem:full', 'nlh', 'cash');
+    const before = drain();
+    void before;
+    const e = HorseMind.exploit(VILLAIN, true, on ? { styleFoldRatePreRepair: true } : {});
+    const fires = drain();
+    HorseMind.setDecisionScope(null);
+    return { e, fires };
+  };
+  it('the over-folder branch stands down for a pre-repair row with m < 60, and only with the option on', () => {
+    const off = run(null, false);
+    expect(off.fires.legacy_fold_rate_branch_seen).toBeGreaterThan(0);
+    const on = run(null, true);
+    expect(on.fires.style_pre_repair_fold_rate_discounted_seen).toBeGreaterThan(0);
+    expect(on.e.bluffMod).toBeLessThanOrEqual(off.e.bluffMod);
+    const lifted = run(120, true);
+    expect(lifted.fires.style_pre_repair_fold_rate_discounted_seen ?? 0).toBe(0);
+    expect(lifted.e).toEqual(off.e);
   });
 });

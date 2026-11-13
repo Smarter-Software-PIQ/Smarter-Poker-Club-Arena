@@ -1009,6 +1009,21 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     '2026-11-13'
   ),
   flag(
+    'styleFoldRatePreRepair',
+    '2026-11-13 STYLE READ pre-repair: the legacy over-folder branch (postflop fold rate above 0.62) stands down while the decision\'s exact profile is a pre-repair cash table-speed row whose fold-to-bet has fewer than 60 post-release opportunities; hold\'em only; default off, explicit true only',
+    '2026-11-13'
+  ),
+  flag(
+    'styleValueExtraction',
+    '2026-11-13 STYLE READ A4 value extraction: against a credible caller (fold-to-bet credibly low or river call credibly high) whose shown big bets are not value-weighted, value sizing up to +25%, value bar up to 0.03 thinner, slow-play cut up to 50% only when he rarely bets; released by a rising fast-window fold rate; hold\'em heads-up, not bounty; default off, explicit true only',
+    '2026-11-13'
+  ),
+  flag(
+    'styleFoldBluff',
+    '2026-11-13 STYLE READ postflop-fold bluffing: bluff frequency follows this street\'s fold-to-bet (river: river call), up to +25% against a folder and down to -30% against a caller, increase withheld against possible fold-faking trappers, pre-repair rows excluded; hold\'em heads-up, not bounty; default off, explicit true only',
+    '2026-11-13'
+  ),
+  flag(
     'styleCarryOverWeight',
     '2026-11-13 STYLE READ cross-format transfer: weight (0 to 1) of the same player\'s other-format counters in the style read; default 0 = format-specific evidence only; one player being tighter in tournaments does not establish that everyone is, so a non-zero weight needs validation first',
     '2026-11-13'
@@ -1023,6 +1038,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'legacy_aggression_factor_branch_seen',
     'HorseMind.legacyExploit',
     'the legacy aggression-factor branch (postflop AF above 2.5) was entered, before the V83 and style guards decide; observability only, no behaviour change; occurrence counter; named *_seen',
+    '2026-11-13'
+  ),
+  receipt(
+    'style_pre_repair_fold_rate_discounted_seen',
+    'HorseMind.legacyExploit (STYLE READ pre-repair)',
+    'the legacy over-folder branch stood down because the exact profile is pre-repair and its fold-to-bet is excluded; occurrence counter; named *_seen',
+    '2026-11-13'
+  ),
+  receipt(
+    'style_value_extraction_seen',
+    'HorseLogic (STYLE READ A4)',
+    'value sizing, value bar or slow-play frequency moved by the value-extraction read; occurrence counter; named *_seen',
+    '2026-11-13'
+  ),
+  receipt(
+    'style_fold_bluff_seen',
+    'HorseLogic (STYLE READ postflop-fold bluffing)',
+    'the bluff multiplier moved by this street\'s fold-to-bet read; occurrence counter; named *_seen',
     '2026-11-13'
   ),
   receipt(

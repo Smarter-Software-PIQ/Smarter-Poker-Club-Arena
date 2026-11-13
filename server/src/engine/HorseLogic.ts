@@ -196,6 +196,8 @@ import {
 import {
   STYLE_THRESHOLDS,
   bigBetRespect,
+  postflopFoldBluffScale,
+  valueExtraction,
   raiseRespectShade,
   tightOpenerRespect,
   tightReRaiserRespect,
@@ -2969,6 +2971,17 @@ export interface HorseDecideOpts {
    *  window. Receipt style_value_bettor_not_maniac_seen. Hold'em consumers;
    *  cash and tournament alike. Default off; explicit true only. */
   styleValueBettorNotManiac?: boolean;
+  /** STYLE READ pre-repair (2026-11-13): the legacy over-folder branch (fold rate above 0.62) stands down
+   *  while this decision's exact profile is a pre-repair cash table-speed row whose fold-to-bet is excluded
+   *  (HorseOpponentStyle.preRepairDiscount). Hold'em only. Receipt style_pre_repair_fold_rate_discounted_seen.
+   *  Default off; explicit true only. */
+  styleFoldRatePreRepair?: boolean;
+  /** STYLE READ A4 (2026-11-13): value extraction against a credible caller (HorseOpponentStyle.valueExtraction).
+   *  Receipt style_value_extraction_seen. Default off; explicit true only. */
+  styleValueExtraction?: boolean;
+  /** STYLE READ item 3 (2026-11-13): bluff frequency by this street's fold-to-bet
+   *  (HorseOpponentStyle.postflopFoldBluffScale). Receipt style_fold_bluff_seen. Default off; explicit true only. */
+  styleFoldBluff?: boolean;
   /** STYLE READ #3 (2026-11-13): a large turn bet, a large river bet or ANY
    *  river raise from a credibly value-heavy bettor earns extra respect,
    *  capped at the existing callDownRespectShift ceiling (+0.15), never on a
@@ -9900,6 +9913,9 @@ export class HorseLogic {
       ...(opts.styleValueBettorNotManiac === true && opts.mind !== false
         ? { styleValueBettor: true }
         : {}),
+      ...(opts.styleFoldRatePreRepair === true && opts.mind !== false
+        ? { styleFoldRatePreRepair: true }
+        : {}),
     };
     const useAdaptiveMC = opts.v7AdaptiveMC ?? useV7;
     const useV8 = opts.v8 !== false;
@@ -10063,6 +10079,33 @@ export class HorseLogic {
           useCounterAdapt,
           exploitReadOpts83
         );
+        // STYLE READ item 3 (2026-11-13): bluff frequency follows this
+        // opponent's fold-to-bet ON THIS STREET (river: river call), heads-up,
+        // hold'em, not in bounty events. Default off; explicit true only.
+        if (
+          opts.styleFoldBluff === true &&
+          !vi.isOmaha &&
+          street !== 'preflop' &&
+          !styleBountyContext(trustedTournament)
+        ) {
+          const live = opponents.filter((o) => !o.is_all_in && !o.is_sitting_out);
+          if (live.length === 1) {
+            const mul = postflopFoldBluffScale(
+              HorseMind.styleRead(live[0].user_id),
+              street as 'flop' | 'turn' | 'river'
+            );
+            if (mul !== null && mul !== 1) {
+              exploit = {
+                ...exploit,
+                bluffMod: exploit.bluffMod * mul,
+                ...(exploit.breakEvenBluff !== undefined
+                  ? { breakEvenBluff: exploit.breakEvenBluff * mul }
+                  : {}),
+              };
+              noteFire('style_fold_bluff_seen');
+            }
+          }
+        }
         const tex = HorseMind.texture(gs.communityCards);
         wetness = tex.wetness;
         blocker = hasVariantBlocker(player.cards, gs.communityCards, vi);
@@ -10135,6 +10178,31 @@ export class HorseLogic {
         if (tele15 && (trap !== 1 || thin !== 1)) noteFire('opponent_exploit_postflop');
       } catch {
         /* reads are best-effort */
+      }
+    }
+    // STYLE READ A4 (2026-11-13) VALUE EXTRACTION: against a credible caller
+    // whose shown holdings are not value-weighted, size value up (<= +25%),
+    // thin the value bar (<= 0.03) and, only against a player who rarely bets,
+    // slow-play less (<= 50%). Not stacked on an engaged station read; heads-up;
+    // hold'em; not in bounty events. Default off; explicit true only.
+    let styleThinShift = 0;
+    if (
+      opts.styleValueExtraction === true &&
+      useMind &&
+      !vi.isOmaha &&
+      !stationValue &&
+      !styleBountyContext(trustedTournament)
+    ) {
+      const live = opponents.filter((o) => !o.is_all_in && !o.is_sitting_out);
+      if (live.length === 1) {
+        const ve = valueExtraction(HorseMind.styleRead(live[0].user_id));
+        if (ve) {
+          exploitValueSize *= ve.sizeMul;
+          styleThinShift = ve.thinShift;
+          if (ve.slowplayMul !== 1)
+            params = { ...params, slowplayFreq: params.slowplayFreq * ve.slowplayMul };
+          noteFire('style_value_extraction_seen');
+        }
       }
     }
 
@@ -13560,7 +13628,8 @@ export class HorseLogic {
           sprValShift86 +
           thinAdj23 -
           (exploit.valueThinMod - 1) * 0.08 -
-          (stationValue ? 0.04 : 0)
+          (stationValue ? 0.04 : 0) -
+          styleThinShift
       ) {
         if (dangered) return { action: 'check', thinkTime: 0 };
         // V10: when hero HELD THE INITIATIVE and the river checks to us, the

@@ -168,6 +168,32 @@ export const flopRaise = (mode: Mode, depth: 'deep' | 'short', heroCards = 'KdJc
   return { name: `flop_raise_${depth}_${mode}${heroCards === 'KdJc' ? '' : '_' + heroCards}`, hero: (gs.players as SeatPlayer[])[0], gs };
 };
 
+/** The villain checks to hero on the river (or the flop): hero decides whether and how much to bet. */
+export const checkedTo = (mode: Mode, heroCards: string, stage: 'flop' | 'river' = 'river'): Spot => {
+  const seats: Seat[] = [
+    { seat: 1, id: HERO, stack: 350, bet: 0, invested: 50, cards: heroCards },
+    { seat: 2, id: VILLAIN, stack: 350, bet: 0, invested: 50 },
+    ...fillers(),
+  ];
+  const acts: Act[] = [
+    { stage: 'preflop', seat: 1, userId: HERO, action: 'raise', amount: 6 },
+    { stage: 'preflop', seat: 2, userId: VILLAIN, action: 'call', amount: 4 },
+    { stage: 'flop', seat: 2, userId: VILLAIN, action: 'check', amount: 0 },
+    ...(stage === 'river'
+      ? ([
+          { stage: 'flop', seat: 1, userId: HERO, action: 'bet', amount: 10 },
+          { stage: 'flop', seat: 2, userId: VILLAIN, action: 'call', amount: 10 },
+          { stage: 'turn', seat: 2, userId: VILLAIN, action: 'check', amount: 0 },
+          { stage: 'turn', seat: 1, userId: HERO, action: 'bet', amount: 24 },
+          { stage: 'turn', seat: 2, userId: VILLAIN, action: 'call', amount: 24 },
+          { stage: 'river', seat: 2, userId: VILLAIN, action: 'check', amount: 0 },
+        ] as Act[])
+      : []),
+  ];
+  const gs = state(mode, stage, stage === 'river' ? 'Kh9d3s7c2d' : 'Kh9d3s', stage === 'river' ? 100 : 12, 0, 2, seats, acts, 2);
+  return { name: `checked_to_${stage}_${mode}_${heroCards}`, hero: (gs.players as SeatPlayer[])[0], gs };
+};
+
 /** Hero in the big blind faces a 3bb open from under the gun, 100bb deep. */
 export const preflopOpen = (mode: Mode, heroCards = 'Qs9s', stack = 200): Spot => {
   const seats: Seat[] = [
