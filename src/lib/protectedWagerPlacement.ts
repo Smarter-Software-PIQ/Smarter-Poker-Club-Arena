@@ -1,5 +1,76 @@
 import type { CardBox } from './protectedCardPlacement';
 
+/** Native classic-green artwork has straight sides and elliptical caps. */
+export function insideClassicGreen(box: CardBox, canvas: CardBox, air: number): boolean {
+  const x0 = ((box.left - canvas.left - air) * 605) / canvas.width;
+  const x1 = ((box.left + box.width - canvas.left + air) * 605) / canvas.width;
+  const y0 = ((box.top - canvas.top - air) * 1000) / canvas.height;
+  const y1 = ((box.top + box.height - canvas.top + air) * 1000) / canvas.height;
+  const dx = Math.max(302.5 - x0, x1 - 302.5) / 199;
+  const dy = Math.max(275 - y0, y1 - 725, 0) / 184;
+  return dx * dx + dy * dy <= 1;
+}
+
+/** Nearest inward rest position before the decoded portrait/card pass takes
+ * ownership. Keep the whole actual stack and its amount inside the rail. */
+export function firstWagerOnFelt(
+  box: CardBox,
+  canvas: CardBox,
+  felt: CardBox,
+  air: number,
+  gold: boolean,
+  board?: CardBox
+) {
+  const radius = felt.width / 2,
+    cx = felt.left + radius,
+    cy = felt.top + felt.height / 2;
+  const clear = (candidate: CardBox) => {
+    const x = Math.max(cx - candidate.left, candidate.left + candidate.width - cx);
+    const y = Math.max(
+      felt.top + radius - candidate.top,
+      candidate.top + candidate.height - (felt.top + felt.height - radius),
+      0
+    );
+    return (
+      Math.hypot(x, y) <= radius - air &&
+      (!gold || insideClassicGreen(candidate, canvas, air)) &&
+      (!board || !wagerBoxesOverlap(candidate, board))
+    );
+  };
+  if (clear(box)) return box;
+  // Fixed-height and fixed-width paths protect side and cap ownership. A
+  // diagonal path also covers rounded corners. Slide above/below the board
+  // if a side chair's direct path would run onto community cards.
+  const middle = { left: cx - box.width / 2, top: cy - box.height / 2 };
+  const targets = [{ ...middle, top: box.top }, { ...middle, left: box.left }, middle];
+  if (board)
+    for (const top of [board.top - box.height - 3, board.top + board.height + 3])
+      targets.push({ ...middle, top });
+  let best = box,
+    distance = Infinity;
+  for (const target of targets) {
+    const dx = target.left - box.left,
+      dy = target.top - box.top,
+      length = Math.hypot(dx, dy);
+    if (!length) continue;
+    const steps = Math.ceil(length / 2);
+    for (let i = 1; i <= steps && (length * i) / steps < distance; i++) {
+      const candidate = {
+        width: box.width,
+        height: box.height,
+        left: box.left + (dx * i) / steps,
+        top: box.top + (dy * i) / steps,
+      };
+      if (clear(candidate)) {
+        best = candidate;
+        distance = (length * i) / steps;
+        break;
+      }
+    }
+  }
+  return best;
+}
+
 export function wagerBoxesOverlap(a: CardBox, b: CardBox): boolean {
   return (
     a.left < b.left + b.width + 2 &&

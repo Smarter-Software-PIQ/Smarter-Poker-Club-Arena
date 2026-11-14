@@ -34,17 +34,15 @@ pauses out of profit and resumes where it left off (migration
 - **Two older database tests run in a root shell.** `hitAndRunHandCount` and
   `charlesRuleDoubleBeforeHouseTake` start their server as an unprivileged
   user when run as root, as `charlesRuleBigWin` already did.
-- **A midnight flake is closed.** The Daily Diamond custody race read
-  "yesterday in Chicago" in four separate sessions; on 2026-11-14 the seed and
-  racers ran before 00:00 and the assert at 00:00:01, and shard 1/7 failed on
-  #10788. The seed now decides the day once, the racers settle the day it
-  recorded and the assert reads that row. The legacy-burn pair had the same
-  shape and reads the date once too. No assertion was removed and no
-  production SQL changed.
+- **The midnight flake.** The Daily Diamond custody race fix landed first in
+  #10801 (one settlement day for the race) and is kept as merged. The
+  legacy-burn pair in the same directory had the same shape and now reads the
+  Chicago date once in its seed and derives the assert's day from the rows it
+  recorded. No assertion was removed and no production SQL changed.
 
 ## Verified
 
 `tests/unit/charlesRuleBigWin.pg.test.ts` on real PostgreSQL installs the three
 migrations and shows the club's paused row and the player's status at seven of
-ten through a pause and a resume. The custody race itself needs PostgreSQL 17
-and is proven by its CI shard.
+ten through a pause and a resume. The legacy-burn fixtures need PostgreSQL 17
+and are proven by their CI shard.

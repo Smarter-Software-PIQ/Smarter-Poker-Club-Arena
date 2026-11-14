@@ -210,6 +210,8 @@ import {
   postflopFoldBluffScale,
   valueExtraction,
   raiseRespectShade,
+  valueRaiseSizeWeight,
+  valueRaiseWeight,
   tightOpenerRespect,
   tightReRaiserRespect,
   type TightReRaiser,
@@ -3092,6 +3094,16 @@ export interface HorseDecideOpts {
    *  (HorseOpponentStyle streetRaise; the reference counts only when its own
    *  standard error is at most half the street-raise margin, at least 200
    *  opportunities; no reference, no engagement).
+   *  #4b (2026-11-14), same switch: in cash, heads-up, on the turn and river
+   *  (never the flop), two pair or worse that bet and was raised by a
+   *  credibly passive player (postflop betting share credibly low, a real
+   *  sample of his own raise chances; no showdown memory) blends in an
+   *  estimate against a value-raise stratum, by his street raise rate and
+   *  the raise size, and that blend decides only when it is under the price
+   *  laid. On the turn, when the call would leave him a quarter of the pot
+   *  or less, the price is the whole commitment and a hand that continues
+   *  puts the rest in. Receipts style_value_raise_respect_seen and
+   *  style_commitment_priced_seen.
    *  Receipt style_raise_respect_seen. Default off; explicit true only. */
   styleRaiseRespect?: boolean;
   /** STYLE READ #6 (2026-11-13): a credibly tight opener or re-raiser is
@@ -5851,10 +5863,12 @@ export const V54_PROFILE_FACTOR = { folder: 1, neutral: 0.8, unknown: 0.6 } as c
 // Capture before legalization copies the decision; never serialize this intent.
 const v54StationChecks = new WeakSet<HorseDecision>();
 
-function v54OpponentProfile(
+export function v54OpponentProfile(
   userId: string,
   useMind: boolean,
-  recencyBlend: boolean
+  recencyBlend: boolean,
+  // STYLE READ, PRE-REPAIR (2026-11-14): the fold-rate stand-down reaches this read too; absent = as before
+  preRepairFoldRate: boolean = false
 ): 'station' | 'folder' | 'neutral' | 'unknown' {
   if (!useMind) return 'unknown';
   try {
@@ -5862,7 +5876,11 @@ function v54OpponentProfile(
     if (isStation(read)) return 'station';
     const rfr = HorseMind.riverFoldRate(userId);
     if (rfr !== null && rfr < 0.35) return 'station';
-    const bluffMod = HorseMind.exploit(userId, recencyBlend).bluffMod;
+    const bluffMod = (
+      preRepairFoldRate
+        ? HorseMind.exploit(userId, recencyBlend, { styleFoldRatePreRepair: true })
+        : HorseMind.exploit(userId, recencyBlend)
+    ).bluffMod;
     if (bluffMod < 0.95) return 'station';
     if ((rfr !== null && rfr >= 0.5) || bluffMod > 1.05) return 'folder';
     if (rfr !== null || read !== null || bluffMod !== 1) return 'neutral';
@@ -10746,6 +10764,86 @@ export class HorseLogic {
         if (tele15) noteFire('v67_river_raise_stratum');
       }
     }
+    // ═══ STYLE READ #4b VALUE RAISE (2026-11-14; the styleRaiseRespect
+    // switch) ═══ A reviewed cash hand: top two pair bet the turn, the board
+    // had brought a four-card straight, a passive regular check-raised to
+    // four times the bet leaving 0.13 of the pot behind, and the Horse called
+    // the raise and the rest against the nut straight. The V66 raise stratum
+    // stops at one pair, so two pair on an unpaired board kept the
+    // any-contact read (62 percent); raise respect (#4) stood down at that
+    // depth and for that class; and the call was priced without the river
+    // money already in it.
+    // With the switch on: single-board no-limit hold'em, CASH, heads-up, the
+    // TURN or the RIVER (never the flop), hero bet (or raised) this street
+    // and was raised, holding two pair or worse (and no real draw on the
+    // turn), and the raiser's own read is credibly passive on its postflop
+    // half with a real sample of raise chances
+    // (HorseOpponentStyle.valueRaiseWeight). A second estimate samples his
+    // hand from the value-raise stratum; the two are blended by the read's
+    // weight times the raise-size weight (full from three times the bet,
+    // half at a min-raise). The blend decides ONLY when it is under the
+    // price actually laid; otherwise the plain estimate stands and the
+    // decision is today's. It can only lower the equity of a call. Unknown,
+    // neutral and aggressive reads, a measured over-bluffer (callDownMod
+    // above 1), a thin sample, a street with no Horse raise-rate reference,
+    // tournaments (the stratum is unvalidated and the chip-utility arbiter
+    // prices survival, which it does not carry) and the flop change nothing.
+    let styleRaiseWeight = 0;
+    let styleRaiseReads: Array<OppPostflopRead | null> | undefined;
+    const armVh =
+      opts.styleRaiseRespect === true ? 'on' : styleShadowArm(opts, 'styleRaiseRespect');
+    if (
+      armVh !== null &&
+      useMind &&
+      facingBet &&
+      (street === 'turn' || isRiver) &&
+      !isTournamentMode(gs) &&
+      !vi.isOmaha &&
+      !vi.isShortDeck &&
+      vi.holeCount === 2 &&
+      player.cards.length === 2 &&
+      !vi.isFixedLimit &&
+      extraBoards.length === 0 &&
+      gs.bombPot !== true &&
+      exploit.callDownMod <= 1 &&
+      opponents.length === 1 &&
+      player.bet > 0 &&
+      oppReads &&
+      oppReads.some((read) => read?.raised === true && read.lastStage === street) &&
+      (gs.actionHistory ?? []).some(
+        (a) =>
+          a.stage === street &&
+          a.userId === player.user_id &&
+          (a.action === 'bet' || a.action === 'raise')
+      ) &&
+      (isRiver || !holdemRealDraw(player.cards, gs.communityCards))
+    ) {
+      try {
+        const catVh = bestTwoCardCategory(player.cards, gs.communityCards, vi);
+        if (catVh > 0 && catVh <= 3) {
+          const vhStyle = HorseMind.styleRead(opponents[0].user_id);
+          const weightVh =
+            valueRaiseWeight(vhStyle, isRiver ? 'river' : 'turn') *
+            valueRaiseSizeWeight(Number(gs.currentBet) / player.bet);
+          if (weightVh > 0) {
+            if (armVh === 'shadow')
+              noteStyleShadowEngaged('styleRaiseRespect', vhStyle.confidenceCap);
+            else {
+              styleRaiseWeight = weightVh;
+              styleRaiseReads = oppReads.map((read) =>
+                read && read.raised === true && read.lastStage === street
+                  ? isRiver
+                    ? { ...read, riverPolar: false, raisePolar67: true, raiseValueHeavy: true }
+                    : { ...read, raisePolar66: true, raiseValueHeavy: true }
+                  : read
+              );
+            }
+          }
+        }
+      } catch {
+        /* the style read is best-effort */
+      }
+    }
     let equity: number;
     /**
      * ═══ V36 BOMB POTS (Dan 2026-09-02) ═══════════════════════════════════
@@ -10895,6 +10993,65 @@ export class HorseLogic {
       }
     }
 
+    // STYLE READ #4b: the second estimate and the blend. `styleRaiseDecides`
+    // is the weight when the blend fell under the price laid and replaced the
+    // plain estimate; `styleCommitEligible` marks the cash node where a call
+    // leaves the raiser a quarter of the pot or less (the turn only).
+    let styleRaiseDecides = 0;
+    let styleCommitEligible = false;
+    let styleCommitWhole = 0;
+    if (styleRaiseWeight > 0 && styleRaiseReads) {
+      // The second estimate must not move the random stream: a decision the
+      // blend does not change is the plain decision, draw for draw.
+      const rngVh = saveFastRandom();
+      try {
+        const heavyVh = simulateEquity(
+          player.cards,
+          gs.communityCards,
+          mcOpps,
+          vi,
+          vi.iterations,
+          bands,
+          useAdaptiveMC,
+          undefined,
+          styleRaiseReads,
+          undefined,
+          player.knownDeadCards,
+          undefined
+        );
+        const blendedVh = styleRaiseWeight * heavyVh + (1 - styleRaiseWeight) * equity;
+        const callVh = Math.min(toCall, stack);
+        const bareVh = pot + callVh > 0 ? callVh / (pot + callVh) : 0;
+        const matchedVh = street === 'turn' ? headsUpCashCommitment(player, gs) : null;
+        if (matchedVh && matchedVh.wager.action !== 'call') {
+          const restVh = matchedVh.exposure - callVh;
+          if (
+            restVh > 0 &&
+            restVh <= STYLE_THRESHOLDS.raiseCommitRemainderMaxPot * (pot + callVh)
+          ) {
+            styleCommitEligible = true;
+            styleCommitWhole = matchedVh.exposure / (pot + 2 * matchedVh.exposure - callVh);
+          }
+        }
+        const laidVh = Math.max(bareVh, styleCommitWhole);
+        if (blendedVh < laidVh) {
+          // The plain read covered the price and the blend does not: the
+          // decision changed. Which receipt says what changed it.
+          if (tele15 && equity >= laidVh)
+            noteFire(
+              blendedVh >= bareVh
+                ? 'style_commitment_priced_seen'
+                : 'style_value_raise_respect_seen'
+            );
+          equity = Math.min(equity, blendedVh);
+          styleRaiseDecides = styleRaiseWeight;
+        }
+      } catch {
+        /* the style read is best-effort: the plain estimate stands */
+      } finally {
+        restoreFastRandom(rngVh);
+      }
+    }
     if (captureOutcomes7) {
       // Adaptive MC can return at its first 40% checkpoint. Record that
       // conservative lower bound rather than advertising the requested
@@ -12857,7 +13014,12 @@ export class HorseLogic {
         } else if (equity >= V54_AIR_EQUITY) {
           if (tele15) noteFire('v54_river_bluff_skip_showdown_value');
         } else {
-          const profile54 = v54OpponentProfile(opp54.user_id, useMind, useCounterAdapt);
+          const profile54 = v54OpponentProfile(
+            opp54.user_id,
+            useMind,
+            useCounterAdapt,
+            opts.styleFoldRatePreRepair === true && opts.mind !== false
+          );
           const hist54 = gs.actionHistory ?? [];
           const aggr54 = (a: ActionRecord): boolean =>
             a.action === 'bet' ||
@@ -15508,6 +15670,29 @@ export class HorseLogic {
         postCallSpr86 < 1 ||
         (investedBefore86 > 0 && investedBefore86 / (commitmentStack + investedNow) >= 0.3);
     }
+    // ═══ STYLE READ #4b COMMITMENT PRICE (2026-11-14, same switch) ═══ in
+    // the reviewed hand the call left the raiser 0.13 of the pot: the river
+    // wager was already in the turn decision (the Horse did call it, at a ten
+    // percent price). Against the value raise above, heads-up in a cash pot
+    // on the turn, when a call would leave him at most a quarter of the pot,
+    // the continue is what it is - the whole matched exposure against the pot
+    // it wins (35.1 percent in that hand, where the call alone read 31.25).
+    // A hand whose blended equity is under that price folds. A hand that
+    // continues by today's own bar puts the rest in now instead of calling:
+    // he puts the last chips in only when ahead, and a call leaves him the
+    // free river. That jam also overrides a call-once plan and the
+    // raised-weak-made flat (V21): both exist to stop a hand escalating into
+    // a deeper stack, and here there is no deeper stack - the remaining
+    // quarter pot is the river call the continue already accepted. It never
+    // continues a hand the plain price folded: the bar is at least the plain
+    // bar and the equity at most the plain equity.
+    let styleCommitPrice = 0;
+    const styleCommitNode =
+      styleCommitEligible && raisedAfterAggr && street === 'turn' && !!matchedCommitment;
+    if (styleCommitNode && styleRaiseDecides > 0) {
+      styleCommitPrice = styleCommitWhole / (1 - (callDeductionFraction ?? rakeMarg));
+      committed = true;
+    }
     if (opts.v87DeepDiveDiscipline !== false)
       noteHorseDeepDiveRule(
         'raised_commitment',
@@ -15741,7 +15926,8 @@ export class HorseLogic {
         shade66 +
         shadeDeep86 +
         shade87Omaha +
-        shade87NlhTurnCommit;
+        shade87NlhTurnCommit +
+        Math.max(0, styleCommitPrice - potOdds);
       // PLO6-AUDIT-010: the premiums above are sized for stack-off calls. On
       // a token price they shrink with the price (HorseTokenCallPrice.ts);
       // Omaha high cash on one ordinary board only (no bomb pot, as V88
@@ -15776,6 +15962,22 @@ export class HorseLogic {
       ) {
         if (telemetryOn(opts)) noteFire('token_call_price_river_covered');
         return { action: 'call', amount: toCall, thinkTime: 0 };
+      }
+      // STYLE READ #4b: at the commitment node a hand under the whole price
+      // folds, and a hand that continues by this bar puts the rest in.
+      if (styleCommitNode && matchedCommitment) {
+        if (eq15 >= required) {
+          const flatToday =
+            v66Class ||
+            committedRaisedWeakMade21 ||
+            planCallOnly23 ||
+            (useV21 && dominated21) ||
+            eq15 < 0.42 + mw + dominationPenalty * 0.5;
+          if (tele15 && flatToday) noteFire('style_commitment_priced_seen');
+          if (tele15) noteFire('hu_cash_matched_commitment_wager');
+          return matchedCommitment.wager;
+        }
+        if (styleRaiseDecides > 0) return { action: 'fold', thinkTime: 0 };
       }
       // V66: the bet-raised one-pair class calls or folds at the shaded
       // price; it never jams over the raise and the 0.42 floor (which read
