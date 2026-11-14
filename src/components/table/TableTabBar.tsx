@@ -109,6 +109,13 @@ export interface TabInfo {
    * to decide whether the tab is allowed to move.
    */
   seated?: boolean;
+  /**
+   * Nothing deals the hero at this table (Dan 2026-11-14), as the owning
+   * table page reports it. The quick menu then leads with Sit Down and drops
+   * Sit Out and Leave Table Next Hand, which describe a seat that is not
+   * playing here. Undefined keeps the seated menu.
+   */
+  canSitDown?: boolean;
   /** Reported by the table page while its format and name resolve. */
   isTournament?: boolean;
   tournamentBuyIn?: number;
@@ -200,7 +207,15 @@ export interface TableTabBarProps {
   /** Batch 3: long-press quick actions. */
   onQuickAction?: (
     tabId: string,
-    action: 'sitout' | 'back' | 'leave' | 'leave-next-hand' | 'mute' | 'reload' | 'open-browser'
+    action:
+      | 'sitdown'
+      | 'sitout'
+      | 'back'
+      | 'leave'
+      | 'leave-next-hand'
+      | 'mute'
+      | 'reload'
+      | 'open-browser'
   ) => void;
   /** Batch 3: one-tap sit out / return across every seated table. */
   onSitOutAll?: () => void;
@@ -1141,6 +1156,7 @@ export function TableTabBar({
           // 'lobby:' id. Lobby tabs get exactly what makes sense for them:
           // Move Left/Right and Close.
           const isLobby = isLobbyId(tab.id);
+          const canSitDownHere = !isLobby && tab.canSitDown === true;
           const item = (label: string, fn: () => void, danger = false, disabled = false) => (
             <button
               key={label}
@@ -1165,8 +1181,16 @@ export function TableTabBar({
                 aria-label={`${tab.name} Quick Actions`}
               >
                 <div className="table-tab-bar__qmenu-title">{formatGameTitle(tab.name)}</div>
+                {/* SIT DOWN (Dan 2026-11-14): "IF A USER EVER CLICKS THE
+                    ACTION BAR PILL FOR A GAME, IT SHOULD OPEN THE DROP DOWN
+                    MENU TO 'SIT DOWN'". First, for a table that deals the hero
+                    nothing; the table page picks the door. */}
+                {onQuickAction &&
+                  canSitDownHere &&
+                  item('Sit Down', () => onQuickAction(tab.id, 'sitdown'))}
                 {onQuickAction &&
                   !isLobby &&
+                  !canSitDownHere &&
                   item(tab.sittingOut ? "I'm Back" : 'Sit Out', () =>
                     onQuickAction(tab.id, tab.sittingOut ? 'back' : 'sitout')
                   )}
@@ -1215,6 +1239,7 @@ export function TableTabBar({
                 {onQuickAction &&
                   !isLobby &&
                   !isHubId(tab.id) &&
+                  !canSitDownHere &&
                   item('Leave Table Next Hand', () => onQuickAction(tab.id, 'leave-next-hand'))}
                 {onQuickAction &&
                   (!isLobby || tabs.length > 1) &&

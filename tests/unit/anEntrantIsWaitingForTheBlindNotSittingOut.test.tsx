@@ -90,7 +90,9 @@ describe('what a sat-out seat says', () => {
 
   it('the held-arrival footer scopes Sitting Out to tournaments and offers no return action', () => {
     const page = readFileSync(resolve(__dirname, '../../src/pages/TablePage.tsx'), 'utf8');
-    const bar = sliceBetween(page, '{heroWaitingForButton ? (', ') : lightningRoom');
+    // 2026-11-14: "Joining Lightning..." now opens the footer chain, so this
+    // branch is the second one and no longer starts with the chain's brace.
+    const bar = sliceBetween(page, 'heroWaitingForButton ? (', ') : lightningRoom');
     expect(bar).toContain(
       "tableState.isTournament ? 'Sitting Out' : 'Waiting For The Button To Pass'"
     );

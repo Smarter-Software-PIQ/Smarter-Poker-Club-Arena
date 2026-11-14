@@ -19,9 +19,25 @@
  * player cancels, or when the Cluster is no longer Lightning at all (there is
  * then no pool session to wait for).
  *
- * An existing seated player whose game converts receives an explicit View
- * Game notice the moment the conversion commits (the commit signals the
- * player privately); their tab stays put until they choose it.
+ * An existing seated player whose game converts is carried the same way: THE
+ * TAB FOLLOWS THE CHAIR (Dan 2026-09-05, the must-move re-point), in place,
+ * the moment the conversion commits (the commit signals the player
+ * privately). Their seat is in the pool from that commit on and is dealt
+ * there; the anchor table only ever shows them other people's hands.
+ *
+ * WHY IT NO LONGER WAITS FOR VIEW GAME (Dan 2026-11-14): "I WAS PLAYING
+ * LIGHTNING GAMES AND FOLDED AND WAS MOVED TO THE NEXT HAND... BUT THEN I
+ * WASN'T DEALT IN, IT WAS LIKE I WAS 'OBSERVING'... EVEN AFTER A HARD
+ * REFRESH". Measured on production that morning: PLO4 1/2 converted at
+ * 14:59:32 UTC, and the pool dealt KingFish hands 59297194 and 59297270 while
+ * his tab sat on the feeder table's public projection. Both hands folded on
+ * the clock (38 s each), the second while his own seat showed TIME BANK in
+ * front of him. The View Game notice that was meant to carry him was mounted
+ * in the last branch of the footer chain, behind "Seat Reserved" and "Join
+ * Lightning", so it never rendered at all. A seat whose chips are being dealt
+ * must be shown its hand; waiting for a tap is how a player loses the hand.
+ * `viewReady` remains for the one case the container refuses a re-point (a
+ * player-watch tab), and the room still never moves itself back.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { masterBus } from '../core/MasterBus';
@@ -66,12 +82,16 @@ function poolSessionMayAppear(mode: string | null | undefined): boolean {
 }
 
 export interface LightningAnchorHandoff {
-  /** The buy-in landed and the tab is waiting for the pool session. */
+  /** The buy-in landed (or the game converted) and the tab is on its way to
+   *  the pool session. */
   joining: boolean;
   /** Stop waiting: the intent is forgotten and the table is left as it is. */
   cancel: () => void;
   readyPoolSessionId: string | null;
   viewReady: () => void;
+  /** Ask the database now whether this seat's room is open, and follow it if
+   *  so (the pill's Sit Down, 2026-11-14). No timer: one read per call. */
+  recheck: () => void;
 }
 
 export function useLightningAnchorHandoff(input: {
@@ -84,6 +104,14 @@ export function useLightningAnchorHandoff(input: {
   heroBoughtIn: boolean;
   /** Original seat lookup, independent of the public hand roster. */
   existingAnchorFunded?: boolean;
+  /**
+   * Facts the anchor page already receives that change when its game converts
+   * (the engine starting to project Lightning hands onto this physical room,
+   * the game's own mode read). A change asks the database once more. The room
+   * signal below is a Broadcast and is delivered at most once; on 2026-11-14
+   * nothing else would have asked again. Not a timer: no change, no read.
+   */
+  conversionCue?: string | null;
   /** Re-point this tab at the pool-session room. */
   follow: (poolSessionId: string) => void;
 }): LightningAnchorHandoff {
@@ -101,15 +129,37 @@ export function useLightningAnchorHandoff(input: {
   const readyPoolSessionId = readySession?.identity === identity ? readySession.id : null;
   /* Bumped by cancel(): the effect below re-runs, finds no intent, and stops. */
   const [cancelled, setCancelled] = useState(0);
+  /* The room this tab was carried to for the current identity. One follow per
+     identity and room, whichever path saw the room first (the Join intent's
+     ask, the conversion read, Sit Down or View Game). */
+  const followedRef = useRef<string | null>(null);
+  const followOnce = useCallback(
+    (poolSessionId: string, clusterId: string, forIdentity: string) => {
+      if (identityRef.current !== forIdentity) return;
+      const key = `${forIdentity}|${poolSessionId}`;
+      if (followedRef.current === key) return;
+      followedRef.current = key;
+      /* FIRST-HAND PATH (Lightning Phase 12): the room registers without its
+         felt metadata, which the room's own view asks for once; no round trip
+         stands between the session read and the re-point. */
+      const meta: LightningClusterMeta | null = null;
+      registerLightningPoolSession({ poolSessionId, clusterId, meta });
+      followRef.current(poolSessionId);
+    },
+    []
+  );
   const cancel = useCallback(() => {
     if (tableId) clearLightningEntryIntent(tableId);
     setJoining(false);
     setCancelled((n) => n + 1);
   }, [tableId]);
+  /* The conversion effect's own "read now", for recheck() and the cue. */
+  const readNowRef = useRef<(() => void) | null>(null);
 
   // A seated player can enter Lightning when their existing game converts,
-  // without ever having clicked Join Lightning. Read their pool session and
-  // offer View Game; never switch the tab for them.
+  // without ever having clicked Join Lightning. Read their pool session and,
+  // when it is open on THIS anchor seat, carry the tab to it (see the header:
+  // the tab follows the chair, Dan 2026-09-05 / 2026-11-14).
   //
   // THE TRANSACTION THAT OPENS THE ROOM SAYS SO (20261025025154). This first
   // waited for a realtime UPDATE on `cash_games`, which is not in the
@@ -129,21 +179,37 @@ export function useLightningAnchorHandoff(input: {
     if (!tableId || !clusterId || !input.userId || isPoolSession || !conversionFunded) return;
     let stopped = false;
     let readVersion = 0;
+    /* A READ THAT FAILED IS ASKED AGAIN (2026-11-14). "Could not ask" is not
+       "no room": a 503 during a schema reload or a dropped request used to
+       leave a funded seat on the anchor until some later cue happened to
+       arrive, while the pool dealt it. Only a failure arms this, on the same
+       growing, capped wait the Join path uses; an answered read never does,
+       so a quiet anchor still costs nothing. */
+    let failures = 0;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
     /** Reads the session; true when the room is ready (the reads can stop). */
     const read = async (): Promise<boolean> => {
       const version = ++readVersion;
       try {
         const session = await fetchMyLightningSession(clusterId);
         if (stopped || version !== readVersion || identityRef.current !== identity) return false;
+        failures = 0;
         const ready =
           hasLightningRoom(session) && session.anchorTableId === tableId && session.poolSessionId
             ? { identity, id: session.poolSessionId }
             : null;
         setReadySession(ready);
+        if (ready) followOnce(ready.id, clusterId, identity);
         return ready !== null;
       } catch (err) {
-        if (!stopped)
-          reportError(err, 'lightning.conversion_session_read_failed', { clusterId, tableId });
+        if (stopped || version !== readVersion) return false;
+        reportError(err, 'lightning.conversion_session_read_failed', { clusterId, tableId });
+        failures += 1;
+        if (retryTimer) clearTimeout(retryTimer);
+        retryTimer = setTimeout(() => {
+          retryTimer = null;
+          readNow();
+        }, lightningHandoffDelay(failures));
         return false;
       }
     };
@@ -162,6 +228,7 @@ export function useLightningAnchorHandoff(input: {
         if (ready) found = true;
       });
     };
+    readNowRef.current = readNow;
     const stopSignal = masterBus.subscribe(LIGHTNING_ROOM_OPENED_EVENT, (event) => {
       const { userId: owner, clusterId: signalled } = event.payload;
       if (owner !== userId) return;
@@ -178,21 +245,44 @@ export function useLightningAnchorHandoff(input: {
     });
     return () => {
       stopped = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      if (readNowRef.current === readNow) readNowRef.current = null;
       stopSignal();
       if (typeof document !== 'undefined')
         document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [tableId, input.clusterId, input.userId, isPoolSession, conversionFunded, identity]);
+  }, [
+    tableId,
+    input.clusterId,
+    input.userId,
+    isPoolSession,
+    conversionFunded,
+    identity,
+    followOnce,
+  ]);
+
+  /* A conversion cue changed (the anchor began projecting Lightning hands, or
+     its game's mode read moved): ask once more. The first render is the mount
+     read above, so only a CHANGE asks. */
+  const cue = input.conversionCue ?? null;
+  const lastCueRef = useRef(cue);
+  useEffect(() => {
+    if (lastCueRef.current === cue) return;
+    lastCueRef.current = cue;
+    readNowRef.current?.();
+  }, [cue]);
+
+  const recheck = useCallback(() => {
+    readNowRef.current?.();
+  }, []);
 
   const viewReady = useCallback(() => {
     if (!readyPoolSessionId || !input.clusterId || identityRef.current !== identity) return;
-    registerLightningPoolSession({
-      poolSessionId: readyPoolSessionId,
-      clusterId: input.clusterId,
-      meta: null,
-    });
-    followRef.current(readyPoolSessionId);
-  }, [readyPoolSessionId, input.clusterId, identity]);
+    /* An explicit tap always goes, even when an earlier automatic follow was
+       refused by the container (a player-watch tab): clear the dedupe first. */
+    followedRef.current = null;
+    followOnce(readyPoolSessionId, input.clusterId, identity);
+  }, [readyPoolSessionId, input.clusterId, identity, followOnce]);
 
   useEffect(() => {
     if (!tableId || isPoolSession || !conversionFunded) {
@@ -229,10 +319,8 @@ export function useLightningAnchorHandoff(input: {
              view asks for it once (TablePage), while the engine is already
              forming the first hand. */
           const poolSessionId = session.poolSessionId;
-          const meta: LightningClusterMeta | null = null;
-          registerLightningPoolSession({ poolSessionId, clusterId, meta });
           finish();
-          followRef.current(poolSessionId);
+          followOnce(poolSessionId, clusterId, identity);
           return;
         }
         /* No pool session yet. If the Cluster is not Lightning any more, none
@@ -262,7 +350,7 @@ export function useLightningAnchorHandoff(input: {
       stopped = true;
       if (timer) clearTimeout(timer);
     };
-  }, [tableId, isPoolSession, conversionFunded, cancelled, identity]);
+  }, [tableId, isPoolSession, conversionFunded, cancelled, identity, followOnce]);
 
-  return { joining, cancel, readyPoolSessionId, viewReady };
+  return { joining, cancel, readyPoolSessionId, viewReady, recheck };
 }
