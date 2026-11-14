@@ -43,13 +43,17 @@ function Page(props: {
 }) {
   const [hand, set] = useState(props.initial);
   setHand = set;
-  const waits = lightningLeaveWaitsForHand({
-    inLightningRoom: true,
-    roomClosed: false,
-    handInProgress: hand.handInProgress,
-    handSettling: hand.handSettling,
-    heroStatus: hand.heroStatus,
-  });
+  const waits = lightningLeaveWaitsForHand(
+    hand.ready
+      ? {
+          stage: hand.handInProgress ? 'flop' : 'waiting',
+          hand_id: 'current',
+          players: [{ user_id: 'u1', is_folded: hand.heroStatus === 'folded' }],
+        }
+      : null,
+    hand.handSettling ? 'current' : null,
+    'u1'
+  );
   const queue = useLightningLeaveAfterHand({
     userId: 'u1',
     poolSessionId: 'pool-1',
@@ -62,10 +66,10 @@ function Page(props: {
     <>
       <span data-testid="acting">{waits ? 'acting' : 'idle'}</span>
       <LightningLeaveControl
-        clusterId="cluster"
+        pending={false}
         onLeave={async () => {
-          if (waits) queue.queue();
-          else await props.leave();
+          const stop = await mocks.stop();
+          queue.queue(stop.inHand && !waits);
         }}
         queued={queue.queued}
         onCancel={async () => {
@@ -105,7 +109,7 @@ describe('Lightning Leave Next Hand, the whole lifecycle', () => {
     });
     expect(mocks.stop).toHaveBeenCalledOnce();
     expect(leave).not.toHaveBeenCalled();
-    expect(screen.getByRole('button').textContent).toBe('Leaving After Hand');
+    expect(screen.getByRole('button').textContent).toBe('Leaving After This Hand');
     expect(screen.getByTestId('acting').textContent).toBe('acting');
     expect(storage.map.get(KEY)).toBe('1');
     // The player keeps acting: turns pass, the hand is still live.
@@ -119,6 +123,7 @@ describe('Lightning Leave Next Hand, the whole lifecycle', () => {
   });
 
   it('between hands it leaves at once, nothing queued', async () => {
+    mocks.stop.mockResolvedValue({ ok: true, exited: true, inHand: false });
     const storage = memoryStorage();
     const leave = vi.fn(async () => {});
     render(
@@ -134,6 +139,23 @@ describe('Lightning Leave Next Hand, the whole lifecycle', () => {
     });
     expect(leave).toHaveBeenCalledOnce();
     expect(storage.map.has(KEY)).toBe(false);
+  });
+
+  it('retains an in-hand stop across stale idle snapshots and reload until the reserved deal completes', async () => {
+    const storage = memoryStorage();
+    const leave = vi.fn(async () => {});
+    const props = { storage, leave, resume: vi.fn(), initial: { ...live, handInProgress: false } };
+    const before = render(<Page {...props} />);
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Leave Next Hand' })));
+    expect(storage.map.get(KEY)).toBe('awaiting-hand');
+    before.unmount();
+    render(<Page {...props} />);
+    await act(async () => setHand({ ...props.initial }));
+    expect(leave).not.toHaveBeenCalled();
+    await act(async () => setHand(live));
+    expect(leave).not.toHaveBeenCalled();
+    await act(async () => setHand({ ...live, handSettling: true }));
+    expect(leave).toHaveBeenCalledOnce();
   });
 
   it('a reload mid-hand keeps the queued leave and still leaves when that hand ends', async () => {
@@ -153,7 +175,7 @@ describe('Lightning Leave Next Hand, the whole lifecycle', () => {
         initial={{ ...live, handInProgress: false, ready: false }}
       />
     );
-    expect(screen.getByRole('button').textContent).toBe('Leaving After Hand');
+    expect(screen.getByRole('button').textContent).toBe('Leaving After This Hand');
     expect(leave).not.toHaveBeenCalled();
     await act(async () => setHand(live));
     expect(leave).not.toHaveBeenCalled();
@@ -161,7 +183,7 @@ describe('Lightning Leave Next Hand, the whole lifecycle', () => {
     expect(leave).toHaveBeenCalledOnce();
   });
 
-  it('tapping Leaving After Hand cancels: play resumes, no leave, and the next press stops again', async () => {
+  it('tapping Leaving After This Hand cancels: play resumes, no leave, and the next press stops again', async () => {
     const storage = memoryStorage();
     const leave = vi.fn(async () => {});
     const resume = vi.fn(async () => ({ ok: true }));
@@ -170,7 +192,7 @@ describe('Lightning Leave Next Hand, the whole lifecycle', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Leave Next Hand' }));
     });
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Leaving After Hand' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Leaving After This Hand' }));
     });
     expect(resume).toHaveBeenCalledOnce();
     expect(storage.map.has(KEY)).toBe(false);
@@ -182,7 +204,7 @@ describe('Lightning Leave Next Hand, the whole lifecycle', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Leave Next Hand' }));
     });
     expect(mocks.stop).toHaveBeenCalledTimes(2);
-    expect(screen.getByRole('button').textContent).toBe('Leaving After Hand');
+    expect(screen.getByRole('button').textContent).toBe('Leaving After This Hand');
   });
 
   it('a refused cancel (the hand already ended) keeps the leave', async () => {
@@ -194,7 +216,7 @@ describe('Lightning Leave Next Hand, the whole lifecycle', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Leave Next Hand' }));
     });
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Leaving After Hand' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Leaving After This Hand' }));
     });
     expect(storage.map.get(KEY)).toBe('1');
     await act(async () => setHand({ ...live, handInProgress: false }));

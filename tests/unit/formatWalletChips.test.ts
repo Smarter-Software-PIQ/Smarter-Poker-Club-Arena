@@ -19,7 +19,7 @@ describe('Wallet Amounts', () => {
     expect(formatWalletChips(NaN)).toBe('-');
     expect(formatWalletChips(null)).toBe('-');
   });
-  it('preserves compact statistics', () => expect(compactChips(1250)).toBe('1.2K'));
+  it('preserves compact statistics', () => expect(compactChips(1250)).toBe('1,250'));
 });
 
 describe('Diamond Wallet Amounts', () => {
@@ -28,7 +28,7 @@ describe('Diamond Wallet Amounts', () => {
     [1000, '1,000'],
     [1250, '1,250'],
     [999999, '999,999'],
-    [1000000, '1M'],
+    [1000000, '1,000,000'],
   ])('prints %s as %s', (amount, expected) => {
     expect(formatWalletDiamonds(Number(amount))).toBe(expected);
   });

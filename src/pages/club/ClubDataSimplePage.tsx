@@ -161,12 +161,8 @@ export function formatMoney(n: number | null | undefined): string {
 export function formatTotal(n: number | null | undefined): string {
   const v = Number(n);
   if (!Number.isFinite(v)) return '-';
-  const a = Math.abs(v);
-  if (a < 10_000) return formatMoney(v);
-  const sign = v < 0 ? '-' : '';
-  if (a < 1_000_000)
-    return `${sign}${(Math.floor(a / 100) / 10).toLocaleString('en-US', { maximumFractionDigits: 1 })}K`;
-  return `${sign}${(Math.floor(a / 10_000) / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}M`;
+  // Exact to the cent at every size, never K/M (Dan 2026-11-13).
+  return formatMoney(v);
 }
 
 function inkFor(n: number | null | undefined): string {

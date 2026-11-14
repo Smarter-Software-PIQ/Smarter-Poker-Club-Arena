@@ -237,7 +237,7 @@ describe('1. a Lightning room leaves and adds on through its anchor seat', () =>
     expect(resolver).toContain('lightningAnchorSeat(session)');
     expect(resolver).toContain("return 'unreadable';");
 
-    const leave = sliceMethod(PAGE, 'const handleLeaveTable = async () => {');
+    const leave = sliceMethod(PAGE, 'const handleLeaveTable = async (');
     expect(leave).toContain('await resolveLightningLeave()');
     expect(leave).toMatch(
       // HIT AND RUN (2026-11-06): the confirmation travels as a fifth argument.
@@ -662,7 +662,7 @@ describe('conversion of an already seated player', () => {
     expect(PAGE).toMatch(
       /const heroOwesNothing =\s+lightningOwes !== null\s+\? lightningOwes <= 0\s+: \(tableState\.currentBet \|\| 0\) <=\s+\(tableState\.lastBetAmounts\?\.\[tableState\.heroSeat - 1\] \|\| 0\);/
     );
-    expect(PAGE).toContain('if (lightningFoldBusyRef.current) return;');
+    expect(PAGE).toMatch(/lightningFoldBusyRef\.current === lightningFoldHandId\s*\)\s*return;/);
     expect(PAGE).toContain('lightningFoldOnTurn(engineSnapshotRef.current, userId, kind)');
     expect(PAGE).toContain('preActionFoldOnTurnHandRef.current = queued.handId;');
   });

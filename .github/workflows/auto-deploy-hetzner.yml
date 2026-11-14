@@ -300,6 +300,9 @@ jobs:
       contents: read
     outputs:
       witness: ${{ steps.retired.outputs.witness }}
+      # NOT OBSERVED (late): the freeze began before the spectator attached.
+      # A named third outcome; it never carries a witness.
+      not_observed: ${{ steps.retired.outputs.not_observed || steps.predecessor.outputs.not_observed }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -313,17 +316,24 @@ jobs:
         run: |
           sudo python3 scripts/ci/ubuntu-apt-mirror.py
           npx playwright install --with-deps chromium webkit
+      # The announcement does not wait for this job. A predecessor inside its
+      # announced last hand is still admitted; a freeze already begun, or the
+      # candidate already serving, is NOT OBSERVED (late) and creates no fixture.
       - name: Read predecessor before opening a spectator
-        run: |
-          sha="$(curl -fsS --max-time 10 https://engine.smarter.poker/health | jq -er 'select(.maintenance.active==false) | .releaseSha | select(test("^[a-f0-9]{40}$"))')"
-          echo "EXPECTED_ENGINE_SHA=$sha" >> "$GITHUB_ENV"
+        id: predecessor
+        env:
+          ENGINE_HEALTH_URL: https://engine.smarter.poker/health
+          CUTOVER_SPECTATOR_TARGET: ${{ needs.preflight.outputs.target_sha }}
+        run: node scripts/ci/cutover-spectator-admission.mjs
       - name: Create the reserved spectator
         id: account
+        if: steps.predecessor.outputs.admitted == 'true'
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node scripts/ci/production-e2e-account.mjs create
       - name: Prepare its ordinary zero-balance membership
+        if: steps.predecessor.outputs.admitted == 'true'
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -332,6 +342,7 @@ jobs:
         run: node scripts/ci/production-e2e-account.mjs prepare-spectator
       - name: Observe the natural reconnect and committed hand
         id: observe
+        if: steps.predecessor.outputs.admitted == 'true'
         env:
           BASE_URL: https://smarter.poker/hub/club-arena/
           ARENA_BASE_URL: https://smarter.poker/hub/club-arena
@@ -353,7 +364,8 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           node scripts/ci/production-e2e-account.mjs cleanup
-          if [ -f cutover-spectator.json ]; then echo "witness=$(jq -ce . cutover-spectator.json)" >> "$GITHUB_OUTPUT"; fi
+          if [ -f cutover-spectator.json ]; then echo "witness=$(jq -ce . cutover-spectator.json)" >> "$GITHUB_OUTPUT";
+          elif [ -f cutover-spectator-not-observed.json ]; then echo "not_observed=$(jq -ce . cutover-spectator-not-observed.json)" >> "$GITHUB_OUTPUT"; fi
 
   correlate-cutover-spectator:
     name: Bind spectator evidence to the original sealed release
@@ -368,14 +380,41 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - env:
+      - id: correlate
+        env:
           SEALED_RECEIPT: ${{ needs.deploy.outputs.gameplay_receipt }}
           SPECTATOR: ${{ needs.cutover-spectator.outputs.witness }}
-        run: node scripts/ci/correlate-cutover-spectator.mjs > sealed-spectator.json
-      - uses: actions/upload-artifact@v4
+          SPECTATOR_NOT_OBSERVED: ${{ needs.cutover-spectator.outputs.not_observed }}
+        run: |
+          set +e
+          node scripts/ci/correlate-cutover-spectator.mjs > correlated.json
+          code=$?
+          set -e
+          if [ "$code" -eq 0 ]; then
+            mv correlated.json sealed-spectator.json
+            echo "outcome=sealed" >> "$GITHUB_OUTPUT"
+          elif [ "$code" -eq 3 ]; then
+            # Exit 3 is the named third outcome. It is never a sealed artifact.
+            mv correlated.json spectator-not-observed.json
+            reason="$(jq -er .reason spectator-not-observed.json)"
+            echo "outcome=not-observed" >> "$GITHUB_OUTPUT"
+            echo "::warning::NOT OBSERVED (late): $reason. Spectator continuity for this release is unverified."
+            printf '\nNOT OBSERVED (late): %s\nSpectator continuity for this release is unverified. No sealed-spectator artifact exists.\n' "$reason" >> "$GITHUB_STEP_SUMMARY"
+          else
+            rm -f correlated.json
+            exit "$code"
+          fi
+      - if: steps.correlate.outputs.outcome == 'sealed'
+        uses: actions/upload-artifact@v4
         with:
           name: sealed-spectator-${{ github.run_id }}-${{ github.run_attempt }}
           path: sealed-spectator.json
+          if-no-files-found: error
+      - if: steps.correlate.outputs.outcome == 'not-observed'
+        uses: actions/upload-artifact@v4
+        with:
+          name: spectator-not-observed-${{ github.run_id }}-${{ github.run_attempt }}
+          path: spectator-not-observed.json
           if-no-files-found: error
 
   engine-doors:

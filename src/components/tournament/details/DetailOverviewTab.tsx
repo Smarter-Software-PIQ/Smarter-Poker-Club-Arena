@@ -64,6 +64,7 @@ import type { TournamentTabProps, NormalisedBlindLevel } from './types';
 import {
   chips,
   chipsCompact,
+  stackChips,
   clockText,
   effectivePlaceLadderPool,
   finishedFieldSummary,
@@ -518,12 +519,12 @@ export default function DetailOverviewTab({
       {
         key: 'avg',
         label: 'Avg Stack',
-        value: chipsCompact(field.avgStack),
+        value: stackChips(field.avgStack),
       },
       {
         key: 'total',
         label: 'Total Chips',
-        value: chipsCompact(
+        value: stackChips(
           field.totalChips || field.entries * (Number(tournament?.starting_chips) || 0)
         ),
       },

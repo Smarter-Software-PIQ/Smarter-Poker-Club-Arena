@@ -1,114 +1,88 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ stop: vi.fn(), warning: vi.fn(), report: vi.fn() }));
-vi.mock('../../src/lightning/lightningSessionApi', () => ({ stopLightningPlaying: mocks.stop }));
-vi.mock('../../src/components/common/Toast', () => ({
-  useToast: () => ({ warning: mocks.warning }),
-}));
-vi.mock('../../src/utils/errorReporter', () => ({ reportError: mocks.report }));
-import { LightningLeaveControl } from '../../src/components/lightning/LightningLeaveControl';
+import { act, cleanup, renderHook } from '@testing-library/react';
+import { afterEach, expect, it, vi } from 'vitest';
+import { useLightningFinalDeal } from '../../src/lightning/useLightningFinalDeal';
+
 afterEach(() => {
   cleanup();
-  vi.resetAllMocks();
+  localStorage.clear();
 });
-const accepted = { ok: true, stopping: true, exited: false, inHand: true, reason: null };
 
-describe('Lightning stand up stops re-entry before leaving', () => {
-  it('persists stop first and collapses repeated presses while it waits', async () => {
-    let answer!: (r: typeof accepted) => void;
-    mocks.stop.mockReturnValue(
-      new Promise((resolve) => {
-        answer = resolve;
-      })
-    );
-    const leave = vi.fn(async () => {});
-    const intent = vi.fn();
-    render(
-      <LightningLeaveControl clusterId="cluster" onLeave={leave} onLeaveIntentChange={intent} />
-    );
-    fireEvent.click(screen.getByRole('button', { name: 'Leave Next Hand' }));
-    fireEvent.click(screen.getByRole('button'));
-    expect(mocks.stop).toHaveBeenCalledExactlyOnceWith('cluster');
-    expect(leave).not.toHaveBeenCalled();
-    expect(intent).toHaveBeenCalledExactlyOnceWith(true);
-    expect(intent.mock.invocationCallOrder[0]).toBeLessThan(mocks.stop.mock.invocationCallOrder[0]);
-    await act(async () => {
-      answer(accepted);
-    });
-    expect(leave).toHaveBeenCalledOnce();
+it.each([null, 41])(
+  'keeps matchmaking open through idle and replayed snapshots (%s)',
+  async (initial) => {
+    const stop = vi.fn(async () => {});
+    const props = {
+      userId: 'hero',
+      anchor: { tableId: 'physical', occupancyId: 'seat-occ' },
+      currentHand: 41,
+      presentedHand: initial as number | null,
+      roomClosed: false,
+      onPresented: stop,
+      onError: vi.fn(),
+    };
+    const first = renderHook(useLightningFinalDeal, { initialProps: props });
+    act(() => first.result.current.queue());
+    first.unmount();
+    const view = renderHook(useLightningFinalDeal, { initialProps: props });
+    expect(view.result.current.queued).toBe(true);
+    view.rerender({ ...props, presentedHand: 41 });
+    view.rerender({ ...props, currentHand: 42, presentedHand: null });
+    expect(stop).not.toHaveBeenCalled();
+    await act(async () => view.rerender({ ...props, currentHand: 42, presentedHand: 42 }));
+    expect(stop).toHaveBeenCalledOnce();
+    expect(view.result.current.queued).toBe(false);
+  }
+);
+
+it('cancels before the final deal without stopping matchmaking', () => {
+  const props = {
+    userId: 'hero',
+    anchor: { tableId: 'physical', occupancyId: 'seat-occ' },
+    currentHand: 1,
+    presentedHand: 1,
+    roomClosed: false,
+    onPresented: vi.fn(),
+    onError: vi.fn(),
+  };
+  const view = renderHook(useLightningFinalDeal, { initialProps: props });
+  act(() => view.result.current.queue());
+  act(() => view.result.current.cancel());
+  view.rerender({ ...props, currentHand: 2, presentedHand: 2 });
+  expect(props.onPresented).not.toHaveBeenCalled();
+});
+
+it('follows the same physical seat into a pool and isolates every other occupancy', async () => {
+  const stop = vi.fn(async () => {});
+  const anchor = { tableId: 'feeder', occupancyId: 'owned-occupancy' };
+  const props = {
+    userId: 'owner',
+    anchor,
+    currentHand: 48,
+    presentedHand: null as number | null,
+    roomClosed: false,
+    onPresented: stop,
+    onError: vi.fn(),
+  };
+  const first = renderHook(useLightningFinalDeal, { initialProps: props });
+  act(() => first.result.current.queue());
+  first.unmount();
+  const room = renderHook(useLightningFinalDeal, {
+    initialProps: {
+      ...props,
+      anchor: null as typeof anchor | null,
+      currentHand: 49,
+      presentedHand: 49,
+    },
   });
-  it.each([null, { ...accepted, ok: false }])(
-    'keeps the leave open when stop is unconfirmed: %s',
-    async (result) => {
-      mocks.stop.mockResolvedValue(result);
-      const leave = vi.fn(async () => {});
-      const intent = vi.fn();
-      render(
-        <LightningLeaveControl clusterId="cluster" onLeave={leave} onLeaveIntentChange={intent} />
-      );
-      await act(async () => {
-        fireEvent.click(screen.getByRole('button'));
-      });
-      expect(leave).not.toHaveBeenCalled();
-      expect(intent.mock.calls).toEqual([[true], [false]]);
-      expect(mocks.warning).toHaveBeenCalledOnce();
-      expect((screen.getByRole('button') as HTMLButtonElement).disabled).toBe(false);
-    }
-  );
-  it('does not navigate a different room after unmounting while stop is in flight', async () => {
-    let answer!: (r: typeof accepted) => void;
-    mocks.stop.mockReturnValue(
-      new Promise((resolve) => {
-        answer = resolve;
-      })
-    );
-    const leave = vi.fn(async () => {});
-    const view = render(<LightningLeaveControl clusterId="cluster" onLeave={leave} />);
-    fireEvent.click(screen.getByRole('button'));
-    view.unmount();
-    await act(async () => {
-      answer(accepted);
-    });
-    expect(leave).not.toHaveBeenCalled();
-  });
-  it('retains the accepted stop when cash-out needs another explicit attempt', async () => {
-    mocks.stop.mockResolvedValue(accepted);
-    const leave = vi
-      .fn()
-      .mockRejectedValueOnce(new Error('Cash-out unavailable'))
-      .mockResolvedValueOnce(undefined);
-    render(<LightningLeaveControl clusterId="cluster" onLeave={leave} />);
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button'));
-    });
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button'));
-    });
-    expect(mocks.stop).toHaveBeenCalledOnce();
-    expect(leave).toHaveBeenCalledTimes(2);
-    expect(mocks.report).toHaveBeenCalledOnce();
-  });
-  it('shows Leaving After Hand and refuses another press while the leave waits for the hand', () => {
-    render(<LightningLeaveControl clusterId="cluster" onLeave={vi.fn()} queued />);
-    const button = screen.getByRole('button', { name: 'Leaving After Hand' }) as HTMLButtonElement;
-    expect(button.disabled).toBe(true);
-    fireEvent.click(button);
-    expect(mocks.stop).not.toHaveBeenCalled();
-  });
-  it('a queued leave with a cancel door is tappable and cancels instead of leaving', async () => {
-    const onCancel = vi.fn(async () => true);
-    const leave = vi.fn();
-    render(
-      <LightningLeaveControl clusterId="cluster" onLeave={leave} queued onCancel={onCancel} />
-    );
-    const button = screen.getByRole('button', { name: 'Leaving After Hand' }) as HTMLButtonElement;
-    expect(button.disabled).toBe(false);
-    expect(button.title).toBe('Tap To Keep Playing');
-    await act(async () => {
-      fireEvent.click(button);
-    });
-    expect(onCancel).toHaveBeenCalledOnce();
-    expect(leave).not.toHaveBeenCalled();
-    expect(mocks.stop).not.toHaveBeenCalled();
-  });
+  for (const unrelated of [
+    { userId: 'other', anchor },
+    { userId: 'owner', anchor: { ...anchor, tableId: 'other-table' } },
+    { userId: 'owner', anchor: { ...anchor, occupancyId: 'replacement-occupancy' } },
+  ]) {
+    room.rerender({ ...props, ...unrelated, currentHand: 49, presentedHand: 49 });
+    expect(room.result.current.queued).toBe(false);
+  }
+  expect(stop).not.toHaveBeenCalled();
+  await act(async () => room.rerender({ ...props, currentHand: 49, presentedHand: 49 }));
+  expect(stop).toHaveBeenCalledOnce();
 });

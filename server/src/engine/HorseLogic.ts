@@ -47,6 +47,7 @@ import {
   tokenCallPriceApplies,
   tokenCallRequiredEquity,
 } from './HorseTokenCallPrice.js';
+import { plo6TopSetIsCurrentNuts } from './HorsePlo6TopSetNut.js';
 import { horsePolicyRegistration, horsePolicyOwnership } from './HorsePolicyRegistry.js';
 import { hasHorseReviewSignals } from './HorseReviewSignals.js';
 import { evaluateJointLivePolicy } from './multiway/JointLivePolicy.js';
@@ -210,6 +211,8 @@ import {
   postflopFoldBluffScale,
   valueExtraction,
   raiseRespectShade,
+  valueRaiseSizeWeight,
+  valueRaiseWeight,
   tightOpenerRespect,
   tightReRaiserRespect,
   type TightReRaiser,
@@ -285,9 +288,11 @@ import {
 } from './HorseGtoOpeningRanges.js';
 import {
   huBbEquityVsOpener,
+  huDefenceWidthPct,
   HU_BB_MAX_OPEN_BB,
   HU_BB_MAX_STACK_BB,
   HU_BB_MIN_STACK_BB,
+  HU_LIMP_MAX_RAISE_BB,
 } from './HorseHuBbDefence.js';
 import { gtoDefence, V72_MAX_OPEN_BB } from './HorseGtoDefenceRanges.js';
 import {
@@ -320,7 +325,7 @@ import {
   type TournamentMState,
   type TournamentPreflopPolicyInput,
 } from './HorseTournamentPreflop.js';
-import { potLimitRaiseTo } from './BettingStructure.js';
+import { fixedLimitStreetBounds, potLimitRaiseTo } from './BettingStructure.js';
 import { omahaTournamentPressure } from './HorseOmahaTournamentPressure.js';
 import { reportError } from '../services/errorReporter.js';
 import {
@@ -2624,6 +2629,15 @@ export interface HorseDecideOpts {
    * docs/horse-default-on.d/plo6ManiacPriceRefusalToRangePlay.md). Default
    * on; false only for the regression's non-vacuity control. */
   plo6ManiacPriceRefusalToRangePlay?: boolean;
+  /** PLO6 cash, one board, no bomb pot: in the solverless flop/turn call
+   * menu a top set that is the current nuts (board unpaired, no three of a
+   * suit, no three ranks in any five-rank window; HorsePlo6TopSetNut.ts) is
+   * priced at full realization instead of the out-of-position non-draw
+   * discount (PLO6-AUDIT P6-4: realization 0.75 folded the nuts at a
+   * one-third price multiway). OPT-IN, default off: five reconstructed cases
+   * in two days, Horse-only; activation needs its own evaluation and a
+   * docs/horse-default-on.d evidence file. Read as `=== true`. */
+  plo6TopSetNutRealization?: boolean;
   /** An Omaha preflop call of 40% of the stack with chips behind and an
    * opponent still to act is not priced as a final all-in call
    * (PLO6-AUDIT-005). OPT-IN, default off. The pricing gap is real (the
@@ -2769,6 +2783,28 @@ export interface HorseDecideOpts {
    *  six-max and tournaments unchanged. Default OFF: only explicit true turns
    *  it on (league hu_bb_defends_to_price). */
   huBbDefendsToPrice?: boolean;
+  /** HU OPENER DEFENDS TO ITS PRICE (2026-11-14, HU-NLH-010,
+   *  HorseHuBbDefence): heads-up no-limit hold'em cash, hero made the only
+   *  open and faces exactly one 3-bet of 1.8x-7x that is not all in, 20-150bb
+   *  effective: a hand the opener's bars fold calls when its all-in equity
+   *  against the 3-bettor's range (the opponent read's re-raise share when
+   *  engaged and 20% or wider, else the 20% reference; a narrower read stands
+   *  the rule aside), times the 0.85 realisation, covers the rake-aware pot
+   *  odds. Widen-only and call-only; 4-bets, jams, three or more dealt and
+   *  tournaments unchanged. Default OFF: only explicit true turns it on
+   *  (league human_hu_opener_defends_vs_threebet_40bb). */
+  huOpenerDefendsToPrice?: boolean;
+  /** HU LIMPER DEFENDS TO ITS PRICE (2026-11-14, HU-NLH-011,
+   *  HorseHuBbDefence): heads-up no-limit hold'em cash, hero limped the small
+   *  blind and faces exactly one raise to 6bb or less that is not all in,
+   *  20-150bb effective: the limp the bars fold calls when its all-in equity
+   *  against the raiser's range (the 20% reference, never widened by a read;
+   *  an engaged raise read narrower than 20% stands the rule aside), times
+   *  the 0.8 realisation, covers the rake-aware pot odds.
+   *  Widen-only and call-only; the limp itself, limp-raises, three or more
+   *  dealt and tournaments unchanged. Default OFF: only explicit true turns
+   *  it on (league human_hu_limp_defends_vs_minraise_40bb). */
+  huLimpDefendsToPrice?: boolean;
   /** FULL-RING FACING-ACTION ZONE (2026-11-07): four or more dealt,
    *  no-limit hold'em facing action reads the <= 15bb jam-or-fold zone V82
    *  gave two- and three-handed tables, instead of the table-scaled M zone
@@ -3092,6 +3128,16 @@ export interface HorseDecideOpts {
    *  (HorseOpponentStyle streetRaise; the reference counts only when its own
    *  standard error is at most half the street-raise margin, at least 200
    *  opportunities; no reference, no engagement).
+   *  #4b (2026-11-14), same switch: in cash, heads-up, on the turn and river
+   *  (never the flop), two pair or worse that bet and was raised by a
+   *  credibly passive player (postflop betting share credibly low, a real
+   *  sample of his own raise chances; no showdown memory) blends in an
+   *  estimate against a value-raise stratum, by his street raise rate and
+   *  the raise size, and that blend decides only when it is under the price
+   *  laid. On the turn, when the call would leave him a quarter of the pot
+   *  or less, the price is the whole commitment and a hand that continues
+   *  puts the rest in. Receipts style_value_raise_respect_seen and
+   *  style_commitment_priced_seen.
    *  Receipt style_raise_respect_seen. Default off; explicit true only. */
   styleRaiseRespect?: boolean;
   /** STYLE READ #6 (2026-11-13): a credibly tight opener or re-raiser is
@@ -4351,6 +4397,64 @@ function capturePhase7Equity(
   };
 }
 
+/**
+ * Does the controller execute this menu's all-in button as a wager of the
+ * whole stack, although it offers no sized bet or raise? True only for the
+ * stack above the call and below the minimum wager, in pot limit and fixed
+ * limit (no-limit builds its jam without being told).
+ *
+ * HandController.getAvailableActions offers `all_in` only when its own clamp
+ * accepts it, and getAuthoritativeActionState withholds the sized wager (both
+ * bounds null) when the stack cannot reach the minimum. In pot limit an
+ * all-in above the pot cap is advertised only as a legal raise to the cap, so
+ * the sized wager is then on the menu too: the button without a sized wager is
+ * always the whole stack. In fixed limit the same menu is also shown on a
+ * capped street and to a seat that may not reopen, where the clamp turns the
+ * button into a call, so the clamp's own test decides it
+ * (HandController.clampToStructure): the street is not capped and the whole
+ * stack reaches no further than the standing bet plus the street's legal
+ * increment. Anything unknown answers false, which is the candidate set as it
+ * was.
+ */
+export function phase7ShortAllInWagers(
+  gs: HorseGameStateV2,
+  player: SeatPlayer,
+  structure: 'no_limit' | 'pot_limit' | 'fixed_limit'
+): boolean {
+  const legal = gs.legalActions;
+  if (
+    structure === 'no_limit' ||
+    gs.stateSchemaVersion !== 1 ||
+    gs.allInOrFold === true ||
+    !Array.isArray(legal) ||
+    !legal.includes('all_in') ||
+    legal.includes('bet') ||
+    legal.includes('raise') ||
+    (gs.minRaiseTo ?? null) !== null ||
+    (gs.maxRaiseTo ?? null) !== null
+  )
+    return false;
+  const toCall = Math.max(0, Number(gs.toCall ?? gs.currentBet - player.bet) || 0);
+  if (!(player.stack > toCall + 0.005)) return false;
+  if (structure === 'pot_limit') return true;
+  const betSize = gs.fixedBetSize;
+  if (
+    gs.wagersCapped !== false ||
+    !Array.isArray(gs.actionHistory) ||
+    typeof betSize !== 'number' ||
+    !(betSize > 0) ||
+    !Number.isFinite(gs.currentBet)
+  )
+    return false;
+  const increment = fixedLimitStreetBounds(
+    gs.actionHistory,
+    gs.stage,
+    betSize,
+    gs.currentBet
+  ).raiseSize;
+  return player.bet + player.stack <= gs.currentBet + increment + 0.005;
+}
+
 function buildPhase7UtilityInput(
   gs: HorseGameStateV2,
   player: SeatPlayer,
@@ -4362,6 +4466,9 @@ function buildPhase7UtilityInput(
 ): TournamentUtilityInput {
   if (!gs.pots || !gs.legalActions) throw new Error('joint_utility_canonical_state_unavailable');
   const toCall = Math.max(0, gs.currentBet - player.bet);
+  const bettingStructure =
+    gs.bettingStructure ??
+    (vi.isFixedLimit ? 'fixed_limit' : vi.isPotLimit ? 'pot_limit' : 'no_limit');
   return {
     v86AsymmetricIcmAndPreflop: opts?.v86UnblockedPreflop !== false,
     // Tournament stacks and awards use whole chips. Model the same button-
@@ -4381,9 +4488,15 @@ function buildPhase7UtilityInput(
     legalActions: gs.legalActions,
     minRaiseTo: gs.minRaiseTo ?? null,
     maxRaiseTo: gs.maxRaiseTo ?? null,
-    bettingStructure:
-      gs.bettingStructure ??
-      (vi.isFixedLimit ? 'fixed_limit' : vi.isPotLimit ? 'pot_limit' : 'no_limit'),
+    bettingStructure,
+    // The short stack's shove through the all-in button is priced as the
+    // wager the controller executes, not left out of the candidates. Only
+    // when the reference decision IS that shove: a jam added beside a
+    // reference fold or call is a near twin of the call, the two overlap in
+    // the arbiter's uncertainty gate and an override of the fold is lost.
+    ...(decision.action === 'all_in' && phase7ShortAllInWagers(gs, player, bettingStructure)
+      ? { shortAllInWagers: true }
+      : {}),
     baseline: decision,
     heroEquity: evidence7.equity,
     equitySampleSize: evidence7.sampleSize,
@@ -4654,6 +4767,11 @@ const nearNutChosenRaises = new WeakSet<HorseDecision>();
 let barrelOutlookRiverPending = false;
 // v53PloTourneyIcm receipt state: the ICM shifts changed the reference choice.
 let v53IcmAppliedPending = false;
+// huOpenerDefendsToPrice / huLimpDefendsToPrice receipt state: the preflop
+// intent turned a fold into a call. The receipt fires only if the final
+// decision is still that call (a later owner, e.g. the dominated-offsuit
+// 3-bet fold above 20bb effective, may fold it back). Receipt only.
+let huDefendToPricePending: 'hu_opener_defends_to_price' | 'hu_limp_defends_to_price' | null = null;
 // The near-nut candidate kept a raise the PLO6 flat rule would have flatted.
 let nearNutFlatExceptionUsed = false;
 // barrelContinuationOutlook changed the reference choice; judged at the end.
@@ -5851,10 +5969,12 @@ export const V54_PROFILE_FACTOR = { folder: 1, neutral: 0.8, unknown: 0.6 } as c
 // Capture before legalization copies the decision; never serialize this intent.
 const v54StationChecks = new WeakSet<HorseDecision>();
 
-function v54OpponentProfile(
+export function v54OpponentProfile(
   userId: string,
   useMind: boolean,
-  recencyBlend: boolean
+  recencyBlend: boolean,
+  // STYLE READ, PRE-REPAIR (2026-11-14): the fold-rate stand-down reaches this read too; absent = as before
+  preRepairFoldRate: boolean = false
 ): 'station' | 'folder' | 'neutral' | 'unknown' {
   if (!useMind) return 'unknown';
   try {
@@ -5862,7 +5982,11 @@ function v54OpponentProfile(
     if (isStation(read)) return 'station';
     const rfr = HorseMind.riverFoldRate(userId);
     if (rfr !== null && rfr < 0.35) return 'station';
-    const bluffMod = HorseMind.exploit(userId, recencyBlend).bluffMod;
+    const bluffMod = (
+      preRepairFoldRate
+        ? HorseMind.exploit(userId, recencyBlend, { styleFoldRatePreRepair: true })
+        : HorseMind.exploit(userId, recencyBlend)
+    ).bluffMod;
     if (bluffMod < 0.95) return 'station';
     if ((rfr !== null && rfr >= 0.5) || bluffMod > 1.05) return 'folder';
     if (rfr !== null || read !== null || bluffMod !== 1) return 'neutral';
@@ -6241,6 +6365,7 @@ export class HorseLogic {
     } finally {
       barrelOutlookRiverPending = false;
       v53IcmAppliedPending = false;
+      huDefendToPricePending = null;
       nearNutFlatExceptionUsed = false;
       barrelOutlookAppliedPending = false;
       phase7EquityEvidence = null;
@@ -6267,6 +6392,7 @@ export class HorseLogic {
     phase12DecisionEquityCeiling = null;
     barrelOutlookRiverPending = false;
     v53IcmAppliedPending = false;
+    huDefendToPricePending = null;
     nearNutFlatExceptionUsed = false;
     barrelOutlookAppliedPending = false;
     // Authored JSON and older direct callers can supply arbitrary strings.
@@ -6506,6 +6632,8 @@ export class HorseLogic {
     const nearNutChosen = nearNutChosenRaises.delete(decision) && nearNutReference !== null;
     const v53IcmApplied = v53IcmAppliedPending;
     v53IcmAppliedPending = false;
+    const huDefendToPrice = huDefendToPricePending;
+    huDefendToPricePending = null;
     const barrelOutlookApplied = barrelOutlookAppliedPending;
     barrelOutlookAppliedPending = false;
     const v54StationCheck = v54StationChecks.has(decision);
@@ -6789,6 +6917,13 @@ export class HorseLogic {
                   noteFire(`phase7_objective_${result.ledger.objective}`);
                   noteFire(`phase7_icm_${result.ledger.icmMethod}`);
                   if (result.ledger.overrodeBaseline) noteFire('phase7_utility_override');
+                  // The reference short shove (priced through shortAllInWagers),
+                  // countable by variant: priced, and replaced by the utility.
+                  if (phase8UtilityInput.shortAllInWagers === true) {
+                    noteFire(`phase7_short_shove_priced_${gs.gameVariant}_seen`);
+                    if (selected.action !== 'all_in')
+                      noteFire(`phase7_short_shove_replaced_${gs.gameVariant}_seen`);
+                  }
                   if (result.ledger.sidePotCount > 1) noteFire('phase7_side_pot');
                   if (result.ledger.playersBehind.length > 0) noteFire('phase7_players_behind');
                   if (result.ledger.objective === 'pko') noteFire('phase7_bounty_utility');
@@ -7146,12 +7281,16 @@ export class HorseLogic {
                   if (jointPolicy.receipt.mode === 'candidate') {
                     if (earlierApplied && !this.sameJointAction(selected, beforePhase13))
                       selectionRefusal = 'earlier_phase_applied';
-                    else
+                    else {
                       decision = {
                         ...beforePhase13,
                         ...selected,
                         tournamentUtility: evaluated.result.ledger,
                       };
+                      // The same receipt when this owner replaces the shove.
+                      if (tele && input.shortAllInWagers === true && selected.action !== 'all_in')
+                        noteFire(`phase7_short_shove_replaced_${gs.gameVariant}_seen`);
+                    }
                   }
                 } else {
                   jointPolicy.receipt.utilityOwner = 'phase7_unavailable';
@@ -7399,6 +7538,21 @@ export class HorseLogic {
         (decision.amount ?? null) !== (beforePhase10.amount ?? null))
     )
       noteFire('v53_plo_icm_superseded');
+    // huOpenerDefendsToPrice / huLimpDefendsToPrice: the call they made counts
+    // only if it is still the final action (a call, or a call for the whole stack).
+    if (
+      huDefendToPrice &&
+      tele &&
+      (decision.action === 'call' ||
+        (decision.action === 'all_in' &&
+          (player.bet || 0) + player.stack <= (gs.currentBet || 0) + 1e-9))
+    )
+      // Literal keys: the ledger contract finds each receipt by its noteFire call.
+      noteFire(
+        huDefendToPrice === 'hu_opener_defends_to_price'
+          ? 'hu_opener_defends_to_price'
+          : 'hu_limp_defends_to_price'
+      );
     // The reference choice a skill changed must survive every later owner to
     // count as applied; a later owner that replaced it superseded it.
     const referenceKept =
@@ -9177,6 +9331,62 @@ export class HorseLogic {
       const equity = huBbEquityVsOpener(cls, widthPct);
       return equity === null ? undefined : { equity };
     })();
+    // ═══ HU OPENER / LIMPER DEFEND TO THEIR PRICE (2026-11-14, HU-NLH-010
+    // and HU-NLH-011, both default off) ═══ two dealt in, hero the small
+    // blind whose open was 3-bet or whose limp was raised: the class's equity
+    // against the raiser's range (HorseHuBbDefence: the 20% reference, for
+    // the opener the read's re-raise share when engaged; no column for a
+    // narrower read). The price itself is read in HorsePreflop against this
+    // equity.
+    const huRaiserPrice = (kind: 'opener' | 'limper') => {
+      if (callers !== 0 || lastRaiserSeat < 0 || player.cards.length !== 2) return undefined;
+      if (vi.isOmaha || vi.isShortDeck || vi.isFixedLimit || vi.isPotLimit) return undefined;
+      if (isTournamentMode(gs) || gs.allInOrFold === true || gs.straddleActive === true)
+        return undefined;
+      if (gs.bombPot) return undefined;
+      if (dealtHorseTableSize(gs, player.seat) !== 2) return undefined;
+      // Hero's open or limp is its only voluntary preflop action so far.
+      const heroActs = history.filter(
+        (a) => a.seat === player.seat && a.action !== 'fold' && a.action !== 'check'
+      );
+      if (heroActs.length !== 1) return undefined;
+      if (kind === 'limper' && heroActs[0].action !== 'call') return undefined;
+      const raiser = gs.players.find((p) => p.seat === lastRaiserSeat);
+      if (!raiser || raiser.is_all_in || raiser.user_id === player.user_id) return undefined;
+      if (!(player.bet > 0) || !(bb > 0)) return undefined;
+      if (kind === 'opener') {
+        const threeBetX = gs.currentBet / player.bet;
+        if (!(threeBetX >= V73_MIN_THREEBET_X && threeBetX <= V73_MAX_THREEBET_X)) return undefined;
+      } else {
+        const raiseToBB = gs.currentBet / bb;
+        if (!(raiseToBB > 1.05 && raiseToBB <= HU_LIMP_MAX_RAISE_BB)) return undefined;
+      }
+      const effBB = Math.min(player.stack + player.bet, raiser.stack + raiser.bet) / bb;
+      if (effBB < HU_BB_MIN_STACK_BB || effBB > HU_BB_MAX_STACK_BB) return undefined;
+      const cls = holdemClass(player.cards[0], player.cards[1]);
+      if (!cls) return undefined;
+      let readShare: number | null = null;
+      if (opts.mind !== false) {
+        try {
+          const read = HorseMind.opponentRead(raiser.user_id);
+          readShare = kind === 'opener' ? reRaiseWidth(read) : openerRangeWidth(read);
+        } catch {
+          readShare = null;
+        }
+      }
+      const widthPct = huDefenceWidthPct(readShare, kind === 'opener');
+      if (widthPct === null) return undefined;
+      const equity = huBbEquityVsOpener(cls, widthPct);
+      return equity === null ? undefined : { equity };
+    };
+    const huOpenerPrice =
+      opts.huOpenerDefendsToPrice === true && raises === 2 && limpers === 0 && heroWasInitialRaiser
+        ? huRaiserPrice('opener')
+        : undefined;
+    const huLimpPrice =
+      opts.huLimpDefendsToPrice === true && raises === 1 && limpers === 1 && !heroWasInitialRaiser
+        ? huRaiserPrice('limper')
+        : undefined;
     const intentCtx7: Parameters<typeof decidePreflopV7>[0] = {
       // V90 needs the table engine's explicit mode. The legacy "big blind of
       // ten or more means a tournament" guess for callers that pass no mode
@@ -9195,6 +9405,8 @@ export class HorseLogic {
           }
         : {}),
       ...(huBbPrice ? { huBbPrice } : {}),
+      ...(huOpenerPrice ? { huOpenerPrice } : {}),
+      ...(huLimpPrice ? { huLimpPrice } : {}),
       ...(opts.committedStackPricedIn === true
         ? { committedStackPricedIn: true, committedPayJumpLive: committedPayJumpLive(gs) }
         : {}),
@@ -9891,6 +10103,12 @@ export class HorseLogic {
       if (intent.receipt === 'v74_nlh_open_size') noteFire('v74_nlh_open_size');
       else if (intent.receipt === 'cash_nlh_three_bet_size') noteFire('cash_nlh_three_bet_size');
       else if (intent.receipt === 'hu_bb_defends_to_price') noteFire('hu_bb_defends_to_price');
+      // Deferred: fired in decideInternal only if the final decision is still the call.
+      else if (
+        intent.receipt === 'hu_opener_defends_to_price' ||
+        intent.receipt === 'hu_limp_defends_to_price'
+      )
+        huDefendToPricePending = intent.receipt;
       else if (intent.receipt === 'committed_stack_priced_in')
         noteFire('committed_stack_priced_in_seen');
       else if (intent.receipt === 'v76_retired_four_bet_bluff')
@@ -10746,6 +10964,86 @@ export class HorseLogic {
         if (tele15) noteFire('v67_river_raise_stratum');
       }
     }
+    // ═══ STYLE READ #4b VALUE RAISE (2026-11-14; the styleRaiseRespect
+    // switch) ═══ A reviewed cash hand: top two pair bet the turn, the board
+    // had brought a four-card straight, a passive regular check-raised to
+    // four times the bet leaving 0.13 of the pot behind, and the Horse called
+    // the raise and the rest against the nut straight. The V66 raise stratum
+    // stops at one pair, so two pair on an unpaired board kept the
+    // any-contact read (62 percent); raise respect (#4) stood down at that
+    // depth and for that class; and the call was priced without the river
+    // money already in it.
+    // With the switch on: single-board no-limit hold'em, CASH, heads-up, the
+    // TURN or the RIVER (never the flop), hero bet (or raised) this street
+    // and was raised, holding two pair or worse (and no real draw on the
+    // turn), and the raiser's own read is credibly passive on its postflop
+    // half with a real sample of raise chances
+    // (HorseOpponentStyle.valueRaiseWeight). A second estimate samples his
+    // hand from the value-raise stratum; the two are blended by the read's
+    // weight times the raise-size weight (full from three times the bet,
+    // half at a min-raise). The blend decides ONLY when it is under the
+    // price actually laid; otherwise the plain estimate stands and the
+    // decision is today's. It can only lower the equity of a call. Unknown,
+    // neutral and aggressive reads, a measured over-bluffer (callDownMod
+    // above 1), a thin sample, a street with no Horse raise-rate reference,
+    // tournaments (the stratum is unvalidated and the chip-utility arbiter
+    // prices survival, which it does not carry) and the flop change nothing.
+    let styleRaiseWeight = 0;
+    let styleRaiseReads: Array<OppPostflopRead | null> | undefined;
+    const armVh =
+      opts.styleRaiseRespect === true ? 'on' : styleShadowArm(opts, 'styleRaiseRespect');
+    if (
+      armVh !== null &&
+      useMind &&
+      facingBet &&
+      (street === 'turn' || isRiver) &&
+      !isTournamentMode(gs) &&
+      !vi.isOmaha &&
+      !vi.isShortDeck &&
+      vi.holeCount === 2 &&
+      player.cards.length === 2 &&
+      !vi.isFixedLimit &&
+      extraBoards.length === 0 &&
+      gs.bombPot !== true &&
+      exploit.callDownMod <= 1 &&
+      opponents.length === 1 &&
+      player.bet > 0 &&
+      oppReads &&
+      oppReads.some((read) => read?.raised === true && read.lastStage === street) &&
+      (gs.actionHistory ?? []).some(
+        (a) =>
+          a.stage === street &&
+          a.userId === player.user_id &&
+          (a.action === 'bet' || a.action === 'raise')
+      ) &&
+      (isRiver || !holdemRealDraw(player.cards, gs.communityCards))
+    ) {
+      try {
+        const catVh = bestTwoCardCategory(player.cards, gs.communityCards, vi);
+        if (catVh > 0 && catVh <= 3) {
+          const vhStyle = HorseMind.styleRead(opponents[0].user_id);
+          const weightVh =
+            valueRaiseWeight(vhStyle, isRiver ? 'river' : 'turn') *
+            valueRaiseSizeWeight(Number(gs.currentBet) / player.bet);
+          if (weightVh > 0) {
+            if (armVh === 'shadow')
+              noteStyleShadowEngaged('styleRaiseRespect', vhStyle.confidenceCap);
+            else {
+              styleRaiseWeight = weightVh;
+              styleRaiseReads = oppReads.map((read) =>
+                read && read.raised === true && read.lastStage === street
+                  ? isRiver
+                    ? { ...read, riverPolar: false, raisePolar67: true, raiseValueHeavy: true }
+                    : { ...read, raisePolar66: true, raiseValueHeavy: true }
+                  : read
+              );
+            }
+          }
+        }
+      } catch {
+        /* the style read is best-effort */
+      }
+    }
     let equity: number;
     /**
      * ═══ V36 BOMB POTS (Dan 2026-09-02) ═══════════════════════════════════
@@ -10895,6 +11193,65 @@ export class HorseLogic {
       }
     }
 
+    // STYLE READ #4b: the second estimate and the blend. `styleRaiseDecides`
+    // is the weight when the blend fell under the price laid and replaced the
+    // plain estimate; `styleCommitEligible` marks the cash node where a call
+    // leaves the raiser a quarter of the pot or less (the turn only).
+    let styleRaiseDecides = 0;
+    let styleCommitEligible = false;
+    let styleCommitWhole = 0;
+    if (styleRaiseWeight > 0 && styleRaiseReads) {
+      // The second estimate must not move the random stream: a decision the
+      // blend does not change is the plain decision, draw for draw.
+      const rngVh = saveFastRandom();
+      try {
+        const heavyVh = simulateEquity(
+          player.cards,
+          gs.communityCards,
+          mcOpps,
+          vi,
+          vi.iterations,
+          bands,
+          useAdaptiveMC,
+          undefined,
+          styleRaiseReads,
+          undefined,
+          player.knownDeadCards,
+          undefined
+        );
+        const blendedVh = styleRaiseWeight * heavyVh + (1 - styleRaiseWeight) * equity;
+        const callVh = Math.min(toCall, stack);
+        const bareVh = pot + callVh > 0 ? callVh / (pot + callVh) : 0;
+        const matchedVh = street === 'turn' ? headsUpCashCommitment(player, gs) : null;
+        if (matchedVh && matchedVh.wager.action !== 'call') {
+          const restVh = matchedVh.exposure - callVh;
+          if (
+            restVh > 0 &&
+            restVh <= STYLE_THRESHOLDS.raiseCommitRemainderMaxPot * (pot + callVh)
+          ) {
+            styleCommitEligible = true;
+            styleCommitWhole = matchedVh.exposure / (pot + 2 * matchedVh.exposure - callVh);
+          }
+        }
+        const laidVh = Math.max(bareVh, styleCommitWhole);
+        if (blendedVh < laidVh) {
+          // The plain read covered the price and the blend does not: the
+          // decision changed. Which receipt says what changed it.
+          if (tele15 && equity >= laidVh)
+            noteFire(
+              blendedVh >= bareVh
+                ? 'style_commitment_priced_seen'
+                : 'style_value_raise_respect_seen'
+            );
+          equity = Math.min(equity, blendedVh);
+          styleRaiseDecides = styleRaiseWeight;
+        }
+      } catch {
+        /* the style read is best-effort: the plain estimate stands */
+      } finally {
+        restoreFastRandom(rngVh);
+      }
+    }
     if (captureOutcomes7) {
       // Adaptive MC can return at its first 40% checkpoint. Record that
       // conservative lower bound rather than advertising the requested
@@ -12857,7 +13214,12 @@ export class HorseLogic {
         } else if (equity >= V54_AIR_EQUITY) {
           if (tele15) noteFire('v54_river_bluff_skip_showdown_value');
         } else {
-          const profile54 = v54OpponentProfile(opp54.user_id, useMind, useCounterAdapt);
+          const profile54 = v54OpponentProfile(
+            opp54.user_id,
+            useMind,
+            useCounterAdapt,
+            opts.styleFoldRatePreRepair === true && opts.mind !== false
+          );
           const hist54 = gs.actionHistory ?? [];
           const aggr54 = (a: ActionRecord): boolean =>
             a.action === 'bet' ||
@@ -15508,6 +15870,29 @@ export class HorseLogic {
         postCallSpr86 < 1 ||
         (investedBefore86 > 0 && investedBefore86 / (commitmentStack + investedNow) >= 0.3);
     }
+    // ═══ STYLE READ #4b COMMITMENT PRICE (2026-11-14, same switch) ═══ in
+    // the reviewed hand the call left the raiser 0.13 of the pot: the river
+    // wager was already in the turn decision (the Horse did call it, at a ten
+    // percent price). Against the value raise above, heads-up in a cash pot
+    // on the turn, when a call would leave him at most a quarter of the pot,
+    // the continue is what it is - the whole matched exposure against the pot
+    // it wins (35.1 percent in that hand, where the call alone read 31.25).
+    // A hand whose blended equity is under that price folds. A hand that
+    // continues by today's own bar puts the rest in now instead of calling:
+    // he puts the last chips in only when ahead, and a call leaves him the
+    // free river. That jam also overrides a call-once plan and the
+    // raised-weak-made flat (V21): both exist to stop a hand escalating into
+    // a deeper stack, and here there is no deeper stack - the remaining
+    // quarter pot is the river call the continue already accepted. It never
+    // continues a hand the plain price folded: the bar is at least the plain
+    // bar and the equity at most the plain equity.
+    let styleCommitPrice = 0;
+    const styleCommitNode =
+      styleCommitEligible && raisedAfterAggr && street === 'turn' && !!matchedCommitment;
+    if (styleCommitNode && styleRaiseDecides > 0) {
+      styleCommitPrice = styleCommitWhole / (1 - (callDeductionFraction ?? rakeMarg));
+      committed = true;
+    }
     if (opts.v87DeepDiveDiscipline !== false)
       noteHorseDeepDiveRule(
         'raised_commitment',
@@ -15741,7 +16126,8 @@ export class HorseLogic {
         shade66 +
         shadeDeep86 +
         shade87Omaha +
-        shade87NlhTurnCommit;
+        shade87NlhTurnCommit +
+        Math.max(0, styleCommitPrice - potOdds);
       // PLO6-AUDIT-010: the premiums above are sized for stack-off calls. On
       // a token price they shrink with the price (HorseTokenCallPrice.ts);
       // Omaha high cash on one ordinary board only (no bomb pot, as V88
@@ -15776,6 +16162,22 @@ export class HorseLogic {
       ) {
         if (telemetryOn(opts)) noteFire('token_call_price_river_covered');
         return { action: 'call', amount: toCall, thinkTime: 0 };
+      }
+      // STYLE READ #4b: at the commitment node a hand under the whole price
+      // folds, and a hand that continues by this bar puts the rest in.
+      if (styleCommitNode && matchedCommitment) {
+        if (eq15 >= required) {
+          const flatToday =
+            v66Class ||
+            committedRaisedWeakMade21 ||
+            planCallOnly23 ||
+            (useV21 && dominated21) ||
+            eq15 < 0.42 + mw + dominationPenalty * 0.5;
+          if (tele15 && flatToday) noteFire('style_commitment_priced_seen');
+          if (tele15) noteFire('hu_cash_matched_commitment_wager');
+          return matchedCommitment.wager;
+        }
+        if (styleRaiseDecides > 0) return { action: 'fold', thinkTime: 0 };
       }
       // V66: the bet-raised one-pair class calls or folds at the shaded
       // price; it never jams over the raise and the 0.42 floor (which read
@@ -17163,11 +17565,26 @@ export class HorseLogic {
       }
       // Flop / turn in a solverless game: realized equity vs the raked price.
       const drawy38 = cat <= 1 && drawsLive && equity >= (street === 'flop' ? 0.3 : 0.2);
-      const realization38 = realizationFactor({
+      let realization38 = realizationFactor({
         street: street === 'turn' ? 'turn' : 'flop',
         inPosition: ip,
         drawy: drawy38,
       });
+      // PLO6-AUDIT P6-4 (opt-in): a top set that is the current nuts is not
+      // the marginal non-draw the street/position discount models.
+      if (
+        opts.plo6TopSetNutRealization === true &&
+        vi.isOmaha &&
+        !vi.isHiLo &&
+        vi.holeCount === 6 &&
+        !isTournamentMode(gs) &&
+        !multiBoard36 &&
+        gs.bombPot !== true &&
+        plo6TopSetIsCurrentNuts(player.cards, board)
+      ) {
+        realization38 = 1;
+        if (telemetryOn(opts)) noteFire('plo6_top_set_nut_realization_seen');
+      }
       let comboFoldMul38 = 1;
       if (comboRaise38) {
         try {

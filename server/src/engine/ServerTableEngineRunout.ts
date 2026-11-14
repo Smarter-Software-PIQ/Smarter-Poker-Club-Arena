@@ -10,6 +10,7 @@
 
 import { HandController, scaleWinnerCentsForRake } from './HandController.js';
 import { noteFire } from './BrainTelemetry.js';
+import { horseUpgradeEvidenceArmed, noteHorseUpgradeEvent } from './HorseUpgradeEvidence.js';
 import { horseRunItTwiceRuns } from './HorseRunItTwice.js';
 
 import { legacyAllInPercent } from './AllInEquityPresentation.js';
@@ -1885,6 +1886,14 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
         // A chooser who never picks 1 is a chooser who never runs it once.
         const runs = this.horseRitRuns(chooserPlayerId);
         noteFire(`upgrade08_rit_chooser_${runs === 1 ? 'once' : 'multi'}_seen`);
+        // Per-Horse evidence only: this server-owned Horse's answer was sent.
+        if (horseUpgradeEvidenceArmed())
+          noteHorseUpgradeEvent(
+            chooserPlayerId,
+            this.activeHandVariant(),
+            this.isTournamentTable() ? 'tournament' : 'cash',
+            'upgrade_08_side_games_integration'
+          );
         this.respondToRIT(chooserPlayerId, undefined, runs);
       });
     }
@@ -1892,6 +1901,14 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
       respond(1000 + ((pid.charCodeAt(0) + this.handCount) % 4) * 200, () => {
         const answer = this.horseRitVerdict(pid) === 'once' ? 'decline' : 'accept';
         noteFire(`upgrade08_rit_answer_${answer}_seen`);
+        // Per-Horse evidence only: this server-owned Horse's answer was sent.
+        if (horseUpgradeEvidenceArmed())
+          noteHorseUpgradeEvent(
+            pid,
+            this.activeHandVariant(),
+            this.isTournamentTable() ? 'tournament' : 'cash',
+            'upgrade_08_side_games_integration'
+          );
         this.respondToRIT(pid, answer);
       });
     }
@@ -3969,6 +3986,16 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
     // The three answer counters below are a subset: an offer the hand or the
     // lifecycle retires before the timer runs is offered and never answered.
     noteFire('upgrade08_insurance_offered_seen');
+    // Per-Horse evidence only: ONE event per offer, here. The three answer
+    // counters below are the same offer answered, not a second opportunity,
+    // so they record nothing per Horse (HorseUpgradeEvidence.noteHorseUpgradeEvent).
+    if (horseUpgradeEvidenceArmed())
+      noteHorseUpgradeEvent(
+        leaderId,
+        this.activeHandVariant(),
+        this.isTournamentTable() ? 'tournament' : 'cash',
+        'upgrade_08_side_games_integration'
+      );
     const handAtOffer = this.handCount;
     const responseDelayMs =
       650 + (((leaderId.charCodeAt(0) || 17) * 13 + this.handCount * 37) % 500);

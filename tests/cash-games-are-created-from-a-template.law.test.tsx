@@ -261,13 +261,20 @@ describe('A1.5 - an undealt variant is offered disabled, never saved as NLHE (RO
     ).toBe(false);
   });
 
-  it('disables Pineapple, Short Deck and Omaha Hi-Lo after Lightning is selected while keeping supported variants available', () => {
+  it('disables Pineapple, Short Deck, Omaha Hi-Lo and every limit game after Lightning is selected while keeping supported variants available', () => {
     mount();
     fireEvent.click(screen.getByRole('button', { name: /^Lightning Games/ }));
     // Dan 2026-10-25: Short Deck, Omaha Hi-Lo and Pineapple are feeder games only.
-    for (const name of ['Pineapple', 'Short Deck', 'FLO8', 'PLO8'])
+    // Owner ruling, November 14, 2026: every limit game is a Classic game.
+    for (const name of [
+      'Pineapple',
+      'Short Deck',
+      'Omaha 8o Fixed Limit',
+      'Fixed Limit Holdem',
+      'PLO8',
+    ])
       expect((screen.getByRole('button', { name }) as HTMLButtonElement).disabled, name).toBe(true);
-    for (const name of ['NLH', 'FLH', 'PLO4', 'PLO5', 'PLO6'])
+    for (const name of ['NLH', 'PLO4', 'PLO5', 'PLO6'])
       expect((screen.getByRole('button', { name }) as HTMLButtonElement).disabled, name).toBe(
         false
       );

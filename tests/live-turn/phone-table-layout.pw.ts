@@ -23,6 +23,7 @@
  * measurement is in the 600px layout's own CSS px unless it says device px.
  */
 import { expect, test, type Page, type WebSocketRoute } from '@playwright/test';
+import { verifyLightningPreviousHandReview } from '../e2e/support/lightningPreviousHandReview';
 import { mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { PLAYER, newBackend, signIn } from '../stale-client/mock-backend';
@@ -74,6 +75,11 @@ interface Scenario {
   seats: 6 | 9;
   bombPot?: boolean;
   lightning?: boolean;
+  plo4?: boolean;
+  plo5?: boolean;
+  pricedOffTurn?: boolean;
+  heroAlias?: string;
+  heroStack?: number;
   /** A Lightning game still in its feeder (MUST MOVE) game: its own table, the
    *  game's live players and Lightning start count as the database reports them. */
   feeder?: { live: number; on: number };
@@ -91,22 +97,24 @@ const PORTRAIT_URL: Record<Portrait, string> = {
 
 function snapshot(s: Scenario, heroSeat: number) {
   const id = s.lightning ? ROOM : TABLE;
+  const omaha = s.plo4 || s.plo5;
+  const variant = s.plo5 ? 'plo5' : s.plo4 ? 'plo4' : 'nlh';
   let v = 0;
-  const players = Array.from({ length: s.seats }, (_, i) => {
+  const fullRing = Array.from({ length: s.seats }, (_, i) => {
     const seat = i + 1;
     const hero = seat === heroSeat;
     const user = hero ? PLAYER : villain(++v);
     return {
       seat,
       user_id: user,
-      username: hero ? 'Fixture' : NAMES[v - 1],
+      username: hero ? (s.heroAlias ?? 'Fixture') : NAMES[v - 1],
       avatar_url: s.art
         ? PORTRAIT_URL[hero ? s.art.hero : s.art.opponents[(v - 1) % s.art.opponents.length]]
         : '',
       equipped_frame: '',
       equipped_aura: '',
-      stack: 1000,
-      bet: 0,
+      stack: hero ? (s.heroStack ?? 1000) : 1000,
+      bet: omaha && seat === 4 ? 4 : 0,
       totalInvested: 0,
       cards: [],
       is_folded: false,
@@ -125,6 +133,7 @@ function snapshot(s: Scenario, heroSeat: number) {
       hand_name: '',
     };
   });
+  const players = omaha ? fullRing.filter((p) => p.seat === heroSeat || p.seat === 4) : fullRing;
   const now = Date.now();
   return {
     table_id: id,
@@ -135,16 +144,17 @@ function snapshot(s: Scenario, heroSeat: number) {
           lightning: {
             hand_id: '4a4d0000-0000-4000-8000-000000000101',
             cluster_id: CLUSTER,
-            name: 'NLH 0.25/0.50 Lightning Games',
+            name: variant.toUpperCase() + ' 0.25/0.50 Lightning Games',
             small_blind: 0.25,
             big_blind: 0.5,
-            variant: 'nlh',
-            fast_fold_available: false,
+            variant,
+            fast_fold_available: s.pricedOffTurn === true,
+            fold_on_turn: s.pricedOffTurn === true,
           },
         }
       : {}),
     hand_number: 101,
-    pot: 15,
+    pot: omaha ? 16 : 15,
     community_cards: [
       { rank: 'K', suit: 's' },
       { rank: '8', suit: 'd' },
@@ -152,7 +162,7 @@ function snapshot(s: Scenario, heroSeat: number) {
     ],
     community_cards2: [],
     community_cards3: [],
-    hand_variant: 'nlh',
+    hand_variant: variant,
     bomb_pot_in: s.bombPot ? 3 : null,
     bomb_pot_next_at: null,
     bomb_pot_waiting_for: null,
@@ -160,15 +170,15 @@ function snapshot(s: Scenario, heroSeat: number) {
     kill_next: null,
     ante: 0,
     ante_mode: null,
-    current_bet: 0,
-    current_player: PLAYER,
-    dealer_seat: s.seats,
+    current_bet: omaha ? 4 : 0,
+    current_player: s.pricedOffTurn ? players.find((p) => p.user_id !== PLAYER)!.user_id : PLAYER,
+    dealer_seat: omaha ? 4 : s.seats,
     stage: 'flop',
     winner_ids: [],
     winners: [],
     min_raise: 5,
     last_raise: 5,
-    betting_structure: 'no_limit',
+    betting_structure: s.plo5 ? 'pot_limit' : 'no_limit',
     action_context: `4a4d0000-0000-4000-8000-000000000101:flop:0:${heroSeat}:0`,
     turn_start_time_ms: now,
     turn_duration_ms: 600_000,
@@ -244,6 +254,12 @@ class TableEngine {
     return this.sockets.size > 0;
   }
 
+  async disconnect(): Promise<void> {
+    const sockets = [...this.sockets];
+    this.sockets.clear();
+    await Promise.all(sockets.map((ws) => ws.close({ code: 1012, reason: 'Service Restart' })));
+  }
+
   private onSocket(ws: WebSocketRoute): void {
     ws.onMessage((data) => {
       let msg: { type?: string; tableId?: string } | null = null;
@@ -276,7 +292,52 @@ class TableEngine {
     }
   }
 
+  private holdDeal = false;
+
+  holdFirstDeal(): void {
+    this.holdDeal = true;
+  }
+
+  deliverDealtHand(): void {
+    this.holdDeal = false;
+    for (const ws of this.sockets) this.send(ws);
+  }
+
+  nextLightningDeal(): void {
+    const next = this.state.hand_number + 1;
+    const id = '4a4d0000-0000-4000-8000-' + String(next).padStart(12, '0');
+    if (!this.state.lightning) throw new Error('Expected a Lightning room');
+    this.state = {
+      ...this.state,
+      hand_id: id,
+      hand_number: next,
+      lightning: { ...this.state.lightning, hand_id: id },
+      action_context: id + ':flop:0:' + this.heroSeat + ':0',
+      turn_start_time_ms: Date.now(),
+    };
+    this.seq++;
+    this.deliverDealtHand();
+  }
+
+  releaseSettledRoom(): void {
+    this.all({
+      type: 'SNAPSHOT',
+      tableId: this.id,
+      seq: ++this.seq,
+      state: {
+        ...this.state,
+        stage: 'waiting',
+        players: [],
+        current_player: null,
+        community_cards: [],
+        hand_id: null,
+        lightning: null,
+      },
+    });
+  }
+
   private send(ws: WebSocketRoute): void {
+    if (this.holdDeal) return;
     ws.send(
       JSON.stringify({ type: 'SNAPSHOT', tableId: this.id, seq: this.seq, state: this.state })
     );
@@ -291,7 +352,16 @@ class TableEngine {
             user_id: PLAYER,
             seat_number: this.heroSeat,
             hand_number: this.state.hand_number,
-            cards: HERO_CARDS,
+            cards: this.s.plo5
+              ? [
+                  ...HERO_CARDS,
+                  { rank: '2', suit: 'd' },
+                  { rank: '2', suit: 'h' },
+                  { rank: 'Q', suit: 's' },
+                ]
+              : this.s.plo4
+                ? [...HERO_CARDS, { rank: '2', suit: 'd' }, { rank: '2', suit: 'h' }]
+                : HERO_CARDS,
           },
         },
       })
@@ -343,7 +413,7 @@ function backendFor(s: Scenario, heroSeat: number) {
   const profile = {
     id: PLAYER,
     username: 'fixture',
-    alias: 'Fixture',
+    alias: s.heroAlias ?? 'Fixture',
     full_name: 'Live Turn Fixture',
     role: 'user',
     diamonds: 0,
@@ -356,6 +426,21 @@ function backendFor(s: Scenario, heroSeat: number) {
   return newBackend({
     engineHttp: 'answered',
     rpc: {
+      ...(s.lightning && !s.feeder
+        ? {
+            fn_lightning_my_session: () => ({
+              body: {
+                pool_session_id: ROOM,
+                cluster_id: CLUSTER,
+                anchor_table_id: TABLE,
+                occupancy_id: '66666666-1111-4444-8888-555555555555',
+                seat_number: heroSeat,
+                state: 'active',
+                cluster_mode: 'lightning',
+              },
+            }),
+          }
+        : {}),
       ...(s.feeder
         ? {
             fn_cash_game_lobby: () => ({
@@ -408,6 +493,20 @@ function backendFor(s: Scenario, heroSeat: number) {
               created_at: '2026-09-29T00:00:00Z',
             },
           ],
+      ...(s.plo4
+        ? {
+            user_theme_settings: [
+              {
+                user_id: PLAYER,
+                game_type: 'ALL',
+                table_id: 'carbon_red',
+                background_id: 'midnight',
+                button_id: 'classic-white',
+                cards_id: 'classic_red',
+              },
+            ],
+          }
+        : {}),
       profiles: [profile],
       clubs: [
         {
@@ -449,17 +548,21 @@ function backendFor(s: Scenario, heroSeat: number) {
   });
 }
 
-async function openTable(page: Page, s: Scenario): Promise<TableEngine> {
+async function openTable(page: Page, s: Scenario, holdFirstDeal = false): Promise<TableEngine> {
   const heroSeat = 1;
   // The Dynamic Island, as the phone reports it, before the first paint.
   const cdp = await page.context().newCDPSession(page);
   await cdp.send('Emulation.setSafeAreaInsetsOverride', {
     insets: { top: NOTCH_PX, bottom: 34 },
   });
+  // A phone can open its table with browser chrome showing, then reclaim that
+  // screen space. The stable felt budget is smaller than the visible action slot.
+  if (s.plo4)
+    await cdp.send('Emulation.setSmallViewportHeightDifferenceOverride', { difference: 110 });
   await signIn(page, backendFor(s, heroSeat));
   if (s.lightning) {
     await page.addInitScript(
-      ([room, cluster, club]) => {
+      ([room, cluster, club, variant]) => {
         sessionStorage.setItem(
           'ca.lightning.pool-sessions.v1',
           JSON.stringify([
@@ -469,8 +572,8 @@ async function openTable(page: Page, s: Scenario): Promise<TableEngine> {
               meta: {
                 clusterId: cluster,
                 clubId: club,
-                name: 'NLH 0.25/0.50 Lightning Games',
-                variant: 'nlh',
+                name: variant.toUpperCase() + ' 0.25/0.50 Lightning Games',
+                variant,
                 smallBlind: 0.25,
                 bigBlind: 0.5,
                 maxPlayers: 6,
@@ -485,7 +588,7 @@ async function openTable(page: Page, s: Scenario): Promise<TableEngine> {
           ])
         );
       },
-      [ROOM, CLUSTER, CLUB] as const
+      [ROOM, CLUSTER, CLUB, s.plo5 ? 'plo5' : s.plo4 ? 'plo4' : 'nlh'] as const
     );
   }
   await page.addInitScript(() => {
@@ -506,10 +609,28 @@ async function openTable(page: Page, s: Scenario): Promise<TableEngine> {
       });
     }
   );
+  if (s.plo4) {
+    await page.route('**/storage/v1/object/public/assets/buttons/black/icon-*.webp', (route) => {
+      const icon = new URL(route.request().url()).pathname.split('/').pop();
+      const files: Record<string, string> = {
+        'icon-hamburger.webp': 'public/images/btn-hamburger.webp',
+        'icon-chat.webp': 'tests/e2e/fixtures/table-art/icon-chat.webp',
+        'icon-prevhand.webp': 'tests/e2e/fixtures/table-art/icon-prevhand.webp',
+      };
+      return icon && files[icon]
+        ? route.fulfill({
+            path: resolve(files[icon]),
+            headers: { 'access-control-allow-origin': '*' },
+          })
+        : route.fallback();
+    });
+  }
   const engine = await TableEngine.install(page, s, heroSeat);
   engine.onDispose(() => cdp.detach().catch(() => {}));
+  if (holdFirstDeal) engine.holdFirstDeal();
   await page.goto(`table/${engine.id}`);
   await expect.poll(() => engine.connected, { timeout: 60_000 }).toBe(true);
+  if (holdFirstDeal) return engine;
   await expect(page.locator('.action-panel .action-btn').first()).toBeVisible({ timeout: 30_000 });
   await expect(page.locator('.seat-wrapper--hero .seat__strength')).toBeVisible({
     timeout: 15_000,
@@ -535,8 +656,9 @@ async function measure(page: Page) {
        it has one). The circle alone is not what a player compares: a bust
        portrait with transparent margins in a full-size circle reads small. */
     const alphaBoxes = new Map<string, { l: number; t: number; r: number; b: number } | null>();
-    const alphaOf = async (src: string) => {
-      if (alphaBoxes.has(src)) return alphaBoxes.get(src)!;
+    const alphaOf = async (src: string, minimumAlpha = 24) => {
+      const key = `${src}|${minimumAlpha}`;
+      if (alphaBoxes.has(key)) return alphaBoxes.get(key)!;
       let found: { l: number; t: number; r: number; b: number } | null = null;
       try {
         const bitmap = await createImageBitmap(await (await fetch(src)).blob());
@@ -552,7 +674,7 @@ async function measure(page: Page) {
           b = -1;
         for (let y = 0; y < c.height; y++)
           for (let x = 0; x < c.width; x++)
-            if (data[(y * c.width + x) * 4 + 3] > 24) {
+            if (data[(y * c.width + x) * 4 + 3] > minimumAlpha) {
               if (x < l) l = x;
               if (x > r) r = x;
               if (y < t) t = y;
@@ -563,7 +685,7 @@ async function measure(page: Page) {
       } catch {
         found = null;
       }
-      alphaBoxes.set(src, found);
+      alphaBoxes.set(key, found);
       return found;
     };
     const painted = async (img: HTMLImageElement, disc: Element) => {
@@ -689,6 +811,34 @@ async function measure(page: Page) {
       .map(box);
     const vv = window.visualViewport;
     return {
+      toolPaintBottoms: await Promise.all(
+        Array.from(
+          document.querySelectorAll<HTMLImageElement>(
+            '.hud-bl-row .tbc-icon-img,.hud-bl-row .prev-hand-card__icon-img'
+          ),
+          async (img) => {
+            const alpha = await alphaOf(img.currentSrc || img.src, 127);
+            const rect = img.getBoundingClientRect();
+            return alpha ? rect.top + alpha.b * rect.height : null;
+          }
+        )
+      ),
+      panel: box(document.querySelector('.action-panel')!),
+      frame: box(document.querySelector('.action-panel-wrapper')!),
+      heroToolsBottom: Math.max(
+        0,
+        ...[
+          ...document.querySelectorAll(
+            '.hero-vpip,.hud-bl-row button,.seat--hero .seat__position-badge,.seat--hero .seat__action,.seat--hero .seat__bounty'
+          ),
+        ]
+          .filter(shown)
+          .map((el) => box(el).bottom)
+      ),
+      safeInset: parseFloat(
+        document.documentElement.style.getPropertyValue('--sp-phone-safe-bottom')
+      ),
+      scaler: document.querySelector('.table-scaler')!.getBoundingClientRect().toJSON(),
       layoutWidth: document.documentElement.clientWidth,
       scale: vv ? vv.scale : 1,
       buttons,
@@ -720,6 +870,15 @@ const SCENARIOS: Scenario[] = [
   },
   { name: 'iPhone 14 390x844, Lightning', width: 390, height: 844, seats: 6, lightning: true },
   {
+    name: 'iPhone 14 390x844, Lightning PLO4',
+    width: 390,
+    height: 844,
+    seats: 6,
+    lightning: true,
+    plo4: true,
+    art: { hero: 'wolf', opponents: ['aztec'] },
+  },
+  {
     name: 'iPhone Pro Max 430x932, 6-max, character-art hero',
     width: 430,
     height: 932,
@@ -741,6 +900,7 @@ const SCENARIOS: Scenario[] = [
     bombPot: true,
   },
   { name: 'short Android 360x640, 9-max', width: 360, height: 640, seats: 9 },
+  { name: 'compact phone 320x568, 6-max', width: 320, height: 568, seats: 6 },
 ];
 
 for (const s of SCENARIOS) {
@@ -778,13 +938,64 @@ for (const s of SCENARIOS) {
           m.seatBottom
         );
         expect(
-          rowTop - m.seatBottom,
-          'the row comes up to just under the seat box'
+          (s.seats === 6 ? m.panel.top : rowTop) - m.seatBottom,
+          'the action frame comes up to just under the seat box'
         ).toBeLessThanOrEqual(MAX_SEAT_GAP_PX);
         expect(m.heroCardsBottom, "the hero's cards are drawn").toBeGreaterThan(0);
         expect(rowTop, "the row never covers the hero's cards").toBeGreaterThanOrEqual(
           m.heroCardsBottom
         );
+        if (s.seats === 6) {
+          const top = Math.min(...m.buttons.map((b) => b.top));
+          const bottom = Math.max(...m.buttons.map((b) => b.bottom));
+          const left = Math.min(...m.buttons.map((b) => b.left));
+          const right = Math.max(...m.buttons.map((b) => b.right));
+          expect(
+            Math.abs(left - m.panel.left - (m.panel.right - right)),
+            'equal horizontal button margins'
+          ).toBeLessThan(1);
+          expect(
+            Math.abs(top - m.panel.top - (m.panel.bottom - bottom)),
+            'equal visual padding above and below the button faces within the painted frame'
+          ).toBeLessThan(1);
+          expect(
+            Math.abs(m.frame.bottom - m.panel.bottom),
+            'the painted panel fills the fixed frame to the bottom of the screen'
+          ).toBeLessThan(1);
+          expect(
+            (m.frame.bottom - bottom) * m.scale,
+            'actions clear the home indicator'
+          ).toBeGreaterThanOrEqual((m.safeInset * m.scale) / 2);
+          if (s.plo4) {
+            expect(m.toolPaintBottoms).toHaveLength(2);
+            for (const paintedBottom of m.toolPaintBottoms) {
+              expect(paintedBottom).not.toBeNull();
+              expect(
+                Math.abs(paintedBottom! - m.heroCardsBottom) * m.scale,
+                'the opaque tool frames align with the private cards'
+              ).toBeLessThan(1.5);
+            }
+          }
+          const bottomOfHero = Math.max(
+            m.seatBottom,
+            m.heroCardsBottom,
+            m.heroToolsBottom,
+            m.prev!.bottom
+          );
+          expect(
+            (Math.min(m.frame.top, m.panel.top) - bottomOfHero) * m.scale,
+            'two phone pixels of clearance to frame border'
+          ).toBeGreaterThanOrEqual(2);
+        }
+        if (s.plo4) {
+          await expect(
+            page.locator('.seat-wrapper--hero .seat__cards--hero .seat__card')
+          ).toHaveCount(4);
+          expect(
+            (m.panel.top - Math.max(m.seatBottom, m.heroCardsBottom)) * m.scale,
+            'private cards and strength remain within ten phone pixels of the frame'
+          ).toBeLessThanOrEqual(10);
+        }
         // 3c. Previous Hand moved up with them: wholly above the row.
         expect(m.prev, 'the Previous Hand button is shown').not.toBeNull();
         expect(m.prev!.bottom).toBeLessThanOrEqual(rowTop);
@@ -877,6 +1088,25 @@ test.describe('the Lightning start ticker', () => {
         '3 More Players Until Lightning Games Start',
         { timeout: 15_000 }
       );
+      // The table's loading cover intentionally receives taps until its artwork is ready.
+      await expect(page.locator('.table-art-cover')).toBeHidden({ timeout: 15_000 });
+      const leave = page.getByRole('button', { name: 'Leave Next Hand', exact: true });
+      const chat = page.getByRole('button', { name: 'Open Table Chat', exact: true });
+      for (const button of [leave, chat]) {
+        await expect(button).toBeVisible();
+        expect(
+          await button.evaluate((el) => {
+            const box = el.getBoundingClientRect();
+            return el.contains(
+              document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)
+            );
+          }),
+          'the control receives taps at its centre'
+        ).toBe(true);
+      }
+      expect(
+        Math.abs((await leave.boundingBox())!.y - (await chat.boundingBox())!.y)
+      ).toBeLessThanOrEqual(1);
       const body = await page.locator('body').innerText();
       expect(body, 'no Lightning start error is shown').not.toMatch(
         /(can.?t|cannot|unable to|could not|won.?t)\s+start|not enough players/i
@@ -885,4 +1115,203 @@ test.describe('the Lightning start ticker', () => {
       engine.dispose();
     }
   });
+});
+
+test('Lightning leave requested before the dealt snapshot waits for the hand', async ({ page }) => {
+  const scenario = SCENARIOS.find((s) => s.lightning && !s.feeder)!;
+  const engine = await openTable(page, scenario, true);
+  try {
+    let stops = 0;
+    await page.route('**/rpc/fn_lightning_stop_playing', (route) => {
+      stops++;
+      return route.fulfill({ json: { ok: true, in_hand: true, exited: false } });
+    });
+    await page.getByRole('button', { name: 'Leave Next Hand', exact: true }).click();
+    await expect(
+      page.getByRole('button', { name: 'Playing One More Hand', exact: true })
+    ).toBeVisible();
+    expect(stops).toBe(0);
+    engine.deliverDealtHand();
+    const check = page.locator('.action-panel .action-btn').filter({ hasText: /check/i }).first();
+    await expect(check).toBeEnabled();
+    await expect.poll(() => stops).toBe(1);
+    const [action] = await Promise.all([
+      page.waitForRequest(
+        (request) => request.method() === 'POST' && new URL(request.url()).pathname === '/action'
+      ),
+      check.click(),
+    ]);
+    expect(action.postDataJSON()).toMatchObject({ tableId: ROOM, action: 'check' });
+    engine.heroChecks();
+    await expect(
+      page.getByRole('button', { name: 'Leaving After This Hand', exact: true })
+    ).toBeVisible();
+    await expect(page).toHaveURL(new RegExp('/table/' + ROOM));
+    engine.releaseSettledRoom();
+    await expect(page).not.toHaveURL(new RegExp('/table/' + ROOM));
+  } finally {
+    engine.dispose();
+  }
+});
+
+test('Lightning allows an explicit fast fold after a late same-hand reconnect', async ({
+  page,
+}) => {
+  const scenario = { ...SCENARIOS[0], lightning: true, plo5: true, pricedOffTurn: true };
+  const engine = await openTable(page, scenario, true);
+  const actions: unknown[] = [];
+  try {
+    await page.route('**/action', async (route) => {
+      if (route.request().method() !== 'POST') return route.fallback();
+      actions.push(route.request().postDataJSON());
+      return route.fulfill({
+        json:
+          actions.length === 1
+            ? { success: false, code: 'ACTION_STATE_PENDING' }
+            : { success: true },
+      });
+    });
+    engine.deliverDealtHand();
+    const fold = page.locator('.pre-action-btn.fold');
+    await expect(fold).toBeEnabled();
+    engine.holdFirstDeal();
+    await fold.click();
+    await expect(page.getByText(/Your Action Could Not Be Confirmed/i)).toBeVisible();
+    await engine.disconnect();
+    await expect.poll(() => engine.connected).toBe(true);
+    // The original one-shot resync gave up after 2.5s.
+    await page.waitForTimeout(2700);
+    expect(actions).toHaveLength(1);
+    engine.deliverDealtHand();
+    await expect(fold).toBeEnabled();
+    await fold.click();
+    await expect.poll(() => actions.length).toBe(2);
+    for (const action of actions)
+      expect(action).toMatchObject({
+        action: 'fast_fold',
+        actionContext: 'lightning-hand:4a4d0000-0000-4000-8000-000000000101',
+      });
+  } finally {
+    engine.dispose();
+  }
+});
+
+test('Lightning answers a check on press and ignores its old reply after the next deal', async ({
+  page,
+}) => {
+  const scenario = SCENARIOS.find((s) => s.lightning && !s.feeder && !s.plo4)!;
+  const engine = await openTable(page, scenario);
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const submissions: string[] = [];
+  try {
+    await page.route('**/action', async (route) => {
+      if (route.request().method() !== 'POST') return route.fallback();
+      submissions.push(route.request().postDataJSON().actionContext);
+      if (submissions.length === 1) {
+        await held;
+        return route.fulfill({
+          status: 400,
+          json: { success: false, code: 'STALE_ACTION', error: 'Old decision' },
+        });
+      }
+      return route.fulfill({ json: { success: true } });
+    });
+    const check = page.locator('.action-panel .action-btn').filter({ hasText: /check/i }).first();
+    await expect(check).toBeEnabled();
+    await check.evaluate((button) => {
+      (button as HTMLElement).click();
+      (button as HTMLElement).click();
+    });
+    await expect(page.locator('.seat-wrapper--hero .seat__action')).toHaveText(/check/i);
+    await expect.poll(() => submissions.length).toBe(1);
+    engine.nextLightningDeal();
+    await expect(page.locator('.table-brand__hand')).toContainText('102');
+    await expect(check).toBeEnabled();
+    release();
+    await check.click();
+    await expect.poll(() => submissions.length).toBe(2);
+    expect(submissions[0]).toContain('000101:flop');
+    expect(submissions[1]).toContain('000102:flop');
+    await expect(page.getByText('Old decision', { exact: true })).toHaveCount(0);
+  } finally {
+    release();
+    engine.dispose();
+  }
+});
+
+test.describe('375px Lightning PLO5', () => {
+  test.use({ viewport: { width: 375, height: 667 }, hasTouch: true, isMobile: true });
+
+  test('long alias and deep stack fit, and the raise slider receives taps after reconnect', async ({
+    page,
+  }) => {
+    const alias = 'MountainRiverCaptain';
+    const scenario: Scenario = {
+      name: '375px Lightning PLO5',
+      width: 375,
+      height: 667,
+      seats: 6,
+      lightning: true,
+      plo5: true,
+      heroAlias: alias,
+      heroStack: 1234567,
+    };
+    const engine = await openTable(page, scenario);
+    try {
+      const hero = page.locator('.seat-wrapper--hero');
+      const cards = hero.locator('.seat__cards--hero .seat__card');
+      const name = hero.locator('.seat__name-text');
+      const stack = hero.locator('.seat__stack');
+      await expect(cards).toHaveCount(5);
+      await expect(name).toHaveText(alias);
+      await expect(stack).toHaveText('1,234,567');
+      const plate = hero.locator('.seat__info');
+      for (const text of [name, stack]) {
+        const bounds = await text.evaluate((el) => {
+          const range = document.createRange();
+          range.selectNodeContents(el);
+          return range.getBoundingClientRect().toJSON();
+        });
+        const plateBounds = await plate.evaluate((el) => el.getBoundingClientRect().toJSON());
+        expect(bounds.left).toBeGreaterThanOrEqual(plateBounds.left - 1);
+        expect(bounds.right).toBeLessThanOrEqual(plateBounds.right + 1);
+      }
+      await engine.disconnect();
+      await expect.poll(() => engine.connected, { timeout: 30000 }).toBe(true);
+      await expect(cards).toHaveCount(5);
+      await expect(name).toHaveText(alias);
+      await expect(stack).toHaveText('1,234,567');
+      const raise = page.locator('.action-panel .action-btn').filter({ hasText: /raise/i });
+      await raise.tap();
+      const slider = page.getByRole('slider');
+      await expect(slider).toBeVisible();
+      const before = await slider.inputValue();
+      await slider.tap();
+      await expect.poll(() => slider.inputValue()).not.toBe(before);
+    } finally {
+      engine.dispose();
+    }
+  });
+});
+
+test('Lightning previous hand stays pinned and recovers a missed archive receipt on reconnect', async ({
+  page,
+}) => {
+  const engine = await openTable(page, SCENARIOS.find((s) => s.lightning)!);
+  try {
+    engine.nextLightningDeal();
+    await verifyLightningPreviousHandReview(page, {
+      room: ROOM,
+      viewer: PLAYER,
+      number: 101,
+      dealId: '4a4d0000-0000-4000-8000-000000000101',
+      advance: () => engine.nextLightningDeal(),
+      disconnect: () => engine.disconnect(),
+    });
+  } finally {
+    engine.dispose();
+  }
 });

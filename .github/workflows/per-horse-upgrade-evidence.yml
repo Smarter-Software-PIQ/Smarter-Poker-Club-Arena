@@ -1,0 +1,36 @@
+name: Which Horse exercised which upgrade is on the record
+
+# fn_horse_upgrade_evidence_flush and its two tables (migration
+# 20261114002055). Runs scripts/ci/test-per-horse-upgrade-evidence.py against a
+# throwaway PostgreSQL 17 cluster, never production. No timer (CLAUDE.md
+# 10.85): pull_request only, scoped to the paths it proves.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - supabase/migrations/20261114002055_per_horse_upgrade_evidence_daily.sql
+      - scripts/ci/test-per-horse-upgrade-evidence.py
+      - scripts/ops/per-horse-upgrade-evidence-daily.sql
+      - server/src/services/HorseUpgradeEvidenceFlush.ts
+      - .github/workflows/per-horse-upgrade-evidence.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: per-horse-upgrade-evidence-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  per-horse-upgrade-evidence:
+    name: The per-Horse upgrade evidence writer adds, replays and refuses as stated
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL 17 from the signed PGDG source only
+        uses: ./.github/actions/install-postgres-17
+      - name: The per-Horse upgrade evidence writer adds, replays and refuses as stated
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 scripts/ci/test-per-horse-upgrade-evidence.py

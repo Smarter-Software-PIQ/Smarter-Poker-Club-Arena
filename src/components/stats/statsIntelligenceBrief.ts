@@ -8,6 +8,7 @@
 
 import { enumToTitleCase } from '../../utils/titleCase';
 import { compactChips } from '../../utils/format';
+import { chipCents } from '../../utils/cashierAmount';
 
 interface BriefOverall {
   total_hands: number;
@@ -104,9 +105,8 @@ export function buildStatsIntelligenceBrief(input: {
     (sum, row) => sum + (Number.isFinite(row.hands) ? row.hands : 0),
     0
   );
-  const recentProfit = recent.reduce(
-    (sum, row) => sum + (Number.isFinite(row.profit) ? row.profit : 0),
-    0
+  const recentProfit = chipCents(
+    recent.reduce((sum, row) => sum + (Number.isFinite(row.profit) ? row.profit : 0), 0)
   );
   const trendValue =
     recent.length === 0

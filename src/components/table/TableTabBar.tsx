@@ -46,6 +46,7 @@ export interface TabInfo {
    *  Diamond tournament seat has no top-up writer, and both items reached the
    *  page only to be refused there in silence. Absent keeps both. */
   canAddFunds?: boolean;
+  seatChangeEnabled?: boolean;
   standUpNextBB?: boolean;
   soundEnabled?: boolean;
   vibrationsEnabled?: boolean;
@@ -1216,7 +1217,7 @@ export function TableTabBar({
                   !isHubId(tab.id) &&
                   item('Leave Table Next Hand', () => onQuickAction(tab.id, 'leave-next-hand'))}
                 {onQuickAction &&
-                  (!isLobby || tabs.length > 1) &&
+                  (!isLobby || isHubId(tab.id) || tabs.length > 1) &&
                   item(
                     isHubId(tab.id) ? 'Close Tab' : isLobby ? 'Close Lobby' : 'Leave Table',
                     () => onQuickAction(tab.id, 'leave'),
@@ -1247,6 +1248,7 @@ export function TableTabBar({
                 ? 'Lobby'
                 : formatGameTitle(tabs.find((t) => t.id === activeTabId)?.name) || 'Table'
           }
+          seatChangeEnabled={tabs.find((t) => t.id === activeTabId)?.seatChangeEnabled}
           handNumber={tabs.find((t) => t.id === activeTabId)?.handNumber}
           onOpenIdentity={activeIsLobby ? undefined : handleOpenIdentity}
         />

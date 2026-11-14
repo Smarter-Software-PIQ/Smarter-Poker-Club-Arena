@@ -130,7 +130,7 @@ describe('a Spin card advertises the ladder, never a prize pool of zero', () => 
         />
       </MemoryRouter>
     );
-    expect(value('Prize Pool')).toContain('4.5K');
+    expect(value('Prize Pool')).toContain('4,500');
     expect(screen.queryByText('Top Prize')).toBeNull();
     expect(screen.queryByText('Multiplier')).toBeNull();
   });

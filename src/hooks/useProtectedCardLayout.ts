@@ -24,6 +24,10 @@ import {
 } from '../lib/protectedCardPlacement';
 import {
   assignProtectedWagers,
+  capWagerSlot,
+  clearsWagerBoard,
+  firstWagerOnFelt,
+  insideClassicGreen,
   greedyProtectedWagers,
   wagerBoxesOverlap,
 } from '../lib/protectedWagerPlacement';
@@ -147,6 +151,135 @@ export function useProtectedCardLayout(
         )
       );
     const wagers = () => Array.from(scaler.querySelectorAll<HTMLElement>('.seat__bet-chips'));
+    // A new hand mounts its blind nodes before portraits decode and before
+    // deal animations release the joint allocator. Give them a valid initial
+    // rest point in that very commit, using their actual amount width.
+    const fixedNinePhone = () =>
+      page.getAttribute('data-seats') === '9' &&
+      matchMedia('(min-width: 481px) and (max-width: 640px) and (orientation: portrait)').matches;
+    const classicGreenSkin = () =>
+      page.getAttribute('data-felt-theme') === 'classic_green' ||
+      Boolean(
+        scaler.querySelector<HTMLImageElement>('.table-art')?.src.includes('skin_classic_green')
+      );
+    const placeInitialWagers = () => {
+      if (!fixedNinePhone()) return;
+      const fresh = wagers().filter((bet) => !bet.style.getPropertyValue('--bet-offset-x'));
+      if (!fresh.length) return;
+      const canvas = scaler.getBoundingClientRect(),
+        felt = scaler.querySelector('.table-surface')?.getBoundingClientRect();
+      if (!felt?.width || !canvas.width) return;
+      const scale = tableRenderScale(scaler);
+      const gold = classicGreenSkin();
+      const board = scaler.querySelector('.community-area')?.getBoundingClientRect();
+      for (const bet of fresh) {
+        const box = bet.getBoundingClientRect();
+        if (!box.width || !box.height) continue;
+        const next = firstWagerOnFelt(
+          box,
+          canvas,
+          felt,
+          Math.max(8 * scale, canvas.width * 0.025),
+          gold,
+          board
+        );
+        if (next === box) continue;
+        const css = getComputedStyle(bet);
+        for (const [axis, delta] of [
+          ['x', (next.left - box.left) / scale],
+          ['y', (next.top - box.top) / scale],
+        ] as const) {
+          for (const [name, step] of [
+            [`--bet-offset-${axis}`, delta],
+            [`--collect-d${axis}`, -delta],
+          ] as const)
+            bet.style.setProperty(
+              name,
+              `${(parseFloat(css.getPropertyValue(name)) || 0) + step}px`
+            );
+        }
+      }
+    };
+    // A pot pile can mount after everyone already has an assigned wager slot.
+    // Retarget the flight independently of allocation and card animations.
+    const syncCollectionTargets = () => {
+      if (!fixedNinePhone()) return;
+      const scale = tableRenderScale(scaler);
+      const pot = page.querySelector('.pot-display__pile--pot') ?? page.querySelector('.pot-area');
+      if (pot) {
+        const to = pot.getBoundingClientRect();
+        for (const bet of wagers()) {
+          const stack = bet.querySelector<HTMLElement>('.cp-stacks');
+          const rest = wagerRestPoint(bet);
+          if (!stack || !rest) continue;
+          const rect = bet.getBoundingClientRect();
+          const dx = (to.left + to.width / 2 - rect.left) / scale - rest.x;
+          const dy = (to.top + to.height / 2 - rect.top) / scale - rest.y + stack.offsetHeight / 2;
+          bet.style.setProperty('--collect-dx', `${dx}px`);
+          bet.style.setProperty('--collect-dy', `${dy}px`);
+          const saved = settled.current.wagers.get(bet);
+          if (saved)
+            saved.offsets = [
+              '--bet-offset-x',
+              '--bet-offset-y',
+              '--collect-dx',
+              '--collect-dy',
+            ].map((name) => bet.style.getPropertyValue(name));
+        }
+      }
+    };
+    // Wide two-line markers at the upper curve can fit in a very narrow
+    // nearest-player lane. Qualify the final displayed portraits (including
+    // their common enlargement), and the rendered gold contour.
+    const placeCapAllIn = () => {
+      if (!fixedNinePhone()) return;
+      const markers = scaler.querySelectorAll<HTMLElement>(
+        '.seat-wrapper--cap .seat__bet-chips:has(.seat__allin-puck)'
+      );
+      if (!markers.length) return;
+      const felt = scaler.querySelector('.table-surface')?.getBoundingClientRect();
+      if (!felt?.width) return;
+      const canvas = scaler.getBoundingClientRect(),
+        scale = tableRenderScale(scaler);
+      const gold = classicGreenSkin();
+      const peers = Array.from(scaler.querySelectorAll('.seat__avatar-img'), (image) => {
+        const r = image.getBoundingClientRect();
+        return { seat: image.closest('.seat'), x: r.left + r.width / 2, y: r.top + r.height / 2 };
+      });
+      for (const bet of markers) {
+        const owner = peers.find((p) => p.seat === bet.closest('.seat'));
+        if (!owner) continue;
+        const box = bet.getBoundingClientRect();
+        const blockers = Array.from(
+          scaler.querySelectorAll(
+            '.seat__avatar-img,.seat__info,.seat__hand-name,.seat__mucked-label,.seat__action,.seat__bounty,.seat__position-badge,.seat__cards .seat__card,.seat__bet-chips,.table-brand,.community-area,.pot-display,.pot-display__pile,.dealer-button'
+          )
+        )
+          .filter((e) => e !== bet)
+          .map((e) => e.getBoundingClientRect())
+          .filter((r) => r.width && r.height);
+        const best = capWagerSlot(
+          box,
+          canvas,
+          felt,
+          owner,
+          peers.filter((p) => p !== owner),
+          blockers,
+          scale,
+          gold
+        );
+        if (!best || best === box) continue;
+        const css = getComputedStyle(bet);
+        bet.style.setProperty(
+          '--bet-offset-x',
+          `${(parseFloat(css.getPropertyValue('--bet-offset-x')) || 0) + (best.left - box.left) / scale}px`
+        );
+        bet.style.setProperty(
+          '--bet-offset-y',
+          `${(parseFloat(css.getPropertyValue('--bet-offset-y')) || 0) + (best.top - box.top) / scale}px`
+        );
+      }
+    };
     const wagerKind = (bet: HTMLElement) =>
       bet.dataset.wagerKind ?? (bet.querySelector('.seat__allin-puck') ? 'all-in' : 'chips');
     const sameWager = (bet: HTMLElement, stored: { owner: string | null; kind: string }) =>
@@ -813,6 +946,7 @@ export function useProtectedCardLayout(
       // Observers normalize the same artwork too. Do not run their marker
       // search against temporary raw-image bounds before metadata rebases them.
       // A terminal metadata failure still releases the baseline placer.
+      placeInitialWagers();
       if (artwork.awaitingMetadata() || artwork.awaitingInitialLayout()) return;
       // This synchronous transaction changes only chair/caption translation.
       // Project each already normalized portrait from one permanent snapshot
@@ -1079,25 +1213,14 @@ export function useProtectedCardLayout(
            only eligible when the WHOLE wager box is on the painted felt with
            daylight to spare (see `wagerOnFelt`). */
         const ninePhoneFelt = inwardFans && page.getAttribute('data-seats') === '9';
-        const classicGreen =
-          ninePhoneFelt &&
-          (page.getAttribute('data-felt-theme') === 'classic_green' ||
-            scaler
-              .querySelector<HTMLImageElement>('.table-art')
-              ?.src.includes('skin_classic_green'));
+        const board = ninePhoneFelt
+          ? scaler.querySelector('.community-area')?.getBoundingClientRect()
+          : undefined;
+        const classicGreen = ninePhoneFelt && classicGreenSkin();
         const feltMarginPx = Math.max(8, canvas.width * 0.025);
         // Classic green's inner gold boundary is a rounded rectangle in the
         // 605x1000 skin. Stretch its native corners with the actual artwork:
         // the CSS surface itself is wider along both straight sides.
-        const insideGold = (box: CardBox) => {
-          const x0 = ((box.left - canvas.left - 8 * scale) * 605) / canvas.width;
-          const x1 = ((box.left + box.width - canvas.left + 8 * scale) * 605) / canvas.width;
-          const y0 = ((box.top - canvas.top - 8 * scale) * 1000) / canvas.height;
-          const y1 = ((box.top + box.height - canvas.top + 8 * scale) * 1000) / canvas.height;
-          const dx = Math.max(302.5 - x0, x1 - 302.5) / 199;
-          const dy = Math.max(275 - y0, y1 - 725, 0) / 184;
-          return dx * dx + dy * dy <= 1;
-        };
         const wagerOnFeltWithMargin = (box: CardBox, margin: number): boolean =>
           [
             [box.left, box.top],
@@ -1118,7 +1241,8 @@ export function useProtectedCardLayout(
             return Math.hypot(px - cx, py - spineY) <= radius + inset - margin;
           });
         const wagerOnFelt = (box: CardBox) =>
-          wagerOnFeltWithMargin(box, feltMarginPx) && (!classicGreen || insideGold(box));
+          wagerOnFeltWithMargin(box, feltMarginPx) &&
+          (!classicGreen || insideClassicGreen(box, canvas, 8 * scale));
         const obstacles = Array.from(
           page.querySelectorAll(
             `.community-area, .table-brand, .pot-display, .pot-display__pile, .seat__avatar-img, .seat__info, .seat__action, .seat__bounty, .seat__position-badge, ${markerCards}, .bbj-widget, .bbj-mini-plate, .chat-collapsed, .mtp-lobby-btn`
@@ -1334,6 +1458,7 @@ export function useProtectedCardLayout(
                 stored &&
                 sameWager(bet, stored) &&
                 (!ninePhoneFelt || wagerOnFelt(box)) &&
+                clearsWagerBoard(box, board) &&
                 (stored.landed ||
                   (stillOwned &&
                     Math.abs(stored.width - box.width) < 0.5 &&
@@ -1349,6 +1474,10 @@ export function useProtectedCardLayout(
               // Reallocate invalid slots from the inherited rail anchor rather
               // than compounding the previous retained displacement.
               if (stored && !trial) {
+                if (stored.translation) {
+                  restoreTranslation(bet);
+                  ownedTranslations.delete(bet);
+                }
                 offsetNames.forEach((name) => bet.style.removeProperty(name));
                 settled.current.wagers.delete(bet);
                 box = visibleBox(bet);
@@ -1447,7 +1576,9 @@ export function useProtectedCardLayout(
               // one pixel of edge clearance fits where the chips' eight-pixel
               // decoration margin does not; never fall back off felt or to a neighbour.
               const eligible = ninePhoneFelt
-                ? placed.filter(wagerOnFelt)
+                ? placed.filter(
+                    (candidate) => wagerOnFelt(candidate) && clearsWagerBoard(candidate, board)
+                  )
                 : hasAllInMarker
                   ? placed.filter((candidate) => wagerOnFeltWithMargin(candidate, 1))
                   : placed;
@@ -1540,6 +1671,39 @@ export function useProtectedCardLayout(
                       if (!obstacles.some((obstacle) => markerTouches(next, obstacle)))
                         clearOfTable.push(next);
                     }
+              }
+              // Top-cap contributions share the same narrow curved ownership
+              // lane as an all-in marker. The oval samples can miss that lane
+              // entirely when the neighbouring cap is empty and the amount is wide.
+              if (
+                ninePhoneFelt &&
+                !hasAllInMarker &&
+                bet.closest('.seat-wrapper--cap') &&
+                !clearOfTable.some(ownedBy)
+              ) {
+                const felt = scaler.querySelector('.table-surface')?.getBoundingClientRect();
+                if (felt) {
+                  const cap = capWagerSlot(
+                    box,
+                    canvas,
+                    felt,
+                    desired,
+                    playerCentres.filter((c) => Math.hypot(c.x - desired.x, c.y - desired.y) >= 1),
+                    obstacles,
+                    scale,
+                    classicGreen
+                  );
+                  if (cap && !obstacles.some((obstacle) => markerTouches(cap, obstacle))) {
+                    const candidate = {
+                      left: cap.left,
+                      top: cap.top,
+                      width: cap.width,
+                      height: cap.height,
+                      depth: 0,
+                    };
+                    clearOfTable.push(candidate);
+                  }
+                }
               }
               const nearest = [...clearOfTable].sort(byCost);
               const owned = nearest.filter(ownedBy);
@@ -2569,29 +2733,6 @@ export function useProtectedCardLayout(
           hardObstacles.push(next);
           placedWagers.push(next);
         }
-        if (ninePhoneFelt) {
-          // Use the final stack's resting centre. Its owner may have moved
-          // above the skin and the marker may have moved inward independently.
-          const pot =
-            page.querySelector('.pot-display__pile--pot') ?? page.querySelector('.pot-area');
-          if (pot) {
-            const to = pot.getBoundingClientRect();
-            for (const bet of wagers()) {
-              const stack = bet.querySelector<HTMLElement>('.cp-stacks');
-              const rest = wagerRestPoint(bet);
-              if (!stack || !rest) continue;
-              const rect = bet.getBoundingClientRect();
-              const dx = (to.left + to.width / 2 - rect.left) / scale - rest.x;
-              const dy =
-                (to.top + to.height / 2 - rect.top) / scale - rest.y + stack.offsetHeight / 2;
-              bet.style.setProperty('--collect-dx', `${dx}px`);
-              bet.style.setProperty('--collect-dy', `${dy}px`);
-              const saved = settled.current.wagers.get(bet);
-              if (saved)
-                saved.offsets = offsetNames.map((name) => bet.style.getPropertyValue(name));
-            }
-          }
-        }
         allocationUnresolved = unresolved;
         // Complete the original finite allocation with the safe slots already
         // proved above. Never cache a covered last resort and wait for a runout
@@ -2654,6 +2795,7 @@ export function useProtectedCardLayout(
       resetMobileAvatarPaint(scaler, true);
       paintReady = false;
       placeBase(...args);
+      syncCollectionTargets();
       if (
         paintReady &&
         !hasPendingCardMotion(Array.from(scaler.querySelectorAll<HTMLElement>('.seat__cards')))
@@ -2686,6 +2828,35 @@ export function useProtectedCardLayout(
         // The layout no longer takes the paint: drop the rest of it too.
         resetMobileAvatarPaint(scaler);
         carryOverPasses = 0;
+      }
+      placeCapAllIn();
+      // The HUD tiles normalize their visible raster frames to the tile size.
+      // Move the row and its hit targets together to the hero's card baseline.
+      if (
+        page.matches("[data-seats='6'][data-hero='true']") &&
+        matchMedia(
+          '(max-device-width:480px) and (min-width:481px) and (max-width:640px) and (orientation:portrait)'
+        ).matches
+      ) {
+        const tools = page.querySelector<HTMLElement>('.hud-bl-row');
+        if (tools) {
+          const cards = scaler.querySelectorAll<HTMLElement>(
+            '.seat--hero .seat__cards--hero img.card-image__img'
+          );
+          const bottom = Math.max(
+            0,
+            ...Array.from(cards, (card) => card.getBoundingClientRect().bottom)
+          );
+          const previous =
+            parseFloat(tools.style.getPropertyValue('--sp-hero-hand-tool-shift')) || 0;
+          const ratio = tableRenderScale(scaler);
+          const shift = bottom
+            ? Math.min(0, previous + (bottom - tools.getBoundingClientRect().bottom) / ratio)
+            : 0;
+          const value = `${shift.toFixed(2)}px`;
+          if (tools.style.getPropertyValue('--sp-hero-hand-tool-shift') !== value)
+            tools.style.setProperty('--sp-hero-hand-tool-shift', value);
+        }
       }
       if (
         mobilePaint.current.key === mobilePaintKey(scaler, page as HTMLElement) &&
@@ -2735,6 +2906,9 @@ export function useProtectedCardLayout(
     // SeatSlot reveals on its own animation clock, after the parent's commit.
     // React's child insertion/class change is the layout event to consume.
     const mutations = new MutationObserver(() => {
+      placeInitialWagers();
+      placeCapAllIn();
+      syncCollectionTargets();
       observePots();
       schedule();
     });
@@ -2753,6 +2927,9 @@ export function useProtectedCardLayout(
       active = false;
       placeRef.current = null;
       artwork.stop();
+      page
+        .querySelector<HTMLElement>('.hud-bl-row')
+        ?.style.removeProperty('--sp-hero-hand-tool-shift');
       document.fonts?.removeEventListener('loadingdone', schedule);
       resetWagers();
       observer.disconnect();

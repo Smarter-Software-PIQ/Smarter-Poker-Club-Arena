@@ -581,8 +581,8 @@ it('keeps a cold record feed connecting after verified HTTP reads and requires e
 });
 
 it.each([
-  [9300, '+9.3K'],
-  [-9300, '-9.3K'],
+  [9300, '+9,300.00'],
+  [-9300, '-9,300.00'],
 ])('prints a signed net without a visible metric label for %s', (net, label) => {
   const { container } = render(
     <MemberRow

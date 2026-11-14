@@ -143,6 +143,7 @@ export default function TournamentDetails({
   onClose,
   currentTableId,
   inLobbyTab = false,
+  requestedTab,
 }: {
   tournamentIdOverride?: string;
   suppressAutoOpenTable?: boolean;
@@ -176,6 +177,12 @@ export default function TournamentDetails({
   currentTableId?: string;
   /** The in-table browser tab shares the global navigation; the modal does not. */
   inLobbyTab?: boolean;
+  /**
+   * Open a given tab from outside (the table's "Prizes Are Set" popup opens
+   * Bounties). The modal stays mounted, so the initial `?tab=` read cannot do
+   * it a second time: a new `seq` re-applies the request.
+   */
+  requestedTab?: { tab: string; seq: number };
 } = {}) {
   const mttStartHold = useTournamentStartHold();
   const [showMttUpdateModal, setShowMttUpdateModal] = useState(false);
@@ -216,6 +223,11 @@ export default function TournamentDetails({
   const [activeTab, setActiveTab] = useState<TabId>(() =>
     normaliseTabId(new URLSearchParams(search).get('tab'))
   );
+  useEffect(() => {
+    if (requestedTab) setActiveTab(normaliseTabId(requestedTab.tab));
+    // Re-apply only when a new request is made.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestedTab?.seq]);
   /** One element per tab, so the roving-focus arrow keys can move focus. */
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
   /* The strip is one row that scrolls sideways (it used to wrap onto a second

@@ -163,3 +163,32 @@ test('multi-table chat uses the page edge below the tab bar once', async ({ page
     ).toBeCloseTo(12, 1);
   }
 });
+
+test('feeder Seat Change mirrors the Chat tile across table layouts', async ({ page }) => {
+  const cashCss = fs.readFileSync('src/components/table/CashClusterHUD.css', 'utf8');
+  for (const width of [375, 600, 768, 1024]) {
+    await page.setViewportSize({ width, height: 812 });
+    for (const embedded of [false, true]) {
+      await page.setContent(`<style>${css}\n${cashCss}\n${harness}</style>
+        <div class="${embedded ? 'multi-table-page' : ''}">
+          <div class="table-page" style="position:relative;top:42px;height:750px;--mtt-ticker-h:36px">
+            <div class="table-hud"><div class="table-hud__upper"><div class="table-hud__corner table-hud__corner--ur">
+              <div class="hud-ur-column"><div class="hud-seat-change-dock"><div class="cch-column">
+                <div class="cch-seat-change-control"><button class="cch-seat-change cch-seat-change--control">
+                  <span class="cch-seat-change__face">Seat Change</span></button></div>
+                <div class="cch-move-notice">Moving after this hand</div>
+              </div></div></div>
+            </div></div></div>
+            <button class="chat-collapsed">Chat</button>
+          </div>
+        </div>`);
+      const table = (await page.locator('.table-page').boundingBox())!;
+      const seat = (await page.locator('.cch-seat-change__face').boundingBox())!;
+      const chat = (await page.locator('.chat-collapsed').boundingBox())!;
+      expect(seat.width).toEqual(chat.width);
+      expect(seat.height).toEqual(chat.height);
+      expect(seat.y).toEqual(chat.y);
+      expect(seat.x - table.x).toEqual(table.x + table.width - chat.x - chat.width);
+    }
+  }
+});

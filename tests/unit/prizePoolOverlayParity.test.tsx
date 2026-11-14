@@ -183,7 +183,7 @@ describe('a guaranteed satellite prints the field, not its guarantee (2026-11-07
     );
     const pool = screen.getByText('Total Pool').parentElement!.textContent!;
     // The card compacts chips; 1,656 prints as 1.6K and 2,500 would print as 2.5K.
-    expect(pool).toContain('1.6K');
+    expect(pool).toContain('1,656');
     expect(pool).toContain('GTD');
     expect(screen.getByText('844 Overlay')).toBeTruthy();
     expect(pool).not.toContain('2.5K');

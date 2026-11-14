@@ -203,5 +203,10 @@ describe('a default-off Horse flag has a league card', () => {
     const cards = dealt();
     expect(cards.has('huBbDefendsToPrice')).toBe(true);
     expect(cards.has('commitUnderPot')).toBe(true);
+    // 2026-11-14 (HU-NLH-010, HU-NLH-011): each shipped with its card.
+    expect(defaultOff()).toContain('huOpenerDefendsToPrice');
+    expect(defaultOff()).toContain('huLimpDefendsToPrice');
+    expect(cards.has('huOpenerDefendsToPrice')).toBe(true);
+    expect(cards.has('huLimpDefendsToPrice')).toBe(true);
   });
 });

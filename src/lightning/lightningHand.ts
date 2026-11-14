@@ -26,7 +26,7 @@ export const LIGHTNING_FOLD_WATCH_ACTION = 'fold_watch';
 /* No fold button carries words: every fold in a Lightning room is a
    Lightning fold, and the room shows no Lightning helper text (Dan
    2026-10-24). */
-export const LIGHTNING_NEXT_HAND_TEXT = 'Next Hand...';
+export const LIGHTNING_NEXT_HAND_TEXT = 'Waiting For The Next Hand...';
 
 /**
  * A quiet gap shorter than this says nothing at all. 2500 until the Lightning
@@ -44,6 +44,7 @@ export const LIGHTNING_NEXT_HAND_FADE_MS = 240;
 
 /** The part of an engine snapshot these rules read. Every field is optional. */
 export interface LightningSnapshotFields {
+  table_id?: unknown;
   hand_id?: unknown;
   hand_number?: unknown;
   /** 'waiting' between hands: the idle snapshot after a fold carries it. */
@@ -79,12 +80,41 @@ function positive(v: unknown): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+/** Gameplay settlement frames paint one hand; the durable history receipt still refreshes the session. */
+const settlementPresentationEvents = new Set([
+  'TABLE_LOCKED',
+  'HAND_COMPLETE',
+  'HAND_COMPLETE_EVENT',
+  'SHOWDOWN',
+  'SHOWDOWN_CARDS_REVEALED',
+  'POT_WIN',
+  'POT_DISTRIBUTED',
+]);
+export function isPreviousLightningSettlement(
+  type: string,
+  handNumber: unknown,
+  displayed: number
+): boolean {
+  const hand = positive(handNumber);
+  return hand !== null && hand < displayed && settlementPresentationEvents.has(type);
+}
+
 /** The engine's own id of the hand on the felt, when it sends one. */
 export function lightningHandId(
   snapshot: LightningSnapshotFields | null | undefined
 ): string | null {
   if (!snapshot) return null;
   return nonEmpty(snapshot.hand_id) ?? nonEmpty(snapshot.lightning?.hand_id);
+}
+
+/** A decision belongs to one player, room and deal even after reconnect. */
+export function lightningDecisionKey(
+  room: string | undefined | null,
+  userId: string,
+  hand: string | null,
+  decision: string | undefined
+): string | null {
+  return room && userId && hand && decision ? JSON.stringify([room, userId, hand, decision]) : null;
 }
 
 /**

@@ -308,20 +308,45 @@ export async function proveIntent({ receiverName, env, event, api, readIntent })
   fail('could not read every earlier receiver run');
 }
 
-function githubApi(env) {
+/**
+ * A TRANSIENT PROVIDER ANSWER IS NOT A REFUSAL (2026-11-14). Backup run
+ * 43565758486 failed its certification after 16 s on one HTTP 502 from
+ * `actions/runs/<id>/attempts/1`. Every request here is a GET, so a 500, 502,
+ * 503 or 504, or a network error, is asked again inside the same step: at most
+ * RETRY_DELAYS_MS.length more times, with backoff. Any other answer (every
+ * 4xx included) is returned at once and judged as before, and a real
+ * mismatch is never retried because it is decided after the answer is read.
+ */
+export const TRANSIENT_STATUS = Object.freeze([500, 502, 503, 504]);
+export const RETRY_DELAYS_MS = Object.freeze([2000, 5000, 10000]);
+export async function fetchWithRetry(url, options, io = {}) {
+  const { fetchImpl = fetch, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), delays = RETRY_DELAYS_MS } = io;
+  for (let attempt = 0; ; attempt += 1) {
+    let response; let error;
+    try { response = await fetchImpl(url, options); } catch (e) { error = e; }
+    if (response && !TRANSIENT_STATUS.includes(response.status)) return response;
+    if (attempt >= delays.length) {
+      if (error) fail(`GitHub could not be reached after ${attempt + 1} attempts: ${error.message}`);
+      return response;
+    }
+    await sleep(delays[attempt]);
+  }
+}
+
+export function githubApi(env, io = {}) {
   const base = `${env.GITHUB_API_URL || 'https://api.github.com'}/repos/${env.GITHUB_REPOSITORY}/`;
   const headers = { Authorization: `Bearer ${env.GH_TOKEN}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
   return {
     async api(path) {
-      const r = await fetch(base + path, { headers });
+      const r = await fetchWithRetry(base + path, { headers }, io);
       if (!r.ok) fail(`GitHub answered HTTP ${r.status} for ${path.split('?')[0]}`);
       return r.json();
     },
     async readIntent(artifact, nonce) {
       if (!NONCE.test(nonce)) fail('invalid nonce');
-      const first = await fetch(`${base}actions/artifacts/${Number(artifact.id)}/zip`, { headers, redirect: 'manual' });
+      const first = await fetchWithRetry(`${base}actions/artifacts/${Number(artifact.id)}/zip`, { headers, redirect: 'manual' }, io);
       const location = first.headers.get('location');
-      const r = location ? await fetch(location) : first;
+      const r = location ? await fetchWithRetry(location, undefined, io) : first;
       if (!r.ok) fail(`the intent artifact download answered HTTP ${r.status}`);
       const zip = Buffer.from(await r.arrayBuffer());
       if (zip.length > 4 * 1024 * 1024) fail('the intent artifact is too large');

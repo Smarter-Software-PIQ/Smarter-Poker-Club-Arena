@@ -47,6 +47,39 @@ export function lightningStarterTables(
   seatedAt: (tableId: string) => number,
   seeded: ReadonlySet<string> = LIGHTNING_HORSE_SEEDED
 ): ReadonlySet<string> {
+  return new Set(lightningStarterGameSeats(tables, seatedAt, seeded).keys());
+}
+
+/**
+ * EVERY SEEDED LIGHTNING GAME GETS ITS TURN (2026-11-14).
+ *
+ * The starter tables were ranked among themselves by the ordinary cluster
+ * rank, which puts every feeder after every Main. Lightning PLO4 .50/1 had
+ * only a feeder open, so whenever the seat ceiling left a few chairs, the
+ * four other starters took them first: it sat at 0 players from 00:27 to
+ * 08:05 Chicago on 2026-11-14 while the others dealt. Among starters, the
+ * game with the fewest players goes first (then the table id), whatever the
+ * table's role. The ceiling and every admission rule still decide how many.
+ */
+export function compareLightningStarters(
+  a: { id: string },
+  b: { id: string },
+  starters: ReadonlyMap<string, number>
+): number {
+  const ga = starters.get(String(a.id));
+  const gb = starters.get(String(b.id));
+  if (ga === undefined && gb === undefined) return 0;
+  if (ga === undefined) return 1;
+  if (gb === undefined) return -1;
+  return ga - gb || String(a.id).localeCompare(String(b.id));
+}
+
+/** Starter table id -> players its game already holds. */
+export function lightningStarterGameSeats(
+  tables: ReadonlyArray<CashPlanTable>,
+  seatedAt: (tableId: string) => number,
+  seeded: ReadonlySet<string> = LIGHTNING_HORSE_SEEDED
+): ReadonlyMap<string, number> {
   const count = (t: CashPlanTable): number => {
     const n = seatedAt(String(t.id ?? ''));
     return Number.isFinite(n) && n > 0 ? n : 0;
@@ -60,7 +93,7 @@ export function lightningStarterTables(
     list.push(t);
     byGame.set(t.cluster_id, list);
   }
-  const out = new Set<string>();
+  const out = new Map<string, number>();
   for (const list of byGame.values()) {
     const total = list.reduce((sum, t) => sum + count(t), 0);
     if (total >= LIGHTNING_STARTER_PLAYERS) continue;
@@ -71,7 +104,7 @@ export function lightningStarterTables(
         Number(a.main_index ?? 999) - Number(b.main_index ?? 999) ||
         String(a.id).localeCompare(String(b.id))
     )[0];
-    if (first) out.add(String(first.id));
+    if (first) out.set(String(first.id), total);
   }
   return out;
 }

@@ -127,17 +127,15 @@ describe('the stakes ladder', () => {
     expect(stakeLadderFor(rows, 'plo', 0.5)).toEqual([0.5]);
   });
 
-  it('reads a FIXED LIMIT label off the front, where its big blind lives', () => {
-    /* stakesLabel renders a limit game as its BET SIZES, `bb/bb*2`, because
-       that is what a limit player reads. So "2/4" fixed limit has a big blind
-       of 2 -- the FIRST number -- while "1/2" no-limit has a big blind of 2,
-       the SECOND. Reading index 1 unconditionally doubled every limit table's
-       stake and pushed it up its own ladder, mis-tiering the whole sheet. */
-    expect(bigBlindFromStakesLabel('2/4', 'flh')).toBe(2);
-    expect(bigBlindFromStakesLabel('2/4', 'nlh')).toBe(4);
-    expect(bigBlindFromStakesLabel('10/20', 'flo8')).toBe(10);
-    // An unknown or absent variant keeps the no-limit reading, which is the
-    // overwhelming majority of tables and the previous behaviour.
+  it('reads a FIXED LIMIT label like every other: the big blind is second', () => {
+    /* Owner ruling, November 14, 2026: limit games read by their blinds
+       ("FIXED LIMIT 1/2"), so a limit label's big blind is the SECOND number,
+       exactly as a no-limit label's is. The old bet-size reading ("2/4" for
+       blinds 1/2) is retired with the label that produced it. */
+    expect(bigBlindFromStakesLabel('1/2', 'flh')).toBe(2);
+    expect(bigBlindFromStakesLabel('2/5', 'flo8')).toBe(5);
+    expect(bigBlindFromStakesLabel('5/10', 'flo6')).toBe(10);
+    expect(bigBlindFromStakesLabel('1/2', 'nlh')).toBe(2);
     expect(bigBlindFromStakesLabel('1/2')).toBe(2);
     expect(bigBlindFromStakesLabel('1/2', null)).toBe(2);
   });

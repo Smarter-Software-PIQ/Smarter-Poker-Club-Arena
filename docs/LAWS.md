@@ -209,6 +209,16 @@ whichever test the next agent notices first.
   it is Dan's call, made by changing `fn_lightning_variant_allowed` and
   `LIGHTNING_EXCLUDED_VARIANTS` together.
 
+- **Real figures are never rounded or abbreviated (ruled 2026-11-13, Dan):**
+  "IN THE PLAYER MANAGEMENT OR ANYWHERE REAL DATA IS STORED. I DON'T WANT
+  ROUNDED UP NUMBERS LIKE 393 OR 1.5K OR 1K USE WHOLE NUMBERS AND DECIMALS
+  ALWAYS ... FIX THIS LOGIC GLOBALLY FOR THE POKER ARENA." This retires the
+  2026-09-09 forward-facing compact rule everywhere (the jackpot ruling below
+  was its first narrower exception). Every figure prints through `exactChips`
+  (`compactChips` and `fmtChips` are aliases): separators, cents kept, never a
+  K/M/B suffix; Player Management win / loss is `winLossChips`, always two
+  decimals. Pinned by `tests/real-figures-are-never-abbreviated.law.test.ts`.
+
 - **The Bad Beat Jackpot is printed to the cent (ruled 2026-11-09, Dan):** "for
   the bbj display the full amount down to the decimal and the exact amounts for
   the payouts... no rounded numbers. use exact numbers 100% of the time." This

@@ -1005,6 +1005,26 @@ arrow says the direction in force. */
 /* Black, not grey, and no blur: the console floats on the same black as the
    page. metallic-popups.css tints and blurs every `_modalOverlay_` with
    !important, which is why these two declarations carry it too. */
+/* A CASHIER DIALOG IS NEVER UNDER THE CHROME (Dan 2026-11-14: "ANYTIME YOU
+   CLICK MULTIPLE PLAYERS INSIDE THE CASHIER PAGES, IT FAILS ... RIGHT NOW IT
+   SILENTLY FAILS"). With two or more recipients Send Out grows one card and
+   one amount row per player, so the dialog reaches the bottom of the screen.
+   This overlay sat at z-index 200, under the sticky header (390) and the fixed
+   bottom nav (1000): scrolled to its end, Cancel and Confirm lay beneath the
+   nav, and a tap on Confirm landed on a nav item instead (measured on
+   production at 1024x768: Confirm 628-700, elementFromPoint = the nav link).
+   One recipient never reached the nav, which is why single sends worked and
+   no batch of two or more was ever recorded. The header covered the dialog's
+   close button the same way (header bottom 96, close 72-103). A z-index
+   cannot lift this overlay out of the page's stacking context (measured: 400
+   still lost to the header), so the overlay RESERVES both pieces of chrome:
+   its top padding is the header's measured height (--ca-global-header-height,
+   or the tab's --ca-in-tab-header-height, both published by GlobalHeader) and
+   its bottom padding is the footer's LIVE height (--bottom-nav-stack-base,
+   0px while the footer is dropped), never less than the phone's home
+   indicator inset. The dialog's max-height is 100% of what
+   is left, so its own scroll always ends with Cancel and Confirm on screen.
+   tests/cashier-dialog-clears-the-chrome.law.test.ts */
 .page .modalOverlay {
   position: fixed;
   z-index: 200;
@@ -1012,8 +1032,19 @@ arrow says the direction in force. */
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: max(12px, env(safe-area-inset-top, 0px)) max(12px, env(safe-area-inset-right, 0px))
-    max(12px, env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px));
+  padding: max(
+      12px,
+      calc(
+        var(
+            --ca-global-header-height,
+            var(--ca-in-tab-header-height, env(safe-area-inset-top, 0px))
+          ) +
+          12px
+      )
+    )
+    max(12px, env(safe-area-inset-right, 0px))
+    max(12px, env(safe-area-inset-bottom, 0px), calc(var(--bottom-nav-stack-base, 0px) + 12px))
+    max(12px, env(safe-area-inset-left, 0px));
   background: rgb(0 0 0 / 97%) !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;

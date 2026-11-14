@@ -76,6 +76,7 @@ import {
 import { useOptionalToast } from '../common/Toast';
 import './UnionWalletModal.css';
 import UnionTreasuryLog, { type TreasuryLogWallet } from './UnionTreasuryLog';
+import { chipCents } from '../../utils/cashierAmount';
 
 // Keep this union explicit at the UI boundary. Static release certification
 // verifies that the reserve wallet remains a first-class, read-only modal key.
@@ -1062,10 +1063,10 @@ export function UnionWalletModal({
                     {Number(amount) > 0 && target && !amountRefusal && (
                       <div className="uwm-blurb">
                         {mode === 'pull'
-                          ? `Pulling ${money(Number(amount))} From ${targetName}. This Wallet Would Hold ${formatWalletChips(liveBalance + Number(amount))} Afterwards.`
+                          ? `Pulling ${money(Number(amount))} From ${targetName}. This Wallet Would Hold ${formatWalletChips(chipCents(liveBalance + Number(amount)))} Afterwards.`
                           : kind === 'diamonds'
                             ? `Sending ${fmt(Number(amount))} Diamonds To ${targetName}.`
-                            : `Sending ${money(Number(amount))} To ${targetName}. This Wallet Would Hold ${formatWalletChips(liveBalance - Number(amount))} Afterwards.`}
+                            : `Sending ${money(Number(amount))} To ${targetName}. This Wallet Would Hold ${formatWalletChips(chipCents(liveBalance - Number(amount)))} Afterwards.`}
                       </div>
                     )}
                   </div>

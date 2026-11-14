@@ -54,6 +54,7 @@ import PageSkeleton from '../components/common/PageSkeleton';
 import MemberRakebackEditor from '../components/club/MemberRakebackEditor';
 import MemberCreditEditor from '../components/club/MemberCreditEditor';
 import RoleBadge, { roleColor } from '../components/club/RoleBadge';
+import MemberTransactionHistory from '../components/club/MemberTransactionHistory';
 import PlayerChangeHistory from '../components/club/PlayerChangeHistory';
 import ChipTransferModal from '../components/agent/ChipTransferModal';
 import MemberWatchAtTable from '../components/club/MemberWatchAtTable';
@@ -92,6 +93,26 @@ import './MemberManagementPage.css';
 import MemberCreditWalletRows from '../components/club/MemberCreditWalletRows';
 
 const MEMBER_CREDENTIAL_ART = `${import.meta.env.BASE_URL}images/club-members/member-credential-v1.webp`;
+
+type WalletKey = 'chip_balance' | 'player_wallet' | 'agent_wallet' | 'promo_wallet';
+
+/**
+ * The record's exact decimal twin for one wallet, kept across a live wallet
+ * update only while the live number still equals the record's number. A new
+ * balance drops the twin, so the display can never pair old digits with a
+ * new figure.
+ */
+function keptTwin(
+  value: MemberDetail,
+  row: Partial<Record<WalletKey, number | null>>,
+  key: WalletKey
+): Partial<Record<`${WalletKey}_text`, string>> {
+  const wallets = value.wallets;
+  const text = wallets?.[`${key}_text`];
+  return wallets && text !== undefined && row[key] === wallets[key]
+    ? { [`${key}_text`]: text }
+    : {};
+}
 
 /* ═══════════════════════════════════════════════════════════════════════════════
    FORMATTING
@@ -231,6 +252,11 @@ export default function MemberManagementPage() {
               player_wallet: row.player_wallet,
               agent_wallet: row.agent_wallet,
               promo_wallet: row.promo_wallet,
+              // A live update keeps an exact twin only while its number is unchanged.
+              ...keptTwin(value, row, 'chip_balance'),
+              ...keptTwin(value, row, 'player_wallet'),
+              ...keptTwin(value, row, 'agent_wallet'),
+              ...keptTwin(value, row, 'promo_wallet'),
             }
           : null,
     };
@@ -1146,22 +1172,34 @@ export default function MemberManagementPage() {
               labelled as the whole; mtt_hands was fetched and never drawn. */}
             <StatRow label="Cash Hands" value={count(stats.hands)} />
             <StatRow label="MTT Hands" value={count(stats.mtt_hands)} />
-            <StatRow label="Cash Fees" value={playerRecordMoney(stats.total_fee)} />
-            <StatRow label="MTT Fees" value={playerRecordMoney(stats.mtt_fee)} />
-            <StatRow label="Claimed Back" value={playerRecordMoney(stats.claimed_back)} />
-            <StatRow label="Sent Out" value={playerRecordMoney(stats.sent_out)} />
+            <StatRow
+              label="Cash Fees"
+              value={playerRecordMoney(stats.total_fee_text ?? stats.total_fee)}
+            />
+            <StatRow
+              label="MTT Fees"
+              value={playerRecordMoney(stats.mtt_fee_text ?? stats.mtt_fee)}
+            />
+            <StatRow
+              label="Claimed Back"
+              value={playerRecordMoney(stats.claimed_back_text ?? stats.claimed_back)}
+            />
+            <StatRow
+              label="Sent Out"
+              value={playerRecordMoney(stats.sent_out_text ?? stats.sent_out)}
+            />
             <StatRow
               label="Total Winnings"
               value={
                 stats.total_winnings === null
                   ? 'Unavailable'
-                  : playerRecordMoney(stats.total_winnings, true)
+                  : playerRecordMoney(stats.total_winnings_text ?? stats.total_winnings, true)
               }
               signed={stats.total_winnings}
             />
             <StatRow
               label="MTT Winnings"
-              value={playerRecordMoney(stats.mtt_winnings, true)}
+              value={playerRecordMoney(stats.mtt_winnings_text ?? stats.mtt_winnings, true)}
               signed={stats.mtt_winnings}
             />
           </section>
@@ -1174,9 +1212,18 @@ export default function MemberManagementPage() {
             <h2 className="mm-card__title">Wallets</h2>
             {/* chip_balance and player_wallet are the same club_members row
               read twice; two labels on one number read as two wallets. */}
-            <StatRow label="Player Wallet" value={formatWalletChips(wallets.player_wallet)} />
-            <StatRow label="Agent Wallet" value={formatWalletChips(wallets.agent_wallet)} />
-            <StatRow label="Promo Wallet" value={formatWalletChips(wallets.promo_wallet)} />
+            <StatRow
+              label="Player Wallet"
+              value={formatWalletChips(wallets.player_wallet_text ?? wallets.player_wallet)}
+            />
+            <StatRow
+              label="Agent Wallet"
+              value={formatWalletChips(wallets.agent_wallet_text ?? wallets.agent_wallet)}
+            />
+            <StatRow
+              label="Promo Wallet"
+              value={formatWalletChips(wallets.promo_wallet_text ?? wallets.promo_wallet)}
+            />
           </section>
         )}
         {wallets && resolvedClubId && userId && isAgentRole(identity!.role) && (
@@ -1233,7 +1280,7 @@ export default function MemberManagementPage() {
                       <span className="mm-downline__number">No. {d.player_number}</span>
                     )}
                     <span className="mm-downline__fees" title="Fees Generated">
-                      {playerRecordMoney(d.total_fees)}
+                      {playerRecordMoney(d.total_fees_text ?? d.total_fees)}
                     </span>
                     <span className="mm-downline__open" aria-hidden="true">
                       ›
@@ -1258,6 +1305,21 @@ export default function MemberManagementPage() {
             )}
           </section>
         )}
+
+        {detail!.capabilities.can_view_financials &&
+          isAgentRole(identity!.role) &&
+          resolvedClubId &&
+          memberUuid &&
+          user?.id &&
+          myRoleLoaded && (
+            <MemberTransactionHistory
+              key={`${resolvedClubId}:${memberUuid}:${user.id}:${myRole}`}
+              clubId={resolvedClubId}
+              memberId={memberUuid}
+              viewerId={user.id}
+              scope={memberUuid === user.id ? 'mine' : isClubStaff(myRole) ? 'club' : 'downline'}
+            />
+          )}
 
         {/* ── Role ─────────────────────────────────────────────────────────── */}
 

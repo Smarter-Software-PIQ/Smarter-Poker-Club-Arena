@@ -231,7 +231,9 @@ describe('the fold cue (spec SOUND SYSTEM)', () => {
     expect(cue).toBeGreaterThan(0);
     expect(send).toBeGreaterThan(cue);
     expect(handler).toContain("applyOptimisticHeroAction('fold')");
-    expect(handler).toMatch(/if \(!result\.success\) \{\s*revert\(\);/);
+    expect(handler).toMatch(
+      /if \(!result\.success && !uncertain\) \{\s*lightningFoldBusyRef\.current = null;\s*revert\(\);/
+    );
     expect(LIGHTNING_CAPABILITY_MAP.desktop.sound).toBe(true);
     expect(lightningCapabilities('android').sound).toBe(true);
   });

@@ -301,6 +301,67 @@ export async function returnOwedLightningLeaveToPool(
   }
 }
 
+let lastPlaysOnWarnAt = 0;
+
+/**
+ * AN OWED LEAVE ALONE AT ITS TABLE PLAYS ON IN ITS GAME (2026-11-14).
+ *
+ * Asked before a held leave that still owes hands is released for having
+ * nobody left at its table. The database answers whether the same game is
+ * still dealing at another table; if it is, the seat stops pending and keeps
+ * its blind off so the game moves it to that table, and `keep` is true. Null
+ * (function missing, transport, refusal) keeps the established behaviour: the
+ * caller releases the seat as before. Engine-only.
+ */
+export async function owedLeavePlaysOnInGame(
+  userId: string,
+  tableId: string,
+  seatNumber: number,
+  occupancyId: string
+): Promise<{
+  keep: boolean;
+  returned: boolean;
+  handsRemaining: number;
+  reason: string | null;
+} | null> {
+  try {
+    const { data, error } = await supabase.rpc('fn_owed_leave_plays_on_in_game', {
+      p_user_id: userId,
+      p_table_id: tableId,
+      p_seat_number: seatNumber,
+      p_occupancy_id: occupancyId,
+    });
+    if (error || !data || typeof data !== 'object' || Array.isArray(data)) {
+      if (error && Date.now() - lastPlaysOnWarnAt > 60_000) {
+        lastPlaysOnWarnAt = Date.now();
+        console.warn(
+          `[cashSessions] owed leave at ${tableId.slice(0, 8)} not kept in its game: ${error.message}`
+        );
+      }
+      return null;
+    }
+    const row = data as {
+      keep?: unknown;
+      returned?: unknown;
+      hands_remaining?: unknown;
+      reason?: unknown;
+    };
+    const hands = Number(row.hands_remaining);
+    return {
+      keep: row.keep === true,
+      returned: row.returned === true,
+      handsRemaining: Number.isFinite(hands) ? Math.max(0, Math.floor(hands)) : 0,
+      reason: typeof row.reason === 'string' ? row.reason : null,
+    };
+  } catch (err: any) {
+    console.warn(
+      `[cashSessions] owed leave transport failure for ${tableId.slice(0, 8)}:`,
+      err?.message
+    );
+    return null;
+  }
+}
+
 /**
  * HIT AND RUN (Lightning): which of these pool sessions are being blinded off
  * and still owe hands. An unreadable answer is the empty set: the seat then

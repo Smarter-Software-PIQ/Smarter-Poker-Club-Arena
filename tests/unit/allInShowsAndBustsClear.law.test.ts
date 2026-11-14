@@ -54,9 +54,15 @@ describe('an all-in tournament showdown never offers the Show Hand button', () =
 });
 
 describe('the equity overlay gets half a second after the hand, no more', () => {
-  it('HAND_COMPLETE arms a 500ms clear of the all-in equities', () => {
-    const block = sliceBetween(TABLE, 'DISAPPEAR AFTER HALF A SECOND', 'handCompleteResetAtRef');
-    expect(block).toMatch(/setTimeout\(\(\) => \{\s*setAllInEquities\(\[\]\);\s*\}, 500\)/);
+  it('HAND_COMPLETE clears its own hand’s all-in equities after 500ms', () => {
+    const block = sliceBetween(
+      TABLE,
+      'DISAPPEAR AFTER HALF A SECOND',
+      'handCompleteTimerRef.current = window.setTimeout'
+    );
+    expect(block).toMatch(
+      /setTimeout\(\(\) => \{\s*if \(stillShowingCompletedHand\(\)\) setAllInEquities\(\[\]\);\s*\}, 500\)/
+    );
   });
 });
 

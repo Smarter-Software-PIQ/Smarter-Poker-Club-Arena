@@ -5010,6 +5010,27 @@
   transform: none;
 }
 
+/* A Lightning deal has one flight. A snapshot-delivered face is immediately
+   readable when the first decision arrives, including on a reconnect. */
+.table-page[data-lightning-room='true']
+  .seat__cards--hero:not(.seat__cards--folding, .seat__cards--showdown)
+  .seat__card--face:not(.seat__card--discarding) {
+  animation-name: none;
+}
+
+/* Five Lightning cards use the available lane beside the fixed hero plate.
+   Half of each face remains exposed for reading and selecting the card. */
+.table-page[data-lightning-room='true']
+  .seat.seat--hero
+  .seat__cards--hero[data-card-count='5']:not(.seat__cards--revealed) {
+  --sp-hero-card-w: min(
+    var(--sp-card2-w),
+    calc((50vw - max(var(--seat-plate-min-width) / 2, var(--seat-avatar-size) * 4 / 7) - 12px) / 3)
+  );
+  --sp-hero-card-h: calc(var(--sp-hero-card-w) * 92 / 64);
+  --sp-hero-card-step: calc(var(--sp-hero-card-w) * 0.5);
+}
+
 /* Six hero cards share the board's dimensions. A 45% step exposes each
    index. On a narrow felt the seat makes only the extra room the fan needs. */
 .table-page .seat.seat--hero:has(> .seat__cards--hero[data-card-count='6']) {
@@ -5289,7 +5310,29 @@
    fitter can grow the entire ring together when the decoded art clears. */
 @media (min-width: 481px) and (max-width: 640px) and (orientation: portrait) {
   .table-page[data-seats='9'] .seat-wrapper {
-    --sp-bust-scale: 1.7;
+    --sp-bust-scale: var(--sp-nine-rail-bust, 1.7);
+  }
+}
+
+/* The top pair's nearest-player lanes meet at the curved end of the felt.
+   Keep the two-line ALL IN disc within that lane at the phone reference size. */
+@media (min-width: 481px) and (max-width: 640px) and (orientation: portrait) {
+  .table-page[data-seats='9'] .seat-wrapper--cap .seat__allin-puck {
+    --allin-puck-size: min(var(--dealer-btn-size, 28px), 28px);
+  }
+}
+
+/* A nine-seat top pod is centred on its fixed rail coordinate. A showdown
+   description sits below the plate without adding to that centred height. */
+@media (min-width: 481px) and (max-width: 640px) and (orientation: portrait) {
+  .table-page[data-seats='9']
+    .seat-wrapper--cap
+    .seat
+    > :is(.seat__hand-name, .seat__mucked-label) {
+    position: absolute;
+    top: 100%;
+    width: max-content;
+    max-width: 100%;
   }
 }
 

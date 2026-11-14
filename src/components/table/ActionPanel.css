@@ -2019,3 +2019,11 @@
     font-size: 1.125rem;
   }
 }
+
+/* Lightning changes the available controls every deal. Mount the new controls
+   in place without replaying an entrance on each turn or pre-action swap. */
+.table-page[data-lightning-hud='true'] .action-panel,
+.table-page[data-lightning-hud='true'] .pre-action-bar,
+.table-page[data-lightning-hud='true'] .action-panel--active .action-btn:not(:disabled) {
+  animation: none;
+}

@@ -135,7 +135,7 @@ export function dealerSeatReservations(input: {
     return [];
   const size = input.scalerSize;
   const r = dealerSize / 2 + 2 * scale;
-  return anchors.map((pos) => {
+  return anchors.flatMap((pos) => {
     const p = dealerButtonPositionClearOfSeat(
       pos,
       size,
@@ -144,7 +144,22 @@ export function dealerSeatReservations(input: {
     );
     const x = c.left + (p.x * c.width) / 100,
       y = c.top + (p.y * c.height) / 100;
-    return { left: x - r, top: y - r, width: 2 * r, height: 2 * r };
+    if (anchors.length !== 9) return [{ left: x - r, top: y - r, width: 2 * r, height: 2 * r }];
+    // Reserve the round puck and its daylight, including the widest point
+    // of each band. The enclosing square's transparent corners are free.
+    const strips: ReservationBox[] = [];
+    for (let top = -r; top < r; top += 3 * scale) {
+      const bottom = Math.min(r, top + 3 * scale);
+      const dy = Math.max(0, top, -bottom);
+      const halfWidth = Math.sqrt(r * r - dy * dy);
+      strips.push({
+        left: x - halfWidth,
+        top: y + top,
+        width: 2 * halfWidth,
+        height: bottom - top,
+      });
+    }
+    return strips;
   });
 }
 

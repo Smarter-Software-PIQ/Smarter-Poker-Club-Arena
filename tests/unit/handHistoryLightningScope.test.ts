@@ -111,6 +111,35 @@ beforeEach(() => {
 });
 
 describe('Previous Hand reads a Lightning pool session, not a physical table', () => {
+  it('resolves only the selected deal archive and distinguishes unsettled, missing and failed reads', async () => {
+    const deal = { id: 'engine-a', number: 30 };
+    const read = () => handHistoryService.getPreviousLightningHand(HERO, POOL, deal);
+    await expect(read()).resolves.toMatchObject({ state: 'ready', hand: { id: A } });
+    expect(state.reads.find((entry) => entry.table === 'hand_history')?.calls).toContainEqual([
+      'in',
+      'id',
+      [A],
+    ]);
+    state.rpc.mockResolvedValue({
+      data: [{ hand_id: 'engine-b', hand_number: 20, hand_history_id: B }],
+      error: null,
+    });
+    await expect(read()).resolves.toEqual({ state: 'pending' });
+    state.rpc.mockResolvedValue({
+      data: [{ hand_id: 'engine-a', hand_number: 30, hand_history_id: null }],
+      error: null,
+    });
+    await expect(read()).resolves.toEqual({ state: 'unavailable' });
+    state.rows = [];
+    await expect(
+      handHistoryService.getPreviousLightningHand(HERO, POOL, deal, { archiveId: A })
+    ).resolves.toEqual({ state: 'unavailable' });
+    state.historyError = { message: 'Archive read failed' };
+    await expect(
+      handHistoryService.getPreviousLightningHand(HERO, POOL, deal, { archiveId: A })
+    ).rejects.toThrow('Archive read failed');
+  });
+
   it('loads only session-listed canonical hands across physical instances and retains private cards', async () => {
     const hands = await load();
     expect(hands.map((hand) => hand.id)).toEqual([A, B]);

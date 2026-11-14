@@ -1525,6 +1525,11 @@ export interface OppPostflopRead {
    * from the river raise stratum (V67_RIVER_RAISE_BLUFF_SHARE /
    * V67_RIVER_RAISE_VALUE_MIX) instead of the any-contact read. */
   raisePolar67?: boolean;
+  /** STYLE READ #4b (2026-11-14): this turn or river raiser is sampled from
+   * the value-raise stratum (STYLE_VALUE_RAISE_*). Set only on the second,
+   * blended estimate of HorseLogic's value-raise arm, together with
+   * raisePolar66 (turn) or raisePolar67 (river). Absent: V66 / V67 exactly. */
+  raiseValueHeavy?: boolean;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1579,6 +1584,27 @@ export function v66RaiseTargetClass(street: 0 | 1, r1: number, r2: number): 0 | 
   const mix = V66_RAISE_VALUE_MIX[street];
   if (r2 < mix[0]) return 3;
   if (r2 < mix[0] + mix[1]) return 2;
+  return 1;
+}
+
+/** STYLE READ #4b (2026-11-14): the raise stratum of a credibly passive
+ * raiser, by street (turn, river): the bluff share and the two-pair-or-better
+ * share of value. A passive player who raises over a bet on the turn or river
+ * holds two pair or better nearly always. The flop has no such stratum.
+ * CALIBRATE: chosen from one reviewed hand and its enumeration, not yet
+ * validated in a league. */
+export const STYLE_VALUE_RAISE_BLUFF_SHARE = [0.03, 0.03] as const;
+export const STYLE_VALUE_RAISE_STRONG_SHARE = [0.92, 0.95] as const;
+
+/** STYLE READ #4b: the target stratum of one value-raise sample (0 = bluff,
+ * else the value class 1..3). `street` 0 = turn, 1 = river. Same two uniform
+ * draws as the strata it stands in for. Exported for the test. */
+export function styleValueRaiseTargetClass(street: 0 | 1, r1: number, r2: number): 0 | 1 | 2 | 3 {
+  if (r1 < STYLE_VALUE_RAISE_BLUFF_SHARE[street]) return 0;
+  const strong = STYLE_VALUE_RAISE_STRONG_SHARE[street];
+  if (r2 < strong) return 3;
+  const base = street === 1 ? V67_RIVER_RAISE_VALUE_MIX : V66_RAISE_VALUE_MIX[1];
+  if (r2 < strong + (1 - strong) * (base[1] / (base[1] + base[2]))) return 2;
   return 1;
 }
 
@@ -3721,11 +3747,11 @@ export function simulateEquity(
         if (read.raisePolar66 === true && raisePolar66Board && oppHole === 2) {
           const index66 = v62Indexes ? v62Indexes[o] : null;
           if (index66) {
-            const target66 = v66RaiseTargetClass(
-              boardCards.length === 4 ? 1 : 0,
-              fastRandom(),
-              fastRandom()
-            );
+            const street66 = boardCards.length === 4 ? 1 : 0;
+            const target66 =
+              read.raiseValueHeavy === true && street66 === 1
+                ? styleValueRaiseTargetClass(0, fastRandom(), fastRandom())
+                : v66RaiseTargetClass(street66, fastRandom(), fastRandom());
             if (placeV62Combo(deck, windowStart, n, index66, target66, vi.isShortDeck)) {
               oppCards[0] = deck[windowStart];
               oppCards[1] = deck[windowStart + 1];
@@ -3737,7 +3763,10 @@ export function simulateEquity(
         if (read.raisePolar67 === true && boardCards.length === 5 && oppHole === 2) {
           const index67 = v62Indexes ? v62Indexes[o] : null;
           if (index67) {
-            const target67 = v67RiverRaiseTargetClass(fastRandom(), fastRandom());
+            const target67 =
+              read.raiseValueHeavy === true
+                ? styleValueRaiseTargetClass(1, fastRandom(), fastRandom())
+                : v67RiverRaiseTargetClass(fastRandom(), fastRandom());
             if (placeV62Combo(deck, windowStart, n, index67, target67, vi.isShortDeck)) {
               oppCards[0] = deck[windowStart];
               oppCards[1] = deck[windowStart + 1];

@@ -27,6 +27,8 @@ export interface DownlineRow {
   avatarUrl: string | null;
   role: string;
   chipBalance: number;
+  /** chipBalance as the exact decimal text the wallet holds (CASHIER_ROSTER_SELECT), for display. */
+  chipBalanceText?: string;
   /**
    * How many club_members.agent_id hops below the viewer this member sits, as
    * computed by fn_club_cashier_members. 1 is a direct assignee; 0 means the
@@ -46,6 +48,16 @@ export interface DownlineRow {
    * deleted before the search ever saw it.
    */
   isSelf: boolean;
+}
+
+/** fn_club_cashier_members_page_v3's columns, with each wallet again as exact decimal text. */
+export const CASHIER_ROSTER_SELECT = '*,chip_balance_text:chip_balance::text';
+
+/** Exact decimal text from a `::text` column, or undefined when absent or malformed. */
+export function exactDecimalText(value: unknown): string | undefined {
+  return typeof value === 'string' && /^-?\d+(\.\d+)?$/.test(value.trim())
+    ? value.trim()
+    : undefined;
 }
 
 export interface CashierRosterRpcRow extends Record<string, unknown> {
@@ -72,6 +84,10 @@ export const mapCashierRoster = (rows: CashierRosterRpcRow[], viewerId: string):
       avatarUrl: (row.avatar_url as string) || null,
       role: (row.role as string) || 'player',
       chipBalance: Number(row.chip_balance) || 0,
+      ...(typeof row.chip_balance === 'number' &&
+      exactDecimalText(row.chip_balance_text) !== undefined
+        ? { chipBalanceText: exactDecimalText(row.chip_balance_text) }
+        : {}),
       depth,
       isMine: depth === 1,
       playerNumber: (row.player_number as string) || null,

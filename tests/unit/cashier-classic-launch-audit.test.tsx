@@ -293,11 +293,11 @@ describe('Cashier Classic launch audit', () => {
   });
 
   // ── P-01 ─────────────────────────────────────────────────────────────────
-  it('keeps presets compact while recipient wallets retain exact cents', async () => {
+  it('keeps presets exact while recipient wallets retain exact cents', async () => {
     start();
     await screen.findByRole('tab', { name: 'Send', selected: true });
     expect(screen.getByRole('button', { name: '100', exact: true })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '1K', exact: true })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '1,000', exact: true })).toBeInTheDocument();
     const recipient = await screen.findByLabelText('Send To Recipient');
     await waitFor(() => expect((recipient as HTMLSelectElement).options.length).toBe(3));
     fireEvent.change(recipient, { target: { value: PLAYER_ONE } });

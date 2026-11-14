@@ -37,14 +37,14 @@ function member(id: string, financial = true): RosterMember {
 afterEach(() => vi.restoreAllMocks());
 
 describe('winLossChips', () => {
-  it('signs a win, keeps the minus on a loss and never overstates either', () => {
-    expect(winLossChips(1290)).toBe('+1.2K');
-    expect(winLossChips(-1290)).toBe('-1.2K');
-    expect(winLossChips(70)).toBe('+70');
-    expect(winLossChips(-450.9)).toBe('-450');
-    expect(winLossChips(0)).toBe('0');
-    expect(winLossChips(-0.4)).toBe('0');
-    expect(winLossChips(null)).toBe('0');
+  it('signs a win, keeps the minus on a loss, exact to the cent', () => {
+    expect(winLossChips(1290)).toBe('+1,290.00');
+    expect(winLossChips(-1290)).toBe('-1,290.00');
+    expect(winLossChips(70)).toBe('+70.00');
+    expect(winLossChips(-450.9)).toBe('-450.90');
+    expect(winLossChips(0)).toBe('0.00');
+    expect(winLossChips(-0.4)).toBe('-0.40');
+    expect(winLossChips(null)).toBe('0.00');
   });
 });
 

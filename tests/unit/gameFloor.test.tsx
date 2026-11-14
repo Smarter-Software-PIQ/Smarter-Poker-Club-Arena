@@ -168,6 +168,6 @@ describe('the small words', () => {
     );
     expect(
       prizeLabel(win({ kind: 'diamonds', amount: 1250, value_chips: 12.5, multiplier_cents: null }))
-    ).toBe('1.2K Diamonds');
+    ).toBe('1,250 Diamonds');
   });
 });

@@ -133,7 +133,7 @@ describe('LeaderboardPrizeWizard', () => {
     await user.click(screen.getByRole('button', { name: /Yes, Show Prizes/i }));
     await user.click(screen.getByRole('button', { name: 'Continue' }));
     expect(screen.getByText('North Circuit Promo Wallet')).toBeInTheDocument();
-    expect(screen.getByText('10K')).toBeInTheDocument();
+    expect(screen.getByText('10,000')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Continue' }));
     expect(screen.getByRole('button', { name: /Balanced Podium/i })).toHaveAttribute(
