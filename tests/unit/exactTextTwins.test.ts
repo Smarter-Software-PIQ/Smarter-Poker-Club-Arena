@@ -3,6 +3,7 @@ const state = vi.hoisted(() => ({ rpc: vi.fn(), select: vi.fn() }));
 vi.mock('../../src/lib/supabase', () => ({ supabase: { rpc: state.rpc } }));
 import ClubRosterService, {
   mapRosterRow,
+  selectTextTwins,
   textTwinSelect,
 } from '../../src/services/ClubRosterService';
 import { CASHIER_ROSTER_SELECT, mapCashierRoster } from '../../src/lib/cashierRoster';
