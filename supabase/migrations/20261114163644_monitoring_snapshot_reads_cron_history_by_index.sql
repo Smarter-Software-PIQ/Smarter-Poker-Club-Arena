@@ -147,6 +147,9 @@ AS $function$
     FROM sh, fa, pgc, oc, ut, noop;
 $function$;
 
+REVOKE ALL ON FUNCTION public.fn_monitoring_health_snapshot(integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_monitoring_health_snapshot(integer) TO service_role;
+
 DO $post$
 DECLARE b record;
 BEGIN
