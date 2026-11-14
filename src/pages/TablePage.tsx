@@ -28018,6 +28018,9 @@ function LiveTablePage({
          scaler, so the --sp-hero-clear bottom reserve is dead space for them.
          CSS collapses it via [data-hero='false'] (see TablePage.css). */
       data-hero={heroAtTable ? 'true' : 'false'}
+      data-lightning-hud={
+        (lightningRoom || lightningCapableClusterId) && isActive ? 'true' : undefined
+      }
       data-kill-enabled={killRulesApply ? 'true' : 'false'}
       data-hole-card-count={seatHoleCardCount}
       /* LIGHTNING TRANSITION, PHASE 3: the folded hand is leaving the felt;
@@ -29296,6 +29299,13 @@ function LiveTablePage({
                                 Hand #{tableState.handNumber}
                               </span>
                             </span>
+                          )}
+                          {(lightningRoom || lightningCapableClusterId) && (
+                            <HitRunCountPill
+                              hands={heroHandsOwed}
+                              reason={heroHandCount.reason ?? null}
+                              paused={heroHandCount.paused ?? null}
+                            />
                           )}
                         </>
                       );
@@ -30722,15 +30732,6 @@ function LiveTablePage({
                   })
             }
           />
-          {/* HIT AND RUN: between Lightning hands the hero has no seat on this
-              felt for the tracker to stand beside; the count still shows. */}
-          {!tableState.isTournament && tableState.heroSeat <= 0 && !!lightningRoom && (
-            <HitRunCountPill
-              hands={heroHandsOwed}
-              reason={heroHandCount.reason ?? null}
-              paused={heroHandCount.paused ?? null}
-            />
-          )}
           {/* THE HERO'S VPIP TRACKER (Dan 2026-09-04): to the left of the
               hero, hero only, the judged figure. A sibling of the seats at
               the hero seat's own point; HeroVpipTracker.css pushes it left of
@@ -30740,6 +30741,7 @@ function LiveTablePage({
             lightningClusterId={lightningRoom?.clusterId}
             heroSeated={tableState.heroSeat > 0}
             isTournament={tableState.isTournament}
+            lightningLayout={Boolean(lightningRoom || lightningCapableClusterId)}
             handsOwed={heroHandsOwed}
             handsReason={heroHandCount.reason ?? null}
             handsPaused={heroHandCount.paused ?? null}
