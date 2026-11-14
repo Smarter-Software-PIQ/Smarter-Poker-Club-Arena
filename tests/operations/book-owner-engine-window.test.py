@@ -183,6 +183,9 @@ class BookOwnerEngineWindow(unittest.TestCase):
     def test_books_one_window_then_the_next_and_the_floor_suite_passes_each_time(self):
         windows = json.loads(self.read(WINDOWS))
         old_id = self.constant('NOV7_OWNER_ID', FLOOR_PY)
+        # The predecessor the repository pins before A is booked; A replaces it
+        # and B carries the "absent from the transaction" pin for it.
+        old_pred = self.constant('NOV7_PREDECESSOR', SEAL)
         old_pair = "{'engine-release-seal.py': '%s', 'engine-release-transaction.sh': '%s'}" % (
             sha(self.repo / SEAL), sha(self.repo / TRANSACTION))
         cases = len(re.findall(r'^    def test_', self.read(SUITE), re.M))
@@ -232,7 +235,7 @@ class BookOwnerEngineWindow(unittest.TestCase):
         self.assertIn(f"self.assertEqual(windows['windows'][-3]['id'], '{old_id}')", suite)
         # The predecessor did not change, so the earlier "absent from the transaction" pin is carried.
         self.assertEqual(suite.count(f"self.assertEqual(transaction.count('{B['predecessor']}'), 2)"), 1)
-        self.assertEqual(suite.count("self.assertNotIn('533608409f2b05e702c9fbd097bcab48b9e59dad', transaction)"), 1)
+        self.assertEqual(suite.count(f"self.assertNotIn('{old_pred}', transaction)"), 1)
         for chain in re.findall(r"(?:        self\.assertEqual\(windows\['windows'\]\.pop\(\)\['id'\], '[^']+'\)\n)+", suite):
             self.assertTrue(chain.startswith(
                 f"        self.assertEqual(windows['windows'].pop()['id'], '{B['window_id']}')\n"
@@ -405,7 +408,8 @@ class BookOwnerEngineWindow(unittest.TestCase):
         self.assertGreater(current['notAfter'], spec['notice_at'])
         result = self.book(spec, dry_run=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertRegex(result.stdout, r'WARNING: the new notice interval overlaps a shipped notice \(' + re.escape(current['id']))
+        # The overlap list is sorted and may also name earlier windows still shipped.
+        self.assertRegex(result.stdout, r'WARNING: the new notice interval overlaps a shipped notice \([^)]*' + re.escape(current['id']))
 
 
 if __name__ == '__main__':
