@@ -73,6 +73,18 @@ function build(db) {
   query(db, readFixture('schema.sql'));
   // The one column this door writes that the blind-off fixture did not need.
   query(db, "ALTER TABLE table_seats ADD COLUMN status text DEFAULT 'active';");
+  // What this door reads that the blind-off fixture did not model: the table's
+  // own game fields and chair count, and the game's move capability. The
+  // Classic predicate is production's contract (template 'classic' never moves).
+  query(
+    db,
+    "ALTER TABLE tables ADD COLUMN game_variant text DEFAULT 'nlh', ADD COLUMN small_blind numeric DEFAULT 0.25, " +
+      'ADD COLUMN big_blind numeric DEFAULT 0.5, ADD COLUMN max_players integer DEFAULT 6; ' +
+      "ALTER TABLE cash_games ADD COLUMN must_move boolean DEFAULT true, ADD COLUMN template_name text DEFAULT 'madness', " +
+      "ADD COLUMN ruleset_snapshot jsonb DEFAULT '{}'::jsonb; " +
+      'CREATE FUNCTION fn_cash_game_never_moves_players(p_template text, p_rules jsonb) RETURNS boolean ' +
+      "LANGUAGE sql IMMUTABLE AS $$SELECT coalesce(lower(p_template), '') = 'classic'$$;"
+  );
   query(
     db,
     'SET check_function_bodies = off;\n' +

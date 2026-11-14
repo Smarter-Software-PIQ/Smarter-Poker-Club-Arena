@@ -38,10 +38,26 @@ describe('the door', () => {
     expect(sql).toContain('HAVING count(*) >= 2');
     expect(sql).toContain("v_reason := 'nobody_in_game';");
   });
-  it('never keeps a forced exit, an unowed seat or a wait past ten minutes', () => {
+  it('never keeps a forced exit, an unowed seat or a Classic game (players never move there)', () => {
     expect(sql).toContain("ELSIF v_mode = 'forced' THEN v_reason := 'forced';");
     expect(sql).toContain("IF v_owed <= 0 THEN v_reason := 'not_owed';");
-    expect(sql).toContain("now() - v_first > interval '10 minutes' THEN v_reason := 'not_moved';");
+    expect(sql).toContain(
+      'public.fn_cash_game_never_moves_players(g.template_name, g.ruleset_snapshot)'
+    );
+    expect(sql).toContain("v_reason := 'game_never_moves';");
+  });
+  it('counts only a compatible table: same game, club, variant and blinds', () => {
+    for (const col of ['club_id', 'game_variant', 'small_blind', 'big_blind'])
+      expect(sql).toContain(`AND t.${col} IS NOT DISTINCT FROM v_seat.${col}`);
+  });
+  it('bounds the wait from the first keep: ten minutes only while every compatible table is full', () => {
+    expect(sql).toContain('WHERE d.occupancy_id = p_occupancy_id AND d.keep;');
+    expect(sql).toContain(
+      "ELSIF v_first IS NOT NULL AND NOT v_open AND now() - v_first > interval '10 minutes' THEN v_reason := 'compatible_full';"
+    );
+    expect(sql).toContain(
+      "ELSIF v_first IS NOT NULL AND now() - v_first > interval '30 minutes' THEN v_reason := 'not_moved';"
+    );
   });
   it('moves no chips and never touches a departure time or an occupant', () => {
     expect(sql).not.toMatch(/SET[^;]*\bstack\b/);
@@ -52,6 +68,17 @@ describe('the door', () => {
     expect(sql).toContain('CREATE TABLE public.ca_owed_leave_decisions');
     expect(sql).not.toMatch(/REFERENCES/);
     expect(sql).toContain('INSERT INTO public.ca_owed_leave_decisions');
+    expect(sql).toContain('ALTER TABLE public.ca_owed_leave_decisions ENABLE ROW LEVEL SECURITY;');
+    expect(sql).toContain(
+      'REVOKE ALL ON public.ca_owed_leave_decisions FROM PUBLIC, anon, authenticated;'
+    );
+    for (const col of [
+      'dest_table_id uuid',
+      'dest_open_chair boolean',
+      'reason text NOT NULL',
+      'hands_owed integer',
+    ])
+      expect(sql).toContain(col);
   });
   it('is granted to the engine only', () => {
     expect(sql).toContain(
@@ -82,5 +109,8 @@ describe('the proof', () => {
     const harness = read('scripts/qualify-owed-leave-plays-on.mjs');
     expect(harness).toContain('Q0 WAIVER REPRODUCED');
     expect(harness).toContain("['Q1 PLAYS ON', 'Q2-Q10 PASS']");
+    expect(read('scripts/qualification/owed-leave-plays-on/behavior.sql')).toContain(
+      'Q10 access controls'
+    );
   });
 });
