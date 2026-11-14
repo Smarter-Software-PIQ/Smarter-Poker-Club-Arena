@@ -110,3 +110,16 @@ it('keeps complete table art covered until the selected deck decodes, with the e
   await act(() => vi.advanceTimersByTimeAsync(TABLE_ART_MAX_COVER_MS));
   expect(result.current.reveal).toBe(true);
 });
+
+it('reveals a verified decision immediately and keeps its felt open after the action', () => {
+  const { result, rerender } = renderHook(
+    ({ owesAction }) => useTableArt('', '', false, 'lightning-turn', false, owesAction),
+    { initialProps: { owesAction: false } }
+  );
+  expect(result.current.reveal).toBe(false);
+  rerender({ owesAction: true });
+  expect(result.current.ready).toBe(false);
+  expect(result.current.reveal).toBe(true);
+  rerender({ owesAction: false });
+  expect(result.current.reveal).toBe(true);
+});

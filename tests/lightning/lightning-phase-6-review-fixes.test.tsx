@@ -662,7 +662,7 @@ describe('conversion of an already seated player', () => {
     expect(PAGE).toMatch(
       /const heroOwesNothing =\s+lightningOwes !== null\s+\? lightningOwes <= 0\s+: \(tableState\.currentBet \|\| 0\) <=\s+\(tableState\.lastBetAmounts\?\.\[tableState\.heroSeat - 1\] \|\| 0\);/
     );
-    expect(PAGE).toContain('if (lightningFoldBusyRef.current) return;');
+    expect(PAGE).toMatch(/lightningFoldBusyRef\.current === lightningFoldHandId\s*\)\s*return;/);
     expect(PAGE).toContain('lightningFoldOnTurn(engineSnapshotRef.current, userId, kind)');
     expect(PAGE).toContain('preActionFoldOnTurnHandRef.current = queued.handId;');
   });

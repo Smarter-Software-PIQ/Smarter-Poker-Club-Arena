@@ -52,7 +52,7 @@ describe('TablePage on a pool-session id', () => {
     );
     expect(PAGE).toContain('await sendLightningFold(tableId, userId, kind, lightningFoldHandId)');
     expect(PAGE).toMatch(
-      /\[\s*tableId,\s*userId,\s*toast,\s*isMultiTable,\s*isActive,\s*lightningCaps,\s*lightningFoldHandId,\s*applyOptimisticHeroAction,?\s*\]/
+      /\[\s*tableId,\s*userId,\s*toast,\s*isMultiTable,\s*isActive,\s*lightningCaps,\s*lightningFoldHandId,\s*requestEngineSnapshot,\s*applyOptimisticHeroAction,?\s*\]/
     );
   });
 

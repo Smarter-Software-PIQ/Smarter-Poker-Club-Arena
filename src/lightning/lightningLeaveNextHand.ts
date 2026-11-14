@@ -62,6 +62,7 @@ export function useLightningLeaveAfterHand(input: {
   ready: boolean;
   waits: boolean;
   roomClosed?: boolean;
+  resuming?: boolean;
   leave: () => unknown;
   alreadyLeaving?: () => boolean;
   onError?: (error: unknown) => void;
@@ -94,7 +95,7 @@ export function useLightningLeaveAfterHand(input: {
   const clear = () => write(false);
 
   useEffect(() => {
-    if (!queued || !input.ready) return;
+    if (!queued || !input.ready || input.resuming) return;
     if (!input.roomClosed) {
       if (input.waits) {
         if (queued === 'awaiting-hand') write(true);
@@ -115,7 +116,7 @@ export function useLightningLeaveAfterHand(input: {
     }
     // write is recreated each render; the boundary itself is the trigger.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queued, input.ready, input.waits, input.roomClosed, key]);
+  }, [queued, input.ready, input.waits, input.roomClosed, input.resuming, key]);
 
   return { queued: Boolean(queued), queue, clear };
 }

@@ -31,8 +31,8 @@ describe('the service worker never answers an image with nothing', () => {
 describe('TablePage paints the art the loader decoded, and waits for it', () => {
   const page = read('src/pages/TablePage.tsx');
   it('feeds both rasters through useTableArt', () => {
-    expect(page).toContain(
-      'const tableArt = useTableArt(tableSkinUrl, tableBackgroundUrl, themeReady, themeScope, deckReady);'
+    expect(page.replace(/\s+/g, ' ')).toMatch(
+      /const tableArt = useTableArt\(\s*tableSkinUrl, tableBackgroundUrl, themeReady, themeScope, deckReady, liveLightningDecision\s*\);/
     );
     expect(page).toContain('src={tableArt.skinSrc || undefined}');
     expect(page).toContain('resolveBackgroundLayersForUrl(tableArt.backgroundSrc)');

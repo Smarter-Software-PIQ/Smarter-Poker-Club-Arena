@@ -38,13 +38,27 @@ describe('Leave Next Hand before Lightning starts', () => {
     render(
       <LightningFeederLeaveControl queued pending={false} onLeave={leave} onCancel={cancel} />
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Leaving After Hand' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Leaving After This Hand' }));
     expect(cancel).toHaveBeenCalledOnce();
     expect(leave).not.toHaveBeenCalled();
   });
+  it('shows the pending deal separately and lets a tap withdraw it', () => {
+    const cancel = vi.fn();
+    render(
+      <LightningFeederLeaveControl
+        queued
+        waitingForDeal
+        pending={false}
+        onLeave={vi.fn()}
+        onCancel={cancel}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Playing One More Hand' }));
+    expect(cancel).toHaveBeenCalledOnce();
+  });
   it('cannot be pressed while the request is in flight', () => {
     render(<LightningFeederLeaveControl queued pending onLeave={vi.fn()} onCancel={vi.fn()} />);
-    expect(screen.getByRole('button', { name: 'Leaving...' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Leaving After This Hand' })).toBeDisabled();
   });
   it('TablePage shows it on a Lightning-capable table to a seated player outside a pool', () => {
     const page = readFileSync(resolve(__dirname, '../../src/pages/TablePage.tsx'), 'utf8');
