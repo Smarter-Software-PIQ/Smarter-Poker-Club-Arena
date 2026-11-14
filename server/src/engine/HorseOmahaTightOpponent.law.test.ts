@@ -457,3 +457,26 @@ describe('omahaTightOpponent: the rewound counterfactual is invisible to the dee
     }
   );
 });
+
+describe('omahaTightOpponent: the rewound counterfactual leaves the random stream untouched', () => {
+  // The receipt's counterfactual runs only with telemetry on. It saves and
+  // restores the fast random state, so with the option on the whole decision
+  // (action, amount, think time and every other random-derived field) must be
+  // byte-identical with telemetry on and off: in the spots where the
+  // adjustment applies and in the spots where it is only considered.
+  it('option on: every matched spot and seed decides byte-identically with telemetry true and false', () => {
+    const spots: Array<{ s: Spot; table: Partial<Record<'raiser' | 'sb' | 'utg', Kind>> }> = [
+      ...SPOTS.map((s) => ({ s, table: tightTable(s) })),
+      { s: { variant: 'plo4', kind: 'respect', hole: '5c8h6s4h' }, table: { raiser: 'tight' } },
+      { s: { variant: 'plo5', kind: 'respect', hole: '5c8h6s4hAc' }, table: { raiser: 'tight' } },
+    ];
+    for (const { s, table } of spots) {
+      const label = `${s.variant} ${s.kind} ${s.hole}`;
+      const telemetryOn = play(s, table, { ...ON, telemetry: true });
+      const telemetryOff = play(s, table, { ...ON, telemetry: false });
+      // The counterfactual really ran: a tight receipt fired with telemetry on.
+      expect(telemetryOn.fires.size, label).toBeGreaterThan(0);
+      expect(telemetryOff.decisions, label).toEqual(telemetryOn.decisions);
+    }
+  });
+});
