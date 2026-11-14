@@ -87,46 +87,57 @@ export interface HandCount {
   /** The win, in big blinds, that started the big-win count. */
   bigWinBb?: number | null;
   /**
-   * THE COUNT IS PAUSED (owner 2026-11-13): the player fell out of profit
-   * with this many hands of an unfinished countdown left. Nothing is owed and
-   * they may leave; back in profit the count resumes at this number. Null
-   * when hands are owed, when no countdown is paused, or when unreadable.
+   * THE COUNTDOWN RESUMES (owner 2026-11-13): hands left on a countdown that
+   * is paused because the player fell out of profit. Nothing is owed while it
+   * is paused and the player may leave; back in profit the count picks up at
+   * this number. Null: no paused countdown (or unreadable).
    */
   paused?: number | null;
-  /** The paused countdown's total (10 plus 10 per double). */
-  pausedRequired?: number | null;
+  /** The countdown is completed for this session; it can no longer pause. */
+  done?: boolean;
 }
 
-/** Beside the seat while the count is paused. Title Case, no em dash. */
-export const HIT_RUN_PAUSED_LABEL = 'Hand Count Paused';
-export const HIT_RUN_PAUSED_NOTE = 'Resumes When You Are Back In Profit';
+/** The seat-side label while the countdown is paused out of profit. */
+export const HIT_RUN_PAUSED_LABEL = 'Countdown Paused';
+
+/** Under the paused count: what the number means. Title Case, no em dash. */
+export function pausedHandsLeftText(hands: number): string {
+  const n = Math.max(1, Math.floor(hands));
+  return `${n === 1 ? 'Hand' : 'Hands'} Left When You Are Back In Profit`;
+}
+
+/** The whole paused line, for a screen reader. */
+export function countdownPausedText(hands: number): string {
+  const n = Math.max(1, Math.floor(hands));
+  return `${HIT_RUN_PAUSED_LABEL} - ${n} ${n === 1 ? 'Hand' : 'Hands'} Left`;
+}
 
 /** Said once, the hand the profit is lost with a countdown unfinished. */
-export function countdownPausedText(hands: number): string {
+export function countdownPausedToastText(hands: number): string {
   const n = Math.max(1, Math.floor(hands));
   return `You Are Out Of Profit. Your Hand Count Is Paused At ${n} ${n === 1 ? 'Hand' : 'Hands'}. You Can Leave Now`;
 }
 
-/** Said once, the hand a paused countdown picks back up. */
+/** Said the hand a paused countdown picks up again. */
 export function countdownResumedText(hands: number): string {
   const n = Math.max(1, Math.floor(hands));
   return `You Are Back In Profit. ${n} ${n === 1 ? 'Hand' : 'Hands'} Left Before You Can Leave`;
 }
 
 /**
- * A paused countdown in one fn_my_hit_run_status row: nothing owed, not
- * completed, and hands of the countdown still unplayed. (The database keeps
- * hands_required and hands_played across the pause; a countdown that never
- * started, was completed or was switched off by the club reads 0 or equal.)
+ * Hands left on a PAUSED countdown, from one fn_my_hit_run_status row: a
+ * countdown exists (required above played), it is not completed, and nothing
+ * is owed at this stack (out of profit). The number is the row's own
+ * required minus played, never a constant. Null otherwise.
  */
-export function pausedHandsOf(
-  row: Record<string, unknown>
-): { left: number; total: number } | null {
-  if (owedHands(row.hands_remaining) !== null || row.completed !== false) return null;
-  const total = owedHands(row.hands_required);
+export function pausedHands(row: Record<string, unknown> | null | undefined): number | null {
+  if (!row || row.completed === true) return null;
+  if (owedHands(row.hands_remaining) !== null) return null;
+  if (owedHands(row.big_win_hands_remaining) !== null) return null;
+  const required = Math.floor(Number(row.hands_required));
   const played = Math.floor(Number(row.hands_played));
-  if (total === null || !Number.isFinite(played) || played < 0 || played >= total) return null;
-  return { left: total - played, total };
+  if (!Number.isFinite(required) || !Number.isFinite(played) || played < 0) return null;
+  return required > played ? required - played : null;
 }
 
 export function parseHandsOwedReason(value: unknown): HandsOwedReason | null {
@@ -159,9 +170,6 @@ export async function fetchMyHandCount(tableId: string): Promise<HandCount> {
     let best = none;
     for (const row of data as Array<Record<string, unknown>>) {
       if (row?.table_id !== tableId) continue;
-      const paused = pausedHandsOf(row);
-      if (paused && best.owed === null && !(best.paused && best.paused >= paused.left))
-        best = { owed: null, required: null, paused: paused.left, pausedRequired: paused.total };
       const n = owedHands(row.hands_remaining);
       if (n !== null && (best.owed === null || n > best.owed)) {
         const bb = Number(row.big_win_bb);
@@ -170,6 +178,13 @@ export async function fetchMyHandCount(tableId: string): Promise<HandCount> {
           required: owedHands(row.hands_required),
           reason: parseHandsOwedReason(row.hands_reason),
           bigWinBb: Number.isFinite(bb) && bb > 0 ? bb : null,
+        };
+      } else if (n === null && best.owed === null) {
+        best = {
+          owed: null,
+          required: null,
+          paused: pausedHands(row),
+          done: row.completed === true,
         };
       }
     }

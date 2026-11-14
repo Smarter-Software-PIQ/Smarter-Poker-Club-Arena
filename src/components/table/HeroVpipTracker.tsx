@@ -28,7 +28,8 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import {
   HIT_RUN_COUNT_LABEL,
   HIT_RUN_PAUSED_LABEL,
-  HIT_RUN_PAUSED_NOTE,
+  countdownPausedText,
+  pausedHandsLeftText,
   handsOwedReasonText,
   type HandsOwedReason,
 } from '../../lib/hitAndRun';
@@ -229,8 +230,8 @@ interface Props {
   /** Why they are owed (owner 2026-11-11): the countdown in profit, a +250 BB win, or both. */
   handsReason?: HandsOwedReason | null;
   /**
-   * THE COUNT IS PAUSED (owner 2026-11-13): hands left of a countdown the
-   * hero fell out of profit on. Shown only while nothing is owed. Null: none.
+   * THE COUNTDOWN RESUMES (owner 2026-11-13): hands left on a countdown that
+   * is paused while the hero is out of profit. Shown only when none are owed.
    */
   handsPaused?: number | null;
 }
@@ -372,10 +373,15 @@ export default function HeroVpipTracker({
         </div>
       )}
       {showPaused && (
-        <div className="hero-vpip__clock" data-testid="hero-hand-count-paused">
+        <div
+          className="hero-vpip__clock"
+          role="status"
+          aria-label={countdownPausedText(handsPaused as number)}
+          data-testid="hero-hand-count-paused"
+        >
           <span>{HIT_RUN_PAUSED_LABEL}</span>
-          <time aria-label={`${HIT_RUN_PAUSED_LABEL} ${handsPaused}`}>{handsPaused}</time>
-          <small>{HIT_RUN_PAUSED_NOTE}</small>
+          <time>{handsPaused}</time>
+          <small>{pausedHandsLeftText(handsPaused as number)}</small>
         </div>
       )}
     </div>

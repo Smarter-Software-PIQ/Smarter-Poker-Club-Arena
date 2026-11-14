@@ -348,6 +348,19 @@ export default function MysteryBountyPanel({
         <span>{activationStatusLine(inventory)}</span>
       </div>
 
+      {/* PRIZES SET AT ENTRY CLOSE (Dan 2026-11-13). While the phase has not
+          opened the list below is the sealed ladder, cut from the finalized
+          pool. Say so, with the time, so nobody reads it as an estimate. */}
+      {stage === 'pending' && tiers.length > 0 && (
+        <div className={styles.status} data-testid="mystery-prizes-set">
+          <span>
+            {inventory?.sealedAt
+              ? `Prizes Set At Entry Close, ${shortWhen(inventory.sealedAt)}. They Open When The Mystery Phase Starts`
+              : 'Prizes Set At Entry Close. They Open When The Mystery Phase Starts'}
+          </span>
+        </div>
+      )}
+
       {/* Section 68: the largest bounty won so far, and who took it. Listed
           separately from the ladder because "the biggest one anybody has hit"
           is the number the rail actually follows, and it is one of the things

@@ -17,6 +17,13 @@ const NONE: HandCount = { owed: null, required: null };
  * count moves at every Lightning settlement, so it is read from the database
  * for the player's anchor table after each hand and while waiting between
  * hands (`engine` undefined).
+ *
+ * THE COUNTDOWN RESUMES (owner 2026-11-13): the engine's seat fields are null
+ * while the player is out of profit, so a PAUSED countdown is read from the
+ * database (fn_my_hit_run_status keeps required and played through the
+ * pause). On a classic table that read happens only while the engine reports
+ * nothing owed and a pause is possible: once when the table opens, and after
+ * each hand from the moment a count was seen until it is completed.
  */
 export function useHeroHandCount(opts: {
   enabled: boolean;
@@ -37,21 +44,19 @@ export function useHeroHandCount(opts: {
   const anchorRef = useRef<{ clusterId: string; tableId: string } | null>(null);
   const useEngine = engine !== undefined && !lightningClusterId;
   const engineOwed = useEngine ? owedHands(engine?.owed) : null;
-  /**
-   * THE PAUSED COUNT (owner 2026-11-13). The engine's seat carries only hands
-   * owed, and a paused countdown owes none, so while the engine says none the
-   * paused count is read from the database: once when the table opens, then
-   * after each hand for as long as a count was just owed or is paused. A read
-   * that finds nothing paused stops the reading until hands are owed again.
-   */
-  const watchPaused = useRef(true);
-  if (engineOwed !== null) watchPaused.current = true;
+  /** Classic table: the table whose pause may still need reading. */
+  const pauseWatch = useRef<{ tableId: string; possible: boolean } | null>(null);
+  if (useEngine && tableId) {
+    if (pauseWatch.current?.tableId !== tableId) pauseWatch.current = { tableId, possible: true };
+    if (engineOwed !== null) pauseWatch.current.possible = true;
+  }
 
   useEffect(() => {
-    if (!enabled || !tableId || (useEngine && (engineOwed !== null || !watchPaused.current))) {
+    if (!enabled || !tableId || (useEngine && engineOwed !== null)) {
       setRead(NONE);
       return;
     }
+    if (useEngine && pauseWatch.current?.possible !== true) return;
     let cancelled = false;
     const timer = setTimeout(async () => {
       let target: string | null = tableId;
@@ -73,7 +78,9 @@ export function useHeroHandCount(opts: {
       if (!target || cancelled) return;
       const count = await fetchMyHandCount(target);
       if (cancelled) return;
-      if (useEngine && !(count.paused && count.paused > 0)) watchPaused.current = false;
+      const watch = pauseWatch.current;
+      if (useEngine && watch?.tableId === target)
+        watch.possible = count.done !== true && (count.owed !== null || count.paused != null);
       setRead(count);
     }, HAND_COUNT_REFRESH_DELAY_MS);
     return () => {
@@ -85,13 +92,10 @@ export function useHeroHandCount(opts: {
   if (!enabled) return NONE;
   if (!useEngine) return read;
   const owed = engineOwed;
-  // The engine owes nothing: only the database's paused count is shown.
-  if (owed === null)
-    return read.paused && read.paused > 0
-      ? { owed: null, required: null, paused: read.paused, pausedRequired: read.pausedRequired }
-      : NONE;
   return {
     owed,
+    // The engine owns what is owed; the database read adds only the pause.
+    paused: owed === null ? (read.paused ?? null) : null,
     required: owed === null ? null : owedHands(engine?.required),
     reason: owed === null ? null : (engine?.reason ?? null),
     bigWinBb: owed === null ? null : (engine?.bigWinBb ?? null),
@@ -162,48 +166,6 @@ export function useCountdownStarted(
 }
 
 /**
- * THE COUNT PAUSES AND RESUMES (owner 2026-11-13): falling out of profit
- * with hands left pauses the countdown, and coming back picks it up where it
- * stopped. Both are said when they happen, so a count that disappears and
- * returns is never a surprise. A pause already standing when the table opens
- * is not announced; `handNumber` is the table's hand counter.
- */
-export function useCountdownPauseResume(
-  count: HandCount,
-  handNumber: number,
-  onPause: (hands: number) => void,
-  onResume: (hands: number) => void
-): void {
-  const prev = useRef<HandCount>(NONE);
-  const lastPaused = useRef<number | null>(null);
-  const firstHand = useRef<number | null>(null);
-  const pause = useRef(onPause);
-  const resume = useRef(onResume);
-  pause.current = onPause;
-  resume.current = onResume;
-  useEffect(() => {
-    if (firstHand.current === null && handNumber > 0) firstHand.current = handNumber;
-  }, [handNumber]);
-  useEffect(() => {
-    const before = prev.current;
-    prev.current = count;
-    const paused = count.paused && count.paused > 0 ? count.paused : null;
-    const wasPaused = before.paused && before.paused > 0 ? before.paused : null;
-    if (paused !== null) {
-      if (wasPaused === null && firstHand.current !== null && handNumber > firstHand.current)
-        pause.current(paused);
-      lastPaused.current = paused;
-      return;
-    }
-    if (count.owed !== null && lastPaused.current !== null) {
-      const hitRun = count.reason !== 'big_win';
-      if (hitRun) resume.current(count.owed);
-      lastPaused.current = null;
-    }
-  }, [count.owed, count.paused, count.reason, handNumber]);
-}
-
-/**
  * THE CHARLES RULE AFTER A LARGE WIN (owner 2026-11-11): another win of 250
  * big blinds or more while hands are already owed resets the count to ten.
  * Said when it happens, so a count going back up is never a surprise.
@@ -227,4 +189,63 @@ export function useBigWinRestarted(
     )
       notify.current(count.owed, count.bigWinBb ?? null);
   }, [count.owed, count.required, count.reason, count.bigWinBb]);
+}
+
+/**
+ * THE COUNTDOWN RESUMES (owner 2026-11-13): a paused countdown picked up
+ * again because the player is back in profit. Said with the resumed number
+ * (7, not 10). A pause that resumes with every hand still to play is the
+ * ordinary start announcement's to make.
+ */
+/**
+ * THE COUNTDOWN PAUSES (owner 2026-11-13): the player fell out of profit with
+ * hands of the countdown left. Said once with the paused number, so the count
+ * changing to "Countdown Paused" is never a surprise. A pause already standing
+ * when the table opens is not announced; `handNumber` is the table's counter.
+ */
+export function useCountdownPaused(
+  count: HandCount,
+  handNumber: number,
+  onPause: (hands: number) => void
+): void {
+  const prev = useRef<HandCount>(NONE);
+  const firstHand = useRef<number | null>(null);
+  const notify = useRef(onPause);
+  notify.current = onPause;
+  useEffect(() => {
+    if (firstHand.current === null && handNumber > 0) firstHand.current = handNumber;
+  }, [handNumber]);
+  useEffect(() => {
+    const before = prev.current;
+    prev.current = count;
+    const paused = typeof count.paused === 'number' && count.paused > 0 ? count.paused : null;
+    const wasPaused = typeof before.paused === 'number' && before.paused > 0;
+    if (
+      paused !== null &&
+      !wasPaused &&
+      firstHand.current !== null &&
+      handNumber > firstHand.current
+    )
+      notify.current(paused);
+  }, [count.paused, handNumber]);
+}
+
+export function useCountdownResumed(count: HandCount, onResume: (hands: number) => void): void {
+  const prev = useRef<HandCount>(NONE);
+  const notify = useRef(onResume);
+  notify.current = onResume;
+  useEffect(() => {
+    const before = prev.current;
+    prev.current = count;
+    if (
+      before.owed === null &&
+      typeof before.paused === 'number' &&
+      before.paused > 0 &&
+      count.owed !== null &&
+      count.reason !== 'big_win' &&
+      count.reason !== 'both' &&
+      (count.required === null || count.owed < count.required)
+    )
+      notify.current(count.owed);
+  }, [count.owed, count.required, count.paused, count.reason]);
 }
