@@ -130,7 +130,7 @@ export function tagSplit(n: number): {
  * America/Chicago hour. Values are the OPORD's table verbatim.
  */
 export const OCCUPANCY_CURVE_PCT: Record<number, number> = {
-  0: 28,
+  0: 29,
   1: 22,
   2: 16,
   3: 10,
@@ -152,8 +152,8 @@ export const OCCUPANCY_CURVE_PCT: Record<number, number> = {
   19: 40,
   20: 40,
   21: 39,
-  22: 37,
-  23: 33,
+  22: 38,
+  23: 36,
 };
 
 /**

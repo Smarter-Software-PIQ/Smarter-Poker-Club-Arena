@@ -67,6 +67,12 @@ export interface TableSnapshot {
   /** Horses currently in the seats, for yield selection. */
   seatedHorses: YieldCandidate[];
   status: string;
+  /**
+   * A person played here within the table's own 20-30 minute dwell (Dan
+   * 2026-11-11: "a game never breaks right away after a human leaves").
+   * Wind-down leaves such a table alone; undefined reads as not in dwell.
+   */
+  inHumanDwell?: boolean;
   waitlistId?: string;
   /**
    * The must-move game this table belongs to (Operation Table Stakes, R9),
@@ -478,7 +484,11 @@ export function planFloor(snap: FloorSnapshot): FloorPlan {
              toward occupancy it is the tables humans are sitting at that are
              most likely to be thin. A table with a human on it is only
              wound down while it would still be a real game afterwards. */
-          .filter((t) => t.humansSeated === 0 || t.occupied - 1 >= NIGHT_MIN_PLAYERS)
+          .filter(
+            (t) =>
+              t.inHumanDwell !== true &&
+              (t.humansSeated === 0 || t.occupied - 1 >= NIGHT_MIN_PLAYERS)
+          )
           .sort((a, b) => a.occupied - b.occupied)
           .slice(0, over)
           .forEach((t) => {
@@ -518,7 +528,11 @@ export function planFloor(snap: FloorSnapshot): FloorPlan {
         const tablesTaken = new Set(planned.map((o) => o.tableId));
         let left = seatsOver;
         for (const t of running
-          .filter((t) => t.humansSeated === 0 || t.occupied - 1 >= NIGHT_MIN_PLAYERS)
+          .filter(
+            (t) =>
+              t.inHumanDwell !== true &&
+              (t.humansSeated === 0 || t.occupied - 1 >= NIGHT_MIN_PLAYERS)
+          )
           .sort((a, b) => a.occupied - b.occupied)) {
           if (left <= 0) break;
           if (tablesTaken.has(t.tableId)) continue;

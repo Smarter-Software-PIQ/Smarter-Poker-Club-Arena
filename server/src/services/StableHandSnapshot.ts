@@ -45,6 +45,7 @@
  * one row short of the ceiling is indistinguishable from a complete answer.
  */
 
+import { withinHumanDepartureDwellFor } from './HorseUnionCashPlan.js';
 import { supabase } from './supabase.js';
 import { fetchAllRows } from './supabase/pagination.js';
 import { selectInChunks } from './supabase/chunkedIn.js';
@@ -223,7 +224,7 @@ export async function buildFloorSnapshot(): Promise<FloorSnapshot> {
         let q = supabase
           .from('tables')
           .select(
-            'id, game_variant, small_blind, big_blind, max_players, status, lifecycle, current_players, cluster_id'
+            'id, game_variant, small_blind, big_blind, max_players, status, lifecycle, current_players, cluster_id, last_human_seen_at'
           )
           .eq('club_id', hostId)
           .is('tournament_id', null)
@@ -397,6 +398,10 @@ export async function buildFloorSnapshot(): Promise<FloorSnapshot> {
             };
           }),
           status: String(t.status ?? ''),
+          inHumanDwell: withinHumanDepartureDwellFor(
+            { id: String(t.id), last_human_seen_at: t.last_human_seen_at ?? null },
+            nowMs
+          ),
           clusterId: t.cluster_id ? String(t.cluster_id) : null,
         };
       }),
