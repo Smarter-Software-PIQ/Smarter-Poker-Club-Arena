@@ -157,6 +157,26 @@ export async function checkFixedMobileArtwork(
     await waitForMobileAvatarGrowth(page);
     await expect(page.locator('.seat > .seat__action')).toHaveCount(0);
     const withoutCaptions = await read();
+    if (settings.seats === '9' && settings.spectator === 'true' && !shortPhone) {
+      const plate = page.locator('.seat[data-seat-num="6"] > .seat__info');
+      const resting = (await plate.boundingBox())!;
+      await page.evaluate(() => {
+        document.documentElement.dataset.winnerSeat = '6';
+        document.dispatchEvent(new Event('fixture-runout'));
+      });
+      const result = page.locator('.seat[data-seat-num="6"] > .seat__hand-name--winner');
+      await expect(result).toBeVisible();
+      await settle();
+      expect((await plate.boundingBox())!.y).toBeCloseTo(resting.y, 0);
+      expect((await result.boundingBox())!.y).toBeGreaterThanOrEqual(resting.y + resting.height);
+      await page.evaluate(() => {
+        delete document.documentElement.dataset.winnerSeat;
+        document.dispatchEvent(new Event('fixture-next-hand'));
+      });
+      await expect(result).toHaveCount(0);
+      await settle();
+      expect((await plate.boundingBox())!.y).toBeCloseTo(resting.y, 0);
+    }
     for (const actionCaption of ['check', 'fold', 'raise']) {
       await page.evaluate((caption) => {
         document.documentElement.dataset.actionPills = 'true';
