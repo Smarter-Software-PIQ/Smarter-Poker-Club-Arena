@@ -261,6 +261,20 @@ export interface LeagueMatchup {
    */
   moodClock?: 'deal_seed';
   /**
+   * HAND IDENTITY (2026-11-14). The live worker gives every decision the
+   * hand it belongs to (opts.mindPlanContext.hand: table id and allocated
+   * hand number); the league gave none, so an option that keys on the hand
+   * had only its offline fallback to run. 'deal_seed' stamps every decision
+   * of a pair, in both passes and both arms, with one hand derived from the
+   * pair's deal seed. Both arms, although only an arm with such an option
+   * reads it for its units: the brain's existing plan reader also keys on
+   * this context, so stamping one arm alone would make the arms differ by
+   * more than the option under test. A card that sets this therefore has no
+   * arm on the plain league baseline. Unset keeps the old behaviour for every
+   * existing card.
+   */
+  handIdentity?: 'deal_seed';
+  /**
    * HUMAN FIELD (2026-10-24). Absent: the MIRROR card every matchup has
    * always been - every seat a horse, half the seats on config A and half on
    * B, swapped between the two passes of a duplicate pair. A mirror measures
@@ -1453,6 +1467,26 @@ function withDealMood(opts: HorseDecideOpts, moodClockMs: number | null): HorseD
   return moodClockMs === null ? opts : { ...opts, decisionTimeMs: moodClockMs };
 }
 
+/** The league's table for a 'deal_seed' hand identity (a fixed synthetic id). */
+const LEAGUE_HAND_TABLE_ID = '1ea90e00-0000-4000-8000-000000000001';
+
+/** The hand a 'deal_seed' matchup stamps on every decision of one pair. */
+function withDealHand(opts: HorseDecideOpts, handSeed: number | null): HorseDecideOpts {
+  return handSeed === null
+    ? opts
+    : {
+        ...opts,
+        mindPlanContext: {
+          version: 1,
+          hand: {
+            version: 1,
+            tableId: LEAGUE_HAND_TABLE_ID,
+            handNumber: 1_000_000 + (handSeed >>> 0),
+          },
+        },
+      };
+}
+
 /** LeagueMatchup.memoryLearning 'off': the decision observes nothing. */
 function withLearning(opts: HorseDecideOpts, learn: boolean): HorseDecideOpts {
   return learn ? opts : { ...opts, observeMind: false };
@@ -1537,10 +1571,23 @@ export async function runMatchup(
       };
     };
     const moodMs = matchup.moodClock === 'deal_seed' ? dealMoodClockMs(handSeed) : null;
+    const handId = matchup.handIdentity === 'deal_seed' ? handSeed : null;
     const evenIsA = (s: number) =>
-      withLearning(withDealMood(withEvidence(s % 2 === 0 ? matchup.a : matchup.b), moodMs), learn);
+      withLearning(
+        withDealHand(
+          withDealMood(withEvidence(s % 2 === 0 ? matchup.a : matchup.b), moodMs),
+          handId
+        ),
+        learn
+      );
     const evenIsB = (s: number) =>
-      withLearning(withDealMood(withEvidence(s % 2 === 0 ? matchup.b : matchup.a), moodMs), learn);
+      withLearning(
+        withDealHand(
+          withDealMood(withEvidence(s % 2 === 0 ? matchup.b : matchup.a), moodMs),
+          handId
+        ),
+        learn
+      );
     const hasMods =
       matchup.modsA !== undefined || matchup.modsB !== undefined || hybrid !== undefined;
     // Same persona at the same seat in both passes; only the arm swaps.
@@ -1869,7 +1916,11 @@ async function runHumanFieldMatchup(
         playHand(
           handSeed,
           dealerSeat,
-          () => withDealMood(opts, moodMs),
+          () =>
+            withDealHand(
+              withDealMood(opts, moodMs),
+              matchup.handIdentity === 'deal_seed' ? handSeed : null
+            ),
           counters,
           sb,
           variant,
@@ -2212,6 +2263,22 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     hybridBaseline: true,
     moodClock: 'deal_seed',
     a: { facingOpenFullRingZone: true },
+    b: {},
+  },
+  // 2026-11-14 PERSONA RE-RAISE MIX (D3 option C), default OFF, so arm A
+  // turns it on: six-handed 100bb no-limit hold'em cash, where the 3-bet
+  // bluff and the squeeze bluff are met every orbit. The card's seats are the
+  // league's own ids, not the fleet's 25/20/40/15 archetype mix (the
+  // opportunity-weighted harness HoldemPersonaReRaiseProbe measures that).
+  // Not yet run.
+  {
+    name: 'cash6_holdem_persona_reraise_mix',
+    seats: 6,
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { holdemPersonaReRaiseMix: true },
     b: {},
   },
   {

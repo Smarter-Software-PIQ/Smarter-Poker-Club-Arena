@@ -1286,6 +1286,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'CommitPrice'
   ),
   flag(
+    'holdemPersonaReRaiseMix',
+    "2026-11-14 default OFF (D3 option C, owner ruling 2026-11-13: persona-specific 3-bets and squeezes, rollout gated; shallow four-bet reshoves are NOT persona-specific: that part of the plan line was not delivered, by the owner's decision R3-B of 2026-11-13, and every reshove is exactly what it is without the option): two-card no-limit hold'em only, cash and tournament, a Horse with an id; the 3-bet bluff (facing one open) and the squeeze bluff (the V7 squeeze site, and on hold'em cash the chart 3-bet-bluff block when there are callers) still consume their random draw at the same place and discard it, and fire when the Horse's zero-draw unit (hash of Horse id, hand identity, exact hole cards, a salt per behaviour) is below min(1, p * scale), scale = the Hold'em persona's nlh3BetMix / 0.42143 (the id-hash model mean; 0.52 to 1.52); value 3-bets, value squeezes, every four-bet reshove, Omaha, short deck, pot limit, fixed limit, hi-lo, pineapple and All-In-Or-Fold do not read it; the unit is deterministic per hand: Horse id, the hand (table id and hand number from opts.mindPlanContext.hand), exact hole cards and the behaviour's salt, with no seat, stack or pot; the live worker derives the hand from the decision snapshot's fence for the fast decision and the deep second look alike, a retry carries the same table and hand, and exact replay feeds the journaled snapshot through the same worker runtime, so it derives the same value (opts.mindObservationHand is not used: the deep look is not given it); the league card and the probe supply a hand; a caller that supplies none gets a named FALLBACK keyed on mutable public state (seat, dealer, stack, pot), which is not per hand and is counted by holdem_persona_hand_identity_fallback_seen; against a raiser the opponent-style read classifies as tight the scale is held at min(1, scale), so the persona never raises a bluff against a tight player: HorseLogic asks the read itself (HorseMind.styleReadUncounted, then the same tightOpenerRespect / tightReRaiserRespect classifiers the option styleTightReRaiserRespect uses) whatever that option's state (off, shadow, on) and at every depth, applying nothing of the style option and firing none of its receipts; the cap DEPENDS ON THE READ BEING AVAILABLE: with opponent memory off, no profile, a presumed read or too little data to be actionable the opener is unknown, not tight, and the scale is not held; the 3-bet and squeeze bluffs lose frequency where min(1, p * scale) binds AND wherever p is above 1 / 1.519 (about 0.66), where a Horse above the average cannot go past 1 while one below still goes down; All-In-Or-Fold hold'em receives the context field but no site reads it; a preflop range change, not to be enabled while the range hold stands; no league evidence yet; enabling it is a separate owner decision; docs/changelog/2026-11-14-holdem-persona-reaches-re-raise-bluffs.md",
+    'PersonaReRaise'
+  ),
+  flag(
     'nashCallVsJam',
     "2026-11-07 default ON (league nash_call_vs_jam, mirror, two seeds x 20,000 pairs: MTT six-max 10bb +4.72 +/- 0.64 / +3.41 +/- 0.63, 15bb +2.40 +/- 0.68 / +2.17 +/- 0.68, nine-max 12bb +1.82 +/- 0.42 / +2.23 +/- 0.44, heads-up 12bb +4.86 +/- 1.17 / +3.89 +/- 1.16, cash six-max 12bb +0.80 +/- 0.38 / +0.78 +/- 0.39, 20bb cards neutral or inert, none below; the human-calibrated field never open-jams so its cards are inert): no-limit hold'em, hero folded to a lone open-jam (the first and only raise, all in, nobody has called) at <= 20bb effective calls or folds from the chip-EV Nash jam-or-fold table's CALLER side (HorseNashPushFoldV2.data.ts, server/scripts/nash-push-fold/solve.py --v2: first caller only, exact card removal) by the jammer's dealt-in players behind (1..9), hero's caller kind (unposted seat, small blind, big blind), effective depth and dead ante, cash and tournament; measured before (HorseLogic.decide, live Hybrid personas, production memory_charts_gold hydrated, 24 samples per class): a big blind facing a button jam called 5.2% at 10bb and 9.8% at 20bb in cash and 6.3% at 10bb and 20bb in a big-blind-ante tournament, against Nash 23.1% / 11.5% and 38.2% / 19.6%, and only the big blind against a small-blind jam had a chart (sb_push, the no-ante game, which keeps that spot when there is no dead ante); a maniac's jam keeps the maniac pricing; explicit off arm retained; deeper jams, called jams, Omaha, short deck, pot and fixed limit unchanged; league nash_call_vs_jam; docs/changelog/2026-11-07-nash-push-fold-v2.md",
     'NashV2'
@@ -4836,6 +4841,54 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorsePreflop via HorseLogic (committedStackPricedIn)',
     'default-off committedStackPricedIn: a tournament multiway all-in fold of a committed or token-priced stack became a call because the priced-in guard was no longer switched off for that branch; an occurrence counter with no floor, named *_seen (the study spots are rare, but the 2bb-behind case is common at short tournament stacks: the 4bb league card diverged in 2,405 of 6,000 pairs)',
     'CommitPrice'
+  ),
+  receipt(
+    'holdem_persona_3bet_bluff_eligible_seen',
+    'HorsePreflop via HorseLogic (holdemPersonaReRaiseMix)',
+    "default-off holdemPersonaReRaiseMix: a no-limit hold'em 3-bet bluff decision (facing one open, no caller) reached its mix comparison with the persona present; an occurrence counter with no floor, named *_seen",
+    'PersonaReRaise'
+  ),
+  receipt(
+    'holdem_persona_3bet_bluff_changed_seen',
+    'HorsePreflop via HorseLogic (holdemPersonaReRaiseMix)',
+    'default-off holdemPersonaReRaiseMix: the persona-scaled 3-bet bluff comparison gave a different answer from the unscaled draw it replaced (either direction; the fold-equity test still follows); named *_seen',
+    'PersonaReRaise'
+  ),
+  receipt(
+    'holdem_persona_squeeze_bluff_eligible_seen',
+    'HorsePreflop via HorseLogic (holdemPersonaReRaiseMix)',
+    "default-off holdemPersonaReRaiseMix: a no-limit hold'em squeeze bluff decision (a raise and one or more callers; the V7 squeeze site or the cash chart block) reached its mix comparison with the persona present; named *_seen",
+    'PersonaReRaise'
+  ),
+  receipt(
+    'holdem_persona_squeeze_bluff_changed_seen',
+    'HorsePreflop via HorseLogic (holdemPersonaReRaiseMix)',
+    'default-off holdemPersonaReRaiseMix: the persona-scaled squeeze bluff comparison gave a different answer from the unscaled draw it replaced (either direction); named *_seen',
+    'PersonaReRaise'
+  ),
+  receipt(
+    'holdem_persona_3bet_bluff_capped_seen',
+    'HorsePreflop via HorseLogic (holdemPersonaReRaiseMix)',
+    'default-off holdemPersonaReRaiseMix: a 3-bet bluff comparison whose probability times the Horse scale passed 1 and was held at 1; this counts the capped Horse only, not the frequency a below-average Horse loses at the same high probability (the probe measures that); named *_seen',
+    'PersonaReRaise'
+  ),
+  receipt(
+    'holdem_persona_squeeze_bluff_capped_seen',
+    'HorsePreflop via HorseLogic (holdemPersonaReRaiseMix)',
+    'default-off holdemPersonaReRaiseMix: a squeeze bluff comparison whose probability times the Horse scale passed 1 and was held at 1; named *_seen',
+    'PersonaReRaise'
+  ),
+  receipt(
+    'holdem_persona_scale_held_by_style_seen',
+    'HorsePreflop via HorseLogic (holdemPersonaReRaiseMix)',
+    'default-off holdemPersonaReRaiseMix: a Horse with a scale above 1 met a persona comparison against a raiser the opponent-style read classifies as tight, and its scale was held at 1 (the persona may lower a bluff there, never raise it), whatever the state of the style options; needs the read to be available; named *_seen',
+    'PersonaReRaise'
+  ),
+  receipt(
+    'holdem_persona_hand_identity_fallback_seen',
+    'HorseLogic (holdemPersonaReRaiseMix)',
+    'default-off holdemPersonaReRaiseMix: the persona field was built for a decision whose caller supplied no hand (no opts.mindPlanContext.hand: table id and allocated hand number), so its units came from the public-state fallback, which is not deterministic per hand; expected to be zero on the live worker path and in the league card and the probe; named *_seen',
+    'PersonaReRaise'
   ),
   receipt(
     'hu_bb_defends_to_price',

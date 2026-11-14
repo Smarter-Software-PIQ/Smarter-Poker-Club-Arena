@@ -34,7 +34,7 @@ import {
   resetWinnerReads,
   type HorseWinnerReadState,
 } from './HorseWinnerRead.js';
-import { noteFire } from './BrainTelemetry.js';
+import { noteFire, withBrainTelemetrySuspended } from './BrainTelemetry.js';
 import {
   riverCallCategoryIsUsable,
   riverCallConfidenceAboveBaseline,
@@ -2325,6 +2325,16 @@ export class HorseMind {
     } finally {
       addStyleReadMs(performance.now() - t0);
     }
+  }
+
+  /**
+   * The same read and classification as styleRead, with none of the style
+   * read's own accounting: no style receipt is fired and no style latency is
+   * added. For a consumer that is NOT a style option and must not appear in
+   * the style options' books (the persona re-raise cap, HorseLogic).
+   */
+  static styleReadUncounted(userId: string): OpponentStyleRead {
+    return withBrainTelemetrySuspended(() => this.styleReadUntimed(userId));
   }
 
   private static styleReadUntimed(userId: string): OpponentStyleRead {

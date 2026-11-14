@@ -144,7 +144,39 @@ export type PreflopLayerReceipt =
   | 'bluff_raise_refused_no_fold_equity_seen'
   | 'omaha_tournament_first_in'
   | 'style_tight_opener_respect_seen'
-  | 'style_tight_reraiser_respect_seen';
+  | 'style_tight_reraiser_respect_seen'
+  | 'holdem_persona_3bet_bluff_eligible_seen'
+  | 'holdem_persona_3bet_bluff_changed_seen'
+  | 'holdem_persona_3bet_bluff_capped_seen'
+  | 'holdem_persona_squeeze_bluff_eligible_seen'
+  | 'holdem_persona_squeeze_bluff_changed_seen'
+  | 'holdem_persona_squeeze_bluff_capped_seen'
+  | 'holdem_persona_scale_held_by_style_seen';
+
+/**
+ * PERSONA RE-RAISE MIX, OFFLINE MEASUREMENT TAP. One event per persona
+ * comparison, with the numbers the comparison used. Null everywhere except
+ * the measuring harness (HoldemPersonaReRaiseProbe) and tests, which set it
+ * and clear it; no live process sets it. It observes and decides nothing.
+ */
+export interface HoldemPersonaReRaiseTapEvent {
+  kind: 'three_bet' | 'squeeze';
+  /** The site's unscaled probability. */
+  p: number;
+  /** The Horse's scale, and the scale the site used (held at 1 by a style read). */
+  scale: number;
+  scaleUsed: number;
+  unit: number;
+  /** The scaled answer, and the answer the unscaled comparison gave. */
+  fires: boolean;
+  unscaled: boolean;
+}
+let holdemPersonaReRaiseTap: ((event: HoldemPersonaReRaiseTapEvent) => void) | null = null;
+export function setHoldemPersonaReRaiseTap(
+  tap: ((event: HoldemPersonaReRaiseTapEvent) => void) | null
+): void {
+  holdemPersonaReRaiseTap = tap;
+}
 
 /**
  * Dan 2026-11-06 (PLO5 1/2 Madness, hand 55704472): "I JUST WATCHED NOODLE NOT
@@ -346,6 +378,30 @@ export interface PreflopCtx {
    *  the hand clears 0.26; a committed top-half hand whose call is all in is
    *  priced in to 0.18. Every other variant, and absent, = unchanged. */
   committedStackPricedIn?: boolean;
+  /** PERSONA RE-RAISE MIX (2026-11-14, D3 option C, flag
+   *  holdemPersonaReRaiseMix, default OFF). Present only with the flag on and
+   *  a two-card no-limit hold'em decision by a Horse with an id. `scale` is
+   *  the Horse's nlh3BetMix over the model mean (0.52 to 1.52). Each `u` is a
+   *  zero-draw hash in [0,1) of the Horse, the hand (table id and hand
+   *  number), its exact hole cards and a salt per behaviour: one value per
+   *  behaviour for the whole hand (HorseLogic.holdemPersonaReRaiseUnit; a
+   *  caller with no hand gets the named public-state fallback). The
+   *  3-bet bluff and the squeeze bluff still consume their random draw at the
+   *  same place and decide on `u < min(1, p * scale)`. Against an opener
+   *  the style read classifies as tight (heldByTightRead), the scale is held
+   *  at min(1, scale): the persona may lower a bluff there, never raise it.
+   *  Value 3-bets, value squeezes and every four-bet reshove do not read it
+   *  (shallow four-bet reshoves are not persona-specific: owner decision
+   *  R3-B, 2026-11-13). Absent = unchanged. */
+  holdemPersonaReRaise?: {
+    scale: number;
+    u3bet: number;
+    uSqueeze: number;
+    /** The opener / re-raiser is one the opponent-style read classifies as
+     *  tight (HorseLogic asks the read itself, whatever the style option's
+     *  state). The scale is then min(1, scale) at both sites. */
+    heldByTightRead?: boolean;
+  };
   /** Set with committedStackPricedIn only (HorseLogic.committedPayJumpLive): true when busting now can cost a pay
    *  jump (bubble, hand for hand, satellite, in the money, or an unknown payout context). The option makes a call that can
    *  bust the Horse (the crumbs clauses, the half-stack clause when the call is all in, the 0.18 all-in price) only
@@ -1367,6 +1423,65 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     v87 && ctx.holeCards && ctx.holeCards.length === 2
       ? holdemClass(ctx.holeCards[0], ctx.holeCards[1])
       : null;
+  // PERSONA RE-RAISE MIX (D3 option C, default OFF): undefined on every
+  // decision without the flag, and then nothing below is reached. `roll` is
+  // the draw the bluff site consumed (the caller draws it at the place it
+  // always drew it); with the persona present the draw is discarded and the
+  // Horse's own unit decides against the scaled probability.
+  const personaReRaise = ctx.holdemPersonaReRaise;
+  // THE PERSONA NEVER BLUFFS A TIGHT PLAYER MORE. Where the opponent-style
+  // read classifies the raiser as tight (persona.heldByTightRead,
+  // worked out by HorseLogic from the read itself, so it holds with the style
+  // option off, in shadow or on), the persona's scale is held at
+  // min(1, scale): it may lower a bluff there, never raise it.
+  const personaScaleUsed = (
+    persona: NonNullable<PreflopCtx['holdemPersonaReRaise']>,
+    respected: boolean
+  ): number => {
+    if (!respected || !(persona.scale > 1)) return persona.scale;
+    ctx.noteLayer?.('holdem_persona_scale_held_by_style_seen');
+    return 1;
+  };
+  const personaBluffFires = (
+    persona: NonNullable<PreflopCtx['holdemPersonaReRaise']>,
+    roll: number,
+    p: number,
+    kind: 'three_bet' | 'squeeze'
+  ): boolean => {
+    const scaleUsed = personaScaleUsed(persona, persona.heldByTightRead === true);
+    const unit = kind === 'squeeze' ? persona.uSqueeze : persona.u3bet;
+    const fires = unit < Math.min(1, p * scaleUsed);
+    holdemPersonaReRaiseTap?.({
+      kind,
+      p,
+      scale: persona.scale,
+      scaleUsed,
+      unit,
+      fires,
+      unscaled: roll < p,
+    });
+    ctx.noteLayer?.(
+      kind === 'squeeze'
+        ? 'holdem_persona_squeeze_bluff_eligible_seen'
+        : 'holdem_persona_3bet_bluff_eligible_seen'
+    );
+    if (fires !== roll < p)
+      ctx.noteLayer?.(
+        kind === 'squeeze'
+          ? 'holdem_persona_squeeze_bluff_changed_seen'
+          : 'holdem_persona_3bet_bluff_changed_seen'
+      );
+    // The cap held this comparison at 1: counted. (It is not the only place
+    // frequency is lost: once p is above 1 over the largest scale, a Horse
+    // below the average still bluffs less and nobody can bluff more.)
+    if (p * scaleUsed > 1)
+      ctx.noteLayer?.(
+        kind === 'squeeze'
+          ? 'holdem_persona_squeeze_bluff_capped_seen'
+          : 'holdem_persona_3bet_bluff_capped_seen'
+      );
+    return fires;
+  };
   const v87EpCand =
     v87 && ctx.holeCards && ctx.holeCards.length === 2
       ? classifyHoldemEpLimpCandidate(ctx.holeCards[0], ctx.holeCards[1])
@@ -3079,7 +3194,16 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       !noBluff3 &&
       ctx.maniacNoBluff !== true &&
       !tightOpener &&
-      rand() < bluffBudget * (ctx.isOmaha ? 0.22 : 0.3) * blockerMult &&
+      // Persona re-raise mix (default OFF): the draw is consumed here either
+      // way; with the persona present it is discarded for the Horse's unit.
+      (personaReRaise === undefined
+        ? rand() < bluffBudget * (ctx.isOmaha ? 0.22 : 0.3) * blockerMult
+        : personaBluffFires(
+            personaReRaise,
+            rand(),
+            bluffBudget * (ctx.isOmaha ? 0.22 : 0.3) * blockerMult,
+            'squeeze'
+          )) &&
       // The same test as the 3-bet bluff below, after the draw.
       bluffRaiseHasFoldEquity(toCall, stack, ctx)
     ) {
@@ -3143,7 +3267,17 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       !noBluff3 &&
       ctx.maniacNoBluff !== true &&
       !tightOpener &&
-      rand() < (def72 ? bluff72 : bluffFreqHere) &&
+      // Persona re-raise mix (default OFF): the draw is consumed here either
+      // way; with the persona present it is discarded for the Horse's unit
+      // (the squeeze unit when this block is the V85 squeeze, callers >= 1).
+      (personaReRaise === undefined
+        ? rand() < (def72 ? bluff72 : bluffFreqHere)
+        : personaBluffFires(
+            personaReRaise,
+            rand(),
+            def72 ? bluff72 : bluffFreqHere,
+            callers >= 1 ? 'squeeze' : 'three_bet'
+          )) &&
       // Tested after the draw so the random stream is unchanged.
       bluffRaiseHasFoldEquity(toCall, stack, ctx)
     ) {
