@@ -7,7 +7,7 @@ Base: origin/main 74f7a5a45. Every hunk below changes a DISPLAYED string (or a t
 ## tests/cashier-weekly-statements.test.tsx
 
 previous sha256 dc2c3cb202c4119f3828f4ac68865e31e8f52874cdecb154bf8832491202bac2
-current  sha256 9d96d8baeca3249f300077b7cdc5e7c0fa010a12bcde4f8b93f145140484ac1a
+current sha256 9d96d8baeca3249f300077b7cdc5e7c0fa010a12bcde4f8b93f145140484ac1a
 
 ```diff
 -    // #ClubArenaConsole forward display (launch audit 2026-10-09, P-09 / R-08):
@@ -40,7 +40,7 @@ current  sha256 9d96d8baeca3249f300077b7cdc5e7c0fa010a12bcde4f8b93f145140484ac1a
 ## tests/components/WeeklyAccountingWorkspace.test.tsx
 
 previous sha256 3fa2ec057866093383ec05539ac3a60de8cec52abfee780d2491ead8894f5be7
-current  sha256 ef30a660badbcb434bb9a07afa7517cf7b5ee83e823118d95b5d528f344e5c23
+current sha256 ef30a660badbcb434bb9a07afa7517cf7b5ee83e823118d95b5d528f344e5c23
 
 ```diff
 -    expect(await screen.findByText('100 Chips')).toBeInTheDocument();
@@ -66,7 +66,7 @@ current  sha256 ef30a660badbcb434bb9a07afa7517cf7b5ee83e823118d95b5d528f344e5c23
 ## tests/credit-admin-data.test.ts
 
 previous sha256 4a0314b6d67b26952d6a7836fffebe9239349c53474f4ff034f6e7eff2049bcf
-current  sha256 47462de7312c7f45a6caabeff0ce425a594f80ed73ffba72e2de8e1f62eae43f
+current sha256 47462de7312c7f45a6caabeff0ce425a594f80ed73ffba72e2de8e1f62eae43f
 
 ```diff
 -  it('keeps exact cents in data while compacting forward-facing chip display', () => {
@@ -80,7 +80,7 @@ current  sha256 47462de7312c7f45a6caabeff0ce425a594f80ed73ffba72e2de8e1f62eae43f
 ## tests/credit-admin-panel-scope.test.tsx
 
 previous sha256 1f6bc078af417542917561e2667dde60fff236eaaffee07f7591170f7bfc42b4
-current  sha256 a6919769f6399b1439d28ccf371955a0772761ba92b815205670bb9f11aca1ac
+current sha256 a6919769f6399b1439d28ccf371955a0772761ba92b815205670bb9f11aca1ac
 
 ```diff
 -  it('keeps exact credit cents in the write while the confirmation stays decimal-free', async () => {
@@ -93,7 +93,7 @@ current  sha256 a6919769f6399b1439d28ccf371955a0772761ba92b815205670bb9f11aca1ac
 ## tests/credit-request-widget-scope.test.tsx
 
 previous sha256 45ad84f004fe5fd39fcb8affa7a6c0f16c5782335966f4c01728305de8cd126d
-current  sha256 6442b5280dcd6a2f726414fbbf26cc6eeee74ef93d9acd378c07539fc4df5330
+current sha256 6442b5280dcd6a2f726414fbbf26cc6eeee74ef93d9acd378c07539fc4df5330
 
 ```diff
 -    expect(mocks.toast.success).toHaveBeenCalledWith('Credit limit updated to 200');
@@ -103,7 +103,7 @@ current  sha256 6442b5280dcd6a2f726414fbbf26cc6eeee74ef93d9acd378c07539fc4df5330
 ## tests/unit/ClubWeeklyAccountingReader.test.ts
 
 previous sha256 6be8e7def307a8363525ac7eb3600674f5d35f9524304cdd9770e77ab0c45856
-current  sha256 46ac23883e61d38e4b3a3b4289d35f0bad1a5153b1292500e98af305a49f7063
+current sha256 46ac23883e61d38e4b3a3b4289d35f0bad1a5153b1292500e98af305a49f7063
 
 ```diff
 -    expect(formatWeeklyChipsForDisplay(rows[0].retainedByClub)).toBe('Under 1 Chip Owed');
@@ -111,4 +111,3 @@ current  sha256 46ac23883e61d38e4b3a3b4289d35f0bad1a5153b1292500e98af305a49f7063
 -    expect(formatWeeklyChipsForDisplay(rows[0].retainedByClub)).toBe('9.9B Chips');
 +    expect(formatWeeklyChipsForDisplay(rows[0].retainedByClub)).toBe('9,999,999,999.99 Chips');
 ```
-
