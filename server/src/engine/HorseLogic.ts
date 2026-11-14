@@ -20,6 +20,7 @@ import {
 } from '../services/horseCorrectiveReview/liveKernel.js';
 import { hasPhysicalImpliedDraw } from './HorseOmahaImpliedDraw.js';
 import { horsePlanHandKey } from './HorseDecisionEffects.js';
+import { horsePlanContextKey } from './HorsePlanHandIdentity.js';
 import { headsUpCashCommitment } from './HorseHeadsUpCommitment.js';
 import { limpReraiseEngagement, limpReraiseRate } from './HorseLimpReraiseRead.js';
 import {
@@ -3950,12 +3951,44 @@ const HOLDEM_PERSONA_RERAISE_SALT = { threeBet: 9101, squeeze: 9102, fourBet: 91
 
 /**
  * PERSONA RE-RAISE MIX (D3 option C): the Horse's zero-draw unit in [0,1) for
- * one behaviour. The engine state a decision receives carries no hand number,
- * so "this hand" is the public state the V87 preflop mixes already hash
- * (seat, dealer seat, stack and pot in quarter big blinds, dealt seats) plus
- * the Horse id and its exact hole cards (order-free). Never fastRandom().
+ * one behaviour, DETERMINISTIC PER HAND. The key is the Horse id, the hand
+ * (table id and hand number), its exact hole cards (order-free) and the
+ * behaviour's salt, and nothing else: no seat, stack or pot, so every
+ * decision the Horse makes in the hand, at any pot, reads the same unit for
+ * the same behaviour.
+ *
+ * The hand is `opts.mindPlanContext.hand`. The live worker derives it from
+ * the decision snapshot (fence table:hand:seat..., generation, seat, journal
+ * coordinate) with horsePlanContextFromDecision, for the fast decision
+ * (workerRuntime executeFast) and for the deep second look (executeDeep)
+ * alike; a retry of the turn carries the same table and hand; and an exact
+ * replay feeds the journaled snapshot through the same worker runtime
+ * (horseDecision/replay/runtimeReplay), so it derives the same value.
+ * `opts.mindObservationHand` holds the same pair but is NOT used: the deep
+ * second look is not given it. The request id, decision key, generation and
+ * decision time are per turn or per request, not per hand.
  */
 function holdemPersonaReRaiseUnit(
+  salt: number,
+  userId: string,
+  hole: readonly Card[],
+  handKey: string
+): number {
+  const cards = hole.map((c) => `${c.rank}${c.suit}`).sort();
+  return v86Hash01(`hprr2|${userId}|${handKey}|${cards.join(',')}`, salt);
+}
+
+/**
+ * THE FALLBACK, for a caller that supplies no hand (a direct or offline
+ * caller that predates the plan context; a live snapshot whose fence does not
+ * name a table and an allocated hand). NOT deterministic per hand: the key is
+ * the public state the V87 preflop mixes hash (seat, dealer seat, stack and
+ * pot in quarter big blinds, dealt seats), which moves within a hand, and a
+ * Horse whose seat, stack and pot repeat gets the same answer for the same
+ * cards. Counted by holdem_persona_hand_identity_fallback_seen. The league
+ * card and the measuring probe supply a hand and never come here.
+ */
+function holdemPersonaReRaiseFallbackUnit(
   salt: number,
   userId: string,
   hole: readonly Card[],
@@ -9090,18 +9123,23 @@ export class HorseLogic {
           typeof player.user_id === 'string' &&
           player.user_id.length > 0
           ? (() => {
+              const handKey = horsePlanContextKey(opts.mindPlanContext);
+              if (handKey === null && telemetryOn(opts))
+                noteFire('holdem_persona_hand_identity_fallback_seen');
               const unitBB = bb > 0 ? bb : 1;
               const unit = (salt: number) =>
-                holdemPersonaReRaiseUnit(
-                  salt,
-                  player.user_id,
-                  player.cards,
-                  player.seat,
-                  gs.dealerSeat,
-                  player.stack / unitBB,
-                  gs.pot / unitBB,
-                  dealtHorseTableSize(gs, player.seat)
-                );
+                handKey !== null
+                  ? holdemPersonaReRaiseUnit(salt, player.user_id, player.cards, handKey)
+                  : holdemPersonaReRaiseFallbackUnit(
+                      salt,
+                      player.user_id,
+                      player.cards,
+                      player.seat,
+                      gs.dealerSeat,
+                      player.stack / unitBB,
+                      gs.pot / unitBB,
+                      dealtHorseTableSize(gs, player.seat)
+                    );
               return {
                 holdemPersonaReRaise: {
                   scale: holdemPersonaReRaiseScale(player.user_id),
@@ -9386,6 +9424,8 @@ export class HorseLogic {
               noteFire('holdem_persona_fourbet_reshove_eligible_seen');
             else if (layer === 'holdem_persona_fourbet_reshove_changed_seen')
               noteFire('holdem_persona_fourbet_reshove_changed_seen');
+            else if (layer === 'holdem_persona_scale_held_by_style_seen')
+              noteFire('holdem_persona_scale_held_by_style_seen');
           }
         : undefined,
       isShortDeck: vi.isShortDeck === true,

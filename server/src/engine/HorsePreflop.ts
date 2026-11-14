@@ -152,7 +152,33 @@ export type PreflopLayerReceipt =
   | 'holdem_persona_squeeze_bluff_changed_seen'
   | 'holdem_persona_squeeze_bluff_capped_seen'
   | 'holdem_persona_fourbet_reshove_eligible_seen'
-  | 'holdem_persona_fourbet_reshove_changed_seen';
+  | 'holdem_persona_fourbet_reshove_changed_seen'
+  | 'holdem_persona_scale_held_by_style_seen';
+
+/**
+ * PERSONA RE-RAISE MIX, OFFLINE MEASUREMENT TAP. One event per persona
+ * comparison, with the numbers the comparison used. Null everywhere except
+ * the measuring harness (HoldemPersonaReRaiseProbe) and tests, which set it
+ * and clear it; no live process sets it. It observes and decides nothing.
+ */
+export interface HoldemPersonaReRaiseTapEvent {
+  kind: 'three_bet' | 'squeeze' | 'four_bet';
+  /** The site's unscaled probability (1 for the reshove: it always shoved). */
+  p: number;
+  /** The Horse's scale, and the scale the site used (held at 1 by a style read). */
+  scale: number;
+  scaleUsed: number;
+  unit: number;
+  /** The scaled answer, and the answer the unscaled comparison gave. */
+  fires: boolean;
+  unscaled: boolean;
+}
+let holdemPersonaReRaiseTap: ((event: HoldemPersonaReRaiseTapEvent) => void) | null = null;
+export function setHoldemPersonaReRaiseTap(
+  tap: ((event: HoldemPersonaReRaiseTapEvent) => void) | null
+): void {
+  holdemPersonaReRaiseTap = tap;
+}
 
 /**
  * Dan 2026-11-06 (PLO5 1/2 Madness, hand 55704472): "I JUST WATCHED NOODLE NOT
@@ -343,13 +369,17 @@ export interface PreflopCtx {
    *  holdemPersonaReRaiseMix, default OFF). Present only with the flag on and
    *  a two-card no-limit hold'em decision by a Horse with an id. `scale` is
    *  the Horse's nlh3BetMix over the model mean (0.52 to 1.52). Each `u` is a
-   *  zero-draw hash in [0,1) of the Horse, the hand's public state, its exact
-   *  hole cards, its seat, the dealer seat and a salt per behaviour. The
+   *  zero-draw hash in [0,1) of the Horse, the hand (table id and hand
+   *  number), its exact hole cards and a salt per behaviour: one value per
+   *  behaviour for the whole hand (HorseLogic.holdemPersonaReRaiseUnit; a
+   *  caller with no hand gets the named public-state fallback). The
    *  3-bet bluff and the squeeze bluff still consume their random draw at the
    *  same place and decide on `u < min(1, p * scale)`; the 26-35bb four-bet
-   *  reshove's bluff classes shove when `uFourBet < min(1, scale)`. Value
-   *  3-bets, value squeezes and value reshoves do not read it. Absent =
-   *  unchanged. */
+   *  reshove's bluff classes shove when `uFourBet < min(1, scale)`. Against
+   *  an opener or re-raiser the style read respects as tight, the scale is
+   *  held at min(1, scale): the persona may lower a bluff there, never raise
+   *  it. Value 3-bets, value squeezes and value reshoves do not read it.
+   *  Absent = unchanged. */
   holdemPersonaReRaise?: { scale: number; u3bet: number; uSqueeze: number; uFourBet: number };
   /** V20 M-ZONES (2026-08-27): ante cost of ONE ORBIT in BB units, already
    *  resolved for the table's ante style by AnteMath.anteOrbitCostBB (0 = no
@@ -1324,14 +1354,44 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
   // always drew it); with the persona present the draw is discarded and the
   // Horse's own unit decides against the scaled probability.
   const personaReRaise = ctx.holdemPersonaReRaise;
+  // A STYLE READ'S RESPECT IS NOT UNDONE BY THE PERSONA. The style options
+  // only raise bars against a credibly tight player; they do not touch the
+  // bluff probability. So where that respect is APPLIED on this decision
+  // (the tight opener's bounded exploit read, or the tight re-raiser read:
+  // both reach this module only with their option on, never from a shadow
+  // arm, which computes and applies nothing), the persona's scale is held
+  // at min(1, scale). Postflop style options never reach this module.
+  const personaScaleUsed = (
+    persona: NonNullable<PreflopCtx['holdemPersonaReRaise']>,
+    respected: boolean
+  ): number => {
+    if (!respected || !(persona.scale > 1)) return persona.scale;
+    ctx.noteLayer?.('holdem_persona_scale_held_by_style_seen');
+    return 1;
+  };
   const personaBluffFires = (
     persona: NonNullable<PreflopCtx['holdemPersonaReRaise']>,
     roll: number,
     p: number,
     kind: 'three_bet' | 'squeeze'
   ): boolean => {
-    const fires =
-      (kind === 'squeeze' ? persona.uSqueeze : persona.u3bet) < Math.min(1, p * persona.scale);
+    const scaleUsed = personaScaleUsed(
+      persona,
+      ctx.exploitOpener !== undefined &&
+        ctx.exploitOpener.wide === false &&
+        typeof ctx.exploitOpener.maxBarMove === 'number'
+    );
+    const unit = kind === 'squeeze' ? persona.uSqueeze : persona.u3bet;
+    const fires = unit < Math.min(1, p * scaleUsed);
+    holdemPersonaReRaiseTap?.({
+      kind,
+      p,
+      scale: persona.scale,
+      scaleUsed,
+      unit,
+      fires,
+      unscaled: roll < p,
+    });
     ctx.noteLayer?.(
       kind === 'squeeze'
         ? 'holdem_persona_squeeze_bluff_eligible_seen'
@@ -1343,8 +1403,10 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
           ? 'holdem_persona_squeeze_bluff_changed_seen'
           : 'holdem_persona_3bet_bluff_changed_seen'
       );
-    // The cap is the only place the scaled bluff can lose frequency: counted.
-    if (p * persona.scale > 1)
+    // The cap held this comparison at 1: counted. (It is not the only place
+    // frequency is lost: once p is above 1 over the largest scale, a Horse
+    // below the average still bluffs less and nobody can bluff more.)
+    if (p * scaleUsed > 1)
       ctx.noteLayer?.(
         kind === 'squeeze'
           ? 'holdem_persona_squeeze_bluff_capped_seen'
@@ -1355,7 +1417,17 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
   const personaFourBetBluffShoves = (
     persona: NonNullable<PreflopCtx['holdemPersonaReRaise']>
   ): boolean => {
-    const shoves = persona.uFourBet < Math.min(1, persona.scale);
+    const scaleUsed = personaScaleUsed(persona, ctx.styleTightReRaiser !== undefined);
+    const shoves = persona.uFourBet < Math.min(1, scaleUsed);
+    holdemPersonaReRaiseTap?.({
+      kind: 'four_bet',
+      p: 1,
+      scale: persona.scale,
+      scaleUsed,
+      unit: persona.uFourBet,
+      fires: shoves,
+      unscaled: true,
+    });
     ctx.noteLayer?.('holdem_persona_fourbet_reshove_eligible_seen');
     if (!shoves) ctx.noteLayer?.('holdem_persona_fourbet_reshove_changed_seen');
     return shoves;

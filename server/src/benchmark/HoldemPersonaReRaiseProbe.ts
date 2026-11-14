@@ -1,38 +1,37 @@
 /**
  * HOLD'EM PERSONA RE-RAISE PROBE (2026-11-14, D3 option C, option
- * holdemPersonaReRaiseMix, default OFF). Plays the PREFLOP round of all-Horse
- * tables through HorseLogic.decide, every seat on the source-assigned hybrid
- * profile, and does two jobs:
+ * holdemPersonaReRaiseMix, default OFF). The opportunity-weighted measurement
+ * of the three persona behaviours (3-bet bluff, squeeze bluff, 26-35bb
+ * four-bet reshove bluff), built on HoldemPreflopProbe: a fleet of synthetic
+ * ids in exactly the model's 25/20/40/15 archetype mix, every seat rotation,
+ * preflop only, the option on and off on the same code.
  *
- *  1. `playProbeHand` decides every spot once per ARM from the same random
- *     stream position (the first arm drives the hand), so a test can compare
- *     arms decision by decision: action, amount and the stream state after.
- *  2. `measurePersonaReRaise` is the opportunity-weighted measurement: a
- *     fleet of synthetic ids in exactly the model's 25/20/40/15 archetype
- *     mix, every seat rotation, reporting per behaviour (3-bet bluff, squeeze
- *     bluff, 26-35bb four-bet reshove bluff) eligible, taken and the rate
- *     with a 95% Wilson interval, pooled, per archetype, per scale decile
- *     and (the reshove) per effective-stack bucket inside 26-35bb, with the
- *     option on and with it off on the same code; how often the
- *     min(1, p * scale) cap bound; what a refused reshove bluff did instead;
- *     and the model's E[min(1, scale)] to hold the measured reshove against.
+ * PAIRED (the primary table). The option-off run decides every spot a second
+ * time with the option on FROM THE SAME STREAM POSITION and discards it. At
+ * each spot that second look reaches a persona comparison, the pair is the
+ * off decision and the on decision of the same Horse, cards, state and
+ * draws: taken off, taken on, changed up (on only), changed down (off only),
+ * with a 95% interval on each rate and on the paired difference.
  *
- * "Eligible" is the decision reaching the mix comparison. With the option on
- * that is the *_eligible_seen receipt. With it off no receipt exists, so each
- * off decision is decided a second time with the option on FROM THE SAME
- * STREAM POSITION and discarded: the conditions in front of the comparison
- * are the same code and the same draws either way, so the second look's
- * receipt says whether the off decision reached the comparison too. "Taken"
- * is the bluff branch itself (the preflop authority event, which is recorded
- * after the fold-equity test, in both arms), or for the reshove the shove.
+ * UNPAIRED (secondary). An option-on run and the option-off run dealt the
+ * same cards from the same seeds. Their streams part at the first changed
+ * decision, so later opponents act differently: two samples, not pairs.
+ *
+ * "Taken" is the FINAL action in both arms: the 3-bet bluff or squeeze bluff
+ * branch itself (recorded after the fold-equity test), and for the reshove an
+ * all-in. The persona's own verdict (its comparison, before any later layer)
+ * is reported separately, from the engine's offline measurement tap, which
+ * also gives the site's unscaled probability p. That is what lets the probe
+ * report where min(1, p * scale) binds and where p is above 1 over the
+ * largest scale (the one-sided region: a Horse above the average cannot pass
+ * 1, a Horse below it still goes down), with the expected and measured loss.
  *
  * Limits: synthetic ids, not the fleet's; Horses against Horses; preflop
- * only; no top-up, no postflop, no humans; decisions made with mind off.
- * The CLI is server/scripts/holdem-persona-reraise-probe.ts. Pure and seeded.
+ * only; no top-up, no postflop, no humans; decisions made with mind off (so
+ * no style read ever engages here). The CLI is
+ * server/scripts/holdem-persona-reraise-probe.ts. Pure and seeded.
  */
-import { HorseLogic } from '../engine/HorseLogic.js';
-import { restoreFastRandom, saveFastRandom, seedFastRandom } from '../engine/HorseEval.js';
-import { HORSE_HYBRID_PROFILES } from '../engine/HorseHybridProfile.js';
+import { seedFastRandom } from '../engine/HorseEval.js';
 import {
   HOLDEM_ARCHETYPE_NLH_3BET_MIX,
   HOLDEM_MODEL_MEAN_NLH_3BET_MIX,
@@ -40,359 +39,23 @@ import {
   holdemPersonaReRaiseScale,
   type HorseHoldemArchetype,
 } from '../engine/HorsePersona.js';
-import { drainFires, enableBrainTelemetry } from '../engine/BrainTelemetry.js';
-import { SUITS, RANKS } from '../engine/PokerEngine.js';
-import type { ActionRecord, Card, HandStage, SeatPlayer } from '../types.js';
+import {
+  setHoldemPersonaReRaiseTap,
+  type HoldemPersonaReRaiseTapEvent,
+} from '../engine/HorsePreflop.js';
+import {
+  PROBE_ARCHETYPES,
+  playProbeHand,
+  probeRng,
+  syntheticFleet,
+  syntheticHorseId,
+  type ProbeArm,
+  type ProbeMode,
+  type ProbeRead,
+  type ProbeTable,
+} from './HoldemPreflopProbe.js';
 
-/** The V9 hourly mood hashes the hour: pin it so a measurement repeats. */
-const PROBE_CLOCK_MS = Date.UTC(2026, 10, 14, 11, 0, 0);
-
-export type ProbeVariant = 'nlh' | 'plo4' | 'plo5' | 'plo6' | 'short_deck' | 'flh';
-export type ProbeMode = 'cash' | 'tournament';
-const HOLE_CARDS: Record<ProbeVariant, number> = {
-  nlh: 2,
-  plo4: 4,
-  plo5: 5,
-  plo6: 6,
-  short_deck: 2,
-  flh: 2,
-};
-const SHORT_DECK_OUT = new Set(['2', '3', '4', '5']);
-
-export function probeRng(seed: number): () => number {
-  let s = seed >>> 0;
-  return () => {
-    s = (s + 0x6d2b79f5) >>> 0;
-    let t = s;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-function shuffledDeck(variant: ProbeVariant, r: () => number): Card[] {
-  const d: Card[] = [];
-  for (const s of SUITS)
-    for (const rank of RANKS) {
-      if (variant === 'short_deck' && SHORT_DECK_OUT.has(String(rank))) continue;
-      d.push({ rank, suit: s } as Card);
-    }
-  for (let i = d.length - 1; i > 0; i--) {
-    const j = Math.floor(r() * (i + 1));
-    [d[i], d[j]] = [d[j], d[i]];
-  }
-  return d;
-}
-
-const PERSONA_BLUFF_BRANCHES = new Set(['three_bet_bluff', 'squeeze_bluff']);
-
-/** One way of deciding the same spot. `telemetry` turns the receipts on. */
-export interface ProbeArm {
-  opts: Record<string, unknown>;
-  telemetry?: boolean;
-  /** Runs this arm's decision inside a caller's bracket (a test's control). */
-  around?: <T>(decide: () => T) => T;
-}
-export interface ProbeRead {
-  action: string;
-  amount: number;
-  /** The shared random stream's state after this arm's decision. */
-  rngAfter: number;
-  /** Telemetry keys this arm's decision fired (empty without telemetry). */
-  fires: string[];
-  /** The 3-bet bluff or squeeze bluff branch itself was taken. */
-  bluffBranch: boolean;
-}
-export interface ProbeSpot {
-  variant: ProbeVariant;
-  mode: ProbeMode;
-  seats: number;
-  heroId: string;
-  heroSeat: number;
-  heroCards: Card[];
-  raises: number;
-  callers: number;
-  limpers: number;
-  /** Hero's stack plus bet against the deepest live opponent's, in big blinds. */
-  effectiveBB: number;
-  /** One read per arm, in arm order. reads[0] drove the hand. */
-  reads: ProbeRead[];
-}
-export interface ProbeTable {
-  variant: ProbeVariant;
-  mode: ProbeMode;
-  /** Seat i + 1 is played by ids[i]; the dealer is the last seat. */
-  ids: readonly string[];
-  /** Big blinds behind, one figure for all or a [low, high] range per seat. */
-  depthBB: number | readonly [number, number];
-}
-
-export interface ProbeTableState {
-  players: SeatPlayer[];
-  history: ActionRecord[];
-  currentBet: number;
-  lastRaise: number;
-  dealerSeat: number;
-  bb: number;
-  sb: number;
-}
-
-function gameStateOf(table: ProbeTable, st: ProbeTableState, round: (n: number) => number) {
-  return {
-    players: st.players.map((p) => ({ ...p, cards: p.cards.slice() })),
-    communityCards: [],
-    pot: round(st.players.reduce((a, p) => a + p.bet, 0)),
-    currentBet: st.currentBet,
-    minRaise: Math.max(st.bb, st.lastRaise),
-    lastRaise: st.lastRaise,
-    stage: 'preflop' as HandStage,
-    gameVariant: table.variant,
-    bigBlind: st.bb,
-    smallBlind: st.sb,
-    dealerSeat: st.dealerSeat,
-    actionHistory: st.history.slice(),
-    gameMode: table.mode,
-    ante: 0,
-    format: table.mode,
-  };
-}
-
-/** Decide one spot once per arm from the same stream position. The stream is
- *  left where the first arm left it. */
-export function decideArms(
-  table: ProbeTable,
-  st: ProbeTableState,
-  heroSeat: number,
-  arms: readonly ProbeArm[],
-  round: (n: number) => number = (x) => Math.round(x * 100) / 100
-): ProbeRead[] {
-  if (arms.some((a) => a.telemetry)) enableBrainTelemetry();
-  const profile = HORSE_HYBRID_PROFILES[table.mode];
-  const start = saveFastRandom();
-  const reads: ProbeRead[] = [];
-  for (const arm of arms) {
-    restoreFastRandom(start);
-    if (arm.telemetry) drainFires();
-    const gs = gameStateOf(table, st, round);
-    const decide = () =>
-      HorseLogic.decide(
-        gs.players.find((p) => p.seat === heroSeat)!,
-        gs as never,
-        profile.style,
-        { ...profile.mods },
-        {
-          mind: false,
-          telemetry: arm.telemetry === true,
-          decisionTimeMs: PROBE_CLOCK_MS,
-          ...arm.opts,
-        } as never
-      );
-    const dec = arm.around ? arm.around(decide) : decide();
-    const events = (dec as { preflopAuthority?: { events?: readonly { branch: string }[] } })
-      .preflopAuthority?.events;
-    reads.push({
-      action: String(dec.action),
-      amount: Number(dec.amount ?? 0),
-      rngAfter: saveFastRandom(),
-      fires: arm.telemetry ? drainFires().map((f) => f.feature) : [],
-      bluffBranch: (events ?? []).some((e) => PERSONA_BLUFF_BRANCHES.has(e.branch)),
-    });
-  }
-  restoreFastRandom(reads[0].rngAfter);
-  return reads;
-}
-
-/**
- * Play one preflop round. Every decision is made once per arm from the same
- * stream position; the first arm's answer is the one the hand follows.
- */
-export function playProbeHand(
-  table: ProbeTable,
-  r: () => number,
-  arms: readonly ProbeArm[],
-  onSpot: (spot: ProbeSpot) => void
-): void {
-  if (arms.some((a) => a.telemetry)) enableBrainTelemetry();
-  const n = table.ids.length;
-  const cash = table.mode === 'cash';
-  const bb = cash ? 0.1 : 100;
-  const sb = cash ? 0.05 : 50;
-  const round = (x: number) => (cash ? Math.round(x * 100) / 100 : Math.round(x));
-  const deck = shuffledDeck(table.variant, r);
-  const seats = Array.from({ length: n }, (_, i) => i + 1);
-  const dealerSeat = n;
-  // Heads-up the dealer posts the small blind.
-  const sbSeat = n === 2 ? dealerSeat : 1;
-  const bbSeat = n === 2 ? 1 : 2;
-  const depthOf = () =>
-    typeof table.depthBB === 'number'
-      ? table.depthBB
-      : table.depthBB[0] + r() * (table.depthBB[1] - table.depthBB[0]);
-  const players: SeatPlayer[] = seats.map((seat) => ({
-    seat,
-    user_id: table.ids[seat - 1],
-    username: 'U' + seat,
-    stack: round(depthOf() * bb),
-    bet: 0,
-    totalInvested: 0,
-    cards: deck.splice(0, HOLE_CARDS[table.variant]),
-    is_folded: false,
-    is_all_in: false,
-    is_sitting_out: false,
-  }));
-  const bySeat = new Map(players.map((p) => [p.seat, p]));
-  const post = (seat: number, amt: number) => {
-    const p = bySeat.get(seat)!;
-    p.bet = amt;
-    p.totalInvested = amt;
-    p.stack = round(p.stack - amt);
-  };
-  post(sbSeat, sb);
-  post(bbSeat, bb);
-  const st: ProbeTableState = {
-    players,
-    history: [],
-    currentBet: bb,
-    lastRaise: bb,
-    dealerSeat,
-    bb,
-    sb,
-  };
-  let raises = 0;
-  let callersOfLast = 0;
-  let limpers = 0;
-  const acted = new Set<number>();
-  const note = (hero: SeatPlayer, action: 'fold' | 'check' | 'call' | 'raise', amount: number) =>
-    st.history.push({
-      seat: hero.seat,
-      userId: hero.user_id,
-      action,
-      amount,
-      timestamp: 1000 + st.history.length,
-      stage: 'preflop',
-    } as ActionRecord);
-  // Action starts left of the big blind.
-  let idx = seats.indexOf(bbSeat);
-  let guard = 0;
-  for (;;) {
-    if (guard++ > n * 8) throw new Error('preflop did not close');
-    const live = players.filter((p) => !p.is_folded);
-    if (live.length <= 1) break;
-    const pending = live.filter(
-      (p) => !p.is_all_in && (!acted.has(p.seat) || p.bet < st.currentBet)
-    );
-    if (pending.length === 0) break;
-    idx = (idx + 1) % n;
-    const hero = bySeat.get(seats[idx])!;
-    if (hero.is_folded || hero.is_all_in) continue;
-    if (acted.has(hero.seat) && hero.bet >= st.currentBet) continue;
-    const reads = decideArms(table, st, hero.seat, arms, round);
-    onSpot({
-      variant: table.variant,
-      mode: table.mode,
-      seats: n,
-      heroId: hero.user_id,
-      heroSeat: hero.seat,
-      heroCards: hero.cards.slice(),
-      raises,
-      callers: callersOfLast,
-      limpers,
-      effectiveBB:
-        Math.min(
-          hero.stack + hero.bet,
-          Math.max(0, ...live.filter((p) => p.seat !== hero.seat).map((p) => p.stack + p.bet))
-        ) / bb,
-      reads,
-    });
-    acted.add(hero.seat);
-    let action = reads[0].action;
-    const toCall = round(st.currentBet - hero.bet);
-    let raiseTo = 0;
-    if (action === 'raise' || action === 'bet') raiseTo = round(reads[0].amount);
-    if (action === 'all_in') {
-      raiseTo = round(hero.bet + hero.stack);
-      action = raiseTo > st.currentBet ? 'raise' : 'call';
-    }
-    if (action === 'raise' && raiseTo <= st.currentBet) action = toCall > 0 ? 'call' : 'check';
-    if (action === 'bet') action = 'raise';
-    if (action === 'check' && toCall > 0) action = 'fold';
-    if (action === 'fold') {
-      hero.is_folded = true;
-      note(hero, 'fold', 0);
-      continue;
-    }
-    if (action === 'check') {
-      note(hero, 'check', 0);
-      continue;
-    }
-    if (action === 'raise') {
-      const to = Math.min(raiseTo, round(hero.bet + hero.stack));
-      st.lastRaise = round(Math.max(st.lastRaise, to - st.currentBet));
-      hero.stack = round(hero.stack - (to - hero.bet));
-      hero.bet = to;
-      hero.totalInvested = to;
-      if (hero.stack <= 0) hero.is_all_in = true;
-      st.currentBet = to;
-      raises++;
-      callersOfLast = 0;
-      note(hero, 'raise', to);
-    } else {
-      const pay = Math.min(toCall, hero.stack);
-      hero.stack = round(hero.stack - pay);
-      hero.bet = round(hero.bet + pay);
-      hero.totalInvested = hero.bet;
-      if (hero.stack <= 0) hero.is_all_in = true;
-      if (raises === 0) limpers++;
-      else callersOfLast++;
-      note(hero, 'call', hero.bet);
-    }
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────
-// The synthetic fleet
-// ─────────────────────────────────────────────────────────────────────────
-
-export const PROBE_ARCHETYPES: readonly HorseHoldemArchetype[] = [
-  'lag_shark',
-  'tag_crusher',
-  'tricky_trap',
-  'nit_hunter',
-];
-
-export const syntheticHorseId = (n: number): string =>
-  `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
-
-/**
- * The first synthetic ids, in order, that fill each archetype's quota. The
- * default is 900 ids in exactly the model's 25/20/40/15 mix.
- */
-export function syntheticFleet(
-  quota: Readonly<Record<HorseHoldemArchetype, number>> = {
-    lag_shark: 225,
-    tricky_trap: 180,
-    tag_crusher: 360,
-    nit_hunter: 135,
-  }
-): string[] {
-  const left: Record<string, number> = { ...quota };
-  const want = Object.values(quota).reduce((a, b) => a + b, 0);
-  const ids: string[] = [];
-  for (let n = 1; ids.length < want; n++) {
-    if (n > want * 200) throw new Error('synthetic fleet did not fill');
-    const id = syntheticHorseId(n);
-    const a = holdemPersonaFor(id).archetype;
-    if (left[a] > 0) {
-      left[a]--;
-      ids.push(id);
-    }
-  }
-  return ids;
-}
-
-// ─────────────────────────────────────────────────────────────────────────
-// The opportunity-weighted measurement
-// ─────────────────────────────────────────────────────────────────────────
+export * from './HoldemPreflopProbe.js';
 
 export type PersonaBehaviour = 'threeBetBluff' | 'squeezeBluff' | 'fourBetReshove';
 export const PERSONA_BEHAVIOURS: readonly PersonaBehaviour[] = [
@@ -400,21 +63,10 @@ export const PERSONA_BEHAVIOURS: readonly PersonaBehaviour[] = [
   'squeezeBluff',
   'fourBetReshove',
 ];
-const KEY: Record<PersonaBehaviour, { eligible: string; changed: string; capped?: string }> = {
-  threeBetBluff: {
-    eligible: 'holdem_persona_3bet_bluff_eligible_seen',
-    changed: 'holdem_persona_3bet_bluff_changed_seen',
-    capped: 'holdem_persona_3bet_bluff_capped_seen',
-  },
-  squeezeBluff: {
-    eligible: 'holdem_persona_squeeze_bluff_eligible_seen',
-    changed: 'holdem_persona_squeeze_bluff_changed_seen',
-    capped: 'holdem_persona_squeeze_bluff_capped_seen',
-  },
-  fourBetReshove: {
-    eligible: 'holdem_persona_fourbet_reshove_eligible_seen',
-    changed: 'holdem_persona_fourbet_reshove_changed_seen',
-  },
+const BEHAVIOUR_OF: Record<HoldemPersonaReRaiseTapEvent['kind'], PersonaBehaviour> = {
+  three_bet: 'threeBetBluff',
+  squeeze: 'squeezeBluff',
+  four_bet: 'fourBetReshove',
 };
 
 /**
@@ -435,43 +87,35 @@ const stackBucketOf = (effBB: number): string => {
   return 'other';
 };
 
-export interface RateCell {
-  eligible: number;
-  taken: number;
-  /** Percent, one decimal. */
-  rate: number;
-  /** 95% Wilson interval, percent. */
-  low: number;
-  high: number;
-  /** Option on only: comparisons whose answer differed from the unscaled one. */
-  changed: number;
-  /** Option on, 3-bet and squeeze only: min(1, p * scale) held at 1. */
-  capped: number;
-}
-/** Rows keyed 'pooled', an archetype, 'decile N', or a stack bucket. */
-export type BehaviourReport = Record<string, RateCell>;
-export interface PersonaReRaiseReport {
-  seats: number;
-  mode: ProbeMode;
-  depthBB: number | readonly [number, number];
-  ids: number;
-  archetypeIds: Record<HorseHoldemArchetype, number>;
-  tables: number;
-  hands: number;
-  seed: number;
-  /** Mean of the scale over the ids used. */
-  meanScale: number;
-  /** Scale range of each decile of the ids used (decile 1 the tightest). */
-  deciles: { decile: number; ids: number; low: number; high: number; meanMin1: number }[];
-  /** The model's E[min(1, scale)], percent: the reshove bluff's expected rate. */
-  modelMin1: { pooled: number } & Record<HorseHoldemArchetype, number>;
-  /** E[min(1, scale)] over the ids used, percent. */
-  fleetMin1: { pooled: number } & Record<HorseHoldemArchetype, number>;
-  on: Record<PersonaBehaviour, BehaviourReport>;
-  off: Record<PersonaBehaviour, BehaviourReport>;
-  /** Option on: what a bluff class that did not reshove did instead. */
-  reshoveInstead: Record<string, number>;
-}
+/** The id-hash model's scales and their weights (two-decimal mixes). */
+const MODEL_SCALES: readonly { scale: number; weight: number }[] = (() => {
+  const w = new Map<number, number>();
+  for (const a of HOLDEM_ARCHETYPE_NLH_3BET_MIX)
+    for (let h = 0; h < 1000; h++) {
+      const mix = Math.round((a.base + (h / 1000) * a.span) * 100) / 100;
+      w.set(mix, (w.get(mix) ?? 0) + a.sharePct / 100 / 1000);
+    }
+  return [...w.entries()].map(([mix, weight]) => ({
+    scale: mix / HOLDEM_MODEL_MEAN_NLH_3BET_MIX,
+    weight,
+  }));
+})();
+/** The largest scale a Horse can have, and the probability above which the
+ *  3-bet and squeeze bluffs are one-sided (p * maxScale > 1). */
+export const MAX_PERSONA_SCALE = Math.max(...MODEL_SCALES.map((m) => m.scale));
+export const ONE_SIDED_P = 1 / MAX_PERSONA_SCALE;
+const modelOn = (p: number): number =>
+  MODEL_SCALES.reduce((a, m) => a + m.weight * Math.min(1, p * m.scale), 0);
+
+/**
+ * "Taken", ONE definition for both arms: the final action. The reshove is an
+ * all-in; the 3-bet bluff and the squeeze bluff are the bluff branch itself.
+ * Never the persona's own verdict, which a later layer can overrule.
+ */
+export const personaTaken = (
+  b: PersonaBehaviour,
+  r: Pick<ProbeRead, 'action' | 'bluffBranch'>
+): boolean => (b === 'fourBetReshove' ? r.action === 'all_in' : r.bluffBranch);
 
 export function wilson95(taken: number, n: number): { low: number; high: number } {
   if (n <= 0) return { low: 0, high: 0 };
@@ -484,69 +128,139 @@ export function wilson95(taken: number, n: number): { low: number; high: number 
 }
 
 const pct1 = (x: number) => Math.round(x * 1000) / 10;
+const pct2 = (x: number) => Math.round(x * 10000) / 100;
 
-/** The id-hash model's E[min(1, scale)]: pooled and per archetype, percent. */
-export function modelExpectedMin1(): { pooled: number } & Record<HorseHoldemArchetype, number> {
-  const out: Record<string, number> = {};
-  let pooled = 0;
-  for (const a of HOLDEM_ARCHETYPE_NLH_3BET_MIX) {
-    let sum = 0;
-    for (let h = 0; h < 1000; h++)
-      sum += Math.min(
-        1,
-        Math.round((a.base + (h / 1000) * a.span) * 100) / 100 / HOLDEM_MODEL_MEAN_NLH_3BET_MIX
-      );
-    out[a.archetype] = pct1(sum / 1000);
-    pooled += (a.sharePct / 100) * (sum / 1000);
-  }
-  return { ...out, pooled: pct1(pooled) } as { pooled: number } & Record<
-    HorseHoldemArchetype,
-    number
-  >;
+export interface Rate {
+  taken: number;
+  /** Percent, one decimal, with its 95% Wilson interval. */
+  rate: number;
+  low: number;
+  high: number;
 }
-
-type Raw = { e: number; t: number; c: number; cap: number };
-type Tally = Record<PersonaBehaviour, Map<string, Raw>>;
-const emptyTally = (): Tally => ({
-  threeBetBluff: new Map(),
-  squeezeBluff: new Map(),
-  fourBetReshove: new Map(),
-});
-const rawOf = (m: Map<string, Raw>, key: string): Raw => {
-  let r = m.get(key);
-  if (!r) m.set(key, (r = { e: 0, t: 0, c: 0, cap: 0 }));
-  return r;
+const rateOf = (taken: number, n: number): Rate => {
+  const w = wilson95(taken, n);
+  return { taken, rate: n > 0 ? pct1(taken / n) : 0, low: pct1(w.low), high: pct1(w.high) };
 };
 
-function reportOf(
-  tally: Tally,
-  rows: readonly string[]
-): Record<PersonaBehaviour, BehaviourReport> {
-  return Object.fromEntries(
-    PERSONA_BEHAVIOURS.map((b) => [
-      b,
-      Object.fromEntries(
-        rows
-          .filter((k) => b === 'fourBetReshove' || !(k.endsWith('bb') || k === 'other'))
-          .map((k) => {
-            const r = tally[b].get(k) ?? { e: 0, t: 0, c: 0, cap: 0 };
-            const w = wilson95(r.t, r.e);
-            return [
-              k,
-              {
-                eligible: r.e,
-                taken: r.t,
-                rate: r.e > 0 ? pct1(r.t / r.e) : 0,
-                low: pct1(w.low),
-                high: pct1(w.high),
-                changed: r.c,
-                capped: r.cap,
-              },
-            ];
-          })
-      ),
-    ])
-  ) as Record<PersonaBehaviour, BehaviourReport>;
+/** One row of the paired table: the same spots decided off and on. */
+export interface PairedCell {
+  /** Spots where the option-on look reached the persona comparison. */
+  eligible: number;
+  /** Final action taken, option off and option on. */
+  off: Rate;
+  on: Rate;
+  /** On took it and off did not; off took it and on did not. */
+  up: number;
+  down: number;
+  /** On minus off in percentage points, with a 95% paired (Wald) interval. */
+  diff: number;
+  diffLow: number;
+  diffHigh: number;
+  /** The comparison itself, before the fold-equity test and later layers. */
+  verdictOff: number;
+  verdictOn: number;
+  /** min(1, p * scale) held at 1; the scale held at 1 by a style read. */
+  capped: number;
+  held: number;
+  /** Expected rates from p: off = mean p, on = mean min(1, p * this Horse's
+   *  scale), model = mean E[min(1, p * s)] over the 25/20/40/15 model. Percent. */
+  expectedOff: number;
+  expectedOn: number;
+  expectedOnModel: number;
+}
+/** One row of the unpaired table: two separate runs. */
+export interface UnpairedCell {
+  onEligible: number;
+  on: Rate;
+  onVerdict: number;
+  offEligible: number;
+  off: Rate;
+}
+
+type Raw = {
+  n: number;
+  off: number;
+  on: number;
+  up: number;
+  down: number;
+  vOff: number;
+  vOn: number;
+  cap: number;
+  held: number;
+  eOff: number;
+  eOn: number;
+  eModel: number;
+};
+type RawU = { n: number; t: number; v: number };
+const raw = (): Raw => ({
+  n: 0,
+  off: 0,
+  on: 0,
+  up: 0,
+  down: 0,
+  vOff: 0,
+  vOn: 0,
+  cap: 0,
+  held: 0,
+  eOff: 0,
+  eOn: 0,
+  eModel: 0,
+});
+const get = <T>(m: Map<string, T>, k: string, make: () => T): T => {
+  let v = m.get(k);
+  if (!v) m.set(k, (v = make()));
+  return v;
+};
+
+const pairedCell = (r: Raw): PairedCell => {
+  const n = r.n;
+  const d = n > 0 ? (r.up - r.down) / n : 0;
+  const se = n > 0 ? Math.sqrt(Math.max(0, r.up + r.down - (r.up - r.down) ** 2 / n)) / n : 0;
+  return {
+    eligible: n,
+    off: rateOf(r.off, n),
+    on: rateOf(r.on, n),
+    up: r.up,
+    down: r.down,
+    diff: pct2(d),
+    diffLow: pct2(d - 1.959963984540054 * se),
+    diffHigh: pct2(d + 1.959963984540054 * se),
+    verdictOff: r.vOff,
+    verdictOn: r.vOn,
+    capped: r.cap,
+    held: r.held,
+    expectedOff: n > 0 ? pct2(r.eOff / n) : 0,
+    expectedOn: n > 0 ? pct2(r.eOn / n) : 0,
+    expectedOnModel: n > 0 ? pct2(r.eModel / n) : 0,
+  };
+};
+
+export interface PersonaReRaiseReport {
+  seats: number;
+  mode: ProbeMode;
+  depthBB: number | readonly [number, number];
+  /** Ids seated (whole tables only), and their archetypes. */
+  ids: number;
+  archetypeIds: Record<HorseHoldemArchetype, number>;
+  tables: number;
+  hands: number;
+  seed: number;
+  /** Each hand carried a table id and hand number (as live decisions do). */
+  handIdentity: boolean;
+  /** Mean of the scale over the ids seated. */
+  meanScale: number;
+  /** Scale range of each decile of the ids seated (decile 1 the tightest). */
+  deciles: { decile: number; ids: number; low: number; high: number }[];
+  /** The model's E[min(1, scale)], percent: the reshove bluff's expected rate. */
+  modelMin1: number;
+  oneSidedP: number;
+  /** Rows: 'pooled', an archetype, 'decile N', a stack bucket (reshove), and
+   *  for the 3-bet and squeeze bluffs 'one-sided' and 'one-sided <archetype>'
+   *  (spots with p above oneSidedP) and 'p>=1'. */
+  paired: Record<PersonaBehaviour, Record<string, PairedCell>>;
+  unpaired: Record<PersonaBehaviour, Record<string, UnpairedCell>>;
+  /** Paired: what a bluff class that shoved with the option off did with it on. */
+  reshoveInstead: Record<string, number>;
 }
 
 export interface MeasureOptions {
@@ -559,10 +273,11 @@ export interface MeasureOptions {
   seed?: number;
   /** The ids to seat, in table order. Default: syntheticFleet(). */
   ids?: readonly string[];
+  /** Give every hand a table id and hand number, as the live worker does
+   *  (default true). False measures the direct/offline fallback, where the
+   *  persona's unit is public state and cards alone. */
+  handIdentity?: boolean;
 }
-
-const ON: ProbeArm = { opts: { holdemPersonaReRaiseMix: true }, telemetry: true };
-const OFF: ProbeArm = { opts: {}, telemetry: true };
 
 /**
  * The measurement. Every table plays every seat rotation; the option-on run
@@ -574,21 +289,21 @@ export function measurePersonaReRaise(o: MeasureOptions = {}): PersonaReRaiseRep
   const depthBB = o.depthBB ?? (mode === 'cash' ? 100 : ([20, 40] as const));
   const handsPerRotation = o.handsPerRotation ?? 700;
   const seed = o.seed ?? 20261114;
-  const ids = o.ids ?? syntheticFleet();
-  const tables = Math.floor(ids.length / seats);
+  const handIdentity = o.handIdentity !== false;
+  const tables = Math.floor((o.ids ?? syntheticFleet()).length / seats);
+  const ids = (o.ids ?? syntheticFleet()).slice(0, tables * seats);
   const archetypeOf = new Map(ids.map((id) => [id, holdemPersonaFor(id).archetype]));
   const scaleOf = new Map(ids.map((id) => [id, holdemPersonaReRaiseScale(id)]));
   const archetypeIds = Object.fromEntries(
     PROBE_ARCHETYPES.map((a) => [a, ids.filter((id) => archetypeOf.get(id) === a).length])
   ) as Record<HorseHoldemArchetype, number>;
-  // Deciles of the ids used, by scale (ties broken by id order).
+  // Deciles of the ids seated, by scale (ties broken by id order).
   const ranked = ids
     .map((id, i) => ({ id, i, s: scaleOf.get(id)! }))
     .sort((x, y) => x.s - y.s || x.i - y.i);
   const decileOf = new Map(
     ranked.map((x, rank) => [x.id, Math.min(10, 1 + Math.floor((rank * 10) / ranked.length))])
   );
-  const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
   const deciles = Array.from({ length: 10 }, (_, d) => {
     const xs = ranked.filter((x) => decileOf.get(x.id) === d + 1).map((x) => x.s);
     return {
@@ -596,80 +311,137 @@ export function measurePersonaReRaise(o: MeasureOptions = {}): PersonaReRaiseRep
       ids: xs.length,
       low: Math.round(Math.min(...xs) * 1000) / 1000,
       high: Math.round(Math.max(...xs) * 1000) / 1000,
-      meanMin1: pct1(mean(xs.map((s) => Math.min(1, s)))),
     };
   });
-  const min1 = (keep: (id: string) => boolean) =>
-    pct1(mean(ids.filter(keep).map((id) => Math.min(1, scaleOf.get(id)!))));
-  const fleetMin1 = {
-    pooled: min1(() => true),
-    ...Object.fromEntries(
-      PROBE_ARCHETYPES.map((a) => [a, min1((id) => archetypeOf.get(id) === a)])
-    ),
-  } as { pooled: number } & Record<HorseHoldemArchetype, number>;
-  const rows = [
-    'pooled',
-    ...PROBE_ARCHETYPES,
-    ...deciles.map((d) => `decile ${d.decile}`),
-    ...RESHOVE_STACK_BUCKETS.map(([lo, hi]) => `${lo}-${hi}bb`),
-  ];
+
+  const paired: Record<PersonaBehaviour, Map<string, Raw>> = {
+    threeBetBluff: new Map(),
+    squeezeBluff: new Map(),
+    fourBetReshove: new Map(),
+  };
+  const unOn: Record<PersonaBehaviour, Map<string, RawU>> = {
+    threeBetBluff: new Map(),
+    squeezeBluff: new Map(),
+    fourBetReshove: new Map(),
+  };
+  const unOff: Record<PersonaBehaviour, Map<string, RawU>> = {
+    threeBetBluff: new Map(),
+    squeezeBluff: new Map(),
+    fourBetReshove: new Map(),
+  };
   const reshoveInstead: Record<string, number> = {};
+
+  // The engine's offline tap: the events of the option-on decision in flight.
+  let events: HoldemPersonaReRaiseTapEvent[] = [];
+  let onEvents: HoldemPersonaReRaiseTapEvent[] = [];
+  const tapped: ProbeArm['around'] = (decide) => {
+    events = [];
+    const out = decide();
+    onEvents = events;
+    return out;
+  };
+
   let hands = 0;
-  const run = (arm: 'on' | 'off'): Tally => {
-    const tally = emptyTally();
+  const run = (arm: 'on' | 'off'): void => {
     const r = probeRng(seed + seats * 7919);
     seedFastRandom((seed + seats * 104729) >>> 0);
     hands = 0;
     for (let t = 0; t < tables; t++) {
       const seated = ids.slice(t * seats, (t + 1) * seats);
+      const tableId = syntheticHorseId(700000000 + t);
       for (let rot = 0; rot < seats; rot++) {
         const rotated = seated.map((_, i) => seated[(i + rot) % seats]);
         const table: ProbeTable = { variant: 'nlh', mode, ids: rotated, depthBB };
         for (let h = 0; h < handsPerRotation; h++) {
           hands++;
-          playProbeHand(table, r, arm === 'on' ? [ON] : [OFF, ON], (spot) => {
-            // Off: the second look (option on, same stream position) says
-            // whether the off decision reached the comparison.
-            const look = arm === 'on' ? spot.reads[0] : spot.reads[1];
-            const real = spot.reads[0];
-            for (const b of PERSONA_BEHAVIOURS) {
-              if (!look.fires.includes(KEY[b].eligible)) continue;
-              const reshove = b === 'fourBetReshove';
-              const taken = reshove
-                ? arm === 'on'
-                  ? !real.fires.includes(KEY[b].changed)
-                  : real.action === 'all_in'
-                : real.bluffBranch;
-              const groups = [
-                'pooled',
-                archetypeOf.get(spot.heroId)!,
-                `decile ${decileOf.get(spot.heroId)}`,
-                ...(reshove ? [stackBucketOf(spot.effectiveBB)] : []),
-              ];
-              for (const g of groups) {
-                const cell = rawOf(tally[b], g);
-                cell.e++;
-                if (taken) cell.t++;
-                if (arm === 'on' && real.fires.includes(KEY[b].changed)) cell.c++;
-                if (arm === 'on' && KEY[b].capped && real.fires.includes(KEY[b].capped!))
-                  cell.cap++;
+          const base = handIdentity
+            ? {
+                mindPlanContext: {
+                  version: 1,
+                  hand: { version: 1, tableId, handNumber: 1000000 + hands },
+                },
               }
-              if (reshove && arm === 'on' && !taken)
-                reshoveInstead[real.action] = (reshoveInstead[real.action] ?? 0) + 1;
+            : {};
+          const ON: ProbeArm = {
+            opts: { ...base, holdemPersonaReRaiseMix: true },
+            around: tapped,
+          };
+          const OFF: ProbeArm = { opts: base };
+          playProbeHand(table, r, arm === 'on' ? [ON] : [OFF, ON], (spot) => {
+            const ev = onEvents[0];
+            onEvents = [];
+            if (!ev) return;
+            const b = BEHAVIOUR_OF[ev.kind];
+            const reshove = b === 'fourBetReshove';
+            const archetype = archetypeOf.get(spot.heroId)!;
+            const groups = [
+              'pooled',
+              archetype,
+              `decile ${decileOf.get(spot.heroId)}`,
+              ...(reshove ? [stackBucketOf(spot.effectiveBB)] : []),
+              ...(!reshove && ev.p > ONE_SIDED_P ? ['one-sided', `one-sided ${archetype}`] : []),
+              ...(!reshove && ev.p >= 1 ? ['p>=1'] : []),
+            ];
+            if (arm === 'on') {
+              const real = spot.reads[0];
+              for (const g of groups) {
+                const c = get(unOn[b], g, () => ({ n: 0, t: 0, v: 0 }));
+                c.n++;
+                if (personaTaken(b, real)) c.t++;
+                if (ev.fires) c.v++;
+              }
+              return;
             }
+            // Off run: reads[0] is the off decision, reads[1] the on look
+            // from the same stream position.
+            const [off, on] = spot.reads;
+            const tOff = personaTaken(b, off);
+            const tOn = personaTaken(b, on);
+            for (const g of groups) {
+              const u = get(unOff[b], g, () => ({ n: 0, t: 0, v: 0 }));
+              u.n++;
+              if (tOff) u.t++;
+              const c = get(paired[b], g, raw);
+              c.n++;
+              if (tOff) c.off++;
+              if (tOn) c.on++;
+              if (tOn && !tOff) c.up++;
+              if (tOff && !tOn) c.down++;
+              if (ev.unscaled) c.vOff++;
+              if (ev.fires) c.vOn++;
+              if (!reshove && ev.p * ev.scaleUsed > 1) c.cap++;
+              if (ev.scaleUsed !== ev.scale) c.held++;
+              c.eOff += Math.min(1, ev.p);
+              c.eOn += Math.min(1, ev.p * ev.scaleUsed);
+              c.eModel += modelOn(ev.p);
+            }
+            if (reshove && tOff && !tOn)
+              reshoveInstead[on.action] = (reshoveInstead[on.action] ?? 0) + 1;
           });
         }
       }
     }
-    return tally;
   };
-  const onTally = run('on');
-  const offTally = run('off');
-  const extra = [...onTally.fourBetReshove.keys(), ...offTally.fourBetReshove.keys()].includes(
-    'other'
-  )
-    ? ['other']
-    : [];
+  setHoldemPersonaReRaiseTap((e) => events.push(e));
+  try {
+    run('on');
+    run('off');
+  } finally {
+    setHoldemPersonaReRaiseTap(null);
+  }
+
+  const rowsFor = (b: PersonaBehaviour): string[] => [
+    'pooled',
+    ...PROBE_ARCHETYPES,
+    ...deciles.map((d) => `decile ${d.decile}`),
+    ...(b === 'fourBetReshove'
+      ? [
+          ...RESHOVE_STACK_BUCKETS.map(([lo, hi]) => `${lo}-${hi}bb`),
+          ...(paired[b].has('other') || unOn[b].has('other') ? ['other'] : []),
+        ]
+      : ['one-sided', ...PROBE_ARCHETYPES.map((a) => `one-sided ${a}`), 'p>=1']),
+  ];
+  const mean = (xs: number[]) => (xs.length ? xs.reduce((a, c) => a + c, 0) / xs.length : 0);
   return {
     seats,
     mode,
@@ -679,12 +451,38 @@ export function measurePersonaReRaise(o: MeasureOptions = {}): PersonaReRaiseRep
     tables,
     hands,
     seed,
+    handIdentity,
     meanScale: Math.round(mean([...scaleOf.values()]) * 100000) / 100000,
     deciles,
-    modelMin1: modelExpectedMin1(),
-    fleetMin1,
-    on: reportOf(onTally, [...rows, ...extra]),
-    off: reportOf(offTally, [...rows, ...extra]),
+    modelMin1: pct1(modelOn(1)),
+    oneSidedP: Math.round(ONE_SIDED_P * 10000) / 10000,
+    paired: Object.fromEntries(
+      PERSONA_BEHAVIOURS.map((b) => [
+        b,
+        Object.fromEntries(rowsFor(b).map((k) => [k, pairedCell(paired[b].get(k) ?? raw())])),
+      ])
+    ) as PersonaReRaiseReport['paired'],
+    unpaired: Object.fromEntries(
+      PERSONA_BEHAVIOURS.map((b) => [
+        b,
+        Object.fromEntries(
+          rowsFor(b).map((k) => {
+            const on = unOn[b].get(k) ?? { n: 0, t: 0, v: 0 };
+            const off = unOff[b].get(k) ?? { n: 0, t: 0, v: 0 };
+            return [
+              k,
+              {
+                onEligible: on.n,
+                on: rateOf(on.t, on.n),
+                onVerdict: on.v,
+                offEligible: off.n,
+                off: rateOf(off.t, off.n),
+              },
+            ];
+          })
+        ),
+      ])
+    ) as PersonaReRaiseReport['unpaired'],
     reshoveInstead,
   };
 }
@@ -700,39 +498,46 @@ export function formatPersonaReRaiseReport(rep: PersonaReRaiseReport): string {
   const lines: string[] = [];
   const depth = typeof rep.depthBB === 'number' ? `${rep.depthBB}bb` : `${rep.depthBB.join('-')}bb`;
   lines.push(
-    `${rep.seats}-handed ${rep.mode} ${depth}: ${rep.ids} ids (LAG ${rep.archetypeIds.lag_shark} / TAG ${rep.archetypeIds.tag_crusher} / Tricky ${rep.archetypeIds.tricky_trap} / Nit ${rep.archetypeIds.nit_hunter}), ${rep.tables} tables x ${rep.seats} rotations, ${rep.hands} hands per arm, seed ${rep.seed}, mean scale ${rep.meanScale}`
+    `${rep.seats}-handed ${rep.mode} ${depth}: ${rep.ids} ids (LAG ${rep.archetypeIds.lag_shark} / TAG ${rep.archetypeIds.tag_crusher} / Tricky ${rep.archetypeIds.tricky_trap} / Nit ${rep.archetypeIds.nit_hunter}), ${rep.tables} tables x ${rep.seats} rotations, ${rep.hands} hands per arm, seed ${rep.seed}, mean scale ${rep.meanScale}, hand identity ${rep.handIdentity ? 'supplied' : 'absent (public-state fallback)'}`
   );
-  const cell = (c: RateCell | undefined) =>
-    c ? `${c.taken}/${c.eligible} = ${c.rate}% (${c.low} to ${c.high})` : '0/0';
+  const rate = (r: Rate, n: number) => `${r.taken}/${n} = ${r.rate}% (${r.low} to ${r.high})`;
+  const label = (row: string) => {
+    const d = row.startsWith('decile ') ? rep.deciles[Number(row.slice(7)) - 1] : undefined;
+    const name = d
+      ? `${row} (scale ${d.low}-${d.high})`
+      : row.startsWith('one-sided')
+        ? row.replace('one-sided', `p>${rep.oneSidedP}`)
+        : row;
+    return name.padEnd(30);
+  };
   for (const b of PERSONA_BEHAVIOURS) {
     lines.push(LABEL[b]);
-    const reshove = b === 'fourBetReshove';
-    for (const row of Object.keys(rep.on[b])) {
-      const on = rep.on[b][row];
-      const off = rep.off[b][row];
-      const d = row.startsWith('decile ') ? rep.deciles[Number(row.slice(7)) - 1] : undefined;
-      const expected =
-        reshove && row === 'pooled'
-          ? `  expected on: model ${rep.modelMin1.pooled}%, these ids ${rep.fleetMin1.pooled}%`
-          : reshove && row in rep.modelMin1
-            ? `  expected on: model ${rep.modelMin1[row as HorseHoldemArchetype]}%, these ids ${rep.fleetMin1[row as HorseHoldemArchetype]}%`
-            : reshove && d
-              ? `  expected on: these ids ${d.meanMin1}%`
-              : '';
+    lines.push(
+      '  PAIRED (same spot, same draws): off taken | on taken | up / down | on minus off, points (95%) | persona verdict off / on | capped | held by style | expected off / on / on under the model'
+    );
+    for (const [row, c] of Object.entries(rep.paired[b]))
       lines.push(
-        `  ${(d ? `${row} (scale ${d.low}-${d.high})` : row).padEnd(30)} on ${cell(on)}` +
-          (reshove ? '' : ` capped ${on.capped}`) +
-          ` changed ${on.changed}  | off ${cell(off)}${expected}`
+        `  ${label(row)} off ${rate(c.off, c.eligible)} | on ${rate(c.on, c.eligible)} | up ${c.up} down ${c.down} | ${c.diff} (${c.diffLow} to ${c.diffHigh}) | verdict ${c.verdictOff} / ${c.verdictOn} | capped ${c.capped} | held ${c.held} | expected ${c.expectedOff}% / ${c.expectedOn}% / ${c.expectedOnModel}%`
+      );
+    if (b === 'fourBetReshove') {
+      lines.push(
+        `  expected on rate, share of today's bluff reshoves: model E[min(1, scale)] = ${rep.modelMin1}%`
+      );
+      lines.push(
+        `  a bluff class that shoved off and did not shove on did instead: ${JSON.stringify(rep.reshoveInstead)}`
+      );
+    } else {
+      const o = rep.paired[b]['one-sided'];
+      lines.push(
+        `  one-sided region (p > ${rep.oneSidedP}): ${o.eligible} of ${rep.paired[b].pooled.eligible} eligible spots; expected loss there ${Math.round((o.expectedOff - o.expectedOn) * 100) / 100} points for these Horses (${Math.round((o.expectedOff - o.expectedOnModel) * 100) / 100} under the model); measured verdict ${o.verdictOff} off, ${o.verdictOn} on; measured final ${o.diff} points (${o.diffLow} to ${o.diffHigh})`
       );
     }
-    const on = rep.on[b].pooled;
-    const off = rep.off[b].pooled;
     lines.push(
-      `  pooled: option-off rate ${off.rate}% is ${off.rate >= on.low && off.rate <= on.high ? 'INSIDE' : 'OUTSIDE'} the option-on interval ${on.low} to ${on.high}`
+      '  UNPAIRED (two separate runs; streams part at the first changed decision): on taken | on persona verdict | off taken'
     );
-    if (reshove)
+    for (const [row, c] of Object.entries(rep.unpaired[b]))
       lines.push(
-        `  a bluff class that did not reshove did instead: ${JSON.stringify(rep.reshoveInstead)}`
+        `  ${label(row)} on ${rate(c.on, c.onEligible)} | verdict ${c.onVerdict} | off ${rate(c.off, c.offEligible)}`
       );
   }
   return lines.join('\n');

@@ -1277,7 +1277,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'holdemPersonaReRaiseMix',
-    "2026-11-14 default OFF (D3 option C, owner ruling 2026-11-13: persona-specific 3-bets, squeezes and shallow four-bet reshoves, rollout gated): two-card no-limit hold'em only, cash and tournament, a Horse with an id; the 3-bet bluff (facing one open) and the squeeze bluff (the V7 squeeze site, and on hold'em cash the chart 3-bet-bluff block when there are callers) still consume their random draw at the same place and discard it, and fire when the Horse's zero-draw unit (hash of Horse id, public hand state, exact hole cards, seat, dealer seat, a salt per behaviour) is below min(1, p * scale), scale = the Hold'em persona's nlh3BetMix / 0.42143 (the id-hash model mean; 0.52 to 1.52); at 26-35bb facing a 3-bet the four-bet reshove's bluff classes A5s-A2s shove when their unit is below min(1, scale) and otherwise take the ordinary 4-bet / call / fold read, a DECLARED reduction of that bluff shove (no fringe set is added); value 3-bets, value squeezes, value reshoves, Omaha, short deck, pot limit, fixed limit, hi-lo, pineapple and All-In-Or-Fold do not read it; the engine state carries no hand number, so the unit's hand identity is public state plus cards; a preflop range change, not to be enabled while the range hold stands; no league evidence yet; enabling it is a separate owner decision; docs/changelog/2026-11-14-holdem-persona-reaches-re-raise-bluffs.md",
+    "2026-11-14 default OFF (D3 option C, owner ruling 2026-11-13: persona-specific 3-bets, squeezes and shallow four-bet reshoves, rollout gated): two-card no-limit hold'em only, cash and tournament, a Horse with an id; the 3-bet bluff (facing one open) and the squeeze bluff (the V7 squeeze site, and on hold'em cash the chart 3-bet-bluff block when there are callers) still consume their random draw at the same place and discard it, and fire when the Horse's zero-draw unit (hash of Horse id, hand identity, exact hole cards, a salt per behaviour) is below min(1, p * scale), scale = the Hold'em persona's nlh3BetMix / 0.42143 (the id-hash model mean; 0.52 to 1.52); at 26-35bb facing a 3-bet the four-bet reshove's bluff classes A5s-A2s shove when their unit is below min(1, scale) and otherwise take the ordinary 4-bet / call / fold read, a DECLARED reduction of that bluff shove (no fringe set is added); value 3-bets, value squeezes, value reshoves, Omaha, short deck, pot limit, fixed limit, hi-lo, pineapple and All-In-Or-Fold do not read it; the unit is deterministic per hand: Horse id, the hand (table id and hand number from opts.mindPlanContext.hand), exact hole cards and the behaviour's salt, with no seat, stack or pot; the live worker derives the hand from the decision snapshot's fence for the fast decision and the deep second look alike, a retry carries the same table and hand, and exact replay feeds the journaled snapshot through the same worker runtime, so it derives the same value (opts.mindObservationHand is not used: the deep look is not given it); the league card and the probe supply a hand; a caller that supplies none gets a named FALLBACK keyed on mutable public state (seat, dealer, stack, pot), which is not per hand and is counted by holdem_persona_hand_identity_fallback_seen; against an opener or re-raiser the style read respects as tight (ctx.exploitOpener narrow with maxBarMove, ctx.styleTightReRaiser; applied arms only, never shadow) the scale is held at min(1, scale); the 3-bet and squeeze bluffs lose frequency where min(1, p * scale) binds AND wherever p is above 1 / 1.519 (about 0.66), where a Horse above the average cannot go past 1 while one below still goes down; All-In-Or-Fold hold'em receives the context field but no site reads it; a preflop range change, not to be enabled while the range hold stands; no league evidence yet; enabling it is a separate owner decision; docs/changelog/2026-11-14-holdem-persona-reaches-re-raise-bluffs.md",
     'PersonaReRaise'
   ),
   flag(
@@ -4821,13 +4821,25 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'holdem_persona_3bet_bluff_capped_seen',
     'HorsePreflop via HorseLogic (holdemPersonaReRaiseMix)',
-    'default-off holdemPersonaReRaiseMix: a 3-bet bluff comparison whose probability times the Horse scale passed 1 and was held at 1, the only place the scaled bluff can lose frequency; named *_seen',
+    'default-off holdemPersonaReRaiseMix: a 3-bet bluff comparison whose probability times the Horse scale passed 1 and was held at 1; this counts the capped Horse only, not the frequency a below-average Horse loses at the same high probability (the probe measures that); named *_seen',
     'PersonaReRaise'
   ),
   receipt(
     'holdem_persona_squeeze_bluff_capped_seen',
     'HorsePreflop via HorseLogic (holdemPersonaReRaiseMix)',
     'default-off holdemPersonaReRaiseMix: a squeeze bluff comparison whose probability times the Horse scale passed 1 and was held at 1; named *_seen',
+    'PersonaReRaise'
+  ),
+  receipt(
+    'holdem_persona_scale_held_by_style_seen',
+    'HorsePreflop via HorseLogic (holdemPersonaReRaiseMix)',
+    'default-off holdemPersonaReRaiseMix: a Horse with a scale above 1 met a persona comparison against an opener or re-raiser the style read respects as tight, and its scale was held at 1 (the persona may lower a bluff there, never raise it); named *_seen',
+    'PersonaReRaise'
+  ),
+  receipt(
+    'holdem_persona_hand_identity_fallback_seen',
+    'HorseLogic (holdemPersonaReRaiseMix)',
+    'default-off holdemPersonaReRaiseMix: the persona field was built for a decision whose caller supplied no hand (no opts.mindPlanContext.hand: table id and allocated hand number), so its units came from the public-state fallback, which is not deterministic per hand; expected to be zero on the live worker path and in the league card and the probe; named *_seen',
     'PersonaReRaise'
   ),
   receipt(
