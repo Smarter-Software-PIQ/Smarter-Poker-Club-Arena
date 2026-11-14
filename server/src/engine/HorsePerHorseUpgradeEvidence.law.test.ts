@@ -317,10 +317,11 @@ async function world(scope: 'collecting' | 'pass-through', foldThrows = false) {
     const built = JSON.parse(sent) as ReturnType<typeof request>;
     if (options.prewarm) {
       // The street prewarm the host posts when the flop is dealt (ServerTableEngineHandEvents): the
-      // table, the street and the board. It is counted here, before the decision and outside its scope.
+      // bare table id (not a decision fence), the street and the board. It is counted here, before
+      // the decision and outside its scope.
       worker.receive({
         type: 'PREWARM_STREET',
-        fence: built.fence,
+        fence: built.fence.slice(0, built.fence.indexOf(':')),
         street: 'flop',
         board: built.gameState.communityCards,
         variant: built.gameState.gameVariant,
@@ -442,8 +443,9 @@ describe('LAW: the decision worker records which Horse exercised which upgrade, 
   it('a decision that uses a prewarmed street is upgrade 05 invoked, and one that finds none is not', async () => {
     // Upgrade 05 through the real worker: PREWARM_STREET for the table and flop, then that flop's
     // decision. The hit is a watchcounter counted inside the decision, so it is that decision's
-    // evidence; the posting itself (counted when the prewarm ran) is not. If the prewarm key and the
-    // decision key ever stop matching again (the 2026-11-13 defect), the second row returns to [1, 0].
+    // evidence; the posting itself (counted when the prewarm ran) is not. The prewarm carries the bare
+    // table id as the host sends it, so if either side stops keying by the table (the 2026-11-13
+    // defect keyed the decision by its whole fence), the second row returns to [1, 0].
     const cold = await live!.decide('nlh', 'cash', 7);
     const warm = await live!.decide('nlh', 'cash', 8, { prewarm: true });
     fastResult(cold.answers);
