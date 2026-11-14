@@ -15,15 +15,19 @@
 -- In a game of several tables, alone at one table is not alone in the game.
 --
 -- THE DOOR. The engine asks this function before that waiver. It answers:
---   keep = true while a COMPATIBLE table of the same game deals: same cash game
---     (one club, variant and stakes, one rule set), same club_id, variant, small
---     and big blind on the table rows themselves, live, not breaking or closed,
---     with at least two players in, funded and not leaving. Only a game that
+--   keep = true while the seat is on a FEEDER and a COMPATIBLE live Main of the
+--     same game deals: same cash game (one club, variant and stakes, one rule
+--     set), same club_id, variant, small and big blind on the table rows
+--     themselves, with at least two players in, funded and not leaving. That is
+--     the move the must-move planner makes (feeder player to an open Main chair);
+--     a seat on a Main keeps the per-table rule ('not_on_feeder'). Only a game that
 --     moves its players qualifies (must_move, cluster_mode 'must_move', and not
 --     a Classic game: Dan 2026-10-24, "PLAYERS SHOULD NOT BE MOVING ON CLASSIC
 --     GAMES PERIOD"). A Classic game keeps the per-table rule.
 --     A pending voluntary request for this exact occupancy is withdrawn and the
---     seat stops sitting out and pending, with the session marked blinded off.
+--     seat stops pending (it stays sat out: at a must-move table the sit-out is
+--     the blind off, and the executor carries it), with the session marked
+--     blinded off.
 --     The game's own must-move planner then moves the seat to an open chair
 --     through fn_cash_seat_move_execute, the maintained path: the stack moves
 --     with the seat, the source seat is vacated in the same transaction (one
@@ -38,7 +42,8 @@
 -- THE WAIT BOUND. The clock starts at this occupancy's FIRST keep answer (the
 -- first row in ca_owed_leave_decisions with keep = true), not at the leave
 -- request, and is not reset by later answers. Two limits:
---   - while every compatible dealing table is FULL, 10 minutes. A move needs an
+--   - while every compatible dealing Main is FULL (every chair held by a seat,
+--     dealt, sitting out or leaving), 10 minutes. A move needs an
 --     open chair; with none, the seat would sit alone, blinded off, with no
 --     hand to play and no way out. Ten minutes is about the time the room
 --     takes to open a chair under normal turnover. A player cannot shorten it:
@@ -58,8 +63,9 @@
 --   - the compatible destination it saw (with an open chair or not);
 --   - keep, returned, the reason and the hands owed.
 -- No names, no stacks, no IP or device data. Row-level security is on with no
--- policies, and only service_role may read or insert, so players and
--- operators reach it only through the engine. There are no foreign keys to hot
+-- policies; service_role may only READ it (the SECURITY DEFINER function is the
+-- sole writer, so nobody can backdate the wait clock). One row per change of
+-- answer, or one a minute while it repeats. There are no foreign keys to hot
 -- tables (CLAUDE.md DDL rule 7).
 --
 -- Additive: no existing function changes. An engine without the caller, or a
@@ -87,8 +93,7 @@ CREATE TABLE public.ca_owed_leave_decisions (
 CREATE INDEX ca_owed_leave_decisions_occupancy ON public.ca_owed_leave_decisions (occupancy_id, occurred_at);
 ALTER TABLE public.ca_owed_leave_decisions ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.ca_owed_leave_decisions FROM PUBLIC, anon, authenticated;
-GRANT SELECT, INSERT ON public.ca_owed_leave_decisions TO service_role;
-GRANT USAGE ON SEQUENCE public.ca_owed_leave_decisions_id_seq TO service_role;
+GRANT SELECT ON public.ca_owed_leave_decisions TO service_role;
 
 CREATE FUNCTION public.fn_owed_leave_plays_on_in_game(
   p_user_id uuid, p_table_id uuid, p_seat_number integer, p_occupancy_id uuid)
@@ -120,7 +125,7 @@ BEGIN
     RETURN jsonb_build_object('keep', true, 'returned', false, 'reason', 'platform_frozen');
   END IF;
 
-  SELECT ts.id, ts.leave_pending, ts.is_sitting_out, tb.cluster_id, tb.club_id,
+  SELECT ts.id, ts.leave_pending, ts.is_sitting_out, tb.cluster_id, tb.club_id, tb.role,
          tb.game_variant, tb.small_blind, tb.big_blind
     INTO v_seat
     FROM public.table_seats ts
@@ -146,19 +151,24 @@ BEGIN
     INTO v_game
     FROM public.cash_games g WHERE g.id = v_seat.cluster_id;
 
-  -- A compatible table of the same game that deals; an open chair first.
+  -- A compatible LIVE MAIN of the same game that deals; an open chair first.
+  -- The must-move planner fills open Main chairs from feeder players, so that
+  -- is the move this seat can actually get. A chair is open only when no seat
+  -- (dealt, sitting out or leaving) holds it.
   SELECT x.table_id, x.open_chair INTO v_dest, v_open
     FROM (
-      SELECT t.id AS table_id, count(*) < coalesce(t.max_players, 9) AS open_chair
+      SELECT t.id AS table_id,
+             (SELECT count(*) FROM public.table_seats o
+               WHERE o.table_id = t.id AND o.left_at IS NULL) < coalesce(t.max_players, 9) AS open_chair
         FROM public.tables t
         JOIN public.table_seats s ON s.table_id = t.id
        WHERE t.cluster_id = v_seat.cluster_id AND t.id <> p_table_id
+         AND t.role = 'main' AND t.lifecycle = 'live'
          AND t.club_id IS NOT DISTINCT FROM v_seat.club_id
          AND t.game_variant IS NOT DISTINCT FROM v_seat.game_variant
          AND t.small_blind IS NOT DISTINCT FROM v_seat.small_blind
          AND t.big_blind IS NOT DISTINCT FROM v_seat.big_blind
          AND coalesce(t.is_deleted, false) = false
-         AND coalesce(t.lifecycle, '') NOT IN ('closed', 'breaking')
          AND s.left_at IS NULL AND coalesce(s.stack, 0) > 0
          AND coalesce(s.is_sitting_out, false) = false
          AND coalesce(s.leave_pending, false) = false
@@ -180,6 +190,8 @@ BEGIN
         OR v_game.cluster_mode IS DISTINCT FROM 'must_move'
         OR coalesce(v_game.never_moves, true) THEN
     v_reason := 'game_never_moves';
+  ELSIF v_seat.role IS DISTINCT FROM 'feeder' THEN
+    v_reason := 'not_on_feeder';
   ELSIF v_dest IS NULL THEN
     v_reason := 'nobody_in_game';
   ELSIF v_first IS NOT NULL AND NOT v_open AND now() - v_first > interval '10 minutes' THEN
@@ -188,15 +200,15 @@ BEGIN
     v_reason := 'not_moved';
   ELSE
     v_keep := true;
-    IF coalesce(v_seat.leave_pending, false) OR coalesce(v_seat.is_sitting_out, false) THEN
+    IF coalesce(v_seat.leave_pending, false) THEN
       DELETE FROM public.seat_departure_requests d
        WHERE d.occupancy_id = p_occupancy_id AND d.user_id = p_user_id
          AND d.table_id = p_table_id AND d.seat_number = p_seat_number
          AND d.leave_mode = 'voluntary';
+      -- Pending only: the sit-out IS the blind off at a must-move table, and
+      -- fn_cash_seat_move_execute carries it to the destination.
       UPDATE public.table_seats
-         SET leave_pending = false,
-             is_sitting_out = false,
-             status = 'active'
+         SET leave_pending = false
        WHERE id = v_seat.id;
       v_returned := true;
       v_reason := 'plays_on';
@@ -209,12 +221,21 @@ BEGIN
        AND closed_at IS NULL AND NOT hr_blind_off;
   END IF;
 
-  INSERT INTO public.ca_owed_leave_decisions
-    (user_id, table_id, occupancy_id, cluster_id, dest_table_id, dest_open_chair,
-     keep, returned, reason, hands_owed)
-  VALUES
-    (p_user_id, p_table_id, p_occupancy_id, v_seat.cluster_id, v_dest, v_open,
-     v_keep, v_returned, v_reason, v_owed);
+  -- One row per change of answer, or one a minute while it repeats.
+  IF NOT EXISTS (
+    SELECT 1 FROM public.ca_owed_leave_decisions d
+     WHERE d.occupancy_id = p_occupancy_id
+       AND d.id = (SELECT max(d2.id) FROM public.ca_owed_leave_decisions d2
+                    WHERE d2.occupancy_id = p_occupancy_id)
+       AND d.reason = v_reason AND d.keep = v_keep
+       AND d.occurred_at > now() - interval '1 minute') THEN
+    INSERT INTO public.ca_owed_leave_decisions
+      (user_id, table_id, occupancy_id, cluster_id, dest_table_id, dest_open_chair,
+       keep, returned, reason, hands_owed)
+    VALUES
+      (p_user_id, p_table_id, p_occupancy_id, v_seat.cluster_id, v_dest, v_open,
+       v_keep, v_returned, v_reason, v_owed);
+  END IF;
 
   RETURN jsonb_build_object('keep', v_keep, 'returned', v_returned, 'reason', v_reason,
     'hands_remaining', v_owed, 'cluster_id', v_seat.cluster_id, 'dest_table_id', v_dest,

@@ -1,8 +1,12 @@
 // 2026-11-14: an owed leave alone at its table plays on in its game
 // (migration 20261114160836). Throwaway PostgreSQL cluster built from the
 // lightning-blind-off fixture (installed production images, hash checked) with
-// 20261109224717 applied, as production has it. BEFORE this migration the
-// queued leave strands; AFTER it the owed hands are dealt and the leave completes.
+// 20261109224717 and 20261113225904 applied, as production has them. BEFORE the
+// migration there is no door, so the engine's only answer for a held leave alone
+// at its table is the per-table waiver; AFTER it the door's answers (keep while
+// a compatible Main deals, the bounds, the refusals, the record and its access)
+// are proved. The move itself is production's fn_cash_seat_move_execute and is
+// not simulated here; dealing the owed hands is the existing blind-off path.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -78,7 +82,7 @@ function build(db) {
   // Classic predicate is production's contract (template 'classic' never moves).
   query(
     db,
-    "ALTER TABLE tables ADD COLUMN game_variant text DEFAULT 'nlh', ADD COLUMN small_blind numeric DEFAULT 0.25, " +
+    "ALTER TABLE tables ADD COLUMN role text DEFAULT 'main', ADD COLUMN game_variant text DEFAULT 'nlh', ADD COLUMN small_blind numeric DEFAULT 0.25, " +
       'ADD COLUMN big_blind numeric DEFAULT 0.5, ADD COLUMN max_players integer DEFAULT 6; ' +
       "ALTER TABLE cash_games ADD COLUMN must_move boolean DEFAULT true, ADD COLUMN template_name text DEFAULT 'madness', " +
       "ADD COLUMN ruleset_snapshot jsonb DEFAULT '{}'::jsonb; " +

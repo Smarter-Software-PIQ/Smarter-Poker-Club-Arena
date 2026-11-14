@@ -1,7 +1,8 @@
 -- 2026-11-14: a held leave that owes hands, alone at its table, while its game
 -- deals at another table. Built on the lightning-blind-off fixture (installed
 -- production images plus 20261109224717 and 20261113225904). The game is a
--- Classic must-move game here: the hero alone at table T, five players at T2.
+-- must-move ('madness') game here: the hero alone on feeder T, five players on
+-- Main T2.
 -- Nothing reads horse identity.
 \set QUIET 1
 \pset tuples_only on
@@ -9,12 +10,12 @@
 SELECT set_config('test.mode', :'mode', false);
 
 CREATE FUNCTION sim.t2() RETURNS uuid LANGUAGE sql IMMUTABLE AS $$SELECT '30000000-0000-4000-8000-000000000002'::uuid$$;
-CREATE FUNCTION sim.classic_alone(p_hero_stack numeric DEFAULT 40) RETURNS void LANGUAGE plpgsql AS $$
+CREATE FUNCTION sim.alone_on_feeder(p_hero_stack numeric DEFAULT 40) RETURNS void LANGUAGE plpgsql AS $$
 BEGIN
   PERFORM sim.reset(p_hero_stack);
   UPDATE cash_games SET cluster_mode = 'must_move' WHERE id = sim.c();
   INSERT INTO tables(id, club_id, cluster_id) VALUES (sim.t2(), 'c0000000-0000-4000-8000-000000000001', sim.c());
-  UPDATE tables SET game_variant = 'nlh', small_blind = 0.25, big_blind = 0.5, max_players = 6 WHERE id = sim.t();
+  UPDATE tables SET role = 'feeder', game_variant = 'nlh', small_blind = 0.25, big_blind = 0.5, max_players = 6 WHERE id = sim.t();
   UPDATE table_seats SET table_id = sim.t2() WHERE user_id <> sim.h();
   UPDATE cash_player_session SET scope_id = sim.t2(), table_id = sim.t2() WHERE player_id <> sim.h();
 END$$;
@@ -42,10 +43,10 @@ CREATE FUNCTION sim.flags() RETURNS jsonb LANGUAGE sql AS $$
 \if :after
 TRUNCATE ca_owed_leave_decisions;
 -- Q1. The game deals at a compatible T2 with an open chair: the seat plays on.
-SELECT sim.classic_alone();
+SELECT sim.alone_on_feeder();
 SELECT sim.queue_leave();
 SELECT sim.ok(sim.ask() @> '{"keep":true,"returned":true,"reason":"plays_on","hands_remaining":7,"dest_table_id":"30000000-0000-4000-8000-000000000002","dest_open_chair":true}', 'Q1 answer');
-SELECT sim.ok(sim.flags() @> '{"leave_pending":false,"sitting_out":false,"status":"active","requests":0,"blind_off":true,"stack":40,"live":true}', 'Q1 seat: ' || sim.flags()::text);
+SELECT sim.ok(sim.flags() @> '{"leave_pending":false,"sitting_out":true,"requests":0,"blind_off":true,"stack":40,"live":true}', 'Q1 seat (pending withdrawn, still sat out as the blind off): ' || sim.flags()::text);
 SELECT sim.ok((fn_cash_leave_check(sim.h(), sim.t()) ->> 'hands_remaining')::int = 7, 'Q1 the obligation is untouched');
 SELECT sim.ok((SELECT row(user_id, table_id, cluster_id, dest_table_id, dest_open_chair, source, keep, returned, reason, hands_owed)::text
                  FROM ca_owed_leave_decisions ORDER BY id DESC LIMIT 1)
@@ -59,42 +60,49 @@ SELECT sim.ok(sim.ask() @> '{"keep":true,"reason":"awaiting_move"}', 'Q3 an open
 UPDATE ca_owed_leave_decisions SET occurred_at = occurred_at - interval '20 minutes';
 SELECT sim.ok(sim.ask() @> '{"keep":false,"reason":"not_moved"}', 'Q3 thirty minutes unmoved');
 -- Q4. Every compatible table full for ten minutes: the waiver stands.
-SELECT sim.classic_alone();
+SELECT sim.alone_on_feeder();
 SELECT sim.queue_leave();
 UPDATE tables SET max_players = 5 WHERE id = sim.t2();
-SELECT sim.ok(sim.ask() @> '{"keep":true,"dest_open_chair":false}', 'Q4 full table still kept at first');
+UPDATE table_seats SET is_sitting_out = true WHERE table_id = sim.t2() AND seat_number = 2;
+SELECT sim.ok(sim.ask() @> '{"keep":true,"dest_open_chair":false}', 'Q4 a chair held by a sitting-out seat is not open; kept at first');
 UPDATE ca_owed_leave_decisions SET occurred_at = occurred_at - interval '11 minutes' WHERE table_id = sim.t() AND occupancy_id = (SELECT occupancy_id FROM table_seats WHERE user_id = sim.h() AND left_at IS NULL);
 SELECT sim.ok(sim.ask() @> '{"keep":false,"reason":"compatible_full"}', 'Q4 full for ten minutes');
 -- Q5. No compatible dealing table: other stakes, other variant, another club, one player, breaking.
-SELECT sim.classic_alone(); SELECT sim.queue_leave();
+SELECT sim.alone_on_feeder(); SELECT sim.queue_leave();
 UPDATE tables SET big_blind = 1 WHERE id = sim.t2();
 SELECT sim.ok(sim.ask() @> '{"keep":false,"reason":"nobody_in_game"}', 'Q5 other stakes');
 SELECT sim.ok(sim.flags() @> '{"leave_pending":true,"sitting_out":true,"requests":1,"blind_off":false}', 'Q5 nothing written');
-SELECT sim.classic_alone(); SELECT sim.queue_leave();
+SELECT sim.alone_on_feeder(); SELECT sim.queue_leave();
 UPDATE tables SET game_variant = 'plo4' WHERE id = sim.t2();
 SELECT sim.ok(sim.ask() @> '{"keep":false,"reason":"nobody_in_game"}', 'Q5 other variant');
-SELECT sim.classic_alone(); SELECT sim.queue_leave();
+SELECT sim.alone_on_feeder(); SELECT sim.queue_leave();
 UPDATE tables SET club_id = gen_random_uuid() WHERE id = sim.t2();
 SELECT sim.ok(sim.ask() @> '{"keep":false,"reason":"nobody_in_game"}', 'Q5 another club');
-SELECT sim.classic_alone(); SELECT sim.queue_leave();
+SELECT sim.alone_on_feeder(); SELECT sim.queue_leave();
 UPDATE table_seats SET left_at = now() WHERE table_id = sim.t2() AND seat_number > 2;
 UPDATE table_seats SET is_sitting_out = true WHERE table_id = sim.t2() AND seat_number = 2;
 SELECT sim.ok(sim.ask() @> '{"keep":false,"reason":"nobody_in_game"}', 'Q5 one active player');
-SELECT sim.classic_alone(); SELECT sim.queue_leave();
+SELECT sim.alone_on_feeder(); SELECT sim.queue_leave();
 UPDATE tables SET lifecycle = 'breaking' WHERE id = sim.t2();
 SELECT sim.ok(sim.ask() @> '{"keep":false,"reason":"nobody_in_game"}', 'Q5 breaking');
+SELECT sim.alone_on_feeder(); SELECT sim.queue_leave();
+UPDATE tables SET role = 'main' WHERE id = sim.t();
+SELECT sim.ok(sim.ask() @> '{"keep":false,"reason":"not_on_feeder"}', 'Q5 a seat on a Main is never moved by the planner');
+SELECT sim.alone_on_feeder(); SELECT sim.queue_leave();
+UPDATE tables SET role = 'feeder' WHERE id = sim.t2();
+SELECT sim.ok(sim.ask() @> '{"keep":false,"reason":"nobody_in_game"}', 'Q5 another feeder is not a destination');
 -- Q6. A Classic game never moves players: the per-table rule stands.
-SELECT sim.classic_alone(); SELECT sim.queue_leave();
+SELECT sim.alone_on_feeder(); SELECT sim.queue_leave();
 UPDATE cash_games SET template_name = 'classic' WHERE id = sim.c();
 SELECT sim.ok(sim.ask() @> '{"keep":false,"reason":"game_never_moves"}', 'Q6 Classic');
 SELECT sim.ok(sim.flags() @> '{"leave_pending":true,"requests":1}', 'Q6 nothing written');
 -- Q7. An administrator's exit is never kept; nothing owed releases.
-SELECT sim.classic_alone(); SELECT sim.queue_leave('forced');
+SELECT sim.alone_on_feeder(); SELECT sim.queue_leave('forced');
 SELECT sim.ok(sim.ask() @> '{"keep":false,"reason":"forced"}', 'Q7 forced');
-SELECT sim.classic_alone(25); SELECT sim.queue_leave();
+SELECT sim.alone_on_feeder(25); SELECT sim.queue_leave();
 SELECT sim.ok(sim.ask() @> '{"keep":false,"reason":"not_owed"}', 'Q7 not owed');
 -- Q8. A seat held by the engine only (no request) is kept without a withdrawal.
-SELECT sim.classic_alone();
+SELECT sim.alone_on_feeder();
 SELECT sim.ok(sim.ask() @> '{"keep":true,"returned":false,"reason":"awaiting_move"}', 'Q8 kept');
 SELECT sim.ok(sim.flags() @> '{"blind_off":true,"requests":0}', 'Q8 blind off marked');
 -- Q9. Stale occupancy and the caller check.
@@ -110,20 +118,24 @@ DO $$ BEGIN
   EXCEPTION WHEN insufficient_privilege THEN NULL;
   END;
 END $$;
--- Q10. Every answer is on the record, and only the engine role may read it.
-SELECT sim.ok((SELECT count(*) FROM ca_owed_leave_decisions) = 15, 'Q10 decisions recorded: ' || (SELECT count(*) FROM ca_owed_leave_decisions));
+-- Q10. A repeated answer within a minute is recorded once; a changed answer is recorded.
+TRUNCATE ca_owed_leave_decisions;
+SELECT sim.alone_on_feeder(); SELECT sim.queue_leave();
+SELECT sim.ask(); SELECT sim.ask(); SELECT sim.ask();
+SELECT sim.ok((SELECT string_agg(reason, ',' ORDER BY id) FROM ca_owed_leave_decisions) = 'plays_on,awaiting_move', 'Q10 record: ' || (SELECT string_agg(reason, ',' ORDER BY id) FROM ca_owed_leave_decisions));
 SELECT sim.ok(NOT has_table_privilege('authenticated', 'public.ca_owed_leave_decisions', 'SELECT')
   AND NOT has_table_privilege('anon', 'public.ca_owed_leave_decisions', 'SELECT')
   AND has_table_privilege('service_role', 'public.ca_owed_leave_decisions', 'SELECT')
+  AND NOT has_table_privilege('service_role', 'public.ca_owed_leave_decisions', 'INSERT')
   AND NOT has_function_privilege('authenticated', 'public.fn_owed_leave_plays_on_in_game(uuid,uuid,integer,uuid)', 'EXECUTE')
   AND (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.ca_owed_leave_decisions'::regclass), 'Q10 access controls');
 SELECT 'Q2-Q10 PASS';
 \else
 SELECT sim.ok(to_regprocedure('public.fn_owed_leave_plays_on_in_game(uuid,uuid,integer,uuid)') IS NULL, 'before: no door');
-SELECT sim.classic_alone();
+SELECT sim.alone_on_feeder();
 SELECT sim.queue_leave();
 SELECT sim.ok((fn_cash_leave_check(sim.h(), sim.t()) ->> 'hands_remaining')::int = 7 AND (SELECT count(*) FROM table_seats WHERE table_id = sim.t2() AND left_at IS NULL) = 5,
   'before: 7 hands owed while the game seats five at T2');
-SELECT 'Q0 WAIVER REPRODUCED (alone at T, the game dealing at T2: the engine has only the per-table waiver)';
+SELECT 'Q0 WAIVER REPRODUCED (no door: alone on feeder T while Main T2 deals, the engine has only the per-table waiver)';
 \endif
 SELECT 'OWED_LEAVE_PLAYS_ON_POSTGRES_PASS ' || :'mode';

@@ -34,7 +34,10 @@ describe('the door', () => {
   });
   it('keeps only while another live table of the same game has two players in', () => {
     expect(sql).toContain('WHERE t.cluster_id = v_seat.cluster_id AND t.id <> p_table_id');
-    expect(sql).toContain("coalesce(t.lifecycle, '') NOT IN ('closed', 'breaking')");
+    expect(sql).toContain("AND t.role = 'main' AND t.lifecycle = 'live'");
+    expect(sql).toContain(
+      "ELSIF v_seat.role IS DISTINCT FROM 'feeder' THEN v_reason := 'not_on_feeder';"
+    );
     expect(sql).toContain('HAVING count(*) >= 2');
     expect(sql).toContain("v_reason := 'nobody_in_game';");
   });
@@ -58,6 +61,12 @@ describe('the door', () => {
     expect(sql).toContain(
       "ELSIF v_first IS NOT NULL AND now() - v_first > interval '30 minutes' THEN v_reason := 'not_moved';"
     );
+  });
+  it('withdraws only the pending flag: the sit-out stays as the blind off', () => {
+    expect(sql).toContain(
+      'UPDATE public.table_seats SET leave_pending = false WHERE id = v_seat.id;'
+    );
+    expect(sql).not.toContain('is_sitting_out = false');
   });
   it('moves no chips and never touches a departure time or an occupant', () => {
     expect(sql).not.toMatch(/SET[^;]*\bstack\b/);
