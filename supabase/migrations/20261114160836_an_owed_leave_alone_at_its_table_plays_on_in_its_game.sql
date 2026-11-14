@@ -1,5 +1,5 @@
 -- 20261114160836_an_owed_leave_alone_at_its_table_plays_on_in_its_game.sql
--- @live-proof: position('compatible_full' in pg_get_functiondef('public.fn_owed_leave_plays_on_in_game(uuid,uuid,integer,uuid)'::regprocedure)) > 0 AND to_regclass('public.ca_owed_leave_decisions') IS NOT NULL
+-- @live-proof: position('not_movable' in pg_get_functiondef('public.fn_owed_leave_plays_on_in_game(uuid,uuid,integer,uuid)'::regprocedure)) > 0 AND to_regclass('public.ca_owed_leave_decisions') IS NOT NULL
 --
 -- AN OWED LEAVE ALONE AT ITS TABLE PLAYS ON IN ITS GAME (2026-11-14).
 --
@@ -20,7 +20,8 @@
 --     set), same club_id, variant, small and big blind on the table rows
 --     themselves, with at least two players in, funded and not leaving. That is
 --     the move the must-move planner makes (feeder player to an open Main chair);
---     a seat on a Main keeps the per-table rule ('not_on_feeder'). In a full-ring
+--     a seat on a Main can move only to Main 1 (or anywhere while its table is
+--     breaking), exactly as the planner draws; otherwise 'not_movable'. In a full-ring
 --     game (handedness 7-9) a feeder releases a player to a Main only once it
 --     holds handedness - 2 players or is breaking (20261108193515), so a lone
 --     seat on such a feeder is answered 'not_movable' (the per-table rule).
@@ -44,9 +45,11 @@
 --     is forced (an administrator's exit), the game does not move players, no
 --     compatible table deals, or the wait bound below has passed.
 --
--- THE WAIT BOUND. The clock starts at this occupancy's FIRST keep answer (the
--- first row in ca_owed_leave_decisions with keep = true), not at the leave
--- request, and is not reset by later answers. Two limits:
+-- THE WAIT BOUND. The clock starts at the first keep answer of this EPISODE of
+-- being held alone: the first keep row after a gap of more than two minutes or
+-- a non-keep answer. The engine asks every presence pass and the record keeps a
+-- row at least once a minute, so a longer gap means the seat stopped being alone
+-- in between. It is not reset within an episode. Two limits:
 --   - while every compatible dealing Main is FULL (every chair held by a seat,
 --     dealt, sitting out or leaving), 10 minutes. A move needs an
 --     open chair; with none, the seat would sit alone, blinded off, with no
@@ -132,7 +135,7 @@ BEGIN
     RETURN jsonb_build_object('keep', true, 'returned', false, 'reason', 'platform_frozen');
   END IF;
 
-  SELECT ts.id, ts.leave_pending, ts.is_sitting_out, tb.cluster_id, tb.club_id, tb.role,
+  SELECT ts.id, ts.leave_pending, ts.is_sitting_out, tb.cluster_id, tb.club_id, tb.role, tb.main_index, tb.lifecycle,
          tb.game_variant, tb.small_blind, tb.big_blind
     INTO v_seat
     FROM public.table_seats ts
@@ -177,6 +180,10 @@ BEGIN
         JOIN public.table_seats s ON s.table_id = t.id
        WHERE t.cluster_id = v_seat.cluster_id AND t.id <> p_table_id
          AND t.role = 'main' AND t.lifecycle = 'live'
+         -- The planner's draw (20261108193515 must-move pick): a feeder or a
+         -- breaking table gives players to any Main; Main 1 draws from every
+         -- other table too.
+         AND (v_seat.role = 'feeder' OR v_seat.lifecycle = 'breaking' OR t.main_index = 1)
          AND t.club_id IS NOT DISTINCT FROM v_seat.club_id
          AND t.game_variant IS NOT DISTINCT FROM v_seat.game_variant
          AND t.small_blind IS NOT DISTINCT FROM v_seat.small_blind
@@ -191,9 +198,25 @@ BEGIN
    ORDER BY x.open_chair DESC, x.table_id
    LIMIT 1;
 
-  SELECT min(d.occurred_at) INTO v_first
-    FROM public.ca_owed_leave_decisions d
-   WHERE d.occupancy_id = p_occupancy_id AND d.keep;
+  -- THE CLOCK BELONGS TO THIS EPISODE. The engine asks every presence pass
+  -- while the seat is held alone, and the record keeps at least one row a
+  -- minute, so a gap of more than two minutes since the last keep means the
+  -- seat stopped being alone (someone sat, or the leave was withdrawn) and
+  -- this is a new episode with a fresh clock. Within an episode the clock is
+  -- the first keep after the last such gap.
+  WITH k AS (
+    SELECT d.occurred_at, d.keep,
+           lag(d.occurred_at) OVER (ORDER BY d.id) AS prev_at,
+           lag(d.keep) OVER (ORDER BY d.id) AS prev_keep
+      FROM public.ca_owed_leave_decisions d
+     WHERE d.occupancy_id = p_occupancy_id
+  )
+  SELECT CASE WHEN max(occurred_at) FILTER (WHERE keep) > now() - interval '2 minutes'
+              THEN max(occurred_at) FILTER (WHERE keep AND (prev_keep IS DISTINCT FROM true
+                                                         OR occurred_at - prev_at > interval '2 minutes'))
+         END
+    INTO v_first
+    FROM k;
 
   IF v_owed <= 0 THEN
     v_reason := 'not_owed';
@@ -203,13 +226,16 @@ BEGIN
         OR v_game.cluster_mode IS DISTINCT FROM 'must_move'
         OR coalesce(v_game.never_moves, true) THEN
     v_reason := 'game_never_moves';
-  ELSIF v_seat.role IS DISTINCT FROM 'feeder' THEN
-    v_reason := 'not_on_feeder';
-  ELSIF v_game.handedness >= 7 AND NOT coalesce(v_src.breaking, false)
+  ELSIF v_seat.role = 'feeder' AND v_game.handedness >= 7 AND NOT coalesce(v_src.breaking, false)
         AND coalesce(v_src.seated, 0) < greatest(2, v_game.handedness - 2) THEN
     -- A full-ring feeder gives a Main a player only once it holds
     -- handedness - 2 players, or while it is breaking (20261108193515): a
     -- lone seat there is not moved, so holding it would only wait out the bound.
+    v_reason := 'not_movable';
+  ELSIF v_dest IS NULL AND v_seat.role IS DISTINCT FROM 'feeder'
+        AND v_seat.lifecycle IS DISTINCT FROM 'breaking' THEN
+    -- A Main that is not breaking gives players only to Main 1, and Main 1
+    -- itself to nobody: there is no move for this seat.
     v_reason := 'not_movable';
   ELSIF v_dest IS NULL THEN
     v_reason := 'nobody_in_game';

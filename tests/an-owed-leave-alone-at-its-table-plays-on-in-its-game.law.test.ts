@@ -36,8 +36,9 @@ describe('the door', () => {
     expect(sql).toContain('WHERE t.cluster_id = v_seat.cluster_id AND t.id <> p_table_id');
     expect(sql).toContain("AND t.role = 'main' AND t.lifecycle = 'live'");
     expect(sql).toContain(
-      "ELSIF v_seat.role IS DISTINCT FROM 'feeder' THEN v_reason := 'not_on_feeder';"
+      "AND (v_seat.role = 'feeder' OR v_seat.lifecycle = 'breaking' OR t.main_index = 1)"
     );
+    expect(sql).not.toContain('not_on_feeder');
     expect(sql).toContain('HAVING count(*) >= 2');
     expect(sql).toContain("v_reason := 'nobody_in_game';");
   });
@@ -53,7 +54,7 @@ describe('the door', () => {
     expect(sql).toContain('v_census := public.fn_cash_cluster_census(v_seat.cluster_id);');
     expect(sql).toContain('c.open_unreserved > 0 FROM unnest(v_census) c WHERE c.id = t.id');
     expect(sql).toContain(
-      'ELSIF v_game.handedness >= 7 AND NOT coalesce(v_src.breaking, false) AND coalesce(v_src.seated, 0) < greatest(2, v_game.handedness - 2) THEN'
+      "ELSIF v_seat.role = 'feeder' AND v_game.handedness >= 7 AND NOT coalesce(v_src.breaking, false) AND coalesce(v_src.seated, 0) < greatest(2, v_game.handedness - 2) THEN"
     );
     expect(sql).toContain("v_reason := 'not_movable';");
   });
@@ -62,7 +63,8 @@ describe('the door', () => {
       expect(sql).toContain(`AND t.${col} IS NOT DISTINCT FROM v_seat.${col}`);
   });
   it('bounds the wait from the first keep: ten minutes only while every compatible table is full', () => {
-    expect(sql).toContain('WHERE d.occupancy_id = p_occupancy_id AND d.keep;');
+    expect(sql).toContain('lag(d.occurred_at) OVER (ORDER BY d.id) AS prev_at');
+    expect(sql).toContain("OR occurred_at - prev_at > interval '2 minutes'");
     expect(sql).toContain(
       "ELSIF v_first IS NOT NULL AND NOT v_open AND now() - v_first > interval '10 minutes' THEN v_reason := 'compatible_full';"
     );

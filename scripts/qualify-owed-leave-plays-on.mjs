@@ -82,7 +82,7 @@ function build(db) {
   // Classic predicate is production's contract (template 'classic' never moves).
   query(
     db,
-    "ALTER TABLE tables ADD COLUMN role text DEFAULT 'main', ADD COLUMN game_variant text DEFAULT 'nlh', ADD COLUMN small_blind numeric DEFAULT 0.25, " +
+    "ALTER TABLE tables ADD COLUMN role text DEFAULT 'main', ADD COLUMN main_index integer, ADD COLUMN game_variant text DEFAULT 'nlh', ADD COLUMN small_blind numeric DEFAULT 0.25, " +
       'ADD COLUMN big_blind numeric DEFAULT 0.5, ADD COLUMN max_players integer DEFAULT 6; ' +
       "ALTER TABLE cash_games ADD COLUMN must_move boolean DEFAULT true, ADD COLUMN template_name text DEFAULT 'madness', " +
       "ADD COLUMN ruleset_snapshot jsonb DEFAULT '{}'::jsonb; " +
