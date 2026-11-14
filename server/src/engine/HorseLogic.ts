@@ -2816,6 +2816,12 @@ export interface HorseDecideOpts {
    *  hand whose call is the stack jams instead of folding: a 20bb opener
    *  facing a 3-bet to 11bb folded 97-98% of its open. Default OFF. */
   vs3BetShortStack?: boolean;
+  /** PLO6 COMMITMENT-ZONE 3-BET PRICE RELIEF (PLO6 tournament-folds study,
+   *  2026-11-14): in the V25 PLO commitment zone facing a re-raise, six-card
+   *  Omaha high takes the facing-3-bet price relief max(0, 0.5 - odds) * 1.6
+   *  instead of (0.4 - odds) * 1.2. Default OFF: only explicit true turns it
+   *  on. Chip-scored development-field evidence only; payout not measured. */
+  omahaCommitZoneThreeBetPriceRelief?: boolean;
   /** FACING A CLOSED ALL-IN RE-RAISE (2026-11-08, default ON): facing a
    *  3-bet or 4-bet made all in with every other live opponent all in or
    *  folded, the 3-bet node's 35% and the 4-bet node's 30% stack caps no
@@ -9518,6 +9524,8 @@ export class HorseLogic {
       facingOpenShortHandedZone: opts.v70FacingOpenZone === false ? undefined : true,
       facingOpenFullRingZone: opts.facingOpenFullRingZone === true ? true : undefined,
       vs3BetShortJam: opts.vs3BetShortStack === true ? true : undefined,
+      omahaCommitZoneThreeBetPriceRelief:
+        opts.omahaCommitZoneThreeBetPriceRelief === true ? true : undefined,
       // V18 STRADDLE: the shape the fallback above detected - hand the
       // truth to the preflop engine so its unopened branch owns the pot.
       // V28: the single source of truth computed above — unopened for EVERY
