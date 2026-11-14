@@ -323,13 +323,16 @@ public `/health` only; the window, close and consumed rules are the ones in
 | ----------- | ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
 | `booking`   | First main commit whose `activation-floor.json` and `owner-maintenance-windows.json` equal main's | Certifies exactly that commit: prints `PRIORITY`, is not superseded and not retargeted  |
 | `candidate` | Carries main's two control files, after the booking commit                                        | Unchanged (superseded by a newer push run, or retargeted to the newest server commit)   |
-| `predates`  | Its control files differ from main's, so Stage refuses it while the window is open                | Unchanged if superseded or retargeted; otherwise `DEFERRED`: nothing planned, no status |
+| `predates`  | Its control files differ from main's, so an owner selection refuses it while the window is open   | Unchanged if superseded or retargeted; otherwise `DEFERRED`: nothing planned, no status |
 | `none`      | No owner window on main, or it closed, or its release is serving                                  | Unchanged                                                                               |
 | `unknown`   | Anything unreadable or malformed                                                                  | Unchanged (CLAUDE.md 10.86)                                                             |
 
-So the booking commit's own push run certifies it without a manual insurance
-dispatch, and a later control change on main (another lane's booking) makes
-that later commit the `booking`. Nothing cancels a certification that is
+So the booking commit's own push run certifies it; do not also dispatch it by
+hand (a manual run never reads ALREADY CERTIFIED and would certify the same SHA
+a second time), and a later control change on main (another lane's booking) makes
+that later commit the `booking`. A failed refresh is always a refusal: the verdict step reads `needs.refresh.result`
+and writes `failure` even when a provider answer stopped the job before certify
+(review of #10805). Nothing cancels a certification that is
 already running: a run that started before the booking merged still holds the
 host until it ends (about 50 minutes on November 14).
 

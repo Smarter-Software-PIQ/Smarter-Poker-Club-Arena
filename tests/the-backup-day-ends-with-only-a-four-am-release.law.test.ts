@@ -745,6 +745,7 @@ gh() {
         INSTALLED: '',
         PENDING: 'skipped',
         POLICY: 'skipped',
+        REFRESH: 'success',
       };
       it('reads the step outcomes that tell a refusal from no verdict', () => {
         expect(certify.steps.find((s: any) => s.id === 'pending').name).toBe(
@@ -755,6 +756,7 @@ gh() {
         );
         expect(publish.env.PENDING).toBe('${{ steps.pending.outcome }}');
         expect(publish.env.POLICY).toBe('${{ steps.policy.outcome }}');
+        expect(publish.env.REFRESH).toBe('${{ needs.refresh.result }}');
         expect(publish.if).toBe('always()');
       });
       it('a run that failed before any certificate leaves an existing success in place', () => {
@@ -821,6 +823,22 @@ gh() {
         for (const result of [policy, refused, unbound])
           expect(result.calls).not.toContain('READ ');
       });
+      it.each(['failure', 'cancelled', ''])(
+        'a refresh that ended %s is a refusal even when no certify step ran, over any earlier success',
+        (refresh) => {
+          for (const pending of ['skipped', 'failure', 'success']) {
+            const result = shell(fakeGh('success') + publish.run, {
+              ...env,
+              PENDING: pending,
+              REFRESH: refresh,
+            });
+            expect(result.status).toBe(1);
+            expect(result.calls).toContain('-f state=failure');
+            expect(result.calls).not.toContain('READ ');
+            expect(result.stdout).not.toContain('stands');
+          }
+        }
+      );
       it('a certified run still writes success', () => {
         const result = shell(fakeGh('missing') + publish.run, {
           ...env,
