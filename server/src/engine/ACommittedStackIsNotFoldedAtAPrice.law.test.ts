@@ -182,6 +182,30 @@ describe('a committed stack continues at a small price (each folded 12 of 12 bef
     expect(actions(decisions)).toEqual(['call']);
   });
 
+  // review 5d35da81 M1: the bubble call above stands because it leaves 3.3 big blinds behind. The same node with
+  // the stack cut so the call leaves 2 big blinds or less is a bust in all but name: the option changes nothing.
+  for (const [left, changes] of [
+    [0.1, false],
+    [1, false],
+    [2, false],
+    [2.5, true],
+  ] as const) {
+    it(`A7o on the hand-for-hand bubble, the call leaves ${left} big blinds: ${changes ? 'calls' : 'as with the option absent'}`, () => {
+      const spot = spotNamed('ace-seven-offsuit-bubble');
+      spot.seats = spot.seats.map((row) =>
+        row[0] === spot.hero
+          ? [row[0], spot.toCall + Math.round(left * spot.bigBlind), ...row.slice(2)]
+          : row
+      );
+      const rq = build(spot);
+      for (const seed of SEEDS) {
+        const on = decideBuilt(rq, seed, true);
+        if (changes) expect(on.action).toBe('call');
+        else expect(stable(on)).toBe(stable(decideBuilt(rq, seed, 'absent')));
+      }
+    });
+  }
+
   it('QJs in the hijack (HVH2D-NLH-007a), 56% in, price 0.159, the call is all in: calls', () => {
     const spot = spotNamed('queen-jack-suited-hijack');
     const rq = build(spot);

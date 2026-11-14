@@ -1188,8 +1188,8 @@ export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
       isTourney &&
       (guardOdds <= MULTIWAY_TOKEN_PRICE ||
         // chip arithmetic only: with a pay jump live (or unknown) the crumbs clauses do not end the exemption,
-        // and the half-stack clause ends it only when the call leaves chips behind (a call that cannot bust the
-        // Horse costs no pay jump). Otherwise the decision is what it is with the option off. The token price,
+        // and the half-stack clause ends it only when the call leaves more than crumbs behind (a call that cannot
+        // bust the Horse costs no pay jump). Otherwise the decision is what it is with the option off. The token price,
         // which the guard pays in every tournament, is read without it (reviews 3e22706d H1, 347b0afc M2)
         (stackBB <= COMMITTED_CRUMBS_BB &&
           payJumpClear &&
@@ -1198,7 +1198,9 @@ export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
               ctx.oppsLeft <= COMMITTED_CRUMBS_ANY_TWO_MAX_OPPONENTS))) ||
         (heroCommitted &&
           ctx.strength >= COMMITTED_MIN_STRENGTH &&
-          (payJumpClear || effCall < stack * 0.99)));
+          // "leaves chips behind" means more than crumbs: a call that leaves 2bb or less is a bust in all but
+          // name (review 5d35da81 M1)
+          (payJumpClear || (stack - effCall) / bb > COMMITTED_CRUMBS_BB)));
     if (!exemptionEnds) return out;
     committedRescue = true;
   }
