@@ -1,0 +1,18 @@
+{
+  "_owner": "agent/claude-horse-activation-01UxDL/feat/per-horse-upgrade-evidence",
+  "tables": ["horse_upgrade_evidence_daily", "horse_upgrade_evidence_batches"],
+  "functions": ["fn_horse_upgrade_evidence_flush"],
+  "columns": {
+    "horse_upgrade_evidence_daily": [
+      "day",
+      "horse_user_id",
+      "game_variant",
+      "lane",
+      "upgrade_id",
+      "decisions",
+      "invoked",
+      "updated_at"
+    ],
+    "horse_upgrade_evidence_batches": ["batch_id", "payload_sha256", "accepted_at"]
+  }
+}

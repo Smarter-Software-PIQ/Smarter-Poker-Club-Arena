@@ -229,6 +229,10 @@ import {
   stopBrainTelemetryFlush,
 } from '../../services/BrainTelemetryFlush.js';
 import {
+  startHorseUpgradeEvidenceFlush,
+  stopHorseUpgradeEvidenceFlush,
+} from '../../services/HorseUpgradeEvidenceFlush.js';
+import {
   loadGtoCharts,
   startGtoChartLoader,
   stopGtoChartLoader,
@@ -284,7 +288,8 @@ import {
   takeStyleShadowEngaged,
   type StyleShadowEngagement,
 } from '../HorseStyleShadow.js';
-import { withBrainTelemetrySuspended } from '../BrainTelemetry.js';
+import { withBrainTelemetrySuspended, withDecisionFireScope } from '../BrainTelemetry.js';
+import { noteHorseUpgradeDecision } from '../HorseUpgradeEvidence.js';
 
 /** Trusted in-process construction seam; never part of the live wire protocol. */
 export type HorseDecisionWorkerAuthorityHolderFactory = (
@@ -500,6 +505,8 @@ export async function startOwnedServices(shard?: {
     // a slow read may never prevent newly learned rows from becoming flushable.
     startHorseMindPersistence();
     startBrainTelemetryFlush();
+    // Per-Horse upgrade evidence (2026-11-14): armed and drained beside the fleet counters it refines.
+    startHorseUpgradeEvidenceFlush();
     startHorseDecisionJournal(shard);
     equityGovernor.startSampling();
     startSolverPolicyArtifactLoader();
@@ -605,7 +612,11 @@ async function stopOwnedServices(): Promise<void> {
   stopSolverPolicyArtifactLoader();
   equityGovernor.stopSampling();
   await stopHorseDecisionJournal();
-  await Promise.all([stopBrainTelemetryFlush(), stopHorseMindPersistence()]);
+  await Promise.all([
+    stopBrainTelemetryFlush(),
+    stopHorseMindPersistence(),
+    stopHorseUpgradeEvidenceFlush(),
+  ]);
 }
 
 /** The worker's completed-hand learner: whichever HorseMind state is current
@@ -1332,7 +1343,7 @@ export class HorseDecisionWorkerRuntime {
       if (request.type === 'DECIDE_FAST')
         outcome = (
           this.deps.runDecisionReadView ?? this.observerReads.run.bind(this.observerReads)
-        )(request, () => this.executeFast(request));
+        )(request, () => this.executeFastWithUpgradeEvidence(request));
       else if (request.type === 'DECIDE_DEEP') outcome = this.executeDeep(request);
       else if (request.type === 'OBSERVE_REQUEST_RETIREMENT') {
         // Canonical shape and attribution are checked without executing a
@@ -2820,6 +2831,30 @@ export class HorseDecisionWorkerRuntime {
     if (this.deps.atGovernorScale) return this.deps.atGovernorScale(fn);
     const scale = this.deps.governorScale();
     return { value: fn(), scale };
+  }
+
+  /**
+   * PER-HORSE UPGRADE EVIDENCE (2026-11-14). The one fold: the FAST execution
+   * runs inside a fire scope, and when it has returned (the decision is made
+   * and sent) the counters it fired are recorded against this request's Horse,
+   * variant and lane. Measurement only: the scope is read after executeFast
+   * returns, and nothing in executeFast can see it.
+   *
+   * Counted: every FAST decision whose execution returned, the brain-exception
+   * fallback included. Not counted: an execution that threw (no decision), the
+   * style-shadow re-decision (it runs with the counters suspended, so its
+   * fires never reach the scope), DEEP second looks (executeDeep is outside
+   * the scope and runs with telemetry off) and discards.
+   */
+  private executeFastWithUpgradeEvidence(request: FastHorseDecisionRequest): HorseLifecycleOutcome {
+    const scoped = withDecisionFireScope(() => this.executeFast(request));
+    noteHorseUpgradeDecision(
+      request.player.user_id,
+      request.gameState.gameVariant,
+      request.gameState.gameMode === 'tournament' ? 'tournament' : 'cash',
+      scoped.fired
+    );
+    return scoped.value;
   }
 
   private executeFast(request: FastHorseDecisionRequest): HorseLifecycleOutcome {

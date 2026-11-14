@@ -1,0 +1,503 @@
+import { createHash } from 'node:crypto';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { HorseUpgradeEvidenceRow } from '../engine/HorseUpgradeEvidence.js';
+
+const mocked = vi.hoisted(() => ({ rpc: vi.fn(), report: vi.fn() }));
+vi.mock('./supabase/client.js', () => ({ supabase: { rpc: mocked.rpc } }));
+vi.mock('./errorReporter.js', () => ({ reportError: mocked.report }));
+
+type Service = typeof import('./HorseUpgradeEvidenceFlush.js');
+type Evidence = typeof import('../engine/HorseUpgradeEvidence.js');
+type Telemetry = typeof import('../engine/BrainTelemetry.js');
+
+const ack = (payload: string, status = 'recorded') => ({
+  data: {
+    version: 1,
+    status,
+    batchId: JSON.parse(payload).batchId,
+    payloadSha256: createHash('sha256').update(payload).digest('hex'),
+  },
+  error: null,
+});
+const refusal = (message: string, code = 'P0001') => ({ data: null, error: { message, code } });
+const horse = (n: number) => `55555555-5555-4555-8555-${String(n).padStart(12, '0')}`;
+const row = (n: number, over: Partial<HorseUpgradeEvidenceRow> = {}): HorseUpgradeEvidenceRow => ({
+  day: '2026-11-14',
+  horseUserId: horse(n),
+  gameVariant: 'nlh',
+  lane: 'cash',
+  upgradeId: 'upgrade_02_card_removal_blockers',
+  decisions: 3,
+  invoked: 1,
+  ...over,
+});
+
+let service: Service;
+let evidence: Evidence;
+let telemetry: Telemetry;
+const fires = (): Record<string, number> =>
+  Object.fromEntries(telemetry.drainFires().map((r) => [r.feature, r.fires]));
+
+beforeEach(async () => {
+  vi.resetModules();
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-11-14T12:00:00.000Z'));
+  vi.stubEnv('GIT_COMMIT_SHA', 'c'.repeat(40));
+  vi.stubEnv('BRAIN_TELEMETRY_ENABLED', 'true');
+  mocked.rpc.mockReset();
+  mocked.report.mockReset();
+  mocked.rpc.mockImplementation((_name, args) => ({
+    abortSignal: () => Promise.resolve(ack(args.p_payload)),
+  }));
+  service = await import('./HorseUpgradeEvidenceFlush.js');
+  evidence = await import('../engine/HorseUpgradeEvidence.js');
+  telemetry = await import('../engine/BrainTelemetry.js');
+  telemetry.enableBrainTelemetry();
+});
+afterEach(async () => {
+  await service.stopHorseUpgradeEvidenceFlush();
+  vi.useRealTimers();
+  vi.unstubAllEnvs();
+});
+
+/** A publisher over an in-memory aggregate, with the sends scripted. */
+function publisherWith(
+  held: HorseUpgradeEvidenceRow[],
+  send: (payload: string, call: number) => unknown
+) {
+  const sent: string[] = [];
+  const restored: HorseUpgradeEvidenceRow[] = [];
+  const noted: string[] = [];
+  let ids = 0;
+  const publisher = new service.HorseUpgradeEvidencePublisher({
+    drain: () => held.splice(0),
+    restore: (rows) => restored.push(...rows),
+    sourceRelease: () => 'c'.repeat(40),
+    send: async (payload) => {
+      sent.push(payload);
+      const answer = send(payload, sent.length);
+      if (answer instanceof Error) throw answer;
+      return answer as never;
+    },
+    note: (feature) => noted.push(feature),
+    now: () => new Date('2026-11-14T12:00:00.000Z'),
+    uuid: () => `00000000-0000-4000-8000-${String(++ids).padStart(12, '0')}`,
+  });
+  return { publisher, sent, restored, noted, batches: () => sent.map((p) => JSON.parse(p)) };
+}
+
+describe('the per-Horse upgrade evidence publisher', () => {
+  it('is idle with nothing to write and sends nothing', async () => {
+    const t = publisherWith([], (p) => ack(p));
+    expect(await t.publisher.flush()).toEqual({
+      status: 'idle',
+      recorded: 0,
+      replayed: 0,
+      rejected: 0,
+    });
+    expect(t.sent).toEqual([]);
+  });
+
+  it('writes one bounded batch in the writer header shape, rows in key order', async () => {
+    const t = publisherWith(
+      [row(2), row(1), row(1, { upgradeId: 'upgrade_01_range_posteriors' })],
+      (p) => ack(p)
+    );
+    expect(await t.publisher.flush()).toMatchObject({ status: 'written', recorded: 1 });
+    const [batch] = t.batches();
+    expect(Object.keys(batch)).toEqual([
+      'version',
+      'batchId',
+      'workerId',
+      'sequence',
+      'sourceRelease',
+      'day',
+      'collectedAt',
+      'rows',
+    ]);
+    expect(batch).toMatchObject({
+      version: 1,
+      sequence: 1,
+      sourceRelease: 'c'.repeat(40),
+      day: '2026-11-14',
+      collectedAt: '2026-11-14T12:00:00.000Z',
+    });
+    expect(batch.rows).toEqual([
+      {
+        horseUserId: horse(1),
+        gameVariant: 'nlh',
+        lane: 'cash',
+        upgradeId: 'upgrade_01_range_posteriors',
+        decisions: 3,
+        invoked: 1,
+      },
+      {
+        horseUserId: horse(1),
+        gameVariant: 'nlh',
+        lane: 'cash',
+        upgradeId: 'upgrade_02_card_removal_blockers',
+        decisions: 3,
+        invoked: 1,
+      },
+      {
+        horseUserId: horse(2),
+        gameVariant: 'nlh',
+        lane: 'cash',
+        upgradeId: 'upgrade_02_card_removal_blockers',
+        decisions: 3,
+        invoked: 1,
+      },
+    ]);
+    expect(t.publisher.pendingBatches()).toBe(0);
+  });
+
+  it('splits a full drain inside the row and byte bounds, one day per batch, every row written exactly once', async () => {
+    const held = [
+      ...Array.from({ length: 8192 }, (_, n) => row(n)),
+      row(1, { day: '2026-11-13' }),
+      row(2, { day: '2026-11-13' }),
+    ];
+    const t = publisherWith(held, (p) => ack(p));
+    expect(await t.publisher.flush()).toMatchObject({ status: 'written', rejected: 0 });
+    const batches = t.batches();
+    expect(batches.length).toBeGreaterThanOrEqual(4);
+    expect(batches.length).toBeLessThanOrEqual(service.HORSE_UPGRADE_EVIDENCE_TICK_MAX_BATCHES);
+    for (const [i, batch] of batches.entries()) {
+      expect(batch.rows.length).toBeGreaterThan(0);
+      expect(batch.rows.length).toBeLessThanOrEqual(service.HORSE_UPGRADE_EVIDENCE_MAX_ROWS);
+      expect(Buffer.byteLength(t.sent[i]!)).toBeLessThanOrEqual(
+        service.HORSE_UPGRADE_EVIDENCE_MAX_BYTES
+      );
+    }
+    expect(new Set(batches.map((b) => b.batchId)).size).toBe(batches.length);
+    expect(batches.map((b) => b.sequence)).toEqual(
+      [...batches.map((b) => b.sequence)].sort((a, b) => a - b)
+    );
+    expect(batches.filter((b) => b.day === '2026-11-13').map((b) => b.rows.length)).toEqual([2]);
+    const written = batches.flatMap((b) =>
+      b.rows.map((r: { horseUserId: string }) => `${b.day}|${r.horseUserId}`)
+    );
+    expect(written).toHaveLength(8194);
+    expect(new Set(written).size).toBe(8194);
+    expect(t.publisher.pendingBatches()).toBe(0);
+  });
+
+  it('writes at most the per-tick bound and continues from the queue on the next flush', async () => {
+    const t = publisherWith(
+      Array.from({ length: 8192 }, (_, n) => row(n)),
+      (p) => ack(p)
+    );
+    expect(await t.publisher.flush(2)).toMatchObject({ status: 'written', recorded: 2 });
+    expect(t.sent).toHaveLength(2);
+    const left = t.publisher.pendingBatches();
+    expect(left).toBeGreaterThan(0);
+    expect(await t.publisher.flush()).toMatchObject({ status: 'written', recorded: left });
+    expect(t.publisher.pendingBatches()).toBe(0);
+  });
+
+  it('keeps the exact bytes of an unconfirmed batch and resends them: a landed write comes back as a replay', async () => {
+    const t = publisherWith([row(1)], (p, call) =>
+      call === 1
+        ? new Error('aborted')
+        : call === 2
+          ? { data: null, error: { message: 'gateway', code: '502' } }
+          : ack(p, 'replayed')
+    );
+    expect(await t.publisher.flush()).toMatchObject({ status: 'unconfirmed' });
+    expect(await t.publisher.flush()).toMatchObject({ status: 'unconfirmed' });
+    expect(t.publisher.pendingBatches()).toBe(1);
+    expect(await t.publisher.flush()).toMatchObject({
+      status: 'written',
+      replayed: 1,
+      recorded: 0,
+    });
+    expect(new Set(t.sent).size).toBe(1);
+    // never put back into the aggregate: a fresh batch id would add it twice
+    expect(t.restored).toEqual([]);
+    expect(t.noted).toEqual([
+      'per_horse_evidence_write_unconfirmed_seen',
+      'per_horse_evidence_write_unconfirmed_seen',
+    ]);
+  });
+
+  it('treats a malformed or mismatched acknowledgement as unconfirmed', async () => {
+    const answers = [
+      { data: null, error: null },
+      { data: [], error: null },
+      (p: string) => ({ ...ack(p), data: { ...ack(p).data, version: 2 } }),
+      (p: string) => ({ ...ack(p), data: { ...ack(p).data, status: 'accepted' } }),
+      (p: string) => ({ ...ack(p), data: { ...ack(p).data, batchId: 'other' } }),
+      (p: string) => ({ ...ack(p), data: { ...ack(p).data, payloadSha256: 'f'.repeat(64) } }),
+    ];
+    const t = publisherWith([row(1)], (p, call) => {
+      const answer = answers[call - 1];
+      return answer === undefined ? ack(p) : typeof answer === 'function' ? answer(p) : answer;
+    });
+    for (let i = 0; i < answers.length; i++)
+      expect(await t.publisher.flush(), `answer ${i}`).toMatchObject({ status: 'unconfirmed' });
+    expect(await t.publisher.flush()).toMatchObject({ status: 'written', recorded: 1 });
+    expect(new Set(t.sent).size).toBe(1);
+  });
+
+  it.each([
+    'HORSE_UPGRADE_EVIDENCE_INVALID_PAYLOAD',
+    'HORSE_UPGRADE_EVIDENCE_INVALID_HEADER',
+    'HORSE_UPGRADE_EVIDENCE_EXPIRED',
+    'HORSE_UPGRADE_EVIDENCE_INVALID_BOUNDS',
+    'HORSE_UPGRADE_EVIDENCE_INVALID_ROW',
+    'HORSE_UPGRADE_EVIDENCE_DUPLICATE_ROW',
+    'HORSE_UPGRADE_EVIDENCE_BATCH_COLLISION',
+  ])(
+    'drops and counts a batch the writer refuses by its bytes (%s) and writes the next one',
+    async (reason) => {
+      const held = [row(1, { day: '2026-11-13' }), row(2)];
+      const t = publisherWith(held, (p, call) => (call === 1 ? refusal(reason) : ack(p)));
+      expect(await t.publisher.flush()).toEqual({
+        status: 'written',
+        recorded: 1,
+        replayed: 0,
+        rejected: 1,
+      });
+      expect(t.batches().map((b) => b.day)).toEqual(['2026-11-13', '2026-11-14']);
+      expect(t.noted).toEqual(['per_horse_evidence_batch_rejected_seen']);
+      expect(t.restored).toEqual([]);
+      expect(t.publisher.pendingBatches()).toBe(0);
+    }
+  );
+
+  it('does not drop a batch for a refusal that is not one of the writer reasons, or not a P0001', async () => {
+    const t = publisherWith([row(1)], (p, call) =>
+      call === 1
+        ? refusal('HORSE_UPGRADE_EVIDENCE_SOMETHING_ELSE')
+        : call === 2
+          ? refusal('HORSE_UPGRADE_EVIDENCE_INVALID_ROW', '57014')
+          : ack(p)
+    );
+    expect(await t.publisher.flush()).toMatchObject({ status: 'unconfirmed', rejected: 0 });
+    expect(await t.publisher.flush()).toMatchObject({ status: 'unconfirmed', rejected: 0 });
+    expect(await t.publisher.flush()).toMatchObject({ status: 'written', recorded: 1 });
+  });
+
+  it('abandons a batch still unconfirmed at the attempt cap, counts it, and writes what came after', async () => {
+    const held = [row(1)];
+    let fail = true;
+    const t = publisherWith(held, (p) => (fail ? new Error('down') : ack(p)));
+    for (let i = 1; i < service.HORSE_UPGRADE_EVIDENCE_MAX_ATTEMPTS; i++)
+      expect((await t.publisher.flush()).status, `attempt ${i}`).toBe('unconfirmed');
+    held.push(row(2));
+    expect((await t.publisher.flush()).status).toBe('abandoned');
+    expect(t.sent).toHaveLength(service.HORSE_UPGRADE_EVIDENCE_MAX_ATTEMPTS);
+    expect(new Set(t.sent).size).toBe(1);
+    expect(t.noted.filter((n) => n === 'per_horse_evidence_batch_abandoned_seen')).toHaveLength(1);
+    expect(t.publisher.pendingBatches()).toBe(0);
+    fail = false;
+    expect(await t.publisher.flush()).toMatchObject({ status: 'written', recorded: 1 });
+    expect(
+      t
+        .batches()
+        .at(-1)!
+        .rows.map((r: { horseUserId: string }) => r.horseUserId)
+    ).toEqual([horse(2)]);
+  });
+
+  it.each([['PGRST202'], ['42883']])(
+    'gives every queued row back when the function is not installed (%s), and asks again next time',
+    async (code) => {
+      const held = [row(1, { day: '2026-11-13' }), row(2), row(3)];
+      const original = held.map((r) => ({ ...r }));
+      let installed = false;
+      const t = publisherWith(held, (p) =>
+        installed ? ack(p) : { data: null, error: { message: 'Could not find the function', code } }
+      );
+      expect(await t.publisher.flush()).toEqual({
+        status: 'function_missing',
+        recorded: 0,
+        replayed: 0,
+        rejected: 0,
+      });
+      // one question per flush, not one per batch; nothing retained outside the aggregate
+      expect(t.sent).toHaveLength(1);
+      expect(t.publisher.pendingBatches()).toBe(0);
+      expect([...t.restored].sort((a, b) => a.horseUserId.localeCompare(b.horseUserId))).toEqual(
+        original
+      );
+      expect(t.noted).toEqual(['per_horse_evidence_function_missing_seen']);
+      held.push(...t.restored.splice(0));
+      installed = true;
+      expect(await t.publisher.flush()).toMatchObject({ status: 'written', recorded: 2 });
+      expect(
+        t
+          .batches()
+          .slice(1)
+          .flatMap((b) => b.rows)
+      ).toHaveLength(3);
+    }
+  );
+
+  it('joins a second flush to the one in flight instead of sending twice', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const t = publisherWith([row(1)], (p) => gate.then(() => ack(p)));
+    const first = t.publisher.flush();
+    const second = t.publisher.flush();
+    release();
+    expect(await first).toBe(await second);
+    expect(t.sent).toHaveLength(1);
+  });
+});
+
+describe('the per-Horse upgrade evidence flush service', () => {
+  const payloads = () => mocked.rpc.mock.calls.map((c) => JSON.parse(c[1].p_payload));
+  const decide = (n: number) =>
+    evidence.noteHorseUpgradeDecision(horse(n), 'nlh', 'cash', ['upgrade02_card_removal_scored']);
+
+  it('arms the aggregate at start and writes it to the writer function every 60 seconds', async () => {
+    decide(1);
+    expect(evidence.drainHorseUpgradeEvidence()).toEqual([]); // not armed yet
+    service.startHorseUpgradeEvidenceFlush();
+    service.startHorseUpgradeEvidenceFlush(); // idempotent: one timer
+    decide(1);
+    decide(1);
+    await vi.advanceTimersByTimeAsync(59_999);
+    expect(mocked.rpc).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(mocked.rpc).toHaveBeenCalledTimes(1);
+    expect(mocked.rpc.mock.calls[0]![0]).toBe('fn_horse_upgrade_evidence_flush');
+    const [batch] = payloads();
+    expect(batch.sourceRelease).toBe('c'.repeat(40));
+    expect(batch.rows).toContainEqual({
+      horseUserId: horse(1),
+      gameVariant: 'nlh',
+      lane: 'cash',
+      upgradeId: 'upgrade_02_card_removal_blockers',
+      decisions: 2,
+      invoked: 2,
+    });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(mocked.rpc).toHaveBeenCalledTimes(1); // nothing new: idle, no write
+    expect(mocked.report).not.toHaveBeenCalled();
+  });
+
+  it('does not start, arm or write when brain telemetry is disabled', async () => {
+    vi.stubEnv('BRAIN_TELEMETRY_ENABLED', 'false');
+    service.startHorseUpgradeEvidenceFlush();
+    decide(1);
+    await vi.advanceTimersByTimeAsync(120_000);
+    await service.stopHorseUpgradeEvidenceFlush();
+    expect(mocked.rpc).not.toHaveBeenCalled();
+    expect(evidence.drainHorseUpgradeEvidence()).toEqual([]);
+  });
+
+  it('writes the partial interval at shutdown and stops the timer', async () => {
+    service.startHorseUpgradeEvidenceFlush();
+    decide(1);
+    await service.stopHorseUpgradeEvidenceFlush();
+    expect(mocked.rpc).toHaveBeenCalledTimes(1);
+    decide(2);
+    await vi.advanceTimersByTimeAsync(180_000);
+    expect(mocked.rpc).toHaveBeenCalledTimes(1);
+    expect(service.horseUpgradeEvidencePendingBatches()).toBe(0);
+    expect(mocked.report).not.toHaveBeenCalled();
+  });
+
+  it('at shutdown writes the retained batch first, then the interval behind it', async () => {
+    service.startHorseUpgradeEvidenceFlush();
+    decide(1);
+    mocked.rpc.mockImplementationOnce(() => ({
+      abortSignal: () => Promise.reject(new Error('aborted')),
+    }));
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(service.horseUpgradeEvidencePendingBatches()).toBe(1);
+    decide(2);
+    await service.stopHorseUpgradeEvidenceFlush();
+    const sent = mocked.rpc.mock.calls.map((c) => c[1].p_payload);
+    expect(sent).toHaveLength(3);
+    expect(sent[1]).toBe(sent[0]); // the same bytes, not a new batch
+    expect(
+      JSON.parse(sent[2]).rows.every((r: { horseUserId: string }) => r.horseUserId === horse(2))
+    ).toBe(true);
+    expect(service.horseUpgradeEvidencePendingBatches()).toBe(0);
+  });
+
+  it('never rejects the stop: an unconfirmed shutdown write is reported by count and not retried', async () => {
+    service.startHorseUpgradeEvidenceFlush();
+    decide(1);
+    mocked.rpc.mockImplementation(() => ({
+      abortSignal: () => Promise.reject(new Error('aborted')),
+    }));
+    await expect(service.stopHorseUpgradeEvidenceFlush()).resolves.toBeUndefined();
+    expect(mocked.rpc).toHaveBeenCalledTimes(1);
+    expect(mocked.report.mock.calls.map((c) => c[1])).toEqual([
+      'HorseUpgradeEvidenceFlush.shutdown_unwritten',
+    ]);
+    expect(String(mocked.report.mock.calls[0]![0])).toContain('1 batch(es) unwritten at shutdown');
+  });
+
+  it('starts no shutdown write that could end past the budget', async () => {
+    service.startHorseUpgradeEvidenceFlush();
+    for (let n = 0; n < 600; n++)
+      for (const variant of ['nlh', 'plo4'])
+        evidence.noteHorseUpgradeDecision(horse(n), variant, 'cash', []);
+    // each write takes 4 s and succeeds: 15 s of budget and a 5 s timeout admit starts at 0, 4 and 8 s only
+    mocked.rpc.mockImplementation((_name, args) => ({
+      abortSignal: () =>
+        new Promise((resolve) => setTimeout(() => resolve(ack(args.p_payload)), 4_000)),
+    }));
+    const stopped = service.stopHorseUpgradeEvidenceFlush();
+    await vi.advanceTimersByTimeAsync(60_000);
+    await stopped;
+    expect(mocked.rpc).toHaveBeenCalledTimes(3);
+    expect(service.horseUpgradeEvidencePendingBatches()).toBeGreaterThan(0);
+    expect(mocked.report.mock.calls.map((c) => c[1])).toEqual([
+      'HorseUpgradeEvidenceFlush.shutdown_unwritten',
+    ]);
+  });
+
+  it('degrades quietly when the function is not installed: counted every tick, reported once, held under the cap', async () => {
+    mocked.rpc.mockImplementation(() => ({
+      abortSignal: () =>
+        Promise.resolve({
+          data: null,
+          error: { message: 'Could not find the function', code: 'PGRST202' },
+        }),
+    }));
+    service.startHorseUpgradeEvidenceFlush();
+    decide(1);
+    for (let tick = 0; tick < 5; tick++) {
+      decide(1);
+      await vi.advanceTimersByTimeAsync(60_000);
+    }
+    expect(mocked.rpc).toHaveBeenCalledTimes(5);
+    expect(mocked.report.mock.calls.map((c) => c[1])).toEqual([
+      'HorseUpgradeEvidenceFlush.function_missing',
+    ]);
+    expect(fires().per_horse_evidence_function_missing_seen).toBe(5);
+    expect(service.horseUpgradeEvidencePendingBatches()).toBe(0);
+    // nothing was lost: once the function exists the whole held count is written
+    mocked.rpc.mockImplementation((_name, args) => ({
+      abortSignal: () => Promise.resolve(ack(args.p_payload)),
+    }));
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(payloads().at(-1).rows).toContainEqual(
+      expect.objectContaining({
+        upgradeId: 'upgrade_02_card_removal_blockers',
+        decisions: 6,
+        invoked: 6,
+      })
+    );
+  });
+
+  it('reports a refused batch and its counter reaches the fleet counters', async () => {
+    mocked.rpc.mockImplementation(() => ({
+      abortSignal: () => Promise.resolve(refusal('HORSE_UPGRADE_EVIDENCE_INVALID_ROW')),
+    }));
+    service.startHorseUpgradeEvidenceFlush();
+    decide(1);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(mocked.report.mock.calls.map((c) => c[1])).toEqual([
+      'HorseUpgradeEvidenceFlush.rejected',
+    ]);
+    expect(fires().per_horse_evidence_batch_rejected_seen).toBe(1);
+    expect(service.horseUpgradeEvidencePendingBatches()).toBe(0);
+  });
+});
