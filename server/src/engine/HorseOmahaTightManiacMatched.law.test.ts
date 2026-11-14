@@ -302,6 +302,8 @@ describe.each(SPOTS)('Omaha matched reads, $variant river, pot-sized bet into to
     if (s.variant === 'plo4') {
       expect(maniac?.presumed, 'maniac').not.toBe(true);
       expect(maniacRaiseWidth(maniac), 'maniac').not.toBeNull();
+    } else {
+      expect(maniac?.presumed, 'maniac').toBe(true);
     }
   });
 
@@ -341,7 +343,7 @@ describe.each(SPOTS)('Omaha matched reads, $variant river, pot-sized bet into to
     expect(reformed.actions).toEqual(baseline.actions);
     expect(maniacReceipts(reformed)).toEqual([]);
     const turned = play(s, 'tight_then_maniac', 'unknown');
-    expect(turned.actions).not.toContain('fold');
+    expect(new Set(turned.actions)).toEqual(new Set(['call']));
     expect(maniacReceipts(turned)).toContain('maniac_call_down');
   });
 });
