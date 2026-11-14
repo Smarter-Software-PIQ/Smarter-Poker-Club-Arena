@@ -588,6 +588,7 @@ function stableObstacles(scaler: HTMLElement, page: HTMLElement) {
             wrapOverlap: parseFloat(style.getPropertyValue('--sp-wrap-overlap')) || 6,
             scale: ratio,
             side,
+            inward: crownCaption,
             count,
             discard,
           }))

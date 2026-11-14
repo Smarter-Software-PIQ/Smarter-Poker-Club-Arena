@@ -982,13 +982,12 @@ describe('the matrix is the declared one', () => {
       for (const variant of VARIANTS)
         for (const mode of MODES) expect(applies(id, variant, mode), `${id} ${variant}`).toBe(true);
     }
-    // Upgrade 02 is declared for seven variants; FLH and FLO8 owe no counter.
+    // Upgrade 02 is declared for all nine variants: the card-removal score is computed and consumed in the
+    // fixed-limit games too (the manifest was corrected to say so; HorseUpgradeManifestRuntimeParity law).
     expect(upgrade('upgrade_02_card_removal_blockers').enabled).toBe(true);
     for (const variant of VARIANTS)
       for (const mode of MODES)
-        expect(applies('upgrade_02_card_removal_blockers', variant, mode), variant).toBe(
-          STRUCTURE_OF[variant] !== 'fixed_limit'
-        );
+        expect(applies('upgrade_02_card_removal_blockers', variant, mode), variant).toBe(true);
     // Upgrade 07 is the tournament utility: every variant, tournaments only.
     expect(upgrade(UPGRADE_07).enabled).toBe(true);
     for (const variant of VARIANTS) {

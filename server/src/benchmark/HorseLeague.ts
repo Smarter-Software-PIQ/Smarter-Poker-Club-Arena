@@ -89,6 +89,7 @@ import {
   HU_LIMP_EVERY_BUTTON_PERSONA,
   HU_THREE_BET_EVERY_HAND_PERSONA,
   HU_SMALL_STAB_EVERY_STREET_PERSONA,
+  OMAHA_TIGHT_FIELD_PERSONA,
   HUMAN_FIELD_PERSONAS,
   type HumanFieldPersona,
 } from './HorseLeagueHumanField.js';
@@ -107,6 +108,7 @@ export {
   HU_LIMP_EVERY_BUTTON_PERSONA,
   HU_THREE_BET_EVERY_HAND_PERSONA,
   HU_SMALL_STAB_EVERY_STREET_PERSONA,
+  OMAHA_TIGHT_FIELD_PERSONA,
   HUMAN_FIELD_PERSONAS,
   type HumanFieldPersona,
 } from './HorseLeagueHumanField.js';
@@ -1662,6 +1664,28 @@ export function humanFieldPersonaProfile(
   if (!HUMAN_FIELD_PERSONAS.includes(persona)) {
     throw new Error(`Unknown human-field persona: ${String(persona)}`);
   }
+  if (persona === OMAHA_TIGHT_FIELD_PERSONA) {
+    if (
+      table.population !== HUMAN_CALIBRATED_OMAHA_DEV_POPULATION_ID ||
+      !HUMAN_CALIBRATED_OMAHA_DEV_FIELD_VARIANTS.includes(table.variant)
+    ) {
+      throw new Error(
+        `${persona} is a persona of the ${HUMAN_CALIBRATED_OMAHA_DEV_POPULATION_ID} field; ` +
+          `refused for ${table.population} ${table.variant} at ${table.seats} seats`
+      );
+    }
+    const omaha = humanCalibratedProfileFor(table.variant);
+    return Object.freeze({
+      ...omaha,
+      id: `${omaha.id}-${persona}`,
+      preflop: Object.freeze({ ...omaha.preflop, freeRaise: 0.02 }),
+      cutoffs: Object.freeze({
+        ...(omaha.cutoffs ?? {}),
+        'preflop/unopened': { fold: 0.975, raise: 0.98 },
+        'preflop/facing_raise': { fold: 0.97, raise: 0.99 },
+      }),
+    });
+  }
   if (
     table.population !== HUMAN_CALIBRATED_POPULATION_ID ||
     table.variant !== 'nlh' ||
@@ -1956,6 +1980,23 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     pairs: 6000,
     productionStyles: true,
     a: { omahaNeutralUnknown: true },
+    b: {},
+  })),
+  // 2026-11-13 OMAHA TIGHT OPPONENT (omahaTightOpponent, default OFF): a
+  // respects a proven tight raiser and steals wider from proven tight
+  // folders, b is today's brain. Against a Horse field the evidence standard
+  // is rarely met (Horses play inside their own envelope), so this card is
+  // expected to be near inert; the declared evaluation is in
+  // docs/changelog/2026-11-14-omaha-tight-opponent.md. Against a Horse field the evidence standard
+  // is almost never met (Horses play inside their own envelope), so this card
+  // is expected to be near inert; the declared evaluation is
+  // docs/changelog/2026-11-14-omaha-tight-opponent.md.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_tight_opponent`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaTightOpponent: true },
     b: {},
   })),
   // V15 BOATS (2026-09-28): default OFF. a turns it on, b is today's brain.

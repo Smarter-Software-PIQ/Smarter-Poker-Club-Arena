@@ -23,13 +23,16 @@ import type {
   TournamentTabProps,
 } from '../../src/components/tournament/details/types';
 
+const funding = vi.hoisted(() => ({
+  current: { collected: 14325, overlay: 0 } as Record<string, number>,
+}));
 vi.mock('../../src/lib/supabase', () => ({
   supabase: {
     from: vi.fn(),
     rpc: vi.fn((_name, args) => ({
       abortSignal: () =>
         Promise.resolve({
-          data: { tournament_id: args.p_tournament_id, collected: 14325, overlay: 0 },
+          data: { tournament_id: args.p_tournament_id, ...funding.current },
           error: null,
         }),
     })),
@@ -41,7 +44,10 @@ vi.mock('../../src/components/tournament/MysteryBountyPanel', () => ({ default: 
 import RewardsTab from '../../src/components/tournament/details/RewardsTab';
 import BuyInMarks from '../../src/components/tournament/details/BuyInMarks';
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  funding.current = { collected: 14325, overlay: 0 };
+});
 
 const ROOT = join(__dirname, '..', '..');
 
@@ -135,6 +141,50 @@ describe('Rewards: the Total Prize Pool is every buy-in, rebuy and add-on', () =
     expect(poolTile(container)).toBe('14,325');
     expect(container.querySelector('.rw-mix__split')).toBeNull();
     expect(mixRows(container)).toHaveLength(3);
+  });
+
+  it('a funded overlay does not blank the lines: they are checked against net coverage', async () => {
+    /* Nightly 20K, 2026-11-13: 195 buy-ins, 105 rebuys and 93 add-ons put in
+       12,705 net; the house posted 7,295, so the finalized pool read 20,000. */
+    funding.current = {
+      collected: 20000,
+      overlay: 0,
+      net_coverage: 12705,
+      house_required: 7295,
+      house_posted: 7295,
+      house_supplement_paid: 0,
+    };
+    const entries = Array.from({ length: 195 }, (_, i) => ({
+      ...ENTRIES[i],
+      rebuys: i < 105 ? 1 : 0,
+      add_ons: i < 93 ? 1 : 0,
+    })) as TournamentEntry[];
+    const { container } = render(
+      <RewardsTab
+        {...props({
+          is_bounty: false,
+          is_pko: false,
+          variant: 'freezeout',
+          bounty_amount: 0,
+          bounty_pool: 0,
+          bounty_pool_paid: 0,
+          prize_pool: 20000,
+          guaranteed_prize: 20000,
+          buy_in_amount: 31.5,
+          buy_in_fee: 3.5,
+          rebuy_cost: 35,
+          addon_cost: 35,
+        })}
+        entries={entries}
+      />
+    );
+    await waitFor(() =>
+      expect(mixRows(container).slice(0, 3)).toEqual([
+        ['195 Buy-Ins × 31.50', '6,142.50'],
+        ['105 Rebuys × 31.50', '3,307.50'],
+        ['93 Add-Ons × 35', '3,255'],
+      ])
+    );
   });
 
   it('withholds the amounts, never guesses them, when the lines do not reconcile', () => {

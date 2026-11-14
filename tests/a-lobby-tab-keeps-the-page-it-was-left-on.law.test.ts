@@ -160,4 +160,13 @@ describe('a lobby tab keeps the page it was left on', () => {
     expect(restore).toBeLessThan(focus);
     expect(multi).toContain('decideLobbyOffRoute(');
   });
+
+  it('a lobby tab holding a page never shows its game lobby, even mid-swipe', () => {
+    const multi = readFileSync(resolve(__dirname, '../src/pages/MultiTablePage.tsx'), 'utf8');
+    const render = multi.slice(multi.indexOf('const renderLobbyTab = '));
+    expect(multi).toContain("const HELD_LOBBY_STYLE: CSSProperties = { visibility: 'hidden' };");
+    expect(render).toContain('table.lobbyOffRoutePath ? HELD_LOBBY_STYLE : undefined');
+    // Both renderers (club lobby and tournament drill-in) carry it.
+    expect(render.split('style={heldStyle}').length - 1).toBeGreaterThanOrEqual(2);
+  });
 });

@@ -230,7 +230,7 @@ describe('the pass enters horses through the ordinary door', () => {
     expect(opts).toEqual({ allLanes: false });
   });
 
-  it('rescues the net shortfall in the final ten minutes even after the ordinary arrival plan is met', async () => {
+  it('rescues the net shortfall in the final twenty minutes, from every horse, even after the ordinary arrival plan is met', async () => {
     h.tables.set('tournaments', [
       { ...running, guaranteed_prize: 2500, buy_in_amount: 36, buy_in_fee: 4 },
     ]);
@@ -243,7 +243,10 @@ describe('the pass enters horses through the ordinary door', () => {
       error: null,
     }));
     await lateRegisterHorsesOnce(MIDWAY_UNION_ID, () => true, START + 72 * MIN);
-    expect(h.topUp).toHaveBeenCalledWith(running.id, 11, { allLanes: false });
+    expect(h.topUp).toHaveBeenCalledWith(running.id, 11, {
+      allLanes: false,
+      overlayCover: true,
+    });
     h.topUp.mockClear();
     h.rpc.mockResolvedValue({ data: false, error: null });
     await lateRegisterHorsesOnce(MIDWAY_UNION_ID, () => true, START + 72 * MIN);

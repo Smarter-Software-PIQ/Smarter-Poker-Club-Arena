@@ -28,3 +28,12 @@ the container and renders the tab's only content: the club game lobby.
   player Backs out of the page onto a table.
 - Decision logic is pure in `src/utils/lobbyOffRoute.ts`, pinned by
   `tests/a-lobby-tab-keeps-the-page-it-was-left-on.law.test.ts`.
+
+## Follow-up: a swipe never drags the game lobby into view
+
+Live signed-in verification on 5b38a8b6 passed for pill taps, number keys
+and Tab, but a swipe from a table onto a lobby tab holding Player Management
+dragged the mounted game lobby in as the swipe neighbour before landing on
+the page. A lobby tab with `lobbyOffRoutePath` now renders its game lobby
+`visibility: hidden` (still mounted, so its list and filters survive) until
+the tab shows it again.

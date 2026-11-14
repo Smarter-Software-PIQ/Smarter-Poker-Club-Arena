@@ -167,6 +167,32 @@ const overlap = (a: Box, b: Box, gap = 3) =>
   a.top < b.top + b.height + gap &&
   a.top + a.height + gap > b.top;
 
+// For a fixed X, only obstacles that overlap a part horizontally can reject a Y.
+// Keep overlap's exact floating-point operation order at all contact edges.
+function allowedShiftYs(parts: Box[], fixed: Box[], bounds: Box, gap: number, x: number) {
+  const contacts: { part: Box; obstacle: Box }[] = [];
+  for (const part of parts) {
+    const left = part.left + x;
+    if (left < bounds.left || left + part.width > bounds.left + bounds.width) return null;
+    for (const obstacle of fixed) {
+      if (left < obstacle.left + obstacle.width + gap && left + part.width + gap > obstacle.left)
+        contacts.push({ part, obstacle });
+    }
+  }
+  return (y: number) => {
+    for (const part of parts) {
+      const top = part.top + y;
+      if (top < bounds.top || top + part.height > bounds.top + bounds.height) return false;
+    }
+    for (const { part, obstacle } of contacts) {
+      const top = part.top + y;
+      if (top < obstacle.top + obstacle.height + gap && top + part.height + gap > obstacle.top)
+        return false;
+    }
+    return true;
+  };
+}
+
 /** Minimum movement among the exact obstacle edges, keeping a chair on its
  * original half of the table. No dimensions are reduced to make it fit. */
 function opponentShiftCandidates(
@@ -176,7 +202,8 @@ function opponentShiftCandidates(
   side: number,
   outwardOnly = false,
   hints: Box[] = [],
-  gap = 3
+  gap = 3,
+  limit = Infinity
 ): Array<[number, number]> {
   if (!parts.length) return [[0, 0]];
   const xs = new Set([0]);
@@ -212,35 +239,30 @@ function opponentShiftCandidates(
           0,
           Math.max(...parts.map((part) => part.left + part.width)) - bounds.left - bounds.width
         );
-  const candidates: Array<[number, number]> = [];
+  let candidates: Array<[number, number]> = [];
+  const byCost = (a: [number, number], b: [number, number]) =>
+    a[0] * a[0] + a[1] * a[1] - b[0] * b[0] - b[1] * b[1];
+  // Keep the original enumeration order at ties. Prune only after enough
+  // closer feasible grid points have already been found.
+  const orderedYs = [...ys];
+  let cutoff = Infinity;
   for (const x of xs) {
     if (outwardOnly && side && x * side < -inward - 0.01) continue;
     const centre = parts[0].left + parts[0].width / 2 + x;
     if (side && (centre - bounds.left - bounds.width / 2) * side < 0) continue;
-    if (
-      !parts.every(
-        (part) =>
-          part.left + x >= bounds.left && part.left + x + part.width <= bounds.left + bounds.width
-      )
-    )
-      continue;
-    for (const y of ys) {
-      if (
-        parts.every((part) => {
-          const next = moved(part, x, y);
-          return (
-            next.left >= bounds.left &&
-            next.top >= bounds.top &&
-            next.left + next.width <= bounds.left + bounds.width &&
-            next.top + next.height <= bounds.top + bounds.height &&
-            obstacles.every((other) => !overlap(next, other, gap))
-          );
-        })
-      )
-        candidates.push([x, y]);
+    const acceptsY = allowedShiftYs(parts, obstacles, bounds, gap, x);
+    if (!acceptsY) continue;
+    for (const y of orderedYs) {
+      if (x * x + y * y > cutoff) continue;
+      if (acceptsY(y)) candidates.push([x, y]);
+    }
+    if (candidates.length > limit * 2) {
+      candidates = candidates.sort(byCost).slice(0, limit);
+      const [dx, dy] = candidates[candidates.length - 1];
+      cutoff = dx * dx + dy * dy;
     }
   }
-  return candidates.sort((a, b) => a[0] * a[0] + a[1] * a[1] - b[0] * b[0] - b[1] * b[1]);
+  return candidates.sort(byCost).slice(0, limit);
 }
 
 export function nearestOpponentShift(
@@ -373,8 +395,15 @@ export function jointOpponentShifts(
   otherChairs: readonly ChairPoint[] = [],
   /** 'own-seat' (opponentSeatsKept) unless the caller has already learned that
    * no own-seat layout exists for this ring (opponentSeatsCompact). */
-  seatRule: 'own-seat' | 'compact' = 'own-seat'
+  seatRule: 'own-seat' | 'compact' = 'own-seat',
+  incompatibleGeometries?: Set<string>
 ): Array<[number, number]> | null {
+  // Both seating rules traverse exactly the same search until a complete geometric
+  // assignment is reached. Reuse a failure only when the rule was never consulted.
+  const geometryKey = incompatibleGeometries
+    ? JSON.stringify([items, fixed, bounds, gap, closeVerticalChains, topLaneBottom, lowerLane])
+    : undefined;
+  if (geometryKey && incompatibleGeometries?.has(geometryKey)) return null;
   if (
     items.every((item) =>
       item.parts.every(
@@ -395,8 +424,7 @@ export function jointOpponentShifts(
     )
   )
     return items.map(() => [0, 0]);
-  const withinAuxiliaryLane = (item: (typeof items)[number], x: number, y: number) => {
-    if (topLaneBottom === undefined || !item.parts.length) return true;
+  const extents = items.map((item) => {
     const low = Math.min(...item.parts.map((p) => p.top));
     const high = Math.max(...item.parts.map((p) => p.top + p.height));
     const clamp =
@@ -406,6 +434,12 @@ export function jointOpponentShifts(
             0,
             Math.max(...item.parts.map((p) => p.left + p.width)) - bounds.left - bounds.width
           );
+    return { low, high, clamp };
+  });
+  const withinAuxiliaryLane = (index: number, x: number, y: number) => {
+    const item = items[index];
+    if (topLaneBottom === undefined || !item.parts.length) return true;
+    const { low, high, clamp } = extents[index];
     return (
       Math.abs(y) <= (high - low) / 2 &&
       (!item.outwardOnly ||
@@ -422,8 +456,9 @@ export function jointOpponentShifts(
       item.side,
       topLaneBottom === undefined && item.outwardOnly,
       items.filter((_, other) => other !== index).flatMap((other) => other.parts),
-      gap
-    ).slice(0, 96)
+      gap,
+      96
+    )
   );
   if (closeVerticalChains) {
     // Three contacts cover a dense side column. Propagate exact translated
@@ -479,6 +514,10 @@ export function jointOpponentShifts(
     });
     for (let round = 0; round < 3; round++) {
       const next = ys.map((set) => new Set(set));
+      const cutoffs = ys.map((set) => {
+        if (set.size < 512) return Infinity;
+        return [...set].map(Math.abs).sort((a, b) => a - b)[511];
+      });
       for (let i = 0; i < items.length; i++)
         for (let j = 0; j < items.length; j++) {
           if (i === j) continue;
@@ -489,20 +528,29 @@ export function jointOpponentShifts(
                 part.left + part.width + gap <= peer.left
               )
                 continue;
-              for (const y of ys[j])
-                for (const candidate of [
-                  peer.top + peer.height + y + gap + 0.001 - part.top,
-                  peer.top + y - gap - 0.001 - part.top - part.height,
-                ]) {
-                  if (
-                    items[i].parts.every(
-                      (p) =>
-                        p.top + candidate >= bounds.top &&
-                        p.top + p.height + candidate <= bounds.top + bounds.height
-                    )
+              const add = (candidate: number) => {
+                const value = Math.round(candidate * 1e6) / 1e6;
+                if (Math.abs(value) > cutoffs[i] || next[i].has(value)) return;
+                if (
+                  items[i].parts.every(
+                    (p) =>
+                      p.top + candidate >= bounds.top &&
+                      p.top + candidate + p.height <= bounds.top + bounds.height
                   )
-                    next[i].add(Math.round(candidate * 1e6) / 1e6);
+                )
+                  next[i].add(value);
+                if (next[i].size >= 1536) {
+                  const nearest = [...next[i]]
+                    .sort((a, b) => Math.abs(a) - Math.abs(b))
+                    .slice(0, 512);
+                  next[i] = new Set(nearest);
+                  cutoffs[i] = Math.abs(nearest[511]);
                 }
+              };
+              for (const y of ys[j]) {
+                add(peer.top + peer.height + y + gap + 0.001 - part.top);
+                add(peer.top + y - gap - 0.001 - part.top - part.height);
+              }
             }
         }
       ys = next.map(
@@ -559,48 +607,39 @@ export function jointOpponentShifts(
         topLaneBottom === undefined
           ? [0]
           : [...new Set([0, ...[...anchors].flatMap((x) => [x - low, x - high])])];
-      const extra = xs
-        .flatMap((x) => [...ys[i]].map((y): [number, number] => [x, y]))
-        .filter(([x, y]) => {
-          if (!withinAuxiliaryLane(item, x, y)) return false;
-          if (
-            item.side &&
-            (item.parts[0].left + item.parts[0].width / 2 + x - bounds.left - bounds.width / 2) *
-              item.side <
-              0
-          )
-            return false;
-          return item.parts.every((part) => {
-            const r = moved(part, x, y);
-            return (
-              r.left >= bounds.left &&
-              r.left + r.width <= bounds.left + bounds.width &&
-              r.top >= bounds.top &&
-              r.top + r.height <= bounds.top + bounds.height &&
-              fixed.every((other) => !overlap(r, other, gap))
-            );
-          });
-        });
+      const extra: Array<[number, number]> = [];
+      const nearestAtEachX: Array<[number, number]> = [];
+      for (const x of xs) {
+        if (
+          item.side &&
+          (item.parts[0].left + item.parts[0].width / 2 + x - bounds.left - bounds.width / 2) *
+            item.side <
+            0
+        )
+          continue;
+        const acceptsY = allowedShiftYs(item.parts, fixed, bounds, gap, x);
+        if (!acceptsY) continue;
+        const column: Array<[number, number]> = [];
+        for (const y of ys[i]) {
+          if (!withinAuxiliaryLane(i, x, y) || !acceptsY(y)) continue;
+          const shift: [number, number] = [x, y];
+          extra.push(shift);
+          if (topLaneBottom !== undefined) column.push(shift);
+        }
+        if (column.length)
+          nearestAtEachX.push(...column.sort((a, b) => a[1] * a[1] - b[1] * b[1]).slice(0, 4));
+      }
       const seen = new Set<string>();
       const seeds =
         topLaneBottom === undefined
           ? extra.filter((shift) => seedYs[i].has(shift[1]))
           : extra
               .filter(
-                ([, y]) =>
-                  seedYs[i].has(y) ||
-                  Math.abs(y - (bounds.top - Math.min(...item.parts.map((p) => p.top)))) < 0.002
+                ([, y]) => seedYs[i].has(y) || Math.abs(y - (bounds.top - extents[i].low)) < 0.002
               )
-              .concat(
-                xs.flatMap((x) =>
-                  extra
-                    .filter((p) => p[0] === x)
-                    .sort((a, b) => a[1] * a[1] - b[1] * b[1])
-                    .slice(0, 4)
-                )
-              );
+              .concat(nearestAtEachX);
       const candidates = [...options[i], ...extra]
-        .filter(([x, y]) => withinAuxiliaryLane(item, x, y))
+        .filter(([x, y]) => withinAuxiliaryLane(i, x, y))
         .sort((a, b) => a[0] * a[0] + a[1] * a[1] - b[0] * b[0] - b[1] * b[1])
         .filter((shift) => {
           const key = lowerLane
@@ -732,10 +771,12 @@ export function jointOpponentShifts(
   const chosen = Array<number>(items.length).fill(-1);
   let best: Array<[number, number]> | null = null;
   let bestCost = Infinity;
+  let reachedGeometrySolution = false;
   let budget = 12000;
   const visit = (remaining: number, total: number) => {
     if (--budget < 0 || total >= bestCost) return;
     if (!remaining) {
+      reachedGeometrySolution = true;
       const solution = chosen.map((option, i) => options[i][option]);
       // THE CHAIRS NEVER CHANGE ORDER: a cheaper layout that carries a chair
       // past a neighbour is not a layout, keep searching.
@@ -770,6 +811,7 @@ export function jointOpponentShifts(
     }
   };
   visit(items.length, 0);
+  if (!reachedGeometrySolution && geometryKey) incompatibleGeometries?.add(geometryKey);
   return best;
 }
 
@@ -2006,6 +2048,7 @@ export function createOpponentAvatarLayout(
     const board = page.querySelector('.community-area');
     const topLaneBottom = board ? box(board).top : top;
     let lowerLane: { top: number; bottom: number } | undefined;
+    const incompatibleGeometries = new Set<string>();
     const solve = (rule: 'own-seat' | 'compact') => {
       let shifts: Array<[number, number]> | null = jointOpponentShifts(
         describe(),
@@ -2016,7 +2059,8 @@ export function createOpponentAvatarLayout(
         undefined,
         undefined,
         otherChairs(),
-        rule
+        rule,
+        incompatibleGeometries
       );
       if (!shifts) {
         // Only the compact ring needs this fallback: the same caption fits
@@ -2053,7 +2097,8 @@ export function createOpponentAvatarLayout(
           undefined,
           undefined,
           otherChairs(),
-          rule
+          rule,
+          incompatibleGeometries
         );
       }
       if (!shifts) {
@@ -2068,7 +2113,8 @@ export function createOpponentAvatarLayout(
           topLaneBottom,
           undefined,
           otherChairs(),
-          rule
+          rule,
+          incompatibleGeometries
         );
       }
       if (!shifts) {
@@ -2086,7 +2132,8 @@ export function createOpponentAvatarLayout(
             topLaneBottom,
             lowerLane,
             otherChairs(),
-            rule
+            rule,
+            incompatibleGeometries
           );
       }
       return shifts;

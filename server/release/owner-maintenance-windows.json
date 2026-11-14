@@ -1338,6 +1338,21 @@
         "path": "server/release/activation-floor.json",
         "sha256": "41c48717563b7319468c1d1125661e3a71bd60fb9c7f0ec88d6a6d950688bde3"
       }
+    },
+    {
+      "id": "2026-11-14-owner-offcycle-engine-0506z",
+      "ownerOrder": "Dan directly in Claude session_01UxDLnLoXL6Rev3yYEpx7Tj at 20:54 America/Chicago on November 13, 2026, assigned this session the engine cutover in writing: \"You are authorized to perform an off-cycle engine cutover at the EARLIEST SAFE, QUALIFIED TIME. Start working on it now. Use the first eligible protected window once the required preparation is complete. Do not default to the routine 3:30 AM preparation or 4:00 AM cutover merely because that route already exists.\" This session holds sole release custody: the previous custodian session_01TLQer6CUX4ykkbdyPE9d8M sealed 533608409f2b05e702c9fbd097bcab48b9e59dad at 08:08 UTC November 13 under 2026-11-13-owner-asap-engine-0736z and closed with no active release, pending seal, finalization or awaiting-certificate owner; that consumed booking is not extended, renewed or replayed. One fresh SINGLE-USE engine activation of exact serving 533608409f2b05e702c9fbd097bcab48b9e59dad, containing protected main 566b7fcbd1a2f0e2a8ad93d199a39bb8af573817 (#10768) and so #10683, #10750 and the merged Hold'em, Heads Up, PLO, Feature Activation and Lightning changes already on protected main. Strategy options merged OFF or in shadow stay in that state; a cutover activates none of them. Admission opens 23:06 Chicago November 13, the earliest a fresh 1800-second certification of this booking can exist after the twenty-minute notice, and expires at 01:30 Chicago November 14, before the 03:30 routine preparation; the later expiry exists only so that one re-certification can still be used if the production schema or release controls move. The maintained announcement guard (:05:30 to :49:00) is unchanged. The release owner starts the one Stage operation as soon as the certificate exists. Independently observe twenty minutes of the actual primary public notice; later publication delays admission within fixed expiry. Require compatible current-schema Backup with full 1800-second soak and both-direction rehearsal against the actual predecessor, exact protected target/control, all four qualification shards, immutable candidate and rollback images, 120s last-hand notice, hand-boundary drain, durable freeze, 300s break, full 285s proof/rollback reserve, one-use custody, SEALED identity, v3 thaw, gameplay verification and fresh post-seal Backup. Pillar 2, R7/R8 and excluded held-out datasets stay disabled; report zero opportunities honestly. The single shared Human vs Horse capture is not duplicated; its results apply only to the source that served during its declared window. No migration, new tournament-start hold, new feature, direct restart, automatic renewal, watcher or competing dispatcher.",
+      "contains": "566b7fcbd1a2f0e2a8ad93d199a39bb8af573817",
+      "playerNoticeAt": "2026-11-14T04:40:00Z",
+      "notBefore": "2026-11-14T05:06:00Z",
+      "notAfter": "2026-11-14T07:30:00Z",
+      "announcementPolicy": "earliest-certified",
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "47a78921825c7e64eb1a4f497b7c44c5cc9c20e632961b20d9c06f5184dd5ed8"
+      }
     }
   ],
   "databaseWindows": [
