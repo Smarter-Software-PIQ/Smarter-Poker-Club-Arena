@@ -1367,6 +1367,7 @@ interface TablePageProps {
     /** `seatCanAddFunds` for this seat, so the tab bar's hamburger can drop
      *  its Top Up items at a seat where they would do nothing (B12). */
     canAddFunds?: boolean;
+    seatChangeEnabled?: boolean;
   }) => void;
   /** Whether this table is part of a multi-table session (hides own header if tab bar is shown) */
   isMultiTable?: boolean;
@@ -12252,7 +12253,7 @@ function LiveTablePage({
     }
     return fetchMyHandsOwed(target);
   };
-  const handleLeaveTable = async () => {
+  const handleLeaveTable = async (afterLightningHand = false) => {
     if (leaveRequestActiveRef.current) return;
     const confirmedHandCount = hitRunConfirmedRef.current;
     hitRunConfirmedRef.current = false;
@@ -12287,7 +12288,7 @@ function LiveTablePage({
 
       // Stop matchmaking first, then fold the exact room hand through its existing
       // server pre-action door. The anchor cashout alone cannot fold a pool hand.
-      if (lightningRoomRef.current && tableId) {
+      if (!afterLightningHand && lightningRoomRef.current && tableId) {
         const snapshot = engineSnapshotRef.current as LightningSnapshotFields | null;
         const handId = lightningHandId(snapshot);
         const hero = tableState.players.find((player) => player?.id === userId);
@@ -12658,29 +12659,6 @@ function LiveTablePage({
     }
   };
 
-  const leaveNextHand = useLeaveTableNextHand({
-    userId: userId === 'guest' ? '' : (userId ?? ''),
-    tableId: tableId ?? '',
-    occupancyId:
-      lightningRoom?.poolSessionId ||
-      (ownSeatIdentity?.tableId === tableId && ownSeatIdentity?.userId === userId
-        ? ownSeatIdentity.occupancyId
-        : ''),
-    seated: !leftSeatPendingRef.current && (tableState.heroSeat > 0 || !!lightningRoom),
-    ready:
-      !!engineSnapshot &&
-      appliedExitSnapshot?.snapshot === engineSnapshot &&
-      appliedExitSnapshot.tableId === tableId &&
-      appliedExitSnapshot.userId === userId,
-    handLive: tableState.isHandInProgress && !handSettling,
-    completionVersion:
-      lastHandId ||
-      (engineSnapshot && !tableState.isHandInProgress && (tableState.handNumber ?? 0) > 0
-        ? `idle:${tableState.handNumber}`
-        : ''),
-    setSitOut: () => setSitOut(tableId ?? '', true),
-    onLeave: handleLeaveTable,
-  });
   /**
    * LIGHTNING "LEAVE NEXT HAND" (Dan 2026-11-12): "IT MEANS AFTER THE END OF
    * THE CURRENT HAND, YOU LEAVE THE TABLE. NOT AT THAT EXACT MOMENT." The
@@ -12690,16 +12668,14 @@ function LiveTablePage({
    * nothing folds them. The moment that hand is complete for them (it settles,
    * they fold, or the room closes) the original leave owner runs once.
    */
-  const lightningLeaveHero = lightningRoom
-    ? tableState.players.find((player) => player?.id === userId)
-    : undefined;
-  const lightningHeroInLiveHand = lightningLeaveWaitsForHand({
-    inLightningRoom: !!lightningRoom,
-    roomClosed: lightningRoomClosed,
-    handInProgress: tableState.isHandInProgress,
-    handSettling,
-    heroStatus: lightningLeaveHero?.status,
-  });
+  const [settledLightningHandId, setSettledLightningHandId] = useState<string | null>(null);
+  const lightningHeroInLiveHand =
+    !!lightningRoom &&
+    lightningLeaveWaitsForHand(
+      engineSnapshot as LightningSnapshotFields | null,
+      settledLightningHandId,
+      userId
+    );
   /* The queued leave is saved per pool session, so a reload or a reconnect
      mid-hand still leaves at the end of that hand (Dan 2026-11-12). It runs
      only once the engine's own snapshot for this page is applied (or the room
@@ -12713,18 +12689,21 @@ function LiveTablePage({
         appliedExitSnapshot?.snapshot === engineSnapshot &&
         appliedExitSnapshot.tableId === tableId &&
         appliedExitSnapshot.userId === userId),
+    roomClosed: lightningRoomClosed,
     waits: lightningHeroInLiveHand,
-    leave: handleLeaveTable,
+    leave: () => handleLeaveTable(true),
     alreadyLeaving: () => leaveNavigatedRef.current,
     onError: (error) => reportError(error, 'TablePage.lightning_leave_after_hand'),
   });
-  const leaveLightningAfterThisHand = async () => {
-    if (lightningHeroInLiveHand) {
-      lightningLeaveAfterHand.queue();
-      toast.info('You Will Leave The Table After This Hand. Tap Again To Keep Playing.');
+  const leaveLightningAfterThisHand = async (stop: { inHand: boolean; exited: boolean }) => {
+    if (stop.exited && !stop.inHand) {
+      await handleLeaveTable(true);
       return;
     }
-    await handleLeaveTable();
+    lightningLeaveAfterHand.queue(stop.inHand && !lightningHeroInLiveHand);
+    if (stop.inHand || lightningHeroInLiveHand) {
+      toast.info('You Will Leave The Table After This Hand. Tap Again To Keep Playing.');
+    }
   };
   /* CANCEL (Dan 2026-11-12): tapping "Leaving After Hand" withdraws the stop
      so the player keeps being dealt in. If the hand already settled and the
@@ -13930,6 +13909,9 @@ function LiveTablePage({
       // straight after a hand could return the PREVIOUS hand. This event is
       // authoritative and arrives before the player can realistically tap.
       if (eventType === 'hand_history_saved') {
+        if (lightningRoomRef.current && typeof handState.lightning_hand_id === 'string') {
+          setSettledLightningHandId(handState.lightning_hand_id);
+        }
         const savedId = handState.hand_id as string | undefined;
         if (savedId) {
           handHistoryFetchedAtRef.current = null;
@@ -26953,6 +26935,45 @@ function LiveTablePage({
       ? tableState.clusterId
       : null;
 
+  // A feeder can still deal ordinary hands while its Lightning switch is on.
+  // Wait for a confirmed Classic answer before offering a table change.
+  const seatChangeEnabled =
+    !lightningRoom &&
+    !lightningObserver &&
+    (!tableState.clusterId ||
+      (tableGameLightningState != null && isClassicLobbyState(tableGameLightningState)));
+  useEffect(() => {
+    onTableInfoUpdate?.({ seatChangeEnabled });
+  }, [onTableInfoUpdate, seatChangeEnabled]);
+
+  const leaveNextHand = useLeaveTableNextHand({
+    userId: userId === 'guest' ? '' : (userId ?? ''),
+    tableId: tableId ?? '',
+    occupancyId:
+      lightningRoom?.poolSessionId ||
+      (ownSeatIdentity?.tableId === tableId && ownSeatIdentity?.userId === userId
+        ? ownSeatIdentity.occupancyId
+        : ''),
+    seated: !leftSeatPendingRef.current && (tableState.heroSeat > 0 || !!lightningRoom),
+    ready:
+      !!engineSnapshot &&
+      appliedExitSnapshot?.snapshot === engineSnapshot &&
+      appliedExitSnapshot.tableId === tableId &&
+      appliedExitSnapshot.userId === userId,
+    // A reconnect may deliver the new hand before its HAND_STARTED event
+    // clears the previous hand's presentation flag.
+    handLive: lightningCapableClusterId
+      ? !!engineSnapshot && engineSnapshot.stage !== 'waiting'
+      : tableState.isHandInProgress && !handSettling,
+    completionVersion:
+      lastHandId ||
+      (engineSnapshot && !tableState.isHandInProgress && (tableState.handNumber ?? 0) > 0
+        ? `idle:${tableState.handNumber}`
+        : ''),
+    setSitOut: () => setSitOut(tableId ?? '', true),
+    onLeave: handleLeaveTable,
+  });
+
   /**
    * ── IS THERE ACTUALLY A SEAT AT THIS TABLE? (Dan 2026-09-07, item 9) ──────
    *
@@ -27258,6 +27279,9 @@ function LiveTablePage({
   const lightningHandLive = lightningRoom
     ? lightningHandOnFelt(engineSnapshot as LightningSnapshotFields)
     : false;
+  const lightningLeaveHero = lightningRoom
+    ? tableState.players.find((player) => player?.id === userId)
+    : undefined;
   const lightningFold = lightningFoldAvailability(
     {
       heroSeated: tableState.heroSeat > 0,
@@ -28486,6 +28510,7 @@ function LiveTablePage({
               <div className="hud-ul-column">
                 <TableMenu
                   isOpen={showTableMenu}
+                  seatChangeEnabled={seatChangeEnabled}
                   onClose={() => setShowTableMenu(false)}
                   onToggle={() => setShowTableMenu((prev) => !prev)}
                   position="top-left"
@@ -28742,7 +28767,7 @@ function LiveTablePage({
                 key={`${lightningRoom.poolSessionId}/${userId}`}
                 clusterId={lightningRoom.clusterId}
                 onLeave={leaveLightningAfterThisHand}
-                ensureStopped={stopLightningForLeave}
+                ensureStopped={stopLightningForLeave.receipt}
                 queued={lightningLeaveAfterHand.queued}
                 onCancel={cancelLightningLeave}
               />
@@ -28774,11 +28799,7 @@ function LiveTablePage({
                 STACKS, HOW MANY PLAYERS ETC." Every must-move table carries
                 it; the SEAT CHANGE button under it appears only while the
                 database says the change is available. */}
-            {/* THE SEAT CHANGE BUTTON IS ON THE LEFT (Dan 2026-10-14): "THE
-                'SEAT CHANGE' BUTTON SHOULD NEVER BE IN THE UPPER RIGHT HAND
-                CORNER, IT SHOULD BE ON THE LEFT SIDE." The box still mounts in
-                this slot, but its dock is pinned to the left edge at the same
-                height (.hud-seat-change-dock, TableHUD.css). */}
+            {/* The feeder dock shares Chat's row on the opposite table edge. */}
             {!tableState.isTournament &&
               tableState.clusterId &&
               !anchorLightningClusterId &&
@@ -28787,6 +28808,7 @@ function LiveTablePage({
                   <CashClusterHUD
                     gameId={tableState.clusterId}
                     refreshKey={clusterRefreshKey}
+                    seatChangeEnabled={seatChangeEnabled}
                     onOpenLobby={() => setShowMustMoveLobby(true)}
                     onSeatChange={() => setShowMustMoveLobby(true)}
                     onGoToTable={(dest) => {
@@ -32794,7 +32816,7 @@ function LiveTablePage({
         // Leave Confirm
         showLeaveConfirm={showLeaveConfirm}
         onCloseLeaveConfirm={() => setShowLeaveConfirm(false)}
-        onConfirmLeaveTable={handleLeaveTable}
+        onConfirmLeaveTable={() => void handleLeaveTable()}
         // Session Stats
         showSessionStats={showSessionStats}
         sessionStatsRevision={engineWsStatus}
@@ -33212,6 +33234,7 @@ function LiveTablePage({
         isOpen={showMustMoveLobby}
         gameId={lightningRoomClusterId ?? tableState.clusterId}
         lightning={Boolean(lightningRoomClusterId)}
+        seatChangeEnabled={seatChangeEnabled}
         asset={tableState.arenaAsset === 'diamonds' ? 'diamonds' : 'chips'}
         currentTableId={tableId}
         onClose={() => setShowMustMoveLobby(false)}

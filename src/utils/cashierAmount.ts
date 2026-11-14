@@ -17,10 +17,13 @@ import { exactChips } from './format';
  * amount - the exact two-decimal figure prints instead, grouped by thousands:
  * 5 x 1,999.99 is "9,999.95", never "9.9K". Whole chips print whole.
  */
-export function exactChipFigure(value: number): string {
-  // Exact at the stored precision (Dan 2026-11-13): never rounds a real third
-  // decimal away. Same output as before for every whole or two-place figure.
-  return exactChips(Number.isFinite(value) ? value : 0);
+export function exactChipFigure(value: number | string): string {
+  // Decimal text from the database prints digit for digit (Dan 2026-11-13).
+  // A number here is a cashier amount: every source is a scale-2 chip column
+  // (chip_transactions.amount numeric(14,2), wallets numeric(20,2)), or a sum
+  // of them, so its explicit precision is cents and chipCents applies it.
+  if (typeof value === 'string') return exactChips(value);
+  return exactChips(Number.isFinite(value) ? chipCents(value) : 0);
 }
 
 /**
@@ -29,6 +32,16 @@ export function exactChipFigure(value: number): string {
  * displayed sum on the Trade page goes through here so a figure can never carry
  * drift the ledger does not have.
  */
+/**
+ * The result of client-side chip arithmetic, at the platform's stored chip
+ * precision: cents (every chip column is scale 2). The explicit rounding rule
+ * for a sum, difference or average computed in the browser, applied before a
+ * formatter prints it (the formatter itself never guesses at noise).
+ */
+export function chipCents(value: number): number {
+  return Math.round((Number(value) || 0) * 100) / 100;
+}
+
 export function sumChips(values: Iterable<number>): number {
   let cents = 0;
   for (const value of values) cents += Math.round((Number(value) || 0) * 100);

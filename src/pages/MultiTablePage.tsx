@@ -257,6 +257,7 @@ interface TableInstance {
   /** TablePage's `seatCanAddFunds` answer; the tab bar drops its Top Up items
    *  on `false`. Reported, never derived here: this page cannot see the arena. */
   canAddFunds?: boolean;
+  seatChangeEnabled?: boolean;
   buttonTheme?: string;
   isAutoRebuyEnabled?: boolean;
   /** Dan 2026-08-21: short game code the tab shows when no hand is live
@@ -2291,6 +2292,7 @@ export default function MultiTablePage() {
           seated: t.seated,
           canSitDown: t.canSitDown,
           canAddFunds: t.canAddFunds,
+          seatChangeEnabled: t.seatChangeEnabled,
           buttonTheme: t.buttonTheme,
           isAutoRebuyEnabled: t.isAutoRebuyEnabled,
           /* Dan 2026-10-04: a tournament tab prints its buy-in, never its

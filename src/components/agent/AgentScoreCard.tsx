@@ -25,6 +25,7 @@ import { compactChips } from '../../utils/format';
 import { titleCase } from '../../utils/titleCase';
 import './AgentScoreCard.css';
 import { reportError } from '../../utils/errorReporter';
+import { chipCents } from '../../utils/cashierAmount';
 
 interface AgentScoreCardProps {
   userId: string;
@@ -117,11 +118,10 @@ export default function AgentScoreCard({ userId, clubId }: AgentScoreCardProps) 
       const clawbackRate = totalDist > 0 ? (clawedBack / totalDist) * 100 : 0;
       const totalPlayers = uniquePlayerIds.length;
       const retentionRate = totalPlayers > 0 ? (activePlayers / totalPlayers) * 100 : 0;
-      const totalAmount = (distributions || []).reduce(
-        (sum: number, d: any) => sum + (d.amount || 0),
-        0
+      const totalAmount = chipCents(
+        (distributions || []).reduce((sum: number, d: any) => sum + (d.amount || 0), 0)
       );
-      const avgDist = totalDist > 0 ? totalAmount / totalDist : 0;
+      const avgDist = totalDist > 0 ? chipCents(totalAmount / totalDist) : 0;
 
       // Compute sub-scores (0–100 each)
       const distributionScore = Math.min(100, Math.round((totalDist / 50) * 100)); // 50+ = max

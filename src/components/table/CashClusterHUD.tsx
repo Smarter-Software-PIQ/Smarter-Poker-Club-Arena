@@ -49,6 +49,7 @@ export const CASH_CLUSTER_HUD_POLL_MS = 10_000;
 
 export interface CashClusterHUDProps {
   gameId: string;
+  seatChangeEnabled?: boolean;
   /** Bumped by the page whenever a seat-move event lands, to re-read at once. */
   refreshKey?: number;
   onOpenLobby: () => void;
@@ -65,6 +66,7 @@ export interface CashClusterHUDProps {
 export function CashClusterHUD({
   gameId,
   refreshKey = 0,
+  seatChangeEnabled = true,
   onOpenLobby,
   onSeatChange,
 }: CashClusterHUDProps) {
@@ -73,8 +75,8 @@ export function CashClusterHUD({
 
   const me = lobby?.me ?? null;
   const moveNotice = me?.seated ? pendingMoveNotice(me.pending_move) : null;
-  const seatChangeAvailable = Boolean(me?.seated && me.seat_change.available);
-  const listed = me?.seat_change.request ?? null;
+  const seatChangeAvailable = Boolean(seatChangeEnabled && me?.seated && me.seat_change.available);
+  const listed = seatChangeEnabled ? me?.seat_change.request : null;
   const onWaitlist = Boolean(me && !me.seated && me.waitlist?.on_list);
   /* ── THE BLUE PILL IS GONE (Dan 2026-11-01, binding) ─────────────────────
      "REMOVE THE BLUE PILL SHAPED 'CHAIR OPEN IN THE GAME TAKE A SEAT'.
@@ -109,16 +111,6 @@ export function CashClusterHUD({
           which has to be beside the seats it is about, and the seat-change /
           waitlist buttons, which are actions rather than a readout. Every
           figure the bar carried is one tap away inside the lobby. */}
-      {moveNotice && (
-        <div
-          className="cch-move-notice"
-          role="status"
-          aria-live="polite"
-          data-testid="cch-move-notice"
-        >
-          {moveNotice}
-        </div>
-      )}
       {seatChangeAvailable && seatChangeVisible && (
         <div className="cch-seat-change-control">
           <button
@@ -137,6 +129,16 @@ export function CashClusterHUD({
               <span className="cch-seat-change__label">Seat Change</span>
             </span>
           </button>
+        </div>
+      )}
+      {moveNotice && (
+        <div
+          className="cch-move-notice"
+          role="status"
+          aria-live="polite"
+          data-testid="cch-move-notice"
+        >
+          {moveNotice}
         </div>
       )}
       {listed && seatChangeVisible && (

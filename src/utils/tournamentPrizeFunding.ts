@@ -1,5 +1,6 @@
 import { formatPrizeAtUnit, moneyWordAtUnit } from './format';
 import { CHIP_UNIT_CENTS } from '../../server/src/tournament/tournamentUnit';
+import { chipCents } from './cashierAmount';
 /** Guarantees cover places and bounties together; fees never fund prizes. */
 export interface TournamentPrizeTerms {
   buy_in_amount?: number | null;
@@ -56,7 +57,8 @@ export function displayTotalPool(
   void guarantee;
   void rake;
   void finalized;
-  return amount(prizePool) + amount(bountyPool);
+  // Both columns are scale-2 chip amounts: the sum is held to cents.
+  return chipCents(amount(prizePool) + amount(bountyPool));
 }
 
 /** Fixed-bounty copy comes from charged terms, never an old schedule blurb. */
