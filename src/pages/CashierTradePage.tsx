@@ -130,7 +130,7 @@ import { downloadCsv, toCsv } from '../utils/downloadCsv';
 import { cashoutStatusLabel, waitingFor } from '../utils/cashoutStatus';
 import styles from './CashierTradePage.module.css';
 import { playerDisplayName, PLAYER_NAME_COLUMNS } from '../utils/playerDisplayName';
-import { selectTextTwins } from '../lib/selectTextTwins';
+import { selectTextTwins } from '../services/ClubRosterService';
 import {
   compareCashierRoster,
   CASHIER_ROSTER_SELECT,

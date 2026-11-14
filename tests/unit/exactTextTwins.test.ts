@@ -6,7 +6,6 @@ import ClubRosterService, {
   textTwinSelect,
 } from '../../src/services/ClubRosterService';
 import { CASHIER_ROSTER_SELECT, mapCashierRoster } from '../../src/lib/cashierRoster';
-import { selectTextTwins } from '../../src/lib/selectTextTwins';
 import { playerRecordMoney } from '../../src/utils/playerRecordMoney';
 import { formatWalletChips } from '../../src/utils/format';
 
