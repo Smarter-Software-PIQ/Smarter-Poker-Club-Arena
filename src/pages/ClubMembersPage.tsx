@@ -241,7 +241,7 @@ function readSort(value: string | null): RosterSort {
    Statistics (utils/format): fees feeFigure, wallets formatWalletChips, signed
    results winLossChips, counts countFigure. Null is a figure this viewer may
    not see. */
-function walletFigure(value: number | null): string {
+function walletFigure(value: number | string | null): string {
   return value == null ? 'Restricted' : formatWalletChips(value);
 }
 
@@ -2327,8 +2327,14 @@ export const MemberRow = memo(function MemberRow({
               )}
               {columns.has('wallets') && (
                 <>
-                  <Metric label="Agent Wallet" value={walletFigure(member.agent_wallet)} />
-                  <Metric label="Player Wallet" value={walletFigure(member.player_wallet)} />
+                  <Metric
+                    label="Agent Wallet"
+                    value={walletFigure(member.agent_wallet_text ?? member.agent_wallet)}
+                  />
+                  <Metric
+                    label="Player Wallet"
+                    value={walletFigure(member.player_wallet_text ?? member.player_wallet)}
+                  />
                 </>
               )}
             </span>
