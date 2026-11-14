@@ -100,6 +100,7 @@ import { ServerTableEngine } from './engine/ServerTableEngine.js';
 import { TableRestartBackoff } from './engine/TableRestartBackoff.js';
 import { equityGovernor } from './engine/EquityLoadGovernor.js';
 import { stopBrainTelemetryFlush } from './services/BrainTelemetryFlush.js';
+import { stopHorseUpgradeEvidenceFlush } from './services/HorseUpgradeEvidenceFlush.js';
 import { HorseDecisionAbortedError } from './engine/horseDecision/client.js';
 import {
   liveHorseDecisionWorkerStatus,
@@ -5926,6 +5927,10 @@ export class GameServer {
       startingHorseDecisionStop ??
         beginOwnedStop('LiveHorseDecisionWorker', stopLiveHorseDecisionWorker),
       beginOwnedStop('HorseExecutionTelemetry', stopBrainTelemetryFlush),
+      // Per-Horse upgrade evidence: its bounded final write (15,000 ms at most) runs in this same
+      // parallel slot, so it adds no serial shutdown time. It never rejects and owns no lease, so it
+      // is not an ownership stop: unwritten evidence is reported, never a reason to hold the leases.
+      stopHorseUpgradeEvidenceFlush(),
     ]);
     if (horseDecisionStop.status === 'rejected') {
       const error = new AggregateError(

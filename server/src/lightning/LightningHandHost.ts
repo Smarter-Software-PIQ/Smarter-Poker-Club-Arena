@@ -81,6 +81,10 @@ import {
   type HorseAcceptedAction,
 } from '../engine/HorseExecutionWitness.js';
 import { noteFire } from '../engine/BrainTelemetry.js';
+import {
+  horseUpgradeEvidenceArmed,
+  noteHorseUpgradeEvent,
+} from '../engine/HorseUpgradeEvidence.js';
 import { TimeBankEngine, type TimeBankEvent } from '../engine/TimeBankEngine.js';
 import { DisconnectEngine } from '../engine/DisconnectEngine.js';
 import { playerActionContext } from '../engine/PlayerActionContext.js';
@@ -1706,6 +1710,14 @@ export class LightningHandHost {
         if (stale) {
           this.notePreAction(userId, 'cleared', stale, 'horse_live_turn');
           noteFire('upgrade09_preaction_purge_lightning_seen');
+          // Per-Horse evidence only (serverOwnedHorse: never a person's client). Lightning is cash.
+          if (horseUpgradeEvidenceArmed())
+            noteHorseUpgradeEvent(
+              userId,
+              String(this.rules?.game_variant || 'nlh'),
+              'cash',
+              'upgrade_09_preaction_purge'
+            );
         }
       } else {
         // The seat lights up for a readable beat (the engine's 250 ms), then the

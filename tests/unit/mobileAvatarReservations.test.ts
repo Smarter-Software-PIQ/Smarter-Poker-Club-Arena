@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { heroPrivateReservations } from '../../src/components/table/heroPrivateReservations';
 import {
   dealerReservations,
+  dealerSeatReservations,
   hiddenFanReservations,
   hiddenFanStates,
   mobilePositionLabels,
@@ -129,6 +130,50 @@ describe('static mobile reservations', () => {
     expect(card.top + card.height).toBeCloseTo(245);
     expect(card.height).toBeCloseTo(52 * 0.346);
     expect(card.left).toBeCloseTo(140 + 26 - 0.8 * card.width);
+  });
+  it('preserves the round nine-seat dealer footprint and frees its transparent corners', () => {
+    const anchors = [
+      [50, 100],
+      [4, 78],
+      [4, 50],
+      [4, 22],
+      [27, 0],
+      [73, 0],
+      [96, 22],
+      [96, 50],
+      [96, 78],
+    ].map(([x, y]) => ({ x, y }));
+    const scalerSize = { w: 528, h: 756, railBets: false, portraitTags: true, portraitTaper: 0 };
+    const canvas = { left: 36, top: 226, width: 528, height: 756 };
+    const boxes = dealerSeatReservations({
+      canvas,
+      scale: 1,
+      dealerSize: 38,
+      viewportWidth: 600,
+      scalerSize,
+      anchors,
+    });
+    const pos = dealerButtonPositionClearOfSeat(
+      anchors[0],
+      scalerSize,
+      seatPodPx(600, true, 528),
+      anchors
+    );
+    const cx = canvas.left + (pos.x * canvas.width) / 100,
+      cy = canvas.top + (pos.y * canvas.height) / 100;
+    const reserved = (x: number, y: number) =>
+      boxes.some(
+        (b) =>
+          x >= b.left - 1e-8 &&
+          x <= b.left + b.width + 1e-8 &&
+          y >= b.top - 1e-8 &&
+          y <= b.top + b.height + 1e-8
+      );
+    for (let degrees = 0; degrees < 360; degrees++) {
+      const theta = (degrees * Math.PI) / 180;
+      expect(reserved(cx + 21 * Math.cos(theta), cy + 21 * Math.sin(theta))).toBe(true);
+    }
+    expect(reserved(cx - 20, cy + 20)).toBe(false);
   });
   it('covers natural dealer boxes and every straight glide between owners', () => {
     const canvas = { left: 30, top: 90, width: 480, height: 900 };

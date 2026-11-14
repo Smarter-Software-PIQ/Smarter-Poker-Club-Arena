@@ -3047,6 +3047,57 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'the persona indifference band was asked about a real choice, and whether the pick differed from the best',
     '2026-11-12'
   ),
+  // Per-Horse upgrade evidence (2026-11-14): the health of the per-Horse record itself. All eight are
+  // occurrence counters with no floor; zero is the normal state, and any positive value on a day
+  // means horse_upgrade_evidence_daily undercounts that day for the process that fired it.
+  receipt(
+    'per_horse_evidence_cell_dropped_seen',
+    'HorseUpgradeEvidence add',
+    'the per-Horse upgrade aggregate was at its 8,192-cell cap and an increment that would open another cell was dropped',
+    '2026-11-14'
+  ),
+  receipt(
+    'per_horse_evidence_identity_refused_seen',
+    'HorseUpgradeEvidence noteHorseUpgradeDecision and noteHorseUpgradeEvent',
+    'a decision or host event carried a user id that is not a uuid and was not recorded (the writer stores a uuid)',
+    '2026-11-14'
+  ),
+  receipt(
+    'per_horse_evidence_arming_failed_seen',
+    'HorseUpgradeEvidenceFlush startHorseUpgradeEvidenceFlush',
+    'arming the per-Horse aggregate threw at service start (the activation manifest could not be read); evidence stays off for that process and its boot continues',
+    '2026-11-14'
+  ),
+  receipt(
+    'per_horse_evidence_fold_failed_seen',
+    'workerRuntime executeFastWithUpgradeEvidence',
+    'recording one answered FAST decision per Horse threw; the decision and its lifecycle were not touched and that decision is missing from the per-Horse record',
+    '2026-11-14'
+  ),
+  receipt(
+    'per_horse_evidence_batch_rejected_seen',
+    'HorseUpgradeEvidenceFlush publisher',
+    'fn_horse_upgrade_evidence_flush refused a batch for a property of its bytes and the publisher dropped it instead of resending it',
+    '2026-11-14'
+  ),
+  receipt(
+    'per_horse_evidence_batch_abandoned_seen',
+    'HorseUpgradeEvidenceFlush publisher',
+    'a per-Horse evidence batch stayed unconfirmed for HORSE_UPGRADE_EVIDENCE_MAX_ATTEMPTS flushes (an hour at one every 300 seconds) and was dropped',
+    '2026-11-14'
+  ),
+  receipt(
+    'per_horse_evidence_function_missing_seen',
+    'HorseUpgradeEvidenceFlush publisher',
+    'the database answered that fn_horse_upgrade_evidence_flush does not exist; the rows went back into the capped aggregate for the next tick',
+    '2026-11-14'
+  ),
+  receipt(
+    'per_horse_evidence_write_unconfirmed_seen',
+    'HorseUpgradeEvidenceFlush publisher',
+    'a per-Horse evidence write was not acknowledged (transport error, timeout or malformed acknowledgement); the same bytes are resent next tick',
+    '2026-11-14'
+  ),
   receipt(
     'closed_table_hand_memory_released',
     'ServerTableEngineBase (#9351)',
