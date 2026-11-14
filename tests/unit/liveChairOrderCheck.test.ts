@@ -62,6 +62,77 @@ it('a correct ring passes', () => {
   expect(chairViolations()).toEqual([]);
 });
 
+it('rejects a lower-right nine-seat player drawn inward beside the middle-right player', () => {
+  mount(RING);
+  const table = document.querySelector<HTMLElement>('.table-page')!;
+  table.dataset.seats = '9';
+  vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList);
+  const seat = table.querySelector<HTMLElement>('[data-seat-num="6"]')!;
+  seat.parentElement!.dataset.box = seat.dataset.box;
+  expect(readMobileTableLayout({}).violations).not.toContain(
+    'Chair 6 Left Its Nine-Max Rail Anchor'
+  );
+  seat.dataset.box = '370,545,80,100';
+  expect(readMobileTableLayout({}).violations).toContain('Chair 6 Left Its Nine-Max Rail Anchor');
+});
+
+it('refuses a top nine-seat portrait that extends down onto the table', () => {
+  mount(RING);
+  const table = document.querySelector<HTMLElement>('.table-page')!;
+  table.dataset.seats = '9';
+  vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList);
+  const seat = table.querySelector<HTMLElement>('[data-seat-num="2"]')!;
+  const wrapper = seat.parentElement!;
+  wrapper.classList.add('seat-wrapper--cap');
+  wrapper.dataset.box = seat.dataset.box;
+  seat.innerHTML = '<div class="seat__info" data-box="120,128,84,30"></div>';
+  const violation = 'Chair 2 Top Portrait Inside Nine-Max Table';
+  expect(readMobileTableLayout({}).violations).toContain(violation);
+  seat.querySelector<HTMLElement>('.seat__info')!.dataset.box = '120,112,84,30';
+  expect(readMobileTableLayout({}).violations).not.toContain(violation);
+});
+
+it('keeps both blind stacks and the collected pile on the playing surface', () => {
+  mount(RING);
+  const table = document.querySelector<HTMLElement>('.table-page')!;
+  table.dataset.seats = '9';
+  table.dataset.feltTheme = 'classic_green';
+  vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList);
+  table.insertAdjacentHTML(
+    'beforeend',
+    '<div class="table-surface" data-box="80,180,440,720"></div><div class="seat__bet-chips" data-box="105,268,28,20"></div><div class="pot-display__pile--pot" data-box="281,380,38,20"></div>'
+  );
+  const violation = 'Nine-Max Chips Encroach On Rail';
+  expect(readMobileTableLayout({}).violations).toContain(violation);
+  table.querySelector<HTMLElement>('.seat__bet-chips')!.dataset.box = '210,260,28,20';
+  expect(readMobileTableLayout({}).violations).not.toContain(violation);
+  table.querySelector<HTMLElement>('.pot-display__pile--pot')!.dataset.box = '180,175,38,20';
+  expect(readMobileTableLayout({}).violations).toContain(violation);
+});
+
+it('records live resting chip offsets and rejects a landing away from the pot', () => {
+  mount(RING);
+  const table = document.querySelector<HTMLElement>('.table-page')!;
+  table.dataset.seats = '9';
+  vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList);
+  const ring = table.querySelector<HTMLElement>('.table-scaler')!;
+  Object.defineProperty(ring, 'offsetWidth', { value: 600 });
+  ring.insertAdjacentHTML(
+    'beforeend',
+    '<div class="pot-area" data-box="280,380,40,40"></div><div class="seat__bet-chips" style="--collect-dx:90px;--collect-dy:70px"><div class="cp-stacks" data-box="200,320,20,20"></div></div>'
+  );
+  const stack = ring.querySelector('.cp-stacks')!;
+  Object.defineProperty(stack, 'getAnimations', { value: () => [] });
+  expect(readMobileTableLayout({}).restingCollectionEndpoints?.[0]).toMatchObject({
+    target: 'pot-area',
+    distance: 0,
+  });
+  ring.querySelector<HTMLElement>('.seat__bet-chips')!.style.setProperty('--collect-dy', '60px');
+  expect(readMobileTableLayout({}).violations).toContain(
+    'Nine-Max Resting Wager Collection Misses Pot'
+  );
+});
+
 it("Danimal's collapse is caught: every chair right of 30% pinned at 29.7%", () => {
   const collapsed = { ...RING };
   for (const n of [3, 4, 5, 6, 7]) collapsed[n] = [29.7, RING[n][1]];

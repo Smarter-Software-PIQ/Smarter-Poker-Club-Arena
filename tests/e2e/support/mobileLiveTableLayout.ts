@@ -341,6 +341,13 @@ export function readMobileTableLayout(crowns: Readonly<Record<string, number>>) 
   ).filter(visible);
   const cards = Array.from(table.querySelectorAll('.seat__cards .seat__card')).filter(visible);
   const violations: string[] = [];
+  const restingCollectionEndpoints: Array<{
+    seat: string | null;
+    target: 'pot-pile' | 'pot-area';
+    projected: { x: number; y: number };
+    expected: { x: number; y: number };
+    distance: number;
+  }> = [];
   let crownProof: {
     gap: number;
     maximumGap: number;
@@ -377,6 +384,108 @@ export function readMobileTableLayout(crowns: Readonly<Record<string, number>>) 
       for (const b of chairs)
         if (a.n < b.n && Math.hypot(a.x - b.x, a.y - b.y) < 24)
           violations.push(`Chairs ${a.n} And ${b.n} Drawn On One Spot`);
+  }
+  if (
+    table.dataset.seats === '9' &&
+    matchMedia('(min-width: 481px) and (max-width: 640px) and (orientation: portrait)').matches
+  ) {
+    const surface = table.querySelector('.table-surface');
+    if (surface && visible(surface)) {
+      const f = box(surface),
+        radius = f.width / 2;
+      for (const chip of table.querySelectorAll('.seat__bet-chips,.pot-display__pile--pot')) {
+        if (!visible(chip)) continue;
+        const r = box(chip);
+        const clear = [r.left, r.right].every((x) =>
+          [r.top, r.bottom].every(
+            (y) =>
+              Math.hypot(
+                x - (f.left + radius),
+                y - Math.max(f.top + radius, Math.min(f.bottom - radius, y))
+              ) <=
+              radius - 7.5
+          )
+        );
+        let clearsGold = true;
+        if (ring && table.dataset.feltTheme === 'classic_green') {
+          const art = box(ring);
+          const x = Math.max(
+            302.5 - ((r.left - art.left) * 605) / art.width,
+            ((r.right - art.left) * 605) / art.width - 302.5
+          );
+          const y = Math.max(
+            275 - ((r.top - art.top) * 1000) / art.height,
+            ((r.bottom - art.top) * 1000) / art.height - 725,
+            0
+          );
+          clearsGold = (x / 200.5) ** 2 + (y / 186) ** 2 < 1;
+        }
+        if (!clear || !clearsGold) violations.push('Nine-Max Chips Encroach On Rail');
+      }
+    }
+    // Record the endpoint encoded on actual resting wagers. An already moving
+    // stack cannot supply its resting origin. A hand without wagers contributes
+    // no endpoint evidence.
+    const pile = table.querySelector('.pot-display__pile--pot');
+    const pot = pile ?? table.querySelector('.pot-area');
+    if (ring instanceof HTMLElement && pot && visible(pot) && ring.offsetWidth) {
+      const scale = box(ring).width / ring.offsetWidth;
+      const target = box(pot);
+      const expected = { x: target.left + target.width / 2, y: target.top + target.height / 2 };
+      for (const bet of table.querySelectorAll<HTMLElement>('.seat__bet-chips')) {
+        const stack = bet.querySelector('.cp-stacks');
+        if (
+          !stack ||
+          !visible(stack) ||
+          stack.getAnimations().some((a) => a.playState === 'running')
+        )
+          continue;
+        const from = box(stack);
+        const style = getComputedStyle(bet);
+        const dx = parseFloat(style.getPropertyValue('--collect-dx'));
+        const dy = parseFloat(style.getPropertyValue('--collect-dy'));
+        if (!Number.isFinite(dx) || !Number.isFinite(dy)) {
+          violations.push('Nine-Max Resting Wager Missing Collection Offset');
+          continue;
+        }
+        const projected = {
+          x: from.left + from.width / 2 + dx * scale,
+          y: from.top + from.height / 2 + dy * scale,
+        };
+        const distance = Math.hypot(projected.x - expected.x, projected.y - expected.y);
+        restingCollectionEndpoints.push({
+          seat: bet.closest('.seat')?.getAttribute('data-seat-num') ?? null,
+          target: pile ? 'pot-pile' : 'pot-area',
+          projected,
+          expected,
+          distance,
+        });
+        if (distance > 2) violations.push('Nine-Max Resting Wager Collection Misses Pot');
+      }
+    }
+    for (const wrapper of table.querySelectorAll('.seat-wrapper:not(.seat-wrapper--hero)')) {
+      const seat = wrapper.querySelector<HTMLElement>('.seat:not(.seat--empty)');
+      if (!seat || !visible(seat) || !visible(wrapper)) continue;
+      const cap = wrapper.matches('.seat-wrapper--cap,.seat-wrapper--top');
+      if (ring && cap) {
+        const plate = seat.querySelector('.seat__info');
+        if (
+          plate &&
+          visible(plate) &&
+          box(plate).top >
+            box(ring).top +
+              12 * (box(ring).width / ((ring as HTMLElement).offsetWidth || box(ring).width)) +
+              2
+        )
+          violations.push(`Chair ${seat.dataset.seatNum} Top Portrait Inside Nine-Max Table`);
+      }
+      const anchor = box(wrapper);
+      const pod = box(seat);
+      const dx = pod.left + pod.width / 2 - (anchor.left + anchor.width / 2);
+      const dy = pod.top + pod.height / 2 - (anchor.top + anchor.height / 2);
+      if (Math.abs(dx) > 2 || (!cap && Math.abs(dy) > 2))
+        violations.push(`Chair ${seat.dataset.seatNum} Left Its Nine-Max Rail Anchor`);
+    }
   }
   const footerControls = Array.from(
     table.querySelectorAll('.waitlist-cta, .action-panel, .pre-action-bar')
@@ -884,6 +993,7 @@ export function readMobileTableLayout(crowns: Readonly<Record<string, number>>) 
   return {
     violations,
     crownProof,
+    restingCollectionEndpoints,
     occupied: plates.length,
     width: innerWidth,
     plateWidths: plates.map((plate) => box(plate).width),

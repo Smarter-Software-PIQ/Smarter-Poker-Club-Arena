@@ -1163,6 +1163,9 @@ export function createOpponentAvatarLayout(
     images().find((image) => image.closest('.seat--hero')) ??
     images().find((image) => image.closest('.seat-wrapper--hero'));
   const anchorSeat = () => anchorImage()?.closest<HTMLElement>('.seat');
+  const fixedPhoneRail = () =>
+    page.dataset.seats === '9' &&
+    matchMedia('(min-width: 481px) and (max-width: 640px) and (orientation: portrait)').matches;
   const movableSeats = (includeEmpty = false) => {
     const anchor = anchorSeat();
     return Array.from(scaler.querySelectorAll<HTMLElement>('.seat')).filter(
@@ -1597,7 +1600,14 @@ export function createOpponentAvatarLayout(
   };
   const tryShiftOwnerForWager = (seat: HTMLElement, deltaY: number, accept: () => boolean) => {
     const old = state.shifts.get(seat);
-    if (state.locked || !old || !Number.isFinite(deltaY) || seat === anchorSeat()) return false;
+    if (
+      fixedPhoneRail() ||
+      state.locked ||
+      !old ||
+      !Number.isFinite(deltaY) ||
+      seat === anchorSeat()
+    )
+      return false;
     const ratio = tableRenderScale(scaler);
     const parts = (owner: HTMLElement): Box[] => {
       const image = owner.querySelector<HTMLImageElement>('.seat__avatar-img');
@@ -1913,6 +1923,16 @@ export function createOpponentAvatarLayout(
           changed = true;
         }
       }
+    }
+    // The nine phone chairs belong to the mirrored rail. A player joining,
+    // an action caption or a wager must not send a chair across the felt.
+    if (fixedPhoneRail()) {
+      for (const seat of movableSeats()) {
+        seat.style.setProperty('--sp-opponent-x', '0px');
+        seat.style.setProperty('--sp-opponent-y', '0px');
+        state.shifts.set(seat, [0, 0]);
+      }
+      return changed;
     }
     const pageBox = box(page);
     const header = page

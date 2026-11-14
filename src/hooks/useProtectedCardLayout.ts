@@ -138,7 +138,10 @@ export function useProtectedCardLayout(
     const topPods = () =>
       Array.from(
         scaler.querySelectorAll<HTMLElement>(
-          page.getAttribute('data-seats') === '6' && page.getBoundingClientRect().width > 480
+          (page.getAttribute('data-seats') === '6' && page.getBoundingClientRect().width > 480) ||
+            (page.getAttribute('data-seats') === '9' &&
+              matchMedia('(min-width: 481px) and (max-width: 640px) and (orientation: portrait)')
+                .matches)
             ? '.seat-wrapper--cap, .seat-wrapper--top'
             : '.seat-wrapper--top'
         )
@@ -770,7 +773,11 @@ export function useProtectedCardLayout(
             if (railLine(pod) === railLine(entry.pod) && top !== undefined)
               level = Math.min(level, top);
           }
-          entry.shift = Math.max(entry.floor, (level - entry.plateTop) / scale);
+          if (inwardFans && page.getAttribute('data-seats') === '9') {
+            // Both cap plates sit twelve pixels into the outer rail. Their
+            // portraits extend upward into the dedicated cap row.
+            entry.shift = (scaler.getBoundingClientRect().top - entry.plateTop) / scale + 12;
+          } else entry.shift = Math.max(entry.floor, (level - entry.plateTop) / scale);
         }
         for (const { pod, shift } of placed) {
           pod.style.translate = `0px ${shift}px`;
@@ -971,6 +978,45 @@ export function useProtectedCardLayout(
         // including already-cached rows and Hero's visible deal/peek motion.
         if (hasPendingCardMotion(Array.from(scaler.querySelectorAll<HTMLElement>('.seat__cards'))))
           return;
+        if (inwardFans && page.getAttribute('data-seats') === '9') {
+          const header = page
+            .closest('.multi-table-page')
+            ?.querySelector('.multi-table-page__tab-bar-wrapper');
+          const top = Math.max(pageBox.top, header?.getBoundingClientRect().bottom ?? 0);
+          const protectedBoxes = Array.from(
+            page.querySelectorAll(
+              '.seat__info,.seat__cards .seat__card,.community-area,.pot-display,.bbj-widget,.bbj-mini-plate,.spectator-footer-bar,.action-panel'
+            )
+          )
+            .map((node) => node.getBoundingClientRect())
+            .filter((r) => r.width && r.height);
+          for (const caption of scaler.querySelectorAll<HTMLElement>('.seat > .seat__action')) {
+            const seat = caption.closest('.seat')!;
+            const rect = caption.getBoundingClientRect();
+            const [dx, dy] = caption.style.translate.split(/\s+/).map(parseFloat);
+            const natural = {
+              left: rect.left - (dx || 0) * scale,
+              top: rect.top - (dy || 0) * scale,
+              width: rect.width,
+              height: rect.height,
+            };
+            const plate = seat.querySelector('.seat__info')?.getBoundingClientRect();
+            if (!plate || !rect.width) continue;
+            const left = Math.max(pageBox.left, plate.left - rect.width / 2);
+            const ceiling = Math.max(top, natural.top - rect.height);
+            const bounds = {
+              left,
+              top: ceiling,
+              width: Math.min(pageBox.right, plate.right + rect.width / 2) - left,
+              height: plate.top - ceiling,
+            };
+            const next = placeProtectedCardRow(natural, protectedBoxes, bounds, 1);
+            if (next) {
+              caption.style.translate = `${(next.left - natural.left) / scale}px ${(next.top - natural.top) / scale}px`;
+              protectedBoxes.push(new DOMRect(next.left, next.top, next.width, next.height));
+            }
+          }
+        }
         if (inwardFans) placeHiddenFans(scaler, page, pageBox, scale);
         const canvas = scaler.getBoundingClientRect();
         // The painted chassis is tapered on a portrait phone only (TablePage.css,
@@ -1032,7 +1078,26 @@ export function useProtectedCardLayout(
            the stack on the rail. Candidates now walk further in, and one is
            only eligible when the WHOLE wager box is on the painted felt with
            daylight to spare (see `wagerOnFelt`). */
+        const ninePhoneFelt = inwardFans && page.getAttribute('data-seats') === '9';
+        const classicGreen =
+          ninePhoneFelt &&
+          (page.getAttribute('data-felt-theme') === 'classic_green' ||
+            scaler
+              .querySelector<HTMLImageElement>('.table-art')
+              ?.src.includes('skin_classic_green'));
         const feltMarginPx = Math.max(8, canvas.width * 0.025);
+        // Classic green's inner gold boundary is a rounded rectangle in the
+        // 605x1000 skin. Stretch its native corners with the actual artwork:
+        // the CSS surface itself is wider along both straight sides.
+        const insideGold = (box: CardBox) => {
+          const x0 = ((box.left - canvas.left - 8 * scale) * 605) / canvas.width;
+          const x1 = ((box.left + box.width - canvas.left + 8 * scale) * 605) / canvas.width;
+          const y0 = ((box.top - canvas.top - 8 * scale) * 1000) / canvas.height;
+          const y1 = ((box.top + box.height - canvas.top + 8 * scale) * 1000) / canvas.height;
+          const dx = Math.max(302.5 - x0, x1 - 302.5) / 199;
+          const dy = Math.max(275 - y0, y1 - 725, 0) / 184;
+          return dx * dx + dy * dy <= 1;
+        };
         const wagerOnFeltWithMargin = (box: CardBox, margin: number): boolean =>
           [
             [box.left, box.top],
@@ -1052,7 +1117,8 @@ export function useProtectedCardLayout(
             const spineY = Math.min(Math.max(py, upper), lower);
             return Math.hypot(px - cx, py - spineY) <= radius + inset - margin;
           });
-        const wagerOnFelt = (box: CardBox) => wagerOnFeltWithMargin(box, feltMarginPx);
+        const wagerOnFelt = (box: CardBox) =>
+          wagerOnFeltWithMargin(box, feltMarginPx) && (!classicGreen || insideGold(box));
         const obstacles = Array.from(
           page.querySelectorAll(
             `.community-area, .table-brand, .pot-display, .pot-display__pile, .seat__avatar-img, .seat__info, .seat__action, .seat__bounty, .seat__position-badge, ${markerCards}, .bbj-widget, .bbj-mini-plate, .chat-collapsed, .mtp-lobby-btn`
@@ -1267,6 +1333,7 @@ export function useProtectedCardLayout(
                 !trial &&
                 stored &&
                 sameWager(bet, stored) &&
+                (!ninePhoneFelt || wagerOnFelt(box)) &&
                 (stored.landed ||
                   (stillOwned &&
                     Math.abs(stored.width - box.width) < 0.5 &&
@@ -1379,9 +1446,11 @@ export function useProtectedCardLayout(
               // A marker's entire disc stays on felt. On a crowded cap lane,
               // one pixel of edge clearance fits where the chips' eight-pixel
               // decoration margin does not; never fall back off felt or to a neighbour.
-              const eligible = hasAllInMarker
-                ? placed.filter((candidate) => wagerOnFeltWithMargin(candidate, 1))
-                : placed;
+              const eligible = ninePhoneFelt
+                ? placed.filter(wagerOnFelt)
+                : hasAllInMarker
+                  ? placed.filter((candidate) => wagerOnFeltWithMargin(candidate, 1))
+                  : placed;
               const clearOfTable = eligible.filter(
                 (candidate) => !obstacles.some((obstacle) => markerTouches(candidate, obstacle))
               );
@@ -2499,6 +2568,29 @@ export function useProtectedCardLayout(
           obstacles.push(next);
           hardObstacles.push(next);
           placedWagers.push(next);
+        }
+        if (ninePhoneFelt) {
+          // Use the final stack's resting centre. Its owner may have moved
+          // above the skin and the marker may have moved inward independently.
+          const pot =
+            page.querySelector('.pot-display__pile--pot') ?? page.querySelector('.pot-area');
+          if (pot) {
+            const to = pot.getBoundingClientRect();
+            for (const bet of wagers()) {
+              const stack = bet.querySelector<HTMLElement>('.cp-stacks');
+              const rest = wagerRestPoint(bet);
+              if (!stack || !rest) continue;
+              const rect = bet.getBoundingClientRect();
+              const dx = (to.left + to.width / 2 - rect.left) / scale - rest.x;
+              const dy =
+                (to.top + to.height / 2 - rect.top) / scale - rest.y + stack.offsetHeight / 2;
+              bet.style.setProperty('--collect-dx', `${dx}px`);
+              bet.style.setProperty('--collect-dy', `${dy}px`);
+              const saved = settled.current.wagers.get(bet);
+              if (saved)
+                saved.offsets = offsetNames.map((name) => bet.style.getPropertyValue(name));
+            }
+          }
         }
         allocationUnresolved = unresolved;
         // Complete the original finite allocation with the safe slots already

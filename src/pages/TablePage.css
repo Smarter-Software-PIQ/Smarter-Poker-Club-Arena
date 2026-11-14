@@ -5424,3 +5424,13 @@ button.post-bb-overlay-button {
     padding-bottom: calc(var(--sp-table-bottom) - 4px);
   }
 }
+
+/* Nine player phone tables leave a cap row above the skin. Shorten only
+   from the top so the bottom seat and controller keep their shared floor. */
+@media (min-width: 481px) and (max-width: 640px) and (orientation: portrait) {
+  .table-page[data-seats='9'] .table-scaler {
+    --sp-nine-cap-room: clamp(108px, 18vw, 120px);
+    height: calc(var(--sp-table-h, 100svh) - var(--sp-nine-cap-room));
+    margin-top: var(--sp-nine-cap-room);
+  }
+}
