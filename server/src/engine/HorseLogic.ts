@@ -6787,6 +6787,13 @@ export class HorseLogic {
                   noteFire(`phase7_objective_${result.ledger.objective}`);
                   noteFire(`phase7_icm_${result.ledger.icmMethod}`);
                   if (result.ledger.overrodeBaseline) noteFire('phase7_utility_override');
+                  // The reference short shove (priced through shortAllInWagers),
+                  // countable by variant: priced, and replaced by the utility.
+                  if (phase8UtilityInput.shortAllInWagers === true) {
+                    noteFire(`phase7_short_shove_priced_${gs.gameVariant}_seen`);
+                    if (selected.action !== 'all_in')
+                      noteFire(`phase7_short_shove_replaced_${gs.gameVariant}_seen`);
+                  }
                   if (result.ledger.sidePotCount > 1) noteFire('phase7_side_pot');
                   if (result.ledger.playersBehind.length > 0) noteFire('phase7_players_behind');
                   if (result.ledger.objective === 'pko') noteFire('phase7_bounty_utility');
@@ -7144,12 +7151,16 @@ export class HorseLogic {
                   if (jointPolicy.receipt.mode === 'candidate') {
                     if (earlierApplied && !this.sameJointAction(selected, beforePhase13))
                       selectionRefusal = 'earlier_phase_applied';
-                    else
+                    else {
                       decision = {
                         ...beforePhase13,
                         ...selected,
                         tournamentUtility: evaluated.result.ledger,
                       };
+                      // The same receipt when this owner replaces the shove.
+                      if (tele && input.shortAllInWagers === true && selected.action !== 'all_in')
+                        noteFire(`phase7_short_shove_replaced_${gs.gameVariant}_seen`);
+                    }
                   }
                 } else {
                   jointPolicy.receipt.utilityOwner = 'phase7_unavailable';

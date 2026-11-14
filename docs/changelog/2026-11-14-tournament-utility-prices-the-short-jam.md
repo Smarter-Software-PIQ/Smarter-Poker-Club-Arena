@@ -20,7 +20,14 @@ Measured on real controller menus (`HorseTournamentUtilityShortJam.test.ts`, 150
 
 Phase 13: the joint owners call the builder without the fact, so the joint proposal is unchanged. The Phase 7 owner that judges that proposal in a tournament (`buildPhase7UtilityInput` on the Phase 13 path, acting only in candidate mode) uses the same rule: it sees the fact only when the proposal it is given is itself the `all_in`, which the joint owner cannot newly propose on this menu because its own candidates hold no jam. The variant owners' shadow evaluation reuses the main input and so carries the fact only when the main reference is the shove.
 
-No telemetry or ledger string is added or renamed.
+## Receipts (added on the sign-off of c7c52fe3)
+
+A replaced reference shove is a live decision change, so it is countable per variant after release. The existing `phase7_utility_override` carries neither the variant nor the reference action, and telemetry rows have no variant column, so two occurrence counters are added, registered in `HorseDataLedger.ts` as the family `phase7_short_shove_*`:
+
+- `phase7_short_shove_priced_<variant>_seen`: a reference `all_in` on the short menu was priced (fires with `phase7_tournament_utility`, only when the input carries `shortAllInWagers`).
+- `phase7_short_shove_replaced_<variant>_seen`: the utility selected another action for it and that action was committed, by the Phase 7 owner or by the Phase 7 owner on the Phase 13 candidate path.
+
+Replaced over priced is the replacement rate of a variant. No other telemetry or ledger string is added or renamed. No threshold or tuning constant is added: when a priced shove becomes a fold is decided by the existing utility model and the existing arbiter gate (the selected action's lower bound must clear every other candidate's upper bound, at `CONFIDENCE_Z_999`).
 
 Not changed here, and still refused as `baseline_not_modeled`: a fixed-limit reference decision of `all_in` on a capped street or from a seat that may not reopen, where the button executes as a call.
 

@@ -4363,6 +4363,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'Phase7'
   ),
   receipt(
+    'phase7_short_shove_*',
+    'HorseLogic (Phase 7 owner, shortAllInWagers)',
+    'phase7_short_shove_priced_<variant>_seen: a pot-limit or fixed-limit tournament reference all_in on the short menu (the all-in button, no sized wager, chips beyond the call) was priced by the tournament utility, the game variant in the name; phase7_short_shove_replaced_<variant>_seen: the utility then selected another action (fold or call) and that action was committed by the Phase 7 owner, or by the Phase 7 owner on the Phase 13 candidate path; replaced over priced is the replacement rate per variant; occurrence counters; named *_seen',
+    '2026-11-14'
+  ),
+  receipt(
     'phase7_utility_skip_incomplete',
     'HorseLogic',
     'Phase 7 failed closed because the Phase 6 context was explicitly incomplete',
