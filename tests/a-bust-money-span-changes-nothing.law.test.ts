@@ -2,14 +2,15 @@
  * A BUST MONEY SPAN CHANGES NOTHING (2026-11-14, incident #3)
  *
  * 20261114190106 re-creates the knockout door (fn_claim_tournament_bounty_
- * elimination) and the bounty payer (fn_collect_bounty) with timing spans so
+ * elimination) and the payer's entry point (fn_collect_bounty_obligation) with
+ * timing spans so
  * the ~0.65 s each spent on Midnight Free Buy b6d94533 can be located. The
  * instrumentation is admissible only if it cannot change a result, an error
  * path or the lock order:
  *
  *   - deleting every line marked `-- @bust-money-span` restores the exact body
  *     of the migration it replaces, byte for byte (the bodies production runs:
- *     prosrc md5 4ec5bce3... and bc621ffb...);
+ *     prosrc md5 4ec5bce3... and dde145f7...);
  *   - a span's PERFORM sets FOUND to true, so no statement after a span may
  *     read FOUND or ROW_COUNT before a statement that resets it;
  *   - the helper swallows every error in its own subtransaction, writes only
@@ -39,10 +40,12 @@ const SOURCES = {
   fn_claim_tournament_bounty_elimination: {
     file: '20261022063749_a_bounty_bust_waits_for_its_tournament_lane.sql',
     md5: '4ec5bce3b65e7b1f18af615a5bdb1a96',
+    spans: 6,
   },
-  fn_collect_bounty: {
-    file: '20260914133503_pko_heads_follow_accepted_knockout_dependencies.sql',
-    md5: 'bc621ffbddfd931897706f6d1f099109',
+  fn_collect_bounty_obligation: {
+    file: '20260908042000_bounty_elimination_outbox_is_atomic_and_recoverable.sql',
+    md5: 'dde145f7b818e905ecf8f6354e55f055',
+    spans: 4,
   },
 } as const;
 
@@ -60,7 +63,7 @@ describe('a bust money span changes nothing', () => {
       const original = bodyOf(read(source.file), fn);
       expect(createHash('md5').update(original).digest('hex')).toBe(source.md5);
       expect(strip(instrumented)).toBe(original);
-      expect(instrumented.split(MARK).length - 1).toBe(6);
+      expect(instrumented.split(MARK).length - 1).toBe(source.spans);
     });
 
     it(`${fn}: no span leaves FOUND or ROW_COUNT stale for a later statement`, () => {
@@ -94,6 +97,11 @@ describe('a bust money span changes nothing', () => {
       }
     });
   }
+
+  it('fn_collect_bounty is not re-created (its frozen uuid version check is never copied forward)', () => {
+    expect(MIGRATION).not.toMatch(/CREATE OR REPLACE FUNCTION\s+public\.fn_collect_bounty\s*\(/);
+    expect(MIGRATION).not.toContain('[1-5][0-9a-f]{3}-[89ab]');
+  });
 
   it('the helper only observes: errors swallowed, bounded, no foreign key, no public grant', () => {
     const helper = MIGRATION.slice(

@@ -12,11 +12,16 @@ unproven explanation: waits under the 1 s log threshold are invisible, and the
 slowest hour had few, fast hand steps.
 
 Migration `20261114190106_bust_money_path_timing_spans.sql` re-creates the
-door and payer from their exact bodies with marked `clock_timestamp()` spans
-(lane, tournament_row, checks/pre_core, core, end) into
+door (`fn_claim_tournament_bounty_elimination`: lane, tournament_row, checks,
+core, end) and the payer's entry point (`fn_collect_bounty_obligation`:
+pre_core, core, end) from their exact bodies with marked `clock_timestamp()`
+spans into
 `smarter_private.ca_bust_money_spans`, through a helper that swallows every
-error and writes only for 48 hours from installation and below a row cap. No
-result, error path or lock order changes:
+error and writes only for 48 hours from installation and below a row cap. `fn_collect_bounty` itself is
+not re-created: its body carries a frozen uuid version check that
+`a-player-id-is-a-uuid-not-a-uuid-version.law.test.ts` forbids copying
+forward, so the payer's internal lane wait is not split out. No result, error
+path or lock order changes:
 
 - `tests/a-bust-money-span-changes-nothing.law.test.ts`: stripped bodies equal
   the production bodies byte for byte; no span precedes a FOUND/ROW_COUNT read

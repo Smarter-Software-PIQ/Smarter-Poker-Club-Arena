@@ -28,7 +28,7 @@ DECLARE n bigint; t0 timestamptz := clock_timestamp() - interval '5 milliseconds
 BEGIN
   -- Both instrumented functions exist and compiled.
   PERFORM 'public.fn_claim_tournament_bounty_elimination(uuid,uuid,integer,numeric,uuid,uuid,bigint,timestamptz,uuid,jsonb,numeric,boolean)'::regprocedure;
-  PERFORM 'public.fn_collect_bounty(uuid,uuid,uuid,jsonb)'::regprocedure;
+  PERFORM 'public.fn_collect_bounty_obligation(uuid)'::regprocedure;
   -- Inside the window: one row, a non-negative duration.
   PERFORM smarter_private.fn_ca_bust_money_span('door','lane',gen_random_uuid(),t0);
   SELECT count(*) INTO n FROM smarter_private.ca_bust_money_spans WHERE ms >= 5;
