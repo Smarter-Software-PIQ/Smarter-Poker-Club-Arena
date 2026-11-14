@@ -402,6 +402,41 @@ class HandHistoryServiceClass {
     });
   }
 
+  /** Resolve only the deal selected on this viewer's Lightning table. */
+  async getPreviousLightningHand(
+    viewer: string,
+    room: string,
+    deal: { id: string | null; number: number },
+    receipt?: { archiveId: string | null }
+  ): Promise<{ state: 'pending' | 'unavailable' } | { state: 'ready'; hand: HandRecord }> {
+    if (readLocalSession()?.userId !== viewer) throw new Error('Lightning viewer changed');
+    let archiveId = receipt?.archiveId;
+    let settled = !!receipt;
+    if (!receipt) {
+      const recent = await fetchLightningRecentHands({ poolSessionId: room });
+      const exact = recent.find((row) =>
+        deal.id ? row.handId === deal.id : row.handNumber === deal.number
+      );
+      settled = !!exact;
+      archiveId = exact?.handHistoryId;
+      // A review can stay open past the recent-session page. A current engine
+      // archives by deal UUID. RLS and the number/participant checks below
+      // still apply, including when a legacy row has a different archive id.
+      if (!exact && recent.length === LIGHTNING_RECENT_HANDS_LIMIT) archiveId = deal.id;
+    }
+    if (readLocalSession()?.userId !== viewer) throw new Error('Lightning viewer changed');
+    if (archiveId) {
+      const [hand] = await this.getHandsByIds([archiveId]);
+      if (readLocalSession()?.userId !== viewer) throw new Error('Lightning viewer changed');
+      if (
+        hand?.hand_number === deal.number &&
+        hand.players.some((player) => player.user_id === viewer)
+      )
+        return { state: 'ready', hand };
+    }
+    return { state: settled ? 'unavailable' : 'pending' };
+  }
+
   /**
    * Get hands for a player.
    *

@@ -738,7 +738,7 @@ import {
   setTournamentDockClosed,
 } from '../lib/tournamentDockStore';
 import {
-  LightningPreviousHandResult,
+  LightningPreviousHandReview,
   PreviousHandCard,
 } from '../components/table/PreviousHandCard';
 import { HandDetailModal } from '../components/table/HandDetailModal';
@@ -1114,7 +1114,10 @@ import {
   TABLE_BACKGROUND_POSITION,
   TABLE_BACKGROUND_REPEAT,
 } from '../lib/tableTheme';
-import { usePreviousLightningDeal } from '../lightning/usePreviousLightningDeal';
+import {
+  usePreviousLightningDeal,
+  type PreviousLightningDeal,
+} from '../lightning/usePreviousLightningDeal';
 import { adaptServiceHandToPanel, panelHandToShareable } from '../lib/handHistoryAdapter';
 import {
   HAND_HISTORY_PAGE,
@@ -2932,9 +2935,14 @@ function LiveTablePage({
   const lightningCheckFoldArmRef = useRef<string | null>(null);
   /** The hand that was last live on this felt: an idle snapshot has no key. */
   const lightningLiveHandKeyRef = useRef<string | null>(null);
-  const [lightningReviewOpen, setLightningReviewOpen] = useState(false);
+  const [selectedLightningReview, setSelectedLightningReview] = useState<{
+    deal: PreviousLightningDeal;
+    receipt?: { archiveId: string | null };
+  } | null>(null);
+  const reviewRoom = lightningObserver ? null : lightningRoom?.poolSessionId;
+  useEffect(() => setSelectedLightningReview(null), [reviewRoom, userId]);
   const reviewedLightningDeal = usePreviousLightningDeal(
-    lightningObserver ? null : lightningRoom?.poolSessionId,
+    reviewRoom,
     userId,
     engineSnapshot as LightningSnapshotFields | null
   );
@@ -3933,6 +3941,11 @@ function LiveTablePage({
     // the player their turn.
     dealHoldTimerRef.current = setTimeout(() => {
       dealHoldTimerRef.current = null;
+      if (lightningRoomRef.current) {
+        if (dealStartTimerRef.current) clearTimeout(dealStartTimerRef.current);
+        dealStartTimerRef.current = null;
+        setDealAnimationKey(0);
+      }
       setDealInFlight(false);
       // An interrupted deal still owes the held cue.
       settleHeroDealSoundRef.current?.(heldHeroDealSoundRef.current);
@@ -9155,7 +9168,9 @@ function LiveTablePage({
    * runtime inside a deferred callback, but the law prefers the declaration
    * moved over the exception baselined, and it is right to.
    */
-  const [handSettling, setHandSettling] = useState(false);
+  const [settlingHandNumber, setSettlingHandNumber] = useState<number | null>(null);
+  const handSettling =
+    settlingHandNumber !== null && (!lightningRoom || settlingHandNumber === tableState.handNumber);
 
   const [bombWheelHands, setBombWheelHands] = useState<number | null>(null);
   const bombWheelPendingRef = useRef<number | null>(null);
@@ -10857,12 +10872,7 @@ function LiveTablePage({
   // therefore paged through an empty array for anyone without a localStorage
   // cache. Both openers hydrate now.
   useEffect(() => {
-    if (
-      (!showHandHistory && !showHandDetail && !lightningReviewOpen) ||
-      !userId ||
-      userId === 'guest'
-    )
-      return;
+    if ((!showHandHistory && !showHandDetail) || !userId || userId === 'guest') return;
     if (handHistoryViewerRef.current !== userId) {
       handHistoryViewerRef.current = userId;
       handHistoryFetchedAtRef.current = null;
@@ -10948,18 +10958,12 @@ function LiveTablePage({
   }, [
     showHandHistory,
     showHandDetail,
-    lightningReviewOpen,
     userId,
     tableId,
     lightningRoom?.poolSessionId,
     lastHandId,
     tableHistoryGameMode,
   ]);
-
-  const reviewedLightningHand =
-    reviewedLightningDeal && loadedHandHistoryScopeRef.current === handHistoryScopeRef.current
-      ? handHistory.find((hand) => hand.handNumber === reviewedLightningDeal.number)
-      : undefined;
 
   const loadOlderReviewHands = useCallback(async (): Promise<string | null> => {
     if (
@@ -12226,7 +12230,7 @@ function LiveTablePage({
 
   const stopLightningForLeave = useLightningLeaveStop(lightningRoom, userId);
   const [settledLightningHandId, setSettledLightningHandId] = useState<string | null>(null);
-  const [lightningCountReceipt, setLightningCountReceipt] = useState<string | null>(null);
+  const [lightningCountReceipt, setLightningCountReceipt] = useState(0);
   const [verifiedLightningAnchor, setVerifiedLightningAnchor] = useState<{
     room: string;
     tableId: string;
@@ -13957,10 +13961,31 @@ function LiveTablePage({
       // straight after a hand could return the PREVIOUS hand. This event is
       // authoritative and arrives before the player can realistically tap.
       if (eventType === 'hand_history_saved') {
+        const receiptRoom = handState.pool_session_id;
+        if (
+          receiptRoom &&
+          receiptRoom === lightningRoomRef.current?.poolSessionId &&
+          handState.player_id === userId
+        ) {
+          const scope = JSON.stringify([receiptRoom, userId]);
+          setSelectedLightningReview((open) => {
+            if (
+              !open ||
+              open.deal.scope !== scope ||
+              open.deal.number !== handState.hand_number ||
+              (open.deal.id && open.deal.id !== handState.lightning_hand_id)
+            )
+              return open;
+            const archiveId = typeof handState.hand_id === 'string' ? handState.hand_id : null;
+            return open.receipt?.archiveId === archiveId
+              ? open
+              : { ...open, receipt: { archiveId } };
+          });
+        }
         if (lightningRoomRef.current && typeof handState.lightning_hand_id === 'string') {
           // Every commit can advance the anchor count, including an earlier fold.
           // Only the displayed hand's receipt can change its settlement state.
-          setLightningCountReceipt(handState.lightning_hand_id);
+          setLightningCountReceipt((receipt) => receipt + 1);
           if (
             lightningHandId(engineSnapshotRef.current as LightningSnapshotFields) ===
             handState.lightning_hand_id
@@ -19950,33 +19975,67 @@ function LiveTablePage({
       // change. The four events below were added with this fix; client must
       // act on them directly, never wait for snapshot diff.
       case 'HAND_STARTED': {
-        if (lightningRoomRef.current && tableId) {
-          const reached = lightningMilestoneRef.current.note(
-            tableId,
-            { ...evt.data, type: 'hand_started' },
-            readLightningPrefs().milestoneHands
-          );
-          // Background rooms count their events but never replay a missed cue.
-          // A decision in any room outranks an optional milestone.
+        const startedHandNumber = Number(evt.data.hand_number) || 0;
+        if (lightningRoomRef.current) {
+          const snapshotHand = Number(engineSnapshotRef.current?.hand_number) || 0;
+          const displayedHand = tableStateRef.current.handNumber || 0;
+          // Event and snapshot sequences are independent. Never unwind a newer
+          // hand, or replay boundary cleanup on a hand already being played.
+          if (startedHandNumber <= 0 || startedHandNumber < Math.max(snapshotHand, displayedHand))
+            break;
           if (
-            reached &&
-            lightningCaps.sound &&
-            ambientSoundsAllowed &&
-            !document.hidden &&
-            !pendingLightningDecisions().some((d) => d.deadlineAt > serverNow())
+            startedHandNumber === snapshotHand &&
+            isLightningIdleSnapshot(engineSnapshotRef.current as LightningSnapshotFields)
+          )
+            break;
+          if (tableId) {
+            const reached = lightningMilestoneRef.current.note(
+              tableId,
+              { ...evt.data, type: 'hand_started' },
+              readLightningPrefs().milestoneHands
+            );
+            // Background rooms count their events but never replay a missed cue.
+            // A decision in any room outranks an optional milestone.
+            if (
+              reached &&
+              lightningCaps.sound &&
+              ambientSoundsAllowed &&
+              !document.hidden &&
+              !pendingLightningDecisions().some((d) => d.deadlineAt > serverNow())
+            ) {
+              soundService.playLightningMilestone();
+            }
+          }
+          const sameLiveHand =
+            snapshotHand === startedHandNumber &&
+            displayedHand === startedHandNumber &&
+            tableStateRef.current.isHandInProgress;
+          const dealtToHero =
+            sameLiveHand &&
+            heroCardsHandRef.current === startedHandNumber &&
+            (tableStateRef.current.players[tableStateRef.current.heroSeat - 1]?.holeCards?.length ??
+              0) > 0;
+          if (
+            lastDealPresentationHandRef.current === startedHandNumber ||
+            dealtToHero ||
+            (sameLiveHand &&
+              (tableStateRef.current.boardStage !== 'preflop' ||
+                Number(engineSnapshotRef.current?.turn_start_time_ms) > 0))
           ) {
-            soundService.playLightningMilestone();
+            lastDealPresentationHandRef.current = startedHandNumber;
+            unpresentedHandTransitionRef.current = null;
+            pendingHandStartRecoveryRef.current = null;
+            break;
           }
         }
         /* A new hand is taking action again (Dan 2026-09-07, item 5). The
            partner of the flag set at HAND_COMPLETE: cleared HERE rather than
            on a timer, because the start of a hand is an event and a duration
            would only be a guess at one. */
-        setHandSettling(false);
+        setSettlingHandNumber(null);
         // AUDIT FIX 2026-07-19: track the new hand number and CLEAR hero hole
         // cards so a dropped card-insert can't leave the previous hand's cards
         // showing; then re-arm the hand-aware fetch to recover the new cards.
-        const startedHandNumber = Number((evt.data as any)?.hand_number) || 0;
         if (startedHandNumber > 0) heroHandRef.current = startedHandNumber;
         // The authoritative discrete event arrived, so any transport-gap arm
         // has done its job. The shared scheduler below records this hand and
@@ -20213,11 +20272,6 @@ function LiveTablePage({
           tableStateRef.current.handNumber === startedHandNumber &&
           tableStateRef.current.isHandInProgress
         );
-        const lightningCardsOnScreen =
-          lightningHandOnScreen &&
-          heroCardsHandRef.current === startedHandNumber &&
-          (tableStateRef.current.players[tableStateRef.current.heroSeat - 1]?.holeCards?.length ??
-            0) > 0;
         if (!heroCardsAlreadyDealtForThisHand) {
           heroEngineCardOrderRef.current = null;
         }
@@ -20298,12 +20352,6 @@ function LiveTablePage({
         // THE BUTTON BEAT (Dan 2026-08-27): the puck glides first, then cards
         // fly. Gap recovery uses this exact same timing law. A Lightning
         // engine's arrival window (2026-11-10) comes first.
-        if (lightningCardsOnScreen) {
-          // A delayed event must never take the visible cards back for a second deal.
-          lastDealPresentationHandRef.current = startedHandNumber;
-          unpresentedHandTransitionRef.current = null;
-          break;
-        }
         pendingLightningArrivalMsRef.current = lightningArrivalWindowMs(
           (evt.data as { lightning_arrival_ms?: unknown } | undefined)?.lightning_arrival_ms
         );
@@ -21167,9 +21215,6 @@ function LiveTablePage({
            through the whole post-hand hold; now it gets exactly the half
            second. Clearing an already-empty array is a no-op, and a NEW
            hand's equities cannot arrive before its own all-in. */
-        window.setTimeout(() => {
-          setAllInEquities([]);
-        }, 500);
         handCompleteResetAtRef.current = Date.now() + holdMs;
         /* Captured so POT_WIN can re-arm exactly this work at a later time
            without duplicating any of it. */
@@ -21191,8 +21236,16 @@ function LiveTablePage({
         const completedHeroSig = holeCardSig(
           tableStateRef.current.players.find((pl) => pl?.isHero)?.holeCards
         );
+        // A reconnect snapshot can advance to B without a fresh start event.
+        // The old award timers may only clear presentation belonging to A.
+        const stillShowingCompletedHand = () =>
+          !lightningRoomRef.current ||
+          (completedHandNumber > 0 &&
+            tableStateRef.current.handNumber === completedHandNumber &&
+            Number(engineSnapshotRef.current?.hand_number) === completedHandNumber);
         handCompleteResetFnRef.current = () => {
           handCompleteTimerRef.current = null;
+          if (!stillShowingCompletedHand()) return;
           if (completedHandNumber > 0) {
             setFinishedHand({ handNumber: completedHandNumber, heroSig: completedHeroSig });
           }
@@ -21236,6 +21289,9 @@ function LiveTablePage({
           // window itself.
           setStackHoldReleased(true);
         };
+        window.setTimeout(() => {
+          if (stillShowingCompletedHand()) setAllInEquities([]);
+        }, 500);
         handCompleteTimerRef.current = window.setTimeout(
           () => handCompleteResetFnRef.current?.(),
           holdMs
@@ -21246,7 +21302,7 @@ function LiveTablePage({
            `boardStage !== 'waiting'` and stays TRUE through this entire hold,
            so nothing else here distinguishes "the winner is being paid" from
            "the next actor is being decided". See `handStillTakingAction`. */
-        setHandSettling(true);
+        setSettlingHandNumber(completedHandNumber);
 
         /* THE BOMB POT REVEAL, DRAINED AT THE HAND BOUNDARY (Dan 2026-09-07,
            7D: "POPS UP AFTER THE HAND IS OVER"). The latch was armed the
@@ -27515,6 +27571,22 @@ function LiveTablePage({
     lightningCaps
   );
   const lightningFoldBusyRef = useRef<string | null>(null);
+  const uncertainFold = useRef<{
+    hand: string;
+    snapshot: typeof engineSnapshot;
+  } | null>(null);
+  useEffect(() => {
+    const pending = uncertainFold.current;
+    if (!pending || pending.snapshot === engineSnapshot) return;
+    const snapshot = engineSnapshot as LightningSnapshotFields | null;
+    if (
+      lightningHandId(snapshot) !== pending.hand ||
+      snapshot?.lightning?.fast_fold_available !== true
+    )
+      return;
+    if (lightningFoldBusyRef.current === pending.hand) lightningFoldBusyRef.current = null;
+    uncertainFold.current = null;
+  }, [engineSnapshot]);
   const lightningFoldHandId =
     lightningRoom && lightningHandLive
       ? lightningHandId(engineSnapshot as LightningSnapshotFields)
@@ -27553,6 +27625,7 @@ function LiveTablePage({
         setPreAction('fold');
         return;
       }
+      uncertainFold.current = null;
       lightningFoldBusyRef.current = lightningFoldHandId;
       // The fold supersedes any armed pre-action for this hand.
       lightningCheckFoldArmRef.current = null;
@@ -27593,16 +27666,11 @@ function LiveTablePage({
           // refusal there is not something the player did or needs to read.
           if (!quiet) toast.warning(result.error || 'That Action Could Not Be Confirmed');
         } else if (uncertain) {
-          const confirmed = await awaitEngineState(
-            snapshotWaitersRef.current,
-            requestEngineSnapshot
-          );
-          if (
-            lightningHandId(engineSnapshotRef.current as LightningSnapshotFields) !==
-            lightningFoldHandId
-          )
-            return;
-          if (confirmed) lightningFoldBusyRef.current = null;
+          uncertainFold.current = {
+            hand: lightningFoldHandId,
+            snapshot: engineSnapshotRef.current,
+          };
+          requestEngineSnapshot();
           if (!quiet) toast.warning(ACTION_NOT_DELIVERED_MESSAGE);
         }
       } catch (err) {
@@ -27611,6 +27679,8 @@ function LiveTablePage({
           lightningFoldHandId
         )
           return;
+        uncertainFold.current = { hand: lightningFoldHandId, snapshot: engineSnapshotRef.current };
+        requestEngineSnapshot();
         if (!quiet) toast.warning(ACTION_NOT_DELIVERED_MESSAGE);
         reportError(err, 'lightning-check-fold-release');
       }
@@ -29136,7 +29206,10 @@ function LiveTablePage({
                 didFold={prevHandResult?.didFold ?? false}
                 handDescription={prevHandResult?.handDescription}
                 onTap={() => {
-                  if (reviewedLightningDeal) setLightningReviewOpen((open) => !open);
+                  if (reviewedLightningDeal)
+                    setSelectedLightningReview((open) =>
+                      open ? null : { deal: reviewedLightningDeal }
+                    );
                   else setShowHandDetail(true);
                 }}
                 onShareHand={() => {
@@ -29581,6 +29654,7 @@ function LiveTablePage({
                           )}
                           {(lightningRoom || lightningCapableClusterId) && (
                             <HitRunCountPill
+                              retryRead={heroHandCount.retryRead}
                               hands={heroHandsOwed}
                               reason={heroHandCount.reason ?? null}
                               paused={heroHandCount.paused ?? null}
@@ -30078,6 +30152,7 @@ function LiveTablePage({
             <DealAnimation
               key={dealAnimationKey}
               handNumber={dealPresentationHandRef.current}
+              cardsPerSeat={lightningRoom ? seatHoleCardCount : undefined}
               active={true}
               /* Dan 2026-08-21 (item 14): "cards actually dealt to ALL the
                  players to start a new hand." The `status !== 'folded'` test
@@ -30087,9 +30162,18 @@ function LiveTablePage({
                  skipped by the deal. Nobody has folded a hand that has not been
                  dealt yet — the only players who genuinely get no cards are
                  those sitting out or away. */
-              activeSeats={tableState.players
-                .map((p, i) => (p && p.status !== 'sitting_out' && p.status !== 'away' ? i : -1))
-                .filter((i) => i >= 0)}
+              activeSeats={
+                lightningRoom &&
+                (Number(engineSnapshot?.hand_number) !== dealPresentationHandRef.current ||
+                  appliedExitSnapshot?.snapshot !== engineSnapshot ||
+                  tableState.handNumber !== dealPresentationHandRef.current)
+                  ? []
+                  : tableState.players
+                      .map((p, i) =>
+                        p && p.status !== 'sitting_out' && p.status !== 'away' ? i : -1
+                      )
+                      .filter((i) => i >= 0)
+              }
               dealerSeatIndex={Math.max(0, tableState.dealerSeat - 1)}
               seatPositions={seatPositions}
               onComplete={() => {
@@ -32379,14 +32463,18 @@ function LiveTablePage({
       {/* Dan 2026-08-21: PokerBros-style hand breakdown. Replay + Share are
           buttons in its header, driving the existing HandReplayPlayer and
           ShareHand modals. */}
-      {lightningReviewOpen && reviewedLightningDeal && (
-        <LightningPreviousHandResult
-          handNumber={reviewedLightningDeal.number}
-          hand={reviewedLightningHand}
-          historyFailed={handHistoryState === 'failed'}
-          onClose={() => setLightningReviewOpen(false)}
-        />
-      )}
+      {reviewRoom &&
+        selectedLightningReview?.deal.scope === JSON.stringify([reviewRoom, userId]) && (
+          <LightningPreviousHandReview
+            key={selectedLightningReview.deal.scope + ':' + selectedLightningReview.deal.number}
+            room={reviewRoom}
+            viewer={userId}
+            deal={selectedLightningReview.deal}
+            receipt={selectedLightningReview.receipt}
+            connected={engineWsStatus === 'connected'}
+            onClose={() => setSelectedLightningReview(null)}
+          />
+        )}
       <HandDetailModal
         currentUserName={username || null}
         isOpen={showHandDetail}

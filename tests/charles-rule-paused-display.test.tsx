@@ -161,6 +161,41 @@ describe('Lightning reads its anchor at the committed settlement', () => {
     data: [row({ ...over, table_id: anchor })],
     error: null,
   });
+  it('recovers a transient anchor failure and offers a bounded retry for unavailable status', async () => {
+    const seat = {
+      pool_session_id: room,
+      anchor_table_id: anchor,
+      seat_number: 1,
+      occupancy_id: room,
+    };
+    const failure = { data: null, error: new Error('temporarily unavailable') };
+    rpc
+      .mockResolvedValueOnce(failure)
+      .mockResolvedValueOnce({ data: seat, error: null })
+      .mockResolvedValueOnce(statusAtAnchor({ hands_remaining: 5 }))
+      .mockResolvedValueOnce(failure)
+      .mockResolvedValueOnce(failure)
+      .mockResolvedValueOnce(statusAtAnchor({ hands_remaining: 4 }));
+    const opts = {
+      enabled: true,
+      tableId: room,
+      lightningClusterId: 'cluster',
+      handNumber: 1,
+      settledLightningHandId: 0,
+      lightningConnected: true,
+      engine: undefined,
+    };
+    const view = renderHook(useHeroHandCount, { initialProps: opts });
+    await act(async () => {});
+    expect(view.result.current.owed).toBe(5);
+    await act(async () => view.rerender({ ...opts, settledLightningHandId: 1 }));
+    expect(rpc).toHaveBeenCalledTimes(5);
+    expect(view.result.current.retryRead).toBeTypeOf('function');
+    await act(async () => view.result.current.retryRead?.());
+    expect(view.result.current.owed).toBe(4);
+    expect(view.result.current.retryRead).toBeUndefined();
+    expect(rpc).toHaveBeenCalledTimes(6);
+  });
   it('refreshes on the receipt without a new deal, ignores superseded RPCs, and reconciles reconnects', async () => {
     vi.useFakeTimers();
     const read = vi.fn().mockResolvedValue(statusAtAnchor({ hands_remaining: 6 }));

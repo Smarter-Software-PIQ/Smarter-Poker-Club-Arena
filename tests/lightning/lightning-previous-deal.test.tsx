@@ -1,7 +1,11 @@
 import { cleanup, fireEvent, render, renderHook, screen } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
-import { LightningPreviousHandResult } from '../../src/components/table/PreviousHandCard';
+import {
+  LightningPreviousHandReview,
+  LightningPreviousHandResult,
+} from '../../src/components/table/PreviousHandCard';
 import { usePreviousLightningDeal } from '../../src/lightning/usePreviousLightningDeal';
+import { handHistoryService } from '../../src/services/HandHistoryService';
 import type { LightningSnapshotFields } from '../../src/lightning/lightningHand';
 
 afterEach(cleanup);
@@ -11,11 +15,11 @@ function playing(
   user_id = 'hero',
   is_folded = false
 ): LightningSnapshotFields {
-  return { hand_number, stage: 'preflop', players: [{ user_id, is_folded }] };
+  return { table_id: 'room', hand_number, stage: 'preflop', players: [{ user_id, is_folded }] };
 }
 
 function waiting(hand_number: number): LightningSnapshotFields {
-  return { hand_number, stage: 'waiting', players: [] };
+  return { table_id: 'room', hand_number, stage: 'waiting', players: [] };
 }
 
 const initial = {
@@ -72,7 +76,7 @@ it.each([
     initialProps: { ...initial, snapshot: playing(41, 'hero', true) },
   });
   expect(result.current?.number).toBe(41);
-  rerender({ ...scope, snapshot: null });
+  rerender({ ...scope, snapshot: playing(41, 'hero', true) });
   expect(result.current).toBeNull();
   rerender(initial);
   expect(result.current).toBeNull();
@@ -106,4 +110,35 @@ it('renders only the requested hand, distinguishes pending and failed reads, and
   expect(screen.getByText('Pot 26 · Your Result -3')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Close Previous Hand' }));
   expect(close).toHaveBeenCalledOnce();
+});
+
+it('reruns the selected deal read on reconnect and ignores a late response from the disconnected read', async () => {
+  let finishOld!: (result: { state: 'pending' }) => void;
+  const reader = vi
+    .spyOn(handHistoryService, 'getPreviousLightningHand')
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishOld = resolve;
+        })
+    )
+    .mockResolvedValueOnce({ state: 'unavailable' });
+  const deal = { id: 'hand-41', number: 41, scope: 'scope' };
+  const props = { deal, viewer: 'hero', room: 'room', onClose: vi.fn() };
+  try {
+    const view = render(<LightningPreviousHandReview {...props} connected />);
+    view.rerender(<LightningPreviousHandReview {...props} connected={false} />);
+    expect(reader).toHaveBeenCalledTimes(1);
+    view.rerender(<LightningPreviousHandReview {...props} connected />);
+    await screen.findByText('Hand Settled · History Unavailable');
+    finishOld({ state: 'pending' });
+    await Promise.resolve();
+    expect(screen.getByRole('status').textContent).toBe('Hand Settled · History Unavailable');
+    expect(reader.mock.calls).toEqual([
+      ['hero', 'room', deal, undefined],
+      ['hero', 'room', deal, undefined],
+    ]);
+  } finally {
+    reader.mockRestore();
+  }
 });

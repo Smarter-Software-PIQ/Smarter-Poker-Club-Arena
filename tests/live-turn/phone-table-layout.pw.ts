@@ -23,6 +23,7 @@
  * measurement is in the 600px layout's own CSS px unless it says device px.
  */
 import { expect, test, type Page, type WebSocketRoute } from '@playwright/test';
+import { verifyLightningPreviousHandReview } from '../e2e/support/lightningPreviousHandReview';
 import { mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { PLAYER, newBackend, signIn } from '../stale-client/mock-backend';
@@ -76,6 +77,7 @@ interface Scenario {
   lightning?: boolean;
   plo4?: boolean;
   plo5?: boolean;
+  pricedOffTurn?: boolean;
   heroAlias?: string;
   heroStack?: number;
   /** A Lightning game still in its feeder (MUST MOVE) game: its own table, the
@@ -146,7 +148,8 @@ function snapshot(s: Scenario, heroSeat: number) {
             small_blind: 0.25,
             big_blind: 0.5,
             variant,
-            fast_fold_available: false,
+            fast_fold_available: s.pricedOffTurn === true,
+            fold_on_turn: s.pricedOffTurn === true,
           },
         }
       : {}),
@@ -168,7 +171,7 @@ function snapshot(s: Scenario, heroSeat: number) {
     ante: 0,
     ante_mode: null,
     current_bet: omaha ? 4 : 0,
-    current_player: PLAYER,
+    current_player: s.pricedOffTurn ? players.find((p) => p.user_id !== PLAYER)!.user_id : PLAYER,
     dealer_seat: omaha ? 4 : s.seats,
     stage: 'flop',
     winner_ids: [],
@@ -301,12 +304,13 @@ class TableEngine {
   }
 
   nextLightningDeal(): void {
-    const id = '4a4d0000-0000-4000-8000-000000000102';
+    const next = this.state.hand_number + 1;
+    const id = '4a4d0000-0000-4000-8000-' + String(next).padStart(12, '0');
     if (!this.state.lightning) throw new Error('Expected a Lightning room');
     this.state = {
       ...this.state,
       hand_id: id,
-      hand_number: 102,
+      hand_number: next,
       lightning: { ...this.state.lightning, hand_id: id },
       action_context: id + ':flop:0:' + this.heroSeat + ':0',
       turn_start_time_ms: Date.now(),
@@ -1150,6 +1154,48 @@ test('Lightning leave requested before the dealt snapshot waits for the hand', a
   }
 });
 
+test('Lightning allows an explicit fast fold after a late same-hand reconnect', async ({
+  page,
+}) => {
+  const scenario = { ...SCENARIOS[0], lightning: true, plo5: true, pricedOffTurn: true };
+  const engine = await openTable(page, scenario, true);
+  const actions: unknown[] = [];
+  try {
+    await page.route('**/action', async (route) => {
+      if (route.request().method() !== 'POST') return route.fallback();
+      actions.push(route.request().postDataJSON());
+      return route.fulfill({
+        json:
+          actions.length === 1
+            ? { success: false, code: 'ACTION_STATE_PENDING' }
+            : { success: true },
+      });
+    });
+    engine.deliverDealtHand();
+    const fold = page.locator('.pre-action-btn.fold');
+    await expect(fold).toBeEnabled();
+    engine.holdFirstDeal();
+    await fold.click();
+    await expect(page.getByText(/Your Action Could Not Be Confirmed/i)).toBeVisible();
+    await engine.disconnect();
+    await expect.poll(() => engine.connected).toBe(true);
+    // The original one-shot resync gave up after 2.5s.
+    await page.waitForTimeout(2700);
+    expect(actions).toHaveLength(1);
+    engine.deliverDealtHand();
+    await expect(fold).toBeEnabled();
+    await fold.click();
+    await expect.poll(() => actions.length).toBe(2);
+    for (const action of actions)
+      expect(action).toMatchObject({
+        action: 'fast_fold',
+        actionContext: 'lightning-hand:4a4d0000-0000-4000-8000-000000000101',
+      });
+  } finally {
+    engine.dispose();
+  }
+});
+
 test('Lightning answers a check on press and ignores its old reply after the next deal', async ({
   page,
 }) => {
@@ -1249,4 +1295,23 @@ test.describe('375px Lightning PLO5', () => {
       engine.dispose();
     }
   });
+});
+
+test('Lightning previous hand stays pinned and recovers a missed archive receipt on reconnect', async ({
+  page,
+}) => {
+  const engine = await openTable(page, SCENARIOS.find((s) => s.lightning)!);
+  try {
+    engine.nextLightningDeal();
+    await verifyLightningPreviousHandReview(page, {
+      room: ROOM,
+      viewer: PLAYER,
+      number: 101,
+      dealId: '4a4d0000-0000-4000-8000-000000000101',
+      advance: () => engine.nextLightningDeal(),
+      disconnect: () => engine.disconnect(),
+    });
+  } finally {
+    engine.dispose();
+  }
 });
