@@ -277,6 +277,8 @@ import {
   ripeWindDowns,
   standOrdersFor,
   MAX_WIND_DOWN_PER_HOST_PER_CYCLE,
+  MAX_WIND_DOWN_PER_HOST_PER_CYCLE_CEILING,
+  windDownCapForHost,
   type WindDownRequest,
 } from './StableHandExecutor.js';
 import { DSS_CLUB_ID } from './StableHand.js';
@@ -326,6 +328,17 @@ const overCapSnapshot = (over: Partial<FloorSnapshot> = {}): FloorSnapshot => ({
 });
 
 describe('the per-host wind-down ceiling', () => {
+  it('walks a floor far over its curve down faster, one extra stand per ten planned (2026-11-14)', () => {
+    expect(windDownCapForHost(0)).toBe(MAX_WIND_DOWN_PER_HOST_PER_CYCLE);
+    expect(windDownCapForHost(40)).toBe(MAX_WIND_DOWN_PER_HOST_PER_CYCLE);
+    expect(windDownCapForHost(61)).toBe(7);
+    expect(windDownCapForHost(500)).toBe(MAX_WIND_DOWN_PER_HOST_PER_CYCLE_CEILING);
+    const many = Array.from({ length: 100 }, (_, i) => wind(MIDWAY_UNION_ID, i));
+    const r = ripeWindDowns(many, NOW, new Map());
+    expect(r.execute).toHaveLength(10);
+    expect(r.heldByCap).toBe(90);
+  });
+
   it('stands at most the ceiling per host per cycle', () => {
     const many = Array.from({ length: 20 }, (_, i) => wind(MIDWAY_UNION_ID, i));
     const r = ripeWindDowns(many, NOW, new Map());

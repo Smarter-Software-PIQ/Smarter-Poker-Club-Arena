@@ -127,11 +127,13 @@ export function tagSplit(n: number): {
 
 /**
  * Section 11 hourly occupancy curve, as a PERCENT OF N, keyed on the
- * America/Chicago hour. Values are the OPORD's table verbatim.
+ * America/Chicago hour. The OPORD's table, except 00:00 and 01:00 (29 and 22,
+ * were 35 and 28): Dan 2026-11-13 asked for a slow taper after the 5-11 PM
+ * peak, which is unchanged.
  */
 export const OCCUPANCY_CURVE_PCT: Record<number, number> = {
-  0: 35,
-  1: 28,
+  0: 29,
+  1: 22,
   2: 16,
   3: 10,
   4: 8,
@@ -245,7 +247,19 @@ export function occupancyTargetForHost(
   const nt = nightCap(n, activityScale);
   const pct = curvePctAt(chicagoHour, minute, activityScale);
 
-  const raw = Math.round((pct / 100) * n);
+  let raw = Math.round((pct / 100) * n);
+  /* THE NIGHT IS REACHED, NOT DROPPED INTO (Dan 2026-11-13: "SLOWLY DYING
+     DOWN ... TO A HANDFUL OF TABLES FROM 3AM-8AM"). The curve alone lands on
+     about twice the night cap at 02:59, so 03:00 was a cliff: measured
+     2026-11-14, live seats fell 348 -> 143 -> 43 across 02:00-04:00. In the
+     hour before the night window the target walks to the night cap itself. */
+  const hourNow = ((Math.floor(chicagoHour) % 24) + 24) % 24;
+  if (!isNightWindow(hourNow) && isNightWindow((hourNow + 1) % 24)) {
+    const f = Math.min(59, Math.max(0, minute)) / 60;
+    const start = (curvePctAt(hourNow, 0, activityScale) / 100) * n;
+    const landing = Math.min((curvePctAt((hourNow + 1) % 24, 0, activityScale) / 100) * n, nt);
+    raw = Math.round(start + (landing - start) * f);
+  }
   let target = raw;
   let clampedBy: OccupancyTarget['clampedBy'] = 'none';
 
@@ -264,6 +278,12 @@ export function occupancyTargetForHost(
   let max = target + band;
   max = Math.min(max, pk);
   if (isNightWindow(chicagoHour)) max = Math.min(max, nt);
+  // The band closes with the walk to the night cap, so the cap does not step
+  // down by the band at 03:00 either.
+  if (!isNightWindow(hourNow) && isNightWindow((hourNow + 1) % 24)) {
+    const f = Math.min(59, Math.max(0, minute)) / 60;
+    max = Math.min(max, target + Math.round(band * (1 - f)));
+  }
   if (min > max) min = max;
 
   return { target, min, max, peakCap: pk, nightCap: nt, clampedBy };
@@ -271,8 +291,17 @@ export function occupancyTargetForHost(
 
 /** Section 11 avg-seats-per-active-horse guidance, used by the dashboard
  *  and by the add-seat decision to know whether to widen or deepen. */
-export function seatsPerHorseBand(chicagoHour: number): { min: number; max: number } {
-  return isNightWindow(chicagoHour) ? { min: 1.0, max: 1.3 } : { min: 1.6, max: 2.2 };
+export function seatsPerHorseBand(chicagoHour: number, minute = 0): { min: number; max: number } {
+  if (isNightWindow(chicagoHour)) return { min: 1.0, max: 1.3 };
+  /* The hour before the night window walks the seats-per-horse ceiling down
+     with the body target (see occupancyTargetForHost), so the seat ceiling
+     does not halve at 03:00. */
+  const h = ((Math.floor(chicagoHour) % 24) + 24) % 24;
+  if (isNightWindow((h + 1) % 24)) {
+    const f = Math.min(59, Math.max(0, minute)) / 60;
+    return { min: 1.6 - 0.6 * f, max: 2.2 - 0.9 * f };
+  }
+  return { min: 1.6, max: 2.2 };
 }
 
 /**
@@ -290,8 +319,8 @@ export function seatsPerHorseBand(chicagoHour: number): { min: number; max: numb
  * carry at most its body cap times the band's upper end in seats, so the room
  * a player sees rises and falls with the curve.
  */
-export function hostSeatCeiling(bodyCap: number, chicagoHour: number): number {
-  return Math.floor(Math.max(0, bodyCap) * seatsPerHorseBand(chicagoHour).max);
+export function hostSeatCeiling(bodyCap: number, chicagoHour: number, minute = 0): number {
+  return Math.floor(Math.max(0, bodyCap) * seatsPerHorseBand(chicagoHour, minute).max);
 }
 
 /* ------------------------------------------------------------------ */

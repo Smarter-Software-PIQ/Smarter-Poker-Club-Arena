@@ -143,7 +143,7 @@ describe('the seeder stops at the ceiling', () => {
     const fleet = readFileSync(new URL('./HorseFleetManager.ts', import.meta.url), 'utf8');
     expect(fleet).toMatch(/const seatsOnHost = seatsOnHostFrom\(allActiveSeats, hostOfTable\);/);
     expect(fleet).toMatch(
-      /const seatCeilings = stableHandHostSeatCeilings\(stableHandCaps, chicagoNow\(\)\.hour\);/
+      /const ceilingClock = chicagoNow\(\);\s*const stableHandCaps = stableHandHostCaps\(eligibleByHost, ceilingClock\);[\s\S]*?const seatCeilings = stableHandHostSeatCeilings\(\s*stableHandCaps,\s*ceilingClock\.hour,\s*ceilingClock\.minute\s*\);/
     );
     expect(fleet).toMatch(/humanNeedsRescue,\s*seatsOnHost,\s*seatCeilings,\s*\}\)/);
     expect(fleet).toMatch(

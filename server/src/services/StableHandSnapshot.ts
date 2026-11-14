@@ -45,6 +45,7 @@
  * one row short of the ceiling is indistinguishable from a complete answer.
  */
 
+import { withinHumanDepartureDwellFor } from './HorseUnionCashPlan.js';
 import { supabase } from './supabase.js';
 import { fetchAllRows } from './supabase/pagination.js';
 import { selectInChunks } from './supabase/chunkedIn.js';
@@ -53,6 +54,8 @@ import {
   type EnabledGame,
   type FloorSnapshot,
   type HostSnapshot,
+  humanDepartureDwellApplies,
+  type TableSnapshot,
 } from './StableHandController.js';
 import { WALLETS_FOR_HOST, killed } from './StableHand.js';
 import {
@@ -223,7 +226,7 @@ export async function buildFloorSnapshot(): Promise<FloorSnapshot> {
         let q = supabase
           .from('tables')
           .select(
-            'id, game_variant, small_blind, big_blind, max_players, status, lifecycle, current_players, cluster_id'
+            'id, game_variant, small_blind, big_blind, max_players, status, lifecycle, last_human_seen_at, current_players, cluster_id'
           )
           .eq('club_id', hostId)
           .is('tournament_id', null)
@@ -369,37 +372,17 @@ export async function buildFloorSnapshot(): Promise<FloorSnapshot> {
       n,
       uniqueLive,
       ...(enabledGames ? { enabledGames } : {}),
-      tables: tables.map((t: any) => {
-        const rows = seatsByTable.get(String(t.id)) ?? [];
-        const horses = rows.filter((r: any) => horseIds.has(String(r.user_id)));
-        return {
-          tableId: String(t.id),
+      tables: tables.map((t: any) =>
+        tableSnapshotFromRow(
+          t,
+          seatsByTable.get(String(t.id)) ?? [],
+          horseIds,
           hostId,
-          variant: String(t.game_variant ?? ''),
-          sb: Number(t.small_blind ?? 0),
-          bb: Number(t.big_blind ?? 0),
-          maxPlayers: Number(t.max_players ?? 6),
-          occupied: rows.length,
-          humansSeated: rows.length - horses.length,
-          humansWaiting: waitingByTable.get(String(t.id)) ?? 0,
-          waitlistOldestJoinedAtMs: oldestWaitByTable.get(String(t.id)),
-          seatedHorses: horses.map((h: any) => {
-            const joined = Date.parse(String(h.joined_at ?? ''));
-            return {
-              horseId: String(h.user_id),
-              sittingOut: h.is_sitting_out === true,
-              minutesAtTable: Number.isFinite(joined) ? Math.max(0, (nowMs - joined) / 60_000) : 0,
-              /* Red/green needs the invested figure the rotator computes from
-                 the ledger; the snapshot does not read it, so the tie falls
-                 through to the stack, as before. */
-              isRed: false,
-              stack: Number(h.stack ?? 0),
-            };
-          }),
-          status: String(t.status ?? ''),
-          clusterId: t.cluster_id ? String(t.cluster_id) : null,
-        };
-      }),
+          waitingByTable.get(String(t.id)) ?? 0,
+          oldestWaitByTable.get(String(t.id)),
+          nowMs
+        )
+      ),
     });
   }
 
@@ -410,5 +393,56 @@ export async function buildFloorSnapshot(): Promise<FloorSnapshot> {
     hosts,
     killed: killed(),
     unreadableHosts,
+  };
+}
+
+/**
+ * ONE table row of the floor, as the planner sees it. Pure, so the decisions
+ * that ride on it (the human dwell above all) are tested from a real row and
+ * not from a flag set by hand.
+ */
+export function tableSnapshotFromRow(
+  t: any,
+  rows: any[],
+  horseIds: ReadonlySet<string>,
+  hostId: string,
+  humansWaiting: number,
+  waitlistOldestJoinedAtMs: number | undefined,
+  nowMs: number
+): TableSnapshot {
+  const horses = rows.filter((r: any) => horseIds.has(String(r.user_id)));
+  return {
+    tableId: String(t.id),
+    hostId,
+    variant: String(t.game_variant ?? ''),
+    sb: Number(t.small_blind ?? 0),
+    bb: Number(t.big_blind ?? 0),
+    maxPlayers: Number(t.max_players ?? 6),
+    occupied: rows.length,
+    humansSeated: rows.length - horses.length,
+    humansWaiting,
+    waitlistOldestJoinedAtMs,
+    seatedHorses: horses.map((h: any) => {
+      const joined = Date.parse(String(h.joined_at ?? ''));
+      return {
+        horseId: String(h.user_id),
+        sittingOut: h.is_sitting_out === true,
+        minutesAtTable: Number.isFinite(joined) ? Math.max(0, (nowMs - joined) / 60_000) : 0,
+        /* Red/green needs the invested figure the rotator computes from
+           the ledger; the snapshot does not read it, so the tie falls
+           through to the stack, as before. */
+        isRed: false,
+        stack: Number(h.stack ?? 0),
+      };
+    }),
+    status: String(t.status ?? ''),
+    inHumanDwell: humanDepartureDwellApplies(
+      rows.length - horses.length,
+      withinHumanDepartureDwellFor(
+        { id: String(t.id), last_human_seen_at: t.last_human_seen_at ?? null },
+        nowMs
+      )
+    ),
+    clusterId: t.cluster_id ? String(t.cluster_id) : null,
   };
 }

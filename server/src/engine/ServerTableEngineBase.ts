@@ -162,6 +162,7 @@ import { INSTANCE_ID } from '../services/tableLease.js';
 import {
   evaluateCashSessions,
   atomicCashoutVoluntary,
+  owedLeavePlaysOnInGame,
   returnOwedLightningLeaveToPool,
   setCashSessionBlindOff,
 } from '../services/supabase/cashSessions.js';
@@ -3594,6 +3595,47 @@ export abstract class ServerTableEngineBase {
     return Number.isFinite(fresh) ? fresh : rosterStack;
   }
 
+  /**
+   * A HELD LEAVE ALONE AT ITS TABLE PLAYS ON IN ITS GAME (2026-11-14).
+   *
+   * Measured 2026-11-14: when Lightning NLH .25/.50 switched off at 03:33
+   * Chicago, nine held leaves each sat alone at a former anchor and were
+   * released as "nobody else left to play the owed hands" with 0-3 of 10
+   * played, while the same game dealt 23 hands at another table in the next
+   * 45 minutes. Hit and run is owed to the game. Before the waiver, the
+   * database is asked (fn_owed_leave_plays_on_in_game) whether another table
+   * of the same game is dealing; if so the seat stops pending, stays sat out as
+   * its blind off and stays held, and the game's consolidation moves it to a table that
+   * deals, where the restored hold plays the count out. The database bounds the
+   * wait and records every answer. A null answer releases as before. The same
+   * question for a person and a horse.
+   */
+  protected async owedLeavePlaysOnInGame(
+    userId: string,
+    seated: { seat_number: number; occupancy_id?: string | null; leave_pending?: boolean | null }
+  ): Promise<boolean> {
+    // The caller asks only at a non-anchor table; a table outside any game has
+    // no other table to play on, so it is not asked at all.
+    if (!seated.occupancy_id || !this.tableInfo?.cluster_id) return false;
+    if (isMaintenanceFrozen()) return true;
+    const answer = await owedLeavePlaysOnInGame(
+      userId,
+      this.tableId,
+      seated.seat_number,
+      seated.occupancy_id
+    );
+    if (!answer?.keep) return false;
+    if (answer.returned) {
+      // Pending is withdrawn so the game may move the seat; the sit-out stays,
+      // because at a Classic table the blind off IS the sit-out (holdLockedLeave).
+      seated.leave_pending = false;
+      console.log(
+        `[ServerTableEngine:${this.tableId}] held leave for ${userId} plays on in its game - ${answer.handsRemaining} hands owed`
+      );
+    }
+    return true;
+  }
+
   /** When this anchor last re-read every seat's hand count. */
   private lastAnchorContinuityRefreshAt = 0;
   static readonly ANCHOR_CONTINUITY_REFRESH_MS = 30_000;
@@ -5503,6 +5545,10 @@ export abstract class ServerTableEngineBase {
           await this.returnOwedLightningLeaveToPool(userId, seated);
           continue;
         }
+        // THE GAME, NOT THE TABLE (2026-11-14): alone here is not alone in the
+        // game. While another table of the same game deals, the seat keeps its
+        // obligation and the game moves it there; the database bounds the wait.
+        if (nobodyElse && (await this.owedLeavePlaysOnInGame(userId, seated))) continue;
         if (nobodyElse) {
           await atomicCashout(userId, this.tableId, seated.seat_number, {
             occupancyId: seated.occupancy_id,

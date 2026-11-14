@@ -7,6 +7,7 @@ import {
   bodiesOnHostFrom,
   type FloorSnapshot,
   type TableSnapshot,
+  humanDepartureDwellApplies,
 } from './StableHandController.js';
 import {
   MIDWAY_UNION_ID,
@@ -164,6 +165,57 @@ describe('planFloor - occupancy', () => {
     expect(p.alerts.some((a) => a.startsWith('occupancy_over'))).toBe(true);
     expect(p.alerts).toContain('over_peak_cap host=' + MIDWAY_UNION_ID);
     expect(p.stand.some((s) => s.reason === 'occupancy_wind_down')).toBe(true);
+  });
+
+  it('applies the dwell only once the last person has left the table', () => {
+    expect(humanDepartureDwellApplies(0, true)).toBe(true);
+    expect(humanDepartureDwellApplies(1, true)).toBe(false);
+    expect(humanDepartureDwellApplies(0, false)).toBe(false);
+  });
+
+  it('never winds down a table inside its human-departure dwell (Dan 2026-11-11)', () => {
+    const tables = [
+      ...Array.from({ length: 3 }, (_, i) => table({ tableId: `dwell${i}`, inHumanDwell: true })),
+      table({ tableId: 'free' }),
+    ];
+    const p = planFloor(
+      snap({ hosts: [{ hostId: MIDWAY_UNION_ID, n: 584, uniqueLive: 400, tables }] })
+    );
+    const wound = p.stand.filter((s) => s.reason === 'occupancy_wind_down').map((s) => s.tableId);
+    expect(wound.length).toBeGreaterThan(0);
+    expect(wound.every((id) => id === 'free')).toBe(true);
+  });
+
+  it('never parks a table at night, or thins it to joinable, inside its human dwell', () => {
+    const tables = [
+      ...Array.from({ length: 12 }, (_, i) =>
+        table({
+          tableId: `dwell${i}`,
+          inHumanDwell: true,
+          occupied: 2,
+          seatedHorses: [horse(`dwell${i}-a`), horse(`dwell${i}-b`)],
+        })
+      ),
+    ];
+    const p = planFloor(
+      snap({ chicagoHour: 4, hosts: [{ hostId: MIDWAY_UNION_ID, n: 584, uniqueLive: 24, tables }] })
+    );
+    expect(p.park).toHaveLength(0);
+    expect(p.stand.filter((s) => s.tableId.startsWith('dwell')).length).toBe(0);
+  });
+
+  it('reshapes FULL tables out of dwell only, with ONE_OPEN and JOINABLE taken from the same list', () => {
+    const tables = [
+      table({ tableId: 'd-dwell', inHumanDwell: true }),
+      table({ tableId: 'a' }),
+      table({ tableId: 'b' }),
+    ];
+    const p = planFloor(
+      snap({ hosts: [{ hostId: MIDWAY_UNION_ID, n: 584, uniqueLive: 180, tables }] })
+    );
+    const shaped = p.stand.filter((s) => s.reason === 'shape_adjust').map((s) => s.tableId);
+    expect(shaped).not.toContain('d-dwell');
+    expect(shaped.length).toBeGreaterThan(0);
   });
 
   it('reports the measured caps for both hosts', () => {
