@@ -870,7 +870,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'omahaTournamentFirstIn',
-    '2026-11-13 Omaha high tournaments (engine-declared), at the final table (trusted players left no more than the players dealt; unknown stands aside), heads-up at 20 BB or less or a three-handed table paying one place at 30 BB or less (2026-11-14), not All-In-Or-Fold, not a locked satellite seat: the small blind against the big blind alone plays every hand as the pot-limit maximum raise, and the heads-up big blind (or the three-handed winner-take-all big blind closing the action) calls its top 75 percent against one raise at a price of a half or better, replacing only the engine fold; percentile among Omaha hands, narrowed by the tournament risk premium.',
+    '2026-11-13 Omaha high tournaments (engine-declared), at the final table (trusted players left no more than the players dealt; unknown stands aside), heads-up at 20 BB or less or a three-handed table paying one place at 30 BB or less (2026-11-14), not All-In-Or-Fold, not a locked satellite seat: the small blind against the big blind alone plays every hand as the pot-limit maximum raise, and the heads-up big blind (or the three-handed winner-take-all big blind closing the action) calls its top 75 percent against one raise at a price of a half or better, replacing only the engine fold; at a three-handed final table with pay jumps where every player left is paid (2026-11-14), only the small blind against the big blind alone, on its top 60 percent at 20 BB or less; percentile among Omaha hands, narrowed by the tournament risk premium.',
     'V90'
   ),
   flag(
