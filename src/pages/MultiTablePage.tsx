@@ -42,7 +42,13 @@ import React, {
   useMemo,
   Suspense,
 } from 'react';
-import { matchPath, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import {
+  matchPath,
+  useLocation,
+  useNavigate,
+  useNavigationType,
+  useSearchParams,
+} from 'react-router-dom';
 import { TableTabBar, type TabInfo } from '../components/table/TableTabBar';
 /* #ClubArenaConsole: this page's cards, sheets and states print into Dan's
    approved master rather than drawing a frame in CSS. See
@@ -111,6 +117,7 @@ import {
   restoreLobbyPage,
   type LobbyPageSnapshot,
 } from '../utils/lobbyPageHistory';
+import { decideLobbyOffRoute } from '../utils/lobbyOffRoute';
 import { useUserStore } from '../stores/useUserStore';
 import { TableErrorBoundary } from '../components/common/TableErrorBoundary';
 import { betSliderStep, sliderUnitFor } from '../components/table/ActionPanel';
@@ -368,6 +375,27 @@ interface TableInstance {
   /** undefined uses the home club; null displays the shared arena selector. */
   lobbyClubId?: string | null;
   lobbyPageHistory?: LobbyPageSnapshot[];
+  /**
+   * THE PAGE THIS LOBBY TAB IS ON, WHEN THAT PAGE IS A ROUTE OF ITS OWN
+   * (Dan 2026-11-13).
+   *
+   * Dan, verbatim: "WHEN I CLICK ON A + BUTTON AND GO TO THE LOBBY. THEN
+   * SELECT ANYTHING LIKE PLAYER MANAGEMENT... THEN GO BACK AND VIEW ANOTHER
+   * OPEN TAB... BUT GO BACK TO 'LOBBY TAB' AND ITS NO LONGER PLAYER
+   * MANAGEMENT IT DEFAULTS BACK TO THE GAME LOBBY... KEEP IT ON THE EXACT
+   * PAGE YOU LEFT IT ON".
+   *
+   * Player Management, Club Data, the cashier and every other club page are
+   * real routes (`/clubs/:id/members`, ...), not in-tab renderers. Opening
+   * one from the lobby tab hides this container and the pinned strip keeps
+   * the Lobby pill lit, but nothing remembered that the pill now meant that
+   * page: tapping it again borrowed a table URL and painted the club's game
+   * lobby. This is the pathname + search the tab was last showing off-route,
+   * so selecting the pill goes back to it. Cleared the moment the tab shows
+   * its own in-tab lobby again (Back out of the page, "+" Lobby, a swipe),
+   * because then the game lobby IS the page the player left it on.
+   */
+  lobbyOffRoutePath?: string;
 }
 
 /**
@@ -1808,6 +1836,68 @@ export default function MultiTablePage() {
     }
   }, [visibleTabId, hidden]);
 
+  /**
+   * ─── A LOBBY TAB KEEPS THE PAGE IT WAS LEFT ON (Dan 2026-11-13) ─────────
+   *
+   * See `lobbyOffRoutePath`. The rules (record, restore by any gesture,
+   * clear) are a pure decision in `src/utils/lobbyOffRoute.ts`, pinned by
+   * `tests/a-lobby-tab-keeps-the-page-it-was-left-on.law.test.ts`; this
+   * layout effect only applies it, before paint, after every commit.
+   */
+  const navigationType = useNavigationType();
+  const pendingOffRouteTabIdRef = useRef<string | null>(null);
+  const pendingOffRouteFromRef = useRef<string | null>(null);
+  const offRoutePrevRef = useRef<{ hidden: boolean; tabId: string | null }>({
+    hidden,
+    tabId: null,
+  });
+  const offRoutePath = `${location.pathname}${location.search}`;
+  useLayoutEffect(() => {
+    const tabs = tablesRef.current;
+    const decision = decideLobbyOffRoute({
+      hidden,
+      path: offRoutePath,
+      tabs: tabs.map((t) => ({
+        id: t.id,
+        isLobby: isLobbyTab(t),
+        lobbyOffRoutePath: t.lobbyOffRoutePath,
+      })),
+      activeIndex: activeIndexRef.current,
+      pendingTabId: pendingOffRouteTabIdRef.current,
+      pendingFromPath: pendingOffRouteFromRef.current,
+      prev: offRoutePrevRef.current,
+      navigationType,
+    });
+    offRoutePrevRef.current = decision.nextPrev;
+    if (decision.consumePending) pendingOffRouteTabIdRef.current = null;
+    if (decision.focusIndex !== null) {
+      activeIndexRef.current = decision.focusIndex;
+      setActiveIndex(decision.focusIndex);
+    }
+    if (decision.restore) {
+      const { restore } = decision;
+      if (restore.revertIndex !== null) {
+        activeIndexRef.current = restore.revertIndex;
+        setActiveIndex(restore.revertIndex);
+      }
+      pendingOffRouteTabIdRef.current = restore.tabId;
+      pendingOffRouteFromRef.current = offRoutePath;
+      navigate(restore.path);
+    }
+    const { record, clear } = decision;
+    if (record || clear.length > 0) {
+      setTables((all) =>
+        all.map((t) =>
+          record && t.id === record.tabId
+            ? { ...t, lobbyOffRoutePath: record.path }
+            : clear.includes(t.id)
+              ? { ...t, lobbyOffRoutePath: undefined }
+              : t
+        )
+      );
+    }
+  }, [hidden, offRoutePath, activeIndex, tables, navigationType, navigate]);
+
   useMasterBusSubscription('OPEN_LOBBY_TAB', () => {
     const prev = tablesRef.current;
     const existingLobby = prev.findIndex(isLobbyTab);
@@ -2793,6 +2883,20 @@ export default function MultiTablePage() {
     (tabId: string) => {
       const idx = tables.findIndex((t) => t.id === tabId);
       if (idx === -1) return;
+      const selected = tables[idx];
+      /* A lobby tab left on a club page (Player Management, Club Data, ...)
+         goes back to that page, not to the game lobby (Dan 2026-11-13). The
+         pill is focused by the off-route effect once the route has left
+         /table/*, so the in-tab lobby never paints on the way. */
+      if (isLobbyTab(selected) && selected.lobbyOffRoutePath) {
+        const here = `${location.pathname}${location.search}`;
+        if (selected.lobbyOffRoutePath === here) return;
+        pendingOffRouteTabIdRef.current = selected.id;
+        pendingOffRouteFromRef.current = here;
+        navigate(selected.lobbyOffRoutePath);
+        return;
+      }
+
       /**
        * `idx !== activeIndex` USED TO GATE THIS WHOLE BODY, and that was wrong
        * once the bar could be tapped from off-route (round 3).
@@ -2849,7 +2953,7 @@ export default function MultiTablePage() {
       pendingTabIndexRef.current = idx;
       navigate(`/table/${host.id}${tableQuery(host)}`);
     },
-    [tables, activeIndex, trackedTimeout, navigate, hidden]
+    [tables, activeIndex, trackedTimeout, navigate, hidden, location.pathname, location.search]
   );
 
   // ─── Batch 3: quick-join sheet on "+" ─────────────────────────────────
