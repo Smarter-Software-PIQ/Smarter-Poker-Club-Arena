@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   assignProtectedWagers,
-  capAllInSlot,
+  capWagerSlot,
   firstWagerOnFelt,
   insideClassicGreen,
   wagerBoxesOverlap,
@@ -20,6 +20,25 @@ describe('shared measured wager rail assignment', () => {
     expect(wagerBoxesOverlap(next, board)).toBe(false);
     expect(firstWagerOnFelt(next, canvas, felt, 13.2, true, board)).toBe(next);
   });
+  it('fits the 430px top contribution between an empty left cap and occupied right rail', () => {
+    const canvas = new DOMRect(36, 226, 528, 755.97);
+    const felt = new DOMRect(106.22, 293.27, 386.48, 607.03);
+    const owner = { x: 421.44, y: 170.79 };
+    const rivals = [
+      { x: 178.55, y: 275.34 },
+      { x: 542, y: 353.33 },
+    ];
+    const raw = new DOMRect(364, 305, 52.22, 20);
+    const next = capWagerSlot(raw, canvas, felt, owner, rivals, [], 1, true)!;
+    expect(insideClassicGreen(raw, canvas, 8)).toBe(false);
+    expect(insideClassicGreen(next, canvas, 8)).toBe(true);
+    const x = next.left + next.width / 2,
+      y = next.top + next.height / 2;
+    for (const rival of rivals)
+      expect(
+        Math.hypot(x - rival.x, y - rival.y) - Math.hypot(x - owner.x, y - owner.y)
+      ).toBeGreaterThan(8);
+  });
   it('fits the 375px top all-in marker inside gold nearest its displayed owner', () => {
     const source = new DOMRect(189.55, 301.09, 28, 28);
     const canvas = new DOMRect(36, 226, 528, 930.34);
@@ -30,14 +49,14 @@ describe('shared measured wager rail assignment', () => {
       { x: 422, y: 147 },
     ];
     const blockers = [new DOMRect(262, 466, 76, 19)];
-    const next = capAllInSlot(source, canvas, felt, owner, rivals, blockers, 1, true)!;
+    const next = capWagerSlot(source, canvas, felt, owner, rivals, blockers, 1, true)!;
     const x = next.left + next.width / 2,
       y = next.top + next.height / 2;
     expect(insideClassicGreen(next, canvas, 8)).toBe(true);
     expect(Math.hypot(x - owner.x, y - owner.y) + 2).toBeLessThan(
       Math.min(...rivals.map((r) => Math.hypot(x - r.x, y - r.y)))
     );
-    expect(capAllInSlot(next, canvas, felt, owner, rivals, blockers, 1, true)).toBe(next);
+    expect(capWagerSlot(next, canvas, felt, owner, rivals, blockers, 1, true)).toBe(next);
   });
   it('preserves the sole slot of a constrained player instead of taking it greedily', () => {
     const first = box(0),

@@ -74,7 +74,7 @@ export function firstWagerOnFelt(
 type MarkerCentre = { x: number; y: number };
 /** On the upper arc, choose the clear slot with the largest separation from
  * the next player's portrait. A coarse oval grid can skip the entire lane. */
-export function capAllInSlot(
+export function capWagerSlot(
   box: CardBox,
   canvas: CardBox,
   felt: CardBox,
