@@ -6,6 +6,7 @@ import {
   type V31ControlRequest,
   type V31ControlAck,
 } from './v31ReloadControl.js';
+import type { StyleSwitchStateMessage } from './styleSwitchDelivery.js';
 import {
   isolateMemoryIsValid,
   type IsolateMemorySample,
@@ -131,7 +132,9 @@ import {
 } from './responseValidation.js';
 
 export interface WorkerLike {
-  postMessage(message: HorseDecisionWorkerRequest | V31ControlRequest): void;
+  postMessage(
+    message: HorseDecisionWorkerRequest | V31ControlRequest | StyleSwitchStateMessage
+  ): void;
   on(event: 'message', listener: (message: HorseDecisionWorkerResponse) => void): this;
   on(event: 'error', listener: (error: Error) => void): this;
   on(event: 'exit', listener: (code: number) => void): this;
@@ -1688,6 +1691,18 @@ export class LiveHorseDecisionWorkerClient {
     if (next) this.startExecutionClock(next);
   }
 
+  /**
+   * 2026-11-13 STYLE READ LIVE SWITCH: hands this worker the current configuration. Never fails the client: a
+   * worker that did not get it ages its last configuration out and turns every option off (HorseStyleSwitch).
+   */
+  postStyleSwitch(message: StyleSwitchStateMessage): boolean {
+    try {
+      this.worker.postMessage(message);
+      return true;
+    } catch {
+      return false;
+    }
+  }
   private v31Control?: V31ControlClient;
   requestV31Control(request: V31ControlRequest): Promise<V31ControlAck> {
     if (this.phase !== 'ready') return Promise.reject(Error('v31_control_worker_not_ready'));

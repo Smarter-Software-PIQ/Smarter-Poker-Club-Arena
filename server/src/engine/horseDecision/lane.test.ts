@@ -593,3 +593,21 @@ it('keeps distinct isolate ownership and main-cache totals in the existing pool 
     retainedSerializedUtf8Bytes: 200,
   });
 });
+
+describe('STYLE READ LIVE SWITCH delivery through the pool (2026-11-13)', () => {
+  it('hands one configuration to every shard and survives a shard that cannot take it', () => {
+    const { pool, workers } = poolOf(2);
+    const message = {
+      type: 'STYLE_SWITCH_STATE' as const,
+      seq: 1,
+      status: 'ok' as const,
+      readAtEpochMs: 1,
+      config: { version: 1, options: {} },
+    };
+    workers[0]!.postMessage = () => {
+      throw new Error('worker gone');
+    };
+    expect(() => pool.broadcastStyleSwitch(message)).not.toThrow();
+    expect(workers[1]!.sent).toContainEqual(message);
+  });
+});

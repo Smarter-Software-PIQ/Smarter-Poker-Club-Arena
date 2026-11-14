@@ -52,7 +52,7 @@ export function Table<T>({
   };
 
   return (
-    <div className={`table-container ${className}`}>
+    <div className={`data-table-container ${className}`}>
       <table
         className={`table ${striped ? 'table-striped' : ''} ${hoverable ? 'table-hoverable' : ''} ${compact ? 'table-compact' : ''}`}
       >
@@ -120,7 +120,7 @@ export function SimpleTable({
   className?: string;
 }) {
   return (
-    <div className={`table-container ${className}`}>
+    <div className={`data-table-container ${className}`}>
       <table
         className={`table ${striped ? 'table-striped' : ''} ${hoverable ? 'table-hoverable' : ''} ${compact ? 'table-compact' : ''}`}
       >

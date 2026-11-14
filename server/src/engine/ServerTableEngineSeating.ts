@@ -2229,7 +2229,10 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
           ]);
         }
         if (!opts.forced) {
-          const lock = this.chipContinuity.leaveLock(userId, player.stack);
+          const lock = this.chipContinuity.leaveLock(
+            userId,
+            this.handCountStack(userId, player.stack)
+          );
           if (lock.locked) {
             if (this.leaveHeldByClock.has(userId))
               return this.holdLockedLeave(userId, lock.handsRemaining);
@@ -2502,7 +2505,8 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
             ]);
             const hands = Math.max(
               1,
-              this.chipContinuity.leaveLock(userId, player.stack).handsRemaining
+              this.chipContinuity.leaveLock(userId, this.handCountStack(userId, player.stack))
+                .handsRemaining
             );
             console.log(
               `[ServerTableEngine:${this.tableId}] leave refused at the door for ${userId} - ${hands} hands owed in profit`
@@ -2801,14 +2805,39 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
     // which point they post it as their own blind.
     const seat = this.seatedPlayers.find((p) => p.user_id === userId);
     if (seat && !this.isTournamentTable()) {
-      const sbSeatIndex = this.getSBSeatIndex();
-      const buttonSeatIndex = this.getButtonSeatIndex();
+      // Judged over the hand as it would be dealt with this player admitted:
+      // everyone playing or already admitted to post, plus this player, and
+      // no other waiting player (dealtIfAdmitted, HU-EXE-002 review R1).
+      const sbSeatIndex = this.getSBSeatIndex(userId);
+      const buttonSeatIndex = this.getButtonSeatIndex(userId);
+      // Nor may this post push ANOTHER player, already admitted to post and
+      // never dealt here, onto the small blind or the button. Checked only
+      // when the next hand deals without this player (two others are playing),
+      // so this hold always ends at that deal.
+      const others = this.seatedPlayers.filter(
+        (p) =>
+          p.user_id !== userId &&
+          p.stack > 0 &&
+          !this.waitingForBB.has(p.user_id) &&
+          (!this.disconnectEngine.isSittingOut(this.tableId, p.user_id) ||
+            this.dealsInWhileSittingOut(p.user_id))
+      );
+      const displacesAnotherEntrant =
+        others.length >= 2 &&
+        others.some(
+          (p) =>
+            this.postingBBToEnter.has(p.user_id) &&
+            !this.dealtInUserIds.has(p.user_id) &&
+            ((sbSeatIndex > 0 && p.seat_number === sbSeatIndex) ||
+              (buttonSeatIndex > 0 && p.seat_number === buttonSeatIndex))
+        );
       // BOTH hold-outs, not just the small blind. Otherwise a player could post
       // their way into the button on their first hand, which is the rule the
       // button hold-out exists to enforce.
       if (
         (sbSeatIndex > 0 && seat.seat_number === sbSeatIndex) ||
-        (buttonSeatIndex > 0 && seat.seat_number === buttonSeatIndex)
+        (buttonSeatIndex > 0 && seat.seat_number === buttonSeatIndex) ||
+        displacesAnotherEntrant
       ) {
         // HELD, NOT REFUSED. The player has answered; the seat has not
         // cleared. The dealing loop replays this on every pass and it takes

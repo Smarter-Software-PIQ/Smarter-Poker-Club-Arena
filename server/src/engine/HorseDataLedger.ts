@@ -879,6 +879,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V89'
   ),
   flag(
+    'plo6ManiacPriceRefusalToRangePlay',
+    '2026-11-14 PLO6 cash preflop: when the raiser faced is an observed maniac and not all in and the call is under 40% of the stack, a refusal by the price arithmetic is decided by the range play, the play made against every other opponent, instead of an outright fold (PLO6-AUDIT-013, production hand 58751512; evidence docs/horse-default-on.d/plo6ManiacPriceRefusalToRangePlay.md)',
+    'V92'
+  ),
+  flag(
     'omahaPreflopCallWithActionBehind',
     'opt-in arm, default off (2026-11-13): Omaha preflop, a call costing 40% of the stack that leaves chips behind while an opponent still owes a decision is sent to the range play, not the final all-in arithmetic (PLO6-AUDIT-005, production hand 58751512). The pricing gap is real but the value check does not support the rule as built: the folded hands hold 40% to 55% equity at a price near 38%, the rule was merged without a value check and nothing measured since supplies one, so production never sets it',
     'V90'
@@ -2482,6 +2487,26 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     "a maniac raised or is still to act: its shoves and re-raises priced by equity, opens capped to what continues, no bluff raises (Dan: 'NOT RAISE A HAND WITH THE INTENTION OF FOLDING')",
     'OPPX'
   ),
+  // PLO6-AUDIT-015 (2026-11-13). In Omaha maniac_pressure_preflop fires for
+  // an unknown opponent too, because the presumption supplies a width. This
+  // receipt counts only the raiser faced whose own record reads as a maniac.
+  // No floor: it needs a real maniac at the table. Named _seen for the same
+  // reason: a day with none is ordinary, and the daily drift audit must not
+  // read that day as a layer going silent.
+  receipt(
+    'observed_maniac_raiser_seen',
+    'HorseLogic (maniac pressure, observedManiacRaiser)',
+    'the raiser the Horse faces reads as a maniac on its own public record, not on the Omaha presumption',
+    'OPPX'
+  ),
+  // PLO6-AUDIT-013 (2026-11-14). An occurrence counter: it needs an observed
+  // maniac re-raising a PLO6 cash Horse and the arithmetic refusing the price.
+  receipt(
+    'plo6_maniac_price_refusal_range_play_seen',
+    'HorseLogic V38 arithmetic (plo6ManiacPriceRefusalToRangePlay, PLO6-AUDIT-013)',
+    'a PLO6 cash price refused against an observed maniac raiser was handed to the range play instead of being folded',
+    'V92'
+  ),
   receipt(
     'river_bluff_checkraise_evaluated',
     'HorseLogic.riverBluffCheckRaise',
@@ -2955,8 +2980,8 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   receipt(
     'upgrade08_*',
-    'ServerTableEngineRunout; ServerTableEngineTurns; LightningHorse',
-    'a run-it-twice answer was scheduled or an insurance answer was sent, or kill-pot or seven-deuce context reached a decision request; named *_seen (occurrence, not a layer); silent where no table offers the side game',
+    'ServerTableEngineRunout; ServerTableEngineTurns; LightningHorse; HorseLogic',
+    'a run-it-twice answer was scheduled, an insurance offer went to a Horse leader (offered) or its answer was sent, kill-pot or seven-deuce context reached a decision request, or the brain read it in that decision (kill_pot_orbit, kill_pot_unopened, seven_deuce_overlay, seven_deuce_bounty); named *_seen (occurrence, not a layer); silent where no table offers the side game',
     '2026-11-12'
   ),
   receipt(

@@ -50,6 +50,7 @@ import type { HeroPriorPreflopAction } from './HorsePreflopOrbitState.js';
 import { cashNlhThreeBetRaiseTo } from './HorseCashThreeBetSize.js';
 import { huBbRequiredEquity } from './HorseHuBbDefence.js';
 import { limpReraiseIsoBar } from './HorseLimpReraiseRead.js';
+import { fixedLimitHasNoJamOrFold } from './HorseFixedLimitStructure.js';
 import {
   OMAHA_TOURNAMENT_FIRST_IN,
   omahaTournamentFirstIn,
@@ -1589,7 +1590,12 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
   // first cut used 0.35, which put a 12bb stack OUTSIDE the zone - and the
   // test caught the 12bb stack limp-calling junk through the deep-stack
   // fallback instead, which is precisely the hole this layer exists to fill.)
-  const ploT = ctx.isOmaha && isTourney && ctx.ploTourney === true;
+  // HU-FL-001 (2026-11-13): jam-or-fold is a no-limit structure and the
+  // commitment zone is pot-limit arithmetic (what one pot raise costs). A
+  // fixed-limit raise is one bet whatever the stack, so a fixed-limit stack
+  // enters neither (HorseFixedLimitStructure.ts).
+  const noJamOrFold = fixedLimitHasNoJamOrFold(ctx.isFixedLimit);
+  const ploT = ctx.isOmaha && !noJamOrFold && isTourney && ctx.ploTourney === true;
   // A pot raise from an unopened pot is ~3.5bb; facing a raise it is
   // roughly 3*currentBet + pot (the pot-limit formula), which is what the
   // engine's own legalize() will clamp to.
@@ -1780,11 +1786,18 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
   // open measured +1.9 +/- 1.6 bb/100 in the 20bb mirror but -8.7 +/- 2.9
   // against the human-calibrated field over four seeds (the population
   // over-folds to the shove), so it is a follow-up, not part of this change.
+  // HU-FL-001: a fixed-limit stack never enters jam-or-fold (the controller
+  // only ever executed these jams as one-bet raises).
   const legacyPushFold =
     !ctx.isOmaha &&
+    !noJamOrFold &&
     (stackBB <= 12 || (mzOn && (phase6M ? phase6Red : effM < 6) && effStackBB <= PUSH_FOLD_MAX_BB));
   const legacyOrangeJam =
-    mzOn && (phase6M ? phase6OrangeOrWorse : effM < 10) && stackBB <= 22 && !ctx.isOmaha;
+    mzOn &&
+    (phase6M ? phase6OrangeOrWorse : effM < 10) &&
+    stackBB <= 22 &&
+    !ctx.isOmaha &&
+    !noJamOrFold;
   //
   // Two- and three-handed the M zones are not a depth read at all: the
   // effective-M table scaling (players / 10) puts a heads-up 40bb stack at
@@ -1860,7 +1873,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
   // V25: the old Omaha gate (<=8bb / M<4) is superseded by the commitment
   // zone above, which triggers on the pot-limit arithmetic rather than a bb
   // count. It stays for the ablation path (ploTourney off).
-  const pushFoldOmaha = ctx.isOmaha && !ploT && mzOn && (stackBB <= 8 || effM < 4);
+  const pushFoldOmaha = ctx.isOmaha && !noJamOrFold && !ploT && mzOn && (stackBB <= 8 || effM < 4);
   if (pushFoldNlh || pushFoldOmaha) {
     if (unopened) {
       // V11: tournament jam ranges follow push/fold math — wider from late

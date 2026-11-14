@@ -13,9 +13,10 @@
  *
  * WHERE THE CONFIGURATION COMES FROM: no existing runtime configuration path carries a per-option state (the fleet
  * policy RPC has fixed fields and fails open; the feature and phase authorities are selected at a protected release
- * and never read a database row). A new table and RPC are therefore needed. Their migration belongs to another
- * owner and is NOT written here: see the design note in STYLE-READ-BRANCH.md ("Live Off Switch: Design Note").
- * Until it lands the production source reports `absent`, so the source default (off) holds.
+ * and never read a database row). The table ca_horse_style_switch and the read fn_ca_horse_style_switch_effective
+ * (migration 20261113201841) carry it; the main thread reads them and delivers the configuration to every worker
+ * (horseDecision/styleSwitchDelivery.ts). A worker that has been delivered nothing reports `absent`, so the source
+ * default (off) holds.
  *
  * CANARY: 'canary' is on for the Horses whose stable bucket (sha256 of `style-canary-v1:` + the lower-cased Horse
  * id, first 32 bits, modulo 10) is 0, about one Horse in ten, and shadow for every other Horse. The bucket is fixed
@@ -105,7 +106,7 @@ export type StyleSwitchReading =
 /** The source is asked with the holder's clock, so a source that serves a stored value can stamp it. */
 export type StyleSwitchSource = (nowMs: number) => StyleSwitchReading;
 
-/** The production source until the configuration table lands (design note): nothing on file, the default holds. */
+/** Nothing on file: the default holds. Production workers use the delivered source (styleSwitchDelivery.ts). */
 export const ABSENT_STYLE_SWITCH_SOURCE: StyleSwitchSource = () => ({ kind: 'absent' });
 
 /**

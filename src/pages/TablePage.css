@@ -5389,3 +5389,15 @@ button.post-bb-overlay-button {
     );
   }
 }
+
+/* Owner November 13: lower both phone tables to the controller clearance.
+   The full hero box (including its hand label) previously cleared the active
+   row by 6.1px at the tightest measured phone. Transfer four layout pixels
+   from below to above, keeping at least two pixels clear. The two paddings
+   still sum to the same budget: no felt resize and no hand-driven movement. */
+@media (max-device-width: 480px) and (min-width: 481px) and (max-width: 640px) and (orientation: portrait) {
+  .table-page:where([data-seats='6'], [data-seats='9']) .table-container {
+    padding-top: calc(var(--sp-table-top) + 4px);
+    padding-bottom: calc(var(--sp-table-bottom) - 4px);
+  }
+}

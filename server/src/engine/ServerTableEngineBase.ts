@@ -162,6 +162,7 @@ import { INSTANCE_ID } from '../services/tableLease.js';
 import {
   evaluateCashSessions,
   atomicCashoutVoluntary,
+  returnOwedLightningLeaveToPool,
   setCashSessionBlindOff,
 } from '../services/supabase/cashSessions.js';
 import {
@@ -974,7 +975,7 @@ export abstract class ServerTableEngineBase {
       if (button <= 0 || bb <= 0 || button === bb) return candidates;
       inHold = (seat) => (button < bb ? seat > button && seat <= bb : seat > button || seat <= bb);
     }
-    return candidates.filter((p) => {
+    const admitted = candidates.filter((p) => {
       const seat = p.seat_number;
       if (!inHold(seat)) return true;
       const held = this.isTournamentTable()
@@ -983,6 +984,27 @@ export abstract class ServerTableEngineBase {
       if (held) this.waitingForButton.set(seat, p.user_id);
       return !held;
     });
+    /* A HOLD THAT STOPS THE TABLE RELEASES ITSELF (#10741, 2026-11-13).
+       The moved-seat hold keeps a seat out until the button passes it, so it
+       never comes in behind blinds already posted. But the button only moves
+       when a hand is dealt. A cash table whose deal minimum is its full ring
+       (FLO8 .25/.50 Madness: six of six) cannot deal while any seat is held,
+       so the hold could never end: Main 1 sat with six funded, sat-in horses
+       from 00:55 to past 18:00 Chicago, Mains 3 and 4 from 04:21 and 04:11.
+       When the hold is the only reason the table falls below its minimum,
+       nothing is being dealt and there is no blind to come in behind: every
+       seat enters the same hand and that hand posts by position, exactly as
+       releaseWaitersNoBlindCanReach does for a big-blind wait. A tournament
+       table's minimum is two, which this hold never stops. */
+    if (
+      !this.isTournamentTable() &&
+      admitted.length < this.minPlayersToDeal() &&
+      candidates.length >= this.minPlayersToDeal()
+    ) {
+      this.waitingForButton.clear();
+      return candidates;
+    }
+    return admitted;
   }
 
   // Guard for the dealing loop's first iteration. On the first pass — whether
@@ -3525,7 +3547,10 @@ export abstract class ServerTableEngineBase {
   public hitRunHandsOwed(userId: string): number {
     const seat = this.seatedPlayers.find((p) => p.user_id === userId);
     if (!seat) return 0;
-    return this.chipContinuity?.leaveLock(userId, seat.stack)?.handsRemaining ?? 0;
+    return (
+      this.chipContinuity?.leaveLock(userId, this.handCountStack(userId, seat.stack))
+        ?.handsRemaining ?? 0
+    );
   }
 
   /**
@@ -3554,6 +3579,100 @@ export abstract class ServerTableEngineBase {
   }
 
   /**
+   * THE STACK THE HAND COUNT IS JUDGED AT (#10740, 2026-11-13). At a classic
+   * table the roster stack is this engine's own, settled by its own hands. At
+   * a Lightning anchor the chips are played in the pool and settled by the
+   * Lightning settlement, which this engine's roster never sees: its stack can
+   * read at or below the buy-in while the seat is well in profit, so "owes no
+   * hands" was answered from a number hours old. The database's answer (the
+   * mirror row, refreshed before every anchor decision) is the seat's real
+   * stack; a mirror that has never answered keeps the roster's.
+   */
+  protected handCountStack(userId: string, rosterStack: number): number {
+    if (!this.isLightningAnchorNow()) return rosterStack;
+    const fresh = Number(this.chipContinuity?.row(userId)?.stack);
+    return Number.isFinite(fresh) ? fresh : rosterStack;
+  }
+
+  /** When this anchor last re-read every seat's hand count. */
+  private lastAnchorContinuityRefreshAt = 0;
+  static readonly ANCHOR_CONTINUITY_REFRESH_MS = 30_000;
+
+  /**
+   * AN ANCHOR'S HAND COUNT IS READ, NOT REMEMBERED (2026-11-13).
+   *
+   * At a Lightning anchor every hand is settled in the pool, so the mirror the
+   * horse rotator asks ("does this seat owe hands?", "does it owe a big-pot
+   * orbit?") was refreshed only when presence changed - which, for a horse
+   * that plays on, is never. A snapshot taken just after a big pot or a win
+   * kept answering "owes" for hours, so the off-duty exit kept deferring:
+   * 24 horse departures at Lightning anchors on 2026-11-13 against 891 at
+   * Classic tables, and a horse an hour past its daily cap with nothing owed
+   * in the database. Every seat is re-read here at most every 30 seconds, on
+   * the halted loop that already serves the anchor, through the same evaluate
+   * the leave door uses. Never during the freeze (evaluate stands down too).
+   */
+  protected async refreshAnchorContinuity(): Promise<void> {
+    if (!this.isLightningAnchorNow() || isMaintenanceFrozen()) return;
+    const now = Date.now();
+    if (
+      now - this.lastAnchorContinuityRefreshAt <
+      ServerTableEngineBase.ANCHOR_CONTINUITY_REFRESH_MS
+    )
+      return;
+    const seats = this.seatedPlayers ?? [];
+    if (seats.length === 0) return;
+    this.lastAnchorContinuityRefreshAt = now;
+    await this.chipContinuity.evaluate(
+      seats.map((p) => ({ user_id: p.user_id, active: this.isContinuityActive(p.user_id) }))
+    );
+  }
+
+  /**
+   * A QUEUED LIGHTNING LEAVE THAT OWES HANDS GOES BACK TO THE POOL (#10740).
+   *
+   * A leave asked while the player's chips were in a live Lightning hand is
+   * queued: the seat is sat out and pending (fn_request_seat_departure). If
+   * that hand left the seat in profit, the cash-out is refused for the hands
+   * owed and the leave is held - but the pool never deals a sat-out, pending
+   * seat, so the owed hands could never be played and the seat stayed for
+   * ever (fifteen seats, the oldest 60 hours, 2026-11-13). The owner's rule
+   * for a leave with hands owed is the blind off ("YOU WILL BE BLINDED OFF FOR
+   * THE REMAINING HANDS"), which a between-hands leave already gets. This
+   * turns the queued leave into exactly that: the database withdraws the
+   * voluntary request and returns the seat to the pool
+   * (fn_lightning_owed_leave_returns_to_pool, which asks the leave door
+   * itself whether hands are owed), and the seat is held as a blind off; the
+   * hand host folds or checks it, the settlement counts each hand, and the
+   * held leave cashes out through the voluntary door when nothing is owed.
+   * People and horses alike. A refusal or a failed call changes nothing and is
+   * asked again on the next pass.
+   */
+  protected async returnOwedLightningLeaveToPool(
+    userId: string,
+    seated: { seat_number: number; occupancy_id?: string | null; leave_pending?: boolean | null }
+  ): Promise<boolean> {
+    if (!this.isLightningAnchorNow() || seated.leave_pending !== true || !seated.occupancy_id)
+      return false;
+    if (isMaintenanceFrozen()) return false;
+    const answer = await returnOwedLightningLeaveToPool(
+      userId,
+      this.tableId,
+      seated.seat_number,
+      seated.occupancy_id
+    );
+    if (!answer?.returned) return false;
+    seated.leave_pending = false;
+    this.lightningDeferredLeaves?.delete(userId);
+    this.disconnectEngine.sitBack(this.tableId, userId);
+    console.log(
+      `[ServerTableEngine:${this.tableId}] queued Lightning leave for ${userId} owes ${answer.handsRemaining} hands - back in the pool as a blind off`
+    );
+    this.holdLockedLeave(userId, answer.handsRemaining);
+    return true;
+  }
+
+  /**
    * HIT AND RUN: a held leave whose seat still owes hands in profit. The seat
    * is sat out but BLINDED OFF: dealt in every hand, posting its blinds, and
    * auto-acted (checked or folded) on its turn by the sit-out beat - the
@@ -3563,7 +3682,10 @@ export abstract class ServerTableEngineBase {
   protected isBlindedOff(userId: string): boolean {
     if (this.isTournamentTable() || !this.leaveHeldByClock.has(userId)) return false;
     const seat = this.seatedPlayers.find((p) => p.user_id === userId);
-    return !!seat && this.chipContinuity.leaveLock(userId, seat.stack).locked;
+    return (
+      !!seat &&
+      this.chipContinuity.leaveLock(userId, this.handCountStack(userId, seat.stack)).locked
+    );
   }
 
   /**
@@ -5308,7 +5430,10 @@ export abstract class ServerTableEngineBase {
       if (this.leaveHeldByClock.has(p.user_id) || !p.occupancy_id) continue;
       const row = this.chipContinuity.row(p.user_id);
       if (!row?.blind_off) continue;
-      const lock = this.chipContinuity.leaveLock(p.user_id, p.stack);
+      const lock = this.chipContinuity.leaveLock(
+        p.user_id,
+        this.handCountStack(p.user_id, p.stack)
+      );
       if (!lock.locked) continue;
       this.holdLockedLeave(p.user_id, lock.handsRemaining);
     }
@@ -5358,7 +5483,10 @@ export abstract class ServerTableEngineBase {
         // HIT AND RUN: still owing hands, the seat goes on being blinded off -
         // unless nobody else is left to deal with, which leaves nobody to have
         // hit and run from: the hold ends as a system exit.
-        const owes = this.chipContinuity.leaveLock(userId, seated.stack).locked;
+        const owes = this.chipContinuity.leaveLock(
+          userId,
+          this.handCountStack(userId, seated.stack)
+        ).locked;
         const nobodyElse =
           owes &&
           !this.isLightningAnchorNow() &&
@@ -5369,7 +5497,12 @@ export abstract class ServerTableEngineBase {
               !this.leaveHeldByClock.has(p.user_id) &&
               !this.disconnectEngine.isSittingOut(this.tableId, p.user_id)
           );
-        if (owes && !nobodyElse) continue;
+        if (owes && !nobodyElse) {
+          // #10740: a queued Lightning leave still owing hands is sat out and
+          // pending, which the pool never deals; send it back as a blind off.
+          await this.returnOwedLightningLeaveToPool(userId, seated);
+          continue;
+        }
         if (nobodyElse) {
           await atomicCashout(userId, this.tableId, seated.seat_number, {
             occupancyId: seated.occupancy_id,
@@ -5433,6 +5566,7 @@ export abstract class ServerTableEngineBase {
           void this.broadcastCurrentState();
         } else if (res.code === 'LEAVE_LOCKED') {
           this.chipContinuity.noteRefusal(userId, res.stayRemainingMs);
+          await this.returnOwedLightningLeaveToPool(userId, seated);
         } else if (res.code === 'LIGHTNING_HAND_IN_PROGRESS') {
           // The seat is in a live Lightning hand: queue the departure behind
           // it (the pool stops matching a seat with a pending cash-out), and
@@ -6688,6 +6822,8 @@ export abstract class ServerTableEngineBase {
       await this.chipContinuity.sweepPresence(this.seatedPlayers ?? [], (uid) =>
         this.isContinuityActive(uid)
       );
+      if (!this.lifecycleCanMutate()) return;
+      await this.refreshAnchorContinuity();
       if (!this.lifecycleCanMutate()) return;
       this.restoreBlindOffFromSessions();
       await this.releaseLeavesHeldByClock();
@@ -10905,15 +11041,33 @@ export abstract class ServerTableEngineBase {
    * SMALL BLIND. THEY MUST WAIT FOR THE BUTTON TO PASS." Same roster and
    * rotation as getBBSeatIndex, stopping one seat earlier.
    */
-  protected getSBSeatIndex(): number {
+  protected getSBSeatIndex(admitting?: string): number {
     const roster = this.seatedPlayers.filter(
       (p) =>
         p.stack > 0 &&
         (!this.disconnectEngine.isSittingOut(this.tableId, p.user_id) ||
-          this.dealsInWhileSittingOut(p.user_id))
+          this.dealsInWhileSittingOut(p.user_id)) &&
+        this.dealtIfAdmitted(p.user_id, admitting)
     );
     if (roster.length < 2) return -1;
     return this.predictBlindSeats(roster)?.smallBlindSeat ?? -1;
+  }
+
+  /**
+   * THE HAND AS IT WOULD BE DEALT WITH ONE WAITING PLAYER ADMITTED
+   * (2026-11-13, HU-EXE-002 review R1).
+   *
+   * The post-to-enter gate asks "would THIS player be the small blind or the
+   * button". Answered over every seated player it counted other waiting
+   * players, who will not be dealt: with two newcomers side by side the first
+   * "held" the predicted small blind seat, the second was let through, and at
+   * the deal the second one WAS the small blind while an incumbent posted a
+   * blind twice running. With `admitting` set, getSBSeatIndex and
+   * getButtonSeatIndex leave out every waiting player except that one, which
+   * is the roster the deal will use. Without it they keep the whole roster.
+   */
+  protected dealtIfAdmitted(userId: string, admitting?: string): boolean {
+    return admitting === undefined || userId === admitting || !this.waitingForBB.has(userId);
   }
 
   /**
@@ -10992,6 +11146,34 @@ export abstract class ServerTableEngineBase {
   }
 
   /**
+   * HEADS-UP BACK TO THREE OR MORE, CASH: THE BUTTON STAYS ONE HAND.
+   *
+   * Heads-up the button IS the small blind. Walking the button forward when a
+   * third player is dealt in puts it on the previous big blind, so that player
+   * skips the small blind and the previous button posts the small blind twice
+   * running (HU-EXE-002). Keeping the button where it was for the entry hand
+   * makes the previous big blind post the small blind and lets the big blind
+   * advance one seat, which is what the tournament rule (deadButton.ts) and
+   * the three-handed-to-heads-up rule (headsUpButton.ts) already do.
+   *
+   * True only when the last recorded hand was heads-up (its small blind seat
+   * was its button), both of those players are still button-eligible, and no
+   * other eligible player sits between them. Anything else keeps the walk.
+   */
+  protected cashButtonStaysAfterHeadsUp(roster: SeatedPlayer[], eligible: SeatedPlayer[]): boolean {
+    return (
+      !this.isTournamentTable() &&
+      roster.length >= 3 &&
+      this.lastButtonSeat > 0 &&
+      this.lastBigBlindSeat > 0 &&
+      this.lastSmallBlindSeat === this.lastButtonSeat &&
+      this.lastBigBlindSeat !== this.lastButtonSeat &&
+      eligible.some((p) => p.seat_number === this.lastButtonSeat) &&
+      this.getNextSeat(this.lastButtonSeat, eligible) === this.lastBigBlindSeat
+    );
+  }
+
+  /**
    * Where the button lands on the hand about to be dealt. ONE definition,
    * shared by the SB/BB predictors, the wait-for-BB gate and the rotation
    * itself — if these were separate walks they could disagree about who is on
@@ -11026,6 +11208,7 @@ export abstract class ServerTableEngineBase {
         const headsUp = headsUpButtonSeat(sortedSeats, this.lastBigBlindSeat);
         if (headsUp !== null && headsUp > 0) return headsUp;
       }
+      if (this.cashButtonStaysAfterHeadsUp(roster, eligible)) return this.lastButtonSeat;
       return this.getNextSeat(this.lastButtonSeat, eligible);
     }
     return sortedSeats[0];
@@ -11036,12 +11219,13 @@ export abstract class ServerTableEngineBase {
    * Used by the dealing loop to hold a brand-new joiner out for one hand when
    * they have sat down in the seat the button is about to reach.
    */
-  protected getButtonSeatIndex(): number {
+  protected getButtonSeatIndex(admitting?: string): number {
     const roster = this.seatedPlayers.filter(
       (p) =>
         p.stack > 0 &&
         (!this.disconnectEngine.isSittingOut(this.tableId, p.user_id) ||
-          this.dealsInWhileSittingOut(p.user_id))
+          this.dealsInWhileSittingOut(p.user_id)) &&
+        this.dealtIfAdmitted(p.user_id, admitting)
     );
     if (roster.length < 2) return -1;
     return this.predictButtonSeat(roster);
@@ -11074,7 +11258,24 @@ export abstract class ServerTableEngineBase {
         const entering = roster.find(
           (p) => p.seat_number === nextBigBlind && this.waitingForBB.has(p.user_id)
         );
-        return this.predictBlindSeats(entering ? [...playing, entering] : playing)?.bigBlind ?? -1;
+        if (entering) {
+          // A waiter is not released onto a hand where their arrival would put
+          // a player who is already admitted to post, and has never been dealt
+          // here, on the small blind or the button (2026-11-13, HU-EXE-002
+          // review R1). They wait one more hand; that player is a veteran then.
+          const withEntrant = this.predictBlindSeats([...playing, entering]);
+          const displaced =
+            withEntrant !== null &&
+            playing.some(
+              (p) =>
+                this.postingBBToEnter.has(p.user_id) &&
+                !this.dealtInUserIds.has(p.user_id) &&
+                (p.seat_number === withEntrant.smallBlindSeat ||
+                  p.seat_number === withEntrant.button)
+            );
+          if (!displaced) return withEntrant?.bigBlind ?? -1;
+        }
+        return this.predictBlindSeats(playing)?.bigBlind ?? -1;
       }
     }
     return this.predictBlindSeats(roster)?.bigBlind ?? -1;

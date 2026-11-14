@@ -38,6 +38,7 @@ import {
 import { HorsePolicyGraph } from './HorsePolicyGraph.js';
 import { decisionGravity } from './horseDecisionGravity.js';
 import { riverNutsRaise, fullPotNearPotWager, hasRiverNuts } from './HorseRiverNuts.js';
+import { hiLoRiverLowHalfFloor } from './HorseHiLoLowHalf.js';
 import { omahaCurrentNutsRaise } from './HorseOmahaCurrentNuts.js';
 import {
   TOKEN_CALL_COUNTED_PRICE,
@@ -2607,6 +2608,12 @@ export interface HorseDecideOpts {
    * (HorseTokenCallPrice.ts, PLO6-AUDIT-010). Default on; false only for
    * the regression's non-vacuity control. */
   tokenCallPrice?: boolean;
+  /** PLO6 cash, the raiser faced is an observed maniac and not all in, the
+   * call is under 40% of the stack: a refusal by the price arithmetic goes
+   * to the range play instead of folding outright (PLO6-AUDIT-013,
+   * docs/horse-default-on.d/plo6ManiacPriceRefusalToRangePlay.md). Default
+   * on; false only for the regression's non-vacuity control. */
+  plo6ManiacPriceRefusalToRangePlay?: boolean;
   /** An Omaha preflop call of 40% of the stack with chips behind and an
    * opponent still to act is not priced as a final all-in call
    * (PLO6-AUDIT-005). OPT-IN, default off. The pricing gap is real (the
@@ -7654,6 +7661,13 @@ export class HorseLogic {
           orbit86?.fullRaises ?? raises
         )
       : null;
+    // Upgrade 08 evidence only: the side-game read this preflop decision's
+    // brain actually made. Nothing below reads these counters.
+    if (telemetryOn(opts)) {
+      if (orbit86?.killState.active) noteFire('upgrade08_kill_pot_orbit_seen');
+      if (orbit86?.killPotUnopened) noteFire('upgrade08_kill_pot_unopened_seen');
+      if (sidePre86?.sevenDeuce.enabled) noteFire('upgrade08_seven_deuce_overlay_seen');
+    }
     const straddleUnopened =
       ((opts.v18Straddle ?? true) !== false &&
         gs.straddleActive === true &&
@@ -7940,6 +7954,10 @@ export class HorseLogic {
         }
         if (telemetryOn(opts) && (maniacRaiserWidth !== null || maniacBehindWidth !== null))
           noteFire('maniac_pressure_preflop');
+        // PLO6-AUDIT-015: maniac_pressure_preflop also fires when the Omaha
+        // presumption supplied the width. This one fires only when the raiser
+        // faced is a maniac on its own record, so the two can be told apart.
+        if (telemetryOn(opts) && observedManiacRaiser) noteFire('observed_maniac_raiser_seen');
       } catch {
         /* reads are best-effort */
       }
@@ -8513,12 +8531,36 @@ export class HorseLogic {
             notePhase6Route('variant_fallback', 'variant_price');
             return { action: 'call', amount: Math.min(toCall, player.stack), thinkTime: 0 };
           }
-          notePhase6Route('variant_fallback', 'variant_price');
-          return {
-            action: 'fold',
-            thinkTime: 0,
-            ...(vi.isOmaha ? { continuationGuard: 'preflop_priced_refusal' as const } : {}),
-          };
+          // ═══ PLO6-AUDIT-013 A REFUSED MANIAC PRICE IS NOT A FOLD (2026-11-14) ═══
+          // Production hand 58751512, decision 13 (PLO6 1/2, 390bb, 161 to call
+          // into 520 after a four-bet): against an unknown or a proven tight
+          // four-bettor this arithmetic is not used and the range play shoves;
+          // against an observed maniac it is, its fixed margins put the bar at
+          // 0.346 against pot odds of 0.236, and three seeds in ten folded a
+          // hand whose every alternative is worth 28 to 137 big blinds. The
+          // maniac price exists to call lighter, never to play tighter than the
+          // Horse plays against everybody else. So where only the maniac read
+          // brought the decision here (the call is under 40% of the stack and
+          // the raiser is not all in), a refusal hands the decision to the
+          // range play below. PLO6 cash only: the evidence is one PLO6 cash
+          // node (docs/horse-default-on.d/plo6ManiacPriceRefusalToRangePlay.md).
+          const refusalToRangePlay38 =
+            opts.plo6ManiacPriceRefusalToRangePlay !== false &&
+            vi.isOmaha &&
+            !vi.isHiLo &&
+            vi.holeCount === 6 &&
+            !isTournamentMode(gs) &&
+            maniacPrice38 &&
+            !variantPrice38;
+          if (!refusalToRangePlay38) {
+            notePhase6Route('variant_fallback', 'variant_price');
+            return {
+              action: 'fold',
+              thinkTime: 0,
+              ...(vi.isOmaha ? { continuationGuard: 'preflop_priced_refusal' as const } : {}),
+            };
+          }
+          if (telemetryOn(opts)) noteFire('plo6_maniac_price_refusal_range_play_seen');
         } catch {
           if (telemetryOn(opts)) noteFire('v38_preflop_price_unavailable');
           /* No invented opponent/equity: the explicit range fallback decides. */
@@ -9611,6 +9653,10 @@ export class HorseLogic {
                 }
               }
             }
+            // Upgrade 08 evidence only: the seven-deuce bounty credit this
+            // Horse holds is handed to the preflop thresholds just below.
+            if (telemetryOn(opts) && sidePre86 && sidePre86.sevenDeuce.preflopStrengthBonus > 0)
+              noteFire('upgrade08_seven_deuce_bounty_seen');
             return {
               v86UnblockedPreflop: true,
               v86MultiStreetUnblocked: opts.v86MultiStreetUnblocked !== false,
@@ -10816,6 +10862,12 @@ export class HorseLogic {
           sevenDeuceBountyPerPlayer: gs.sevenDeuceBountyPerPlayer,
         })
       : null;
+    // Upgrade 08 evidence only: the seven-deuce read this postflop decision
+    // made, and whether a bounty went to the pricing below (sideGamePotOverlay).
+    if (tele15 && sidePost86?.sevenDeuce.enabled) {
+      noteFire('upgrade08_seven_deuce_overlay_seen');
+      if (sidePost86.postflopPotOverlayChips > 0) noteFire('upgrade08_seven_deuce_bounty_seen');
+    }
 
     // V9 TIMING: how CLOSE is this decision? Distance of the MC equity from
     // the nearest strategy threshold. Razor-thin spots read as difficulty ~1
@@ -14742,7 +14794,18 @@ export class HorseLogic {
           // must not erase (top two with the nut flush draw stacks off).
           if (!isRiver && drawInfo40()?.nutty === true) cap40 += 0.12;
           const before40 = eq15;
-          eq15 = Math.min(eq15, Math.max(0.08, cap40));
+          // HU-HILO-001 (2026-11-13): the class ceiling prices the HIGH hand.
+          // Heads-up on a pot-limit hi-lo river the low half a hand already
+          // wins is not at risk from a better high hand, so the ceiling never
+          // goes below that half (HorseHiLoLowHalf.ts; 0 everywhere else).
+          const lowHalf40 = hiLoRiverLowHalfFloor({
+            isHiLo: vi.isHiLo === true,
+            isFixedLimit: vi.isFixedLimit === true,
+            isRiver,
+            opponents: oppCount,
+            lowShare: hiLoSplit?.lo,
+          });
+          eq15 = Math.min(eq15, Math.max(0.08, cap40, lowHalf40));
           if (opts.v87DeepDiveDiscipline !== false)
             noteHorseDeepDiveRule(
               'flop_cap',

@@ -3794,6 +3794,10 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
   protected scheduleHorseInsuranceResponse(leaderId: string): void {
     const seated = this.seatedPlayers.find((p) => p.user_id === leaderId);
     if (!seated?.is_horse || this.isOwnClientControlling(leaderId)) return;
+    // Opportunity (evidence only): one insurance offer went to a Horse leader.
+    // The three answer counters below are a subset: an offer the hand or the
+    // lifecycle retires before the timer runs is offered and never answered.
+    noteFire('upgrade08_insurance_offered_seen');
     const handAtOffer = this.handCount;
     const responseDelayMs =
       650 + (((leaderId.charCodeAt(0) || 17) * 13 + this.handCount * 37) % 500);

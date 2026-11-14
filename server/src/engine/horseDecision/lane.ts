@@ -1,6 +1,11 @@
 import { horseRequestAllowance } from './requestRetentionBudget.js';
 import { markHorseDecisionRejection } from './fallbackReason.js';
 import type { V31ControlRequest, V31ControlAck } from './v31ReloadControl.js';
+import {
+  createStyleSwitchDelivery,
+  readStyleSwitchFromDatabase,
+  type StyleSwitchStateMessage,
+} from './styleSwitchDelivery.js';
 import { mainHorseHistoryRetentionBudget } from './ownPublicHistoryBudget.js';
 import { readHorseOwnPublicHistory } from '../../services/HorseOwnPublicHistory.js';
 import { HorseObserverParticipantRegistry } from './observerParticipants.js';
@@ -321,6 +326,12 @@ export interface LiveHorseDecisionLaneOptions extends LiveHorseDecisionWorkerCli
   journalCapacity?: { shards: number | undefined };
   /** Tests pin the clock the shard replacement window reads. */
   shardReplacementNow?: () => number;
+  /**
+   * 2026-11-13 STYLE READ LIVE SWITCH: how the main thread reads the per-option runtime states it delivers to
+   * every worker (styleSwitchDelivery.ts). Absent: the production database read. false: no delivery, so every
+   * option stays at its source default (off).
+   */
+  styleSwitchRead?: (() => Promise<unknown>) | false;
 }
 
 const PHASE_RANK: Record<LiveHorseDecisionWorkerPhase, number> = {
@@ -539,6 +550,10 @@ export class LiveHorseDecisionWorkerPool implements LiveHorseDecisionLane {
             worker,
           }
     );
+  }
+  /** 2026-11-13 STYLE READ LIVE SWITCH: one configuration to every shard; a shard that misses it goes stale to off. */
+  broadcastStyleSwitch(message: StyleSwitchStateMessage): void {
+    for (const client of this.clients) client.postStyleSwitch(message);
   }
   private shard(fence: string): LiveHorseDecisionWorkerClient {
     return this.clients[horseDecisionShard(fence, this.clients.length)]!;
@@ -791,6 +806,7 @@ export class LiveHorseDecisionWorkerPool implements LiveHorseDecisionLane {
 }
 
 let singleton: LiveHorseDecisionWorkerPool | null = null;
+let styleSwitchDelivery: ReturnType<typeof createStyleSwitchDelivery> | null = null;
 
 export async function startLiveHorseDecisionWorker(
   options: LiveHorseDecisionLaneOptions = {}
@@ -816,6 +832,14 @@ export async function startLiveHorseDecisionWorker(
     );
   }
   await singleton.ready();
+  if (!styleSwitchDelivery && singleton && options.styleSwitchRead !== false) {
+    styleSwitchDelivery = createStyleSwitchDelivery({
+      read: options.styleSwitchRead ?? readStyleSwitchFromDatabase,
+      // whichever pool is live now, never one captured at start (review 72615f60 L2)
+      broadcast: (message) => singleton?.broadcastStyleSwitch(message),
+    });
+    styleSwitchDelivery.start();
+  }
   return singleton;
 }
 
@@ -864,6 +888,8 @@ export function liveHorseDecisionWorkerStatus(): LiveHorseDecisionLaneStatus {
 
 export async function stopLiveHorseDecisionWorker(): Promise<void> {
   const owned = singleton;
+  styleSwitchDelivery?.stop();
+  styleSwitchDelivery = null;
   if (!owned) return;
   try {
     await owned.stop();

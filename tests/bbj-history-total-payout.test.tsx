@@ -110,10 +110,28 @@ describe('BBJ dealt hole cards and personal award', () => {
           .getAllByTestId('card')
           .map((c) => c.textContent)
       ).toEqual(winner);
-      expect(screen.getByText('Straight Flush')).toBeInTheDocument();
-      expect(screen.getByText('Royal Flush')).toBeInTheDocument();
+      // Dan 2026-11-13: each set of hole cards carries its player's name.
+      expect(within(losingCards).getByText('ramen')).toBeInTheDocument();
+      expect(within(winningCards).getByText('MKEPam')).toBeInTheDocument();
+      // ... the board is shown ...
+      expect(
+        within(screen.getByRole('group', { name: 'Board' }))
+          .getAllByTestId('card')
+          .map((c) => c.textContent)
+      ).toEqual(['5s', '4d', 'Tc', 'Qc', 'Jc']);
+      // ... and the derived five-card hands are gone from the row.
+      expect(screen.queryByText('Bad Beat Hand')).toBeNull();
+      expect(screen.queryByText('Lost To')).toBeNull();
+      expect(screen.queryByText('Straight Flush')).toBeNull();
+      expect(screen.queryByText('Royal Flush')).toBeNull();
+      expect(screen.getAllByTestId('card')).toHaveLength(count * 2 + 5);
     }
   );
+  it('says the board is unavailable instead of drawing an empty strip', async () => {
+    render(<BBJRecentHits poolId="pool" />);
+    const board = await screen.findByRole('group', { name: 'Board' });
+    expect(within(board).getByText('Unavailable')).toBeInTheDocument();
+  });
   it.each([null, '', 'not-a-number', -1])(
     'never derives an absent or invalid personal award (%s) from the event total',
     async (share) => {
@@ -128,5 +146,42 @@ describe('BBJ dealt hole cards and personal award', () => {
     io.rpc.mockResolvedValue({ data: [{ ...hit, bad_beat_amount: 0 }], error: null });
     render(<BBJRecentHits poolId="pool" />);
     expect(await screen.findByLabelText('Jackpot Winner Received +0.00')).toBeInTheDocument();
+  });
+});
+
+/**
+ * Dan 2026-11-13: "NEXT TO THE BLUE NLH FLH PLO ETC SHOULD BE THE GAME STAKES.
+ * IT SHOULD SAY 1/2 PLO OR .50/1.00 NLH ETC. THE STAKES THAT IT WAS HIT AT
+ * SHOULD BE DISPLAYED AS WELL AS THE GAME."
+ */
+describe('BBJ winner row names the stakes it was hit at', () => {
+  it.each([
+    ['plo4', '1.00', '2.00', '1/2 PLO'],
+    ['nlh', '0.50', '1.00', '0.50/1 NLH'],
+    ['nlh', '0.25', '0.50', '0.25/0.50 NLH'],
+    // Fixed limit reads its bet sizes, exactly as its lobby card does.
+    ['flh', '1.00', '2.00', '2/4 FLH'],
+  ])('%s at %s/%s reads %s', async (variant, sb, bb, expected) => {
+    io.rpc.mockResolvedValue({
+      data: [{ ...hit, game_variant: variant, small_blind: sb, big_blind: bb }],
+      error: null,
+    });
+    const { container } = render(<BBJRecentHits poolId="pool" />);
+    await screen.findByText('Total Paid Out');
+    expect(container.querySelector('.bbj-hits__gametype')).toHaveTextContent(expected);
+  });
+  it.each([
+    [null, null],
+    ['', ''],
+    ['0.50', '0'],
+    ['x', 'y'],
+  ])('never guesses stakes the hand did not store (%s/%s)', async (sb, bb) => {
+    io.rpc.mockResolvedValue({
+      data: [{ ...hit, small_blind: sb, big_blind: bb }],
+      error: null,
+    });
+    const { container } = render(<BBJRecentHits poolId="pool" />);
+    await screen.findByText('Total Paid Out');
+    expect(container.querySelector('.bbj-hits__gametype')?.textContent).toBe('PLO5');
   });
 });
