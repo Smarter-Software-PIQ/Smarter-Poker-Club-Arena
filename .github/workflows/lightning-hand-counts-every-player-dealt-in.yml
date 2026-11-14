@@ -62,6 +62,9 @@ on:
       - supabase/migrations/20261106203853_hit_and_run_ten_hands_in_profit.sql
       - supabase/migrations/20261107040516_clubs_choose_their_hand_count_before_leaving.sql
       - scripts/qualify-lightning-blind-off.mjs
+      - supabase/migrations/20261113225904_a_lightning_leave_that_owes_hands_returns_the_seat_to_the_po.sql
+      - scripts/qualify-lightning-owed-leave.mjs
+      - scripts/qualification/lightning-owed-leave/**
       - scripts/qualification/lightning-blind-off/**
       - scripts/qualification/stable-admin-floor/fixture.mjs
       - tests/a-lightning-blind-off-always-completes.law.test.ts
@@ -96,6 +99,14 @@ jobs:
           PG_BIN: /usr/lib/postgresql/17/bin
           TMPDIR: ${{ runner.temp }}
         run: node scripts/qualify-lightning-blind-off.mjs
+      # #10740 (migration 20261113225904): a leave queued behind a live hand
+      # that then owes hands must strand before the migration and be dealt
+      # out as a blind off, then cashed out, after it.
+      - name: A queued Lightning leave that owes hands returns to the pool
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+          TMPDIR: ${{ runner.temp }}
+        run: node scripts/qualify-lightning-owed-leave.mjs
       # Runs as the runner user (non-root), exactly as the ci.yml step would.
       - name: Lightning hand counts every player dealt in, not every payer
         env:
