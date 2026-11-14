@@ -71,6 +71,64 @@ export function firstWagerOnFelt(
   return best;
 }
 
+type MarkerCentre = { x: number; y: number };
+/** On the upper arc, choose the clear slot with the largest separation from
+ * the next player's portrait. A coarse oval grid can skip the entire lane. */
+export function capAllInSlot(
+  box: CardBox,
+  canvas: CardBox,
+  felt: CardBox,
+  owner: MarkerCentre,
+  rivals: MarkerCentre[],
+  blockers: CardBox[],
+  scale: number,
+  gold: boolean
+) {
+  const r = felt.width / 2,
+    cx = felt.left + r,
+    margin = 8 * scale;
+  const score = (b: CardBox) => {
+    const x = b.left + b.width / 2,
+      y = b.top + b.height / 2;
+    const halfLane = Math.abs(x - cx) + b.width / 2;
+    if (
+      Math.hypot(
+        halfLane,
+        Math.max(0, felt.top + r - b.top, b.top + b.height - (felt.top + felt.height) + r)
+      ) >
+        r - margin ||
+      (gold && !insideClassicGreen(b, canvas, margin)) ||
+      blockers.some((q) => wagerBoxesOverlap(b, q))
+    )
+      return -Infinity;
+    return (
+      Math.min(...rivals.map((p) => Math.hypot(x - p.x, y - p.y))) -
+      Math.hypot(x - owner.x, y - owner.y)
+    );
+  };
+  if (score(box) >= 2 * scale) return box;
+  let best: CardBox | undefined,
+    bestScore = scale;
+  for (let x = felt.left + r / 2; x <= felt.left + felt.width - r / 2; x += scale) {
+    const dx = Math.abs(x - cx) + box.width / 2;
+    const edge = felt.top + r - Math.sqrt(Math.max(0, (r - margin) ** 2 - dx ** 2));
+    for (let dy = 0; dy <= 16 * scale; dy += scale) {
+      const candidate = {
+        left: x - box.width / 2,
+        top: edge + dy,
+        width: box.width,
+        height: box.height,
+      };
+      const quality = score(candidate);
+      if (quality > bestScore) {
+        best = candidate;
+        bestScore = quality;
+      }
+    }
+  }
+  return best;
+}
+
 export function wagerBoxesOverlap(a: CardBox, b: CardBox): boolean {
   return (
     a.left < b.left + b.width + 2 &&
