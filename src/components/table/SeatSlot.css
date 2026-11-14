@@ -5289,7 +5289,7 @@
    fitter can grow the entire ring together when the decoded art clears. */
 @media (min-width: 481px) and (max-width: 640px) and (orientation: portrait) {
   .table-page[data-seats='9'] .seat-wrapper {
-    --sp-bust-scale: 1.7;
+    --sp-bust-scale: var(--sp-nine-rail-bust, 1.7);
   }
 }
 
