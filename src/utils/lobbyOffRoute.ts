@@ -20,7 +20,13 @@
  * 2. FOCUS - a restore (selecting the pill) navigates first and focuses the
  *    pill only once the route has left /table/*, so the in-tab game lobby is
  *    never painted on the way.
- * 3. CLEAR - when the tab shows its own in-tab lobby again, the game lobby is
+ * 3. RESTORE BY ANY GESTURE - a pill tap goes through handleTabSelect, but a
+ *    swipe, a number key or the tile grid moves the index directly. When the
+ *    tab becomes the visible one from ANOTHER tab while it remembers a page,
+ *    the index is put back for this frame and the page is navigated to, so
+ *    every way of reaching the tab lands on the same page.
+ * 4. CLEAR - when the tab comes back from its own page into the container
+ *    (Back out of Player Management, "+" Lobby while on it), the game lobby is
  *    the page the player left it on. Backing out of the page onto a table (a
  *    POP from the hidden page) is leaving the page, so it clears too.
  */
@@ -39,6 +45,12 @@ export interface OffRouteInput {
   activeIndex: number;
   /** A lobby tab whose page restore is navigating; focus it once hidden. */
   pendingTabId: string | null;
+  /**
+   * The /table path the restore navigated FROM. If the route moves to a
+   * different /table path instead of the page (a redirect, a seat arriving),
+   * the restore is abandoned rather than left pending for ever.
+   */
+  pendingFromPath?: string | null;
   prev: { hidden: boolean; tabId: string | null };
   navigationType: 'POP' | 'PUSH' | 'REPLACE';
 }
@@ -49,6 +61,8 @@ export interface OffRouteDecision {
   /** Whether the pending restore is consumed by this commit. */
   consumePending: boolean;
   record: { tabId: string; path: string } | null;
+  /** Go back to this tab's page; put the index back first when possible. */
+  restore: { tabId: string; path: string; revertIndex: number | null } | null;
   clear: string[];
   /** The selected tab after this decision, for the next commit's `prev`. */
   nextPrev: { hidden: boolean; tabId: string | null };
@@ -62,10 +76,15 @@ export function decideLobbyOffRoute(input: OffRouteInput): OffRouteDecision {
   let activeIndex = input.activeIndex;
   let focusIndex: number | null = null;
   let consumePending = false;
-
-  if (hidden && input.pendingTabId) {
+  let pendingTabId = input.pendingTabId;
+  if (pendingTabId && !hidden && input.pendingFromPath != null && input.pendingFromPath !== path) {
     consumePending = true;
-    const idx = tabs.findIndex((t) => t.id === input.pendingTabId);
+    pendingTabId = null;
+  }
+
+  if (hidden && pendingTabId) {
+    consumePending = true;
+    const idx = tabs.findIndex((t) => t.id === pendingTabId);
     if (idx !== -1 && idx !== activeIndex) {
       focusIndex = idx;
       activeIndex = idx;
@@ -75,19 +94,41 @@ export function decideLobbyOffRoute(input: OffRouteInput): OffRouteDecision {
   const cur = tabs[activeIndex];
   const curId = cur?.id ?? null;
   let record: OffRouteDecision['record'] = null;
+  let restore: OffRouteDecision['restore'] = null;
   const clear: string[] = [];
 
   if (hidden) {
     if (cur?.isLobby && !NEVER_REMEMBERED.test(path) && cur.lobbyOffRoutePath !== path) {
       record = { tabId: cur.id, path };
     }
-  } else if (!input.pendingTabId) {
-    if (cur?.isLobby && cur.lobbyOffRoutePath) clear.push(cur.id);
+  } else if (!pendingTabId) {
+    if (cur?.isLobby && cur.lobbyOffRoutePath) {
+      if (prev.tabId === cur.id) {
+        clear.push(cur.id);
+      } else {
+        const back = prev.tabId ? tabs.findIndex((t) => t.id === prev.tabId) : -1;
+        restore = {
+          tabId: cur.id,
+          path: cur.lobbyOffRoutePath,
+          revertIndex: back === -1 ? null : back,
+        };
+      }
+    }
     if (prev.hidden && navigationType === 'POP' && prev.tabId && prev.tabId !== curId) {
       const left = tabs.find((t) => t.id === prev.tabId);
       if (left?.isLobby && left.lobbyOffRoutePath) clear.push(left.id);
     }
   }
 
-  return { focusIndex, consumePending, record, clear, nextPrev: { hidden, tabId: curId } };
+  // A restore keeps `prev` on the tab the player is still looking at, so the
+  // page arriving is not mistaken for a return from it.
+  const nextTabId = restore && restore.revertIndex !== null ? prev.tabId : curId;
+  return {
+    focusIndex,
+    consumePending,
+    record,
+    restore,
+    clear,
+    nextPrev: { hidden, tabId: nextTabId },
+  };
 }

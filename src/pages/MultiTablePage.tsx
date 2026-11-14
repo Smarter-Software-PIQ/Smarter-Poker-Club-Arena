@@ -1839,24 +1839,14 @@ export default function MultiTablePage() {
   /**
    * ─── A LOBBY TAB KEEPS THE PAGE IT WAS LEFT ON (Dan 2026-11-13) ─────────
    *
-   * See `lobbyOffRoutePath`. Three rules, all keyed on what is actually on
-   * screen rather than on which control moved it:
-   *
-   * 1. RECORD. While the container is hidden on another route and the
-   *    selected pill is a lobby tab, that route is this tab's page. Every
-   *    later page the player walks to from there (a member's profile, their
-   *    statistics) replaces it, so "the exact page" stays exact.
-   * 2. RESTORE. Selecting that pill (handleTabSelect) navigates back to the
-   *    recorded route instead of borrowing a table URL. The pill is focused
-   *    only once the route has left /table/* (`pendingOffRouteTabIdRef`), so
-   *    the in-tab game lobby is never painted, even for one frame, on the way.
-   * 3. CLEAR. When the tab shows its own in-tab lobby again, the recorded
-   *    route is no longer where the player left it. Also cleared when the
-   *    player BACKs out of the page onto a table (a POP from the hidden page),
-   *    which is leaving the page, not switching away from it.
+   * See `lobbyOffRoutePath`. The rules (record, restore by any gesture,
+   * clear) are a pure decision in `src/utils/lobbyOffRoute.ts`, pinned by
+   * `tests/a-lobby-tab-keeps-the-page-it-was-left-on.law.test.ts`; this
+   * layout effect only applies it, before paint, after every commit.
    */
   const navigationType = useNavigationType();
   const pendingOffRouteTabIdRef = useRef<string | null>(null);
+  const pendingOffRouteFromRef = useRef<string | null>(null);
   const offRoutePrevRef = useRef<{ hidden: boolean; tabId: string | null }>({
     hidden,
     tabId: null,
@@ -1874,6 +1864,7 @@ export default function MultiTablePage() {
       })),
       activeIndex: activeIndexRef.current,
       pendingTabId: pendingOffRouteTabIdRef.current,
+      pendingFromPath: pendingOffRouteFromRef.current,
       prev: offRoutePrevRef.current,
       navigationType,
     });
@@ -1882,6 +1873,16 @@ export default function MultiTablePage() {
     if (decision.focusIndex !== null) {
       activeIndexRef.current = decision.focusIndex;
       setActiveIndex(decision.focusIndex);
+    }
+    if (decision.restore) {
+      const { restore } = decision;
+      if (restore.revertIndex !== null) {
+        activeIndexRef.current = restore.revertIndex;
+        setActiveIndex(restore.revertIndex);
+      }
+      pendingOffRouteTabIdRef.current = restore.tabId;
+      pendingOffRouteFromRef.current = offRoutePath;
+      navigate(restore.path);
     }
     const { record, clear } = decision;
     if (record || clear.length > 0) {
@@ -1895,7 +1896,7 @@ export default function MultiTablePage() {
         )
       );
     }
-  }, [hidden, offRoutePath, activeIndex, tables, navigationType]);
+  }, [hidden, offRoutePath, activeIndex, tables, navigationType, navigate]);
 
   useMasterBusSubscription('OPEN_LOBBY_TAB', () => {
     const prev = tablesRef.current;
@@ -2891,6 +2892,7 @@ export default function MultiTablePage() {
         const here = `${location.pathname}${location.search}`;
         if (selected.lobbyOffRoutePath === here) return;
         pendingOffRouteTabIdRef.current = selected.id;
+        pendingOffRouteFromRef.current = here;
         navigate(selected.lobbyOffRoutePath);
         return;
       }

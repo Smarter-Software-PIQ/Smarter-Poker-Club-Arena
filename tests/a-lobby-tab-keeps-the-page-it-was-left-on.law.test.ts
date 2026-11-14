@@ -92,6 +92,45 @@ describe('a lobby tab keeps the page it was left on', () => {
     expect(d.clear).toEqual(['lobby-1']);
   });
 
+  it('a swipe, number key or tile tap onto the tab goes back to its page too', () => {
+    const d = decideLobbyOffRoute(
+      base({
+        activeIndex: 1,
+        tabs: [TABLE, { ...LOBBY, lobbyOffRoutePath: '/clubs/c1/members' }],
+        prev: { hidden: false, tabId: 't-1' },
+      })
+    );
+    expect(d.clear).toEqual([]);
+    // The index goes back to the table for this frame: no game-lobby flash.
+    expect(d.restore).toEqual({ tabId: 'lobby-1', path: '/clubs/c1/members', revertIndex: 0 });
+    expect(d.nextPrev.tabId).toBe('t-1');
+  });
+
+  it('coming back from its own page into the tab shows the game lobby', () => {
+    const d = decideLobbyOffRoute(
+      base({
+        tabs: [TABLE, { ...LOBBY, lobbyOffRoutePath: '/clubs/c1/members' }],
+        prev: { hidden: true, tabId: 'lobby-1' },
+      })
+    );
+    expect(d.restore).toBeNull();
+    expect(d.clear).toEqual(['lobby-1']);
+  });
+
+  it('a restore that never reaches its page is abandoned, not left pending', () => {
+    const d = decideLobbyOffRoute(
+      base({
+        activeIndex: 0,
+        path: '/table/t-2',
+        tabs: [TABLE, { ...LOBBY, lobbyOffRoutePath: '/clubs/c1/members' }],
+        pendingTabId: 'lobby-1',
+        pendingFromPath: '/table/t-1',
+      })
+    );
+    expect(d.consumePending).toBe(true);
+    expect(d.focusIndex).toBeNull();
+  });
+
   it('backing out of the page onto a table clears it', () => {
     const d = decideLobbyOffRoute(
       base({

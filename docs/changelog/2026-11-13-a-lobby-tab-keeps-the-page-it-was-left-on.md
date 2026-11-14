@@ -22,6 +22,8 @@ the container and renders the tab's only content: the club game lobby.
 - `handleTabSelect` sends a pill with a remembered page back to it, before the
   active index moves; the pill is focused only once the route has left
   `/table/*`, so the game lobby never paints on the way.
+- A swipe, number key or tile tap onto the tab lands on the same page: the
+  index is put back for that frame and the page is navigated to.
 - The page is forgotten when the tab shows its in-tab lobby again, or when the
   player Backs out of the page onto a table.
 - Decision logic is pure in `src/utils/lobbyOffRoute.ts`, pinned by
