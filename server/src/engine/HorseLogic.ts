@@ -7631,6 +7631,13 @@ export class HorseLogic {
           orbit86?.fullRaises ?? raises
         )
       : null;
+    // Upgrade 08 evidence only: the side-game read this preflop decision's
+    // brain actually made. Nothing below reads these counters.
+    if (telemetryOn(opts)) {
+      if (orbit86?.killState.active) noteFire('upgrade08_kill_pot_orbit_seen');
+      if (orbit86?.killPotUnopened) noteFire('upgrade08_kill_pot_unopened_seen');
+      if (sidePre86?.sevenDeuce.enabled) noteFire('upgrade08_seven_deuce_overlay_seen');
+    }
     const straddleUnopened =
       ((opts.v18Straddle ?? true) !== false &&
         gs.straddleActive === true &&
@@ -9590,6 +9597,10 @@ export class HorseLogic {
                 }
               }
             }
+            // Upgrade 08 evidence only: the seven-deuce bounty credit this
+            // Horse holds is handed to the preflop thresholds just below.
+            if (telemetryOn(opts) && sidePre86 && sidePre86.sevenDeuce.preflopStrengthBonus > 0)
+              noteFire('upgrade08_seven_deuce_bounty_seen');
             return {
               v86UnblockedPreflop: true,
               v86MultiStreetUnblocked: opts.v86MultiStreetUnblocked !== false,
@@ -10795,6 +10806,12 @@ export class HorseLogic {
           sevenDeuceBountyPerPlayer: gs.sevenDeuceBountyPerPlayer,
         })
       : null;
+    // Upgrade 08 evidence only: the seven-deuce read this postflop decision
+    // made, and whether a bounty went to the pricing below (sideGamePotOverlay).
+    if (tele15 && sidePost86?.sevenDeuce.enabled) {
+      noteFire('upgrade08_seven_deuce_overlay_seen');
+      if (sidePost86.postflopPotOverlayChips > 0) noteFire('upgrade08_seven_deuce_bounty_seen');
+    }
 
     // V9 TIMING: how CLOSE is this decision? Distance of the MC equity from
     // the nearest strategy threshold. Razor-thin spots read as difficulty ~1

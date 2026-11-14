@@ -2273,6 +2273,8 @@ describe('LAW: 1,000-Horse Full Action-Space Freedom & Fleet Activation', () => 
           .map((f) => [f.feature, f.fires])
       );
       expect(insuranceFires).toEqual({
+        // Opportunity: one per offer to the Horse leader; the answers sum to it here.
+        upgrade08_insurance_offered_seen: 4,
         upgrade08_insurance_decline_seen: 2,
         upgrade08_insurance_accept_seen: 1,
         upgrade08_insurance_cashout_seen: 1,
