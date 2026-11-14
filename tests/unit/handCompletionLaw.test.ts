@@ -193,9 +193,9 @@ describe('the engine uses the spec instead of hand-written numbers', () => {
 describe('the next hand opens with the dealing animation', () => {
   const TABLE_PAGE = strip(read('src/pages/TablePage.tsx'));
 
-  it('a new hand bumps the deal animation and the per-seat card slide', () => {
+  it('every new hand starts the table deal and Classic also slides its seat cards', () => {
     expect(TABLE_PAGE).toMatch(/setDealAnimationKey\(\(k\) => k \+ 1\)/);
-    expect(TABLE_PAGE).toMatch(/setIsSeatDealing\(true\)/);
+    expect(TABLE_PAGE).toMatch(/setIsSeatDealing\(!lightningRoomRef\.current\)/);
   });
 
   it('cards are never allowed to simply appear: the deal has a sound too', () => {

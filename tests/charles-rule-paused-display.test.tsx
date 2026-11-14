@@ -49,7 +49,9 @@ const row = (over: Record<string, unknown>) => ({
 const status = (over: Record<string, unknown>) =>
   rpc.mockResolvedValue({ data: [row(over)], error: null });
 
-beforeEach(() => rpc.mockReset());
+beforeEach(() => {
+  rpc.mockReset();
+});
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
@@ -149,6 +151,72 @@ describe('the felt shows the pause', () => {
     expect(page).toContain(
       'useCountdownResumed(heroHandCount, (hands) => toast.info(countdownResumedText(hands)))'
     );
+  });
+});
+
+describe('Lightning reads its anchor at the committed settlement', () => {
+  const room = '11111111-1111-4111-8111-111111111111';
+  const anchor = '22222222-2222-4222-8222-222222222222';
+  const statusAtAnchor = (over: Record<string, unknown>) => ({
+    data: [row({ ...over, table_id: anchor })],
+    error: null,
+  });
+  it('refreshes on the receipt without a new deal, ignores superseded RPCs, and reconciles reconnects', async () => {
+    vi.useFakeTimers();
+    const read = vi.fn().mockResolvedValue(statusAtAnchor({ hands_remaining: 6 }));
+    rpc.mockImplementation((name: string, args: Record<string, string>) => {
+      if (name === 'fn_lightning_my_session')
+        return Promise.resolve({
+          data: {
+            pool_session_id: room,
+            anchor_table_id: anchor,
+            seat_number: 1,
+            occupancy_id: room,
+          },
+          error: null,
+        });
+      expect(name).toBe('fn_my_hit_run_status');
+      expect(args.p_table_id).toBe(anchor);
+      return read();
+    });
+    const opts = {
+      enabled: true,
+      tableId: room,
+      lightningClusterId: 'cluster',
+      handNumber: 91,
+      settledLightningHandId: null as string | null,
+      lightningConnected: true,
+      engine: undefined,
+    };
+    const view = renderHook(useHeroHandCount, { initialProps: opts });
+    await act(async () => {});
+    expect(view.result.current.owed).toBe(6);
+    const next = { ...opts, handNumber: 92 };
+    view.rerender(next);
+    expect(read).toHaveBeenCalledTimes(1);
+    let resolvePrevious!: (v: ReturnType<typeof statusAtAnchor>) => void;
+    read.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolvePrevious = resolve;
+        })
+    );
+    await act(async () => view.rerender({ ...next, settledLightningHandId: 'early-fold' }));
+    read.mockResolvedValueOnce(statusAtAnchor({ hands_remaining: 4 }));
+    const settled = { ...next, settledLightningHandId: 'next-settlement' };
+    await act(async () => view.rerender(settled));
+    expect(view.result.current.owed).toBe(4);
+    await act(async () => resolvePrevious(statusAtAnchor({ hands_remaining: 5 })));
+    expect(view.result.current.owed).toBe(4);
+    read.mockResolvedValueOnce({ data: null, error: new Error('offline') });
+    await act(async () => view.rerender({ ...settled, lightningConnected: false }));
+    expect(view.result.current.owed).toBe(4);
+    read.mockResolvedValueOnce(statusAtAnchor({ hands_remaining: 0, hands_played: 7 }));
+    await act(async () => view.rerender(settled));
+    expect(view.result.current).toMatchObject({ owed: null, paused: 3 });
+    read.mockResolvedValueOnce(statusAtAnchor({ hands_remaining: 0, completed: true }));
+    await act(async () => view.rerender({ ...settled, settledLightningHandId: 'last-hand' }));
+    expect(view.result.current).toMatchObject({ owed: null, paused: null, done: true });
   });
 });
 

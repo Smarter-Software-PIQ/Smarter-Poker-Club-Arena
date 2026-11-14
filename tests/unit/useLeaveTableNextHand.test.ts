@@ -38,6 +38,34 @@ describe('next hand departure uses accepted sit-out and authoritative completion
     await tick();
     expect(input.onLeave).toHaveBeenCalledOnce();
   });
+  it('cancels the accepted feeder sit-out even across a completion while resume is pending', async () => {
+    const c = new LeaveTableNextHandController(localStorage);
+    c.update(input);
+    await c.request();
+    let acknowledge!: (x: { success: boolean }) => void;
+    const resumed = c.resume(
+      () =>
+        new Promise((resolve) => {
+          acknowledge = resolve;
+        })
+    );
+    c.update({ ...input, handLive: false, completionVersion: 2 });
+    expect(input.onLeave).not.toHaveBeenCalled();
+    acknowledge({ success: true });
+    expect(await resumed).toBe(true);
+    c.update({ ...input, handLive: false, completionVersion: 3 });
+    expect(input.onLeave).not.toHaveBeenCalled();
+    expect(c.getSnapshot().queued).toBe(false);
+  });
+  it('retains a feeder leave and finishes it if sitting back in is refused', async () => {
+    const c = new LeaveTableNextHandController(localStorage);
+    c.update(input);
+    await c.request();
+    expect(await c.resume(async () => ({ success: false }))).toBe(false);
+    expect(c.getSnapshot().queued).toBe(true);
+    c.update({ ...input, handLive: false, completionVersion: 2 });
+    expect(input.onLeave).toHaveBeenCalledOnce();
+  });
   it('handles completion before a delayed sit-out acknowledgement', async () => {
     let acknowledge!: (x: { success: boolean }) => void;
     input.setSitOut = vi.fn(

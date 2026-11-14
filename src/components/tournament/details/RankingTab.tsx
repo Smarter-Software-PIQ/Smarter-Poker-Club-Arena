@@ -85,6 +85,7 @@ import MyPlayersCard from './MyPlayersCard';
 import {
   chips,
   chipsCompact,
+  stackChips,
   tournamentRowUnitCents,
   finishedFieldSummary,
   initials,
@@ -323,7 +324,7 @@ const RankRow = React.memo(function RankRow({
               aria-hidden="true"
             >
               {pulseDir > 0 ? '+' : '-'}
-              {chipsCompact(Math.abs(pulseAmount))}
+              {stackChips(Math.abs(pulseAmount))}
             </span>
           ) : (
             <span className="tl-sub rk-bb">{bb === null ? '-' : `${chips(bb)} BB`}</span>
@@ -1019,14 +1020,14 @@ function RankingTabForTournament({
           </div>
           <div className="tl-stat">
             <span className="tl-stat__label">Average Stack</span>
-            <span className="tl-stat__value">{chipsCompact(avgStack)}</span>
+            <span className="tl-stat__value">{stackChips(avgStack)}</span>
             <span className="tl-stat__sub">
               {bigBlind > 0 ? `${chips(Math.floor(avgStack / bigBlind))} BB` : 'Chips'}
             </span>
           </div>
           <div className="tl-stat">
             <span className="tl-stat__label">Total Chips</span>
-            <span className="tl-stat__value">{chipsCompact(totalChips)}</span>
+            <span className="tl-stat__value">{stackChips(totalChips)}</span>
             <span className="tl-stat__sub">In Play</span>
           </div>
         </div>
@@ -1106,7 +1107,7 @@ function RankingTabForTournament({
                 <span className="tl-badge tl-badge--good">You Lead</span>
               ) : (
                 <span className={`tl-num${heroAboveAvg ? '' : ' rk-hero__behind'}`}>
-                  {chipsCompact(heroLeaderGap)}
+                  {stackChips(heroLeaderGap)}
                 </span>
               )}
             </span>

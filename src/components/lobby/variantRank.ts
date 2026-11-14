@@ -19,6 +19,14 @@ export const VARIANT_RANK: Readonly<Record<string, number>> = {
   FLH: 20,
   FLO: 21,
   FLO8: 22,
+  /* Owner ruling, November 14, 2026: the limit games are titled by name, not
+     code. Hold'em first, then Omaha by card count, then Omaha 8o, after every
+     no-limit and pot-limit game. Keys are the uppercased lobby game label. */
+  'FIXED LIMIT': 20,
+  'OMAHA 4 CARD FIXED LIMIT': 21,
+  'OMAHA 5 CARD FIXED LIMIT': 22,
+  'OMAHA 6 CARD FIXED LIMIT': 23,
+  'OMAHA 8O FIXED LIMIT': 24,
 };
 
 /** The rank every game missing from VARIANT_RANK shares; ties then break by name. */

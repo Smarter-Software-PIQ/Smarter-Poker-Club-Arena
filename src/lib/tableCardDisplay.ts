@@ -187,8 +187,15 @@ export const GAME_VARIANT_LABELS: Record<string, string> = {
   short_deck: 'SHORT DECK 6+',
   FLH: "FIXED LIMIT HOLD'EM",
   flh: "FIXED LIMIT HOLD'EM",
-  FLO8: 'FIXED LIMIT OMAHA HI-LO',
-  flo8: 'FIXED LIMIT OMAHA HI-LO',
+  /* Owner ruling, November 14, 2026: the limit Omahas by their names. */
+  FLO4: 'OMAHA 4 CARD FIXED LIMIT',
+  flo4: 'OMAHA 4 CARD FIXED LIMIT',
+  FLO5: 'OMAHA 5 CARD FIXED LIMIT',
+  flo5: 'OMAHA 5 CARD FIXED LIMIT',
+  FLO6: 'OMAHA 6 CARD FIXED LIMIT',
+  flo6: 'OMAHA 6 CARD FIXED LIMIT',
+  FLO8: 'OMAHA 8o FIXED LIMIT',
+  flo8: 'OMAHA 8o FIXED LIMIT',
 
   FLO: 'FIXED LIMIT OMAHA',
   flo: 'FIXED LIMIT OMAHA',

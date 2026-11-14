@@ -407,20 +407,12 @@ export const formatSignedPct = (value: unknown, digits = 1): string => {
  * `digits` is the MINIMUM number of places; every real decimal beyond it is
  * kept, never truncated away (Dan 2026-11-13: exact figures always).
  */
-export const formatSignedChips = (value: unknown, digits = 2): string => {
-  const d = figureDigits(value as FigureInput);
-  if (!d) return (0).toFixed(digits);
-  const fixed = figureMagnitude(d, digits);
-  if (isZeroFigure(d)) return fixed;
-  return d.negative ? `-${fixed}` : `+${fixed}`;
-};
+export const formatSignedChips = (value: unknown, digits = 2): string =>
+  chipFigure(value, digits, 'signed', (0).toFixed(digits));
 
 /** "1,711.50" - chips, unsigned; `digits` is the minimum, extra stored precision kept. */
-export const formatChips = (value: unknown, digits = 2): string => {
-  const d = figureDigits(value as FigureInput);
-  if (!d) return (0).toFixed(digits);
-  return `${d.negative ? '-' : ''}${figureMagnitude(d, digits)}`;
-};
+export const formatChips = (value: unknown, digits = 2): string =>
+  chipFigure(value, digits, 'unsigned', (0).toFixed(digits));
 
 /** "1,412" - whole counts (truncated, never rounded up). */
 export const formatCount = (value: unknown): string =>
@@ -570,17 +562,32 @@ export function figureMagnitude(
 const isZeroFigure = (d: { whole: string; fraction: string }) =>
   !/[1-9]/.test(d.whole + d.fraction);
 
-/** Number-input helper kept for callers that only hold a magnitude. */
-export const preciseMagnitude = (abs: number, minFraction: number): string => {
-  const d = figureDigits(Math.abs(abs));
-  return d ? figureMagnitude(d, minFraction) : (0).toFixed(minFraction);
-};
+/**
+ * THE ONE CHIP FIGURE (2026-11-14 consolidation). Every chip formatter in this
+ * file is this function with its own minimum places, sign style and fallback
+ * for something that is not a figure, so one value can never print two ways
+ * because two copies of the logic drifted. `minFraction` null means "two
+ * places only when the figure holds a fraction", the exactChips style.
+ *   'unsigned' prints a minus for a negative figure and nothing for a positive;
+ *   'signed' prints + or - (zero gets neither).
+ */
+function chipFigure(
+  value: unknown,
+  minFraction: number | null,
+  sign: 'unsigned' | 'signed',
+  notAFigure: string,
+  zero?: string
+): string {
+  const d = figureDigits(value as FigureInput);
+  if (!d) return notAFigure;
+  const places = minFraction ?? (d.fraction ? 2 : 0);
+  const magnitude = figureMagnitude(d, places);
+  if (isZeroFigure(d)) return zero ?? magnitude;
+  if (d.negative) return `-${magnitude}`;
+  return sign === 'signed' ? `+${magnitude}` : magnitude;
+}
 
-export const exactChips = (n: FigureInput): string => {
-  const d = figureDigits(n);
-  if (!d || isZeroFigure(d)) return '0';
-  return `${d.negative ? '-' : ''}${figureMagnitude(d, d.fraction ? 2 : 0)}`;
-};
+export const exactChips = (n: FigureInput): string => chipFigure(n, null, 'unsigned', '0', '0');
 
 /**
  * Historical name kept so its ~490 call sites need no churn. It no longer
@@ -592,12 +599,8 @@ export const compactChips = (n: FigureInput): string => exactChips(n);
  * Fees stay exact to cents with separators, including large totals
  * (owner, 2026-10-27). Null means the viewer may not see it.
  */
-export const feeFigure = (value: FigureInput): string => {
-  if (value == null) return 'Restricted';
-  const d = figureDigits(value);
-  if (!d) return '-';
-  return `${d.negative ? '-' : ''}${figureMagnitude(d, 2)}`;
-};
+export const feeFigure = (value: FigureInput): string =>
+  value == null ? 'Restricted' : chipFigure(value, 2, 'unsigned', '-');
 
 /**
  * PLAYER MANAGEMENT FIGURES: one formatter per kind, on the Players list, the
@@ -616,11 +619,8 @@ export const countFigure = (value: number | null | undefined): string =>
   value == null ? 'Restricted' : (Number(value) || 0).toLocaleString();
 
 /** Wallet balances always show separators and at least two decimals; every stored decimal is kept (Dan 2026-10-18, 2026-11-13). */
-export const formatWalletChips = (amount: FigureInput): string => {
-  const d = figureDigits(amount);
-  if (!d) return '-';
-  return `${d.negative ? '-' : ''}${figureMagnitude(d, 2)}`;
-};
+export const formatWalletChips = (amount: FigureInput): string =>
+  chipFigure(amount, 2, 'unsigned', '-');
 
 /** Whole Diamond wallet counts are always exact (Dan 2026-11-13: never abbreviated). */
 export const formatWalletDiamonds = (amount: number | null | undefined): string => {
@@ -635,8 +635,4 @@ export const formatWalletDiamonds = (amount: number | null | undefined): string 
  * with the fee and wallet figures beside it. "+392.57", "-1,512.34", "0.00",
  * and "+0.125" when the stored value carries three places.
  */
-export const winLossChips = (n: FigureInput): string => {
-  const d = figureDigits(n);
-  if (!d || isZeroFigure(d)) return '0.00';
-  return `${d.negative ? '-' : '+'}${figureMagnitude(d, 2)}`;
-};
+export const winLossChips = (n: FigureInput): string => chipFigure(n, 2, 'signed', '0.00', '0.00');

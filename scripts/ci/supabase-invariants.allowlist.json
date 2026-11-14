@@ -11,7 +11,8 @@
     "_comment": "EMPTY, and it should stay that way. Every table formerly listed here either exists in production now or had its only caller removed as dead code on 2026-09-01 (GTOQueryService, HorseOrchestrator.trackHorsePerformance, and the unreachable clawback state in AgentAnalyticsDashboard). An entry here is a .from() that silently returns nothing at runtime; the gate exists to stop new ones. This list may only ever SHRINK."
   },
   "unbuiltFeatureRpcs": {
-    "_comment": "EMPTY, and it should stay that way. Every RPC formerly listed here either exists in production now or has no caller left in src/ or server/src/. An entry here is a .rpc() call that fails at runtime; the gate exists to stop new ones."
+    "_comment": "EMPTY, and it should stay that way. Every RPC formerly listed here either exists in production now or has no caller left in src/ or server/src/. An entry here is a .rpc() call that fails at runtime; the gate exists to stop new ones.",
+    "fn_owed_leave_plays_on_in_game": "2026-11-14 game-wide hit and run: an optional engine door. The engine that calls it ships in the daily cutover; its migration merges after the seal so the night's Backup certificate is not invalidated. A missing function is a null answer and the held leave is released as before. Remove this entry with the migration."
   },
   "phantomColumns": {
     "_comment": "BUILT columns whose columns-manifest entry is pending regeneration (deploy blocked by PAT rotation 2026-07-29). Remove once the manifest is regenerated.",

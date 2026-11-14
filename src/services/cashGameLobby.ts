@@ -59,7 +59,9 @@ export function lobbyTableChips(table: Pick<LobbyTable, 'seats'>): {
   }
   return {
     total: cents / 100,
-    average: players > 0 ? Math.round(cents / players) / 100 : 0,
+    // An average stack is whole chips, truncated (Dan 2026-11-14: "AVG STACK
+    // SHOULDN'T USE DECIMALS"). The total keeps its cents.
+    average: players > 0 ? Math.trunc(cents / players / 100) : 0,
     players,
   };
 }

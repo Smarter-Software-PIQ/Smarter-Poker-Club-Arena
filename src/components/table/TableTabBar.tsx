@@ -1242,7 +1242,7 @@ export function TableTabBar({
                   !canSitDownHere &&
                   item('Leave Table Next Hand', () => onQuickAction(tab.id, 'leave-next-hand'))}
                 {onQuickAction &&
-                  (!isLobby || tabs.length > 1) &&
+                  (!isLobby || isHubId(tab.id) || tabs.length > 1) &&
                   item(
                     isHubId(tab.id) ? 'Close Tab' : isLobby ? 'Close Lobby' : 'Leave Table',
                     () => onQuickAction(tab.id, 'leave'),

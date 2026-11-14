@@ -57,7 +57,7 @@ import {
   type LobbyTable,
 } from '../../services/cashGameLobby';
 import { formatChips } from '../../lib/utils';
-import { formatPrizeAtUnit } from '../../utils/format';
+import { exactChips, formatPrizeAtUnit } from '../../utils/format';
 import { CASH_TEMPLATES, cashTemplateKey } from '../../config/cashGames';
 import { useToast } from '../common/Toast';
 import { lobbyReadErrorText } from './mustMoveLobbyCopy';
@@ -105,6 +105,11 @@ export function MustMoveLobbyModal({
 }: MustMoveLobbyModalProps) {
   const formatAmount = (amount: number) =>
     asset === 'diamonds' ? formatPrizeAtUnit(amount, 100) : formatChips(amount);
+  /** An average stack is whole chips, never decimals (Dan 2026-11-14). */
+  const formatAverageStack = (amount: number) =>
+    asset === 'diamonds'
+      ? formatPrizeAtUnit(Math.trunc(amount), 100)
+      : exactChips(Math.trunc(amount));
   const dialogRef = useFocusTrap<HTMLDivElement>(isOpen, '.tlm-close');
   const toast = useToast();
   const {
@@ -463,7 +468,7 @@ export function MustMoveLobbyModal({
                       <span className="mml-table-stat" data-stat="average-stack">
                         <span className="mml-table-stat-label">Avg Stack</span>
                         <span className="mml-table-stat-value">
-                          {formatAmount(lobbyTableChips(t).average)}
+                          {formatAverageStack(lobbyTableChips(t).average)}
                         </span>
                       </span>
                       <span className="mml-table-stat" data-stat="total-chips">

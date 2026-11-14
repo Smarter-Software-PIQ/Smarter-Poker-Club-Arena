@@ -38,29 +38,27 @@ export const BLINDS_PRESETS: readonly BlindsPreset[] = [
 export const DEFAULT_BLINDS_INDEX = 2;
 
 /**
- * THE LADDER A FIXED-LIMIT TABLE MAY BE BUILT ON.
+ * THE LADDER A FIXED-LIMIT TABLE MAY BE BUILT ON (owner ruling, November 14,
+ * 2026).
  *
- * A limit game's whole bet ladder is derived from the big blind —
- * fixedLimitBetSize() makes the small bet one BB preflop and on the flop, and
- * the big bet 2x BB on the turn and river — and stakesLabel() names the table
- * by those BET sizes: blinds 1/2 is a "2/4" limit game. The small blind is not
- * a term in either.
+ * Dan: "GAME LIMITS SHOULD BE .25/.50 .50/1.00 1/2 2/5 AND 5/10" and "THOSE
+ * GAMES CAN GO UP AS HIGH AS 5/10". Those are the BLINDS, and a limit game now
+ * reads by its blinds like every other game ("FIXED LIMIT 1/2"; stakesLabel in
+ * src/lib/bettingStructure.ts). The bets still come from the big blind alone:
+ * fixedLimitBetSize() makes the small bet one BB preflop and on the flop and
+ * the big bet two BB on the turn and river, so 2/5 bets 5 and 10.
  *
- * So on a preset where the big blind is NOT twice the small blind, the label
- * and the table disagree: an FLO8 table stored as small_blind 0.1,
- * big_blind 0.25 is labelled "0.25/0.50" in tables.stakes, on its lobby row
- * and in its header, and the 0.10 a player actually posts appears NOWHERE.
- * The database guard accepts it — it only requires bb > sb > 0 — so nothing
- * downstream would ever have caught it.
- *
- * A limit game with a small blind that is not half the big blind is also not
- * a structure anyone plays. Restricting the ladder is therefore the honest
- * fix, rather than teaching the label to carry a blind the format does not
- * have. Verified 2026-08-31: zero fixed-limit cash tables exist, so nothing
- * live is relabelled by this.
+ * The 2026-08-31 rule this replaces kept only presets whose big blind was twice
+ * the small blind, because the label then printed the BETS and a 2/5 table
+ * would have read "5/10" with the 2 a player posts shown nowhere. Printing the
+ * blinds removes that disagreement, and Dan's ladder includes 2/5, so the
+ * ladder is now exactly his five rungs. The database caps fixed limit at 5/10
+ * blinds (fn_cash_game_max_stake_guard) and the welcome package's 0.50/1 game
+ * sits on the ladder.
  */
-export const LIMIT_BLINDS_PRESETS: readonly BlindsPreset[] = BLINDS_PRESETS.filter(
-  (p) => Math.abs(p.bb - p.sb * 2) < 1e-9
+const LIMIT_LADDER_LABELS: readonly string[] = ['0.25/0.50', '0.50/1', '1/2', '2/5', '5/10'];
+export const LIMIT_BLINDS_PRESETS: readonly BlindsPreset[] = BLINDS_PRESETS.filter((p) =>
+  LIMIT_LADDER_LABELS.includes(p.label)
 );
 
 /** The presets this variant may be built on. */

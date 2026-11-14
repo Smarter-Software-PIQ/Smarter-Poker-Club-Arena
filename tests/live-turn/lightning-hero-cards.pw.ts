@@ -11,6 +11,7 @@
  * a live hand shows no cards at all there, because deliveries that arrive
  * before the page knows its player were discarded and nothing asked again.
  */
+import { writeFile } from 'node:fs/promises';
 import { expect, test, type Page, type WebSocketRoute } from '@playwright/test';
 import { PLAYER, newBackend, signIn } from '../stale-client/mock-backend';
 
@@ -39,7 +40,7 @@ const HAND_THREE: Card[] = [
 const villain = (n: number) => `0bb0ffee-0000-4000-8000-00000000006${n}`;
 
 /** A Lightning hand as the engine publishes it to one room. */
-function snapshot(hand: number, heroSeat: number) {
+function snapshot(hand: number, heroSeat: number, decisionAt = 0, variant = 'nlh') {
   const seats = [1, 2, 3, 4, 5, 6];
   let v = 0;
   const players = seats.map((seat) => {
@@ -82,7 +83,7 @@ function snapshot(hand: number, heroSeat: number) {
       name: 'NLH 0.25/0.50 Lightning Games',
       small_blind: 0.25,
       big_blind: 0.5,
-      variant: 'nlh',
+      variant,
       fast_fold_available: false,
     },
     hand_number: hand,
@@ -90,26 +91,26 @@ function snapshot(hand: number, heroSeat: number) {
     community_cards: [],
     community_cards2: [],
     community_cards3: [],
-    hand_variant: 'nlh',
+    hand_variant: variant,
     ante: 0,
     ante_mode: null,
     current_bet: 0.5,
-    current_player: null,
+    current_player: decisionAt ? PLAYER : null,
     dealer_seat: 6,
     stage: 'preflop',
     winner_ids: [],
     winners: [],
     min_raise: 0.5,
     last_raise: 0.5,
-    betting_structure: 'no_limit',
-    action_context: null,
-    turn_start_time_ms: 0,
-    turn_duration_ms: 0,
+    betting_structure: variant === 'plo5' ? 'pot_limit' : 'no_limit',
+    action_context: decisionAt ? `hand-${hand}:preflop:hero` : null,
+    turn_start_time_ms: decisionAt,
+    turn_duration_ms: decisionAt ? 30_000 : 0,
     server_time_ms: Date.now(),
     discard_deadline_ms: null,
     discard_deadlines: {},
     discard_duration_ms: 0,
-    turn_deadline_ms: 0,
+    turn_deadline_ms: decisionAt ? decisionAt + 30_000 : 0,
     time_bank_active: false,
     disconnect_states: {},
     max_seats: 6,
@@ -248,9 +249,9 @@ class LightningEngine {
     });
   }
 
-  publish(hand: number, heroSeat: number): void {
+  publish(hand: number, heroSeat: number, decisionAt = 0, variant = 'nlh'): void {
     this.seq += 1;
-    this.state = snapshot(hand, heroSeat);
+    this.state = snapshot(hand, heroSeat, decisionAt, variant);
     this.all({ type: 'SNAPSHOT', tableId: ROOM, seq: this.seq, state: this.state });
   }
 }
@@ -440,6 +441,112 @@ for (const muted of [true, false]) {
     }
   });
 }
+
+test('PLO5 decision survives a delayed start with every visible frame and card hit target recorded', async ({
+  page,
+}, testInfo) => {
+  const engine = await openRoom(page, { muted: true });
+  try {
+    await firstHand(page, engine);
+    const five = [
+      ...HAND_TWO,
+      { rank: '10', suit: 'd' },
+      { rank: '9', suit: 'h' },
+      { rank: '8', suit: 's' },
+    ];
+    const decisionAt = Date.now();
+    engine.publish(102, 1, decisionAt, 'plo5');
+    engine.deal(102, 1, five);
+    const picks = page.locator('.seat--hero .seat__cards--hero .seat__card-pick');
+    await expect(picks).toHaveCount(5);
+    const actions = page.locator('.action-panel--active button:enabled').first();
+    await expect(actions).toBeVisible();
+    await expect(page.locator('.table-art-cover')).toBeHidden({ timeout: 15_000 });
+    const geometry = await picks.evaluateAll((nodes) =>
+      nodes.map((node, index) => {
+        const rect = node.getBoundingClientRect();
+        const exposed = nodes[index + 1]
+          ? nodes[index + 1].getBoundingClientRect().left - rect.left
+          : rect.width;
+        const hit = document.elementFromPoint(rect.left + exposed / 2, rect.top + rect.height / 2);
+        return {
+          width: rect.width,
+          height: rect.height,
+          right: rect.right,
+          viewport: innerWidth,
+          exposed,
+          hit: hit?.closest('.seat__card-pick') === node,
+        };
+      })
+    );
+    for (const card of geometry) {
+      expect(card.hit).toBe(true);
+      expect(card.right).toBeLessThanOrEqual(card.viewport);
+      expect(card.exposed).toBeGreaterThanOrEqual(card.width * 0.45 - 1);
+    }
+    // Start sampling before a duplicated boundary. The row must stay face up,
+    // and the already usable controls must stay on screen for every frame.
+    await page.evaluate(() => {
+      const sample = () => {
+        const faces = [
+          ...document.querySelectorAll('.seat--hero .seat__cards--hero .seat__card--face'),
+        ];
+        const action = document.querySelector<HTMLElement>('.action-panel--active button:enabled');
+        return {
+          time: Date.now(),
+          faces: faces.filter((face) => getComputedStyle(face).opacity === '1').length,
+          actionTop: action?.getBoundingClientRect().top ?? null,
+        };
+      };
+      const frames = [sample()];
+      Object.assign(window, { lightningProofFrames: frames });
+      const collect = () => {
+        frames.push(sample());
+        if (frames.at(-1)!.time - frames[0].time < 1400) requestAnimationFrame(collect);
+      };
+      requestAnimationFrame(collect);
+    });
+    engine.handStarted(102);
+    await page.waitForFunction(() => {
+      const frames = (window as unknown as { lightningProofFrames: { time: number }[] })
+        .lightningProofFrames;
+      return frames.at(-1)!.time - frames[0].time >= 1400;
+    });
+    const frames = await page.evaluate(
+      () =>
+        (
+          window as unknown as {
+            lightningProofFrames: { time: number; faces: number; actionTop: number | null }[];
+          }
+        ).lightningProofFrames
+    );
+    const framePath = testInfo.outputPath('decision-frames.json');
+    await writeFile(
+      framePath,
+      JSON.stringify({
+        geometry,
+        decisionAt,
+        deadline: decisionAt + 30_000,
+        observedRemainingMs: decisionAt + 30_000 - frames[0].time,
+        frames,
+      })
+    );
+    await testInfo.attach('decision-frames', { path: framePath, contentType: 'application/json' });
+    const frameImage = testInfo.outputPath('plo5-active.png');
+    await page.screenshot({ path: frameImage });
+    await testInfo.attach('plo5-active', { path: frameImage, contentType: 'image/png' });
+    expect(frames.length).toBeGreaterThan(2);
+    expect(frames[0].time).toBeLessThan(decisionAt + 30_000);
+    expect(
+      frames.every(
+        (f) =>
+          f.faces === 5 && f.actionTop !== null && Math.abs(f.actionTop - frames[0].actionTop!) <= 1
+      )
+    ).toBe(true);
+  } finally {
+    engine.dispose();
+  }
+});
 
 test('a lost delivery is asked for again, once is enough, and the asking stops', async ({
   page,

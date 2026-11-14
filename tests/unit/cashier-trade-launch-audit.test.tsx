@@ -774,7 +774,7 @@ describe('P-10: the figure a user confirms is the figure that moves', () => {
     expect(exactChipFigure(0.1 + 0.2)).toBe('0.30');
     expect(exactChipFigure(-42.1)).toBe('-42.10');
     expect(exactChipFigure(Number.NaN)).toBe('0');
-    expect(TRADE).toContain('{exactChipFigure(receipt.amount)}');
+    expect(TRADE).toContain('{exactChipFigure(receipt.amountText ?? receipt.amount)}');
     // Head zones and list rows keep the console reading.
     expect(TRADE).toContain('const fmt = compactChips;');
   });

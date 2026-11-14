@@ -99,7 +99,7 @@ describe('the tracker', () => {
       vi.advanceTimersByTime(VPIP_REFRESH_DELAY_MS);
     });
     expect(screen.getByTestId('vpip-badge').textContent).toContain('60%');
-    expect(screen.getByTestId('hero-vpip-hand-count').textContent).toContain('10');
+    expect(screen.queryByTestId('hero-vpip-hand-count')).toBeNull();
     expect(rpc.mock.calls.filter((c) => c[0] === 'fn_lightning_my_session')).toHaveLength(1);
   });
 

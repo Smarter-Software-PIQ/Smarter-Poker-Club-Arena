@@ -92,8 +92,12 @@ const VARIANT_LONG_NAMES: Record<string, string> = {
   plo8: 'Pot Limit Omaha Hi-Lo',
   flh: "Fixed Limit Hold'em",
   limit_holdem: "Fixed Limit Hold'em",
-  flo8: 'Fixed Limit Omaha Hi-Lo',
-  limit_omaha: 'Fixed Limit Omaha',
+  // Owner ruling, November 14, 2026: the limit Omahas by their names.
+  flo4: 'Omaha 4 Card Fixed Limit',
+  flo5: 'Omaha 5 Card Fixed Limit',
+  flo6: 'Omaha 6 Card Fixed Limit',
+  flo8: 'Omaha 8o Fixed Limit',
+  limit_omaha: 'Omaha 8o Fixed Limit',
 };
 
 export function gameTypeLongName(variant: string | null | undefined): string | null {
@@ -118,7 +122,13 @@ export function gameTypeLabel(variant: string | null | undefined): string | null
     .trim();
   if (!v) return null;
   if (v === 'nlh') return 'NLH';
-  if (v === 'flh') return 'FLH';
+  /* Owner ruling, November 14, 2026: "Fixed Limit Holdem (spelt out)" and the
+     Omaha fixed limit names, never FLH or FLO8. */
+  if (v === 'flh') return 'Fixed Limit Holdem';
+  if (v === 'flo4') return 'Omaha 4 Card Fixed Limit';
+  if (v === 'flo5') return 'Omaha 5 Card Fixed Limit';
+  if (v === 'flo6') return 'Omaha 6 Card Fixed Limit';
+  if (v === 'flo8') return 'Omaha 8o Fixed Limit';
   if (v === 'short_deck' || v === 'shortdeck' || v === 'sixplus') return 'Short Deck';
   /* PHASE 4 2026-09-01 - THE FELT WAS NAMING THE WRONG GAME.
   

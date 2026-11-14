@@ -10,6 +10,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { isPreviousLightningSettlement } from '../../src/lightning/lightningHand';
 import { lightningLeaveWaitsForHand } from '../../src/lightning/lightningLeaveNextHand';
 
 const read = (p: string) => readFileSync(resolve(__dirname, '../..', p), 'utf8');
@@ -26,6 +27,13 @@ describe('Lightning Leave Next Hand waits for the end of the current hand', () =
     expect(lightningLeaveWaitsForHand(live, 'previous', 'hero')).toBe(true);
     expect(lightningLeaveWaitsForHand({ ...live, players: [] }, null, 'hero')).toBe(true);
   });
+  it('rejects delayed settlement presentation for A after B while retaining history receipts and the current hand', () => {
+    for (const type of ['POT_WIN', 'HAND_COMPLETE', 'SHOWDOWN_CARDS_REVEALED', 'POT_DISTRIBUTED']) {
+      expect(isPreviousLightningSettlement(type, 40, 41)).toBe(true);
+      expect(isPreviousLightningSettlement(type, 41, 41)).toBe(false);
+    }
+    expect(isPreviousLightningSettlement('HAND_HISTORY_SAVED', 40, 41)).toBe(false);
+  });
   it('leaves on this hand’s receipt, an idle room, or the hero’s confirmed fold', () => {
     expect(lightningLeaveWaitsForHand(live, 'current', 'hero')).toBe(false);
     expect(lightningLeaveWaitsForHand({ ...live, stage: 'waiting' }, null, 'hero')).toBe(false);
@@ -40,10 +48,12 @@ describe('Lightning Leave Next Hand waits for the end of the current hand', () =
   it('the button is wired to the waiting leave and its cancel, never straight to the immediate one', () => {
     const at = PAGE.indexOf('<LightningLeaveControl');
     const tag = PAGE.slice(at, PAGE.indexOf('/>', at));
-    expect(tag).toContain('onLeave={leaveLightningAfterThisHand}');
+    expect(tag).toContain('onLeave={requestLeaveAtNextHand}');
     expect(tag).not.toContain('onLeave={handleLeaveTable}');
-    expect(tag).toContain('queued={lightningLeaveAfterHand.queued}');
-    expect(tag).toContain('onCancel={cancelLightningLeave}');
+    expect(tag).toContain('finalLightningDeal.queued || lightningLeaveAfterHand.queued');
+    expect(PAGE).toContain(
+      'else if (lightningLeaveAfterHand.queued) await cancelLightningLeave();'
+    );
     // Nothing suppresses the action bar or cancels pre-actions while the hand plays.
     expect(tag).not.toContain('onLeaveIntentChange');
   });

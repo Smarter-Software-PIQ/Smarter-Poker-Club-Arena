@@ -9,6 +9,7 @@
 
 import React from 'react';
 import './PreviousHandCard.css';
+import type { HandRecord } from './HandHistoryPanel';
 import { useButtonImage } from '../../hooks/useButtonImage';
 
 /**
@@ -82,6 +83,44 @@ export function PreviousHandCard({
         </div>
       </div>
     </div>
+  );
+}
+
+export function LightningPreviousHandResult({
+  handNumber,
+  hand,
+  historyFailed,
+  onClose,
+}: {
+  handNumber: number;
+  hand?: Pick<HandRecord, 'handNumber' | 'streets' | 'potTotal' | 'heroResult'>;
+  historyFailed: boolean;
+  onClose: () => void;
+}) {
+  return (
+    <aside className="lightning-previous-result" aria-label="Previous Lightning Hand">
+      <button type="button" aria-label="Close Previous Hand" onClick={onClose}>
+        ×
+      </button>
+      <strong>Hand #{handNumber}</strong>
+      <div role="status">
+        {hand?.handNumber === handNumber ? (
+          <>
+            <div>
+              {hand.streets.flatMap((street) => street.cards ?? []).join(' ') || 'No Board Dealt'}
+            </div>
+            <div>
+              Pot {hand.potTotal} · Your Result {hand.heroResult > 0 ? '+' : ''}
+              {hand.heroResult}
+            </div>
+          </>
+        ) : historyFailed ? (
+          'Hand History Unavailable'
+        ) : (
+          'Awaiting Final Result'
+        )}
+      </div>
+    </aside>
   );
 }
 
