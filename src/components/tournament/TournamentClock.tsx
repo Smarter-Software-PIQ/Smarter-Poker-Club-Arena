@@ -192,7 +192,8 @@ const TournamentClockForEvent: React.FC<TournamentClockProps> = ({
           (sum: number, r: { chips?: number }) => sum + (Number(r.chips) || 0),
           0
         );
-        averageStack = playersRemaining > 0 ? Math.round(totalChips / playersRemaining) : 0;
+        // Whole chips, truncated, never rounded up (Dan 2026-11-14).
+        averageStack = playersRemaining > 0 ? Math.trunc(totalChips / playersRemaining) : 0;
       }
 
       /**

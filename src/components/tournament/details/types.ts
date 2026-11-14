@@ -304,6 +304,18 @@ export function chips(n: number | null | undefined): string {
 }
 
 /**
+ * A chip STACK figure: a stack, an average stack, the chips in play, a gap
+ * between stacks. Always whole chips, truncated, never decimals (Dan
+ * 2026-11-14: "CHIP STACK COUNTS AND 'AVERAGES' USE WHOLE NUMBERS
+ * EVERYWHERE"). Money figures keep their cents through chipsCompact.
+ */
+export function stackChips(n: number | null | undefined): string {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return '0';
+  return Math.trunc(v).toLocaleString('en-US');
+}
+
+/**
  * Compact chips, Dan's rule: 1,250 -> 1.2K, 5,000 -> 5K, 447,000 -> 447K.
  *
  * This used to be a second, competing formatter - it ROUNDED (1,250 read

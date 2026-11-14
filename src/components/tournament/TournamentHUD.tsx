@@ -1039,7 +1039,9 @@ const TournamentHUDInner = memo(function TournamentHUDInner({
   const fieldNow = field && field.key === scopeKey ? field : null;
   const shownPlayers =
     playersRemaining !== undefined ? playersRemaining : (fieldNow?.remaining ?? undefined);
-  const shownAvg = averageStack !== undefined ? averageStack : (fieldNow?.avgStack ?? undefined);
+  // An average stack is whole chips whoever supplies it (Dan 2026-11-14).
+  const shownAvg =
+    averageStack !== undefined ? Math.trunc(averageStack) : (fieldNow?.avgStack ?? undefined);
   /** Dan 2026-08-30: "IT SHOULD ALSO SAY YOUR CURRENT RANK AFTER THE COUNTDOWN
       CLOCK AND BEFORE HOW MANY ARE LEFT." Null while the hero holds no live
       stack in this event (observer, eliminated). */
