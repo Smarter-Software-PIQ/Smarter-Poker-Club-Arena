@@ -17,7 +17,7 @@ export const fmt = (n: number | null | undefined): string => Number(n || 0).toLo
  * @example fmtChips(1500)    -> "1,500"
  * @example fmtChips(1512.34) -> "1,512.34"
  */
-export const fmtChips = (n: number | null | undefined): string => exactChips(n);
+export const fmtChips = (n: FigureInput): string => exactChips(n);
 
 /**
  * CHIPS ON THE FELT ARE NEVER ABBREVIATED (Dan 2026-08-28, binding).
@@ -408,18 +408,18 @@ export const formatSignedPct = (value: unknown, digits = 1): string => {
  * kept, never truncated away (Dan 2026-11-13: exact figures always).
  */
 export const formatSignedChips = (value: unknown, digits = 2): string => {
-  if (!finite(value)) return (0).toFixed(digits);
-  const abs = Number(Math.abs(value).toFixed(FIGURE_MAX_FRACTION_DIGITS));
-  const fixed = preciseMagnitude(abs, digits);
-  if (abs === 0) return fixed;
-  return value > 0 ? `+${fixed}` : `-${fixed}`;
+  const d = figureDigits(value as FigureInput);
+  if (!d) return (0).toFixed(digits);
+  const fixed = figureMagnitude(d, digits);
+  if (isZeroFigure(d)) return fixed;
+  return d.negative ? `-${fixed}` : `+${fixed}`;
 };
 
 /** "1,711.50" - chips, unsigned; `digits` is the minimum, extra stored precision kept. */
 export const formatChips = (value: unknown, digits = 2): string => {
-  if (!finite(value)) return (0).toFixed(digits);
-  const abs = Number(Math.abs(value).toFixed(FIGURE_MAX_FRACTION_DIGITS));
-  return `${value < 0 && abs !== 0 ? '-' : ''}${preciseMagnitude(abs, digits)}`;
+  const d = figureDigits(value as FigureInput);
+  if (!d) return (0).toFixed(digits);
+  return `${d.negative ? '-' : ''}${figureMagnitude(d, digits)}`;
 };
 
 /** "1,412" - whole counts (truncated, never rounded up). */
@@ -499,46 +499,94 @@ export const ordinal = (n: unknown): string => {
  * @example exactChips(0.07)    -> "0.07"
  * @example exactChips(1.234)   -> "1.234"
  */
-/** Decimal places a stored figure keeps before binary float noise starts. */
-export const FIGURE_MAX_FRACTION_DIGITS = 8;
+/**
+ * A figure as the platform stores it: a JSON number, an exact decimal string
+ * (what an RPC returns from `round(x, 2)::text` or `numeric::text`), or a
+ * bigint. Declared columns reach numeric(20,2) and 792 columns are
+ * unconstrained numeric, so a stored figure can carry more digits than a
+ * JavaScript number holds.
+ */
+export type FigureInput = number | string | bigint | null | undefined;
 
 /**
- * The magnitude of a stored figure, grouped, with every real decimal it has
- * (up to FIGURE_MAX_FRACTION_DIGITS) and at least `minFraction` places. It
- * never rounds a real decimal away: 1.234 stays "1.234", 0.005 stays "0.005".
- * Only float noise past the eighth place (0.30000000000000004) is dropped.
+ * A double holds every decimal of up to 15 significant digits exactly; the
+ * 16th and 17th digits are binary noise (0.1 + 0.2 = 0.30000000000000004).
+ * A NUMBER input keeps all 15, wherever the decimal point is (0.000000001
+ * stays itself). A STRING or BIGINT input is formatted digit for digit with
+ * no limit at all, because it never passes through a double.
  */
-export const preciseMagnitude = (abs: number, minFraction: number): string =>
-  Number(abs.toFixed(FIGURE_MAX_FRACTION_DIGITS)).toLocaleString('en-US', {
-    minimumFractionDigits: minFraction,
-    maximumFractionDigits: FIGURE_MAX_FRACTION_DIGITS,
-  });
+export const NUMBER_SIGNIFICANT_DIGITS = 15;
 
-export const exactChips = (n: number | null | undefined): string => {
-  const v = Number(n);
-  if (!Number.isFinite(v)) return '0';
-  const abs = Number(Math.abs(v).toFixed(FIGURE_MAX_FRACTION_DIGITS));
-  if (abs === 0) return '0';
-  const sign = v < 0 ? '-' : '';
-  return `${sign}${preciseMagnitude(abs, Number.isInteger(abs) ? 0 : 2)}`;
+const DECIMAL_TEXT = /^[-+]?(\d+(\.\d*)?|\.\d+)$/;
+
+/** The exact sign and digits of a supported figure, or null when it is not a figure. */
+export function figureDigits(
+  value: FigureInput
+): { negative: boolean; whole: string; fraction: string } | null {
+  let text: string;
+  if (typeof value === 'bigint') text = value.toString();
+  else if (typeof value === 'string') {
+    text = value.trim();
+    if (!DECIMAL_TEXT.test(text)) return null;
+  } else if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return null;
+    text = Number(value.toPrecision(NUMBER_SIGNIFICANT_DIGITS)).toLocaleString('en-US', {
+      useGrouping: false,
+      maximumFractionDigits: 20,
+    });
+  } else return null;
+  const negative = text.startsWith('-');
+  const [rawWhole = '', rawFraction = ''] = text.replace(/^[-+]/, '').split('.');
+  const whole = rawWhole.replace(/^0+(?=\d)/, '') || '0';
+  const fraction = rawFraction.replace(/0+$/, '');
+  return { negative: negative && /[1-9]/.test(whole + fraction), whole, fraction };
+}
+
+/**
+ * The magnitude of a figure, grouped, with every real decimal it carries and at
+ * least `minFraction` places. Nothing is rounded: digits are copied, so
+ * "123456789012345678.91" stays exactly that.
+ */
+export function figureMagnitude(
+  digits: { whole: string; fraction: string },
+  minFraction: number
+): string {
+  const grouped = digits.whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  const fraction = digits.fraction.padEnd(minFraction, '0');
+  return fraction ? `${grouped}.${fraction}` : grouped;
+}
+
+/** True when the figure is exactly zero (or not a figure). */
+const isZeroFigure = (d: { whole: string; fraction: string }) =>
+  !/[1-9]/.test(d.whole + d.fraction);
+
+/** Number-input helper kept for callers that only hold a magnitude. */
+export const preciseMagnitude = (abs: number, minFraction: number): string => {
+  const d = figureDigits(Math.abs(abs));
+  return d ? figureMagnitude(d, minFraction) : (0).toFixed(minFraction);
+};
+
+export const exactChips = (n: FigureInput): string => {
+  const d = figureDigits(n);
+  if (!d || isZeroFigure(d)) return '0';
+  return `${d.negative ? '-' : ''}${figureMagnitude(d, d.fraction ? 2 : 0)}`;
 };
 
 /**
  * Historical name kept so its ~490 call sites need no churn. It no longer
  * compacts anything: it is exactChips (Dan 2026-11-13).
  */
-export const compactChips = (n: number | null | undefined): string => exactChips(n);
+export const compactChips = (n: FigureInput): string => exactChips(n);
 
 /**
  * Fees stay exact to cents with separators, including large totals
  * (owner, 2026-10-27). Null means the viewer may not see it.
  */
-export const feeFigure = (value: number | null | undefined): string => {
+export const feeFigure = (value: FigureInput): string => {
   if (value == null) return 'Restricted';
-  const v = Number(value);
-  if (!Number.isFinite(v)) return '-';
-  const abs = Number(Math.abs(v).toFixed(FIGURE_MAX_FRACTION_DIGITS));
-  return `${v < 0 && abs !== 0 ? '-' : ''}${preciseMagnitude(abs, 2)}`;
+  const d = figureDigits(value);
+  if (!d) return '-';
+  return `${d.negative ? '-' : ''}${figureMagnitude(d, 2)}`;
 };
 
 /**
@@ -558,11 +606,10 @@ export const countFigure = (value: number | null | undefined): string =>
   value == null ? 'Restricted' : (Number(value) || 0).toLocaleString();
 
 /** Wallet balances always show separators and exactly two decimals (Dan, 2026-10-18). */
-export const formatWalletChips = (amount: number | null | undefined): string => {
-  if (amount == null || !Number.isFinite(Number(amount))) return '-';
-  const value = Number(amount);
-  const abs = Number(Math.abs(value).toFixed(FIGURE_MAX_FRACTION_DIGITS));
-  return `${value < 0 && abs !== 0 ? '-' : ''}${preciseMagnitude(abs, 2)}`;
+export const formatWalletChips = (amount: FigureInput): string => {
+  const d = figureDigits(amount);
+  if (!d) return '-';
+  return `${d.negative ? '-' : ''}${figureMagnitude(d, 2)}`;
 };
 
 /** Whole Diamond wallet counts are always exact (Dan 2026-11-13: never abbreviated). */
@@ -578,11 +625,8 @@ export const formatWalletDiamonds = (amount: number | null | undefined): string 
  * with the fee and wallet figures beside it. "+392.57", "-1,512.34", "0.00",
  * and "+0.125" when the stored value carries three places.
  */
-export const winLossChips = (n: number | null | undefined): string => {
-  const value = Number(n);
-  if (!Number.isFinite(value)) return '0.00';
-  const abs = Number(Math.abs(value).toFixed(FIGURE_MAX_FRACTION_DIGITS));
-  if (abs === 0) return '0.00';
-  const text = preciseMagnitude(abs, 2);
-  return value > 0 ? `+${text}` : `-${text}`;
+export const winLossChips = (n: FigureInput): string => {
+  const d = figureDigits(n);
+  if (!d || isZeroFigure(d)) return '0.00';
+  return `${d.negative ? '-' : '+'}${figureMagnitude(d, 2)}`;
 };

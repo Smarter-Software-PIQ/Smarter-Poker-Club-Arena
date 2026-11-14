@@ -77,6 +77,28 @@ describe('real figures are never abbreviated', () => {
     expect(formatSignedChips(0.001)).toBe('+0.001');
   });
 
+  it('keeps every digit a supported data source can hold', () => {
+    // numeric(20,2) columns (wallet balances, jackpot payouts) and 792
+    // unconstrained numeric columns reach these formatters. A string or bigint
+    // is copied digit for digit; a number keeps all 15 significant digits a
+    // double holds exactly, wherever the decimal point falls.
+    const max20 = '999999999999999999.99';
+    expect(exactChips(max20)).toBe('999,999,999,999,999,999.99');
+    expect(feeFigure(max20)).toBe('999,999,999,999,999,999.99');
+    expect(formatWalletChips('-123456789012345678.91')).toBe('-123,456,789,012,345,678.91');
+    expect(winLossChips('123456789012345678.9')).toBe('+123,456,789,012,345,678.90');
+    expect(formatChips('0.000000000001')).toBe('0.000000000001');
+    expect(formatSignedChips('-0.000000000001')).toBe('-0.000000000001');
+    expect(exactChips(12345678901234567890n)).toBe('12,345,678,901,234,567,890');
+    expect(exactChips('00012.3400')).toBe('12.34');
+    expect(exactChips('-0.00')).toBe('0');
+    expect(exactChips('1.2K')).toBe('0'); // not a figure: never parsed as one
+    expect(exactChips(0.000000001)).toBe('0.000000001'); // past the old 8-place cap
+    expect(exactChips(123456789012.345)).toBe('123,456,789,012.345'); // 15 significant
+    expect(exactChips(90071992547409.91)).toBe('90,071,992,547,409.90'); // 16th digit is beyond a double
+    expect(formatWalletChips(0.1 + 0.2)).toBe('0.30'); // binary noise is not a stored digit
+  });
+
   it('no source file builds a K / M / B suffix from a divided figure', () => {
     const offenders: string[] = [];
     const suffix = /\/\s*1_?000(?:_?000){0,2}\b[^\n]{0,80}\}\s*[kKMB]\s*[`'"]/;
