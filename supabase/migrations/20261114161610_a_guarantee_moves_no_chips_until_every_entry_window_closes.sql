@@ -723,6 +723,15 @@ END;
 $function$;
 
 
+-- The replaced images keep the installed ACL (postgres and service_role only),
+-- stated here so no default PUBLIC grant can ever apply to them.
+REVOKE ALL ON FUNCTION public.fn_close_tournament_entry_window(uuid, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_close_tournament_entry_window(uuid, text) TO service_role;
+REVOKE ALL ON FUNCTION public.fn_apply_prize_guarantee(uuid, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_apply_prize_guarantee(uuid, text) TO service_role;
+REVOKE ALL ON FUNCTION public.fn_ca_fund_overlay_on_lock() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_ca_fund_overlay_on_lock() TO service_role;
+
 DO $postimage$ BEGIN
   IF position('rebuy_window_open' in pg_get_functiondef('public.fn_close_tournament_entry_window(uuid,text)'::regprocedure)) = 0
      OR position('fn_ca_guarantee_entry_period_ended(p_tournament_id)' in pg_get_functiondef('public.fn_apply_prize_guarantee(uuid,text)'::regprocedure)) = 0
