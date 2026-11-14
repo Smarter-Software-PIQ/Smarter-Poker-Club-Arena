@@ -4,10 +4,9 @@
  * "taken" defined differently in the two arms, and an unpaired comparison.
  *
  *  (i)   Every Horse at scale exactly 1 with the consumed draw as its unit
- *        IS the option off: the paired difference is exactly zero, for all
- *        three behaviours, and the two runs see the same spots.
- *  (ii)  Every Horse at a known scale (0.5): the measured paired reshove
- *        rate is 0.5 of off within its interval, and the 3-bet and squeeze
+ *        IS the option off: the paired difference is exactly zero, for both
+ *        behaviours, and the two runs see the same spots.
+ *  (ii)  Every Horse at a known scale (0.5): the 3-bet and squeeze
  *        comparisons fire at 0.5 p where uncapped.
  *  (iii) "Taken" is one definition for both arms.
  *  (iv)  Paired counts are consistent: on = off + up - down on the same spots.
@@ -45,7 +44,6 @@ vi.mock('../engine/HorsePreflop.js', async (importOriginal) => {
           get uSqueeze() {
             return last;
           },
-          uFourBet: 0,
         },
       });
     },
@@ -78,10 +76,6 @@ const consistent = (rep: PersonaReRaiseReport) => {
 
 describe('the persona re-raise probe is validated before it is believed', () => {
   it('(iii) "taken" is the final action in both arms, never the persona verdict', () => {
-    expect(personaTaken('fourBetReshove', { action: 'all_in', bluffBranch: false })).toBe(true);
-    // The persona said shove and a later layer made it a call: not taken.
-    expect(personaTaken('fourBetReshove', { action: 'call', bluffBranch: false })).toBe(false);
-    expect(personaTaken('fourBetReshove', { action: 'fold', bluffBranch: true })).toBe(false);
     expect(personaTaken('threeBetBluff', { action: 'raise', bluffBranch: true })).toBe(true);
     // A value 3-bet is a raise and not the bluff branch: not taken.
     expect(personaTaken('threeBetBluff', { action: 'raise', bluffBranch: false })).toBe(false);
@@ -119,13 +113,11 @@ describe('the persona re-raise probe is validated before it is believed', () => 
           if (row === 'pooled') eligible += c.eligible;
         }
       expect(rep.paired.threeBetBluff.pooled.eligible).toBeGreaterThan(100);
-      if (cell.depthBB !== 100)
-        expect(rep.paired.fourBetReshove.pooled.eligible).toBeGreaterThan(0);
-      else expect(rep.paired.squeezeBluff.pooled.eligible).toBeGreaterThan(20);
+      if (cell.depthBB === 100) expect(rep.paired.squeezeBluff.pooled.eligible).toBeGreaterThan(20);
       expect(eligible).toBeGreaterThan(150);
     });
 
-  it('(ii) every Horse at scale 0.5: the reshove is taken half as often, and the bluffs fire at half p', () => {
+  it('(ii) every Horse at scale 0.5: the bluff comparisons fire at half p', () => {
     forced.scale = 0.5;
     const rep = measurePersonaReRaise({
       mode: 'cash',
@@ -136,14 +128,8 @@ describe('the persona re-raise probe is validated before it is believed', () => 
     });
     consistent(rep);
     expect(rep.meanScale).toBe(0.5);
-    const reshove = rep.paired.fourBetReshove.pooled;
-    expect(reshove.eligible).toBeGreaterThan(40);
-    // Today every one shoves; at 0.5 half do, within the interval.
-    expect(reshove.off.rate).toBe(100);
-    expect(reshove.on.low).toBeLessThan(50);
-    expect(reshove.on.high).toBeGreaterThan(50);
-    expect(reshove.expectedOn).toBe(50);
-    expect(reshove.up).toBe(0);
+    // Shallow four-bet reshoves are not persona-specific: the probe has no row for them.
+    expect(Object.keys(rep.paired).sort()).toEqual(['squeezeBluff', 'threeBetBluff']);
     for (const b of ['threeBetBluff', 'squeezeBluff'] as const) {
       const c = rep.paired[b].pooled;
       if (b === 'threeBetBluff') expect(c.eligible).toBeGreaterThan(300);
@@ -172,7 +158,6 @@ describe('the persona re-raise probe is validated before it is believed', () => 
     });
     consistent(rep);
     expect(rep.handIdentity).toBe(true);
-    expect(rep.modelMin1).toBe(90.5);
     expect(rep.ids).toBe(900);
     expect(rep.archetypeIds).toEqual({
       lag_shark: 225,

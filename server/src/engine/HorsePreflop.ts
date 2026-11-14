@@ -151,8 +151,6 @@ export type PreflopLayerReceipt =
   | 'holdem_persona_squeeze_bluff_eligible_seen'
   | 'holdem_persona_squeeze_bluff_changed_seen'
   | 'holdem_persona_squeeze_bluff_capped_seen'
-  | 'holdem_persona_fourbet_reshove_eligible_seen'
-  | 'holdem_persona_fourbet_reshove_changed_seen'
   | 'holdem_persona_scale_held_by_style_seen';
 
 /**
@@ -162,8 +160,8 @@ export type PreflopLayerReceipt =
  * and clear it; no live process sets it. It observes and decides nothing.
  */
 export interface HoldemPersonaReRaiseTapEvent {
-  kind: 'three_bet' | 'squeeze' | 'four_bet';
-  /** The site's unscaled probability (1 for the reshove: it always shoved). */
+  kind: 'three_bet' | 'squeeze';
+  /** The site's unscaled probability. */
   p: number;
   /** The Horse's scale, and the scale the site used (held at 1 by a style read). */
   scale: number;
@@ -374,20 +372,19 @@ export interface PreflopCtx {
    *  behaviour for the whole hand (HorseLogic.holdemPersonaReRaiseUnit; a
    *  caller with no hand gets the named public-state fallback). The
    *  3-bet bluff and the squeeze bluff still consume their random draw at the
-   *  same place and decide on `u < min(1, p * scale)`; the 26-35bb four-bet
-   *  reshove's bluff classes shove when `uFourBet < min(1, scale)`. Against
-   *  an opener or re-raiser the style read classifies as tight
-   *  (heldByTightRead), the scale is held at min(1, scale): the persona may
-   *  lower a bluff there, never raise it. Value 3-bets, value squeezes and value reshoves do not read it.
-   *  Absent = unchanged. */
+   *  same place and decide on `u < min(1, p * scale)`. Against an opener
+   *  the style read classifies as tight (heldByTightRead), the scale is held
+   *  at min(1, scale): the persona may lower a bluff there, never raise it.
+   *  Value 3-bets, value squeezes and every four-bet reshove do not read it
+   *  (shallow four-bet reshoves are not persona-specific: owner decision
+   *  R3-B, 2026-11-13). Absent = unchanged. */
   holdemPersonaReRaise?: {
     scale: number;
     u3bet: number;
     uSqueeze: number;
-    uFourBet: number;
     /** The opener / re-raiser is one the opponent-style read classifies as
      *  tight (HorseLogic asks the read itself, whatever the style option's
-     *  state). The scale is then min(1, scale) at all three sites. */
+     *  state). The scale is then min(1, scale) at both sites. */
     heldByTightRead?: boolean;
   };
   /** V20 M-ZONES (2026-08-27): ante cost of ONE ORBIT in BB units, already
@@ -1364,7 +1361,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
   // Horse's own unit decides against the scaled probability.
   const personaReRaise = ctx.holdemPersonaReRaise;
   // THE PERSONA NEVER BLUFFS A TIGHT PLAYER MORE. Where the opponent-style
-  // read classifies the opener or re-raiser as tight (persona.heldByTightRead,
+  // read classifies the raiser as tight (persona.heldByTightRead,
   // worked out by HorseLogic from the read itself, so it holds with the style
   // option off, in shadow or on), the persona's scale is held at
   // min(1, scale): it may lower a bluff there, never raise it.
@@ -1415,24 +1412,6 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
           : 'holdem_persona_3bet_bluff_capped_seen'
       );
     return fires;
-  };
-  const personaFourBetBluffShoves = (
-    persona: NonNullable<PreflopCtx['holdemPersonaReRaise']>
-  ): boolean => {
-    const scaleUsed = personaScaleUsed(persona, persona.heldByTightRead === true);
-    const shoves = persona.uFourBet < Math.min(1, scaleUsed);
-    holdemPersonaReRaiseTap?.({
-      kind: 'four_bet',
-      p: 1,
-      scale: persona.scale,
-      scaleUsed,
-      unit: persona.uFourBet,
-      fires: shoves,
-      unscaled: true,
-    });
-    ctx.noteLayer?.('holdem_persona_fourbet_reshove_eligible_seen');
-    if (!shoves) ctx.noteLayer?.('holdem_persona_fourbet_reshove_changed_seen');
-    return shoves;
   };
   const v87EpCand =
     v87 && ctx.holeCards && ctx.holeCards.length === 2
@@ -3617,12 +3596,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       if (v87HoleClass !== null) {
         if (
           V87_FOUR_BET_VALUE_SHOVE_CLASSES.has(v87HoleClass) ||
-          (ctx.maniacNoBluff !== true &&
-            V87_FOUR_BET_BLUFF_SHOVE_CLASSES.has(v87HoleClass) &&
-            // Persona re-raise mix (default OFF): a bluff class shoves at the
-            // Horse's scale, capped at always; a refused one falls through to
-            // the ordinary 4-bet / call / fold read below. No draw either way.
-            (personaReRaise === undefined || personaFourBetBluffShoves(personaReRaise)))
+          (ctx.maniacNoBluff !== true && V87_FOUR_BET_BLUFF_SHOVE_CLASSES.has(v87HoleClass))
         ) {
           return { a: 'jam' };
         }

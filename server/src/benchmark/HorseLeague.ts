@@ -2090,8 +2090,8 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
   // turns it on: six-handed 100bb no-limit hold'em cash, where the 3-bet
   // bluff and the squeeze bluff are met every orbit. The card's seats are the
   // league's own ids, not the fleet's 25/20/40/15 archetype mix (the
-  // opportunity-weighted harness HoldemPersonaReRaiseProbe measures that),
-  // and 100bb never reaches the 26-35bb four-bet reshove. Not yet run.
+  // opportunity-weighted harness HoldemPersonaReRaiseProbe measures that).
+  // Not yet run.
   {
     name: 'cash6_holdem_persona_reraise_mix',
     seats: 6,

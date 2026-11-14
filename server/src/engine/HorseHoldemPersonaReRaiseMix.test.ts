@@ -1,7 +1,8 @@
 /**
  * PERSONA RE-RAISE MIX (D3 option C, option holdemPersonaReRaiseMix, default
- * OFF): persona-specific 3-bet bluffs, squeeze bluffs and 26-35bb four-bet
- * reshove bluffs in two-card no-limit hold'em.
+ * OFF): persona-specific 3-bet bluffs and squeeze bluffs in two-card no-limit
+ * hold'em. Shallow four-bet reshoves are not persona-specific (owner decision
+ * R3-B, 2026-11-13).
  *
  *  (a) OFF is main: with the option absent and with it false, every decision
  *      of ten seeded runs equals a control RECORDED FROM THE PARENT COMMIT
@@ -15,8 +16,8 @@
  *  (d) The unit is deterministic per hand: one value per behaviour for the
  *      Horse's whole hand whatever the stack and pot, another for the next
  *      hand, the same for the fast and the deep look and across a retry.
- *  (e) The four-bet reshove's bluff classes shove at the Horse's scale; value
- *      classes always shove.
+ *  (e) The 26-35bb four-bet reshove is not persona-specific: with the option
+ *      on every decision facing a 3-bet equals the option off.
  *  (f) Against an opener the opponent-style read classifies as tight the
  *      persona never raises a bluff probability, with the style option off,
  *      in shadow or on, and the style option's own books do not move.
@@ -30,8 +31,7 @@ import type { Card, SeatPlayer, ActionRecord } from '../types.js';
 // The second control of (a). Pass-through unless a test switches it on; then
 // every preflop decision is made with the persona field present at scale 1
 // and the unit read back as the draw the site has just consumed, so the
-// scaled comparison `u < min(1, p * 1)` is the unscaled `roll < p`, and the
-// reshove unit 0 always shoves.
+// scaled comparison `u < min(1, p * 1)` is the unscaled `roll < p`.
 const control = vi.hoisted(() => ({ on: false, unitReads: 0 }));
 vi.mock('./HorsePreflop.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./HorsePreflop.js')>();
@@ -55,7 +55,6 @@ vi.mock('./HorsePreflop.js', async (importOriginal) => {
           get uSqueeze() {
             return unit();
           },
-          uFourBet: 0,
         },
       });
     },
@@ -153,17 +152,14 @@ describe('persona re-raise mix: OFF is main', () => {
   }
   const recorded = JSON.parse(readFileSync(CONTROL_PATH, 'utf8')) as OffControl;
   let total = 0;
-  let reshoveSpots = 0;
   OFF_RUNS.forEach((run, index) =>
     it(`${run.name}: absent and false equal the recording from main, and the scale-1 control`, () => {
       const lines = recorded.runs[run.name];
       expect(lines.length).toBeGreaterThan(run.hands * 4);
       control.unitReads = 0;
       let decisions = 0;
-      // The option-on look (last arm) only says whether the recorded run
-      // passes through the reshove site; it does not drive the hand.
-      playOffRun(run, index, [ABSENT, FALSE, CONTROL, ...(run.persona ? [ON_T] : [])], (spot) => {
-        const [absent, off, ctl, look] = spot.reads;
+      playOffRun(run, index, [ABSENT, FALSE, CONTROL], (spot) => {
+        const [absent, off, ctl] = spot.reads;
         const main = lines[decisions];
         decisions++;
         if (offLine(absent) !== main || offLine(off) !== main)
@@ -174,7 +170,6 @@ describe('persona re-raise mix: OFF is main', () => {
           throw new Error(
             `${run.name} decision ${decisions}: absent ${offLine(absent)} control ${offLine(ctl)}`
           );
-        if (look?.fires.includes('holdem_persona_fourbet_reshove_eligible_seen')) reshoveSpots++;
       });
       expect(decisions).toBe(lines.length);
       total += decisions;
@@ -185,10 +180,9 @@ describe('persona re-raise mix: OFF is main', () => {
       if (!run.allInOrFold) expect(control.unitReads).toBeGreaterThan(0);
     })
   );
-  it('covers a few thousand decisions recorded from the parent commit, through the reshove site', () => {
+  it('covers a few thousand decisions recorded from the parent commit', () => {
     expect(recorded.recordedFrom).toBe('8a8656b17b5');
     expect(total).toBeGreaterThan(5000);
-    expect(reshoveSpots).toBeGreaterThan(0);
   });
 });
 
@@ -369,15 +363,13 @@ describe("persona re-raise mix: ON in no-limit hold'em", () => {
     expect(unchangedEligible).toBeGreaterThan(100);
     expect(changedCount).toBeGreaterThan(20);
     expect(actionMoved).toBeGreaterThan(5);
-    // All three behaviours were met: the 3-bet bluff, the squeeze bluff in
-    // cash (the chart block) and in a tournament (the V7 squeeze site), and
-    // the four-bet reshove.
+    // Both behaviours were met: the 3-bet bluff, and the squeeze bluff in
+    // cash (the chart block) and in a tournament (the V7 squeeze site).
     for (const key of [
       'cash holdem_persona_3bet_bluff_eligible_seen',
       'cash holdem_persona_squeeze_bluff_eligible_seen',
       'tournament holdem_persona_3bet_bluff_eligible_seen',
       'tournament holdem_persona_squeeze_bluff_eligible_seen',
-      'cash holdem_persona_fourbet_reshove_eligible_seen',
     ])
       expect(reached.get(key) ?? 0, key).toBeGreaterThan(0);
   });
@@ -458,7 +450,7 @@ describe("persona re-raise mix: ON in no-limit hold'em", () => {
       expect(compared).toBeGreaterThan(40);
     });
 
-    it('the next hand, and another table, give another unit; each behaviour has its own', () => {
+    it('the next hand, and another table, give another unit', () => {
       const spot = spots[0];
       const units = new Set<number>();
       for (let k = 0; k < 40; k++)
@@ -475,12 +467,6 @@ describe("persona re-raise mix: ON in no-limit hold'em", () => {
         handOpts(1000100, syntheticHorseId(700000002))
       );
       expect(there).not.toBe(here);
-      // The same Horse, hand and cards at the reshove site: a different salt.
-      const a5s = [c('A', 0), c('5', 0)];
-      const reshove = unitOf('button_faces_3bet', a5s, 30, 77, handOpts(1000100));
-      const threeBet = unitOf('bb_faces_button_open', a5s, 100, 77, handOpts(1000100));
-      expect(reshove).toBeGreaterThanOrEqual(0);
-      if (threeBet !== undefined) expect(threeBet).not.toBe(reshove);
     });
 
     it('the fast look, the deep second look and a retry of the turn derive the same hand, so the same unit', () => {
@@ -552,87 +538,79 @@ describe("persona re-raise mix: ON in no-limit hold'em", () => {
   });
 });
 
-describe('persona re-raise mix: the 26-35bb four-bet reshove', () => {
+// Shallow four-bet reshoves are NOT persona-specific (owner decision R3-B,
+// 2026-11-13: that part of the plan line was not delivered). The reshove site
+// is main's code, so the option on must change nothing there.
+describe('persona re-raise mix: the 26-35bb four-bet reshove is not persona-specific', () => {
   const BLUFF: Card[][] = [];
   for (const low of ['5', '4', '3', '2'])
     for (let s = 0; s < 4; s++) BLUFF.push([c('A', s), c(low, s)]);
   const VALUE: Card[][] = [
     [c('A', 0), c('K', 1)],
-    [c('A', 2), c('T', 2)],
-    [c('K', 3), c('Q', 3)],
     [c('9', 0), c('9', 1)],
-    [c('7', 2), c('7', 3)],
   ];
-  const DEPTHS = [27, 30, 33];
-  const low = idsOf('nit_hunter', 20);
-  const high = idsOf('lag_shark', 20, (id) => holdemPersonaReRaiseScale(id) >= 1);
-  // Every (Horse, depth, combo) is its own hand.
-  let hand = 2000000;
+  const isBluffClass = (cards: Card[]) =>
+    cards.length === 2 &&
+    cards[0].suit === cards[1].suit &&
+    cards.some((x) => x.rank === 'A') &&
+    cards.some((x) => ['5', '4', '3', '2'].includes(String(x.rank)));
 
-  it('today every bluff class and every value class shoves here (the premise)', () => {
-    for (const depth of DEPTHS)
-      for (const cards of [...BLUFF, ...VALUE]) {
-        const [off] = decideSpot('button_faces_3bet', low[0], cards, depth, 77, [OFF_T]);
-        expect(off.action, `${cards[0].rank}${cards[1].rank} at ${depth}bb`).toBe('all_in');
-      }
-  });
-
-  it('a Horse at scale 1 or more always shoves A5s-A2s; a low-scale Horse sometimes does not', () => {
-    expect(high.length).toBe(20);
-    for (const id of high)
-      for (const depth of DEPTHS)
-        for (const cards of BLUFF) {
-          const [on] = decideSpot('button_faces_3bet', id, cards, depth, 77, [onAt(hand++)]);
-          expect(on.action).toBe('all_in');
-          expect(on.fires).toContain('holdem_persona_fourbet_reshove_eligible_seen');
-          expect(changed(on)).toBe(false);
+  it('at the reshove depth, with the option on, every decision facing a 3-bet equals the option off: action, amount and stream', () => {
+    let facing = 0;
+    let inWindow = 0;
+    let bluffClass = 0;
+    OFF_RUNS.forEach((run, index) => {
+      if (!run.persona || run.depthBB === 100) return;
+      playOffRun({ ...run, hands: run.hands * 6 }, 300 + index, [OFF_T, ON_T], (spot) => {
+        if (spot.raises < 2) return;
+        const [off, on] = spot.reads;
+        facing++;
+        if (spot.raises === 2 && spot.effectiveBB > 25 && spot.effectiveBB <= 35) {
+          inWindow++;
+          if (isBluffClass(spot.heroCards)) bluffClass++;
         }
-    let shoved = 0;
-    let refused = 0;
-    const instead = new Map<string, number>();
-    for (const id of low) {
-      expect(holdemPersonaReRaiseScale(id)).toBeLessThan(0.82);
-      for (const depth of DEPTHS)
-        for (const cards of BLUFF) {
-          const [on] = decideSpot('button_faces_3bet', id, cards, depth, 77, [onAt(hand++)]);
-          expect(on.fires).toContain('holdem_persona_fourbet_reshove_eligible_seen');
-          if (on.action === 'all_in') {
-            shoved++;
-            expect(changed(on)).toBe(false);
-          } else {
-            refused++;
-            expect(on.fires).toContain('holdem_persona_fourbet_reshove_changed_seen');
-            instead.set(on.action, (instead.get(on.action) ?? 0) + 1);
-          }
-        }
-    }
-    const n = shoved + refused;
-    expect(n).toBe(20 * 3 * 16);
-    expect(refused).toBeGreaterThan(0);
-    // The group's shove rate is its mean scale, give or take the sample.
-    const meanScale = low.reduce((a, id) => a + holdemPersonaReRaiseScale(id), 0) / low.length;
-    expect(Math.abs(shoved / n - meanScale)).toBeLessThan(0.08);
-    // What a refused bluff class does instead: never a sized raise.
-    expect([...instead.keys()].every((a) => a === 'fold' || a === 'call')).toBe(true);
+        if (!same(off, on))
+          throw new Error(
+            `${run.name}: facing a 3-bet differs: off ${JSON.stringify(off)} on ${JSON.stringify(on)}`
+          );
+        expect(personaFires(on)).toEqual([]);
+      });
+    });
     if (PRINT)
       console.log(
-        'refused bluff-class reshoves did instead:',
-        Object.fromEntries(instead),
-        'shoved',
-        shoved,
-        'of',
-        n
+        '(e) facing a 3-bet or more',
+        facing,
+        'in 25-35bb',
+        inWindow,
+        'A5s-A2s',
+        bluffClass
       );
+    expect(facing).toBeGreaterThan(100);
+    expect(inWindow).toBeGreaterThan(30);
   });
 
-  it('value classes always shove, whatever the scale, and never read the persona', () => {
-    for (const id of [...low, ...high])
-      for (const depth of DEPTHS)
-        for (const cards of VALUE) {
-          const [on] = decideSpot('button_faces_3bet', id, cards, depth, 77, [onAt(hand++)]);
-          expect(on.action).toBe('all_in');
+  it('a low-scale Horse shoves A5s-A2s exactly as with the option off, and no persona site is read', () => {
+    const low = idsOf('nit_hunter', 20);
+    let hand = 2000000;
+    let n = 0;
+    tap();
+    for (const id of low) {
+      expect(holdemPersonaReRaiseScale(id)).toBeLessThan(0.82);
+      for (const depth of [27, 30, 33])
+        for (const cards of [...BLUFF, ...VALUE]) {
+          const [off, on] = decideSpot('button_faces_3bet', id, cards, depth, 77, [
+            OFF_T,
+            onAt(hand++),
+          ]);
+          expect(off.action).toBe('all_in');
+          expect(same(off, on)).toBe(true);
           expect(personaFires(on)).toEqual([]);
+          n++;
         }
+    }
+    expect(n).toBe(20 * 3 * 18);
+    // The persona made no comparison at all at this site.
+    expect(tapped.length).toBe(0);
   });
 });
 

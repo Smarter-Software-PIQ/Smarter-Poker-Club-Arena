@@ -2748,17 +2748,17 @@ export interface HorseDecideOpts {
    *  OFF: only explicit true turns it on. */
   committedStackPricedIn?: boolean;
   /** PERSONA RE-RAISE MIX (2026-11-14, D3 option C; owner ruling 2026-11-13:
-   *  persona-specific 3-bets, squeezes and shallow four-bet reshoves, rollout
-   *  gated). Two-card no-limit hold'em only, cash and tournament. The 3-bet
-   *  bluff and the squeeze bluff keep consuming their random draw at the same
-   *  place but decide on the Horse's own zero-draw unit against the bluff
-   *  probability scaled by its Hold'em persona (nlh3BetMix over the model
-   *  mean 0.42143, so 0.52 to 1.52, capped at a probability of 1); at 26-35bb
-   *  the four-bet all-in reshove's bluff classes (A5s-A2s) shove at
-   *  min(1, scale) and otherwise take the ordinary read. Value 3-bets, value
-   *  squeezes and value reshoves, Omaha, short deck, pot limit, fixed limit,
-   *  hi-lo and All-In-Or-Fold are unchanged. A preflop range change. Default
-   *  OFF: only explicit true turns it on. */
+   *  persona-specific 3-bets and squeezes, rollout gated). Two-card no-limit
+   *  hold'em only, cash and tournament. The 3-bet bluff and the squeeze bluff
+   *  keep consuming their random draw at the same place but decide on the
+   *  Horse's own zero-draw unit against the bluff probability scaled by its
+   *  Hold'em persona (nlh3BetMix over the model mean 0.42143, so 0.52 to
+   *  1.52, capped at a probability of 1). Shallow four-bet reshoves are not
+   *  persona-specific (that part of the plan line was not delivered, owner
+   *  decision R3-B, 2026-11-13). Value 3-bets, value squeezes, every reshove,
+   *  Omaha, short deck, pot limit, fixed limit, hi-lo and All-In-Or-Fold are
+   *  unchanged. A preflop range change. Default OFF: only explicit true turns
+   *  it on. */
   holdemPersonaReRaiseMix?: boolean;
   /** SHORT-STACK 3-BET DEFENCE (2026-11-07): the V73 read reaches 12bb
    *  effective (V73_SHORT_MIN_EFFECTIVE_BB) instead of 25bb, and a continuing
@@ -3947,7 +3947,7 @@ function v87CardSig(cards: readonly Card[] | undefined): string {
 }
 
 /** PERSONA RE-RAISE MIX salts, one per behaviour (v86Hash01 salt). */
-const HOLDEM_PERSONA_RERAISE_SALT = { threeBet: 9101, squeeze: 9102, fourBet: 9103 } as const;
+const HOLDEM_PERSONA_RERAISE_SALT = { threeBet: 9101, squeeze: 9102 } as const;
 
 /**
  * PERSONA RE-RAISE MIX (D3 option C): the Horse's zero-draw unit in [0,1) for
@@ -9170,7 +9170,6 @@ export class HorseLogic {
                   scale: holdemPersonaReRaiseScale(player.user_id),
                   u3bet: unit(HOLDEM_PERSONA_RERAISE_SALT.threeBet),
                   uSqueeze: unit(HOLDEM_PERSONA_RERAISE_SALT.squeeze),
-                  uFourBet: unit(HOLDEM_PERSONA_RERAISE_SALT.fourBet),
                   ...(personaHeldByTightRead ? { heldByTightRead: true } : {}),
                 },
               };
@@ -9446,10 +9445,6 @@ export class HorseLogic {
               noteFire('holdem_persona_squeeze_bluff_eligible_seen');
             else if (layer === 'holdem_persona_squeeze_bluff_changed_seen')
               noteFire('holdem_persona_squeeze_bluff_changed_seen');
-            else if (layer === 'holdem_persona_fourbet_reshove_eligible_seen')
-              noteFire('holdem_persona_fourbet_reshove_eligible_seen');
-            else if (layer === 'holdem_persona_fourbet_reshove_changed_seen')
-              noteFire('holdem_persona_fourbet_reshove_changed_seen');
             else if (layer === 'holdem_persona_scale_held_by_style_seen')
               noteFire('holdem_persona_scale_held_by_style_seen');
           }

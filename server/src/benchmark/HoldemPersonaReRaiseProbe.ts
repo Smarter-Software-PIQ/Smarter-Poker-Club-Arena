@@ -1,9 +1,10 @@
 /**
  * HOLD'EM PERSONA RE-RAISE PROBE (2026-11-14, D3 option C, option
  * holdemPersonaReRaiseMix, default OFF). The opportunity-weighted measurement
- * of the three persona behaviours (3-bet bluff, squeeze bluff, 26-35bb
- * four-bet reshove bluff), built on HoldemPreflopProbe: a fleet of synthetic
- * ids in exactly the model's 25/20/40/15 archetype mix, every seat rotation,
+ * of the two persona behaviours (3-bet bluff, squeeze bluff), built on
+ * HoldemPreflopProbe (shallow four-bet reshoves are not persona-specific,
+ * owner decision R3-B, so there is nothing of theirs to measure): a fleet of
+ * synthetic ids in exactly the model's 25/20/40/15 archetype mix, every seat rotation,
  * preflop only, the option on and off on the same code.
  *
  * PAIRED (the primary table). The option-off run decides every spot a second
@@ -18,8 +19,7 @@
  * decision, so later opponents act differently: two samples, not pairs.
  *
  * "Taken" is the FINAL action in both arms: the 3-bet bluff or squeeze bluff
- * branch itself (recorded after the fold-equity test), and for the reshove an
- * all-in. The persona's own verdict (its comparison, before any later layer)
+ * branch itself (recorded after the fold-equity test). The persona's own verdict (its comparison, before any later layer)
  * is reported separately, from the engine's offline measurement tap, which
  * also gives the site's unscaled probability p. That is what lets the probe
  * report where min(1, p * scale) binds and where p is above 1 over the
@@ -57,34 +57,11 @@ import {
 
 export * from './HoldemPreflopProbe.js';
 
-export type PersonaBehaviour = 'threeBetBluff' | 'squeezeBluff' | 'fourBetReshove';
-export const PERSONA_BEHAVIOURS: readonly PersonaBehaviour[] = [
-  'threeBetBluff',
-  'squeezeBluff',
-  'fourBetReshove',
-];
+export type PersonaBehaviour = 'threeBetBluff' | 'squeezeBluff';
+export const PERSONA_BEHAVIOURS: readonly PersonaBehaviour[] = ['threeBetBluff', 'squeezeBluff'];
 const BEHAVIOUR_OF: Record<HoldemPersonaReRaiseTapEvent['kind'], PersonaBehaviour> = {
   three_bet: 'threeBetBluff',
   squeeze: 'squeezeBluff',
-  four_bet: 'fourBetReshove',
-};
-
-/**
- * The reshove's effective-stack buckets (low exclusive, high inclusive). The
- * site is named 26-35bb but its gate is "over 25, up to 35", so the first
- * bucket is the part below 26 that the name leaves out.
- */
-export const RESHOVE_STACK_BUCKETS: readonly (readonly [number, number])[] = [
-  [25, 26],
-  [26, 28],
-  [28, 30],
-  [30, 32],
-  [32, 35],
-];
-const stackBucketOf = (effBB: number): string => {
-  for (const [lo, hi] of RESHOVE_STACK_BUCKETS)
-    if (effBB > lo && effBB <= hi) return `${lo}-${hi}bb`;
-  return 'other';
 };
 
 /** The id-hash model's scales and their weights (two-decimal mixes). */
@@ -108,14 +85,14 @@ const modelOn = (p: number): number =>
   MODEL_SCALES.reduce((a, m) => a + m.weight * Math.min(1, p * m.scale), 0);
 
 /**
- * "Taken", ONE definition for both arms: the final action. The reshove is an
- * all-in; the 3-bet bluff and the squeeze bluff are the bluff branch itself.
- * Never the persona's own verdict, which a later layer can overrule.
+ * "Taken", ONE definition for both arms: the final action, which for the
+ * 3-bet bluff and the squeeze bluff is the bluff branch itself. Never the
+ * persona's own verdict, which a later layer can overrule.
  */
 export const personaTaken = (
-  b: PersonaBehaviour,
+  _b: PersonaBehaviour,
   r: Pick<ProbeRead, 'action' | 'bluffBranch'>
-): boolean => (b === 'fourBetReshove' ? r.action === 'all_in' : r.bluffBranch);
+): boolean => r.bluffBranch;
 
 export function wilson95(taken: number, n: number): { low: number; high: number } {
   if (n <= 0) return { low: 0, high: 0 };
@@ -251,16 +228,11 @@ export interface PersonaReRaiseReport {
   meanScale: number;
   /** Scale range of each decile of the ids seated (decile 1 the tightest). */
   deciles: { decile: number; ids: number; low: number; high: number }[];
-  /** The model's E[min(1, scale)], percent: the reshove bluff's expected rate. */
-  modelMin1: number;
   oneSidedP: number;
-  /** Rows: 'pooled', an archetype, 'decile N', a stack bucket (reshove), and
-   *  for the 3-bet and squeeze bluffs 'one-sided' and 'one-sided <archetype>'
-   *  (spots with p above oneSidedP) and 'p>=1'. */
+  /** Rows: 'pooled', an archetype, 'decile N', 'one-sided' and
+   *  'one-sided <archetype>' (spots with p above oneSidedP) and 'p>=1'. */
   paired: Record<PersonaBehaviour, Record<string, PairedCell>>;
   unpaired: Record<PersonaBehaviour, Record<string, UnpairedCell>>;
-  /** Paired: what a bluff class that shoved with the option off did with it on. */
-  reshoveInstead: Record<string, number>;
 }
 
 export interface MeasureOptions {
@@ -317,19 +289,15 @@ export function measurePersonaReRaise(o: MeasureOptions = {}): PersonaReRaiseRep
   const paired: Record<PersonaBehaviour, Map<string, Raw>> = {
     threeBetBluff: new Map(),
     squeezeBluff: new Map(),
-    fourBetReshove: new Map(),
   };
   const unOn: Record<PersonaBehaviour, Map<string, RawU>> = {
     threeBetBluff: new Map(),
     squeezeBluff: new Map(),
-    fourBetReshove: new Map(),
   };
   const unOff: Record<PersonaBehaviour, Map<string, RawU>> = {
     threeBetBluff: new Map(),
     squeezeBluff: new Map(),
-    fourBetReshove: new Map(),
   };
-  const reshoveInstead: Record<string, number> = {};
 
   // The engine's offline tap: the events of the option-on decision in flight.
   let events: HoldemPersonaReRaiseTapEvent[] = [];
@@ -372,15 +340,13 @@ export function measurePersonaReRaise(o: MeasureOptions = {}): PersonaReRaiseRep
             onEvents = [];
             if (!ev) return;
             const b = BEHAVIOUR_OF[ev.kind];
-            const reshove = b === 'fourBetReshove';
             const archetype = archetypeOf.get(spot.heroId)!;
             const groups = [
               'pooled',
               archetype,
               `decile ${decileOf.get(spot.heroId)}`,
-              ...(reshove ? [stackBucketOf(spot.effectiveBB)] : []),
-              ...(!reshove && ev.p > ONE_SIDED_P ? ['one-sided', `one-sided ${archetype}`] : []),
-              ...(!reshove && ev.p >= 1 ? ['p>=1'] : []),
+              ...(ev.p > ONE_SIDED_P ? ['one-sided', `one-sided ${archetype}`] : []),
+              ...(ev.p >= 1 ? ['p>=1'] : []),
             ];
             if (arm === 'on') {
               const real = spot.reads[0];
@@ -409,14 +375,12 @@ export function measurePersonaReRaise(o: MeasureOptions = {}): PersonaReRaiseRep
               if (tOff && !tOn) c.down++;
               if (ev.unscaled) c.vOff++;
               if (ev.fires) c.vOn++;
-              if (!reshove && ev.p * ev.scaleUsed > 1) c.cap++;
+              if (ev.p * ev.scaleUsed > 1) c.cap++;
               if (ev.scaleUsed !== ev.scale) c.held++;
               c.eOff += Math.min(1, ev.p);
               c.eOn += Math.min(1, ev.p * ev.scaleUsed);
               c.eModel += modelOn(ev.p);
             }
-            if (reshove && tOff && !tOn)
-              reshoveInstead[on.action] = (reshoveInstead[on.action] ?? 0) + 1;
           });
         }
       }
@@ -430,16 +394,13 @@ export function measurePersonaReRaise(o: MeasureOptions = {}): PersonaReRaiseRep
     setHoldemPersonaReRaiseTap(null);
   }
 
-  const rowsFor = (b: PersonaBehaviour): string[] => [
+  const rowsFor = (_b: PersonaBehaviour): string[] => [
     'pooled',
     ...PROBE_ARCHETYPES,
     ...deciles.map((d) => `decile ${d.decile}`),
-    ...(b === 'fourBetReshove'
-      ? [
-          ...RESHOVE_STACK_BUCKETS.map(([lo, hi]) => `${lo}-${hi}bb`),
-          ...(paired[b].has('other') || unOn[b].has('other') ? ['other'] : []),
-        ]
-      : ['one-sided', ...PROBE_ARCHETYPES.map((a) => `one-sided ${a}`), 'p>=1']),
+    'one-sided',
+    ...PROBE_ARCHETYPES.map((a) => `one-sided ${a}`),
+    'p>=1',
   ];
   const mean = (xs: number[]) => (xs.length ? xs.reduce((a, c) => a + c, 0) / xs.length : 0);
   return {
@@ -454,7 +415,6 @@ export function measurePersonaReRaise(o: MeasureOptions = {}): PersonaReRaiseRep
     handIdentity,
     meanScale: Math.round(mean([...scaleOf.values()]) * 100000) / 100000,
     deciles,
-    modelMin1: pct1(modelOn(1)),
     oneSidedP: Math.round(ONE_SIDED_P * 10000) / 10000,
     paired: Object.fromEntries(
       PERSONA_BEHAVIOURS.map((b) => [
@@ -483,15 +443,12 @@ export function measurePersonaReRaise(o: MeasureOptions = {}): PersonaReRaiseRep
         ),
       ])
     ) as PersonaReRaiseReport['unpaired'],
-    reshoveInstead,
   };
 }
 
 const LABEL: Record<PersonaBehaviour, string> = {
   threeBetBluff: 'RULE 1  3-bet bluff',
   squeezeBluff: 'RULE 2  squeeze bluff',
-  fourBetReshove:
-    'RULE 3  26-35bb four-bet reshove (gate: over 25bb, up to 35bb effective), bluff classes A5s-A2s',
 };
 
 export function formatPersonaReRaiseReport(rep: PersonaReRaiseReport): string {
@@ -522,14 +479,7 @@ export function formatPersonaReRaiseReport(rep: PersonaReRaiseReport): string {
       lines.push(
         `  ${label(row)} off ${rate(c.off, c.eligible)} | on ${rate(c.on, c.eligible)} | up ${c.up} down ${c.down} | ${c.diff} (${c.diffLow} to ${c.diffHigh}) | verdict ${c.verdictOff} / ${c.verdictOn} | capped ${c.capped} | held ${c.held} | expected ${c.expectedOff}% / ${c.expectedOn}% / ${c.expectedOnModel}%`
       );
-    if (b === 'fourBetReshove') {
-      lines.push(
-        `  expected on rate, share of today's bluff reshoves: model E[min(1, scale)] = ${rep.modelMin1}%`
-      );
-      lines.push(
-        `  a bluff class that shoved off and did not shove on did instead: ${JSON.stringify(rep.reshoveInstead)}`
-      );
-    } else {
+    {
       const o = rep.paired[b]['one-sided'];
       lines.push(
         `  one-sided region (p > ${rep.oneSidedP}): ${o.eligible} of ${rep.paired[b].pooled.eligible} eligible spots; expected loss there ${Math.round((o.expectedOff - o.expectedOn) * 100) / 100} points for these Horses (${Math.round((o.expectedOff - o.expectedOnModel) * 100) / 100} under the model); measured verdict ${o.verdictOff} off, ${o.verdictOn} on; measured final ${o.diff} points (${o.diffLow} to ${o.diffHigh})`
