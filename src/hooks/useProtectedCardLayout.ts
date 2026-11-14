@@ -138,7 +138,10 @@ export function useProtectedCardLayout(
     const topPods = () =>
       Array.from(
         scaler.querySelectorAll<HTMLElement>(
-          page.getAttribute('data-seats') === '6' && page.getBoundingClientRect().width > 480
+          (page.getAttribute('data-seats') === '6' && page.getBoundingClientRect().width > 480) ||
+            (page.getAttribute('data-seats') === '9' &&
+              matchMedia('(min-width: 481px) and (max-width: 640px) and (orientation: portrait)')
+                .matches)
             ? '.seat-wrapper--cap, .seat-wrapper--top'
             : '.seat-wrapper--top'
         )
@@ -770,7 +773,11 @@ export function useProtectedCardLayout(
             if (railLine(pod) === railLine(entry.pod) && top !== undefined)
               level = Math.min(level, top);
           }
-          entry.shift = Math.max(entry.floor, (level - entry.plateTop) / scale);
+          if (inwardFans && page.getAttribute('data-seats') === '9') {
+            // Both cap plates meet the crown of the painted rail. Their
+            // portraits extend upward into the dedicated cap row.
+            entry.shift = (scaler.getBoundingClientRect().top - entry.plateTop) / scale;
+          } else entry.shift = Math.max(entry.floor, (level - entry.plateTop) / scale);
         }
         for (const { pod, shift } of placed) {
           pod.style.translate = `0px ${shift}px`;
@@ -971,6 +978,45 @@ export function useProtectedCardLayout(
         // including already-cached rows and Hero's visible deal/peek motion.
         if (hasPendingCardMotion(Array.from(scaler.querySelectorAll<HTMLElement>('.seat__cards'))))
           return;
+        if (inwardFans && page.getAttribute('data-seats') === '9') {
+          const header = page
+            .closest('.multi-table-page')
+            ?.querySelector('.multi-table-page__tab-bar-wrapper');
+          const top = Math.max(pageBox.top, header?.getBoundingClientRect().bottom ?? 0);
+          const protectedBoxes = Array.from(
+            page.querySelectorAll(
+              '.seat__info,.seat__cards .seat__card,.community-area,.pot-display,.bbj-widget,.bbj-mini-plate,.spectator-footer-bar,.action-panel'
+            )
+          )
+            .map((node) => node.getBoundingClientRect())
+            .filter((r) => r.width && r.height);
+          for (const caption of scaler.querySelectorAll<HTMLElement>('.seat > .seat__action')) {
+            const seat = caption.closest('.seat')!;
+            const rect = caption.getBoundingClientRect();
+            const [dx, dy] = caption.style.translate.split(/\s+/).map(parseFloat);
+            const natural = {
+              left: rect.left - (dx || 0) * scale,
+              top: rect.top - (dy || 0) * scale,
+              width: rect.width,
+              height: rect.height,
+            };
+            const plate = seat.querySelector('.seat__info')?.getBoundingClientRect();
+            if (!plate || !rect.width) continue;
+            const left = Math.max(pageBox.left, plate.left - rect.width / 2);
+            const ceiling = Math.max(top, natural.top - rect.height);
+            const bounds = {
+              left,
+              top: ceiling,
+              width: Math.min(pageBox.right, plate.right + rect.width / 2) - left,
+              height: plate.top - ceiling,
+            };
+            const next = placeProtectedCardRow(natural, protectedBoxes, bounds, 1);
+            if (next) {
+              caption.style.translate = `${(next.left - natural.left) / scale}px ${(next.top - natural.top) / scale}px`;
+              protectedBoxes.push(new DOMRect(next.left, next.top, next.width, next.height));
+            }
+          }
+        }
         if (inwardFans) placeHiddenFans(scaler, page, pageBox, scale);
         const canvas = scaler.getBoundingClientRect();
         // The painted chassis is tapered on a portrait phone only (TablePage.css,

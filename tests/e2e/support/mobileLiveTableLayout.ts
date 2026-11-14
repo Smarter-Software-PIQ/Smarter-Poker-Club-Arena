@@ -378,6 +378,27 @@ export function readMobileTableLayout(crowns: Readonly<Record<string, number>>) 
         if (a.n < b.n && Math.hypot(a.x - b.x, a.y - b.y) < 24)
           violations.push(`Chairs ${a.n} And ${b.n} Drawn On One Spot`);
   }
+  if (
+    table.dataset.seats === '9' &&
+    matchMedia('(min-width: 481px) and (max-width: 640px) and (orientation: portrait)').matches
+  ) {
+    for (const wrapper of table.querySelectorAll('.seat-wrapper:not(.seat-wrapper--hero)')) {
+      const seat = wrapper.querySelector<HTMLElement>('.seat:not(.seat--empty)');
+      if (!seat || !visible(seat) || !visible(wrapper)) continue;
+      const cap = wrapper.matches('.seat-wrapper--cap,.seat-wrapper--top');
+      if (ring && cap) {
+        const plate = seat.querySelector('.seat__info');
+        if (plate && visible(plate) && box(plate).top > box(ring).top + 2)
+          violations.push(`Chair ${seat.dataset.seatNum} Top Portrait Inside Nine-Max Table`);
+      }
+      const anchor = box(wrapper);
+      const pod = box(seat);
+      const dx = pod.left + pod.width / 2 - (anchor.left + anchor.width / 2);
+      const dy = pod.top + pod.height / 2 - (anchor.top + anchor.height / 2);
+      if (Math.abs(dx) > 2 || (!cap && Math.abs(dy) > 2))
+        violations.push(`Chair ${seat.dataset.seatNum} Left Its Nine-Max Rail Anchor`);
+    }
+  }
   const footerControls = Array.from(
     table.querySelectorAll('.waitlist-cta, .action-panel, .pre-action-bar')
   ).filter(visible);

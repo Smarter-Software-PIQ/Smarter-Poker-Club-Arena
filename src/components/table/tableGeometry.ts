@@ -555,6 +555,13 @@ export function fitSeatToViewport(
   // occupy, so a top player's plate and tag landed on the high side player's
   // tag and bounty. They now keep their ring x (27/73 on 7-9 max), which puts
   // them over the top of the rail, clear of both side columns.
+  // Nine seats on the phone's 600px canvas use three mirrored rail stations.
+  // The middle side chair is halfway between the two corner chairs.
+  if (maxPlayers === 9 && viewportWidthPx > 480 && viewportWidthPx <= 640 && canvas.h > canvas.w) {
+    const y = seat.y === 58 ? (25 + 82.5) / 2 : seat.y;
+    const x = seat.y >= 20 && seat.y < 100 ? (seat.x < 50 ? minX : maxX) : seat.x;
+    return { x: Math.max(minX, Math.min(maxX, x)), y };
+  }
   const portraitPhone = viewportWidthPx <= 480 && canvas.h > canvas.w;
   // Full-width spectator caps keep their desktop ring positions. The very
   // shortest phones retain the separate compact cap lanes.

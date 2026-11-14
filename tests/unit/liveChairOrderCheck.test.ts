@@ -62,6 +62,36 @@ it('a correct ring passes', () => {
   expect(chairViolations()).toEqual([]);
 });
 
+it('rejects a lower-right nine-seat player drawn inward beside the middle-right player', () => {
+  mount(RING);
+  const table = document.querySelector<HTMLElement>('.table-page')!;
+  table.dataset.seats = '9';
+  vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList);
+  const seat = table.querySelector<HTMLElement>('[data-seat-num="6"]')!;
+  seat.parentElement!.dataset.box = seat.dataset.box;
+  expect(readMobileTableLayout({}).violations).not.toContain(
+    'Chair 6 Left Its Nine-Max Rail Anchor'
+  );
+  seat.dataset.box = '370,545,80,100';
+  expect(readMobileTableLayout({}).violations).toContain('Chair 6 Left Its Nine-Max Rail Anchor');
+});
+
+it('refuses a top nine-seat portrait that extends down onto the table', () => {
+  mount(RING);
+  const table = document.querySelector<HTMLElement>('.table-page')!;
+  table.dataset.seats = '9';
+  vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList);
+  const seat = table.querySelector<HTMLElement>('[data-seat-num="2"]')!;
+  const wrapper = seat.parentElement!;
+  wrapper.classList.add('seat-wrapper--cap');
+  wrapper.dataset.box = seat.dataset.box;
+  seat.innerHTML = '<div class="seat__info" data-box="120,128,84,30"></div>';
+  const violation = 'Chair 2 Top Portrait Inside Nine-Max Table';
+  expect(readMobileTableLayout({}).violations).toContain(violation);
+  seat.querySelector<HTMLElement>('.seat__info')!.dataset.box = '120,100,84,30';
+  expect(readMobileTableLayout({}).violations).not.toContain(violation);
+});
+
 it("Danimal's collapse is caught: every chair right of 30% pinned at 29.7%", () => {
   const collapsed = { ...RING };
   for (const n of [3, 4, 5, 6, 7]) collapsed[n] = [29.7, RING[n][1]];

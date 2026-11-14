@@ -170,6 +170,11 @@ export async function checkFixedMobileArtwork(
         `${actionCaption} cannot move the locked chair anchors`
       ).toEqual(withoutCaptions.anchors);
       const violations = await page.evaluate(readMobileTableLayout, {});
+      if (settings.seats === '9')
+        expect(
+          violations.violations.filter((v: string) => v.includes('Nine-Max')),
+          'nine-seat rail positions and both top portraits stay clear of the felt'
+        ).toEqual([]);
       expect(
         violations.violations.filter((v: string) => v.startsWith('Action Caption')),
         `${actionCaption} appearing after allocation clears header, cards and peer plates`
