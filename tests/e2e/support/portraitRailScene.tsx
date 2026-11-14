@@ -315,18 +315,27 @@ export function Review() {
                         }
                         position={i === 1 ? 'SB' : null}
                         isActive={i === activeSeat}
+                        isWinner={document.documentElement.dataset.winnerSeat === String(i + 1)}
+                        winningHandName="Two Pair"
                         lastAction={
-                          (document.documentElement.dataset.folded || '')
-                            .split(',')
-                            .filter(Boolean)
-                            .map(Number)
-                            .includes(i)
-                            ? 'fold'
-                            : document.documentElement.dataset.actionPills === 'true'
-                              ? 'raise'
-                              : revealed && i % 3 === 0
-                                ? 'all_in'
-                                : 'call'
+                          document.documentElement.dataset.actionPills === 'none'
+                            ? null
+                            : document.documentElement.dataset.actionCaption
+                              ? (document.documentElement.dataset.actionCaption as
+                                  | 'check'
+                                  | 'fold'
+                                  | 'raise')
+                              : (document.documentElement.dataset.folded || '')
+                                    .split(',')
+                                    .filter(Boolean)
+                                    .map(Number)
+                                    .includes(i)
+                                ? 'fold'
+                                : document.documentElement.dataset.actionPills === 'true'
+                                  ? 'raise'
+                                  : revealed && i % 3 === 0
+                                    ? 'all_in'
+                                    : 'call'
                         }
                         lastBetAmount={
                           /* data-bets="0,3,5" bets only those chairs; absent, every chair bets. */

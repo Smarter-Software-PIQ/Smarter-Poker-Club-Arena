@@ -1,5 +1,6 @@
 import { readTournamentStandings } from '../../services/readTournamentStandings';
 import { maintenanceClockFrozen } from '../../utils/maintenanceLevelClock';
+import { exactChips } from '../../utils/format';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  *  TOURNAMENT HUD — the tournament info dock UNDER the action bar
@@ -216,9 +217,8 @@ function fmtClock(totalSeconds: number): string {
 
 function fmtChips(n: number): string {
   if (!Number.isFinite(n) || n <= 0) return '-';
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 10_000) return `${Math.round(n / 1000)}K`;
-  return Math.trunc(n).toLocaleString();
+  // Exact, never K/M (Dan 2026-11-13).
+  return exactChips(n);
 }
 
 /**

@@ -120,11 +120,11 @@ describe('ChipStatement', () => {
     // The heading exists during loading; it cannot certify the response rendered.
     expect(screen.getByText('Your Chip Statement')).toBeTruthy();
     expect(view.container.querySelector('section')).toHaveAttribute('aria-busy', 'true');
-    expect(screen.queryByText('+12')).toBeNull();
+    expect(screen.queryByText('+12.50')).toBeNull();
     await act(async () => {
       resolveStatement({ data: statement(), error: null });
     });
-    expect(await screen.findByText('+12')).toBeTruthy();
+    expect(await screen.findByText('+12.50')).toBeTruthy();
     expect(view.container.querySelector('section')).not.toHaveAttribute('aria-busy');
     expect(rpc).toHaveBeenCalledWith('fn_ca_chip_statement_page', {
       p_scope: 'player',
@@ -132,11 +132,11 @@ describe('ChipStatement', () => {
       p_cursor: null,
       p_limit: 50,
     });
-    expect(screen.getByText('+12')).toBeTruthy(); // in
+    expect(screen.getByText('+12.50')).toBeTruthy(); // in
     expect(screen.getByText('-50')).toBeTruthy(); // out - the direction the old feed never showed
     expect(screen.getByText('Tournament Entry')).toBeTruthy();
     expect(screen.getByText(/Reconciles\./)).toBeTruthy();
-    expect(screen.getByText(/255\.6K/)).toBeTruthy(); // balance at reading, console compact format
+    expect(screen.getByText(/255,662\.53/)).toBeTruthy(); // balance at reading, exact
     expect(screen.getByText('Beta')).toBeTruthy(); // balance by club
   });
 
@@ -176,7 +176,7 @@ describe('ChipStatement', () => {
     });
     render(<ChipStatement scope="player" />);
     await waitFor(() => expect(screen.getByText(/Does Not Reconcile\./)).toBeTruthy());
-    expect(screen.getByText(/Difference Under 1 Chip/)).toBeTruthy();
+    expect(screen.getByText(/Difference 0\.52/)).toBeTruthy();
   });
 
   it('keeps both directions when a self-transfer spans pages', async () => {

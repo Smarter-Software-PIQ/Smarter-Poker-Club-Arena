@@ -378,9 +378,9 @@ describe('wallet balances and ledger movements retain separate formats', () => {
       await screen.findByText('Formatting Receipt');
       expect(
         Array.from(document.querySelectorAll('.cbc-totals strong'), (n) => n.textContent)
-      ).toEqual(['2.5K', '1.2K', '1.2K']);
+      ).toEqual(['2,500.50', '1,250.50', '1,250']);
       expect(document.querySelector('.cbc-tx-amount')).toHaveTextContent(
-        walletType === 'promo_wallet' ? '-1.2K' : '1.2K'
+        walletType === 'promo_wallet' ? '-1,250' : '1,250'
       );
       expect(
         screen.getByText(
@@ -409,7 +409,7 @@ describe('wallet balances and ledger movements retain separate formats', () => {
       expect(document.querySelector('.cbc-bank strong')).toHaveTextContent('12,500.50')
     );
     fireEvent.click(screen.getByRole('tab', { name: 'Claim Back' }));
-    await screen.findByText('Sent 2.5K, 1.2K Already Claimed Back');
+    await screen.findByText('Sent 2,500.50, 1,250 Already Claimed Back');
     expect(document.querySelector('.cbc-tx-amount')).toHaveTextContent('1,250.50');
     expect(screen.getByRole('button', { name: 'Claim Back 1,250.50 Chips' })).toBeInTheDocument();
     expect(fx.calls.some((c) => /send|claim_back|reverse/.test(c.fn))).toBe(false);

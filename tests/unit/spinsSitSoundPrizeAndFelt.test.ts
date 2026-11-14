@@ -236,10 +236,16 @@ describe('a six-handed table is shorter than a nine-handed one', () => {
     expect(smallRingHeight()).toBeLessThan(1000);
   });
 
-  it('leaves seven, eight and nine on the full canvas', () => {
-    for (const n of [7, 8, 9]) {
+  it('leaves seven and eight on the full canvas and reserves the nine-seat cap row only on portrait phones', () => {
+    for (const n of [7, 8]) {
       expect(TABLE_CSS).not.toContain(`.table-page[data-seats='${n}'] .table-scaler`);
     }
+    const nineSeatRule = ".table-page[data-seats='9'] .table-scaler";
+    expect(TABLE_CSS.split(nineSeatRule)).toHaveLength(2);
+    expect(TABLE_CSS).toContain(
+      '@media (min-width: 481px) and (max-width: 640px) and (orientation: portrait) {\n  ' +
+        nineSeatRule
+    );
   });
 
   it('the width derivation and the aspect ratio read the same two tokens', () => {

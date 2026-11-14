@@ -30,7 +30,7 @@ describe('the MTT creator previews its actual mapped rules before booking', () =
     const input = Object.freeze({ ...initial });
     render(<MttCreationStructurePreview config={input} gameType="nlh" />);
     expect(preview().textContent).toContain('Turbo · 5 Min');
-    expect(preview().textContent).toContain('1K Starting Chips · 20 Big Blinds');
+    expect(preview().textContent).toContain('1,000 Starting Chips · 20 Big Blinds');
     expect(preview().textContent).toContain('Blind Structure Sets How Blinds Grow');
     expect(input).toEqual(initial);
   });
@@ -52,7 +52,7 @@ describe('the MTT creator previews its actual mapped rules before booking', () =
       />
     );
     expect(preview().textContent).toContain('Slow · 15 Min');
-    expect(preview().textContent).toContain('5K Starting Chips · 100 Big Blinds');
+    expect(preview().textContent).toContain('5,000 Starting Chips · 100 Big Blinds');
     view.rerender(
       <MttCreationStructurePreview config={{ ...initial, blindsUpMinutes: 2 }} gameType="nlh" />
     );

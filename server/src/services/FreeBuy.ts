@@ -16,6 +16,7 @@
  */
 
 import { DSS_CLUB_ID, MIDWAY_UNION_ID, shHash } from './StableHand.js';
+import { guaranteeShortNow } from './horseOverlayCover.js';
 import {
   mttSpeedColumns,
   mttPayoutPercent,
@@ -310,6 +311,8 @@ export const MIDWAY_FREE_BUY_HORSE_ADDON_RATE = 0.9;
 
 /** The participation rate for a tournament row (the manager's cached row). */
 export function horseAddOnRateFor(row: Record<string, unknown> | null | undefined): number {
+  // Owner 2026-11-13: every horse in an event whose guarantee is still short adds on.
+  if (row && guaranteeShortNow(typeof row.id === 'string' ? row.id : null)) return 1;
   return row && isMidwayFreeBuy(row)
     ? MIDWAY_FREE_BUY_HORSE_ADDON_RATE
     : HORSE_ADDON_PARTICIPATION_RATE;
@@ -360,6 +363,8 @@ export function horseRebuyAllowance(
   tournament?: Record<string, unknown> | null
 ): number {
   if (tournament && isMidwayFreeBuy(tournament)) return HORSE_MAX_REBUYS;
+  // A short guarantee lifts the hashed allowance to its upper bound (owner 2026-11-13).
+  if (guaranteeShortNow(eventId)) return HORSE_MAX_REBUYS;
   return shHash(horseId, eventId, 'rebuy-allowance') % (HORSE_MAX_REBUYS + 1); // 0..5
 }
 

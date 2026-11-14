@@ -24,8 +24,10 @@
  *      `BrainTelemetry` Prometheus watchcounters remain permanently intact.
  */
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HandController } from './HandController.js';
+import { callLargeRiverBoatWager } from './HorseOmahaBigBetCalls.js';
 import { ServerTableEngine } from './ServerTableEngine.js';
 import type { Deck } from './PokerEngine.js';
 import { HorseLogic, type HorseGameStateV2 } from './HorseLogic.js';
@@ -74,6 +76,8 @@ import {
 import { HORSE_DECISION_FALLBACK_REASONS } from './horseDecision/fallbackReason.js';
 import {
   horseDecisionReceiptIsValid,
+  horseDecisionReceiptRefusal,
+  type HorseDecisionReceiptContext,
   horsePhase10SelectionIsValid,
   horsePhase11SelectionIsValid,
   horsePhase12SelectionIsValid,
@@ -220,6 +224,26 @@ interface PlayCellOptions {
   hands: number;
   diamondAsset?: boolean;
   bombPotBoards?: 2 | 3;
+}
+
+/**
+ * The matrix validates a worker receipt exactly as the production client does
+ * (horseDecision/client.ts, the `horseDecisionReceiptRefusal` call on every
+ * FAST_RESULT): together with the request it answers. Some wager-rule
+ * transitions are admitted only when the validator can recompute them from
+ * that request, for example the PLO4/5/6 river boat call
+ * (`callLargeRiverBoatWager`). Validating without the request refuses those
+ * legitimate receipts, which is what failed this law about once in 600 runs.
+ */
+function matrixReceiptRefusal(
+  decision: unknown,
+  variant: string,
+  request: HorseDecisionReceiptContext
+): string | null {
+  return horseDecisionReceiptRefusal(decision, variant, {
+    player: request.player,
+    gameState: request.gameState,
+  });
 }
 
 async function runCellThroughWorkerAndController(opts: PlayCellOptions) {
@@ -531,7 +555,7 @@ async function runCellThroughWorkerAndController(opts: PlayCellOptions) {
       const decision = response.decision;
       stats.actionsChosen.add(decision.action);
 
-      if (!horseDecisionReceiptIsValid(decision, variant)) {
+      if (matrixReceiptRefusal(decision, variant, request) !== null) {
         stats.invalidReceipts++;
       }
 
@@ -863,6 +887,35 @@ describe('LAW: 1,000-Horse Full Action-Space Freedom & Fleet Activation', () => 
       } as never);
     }
     expect(unitSafety.disabledReason).toBe('eligible_but_silent');
+  });
+
+  it('validates matrix receipts with their request, as the production client does: a PLO5 river boat call is valid', () => {
+    // A real receipt and request captured from the plo5 cash cell (hand 0,
+    // river, heads-up): the reference raises with sixes full of nines facing a
+    // pot-sized bet and the boat rule in wager_rules makes it a call.
+    const captured = JSON.parse(
+      readFileSync(
+        new URL('./horseDecision/fixtures/plo5-river-boat-call-receipt.json', import.meta.url),
+        'utf8'
+      )
+    ) as { context: HorseDecisionReceiptContext; decision: HorseDecision };
+    const wagerRules = captured.decision.policyGraph!.transitions.find(
+      (t) => t.node === 'wager_rules'
+    )!;
+    expect(wagerRules.before?.action).toBe('raise');
+    expect(wagerRules.after).toEqual({ action: 'call', amount: captured.decision.amount });
+    // The production rule really produces that call from that request.
+    expect(
+      callLargeRiverBoatWager(
+        { action: 'raise', amount: wagerRules.before!.amount ?? undefined, thinkTime: 0 },
+        captured.context.player,
+        captured.context.gameState
+      )
+    ).toMatchObject({ action: 'call', amount: captured.decision.amount });
+    // The matrix admits it, because it validates with the request...
+    expect(matrixReceiptRefusal(captured.decision, 'plo5', captured.context)).toBeNull();
+    // ...and the validator alone, without the request, cannot and does not.
+    expect(horseDecisionReceiptRefusal(captured.decision, 'plo5')).toBe('policy_graph');
   });
 
   describe('8-cell {nlh, plo4, plo5, plo6} x {cash, tournament} worker + HandController matrix', () => {
@@ -2273,6 +2326,8 @@ describe('LAW: 1,000-Horse Full Action-Space Freedom & Fleet Activation', () => 
           .map((f) => [f.feature, f.fires])
       );
       expect(insuranceFires).toEqual({
+        // Opportunity: one per offer to the Horse leader; the answers sum to it here.
+        upgrade08_insurance_offered_seen: 4,
         upgrade08_insurance_decline_seen: 2,
         upgrade08_insurance_accept_seen: 1,
         upgrade08_insurance_cashout_seen: 1,

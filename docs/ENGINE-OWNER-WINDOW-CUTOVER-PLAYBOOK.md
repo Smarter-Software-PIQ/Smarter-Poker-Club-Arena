@@ -50,7 +50,27 @@ Name the oldest commit that must be in the release and confirm by reading the tr
 
 ### 4. Book The Window (One Protected PR)
 
-Copy the shape of #10691 exactly. It changes 14 files:
+Book with one command (added November 14, 2026; before that this was a 14-file hand edit copied from #10691). Run it in your own worktree, on a branch from current `origin/main`:
+
+```sh
+python3 scripts/release/book-owner-engine-window.py \
+  --window-id 2026-11-20-owner-offcycle-engine-0606z \
+  --predecessor <40-hex SHA /health reports as releaseSha> \
+  --contains <40-hex content minimum from step 3> \
+  --notice-at 2026-11-20T05:40:00Z --not-before 2026-11-20T06:06:00Z --not-after 2026-11-20T08:30:00Z \
+  --owner-order-file order.txt --slug owner-off-cycle-engine-cutover \
+  --summary-file summary.md --changelog-file changelog.md
+```
+
+- `order.txt` is the owner's verbatim words as one paragraph. It must contain `twenty minutes`, `1800-second`, `285s`, `zero opportunities`, `not extended` and the predecessor SHA, because the booking test pins them.
+- `summary.md` is the one dated paragraph for `PUBLISHING.md` and `docs/ENGINE-RELEASE-RUNBOOK.md`; it must name the window id. `changelog.md` is the body of `docs/changelog/<notBefore date>-<slug>.md`.
+- Add `--dry-run` first: it prints the plan (current window, new digests, files) and writes nothing. Add `--laws` to also run the three TypeScript laws after writing.
+- The current window id, predecessor and expiry are read from the release controls, never typed. The command refuses, writing nothing, when the id is already booked, a timing rule below is broken, a required phrase is missing, or any expected occurrence count differs (for example the transaction script not naming the current id exactly 4 times).
+- After writing it runs `python3 tests/operations/engine-activation-floor.test.py` and prints PASS or FAIL. Exit 0 is booked and passing, 1 is written and failing, 2 is refused.
+- It only edits the working tree. Review `git diff`, commit, push and merge as usual.
+- If it warns that the new notice overlaps a shipped notice, earlier cases in `tests/a-booked-window-gives-players-notice.law.test.ts` that assert no notice (or another primary notice) inside the new interval need a hand edit, as #10691 did; run that law.
+
+What the command changes (14 files):
 
 - `server/release/activation-floor.json`: new owner window id, `activationAt` = `notBefore`, `expiresAt` = `notAfter`.
 - `server/release/owner-maintenance-windows.json`: append one entry with the owner's verbatim words in `ownerOrder`, `contains` (content minimum), `playerNoticeAt`, `notBefore`, `notAfter`, `announcementPolicy: earliest-certified`, `supersedesPhase1Schedule: true`, `migrations: []`, and `releaseWitness.sha256` = sha256 of the floor file bytes.
@@ -58,11 +78,11 @@ Copy the shape of #10691 exactly. It changes 14 files:
 - `server/scripts/engine-release-seal.py`: `NOV7_OWNER_CLAIM`, `NOV7_PREDECESSOR` (the serving SHA) and the hardcoded expiry.
 - `server/scripts/engine-release-transaction.sh`: the window id (4 places) and predecessor (2 places).
 - `scripts/ci/read-scoped-release-recovery.py`: `RETAINED_REFUSAL_SOURCES` = sha256 of the new seal and transaction files; append the old pair to `RETAINED_REFUSAL_PRIOR_SOURCES`.
-- `src/utils/ownerMaintenanceNotices.json`: the player notice.
+- `src/utils/ownerMaintenanceNotices.json`: the player notice, byte for byte what `node scripts/generate-owner-maintenance-notices.mjs` produces.
 - `PUBLISHING.md`, `docs/ENGINE-RELEASE-RUNBOOK.md`: one dated paragraph; a changelog file.
-- Tests: `tests/operations/engine-activation-floor.test.py` (new test, previous window's test pins its literal digests, index shifts), `tests/an-engine-activation-floor-precedes-runtime-writes.law.test.ts` (case count), `tests/daily-engine-maintenance.law.test.ts`, `tests/a-booked-window-gives-players-notice.law.test.ts`.
+- Tests: `tests/operations/engine-activation-floor.test.py` (a generated test for the new window, the previous window's test demoted to its literal digests, every absolute negative index shifted by one except those that follow a `.pop()` chain, the simulated reservation stamp and id count moved), `tests/an-engine-activation-floor-precedes-runtime-writes.law.test.ts` (case list and count), `tests/daily-engine-maintenance.law.test.ts` (pop chain), `tests/a-booked-window-gives-players-notice.law.test.ts` (new notice case).
 
-Timing rules for the booking:
+Timing rules for the booking (the command enforces the lead, the band, the 420 s fit, the six-hour bound and the 03:30 Chicago limit; the merge-time and certificate rules are yours):
 
 - `playerNoticeAt` at least 20 minutes before `notBefore`, and after the PR's merge time.
 - `notBefore` no earlier than the certificate can exist: booking merge plus about 65 minutes (Backup refresh about 8, certify about 55 including the 1800 s soak). The booking merge commit IS the target, because it carries the release controls, so it must be certified itself.
@@ -81,6 +101,7 @@ Get an independent fresh-context review of the exact head, then protected squash
 ### 6. Certify One Candidate
 
 - Cancel only your own useless queued Backup runs (for example a commit you know cannot be selected); never another lane's. Push runs are serialized and a newer push run supersedes older queued ones.
+- Since November 14 the booking commit's own push run is never superseded or retargeted while the window is live (it prints `PRIORITY`), and a push run for a commit that predates the booking ends as `SUPERSEDED`, `RETARGETED` or `DEFERRED` instead of certifying that commit (runbook 3.6). Do not dispatch the booking commit by hand: a workflow_dispatch run never reads ALREADY CERTIFIED, so it certifies the same SHA a second time behind the protected push run. A certification already running when the booking merges is not cancelled: check `gh run list --workflow backup-engine.yml` BEFORE merging the booking and, if an unrelated run has just started, expect to wait for it.
 - The push run on the target refreshes only if production differs from the last copy.
 - While it runs: confirm the candidate image is resident on the host with the target revision label (`docker image inspect club-arena-engine:<sha>`), and run the protected validator locally against the target with simulated clocks (`policy` and `check_window` from `server/scripts/engine-release-activation-floor.py`).
 
@@ -129,6 +150,8 @@ Never retry. If the result is uncertain, read the Stage run, receiver run and ho
 | A merged migration was defective (stale function pin) and refused            | Target required a migration that cannot install         | Install required migrations before the Backup copy; if refused, revert the never-installed file (precedent #10430) and let its owner re-land |
 | Own useless Backup run queued ahead of the real candidate                    | About 55 minutes lost                                   | Cancel your own unusable queued run                                                                                                          |
 | Window booked for an announcement after :49                                  | Refused or deferred to :05:30                           | Plan the announcement between :05:30 and :48:00                                                                                              |
+| November 14: unrelated push run started 4 minutes before the booking merged  | Candidate waited about 50 minutes for the host          | Read the Backup queue before merging the booking; a running certification is never cancelled                                                 |
+| November 14: one HTTP 502 failed the post-seal certify job after 16 s        | "refused" written over an hour-old success certificate  | Fixed: bounded retry in the dispatch proof; a run with no verdict writes `error` and keeps an existing success (runbook 3.4)                 |
 
 ## Reference Timeline (November 13, 2026, UTC)
 

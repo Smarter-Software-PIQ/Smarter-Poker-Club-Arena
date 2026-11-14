@@ -3,7 +3,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 // @ts-expect-error untyped CI module
-import { artifactName, proveIntent, writeIntent } from '../../scripts/ci/dispatch-intent.mjs';
+import {
+  RETRY_DELAYS_MS,
+  artifactName,
+  githubApi,
+  proveIntent,
+  writeIntent,
+} from '../../scripts/ci/dispatch-intent.mjs';
 
 const REPO = 'Smarter-Software-PIQ/Smarter-Poker-Club-Arena';
 const MAIN = 'a'.repeat(40);
@@ -524,5 +530,106 @@ describe('a job-token dispatch is bound to the exact intent its trusted sender r
         env: senderEnv('.github/workflows/auto-deploy-hetzner.yml', 'merge_group'),
       })
     ).toThrow();
+  });
+});
+
+// 2026-11-14: Backup run 43565758486 failed a certification after 16 s on one
+// HTTP 502 from actions/runs/<id>/attempts/1. A transient provider answer is
+// asked again inside the same step, bounded; any other answer is final.
+describe('a transient provider answer is retried, bounded, and a 4xx is final', () => {
+  const env = { GITHUB_REPOSITORY: REPO, GH_TOKEN: 't', GITHUB_API_URL: 'https://api.example' };
+  const answer = (status: number, body: unknown = {}) => ({
+    status,
+    ok: status >= 200 && status < 300,
+    json: async () => body,
+    headers: { get: () => null },
+  });
+  function harness(script: Array<number | Error>, body: unknown = { id: 7 }) {
+    const calls: string[] = [];
+    const waits: number[] = [];
+    const io = {
+      fetchImpl: async (url: string) => {
+        calls.push(url);
+        const next = script[Math.min(calls.length - 1, script.length - 1)];
+        if (next instanceof Error) throw next;
+        return answer(next, body);
+      },
+      sleep: async (ms: number) => {
+        waits.push(ms);
+      },
+    };
+    return { calls, waits, api: githubApi(env, io).api };
+  }
+
+  it('502 then 200 succeeds inside the same call', async () => {
+    const h = harness([502, 200]);
+    await expect(h.api('actions/runs/43565107242/attempts/1')).resolves.toEqual({ id: 7 });
+    expect(h.calls).toEqual([
+      `https://api.example/repos/${REPO}/actions/runs/43565107242/attempts/1`,
+      `https://api.example/repos/${REPO}/actions/runs/43565107242/attempts/1`,
+    ]);
+    expect(h.waits).toEqual([RETRY_DELAYS_MS[0]]);
+  });
+
+  it.each([500, 503, 504])('HTTP %i is transient too', async (status) => {
+    const h = harness([status, 200]);
+    await expect(h.api('actions/runs/1')).resolves.toEqual({ id: 7 });
+    expect(h.calls).toHaveLength(2);
+  });
+
+  it('a network error is retried, then the answer is used', async () => {
+    const h = harness([new Error('socket hang up'), 200]);
+    await expect(h.api('actions/runs/1')).resolves.toEqual({ id: 7 });
+    expect(h.calls).toHaveLength(2);
+  });
+
+  it.each([400, 401, 403, 404, 422])('HTTP %i fails at once, with no retry', async (status) => {
+    const h = harness([status, 200]);
+    await expect(h.api('actions/runs/1?x=1')).rejects.toThrow(
+      `GitHub answered HTTP ${status} for actions/runs/1`
+    );
+    expect(h.calls).toHaveLength(1);
+    expect(h.waits).toEqual([]);
+  });
+
+  it('retries are bounded: a provider that stays down fails with its last answer', async () => {
+    expect(RETRY_DELAYS_MS.length).toBeGreaterThanOrEqual(1);
+    expect(RETRY_DELAYS_MS.length).toBeLessThanOrEqual(4);
+    expect(RETRY_DELAYS_MS.reduce((a: number, b: number) => a + b, 0)).toBeLessThanOrEqual(60000);
+    const down = harness([502]);
+    await expect(down.api('actions/runs/1')).rejects.toThrow('GitHub answered HTTP 502');
+    expect(down.calls).toHaveLength(RETRY_DELAYS_MS.length + 1);
+    expect(down.waits).toEqual([...RETRY_DELAYS_MS]);
+    const dead = harness([new Error('ENOTFOUND')]);
+    await expect(dead.api('actions/runs/1')).rejects.toThrow(
+      `GitHub could not be reached after ${RETRY_DELAYS_MS.length + 1} attempts: ENOTFOUND`
+    );
+    expect(dead.calls).toHaveLength(RETRY_DELAYS_MS.length + 1);
+  });
+
+  it('a genuine mismatch is decided after the answer and is never retried', async () => {
+    const calls: string[] = [];
+    const { api, readIntent } = githubApi(env, {
+      fetchImpl: async (url: string) => {
+        calls.push(url);
+        return answer(200, { id: 1, path: '.github/workflows/ci.yml', event: 'push' });
+      },
+      sleep: async () => {
+        throw new Error('must not wait');
+      },
+    });
+    await expect(
+      proveIntent({
+        receiverName: 'backup-after-seal',
+        env: { ...env, GITHUB_EVENT_NAME: 'repository_dispatch', GITHUB_RUN_ID: '1' },
+        event: {
+          action: 'run-post-deploy-e2e',
+          client_payload: { intent_run_id: '5', intent_run_attempt: '1', intent_nonce: NONCE },
+        },
+        api,
+        readIntent,
+      })
+    ).rejects.toThrow('this run is not the named receiver');
+    expect(calls).toHaveLength(1);
   });
 });

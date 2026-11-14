@@ -61,11 +61,18 @@ export async function certifyMobileLiveTableLayout(
   const capacity = await page.locator('.table-page:visible').first().getAttribute('data-seats');
   const proofTag = `mobile-live-table-${capacity || 'unknown'}max`;
   const originalViewport = page.viewportSize();
+  let proofFailure: { error: unknown } | undefined;
+  const changeViewport = async (size: { width: number; height: number }) => {
+    const current = page.viewportSize();
+    if (current?.width !== size.width || current.height !== size.height)
+      await page.setViewportSize(size);
+  };
   try {
     // The dedicated physical-phone cases own the four-width matrix. Keep an
     // existing hand/reconnect witness on its real device and stable canvas.
     for (const width of options.widths || [originalViewport?.width || 393]) {
-      await page.setViewportSize({ width, height: width === 320 ? 568 : 852 });
+      if (options.widths || !originalViewport)
+        await changeViewport({ width, height: width === 320 ? 568 : 852 });
       // Commit the resize and its observer-driven layout before measuring.
       await page.evaluate(
         () =>
@@ -144,9 +151,21 @@ export async function certifyMobileLiveTableLayout(
       'image/png'
     );
     await page.keyboard.press('Escape');
-  } finally {
-    if (originalViewport) await page.setViewportSize(originalViewport);
+  } catch (error) {
+    proofFailure = { error };
   }
+  if (originalViewport && !page.isClosed()) {
+    try {
+      await changeViewport(originalViewport);
+    } catch (error) {
+      if (!proofFailure) throw error;
+      testInfo.annotations.push({
+        type: 'viewport restoration failed',
+        description: String(error),
+      });
+    }
+  }
+  if (proofFailure) throw proofFailure.error;
 }
 
 /** Observe real payouts during the existing hand/reconnect case; never inject a hand. */
@@ -322,6 +341,13 @@ export function readMobileTableLayout(crowns: Readonly<Record<string, number>>) 
   ).filter(visible);
   const cards = Array.from(table.querySelectorAll('.seat__cards .seat__card')).filter(visible);
   const violations: string[] = [];
+  const restingCollectionEndpoints: Array<{
+    seat: string | null;
+    target: 'pot-pile' | 'pot-area';
+    projected: { x: number; y: number };
+    expected: { x: number; y: number };
+    distance: number;
+  }> = [];
   let crownProof: {
     gap: number;
     maximumGap: number;
@@ -359,6 +385,108 @@ export function readMobileTableLayout(crowns: Readonly<Record<string, number>>) 
         if (a.n < b.n && Math.hypot(a.x - b.x, a.y - b.y) < 24)
           violations.push(`Chairs ${a.n} And ${b.n} Drawn On One Spot`);
   }
+  if (
+    table.dataset.seats === '9' &&
+    matchMedia('(min-width: 481px) and (max-width: 640px) and (orientation: portrait)').matches
+  ) {
+    const surface = table.querySelector('.table-surface');
+    if (surface && visible(surface)) {
+      const f = box(surface),
+        radius = f.width / 2;
+      for (const chip of table.querySelectorAll('.seat__bet-chips,.pot-display__pile--pot')) {
+        if (!visible(chip)) continue;
+        const r = box(chip);
+        const clear = [r.left, r.right].every((x) =>
+          [r.top, r.bottom].every(
+            (y) =>
+              Math.hypot(
+                x - (f.left + radius),
+                y - Math.max(f.top + radius, Math.min(f.bottom - radius, y))
+              ) <=
+              radius - 7.5
+          )
+        );
+        let clearsGold = true;
+        if (ring && table.dataset.feltTheme === 'classic_green') {
+          const art = box(ring);
+          const x = Math.max(
+            302.5 - ((r.left - art.left) * 605) / art.width,
+            ((r.right - art.left) * 605) / art.width - 302.5
+          );
+          const y = Math.max(
+            275 - ((r.top - art.top) * 1000) / art.height,
+            ((r.bottom - art.top) * 1000) / art.height - 725,
+            0
+          );
+          clearsGold = (x / 200.5) ** 2 + (y / 186) ** 2 < 1;
+        }
+        if (!clear || !clearsGold) violations.push('Nine-Max Chips Encroach On Rail');
+      }
+    }
+    // Record the endpoint encoded on actual resting wagers. An already moving
+    // stack cannot supply its resting origin. A hand without wagers contributes
+    // no endpoint evidence.
+    const pile = table.querySelector('.pot-display__pile--pot');
+    const pot = pile ?? table.querySelector('.pot-area');
+    if (ring instanceof HTMLElement && pot && visible(pot) && ring.offsetWidth) {
+      const scale = box(ring).width / ring.offsetWidth;
+      const target = box(pot);
+      const expected = { x: target.left + target.width / 2, y: target.top + target.height / 2 };
+      for (const bet of table.querySelectorAll<HTMLElement>('.seat__bet-chips')) {
+        const stack = bet.querySelector('.cp-stacks');
+        if (
+          !stack ||
+          !visible(stack) ||
+          stack.getAnimations().some((a) => a.playState === 'running')
+        )
+          continue;
+        const from = box(stack);
+        const style = getComputedStyle(bet);
+        const dx = parseFloat(style.getPropertyValue('--collect-dx'));
+        const dy = parseFloat(style.getPropertyValue('--collect-dy'));
+        if (!Number.isFinite(dx) || !Number.isFinite(dy)) {
+          violations.push('Nine-Max Resting Wager Missing Collection Offset');
+          continue;
+        }
+        const projected = {
+          x: from.left + from.width / 2 + dx * scale,
+          y: from.top + from.height / 2 + dy * scale,
+        };
+        const distance = Math.hypot(projected.x - expected.x, projected.y - expected.y);
+        restingCollectionEndpoints.push({
+          seat: bet.closest('.seat')?.getAttribute('data-seat-num') ?? null,
+          target: pile ? 'pot-pile' : 'pot-area',
+          projected,
+          expected,
+          distance,
+        });
+        if (distance > 2) violations.push('Nine-Max Resting Wager Collection Misses Pot');
+      }
+    }
+    for (const wrapper of table.querySelectorAll('.seat-wrapper:not(.seat-wrapper--hero)')) {
+      const seat = wrapper.querySelector<HTMLElement>('.seat:not(.seat--empty)');
+      if (!seat || !visible(seat) || !visible(wrapper)) continue;
+      const cap = wrapper.matches('.seat-wrapper--cap,.seat-wrapper--top');
+      if (ring && cap) {
+        const plate = seat.querySelector('.seat__info');
+        if (
+          plate &&
+          visible(plate) &&
+          box(plate).top >
+            box(ring).top +
+              12 * (box(ring).width / ((ring as HTMLElement).offsetWidth || box(ring).width)) +
+              2
+        )
+          violations.push(`Chair ${seat.dataset.seatNum} Top Portrait Inside Nine-Max Table`);
+      }
+      const anchor = box(wrapper);
+      const pod = box(seat);
+      const dx = pod.left + pod.width / 2 - (anchor.left + anchor.width / 2);
+      const dy = pod.top + pod.height / 2 - (anchor.top + anchor.height / 2);
+      if (Math.abs(dx) > 2 || (!cap && Math.abs(dy) > 2))
+        violations.push(`Chair ${seat.dataset.seatNum} Left Its Nine-Max Rail Anchor`);
+    }
+  }
   const footerControls = Array.from(
     table.querySelectorAll('.waitlist-cta, .action-panel, .pre-action-bar')
   ).filter(visible);
@@ -367,13 +495,51 @@ export function readMobileTableLayout(crowns: Readonly<Record<string, number>>) 
   )) {
     if (
       visible(wrap) &&
-      (getComputedStyle(wrap).filter !== 'none' || getComputedStyle(wrap).opacity !== '1')
+      (getComputedStyle(wrap).filter !== 'none' ||
+        getComputedStyle(wrap).opacity !== '1' ||
+        (matchMedia('(max-width: 768px) and (orientation: portrait)').matches &&
+          (getComputedStyle(wrap.parentElement!).filter !== 'none' ||
+            getComputedStyle(wrap.parentElement!).opacity !== '1')))
     )
       violations.push('Folded Portrait Has A Clipping Compositing Group');
   }
   for (const seat of table.querySelectorAll('.seat-wrapper--spot .seat:has(.seat__avatar--bust)')) {
     if (visible(seat) && getComputedStyle(seat).filter !== 'none')
       violations.push('Acting Portrait Has A Clipping Compositing Group');
+  }
+  if (matchMedia('(max-width: 768px) and (orientation: portrait)').matches) {
+    for (const seat of table.querySelectorAll('.seat:has(.seat__avatar--bust)')) {
+      const wrapper = seat.closest('.seat-wrapper');
+      if (
+        !table.classList.contains('table-page--winner-flash') &&
+        !wrapper?.classList.contains('seat-wrapper--dim')
+      )
+        continue;
+      const avatar = seat.querySelector('.seat__avatar--bust')!;
+      const parents = [wrapper, seat, avatar.parentElement!, avatar].filter(Boolean) as Element[];
+      if (
+        visible(avatar) &&
+        parents.some((element) => {
+          const style = getComputedStyle(element);
+          return style.filter !== 'none' || style.opacity !== '1';
+        })
+      )
+        violations.push('Celebration Or Dim Portrait Has A Clipping Compositing Group');
+    }
+
+    for (const seat of table.querySelectorAll(
+      '.seat:is(.seat--away, .seat--sitting_out):has(.seat__avatar--bust)'
+    )) {
+      const avatar = seat.querySelector('.seat__avatar--bust')!;
+      if (
+        visible(avatar) &&
+        [seat, avatar.parentElement!, avatar].some((element) => {
+          const style = getComputedStyle(element);
+          return style.filter !== 'none' || style.opacity !== '1';
+        })
+      )
+        violations.push('Inactive Portrait Has A Clipping Compositing Group');
+    }
   }
   // This is the enlarged phone-canvas contract, exercised at every physical
   // phone width by production. Legacy raw-width fixtures use another caption
@@ -827,6 +993,7 @@ export function readMobileTableLayout(crowns: Readonly<Record<string, number>>) 
   return {
     violations,
     crownProof,
+    restingCollectionEndpoints,
     occupied: plates.length,
     width: innerWidth,
     plateWidths: plates.map((plate) => box(plate).width),
