@@ -92,3 +92,27 @@ the folded hands moved no chips beyond the blinds and calls the seat had made,
 and the seat and its stack were never touched. Any converted seat still sitting
 on an anchor is carried to its room the next time its table mounts or its cue
 changes.
+
+## Second pass, same day (11:19 Chicago follow-up)
+
+**Scope, measured.** Timeout folds are recorded with action origin `unknown`.
+Over the seven days to 2026-11-14 there were 60 human Lightning sessions. The
+59 that came through Join Lightning timed out in 2.3 % of their first three
+hands (4 of 174), the same as their later hands (1.5 %, 110 of 7,273): that
+door already carries the player. Exactly one session in the week was a seated
+player whose game converted, KingFish's this morning: 2 of its first 3 hands
+timed out, then 1 of the next 36. Nobody else was caught by this defect, and
+neither timed-out hand cost chips.
+
+**A failed read is asked again.** "Could not ask" is not "no room". A 503
+during a schema reload or a dropped request used to leave a funded converted
+seat on the anchor until some later cue happened to arrive. A failed
+`fn_lightning_my_session` read now retries on the Join path's growing, capped
+wait (1.5 s, 2.25 s, ... up to 10 s) while the anchor is mounted. An answered
+read arms nothing, so a quiet anchor still costs no reads.
+
+**Sit Down on every game.** Dan said "EVER", and a tournament is a game. A
+tournament spectator's pill now offers Sit Down too, which opens the event
+(registration and late registration live there, the same door as the footer's
+Register). A seat-first table opens the confirmation for its first open chair.
+A paid entrant whose seat is being assigned is not offered a second entry.

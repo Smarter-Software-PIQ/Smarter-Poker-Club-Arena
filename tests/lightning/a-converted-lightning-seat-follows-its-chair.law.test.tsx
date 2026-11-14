@@ -177,6 +177,43 @@ describe('a converted seat is carried to its room without a gesture', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it('a read that failed is asked again on a growing wait, then follows', async () => {
+    rpc
+      .mockReset()
+      .mockRejectedValueOnce(new Error('PGRST002'))
+      .mockRejectedValueOnce(new Error('network'));
+    rpc.mockResolvedValue({ data: OPEN_HERE, error: null });
+    const { follow } = mountConverted();
+    await settle();
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(follow).not.toHaveBeenCalled();
+    // First retry after LIGHTNING_HANDOFF_POLL_MS (1.5 s), second after 2.25 s.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500);
+    });
+    expect(rpc).toHaveBeenCalledTimes(2);
+    expect(follow).not.toHaveBeenCalled();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2250);
+    });
+    expect(rpc).toHaveBeenCalledTimes(3);
+    expect(follow).toHaveBeenCalledTimes(1);
+    expect(follow).toHaveBeenCalledWith(POOL);
+    // Answered: nothing more is armed.
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('an unmounted anchor never retries a failed read', async () => {
+    rpc.mockReset().mockRejectedValue(new Error('network'));
+    const { unmount } = mountConverted();
+    await settle();
+    unmount();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(rpc).toHaveBeenCalledTimes(1);
+  });
+
   it('Sit Down (recheck) asks once and follows an open room', async () => {
     const { follow, result } = mountConverted();
     await settle();

@@ -107,4 +107,19 @@ describe('the door behind Sit Down', () => {
     for (const at of order) expect(at).toBeGreaterThan(0);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
   });
+
+  it('a tournament spectator is sent to the event, never to a chair or a second entry', () => {
+    const offer = PAGE.slice(PAGE.indexOf('const pillCanSitDown ='));
+    const offerExpr = offer.slice(0, offer.indexOf('useEffect('));
+    expect(offerExpr).toMatch(
+      /tableState\.isTournament\s*\?\s*heroHoldsNoChairHere &&\s*!awaitingTournamentSeat/
+    );
+    const handler = PAGE.slice(PAGE.indexOf("event.action !== 'SIT_DOWN'"));
+    const body = handler.slice(0, handler.indexOf('// Timer warning sound'));
+    expect(body).toMatch(
+      /if \(tableState\.isTournament && !seatFirstBuyIn\) \{[\s\S]*?navigate\(`\/tournaments\/\$\{tableState\.tournamentId\}`\);/
+    );
+    // Its waiting list is a cash door only.
+    expect(body).toMatch(/else if \(!tableState\.isTournament\) handleOpenWaitlist\(\);/);
+  });
 });

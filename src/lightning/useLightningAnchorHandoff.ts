@@ -179,12 +179,21 @@ export function useLightningAnchorHandoff(input: {
     if (!tableId || !clusterId || !input.userId || isPoolSession || !conversionFunded) return;
     let stopped = false;
     let readVersion = 0;
+    /* A READ THAT FAILED IS ASKED AGAIN (2026-11-14). "Could not ask" is not
+       "no room": a 503 during a schema reload or a dropped request used to
+       leave a funded seat on the anchor until some later cue happened to
+       arrive, while the pool dealt it. Only a failure arms this, on the same
+       growing, capped wait the Join path uses; an answered read never does,
+       so a quiet anchor still costs nothing. */
+    let failures = 0;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
     /** Reads the session; true when the room is ready (the reads can stop). */
     const read = async (): Promise<boolean> => {
       const version = ++readVersion;
       try {
         const session = await fetchMyLightningSession(clusterId);
         if (stopped || version !== readVersion || identityRef.current !== identity) return false;
+        failures = 0;
         const ready =
           hasLightningRoom(session) && session.anchorTableId === tableId && session.poolSessionId
             ? { identity, id: session.poolSessionId }
@@ -193,8 +202,14 @@ export function useLightningAnchorHandoff(input: {
         if (ready) followOnce(ready.id, clusterId, identity);
         return ready !== null;
       } catch (err) {
-        if (!stopped)
-          reportError(err, 'lightning.conversion_session_read_failed', { clusterId, tableId });
+        if (stopped || version !== readVersion) return false;
+        reportError(err, 'lightning.conversion_session_read_failed', { clusterId, tableId });
+        failures += 1;
+        if (retryTimer) clearTimeout(retryTimer);
+        retryTimer = setTimeout(() => {
+          retryTimer = null;
+          readNow();
+        }, lightningHandoffDelay(failures));
         return false;
       }
     };
@@ -230,6 +245,7 @@ export function useLightningAnchorHandoff(input: {
     });
     return () => {
       stopped = true;
+      if (retryTimer) clearTimeout(retryTimer);
       if (readNowRef.current === readNow) readNowRef.current = null;
       stopSignal();
       if (typeof document !== 'undefined')

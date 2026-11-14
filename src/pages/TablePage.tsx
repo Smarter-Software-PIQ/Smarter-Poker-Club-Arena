@@ -27527,19 +27527,23 @@ function LiveTablePage({
      menu offered Sit Out, Leave Table Next Hand and Leave Table to a player who
      was not being dealt in at all - there was no way to sit down from it.
 
-     WHEN IT IS OFFERED: a cash table (a tournament seat is assigned, never
-     taken) where nothing deals the hero here - no seat on this felt, or a
-     Lightning anchor that only projects other hands (the hero's seat plays in
-     the pool), or a converted seat whose room is open. A sitting-out seat gets
-     I'm Back instead, and a seat waiting for the button is a seat. */
+     WHEN IT IS OFFERED: any game where nothing deals the hero here - no seat
+     on this felt, a Lightning anchor that only projects other hands (the
+     hero's seat plays in the pool), or a converted seat whose room is open. A
+     sitting-out seat gets I'm Back instead, a seat waiting for the button is a
+     seat, and a paid tournament entrant whose seat is being assigned is not
+     offered a second entry. */
+  const heroHoldsNoChairHere =
+    tableState.heroSeat <= 0 && !tableState.players.some((p) => p?.isHero);
   const pillCanSitDown =
-    !tableState.isTournament &&
     !lightningRoom &&
     !heroIsSittingOut &&
     !heroWaitingForButton &&
-    (lightningObserver ||
-      lightningHandoff.readyPoolSessionId !== null ||
-      (tableState.heroSeat <= 0 && !tableState.players.some((p) => p?.isHero)));
+    (tableState.isTournament
+      ? heroHoldsNoChairHere &&
+        !awaitingTournamentSeat &&
+        (seatFirstBuyIn !== null || !!tableState.tournamentId)
+      : lightningObserver || lightningHandoff.readyPoolSessionId !== null || heroHoldsNoChairHere);
   useEffect(() => {
     onTableInfoUpdate?.({ canSitDown: pillCanSitDown });
   }, [onTableInfoUpdate, pillCanSitDown]);
@@ -27547,11 +27551,12 @@ function LiveTablePage({
      never a new purchase path. In order: a converted seat goes to its room; a
      Lightning game opens Join Lightning (the amount only - nobody picks a
      chair, Dan 2026-10-24); a funded anchor seat with no room known yet asks
-     for it again; a cash table opens the buy-in for its first open chair, or
-     the waiting list when every chair is taken. */
+     for it again; a cash or seat-first table opens the buy-in for its first
+     open chair, or the waiting list when every chair is taken; a tournament
+     table opens its event, where registration and late registration live (the
+     footer's own Register door, TournamentLateRegCallToAction). */
   useMasterBusSubscription('TABLE_MENU_ACTION', (event) => {
     if (event.tableId !== tableId || event.action !== 'SIT_DOWN') return;
-    if (tableState.isTournament) return;
     if (lightningRoom) {
       if (heroIsSittingOut) void handleSitBackIn();
       return;
@@ -27581,7 +27586,15 @@ function LiveTablePage({
       toast.info('You Are Already Seated At This Table.');
       return;
     }
-    const ring = tableState.maxPlayers ?? 0;
+    if (tableState.isTournament && !seatFirstBuyIn) {
+      if (awaitingTournamentSeat) {
+        toast.info('You Are Registered, Your Seat Is Being Assigned.');
+        return;
+      }
+      if (tableState.tournamentId) navigate(`/tournaments/${tableState.tournamentId}`);
+      return;
+    }
+    const ring = seatFirstBuyIn ? seatFirstBuyIn.seats : (tableState.maxPlayers ?? 0);
     let openSeat = 0;
     for (let i = 0; i < ring; i += 1) {
       if (!tableState.players[i]) {
@@ -27590,7 +27603,8 @@ function LiveTablePage({
       }
     }
     if (openSeat > 0) handleSeatClick(openSeat);
-    else handleOpenWaitlist();
+    else if (!tableState.isTournament) handleOpenWaitlist();
+    else toast.info('Every Seat At This Table Is Taken.');
   });
 
   // Timer warning sound — tick when hero's time is running low.
