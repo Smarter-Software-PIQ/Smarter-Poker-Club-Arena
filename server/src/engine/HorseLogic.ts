@@ -354,7 +354,12 @@ import {
 // V27 (Dan 2026-08-29): the PioSolver push/fold charts, preloaded in memory
 // by GtoChartLoader so the synchronous decision can read them at zero I/O.
 // See engine/GtoCharts.ts for scope and why absence falls back to heuristics.
-import { gtoOpenJam, gtoBbVsSbJam, handClass as gtoHandClass } from './GtoCharts.js';
+import {
+  gtoOpenJam,
+  gtoBbVsSbJam,
+  handClass as gtoHandClass,
+  GTO_BB_DEFEND_MAX_BB,
+} from './GtoCharts.js';
 import { nashJamProbability, V71_PUSH_FOLD_MAX_BB } from './HorseAnteAwarePushFold.js';
 import {
   nashV2CallProbability,
@@ -8340,6 +8345,14 @@ export class HorseLogic {
           // Hero's side includes the posted big blind (V28): the decision is
           // about hero's whole 10bb, not the 9bb behind the blind.
           const effectiveBB = Math.min(chartDepthBB, gs.currentBet / bb);
+          // ELIGIBILITY (2026-11-14): every spot the BB-defend chart is solved
+          // for, counted before the chart is asked, in every format that
+          // reaches it (cash, heads-up cash, Spin, Sit & Go, MTT). The
+          // ledger judges v27_gto_bb_defend against this count, so a held
+          // format no longer reads as a wiring break and an unhydrated or
+          // unreachable chart still does.
+          if (effectiveBB > 0 && effectiveBB <= GTO_BB_DEFEND_MAX_BB && telemetryOn(opts))
+            noteFire('v27_gto_bb_defend_eligible');
           const advice = gtoBbVsSbJam({ isTournament: tourney, effectiveBB, hand });
           if (advice) {
             if (telemetryOn(opts)) noteFire('v27_gto_bb_defend');
