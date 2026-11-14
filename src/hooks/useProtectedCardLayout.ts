@@ -17,7 +17,11 @@ import {
   tableRenderScale,
 } from '../components/table/avatarCrownBounds';
 import { createOpponentAvatarLayout } from '../components/table/opponentAvatarLayout';
-import { placeProtectedCardRow, type CardBox } from '../lib/protectedCardPlacement';
+import {
+  placeProtectedCardRow,
+  placeHiddenFans,
+  type CardBox,
+} from '../lib/protectedCardPlacement';
 import {
   assignProtectedWagers,
   greedyProtectedWagers,
@@ -967,6 +971,7 @@ export function useProtectedCardLayout(
         // including already-cached rows and Hero's visible deal/peek motion.
         if (hasPendingCardMotion(Array.from(scaler.querySelectorAll<HTMLElement>('.seat__cards'))))
           return;
+        if (inwardFans) placeHiddenFans(scaler, page, pageBox, scale);
         const canvas = scaler.getBoundingClientRect();
         // The painted chassis is tapered on a portrait phone only (TablePage.css,
         // 480px); a wider portrait felt is drawn flat, and the marker grid must

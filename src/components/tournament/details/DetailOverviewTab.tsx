@@ -751,7 +751,7 @@ export default function DetailOverviewTab({
         value:
           top > 0
             ? `${formatCents(top, overviewUnitCents)} ${moneyWordAtUnit(overviewUnitCents)}`
-            : 'Drawn When The Mystery Phase Opens',
+            : 'Shown When The Prize Pool Is Finalized',
         tone: 'accent',
       });
       rows.push({

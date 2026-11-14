@@ -148,6 +148,8 @@ function fixture(
     // a chip event unless the case says otherwise, null when not read.
     tournamentUnit: vi.fn(() => (options.unit === undefined ? CHIP_UNIT_CENTS : options.unit)),
     broadcast: vi.fn(async () => undefined),
+    // The lobby ladder seal (2026-11-13) is a separate method with its own door.
+    maybeSealMysteryLadder: vi.fn(async () => undefined),
     mysteryTotalEntries: null as number | null,
     readMysteryTotalEntries: vi.fn(async () =>
       options.totalEntries === undefined ? 180 : options.totalEntries

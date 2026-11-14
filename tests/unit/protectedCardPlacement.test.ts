@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { placeProtectedCardRow, type CardBox } from '../../src/lib/protectedCardPlacement';
+import {
+  placeProtectedCardRow,
+  placeHiddenFans,
+  type CardBox,
+} from '../../src/lib/protectedCardPlacement';
 const overlap = (a: CardBox, b: CardBox) =>
   a.left < b.left + b.width &&
   a.left + a.width > b.left &&
@@ -31,4 +35,28 @@ describe('revealed cards leave boards and totals clear', () => {
       row
     );
   });
+});
+
+it('moves the closed fan clear of the adjacent plate on the recorded 390px ring', () => {
+  const page = document.createElement('div');
+  page.innerHTML =
+    '<div class="seat__info"></div><div class="seat__cards--opponent"><div class="seat__card"></div></div>';
+  const plate = page.querySelector<HTMLElement>('.seat__info')!;
+  const fan = page.querySelector<HTMLElement>('.seat__cards--opponent')!;
+  const card = fan.firstElementChild!;
+  plate.getBoundingClientRect = () => new DOMRect(364.65625, 253.35365, 96, 36);
+  card.getBoundingClientRect = () =>
+    new DOMRect(
+      458.84879 + (parseFloat(fan.style.getPropertyValue('--sp-fan-clear-x')) || 0),
+      280.08221,
+      13.05993,
+      18.68244
+    );
+  const bounds = new DOMRect(0, 0, 600, 1021);
+  expect(overlap(card.getBoundingClientRect(), plate.getBoundingClientRect())).toBe(true);
+  placeHiddenFans(page, page, bounds, 1);
+  expect(card.getBoundingClientRect().left - plate.getBoundingClientRect().right).toBeCloseTo(0.5);
+  const shift = fan.style.cssText;
+  placeHiddenFans(page, page, bounds, 1);
+  expect(fan.style.cssText).toBe(shift);
 });

@@ -117,6 +117,13 @@ describe('static mobile reservations', () => {
       }
     }
   });
+  it('reserves the inward phone fan at its four-pixel shoulder gap', () => {
+    for (const side of ['left', 'right'] as const) {
+      const [back] = hiddenFanReservations({ ...fan, side, inward: true, count: 1 });
+      if (side === 'left') expect(back.left).toBeCloseTo(140 + 26 + 4);
+      else expect(back.left + back.width).toBeCloseTo(140 - 26 - 4);
+    }
+  });
   it('anchors one unrotated card exactly one pixel above the plate', () => {
     const [card] = hiddenFanReservations({ ...fan, count: 1, side: 'right' });
     expect(card.top + card.height).toBeCloseTo(245);
