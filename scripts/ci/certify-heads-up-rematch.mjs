@@ -48,25 +48,14 @@ import {
 // production-e2e-account.mjs pins the same prefix (HEADS_UP_CLUB_NAME_PREFIX).
 export const HEADS_UP_CERT_CLUB_NAME_PREFIX = 'Cert HU ';
 
-/**
- * NO RUN UNTIL ITS CLUB CAN RETIRE (2026-11-09). Two production guards leave a
- * certification club that plays a Sit & Go with no exit:
- *   - fn_retire_settled_club always runs fn_unwind_unused_first_club_welcome_package,
- *     which refuses a club in which any Sit & Go was played
- *     (WELCOME_PACKAGE_HAS_PLAY_OR_REGISTRATION_HISTORY; runs 42572669237 to
- *     42584396854 each left such a club, and the Cert Residue Sweep 42602987778
- *     was refused on three of them);
- *   - removing the welcome games first (fn_remove_first_club_welcome_games)
- *     deactivates the club's Spin pool, after which the creation fence refuses
- *     every Sit & Go in that club (WELCOME_PACKAGE_SPIN_BOARD_RETIRED; run 42635543669).
- * The product evidence this run exists for is recorded (runs 42581709358 and
- * 42584396854, CHECKPOINT-tournament-lobby-and-rematch-20261108.md). Until a
- * retirement path for a played certification club exists, a run would only add
- * an unretirable club, so it ends UNKNOWN and creates nothing.
- */
-export const CERTIFICATION_CLUB_CAN_RETIRE = false;
-export const CERTIFICATION_CLUB_RETIREMENT_BLOCKER =
-  'no door retires a certification club after a Sit & Go is played; a run would leave one more club';
+// A missing or changed retirement RPC leaves the run gated before account creation.
+export async function certificationClubCanRetire(svcRpc) {
+  const result = await svcRpc('fn_ca_retire_heads_up_fixture', {
+    p_club_id: null,
+    p_reason: 'check availability',
+  });
+  return result?.available === true;
+}
 const GAME_DEADLINE_MS = 15 * 60_000;
 
 const log = (...a) =>
@@ -218,8 +207,8 @@ async function main() {
   const releaseSha = String(health?.releaseSha || '');
   const phase = health?.maintenance?.phase;
   const frozen = (await svcRpc('fn_platform_frozen', {})) === true;
-  const gate = !CERTIFICATION_CLUB_CAN_RETIRE
-    ? { run: false, reason: CERTIFICATION_CLUB_RETIREMENT_BLOCKER }
+  const gate = !(await certificationClubCanRetire(svcRpc))
+    ? { run: false, reason: 'the installed heads-up fixture retirement RPC is unavailable' }
     : !health
     ? { run: false, reason: 'the engine health check did not answer' }
     : phase && phase !== 'idle'

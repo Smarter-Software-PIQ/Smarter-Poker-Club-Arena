@@ -48,31 +48,44 @@ INSERT INTO public.ca_money_rpc_registry(proname,status,notes) VALUES
 ON CONFLICT (proname) DO NOTHING;
 
 CREATE FUNCTION public.fn_ca_retire_heads_up_fixture(p_club_id uuid,p_reason text)
-RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $body$
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp SET statement_timeout='2s' SET lock_timeout='100ms' AS $body$
 DECLARE
  c public.clubs%ROWTYPE;
  matches uuid[];
  v_amount numeric;
  impact jsonb;
  result jsonb;
- resource uuid;
+
  prior_claims text := current_setting('request.jwt.claims',true);
  prior_sub text := current_setting('request.jwt.claim.sub',true);
 BEGIN
  IF coalesce(auth.role(),'') <> 'service_role' AND session_user NOT IN ('postgres','supabase_admin') THEN
    RAISE EXCEPTION 'service_role_only' USING ERRCODE='42501';
  END IF;
+ IF md5(pg_get_functiondef('public.fn_unwind_unused_first_club_welcome_package(uuid,uuid)'::regprocedure)) <> '68a129330e900f837c4222b6a49ae470' THEN
+   RAISE EXCEPTION 'Welcome unwind changed; requalify retirement';
+ END IF;
+ -- The normal certifier asks for availability before creating its club.
+ IF p_club_id IS NULL AND p_reason='check availability' THEN
+   RETURN jsonb_build_object('available',true);
+ END IF;
  -- Caller's existing retirement lane remains bounded. Refuse before any write.
  PERFORM smarter_private.cancellation_lane(p_club_id);
+ IF NOT pg_try_advisory_xact_lock(hashtextextended('cashier-hierarchy:'||p_club_id::text,0)) THEN
+   RAISE EXCEPTION 'Fixture cashier hierarchy is busy' USING ERRCODE='55P03';
+ END IF;
  SELECT * INTO STRICT c FROM public.clubs WHERE id=p_club_id FOR UPDATE;
  IF c.name !~ '^Cert HU [0-9]{8}$' OR c.asset IS DISTINCT FROM 'chips' OR c.union_id IS NOT NULL OR coalesce(c.is_union,false)
+ OR c.is_public IS DISTINCT FROM false
+ OR c.description IS DISTINCT FROM 'Heads-up rematch certification club (reserved certification accounts only)'
+ OR NOT EXISTS(SELECT FROM public.club_creation_requests WHERE club_id=c.id AND user_id=c.owner_id)
  OR EXISTS(SELECT FROM public.union_clubs WHERE club_id=c.id OR union_id=c.id)
  OR NOT EXISTS(SELECT FROM auth.users WHERE id=c.owner_id AND email LIKE 'ca-customization-cert-postdeploy-%@example.invalid')
  OR NOT EXISTS(SELECT FROM public.club_welcome_package_receipts WHERE club_id=c.id) THEN
    RAISE EXCEPTION 'Not a reserved heads-up fixture' USING ERRCODE='42501';
  END IF;
  IF c.lifecycle_status='retired' THEN RETURN jsonb_build_object('success',true,'already_retired',true); END IF;
- PERFORM 1 FROM public.club_members WHERE club_id=c.id ORDER BY id FOR UPDATE;
+ PERFORM 1 FROM public.club_members WHERE club_id=c.id ORDER BY user_id FOR UPDATE;
  IF NOT EXISTS(SELECT FROM public.club_members WHERE club_id=c.id AND user_id=c.owner_id)
  OR EXISTS(SELECT FROM public.club_members m LEFT JOIN auth.users u ON u.id=m.user_id
            WHERE m.club_id=c.id AND (coalesce(u.email,'') NOT LIKE 'ca-customization-cert-postdeploy-%@example.invalid'
@@ -85,6 +98,8 @@ BEGIN
  IF EXISTS(SELECT FROM public.tournaments t WHERE t.id=ANY(matches) AND
      (t.name IS DISTINCT FROM 'NLH Heads-Up 1 Turbo' OR t.tournament_type IS DISTINCT FROM 'SNG'
       OR t.max_players IS DISTINCT FROM 2 OR t.ended_at IS NULL
+      OR t.buy_in_amount IS DISTINCT FROM 0.95 OR t.buy_in_fee IS DISTINCT FROM 0.05
+      OR NOT EXISTS(SELECT FROM public.tournament_escrow e WHERE e.tournament_id=t.id)
       OR public.fn_tournament_conservation_delta(t.id) IS DISTINCT FROM 0))
  OR EXISTS(SELECT FROM public.tournament_escrow e WHERE e.tournament_id=ANY(matches)
      AND (e.prize_balance IS DISTINCT FROM 0 OR e.bounty_balance IS DISTINCT FROM 0 OR e.fee_balance IS DISTINCT FROM 0))
@@ -97,13 +112,6 @@ BEGIN
  END IF;
  PERFORM set_config('request.jwt.claims',jsonb_build_object('sub',c.owner_id,'role','service_role')::text,true);
  PERFORM set_config('request.jwt.claim.sub',c.owner_id::text,true);
- FOR resource IN SELECT t.id FROM public.tables t JOIN public.cash_games g ON g.id=t.cluster_id
-   WHERE g.club_id=c.id AND lower(t.status) NOT IN ('closed','completed','cancelled','finished')
-   AND NOT EXISTS(SELECT FROM public.club_welcome_package_items i WHERE i.club_id=c.id AND i.entity_id=g.id)
-   ORDER BY t.id LOOP
-   result := public.fn_close_managed_game('table',resource);
-   IF result->>'ok' IS DISTINCT FROM 'true' THEN RAISE EXCEPTION 'Fixture table closure refused'; END IF;
- END LOOP;
  result := smarter_private.unwind_heads_up_fixture(c.id,gen_random_uuid(),matches);
  IF result->>'ok' IS DISTINCT FROM 'true' THEN RAISE EXCEPTION 'Fixture package unwind refused'; END IF;
  SELECT chip_treasury INTO STRICT v_amount FROM public.clubs WHERE id=c.id;
@@ -115,7 +123,10 @@ BEGIN
  OR (impact->>'running_tables')::int IS DISTINCT FROM 0
  OR (impact->>'active_tournaments')::int IS DISTINCT FROM 0
  OR NOT EXISTS(SELECT FROM public.ca_mint_ledger WHERE op_id='club-opening-grant:'||c.id
-   AND holder_id=c.id AND asset='chips' AND action='mint' AND amount=100000) THEN
+   AND holder_type='club' AND holder_id=c.id AND asset='chips' AND action='mint'
+   AND amount=100000 AND balance_before=0 AND balance_after=100000)
+ OR NOT EXISTS(SELECT FROM public.chip_transactions WHERE club_id=c.id AND transaction_type='club_opening_grant'
+   AND amount=100000 AND balance_after=100000 AND metadata->>'mint_op_id'='club-opening-grant:'||c.id) THEN
    RAISE EXCEPTION 'Fixture residual treasury or obligations do not reconcile: %',impact;
  END IF;
  IF v_amount>0 THEN
@@ -125,7 +136,7 @@ BEGIN
    PERFORM set_config('app.ledger_category','',true);
    PERFORM set_config('app.ledger_counterparty','',true);
  END IF;
- result := public.fn_retire_settled_club_core_20260906(c.id,c.name,p_reason);
+ result := public.fn_retire_settled_club(c.id,c.name,p_reason);
  IF result->>'success' IS DISTINCT FROM 'true' THEN RAISE EXCEPTION 'Fixture retirement refused: %',result; END IF;
  PERFORM set_config('request.jwt.claims',coalesce(prior_claims,''),true);
  PERFORM set_config('request.jwt.claim.sub',coalesce(prior_sub,''),true);

@@ -72,10 +72,8 @@ it('installs the qualified retirement and refuses a changed protected unwind', (
     sql(`CREATE SCHEMA smarter_private; CREATE SCHEMA auth;
       CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role;
       CREATE TABLE public.ca_money_rpc_registry(proname text PRIMARY KEY,status text,notes text);
-      CREATE TABLE clubs(id uuid, name text, asset text, owner_id uuid, lifecycle_status text, union_id uuid, is_union boolean,
-                         chip_treasury numeric, updated_at timestamptz);
-      CREATE TABLE public.club_welcome_reset_receipts (club_id uuid);
-      CREATE TABLE public.bbj_pools(id uuid); CREATE TABLE public.spin_bonus_pools(id uuid);`);
+    `);
+    sql(readFileSync(resolve(root, 'tests/unit/fixtures/heads-up-retirement-estate.sql'), 'utf8'));
     const unwind = readFileSync(
       resolve(root, 'tests/unit/fixtures/heads-up-fixture-unwind.sql'),
       'utf8'
@@ -108,14 +106,36 @@ it('installs the qualified retirement and refuses a changed protected unwind', (
     ).toBe('f');
     sql(`CREATE FUNCTION auth.role() returns text language sql as $$ select 'service_role'::text $$;
        CREATE FUNCTION smarter_private.cancellation_lane(uuid) returns void language sql as $$select$$;
-       CREATE TABLE auth.users(id uuid,email text); CREATE TABLE union_clubs(club_id uuid,union_id uuid);
-       CREATE TABLE club_welcome_package_receipts(club_id uuid);
+
        INSERT INTO clubs(id,name) VALUES ('11111111-1111-1111-1111-111111111111','Ordinary club');`);
     expect(() =>
       one(
         "SELECT public.fn_ca_retire_heads_up_fixture('11111111-1111-1111-1111-111111111111','test')"
       )
     ).toThrow(/Not a reserved heads-up fixture/);
+    const club = '10000000-0000-0000-0000-000000000001';
+    const retire = (reason: string) =>
+      JSON.parse(one(`SELECT public.fn_ca_retire_heads_up_fixture('${club}','${reason}')`));
+    expect(() =>
+      one(`SELECT fn_unwind_unused_first_club_welcome_package('${club}',gen_random_uuid())`)
+    ).toThrow(/BOARD_LINEAGE_AMBIGUOUS/);
+    expect(() => retire('refuse')).toThrow(/Fixture retirement refused/);
+    expect(one(`SELECT active FROM tournament_schedules WHERE club_id='${club}'`)).toBe('t');
+    expect(one(`SELECT chip_treasury FROM clubs WHERE id='${club}'`)).toBe('99699.90');
+    expect(one('SELECT count(*) FROM club_welcome_reset_receipts')).toBe('0');
+    sql('UPDATE tournament_escrow SET fee_balance=0.10');
+    expect(() => retire('test')).toThrow(/settlement is unfinished/);
+    sql('UPDATE tournament_escrow SET fee_balance=0');
+    expect(retire('test').success).toBe(true);
+    expect(retire('test').already_retired).toBe(true);
+    expect(one('SELECT count(*) FROM club_welcome_reset_receipts')).toBe('1');
+    expect(one(`SELECT active FROM tournament_schedules WHERE club_id='${club}'`)).toBe('f');
+    expect(one(`SELECT count(*) FROM tournaments WHERE status='CANCELLED'`)).toBe('2');
+    expect(
+      one(
+        `SELECT count(*) FROM hand_history JOIN tournaments ON tournaments.id=tournament_id WHERE status='COMPLETED'`
+      )
+    ).toBe('1');
   } finally {
     if (started) run('pg_ctl', ['-D', data, '-m', 'immediate', 'stop']);
     rmSync(scratch, { recursive: true, force: true });

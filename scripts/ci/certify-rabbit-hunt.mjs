@@ -403,9 +403,9 @@ export async function settleRabbitHuntClub({
   const retirement = retireHeadsUpFixture
     ? await c.svcRpc('fn_ca_retire_heads_up_fixture', { p_club_id: clubId, p_reason: reason })
     : (await c.rpc(O.token, 'fn_retire_settled_club', {
-    p_club_id: clubId,
-    p_confirm_name: clubName,
-    p_reason: reason,
+        p_club_id: clubId,
+        p_confirm_name: clubName,
+        p_reason: reason,
       })).body;
   const retired = retirement?.success === true;
   note('retire the certification club', retired, retirement?.error ?? retirement?.message);
