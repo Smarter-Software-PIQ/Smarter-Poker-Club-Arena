@@ -46,6 +46,7 @@
  */
 
 import { withinHumanDepartureDwellFor } from './HorseUnionCashPlan.js';
+import { humanDepartureDwellApplies } from './StableHandController.js';
 import { supabase } from './supabase.js';
 import { fetchAllRows } from './supabase/pagination.js';
 import { selectInChunks } from './supabase/chunkedIn.js';
@@ -398,9 +399,12 @@ export async function buildFloorSnapshot(): Promise<FloorSnapshot> {
             };
           }),
           status: String(t.status ?? ''),
-          inHumanDwell: withinHumanDepartureDwellFor(
-            { id: String(t.id), last_human_seen_at: t.last_human_seen_at ?? null },
-            nowMs
+          inHumanDwell: humanDepartureDwellApplies(
+            rows.length - horses.length,
+            withinHumanDepartureDwellFor(
+              { id: String(t.id), last_human_seen_at: t.last_human_seen_at ?? null },
+              nowMs
+            )
           ),
           clusterId: t.cluster_id ? String(t.cluster_id) : null,
         };

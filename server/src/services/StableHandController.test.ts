@@ -7,6 +7,7 @@ import {
   bodiesOnHostFrom,
   type FloorSnapshot,
   type TableSnapshot,
+  humanDepartureDwellApplies,
 } from './StableHandController.js';
 import {
   MIDWAY_UNION_ID,
@@ -164,6 +165,12 @@ describe('planFloor - occupancy', () => {
     expect(p.alerts.some((a) => a.startsWith('occupancy_over'))).toBe(true);
     expect(p.alerts).toContain('over_peak_cap host=' + MIDWAY_UNION_ID);
     expect(p.stand.some((s) => s.reason === 'occupancy_wind_down')).toBe(true);
+  });
+
+  it('applies the dwell only once the last person has left the table', () => {
+    expect(humanDepartureDwellApplies(0, true)).toBe(true);
+    expect(humanDepartureDwellApplies(1, true)).toBe(false);
+    expect(humanDepartureDwellApplies(0, false)).toBe(false);
   });
 
   it('never winds down a table inside its human-departure dwell (Dan 2026-11-11)', () => {
