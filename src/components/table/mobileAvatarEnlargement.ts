@@ -651,6 +651,7 @@ export type MobilePaintState = {
   locked?: {
     /** The ring the size was locked for; a different ring starts over. */
     ring?: string;
+    railBust?: string;
     /** The one size every portrait on this table takes, the hero's included. */
     uniform?: number;
   };
@@ -725,6 +726,7 @@ export function mobilePaintKey(scaler: HTMLElement, page: HTMLElement) {
     round(scaler.getBoundingClientRect().top),
     Math.round(tableRenderScale(scaler) * 1000) / 1000,
     page.dataset.seats,
+    scaler.style.getPropertyValue('--sp-nine-rail-bust'),
     page.dataset.killEnabled,
     page.dataset.holeCardCount,
     page.dataset.hero,
@@ -929,7 +931,10 @@ export function enlargeMobileAvatars(
   // a resize, a toolbar, a new hand or a new player reuses them exactly and
   // never searches again. Only a different ring (another capacity, or the
   // viewer sitting down or standing up) starts over.
-  if (state && state.locked?.ring !== profileKey) state.locked = { ring: profileKey };
+  const railBust =
+    page.dataset.seats === '9' ? scaler.style.getPropertyValue('--sp-nine-rail-bust') : '';
+  if (state && (state.locked?.ring !== profileKey || state.locked.railBust !== railBust))
+    state.locked = { ring: profileKey, railBust };
   const lock = state?.locked;
   const k = state?.ratio ? ratio / state.ratio : 1;
   // Dan 2026-11-12: every avatar on the table, the hero's included, is the
