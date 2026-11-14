@@ -10,11 +10,13 @@ All of it is inside the priced-in guard in `server/src/engine/HorsePreflop.ts` a
 2. The tiny-stack case respects the price. With 2 big blinds or fewer behind, the rule used to ask for a hand that clears 0.26 at any price. That folded hands that had the odds. Now, three-handed, a price of 12 percent or better is called with any two cards; above that price the 0.26 floor still applies. With three or more opponents in the hand the floor applies at every price.
 3. The description of the option in the Horse data ledger now states the rule as it is written.
 
+4. The any-two call is chip arithmetic only (second review, finding H1). On the bubble a fold cashes whenever another all-in loses, so the chip price is not the whole price. When a pay jump is live (hand for hand, near the bubble, within 15 percent of the paid places, already in the money, a satellite, or a payout context that is missing) the any-two call stands aside and the 0.26 floor decides, exactly as before this change.
+
 ## The Arithmetic
 
 Price is the call divided by the pot after calling. When the call ends the hand, calling is right when the hand wins at least that often.
 
-- Three ways against two tight ranges (tens or better, ace-queen suited or better, ace-king), the worst two cards win 12.5 percent of the time (king-deuce offsuit) and seven-deuce wins 13.3 percent. So at a price of 12 percent or better no hand calls below its price.
+- Three ways against two tight ranges (tens or better, ace-queen suited or better, ace-king), the worst two cards win about 12 percent of the time (king-deuce offsuit, 12.1 to 12.5 percent across runs) and seven-deuce wins 13.3 percent. So at a price of 12 percent or better no hand calls below its price.
 - Example: big blind with a big blind ante and half a big blind behind, small blind folded, two bigger stacks all in. The pot before the call is 5.5 big blinds, the price is 0.5 / 6.0 = 8.3 percent. Seven-deuce is worth 0.133 x 6.0 = 0.80 big blinds by calling and 0.5 by folding, and that 0.5 goes in as the small blind next hand anyway.
 - Four ways the same cards win less often than the price can be (king-deuce 7.9 percent, seven-deuce 11.6 percent, against a price of 10.5 percent for a big blind with 1 big blind behind), which is why the any-two price is read three-handed only.
 

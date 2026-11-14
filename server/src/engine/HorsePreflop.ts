@@ -332,6 +332,10 @@ export interface PreflopCtx {
    *  the hand clears 0.26; a committed top-half hand whose call is all in is
    *  priced in to 0.18. Every other variant, and absent, = unchanged. */
   committedStackPricedIn?: boolean;
+  /** Set with committedStackPricedIn only (HorseLogic.committedPayJumpLive): true when busting now can cost a pay
+   *  jump (bubble, hand for hand, in the money, or an unknown payout context). The any-two-cards crumbs call acts
+   *  only when this is exactly false; the strength floor is unaffected. */
+  committedPayJumpLive?: boolean;
   /** V20 M-ZONES (2026-08-27): ante cost of ONE ORBIT in BB units, already
    *  resolved for the table's ante style by AnteMath.anteOrbitCostBB (0 = no
    *  ante). NOT per-player: multiplying this by the seat count is the bug of
@@ -1182,7 +1186,10 @@ export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
         (stackBB <= COMMITTED_CRUMBS_BB &&
           (ctx.strength >= COMMITTED_MIN_STRENGTH ||
             (guardOdds <= COMMITTED_CRUMBS_ANY_TWO_PRICE &&
-              ctx.oppsLeft <= COMMITTED_CRUMBS_ANY_TWO_MAX_OPPONENTS))) ||
+              ctx.oppsLeft <= COMMITTED_CRUMBS_ANY_TWO_MAX_OPPONENTS &&
+              // chip arithmetic only: with a pay jump live (or unknown) the floor decides (review 3e22706d H1)
+              ctx.committedPayJumpLive === false &&
+              ctx.satellite === undefined))) ||
         (heroCommitted && ctx.strength >= COMMITTED_MIN_STRENGTH));
     if (!exemptionEnds) return out;
     committedRescue = true;

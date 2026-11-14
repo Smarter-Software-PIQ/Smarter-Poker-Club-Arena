@@ -519,6 +519,40 @@ describe('the crumbs floor respects the price (review 20261113, A1)', () => {
   });
 });
 
+describe('the any-two call is chip arithmetic only: it stands aside when a pay jump is live (review 3e22706d, H1)', () => {
+  // The same 0.083 spot. On the bubble a fold cashes whenever another all-in loses, so the chip price is not the
+  // whole price; in the money every bust-out below is a pay jump; an unknown payout context is not "no pay jump".
+  const STAGES: [name: string, stage: Record<string, number | boolean>][] = [
+    ['hand for hand, 10 left and 9 paid', { playersLeft: 10, spotsPaid: 9, handForHand: true }],
+    ['one off the money, 73 left and 72 paid', { playersLeft: 73, spotsPaid: 72 }],
+    ['within 15 percent of the money, 10 left and 9 paid', { playersLeft: 10, spotsPaid: 9 }],
+    ['flagged near the bubble', { nearBubble: true }],
+    ['in the money, 8 left and 9 paid', { playersLeft: 8, spotsPaid: 9, inMoney: true }],
+  ];
+  for (const [name, stage] of STAGES) {
+    it(`${name}: trash folds with the option on, exactly as with it absent`, () => {
+      for (const hand of ['7s2h', 'Ks2h', '5s4h']) {
+        const spot = withHand(bigBlindCrumbs(400), hand);
+        spot.stage = { ...spot.stage, ...stage };
+        const rq = build(spot);
+        expect(price(rq)).toBeLessThanOrEqual(COMMITTED_CRUMBS_ANY_TWO_PRICE);
+        for (const seed of SEEDS) {
+          const absent = decideBuilt(rq, seed, 'absent');
+          const on = decideBuilt(rq, seed, true);
+          expect(on.action, `${hand} ${name}`).toBe('fold');
+          expect(stable(on)).toBe(stable(absent));
+        }
+      }
+    });
+  }
+
+  it('far from the money the any-two call still acts (the control for the cases above)', () => {
+    const spot = withHand(bigBlindCrumbs(400), '7s2h');
+    spot.stage = { ...spot.stage, playersLeft: 60, spotsPaid: 9 };
+    expect(actions(overSeeds(spot))).toEqual(['all_in']);
+  });
+});
+
 describe('the 0.26 floor has a pinned boundary (review 20261113, A5)', () => {
   // The 77 node: 1.81 big blinds behind at 0.192, above the any-two price, so
   // only the floor decides. HorseLogic jitters the ladder score by up to 0.03
@@ -572,6 +606,10 @@ describe("the option is two-card no-limit hold'em only (review 20261113, A3)", (
     ['pineapple', 'pair-of-sevens-big-blind', 'As8s2d'],
     ['pineapple', 'pair-of-threes-button', '7s7hKd'],
     ['pineapple', 'ace-eight-suited-31-chips', '7s2h9d'],
+    // review 3e22706d M1: the fixed-limit term of the gate had no case
+    ['flh', 'pair-of-sevens-big-blind', '9s6h'],
+    ['flh', 'pair-of-threes-button', 'As8s'],
+    ['flh', 'ace-eight-suited-31-chips', '9s6h'],
   ];
 
   function variantSpot(variant: string, node: string, hand: string): Built {
