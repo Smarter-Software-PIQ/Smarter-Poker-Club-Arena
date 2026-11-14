@@ -5248,12 +5248,22 @@
    a filter/opacity group. Dim the painted image itself after a fold, so the
    full portrait remains visible above its original layout box. */
 @media (max-width: 768px) and (orientation: portrait) {
+  .table-page .seat--folded:has(.seat__avatar--bust) {
+    opacity: 1 !important;
+  }
+  .table-page .seat--folded:has(.seat__avatar--bust) > :not(.seat__avatar-wrap):not(.seat__bounty) {
+    opacity: 0.4875;
+  }
+  .table-page .seat--folded > .seat__avatar-wrap:has(.seat__avatar--bust) > :not(.seat__avatar),
+  .table-page .seat--folded:has(.seat__avatar--bust) > .seat__bounty {
+    opacity: 0.75;
+  }
   .table-page .seat--folded > .seat__avatar-wrap:has(.seat__avatar--bust) {
     opacity: 1;
     filter: none;
   }
   .table-page .seat--folded .seat__avatar--bust .seat__avatar-img {
-    opacity: 0.65;
+    opacity: 0.4875;
   }
 }
 
@@ -5302,5 +5312,70 @@
     > .seat__avatar-wrap:has(.seat__avatar--bust)
     > :not(.seat__avatar) {
     opacity: 0.55;
+  }
+}
+
+/* Scene dimming must not create an offscreen group around overflowing busts.
+   Keep the original winner/attention effects, composed on the painted leaves. */
+@media (max-width: 768px) and (orientation: portrait) {
+  .table-page--winner-flash .seat > .seat__avatar-wrap:has(.seat__avatar--bust) {
+    filter: none !important;
+  }
+  .table-page.table-page--winner-flash .seat--folded .seat__avatar--bust .seat__avatar-img {
+    filter: brightness(0.73) brightness(0.8) saturate(0.55) !important;
+  }
+  .table-page--winner-flash .seat {
+    --sp-portrait-scene-filter: brightness(0.73);
+  }
+  .table-page--winner-flash
+    .seat
+    > .seat__avatar-wrap:has(.seat__avatar--bust)
+    > :not(.seat__avatar) {
+    filter: brightness(0.73);
+  }
+  .table-page
+    .seat-wrapper--dim
+    .seat:not(.seat--empty):not(.seat--folded):has(.seat__avatar--bust) {
+    opacity: 1;
+    filter: none;
+    --sp-portrait-attention-filter: brightness(0.85) saturate(0.9);
+  }
+  .table-page
+    .seat-wrapper--dim
+    .seat:not(.seat--empty):not(.seat--folded):has(.seat__avatar--bust)
+    > :not(.seat__avatar-wrap),
+  .table-page
+    .seat-wrapper--dim
+    .seat:not(.seat--empty):not(.seat--folded)
+    > .seat__avatar-wrap:has(.seat__avatar--bust)
+    > :not(.seat__avatar) {
+    opacity: 0.78;
+    filter: brightness(0.85) saturate(0.9) var(--sp-portrait-scene-filter, brightness(1));
+  }
+  .table-page
+    .seat-wrapper--dim
+    .seat:not(.seat--empty):not(.seat--folded)
+    .seat__avatar--bust
+    .seat__avatar-img {
+    opacity: 0.78;
+  }
+  .table-page .seat-wrapper--spot .seat:not(.seat--folded) {
+    --sp-portrait-attention-filter: brightness(1.18) saturate(1.08);
+  }
+  .table-page .seat:is(.seat--away, .seat--sitting_out) {
+    --sp-portrait-status-filter: grayscale(60%);
+  }
+  .table-page .seat--disconnected {
+    --sp-portrait-status-filter: brightness(0.4) grayscale(0.5);
+  }
+  .table-page--winner-flash .seat .seat__avatar--bust .seat__avatar-img,
+  .table-page
+    .seat-wrapper--dim
+    .seat:not(.seat--empty):not(.seat--folded)
+    .seat__avatar--bust
+    .seat__avatar-img {
+    filter: var(--sp-portrait-scene-filter, brightness(1))
+      var(--sp-portrait-attention-filter, brightness(1))
+      var(--sp-portrait-status-filter, var(--sp-mobile-filter, brightness(1)));
   }
 }

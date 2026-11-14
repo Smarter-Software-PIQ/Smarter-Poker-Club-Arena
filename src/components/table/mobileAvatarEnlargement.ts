@@ -883,7 +883,9 @@ export function enlargeMobileAvatars(
     // The active spotlight is a transient CSS leaf filter, never part of
     // the locked portrait paint. Capturing it here would leave the previous
     // actor bright after the turn moves to another chair.
-    const transientStatus = e.seat.matches('.seat--away, .seat--sitting_out');
+    const transientStatus =
+      e.seat.matches('.seat--away, .seat--sitting_out') ||
+      !!e.seat.closest('.table-page--winner-flash, .seat-wrapper--dim');
     const spotlight =
       e.seat.closest('.seat-wrapper--spot') && !e.seat.classList.contains('seat--folded');
     const filter =
@@ -892,7 +894,11 @@ export function enlargeMobileAvatars(
         : getComputedStyle(e.image)
             .filter.replace(/drop-shadow\((?:[^()]|\([^()]*\))*\)/g, '')
             .trim();
-    e.image.style.setProperty('--sp-mobile-filter', filter || 'none');
+    // A no-op function composes with transient CSS effects; the keyword none does not.
+    e.image.style.setProperty(
+      '--sp-mobile-filter',
+      !filter || filter === 'none' ? 'brightness(1)' : filter
+    );
     const normal = parseFloat(e.avatar.style.getPropertyValue('--sp-opponent-art-scale')) || 1;
     const chrome = getComputedStyle(e.avatar);
     const appearance = {

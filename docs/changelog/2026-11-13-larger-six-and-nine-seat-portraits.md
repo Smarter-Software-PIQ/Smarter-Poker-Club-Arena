@@ -29,3 +29,15 @@ while the full head and existing waiting/countdown messages remain visible.
 The fixed-art regressions exercise the actual status classes, and the live reader
 rejects those parent groups. Transient status grayscale is excluded from the
 persisted portrait appearance so returning to play restores normal artwork.
+
+Winner flashes and non-acting seat dimming now compose on the painted portrait,
+not its overflowing parent. Folded seats also move the remaining parent opacity
+to their leaves, retaining the prior combined dimming. The original winner,
+spotlight, fold and return-to-play effects remain, with regression coverage for
+each transition. The portrait cache uses a composable identity filter instead of
+the non-composable CSS keyword `none`.
+
+Both six- and nine-seat phone canvases move down four layout pixels without
+resizing the felt or changing its static reserve. The previous tightest complete
+hero-display clearance was 6.1 layout pixels; this retains at least two above the
+bottom controller. Seated and spectator placement uses the same stable floor.
