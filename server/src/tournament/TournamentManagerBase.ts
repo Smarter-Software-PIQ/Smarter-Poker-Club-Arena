@@ -5792,6 +5792,26 @@ export abstract class TournamentManagerBase {
     if (!result.entry_closed) {
       this.tournamentEntryWindowClosed = false;
       this.tournamentEntryRepricePending = false;
+      /* REGISTRATION CLOSES BEFORE THE POOL WHEN REBUYS RUN LONGER (owner law
+         2026-11-14: no overlay chips until registration, rebuys and the add-on
+         have all ended). The database closed registration at its own level
+         but keeps the pool open, unfunded, while the rebuy window is open
+         (reason rebuy_window_open; the 25 Chip Bankroll Builder registers for
+         9 levels and rebuys for 12). Players are told registration closed now,
+         once, with the pool as it stands; the pool finalizes when this
+         authority is asked again after the rebuy window closes. */
+      if (result.reason === 'rebuy_window_open' && !this.tournamentEntryCloseAnnounced) {
+        this.tournamentEntryCloseAnnounced = true;
+        try {
+          await this.broadcast('late_reg_closed', {
+            prizePool: Number(result.prize_pool ?? this.tournamentCache?.prize_pool) || 0,
+            rebuysOpen: true,
+          });
+        } catch (err) {
+          reportError(err, 'Tournament.entry_window_close_broadcast_failed');
+        }
+        if (!this.lifecycleIsCurrent(lifecycle)) return false;
+      }
       const retryAfterMs = Number(result.retry_after_ms);
       if (result.window_mode === 'minutes' && Number.isFinite(retryAfterMs) && retryAfterMs >= 0) {
         this.armTournamentEntryCloseTimer(retryAfterMs);
