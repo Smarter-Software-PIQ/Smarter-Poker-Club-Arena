@@ -1,0 +1,5 @@
+{
+  "_owner": "2026-11-14 game-wide hit and run: created by migration 20261114160836, merged after the seal of the engine that calls it.",
+  "functions": ["fn_owed_leave_plays_on_in_game"],
+  "tables": ["ca_owed_leave_decisions"]
+}
