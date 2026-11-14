@@ -889,6 +889,21 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V93'
   ),
   flag(
+    'fixedLimitRiverFullBetRead',
+    "opt-in arm, default off (2026-11-14): fixed limit, river, facing a wager: the wagerer is read as having made a full bet (a raise as a raise) instead of a small no-limit bet, in the range samplers only (HorseFixedLimitWagerRead.ts; SPEC-FL-01). Hold'em contact sampler at its ceiling; Omaha high and hi-lo on a no-low board step the aggressor tier and draw the made-hand stratum exactly; hi-lo heads-up keeps the low half under the weak-high cap. Fixtures and a mechanism only, so production never sets it",
+    'V94'
+  ),
+  flag(
+    'fixedLimitHiLoNutLowRiverBet',
+    'opt-in arm, default off (2026-11-14): fixed-limit hi-lo cash, heads-up, river unbet or checked to hero: the nut low with no high (the river-bluff freeroll) bets every time instead of 55 percent, except into a station with the bare nut low (SPEC-FL-02). Fixtures and a mechanism only, so production never sets it',
+    'V94'
+  ),
+  flag(
+    'fixedLimitRiverOneBetValueRaise',
+    "opt-in arm, default off (2026-11-14): fixed-limit hold'em, river, facing exactly one wager on an uncapped street: the value raise uses the one-bet break-even (0.60 plus the multiway and domination terms), no stack-to-pot adjustment and no raise-frequency draw (SPEC-FL-03). Fixtures and a mechanism only, so production never sets it",
+    'V94'
+  ),
+  flag(
     'omahaPreflopCallWithActionBehind',
     'opt-in arm, default off (2026-11-13): Omaha preflop, a call costing 40% of the stack that leaves chips behind while an opponent still owes a decision is sent to the range play, not the final all-in arithmetic (PLO6-AUDIT-005, production hand 58751512). The pricing gap is real but the value check does not support the rule as built: the folded hands hold 40% to 55% equity at a price near 38%, the rule was merged without a value check and nothing measured since supplies one, so production never sets it',
     'V90'
@@ -2561,6 +2576,26 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic V38 flop/turn call menu (plo6TopSetNutRealization, PLO6-AUDIT P6-4)',
     'a PLO6 cash top set that is the current nuts was priced at full realization in the flop/turn call menu',
     'V93'
+  ),
+  // Fixed-Limit lane SPEC-FL-01..03 (2026-11-14). Occurrence counters for
+  // opt-in arms production never sets: silence is their ordinary state.
+  receipt(
+    'fixed_limit_river_full_bet_read_seen',
+    'HorseLogic decidePostflop range reads (fixedLimitRiverFullBetRead, SPEC-FL-01)',
+    'a fixed-limit river wagerer was read as having made a full bet (or a raise) for the range samplers',
+    'V94'
+  ),
+  receipt(
+    'hilo_nut_low_freeroll_bet',
+    'HorseLogic baseline river bluff range (fixedLimitHiLoNutLowRiverBet, SPEC-FL-02)',
+    'a fixed-limit hi-lo nut low with no high was sent to bet the heads-up river every time',
+    'V94'
+  ),
+  receipt(
+    'fixed_limit_river_one_bet_value_raise',
+    'HorseLogic value raise (fixedLimitRiverOneBetValueRaise, SPEC-FL-03)',
+    "a fixed-limit hold'em river value raise over one bet was taken at the one-bet break-even without the frequency draw",
+    'V94'
   ),
   receipt(
     'river_bluff_checkraise_evaluated',

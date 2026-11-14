@@ -2949,6 +2949,30 @@ export interface UnmeasurableMatchup extends Pick<
 }
 
 export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.freeze([
+  // 2026-11-14 (Fixed-Limit lane, SPEC-FL-01..03): three default-off
+  // fixed-limit arms. Refused, not dealt: this league cannot ask the question.
+  ...(
+    [
+      ['flh_river_full_bet_read', 'flh', { fixedLimitRiverFullBetRead: true }],
+      ['flo8_river_full_bet_read', 'flo8', { fixedLimitRiverFullBetRead: true }],
+      ['flo8_nut_low_river_bet', 'flo8', { fixedLimitHiLoNutLowRiverBet: true }],
+      ['flh_river_one_bet_value_raise', 'flh', { fixedLimitRiverOneBetValueRaise: true }],
+    ] as const
+  ).map(([name, variant, a]) => ({
+    name,
+    variant,
+    seats: 2,
+    a,
+    b: {},
+    reason:
+      'Unanswerable by this league: playHand deals no-limit and pot-limit betting and has no ' +
+      'fixed-limit street unit, wager cap or controller menu, and every gate of this option ' +
+      'requires a fixed-limit state (HorseLogic: vi.isFixedLimit). The option is DEFAULT OFF ' +
+      '(read as === true). What would change this: the fixed-limit duplicate league of the ' +
+      'Fixed-Limit lane evaluation protocol (real HandController, flh and flo8, six seats and ' +
+      'heads-up), which is not built yet; until it is, the fixtures in ' +
+      'AFixedLimitRiverBetIsReadAsAFullBet.law.test.ts and its two siblings are the only evidence.',
+  })),
   // 2026-11-14 (Fixed-Limit lane, adaptation fix F2, the call price): a default-off
   // fixed-limit arm. Refused, not dealt: this league cannot ask the question.
   ...(
