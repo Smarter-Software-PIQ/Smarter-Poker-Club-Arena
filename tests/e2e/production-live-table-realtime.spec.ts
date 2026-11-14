@@ -91,6 +91,14 @@ import {
   type StalledSubject,
 } from './support/certifiableSubject';
 import { recordNonVerdict } from './support/nonVerdict';
+import {
+  classifySpectatorAdmission,
+  notObservedRecord,
+  occupiedCashTableForBreak,
+  SPECTATOR_NOT_OBSERVED_FILE,
+  SPECTATOR_NOT_OBSERVED_LATE,
+  SPECTATOR_OBSERVE,
+} from '../../scripts/ci/cutover-spectator-admission.mjs';
 import { admitMttReplacementBudget, MTT_MAX_SUBJECT_MS } from './support/mttSubjectBudget';
 import {
   createHudClockReader,
@@ -246,7 +254,10 @@ type LivenessScope =
 async function readEngineHealth(
   request: APIRequestContext,
   scope: LivenessScope,
-  timeoutMs = 15_000
+  timeoutMs = 15_000,
+  // Only the cutover spectator sets this: it exists to span the replacement,
+  // so an announced break whose freeze has not begun does not disqualify it.
+  options: { admitLastHand?: boolean } = {}
 ): Promise<EngineHealth> {
   const url = new URL(ENGINE_HEALTH_URL);
   url.searchParams.set('cb', String(Date.now()));
@@ -301,7 +312,10 @@ async function readEngineHealth(
     observedReleaseSha,
     `engine releaseSha ${observedReleaseSha || '(missing)'} did not exactly match ${EXPECTED_ENGINE_SHA}`
   ).toBe(EXPECTED_ENGINE_SHA);
-  if (health.maintenance?.active) {
+  if (
+    health.maintenance?.active &&
+    !(options.admitLastHand && health.maintenance.phase === 'last_hand')
+  ) {
     throw new Error(
       `production engine is in scheduled maintenance (${health.maintenance.phase || 'unknown phase'}); ` +
         'live-table continuity must be certified after normal dealing resumes'
@@ -463,8 +477,19 @@ async function selectCashLobbyTab(page: Page, tabName: string): Promise<void> {
 async function selectOccupiedRunningCashTables(
   page: Page,
   request: APIRequestContext,
-  options: { perVariantLimit?: number } = {}
+  options: { perVariantLimit?: number; admitLastHand?: boolean } = {}
 ): Promise<{ tables: OccupiedCashTable[]; health: EngineHealth }> {
+  const admit = { admitLastHand: options.admitLastHand === true };
+  // After the announcement every table parks at its hand boundary, so the
+  // running-table test selects nothing. An admitted spectator then takes an
+  // occupied cash table; the committed post-thaw hand is what proves it dealt.
+  const selectable = (health: EngineHealth, candidate: RunningTableCandidate) => {
+    const running = healthyRunningTable(health, candidate.id, candidate.gameFormat);
+    if (running || !admit.admitLastHand || health.maintenance?.phase !== 'last_hand')
+      return running;
+    const table = health.tableLiveness.find((entry) => entry.tableId === candidate.id);
+    return table && occupiedCashTableForBreak(table) ? table : null;
+  };
   await page.goto(CLUB_LOBBY, { waitUntil: 'domcontentloaded', timeout: 60_000 });
   if (/\/auth(?:\/|\?|$)/.test(page.url())) {
     throw new Error('Production redirected to auth despite the required authenticated state');
@@ -497,9 +522,14 @@ async function selectOccupiedRunningCashTables(
     if (candidates.length === 0) continue;
     for (let offset = 0; offset < candidates.length; offset += 32) {
       const batch = candidates.slice(offset, offset + 32);
-      const health = await readEngineHealth(request, { candidateTableIds: batch.map((c) => c.id) });
+      const health = await readEngineHealth(
+        request,
+        { candidateTableIds: batch.map((c) => c.id) },
+        undefined,
+        admit
+      );
       for (const candidate of batch) {
-        const table = healthyRunningTable(health, candidate.id, candidate.gameFormat);
+        const table = selectable(health, candidate);
         if (
           table &&
           !seen.has(candidate.id) &&
@@ -522,11 +552,14 @@ async function selectOccupiedRunningCashTables(
   if (tables.length > 0) {
     // Tab scanning takes time. Start every contender from the same fresh
     // health observation, removing tables that departed during discovery.
-    const health = await readEngineHealth(request, {
-      candidateTableIds: tables.map(({ candidate }) => candidate.id),
-    });
+    const health = await readEngineHealth(
+      request,
+      { candidateTableIds: tables.map(({ candidate }) => candidate.id) },
+      undefined,
+      admit
+    );
     const fresh = tables.flatMap(({ candidate, tabName }) => {
-      const table = healthyRunningTable(health, candidate.id, candidate.gameFormat);
+      const table = selectable(health, candidate);
       return table ? [{ candidate, table, tabName }] : [];
     });
     if (fresh.length > 0) return { tables: fresh, health };
@@ -2171,17 +2204,6 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
         }
         return route.continue();
       });
-      const selected = await selectOccupiedRunningCashTables(page, request);
-      const { candidate } = selected.tables[0];
-      const tableId = candidate.id;
-      await page.goto(`table/${tableId}`);
-      await expect(page).toHaveURL((url) => url.pathname.endsWith(`/table/${tableId}`));
-      const initial = await journal.waitForFrame(
-        { direction: 'received', tableId, type: 'SNAPSHOT' },
-        30_000,
-        'Missing predecessor snapshot'
-      );
-      expect(await subject()).toBe(fixture.id);
       const identity = async () => {
         const res = await request.get(ENGINE_HEALTH_URL, {
           params: { cb: Date.now() },
@@ -2190,12 +2212,93 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
         if (!res.ok()) throw new Error('Serving identity unavailable');
         return await res.json();
       };
-      const before = await identity();
-      expect(before.releaseSha).toBe(EXPECTED_ENGINE_SHA);
-      expect(before.releaseSha).not.toBe(target);
-      expect(before.instanceId).toMatch(/^[1-9][0-9]*-[0-9a-f]{8}$/);
-      expect(before.maintenance?.active).toBe(false);
-      const armedAt = Date.now();
+      /* THE ANNOUNCEMENT IS NOT THE FREEZE (2026-11-14). The host transaction
+         does not wait for this browser, and on 2026-11-14 its last-hand
+         announcement landed about 30 s before this case read /health. The
+         predecessor still serves for two minutes after it, so `last_hand` is
+         admitted; the proofs below still require this one socket to be open on
+         the predecessor at the recorded freeze. Once the freeze has begun or
+         the candidate serves, the replacement cannot be witnessed: that is
+         NOT OBSERVED (late), named, with no witness file - never a pass, and
+         not a red that reads like a production defect (CLAUDE.md 10.86). */
+      const admit = (health: unknown) =>
+        classifySpectatorAdmission(health, { target, predecessor: EXPECTED_ENGINE_SHA });
+      const notObserved = async (reason: string, health: unknown): Promise<void> => {
+        const record = notObservedRecord({
+          runId: `${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}`,
+          target,
+          reason,
+          health,
+          at: Date.now(),
+        });
+        writeFileSync(SPECTATOR_NOT_OBSERVED_FILE, JSON.stringify(record));
+        const description = await recordNonVerdict(testInfo, {
+          title: 'NOT OBSERVED (late)',
+          detail: `${reason}. Spectator continuity for this release is unverified; no witness was written`,
+          evidence: record,
+          tag: 'cutover-spectator-not-observed',
+        });
+        test.skip(true, description);
+      };
+      let late: { reason: string; health: unknown } | null = null;
+      const arm = async () => {
+        const arriving = await identity();
+        const arrival = admit(arriving);
+        if (arrival.outcome === SPECTATOR_NOT_OBSERVED_LATE) {
+          late = { reason: arrival.reason, health: arriving };
+          return null;
+        }
+        if (arrival.outcome !== SPECTATOR_OBSERVE)
+          throw new Error(`Could not tell whether the spectator may attach: ${arrival.reason}`);
+        const selected = await selectOccupiedRunningCashTables(page, request, {
+          admitLastHand: true,
+        });
+        const { candidate } = selected.tables[0];
+        const tableId = candidate.id;
+        await page.goto(`table/${tableId}`);
+        await expect(page).toHaveURL((url) => url.pathname.endsWith(`/table/${tableId}`));
+        const initial = await journal.waitForFrame(
+          { direction: 'received', tableId, type: 'SNAPSHOT' },
+          30_000,
+          'Missing predecessor snapshot'
+        );
+        expect(await subject()).toBe(fixture.id);
+        const before = await identity();
+        const admission = admit(before);
+        if (admission.outcome === SPECTATOR_NOT_OBSERVED_LATE) {
+          late = { reason: admission.reason, health: before };
+          return null;
+        }
+        if (admission.outcome !== SPECTATOR_OBSERVE)
+          throw new Error(
+            `Could not tell which engine the spectator attached to: ${admission.reason}`
+          );
+        expect(before.releaseSha).toBe(EXPECTED_ENGINE_SHA);
+        expect(before.releaseSha).not.toBe(target);
+        expect(before.instanceId).toMatch(/^[1-9][0-9]*-[0-9a-f]{8}$/);
+        return { tableId, initial, before, armedPhase: admission.phase, armedAt: Date.now() };
+      };
+      let armed: Awaited<ReturnType<typeof arm>> = null;
+      try {
+        armed = await arm();
+      } catch (error) {
+        // The freeze can begin while the table is still opening. Only a fresh
+        // read that itself says "late" reclassifies; anything else stays red.
+        const now = await identity().catch(() => null);
+        const verdict = now ? admit(now) : null;
+        if (verdict?.outcome !== SPECTATOR_NOT_OBSERVED_LATE) throw error;
+        late = {
+          reason: `${verdict.reason} (while opening: ${error instanceof Error ? error.message.split('\n')[0] : String(error)})`,
+          health: now,
+        };
+      }
+      if (!armed) {
+        const arrivedLate = late as { reason: string; health: unknown } | null;
+        if (!arrivedLate) throw new Error('The spectator neither armed nor was classified late');
+        await notObserved(arrivedLate.reason, arrivedLate.health);
+        return;
+      }
+      const { tableId, initial, before, armedPhase, armedAt } = armed;
       expect(journal.transportIdsOpenAt(armedAt)).toEqual([initial.socketId]);
       expect(journal.openTransportUrls().map((url) => new URL(url).pathname)).toEqual([
         '/ws/multi',
@@ -2296,6 +2399,7 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
           afterInstance: after.instanceId,
           tableId,
           armedAt,
+          armedPhase,
           handNumber: cycle.handNumber,
           freeze,
           thaw,

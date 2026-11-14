@@ -1,6 +1,7 @@
 // The original transaction already owns release admission, replacement and sealing.
 import assert from 'node:assert/strict';
 import { pathToFileURL } from 'node:url';
+import { readNotObserved, SPECTATOR_NOT_OBSERVED_EXIT } from './cutover-spectator-admission.mjs';
 
 export function correlateSpectator(receipt, witness, runId) {
   assert.match(runId, /^[1-9]\d*-[1-9]\d*$/);
@@ -17,6 +18,9 @@ export function correlateSpectator(receipt, witness, runId) {
   assert.match(witness.beforeInstance, /^[1-9]\d*-[0-9a-f]{8}$/);
   assert.notEqual(witness.beforeInstance, receipt.instanceId);
   assert.equal(witness.sameAuthenticatedSpectator, true);
+  // Armed while the predecessor dealt, or inside its announced last hand.
+  // Either way the ordering below still requires armedAt before the freeze.
+  assert.ok(['idle', 'last_hand'].includes(witness.armedPhase));
   assert.match(witness.tableId, /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i);
   assert.ok(Number.isSafeInteger(witness.handNumber) && witness.handNumber > 0);
   const started = Date.parse(receipt.startedAt);
@@ -40,14 +44,36 @@ export function correlateSpectator(receipt, witness, runId) {
   return { ...witness, fixtureCleanupVerified: true, containerStartedAt: receipt.startedAt };
 }
 
+/**
+ * Three outcomes, never two (CLAUDE.md 10.86):
+ *   sealed        - a witness exists and matches the sealed receipt;
+ *   not-observed  - no witness, and this attempt's spectator recorded that it
+ *                   arrived after the freeze began. Never a sealed artifact;
+ *   (throws)      - anything else, including a witness beside a late record.
+ */
+export function spectatorOutcome({ receipt, witness, notObserved, runId }) {
+  const late = readNotObserved(notObserved, runId);
+  if (witness) {
+    assert.equal(notObserved || '', '', 'a witness and a not-observed record contradict');
+    return {
+      outcome: 'sealed',
+      sealed: correlateSpectator(JSON.parse(receipt), JSON.parse(witness), runId),
+    };
+  }
+  assert.ok(late, 'the spectator left neither a witness nor a not-observed record');
+  return { outcome: 'not-observed', record: late };
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  console.log(
-    JSON.stringify(
-      correlateSpectator(
-        JSON.parse(process.env.SEALED_RECEIPT),
-        JSON.parse(process.env.SPECTATOR),
-        `${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}`
-      )
-    )
-  );
+  const result = spectatorOutcome({
+    receipt: process.env.SEALED_RECEIPT,
+    witness: process.env.SPECTATOR,
+    notObserved: process.env.SPECTATOR_NOT_OBSERVED,
+    runId: `${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}`,
+  });
+  if (result.outcome === 'sealed') console.log(JSON.stringify(result.sealed));
+  else {
+    console.log(JSON.stringify(result.record));
+    process.exitCode = SPECTATOR_NOT_OBSERVED_EXIT;
+  }
 }
