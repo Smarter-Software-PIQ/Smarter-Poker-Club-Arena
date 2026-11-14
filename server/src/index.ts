@@ -46,6 +46,7 @@ import {
   stopHorseReferenceAgreementReport,
 } from './services/HorseReferenceAgreementReport.js';
 import { startBrainTelemetryFlush } from './services/BrainTelemetryFlush.js';
+import { startHorseUpgradeEvidenceFlush } from './services/HorseUpgradeEvidenceFlush.js';
 import { reportHorsePolicySourcesAtBoot } from './engine/HorsePolicySourceManifest.js';
 import {
   startHorseDataLedgerSync,
@@ -268,6 +269,10 @@ async function startLeaderOwnedServices(): Promise<void> {
   // Proof of receipt (Dan 2026-08-26): live layer-fire counters, flushed to
   // horse_brain_telemetry every minute for the daily audit + admin panel.
   startBrainTelemetryFlush();
+  // Per-Horse upgrade evidence (2026-11-14): the host-side side-game and
+  // pre-action purge events are counted in this process; the decision
+  // workers run their own flush for the decisions they make.
+  startHorseUpgradeEvidenceFlush();
   // 2026-11-05: every file the Horse phase digests hash must be readable in
   // this image, or every phase sits in shadow with no forced authority (the
   // Nov 5 releases). The image build refuses that; this names it at boot

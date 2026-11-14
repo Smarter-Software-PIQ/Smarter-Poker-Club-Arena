@@ -89,7 +89,7 @@ async function world(scope: 'collecting' | 'pass-through') {
   let requestId = 1;
 
   /** A heads-up hand the controller dealt and both seats took passively to the flop. */
-  function request(variant: Variant, mode: Mode, cell: number) {
+  function request(variant: Variant, mode: Mode, cell: number, sevenDeuce = false) {
     const smallBlind = mode === 'tournament' ? 10 : 1;
     const bigBlind = mode === 'tournament' ? 20 : 2;
     const tableId = `79000000-0000-4000-8000-${String(cell + 1).padStart(12, '0')}`;
@@ -164,6 +164,8 @@ async function world(scope: 'collecting' | 'pass-through') {
     spot.state.bigBlindAnte = blinds.bigBlindAnte;
     spot.state.allInOrFold = false;
     spot.state.bbjConfig = spot.state.bbjConfig ?? null;
+    // The seven-deuce side game on this table, as ServerTableEngineTurns puts it on a request.
+    if (sevenDeuce) Object.assign(spot.state, { sevenDeuceEnabled: true, sevenDeuceBountyBB: 2 });
 
     if (mode === 'tournament') {
       // A coherent heads-up finish, as in the matrix law: the tournament utility refuses a context whose
@@ -291,12 +293,13 @@ async function world(scope: 'collecting' | 'pass-through') {
     variant: Variant,
     mode: Mode,
     cell: number,
-    options: { throws?: boolean; replay?: string } = {}
+    options: { throws?: boolean; replay?: string; sevenDeuce?: boolean } = {}
   ) {
     HorseMind.reset();
     seedFastRandom(20261114 + cell);
     // `replay` is the exact request another runtime was sent, so both decide the same bytes.
-    const sent = options.replay ?? JSON.stringify(request(variant, mode, cell));
+    const sent =
+      options.replay ?? JSON.stringify(request(variant, mode, cell, options.sevenDeuce === true));
     const built = JSON.parse(sent) as ReturnType<typeof request>;
     telemetry.drainFires();
     evidence.drainHorseUpgradeEvidence();
@@ -383,6 +386,20 @@ describe('LAW: the decision worker records which Horse exercised which upgrade, 
     // declared for the variant and lane, not exercised by one flop decision: the baseline alone
     expect(a.upgrade_03_shared_deck_multiboard).toEqual([1, 0]);
     expect(b.upgrade_03_shared_deck_multiboard).toBeUndefined();
+  }, 120_000);
+
+  it('a side game the brain read in the decision is that decision invoked, once, by the worker fold', async () => {
+    // Since #10760 the brain counts its own kill-pot and seven-deuce reads, inside the scope. The host's
+    // request-side counter for the same decision records no per-Horse event (the law below), so this
+    // decision is one opportunity and one invocation of upgrade 08, not two of either.
+    const plain = await live!.decide('nlh', 'cash', 5);
+    const sideGame = await live!.decide('nlh', 'cash', 6, { sevenDeuce: true });
+    fastResult(plain.answers);
+    fastResult(sideGame.answers);
+    expect(plain.counted.upgrade08_seven_deuce_overlay_seen).toBeUndefined();
+    expect(sideGame.counted.upgrade08_seven_deuce_overlay_seen).toBe(1);
+    expect(upgradeRows(plain.rows).upgrade_08_side_games_integration).toEqual([1, 0]);
+    expect(upgradeRows(sideGame.rows).upgrade_08_side_games_integration).toEqual([1, 1]);
   }, 120_000);
 
   it('the same Horse deciding again adds to its own cells only', async () => {
@@ -486,6 +503,92 @@ describe('LAW: the worker folds at one site, and DEEP is outside it', () => {
     expect(count('this.executeFast(request)')).toBe(1);
     expect(source).toContain('() => this.executeFastWithUpgradeEvidence(request)');
     expect(source).toContain("request.type === 'DECIDE_DEEP') outcome = this.executeDeep(request)");
+  });
+});
+
+describe('LAW: no opportunity is reported per Horse by both the worker and the host', () => {
+  const read = (rel: string) => readFileSync(join(process.cwd(), 'src', rel), 'utf8');
+  const count = (source: string, needle: string) => source.split(needle).length - 1;
+  /** The code from one fleet counter up to the next statement boundary that ends its block. */
+  const after = (source: string, fire: string, lines = 12) => {
+    const at = source.indexOf(fire);
+    if (at < 0) throw new Error(`fleet counter not found: ${fire}`);
+    return source.slice(at).split('\n').slice(0, lines).join('\n');
+  };
+  const EVENT = 'noteHorseUpgradeEvent(';
+  const turns = read('engine/ServerTableEngineTurns.ts');
+  const runout = read('engine/ServerTableEngineRunout.ts');
+  const lightningHost = read('lightning/LightningHandHost.ts');
+  const lightningHorse = read('lightning/LightningHorse.ts');
+
+  it('a host counter that describes a brain decision records no event: the worker folds that decision', () => {
+    // kill-pot and seven-deuce context on a decision request, at a table and in Lightning
+    expect(after(turns, "noteFire('upgrade08_kill_pot_seen')", 4)).not.toContain(EVENT);
+    expect(after(turns, "noteFire('upgrade08_seven_deuce_seen')", 4)).not.toContain(EVENT);
+    expect(lightningHorse).not.toContain('noteHorseUpgradeEvent');
+    // the only per-Horse record of a decision is the worker's one fold
+    expect(read('engine/horseDecision/workerRuntime.ts')).not.toContain('noteHorseUpgradeEvent');
+  });
+
+  it('an opportunity seen again records no second event: the insurance answers after the offer', () => {
+    expect(after(runout, "noteFire('upgrade08_insurance_offered_seen')")).toContain(EVENT);
+    for (const answer of ['cashout', 'accept', 'decline'])
+      expect(
+        after(runout, `noteFire('upgrade08_insurance_${answer}_seen')`, 4),
+        answer
+      ).not.toContain(EVENT);
+  });
+
+  it('each host opportunity has exactly one event, with its own upgrade, and there are no others', () => {
+    expect(after(runout, 'noteFire(`upgrade08_rit_chooser_')).toContain(EVENT);
+    expect(after(runout, 'noteFire(`upgrade08_rit_answer_')).toContain(EVENT);
+    expect(count(runout, EVENT)).toBe(3);
+    expect(count(runout, "'upgrade_08_side_games_integration'")).toBe(3);
+    // the server-owned purge records; the branch for a seat a person's client pilots does not
+    const first = turns.indexOf("noteFire('upgrade09_preaction_purge_table_seen')");
+    const second = turns.indexOf("noteFire('upgrade09_preaction_purge_table_seen')", first + 1);
+    expect(second).toBeGreaterThan(first);
+    expect(turns.slice(first, second)).toContain(EVENT);
+    expect(turns.slice(second).split('\n').slice(0, 4).join('\n')).not.toContain(EVENT);
+    expect(count(turns, EVENT)).toBe(1);
+    expect(count(turns, "'upgrade_09_preaction_purge'")).toBe(1);
+    expect(after(lightningHost, "noteFire('upgrade09_preaction_purge_lightning_seen')")).toContain(
+      EVENT
+    );
+    expect(count(lightningHost, EVENT)).toBe(1);
+  });
+});
+
+describe('LAW: both processes start the flush with their telemetry and stop it in the parallel slot', () => {
+  const read = (rel: string) => readFileSync(join(process.cwd(), 'src', rel), 'utf8');
+  const squeezed = (source: string) => source.replace(/\/\/[^\n]*/g, '').replace(/\s+/g, ' ');
+
+  it('the decision worker: started beside the brain telemetry flush, stopped in the same Promise.all', () => {
+    const worker = squeezed(read('engine/horseDecision/workerRuntime.ts'));
+    expect(worker).toContain('startBrainTelemetryFlush(); startHorseUpgradeEvidenceFlush();');
+    expect(worker).toContain(
+      'await Promise.all([ stopBrainTelemetryFlush(), stopHorseMindPersistence(), stopHorseUpgradeEvidenceFlush(), ]);'
+    );
+  });
+
+  it('the main process: started beside its telemetry flush, stopped in the same parallel stop', () => {
+    expect(squeezed(read('index.ts'))).toContain(
+      'startBrainTelemetryFlush(); startHorseUpgradeEvidenceFlush();'
+    );
+    const server = squeezed(read('GameServer.ts'));
+    expect(server).toContain(
+      "beginOwnedStop('HorseExecutionTelemetry', stopBrainTelemetryFlush), stopHorseUpgradeEvidenceFlush(), ]);"
+    );
+    // one start and one stop per process, nowhere else
+    for (const rel of ['index.ts', 'GameServer.ts', 'engine/horseDecision/workerRuntime.ts']) {
+      const source = read(rel);
+      expect(source.split('startHorseUpgradeEvidenceFlush(').length - 1, rel).toBe(
+        rel === 'GameServer.ts' ? 0 : 1
+      );
+      expect(source.split('stopHorseUpgradeEvidenceFlush(').length - 1, rel).toBe(
+        rel === 'index.ts' ? 0 : 1
+      );
+    }
   });
 });
 

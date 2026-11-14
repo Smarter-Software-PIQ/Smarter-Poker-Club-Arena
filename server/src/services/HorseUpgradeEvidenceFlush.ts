@@ -67,7 +67,7 @@ interface Dependencies {
   restore(rows: readonly HorseUpgradeEvidenceRow[]): void;
   sourceRelease(): string | null;
   send(payload: string): PromiseLike<SendResult>;
-  note(feature: string): void;
+  noteFeature(feature: string): void;
   now?(): Date;
   uuid?(): string;
 }
@@ -210,13 +210,13 @@ export class HorseUpgradeEvidencePublisher {
           // Nothing was written: give every queued row back and let the next tick ask again.
           for (const queued of this.queue) this.deps.restore(queued.rows);
           this.queue = [];
-          this.deps.note('per_horse_evidence_function_missing_seen');
+          this.deps.noteFeature('per_horse_evidence_function_missing_seen');
           result.status = 'function_missing';
           return result;
         }
         if (answer.error.code === 'P0001' && DETERMINISTIC_REFUSALS.has(answer.error.message)) {
           this.queue.shift();
-          this.deps.note('per_horse_evidence_batch_rejected_seen');
+          this.deps.noteFeature('per_horse_evidence_batch_rejected_seen');
           result.rejected++;
           continue;
         }
@@ -245,10 +245,10 @@ export class HorseUpgradeEvidencePublisher {
   ): HorseUpgradeEvidenceFlushResult {
     if (pending.attempts >= HORSE_UPGRADE_EVIDENCE_MAX_ATTEMPTS) {
       this.queue.shift();
-      this.deps.note('per_horse_evidence_batch_abandoned_seen');
+      this.deps.noteFeature('per_horse_evidence_batch_abandoned_seen');
       result.status = 'abandoned';
     } else {
-      this.deps.note('per_horse_evidence_write_unconfirmed_seen');
+      this.deps.noteFeature('per_horse_evidence_write_unconfirmed_seen');
       result.status = 'unconfirmed';
     }
     return result;
@@ -263,7 +263,7 @@ const publisher = new HorseUpgradeEvidencePublisher({
     supabase
       .rpc('fn_horse_upgrade_evidence_flush', { p_payload: payload })
       .abortSignal(AbortSignal.timeout(WRITE_TIMEOUT_MS)),
-  note: noteFire,
+  noteFeature: noteFire,
 });
 
 let timer: NodeJS.Timeout | null = null;
@@ -319,23 +319,36 @@ export function startHorseUpgradeEvidenceFlush(): void {
   if (timer) return;
   if (process.env.BRAIN_TELEMETRY_ENABLED === 'false') return;
   stopOperation = null;
+  stopStartedAt = null;
   enableHorseUpgradeEvidence();
   timer = setInterval(() => {
     if (tick) return;
-    tick = publish().then(() => {
+    tick = publish(HORSE_UPGRADE_EVIDENCE_TICK_MAX_BATCHES, insideStopBudget).then(() => {
       tick = null;
     });
   }, FLUSH_MS);
   timer.unref?.();
 }
 
+/** When the stop began, or null while running. A tick in flight reads it too (insideStopBudget). */
+let stopStartedAt: number | null = null;
+/** True unless a stop has begun and a write started now could end past its budget. */
+const insideStopBudget = (): boolean =>
+  stopStartedAt === null ||
+  Date.now() - stopStartedAt + WRITE_TIMEOUT_MS <= HORSE_UPGRADE_EVIDENCE_SHUTDOWN_BUDGET_MS;
+
 /**
  * Bounded shutdown write. Waits for a tick in flight, then writes the retained
- * batches and one capture of the partial interval behind them. No write starts
- * unless it can end inside HORSE_UPGRADE_EVIDENCE_SHUTDOWN_BUDGET_MS, and it
- * stops at the first write that is not acknowledged. Whatever is still
- * retained then is reported by count. Never rejects: evidence cannot fail a
- * worker's shutdown.
+ * batches and one capture of the partial interval behind them, and stops at
+ * the first write that is not acknowledged. Whatever is still retained then is
+ * reported by count. Never rejects: evidence cannot fail a shutdown.
+ *
+ * THE BOUND: the stop resolves within HORSE_UPGRADE_EVIDENCE_SHUTDOWN_BUDGET_MS
+ * (15,000 ms) of being called. Every write carries a 5,000 ms abort; after the
+ * stop begins no write starts unless it can end inside the budget, and that
+ * applies to a tick already in flight as well as to the stop's own writes, so
+ * the only write that can be running past a refused start is one that began
+ * before the stop and ends within 5,000 ms of it.
  */
 export function stopHorseUpgradeEvidenceFlush(): Promise<void> {
   if (stopOperation) return stopOperation;
@@ -343,14 +356,12 @@ export function stopHorseUpgradeEvidenceFlush(): Promise<void> {
   clearInterval(timer);
   timer = null;
   stopOperation = (async () => {
-    const startedAt = Date.now();
-    const mayStartWrite = () =>
-      Date.now() - startedAt + WRITE_TIMEOUT_MS <= HORSE_UPGRADE_EVIDENCE_SHUTDOWN_BUDGET_MS;
+    stopStartedAt = Date.now();
     if (tick) await tick;
     // First pass: what was retained (or, with nothing retained, the partial interval). Second pass: the partial
     // interval behind a retained queue that has now been written.
     for (let pass = 0; pass < 2; pass++)
-      if ((await publish(HORSE_UPGRADE_EVIDENCE_TICK_MAX_BATCHES, mayStartWrite)) !== 'written')
+      if ((await publish(HORSE_UPGRADE_EVIDENCE_TICK_MAX_BATCHES, insideStopBudget)) !== 'written')
         break;
     const left = publisher.pendingBatches();
     if (left > 0)

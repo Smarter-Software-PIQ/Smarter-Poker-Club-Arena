@@ -6,11 +6,15 @@
  * fired for. This module keeps, per UTC day, Horse, game variant, lane and
  * upgrade, two counters:
  *
- *   decisions  decisions that Horse made in that variant and lane (the
- *              opportunity baseline, written to every enabled upgrade the
- *              manifest declares for that variant and lane);
- *   invoked    the decisions among them in which at least one of the upgrade's
- *              own evidence counters fired (HORSE_UPGRADE_LIVE_EVIDENCE).
+ *   decisions  opportunities: the FAST brain decisions that Horse made in
+ *              that variant and lane (written by the decision worker to every
+ *              enabled upgrade the manifest declares there), plus that Horse's
+ *              host-side opportunities for the upgrade (noteHorseUpgradeEvent);
+ *   invoked    the opportunities among them in which the upgrade was
+ *              exercised: brain decisions in which at least one of its evidence
+ *              counters fired (HORSE_UPGRADE_LIVE_EVIDENCE), plus every
+ *              host-side opportunity. No opportunity is reported twice; the
+ *              rule is stated at noteHorseUpgradeEvent.
  *
  * MEASUREMENT ONLY. Nothing here is read by a decision; the fold happens after
  * the decision is made. No IO: services/HorseUpgradeEvidenceFlush.ts drains
@@ -53,37 +57,59 @@ export interface HorseUpgradeEvidenceRow {
   invoked: number;
 }
 
-const UPGRADE_IDS: readonly string[] = Object.keys(HORSE_UPGRADE_LIVE_EVIDENCE);
-const UPGRADE_INDEX = new Map(UPGRADE_IDS.map((id, index) => [id, index]));
-const EXACT = new Map<string, number[]>();
-const PREFIXES: Array<{ prefix: string; index: number }> = [];
-for (const [id, needles] of Object.entries(HORSE_UPGRADE_LIVE_EVIDENCE)) {
-  const index = UPGRADE_INDEX.get(id)!;
-  for (const needle of needles) {
-    if (needle.startsWith('`')) PREFIXES.push({ prefix: needle.slice(1), index });
-    else {
-      const key = needle.slice(1, -1);
-      const owners = EXACT.get(key);
-      if (owners) owners.push(index);
-      else EXACT.set(key, [index]);
+interface NeedleTable {
+  /** The manifest's upgrade ids, in its order; every per-upgrade array is indexed like this. */
+  ids: readonly string[];
+  index: ReadonlyMap<string, number>;
+  exact: ReadonlyMap<string, readonly number[]>;
+  prefixes: ReadonlyArray<{ prefix: string; index: number }>;
+  scratch: Uint8Array;
+}
+let compiled: NeedleTable | null = null;
+/**
+ * Compiled once, on first use rather than at import: the host files that
+ * import this module sit in import cycles with the manifest's own imports, and
+ * a table built while this module is being evaluated could read the manifest
+ * before it exists.
+ */
+function needles(): NeedleTable {
+  if (compiled) return compiled;
+  const ids = Object.keys(HORSE_UPGRADE_LIVE_EVIDENCE);
+  const index = new Map(ids.map((id, at) => [id, at]));
+  const exact = new Map<string, number[]>();
+  const prefixes: Array<{ prefix: string; index: number }> = [];
+  for (const [id, list] of Object.entries(HORSE_UPGRADE_LIVE_EVIDENCE)) {
+    const at = index.get(id)!;
+    for (const needle of list) {
+      if (needle.startsWith('`')) prefixes.push({ prefix: needle.slice(1), index: at });
+      else {
+        const key = needle.slice(1, -1);
+        const owners = exact.get(key);
+        if (owners) owners.push(at);
+        else exact.set(key, [at]);
+      }
     }
   }
+  compiled = { ids, index, exact, prefixes, scratch: new Uint8Array(ids.length) };
+  return compiled;
 }
 
 /** Mark, in `flags`, every upgrade one of whose evidence counters is in `fired`. */
 function markInvoked(fired: Iterable<string>, flags: Uint8Array): void {
+  const { exact, prefixes } = needles();
   for (const key of fired) {
-    const owners = EXACT.get(key);
+    const owners = exact.get(key);
     if (owners) for (const index of owners) flags[index] = 1;
-    for (const { prefix, index } of PREFIXES) if (key.startsWith(prefix)) flags[index] = 1;
+    for (const { prefix, index } of prefixes) if (key.startsWith(prefix)) flags[index] = 1;
   }
 }
 
 /** The upgrades whose evidence counters appear in `fired`, in manifest order. Unknown counters map to nothing. */
 export function upgradeIdsForFires(fired: Iterable<string>): string[] {
-  const flags = new Uint8Array(UPGRADE_IDS.length);
+  const { ids } = needles();
+  const flags = new Uint8Array(ids.length);
   markInvoked(fired, flags);
-  return UPGRADE_IDS.filter((_, index) => flags[index] === 1);
+  return ids.filter((_, index) => flags[index] === 1);
 }
 
 interface Group {
@@ -91,7 +117,7 @@ interface Group {
   horseUserId: string;
   gameVariant: string;
   lane: HorseUpgradeEvidenceLane;
-  /** Indexed like UPGRADE_IDS. A cell exists when its decisions are above zero. */
+  /** Indexed like the needle table's ids. A cell exists when its decisions are above zero. */
   decisions: number[];
   invoked: number[];
 }
@@ -99,10 +125,9 @@ interface Group {
 const groups = new Map<string, Group>();
 let cells = 0;
 let armed = false;
-/** `${variant}|${lane}` -> the enabled upgrades the manifest declares there (indexes into UPGRADE_IDS). */
+/** `${variant}|${lane}` -> the enabled upgrades the manifest declares there (indexes into the needle table's ids). */
 const declared = new Map<string, readonly number[]>();
 const NONE: readonly number[] = [];
-const scratch = new Uint8Array(UPGRADE_IDS.length);
 
 /**
  * Armed once by the flush service at boot (so nothing accumulates in a process
@@ -113,7 +138,7 @@ export function enableHorseUpgradeEvidence(): void {
   if (armed) return;
   const byScope = new Map<string, number[]>();
   for (const entry of computeHorseUpgradeActivationManifest().upgrades) {
-    const index = UPGRADE_INDEX.get(entry.id);
+    const index = needles().index.get(entry.id);
     if (!entry.enabled || index === undefined) continue;
     for (const variant of entry.variants)
       for (const mode of entry.modes) {
@@ -125,6 +150,15 @@ export function enableHorseUpgradeEvidence(): void {
   }
   for (const [scope, list] of byScope) declared.set(scope, list);
   armed = true;
+}
+
+/**
+ * True once the flush service has armed the aggregate. Host call sites check it
+ * before they read the variant and lane for an event, so a process (or a test
+ * fixture) that never drains evidence does no work for it at all.
+ */
+export function horseUpgradeEvidenceArmed(): boolean {
+  return armed;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -180,8 +214,8 @@ function add(
       horseUserId,
       gameVariant,
       lane,
-      decisions: new Array<number>(UPGRADE_IDS.length).fill(0),
-      invoked: new Array<number>(UPGRADE_IDS.length).fill(0),
+      decisions: new Array<number>(needles().ids.length).fill(0),
+      invoked: new Array<number>(needles().ids.length).fill(0),
     };
     groups.set(key, group);
   }
@@ -214,6 +248,7 @@ export function noteHorseUpgradeDecision(
   const lane = normalizeWatchcounterMode(mode);
   const day = utcDay();
   const key = groupKey(day, horse, gameVariant, lane);
+  const { scratch } = needles();
   scratch.fill(0);
   markInvoked(fired, scratch);
   for (const index of declared.get(`${gameVariant}|${lane}`) ?? NONE) {
@@ -225,10 +260,24 @@ export function noteHorseUpgradeDecision(
 }
 
 /**
- * One host-side occurrence of an upgrade for one Horse (a side-game answer, a
- * purged pre-action): an event that is its own opportunity, so it counts one
- * decision and one invocation in that upgrade's cell. An id the manifest does
- * not list is ignored.
+ * One host-side opportunity of an upgrade for one Horse, outside any brain
+ * decision: a run-it-twice choice or answer, an insurance offer, a purged
+ * pre-action. It is its own opportunity, so it counts one decision and one
+ * invocation in that upgrade's cell.
+ *
+ * WHAT THE TWO COUNTERS MEAN FOR AN UPGRADE WITH BOTH SOURCES (08, 09). The
+ * workers and the main process write to the same cell and the writer adds
+ * them, so the rule is that no opportunity is reported by both:
+ *   decisions = the Horse's FAST brain decisions in that variant and lane
+ *               (worker fold) + its host-side opportunities (this function);
+ *   invoked   = the brain decisions in which an evidence counter of the
+ *               upgrade fired + every host-side opportunity.
+ * So a host counter that describes a brain decision (kill-pot or seven-deuce
+ * context on a decision request) must NOT call this: that decision is counted
+ * once, by the worker fold, with the brain's own upgrade08 reads. And a counter
+ * that is the same opportunity seen again (the three insurance answers after
+ * the offer) must not call it either. HorsePerHorseUpgradeEvidence.law.test.ts
+ * pins both. An id the manifest does not list is ignored.
  */
 export function noteHorseUpgradeEvent(
   userId: string,
@@ -237,7 +286,7 @@ export function noteHorseUpgradeEvent(
   upgradeId: string
 ): void {
   if (!armed) return;
-  const index = UPGRADE_INDEX.get(upgradeId);
+  const index = needles().index.get(upgradeId);
   if (index === undefined) return;
   const horse = horseId(userId);
   if (!horse) {
@@ -253,15 +302,17 @@ export function noteHorseUpgradeEvent(
 /** Take every cell and empty the aggregate (the flush service and tests). */
 export function drainHorseUpgradeEvidence(): HorseUpgradeEvidenceRow[] {
   const rows: HorseUpgradeEvidenceRow[] = [];
+  if (groups.size === 0) return rows;
+  const { ids } = needles();
   for (const group of groups.values())
-    for (let index = 0; index < UPGRADE_IDS.length; index++)
+    for (let index = 0; index < ids.length; index++)
       if (group.decisions[index]! > 0)
         rows.push({
           day: group.day,
           horseUserId: group.horseUserId,
           gameVariant: group.gameVariant,
           lane: group.lane,
-          upgradeId: UPGRADE_IDS[index]!,
+          upgradeId: ids[index]!,
           decisions: group.decisions[index]!,
           invoked: group.invoked[index]!,
         });
@@ -277,7 +328,7 @@ export function drainHorseUpgradeEvidence(): HorseUpgradeEvidenceRow[] {
  */
 export function restoreHorseUpgradeEvidence(rows: readonly HorseUpgradeEvidenceRow[]): void {
   for (const row of rows) {
-    const index = UPGRADE_INDEX.get(row.upgradeId);
+    const index = needles().index.get(row.upgradeId);
     if (index === undefined || !(row.decisions > 0)) continue;
     add(
       groupKey(row.day, row.horseUserId, row.gameVariant, row.lane),

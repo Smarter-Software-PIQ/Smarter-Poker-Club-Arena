@@ -79,7 +79,7 @@ function publisherWith(
       if (answer instanceof Error) throw answer;
       return answer as never;
     },
-    note: (feature) => noted.push(feature),
+    noteFeature: (feature) => noted.push(feature),
     now: () => new Date('2026-11-14T12:00:00.000Z'),
     uuid: () => `00000000-0000-4000-8000-${String(++ids).padStart(12, '0')}`,
   });
@@ -451,6 +451,50 @@ describe('the per-Horse upgrade evidence flush service', () => {
     expect(mocked.report.mock.calls.map((c) => c[1])).toEqual([
       'HorseUpgradeEvidenceFlush.shutdown_unwritten',
     ]);
+  });
+
+  it('a slow tick in flight cannot carry the stop past its budget: the stop resolves within 15,000 ms', async () => {
+    service.startHorseUpgradeEvidenceFlush();
+    for (let n = 0; n < 600; n++)
+      for (const variant of ['nlh', 'plo4'])
+        evidence.noteHorseUpgradeDecision(horse(n), variant, 'cash', []);
+    // every write is slow and succeeds (4,900 ms, just inside its 5,000 ms abort)
+    mocked.rpc.mockImplementation((_name, args) => ({
+      abortSignal: () =>
+        new Promise((resolve) => setTimeout(() => resolve(ack(args.p_payload)), 4_900)),
+    }));
+    await vi.advanceTimersByTimeAsync(60_000); // the tick starts its first write
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(mocked.rpc).toHaveBeenCalledTimes(1);
+    const stopCalledAt = Date.now();
+    let stoppedAt = 0;
+    const stopped = service.stopHorseUpgradeEvidenceFlush().then(() => (stoppedAt = Date.now()));
+    await vi.advanceTimersByTimeAsync(120_000);
+    await stopped;
+    // writes begin 0, 4,900 and 9,800 ms into the tick; the one that would begin at 14,700 ms (13,700 ms
+    // after the stop) could end at 18,700 ms, past the budget, so it never starts
+    expect(mocked.rpc).toHaveBeenCalledTimes(3);
+    expect(stoppedAt - stopCalledAt).toBe(13_700);
+    expect(stoppedAt - stopCalledAt).toBeLessThanOrEqual(
+      service.HORSE_UPGRADE_EVIDENCE_SHUTDOWN_BUDGET_MS
+    );
+    expect(service.horseUpgradeEvidencePendingBatches()).toBeGreaterThan(0);
+    expect(mocked.report.mock.calls.map((c) => c[1])).toEqual([
+      'HorseUpgradeEvidenceFlush.shutdown_unwritten',
+    ]);
+  });
+
+  it('a write that hangs is cut by its own 5,000 ms abort signal, which is what the budget counts on', async () => {
+    service.startHorseUpgradeEvidenceFlush();
+    decide(1);
+    const timeouts: number[] = [];
+    const spy = vi.spyOn(AbortSignal, 'timeout').mockImplementation((ms: number) => {
+      timeouts.push(ms);
+      return new AbortController().signal;
+    });
+    await service.stopHorseUpgradeEvidenceFlush();
+    spy.mockRestore();
+    expect(timeouts).toEqual([5_000]);
   });
 
   it('degrades quietly when the function is not installed: counted every tick, reported once, held under the cap', async () => {

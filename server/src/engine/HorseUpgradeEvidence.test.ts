@@ -199,6 +199,40 @@ describe('the per-Horse upgrade aggregate', () => {
     ]);
   });
 
+  it('adds worker decisions and host opportunities into one cell without reporting either twice', () => {
+    // three brain decisions in a cash game; the brain read a side game in one of them
+    evidence.noteHorseUpgradeDecision(H1, 'nlh', 'cash', ['upgrade08_seven_deuce_overlay_seen']);
+    evidence.noteHorseUpgradeDecision(H1, 'nlh', 'cash', []);
+    evidence.noteHorseUpgradeDecision(H1, 'nlh', 'cash', []);
+    // two host-side opportunities outside any decision: an insurance offer and a run-it-twice answer
+    evidence.noteHorseUpgradeEvent(H1, 'nlh', 'cash', 'upgrade_08_side_games_integration');
+    evidence.noteHorseUpgradeEvent(H1, 'nlh', 'cash', 'upgrade_08_side_games_integration');
+    // one purged pre-action
+    evidence.noteHorseUpgradeEvent(H1, 'nlh', 'cash', 'upgrade_09_preaction_purge');
+    const rows = evidence.drainHorseUpgradeEvidence();
+    // decisions = 3 brain decisions + 2 host opportunities; invoked = 1 brain read + 2 host opportunities
+    expect(cell(rows, H1, 'upgrade_08_side_games_integration')).toMatchObject({
+      decisions: 5,
+      invoked: 3,
+    });
+    expect(cell(rows, H1, 'upgrade_09_preaction_purge')).toMatchObject({
+      decisions: 4,
+      invoked: 1,
+    });
+    // an upgrade with no host source is untouched by the events
+    expect(cell(rows, H1, 'upgrade_01_range_posteriors')).toMatchObject({
+      decisions: 3,
+      invoked: 0,
+    });
+    for (const row of rows) expect(row.invoked).toBeLessThanOrEqual(row.decisions);
+  });
+
+  it('says whether it is armed, so a host site does no work for an unarmed process', async () => {
+    expect(evidence.horseUpgradeEvidenceArmed()).toBe(true);
+    await load(false);
+    expect(evidence.horseUpgradeEvidenceArmed()).toBe(false);
+  });
+
   it('refuses an identity the writer could not store, and counts it', () => {
     evidence.noteHorseUpgradeDecision('horse-7', 'nlh', 'cash', [
       'upgrade01_action_line_posterior',
