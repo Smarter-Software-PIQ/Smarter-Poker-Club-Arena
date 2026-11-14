@@ -1873,7 +1873,9 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
           answered = true;
           answer();
         };
-        void equityReady.then(answerOnce);
+        void equityReady.then(answerOnce).catch((err) => {
+          reportError(err, 'ServerTableEngine.' + this.tableId + '.horse_rit_equity_wait');
+        });
         this.setHandTimeout(answerOnce, HORSE_RIT_EQUITY_WAIT_MS);
       }, delayMs);
     };
