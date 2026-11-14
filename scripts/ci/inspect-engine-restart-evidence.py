@@ -129,6 +129,41 @@ def read_dockerd_failures(argv):
     return {'linesScanned': scanned, 'hostLinesPerMinute': per_minute, 'dockerdFailures': events}
 
 
+HOST_PRESSURE_QUERIES = {
+    'load1': 'node_load1',
+    'cpuBusyFraction': '1 - avg(rate(node_cpu_seconds_total{mode="idle"}[1m]))',
+    'cpuIowaitFraction': 'avg(rate(node_cpu_seconds_total{mode="iowait"}[1m]))',
+    'cpuStealFraction': 'avg(rate(node_cpu_seconds_total{mode="steal"}[1m]))',
+    'cpuPressureWaitingFraction': 'rate(node_pressure_cpu_waiting_seconds_total[1m])',
+    'ioPressureWaitingFraction': 'rate(node_pressure_io_waiting_seconds_total[1m])',
+    'memoryPressureWaitingFraction': 'rate(node_pressure_memory_waiting_seconds_total[1m])',
+    'memoryAvailableBytes': 'node_memory_MemAvailable_bytes',
+    'cpus': 'count(node_cpu_seconds_total{mode="idle"})',
+    'engineEventLoopP99Ms': 'max(poker_event_loop_delay_p99_ms)',
+}
+
+
+def read_host_pressure(start, end):
+    # Fixed read-only range queries against the host's own loopback Prometheus.
+    # Only numbers leave: one series per query, 15 s step.
+    import urllib.parse
+    import urllib.request
+    out = {}
+    for name, query in HOST_PRESSURE_QUERIES.items():
+        params = urllib.parse.urlencode({'query': query, 'start': start.timestamp(),
+                                         'end': end.timestamp(), 'step': '15'})
+        try:
+            with urllib.request.urlopen('http://127.0.0.1:9090/api/v1/query_range?' + params, timeout=10) as r:
+                body = json.loads(r.read().decode('utf-8'))
+            series = (body.get('data') or {}).get('result') or []
+            values = series[0]['values'] if series else []
+            out[name] = [[datetime.datetime.fromtimestamp(float(t), datetime.timezone.utc).strftime('%H:%M:%SZ'),
+                          round(float(v), 4)] for t, v in values]
+        except Exception:
+            out[name] = 'unreadable'
+    return out
+
+
 def parse_instant(text):
     if not re.fullmatch(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z', text or ''):
         raise RuntimeError('window_start_refused')
@@ -405,6 +440,7 @@ def main(expected, start_text, minutes_text, focus_text='-'):
                                      '--until', end.strftime('%Y-%m-%d %H:%M:%S UTC'), '--no-pager',
                                      '-o', 'short-iso', '-u', 'club-arena-engine*', '-u', 'docker.service'],
                                     lambda line: bool(UNIT.search(line))),
+        'hostPressure': read_host_pressure(start, end),
         'hostJournal': read_dockerd_failures(['journalctl', '--since', start.strftime('%Y-%m-%d %H:%M:%S UTC'),
                                               '--until', end.strftime('%Y-%m-%d %H:%M:%S UTC'), '--no-pager',
                                               '-o', 'short-iso']),
