@@ -5431,10 +5431,20 @@ button.post-bb-overlay-button {
    the lower end into the slot's available content box. Its padding already
    reserves the complete action row, home inset, private cards and hand label. */
 @media (max-device-width: 480px) and (min-width: 481px) and (max-width: 640px) and (orientation: portrait) {
+  .table-page[data-seats='6'][data-hero='true'] {
+    /* The buttons keep equal inner padding above and below them. HUD and felt
+       reserve this same frame at every hand state, including the safe inset. */
+    --sp-bottom-row-h: calc(1px + 2 * var(--sp-action-pad-top) + var(--sp-action-btn-h));
+    --sp-hud-line: calc(var(--sp-action-reserve) + 5px);
+  }
+  .table-page[data-seats='6'][data-hero='true'] .action-panel:not(.action-panel--raise) {
+    padding-bottom: calc(var(--sp-bar-inset) + var(--sp-action-pad-top));
+  }
   .table-page[data-seats='6'][data-hero='true'] .table-scaler {
-    height: max(
-      calc(var(--sp-table-h, 100svh) * 0.88),
-      calc(100% - var(--sp-table-h, 100svh) * 0.12 - 6px)
+    /* Twelve layout pixels clear the frame's actual border even on
+       the 320px phone, whose physical layout scale is only 320/600. */
+    height: calc(
+      max(var(--sp-table-h, 100svh) * 0.88, 100% - var(--sp-table-h, 100svh) * 0.12 - 6px) - 12px
     );
   }
 }

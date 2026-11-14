@@ -722,6 +722,24 @@ async function measure(page: Page) {
       .map(box);
     const vv = window.visualViewport;
     return {
+      panel: box(document.querySelector('.action-panel')!),
+      panelBorder: parseFloat(
+        getComputedStyle(document.querySelector('.action-panel')!).borderTopWidth
+      ),
+      frame: box(document.querySelector('.action-panel-wrapper')!),
+      heroToolsBottom: Math.max(
+        0,
+        ...[
+          ...document.querySelectorAll(
+            '.hero-vpip,.hud-bl-row button,.seat--hero .seat__position-badge,.seat--hero .seat__action,.seat--hero .seat__bounty'
+          ),
+        ]
+          .filter(shown)
+          .map((el) => box(el).bottom)
+      ),
+      safeInset: parseFloat(
+        document.documentElement.style.getPropertyValue('--sp-phone-safe-bottom')
+      ),
       scaler: document.querySelector('.table-scaler')!.getBoundingClientRect().toJSON(),
       layoutWidth: document.documentElement.clientWidth,
       scale: vv ? vv.scale : 1,
@@ -784,6 +802,7 @@ const SCENARIOS: Scenario[] = [
     bombPot: true,
   },
   { name: 'short Android 360x640, 9-max', width: 360, height: 640, seats: 9 },
+  { name: 'compact phone 320x568, 6-max', width: 320, height: 568, seats: 6 },
 ];
 
 for (const s of SCENARIOS) {
@@ -828,14 +847,38 @@ for (const s of SCENARIOS) {
         expect(rowTop, "the row never covers the hero's cards").toBeGreaterThanOrEqual(
           m.heroCardsBottom
         );
+        if (s.seats === 6) {
+          const top = Math.min(...m.buttons.map((b) => b.top));
+          const bottom = Math.max(...m.buttons.map((b) => b.bottom));
+          const left = Math.min(...m.buttons.map((b) => b.left));
+          const right = Math.max(...m.buttons.map((b) => b.right));
+          expect(
+            Math.abs(left - m.panel.left - (m.panel.right - right)),
+            'equal horizontal button margins'
+          ).toBeLessThan(1);
+          expect(
+            Math.abs(top - m.panel.top - m.panelBorder - (m.panel.bottom - m.safeInset - bottom)),
+            'equal padding inside the usable frame'
+          ).toBeLessThan(1);
+          const bottomOfHero = Math.max(
+            m.seatBottom,
+            m.heroCardsBottom,
+            m.heroToolsBottom,
+            m.prev!.bottom
+          );
+          expect(
+            (Math.min(m.frame.top, m.panel.top) - bottomOfHero) * m.scale,
+            'two phone pixels of clearance to frame border'
+          ).toBeGreaterThanOrEqual(2);
+        }
         if (s.plo4) {
           await expect(
             page.locator('.seat-wrapper--hero .seat__cards--hero .seat__card')
           ).toHaveCount(4);
           expect(
-            rowTop - Math.max(m.seatBottom, m.heroCardsBottom),
-            'private cards and strength sit just above the buttons'
-          ).toBeLessThanOrEqual(12);
+            (m.panel.top - Math.max(m.seatBottom, m.heroCardsBottom)) * m.scale,
+            'private cards and strength remain within ten phone pixels of the frame'
+          ).toBeLessThanOrEqual(10);
         }
         // 3c. Previous Hand moved up with them: wholly above the row.
         expect(m.prev, 'the Previous Hand button is shown').not.toBeNull();
