@@ -178,6 +178,10 @@ export const HORSE_JOURNAL_LOCK_RETRY_DELAYS_MS: readonly number[] = Object.free
    then a fresh writer every HORSE_JOURNAL_REARM_MS, for as long as the
    process runs. Only a publisher with no restart at all stays `unavailable`. */
 export const HORSE_JOURNAL_REARM_MS = 60_000;
+/** The longest the journal publisher's stop waits for its writer before it gives up and records the gap. The Horse
+ * decision worker stops the journal first and its telemetry after it (workerRuntime.ts, stopOwnedServices), so this
+ * is part of the worker's shutdown time inside the engine's graceful deadline. */
+export const HORSE_JOURNAL_STOP_TIMEOUT_MS = 5_000;
 const HORSE_JOURNAL_REARMABLE: readonly HorseJournalFailureReason[] = Object.freeze([
   'retry_exhausted',
   'termination_unverified',
@@ -945,7 +949,9 @@ export class HorseDecisionJournalPublisher {
   private receiveStats(stats: unknown): void {
     this.statsRequestedAt = null;
     const archive = (stats as { archive?: unknown } | null)?.archive as
-      Record<string, unknown> | null | undefined;
+      | Record<string, unknown>
+      | null
+      | undefined;
     if (!archive || typeof archive !== 'object') return;
     const number = (key: string): number | null =>
       typeof archive[key] === 'number' && Number.isSafeInteger(archive[key])
@@ -1022,7 +1028,7 @@ export class HorseDecisionJournalPublisher {
         this.noteShutdownGap();
         this.fail('shutdown_timeout');
         finish();
-      }, 5000);
+      }, HORSE_JOURNAL_STOP_TIMEOUT_MS);
       const finish = () => {
         clearTimeout(timer);
         clearInterval(this.watchdog);

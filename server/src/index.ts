@@ -45,7 +45,11 @@ import {
   startHorseReferenceAgreementReport,
   stopHorseReferenceAgreementReport,
 } from './services/HorseReferenceAgreementReport.js';
-import { startBrainTelemetryFlush } from './services/BrainTelemetryFlush.js';
+import {
+  setBrainTelemetryGapSink,
+  startBrainTelemetryFlush,
+} from './services/BrainTelemetryFlush.js';
+import { handleHorseTelemetryGapEvent } from './services/horseTelemetryGapAlert.js';
 import { startHorseUpgradeEvidenceFlush } from './services/HorseUpgradeEvidenceFlush.js';
 import { reportHorsePolicySourcesAtBoot } from './engine/HorsePolicySourceManifest.js';
 import {
@@ -218,6 +222,13 @@ async function drainLeaderBootMutations(): Promise<void> {
     await Promise.allSettled([...leaderBootMutations]);
   }
 }
+
+// 2026-11-14: a lost telemetry batch is an engine alert, and a later written day closes it. Wired here, in the
+// main process, so nothing on the Horse decision path imports the alert module (HorseDecisionClosure.test.ts).
+// The Horse decision worker threads post their events to this same sink (horseDecision/client.ts). Set at module
+// load, before gameServer.start() starts those workers, so no worker event can arrive while no sink is set
+// (independent review of 27a56324, finding 2).
+setBrainTelemetryGapSink((event) => void handleHorseTelemetryGapEvent(event));
 
 /**
  * These services change shared horse, tournament, or table state and therefore

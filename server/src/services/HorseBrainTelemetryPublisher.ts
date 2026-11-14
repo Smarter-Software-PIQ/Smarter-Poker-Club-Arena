@@ -48,7 +48,13 @@ const DETERMINISTIC_REFUSALS = new Set([
   'HORSE_FLUSH_SEQUENCE_COLLISION',
 ]);
 
-type Pending = { payload: string; batchId: string; digest: string; attempts: number };
+type Pending = { payload: string; batchId: string; digest: string; attempts: number; day: string };
+/** A batch that was dropped unwritten: the UTC day whose counters are now incomplete, and whose it was. */
+export interface HorseBrainTelemetryDrop {
+  batchId: string;
+  day: string;
+  workerId: string;
+}
 
 /** Retained, immutable batches per publisher, oldest first. A transport error or malformed acknowledgement keeps
  * the exact bytes and ID of the head batch for the next attempt; newly arriving counters remain in their
@@ -61,6 +67,8 @@ export class HorseBrainTelemetryPublisher {
   private sequence = 0;
   private queue: Pending[] = [];
   private inFlight: Promise<HorseBrainTelemetryPublishResult> | null = null;
+  private dropped: HorseBrainTelemetryDrop | null = null;
+  private writtenDay: string | null = null;
   constructor(private readonly deps: Dependencies) {
     this.workerId = (deps.uuid ?? randomUUID)();
   }
@@ -80,6 +88,31 @@ export class HorseBrainTelemetryPublisher {
   /** Batches still waiting for a confirmed write (diagnostics and tests). */
   pendingBatches(): number {
     return this.queue.length;
+  }
+
+  /** The UTC days of the batches still retained, oldest first (what a shutdown that leaves them unwritten loses). */
+  pendingDays(): string[] {
+    return [...new Set(this.queue.map((pending) => pending.day))].sort();
+  }
+
+  /** This publisher's identity in every batch it writes (one per thread per process start). */
+  publisherWorkerId(): string {
+    return this.workerId;
+  }
+
+  /** The batch most recently dropped unwritten (results 'expired', 'rejected' and 'abandoned'). */
+  lastDrop(): HorseBrainTelemetryDrop | null {
+    return this.dropped;
+  }
+
+  /** The UTC day of the batch most recently confirmed written ('recorded' or 'replayed'). */
+  lastWrittenDay(): string | null {
+    return this.writtenDay;
+  }
+
+  private drop(): void {
+    const pending = this.queue.shift()!;
+    this.dropped = { batchId: pending.batchId, day: pending.day, workerId: this.workerId };
   }
 
   private batch(
@@ -106,6 +139,7 @@ export class HorseBrainTelemetryPublisher {
       batchId,
       digest: createHash('sha256').update(payload).digest('hex'),
       attempts: 0,
+      day: collectedAt.slice(0, 10),
     };
   }
 
@@ -155,7 +189,7 @@ export class HorseBrainTelemetryPublisher {
       // A send that throws (a timeout abort, a client fault) is a transport failure like any other: the same bytes
       // are retried, and the batch is abandoned at the attempt cap instead of being resent forever.
       if (pending.attempts >= HORSE_TELEMETRY_MAX_ATTEMPTS) {
-        this.queue.shift();
+        this.drop();
         return 'abandoned';
       }
       throw error;
@@ -164,15 +198,15 @@ export class HorseBrainTelemetryPublisher {
       // The writer refuses expired batches before any aggregate mutation,
       // even if their old deduplication receipt has already been pruned.
       if (result.error.code === 'P0001' && result.error.message === 'HORSE_FLUSH_EXPIRED') {
-        this.queue.shift();
+        this.drop();
         return 'expired';
       }
       if (result.error.code === 'P0001' && DETERMINISTIC_REFUSALS.has(result.error.message)) {
-        this.queue.shift();
+        this.drop();
         return 'rejected';
       }
       if (pending.attempts >= HORSE_TELEMETRY_MAX_ATTEMPTS) {
-        this.queue.shift();
+        this.drop();
         return 'abandoned';
       }
       throw Error('Horse telemetry batch write unconfirmed');
@@ -188,12 +222,13 @@ export class HorseBrainTelemetryPublisher {
       ack.payloadSha256 !== pending.digest
     ) {
       if (pending.attempts >= HORSE_TELEMETRY_MAX_ATTEMPTS) {
-        this.queue.shift();
+        this.drop();
         return 'abandoned';
       }
       throw Error('Horse telemetry batch acknowledgement invalid');
     }
     this.queue.shift();
+    this.writtenDay = pending.day;
     return ack.status as 'recorded' | 'replayed';
   }
 }
