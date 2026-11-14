@@ -471,6 +471,370 @@ git() { echo unexpected-main-read >&2; return 99; }
       }
     );
   });
+  // 2026-11-14: on the off-cycle cutover the booked candidate waited about
+  // 50 minutes behind an unrelated push, and the release owner dispatched a
+  // manual run because a later ordinary push would have superseded the
+  // booking commit's own push run. A push run now asks one read-only verdict
+  // (scripts/ci/backup-candidate-priority.py); "unknown" changes nothing.
+  describe('the booked candidate goes first while an owner window is live', () => {
+    const plan = backup.jobs.plan.steps.find((s: any) => s.id === 'plan').run;
+    const pushed = 'a'.repeat(40);
+    const newest = 'b'.repeat(40);
+    const base = {
+      INPUT_SHA: '',
+      INPUT_REFRESH: 'false',
+      GITHUB_SHA: pushed,
+      RUN_ID: '500',
+      GITHUB_REPOSITORY: 'o/r',
+      EVENT: 'push',
+    };
+    // A fake GitHub whose priority reader answers VERDICT (a Python one-liner
+    // body, or FAIL for an unreadable fetch).
+    const fakeGh = (verdict: string, newer: string, rel: string, cert = 'missing') =>
+      `gh() {
+  echo "gh $*" >> "$CALLS"
+  case "$*" in
+    *contents/scripts/ci/backup-candidate-priority.py*) ${
+      verdict === 'FAIL'
+        ? 'echo "HTTP 502" >&2; return 1'
+        : `printf '%s\\n' "print('priority=${verdict}')" "print('window=w-1')"`
+    } ;;
+    *actions/workflows/backup-engine.yml/runs*) echo '${newer}' ;;
+    *'/commits?sha=main&path=server&per_page=1'*) echo '${newest}' ;;
+    *'/compare/'*) echo '${rel}' ;;
+    *'/statuses'*) echo '${cert}' ;;
+    *) return 1 ;;
+  esac
+}
+git() { echo unexpected-main-read >&2; return 99; }
+`;
+    function run(harness: string, env: Record<string, string> = base) {
+      const dir = mkdtempSync(resolve(tmpdir(), 'backup-priority-'));
+      const calls = resolve(dir, 'calls');
+      try {
+        const result = planShell(harness + plan, { ...env, CALLS: calls });
+        return { ...result, calls: existsSync(calls) ? readFileSync(calls, 'utf8') : '' };
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+    it('the reader decides candidate, open, expired, consumed and unreadable state', () => {
+      const out = spawnSync(
+        'python3',
+        ['-B', 'tests/operations/backup-candidate-priority.test.py'],
+        {
+          cwd: resolve(__dirname, '..'),
+          encoding: 'utf8',
+          env: hookFreeEnv(),
+        }
+      );
+      expect(out.status, out.stderr).toBe(0);
+    });
+    it('the booking commit is never superseded or retargeted by later ordinary pushes', () => {
+      const result = run(fakeGh('booking', '3', 'ahead'));
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toContain(`PRIORITY: ${pushed} is the booking commit`);
+      expect(result.stdout).not.toContain('SUPERSEDED');
+      expect(result.stdout).not.toContain('RETARGETED');
+      expect(result.stdout).toContain('sha=' + pushed);
+      expect(result.stdout).toContain('refresh=auto');
+      expect(result.stdout).toContain('inherit_eligible=true');
+      expect(result.stdout).not.toContain('control_sha=');
+      expect(result.calls).not.toContain('actions/workflows/backup-engine.yml/runs');
+      expect(result.calls).not.toContain('/compare/');
+      expect(result.calls).toContain(`/commits/${pushed}/statuses`);
+    });
+    it('a booking commit that is already certified is still not certified twice', () => {
+      const result = run(fakeGh('booking', '3', 'ahead', 'success'));
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toContain(`ALREADY CERTIFIED: ${pushed}`);
+      expect(result.stdout).toMatch(/\nsha=\n/);
+    });
+    it('a commit that predates the booking and was not retargeted is deferred: nothing planned, no status', () => {
+      for (const rel of ['', 'HTTP 502', 'diverged']) {
+        const result = run(fakeGh('predates', '0', rel));
+        expect(result.status, result.stderr).toBe(0);
+        expect(result.stdout).toContain('DEFERRED: owner engine window w-1');
+        expect(result.stdout).toMatch(/\nsha=\n/);
+        expect(result.stdout).not.toContain('sha=' + pushed);
+        expect(result.stdout).not.toContain('refresh=auto');
+        expect(result.stdout).not.toContain('inherit_eligible');
+        expect(result.calls).not.toContain('/statuses');
+      }
+    });
+    it('a predating run still hands the host to the candidate exactly as before when it can', () => {
+      const retargeted = run(fakeGh('predates', '0', 'ahead'));
+      expect(retargeted.status, retargeted.stderr).toBe(0);
+      expect(retargeted.stdout).toContain(
+        `RETARGETED: pushed ${pushed} is superseded by ${newest}`
+      );
+      expect(retargeted.stdout).toContain('sha=' + newest);
+      expect(retargeted.stdout).not.toContain('DEFERRED');
+      const superseded = run(fakeGh('predates', '2', 'ahead'));
+      expect(superseded.stdout).toContain('SUPERSEDED: 2 newer push run(s)');
+      expect(superseded.stdout).not.toContain('DEFERRED');
+    });
+    it.each(['candidate', 'none', 'unknown', 'yes', 'FAIL'])(
+      'verdict %s leaves the queue rules exactly as they were',
+      (verdict) => {
+        const superseded = run(fakeGh(verdict, '2', 'ahead'));
+        expect(superseded.status, superseded.stderr).toBe(0);
+        expect(superseded.stdout).toContain('SUPERSEDED: 2 newer push run(s)');
+        const retargeted = run(fakeGh(verdict, '0', 'ahead'));
+        expect(retargeted.stdout).toContain('sha=' + newest);
+        const kept = run(fakeGh(verdict, '0', ''));
+        expect(kept.status, kept.stderr).toBe(0);
+        expect(kept.stdout).toContain('sha=' + pushed);
+        for (const result of [superseded, retargeted, kept]) {
+          expect(result.stdout).not.toContain('DEFERRED');
+          expect(result.stdout).not.toContain('PRIORITY:');
+        }
+      }
+    );
+    it.each([
+      ['workflow_dispatch', { INPUT_SHA: pushed }],
+      ['schedule', {}],
+      ['repository_dispatch', { SEALED_SHA: pushed }],
+    ])('a %s run never asks and is never deferred', (event, extra) => {
+      const result = run(
+        fakeGh('predates', '9', '') + `git() { printf '%s\\trefs/heads/main\\n' ${pushed}; }\n`,
+        { ...base, ...extra, EVENT: event }
+      );
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toContain('sha=' + pushed);
+      expect(result.stdout).not.toContain('DEFERRED');
+      expect(result.calls).not.toContain('backup-candidate-priority.py');
+    });
+    it('the real reader runs from the fetched file, and an unreadable GitHub is unknown, not a skip', () => {
+      const dir = mkdtempSync(resolve(tmpdir(), 'backup-priority-bin-'));
+      try {
+        // An executable gh, so the reader's own reads reach it too: it serves
+        // the tracked reader, answers "no newer run", and fails everything else.
+        writeFileSync(
+          resolve(dir, 'gh'),
+          `#!/usr/bin/env bash
+case "$*" in
+  *contents/scripts/ci/backup-candidate-priority.py*) cat '${resolve(__dirname, '..', 'scripts/ci/backup-candidate-priority.py')}' ;;
+  *actions/workflows/backup-engine.yml/runs*) echo 0 ;;
+  *) echo "gh: Bad Gateway (HTTP 502)" >&2; exit 1 ;;
+esac
+`,
+          { mode: 0o755 }
+        );
+        const result = planShell(plan, { ...base, PATH: `${dir}:${process.env.PATH}` });
+        expect(result.status, result.stderr).toBe(0);
+        expect(result.stdout).toContain('owner window priority: unknown');
+        expect(result.stdout).toContain('sha=' + pushed);
+        expect(result.stdout).toContain('refresh=auto');
+        expect(result.stdout).not.toContain('DEFERRED');
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+    it('is wired read-only, push-only, and cancels nothing', () => {
+      expect(plan).toContain('contents/scripts/ci/backup-candidate-priority.py?ref=$GITHUB_SHA');
+      expect(plan.indexOf('backup-candidate-priority.py')).toBeGreaterThan(
+        plan.indexOf('if [ "$EVENT" = push ] && [[ "${RUN_ID:-}" =~ ^[0-9]+$ ]]; then')
+      );
+      expect(plan.indexOf('backup-candidate-priority.py')).toBeLessThan(
+        plan.indexOf('SUPERSEDED:')
+      );
+      expect(plan.indexOf('DEFERRED:')).toBeLessThan(plan.indexOf('ALREADY CERTIFIED:'));
+      const workflow = read('.github/workflows/backup-engine.yml');
+      expect(workflow).not.toMatch(/actions\/runs\/[^\s"']*\/cancel|gh run cancel/);
+      expect(backup.concurrency['cancel-in-progress']).toBe(false);
+      expect(backup.jobs.plan.permissions).toEqual({
+        contents: 'read',
+        actions: 'read',
+        statuses: 'write',
+      });
+    });
+  });
+  // 2026-11-14: post-seal Backup run 43565758486 failed its certify job after
+  // 16 s on one HTTP 502 and then wrote "Backup Engine refused: see run" over
+  // a success certificate an hour old. A transient provider answer is retried
+  // inside the step, and a run that reached no verdict never reports a refusal
+  // or replaces a success it did not itself overwrite.
+  describe('one provider failure neither fails nor downgrades a certification', () => {
+    const certify = backup.jobs.certify;
+    const prove = certify.steps[0];
+    const publish = certify.steps.find((s: any) => /Publish the verdict/.test(s.name));
+    const sha = 'c'.repeat(40);
+    function shell(
+      script: string,
+      env: Record<string, string>,
+      files: Record<string, string> = {}
+    ) {
+      const dir = mkdtempSync(resolve(tmpdir(), 'backup-verdict-'));
+      const calls = resolve(dir, 'calls');
+      try {
+        for (const [name, text] of Object.entries(files)) writeFileSync(resolve(dir, name), text);
+        const result = planShell(script, { ...env, CALLS: calls, RUNNER_TEMP: dir }, dir);
+        return { ...result, calls: existsSync(calls) ? readFileSync(calls, 'utf8') : '' };
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+    describe('the dispatch-intent fetch', () => {
+      const fetcher = (answers: string[]) => `sleep() { echo "sleep $1" >> "$CALLS"; }
+node() { echo "node $*" >> "$CALLS"; }
+gh() {
+  n=$(grep -c '^gh ' "$CALLS" 2>/dev/null || true)
+  echo "gh $*" >> "$CALLS"
+  set -- ${answers.map((a) => `'${a}'`).join(' ')}
+  [ "$n" -lt "$#" ] && shift "$n" || shift $(($# - 1))
+  if [ "$1" = ok ]; then echo 'export {}'; return 0; fi
+  echo "gh: $1" >&2; return 1
+}
+`;
+      const env = { GITHUB_REPOSITORY: 'o/r', GITHUB_SHA: sha };
+      const count = (text: string, prefix: string) =>
+        text.split('\n').filter((line) => line.startsWith(prefix)).length;
+      it('both privileged jobs fetch it the same bounded way', () => {
+        expect(backup.jobs.refresh.steps[0].run).toBe(prove.run);
+        expect(prove.run).toContain('for wait in 0 5 15 30; do');
+        expect(prove.run).toContain("grep -Eq 'HTTP 4[0-9][0-9]'");
+        expect(prove.run).not.toMatch(/while |until /);
+      });
+      it('502 then 200 proceeds to the proof', () => {
+        const result = shell(fetcher(['Bad Gateway (HTTP 502)', 'ok']) + prove.run, env);
+        expect(result.status, result.stderr).toBe(0);
+        expect(count(result.calls, 'gh ')).toBe(2);
+        expect(result.calls).toContain('prove --receiver backup-after-seal');
+      });
+      it('a network error is retried too', () => {
+        const result = shell(
+          fetcher(['error connecting to api.github.com', 'ok']) + prove.run,
+          env
+        );
+        expect(result.status, result.stderr).toBe(0);
+        expect(count(result.calls, 'gh ')).toBe(2);
+      });
+      it('404 fails at once and never reaches the proof', () => {
+        const result = shell(fetcher(['Not Found (HTTP 404)', 'ok']) + prove.run, env);
+        expect(result.status).not.toBe(0);
+        expect(count(result.calls, 'gh ')).toBe(1);
+        expect(result.calls).not.toContain('node ');
+      });
+      it('a provider that stays down fails after four attempts', () => {
+        const result = shell(fetcher(['Bad Gateway (HTTP 502)']) + prove.run, env);
+        expect(result.status).not.toBe(0);
+        expect(count(result.calls, 'gh ')).toBe(4);
+        expect(result.calls).not.toContain('node ');
+      });
+    });
+    describe('the verdict', () => {
+      const fakeGh = (current: string) => `gh() {
+  case "$*" in
+    *'-f state='*) echo "WRITE $*" >> "$CALLS" ;;
+    *'/statuses'*) echo "READ $*" >> "$CALLS"; ${
+      current === 'FAIL' ? 'echo "HTTP 502" >&2; return 1' : `echo '${current}'`
+    } ;;
+    *) return 1 ;;
+  esac
+}
+`;
+      const env = {
+        SHA: sha,
+        GITHUB_REPOSITORY: 'o/r',
+        GITHUB_SERVER_URL: 'https://github.com',
+        GITHUB_RUN_ID: '9',
+        STATUS_CONTEXT: 'backup-engine/certified',
+        RC: '',
+        JOB_STATUS: 'failure',
+        INSTALLED: '',
+        PENDING: 'skipped',
+        POLICY: 'skipped',
+      };
+      it('reads the step outcomes that tell a refusal from no verdict', () => {
+        expect(certify.steps.find((s: any) => s.id === 'pending').name).toBe(
+          'Mark the certification pending'
+        );
+        expect(certify.steps.find((s: any) => s.id === 'policy').name).toBe(
+          'Check the protected activation policy before spending a Backup soak'
+        );
+        expect(publish.env.PENDING).toBe('${{ steps.pending.outcome }}');
+        expect(publish.env.POLICY).toBe('${{ steps.policy.outcome }}');
+        expect(publish.if).toBe('always()');
+      });
+      it('a run that failed before any certificate leaves an existing success in place', () => {
+        const result = shell(fakeGh('success') + publish.run, env);
+        expect(result.status).toBe(1);
+        expect(result.calls).toContain('READ ');
+        expect(result.calls).not.toContain('WRITE ');
+        expect(result.stdout).toContain('success on ' + sha + ' stands');
+      });
+      it.each(['missing', 'pending', 'failure', 'error'])(
+        'with an existing %s it reports error naming the provider, never a refusal',
+        (current) => {
+          const result = shell(fakeGh(current) + publish.run, env);
+          expect(result.status).toBe(1);
+          expect(result.calls).toContain('-f state=error');
+          expect(result.calls).toContain('reached no verdict');
+          expect(result.calls).not.toContain('state=failure');
+          expect(result.calls).not.toContain('refused');
+        }
+      );
+      it('writes nothing when the existing status cannot be read', () => {
+        for (const current of ['FAIL', 'garbage', '']) {
+          const result = shell(fakeGh(current) + publish.run, env);
+          expect(result.status).toBe(1);
+          expect(result.calls).not.toContain('WRITE ');
+        }
+      });
+      it('after this run wrote pending, no verdict is error without asking', () => {
+        const result = shell(fakeGh('success') + publish.run, { ...env, PENDING: 'success' });
+        expect(result.status).toBe(1);
+        expect(result.calls).not.toContain('READ ');
+        expect(result.calls).toContain('-f state=error');
+      });
+      it('the status description fits GitHub`s 140 characters', () => {
+        const description = /state=error; desc='([^']+)'/.exec(publish.run)![1];
+        expect(description.length).toBeLessThanOrEqual(140);
+      });
+      it('a genuine refusal is still a failure, over any earlier success', () => {
+        const policy = shell(fakeGh('success') + publish.run, {
+          ...env,
+          PENDING: 'success',
+          POLICY: 'failure',
+        });
+        expect(policy.status).toBe(1);
+        expect(policy.calls).toContain('-f state=failure');
+        expect(policy.calls).toContain('Backup Engine refused: see run');
+        const refused = shell(
+          fakeGh('success') + publish.run,
+          { ...env, PENDING: 'success', POLICY: 'success', RC: '1' },
+          { 'certificate.json': '{"reasons":["database_refresh_failed"]}' }
+        );
+        expect(refused.status).toBe(1);
+        expect(refused.calls).toContain('-f state=failure');
+        expect(refused.calls).toContain('Backup Engine refused: database_refresh_failed');
+        const unbound = shell(fakeGh('success') + publish.run, {
+          ...env,
+          PENDING: 'success',
+          POLICY: 'success',
+          RC: '0',
+          JOB_STATUS: 'success',
+        });
+        expect(unbound.status).toBe(1);
+        expect(unbound.calls).toContain('-f state=failure');
+        for (const result of [policy, refused, unbound])
+          expect(result.calls).not.toContain('READ ');
+      });
+      it('a certified run still writes success', () => {
+        const result = shell(fakeGh('missing') + publish.run, {
+          ...env,
+          PENDING: 'success',
+          POLICY: 'success',
+          RC: '0',
+          JOB_STATUS: 'success',
+          INSTALLED: 'f'.repeat(64),
+        });
+        expect(result.status, result.stderr).toBe(0);
+        expect(result.calls).toContain('-f state=success');
+      });
+    });
+  });
   // 2026-11-07: a certificate follows identical engine source. The plan job
   // inherits backup-engine/certified = success from a first-parent ancestor
   // whose engine source identity (the Dockerfile's COPY set, the Dockerfile

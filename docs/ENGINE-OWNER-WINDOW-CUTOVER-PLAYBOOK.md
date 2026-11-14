@@ -101,6 +101,7 @@ Get an independent fresh-context review of the exact head, then protected squash
 ### 6. Certify One Candidate
 
 - Cancel only your own useless queued Backup runs (for example a commit you know cannot be selected); never another lane's. Push runs are serialized and a newer push run supersedes older queued ones.
+- Since November 14 the booking commit's own push run is never superseded or retargeted while the window is live (it prints `PRIORITY`), and a push run for a commit that predates the booking ends as `SUPERSEDED`, `RETARGETED` or `DEFERRED` instead of certifying that commit (runbook 3.6). A manual insurance dispatch of the booking commit is no longer needed for that reason. A certification already running when the booking merges is not cancelled: check `gh run list --workflow backup-engine.yml` BEFORE merging the booking and, if an unrelated run has just started, expect to wait for it.
 - The push run on the target refreshes only if production differs from the last copy.
 - While it runs: confirm the candidate image is resident on the host with the target revision label (`docker image inspect club-arena-engine:<sha>`), and run the protected validator locally against the target with simulated clocks (`policy` and `check_window` from `server/scripts/engine-release-activation-floor.py`).
 
@@ -149,6 +150,8 @@ Never retry. If the result is uncertain, read the Stage run, receiver run and ho
 | A merged migration was defective (stale function pin) and refused            | Target required a migration that cannot install         | Install required migrations before the Backup copy; if refused, revert the never-installed file (precedent #10430) and let its owner re-land |
 | Own useless Backup run queued ahead of the real candidate                    | About 55 minutes lost                                   | Cancel your own unusable queued run                                                                                                          |
 | Window booked for an announcement after :49                                  | Refused or deferred to :05:30                           | Plan the announcement between :05:30 and :48:00                                                                                              |
+| November 14: unrelated push run started 4 minutes before the booking merged  | Candidate waited about 50 minutes for the host          | Read the Backup queue before merging the booking; a running certification is never cancelled                                                 |
+| November 14: one HTTP 502 failed the post-seal certify job after 16 s        | "refused" written over an hour-old success certificate  | Fixed: bounded retry in the dispatch proof; a run with no verdict writes `error` and keeps an existing success (runbook 3.4)                 |
 
 ## Reference Timeline (November 13, 2026, UTC)
 

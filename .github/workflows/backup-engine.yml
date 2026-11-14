@@ -33,6 +33,17 @@ run-name: ${{ github.event_name == 'repository_dispatch' && github.event.client_
 # when that descends from its own push, and plans nothing when that commit
 # already carries a success certificate, so no commit is certified twice.
 #
+# THE BOOKED CANDIDATE GOES FIRST (2026-11-14). While an owner engine window
+# booked on main is open or upcoming and its release is not yet serving, a
+# push run asks scripts/ci/backup-candidate-priority.py (read-only) where its
+# own commit stands. The BOOKING commit (the first main commit carrying
+# main's release controls) is certified exactly: it is neither superseded by
+# later ordinary pushes nor retargeted. A commit whose release controls
+# differ from main's can never be selected while the window is open; if it
+# was neither superseded nor retargeted it ends as DEFERRED with nothing
+# planned and no status written. Any unreadable answer is "unknown" and the
+# run behaves exactly as before. Nothing here cancels a running certification.
+#
 # A CERTIFICATE FOLLOWS IDENTICAL ENGINE SOURCE (2026-11-07). Most server-tree
 # pushes do not change a byte the engine image is built from (standby
 # scripts, server/tests, sim and qualification tooling, workflow and doc
@@ -174,8 +185,30 @@ jobs:
           # running when this one starts; its id is always larger. Only push
           # runs are judged; an unreadable answer means "not superseded".
           if [ "$EVENT" = push ] && [[ "${RUN_ID:-}" =~ ^[0-9]+$ ]]; then
+            # THE BOOKED CANDIDATE GOES FIRST (2026-11-14). One read-only
+            # verdict about a live owner engine window on main; anything but
+            # an exact answer is "unknown" and changes nothing below.
+            priority=unknown; window=''
+            tool=$(mktemp)
+            if gh api -H 'Accept: application/vnd.github.raw' "repos/${GITHUB_REPOSITORY:-}/contents/scripts/ci/backup-candidate-priority.py?ref=$GITHUB_SHA" > "$tool" 2>/dev/null; then
+              verdict=$(python3 -B "$tool" --repo "${GITHUB_REPOSITORY:-}" --sha "$sha" 2>/dev/null) || verdict=''
+              answer=$(printf '%s\n' "$verdict" | sed -n 's/^priority=//p')
+              case "$answer" in
+                none|booking|candidate|predates) priority="$answer"; window=$(printf '%s\n' "$verdict" | sed -n 's/^window=//p') ;;
+              esac
+            fi
+            rm -f "$tool"
+            echo "owner window priority: $priority${window:+ ($window)}"
+            if [ "$priority" = booking ]; then
+              # The booking commit is the window's one deterministic candidate:
+              # later ordinary pushes neither supersede nor replace it.
+              echo "PRIORITY: $sha is the booking commit of open owner engine window $window; it is certified exactly and is not superseded or retargeted."
+              { echo "### Backup Engine"; echo ""; echo "- PRIORITY \`$sha\`: booking commit of owner window \`$window\`; not superseded, not retargeted."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+              newer=0
+            else
             newer=$(gh api "repos/${GITHUB_REPOSITORY:-}/actions/workflows/backup-engine.yml/runs?event=push&branch=main&per_page=100" \
               --jq "[.workflow_runs[] | select(.id > $RUN_ID and .head_sha != \"$sha\")] | length" 2>/dev/null || echo unreadable)
+            fi
             if [[ "$newer" =~ ^[0-9]+$ ]] && [ "$newer" -gt 0 ]; then
               echo "SUPERSEDED: $newer newer push run(s) of this workflow are already queued; $sha is no longer the newest engine push on main and the 04:00 cutover offers only the newest certified commit. Nothing planned, no status written; the Backup host goes to the newer run."
               { echo "### Backup Engine"; echo ""; echo "- SUPERSEDED \`$sha\`: $newer newer push run(s) queued; nothing built, no certificate written."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
@@ -194,7 +227,9 @@ jobs:
             # Only a strictly newer descendant replaces this push; anything
             # unreadable keeps the pushed commit, as before.
             repo="repos/${GITHUB_REPOSITORY:-}"
+            if [ "$priority" = booking ]; then head="$sha"; else
             head=$(gh api "$repo/commits?sha=main&path=server&per_page=1" --jq '.[0].sha // ""' 2>/dev/null || echo unreadable)
+            fi
             if [[ "$head" =~ ^[0-9a-f]{40}$ ]] && [ "$head" != "$sha" ]; then
               rel=$(gh api "$repo/compare/$sha...$head" --jq '.status' 2>/dev/null || echo unreadable)
               if [ "$rel" = ahead ]; then
@@ -205,6 +240,17 @@ jobs:
               else
                 echo "main's newest server commit $head is not a descendant of $sha ($rel); certifying $sha as pushed"
               fi
+            fi
+            # A commit whose release controls differ from main's cannot be the
+            # open owner window's candidate (Stage refuses it). If it was not
+            # retargeted to main's newest server commit, it must not occupy the
+            # Backup host ahead of the candidate.
+            if [ "$priority" = predates ] && [ -z "${retarget_control:-}" ]; then
+              echo "DEFERRED: owner engine window $window is booked and open on main, and $sha carries release controls that differ from main's, so it can never be selected while the window is open. Nothing planned, no status written; the Backup host stays free for the window's candidate."
+              { echo "### Backup Engine"; echo ""; echo "- DEFERRED \`$sha\`: predates open owner window \`$window\`; nothing built, no certificate written."; } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+              echo "sha=" >> "$GITHUB_OUTPUT"
+              echo "refresh=" >> "$GITHUB_OUTPUT"
+              exit 0
             fi
             # Never certify twice: runs are serialized, so an earlier run for
             # this target has already finished. A success certificate stands;
@@ -326,7 +372,17 @@ jobs:
         run: |
           set -euo pipefail
           # scripts/ci/dispatch-intent.mjs: sender run, artifact, exact inputs and one-time title.
-          gh api -H 'Accept: application/vnd.github.raw' "repos/$GITHUB_REPOSITORY/contents/scripts/ci/dispatch-intent.mjs?ref=$GITHUB_SHA" > "$RUNNER_TEMP/dispatch-intent.mjs"
+          # One transient provider answer must not fail a certification
+          # (run 43565758486, HTTP 502): a 5xx or network error is retried a
+          # bounded number of times inside this step; a 4xx fails at once.
+          fetched=0
+          for wait in 0 5 15 30; do
+            sleep "$wait"
+            if gh api -H 'Accept: application/vnd.github.raw' "repos/$GITHUB_REPOSITORY/contents/scripts/ci/dispatch-intent.mjs?ref=$GITHUB_SHA" > "$RUNNER_TEMP/dispatch-intent.mjs" 2> "$RUNNER_TEMP/dispatch-intent.err"; then fetched=1; break; fi
+            cat "$RUNNER_TEMP/dispatch-intent.err" >&2
+            if grep -Eq 'HTTP 4[0-9][0-9]' "$RUNNER_TEMP/dispatch-intent.err"; then break; fi
+          done
+          [ "$fetched" = 1 ] || { echo "::error::could not fetch scripts/ci/dispatch-intent.mjs"; exit 1; }
           node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver backup-after-seal
       - uses: actions/checkout@v4
         with:
@@ -444,9 +500,20 @@ jobs:
         run: |
           set -euo pipefail
           # scripts/ci/dispatch-intent.mjs: sender run, artifact, exact inputs and one-time title.
-          gh api -H 'Accept: application/vnd.github.raw' "repos/$GITHUB_REPOSITORY/contents/scripts/ci/dispatch-intent.mjs?ref=$GITHUB_SHA" > "$RUNNER_TEMP/dispatch-intent.mjs"
+          # One transient provider answer must not fail a certification
+          # (run 43565758486, HTTP 502): a 5xx or network error is retried a
+          # bounded number of times inside this step; a 4xx fails at once.
+          fetched=0
+          for wait in 0 5 15 30; do
+            sleep "$wait"
+            if gh api -H 'Accept: application/vnd.github.raw' "repos/$GITHUB_REPOSITORY/contents/scripts/ci/dispatch-intent.mjs?ref=$GITHUB_SHA" > "$RUNNER_TEMP/dispatch-intent.mjs" 2> "$RUNNER_TEMP/dispatch-intent.err"; then fetched=1; break; fi
+            cat "$RUNNER_TEMP/dispatch-intent.err" >&2
+            if grep -Eq 'HTTP 4[0-9][0-9]' "$RUNNER_TEMP/dispatch-intent.err"; then break; fi
+          done
+          [ "$fetched" = 1 ] || { echo "::error::could not fetch scripts/ci/dispatch-intent.mjs"; exit 1; }
           node "$RUNNER_TEMP/dispatch-intent.mjs" prove --receiver backup-after-seal
       - name: Mark the certification pending
+        id: pending
         env: { GH_TOKEN: '${{ github.token }}', SHA: '${{ needs.plan.outputs.sha }}' }
         run: |
           gh api "repos/$GITHUB_REPOSITORY/statuses/$SHA" -f state=pending -f context="$STATUS_CONTEXT" \
@@ -460,6 +527,7 @@ jobs:
             server/scripts
             server/standby/schema-evidence.py
       - name: Check the protected activation policy before spending a Backup soak
+        id: policy
         env:
           SHA: ${{ needs.plan.outputs.sha }}
         run: |
@@ -523,12 +591,34 @@ jobs:
             RC: '${{ steps.certify.outputs.rc }}',
             JOB_STATUS: '${{ job.status }}',
             INSTALLED: '${{ steps.certify.outputs.installed }}',
+            PENDING: '${{ steps.pending.outcome }}',
+            POLICY: '${{ steps.policy.outcome }}',
           }
         run: |
           set -euo pipefail
+          write=1
           if [ "$RC" = 0 ] && [ "$JOB_STATUS" = success ] && [[ "$INSTALLED" =~ ^[0-9a-f]{64}$ ]]; then state=success; desc="Certified on the Backup Engine; installed migrations $INSTALLED"
-          else state=failure; desc="Backup Engine refused: $(python3 -c 'import json;print(",".join(json.load(open("certificate.json")).get("reasons",[]))[:120])' 2>/dev/null || echo see run)"; fi
+          elif [ -n "$RC" ] || [ "$POLICY" = failure ]; then state=failure; desc="Backup Engine refused: $(python3 -c 'import json;print(",".join(json.load(open("certificate.json")).get("reasons",[]))[:120])' 2>/dev/null || echo see run)"
+          else
+            # NO VERDICT IS NOT A REFUSAL (2026-11-14, run 43565758486). The job
+            # failed before the Backup host judged anything (a provider 5xx, the
+            # dispatch proof, a checkout), so there is no certificate to report.
+            # That is `error`, never `failure`, and it never replaces a success
+            # this run did not itself overwrite with `pending`.
+            state=error; desc='Backup Engine reached no verdict: this run failed before certifying (provider, dispatch proof or checkout). See run.'
+            if [ "$PENDING" != success ]; then
+              current=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/statuses?per_page=100" \
+                --jq "[.[] | select(.context == \"$STATUS_CONTEXT\")][0].state // \"missing\"" 2>/dev/null) || current=unreadable
+              case "$current" in
+                success) write=0; echo "The existing $STATUS_CONTEXT = success on $SHA stands: this run produced no certificate and wrote no status." ;;
+                missing|pending|failure|error) ;;
+                *) write=0; echo "Could not read the existing $STATUS_CONTEXT on $SHA ($current); writing nothing rather than risk replacing a success." ;;
+              esac
+            fi
+          fi
+          if [ "$write" = 1 ]; then
           gh api "repos/$GITHUB_REPOSITORY/statuses/$SHA" -f state="$state" -f context="$STATUS_CONTEXT" -f description="$desc" \
             -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >/dev/null
+          fi
           echo "$state: $desc"
           [ "$state" = success ]
