@@ -651,7 +651,7 @@ describe("the option is two-card no-limit hold'em only (review 20261113, A3)", (
   // spot the rule would otherwise rescue: the reference folds every seed and
   // the token price, the crumbs line or the commitment would end the
   // exemption.
-  const CASES: [variant: string, node: string, hand: string][] = [
+  const CASES: [variant: string, node: string, hand: string, absentAction?: string][] = [
     ['plo4', 'ace-eight-suited-31-chips', 'AsKh7d2c'],
     ['plo5', 'ace-eight-suited-31-chips', 'AsKh7d2c9s'],
     ['plo6', 'ace-eight-suited-31-chips', 'AsKh7d2c9s4h'],
@@ -663,7 +663,9 @@ describe("the option is two-card no-limit hold'em only (review 20261113, A3)", (
     ['pineapple', 'ace-eight-suited-31-chips', '7s2h9d'],
     // review 3e22706d M1: the fixed-limit term of the gate had no case
     ['flh', 'pair-of-sevens-big-blind', '9s6h'],
-    ['flh', 'pair-of-threes-button', 'As8s'],
+    // since e6a1b60c (fixed limit is never jam-or-fold) this hand plays on with the option absent, so what is
+    // pinned here is only that the option changes nothing
+    ['flh', 'pair-of-threes-button', 'As8s', 'all_in'],
     ['flh', 'ace-eight-suited-31-chips', '9s6h'],
   ];
 
@@ -676,13 +678,13 @@ describe("the option is two-card no-limit hold'em only (review 20261113, A3)", (
     return rq;
   }
 
-  for (const [variant, node, hand] of CASES) {
-    it(`${variant} ${hand} at ${node}: on equals absent, and the guard's fold stands`, () => {
+  for (const [variant, node, hand, absentAction = 'fold'] of CASES) {
+    it(`${variant} ${hand} at ${node}: on equals absent, and the absent decision (${absentAction}) stands`, () => {
       const rq = variantSpot(variant, node, hand);
       for (const seed of SEEDS) {
         const absent = decideBuilt(rq, seed, 'absent', { v38Ev: false });
         expect(absent.tournamentPreflopAttribution?.lookup?.policy?.branch).toBe('multiway_all_in');
-        expect(absent.action).toBe('fold');
+        expect(absent.action).toBe(absentAction);
         expect(stable(decideBuilt(rq, seed, true, { v38Ev: false }))).toBe(stable(absent));
       }
       for (const seed of SEEDS.slice(0, 4)) {
