@@ -324,7 +324,7 @@ import {
   type TournamentMState,
   type TournamentPreflopPolicyInput,
 } from './HorseTournamentPreflop.js';
-import { potLimitRaiseTo } from './BettingStructure.js';
+import { fixedLimitStreetBounds, potLimitRaiseTo } from './BettingStructure.js';
 import { omahaTournamentPressure } from './HorseOmahaTournamentPressure.js';
 import { reportError } from '../services/errorReporter.js';
 import {
@@ -4387,6 +4387,64 @@ function capturePhase7Equity(
   };
 }
 
+/**
+ * Does the controller execute this menu's all-in button as a wager of the
+ * whole stack, although it offers no sized bet or raise? True only for the
+ * stack above the call and below the minimum wager, in pot limit and fixed
+ * limit (no-limit builds its jam without being told).
+ *
+ * HandController.getAvailableActions offers `all_in` only when its own clamp
+ * accepts it, and getAuthoritativeActionState withholds the sized wager (both
+ * bounds null) when the stack cannot reach the minimum. In pot limit an
+ * all-in above the pot cap is advertised only as a legal raise to the cap, so
+ * the sized wager is then on the menu too: the button without a sized wager is
+ * always the whole stack. In fixed limit the same menu is also shown on a
+ * capped street and to a seat that may not reopen, where the clamp turns the
+ * button into a call, so the clamp's own test decides it
+ * (HandController.clampToStructure): the street is not capped and the whole
+ * stack reaches no further than the standing bet plus the street's legal
+ * increment. Anything unknown answers false, which is the candidate set as it
+ * was.
+ */
+export function phase7ShortAllInWagers(
+  gs: HorseGameStateV2,
+  player: SeatPlayer,
+  structure: 'no_limit' | 'pot_limit' | 'fixed_limit'
+): boolean {
+  const legal = gs.legalActions;
+  if (
+    structure === 'no_limit' ||
+    gs.stateSchemaVersion !== 1 ||
+    gs.allInOrFold === true ||
+    !Array.isArray(legal) ||
+    !legal.includes('all_in') ||
+    legal.includes('bet') ||
+    legal.includes('raise') ||
+    (gs.minRaiseTo ?? null) !== null ||
+    (gs.maxRaiseTo ?? null) !== null
+  )
+    return false;
+  const toCall = Math.max(0, Number(gs.toCall ?? gs.currentBet - player.bet) || 0);
+  if (!(player.stack > toCall + 0.005)) return false;
+  if (structure === 'pot_limit') return true;
+  const betSize = gs.fixedBetSize;
+  if (
+    gs.wagersCapped !== false ||
+    !Array.isArray(gs.actionHistory) ||
+    typeof betSize !== 'number' ||
+    !(betSize > 0) ||
+    !Number.isFinite(gs.currentBet)
+  )
+    return false;
+  const increment = fixedLimitStreetBounds(
+    gs.actionHistory,
+    gs.stage,
+    betSize,
+    gs.currentBet
+  ).raiseSize;
+  return player.bet + player.stack <= gs.currentBet + increment + 0.005;
+}
+
 function buildPhase7UtilityInput(
   gs: HorseGameStateV2,
   player: SeatPlayer,
@@ -4398,6 +4456,9 @@ function buildPhase7UtilityInput(
 ): TournamentUtilityInput {
   if (!gs.pots || !gs.legalActions) throw new Error('joint_utility_canonical_state_unavailable');
   const toCall = Math.max(0, gs.currentBet - player.bet);
+  const bettingStructure =
+    gs.bettingStructure ??
+    (vi.isFixedLimit ? 'fixed_limit' : vi.isPotLimit ? 'pot_limit' : 'no_limit');
   return {
     v86AsymmetricIcmAndPreflop: opts?.v86UnblockedPreflop !== false,
     // Tournament stacks and awards use whole chips. Model the same button-
@@ -4417,9 +4478,15 @@ function buildPhase7UtilityInput(
     legalActions: gs.legalActions,
     minRaiseTo: gs.minRaiseTo ?? null,
     maxRaiseTo: gs.maxRaiseTo ?? null,
-    bettingStructure:
-      gs.bettingStructure ??
-      (vi.isFixedLimit ? 'fixed_limit' : vi.isPotLimit ? 'pot_limit' : 'no_limit'),
+    bettingStructure,
+    // The short stack's shove through the all-in button is priced as the
+    // wager the controller executes, not left out of the candidates. Only
+    // when the reference decision IS that shove: a jam added beside a
+    // reference fold or call is a near twin of the call, the two overlap in
+    // the arbiter's uncertainty gate and an override of the fold is lost.
+    ...(decision.action === 'all_in' && phase7ShortAllInWagers(gs, player, bettingStructure)
+      ? { shortAllInWagers: true }
+      : {}),
     baseline: decision,
     heroEquity: evidence7.equity,
     equitySampleSize: evidence7.sampleSize,
@@ -6840,6 +6907,13 @@ export class HorseLogic {
                   noteFire(`phase7_objective_${result.ledger.objective}`);
                   noteFire(`phase7_icm_${result.ledger.icmMethod}`);
                   if (result.ledger.overrodeBaseline) noteFire('phase7_utility_override');
+                  // The reference short shove (priced through shortAllInWagers),
+                  // countable by variant: priced, and replaced by the utility.
+                  if (phase8UtilityInput.shortAllInWagers === true) {
+                    noteFire(`phase7_short_shove_priced_${gs.gameVariant}_seen`);
+                    if (selected.action !== 'all_in')
+                      noteFire(`phase7_short_shove_replaced_${gs.gameVariant}_seen`);
+                  }
                   if (result.ledger.sidePotCount > 1) noteFire('phase7_side_pot');
                   if (result.ledger.playersBehind.length > 0) noteFire('phase7_players_behind');
                   if (result.ledger.objective === 'pko') noteFire('phase7_bounty_utility');
@@ -7197,12 +7271,16 @@ export class HorseLogic {
                   if (jointPolicy.receipt.mode === 'candidate') {
                     if (earlierApplied && !this.sameJointAction(selected, beforePhase13))
                       selectionRefusal = 'earlier_phase_applied';
-                    else
+                    else {
                       decision = {
                         ...beforePhase13,
                         ...selected,
                         tournamentUtility: evaluated.result.ledger,
                       };
+                      // The same receipt when this owner replaces the shove.
+                      if (tele && input.shortAllInWagers === true && selected.action !== 'all_in')
+                        noteFire(`phase7_short_shove_replaced_${gs.gameVariant}_seen`);
+                    }
                   }
                 } else {
                   jointPolicy.receipt.utilityOwner = 'phase7_unavailable';
