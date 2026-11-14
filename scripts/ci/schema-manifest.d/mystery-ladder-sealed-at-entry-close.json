@@ -1,0 +1,5 @@
+{
+  "_owner": "claude/mystery-ladder-sealed-at-entry-close (migration 20261114034527)",
+  "tables": ["tournament_mystery_sealed_ladders"],
+  "functions": ["fn_mystery_bounty_seal"]
+}
