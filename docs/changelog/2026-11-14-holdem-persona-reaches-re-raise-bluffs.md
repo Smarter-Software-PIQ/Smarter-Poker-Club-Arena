@@ -32,11 +32,13 @@ Not run: an end-to-end exact replay of a recorded live decision with the option 
 - Option on: the 3-bet bluff and the squeeze bluff still consume the shared draw at the same point and throw it away, so a decision the persona does not change leaves the stream exactly where it was. A decision the persona changes then draws its sizing differently, as any changed decision does. The reshove never drew and still does not.
 - Omaha, short deck, pot limit, fixed limit, hi-lo and pineapple never receive the field. An All-In-Or-Fold hold'em table does receive it, because it is no-limit hold'em, but its code returns before any of the three places that read it, so nothing there changes.
 
-## A Style Read Is Not Undone
+## The Persona Never Bluffs A Tight Player More
 
-The style-read options only raise bars against a player they judge tight; they do not touch the bluff probability. Without a guard, a loose Horse would bluff a tight opener up to 1.52 times as often with both options on, the opposite of the owner's direction on tight players. So where the tight-player respect is applied on a decision, the Horse's scale is held at 1 or below: the persona may lower a bluff there and never raise it.
+Without a guard, a loose Horse would bluff an opener the Horses have read as tight up to 1.52 times as often, the opposite of the owner's direction on tight players. So with the persona option on, the brain asks the opponent-style read about the opener (or the re-raiser, at the reshove) itself. If the read classifies him as tight, the Horse's scale is held at 1 or below at all three places: the persona may lower a bluff there and never raise it.
 
-The signals are the two objects the style option builds for the preflop code: the tight opener's bounded read (`exploitOpener` with `wide` false and a `maxBarMove`) for the 3-bet and squeeze bluffs, and `styleTightReRaiser` for the reshove. Both exist only when the option `styleTightReRaiserRespect` is on. In shadow the option works out the same judgement, records it and builds neither object, so shadow changes nothing here. The other style options (raise respect, value-bettor) act after the flop and never reach this code. Counter: `holdem_persona_scale_held_by_style_seen`.
+This does not depend on the style option. It uses the same read and the same two classifiers the option `styleTightReRaiserRespect` uses (`tightOpenerRespect`, `tightReRaiserRespect`), and it holds with that option off, in shadow (its planned state) or on, and at every stack depth. It applies nothing of the style option: no bar moves, none of the style read's counters fire, no shadow record is written and no style-read time is booked. Its only effect is the cap. Counter: `holdem_persona_scale_held_by_style_seen`.
+
+**The cap depends on the read being available.** With opponent memory off, no profile for the player, a presumed read or too little data for the read to be actionable, the opener is unknown, not tight, and the scale is not held.
 
 ## What Is Declared, Not Hidden
 
@@ -60,7 +62,7 @@ Ten, all occurrence counters: `holdem_persona_3bet_bluff_eligible_seen`, `_chang
   - On, hold'em: every decision the persona did not change equals off, draw for draw. Over the same 150 spots for 40 Horses of each archetype the 3-bet bluff rate orders LAG, TAG, Tricky, Nit.
   - One answer per hand: the same number at any stack depth and any draw within a hand; 40 different numbers for 40 consecutive hands; the same number for the fast look, the second look and a retry; the fallback used and counted when no hand is supplied.
   - Reshove: Horses at scale 1 or more shove A5s to A2s 960 of 960 times; 20 Nits shove about two thirds and call the rest; value hands always shove.
-  - Style read, through the real read (a tight opener held in the Horse's memory): a loose Horse's scale is held at 1 on every one of its bluff comparisons; a tight Horse's is left alone; against openers not judged tight, and with the style option in shadow, the persona's numbers and the decisions are identical to the style option being absent.
+  - Tight players, through the real read (a tight opener held in the Horse's memory), with the style option off, in shadow and on: a loose Horse's scale is held at 1 on every comparison, so it fires a bluff only where the unscaled probability would allow it, and the held counter fires each time; a tight Horse is still scaled down; against openers not read as tight the scaled behaviour is unchanged; the style option's own counters and shadow records are identical with the persona option on and off; with opponent memory off nothing is held.
 - `server/src/benchmark/HoldemPersonaReRaiseProbe.test.ts` validates the measuring tool: with every Horse at scale 1 and the draw as its number the paired difference is exactly zero for all three behaviours in three cells; with every Horse at 0.5 the reshove is taken half as often within its interval and the bluff comparisons fire at half the probability; "taken" is one definition for both arms; paired counts add up.
 - A refused reshove bluff was compared (at the first head of this branch, before the per-hand number) against an engine with the bluff hands removed from the set: 306 of 306 the same action, amount and stream state (a call in the tested spot: button opens 2.2, big blind 3-bets to 7.5, 27 to 33 big blinds). In the smoke run, in play, one refused hand called and one folded.
 - Deliberate breaks, each caught: dropping the discarded draw fails the draw-for-draw test; multiplying the option-off probability fails the off test against the recording from main.
@@ -92,7 +94,9 @@ League card `cash6_holdem_persona_reraise_mix` deals the option (six-handed cash
 ## Limits
 
 - Synthetic ids, Horses against Horses, no people. Nothing here shows how people respond to persona-scaled re-raises.
-- The measuring tool decides with opponent memory off, so no style read engages in it.
+- The measuring tool decides with opponent memory off, so the tight-player hold is never exercised in the measurement. Its report says so in its header.
+- The fallback counter fires on the fast decision only (the second look runs with counters off). The second look derives the hand from the same snapshot by the same function, so it cannot fall back when the fast decision did not.
+- The league card stamps the hand on both arms, so neither arm is the plain league baseline: the brain's existing plan reader keys on the same context, and stamping one arm alone would make the arms differ by more than the option.
 - No profit figure exists for any of the three behaviours.
 - This is a preflop range change. Merging it off does not lift the range hold.
 - Nothing is live until the option is turned on and an engine release carries it.

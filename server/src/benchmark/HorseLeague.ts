@@ -257,7 +257,12 @@ export interface LeagueMatchup {
    * hand number); the league gave none, so an option that keys on the hand
    * had only its offline fallback to run. 'deal_seed' stamps every decision
    * of a pair, in both passes and both arms, with one hand derived from the
-   * pair's deal seed. Unset keeps the old behaviour for every existing card.
+   * pair's deal seed. Both arms, although only an arm with such an option
+   * reads it for its units: the brain's existing plan reader also keys on
+   * this context, so stamping one arm alone would make the arms differ by
+   * more than the option under test. A card that sets this therefore has no
+   * arm on the plain league baseline. Unset keeps the old behaviour for every
+   * existing card.
    */
   handIdentity?: 'deal_seed';
   /**

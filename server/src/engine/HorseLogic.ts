@@ -8622,6 +8622,9 @@ export class HorseLogic {
     let exploitPressure: AggressiveOpenerPressure | undefined;
     let exploitReRaiser: { fourBetBar: number; callBar: number } | undefined;
     let styleTightReRaiser: TightReRaiser | undefined;
+    // PERSONA RE-RAISE MIX: the opener / re-raiser is one the style read
+    // classifies as tight (set only inside the persona option's gate, below).
+    let personaHeldByTightRead = false;
     let evidencedWideRaiser87 = false;
     let exploitIso = 0;
     // LIMP-RERAISE READ (flag limpReraiseIsoRead, HorseLimpReraiseRead): the
@@ -8723,6 +8726,28 @@ export class HorseLogic {
               else if (tightRe)
                 noteStyleShadowEngaged('styleTightReRaiserRespect', style.confidenceCap);
             }
+          }
+          // ═══ PERSONA RE-RAISE MIX: NEVER BLUFF A TIGHT PLAYER MORE ═══
+          // (2026-11-14, default off.) Only with the persona option on: is
+          // this opener / re-raiser one the style read classifies as tight?
+          // The SAME read and the SAME two classifiers the option
+          // styleTightReRaiserRespect uses just above (tightOpenerRespect,
+          // tightReRaiserRespect), asked whatever that option's state is
+          // (off, shadow, on) and whatever the depth: this is about who he
+          // is, not about whether the style bars move. It applies nothing of
+          // the style option: no bar, no style receipt, no shadow record, no
+          // style latency (styleReadUncounted). Its one effect is the persona
+          // cap in HorsePreflop: scale = min(1, scale). No read (mind off, no
+          // profile, a presumed read, too little data to be actionable) is
+          // not a tight read: unknown is not capped.
+          if (opts.holdemPersonaReRaiseMix === true && !vi.isOmaha && read?.presumed !== true) {
+            const personaStyle = HorseMind.styleReadUncounted(raiser.user_id);
+            personaHeldByTightRead =
+              (raises === 1
+                ? tightOpenerRespect(personaStyle)
+                : raises >= 2
+                  ? tightReRaiserRespect(personaStyle)
+                  : null) !== null;
           }
         }
         const allowOmahaIso86 =
@@ -9146,6 +9171,7 @@ export class HorseLogic {
                   u3bet: unit(HOLDEM_PERSONA_RERAISE_SALT.threeBet),
                   uSqueeze: unit(HOLDEM_PERSONA_RERAISE_SALT.squeeze),
                   uFourBet: unit(HOLDEM_PERSONA_RERAISE_SALT.fourBet),
+                  ...(personaHeldByTightRead ? { heldByTightRead: true } : {}),
                 },
               };
             })()

@@ -500,6 +500,9 @@ export function formatPersonaReRaiseReport(rep: PersonaReRaiseReport): string {
   lines.push(
     `${rep.seats}-handed ${rep.mode} ${depth}: ${rep.ids} ids (LAG ${rep.archetypeIds.lag_shark} / TAG ${rep.archetypeIds.tag_crusher} / Tricky ${rep.archetypeIds.tricky_trap} / Nit ${rep.archetypeIds.nit_hunter}), ${rep.tables} tables x ${rep.seats} rotations, ${rep.hands} hands per arm, seed ${rep.seed}, mean scale ${rep.meanScale}, hand identity ${rep.handIdentity ? 'supplied' : 'absent (public-state fallback)'}`
   );
+  lines.push(
+    'LIMITS: decisions are made with opponent memory off, so the tight-read hold (scale held at 1 against a player the style read classifies as tight) is never exercised here; the ids are the model 25/20/40/15 quota of synthetic ids, not the real fleet; Horses against Horses, preflop only.'
+  );
   const rate = (r: Rate, n: number) => `${r.taken}/${n} = ${r.rate}% (${r.low} to ${r.high})`;
   const label = (row: string) => {
     const d = row.startsWith('decile ') ? rep.deciles[Number(row.slice(7)) - 1] : undefined;

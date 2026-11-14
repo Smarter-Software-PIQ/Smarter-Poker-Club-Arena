@@ -17,8 +17,9 @@
  *      hand, the same for the fast and the deep look and across a retry.
  *  (e) The four-bet reshove's bluff classes shove at the Horse's scale; value
  *      classes always shove.
- *  (f) Against an opener the style read respects as tight the persona never
- *      raises a bluff probability; a shadow arm changes nothing.
+ *  (f) Against an opener the opponent-style read classifies as tight the
+ *      persona never raises a bluff probability, with the style option off,
+ *      in shadow or on, and the style option's own books do not move.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -84,6 +85,7 @@ import {
   recordOffControl,
   type OffControl,
 } from './HorseHoldemPersonaReRaiseMix.off-control.test-support.js';
+import { clearStyleShadowEngaged, takeStyleShadowEngaged } from './HorseStyleShadow.js';
 import {
   VILLAINS,
   decide as decideStyleSpot,
@@ -634,14 +636,11 @@ describe('persona re-raise mix: the 26-35bb four-bet reshove', () => {
   });
 });
 
-// The style read's own path: HorseMind holds a villain, the option
-// styleTightReRaiserRespect asks HorseOpponentStyle.tightOpenerRespect about
-// him, and for a credibly tight opener HorseLogic builds ctx.exploitOpener
-// { wide: false, maxBarMove, callBump } (HorseLogic, STYLE READ #6). That
-// object is the signal the persona reads. In SHADOW the same code computes
-// the classification, records that it engaged and builds nothing, so no
-// signal reaches the preflop module.
-describe('persona re-raise mix: a style read is not undone by the persona', () => {
+// The opponent-style read's own path: HorseMind holds a villain, and with the
+// persona option on HorseLogic asks the read about the opener itself
+// (HorseMind.styleReadUncounted, then tightOpenerRespect: the classifier the
+// option styleTightReRaiserRespect uses), whatever that option's state.
+describe('persona re-raise mix: the persona never bluffs a tight player more', () => {
   const R = '23456789TJQKA';
   const S = 'cdhs';
   const HOLDINGS: string[] = [];
@@ -650,92 +649,137 @@ describe('persona re-raise mix: a style read is not undone by the persona', () =
       HOLDINGS.push(`${R[a % 13]}${S[Math.floor(a / 13)]}${R[b % 13]}${S[Math.floor(b / 13)]}`);
   const lag = FLEET.find((id) => holdemPersonaReRaiseScale(id) > 1.3)!;
   const nit = FLEET.find((id) => holdemPersonaReRaiseScale(id) < 0.7)!;
+  const STYLE_STATES: Record<string, Record<string, unknown>> = {
+    off: {},
+    shadow: { styleShadow: ['styleTightReRaiserRespect'] },
+    on: { styleTightReRaiserRespect: true },
+  };
 
-  /** Every big-blind holding against the villain's open: the persona events. */
+  interface Sweep {
+    events: HoldemPersonaReRaiseTapEvent[];
+    outcomes: string[];
+    held: number;
+    /** Per holding: the style read's own receipts and its shadow records. */
+    styleBooks: string[];
+  }
+  /** Every big-blind holding against the villain's open. */
   function sweep(
     heroId: string,
     villain: keyof typeof VILLAINS,
-    opts: Record<string, unknown>
-  ): { events: HoldemPersonaReRaiseTapEvent[]; outcomes: string[]; held: number } {
-    const events: HoldemPersonaReRaiseTapEvent[] = [];
-    const outcomes: string[] = [];
-    let held = 0;
+    opts: Record<string, unknown>,
+    persona = true
+  ): Sweep {
+    const out: Sweep = { events: [], outcomes: [], held: 0, styleBooks: [] };
     tap();
     HOLDINGS.forEach((holding, k) => {
       const spot = preflopOpen('cash', holding, 200);
       spot.hero.user_id = heroId;
       installVillain(VILLAINS[villain], 'cash');
       tapped.length = 0;
+      clearStyleShadowEngaged();
       const d = decideStyleSpot(spot, {
-        holdemPersonaReRaiseMix: true,
+        ...(persona ? { holdemPersonaReRaiseMix: true } : {}),
         ...handOpts(3000000 + k),
         ...opts,
       });
-      outcomes.push(d.digest);
-      if (tapped[0]) events.push({ ...tapped[0] });
-      held += d.fires.holdem_persona_scale_held_by_style_seen ?? 0;
+      out.outcomes.push(d.digest);
+      if (tapped[0]) out.events.push({ ...tapped[0] });
+      out.held += d.fires.holdem_persona_scale_held_by_style_seen ?? 0;
+      out.styleBooks.push(
+        JSON.stringify([
+          Object.entries(d.fires)
+            .filter(([f]) => f.startsWith('style_'))
+            .sort(),
+          takeStyleShadowEngaged(),
+        ])
+      );
     });
-    return { events, outcomes, held };
+    return out;
   }
 
-  it('a scale > 1 Horse facing an opener the style read respects as tight never has its bluff probability raised', () => {
-    const tight = sweep(lag, 'grinder', { styleTightReRaiserRespect: true });
-    expect(tight.events.length).toBeGreaterThan(40);
-    expect(tight.held).toBe(tight.events.length);
-    for (const e of tight.events) {
-      expect(e.scale).toBeGreaterThan(1.3);
-      expect(e.scaleUsed).toBe(1);
-      // The probability the persona used is the option-off probability.
-      expect(Math.min(1, e.p * e.scaleUsed)).toBe(Math.min(1, e.p));
+  for (const [state, styleOpts] of Object.entries(STYLE_STATES))
+    it(`style option ${state}: a scale > 1 Horse never fires a bluff against a tight opener that the unscaled comparison would not have fired`, () => {
+      const tight = sweep(lag, 'grinder', styleOpts);
+      expect(tight.events.length).toBeGreaterThan(40);
+      // Every comparison was held, and counted.
+      expect(tight.held).toBe(tight.events.length);
+      for (const e of tight.events) {
+        expect(e.scale).toBeGreaterThan(1.3);
+        expect(e.scaleUsed).toBe(1);
+        // Paired, per spot: fired with the option on implies u < min(1, p),
+        // the unscaled probability. Its own scale would have allowed u < 1.3p.
+        expect(e.fires).toBe(e.unit < Math.min(1, e.p));
+      }
+      // Some spots would have fired at the Horse's own scale and did not.
+      const wouldHave = tight.events.filter((e) => e.unit < Math.min(1, e.p * e.scale)).length;
+      const fired = tight.events.filter((e) => e.fires).length;
+      expect(fired).toBeLessThanOrEqual(wouldHave);
+      if (PRINT)
+        console.log(
+          `(f) style ${state}: fired ${fired}, at own scale ${wouldHave}, of ${tight.events.length}`
+        );
+    });
+
+  it('across the three style states the held Horse fires on at least one spot fewer than its own scale would', () => {
+    let fired = 0;
+    let wouldHave = 0;
+    for (const styleOpts of Object.values(STYLE_STATES)) {
+      const tight = sweep(lag, 'grinder', styleOpts);
+      fired += tight.events.filter((e) => e.fires).length;
+      wouldHave += tight.events.filter((e) => e.unit < Math.min(1, e.p * e.scale)).length;
     }
-    // Over the paired spots the Horse does not bluff more than the unscaled
-    // comparison would: its rate is p's, where its own scale would give 1.3p.
-    const expected = tight.events.reduce((a, e) => a + Math.min(1, e.p), 0);
-    const fired = tight.events.filter((e) => e.fires).length;
-    const unheld = tight.events.reduce((a, e) => a + Math.min(1, e.p * e.scale), 0);
-    expect(unheld).toBeGreaterThan(expected * 1.25);
-    expect(fired).toBeLessThan(expected + 2 * Math.sqrt(expected));
-    if (PRINT)
-      console.log(
-        '(f) held: fired',
-        fired,
-        'expected at scale 1',
-        expected,
-        'at own scale',
-        unheld
-      );
+    expect(fired).toBeLessThan(wouldHave);
   });
 
-  it('a scale < 1 Horse still bluffs less against the tight opener', () => {
-    const tight = sweep(nit, 'grinder', { styleTightReRaiserRespect: true });
-    expect(tight.events.length).toBeGreaterThan(40);
-    expect(tight.held).toBe(0);
-    for (const e of tight.events) {
-      expect(e.scaleUsed).toBe(e.scale);
-      expect(e.scale).toBeLessThan(0.7);
-    }
-  });
-
-  it('with no tight classification the scaled behaviour is unchanged', () => {
-    // The style option on, against villains it does not classify as tight.
-    for (const villain of ['none', 'station', 'tag'] as const) {
-      const withStyle = sweep(lag, villain, { styleTightReRaiserRespect: true });
-      const without = sweep(lag, villain, {});
-      expect(withStyle.held).toBe(0);
-      expect(withStyle.events.length).toBeGreaterThan(40);
-      expect(withStyle.events).toEqual(without.events);
-      expect(withStyle.outcomes).toEqual(without.outcomes);
-      for (const e of withStyle.events) expect(e.scaleUsed).toBe(e.scale);
+  it('a scale < 1 Horse is still scaled down against a tight opener', () => {
+    for (const styleOpts of Object.values(STYLE_STATES)) {
+      const tight = sweep(nit, 'grinder', styleOpts);
+      expect(tight.events.length).toBeGreaterThan(40);
+      expect(tight.held).toBe(0);
+      for (const e of tight.events) {
+        expect(e.scaleUsed).toBe(e.scale);
+        expect(e.scale).toBeLessThan(0.7);
+        expect(e.fires).toBe(e.unit < Math.min(1, e.p * e.scale));
+      }
     }
   });
 
-  it('a style option in SHADOW does not alter the persona behaviour at all', () => {
-    const shadow = sweep(lag, 'grinder', { styleShadow: ['styleTightReRaiserRespect'] });
-    const none = sweep(lag, 'grinder', {});
-    expect(shadow.held).toBe(0);
-    expect(shadow.events.length).toBeGreaterThan(40);
-    expect(shadow.events).toEqual(none.events);
-    expect(shadow.outcomes).toEqual(none.outcomes);
-    for (const e of shadow.events) expect(e.scaleUsed).toBe(e.scale);
+  it('against an unclassified or loose opener the scaled behaviour is unchanged', () => {
+    for (const villain of ['none', 'station', 'bluffer', 'tag'] as const)
+      for (const styleOpts of Object.values(STYLE_STATES)) {
+        const seen = sweep(lag, villain, styleOpts);
+        expect(seen.held).toBe(0);
+        expect(seen.events.length).toBeGreaterThan(40);
+        for (const e of seen.events) {
+          expect(e.scaleUsed).toBe(e.scale);
+          expect(e.fires).toBe(e.unit < Math.min(1, e.p * e.scale));
+        }
+      }
+    // With the style option absent the unclassified sweeps are one behaviour.
+    const none = sweep(lag, 'none', {});
+    expect(sweep(lag, 'none', STYLE_STATES.shadow).outcomes).toEqual(none.outcomes);
+  });
+
+  it("the style option's own receipts and shadow records are identical with the persona option on and off", () => {
+    for (const villain of ['grinder', 'tag', 'none'] as const)
+      for (const [state, styleOpts] of Object.entries(STYLE_STATES)) {
+        const withPersona = sweep(lag, villain, styleOpts, true);
+        const without = sweep(lag, villain, styleOpts, false);
+        expect(withPersona.styleBooks, `${villain} ${state}`).toEqual(without.styleBooks);
+        // And the persona asking the read does not make the style option act:
+        // with the style option off no style receipt fires at all.
+        if (state === 'off')
+          for (const book of withPersona.styleBooks) expect(book).toBe('[[],[]]');
+      }
+    // Shadow does record the tight opener (so the comparison above is not empty).
+    const shadow = sweep(lag, 'grinder', STYLE_STATES.shadow);
+    expect(shadow.styleBooks.some((b) => b.includes('styleTightReRaiserRespect'))).toBe(true);
+  });
+
+  it('with opponent memory off there is no read, and the scale is not held (unknown is not tight)', () => {
+    const blind = sweep(lag, 'grinder', { mind: false });
+    expect(blind.held).toBe(0);
+    expect(blind.events.length).toBeGreaterThan(40);
+    for (const e of blind.events) expect(e.scaleUsed).toBe(e.scale);
   });
 });

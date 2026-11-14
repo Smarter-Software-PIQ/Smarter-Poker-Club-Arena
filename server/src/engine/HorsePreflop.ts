@@ -376,11 +376,20 @@ export interface PreflopCtx {
    *  3-bet bluff and the squeeze bluff still consume their random draw at the
    *  same place and decide on `u < min(1, p * scale)`; the 26-35bb four-bet
    *  reshove's bluff classes shove when `uFourBet < min(1, scale)`. Against
-   *  an opener or re-raiser the style read respects as tight, the scale is
-   *  held at min(1, scale): the persona may lower a bluff there, never raise
-   *  it. Value 3-bets, value squeezes and value reshoves do not read it.
+   *  an opener or re-raiser the style read classifies as tight
+   *  (heldByTightRead), the scale is held at min(1, scale): the persona may
+   *  lower a bluff there, never raise it. Value 3-bets, value squeezes and value reshoves do not read it.
    *  Absent = unchanged. */
-  holdemPersonaReRaise?: { scale: number; u3bet: number; uSqueeze: number; uFourBet: number };
+  holdemPersonaReRaise?: {
+    scale: number;
+    u3bet: number;
+    uSqueeze: number;
+    uFourBet: number;
+    /** The opener / re-raiser is one the opponent-style read classifies as
+     *  tight (HorseLogic asks the read itself, whatever the style option's
+     *  state). The scale is then min(1, scale) at all three sites. */
+    heldByTightRead?: boolean;
+  };
   /** V20 M-ZONES (2026-08-27): ante cost of ONE ORBIT in BB units, already
    *  resolved for the table's ante style by AnteMath.anteOrbitCostBB (0 = no
    *  ante). NOT per-player: multiplying this by the seat count is the bug of
@@ -1354,13 +1363,11 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
   // always drew it); with the persona present the draw is discarded and the
   // Horse's own unit decides against the scaled probability.
   const personaReRaise = ctx.holdemPersonaReRaise;
-  // A STYLE READ'S RESPECT IS NOT UNDONE BY THE PERSONA. The style options
-  // only raise bars against a credibly tight player; they do not touch the
-  // bluff probability. So where that respect is APPLIED on this decision
-  // (the tight opener's bounded exploit read, or the tight re-raiser read:
-  // both reach this module only with their option on, never from a shadow
-  // arm, which computes and applies nothing), the persona's scale is held
-  // at min(1, scale). Postflop style options never reach this module.
+  // THE PERSONA NEVER BLUFFS A TIGHT PLAYER MORE. Where the opponent-style
+  // read classifies the opener or re-raiser as tight (persona.heldByTightRead,
+  // worked out by HorseLogic from the read itself, so it holds with the style
+  // option off, in shadow or on), the persona's scale is held at
+  // min(1, scale): it may lower a bluff there, never raise it.
   const personaScaleUsed = (
     persona: NonNullable<PreflopCtx['holdemPersonaReRaise']>,
     respected: boolean
@@ -1375,12 +1382,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     p: number,
     kind: 'three_bet' | 'squeeze'
   ): boolean => {
-    const scaleUsed = personaScaleUsed(
-      persona,
-      ctx.exploitOpener !== undefined &&
-        ctx.exploitOpener.wide === false &&
-        typeof ctx.exploitOpener.maxBarMove === 'number'
-    );
+    const scaleUsed = personaScaleUsed(persona, persona.heldByTightRead === true);
     const unit = kind === 'squeeze' ? persona.uSqueeze : persona.u3bet;
     const fires = unit < Math.min(1, p * scaleUsed);
     holdemPersonaReRaiseTap?.({
@@ -1417,7 +1419,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
   const personaFourBetBluffShoves = (
     persona: NonNullable<PreflopCtx['holdemPersonaReRaise']>
   ): boolean => {
-    const scaleUsed = personaScaleUsed(persona, ctx.styleTightReRaiser !== undefined);
+    const scaleUsed = personaScaleUsed(persona, persona.heldByTightRead === true);
     const shoves = persona.uFourBet < Math.min(1, scaleUsed);
     holdemPersonaReRaiseTap?.({
       kind: 'four_bet',
