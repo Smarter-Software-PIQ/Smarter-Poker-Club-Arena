@@ -2498,14 +2498,16 @@ export class HorseFleetManager {
           if (bodies > 0) eligibleByHost.set(hostId, bodies);
         }
       }
-      const stableHandCaps = stableHandHostCaps(eligibleByHost, chicagoNow());
+      // ONE clock for the body cap and the seat ceiling: two reads straddling a
+      // minute (03:00 above all) would pair one hour's cap with another's ceiling.
+      const ceilingClock = chicagoNow();
+      const stableHandCaps = stableHandHostCaps(eligibleByHost, ceilingClock);
       const bodiesOnHost = bodiesOnHostFrom(allActiveSeats, hostOfTable);
       /* THE CURVE GOVERNS SEATS TOO (Dan 2026-11-13): the lobby counts
          chairs, so a host also stops at its body cap times the band's
          seats-per-horse ceiling (StableHand.hostSeatCeiling). Updated as
          this cycle seats, exactly like bodiesOnHost. */
       const seatsOnHost = seatsOnHostFrom(allActiveSeats, hostOfTable);
-      const ceilingClock = chicagoNow();
       const seatCeilings = stableHandHostSeatCeilings(
         stableHandCaps,
         ceilingClock.hour,

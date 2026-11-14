@@ -83,6 +83,14 @@ build every follow-up found while verifying it.
    - Each change of answer is recorded in `ca_owed_leave_decisions`, which
      `service_role` can only read.
    - Wind-down's human dwell applies only after the last person leaves a table.
+   - An open chair is counted the way the game's planner counts it
+     (`fn_cash_cluster_census` open_unreserved, net of reserved and held
+     chairs). In a full-ring game, a lone seat on a feeder the planner would not
+     move is answered `not_movable` and released as before.
+6. **One clock read** for the body cap and the seat ceiling in the seeder.
+7. **The snapshot's table mapping is a pure function**
+   (`tableSnapshotFromRow`), so the human dwell is tested end to end from a
+   real table row through the planner.
    - A missing function or an unreadable answer releases the seat as before.
 
 Person and horse twins in the engine specs; nothing reads horse identity.
