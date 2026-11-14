@@ -46,8 +46,8 @@ const EVIDENCE = sliceMethod(
   ELIM,
   'loadPersistedBountyEvidence(\n    userId: string\n  ): Promise<CandidateBackedKnockoutEvidence | null>'
 );
-const CANDIDATE_READ = sliceStatement(ELIM, 'const { data: candidateRow, error: candidateErr }');
-const ATOMIC_READ = sliceStatement(ELIM, 'const { data: atomicRow, error: atomicErr }');
+const CANDIDATE_READ = sliceStatement(ELIM, 'const [candidateRead, liveSeatRead] = await Promise.all(');
+const ATOMIC_READ = sliceStatement(ELIM, 'const [atomicRead, handRead] = await Promise.all(');
 
 const MIGRATION = readFileSync(
   resolve(
