@@ -325,10 +325,12 @@ export interface PreflopCtx {
   huBbPrice?: { equity: number };
   /** A COMMITTED STACK IS NOT FOLDED AT A PRICE (2026-11-13, flag
    *  committedStackPricedIn, default OFF; HVH2D-NLH-M-COMMIT, NLH-007a).
-   *  True: in a tournament multiway all-in the priced-in guard decides again
-   *  at a price of 0.05 or better, at 2bb or less behind, or when half the
-   *  starting stack is in and the hand clears 0.26; a committed top-half hand
-   *  whose call is all in is priced in to 0.18. Absent = unchanged. */
+   *  True: in a two-card no-limit hold'em tournament multiway all-in the
+   *  priced-in guard decides again at a price of 0.05 or better, at 2bb or
+   *  less behind (the hand clears 0.26, or three-handed at a price of 0.12 or
+   *  better with any two cards), or when half the starting stack is in and
+   *  the hand clears 0.26; a committed top-half hand whose call is all in is
+   *  priced in to 0.18. Every other variant, and absent, = unchanged. */
   committedStackPricedIn?: boolean;
   /** V20 M-ZONES (2026-08-27): ante cost of ONE ORBIT in BB units, already
    *  resolved for the table's ante style by AnteMath.anteOrbitCostBB (0 = no
@@ -996,6 +998,27 @@ export const COMMITTED_CRUMBS_BB = 2;
 export const MULTIWAY_TOKEN_PRICE = 0.05;
 /** A committed hero's hand must clear this to be priced in three ways. */
 export const COMMITTED_MIN_STRENGTH = 0.26;
+/**
+ * The price at or under which a crumbs stack calls with any two cards, three
+ * ways. Price = call / (pot + call); a call that ends the hand is right when
+ * the hand's equity is at least the price. Against two tight ranges (TT+,
+ * AQs+, AKo) the worst two cards hold 0.125 (K2o; review 20261113 A1, 6,000
+ * trials; 0.121 over 24,000 in this change's own run) and 72o holds 0.133,
+ * so at 0.12 no hand calls below its price. Example: the big blind with a big
+ * blind ante and 0.5bb behind, the small blind folded, two covering all-ins.
+ * Pot before the call 1 (ante) + 1 (blind) + 0.5 (small blind) + 2 x 1.5 =
+ * 5.5bb, price 0.5 / 6.0 = 0.083; 72o's call is worth 0.133 x 6.0 = 0.80bb
+ * against the 0.5bb a fold keeps. Above this price the 0.26 floor decides.
+ */
+export const COMMITTED_CRUMBS_ANY_TWO_PRICE = 0.12;
+/**
+ * The any-two price is a three-way figure, so it is read with two opponents
+ * or fewer in the hand. Four ways against three tight ranges the same cards
+ * hold less than the price can be: K2o 0.079, T2o 0.102, 72o 0.116 (12,000
+ * trials), while a big blind with 1bb behind is laid 1 / 9.5 = 0.105. With
+ * three or more opponents the 0.26 floor decides at every price.
+ */
+export const COMMITTED_CRUMBS_ANY_TWO_MAX_OPPONENTS = 2;
 /** Price bar for a committed hero's all-in call with a top-half hand. */
 export const COMMITTED_ALL_IN_PRICE_BAR = 0.18;
 /** The hand strength that bar asks for (the top half of hands). */
@@ -1085,7 +1108,17 @@ export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
   // paid from the stack is not in it, so the share is never overstated.
   // Default OFF (flag committedStackPricedIn): absent, every line below reads
   // false and the guard is byte-for-byte the one it replaced.
-  const committedOn = ctx.committedStackPricedIn === true;
+  // Two-card no-limit hold'em only (review 20261113 A3): the study, the
+  // floors and the equities below are hold'em's. Omaha, short deck, fixed
+  // limit and pineapple read `ctx.strength` on other ladders and keep the
+  // decision they had, option on or off.
+  const committedOn =
+    ctx.committedStackPricedIn === true &&
+    !ctx.isOmaha &&
+    ctx.isFixedLimit !== true &&
+    ctx.isShortDeck !== true &&
+    ctx.holeCards !== undefined &&
+    ctx.holeCards.length === 2;
   const multiwayAllIn = committedOn && isTourney && ctx.phase6?.policy.branch === 'multiway_all_in';
   const ownChipsIn = Math.max(0, ctx.currentBet - toCall);
   const committedShare = ownChipsIn + stack > 0 ? ownChipsIn / (ownChipsIn + stack) : 0;
@@ -1127,7 +1160,10 @@ export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
   //    fold to protect). Independent review 461281e7: without a floor this
   //    clause put 72o, K2o, 94o and 83o in at a 0.192 price three ways, where
   //    they hold about 0.13 to 0.17 against tight ranges, so it shares the
-  //    0.26 floor below;
+  //    0.26 floor below. The floor respects the price (review 20261113 A1):
+  //    three-handed at 0.12 or better any two cards have the odds (see
+  //    COMMITTED_CRUMBS_ANY_TWO_PRICE), so the floor applies above that
+  //    price, and at every price with three or more opponents;
   //  - the hero is committed (half or more of the stack it started the hand
   //    with is already in: from there the stack left is no larger than the
   //    chips a fold abandons, and every spot in the study sat at 0.52 to
@@ -1143,7 +1179,10 @@ export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
       committedOn &&
       isTourney &&
       (guardOdds <= MULTIWAY_TOKEN_PRICE ||
-        (stackBB <= COMMITTED_CRUMBS_BB && ctx.strength >= COMMITTED_MIN_STRENGTH) ||
+        (stackBB <= COMMITTED_CRUMBS_BB &&
+          (ctx.strength >= COMMITTED_MIN_STRENGTH ||
+            (guardOdds <= COMMITTED_CRUMBS_ANY_TWO_PRICE &&
+              ctx.oppsLeft <= COMMITTED_CRUMBS_ANY_TWO_MAX_OPPONENTS))) ||
         (heroCommitted && ctx.strength >= COMMITTED_MIN_STRENGTH));
     if (!exemptionEnds) return out;
     committedRescue = true;

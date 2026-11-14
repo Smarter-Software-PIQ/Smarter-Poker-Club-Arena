@@ -14,8 +14,11 @@
  * What changed (behind the default-off flag committedStackPricedIn; every
  * case below runs with it on unless it says otherwise). The guard stands
  * aside only for a fresh decision. It decides
- * again when the price is 0.05 or better, when 2 big blinds or fewer remain,
- * or when half or more of the starting stack is in and the hand is not junk.
+ * again when the price is 0.05 or better, when 2 big blinds or fewer remain
+ * (the hand is not junk, or three-handed the price is 0.12 or better, where
+ * any two cards have the odds), or when half or more of the starting stack is
+ * in and the hand is not junk. Two-card no-limit hold'em only: every other
+ * variant decides as it did, option on or off.
  * A committed hero whose call is all in also continues with a top-half hand
  * up to a price of 0.18. The tournament utility arbiter still runs afterwards
  * and still folds when it is confident.
@@ -27,10 +30,14 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { HorseMind } from './HorseMind.js';
+import { bettingStructureFor } from './BettingStructure.js';
 import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
+import { holdemPreflopScore } from './HorseEval.js';
 import {
   COMMITTED_ALL_IN_MIN_STRENGTH,
   COMMITTED_ALL_IN_PRICE_BAR,
+  COMMITTED_CRUMBS_ANY_TWO_MAX_OPPONENTS,
+  COMMITTED_CRUMBS_ANY_TWO_PRICE,
   COMMITTED_CRUMBS_BB,
   COMMITTED_MIN_STRENGTH,
   COMMITTED_STACK_SHARE,
@@ -47,6 +54,7 @@ import {
   type Pool,
   type Spot,
 } from './ACommittedStackIsNotFoldedAtAPrice.test-support.js';
+import { horseVariantRulesFor } from './VariantRules.js';
 
 const SEEDS = Array.from({ length: 12 }, (_, i) => 1000 + i * 7919);
 
@@ -395,12 +403,223 @@ describe('the receipt fires only when the rule makes the call', () => {
   });
 });
 
+// ── Review 20261113, findings A1, A3 and A5 ────────────────────────────────
+
+/** The 77 node rebuilt so the hero is the big blind facing two covering
+ *  all-ins with the small blind folded: seat 7 jams, the button (seat 8)
+ *  calls, the small blind (seat 9) folds its 400. `behind` is the hero's
+ *  stack in chips (the big blind is 800); `fourWay` puts seat 6 in as a third
+ *  covering opponent. A constructed spot, not a recorded one. */
+function bigBlindCrumbs(behind: number, fourWay = false): Spot {
+  const spot = spotNamed('pair-of-sevens-big-blind');
+  spot.seats = spot.seats.map((row) => {
+    if (row[0] === spot.hero) return [row[0], behind, 800, 1600, 800, 0, 0];
+    if (row[0] === 8) return [8, 5700 - 3772, 3772, 3772, 0, 0, 0];
+    if (row[0] === 9) return [9, 3076 + 3372, 400, 400, 0, 0, 1];
+    if (row[0] === 6 && fourWay) return [6, 6100 - 3772, 3772, 3772, 0, 0, 0];
+    return row;
+  });
+  // Four ways seat 6 opens for the same amount and seat 7's all-in calls it:
+  // the same public node with one more covering stack in.
+  spot.history = [
+    [2, 'fold', 0, null],
+    [3, 'fold', 0, null],
+    [4, 'fold', 0, null],
+    fourWay ? [6, 'raise', 3772, true] : [6, 'fold', 0, null],
+    [7, 'all_in', 3772, fourWay ? null : true],
+    [8, 'call', 3772, null],
+    [9, 'fold', 0, null],
+  ];
+  spot.pot = 800 + 800 + 400 + 3772 * (fourWay ? 3 : 2);
+  return spot;
+}
+
+function withHand(spot: Spot, hand: string): Spot {
+  const suits: Record<string, string> = { s: 'spades', h: 'hearts', d: 'diamonds', c: 'clubs' };
+  const next = structuredClone(spot);
+  next.cards = (hand.match(/../g) ?? []).map((c) => ({ rank: c[0], suit: suits[c[1]] }));
+  return next;
+}
+
+/** The hold'em ladder score of a two-card hand, before the caller's jitter. */
+function ladder(hand: string): number {
+  const [a, b] = withHand(spotNamed('pair-of-sevens-big-blind'), hand).cards;
+  return holdemPreflopScore(a as never, b as never, false);
+}
+
+/** The strength jitter HorseLogic adds to the ladder score, either way. */
+const JITTER = 0.03;
+
+describe('the crumbs floor respects the price (review 20261113, A1)', () => {
+  it('the big blind with 0.5 big blinds behind is laid 0.083 three ways', () => {
+    const rq = build(bigBlindCrumbs(400));
+    expect(behindBB(rq)).toBe(0.5);
+    // 800 ante + 800 blind + 400 small blind + 2 x 1,200 it can win = 4,400
+    // before the call; 400 / 4,800.
+    expect(price(rq)).toBeCloseTo(400 / 4800, 6);
+    expect(price(rq)).toBeLessThanOrEqual(COMMITTED_CRUMBS_ANY_TWO_PRICE);
+    expect(decideBuilt(rq, SEEDS[0]).tournamentPreflopAttribution?.lookup?.policy?.branch).toBe(
+      'multiway_all_in'
+    );
+  });
+
+  for (const hand of ['7s2h', '3s2h', 'Ks2h', '5s4h']) {
+    it(`${hand} at that price: calls with the option on, folds with it off or absent`, () => {
+      expect(ladder(hand) + JITTER).toBeLessThan(COMMITTED_MIN_STRENGTH);
+      const spot = withHand(bigBlindCrumbs(400), hand);
+      const on = overSeeds(spot);
+      expect(references(on)).toEqual(['call']);
+      expect(actions(on)).toEqual(['all_in']);
+      for (const seed of SEEDS) {
+        const absent = decide(spot, seed, 'priced', 'absent');
+        expect(absent.action).toBe('fold');
+        expect(absent.preflopAuthority?.referenceAction).toBe('fold');
+        expect(stable(decide(spot, seed, 'priced', false))).toBe(stable(absent));
+      }
+    });
+  }
+
+  it('0.8 big blinds behind is still inside the price (0.116): seven-deuce calls', () => {
+    const spot = withHand(bigBlindCrumbs(640), '7s2h');
+    expect(price(build(spot))).toBeCloseTo(640 / 5520, 6);
+    expect(price(build(spot))).toBeLessThanOrEqual(COMMITTED_CRUMBS_ANY_TWO_PRICE);
+    expect(actions(overSeeds(spot))).toEqual(['all_in']);
+  });
+
+  it('1 big blind behind is just above the price (0.133): the floor still folds trash', () => {
+    for (const hand of ['7s2h', '3s2h', 'Ks2h', '5s4h']) {
+      const spot = withHand(bigBlindCrumbs(800), hand);
+      const rq = build(spot);
+      expect(behindBB(rq)).toBeLessThanOrEqual(COMMITTED_CRUMBS_BB);
+      expect(price(rq)).toBeCloseTo(800 / 6000, 6);
+      expect(price(rq)).toBeGreaterThan(COMMITTED_CRUMBS_ANY_TWO_PRICE);
+      for (const seed of SEEDS) {
+        const on = decideBuilt(rq, seed, true);
+        expect(on.action, hand).toBe('fold');
+        expect(stable(on)).toBe(stable(decideBuilt(rq, seed, 'absent')));
+      }
+    }
+  });
+
+  it('four ways the any-two price does not apply: 0.5 big blinds behind at 0.067 still folds trash', () => {
+    // Against three tight ranges K2o holds 0.079 and 72o 0.116, less than a
+    // four-way crumbs price can be, so the price rule is three-way only.
+    for (const hand of ['7s2h', 'Ks2h']) {
+      const rq = build(withHand(bigBlindCrumbs(400, true), hand));
+      expect(price(rq)).toBeCloseTo(400 / 6000, 6);
+      expect(price(rq)).toBeGreaterThan(MULTIWAY_TOKEN_PRICE);
+      expect(price(rq)).toBeLessThanOrEqual(COMMITTED_CRUMBS_ANY_TWO_PRICE);
+      for (const seed of SEEDS) {
+        const on = decideBuilt(rq, seed, true);
+        expect(on.tournamentPreflopAttribution?.lookup?.policy?.branch).toBe('multiway_all_in');
+        expect(on.action, hand).toBe('fold');
+        expect(stable(on)).toBe(stable(decideBuilt(rq, seed, 'absent')));
+      }
+    }
+  });
+});
+
+describe('the 0.26 floor has a pinned boundary (review 20261113, A5)', () => {
+  // The 77 node: 1.81 big blinds behind at 0.192, above the any-two price, so
+  // only the floor decides. HorseLogic jitters the ladder score by up to 0.03
+  // either way; the hands here sit further than that from 0.26, so no seed
+  // can move them across it.
+  for (const hand of ['5s4h', 'Qs8h', 'Qs6h']) {
+    it(`${hand} is under the floor by more than the jitter: folds on every seed`, () => {
+      expect(ladder(hand) + JITTER).toBeLessThan(COMMITTED_MIN_STRENGTH);
+      const decisions = overSeeds(withHand(spotNamed('pair-of-sevens-big-blind'), hand));
+      expect(references(decisions)).toEqual(['fold']);
+      expect(actions(decisions)).toEqual(['fold']);
+    });
+  }
+
+  for (const hand of ['As2h', 'As3h', '8s6s']) {
+    it(`${hand} is over the floor by more than the jitter: the reference calls on every seed`, () => {
+      expect(ladder(hand) - JITTER).toBeGreaterThanOrEqual(COMMITTED_MIN_STRENGTH);
+      const decisions = overSeeds(withHand(spotNamed('pair-of-sevens-big-blind'), hand));
+      expect(references(decisions)).toEqual(['call']);
+      expect(actions(decisions)).toEqual(['all_in']);
+    });
+  }
+
+  it('a hand on the floor (K7o, 0.26) mixes by seed, and each seed decides the same way twice', () => {
+    expect(ladder('Ks7h')).toBeCloseTo(COMMITTED_MIN_STRENGTH, 6);
+    const spot = withHand(spotNamed('pair-of-sevens-big-blind'), 'Ks7h');
+    for (const seed of SEEDS) {
+      const first = decide(spot, seed);
+      expect(['fold', 'all_in']).toContain(first.action);
+      expect(stable(decide(spot, seed))).toBe(stable(first));
+    }
+  });
+});
+
+describe("the option is two-card no-limit hold'em only (review 20261113, A3)", () => {
+  // In every other variant the hand strength is a percentile on another
+  // ladder and no study covers the call. By default the variant all-in
+  // arithmetic (V38) decides these spots before the priced-in guard is asked;
+  // with it ablated (v38Ev false, or whenever it has no price) the guard is
+  // the decider. Both routes: option on equals option absent. Each case is a
+  // spot the rule would otherwise rescue: the reference folds every seed and
+  // the token price, the crumbs line or the commitment would end the
+  // exemption.
+  const CASES: [variant: string, node: string, hand: string][] = [
+    ['plo4', 'ace-eight-suited-31-chips', 'AsKh7d2c'],
+    ['plo5', 'ace-eight-suited-31-chips', 'AsKh7d2c9s'],
+    ['plo6', 'ace-eight-suited-31-chips', 'AsKh7d2c9s4h'],
+    ['short_deck', 'pair-of-sevens-big-blind', '7s7h'],
+    ['short_deck', 'pair-of-threes-button', 'As8s'],
+    ['short_deck', 'ace-eight-suited-31-chips', '9s6h'],
+    ['pineapple', 'pair-of-sevens-big-blind', 'As8s2d'],
+    ['pineapple', 'pair-of-threes-button', '7s7hKd'],
+    ['pineapple', 'ace-eight-suited-31-chips', '7s2h9d'],
+  ];
+
+  function variantSpot(variant: string, node: string, hand: string): Built {
+    const rq = build(withHand(spotNamed(node), hand));
+    const gs = rq.gameState as unknown as Record<string, unknown>;
+    gs.gameVariant = variant;
+    gs.variantRules = horseVariantRulesFor(variant);
+    gs.bettingStructure = bettingStructureFor(variant);
+    return rq;
+  }
+
+  for (const [variant, node, hand] of CASES) {
+    it(`${variant} ${hand} at ${node}: on equals absent, and the guard's fold stands`, () => {
+      const rq = variantSpot(variant, node, hand);
+      for (const seed of SEEDS) {
+        const absent = decideBuilt(rq, seed, 'absent', { v38Ev: false });
+        expect(absent.tournamentPreflopAttribution?.lookup?.policy?.branch).toBe('multiway_all_in');
+        expect(absent.action).toBe('fold');
+        expect(stable(decideBuilt(rq, seed, true, { v38Ev: false }))).toBe(stable(absent));
+      }
+      for (const seed of SEEDS.slice(0, 4)) {
+        expect(stable(decideBuilt(rq, seed, true))).toBe(stable(decideBuilt(rq, seed, 'absent')));
+      }
+    });
+  }
+
+  it("the receipt never fires outside hold'em", () => {
+    enableBrainTelemetry();
+    drainFires();
+    for (const [variant, node, hand] of CASES) {
+      const rq = variantSpot(variant, node, hand);
+      decideBuilt(rq, SEEDS[0], true, { v38Ev: false });
+      decideBuilt(rq, SEEDS[0], true);
+    }
+    expect(
+      drainFires().find((r) => r.feature === 'committed_stack_priced_in_seen')?.fires ?? 0
+    ).toBe(0);
+  });
+});
+
 describe('the thresholds are the documented ones', () => {
   it('pins each constant', () => {
     expect(COMMITTED_STACK_SHARE).toBe(0.5);
     expect(COMMITTED_CRUMBS_BB).toBe(2);
     expect(MULTIWAY_TOKEN_PRICE).toBe(0.05);
     expect(COMMITTED_MIN_STRENGTH).toBe(0.26);
+    expect(COMMITTED_CRUMBS_ANY_TWO_PRICE).toBe(0.12);
+    expect(COMMITTED_CRUMBS_ANY_TWO_MAX_OPPONENTS).toBe(2);
     expect(COMMITTED_ALL_IN_PRICE_BAR).toBe(0.18);
     expect(COMMITTED_ALL_IN_MIN_STRENGTH).toBe(0.5);
   });
