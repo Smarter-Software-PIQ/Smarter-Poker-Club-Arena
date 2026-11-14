@@ -89,6 +89,8 @@ const EXPECTED_PERSONA_CARDS: Array<[string, string]> = [
   ['human_hu_bb_defends_vs_threebet_40bb', 'hu_three_bet_every_hand_v1'],
   ['human_hu_bb_defends_vs_small_stab_40bb', 'hu_small_stab_every_street_v1'],
   ['human_hu_v7_preflop_vs_limper_40bb', 'hu_limp_every_button_v1'],
+  // 2026-11-13 (HU-EVAL-014): the min-raiser again, with memory learning off.
+  ['human_hu_bb_defends_vs_minraise_40bb_reads_off', 'hu_minraise_every_button_v1'],
 ];
 
 afterEach(() => {
@@ -488,7 +490,11 @@ describe('the nightly runner sends the human cards and records their field', () 
       expect(sent!.opponentPopulation).toBe(HUMAN);
       const row = upserts.find((u) => u.matchup === card.name)!;
       expect(row, `${card.name} was not written`).toBeDefined();
-      const persona = card.humanPersona ? { humanPersona: card.humanPersona } : {};
+      const persona = {
+        ...(card.humanPersona ? { humanPersona: card.humanPersona } : {}),
+        // 2026-11-13: a reads-off card says so in its row; no other card carries the key.
+        ...(card.memoryLearning ? { memoryLearning: card.memoryLearning } : {}),
+      };
       expect(row.config_a).toEqual({ ...card.a, opponentPopulation: HUMAN, ...persona });
       expect(row.config_b).toEqual({ ...card.b, opponentPopulation: HUMAN, ...persona });
       expect(row.config_a).toEqual(leagueResultConfig(card, 'a'));
