@@ -29,14 +29,14 @@ export const spec: ThrowableSpec = {
   ],
 };
 preloadThrowableCues(spec.audio.map((cue) => cue.sample));
-const sheetSize = [1448, 724] as const;
+const sheetSize = [4032, 448] as const;
 
 function Grin({ size }: { size: number }) {
   return (
     <AtlasSprite
       src="donkey"
       sheetSize={sheetSize}
-      rect={[0, 0, 724, 724]}
+      rect={[0, 0, 448, 448]}
       x={-size / 2}
       y={-size / 2}
       width={size}
@@ -54,37 +54,26 @@ function Projectile(_props: RigProps) {
 }
 
 function Payload(_props: RigProps) {
-  // Divide the bray pose just below the incisors. The lower muzzle articulates
-  // about that edge while the upper teeth, nostrils and eyes stay planted.
   return (
     <svg viewBox={RIG_VIEWBOX} aria-hidden="true" focusable="false">
       <g className="thr-donkey__head">
         <g className="thr-donkey__grin">
           <Grin size={160} />
         </g>
-        <g className="thr-donkey__call" transform="scale(0.221)">
-          <AtlasSprite
-            src="donkey"
-            sheetSize={sheetSize}
-            rect={[724, 0, 724, 450]}
-            x={-362}
-            y={-362}
-            width={724}
-            height={450}
-          />
-          <g transform="translate(0 88)">
-            <g className="thr-donkey__jaw">
+        <g className="thr-donkey__call">
+          <svg x={-80} y={-80} width={160} height={160} viewBox="0 0 160 160" overflow="hidden">
+            <g className="thr-donkey__poses">
               <AtlasSprite
                 src="donkey"
                 sheetSize={sheetSize}
-                rect={[724, 450, 724, 274]}
-                x={-362}
+                rect={[448, 0, 3584, 448]}
+                x={0}
                 y={0}
-                width={724}
-                height={274}
+                width={1280}
+                height={160}
               />
             </g>
-          </g>
+          </svg>
         </g>
       </g>
     </svg>

@@ -1,7 +1,7 @@
 .thr-donkey__head,
 .thr-donkey__grin,
 .thr-donkey__call,
-.thr-donkey__jaw {
+.thr-donkey__poses {
   animation-duration: calc(4.034s * var(--animation-speed, 1));
   animation-fill-mode: both;
 }
@@ -15,9 +15,8 @@
 .thr-donkey__call {
   animation-name: thr-donkey-call;
 }
-.thr-donkey__jaw {
-  animation-name: thr-donkey-jaw;
-  transform-origin: 0 0;
+.thr-donkey__poses {
+  animation-name: thr-donkey-poses;
 }
 @keyframes thr-donkey-grin {
   0%,
@@ -71,30 +70,59 @@
     transform: none;
   }
 }
-/* Long first call followed by three jaw strokes, timed from landing. */
-@keyframes thr-donkey-jaw {
+/* Each 160-unit step selects one intact facial expression in the atlas.
+   A long opening and three shorter replies follow the recorded bray. */
+@keyframes thr-donkey-poses {
   0%,
-  20%,
+  20% {
+    transform: translateX(0);
+    animation-timing-function: steps(7, end);
+  }
+  32% {
+    transform: translateX(-1120px);
+    animation-timing-function: steps(1, end);
+  }
+  46% {
+    transform: translateX(-960px);
+    animation-timing-function: steps(6, end);
+  }
   55%,
+  57% {
+    transform: translateX(0);
+    animation-timing-function: steps(6, end);
+  }
+  62% {
+    transform: translateX(-960px);
+    animation-timing-function: steps(6, end);
+  }
   69%,
+  71% {
+    transform: translateX(0);
+    animation-timing-function: steps(5, end);
+  }
+  76% {
+    transform: translateX(-800px);
+    animation-timing-function: steps(5, end);
+  }
   83%,
+  85% {
+    transform: translateX(0);
+    animation-timing-function: steps(7, end);
+  }
+  90% {
+    transform: translateX(-1120px);
+    animation-timing-function: steps(7, end);
+  }
   97%,
   100% {
-    transform: scaleY(0.42);
-  }
-  32%,
-  49%,
-  63%,
-  77%,
-  91% {
-    transform: scaleY(1);
+    transform: translateX(0);
   }
 }
 @media (prefers-reduced-motion: reduce) {
   .thr-donkey__head,
   .thr-donkey__grin,
   .thr-donkey__call,
-  .thr-donkey__jaw {
+  .thr-donkey__poses {
     animation: none;
   }
   .thr-donkey__call {
