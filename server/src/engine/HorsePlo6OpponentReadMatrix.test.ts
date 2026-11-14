@@ -34,7 +34,7 @@
  *      open of a selective re-raiser.
  *   4. The receipt maniac_pressure_preflop fires for an unknown opponent too
  *      (the Omaha presumption supplies the width), so that receipt alone does
- *      not show that a maniac was observed; maniac_raiser_observed does.
+ *      not show that a maniac was observed; observed_maniac_raiser_seen does.
  *
  * This file records behaviour; it is not a statement that each response is
  * the best play. If a deliberate change to the shared Omaha read or to these
@@ -350,8 +350,8 @@ describe('PLO6 response: the same node against each class of raiser', () => {
     );
   });
 
-  it('maniac_raiser_observed fires only for an observed raiser the Horse faces (PLO6-AUDIT-015)', () => {
-    const fires = (cell: Cell) => cell.receipts.maniac_raiser_observed ?? 0;
+  it('observed_maniac_raiser_seen fires only for an observed raiser the Horse faces (PLO6-AUDIT-015)', () => {
+    const fires = (cell: Cell) => cell.receipts.observed_maniac_raiser_seen ?? 0;
     expect(fires(baseline13)).toBe(0);
     expect(fires(baseline7)).toBe(0);
     for (const cls of ['sparse', 'wasQuietNowRaising', ...TIGHT] as const)
