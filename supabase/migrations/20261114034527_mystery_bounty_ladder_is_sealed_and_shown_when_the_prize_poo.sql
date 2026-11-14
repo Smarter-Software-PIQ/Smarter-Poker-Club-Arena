@@ -226,6 +226,11 @@ AS $function$
  WHERE t.id = p_tournament_id;
 $function$;
 
+-- Grants restated as installed (20261022173156): logged-in players read it,
+-- anon does not.
+REVOKE ALL ON FUNCTION public.fn_mystery_bounty_inventory(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_mystery_bounty_inventory(uuid) TO authenticated, service_role;
+
 -- The seed: the ladder shown is the ladder opened.
 DO $seed$
 DECLARE
