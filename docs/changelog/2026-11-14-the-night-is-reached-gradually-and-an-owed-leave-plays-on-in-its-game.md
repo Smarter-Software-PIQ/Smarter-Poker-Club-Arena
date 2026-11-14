@@ -69,20 +69,23 @@ build every follow-up found while verifying it.
    - Before a held leave that still owes hands is released for having nobody
      at its table, the engine asks `fn_owed_leave_plays_on_in_game`. The
      migration ships separately, after the seal.
-   - The door keeps the seat only while it is on a feeder and a compatible live
-     Main deals. Compatible means the same cash game, club, variant and blinds.
+   - The door keeps the seat only while a compatible live Main deals that the
+     planner would move it to: any Main from a feeder or a breaking table, Main 1
+     from another Main. Compatible means the same cash game, club, variant and blinds.
      The game must be one that moves its players; Classic games keep the
      per-table rule.
    - Only the pending flag is withdrawn: the seat stays sat out, which is the
      blind off at such a table. The game's must-move executor then moves it with
      its stack and its re-pointed session, and the destination restores the hold
      and plays the count out.
-   - The wait runs from the first keep answer. It is ten minutes only while
+   - The wait runs from the first keep answer of the current episode (a gap of
+     more than two minutes starts a new one). It is ten minutes only while
      every compatible Main is full (any seat holds a chair), and thirty while a
      chair is open.
    - Each change of answer is recorded in `ca_owed_leave_decisions`, which
      `service_role` can only read.
-   - Wind-down's human dwell applies only after the last person leaves a table.
+   - The human dwell applies only after the last person leaves a table, and it
+     stops wind-down, night parking and the JOINABLE thinning alike.
    - An open chair is counted the way the game's planner counts it
      (`fn_cash_cluster_census` open_unreserved, net of reserved and held
      chairs). In a full-ring game, a lone seat on a feeder the planner would not
