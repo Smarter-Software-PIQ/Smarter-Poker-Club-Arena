@@ -101,11 +101,15 @@ describe('engine restart evidence inspector', () => {
       's=datetime.datetime(2026,11,14,7,28,tzinfo=datetime.timezone.utc); e=s+datetime.timedelta(minutes=30)',
       'r=m["read_container_log"]("x", s, e, lambda p: False, None, "b6d94533")',
       'print(json.dumps(r["sweepLines"])); print(r["sweepLinesDropped"])',
-    ].join("\n");
-    const result = spawnSync('python3', ['-B', '-c', `import json,runpy,sys; m=runpy.run_path(sys.argv[1])\n${code}`, script], {
-      encoding: 'utf8',
-      timeout: 5000,
-    });
+    ].join('\n');
+    const result = spawnSync(
+      'python3',
+      ['-B', '-c', `import json,runpy,sys; m=runpy.run_path(sys.argv[1])\n${code}`, script],
+      {
+        encoding: 'utf8',
+        timeout: 5000,
+      }
+    );
     expect(result.status, result.stderr).toBe(0);
     const [jsonLine, dropped] = result.stdout.trim().split('\n');
     const sweep = JSON.parse(jsonLine) as Array<{ at: string; focus: boolean; line: string }>;
@@ -134,16 +138,22 @@ describe('engine restart evidence inspector', () => {
       's=datetime.datetime(2026,11,14,7,28,tzinfo=datetime.timezone.utc); e=s+datetime.timedelta(minutes=30)',
       'out=m["prom_series"](s, e, fetch)',
       'print(json.dumps(out["stepMeanMs"])); print(json.dumps(seen))',
-    ].join("\n");
-    const result = spawnSync('python3', ['-B', '-c', `import json,runpy,sys; m=runpy.run_path(sys.argv[1])\n${code}`, script], {
-      encoding: 'utf8',
-      timeout: 5000,
-    });
+    ].join('\n');
+    const result = spawnSync(
+      'python3',
+      ['-B', '-c', `import json,runpy,sys; m=runpy.run_path(sys.argv[1])\n${code}`, script],
+      {
+        encoding: 'utf8',
+        timeout: 5000,
+      }
+    );
     expect(result.status, result.stderr).toBe(0);
     const [seriesLine, urlsLine] = result.stdout.trim().split('\n');
     expect(JSON.parse(seriesLine)).toEqual({
       readOk: true,
-      series: [{ labels: { step: 'db:tournament_players' }, points: [['2026-11-14T07:28:00Z', 812.5]] }],
+      series: [
+        { labels: { step: 'db:tournament_players' }, points: [['2026-11-14T07:28:00Z', 812.5]] },
+      ],
     });
     const urls = JSON.parse(urlsLine) as string[];
     expect(urls.length).toBeGreaterThan(5);
@@ -169,7 +179,9 @@ describe('engine restart evidence inspector', () => {
   it('reads host pressure only from the loopback Prometheus query_range API', () => {
     const source = readFileSync(script, 'utf8');
     const urls = source.match(/http:\/\/[^'"\s]+/g) ?? [];
-    expect(urls).toEqual(['http://127.0.0.1:9090/api/v1/query_range?']);
+    // One loopback endpoint, named once (#10829 and #10831 each added a copy).
+    expect(urls).toEqual(['http://127.0.0.1:9090/api/v1/query_range']);
+    expect(source).toContain("urlopen(PROMETHEUS + '?' + params");
     expect(source).not.toMatch(/method=|data=|urlopen\([^)]*data/);
   });
 

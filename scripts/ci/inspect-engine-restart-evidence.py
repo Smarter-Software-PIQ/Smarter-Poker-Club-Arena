@@ -153,7 +153,7 @@ def read_host_pressure(start, end):
         params = urllib.parse.urlencode({'query': query, 'start': start.timestamp(),
                                          'end': end.timestamp(), 'step': '15'})
         try:
-            with urllib.request.urlopen('http://127.0.0.1:9090/api/v1/query_range?' + params, timeout=10) as r:
+            with urllib.request.urlopen(PROMETHEUS + '?' + params, timeout=10) as r:
                 body = json.loads(r.read().decode('utf-8'))
             series = (body.get('data') or {}).get('result') or []
             values = series[0]['values'] if series else []
