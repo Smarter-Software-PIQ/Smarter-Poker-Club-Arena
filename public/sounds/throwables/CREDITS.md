@@ -169,9 +169,10 @@ Level: each cue's assembled mix is measured and peak-normalised to -1 dBFS, offs
 - Licence: CC0-1.0
 - URL: https://freesound.org/people/TheKingOfGeeks360/sounds/787564/
 
-| Cue           | Source file(s)    |
-| ------------- | ----------------- |
-| `donkey_bray` | `donkey-bray.mp3` |
+| Cue              | Source file(s)    |
+| ---------------- | ----------------- |
+| `donkey_bray`    | `donkey-bray.mp3` |
+| `donkey_hee_haw` | `donkey-bray.mp3` |
 
 ## Applause in a large hall or church
 
@@ -228,3 +229,13 @@ Level: each cue's assembled mix is measured and peak-normalised to -1 dBFS, offs
 | Cue         | Source file(s)       |
 | ----------- | -------------------- |
 | `flag_flap` | `Cloth/Cloth_05.wav` |
+
+## Chicken Single Alarm Call
+
+- Author: Rudmer_Rotteveel
+- Licence: CC0-1.0
+- URL: https://freesound.org/people/Rudmer_Rotteveel/sounds/316920/
+
+| Cue            | Source file(s) |
+| -------------- | -------------- |
+| `chicken_bawk` | `hen.mp3`      |

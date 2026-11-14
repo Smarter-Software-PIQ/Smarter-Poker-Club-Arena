@@ -23,8 +23,11 @@ export const spec: ThrowableSpec = {
     { at: 3000, marker: 'half-open-bobs' },
     { at: 4300, marker: 'cut' },
   ],
-  // Organic cluck and bawk recordings remain an explicit sound signoff item.
-  audio: [{ at: 500, sample: 'pop_soft' }],
+  audio: [
+    { at: 500, sample: 'pop_soft' },
+    { at: 1267, sample: 'chicken_bawk', gain: 0.65 },
+    { at: 2333, sample: 'chicken_bawk', gain: 1 },
+  ],
 };
 preloadThrowableCues(spec.audio.map((c) => c.sample));
 function Projectile(_props: RigProps) {

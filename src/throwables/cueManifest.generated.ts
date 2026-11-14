@@ -86,6 +86,8 @@ export const THROWABLE_CUE_MANIFEST: Record<string, CueManifestEntry> = {
   comic_burp: { placeholder: false, license: 'CC0-1.0' },
   sad_trombone: { placeholder: false, license: 'CC0-1.0' },
   flag_flap: { placeholder: false, license: 'CC0-1.0' },
+  chicken_bawk: { placeholder: false, license: 'CC0-1.0' },
+  donkey_hee_haw: { placeholder: false, license: 'CC0-1.0' },
 };
 
 export const THROWABLE_CUE_ALLOWED_LICENSES: readonly string[] = [
