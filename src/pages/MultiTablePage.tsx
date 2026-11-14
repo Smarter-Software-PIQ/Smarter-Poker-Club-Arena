@@ -41,6 +41,7 @@ import React, {
   useLayoutEffect,
   useMemo,
   Suspense,
+  type CSSProperties,
 } from 'react';
 import {
   matchPath,
@@ -585,6 +586,9 @@ const makeHubTab = (path: string): TableInstance => ({
 /** What the swipe handlers read from a touch event - the part React's synthetic
  *  TouchEvent and the DOM's own TouchEvent have in common. */
 type SwipeTouchEvent = { touches: ArrayLike<{ clientX: number; clientY: number }> };
+
+/** How a lobby tab holding a page of its own hides its mounted game lobby. */
+const HELD_LOBBY_STYLE: CSSProperties = { visibility: 'hidden' };
 
 /** A fresh, empty lobby tab (the club lobby, no drill-in). */
 const makeLobbyTab = (): TableInstance => ({
@@ -4533,6 +4537,12 @@ export default function MultiTablePage() {
     const selectedClub = table.lobbyClubId === undefined ? homeClubId : table.lobbyClubId;
     const stack = table.lobbyTournamentStack ?? [];
     const top = stack[stack.length - 1];
+    /* A tab holding a page of its own (Player Management, ...) never shows
+       its game lobby, not even as the neighbour a swipe drags into view
+       (Dan 2026-11-13, "WITHOUT FLASHING THE GAME LOBBY"). The lobby stays
+       MOUNTED, so its list and filters survive, and is only hidden until the
+       tab shows it again. */
+    const heldStyle = table.lobbyOffRoutePath ? HELD_LOBBY_STYLE : undefined;
     /* No provider here any more — the whole container is inside one now (see
        the top-level return). A second, identical provider nested inside the
        first only invites the two to drift apart later. */
@@ -4561,6 +4571,8 @@ export default function MultiTablePage() {
           // the pill (see .multi-table-page__lobby-tab--tournament in the CSS).
           <div
             className="multi-table-page__lobby-tab multi-table-page__lobby-tab--tournament"
+            style={heldStyle}
+            data-lobby-held={heldStyle ? 'true' : undefined}
             onClickCapture={handleLobbyLinkCapture}
           >
             <GlobalHeader inTab={inTabLobbyNav} />
@@ -4579,7 +4591,12 @@ export default function MultiTablePage() {
             />
           </div>
         ) : (
-          <div className="multi-table-page__lobby-tab" onClickCapture={handleLobbyLinkCapture}>
+          <div
+            className="multi-table-page__lobby-tab"
+            style={heldStyle}
+            data-lobby-held={heldStyle ? 'true' : undefined}
+            onClickCapture={handleLobbyLinkCapture}
+          >
             <GlobalHeader inTab={inTabLobbyNav} />
             {renderTakeSeatBar()}
             {selectedClub ? (
