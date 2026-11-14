@@ -5279,3 +5279,28 @@
     --sp-bust-scale: 1.7;
   }
 }
+
+/* Away and sitting-out portraits overflow the same small layout boxes as
+   active portraits. Keep status dimming on painted leaves: WebKit clips the
+   enlarged head when either the seat opacity or avatar filter owns a group. */
+@media (max-width: 768px) and (orientation: portrait) {
+  .table-page .seat:is(.seat--away, .seat--sitting_out):has(.seat__avatar--bust) {
+    opacity: 1;
+  }
+  .table-page .seat:is(.seat--away, .seat--sitting_out) .seat__avatar--bust {
+    filter: none;
+  }
+  .table-page .seat:is(.seat--away, .seat--sitting_out) .seat__avatar--bust .seat__avatar-img {
+    filter: grayscale(60%);
+    opacity: 0.55;
+  }
+  .table-page
+    .seat:is(.seat--away, .seat--sitting_out):has(.seat__avatar--bust)
+    > :not(.seat__avatar-wrap),
+  .table-page
+    .seat:is(.seat--away, .seat--sitting_out)
+    > .seat__avatar-wrap:has(.seat__avatar--bust)
+    > :not(.seat__avatar) {
+    opacity: 0.55;
+  }
+}

@@ -117,3 +117,19 @@ it('live verification refuses a caption behind the header', () => {
     'Action Caption Outside Playable Viewport'
   );
 });
+
+it.each(['away', 'sitting_out'])('live verification refuses clipped %s portraits', (status) => {
+  mount(RING);
+  vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList);
+  const seat = document.querySelector<HTMLElement>('.seat')!;
+  seat.classList.add(`seat--${status}`);
+  seat.style.cssText = 'opacity:0.55;filter:none';
+  seat.innerHTML =
+    '<div class="seat__avatar-wrap" style="opacity:1;filter:none"><div class="seat__avatar seat__avatar--bust" data-box="100,100,80,80" style="opacity:1;filter:grayscale(0.6)"></div></div>';
+  const violation = 'Inactive Portrait Has A Clipping Compositing Group';
+  expect(readMobileTableLayout({}).violations).toContain(violation);
+  seat.style.opacity = '1';
+  expect(readMobileTableLayout({}).violations).toContain(violation);
+  seat.querySelector<HTMLElement>('.seat__avatar')!.style.filter = 'none';
+  expect(readMobileTableLayout({}).violations).not.toContain(violation);
+});

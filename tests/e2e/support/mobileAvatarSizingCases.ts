@@ -281,6 +281,14 @@ export async function checkFixedMobileArtwork(
         actingFilter: string;
         spotlight: string;
         hero: boolean;
+        statuses: Array<{
+          name: string;
+          parentFilters: string[];
+          parentOpacities: string[];
+          imageFilter: string;
+          imageOpacity: string;
+          badgeTop: number;
+        }>;
       }> = [];
       for (const avatar of document.querySelectorAll<HTMLElement>(
         '.seat__avatar[style*="--sp-mobile-art-scale"]'
@@ -309,17 +317,48 @@ export async function checkFixedMobileArtwork(
         for (const animation of image.getAnimations()) {
           if (Number.isFinite(animation.effect?.getComputedTiming().iterations)) animation.finish();
         }
+        const actingFilter = getComputedStyle(seat).filter;
+        const spotlight = getComputedStyle(image).filter;
+        const statuses = [];
+        const originalSeatClass = seat.className;
+        wrapper.classList.remove('seat-wrapper--spot');
+        seat.classList.remove('seat--away', 'seat--sitting_out', 'seat--in-hand');
+        for (const name of ['away', 'sitting_out']) {
+          seat.classList.add(`seat--${name}`);
+          // Exercise the real status selectors, not merely a badge added to
+          // an active seat. WebKit clips grown art at a filtered parent.
+          getComputedStyle(image).getPropertyValue('filter');
+          for (const animation of image.getAnimations()) {
+            if (Number.isFinite(animation.effect?.getComputedTiming().iterations))
+              animation.finish();
+          }
+          statuses.push({
+            name,
+            parentFilters: [seat, avatar.parentElement!, avatar].map(
+              (element) => getComputedStyle(element).filter
+            ),
+            parentOpacities: [seat, avatar.parentElement!, avatar].map(
+              (element) => getComputedStyle(element).opacity
+            ),
+            imageFilter: getComputedStyle(image).filter,
+            imageOpacity: getComputedStyle(image).opacity,
+            badgeTop: badge.getBoundingClientRect().top,
+          });
+          seat.classList.remove(`seat--${name}`);
+        }
+        seat.className = originalSeatClass;
         results.push({
           hero: seat.classList.contains('seat--hero'),
-          actingFilter: getComputedStyle(seat).filter,
-          spotlight: getComputedStyle(avatar.querySelector('.seat__avatar-img')!).filter,
+          actingFilter,
+          spotlight,
           foldFilter,
           foldOpacity,
           blend: getComputedStyle(holo).mixBlendMode,
           badgeTop: badge.getBoundingClientRect().top,
           headBottom: art.top + art.height * 0.4,
+          statuses,
         });
-        if (!wasSpot) wrapper.classList.remove('seat-wrapper--spot');
+        wrapper.classList.toggle('seat-wrapper--spot', wasSpot);
         seat.classList.toggle('seat--folded', wasFolded);
         holo.remove();
         badge.remove();
@@ -338,6 +377,26 @@ export async function checkFixedMobileArtwork(
         r.badgeTop,
         "a sit-out badge keeps clear of the portrait's head"
       ).toBeGreaterThanOrEqual(r.headBottom);
+      for (const status of r.statuses) {
+        expect(status.parentFilters, `${status.name} has no clipping parent filter`).toEqual([
+          'none',
+          'none',
+          'none',
+        ]);
+        expect(status.parentOpacities, `${status.name} dims painted leaves only`).toEqual([
+          '1',
+          '1',
+          '1',
+        ]);
+        expect(status.imageFilter, `${status.name} keeps its grayscale`).toContain(
+          'grayscale(0.6)'
+        );
+        expect(status.imageOpacity, `${status.name} keeps its dimming`).toBe('0.55');
+        expect(
+          status.badgeTop,
+          `${status.name} keeps its badge below the head`
+        ).toBeGreaterThanOrEqual(r.headBottom);
+      }
     }
     // Dan 2026-11-13: every table of this game type on this device takes the
     // size this one settled; it is recorded as the displayed height.

@@ -21,3 +21,11 @@ The 320 by 568 phone uses a 600 by 1065 layout canvas. Its nine-seat ring now re
 Eight fixed-art browser cases pass, including two short-phone cases; those fixtures also pass with the preceding CSS, so they are coverage rather than reproduction of the live packing failure. The retained production trace reproduces the failure. Publication and another actual live 320/375/393/430 check remain required.
 
 The initial chair allocator also ran before SeatSlot's synchronous caption measurement. Moved the existing measurement ahead of allocation, so a queued artwork-rise update cannot invalidate the chair placement immediately afterward. The real hook startup test fails against the old ordering and passes against the new ordering. Live verification now rejects captions behind the tab header as well as captions over cards and plates.
+
+The final production screenshot review caught the same WebKit clipping mechanism
+on away and sitting-out seats: seat opacity and avatar grayscale still created
+small ancestor compositing groups. Status dimming now belongs to painted leaves,
+while the full head and existing waiting/countdown messages remain visible.
+The fixed-art regressions exercise the actual status classes, and the live reader
+rejects those parent groups. Transient status grayscale is excluded from the
+persisted portrait appearance so returning to play restores normal artwork.
