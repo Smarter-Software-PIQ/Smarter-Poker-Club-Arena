@@ -24,6 +24,7 @@ import {
   migrationFiles,
   readMigration,
 } from './helpers/migrations';
+import { sliceMethod, sliceStatement } from './helpers/sourceWindow';
 
 const root = resolve(__dirname, '..');
 const read = (p: string) => readFileSync(resolve(root, p), 'utf8');
@@ -31,12 +32,12 @@ const read = (p: string) => readFileSync(resolve(root, p), 'utf8');
 describe('mystery bounty prizes are shown at entry close', () => {
   it('the engine seals the ladder on every sweep that has not reached the threshold', () => {
     const src = read('server/src/tournament/TournamentManagerBase.ts');
-    const branch = src.indexOf("decision.reason === 'threshold_not_reached'");
-    expect(branch).toBeGreaterThan(-1);
-    expect(src.slice(branch, branch + 400)).toContain('this.maybeSealMysteryLadder(');
-    const method = src.indexOf('protected async maybeSealMysteryLadder(');
-    expect(method).toBeGreaterThan(-1);
-    const body = src.slice(method, method + 5000);
+    const branch = sliceStatement(
+      src,
+      "if (!decision.activate && decision.reason === 'threshold_not_reached')"
+    );
+    expect(branch).toContain('await this.maybeSealMysteryLadder(');
+    const body = sliceMethod(src, 'protected async maybeSealMysteryLadder(');
     expect(body).toContain("supabase.rpc('fn_mystery_bounty_seal'");
     expect(body).toContain('buildInventoryAtUnit(');
     expect(body).toContain("this.broadcast('mystery_bounty_sealed'");
