@@ -7,9 +7,10 @@
  *
  * The answer a Horse gives to a run-it-twice offer, as a pure function of
  * what is on the felt at that moment. At an all-in runout every all-in hand
- * is already face up and its equity is already on the screen (all_in_equity),
- * so a Horse reads the same number a person watching the table reads. It is
- * not private card access.
+ * is already face up, so a Horse computes its equity from exactly the cards a
+ * person watching the table sees (the same worker request as all_in_equity;
+ * the percentages may reach the screen a moment later, or after the offer on
+ * a table where insurance prices the board). It is not private card access.
  *
  * Rules, in order:
  *   1. Equity unknown (not yet public, or the worker pool did not answer):

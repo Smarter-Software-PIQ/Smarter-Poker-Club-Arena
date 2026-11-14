@@ -1834,7 +1834,8 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
     this.horseRitOfferEquity.set(handAtOffer, { potBB, maxRuns, equity: null });
 
     // One equity read per offer. Nothing it does can reject or throw out of
-    // here: a failure or a timeout leaves the equity unknown.
+    // here: a failure or a timeout leaves the equity unknown (run once), and
+    // the failure is reported.
     let equitySettled = false;
     const equityReady: Promise<void> = Promise.resolve()
       .then(() => this.requestHorseRitEquity(offer))
@@ -1843,7 +1844,11 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
           const record = this.horseRitOfferEquity.get(handAtOffer);
           if (record && equity) record.equity = equity;
         },
-        () => undefined
+        (err) => {
+          reportError(err, 'ServerTableEngine.' + this.tableId + '.horse_rit_equity_failed', {
+            handNumber: handAtOffer,
+          });
+        }
       )
       .finally(() => {
         equitySettled = true;
@@ -1950,7 +1955,12 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
           perBoard.reduce((sum, values) => sum + values[i], 0) / allBoards.length,
         ])
       );
-    } catch {
+    } catch (err) {
+      // Unknown equity: the Horse runs once. Reported, as the felt's own
+      // all_in_equity worker failure is.
+      reportError(err, 'ServerTableEngine.' + this.tableId + '.horse_rit_equity_failed', {
+        handNumber: this.handCount,
+      });
       return null;
     }
   }
@@ -2019,9 +2029,13 @@ export abstract class ServerTableEngineRunout extends ServerTableEngineTurns {
    * cards were, so a Horse drawing to one out agreed to three boards. The
    * verdict is now horseRunItTwiceRuns (HorseRunItTwice.ts) on the Horse's
    * own all-in equity. That equity is public at this moment: checkAllInRunout
-   * has already turned every all-in hand face up (runoutRevealActive) and
-   * put the percentages on the felt (all_in_equity), so the Horse reads what
-   * a person watching the screen reads. The rule: unknown equity runs once
+   * has already turned every all-in hand face up (runoutRevealActive), so the
+   * Horse computes from exactly the cards a person watching the screen sees.
+   * The percentages themselves may not be on the felt yet: the standalone
+   * all_in_equity broadcast is asynchronous and can land after the offer, and
+   * on a table where insurance can price the standing board it is not sent
+   * before the offer at all (they come from the insurance pass after the
+   * run-it-twice decision). There the Horse read is the only request. The rule: unknown equity runs once
    * (never agree blind); equity <= 0.25 or >= 0.75 runs once (the bottom-set
    * case and its mirror); prefersRunItTwice (persona, pot of 40 BB or more,
    * closeness) must say yes; then a per-(horse, hand) gate says yes on 5
