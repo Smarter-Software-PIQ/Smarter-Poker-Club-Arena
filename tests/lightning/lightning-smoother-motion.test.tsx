@@ -216,12 +216,14 @@ describe('4. cards arrive with the deal, and the slide cue follows it', () => {
     expect(settle).toContain('soundService.playDeal()');
   });
 
-  it('the seats hide their cards for the button beat only, with a ceiling', () => {
-    expect(PAGE).toContain('dealPending={!!lightningRoom && lightningDealPending}');
-    expect(PAGE).toMatch(
-      /if \(lightningRoomRef\.current\) \{\s*setLightningDealPending\(true\);[\s\S]{0,400}\}, beatMs \+ 400\);/
-    );
-    expect(PAGE).toMatch(/setIsSeatDealing\(true\);\s*setLightningDealPending\(false\);/);
+  it('one Lightning flight owns the cards and controls until it lands or the ceiling releases it', () => {
+    expect(PAGE).toContain('const lightningDealPending = Boolean(lightningRoom) && dealInFlight;');
+    expect(PAGE).toContain('dealPending={lightningDealPending}');
+    expect(PAGE).toContain('setIsSeatDealing(!lightningRoomRef.current)');
+    expect(PAGE).toMatch(/!lightningRoom &&\s*dealInFlight &&/);
+    expect(PAGE).toMatch(/handStillTakingAction &&\s*!lightningDealPending &&/);
+    expect(PAGE).toMatch(/if \(lightningRoomRef\.current\) setDealAnimationKey\(0\);/);
+    expect(PAGE).toMatch(/setDealInFlight\(false\);[\s\S]{0,180}\}, 2600\);/);
     expect(read('src/components/table/SeatSlot.css')).toMatch(
       /\.seat__cards--deal-pending \.seat__card \{\s*opacity: 0;\s*\}/
     );

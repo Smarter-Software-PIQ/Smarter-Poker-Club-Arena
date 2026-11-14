@@ -49,7 +49,7 @@ describe('Leave Next Hand before Lightning starts', () => {
   it('TablePage shows it on a Lightning-capable table to a seated player outside a pool', () => {
     const page = readFileSync(resolve(__dirname, '../../src/pages/TablePage.tsx'), 'utf8');
     expect(page).toMatch(
-      /\) : lightningCapableClusterId && heroIsSeated && userId && userId !== 'guest' \? \(\s*(\/\*[\s\S]*?\*\/\s*)?<LightningFeederLeaveControl\s+queued=\{leaveNextHand\.queued\}\s+pending=\{leaveNextHand\.pending\}\s+onLeave=\{requestLeaveAtNextHand\}/
+      /\) : lightningCapableClusterId && heroIsSeated && userId && userId !== 'guest' \? \(\s*(\/\*[\s\S]*?\*\/\s*)?<LightningFeederLeaveControl\s+queued=\{finalLightningDeal\.queued \|\| leaveNextHand\.queued\}\s+pending=\{finalLightningDeal\.pending \|\| leaveNextHand\.pending\}\s+onLeave=\{requestLeaveAtNextHand\}/
     );
   });
 });

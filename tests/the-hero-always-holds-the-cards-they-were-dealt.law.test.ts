@@ -163,9 +163,16 @@ describe('TablePage keeps the hero cards by these rules and no others', () => {
     const cue = page.indexOf('lightningHoldsHeroDealSound({');
     expect(stamp).toBeGreaterThan(0);
     expect(cue).toBeGreaterThan(stamp);
-    // One stamping writer (the guarded private-frame door) and one reset.
+    // The guarded socket and database recovery paths both capture the delivered hand.
     expect(page.split('heroCardsHandRef.current = dealtHandNumber;').length - 1).toBe(1);
-    expect(page.split('heroCardsHandRef.current =').length - 1).toBe(2);
+    const recovered = sliceBetween(page, 'const fetchExistingHand =', 'cardsApplied = true;');
+    expect(recovered).toMatch(
+      /if \(parsedCards\.length >= 2\)[\s\S]*const recoveredHand = Number\(data\.hand_number\)/
+    );
+    expect(recovered).toMatch(
+      /if \(Number\.isSafeInteger\(recoveredHand\) && recoveredHand > 0\)\s*heroCardsHandRef\.current = recoveredHand;/
+    );
+    expect(page.match(/heroCardsHandRef\.current = (?![=])/g)).toHaveLength(3);
   });
 
   it('HAND_STARTED asks the cards stamp, not the deal cue alone', () => {

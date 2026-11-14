@@ -389,6 +389,21 @@ function backendFor(s: Scenario, heroSeat: number) {
   return newBackend({
     engineHttp: 'answered',
     rpc: {
+      ...(s.lightning && !s.feeder
+        ? {
+            fn_lightning_my_session: () => ({
+              body: {
+                pool_session_id: ROOM,
+                cluster_id: CLUSTER,
+                anchor_table_id: TABLE,
+                occupancy_id: '66666666-1111-4444-8888-555555555555',
+                seat_number: heroSeat,
+                state: 'active',
+                cluster_mode: 'lightning',
+              },
+            }),
+          }
+        : {}),
       ...(s.feeder
         ? {
             fn_cash_game_lobby: () => ({
@@ -1069,16 +1084,18 @@ test('Lightning leave requested before the dealt snapshot waits for the hand', a
   const scenario = SCENARIOS.find((s) => s.lightning && !s.feeder)!;
   const engine = await openTable(page, scenario, true);
   try {
-    await page.route('**/rpc/fn_lightning_stop_playing', (route) =>
-      route.fulfill({
-        json: { ok: true, in_hand: true, exited: false },
-      })
-    );
+    let stops = 0;
+    await page.route('**/rpc/fn_lightning_stop_playing', (route) => {
+      stops++;
+      return route.fulfill({ json: { ok: true, in_hand: true, exited: false } });
+    });
     await page.getByRole('button', { name: 'Leave Next Hand', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Leaving After Hand' })).toBeVisible();
+    expect(stops).toBe(0);
     engine.deliverDealtHand();
     const check = page.locator('.action-panel .action-btn').filter({ hasText: /check/i }).first();
     await expect(check).toBeEnabled();
+    await expect.poll(() => stops).toBe(1);
     const [action] = await Promise.all([
       page.waitForRequest(
         (request) => request.method() === 'POST' && new URL(request.url()).pathname === '/action'

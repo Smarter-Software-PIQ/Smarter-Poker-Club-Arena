@@ -22,6 +22,7 @@ import {
   validAllInEquityEntries,
 } from '../lib/allInEquityDisplay';
 import { fetchStoppedLightningAnchor } from '../lightning/lightningLeaveAnchor';
+import { useLightningFinalDeal } from '../lightning/useLightningFinalDeal';
 import { useLightningLeaveStop } from '../lightning/useLightningLeaveStop';
 import { resumeLightningPlaying } from '../lightning/lightningSessionApi';
 import {
@@ -3893,8 +3894,9 @@ function LiveTablePage({
      Lightning room the seats' cards stay hidden through the button beat
      (`lightningDealPending`), and the slide cue waits for the deal to land
      (`settleHeroDealSound`). Nothing is dropped. */
-  const [lightningDealPending, setLightningDealPending] = useState(false);
-  const lightningDealPendingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The table flight owns the Lightning deal. Reveal the seat faces and the
+  // available controls together when it lands (or the existing hold expires).
+  const lightningDealPending = Boolean(lightningRoom) && dealInFlight;
   /** The last hand whose deal animation landed (or whose hold expired). */
   const dealSettledHandRef = useRef(0);
   /** A hand whose card-slide cue is waiting for its deal to land. */
@@ -3926,7 +3928,6 @@ function LiveTablePage({
   useEffect(
     () => () => {
       if (dealHoldTimerRef.current) clearTimeout(dealHoldTimerRef.current);
-      if (lightningDealPendingTimerRef.current) clearTimeout(lightningDealPendingTimerRef.current);
     },
     []
   );
@@ -8026,6 +8027,7 @@ function LiveTablePage({
 
   useEffect(() => {
     if (
+      !lightningRoom &&
       dealInFlight &&
       tableState.isHandInProgress &&
       tableState.heroSeat > 0 &&
@@ -8037,6 +8039,7 @@ function LiveTablePage({
       settleHeroDealSoundRef.current?.(heldHeroDealSoundRef.current);
     }
   }, [
+    lightningRoom,
     dealInFlight,
     tableState.isHandInProgress,
     tableState.heroSeat,
@@ -8703,16 +8706,9 @@ function LiveTablePage({
       const beatMs =
         Math.round(HAND_COMPLETION.BUTTON_TO_DEAL_MS * getAnimationSpeed()) +
         (lightningRoomRef.current ? lightningArrivalWindowMs(lightningArrivalMs) : 0);
-      if (lightningRoomRef.current) {
-        setLightningDealPending(true);
-        if (lightningDealPendingTimerRef.current)
-          clearTimeout(lightningDealPendingTimerRef.current);
-        // Hard ceiling: the cards can never stay hidden past the beat.
-        lightningDealPendingTimerRef.current = setTimeout(() => {
-          lightningDealPendingTimerRef.current = null;
-          setLightningDealPending(false);
-        }, beatMs + 400);
-      }
+      // A fast fold can bring another hand while the old flight is running.
+      // Retire it before the new button beat so its completion cannot release this hand.
+      if (lightningRoomRef.current) setDealAnimationKey(0);
       observeDealPresentationTiming({
         handNumber,
         phase: 'scheduled',
@@ -8724,8 +8720,7 @@ function LiveTablePage({
         dealPresentationHandRef.current = handNumber;
         observeDealPresentationTiming({ handNumber, phase: 'timer-fired' });
         setDealAnimationKey((k) => k + 1);
-        setIsSeatDealing(true);
-        setLightningDealPending(false);
+        setIsSeatDealing(!lightningRoomRef.current);
         if (seatDealTimerRef.current) clearTimeout(seatDealTimerRef.current);
         seatDealTimerRef.current = setTimeout(() => {
           seatDealTimerRef.current = null;
@@ -12189,6 +12184,12 @@ function LiveTablePage({
   }, [leaveAttentionSuppressed]);
 
   const stopLightningForLeave = useLightningLeaveStop(lightningRoom, userId);
+  const [settledLightningHandId, setSettledLightningHandId] = useState<string | null>(null);
+  const [verifiedLightningAnchor, setVerifiedLightningAnchor] = useState<{
+    room: string;
+    tableId: string;
+    occupancyId: string;
+  } | null>(null);
   const heroHandCount = useHeroHandCount({
     enabled:
       !!userId &&
@@ -12198,6 +12199,9 @@ function LiveTablePage({
     tableId,
     lightningClusterId: lightningRoom?.clusterId ?? null,
     handNumber: tableState.handNumber ?? 0,
+    settledLightningHandId,
+    onLightningAnchor: setVerifiedLightningAnchor,
+    lightningConnected: engineWsStatus === 'connected',
     engine: heroHandsOwedEngine,
   });
   const heroHandsOwed = heroHandCount.owed;
@@ -12656,16 +12660,7 @@ function LiveTablePage({
     }
   };
 
-  /**
-   * LIGHTNING "LEAVE NEXT HAND" (Dan 2026-11-12): "IT MEANS AFTER THE END OF
-   * THE CURRENT HAND, YOU LEAVE THE TABLE. NOT AT THAT EXACT MOMENT." The
-   * control stops matchmaking at once (no new deal is ever offered), then
-   * hands the leave here. While the player is still live in the hand in front
-   * of them, the leave waits: they keep acting, their pre-actions stand, and
-   * nothing folds them. The moment that hand is complete for them (it settles,
-   * they fold, or the room closes) the original leave owner runs once.
-   */
-  const [settledLightningHandId, setSettledLightningHandId] = useState<string | null>(null);
+  // Once the requested final deal is visible, wait for the hero to finish it.
   const lightningHeroInLiveHand =
     !!lightningRoom &&
     lightningLeaveWaitsForHand(
@@ -12708,7 +12703,14 @@ function LiveTablePage({
   const cancelLightningLeave = async (): Promise<boolean> => {
     const room = lightningRoomRef.current;
     if (!room) return false;
-    const answer = await resumeLightningPlaying(room.clusterId);
+    let answer;
+    try {
+      answer = await resumeLightningPlaying(room.clusterId);
+    } catch (error) {
+      reportError(error, 'TablePage.lightning_cancel_leave');
+      toast.warning('Could Not Cancel Your Leave. Please Try Again.');
+      return false;
+    }
     if (answer?.ok) {
       lightningLeaveAfterHand.clear();
       stopLightningForLeave.reset();
@@ -12725,12 +12727,6 @@ function LiveTablePage({
         : 'Could Not Cancel Your Leave. Please Try Again.'
     );
     return false;
-  };
-
-  const requestLeaveAtNextHand = async () => {
-    const queued = await leaveNextHand.requestLeaveNextHand();
-    if (queued) toast.info('You Will Leave The Table After This Hand.');
-    else toast.warning(leaveNextHand.getError() || 'Could Not Queue Your Leave. Please Try Again.');
   };
 
   // Presentation is keyed by occupancy, independently of the roster exit latch.
@@ -13618,7 +13614,12 @@ function LiveTablePage({
               holeCards: parsedCards,
               showCards: true,
             };
-            if (parsedCards.length >= 2) heroHandOutcomeRef.current.dealtIn = true;
+            if (parsedCards.length >= 2) {
+              heroHandOutcomeRef.current.dealtIn = true;
+              const recoveredHand = Number(data.hand_number);
+              if (Number.isSafeInteger(recoveredHand) && recoveredHand > 0)
+                heroCardsHandRef.current = recoveredHand;
+            }
             cardsApplied = true;
             heroCardsRecoveredRef.current = true;
           }
@@ -26971,6 +26972,58 @@ function LiveTablePage({
     onLeave: handleLeaveTable,
   });
 
+  const finalLightningDeal = useLightningFinalDeal({
+    userId,
+    anchor: lightningRoom
+      ? verifiedLightningAnchor?.room === lightningRoom.poolSessionId
+        ? verifiedLightningAnchor
+        : null
+      : lightningCapableClusterId &&
+          ownSeatIdentity &&
+          ownSeatIdentity.tableId === tableId &&
+          ownSeatIdentity.userId === userId
+        ? ownSeatIdentity
+        : null,
+    currentHand: Number(engineSnapshot?.hand_number ?? tableState.handNumber ?? 0),
+    presentedHand:
+      isActive &&
+      !lightningObserver &&
+      (lightningRoom ? lightningHeroInLiveHand : tableState.isHandInProgress && !handSettling) &&
+      !dealInFlight &&
+      !isSeatDealing &&
+      tableState.players[tableState.heroSeat - 1]?.holeCards?.length &&
+      heroCardsHandRef.current === tableState.handNumber &&
+      tableState.handNumber === Number(engineSnapshot?.hand_number)
+        ? tableState.handNumber
+        : null,
+    roomClosed: lightningRoomClosed,
+    onPresented: async () => {
+      if (!lightningRoom) {
+        if (!(await leaveNextHand.requestLeaveNextHand())) throw new Error('Leave unconfirmed');
+        return;
+      }
+      const stop = await stopLightningForLeave.receipt();
+      if (!stop?.ok) throw new Error('Lightning stop unconfirmed');
+      await leaveLightningAfterThisHand(stop);
+    },
+    onError: () => toast.warning('Could Not Confirm Your Leave. Please Try Again.'),
+  });
+  const requestLeaveAtNextHand = async () => {
+    if (lightningRoom || lightningCapableClusterId) {
+      if (finalLightningDeal.pending) return;
+      if (finalLightningDeal.queued) finalLightningDeal.cancel();
+      else if (lightningLeaveAfterHand.queued) await cancelLightningLeave();
+      else if (leaveNextHand.queued) leaveNextHand.cancelQueuedLeave();
+      else if (finalLightningDeal.queue())
+        toast.info('You Will Play One More Hand Before Leaving.');
+      else toast.warning('Your Seat Is Still Loading. Please Try Again.');
+      return;
+    }
+    const queued = await leaveNextHand.requestLeaveNextHand();
+    if (queued) toast.info('You Will Leave The Table After This Hand.');
+    else toast.warning(leaveNextHand.getError() || 'Could Not Queue Your Leave. Please Try Again.');
+  };
+
   /**
    * ── IS THERE ACTUALLY A SEAT AT THIS TABLE? (Dan 2026-09-07, item 9) ──────
    *
@@ -28436,8 +28489,13 @@ function LiveTablePage({
                           id: 'leave-next-hand',
                           label: 'Leave Table Next Hand',
                           icon: <LeaveTableIcon />,
-                          badge: leaveNextHand.queued ? 'ON' : undefined,
-                          disabled: leaveNextHand.pending,
+                          badge:
+                            finalLightningDeal.queued ||
+                            lightningLeaveAfterHand.queued ||
+                            leaveNextHand.queued
+                              ? 'ON'
+                              : undefined,
+                          disabled: finalLightningDeal.pending || leaveNextHand.pending,
                           onClick: () => void requestLeaveAtNextHand(),
                         },
                         {
@@ -28673,20 +28731,18 @@ function LiveTablePage({
             {lightningRoom && !lightningRoomClosed && userId && userId !== 'guest' ? (
               <LightningLeaveControl
                 key={`${lightningRoom.poolSessionId}/${userId}`}
-                clusterId={lightningRoom.clusterId}
-                onLeave={leaveLightningAfterThisHand}
-                ensureStopped={stopLightningForLeave.receipt}
-                queued={lightningLeaveAfterHand.queued}
-                onCancel={cancelLightningLeave}
+                queued={finalLightningDeal.queued || lightningLeaveAfterHand.queued}
+                pending={finalLightningDeal.pending}
+                onLeave={requestLeaveAtNextHand}
+                onCancel={() => void requestLeaveAtNextHand()}
               />
             ) : lightningCapableClusterId && heroIsSeated && userId && userId !== 'guest' ? (
-              /* Before the game turns Lightning it is an ordinary table: the
-                 same button, through the ordinary leave-after-this-hand. */
+              /* A feeder uses its ordinary seat leave once the final hand appears. */
               <LightningFeederLeaveControl
-                queued={leaveNextHand.queued}
-                pending={leaveNextHand.pending}
+                queued={finalLightningDeal.queued || leaveNextHand.queued}
+                pending={finalLightningDeal.pending || leaveNextHand.pending}
                 onLeave={requestLeaveAtNextHand}
-                onCancel={() => leaveNextHand.cancelQueuedLeave()}
+                onCancel={() => void requestLeaveAtNextHand()}
               />
             ) : null}
           </div>
@@ -29042,7 +29098,10 @@ function LiveTablePage({
                   </div>
                 ) : null}
 
-                <div className="table-brand" aria-hidden="true">
+                <div
+                  className="table-brand"
+                  aria-hidden={!(lightningRoom || lightningCapableClusterId)}
+                >
                   <img
                     className="table-brand__logo"
                     src={smarterPokerLetterLogo}
@@ -30626,7 +30685,7 @@ function LiveTablePage({
                     }
                   }}
                   isDealing={isSeatDealing}
-                  dealPending={!!lightningRoom && lightningDealPending}
+                  dealPending={lightningDealPending}
                   isMucking={muckingSeats[idx] || false}
                   /* CARD SLIDE (Dan 2026-09-04): the corner peel — hero only.
                      Force-reveal conditions (showdown stage) are folded in
@@ -31716,6 +31775,7 @@ function LiveTablePage({
                  an EXACT settling flag off the engine's own HAND_COMPLETE, and
                  a BOUNDED bridge for the one silence that has no event. */}
             {handStillTakingAction &&
+              !lightningDealPending &&
               tableState.heroSeat > 0 &&
               /* ...or it IS the hero's seat and the engine is taking the
                  turn with the armed pre-action (2026-09-08 sweep): the bar

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { fetchMyHandCount, owedHands, type HandCount } from '../lib/hitAndRun';
-import { fetchMyLightningSession, lightningAnchorSeat } from '../lightning/lightningSession';
+import { readMyHandCount, owedHands, type HandCount } from '../lib/hitAndRun';
+import { fetchLightningAnchorSeat } from '../lightning/lightningSession';
 
 /** The count is read once the hand's settlement has had time to land. */
 export const HAND_COUNT_REFRESH_DELAY_MS = 1500;
@@ -15,8 +15,8 @@ const NONE: HandCount = { owed: null, required: null };
  * A classic table's engine carries both on the hero's seat (`engine`); that
  * answer is used as is. A Lightning room is not the seat's table, and its
  * count moves at every Lightning settlement, so it is read from the database
- * for the player's anchor table after each hand and while waiting between
- * hands (`engine` undefined).
+ * for the player's anchor table when the committed settlement receipt arrives,
+ * even when an early folder is already playing another hand.
  *
  * THE COUNTDOWN RESUMES (owner 2026-11-13): the engine's seat fields are null
  * while the player is out of profit, so a PAUSED countdown is read from the
@@ -30,6 +30,9 @@ export function useHeroHandCount(opts: {
   tableId: string | null | undefined;
   lightningClusterId: string | null | undefined;
   handNumber: number;
+  settledLightningHandId?: string | null;
+  lightningConnected?: boolean;
+  onLightningAnchor?: (anchor: { room: string; tableId: string; occupancyId: string }) => void;
   engine:
     | {
         owed: number | null;
@@ -41,7 +44,10 @@ export function useHeroHandCount(opts: {
 }): HandCount {
   const { enabled, tableId, lightningClusterId, handNumber, engine } = opts;
   const [read, setRead] = useState<HandCount>(NONE);
-  const anchorRef = useRef<{ clusterId: string; tableId: string } | null>(null);
+  const anchorRef = useRef<{ room: string; cluster: string; table: string } | null>(null);
+  const onLightningAnchor = opts.onLightningAnchor;
+  const boundary = lightningClusterId ? opts.settledLightningHandId : handNumber;
+  const connected = lightningClusterId ? opts.lightningConnected : undefined;
   const useEngine = engine !== undefined && !lightningClusterId;
   const engineOwed = useEngine ? owedHands(engine?.owed) : null;
   /** Classic table: the table whose pause may still need reading. */
@@ -58,16 +64,27 @@ export function useHeroHandCount(opts: {
     }
     if (useEngine && pauseWatch.current?.possible !== true) return;
     let cancelled = false;
-    const timer = setTimeout(async () => {
+    const refresh = async () => {
       let target: string | null = tableId;
       if (lightningClusterId) {
         target =
-          anchorRef.current?.clusterId === lightningClusterId ? anchorRef.current.tableId : null;
+          anchorRef.current?.room === tableId && anchorRef.current.cluster === lightningClusterId
+            ? anchorRef.current.table
+            : null;
         if (!target) {
           try {
-            const anchor = lightningAnchorSeat(await fetchMyLightningSession(lightningClusterId));
-            if (anchor) {
-              anchorRef.current = { clusterId: lightningClusterId, tableId: anchor.anchorTableId };
+            const anchor = await fetchLightningAnchorSeat(lightningClusterId, tableId);
+            if (anchor && !cancelled) {
+              anchorRef.current = {
+                room: tableId,
+                cluster: lightningClusterId,
+                table: anchor.anchorTableId,
+              };
+              onLightningAnchor?.({
+                room: tableId,
+                tableId: anchor.anchorTableId,
+                occupancyId: anchor.occupancyId,
+              });
               target = anchor.anchorTableId;
             }
           } catch {
@@ -76,18 +93,31 @@ export function useHeroHandCount(opts: {
         }
       }
       if (!target || cancelled) return;
-      const count = await fetchMyHandCount(target);
-      if (cancelled) return;
+      const count = await readMyHandCount(target);
+      if (cancelled || !count) return;
       const watch = pauseWatch.current;
       if (useEngine && watch?.tableId === target)
         watch.possible = count.done !== true && (count.owed !== null || count.paused != null);
       setRead(count);
-    }, HAND_COUNT_REFRESH_DELAY_MS);
+    };
+    // Lightning's hand_history_saved follows the database commit. Classic
+    // tables retain their existing delayed pause read after the hand changes.
+    const timer = lightningClusterId ? null : setTimeout(refresh, HAND_COUNT_REFRESH_DELAY_MS);
+    if (lightningClusterId) void refresh();
     return () => {
       cancelled = true;
-      clearTimeout(timer);
+      if (timer !== null) clearTimeout(timer);
     };
-  }, [enabled, useEngine, engineOwed, tableId, lightningClusterId, handNumber]);
+  }, [
+    enabled,
+    useEngine,
+    engineOwed,
+    tableId,
+    lightningClusterId,
+    boundary,
+    connected,
+    onLightningAnchor,
+  ]);
 
   if (!enabled) return NONE;
   if (!useEngine) return read;
