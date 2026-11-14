@@ -23,6 +23,7 @@
  * does arithmetic on "0.00" and gets a string back.
  */
 
+import { selectTextTwins } from '../lib/selectTextTwins';
 import { supabase } from '../lib/supabase';
 import { normaliseRole, type ClubRole } from '../types/clubRoles';
 
@@ -38,7 +39,9 @@ export class MemberAccessDeniedError extends Error {
 async function readMemberRpc(
   name: string,
   parameters: Record<string, unknown>,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  /** A column list for a set-returning RPC, to read money columns as exact text too. */
+  select?: string
 ): Promise<unknown> {
   const { computeRosterRetryDelay, isServerTerminatedRosterTimeout, runRosterReadWithRetry } =
     await import('../utils/rosterReadReliability');
@@ -46,6 +49,7 @@ async function readMemberRpc(
     async (attemptSignal) => {
       const executeRpc = async () => {
         let request = supabase.rpc(name, parameters);
+        if (select) request = selectTextTwins(request, select);
         if (name === 'ca_club_member_detail' || name === 'ca_club_member_statistics') {
           request = request.setHeader('x-client-info', 'club-arena-member-results/2');
         }
@@ -211,6 +215,17 @@ export interface RosterMember {
   /** Total rake this member has generated. */
   total_fees: number | null;
   downline_fees: number | null;
+  /**
+   * The money figures above as the exact decimal text Postgres holds
+   * (ca_club_members_page's `<key>_text` twins), for display. Absent from
+   * older servers and redacted wherever the number is redacted.
+   */
+  chip_balance_text?: string;
+  player_wallet_text?: string;
+  agent_wallet_text?: string;
+  promo_wallet_text?: string;
+  total_fees_text?: string;
+  downline_fees_text?: string;
   total_hands: number | null;
   downline_direct: number | null;
   downline_total: number | null;
@@ -255,6 +270,7 @@ export function mapRosterRow(row: Record<string, unknown>): RosterMember {
     promo_wallet: nullableNum(row.promo_wallet),
     total_fees: nullableNum(row.total_fees),
     downline_fees: nullableNum(row.downline_fees),
+    ...exactTwins(row, ROSTER_MONEY_KEYS),
     total_hands: nullableNum(row.total_hands),
     downline_direct: nullableNum(row.downline_direct),
     downline_total: nullableNum(row.downline_total),
@@ -325,23 +341,27 @@ export interface MemberDetail {
     upline_player_number: string | null;
   };
   presence: { is_online: boolean; is_seated: boolean };
-  wallets: {
-    chip_balance: number;
-    player_wallet: number;
-    agent_wallet: number;
-    promo_wallet: number;
-  } | null;
+  wallets:
+    | ({
+        chip_balance: number;
+        player_wallet: number;
+        agent_wallet: number;
+        promo_wallet: number;
+      } & ExactTwins<(typeof DETAIL_WALLET_KEYS)[number]>)
+    | null;
   downline: { downline_direct: number; downline_total: number } | null;
-  stats: {
-    hands: number;
-    mtt_hands: number;
-    total_fee: number;
-    mtt_fee: number;
-    claimed_back: number;
-    sent_out: number;
-    total_winnings: number | null;
-    mtt_winnings: number;
-  } | null;
+  stats:
+    | ({
+        hands: number;
+        mtt_hands: number;
+        total_fee: number;
+        mtt_fee: number;
+        claimed_back: number;
+        sent_out: number;
+        total_winnings: number | null;
+        mtt_winnings: number;
+      } & ExactTwins<(typeof DETAIL_STATS_KEYS)[number]>)
+    | null;
   range: { from: string | null; to: string | null; is_overall: boolean };
   capabilities: {
     access: 'none' | 'identity' | 'downline' | 'staff' | 'service';
@@ -388,6 +408,9 @@ export interface DownlineMember {
   depth: number;
   chip_balance: number;
   total_fees: number;
+  /** Exact decimal text of chip_balance and total_fees, for display. */
+  chip_balance_text?: string;
+  total_fees_text?: string;
   is_online: boolean;
 }
 
@@ -413,6 +436,9 @@ export interface WinLossFigure {
   net_text?: string | null;
   fees_text?: string;
   downline_fees_text?: string;
+  /** ca_club_member_win_loss's exact twins of cash and mtt. */
+  cash_text?: string;
+  mtt_text?: string;
 }
 
 /** Read the period summary's money columns as decimal text as well as numbers. */
@@ -424,6 +450,56 @@ function decimalText(value: unknown): string | undefined {
   return typeof value === 'string' && /^-?\d+(\.\d+)?$/.test(value.trim())
     ? value.trim()
     : undefined;
+}
+
+/** The `<key>_text` twins a figure may carry: exact decimal text for display. */
+export type ExactTwins<K extends string> = Partial<Record<`${K}_text`, string>>;
+
+const ROSTER_MONEY_KEYS = [
+  'chip_balance',
+  'player_wallet',
+  'agent_wallet',
+  'promo_wallet',
+  'total_fees',
+  'downline_fees',
+] as const;
+const DETAIL_WALLET_KEYS = [
+  'chip_balance',
+  'player_wallet',
+  'agent_wallet',
+  'promo_wallet',
+] as const;
+const DETAIL_STATS_KEYS = [
+  'total_fee',
+  'mtt_fee',
+  'total_winnings',
+  'mtt_winnings',
+  'claimed_back',
+  'sent_out',
+] as const;
+
+const DOWNLINE_MONEY_KEYS = ['chip_balance', 'total_fees'] as const;
+
+/** `*` plus each money column again as `<key>_text` (`::text`), for a set-returning RPC. */
+export function textTwinSelect(keys: readonly string[]): string {
+  return ['*', ...keys.map((key) => `${key}_text:${key}::text`)].join(',');
+}
+
+/**
+ * Copy each well-formed `<key>_text` twin the server sent (Dan 2026-11-13: real
+ * figures print whole). A twin only travels with a present number of the same
+ * value, so a missing, malformed or redacted twin is simply left out and the
+ * display falls back to the number.
+ */
+function exactTwins<K extends string>(source: unknown, keys: readonly K[]): ExactTwins<K> {
+  const row = (source && typeof source === 'object' ? source : {}) as Record<string, unknown>;
+  const out: Record<string, string> = {};
+  for (const key of keys) {
+    if (typeof row[key] !== 'number') continue;
+    const text = decimalText(row[`${key}_text`]);
+    if (text !== undefined) out[`${key}_text`] = text;
+  }
+  return out as ExactTwins<K>;
 }
 
 export interface MemberWinLoss {
@@ -457,6 +533,7 @@ function winLossFigure(value: unknown): WinLossFigure {
     cash: row.cash === null ? null : num(row.cash),
     mtt: num(row.mtt),
     net: row.net === null ? null : num(row.net),
+    ...exactTwins(row, ['cash', 'mtt', 'net'] as const),
   };
 }
 
@@ -639,7 +716,12 @@ export const ClubRosterService = {
    * service has no opinion about routing.
    */
   async getRoster(clubId: string, signal?: AbortSignal): Promise<RosterMember[]> {
-    const data = await readMemberRpc('ca_club_members_overview', { p_club_id: clubId }, signal);
+    const data = await readMemberRpc(
+      'ca_club_members_overview',
+      { p_club_id: clubId },
+      signal,
+      textTwinSelect(ROSTER_MONEY_KEYS)
+    );
     if (!Array.isArray(data)) throw new Error('The Roster Response Was Incomplete');
     return data.map((row: Record<string, unknown>) => mapRosterRow(row));
   },
@@ -886,6 +968,7 @@ export const ClubRosterService = {
             player_wallet: num(d.wallets?.player_wallet),
             agent_wallet: num(d.wallets?.agent_wallet),
             promo_wallet: num(d.wallets?.promo_wallet),
+            ...exactTwins(d.wallets, DETAIL_WALLET_KEYS),
           }
         : null,
       downline: d.downline
@@ -904,6 +987,7 @@ export const ClubRosterService = {
             sent_out: num(d.stats?.sent_out),
             total_winnings: d.stats?.total_winnings === null ? null : num(d.stats?.total_winnings),
             mtt_winnings: num(d.stats?.mtt_winnings),
+            ...exactTwins(d.stats, DETAIL_STATS_KEYS),
           }
         : null,
       range: {
@@ -1018,7 +1102,8 @@ export const ClubRosterService = {
         p_from: range.from,
         p_to: range.to,
       },
-      signal
+      signal,
+      textTwinSelect(DOWNLINE_MONEY_KEYS)
     );
     if (!Array.isArray(data)) throw new Error('The Downline Response Was Incomplete');
     return data.map((row: Record<string, unknown>) => ({
@@ -1031,6 +1116,7 @@ export const ClubRosterService = {
       depth: num(row.depth),
       chip_balance: num(row.chip_balance),
       total_fees: num(row.total_fees),
+      ...exactTwins(row, DOWNLINE_MONEY_KEYS),
       is_online: row.is_online === true,
     }));
   },
