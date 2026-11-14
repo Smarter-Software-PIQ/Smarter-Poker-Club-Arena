@@ -86,6 +86,52 @@ export interface HandCount {
   reason?: HandsOwedReason | null;
   /** The win, in big blinds, that started the big-win count. */
   bigWinBb?: number | null;
+  /**
+   * THE COUNTDOWN RESUMES (owner 2026-11-13): hands left on a countdown that
+   * is paused because the player fell out of profit. Nothing is owed while it
+   * is paused and the player may leave; back in profit the count picks up at
+   * this number. Null: no paused countdown (or unreadable).
+   */
+  paused?: number | null;
+  /** The countdown is completed for this session; it can no longer pause. */
+  done?: boolean;
+}
+
+/** The seat-side label while the countdown is paused out of profit. */
+export const HIT_RUN_PAUSED_LABEL = 'Countdown Paused';
+
+/** Under the paused count: what the number means. Title Case, no em dash. */
+export function pausedHandsLeftText(hands: number): string {
+  const n = Math.max(1, Math.floor(hands));
+  return `${n === 1 ? 'Hand' : 'Hands'} Left When You Are Back In Profit`;
+}
+
+/** The whole paused line, for a screen reader. */
+export function countdownPausedText(hands: number): string {
+  const n = Math.max(1, Math.floor(hands));
+  return `${HIT_RUN_PAUSED_LABEL} - ${n} ${n === 1 ? 'Hand' : 'Hands'} Left`;
+}
+
+/** Said the hand a paused countdown picks up again. */
+export function countdownResumedText(hands: number): string {
+  const n = Math.max(1, Math.floor(hands));
+  return `You Are Back In Profit. ${n} ${n === 1 ? 'Hand' : 'Hands'} Left Before You Can Leave`;
+}
+
+/**
+ * Hands left on a PAUSED countdown, from one fn_my_hit_run_status row: a
+ * countdown exists (required above played), it is not completed, and nothing
+ * is owed at this stack (out of profit). The number is the row's own
+ * required minus played, never a constant. Null otherwise.
+ */
+export function pausedHands(row: Record<string, unknown> | null | undefined): number | null {
+  if (!row || row.completed === true) return null;
+  if (owedHands(row.hands_remaining) !== null) return null;
+  if (owedHands(row.big_win_hands_remaining) !== null) return null;
+  const required = Math.floor(Number(row.hands_required));
+  const played = Math.floor(Number(row.hands_played));
+  if (!Number.isFinite(required) || !Number.isFinite(played) || played < 0) return null;
+  return required > played ? required - played : null;
 }
 
 export function parseHandsOwedReason(value: unknown): HandsOwedReason | null {
@@ -126,6 +172,13 @@ export async function fetchMyHandCount(tableId: string): Promise<HandCount> {
           required: owedHands(row.hands_required),
           reason: parseHandsOwedReason(row.hands_reason),
           bigWinBb: Number.isFinite(bb) && bb > 0 ? bb : null,
+        };
+      } else if (n === null && best.owed === null) {
+        best = {
+          owed: null,
+          required: null,
+          paused: pausedHands(row),
+          done: row.completed === true,
         };
       }
     }
