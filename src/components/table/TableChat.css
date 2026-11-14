@@ -759,8 +759,17 @@
    TableHUD.css at the same breakpoint). Same 54px derivation: 42px tab bar
    + 12px clearance. The open chat panel itself is untouched. */
 @media (max-width: 768px) {
+  .table-hud .lightning-leave-control,
   .chat-collapsed {
     top: calc(env(safe-area-inset-top, 0px) + 54px);
+  }
+
+  .table-hud .lightning-leave-control {
+    position: fixed;
+    left: 6px;
+  }
+
+  .chat-collapsed {
     bottom: auto;
     right: 6px;
   }
@@ -771,6 +780,7 @@
    height here counted it twice and covered the upper-right player's portrait.
    Anchor explicitly in the owned page and retain the 12px under-bar gap. */
 @media (max-width: 768px) {
+  .multi-table-page .table-hud .lightning-leave-control,
   .multi-table-page .chat-collapsed {
     position: absolute;
     top: 12px;
