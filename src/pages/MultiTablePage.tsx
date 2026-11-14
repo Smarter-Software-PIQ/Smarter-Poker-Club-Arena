@@ -237,6 +237,9 @@ interface TableInstance {
   clusterId?: string;
   /** Hero is sitting out at this table. */
   sittingOut?: boolean;
+  /** TablePage's answer: nothing deals the hero here, so the pill's menu
+   *  offers Sit Down (Dan 2026-11-14). */
+  canSitDown?: boolean;
   /** Absolute epoch-ms this table's sit-out clock runs out. Cash only. */
   sitOutDeadlineMs?: number;
   /** Tournament tables sit out indefinitely; cash tables are on a clock. */
@@ -1188,9 +1191,12 @@ export default function MultiTablePage() {
                 .in('id', ids)
             : { data: [], error: null };
         if (!isCurrent() || tableErr || !Array.isArray(anchorRows)) return;
-        // A live seated tab that converts still owns its explicit View Game
-        // choice. Cold recovery and the player's original Join intent restore
-        // the private room; a conversion alone never changes their active game.
+        // A live seated anchor tab is left in place here: its own TablePage
+        // hand-off carries it to the pool room IN PLACE (same slot, same
+        // activeIndex) the moment its room is open (Dan 2026-11-14, the tab
+        // follows the chair). Mapping it here instead would prune the anchor
+        // tab and append the room at the end, which moves the player's view.
+        // Cold recovery (no seated tab yet) maps the anchor to its room.
         const keepAnchors = new Set(
           tablesRef.current
             .filter(
@@ -2284,6 +2290,7 @@ export default function MultiTablePage() {
              rebuild that reads table_seats WHERE left_at IS NULL, and by
              nothing else. */
           seated: t.seated,
+          canSitDown: t.canSitDown,
           canAddFunds: t.canAddFunds,
           seatChangeEnabled: t.seatChangeEnabled,
           buttonTheme: t.buttonTheme,
@@ -2535,9 +2542,25 @@ export default function MultiTablePage() {
   const handleQuickAction = useCallback(
     async (
       tabId: string,
-      action: 'sitout' | 'back' | 'leave' | 'leave-next-hand' | 'mute' | 'reload' | 'open-browser'
+      action:
+        | 'sitdown'
+        | 'sitout'
+        | 'back'
+        | 'leave'
+        | 'leave-next-hand'
+        | 'mute'
+        | 'reload'
+        | 'open-browser'
     ) => {
       switch (action) {
+        /* Dan 2026-11-14: "IF A USER EVER CLICKS THE ACTION BAR PILL FOR A
+           GAME, IT SHOULD OPEN THE DROP DOWN MENU TO 'SIT DOWN'". The owning
+           TablePage knows which door this table has (its Lightning room, Join
+           Lightning, the first open chair's buy-in, or the waiting list). */
+        case 'sitdown': {
+          masterBus.emit('TABLE_MENU_ACTION', { tableId: tabId, action: 'SIT_DOWN' });
+          break;
+        }
         /* Hub tabs only (Dan 2026-09-05, browser-tab parity). RELOAD remounts
            the frame at its last known page by giving the tab a fresh id - the
            frame reads `src` once at mount, so a new key is the reload. OPEN IN

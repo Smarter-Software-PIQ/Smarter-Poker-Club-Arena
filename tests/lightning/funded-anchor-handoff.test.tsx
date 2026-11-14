@@ -77,6 +77,7 @@ function consumer(
     lightningObserver: observer,
     lightningAnchorFunded: legacyFunded,
     lightningAnchorFunding: funding,
+    tableGameLightningState: undefined,
     leftSeatPendingRef: { current: departed },
     embeddedTableId: embedded ? ANCHOR : undefined,
     navigate,
@@ -101,21 +102,33 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
+/* Dan 2026-11-14: "I FOLDED AND WAS MOVED TO THE NEXT HAND... BUT THEN I
+   WASN'T DEALT IN, IT WAS LIKE I WAS 'OBSERVING'". This test used to pin the
+   opposite: the converted seat waited for a View Game tap whose notice the
+   footer chain hid, while the pool dealt the seat and its clock ran out. The
+   tab follows the chair now, in place, exactly once. */
 it.each([false, true])(
-  'a funded anchor with no public hero offers its own room only after explicit View Game (embedded=%s)',
+  'a funded anchor with no public hero follows its own room at once, exactly once (embedded=%s)',
   async (embedded) => {
     const c = consumer([{ user_id: USER, stack: '200', leave_pending: false }], embedded);
     expect(c.input.heroBoughtIn).toBe(false); // The frozen public roster never seats this viewer.
     const { result } = renderHook(() => useLightningAnchorHandoff(c.input));
     await act(async () => {});
     expect(result.current.readyPoolSessionId).toBe(POOL);
-    expect(c.navigate).not.toHaveBeenCalled();
-    expect(c.onTableInfoUpdate).not.toHaveBeenCalled();
-    act(() => result.current.viewReady());
     if (embedded) {
+      expect(c.onTableInfoUpdate).toHaveBeenCalledTimes(1);
       expect(c.onTableInfoUpdate).toHaveBeenCalledWith({ movedToTableId: POOL });
       expect(c.navigate).not.toHaveBeenCalled();
-    } else expect(c.navigate).toHaveBeenCalledWith(`/table/${POOL}`, { replace: true });
+    } else {
+      expect(c.navigate).toHaveBeenCalledTimes(1);
+      expect(c.navigate).toHaveBeenCalledWith(`/table/${POOL}`, { replace: true });
+      expect(c.onTableInfoUpdate).not.toHaveBeenCalled();
+    }
+    // A repeated read of the same open room never re-points the tab again.
+    await act(async () => {
+      result.current.recheck();
+    });
+    expect(embedded ? c.onTableInfoUpdate : c.navigate).toHaveBeenCalledTimes(1);
   }
 );
 
@@ -167,6 +180,7 @@ it('a locally confirmed departure overrides an earlier funded anchor lookup', as
     lightningObserver: false,
     lightningAnchorFunded: false,
     lightningAnchorFunding: { tableId: ANCHOR, userId: USER, funded: true },
+    tableGameLightningState: undefined,
     leftSeatPendingRef: { current: true },
     embeddedTableId: undefined,
     navigate: c.navigate,

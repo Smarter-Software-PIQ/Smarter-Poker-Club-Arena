@@ -1214,6 +1214,8 @@ export interface BusPayloadMap {
     action:
       | 'SHOW_TOURNAMENT_DOCK'
       | 'SIT_OUT'
+      /** Dan 2026-11-14: the action pill's Sit Down (TablePage picks the door). */
+      | 'SIT_DOWN'
       | 'STAND_UP_BB'
       | 'AUTO_TOP_UP'
       | 'TOGGLE_SOUNDS'
