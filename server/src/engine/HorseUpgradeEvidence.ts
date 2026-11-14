@@ -18,7 +18,7 @@
  *
  * MEASUREMENT ONLY. Nothing here is read by a decision; the fold happens after
  * the decision is made. No IO: services/HorseUpgradeEvidenceFlush.ts drains
- * the aggregate every minute. Off until that service arms it, so a league run,
+ * the aggregate every 300 seconds. Off until that service arms it, so a league run,
  * a replay or a test that never starts the flush accumulates nothing.
  *
  * BOUNDED. At most HORSE_UPGRADE_EVIDENCE_MAX_CELLS (day, Horse, variant, lane,

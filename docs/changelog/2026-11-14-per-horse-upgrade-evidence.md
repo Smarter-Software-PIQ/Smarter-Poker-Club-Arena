@@ -20,8 +20,8 @@ Measurement path only: no decision, wager, think time, queue or deadline changes
 - One fold in the decision worker (`workerRuntime.executeFastWithUpgradeEvidence`): the FAST execution runs inside the scope, and after it returns the fired set is recorded against the request's Horse, variant and lane.
 - Host events (`noteHorseUpgradeEvent`, main process), one per opportunity, beside the fleet counter already there: the run-it-twice chooser and each answering Horse and the insurance offer (`ServerTableEngineRunout.ts`), the pre-action purge of a server-owned seat (`ServerTableEngineTurns.ts`, `LightningHandHost.ts`). Each site first asks whether the aggregate is armed, so an unarmed process reads nothing for it.
 - Migration `20261114002055_per_horse_upgrade_evidence_daily.sql` (new objects only, ordinary install on merge): the daily table, the receipt table `horse_upgrade_evidence_batches`, and the only writer `fn_horse_upgrade_evidence_flush(p_payload text)`, modelled on `fn_horse_brain_flush_receipt`: strict header and row validation, at most 4,096 rows and 524,288 bytes, receipt first, additive upsert in key order, an identical resend answered `replayed`, a different payload under the same batch id refused. RLS on with no policy, nothing for PUBLIC, anon or authenticated, EXECUTE for service_role only. Receipts are pruned inside the writer (64 per accepted batch, older than 40 days) and batches older than 32 days are refused, so pruning can never make a resend additive.
-- `services/HorseUpgradeEvidenceFlush.ts`: every 60 seconds the aggregate is drained, split by day into batches inside the row and byte bounds, and written. Each decision worker starts and stops it beside its brain telemetry flush (`startOwnedServices` / `stopOwnedServices`); the main process starts it beside its own (`index.ts`) and stops it in the same parallel stop (`GameServer.ts`).
-- `HorseDataLedger.ts`: six receipt rows (below), and the ledger contract test now scans the two new source files, so a new key there without a row fails the build.
+- `services/HorseUpgradeEvidenceFlush.ts`: every 300 seconds the aggregate is drained, split by day into batches inside the row and byte bounds, and written. Each decision worker starts and stops it beside its brain telemetry flush (`startOwnedServices` / `stopOwnedServices`); the main process starts it beside its own (`index.ts`) and stops it in the same parallel stop (`GameServer.ts`).
+- `HorseDataLedger.ts`: eight receipt rows (below), and the ledger contract test now scans the two new source files, so a new key there without a row fails the build.
 
 ## The Daily Read
 
@@ -36,9 +36,25 @@ Measurement path only: no decision, wager, think time, queue or deadline changes
 
 - Acknowledged (`recorded` or `replayed`): done.
 - Refused by its bytes (the writer's seven `HORSE_UPGRADE_EVIDENCE_*` errors): dropped and counted (`per_horse_evidence_batch_rejected_seen`), reported, never resent.
-- Function not installed (PGRST202 or 42883): nothing was written, so every queued row returns to the aggregate (still capped) and the next tick asks again. Counted every tick (`per_horse_evidence_function_missing_seen`), reported once per process. It never throws into the decision path.
-- Anything else is unconfirmed: the exact bytes and batch id are kept and resent, so a write that landed with its acknowledgement lost comes back as a replay. Counted (`per_horse_evidence_write_unconfirmed_seen`), not logged. Rows are deliberately not returned to the aggregate in this case: a fresh batch id would add a landed write twice. Still unconfirmed after 60 flushes: dropped and counted (`per_horse_evidence_batch_abandoned_seen`).
-- The other two receipts: `per_horse_evidence_cell_dropped_seen` (the cap) and `per_horse_evidence_identity_refused_seen` (a user id that is not a uuid). All six have no floor; zero is the normal state, and a positive value on a day means the table undercounts that day for the process that fired it.
+- Function not installed (PGRST202 or 42883): this attempt wrote nothing. Every queued batch that has never had an unconfirmed attempt returns to the aggregate (still capped) and the next tick asks again. A head batch with an earlier unconfirmed attempt may already have landed, so it is not returned (a fresh batch id would add it twice): it keeps its bytes and id and is retried, to be answered `recorded` or `replayed` once the function exists, or dropped at the attempt cap. Counted every tick (`per_horse_evidence_function_missing_seen`), reported once per process. It never throws into the decision path.
+- Anything else is unconfirmed: the exact bytes and batch id are kept and resent, so a write that landed with its acknowledgement lost comes back as a replay. Counted (`per_horse_evidence_write_unconfirmed_seen`), not logged. Still unconfirmed after 12 flushes (an hour at one every 300 seconds): dropped and counted (`per_horse_evidence_batch_abandoned_seen`).
+- The other two receipts: `per_horse_evidence_cell_dropped_seen` (the cap) and `per_horse_evidence_identity_refused_seen` (a user id that is not a uuid). Two more cover failures that are contained rather than thrown: `per_horse_evidence_arming_failed_seen` (arming threw at service start; evidence stays off for that process and its boot continues) and `per_horse_evidence_fold_failed_seen` (recording one answered decision threw; the decision and its lifecycle were not touched). All eight have no floor; zero is the normal state, and a positive value on a day means the table undercounts that day for the process that fired it.
+
+## Retention, Size And Write Volume
+
+- Daily rows are kept 90 days. The writer prunes them itself, the way it prunes its receipts: each accepted batch deletes up to 512 rows whose day is more than 90 days before that batch's day, oldest first, through the primary key (which begins with day), skipping rows another writer holds. No schedule.
+- Size: production's `horse_brain_activity_rollup` implies about 39,000 rows a day, so about 3.5 million rows at 90 days.
+- The flush interval is 300 seconds, not 60. Every active cell's row is rewritten by every flush (about 223 bytes of WAL per row update, measured in review), and at 60 seconds that was on the order of 1 to 2 GB of WAL a day. A cell is now rewritten at most 288 times a day instead of 1,440. The daily table has fillfactor 85 so these in-place additive updates stay HOT (no column they change is indexed); the real-Postgres script proves an update is HOT.
+- The price is crash loss: a process that dies loses up to one 300-second interval.
+
+## Failures That Are Contained
+
+- Arming reads the activation manifest. `startHorseUpgradeEvidenceFlush` is called from the worker's and the leader's service start, where a throw is fatal, so arming is total: a failure is counted, reported once per process, and leaves evidence off for that process (no timer, nothing accumulates). The engine boots as if the feature were absent.
+- The fold runs after the decision has been answered. It is wrapped: a throw is counted and reported once per process and never reaches the decision lifecycle (no second message for an answered request, no `exception` outcome).
+
+## Server-Side Timeouts, Stated Exactly
+
+`SET lock_timeout = '2s'` on the function works: a lock wait inside it is cut at 2 seconds. `SET statement_timeout = '5s'` on the function does not bound the call (probed in review on PostgreSQL 17: a function with `SET statement_timeout = '1s'` around `pg_sleep(3)` ran 3 seconds); the effective server-side bound is the calling role's own statement timeout. The clause is kept because it is inert rather than wrong and matches `fn_horse_brain_flush_receipt`; nothing relies on it. A write can therefore commit after the engine's 5-second client abort. The design absorbs that: the same bytes are resent under the same batch id and answered `replayed`.
 
 ## Shutdown Time
 
@@ -55,8 +71,8 @@ The 12,000, 5,000 and 20,000 ms figures are the existing stops' own bounds, not 
 ## Merge Timing And Rollout Order
 
 - The migration installs on merge and changes production's installed migration set. It therefore merges after an engine cutover has sealed, or before the Backup export for the next release is taken, never between a release's certification and its cutover.
-- Order: (1) merge, the migration installs, the function exists and nothing calls it; (2) the next engine release carries the code, and the engine-doors check finds the function before the release is handed over; (3) each worker and the main process start writing within a minute of boot; (4) the daily read is meaningful from the first full UTC day after that cutover.
-- An engine that serves before the function exists degrades quietly: rows are held in memory under the cap, the missing function is counted every minute and reported once, and no decision is touched. Nothing needs to be reverted in the database to roll the engine back; the tables simply stop growing.
+- Order: (1) merge, the migration installs, the function exists and nothing calls it; (2) the next engine release carries the code, and the engine-doors check finds the function before the release is handed over; (3) each worker and the main process start writing within 300 seconds of boot; (4) the daily read is meaningful from the first full UTC day after that cutover.
+- An engine that serves before the function exists degrades quietly: rows are held in memory under the cap, the missing function is counted every 300 seconds and reported once, and no decision is touched. Nothing needs to be reverted in the database to roll the engine back; the tables simply stop growing.
 
 ## Limits, Stated
 
@@ -64,9 +80,9 @@ The 12,000, 5,000 and 20,000 ms figures are the existing stops' own bounds, not 
 - Upgrades whose evidence is not a per-decision brain counter are not provable per Horse here: 04 (the reservoir is built once per process and its counter is credited to the one decision that built it), 05 (a `/metrics` series and a main-process counter with no Horse in scope) and 13 (a `/metrics` series). Their rows carry the decision baseline with `invoked` at zero. The core row's worker-side evidence is `phase5_canonical_state`, which every FAST decision fires.
 - For upgrades 08 and 09 `decisions` mixes two kinds of opportunity (brain decisions and host-side offers), so `invoked / decisions` is not a rate of anything; the meaningful reading is which Horses have `invoked > 0`.
 - DEEP second looks are not counted, so an upgrade exercised only in a second look is invisible here.
-- Not a disk spool. A process that dies loses what it has not written: up to one 60-second interval, plus any retained batch. The table can undercount, never overcount.
+- Not a disk spool. A process that dies loses what it has not written: up to one 300-second interval, plus any retained batch. The table can undercount, never overcount.
 - With the function missing or the database away, memory is bounded by the 8,192-cell cap plus one drain's queue; beyond it new cells are dropped and counted.
-- Real rows are at least 129 bytes, so the 524,288-byte bound binds before the 4,096-row bound (about 3,600 real rows); a full drain is four or five batches, all written in the same tick.
+- Real rows are at least 129 bytes, so the 524,288-byte bound binds before the 4,096-row bound (about 3,250 real rows with a 32-character upgrade id, measured in review); a full drain is four or five batches, all written in the same tick.
 
 ## Regression
 
@@ -74,5 +90,6 @@ The 12,000, 5,000 and 20,000 ms figures are the existing stops' own bounds, not 
 - `HorseUpgradeHostEvidence.test.ts` (the production methods): run-it-twice chooser and answers, the insurance offer and its answer, the table purge and the Lightning purge each record one event for the right Horse, variant and lane, and nothing for a person or a person-piloted seat.
 - `HorseUpgradeEvidence.test.ts`: scope collection, suspension, nesting and throw hygiene; declared baseline against invocation; worker decisions and host opportunities adding into one cell; Horse, variant, lane and day separation; identity refusal; unarmed no-op; the cell cap; additive restore inside the cap.
 - `HorseUpgradeEvidenceFlush.test.ts`: header shape and row order; split inside rows and bytes with one day per batch; per-tick bound; unconfirmed resend of the same bytes; malformed acknowledgements; each deterministic refusal; abandonment at the attempt cap; function-missing restore; the 60-second timer, shutdown order, the shutdown budget with a slow writer (own writes and a tick in flight), the 5,000 ms write abort, and quiet degradation.
-- `HorseDataLedger.test.ts`: the six receipts are declared and fired, with the two new files in its scan.
+- Added after review: a manifest that throws leaves the start path unaffected and evidence unarmed; a fold forced to throw gives one FAST_RESULT, no ERROR and a `success` lifecycle; an unconfirmed attempt that landed, followed by a function-missing answer, adds its rows exactly once; the TypeScript refusal names equal the names the migration raises; the real-Postgres script proves the 90-day prune (91 days goes, 90 and 89 stay, 512 per accepted batch), the fillfactor and a HOT update.
+- `HorseDataLedger.test.ts`: the eight receipts are declared and fired, with the two new files in its scan.
 - `scripts/ci/test-per-horse-upgrade-evidence.py` (PostgreSQL 17, workflow `per-horse-upgrade-evidence.yml`, the one-workflow-per-script pattern of `per-horse-brain-coverage.yml`): fail-before, additive upsert, replay, collision, oversize and malformed refusals, the day window and expiry, row validation, receipt pruning, privileges and the operations read.

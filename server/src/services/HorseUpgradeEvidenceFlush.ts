@@ -1,7 +1,7 @@
 /**
  * PER-HORSE UPGRADE EVIDENCE FLUSH (2026-11-14)
  *
- * Every minute the per-Horse upgrade cells (engine/HorseUpgradeEvidence.ts)
+ * Every 300 seconds the per-Horse upgrade cells (engine/HorseUpgradeEvidence.ts)
  * are written to horse_upgrade_evidence_daily through
  * fn_horse_upgrade_evidence_flush, in batches inside the writer's bounds.
  *
@@ -9,9 +9,13 @@
  * - acknowledged (recorded or replayed): done.
  * - refused by its bytes (a P0001 the same payload can never pass): dropped
  *   and counted. Never resent.
- * - the function is not installed (PGRST202 / 42883): nothing was written, so
- *   every queued row goes back into the aggregate (bounded by its cell cap) and
- *   the next tick tries again. Counted every tick, reported once per process.
+ * - the function is not installed (PGRST202 / 42883): this attempt wrote
+ *   nothing, so every queued batch that has never had an unconfirmed attempt
+ *   goes back into the aggregate (bounded by its cell cap) and the next tick
+ *   tries again. A head batch with an EARLIER unconfirmed attempt may already
+ *   have landed, so it is not put back (a fresh batch id would add it twice):
+ *   it keeps its bytes and id and is retried like any unconfirmed batch.
+ *   Counted every tick, reported once per process.
  * - anything else is UNCONFIRMED: the write may have landed with only its
  *   acknowledgement lost. The exact bytes and batch id are kept and resent, so
  *   the writer's batch receipt turns a landed write into a replay instead of
@@ -21,7 +25,12 @@
  *
  * Memory is bounded: the aggregate holds at most 8,192 cells and the queue at
  * most one drain of it. Not a disk spool: a process that dies loses what it
- * has not written (up to one interval, plus anything retained).
+ * has not written (up to one 300-second interval, plus anything retained).
+ *
+ * WHY 300 SECONDS AND NOT 60. Every active cell is rewritten by every flush
+ * (an additive update of its row, about 223 bytes of WAL each, measured), so
+ * the interval sets the write volume: at 60 seconds that was on the order of
+ * 1 to 2 GB of WAL a day for counters nobody reads inside the minute.
  */
 import { createHash, randomUUID } from 'node:crypto';
 import { supabase } from './supabase/client.js';
@@ -38,13 +47,14 @@ import {
 /** The writer's bounds (fn_horse_upgrade_evidence_flush). */
 export const HORSE_UPGRADE_EVIDENCE_MAX_ROWS = 4096;
 export const HORSE_UPGRADE_EVIDENCE_MAX_BYTES = 524_288;
-/** A batch unconfirmed this many flushes in a row (an hour at one a minute) is dropped. */
-export const HORSE_UPGRADE_EVIDENCE_MAX_ATTEMPTS = 60;
+/** A batch unconfirmed this many flushes in a row (an hour at one every 300 seconds) is dropped. */
+export const HORSE_UPGRADE_EVIDENCE_MAX_ATTEMPTS = 12;
 /** Batches written per tick: one full drain (8,192 cells) splits into four or five. */
 export const HORSE_UPGRADE_EVIDENCE_TICK_MAX_BATCHES = 8;
 /** Shutdown writes stop when another could end past this, inside the worker's graceful stop. */
 export const HORSE_UPGRADE_EVIDENCE_SHUTDOWN_BUDGET_MS = 15_000;
-const FLUSH_MS = 60_000;
+/** The flush interval (see the header for why it is not 60 seconds). */
+export const HORSE_UPGRADE_EVIDENCE_FLUSH_MS = 300_000;
 const WRITE_TIMEOUT_MS = 5_000;
 
 /** Writer refusals that are a property of the bytes: the same batch can never be accepted. */
@@ -207,11 +217,20 @@ export class HorseUpgradeEvidencePublisher {
       }
       if (answer.error) {
         if (functionMissing(answer.error)) {
-          // Nothing was written: give every queued row back and let the next tick ask again.
-          for (const queued of this.queue) this.deps.restore(queued.rows);
-          this.queue = [];
           this.deps.noteFeature('per_horse_evidence_function_missing_seen');
           result.status = 'function_missing';
+          // THIS attempt wrote nothing. A batch on its first attempt (and the never-sent ones behind it)
+          // goes back into the aggregate. A head with an earlier unconfirmed attempt may have landed
+          // then: it keeps its bytes and id, so the function, once it exists, answers recorded or
+          // replayed and the rows are added exactly once. It is still dropped at the attempt cap.
+          const retained = pending.attempts > 1 ? pending : null;
+          for (const queued of this.queue) if (queued !== retained) this.deps.restore(queued.rows);
+          this.queue = retained ? [retained] : [];
+          if (retained && retained.attempts >= HORSE_UPGRADE_EVIDENCE_MAX_ATTEMPTS) {
+            this.queue = [];
+            this.deps.noteFeature('per_horse_evidence_batch_abandoned_seen');
+            result.status = 'abandoned';
+          }
           return result;
         }
         if (answer.error.code === 'P0001' && DETERMINISTIC_REFUSALS.has(answer.error.message)) {
@@ -270,6 +289,7 @@ let timer: NodeJS.Timeout | null = null;
 let tick: Promise<void> | null = null;
 let stopOperation: Promise<void> | null = null;
 let functionMissingReported = false;
+let armingFailureReported = false;
 
 /** One line per outcome that loses rows; the missing function is reported once per process, not per tick. */
 function report(result: HorseUpgradeEvidenceFlushResult): void {
@@ -318,15 +338,27 @@ export function horseUpgradeEvidencePendingBatches(): number {
 export function startHorseUpgradeEvidenceFlush(): void {
   if (timer) return;
   if (process.env.BRAIN_TELEMETRY_ENABLED === 'false') return;
+  // ARMING CANNOT FAIL A BOOT. Arming reads the activation manifest, and this is called from the
+  // worker's and the leader's service start, where a throw is fatal. A failure is counted, reported
+  // once per process and leaves evidence off (no timer, nothing accumulates); nothing is thrown.
+  try {
+    enableHorseUpgradeEvidence();
+  } catch (error) {
+    noteFire('per_horse_evidence_arming_failed_seen');
+    if (!armingFailureReported) {
+      armingFailureReported = true;
+      reportError(error, 'HorseUpgradeEvidenceFlush.arming_failed');
+    }
+    return;
+  }
   stopOperation = null;
   stopStartedAt = null;
-  enableHorseUpgradeEvidence();
   timer = setInterval(() => {
     if (tick) return;
     tick = publish(HORSE_UPGRADE_EVIDENCE_TICK_MAX_BATCHES, insideStopBudget).then(() => {
       tick = null;
     });
-  }, FLUSH_MS);
+  }, HORSE_UPGRADE_EVIDENCE_FLUSH_MS);
   timer.unref?.();
 }
 

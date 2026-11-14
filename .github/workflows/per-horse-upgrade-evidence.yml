@@ -11,6 +11,7 @@ on:
       - supabase/migrations/20261114002055_per_horse_upgrade_evidence_daily.sql
       - scripts/ci/test-per-horse-upgrade-evidence.py
       - scripts/ops/per-horse-upgrade-evidence-daily.sql
+      - server/src/services/HorseUpgradeEvidenceFlush.ts
       - .github/workflows/per-horse-upgrade-evidence.yml
 
 permissions:

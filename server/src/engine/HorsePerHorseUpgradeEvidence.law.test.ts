@@ -33,8 +33,17 @@ type Mode = 'cash' | 'tournament';
 type Variant = 'nlh' | 'plo5';
 
 /** One module graph: the runtime, the brain and every piece of module state they share. */
-async function world(scope: 'collecting' | 'pass-through') {
+async function world(scope: 'collecting' | 'pass-through', foldThrows = false) {
   vi.resetModules();
+  // A fold that throws, to prove it cannot reach the decision lifecycle.
+  if (foldThrows)
+    vi.doMock('./HorseUpgradeEvidence.js', async (original) => ({
+      ...(await original<typeof import('./HorseUpgradeEvidence.js')>()),
+      noteHorseUpgradeDecision: () => {
+        throw new Error('fold threw after the decision was answered');
+      },
+    }));
+  else vi.doUnmock('./HorseUpgradeEvidence.js');
   if (scope === 'pass-through')
     vi.doMock('./BrainTelemetry.js', async (original) => ({
       ...(await original<typeof import('./BrainTelemetry.js')>()),
@@ -66,14 +75,19 @@ async function world(scope: 'collecting' | 'pass-through') {
   telemetry.enableBrainTelemetry();
   evidence.enableHorseUpgradeEvidence();
   const messages: HorseDecisionWorkerResponse[] = [];
+  const lifecycle: Array<{ phase: string; outcome?: string }> = [];
   let brainThrows = false;
   const worker = new HorseDecisionWorkerRuntime((m) => messages.push(m), {
     ...defaults,
     startServices: async () => defaults.workerReadiness(),
     stopServices: async () => {},
-    journalEnabled: () => false,
+    // The fold-failure runtime journals lifecycles (and nothing else) so the terminal outcome is visible.
+    journalEnabled: () => foldThrows,
+    journalDecision: undefined,
     journalAcceptedHand: () => {},
-    journalLifecycle: () => {},
+    journalLifecycle: (_request, record) => {
+      lifecycle.push(record as { phase: string; outcome?: string });
+    },
     noteDecision: () => {},
     now: () => 1_000,
     decide: (...args) => {
@@ -317,7 +331,7 @@ async function world(scope: 'collecting' | 'pass-through') {
       rngAfterDecision: saveFastRandom(),
     };
   }
-  return { decide, worker, evidence, telemetry, HorseMind };
+  return { decide, worker, evidence, telemetry, HorseMind, lifecycle };
 }
 
 const upgradeRows = (rows: HorseUpgradeEvidenceRow[]) =>
@@ -429,6 +443,42 @@ describe('LAW: the decision worker records which Horse exercised which upgrade, 
     // upgrade 03 is what the thrown decision fired: a scope left open would hand it to this Horse
     expect(upgradeRows(next.rows).upgrade_03_shared_deck_multiboard).toBeUndefined();
     expect(next.counted.v36_bomb_multiboard).toBeUndefined();
+  }, 120_000);
+
+  it('a fold that throws cannot touch the answered decision: one FAST_RESULT, no ERROR, a normal lifecycle', async () => {
+    const reported: unknown[] = [];
+    vi.doMock('../services/errorReporter.js', () => ({
+      reportError: (error: unknown, context: string) => reported.push([String(error), context]),
+    }));
+    const broken = await world('collecting', true);
+    try {
+      const first = await broken.decide('nlh', 'cash', 7);
+      const second = await broken.decide('nlh', 'tournament', 8);
+      for (const run of [first, second]) {
+        expect(run.answers.map((m) => m.type)).toEqual(['FAST_RESULT']);
+        expect(fastResult(run.answers).decision.policyFallback).toBeUndefined();
+        expect(run.counted.per_horse_evidence_fold_failed_seen).toBe(1);
+        expect(run.rows).toEqual([]);
+      }
+      // each request was admitted and ended `success`; a rethrown fold would have ended it `exception`
+      expect(broken.lifecycle.map((r) => `${r.phase}:${r.outcome ?? ''}`)).toEqual([
+        'requested:',
+        'terminal:success',
+        'requested:',
+        'terminal:success',
+      ]);
+      // counted every time, reported once per process
+      expect(reported).toEqual([
+        [
+          'Error: fold threw after the decision was answered',
+          'HorseDecisionWorker.upgrade_evidence_fold_failed',
+        ],
+      ]);
+    } finally {
+      await broken.worker.drain();
+      vi.doUnmock('./HorseUpgradeEvidence.js');
+      vi.doUnmock('../services/errorReporter.js');
+    }
   }, 120_000);
 
   it('the same seeded request decides identically with the scope collecting and with a pass-through', async () => {

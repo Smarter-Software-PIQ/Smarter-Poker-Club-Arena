@@ -334,6 +334,96 @@ describe('the per-Horse upgrade evidence publisher', () => {
     }
   );
 
+  it('adds rows exactly once when an unconfirmed attempt landed and the next answer is function-missing', async () => {
+    // The writer as the database behaves: a batch id it has stored is answered `replayed`.
+    const stored = new Map<string, Array<{ horseUserId: string; decisions: number }>>();
+    const answers = ['landed-then-timeout', 'function-missing'];
+    const held = Array.from({ length: 5000 }, (_, n) => row(n)); // a head batch and never-sent rows behind it
+    const t = publisherWith(held, (p) => {
+      const batch = JSON.parse(p);
+      const mode = answers.shift() ?? 'installed';
+      if (mode === 'function-missing')
+        return { data: null, error: { message: 'Could not find the function', code: 'PGRST202' } };
+      const replay = stored.has(batch.batchId);
+      if (!replay) stored.set(batch.batchId, batch.rows);
+      // attempt 1: the write commits and its acknowledgement is lost to the client abort
+      if (mode === 'landed-then-timeout') return new Error('aborted');
+      return ack(p, replay ? 'replayed' : 'recorded');
+    });
+    expect(await t.publisher.flush()).toMatchObject({ status: 'unconfirmed' });
+    expect(await t.publisher.flush()).toMatchObject({ status: 'function_missing' });
+    // the head that may have landed keeps its bytes and id; only the never-sent batch went back
+    expect(t.publisher.pendingBatches()).toBe(1);
+    const headRows = JSON.parse(t.sent[0]!).rows.length;
+    expect(t.restored).toHaveLength(5000 - headRows);
+    expect(t.sent[1]).toBe(t.sent[0]);
+    held.push(...t.restored.splice(0));
+    // the function exists now: the head is answered `replayed`, the restored rows are written fresh
+    expect(await t.publisher.flush()).toMatchObject({
+      status: 'written',
+      replayed: 1,
+      recorded: 0,
+    });
+    expect(t.sent[2]).toBe(t.sent[0]);
+    expect(await t.publisher.flush()).toMatchObject({
+      status: 'written',
+      replayed: 0,
+      recorded: 1,
+    });
+    const added = [...stored.values()].flat();
+    expect(added).toHaveLength(5000);
+    expect(new Set(added.map((r) => r.horseUserId)).size).toBe(5000);
+    expect(added.reduce((n, r) => n + r.decisions, 0)).toBe(5000 * 3);
+    expect(t.publisher.pendingBatches()).toBe(0);
+  });
+
+  it('a retained head that only ever hears function-missing is still dropped at the attempt cap', async () => {
+    let call = 0;
+    const t = publisherWith([row(1)], () =>
+      ++call === 1
+        ? new Error('aborted')
+        : { data: null, error: { message: 'Could not find the function', code: '42883' } }
+    );
+    expect((await t.publisher.flush()).status).toBe('unconfirmed');
+    for (let attempt = 2; attempt < service.HORSE_UPGRADE_EVIDENCE_MAX_ATTEMPTS; attempt++)
+      expect((await t.publisher.flush()).status, `attempt ${attempt}`).toBe('function_missing');
+    expect(t.publisher.pendingBatches()).toBe(1);
+    expect((await t.publisher.flush()).status).toBe('abandoned');
+    expect(t.publisher.pendingBatches()).toBe(0);
+    expect(t.restored).toEqual([]);
+    expect(new Set(t.sent).size).toBe(1);
+    expect(t.sent).toHaveLength(service.HORSE_UPGRADE_EVIDENCE_MAX_ATTEMPTS);
+    expect(t.noted.filter((n) => n === 'per_horse_evidence_batch_abandoned_seen')).toHaveLength(1);
+  });
+
+  it('names exactly the refusals the migration raises, so the two cannot drift', async () => {
+    const { readFileSync, readdirSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const migrations = join(process.cwd(), '..', 'supabase', 'migrations');
+    const file = readdirSync(migrations).filter((f) =>
+      f.endsWith('_per_horse_upgrade_evidence_daily.sql')
+    );
+    expect(file).toHaveLength(1);
+    const sql = readFileSync(join(migrations, file[0]!), 'utf8');
+    const raised = new Set(
+      [...sql.matchAll(/RAISE EXCEPTION '(HORSE_UPGRADE_EVIDENCE_[A-Z_]+)'/g)].map((m) => m[1])
+    );
+    const source = readFileSync(
+      join(process.cwd(), 'src/services/HorseUpgradeEvidenceFlush.ts'),
+      'utf8'
+    );
+    const block = /const DETERMINISTIC_REFUSALS = new Set\(\[([\s\S]*?)\]\);/.exec(source);
+    const dropped = new Set(
+      [...block![1]!.matchAll(/'(HORSE_UPGRADE_EVIDENCE_[A-Z_]+)'/g)].map((m) => m[1])
+    );
+    expect(raised.size).toBe(7);
+    expect([...dropped].sort()).toEqual([...raised].sort());
+    // and the writer raises nothing else by name
+    expect([...sql.matchAll(/RAISE EXCEPTION '([^']+)'/g)].every((m) => raised.has(m[1]))).toBe(
+      true
+    );
+  });
+
   it('joins a second flush to the one in flight instead of sending twice', async () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => (release = resolve));
@@ -351,14 +441,15 @@ describe('the per-Horse upgrade evidence flush service', () => {
   const decide = (n: number) =>
     evidence.noteHorseUpgradeDecision(horse(n), 'nlh', 'cash', ['upgrade02_card_removal_scored']);
 
-  it('arms the aggregate at start and writes it to the writer function every 60 seconds', async () => {
+  it('arms the aggregate at start and writes it to the writer function every 300 seconds', async () => {
     decide(1);
     expect(evidence.drainHorseUpgradeEvidence()).toEqual([]); // not armed yet
     service.startHorseUpgradeEvidenceFlush();
     service.startHorseUpgradeEvidenceFlush(); // idempotent: one timer
     decide(1);
     decide(1);
-    await vi.advanceTimersByTimeAsync(59_999);
+    expect(service.HORSE_UPGRADE_EVIDENCE_FLUSH_MS).toBe(300_000);
+    await vi.advanceTimersByTimeAsync(299_999);
     expect(mocked.rpc).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
     expect(mocked.rpc).toHaveBeenCalledTimes(1);
@@ -373,16 +464,53 @@ describe('the per-Horse upgrade evidence flush service', () => {
       decisions: 2,
       invoked: 2,
     });
-    await vi.advanceTimersByTimeAsync(60_000);
+    await vi.advanceTimersByTimeAsync(300_000);
     expect(mocked.rpc).toHaveBeenCalledTimes(1); // nothing new: idle, no write
     expect(mocked.report).not.toHaveBeenCalled();
+  });
+
+  it('a manifest that throws cannot fail the start: evidence stays unarmed, reported once, counted each time', async () => {
+    vi.resetModules();
+    vi.doMock('../engine/HorseUpgradeActivationManifest.js', async (original) => ({
+      ...(await original<typeof import('../engine/HorseUpgradeActivationManifest.js')>()),
+      computeHorseUpgradeActivationManifest: () => {
+        throw new Error('authority file unreadable');
+      },
+    }));
+    try {
+      const broken = await import('./HorseUpgradeEvidenceFlush.js');
+      const brokenEvidence = await import('../engine/HorseUpgradeEvidence.js');
+      const brokenTelemetry = await import('../engine/BrainTelemetry.js');
+      brokenTelemetry.enableBrainTelemetry();
+      // the worker's and the leader's service start call this unguarded: it must return normally
+      expect(() => broken.startHorseUpgradeEvidenceFlush()).not.toThrow();
+      expect(() => broken.startHorseUpgradeEvidenceFlush()).not.toThrow();
+      expect(brokenEvidence.horseUpgradeEvidenceArmed()).toBe(false);
+      brokenEvidence.noteHorseUpgradeDecision(horse(1), 'nlh', 'cash', [
+        'upgrade02_card_removal_scored',
+      ]);
+      await vi.advanceTimersByTimeAsync(900_000);
+      expect(mocked.rpc).not.toHaveBeenCalled();
+      expect(brokenEvidence.drainHorseUpgradeEvidence()).toEqual([]);
+      expect(mocked.report.mock.calls.map((c) => [String(c[0]), c[1]])).toEqual([
+        ['Error: authority file unreadable', 'HorseUpgradeEvidenceFlush.arming_failed'],
+      ]);
+      expect(
+        brokenTelemetry
+          .drainFires()
+          .find((f) => f.feature === 'per_horse_evidence_arming_failed_seen')?.fires
+      ).toBe(2);
+      await expect(broken.stopHorseUpgradeEvidenceFlush()).resolves.toBeUndefined();
+    } finally {
+      vi.doUnmock('../engine/HorseUpgradeActivationManifest.js');
+    }
   });
 
   it('does not start, arm or write when brain telemetry is disabled', async () => {
     vi.stubEnv('BRAIN_TELEMETRY_ENABLED', 'false');
     service.startHorseUpgradeEvidenceFlush();
     decide(1);
-    await vi.advanceTimersByTimeAsync(120_000);
+    await vi.advanceTimersByTimeAsync(600_000);
     await service.stopHorseUpgradeEvidenceFlush();
     expect(mocked.rpc).not.toHaveBeenCalled();
     expect(evidence.drainHorseUpgradeEvidence()).toEqual([]);
@@ -394,7 +522,7 @@ describe('the per-Horse upgrade evidence flush service', () => {
     await service.stopHorseUpgradeEvidenceFlush();
     expect(mocked.rpc).toHaveBeenCalledTimes(1);
     decide(2);
-    await vi.advanceTimersByTimeAsync(180_000);
+    await vi.advanceTimersByTimeAsync(900_000);
     expect(mocked.rpc).toHaveBeenCalledTimes(1);
     expect(service.horseUpgradeEvidencePendingBatches()).toBe(0);
     expect(mocked.report).not.toHaveBeenCalled();
@@ -406,7 +534,7 @@ describe('the per-Horse upgrade evidence flush service', () => {
     mocked.rpc.mockImplementationOnce(() => ({
       abortSignal: () => Promise.reject(new Error('aborted')),
     }));
-    await vi.advanceTimersByTimeAsync(60_000);
+    await vi.advanceTimersByTimeAsync(300_000);
     expect(service.horseUpgradeEvidencePendingBatches()).toBe(1);
     decide(2);
     await service.stopHorseUpgradeEvidenceFlush();
@@ -444,7 +572,7 @@ describe('the per-Horse upgrade evidence flush service', () => {
         new Promise((resolve) => setTimeout(() => resolve(ack(args.p_payload)), 4_000)),
     }));
     const stopped = service.stopHorseUpgradeEvidenceFlush();
-    await vi.advanceTimersByTimeAsync(60_000);
+    await vi.advanceTimersByTimeAsync(300_000);
     await stopped;
     expect(mocked.rpc).toHaveBeenCalledTimes(3);
     expect(service.horseUpgradeEvidencePendingBatches()).toBeGreaterThan(0);
@@ -463,13 +591,13 @@ describe('the per-Horse upgrade evidence flush service', () => {
       abortSignal: () =>
         new Promise((resolve) => setTimeout(() => resolve(ack(args.p_payload)), 4_900)),
     }));
-    await vi.advanceTimersByTimeAsync(60_000); // the tick starts its first write
+    await vi.advanceTimersByTimeAsync(300_000); // the tick starts its first write
     await vi.advanceTimersByTimeAsync(1_000);
     expect(mocked.rpc).toHaveBeenCalledTimes(1);
     const stopCalledAt = Date.now();
     let stoppedAt = 0;
     const stopped = service.stopHorseUpgradeEvidenceFlush().then(() => (stoppedAt = Date.now()));
-    await vi.advanceTimersByTimeAsync(120_000);
+    await vi.advanceTimersByTimeAsync(600_000);
     await stopped;
     // writes begin 0, 4,900 and 9,800 ms into the tick; the one that would begin at 14,700 ms (13,700 ms
     // after the stop) could end at 18,700 ms, past the budget, so it never starts
@@ -509,7 +637,7 @@ describe('the per-Horse upgrade evidence flush service', () => {
     decide(1);
     for (let tick = 0; tick < 5; tick++) {
       decide(1);
-      await vi.advanceTimersByTimeAsync(60_000);
+      await vi.advanceTimersByTimeAsync(300_000);
     }
     expect(mocked.rpc).toHaveBeenCalledTimes(5);
     expect(mocked.report.mock.calls.map((c) => c[1])).toEqual([
@@ -521,7 +649,7 @@ describe('the per-Horse upgrade evidence flush service', () => {
     mocked.rpc.mockImplementation((_name, args) => ({
       abortSignal: () => Promise.resolve(ack(args.p_payload)),
     }));
-    await vi.advanceTimersByTimeAsync(60_000);
+    await vi.advanceTimersByTimeAsync(300_000);
     expect(payloads().at(-1).rows).toContainEqual(
       expect.objectContaining({
         upgradeId: 'upgrade_02_card_removal_blockers',
@@ -537,7 +665,7 @@ describe('the per-Horse upgrade evidence flush service', () => {
     }));
     service.startHorseUpgradeEvidenceFlush();
     decide(1);
-    await vi.advanceTimersByTimeAsync(60_000);
+    await vi.advanceTimersByTimeAsync(300_000);
     expect(mocked.report.mock.calls.map((c) => c[1])).toEqual([
       'HorseUpgradeEvidenceFlush.rejected',
     ]);

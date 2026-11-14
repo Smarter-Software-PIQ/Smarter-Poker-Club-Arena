@@ -290,6 +290,7 @@ import {
 } from '../HorseStyleShadow.js';
 import { withBrainTelemetrySuspended, withDecisionFireScope } from '../BrainTelemetry.js';
 import { noteHorseUpgradeDecision } from '../HorseUpgradeEvidence.js';
+import { reportError } from '../../services/errorReporter.js';
 
 /** Trusted in-process construction seam; never part of the live wire protocol. */
 export type HorseDecisionWorkerAuthorityHolderFactory = (
@@ -793,6 +794,9 @@ export const streetPrewarmTable = (fence: string): string => {
   const colon = fence.indexOf(':');
   return colon > 0 ? fence.slice(0, colon) : fence;
 };
+
+/** One report per process for a per-Horse evidence fold that threw (executeFastWithUpgradeEvidence). */
+let upgradeEvidenceFoldFailureReported = false;
 
 export class HorseDecisionWorkerRuntime {
   /** Private, actor-bounded read views; never included in IPC or telemetry.
@@ -2848,12 +2852,23 @@ export class HorseDecisionWorkerRuntime {
    */
   private executeFastWithUpgradeEvidence(request: FastHorseDecisionRequest): HorseLifecycleOutcome {
     const scoped = withDecisionFireScope(() => this.executeFast(request));
-    noteHorseUpgradeDecision(
-      request.player.user_id,
-      request.gameState.gameVariant,
-      request.gameState.gameMode === 'tournament' ? 'tournament' : 'cash',
-      scoped.fired
-    );
+    // The decision has been answered (FAST_RESULT is sent inside executeFast). A fold that threw
+    // here would reach execute()'s catch, mark the lifecycle `exception` and send an ERROR for an
+    // answered request, so it is contained: counted, reported once per process, never rethrown.
+    try {
+      noteHorseUpgradeDecision(
+        request.player.user_id,
+        request.gameState.gameVariant,
+        request.gameState.gameMode === 'tournament' ? 'tournament' : 'cash',
+        scoped.fired
+      );
+    } catch (error) {
+      this.deps.noteFeature('per_horse_evidence_fold_failed_seen');
+      if (!upgradeEvidenceFoldFailureReported) {
+        upgradeEvidenceFoldFailureReported = true;
+        reportError(error, 'HorseDecisionWorker.upgrade_evidence_fold_failed');
+      }
+    }
     return scoped.value;
   }
 

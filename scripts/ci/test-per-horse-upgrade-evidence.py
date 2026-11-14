@@ -7,8 +7,9 @@ migration, a batch is added, a second batch is added on top (additive upsert),
 an identical resend is answered 'replayed' and adds nothing, a different
 payload under the same batch id is refused, oversize, malformed, expired,
 out-of-window and invalid-row payloads are refused with their own reasons and
-write nothing, old receipts are pruned inside the writer, and only
-service_role may call it.
+write nothing, old receipts and daily rows older than 90 days are pruned
+inside the writer in bounded steps, the daily table carries its fillfactor,
+and only service_role may call it.
 """
 import hashlib
 import json
@@ -248,8 +249,42 @@ def main():
         assert H1 not in report.stdout and H2 not in report.stdout
         proven()
 
-        print(f'per-Horse upgrade evidence writer: {PROOFS}/12 behaviours proven')
-        assert PROOFS == 12
+        # 11. daily rows are kept 90 days and pruned inside the writer, oldest first, at most 512 per accepted
+        #     batch: 91 days before the batch day goes, 90 and 89 days stay
+        def aged(days):
+            return sql(f"SELECT count(*) FROM public.horse_upgrade_evidence_daily WHERE day = '{(now - timedelta(days=days)).strftime('%Y-%m-%d')}'")
+        sql("INSERT INTO public.horse_upgrade_evidence_daily (day, horse_user_id, game_variant, lane, upgrade_id, decisions, invoked) "
+            "SELECT current_date - d, ('aaaaaaaa-aaaa-4aaa-8aaa-' || lpad(n::text, 12, '0'))::uuid, 'nlh', 'cash', 'old', 1, 0 "
+            "FROM (VALUES (91, 600), (90, 3), (89, 3)) AS v(d, rows), generate_series(1, v.rows) AS n")
+        assert (aged(91), aged(90), aged(89)) == ('600', '3', '3')
+        refused(payload([row(decisions=-1)], now), 'HORSE_UPGRADE_EVIDENCE_INVALID_ROW')  # a refused batch prunes nothing
+        assert aged(91) == '600'
+        accepted(payload([row(horse=H2, variant='plo6', decisions=1, invoked=0)], now, sequence=5), 'recorded')
+        assert (aged(91), aged(90), aged(89)) == ('88', '3', '3'), (aged(91), aged(90), aged(89))
+        accepted(payload([row(horse=H2, variant='plo6', decisions=1, invoked=0)], now, sequence=6), 'recorded')
+        assert (aged(91), aged(90), aged(89)) == ('0', '3', '3')
+        # a replay prunes nothing either (it returns before the upsert), and the newest rows are untouched
+        assert cell(H1, 'nlh', 'cash', 'upgrade_02_card_removal_blockers') == '15/9'
+        proven()
+
+        # 12. the daily table keeps room for its in-place additive updates, and no updated column is indexed
+        assert sql("SELECT array_to_string(reloptions, ',') FROM pg_class WHERE relname = 'horse_upgrade_evidence_daily'") == 'fillfactor=85'
+        assert sql("SELECT count(*) FROM pg_index i JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey) "
+                   "WHERE i.indrelid = 'public.horse_upgrade_evidence_daily'::regclass "
+                   "AND a.attname IN ('decisions', 'invoked', 'updated_at')") == '0'
+        sql("SELECT pg_stat_force_next_flush()")
+        hot_before = sql("SELECT coalesce(n_tup_hot_upd, 0) || '/' || coalesce(n_tup_upd, 0) FROM pg_stat_user_tables WHERE relname = 'horse_upgrade_evidence_daily'")
+        accepted(payload([row(horse=H2, variant='plo6', decisions=1, invoked=1)], now, sequence=7), 'recorded')
+        sql("SELECT pg_stat_force_next_flush()")
+        import time
+        time.sleep(1.5)
+        hot_after = sql("SELECT coalesce(n_tup_hot_upd, 0) || '/' || coalesce(n_tup_upd, 0) FROM pg_stat_user_tables WHERE relname = 'horse_upgrade_evidence_daily'")
+        hb, ub = map(int, hot_before.split('/')); ha, ua = map(int, hot_after.split('/'))
+        assert ua - ub == 1 and ha - hb == 1, f'the additive update was not HOT: {hot_before} -> {hot_after}'
+        proven()
+
+        print(f'per-Horse upgrade evidence writer: {PROOFS}/14 behaviours proven')
+        assert PROOFS == 14
     finally:
         subprocess.run([pg_bin('pg_ctl'), '-D', str(data), '-m', 'immediate', 'stop'], capture_output=True)
         shutil.rmtree(sock, ignore_errors=True)

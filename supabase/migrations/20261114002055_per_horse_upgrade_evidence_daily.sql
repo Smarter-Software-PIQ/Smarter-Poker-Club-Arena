@@ -18,8 +18,9 @@
 --      lane, upgrade id), `decisions` (decisions that Horse made in that
 --      variant and lane that day, the opportunity baseline) and `invoked` (the
 --      decisions among them in which one of the upgrade's evidence counters
---      fired). Written additively by the engine's decision workers once a
---      minute (server/src/services/HorseUpgradeEvidenceFlush.ts).
+--      fired). Written additively by the engine's decision workers and its
+--      main process every 300 seconds
+--      (server/src/services/HorseUpgradeEvidenceFlush.ts).
 --
 --   2. public.horse_upgrade_evidence_batches: one receipt per accepted batch
 --      (id and payload digest), so a batch whose acknowledgement was lost and
@@ -36,14 +37,48 @@
 -- creates, so it is an ordinary install-on-merge migration, not a
 -- daily-maintenance one.
 --
--- RETENTION. The receipt table is bounded inside the writer, the way
--- horse_brain_flush_receipts is: no schedule. A batch collected more than 32
--- days ago is refused before anything is written, a batch stamped more than a
--- day ahead of the database clock is refused, and each accepted batch deletes
--- up to 64 receipts accepted more than 40 days ago. A pruned receipt therefore
--- belongs to a batch that would be refused as expired, so pruning can never
--- make a resend additive again. The daily table is the permanent record and is
--- not pruned.
+-- RETENTION. Both tables are bounded inside the writer, the way
+-- horse_brain_flush_receipts is: no schedule.
+--
+--   Receipts: a batch collected more than 32 days ago is refused before
+--   anything is written, a batch stamped more than a day ahead of the database
+--   clock is refused, and each accepted batch deletes up to 64 receipts
+--   accepted more than 40 days ago. A pruned receipt therefore belongs to a
+--   batch that would be refused as expired, so pruning can never make a resend
+--   additive again.
+--
+--   Daily rows: kept 90 days. Each accepted batch deletes up to 512 rows whose
+--   day is more than 90 days before that batch's day, oldest first, skipping
+--   rows another writer holds. The primary key begins with day, so the delete
+--   is a range scan of that index; no extra index. A batch's day is at most 39
+--   days behind the clock (32-day expiry plus the 7-day window), so a row is
+--   never pruned before it is 90 days old.
+--
+-- SIZE. Production's horse_brain_activity_rollup implies about 39,000 rows a
+-- day here (Horse x variant x lane x declared upgrade), so about 3.5 million
+-- rows at 90 days. At some 1,000 accepted batches a day the 512-row prune has
+-- more than ten times the capacity the daily inflow needs.
+--
+-- WRITE CHURN. Every active cell's row is rewritten by every flush (an
+-- additive update; about 223 bytes of WAL each, measured). The engine flushes
+-- every 300 seconds, not 60: a cell is then rewritten at most 288 times a day
+-- instead of 1,440, where 60 seconds measured on the order of 1 to 2 GB of WAL
+-- a day. The daily table is created with fillfactor 85 so those
+-- updates find room on their own page and stay HOT: no column they change
+-- (decisions, invoked, updated_at) is indexed, so a HOT update writes no index
+-- entry and its dead version is reclaimed by page pruning, without vacuum.
+--
+-- TIMEOUTS, STATED EXACTLY. `SET lock_timeout = '2s'` on the function works: a
+-- lock wait inside it is cut at 2 seconds. `SET statement_timeout = '5s'` on
+-- the function does NOT bound the call: the statement timer is armed when the
+-- caller's top-level statement starts, before this setting applies (probed on
+-- PostgreSQL 17: a function with SET statement_timeout = '1s' around
+-- pg_sleep(3) ran 3 seconds). The effective server-side bound is the calling
+-- role's own statement timeout. The clause is kept because it is not wrong,
+-- only inert here, and it matches fn_horse_brain_flush_receipt; nothing relies
+-- on it. A write can therefore commit after the engine's 5-second client
+-- abort. The design absorbs that: the engine resends the same bytes under the
+-- same batch id and the receipt answers 'replayed'.
 --
 -- PRIVILEGES. RLS on with no policy; every privilege revoked from PUBLIC, anon
 -- and authenticated; the tables are written only inside the SECURITY DEFINER
@@ -64,7 +99,7 @@ CREATE TABLE public.horse_upgrade_evidence_daily (
   updated_at timestamptz NOT NULL DEFAULT transaction_timestamp(),
   PRIMARY KEY (day, horse_user_id, game_variant, lane, upgrade_id),
   CONSTRAINT horse_upgrade_evidence_daily_invoked_within_decisions CHECK (invoked <= decisions)
-);
+) WITH (fillfactor = 85);
 
 CREATE TABLE public.horse_upgrade_evidence_batches (
   batch_id uuid PRIMARY KEY,
@@ -190,6 +225,18 @@ BEGIN
       decisions = h.decisions + EXCLUDED.decisions,
       invoked = h.invoked + EXCLUDED.invoked,
       updated_at = transaction_timestamp();
+  -- Retention, bounded here, no schedule: daily rows more than 90 days before this batch's day,
+  -- oldest first, at most 512 per accepted batch, skipping rows another writer holds.
+  DELETE FROM public.horse_upgrade_evidence_daily AS d
+  USING (
+    SELECT day, horse_user_id, game_variant, lane, upgrade_id
+      FROM public.horse_upgrade_evidence_daily
+     WHERE day < v_day - 90
+     ORDER BY day, horse_user_id, game_variant, lane, upgrade_id
+     LIMIT 512 FOR UPDATE SKIP LOCKED
+  ) AS old
+  WHERE d.day = old.day AND d.horse_user_id = old.horse_user_id AND d.game_variant = old.game_variant
+    AND d.lane = old.lane AND d.upgrade_id = old.upgrade_id;
   -- Bounded here, no schedule: a pruned receipt's batch is refused above as expired.
   WITH expired AS (
     SELECT batch_id FROM public.horse_upgrade_evidence_batches
@@ -204,7 +251,7 @@ REVOKE ALL ON FUNCTION public.fn_horse_upgrade_evidence_flush(text) FROM PUBLIC,
 GRANT EXECUTE ON FUNCTION public.fn_horse_upgrade_evidence_flush(text) TO service_role;
 
 COMMENT ON TABLE public.horse_upgrade_evidence_daily IS
-  'Per UTC day, Horse, variant, lane and upgrade: decisions (opportunity baseline) and invoked (decisions in which an evidence counter of that upgrade fired). Additive, written only by fn_horse_upgrade_evidence_flush. Complete only for batches the engine wrote: a worker that dies loses up to one flush interval.';
+  'Per UTC day, Horse, variant, lane and upgrade: decisions (opportunity baseline) and invoked (decisions in which an evidence counter of that upgrade fired). Additive, written only by fn_horse_upgrade_evidence_flush. Complete only for batches the engine wrote: a process that dies loses up to one 300-second flush interval. Kept 90 days, pruned inside the writer.';
 COMMENT ON TABLE public.horse_upgrade_evidence_batches IS
   'Receipts of accepted per-Horse upgrade evidence batches (id and payload digest) for replay de-duplication. Pruned inside the writer after 40 days; batches older than 32 days are refused.';
 

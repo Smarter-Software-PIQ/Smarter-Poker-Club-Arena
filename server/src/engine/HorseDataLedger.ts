@@ -2989,7 +2989,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'the persona indifference band was asked about a real choice, and whether the pick differed from the best',
     '2026-11-12'
   ),
-  // Per-Horse upgrade evidence (2026-11-14): the health of the per-Horse record itself. All six are
+  // Per-Horse upgrade evidence (2026-11-14): the health of the per-Horse record itself. All eight are
   // occurrence counters with no floor; zero is the normal state, and any positive value on a day
   // means horse_upgrade_evidence_daily undercounts that day for the process that fired it.
   receipt(
@@ -3005,6 +3005,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     '2026-11-14'
   ),
   receipt(
+    'per_horse_evidence_arming_failed_seen',
+    'HorseUpgradeEvidenceFlush startHorseUpgradeEvidenceFlush',
+    'arming the per-Horse aggregate threw at service start (the activation manifest could not be read); evidence stays off for that process and its boot continues',
+    '2026-11-14'
+  ),
+  receipt(
+    'per_horse_evidence_fold_failed_seen',
+    'workerRuntime executeFastWithUpgradeEvidence',
+    'recording one answered FAST decision per Horse threw; the decision and its lifecycle were not touched and that decision is missing from the per-Horse record',
+    '2026-11-14'
+  ),
+  receipt(
     'per_horse_evidence_batch_rejected_seen',
     'HorseUpgradeEvidenceFlush publisher',
     'fn_horse_upgrade_evidence_flush refused a batch for a property of its bytes and the publisher dropped it instead of resending it',
@@ -3013,7 +3025,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'per_horse_evidence_batch_abandoned_seen',
     'HorseUpgradeEvidenceFlush publisher',
-    'a per-Horse evidence batch stayed unconfirmed for HORSE_UPGRADE_EVIDENCE_MAX_ATTEMPTS flushes (an hour) and was dropped',
+    'a per-Horse evidence batch stayed unconfirmed for HORSE_UPGRADE_EVIDENCE_MAX_ATTEMPTS flushes (an hour at one every 300 seconds) and was dropped',
     '2026-11-14'
   ),
   receipt(
