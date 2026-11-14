@@ -19,9 +19,10 @@
  * ── FIXED-LIMIT RULES (as implemented) ────────────────────────────────────────
  *  • Bets and raises are a FIXED size — no sizing choice, no slider.
  *  • Small bet on preflop and flop; big bet (2×) on turn and river.
- *  • The small bet equals the big blind, so a table posting blinds 1/2 is a
- *    "2/4" limit game: small bet 2, big bet 4. This is the standard live and
- *    online convention and is why `stakesLabel()` below doubles the BB.
+ *  • The small bet equals the big blind, so a table posting blinds 1/2 bets
+ *    2 (preflop and flop) and 4 (turn and river). Its stakes READ as the
+ *    blinds, "1/2", like every other game (owner ruling, November 14, 2026);
+ *    see `stakesLabel()` below.
  *  • Four wagers per street: one bet and three raises. Preflop the big blind
  *    IS the bet, so preflop allows three raises on top of it. Once the cap is
  *    reached the only actions are fold and call.
@@ -217,13 +218,18 @@ export function substituteOnCappedStreet(action: ActionType, toCall: number): Ac
 }
 
 /**
- * How a table's stakes read to a player.
+ * How a table's stakes read to a player: its blinds, for every game.
  *
- * Fixed-limit games are posted by BET size, not blind size: blinds 1/2 is a
- * "2/4" game. No-limit and pot-limit games are posted by blinds as usual.
+ * Owner ruling, November 14, 2026: fixed-limit games are "DISPLAYED AS 'FIXED
+ * LIMIT 1/2'" on the ".25/.50 .50/1.00 1/2 2/5 AND 5/10" ladder, the blinds,
+ * exactly as no-limit and pot-limit games read. Before it, blinds 1/2 read as
+ * the bet sizes "2/4". Mirrors src/lib/bettingStructure.ts.
  */
-export function stakesLabel(smallBlind: number, bigBlind: number, variant?: string | null): string {
+export function stakesLabel(
+  smallBlind: number,
+  bigBlind: number,
+  _variant?: string | null
+): string {
   const fmt = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(2));
-  if (isFixedLimitVariant(variant)) return `${fmt(bigBlind)}/${fmt(bigBlind * 2)}`;
   return `${fmt(smallBlind)}/${fmt(bigBlind)}`;
 }
