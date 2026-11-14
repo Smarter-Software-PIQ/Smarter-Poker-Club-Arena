@@ -1,0 +1,3 @@
+# tests/every-tournament-counts-in-the-week-it-starts.law.test.ts
+
+Dan, 2026-11-14: any tournament, spin, sit & go or satellite that starts before the weekly cutoff is included in the week it started, and the books wait for those events to finish and reconcile. The law pins, from the week starting 2026-11-16 08:00Z: fee attribution to the start week through the side table and the payable earning sources view, the gate that holds a week's books until every event that started in it is terminal (older weeks never wait), the union P&L boundary that from 2026-11-23 holds a started event at what changes hands after the cutoff and holds escrowed satellite tickets for the club that won them, and preimage guards on every changed body.
