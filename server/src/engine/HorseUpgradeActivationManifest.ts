@@ -309,7 +309,8 @@ const UPGRADE_ENTRIES: readonly HorseUpgradeCapabilityEntry[] = Object.freeze([
   },
   {
     id: 'upgrade_12_specialty_variants',
-    title: 'PLO8/FLO8 Scoop-Freeroll, Short Deck Rank/Equity & Pineapple Discard Parity',
+    title:
+      'PLO8/FLO8 Scoop-Freeroll, Short Deck Rank/Equity, Pineapple Discard Parity & Remaining-Variant Pack For FLO8, FLH, Short Deck And Pineapple Cash',
     enabled: true,
     status: 'active',
     // FLH included (2026-11-14): it is one of the four games the remaining-
@@ -418,9 +419,31 @@ export function computeHorseUpgradeActivationManifest(): HorseUpgradeActivationM
 
   return {
     ...digestPayload,
-    manifestDigest: sha256Canonical(digestPayload),
+    manifestDigest: horseUpgradeManifestDigest(digestPayload),
     generatedAt: new Date().toISOString(),
   };
+}
+
+/**
+ * The digest host and workers compare: sha256 over the canonical (key-sorted)
+ * form of everything a manifest declares, every upgrade entry included. It
+ * leaves out only `generatedAt` and the digest itself. Exported so
+ * HorseUpgradeManifestDigest.test.ts can prove a changed entry changes it.
+ */
+export function horseUpgradeManifestDigest(
+  manifest: Pick<
+    HorseUpgradeActivationManifest,
+    'schema' | 'version' | 'sourceRevision' | 'engineVersion' | 'authorities' | 'upgrades'
+  >
+): string {
+  return sha256Canonical({
+    schema: manifest.schema,
+    version: manifest.version,
+    sourceRevision: manifest.sourceRevision,
+    engineVersion: manifest.engineVersion,
+    authorities: manifest.authorities,
+    upgrades: manifest.upgrades,
+  });
 }
 
 const SHA256_HEX = /^[0-9a-f]{64}$/;

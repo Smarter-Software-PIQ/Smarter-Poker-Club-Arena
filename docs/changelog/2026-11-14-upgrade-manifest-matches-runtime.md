@@ -6,12 +6,13 @@ Declaration and tests only: no decision, wager, think time, queue or deadline ch
 
 ## What Changed
 
-| Upgrade                                        | Before                                             | After                                                                                  |
-| ---------------------------------------------- | -------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| `upgrade_02_card_removal_blockers` variants    | nlh, plo4, plo5, plo6, plo8, short_deck, pineapple | all nine (adds flo8 and flh)                                                           |
-| `upgrade_12_specialty_variants` variants       | plo8, flo8, short_deck, pineapple                  | plo8, flo8, flh, short_deck, pineapple                                                 |
-| `upgrade_12_specialty_variants` runtimeSurface | `HorseEval,HorseLogic,ServerTableEngineRunout`     | adds `RemainingVariantLivePolicy`                                                      |
-| `upgrade_12_specialty_variants` exceptions     | none (field did not exist)                         | pineapple, tournament, `RemainingVariantLivePolicy`, `pineapple_tournament_unapproved` |
+| Upgrade                                        | Before                                                                        | After                                                                                                                   |
+| ---------------------------------------------- | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `upgrade_02_card_removal_blockers` variants    | nlh, plo4, plo5, plo6, plo8, short_deck, pineapple                            | all nine (adds flo8 and flh)                                                                                            |
+| `upgrade_12_specialty_variants` variants       | plo8, flo8, short_deck, pineapple                                             | plo8, flo8, flh, short_deck, pineapple                                                                                  |
+| `upgrade_12_specialty_variants` runtimeSurface | `HorseEval,HorseLogic,ServerTableEngineRunout`                                | adds `RemainingVariantLivePolicy`                                                                                       |
+| `upgrade_12_specialty_variants` title          | `PLO8/FLO8 Scoop-Freeroll, Short Deck Rank/Equity & Pineapple Discard Parity` | adds `& Remaining-Variant Pack For FLO8, FLH, Short Deck And Pineapple Cash` (the `&` before Pineapple becomes a comma) |
+| `upgrade_12_specialty_variants` exceptions     | none (field did not exist)                                                    | pineapple, tournament, `RemainingVariantLivePolicy`, `pineapple_tournament_unapproved`                                  |
 
 - Upgrade 02. The postflop brain scores card removal with no variant condition (`HorseLogic`, the `upgrade02_card_removal_scored` fire), and the score is consumed in the fixed-limit games, not only computed: the continuation plan reads its certified nut blocker for every variant, and the EV engine branch for the games with no solver (Omaha, Short Deck, Pineapple and fixed limit, with fixed limit's single size) takes its fold-equity delta. Execution was wider than the declaration.
 - Upgrade 12, FLH. Found while building the law, not in the original report: FLH is one of the four games the remaining-variant pack decides (`HORSE_PHASE12_VARIANTS`), and the upgrade's own evidence counters (`phase12_seen`, `phase12_fired`) fire on every FLH decision in both modes. Execution was wider than the declaration.
@@ -32,11 +33,13 @@ The decision harness moved, unchanged, from `HorseStyleVariantModeMatrix.law.tes
 ## Limits, Stated
 
 - A counter proves the upgrade's path executed for the decision, not that it changed the action.
+- `exceptions` expresses whole variant-by-mode cells only; the pack's other refusals (spin tournaments, bomb pots, multi-board hands, mode off) are not expressible there and are not seen by the one-spot law.
 - One heads-up flop spot per cell. A variant condition that bites only on a later street or multiway is not seen by the law.
-- `variants` and `modes` mean where the code runs. An upgrade whose title names specific games (upgrade 12's title does not mention FLH) is not retitled here.
+- `variants` and `modes` mean where the code runs. Upgrade 12's title was extended to name the remaining-variant pack and FLH, which its evidence counters and variants now cover; no other title changed.
 - The manifest declares Pineapple tournaments for the all-variant upgrades because the engine runs them there; the product has no such tournament.
 
 ## Regression
 
+- `HorseUpgradeManifestDigest.test.ts`: the digest the manifest is stamped with is the exported `horseUpgradeManifestDigest` (a behaviour-neutral extraction of the same canonical sha256, so the test can digest a modified entry list); it equals an independent recomputation over the six digested fields, is stable across computations and key order, and changes when an entry's variants, modes, enabled flag or exceptions change. Mutations, each failing it and then restored: the digest ignoring `exceptions`; the digest ignoring `upgrades`. Before this test both passed every suite (independent review of dcd4990899).
 - `HorseUpgradeManifestRuntimeParity.law.test.ts` (34 tests). Mutations, each failing the law and then restored: FLH removed from upgrade 02's declaration; a condition excluding FLO8 added at the upgrade 02 fire in `HorseLogic`; upgrade 12's exception removed; FLH removed from upgrade 12; upgrade 07 declared for cash.
 - `HorseStyleVariantModeMatrix.law.test.ts`, `HorseUpgradeLiveEvidence.law.test.ts`, `HorseUpgradeManifestPhase14Mode.test.ts`, the manifest contract and worker handshake test of `HorseActionSpaceFreedom.law.test.ts`, `Horse1000FleetActivation.test.ts`, `horseDecision/client.test.ts`, `lane.test.ts`, `workerRuntime.test.ts`, `tests/law-registry.law.test.ts`, `tests/engine-recovery-healthcheck.law.test.ts`.
