@@ -39,6 +39,20 @@ Migration `20261114161611_the_ledger_refuses_overlay_chips_before_entry_close` (
 - Adds a `BEFORE INSERT` trigger on `chip_ledger`. It refuses `overlay` and `promo_send` chips from `union_bank`, `union_wallet` or `club_treasury` into a prize liability before the period ends, whichever writer sends them.
 - The one exemption is a Free Buy entry's bounty part booked at sign-up (`tourney:<id>:promo_head:<registration>`).
 
+## Installation and the interval before the ledger guard
+
+- **First attempt refused, nothing installed.** Apply Merged Migration run 43622593073 (17:43Z) refused `161610` because `fn_ca_fund_satellite_seats_at_close_locked` had no `ca_money_rpc_registry` row. Production was read afterwards and nothing had changed: function images and ACLs were the same, the new functions were absent, and there was no registry, declaration, trigger or history row. The file was fixed in place (the registry row now comes before the function) in #10839, and its regression now runs the production registry event trigger. Evidence: #10839.
+- **When `161610` installs.** It installs from protected main on #10839's merge, at the point the engine-release custodian names on #10817. That point comes after the post-seal Backup, because both the install and the merge's Backup push run change what a certificate rehearsed. The custodian names the certificate that qualifies the next cutover. That certificate's installed-migration set must include `161610`. Neither the merge's Backup push run nor the nightly refresh is assumed to qualify.
+- **When `161611` installs.** The `window-migrations` job of `stage-engine-release.yml` sends it once, inside the confirmed 04:00 Chicago freeze, at the first daily break after `161610` is installed. That break runs even on a day with no engine replacement (November 14 installed two files in it on unchanged `06d45e7d`). It refuses in its own prerequisite block while `161610` is missing: it stays queued and the run goes red. Each install leaves a `schema_migrations` row and a `ca_break_window_migration_overrides` row. Whether an engine accepts the resulting schema is decided by the release transaction's own checks: its window-door and installed-migration comparisons, and the target's certificate. The file being on main does not decide it.
+- **Protection between the two installs.** After `161610` and before `161611`, the law holds at every function in production that writes `overlay` or `promo_send` chips into a prize liability (read from `pg_proc`, 2026-11-14):
+  - `fn_apply_prize_guarantee` refuses before the period ends. So do the three functions that only it calls: `fn_ca_apply_prize_guarantee_core`, `fn_ca_fund_free_buy_at_cutoff_locked` and `fn_ca_fund_union_guarantee_promo_locked`.
+  - `fn_ca_fund_overlay_on_lock` (the start trigger) no longer funds an event that has an entry period after its start.
+  - `fn_ca_fund_satellite_seats_at_close_locked` refuses before the period ends.
+  - `fn_pay_backed_payout_shortfalls` (hourly) and `fn_ca_backpay_guarantee_shortfalls` (no caller) act only on `COMPLETED` events, whose period has ended.
+  - `fn_ca_midway_free_buy_promo_head` books the Free Buy promo head, the one exemption.
+
+  The guard adds a refusal for any other writer, such as a direct insert from another service. Before `161610` installs, the previous behaviour stands, and an event run in that interval is graded against it.
+
 ## Proof
 
 - `tests/unit/aGuaranteeWaitsForEntryClose.pg.test.ts` runs on isolated PostgreSQL against the production images captured 2026-11-14:
