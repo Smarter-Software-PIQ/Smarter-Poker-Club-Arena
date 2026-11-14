@@ -1,4 +1,4 @@
-import { expect, type Page } from '@playwright/test';
+import { expect, type Page, type TestInfo } from '@playwright/test';
 
 type FoldFrame = {
   at: number;
@@ -102,7 +102,8 @@ export async function verifyLightningFoldFrames(
   hand: number,
   decisionAt: number,
   durationMs: number,
-  expectedCards: string[]
+  expectedCards: string[],
+  testInfo?: TestInfo
 ) {
   const frames = await page.evaluate(() => {
     const proof = window.lightningFoldProof;
@@ -114,9 +115,16 @@ export async function verifyLightningFoldFrames(
   const first = frames.findIndex(
     (frame) => frame.hand === handLabel && frame.faces.length === 5 && frame.canAct
   );
-  expect(first, 'a complete private hand and hit-testable decision appeared').toBeGreaterThan(0);
   const decision = frames[first];
-  const remaining = decisionAt + durationMs - decision.at;
+  const remaining = decision ? decisionAt + durationMs - decision.at : null;
+  // Preserve the timing and first failing geometry when an assertion ends the live run.
+  if (testInfo) {
+    await testInfo.attach('lightning-fold-frames.json', {
+      body: JSON.stringify({ decisionAt, observedRemainingMs: remaining, frames }),
+      contentType: 'application/json',
+    });
+  }
+  expect(first, 'a complete private hand and hit-testable decision appeared').toBeGreaterThan(0);
   // Presentation may consume at most one second after the authoritative actor arrives.
   expect(remaining).toBeGreaterThanOrEqual(durationMs - 1000);
   expect([...decision.faces].sort()).toEqual([...expectedCards].sort());
@@ -144,8 +152,8 @@ export async function verifyLightningFoldFrames(
     expect(Math.abs(frame.panelTop! - decision.panelTop!)).toBeLessThanOrEqual(1);
     expect(Math.abs(frame.heroX! - decision.heroX!)).toBeLessThanOrEqual(1);
     expect(Math.abs(frame.rowX! - decision.rowX!)).toBeLessThanOrEqual(1);
-    expect(Math.abs(frame.rowY! - decision.rowY!)).toBeLessThanOrEqual(1);
-    expect(Math.abs(frame.heroY! - decision.heroY!)).toBeLessThanOrEqual(1);
+    expect(Math.abs(frame.rowY! - decision.rowY!), 'hero card row top').toBeLessThanOrEqual(1);
+    expect(Math.abs(frame.heroY! - decision.heroY!), 'hero seat top').toBeLessThanOrEqual(1);
   }
   return { decisionAt, observedRemainingMs: remaining, frames };
 }
