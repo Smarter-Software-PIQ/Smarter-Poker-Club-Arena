@@ -950,8 +950,14 @@ export default function TournamentPage() {
               try {
                 const updated = await tournamentService.getTournament(selectedTournament.id);
                 if (alive && updated) {
+                  // Owner law 2026-11-14: when rebuys run longer than
+                  // registration, the pool stays open through the rebuy levels.
                   if (!tournamentEntryWindowOpen(updated, Date.now()))
-                    toastRef.current.info('Late registration closed');
+                    toastRef.current.info(
+                      data?.rebuysOpen === true
+                        ? 'Late Registration Closed. Rebuys Are Still Open'
+                        : 'Late registration closed'
+                    );
                   setSelectedTournament((current) =>
                     current?.id === selectedTournament.id ? updated : current
                   );
