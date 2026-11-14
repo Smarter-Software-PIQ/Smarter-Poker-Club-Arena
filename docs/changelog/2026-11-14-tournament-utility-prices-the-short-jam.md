@@ -32,3 +32,7 @@ Replaced over priced is the replacement rate of a variant. No other telemetry or
 Not changed here, and still refused as `baseline_not_modeled`: a fixed-limit reference decision of `all_in` on a capped street or from a seat that may not reopen, where the button executes as a call.
 
 Tests: `server/src/engine/HorseTournamentUtilityShortJam.test.ts` (33). The six reported seeds live in the Feature Activation law, which is on no shared ref; they are covered here by equivalents on real controller menus, not replayed. The Feature Activation law `HorseDecisionSpotMatrix.law.test.ts` pins the refusal by name and goes red on this change by design; its last block is to be replaced by the plain rule (every tournament decision of that spot is priced). Whichever of the two merges second must carry that update.
+
+## Follow-up: the spot matrix law now pins the repair
+
+`HorseDecisionSpotMatrix.law.test.ts` (merged to main after this branch was cut) pinned this exact gap and said whoever priced the shove must replace the pin with the plain rule. On the merged tree it went red on this branch, as designed: PLO4 rep 0 shoved and was priced. The pin is now the plain rule. Every pot-limit and fixed-limit tournament shove of that spot is priced, with no `baseline_not_modeled` refusal, and at least one shove is required as a witness. The carve-out in `runSpot` is removed. On the merged tree the shoves of PLO4, PLO6, PLO8, FLO8 (hi-lo), FLH (fixed limit) and Short Deck are priced: 29 of 29 tests.
