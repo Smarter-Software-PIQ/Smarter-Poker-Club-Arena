@@ -8593,7 +8593,7 @@
     ]
   },
   "exactFiguresDisplayRebinding20261114b": {
-    "reason": "Owner authorization 2026-11-14 (PR #10797): bind the reviewed presentation-only changes of the exact-figures ruling. Each changed test now expects the exact stored figure (40.05 / 60.20 / 100.25 Chips, 100.25, 1,290.99, 200.25, -0.95 Chips, 9,999,999,999.99 Chips) instead of a floored, abbreviated or 'Under 1 Chip' display. Full diff recorded in the review file. No fixture data, RPC argument, money-movement, scope/RLS, stale-read or edit-guard assertion changed; historical audits, financial pins/assertions, qualification states and certificates are unchanged. Current test source identity only; matching source identity does not certify native money behavior or production delivery.",
+    "reason": "Owner authorization 2026-11-14 (PR #10797): bind the reviewed presentation-only change in tests/components/UnionAccountingRunStatus.test.tsx under the exact-figures ruling. Its weekly statement expectations change from floored 100 / 60 / 40 Chips to the exact stored 100.25 / 60.20 / 40.05 Chips (four lines). The other-club 999 Chips leak check, the standalone-run refusal text and the rpc call-count assertion are unchanged. Diff recorded in the review file addendum. Historical audits, financial pins/assertions, qualification states and certificates are unchanged. Current test source identity only.",
     "review": "docs/reviews/2026-11-14-exact-figures-binding-restamp.md",
     "changes": [
       {
