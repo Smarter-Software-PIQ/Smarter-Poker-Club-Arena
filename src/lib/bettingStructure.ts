@@ -31,7 +31,7 @@
 export type BettingStructure = 'no_limit' | 'pot_limit' | 'fixed_limit';
 
 const POT_LIMIT_VARIANTS = new Set(['plo4', 'plo5', 'plo6', 'plo8']);
-const FIXED_LIMIT_VARIANTS = new Set(['flh', 'flo8']);
+const FIXED_LIMIT_VARIANTS = new Set(['flh', 'flo4', 'flo5', 'flo6', 'flo8']);
 
 export function bettingStructureFor(variant?: string | null): BettingStructure {
   const v = (variant || '').toLowerCase();

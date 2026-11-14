@@ -443,6 +443,16 @@ export const BBJ_QUALIFYING_HANDS: Record<string, BBJQualifyingHand> = {
     rules: [],
     eligible: false,
   },
+  /* Mirrors the server: six hole cards carry no jackpot, fixed limit or not
+     (Dan 2026-11-13, "PLO6 IS NOT SUPPOSED TO HAVE BBJ"; owner November 14,
+     2026, "OMAHA 6 CARD FIXED LIMIT"). */
+  flo6: {
+    label: 'FLO6',
+    minLosingHand: null,
+    description: 'BBJ Not Available For Omaha 6 Card Fixed Limit',
+    rules: [],
+    eligible: false,
+  },
   short_deck: {
     label: 'Short Deck',
     minLosingHand: null,

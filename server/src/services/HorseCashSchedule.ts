@@ -1,3 +1,4 @@
+import { isFixedLimitVariant } from '../engine/BettingStructure.js';
 /** Owner November 1: cash only, effective midnight November 2 Chicago (CST). */
 export const HORSE_CASH_POLICY_START_MS = Date.parse('2026-11-02T06:00:00Z');
 export const PREVIOUS_CASH_ACTIVITY_SCALE = 0.5;
@@ -35,7 +36,9 @@ export function horseCashGameAllowed(
   const sb = Number(table.small_blind);
   const bb = Number(table.big_blind);
   // Owner November 3: NLH/PLO through 1/2; fixed limit through 5/10 blinds.
-  const fixedLimit = variant === 'flh' || variant === 'flo8';
+  // Owner November 14: every fixed-limit game (Hold'em and Omaha 4, 5, 6 and
+  // 8o) shares the 5/10 ceiling; BettingStructure owns which games those are.
+  const fixedLimit = isFixedLimitVariant(variant);
   const standard = ['nlh', 'plo', 'plo4', 'plo5', 'plo6'].includes(variant);
   const maxSb = fixedLimit ? 5 : standard ? 1 : 0.5;
   const maxBb = fixedLimit ? 10 : standard ? 2 : 1;

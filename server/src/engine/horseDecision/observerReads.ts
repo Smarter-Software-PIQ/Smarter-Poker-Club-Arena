@@ -24,6 +24,7 @@ import {
 } from '../HorseWinnerRead.js';
 import type { FlopStabCounters } from '../HorseOpponentExploit.js';
 import type { FastHorseDecisionRequest, ObserveCompletedHandRequest } from './protocol.js';
+import { isOmahaVariant } from '../VariantRules.js';
 
 export interface HorseObserverReadReceipt {
   readonly version: 1 | 2 | 3;
@@ -287,7 +288,7 @@ export class HorseObserverReads {
   }
   private scope(context: HorseObserverReadContext): import('../HorseMind.js').ReadScope {
     const size = context.dealtCount <= 2 ? 'hu' : context.dealtCount <= 5 ? 'short' : 'full';
-    return `${context.variant.startsWith('plo') || context.variant === 'flo8' ? 'omaha' : context.variant === 'short_deck' ? 'sixplus' : 'holdem'}:${size}`;
+    return `${context.variant.startsWith('plo') || isOmahaVariant(context.variant) ? 'omaha' : context.variant === 'short_deck' ? 'sixplus' : 'holdem'}:${size}`;
   }
   private learnPublic(
     entry: Entry,
@@ -868,7 +869,7 @@ export class HorseObserverReads {
         const size =
           entry.context.dealtCount <= 2 ? 'hu' : entry.context.dealtCount <= 5 ? 'short' : 'full';
         HorseMind.setDecisionScope(
-          `${entry.context.variant.startsWith('plo') || entry.context.variant === 'flo8' ? 'omaha' : entry.context.variant === 'short_deck' ? 'sixplus' : 'holdem'}:${size}`,
+          `${entry.context.variant.startsWith('plo') || isOmahaVariant(entry.context.variant) ? 'omaha' : entry.context.variant === 'short_deck' ? 'sixplus' : 'holdem'}:${size}`,
           entry.context.variant,
           mode
         );

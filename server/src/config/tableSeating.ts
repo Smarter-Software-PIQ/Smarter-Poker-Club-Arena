@@ -54,6 +54,11 @@ const MAX_SEATS_BY_VARIANT: Record<string, number> = {
   // plo8. Only the betting differs, and betting does not change how many cards
   // leave the deck. Kept in step with the client copy by check-seat-law-parity.
   flo8: 8,
+  // Owner November 14, 2026: fixed-limit Omaha 4, 5 and 6 card deal exactly
+  // the pot-limit games' cards, so they take the same ceilings.
+  flo4: 8,
+  flo5: 7,
+  flo6: 6,
 };
 
 /** The hard seat ceiling for a variant. */

@@ -225,7 +225,8 @@ export function styleFamilyOf(
   if (v === 'plo4') return 'plo4';
   if (v === 'plo5') return 'plo5';
   if (v === 'plo6') return 'plo6';
-  if (v === 'plo8' || v === 'flo8') return 'omaha_other';
+  if (v === 'plo8' || v === 'flo8' || v === 'flo4' || v === 'flo5' || v === 'flo6')
+    return 'omaha_other';
   if (v === 'short_deck' || v.includes('short')) return 'sixplus';
   if (v === '' && scope) {
     const fam = scope.slice(0, scope.indexOf(':'));

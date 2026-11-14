@@ -22,6 +22,15 @@ export const HORSE_POLICY_REGISTRY = Object.freeze({
   }),
   flh: Object.freeze({ owner: 'phase12', packVersion: REMAINING_VARIANT_PACKS.flh.version }),
   flo8: Object.freeze({ owner: 'phase12', packVersion: REMAINING_VARIANT_PACKS.flo8.version }),
+  /* Owner November 14, 2026: fixed-limit Omaha 4, 5 and 6 card. No pack has
+     been built or measured for them, so they belong to the reference brain,
+     exactly as nlh does: it reads the deal (four, five or six cards, exactly
+     two used), the high-only showdown and the fixed-limit betting from
+     VariantRules and BettingStructure. Registered so a horse at these tables
+     decides rather than refusing an unregistered variant. */
+  flo4: Object.freeze({ owner: 'reference', packVersion: null }),
+  flo5: Object.freeze({ owner: 'reference', packVersion: null }),
+  flo6: Object.freeze({ owner: 'reference', packVersion: null }),
 } as const);
 export type HorsePolicyVariant = keyof typeof HORSE_POLICY_REGISTRY;
 export type HorsePolicyOwner = (typeof HORSE_POLICY_REGISTRY)[HorsePolicyVariant]['owner'];

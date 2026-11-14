@@ -9,8 +9,8 @@ import {
   horsePolicyOwnership,
   horsePolicyOwnershipMatches,
 } from './HorsePolicyRegistry.js';
-import { KNOWN_VARIANTS } from './VariantRules.js';
-import type { HorseDecision } from '../types.js';
+import { FIXED_LIMIT_OMAHA_HIGH_VARIANTS, KNOWN_VARIANTS } from './VariantRules.js';
+import type { GameVariant, HorseDecision } from '../types.js';
 import { horseDecisionReceiptIsValid } from './horseDecision/responseValidation.js';
 
 describe('Horse policy registration at the actual decision boundary', () => {
@@ -23,8 +23,12 @@ describe('Horse policy registration at the actual decision boundary', () => {
     expect(gameTypes).toBeTruthy();
     const created = [...gameTypes!.matchAll(/\bid: '([a-z0-9_]+)'/g)].map((m) => m[1]);
     const registered = Object.keys(HORSE_POLICY_REGISTRY).sort();
-    expect(created.sort()).toEqual(registered);
-    expect([...KNOWN_VARIANTS].sort()).toEqual(registered);
+    // Every creatable game type has an owner. The fixed-limit Omahas (owner
+    // November 14, 2026) are registered to the reference brain ahead of the
+    // creator offering them, so the engine that deals them is live first.
+    expect(created.every((id) => registered.includes(id!))).toBe(true);
+    expect([...KNOWN_VARIANTS].sort()).toEqual(created.sort());
+    expect([...KNOWN_VARIANTS, ...FIXED_LIMIT_OMAHA_HIGH_VARIANTS].sort()).toEqual(registered);
     expect(Object.isFrozen(HORSE_POLICY_REGISTRY)).toBe(true);
   });
   it.each([null, undefined, '', '__proto__', 'constructor', 'PLO4', 1, {}])(
@@ -57,7 +61,7 @@ describe('Horse policy registration at the actual decision boundary', () => {
     (raw) => {
       const variant = raw as keyof typeof HORSE_POLICY_REGISTRY;
       for (const street of ['preflop', 'flop', 'turn', 'river'] as const) {
-        const { hero, state } = jointPolicyFixture(variant, 1, 'cash', street);
+        const { hero, state } = jointPolicyFixture(variant as GameVariant, 1, 'cash', street);
         state.dealerSeat = hero.seat;
         seedFastRandom(715);
         const decision = HorseLogic.decide(
@@ -80,7 +84,8 @@ describe('Horse policy registration at the actual decision boundary', () => {
           variant,
           ...HORSE_POLICY_REGISTRY[variant],
         });
-        expect(decision.policyOwnership?.mode).toBe(variant === 'nlh' ? 'reference' : 'shadow');
+        const reference = HORSE_POLICY_REGISTRY[variant].owner === 'reference';
+        expect(decision.policyOwnership?.mode).toBe(reference ? 'reference' : 'shadow');
         expect(horsePolicyOwnershipMatches(decision)).toBe(true);
         expect(horseDecisionReceiptIsValid(structuredClone(decision))).toBe(true);
         const receipts = [
@@ -88,7 +93,7 @@ describe('Horse policy registration at the actual decision boundary', () => {
           decision.omahaVariantPolicy,
           decision.remainingVariantPolicy,
         ].filter(Boolean);
-        expect(receipts).toHaveLength(variant === 'nlh' ? 0 : 1);
+        expect(receipts).toHaveLength(reference ? 0 : 1);
       }
     }
   );

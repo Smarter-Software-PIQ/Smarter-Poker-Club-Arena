@@ -41,7 +41,7 @@ export type BettingStructure = 'no_limit' | 'pot_limit' | 'fixed_limit';
 const POT_LIMIT_VARIANTS = new Set(['plo4', 'plo5', 'plo6', 'plo8']);
 
 /** Variants played fixed-limit. */
-const FIXED_LIMIT_VARIANTS = new Set(['flh', 'flo8']);
+const FIXED_LIMIT_VARIANTS = new Set(['flh', 'flo4', 'flo5', 'flo6', 'flo8']);
 
 /**
  * Four wagers per betting round: one bet plus three raises. Preflop the blind

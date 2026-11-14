@@ -331,6 +331,19 @@ export const BBJ_QUALIFYING_HANDS: Record<string, BBJQualifyingHand> = {
     rules: [],
     eligible: false,
   },
+  /* FLO6 IS THE SAME GAME AS PLO6 (owner November 14, 2026, "OMAHA 6 CARD
+     FIXED LIMIT"). Dan 2026-11-13: "PLO6 IS NOT SUPPOSED TO HAVE BBJ". Six
+     hole cards are six hole cards whatever the betting, so the fixed-limit
+     game carries no jackpot either. Without this key the lookup's nlh
+     fallback would have judged a six-card hand by hold'em's bar. Its tables
+     are opened with bbj_percent 0, so no drop is taken on either side. */
+  flo6: {
+    label: 'FLO6',
+    minLosingHand: null,
+    description: 'BBJ Not Available For Omaha 6 Card Fixed Limit',
+    rules: [],
+    eligible: false,
+  },
   short_deck: {
     label: 'Short Deck',
     minLosingHand: null,
