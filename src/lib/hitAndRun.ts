@@ -112,6 +112,12 @@ export function countdownPausedText(hands: number): string {
   return `${HIT_RUN_PAUSED_LABEL} - ${n} ${n === 1 ? 'Hand' : 'Hands'} Left`;
 }
 
+/** Said once, the hand the profit is lost with a countdown unfinished. */
+export function countdownPausedToastText(hands: number): string {
+  const n = Math.max(1, Math.floor(hands));
+  return `You Are Out Of Profit. Your Hand Count Is Paused At ${n} ${n === 1 ? 'Hand' : 'Hands'}. You Can Leave Now`;
+}
+
 /** Said the hand a paused countdown picks up again. */
 export function countdownResumedText(hands: number): string {
   const n = Math.max(1, Math.floor(hands));

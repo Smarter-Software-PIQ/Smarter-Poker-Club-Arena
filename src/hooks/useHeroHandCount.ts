@@ -192,6 +192,39 @@ export function useBigWinRestarted(
 }
 
 /**
+ * THE COUNTDOWN PAUSES (owner 2026-11-13): the player fell out of profit with
+ * hands of the countdown left. Said once with the paused number, so the count
+ * changing to "Countdown Paused" is never a surprise. A pause already standing
+ * when the table opens is not announced; `handNumber` is the table's counter.
+ */
+export function useCountdownPaused(
+  count: HandCount,
+  handNumber: number,
+  onPause: (hands: number) => void
+): void {
+  const prev = useRef<HandCount>(NONE);
+  const firstHand = useRef<number | null>(null);
+  const notify = useRef(onPause);
+  notify.current = onPause;
+  useEffect(() => {
+    if (firstHand.current === null && handNumber > 0) firstHand.current = handNumber;
+  }, [handNumber]);
+  useEffect(() => {
+    const before = prev.current;
+    prev.current = count;
+    const paused = typeof count.paused === 'number' && count.paused > 0 ? count.paused : null;
+    const wasPaused = typeof before.paused === 'number' && before.paused > 0;
+    if (
+      paused !== null &&
+      !wasPaused &&
+      firstHand.current !== null &&
+      handNumber > firstHand.current
+    )
+      notify.current(paused);
+  }, [count.paused, handNumber]);
+}
+
+/**
  * THE COUNTDOWN RESUMES (owner 2026-11-13): a paused countdown picked up
  * again because the player is back in profit. Said with the resumed number
  * (7, not 10). A pause that resumes with every hand still to play is the

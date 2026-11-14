@@ -707,6 +707,7 @@ import { useActorGapBridge } from '../hooks/useActorGapBridge';
 import HitRunCountPill from '../components/table/HitRunCountPill';
 import {
   useBigWinRestarted,
+  useCountdownPaused,
   useCountdownResumed,
   useCountdownStarted,
   useHandsAddedByDouble,
@@ -714,6 +715,7 @@ import {
 import {
   blindOffLeaveText,
   bigWinStartedText,
+  countdownPausedToastText,
   countdownResumedText,
   charlesRuleText,
   countdownStartedText,
@@ -12219,6 +12221,10 @@ function LiveTablePage({
   /* THE COUNTDOWN RESUMES (owner 2026-11-13): back in profit, the paused
      count picks up where it stopped; said with the resumed number. */
   useCountdownResumed(heroHandCount, (hands) => toast.info(countdownResumedText(hands)));
+  /* THE COUNTDOWN PAUSES: out of profit with hands left, said once. */
+  useCountdownPaused(heroHandCount, tableState.handNumber ?? 0, (hands) =>
+    toast.info(countdownPausedToastText(hands))
+  );
   /* THE CHARLES RULE AFTER A LARGE WIN (owner 2026-11-11): another +250 BB
      win while hands are owed resets the count to ten; said when it happens. */
   useBigWinRestarted(heroHandCount, (hands, bigWinBb) =>
