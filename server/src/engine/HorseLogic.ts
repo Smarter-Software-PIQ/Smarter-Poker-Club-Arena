@@ -2584,6 +2584,12 @@ export interface HorseDecideOpts {
    * (HorseTokenCallPrice.ts, PLO6-AUDIT-010). Default on; false only for
    * the regression's non-vacuity control. */
   tokenCallPrice?: boolean;
+  /** PLO6 cash, the raiser faced is an observed maniac and not all in, the
+   * call is under 40% of the stack: a refusal by the price arithmetic goes
+   * to the range play instead of folding outright (PLO6-AUDIT-013,
+   * docs/horse-default-on.d/plo6ManiacPriceRefusalToRangePlay.md). Default
+   * on; false only for the regression's non-vacuity control. */
+  plo6ManiacPriceRefusalToRangePlay?: boolean;
   /** An Omaha preflop call of 40% of the stack with chips behind and an
    * opponent still to act is not priced as a final all-in call
    * (PLO6-AUDIT-005). OPT-IN, default off. The pricing gap is real (the
@@ -8494,12 +8500,36 @@ export class HorseLogic {
             notePhase6Route('variant_fallback', 'variant_price');
             return { action: 'call', amount: Math.min(toCall, player.stack), thinkTime: 0 };
           }
-          notePhase6Route('variant_fallback', 'variant_price');
-          return {
-            action: 'fold',
-            thinkTime: 0,
-            ...(vi.isOmaha ? { continuationGuard: 'preflop_priced_refusal' as const } : {}),
-          };
+          // ═══ PLO6-AUDIT-013 A REFUSED MANIAC PRICE IS NOT A FOLD (2026-11-14) ═══
+          // Production hand 58751512, decision 13 (PLO6 1/2, 390bb, 161 to call
+          // into 520 after a four-bet): against an unknown or a proven tight
+          // four-bettor this arithmetic is not used and the range play shoves;
+          // against an observed maniac it is, its fixed margins put the bar at
+          // 0.346 against pot odds of 0.236, and three seeds in ten folded a
+          // hand whose every alternative is worth 28 to 137 big blinds. The
+          // maniac price exists to call lighter, never to play tighter than the
+          // Horse plays against everybody else. So where only the maniac read
+          // brought the decision here (the call is under 40% of the stack and
+          // the raiser is not all in), a refusal hands the decision to the
+          // range play below. PLO6 cash only: the evidence is one PLO6 cash
+          // node (docs/horse-default-on.d/plo6ManiacPriceRefusalToRangePlay.md).
+          const refusalToRangePlay38 =
+            opts.plo6ManiacPriceRefusalToRangePlay !== false &&
+            vi.isOmaha &&
+            !vi.isHiLo &&
+            vi.holeCount === 6 &&
+            !isTournamentMode(gs) &&
+            maniacPrice38 &&
+            !variantPrice38;
+          if (!refusalToRangePlay38) {
+            notePhase6Route('variant_fallback', 'variant_price');
+            return {
+              action: 'fold',
+              thinkTime: 0,
+              ...(vi.isOmaha ? { continuationGuard: 'preflop_priced_refusal' as const } : {}),
+            };
+          }
+          if (telemetryOn(opts)) noteFire('plo6_maniac_price_refusal_range_play_seen');
         } catch {
           if (telemetryOn(opts)) noteFire('v38_preflop_price_unavailable');
           /* No invented opponent/equity: the explicit range fallback decides. */
