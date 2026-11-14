@@ -11,6 +11,7 @@ import {
   recordHorsePlo5Departure,
 } from '../services/HorsePlo5DepartureEvidence.js';
 import { horseWorkScheduleEvidence } from '../services/HorseWorkSchedule.js';
+import { overlayCoverEvidence } from '../services/horseOverlayCover.js';
 
 describe('handleHealth', () => {
   // 2026-09-26: the default journal source reports every state, including
@@ -28,6 +29,7 @@ describe('handleHealth', () => {
     horseDiamondSpins: expect.objectContaining({ active: false, spins: 0, errors: 0 }),
     horsePlo5Departure: horsePlo5DepartureEvidence(),
     horseWorkSchedule: horseWorkScheduleEvidence(),
+    overlayCover: overlayCoverEvidence(),
   });
   function statusCodeFor(status: Record<string, unknown>): number {
     const { res, captured } = mockRes();
@@ -136,6 +138,7 @@ describe('handleHealth', () => {
       horseJournal,
       horsePlo5Departure: horsePlo5DepartureEvidence(),
       horseWorkSchedule: horseWorkScheduleEvidence(),
+      overlayCover: overlayCoverEvidence(),
     });
   });
 
@@ -152,6 +155,7 @@ describe('handleHealth', () => {
       ...status,
       horsePlo5Departure: horsePlo5DepartureEvidence(),
       horseWorkSchedule: horseWorkScheduleEvidence(),
+      overlayCover: overlayCoverEvidence(),
     });
     expect(parseJson(captured)).not.toHaveProperty('horseJournal');
   });
@@ -198,6 +202,7 @@ describe('handleHealth', () => {
       horseDiamondSpins,
       horsePlo5Departure: horsePlo5DepartureEvidence(),
       horseWorkSchedule: horseWorkScheduleEvidence(),
+      overlayCover: overlayCoverEvidence(),
     });
   });
 
@@ -239,6 +244,7 @@ describe('handleHealth', () => {
       ...status,
       horsePlo5Departure: after,
       horseWorkSchedule: horseWorkScheduleEvidence(),
+      overlayCover: overlayCoverEvidence(),
     });
     expect(status).not.toHaveProperty('horsePlo5Departure');
     expect(status).not.toHaveProperty('horseWorkSchedule');

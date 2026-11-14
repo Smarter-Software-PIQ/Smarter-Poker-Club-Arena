@@ -19,10 +19,15 @@ export interface OverlayRescueClock {
 
 /** Owner 2026-11-13: horses jump in within the last twenty minutes (was ten). */
 export const OVERLAY_RESCUE_WINDOW_MS = 20 * 60_000;
+/** A guarantee still short this long before entry closes is reported once. */
+export const OVERLAY_WARNING_WINDOW_MS = 30 * 60_000;
 
 /** The actual open registration door remains authoritative, including pauses. */
-export function horseOverlayRescueDue(t: OverlayRescueClock, nowMs: number): boolean {
-  const rescueWindowMs = OVERLAY_RESCUE_WINDOW_MS;
+export function horseOverlayRescueDue(
+  t: OverlayRescueClock,
+  nowMs: number,
+  rescueWindowMs: number = OVERLAY_RESCUE_WINDOW_MS
+): boolean {
   const addOn = t.add_on_available === true;
   if (addOn) {
     const end = Date.parse(t.addon_period_ends_at ?? '');

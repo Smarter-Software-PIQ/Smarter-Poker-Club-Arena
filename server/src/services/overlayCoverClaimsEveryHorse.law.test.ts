@@ -56,7 +56,8 @@ describe('overlay cover has first claim on every horse (owner 2026-11-13)', () =
   it('the guard asks for everything still missing in the window, with no per-cycle ceiling', () => {
     const src = read('HorseOverlayGuard.ts');
     const late = src.slice(src.indexOf('export async function lateRegisterHorsesOnce'));
-    expect(late).toContain('if (horseOverlayRescueDue(t, nowMs)) want = Math.max(want, missing);');
+    expect(late).toContain('const closing = overlayCover && horseOverlayRescueDue(t, nowMs);');
+    expect(late).toContain('if (closing) want = Math.max(want, missing);');
     expect(late.slice(0, late.indexOf('/** One full cycle:'))).not.toContain('MAX_TOPUP_PER_CYCLE');
     expect(late).toContain('overlayCover: true');
   });
