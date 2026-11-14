@@ -536,7 +536,12 @@ async function openTable(page: Page, s: Scenario): Promise<TableEngine> {
         'icon-chat.webp': 'tests/e2e/fixtures/table-art/icon-chat.webp',
         'icon-prevhand.webp': 'tests/e2e/fixtures/table-art/icon-prevhand.webp',
       };
-      return icon && files[icon] ? route.fulfill({ path: resolve(files[icon]) }) : route.fallback();
+      return icon && files[icon]
+        ? route.fulfill({
+            path: resolve(files[icon]),
+            headers: { 'access-control-allow-origin': '*' },
+          })
+        : route.fallback();
     });
   }
   const engine = await TableEngine.install(page, s, heroSeat);
@@ -568,8 +573,9 @@ async function measure(page: Page) {
        it has one). The circle alone is not what a player compares: a bust
        portrait with transparent margins in a full-size circle reads small. */
     const alphaBoxes = new Map<string, { l: number; t: number; r: number; b: number } | null>();
-    const alphaOf = async (src: string) => {
-      if (alphaBoxes.has(src)) return alphaBoxes.get(src)!;
+    const alphaOf = async (src: string, minimumAlpha = 24) => {
+      const key = `${src}|${minimumAlpha}`;
+      if (alphaBoxes.has(key)) return alphaBoxes.get(key)!;
       let found: { l: number; t: number; r: number; b: number } | null = null;
       try {
         const bitmap = await createImageBitmap(await (await fetch(src)).blob());
@@ -585,7 +591,7 @@ async function measure(page: Page) {
           b = -1;
         for (let y = 0; y < c.height; y++)
           for (let x = 0; x < c.width; x++)
-            if (data[(y * c.width + x) * 4 + 3] > 24) {
+            if (data[(y * c.width + x) * 4 + 3] > minimumAlpha) {
               if (x < l) l = x;
               if (x > r) r = x;
               if (y < t) t = y;
@@ -596,7 +602,7 @@ async function measure(page: Page) {
       } catch {
         found = null;
       }
-      alphaBoxes.set(src, found);
+      alphaBoxes.set(key, found);
       return found;
     };
     const painted = async (img: HTMLImageElement, disc: Element) => {
@@ -722,10 +728,19 @@ async function measure(page: Page) {
       .map(box);
     const vv = window.visualViewport;
     return {
-      panel: box(document.querySelector('.action-panel')!),
-      panelBorder: parseFloat(
-        getComputedStyle(document.querySelector('.action-panel')!).borderTopWidth
+      toolPaintBottoms: await Promise.all(
+        Array.from(
+          document.querySelectorAll<HTMLImageElement>(
+            '.hud-bl-row .tbc-icon-img,.hud-bl-row .prev-hand-card__icon-img'
+          ),
+          async (img) => {
+            const alpha = await alphaOf(img.currentSrc || img.src, 127);
+            const rect = img.getBoundingClientRect();
+            return alpha ? rect.top + alpha.b * rect.height : null;
+          }
+        )
       ),
+      panel: box(document.querySelector('.action-panel')!),
       frame: box(document.querySelector('.action-panel-wrapper')!),
       heroToolsBottom: Math.max(
         0,
@@ -857,9 +872,23 @@ for (const s of SCENARIOS) {
             'equal horizontal button margins'
           ).toBeLessThan(1);
           expect(
-            Math.abs(top - m.panel.top - m.panelBorder - (m.panel.bottom - m.safeInset - bottom)),
-            'equal padding inside the usable frame'
+            Math.abs(top - m.panel.top - (m.panel.bottom - bottom)),
+            'equal visual padding above and below the button faces within the painted frame'
           ).toBeLessThan(1);
+          expect(
+            (m.frame.bottom - m.panel.bottom) * m.scale,
+            'the home indicator has its own gutter'
+          ).toBeGreaterThanOrEqual(33.9);
+          if (s.plo4) {
+            expect(m.toolPaintBottoms).toHaveLength(2);
+            for (const paintedBottom of m.toolPaintBottoms) {
+              expect(paintedBottom).not.toBeNull();
+              expect(
+                Math.abs(paintedBottom! - m.heroCardsBottom) * m.scale,
+                'the opaque tool frames align with the private cards'
+              ).toBeLessThan(1.5);
+            }
+          }
           const bottomOfHero = Math.max(
             m.seatBottom,
             m.heroCardsBottom,

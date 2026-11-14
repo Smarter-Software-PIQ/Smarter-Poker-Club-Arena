@@ -5434,11 +5434,23 @@ button.post-bb-overlay-button {
   .table-page[data-seats='6'][data-hero='true'] {
     /* The buttons keep equal inner padding above and below them. HUD and felt
        reserve this same frame at every hand state, including the safe inset. */
-    --sp-bottom-row-h: calc(1px + 2 * var(--sp-action-pad-top) + var(--sp-action-btn-h));
+    --sp-bottom-row-h: calc(3px + 2 * var(--sp-action-pad-top) + var(--sp-action-btn-h));
     --sp-hud-line: calc(var(--sp-action-reserve) + 5px);
   }
+  /* Paint the home-indicator area as its own neutral gutter. The visible
+     action frame ends above it, with matching inner space around the row. */
+  .table-page[data-seats='6'][data-hero='true'] .action-panel-wrapper:has(.action-panel) {
+    background: #000;
+    border-top-color: transparent;
+  }
   .table-page[data-seats='6'][data-hero='true'] .action-panel:not(.action-panel--raise) {
-    padding-bottom: calc(var(--sp-bar-inset) + var(--sp-action-pad-top));
+    bottom: var(--sp-bar-inset);
+    padding-bottom: var(--sp-action-pad-top);
+    border-bottom: 2px solid #52647a;
+    box-shadow: none;
+  }
+  .table-page[data-seats='6'][data-hero='true'] .hud-bl-row {
+    translate: 0 var(--sp-hero-hand-tool-shift, 0px);
   }
   .table-page[data-seats='6'][data-hero='true'] .table-scaler {
     /* Twelve layout pixels clear the frame's actual border even on
