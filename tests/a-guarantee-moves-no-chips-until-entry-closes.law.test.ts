@@ -139,6 +139,9 @@ describe('no overlay chips before registration, rebuys and the add-on have ended
     expect(flat(trigger)).toContain(
       "CREATE TRIGGER aab_ca_overlay_waits_for_entry_close BEFORE INSERT ON public.chip_ledger FOR EACH ROW WHEN (NEW.to_type = 'prize_liability' AND NEW.category IN ('overlay', 'promo_send') AND NEW.from_type IN ('union_bank', 'union_wallet', 'club_treasury')) EXECUTE FUNCTION public.fn_ca_overlay_waits_for_entry_close();"
     );
+    expect(flat(trigger)).toContain(
+      "INSERT INTO public.ca_declared_money_triggers (table_name, trigger_name, note) VALUES ('chip_ledger', 'aab_ca_overlay_waits_for_entry_close',"
+    );
     // No later migration drops or disables it.
     for (const file of files.filter((f) => f > '20261114161611')) {
       const text = readFileSync(join(MIGRATIONS, file), 'utf8');

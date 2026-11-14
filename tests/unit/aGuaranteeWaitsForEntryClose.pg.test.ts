@@ -53,6 +53,7 @@ CREATE TABLE public.chip_ledger (
   idempotency_key text, description text, metadata jsonb, status text DEFAULT 'posted', created_at timestamptz DEFAULT now());
 CREATE UNIQUE INDEX chip_ledger_key ON public.chip_ledger (idempotency_key) WHERE idempotency_key IS NOT NULL;
 CREATE TABLE public.alerts (sev text, src text, msg text);
+CREATE TABLE public.ca_declared_money_triggers (table_name text, trigger_name text, note text);
 
 CREATE FUNCTION public.fn_ca_tournament_is_unlimited(uuid) RETURNS boolean LANGUAGE sql AS $$ SELECT true $$;
 CREATE FUNCTION public.fn_ca_lock_settlement_lane_for_tournament(uuid) RETURNS void LANGUAGE sql AS $$ SELECT $$;

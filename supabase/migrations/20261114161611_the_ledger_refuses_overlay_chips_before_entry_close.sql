@@ -40,4 +40,8 @@ CREATE TRIGGER aab_ca_overlay_waits_for_entry_close
         AND NEW.from_type IN ('union_bank', 'union_wallet', 'club_treasury'))
   EXECUTE FUNCTION public.fn_ca_overlay_waits_for_entry_close();
 
+INSERT INTO public.ca_declared_money_triggers (table_name, trigger_name, note)
+VALUES ('chip_ledger', 'aab_ca_overlay_waits_for_entry_close',
+  'Owner law 2026-11-14: refuses overlay or promo_send chips from union_bank, union_wallet or club_treasury into a tournament prize liability before its registration, rebuy and add-on period has ended (fn_ca_guarantee_entry_period_ended). Writes nothing; a Free Buy sign-up bounty head passes.');
+
 COMMIT;
