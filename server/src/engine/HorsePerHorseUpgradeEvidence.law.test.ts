@@ -307,7 +307,7 @@ async function world(scope: 'collecting' | 'pass-through', foldThrows = false) {
     variant: Variant,
     mode: Mode,
     cell: number,
-    options: { throws?: boolean; replay?: string; sevenDeuce?: boolean } = {}
+    options: { throws?: boolean; replay?: string; sevenDeuce?: boolean; prewarm?: boolean } = {}
   ) {
     HorseMind.reset();
     seedFastRandom(20261114 + cell);
@@ -315,6 +315,19 @@ async function world(scope: 'collecting' | 'pass-through', foldThrows = false) {
     const sent =
       options.replay ?? JSON.stringify(request(variant, mode, cell, options.sevenDeuce === true));
     const built = JSON.parse(sent) as ReturnType<typeof request>;
+    if (options.prewarm) {
+      // The street prewarm the host posts when the flop is dealt (ServerTableEngineHandEvents): the
+      // table, the street and the board. It is counted here, before the decision and outside its scope.
+      worker.receive({
+        type: 'PREWARM_STREET',
+        fence: built.fence,
+        street: 'flop',
+        board: built.gameState.communityCards,
+        variant: built.gameState.gameVariant,
+        mode: built.gameState.gameMode === 'tournament' ? 'tournament' : 'cash',
+      } as never);
+      await worker.drain();
+    }
     telemetry.drainFires();
     evidence.drainHorseUpgradeEvidence();
     const watchBefore = telemetry.peekBrainWatchcounters();
@@ -424,6 +437,21 @@ describe('LAW: the decision worker records which Horse exercised which upgrade, 
     expect(sideGame.counted.upgrade08_seven_deuce_overlay_seen).toBe(1);
     expect(upgradeRows(plain.rows).upgrade_08_side_games_integration).toEqual([1, 0]);
     expect(upgradeRows(sideGame.rows).upgrade_08_side_games_integration).toEqual([1, 1]);
+  }, 120_000);
+
+  it('a decision that uses a prewarmed street is upgrade 05 invoked, and one that finds none is not', async () => {
+    // Upgrade 05 through the real worker: PREWARM_STREET for the table and flop, then that flop's
+    // decision. The hit is a watchcounter counted inside the decision, so it is that decision's
+    // evidence; the posting itself (counted when the prewarm ran) is not. If the prewarm key and the
+    // decision key ever stop matching again (the 2026-11-13 defect), the second row returns to [1, 0].
+    const cold = await live!.decide('nlh', 'cash', 7);
+    const warm = await live!.decide('nlh', 'cash', 8, { prewarm: true });
+    fastResult(cold.answers);
+    fastResult(warm.answers);
+    expect(cold.watched).not.toContain('poker_horse_street_prewarm_total');
+    expect(warm.watched).toContain('poker_horse_street_prewarm_total');
+    expect(upgradeRows(cold.rows).upgrade_05_street_prewarming).toEqual([1, 0]);
+    expect(upgradeRows(warm.rows).upgrade_05_street_prewarming).toEqual([1, 1]);
   }, 120_000);
 
   it('the same Horse deciding again adds to its own cells only', async () => {

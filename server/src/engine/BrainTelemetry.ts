@@ -86,7 +86,13 @@ export function noteFire(feature: string): void {
  *   decision on a prewarm hit) and 13 (poker_horse_telemetry_opportunities_total).
  *   They go through recordWatchcounter, not noteFire, so before this the scope
  *   never saw them and both read 0 invoked for every Horse on a7965514 while
- *   the fleet counters moved. The same telemetry-on rule applies.
+ *   the fleet counters moved. A suspended or telemetry-off evaluation still
+ *   moves the fleet watchcounter (recordWatchcounter has no such gate) but
+ *   adds nothing to the scope, the same as a fire. The scope is keyed by the
+ *   METRIC, not its reason: upgrade 05 is exact only because the prewarm hit
+ *   is the one prewarm count made inside a decision (workerRuntime
+ *   executeFast); the posting is counted outside any scope, a miss is not
+ *   counted at all. A zero or invalid count is not a count and is not collected.
  * - SYNCHRONOUS fn only. The scope is a module variable, so it is correct only
  *   while no other decision can run inside fn. The worker's FAST execution is
  *   synchronous end to end and the worker runs one job per event-loop turn on
@@ -602,6 +608,7 @@ function recordWatchcounter(
   }
   if (!Number.isFinite(count) || count <= 0) return;
   // Per-decision evidence: the upgrade that declares this metric was exercised by the open decision.
+  // After the count check (nothing counted, nothing collected) and keyed by metric, not reason.
   if (enabled) decisionScope?.add(metric);
   const key = `${metric}|${variant}|${mode}|${reason}`;
   const cur = watchcounters.get(key);

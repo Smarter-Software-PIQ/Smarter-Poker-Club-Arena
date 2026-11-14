@@ -74,6 +74,8 @@ describe('the per-decision fire scope', () => {
       telemetry.withBrainTelemetrySuspended(() =>
         telemetry.noteHorseActionClamped('nlh', 'cash', 'shadow_only')
       );
+      // a zero count moves no counter, so it is not evidence either
+      telemetry.noteHorseLegalizerDegraded('nlh', 'cash', 'brain_exception', 0);
     });
     expect([...scoped.fired].sort()).toEqual([
       'poker_horse_street_prewarm_total',
@@ -86,6 +88,12 @@ describe('the per-decision fire scope', () => {
         'upgrade_13_law_gate_and_watchcounters',
       ])
     );
+    // the declared metric itself with nothing counted: upgrade 05 is not invoked
+    const nothing = telemetry.withDecisionFireScope(() => {
+      telemetry.noteHorseStreetPrewarm('nlh', 'cash', 'hit_flop', 0);
+      telemetry.noteHorseStreetPrewarm('nlh', 'cash', 'hit_flop', Number.NaN);
+    });
+    expect([...nothing.fired]).toEqual([]);
   });
 
   it('restores the outer scope after a nested call, hands it the inner keys, and after a throw', () => {
