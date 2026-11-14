@@ -80,11 +80,10 @@ describe('describeProgramChanges', () => {
     ).toEqual(['Top Heavy Split (Was Balanced Podium)']);
   });
 
-  it('never prints a total change that reads as no change', () => {
-    // 1,290 and 1,250 both print 1.2K in the house compact format.
+  it('prints a small total change exactly instead of hiding it (Dan 2026-11-13)', () => {
     const before = entry({ version: 2, monthly_prizes: [{ rank: 1, amount: 1250 }] });
     const after = entry({ monthly_prizes: [{ rank: 1, amount: 1290 }] });
-    expect(describeProgramChanges(after, before)).toEqual(['Monthly Prizes Adjusted']);
+    expect(describeProgramChanges(after, before)).toEqual(['Monthly 1,250 To 1,290 Chips']);
   });
 
   it('tells a rearrangement from a republish', () => {

@@ -53,9 +53,8 @@ describe('a ledger line names both wallets', () => {
       },
       names
     );
-    // UPDATED 2026-10-09 (audit C1-14): a forward-facing sentence prints chip
-    // figures through compactChips, never "1,250.5" under a "1.2K" headline.
-    expect(line).toBe("KINGFISH Sent 1.2K From KINGFISH's Agent Wallet To Bob's Player Wallet");
+    // UPDATED 2026-11-13 (Dan): every chip figure is exact, never "1.2K".
+    expect(line).toBe("KINGFISH Sent 1,250.50 From KINGFISH's Agent Wallet To Bob's Player Wallet");
   });
 
   /**
@@ -105,7 +104,7 @@ describe('a ledger line names both wallets', () => {
         names,
         KING
       )
-    ).toBe('You Transferred 2K From The Club Bank To Your Player Wallet');
+    ).toBe('You Transferred 2,000 From The Club Bank To Your Player Wallet');
   });
 
   /**
@@ -188,8 +187,13 @@ describe('a ledger line names both wallets', () => {
     expect(walletRoute(row)).toBe('Player Wallet To Club Bank');
   });
 
-  it('never prints a decimal chip figure', () => {
-    for (const amount of [0.5, 999.99, 1250.5, 10000.25]) {
+  it('prints every chip figure exactly, cents included, never abbreviated', () => {
+    for (const [amount, shown] of [
+      [0.5, '0.50'],
+      [999.99, '999.99'],
+      [1250.5, '1,250.50'],
+      [10000.25, '10,000.25'],
+    ] as const) {
       const line = describeChipTransaction(
         {
           transaction_type: 'agent_wallet_send',
@@ -200,7 +204,8 @@ describe('a ledger line names both wallets', () => {
         },
         names
       );
-      expect(line).not.toMatch(/\d\.\d+(?!K|M|B)/);
+      expect(line).toContain(`Sent ${shown} From`);
+      expect(line).not.toMatch(/\d[KMB]\b/);
     }
   });
 

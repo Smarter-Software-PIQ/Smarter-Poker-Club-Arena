@@ -117,13 +117,11 @@ export function conservationChips(value: string | null): string {
   const exact = decimal(value);
   if (exact === 0n) return '0';
   const sign = exact < 0n ? 'Minus ' : '';
-  const whole = absolute(exact) / 1_000_000_000_000n;
-  if (whole === 0n) return `${sign}Less Than 1 Chip`;
-  // Typical club values use the same formatter as the rest of the cashier.
-  return (
-    sign +
-    (whole <= BigInt(Number.MAX_SAFE_INTEGER)
-      ? compactChips(Number(whole))
-      : whole.toLocaleString())
-  );
+  // Exact at the stored precision (Dan 2026-11-13): never floored to whole
+  // chips and never "Less Than 1 Chip". The decimal is held at 12 places.
+  const abs = absolute(exact);
+  const whole = abs / 1_000_000_000_000n;
+  let fraction = `000000000000${abs % 1_000_000_000_000n}`.slice(-12).replace(/0+$/, '');
+  if (fraction.length === 1) fraction += '0';
+  return `${sign}${whole.toLocaleString('en-US')}${fraction ? `.${fraction}` : ''}`;
 }

@@ -43,7 +43,9 @@ export function fundingCoverage(printedFigure: string, total: number): FundingCo
   // could not read; the classic surfaces print two. Both are the same answer.
   if (figure === '--' || figure === '-') return 'unreadable';
   if (!Number.isFinite(total)) return 'unknown';
-  if (/^-?(?:0|[1-9]\d{0,2}(?:,\d{3})*)\.\d{2}$/.test(figure)) {
+  // Every figure is exact since Dan's 2026-11-13 ruling (exactChips): a whole
+  // figure with separators ("1,290") is exactly that many chips, not a range.
+  if (/^-?(?:0|[1-9]\d{0,2}(?:,\d{3})*)(?:\.\d{2})?$/.test(figure)) {
     const held = Number(figure.replace(/,/g, ''));
     return Number.isFinite(held) ? (held >= total ? 'covers' : 'short') : 'unknown';
   }

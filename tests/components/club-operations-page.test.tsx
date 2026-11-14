@@ -196,9 +196,9 @@ describe('the operations workspace reads the club', () => {
     expect(screen.getByText('226')).toBeTruthy();
     expect(screen.getByText('113 Running, 113 Waiting')).toBeTruthy();
     // Numeric-as-string from PostgREST still renders as money, not as NaN.
-    expect(screen.getByText('126.1K')).toBeTruthy();
-    expect(screen.getByText('2M')).toBeTruthy();
-    expect(screen.getByText('4.4M In Member Wallets')).toBeTruthy();
+    expect(screen.getByText('126,140.93')).toBeTruthy();
+    expect(screen.getByText('2,096,087.81')).toBeTruthy();
+    expect(screen.getByText('4,418,693.40 In Member Wallets')).toBeTruthy();
     expect(screen.queryByText(/NaN/)).toBeNull();
   });
 

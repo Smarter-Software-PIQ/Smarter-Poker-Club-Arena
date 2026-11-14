@@ -46,8 +46,8 @@ describe('the production cashier canary derives the batch verdict from the print
   it('names an unreadable agent wallet and refuses to guess on a straddling figure', () => {
     expect(fundingCoverage('--', 10.2)).toBe('unreadable');
     expect(batchVerdictFor('unreadable')).toBe('Selected Wallet Could Not Be Verified');
-    // "10" is anything in [10, 11): it may or may not cover 10.20.
-    expect(fundingCoverage('10', 10.2)).toBe('unknown');
+    // Figures are exact since 2026-11-13: "10" is ten chips, short of 10.20.
+    expect(fundingCoverage('10', 10.2)).toBe('short');
     expect(batchVerdictFor('unknown')).toBeNull();
     expect(fundingCoverage('ten', 10.2)).toBe('unknown');
   });

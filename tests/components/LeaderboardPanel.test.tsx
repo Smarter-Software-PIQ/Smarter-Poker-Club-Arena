@@ -28,8 +28,8 @@ describe('Table Leaderboard Console', () => {
     );
     expect(screen.getByRole('dialog', { name: 'Table Leaderboard' })).toBeInTheDocument();
     expect(container.querySelectorAll('.sc')).toHaveLength(1);
-    expect(screen.getByText('+19.2K')).toBeInTheDocument();
-    expect(screen.getByText('1.5K Hands')).toBeInTheDocument();
+    expect(screen.getByText('+19,255.12')).toBeInTheDocument();
+    expect(screen.getByText('1,500 Hands')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'All Time' }));
     expect(onPeriodChange).toHaveBeenCalledWith('allTime');
     fireEvent.keyDown(document, { key: 'Escape' });

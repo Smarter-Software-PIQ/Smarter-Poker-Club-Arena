@@ -7,6 +7,8 @@
  * them.
  */
 
+import { exactChips } from './format';
+
 /**
  * THE FIGURE A USER CONFIRMS IS THE FIGURE THAT MOVES (launch audit
  * 2026-10-09, P-10). `fmt` floors to one decimal of K/M/B for head zones and
@@ -16,17 +18,9 @@
  * 5 x 1,999.99 is "9,999.95", never "9.9K". Whole chips print whole.
  */
 export function exactChipFigure(value: number): string {
-  const safe = Number.isFinite(value) ? value : 0;
-  const cents = Math.round(Math.abs(safe) * 100);
-  const whole = Math.floor(cents / 100);
-  const fraction = cents % 100;
-  const grouped = whole.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-  const sign = safe < 0 && cents > 0 ? '-' : '';
-  // Two cent digits by arithmetic: the Trade page's one padStart is its
-  // mm:ss clock, and the role-scoping law counts call sites.
-  return fraction === 0
-    ? `${sign}${grouped}`
-    : `${sign}${grouped}.${fraction < 10 ? '0' : ''}${fraction}`;
+  // Exact at the stored precision (Dan 2026-11-13): never rounds a real third
+  // decimal away. Same output as before for every whole or two-place figure.
+  return exactChips(Number.isFinite(value) ? value : 0);
 }
 
 /**
