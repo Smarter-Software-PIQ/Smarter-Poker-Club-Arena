@@ -1,4 +1,4 @@
--- 20261114163644_monitoring_snapshot_reads_by_index_within_the_service_role_budget.sql
+-- 20261114163644_monitoring_snapshot_reads_cron_history_by_index.sql
 -- IRREVERSIBLE: no
 --
 -- WHY (incident fa23c973, HorseFleetThroughputPolicyUnknown, 2026-11-14):
