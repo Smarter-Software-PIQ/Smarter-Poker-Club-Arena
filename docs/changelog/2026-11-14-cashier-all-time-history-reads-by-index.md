@@ -19,3 +19,13 @@ untouched.
 newest 50 equal to the reference query in 111 ms; cursor page 2 equal; Transfers
 and a 2-day All range equal to the live function; Cash-Outs (24 rows) equal in
 18 ms.
+
+**Refused at install, fixed in place.** The first install (Apply Merged
+Migration run 43627660900) was refused by the file's own md5 guard ("History
+Source Changed"): a later migration had changed the function's name columns,
+and the file carried a whole copy of the older body. Nothing was installed. The
+file is now a patch of the installed source (four exact-once anchors under the
+current md5), so every other line, including the newer name columns, is kept.
+Re-probed rollback-only on production: All Time 50/50 equal in 86 ms, page 2,
+Transfers and a 2-day range (full rows, names included) equal to the live
+function, Cash-Outs equal in 17 ms.
