@@ -14,65 +14,85 @@ A new option, `holdemPersonaReRaiseMix`, OFF by default. With it on, in two-card
 2. **Squeeze bluff** (a raise and one or more callers). The same rule, at both places a squeeze bluff is decided: the older squeeze site, and in hold'em cash the chart block that also answers a called open.
 3. **Four-bet all-in reshove at 26 to 35 big blinds** (facing a 3-bet). The value hands (77+, ATs+, KQs, AKo) shove as before. The bluff hands (A5s to A2s) shove with probability equal to the Horse's scale, capped at always. A bluff hand that does not shove does what it would do if it were not a bluff hand at all.
 
-The decision uses the Horse's own number rather than the shared draw. That number is a hash of the Horse's id, the hand's public state (seat, dealer seat, stack and pot in quarter big blinds, players dealt in), its exact hole cards and a different salt for each of the three behaviours. The same Horse in the same spot with the same cards always gets the same answer; a different hand gives a different number.
-
 Value 3-bets and value squeezes are not scaled. They are decided by a strength bar, not a mix, so the persona difference is carried by the bluffs.
+
+## One Answer Per Hand
+
+The decision uses the Horse's own number rather than the shared draw. The number is a hash of four things and nothing else: the Horse's id, the hand (table id and hand number), its exact hole cards, and a different salt for each of the three behaviours. Seat, stack and pot are not in it. So a Horse gets one number per behaviour for the whole hand, whatever the pot grows to, and a new number the next hand.
+
+Where the hand comes from: the live decision worker works out the table id and hand number from the decision's own snapshot and hands them to the brain as `opts.mindPlanContext.hand`. It does this the same way for the fast decision and for the deeper second look. A retry of the turn carries the same table and hand. An exact replay feeds the recorded snapshot through the same worker code, so it works out the same value. A second field that holds the same pair, `opts.mindObservationHand`, is not used, because the second look is not given it. Request ids, decision keys and decision times are per turn, not per hand, and are not used.
+
+The league card and the measuring tool supply a hand the same way. A caller that supplies none (an old direct or offline caller, or a live snapshot that names no allocated hand) gets a **fallback** that hashes seat, dealer seat, stack and pot instead. The fallback is not one answer per hand: it moves when the stack or pot moves, and a Horse whose seat, stack and pot repeat gets the same answer for the same cards. It is named a fallback in the code and counted (`holdem_persona_hand_identity_fallback_seen`), and that count is expected to be zero in live play.
+
+Not run: an end-to-end exact replay of a recorded live decision with the option on. The claim that replay reproduces the hand rests on reading the worker and replay code, and on a test of the function that derives it.
 
 ## The Random Stream
 
 - Option off (absent or false): no draw is added, removed or moved, and the comparison at each bluff site is the expression it was. The persona field is not built.
 - Option on: the 3-bet bluff and the squeeze bluff still consume the shared draw at the same point and throw it away, so a decision the persona does not change leaves the stream exactly where it was. A decision the persona changes then draws its sizing differently, as any changed decision does. The reshove never drew and still does not.
-- Omaha, short deck, pot limit, fixed limit, hi-lo, pineapple and All-In-Or-Fold never receive the field.
+- Omaha, short deck, pot limit, fixed limit, hi-lo and pineapple never receive the field. An All-In-Or-Fold hold'em table does receive it, because it is no-limit hold'em, but its code returns before any of the three places that read it, so nothing there changes.
+
+## A Style Read Is Not Undone
+
+The style-read options only raise bars against a player they judge tight; they do not touch the bluff probability. Without a guard, a loose Horse would bluff a tight opener up to 1.52 times as often with both options on, the opposite of the owner's direction on tight players. So where the tight-player respect is applied on a decision, the Horse's scale is held at 1 or below: the persona may lower a bluff there and never raise it.
+
+The signals are the two objects the style option builds for the preflop code: the tight opener's bounded read (`exploitOpener` with `wide` false and a `maxBarMove`) for the 3-bet and squeeze bluffs, and `styleTightReRaiser` for the reshove. Both exist only when the option `styleTightReRaiserRespect` is on. In shadow the option works out the same judgement, records it and builds neither object, so shadow changes nothing here. The other style options (raise respect, value-bettor) act after the flop and never reach this code. Counter: `holdem_persona_scale_held_by_style_seen`.
 
 ## What Is Declared, Not Hidden
 
-- **The reshove bluff is reduced.** A Horse below the average shoves A5s to A2s less often and nobody shoves more, so with the option on the fleet shoves these hands less than today. The first design record said fleet frequencies were preserved; for the reshove that is not true of this build.
+- **The reshove bluff is reduced.** A Horse below the average shoves A5s to A2s less often and nobody shoves more, so with the option on the fleet shoves these hands less than today. The first design record said fleet frequencies were preserved; for the reshove that is not true of this build. The model's expected figure is 90.5 percent of today's bluff reshoves (LAG 100, TAG 95.1, Tricky 87.5, Nit 66.4): an expected loss of 9.5 percent. That is a model figure, not a measurement.
+- **No hands are added to make the total match** (owner instruction 2026-11-14). The A9s to A6s set is not built in any form.
+- **The 3-bet and squeeze bluffs also lose frequency at high probabilities.** The average is preserved only while the probability times the largest scale stays at or below 1, that is, while the probability is below about 0.66. Above that, a Horse above the average cannot pass certain while a Horse below it still goes down. Where the probability is already 1, every Horse bluffs today and every below-average Horse bluffs less with the option on. The cap counters (`holdem_persona_3bet_bluff_capped_seen`, `holdem_persona_squeeze_bluff_capped_seen`) count only the capped Horse, not that loss. The measuring tool reports how many eligible spots are in that region and the expected and measured loss there. In the smoke run below it was 65 of 389 3-bet spots in cash at 100 big blinds and 35 of 599 in tournaments, 7 of them at a probability of 1.
 - **"The average is preserved" is a model figure.** The scale averages 1 across ids only if ids fall evenly across the persona buckets and every Horse meets these spots equally often. On the 900 synthetic ids used for measuring, the average scale is 1.00346. The real fleet's ids have not been read.
-- **The cap.** Where the bluff probability times the scale would pass 1 it is held at 1. This is the only place the 3-bet bluff and the squeeze bluff can lose frequency. Each case is counted (`holdem_persona_3bet_bluff_capped_seen`, `holdem_persona_squeeze_bluff_capped_seen`) and the measuring tool reports the count.
-- **No hands are added to make the total match** (owner instruction 2026-11-14). The A9s to A6s set is not built in any form. The size of the reshove reduction is to be measured before anything ships; the model's expected figure is 90.5 percent of today's bluff reshoves (LAG 100, TAG 95.1, Tricky 87.5, Nit 66.4).
-- **Hand identity.** The state a decision receives carries no hand number, so "this hand" means public state plus cards. Two hands with the same Horse, cards, seats, stack and pot give the same number.
 - **A changed counter counts comparisons, not actions.** The 3-bet and squeeze `_changed_seen` counters fire when the scaled comparison disagrees with the draw it replaced. The fold-equity test still runs after it and can refuse the bluff either way.
+- **The reshove site is named 26 to 35 big blinds, but its existing condition is "more than 25, up to 35".** That condition was not changed; the measuring tool has a 25 to 26 row for the part the name leaves out.
 
 ## Counters
 
-Eight, all occurrence counters: `holdem_persona_3bet_bluff_eligible_seen`, `_changed_seen` and `_capped_seen`, the same three for `holdem_persona_squeeze_bluff`, and `holdem_persona_fourbet_reshove_eligible_seen` and `_changed_seen`. Eligible means the decision reached the comparison with the option on.
+Ten, all occurrence counters: `holdem_persona_3bet_bluff_eligible_seen`, `_changed_seen` and `_capped_seen`; the same three for `holdem_persona_squeeze_bluff`; `holdem_persona_fourbet_reshove_eligible_seen` and `_changed_seen`; `holdem_persona_scale_held_by_style_seen`; `holdem_persona_hand_identity_fallback_seen`.
 
 ## Proof
 
-- `server/src/engine/HorseHoldemPersonaReRaiseMix.test.ts` (20 tests):
-  - Off: 5,064 preflop decisions across hold'em cash (100 and 26 to 35 big blinds), hold'em tournament, PLO4, PLO5, PLO6, short deck and fixed limit give the same action, amount and random-stream state whether the option is absent, false, or replaced by a control that says what today's rule is (the scale fixed at 1 and the Horse's number set to the draw itself).
-  - On, other variants: 2,100 or so decisions, identical to off, no persona counter fires.
-  - On, hold'em: every decision the persona did not change equals off, draw for draw. Over the same 150 spots for 40 Horses of each archetype the 3-bet bluff rate is LAG 17.8%, TAG 14.0%, Tricky 12.3%, Nit 8.5%. The same spot twice gives the same answer; across 40 stack depths the answer moves while the option-off answer does not.
-  - Reshove: 20 Horses at scale 1 or more shove A5s to A2s 960 of 960 times; 20 Nits shove 654 of 960 and call the other 306; value hands always shove.
-- A refused reshove bluff was compared against an engine with the bluff hands removed from the set: 306 of 306 the same action, amount and stream state (a call in the tested spot: button opens 2.2, big blind 3-bets to 7.5, 27 to 33 big blinds).
-- Two deliberate breaks, each caught: dropping the discarded draw fails the draw-for-draw test; multiplying the option-off probability fails the off test.
+- `server/src/engine/HorseHoldemPersonaReRaiseMix.test.ts`:
+  - **Off against main, by execution.** 5,864 preflop decisions in ten seeded runs (hold'em cash at 100 and at 26 to 35 big blinds, hold'em tournament, pot-limit hold'em, All-In-Or-Fold hold'em, PLO4, PLO5, PLO6, short deck, fixed limit) were recorded from the parent commit 8a8656b17b5, before the option existed: action, amount and random-stream state after each. With the option absent and with it false this branch reproduces every line. The recorded hold'em runs pass through the reshove site.
+  - A second control (the persona injected at scale 1 with the consumed draw as its number) equals off on every one of those decisions, which shows the on path draws where the off path draws.
+  - On, other variants and structures: identical to off; no persona site is reached; the All-In-Or-Fold run shows the field being built and never read.
+  - On, hold'em: every decision the persona did not change equals off, draw for draw. Over the same 150 spots for 40 Horses of each archetype the 3-bet bluff rate orders LAG, TAG, Tricky, Nit.
+  - One answer per hand: the same number at any stack depth and any draw within a hand; 40 different numbers for 40 consecutive hands; the same number for the fast look, the second look and a retry; the fallback used and counted when no hand is supplied.
+  - Reshove: Horses at scale 1 or more shove A5s to A2s 960 of 960 times; 20 Nits shove about two thirds and call the rest; value hands always shove.
+  - Style read, through the real read (a tight opener held in the Horse's memory): a loose Horse's scale is held at 1 on every one of its bluff comparisons; a tight Horse's is left alone; against openers not judged tight, and with the style option in shadow, the persona's numbers and the decisions are identical to the style option being absent.
+- `server/src/benchmark/HoldemPersonaReRaiseProbe.test.ts` validates the measuring tool: with every Horse at scale 1 and the draw as its number the paired difference is exactly zero for all three behaviours in three cells; with every Horse at 0.5 the reshove is taken half as often within its interval and the bluff comparisons fire at half the probability; "taken" is one definition for both arms; paired counts add up.
+- A refused reshove bluff was compared (at the first head of this branch, before the per-hand number) against an engine with the bluff hands removed from the set: 306 of 306 the same action, amount and stream state (a call in the tested spot: button opens 2.2, big blind 3-bets to 7.5, 27 to 33 big blinds). In the smoke run, in play, one refused hand called and one folded.
+- Deliberate breaks, each caught: dropping the discarded draw fails the draw-for-draw test; multiplying the option-off probability fails the off test against the recording from main.
 - `server/src/engine/HorsePersona.holdemReRaiseScale.test.ts` recomputes 0.42143 from the archetype shares and ranges.
-- Standing tests unchanged and passing with the option off: the opponent-exploit neutrality corpus, the style-read off digests, the cash and tournament frequency laws, the data ledger and the league-card law.
+- Standing tests passing with the option off: the opponent-exploit neutrality corpus (its default run replays 5,023 decisions; the full corpus is 74,717, not the 74,915 the design record states), the style-read off digests, the data ledger and the league-card law.
 
 ## Measuring It
 
-`server/src/benchmark/HoldemPersonaReRaiseProbe.ts` (command line `server/scripts/holdem-persona-reraise-probe.ts`): 900 synthetic ids in exactly 225 LAG, 180 Tricky, 360 TAG and 135 Nit, 100 nine-handed tables, every seat rotation, preflop only, option on and option off on the same code. For each of the three behaviours it reports eligible and taken with a 95% Wilson interval: pooled, by archetype and by tenth of the fleet ordered by scale. For the 3-bet bluff and the squeeze bluff it also reports how often the cap bound. For the reshove it also reports by effective stack (25 to 26, 26 to 28, 28 to 30, 30 to 32, 32 to 35 big blinds), what a bluff hand that did not shove did instead (fold or call), and the expected rate from the model, so measured and expected can be compared.
+`server/src/benchmark/HoldemPersonaReRaiseProbe.ts` (command line `server/scripts/holdem-persona-reraise-probe.ts`): 900 synthetic ids in exactly 225 LAG, 180 Tricky, 360 TAG and 135 Nit, 100 nine-handed tables, every seat rotation, preflop only, every hand given a table id and hand number as in live play.
 
-The reshove's expected rate with the option on, as a share of today's bluff reshoves: 90.5 percent pooled; LAG 100, TAG 95.1, Tricky 87.5, Nit 66.4. That is an expected loss of 9.5 percent of bluff reshoves across the fleet. It is a model figure, not a measurement.
+The main table is **paired**. The option-off run decides every spot a second time with the option on, from the same position in the random stream, and throws that second decision away. Each spot where the second look reaches a persona comparison is a pair: the same Horse, cards, state and draws, decided off and on. For each behaviour it reports taken off, taken on, changed up, changed down and the difference with 95% intervals: pooled, by archetype, by tenth of the fleet ordered by scale, and for the reshove by effective stack (25 to 26, 26 to 28, 28 to 30, 30 to 32, 32 to 35 big blinds). "Taken" means the final action in both arms; the persona's own verdict is a separate column. It also reports the cap count, the high-probability region described above with expected and measured loss, what a reshove bluff that stopped shoving did instead, and the expected rates worked out from the probabilities themselves.
 
-The reshove site is named 26 to 35 big blinds, but its existing condition is "more than 25, up to 35". The 25 to 26 row shows the part the name leaves out. That condition was not changed.
+A second table, labelled unpaired, compares a separate option-on run with the option-off run. Their random streams part at the first changed decision, so it is two samples rather than pairs.
 
-A smoke run only (2,700 hands per arm per cell, far too few to judge anything) shows the tool works:
+A smoke run only (2,700 hands per arm per cell, far too few to judge anything), paired:
 
-- Cash 100 big blinds: 3-bet bluff 122 of 398 on (30.7%) against 122 of 389 off (31.4%), cap bound 9 times, all LAG; squeeze bluff 41 of 184 (22.3%) against 40 of 192 (20.8%), cap never bound; no reshove spots at this depth.
-- Cash 20 to 40 big blinds: 3-bet bluff 95 of 741 (12.8%) against 87 of 743 (11.7%); reshove 13 of 15 on (86.7%) against 17 of 17 off; the two that did not shove were both Nits, one called and one folded.
-- Tournament 20 to 40 big blinds: 3-bet bluff 138 of 587 (23.5%) against 134 of 599 (22.4%), cap bound 8 times; reshove 13 of 13 on and 9 of 9 off.
+- Cash 100 big blinds: 3-bet bluff 122 of 389 off, 116 of 389 on (65 up, 71 down; difference -1.5 points, -7.4 to +4.3); squeeze bluff 40 of 192 off, 36 on; no reshove spots at this depth.
+- Cash 20 to 40 big blinds: 3-bet bluff 87 of 743 off, 96 on; reshove 17 of 17 off, 15 of 17 on (expected for those Horses 87.7 percent).
+- Tournament 20 to 40 big blinds: 3-bet bluff 134 of 599 off, 142 on; reshove 9 of 9 off and on.
 
-The full run has not been done. For the reshove it needs both of these (about 630,000 hands per arm each):
+The full run has not been done. Each of these is about 630,000 hands per arm:
 
+    cd server && MODE=cash DEPTH=100 HANDS=700 npx tsx scripts/holdem-persona-reraise-probe.ts
     cd server && MODE=cash DEPTH=20-40 HANDS=700 npx tsx scripts/holdem-persona-reraise-probe.ts
     cd server && MODE=tournament DEPTH=20-40 HANDS=700 npx tsx scripts/holdem-persona-reraise-probe.ts
 
-League card `cash6_holdem_persona_reraise_mix` deals the option (six-handed cash). Not yet run.
+League card `cash6_holdem_persona_reraise_mix` deals the option (six-handed cash, 100 big blinds) and gives both arms a hand identity. It never reaches the reshove and its seats are the league's own ids. Not yet run.
 
 ## Limits
 
 - Synthetic ids, Horses against Horses, no people. Nothing here shows how people respond to persona-scaled re-raises.
+- The measuring tool decides with opponent memory off, so no style read engages in it.
 - No profit figure exists for any of the three behaviours.
 - This is a preflop range change. Merging it off does not lift the range hold.
 - Nothing is live until the option is turned on and an engine release carries it.
