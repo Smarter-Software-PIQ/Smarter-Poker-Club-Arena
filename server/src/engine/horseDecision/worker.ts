@@ -20,6 +20,7 @@ import {
 import { lowerDecisionWorkerPriority } from './workerPriority.js';
 import { horseDecisionShard } from './shard.js';
 import { prespawnHorseDecisionJournalWriter } from '../../services/HorseDecisionJournal.js';
+import { setBrainTelemetryGapSink } from '../../services/BrainTelemetryFlush.js';
 
 /** This worker's position among its decision-lane peers, from the
  * `workerData` client.ts's defaultWorkerFactory posts at creation; absent
@@ -103,6 +104,9 @@ if (!isMainThread && parentPort) {
     },
     send: (ack) => port.postMessage(ack),
   });
+  // 2026-11-14: a telemetry batch this thread loses is alerted by the main thread, which owns the engine alert
+  // journal (horseTelemetryGapAlert.ts). Set before the runtime starts the telemetry flush.
+  setBrainTelemetryGapSink((gap) => port.postMessage({ type: 'HORSE_TELEMETRY_GAP', gap }));
   port.on('message', (message: HorseDecisionWorkerRequest) => {
     if (styleSwitchInbox.receive(message)) return;
     if (!control(message)) runtime.receive(message);

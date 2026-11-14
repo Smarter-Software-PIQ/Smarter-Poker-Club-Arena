@@ -76,6 +76,7 @@ import {
   relayHorseDecisionJournalHealth,
 } from '../../services/HorseDecisionJournal.js';
 import { horseJournalJson } from '../../services/horseDecisionJournal/record.js';
+import { raiseHorseTelemetryGapAlert } from '../../services/horseTelemetryGapAlert.js';
 import { isHorseLifecycleRequest } from '../../services/horseDecisionJournal/lifecycle.js';
 import type { HorseDiscardExecutionObservation } from '../../services/horseDecisionJournal/discard.js';
 import {
@@ -1725,6 +1726,11 @@ export class LiveHorseDecisionWorkerClient {
     }
     if (message?.type === 'WATCHCOUNTER_DELTA') {
       mergeBrainWatchcounterDeltas(message.watchcounterDeltas);
+      return;
+    }
+    if (message?.type === 'HORSE_TELEMETRY_GAP') {
+      // A telemetry batch the worker thread lost: raised here because this thread owns the alert journal.
+      void raiseHorseTelemetryGapAlert(message.gap);
       return;
     }
     const piggybackedDeltas = (message as { watchcounterDeltas?: HorseWatchcounterEntry[] })
