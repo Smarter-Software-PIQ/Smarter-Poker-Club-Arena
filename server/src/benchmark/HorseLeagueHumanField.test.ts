@@ -91,6 +91,9 @@ const EXPECTED_PERSONA_CARDS: Array<[string, string]> = [
   ['human_hu_v7_preflop_vs_limper_40bb', 'hu_limp_every_button_v1'],
   // 2026-11-13 (HU-EVAL-014): the min-raiser again, with memory learning off.
   ['human_hu_bb_defends_vs_minraise_40bb_reads_off', 'hu_minraise_every_button_v1'],
+  // 2026-11-14 (HU-NLH-010, HU-NLH-011): the two default-off defence options.
+  ['human_hu_opener_defends_vs_threebet_40bb', 'hu_three_bet_every_hand_v1'],
+  ['human_hu_limp_defends_vs_minraise_40bb', 'hu_minraise_every_button_v1'],
 ];
 
 afterEach(() => {

@@ -48,7 +48,11 @@ import {
 import { nlhOpenRaiseTo, nlhOpenSeat } from './HorseNlhOpenSize.js';
 import type { HeroPriorPreflopAction } from './HorsePreflopOrbitState.js';
 import { cashNlhThreeBetRaiseTo } from './HorseCashThreeBetSize.js';
-import { huBbRequiredEquity } from './HorseHuBbDefence.js';
+import {
+  huBbRequiredEquity,
+  huLimpRequiredEquity,
+  huOpenerRequiredEquity,
+} from './HorseHuBbDefence.js';
 import { limpReraiseIsoBar } from './HorseLimpReraiseRead.js';
 import { fixedLimitHasNoJamOrFold } from './HorseFixedLimitStructure.js';
 import {
@@ -128,6 +132,8 @@ export interface PreflopIntent {
     | 'plo_suited_aces_four_bet'
     | 'plo_suited_aces_four_bettor_continues'
     | 'hu_bb_defends_to_price'
+    | 'hu_opener_defends_to_price'
+    | 'hu_limp_defends_to_price'
     | 'committed_stack_priced_in'
     | 'v86_plo_elite_three_bet'
     | 'v86_plo_squeeze'
@@ -337,6 +343,21 @@ export interface PreflopCtx {
    *  the spot in scope; a fold of the heads-up defence becomes a call when
    *  the realised equity covers the price. Absent = unchanged. */
   huBbPrice?: { equity: number };
+  /** HU OPENER DEFENDS TO ITS PRICE (HU-NLH-010, flag huOpenerDefendsToPrice,
+   *  default off; HorseHuBbDefence): heads-up no-limit hold'em cash, hero made
+   *  the only open and faces exactly one 3-bet that is not all in. `equity`
+   *  is this class's all-in equity against the 3-bettor's range (the read's
+   *  width, else the 20% reference). Present only with the flag on and the
+   *  spot in scope; a fold of the opener's bars becomes a call when the
+   *  realised equity covers the price. Absent = unchanged. */
+  huOpenerPrice?: { equity: number };
+  /** HU LIMPER DEFENDS TO ITS PRICE (HU-NLH-011, flag huLimpDefendsToPrice,
+   *  default off; HorseHuBbDefence): heads-up no-limit hold'em cash, hero
+   *  limped the small blind and faces exactly one raise that is not all in.
+   *  `equity` is this class's all-in equity against the raiser's range.
+   *  Present only with the flag on and the spot in scope; the fold becomes a
+   *  call when the realised equity covers the price. Absent = unchanged. */
+  huLimpPrice?: { equity: number };
   /** A COMMITTED STACK IS NOT FOLDED AT A PRICE (2026-11-13, flag
    *  committedStackPricedIn, default OFF; HVH2D-NLH-M-COMMIT, NLH-007a).
    *  True: in a two-card no-limit hold'em tournament multiway all-in the
@@ -3253,6 +3274,18 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
         return { a: 'call', receipt: 'hu_bb_defends_to_price' };
       }
     }
+    // HU LIMPER DEFENDS TO ITS PRICE (HU-NLH-011, flag huLimpDefendsToPrice,
+    // default off): the small blind's limp band sits below every call bar
+    // above, so it folded 99-100% of its limps to any raise, a min-raise
+    // laying 3:1 included. A limped hand whose equity against the raiser's
+    // range, after the realisation discount, covers the price calls.
+    // Widen-only: no raise is added and every call above is unchanged.
+    if (ctx.huLimpPrice && callers === 0 && priceOK && toCall > 0) {
+      const odds = preflopCallOdds(ctx, pricePot, Math.min(toCall, stack));
+      if (ctx.huLimpPrice.equity >= huLimpRequiredEquity(odds)) {
+        return { a: 'call', receipt: 'hu_limp_defends_to_price' };
+      }
+    }
     if (def72) {
       // V72: the big blind closes the action at the best price of the orbit,
       // so (as the V34 floor below did for the buckets) its defence is its
@@ -3795,6 +3828,19 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       return v76Done({ a: 'jam' });
     }
     if (toCall > 0 && toCall <= pricePot * 0.15 && strength >= 0.45) return v76Done({ a: 'call' });
+    // HU OPENER DEFENDS TO ITS PRICE (HU-NLH-010, flag huOpenerDefendsToPrice,
+    // default off): the bars above continue about the top tenth of ALL hands,
+    // which heads-up is roughly a seventh of a 70% open, so the opener folded
+    // 81-92% to a 3-bet whose break-even is 62.5-67%. A hand whose equity
+    // against the 3-bettor's range, after the realisation discount, covers
+    // the price calls, under the same stack cap as the call above. Widen-only:
+    // 4-bets, jams and every call above are unchanged.
+    if (ctx.huOpenerPrice && raises === 2 && callers === 0 && toCall > 0 && capOK3) {
+      const odds = preflopCallOdds(ctx, pricePot, Math.min(toCall, stack));
+      if (ctx.huOpenerPrice.equity >= huOpenerRequiredEquity(odds)) {
+        return { a: 'call', receipt: 'hu_opener_defends_to_price' };
+      }
+    }
     if (toCall === 0) return v76Done({ a: 'check' });
     return v76Done({ a: 'fold' });
   }

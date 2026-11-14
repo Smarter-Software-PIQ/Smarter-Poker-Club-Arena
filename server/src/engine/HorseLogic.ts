@@ -287,9 +287,11 @@ import {
 } from './HorseGtoOpeningRanges.js';
 import {
   huBbEquityVsOpener,
+  huDefenceWidthPct,
   HU_BB_MAX_OPEN_BB,
   HU_BB_MAX_STACK_BB,
   HU_BB_MIN_STACK_BB,
+  HU_LIMP_MAX_RAISE_BB,
 } from './HorseHuBbDefence.js';
 import { gtoDefence, V72_MAX_OPEN_BB } from './HorseGtoDefenceRanges.js';
 import {
@@ -2771,6 +2773,28 @@ export interface HorseDecideOpts {
    *  six-max and tournaments unchanged. Default OFF: only explicit true turns
    *  it on (league hu_bb_defends_to_price). */
   huBbDefendsToPrice?: boolean;
+  /** HU OPENER DEFENDS TO ITS PRICE (2026-11-14, HU-NLH-010,
+   *  HorseHuBbDefence): heads-up no-limit hold'em cash, hero made the only
+   *  open and faces exactly one 3-bet of 1.8x-7x that is not all in, 20-150bb
+   *  effective: a hand the opener's bars fold calls when its all-in equity
+   *  against the 3-bettor's range (the opponent read's re-raise share when
+   *  engaged and 20% or wider, else the 20% reference; a narrower read stands
+   *  the rule aside), times the 0.85 realisation, covers the rake-aware pot
+   *  odds. Widen-only and call-only; 4-bets, jams, three or more dealt and
+   *  tournaments unchanged. Default OFF: only explicit true turns it on
+   *  (league human_hu_opener_defends_vs_threebet_40bb). */
+  huOpenerDefendsToPrice?: boolean;
+  /** HU LIMPER DEFENDS TO ITS PRICE (2026-11-14, HU-NLH-011,
+   *  HorseHuBbDefence): heads-up no-limit hold'em cash, hero limped the small
+   *  blind and faces exactly one raise to 6bb or less that is not all in,
+   *  20-150bb effective: the limp the bars fold calls when its all-in equity
+   *  against the raiser's range (the 20% reference, never widened by a read;
+   *  an engaged raise read narrower than 20% stands the rule aside), times
+   *  the 0.8 realisation, covers the rake-aware pot odds.
+   *  Widen-only and call-only; the limp itself, limp-raises, three or more
+   *  dealt and tournaments unchanged. Default OFF: only explicit true turns
+   *  it on (league human_hu_limp_defends_vs_minraise_40bb). */
+  huLimpDefendsToPrice?: boolean;
   /** FULL-RING FACING-ACTION ZONE (2026-11-07): four or more dealt,
    *  no-limit hold'em facing action reads the <= 15bb jam-or-fold zone V82
    *  gave two- and three-handed tables, instead of the table-scaled M zone
@@ -9195,6 +9219,62 @@ export class HorseLogic {
       const equity = huBbEquityVsOpener(cls, widthPct);
       return equity === null ? undefined : { equity };
     })();
+    // ═══ HU OPENER / LIMPER DEFEND TO THEIR PRICE (2026-11-14, HU-NLH-010
+    // and HU-NLH-011, both default off) ═══ two dealt in, hero the small
+    // blind whose open was 3-bet or whose limp was raised: the class's equity
+    // against the raiser's range (HorseHuBbDefence: the 20% reference, for
+    // the opener the read's re-raise share when engaged; no column for a
+    // narrower read). The price itself is read in HorsePreflop against this
+    // equity.
+    const huRaiserPrice = (kind: 'opener' | 'limper') => {
+      if (callers !== 0 || lastRaiserSeat < 0 || player.cards.length !== 2) return undefined;
+      if (vi.isOmaha || vi.isShortDeck || vi.isFixedLimit || vi.isPotLimit) return undefined;
+      if (isTournamentMode(gs) || gs.allInOrFold === true || gs.straddleActive === true)
+        return undefined;
+      if (gs.bombPot) return undefined;
+      if (dealtHorseTableSize(gs, player.seat) !== 2) return undefined;
+      // Hero's open or limp is its only voluntary preflop action so far.
+      const heroActs = history.filter(
+        (a) => a.seat === player.seat && a.action !== 'fold' && a.action !== 'check'
+      );
+      if (heroActs.length !== 1) return undefined;
+      if (kind === 'limper' && heroActs[0].action !== 'call') return undefined;
+      const raiser = gs.players.find((p) => p.seat === lastRaiserSeat);
+      if (!raiser || raiser.is_all_in || raiser.user_id === player.user_id) return undefined;
+      if (!(player.bet > 0) || !(bb > 0)) return undefined;
+      if (kind === 'opener') {
+        const threeBetX = gs.currentBet / player.bet;
+        if (!(threeBetX >= V73_MIN_THREEBET_X && threeBetX <= V73_MAX_THREEBET_X)) return undefined;
+      } else {
+        const raiseToBB = gs.currentBet / bb;
+        if (!(raiseToBB > 1.05 && raiseToBB <= HU_LIMP_MAX_RAISE_BB)) return undefined;
+      }
+      const effBB = Math.min(player.stack + player.bet, raiser.stack + raiser.bet) / bb;
+      if (effBB < HU_BB_MIN_STACK_BB || effBB > HU_BB_MAX_STACK_BB) return undefined;
+      const cls = holdemClass(player.cards[0], player.cards[1]);
+      if (!cls) return undefined;
+      let readShare: number | null = null;
+      if (opts.mind !== false) {
+        try {
+          const read = HorseMind.opponentRead(raiser.user_id);
+          readShare = kind === 'opener' ? reRaiseWidth(read) : openerRangeWidth(read);
+        } catch {
+          readShare = null;
+        }
+      }
+      const widthPct = huDefenceWidthPct(readShare, kind === 'opener');
+      if (widthPct === null) return undefined;
+      const equity = huBbEquityVsOpener(cls, widthPct);
+      return equity === null ? undefined : { equity };
+    };
+    const huOpenerPrice =
+      opts.huOpenerDefendsToPrice === true && raises === 2 && limpers === 0 && heroWasInitialRaiser
+        ? huRaiserPrice('opener')
+        : undefined;
+    const huLimpPrice =
+      opts.huLimpDefendsToPrice === true && raises === 1 && limpers === 1 && !heroWasInitialRaiser
+        ? huRaiserPrice('limper')
+        : undefined;
     const intentCtx7: Parameters<typeof decidePreflopV7>[0] = {
       // V90 needs the table engine's explicit mode. The legacy "big blind of
       // ten or more means a tournament" guess for callers that pass no mode
@@ -9213,6 +9293,8 @@ export class HorseLogic {
           }
         : {}),
       ...(huBbPrice ? { huBbPrice } : {}),
+      ...(huOpenerPrice ? { huOpenerPrice } : {}),
+      ...(huLimpPrice ? { huLimpPrice } : {}),
       ...(opts.committedStackPricedIn === true
         ? { committedStackPricedIn: true, committedPayJumpLive: committedPayJumpLive(gs) }
         : {}),
@@ -9909,6 +9991,9 @@ export class HorseLogic {
       if (intent.receipt === 'v74_nlh_open_size') noteFire('v74_nlh_open_size');
       else if (intent.receipt === 'cash_nlh_three_bet_size') noteFire('cash_nlh_three_bet_size');
       else if (intent.receipt === 'hu_bb_defends_to_price') noteFire('hu_bb_defends_to_price');
+      else if (intent.receipt === 'hu_opener_defends_to_price')
+        noteFire('hu_opener_defends_to_price');
+      else if (intent.receipt === 'hu_limp_defends_to_price') noteFire('hu_limp_defends_to_price');
       else if (intent.receipt === 'committed_stack_priced_in')
         noteFire('committed_stack_priced_in_seen');
       else if (intent.receipt === 'v76_retired_four_bet_bluff')
