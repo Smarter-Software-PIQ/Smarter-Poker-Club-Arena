@@ -712,6 +712,9 @@ async function verifyPublishedLightning(
   let hand = 10;
   let seq = 0;
   let vpipReads = 0;
+  const stopRequests: { hand: string | null; visibleCards: number }[] = [];
+  let handsOwed = 4;
+  let handsPlayed = 6;
   const sockets = new Set<import('@playwright/test').WebSocketRoute>();
   const snapshot = () => ({
     type: 'SNAPSHOT',
@@ -853,7 +856,36 @@ async function verifyPublishedLightning(
         stack: 500,
         in_hand: true,
         seat_number: 1,
+        occupancy_id: '55555555-5555-4555-8555-555555555555',
       });
+    }
+    if (path.endsWith('/fn_my_hit_run_status')) {
+      expect(request.postDataJSON()).toEqual({ p_table_id: anchorTableId });
+      return fulfillJson(route, [
+        {
+          table_id: anchorTableId,
+          hands_remaining: handsOwed,
+          hands_required: 10,
+          hands_played: handsPlayed,
+          completed: handsPlayed === 10,
+          hands_reason: handsOwed > 0 ? 'hit_run' : null,
+        },
+      ]);
+    }
+    if (path.endsWith('/fn_lightning_stop_playing')) {
+      expect(request.postDataJSON()).toEqual({ p_cluster_id: cluster });
+      stopRequests.push(
+        await page.evaluate(() => ({
+          hand: document.querySelector('.table-brand__hand')?.textContent?.trim() ?? null,
+          visibleCards: [
+            ...document.querySelectorAll('.seat--hero .seat__cards--hero .seat__card--face'),
+          ].filter(
+            (card) =>
+              getComputedStyle(card).opacity === '1' && card.getBoundingClientRect().width > 0
+          ).length,
+        }))
+      );
+      return fulfillJson(route, { ok: true, stopping: true, exited: false, in_hand: true });
     }
     if (path.endsWith('/fn_cash_vpip_status')) {
       expect(request.postDataJSON()).toEqual({ p_table_id: anchorTableId });
@@ -885,6 +917,16 @@ async function verifyPublishedLightning(
   await expect(faces).toHaveCount(2);
   await expect(page.getByTestId('vpip-badge')).toContainText('60%');
   await expect(page.getByTestId('hero-vpip-hand-count')).toHaveCount(0);
+  const countdown = page.getByTestId('hit-run-count-pill');
+  await expect(countdown).toBeVisible();
+  expect(
+    await countdown.evaluate((node) =>
+      node.previousElementSibling?.classList.contains('table-brand__line--hand')
+    )
+  ).toBe(true);
+  const vpip = page.getByTestId('vpip-badge');
+  const initialBox = await vpip.boundingBox();
+  if (!initialBox) throw new Error('Lightning VPIP has no rendered bounds');
   const portrait = await hero.locator('.seat__avatar-img').elementHandle();
   const card = await faces.first().elementHandle();
   if (!portrait || !card) throw new Error('Lightning hero nodes were not rendered');
@@ -908,11 +950,92 @@ async function verifyPublishedLightning(
         .evaluateAll((nodes) => nodes.map((node) => (node as HTMLImageElement).alt))
     ).toEqual(cardWords);
   }
+  await page.getByRole('button', { name: 'Leave Next Hand', exact: true }).click();
+  const queuedNotice = page
+    .locator('.toast')
+    .filter({ hasText: 'You Will Play One More Hand Before Leaving' });
+  await expect(queuedNotice).toBeVisible();
+  expect(
+    await queuedNotice.evaluate((node) => {
+      const bar = document.querySelector('.action-panel-wrapper');
+      const bounds = node.getBoundingClientRect();
+      return (
+        !!bar &&
+        bounds.top >= 0 &&
+        bounds.bottom < innerHeight / 2 &&
+        bounds.bottom <= bar.getBoundingClientRect().top
+      );
+    })
+  ).toBe(true);
+  expect(stopRequests).toHaveLength(0);
+  // An early folder's previous hands may settle while the current hand stays
+  // on screen. Only the committed status read determines what the felt shows.
+  const sendSettlement = (settledHand: number) => {
+    const id = `4a4d0000-0000-4000-8000-${String(settledHand).padStart(12, '0')}`;
+    send({
+      type: 'EVENT',
+      tableId: room,
+      ts: Date.now(),
+      payload: {
+        type: 'hand_history_saved',
+        table_id: room,
+        pool_session_id: room,
+        player_id: account.id,
+        hand_number: settledHand,
+        hand_id: id,
+        lightning_hand_id: id,
+      },
+    });
+  };
+  const count = page.locator('.table-brand__meta').getByTestId('hit-run-count-pill');
+  await expect(count.locator('.hit-run-pill__count')).toHaveText('4');
+  handsOwed = 3;
+  handsPlayed = 7;
+  sendSettlement(8);
+  await expect(count.locator('.hit-run-pill__count')).toHaveText('3');
+  handsOwed = 0;
+  sendSettlement(9);
+  const paused = page.locator('.table-brand__meta').getByTestId('hit-run-paused-pill');
+  await expect(paused.locator('.hit-run-pill__count')).toHaveText('3');
+  handsPlayed = 10;
+  sendSettlement(10);
+  await expect(paused).toHaveCount(0);
+  await expect(count).toHaveCount(0);
+  await expect(page.locator('.table-brand__hand')).toContainText('Hand #10');
+  const updatedBox = await vpip.boundingBox();
+  if (!updatedBox) throw new Error('Lightning VPIP disappeared during settlement');
+  expect(Math.abs(updatedBox.x - initialBox.x)).toBeLessThanOrEqual(1);
+  expect(Math.abs(updatedBox.y - initialBox.y)).toBeLessThanOrEqual(1);
+  expect(stopRequests).toHaveLength(0);
   hand = 11;
+  cards[0] = { rank: 'Q', suit: 'c' };
+  send({
+    type: 'EVENT',
+    tableId: room,
+    ts: Date.now(),
+    payload: {
+      type: 'hand_started',
+      table_id: room,
+      hand_number: hand,
+      dealer_seat: 6,
+      timestamp: Date.now(),
+      lightning_arrival_ms: 420,
+    },
+  });
   send(snapshot());
   send(holeCards());
+  await expect(hero.locator('.seat__cards--deal-pending')).toBeAttached();
+  await expect(page.locator('.pre-action-bar, .action-panel--active')).toHaveCount(0);
+  expect(stopRequests).toHaveLength(0);
   await expect(page.locator('.table-brand__hand')).toContainText('Hand #11');
   await expect(page.getByTestId('vpip-badge')).toContainText('60%');
+  await expect.poll(() => stopRequests).toEqual([{ hand: 'Hand #11', visibleCards: 2 }]);
+  await expect(faces.first()).toHaveCSS('opacity', '1');
+  expect(
+    await faces
+      .locator('img')
+      .evaluateAll((nodes) => nodes.map((node) => (node as HTMLImageElement).alt))
+  ).not.toEqual(cardWords);
   await expect(page.getByTestId('hero-hand-count')).toHaveCount(0);
   await expect.poll(() => vpipReads).toBeGreaterThanOrEqual(2);
   const stack = await hero.locator('.seat__stack').innerText();
@@ -954,7 +1077,7 @@ async function verifyPublishedLightning(
   await expect(notice).toHaveCount(0);
   expect(await hero.locator('.seat__stack').innerText()).toBe(stack);
   console.log(
-    '[hero-celebration] published Lightning: stable hero/cards, Hands11 and VPIP60%, old-hand BBJ125, current stack unchanged'
+    '[hero-celebration] published Lightning: stable hero/cards, locked VPIP, settlement countdown, top toast, next deal visible before stop, old-hand BBJ125, current stack unchanged'
   );
 }
 

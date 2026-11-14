@@ -163,11 +163,15 @@ export function handsOwedReasonText(reason: HandsOwedReason | null | undefined):
 
 /** The caller's count at one table, owed and total together. */
 export async function fetchMyHandCount(tableId: string): Promise<HandCount> {
-  const none: HandCount = { owed: null, required: null };
+  return (await readMyHandCount(tableId)) ?? { owed: null, required: null };
+}
+
+/** An unavailable read is distinct from a confirmed zero for a displayed counter. */
+export async function readMyHandCount(tableId: string): Promise<HandCount | null> {
   try {
     const { data, error } = await supabase.rpc('fn_my_hit_run_status', { p_table_id: tableId });
-    if (error || !Array.isArray(data)) return none;
-    let best = none;
+    if (error || !Array.isArray(data)) return null;
+    let best: HandCount = { owed: null, required: null };
     for (const row of data as Array<Record<string, unknown>>) {
       if (row?.table_id !== tableId) continue;
       const n = owedHands(row.hands_remaining);
@@ -190,7 +194,7 @@ export async function fetchMyHandCount(tableId: string): Promise<HandCount> {
     }
     return best;
   } catch {
-    return none;
+    return null;
   }
 }
 

@@ -40,10 +40,12 @@ describe('Lightning Leave Next Hand waits for the end of the current hand', () =
   it('the button is wired to the waiting leave and its cancel, never straight to the immediate one', () => {
     const at = PAGE.indexOf('<LightningLeaveControl');
     const tag = PAGE.slice(at, PAGE.indexOf('/>', at));
-    expect(tag).toContain('onLeave={leaveLightningAfterThisHand}');
+    expect(tag).toContain('onLeave={requestLeaveAtNextHand}');
     expect(tag).not.toContain('onLeave={handleLeaveTable}');
-    expect(tag).toContain('queued={lightningLeaveAfterHand.queued}');
-    expect(tag).toContain('onCancel={cancelLightningLeave}');
+    expect(tag).toContain('finalLightningDeal.queued || lightningLeaveAfterHand.queued');
+    expect(PAGE).toContain(
+      'else if (lightningLeaveAfterHand.queued) await cancelLightningLeave();'
+    );
     // Nothing suppresses the action bar or cancels pre-actions while the hand plays.
     expect(tag).not.toContain('onLeaveIntentChange');
   });

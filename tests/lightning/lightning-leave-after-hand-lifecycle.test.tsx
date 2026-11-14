@@ -66,8 +66,11 @@ function Page(props: {
     <>
       <span data-testid="acting">{waits ? 'acting' : 'idle'}</span>
       <LightningLeaveControl
-        clusterId="cluster"
-        onLeave={async (stop) => queue.queue(stop.inHand && !waits)}
+        pending={false}
+        onLeave={async () => {
+          const stop = await mocks.stop();
+          queue.queue(stop.inHand && !waits);
+        }}
         queued={queue.queued}
         onCancel={async () => {
           const answer = await props.resume();
