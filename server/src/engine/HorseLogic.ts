@@ -6092,6 +6092,11 @@ export function facingClosedAllInRaise(
   return open ? undefined : true;
 }
 
+/** All-In-Or-Fold tables: the deepest effective stack, in big blinds, at
+ * which a closing seat answers a lone all-in from the Nash caller table
+ * (HVH2D-NLH-005). Above it the fixed strength bar decides, as before. */
+export const NASH_AOF_CLOSING_CALL_MAX_BB = 12;
+
 /**
  * NOBODY IS LEFT TO FOLD (2026-11-12). True when every opponent still in the
  * hand is all in, so no raise by the hero can make anyone fold: the hand goes
@@ -8097,8 +8102,7 @@ export class HorseLogic {
       !vi.isShortDeck &&
       !vi.isFixedLimit &&
       !vi.isPotLimit &&
-      gs.straddleActive !== true &&
-      gs.allInOrFold !== true
+      gs.straddleActive !== true
     ) {
       const nashCall = (() => {
         const jammer = gs.players.find((p) => p.seat === lastRaiserSeat);
@@ -8108,6 +8112,21 @@ export class HorseLogic {
         // (posted blind included), the S of the table.
         const depth = Math.min(player.stack + player.bet, jammer.stack + jammer.bet) / bb;
         if (!(depth > 0) || depth > NASH_V2_CALL_MAX_BB) return null;
+        // ALL-IN-OR-FOLD, CLOSING SEAT ONLY (2026-11-12, HVH2D-NLH-005). The
+        // table answers at such a table only at 12 big blinds or less and
+        // only when hero closes the action: every other player still in the
+        // hand is all in, so the call ends the hand and nobody can overcall
+        // (the table prices the first caller only). Measured there against
+        // Horse all-ins: 17 of 41 folds by the fixed strength bar gave up a
+        // profitable call against the table's range. Every other seat and
+        // depth at an All-In-Or-Fold table stays with that bar (HorsePreflop).
+        if (
+          gs.allInOrFold === true &&
+          (depth > NASH_AOF_CLOSING_CALL_MAX_BB ||
+            !everyLiveOpponentIsAllIn(gs.players, player.seat))
+        ) {
+          return null;
+        }
         const jammerBehind = preflopPlayersBehind(lastRaiserSeat, gs, opts.v13 !== false);
         const heroBehind = preflopPlayersBehind(player.seat, gs, opts.v13 !== false);
         if (jammerBehind === null || heroBehind === null) return null;
@@ -8138,6 +8157,8 @@ export class HorseLogic {
         if (telemetryOn(opts)) noteFire('nash_call_vs_jam');
         notePhase6Route('solver', 'chart_bb_defend');
         if (fastRandom() < nashCall) {
+          // At an All-In-Or-Fold table the call of an all-in is the all-in.
+          if (gs.allInOrFold === true) return { action: 'all_in', thinkTime: 0 };
           return { action: 'call', amount: Math.min(toCall, player.stack), thinkTime: 0 };
         }
         return { action: 'fold', thinkTime: 0 };
