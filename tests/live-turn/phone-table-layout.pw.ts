@@ -74,6 +74,7 @@ interface Scenario {
   seats: 6 | 9;
   bombPot?: boolean;
   lightning?: boolean;
+  plo4?: boolean;
   /** A Lightning game still in its feeder (MUST MOVE) game: its own table, the
    *  game's live players and Lightning start count as the database reports them. */
   feeder?: { live: number; on: number };
@@ -92,7 +93,7 @@ const PORTRAIT_URL: Record<Portrait, string> = {
 function snapshot(s: Scenario, heroSeat: number) {
   const id = s.lightning ? ROOM : TABLE;
   let v = 0;
-  const players = Array.from({ length: s.seats }, (_, i) => {
+  const fullRing = Array.from({ length: s.seats }, (_, i) => {
     const seat = i + 1;
     const hero = seat === heroSeat;
     const user = hero ? PLAYER : villain(++v);
@@ -106,7 +107,7 @@ function snapshot(s: Scenario, heroSeat: number) {
       equipped_frame: '',
       equipped_aura: '',
       stack: 1000,
-      bet: 0,
+      bet: s.plo4 && seat === 4 ? 4 : 0,
       totalInvested: 0,
       cards: [],
       is_folded: false,
@@ -125,6 +126,7 @@ function snapshot(s: Scenario, heroSeat: number) {
       hand_name: '',
     };
   });
+  const players = s.plo4 ? fullRing.filter((p) => p.seat === heroSeat || p.seat === 4) : fullRing;
   const now = Date.now();
   return {
     table_id: id,
@@ -135,16 +137,16 @@ function snapshot(s: Scenario, heroSeat: number) {
           lightning: {
             hand_id: '4a4d0000-0000-4000-8000-000000000101',
             cluster_id: CLUSTER,
-            name: 'NLH 0.25/0.50 Lightning Games',
+            name: s.plo4 ? 'PLO4 0.25/0.50 Lightning Games' : 'NLH 0.25/0.50 Lightning Games',
             small_blind: 0.25,
             big_blind: 0.5,
-            variant: 'nlh',
+            variant: s.plo4 ? 'plo4' : 'nlh',
             fast_fold_available: false,
           },
         }
       : {}),
     hand_number: 101,
-    pot: 15,
+    pot: s.plo4 ? 16 : 15,
     community_cards: [
       { rank: 'K', suit: 's' },
       { rank: '8', suit: 'd' },
@@ -152,7 +154,7 @@ function snapshot(s: Scenario, heroSeat: number) {
     ],
     community_cards2: [],
     community_cards3: [],
-    hand_variant: 'nlh',
+    hand_variant: s.plo4 ? 'plo4' : 'nlh',
     bomb_pot_in: s.bombPot ? 3 : null,
     bomb_pot_next_at: null,
     bomb_pot_waiting_for: null,
@@ -160,9 +162,9 @@ function snapshot(s: Scenario, heroSeat: number) {
     kill_next: null,
     ante: 0,
     ante_mode: null,
-    current_bet: 0,
+    current_bet: s.plo4 ? 4 : 0,
     current_player: PLAYER,
-    dealer_seat: s.seats,
+    dealer_seat: s.plo4 ? 4 : s.seats,
     stage: 'flop',
     winner_ids: [],
     winners: [],
@@ -291,7 +293,9 @@ class TableEngine {
             user_id: PLAYER,
             seat_number: this.heroSeat,
             hand_number: this.state.hand_number,
-            cards: HERO_CARDS,
+            cards: this.s.plo4
+              ? [...HERO_CARDS, { rank: '2', suit: 'd' }, { rank: '2', suit: 'h' }]
+              : HERO_CARDS,
           },
         },
       })
@@ -408,6 +412,20 @@ function backendFor(s: Scenario, heroSeat: number) {
               created_at: '2026-09-29T00:00:00Z',
             },
           ],
+      ...(s.plo4
+        ? {
+            user_theme_settings: [
+              {
+                user_id: PLAYER,
+                game_type: 'ALL',
+                table_id: 'carbon_red',
+                background_id: 'midnight',
+                button_id: 'classic-white',
+                cards_id: 'classic_red',
+              },
+            ],
+          }
+        : {}),
       profiles: [profile],
       clubs: [
         {
@@ -456,10 +474,14 @@ async function openTable(page: Page, s: Scenario): Promise<TableEngine> {
   await cdp.send('Emulation.setSafeAreaInsetsOverride', {
     insets: { top: NOTCH_PX, bottom: 34 },
   });
+  // A phone can open its table with browser chrome showing, then reclaim that
+  // screen space. The stable felt budget is smaller than the visible action slot.
+  if (s.plo4)
+    await cdp.send('Emulation.setSmallViewportHeightDifferenceOverride', { difference: 110 });
   await signIn(page, backendFor(s, heroSeat));
   if (s.lightning) {
     await page.addInitScript(
-      ([room, cluster, club]) => {
+      ([room, cluster, club, plo4]) => {
         sessionStorage.setItem(
           'ca.lightning.pool-sessions.v1',
           JSON.stringify([
@@ -469,8 +491,8 @@ async function openTable(page: Page, s: Scenario): Promise<TableEngine> {
               meta: {
                 clusterId: cluster,
                 clubId: club,
-                name: 'NLH 0.25/0.50 Lightning Games',
-                variant: 'nlh',
+                name: plo4 ? 'PLO4 0.25/0.50 Lightning Games' : 'NLH 0.25/0.50 Lightning Games',
+                variant: plo4 ? 'plo4' : 'nlh',
                 smallBlind: 0.25,
                 bigBlind: 0.5,
                 maxPlayers: 6,
@@ -485,7 +507,7 @@ async function openTable(page: Page, s: Scenario): Promise<TableEngine> {
           ])
         );
       },
-      [ROOM, CLUSTER, CLUB] as const
+      [ROOM, CLUSTER, CLUB, s.plo4 ?? false] as const
     );
   }
   await page.addInitScript(() => {
@@ -506,6 +528,17 @@ async function openTable(page: Page, s: Scenario): Promise<TableEngine> {
       });
     }
   );
+  if (s.plo4) {
+    await page.route('**/storage/v1/object/public/assets/buttons/black/icon-*.webp', (route) => {
+      const icon = new URL(route.request().url()).pathname.split('/').pop();
+      const files: Record<string, string> = {
+        'icon-hamburger.webp': 'public/images/btn-hamburger.webp',
+        'icon-chat.webp': 'tests/e2e/fixtures/table-art/icon-chat.webp',
+        'icon-prevhand.webp': 'tests/e2e/fixtures/table-art/icon-prevhand.webp',
+      };
+      return icon && files[icon] ? route.fulfill({ path: resolve(files[icon]) }) : route.fallback();
+    });
+  }
   const engine = await TableEngine.install(page, s, heroSeat);
   engine.onDispose(() => cdp.detach().catch(() => {}));
   await page.goto(`table/${engine.id}`);
@@ -689,6 +722,7 @@ async function measure(page: Page) {
       .map(box);
     const vv = window.visualViewport;
     return {
+      scaler: document.querySelector('.table-scaler')!.getBoundingClientRect().toJSON(),
       layoutWidth: document.documentElement.clientWidth,
       scale: vv ? vv.scale : 1,
       buttons,
@@ -719,6 +753,15 @@ const SCENARIOS: Scenario[] = [
     art: { hero: 'photo', opponents: ['wolf', 'aztec', 'photo', 'initials'] },
   },
   { name: 'iPhone 14 390x844, Lightning', width: 390, height: 844, seats: 6, lightning: true },
+  {
+    name: 'iPhone 14 390x844, Lightning PLO4',
+    width: 390,
+    height: 844,
+    seats: 6,
+    lightning: true,
+    plo4: true,
+    art: { hero: 'wolf', opponents: ['aztec'] },
+  },
   {
     name: 'iPhone Pro Max 430x932, 6-max, character-art hero',
     width: 430,
@@ -785,6 +828,15 @@ for (const s of SCENARIOS) {
         expect(rowTop, "the row never covers the hero's cards").toBeGreaterThanOrEqual(
           m.heroCardsBottom
         );
+        if (s.plo4) {
+          await expect(
+            page.locator('.seat-wrapper--hero .seat__cards--hero .seat__card')
+          ).toHaveCount(4);
+          expect(
+            rowTop - Math.max(m.seatBottom, m.heroCardsBottom),
+            'private cards and strength sit just above the buttons'
+          ).toBeLessThanOrEqual(12);
+        }
         // 3c. Previous Hand moved up with them: wholly above the row.
         expect(m.prev, 'the Previous Hand button is shown').not.toBeNull();
         expect(m.prev!.bottom).toBeLessThanOrEqual(rowTop);
@@ -877,6 +929,23 @@ test.describe('the Lightning start ticker', () => {
         '3 More Players Until Lightning Games Start',
         { timeout: 15_000 }
       );
+      const leave = page.getByRole('button', { name: 'Leave Next Hand', exact: true });
+      const chat = page.getByRole('button', { name: 'Open Table Chat', exact: true });
+      for (const button of [leave, chat]) {
+        await expect(button).toBeVisible();
+        expect(
+          await button.evaluate((el) => {
+            const box = el.getBoundingClientRect();
+            return el.contains(
+              document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)
+            );
+          }),
+          'the control receives taps at its centre'
+        ).toBe(true);
+      }
+      expect(
+        Math.abs((await leave.boundingBox())!.y - (await chat.boundingBox())!.y)
+      ).toBeLessThanOrEqual(1);
       const body = await page.locator('body').innerText();
       expect(body, 'no Lightning start error is shown').not.toMatch(
         /(can.?t|cannot|unable to|could not|won.?t)\s+start|not enough players/i

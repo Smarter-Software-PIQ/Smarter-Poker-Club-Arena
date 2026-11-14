@@ -5425,6 +5425,20 @@ button.post-bb-overlay-button {
   }
 }
 
+/* The six-seat hero uses the space down to the fixed controller. Browser
+   chrome can make the stable viewport budget shorter than the actual table
+   slot. Keep the top rail and width on their stable budget, extending only
+   the lower end into the slot's available content box. Its padding already
+   reserves the complete action row, home inset, private cards and hand label. */
+@media (max-device-width: 480px) and (min-width: 481px) and (max-width: 640px) and (orientation: portrait) {
+  .table-page[data-seats='6'][data-hero='true'] .table-scaler {
+    height: max(
+      calc(var(--sp-table-h, 100svh) * 0.88),
+      calc(100% - var(--sp-table-h, 100svh) * 0.12 - 6px)
+    );
+  }
+}
+
 /* Nine player phone tables leave a cap row above the skin. Shorten only
    from the top so the bottom seat and controller keep their shared floor. */
 @media (min-width: 481px) and (max-width: 640px) and (orientation: portrait) {
