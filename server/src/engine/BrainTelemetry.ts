@@ -80,6 +80,13 @@ export function noteFire(feature: string): void {
  *
  * - Only counted fires are collected: a paused evaluation
  *   (withBrainTelemetrySuspended) and a process with telemetry off add nothing.
+ * - A WATCHCOUNTER is collected too, under its metric name (2026-11-14). Two
+ *   manifest upgrades declare a watchcounter as their only per-decision
+ *   evidence: 05 (poker_horse_street_prewarm_total, counted inside the FAST
+ *   decision on a prewarm hit) and 13 (poker_horse_telemetry_opportunities_total).
+ *   They go through recordWatchcounter, not noteFire, so before this the scope
+ *   never saw them and both read 0 invoked for every Horse on a7965514 while
+ *   the fleet counters moved. The same telemetry-on rule applies.
  * - SYNCHRONOUS fn only. The scope is a module variable, so it is correct only
  *   while no other decision can run inside fn. The worker's FAST execution is
  *   synchronous end to end and the worker runs one job per event-loop turn on
@@ -594,6 +601,8 @@ function recordWatchcounter(
     count = typeof modeArg === 'number' ? modeArg : (countArg ?? 1);
   }
   if (!Number.isFinite(count) || count <= 0) return;
+  // Per-decision evidence: the upgrade that declares this metric was exercised by the open decision.
+  if (enabled) decisionScope?.add(metric);
   const key = `${metric}|${variant}|${mode}|${reason}`;
   const cur = watchcounters.get(key);
   if (cur) {

@@ -67,6 +67,27 @@ describe('the per-decision fire scope', () => {
     expect([...off.withDecisionFireScope(() => off.noteFire('never_enabled')).fired]).toEqual([]);
   });
 
+  it('collects a watchcounter under its metric name, and not from a suspended evaluation', () => {
+    const scoped = telemetry.withDecisionFireScope(() => {
+      telemetry.noteHorseStreetPrewarm('nlh', 'cash', 'hit_flop');
+      telemetry.noteHorseTelemetryOpportunity('nlh', 'cash', 'commit_evaluated');
+      telemetry.withBrainTelemetrySuspended(() =>
+        telemetry.noteHorseActionClamped('nlh', 'cash', 'shadow_only')
+      );
+    });
+    expect([...scoped.fired].sort()).toEqual([
+      'poker_horse_street_prewarm_total',
+      'poker_horse_telemetry_opportunities_total',
+    ]);
+    // the upgrades whose only per-decision evidence is a watchcounter now register the decision
+    expect(evidence.upgradeIdsForFires(scoped.fired)).toEqual(
+      expect.arrayContaining([
+        'upgrade_05_street_prewarming',
+        'upgrade_13_law_gate_and_watchcounters',
+      ])
+    );
+  });
+
   it('restores the outer scope after a nested call, hands it the inner keys, and after a throw', () => {
     const outer = telemetry.withDecisionFireScope(() => {
       telemetry.noteFire('outer_before');

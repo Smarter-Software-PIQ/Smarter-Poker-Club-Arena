@@ -317,6 +317,7 @@ async function world(scope: 'collecting' | 'pass-through', foldThrows = false) {
     const built = JSON.parse(sent) as ReturnType<typeof request>;
     telemetry.drainFires();
     evidence.drainHorseUpgradeEvidence();
+    const watchBefore = telemetry.peekBrainWatchcounters();
     const before = messages.length;
     brainThrows = options.throws === true;
     worker.receive(built);
@@ -327,6 +328,12 @@ async function world(scope: 'collecting' | 'pass-through', foldThrows = false) {
       sent,
       answers: messages.slice(before),
       counted: Object.fromEntries(telemetry.drainFires().map((r) => [r.feature, r.fires])),
+      // watchcounters this decision moved (metric names), the other half of the decision's evidence
+      watched: Object.entries(telemetry.peekBrainWatchcounters())
+        .filter(
+          ([metric, bucket]) => bucket.total > watchBefore[metric as keyof typeof watchBefore].total
+        )
+        .map(([metric]) => metric),
       rows: evidence.drainHorseUpgradeEvidence(),
       rngAfterDecision: saveFastRandom(),
     };
@@ -377,7 +384,7 @@ describe('LAW: the decision worker records which Horse exercised which upgrade, 
       expect(
         run.rows.filter((r) => r.invoked === 1).map((r) => r.upgradeId),
         label
-      ).toEqual(live.evidence.upgradeIdsForFires(Object.keys(run.counted)));
+      ).toEqual(live.evidence.upgradeIdsForFires([...Object.keys(run.counted), ...run.watched]));
     }
 
     const a = upgradeRows(cash.rows);
@@ -392,6 +399,9 @@ describe('LAW: the decision worker records which Horse exercised which upgrade, 
       expect(a[id], `cash ${id}`).toEqual([1, 1]);
       expect(b[id], `tournament ${id}`).toEqual([1, 1]);
     }
+    // upgrade 13's evidence is a watchcounter the brain counts in every decision: it is that decision invoked
+    expect(a.upgrade_13_law_gate_and_watchcounters, 'cash 13').toEqual([1, 1]);
+    expect(b.upgrade_13_law_gate_and_watchcounters, 'tournament 13').toEqual([1, 1]);
     // lane-specific upgrades stay with their lane
     expect(b.upgrade_07_tournament_cover_and_bounty).toEqual([1, 1]);
     expect(a.upgrade_07_tournament_cover_and_bounty).toBeUndefined();
