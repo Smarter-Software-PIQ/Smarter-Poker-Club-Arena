@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   assignProtectedWagers,
   capWagerSlot,
+  clearsWagerBoard,
   firstWagerOnFelt,
   insideClassicGreen,
   wagerBoxesOverlap,
@@ -19,6 +20,18 @@ describe('shared measured wager rail assignment', () => {
     expect(next.left + next.width).toBeLessThan(300);
     expect(wagerBoxesOverlap(next, board)).toBe(false);
     expect(firstWagerOnFelt(next, canvas, felt, 13.2, true, board)).toBe(next);
+  });
+  it('releases a landed 430px side wager whose tower now covers the board', () => {
+    // Live nine-seat hand: after the next contribution, seat three's tower
+    // projects 3.16 layout pixels into the bottom of the community cards.
+    const board = new DOMRect(115.953, 500.75, 367.156, 100.937);
+    const original = new DOMRect(139.947, 611.529, 29.562, 20);
+    const raised = new DOMRect(139.947, 598.529, 29.562, 33.25);
+    expect(clearsWagerBoard(original, board)).toBe(true);
+    expect(clearsWagerBoard(raised, board)).toBe(false);
+    const below = new DOMRect(raised.left, board.bottom + 2, raised.width, raised.height);
+    expect(clearsWagerBoard(below, board)).toBe(true);
+    expect(clearsWagerBoard(raised, undefined)).toBe(true);
   });
   it('fits the 430px top contribution between an empty left cap and occupied right rail', () => {
     const canvas = new DOMRect(36, 226, 528, 755.97);
