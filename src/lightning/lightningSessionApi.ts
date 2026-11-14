@@ -408,10 +408,12 @@ export function parseLightningStopPlaying(raw: unknown): LightningStopPlayingRes
  * any) settles - the room then closes and the Phase 9 ended flow takes over.
  */
 export async function stopLightningPlaying(
-  clusterId: string
+  clusterId: string,
+  poolSessionId: string
 ): Promise<LightningStopPlayingResult | null> {
   const { data, error } = await supabase.rpc('fn_lightning_stop_playing', {
     p_cluster_id: clusterId,
+    p_pool_session_id: poolSessionId,
   });
   if (error) {
     if (isLightningRpcMissing(error)) return null;
@@ -440,10 +442,12 @@ export function parseLightningResumePlaying(raw: unknown): LightningResumePlayin
  * dealt in. `null` means the function is not deployed yet.
  */
 export async function resumeLightningPlaying(
-  clusterId: string
+  clusterId: string,
+  poolSessionId: string
 ): Promise<LightningResumePlayingResult | null> {
   const { data, error } = await supabase.rpc('fn_lightning_resume_playing', {
     p_cluster_id: clusterId,
+    p_pool_session_id: poolSessionId,
   });
   if (error) {
     if (isLightningRpcMissing(error)) return null;

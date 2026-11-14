@@ -4,7 +4,15 @@
  * and can be cancelled. The harness plays the page's part (the hand's state
  * and the leave owner) exactly as TablePage wires it.
  */
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  renderHook,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useState } from 'react';
 
@@ -60,6 +68,11 @@ function Page(props: {
     ready: hand.ready,
     waits,
     leave: props.leave,
+    performCommand: async (command) => {
+      if (command === 'resuming') return !(await props.resume()).ok;
+      const stop = await mocks.stop();
+      return stop.inHand && !waits ? 'awaiting-hand' : true;
+    },
     storage: props.storage,
   });
   return (
@@ -67,16 +80,9 @@ function Page(props: {
       <span data-testid="acting">{waits ? 'acting' : 'idle'}</span>
       <LightningLeaveControl
         pending={false}
-        onLeave={async () => {
-          const stop = await mocks.stop();
-          queue.queue(stop.inHand && !waits);
-        }}
+        onLeave={() => queue.request('stopping')}
         queued={queue.queued}
-        onCancel={async () => {
-          const answer = await props.resume();
-          if (answer.ok) queue.clear();
-          return answer.ok;
-        }}
+        onCancel={() => queue.request('resuming')}
       />
     </>
   );
@@ -222,4 +228,158 @@ describe('Lightning Leave Next Hand, the whole lifecycle', () => {
     await act(async () => setHand({ ...live, handInProgress: false }));
     expect(leave).toHaveBeenCalledOnce();
   });
+});
+
+it.each(['stopping', 'resuming'] as const)(
+  'recovers an unknown %s receipt after reload',
+  async (command) => {
+    const storage = memoryStorage();
+    const leave = vi.fn();
+    const perform = vi
+      .fn()
+      .mockResolvedValueOnce('unknown')
+      .mockResolvedValueOnce(command === 'stopping');
+    const mount = () =>
+      renderHook(() =>
+        useLightningLeaveAfterHand({
+          userId: 'u1',
+          poolSessionId: 'pool-1',
+          ready: true,
+          waits: false,
+          leave,
+          storage,
+          performCommand: perform,
+        })
+      );
+    const first = mount();
+    act(() => first.result.current.request(command));
+    await waitFor(() => expect(perform).toHaveBeenCalledTimes(1));
+    expect(storage.getItem(KEY)).toBe(command);
+    expect(leave).not.toHaveBeenCalled();
+    first.unmount();
+    mount();
+    await waitFor(() => expect(storage.getItem(KEY)).toBeNull());
+    expect(perform).toHaveBeenNthCalledWith(2, command);
+    expect(leave).toHaveBeenCalledTimes(command === 'stopping' ? 1 : 0);
+  }
+);
+
+it('a delayed Stop reply in tab A cannot resurrect a leave cancelled in tab B', async () => {
+  const storage = memoryStorage();
+  const leave = vi.fn();
+  let accept!: (value: boolean) => void;
+  const perform = vi.fn(
+    () =>
+      new Promise<boolean>((resolve) => {
+        accept = resolve;
+      })
+  );
+  const view = renderHook(() =>
+    useLightningLeaveAfterHand({
+      userId: 'u1',
+      poolSessionId: 'pool-1',
+      ready: true,
+      waits: false,
+      leave,
+      storage,
+      performCommand: perform,
+    })
+  );
+  act(() => view.result.current.request('stopping'));
+  await waitFor(() => expect(perform).toHaveBeenCalledOnce());
+  storage.removeItem(KEY);
+  // A suspended tab can receive the HTTP reply before its storage event.
+  await act(async () => accept(true));
+  expect(storage.getItem(KEY)).toBeNull();
+  expect(view.result.current.queued).toBe(false);
+  expect(leave).not.toHaveBeenCalled();
+});
+it('a second tab observes Stay before it reaches its hand boundary', async () => {
+  const storage = memoryStorage();
+  storage.setItem(KEY, '1');
+  const leave = vi.fn();
+  const props = { userId: 'u1', poolSessionId: 'pool-1', ready: true, waits: true, leave, storage };
+  const view = renderHook(useLightningLeaveAfterHand, { initialProps: props });
+  expect(view.result.current.queued).toBe(true);
+  storage.removeItem(KEY);
+  act(() => window.dispatchEvent(new StorageEvent('storage', { key: KEY })));
+  await act(async () => view.rerender({ ...props, waits: false }));
+  expect(view.result.current.queued).toBe(false);
+  expect(leave).not.toHaveBeenCalled();
+});
+
+it.each([false, true])(
+  'a reloaded final-hand choice persists until the player chooses Leave=%s',
+  async (confirm) => {
+    const storage = memoryStorage();
+    storage.setItem(KEY, '1');
+    let firstRead!: (value: number) => void;
+    const finish = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<number>((resolve) => {
+            firstRead = resolve;
+          })
+      )
+      .mockResolvedValueOnce(4)
+      .mockResolvedValueOnce('accepted');
+    const resume = vi.fn().mockResolvedValue(false);
+    const directLeave = vi.fn();
+    const mount = () =>
+      renderHook(() =>
+        useLightningLeaveAfterHand({
+          userId: 'u1',
+          poolSessionId: 'pool-1',
+          ready: true,
+          waits: false,
+          storage,
+          leave: directLeave,
+          finish,
+          performCommand: resume,
+        })
+      );
+    const first = mount();
+    await waitFor(() => expect(finish).toHaveBeenCalledTimes(1));
+    expect(storage.getItem(KEY)).toBe('finishing');
+    first.unmount();
+    const reloaded = mount();
+    await act(async () => firstRead(8));
+    await waitFor(() => expect(reloaded.result.current.owed).toBe(4));
+    expect(storage.getItem(KEY)).toBe('owed:4');
+    reloaded.unmount();
+    const atPrompt = mount();
+    expect(atPrompt.result.current.owed).toBe(4);
+    expect(finish).toHaveBeenCalledTimes(2);
+    act(() => atPrompt.result.current.decide(confirm));
+    await waitFor(() => expect(storage.getItem(KEY)).toBeNull());
+    if (confirm) {
+      expect(finish).toHaveBeenLastCalledWith(true, expect.any(Function));
+      expect(resume).not.toHaveBeenCalled();
+    } else {
+      expect(resume).toHaveBeenCalledExactlyOnceWith('resuming');
+      expect(finish).toHaveBeenCalledTimes(2);
+    }
+    expect(directLeave).not.toHaveBeenCalled();
+  }
+);
+
+it('a stale modal cannot overwrite a choice from another window', () => {
+  const storage = memoryStorage();
+  storage.setItem(KEY, 'owed:3');
+  const view = renderHook(() =>
+    useLightningLeaveAfterHand({
+      userId: 'u1',
+      poolSessionId: 'pool-1',
+      ready: true,
+      waits: false,
+      connected: false,
+      storage,
+      leave: vi.fn(),
+    })
+  );
+  storage.setItem(KEY, 'confirmed');
+  act(() => view.result.current.decide(false));
+  expect(storage.getItem(KEY)).toBe('confirmed');
+  expect(view.result.current.owed).toBeNull();
 });

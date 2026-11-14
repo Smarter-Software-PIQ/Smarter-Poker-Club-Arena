@@ -22,7 +22,7 @@ it('all leave doors share one stop in flight and retain the accepted result', as
     a = hook.result.current();
     b = hook.result.current();
   });
-  expect(mocks.stop).toHaveBeenCalledExactlyOnceWith('cluster');
+  expect(mocks.stop).toHaveBeenCalledExactlyOnceWith('cluster', 'room');
   await act(async () => {
     answer({ ok: true });
     expect(await a).toBe(true);

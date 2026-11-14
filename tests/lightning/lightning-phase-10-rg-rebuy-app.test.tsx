@@ -106,10 +106,13 @@ describe('fn_lightning_stop_playing, read defensively', () => {
 
   it('a database without the function answers null (deploy window); a real failure throws', async () => {
     rpc.mockResolvedValueOnce({ data: null, error: MISSING });
-    expect(await stopLightningPlaying(CLUSTER)).toBeNull();
-    expect(rpc.mock.calls[0]).toEqual(['fn_lightning_stop_playing', { p_cluster_id: CLUSTER }]);
+    expect(await stopLightningPlaying(CLUSTER, 'room')).toBeNull();
+    expect(rpc.mock.calls[0]).toEqual([
+      'fn_lightning_stop_playing',
+      { p_cluster_id: CLUSTER, p_pool_session_id: 'room' },
+    ]);
     rpc.mockResolvedValueOnce({ data: null, error: { code: '57014', message: 'canceled' } });
-    await expect(stopLightningPlaying(CLUSTER)).rejects.toMatchObject({ code: '57014' });
+    await expect(stopLightningPlaying(CLUSTER, 'room')).rejects.toMatchObject({ code: '57014' });
     expect(isLightningRpcMissing(MISSING)).toBe(true);
     expect(isLightningRpcMissing({ code: '42883' })).toBe(true);
     expect(isLightningRpcMissing({ code: '57014' })).toBe(false);
