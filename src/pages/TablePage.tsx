@@ -1364,6 +1364,7 @@ interface TablePageProps {
     /** `seatCanAddFunds` for this seat, so the tab bar's hamburger can drop
      *  its Top Up items at a seat where they would do nothing (B12). */
     canAddFunds?: boolean;
+    seatChangeEnabled?: boolean;
   }) => void;
   /** Whether this table is part of a multi-table session (hides own header if tab bar is shown) */
   isMultiTable?: boolean;
@@ -26931,6 +26932,17 @@ function LiveTablePage({
       ? tableState.clusterId
       : null;
 
+  // A feeder can still deal ordinary hands while its Lightning switch is on.
+  // Wait for a confirmed Classic answer before offering a table change.
+  const seatChangeEnabled =
+    !lightningRoom &&
+    !lightningObserver &&
+    (!tableState.clusterId ||
+      (tableGameLightningState != null && isClassicLobbyState(tableGameLightningState)));
+  useEffect(() => {
+    onTableInfoUpdate?.({ seatChangeEnabled });
+  }, [onTableInfoUpdate, seatChangeEnabled]);
+
   const leaveNextHand = useLeaveTableNextHand({
     userId: userId === 'guest' ? '' : (userId ?? ''),
     tableId: tableId ?? '',
@@ -28403,6 +28415,7 @@ function LiveTablePage({
               <div className="hud-ul-column">
                 <TableMenu
                   isOpen={showTableMenu}
+                  seatChangeEnabled={seatChangeEnabled}
                   onClose={() => setShowTableMenu(false)}
                   onToggle={() => setShowTableMenu((prev) => !prev)}
                   position="top-left"
@@ -28700,6 +28713,7 @@ function LiveTablePage({
                   <CashClusterHUD
                     gameId={tableState.clusterId}
                     refreshKey={clusterRefreshKey}
+                    seatChangeEnabled={seatChangeEnabled}
                     onOpenLobby={() => setShowMustMoveLobby(true)}
                     onSeatChange={() => setShowMustMoveLobby(true)}
                     onGoToTable={(dest) => {
@@ -33108,6 +33122,7 @@ function LiveTablePage({
         isOpen={showMustMoveLobby}
         gameId={lightningRoomClusterId ?? tableState.clusterId}
         lightning={Boolean(lightningRoomClusterId)}
+        seatChangeEnabled={seatChangeEnabled}
         asset={tableState.arenaAsset === 'diamonds' ? 'diamonds' : 'chips'}
         currentTableId={tableId}
         onClose={() => setShowMustMoveLobby(false)}

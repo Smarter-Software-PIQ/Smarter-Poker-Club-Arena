@@ -776,6 +776,12 @@
     --table-chat-top: 12px;
   }
 
+  .table-hud .lightning-leave-control {
+    position: fixed;
+    left: var(--table-chat-edge);
+  }
+
+  .table-hud .lightning-leave-control,
   .chat-collapsed,
   .hud-seat-change-dock {
     top: var(--table-chat-top);

@@ -86,6 +86,7 @@ export interface TableMenuProps {
   onClose: () => void;
   onToggle: () => void;
   sections: MenuSection[];
+  seatChangeEnabled?: boolean;
   position?: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
   tableName?: string;
   /** WebSocket connection status */
@@ -326,6 +327,7 @@ export function TableMenu({
   onClose,
   onToggle,
   sections: propSections,
+  seatChangeEnabled = true,
   position = 'top-right',
   tableName,
   connectionStatus = 'connected',
@@ -485,13 +487,17 @@ export function TableMenu({
           badge: playerSettings.auto_time_bank ? 'ON' : 'OFF',
           onClick: () => void togglePlayerSetting('auto_time_bank'),
         },
-        {
-          id: 'seat-change-visibility',
-          label: 'Seat Change',
-          icon: <SettingsIcon />,
-          badge: seatChangeVisible ? 'ON' : 'OFF',
-          onClick: () => setSeatChangeVisible(!seatChangeVisible),
-        },
+        ...(seatChangeEnabled
+          ? [
+              {
+                id: 'seat-change-visibility',
+                label: 'Seat Change',
+                icon: <SettingsIcon />,
+                badge: seatChangeVisible ? 'ON' : 'OFF',
+                onClick: () => setSeatChangeVisible(!seatChangeVisible),
+              },
+            ]
+          : []),
       ],
     },
   ];

@@ -5426,6 +5426,37 @@ button.post-bb-overlay-button {
   }
 }
 
+/* The six-seat hero uses the space down to the fixed controller. Browser
+   chrome can make the stable viewport budget shorter than the actual table
+   slot. Keep the top rail and width on their stable budget, extending only
+   the lower end into the slot's available content box. Its padding already
+   reserves the complete action row, home inset, private cards and hand label. */
+@media (max-device-width: 480px) and (min-width: 481px) and (max-width: 640px) and (orientation: portrait) {
+  .table-page[data-seats='6'][data-hero='true'] {
+    /* The buttons keep equal inner padding above and below them. HUD and felt
+       reserve this same frame at every hand state, including the safe inset. */
+    --sp-bottom-row-h: calc(3px + 2 * var(--sp-action-pad-top) + var(--sp-action-btn-h));
+    --sp-hud-line: calc(var(--sp-action-reserve) + 5px);
+  }
+  /* The complete frame reaches the screen edge. Divide its existing inset
+     budget equally above and below the resting action row. Both borders
+     are two pixels, so the painted margins also match. */
+  .table-page[data-seats='6'][data-hero='true'] .action-panel:not(.action-panel--raise) {
+    padding-block: calc(var(--sp-action-pad-top) + var(--sp-bar-inset) / 2);
+    border-bottom: 2px solid #233952;
+  }
+  .table-page[data-seats='6'][data-hero='true'] .hud-bl-row {
+    translate: 0 var(--sp-hero-hand-tool-shift, 0px);
+  }
+  .table-page[data-seats='6'][data-hero='true'] .table-scaler {
+    /* Twelve layout pixels clear the frame's actual border even on
+       the 320px phone, whose physical layout scale is only 320/600. */
+    height: calc(
+      max(var(--sp-table-h, 100svh) * 0.88, 100% - var(--sp-table-h, 100svh) * 0.12 - 6px) - 12px
+    );
+  }
+}
+
 /* Nine player phone tables leave a cap row above the skin. Shorten only
    from the top so the bottom seat and controller keep their shared floor. */
 @media (min-width: 481px) and (max-width: 640px) and (orientation: portrait) {

@@ -2819,6 +2819,34 @@ export function useProtectedCardLayout(
         carryOverPasses = 0;
       }
       placeCapAllIn();
+      // The HUD tiles normalize their visible raster frames to the tile size.
+      // Move the row and its hit targets together to the hero's card baseline.
+      if (
+        page.matches("[data-seats='6'][data-hero='true']") &&
+        matchMedia(
+          '(max-device-width:480px) and (min-width:481px) and (max-width:640px) and (orientation:portrait)'
+        ).matches
+      ) {
+        const tools = page.querySelector<HTMLElement>('.hud-bl-row');
+        if (tools) {
+          const cards = scaler.querySelectorAll<HTMLElement>(
+            '.seat--hero .seat__cards--hero img.card-image__img'
+          );
+          const bottom = Math.max(
+            0,
+            ...Array.from(cards, (card) => card.getBoundingClientRect().bottom)
+          );
+          const previous =
+            parseFloat(tools.style.getPropertyValue('--sp-hero-hand-tool-shift')) || 0;
+          const ratio = tableRenderScale(scaler);
+          const shift = bottom
+            ? Math.min(0, previous + (bottom - tools.getBoundingClientRect().bottom) / ratio)
+            : 0;
+          const value = `${shift.toFixed(2)}px`;
+          if (tools.style.getPropertyValue('--sp-hero-hand-tool-shift') !== value)
+            tools.style.setProperty('--sp-hero-hand-tool-shift', value);
+        }
+      }
       if (
         mobilePaint.current.key === mobilePaintKey(scaler, page as HTMLElement) &&
         !mobilePaint.current.stale
@@ -2888,6 +2916,9 @@ export function useProtectedCardLayout(
       active = false;
       placeRef.current = null;
       artwork.stop();
+      page
+        .querySelector<HTMLElement>('.hud-bl-row')
+        ?.style.removeProperty('--sp-hero-hand-tool-shift');
       document.fonts?.removeEventListener('loadingdone', schedule);
       resetWagers();
       observer.disconnect();
