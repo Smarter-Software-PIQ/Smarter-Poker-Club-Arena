@@ -5437,17 +5437,12 @@ button.post-bb-overlay-button {
     --sp-bottom-row-h: calc(3px + 2 * var(--sp-action-pad-top) + var(--sp-action-btn-h));
     --sp-hud-line: calc(var(--sp-action-reserve) + 5px);
   }
-  /* Paint the home-indicator area as its own neutral gutter. The visible
-     action frame ends above it, with matching inner space around the row. */
-  .table-page[data-seats='6'][data-hero='true'] .action-panel-wrapper:has(.action-panel) {
-    background: #000;
-    border-top-color: transparent;
-  }
+  /* The complete frame reaches the screen edge. Divide its existing inset
+     budget equally above and below the resting action row. Both borders
+     are two pixels, so the painted margins also match. */
   .table-page[data-seats='6'][data-hero='true'] .action-panel:not(.action-panel--raise) {
-    bottom: var(--sp-bar-inset);
-    padding-bottom: var(--sp-action-pad-top);
-    border-bottom: 2px solid #52647a;
-    box-shadow: none;
+    padding-block: calc(var(--sp-action-pad-top) + var(--sp-bar-inset) / 2);
+    border-bottom: 2px solid #233952;
   }
   .table-page[data-seats='6'][data-hero='true'] .hud-bl-row {
     translate: 0 var(--sp-hero-hand-tool-shift, 0px);

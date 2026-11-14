@@ -855,8 +855,8 @@ for (const s of SCENARIOS) {
           m.seatBottom
         );
         expect(
-          rowTop - m.seatBottom,
-          'the row comes up to just under the seat box'
+          (s.seats === 6 ? m.panel.top : rowTop) - m.seatBottom,
+          'the action frame comes up to just under the seat box'
         ).toBeLessThanOrEqual(MAX_SEAT_GAP_PX);
         expect(m.heroCardsBottom, "the hero's cards are drawn").toBeGreaterThan(0);
         expect(rowTop, "the row never covers the hero's cards").toBeGreaterThanOrEqual(
@@ -876,9 +876,13 @@ for (const s of SCENARIOS) {
             'equal visual padding above and below the button faces within the painted frame'
           ).toBeLessThan(1);
           expect(
-            (m.frame.bottom - m.panel.bottom) * m.scale,
-            'the home indicator has its own gutter'
-          ).toBeGreaterThanOrEqual(33.9);
+            Math.abs(m.frame.bottom - m.panel.bottom),
+            'the painted panel fills the fixed frame to the bottom of the screen'
+          ).toBeLessThan(1);
+          expect(
+            (m.frame.bottom - bottom) * m.scale,
+            'actions clear the home indicator'
+          ).toBeGreaterThanOrEqual((m.safeInset * m.scale) / 2);
           if (s.plo4) {
             expect(m.toolPaintBottoms).toHaveLength(2);
             for (const paintedBottom of m.toolPaintBottoms) {
