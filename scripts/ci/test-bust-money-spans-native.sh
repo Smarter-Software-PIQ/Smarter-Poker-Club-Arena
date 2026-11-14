@@ -12,6 +12,7 @@ work="$(mktemp -d)"; trap '"$bin/pg_ctl" -D "$work/data" -m immediate stop >/dev
 "$bin/pg_ctl" -D "$work/data" -o "-k $work -p 55439 -c listen_addresses=''" -l "$work/log" start >/dev/null
 psql=(psql -X -v ON_ERROR_STOP=1 -h "$work" -p 55439 -U postgres -d postgres -q)
 "${psql[@]}" <<'SQL'
+CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role;
 CREATE SCHEMA smarter_private;
 CREATE TABLE public.tournaments (id uuid);
 CREATE TABLE public.tournament_players (id uuid);
@@ -47,6 +48,11 @@ BEGIN
   PERFORM 1 WHERE false;
   PERFORM smarter_private.fn_ca_bust_money_span('door','lane',NULL,t0);
   IF NOT FOUND THEN RAISE EXCEPTION 'expected FOUND true after a span'; END IF;
+  -- Grants restated exactly as production holds them.
+  IF (SELECT proacl::text FROM pg_proc WHERE proname='fn_collect_bounty_obligation') <> '{postgres=X/postgres,service_role=X/postgres}'
+     OR (SELECT proacl::text FROM pg_proc WHERE proname='fn_claim_tournament_bounty_elimination') <> '{postgres=X/postgres,service_role=X/postgres}' THEN
+    RAISE EXCEPTION 'grants differ from production';
+  END IF;
   RAISE NOTICE 'span helper bounded: window, cap, FOUND semantics proven';
 END $proof$;
 -- The helper never raises, even with its log gone.

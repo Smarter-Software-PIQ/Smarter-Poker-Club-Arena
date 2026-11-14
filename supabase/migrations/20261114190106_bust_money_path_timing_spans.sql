@@ -46,6 +46,9 @@
 -- incident analysis. No money is written; neither re-created function writes
 -- a balance column, so ca_money_rpc_registry needs no row.
 --
+-- Grants: both functions keep exactly the ACL production holds (postgres and
+-- service_role only); it is restated after each definition.
+--
 -- Install: ordinary (no hot-table lock): CREATE TABLE in smarter_private and
 -- CREATE OR REPLACE FUNCTION, in one transaction with a short lock_timeout.
 
@@ -461,6 +464,11 @@ BEGIN
 END;
 $function$;
 
+-- Restated exactly as production holds it ({postgres=X,service_role=X}); CREATE OR
+-- REPLACE keeps grants, and this keeps the file's own record identical to them.
+REVOKE ALL ON FUNCTION public.fn_claim_tournament_bounty_elimination(uuid, uuid, integer, numeric, uuid, uuid, bigint, timestamp with time zone, uuid, jsonb, numeric, boolean) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_claim_tournament_bounty_elimination(uuid, uuid, integer, numeric, uuid, uuid, bigint, timestamp with time zone, uuid, jsonb, numeric, boolean) TO service_role;
+
 CREATE OR REPLACE FUNCTION public.fn_collect_bounty_obligation(p_obligation_id uuid)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public','pg_temp'
 AS $function$
@@ -484,5 +492,10 @@ BEGIN
   RETURN v_result;
 END;
 $function$;
+
+-- Restated exactly as production holds it ({postgres=X,service_role=X}); CREATE OR
+-- REPLACE keeps grants, and this keeps the file's own record identical to them.
+REVOKE ALL ON FUNCTION public.fn_collect_bounty_obligation(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_collect_bounty_obligation(uuid) TO service_role;
 
 COMMIT;
