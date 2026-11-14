@@ -98,3 +98,22 @@ it('live verification refuses action captions over cards or player plates', () =
   (seat.querySelector('.seat__action') as HTMLElement).dataset.box = '100,70,60,20';
   expect(read()).toEqual([]);
 });
+
+it('live verification refuses a caption behind the header', () => {
+  mount(RING);
+  (document.querySelector('.table-page') as HTMLElement).dataset.seats = '9';
+  vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList);
+  document.body.insertAdjacentHTML(
+    'afterbegin',
+    '<div class="multi-table-page__tab-bar-wrapper" data-box="0,0,600,80"></div>'
+  );
+  document.querySelector('.seat')!.innerHTML =
+    '<div class="seat__action" data-box="100,70,60,20">Fold</div>';
+  expect(readMobileTableLayout({}).violations).toContain(
+    'Action Caption Outside Playable Viewport'
+  );
+  (document.querySelector('.seat__action') as HTMLElement).dataset.box = '100,81,60,20';
+  expect(readMobileTableLayout({}).violations).not.toContain(
+    'Action Caption Outside Playable Viewport'
+  );
+});

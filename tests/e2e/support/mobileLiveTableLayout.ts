@@ -384,6 +384,10 @@ export function readMobileTableLayout(crowns: Readonly<Record<string, number>>) 
   ) {
     for (const action of table.querySelectorAll('.seat > .seat__action')) {
       if (!visible(action)) continue;
+      const caption = box(action);
+      const header = document.querySelector('.multi-table-page__tab-bar-wrapper');
+      if (caption.top < (header ? box(header).bottom : 0) - 0.5 || caption.bottom > innerHeight + 1)
+        violations.push('Action Caption Outside Playable Viewport');
       for (const protectedNode of [...cards, ...plates])
         if (intersects(box(action), box(protectedNode)))
           violations.push(`Action Caption Covers ${protectedNode.className}`);
