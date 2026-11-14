@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { heroPrivateReservations } from '../../src/components/table/mobileAvatarReservations';
 import {
+  crownActionReservation,
   dealerReservations,
   hiddenFanReservations,
   hiddenFanStates,
@@ -18,6 +19,31 @@ const fan = {
   scale: 1,
 };
 describe('static mobile reservations', () => {
+  it('reserves an absent action above the crown, including its entry animation', () => {
+    const lane = crownActionReservation({
+      seatLeft: 100,
+      seatTop: 250,
+      seatWidth: 80,
+      rise: 90,
+      tagHeight: 20,
+      scale: 1,
+    });
+    expect(lane).toEqual({ left: 86, top: 131, width: 108, height: 32 });
+    // The final tag starts at134 and ends154; both its upward pop and downward
+    // entrance fit this same lane before a tag exists in the DOM.
+    expect(lane.top).toBeLessThanOrEqual(134 - 2);
+    expect(lane.top + lane.height).toBeGreaterThanOrEqual(154 + 8);
+    const scaled = crownActionReservation({
+      seatLeft: 50,
+      seatTop: 125,
+      seatWidth: 40,
+      rise: 90,
+      tagHeight: 20,
+      scale: 0.5,
+    });
+    expect(scaled).toEqual({ left: 43, top: 65.5, width: 54, height: 16 });
+  });
+
   it('reserves position labels reachable on the ring, including a dead button', () => {
     expect(mobilePositionLabels(6).sort()).toEqual(['BB', 'CO', 'MP', 'SB', 'UTG']);
     expect(mobilePositionLabels(9)).toContain('UTG+2');

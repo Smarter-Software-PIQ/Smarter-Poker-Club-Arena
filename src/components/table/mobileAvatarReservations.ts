@@ -4,6 +4,26 @@ import { chipRadiusWidthPct, FELT_WINDOW, seatPodPx, type Pos, type Size } from 
 
 export type ReservationBox = { left: number; top: number; width: number; height: number };
 
+/** The above-crown lane used by every six/nine-seat phone action, including
+ * actions not mounted yet. Reserve the existing 108px text/pop envelope before
+ * the chairs lock, so a later check/fold cannot arrive under another plate. */
+export function crownActionReservation(input: {
+  seatLeft: number;
+  seatTop: number;
+  seatWidth: number;
+  rise: number;
+  tagHeight: number;
+  scale: number;
+}): ReservationBox {
+  const width = 108 * input.scale;
+  return {
+    left: input.seatLeft + input.seatWidth / 2 - width / 2,
+    top: input.seatTop - (input.rise + input.tagHeight + 6 + 3) * input.scale,
+    width,
+    height: (input.tagHeight + 12) * input.scale,
+  };
+}
+
 /** Private hero cards, including the row-level peek and per-card deal/mark
  * transforms. seatLeft/Top are viewport coordinates BEFORE the six-card seat
  * shift; all dimensions except these two coordinates are unscaled CSS pixels.

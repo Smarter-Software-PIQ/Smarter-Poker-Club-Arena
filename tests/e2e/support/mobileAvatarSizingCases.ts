@@ -1,5 +1,5 @@
 import { expect, type Page } from '@playwright/test';
-import { waitForMobileAvatarGrowth } from './mobileLiveTableLayout';
+import { readMobileTableLayout, waitForMobileAvatarGrowth } from './mobileLiveTableLayout';
 
 export const FIXED_MOBILE_ARTWORK_CASES = [
   { seats: '9', spectator: 'true', cards: '2', occupiedSeats: '', shortPhone: true },
@@ -27,7 +27,7 @@ export async function checkFixedMobileArtwork(
   const shortPhone = 'shortPhone' in settings;
   await page.setViewportSize({ width: 600, height: shortPhone ? 1065 : 1298 });
   // Each case is a fresh device session: no game-type size recorded yet.
-  await page.evaluate(() => localStorage.removeItem('sp-mobile-avatar-size-v2'));
+  await page.evaluate(() => localStorage.removeItem('sp-mobile-avatar-size-v3'));
   await page.reload();
   await page.evaluate((settings) => {
     for (const style of document.querySelectorAll('style'))
@@ -49,7 +49,8 @@ export async function checkFixedMobileArtwork(
       dealer: '2',
       activeSeat: '3',
       action: 'preflop',
-      actionPills: 'true',
+      actionPills: 'none',
+      actionCaption: '',
       waitlist: 'true',
       folded: '1,6',
       // Mount the requested game directly. A warm-up nine-seat Hold'em mount
@@ -115,6 +116,7 @@ export async function checkFixedMobileArtwork(
         return [r.left, r.top, r.width, r.height].map((x) => Math.round(x * 1000) / 1000);
       };
       return {
+        anchors: Array.from(document.querySelectorAll('.seat-wrapper,.seat')).map(rect),
         paint: Array.from(document.querySelectorAll<HTMLElement>('.seat__avatar')).map((e) =>
           ['--sp-mobile-art-scale', '--sp-mobile-art-x', '--sp-mobile-art-y'].map((n) =>
             n === '--sp-mobile-art-scale' && e.style.getPropertyValue(n)
@@ -149,6 +151,37 @@ export async function checkFixedMobileArtwork(
       .forEach((e) => e.classList.remove('seat__avatar-wrap--fold'));
   });
   {
+    // Qualify future captions before the first chair/portrait lock: production
+    // often mounts between actions, then receives CHECK/FOLD/RAISE later.
+    await settle();
+    await waitForMobileAvatarGrowth(page);
+    await expect(page.locator('.seat > .seat__action')).toHaveCount(0);
+    const withoutCaptions = await read();
+    for (const actionCaption of ['check', 'fold', 'raise']) {
+      await page.evaluate((caption) => {
+        document.documentElement.dataset.actionPills = 'true';
+        document.documentElement.dataset.actionCaption = caption;
+        document.dispatchEvent(new Event('fixture-runout'));
+      }, actionCaption);
+      await settle();
+      expect(await page.locator('.seat > .seat__action').count()).toBeGreaterThan(0);
+      expect(
+        (await read()).anchors,
+        `${actionCaption} cannot move the locked chair anchors`
+      ).toEqual(withoutCaptions.anchors);
+      const violations = await page.evaluate(readMobileTableLayout, {});
+      expect(
+        violations.violations.filter((v: string) => v.startsWith('Action Caption')),
+        `${actionCaption} appearing after allocation clears header, cards and peer plates`
+      ).toEqual([]);
+      expect(
+        (await read()).paint.map((p) => p[0]),
+        `${actionCaption} cannot resize the locked portraits`
+      ).toEqual(withoutCaptions.paint.map((p) => p[0]));
+    }
+    await page.evaluate(() => {
+      document.documentElement.dataset.actionCaption = '';
+    });
     const spectator = settings.spectator === 'true';
     await page.evaluate((settings) => {
       Object.assign(document.documentElement.dataset, {
@@ -518,7 +551,7 @@ export async function checkFixedMobileArtwork(
     // size this one settled; it is recorded as the displayed height.
     const recorded = await page.evaluate(() =>
       Object.values(
-        JSON.parse(localStorage.getItem('sp-mobile-avatar-size-v2') || '{}') as Record<
+        JSON.parse(localStorage.getItem('sp-mobile-avatar-size-v3') || '{}') as Record<
           string,
           number
         >

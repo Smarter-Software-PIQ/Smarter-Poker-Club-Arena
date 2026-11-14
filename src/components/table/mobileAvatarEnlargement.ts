@@ -1,6 +1,7 @@
 import { restingAvatarBox, tableRenderScale } from './avatarCrownBounds';
 import { buttonRadiusWidthPct } from './tableGeometry';
 import {
+  crownActionReservation,
   dealerSeatReservations,
   hiddenFanReservations,
   hiddenFanStates,
@@ -506,11 +507,28 @@ function stableObstacles(scaler: HTMLElement, page: HTMLElement) {
     const cap = Boolean(seat.closest('.seat-wrapper--top,.seat-wrapper--cap'));
     const rise = (parseFloat(style.getPropertyValue('--sp-art-rise')) || 12) * ratio;
     const gap = (parseFloat(style.getPropertyValue('--sp-tag-gap')) || 3) * ratio;
-    const tagTop = hero
-      ? rect.top - rise - gap - tagH
-      : cap
-        ? rect.bottom + 2 * ratio
-        : rect.top - 26 * ratio;
+    const crownCaption =
+      window.innerWidth > 480 &&
+      window.innerWidth <= 640 &&
+      window.innerHeight > window.innerWidth &&
+      ['6', '9'].includes(page.dataset.seats || '');
+    const crown = crownCaption
+      ? crownActionReservation({
+          seatLeft: rect.left,
+          seatTop: rect.top,
+          seatWidth: rect.width,
+          rise: parseFloat(style.getPropertyValue('--sp-art-rise')) || 0,
+          tagHeight: tagH / ratio,
+          scale: ratio,
+        })
+      : null;
+    const tagTop = crown
+      ? crown.top + 3 * ratio
+      : hero
+        ? rect.top - rise - gap - tagH
+        : cap
+          ? rect.bottom + 2 * ratio
+          : rect.top - 26 * ratio;
     // Amount labels are centred on their seat and never wider than the seat
     // plus a margin on each side (a nine-seat ring cannot stack two pods that
     // close). A former full-width band here made every seat's tag lane a wall
@@ -523,7 +541,7 @@ function stableObstacles(scaler: HTMLElement, page: HTMLElement) {
     // 136 px lane under a top chair reached its lower neighbour's crown.
     const laneWidth = 108 * ratio;
     boxes.push({
-      box: {
+      box: crown ?? {
         left: rect.left + rect.width / 2 - laneWidth / 2,
         top: tagTop - 3 * ratio,
         width: laneWidth,
@@ -682,8 +700,9 @@ export type MobilePaintState = {
  * the one every table state can take, and a size a table has already shown
  * is never changed by this. Kept on the device, not per tab, so a new visit
  * does not start a different size. */
-// New rail geometry and preallocated portrait scale require a fresh size fit.
-const SHARED_SIZE_STORE = 'sp-mobile-avatar-size-v2';
+// Future captions now reserve their above-crown lane before size qualification.
+// Earlier persisted choices were fitted against the retired below-plate lane.
+const SHARED_SIZE_STORE = 'sp-mobile-avatar-size-v3';
 const sharedSizes: Map<string, number> = (() => {
   try {
     return new Map(Object.entries(JSON.parse(localStorage.getItem(SHARED_SIZE_STORE) || '{}')));

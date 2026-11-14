@@ -1,3 +1,4 @@
+import { crownActionReservation } from './mobileAvatarReservations';
 import { permanentAvatarFocusScale, restingAvatarBox, tableRenderScale } from './avatarCrownBounds';
 /** Opponent artwork only: the hero, slot dimensions and table tokens stay owned
  * by their existing renderers. Image metadata never changes the source image. */
@@ -1185,6 +1186,29 @@ export function createOpponentAvatarLayout(
     }
     return reset;
   };
+  const futureCaption = (seat: HTMLElement | null | undefined): Box[] => {
+    if (
+      !seat ||
+      seat.classList.contains('seat--empty') ||
+      !['6', '9'].includes(page.dataset.seats || '') ||
+      window.innerWidth <= 480 ||
+      window.innerWidth > 640 ||
+      window.innerHeight <= window.innerWidth
+    )
+      return [];
+    const rect = box(seat);
+    const style = getComputedStyle(seat);
+    return [
+      crownActionReservation({
+        seatLeft: rect.left,
+        seatTop: rect.top,
+        seatWidth: rect.width,
+        rise: parseFloat(style.getPropertyValue('--sp-art-rise')) || 0,
+        tagHeight: parseFloat(style.getPropertyValue('--sp-tag-h')) || 20,
+        scale: tableRenderScale(scaler),
+      }),
+    ];
+  };
   const anchorFacts = () =>
     Array.from(
       anchorSeat()?.querySelectorAll(
@@ -1272,6 +1296,7 @@ export function createOpponentAvatarLayout(
     const hero = anchorImage();
     const heroParts = [
       ...(hero ? paintedParts(hero) : []),
+      ...futureCaption(anchorSeat()),
       ...anchorFacts()
         .map(box)
         .filter((part) => part.width > 0 && part.height > 0),
@@ -1446,6 +1471,7 @@ export function createOpponentAvatarLayout(
         );
         const heroParts = [
           ...(anchor ? paintedParts(anchor) : []),
+          ...futureCaption(anchorSeat()),
           ...anchorFacts()
             .map(box)
             .filter((part) => part.width > 0 && part.height > 0),
@@ -1456,6 +1482,7 @@ export function createOpponentAvatarLayout(
             const image = seat.querySelector<HTMLImageElement>('.seat__avatar-img');
             const parts = [
               ...(image ? paintedParts(image) : []),
+              ...futureCaption(seat),
               ...Array.from(
                 seat.querySelectorAll(
                   ':scope > .seat__info,:scope > .seat__action,:scope > .seat__bounty,.seat__position-badge'
@@ -1511,6 +1538,7 @@ export function createOpponentAvatarLayout(
       const own = image && resolved.get(source(image));
       return [
         ...(image && own ? paintedParts(image) : []),
+        ...futureCaption(owner),
         ...Array.from(
           owner.querySelectorAll(
             ':scope > .seat__info,:scope > .seat__action,:scope > .seat__bounty,.seat__position-badge'
@@ -1535,6 +1563,7 @@ export function createOpponentAvatarLayout(
       .filter((r) => r.width > 0 && r.height > 0);
     const hero = anchorImage();
     if (hero && resolved.get(source(hero))) fixed.push(...paintedParts(hero));
+    fixed.push(...futureCaption(anchorSeat()));
     const seats = movableSeats();
     if (seats.some((other) => !state.shifts.has(other))) return false;
     const board = page.querySelector('.community-area');
@@ -1840,12 +1869,14 @@ export function createOpponentAvatarLayout(
       .filter((r) => r.width > 0 && r.height > 0);
     const heroImage = anchorImage();
     if (heroImage && resolved.get(source(heroImage))) fixed.push(...paintedParts(heroImage));
+    fixed.push(...futureCaption(anchorSeat()));
     const seats = movableSeats();
     const parts = (seat: HTMLElement) => {
       const image = seat.querySelector<HTMLImageElement>('.seat__avatar-img');
       const own = image && resolved.get(source(image));
       return [
         ...(image && own ? paintedParts(image) : []),
+        ...futureCaption(seat),
         ...Array.from(
           seat.querySelectorAll(
             ':scope > .seat__info,:scope > .seat__action,:scope > .seat__bounty,.seat__position-badge'
