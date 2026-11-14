@@ -67,7 +67,11 @@ import {
   SelectionObservationDeadline,
 } from './support/selectionDeadline';
 import { remainingObservationMs } from './support/observationDeadline';
-import { readinessReadCanStart, readinessReadTimeout } from './support/readinessReadAdmission';
+import {
+  readinessReadCanStart,
+  readinessReadTimeout,
+  remainingReadTimeout,
+} from './support/readinessReadAdmission';
 import { assertInitialTableOwnership, classifyUnsubscribes } from './support/initialTableOwnership';
 import {
   classifyCaseFailure,
@@ -946,7 +950,7 @@ async function selectProgressingTournamentTable(
     await expect
       .poll(
         () => {
-          if (!readinessReadCanStart(progressReadDeadline)) return false;
+          if (!remainingReadTimeout(progressReadDeadline)) return false;
           return operationalPollFailure.attempt(async () => {
             const readmitted = await refreshPreNavigationSelection(
               selection,

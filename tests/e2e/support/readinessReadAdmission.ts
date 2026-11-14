@@ -13,9 +13,16 @@ export function readinessReadCanStart(deadline: number, now = Date.now()): boole
     Number.isFinite(deadline) && Number.isFinite(now) && deadline - now >= READINESS_HEALTH_READ_MS
   );
 }
-/** Each read in a multi-read observation must fit, not just its first request. */
+/** Leave a useful request interval at the tail of a progress poll. A poll
+ * with less than a second left cannot start a new transport observation. */
+export function remainingReadTimeout(deadline: number, now = Date.now()): number {
+  const remaining = Math.floor(deadline - now);
+  return remaining >= 1000 ? Math.min(READINESS_HEALTH_READ_MS, remaining) : 0;
+}
+
+/** Each chained read shares the deadline and keeps the normal 15s ceiling. */
 export function readinessReadTimeout(deadline = Infinity, now = Date.now()): number {
-  if (deadline !== Infinity && !readinessReadCanStart(deadline, now))
-    throw new SelectionObservationDeadline(null);
-  return READINESS_HEALTH_READ_MS;
+  const timeout = remainingReadTimeout(deadline, now);
+  if (!timeout) throw new SelectionObservationDeadline(null);
+  return timeout;
 }
