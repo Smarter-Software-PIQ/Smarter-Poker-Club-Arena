@@ -492,7 +492,7 @@ test.describe('the mobile lobby chrome on production', () => {
     });
   });
 
-  test('joining an ordinary waiting list opens observation and preserves the queue', async ({
+  test('clustered cash admission explains wallet requirements and preserves observation', async ({
     page,
   }, testInfo) => {
     expect(/^ca-customization-cert-.*@example\.invalid$/.test(process.env.SP_EMAIL || '')).toBe(
@@ -502,7 +502,7 @@ test.describe('the mobile lobby chrome on production', () => {
     const publishableKey =
       process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_PUBLISHABLE_KEY;
     if (!supabaseUrl || !publishableKey)
-      throw new Error('Public waiting-list client configuration is missing');
+      throw new Error('Public admission client configuration is missing');
     const client = createClient(supabaseUrl, publishableKey, {
       auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
     });
@@ -511,91 +511,96 @@ test.describe('the mobile lobby chrome on production', () => {
       password: process.env.SP_PASS!,
     });
     if (authError || !auth.user)
-      throw new Error('Reserved waitlist witness could not authenticate');
-    let tableId: string | undefined;
+      throw new Error('Reserved admission witness could not authenticate');
     const forbidden: string[] = [];
     await page.route(
-      /\/(?:action|leave|buyin|addchips|rebuy|cashout|rest\/v1\/(?:table_seats|wallet_transactions|rpc\/(?:fn_cash_game_join|atomic_table_buyin|fn_take_seat_and_buy_in|fn_lightning_join|fn_lightning_buy_in)))(?:[/?#]|$)/,
+      /\/(?:action|leave|buyin|addchips|rebuy|cashout|rest\/v1\/(?:table_seats|wallet_transactions|rpc\/(?:fn_table_waitlist_join|atomic_table_buyin|fn_take_seat_and_buy_in|fn_lightning_join|fn_lightning_buy_in)))(?:[/?#]|$)/,
       async (route) => {
         if (['GET', 'HEAD', 'OPTIONS'].includes(route.request().method())) return route.continue();
         forbidden.push(new URL(route.request().url()).pathname);
         await route.abort('blockedbyclient');
       }
     );
+    let gameId: string | undefined;
     try {
+      // The isolated certificate account is never funded. Fail before admission
+      // if any membership can pay; this is a real refusal, never a bought seat.
+      const wallets = await client
+        .from('club_members')
+        .select('club_id,chip_balance')
+        .eq('user_id', auth.user.id);
+      expect(wallets.error).toBeNull();
+      expect(wallets.data?.length).toBeGreaterThan(0);
+      expect(wallets.data?.every((row) => Number(row.chip_balance) === 0)).toBe(true);
       await openLobby(page);
-      await openLobbyGameSection(page, 'ALL');
-      await page.getByRole('tab', { name: 'ALL', exact: true }).click();
-      const candidates = await page
-        .locator(`${CASH_TABLE_CARD_SELECTOR}[data-target="table"]:visible`)
+      const ids = await page
+        .locator(`${CASH_TABLE_CARD_SELECTOR}:visible`)
         .evaluateAll((rows) =>
-          rows
-            .filter((row) => {
-              const capacity = Number(row.getAttribute('data-capacity'));
-              return capacity > 0 && Number(row.getAttribute('data-players')) >= capacity;
-            })
-            .map((row) => row.getAttribute('data-id'))
-            .filter((id): id is string => Boolean(id))
+          rows.map((row) => row.getAttribute('data-id')).filter((id): id is string => Boolean(id))
         );
-      expect(
-        candidates.length,
-        'A naturally full ordinary table is required; this witness never funds or fills a table'
-      ).toBeGreaterThan(0);
-      const { data: ordinary, error } = await client
+      const catalogue = await client
         .from('tables')
-        .select('id')
-        .in('id', candidates)
-        .is('cluster_id', null)
-        .limit(1);
-      if (error) throw new Error('Ordinary waiting-list table eligibility was unreadable');
-      tableId = ordinary?.[0]?.id;
-      expect(
-        tableId,
-        'No full non-cluster table is available for the zero-balance waiting-list witness'
-      ).toBeTruthy();
-      const details = page.locator(`tr[data-id="${tableId}"]:visible .premium-cash-style`);
-      await details.evaluate((element) => element.scrollIntoView({ block: 'center' }));
-      await details.click();
-      const panel = page.getByRole('dialog').filter({ has: page.locator('.arena-game-card') });
-      const joined = page.waitForResponse(
+        .select('id,cluster_id,cluster:cash_games!tables_cluster_id_fkey(cluster_mode,must_move)')
+        .in('id', ids);
+      expect(catalogue.error).toBeNull();
+      const table = catalogue.data?.find((row) => {
+        const cluster = row.cluster as unknown as {
+          cluster_mode?: string;
+          must_move?: boolean;
+        } | null;
+        return (
+          row.cluster_id && cluster?.cluster_mode === 'must_move' && cluster.must_move === true
+        );
+      });
+      expect(table, 'A live clustered cash game must be available').toBeTruthy();
+      gameId = table!.cluster_id!;
+      const openDetails = async () => {
+        const row = page.locator(`tr[data-id="${table!.id}"]:visible`);
+        await row.getByRole('button', { name: /^Details:/ }).click();
+        const panel = page.getByRole('dialog').filter({ has: page.locator('.arena-game-card') });
+        await expect(panel).toBeVisible();
+        return panel;
+      };
+      const panel = await openDetails();
+      await expect(panel.getByRole('button', { name: /^(Join|Leave) Waitlist$/i })).toHaveCount(0);
+      const admission = page.waitForResponse(
         (response) =>
           response.request().method() === 'POST' &&
-          new URL(response.url()).pathname.endsWith('/rpc/fn_table_waitlist_join')
+          new URL(response.url()).pathname.endsWith('/rpc/fn_cash_game_join')
       );
-      await panel.getByRole('button', { name: 'Join Waitlist', exact: true }).click();
-      const response = await joined;
-      expect(response.ok()).toBe(true);
-      expect((await response.json()).ok).toBe(true);
+      await panel.getByRole('button', { name: 'Join Game', exact: true }).click();
+      const response = await admission;
+      expect(response.request().postDataJSON()).toEqual({ p_game_id: gameId });
+      const refusal = await response.json();
+      expect(refusal.message).toMatch(/^INSUFFICIENT_CHIPS(?::|$)/);
       await expect(
-        page.locator(`.table-tab-bar:visible [data-tabid="${tableId}"]`)
+        page.getByText(/Not Enough Chips In Your Active Club Wallet/).first()
+      ).toBeVisible();
+      const state = await client.rpc('fn_cash_game_lobby', { p_game_id: gameId });
+      expect(state.error).toBeNull();
+      expect(state.data?.game?.id).toBe(gameId);
+      expect(state.data?.me?.user_id).toBe(auth.user.id);
+      expect(state.data?.me?.seated).toBe(false);
+      expect(state.data?.me?.waitlist?.on_list).toBe(false);
+      expect(state.data?.me?.waitlist?.reserved_table_id).toBeNull();
+      const view = await openDetails();
+      await view.getByRole('button', { name: CASH_SPECTATOR_ACTION }).click();
+      await expect(
+        page.locator(`.table-tab-bar:visible [data-tabid="${table!.id}"]`)
       ).toHaveAttribute('aria-current', 'true', { timeout: 20_000 });
-      const queue = await client
-        .from('table_waitlist')
-        .select('id,status')
-        .eq('table_id', tableId!)
-        .eq('user_id', auth.user.id)
-        .in('status', ['waiting', 'notified']);
-      expect(queue.error).toBeNull();
-      expect(queue.data).toHaveLength(1);
+      await expect(page.getByTestId('spectator-footer-bar')).toBeVisible({ timeout: 20_000 });
       expect(forbidden).toEqual([]);
-      await testInfo.attach('waiting-list-observation', {
+      await testInfo.attach('clustered-admission-and-observation', {
         body: await page.screenshot(),
         contentType: 'image/png',
       });
     } finally {
-      if (tableId) {
-        // Normal player exit, scoped to this authenticated witness, also handles a seat offer.
-        const left = await client.rpc('fn_table_waitlist_leave', { p_table_id: tableId });
+      if (gameId) {
+        // Normal, authenticated cleanup also releases an unexpected admission
+        // offer. Never delete seats or change a wallet to clean up a witness.
+        const left = await client.rpc('fn_cash_game_leave_waitlist', { p_game_id: gameId });
         expect(left.error).toBeNull();
         expect(left.data?.ok).toBe(true);
-        const remaining = await client
-          .from('table_waitlist')
-          .select('id')
-          .eq('table_id', tableId)
-          .eq('user_id', auth.user.id)
-          .in('status', ['waiting', 'notified']);
-        expect(remaining.error).toBeNull();
-        expect(remaining.data).toEqual([]);
       }
       await client.auth.signOut({ scope: 'local' });
     }
