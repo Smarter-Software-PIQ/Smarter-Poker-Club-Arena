@@ -177,7 +177,7 @@ it('never rounds a nonzero difference to an apparent zero', () => {
   expect(conservationChips('0.000000001')).toBe('Less Than 1 Chip');
   expect(conservationChips('-0.01')).toBe('Minus Less Than 1 Chip');
   expect(conservationChips(null)).toBe('Unknown');
-  expect(conservationChips('1200.99')).toBe('1.2K');
+  expect(conservationChips('1200.99')).toBe('1,200');
   expect(() => conservationChips('NaN')).toThrow();
 });
 

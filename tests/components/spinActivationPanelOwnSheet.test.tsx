@@ -163,8 +163,8 @@ describe('what the panel prints', () => {
     expect((await screen.findByText('Spins Are On')).tagName).toBe('DD');
     const row = (label: string) => screen.getByText(label).parentElement as HTMLElement;
     expect(within(row('Wallet Balance')).getByText('12,345.67')).toBeInTheDocument();
-    expect(within(row('Collected From Play')).getByText('25K')).toBeInTheDocument();
-    expect(within(row('Paid Out As Multipliers')).getByText('12.6K')).toBeInTheDocument();
+    expect(within(row('Collected From Play')).getByText('25,000.50')).toBeInTheDocument();
+    expect(within(row('Paid Out As Multipliers')).getByText('12,654.83')).toBeInTheDocument();
     expect(screen.getByText(/Next Instalment 740, Due On The Next Spin\./)).toBeInTheDocument();
     expect(within(row('Wallet Balance')).getByText('12,345.67')).toBeInTheDocument();
     const buttons = screen.getAllByRole('button');

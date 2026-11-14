@@ -238,13 +238,13 @@ describe('live tournament tabs share the committed blind amounts', () => {
     if (name === 'Overview') {
       const hero = container.querySelector('.dov-hero')!;
       expect(within(hero as HTMLElement).getByText('Registration Closed')).toBeInTheDocument();
-      /* 52,500 prints as 52.5K: chipsCompact is compactChips (src/utils/format.ts),
+      /* 52,500 prints exactly (Dan 2026-11-13): chipsCompact is compactChips (src/utils/format.ts),
          the one compact formatter, which never rounds a figure UP to a number
          the player does not have (#ClubArenaConsole, 2026-09-04). */
       expect(hero.querySelector('.dov-blind__value')?.textContent).toBe(
-        known ? '52.5K / 105K' : '-'
+        known ? '52,500 / 105,000' : '-'
       );
-      if (known) expect(within(hero as HTMLElement).getByText('Ante 105K')).toBeInTheDocument();
+      if (known) expect(within(hero as HTMLElement).getByText('Ante 105,000')).toBeInTheDocument();
       else
         expect(
           within(hero as HTMLElement).getByText('Current Blinds Unavailable')
@@ -328,7 +328,9 @@ describe('live tournament tabs share the committed blind amounts', () => {
     expect(rendered.container.querySelector('.dov-hero__time')?.textContent).toBe('1:00');
     expect(blindClock().textContent).toContain('Paused');
     expect(rendered.container.querySelector('.dov-hero__meter')).toBeNull();
-    expect(rendered.container.querySelector('.dov-blind__value')?.textContent).toBe('52.5K / 105K');
+    expect(rendered.container.querySelector('.dov-blind__value')?.textContent).toBe(
+      '52,500 / 105,000'
+    );
     await act(async () => {
       await vi.advanceTimersByTimeAsync(90_000);
     });
@@ -423,7 +425,9 @@ describe('live tournament tabs share the committed blind amounts', () => {
     await flush();
     expect(screen.getByText('Waiting For Resume')).toBeInTheDocument();
     expect(blindClock().textContent).toContain('Paused');
-    expect(rendered.container.querySelector('.dov-blind__value')?.textContent).toBe('52.5K / 105K');
+    expect(rendered.container.querySelector('.dov-blind__value')?.textContent).toBe(
+      '52,500 / 105,000'
+    );
   });
 
   it.each([null, 'invalid-anchor'])(
@@ -452,7 +456,7 @@ describe('live tournament tabs share the committed blind amounts', () => {
       expect(screen.getByText('Registration Closed')).toBeInTheDocument();
       expect(rendered.container.querySelector('.dov-hero__time')?.textContent).toBe('-');
       expect(rendered.container.querySelector('.dov-blind__value')?.textContent).toBe(
-        '52.5K / 105K'
+        '52,500 / 105,000'
       );
     }
   );
@@ -799,7 +803,7 @@ describe('Details exposes registration and add-on terms', () => {
     );
     expect(value('Add-On')).toBe('Yes');
     expect(value('Add-On Cost')).toBe('30 Chips');
-    expect(value('Add-On Stack')).toBe('50K Chips');
+    expect(value('Add-On Stack')).toBe('50,000 Chips');
     expect(value('Add-On When')).toContain('1 Min Break');
     expect(screen.getByText('Add-On When').parentElement?.className).toContain(
       'dov-info__item--wide'

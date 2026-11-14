@@ -13,16 +13,11 @@
 export const fmt = (n: number | null | undefined): string => Number(n || 0).toLocaleString();
 
 /**
- * Format a chip amount with K/M abbreviation.
- * @example fmtChips(1500) → "1.5K"
- * @example fmtChips(2500000) → "2.5M"
+ * A chip amount, exact. NEVER ABBREVIATED (Dan 2026-11-13, see exactChips).
+ * @example fmtChips(1500)    -> "1,500"
+ * @example fmtChips(1512.34) -> "1,512.34"
  */
-export const fmtChips = (n: number | null | undefined): string => {
-  const v = Number(n || 0);
-  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
-  if (v >= 1_000) return `${(v / 1_000).toFixed(1)}K`;
-  return fmt(v);
-};
+export const fmtChips = (n: number | null | undefined): string => exactChips(n);
 
 /**
  * CHIPS ON THE FELT ARE NEVER ABBREVIATED (Dan 2026-08-28, binding).
@@ -490,32 +485,40 @@ export const ordinal = (n: unknown): string => {
 };
 
 /**
- * #ClubArenaConsole money, forward-facing (Dan 2026-09-09): "NEVER USE DECIMAL
- * POINTS ON ANY FORWARD FACING PAGE ... ONCE SOMETHING HITS OVER 1,000 USE 1K,
- * IF ITS 1200 USE 1.2K, IF ITS 10,000 USE 10K." Whole numbers under 1,000; one
- * decimal above, always rounded DOWN so a figure is never overstated, and a
- * trailing .0 is dropped. Chips on the felt are never abbreviated: that is
- * formatTableChips' law, and this helper is for everything outside the felt.
- * @example compactChips(950) -> "950", compactChips(1200) -> "1.2K",
- *          compactChips(1290) -> "1.2K", compactChips(10000) -> "10K"
+ * EXACT FIGURES, NEVER ROUNDED OR ABBREVIATED (Dan 2026-11-13, binding,
+ * supersedes the 2026-09-09 "1.2K / no decimals" forward-facing rule and the
+ * 2026-10-16 compact win / loss rule): "IN THE PLAYER MANAGEMENT OR ANYWHERE
+ * REAL DATA IS STORED. I DON'T WANT ROUNDED UP NUMBERS LIKE 393 OR 1.5K OR 1K
+ * USE WHOLE NUMBERS AND DECIMALS ALWAYS ... FIX THIS LOGIC GLOBALLY FOR THE
+ * POKER ARENA."
+ *
+ * Thousands separators, never a K/M/B suffix, and the cents are kept whenever
+ * the stored value has them. A whole value (a count, a tournament stack, a
+ * blind) reads whole. The 1e-7 nudge only decides a binary half-cent tie.
+ *
+ * @example exactChips(1512.34) -> "1,512.34"
+ * @example exactChips(1000)    -> "1,000"
+ * @example exactChips(-136.5)  -> "-136.50"
+ * @example exactChips(0.07)    -> "0.07"
  */
-export const compactChips = (n: number | null | undefined): string => {
-  const v = Math.floor(Math.abs(Number(n) || 0));
-  const sign = v > 0 && Number(n) < 0 ? '-' : '';
-  const units: Array<[number, string]> = [
-    [1_000_000_000, 'B'],
-    [1_000_000, 'M'],
-    [1_000, 'K'],
-  ];
-  for (const [unit, suffix] of units) {
-    if (v >= unit) {
-      const tenths = Math.floor((v / unit) * 10) / 10;
-      const text = Number.isInteger(tenths) ? String(tenths) : tenths.toFixed(1);
-      return `${sign}${text}${suffix}`;
-    }
-  }
-  return `${sign}${v}`;
+export const exactChips = (n: number | null | undefined): string => {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return '0';
+  const cents = Math.round(Math.abs(v) * 100 + 1e-7);
+  if (cents === 0) return '0';
+  const sign = v < 0 ? '-' : '';
+  const whole = cents % 100 === 0;
+  return `${sign}${(cents / 100).toLocaleString('en-US', {
+    minimumFractionDigits: whole ? 0 : 2,
+    maximumFractionDigits: whole ? 0 : 2,
+  })}`;
 };
+
+/**
+ * Historical name kept so its ~490 call sites need no churn. It no longer
+ * compacts anything: it is exactChips (Dan 2026-11-13).
+ */
+export const compactChips = (n: number | null | undefined): string => exactChips(n);
 
 /**
  * Fees stay exact to cents with separators, including large totals
@@ -535,7 +538,7 @@ export const feeFigure = (value: number | null | undefined): string => {
  * Player Record and Player Statistics alike, so one number never reads two
  * ways between screens. The latest dated ruling for each kind wins:
  *   fees and other unsigned ledger amounts  feeFigure       (Dan, 2026-10-14)
- *   signed results: win / loss, net, winnings winLossChips  (Dan 2026-10-16)
+ *   signed results: win / loss, net, winnings winLossChips  (Dan 2026-11-13, exact)
  *   wallet balances                          formatWalletChips (Dan, 2026-10-18)
  *   counts                                    countFigure
  *   rates                                     one decimal    (Dan 2026-09-13)
@@ -553,22 +556,26 @@ export const formatWalletChips = (amount: number | null | undefined): string => 
   return value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 
-/** Whole Diamond wallet counts stay exact below one million. */
+/** Whole Diamond wallet counts are always exact (Dan 2026-11-13: never abbreviated). */
 export const formatWalletDiamonds = (amount: number | null | undefined): string => {
   if (amount == null || !Number.isFinite(Number(amount))) return '-';
   const value = Math.trunc(Number(amount));
-  if (Math.abs(value) >= 1_000_000) return compactChips(value);
   return value.toLocaleString('en-US', { maximumFractionDigits: 0 });
 };
 
 /**
- * A signed win / loss figure for Player Management (Dan 2026-10-16): "+1.2K"
- * for a win, "-450" for a loss, "0" for even. compactChips floors the
- * magnitude, so neither a win nor a loss is ever overstated.
+ * A signed win / loss figure for Player Management (Dan 2026-11-13): exact to
+ * the cent with separators, always two decimals so it lines up with the fee
+ * and wallet figures beside it. "+392.57", "-1,512.34", "0.00".
  */
 export const winLossChips = (n: number | null | undefined): string => {
-  const value = Number(n) || 0;
-  const text = compactChips(value);
-  if (text === '0' || text === '-0') return '0';
-  return value > 0 ? `+${text}` : text;
+  const value = Number(n);
+  if (!Number.isFinite(value)) return '0.00';
+  const cents = Math.round(Math.abs(value) * 100 + 1e-7);
+  const text = (cents / 100).toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  if (cents === 0) return '0.00';
+  return value > 0 ? `+${text}` : `-${text}`;
 };

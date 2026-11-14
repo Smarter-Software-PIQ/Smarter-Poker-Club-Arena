@@ -21,14 +21,14 @@ describe('cash-stat confidence evidence', () => {
 
     expect(interval?.lowerPercent).toBeGreaterThanOrEqual(0);
     expect(interval?.upperPercent).toBe(100);
-    expect(formatRateEvidence(1, 1_200)).toMatch(/^1\.2K Opportunities/);
+    expect(formatRateEvidence(1, 1_200)).toMatch(/^1,200 Opportunities/);
   });
 
   it('distinguishes an unavailable denominator from a measured zero-opportunity sample', () => {
     expect(formatRateEvidence(0.4, null, false)).toBe('Opportunity Denominator Unavailable');
     expect(formatRateEvidence(0, 0)).toBe('No Measured Opportunities');
     expect(binomialConfidence(Number.NaN, 10)).toBeNull();
-    expect(formatSampleEvidence(1_200, 'Cash Hand')).toBe('1.2K Cash Hands');
+    expect(formatSampleEvidence(1_200, 'Cash Hand')).toBe('1,200 Cash Hands');
     expect(formatSampleEvidence(null, 'Passive Action', 'Passive Actions', false)).toBe(
       'Passive Action Denominator Unavailable'
     );

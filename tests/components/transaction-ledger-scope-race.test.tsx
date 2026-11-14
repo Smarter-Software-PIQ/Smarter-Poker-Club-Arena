@@ -323,9 +323,8 @@ describe('TransactionLedgerView scope identity', () => {
       });
     });
 
-    expect(await screen.findByText('Under 1 Chip')).toBeInTheDocument();
+    expect(await screen.findByText('0.50')).toBeInTheDocument();
     expect(screen.queryByText('0')).not.toBeInTheDocument();
-    expect(document.body.textContent).not.toContain('0.5');
   });
 
   it('fails the whole read closed when one immutable ledger movement is duplicated', async () => {
