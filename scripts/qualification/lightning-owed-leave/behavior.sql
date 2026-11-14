@@ -77,5 +77,62 @@ DO $q7$ BEGIN
   RAISE EXCEPTION 'Q7 a non-engine caller was admitted';
 EXCEPTION WHEN insufficient_privilege THEN NULL; END $q7$;
 SELECT 'Q2-Q7 PASS';
+
+-- The engine's door, as the anchor engine calls it.
+CREATE FUNCTION sim.door() RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE r jsonb;
+BEGIN
+  PERFORM set_config('test.engine', 'true', true);
+  r := fn_lightning_owed_leave_returns_to_pool(sim.h(), sim.t(), 1,
+         (SELECT occupancy_id FROM table_seats WHERE user_id = sim.h() AND left_at IS NULL));
+  PERFORM set_config('test.engine', 'false', true);
+  RETURN r;
+END$$;
+-- What hand formation, hand start and the Classic-to-Lightning population
+-- count all ask of the anchor (fn_lightning_form_hand,
+-- fn_lightning_instance_begin_dealing, fn_cash_cluster_live_eligible).
+CREATE FUNCTION sim.anchor_live() RETURNS boolean LANGUAGE sql AS $$
+  SELECT fn_lightning_anchor_is_live_eligible(
+    (SELECT id FROM table_seats WHERE user_id = sim.h() AND left_at IS NULL), sim.c(), sim.h()) $$;
+CREATE FUNCTION sim.sessions() RETURNS integer LANGUAGE sql AS $$
+  SELECT count(*)::integer FROM lightning_pool_session WHERE player_id = sim.h() AND exited_at IS NULL $$;
+
+-- Q8. The shared anchor predicate, and no duplicate participation.
+SELECT sim.reset();
+SELECT sim.queue_leave();
+SELECT sim.ok(sim.anchor_live() IS FALSE, 'Q8 a pending, sat-out anchor is not live for formation, start or the population count');
+SELECT sim.ok((sim.door() ->> 'returned')::boolean, 'Q8 returned');
+SELECT sim.ok(sim.anchor_live(), 'Q8 once returned the anchor is live for formation, start and the population count');
+SELECT sim.ok(sim.sessions() = 1 AND (sim.state() ->> 'open_slots')::int = 1, 'Q8 one pool session and one slot, never two: ' || sim.state()::text);
+SELECT sim.ok((sim.door() ->> 'returned')::boolean IS FALSE AND sim.sessions() = 1, 'Q8 a second return admits nobody twice');
+
+-- Q9. Stop Playing while the returned blind off still owes hands: deferred, still dealt.
+SELECT sim.reset();
+SELECT sim.queue_leave();
+SELECT sim.ok((sim.door() ->> 'returned')::boolean, 'Q9 returned');
+SELECT set_config('test.r', sim.stop()::text, false);
+SELECT sim.ok(current_setting('test.r')::jsonb @> '{"exited":false,"deferred":"HANDS_OWED"}', 'Q9 stop deferred for hands owed: ' || current_setting('test.r'));
+SELECT sim.ok((sim.state() ->> 'pool_open')::boolean AND sim.sessions() = 1, 'Q9 the pool session stays open');
+SELECT set_config('test.n', sim.deal_many(12)::text, false);
+SELECT sim.ok(current_setting('test.n')::int = 7 AND (sim.state() ->> 'completed')::boolean, 'Q9 the seven owed hands are dealt and completed: ' || current_setting('test.n'));
+SELECT sim.ok(sim.release(), 'Q9 the leave then settles through the voluntary door');
+
+-- Q10. Disconnected after the return: the blind off is still dealt, folded by its host.
+SELECT sim.reset();
+SELECT sim.queue_leave();
+SELECT sim.ok((sim.door() ->> 'returned')::boolean, 'Q10 returned');
+SELECT sim.disconnect();
+SELECT set_config('test.n', sim.deal_many(12, ARRAY[sim.h()])::text, false);
+SELECT sim.ok(current_setting('test.n')::int = 7 AND (sim.state() ->> 'completed')::boolean, 'Q10 disconnected, the owed hands are still dealt as a blind off: ' || current_setting('test.n'));
+SELECT sim.ok(sim.release(), 'Q10 then the leave settles');
+
+-- Q11. A plain sit-out with no leave asked is not the door's: nothing written, not dealt.
+SELECT sim.reset();
+UPDATE table_seats SET status = 'sitting_out', is_sitting_out = true WHERE user_id = sim.h() AND left_at IS NULL;
+SELECT sim.ok(sim.door() @> '{"returned":false}', 'Q11 a sit-out without a leave is refused');
+SELECT sim.ok(sim.seat_flags() @> '{"leave_pending":false,"sitting_out":true,"requests":0}', 'Q11 nothing written: ' || sim.seat_flags()::text);
+SELECT set_config('test.n', sim.deal_many(3)::text, false);
+SELECT sim.ok(current_setting('test.n')::int = 0, 'Q11 a player who sat out on their own is not dealt');
+SELECT 'Q8-Q11 PASS';
 \endif
 SELECT 'LIGHTNING_OWED_LEAVE_POSTGRES_PASS ' || sim.mode();

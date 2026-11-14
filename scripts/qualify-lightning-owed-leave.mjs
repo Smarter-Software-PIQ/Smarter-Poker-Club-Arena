@@ -117,7 +117,7 @@ try {
   query('after', readRepo(migration));
   const after = query('after', behavior, ['-v', 'mode=after', '-v', 'after=true']);
   console.log(after);
-  for (const s of ['Q1 COMPLETES', 'Q2-Q7 PASS'])
+  for (const s of ['Q1 COMPLETES', 'Q2-Q7 PASS', 'Q8-Q11 PASS'])
     if (!after.includes(s)) throw Error(`${s} missing after the migration`);
   if (
     !before.includes('LIGHTNING_OWED_LEAVE_POSTGRES_PASS before') ||
