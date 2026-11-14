@@ -533,13 +533,13 @@ export function BBJCelebration({
               {asset === 'diamonds'
                 ? 'Diamonds Added Directly To Your Diamond Wallet!'
                 : chipDestination === 'wallet'
-                  ? 'Chips Added Directly To Your Wallet!'
+                  ? 'Payout Destination: Your Club Wallet'
                   : 'Chips Added Directly To Your Table Balance!'}
             </>
           ) : asset === 'diamonds' ? (
             'Diamonds Added Directly To The Players’ Diamond Wallets!'
           ) : chipDestination === 'wallet' ? (
-            'Chips Added Directly To The Players’ Wallets!'
+            'Payout Destination: Players’ Club Wallets'
           ) : (
             'Chips Added Directly To The Players\u2019 Table Balances!'
           )}

@@ -940,7 +940,7 @@ async function verifyPublishedLightning(
   const celebration = page.getByRole('dialog', { name: /^Bad Beat Jackpot Hit\. Total Payout/ });
   await expect(celebration).toBeVisible();
   await expect(celebration.locator('.bbj-hero-share')).toContainText('125.00');
-  await expect(celebration).toContainText('Chips Added Directly To Your Wallet!');
+  await expect(celebration).toContainText('Payout Destination: Your Club Wallet');
   await expect(celebration).not.toContainText('Table Balance');
   expect(await hero.locator('.seat__stack').innerText()).toBe(stack);
   await expect(notice).toHaveCount(0, { timeout: 10_000 });
