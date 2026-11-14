@@ -222,6 +222,13 @@ async function drainLeaderBootMutations(): Promise<void> {
   }
 }
 
+// 2026-11-14: a lost telemetry batch is an engine alert, and a later written day closes it. Wired here, in the
+// main process, so nothing on the Horse decision path imports the alert module (HorseDecisionClosure.test.ts).
+// The Horse decision worker threads post their events to this same sink (horseDecision/client.ts). Set at module
+// load, before gameServer.start() starts those workers, so no worker event can arrive while no sink is set
+// (independent review of 27a56324, finding 2).
+setBrainTelemetryGapSink((event) => void handleHorseTelemetryGapEvent(event));
+
 /**
  * These services change shared horse, tournament, or table state and therefore
  * belong to the process that completed the distributed leader boot. A standby
@@ -271,10 +278,6 @@ async function startLeaderOwnedServices(): Promise<void> {
   startHorseReferenceAgreementReport();
   // Proof of receipt (Dan 2026-08-26): live layer-fire counters, flushed to
   // horse_brain_telemetry every minute for the daily audit + admin panel.
-  // 2026-11-14: a lost telemetry batch is an engine alert, and a later written day closes it. Wired here, in the
-  // main process, so nothing on the Horse decision path imports the alert module (HorseDecisionClosure.test.ts).
-  // The Horse decision worker threads post their events to this same sink (horseDecision/client.ts).
-  setBrainTelemetryGapSink((event) => void handleHorseTelemetryGapEvent(event));
   startBrainTelemetryFlush();
   // 2026-11-05: every file the Horse phase digests hash must be readable in
   // this image, or every phase sits in shadow with no forced authority (the

@@ -19,7 +19,7 @@
  * are resolved, so the journal's active list stays at one entry per kind.
  *
  * AN ALERT CLOSES ITSELF. The flush says 'written' when a batch is confirmed for a day (once per UTC day per
- * thread, and once more after a loss it reported itself: BrainTelemetryFlush.ts, noteWritten). Every gap alert of
+ * thread: BrainTelemetryFlush.ts, noteWritten). Every gap alert of
  * an EARLIER day is then resolved: telemetry is flowing again. The alert's own day stays incomplete, and the
  * resolution note says so. The open alerts are read from the alert journal, so a process started today closes
  * what the process that stopped yesterday left open.
