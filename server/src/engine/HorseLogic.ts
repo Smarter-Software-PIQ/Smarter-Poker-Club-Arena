@@ -1637,6 +1637,30 @@ function trustedTournamentContext(
 }
 
 /**
+ * COMMITTED STACK, any-two call (option committedStackPricedIn, default OFF; review 3e22706d H1): whether busting
+ * now can cost a pay jump that surviving this hand could win. The price of a tiny-stack call is chip arithmetic;
+ * on the bubble a fold cashes whenever another all-in loses, so the chip price is not the whole price. True when
+ * the trusted tournament context says hand for hand or near the bubble, when the event is a satellite, when the field
+ * is one off the money or within 15 percent of the paid places, when the Horse is already in the money (every bust-out below is a pay jump), and when the context is
+ * missing or untrusted (unknown is not "no pay jump"). Read only when the option is on.
+ */
+function committedPayJumpLive(gs: HorseGameStateV2): boolean {
+  const t = trustedTournamentContext(gs);
+  if (!t) return true;
+  if (t.handForHand === true || t.handForHandExpected === true || t.nearBubble === true)
+    return true;
+  // a seat is the whole prize: every satellite is live, whatever its seat count says (review 347b0afc L1)
+  if (t.satellite === true) return true;
+  const left = t.playersLeft ?? 0;
+  const paid = t.spotsPaid ?? 0;
+  if (!(left > 0 && paid > 0)) return true;
+  if (t.inMoney === true || left <= paid) return true;
+  // the feed's own near-bubble line (TournamentBrainContext), so one off the money is live in a small field too:
+  // 4 left with 3 paid is 1.33 times the paid places and is the bubble (review 347b0afc M1)
+  return left <= Math.max(paid + 1, Math.ceil(paid * 1.15));
+}
+
+/**
  * V7 ICM-lite: the survival premium in tournament play. Chips lost hurt more
  * than chips won help, so every calling threshold rises and bluff volume
  * drops — hardest around the bubble, gone again deep in the money with a big
@@ -9075,7 +9099,9 @@ export class HorseLogic {
           }
         : {}),
       ...(huBbPrice ? { huBbPrice } : {}),
-      ...(opts.committedStackPricedIn === true ? { committedStackPricedIn: true } : {}),
+      ...(opts.committedStackPricedIn === true
+        ? { committedStackPricedIn: true, committedPayJumpLive: committedPayJumpLive(gs) }
+        : {}),
       ...(gtoOpen70 ? { gtoOpen: gtoOpen70 } : {}),
       ...(gtoDefend72 ? { gtoDefend: gtoDefend72 } : {}),
       ...(gtoVs3Bet73 ? { gtoVs3Bet: gtoVs3Bet73 } : {}),
