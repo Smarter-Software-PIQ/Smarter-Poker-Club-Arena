@@ -56,6 +56,29 @@ describe('omahaTournamentFirstIn: the replacement for a fold', () => {
     expect(omahaTournamentFirstIn({ ...base, effectiveStackBB: 20.5 })).toBeNull();
   });
 
+  it('a three-handed winner-take-all table acts to 30 big blinds; heads-up keeps 20', () => {
+    // Measured 2026-11-14 (spin, seed 93002): +0.14 to +0.22 BB per hand at
+    // 22/25/30 BB against every opponent; heads-up the same extension lost
+    // to the re-shoving opponent (PLO5, 30 BB), so heads-up stays at 20.
+    const spin = { ...base, tableSize: 3, playersLeft: 3, paidPlacesLeft: 1, percentile: 0.02 };
+    for (const effectiveStackBB of [22, 25, 30])
+      expect(omahaTournamentFirstIn({ ...spin, effectiveStackBB })).toEqual({ a: 'jam' });
+    expect(omahaTournamentFirstIn({ ...spin, effectiveStackBB: 30.5 })).toBeNull();
+    expect(omahaTournamentFirstIn({ ...base, effectiveStackBB: 22 })).toBeNull();
+    expect(omahaTournamentFirstIn({ ...spin, effectiveStackBB: 25, paidPlacesLeft: 3 })).toBeNull();
+    const close = {
+      ...spin,
+      position: 'bb' as const,
+      raises: 1,
+      toCall: 4,
+      stack: 46,
+      pot: 8,
+      percentile: 0.9,
+    };
+    expect(omahaTournamentFirstIn({ ...close, effectiveStackBB: 25 })).toEqual({ a: 'call' });
+    expect(omahaTournamentFirstIn({ ...close, effectiveStackBB: 31 })).toBeNull();
+  });
+
   it('three-handed, the small blind against the big blind alone plays the same way', () => {
     expect(
       omahaTournamentFirstIn({ ...base, tableSize: 3, paidPlacesLeft: 1, percentile: 0.02 })
@@ -195,6 +218,7 @@ describe('omahaTournamentFirstIn: the replacement for a fold', () => {
       headsUpShare: 1,
       blindVsBlindShare: 1,
       maxStackBB: 20,
+      winnerTakeAllMaxStackBB: 30,
       maxTableSize: 3,
       bigBlindDefendShare: 0.75,
       bigBlindMaxPrice: 0.5,
@@ -430,6 +454,19 @@ describe(
       expect(
         folds('plo4', 3, 10, 'tournament', { omahaTournamentFirstIn: false }).share
       ).toBeGreaterThanOrEqual(0.4);
+    });
+
+    it('three-handed winner-take-all at 22 to 30 big blinds the small blind stops folding too', () => {
+      for (const stackBB of [22, 25, 30]) {
+        const on = folds('plo4', 3, stackBB, 'tournament', {});
+        const off = folds('plo4', 3, stackBB, 'tournament', { omahaTournamentFirstIn: false });
+        expect([stackBB, on.share <= 0.05]).toEqual([stackBB, true]);
+        expect([stackBB, off.share >= on.share + 0.25]).toEqual([stackBB, true]);
+      }
+      // Deeper than 30 the engine decides alone.
+      expect(folds('plo4', 3, 35, 'tournament', {}).actions).toEqual(
+        folds('plo4', 3, 35, 'tournament', { omahaTournamentFirstIn: false }).actions
+      );
     });
 
     it.each(['plo4', 'plo5', 'plo6'] as const)(
