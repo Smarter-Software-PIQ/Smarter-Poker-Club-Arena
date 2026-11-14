@@ -186,6 +186,24 @@ describe('planFloor - occupancy', () => {
     expect(wound.every((id) => id === 'free')).toBe(true);
   });
 
+  it('never parks a table at night, or thins it to joinable, inside its human dwell', () => {
+    const tables = [
+      ...Array.from({ length: 12 }, (_, i) =>
+        table({
+          tableId: `dwell${i}`,
+          inHumanDwell: true,
+          occupied: 2,
+          seatedHorses: [horse(`dwell${i}-a`), horse(`dwell${i}-b`)],
+        })
+      ),
+    ];
+    const p = planFloor(
+      snap({ chicagoHour: 4, hosts: [{ hostId: MIDWAY_UNION_ID, n: 584, uniqueLive: 24, tables }] })
+    );
+    expect(p.park).toHaveLength(0);
+    expect(p.stand.filter((s) => s.tableId.startsWith('dwell')).length).toBe(0);
+  });
+
   it('reports the measured caps for both hosts', () => {
     const p = planFloor(
       snap({

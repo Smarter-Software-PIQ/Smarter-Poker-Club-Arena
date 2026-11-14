@@ -431,22 +431,26 @@ export function planFloor(snap: FloorSnapshot): FloorPlan {
       if (needJoinable > 0) {
         const nearCap = host.uniqueLive >= occ.target;
         if (nearCap || !roomForMore) {
-          buckets.FULL.slice(
-            needOneOpen > 0 ? needOneOpen : 0,
-            (needOneOpen > 0 ? needOneOpen : 0) + needJoinable
-          ).forEach((t) => {
-            const j = seatsForBucket('JOINABLE', t.maxPlayers);
-            const toStand = Math.max(0, t.occupied - j.max);
-            pickYieldVictims(t.seatedHorses, toStand).forEach((horseId, i) =>
-              plan.stand.push({
-                tableId: t.tableId,
-                horseId,
-                reason: 'shape_adjust',
-                // Staggered 2-5 min so a table does not empty in one tick.
-                delayMs: yieldDelayMs(horseId, t.tableId, `shape-${i}`),
-              })
-            );
-          });
+          /* A table in its human dwell is not thinned to JOINABLE either: that
+             takes several seats, which is the break the dwell exists to stop. */
+          buckets.FULL.filter((t) => t.inHumanDwell !== true)
+            .slice(
+              needOneOpen > 0 ? needOneOpen : 0,
+              (needOneOpen > 0 ? needOneOpen : 0) + needJoinable
+            )
+            .forEach((t) => {
+              const j = seatsForBucket('JOINABLE', t.maxPlayers);
+              const toStand = Math.max(0, t.occupied - j.max);
+              pickYieldVictims(t.seatedHorses, toStand).forEach((horseId, i) =>
+                plan.stand.push({
+                  tableId: t.tableId,
+                  horseId,
+                  reason: 'shape_adjust',
+                  // Staggered 2-5 min so a table does not empty in one tick.
+                  delayMs: yieldDelayMs(horseId, t.tableId, `shape-${i}`),
+                })
+              );
+            });
         } else {
           const order = openOrderFor(host, running, needJoinable);
           if (order) plan.open.push(order);
@@ -628,7 +632,10 @@ export function planFloor(snap: FloorSnapshot): FloorPlan {
          controller breaks the newest table when everyone fits in the rest)
          and Main 1 is always open while the game is enabled (R3). */
       const parkable = running
-        .filter((t) => t.humansSeated === 0 && t.humansWaiting === 0 && !t.clusterId)
+        .filter(
+          (t) =>
+            t.humansSeated === 0 && t.humansWaiting === 0 && !t.clusterId && t.inHumanDwell !== true
+        )
         .sort((a, b) => b.occupied - a.occupied);
       const keepOpen = nightTablesNeeded(occ.max, snap.chicagoHour);
       const keep = new Set(parkable.slice(0, keepOpen).map((t) => t.tableId));

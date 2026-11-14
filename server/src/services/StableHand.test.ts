@@ -1163,6 +1163,14 @@ describe('2026-11-14: the night is reached gradually, not dropped into', () => {
     expect(Math.abs(at259 - nightCap(N))).toBeLessThanOrEqual(2);
     expect(at300).toBe(nightCap(N));
   });
+  it('closes the band with the walk, so the body cap does not step at 03:00', () => {
+    const before = occupancyTargetForHost(N, 2, 59).max;
+    const at = occupancyTargetForHost(N, 3, 0).max;
+    expect(Math.abs(before - at)).toBeLessThanOrEqual(2);
+    expect(occupancyTargetForHost(N, 2, 0).max).toBeGreaterThan(
+      occupancyTargetForHost(N, 2, 0).target
+    );
+  });
   it('walks the seat ceiling down over 02:00 instead of halving it at 03:00', () => {
     expect(hostSeatCeiling(100, 2, 0)).toBe(220);
     expect(hostSeatCeiling(100, 2, 30)).toBe(175);
