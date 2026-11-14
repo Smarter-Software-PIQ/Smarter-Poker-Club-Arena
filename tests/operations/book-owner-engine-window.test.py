@@ -94,7 +94,7 @@ class BookOwnerEngineWindow(unittest.TestCase):
         return subprocess.run(command, text=True, capture_output=True, timeout=SUITE_TIMEOUT)
 
     def snapshot(self):
-        return {str(path.relative_to(self.repo)): sha(path)
+        return {str(path.relative_to(self.repo)): (sha(path), path.stat().st_mode & 0o777)
                 for path in sorted(self.repo.rglob('*')) if path.is_file() and not path.is_symlink()
                 and 'supabase' not in path.relative_to(self.repo).parts}
 
@@ -256,6 +256,8 @@ class BookOwnerEngineWindow(unittest.TestCase):
             (dict(predecessor='A1' * 20), None, r'--predecessor must be a 40-hex'),
             (dict(contains='c3' * 19), None, r'--contains must be a 40-hex'),
             (dict(window_id='2026-11-20 owner;test'), None, r'--window-id must be lowercase'),
+            # The runtime floor refuses ids longer than 64 characters, so the command does too.
+            (dict(window_id='2026-11-20-owner-test-engine-0606z-' + 'x' * 30), None, r'--window-id must be lowercase'),
             (dict(not_before='2026-11-20T06:06:00+00:00'), None, r'--not-before must be UTC ISO'),
             (dict(), order_text(A['predecessor']).replace('twenty minutes', '20 minutes'), r"lacks required text.*'twenty minutes'"),
             (dict(), order_text(A['predecessor']).replace('not extended', 'kept'), r"lacks required text.*'not extended'"),
@@ -264,6 +266,107 @@ class BookOwnerEngineWindow(unittest.TestCase):
         for changes, order, pattern in refusals:
             with self.subTest(pattern=pattern):
                 self.assert_refused(self.book(A, order=order, **changes), pattern, before)
+
+    def test_a_booking_keeps_the_executable_bit_of_the_scripts_it_edits(self):
+        for name in ('server/scripts/engine-release-seal.py', 'server/scripts/engine-release-transaction.sh'):
+            (self.repo / name).chmod(0o755)
+        result = self.book(A)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        for name in ('server/scripts/engine-release-seal.py', 'server/scripts/engine-release-transaction.sh'):
+            self.assertEqual((self.repo / name).stat().st_mode & 0o777, 0o755, name)
+
+    def test_a_failure_while_staging_leaves_no_temp_and_changes_nothing(self):
+        import importlib.util
+        from unittest import mock
+        self.book(A, dry_run=True)
+        before = self.snapshot()
+        tag = A['window_id']
+        spec = importlib.util.spec_from_file_location('book_window_staging', SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        real, calls = os.chmod, []
+
+        def flaky(path, mode):
+            calls.append(path)
+            if len(calls) == 2:
+                raise OSError(28, 'No space left on device')
+            return real(path, mode)
+
+        argv = ['--repo', str(self.repo), '--window-id', tag, '--predecessor', A['predecessor'],
+                '--contains', A['contains'], '--notice-at', A['notice_at'], '--not-before', A['not_before'],
+                '--not-after', A['not_after'], '--slug', A['slug'],
+                '--owner-order-file', str(self.inputs / f'{tag}-order.txt'),
+                '--summary-file', str(self.inputs / f'{tag}-summary.txt'),
+                '--changelog-file', str(self.inputs / f'{tag}-changelog.txt')]
+        with mock.patch.object(module.os, 'chmod', flaky):
+            self.assertEqual(module.main(argv), 2)
+        self.assertEqual(self.snapshot(), before)
+        self.assertEqual([p.name for p in self.repo.rglob('*.booking-*')], [])
+
+    def test_a_restore_that_cannot_complete_is_reported_as_partly_written(self):
+        import importlib.util
+        from unittest import mock
+        self.book(A, dry_run=True)
+        tag = A['window_id']
+        spec = importlib.util.spec_from_file_location('book_window_restore', SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        real, calls = os.replace, []
+
+        def flaky(src, dst):
+            calls.append(dst)
+            if len(calls) == 3 or str(src).endswith('.booking-restore'):
+                raise OSError(5, 'Input/output error')
+            return real(src, dst)
+
+        argv = ['--repo', str(self.repo), '--window-id', tag, '--predecessor', A['predecessor'],
+                '--contains', A['contains'], '--notice-at', A['notice_at'], '--not-before', A['not_before'],
+                '--not-after', A['not_after'], '--slug', A['slug'],
+                '--owner-order-file', str(self.inputs / f'{tag}-order.txt'),
+                '--summary-file', str(self.inputs / f'{tag}-summary.txt'),
+                '--changelog-file', str(self.inputs / f'{tag}-changelog.txt')]
+        import contextlib, io
+        err = io.StringIO()
+        with mock.patch.object(module.os, 'replace', flaky), contextlib.redirect_stderr(err):
+            self.assertEqual(module.main(argv), 1)
+        self.assertIn('PARTLY WRITTEN', err.getvalue())
+        self.assertIn('could not undo', err.getvalue())
+        self.assertEqual([p.name for p in self.repo.rglob('*.booking-*')], [])
+
+    def test_a_write_that_fails_part_way_restores_every_file(self):
+        # Run the command in process and make the third rename into place fail
+        # after two files were already replaced: every original must come back.
+        import importlib.util
+        from unittest import mock
+        before = self.snapshot()
+        tag = A['window_id']
+        self.book(A, dry_run=True)
+        spec = importlib.util.spec_from_file_location('book_window_under_test', SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        real, calls = os.replace, []
+
+        def flaky(src, dst):
+            calls.append(dst)
+            if len(calls) == 3:
+                raise OSError(28, 'No space left on device')
+            return real(src, dst)
+
+        argv = ['--repo', str(self.repo), '--window-id', tag, '--predecessor', A['predecessor'],
+                '--contains', A['contains'], '--notice-at', A['notice_at'], '--not-before', A['not_before'],
+                '--not-after', A['not_after'], '--slug', A['slug'],
+                '--owner-order-file', str(self.inputs / f'{tag}-order.txt'),
+                '--summary-file', str(self.inputs / f'{tag}-summary.txt'),
+                '--changelog-file', str(self.inputs / f'{tag}-changelog.txt')]
+        with mock.patch.object(module.os, 'replace', flaky):
+            status = module.main(argv)
+        self.assertEqual(status, 2)
+        # Three renames into place (the third fails), then the two replaced
+        # files are restored atomically through their own rename each.
+        self.assertEqual(len(calls), 5)
+        self.assertEqual(calls[3:], calls[1::-1])
+        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(sorted(p.name for p in self.repo.rglob('*.booking-tmp')), [])
 
     def test_refuses_when_an_expected_occurrence_count_is_wrong(self):
         current = self.constant('NOV7_OWNER_ID', FLOOR_PY)

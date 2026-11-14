@@ -26,7 +26,9 @@ import argparse
 import ast
 import hashlib
 import json
+import os
 import re
+import stat
 import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
@@ -52,7 +54,9 @@ LAWS = (FLOOR_LAW, DAILY_LAW, NOTICE_LAW)
 CHICAGO = ZoneInfo('America/Chicago')
 ISO_Z = re.compile(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z')
 SHA = re.compile(r'[0-9a-f]{40}')
-WINDOW_ID = re.compile(r'[a-z0-9][a-z0-9-]{0,78}[a-z0-9]')
+# At most 64 characters: the runtime floor refuses longer ids
+# (server/scripts/engine-release-activation-floor.py owner window identity).
+WINDOW_ID = re.compile(r'[a-z0-9][a-z0-9-]{0,62}[a-z0-9]')
 SLUG = re.compile(r'[a-z0-9][a-z0-9-]*[a-z0-9]')
 MIN_NOTICE_LEAD = 20 * 60
 BAND = (330, 2940)          # admitted announcement second-of-hour (:05:30 to :49:00)
@@ -64,6 +68,10 @@ SUITE_TIMEOUT = 900
 
 class Refusal(Exception):
     """A validation or occurrence-count failure. Nothing has been written."""
+
+
+class PartialWrite(Exception):
+    """A write failed and at least one file could not be put back. The tree is changed."""
 
 
 def refuse(message):
@@ -624,11 +632,55 @@ class Booking:
         return '\n'.join(lines)
 
     def write(self):
-        for path, text in self.files.items():
-            target = self.repo / path
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(text.encode('utf-8'))
-
+        # All or nothing on disk too. Every original (bytes and mode) is read
+        # first; each new file is staged beside its target with the original's
+        # mode (two targets are tracked executable), then renamed into place.
+        # Any failure or interrupt restores every replaced file, removes every
+        # created file and temp, and reports exactly what could not be undone.
+        originals, temps, done = {}, [], []
+        try:
+            for path in self.files:
+                target = self.repo / path
+                originals[path] = ((target.read_bytes(), stat.S_IMODE(target.stat().st_mode))
+                                   if target.exists() else None)
+            for path, text in self.files.items():
+                target = self.repo / path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                temp = target.with_name(target.name + '.booking-tmp')
+                temps.append(temp)
+                temp.write_bytes(text.encode('utf-8'))
+                if originals[path] is not None:
+                    os.chmod(temp, originals[path][1])
+            for path in self.files:
+                target = self.repo / path
+                os.replace(target.with_name(target.name + '.booking-tmp'), target)
+                done.append((target, originals[path]))
+        except BaseException as error:
+            problems = []
+            for target, original in reversed(done):
+                try:
+                    if original is None:
+                        target.unlink(missing_ok=True)
+                    else:
+                        back = target.with_name(target.name + '.booking-restore')
+                        temps.append(back)
+                        back.write_bytes(original[0])
+                        os.chmod(back, original[1])
+                        os.replace(back, target)
+                except OSError as problem:
+                    problems.append(f'{target.relative_to(self.repo)}: {problem}')
+            for temp in temps:
+                try:
+                    temp.unlink(missing_ok=True)
+                except OSError as problem:
+                    problems.append(f'{temp.relative_to(self.repo)}: {problem}')
+            if problems:
+                raise PartialWrite(f'could not write the booking ({error}) and could not undo: '
+                                   + '; '.join(problems)) from error
+            if not isinstance(error, Exception):
+                raise
+            raise Refusal(f'could not write the booking ({type(error).__name__}: {error}); '
+                          'every file was restored') from error
 
 def run_floor_suite(repo):
     try:
@@ -678,7 +730,14 @@ def main(argv=None):
     if args.dry_run:
         print('DRY RUN: nothing written.')
         return 0
-    booking.write()
+    try:
+        booking.write()
+    except Refusal as refusal:
+        print(f'REFUSED, nothing written: {refusal}', file=sys.stderr)
+        return 2
+    except PartialWrite as partial:
+        print(f'FAILED, the tree is PARTLY WRITTEN: {partial}', file=sys.stderr)
+        return 1
     print(f'written. Running {FLOOR_SUITE} ...', flush=True)
     passed, output = run_floor_suite(booking.repo)
     print('\n'.join(output.rstrip('\n').split('\n')[-12 if passed else -200:]))
