@@ -167,8 +167,22 @@ export function useLightningLeaveAfterHand(input: {
       if (!current()) return;
       if (finishing && latest.current.finish) {
         const result = await latest.current.finish(finishing === 'confirmed', current);
-        if (current() && result !== 'unknown')
+        if (current() && result !== 'unknown') {
           write(result === 'accepted' ? false : `owed:${result}`);
+        } else if (
+          !active &&
+          result === 'accepted' &&
+          storage &&
+          readQueued(storage, key) === stage
+        ) {
+          // Opening the lobby may unmount this page before the accepted reply.
+          // Clear only this room's accepted intent while its Web Lock is held.
+          try {
+            storage.removeItem(key);
+          } catch {
+            /* The bound financial receipt remains replayable. */
+          }
+        }
       } else if (command && perform) {
         const outcome = await perform(command);
         if (current() && outcome !== 'unknown') write(outcome);

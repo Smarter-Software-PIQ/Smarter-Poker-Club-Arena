@@ -383,3 +383,34 @@ it('a stale modal cannot overwrite a choice from another window', () => {
   expect(storage.getItem(KEY)).toBe('confirmed');
   expect(view.result.current.owed).toBeNull();
 });
+
+it.each(['confirmed', 'resuming'])(
+  'an accepted leave after the lobby opens only clears its own pending stage (%s)',
+  async (latest) => {
+    const storage = memoryStorage();
+    storage.setItem(KEY, 'confirmed');
+    let accept!: () => void;
+    const finish = vi.fn(
+      () =>
+        new Promise<'accepted'>((resolve) => {
+          accept = () => resolve('accepted');
+        })
+    );
+    const view = renderHook(() =>
+      useLightningLeaveAfterHand({
+        userId: 'u1',
+        poolSessionId: 'pool-1',
+        ready: true,
+        waits: false,
+        storage,
+        leave: vi.fn(),
+        finish,
+      })
+    );
+    await waitFor(() => expect(finish).toHaveBeenCalledOnce());
+    view.unmount();
+    storage.setItem(KEY, latest);
+    await act(async () => accept());
+    expect(storage.getItem(KEY)).toBe(latest === 'confirmed' ? null : latest);
+  }
+);
