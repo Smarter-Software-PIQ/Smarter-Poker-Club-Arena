@@ -73,6 +73,30 @@ test('published notifications retain pending signals and confirm durable actions
   let served: string | undefined;
   let releaseDelete: (() => void) | undefined;
   try {
+    await test.step('Close Notifications as the only action tab', async () => {
+      await page.goto('notifications', { waitUntil: 'domcontentloaded' });
+      await page.evaluate(() => {
+        sessionStorage.setItem(
+          'ca_hub_tabs',
+          JSON.stringify({ at: Date.now(), urls: ['/hub/notifications'] })
+        );
+      });
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      const tabs = page.locator('.table-tab-bar__tab:visible');
+      await expect(tabs).toHaveCount(1, { timeout: 30_000 });
+      await expect(tabs).toHaveAccessibleName('Notifications');
+      await tabs.click();
+      await page
+        .getByRole('menu', { name: 'Notifications Quick Actions' })
+        .getByRole('button', { name: 'Close Tab', exact: true })
+        .click();
+      await expect(tabs).toHaveCount(0);
+      await expect
+        .poll(() => page.evaluate(() => sessionStorage.getItem('ca_hub_tabs')))
+        .toBeNull();
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await expect(page.locator('body')).not.toHaveAttribute('data-ca-pinned-bar', '1');
+    });
     console.log('[notification-proof] Create The Reserved Inbox Signal');
     await insertServiceRows(environment, 'notifications', {
       id,
@@ -175,6 +199,7 @@ test('published notifications retain pending signals and confirm durable actions
         body: JSON.stringify({
           clientSha: selected,
           widths: [375, 393, 1440],
+          singleTabCloseConfirmed: true,
           pendingVisible: true,
           refusalVisible: true,
           readConfirmed: true,
