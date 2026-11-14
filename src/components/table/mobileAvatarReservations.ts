@@ -50,6 +50,7 @@ export function hiddenFanReservations(input: {
   wrapOverlap: number;
   scale: number;
   side: 'left' | 'right';
+  inward?: boolean;
   count: number;
   discard?: boolean;
 }): ReservationBox[] {
@@ -60,13 +61,14 @@ export function hiddenFanReservations(input: {
   const h = Math.max(17, a * 0.346),
     w = (h * 2) / 3;
   const cx = input.seatWidth / 2;
-  const top = a - wrapOverlap - 1 - h;
+  const outerAngle = ((n - 1) * degrees * Math.PI) / 360;
+  const cornerDrop = (w / 2) * Math.sin(outerAngle) + 0.2 * h * (1 - Math.cos(outerAngle));
+  const top = a - wrapOverlap - 1 - h - cornerDrop;
+  const opensRight = input.inward ? input.side === 'left' : input.side === 'right';
+  const shoulder = input.inward ? a / 2 + 4 : a / 2 - 0.8 * w;
   return Array.from({ length: n }, (_, i) => {
-    const left =
-      input.side === 'right'
-        ? cx + a / 2 - 0.8 * w + i * step * w
-        : cx - a / 2 + 0.8 * w - w - i * step * w;
-    const angle = ((i - (n - 1) / 2) * degrees * (input.side === 'right' ? 1 : -1) * Math.PI) / 180;
+    const left = opensRight ? cx + shoulder + i * step * w : cx - shoulder - w - i * step * w;
+    const angle = ((i - (n - 1) / 2) * degrees * (opensRight ? 1 : -1) * Math.PI) / 180;
     const px = left + w / 2,
       py = top + h * 1.2;
     const corners = [
