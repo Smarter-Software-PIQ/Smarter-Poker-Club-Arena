@@ -49,6 +49,7 @@ import {
   CASH_SPECTATOR_ACTION,
   CASH_TABLE_CARD_SELECTOR,
   collectVisibleCashCandidates,
+  takeNextLayoutCandidate,
 } from './support/cashTableCandidates';
 import { createProgressSilenceGuard } from './support/progressSilence';
 import { captureEngineFailureHealth } from './support/liveTableFailureHealth';
@@ -158,6 +159,7 @@ type BoardReader = Awaited<ReturnType<typeof createHudClockReader>>;
 type CertifiableGameFormat = 'cash' | (typeof TOURNAMENT_FORMATS)[number];
 
 interface RunningTableCandidate {
+  capacityHint?: string;
   id: string;
   players: number;
   name: string;
@@ -2327,7 +2329,9 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
           perVariantLimit: 3,
         });
         const capacities = new Set<string>();
-        for (const { candidate } of selected.tables) {
+        const remaining = [...selected.tables];
+        while (remaining.length) {
+          const { candidate } = takeNextLayoutCandidate(remaining, capacities)!;
           await page.goto(`table/${candidate.id}`, { waitUntil: 'domcontentloaded' });
           const table = page.locator('.table-page:visible').first();
           await expect(table).toBeVisible({ timeout: 30_000 });

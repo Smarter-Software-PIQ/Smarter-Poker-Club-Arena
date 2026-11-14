@@ -250,6 +250,8 @@ export async function checkFixedMobileArtwork(
         const overlaps = (a: DOMRect, b: DOMRect) =>
           Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1 &&
           Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1;
+        const chair = (e: Element) =>
+          e.closest('.seat-wrapper')?.getAttribute('data-seat-wrapper') ?? 'table';
         const displays = [
           ...document.querySelectorAll(
             '.table-brand,.community-area,.seat__info,.seat__name,.seat__stack,.seat__action,.seat__bet-chips,.dealer-button,.action-panel,.waitlist-cta'
@@ -266,12 +268,12 @@ export async function checkFixedMobileArtwork(
               r.top < -0.5 ||
               r.bottom > innerHeight + 0.5
             )
-              errors.push(
-                `Card Outside Viewport: ${card.closest('.seat')?.getAttribute('data-seat')}`
-              );
+              errors.push(`Card Outside Viewport: ${chair(card)}`);
             for (const display of displays)
               if (overlaps(r, display.getBoundingClientRect()))
-                errors.push(`Card Covers ${display.className}`);
+                errors.push(
+                  `Card ${chair(card)} Covers ${display.className} ${chair(display)}: ${JSON.stringify(r)} vs ${JSON.stringify(display.getBoundingClientRect())}`
+                );
             return errors;
           });
       });

@@ -1,5 +1,10 @@
-import { crownActionReservation } from './mobileAvatarReservations';
-import { permanentAvatarFocusScale, restingAvatarBox, tableRenderScale } from './avatarCrownBounds';
+import { privateCardLane } from './heroPrivateReservations';
+import {
+  crownActionReservation,
+  permanentAvatarFocusScale,
+  restingAvatarBox,
+  tableRenderScale,
+} from './avatarCrownBounds';
 /** Opponent artwork only: the hero, slot dimensions and table tokens stay owned
  * by their existing renderers. Image metadata never changes the source image. */
 type Alpha = {
@@ -1196,18 +1201,37 @@ export function createOpponentAvatarLayout(
       window.innerHeight <= window.innerWidth
     )
       return [];
+    // A revealed hand may use the existing compact caption position above its
+    // card row. Its caption and animation occupy that translated lane only.
+    const action = seat.querySelector<HTMLElement>(':scope > .seat__action');
+    const translated =
+      action?.style.translate && seat.querySelector('.seat__cards--revealed')
+        ? action.style.translate
+        : null;
+    const [dx, dy] = translated ? translated.split(/\s+/).map(parseFloat) : [0, 0];
+    const scale = tableRenderScale(scaler);
     const rect = box(seat);
     const style = getComputedStyle(seat);
     return [
       crownActionReservation({
-        seatLeft: rect.left,
-        seatTop: rect.top,
+        seatLeft: rect.left + (dx || 0) * scale,
+        seatTop: rect.top + (dy || 0) * scale,
         seatWidth: rect.width,
         rise: parseFloat(style.getPropertyValue('--sp-art-rise')) || 0,
         tagHeight: parseFloat(style.getPropertyValue('--sp-tag-h')) || 20,
-        scale: tableRenderScale(scaler),
+        scale,
       }),
     ];
+  };
+  const fixedHeroCards = () => {
+    const seat = anchorSeat();
+    if (
+      !seat?.classList.contains('seat--hero') ||
+      !['6', '9'].includes(page.dataset.seats || '') ||
+      !matchMedia('(min-width: 481px) and (max-width: 640px) and (orientation: portrait)').matches
+    )
+      return [];
+    return privateCardLane(scaler, page, seat, tableRenderScale(scaler)).boxes;
   };
   const anchorFacts = () =>
     Array.from(
@@ -1563,7 +1587,7 @@ export function createOpponentAvatarLayout(
       .filter((r) => r.width > 0 && r.height > 0);
     const hero = anchorImage();
     if (hero && resolved.get(source(hero))) fixed.push(...paintedParts(hero));
-    fixed.push(...futureCaption(anchorSeat()));
+    fixed.push(...futureCaption(anchorSeat()), ...fixedHeroCards());
     const seats = movableSeats();
     if (seats.some((other) => !state.shifts.has(other))) return false;
     const board = page.querySelector('.community-area');
@@ -1869,7 +1893,7 @@ export function createOpponentAvatarLayout(
       .filter((r) => r.width > 0 && r.height > 0);
     const heroImage = anchorImage();
     if (heroImage && resolved.get(source(heroImage))) fixed.push(...paintedParts(heroImage));
-    fixed.push(...futureCaption(anchorSeat()));
+    fixed.push(...futureCaption(anchorSeat()), ...fixedHeroCards());
     const seats = movableSeats();
     const parts = (seat: HTMLElement) => {
       const image = seat.querySelector<HTMLImageElement>('.seat__avatar-img');

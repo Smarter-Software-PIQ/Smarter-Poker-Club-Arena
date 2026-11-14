@@ -1,12 +1,11 @@
-import { restingAvatarBox, tableRenderScale } from './avatarCrownBounds';
+import { privateCardLane } from './heroPrivateReservations';
+import { crownActionReservation, restingAvatarBox, tableRenderScale } from './avatarCrownBounds';
 import { buttonRadiusWidthPct } from './tableGeometry';
 import {
-  crownActionReservation,
   dealerSeatReservations,
   hiddenFanReservations,
   hiddenFanStates,
   mobilePositionLabels,
-  heroPrivateReservations,
 } from './mobileAvatarReservations';
 
 export type MobileAvatarProfile = { scale: number; px: number; py: number };
@@ -439,20 +438,6 @@ export function mobileFrameCardReservation(
   return baseline;
 }
 
-function cssLength(element: HTMLElement, name: string, fallback: number) {
-  const raw = getComputedStyle(element).getPropertyValue(name).trim();
-  if (!raw) return fallback;
-  if (/^[-+\d.]+px$/.test(raw)) return parseFloat(raw);
-  // Let CSS resolve calc/max/clamp/viewport and safe-area units. This invisible
-  // measurement is performed once per asset/layout qualification, not per turn.
-  const probe = document.createElement('span');
-  probe.style.cssText = `position:absolute;visibility:hidden;pointer-events:none;width:0;height:var(${name},${fallback}px)`;
-  element.append(probe);
-  const value = parseFloat(getComputedStyle(probe).height);
-  probe.remove();
-  return Number.isFinite(value) ? value : fallback;
-}
-
 /** Only stable geometry enters qualification. Cash tables have no bounty badge
  * (seatBountyBadge); narrower portrait layouts use different label/fan rules. */
 function stableObstacles(scaler: HTMLElement, page: HTMLElement) {
@@ -583,23 +568,7 @@ function stableObstacles(scaler: HTMLElement, page: HTMLElement) {
       overlay: true,
     });
     if (hero) {
-      const input = {
-        counts:
-          Number(page.dataset.holeCardCount) === 3 ? [2, 3] : [Number(page.dataset.holeCardCount)],
-        seatLeft: rect.left,
-        seatTop: rect.top,
-        seatWidth: rect.width / ratio,
-        seatHeight: rect.height / ratio,
-        avatarSize: avatar.offsetWidth,
-        plateMinWidth: cssLength(seat, '--seat-plate-min-width', rect.width / ratio),
-        tableWidth: scaler.offsetWidth,
-        viewportWidth: innerWidth,
-        heroClear: cssLength(seat, '--sp-hero-clear', 60),
-        barInset: cssLength(seat, '--sp-bar-inset', 0),
-        boardCardWidth: cssLength(scaler, '--sp-board-card-w', scaler.offsetWidth * 0.088),
-        scale: ratio,
-      };
-      const reserved = heroPrivateReservations(input);
+      const reserved = privateCardLane(scaler, page, seat, ratio);
       // The hero's private cards draw above its portrait: the hero may grow
       // behind its own row and every card stays whole; the row stays hard for
       // every other seat.

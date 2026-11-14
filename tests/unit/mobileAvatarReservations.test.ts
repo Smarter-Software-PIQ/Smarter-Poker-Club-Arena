@@ -1,7 +1,7 @@
+import { crownActionReservation } from '../../src/components/table/avatarCrownBounds';
 import { describe, expect, it } from 'vitest';
-import { heroPrivateReservations } from '../../src/components/table/mobileAvatarReservations';
+import { heroPrivateReservations } from '../../src/components/table/heroPrivateReservations';
 import {
-  crownActionReservation,
   dealerReservations,
   hiddenFanReservations,
   hiddenFanStates,
