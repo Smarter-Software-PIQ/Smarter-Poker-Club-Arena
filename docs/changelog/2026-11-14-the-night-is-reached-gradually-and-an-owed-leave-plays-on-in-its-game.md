@@ -69,15 +69,20 @@ build every follow-up found while verifying it.
    - Before a held leave that still owes hands is released for having nobody
      at its table, the engine asks `fn_owed_leave_plays_on_in_game`. The
      migration ships separately, after the seal.
-   - The door keeps the seat only while a compatible table deals. Compatible
-     means the same cash game, club, variant and blinds, and the game must be
-     one that moves its players. Classic games keep the per-table rule.
-   - The seat stops pending and keeps its blind off. The game's must-move
-     executor then moves it with its stack and its re-pointed session, and the
-     destination restores the hold and plays the count out.
+   - The door keeps the seat only while it is on a feeder and a compatible live
+     Main deals. Compatible means the same cash game, club, variant and blinds.
+     The game must be one that moves its players; Classic games keep the
+     per-table rule.
+   - Only the pending flag is withdrawn: the seat stays sat out, which is the
+     blind off at such a table. The game's must-move executor then moves it with
+     its stack and its re-pointed session, and the destination restores the hold
+     and plays the count out.
    - The wait runs from the first keep answer. It is ten minutes only while
-     every compatible table is full, and thirty while a chair is open.
-   - Every answer is recorded in `ca_owed_leave_decisions`.
+     every compatible Main is full (any seat holds a chair), and thirty while a
+     chair is open.
+   - Each change of answer is recorded in `ca_owed_leave_decisions`, which
+     `service_role` can only read.
+   - Wind-down's human dwell applies only after the last person leaves a table.
    - A missing function or an unreadable answer releases the seat as before.
 
 Person and horse twins in the engine specs; nothing reads horse identity.
