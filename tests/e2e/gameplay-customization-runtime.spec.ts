@@ -884,7 +884,7 @@ async function verifyPublishedLightning(
   await expect(hero.locator('.seat__avatar-img')).toBeVisible();
   await expect(faces).toHaveCount(2);
   await expect(page.getByTestId('vpip-badge')).toContainText('60%');
-  await expect(page.getByTestId('hero-vpip-hand-count')).toContainText('10');
+  await expect(page.getByTestId('hero-vpip-hand-count')).toHaveCount(0);
   const portrait = await hero.locator('.seat__avatar-img').elementHandle();
   const card = await faces.first().elementHandle();
   if (!portrait || !card) throw new Error('Lightning hero nodes were not rendered');
@@ -911,10 +911,10 @@ async function verifyPublishedLightning(
   hand = 11;
   send(snapshot());
   send(holeCards());
-  await expect(page.getByTestId('hero-vpip-hand-count')).toContainText('11');
+  await expect(page.locator('.table-brand__hand')).toContainText('Hand #11');
   await expect(page.getByTestId('vpip-badge')).toContainText('60%');
   await expect(page.getByTestId('hero-hand-count')).toHaveCount(0);
-  expect(vpipReads).toBeGreaterThanOrEqual(2);
+  await expect.poll(() => vpipReads).toBeGreaterThanOrEqual(2);
   const stack = await hero.locator('.seat__stack').innerText();
   const award = {
     type: 'EVENT',
@@ -950,7 +950,7 @@ async function verifyPublishedLightning(
   hand = 12;
   send(snapshot());
   send(holeCards());
-  await expect(page.getByTestId('hero-vpip-hand-count')).toContainText('12');
+  await expect(page.locator('.table-brand__hand')).toContainText('Hand #12');
   await expect(notice).toHaveCount(0);
   expect(await hero.locator('.seat__stack').innerText()).toBe(stack);
   console.log(

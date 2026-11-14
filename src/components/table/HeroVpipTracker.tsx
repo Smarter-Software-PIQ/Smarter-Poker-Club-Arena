@@ -213,6 +213,7 @@ export function useHeroVpipStatus(
 }
 
 interface Props {
+  lightningLayout?: boolean;
   tableId: string | null | undefined;
   lightningClusterId?: string | null;
   /** The hero holds a seat at this table. Nothing renders otherwise. */
@@ -239,6 +240,7 @@ interface Props {
 export default function HeroVpipTracker({
   tableId,
   lightningClusterId,
+  lightningLayout = Boolean(lightningClusterId),
   heroSeated,
   isTournament,
   handNumber,
@@ -253,16 +255,9 @@ export default function HeroVpipTracker({
   const vpip = status?.vpip == null ? null : Number(status.vpip);
   const floor = Number(status?.required ?? 0);
   const showVpip = Boolean(status?.ok && status.seated && floor > 0);
-  const showHands = typeof handsOwed === 'number' && handsOwed > 0;
-  const showPaused = !showHands && typeof handsPaused === 'number' && handsPaused > 0;
-  const completedHands =
-    lightningClusterId &&
-    status?.ok &&
-    status.seated &&
-    Number.isSafeInteger(status.hands) &&
-    Number(status.hands) >= 0
-      ? status.hands
-      : null;
+  const showHands = !lightningLayout && typeof handsOwed === 'number' && handsOwed > 0;
+  const showPaused =
+    !lightningLayout && !showHands && typeof handsPaused === 'number' && handsPaused > 0;
   // The grace only means anything while a warning is actually open, so it is
   // read from `warned` rather than from a number that could linger.
   const graceLeft =
@@ -272,6 +267,7 @@ export default function HeroVpipTracker({
   const showGrace = showVpip && graceLeft !== null && Number.isFinite(graceLeft);
 
   useLayoutEffect(() => {
+    if (lightningLayout) return;
     const node = anchor.current;
     const plane = node?.parentElement;
     const info = plane?.querySelector<HTMLElement>('.seat-wrapper--hero .seat__info');
@@ -326,14 +322,24 @@ export default function HeroVpipTracker({
       observer?.disconnect();
       mounts?.disconnect();
     };
-  }, [tableId, enabled, heroPos?.x, heroPos?.y, showVpip, showHands, showPaused, showGrace]);
+  }, [
+    lightningLayout,
+    tableId,
+    enabled,
+    heroPos?.x,
+    heroPos?.y,
+    showVpip,
+    showHands,
+    showPaused,
+    showGrace,
+  ]);
 
   if (!enabled || !heroPos || (!showVpip && !showHands && !showPaused && !showGrace)) return null;
 
   return (
     <div
       ref={anchor}
-      className="hero-vpip"
+      className={lightningLayout ? 'hero-vpip hero-vpip--lightning' : 'hero-vpip'}
       style={{ left: `${heroPos.x}%`, top: `${heroPos.y}%` }}
       data-testid="hero-vpip"
     >
@@ -355,12 +361,6 @@ export default function HeroVpipTracker({
         <div className="hero-vpip__clock" data-testid="hero-vpip-grace">
           <span>{VPIP_GRACE_COUNT_LABEL}</span>
           <time aria-label={`${VPIP_GRACE_COUNT_LABEL} ${graceLeft}`}>{graceLeft}</time>
-        </div>
-      )}
-      {completedHands != null && (
-        <div className="hero-vpip__clock" data-testid="hero-vpip-hand-count">
-          <span>Hands</span>
-          <span aria-label={`Hands Played ${completedHands}`}>{completedHands}</span>
         </div>
       )}
       {showHands && (

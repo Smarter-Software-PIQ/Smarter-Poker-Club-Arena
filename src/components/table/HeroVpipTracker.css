@@ -102,3 +102,10 @@
     font-size: 12px;
   }
 }
+
+.hero-vpip--lightning {
+  transform: translate(
+    calc(-100% - var(--sp-hero-half) - 6px),
+    calc(-0.5 * var(--vpip-badge-size))
+  );
+}
