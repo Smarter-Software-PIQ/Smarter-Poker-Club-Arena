@@ -121,7 +121,7 @@ export default function AgentScoreCard({ userId, clubId }: AgentScoreCardProps) 
       const totalAmount = chipCents(
         (distributions || []).reduce((sum: number, d: any) => sum + (d.amount || 0), 0)
       );
-      const avgDist = totalDist > 0 ? totalAmount / totalDist : 0;
+      const avgDist = totalDist > 0 ? chipCents(totalAmount / totalDist) : 0;
 
       // Compute sub-scores (0–100 each)
       const distributionScore = Math.min(100, Math.round((totalDist / 50) * 100)); // 50+ = max

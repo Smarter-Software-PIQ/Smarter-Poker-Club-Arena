@@ -122,7 +122,7 @@ const SessionHistory: React.FC<SessionHistoryProps> = ({ initialSessions, rangeL
   // Time-weighted, not a mean of per-session rates: a 5-minute +50 heater used
   // to count as much as an 8-hour grind and dominated the average.
   const totalMinutes = sessions.reduce((sum, s) => sum + s.duration, 0);
-  const avgHourly = totalMinutes > 0 ? (totalProfit / totalMinutes) * 60 : 0;
+  const avgHourly = totalMinutes > 0 ? chipCents((totalProfit / totalMinutes) * 60) : 0;
 
   const formatDuration = (minutes: number): string => {
     if (minutes < 60) return `${minutes}m`;
