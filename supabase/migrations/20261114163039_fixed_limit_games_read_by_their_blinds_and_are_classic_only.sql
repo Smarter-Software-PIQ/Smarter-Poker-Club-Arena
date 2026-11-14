@@ -38,6 +38,9 @@
 --    non-Classic limit games are switched off the owner's way (enabled =
 --    false: no seeding, no opening, every seated player keeps playing and
 --    leaves through the ordinary cash-out, each table closes once empty).
+--    The one limit game whose Lightning switch is on (its cluster in
+--    must_move, nothing in Lightning) has the switch cleared the way the
+--    operator door's disable_lightning clears it.
 --
 -- 4. THE LADDER. Every rung Dan named already exists as a Classic game for
 --    both limit variants on the host that runs limit (Midway Union): 0.25/0.50,
@@ -128,17 +131,49 @@ AS $function$ SELECT coalesce(lower(p_variant) NOT IN
 -- The owner's switch (fn_cash_game_switch_off) sets exactly this; its door
 -- needs an authenticated operator, so the ruling is applied here and recorded
 -- on each game's own event log.
-WITH off AS (
-  UPDATE public.cash_games g
-     SET enabled = false,
-         updated_at = now()
+--
+-- cash_games_lightning_variant_allowed now refuses Lightning for Fixed Limit
+-- Holdem as well, so a limit game whose Lightning switch is on would refuse
+-- every later write, the switch-off included. Measured before this file: one
+-- such game, Midway's "FLH 0.25/0.50 Lightning Games" (Madness), with the
+-- switch on and its cluster in must_move, so nothing is in Lightning. Its
+-- switch is cleared exactly as the operator door's disable_lightning clears a
+-- must-move cluster (lightning_enabled false, lightning_off_condition_since
+-- NULL). A limit cluster that IS in Lightning (pending_on or lightning) has
+-- hands to finish first, so the whole file refuses and nothing is written.
+DO $lightning$
+DECLARE v_id uuid;
+BEGIN
+  SELECT g.id INTO v_id FROM public.cash_games g
+   WHERE g.variant IN ('flh','flo4','flo5','flo6','flo8')
+     AND g.cluster_mode IN ('pending_on','lightning')
+   LIMIT 1;
+  IF v_id IS NOT NULL THEN
+    RAISE EXCEPTION 'fixed limit game % is in Lightning; drain it through fn_lightning_operator_control before this ruling installs', v_id;
+  END IF;
+END
+$lightning$;
+
+WITH before AS (
+  SELECT g.id, coalesce(g.lightning_enabled, false) AS was_lightning
+    FROM public.cash_games g
    WHERE g.enabled
      AND g.variant IN ('flh','flo4','flo5','flo6','flo8')
      AND (g.template_name <> 'classic'
           OR (g.sb, g.bb) NOT IN ((0.25, 0.50), (0.50, 1.00), (1.00, 2.00), (2.00, 5.00), (5.00, 10.00)))
      AND EXISTS (SELECT 1 FROM public.clubs c
                   WHERE c.id = g.club_id AND c.lifecycle_status IS DISTINCT FROM 'retired')
-  RETURNING g.id, g.template_name, g.sb, g.bb
+     FOR UPDATE OF g
+), off AS (
+  UPDATE public.cash_games g
+     SET enabled = false,
+         lightning_enabled = false,
+         lightning_off_condition_since = CASE WHEN b.was_lightning THEN NULL
+                                              ELSE g.lightning_off_condition_since END,
+         updated_at = now()
+    FROM before b
+   WHERE g.id = b.id
+  RETURNING g.id, g.template_name, g.sb, g.bb, b.was_lightning
 )
 INSERT INTO public.cash_cluster_events (game_id, kind, payload)
 SELECT off.id, 'game_switched_off_by_owner',
@@ -147,7 +182,8 @@ SELECT off.id, 'game_switched_off_by_owner',
                         THEN 'Owner ruling 2026-11-14: every fixed limit game is a Classic game'
                         ELSE 'Owner ruling 2026-11-14: fixed limit stakes are .25/.50 .50/1.00 1/2 2/5 and 5/10' END,
          'by', '20261114163039_fixed_limit_games_read_by_their_blinds_and_are_classic_only',
-         'template', off.template_name, 'sb', off.sb, 'bb', off.bb)
+         'template', off.template_name, 'sb', off.sb, 'bb', off.bb,
+         'lightning_switch_cleared', off.was_lightning)
   FROM off;
 
 -- ── 2. Rename the generated names of every open limit game and its tables ───
@@ -245,6 +281,14 @@ BEGIN
                 AND EXISTS (SELECT 1 FROM public.clubs c
                              WHERE c.id = g.club_id AND c.lifecycle_status IS DISTINCT FROM 'retired')) THEN
     RAISE EXCEPTION 'a non-Classic fixed limit game is still enabled';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.cash_games g
+              WHERE g.variant IN ('flh','flo4','flo5','flo6','flo8')
+                AND NOT public.fn_lightning_variant_allowed(g.variant)
+                AND (coalesce(g.lightning_enabled, false) OR g.cluster_mode IN ('pending_on','lightning'))
+                AND EXISTS (SELECT 1 FROM public.clubs c
+                             WHERE c.id = g.club_id AND c.lifecycle_status IS DISTINCT FROM 'retired')) THEN
+    RAISE EXCEPTION 'a fixed limit game still has its Lightning switch on';
   END IF;
 END
 $proof$;
