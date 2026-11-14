@@ -2457,7 +2457,14 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
       await selectCashLobbyTab(page, engineBeforeNavigation.selected.tabName);
       const row = page.locator(`[data-testid="lobby-game-row"][data-id="${candidate.id}"]`);
       if (await row.isVisible()) {
-        await row.getByRole('button', { name: /^Details:/ }).click();
+        const details = row.getByRole('button', { name: /^Details:/ });
+        // The sticky phone controls cover the geometric viewport centre. Let the
+        // lobby's measured scroll padding place this row inside its usable area
+        // before WebKit resolves the real pointer location.
+        await details.evaluate((button) =>
+          button.scrollIntoView({ block: 'center', behavior: 'instant' })
+        );
+        await details.click();
       }
       const card = page.locator(
         `[data-testid="arena-lobby-game-card"][data-kind="cash"][data-id="${candidate.id}"]`
