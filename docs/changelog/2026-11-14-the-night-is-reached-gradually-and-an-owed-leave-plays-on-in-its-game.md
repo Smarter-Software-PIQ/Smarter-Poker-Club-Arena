@@ -33,9 +33,18 @@ build every follow-up found while verifying it.
 
 ## What changed
 
-1. **A gentler taper** (`StableHand.OCCUPANCY_CURVE_PCT`). The curve now reads
-   22:00 37%, 23:00 33%, 00:00 28%, 01:00 22% and 02:00 16% (was 38, 36, 35,
-   28, 16). The 5-11 PM peak is unchanged.
+1. **A gentler taper after the peak** (`StableHand.OCCUPANCY_CURVE_PCT`). The
+   5-11 PM peak is exactly as it was. Only 00:00 and 01:00 change, so 23:00-03:00
+   eases by at most 7 points an hour:
+
+   | Chicago | 17  | 18  | 19  | 20  | 21  | 22  | 23  | 00  | 01  | 02  | 03  |
+   | ------- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+   | before  | 38  | 40  | 40  | 40  | 39  | 38  | 36  | 35  | 28  | 16  | 10  |
+   | after   | 38  | 40  | 40  | 40  | 39  | 38  | 36  | 29  | 22  | 16  | 10  |
+
+   Percent of eligible horses before the half-scale activity factor. The 30-body
+   night cap still binds from 03:00 to 08:00.
+
 2. **The night is reached, not dropped into.**
    - From 02:00 to 03:00 the body target walks from the curve to the night cap,
      instead of landing on twice the cap at 02:59.
@@ -45,6 +54,13 @@ build every follow-up found while verifying it.
 3. **Wind-down keeps up** (`StableHandExecutor.windDownCapForHost`). Each host
    runs one extra stand per ten planned, at least 4 and at most 10 per cycle.
    The planner still takes one seat per table per cycle.
+   - A stand still goes through `engine.leaveTable`, so a hand in progress
+     finishes first.
+   - An owed-hand refusal (LEAVE_LOCKED) still holds the seat.
+   - The work schedule is untouched.
+   - New: a table inside its human-departure dwell (`TableSnapshot.inHumanDwell`,
+     from `tables.last_human_seen_at` and the plan's per-table 20-30 minutes) is
+     never wound down. Before this change the planner ignored the dwell.
 4. **Every seeded Lightning game gets its turn**
    (`HorseUnionCashPlan.compareLightningStarters`). Among starter tables, the
    game with the fewest players goes first, whatever the table's role.
@@ -53,11 +69,15 @@ build every follow-up found while verifying it.
    - Before a held leave that still owes hands is released for having nobody
      at its table, the engine asks `fn_owed_leave_plays_on_in_game`. The
      migration ships separately, after the seal.
-   - While another table of the same game deals, the seat stops pending and
-     keeps its blind off, and the game's consolidation moves it to that table.
-     There the restored hold plays the count out.
-   - The database bounds the wait and records every answer, so a waiver is
-     visible in a table rather than only in a server log.
+   - The door keeps the seat only while a compatible table deals. Compatible
+     means the same cash game, club, variant and blinds, and the game must be
+     one that moves its players. Classic games keep the per-table rule.
+   - The seat stops pending and keeps its blind off. The game's must-move
+     executor then moves it with its stack and its re-pointed session, and the
+     destination restores the hold and plays the count out.
+   - The wait runs from the first keep answer. It is ten minutes only while
+     every compatible table is full, and thirty while a chair is open.
+   - Every answer is recorded in `ca_owed_leave_decisions`.
    - A missing function or an unreadable answer releases the seat as before.
 
 Person and horse twins in the engine specs; nothing reads horse identity.
