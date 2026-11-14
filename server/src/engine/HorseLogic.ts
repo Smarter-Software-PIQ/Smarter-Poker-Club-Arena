@@ -2544,7 +2544,7 @@ export interface HorseDecideOpts {
   /** Omaha high tournaments (HorseOmahaTournamentFirstIn): the small blind
    *  against the big blind alone, and the heads-up big blind facing one raise,
    *  replace the engine's fold by the hand's Omaha percentile, at three or
-   *  fewer players dealt and 20 BB or less. Default on; false is the old
+   *  fewer players dealt and 20 BB or less (30 BB three-handed winner-take-all). Default on; false is the old
    *  engine; an object is a league arm's parameters. */
   omahaTournamentFirstIn?:
     | boolean
