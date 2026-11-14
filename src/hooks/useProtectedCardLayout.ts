@@ -25,6 +25,7 @@ import {
 import {
   assignProtectedWagers,
   capWagerSlot,
+  clearsWagerBoard,
   firstWagerOnFelt,
   insideClassicGreen,
   greedyProtectedWagers,
@@ -1212,6 +1213,9 @@ export function useProtectedCardLayout(
            only eligible when the WHOLE wager box is on the painted felt with
            daylight to spare (see `wagerOnFelt`). */
         const ninePhoneFelt = inwardFans && page.getAttribute('data-seats') === '9';
+        const board = ninePhoneFelt
+          ? scaler.querySelector('.community-area')?.getBoundingClientRect()
+          : undefined;
         const classicGreen = ninePhoneFelt && classicGreenSkin();
         const feltMarginPx = Math.max(8, canvas.width * 0.025);
         // Classic green's inner gold boundary is a rounded rectangle in the
@@ -1454,6 +1458,7 @@ export function useProtectedCardLayout(
                 stored &&
                 sameWager(bet, stored) &&
                 (!ninePhoneFelt || wagerOnFelt(box)) &&
+                clearsWagerBoard(box, board) &&
                 (stored.landed ||
                   (stillOwned &&
                     Math.abs(stored.width - box.width) < 0.5 &&
@@ -1469,6 +1474,10 @@ export function useProtectedCardLayout(
               // Reallocate invalid slots from the inherited rail anchor rather
               // than compounding the previous retained displacement.
               if (stored && !trial) {
+                if (stored.translation) {
+                  restoreTranslation(bet);
+                  ownedTranslations.delete(bet);
+                }
                 offsetNames.forEach((name) => bet.style.removeProperty(name));
                 settled.current.wagers.delete(bet);
                 box = visibleBox(bet);
@@ -1567,7 +1576,9 @@ export function useProtectedCardLayout(
               // one pixel of edge clearance fits where the chips' eight-pixel
               // decoration margin does not; never fall back off felt or to a neighbour.
               const eligible = ninePhoneFelt
-                ? placed.filter(wagerOnFelt)
+                ? placed.filter(
+                    (candidate) => wagerOnFelt(candidate) && clearsWagerBoard(candidate, board)
+                  )
                 : hasAllInMarker
                   ? placed.filter((candidate) => wagerOnFeltWithMargin(candidate, 1))
                   : placed;
