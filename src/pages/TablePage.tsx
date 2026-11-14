@@ -1324,6 +1324,9 @@ interface TablePageProps {
     /** Hero is sitting out at this table (drives the long-press menu's
      *  Sit Out / I'm Back label and the sit-out-everywhere control). */
     sittingOut?: boolean;
+    /** Nothing deals the hero at this table, so the pill's menu leads with
+     *  Sit Down (Dan 2026-11-14). Reported; the container cannot see the felt. */
+    canSitDown?: boolean;
     /**
      * Absolute epoch-ms at which this table's SIT-OUT clock runs out, or
      * undefined when no deadline applies (tournaments) or none is known.
@@ -17678,7 +17681,10 @@ function LiveTablePage({
                 const tid = tableStateRef.current.tournamentId || table.tournament_id;
                 if (claimMysteryLiveAnnouncement(mysteryPrizesSetAnnouncedRef.current, tid)) {
                   toast.info(MYSTERY_BOUNTY_PRIZES_SET_TEXT, 6000, () => {
-                    setTournamentLobbyTabRequest((r) => ({ tab: 'bounties', seq: (r?.seq ?? 0) + 1 }));
+                    setTournamentLobbyTabRequest((r) => ({
+                      tab: 'bounties',
+                      seq: (r?.seq ?? 0) + 1,
+                    }));
                     setShowTournamentLobby(true);
                   });
                 }
@@ -27500,6 +27506,12 @@ function LiveTablePage({
       : lightningAnchorFunding?.tableId === tableId && lightningAnchorFunding?.userId === userId
         ? lightningAnchorFunding.funded
         : undefined,
+    /* What this anchor already learns when its game converts: the engine
+       starts projecting Lightning hands here, and the game's mode read moves.
+       Either change asks for the seat's room once more (2026-11-14). */
+    conversionCue: `${lightningObserver ? 'observer' : 'table'}:${
+      tableGameLightningState?.clusterMode ?? ''
+    }`,
     follow: (poolSessionId) => {
       if (embeddedTableId) {
         onTableInfoUpdate?.({ movedToTableId: poolSessionId });
@@ -27507,6 +27519,78 @@ function LiveTablePage({
       }
       navigate(`/table/${poolSessionId}`, { replace: true });
     },
+  });
+
+  /* ═══ THE PILL'S SIT DOWN (Dan 2026-11-14) ═══════════════════════════════
+     "IF A USER EVER CLICKS THE ACTION BAR PILL FOR A GAME, IT SHOULD OPEN THE
+      DROP DOWN MENU TO 'SIT DOWN'". On the morning he reported it the pill's
+     menu offered Sit Out, Leave Table Next Hand and Leave Table to a player who
+     was not being dealt in at all - there was no way to sit down from it.
+
+     WHEN IT IS OFFERED: a cash table (a tournament seat is assigned, never
+     taken) where nothing deals the hero here - no seat on this felt, or a
+     Lightning anchor that only projects other hands (the hero's seat plays in
+     the pool), or a converted seat whose room is open. A sitting-out seat gets
+     I'm Back instead, and a seat waiting for the button is a seat. */
+  const pillCanSitDown =
+    !tableState.isTournament &&
+    !lightningRoom &&
+    !heroIsSittingOut &&
+    !heroWaitingForButton &&
+    (lightningObserver ||
+      lightningHandoff.readyPoolSessionId !== null ||
+      (tableState.heroSeat <= 0 && !tableState.players.some((p) => p?.isHero)));
+  useEffect(() => {
+    onTableInfoUpdate?.({ canSitDown: pillCanSitDown });
+  }, [onTableInfoUpdate, pillCanSitDown]);
+  /* WHAT SIT DOWN DOES: the one door this table already has for the player,
+     never a new purchase path. In order: a converted seat goes to its room; a
+     Lightning game opens Join Lightning (the amount only - nobody picks a
+     chair, Dan 2026-10-24); a funded anchor seat with no room known yet asks
+     for it again; a cash table opens the buy-in for its first open chair, or
+     the waiting list when every chair is taken. */
+  useMasterBusSubscription('TABLE_MENU_ACTION', (event) => {
+    if (event.tableId !== tableId || event.action !== 'SIT_DOWN') return;
+    if (tableState.isTournament) return;
+    if (lightningRoom) {
+      if (heroIsSittingOut) void handleSitBackIn();
+      return;
+    }
+    if (lightningHandoff.readyPoolSessionId) {
+      lightningHandoff.viewReady();
+      return;
+    }
+    if (heroIsSittingOut) {
+      void handleSitBackIn();
+      return;
+    }
+    const heroHasSeatHere =
+      tableState.heroSeat > 0 ||
+      heroSeatRef.current > 0 ||
+      /* An anchor projecting Lightning hands paints no hero chair here, so the
+         seat read is the witness that this player already holds one. */
+      (lightningAnchorFunding?.tableId === tableId &&
+        lightningAnchorFunding?.userId === userId &&
+        lightningAnchorFunding.funded);
+    if (anchorLightningClusterId) {
+      if (heroHasSeatHere) lightningHandoff.recheck();
+      else openLightningAnchorEntry();
+      return;
+    }
+    if (heroHasSeatHere) {
+      toast.info('You Are Already Seated At This Table.');
+      return;
+    }
+    const ring = tableState.maxPlayers ?? 0;
+    let openSeat = 0;
+    for (let i = 0; i < ring; i += 1) {
+      if (!tableState.players[i]) {
+        openSeat = i + 1;
+        break;
+      }
+    }
+    if (openSeat > 0) handleSeatClick(openSeat);
+    else handleOpenWaitlist();
   });
 
   // Timer warning sound — tick when hero's time is running low.
@@ -30746,6 +30830,18 @@ function LiveTablePage({
             notice and its VIEW GAME are on screen whatever the footer shows:
             the between-hands bar used to shadow them for exactly the player
             who had just folded. */}
+        {/* LIGHTNING: THE CONVERTED SEAT'S FALLBACK (2026-11-14). The anchor
+            hand-off carries a converted seat to its room by itself; this
+            VIEW GAME only remains when the container refused that re-point
+            (a player-watch tab) or the player cancelled the wait. Over the
+            table area, like the two notices below, so no footer can hide it. */}
+        {!lightningRoom && lightningHandoff.readyPoolSessionId && !lightningHandoff.joining ? (
+          <LightningEndedNotice
+            eyebrow="Lightning Games"
+            text="Your Game Is Now Lightning. Your Seat Is Ready."
+            onViewGame={lightningHandoff.viewReady}
+          />
+        ) : null}
         {/* LIGHTNING PHASE 7: Lightning ended (the Cluster is MUST MOVE)
             and this room will deal no more. Never a dead felt: the notice
             and the player's own way back to their seat. The player moves
@@ -30979,7 +31075,16 @@ function LiveTablePage({
       <div className="action-panel-wrapper">
         {/* POKERBROS-spec: persistent footer bar — NEVER empty. Dan rule
             2026-04-17: action bar fixed to footer at all times, every state. */}
-        {heroWaitingForButton ? (
+        {lightningHandoff.joining && !lightningRoom ? (
+          <LightningJoining onCancel={lightningHandoff.cancel} />
+        ) : /* LIGHTNING: THE TAB IS ON ITS WAY TO THE SEAT (Dan 2026-11-14). A
+               Join Lightning buy-in, or a seated player's game converting,
+               carries this tab to the pool room. Until the re-point remounts
+               it this anchor deals the player nothing, so this line comes
+               before every footer that would describe a seat here ("Seat
+               Reserved, You'll Be Dealt In Next Hand", "Join Lightning"); it
+               used to be the last branch, which those always shadowed. */
+        heroWaitingForButton ? (
           <div className="spectator-footer-bar" data-state="waiting-for-button" role="status">
             <span className="spectator-footer-bar__label">
               {tableState.isTournament ? 'Sitting Out' : 'Waiting For The Button To Pass'}
@@ -31393,16 +31498,12 @@ function LiveTablePage({
             {/* JOIN LIGHTNING completing: the anchor table never deals this
                 player a hand, so it says one neutral line until the tab
                 moves on, rather than showing a dead felt. */}
-            {lightningHandoff.joining && !lightningRoom ? (
-              <LightningJoining onCancel={lightningHandoff.cancel} />
-            ) : null}
-            {lightningHandoff.readyPoolSessionId && !lightningRoom && !lightningHandoff.joining ? (
-              <LightningEndedNotice
-                eyebrow="Lightning Games"
-                text="Your Game Is Now Lightning. Your Seat Is Ready."
-                onViewGame={lightningHandoff.viewReady}
-              />
-            ) : null}
+            {/* (2026-11-14) "Joining Lightning..." is the FIRST branch of this
+                chain now, and the conversion's VIEW GAME fallback is mounted
+                over the table area with the room's own ended notices. Both
+                used to sit here, in the last branch, which "Seat Reserved" and
+                "Join Lightning" always shadowed for exactly the player they
+                were for: a funded anchor seat is never in the public hand. */}
 
             {/* ─── ACTION PANEL — Premium 3-button layout ─── */}
             {/* QuickActionsBar REMOVED — Auto-Rebuy is a hamburger menu setting,

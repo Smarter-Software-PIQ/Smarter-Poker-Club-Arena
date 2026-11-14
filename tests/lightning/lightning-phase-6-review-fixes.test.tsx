@@ -473,7 +473,10 @@ describe('3. JOIN LIGHTNING keeps waiting, says so, and stops when told', () => 
 });
 
 describe('conversion of an already seated player', () => {
-  it('discovers the existing pool without entry intent and follows only on View Game', async () => {
+  /* Dan 2026-11-14: the converted seat follows its chair into the room at
+     once (it used to wait for a View Game tap whose notice the footer hid,
+     while the pool dealt the seat and its clock ran out). */
+  it('discovers the existing pool without entry intent and follows the chair at once', async () => {
     rpc.mockResolvedValue({ data: SESSION_WITH_ANCHOR, error: null });
     const follow = vi.fn();
     const { result, unmount } = renderHook(() =>
@@ -488,10 +491,12 @@ describe('conversion of an already seated player', () => {
     );
     await act(async () => {});
     expect(result.current.readyPoolSessionId).toBe(POOL);
-    expect(follow).not.toHaveBeenCalled();
-    act(() => result.current.viewReady());
     expect(getLightningPoolSession(POOL)?.clusterId).toBe(CLUSTER);
+    expect(follow).toHaveBeenCalledTimes(1);
     expect(follow).toHaveBeenCalledWith(POOL);
+    // View Game remains an explicit door (a re-point the container refused).
+    act(() => result.current.viewReady());
+    expect(follow).toHaveBeenCalledTimes(2);
     unmount();
     /* No realtime channel of its own. `cash_games` is not published (19.7M
        updates on 266 rows), so a row subscription could never fire; the room
@@ -526,10 +531,12 @@ describe('conversion of an already seated player', () => {
     });
     await roomOpened();
     expect(result.current.readyPoolSessionId).toBeNull();
+    expect(follow).not.toHaveBeenCalled();
     rpc.mockResolvedValue({ data: SESSION_WITH_ANCHOR, error: null });
     await roomOpened();
     expect(result.current.readyPoolSessionId).toBe(POOL);
-    expect(follow).not.toHaveBeenCalled();
+    expect(follow).toHaveBeenCalledTimes(1);
+    expect(follow).toHaveBeenCalledWith(POOL);
   });
 
   it('reads nothing while the tab is hidden, and reads a signal it missed the moment it is shown', async () => {
@@ -606,6 +613,9 @@ describe('conversion of an already seated player', () => {
       { initialProps: { userId: USER } }
     );
     await act(async () => {});
+    // The original account's open room was followed once, for that account.
+    expect(follow).toHaveBeenCalledTimes(1);
+    follow.mockClear();
     const previousView = result.current.viewReady;
     let complete: (value: unknown) => void = () => {};
     rpc.mockImplementation(
