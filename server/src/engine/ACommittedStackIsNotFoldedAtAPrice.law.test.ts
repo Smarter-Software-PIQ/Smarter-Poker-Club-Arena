@@ -528,6 +528,18 @@ describe('the any-two call is chip arithmetic only: it stands aside when a pay j
     ['within 15 percent of the money, 10 left and 9 paid', { playersLeft: 10, spotsPaid: 9 }],
     ['flagged near the bubble', { nearBubble: true }],
     ['in the money, 8 left and 9 paid', { playersLeft: 8, spotsPaid: 9, inMoney: true }],
+    // review 347b0afc M1: one off the money in a small field is over 1.15 times the paid places and is the bubble
+    ['small-field bubble with no flag, 4 left and 3 paid', { playersLeft: 4, spotsPaid: 3 }],
+    ['small-field bubble with no flag, 7 left and 6 paid', { playersLeft: 7, spotsPaid: 6 }],
+    // review 347b0afc L1: a satellite is live whatever its seat count says
+    [
+      'a satellite far from the seats with no seat count',
+      { playersLeft: 60, spotsPaid: 9, satellite: true, satelliteSeats: 0 },
+    ],
+    [
+      'a satellite far from the seats',
+      { playersLeft: 60, spotsPaid: 9, satellite: true, satelliteSeats: 9 },
+    ],
   ];
   for (const [name, stage] of STAGES) {
     it(`${name}: trash folds with the option on, exactly as with it absent`, () => {
@@ -551,6 +563,25 @@ describe('the any-two call is chip arithmetic only: it stands aside when a pay j
     spot.stage = { ...spot.stage, playersLeft: 60, spotsPaid: 9 };
     expect(actions(overSeeds(spot))).toEqual(['all_in']);
   });
+
+  // review 347b0afc M2: the crumbs strength clause is chip arithmetic too. With a pay jump live a hand over the
+  // 0.26 floor is decided exactly as with the option absent; far from the money the clause still acts.
+  for (const hand of ['7s7h', 'As2h']) {
+    it(`${hand} with crumbs on the hand-for-hand bubble: the option changes nothing`, () => {
+      const spot = withHand(bigBlindCrumbs(400), hand);
+      spot.stage = { ...spot.stage, playersLeft: 10, spotsPaid: 9, handForHand: true };
+      const rq = build(spot);
+      for (const seed of SEEDS)
+        expect(stable(decideBuilt(rq, seed, true)), hand).toBe(
+          stable(decideBuilt(rq, seed, 'absent'))
+        );
+    });
+    it(`${hand} with crumbs far from the money: the strength clause still acts`, () => {
+      const spot = withHand(bigBlindCrumbs(400), hand);
+      spot.stage = { ...spot.stage, playersLeft: 60, spotsPaid: 9 };
+      expect(actions(overSeeds(spot))).toEqual(['all_in']);
+    });
+  }
 });
 
 describe('the 0.26 floor has a pinned boundary (review 20261113, A5)', () => {

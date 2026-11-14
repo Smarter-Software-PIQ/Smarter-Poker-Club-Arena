@@ -34,3 +34,17 @@ Added to `server/src/engine/ACommittedStackIsNotFoldedAtAPrice.law.test.ts`:
 - The rule as it now stands has no league measurement. The one existing league seed predates both the 0.26 floor and the price rule.
 - By default the non-hold'em all-in arithmetic decides those spots before this guard is asked, so the variant tests also run with that arithmetic switched off, which is the route on which the guard decides.
 - Nothing changes in play. The option stays off until the owner decides otherwise.
+
+## Third review (347b0afc): no call that can bust the Horse while a pay jump is live
+
+The option is still off. Three more cases now stand aside, so that when the option is on and a pay jump is live it
+never makes a call that can bust the Horse:
+
+1. One off the money in a small field. Four players left with three paid is 1.33 times the paid places, over the old
+   15 percent line, and it is the bubble. The check now uses the tournament feed's own near-bubble line.
+2. Every satellite is treated as live, whatever its seat count says: a seat is the whole prize.
+3. A hand over the 0.26 floor with crumbs behind, a call for the rest of the stack with half the stack already in, and
+   the 0.18 all-in price are decided as with the option off while a pay jump is live. A call that leaves chips behind
+   (the recorded A7o hand, where the Horse covers) is unchanged: it cannot cost a pay jump.
+
+Far from the money nothing changes. The token price (0.05 or better) is read as before.
