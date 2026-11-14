@@ -318,6 +318,7 @@ export async function settleRabbitHuntClub({
   note,
   sleep: pause = sleep,
   reason = 'Rabbit hunt certification club, cleanup',
+  retireHeadsUpFixture = false,
 }) {
   const ids = [...new Set(memberIds)];
   const seated = ids.length
@@ -399,13 +400,15 @@ export async function settleRabbitHuntClub({
     }
     if (closedAny) await pause(4000);
   }
-  const r = await c.rpc(O.token, 'fn_retire_settled_club', {
+  const retirement = retireHeadsUpFixture
+    ? await c.svcRpc('fn_ca_retire_heads_up_fixture', { p_club_id: clubId, p_reason: reason })
+    : (await c.rpc(O.token, 'fn_retire_settled_club', {
     p_club_id: clubId,
     p_confirm_name: clubName,
     p_reason: reason,
-  });
-  const retired = r.body?.success === true;
-  note('retire the certification club', retired, r.body?.error);
+      })).body;
+  const retired = retirement?.success === true;
+  note('retire the certification club', retired, retirement?.error ?? retirement?.message);
   return { settled: retired, seated: [] };
 }
 

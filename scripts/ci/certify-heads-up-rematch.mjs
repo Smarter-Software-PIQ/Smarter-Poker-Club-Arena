@@ -188,6 +188,7 @@ export async function settleStrandedHeadsUpClub({
     memberIds: identities.map((i) => i.id),
     tableIds: [],
     note,
+    retireHeadsUpFixture: true,
     reason: 'Heads-up rematch certification club, settled after its run died (stale sweep)',
   });
   if (!outcome.settled || failures.length)
@@ -587,6 +588,7 @@ async function main() {
             memberIds: Object.values(S.accounts).map((a) => a.id),
             tableIds: [],
             note,
+            retireHeadsUpFixture: true,
             reason: 'Heads-up rematch certification club, cleanup',
           })
         : { settled: true, seated: [] };
