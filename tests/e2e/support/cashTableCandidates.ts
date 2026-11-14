@@ -21,7 +21,10 @@ export function collectVisibleCashCandidates(cards: Element[], actionPattern: st
         card.querySelector('.compact-lobby__title')?.textContent?.trim() ||
         id;
       const players = Number(card.getAttribute('data-players'));
-      const capacity = card.getAttribute('data-capacity');
+      // A cluster has no overall capacity. Its displayed representative still has a
+      // physical table size, the hint needed to avoid opening already-proved layouts.
+      const capacity =
+        card.getAttribute('data-table-capacity') ?? card.getAttribute('data-capacity');
       const capacityHint = capacity === '6' || capacity === '9' ? capacity : undefined;
       const view = [...card.querySelectorAll<HTMLButtonElement>('button')].find(
         (button) =>
