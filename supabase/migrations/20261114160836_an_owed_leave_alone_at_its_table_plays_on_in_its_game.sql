@@ -100,7 +100,7 @@ CREATE TABLE public.ca_owed_leave_decisions (
 );
 CREATE INDEX ca_owed_leave_decisions_occupancy ON public.ca_owed_leave_decisions (occupancy_id, occurred_at);
 ALTER TABLE public.ca_owed_leave_decisions ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON public.ca_owed_leave_decisions FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON public.ca_owed_leave_decisions FROM PUBLIC, anon, authenticated, service_role;
 GRANT SELECT ON public.ca_owed_leave_decisions TO service_role;
 
 CREATE FUNCTION public.fn_owed_leave_plays_on_in_game(

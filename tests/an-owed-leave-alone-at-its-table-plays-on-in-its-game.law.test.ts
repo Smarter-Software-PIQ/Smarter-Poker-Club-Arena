@@ -89,7 +89,7 @@ describe('the door', () => {
     expect(sql).toContain('INSERT INTO public.ca_owed_leave_decisions');
     expect(sql).toContain('ALTER TABLE public.ca_owed_leave_decisions ENABLE ROW LEVEL SECURITY;');
     expect(sql).toContain(
-      'REVOKE ALL ON public.ca_owed_leave_decisions FROM PUBLIC, anon, authenticated;'
+      'REVOKE ALL ON public.ca_owed_leave_decisions FROM PUBLIC, anon, authenticated, service_role;'
     );
     for (const col of [
       'dest_table_id uuid',
