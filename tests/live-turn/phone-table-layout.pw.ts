@@ -1005,6 +1005,8 @@ test.describe('the Lightning start ticker', () => {
         '3 More Players Until Lightning Games Start',
         { timeout: 15_000 }
       );
+      // The table's loading cover intentionally receives taps until its artwork is ready.
+      await expect(page.locator('.table-art-cover')).toBeHidden({ timeout: 15_000 });
       const leave = page.getByRole('button', { name: 'Leave Next Hand', exact: true });
       const chat = page.getByRole('button', { name: 'Open Table Chat', exact: true });
       for (const button of [leave, chat]) {
