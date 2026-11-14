@@ -40,6 +40,21 @@ describe('engine restart evidence inspector', () => {
     }
   });
 
+  it('keeps the words of a dockerd health failure and masks its identifiers', () => {
+    const line =
+      'club-arena-engine dockerd[812]: level=error msg="Error running exec 3fa9c2d1e4 in container: OCI runtime exec failed: context deadline exceeded" container=03f7547c876b error="dial https://x.example.co/a 10.0.0.5"';
+    const result = py(
+      'print(json.dumps({k:m["mask_keep_words"](v) for k,v in m["DOCKERD_FIELD"].findall(sys.argv[2])}))',
+      line
+    );
+    expect(result.status, result.stderr).toBe(0);
+    const out = JSON.parse(result.stdout);
+    expect(out.msg).toContain('OCI runtime exec failed: context deadline exceeded');
+    for (const leaked of ['3fa9c2d1e4', '03f7547c876b', 'example.co', '10.0.0.5']) {
+      expect(result.stdout).not.toContain(leaked);
+    }
+  });
+
   it('refuses malformed, future, oversized or stale windows before any host read', () => {
     const now =
       'datetime=__import__("datetime"); now=datetime.datetime(2026,11,14,15,0,0,tzinfo=datetime.timezone.utc)';

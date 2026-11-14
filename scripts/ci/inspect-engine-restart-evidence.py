@@ -66,6 +66,36 @@ def mask(payload):
     return text[:240]
 
 
+DOCKERD_LEVEL = re.compile(r'level=(warning|error)')
+DOCKERD_FIELD = re.compile(r'\b(msg|error|container|exec|stream)=("(?:[^"\\]|\\.)*"|\S+)')
+
+
+def mask_keep_words(payload):
+    # Dockerd's own warning/error text names its failure ("OCI runtime exec
+    # failed", "context deadline exceeded"); quoted strings are kept, every
+    # address, identifier and number is still masked.
+    text = URL.sub('<url>', payload)
+    text = EMAIL.sub('<email>', text)
+    text = UUID.sub('<id>', text)
+    text = HEX.sub('<id>', text)
+    text = NUM.sub('<n>', text)
+    return re.sub(r'\s+', ' ', text).strip()[:400]
+
+
+def read_dockerd_failures(argv):
+    events, per_minute, scanned = [], {}, 0
+    for line in stream(argv):
+        if line is None:
+            break
+        scanned += 1
+        stamp = line.split(' ', 1)[0][:16]
+        per_minute[stamp] = per_minute.get(stamp, 0) + 1
+        if 'dockerd' in line and DOCKERD_LEVEL.search(line) and len(events) < 200:
+            fields = {k: mask_keep_words(v) for k, v in DOCKERD_FIELD.findall(line)}
+            events.append({'at': line.split(' ', 1)[0][:32], 'level': DOCKERD_LEVEL.search(line).group(1), **fields})
+    return {'linesScanned': scanned, 'hostLinesPerMinute': per_minute, 'dockerdFailures': events}
+
+
 def parse_instant(text):
     if not re.fullmatch(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z', text or ''):
         raise RuntimeError('window_start_refused')
@@ -296,6 +326,9 @@ def main(expected, start_text, minutes_text, focus_text='-'):
                                      '--until', end.strftime('%Y-%m-%d %H:%M:%S UTC'), '--no-pager',
                                      '-o', 'short-iso', '-u', 'club-arena-engine*', '-u', 'docker.service'],
                                     lambda line: bool(UNIT.search(line))),
+        'hostJournal': read_dockerd_failures(['journalctl', '--since', start.strftime('%Y-%m-%d %H:%M:%S UTC'),
+                                              '--until', end.strftime('%Y-%m-%d %H:%M:%S UTC'), '--no-pager',
+                                              '-o', 'short-iso']),
     }
     report['identityAfter'] = identity(expected)
     report['rawLogsExported'] = False
