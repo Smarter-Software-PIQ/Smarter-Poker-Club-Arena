@@ -16,25 +16,26 @@ const read = (p: string) => readFileSync(resolve(__dirname, '../..', p), 'utf8')
 const PAGE = read('src/pages/TablePage.tsx');
 
 const live = {
-  inLightningRoom: true,
-  roomClosed: false,
-  handInProgress: true,
-  handSettling: false,
-  heroStatus: 'active',
+  stage: 'flop',
+  hand_id: 'current',
+  players: [{ user_id: 'hero', is_folded: false, is_all_in: true }],
 };
 
 describe('Lightning Leave Next Hand waits for the end of the current hand', () => {
-  it('waits while the player is live in the hand, all in included', () => {
-    expect(lightningLeaveWaitsForHand(live)).toBe(true);
-    expect(lightningLeaveWaitsForHand({ ...live, heroStatus: 'all_in' })).toBe(true);
+  it('a different hand settling or a missing player in a live snapshot cannot release this hand', () => {
+    expect(lightningLeaveWaitsForHand(live, 'previous', 'hero')).toBe(true);
+    expect(lightningLeaveWaitsForHand({ ...live, players: [] }, null, 'hero')).toBe(true);
   });
-  it('leaves once the hand is over for the player', () => {
-    expect(lightningLeaveWaitsForHand({ ...live, handSettling: true })).toBe(false);
-    expect(lightningLeaveWaitsForHand({ ...live, handInProgress: false })).toBe(false);
-    expect(lightningLeaveWaitsForHand({ ...live, heroStatus: 'folded' })).toBe(false);
-    expect(lightningLeaveWaitsForHand({ ...live, heroStatus: undefined })).toBe(false);
-    expect(lightningLeaveWaitsForHand({ ...live, roomClosed: true })).toBe(false);
-    expect(lightningLeaveWaitsForHand({ ...live, inLightningRoom: false })).toBe(false);
+  it('leaves on this hand’s receipt, an idle room, or the hero’s confirmed fold', () => {
+    expect(lightningLeaveWaitsForHand(live, 'current', 'hero')).toBe(false);
+    expect(lightningLeaveWaitsForHand({ ...live, stage: 'waiting' }, null, 'hero')).toBe(false);
+    expect(
+      lightningLeaveWaitsForHand(
+        { ...live, players: [{ user_id: 'hero', is_folded: true }] },
+        null,
+        'hero'
+      )
+    ).toBe(false);
   });
   it('the button is wired to the waiting leave and its cancel, never straight to the immediate one', () => {
     const at = PAGE.indexOf('<LightningLeaveControl');
@@ -48,9 +49,15 @@ describe('Lightning Leave Next Hand waits for the end of the current hand', () =
   });
   it('the waiting leave queues during a live hand through the saved queue', () => {
     const body = PAGE.slice(PAGE.indexOf('const leaveLightningAfterThisHand'));
-    expect(body).toMatch(/if \(lightningHeroInLiveHand\) \{\s+lightningLeaveAfterHand\.queue\(\);/);
+    expect(body).toContain(
+      'lightningLeaveAfterHand.queue(stop.inHand && !lightningHeroInLiveHand)'
+    );
+    expect(body).toMatch(/if \(stop.exited && !stop.inHand\) \{\s+await handleLeaveTable\(true\)/);
+    expect(PAGE).toContain('if (!afterLightningHand && lightningRoomRef.current && tableId)');
     const hook = PAGE.slice(PAGE.indexOf('useLightningLeaveAfterHand({'));
-    expect(hook).toMatch(/waits: lightningHeroInLiveHand,\s+leave: handleLeaveTable,/);
+    expect(hook).toMatch(
+      /waits: lightningHeroInLiveHand,\s+leave: \(\) => handleLeaveTable\(true\),/
+    );
     // Never off a half-hydrated felt after a reload.
     expect(hook).toMatch(/ready:\s+lightningRoomClosed \|\|\s+\(!!engineSnapshot &&/);
   });
