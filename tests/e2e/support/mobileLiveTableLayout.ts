@@ -367,13 +367,51 @@ export function readMobileTableLayout(crowns: Readonly<Record<string, number>>) 
   )) {
     if (
       visible(wrap) &&
-      (getComputedStyle(wrap).filter !== 'none' || getComputedStyle(wrap).opacity !== '1')
+      (getComputedStyle(wrap).filter !== 'none' ||
+        getComputedStyle(wrap).opacity !== '1' ||
+        (matchMedia('(max-width: 768px) and (orientation: portrait)').matches &&
+          (getComputedStyle(wrap.parentElement!).filter !== 'none' ||
+            getComputedStyle(wrap.parentElement!).opacity !== '1')))
     )
       violations.push('Folded Portrait Has A Clipping Compositing Group');
   }
   for (const seat of table.querySelectorAll('.seat-wrapper--spot .seat:has(.seat__avatar--bust)')) {
     if (visible(seat) && getComputedStyle(seat).filter !== 'none')
       violations.push('Acting Portrait Has A Clipping Compositing Group');
+  }
+  if (matchMedia('(max-width: 768px) and (orientation: portrait)').matches) {
+    for (const seat of table.querySelectorAll('.seat:has(.seat__avatar--bust)')) {
+      const wrapper = seat.closest('.seat-wrapper');
+      if (
+        !table.classList.contains('table-page--winner-flash') &&
+        !wrapper?.classList.contains('seat-wrapper--dim')
+      )
+        continue;
+      const avatar = seat.querySelector('.seat__avatar--bust')!;
+      const parents = [wrapper, seat, avatar.parentElement!, avatar].filter(Boolean) as Element[];
+      if (
+        visible(avatar) &&
+        parents.some((element) => {
+          const style = getComputedStyle(element);
+          return style.filter !== 'none' || style.opacity !== '1';
+        })
+      )
+        violations.push('Celebration Or Dim Portrait Has A Clipping Compositing Group');
+    }
+
+    for (const seat of table.querySelectorAll(
+      '.seat:is(.seat--away, .seat--sitting_out):has(.seat__avatar--bust)'
+    )) {
+      const avatar = seat.querySelector('.seat__avatar--bust')!;
+      if (
+        visible(avatar) &&
+        [seat, avatar.parentElement!, avatar].some((element) => {
+          const style = getComputedStyle(element);
+          return style.filter !== 'none' || style.opacity !== '1';
+        })
+      )
+        violations.push('Inactive Portrait Has A Clipping Compositing Group');
+    }
   }
   // This is the enlarged phone-canvas contract, exercised at every physical
   // phone width by production. Legacy raw-width fixtures use another caption

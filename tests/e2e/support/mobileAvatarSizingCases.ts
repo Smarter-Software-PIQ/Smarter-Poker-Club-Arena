@@ -278,9 +278,31 @@ export async function checkFixedMobileArtwork(
         headBottom: number;
         foldFilter: string;
         foldOpacity: string;
+        foldSeatOpacity: string;
+        foldImageOpacity: string;
+        foldWinnerFilter: string;
         actingFilter: string;
         spotlight: string;
         hero: boolean;
+        effects: Array<{
+          name: string;
+          parentFilters: string[];
+          parentOpacities: string[];
+          imageFilter: string;
+          imageOpacity: string;
+          restoredFilter: string;
+          restoredOpacity: string;
+          baselineFilter: string;
+          baselineOpacity: string;
+        }>;
+        statuses: Array<{
+          name: string;
+          parentFilters: string[];
+          parentOpacities: string[];
+          imageFilter: string;
+          imageOpacity: string;
+          badgeTop: number;
+        }>;
       }> = [];
       for (const avatar of document.querySelectorAll<HTMLElement>(
         '.seat__avatar[style*="--sp-mobile-art-scale"]'
@@ -296,30 +318,127 @@ export async function checkFixedMobileArtwork(
         const art = avatar.querySelector('.seat__avatar-img')!.getBoundingClientRect();
         const seat = avatar.closest('.seat')!;
         const wasFolded = seat.classList.contains('seat--folded');
+        const wasInHand = seat.classList.contains('seat--in-hand');
+        // A folded player is no longer in the hand. Preserve the active hero
+        // styling contract when returning from this temporary folded pose.
+        seat.classList.remove('seat--in-hand');
         seat.classList.add('seat--folded');
         const foldedStyle = getComputedStyle(avatar.parentElement!);
         const foldFilter = foldedStyle.filter;
         const foldOpacity = foldedStyle.opacity;
+        const foldedImage = avatar.querySelector('.seat__avatar-img')!;
+        const foldTable = seat.closest('.table-page')!;
+        const hadWinnerFlash = foldTable.classList.contains('table-page--winner-flash');
+        foldTable.classList.add('table-page--winner-flash');
+        getComputedStyle(foldedImage).getPropertyValue('filter');
+        for (const element of [seat, foldedImage])
+          for (const animation of element.getAnimations()) {
+            if (Number.isFinite(animation.effect?.getComputedTiming().iterations))
+              animation.finish();
+          }
+        const foldSeatOpacity = getComputedStyle(seat).opacity;
+        const foldImageOpacity = getComputedStyle(foldedImage).opacity;
+        const foldWinnerFilter = getComputedStyle(foldedImage).filter;
+        foldTable.classList.toggle('table-page--winner-flash', hadWinnerFlash);
         const wrapper = seat.closest('.seat-wrapper')!;
         const wasSpot = wrapper.classList.contains('seat-wrapper--spot');
         seat.classList.remove('seat--folded');
+        seat.classList.toggle('seat--in-hand', wasInHand);
         wrapper.classList.add('seat-wrapper--spot');
         const image = avatar.querySelector('.seat__avatar-img')!;
         getComputedStyle(image).getPropertyValue('filter');
         for (const animation of image.getAnimations()) {
           if (Number.isFinite(animation.effect?.getComputedTiming().iterations)) animation.finish();
         }
+        const actingFilter = getComputedStyle(seat).filter;
+        const spotlight = getComputedStyle(image).filter;
+        const statuses = [];
+        const originalSeatClass = seat.className;
+        wrapper.classList.remove('seat-wrapper--spot');
+        seat.classList.remove('seat--away', 'seat--sitting_out', 'seat--in-hand');
+        for (const name of ['away', 'sitting_out']) {
+          seat.classList.add(`seat--${name}`);
+          // Exercise the real status selectors, not merely a badge added to
+          // an active seat. WebKit clips grown art at a filtered parent.
+          getComputedStyle(image).getPropertyValue('filter');
+          for (const animation of image.getAnimations()) {
+            if (Number.isFinite(animation.effect?.getComputedTiming().iterations))
+              animation.finish();
+          }
+          statuses.push({
+            name,
+            parentFilters: [seat, avatar.parentElement!, avatar].map(
+              (element) => getComputedStyle(element).filter
+            ),
+            parentOpacities: [seat, avatar.parentElement!, avatar].map(
+              (element) => getComputedStyle(element).opacity
+            ),
+            imageFilter: getComputedStyle(image).filter,
+            imageOpacity: getComputedStyle(image).opacity,
+            badgeTop: badge.getBoundingClientRect().top,
+          });
+          seat.classList.remove(`seat--${name}`);
+        }
+        const table = seat.closest('.table-page')!;
+        const wasDim = wrapper.classList.contains('seat-wrapper--dim');
+        const wasWinner = table.classList.contains('table-page--winner-flash');
+        wrapper.classList.remove('seat-wrapper--dim');
+        table.classList.remove('table-page--winner-flash');
+        const finishImageTransition = () => {
+          getComputedStyle(image).getPropertyValue('filter');
+          for (const animation of image.getAnimations())
+            if (Number.isFinite(animation.effect?.getComputedTiming().iterations))
+              animation.finish();
+        };
+        finishImageTransition();
+        const baselineFilter = getComputedStyle(image).filter;
+        const baselineOpacity = getComputedStyle(image).opacity;
+        const effects = [];
+        for (const name of ['winner', 'dim', 'winner-dim']) {
+          table.classList.toggle('table-page--winner-flash', name.includes('winner'));
+          wrapper.classList.toggle('seat-wrapper--dim', name.includes('dim'));
+          finishImageTransition();
+          const state = {
+            name,
+            parentFilters: [wrapper, seat, avatar.parentElement!, avatar].map(
+              (e) => getComputedStyle(e).filter
+            ),
+            parentOpacities: [wrapper, seat, avatar.parentElement!, avatar].map(
+              (e) => getComputedStyle(e).opacity
+            ),
+            imageFilter: getComputedStyle(image).filter,
+            imageOpacity: getComputedStyle(image).opacity,
+          };
+          table.classList.remove('table-page--winner-flash');
+          wrapper.classList.remove('seat-wrapper--dim');
+          finishImageTransition();
+          effects.push({
+            ...state,
+            baselineFilter,
+            baselineOpacity,
+            restoredFilter: getComputedStyle(image).filter,
+            restoredOpacity: getComputedStyle(image).opacity,
+          });
+        }
+        wrapper.classList.toggle('seat-wrapper--dim', wasDim);
+        table.classList.toggle('table-page--winner-flash', wasWinner);
+        seat.className = originalSeatClass;
         results.push({
+          effects,
           hero: seat.classList.contains('seat--hero'),
-          actingFilter: getComputedStyle(seat).filter,
-          spotlight: getComputedStyle(avatar.querySelector('.seat__avatar-img')!).filter,
+          actingFilter,
+          spotlight,
           foldFilter,
           foldOpacity,
+          foldSeatOpacity,
+          foldImageOpacity,
+          foldWinnerFilter,
           blend: getComputedStyle(holo).mixBlendMode,
           badgeTop: badge.getBoundingClientRect().top,
           headBottom: art.top + art.height * 0.4,
+          statuses,
         });
-        if (!wasSpot) wrapper.classList.remove('seat-wrapper--spot');
+        wrapper.classList.toggle('seat-wrapper--spot', wasSpot);
         seat.classList.toggle('seat--folded', wasFolded);
         holo.remove();
         badge.remove();
@@ -333,11 +452,67 @@ export async function checkFixedMobileArtwork(
         expect(r.spotlight, 'acting portrait retains its spotlight').toContain('brightness(1.18)');
       expect(r.foldFilter, 'folded portraits have no clipping parent filter').toBe('none');
       expect(r.foldOpacity, 'fold dimming belongs to the painted image').toBe('1');
+      expect(r.foldSeatOpacity, 'folded seat cannot clip its grown portrait').toBe('1');
+      expect(
+        Number(r.foldImageOpacity),
+        'folded dimming retains the composed leaf opacity'
+      ).toBeCloseTo(0.4875, 4);
+      for (const filter of ['brightness(0.73)', 'brightness(0.8)', 'saturate(0.55)'])
+        expect(r.foldWinnerFilter, 'winner flash composes with folded artwork dimming').toContain(
+          filter
+        );
       expect(r.blend, 'the holo sweep never blends over a grown portrait').toBe('normal');
       expect(
         r.badgeTop,
         "a sit-out badge keeps clear of the portrait's head"
       ).toBeGreaterThanOrEqual(r.headBottom);
+      for (const effect of r.effects) {
+        expect(effect.parentFilters, `${effect.name} keeps portrait parents unfiltered`).toEqual([
+          'none',
+          'none',
+          'none',
+          'none',
+        ]);
+        expect(effect.parentOpacities, `${effect.name} keeps portrait parents opaque`).toEqual([
+          '1',
+          '1',
+          '1',
+          '1',
+        ]);
+        if (effect.name.includes('winner'))
+          expect(effect.imageFilter).toContain('brightness(0.73)');
+        if (effect.name.includes('dim')) {
+          expect(effect.imageFilter).toContain('brightness(0.85)');
+          expect(effect.imageFilter).toContain('saturate(0.9)');
+          expect(effect.imageOpacity).toBe('0.78');
+        }
+        expect(effect.restoredFilter, `${effect.name} restores the prior filter`).toBe(
+          effect.baselineFilter
+        );
+        expect(effect.restoredOpacity, `${effect.name} restores the prior opacity`).toBe(
+          effect.baselineOpacity
+        );
+      }
+      for (const status of r.statuses) {
+        expect(status.parentFilters, `${status.name} has no clipping parent filter`).toEqual([
+          'none',
+          'none',
+          'none',
+        ]);
+        expect(status.parentOpacities, `${status.name} dims painted leaves only`).toEqual([
+          '1',
+          '1',
+          '1',
+        ]);
+        expect(status.imageFilter, `${status.name} keeps its grayscale`).toContain(
+          'grayscale(0.6)'
+        );
+        expect(status.imageOpacity, `${status.name} keeps its dimming`).toBe('0.55');
+        expect(
+          status.badgeTop,
+          `${status.name} keeps its badge below the head`
+        ).toBeGreaterThanOrEqual(r.headBottom);
+      }
     }
     // Dan 2026-11-13: every table of this game type on this device takes the
     // size this one settled; it is recorded as the displayed height.
