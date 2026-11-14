@@ -19,4 +19,15 @@ Live signed-in verification, served revision 5b38a8b6a1 (contains 0e6c93e75f), D
 - "+" long-press "Open Lobby" while on Player Management -> game lobby; stays game lobby after switching away and back. PASS
 - Separate Lobby tabs: by design only one Lobby tab exists ("ONE LOBBY TAB", MultiTablePage); "Open Lobby" focused the existing tab (pills: FLO8, Lobby). Per-tab storage keyed by tab id, unit-pinned.
 
-Status: #10779 in required checks; remaining step is publish + swipe re-verify.
+- PR #10779 merged (squash 2f4abdb540), publish-club-arena run 43555936073 success; both build-info endpoints served 2f4abdb540 (built 2026-11-14T04:22:54Z).
+
+Re-verification on served 2f4abdb540 (fresh tab, bundle index-ExqRYsBV), same account/table, recorder counting any visible game lobby:
+- Exact flow "+" -> Browse Full Lobby -> menu Players (Player Management) -> FLO8 pill -> Lobby pill: Player Management restored, 0 game-lobby frames. PASS
+- Player Record (/members/<id>) restored by pill, swipe, number key "2", Tab key and Tile View cell: 0 game-lobby frames each; during the swipe the lobby slot was rendered held (hidden). PASS
+- Back onto the table clears the page; Lobby pill then shows the game lobby. PASS
+- "+" long-press "Open Lobby" while on Player Management shows the game lobby (held cleared). PASS
+- One Lobby tab by design; tile grid and strip show FLO8 + one Lobby.
+
+No seat, buy-in, chat or setting was changed; the verification tab was closed afterwards.
+
+Status: COMPLETE.
