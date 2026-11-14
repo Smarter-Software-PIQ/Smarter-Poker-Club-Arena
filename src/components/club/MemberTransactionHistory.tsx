@@ -1,3 +1,5 @@
+import '../../pages/MemberManagementPage.css';
+
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { selectTextTwins } from '../../services/ClubRosterService';
