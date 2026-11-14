@@ -38,7 +38,58 @@ the same order on the same rows; nothing is written; the door re-proves under
 its lock. Ordering, the PKO watermark, simultaneous-bust rules, bounty
 attribution, payout idempotency and horse/human treatment are unchanged.
 
-Expected ceiling after the fix: about 2.2 s per bust, roughly 27 a minute at
+## Second step: only the money is serial
+
+Per PKO bust the loop made 10 sequential round trips: guard + pricing,
+candidate + seat, receipt + hand, door, obligation proof, payer + names,
+settled-marker proof, knockout broadcast, cosmetic place read, elimination
+broadcast. Now, inside the assignment pass:
+
+- the next bust's read-only evidence is prefetched when the current bust
+  starts; a door refusal on prefetched evidence discards it, reads fresh and
+  asks the door once more before it counts as a refusal;
+- the next bust's guard and pricing row are sent the moment the current
+  bust's payer has answered (both money writes committed), alongside its
+  settled-marker proof; the next door still waits for that proof;
+- the two broadcasts and the cosmetic read run on an ordered queue behind the
+  money, drained before the pass closes, so their order against each other
+  and every later broadcast of the sweep is unchanged.
+
+Serial per bust: door, obligation proof, payer, marker proof (4, was 10).
+
+## Measured (aPkoBustWaitsOnlyOnItsMoney.law.test.ts)
+
+Real staged sweep, eliminatePlayer, payer and four-slot scheduler, several
+events busting at once, 10 simulated minutes:
+
+| latency model | previous code | this change |
+| --- | --- | --- |
+| flat 200 ms/trip, saturated | 20.6/min | 44.4/min |
+| flat 170 ms/trip, saturated | - | 50/min |
+| flat 200 ms, 40/min arrivals + 3 peers at 10/min | - | kept up, max wait 15 s |
+| flat 200 ms, four events at 34/min on 4 slots | - | all kept up, max wait 10 s |
+| measured server latency (edge logs), saturated | 9.9/min | 17.3/min |
+
+The last row samples the server-side origin times the Supabase edge logs
+recorded for the engine's own requests during the incident: reads p50 117 ms,
+p95 1.3 s, p99 2.1 s; the knockout door p50 798 ms (p10 713 ms); the payer
+p50 864 ms (p10 760 ms). That model is about 35% slower than production for
+the previous code (9.9 vs the 13.5/min observed); scaled, this change is about
+24/min in production. It is still below 34/min, so incident #3 is not fully
+closed by the engine alone.
+
+## Next dependency (database)
+
+The door and the payer must run in series for every PKO bust, and each takes
+about 0.8 s at the gateway while their database execution averages 127 ms and
+200 ms (pg_stat_statements) and nothing slow appears in the Postgres log. The
+extra ~0.6 s each is outside the function body: candidates are the
+commit-time deferred payout trigger (fn_ca_pay_tournament_finishers_now,
+attributed to COMMIT, not the call) and PostgREST overhead. Until that is
+measured and reduced (or the door and payer become one transaction), a single
+PKO is capped near 25-30/min.
+
+Earlier estimate (superseded by the measurements above): about 2.2 s per bust, roughly 27 a minute at
 the measured trip latency, against the 20-34 a minute this event produced at
 its peak. The remaining per-bust trips (door, obligation proof, payer, settled
 marker, names, broadcasts) are each load-bearing; the next step if a larger

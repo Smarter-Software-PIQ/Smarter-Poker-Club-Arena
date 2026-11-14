@@ -443,6 +443,42 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
   }
   /** One signal per unresolved bounty hand, cleared when its exact row lands. */
   protected bountyEvidenceDeferred = new Set<string>();
+  /**
+   * THE NEXT BUST'S EVIDENCE IS READ WHILE THIS ONE IS PAID (2026-11-14,
+   * incident b6d94533). PKO busts are recorded one at a time in hand order,
+   * so the event's ceiling is one bust per serial round trip chain. The
+   * assignment pass starts the next bust's read-only knockout evidence when
+   * the current bust starts; `eliminatePlayer` takes it only if it is ready
+   * evidence, and a door refusal on prefetched evidence discards it and
+   * reads again once (see the assignment pass). Mutations stay strictly in
+   * hand order and the door re-proves the candidate, receipt, seat and
+   * rebuy window under its own lock.
+   */
+  private bustEvidencePrefetchMap?: Map<
+    string,
+    { evidence: Promise<CandidateBackedKnockoutEvidence | null>; used: boolean }
+  >;
+
+  // Lazy so a manager built without its constructor (the test harnesses)
+  // still has the map; a real manager gets one on first use.
+  protected get bustEvidencePrefetch(): Map<
+    string,
+    { evidence: Promise<CandidateBackedKnockoutEvidence | null>; used: boolean }
+  > {
+    return (this.bustEvidencePrefetchMap ??= new Map());
+  }
+  /**
+   * WHAT A BUST SAYS IS SENT IN ORDER, BEHIND ITS MONEY (2026-11-14). The
+   * knockout broadcast, the cosmetic place/name read and the elimination
+   * broadcast are presentation of a bust whose money has already committed
+   * and been proved. Inside the assignment pass they run on one ordered
+   * queue instead of in front of the next bust's door, and the pass drains
+   * the queue before it closes, so their order against each other and
+   * against every later broadcast of the sweep is unchanged. Outside a pass
+   * (null) they run inline, exactly as before.
+   */
+  protected bustPresentation?: Promise<void> | null;
+
   /** A comprehensive durable-outbox drain runs once after every manager restore. */
   protected bountyRecoveryAudited = false;
   /** Report a broken immutable satellite award plan once, while exact retries continue. */
@@ -1694,6 +1730,7 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
             );
           }
           this.openEliminationMutationBatch();
+          this.openBustPresentation();
           try {
             for (let i = 0; i < bustedOrdered.length; i++) {
               if (!this.running || signal.aborted) return;
@@ -1744,14 +1781,28 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
               }
 
               this.noteEliminationSweepStep('eliminatePlayer');
+              // This bust's evidence was started with the previous bust; the
+              // next bust's starts now, read-only, while this one is paid.
+              const prefetched = this.bustEvidencePrefetch.get(bustedOrdered[i].user_id);
+              this.prefetchBustEvidence(bustedOrdered[i + 1]?.user_id);
+              this.nextBustUserId = bustedOrdered[i + 1]?.user_id;
               const eliminated = await this.eliminatePlayer(bustedOrdered[i].user_id, place);
+              if (sweepStopped()) return;
+              // Evidence read before the previous bust committed may be stale
+              // by the time its door runs. A refusal on it is not yet a
+              // refusal: read the evidence again and ask the door once more,
+              // in the same place, before the pass treats it as one.
+              const recorded =
+                eliminated ||
+                (prefetched?.used === true &&
+                  (await this.eliminatePlayer(bustedOrdered[i].user_id, place)));
               if (sweepStopped()) return;
               // False includes both a deliberate evidence defer and a CAS miss
               // because another generation/process got there first. In either
               // case takenPositions is now stale. Abort the assignment pass;
               // the already-armed unresolved-bust retry rebuilds the ladder
               // from persisted positions before it writes anybody else.
-              if (!eliminated) {
+              if (!recorded) {
                 // Remember WHO refused only as the last tiebreak for the same
                 // hand and same starting stack. Hand order must never be skipped:
                 // doing so would advance a PKO watermark past unpaid money.
@@ -1839,6 +1890,10 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
             }
           } finally {
             this.closeEliminationMutationBatch();
+            this.bustEvidencePrefetch.clear();
+            this.bustGuardPrefetch.clear();
+            this.nextBustUserId = undefined;
+            await this.drainBustPresentation();
           }
           // The bust that decided the field - one player left, or TWO in a
           // bounty only PKO, which ends there (Dan 2026-11-05). The finish
@@ -3608,18 +3663,46 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
     }
   }
 
-  protected async eliminatePlayer(
-    userId: string,
-    position: number,
-    allowCompletingClaim = false
-  ): Promise<boolean> {
-    if (!this.eliminationMutationAllowed()) return false;
-    /* ONE TRIP FOR TWO INDEPENDENT READS (2026-11-05). The replay guard and
-       the pricing row answer different questions and neither waits on the
-       other, so they travel together: a bust reaches its knockout door one
-       round trip sooner (aBustReachesItsBountyInFewerTrips). A replay discards
-       the row it did not need; nothing is written by either read. */
-    const [playerCheckRead, tournamentRead] = await Promise.all([
+  protected presentBust(work: () => Promise<void>): Promise<void> {
+    const run = async () => {
+      try {
+        await work();
+      } catch (error) {
+        reportError(error, 'Tournament.bust_presentation_failed');
+      }
+    };
+    if (!this.bustPresentation) return run();
+    this.bustPresentation = this.bustPresentation.then(run);
+    return Promise.resolve();
+  }
+
+  protected openBustPresentation(): void {
+    this.bustPresentation = Promise.resolve();
+  }
+
+  protected async drainBustPresentation(): Promise<void> {
+    const queued = this.bustPresentation;
+    this.bustPresentation = null;
+    if (queued) await queued;
+  }
+
+  protected bountyEventFromCache(): boolean {
+    const cached = this.tournamentCache as
+      | { is_bounty?: unknown; is_pko?: unknown; is_mystery_bounty?: unknown }
+      | null
+      | undefined;
+    return !!cached && !!(cached.is_bounty || cached.is_pko || cached.is_mystery_bounty);
+  }
+
+  protected prefetchBustEvidence(userId: string | undefined): void {
+    if (!userId || !this.bountyEventFromCache() || this.bustEvidencePrefetch.has(userId)) return;
+    const evidence = this.loadPersistedBountyEvidence(userId).catch(() => null);
+    this.bustEvidencePrefetch.set(userId, { evidence, used: false });
+  }
+
+  /** The replay guard and the pricing row: two independent reads, one trip. */
+  protected readBustGuard(userId: string) {
+    return Promise.all([
       // Guard: check if already eliminated (prevents double-processing)
       supabase
         .from('tournament_players')
@@ -3638,6 +3721,47 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
         .eq('id', this.tournamentId)
         .maybeSingle(), // FIX 168: Bible safety rule — use maybeSingle over single
     ]);
+  }
+
+  private bustGuardPrefetchMap?: Map<string, ReturnType<TournamentManagerEliminations['readBustGuard']>>;
+  protected get bustGuardPrefetch() {
+    return (this.bustGuardPrefetchMap ??= new Map());
+  }
+  /** The bust the assignment pass will record next, while one is being recorded. */
+  protected nextBustUserId?: string;
+
+  /**
+   * THE NEXT GUARD TRAVELS WITH THIS BUST'S MARKER READ (2026-11-14). Called
+   * the moment this bust's payer has answered, so both of its money writes
+   * (the door and the payer) have committed. The next bust's replay guard and
+   * pricing row are read-only and are read after those commits; the next
+   * door still waits for this bust's settled-marker proof, because the
+   * assignment pass only advances when eliminatePlayer returns.
+   */
+  protected startNextBustGuard(): void {
+    const next = this.nextBustUserId;
+    if (!next || this.bustGuardPrefetch.has(next)) return;
+    const read = this.readBustGuard(next);
+    read.catch(() => undefined);
+    this.bustGuardPrefetch.set(next, read);
+  }
+
+  protected async eliminatePlayer(
+    userId: string,
+    position: number,
+    allowCompletingClaim = false
+  ): Promise<boolean> {
+    if (!this.eliminationMutationAllowed()) return false;
+    /* ONE TRIP FOR TWO INDEPENDENT READS (2026-11-05). The replay guard and
+       the pricing row answer different questions and neither waits on the
+       other, so they travel together: a bust reaches its knockout door one
+       round trip sooner (aBustReachesItsBountyInFewerTrips). A replay discards
+       the row it did not need; nothing is written by either read. */
+    // The guard and the pricing row may already be in flight: the previous
+    // bust started them the moment its payment committed (readBustGuard).
+    const guardRead = this.bustGuardPrefetch.get(userId) ?? this.readBustGuard(userId);
+    this.bustGuardPrefetch.delete(userId);
+    const [playerCheckRead, tournamentRead] = await guardRead;
     const { data: playerCheck, error: checkErr } = playerCheckRead;
     if (!this.eliminationMutationAllowed()) return false;
 
@@ -3686,7 +3810,17 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
     );
     // Prove the immutable candidate and its exact accepted hand BEFORE the
     // status CAS. A live or historical seat never selects bounty identity.
-    const bountyEvidence = hasBounty ? await this.loadPersistedBountyEvidence(userId) : null;
+    // Ready prefetched evidence is used once; anything else (none, a defer,
+    // a failed read) is read again now, so a prefetch can never refuse a bust
+    // that a fresh read would admit.
+    const prefetched = this.bustEvidencePrefetch.get(userId);
+    this.bustEvidencePrefetch.delete(userId);
+    let bountyEvidence: CandidateBackedKnockoutEvidence | null = null;
+    if (hasBounty) {
+      const early = prefetched ? await prefetched.evidence : null;
+      if (early) prefetched!.used = true;
+      bountyEvidence = early ?? (await this.loadPersistedBountyEvidence(userId));
+    }
     if (!this.eliminationMutationAllowed()) return false;
     if (hasBounty && !bountyEvidence) {
       return false;
@@ -4096,36 +4230,38 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
        the place and prize from the locked ladder. The place this sweep
        proposed is provisional, so the toast reads the row the commit left:
        the place the player finished in and the amount already credited. */
-    let eliminatedName = 'Player';
-    let finishedPosition = position;
-    let finishedPrize = prize;
-    try {
-      const { data: nameRow } = await supabase
-        .from('tournament_players')
-        .select('username, position, prize')
-        .eq('tournament_id', this.tournamentId)
-        .eq('user_id', userId)
-        .maybeSingle();
-      eliminatedName = nameRow?.username || 'Player';
-      const storedPosition = Number(nameRow?.position);
-      if (Number.isInteger(storedPosition) && storedPosition >= 2) {
-        finishedPosition = storedPosition;
-        const storedPrize = Number(nameRow?.prize);
-        if (Number.isFinite(storedPrize) && storedPrize >= 0) finishedPrize = storedPrize;
+    await this.presentBust(async () => {
+      let eliminatedName = 'Player';
+      let finishedPosition = position;
+      let finishedPrize = prize;
+      try {
+        const { data: nameRow } = await supabase
+          .from('tournament_players')
+          .select('username, position, prize')
+          .eq('tournament_id', this.tournamentId)
+          .eq('user_id', userId)
+          .maybeSingle();
+        eliminatedName = nameRow?.username || 'Player';
+        const storedPosition = Number(nameRow?.position);
+        if (Number.isInteger(storedPosition) && storedPosition >= 2) {
+          finishedPosition = storedPosition;
+          const storedPrize = Number(nameRow?.prize);
+          if (Number.isFinite(storedPrize) && storedPrize >= 0) finishedPrize = storedPrize;
+        }
+      } catch {
+        /* the lookup is cosmetic; the proposed place still announces the bust */
       }
-    } catch {
-      /* the lookup is cosmetic; the proposed place still announces the bust */
-    }
-    await this.broadcast('player_eliminated', {
-      userId,
-      position: finishedPosition,
-      prize: finishedPrize,
-      playerName: eliminatedName,
-    });
+      await this.broadcast('player_eliminated', {
+        userId,
+        position: finishedPosition,
+        prize: finishedPrize,
+        playerName: eliminatedName,
+      });
 
-    console.log(
-      `[Tournament:${this.tournamentId.slice(0, 8)}] Eliminated: ${userId.slice(0, 8)} at position ${finishedPosition} (prize: ${finishedPrize})`
-    );
+      console.log(
+        `[Tournament:${this.tournamentId.slice(0, 8)}] Eliminated: ${userId.slice(0, 8)} at position ${finishedPosition} (prize: ${finishedPrize})`
+      );
+    });
     return true;
   }
 
@@ -4294,6 +4430,7 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
         ),
     ]);
     const { data: result, error } = collectRead;
+    this.startNextBustGuard();
 
     let res = (result ?? {}) as {
       ok?: boolean;
@@ -4440,139 +4577,141 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
     // draws on the busted player's own chair and never reads an avatar URL.
     // Removed 2026-09-04 (knockout audit): a query per knockout for a field
     // nothing consumes.
-    try {
-      /* Every winner of the pot gets a name, not just the first. On a tied pot
-         `fn_collect_bounty` splits the head by claim weight and reports each
-         winner's share; the client draws one bounty stream per winner, so it
-         needs each one's name for the feed line and the accessibility label. */
-      const shareRows = Array.isArray(res.shares) ? res.shares : [];
-      const nameIds = Array.from(
-        new Set<string>([
+    await this.presentBust(async () => {
+      try {
+        /* Every winner of the pot gets a name, not just the first. On a tied pot
+           `fn_collect_bounty` splits the head by claim weight and reports each
+           winner's share; the client draws one bounty stream per winner, so it
+           needs each one's name for the feed line and the accessibility label. */
+        const shareRows = Array.isArray(res.shares) ? res.shares : [];
+        const nameIds = Array.from(
+          new Set<string>([
+            eliminatedUserId,
+            knockerUserId,
+            ...shareRows.map((s) => String(s.user_id || '')).filter(Boolean),
+          ])
+        );
+        // Read with the payment above; only a winner the prefetch could not
+        // have named (none today) costs a trip of its own here.
+        let names = (Array.isArray(prefetchedNames.data) ? prefetchedNames.data : null) as Array<{
+          user_id: string;
+          username: string;
+        }> | null;
+        const unnamed = nameIds.filter((id) => !prefetchNameIds.includes(id));
+        if (!names || unnamed.length > 0) {
+          const { data: read } = await supabase
+            .from('tournament_players')
+            .select('user_id, username')
+            .eq('tournament_id', this.tournamentId)
+            .in('user_id', nameIds);
+          names = read as typeof names;
+        }
+        const nameOf = (id: string) =>
+          (names || []).find((n: any) => n.user_id === id)?.username || 'Player';
+
+        /* ── THE SHARES, ON THE WIRE (knockout audit 2026-09-04) ───────────────
+           The 2026-08-31 split-pot ruling made the MONEY right — a tied pot pays
+           each winner their weighted share and halves each share onto its own
+           head in a PKO — but this broadcast kept sending the TOTAL under ONE
+           `knockerUserId`. TablePage therefore flew the whole bounty to one of
+           the two winners and showed the other nothing; in a PKO it also added
+           the whole `addedToHead` to one head badge. Measured against
+           production: 55 split knockouts between 08-30 and 09-04, every one
+           animated for the wrong amount at one seat and not at all at the other.
+
+           `shares` carries one row per winner. `amount`, `addedToHead`,
+           `knockerUserId` and `knockerName` are UNCHANGED for the single-winner
+           case and stay on the wire for it, so an older bundle that never reads
+           `shares` behaves exactly as before. */
+        const shares =
+          shareRows.length > 1
+            ? shareRows.map((s) => ({
+                userId: String(s.user_id),
+                name: nameOf(String(s.user_id)),
+                amount: Number(s.cash) || 0,
+                addedToHead: Number(s.to_head) || 0,
+              }))
+            : undefined;
+
+        /* NO RANK ON A HEAD (2026-10-05). A `bounty_collected` knockout is a
+           head - a pko half, a regular head, or a mystery event's flat
+           pre-phase head (`mystery_pre`). None of them is a draw from a prize
+           ladder: the pre-phase heads were all the same flat figure, so ranking
+           one against the others made every routine knockout "rank 1", and the
+           table announced "X Just Pulled The Top Mystery Bounty" for the
+           ordinary bounty on every bust before the chests opened. A rank
+           belongs to the chest (settleMysteryBountyAward / chestPrizeRank), and
+           only there. */
+
+        // ── THE EVENT NAME IS A CONSTANT, AND THAT IS THE FIX ────────────────
+        //
+        // This used to read:
+        //
+        //     res.mode === 'mystery' ? 'mystery_bounty_revealed' : 'bounty_collected'
+        //
+        // `fn_collect_bounty` never returns 'mystery' — it returns 'pko',
+        // 'mystery_pre' or 'regular' (see mysteryPrizeLadder.ts, which quotes the
+        // live CASE). So the ternary was dead in both directions, and worse: had
+        // it ever fired it would have sent the CHEST event under a payload the
+        // chest cannot read. `mystery_bounty_revealed` belongs to
+        // settleMysteryBountyAward below and carries awardId / amountCents /
+        // tier / recipients; TablePage feeds it straight into the chest queue and
+        // useMysteryBounty refetches the mystery RPCs on it. A pre-phase knockout
+        // has no award and no chest, so borrowing that name would have played a
+        // full-screen reveal for a chest that does not exist.
+        //
+        // The celebration banner accepts `bounty_collected` and gates on the mode
+        // — which is why it works at all today — so this name is the correct one
+        // and the only one this path may send.
+        await this.broadcast('bounty_collected', {
+          obligationId: settledObligation.id,
+          handId,
+          eliminatedSeat,
+          mode: res.mode,
+          amount: res.paid_cash,
+          addedToHead: res.added_to_head,
+          // playerName = whose head was revealed/claimed
+          playerName: nameOf(eliminatedUserId),
+          eliminatedName: nameOf(eliminatedUserId),
           eliminatedUserId,
+          knockerName: nameOf(knockerUserId),
           knockerUserId,
-          ...shareRows.map((s) => String(s.user_id || '')).filter(Boolean),
-        ])
-      );
-      // Read with the payment above; only a winner the prefetch could not
-      // have named (none today) costs a trip of its own here.
-      let names = (Array.isArray(prefetchedNames.data) ? prefetchedNames.data : null) as Array<{
-        user_id: string;
-        username: string;
-      }> | null;
-      const unnamed = nameIds.filter((id) => !prefetchNameIds.includes(id));
-      if (!names || unnamed.length > 0) {
-        const { data: read } = await supabase
-          .from('tournament_players')
-          .select('user_id, username')
-          .eq('tournament_id', this.tournamentId)
-          .in('user_id', nameIds);
-        names = read as typeof names;
+          // Present ONLY on a split knockout (two or more winners of the pot).
+          // Undefined drops off the wire for the ordinary single-winner case.
+          shares,
+          avgBounty: tournament?.bounty_amount || undefined,
+          poolRemaining: res.pool_remaining,
+          // Which table this happened at — see the tableId parameter.
+          tableId,
+        });
+        // The heads just moved in the ledger: put them on the felt now, on the
+        // table state itself, not only on this broadcast.
+        this.requestSeatHeads();
+
+        // NO DEAL HOLD ON THIS PATH, DELIBERATELY (corrected 2026-08-26).
+        //
+        // A `holdDealingUntil(now + mysteryChestHoldMs())` used to sit here under
+        // `res.mode === 'mystery'`. Like the event name above, that test could
+        // never be true, so the hold never ran — and reviving it for the real
+        // value ('mystery_pre') would have been the wrong fix twice over:
+        //
+        //   - the hold exists so a table does not deal a hand under a live CHEST
+        //     sequence, and there is no chest before the mystery phase opens.
+        //     Pausing every mystery event's tables for the length of an animation
+        //     that never plays is a stall, not a fix;
+        //   - the chest path already holds correctly and by a better mechanism.
+        //     openBountyGate() calls beginBountyReveal() (a COUNT-based gate, so
+        //     three chests in one hand hold for all three) plus holdDealingUntil()
+        //     as the wall-clock failsafe. See ServerTableEngineBase's note on why
+        //     a deadline alone is wrong here.
+      } catch {
+        /* the reveal broadcast is cosmetic — never block the payout path */
       }
-      const nameOf = (id: string) =>
-        (names || []).find((n: any) => n.user_id === id)?.username || 'Player';
 
-      /* ── THE SHARES, ON THE WIRE (knockout audit 2026-09-04) ───────────────
-         The 2026-08-31 split-pot ruling made the MONEY right — a tied pot pays
-         each winner their weighted share and halves each share onto its own
-         head in a PKO — but this broadcast kept sending the TOTAL under ONE
-         `knockerUserId`. TablePage therefore flew the whole bounty to one of
-         the two winners and showed the other nothing; in a PKO it also added
-         the whole `addedToHead` to one head badge. Measured against
-         production: 55 split knockouts between 08-30 and 09-04, every one
-         animated for the wrong amount at one seat and not at all at the other.
-
-         `shares` carries one row per winner. `amount`, `addedToHead`,
-         `knockerUserId` and `knockerName` are UNCHANGED for the single-winner
-         case and stay on the wire for it, so an older bundle that never reads
-         `shares` behaves exactly as before. */
-      const shares =
-        shareRows.length > 1
-          ? shareRows.map((s) => ({
-              userId: String(s.user_id),
-              name: nameOf(String(s.user_id)),
-              amount: Number(s.cash) || 0,
-              addedToHead: Number(s.to_head) || 0,
-            }))
-          : undefined;
-
-      /* NO RANK ON A HEAD (2026-10-05). A `bounty_collected` knockout is a
-         head - a pko half, a regular head, or a mystery event's flat
-         pre-phase head (`mystery_pre`). None of them is a draw from a prize
-         ladder: the pre-phase heads were all the same flat figure, so ranking
-         one against the others made every routine knockout "rank 1", and the
-         table announced "X Just Pulled The Top Mystery Bounty" for the
-         ordinary bounty on every bust before the chests opened. A rank
-         belongs to the chest (settleMysteryBountyAward / chestPrizeRank), and
-         only there. */
-
-      // ── THE EVENT NAME IS A CONSTANT, AND THAT IS THE FIX ────────────────
-      //
-      // This used to read:
-      //
-      //     res.mode === 'mystery' ? 'mystery_bounty_revealed' : 'bounty_collected'
-      //
-      // `fn_collect_bounty` never returns 'mystery' — it returns 'pko',
-      // 'mystery_pre' or 'regular' (see mysteryPrizeLadder.ts, which quotes the
-      // live CASE). So the ternary was dead in both directions, and worse: had
-      // it ever fired it would have sent the CHEST event under a payload the
-      // chest cannot read. `mystery_bounty_revealed` belongs to
-      // settleMysteryBountyAward below and carries awardId / amountCents /
-      // tier / recipients; TablePage feeds it straight into the chest queue and
-      // useMysteryBounty refetches the mystery RPCs on it. A pre-phase knockout
-      // has no award and no chest, so borrowing that name would have played a
-      // full-screen reveal for a chest that does not exist.
-      //
-      // The celebration banner accepts `bounty_collected` and gates on the mode
-      // — which is why it works at all today — so this name is the correct one
-      // and the only one this path may send.
-      await this.broadcast('bounty_collected', {
-        obligationId: settledObligation.id,
-        handId,
-        eliminatedSeat,
-        mode: res.mode,
-        amount: res.paid_cash,
-        addedToHead: res.added_to_head,
-        // playerName = whose head was revealed/claimed
-        playerName: nameOf(eliminatedUserId),
-        eliminatedName: nameOf(eliminatedUserId),
-        eliminatedUserId,
-        knockerName: nameOf(knockerUserId),
-        knockerUserId,
-        // Present ONLY on a split knockout (two or more winners of the pot).
-        // Undefined drops off the wire for the ordinary single-winner case.
-        shares,
-        avgBounty: tournament?.bounty_amount || undefined,
-        poolRemaining: res.pool_remaining,
-        // Which table this happened at — see the tableId parameter.
-        tableId,
-      });
-      // The heads just moved in the ledger: put them on the felt now, on the
-      // table state itself, not only on this broadcast.
-      this.requestSeatHeads();
-
-      // NO DEAL HOLD ON THIS PATH, DELIBERATELY (corrected 2026-08-26).
-      //
-      // A `holdDealingUntil(now + mysteryChestHoldMs())` used to sit here under
-      // `res.mode === 'mystery'`. Like the event name above, that test could
-      // never be true, so the hold never ran — and reviving it for the real
-      // value ('mystery_pre') would have been the wrong fix twice over:
-      //
-      //   - the hold exists so a table does not deal a hand under a live CHEST
-      //     sequence, and there is no chest before the mystery phase opens.
-      //     Pausing every mystery event's tables for the length of an animation
-      //     that never plays is a stall, not a fix;
-      //   - the chest path already holds correctly and by a better mechanism.
-      //     openBountyGate() calls beginBountyReveal() (a COUNT-based gate, so
-      //     three chests in one hand hold for all three) plus holdDealingUntil()
-      //     as the wall-clock failsafe. See ServerTableEngineBase's note on why
-      //     a deadline alone is wrong here.
-    } catch {
-      /* the reveal broadcast is cosmetic — never block the payout path */
-    }
-
-    console.log(
-      `[Tournament:${this.tournamentId.slice(0, 8)}] BOUNTY (${res.mode}): ${knockerUserId.slice(0, 8)} collected ${res.paid_cash} from ${eliminatedUserId.slice(0, 8)}${res.added_to_head ? ` (+${res.added_to_head} to own head)` : ''}`
-    );
+      console.log(
+        `[Tournament:${this.tournamentId.slice(0, 8)}] BOUNTY (${res.mode}): ${knockerUserId.slice(0, 8)} collected ${res.paid_cash} from ${eliminatedUserId.slice(0, 8)}${res.added_to_head ? ` (+${res.added_to_head} to own head)` : ''}`
+      );
+    });
     return true;
   }
 
