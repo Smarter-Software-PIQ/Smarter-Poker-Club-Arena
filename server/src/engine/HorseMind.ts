@@ -4,6 +4,7 @@ import {
   mergeMultiwayRiverStates,
   type MultiwayRiverReadState,
 } from './HorseMultiwayRiverRead.js';
+import { omahaTightRead, type OmahaTightRead } from './HorseOmahaTightOpponent.js';
 import {
   riverPositionIncrements,
   riverTripleCheckRaiseIncrements,
@@ -2267,6 +2268,39 @@ export class HorseMind {
       return presumed.read;
     }
     return read;
+  }
+
+  /**
+   * OMAHA TIGHT OPPONENT (2026-11-13, HorseOmahaTightOpponent, default off):
+   * the low-side tight read of this opponent for the decision in flight, from
+   * the same decayed counters opponentRead reads (the exact context's durable
+   * row, probe-adjusted) and its high-side exploit read. Null outside an
+   * Omaha decision or below the evidence floor. Pure: no fires, no writes.
+   * Only HorseLogic calls it, and only with omahaTightOpponent on.
+   */
+  static omahaTightReadOf(userId: string): OmahaTightRead | null {
+    const scope = this.decisionScope;
+    if (!scope || !scope.startsWith('omaha:')) return null;
+    const variant = memoryVariant(this.decisionVariant);
+    const size = scope.split(':')[1] as MemorySize;
+    const durable = variant ? this.blendDurableRead(userId, variant, size, false) : undefined;
+    const raw =
+      durable ??
+      (this.durableOpponentMemory && variant
+        ? undefined
+        : this.exploitCounters.get(`${scope}|${userId}`));
+    // probeAdjusted without its receipt: the same counters, no fire.
+    const pooled = this.stats.get(userId);
+    const counters =
+      raw && this.probeAwareAggression
+        ? probeAdjustedCounters(raw, pooled?.ctBets, pooled?.ctProbes)
+        : raw;
+    return omahaTightRead(
+      counters,
+      scope,
+      this.decisionVariant,
+      opponentExploitRead(counters, scope, this.decisionVariant)
+    );
   }
 
   /**
