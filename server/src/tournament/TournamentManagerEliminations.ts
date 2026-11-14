@@ -1786,17 +1786,18 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
               const prefetched = this.bustEvidencePrefetch.get(bustedOrdered[i].user_id);
               this.prefetchBustEvidence(bustedOrdered[i + 1]?.user_id);
               this.nextBustUserId = bustedOrdered[i + 1]?.user_id;
-              const eliminated = await this.eliminatePlayer(bustedOrdered[i].user_id, place);
-              if (sweepStopped()) return;
               // Evidence read before the previous bust committed may be stale
               // by the time its door runs. A refusal on it is not yet a
-              // refusal: read the evidence again and ask the door once more,
-              // in the same place, before the pass treats it as one.
-              const recorded =
-                eliminated ||
-                (prefetched?.used === true &&
-                  (await this.eliminatePlayer(bustedOrdered[i].user_id, place)));
-              if (sweepStopped()) return;
+              // refusal: the second attempt reads the evidence again (the
+              // prefetch was consumed) and asks the door once more, in the
+              // same place, before the pass treats it as one.
+              let recorded = false;
+              for (let attempt = 0; attempt < 2; attempt++) {
+                const eliminated = await this.eliminatePlayer(bustedOrdered[i].user_id, place);
+                if (sweepStopped()) return;
+                recorded = eliminated;
+                if (eliminated || prefetched?.used !== true) break;
+              }
               // False includes both a deliberate evidence defer and a CAS miss
               // because another generation/process got there first. In either
               // case takenPositions is now stale. Abort the assignment pass;
