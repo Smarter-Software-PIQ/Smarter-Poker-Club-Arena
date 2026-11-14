@@ -23,6 +23,10 @@ const MIGRATION =
 const RESUME_MIGRATION =
   'supabase/migrations/20261114050737_charles_rule_countdown_resumes_where_it_left_off.sql';
 const RESUME_GUARD = 'ede6dbf160aeba5e1feef8667e1c14e3';
+/** CLUB DATA SHOWS PAUSED COUNTS (owner 2026-11-14), installed last, as written. */
+const CLUB_PAUSED_MIGRATION =
+  'supabase/migrations/20261114072737_club_data_shows_paused_hand_counts.sql';
+const CLUB_PAUSED_GUARD = '1b119337c2c2ac187a7c3f1cbbb74993';
 
 const GUARDED: Record<string, string> = {
   'public.fn_cash_session_evaluate(uuid,jsonb)': 'cb8ac1ad4079d6d6bae21952043e15ae',
@@ -216,6 +220,14 @@ beforeAll(() => {
   );
   expect(resume).toContain(RESUME_GUARD);
   sql(resume.replace(RESUME_GUARD, installed));
+  const clubPaused = readFileSync(resolve(root, CLUB_PAUSED_MIGRATION), 'utf8');
+  expect(clubPaused).toContain(CLUB_PAUSED_GUARD);
+  sql(
+    clubPaused.replace(
+      CLUB_PAUSED_GUARD,
+      one(`SELECT md5(pg_get_functiondef('public.ca_club_hit_run_status(uuid)'::regprocedure))`)
+    )
+  );
   sql(`INSERT INTO clubs VALUES ('${CLUB}', true, 10);
     INSERT INTO tables VALUES
       ('${T}', NULL, '${CLUB}', 100, 'nlh', 0.25, 0.5, NULL, 'NLH Classic', '0.25/0.50'),
@@ -647,5 +659,33 @@ describe('the countdown resumes where it left off (owner 2026-11-13)', () => {
     poolHand(40); // back in profit
     expect(count(P(64))).toMatchObject({ required: 10, played: 3 });
     expect(owed(P(64), LT)).toMatchObject({ allowed: false, hands: 7 });
+  });
+
+  it('shows the club a paused player apart from the players who owe hands, and the player their paused count', () => {
+    seat(P(65), T, 100);
+    sql(`INSERT INTO profiles (id, username) VALUES ('${P(65)}', 'sixtyfive');
+         INSERT INTO club_members VALUES ('${CLUB}', '${P(65)}');`);
+    classicHand(T, { [P(65)]: 20 });
+    quietHands(T, P(65), 3);
+    const clubRows = () => JSON.parse(one(`SELECT ca_club_hit_run_status('${CLUB}')`));
+    const mine = (rows: Array<{ user_id: string }>) => rows.filter((r) => r.user_id === P(65));
+    expect(mine(clubRows().rows)).toEqual([
+      expect.objectContaining({ hands_remaining: 7, hands_required: 10 }),
+    ]);
+    expect(mine(clubRows().paused_rows)).toEqual([]);
+    classicHand(T, { [P(65)]: -30 }); // paused at seven
+    expect(mine(clubRows().rows)).toEqual([]);
+    expect(mine(clubRows().paused_rows)).toEqual([
+      expect.objectContaining({ hands_remaining: 7, hands_required: 10, paused: true }),
+    ]);
+    sql(`DELETE FROM whoami; INSERT INTO whoami VALUES ('${P(65)}')`);
+    expect(
+      JSON.parse(one(`SELECT row_to_json(x) FROM fn_my_hit_run_status('${T}') x`))
+    ).toMatchObject({ hands_remaining: 0, hands_required: 10, hands_played: 3, completed: false });
+    classicHand(T, { [P(65)]: 40 }); // back in profit
+    expect(mine(clubRows().paused_rows)).toEqual([]);
+    expect(mine(clubRows().rows)).toEqual([
+      expect.objectContaining({ hands_remaining: 7, hands_required: 10 }),
+    ]);
   });
 });

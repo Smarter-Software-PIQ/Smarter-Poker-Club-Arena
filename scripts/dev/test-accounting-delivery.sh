@@ -250,12 +250,20 @@ run_game_probe diamond-spins-every-movement-has-a-ledger-row 'NOTICE:  PASS Ever
 "${diamond_psql[@]}" -c 'CREATE DATABASE diamond_custody_race TEMPLATE diamond_games_probe OWNER postgres'
 race_psql=("$pgbin/psql" -X -q -v ON_ERROR_STOP=1 -h "$fixture/socket" -p 55487 -U postgres -d diamond_custody_race)
 "${race_psql[@]}" -f "$diamond/daily-custody-concurrency-seed.sql" > "$fixture/custody-race-seed.stdout"
-"${race_psql[@]}" > "$fixture/custody-race-a.stdout" 2> "$fixture/custody-race-a.stderr" <<'SQL' &
+# The seed decides the settlement day once. Both racers settle the day it
+# recorded and the assert reads the same row; nothing recomputes "yesterday in
+# Chicago", so the scenario cannot straddle midnight (2026-11-14, 00:00:01).
+race_day="$("${race_psql[@]}" -Atc "SELECT day FROM public.diamond_spin_days WHERE owner_id='d1000000-0000-4000-8000-000000000002'")"
+if ! [[ "$race_day" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+  echo "The custody race seed did not record exactly one settlement day: '$race_day'" >&2
+  exit 1
+fi
+"${race_psql[@]}" -v race_day="$race_day" > "$fixture/custody-race-a.stdout" 2> "$fixture/custody-race-a.stderr" <<'SQL' &
 BEGIN;
 SET LOCAL lock_timeout='10s';
 SET LOCAL application_name='diamond-custody-race-a';
 SET LOCAL "request.jwt.claims"='{"role":"service_role"}';
-SELECT public.fn_diamond_spin_settle_day('d1000000-0000-4000-8000-000000000002',(clock_timestamp() AT TIME ZONE 'America/Chicago')::date-1);
+SELECT public.fn_diamond_spin_settle_day('d1000000-0000-4000-8000-000000000002',:'race_day'::date);
 SELECT pg_sleep(2);
 COMMIT;
 SQL
@@ -267,12 +275,12 @@ for attempt in $(seq 1 60); do
   sleep 0.02
 done
 if [ "$first_owned" != 1 ]; then wait "$race_a"; echo 'First settlement never reached its held receipt' >&2; exit 1; fi
-"${race_psql[@]}" > "$fixture/custody-race-b.stdout" 2> "$fixture/custody-race-b.stderr" <<'SQL' &
+"${race_psql[@]}" -v race_day="$race_day" > "$fixture/custody-race-b.stdout" 2> "$fixture/custody-race-b.stderr" <<'SQL' &
 BEGIN;
 SET LOCAL lock_timeout='10s';
 SET LOCAL application_name='diamond-custody-race-b';
 SET LOCAL "request.jwt.claims"='{"role":"service_role"}';
-SELECT public.fn_diamond_spin_settle_day('d1000000-0000-4000-8000-000000000002',(clock_timestamp() AT TIME ZONE 'America/Chicago')::date-1);
+SELECT public.fn_diamond_spin_settle_day('d1000000-0000-4000-8000-000000000002',:'race_day'::date);
 COMMIT;
 SQL
 race_b=$!

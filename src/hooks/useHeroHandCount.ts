@@ -36,9 +36,19 @@ export function useHeroHandCount(opts: {
   const [read, setRead] = useState<HandCount>(NONE);
   const anchorRef = useRef<{ clusterId: string; tableId: string } | null>(null);
   const useEngine = engine !== undefined && !lightningClusterId;
+  const engineOwed = useEngine ? owedHands(engine?.owed) : null;
+  /**
+   * THE PAUSED COUNT (owner 2026-11-13). The engine's seat carries only hands
+   * owed, and a paused countdown owes none, so while the engine says none the
+   * paused count is read from the database: once when the table opens, then
+   * after each hand for as long as a count was just owed or is paused. A read
+   * that finds nothing paused stops the reading until hands are owed again.
+   */
+  const watchPaused = useRef(true);
+  if (engineOwed !== null) watchPaused.current = true;
 
   useEffect(() => {
-    if (!enabled || useEngine || !tableId) {
+    if (!enabled || !tableId || (useEngine && (engineOwed !== null || !watchPaused.current))) {
       setRead(NONE);
       return;
     }
@@ -62,17 +72,24 @@ export function useHeroHandCount(opts: {
       }
       if (!target || cancelled) return;
       const count = await fetchMyHandCount(target);
-      if (!cancelled) setRead(count);
+      if (cancelled) return;
+      if (useEngine && !(count.paused && count.paused > 0)) watchPaused.current = false;
+      setRead(count);
     }, HAND_COUNT_REFRESH_DELAY_MS);
     return () => {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [enabled, useEngine, tableId, lightningClusterId, handNumber]);
+  }, [enabled, useEngine, engineOwed, tableId, lightningClusterId, handNumber]);
 
   if (!enabled) return NONE;
   if (!useEngine) return read;
-  const owed = owedHands(engine?.owed);
+  const owed = engineOwed;
+  // The engine owes nothing: only the database's paused count is shown.
+  if (owed === null)
+    return read.paused && read.paused > 0
+      ? { owed: null, required: null, paused: read.paused, pausedRequired: read.pausedRequired }
+      : NONE;
   return {
     owed,
     required: owed === null ? null : owedHands(engine?.required),
@@ -142,6 +159,48 @@ export function useCountdownStarted(
     )
       notify.current(count.owed, count.reason, count.bigWinBb);
   }, [count.owed, count.required, handNumber]);
+}
+
+/**
+ * THE COUNT PAUSES AND RESUMES (owner 2026-11-13): falling out of profit
+ * with hands left pauses the countdown, and coming back picks it up where it
+ * stopped. Both are said when they happen, so a count that disappears and
+ * returns is never a surprise. A pause already standing when the table opens
+ * is not announced; `handNumber` is the table's hand counter.
+ */
+export function useCountdownPauseResume(
+  count: HandCount,
+  handNumber: number,
+  onPause: (hands: number) => void,
+  onResume: (hands: number) => void
+): void {
+  const prev = useRef<HandCount>(NONE);
+  const lastPaused = useRef<number | null>(null);
+  const firstHand = useRef<number | null>(null);
+  const pause = useRef(onPause);
+  const resume = useRef(onResume);
+  pause.current = onPause;
+  resume.current = onResume;
+  useEffect(() => {
+    if (firstHand.current === null && handNumber > 0) firstHand.current = handNumber;
+  }, [handNumber]);
+  useEffect(() => {
+    const before = prev.current;
+    prev.current = count;
+    const paused = count.paused && count.paused > 0 ? count.paused : null;
+    const wasPaused = before.paused && before.paused > 0 ? before.paused : null;
+    if (paused !== null) {
+      if (wasPaused === null && firstHand.current !== null && handNumber > firstHand.current)
+        pause.current(paused);
+      lastPaused.current = paused;
+      return;
+    }
+    if (count.owed !== null && lastPaused.current !== null) {
+      const hitRun = count.reason !== 'big_win';
+      if (hitRun) resume.current(count.owed);
+      lastPaused.current = null;
+    }
+  }, [count.owed, count.paused, count.reason, handNumber]);
 }
 
 /**

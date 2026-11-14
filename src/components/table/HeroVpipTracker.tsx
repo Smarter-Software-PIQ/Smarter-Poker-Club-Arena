@@ -27,6 +27,8 @@ import { fetchMyLightningSession } from '../../lightning/lightningSession';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   HIT_RUN_COUNT_LABEL,
+  HIT_RUN_PAUSED_LABEL,
+  HIT_RUN_PAUSED_NOTE,
   handsOwedReasonText,
   type HandsOwedReason,
 } from '../../lib/hitAndRun';
@@ -226,6 +228,11 @@ interface Props {
   handsOwed?: number | null;
   /** Why they are owed (owner 2026-11-11): the countdown in profit, a +250 BB win, or both. */
   handsReason?: HandsOwedReason | null;
+  /**
+   * THE COUNT IS PAUSED (owner 2026-11-13): hands left of a countdown the
+   * hero fell out of profit on. Shown only while nothing is owed. Null: none.
+   */
+  handsPaused?: number | null;
 }
 
 export default function HeroVpipTracker({
@@ -237,6 +244,7 @@ export default function HeroVpipTracker({
   heroPos,
   handsOwed = null,
   handsReason = null,
+  handsPaused = null,
 }: Props) {
   const enabled = Boolean(tableId) && heroSeated && !isTournament;
   const { status, freshness } = useHeroVpipStatus(tableId, enabled, handNumber, lightningClusterId);
@@ -245,6 +253,7 @@ export default function HeroVpipTracker({
   const floor = Number(status?.required ?? 0);
   const showVpip = Boolean(status?.ok && status.seated && floor > 0);
   const showHands = typeof handsOwed === 'number' && handsOwed > 0;
+  const showPaused = !showHands && typeof handsPaused === 'number' && handsPaused > 0;
   const completedHands =
     lightningClusterId &&
     status?.ok &&
@@ -316,9 +325,9 @@ export default function HeroVpipTracker({
       observer?.disconnect();
       mounts?.disconnect();
     };
-  }, [tableId, enabled, heroPos?.x, heroPos?.y, showVpip, showHands, showGrace]);
+  }, [tableId, enabled, heroPos?.x, heroPos?.y, showVpip, showHands, showPaused, showGrace]);
 
-  if (!enabled || !heroPos || (!showVpip && !showHands && !showGrace)) return null;
+  if (!enabled || !heroPos || (!showVpip && !showHands && !showPaused && !showGrace)) return null;
 
   return (
     <div
@@ -360,6 +369,13 @@ export default function HeroVpipTracker({
           {handsOwedReasonText(handsReason) ? (
             <small data-testid="hero-hand-count-reason">{handsOwedReasonText(handsReason)}</small>
           ) : null}
+        </div>
+      )}
+      {showPaused && (
+        <div className="hero-vpip__clock" data-testid="hero-hand-count-paused">
+          <span>{HIT_RUN_PAUSED_LABEL}</span>
+          <time aria-label={`${HIT_RUN_PAUSED_LABEL} ${handsPaused}`}>{handsPaused}</time>
+          <small>{HIT_RUN_PAUSED_NOTE}</small>
         </div>
       )}
     </div>

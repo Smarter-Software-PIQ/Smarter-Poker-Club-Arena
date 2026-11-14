@@ -707,6 +707,7 @@ import { useActorGapBridge } from '../hooks/useActorGapBridge';
 import HitRunCountPill from '../components/table/HitRunCountPill';
 import {
   useBigWinRestarted,
+  useCountdownPauseResume,
   useCountdownStarted,
   useHandsAddedByDouble,
 } from '../hooks/useHeroHandCount';
@@ -714,6 +715,8 @@ import {
   blindOffLeaveText,
   bigWinStartedText,
   charlesRuleText,
+  countdownPausedText,
+  countdownResumedText,
   countdownStartedText,
   fetchMyHandsOwed,
   noteHandsOwedAt,
@@ -12215,6 +12218,14 @@ function LiveTablePage({
      win while hands are owed resets the count to ten; said when it happens. */
   useBigWinRestarted(heroHandCount, (hands, bigWinBb) =>
     toast.info(bigWinStartedText(hands, bigWinBb))
+  );
+  /* THE COUNT PAUSES AND RESUMES (owner 2026-11-13): out of profit with hands
+     left pauses the countdown; back in profit it picks up where it stopped. */
+  useCountdownPauseResume(
+    heroHandCount,
+    tableState.handNumber ?? 0,
+    (hands) => toast.info(countdownPausedText(hands)),
+    (hands) => toast.info(countdownResumedText(hands))
   );
   /**
    * HIT AND RUN (owner 2026-11-06): every leave door asks first. Hands still
@@ -30673,6 +30684,12 @@ function LiveTablePage({
           {!tableState.isTournament && tableState.heroSeat <= 0 && !!lightningRoom && (
             <HitRunCountPill hands={heroHandsOwed} reason={heroHandCount.reason ?? null} />
           )}
+          {!tableState.isTournament &&
+            tableState.heroSeat <= 0 &&
+            !!lightningRoom &&
+            heroHandsOwed === null && (
+              <HitRunCountPill hands={heroHandCount.paused ?? null} paused />
+            )}
           {/* THE HERO'S VPIP TRACKER (Dan 2026-09-04): to the left of the
               hero, hero only, the judged figure. A sibling of the seats at
               the hero seat's own point; HeroVpipTracker.css pushes it left of
@@ -30684,6 +30701,7 @@ function LiveTablePage({
             isTournament={tableState.isTournament}
             handsOwed={heroHandsOwed}
             handsReason={heroHandCount.reason ?? null}
+            handsPaused={heroHandCount.paused ?? null}
             handNumber={tableState.handNumber ?? 0}
             heroPos={
               tableState.heroSeat > 0 ? (seatPositions[tableState.heroSeat - 1] ?? null) : null

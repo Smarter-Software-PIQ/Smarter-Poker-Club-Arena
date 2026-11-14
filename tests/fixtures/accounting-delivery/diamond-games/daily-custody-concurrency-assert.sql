@@ -3,12 +3,16 @@
 -- wallet transfer; the daily statement notification exists once and produces
 -- NO push_outbox row. Before that ruling this file required the full 100 credited
 -- and exactly one push_outbox row (20260919152614).
+-- The settlement day is decided ONCE, by the seed, and read back from the row it
+-- recorded. This file never recomputes "yesterday in Chicago": on 2026-11-14 the
+-- seed and both racers ran before 00:00 Chicago and this assert ran at 00:00:01,
+-- so its own clock named a day with no row and every check read NULL.
 DO $$
 DECLARE d public.diamond_spin_days;
 BEGIN
- SELECT * INTO d FROM public.diamond_spin_days WHERE owner_id='d1000000-0000-4000-8000-000000000002'
-  AND day=(clock_timestamp() AT TIME ZONE 'America/Chicago')::date-1;
- IF d.status IS DISTINCT FROM 'settled' OR d.settled_net<>100 OR d.pending_diamonds<>0
+ SELECT * INTO d FROM public.diamond_spin_days WHERE owner_id='d1000000-0000-4000-8000-000000000002';
+ IF (SELECT count(*) FROM public.diamond_spin_days WHERE owner_id='d1000000-0000-4000-8000-000000000002')<>1
+  OR d.status IS DISTINCT FROM 'settled' OR d.settled_net<>100 OR d.pending_diamonds<>0
   OR d.profit_burn_bps<>public.fn_diamond_spin_profit_burn_bps() OR d.profit_burn<>20 OR d.credited_net<>80
   OR (SELECT diamonds FROM public.profiles WHERE id=d.owner_id)<>100080
   OR (SELECT count(*) FROM public.diamond_transactions WHERE user_id=d.owner_id)<>1
