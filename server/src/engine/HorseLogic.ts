@@ -192,6 +192,15 @@ import {
   openerRangeWidth,
   strengthBarForTopShare,
 } from './HorseOpponentExploit.js';
+import {
+  OMAHA_TIGHT_MIN_EFFECTIVE_BB,
+  omahaTightOpenerRespect,
+  omahaTightReRaiserRespect,
+  omahaTightSteal as omahaTightStealOf,
+  type OmahaTightOpener,
+  type OmahaTightReRaiser,
+  type OmahaTightSteal,
+} from './HorseOmahaTightOpponent.js';
 // STYLE READ (2026-11-13): the opponent's style on two axes, and the small
 // pure helpers each default-off consumer below asks. See HorseOpponentStyle.ts.
 import {
@@ -336,6 +345,7 @@ import {
   noteHorsePlanReevaluated,
   noteHorseTelemetryOpportunity,
   telemetryOn,
+  withBrainTelemetrySuspended,
 } from './BrainTelemetry.js';
 // V27 (Dan 2026-08-29): the PioSolver push/fold charts, preloaded in memory
 // by GtoChartLoader so the synchronous decision can read them at zero I/O.
@@ -3118,6 +3128,14 @@ export interface HorseDecideOpts {
    *  neutral read (no presumed aggressive raise width) instead of
    *  presumedAggressorRead. Default OFF; true enables it. */
   omahaNeutralUnknown?: boolean;
+  /** Owner order 2026-11-13 (tight adjustment mandatory): in pot-limit Omaha
+   *  high, the preflop adjustment against a PROVEN tight opponent
+   *  (HorseOmahaTightOpponent): respect a proven tight raiser's open or
+   *  re-raise, steal wider first in when every player left to act is a proven
+   *  tight folder. Default OFF; true enables it. Its declared league
+   *  evaluation passed (2026-11-14, development fields); default-on still
+   *  needs docs/HORSE-DECISION-CHANGE-EVIDENCE.md rows 2-5. */
+  omahaTightOpponent?: boolean;
   /** Items 21 and 23 (2026-11-05): a planned barrel records the next-street
    *  contender set and stack-to-pot exposure it expects, and the next street
    *  withdraws the plan when a contender the plan never expected is still in
@@ -8685,6 +8703,63 @@ export class HorseLogic {
       }
     }
 
+    // ═══ OMAHA TIGHT OPPONENT (2026-11-13, default off) ═══ HorseOmahaTightOpponent:
+    // the raiser faced (respect) or every player left to act (steal) must be
+    // a PROVEN tight player; pot-limit Omaha high only, never in bomb pots,
+    // multi-board, All-In-Or-Fold or at push/fold depths, never beside a wide
+    // read of the same raiser.
+    let omahaTightOpener: OmahaTightOpener | undefined;
+    let omahaTightReRaiser: OmahaTightReRaiser | undefined;
+    let omahaTightSteal: OmahaTightSteal | undefined;
+    if (
+      opts.omahaTightOpponent === true &&
+      opts.mind !== false &&
+      vi.isOmaha &&
+      !vi.isHiLo &&
+      vi.isPotLimit &&
+      gs.bombPot !== true &&
+      gs.allInOrFold !== true &&
+      !gs.communityCards2?.length &&
+      !gs.communityCards3?.length
+    ) {
+      try {
+        if (raises >= 1 && lastRaiserSeat >= 0) {
+          const raiserT = gs.players.find((p) => p.seat === lastRaiserSeat);
+          const effT = raiserT
+            ? Math.min(player.stack + player.bet, raiserT.stack + raiserT.bet) / bb
+            : 0;
+          if (
+            raiserT &&
+            raiserT.user_id !== player.user_id &&
+            effT > OMAHA_TIGHT_MIN_EFFECTIVE_BB
+          ) {
+            const tightT = HorseMind.omahaTightReadOf(raiserT.user_id);
+            if (raises === 1 && exploitOpener?.wide !== true && !exploitPressure)
+              omahaTightOpener = omahaTightOpenerRespect(tightT) ?? undefined;
+            else if (raises >= 2 && !exploitReRaiser)
+              omahaTightReRaiser = omahaTightReRaiserRespect(tightT) ?? undefined;
+          }
+        } else if (raises === 0 && limpers === 0 && (position === 'late' || position === 'sb')) {
+          const leftT = gs.players.filter(
+            (p) => p.seat !== player.seat && !p.is_folded && !p.is_all_in && !p.is_sitting_out
+          );
+          const deepestT = Math.max(0, ...leftT.map((p) => p.stack + p.bet));
+          const effT = Math.min(player.stack + player.bet, deepestT) / bb;
+          if (leftT.length > 0 && effT > OMAHA_TIGHT_MIN_EFFECTIVE_BB) {
+            const riskT = potLimitRaiseTo(gs.pot, gs.currentBet, toCall) - player.bet;
+            omahaTightSteal =
+              omahaTightStealOf(
+                leftT.map((p) => HorseMind.omahaTightReadOf(p.user_id)),
+                riskT,
+                gs.pot
+              ) ?? undefined;
+          }
+        }
+      } catch {
+        /* reads are best-effort */
+      }
+    }
+
     const preflopRisk = icmRisk(
       gs,
       stackBB,
@@ -9223,6 +9298,9 @@ export class HorseLogic {
       exploitPressure,
       exploitReRaiser,
       styleTightReRaiser,
+      ...(omahaTightOpener ? { omahaTightOpener } : {}),
+      ...(omahaTightReRaiser ? { omahaTightReRaiser } : {}),
+      ...(omahaTightSteal ? { omahaTightSteal: { openWiden: omahaTightSteal.openWiden } } : {}),
       maniacOpenBar:
         maniacBehindWidth !== null ? maniacBehindOpenBar(maniacBehindWidth, vi.isOmaha) : undefined,
       maniacNoBluff: maniacRaiserWidth !== null || maniacBehindWidth !== null ? true : undefined,
@@ -9671,12 +9749,50 @@ export class HorseLogic {
         restoreFastRandom(rng53);
       }
     }
+    // omahaTightOpponent receipts: the same context without the tight fields,
+    // on the same RNG position (rewound), says whether they changed the intent.
+    // The rewound call is invisible: RNG restored, deep-dive collector detached,
+    // telemetry suspended, no layer or authority callbacks.
+    let tightOff: ReturnType<typeof decidePreflopV7> | null = null;
+    const tightOn = !!(omahaTightOpener || omahaTightReRaiser || omahaTightSteal);
+    if (tightOn && telemetryOn(opts)) {
+      const rngT = saveFastRandom();
+      try {
+        // Neither the private deep-dive rule receipt nor any telemetry counts
+        // the rewound call: the collector is detached and counters paused.
+        tightOff = withHorseDeepDiveCapture(undefined, false, () =>
+          withBrainTelemetrySuspended(() =>
+            decidePreflopV7({
+              ...intentCtx7,
+              omahaTightOpener: undefined,
+              omahaTightReRaiser: undefined,
+              omahaTightSteal: undefined,
+              noteLayer: undefined,
+            })
+          )
+        );
+      } catch {
+        tightOff = null;
+      } finally {
+        restoreFastRandom(rngT);
+      }
+    }
     const authorityEvents: import('./HorsePreflop.js').PreflopAuthorityEvent[] = [];
     // Attach only to the real decision, never the rewound ICM counterfactual.
     const intent = decidePreflopV7({
       ...intentCtx7,
       noteAuthority: (event) => authorityEvents.push(event),
     });
+    if (tightOff) {
+      const sameT = tightOff.a === intent.a && tightOff.to === intent.to;
+      noteFire(
+        sameT
+          ? 'plo_tight_opponent_considered'
+          : omahaTightSteal
+            ? 'plo_tight_blinds_steal'
+            : 'plo_tight_raiser_respected'
+      );
+    }
     if (v53IcmOff) {
       const same53 = v53IcmOff.a === intent.a && v53IcmOff.to === intent.to;
       noteFire(same53 ? 'v53_plo_icm_considered' : 'v53_plo_icm_applied');

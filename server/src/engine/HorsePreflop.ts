@@ -267,6 +267,19 @@ export interface PreflopCtx {
    */
   styleTightReRaiser?: { fourBetBump: number; callBump: number };
   /**
+   * OMAHA TIGHT OPPONENT (2026-11-13, HorseOmahaTightOpponent, default off):
+   * set only in pot-limit Omaha high against a proven tight player. Opener:
+   * the single raiser is a proven tight raiser; the 3-bet bar rises toward
+   * threeBetBar (at most maxBarMove), the call bar by callBump, and no bluff
+   * 3-bet or squeeze is made. ReRaiser: the last re-raiser is a proven tight
+   * raiser; the 4-bet and call bars rise. Steal: first in from late position
+   * or the small blind with every player left to act a proven tight folder;
+   * the open bar comes down by openWiden. Undefined = unchanged.
+   */
+  omahaTightOpener?: { threeBetBar: number; maxBarMove: number; callBump: number };
+  omahaTightReRaiser?: { fourBetBump: number; callBump: number };
+  omahaTightSteal?: { openWiden: number };
+  /**
    * 2026-10-24 V53 PRESSURE (HorseOpponentExploit.aggressiveOpenerPressure):
    * the single raiser is a credibly WIDE opener. Heads-up against them the
    * value 3-bet widens to these bars - in position the most - and the
@@ -2204,6 +2217,14 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
         vs35.open +
         phase6Shift('open');
     }
+    // OMAHA TIGHT OPPONENT STEAL: every player left to act is a proven tight folder.
+    if (
+      ctx.omahaTightSteal !== undefined &&
+      limpers === 0 &&
+      (position === 'late' || position === 'sb')
+    ) {
+      openThresh -= Math.max(0, ctx.omahaTightSteal.openWiden);
+    }
     openThresh = phase6CapBar(openThresh);
     // MANIAC PRESSURE: never open a hand that has to fold to the maniac's
     // re-raise. Not tightness-shifted: the bar is the continuing share
@@ -2756,6 +2777,14 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       callThresh += Math.max(0, vsOpener.callBump ?? 0);
       ctx.noteLayer?.('style_tight_opener_respect_seen');
     }
+    // OMAHA TIGHT OPPONENT RESPECT: a proven tight raiser's open is stronger
+    // than the seat says; added after every later layer, like the move above.
+    const tightOpener = ctx.omahaTightOpener;
+    if (tightOpener) {
+      const bar = t53(tightOpener.threeBetBar, 'threeBet');
+      threeBetThresh += Math.max(0, Math.min(bar - threeBetThresh, tightOpener.maxBarMove));
+      callThresh += Math.max(0, tightOpener.callBump);
+    }
     threeBetThresh = phase6CapBar(threeBetThresh);
     callThresh = phase6CapBar(callThresh);
     const bbDiscount =
@@ -2967,6 +2996,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       elite?.canSqueeze === true &&
       strength >= t53(0.54, 'threeBet') &&
       allowEliteVsRaiser &&
+      !tightOpener &&
       (pressure !== undefined ||
         (noBluff3 && linearElite3Bet) ||
         (ctx.plo3BetRoll ?? 0.4) < Math.min(0.9, basePloMix + (ipVsOpen ? 0.2 : 0.1)))
@@ -2992,6 +3022,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       (!ctx.isOmaha || omahaSqueezeAllowed) &&
       !noBluff3 &&
       ctx.maniacNoBluff !== true &&
+      !tightOpener &&
       rand() < bluffBudget * (ctx.isOmaha ? 0.22 : 0.3) * blockerMult &&
       // The same test as the 3-bet bluff below, after the draw.
       bluffRaiseHasFoldEquity(toCall, stack, ctx)
@@ -3055,6 +3086,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
         : strength >= t53(bluffFloor, 'threeBet') && strength < threeBetThresh) &&
       !noBluff3 &&
       ctx.maniacNoBluff !== true &&
+      !tightOpener &&
       rand() < (def72 ? bluff72 : bluffFreqHere) &&
       // Tested after the draw so the random stream is unchanged.
       bluffRaiseHasFoldEquity(toCall, stack, ctx)
@@ -3337,6 +3369,12 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       fourBetThresh = phase6CapBar(fourBetThresh + Math.max(0, vsTightReRaiser.fourBetBump));
       callThresh = phase6CapBar(callThresh + Math.max(0, vsTightReRaiser.callBump));
       ctx.noteLayer?.('style_tight_reraiser_respect_seen');
+    }
+    // OMAHA TIGHT OPPONENT RESPECT: a proven tight raiser's re-raise.
+    const tightReRaiser = ctx.omahaTightReRaiser;
+    if (tightReRaiser) {
+      fourBetThresh = phase6CapBar(fourBetThresh + Math.max(0, tightReRaiser.fourBetBump));
+      callThresh = phase6CapBar(callThresh + Math.max(0, tightReRaiser.callBump));
     }
     if (unblocked86 && ctx.facingColdCalledThreeBet === true) {
       fourBetThresh = phase6CapBar(fourBetThresh + 0.03);

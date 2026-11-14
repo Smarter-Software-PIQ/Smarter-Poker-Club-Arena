@@ -1241,6 +1241,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'Omaha neutral unknown'
   ),
   flag(
+    'omahaTightOpponent',
+    '2026-11-13 owner order (tight adjustment mandatory): in pot-limit Omaha high cash and ordinary tournament preflop (no hi-lo, bomb pot, multi-board, All-In-Or-Fold or push/fold depth), against a PROVEN tight opponent (15+ decayed hands, the aggressive presumption disproved, a raiser pfr, or rfi on 15+ first-in opportunities, credibly at most half the Horse mean and VPIP not above the mean; a folder VPIP credibly at most 0.6 of the Horse mean; 90% one-sided on the statRead posterior; no wide read; recent raising not back above the raiser bar): a proven tight raiser faced is respected (3-bet bar toward the top 30% of his raises, at most +0.10; call bar +0.04; no bluff 3-bet or squeeze; facing his re-raise 4-bet bar +0.03 and call bar +0.06), and first in from late position or the small blind with every player left to act a proven tight folder the open bar comes down by half the fold-equity surplus over a pot-sized open break-even, at most 0.10 (HorseOmahaTightOpponent). Default OFF. Its declared league evaluation passed on 2026-11-14 (Omaha development tight field, pooled PLO4+PLO5 six-handed +11.48 +/- 0.47 bb/100, Omaha development control +0.05 +/- 0.05, no cell below zero; development fields only); default-on additionally needs docs/HORSE-DECISION-CHANGE-EVIDENCE.md rows 2-5 (input fidelity, per-node value under three ranges, recorded continuation frequencies, production reach), which need recorded production hands.',
+    'Omaha tight opponent'
+  ),
+  flag(
     'readScopedShrink',
     '2026-11-08 (read calibration follow-up) below 40 scoped hands a read no longer falls back to the pooled bucket (every game mixed: about 8% of read spots, river-fold Brier 0.262 against 0.217 scoped); the scoped bucket answers with each rate shrunk toward the same scope population (every tracked player summed, no labels) with 16 pseudo-observations and its own opportunity counts, so sample gates still measure this game; default off, measured by the calibration replay (a league table deals one game, so the flag is inert there by construction)',
     'Read calibration'
@@ -2687,6 +2692,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseMind (omahaNeutralUnknown)',
     'an Omaha opponent with no engaged raise read was read as neutral instead of presumed aggressive (default off)',
     'Omaha neutral unknown'
+  ),
+  receipt(
+    'plo_tight_raiser_respected',
+    'HorseLogic (omahaTightOpponent)',
+    'facing an open or re-raise from a proven tight Omaha raiser, the respect bars changed the preflop intent',
+    'Omaha tight opponent'
+  ),
+  receipt(
+    'plo_tight_blinds_steal',
+    'HorseLogic (omahaTightOpponent)',
+    'first in from late position or the small blind with every player left to act a proven tight Omaha folder, the wider steal changed the preflop intent',
+    'Omaha tight opponent'
+  ),
+  receipt(
+    'plo_tight_opponent_considered',
+    'HorseLogic (omahaTightOpponent)',
+    'a proven tight Omaha raiser or set of folders was read and the adjustment applied, but the preflop intent was the same without it',
+    'Omaha tight opponent'
   ),
   receipt(
     'plo_opponent_presumption_disproved',
