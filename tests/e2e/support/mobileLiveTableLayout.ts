@@ -341,6 +341,13 @@ export function readMobileTableLayout(crowns: Readonly<Record<string, number>>) 
   ).filter(visible);
   const cards = Array.from(table.querySelectorAll('.seat__cards .seat__card')).filter(visible);
   const violations: string[] = [];
+  const restingCollectionEndpoints: Array<{
+    seat: string | null;
+    target: 'pot-pile' | 'pot-area';
+    projected: { x: number; y: number };
+    expected: { x: number; y: number };
+    distance: number;
+  }> = [];
   let crownProof: {
     gap: number;
     maximumGap: number;
@@ -414,6 +421,46 @@ export function readMobileTableLayout(crowns: Readonly<Record<string, number>>) 
           clearsGold = (x / 200.5) ** 2 + (y / 186) ** 2 < 1;
         }
         if (!clear || !clearsGold) violations.push('Nine-Max Chips Encroach On Rail');
+      }
+    }
+    // Record the endpoint encoded on actual resting wagers. An already moving
+    // stack cannot supply its resting origin. A hand without wagers contributes
+    // no endpoint evidence.
+    const pile = table.querySelector('.pot-display__pile--pot');
+    const pot = pile ?? table.querySelector('.pot-area');
+    if (ring instanceof HTMLElement && pot && visible(pot) && ring.offsetWidth) {
+      const scale = box(ring).width / ring.offsetWidth;
+      const target = box(pot);
+      const expected = { x: target.left + target.width / 2, y: target.top + target.height / 2 };
+      for (const bet of table.querySelectorAll<HTMLElement>('.seat__bet-chips')) {
+        const stack = bet.querySelector('.cp-stacks');
+        if (
+          !stack ||
+          !visible(stack) ||
+          stack.getAnimations().some((a) => a.playState === 'running')
+        )
+          continue;
+        const from = box(stack);
+        const style = getComputedStyle(bet);
+        const dx = parseFloat(style.getPropertyValue('--collect-dx'));
+        const dy = parseFloat(style.getPropertyValue('--collect-dy'));
+        if (!Number.isFinite(dx) || !Number.isFinite(dy)) {
+          violations.push('Nine-Max Resting Wager Missing Collection Offset');
+          continue;
+        }
+        const projected = {
+          x: from.left + from.width / 2 + dx * scale,
+          y: from.top + from.height / 2 + dy * scale,
+        };
+        const distance = Math.hypot(projected.x - expected.x, projected.y - expected.y);
+        restingCollectionEndpoints.push({
+          seat: bet.closest('.seat')?.getAttribute('data-seat-num') ?? null,
+          target: pile ? 'pot-pile' : 'pot-area',
+          projected,
+          expected,
+          distance,
+        });
+        if (distance > 2) violations.push('Nine-Max Resting Wager Collection Misses Pot');
       }
     }
     for (const wrapper of table.querySelectorAll('.seat-wrapper:not(.seat-wrapper--hero)')) {
@@ -946,6 +993,7 @@ export function readMobileTableLayout(crowns: Readonly<Record<string, number>>) 
   return {
     violations,
     crownProof,
+    restingCollectionEndpoints,
     occupied: plates.length,
     width: innerWidth,
     plateWidths: plates.map((plate) => box(plate).width),

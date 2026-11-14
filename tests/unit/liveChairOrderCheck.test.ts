@@ -110,6 +110,29 @@ it('keeps both blind stacks and the collected pile on the playing surface', () =
   expect(readMobileTableLayout({}).violations).toContain(violation);
 });
 
+it('records live resting chip offsets and rejects a landing away from the pot', () => {
+  mount(RING);
+  const table = document.querySelector<HTMLElement>('.table-page')!;
+  table.dataset.seats = '9';
+  vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList);
+  const ring = table.querySelector<HTMLElement>('.table-scaler')!;
+  Object.defineProperty(ring, 'offsetWidth', { value: 600 });
+  ring.insertAdjacentHTML(
+    'beforeend',
+    '<div class="pot-area" data-box="280,380,40,40"></div><div class="seat__bet-chips" style="--collect-dx:90px;--collect-dy:70px"><div class="cp-stacks" data-box="200,320,20,20"></div></div>'
+  );
+  const stack = ring.querySelector('.cp-stacks')!;
+  Object.defineProperty(stack, 'getAnimations', { value: () => [] });
+  expect(readMobileTableLayout({}).restingCollectionEndpoints?.[0]).toMatchObject({
+    target: 'pot-area',
+    distance: 0,
+  });
+  ring.querySelector<HTMLElement>('.seat__bet-chips')!.style.setProperty('--collect-dy', '60px');
+  expect(readMobileTableLayout({}).violations).toContain(
+    'Nine-Max Resting Wager Collection Misses Pot'
+  );
+});
+
 it("Danimal's collapse is caught: every chair right of 30% pinned at 29.7%", () => {
   const collapsed = { ...RING };
   for (const n of [3, 4, 5, 6, 7]) collapsed[n] = [29.7, RING[n][1]];
