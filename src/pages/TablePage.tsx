@@ -28691,11 +28691,7 @@ function LiveTablePage({
                 STACKS, HOW MANY PLAYERS ETC." Every must-move table carries
                 it; the SEAT CHANGE button under it appears only while the
                 database says the change is available. */}
-            {/* THE SEAT CHANGE BUTTON IS ON THE LEFT (Dan 2026-10-14): "THE
-                'SEAT CHANGE' BUTTON SHOULD NEVER BE IN THE UPPER RIGHT HAND
-                CORNER, IT SHOULD BE ON THE LEFT SIDE." The box still mounts in
-                this slot, but its dock is pinned to the left edge at the same
-                height (.hud-seat-change-dock, TableHUD.css). */}
+            {/* The feeder dock shares Chat's row on the opposite table edge. */}
             {!tableState.isTournament &&
               tableState.clusterId &&
               !anchorLightningClusterId &&
