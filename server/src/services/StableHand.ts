@@ -127,7 +127,9 @@ export function tagSplit(n: number): {
 
 /**
  * Section 11 hourly occupancy curve, as a PERCENT OF N, keyed on the
- * America/Chicago hour. Values are the OPORD's table verbatim.
+ * America/Chicago hour. The OPORD's table, except 00:00 and 01:00 (29 and 22,
+ * were 35 and 28): Dan 2026-11-13 asked for a slow taper after the 5-11 PM
+ * peak, which is unchanged.
  */
 export const OCCUPANCY_CURVE_PCT: Record<number, number> = {
   0: 29,
@@ -276,6 +278,12 @@ export function occupancyTargetForHost(
   let max = target + band;
   max = Math.min(max, pk);
   if (isNightWindow(chicagoHour)) max = Math.min(max, nt);
+  // The band closes with the walk to the night cap, so the cap does not step
+  // down by the band at 03:00 either.
+  if (!isNightWindow(hourNow) && isNightWindow((hourNow + 1) % 24)) {
+    const f = Math.min(59, Math.max(0, minute)) / 60;
+    max = Math.min(max, target + Math.round(band * (1 - f)));
+  }
   if (min > max) min = max;
 
   return { target, min, max, peakCap: pk, nightCap: nt, clampedBy };

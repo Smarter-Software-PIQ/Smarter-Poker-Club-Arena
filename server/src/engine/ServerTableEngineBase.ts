@@ -3614,7 +3614,9 @@ export abstract class ServerTableEngineBase {
     userId: string,
     seated: { seat_number: number; occupancy_id?: string | null; leave_pending?: boolean | null }
   ): Promise<boolean> {
-    if (this.isLightningAnchorNow() || !seated.occupancy_id) return false;
+    // The caller asks only at a non-anchor table; a table outside any game has
+    // no other table to play on, so it is not asked at all.
+    if (!seated.occupancy_id || !this.tableInfo?.cluster_id) return false;
     if (isMaintenanceFrozen()) return true;
     const answer = await owedLeavePlaysOnInGame(
       userId,

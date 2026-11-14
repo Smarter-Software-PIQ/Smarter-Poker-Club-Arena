@@ -187,6 +187,42 @@ for (const [who, id, occ, seat] of [
       expect(cashout).toHaveBeenCalledTimes(1);
     });
 
+    it('holds while the database answers frozen, and releases on a stale occupancy', async () => {
+      const e = alone();
+      playsOn.mockResolvedValue({
+        keep: true,
+        returned: false,
+        handsRemaining: 0,
+        reason: 'platform_frozen',
+      });
+      await e.releaseLeavesHeldByClock();
+      expect(cashout).not.toHaveBeenCalled();
+      expect(e.leaveHeldByClock.get(id)).toBe(occ);
+      playsOn.mockResolvedValue({
+        keep: false,
+        returned: false,
+        handsRemaining: 0,
+        reason: 'stale_occupancy',
+      });
+      cashout.mockResolvedValue(180);
+      await e.releaseLeavesHeldByClock();
+      expect(cashout).toHaveBeenCalledWith(
+        id,
+        TABLE,
+        seat,
+        expect.objectContaining({ occupancyId: occ })
+      );
+    });
+
+    it('is not asked at a table outside any game', async () => {
+      const e = alone();
+      e.tableInfo = { ...e.tableInfo, cluster_id: null };
+      cashout.mockResolvedValue(180);
+      await e.releaseLeavesHeldByClock();
+      expect(playsOn).not.toHaveBeenCalled();
+      expect(cashout).toHaveBeenCalledTimes(1);
+    });
+
     it('is never asked at a Lightning anchor or when someone else is at the table', async () => {
       const anchor = makeEngine();
       anchor.onLeaveRefusedAtSettlement(id, 0, occ);
