@@ -415,6 +415,41 @@ export interface HorseHoldemPersona {
   riverBluffGear: number;
 }
 
+/**
+ * The four Hold'em archetypes' share of ids (percent of the `nlh_arch` hash
+ * buckets) and the range `nlh3BetMix` is drawn from: round2(base + h * span),
+ * h one of 1,000 equally likely hash buckets. A description of
+ * holdemPersonaFor below, held to it by HorsePersona.holdemReRaiseScale.test.ts.
+ */
+export const HOLDEM_ARCHETYPE_NLH_3BET_MIX: ReadonlyArray<{
+  archetype: HorseHoldemArchetype;
+  sharePct: number;
+  base: number;
+  span: number;
+}> = [
+  { archetype: 'lag_shark', sharePct: 25, base: 0.46, span: 0.18 },
+  { archetype: 'tricky_trap', sharePct: 20, base: 0.3, span: 0.14 },
+  { archetype: 'tag_crusher', sharePct: 40, base: 0.34, span: 0.16 },
+  { archetype: 'nit_hunter', sharePct: 15, base: 0.22, span: 0.12 },
+];
+
+/**
+ * The share-weighted mean of `nlh3BetMix` under the id-hash MODEL (every
+ * archetype bucket and every one of the 1,000 mix buckets equally likely,
+ * with the persona's two-decimal rounding). A model figure: a real fleet of
+ * ids does not average exactly this.
+ */
+export const HOLDEM_MODEL_MEAN_NLH_3BET_MIX = 0.42143;
+
+/**
+ * D3 option C (2026-11-14): how far this Horse's re-raise bluff mix sits from
+ * the model mean. 0.52 (the tightest Nit) to 1.52 (the loosest LAG); 1 in
+ * expectation under the model. A pure function of the id, no draw.
+ */
+export function holdemPersonaReRaiseScale(horseId: string): number {
+  return holdemPersonaFor(horseId).nlh3BetMix / HOLDEM_MODEL_MEAN_NLH_3BET_MIX;
+}
+
 export function holdemPersonaFor(horseId: string): HorseHoldemPersona {
   const id = horseId || 'default-horse';
   const hArch = personaHash(`${id}|nlh_arch`) % 100;

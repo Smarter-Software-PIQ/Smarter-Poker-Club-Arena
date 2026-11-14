@@ -2035,6 +2035,21 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { facingOpenFullRingZone: true },
     b: {},
   },
+  // 2026-11-14 PERSONA RE-RAISE MIX (D3 option C), default OFF, so arm A
+  // turns it on: six-handed 100bb no-limit hold'em cash, where the 3-bet
+  // bluff and the squeeze bluff are met every orbit. The card's seats are the
+  // league's own ids, not the fleet's 25/20/40/15 archetype mix (the
+  // opportunity-weighted harness HoldemPersonaReRaiseProbe measures that),
+  // and 100bb never reaches the 26-35bb four-bet reshove. Not yet run.
+  {
+    name: 'cash6_holdem_persona_reraise_mix',
+    seats: 6,
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: { holdemPersonaReRaiseMix: true },
+    b: {},
+  },
   {
     name: 'nlh_20bb_vs3bet_short_stack',
     stackBB: 20,

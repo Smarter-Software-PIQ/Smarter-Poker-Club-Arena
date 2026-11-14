@@ -144,7 +144,13 @@ export type PreflopLayerReceipt =
   | 'bluff_raise_refused_no_fold_equity_seen'
   | 'omaha_tournament_first_in'
   | 'style_tight_opener_respect_seen'
-  | 'style_tight_reraiser_respect_seen';
+  | 'style_tight_reraiser_respect_seen'
+  | 'holdem_persona_3bet_bluff_eligible_seen'
+  | 'holdem_persona_3bet_bluff_changed_seen'
+  | 'holdem_persona_squeeze_bluff_eligible_seen'
+  | 'holdem_persona_squeeze_bluff_changed_seen'
+  | 'holdem_persona_fourbet_reshove_eligible_seen'
+  | 'holdem_persona_fourbet_reshove_changed_seen';
 
 /**
  * Dan 2026-11-06 (PLO5 1/2 Madness, hand 55704472): "I JUST WATCHED NOODLE NOT
@@ -331,6 +337,18 @@ export interface PreflopCtx {
    *  starting stack is in and the hand clears 0.26; a committed top-half hand
    *  whose call is all in is priced in to 0.18. Absent = unchanged. */
   committedStackPricedIn?: boolean;
+  /** PERSONA RE-RAISE MIX (2026-11-14, D3 option C, flag
+   *  holdemPersonaReRaiseMix, default OFF). Present only with the flag on and
+   *  a two-card no-limit hold'em decision by a Horse with an id. `scale` is
+   *  the Horse's nlh3BetMix over the model mean (0.52 to 1.52). Each `u` is a
+   *  zero-draw hash in [0,1) of the Horse, the hand's public state, its exact
+   *  hole cards, its seat, the dealer seat and a salt per behaviour. The
+   *  3-bet bluff and the squeeze bluff still consume their random draw at the
+   *  same place and decide on `u < min(1, p * scale)`; the 26-35bb four-bet
+   *  reshove's bluff classes shove when `uFourBet < min(1, scale)`. Value
+   *  3-bets, value squeezes and value reshoves do not read it. Absent =
+   *  unchanged. */
+  holdemPersonaReRaise?: { scale: number; u3bet: number; uSqueeze: number; uFourBet: number };
   /** V20 M-ZONES (2026-08-27): ante cost of ONE ORBIT in BB units, already
    *  resolved for the table's ante style by AnteMath.anteOrbitCostBB (0 = no
    *  ante). NOT per-player: multiplying this by the seat count is the bug of
@@ -1298,6 +1316,41 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     v87 && ctx.holeCards && ctx.holeCards.length === 2
       ? holdemClass(ctx.holeCards[0], ctx.holeCards[1])
       : null;
+  // PERSONA RE-RAISE MIX (D3 option C, default OFF): undefined on every
+  // decision without the flag, and then nothing below is reached. `roll` is
+  // the draw the bluff site consumed (the caller draws it at the place it
+  // always drew it); with the persona present the draw is discarded and the
+  // Horse's own unit decides against the scaled probability.
+  const personaReRaise = ctx.holdemPersonaReRaise;
+  const personaBluffFires = (
+    persona: NonNullable<PreflopCtx['holdemPersonaReRaise']>,
+    roll: number,
+    p: number,
+    kind: 'three_bet' | 'squeeze'
+  ): boolean => {
+    const fires =
+      (kind === 'squeeze' ? persona.uSqueeze : persona.u3bet) < Math.min(1, p * persona.scale);
+    ctx.noteLayer?.(
+      kind === 'squeeze'
+        ? 'holdem_persona_squeeze_bluff_eligible_seen'
+        : 'holdem_persona_3bet_bluff_eligible_seen'
+    );
+    if (fires !== roll < p)
+      ctx.noteLayer?.(
+        kind === 'squeeze'
+          ? 'holdem_persona_squeeze_bluff_changed_seen'
+          : 'holdem_persona_3bet_bluff_changed_seen'
+      );
+    return fires;
+  };
+  const personaFourBetBluffShoves = (
+    persona: NonNullable<PreflopCtx['holdemPersonaReRaise']>
+  ): boolean => {
+    const shoves = persona.uFourBet < Math.min(1, persona.scale);
+    ctx.noteLayer?.('holdem_persona_fourbet_reshove_eligible_seen');
+    if (!shoves) ctx.noteLayer?.('holdem_persona_fourbet_reshove_changed_seen');
+    return shoves;
+  };
   const v87EpCand =
     v87 && ctx.holeCards && ctx.holeCards.length === 2
       ? classifyHoldemEpLimpCandidate(ctx.holeCards[0], ctx.holeCards[1])
@@ -2992,7 +3045,16 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       (!ctx.isOmaha || omahaSqueezeAllowed) &&
       !noBluff3 &&
       ctx.maniacNoBluff !== true &&
-      rand() < bluffBudget * (ctx.isOmaha ? 0.22 : 0.3) * blockerMult &&
+      // Persona re-raise mix (default OFF): the draw is consumed here either
+      // way; with the persona present it is discarded for the Horse's unit.
+      (personaReRaise === undefined
+        ? rand() < bluffBudget * (ctx.isOmaha ? 0.22 : 0.3) * blockerMult
+        : personaBluffFires(
+            personaReRaise,
+            rand(),
+            bluffBudget * (ctx.isOmaha ? 0.22 : 0.3) * blockerMult,
+            'squeeze'
+          )) &&
       // The same test as the 3-bet bluff below, after the draw.
       bluffRaiseHasFoldEquity(toCall, stack, ctx)
     ) {
@@ -3055,7 +3117,17 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
         : strength >= t53(bluffFloor, 'threeBet') && strength < threeBetThresh) &&
       !noBluff3 &&
       ctx.maniacNoBluff !== true &&
-      rand() < (def72 ? bluff72 : bluffFreqHere) &&
+      // Persona re-raise mix (default OFF): the draw is consumed here either
+      // way; with the persona present it is discarded for the Horse's unit
+      // (the squeeze unit when this block is the V85 squeeze, callers >= 1).
+      (personaReRaise === undefined
+        ? rand() < (def72 ? bluff72 : bluffFreqHere)
+        : personaBluffFires(
+            personaReRaise,
+            rand(),
+            def72 ? bluff72 : bluffFreqHere,
+            callers >= 1 ? 'squeeze' : 'three_bet'
+          )) &&
       // Tested after the draw so the random stream is unchanged.
       bluffRaiseHasFoldEquity(toCall, stack, ctx)
     ) {
@@ -3462,7 +3534,12 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       if (v87HoleClass !== null) {
         if (
           V87_FOUR_BET_VALUE_SHOVE_CLASSES.has(v87HoleClass) ||
-          (ctx.maniacNoBluff !== true && V87_FOUR_BET_BLUFF_SHOVE_CLASSES.has(v87HoleClass))
+          (ctx.maniacNoBluff !== true &&
+            V87_FOUR_BET_BLUFF_SHOVE_CLASSES.has(v87HoleClass) &&
+            // Persona re-raise mix (default OFF): a bluff class shoves at the
+            // Horse's scale, capped at always; a refused one falls through to
+            // the ordinary 4-bet / call / fold read below. No draw either way.
+            (personaReRaise === undefined || personaFourBetBluffShoves(personaReRaise)))
         ) {
           return { a: 'jam' };
         }

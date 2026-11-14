@@ -1276,6 +1276,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'CommitPrice'
   ),
   flag(
+    'holdemPersonaReRaiseMix',
+    "2026-11-14 default OFF (D3 option C, owner ruling 2026-11-13: persona-specific 3-bets, squeezes and shallow four-bet reshoves, rollout gated): two-card no-limit hold'em only, cash and tournament, a Horse with an id; the 3-bet bluff (facing one open) and the squeeze bluff (the V7 squeeze site, and on hold'em cash the chart 3-bet-bluff block when there are callers) still consume their random draw at the same place and discard it, and fire when the Horse's zero-draw unit (hash of Horse id, public hand state, exact hole cards, seat, dealer seat, a salt per behaviour) is below min(1, p * scale), scale = the Hold'em persona's nlh3BetMix / 0.42143 (the id-hash model mean; 0.52 to 1.52); at 26-35bb facing a 3-bet the four-bet reshove's bluff classes A5s-A2s shove when their unit is below min(1, scale) and otherwise take the ordinary 4-bet / call / fold read, a DECLARED reduction of that bluff shove (no fringe set is added); value 3-bets, value squeezes, value reshoves, Omaha, short deck, pot limit, fixed limit, hi-lo, pineapple and All-In-Or-Fold do not read it; the engine state carries no hand number, so the unit's hand identity is public state plus cards; a preflop range change, not to be enabled while the range hold stands; no league evidence yet; enabling it is a separate owner decision; docs/changelog/2026-11-14-holdem-persona-reaches-re-raise-bluffs.md",
+    'PersonaReRaise'
+  ),
+  flag(
     'nashCallVsJam',
     "2026-11-07 default ON (league nash_call_vs_jam, mirror, two seeds x 20,000 pairs: MTT six-max 10bb +4.72 +/- 0.64 / +3.41 +/- 0.63, 15bb +2.40 +/- 0.68 / +2.17 +/- 0.68, nine-max 12bb +1.82 +/- 0.42 / +2.23 +/- 0.44, heads-up 12bb +4.86 +/- 1.17 / +3.89 +/- 1.16, cash six-max 12bb +0.80 +/- 0.38 / +0.78 +/- 0.39, 20bb cards neutral or inert, none below; the human-calibrated field never open-jams so its cards are inert): no-limit hold'em, hero folded to a lone open-jam (the first and only raise, all in, nobody has called) at <= 20bb effective calls or folds from the chip-EV Nash jam-or-fold table's CALLER side (HorseNashPushFoldV2.data.ts, server/scripts/nash-push-fold/solve.py --v2: first caller only, exact card removal) by the jammer's dealt-in players behind (1..9), hero's caller kind (unposted seat, small blind, big blind), effective depth and dead ante, cash and tournament; measured before (HorseLogic.decide, live Hybrid personas, production memory_charts_gold hydrated, 24 samples per class): a big blind facing a button jam called 5.2% at 10bb and 9.8% at 20bb in cash and 6.3% at 10bb and 20bb in a big-blind-ante tournament, against Nash 23.1% / 11.5% and 38.2% / 19.6%, and only the big blind against a small-blind jam had a chart (sb_push, the no-ante game, which keeps that spot when there is no dead ante); a maniac's jam keeps the maniac pricing; explicit off arm retained; deeper jams, called jams, Omaha, short deck, pot and fixed limit unchanged; league nash_call_vs_jam; docs/changelog/2026-11-07-nash-push-fold-v2.md",
     'NashV2'
@@ -4788,6 +4793,42 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorsePreflop via HorseLogic (committedStackPricedIn)',
     'default-off committedStackPricedIn: a tournament multiway all-in fold of a committed or token-priced stack became a call because the priced-in guard was no longer switched off for that branch; an occurrence counter with no floor, named *_seen (the study spots are rare, but the 2bb-behind case is common at short tournament stacks: the 4bb league card diverged in 2,405 of 6,000 pairs)',
     'CommitPrice'
+  ),
+  receipt(
+    'holdem_persona_3bet_bluff_eligible_seen',
+    'HorsePreflop via HorseLogic (holdemPersonaReRaiseMix)',
+    "default-off holdemPersonaReRaiseMix: a no-limit hold'em 3-bet bluff decision (facing one open, no caller) reached its mix comparison with the persona present; an occurrence counter with no floor, named *_seen",
+    'PersonaReRaise'
+  ),
+  receipt(
+    'holdem_persona_3bet_bluff_changed_seen',
+    'HorsePreflop via HorseLogic (holdemPersonaReRaiseMix)',
+    'default-off holdemPersonaReRaiseMix: the persona-scaled 3-bet bluff comparison gave a different answer from the unscaled draw it replaced (either direction; the fold-equity test still follows); named *_seen',
+    'PersonaReRaise'
+  ),
+  receipt(
+    'holdem_persona_squeeze_bluff_eligible_seen',
+    'HorsePreflop via HorseLogic (holdemPersonaReRaiseMix)',
+    "default-off holdemPersonaReRaiseMix: a no-limit hold'em squeeze bluff decision (a raise and one or more callers; the V7 squeeze site or the cash chart block) reached its mix comparison with the persona present; named *_seen",
+    'PersonaReRaise'
+  ),
+  receipt(
+    'holdem_persona_squeeze_bluff_changed_seen',
+    'HorsePreflop via HorseLogic (holdemPersonaReRaiseMix)',
+    'default-off holdemPersonaReRaiseMix: the persona-scaled squeeze bluff comparison gave a different answer from the unscaled draw it replaced (either direction); named *_seen',
+    'PersonaReRaise'
+  ),
+  receipt(
+    'holdem_persona_fourbet_reshove_eligible_seen',
+    'HorsePreflop via HorseLogic (holdemPersonaReRaiseMix)',
+    'default-off holdemPersonaReRaiseMix: at 26-35bb facing a 3-bet a four-bet reshove bluff class (A5s-A2s) reached the persona comparison; named *_seen',
+    'PersonaReRaise'
+  ),
+  receipt(
+    'holdem_persona_fourbet_reshove_changed_seen',
+    'HorsePreflop via HorseLogic (holdemPersonaReRaiseMix)',
+    'default-off holdemPersonaReRaiseMix: a four-bet reshove bluff class that always shoved did not shove, because the Horse scale is below 1 and its unit fell above it; it took the ordinary read instead; named *_seen',
+    'PersonaReRaise'
   ),
   receipt(
     'hu_bb_defends_to_price',
