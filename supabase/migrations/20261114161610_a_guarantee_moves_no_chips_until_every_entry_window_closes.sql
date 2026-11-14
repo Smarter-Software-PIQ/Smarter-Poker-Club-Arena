@@ -99,6 +99,15 @@ $fn$;
 REVOKE ALL ON FUNCTION public.fn_ca_guarantee_entry_period_ended(uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_ca_guarantee_entry_period_ended(uuid) TO service_role;
 
+-- A function that can move money is registered before it exists
+-- (ab_ca_money_rpc_registered). Refused once at install on 2026-11-14 17:43
+-- UTC without this row; nothing was installed, and the file is fixed in place.
+INSERT INTO public.ca_money_rpc_registry (proname, status, notes)
+SELECT 'fn_ca_fund_satellite_seats_at_close_locked', 'approved',
+  'Funds a satellite''s guaranteed-seat shortfall once, at entry close: union bank chip_balance (club treasury fallback) to the event prize liability as one keyed overlay leg (tourney:<id>:satellite_seat_overlay), escrow credited by zz_ca_escrow_overlay_leg; refuses before fn_ca_guarantee_entry_period_ended; called only inside fn_apply_prize_guarantee.'
+WHERE NOT EXISTS (SELECT 1 FROM public.ca_money_rpc_registry
+                   WHERE proname = 'fn_ca_fund_satellite_seats_at_close_locked');
+
 CREATE OR REPLACE FUNCTION public.fn_ca_fund_satellite_seats_at_close_locked(p_tournament_id uuid)
  RETURNS numeric
  LANGUAGE plpgsql

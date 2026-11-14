@@ -54,6 +54,27 @@ CREATE TABLE public.chip_ledger (
 CREATE UNIQUE INDEX chip_ledger_key ON public.chip_ledger (idempotency_key) WHERE idempotency_key IS NOT NULL;
 CREATE TABLE public.alerts (sev text, src text, msg text);
 CREATE TABLE public.ca_declared_money_triggers (table_name text, trigger_name text, note text);
+CREATE TABLE public.ca_money_rpc_registry (proname text PRIMARY KEY, status text, notes text);
+-- The production money-function registry guard (ab_ca_money_rpc_registered),
+-- so the install proves every function that writes a balance is registered.
+CREATE FUNCTION public.fn_ca_money_rpc_balance_columns() RETURNS text[] LANGUAGE sql AS $$
+  SELECT ARRAY['chip_balance','held_chips','locked_chips','credit_used','stack','balance','chips','prize','bounty_winnings','chip_treasury','promo_wallet'] $$;
+CREATE FUNCTION public.fn_ca_money_rpc_writes_balances(p_src text) RETURNS boolean LANGUAGE sql AS $$
+  SELECT COALESCE(
+    p_src ~* 'UPDATE\s+(public\.)?(club_members|club_wallets|union_wallets|unions|table_seats|bbj_pools|clubs|agents|wallets|spin_bonus_pools|tournament_players)\y'
+    OR p_src ~* 'INSERT\s+INTO\s+(public\.)?(club_members|club_wallets|union_wallets|unions|bbj_pools|clubs|agents|wallets|spin_bonus_pools)\y', false)
+  AND COALESCE(p_src ~* ('\y(' || array_to_string(public.fn_ca_money_rpc_balance_columns(), '|') || ')\y'), false) $$;
+CREATE FUNCTION public.fn_ca_money_rpc_registry_guard() RETURNS event_trigger LANGUAGE plpgsql AS $$
+DECLARE obj record; v_name text; v_src text;
+BEGIN
+  FOR obj IN SELECT * FROM pg_event_trigger_ddl_commands() LOOP
+    IF obj.object_type <> 'function' OR obj.schema_name IS DISTINCT FROM 'public' THEN CONTINUE; END IF;
+    SELECT p.proname, p.prosrc INTO v_name, v_src FROM pg_proc p WHERE p.oid = obj.objid AND p.prokind = 'f';
+    IF v_name IS NULL OR NOT public.fn_ca_money_rpc_writes_balances(v_src) THEN CONTINUE; END IF;
+    IF EXISTS (SELECT 1 FROM public.ca_money_rpc_registry g WHERE g.proname = v_name) THEN CONTINUE; END IF;
+    RAISE EXCEPTION 'REFUSED: % writes balance columns and is not in ca_money_rpc_registry', v_name;
+  END LOOP;
+END $$;
 
 CREATE FUNCTION public.fn_ca_tournament_is_unlimited(uuid) RETURNS boolean LANGUAGE sql AS $$ SELECT true $$;
 CREATE FUNCTION public.fn_ca_lock_settlement_lane_for_tournament(uuid) RETURNS void LANGUAGE sql AS $$ SELECT $$;
@@ -168,6 +189,11 @@ it('moves no guarantee chips until registration, rebuys and the add-on have all 
     for (const name of ['late', 'rebuy', 'close', 'apply', 'lock']) sql(`${fixture(name)};`);
     sql(`CREATE TRIGGER zz_ca_fund_overlay_on_lock BEFORE UPDATE OF status ON public.tournaments
            FOR EACH ROW EXECUTE FUNCTION public.fn_ca_fund_overlay_on_lock();`);
+    sql(`INSERT INTO ca_money_rpc_registry (proname, status) VALUES
+           ('fn_apply_prize_guarantee', 'approved'), ('fn_ca_fund_overlay_on_lock', 'approved'),
+           ('fn_ca_apply_prize_guarantee_core', 'approved');
+         CREATE EVENT TRIGGER ab_ca_money_rpc_registered ON ddl_command_end
+           EXECUTE FUNCTION public.fn_ca_money_rpc_registry_guard();`);
     sql(`INSERT INTO clubs (id, chip_treasury) VALUES ('${CLUB}', 100000);
          INSERT INTO union_wallets (union_id, chip_balance) VALUES ('${UNION}', 100000);`);
 
@@ -189,6 +215,12 @@ it('moves no guarantee chips until registration, rebuys and the add-on have all 
       .replace('8d9f9f1d6f6806bac9aec0202de08997', live.lock);
     sql(pointed);
     sql(readFileSync(resolve(root, M2), 'utf8'));
+    // The money-moving function is registered before it exists.
+    expect(
+      one(
+        `SELECT status FROM ca_money_rpc_registry WHERE proname='fn_ca_fund_satellite_seats_at_close_locked'`
+      )
+    ).toBe('approved');
 
     const ev = (id: string, cols: string) =>
       sql(`INSERT INTO tournaments (id, name, club_id, union_id, ${cols.split('|')[0]})
