@@ -2114,6 +2114,20 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { commitUnderPot: true },
     b: {},
   },
+  // 2026-11-14 (PLO6-AUDIT P6-4) PLO6 TOP SET THAT IS THE CURRENT NUTS
+  // (plo6TopSetNutRealization, HorsePlo6TopSetNut.ts), default OFF: arm A
+  // prices such a top set at full realization in the V38 flop/turn call
+  // menu, arm B is today's brain. The card exists so the nightly league can
+  // measure it before anyone proposes a default; the default is unchanged.
+  {
+    name: 'plo6_top_set_nut_realization',
+    variant: 'plo6',
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: { plo6TopSetNutRealization: true },
+    b: {},
+  },
   // 2026-11-13 OMAHA TOURNAMENT FIRST-IN (HorseOmahaTournamentFirstIn),
   // default ON: a is today's brain, b the engine fold it replaces. The small
   // blind against the big blind alone plays every hand as the pot-limit

@@ -47,6 +47,7 @@ import {
   tokenCallPriceApplies,
   tokenCallRequiredEquity,
 } from './HorseTokenCallPrice.js';
+import { plo6TopSetIsCurrentNuts } from './HorsePlo6TopSetNut.js';
 import { horsePolicyRegistration, horsePolicyOwnership } from './HorsePolicyRegistry.js';
 import { hasHorseReviewSignals } from './HorseReviewSignals.js';
 import { evaluateJointLivePolicy } from './multiway/JointLivePolicy.js';
@@ -2628,6 +2629,15 @@ export interface HorseDecideOpts {
    * docs/horse-default-on.d/plo6ManiacPriceRefusalToRangePlay.md). Default
    * on; false only for the regression's non-vacuity control. */
   plo6ManiacPriceRefusalToRangePlay?: boolean;
+  /** PLO6 cash, one board, no bomb pot: in the solverless flop/turn call
+   * menu a top set that is the current nuts (board unpaired, no three of a
+   * suit, no three ranks in any five-rank window; HorsePlo6TopSetNut.ts) is
+   * priced at full realization instead of the out-of-position non-draw
+   * discount (PLO6-AUDIT P6-4: realization 0.75 folded the nuts at a
+   * one-third price multiway). OPT-IN, default off: five reconstructed cases
+   * in two days, Horse-only; activation needs its own evaluation and a
+   * docs/horse-default-on.d evidence file. Read as `=== true`. */
+  plo6TopSetNutRealization?: boolean;
   /** An Omaha preflop call of 40% of the stack with chips behind and an
    * opponent still to act is not priced as a final all-in call
    * (PLO6-AUDIT-005). OPT-IN, default off. The pricing gap is real (the
@@ -17555,11 +17565,26 @@ export class HorseLogic {
       }
       // Flop / turn in a solverless game: realized equity vs the raked price.
       const drawy38 = cat <= 1 && drawsLive && equity >= (street === 'flop' ? 0.3 : 0.2);
-      const realization38 = realizationFactor({
+      let realization38 = realizationFactor({
         street: street === 'turn' ? 'turn' : 'flop',
         inPosition: ip,
         drawy: drawy38,
       });
+      // PLO6-AUDIT P6-4 (opt-in): a top set that is the current nuts is not
+      // the marginal non-draw the street/position discount models.
+      if (
+        opts.plo6TopSetNutRealization === true &&
+        vi.isOmaha &&
+        !vi.isHiLo &&
+        vi.holeCount === 6 &&
+        !isTournamentMode(gs) &&
+        !multiBoard36 &&
+        gs.bombPot !== true &&
+        plo6TopSetIsCurrentNuts(player.cards, board)
+      ) {
+        realization38 = 1;
+        if (telemetryOn(opts)) noteFire('plo6_top_set_nut_realization_seen');
+      }
       let comboFoldMul38 = 1;
       if (comboRaise38) {
         try {
