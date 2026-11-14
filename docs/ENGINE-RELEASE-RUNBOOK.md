@@ -265,7 +265,15 @@ In `server/standby/standby-engine.sh` `cmd_certify`:
 The `certify` job writes commit status `backup-engine/certified` on the exact
 SHA: `pending` at start, then `success` or `failure` with the reasons in the
 description and the run URL as `target_url` (`backup-engine.yml` step "Publish
-the verdict on the exact commit"). Readers, newest status first:
+the verdict on the exact commit"). A run that fails BEFORE the Backup host
+judges anything (a GitHub 5xx, the dispatch proof, a checkout) has no verdict:
+it writes `error` ("Backup Engine reached no verdict"), never `failure`, and if
+it had not yet written its own `pending` it leaves an existing `success` on
+that SHA untouched (it writes nothing when that status cannot be read). The
+dispatch proof and its fetch retry a 500/502/503/504 or network error up to
+three more times inside the step; a 4xx fails at once. Fixed 2026-11-14 after
+run 43565758486 wrote "refused" over an hour-old certificate on one HTTP 502.
+Readers accept only `success`, newest status first:
 
 - `stage-engine-release.yml` step `certified` walks main's first-parent line
   from the owed SHA (60 commits) and offers the newest `success`;
@@ -303,6 +311,27 @@ prints `SUPERSEDED` to the job summary. Manual, nightly and post-seal runs are
 never superseded; an unreadable GitHub answer proceeds (CLAUDE.md 10.86).
 Fixed 2026-11-07 (#9906) after the post-seal refresh waited about 4.5 h behind
 stale certifications.
+
+While an owner engine window is booked on main, not yet closed and not yet
+serving, the booked candidate goes first (2026-11-14). A push run reads one
+verdict from `scripts/ci/backup-candidate-priority.py` (GitHub GETs and the
+public `/health` only; the window, close and consumed rules are the ones in
+`scripts/ci/owner-window-ready.py`, the controls rule is `policy()` in
+`server/scripts/engine-release-activation-floor.py`):
+
+| Verdict     | Meaning                                                                                           | Push run does                                                                           |
+| ----------- | ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `booking`   | First main commit whose `activation-floor.json` and `owner-maintenance-windows.json` equal main's | Certifies exactly that commit: prints `PRIORITY`, is not superseded and not retargeted  |
+| `candidate` | Carries main's two control files, after the booking commit                                        | Unchanged (superseded by a newer push run, or retargeted to the newest server commit)   |
+| `predates`  | Its control files differ from main's, so Stage refuses it while the window is open                | Unchanged if superseded or retargeted; otherwise `DEFERRED`: nothing planned, no status |
+| `none`      | No owner window on main, or it closed, or its release is serving                                  | Unchanged                                                                               |
+| `unknown`   | Anything unreadable or malformed                                                                  | Unchanged (CLAUDE.md 10.86)                                                             |
+
+So the booking commit's own push run certifies it without a manual insurance
+dispatch, and a later control change on main (another lane's booking) makes
+that later commit the `booking`. Nothing cancels a certification that is
+already running: a run that started before the booking merged still holds the
+host until it ends (about 50 minutes on November 14).
 
 A `cancelled` Backup run is a different thing and is not explained by this
 repository: nothing in `.github/` cancels `backup-engine.yml` (the only
