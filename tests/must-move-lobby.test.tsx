@@ -501,13 +501,14 @@ describe('the lobby', () => {
     const readStat = (head: Element, stat: string) =>
       head.querySelector(`[data-stat="${stat}"] .mml-table-stat-value`)?.textContent;
     // Main 1: 21+22+23+24+25+26 = 141 over 6
-    expect(readStat(heads[0], 'average-stack')).toBe('23.50');
+    // An average stack is whole chips, truncated (Dan 2026-11-14).
+    expect(readStat(heads[0], 'average-stack')).toBe('23');
     expect(readStat(heads[0], 'total-chips')).toBe('141.00');
     // Main 2: 30 + 12.5 over 2 (open chairs never count)
-    expect(readStat(heads[1], 'average-stack')).toBe('21.25');
+    expect(readStat(heads[1], 'average-stack')).toBe('21');
     expect(readStat(heads[1], 'total-chips')).toBe('42.50');
     // Feeder: 25 + 40 over 2
-    expect(readStat(heads[2], 'average-stack')).toBe('32.50');
+    expect(readStat(heads[2], 'average-stack')).toBe('32');
     expect(readStat(heads[2], 'total-chips')).toBe('65.00');
     // and they sit after the seat count, in that order
     const order = Array.from(heads[0].children).map((c) => c.className);
@@ -528,7 +529,7 @@ describe('the lobby', () => {
     expect(lobbyTableChips({ seats: [] })).toEqual({ total: 0, average: 0, players: 0 });
     expect(
       lobbyTableChips({ seats: [seat(1, 0.1, 'a'), seat(2, '0.2', 'b'), seat(3, 99, null)] })
-    ).toEqual({ total: 0.3, average: 0.15, players: 2 });
+    ).toEqual({ total: 0.3, average: 0, players: 2 });
   });
 
   it('asks the door with the table, or null for any, and repeats the answer', async () => {

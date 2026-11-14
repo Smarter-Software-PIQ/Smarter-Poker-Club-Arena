@@ -458,7 +458,8 @@ export function TournamentBreakScreen({
   const knownBigBlind = typeof bigBlind === 'number' && Number.isFinite(bigBlind) && bigBlind > 0;
   const playersRemaining = playersRemainingProp ?? currentFacts?.playersRemaining ?? 0;
   const totalPlayers = totalPlayersProp ?? currentFacts?.totalPlayers ?? playersRemaining;
-  const averageStack = averageStackProp ?? currentFacts?.averageStack ?? 0;
+  // An average stack is whole chips whoever supplies it (Dan 2026-11-14).
+  const averageStack = Math.trunc(averageStackProp ?? currentFacts?.averageStack ?? 0);
   const topPlayers = topPlayersProp ?? currentFacts?.topPlayers ?? [];
   const myPlayer = myPlayerProp ?? currentFacts?.myPlayer;
   const prizePool = prizePoolProp ?? currentFacts?.prizePool ?? 0;
