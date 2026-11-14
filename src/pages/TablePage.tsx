@@ -788,6 +788,7 @@ import {
 import { formatPopupText } from '../utils/popupStyle';
 import {
   MYSTERY_BOUNTIES_LIVE_TEXT,
+  MYSTERY_BOUNTY_PRIZES_SET_TEXT,
   claimMysteryLiveAnnouncement,
   mysteryChestsLiveFromRow,
   mysteryChestsOnlyFromRow,
@@ -1955,6 +1956,8 @@ function LiveTablePage({
   /* Chests only (Dan 2026-10-22): no head is advertised before the money. */
   const [mysteryChestsOnly, setMysteryChestsOnly] = useState(false);
   const mysteryLiveAnnouncedRef = useRef<Set<string>>(new Set());
+  /** Events whose "Prizes Are Set" popup this table has already raised. */
+  const mysteryPrizesSetAnnouncedRef = useRef<Set<string>>(new Set());
   /* The bounty re-read the load effect publishes; the seat-list effect calls it
      when the set of seated players changes (utils/mysteryBountyTable rule 3). */
   const bountyMapRefreshRef = useRef<(() => Promise<void>) | null>(null);
@@ -15036,6 +15039,10 @@ function LiveTablePage({
      (Dan 2026-08-28). Distinct from showTournamentInfo, which is the smaller
      four-tab summary now reached only from the hero hub's Stats tab. */
   const [showTournamentLobby, setShowTournamentLobby] = useState(false);
+  /** A tab the lobby should open on (the "Prizes Are Set" popup asks for Bounties). */
+  const [tournamentLobbyTabRequest, setTournamentLobbyTabRequest] = useState<
+    { tab: string; seq: number } | undefined
+  >(undefined);
   /* THE TOURNAMENT INFO DOCK (Dan 2026-10-04): "A COLLAPSABLE BOX, UNDER THE
      'ACTION BAR' ON THE BOTTOM OF THE PAGE". Open or collapsed is the
      player's choice and is remembered on this device. It is ONE value for
@@ -17657,6 +17664,17 @@ function LiveTablePage({
                 const tid = tableStateRef.current.tournamentId || table.tournament_id;
                 if (claimMysteryLiveAnnouncement(mysteryLiveAnnouncedRef.current, tid)) {
                   toast.info(MYSTERY_BOUNTIES_LIVE_TEXT, 4000);
+                }
+              } else if (data?.type === 'mystery_bounty_sealed') {
+                /* THE PRIZES ARE SET (Dan 2026-11-13). Entry has closed and the
+                   ladder is sealed from the finalized pool; tell the table once
+                   per event, and let the tap open the lobby on Bounties. */
+                const tid = tableStateRef.current.tournamentId || table.tournament_id;
+                if (claimMysteryLiveAnnouncement(mysteryPrizesSetAnnouncedRef.current, tid)) {
+                  toast.info(MYSTERY_BOUNTY_PRIZES_SET_TEXT, 6000, () => {
+                    setTournamentLobbyTabRequest((r) => ({ tab: 'bounties', seq: (r?.seq ?? 0) + 1 }));
+                    setShowTournamentLobby(true);
+                  });
                 }
               } else if (data?.type === 'mystery_bounty_complete') {
                 // SECTION 63: reveal, animation done, UI clears, button moves,
@@ -33099,6 +33117,7 @@ function LiveTablePage({
         tournamentId={tableState.tournamentId}
         currentTableId={tableId}
         onClose={() => setShowTournamentLobby(false)}
+        requestedTab={tournamentLobbyTabRequest}
       />
       {/* Dan 2026-08-28: the tabbed HERO HUB behind the hero's own avatar —
           Throwables / Stats / Profile / Table Settings. Replaces the removed
