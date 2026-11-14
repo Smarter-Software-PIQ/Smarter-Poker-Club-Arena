@@ -169,7 +169,7 @@ describe('engine restart evidence inspector', () => {
   it('reads host pressure only from the loopback Prometheus query_range API', () => {
     const source = readFileSync(script, 'utf8');
     const urls = source.match(/http:\/\/[^'"\s]+/g) ?? [];
-    expect(urls).toEqual(['http://127.0.0.1:9090/api/v1/query_range?']);
+    expect(urls).toEqual(['http://127.0.0.1:9090/api/v1/query_range']);
     expect(source).not.toMatch(/method=|data=|urlopen\([^)]*data/);
   });
 

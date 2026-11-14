@@ -100,6 +100,9 @@ def mask(payload):
 
 
 DOCKERD_LEVEL = re.compile(r'level=(warning|error)')
+# The engine's own host scripts (engine-up and its background retirement of the
+# outgoing container, the release transaction) log through syslog tags.
+RELEASE_TAG = re.compile(r' (engine-up[a-z-]*|engine-release[a-z-]*|engine-supervisor)(\[\d+\])?: ')
 DOCKERD_FIELD = re.compile(r'\b(msg|error|container|exec|stream)=("(?:[^"\\]|\\.)*"|\S+)')
 
 
@@ -116,29 +119,33 @@ def mask_keep_words(payload):
 
 
 def read_dockerd_failures(argv):
-    events, per_minute, scanned = [], {}, 0
+    events, release_lines, per_minute, scanned = [], [], {}, 0
     for line in stream(argv):
         if line is None:
             break
         scanned += 1
         stamp = line.split(' ', 1)[0][:16]
         per_minute[stamp] = per_minute.get(stamp, 0) + 1
+        if RELEASE_TAG.search(line) and len(release_lines) < 200:
+            parts = line.split(' ', 1)
+            release_lines.append({'at': parts[0][:32], 'line': mask_keep_words(parts[1] if len(parts) == 2 else line)})
         if 'dockerd' in line and DOCKERD_LEVEL.search(line) and len(events) < 200:
             fields = {k: mask_keep_words(v) for k, v in DOCKERD_FIELD.findall(line)}
             events.append({'at': line.split(' ', 1)[0][:32], 'level': DOCKERD_LEVEL.search(line).group(1), **fields})
-    return {'linesScanned': scanned, 'hostLinesPerMinute': per_minute, 'dockerdFailures': events}
+    return {'linesScanned': scanned, 'hostLinesPerMinute': per_minute, 'dockerdFailures': events,
+            'releaseHostLines': release_lines}
 
 
 HOST_PRESSURE_QUERIES = {
     'load1': 'node_load1',
-    'cpuBusyFraction': '1 - avg(rate(node_cpu_seconds_total{mode="idle"}[1m]))',
-    'cpuIowaitFraction': 'avg(rate(node_cpu_seconds_total{mode="iowait"}[1m]))',
-    'cpuStealFraction': 'avg(rate(node_cpu_seconds_total{mode="steal"}[1m]))',
+    'cpuBusyFraction': '1 - avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[1m]))',
+    'cpuIowaitFraction': 'avg by (instance) (rate(node_cpu_seconds_total{mode="iowait"}[1m]))',
+    'cpuStealFraction': 'avg by (instance) (rate(node_cpu_seconds_total{mode="steal"}[1m]))',
     'cpuPressureWaitingFraction': 'rate(node_pressure_cpu_waiting_seconds_total[1m])',
     'ioPressureWaitingFraction': 'rate(node_pressure_io_waiting_seconds_total[1m])',
     'memoryPressureWaitingFraction': 'rate(node_pressure_memory_waiting_seconds_total[1m])',
     'memoryAvailableBytes': 'node_memory_MemAvailable_bytes',
-    'cpus': 'count(node_cpu_seconds_total{mode="idle"})',
+    'cpus': 'count by (instance) (node_cpu_seconds_total{mode="idle"})',
     'engineEventLoopP99Ms': 'max(poker_event_loop_delay_p99_ms)',
 }
 
@@ -153,12 +160,16 @@ def read_host_pressure(start, end):
         params = urllib.parse.urlencode({'query': query, 'start': start.timestamp(),
                                          'end': end.timestamp(), 'step': '15'})
         try:
-            with urllib.request.urlopen('http://127.0.0.1:9090/api/v1/query_range?' + params, timeout=10) as r:
+            with urllib.request.urlopen(PROMETHEUS + '?' + params, timeout=10) as r:
                 body = json.loads(r.read().decode('utf-8'))
             series = (body.get('data') or {}).get('result') or []
-            values = series[0]['values'] if series else []
-            out[name] = [[datetime.datetime.fromtimestamp(float(t), datetime.timezone.utc).strftime('%H:%M:%SZ'),
-                          round(float(v), 4)] for t, v in values]
+            # One entry per scrape target (instance/job names only), so two
+            # hosts are never read as one.
+            out[name] = {
+                mask_keep_words(str((one.get('metric') or {}).get('instance') or (one.get('metric') or {}).get('job') or 'all')):
+                    [[datetime.datetime.fromtimestamp(float(t), datetime.timezone.utc).strftime('%H:%M:%SZ'),
+                      round(float(v), 4)] for t, v in one.get('values') or []]
+                for one in series[:6]}
         except Exception:
             out[name] = 'unreadable'
     return out

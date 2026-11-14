@@ -138,6 +138,13 @@ export function wagerBoxesOverlap(a: CardBox, b: CardBox): boolean {
   );
 }
 
+/** A landed tower can grow upward when chips are added, and the board can
+ * expand on a runout. Both the saved slot and its alternatives must leave
+ * clearance around the current community cards. */
+export function clearsWagerBoard(candidate: CardBox, board: CardBox | undefined): boolean {
+  return !board || !wagerBoxesOverlap(candidate, board);
+}
+
 /** Finite minimum-remaining-options assignment; a greedy first slot may be
  * another player's only clear rail slot. Candidates already exclude chrome.
  */
