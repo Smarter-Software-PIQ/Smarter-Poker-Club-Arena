@@ -115,3 +115,21 @@ current sha256 46ac23883e61d38e4b3a3b4289d35f0bad1a5153b1292500e98af305a49f7063
 ## Independent review (2026-11-14)
 
 A separate reviewer that had not seen the work checked all six diffs, the binding diff key by key, every previous/current hash against `git show <merge-base>` and the working tree, `verify-source-bindings.py`, and `src/utils/format.ts`. Verdict: PASS on every task. The two removed negative assertions only enforced the retired no-decimals display rule; the money guards beside them (other clubs' 999/888/777 never leaking, the `+40` sign guard, the exact `save('agent-a', 200.25, ...)` write) are unchanged.
+
+## Addendum: tests/components/UnionAccountingRunStatus.test.tsx (audit key exactFiguresDisplayRebinding20261114b)
+
+Found by CI shard 6 after the first restamp; same display-only change.
+
+previous sha256 31c23688aff53a097e1b71717aeeb46893b63639b97cd62f36d0eab40cb60717
+current sha256 1d782fa78bc52918a2fdf48ec3c6d76e38f9d3a602c33c411b25e874344358b5
+
+```diff
+-  expect(await screen.findByText('100 Chips')).toBeInTheDocument();
+-  expect(screen.getByText('60 Chips')).toBeInTheDocument();
+-  expect(screen.getByText('40 Chips')).toBeInTheDocument();
++  expect(await screen.findByText('100.25 Chips')).toBeInTheDocument();
++  expect(screen.getByText('60.20 Chips')).toBeInTheDocument();
++  expect(screen.getByText('40.05 Chips')).toBeInTheDocument();
+-  expect(await screen.findByText('40 Chips')).toBeInTheDocument();
++  expect(await screen.findByText('40.05 Chips')).toBeInTheDocument();
+```

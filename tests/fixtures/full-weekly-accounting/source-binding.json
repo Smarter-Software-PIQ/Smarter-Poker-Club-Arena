@@ -338,7 +338,7 @@
     "tests/unit/SettlementService.test.ts": "92390199785906650508d16eea99372e24a6451dd8cd9d108679381ed1ca936d",
     "tests/unit/useUnionStore.test.ts": "3b3f59aca73ce2c20fad59c82e23dfa9c4aaef4b22fdff9ab3295b379e593268",
     "tests/unit/anApprovalCanBeRetried.test.ts": "e4364e4b911ccea5161b870eae3f61c62a0a47aace36a56ced56079d2dbd3506",
-    "tests/components/UnionAccountingRunStatus.test.tsx": "31c23688aff53a097e1b71717aeeb46893b63639b97cd62f36d0eab40cb60717",
+    "tests/components/UnionAccountingRunStatus.test.tsx": "1d782fa78bc52918a2fdf48ec3c6d76e38f9d3a602c33c411b25e874344358b5",
     "tests/components/WeeklyAccountingWorkspace.test.tsx": "ef30a660badbcb434bb9a07afa7517cf7b5ee83e823118d95b5d528f344e5c23",
     "tests/helpers/accountingObservation.ts": "9dba06d97c2f9cce2356fa8c6800ff9a07e4618ea2028370a278b4820b6199f6",
     "tests/components/FinancialAlertsExport.test.tsx": "8863dfb7e552fdf23d4e8e00eefce37b16f3cfbf1eb1858f9db9274b1f987d80",
@@ -8589,6 +8589,18 @@
         "kind": "sha256",
         "previous": "6be8e7def307a8363525ac7eb3600674f5d35f9524304cdd9770e77ab0c45856",
         "current": "46ac23883e61d38e4b3a3b4289d35f0bad1a5153b1292500e98af305a49f7063"
+      }
+    ]
+  },
+  "exactFiguresDisplayRebinding20261114b": {
+    "reason": "Owner authorization 2026-11-14 (PR #10797): bind the reviewed presentation-only changes of the exact-figures ruling. Each changed test now expects the exact stored figure (40.05 / 60.20 / 100.25 Chips, 100.25, 1,290.99, 200.25, -0.95 Chips, 9,999,999,999.99 Chips) instead of a floored, abbreviated or 'Under 1 Chip' display. Full diff recorded in the review file. No fixture data, RPC argument, money-movement, scope/RLS, stale-read or edit-guard assertion changed; historical audits, financial pins/assertions, qualification states and certificates are unchanged. Current test source identity only; matching source identity does not certify native money behavior or production delivery.",
+    "review": "docs/reviews/2026-11-14-exact-figures-binding-restamp.md",
+    "changes": [
+      {
+        "path": "tests/components/UnionAccountingRunStatus.test.tsx",
+        "kind": "sha256",
+        "previous": "31c23688aff53a097e1b71717aeeb46893b63639b97cd62f36d0eab40cb60717",
+        "current": "1d782fa78bc52918a2fdf48ec3c6d76e38f9d3a602c33c411b25e874344358b5"
       }
     ]
   }
