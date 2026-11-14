@@ -158,6 +158,7 @@ import {
 } from './HorseOpponentStyle.js';
 import { publicMemoryDomainKey } from './HorsePublicMemoryDomain.js';
 import { addStyleReadMs, noteStyleShadowEngaged } from './HorseStyleShadow.js';
+import { isOmahaVariant } from './VariantRules.js';
 
 /** Match the controller's full-raise marker: an all-in button can be a call
  * or a short raise and must not invent an aggressive read. */
@@ -843,7 +844,7 @@ export function readScopeOf(variant: string | null | undefined, dealtCount: numb
   const fam =
     v.includes('short') || v === '6+' || v.includes('sixplus')
       ? 'sixplus'
-      : v.startsWith('plo') || v === 'flo8' || v.includes('omaha')
+      : isOmahaVariant(v) || v.startsWith('plo') || v.includes('omaha')
         ? 'omaha'
         : 'holdem';
   const size = dealtCount <= 2 ? 'hu' : dealtCount <= 5 ? 'short' : 'full';

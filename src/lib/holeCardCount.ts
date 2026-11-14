@@ -47,6 +47,10 @@ const CARDS_PER_PLAYER: Readonly<Record<string, number>> = {
   // Omaha. It is spelled without "plo", which is exactly how it slipped past
   // five separate substring tests in the engine and got dealt two.
   flo8: 4,
+  // Owner November 14, 2026: fixed-limit Omaha in every card count.
+  flo4: 4,
+  flo5: 5,
+  flo6: 6,
   pineapple: 3,
 };
 

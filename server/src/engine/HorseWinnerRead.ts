@@ -26,6 +26,7 @@
  * mirror), deduplicated by hand key, bounded in memory, never persisted.
  */
 import type { ExploitProfile } from './HorseMind.js';
+import { isOmahaVariant } from './VariantRules.js';
 
 /** Results decay with this half-life (hands), so a player who stops winning stops being read as one. */
 export const WINNER_HALF_LIFE_HANDS = 1000;
@@ -74,7 +75,7 @@ export function winnerReadScopeOf(
   const family =
     v.includes('short') || v === '6+' || v.includes('sixplus')
       ? 'sixplus'
-      : v.startsWith('plo') || v === 'flo8' || v.includes('omaha')
+      : isOmahaVariant(v) || v.startsWith('plo') || v.includes('omaha')
         ? 'omaha'
         : 'holdem';
   const f = (format || 'cash').toLowerCase();

@@ -160,11 +160,13 @@ export function variantInfo(gameVariant: string): VariantInfo {
     // quarter/scoop atoms, the WIDEST per-iteration variance in the engine,
     // and it had the second-smallest sample while scoop/quarter frequencies
     // were read as discrete strategy triggers at ~4pp standard error.
+    // Owner November 14, 2026: the fixed-limit five and six card Omahas deal
+    // the same hands as PLO5 / PLO6, so they draw the same sample sizes.
     iterations: isHiLoVariant(v)
       ? 220
-      : v === 'plo6'
+      : v === 'plo6' || v === 'flo6'
         ? 120
-        : v === 'plo5'
+        : v === 'plo5' || v === 'flo5'
           ? 170
           : isOmaha
             ? 220

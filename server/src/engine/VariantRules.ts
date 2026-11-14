@@ -56,10 +56,16 @@ const HOLE_CARDS: Readonly<Record<string, number>> = {
   plo6: 6,
   plo8: 4,
   flo8: 4,
+  // Owner November 14, 2026: fixed-limit Omaha in every card count. Each is
+  // the pot-limit game's deal and hand rules with fixed-limit betting. Dealt
+  // here, but outside KNOWN_VARIANTS below: see that list for why.
+  flo4: 4,
+  flo5: 5,
+  flo6: 6,
 };
 
 /** Variants where a hand is exactly two hole cards plus exactly three board. */
-const OMAHA_VARIANTS = new Set(['plo4', 'plo5', 'plo6', 'plo8', 'flo8']);
+const OMAHA_VARIANTS = new Set(['plo4', 'plo5', 'plo6', 'plo8', 'flo4', 'flo5', 'flo6', 'flo8']);
 
 /** Variants where the pot splits between the high hand and a qualifying low. */
 const HI_LO_VARIANTS = new Set(['plo8', 'flo8']);
@@ -145,8 +151,45 @@ export function isKnownVariant(variant?: string | null): variant is GameVariant 
   // asking "do we know this?" about `undefined` must be told no, or the guard
   // certifies the very silence it exists to catch.
   if (!variant) return false;
-  return Object.prototype.hasOwnProperty.call(HOLE_CARDS, variant.toLowerCase());
+  return (KNOWN_VARIANTS as readonly string[]).includes(variant.toLowerCase());
 }
 
-/** Every variant this module knows, for tests and exhaustiveness checks. */
-export const KNOWN_VARIANTS: readonly string[] = Object.freeze(Object.keys(HOLE_CARDS));
+/**
+ * The variants the horse decision programme has been taught: every per-variant
+ * pack, the Phase 13 joint owner (its contract numbers each variant by its
+ * place in this list, so the ORDER is fixed), the learning captures and the
+ * corrective review are built over exactly these nine, and each refuses a
+ * variant outside them by name rather than guessing.
+ *
+ * The fixed-limit Omahas (owner November 14, 2026) are dealt by HOLE_CARDS
+ * above and are deliberately NOT here. A horse at those tables plays the
+ * reference brain (HorsePolicyRegistry owner 'reference'), which reads the
+ * deal, the Omaha hand rules and the fixed-limit betting from this module and
+ * BettingStructure; no pack, joint sample or learning capture is applied to a
+ * game nobody has measured. Teaching the programme a variant is adding it here
+ * together with its packs, contract rows and evidence.
+ */
+export const KNOWN_VARIANTS: readonly GameVariant[] = Object.freeze([
+  'nlh',
+  'short_deck',
+  'flh',
+  'pineapple',
+  'plo4',
+  'plo5',
+  'plo6',
+  'plo8',
+  'flo8',
+] as const);
+
+/** Fixed-limit Omaha, high only, in 4, 5 and 6 card (owner November 14, 2026). */
+export const FIXED_LIMIT_OMAHA_HIGH_VARIANTS = Object.freeze(['flo4', 'flo5', 'flo6'] as const);
+export type FixedLimitOmahaHighVariant = (typeof FIXED_LIMIT_OMAHA_HIGH_VARIANTS)[number];
+
+/** Every variant the engine deals: the known nine plus the fixed-limit Omahas. */
+export const DEALT_VARIANTS: readonly string[] = Object.freeze(Object.keys(HOLE_CARDS));
+
+/** True when the engine deals this variant (its hole cards are not a guess). */
+export function isDealtVariant(variant?: string | null): boolean {
+  if (!variant) return false;
+  return Object.prototype.hasOwnProperty.call(HOLE_CARDS, variant.toLowerCase());
+}

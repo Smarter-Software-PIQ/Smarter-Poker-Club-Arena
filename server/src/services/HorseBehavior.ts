@@ -251,7 +251,16 @@ export const SECOND_TABLE_RATE: Readonly<Record<RoomBand, number>> = Object.free
 /** Games most players play: NLH and PLO4/5/6 from 0.25 to 2 big blind. */
 const POPULAR_VARIANTS = new Set(['nlh', 'plo4', 'plo5', 'plo6']);
 /** Games few players play, whatever the stakes. */
-const NICHE_VARIANTS = new Set(['flh', 'flo8', 'plo8', 'short_deck', 'pineapple']);
+const NICHE_VARIANTS = new Set([
+  'flh',
+  'flo4',
+  'flo5',
+  'flo6',
+  'flo8',
+  'plo8',
+  'short_deck',
+  'pineapple',
+]);
 
 /**
  * The second-table rate for one game in one band (2026-11-07): popular games

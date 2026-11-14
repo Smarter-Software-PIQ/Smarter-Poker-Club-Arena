@@ -69,6 +69,11 @@ const MAX_SEATS_BY_VARIANT: Record<string, number> = {
   // leave the deck. Without this line it fell to DEFAULT_MAX_SEATS and a
   // nine-seat FLO8 table was creatable where a nine-seat PLO8 was not.
   flo8: 8,
+  // Owner November 14, 2026: fixed-limit Omaha 4, 5 and 6 card deal exactly
+  // the pot-limit games' cards, so they take the same ceilings.
+  flo4: 8,
+  flo5: 7,
+  flo6: 6,
 };
 
 /** Hole cards dealt to each player. */
@@ -81,6 +86,9 @@ const HOLE_CARDS_BY_VARIANT: Record<string, number> = {
   plo5: 5,
   plo6: 6,
   plo8: 4,
+  flo4: 4,
+  flo5: 5,
+  flo6: 6,
   flo8: 4,
 };
 

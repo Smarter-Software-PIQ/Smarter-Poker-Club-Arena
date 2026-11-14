@@ -102,6 +102,12 @@ const PRE: Record<string, VariantPreflopShift> = {
   // fixed limit: cheap flops, value raises, wide defence
   flh: { open: -0.05, threeBet: -0.02, fourBet: 0, coldCall: -0.05, bbDefend: -0.08 },
   flo8: { open: -0.03, threeBet: 0.02, fourBet: 0.02, coldCall: -0.04, bbDefend: -0.08 },
+  // Owner November 14, 2026: fixed-limit Omaha 4, 5 and 6 card. The Omaha
+  // card effect (wider with every extra card, 3-bets narrower) on top of the
+  // fixed-limit effect (cheap flops, wide blind defence).
+  flo4: { open: -0.05, threeBet: 0.02, fourBet: 0.02, coldCall: -0.05, bbDefend: -0.08 },
+  flo5: { open: -0.06, threeBet: 0.03, fourBet: 0.02, coldCall: -0.05, bbDefend: -0.08 },
+  flo6: { open: -0.07, threeBet: 0.04, fourBet: 0.03, coldCall: -0.05, bbDefend: -0.09 },
 };
 
 const POST: Record<string, VariantPostflopProfile> = {
@@ -119,6 +125,11 @@ const POST: Record<string, VariantPostflopProfile> = {
   // work; the check-raise is the value play; calls are cheap and correct
   flh: { ...NLH_POST, bluffMul: 0.55, slowplayMul: 0.7, checkRaiseMul: 1.3, callRespect: -0.15 },
   flo8: { ...NLH_POST, bluffMul: 0.5, slowplayMul: 0.7, checkRaiseMul: 1.3, callRespect: -0.15 },
+  // fixed-limit Omaha: a limit bluff that also runs into Omaha's connected
+  // ranges, shrinking with every extra hole card
+  flo4: { ...NLH_POST, bluffMul: 0.45, slowplayMul: 0.65, checkRaiseMul: 1.3, callRespect: -0.15 },
+  flo5: { ...NLH_POST, bluffMul: 0.4, slowplayMul: 0.6, checkRaiseMul: 1.3, callRespect: -0.15 },
+  flo6: { ...NLH_POST, bluffMul: 0.35, slowplayMul: 0.6, checkRaiseMul: 1.3, callRespect: -0.15 },
 };
 
 const norm = (v?: string | null): string => (v || 'nlh').toLowerCase();

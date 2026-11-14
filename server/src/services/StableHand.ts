@@ -628,7 +628,7 @@ const NON_EXOTIC = new Set(['nlh', 'nlhe', 'plo', 'plo4', 'plo5', 'plo6']);
    So each limit variant carries its OWN cap of 2 and its own floor of 1.
    Across two variants and two hosts that is up to 8 limit tables with at
    least 2 always lit: a handful, open, and available. */
-export const LIMIT_VARIANTS = new Set(['flh', 'flo8']);
+export const LIMIT_VARIANTS = new Set(['flh', 'flo4', 'flo5', 'flo6', 'flo8']);
 export const LIMIT_MAX_TABLES_PER_VARIANT = 2;
 export const LIMIT_MIN_TABLES_PER_VARIANT = 1;
 
@@ -1602,6 +1602,11 @@ export const VARIANT_COVERAGE: Array<[string, number]> = [
   ['plo8', 0.1],
   ['flh', 0.08],
   ['flo8', 0.08],
+  // Owner November 14, 2026: fixed-limit Omaha 4, 5 and 6 card. The same
+  // share as the other two limit games, for the same reason.
+  ['flo4', 0.08],
+  ['flo5', 0.08],
+  ['flo6', 0.08],
 ];
 
 export const MAX_VARIANTS_PER_HORSE = 3;

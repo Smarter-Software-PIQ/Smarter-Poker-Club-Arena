@@ -46,6 +46,7 @@ import {
 import { reportError } from './errorReporter.js';
 import { claimNightlyJob } from '../benchmark/HorseLeague.js';
 import type { HorseProfileMods, LeakFamily } from '../engine/HorseLogic.js';
+import { isOmahaVariant } from '../engine/VariantRules.js';
 
 /** The two VARIANT families the rollup splits by; 'tournament' is a format. */
 type VariantFamily = Exclude<LeakFamily, 'tournament'>;
@@ -426,7 +427,7 @@ export function leakFamilyOf(
   variant: string | null | undefined
 ): Exclude<LeakFamily, 'tournament'> {
   const v = (variant || 'nlh').toLowerCase();
-  return v.startsWith('plo') || v === 'flo8' || v.includes('omaha') ? 'omaha' : 'holdem';
+  return isOmahaVariant(v) || v.startsWith('plo') || v.includes('omaha') ? 'omaha' : 'holdem';
 }
 
 const NLH_ONLY_TOURNEY_TAGS = new Set([

@@ -187,7 +187,7 @@ export type KillIneligibleReason =
   | 'tournament'
   | 'bomb_pot_hand';
 
-const KILL_VARIANTS = new Set(['flh', 'flo8']);
+const KILL_VARIANTS = new Set(['flh', 'flo4', 'flo5', 'flo6', 'flo8']);
 
 /** Why a hand at this table cannot be (or trigger) a kill, or null when it can. */
 export function killIneligibility(input: {
