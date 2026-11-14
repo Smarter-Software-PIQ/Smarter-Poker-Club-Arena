@@ -3452,9 +3452,10 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   // day) the audit raised data_unread for four days while the chart kept
   // answering. v27_gto_bb_defend_eligible counts every such spot before the
   // chart is asked, so the ratio reads only whether the chart answered the
-  // spots it owns (a hydrated chart answers every one). No floor until a
-  // measured live day: the drift audit still judges both keys against their
-  // own history meanwhile.
+  // spots it owns. A hydrated chart should answer nearly all of them, but a
+  // missing cell returns null, so the share is not assumed: no floor until a
+  // measured live day, and the drift audit still judges both keys against
+  // their own history meanwhile.
   receipt(
     'v27_gto_bb_defend_eligible',
     'HorsePreflop (V27)',
