@@ -1088,7 +1088,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'style_boot_inputs_hydrated_seen',
     'HorseExploitHydrator (STYLE READ boot inputs)',
-    'with HORSE_STYLE_BOOT_RELEASE_START_MS set, the boot replay rebuilt the post-release counts of the pre-repair discount from the hand history it read (the size buckets, in-format aggression and Horse reference rebuild on every boot without a receipt); occurrence counter; named *_seen',
+    'unless HORSE_STYLE_BOOT_RELEASE_START_MS is `off`, the boot replay rebuilt the post-release counts of the pre-repair discount from the hand history it read (the size buckets, in-format aggression and Horse reference rebuild on every boot without a receipt); occurrence counter; named *_seen',
     '2026-11-13'
   ),
   receipt(
@@ -1124,7 +1124,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'style_boot_size_from_players_seen',
     'HorseExploitHydrator (STYLE READ boot inputs)',
-    'with HORSE_STYLE_BOOT_RELEASE_START_MS set, at least one boot row had no stored dealt-in count (horse_exploit_dealt_count), so its table size came from the players list instead of the count the live scope uses; once per boot; occurrence counter; named *_seen',
+    'unless HORSE_STYLE_BOOT_RELEASE_START_MS is `off`, at least one boot row had no stored dealt-in count (horse_exploit_dealt_count), so its table size came from the players list instead of the count the live scope uses; once per boot; occurrence counter; named *_seen',
     '2026-11-13'
   ),
   receipt(
