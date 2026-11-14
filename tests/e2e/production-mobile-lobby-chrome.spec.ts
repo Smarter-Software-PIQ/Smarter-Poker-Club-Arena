@@ -533,11 +533,14 @@ test.describe('the mobile lobby chrome on production', () => {
       expect(wallets.data?.length).toBeGreaterThan(0);
       expect(wallets.data?.every((row) => Number(row.chip_balance) === 0)).toBe(true);
       await openLobby(page);
-      const ids = await page
-        .locator(`${CASH_TABLE_CARD_SELECTOR}:visible`)
-        .evaluateAll((rows) =>
-          rows.map((row) => row.getAttribute('data-id')).filter((id): id is string => Boolean(id))
-        );
+      const allGames = page.getByRole('tab', { name: 'ALL', exact: true });
+      await allGames.click();
+      await expect(allGames).toHaveAttribute('aria-selected', 'true');
+      const cards = page.locator(`${CASH_TABLE_CARD_SELECTOR}:visible`);
+      await expect(cards.first()).toBeVisible();
+      const ids = await cards.evaluateAll((rows) =>
+        rows.map((row) => row.getAttribute('data-id')).filter((id): id is string => Boolean(id))
+      );
       const catalogue = await client
         .from('tables')
         .select('id,cluster_id,cluster:cash_games!tables_cluster_id_fkey(cluster_mode,must_move)')

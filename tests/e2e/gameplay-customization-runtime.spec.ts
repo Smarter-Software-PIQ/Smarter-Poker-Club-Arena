@@ -695,6 +695,269 @@ async function projectedGameplayTable(environment: CustomizationCertificationEnv
   return { tableId, tableRow };
 }
 
+/** The actual published Lightning consumer, with only this browser's hand/read inputs projected. */
+async function verifyPublishedLightning(
+  context: BrowserContext,
+  page: Page,
+  account: TemporaryCustomizationAccount,
+  anchorTableId: string
+) {
+  const room = '11a70000-0000-4000-8000-0000000000a1';
+  const cluster = 'c1a50000-0000-4000-8000-0000000000c1';
+  const cards = [
+    { rank: 'A', suit: 's' },
+    { rank: 'K', suit: 'd' },
+  ];
+  let seat = 1;
+  let hand = 10;
+  let seq = 0;
+  let vpipReads = 0;
+  const sockets = new Set<import('@playwright/test').WebSocketRoute>();
+  const snapshot = () => ({
+    type: 'SNAPSHOT',
+    tableId: room,
+    seq: ++seq,
+    state: {
+      table_id: room,
+      hand_id: `4a4d0000-0000-4000-8000-${String(hand).padStart(12, '0')}`,
+      hand_number: hand,
+      lightning_original_top_up: true,
+      lightning: {
+        cluster_id: cluster,
+        hand_id: `4a4d0000-0000-4000-8000-${String(hand).padStart(12, '0')}`,
+        name: 'NLH 1/2 Lightning Games',
+        small_blind: 1,
+        big_blind: 2,
+        variant: 'nlh',
+        fast_fold_available: false,
+      },
+      pot: 3,
+      community_cards: [],
+      community_cards2: [],
+      community_cards3: [],
+      current_bet: 2,
+      current_player: VILLAIN_ID,
+      dealer_seat: 6,
+      stage: 'preflop',
+      min_raise: 4,
+      last_raise: 2,
+      betting_structure: 'no_limit',
+      max_seats: 6,
+      turn_start_time_ms: Date.now(),
+      turn_duration_ms: 30_000,
+      turn_deadline_ms: Date.now() + 30_000,
+      server_time_ms: Date.now(),
+      time_bank_active: false,
+      pots: [],
+      action_history: [],
+      disconnect_states: {},
+      players: Array.from({ length: 6 }, (_, index) => {
+        const number = index + 1;
+        const hero = number === seat;
+        return {
+          seat: number,
+          user_id: hero
+            ? account.id
+            : number === (seat === 6 ? 1 : 6)
+              ? VILLAIN_ID
+              : `66666666-7777-4888-8999-aaaaaaaaaaa${number}`,
+          username: hero ? 'RuntimeHero' : `Opponent${number}`,
+          stack: hero ? 500 : 400,
+          bet: 0,
+          totalInvested: 0,
+          cards: [],
+          avatar_url: hero ? HERO_AVATAR : VILLAIN_AVATAR,
+          is_folded: false,
+          is_all_in: false,
+          is_sitting_out: false,
+          is_disconnected: false,
+          is_waiting_for_bb: false,
+          time_bank_remaining: 30,
+          time_bank_uses_remaining: 3,
+          hit_run_hands_remaining: hand === 10 ? 1 : 0,
+          hit_run_hands_required: 10,
+        };
+      }),
+    },
+  });
+  const holeCards = () => ({
+    type: 'USER_EVENT',
+    tableId: room,
+    payload: {
+      kind: 'hole_cards',
+      row: { table_id: room, user_id: account.id, seat_number: seat, hand_number: hand, cards },
+    },
+  });
+  const send = (frame: unknown) => {
+    for (const socket of sockets) socket.send(JSON.stringify(frame));
+  };
+  await context.addInitScript(
+    ({ room, cluster, club }) => {
+      sessionStorage.setItem(
+        'ca.lightning.pool-sessions.v1',
+        JSON.stringify([
+          {
+            poolSessionId: room,
+            clusterId: cluster,
+            meta: {
+              clusterId: cluster,
+              clubId: club,
+              name: 'NLH 1/2 Lightning Games',
+              variant: 'nlh',
+              smallBlind: 1,
+              bigBlind: 2,
+              maxPlayers: 6,
+              minBuyIn: 80,
+              maxBuyIn: 200,
+              handedness: 6,
+              templateName: null,
+              clusterMode: 'lightning',
+              enabled: true,
+            },
+          },
+        ])
+      );
+    },
+    { room, cluster, club: CLUB_ID }
+  );
+  await page.routeWebSocket(
+    (url) => url.hostname === 'engine.smarter.poker',
+    (socket) => {
+      socket.onMessage((raw) => {
+        const message = JSON.parse(String(raw));
+        if (message.type === 'SUBSCRIBE') {
+          sockets.add(socket);
+          socket.send(JSON.stringify({ type: 'SUBSCRIBED', tableId: room }));
+          socket.send(JSON.stringify(snapshot()));
+          socket.send(JSON.stringify(holeCards()));
+        } else if (message.type === 'RESYNC') {
+          socket.send(JSON.stringify(snapshot()));
+          socket.send(JSON.stringify(holeCards()));
+        } else if (message.type === 'UNSUBSCRIBE') sockets.delete(socket);
+      });
+      socket.onClose(() => sockets.delete(socket));
+    }
+  );
+  // All POSTs are blocked before the synthetic seat mounts. Only these local
+  // read responses may pass; none is forwarded to production.
+  await page.route('**/*', async (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    if (path.endsWith('/fn_lightning_my_session')) {
+      expect(request.postDataJSON()).toEqual({ p_cluster_id: cluster });
+      return fulfillJson(route, {
+        pool_session_id: room,
+        anchor_table_id: anchorTableId,
+        cluster_mode: 'lightning',
+        state: 'active',
+        stack: 500,
+        in_hand: true,
+        seat_number: 1,
+      });
+    }
+    if (path.endsWith('/fn_cash_vpip_status')) {
+      expect(request.postDataJSON()).toEqual({ p_table_id: anchorTableId });
+      vpipReads++;
+      return fulfillJson(route, {
+        ok: true,
+        seated: true,
+        required: 40,
+        window: 10,
+        hands: hand,
+        vpip: 60,
+        rolling: false,
+        warned: false,
+      });
+    }
+    if (path.endsWith('/fn_maintenance_break_state')) return fulfillJson(route, []);
+    if (path.endsWith('/fn_cash_effective_buyin'))
+      return fulfillJson(route, { min: 80, floor_applied: false });
+    if (path.endsWith('/fn_time_bank_allowance'))
+      return fulfillJson(route, { uses_remaining: 3, duration_seconds: 30 });
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method()))
+      return route.abort('blockedbyclient');
+    await route.fallback();
+  });
+  await page.goto(`table/${room}`, { waitUntil: 'domcontentloaded' });
+  const hero = page.locator(`.seat--hero[data-player-id="${account.id}"]`);
+  const faces = hero.locator('.seat__cards--hero .seat__card--face');
+  await expect(hero.locator('.seat__avatar-img')).toBeVisible();
+  await expect(faces).toHaveCount(2);
+  await expect(page.getByTestId('vpip-badge')).toContainText('60%');
+  await expect(page.getByTestId('hero-vpip-hand-count')).toContainText('10');
+  const portrait = await hero.locator('.seat__avatar-img').elementHandle();
+  const card = await faces.first().elementHandle();
+  if (!portrait || !card) throw new Error('Lightning hero nodes were not rendered');
+  const cardWords = await faces
+    .locator('img')
+    .evaluateAll((nodes) => nodes.map((node) => (node as HTMLImageElement).alt));
+  for (const assignedSeat of [3, 2, 1]) {
+    seat = assignedSeat;
+    send(snapshot());
+    send(holeCards());
+    await expect(hero).toHaveAttribute('data-seat-num', String(seat));
+    expect(
+      await hero
+        .locator('.seat__avatar-img')
+        .evaluate((node, original) => node === original, portrait)
+    ).toBe(true);
+    expect(await faces.first().evaluate((node, original) => node === original, card)).toBe(true);
+    expect(
+      await faces
+        .locator('img')
+        .evaluateAll((nodes) => nodes.map((node) => (node as HTMLImageElement).alt))
+    ).toEqual(cardWords);
+  }
+  hand = 11;
+  send(snapshot());
+  send(holeCards());
+  await expect(page.getByTestId('hero-vpip-hand-count')).toContainText('11');
+  await expect(page.getByTestId('vpip-badge')).toContainText('60%');
+  await expect(page.getByTestId('hero-hand-count')).toHaveCount(0);
+  expect(vpipReads).toBeGreaterThanOrEqual(2);
+  const stack = await hero.locator('.seat__stack').innerText();
+  const award = {
+    type: 'EVENT',
+    tableId: room,
+    ts: Date.now(),
+    payload: {
+      type: 'bbj_payout_complete',
+      table_id: anchorTableId,
+      hand_number: 10,
+      emitted_at: Date.now(),
+      totalPayout: 1000,
+      loser: { userId: VILLAIN_ID, share: 500 },
+      winner: { userId: '66666666-7777-4888-8999-aaaaaaaaaaa3', share: 250 },
+      tableShare: 250,
+      perPlayerShare: 125,
+      tablePlayerIds: [account.id, '66666666-7777-4888-8999-aaaaaaaaaaa4'],
+      updatedStacks: [{ userId: account.id, stack: 9999 }],
+    },
+  };
+  send(award);
+  const notice = page.getByText(/Bad Beat Jackpot: You Won 125(?:\.00)? From Hand #10\./).first();
+  await expect(notice).toBeVisible();
+  const celebration = page.getByRole('dialog', { name: /^Bad Beat Jackpot Hit\. Total Payout/ });
+  await expect(celebration).toBeVisible();
+  await expect(celebration.locator('.bbj-hero-share')).toContainText('125.00');
+  await expect(celebration).toContainText('Chips Added Directly To Your Wallet!');
+  await expect(celebration).not.toContainText('Table Balance');
+  expect(await hero.locator('.seat__stack').innerText()).toBe(stack);
+  await expect(notice).toHaveCount(0, { timeout: 10_000 });
+  send(award);
+  // The following consumed hand is an acknowledgement after the replay,
+  // so this assertion cannot pass just because the socket has not run yet.
+  hand = 12;
+  send(snapshot());
+  send(holeCards());
+  await expect(page.getByTestId('hero-vpip-hand-count')).toContainText('12');
+  await expect(notice).toHaveCount(0);
+  expect(await hero.locator('.seat__stack').innerText()).toBe(stack);
+  console.log(
+    '[hero-celebration] published Lightning: stable hero/cards, Hands11 and VPIP60%, old-hand BBJ125, current stack unchanged'
+  );
+}
+
 test.describe('published hero showdown celebrations', () => {
   test.skip(
     !CERTIFICATION_ENABLED,
@@ -705,7 +968,7 @@ test.describe('published hero showdown celebrations', () => {
     browser,
     baseURL,
     request,
-  }) => {
+  }, testInfo) => {
     test.setTimeout(180_000 + CLEANUP_FREEZE_ALLOWANCE_MS);
     if (!baseURL) throw new Error('A deployed BASE_URL is required.');
     const expectedSha = process.env.LIVE_SHA || '';
@@ -788,6 +1051,22 @@ test.describe('published hero showdown celebrations', () => {
           await expect(root.locator('.seat-wrapper--hero .seat__avatar')).toBeVisible();
           await expect(root.locator('.community-cards .card-image').first()).toBeVisible();
           await verifyHeroCelebrations(page, tableId, account.id, VILLAIN_ID);
+          await context.close();
+          context = await browser.newContext({
+            ...devices['iPhone 13'],
+            baseURL,
+            serviceWorkers: 'block',
+            storageState: { cookies: [], origins: [] },
+          });
+          context.setDefaultTimeout(15_000);
+          context.setDefaultNavigationTimeout(30_000);
+          const lightningPage = await context.newPage();
+          await signIn(lightningPage, baseURL, account);
+          await verifyPublishedLightning(context, lightningPage, account, tableId);
+          await testInfo.attach('published-lightning-hero-vpip-bbj', {
+            body: await lightningPage.screenshot(),
+            contentType: 'image/png',
+          });
           await verifyPublication('after');
           console.log(`[hero-celebration] exact served client verified: ${expectedSha}`);
         },
