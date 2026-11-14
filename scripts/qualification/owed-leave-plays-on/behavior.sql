@@ -13,6 +13,7 @@ CREATE FUNCTION sim.t2() RETURNS uuid LANGUAGE sql IMMUTABLE AS $$SELECT '300000
 CREATE FUNCTION sim.alone_on_feeder(p_hero_stack numeric DEFAULT 40) RETURNS void LANGUAGE plpgsql AS $$
 BEGIN
   PERFORM sim.reset(p_hero_stack);
+  TRUNCATE sim_holds;
   UPDATE cash_games SET cluster_mode = 'must_move' WHERE id = sim.c();
   INSERT INTO tables(id, club_id, cluster_id) VALUES (sim.t2(), 'c0000000-0000-4000-8000-000000000001', sim.c());
   UPDATE tables SET role = 'feeder', game_variant = 'nlh', small_blind = 0.25, big_blind = 0.5, max_players = 6 WHERE id = sim.t();
@@ -67,6 +68,17 @@ UPDATE table_seats SET is_sitting_out = true WHERE table_id = sim.t2() AND seat_
 SELECT sim.ok(sim.ask() @> '{"keep":true,"dest_open_chair":false}', 'Q4 a chair held by a sitting-out seat is not open; kept at first');
 UPDATE ca_owed_leave_decisions SET occurred_at = occurred_at - interval '11 minutes' WHERE table_id = sim.t() AND occupancy_id = (SELECT occupancy_id FROM table_seats WHERE user_id = sim.h() AND left_at IS NULL);
 SELECT sim.ok(sim.ask() @> '{"keep":false,"reason":"compatible_full"}', 'Q4 full for ten minutes');
+-- Q4b. A chair held for someone (a notified waitlist hold) is not open, exactly as the planner counts it.
+SELECT sim.alone_on_feeder(); SELECT sim.queue_leave();
+INSERT INTO sim_holds VALUES (sim.t2(), 1);
+SELECT sim.ok(sim.ask() @> '{"keep":true,"dest_open_chair":false}', 'Q4b a held chair is not open');
+TRUNCATE sim_holds;
+-- Q4c. A full-ring game moves a feeder player only from a feeder of handedness - 2, or a breaking one.
+SELECT sim.alone_on_feeder(); SELECT sim.queue_leave();
+UPDATE cash_games SET handedness = 9 WHERE id = sim.c();
+SELECT sim.ok(sim.ask() @> '{"keep":false,"reason":"not_movable"}', 'Q4c a lone seat on a full-ring feeder is not movable');
+UPDATE tables SET lifecycle = 'breaking' WHERE id = sim.t();
+SELECT sim.ok(sim.ask() @> '{"keep":true}', 'Q4c a breaking full-ring feeder moves its players');
 -- Q5. No compatible dealing table: other stakes, other variant, another club, one player, breaking.
 SELECT sim.alone_on_feeder(); SELECT sim.queue_leave();
 UPDATE tables SET big_blind = 1 WHERE id = sim.t2();

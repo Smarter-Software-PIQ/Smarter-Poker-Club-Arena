@@ -87,7 +87,21 @@ function build(db) {
       "ALTER TABLE cash_games ADD COLUMN must_move boolean DEFAULT true, ADD COLUMN template_name text DEFAULT 'madness', " +
       "ADD COLUMN ruleset_snapshot jsonb DEFAULT '{}'::jsonb; " +
       'CREATE FUNCTION fn_cash_game_never_moves_players(p_template text, p_rules jsonb) RETURNS boolean ' +
-      "LANGUAGE sql IMMUTABLE AS $$SELECT coalesce(lower(p_template), '') = 'classic'$$;"
+      "LANGUAGE sql IMMUTABLE AS $$SELECT coalesce(lower(p_template), '') = 'classic'$$; " +
+      'ALTER TABLE cash_games ADD COLUMN handedness integer DEFAULT 6; ' +
+      // Production's census row shape (20260905030000); the census itself is
+      // modelled from the seats plus a test table of holds, as open_unreserved
+      // is seats not held by a seated player or a hold.
+      'CREATE TYPE cash_cluster_census_row AS (id uuid, role text, main_index integer, lifecycle text, status text, ' +
+      'created_at timestamptz, max_players integer, seated integer, reserved integer, open_unreserved integer, breaking boolean); ' +
+      'CREATE TABLE sim_holds(table_id uuid, n integer); ' +
+      'CREATE FUNCTION fn_cash_cluster_census(p_game_id uuid, p_now timestamptz DEFAULT clock_timestamp()) ' +
+      'RETURNS cash_cluster_census_row[] LANGUAGE sql STABLE AS $$ SELECT coalesce(array_agg(ROW(t.id, t.role, NULL::int, ' +
+      't.lifecycle, NULL::text, NULL::timestamptz, t.max_players, x.seated, x.reserved, ' +
+      'greatest(0, t.max_players - x.seated - x.reserved), t.lifecycle = $b$breaking$b$)::cash_cluster_census_row), ' +
+      "'{}') FROM tables t CROSS JOIN LATERAL (SELECT (SELECT count(*)::int FROM table_seats s WHERE s.table_id = t.id " +
+      'AND s.left_at IS NULL) AS seated, coalesce((SELECT sum(h.n)::int FROM sim_holds h WHERE h.table_id = t.id), 0) ' +
+      'AS reserved) x WHERE t.cluster_id = p_game_id $$;'
   );
   query(
     db,

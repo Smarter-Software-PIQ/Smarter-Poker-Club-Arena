@@ -20,7 +20,12 @@
 --     set), same club_id, variant, small and big blind on the table rows
 --     themselves, with at least two players in, funded and not leaving. That is
 --     the move the must-move planner makes (feeder player to an open Main chair);
---     a seat on a Main keeps the per-table rule ('not_on_feeder'). Only a game that
+--     a seat on a Main keeps the per-table rule ('not_on_feeder'). In a full-ring
+--     game (handedness 7-9) a feeder releases a player to a Main only once it
+--     holds handedness - 2 players or is breaking (20261108193515), so a lone
+--     seat on such a feeder is answered 'not_movable' (the per-table rule).
+--     An open chair is the planner's own count: fn_cash_cluster_census's
+--     open_unreserved, net of notified waitlist holds and held Main chairs. Only a game that
 --     moves its players qualifies (must_move, cluster_mode 'must_move', and not
 --     a Classic game: Dan 2026-10-24, "PLAYERS SHOULD NOT BE MOVING ON CLASSIC
 --     GAMES PERIOD"). A Classic game keeps the per-table rule.
@@ -107,6 +112,8 @@ DECLARE
   v_game     record;
   v_mode     text;
   v_owed     integer := 0;
+  v_census   public.cash_cluster_census_row[];
+  v_src      record;
   v_dest     uuid;
   v_open     boolean := false;
   v_first    timestamptz;
@@ -146,20 +153,26 @@ BEGIN
      AND d.table_id = p_table_id AND d.seat_number = p_seat_number
    FOR UPDATE;
 
-  SELECT g.id, g.must_move, g.cluster_mode,
+  SELECT g.id, g.must_move, g.cluster_mode, coalesce(g.handedness, 9) AS handedness,
          public.fn_cash_game_never_moves_players(g.template_name, g.ruleset_snapshot) AS never_moves
     INTO v_game
     FROM public.cash_games g WHERE g.id = v_seat.cluster_id;
 
+  IF v_seat.cluster_id IS NOT NULL THEN
+    v_census := public.fn_cash_cluster_census(v_seat.cluster_id);
+  END IF;
+  SELECT c.seated, c.breaking INTO v_src FROM unnest(v_census) c WHERE c.id = p_table_id;
+
   -- A compatible LIVE MAIN of the same game that deals; an open chair first.
   -- The must-move planner fills open Main chairs from feeder players, so that
-  -- is the move this seat can actually get. A chair is open only when no seat
-  -- (dealt, sitting out or leaving) holds it.
+  -- is the move this seat can actually get. A chair is open exactly as the
+  -- planner counts it: fn_cash_cluster_census's open_unreserved (seats not held
+  -- by a seated player, a notified waitlist hold or a held Main chair).
   SELECT x.table_id, x.open_chair INTO v_dest, v_open
     FROM (
       SELECT t.id AS table_id,
-             (SELECT count(*) FROM public.table_seats o
-               WHERE o.table_id = t.id AND o.left_at IS NULL) < coalesce(t.max_players, 9) AS open_chair
+             coalesce((SELECT c.open_unreserved > 0 FROM unnest(v_census) c WHERE c.id = t.id), false)
+               AS open_chair
         FROM public.tables t
         JOIN public.table_seats s ON s.table_id = t.id
        WHERE t.cluster_id = v_seat.cluster_id AND t.id <> p_table_id
@@ -172,7 +185,7 @@ BEGIN
          AND s.left_at IS NULL AND coalesce(s.stack, 0) > 0
          AND coalesce(s.is_sitting_out, false) = false
          AND coalesce(s.leave_pending, false) = false
-       GROUP BY t.id, t.max_players
+       GROUP BY t.id
       HAVING count(*) >= 2
     ) x
    ORDER BY x.open_chair DESC, x.table_id
@@ -192,6 +205,12 @@ BEGIN
     v_reason := 'game_never_moves';
   ELSIF v_seat.role IS DISTINCT FROM 'feeder' THEN
     v_reason := 'not_on_feeder';
+  ELSIF v_game.handedness >= 7 AND NOT coalesce(v_src.breaking, false)
+        AND coalesce(v_src.seated, 0) < greatest(2, v_game.handedness - 2) THEN
+    -- A full-ring feeder gives a Main a player only once it holds
+    -- handedness - 2 players, or while it is breaking (20261108193515): a
+    -- lone seat there is not moved, so holding it would only wait out the bound.
+    v_reason := 'not_movable';
   ELSIF v_dest IS NULL THEN
     v_reason := 'nobody_in_game';
   ELSIF v_first IS NOT NULL AND NOT v_open AND now() - v_first > interval '10 minutes' THEN

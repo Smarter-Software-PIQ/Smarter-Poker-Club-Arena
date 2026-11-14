@@ -49,6 +49,14 @@ describe('the door', () => {
     );
     expect(sql).toContain("v_reason := 'game_never_moves';");
   });
+  it('counts an open chair exactly as the planner does, and never holds an unmovable full-ring feeder seat', () => {
+    expect(sql).toContain('v_census := public.fn_cash_cluster_census(v_seat.cluster_id);');
+    expect(sql).toContain('c.open_unreserved > 0 FROM unnest(v_census) c WHERE c.id = t.id');
+    expect(sql).toContain(
+      'ELSIF v_game.handedness >= 7 AND NOT coalesce(v_src.breaking, false) AND coalesce(v_src.seated, 0) < greatest(2, v_game.handedness - 2) THEN'
+    );
+    expect(sql).toContain("v_reason := 'not_movable';");
+  });
   it('counts only a compatible table: same game, club, variant and blinds', () => {
     for (const col of ['club_id', 'game_variant', 'small_blind', 'big_blind'])
       expect(sql).toContain(`AND t.${col} IS NOT DISTINCT FROM v_seat.${col}`);

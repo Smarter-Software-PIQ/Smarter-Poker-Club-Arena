@@ -8,7 +8,8 @@ The keep:
 
 - is engine-only;
 - never applies to a forced exit or a Classic game;
-- is bounded from the first keep: ten minutes while every compatible table is full, thirty while a chair is open;
+- is bounded from the first keep: ten minutes while every compatible Main is full, thirty while a chair is open. An open chair is counted as the planner counts it (`fn_cash_cluster_census` open_unreserved);
+- answers `not_movable` for a lone seat on a full-ring feeder the planner would not move;
 - moves no chips;
 - records each change of answer, with source, destination and reason, in `ca_owed_leave_decisions`, which `service_role` can only read.
 
