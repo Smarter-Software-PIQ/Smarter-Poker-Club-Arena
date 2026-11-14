@@ -2,6 +2,8 @@ import { expect, type Page } from '@playwright/test';
 import { waitForMobileAvatarGrowth } from './mobileLiveTableLayout';
 
 export const FIXED_MOBILE_ARTWORK_CASES = [
+  { seats: '9', spectator: 'true', cards: '2', occupiedSeats: '', shortPhone: true },
+  { seats: '9', spectator: 'false', cards: '2', occupiedSeats: '', shortPhone: true },
   { seats: '9', spectator: 'true', cards: '2', occupiedSeats: '' },
   { seats: '9', spectator: 'false', cards: '2', occupiedSeats: '' },
   { seats: '6', spectator: 'false', cards: '4', occupiedSeats: '0,4' },
@@ -22,15 +24,24 @@ export async function checkFixedMobileArtwork(
 ) {
   // Start the mobile candidate in the same notched-phone geometry used by
   // its approval screenshots, without the preceding test's injected poses.
-  await page.setViewportSize({ width: 600, height: 1298 });
+  const shortPhone = 'shortPhone' in settings;
+  await page.setViewportSize({ width: 600, height: shortPhone ? 1065 : 1298 });
   // Each case is a fresh device session: no game-type size recorded yet.
   await page.evaluate(() => localStorage.removeItem('sp-mobile-avatar-size-v2'));
   await page.reload();
   await page.evaluate((settings) => {
     for (const style of document.querySelectorAll('style'))
       style.textContent = (style.textContent || '')
-        .replace(/env\(\s*safe-area-inset-top\s*(?:,[^()]*)?\)/g, '72px')
-        .replace(/env\(\s*safe-area-inset-bottom\s*(?:,[^()]*)?\)/g, '52px');
+        .replace(
+          /env\(\s*safe-area-inset-top\s*(?:,[^()]*)?\)/g,
+          'shortPhone' in settings ? '0px' : '72px'
+        )
+        .replace(
+          /env\(\s*safe-area-inset-bottom\s*(?:,[^()]*)?\)/g,
+          'shortPhone' in settings ? '0px' : '52px'
+        );
+    if ('shortPhone' in settings)
+      document.documentElement.style.setProperty('--sp-table-stable-viewport-h', '1065px');
     Object.assign(document.documentElement.dataset, {
       cards: '2',
       tournament: 'false',

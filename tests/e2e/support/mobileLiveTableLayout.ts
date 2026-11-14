@@ -1,3 +1,4 @@
+import { TABLE_ART_MAX_COVER_MS } from '../../../src/hooks/useTableArt';
 import { AVATAR_CROWN_TOP } from '../../../src/components/table/avatarCrownBounds';
 import { expect, type Page, type TestInfo } from '@playwright/test';
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -72,7 +73,9 @@ export async function certifyMobileLiveTableLayout(
             requestAnimationFrame(() => requestAnimationFrame(() => resolve(null)))
           )
       );
-      await expect(page.locator('.table-art-cover:visible')).toHaveCount(0);
+      await expect(page.locator('.table-art-cover:visible')).toHaveCount(0, {
+        timeout: TABLE_ART_MAX_COVER_MS + 5000,
+      });
       await page.locator('.table-page:visible .seat__avatar-img').evaluateAll(async (images) => {
         await Promise.all(
           images.map(async (image) => {
