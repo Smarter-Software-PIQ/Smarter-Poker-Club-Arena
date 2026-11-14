@@ -147,6 +147,10 @@ HOST_PRESSURE_QUERIES = {
     'memoryAvailableBytes': 'node_memory_MemAvailable_bytes',
     'cpus': 'count by (instance) (node_cpu_seconds_total{mode="idle"})',
     'engineEventLoopP99Ms': 'max(poker_event_loop_delay_p99_ms)',
+    'forksPerSecond': 'rate(node_forks_total[1m])',
+    'procsBlocked': 'node_procs_blocked',
+    'procsRunning': 'node_procs_running',
+    'contextSwitchesPerSecond': 'rate(node_context_switches_total[1m])',
 }
 
 

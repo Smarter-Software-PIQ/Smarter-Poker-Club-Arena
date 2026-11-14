@@ -3,21 +3,36 @@ import { isMidwayFreeBuy } from '../tournament/midwayFreeBuyPolicy.js';
 /** Owner November 1: reduced guarantees, with the confirmed nightly and 1.5K terms. */
 export const GUARANTEE_REDUCTION_START_MS = Date.parse('2026-11-02T06:00:00Z');
 
-function guaranteeLabel(value: number): string {
+/** How an authored schedule name may write a guarantee: "5K", "1.5K". Read only, never written. */
+function authoredThousandsLabel(value: number): string {
   return value >= 1000 ? `${value / 1000}K` : String(value);
 }
 
+/**
+ * The guarantee the engine writes into a name: the exact figure with
+ * separators, never abbreviated (Dan 2026-11-13: "USE WHOLE NUMBERS AND
+ * DECIMALS ALWAYS"). The reduced amount is already rounded to cents.
+ */
+export function exactGuaranteeLabel(value: number): string {
+  return value.toLocaleString('en-US', { maximumFractionDigits: 2 });
+}
+
 export function reducedGuaranteeCopy(text: unknown, before: number, after: number): unknown {
-  if (typeof text !== 'string') return text;
+  if (typeof text !== 'string' || before === after) return text;
   let next = text;
   const escape = (label: string) => label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  for (const [oldLabel, newLabel] of [
-    [guaranteeLabel(before), guaranteeLabel(after)],
-    [String(before), String(after)],
-  ]) {
+  const newLabel = exactGuaranteeLabel(after);
+  // Every way an authored name may write the old guarantee becomes the exact
+  // new figure. Each old form names `before`, so no replacement can match text
+  // an earlier one wrote.
+  for (const oldLabel of new Set([
+    authoredThousandsLabel(before),
+    exactGuaranteeLabel(before),
+    String(before),
+  ])) {
     for (const suffix of [' GTD', ' Guarantee', ' Chip Guarantee', ' Diamond Guarantee'])
       next = next.replace(
-        new RegExp(`(?<![\\d.])${escape(oldLabel)}${suffix}`, 'g'),
+        new RegExp(`(?<![\\d.,])${escape(oldLabel)}${suffix}`, 'g'),
         `${newLabel}${suffix}`
       );
     next = next.split(`Nightly ${oldLabel}`).join(`Nightly ${newLabel}`);
