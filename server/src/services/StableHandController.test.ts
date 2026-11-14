@@ -204,6 +204,20 @@ describe('planFloor - occupancy', () => {
     expect(p.stand.filter((s) => s.tableId.startsWith('dwell')).length).toBe(0);
   });
 
+  it('reshapes FULL tables out of dwell only, with ONE_OPEN and JOINABLE taken from the same list', () => {
+    const tables = [
+      table({ tableId: 'd-dwell', inHumanDwell: true }),
+      table({ tableId: 'a' }),
+      table({ tableId: 'b' }),
+    ];
+    const p = planFloor(
+      snap({ hosts: [{ hostId: MIDWAY_UNION_ID, n: 584, uniqueLive: 180, tables }] })
+    );
+    const shaped = p.stand.filter((s) => s.reason === 'shape_adjust').map((s) => s.tableId);
+    expect(shaped).not.toContain('d-dwell');
+    expect(shaped.length).toBeGreaterThan(0);
+  });
+
   it('reports the measured caps for both hosts', () => {
     const p = planFloor(
       snap({

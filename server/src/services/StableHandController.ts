@@ -409,10 +409,16 @@ export function planFloor(snap: FloorSnapshot): FloorPlan {
         );
       }
 
+      // A FULL table in its human dwell is not reshaped by either step below.
+      // Filtered ONCE, so the ONE_OPEN tables and the JOINABLE offset are the
+      // same list (audit 2026-11-14: a per-step filter let ONE_OPEN thin a
+      // dwelling table and shifted JOINABLE onto the wrong one).
+      const fullOutOfDwell = buckets.FULL.filter((t) => t.inHumanDwell !== true);
+
       // 2. Convert a FULL table down to ONE_OPEN by standing exactly one horse.
       const needOneOpen = targets.oneOpen - buckets.ONE_OPEN.length;
       if (needOneOpen > 0) {
-        buckets.FULL.slice(0, needOneOpen).forEach((t) => {
+        fullOutOfDwell.slice(0, needOneOpen).forEach((t) => {
           const victim = pickYieldVictims(t.seatedHorses, 1)[0];
           if (victim) {
             plan.stand.push({
@@ -431,9 +437,7 @@ export function planFloor(snap: FloorSnapshot): FloorPlan {
       if (needJoinable > 0) {
         const nearCap = host.uniqueLive >= occ.target;
         if (nearCap || !roomForMore) {
-          /* A table in its human dwell is not thinned to JOINABLE either: that
-             takes several seats, which is the break the dwell exists to stop. */
-          buckets.FULL.filter((t) => t.inHumanDwell !== true)
+          fullOutOfDwell
             .slice(
               needOneOpen > 0 ? needOneOpen : 0,
               (needOneOpen > 0 ? needOneOpen : 0) + needJoinable
