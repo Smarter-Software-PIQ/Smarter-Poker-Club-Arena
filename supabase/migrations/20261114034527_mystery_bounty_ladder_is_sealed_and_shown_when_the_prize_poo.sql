@@ -59,7 +59,7 @@ DECLARE
   v_paid_cents bigint;
   v_m numeric; v_r numeric;
   v_sum bigint; v_count int;
-  v_unit bigint;
+  v_unit integer;
   v_chest_unit bigint;
   v_whole bigint;
   v_norm jsonb;
