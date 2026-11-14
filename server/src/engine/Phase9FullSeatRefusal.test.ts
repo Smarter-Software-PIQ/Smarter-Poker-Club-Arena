@@ -15,6 +15,7 @@ import { maxSeatsForVariant, isSeatCountLegal } from '../config/tableSeating.js'
 import { getPlayerCountCaps } from '../config/RakeConfig.js';
 import { settleOmahaReference } from '../benchmark/OmahaReference.js';
 import { reportError } from '../services/errorReporter.js';
+import { horseRunItTwiceRuns } from './HorseRunItTwice.js';
 import type { ActionRecord, Card, GameState, HandEvent, SeatPlayer } from '../types.js';
 
 vi.mock('../services/errorReporter.js', () => ({ reportError: vi.fn() }));
@@ -131,9 +132,22 @@ function population(engine: Record<string, any>, scenario: Scenario) {
     (_, n) => `${(n % 16).toString(16)}3000000-0000-4000-8000-${String(n + 1).padStart(12, '0')}`
   );
   const thinkMs = probeHorseRitThinkMs(PROBE_TABLE, scenario.handNumber, poolIds);
+  // 2026-11-13: the verdict reads each Horse's public all-in equity
+  // (horseRunItTwiceRuns). The test injects a 0.5 read for every seat (see
+  // requestHorseRitEquity below) and selects ids on the verdict that read
+  // gives; it pins refusal and single-board payout, not agreement rates.
   const pool: Horse[] = poolIds.map((id) => ({
     id,
-    verdict: engine.horseRitVerdict(id),
+    verdict:
+      horseRunItTwiceRuns({
+        horseId: id,
+        handNumber: scenario.handNumber,
+        potBB: 700 / 2,
+        equity: 0.5,
+        maxRuns: 3,
+      }) === 1
+        ? 'once'
+        : 'multi',
     chooserMs: thinkMs.get(id)!.chooserMs,
     responderMs: thinkMs.get(id)!.responderMs,
   }));
@@ -259,6 +273,10 @@ describe('seven-seat PLO5 Horse refusal after actual accepted betting', () => {
       // responders, waits, pacing and both settlement entry points remain real.
       engine.broadcastCurrentState = vi.fn();
       engine.broadcastAllInEquity = vi.fn().mockResolvedValue(undefined);
+      // The public equity read the Horses answer from (see population()).
+      engine.requestHorseRitEquity = vi
+        .fn()
+        .mockResolvedValue(Object.fromEntries(ids.map((id) => [id, 0.5])));
       engine.markProgress = vi.fn();
       engine.killForRestart = vi.fn();
       engine.runItTwiceEngine.addEventListener((event: Record<string, any>) =>
