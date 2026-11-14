@@ -176,8 +176,8 @@ function parsePaymentPage(raw: unknown, expected: PaymentPageExpectation): Tourn
   return { payments, next };
 }
 
+/** Exact to the cent, never "Under 1 Chip" or "1.2K" (Dan 2026-11-13). */
 function paymentChips(value: number): string {
-  if (value !== 0 && value < 1) return 'Under 1 Chip';
   return compactChips(value);
 }
 

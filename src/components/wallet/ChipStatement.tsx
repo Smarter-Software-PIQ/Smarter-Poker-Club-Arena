@@ -246,21 +246,13 @@ export function counterpartyLabel(leg: StatementLeg): string {
   return detail && detail !== base ? `${base} (${detail})` : base;
 }
 
-/** The canonical response keeps exact chip cents. The forward-facing console
- * follows the whole/compact chip law without calling a real sub-chip amount
- * zero. */
+/** Every statement figure is exact to the cent (Dan 2026-11-13). */
 function statementChips(n: number | null | undefined): string {
-  const value = Number(n ?? 0);
-  if (Number.isFinite(value) && value !== 0 && Math.abs(value) < 1) {
-    return value < 0 ? 'Under 1 Chip Owed' : 'Under 1 Chip';
-  }
-  return compactChips(value);
+  return compactChips(Number(n ?? 0));
 }
 
-const signedStatementChips = (direction: StatementLeg['direction'], n: number): string => {
-  if (n > 0 && n < 1) return `Under 1 Chip ${direction === 'in' ? 'In' : 'Out'}`;
-  return `${direction === 'in' ? '+' : '-'}${compactChips(n)}`;
-};
+const signedStatementChips = (direction: StatementLeg['direction'], n: number): string =>
+  `${direction === 'in' ? '+' : '-'}${compactChips(n)}`;
 
 const when = (iso: string) => {
   const d = new Date(iso);

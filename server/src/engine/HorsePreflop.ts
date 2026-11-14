@@ -48,7 +48,11 @@ import {
 import { nlhOpenRaiseTo, nlhOpenSeat } from './HorseNlhOpenSize.js';
 import type { HeroPriorPreflopAction } from './HorsePreflopOrbitState.js';
 import { cashNlhThreeBetRaiseTo } from './HorseCashThreeBetSize.js';
-import { huBbRequiredEquity } from './HorseHuBbDefence.js';
+import {
+  huBbRequiredEquity,
+  huLimpRequiredEquity,
+  huOpenerRequiredEquity,
+} from './HorseHuBbDefence.js';
 import { limpReraiseIsoBar } from './HorseLimpReraiseRead.js';
 import { fixedLimitHasNoJamOrFold } from './HorseFixedLimitStructure.js';
 import {
@@ -128,6 +132,8 @@ export interface PreflopIntent {
     | 'plo_suited_aces_four_bet'
     | 'plo_suited_aces_four_bettor_continues'
     | 'hu_bb_defends_to_price'
+    | 'hu_opener_defends_to_price'
+    | 'hu_limp_defends_to_price'
     | 'committed_stack_priced_in'
     | 'v86_plo_elite_three_bet'
     | 'v86_plo_squeeze'
@@ -267,6 +273,19 @@ export interface PreflopCtx {
    */
   styleTightReRaiser?: { fourBetBump: number; callBump: number };
   /**
+   * OMAHA TIGHT OPPONENT (2026-11-13, HorseOmahaTightOpponent, default off):
+   * set only in pot-limit Omaha high against a proven tight player. Opener:
+   * the single raiser is a proven tight raiser; the 3-bet bar rises toward
+   * threeBetBar (at most maxBarMove), the call bar by callBump, and no bluff
+   * 3-bet or squeeze is made. ReRaiser: the last re-raiser is a proven tight
+   * raiser; the 4-bet and call bars rise. Steal: first in from late position
+   * or the small blind with every player left to act a proven tight folder;
+   * the open bar comes down by openWiden. Undefined = unchanged.
+   */
+  omahaTightOpener?: { threeBetBar: number; maxBarMove: number; callBump: number };
+  omahaTightReRaiser?: { fourBetBump: number; callBump: number };
+  omahaTightSteal?: { openWiden: number };
+  /**
    * 2026-10-24 V53 PRESSURE (HorseOpponentExploit.aggressiveOpenerPressure):
    * the single raiser is a credibly WIDE opener. Heads-up against them the
    * value 3-bet widens to these bars - in position the most - and the
@@ -324,13 +343,35 @@ export interface PreflopCtx {
    *  the spot in scope; a fold of the heads-up defence becomes a call when
    *  the realised equity covers the price. Absent = unchanged. */
   huBbPrice?: { equity: number };
+  /** HU OPENER DEFENDS TO ITS PRICE (HU-NLH-010, flag huOpenerDefendsToPrice,
+   *  default off; HorseHuBbDefence): heads-up no-limit hold'em cash, hero made
+   *  the only open and faces exactly one 3-bet that is not all in. `equity`
+   *  is this class's all-in equity against the 3-bettor's range (the read's
+   *  width, else the 20% reference). Present only with the flag on and the
+   *  spot in scope; a fold of the opener's bars becomes a call when the
+   *  realised equity covers the price. Absent = unchanged. */
+  huOpenerPrice?: { equity: number };
+  /** HU LIMPER DEFENDS TO ITS PRICE (HU-NLH-011, flag huLimpDefendsToPrice,
+   *  default off; HorseHuBbDefence): heads-up no-limit hold'em cash, hero
+   *  limped the small blind and faces exactly one raise that is not all in.
+   *  `equity` is this class's all-in equity against the raiser's range.
+   *  Present only with the flag on and the spot in scope; the fold becomes a
+   *  call when the realised equity covers the price. Absent = unchanged. */
+  huLimpPrice?: { equity: number };
   /** A COMMITTED STACK IS NOT FOLDED AT A PRICE (2026-11-13, flag
    *  committedStackPricedIn, default OFF; HVH2D-NLH-M-COMMIT, NLH-007a).
-   *  True: in a tournament multiway all-in the priced-in guard decides again
-   *  at a price of 0.05 or better, at 2bb or less behind, or when half the
-   *  starting stack is in and the hand clears 0.26; a committed top-half hand
-   *  whose call is all in is priced in to 0.18. Absent = unchanged. */
+   *  True: in a two-card no-limit hold'em tournament multiway all-in the
+   *  priced-in guard decides again at a price of 0.05 or better, at 2bb or
+   *  less behind (the hand clears 0.26, or three-handed at a price of 0.12 or
+   *  better with any two cards), or when half the starting stack is in and
+   *  the hand clears 0.26; a committed top-half hand whose call is all in is
+   *  priced in to 0.18. Every other variant, and absent, = unchanged. */
   committedStackPricedIn?: boolean;
+  /** Set with committedStackPricedIn only (HorseLogic.committedPayJumpLive): true when busting now can cost a pay
+   *  jump (bubble, hand for hand, satellite, in the money, or an unknown payout context). The option makes a call that can
+   *  bust the Horse (the crumbs clauses, the half-stack clause when the call is all in, the 0.18 all-in price) only
+   *  when this is exactly false; a call that leaves chips behind and the token price do not read it. */
+  committedPayJumpLive?: boolean;
   /** V20 M-ZONES (2026-08-27): ante cost of ONE ORBIT in BB units, already
    *  resolved for the table's ante style by AnteMath.anteOrbitCostBB (0 = no
    *  ante). NOT per-player: multiplying this by the seat count is the bug of
@@ -997,6 +1038,27 @@ export const COMMITTED_CRUMBS_BB = 2;
 export const MULTIWAY_TOKEN_PRICE = 0.05;
 /** A committed hero's hand must clear this to be priced in three ways. */
 export const COMMITTED_MIN_STRENGTH = 0.26;
+/**
+ * The price at or under which a crumbs stack calls with any two cards, three
+ * ways. Price = call / (pot + call); a call that ends the hand is right when
+ * the hand's equity is at least the price. Against two tight ranges (TT+,
+ * AQs+, AKo) the worst two cards hold 0.125 (K2o; review 20261113 A1, 6,000
+ * trials; 0.121 over 24,000 in this change's own run) and 72o holds 0.133,
+ * so at 0.12 no hand calls below its price. Example: the big blind with a big
+ * blind ante and 0.5bb behind, the small blind folded, two covering all-ins.
+ * Pot before the call 1 (ante) + 1 (blind) + 0.5 (small blind) + 2 x 1.5 =
+ * 5.5bb, price 0.5 / 6.0 = 0.083; 72o's call is worth 0.133 x 6.0 = 0.80bb
+ * against the 0.5bb a fold keeps. Above this price the 0.26 floor decides.
+ */
+export const COMMITTED_CRUMBS_ANY_TWO_PRICE = 0.12;
+/**
+ * The any-two price is a three-way figure, so it is read with two opponents
+ * or fewer in the hand. Four ways against three tight ranges the same cards
+ * hold less than the price can be: K2o 0.079, T2o 0.102, 72o 0.116 (12,000
+ * trials), while a big blind with 1bb behind is laid 1 / 9.5 = 0.105. With
+ * three or more opponents the 0.26 floor decides at every price.
+ */
+export const COMMITTED_CRUMBS_ANY_TWO_MAX_OPPONENTS = 2;
 /** Price bar for a committed hero's all-in call with a top-half hand. */
 export const COMMITTED_ALL_IN_PRICE_BAR = 0.18;
 /** The hand strength that bar asks for (the top half of hands). */
@@ -1086,7 +1148,17 @@ export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
   // paid from the stack is not in it, so the share is never overstated.
   // Default OFF (flag committedStackPricedIn): absent, every line below reads
   // false and the guard is byte-for-byte the one it replaced.
-  const committedOn = ctx.committedStackPricedIn === true;
+  // Two-card no-limit hold'em only (review 20261113 A3): the study, the
+  // floors and the equities below are hold'em's. Omaha, short deck, fixed
+  // limit and pineapple read `ctx.strength` on other ladders and keep the
+  // decision they had, option on or off.
+  const committedOn =
+    ctx.committedStackPricedIn === true &&
+    !ctx.isOmaha &&
+    ctx.isFixedLimit !== true &&
+    ctx.isShortDeck !== true &&
+    ctx.holeCards !== undefined &&
+    ctx.holeCards.length === 2;
   const multiwayAllIn = committedOn && isTourney && ctx.phase6?.policy.branch === 'multiway_all_in';
   const ownChipsIn = Math.max(0, ctx.currentBet - toCall);
   const committedShare = ownChipsIn + stack > 0 ? ownChipsIn / (ownChipsIn + stack) : 0;
@@ -1100,8 +1172,11 @@ export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
   // offsuit king); QJs holds 0.16 against aces and kings together, the worst
   // pair of hands it can meet. So a top-half hand continues to 0.18, and the
   // bar stops there.
+  // No pay jump live and not a satellite: the only state in which the option makes a call that can bust the Horse.
+  const payJumpClear = ctx.committedPayJumpLive === false && ctx.satellite === undefined;
   const committedAllInPrice =
     heroCommitted &&
+    payJumpClear &&
     effCall >= stack * 0.99 &&
     guardOdds <= COMMITTED_ALL_IN_PRICE_BAR &&
     ctx.strength >= COMMITTED_ALL_IN_MIN_STRENGTH;
@@ -1128,7 +1203,10 @@ export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
   //    fold to protect). Independent review 461281e7: without a floor this
   //    clause put 72o, K2o, 94o and 83o in at a 0.192 price three ways, where
   //    they hold about 0.13 to 0.17 against tight ranges, so it shares the
-  //    0.26 floor below;
+  //    0.26 floor below. The floor respects the price (review 20261113 A1):
+  //    three-handed at 0.12 or better any two cards have the odds (see
+  //    COMMITTED_CRUMBS_ANY_TWO_PRICE), so the floor applies above that
+  //    price, and at every price with three or more opponents;
   //  - the hero is committed (half or more of the stack it started the hand
   //    with is already in: from there the stack left is no larger than the
   //    chips a fold abandons, and every spot in the study sat at 0.52 to
@@ -1144,8 +1222,20 @@ export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
       committedOn &&
       isTourney &&
       (guardOdds <= MULTIWAY_TOKEN_PRICE ||
-        (stackBB <= COMMITTED_CRUMBS_BB && ctx.strength >= COMMITTED_MIN_STRENGTH) ||
-        (heroCommitted && ctx.strength >= COMMITTED_MIN_STRENGTH));
+        // chip arithmetic only: with a pay jump live (or unknown) the crumbs clauses do not end the exemption,
+        // and the half-stack clause ends it only when the call leaves more than crumbs behind (a call that cannot
+        // bust the Horse costs no pay jump). Otherwise the decision is what it is with the option off. The token price,
+        // which the guard pays in every tournament, is read without it (reviews 3e22706d H1, 347b0afc M2)
+        (stackBB <= COMMITTED_CRUMBS_BB &&
+          payJumpClear &&
+          (ctx.strength >= COMMITTED_MIN_STRENGTH ||
+            (guardOdds <= COMMITTED_CRUMBS_ANY_TWO_PRICE &&
+              ctx.oppsLeft <= COMMITTED_CRUMBS_ANY_TWO_MAX_OPPONENTS))) ||
+        (heroCommitted &&
+          ctx.strength >= COMMITTED_MIN_STRENGTH &&
+          // "leaves chips behind" means more than crumbs: a call that leaves 2bb or less is a bust in all but
+          // name (review 5d35da81 M1)
+          (payJumpClear || (stack - effCall) / bb > COMMITTED_CRUMBS_BB)));
     if (!exemptionEnds) return out;
     committedRescue = true;
   }
@@ -2204,6 +2294,14 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
         vs35.open +
         phase6Shift('open');
     }
+    // OMAHA TIGHT OPPONENT STEAL: every player left to act is a proven tight folder.
+    if (
+      ctx.omahaTightSteal !== undefined &&
+      limpers === 0 &&
+      (position === 'late' || position === 'sb')
+    ) {
+      openThresh -= Math.max(0, ctx.omahaTightSteal.openWiden);
+    }
     openThresh = phase6CapBar(openThresh);
     // MANIAC PRESSURE: never open a hand that has to fold to the maniac's
     // re-raise. Not tightness-shifted: the bar is the continuing share
@@ -2756,6 +2854,14 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       callThresh += Math.max(0, vsOpener.callBump ?? 0);
       ctx.noteLayer?.('style_tight_opener_respect_seen');
     }
+    // OMAHA TIGHT OPPONENT RESPECT: a proven tight raiser's open is stronger
+    // than the seat says; added after every later layer, like the move above.
+    const tightOpener = ctx.omahaTightOpener;
+    if (tightOpener) {
+      const bar = t53(tightOpener.threeBetBar, 'threeBet');
+      threeBetThresh += Math.max(0, Math.min(bar - threeBetThresh, tightOpener.maxBarMove));
+      callThresh += Math.max(0, tightOpener.callBump);
+    }
     threeBetThresh = phase6CapBar(threeBetThresh);
     callThresh = phase6CapBar(callThresh);
     const bbDiscount =
@@ -2967,6 +3073,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       elite?.canSqueeze === true &&
       strength >= t53(0.54, 'threeBet') &&
       allowEliteVsRaiser &&
+      !tightOpener &&
       (pressure !== undefined ||
         (noBluff3 && linearElite3Bet) ||
         (ctx.plo3BetRoll ?? 0.4) < Math.min(0.9, basePloMix + (ipVsOpen ? 0.2 : 0.1)))
@@ -2992,6 +3099,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       (!ctx.isOmaha || omahaSqueezeAllowed) &&
       !noBluff3 &&
       ctx.maniacNoBluff !== true &&
+      !tightOpener &&
       rand() < bluffBudget * (ctx.isOmaha ? 0.22 : 0.3) * blockerMult &&
       // The same test as the 3-bet bluff below, after the draw.
       bluffRaiseHasFoldEquity(toCall, stack, ctx)
@@ -3055,6 +3163,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
         : strength >= t53(bluffFloor, 'threeBet') && strength < threeBetThresh) &&
       !noBluff3 &&
       ctx.maniacNoBluff !== true &&
+      !tightOpener &&
       rand() < (def72 ? bluff72 : bluffFreqHere) &&
       // Tested after the draw so the random stream is unchanged.
       bluffRaiseHasFoldEquity(toCall, stack, ctx)
@@ -3163,6 +3272,18 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       const odds = preflopCallOdds(ctx, pricePot, Math.min(toCall, stack));
       if (ctx.huBbPrice.equity >= huBbRequiredEquity(odds)) {
         return { a: 'call', receipt: 'hu_bb_defends_to_price' };
+      }
+    }
+    // HU LIMPER DEFENDS TO ITS PRICE (HU-NLH-011, flag huLimpDefendsToPrice,
+    // default off): the small blind's limp band sits below every call bar
+    // above, so it folded 99-100% of its limps to any raise, a min-raise
+    // laying 3:1 included. A limped hand whose equity against the raiser's
+    // range, after the realisation discount, covers the price calls.
+    // Widen-only: no raise is added and every call above is unchanged.
+    if (ctx.huLimpPrice && callers === 0 && priceOK && toCall > 0) {
+      const odds = preflopCallOdds(ctx, pricePot, Math.min(toCall, stack));
+      if (ctx.huLimpPrice.equity >= huLimpRequiredEquity(odds)) {
+        return { a: 'call', receipt: 'hu_limp_defends_to_price' };
       }
     }
     if (def72) {
@@ -3337,6 +3458,12 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       fourBetThresh = phase6CapBar(fourBetThresh + Math.max(0, vsTightReRaiser.fourBetBump));
       callThresh = phase6CapBar(callThresh + Math.max(0, vsTightReRaiser.callBump));
       ctx.noteLayer?.('style_tight_reraiser_respect_seen');
+    }
+    // OMAHA TIGHT OPPONENT RESPECT: a proven tight raiser's re-raise.
+    const tightReRaiser = ctx.omahaTightReRaiser;
+    if (tightReRaiser) {
+      fourBetThresh = phase6CapBar(fourBetThresh + Math.max(0, tightReRaiser.fourBetBump));
+      callThresh = phase6CapBar(callThresh + Math.max(0, tightReRaiser.callBump));
     }
     if (unblocked86 && ctx.facingColdCalledThreeBet === true) {
       fourBetThresh = phase6CapBar(fourBetThresh + 0.03);
@@ -3701,6 +3828,19 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       return v76Done({ a: 'jam' });
     }
     if (toCall > 0 && toCall <= pricePot * 0.15 && strength >= 0.45) return v76Done({ a: 'call' });
+    // HU OPENER DEFENDS TO ITS PRICE (HU-NLH-010, flag huOpenerDefendsToPrice,
+    // default off): the bars above continue about the top tenth of ALL hands,
+    // which heads-up is roughly a seventh of a 70% open, so the opener folded
+    // 81-92% to a 3-bet whose break-even is 62.5-67%. A hand whose equity
+    // against the 3-bettor's range, after the realisation discount, covers
+    // the price calls, under the same stack cap as the call above. Widen-only:
+    // 4-bets, jams and every call above are unchanged.
+    if (ctx.huOpenerPrice && raises === 2 && callers === 0 && toCall > 0 && capOK3) {
+      const odds = preflopCallOdds(ctx, pricePot, Math.min(toCall, stack));
+      if (ctx.huOpenerPrice.equity >= huOpenerRequiredEquity(odds)) {
+        return { a: 'call', receipt: 'hu_opener_defends_to_price' };
+      }
+    }
     if (toCall === 0) return v76Done({ a: 'check' });
     return v76Done({ a: 'fold' });
   }

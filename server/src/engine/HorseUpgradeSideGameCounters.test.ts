@@ -15,6 +15,7 @@ import { seedFastRandom } from './HorseEval.js';
 import { HorseLogic, type HorseGameStateV2 } from './HorseLogic.js';
 import { HorseMind } from './HorseMind.js';
 import { ServerTableEngine } from './ServerTableEngine.js';
+import { prefersRunItTwice } from './HorsePersona.js';
 import type { Card, HandConfig, SeatPlayer } from '../types.js';
 
 const TABLE_ID = '11111111-2222-4333-8444-555555555555';
@@ -38,21 +39,37 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe('upgrade 08: run-it-twice answers are counted where they are scheduled', () => {
-  it('counts each Horse answer as respondToRIT later receives it, and no human', async () => {
+describe('upgrade 08: run-it-twice answers are counted when they are decided', () => {
+  it('counts each Horse answer as respondToRIT receives it, and no human', async () => {
     const proto = ServerTableEngine.prototype as any;
-    const ids = ['horse-chooser', 'horse-b', 'horse-c', HUMAN];
+    // 2026-11-13: the answer reads each Horse's public all-in equity, so the
+    // ids are picked on the persona preference the rule reads: two Horses
+    // that like running it twice (they answer both ways across hands) and one
+    // that never does. The equity read is a coin flip in a 100 BB pot.
+    const pick = (prefix: string, likes: boolean) =>
+      Array.from({ length: 200 }, (_, n) => `${prefix}-${n}`).find(
+        (id) => prefersRunItTwice(id, 100, 0.5) === likes
+      )!;
+    const ids = [pick('horse-chooser', true), pick('horse-b', true), pick('horse-c', false), HUMAN];
     const calls: Array<{ pid: string; answer?: string; runs?: number }> = [];
-    for (let handCount = 1; handCount <= 10; handCount++) {
+    const HANDS = 20;
+    for (let handCount = 1; handCount <= HANDS; handCount++) {
       proto.scheduleHorseRITResponses.call(
         {
           tableId: TABLE_ID,
           running: true,
           handCount,
+          tableInfo: { big_blind: 2 },
           seatedPlayers: ids.map((user_id) => ({ user_id, is_horse: user_id !== HUMAN })),
           isOwnClientControlling: () => false,
           setHandTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms),
-          runItTwiceEngine: { hasPendingOffer: () => true, getState: () => ({ maxRuns: 3 }) },
+          runItTwiceEngine: {
+            hasPendingOffer: () => true,
+            getState: () => ({ maxRuns: 3, pot: 200 }),
+          },
+          horseRitOfferEquity: new Map(),
+          requestHorseRitEquity: async () => Object.fromEntries(ids.map((id) => [id, 0.5])),
+          horseRitRuns: proto.horseRitRuns,
           horseRitVerdict: proto.horseRitVerdict,
           respondToRIT: (pid: string, answer?: string, runs?: number) =>
             calls.push({ pid, answer, runs }),
@@ -61,9 +78,11 @@ describe('upgrade 08: run-it-twice answers are counted where they are scheduled'
         ids
       );
     }
-    const counted = upgradeFires();
+    // Nothing is counted before an answer is decided.
+    expect(upgradeFires()).toEqual({});
     expect(calls).toEqual([]);
     await vi.advanceTimersByTimeAsync(5_000);
+    const counted = upgradeFires();
 
     const count = (pick: (c: (typeof calls)[number]) => boolean) => calls.filter(pick).length;
     expect(counted).toEqual({
@@ -73,7 +92,9 @@ describe('upgrade 08: run-it-twice answers are counted where they are scheduled'
       upgrade08_rit_answer_decline_seen: count((c) => c.answer === 'decline'),
     });
     expect(Object.values(counted).every((n) => n > 0)).toBe(true);
-    expect(calls).toHaveLength(30);
+    expect(calls).toHaveLength(3 * HANDS);
+    // The Horse that never likes it never agrees.
+    expect(calls.filter((c) => c.pid === ids[2]).every((c) => c.answer === 'decline')).toBe(true);
     expect(calls.some((c) => c.pid === HUMAN)).toBe(false);
   });
 });

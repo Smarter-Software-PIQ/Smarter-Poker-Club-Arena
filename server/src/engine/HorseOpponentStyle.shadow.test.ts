@@ -22,6 +22,8 @@ const APPLIED = [
   'style_bluff_catch_cap_seen',
   'style_bluff_catch_cap_bounty_priced_seen',
   'style_raise_respect_seen',
+  'style_value_raise_respect_seen',
+  'style_commitment_priced_seen',
   'style_tight_opener_respect_seen',
   'style_tight_reraiser_respect_seen',
   'style_pre_repair_fold_rate_discounted_seen',

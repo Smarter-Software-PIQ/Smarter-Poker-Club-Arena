@@ -185,7 +185,7 @@ describe('one canonical club weekly read boundary', () => {
     const { rows } = await readClubWeeklyStatements({ clubId: ID.club });
     expect(rows[0].retainedByClub).toBe('-0.95');
     expect(formatWeeklyChips(rows[0].retainedByClub)).toBe('-0.95');
-    expect(formatWeeklyChipsForDisplay(rows[0].retainedByClub)).toBe('Under 1 Chip Owed');
+    expect(formatWeeklyChipsForDisplay(rows[0].retainedByClub)).toBe('-0.95 Chips');
   });
   it('preserves the captured numeric(12,2) maximum exactly and refuses amounts outside it', async () => {
     state.rows = [
@@ -201,7 +201,7 @@ describe('one canonical club weekly read boundary', () => {
     const { rows } = await readClubWeeklyStatements({ clubId: ID.club });
     expect(rows[0].retainedByClub).toBe('9999999999.99');
     expect(formatWeeklyChips(rows[0].retainedByClub)).toBe('9,999,999,999.99');
-    expect(formatWeeklyChipsForDisplay(rows[0].retainedByClub)).toBe('9.9B Chips');
+    expect(formatWeeklyChipsForDisplay(rows[0].retainedByClub)).toBe('9,999,999,999.99 Chips');
     state.rows = [weeklyStatementRow({ gross_amount: '10000000000.00' })];
     await expect(readClubWeeklyStatements({ clubId: ID.club })).rejects.toThrow(
       /Amount Is Unavailable/

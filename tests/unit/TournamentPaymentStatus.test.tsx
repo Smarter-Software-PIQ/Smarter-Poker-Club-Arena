@@ -57,7 +57,7 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('Tournament Payment Status', () => {
-  it('renders actual paid, partial and owed amounts in compact chips with satellite transfers', async () => {
+  it('renders actual paid, partial and owed amounts in exact chips with satellite transfers', async () => {
     mocks.getPayments.mockResolvedValue({
       payments: [
         {
@@ -83,8 +83,8 @@ describe('Tournament Payment Status', () => {
     render(<TournamentPaymentStatus tournamentId="event" />);
     const partial = (await screen.findByText('Partial Final')).closest('li')!;
     expect(within(partial).getByText('Partially Paid')).toBeTruthy();
-    expect(within(partial).getByText('Paid: 2')).toBeTruthy();
-    expect(within(partial).getByText('Owed: 10')).toBeTruthy();
+    expect(within(partial).getByText('Paid: 2.25')).toBeTruthy();
+    expect(within(partial).getByText('Owed: 10.25')).toBeTruthy();
     expect(screen.getByText('Paid')).toBeTruthy();
     expect(screen.getByText('Owed')).toBeTruthy();
     expect(screen.getByText('Transferred: 50')).toBeTruthy();
@@ -190,15 +190,15 @@ describe('Tournament Payment Status', () => {
     ).toBeNull();
   });
 
-  it('keeps sub-chip truth and compact whole-chip display on the painted console', async () => {
+  it('keeps sub-chip truth on the display on the painted console', async () => {
     mocks.getPayments.mockResolvedValueOnce({
       payments: [payment('Micro Final', 'partially_paid', 1200.5, 0.5)],
       next: null,
     });
     render(<TournamentPaymentStatus />);
     const row = (await screen.findByText('Micro Final')).closest('li')!;
-    expect(within(row).getByText('Paid: 1.2K')).toBeTruthy();
-    expect(within(row).getByText('Owed: Under 1 Chip')).toBeTruthy();
+    expect(within(row).getByText('Paid: 1,200.50')).toBeTruthy();
+    expect(within(row).getByText('Owed: 0.50')).toBeTruthy();
     expect(document.querySelector('.sc--family-shark')).toBeTruthy();
   });
 });

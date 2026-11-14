@@ -1,3 +1,5 @@
+**November 14 owner-authorized off-cycle engine cutover:** in Claude session `session_01UxDLnLoXL6Rev3yYEpx7Tj` at 20:54 Chicago November 13 the owner wrote: "You are authorized to perform an off-cycle engine cutover at the EARLIEST SAFE, QUALIFIED TIME. Start working on it now. Use the first eligible protected window once the required preparation is complete. Do not default to the routine 3:30 AM preparation or 4:00 AM cutover merely because that route already exists." The consumed booking `2026-11-13-owner-asap-engine-0736z` (sealed `533608409f2b05e702c9fbd097bcab48b9e59dad` at 08:08 UTC November 13) is not extended or replayed. Single-use `2026-11-14-owner-offcycle-engine-0506z` admits one qualified replacement of exact serving `533608409f2b05e702c9fbd097bcab48b9e59dad` containing `566b7fcbd1a2f0e2a8ad93d199a39bb8af573817` (#10768, and so #10683 and #10750). Declared notice 04:40 UTC November 14; admission 05:06 through fixed 07:30 UTC (23:06 November 13 through 01:30 November 14 Chicago), ending before the 03:30 routine preparation. The announcement guard (:05:30 to :49:00) is unchanged. The release owner dispatches as soon as the fresh certificate exists; the later expiry exists only so one re-certification can still be used. RELEASE-CONTROL HOLD from this merge until SEALED, abandonment or expiry: no other lane merges a change to `server/release/**`, `server/scripts/engine-release-*`, the release workflows or the selector scripts, and Apply Merged Migration is paused; ordinary merges continue. Strategy options merged OFF or in shadow stay so; Pillar 2, R7/R8 and held-out packs stay disabled. No guard, reserve, runtime strategy or SQL bytes change. Order of work: `docs/ENGINE-OWNER-WINDOW-CUTOVER-PLAYBOOK.md`.
+
 **November 13 owner as-soon-as-possible engine cutover:** bookings `2026-11-13-owner-now-55-break-engine-0338z` and `2026-11-13-owner-now-55-break-engine-0538z` both lapse unused, undispatched, and are not extended or replayed. The second target `6068a6f03077e95bcb57202c868f604451cc92cd` was certified at 05:18 UTC with production's exact schema, but #10672 changed `server/release/owner-maintenance-windows.json` at 05:34 UTC, so it no longer carried main's release controls ("control owner authorization differs"). The owner then ordered in Claude session `session_01TLQer6CUX4ykkbdyPE9d8M` at 23:38 Chicago: "NO! I WANT IT DONE AS SOON AS POSSIBLE! NOT AT 2:38 AM!!". Single-use `2026-11-13-owner-asap-engine-0736z` admits one qualified replacement of exact serving `08c27924101c63621263d291279cae2dca5aa9cf` containing `c6b61cd577290bf7652ee69dd81ca0bf69184a78`. Declared notice 07:15 UTC; admission 07:36 through fixed 09:00 UTC (01:36 through 03:00 Chicago), ending before the 03:30 routine preparation. The announcement guard is unchanged. The release owner dispatches as soon as the fresh certificate exists; the later expiry exists only so one re-certification can still be used. RELEASE-CONTROL HOLD: from this booking's merge until the release owner posts SEALED or ABANDONED, no merge may touch `server/release/**`, `server/scripts/engine-release-*`, `server/src/maintenance/**`, the release workflows or the selector scripts, and ordinary migration installs are paused under the owner's authorization; the rebuy database window `2026-11-13-rebuy-invariant-db-0220z` shares the rolling hour and changes the schema, so the engine goes first. Every qualification, fresh current-schema Backup with full 1,800-second soak and both-direction rehearsal, drain, freeze, proof, rollback, seal, v3 thaw and post-seal Backup safeguard applies unchanged. Pillar 2, R7/R8 and held-out datasets stay off. No migration, new tournament-start hold, extra feature, automatic renewal, watcher or competing dispatcher.
 
 **November13 owner-authorized reschedule of the unused rebuy attempt:** After original run43336881677 rolled back with a lock timeout and completed its thaw, Dan explicitly answered "Authorize one additional protected window" in Codex chat `01a1d045-0813-7122-8b4d-a129439e84d1`. NEW single-use `2026-11-13-rebuy-invariant-db-0220z` installs only the corrected qualified migration151009 from protected PR10666 through the existing Stage database-only route (`request_engine_release=false`, `request_database_break=true`). Notice06:15UTC November13, admission06:50UTC through fixed08:00UTC November13 (00:50-02:00November13 Chicago). Preserve the consumed prior booking and receipt unchanged. The protected engine bookings remain unchanged and this database notice begins after their06:00UTC expiry; independently observe this new notice as primary for twenty minutes before dispatch. Every existing source/engine ownership lock, rolling-hour spacing, last-hand lead, drain/freeze,285-second admission,150-second opening/100-second commit reserve,1s lock/5s statement/8s transaction budget, one attempt and originalv3thaw safeguard remains. No engine replacement, financial operation, new-start hold, watcher, automatic retry, renewal or extension. Installation and live proof remain required. Dan subsequently answered "Authorize rescheduling the same unused attempt" to the explicit00:50-02:00Chicago question in this same chat; that answer authorizes this later fixed expiry for the SAME unused attempt, without another operation.
@@ -263,7 +265,15 @@ In `server/standby/standby-engine.sh` `cmd_certify`:
 The `certify` job writes commit status `backup-engine/certified` on the exact
 SHA: `pending` at start, then `success` or `failure` with the reasons in the
 description and the run URL as `target_url` (`backup-engine.yml` step "Publish
-the verdict on the exact commit"). Readers, newest status first:
+the verdict on the exact commit"). A run that fails BEFORE the Backup host
+judges anything (a GitHub 5xx, the dispatch proof, a checkout) has no verdict:
+it writes `error` ("Backup Engine reached no verdict"), never `failure`, and if
+it had not yet written its own `pending` it leaves an existing `success` on
+that SHA untouched (it writes nothing when that status cannot be read). The
+dispatch proof and its fetch retry a 500/502/503/504 or network error up to
+three more times inside the step; a 4xx fails at once. Fixed 2026-11-14 after
+run 43565758486 wrote "refused" over an hour-old certificate on one HTTP 502.
+Readers accept only `success`, newest status first:
 
 - `stage-engine-release.yml` step `certified` walks main's first-parent line
   from the owed SHA (60 commits) and offers the newest `success`;
@@ -301,6 +311,30 @@ prints `SUPERSEDED` to the job summary. Manual, nightly and post-seal runs are
 never superseded; an unreadable GitHub answer proceeds (CLAUDE.md 10.86).
 Fixed 2026-11-07 (#9906) after the post-seal refresh waited about 4.5 h behind
 stale certifications.
+
+While an owner engine window is booked on main, not yet closed and not yet
+serving, the booked candidate goes first (2026-11-14). A push run reads one
+verdict from `scripts/ci/backup-candidate-priority.py` (GitHub GETs and the
+public `/health` only; the window, close and consumed rules are the ones in
+`scripts/ci/owner-window-ready.py`, the controls rule is `policy()` in
+`server/scripts/engine-release-activation-floor.py`):
+
+| Verdict     | Meaning                                                                                           | Push run does                                                                           |
+| ----------- | ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `booking`   | First main commit whose `activation-floor.json` and `owner-maintenance-windows.json` equal main's | Certifies exactly that commit: prints `PRIORITY`, is not superseded and not retargeted  |
+| `candidate` | Carries main's two control files, after the booking commit                                        | Unchanged (superseded by a newer push run, or retargeted to the newest server commit)   |
+| `predates`  | Its control files differ from main's, so an owner selection refuses it while the window is open   | Unchanged if superseded or retargeted; otherwise `DEFERRED`: nothing planned, no status |
+| `none`      | No owner window on main, or it closed, or its release is serving                                  | Unchanged                                                                               |
+| `unknown`   | Anything unreadable or malformed                                                                  | Unchanged (CLAUDE.md 10.86)                                                             |
+
+So the booking commit's own push run certifies it; do not also dispatch it by
+hand (a manual run never reads ALREADY CERTIFIED and would certify the same SHA
+a second time), and a later control change on main (another lane's booking) makes
+that later commit the `booking`. A failed refresh is always a refusal: the verdict step reads `needs.refresh.result`
+and writes `failure` even when a provider answer stopped the job before certify
+(review of #10805). Nothing cancels a certification that is
+already running: a run that started before the booking merged still holds the
+host until it ends (about 50 minutes on November 14).
 
 A `cancelled` Backup run is a different thing and is not explained by this
 repository: nothing in `.github/` cancels `backup-engine.yml` (the only
@@ -467,7 +501,7 @@ A failed observer never authorizes another cutover.
 
 ## 5. Verification checklist after a cutover
 
-For authenticated spectator continuity, open the original receiver's `sealed-spectator-<release-run>-<attempt>` artifact. The same WebKit context and reserved identity observe the predecessor, natural reconnect and committed hand on the same occupied cash table. The receiver compares the witness with its sealed instance and container start after fixture cleanup. Late arrival, loss of the table, missing evidence or cleanup failure leaves this observation unverified. The release owner proceeds independently.
+For authenticated spectator continuity, open the original receiver's `sealed-spectator-<release-run>-<attempt>` artifact. The same WebKit context and reserved identity observe the predecessor, natural reconnect and committed hand on the same occupied cash table. The receiver compares the witness with its sealed instance and container start after fixture cleanup. The spectator may attach while the predecessor is idle or inside its announced last hand (the two minutes before the freeze); the witness names which in `armedPhase`. Arrival after the freeze began, or after the candidate serves, is reported as NOT OBSERVED (late): a warning on both spectator jobs, a `spectator-not-observed-<release-run>-<attempt>` artifact naming the phase it met, and no `sealed-spectator` artifact. Read that as unverified, never as a pass and never as a product failure. Loss of the table, missing evidence or cleanup failure leaves this observation unverified and red. The release owner proceeds independently.
 
 Run every line; record the outputs in the changelog for the day.
 

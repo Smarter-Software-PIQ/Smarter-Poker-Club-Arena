@@ -123,7 +123,7 @@ describe('tournament headers span their whole event frame', () => {
       expect(
         within(heading as HTMLElement).getByRole('img', { name: 'Freezeout Tournament' })
       ).toBeTruthy();
-      expect(heading.querySelector('strong')?.textContent).toBe('10K Guarantee');
+      expect(heading.querySelector('strong')?.textContent).toBe('10,000 Guarantee');
       expect(body.querySelectorAll('[data-tournament-icon]')).toHaveLength(0);
       expect(body.textContent).toContain('35');
       expect(body.textContent).toContain('12');

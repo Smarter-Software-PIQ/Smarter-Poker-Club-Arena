@@ -23,7 +23,7 @@ describe('Promotion Leaderboard Console', () => {
   it('uses one painted frame, or none when embedded on existing glass', async () => {
     getLeaderboard.mockResolvedValue([entry('me')]);
     const { container, rerender } = render(<LeaderboardCard promotionId="a" />);
-    await screen.findByText('19.2K');
+    await screen.findByText('19,255.12');
     expect(container.querySelectorAll('.sc')).toHaveLength(1);
     expect(screen.getByText('Prize 250')).toBeInTheDocument();
     rerender(<LeaderboardCard promotionId="a" variant="glass" />);
@@ -35,7 +35,7 @@ describe('Promotion Leaderboard Console', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Rankings Could Not Be Updated');
     expect(screen.queryByText('No Entries Yet')).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Retry Rankings' }));
-    await screen.findByText('19.2K');
+    await screen.findByText('19,255.12');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
   it('ignores an older promotion response after the selection changes', async () => {

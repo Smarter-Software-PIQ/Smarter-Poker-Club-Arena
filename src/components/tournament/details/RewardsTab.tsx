@@ -122,8 +122,14 @@ import {
   normalizeUnitCents,
 } from '../../../../server/src/tournament/tournamentUnit';
 import '../../../styles/tournament-lobby-3d.css';
+import { exactChips as sharedExactChips } from '../../../utils/format';
 import './HeroPin.css';
 import './RewardsTab.css';
+
+/** A source line keeps its cents when it has any: a 31.50 net entry rounded to
+ *  32 prints lines that no longer add up to the figure beside them. */
+const exactChips = (value: number): string =>
+  Number.isInteger(value) ? chips(value) : sharedExactChips(value);
 
 /* ═══════════════════════════════════════════════════════════════════════════
    PAYOUT STRUCTURE
@@ -819,8 +825,15 @@ export default function RewardsTab({
     const buyInTotal = cents(buyInCount * buyIn);
     const rebuyTotal = cents(rebuyCount * perRebuy);
     const addOnTotal = cents(addOnCount * perAddOn);
-    const collected =
-      currentFunding?.collected ?? (hasGuarantee ? null : num(t.prize_pool) + bountyShare);
+    /* The lines below are priced net of the fee, so they are checked against
+       the net figure the guarantee bar shows. `collected` is the gross payment:
+       on the Nightly 20K of 2026-11-13 it read 13,755 against lines that sum
+       to 12,705, and every amount printed as a dash. */
+    const collected = currentFunding
+      ? (currentFunding.netCoverage ?? currentFunding.collected)
+      : hasGuarantee
+        ? null
+        : num(t.prize_pool) + bountyShare;
     /* A cent of rounding per purchase is the most the server's fee rounding can
        move it; anything wider means entries this rule did not price (free
        seats, satellite winners) and the amounts are withheld, not guessed. */
@@ -1071,11 +1084,11 @@ export default function RewardsTab({
                   {chips(composition.buyInCount)}{' '}
                   {composition.buyInCount === 1 ? 'Buy-In' : 'Buy-Ins'}
                   {composition.reconciles && composition.buyIn > 0 && (
-                    <span className="rw-mix__each"> × {chips(composition.buyIn)}</span>
+                    <span className="rw-mix__each"> × {exactChips(composition.buyIn)}</span>
                   )}
                 </span>
                 <span className="rw-mix__figure">
-                  {composition.reconciles ? chips(composition.buyInTotal) : '-'}
+                  {composition.reconciles ? exactChips(composition.buyInTotal) : '-'}
                 </span>
               </li>
               {showRebuyLine && (
@@ -1084,11 +1097,11 @@ export default function RewardsTab({
                     {chips(composition.rebuyCount)}{' '}
                     {composition.rebuyCount === 1 ? 'Rebuy' : 'Rebuys'}
                     {composition.reconciles && composition.perRebuy > 0 && (
-                      <span className="rw-mix__each"> × {chips(composition.perRebuy)}</span>
+                      <span className="rw-mix__each"> × {exactChips(composition.perRebuy)}</span>
                     )}
                   </span>
                   <span className="rw-mix__figure">
-                    {composition.reconciles ? chips(composition.rebuyTotal) : '-'}
+                    {composition.reconciles ? exactChips(composition.rebuyTotal) : '-'}
                   </span>
                 </li>
               )}
@@ -1098,11 +1111,11 @@ export default function RewardsTab({
                     {chips(composition.addOnCount)}{' '}
                     {composition.addOnCount === 1 ? 'Add-On' : 'Add-Ons'}
                     {composition.reconciles && composition.perAddOn > 0 && (
-                      <span className="rw-mix__each"> × {chips(composition.perAddOn)}</span>
+                      <span className="rw-mix__each"> × {exactChips(composition.perAddOn)}</span>
                     )}
                   </span>
                   <span className="rw-mix__figure">
-                    {composition.reconciles ? chips(composition.addOnTotal) : '-'}
+                    {composition.reconciles ? exactChips(composition.addOnTotal) : '-'}
                   </span>
                 </li>
               )}

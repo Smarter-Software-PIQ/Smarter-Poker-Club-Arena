@@ -403,3 +403,17 @@ it('publishes the owner as-soon-as-possible cutover promise with its lead and fi
   expect((own?.notBeforeMs ?? 0) - (own?.noticeAtMs ?? 0)).toBeGreaterThanOrEqual(20 * 60_000);
   expect(BOOKED_MAINTENANCE_NOTICES.some((n) => n.id === own?.id)).toBe(true);
 });
+
+it('publishes the November 14 off-cycle cutover promise with its lead and fixed expiry', () => {
+  const own = BOOKED_MAINTENANCE_NOTICES.find(
+    (n) => n.id === '2026-11-14-owner-offcycle-engine-0506z'
+  );
+  expect(own?.noticeAtMs).toBe(Date.parse('2026-11-14T04:40:00Z'));
+  expect(own?.notBeforeMs).toBe(Date.parse('2026-11-14T05:06:00Z'));
+  expect(own?.notAfterMs).toBe(Date.parse('2026-11-14T07:30:00Z'));
+  expect((own?.notBeforeMs ?? 0) - (own?.noticeAtMs ?? 0)).toBeGreaterThanOrEqual(20 * 60_000);
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-14T04:39:59.999Z'))).toBeNull();
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-14T04:40:00Z'))?.id).toBe(own?.id);
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-14T07:29:59.999Z'))?.id).toBe(own?.id);
+  expect(bookedMaintenanceNotice(Date.parse('2026-11-14T07:30:00Z'))).toBeNull();
+});

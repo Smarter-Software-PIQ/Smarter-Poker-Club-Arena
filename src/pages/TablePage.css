@@ -284,6 +284,29 @@
   z-index: 1;
 }
 
+/* THE ROOM IS BLURRED (Dan 2026-11-13, "MAKE THE BACK GROUND BLURY LIKE THEY
+   WERE BEFORE, I DON'T LIKE THE CURRENT FULL FEATURE SIDE EFFECTS").
+
+   The blur Dan liked was never designed: the data-table stylesheet's
+   `.table-container` glass (12px blur, 1.3 saturation, a 2% white wash) leaked
+   onto the gameplay container of the same name. #10763 namespaced that
+   stylesheet, which removed the leak and showed the room at full detail.
+   This is the same treatment, deliberately, and on its OWN layer covering the
+   whole page rather than only the felt's box: the leak stopped at the
+   container's edge and drew a seam above the transparent tournament dock,
+   which is what #10763 was fixing. Painted after the background (and any
+   ::before veil) at z-index 0, below .table-container (z-index 1) and the
+   header, so it softens only the room - never the felt, cards or controls. */
+.table-room-blur {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: rgba(255, 255, 255, 0.02);
+  -webkit-backdrop-filter: blur(12px) saturate(1.3);
+  backdrop-filter: blur(12px) saturate(1.3);
+}
+
 /* The same breathing glows, painted once on their own layer. Animating the
    page's blur/box-shadow repaints the full phone surface every frame. Opacity
    keeps the two-second cue while the compositor reuses its static pixels. */
@@ -5387,5 +5410,27 @@ button.post-bb-overlay-button {
           1.0568167
       )
     );
+  }
+}
+
+/* Owner November 13: lower both phone tables to the controller clearance.
+   The full hero box (including its hand label) previously cleared the active
+   row by 6.1px at the tightest measured phone. Transfer four layout pixels
+   from below to above, keeping at least two pixels clear. The two paddings
+   still sum to the same budget: no felt resize and no hand-driven movement. */
+@media (max-device-width: 480px) and (min-width: 481px) and (max-width: 640px) and (orientation: portrait) {
+  .table-page:where([data-seats='6'], [data-seats='9']) .table-container {
+    padding-top: calc(var(--sp-table-top) + 4px);
+    padding-bottom: calc(var(--sp-table-bottom) - 4px);
+  }
+}
+
+/* Nine player phone tables leave a cap row above the skin. Shorten only
+   from the top so the bottom seat and controller keep their shared floor. */
+@media (min-width: 481px) and (max-width: 640px) and (orientation: portrait) {
+  .table-page[data-seats='9'] .table-scaler {
+    --sp-nine-cap-room: clamp(108px, 18vw, 120px);
+    height: calc(var(--sp-table-h, 100svh) - var(--sp-nine-cap-room));
+    margin-top: var(--sp-nine-cap-room);
   }
 }

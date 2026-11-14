@@ -75,7 +75,7 @@ describe('AgentInvoicesPanel console', () => {
     expect(screen.getByText('Pending')).toBeDefined();
     expect(screen.getByText('Disputed')).toBeDefined();
     expect(screen.getByText('Void')).toBeDefined();
-    expect(screen.getAllByText('1.2K', { exact: false })).toHaveLength(3);
+    expect(screen.getAllByText('1,299.99', { exact: false })).toHaveLength(3);
     expect(screen.getAllByRole('button', { name: 'Pay Now' })).toHaveLength(1);
     expect(document.body.textContent).not.toContain('1299.99');
   });
@@ -113,7 +113,7 @@ describe('AgentInvoicesPanel console', () => {
         operationId: '11111111-1111-4111-8111-111111111111',
       })
     );
-    expect(mocks.success).toHaveBeenCalledWith('Paid 1.2K Chips Toward Invoice');
+    expect(mocks.success).toHaveBeenCalledWith('Paid 1,299.99 Chips Toward Invoice');
     expect(mocks.emit).toHaveBeenCalledWith('BALANCE_UPDATED', {
       source: 'credit_invoice_payment',
     });

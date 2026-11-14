@@ -373,3 +373,23 @@ export function tableRenderScale(element: HTMLElement): number {
   const scale = element.getBoundingClientRect().width / layoutWidth;
   return Number.isFinite(scale) && scale > 0 ? scale : 1;
 }
+
+/** The above-crown lane used by every six/nine-seat phone action, including
+ * actions not mounted yet. Reserve the existing 108px text/pop envelope before
+ * the chairs lock, so a later check/fold cannot arrive under another plate. */
+export function crownActionReservation(input: {
+  seatLeft: number;
+  seatTop: number;
+  seatWidth: number;
+  rise: number;
+  tagHeight: number;
+  scale: number;
+}): { left: number; top: number; width: number; height: number } {
+  const width = 108 * input.scale;
+  return {
+    left: input.seatLeft + input.seatWidth / 2 - width / 2,
+    top: input.seatTop - (input.rise + input.tagHeight + 6 + 3) * input.scale,
+    width,
+    height: (input.tagHeight + 12) * input.scale,
+  };
+}

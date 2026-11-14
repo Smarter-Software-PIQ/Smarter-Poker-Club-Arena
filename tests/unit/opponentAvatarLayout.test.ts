@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   createOpponentAvatarLayout,
+  fixedRailBustLimit,
   nearestOpponentShift,
   opponentIdleEnvelope,
   opponentCaptionBounds,
@@ -19,6 +20,16 @@ import {
 
 const bounds = { left: 0, top: 80, width: 400, height: 720 };
 describe('only the necessary opponent spacing changes', () => {
+  it('fits the widest decoded middle bust between the fixed rail and the board at 430px', () => {
+    const viewport = { left: 0, top: 0, width: 600, height: 1188 };
+    const board = { left: 115.95, top: 500.75, width: 367.16, height: 100.94 };
+    const bear = { left: -6.515, top: 510.73, width: 129.03, height: 131.1 };
+    const factor = fixedRailBustLimit(bear, 58, viewport, board, 2);
+    expect(factor).toBeGreaterThan(0.85);
+    expect(58 + (bear.left - 58) * factor).toBeGreaterThanOrEqual(2);
+    expect(58 + (bear.left + bear.width - 58) * factor).toBeLessThanOrEqual(board.left - 2);
+    expect(fixedRailBustLimit({ ...bear, left: 12, width: 92 }, 58, viewport, board, 2)).toBe(1);
+  });
   it('retains every already clear opponent position', () => {
     expect(
       nearestOpponentShift([{ left: 20, top: 150, width: 80, height: 120 }], [], bounds, -1)

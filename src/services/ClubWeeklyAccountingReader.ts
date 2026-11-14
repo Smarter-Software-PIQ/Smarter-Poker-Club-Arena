@@ -100,29 +100,18 @@ export function formatWeeklyChips(value: string): string {
   return `${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}.${fraction}`;
 }
 
-/** #ClubArenaConsole forward display. The canonical row keeps exact cents;
- * the customer-facing console rounds down without decimals or overstatement. */
+/** Weekly statement figure for display: exact to the cent with separators,
+ * never abbreviated or rounded (Dan 2026-11-13). The canonical row is already
+ * an exact decimal string, so this only groups the thousands. */
 export function formatWeeklyChipsForDisplay(value: string): string {
   const match = /^(-?)(\d+)\.(\d{2})$/.exec(value);
   if (!match) return 'Unavailable';
-  const negative = match[1] === '-';
-  const whole = BigInt(match[2]);
-  const hasFraction = match[3] !== '00';
-  if (whole === 0n && hasFraction) return negative ? 'Under 1 Chip Owed' : 'Under 1 Chip';
-  const units: Array<[bigint, string]> = [
-    [1_000_000_000n, 'B'],
-    [1_000_000n, 'M'],
-    [1_000n, 'K'],
-  ];
-  for (const [unit, suffix] of units) {
-    if (whole >= unit) {
-      const tenths = (whole * 10n) / unit;
-      const fraction = tenths % 10n;
-      const compact = `${tenths / 10n}${fraction === 0n ? '' : `.${fraction}`}${suffix}`;
-      return `${negative ? '-' : ''}${compact} Chips`;
-    }
-  }
-  return `${negative ? '-' : ''}${whole.toLocaleString('en-US')} ${whole === 1n ? 'Chip' : 'Chips'}`;
+  const grouped = BigInt(match[2]).toLocaleString('en-US');
+  const isOne = match[2] === '1' && match[3] === '00';
+  const zero = match[2] === '0' && match[3] === '00';
+  // Same contract as exactChips: whole figures read whole, cents when present.
+  const cents = match[3] === '00' ? '' : `.${match[3]}`;
+  return `${zero ? '' : match[1]}${grouped}${cents} ${isOne ? 'Chip' : 'Chips'}`;
 }
 
 export interface ClubWeeklyStatement {

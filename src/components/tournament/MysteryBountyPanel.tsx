@@ -191,7 +191,10 @@ export default function MysteryBountyPanel({
      the panel shows the actual mystery pool so far, read live. It never
      shows a projected ladder or chest count (Dan 2026-11-07: "NEVER EVER USE
      'PROJECTED PAYOUTS' ANYWHERE AND EVER. YOU ONLY USE ACTUAL REAL TIME
-     TOTALS!"); the bounties are listed once the engine draws them. */
+     TOTALS!"). Dan 2026-11-13: "ONCE THE PRIZE POOL IS 'FINALIZED' (AFTER THE
+     ADD ON PERIOD) ALL MYSTERY BOUNTY PRIZES SHOULD BE SHOWN... DO NOT WAIT
+     UNTIL PLAYERS ARE ITM": the engine seals the real ladder when entry closes
+     and fn_mystery_bounty_inventory lists it while the stage is still pending. */
   const poolSoFar = useMysteryBountyPoolSoFar(
     tournamentId,
     isMysteryBounty &&
@@ -345,6 +348,19 @@ export default function MysteryBountyPanel({
         <span>{activationStatusLine(inventory)}</span>
       </div>
 
+      {/* PRIZES SET AT ENTRY CLOSE (Dan 2026-11-13). While the phase has not
+          opened the list below is the sealed ladder, cut from the finalized
+          pool. Say so, with the time, so nobody reads it as an estimate. */}
+      {stage === 'pending' && tiers.length > 0 && (
+        <div className={styles.status} data-testid="mystery-prizes-set">
+          <span>
+            {inventory?.sealedAt
+              ? `Prizes Set At Entry Close, ${shortWhen(inventory.sealedAt)}. They Open When The Mystery Phase Starts`
+              : 'Prizes Set At Entry Close. They Open When The Mystery Phase Starts'}
+          </span>
+        </div>
+      )}
+
       {/* Section 68: the largest bounty won so far, and who took it. Listed
           separately from the ladder because "the biggest one anybody has hit"
           is the number the rail actually follows, and it is one of the things
@@ -401,15 +417,15 @@ export default function MysteryBountyPanel({
         <div className={styles.rows}>
           {showPoolSoFar ? (
             <div className={`${styles.empty} sc-copy sc-copy--center`}>
-              {formatCents(poolSoFar ?? 0, unitCents)} In The Mystery Bounty Pool So Far. The
-              Bounties Are Drawn From The Actual Pool When They Activate
+              {formatCents(poolSoFar ?? 0, unitCents)} In The Mystery Bounty Pool So Far. Every
+              Mystery Bounty Prize Is Shown Here Once The Prize Pool Is Finalized
             </div>
           ) : tiers.length === 0 ? (
             <div className={`${styles.empty} sc-copy sc-copy--center`}>
               {isLoading
                 ? 'Loading The Mystery Bounty Ladder'
                 : stage === 'pending'
-                  ? 'The Ladder Is Drawn When The Mystery Phase Opens'
+                  ? 'Every Mystery Bounty Prize Is Shown Here Once The Prize Pool Is Finalized'
                   : 'No Mystery Bounties Were Drawn For This Event'}
             </div>
           ) : (

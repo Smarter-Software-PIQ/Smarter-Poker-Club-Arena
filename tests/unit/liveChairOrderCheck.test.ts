@@ -62,6 +62,77 @@ it('a correct ring passes', () => {
   expect(chairViolations()).toEqual([]);
 });
 
+it('rejects a lower-right nine-seat player drawn inward beside the middle-right player', () => {
+  mount(RING);
+  const table = document.querySelector<HTMLElement>('.table-page')!;
+  table.dataset.seats = '9';
+  vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList);
+  const seat = table.querySelector<HTMLElement>('[data-seat-num="6"]')!;
+  seat.parentElement!.dataset.box = seat.dataset.box;
+  expect(readMobileTableLayout({}).violations).not.toContain(
+    'Chair 6 Left Its Nine-Max Rail Anchor'
+  );
+  seat.dataset.box = '370,545,80,100';
+  expect(readMobileTableLayout({}).violations).toContain('Chair 6 Left Its Nine-Max Rail Anchor');
+});
+
+it('refuses a top nine-seat portrait that extends down onto the table', () => {
+  mount(RING);
+  const table = document.querySelector<HTMLElement>('.table-page')!;
+  table.dataset.seats = '9';
+  vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList);
+  const seat = table.querySelector<HTMLElement>('[data-seat-num="2"]')!;
+  const wrapper = seat.parentElement!;
+  wrapper.classList.add('seat-wrapper--cap');
+  wrapper.dataset.box = seat.dataset.box;
+  seat.innerHTML = '<div class="seat__info" data-box="120,128,84,30"></div>';
+  const violation = 'Chair 2 Top Portrait Inside Nine-Max Table';
+  expect(readMobileTableLayout({}).violations).toContain(violation);
+  seat.querySelector<HTMLElement>('.seat__info')!.dataset.box = '120,112,84,30';
+  expect(readMobileTableLayout({}).violations).not.toContain(violation);
+});
+
+it('keeps both blind stacks and the collected pile on the playing surface', () => {
+  mount(RING);
+  const table = document.querySelector<HTMLElement>('.table-page')!;
+  table.dataset.seats = '9';
+  table.dataset.feltTheme = 'classic_green';
+  vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList);
+  table.insertAdjacentHTML(
+    'beforeend',
+    '<div class="table-surface" data-box="80,180,440,720"></div><div class="seat__bet-chips" data-box="105,268,28,20"></div><div class="pot-display__pile--pot" data-box="281,380,38,20"></div>'
+  );
+  const violation = 'Nine-Max Chips Encroach On Rail';
+  expect(readMobileTableLayout({}).violations).toContain(violation);
+  table.querySelector<HTMLElement>('.seat__bet-chips')!.dataset.box = '210,260,28,20';
+  expect(readMobileTableLayout({}).violations).not.toContain(violation);
+  table.querySelector<HTMLElement>('.pot-display__pile--pot')!.dataset.box = '180,175,38,20';
+  expect(readMobileTableLayout({}).violations).toContain(violation);
+});
+
+it('records live resting chip offsets and rejects a landing away from the pot', () => {
+  mount(RING);
+  const table = document.querySelector<HTMLElement>('.table-page')!;
+  table.dataset.seats = '9';
+  vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList);
+  const ring = table.querySelector<HTMLElement>('.table-scaler')!;
+  Object.defineProperty(ring, 'offsetWidth', { value: 600 });
+  ring.insertAdjacentHTML(
+    'beforeend',
+    '<div class="pot-area" data-box="280,380,40,40"></div><div class="seat__bet-chips" style="--collect-dx:90px;--collect-dy:70px"><div class="cp-stacks" data-box="200,320,20,20"></div></div>'
+  );
+  const stack = ring.querySelector('.cp-stacks')!;
+  Object.defineProperty(stack, 'getAnimations', { value: () => [] });
+  expect(readMobileTableLayout({}).restingCollectionEndpoints?.[0]).toMatchObject({
+    target: 'pot-area',
+    distance: 0,
+  });
+  ring.querySelector<HTMLElement>('.seat__bet-chips')!.style.setProperty('--collect-dy', '60px');
+  expect(readMobileTableLayout({}).violations).toContain(
+    'Nine-Max Resting Wager Collection Misses Pot'
+  );
+});
+
 it("Danimal's collapse is caught: every chair right of 30% pinned at 29.7%", () => {
   const collapsed = { ...RING };
   for (const n of [3, 4, 5, 6, 7]) collapsed[n] = [29.7, RING[n][1]];
@@ -116,4 +187,58 @@ it('live verification refuses a caption behind the header', () => {
   expect(readMobileTableLayout({}).violations).not.toContain(
     'Action Caption Outside Playable Viewport'
   );
+});
+
+it.each(['away', 'sitting_out'])('live verification refuses clipped %s portraits', (status) => {
+  mount(RING);
+  vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList);
+  const seat = document.querySelector<HTMLElement>('.seat')!;
+  seat.classList.add(`seat--${status}`);
+  seat.style.cssText = 'opacity:0.55;filter:none';
+  seat.innerHTML =
+    '<div class="seat__avatar-wrap" style="opacity:1;filter:none"><div class="seat__avatar seat__avatar--bust" data-box="100,100,80,80" style="opacity:1;filter:grayscale(0.6)"></div></div>';
+  const violation = 'Inactive Portrait Has A Clipping Compositing Group';
+  expect(readMobileTableLayout({}).violations).toContain(violation);
+  seat.style.opacity = '1';
+  expect(readMobileTableLayout({}).violations).toContain(violation);
+  seat.querySelector<HTMLElement>('.seat__avatar')!.style.filter = 'none';
+  expect(readMobileTableLayout({}).violations).not.toContain(violation);
+});
+
+it.each(['winner', 'dim', 'winner-dim'])(
+  'live verification refuses clipped %s portraits',
+  (state) => {
+    mount(RING);
+    vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList);
+    const table = document.querySelector('.table-page')!;
+    const seat = document.querySelector<HTMLElement>('.seat')!;
+    const wrapper = seat.closest<HTMLElement>('.seat-wrapper')!;
+    table.classList.toggle('table-page--winner-flash', state.includes('winner'));
+    wrapper.classList.toggle('seat-wrapper--dim', state.includes('dim'));
+    wrapper.style.cssText = 'opacity:1;filter:none';
+    seat.style.cssText = 'opacity:1;filter:none';
+    seat.innerHTML =
+      '<div class="seat__avatar-wrap" style="opacity:1;filter:brightness(0.73)"><div class="seat__avatar seat__avatar--bust" data-box="100,100,80,80" style="opacity:1;filter:none"><img class="seat__avatar-img" style="filter:brightness(0.73) brightness(0.85) saturate(0.9);opacity:0.78"></div></div>';
+    const violation = 'Celebration Or Dim Portrait Has A Clipping Compositing Group';
+    expect(readMobileTableLayout({}).violations).toContain(violation);
+    seat.querySelector<HTMLElement>('.seat__avatar-wrap')!.style.filter = 'none';
+    seat.style.opacity = '0.78';
+    expect(readMobileTableLayout({}).violations).toContain(violation);
+    seat.style.opacity = '1';
+    expect(readMobileTableLayout({}).violations).not.toContain(violation);
+  }
+);
+
+it('live verification refuses folded seat opacity even when its avatar wrapper is clear', () => {
+  mount(RING);
+  vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList);
+  const seat = document.querySelector<HTMLElement>('.seat')!;
+  seat.classList.add('seat--folded');
+  seat.style.cssText = 'opacity:0.75;filter:none';
+  seat.innerHTML =
+    '<div class="seat__avatar-wrap" data-box="100,100,80,80" style="opacity:1;filter:none"><div class="seat__avatar seat__avatar--bust"><img style="opacity:0.4875;filter:brightness(0.73) brightness(0.8) saturate(0.55)"></div></div>';
+  const violation = 'Folded Portrait Has A Clipping Compositing Group';
+  expect(readMobileTableLayout({}).violations).toContain(violation);
+  seat.style.opacity = '1';
+  expect(readMobileTableLayout({}).violations).not.toContain(violation);
 });

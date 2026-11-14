@@ -291,6 +291,7 @@ export interface TableModalsLayerProps {
   bbjMini?: BbjMiniSnapshot | null;
   showBBJCelebration: boolean;
   bbjCelebrationData: {
+    chipDestination?: 'table' | 'wallet';
     totalPayout: number;
     loser: { userId: string; username: string; share: number; handName: string };
     winner: { userId: string; username: string; share: number; handName: string };
@@ -1108,6 +1109,7 @@ function TableModalsLayerImpl(props: TableModalsLayerProps) {
         <BBJCelebration
           visible={showBBJCelebration}
           asset={jackpotAsset}
+          chipDestination={bbjCelebrationData.chipDestination}
           totalPayout={bbjCelebrationData.totalPayout}
           loser={bbjCelebrationData.loser}
           winner={bbjCelebrationData.winner}

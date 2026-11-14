@@ -135,9 +135,9 @@ describe('helpers', () => {
 
   it('fits a large total in its tile without losing the exact figure', () => {
     expect(formatTotal(9_999.5)).toBe('9,999.50');
-    expect(formatTotal(149_602.37)).toBe('149.6K');
-    expect(formatTotal(-55_668.2)).toBe('-55.6K');
-    expect(formatTotal(3_544_599.22)).toBe('3.54M');
+    expect(formatTotal(149_602.37)).toBe('149,602.37');
+    expect(formatTotal(-55_668.2)).toBe('-55,668.20');
+    expect(formatTotal(3_544_599.22)).toBe('3,544,599.22');
     expect(formatTotal(undefined)).toBe('-');
   });
 
