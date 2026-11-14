@@ -18,7 +18,13 @@ read before and after, and the run refuses if it is not the expected release.
 An optional focus prefix (one 8-character tournament or table id prefix) also
 keeps the masked templates of every engine line that names it, with the
 prefix itself masked too, so one event's refusals inside the window can be
-read without exporting any line.
+read without exporting any line. For that prefix it also keeps a bounded,
+timestamped sequence of the masked elimination-sweep lines (Eliminated,
+BOUNTY, horse_rebuy_decision, bust batches, sweep and scheduler reports), plus
+the process-wide elimination scheduler lines, so the shape of each sweep pass
+can be read in order. Aggregate elimination scheduler and sweep-step series
+for the window are read from the local Prometheus (127.0.0.1:9090) with a
+fixed list of queries; those are counts and durations with enumerated labels.
 """
 import datetime
 import json
@@ -27,6 +33,8 @@ import selectors
 import subprocess
 import sys
 import time
+import urllib.parse
+import urllib.request
 
 CONTAINER = 'club-arena-engine'
 AUTOHEAL = 'sp-autoheal'
@@ -51,6 +59,31 @@ LIFECYCLE = re.compile(
     r'|draining|supervisor|Starting|http_listening|listening on|boot', re.IGNORECASE)
 KERNEL = re.compile(r'oom|out of memory|killed process|segfault|general protection', re.IGNORECASE)
 UNIT = re.compile(r'start|stop|restart|kill|fail|exit|deactivat|timeout', re.IGNORECASE)
+# Elimination-sweep lines kept, in order and with their timestamps, for the focus prefix.
+SWEEP = re.compile(
+    r'Eliminated|BOUNTY|bounty|horse_rebuy_decision|rebuy|bust|knockout|elimination|sweep|scheduler'
+    r'|finishing_ladder|balance|Tournament\.', re.IGNORECASE)
+# Process-wide scheduler lines that carry no tournament prefix.
+SCHEDULER = re.compile(r'elimination_scheduler|EliminationScheduler|elimination_sweep', re.IGNORECASE)
+MAX_SWEEP_LINES = 4000
+PROMETHEUS = 'http://127.0.0.1:9090/api/v1/query_range'
+PROM_STEP_S = 15
+# Fixed queries only; nothing from the dispatcher reaches a query string but the window.
+PROM_QUERIES = {
+    'schedulerQueueDepth': 'max(poker_tournament_elimination_scheduler_queue_depth)',
+    'schedulerOldestWaitMs': 'max(poker_tournament_elimination_scheduler_oldest_wait_ms)',
+    'schedulerSlotsInflight': 'max(poker_tournament_elimination_scheduler_slots_inflight)',
+    'schedulerStalledSlots': 'max(poker_tournament_elimination_scheduler_stalled_slots)',
+    'schedulerRegistered': 'max(poker_tournament_elimination_scheduler_registered)',
+    'schedulerDispatchPerMin': 'sum by (outcome) (rate(poker_tournament_elimination_scheduler_dispatch_total[1m])) * 60',
+    'sweepMeanMs': 'sum(rate(poker_tournament_elimination_sweep_ms_sum[1m])) / sum(rate(poker_tournament_elimination_sweep_ms_count[1m]))',
+    'sweepsPerMin': 'sum(rate(poker_tournament_elimination_sweep_ms_count[1m])) * 60',
+    'sweepOverrunsPerMin': 'sum by (outcome) (rate(poker_tournament_elimination_sweep_overruns_total[1m])) * 60',
+    'stepMeanMs': 'sum by (step) (rate(poker_tournament_elimination_sweep_step_ms_sum[1m])) / sum by (step) (rate(poker_tournament_elimination_sweep_step_ms_count[1m]))',
+    'stepMsPerSecond': 'sum by (step) (rate(poker_tournament_elimination_sweep_step_ms_sum[1m]))',
+    'stepCallsPerMin': 'sum by (step) (rate(poker_tournament_elimination_sweep_step_ms_count[1m])) * 60',
+}
+LABEL = re.compile(r'[A-Za-z0-9_.:-]{1,64}')
 EVENT_ACTIONS = {'create', 'start', 'restart', 'die', 'kill', 'stop', 'destroy', 'oom', 'pause',
                  'unpause', 'update'}
 
@@ -237,7 +270,8 @@ def ordered(bucket):
 
 
 def read_container_log(name, start, end, keep, boundary=None, focus=None):
-    templates, per_minute, tail, focused = {}, {}, [], {}
+    templates, per_minute, tail, focused, sweep = {}, {}, [], {}, []
+    sweep_dropped = 0
     scanned, truncated, first, last = 0, False, None, None
     argv = ['docker', 'logs', '--since', iso(start), '--until', iso(end), '--timestamps', name]
     for line in stream(argv):
@@ -263,10 +297,54 @@ def read_container_log(name, start, end, keep, boundary=None, focus=None):
             add_template(templates, mask(payload), when)
         if focus and focus in payload:
             add_template(focused, mask(payload.replace(focus, '<F>')), when)
+        if focus and sweep_line(payload, focus):
+            if len(sweep) < MAX_SWEEP_LINES:
+                sweep.append({'at': when, 'focus': focus in payload,
+                              'line': mask(payload.replace(focus, '<F>'))})
+            else:
+                sweep_dropped += 1
     return {'linesScanned': scanned, 'readTruncated': truncated, 'firstLineAt': first, 'lastLineAt': last,
             'linesPerMinute': per_minute, 'templates': ordered(templates),
             'focusTemplates': ordered(focused) if focus else None,
+            'sweepLines': sweep if focus else None, 'sweepLinesDropped': sweep_dropped if focus else None,
             'tailBeforeBoundary': tail if boundary else None, 'boundary': boundary}
+
+
+def sweep_line(payload, focus):
+    # A focus line describing the elimination sweep, or a process-wide
+    # scheduler line. Both are masked; the prefix itself never leaves.
+    if focus and focus in payload:
+        return bool(SWEEP.search(payload))
+    return bool(SCHEDULER.search(payload))
+
+
+def prom_series(start, end, fetch=None):
+    fetch = fetch or (lambda url: urllib.request.urlopen(url, timeout=5).read())
+    out = {}
+    for name, query in PROM_QUERIES.items():
+        url = PROMETHEUS + '?' + urllib.parse.urlencode(
+            {'query': query, 'start': iso(start), 'end': iso(end), 'step': f'{PROM_STEP_S}s'})
+        try:
+            data = json.loads(fetch(url))
+            series = []
+            for result in (data.get('data') or {}).get('result') or []:
+                labels = {key: value for key, value in (result.get('metric') or {}).items()
+                          if LABEL.fullmatch(str(key)) and LABEL.fullmatch(str(value))}
+                points = []
+                for stamp, value in (result.get('values') or [])[:400]:
+                    try:
+                        number = float(value)
+                    except Exception:
+                        continue
+                    if number != number or number in (float('inf'), float('-inf')):
+                        continue
+                    points.append([iso(datetime.datetime.fromtimestamp(float(stamp), datetime.timezone.utc)),
+                                   round(number, 3)])
+                series.append({'labels': labels, 'points': points})
+            out[name] = {'readOk': data.get('status') == 'success', 'series': series[:60]}
+        except Exception:
+            out[name] = {'readOk': False, 'series': []}
+    return out
 
 
 def read_journal(argv, keep):
@@ -319,6 +397,7 @@ def main(expected, start_text, minutes_text, focus_text='-'):
         'autohealLog': read_container_log(AUTOHEAL, start, end, lambda payload: True),
         'engineLog': read_container_log(CONTAINER, start, end, lambda payload: bool(LIFECYCLE.search(payload)),
                                         boundary, focus),
+        'eliminationSeries': prom_series(start, end),
         'kernelLog': read_journal(['journalctl', '-k', '--since', start.strftime('%Y-%m-%d %H:%M:%S UTC'),
                                    '--until', end.strftime('%Y-%m-%d %H:%M:%S UTC'), '--no-pager',
                                    '-o', 'short-iso'], lambda line: bool(KERNEL.search(line))),
