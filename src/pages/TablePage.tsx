@@ -28088,6 +28088,11 @@ function LiveTablePage({
         backgroundRepeat: TABLE_BACKGROUND_REPEAT,
       }}
     >
+      {/* THE ROOM IS BLURRED (Dan 2026-11-13): "MAKE THE BACK GROUND BLURY LIKE
+          THEY WERE BEFORE". One layer over the whole page background, under the
+          felt and every control, so the blur is continuous behind the
+          tournament dock too (no seam). See .table-room-blur in TablePage.css. */}
+      <div className="table-room-blur" aria-hidden="true" />
       {!tableArt.reveal && !tableLoadFailure && (
         <div className="table-art-cover" role="status" aria-live="polite">
           <span className="table-art-cover__label">
