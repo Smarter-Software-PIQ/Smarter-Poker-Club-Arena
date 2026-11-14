@@ -292,9 +292,9 @@
     "tests/fixtures/credit-request-authority/captured-name-catalog.json": "d7e65573b95e9983da7bf3c747467ca2e4de42b757c261f02fb18169318edb3c",
     "tests/fixtures/credit-request-authority/captured-preimages.sql": "1e2dad53a20cc0c80c0e4a6c71160e1a366bdead956d6303772dce7260aa99de",
     "tests/fixtures/credit-request-authority/regression.sql": "cfddf809c701bdc9b43c71392ba1d130fe9275489670bffabef94ecb38e9e86a",
-    "tests/credit-admin-data.test.ts": "4a0314b6d67b26952d6a7836fffebe9239349c53474f4ff034f6e7eff2049bcf",
-    "tests/credit-admin-panel-scope.test.tsx": "1f6bc078af417542917561e2667dde60fff236eaaffee07f7591170f7bfc42b4",
-    "tests/credit-request-widget-scope.test.tsx": "45ad84f004fe5fd39fcb8affa7a6c0f16c5782335966f4c01728305de8cd126d",
+    "tests/credit-admin-data.test.ts": "47462de7312c7f45a6caabeff0ce425a594f80ed73ffba72e2de8e1f62eae43f",
+    "tests/credit-admin-panel-scope.test.tsx": "a6919769f6399b1439d28ccf371955a0772761ba92b815205670bb9f11aca1ac",
+    "tests/credit-request-widget-scope.test.tsx": "6442b5280dcd6a2f726414fbbf26cc6eeee74ef93d9acd378c07539fc4df5330",
     "tests/super-agent-credit-routing.test.tsx": "0741030aba402bac0adda0a47f95679981789d3fa873e0fc09f5c5f503261580",
     "tests/unit/CreditRequestAuthority.test.ts": "0dce14c178ef4f5bd8f8a2aa794cfc8f76fec4fe3207e0882add16e162abb821",
     "tests/unit/CreditRequestLegacyCaller.test.ts": "ef6f8458a54ce3b5e646d831c176f279456e8f59598616e20dbb3a9dbc7f2e7b",
@@ -321,9 +321,9 @@
     "tests/fixtures/correction-document-authority/captured-references.json": "60b794f91a5d726c9302856a220b193eae52fbd95dc1e15ad4b95b312b092479",
     "tests/fixtures/correction-document-authority/captured-union-party.json": "9bc97fef36c4e3e3ec2766cb3596764513bb20fd8bce78e5fa1ee87337bb86f7",
     "tests/fixtures/correction-document-authority/regression.sql": "f70b287534ee6024469629a18fd38cb4074f528e906808c5bf6ebdb1464091f1",
-    "tests/cashier-weekly-statements.test.tsx": "dc2c3cb202c4119f3828f4ac68865e31e8f52874cdecb154bf8832491202bac2",
+    "tests/cashier-weekly-statements.test.tsx": "9d96d8baeca3249f300077b7cdc5e7c0fa010a12bcde4f8b93f145140484ac1a",
     "tests/helpers/clubWeeklyStatement.ts": "7061277bbc67933e1aba5bcd76ebd3cd4fec241ffe9545c39e0b0f10806b2d21",
-    "tests/unit/ClubWeeklyAccountingReader.test.ts": "6be8e7def307a8363525ac7eb3600674f5d35f9524304cdd9770e77ab0c45856",
+    "tests/unit/ClubWeeklyAccountingReader.test.ts": "46ac23883e61d38e4b3a3b4289d35f0bad1a5153b1292500e98af305a49f7063",
     "tests/unit/FinancialExportService.test.ts": "a3870a8c151e21c7917687b6953dcd3d51cf82cc03071c655674111ad9556c16",
     "tests/fixtures/browser-period-observer/README.md": "43b9b9f94e8ddd1cc01bcd1d635995d196ea4f1cfafa6d35233761bb84a91da0",
     "tests/fixtures/browser-period-observer/captured-dependencies.json": "c9874b776f79b4636dffeee5f1046910093e2f36ae1208a95cd2bcb98f530ae3",
@@ -339,7 +339,7 @@
     "tests/unit/useUnionStore.test.ts": "3b3f59aca73ce2c20fad59c82e23dfa9c4aaef4b22fdff9ab3295b379e593268",
     "tests/unit/anApprovalCanBeRetried.test.ts": "e4364e4b911ccea5161b870eae3f61c62a0a47aace36a56ced56079d2dbd3506",
     "tests/components/UnionAccountingRunStatus.test.tsx": "31c23688aff53a097e1b71717aeeb46893b63639b97cd62f36d0eab40cb60717",
-    "tests/components/WeeklyAccountingWorkspace.test.tsx": "3fa2ec057866093383ec05539ac3a60de8cec52abfee780d2491ead8894f5be7",
+    "tests/components/WeeklyAccountingWorkspace.test.tsx": "ef30a660badbcb434bb9a07afa7517cf7b5ee83e823118d95b5d528f344e5c23",
     "tests/helpers/accountingObservation.ts": "9dba06d97c2f9cce2356fa8c6800ff9a07e4618ea2028370a278b4820b6199f6",
     "tests/components/FinancialAlertsExport.test.tsx": "8863dfb7e552fdf23d4e8e00eefce37b16f3cfbf1eb1858f9db9274b1f987d80",
     "tests/components/cashier-cashout-generations.test.tsx": "cbd357251d4c3ce5fddff8ec1b5716866b2f3323c7e17e8b6bffd345a68401c8",
@@ -8549,5 +8549,47 @@
     ],
     "financialRecertification": false,
     "executionPerformed": false
+  },
+  "exactFiguresDisplayRebinding20261114": {
+    "reason": "Owner authorization 2026-11-14 (PR #10797): bind the reviewed presentation-only changes of the exact-figures ruling. Each changed test now expects the exact stored figure (40.05 / 60.20 / 100.25 Chips, 100.25, 1,290.99, 200.25, -0.95 Chips, 9,999,999,999.99 Chips) instead of a floored, abbreviated or 'Under 1 Chip' display. Full diff recorded in the review file. No fixture data, RPC argument, money-movement, scope/RLS, stale-read or edit-guard assertion changed; historical audits, financial pins/assertions, qualification states and certificates are unchanged. Current test source identity only; matching source identity does not certify native money behavior or production delivery.",
+    "review": "docs/reviews/2026-11-14-exact-figures-binding-restamp.md",
+    "changes": [
+      {
+        "path": "tests/cashier-weekly-statements.test.tsx",
+        "kind": "sha256",
+        "previous": "dc2c3cb202c4119f3828f4ac68865e31e8f52874cdecb154bf8832491202bac2",
+        "current": "9d96d8baeca3249f300077b7cdc5e7c0fa010a12bcde4f8b93f145140484ac1a"
+      },
+      {
+        "path": "tests/components/WeeklyAccountingWorkspace.test.tsx",
+        "kind": "sha256",
+        "previous": "3fa2ec057866093383ec05539ac3a60de8cec52abfee780d2491ead8894f5be7",
+        "current": "ef30a660badbcb434bb9a07afa7517cf7b5ee83e823118d95b5d528f344e5c23"
+      },
+      {
+        "path": "tests/credit-admin-data.test.ts",
+        "kind": "sha256",
+        "previous": "4a0314b6d67b26952d6a7836fffebe9239349c53474f4ff034f6e7eff2049bcf",
+        "current": "47462de7312c7f45a6caabeff0ce425a594f80ed73ffba72e2de8e1f62eae43f"
+      },
+      {
+        "path": "tests/credit-admin-panel-scope.test.tsx",
+        "kind": "sha256",
+        "previous": "1f6bc078af417542917561e2667dde60fff236eaaffee07f7591170f7bfc42b4",
+        "current": "a6919769f6399b1439d28ccf371955a0772761ba92b815205670bb9f11aca1ac"
+      },
+      {
+        "path": "tests/credit-request-widget-scope.test.tsx",
+        "kind": "sha256",
+        "previous": "45ad84f004fe5fd39fcb8affa7a6c0f16c5782335966f4c01728305de8cd126d",
+        "current": "6442b5280dcd6a2f726414fbbf26cc6eeee74ef93d9acd378c07539fc4df5330"
+      },
+      {
+        "path": "tests/unit/ClubWeeklyAccountingReader.test.ts",
+        "kind": "sha256",
+        "previous": "6be8e7def307a8363525ac7eb3600674f5d35f9524304cdd9770e77ab0c45856",
+        "current": "46ac23883e61d38e4b3a3b4289d35f0bad1a5153b1292500e98af305a49f7063"
+      }
+    ]
   }
 }

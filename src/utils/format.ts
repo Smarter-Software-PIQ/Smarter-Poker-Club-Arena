@@ -402,27 +402,24 @@ export const formatSignedPct = (value: unknown, digits = 1): string => {
   return value > 0 ? `+${fixed}%` : `${fixed}%`;
 };
 
-/** "+1,711.50" / "-2,183.70" / "0.00" - chips, signed, thousands separators. */
+/**
+ * "+1,711.50" / "-2,183.70" / "0.00" - chips, signed, thousands separators.
+ * `digits` is the MINIMUM number of places; every real decimal beyond it is
+ * kept, never truncated away (Dan 2026-11-13: exact figures always).
+ */
 export const formatSignedChips = (value: unknown, digits = 2): string => {
-  if (!finite(value)) return '0.00';
-  const factor = 10 ** digits;
-  const fixed = (Math.trunc(nudge(Math.abs(value)) * factor) / factor).toLocaleString('en-US', {
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits,
-  });
-  if (value > 0) return `+${fixed}`;
-  if (value < 0) return `-${fixed}`;
-  return fixed;
+  if (!finite(value)) return (0).toFixed(digits);
+  const abs = Number(Math.abs(value).toFixed(FIGURE_MAX_FRACTION_DIGITS));
+  const fixed = preciseMagnitude(abs, digits);
+  if (abs === 0) return fixed;
+  return value > 0 ? `+${fixed}` : `-${fixed}`;
 };
 
-/** "1,711.50" - chips, unsigned, truncated. */
+/** "1,711.50" - chips, unsigned; `digits` is the minimum, extra stored precision kept. */
 export const formatChips = (value: unknown, digits = 2): string => {
-  if (!finite(value)) return '0.00';
-  const factor = 10 ** digits;
-  return (Math.trunc(nudge(value) * factor) / factor).toLocaleString('en-US', {
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits,
-  });
+  if (!finite(value)) return (0).toFixed(digits);
+  const abs = Number(Math.abs(value).toFixed(FIGURE_MAX_FRACTION_DIGITS));
+  return `${value < 0 && abs !== 0 ? '-' : ''}${preciseMagnitude(abs, digits)}`;
 };
 
 /** "1,412" - whole counts (truncated, never rounded up). */
@@ -492,26 +489,38 @@ export const ordinal = (n: unknown): string => {
  * USE WHOLE NUMBERS AND DECIMALS ALWAYS ... FIX THIS LOGIC GLOBALLY FOR THE
  * POKER ARENA."
  *
- * Thousands separators, never a K/M/B suffix, and the cents are kept whenever
- * the stored value has them. A whole value (a count, a tournament stack, a
- * blind) reads whole. The 1e-7 nudge only decides a binary half-cent tie.
+ * Thousands separators, never a K/M/B suffix, and every real decimal the
+ * stored value has is kept (at least two once there are any). A whole value
+ * (a count, a tournament stack, a blind) reads whole.
  *
  * @example exactChips(1512.34) -> "1,512.34"
  * @example exactChips(1000)    -> "1,000"
  * @example exactChips(-136.5)  -> "-136.50"
  * @example exactChips(0.07)    -> "0.07"
+ * @example exactChips(1.234)   -> "1.234"
  */
+/** Decimal places a stored figure keeps before binary float noise starts. */
+export const FIGURE_MAX_FRACTION_DIGITS = 8;
+
+/**
+ * The magnitude of a stored figure, grouped, with every real decimal it has
+ * (up to FIGURE_MAX_FRACTION_DIGITS) and at least `minFraction` places. It
+ * never rounds a real decimal away: 1.234 stays "1.234", 0.005 stays "0.005".
+ * Only float noise past the eighth place (0.30000000000000004) is dropped.
+ */
+export const preciseMagnitude = (abs: number, minFraction: number): string =>
+  Number(abs.toFixed(FIGURE_MAX_FRACTION_DIGITS)).toLocaleString('en-US', {
+    minimumFractionDigits: minFraction,
+    maximumFractionDigits: FIGURE_MAX_FRACTION_DIGITS,
+  });
+
 export const exactChips = (n: number | null | undefined): string => {
   const v = Number(n);
   if (!Number.isFinite(v)) return '0';
-  const cents = Math.round(Math.abs(v) * 100 + 1e-7);
-  if (cents === 0) return '0';
+  const abs = Number(Math.abs(v).toFixed(FIGURE_MAX_FRACTION_DIGITS));
+  if (abs === 0) return '0';
   const sign = v < 0 ? '-' : '';
-  const whole = cents % 100 === 0;
-  return `${sign}${(cents / 100).toLocaleString('en-US', {
-    minimumFractionDigits: whole ? 0 : 2,
-    maximumFractionDigits: whole ? 0 : 2,
-  })}`;
+  return `${sign}${preciseMagnitude(abs, Number.isInteger(abs) ? 0 : 2)}`;
 };
 
 /**
@@ -526,11 +535,10 @@ export const compactChips = (n: number | null | undefined): string => exactChips
  */
 export const feeFigure = (value: number | null | undefined): string => {
   if (value == null) return 'Restricted';
-  if (!Number.isFinite(Number(value))) return '-';
-  return Number(value).toLocaleString('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
+  const v = Number(value);
+  if (!Number.isFinite(v)) return '-';
+  const abs = Number(Math.abs(v).toFixed(FIGURE_MAX_FRACTION_DIGITS));
+  return `${v < 0 && abs !== 0 ? '-' : ''}${preciseMagnitude(abs, 2)}`;
 };
 
 /**
@@ -553,7 +561,8 @@ export const countFigure = (value: number | null | undefined): string =>
 export const formatWalletChips = (amount: number | null | undefined): string => {
   if (amount == null || !Number.isFinite(Number(amount))) return '-';
   const value = Number(amount);
-  return value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const abs = Number(Math.abs(value).toFixed(FIGURE_MAX_FRACTION_DIGITS));
+  return `${value < 0 && abs !== 0 ? '-' : ''}${preciseMagnitude(abs, 2)}`;
 };
 
 /** Whole Diamond wallet counts are always exact (Dan 2026-11-13: never abbreviated). */
@@ -565,17 +574,15 @@ export const formatWalletDiamonds = (amount: number | null | undefined): string 
 
 /**
  * A signed win / loss figure for Player Management (Dan 2026-11-13): exact to
- * the cent with separators, always two decimals so it lines up with the fee
- * and wallet figures beside it. "+392.57", "-1,512.34", "0.00".
+ * the stored precision with separators, at least two decimals so it lines up
+ * with the fee and wallet figures beside it. "+392.57", "-1,512.34", "0.00",
+ * and "+0.125" when the stored value carries three places.
  */
 export const winLossChips = (n: number | null | undefined): string => {
   const value = Number(n);
   if (!Number.isFinite(value)) return '0.00';
-  const cents = Math.round(Math.abs(value) * 100 + 1e-7);
-  const text = (cents / 100).toLocaleString('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-  if (cents === 0) return '0.00';
+  const abs = Number(Math.abs(value).toFixed(FIGURE_MAX_FRACTION_DIGITS));
+  if (abs === 0) return '0.00';
+  const text = preciseMagnitude(abs, 2);
   return value > 0 ? `+${text}` : `-${text}`;
 };

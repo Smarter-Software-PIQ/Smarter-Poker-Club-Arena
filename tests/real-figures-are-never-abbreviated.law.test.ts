@@ -15,7 +15,11 @@ import { describe, expect, it } from 'vitest';
 import {
   compactChips,
   exactChips,
+  feeFigure,
   fmtChips,
+  formatChips,
+  formatSignedChips,
+  formatWalletChips,
   formatWalletDiamonds,
   winLossChips,
 } from '../src/utils/format';
@@ -46,6 +50,31 @@ describe('real figures are never abbreviated', () => {
     expect(formatWalletDiamonds(2_500_000)).toBe('2,500,000');
     expect(formatWeeklyChipsForDisplay('1250.50')).toBe('1,250.50 Chips');
     expect(tournamentTabBuyInLabel(1100)).toBe('1,100');
+  });
+
+  it('keeps every stored decimal, never silently rounding to two places', () => {
+    // Columns such as chip_ledger.pre_from_balance and club_members.held_chips
+    // are unconstrained numeric, so a third or fourth place is real data.
+    expect(exactChips(1.234)).toBe('1.234');
+    expect(exactChips(0.005)).toBe('0.005');
+    expect(exactChips(-12345.6789)).toBe('-12,345.6789');
+    expect(exactChips(1234567.5)).toBe('1,234,567.50');
+    expect(exactChips(9_999_999_999.99)).toBe('9,999,999,999.99');
+    expect(exactChips(0.1 + 0.2)).toBe('0.30'); // float noise is not data
+    expect(exactChips(0)).toBe('0');
+    expect(exactChips(-0)).toBe('0');
+    expect(winLossChips(0.125)).toBe('+0.125');
+    expect(winLossChips(-0.005)).toBe('-0.005');
+    expect(winLossChips(0)).toBe('0.00');
+    expect(feeFigure(740.175)).toBe('740.175');
+    expect(feeFigure(740.17)).toBe('740.17');
+    expect(feeFigure(-12.5)).toBe('-12.50');
+    expect(formatWalletChips(2131)).toBe('2,131.00');
+    expect(formatWalletChips(2131.0005)).toBe('2,131.0005');
+    expect(formatChips(1711.5)).toBe('1,711.50');
+    expect(formatChips(1711.505)).toBe('1,711.505');
+    expect(formatSignedChips(-2183.7)).toBe('-2,183.70');
+    expect(formatSignedChips(0.001)).toBe('+0.001');
   });
 
   it('no source file builds a K / M / B suffix from a divided figure', () => {
