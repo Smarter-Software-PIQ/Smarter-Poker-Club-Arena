@@ -284,6 +284,29 @@
   z-index: 1;
 }
 
+/* THE ROOM IS BLURRED (Dan 2026-11-13, "MAKE THE BACK GROUND BLURY LIKE THEY
+   WERE BEFORE, I DON'T LIKE THE CURRENT FULL FEATURE SIDE EFFECTS").
+
+   The blur Dan liked was never designed: the data-table stylesheet's
+   `.table-container` glass (12px blur, 1.3 saturation, a 2% white wash) leaked
+   onto the gameplay container of the same name. #10763 namespaced that
+   stylesheet, which removed the leak and showed the room at full detail.
+   This is the same treatment, deliberately, and on its OWN layer covering the
+   whole page rather than only the felt's box: the leak stopped at the
+   container's edge and drew a seam above the transparent tournament dock,
+   which is what #10763 was fixing. Painted after the background (and any
+   ::before veil) at z-index 0, below .table-container (z-index 1) and the
+   header, so it softens only the room - never the felt, cards or controls. */
+.table-room-blur {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: rgba(255, 255, 255, 0.02);
+  -webkit-backdrop-filter: blur(12px) saturate(1.3);
+  backdrop-filter: blur(12px) saturate(1.3);
+}
+
 /* The same breathing glows, painted once on their own layer. Animating the
    page's blur/box-shadow repaints the full phone surface every frame. Opacity
    keeps the two-second cue while the compositor reuses its static pixels. */
