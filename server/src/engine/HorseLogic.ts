@@ -4395,8 +4395,13 @@ function buildPhase7UtilityInput(
     maxRaiseTo: gs.maxRaiseTo ?? null,
     bettingStructure,
     // The short stack's shove through the all-in button is priced as the
-    // wager the controller executes, not left out of the candidates.
-    ...(phase7ShortAllInWagers(gs, player, bettingStructure) ? { shortAllInWagers: true } : {}),
+    // wager the controller executes, not left out of the candidates. Only
+    // when the reference decision IS that shove: a jam added beside a
+    // reference fold or call is a near twin of the call, the two overlap in
+    // the arbiter's uncertainty gate and an override of the fold is lost.
+    ...(decision.action === 'all_in' && phase7ShortAllInWagers(gs, player, bettingStructure)
+      ? { shortAllInWagers: true }
+      : {}),
     baseline: decision,
     heroEquity: evidence7.equity,
     equitySampleSize: evidence7.sampleSize,

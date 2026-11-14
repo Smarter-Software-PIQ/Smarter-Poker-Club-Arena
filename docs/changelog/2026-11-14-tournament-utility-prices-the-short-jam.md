@@ -8,8 +8,20 @@ The menu alone cannot say what the button does: fixed limit shows the same menu 
 
 The shove is priced by the model no-limit already uses for it: each live opponent may call or fold, never re-raise, and folds at a rate set by the price of the extra chips it must pay (`mdfFold`: the raise over the contestable pot), so a small over-call shove carries almost no fold equity. No fold equity is assumed from a full raise the hero cannot make.
 
-Unchanged: no-limit candidates (the new branch is read only when the menu has no ceiling, and no-limit already built its jam there); every menu with a ceiling; the Phase 13 joint owners, which call the builder without the fact; cash games (the tournament utility runs in tournaments only). No telemetry or ledger string is added or renamed.
+## What can change, and what cannot (added after the review of b07e5885)
+
+The fact is set only when the reference decision is that shove (`decision.action === 'all_in' && phase7ShortAllInWagers(...)` in `buildPhase7UtilityInput`). The first version set it on every short menu. A jam beside a reference fold or call is a near twin of the call (identical when nobody can pay the extra chips), the two overlap in the arbiter's uncertainty gate, and a reference fold the utility had replaced by a call went back to a fold: the review measured 17 such pot-limit decisions. That side effect is removed.
+
+Can change, in pot-limit (PLO4, PLO5, PLO6, PLO8) and fixed-limit (FLH, FLO8) tournaments, with no option gating it: a reference `all_in` on the short menu, refused until now as `baseline_not_modeled` and therefore always played, is now priced, so the utility may replace it (by a fold, or by a call) where its own gate says the other action is clearly better. Its receipt and telemetry change from the refusal to a priced ledger, and its utility input hash differs from a recorded one because it now carries the fact.
+
+Cannot change: any decision whose reference action is not `all_in` (the input is byte for byte the one built before, no fact, no jam); no-limit (the helper answers false first, and no-limit already built its jam); every menu with a ceiling; cash games (the tournament utility runs in tournaments only).
+
+Measured on real controller menus (`HorseTournamentUtilityShortJam.test.ts`, 150 short menus for each of plo4, plo5, plo6, plo8, flh, flo8, two payout structures, 1,800 decisions): 1,661 decisions with a reference other than `all_in`, every one identical in action, amount, refusal and utility receipt to a run with the fact forced off, 7 of them utility overrides that are all kept (6 would have been cancelled by the first version); 139 reference all-ins, all 139 refused before and priced now, 0 replaced by the utility, 0 with a different final action. A replacement is possible in principle and was not seen.
+
+Phase 13: the joint owners call the builder without the fact, so the joint proposal is unchanged. The Phase 7 owner that judges that proposal in a tournament (`buildPhase7UtilityInput` on the Phase 13 path, acting only in candidate mode) uses the same rule: it sees the fact only when the proposal it is given is itself the `all_in`, which the joint owner cannot newly propose on this menu because its own candidates hold no jam. The variant owners' shadow evaluation reuses the main input and so carries the fact only when the main reference is the shove.
+
+No telemetry or ledger string is added or renamed.
 
 Not changed here, and still refused as `baseline_not_modeled`: a fixed-limit reference decision of `all_in` on a capped street or from a seat that may not reopen, where the button executes as a call.
 
-Tests: `server/src/engine/HorseTournamentUtilityShortJam.test.ts`. The Feature Activation law `HorseDecisionSpotMatrix.law.test.ts` pins the refusal by name and goes red on this change by design; its last block is to be replaced by the plain rule (every tournament decision of that spot is priced).
+Tests: `server/src/engine/HorseTournamentUtilityShortJam.test.ts` (33). The six reported seeds live in the Feature Activation law, which is on no shared ref; they are covered here by equivalents on real controller menus, not replayed. The Feature Activation law `HorseDecisionSpotMatrix.law.test.ts` pins the refusal by name and goes red on this change by design; its last block is to be replaced by the plain rule (every tournament decision of that spot is priced). Whichever of the two merges second must carry that update.

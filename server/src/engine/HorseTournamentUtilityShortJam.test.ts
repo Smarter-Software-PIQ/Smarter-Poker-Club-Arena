@@ -21,11 +21,19 @@
  *   prices the same shove, with fold equity set by the price of the raise;
  * - no-limit candidates are identical with and without the claim;
  * - on real HandController menus the claim is true exactly when pressing the
- *   button commits the whole stack, in both structures.
+ *   button commits the whole stack, in both structures;
+ * - the Horse sets the fact only when its reference decision is that shove,
+ *   so no other decision on the short menu can change (last describe block).
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { HorseLogic, phase7ShortAllInWagers, type HorseDecideOpts } from './HorseLogic.js';
+import {
+  HorseLogic,
+  phase7ShortAllInWagers,
+  type HorseDecideOpts,
+  type HorseGameStateV2,
+} from './HorseLogic.js';
 import { seedFastRandom } from './HorseEval.js';
+import * as tournamentUtility from './HorseTournamentUtility.js';
 import {
   buildTournamentActionCandidates,
   evaluateTournamentUtilityDetailed,
@@ -40,7 +48,7 @@ import {
   controllerSpotRandom,
 } from './remainingVariants/RemainingVariantControllerSpots.test-support.js';
 import { forEachJointControllerSpot } from './multiway/JointControllerSpots.test-support.js';
-import type { ActionType, HandConfig, SeatPlayer } from '../types.js';
+import type { ActionType, HandConfig, HorseDecision, SeatPlayer } from '../types.js';
 
 type Structure = TournamentUtilityInput['bettingStructure'];
 type BuilderInput = Parameters<typeof buildTournamentActionCandidates>[0];
@@ -310,7 +318,10 @@ function pinDeckEntropy(seed: number) {
     },
   });
 }
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
 const opts: HorseDecideOpts = {
   telemetry: false,
@@ -323,67 +334,42 @@ const opts: HorseDecideOpts = {
   phase13Joint: 'off',
 };
 
+const CONTROLLER_VARIANTS = [
+  ['plo4', 'pot_limit'],
+  ['plo5', 'pot_limit'],
+  ['plo6', 'pot_limit'],
+  ['plo8', 'pot_limit'],
+  ['flh', 'fixed_limit'],
+  ['flo8', 'fixed_limit'],
+] as const;
+type ControllerVariant = (typeof CONTROLLER_VARIANTS)[number][0];
+
+/** The all-in button and no sized wager, with chips beyond the call. */
+function isShortMenu(hero: SeatPlayer, s: HorseGameStateV2): boolean {
+  const legal = s.legalActions ?? [];
+  return (
+    legal.includes('all_in') &&
+    !legal.includes('bet') &&
+    !legal.includes('raise') &&
+    s.minRaiseTo === null &&
+    s.maxRaiseTo === null &&
+    hero.stack > (s.toCall ?? 0) + 0.005
+  );
+}
+
 describe('on real controller menus the claim is the executed all-in', () => {
-  it.each([
-    ['plo4', 'pot_limit'],
-    ['plo8', 'pot_limit'],
-    ['flh', 'fixed_limit'],
-    ['flo8', 'fixed_limit'],
-  ] as const)(
-    '%s tournament: true exactly when the button commits the whole stack, and then priced',
+  it.each(CONTROLLER_VARIANTS)(
+    '%s tournament: true exactly when the button commits the whole stack',
     (variant, structure) => {
       pinDeckEntropy(0x5a170000 ^ variant.length ^ (variant.charCodeAt(2) << 8));
       let shoves = 0,
-        calls = 0,
-        priced = 0,
-        decided = 0;
+        calls = 0;
       const wrong: unknown[] = [];
       forEachJointControllerSpot(variant, 'tournament', 700, 0x5a17 + variant.length, (spot) => {
         const { hero, state: s, controller } = spot;
-        const legal = s.legalActions ?? [];
-        const toCall = s.toCall ?? 0;
-        if (
-          !legal.includes('all_in') ||
-          legal.includes('bet') ||
-          legal.includes('raise') ||
-          s.minRaiseTo !== null ||
-          s.maxRaiseTo !== null ||
-          hero.stack <= toCall + 0.005
-        )
-          return;
+        if (!isShortMenu(hero, s)) return;
         expect(s.bettingStructure).toBe(structure);
         const claim = phase7ShortAllInWagers(s, hero, structure);
-
-        // The Horse decides this spot with the live tournament context.
-        if (claim && decided < 6) {
-          decided++;
-          const live = s.players.filter((p) => !p.is_sitting_out);
-          s.tournament = {
-            ...remainingVariantSpot('flh', 'river', 4, 'tournament').state.tournament!,
-            gameVariant: variant,
-            currentSmallBlind: s.bigBlind / 2,
-            currentBigBlind: s.bigBlind,
-            playersLeft: live.length,
-            spotsPaid: Math.max(1, Math.floor(live.length / 2)),
-            payoutPct: live.length > 3 ? [65, 35] : [100],
-            stacks: live.map((p) => p.stack + p.totalInvested),
-            stackByUser: Object.fromEntries(
-              live.map((p) => [p.user_id, p.stack + p.totalInvested])
-            ),
-          } as typeof s.tournament;
-          seedFastRandom(0x5a18);
-          const decision = HorseLogic.decide(hero, s, 'balanced', {}, opts);
-          if (decision.tournamentUtilityRefusal === 'baseline_not_modeled')
-            wrong.push({ stage: s.stage, refused: decision.action });
-          const rows = decision.tournamentUtility?.candidates;
-          if (rows) {
-            const jam = rows.find((r) => r.id === 'jam');
-            if (!jam || jam.action !== 'all_in' || Math.abs(jam.investment - hero.stack) > 1e-9)
-              wrong.push({ stage: s.stage, jam, stack: hero.stack });
-            else priced++;
-          }
-        }
-
         // Press the button on the real controller: what did it execute?
         // The accepted action record says so: `all_in` raising to the whole
         // stack, or the `call` the clamp turned the button into. (The stack
@@ -405,7 +391,7 @@ describe('on real controller menus the claim is the executed all-in', () => {
             accepted,
             allInTo,
             executed: [record.seat, record.action, record.amount],
-            toCall,
+            toCall: s.toCall,
             capped: s.wagersCapped,
           });
       });
@@ -416,18 +402,25 @@ describe('on real controller menus the claim is the executed all-in', () => {
       // also shows it where the button is a call.
       if (structure === 'pot_limit') expect(calls).toBe(0);
       else expect(calls).toBeGreaterThan(0);
-      expect(priced).toBeGreaterThan(0);
     },
     240_000
   );
 
-  it.each(['flh', 'flo8'] as const)(
-    '%s: uncapped, a seat that may not reopen holds the same menu and the button is a call',
-    (variant) => {
+  it.each([
+    ['flh', 2_000],
+    ['flo8', 2_000],
+    // 22 behind: the whole stack (42) is above the completion ceiling (the
+    // standing 25 plus the 15 that completes the bet) and below 25 plus a
+    // full bet. Only the street's own increment says the button is a call.
+    ['flh', 62],
+    ['flo8', 62],
+  ] as const)(
+    '%s, %d chips: uncapped, a seat that may not reopen holds the same menu and the button is a call',
+    (variant, deepStack) => {
       // The flop bettor faces a short all-in raise of less than half a bet:
-      // 5 more to call, no raise allowed, a deep stack behind. The menu is
-      // fold, call and all_in with no bounds on a street that is not capped,
-      // and the controller executes the button as the call.
+      // 5 more to call, no raise allowed, chips behind. The menu is fold,
+      // call and all_in with no bounds on a street that is not capped, and
+      // the controller executes the button as the call.
       const config: HandConfig = {
         tableId: `short-jam-${variant}`,
         handNumber: 1,
@@ -442,7 +435,7 @@ describe('on real controller menus the claim is the executed all-in', () => {
       for (let shortSeat = 1; shortSeat <= 3; shortSeat++) {
         pinDeckEntropy(0x5a190000 + shortSeat);
         const players: SeatPlayer[] = [1, 2, 3].map((n) => ({
-          ...seat(`reopen-${variant}-${n}`, n, n === shortSeat ? 45 : 2_000, 0),
+          ...seat(`reopen-${variant}-${n}`, n, n === shortSeat ? 45 : deepStack, 0),
           is_horse: true,
         }));
         const controller = new HandController(config, players, 1);
@@ -471,13 +464,14 @@ describe('on real controller menus the claim is the executed all-in', () => {
         expect(spot?.hero.seat).toBe(bettor);
         const { hero, state: s } = spot!;
         expect(s.legalActions).toEqual(['fold', 'call', 'all_in']);
-        expect([s.minRaiseTo, s.maxRaiseTo, s.wagersCapped, s.toCall]).toEqual([
+        expect([s.minRaiseTo, s.maxRaiseTo, s.wagersCapped, s.toCall, s.fixedBetSize]).toEqual([
           null,
           null,
           false,
           5,
+          20,
         ]);
-        expect(hero.stack).toBeGreaterThan(1_000);
+        expect(hero.stack).toBe(deepStack - 40);
         expect(phase7ShortAllInWagers(s, hero, 'fixed_limit')).toBe(false);
         expect(controller.performAction(bettor, 'all_in')).toBe(true);
         const record = controller.getState().actionHistory.at(-1)!;
@@ -487,4 +481,189 @@ describe('on real controller menus the claim is the executed all-in', () => {
       expect(reached).toBeGreaterThan(0);
     }
   );
+});
+
+/**
+ * The fact is set only when the reference decision is the shove. A jam added
+ * to a short menu whose reference is fold or call is a near twin of the call
+ * (identical when nobody can pay the extra chips), the two overlap in the
+ * arbiter's uncertainty gate, and a fold the utility had replaced by a call
+ * went back to a fold (review of b07e5885, 17 pot-limit decisions). So, on
+ * every real short menu the Horse decides:
+ * - reference not all_in: the decision and the whole utility receipt are those
+ *   of a run with the fact forced off, the input carries no fact, and an
+ *   override the utility already made is still made;
+ * - reference all_in: it was refused as baseline_not_modeled with the fact
+ *   forced off and is priced now, with the jam at the whole stack; unless the
+ *   utility itself replaces the shove, the final action is unchanged.
+ */
+type Force = 'head' | 'off' | 'on';
+interface Decided {
+  decision: HorseDecision;
+  /** The first input the tournament utility was asked to price, as built. */
+  built: TournamentUtilityInput | null;
+}
+
+function decideShortMenu(hero: SeatPlayer, s: HorseGameStateV2, force: Force): Decided {
+  const original = tournamentUtility.evaluateTournamentUtilityDetailed;
+  let built: TournamentUtilityInput | null = null;
+  const spy = vi
+    .spyOn(tournamentUtility, 'evaluateTournamentUtilityDetailed')
+    .mockImplementation((input) => {
+      built ??= { ...input };
+      if (force === 'head') return original(input);
+      const { shortAllInWagers: _fact, ...rest } = input;
+      return original(force === 'on' ? { ...rest, shortAllInWagers: true } : rest);
+    });
+  try {
+    seedFastRandom(0x5a18);
+    return { decision: HorseLogic.decide(hero, s, 'balanced', {}, opts), built };
+  } finally {
+    spy.mockRestore();
+  }
+}
+
+/** What a decision is, for comparison: the action and the utility receipt. */
+const outcomeOf = ({ decision }: Decided) => ({
+  action: decision.action,
+  amount: decision.amount ?? null,
+  refusal: decision.tournamentUtilityRefusal ?? null,
+  utility: decision.tournamentUtility ?? null,
+});
+
+const PAYOUTS = [[100], [65, 35]] as const;
+const MEASURED = new Map<ControllerVariant, Record<string, number>>();
+
+describe('only a reference all-in is priced differently', () => {
+  it.each(CONTROLLER_VARIANTS)(
+    '%s tournament: every other short-menu decision is the decision without the fact',
+    (variant, structure) => {
+      pinDeckEntropy(0x5a1a0000 ^ variant.length ^ (variant.charCodeAt(2) << 8));
+      const n = {
+        flagged: 0,
+        decisions: 0,
+        notAllIn: 0,
+        overrides: 0,
+        cancelledIfAlwaysSet: 0,
+        allIn: 0,
+        allInPriced: 0,
+        allInReplacedByUtility: 0,
+        allInFinalActionChanged: 0,
+      };
+      const wrong: unknown[] = [];
+      forEachJointControllerSpot(variant, 'tournament', 900, 0x5a1a + variant.length, (spot) => {
+        const { hero, state: s } = spot;
+        if (!isShortMenu(hero, s) || !phase7ShortAllInWagers(s, hero, structure)) return;
+        if (n.flagged >= 150) return;
+        n.flagged++;
+        const live = s.players.filter((p) => !p.is_sitting_out);
+        for (const payoutPct of PAYOUTS) {
+          if (live.length <= payoutPct.length) continue;
+          // The live builder's tournament context, with this table as the
+          // field and as many places paid as there are payouts.
+          s.tournament = {
+            ...remainingVariantSpot('flh', 'river', 4, 'tournament').state.tournament!,
+            gameVariant: variant,
+            currentSmallBlind: s.bigBlind / 2,
+            currentBigBlind: s.bigBlind,
+            playersLeft: live.length,
+            spotsPaid: payoutPct.length,
+            payoutPct: [...payoutPct],
+            stacks: live.map((p) => p.stack + p.totalInvested),
+            stackByUser: Object.fromEntries(
+              live.map((p) => [p.user_id, p.stack + p.totalInvested])
+            ),
+          } as typeof s.tournament;
+          const head = decideShortMenu(hero, s, 'head');
+          if (!head.built) continue;
+          n.decisions++;
+          const where = { stage: s.stage, payoutPct, toCall: s.toCall, stack: hero.stack };
+          const off = decideShortMenu(hero, s, 'off');
+          expect(head.decision.tournamentUtilityRefusal).not.toBe('invalid_input');
+          if (head.built.baseline.action !== 'all_in') {
+            n.notAllIn++;
+            if (head.built.shortAllInWagers !== undefined)
+              wrong.push({ ...where, factOn: head.built.baseline.action });
+            const [now, before] = [outcomeOf(head), outcomeOf(off)];
+            try {
+              expect(now).toEqual(before);
+            } catch {
+              wrong.push({
+                ...where,
+                reference: head.built.baseline.action,
+                now: [now.action, now.amount, now.refusal],
+                before: [before.action, before.amount, before.refusal],
+              });
+            }
+            // An override the utility made before is still made.
+            if (off.decision.tournamentUtility?.overrodeBaseline) {
+              n.overrides++;
+              if (!head.decision.tournamentUtility?.overrodeBaseline)
+                wrong.push({ ...where, overrideLost: off.decision.action });
+              // What setting the fact on every short menu did to it.
+              const always = decideShortMenu(hero, s, 'on');
+              if (always.decision.action !== off.decision.action) n.cancelledIfAlwaysSet++;
+            }
+            continue;
+          }
+          n.allIn++;
+          if (head.built.shortAllInWagers !== true) wrong.push({ ...where, factOff: 'all_in' });
+          // Unpriced before, by name; priced now, with the jam at the stack.
+          if (off.decision.tournamentUtilityRefusal !== 'baseline_not_modeled')
+            wrong.push({ ...where, before: outcomeOf(off).refusal });
+          const ledger = head.decision.tournamentUtility;
+          const jam = ledger?.candidates.find((row) => row.id === 'jam');
+          if (
+            !ledger ||
+            ledger.baselineAction !== 'all_in' ||
+            jam?.action !== 'all_in' ||
+            Math.abs(jam.investment - hero.stack) > 1e-9
+          ) {
+            wrong.push({ ...where, unpriced: head.decision.tournamentUtilityRefusal, jam });
+            continue;
+          }
+          n.allInPriced++;
+          // The priced shove may now be replaced by the utility: counted, and
+          // disclosed in the changelog. Where the utility keeps it, pricing
+          // alone moves nothing: the final action (which later owners may
+          // still rewrite, as they did before) is the one without the fact.
+          if (ledger.overrodeBaseline) n.allInReplacedByUtility++;
+          else if (
+            head.decision.action !== off.decision.action ||
+            (head.decision.amount ?? null) !== (off.decision.amount ?? null)
+          )
+            wrong.push({ ...where, kept: head.decision.action, was: off.decision.action });
+          if (head.decision.action !== off.decision.action) n.allInFinalActionChanged++;
+        }
+      });
+      MEASURED.set(variant, n);
+      expect(wrong.slice(0, 3)).toEqual([]);
+      expect(wrong.length).toBe(0);
+      expect(n.notAllIn).toBeGreaterThan(20);
+    },
+    600_000
+  );
+
+  it('the sample holds priced reference all-ins and surviving overrides', () => {
+    const total = (key: string, variants = CONTROLLER_VARIANTS.map(([v]) => v)) =>
+      variants.reduce((sum, v) => sum + (MEASURED.get(v)?.[key] ?? 0), 0);
+    expect(MEASURED.size).toBe(CONTROLLER_VARIANTS.length);
+    // Measured 2026-11-14 on this sample (150 short menus a variant, two
+    // payout structures, 1,800 decisions): 1,661 with a reference other than
+    // all_in, all identical to the run without the fact, 7 of them overrides
+    // (6 of which the fact on every short menu would have cancelled); 139
+    // reference all-ins, all refused before and all priced now, none replaced
+    // by the utility and none with a different final action.
+    // Every reference all-in on a short menu was priced (the failures above
+    // name any that was not), in both structures.
+    expect(total('allIn')).toBeGreaterThan(0);
+    expect(total('allInPriced')).toBe(total('allIn'));
+    expect(total('allInPriced', ['plo4', 'plo5', 'plo6', 'plo8'])).toBeGreaterThan(0);
+    expect(total('allInPriced', ['flh', 'flo8'])).toBeGreaterThan(0);
+    // The utility replaced a reference fold or call on some short menus before
+    // this change and still does; setting the fact on every short menu would
+    // have cancelled some of them.
+    expect(total('overrides')).toBeGreaterThan(0);
+    expect(total('cancelledIfAlwaysSet')).toBeGreaterThan(0);
+  });
 });
