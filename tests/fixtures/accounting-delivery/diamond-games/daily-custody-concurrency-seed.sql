@@ -9,5 +9,5 @@ SELECT public.deduct_diamonds('d1000000-0000-4000-8000-000000000005',100,
 SELECT public.fn_diamond_spin_book('d1000000-0000-4000-8000-000000000002',
  'd1000000-0000-4000-8000-000000000003','d1000000-0000-4000-8000-000000000003','club',
  'd1000000-0000-4000-8000-000000000005','entry',100,'custody-race:intake','Isolated Concurrent Entry',
- (clock_timestamp() AT TIME ZONE 'America/Chicago')::date-1);
+ :'race_day'::date);
 COMMIT;
