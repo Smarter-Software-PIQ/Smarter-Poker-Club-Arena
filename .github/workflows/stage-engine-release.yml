@@ -18,7 +18,9 @@ name: Stage Exact Club Arena Engine Release
 # pushes, automatic push-Backup completions and the existing schedule compete
 # for one dated reservation. Its original job waits once until the cutoff,
 # refreshes protected source, then uses the same selection and receiver.
-# A missed date, changed release authority or failed owner never gains a retry.
+# A missed date or failed owner never gains a retry. Changed release authority
+# is not a retry: the date belongs to the first run reserved under the release
+# controls the cutoff binds, and a run reserved under older controls refuses.
 run-name: ${{ github.event_name == 'repository_dispatch' && (github.event.action == 'prepare-daily-engine' && github.event.sender.type == 'User' && 'Original operator daily preparation' || 'Operator request outside election') || github.event_name == 'workflow_run' && (github.event.workflow_run.event == 'push' && github.event.workflow_run.path == '.github/workflows/backup-engine.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.conclusion == 'success' && 'Automatic Backup daily reservation' || 'Backup completion outside election') || 'Daily engine reservation' }}
 on:
   repository_dispatch:
@@ -189,15 +191,45 @@ jobs:
             trap 'rm -f -- "$runs_file"' EXIT
             if gh api --paginate --slurp "repos/$REPO/actions/workflows/stage-engine-release.yml/runs?created=${window_start}..${window_end}&per_page=100" > "$runs_file"; then
               verdict=$(RUNS_FILE="$runs_file" WINDOW_START="$window_start" WINDOW_END="$window_end" CUTOFF_EPOCH="$cutoff_epoch" python3 - <<'PYTHON'
-          import json, os
+          import importlib.util, json, os, re, sys
           from datetime import datetime
           def when(value):
               moment = datetime.fromisoformat(value.replace("Z", "+00:00"))
               if moment.utcoffset() is None:
                   raise ValueError("run time has no timezone")
               return moment
+          # THE DATE FOLLOWS THE RELEASE CONTROLS (2026-11-13). The cutoff step
+          # refuses a run whose own source carries other release controls than
+          # protected main at the cutoff ("never execute new release authority
+          # under an old reservation owner"). The election used to hand the
+          # date to the earliest run regardless, so one release-control merge
+          # during the five-hour reservation (an owner-window booking in
+          # server/release/owner-maintenance-windows.json, 2026-11-11 and
+          # 2026-11-13) stranded the whole day: the owner refused at 03:30 and
+          # every later run, which carried the new controls, had deferred to it.
+          # EngineCutoverMissed fired both mornings. An earlier run reserved
+          # under different release controls than this run's source is not an
+          # owner, so the first run carrying the controls the cutoff binds owns
+          # the date and nothing runs under older authority. A projection that
+          # cannot be read keeps the earlier run as owner, as before.
+          def authority_reader():
+              try:
+                  spec = importlib.util.spec_from_file_location("qualification", "scripts/ci/read-engine-prequalification.py")
+                  module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+                  return module
+              except Exception:
+                  return None
+          reader = authority_reader()
+          def authority(sha):
+              if reader is None or not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{40}", sha):
+                  return None
+              try:
+                  return reader.projection(sha, release_authority=True)
+              except Exception:
+                  return None
           try:
               me = int(os.environ["RUN_ID"])
+              mine = authority(os.environ.get("GITHUB_SHA", ""))
               start, end = when(os.environ["WINDOW_START"]), when(os.environ["WINDOW_END"])
               with open(os.environ["RUNS_FILE"], encoding="utf-8") as source:
                   document = json.load(source)
@@ -223,6 +255,10 @@ jobs:
                   if type(run.get("id")) is not int:
                       raise ValueError("run id unreadable")
                   if run["id"] < me:
+                      theirs = authority(run.get("head_sha")) if mine is not None else None
+                      if theirs is not None and theirs != mine:
+                          print(f"Earlier run {run['id']} reserved under other release controls; it cannot own this date.", file=sys.stderr)
+                          continue
                       earlier.append(run["id"])
               if earlier:
                   print("false", min(earlier))

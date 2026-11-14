@@ -870,13 +870,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'omahaTournamentFirstIn',
-    '2026-11-13 Omaha high tournaments (engine-declared), at the final table (trusted players left no more than the players dealt; unknown stands aside), heads-up or a three-handed table paying one place, 20 BB or less, not All-In-Or-Fold, not a locked satellite seat: the small blind against the big blind alone plays every hand as the pot-limit maximum raise, and the heads-up big blind (or the three-handed winner-take-all big blind closing the action) calls its top 75 percent against one raise at a price of a half or better, replacing only the engine fold; percentile among Omaha hands, narrowed by the tournament risk premium.',
+    '2026-11-13 Omaha high tournaments (engine-declared), at the final table (trusted players left no more than the players dealt; unknown stands aside), heads-up at 20 BB or less or a three-handed table paying one place at 30 BB or less (2026-11-14), not All-In-Or-Fold, not a locked satellite seat: the small blind against the big blind alone plays every hand as the pot-limit maximum raise, and the heads-up big blind (or the three-handed winner-take-all big blind closing the action) calls its top 75 percent against one raise at a price of a half or better, replacing only the engine fold; percentile among Omaha hands, narrowed by the tournament risk premium.',
     'V90'
   ),
   flag(
     'tokenCallPrice',
     '2026-11-12 cash Omaha high committed-call bar: below a price of 0.15 the additive premiums (margin, commitment bar, scare margin, shades) shrink in proportion to the price, and under 0.01 a made hand calls; unchanged at 0.15 or more (PLO6-AUDIT-010, production hand 58750626)',
     'V89'
+  ),
+  flag(
+    'plo6ManiacPriceRefusalToRangePlay',
+    '2026-11-14 PLO6 cash preflop: when the raiser faced is an observed maniac and not all in and the call is under 40% of the stack, a refusal by the price arithmetic is decided by the range play, the play made against every other opponent, instead of an outright fold (PLO6-AUDIT-013, production hand 58751512; evidence docs/horse-default-on.d/plo6ManiacPriceRefusalToRangePlay.md)',
+    'V92'
   ),
   flag(
     'omahaPreflopCallWithActionBehind',
@@ -1083,7 +1088,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'style_boot_inputs_hydrated_seen',
     'HorseExploitHydrator (STYLE READ boot inputs)',
-    'with HORSE_STYLE_BOOT_RELEASE_START_MS set, the boot replay rebuilt the post-release counts of the pre-repair discount from the hand history it read (the size buckets, in-format aggression and Horse reference rebuild on every boot without a receipt); occurrence counter; named *_seen',
+    'unless HORSE_STYLE_BOOT_RELEASE_START_MS is `off`, the boot replay rebuilt the post-release counts of the pre-repair discount from the hand history it read (the size buckets, in-format aggression and Horse reference rebuild on every boot without a receipt); occurrence counter; named *_seen',
     '2026-11-13'
   ),
   receipt(
@@ -1119,7 +1124,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'style_boot_size_from_players_seen',
     'HorseExploitHydrator (STYLE READ boot inputs)',
-    'with HORSE_STYLE_BOOT_RELEASE_START_MS set, at least one boot row had no stored dealt-in count (horse_exploit_dealt_count), so its table size came from the players list instead of the count the live scope uses; once per boot; occurrence counter; named *_seen',
+    'unless HORSE_STYLE_BOOT_RELEASE_START_MS is `off`, at least one boot row had no stored dealt-in count (horse_exploit_dealt_count), so its table size came from the players list instead of the count the live scope uses; once per boot; occurrence counter; named *_seen',
     '2026-11-13'
   ),
   receipt(
@@ -2499,6 +2504,14 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'the raiser the Horse faces reads as a maniac on its own public record, not on the Omaha presumption',
     'OPPX'
   ),
+  // PLO6-AUDIT-013 (2026-11-14). An occurrence counter: it needs an observed
+  // maniac re-raising a PLO6 cash Horse and the arithmetic refusing the price.
+  receipt(
+    'plo6_maniac_price_refusal_range_play_seen',
+    'HorseLogic V38 arithmetic (plo6ManiacPriceRefusalToRangePlay, PLO6-AUDIT-013)',
+    'a PLO6 cash price refused against an observed maniac raiser was handed to the range play instead of being folded',
+    'V92'
+  ),
   receipt(
     'river_bluff_checkraise_evaluated',
     'HorseLogic.riverBluffCheckRaise',
@@ -2990,8 +3003,8 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   receipt(
     'upgrade08_*',
-    'ServerTableEngineRunout; ServerTableEngineTurns; LightningHorse',
-    'a run-it-twice answer was scheduled or an insurance answer was sent, or kill-pot or seven-deuce context reached a decision request; named *_seen (occurrence, not a layer); silent where no table offers the side game',
+    'ServerTableEngineRunout; ServerTableEngineTurns; LightningHorse; HorseLogic',
+    'a run-it-twice answer was scheduled, an insurance offer went to a Horse leader (offered) or its answer was sent, kill-pot or seven-deuce context reached a decision request, or the brain read it in that decision (kill_pot_orbit, kill_pot_unopened, seven_deuce_overlay, seven_deuce_bounty); named *_seen (occurrence, not a layer); silent where no table offers the side game',
     '2026-11-12'
   ),
   receipt(

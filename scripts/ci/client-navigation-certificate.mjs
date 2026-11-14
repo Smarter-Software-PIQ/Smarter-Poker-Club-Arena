@@ -45,7 +45,7 @@ export function assertCashObservationReport(report) {
       ['production-mobile-lobby-chrome.spec.ts', title, 'webkit-footer'],
       ...['chromium', 'webkit-footer'].map((project) => [
         'production-mobile-lobby-chrome.spec.ts',
-        'joining an ordinary waiting list opens observation and preserves the queue',
+        'clustered cash admission explains wallet requirements and preserves observation',
         project,
       ]),
     ]

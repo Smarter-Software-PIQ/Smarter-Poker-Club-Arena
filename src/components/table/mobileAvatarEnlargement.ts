@@ -1,11 +1,11 @@
-import { restingAvatarBox, tableRenderScale } from './avatarCrownBounds';
+import { privateCardLane } from './heroPrivateReservations';
+import { crownActionReservation, restingAvatarBox, tableRenderScale } from './avatarCrownBounds';
 import { buttonRadiusWidthPct } from './tableGeometry';
 import {
   dealerSeatReservations,
   hiddenFanReservations,
   hiddenFanStates,
   mobilePositionLabels,
-  heroPrivateReservations,
 } from './mobileAvatarReservations';
 
 export type MobileAvatarProfile = { scale: number; px: number; py: number };
@@ -438,20 +438,6 @@ export function mobileFrameCardReservation(
   return baseline;
 }
 
-function cssLength(element: HTMLElement, name: string, fallback: number) {
-  const raw = getComputedStyle(element).getPropertyValue(name).trim();
-  if (!raw) return fallback;
-  if (/^[-+\d.]+px$/.test(raw)) return parseFloat(raw);
-  // Let CSS resolve calc/max/clamp/viewport and safe-area units. This invisible
-  // measurement is performed once per asset/layout qualification, not per turn.
-  const probe = document.createElement('span');
-  probe.style.cssText = `position:absolute;visibility:hidden;pointer-events:none;width:0;height:var(${name},${fallback}px)`;
-  element.append(probe);
-  const value = parseFloat(getComputedStyle(probe).height);
-  probe.remove();
-  return Number.isFinite(value) ? value : fallback;
-}
-
 /** Only stable geometry enters qualification. Cash tables have no bounty badge
  * (seatBountyBadge); narrower portrait layouts use different label/fan rules. */
 function stableObstacles(scaler: HTMLElement, page: HTMLElement) {
@@ -506,11 +492,28 @@ function stableObstacles(scaler: HTMLElement, page: HTMLElement) {
     const cap = Boolean(seat.closest('.seat-wrapper--top,.seat-wrapper--cap'));
     const rise = (parseFloat(style.getPropertyValue('--sp-art-rise')) || 12) * ratio;
     const gap = (parseFloat(style.getPropertyValue('--sp-tag-gap')) || 3) * ratio;
-    const tagTop = hero
-      ? rect.top - rise - gap - tagH
-      : cap
-        ? rect.bottom + 2 * ratio
-        : rect.top - 26 * ratio;
+    const crownCaption =
+      window.innerWidth > 480 &&
+      window.innerWidth <= 640 &&
+      window.innerHeight > window.innerWidth &&
+      ['6', '9'].includes(page.dataset.seats || '');
+    const crown = crownCaption
+      ? crownActionReservation({
+          seatLeft: rect.left,
+          seatTop: rect.top,
+          seatWidth: rect.width,
+          rise: parseFloat(style.getPropertyValue('--sp-art-rise')) || 0,
+          tagHeight: tagH / ratio,
+          scale: ratio,
+        })
+      : null;
+    const tagTop = crown
+      ? crown.top + 3 * ratio
+      : hero
+        ? rect.top - rise - gap - tagH
+        : cap
+          ? rect.bottom + 2 * ratio
+          : rect.top - 26 * ratio;
     // Amount labels are centred on their seat and never wider than the seat
     // plus a margin on each side (a nine-seat ring cannot stack two pods that
     // close). A former full-width band here made every seat's tag lane a wall
@@ -523,7 +526,7 @@ function stableObstacles(scaler: HTMLElement, page: HTMLElement) {
     // 136 px lane under a top chair reached its lower neighbour's crown.
     const laneWidth = 108 * ratio;
     boxes.push({
-      box: {
+      box: crown ?? {
         left: rect.left + rect.width / 2 - laneWidth / 2,
         top: tagTop - 3 * ratio,
         width: laneWidth,
@@ -565,23 +568,7 @@ function stableObstacles(scaler: HTMLElement, page: HTMLElement) {
       overlay: true,
     });
     if (hero) {
-      const input = {
-        counts:
-          Number(page.dataset.holeCardCount) === 3 ? [2, 3] : [Number(page.dataset.holeCardCount)],
-        seatLeft: rect.left,
-        seatTop: rect.top,
-        seatWidth: rect.width / ratio,
-        seatHeight: rect.height / ratio,
-        avatarSize: avatar.offsetWidth,
-        plateMinWidth: cssLength(seat, '--seat-plate-min-width', rect.width / ratio),
-        tableWidth: scaler.offsetWidth,
-        viewportWidth: innerWidth,
-        heroClear: cssLength(seat, '--sp-hero-clear', 60),
-        barInset: cssLength(seat, '--sp-bar-inset', 0),
-        boardCardWidth: cssLength(scaler, '--sp-board-card-w', scaler.offsetWidth * 0.088),
-        scale: ratio,
-      };
-      const reserved = heroPrivateReservations(input);
+      const reserved = privateCardLane(scaler, page, seat, ratio);
       // The hero's private cards draw above its portrait: the hero may grow
       // behind its own row and every card stays whole; the row stays hard for
       // every other seat.
@@ -682,8 +669,9 @@ export type MobilePaintState = {
  * the one every table state can take, and a size a table has already shown
  * is never changed by this. Kept on the device, not per tab, so a new visit
  * does not start a different size. */
-// New rail geometry and preallocated portrait scale require a fresh size fit.
-const SHARED_SIZE_STORE = 'sp-mobile-avatar-size-v2';
+// Future captions now reserve their above-crown lane before size qualification.
+// Earlier persisted choices were fitted against the retired below-plate lane.
+const SHARED_SIZE_STORE = 'sp-mobile-avatar-size-v3';
 const sharedSizes: Map<string, number> = (() => {
   try {
     return new Map(Object.entries(JSON.parse(localStorage.getItem(SHARED_SIZE_STORE) || '{}')));
@@ -883,14 +871,22 @@ export function enlargeMobileAvatars(
     // The active spotlight is a transient CSS leaf filter, never part of
     // the locked portrait paint. Capturing it here would leave the previous
     // actor bright after the turn moves to another chair.
+    const transientStatus =
+      e.seat.matches('.seat--away, .seat--sitting_out') ||
+      !!e.seat.closest('.table-page--winner-flash, .seat-wrapper--dim');
     const spotlight =
       e.seat.closest('.seat-wrapper--spot') && !e.seat.classList.contains('seat--folded');
-    const filter = spotlight
-      ? e.image.style.getPropertyValue('--sp-mobile-filter') || 'none'
-      : getComputedStyle(e.image)
-          .filter.replace(/drop-shadow\((?:[^()]|\([^()]*\))*\)/g, '')
-          .trim();
-    e.image.style.setProperty('--sp-mobile-filter', filter || 'none');
+    const filter =
+      spotlight || transientStatus
+        ? e.image.style.getPropertyValue('--sp-mobile-filter') || 'none'
+        : getComputedStyle(e.image)
+            .filter.replace(/drop-shadow\((?:[^()]|\([^()]*\))*\)/g, '')
+            .trim();
+    // A no-op function composes with transient CSS effects; the keyword none does not.
+    e.image.style.setProperty(
+      '--sp-mobile-filter',
+      !filter || filter === 'none' ? 'brightness(1)' : filter
+    );
     const normal = parseFloat(e.avatar.style.getPropertyValue('--sp-opponent-art-scale')) || 1;
     const chrome = getComputedStyle(e.avatar);
     const appearance = {

@@ -21,6 +21,8 @@ export function collectVisibleCashCandidates(cards: Element[], actionPattern: st
         card.querySelector('.compact-lobby__title')?.textContent?.trim() ||
         id;
       const players = Number(card.getAttribute('data-players'));
+      const capacity = card.getAttribute('data-capacity');
+      const capacityHint = capacity === '6' || capacity === '9' ? capacity : undefined;
       const view = [...card.querySelectorAll<HTMLButtonElement>('button')].find(
         (button) =>
           spectatorAction.test(
@@ -35,11 +37,25 @@ export function collectVisibleCashCandidates(cards: Element[], actionPattern: st
         style?.visibility !== 'hidden' &&
         view.getBoundingClientRect().width > 0 &&
         view.getBoundingClientRect().height > 0;
-      return { id, name, players, viewIsVisible };
+      return { id, name, players, capacityHint, viewIsVisible };
     })
     .filter((card) => /^[0-9a-f-]{8,}$/i.test(card.id) && card.players >= 2 && card.viewIsVisible)
     .sort((a, b) => b.players - a.players)
-    .map(({ id, name, players }) => ({ id, name, players }));
+    .map(({ id, name, players, capacityHint }) => ({ id, name, players, capacityHint }));
+}
+
+/** Hints order attempts only. A cluster can show an aggregate capacity, and
+ * only the opened table can establish which layout was actually verified. */
+export function takeNextLayoutCandidate<T extends { candidate: { capacityHint?: string } }>(
+  remaining: T[],
+  verified: ReadonlySet<string>
+): T | undefined {
+  const preferred = remaining.findIndex(
+    ({ candidate }) => candidate.capacityHint && !verified.has(candidate.capacityHint)
+  );
+  const unknown =
+    preferred < 0 ? remaining.findIndex(({ candidate }) => !candidate.capacityHint) : -1;
+  return remaining.splice(preferred >= 0 ? preferred : Math.max(unknown, 0), 1)[0];
 }
 
 /** A classic diagnostic needs an exact, positively identified ordinary-mode catalogue row. */
