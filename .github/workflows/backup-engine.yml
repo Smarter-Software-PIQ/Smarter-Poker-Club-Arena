@@ -39,7 +39,7 @@ run-name: ${{ github.event_name == 'repository_dispatch' && github.event.client_
 # own commit stands. The BOOKING commit (the first main commit carrying
 # main's release controls) is certified exactly: it is neither superseded by
 # later ordinary pushes nor retargeted. A commit whose release controls
-# differ from main's can never be selected while the window is open; if it
+# differ from main's cannot be the owner window's selection while it is open; if it
 # was neither superseded nor retargeted it ends as DEFERRED with nothing
 # planned and no status written. Any unreadable answer is "unknown" and the
 # run behaves exactly as before. Nothing here cancels a running certification.
@@ -593,12 +593,16 @@ jobs:
             INSTALLED: '${{ steps.certify.outputs.installed }}',
             PENDING: '${{ steps.pending.outcome }}',
             POLICY: '${{ steps.policy.outcome }}',
+            REFRESH: '${{ needs.refresh.result }}',
           }
         run: |
           set -euo pipefail
           write=1
           if [ "$RC" = 0 ] && [ "$JOB_STATUS" = success ] && [[ "$INSTALLED" =~ ^[0-9a-f]{64}$ ]]; then state=success; desc="Certified on the Backup Engine; installed migrations $INSTALLED"
-          elif [ -n "$RC" ] || [ "$POLICY" = failure ]; then state=failure; desc="Backup Engine refused: $(python3 -c 'import json;print(",".join(json.load(open("certificate.json")).get("reasons",[]))[:120])' 2>/dev/null || echo see run)"
+          # A refresh that did not succeed is a refusal even when a later
+          # provider answer stopped this job before the certify step turned it
+          # into rc=1: its copy cannot back an earlier success (review of #10805).
+          elif [ -n "$RC" ] || [ "$POLICY" = failure ] || [ "$REFRESH" != success ]; then state=failure; desc="Backup Engine refused: $(python3 -c 'import json;print(",".join(json.load(open("certificate.json")).get("reasons",[]))[:120])' 2>/dev/null || echo see run)"
           else
             # NO VERDICT IS NOT A REFUSAL (2026-11-14, run 43565758486). The job
             # failed before the Backup host judged anything (a provider 5xx, the
