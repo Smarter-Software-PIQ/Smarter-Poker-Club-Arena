@@ -11,12 +11,13 @@
  *   - deleting every line marked `-- @bust-money-span` restores the exact body
  *     of the migration it replaces, byte for byte (the bodies production runs:
  *     prosrc md5 4ec5bce3... and dde145f7...);
- *   - a span's PERFORM sets FOUND to true, so no statement after a span may
- *     read FOUND or ROW_COUNT before a statement that resets it;
- *   - the helper swallows every error in its own subtransaction, writes only
- *     inside its 48-hour window and row cap, and its log table has no foreign
- *     key to anything (CLAUDE.md DDL rule 7);
- *   - no span appears inside the lane's own lock block.
+ *   - every span is a RAISE LOG: no write, no lock, no subtransaction (review
+ *     of #10852: a BEGIN/EXCEPTION write per span took a subxid each, 80 per
+ *     bounty sweep, past the 64-entry subxid cache), and it does not touch
+ *     FOUND or ROW_COUNT;
+ *   - no span appears inside the lane's own lock block;
+ *   - the held removal migration restores the exact production bodies and
+ *     grants, and is not in supabase/migrations until the measurement is in.
  */
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -40,12 +41,12 @@ const SOURCES = {
   fn_claim_tournament_bounty_elimination: {
     file: '20261022063749_a_bounty_bust_waits_for_its_tournament_lane.sql',
     md5: '4ec5bce3b65e7b1f18af615a5bdb1a96',
-    spans: 6,
+    spans: 7,
   },
   fn_collect_bounty_obligation: {
     file: '20260908042000_bounty_elimination_outbox_is_atomic_and_recoverable.sql',
     md5: 'dde145f7b818e905ecf8f6354e55f055',
-    spans: 4,
+    spans: 5,
   },
 } as const;
 
@@ -66,27 +67,14 @@ describe('a bust money span changes nothing', () => {
       expect(instrumented.split(MARK).length - 1).toBe(source.spans);
     });
 
-    it(`${fn}: no span leaves FOUND or ROW_COUNT stale for a later statement`, () => {
-      const lines = instrumented.split('\n');
-      const resets = /^\s*(SELECT\b.*\bINTO\b|PERFORM\b|UPDATE\b|INSERT\b|DELETE\b|FOR\b|GET DIAGNOSTICS\b)/i;
-      const reads = /\bFOUND\b|ROW_COUNT/;
-      lines.forEach((line, i) => {
-        if (!line.includes(MARK) || !line.includes('PERFORM')) return;
-        // Walk forward statement by statement (joined lines up to ';').
-        let statement = '';
-        for (let j = i + 1; j < lines.length; j++) {
-          if (lines[j].includes(MARK)) continue;
-          statement += ` ${lines[j]}`;
-          if (!/;\s*(--.*)?$/.test(lines[j]) && !/\bTHEN\s*$|\bLOOP\s*$|\bBEGIN\s*$/.test(lines[j]))
-            continue;
-          const first = statement.trim();
-          statement = '';
-          if (reads.test(first) && !resets.test(first)) {
-            throw new Error(`span at line ${i + 1} is followed by a FOUND/ROW_COUNT read: ${first}`);
-          }
-          if (resets.test(first) || /\bSELECT\b[\s\S]*\bINTO\b/i.test(first)) break;
-        }
-      });
+    it(`${fn}: every span is a RAISE LOG and nothing else`, () => {
+      const spans = instrumented.split('\n').filter((line) => line.includes(MARK));
+      expect(spans[0]).toMatch(/^  v_span_t0 timestamptz := clock_timestamp\(\); -- @bust-money-span$/);
+      for (const line of spans.slice(1)) {
+        expect(line).toMatch(
+          /^  RAISE LOG 'ca_bust_money_span fn=(door|payer) mark=[a-z_]+ tournament=% t0=% ms=%', [A-Za-z_.:]+, v_span_t0, round\(\(extract\(epoch FROM clock_timestamp\(\) - v_span_t0\) \* 1000\)::numeric, 3\); -- @bust-money-span$/
+        );
+      }
     });
 
     it(`${fn}: no span sits inside a lock-acquiring block`, () => {
@@ -103,19 +91,30 @@ describe('a bust money span changes nothing', () => {
     expect(MIGRATION).not.toContain('[1-5][0-9a-f]{3}-[89ab]');
   });
 
-  it('the helper only observes: errors swallowed, bounded, no foreign key, no public grant', () => {
-    const helper = MIGRATION.slice(
-      MIGRATION.indexOf('CREATE OR REPLACE FUNCTION smarter_private.fn_ca_bust_money_span('),
-      MIGRATION.indexOf('$span$;') + 7
-    );
-    expect(helper).toMatch(/EXCEPTION WHEN OTHERS THEN\s+NULL;/);
-    expect(helper).toContain('c.enabled_until > clock_timestamp()');
-    expect(helper).toContain('< c.row_cap');
-    expect(MIGRATION).toContain("now() + interval '48 hours'");
+  it('nothing is written, locked or caught: no table, no helper, no subtransaction', () => {
+    const marked = MIGRATION.split('\n').filter((line) => line.includes(MARK) && !line.startsWith('--'));
+    for (const line of marked) {
+      expect(line).not.toMatch(/\b(INSERT|UPDATE|DELETE|PERFORM|EXCEPTION|LOCK|SELECT)\b/);
+    }
+    expect(MIGRATION).not.toMatch(/CREATE TABLE|smarter_private\.fn_ca_bust_money_span/);
     expect(MIGRATION).not.toMatch(/\bREFERENCES\b/);
-    expect(MIGRATION).toMatch(/REVOKE ALL ON FUNCTION smarter_private\.fn_ca_bust_money_span/);
     expect(MIGRATION).not.toMatch(/@install-window/);
     expect(MIGRATION.match(/^BEGIN;$/gm)).toHaveLength(1);
     expect(MIGRATION.match(/^COMMIT;$/gm)).toHaveLength(1);
+  });
+
+  it('the held removal restores the exact production bodies and grants, and is not installable yet', () => {
+    const held = resolve(__dirname, '../docs/audits/2026-11-14-bust-money-spans/pending-adoption');
+    const name = '20261114200138_restore_bust_money_path_bodies.sql';
+    const removal = readFileSync(resolve(held, name), 'utf8');
+    expect(() => read(name)).toThrow();
+    for (const [fn, source] of Object.entries(SOURCES)) {
+      const restored = bodyOf(removal, fn);
+      expect(restored).not.toContain(MARK);
+      expect(createHash('md5').update(restored).digest('hex')).toBe(source.md5);
+      expect(restored).toBe(bodyOf(read(source.file), fn));
+    }
+    const grantsOf = (sql: string) => sql.split('\n').filter((l) => /^(REVOKE|GRANT) /.test(l));
+    expect(grantsOf(removal)).toEqual(grantsOf(MIGRATION));
   });
 });

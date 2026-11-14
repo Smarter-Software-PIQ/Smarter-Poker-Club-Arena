@@ -12,97 +12,54 @@
 -- gateway or the pool. pg_stat_statements is top-level only and track_functions
 -- is off, so nothing shows WHERE inside these transactions the time goes:
 -- waiting for the tournament's settlement lane (every table's hand step holds it
--- shared; the door and payer take it exclusive), the tournaments row lock, the
--- door's checks, the knockout core and its ~30 tournament_players row triggers,
--- or the payer's core. Postgres logged 300-460 lane waits a minute over 1 s
--- before rebuys closed at 07:30 UTC and almost none after, but waits under the
--- 1 s log threshold are invisible, and the 08:00 UTC hour (few, fast hand
--- steps) was the slowest of all, so the cause is not proven.
+-- shared; the door takes it exclusive), the tournaments row lock, the door's
+-- checks, the knockout core and its tournament_players row triggers, or the
+-- payer's core. Postgres logged 300-460 lane waits a minute over 1 s before
+-- rebuys closed at 07:30 UTC and almost none after; waits under the 1 s log
+-- threshold are invisible, and the 08:00 UTC hour was the slowest of all, so
+-- the cause is not proven.
 --
 -- What this changes: nothing a caller can observe. The knockout door
 -- fn_claim_tournament_bounty_elimination and the payer's entry point
 -- fn_collect_bounty_obligation are re-created from the exact bodies now on main
 -- and in production (prosrc md5 4ec5bce3b65e7b1f18af615a5bdb1a96 and
 -- dde145f7b818e905ecf8f6354e55f055), with lines marked `-- @bust-money-span`
--- inserted and nothing else: one DECLARE of a start timestamp and calls to
--- smarter_private.fn_ca_bust_money_span(fn, mark, tournament, start) at
---   door:  lane, tournament_row, checks, core, end (success path)
---   payer: pre_core, core (fn_collect_bounty returned), end
+-- inserted and nothing else: one DECLARE of the entry timestamp and
+--   RAISE LOG 'ca_bust_money_span fn=<fn> mark=<mark> tournament=% t0=% ms=%'
+-- at
+--   door:  entry, lane, tournament_row, checks, core, end (success path)
+--   payer: entry, pre_core, core (fn_collect_bounty returned), end
+-- RAISE LOG writes no row, takes no lock and opens no subtransaction (review of
+-- #10852: a BEGIN/EXCEPTION write per span would consume a subxid each, 80 per
+-- fn_sweep_pending_tournament_bounties call at p_limit 20, past the 64-entry
+-- subxid cache). It does not change FOUND or ROW_COUNT. log_min_messages is
+-- 'warning' and LOG ranks above it, so the line reaches the Postgres log;
+-- client_min_messages is 'notice' and LOG ranks below it for clients, so no
+-- caller sees it. A LOG line survives its transaction's rollback, so an
+-- aborted call (the F06 lane timeout, a 55000 race) shows an entry with no end.
+-- Deleting the marked lines restores the original bodies byte for byte
+-- (tests/a-bust-money-span-changes-nothing.law.test.ts).
 -- fn_collect_bounty itself is NOT re-created: its body carries a frozen uuid
 -- version check (tests/a-player-id-is-a-uuid-not-a-uuid-version.law.test.ts
--- forbids copying it forward), so the payer is timed around its entry point
--- and its internal lane wait is not split out.
--- Each records milliseconds since function entry. Every call sits where it
--- cannot change FOUND or ROW_COUNT that a following statement reads, takes no
--- lock on any hot relation and runs after the lock it times, so the lock order
--- is unchanged. The helper swallows every error inside its own subtransaction,
--- so no error path changes. Deleting the marked lines restores the original
--- bodies byte for byte (tests/a-bust-money-span-changes-nothing.law.test.ts).
+-- forbids copying it forward), so its internal lane wait is not split out.
 --
--- Bounded: it writes only while ca_bust_money_span_control.enabled_until is in
--- the future (48 hours from installation) and below row_cap rows. After that
--- each call is one indexed read and returns. The log table has no foreign key
--- to any hot table (CLAUDE.md DDL rule 7) and nothing reads it but the
--- incident analysis. No money is written; neither re-created function writes
--- a balance column, so ca_money_rpc_registry needs no row.
+-- Read: query_logs on postgres_logs, event_message LIKE 'ca_bust_money_span%';
+-- join the marks of one call on (process id, t0).
+--
+-- Removal: docs/audits/2026-11-14-bust-money-spans/pending-adoption/ holds the
+-- reserved follow-up migration restoring the exact production bodies and
+-- grants. It is moved into supabase/migrations and merged after the
+-- measurement; nothing installs it before then.
 --
 -- Grants: both functions keep exactly the ACL production holds (postgres and
--- service_role only); it is restated after each definition.
+-- service_role only); it is restated after each definition. Neither writes a
+-- balance column, so ca_money_rpc_registry needs no row.
 --
--- Install: ordinary (no hot-table lock): CREATE TABLE in smarter_private and
--- CREATE OR REPLACE FUNCTION, in one transaction with a short lock_timeout.
+-- Install: ordinary (no hot-table lock): two CREATE OR REPLACE FUNCTION in one
+-- transaction with a short lock_timeout.
 
 BEGIN;
 SET LOCAL lock_timeout = '2s';
-
-CREATE TABLE IF NOT EXISTS smarter_private.ca_bust_money_span_control (
-  singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
-  enabled_until timestamptz NOT NULL,
-  row_cap integer NOT NULL CHECK (row_cap > 0)
-);
-INSERT INTO smarter_private.ca_bust_money_span_control (singleton, enabled_until, row_cap)
-VALUES (true, now() + interval '48 hours', 500000)
-ON CONFLICT (singleton) DO NOTHING;
-
--- Append-only span log. No foreign keys (CLAUDE.md DDL rule 7).
-CREATE TABLE IF NOT EXISTS smarter_private.ca_bust_money_spans (
-  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  recorded_at timestamptz NOT NULL DEFAULT clock_timestamp(),
-  txid bigint,
-  fn text NOT NULL,
-  mark text NOT NULL,
-  tournament_id uuid,
-  ms numeric NOT NULL
-);
-CREATE INDEX IF NOT EXISTS ca_bust_money_spans_tournament_at
-  ON smarter_private.ca_bust_money_spans (tournament_id, recorded_at);
-REVOKE ALL ON smarter_private.ca_bust_money_span_control FROM PUBLIC;
-REVOKE ALL ON smarter_private.ca_bust_money_spans FROM PUBLIC;
-
-CREATE OR REPLACE FUNCTION smarter_private.fn_ca_bust_money_span(
-  p_fn text, p_mark text, p_tournament_id uuid, p_since timestamptz)
- RETURNS void
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'pg_catalog', 'smarter_private'
-AS $span$
-BEGIN
-  BEGIN
-    IF EXISTS (
-         SELECT 1 FROM smarter_private.ca_bust_money_span_control c
-          WHERE c.enabled_until > clock_timestamp()
-            AND COALESCE((SELECT max(s.id) FROM smarter_private.ca_bust_money_spans s), 0)
-                < c.row_cap) THEN
-      INSERT INTO smarter_private.ca_bust_money_spans (txid, fn, mark, tournament_id, ms)
-      VALUES (txid_current_if_assigned(), p_fn, p_mark, p_tournament_id,
-              round((extract(epoch FROM clock_timestamp() - p_since) * 1000)::numeric, 3));
-    END IF;
-  EXCEPTION WHEN OTHERS THEN
-    NULL; -- observation only: never changes the caller's result or error path
-  END;
-END;
-$span$;
-REVOKE ALL ON FUNCTION smarter_private.fn_ca_bust_money_span(text, text, uuid, timestamptz) FROM PUBLIC;
 
 CREATE OR REPLACE FUNCTION public.fn_claim_tournament_bounty_elimination(p_tournament_id uuid, p_eliminated_user_id uuid, p_position integer, p_prize numeric, p_table_id uuid, p_hand_id uuid, p_hand_number bigint, p_seat_joined_at timestamp with time zone, p_knocker_user_id uuid, p_claimants jsonb, p_bubble_refund numeric DEFAULT 0, p_allow_existing_eliminated boolean DEFAULT false)
  RETURNS jsonb
@@ -126,6 +83,7 @@ DECLARE
   v_rebought_generations uuid[] := ARRAY[]::uuid[];
   v_span_t0 timestamptz := clock_timestamp(); -- @bust-money-span
 BEGIN
+  RAISE LOG 'ca_bust_money_span fn=door mark=entry tournament=% t0=% ms=%', p_tournament_id, v_span_t0, round((extract(epoch FROM clock_timestamp() - v_span_t0) * 1000)::numeric, 3); -- @bust-money-span
   -- Exact replay is permitted after the player, seat and tournament have moved
   -- on. The immutable obligation itself is the receipt, and the private core
   -- verifies every caller-supplied field against it.
@@ -157,14 +115,14 @@ BEGIN
   EXCEPTION WHEN lock_not_available THEN
     RAISE EXCEPTION 'F06_RETRY_CANONICAL_LANE' USING ERRCODE = '55P03';
   END;
-  PERFORM smarter_private.fn_ca_bust_money_span('door','lane',p_tournament_id,v_span_t0); -- @bust-money-span
+  RAISE LOG 'ca_bust_money_span fn=door mark=lane tournament=% t0=% ms=%', p_tournament_id, v_span_t0, round((extract(epoch FROM clock_timestamp() - v_span_t0) * 1000)::numeric, 3); -- @bust-money-span
 
   SELECT * INTO v_t FROM public.tournaments t
    WHERE t.id=p_tournament_id FOR UPDATE;
   IF NOT FOUND THEN
     RETURN jsonb_build_object('ok',false,'reason','tournament_not_found');
   END IF;
-  PERFORM smarter_private.fn_ca_bust_money_span('door','tournament_row',p_tournament_id,v_span_t0); -- @bust-money-span
+  RAISE LOG 'ca_bust_money_span fn=door mark=tournament_row tournament=% t0=% ms=%', p_tournament_id, v_span_t0, round((extract(epoch FROM clock_timestamp() - v_span_t0) * 1000)::numeric, 3); -- @bust-money-span
   IF EXISTS (
     SELECT 1 FROM public.tournament_bounty_obligations o
      WHERE o.tournament_id=p_tournament_id
@@ -420,12 +378,12 @@ BEGIN
     END IF;
   END IF;
 
-  PERFORM smarter_private.fn_ca_bust_money_span('door','checks',p_tournament_id,v_span_t0); -- @bust-money-span
+  RAISE LOG 'ca_bust_money_span fn=door mark=checks tournament=% t0=% ms=%', p_tournament_id, v_span_t0, round((extract(epoch FROM clock_timestamp() - v_span_t0) * 1000)::numeric, 3); -- @bust-money-span
   v_result:=public.fn_claim_bounty_legacy_candidate_20260907(
     p_tournament_id,p_eliminated_user_id,p_position,p_prize,p_table_id,
     p_hand_id,p_hand_number,p_seat_joined_at,p_knocker_user_id,p_claimants,
     p_bubble_refund,p_allow_existing_eliminated);
-  PERFORM smarter_private.fn_ca_bust_money_span('door','core',p_tournament_id,v_span_t0); -- @bust-money-span
+  RAISE LOG 'ca_bust_money_span fn=door mark=core tournament=% t0=% ms=%', p_tournament_id, v_span_t0, round((extract(epoch FROM clock_timestamp() - v_span_t0) * 1000)::numeric, 3); -- @bust-money-span
   IF coalesce((v_result->>'ok')::boolean,false)
      AND coalesce((v_result->>'claimed')::boolean,false)
   THEN
@@ -459,7 +417,7 @@ BEGIN
     v_result:=v_result||jsonb_build_object(
       'rebought_generations',to_jsonb(v_rebought_generations));
   END IF;
-  PERFORM smarter_private.fn_ca_bust_money_span('door','end',p_tournament_id,v_span_t0); -- @bust-money-span
+  RAISE LOG 'ca_bust_money_span fn=door mark=end tournament=% t0=% ms=%', p_tournament_id, v_span_t0, round((extract(epoch FROM clock_timestamp() - v_span_t0) * 1000)::numeric, 3); -- @bust-money-span
   RETURN v_result;
 END;
 $function$;
@@ -478,17 +436,18 @@ DECLARE
   v_result jsonb;
   v_span_t0 timestamptz := clock_timestamp(); -- @bust-money-span
 BEGIN
+  RAISE LOG 'ca_bust_money_span fn=payer mark=entry tournament=% t0=% ms=%', NULL::uuid, v_span_t0, round((extract(epoch FROM clock_timestamp() - v_span_t0) * 1000)::numeric, 3); -- @bust-money-span
   SELECT * INTO o FROM public.tournament_bounty_obligations WHERE id=p_obligation_id;
   IF NOT FOUND OR o.mode='mystery_chest' THEN
     RETURN jsonb_build_object('ok',false,'reason','bounty_obligation_not_found');
   END IF;
   PERFORM set_config('app.bounty_obligation_id',o.id::text,true);
-  PERFORM smarter_private.fn_ca_bust_money_span('payer','pre_core',o.tournament_id,v_span_t0); -- @bust-money-span
+  RAISE LOG 'ca_bust_money_span fn=payer mark=pre_core tournament=% t0=% ms=%', o.tournament_id, v_span_t0, round((extract(epoch FROM clock_timestamp() - v_span_t0) * 1000)::numeric, 3); -- @bust-money-span
   v_result := public.fn_collect_bounty(
     o.tournament_id,o.eliminated_user_id,o.knocker_user_id,o.claimants);
-  PERFORM smarter_private.fn_ca_bust_money_span('payer','core',o.tournament_id,v_span_t0); -- @bust-money-span
+  RAISE LOG 'ca_bust_money_span fn=payer mark=core tournament=% t0=% ms=%', o.tournament_id, v_span_t0, round((extract(epoch FROM clock_timestamp() - v_span_t0) * 1000)::numeric, 3); -- @bust-money-span
   PERFORM set_config('app.bounty_obligation_id',COALESCE(v_prior_context,''),true);
-  PERFORM smarter_private.fn_ca_bust_money_span('payer','end',o.tournament_id,v_span_t0); -- @bust-money-span
+  RAISE LOG 'ca_bust_money_span fn=payer mark=end tournament=% t0=% ms=%', o.tournament_id, v_span_t0, round((extract(epoch FROM clock_timestamp() - v_span_t0) * 1000)::numeric, 3); -- @bust-money-span
   RETURN v_result;
 END;
 $function$;
