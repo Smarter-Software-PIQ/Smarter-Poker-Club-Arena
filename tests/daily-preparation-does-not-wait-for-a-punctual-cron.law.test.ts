@@ -470,6 +470,7 @@ describe('the original reserved job waits once and expires without a release', (
         sleep() { printf '%s' "$1" > "$WAIT_LOG"; }
         git() { if [ "$1" = rev-list ]; then printf '%040d' 1; fi; }
         python3() { cat > /dev/null; return "$CHANGED"; }
+        gh() { return 1; }
         ${cutoffStep.run}
       `,
         ],
@@ -532,7 +533,11 @@ describe('the original reserved job waits once and expires without a release', (
     ] as [number, number, boolean?][]) {
       const result = bind(args[0], args[1], args[2]);
       expect(result.status).not.toBe(0);
-      expect(result.output).toBe('');
+      // A refusal binds no source. A changed-authority refusal only names
+      // whether a later run owns the date (here the run list is unreadable),
+      // so the window installer is launched once (2026-11-14).
+      expect(result.output).not.toContain('sha=');
+      expect(result.output).toBe(args[2] ? 'successor=unknown\n' : '');
     }
   });
 });

@@ -287,20 +287,10 @@
   --sp-hud-line: calc(var(--sp-action-reserve, 96px) + 2px);
 }
 
-/* ── THE SEAT CHANGE BUTTON IS ON THE LEFT (Dan 2026-10-14) ──────────────────
-   "THE 'SEAT CHANGE' BUTTON SHOULD NEVER BE IN THE UPPER RIGHT HAND CORNER, IT
-   SHOULD BE ON THE LEFT SIDE." The cash must-move box (CashClusterHUD) still
-   mounts inside the upper-right slot, but its dock is pinned to the LEFT edge
-   at the same height as that corner, so it mirrors where it used to sit and
-   stays clear of the tab row above it and the seats below it. Pinned by
-   tests/unit/theSeatChangeButtonIsOnTheLeft.test.ts. */
+/* Feeder controls share Chat's painted tile size. Positioning for the
+   opposing pair lives with the collapsed Chat dock in TableChat.css. */
 .hud-seat-change-dock {
-  /* Match the same Lobby footprint as Chat and the lower HUD. */
-  --sp-hud-tile-size: var(--sp-game-tool-size, 40px);
-  position: fixed;
-  top: calc(env(safe-area-inset-top, 0px) + var(--mtt-ticker-h, 0px) + 54px);
-  left: 6px;
-  right: auto;
+  --sp-hud-tile-size: var(--sp-tabbar-control, 52px);
   z-index: 101;
 }
 
@@ -313,10 +303,6 @@
      tab-bar control itself never shrinks below 480px, so neither do these. */
   .table-hud {
     --sp-hud-tile-size: var(--sp-tabbar-control, 52px);
-    --sp-hud-tile-radius: 8px;
-  }
-  .hud-seat-change-dock {
-    --sp-hud-tile-size: var(--sp-game-tool-size, 34px);
     --sp-hud-tile-radius: 8px;
   }
 }

@@ -1,0 +1,3 @@
+# tests/mystery-bounty-prizes-are-shown-at-entry-close.law.test.ts
+
+Dan 2026-11-13: once the prize pool is finalized (after the add-on period) every mystery bounty prize is shown, not at the money. Pins the whole chain: the engine seals the real ladder from the finalized pool while the activation threshold is not yet reached, `fn_mystery_bounty_seal` refuses before entry closes and after activation and never writes the paying inventory, `fn_mystery_bounty_inventory` lists the sealed ladder while the stage is pending, the seed opens the sealed ladder through `fn_mystery_sealed_ladder_for_open` so a smaller field (a double bust on the bubble) keeps every shown prize and spreads the unpaid chests over them, and both the lobby and the table hear `mystery_bounty_sealed`.

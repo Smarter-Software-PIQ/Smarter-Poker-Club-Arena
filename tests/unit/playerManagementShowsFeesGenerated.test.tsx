@@ -77,7 +77,7 @@ describe('Player Management shows fees generated', () => {
           secondaryWinLossLabel: 'Today',
         },
       });
-      const today = screen.getByLabelText('Today W/L +433');
+      const today = screen.getByLabelText('Today W/L +433.00');
       expect(today).toBeVisible();
       expect(today.className).toContain('member-winloss--up');
       // The chosen window's figure is still there and still red.

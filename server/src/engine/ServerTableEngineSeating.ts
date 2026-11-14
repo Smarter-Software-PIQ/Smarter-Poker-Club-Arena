@@ -2229,7 +2229,10 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
           ]);
         }
         if (!opts.forced) {
-          const lock = this.chipContinuity.leaveLock(userId, player.stack);
+          const lock = this.chipContinuity.leaveLock(
+            userId,
+            this.handCountStack(userId, player.stack)
+          );
           if (lock.locked) {
             if (this.leaveHeldByClock.has(userId))
               return this.holdLockedLeave(userId, lock.handsRemaining);
@@ -2502,7 +2505,8 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
             ]);
             const hands = Math.max(
               1,
-              this.chipContinuity.leaveLock(userId, player.stack).handsRemaining
+              this.chipContinuity.leaveLock(userId, this.handCountStack(userId, player.stack))
+                .handsRemaining
             );
             console.log(
               `[ServerTableEngine:${this.tableId}] leave refused at the door for ${userId} - ${hands} hands owed in profit`

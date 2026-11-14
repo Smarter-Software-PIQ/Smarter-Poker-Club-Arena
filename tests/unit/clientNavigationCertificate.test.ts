@@ -350,7 +350,7 @@ describe('closed cash observation certificate', () => {
           ...['chromium', 'webkit-footer'].map((project) =>
             spec(
               'production-mobile-lobby-chrome.spec.ts',
-              'joining an ordinary waiting list opens observation and preserves the queue',
+              'clustered cash admission explains wallet requirements and preserves observation',
               project
             )
           ),
@@ -409,11 +409,23 @@ describe('closed cash observation certificate', () => {
     }
     expect(() => assertCashObservationReport(undefined)).toThrow();
   });
+  it('rejects the retired standalone production acceptance', () => {
+    const r = report();
+    for (const spec of r.suites[0].specs) {
+      if (
+        spec.title ===
+        'clustered cash admission explains wallet requirements and preserves observation'
+      ) {
+        spec.title = 'joining an ordinary waiting list opens observation and preserves the queue';
+      }
+    }
+    expect(() => assertCashObservationReport(r)).toThrow();
+  });
   it('keeps the real journey, normal clicks, provenance and owned-account cleanup', () => {
     const step = client.steps.find((s: any) => s.id === 'cash_observation');
     expect(step.run).toContain(title);
     expect(step.run).toContain(
-      'joining an ordinary waiting list opens observation and preserves the queue'
+      'clustered cash admission explains wallet requirements and preserves observation'
     );
     expect(step.run).toContain('--project=chromium --project=webkit-footer');
     expect(step.run).toContain('--workers=1 --retries=0');

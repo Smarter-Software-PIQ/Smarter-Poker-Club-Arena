@@ -163,6 +163,38 @@ export function mysteryBountyThresholdReached(
 }
 
 /**
+ * How many players are left when the mystery phase opens: the number the
+ * threshold test above compares the field with. `0` when the configured mode
+ * cannot be resolved (no paid places, no entries, a zero value).
+ *
+ * Dan, 2026-11-13: "ONCE THE PRIZE POOL IS 'FINALIZED' (AFTER THE ADD ON
+ * PERIOD) ALL MYSTERY BOUNTY PRIZES SHOULD BE SHOWN... DO NOT WAIT UNTIL
+ * PLAYERS ARE ITM TO REVEAL MYSTERY BOUNTY PRIZES." The ladder is cut for this
+ * many players (minus one) as soon as entry closes.
+ */
+export function mysteryBountyThresholdPlayers(
+  mode: MysteryBountyActivationMode,
+  modeValue: number | null | undefined,
+  totalEntries: number,
+  paidPlaces: number
+): number {
+  switch (mode) {
+    case 'player_count': {
+      const target = Math.floor(Number(modeValue) || 0);
+      return target > 0 ? target : 0;
+    }
+    case 'percent_field': {
+      const pct = Number(modeValue) || 0;
+      if (pct <= 0 || totalEntries <= 0) return 0;
+      return Math.ceil((totalEntries * pct) / 100);
+    }
+    case 'at_the_money':
+    default:
+      return paidPlaces > 0 ? paidPlaces : 0;
+  }
+}
+
+/**
  * The field a 'percent_field' threshold is measured against: every entry the
  * event took. A player holds one `tournament_players` row for the whole event,
  * and each rebuy or re-entry increments that row's `rebuys`, so the entries are

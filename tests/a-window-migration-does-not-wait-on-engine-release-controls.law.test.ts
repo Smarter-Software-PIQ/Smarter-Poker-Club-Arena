@@ -16,6 +16,15 @@
  * when the cutoff was actually reached inside the preparation window. The
  * engine path (cutoff step, protected_sha, selection, signal) is unchanged and
  * never reads window_sha.
+ *
+ * Owner instruction 2026-11-14: a refused reservation must not launch a
+ * competing installer. On 2026-11-14 three runs claimed the date because the
+ * controls changed; all three queued the installer and the concurrency group
+ * cancelled two with zero steps. So when the refusing run can SEE the later
+ * run that now owns the date, it names no window source and that owner
+ * installs; when no successor is visible, or the run list cannot be read, the
+ * fallback above still names protected main, because a refusal must never
+ * again cost the migrations their break.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync, mkdtempSync, rmSync, existsSync } from 'node:fs';
@@ -40,13 +49,28 @@ const cutoff = 1_800_000_000;
 // Runs the cutoff step, then the window_source step with the cutoff step's
 // sha output, exactly as GitHub would hand it over. Clock, sleep, git and the
 // release-control comparison are stubbed.
-function run(opts: { before: number; after: number; changed: boolean }) {
+// `successor` is what the GitHub run list answers for later active runs:
+// 'visible' (one later in_progress run), 'none' (only this run), or
+// 'unreadable' (gh fails).
+function run(opts: {
+  before: number;
+  after: number;
+  changed: boolean;
+  successor?: 'visible' | 'none' | 'unreadable';
+}) {
   const dir = mkdtempSync(join(tmpdir(), 'window-source-'));
   const stubs = `
     date() { if [ -f "$MARK" ]; then printf '%s' "$AFTER"; else touch "$MARK"; printf '%s' "$BEFORE"; fi; }
     sleep() { :; }
     git() { if [ "$1" = rev-list ]; then printf '%s' "${CONTROL}"; fi; }
     python3() { cat > /dev/null; return "$CHANGED"; }
+    gh() {
+      case "$SUCCESSOR" in
+        unreadable) return 1 ;;
+        none) printf '%s' '{"workflow_runs":[{"id":4000,"status":"in_progress"},{"id":3999,"status":"completed"}]}' ;;
+        *) printf '%s' '{"workflow_runs":[{"id":4000,"status":"in_progress"},{"id":4007,"status":"completed"},{"id":4005,"status":"in_progress"},{"id":4003,"status":"queued"}]}' ;;
+      esac
+    }
   `;
   const env = {
     ...process.env,
@@ -56,6 +80,9 @@ function run(opts: { before: number; after: number; changed: boolean }) {
     AFTER: String(opts.after),
     MARK: join(dir, 'clock'),
     CHANGED: opts.changed ? '1' : '0',
+    SUCCESSOR: opts.successor ?? 'none',
+    REPO: 'o/r',
+    THIS_RUN_ID: '4000',
     GITHUB_SHA: 'a'.repeat(40),
   };
   try {
@@ -67,14 +94,27 @@ function run(opts: { before: number; after: number; changed: boolean }) {
       ? readFileSync(join(dir, 'cutoff'), 'utf8')
       : '';
     const bound = /^sha=(.*)$/m.exec(cutoffOut)?.[1] ?? '';
+    const successor = /^successor=(.*)$/m.exec(cutoffOut)?.[1] ?? '';
     const window = spawnSync('bash', ['-c', `${stubs}\n${windowStep.run}`], {
       encoding: 'utf8',
-      env: { ...env, BOUND_SHA: bound, GITHUB_OUTPUT: join(dir, 'window') },
+      env: {
+        ...env,
+        BOUND_SHA: bound,
+        SUCCESSOR_RUN: successor,
+        GITHUB_OUTPUT: join(dir, 'window'),
+      },
     });
     const windowOut = existsSync(join(dir, 'window'))
       ? readFileSync(join(dir, 'window'), 'utf8')
       : '';
-    return { engineStatus: engine.status, cutoffOut, windowStatus: window.status, windowOut };
+    return {
+      engineStatus: engine.status,
+      engineOut: engine.stdout + engine.stderr,
+      cutoffOut,
+      windowStatus: window.status,
+      windowOut,
+      windowStdout: window.stdout,
+    };
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -106,12 +146,52 @@ describe('the window install does not depend on the engine release-control check
     expect(windowStep.run).not.toMatch(/\bsleep\b/);
   });
 
-  it('release controls changed: the engine still refuses, the window still installs from the cutoff commit', () => {
-    const r = run({ before: cutoff - 3600, after: cutoff + 5, changed: true });
+  it('release controls changed with no later run active: the engine refuses, the window still installs from the cutoff commit', () => {
+    const r = run({ before: cutoff - 3600, after: cutoff + 5, changed: true, successor: 'none' });
     expect(r.engineStatus).not.toBe(0);
-    expect(r.cutoffOut).toBe('');
+    expect(r.cutoffOut).toBe('successor=none\n');
     expect(r.windowStatus).toBe(0);
     expect(r.windowOut).toBe(`sha=${CONTROL}\n`);
+  });
+
+  it('release controls changed and the run list is unreadable: UNKNOWN is said, and the window still installs', () => {
+    const r = run({
+      before: cutoff - 3600,
+      after: cutoff + 5,
+      changed: true,
+      successor: 'unreadable',
+    });
+    expect(r.engineStatus).not.toBe(0);
+    expect(r.cutoffOut).toBe('successor=unknown\n');
+    expect(r.engineOut).toContain('could not be read');
+    expect(r.windowOut).toBe(`sha=${CONTROL}\n`);
+  });
+
+  it('release controls changed and a later run owns the date: the refused reservation names no window source', () => {
+    const r = run({
+      before: cutoff - 3600,
+      after: cutoff + 5,
+      changed: true,
+      successor: 'visible',
+    });
+    expect(r.engineStatus).not.toBe(0);
+    // The earliest later active run, never a completed one and never itself.
+    expect(r.cutoffOut).toBe('successor=4003\n');
+    expect(r.windowStatus).toBe(0);
+    expect(r.windowOut).toBe('');
+    expect(r.windowStdout).toContain('later run 4003 owns this date');
+  });
+
+  it('a successor is only ever read after the refusal, never on the bound path', () => {
+    const r = run({
+      before: cutoff - 3600,
+      after: cutoff + 5,
+      changed: false,
+      successor: 'visible',
+    });
+    expect(r.cutoffOut).toBe(`sha=${CONTROL}\n`);
+    expect(windowStep.env.SUCCESSOR_RUN).toBe('${{ steps.cutoff.outputs.successor }}');
+    expect(cutoffStep.env.GH_TOKEN).toBe('${{ github.token }}');
   });
 
   it('release controls unchanged: both name the same commit', () => {

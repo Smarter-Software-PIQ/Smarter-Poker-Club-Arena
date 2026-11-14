@@ -1,7 +1,9 @@
+import { crownActionReservation } from '../../src/components/table/avatarCrownBounds';
 import { describe, expect, it } from 'vitest';
-import { heroPrivateReservations } from '../../src/components/table/mobileAvatarReservations';
+import { heroPrivateReservations } from '../../src/components/table/heroPrivateReservations';
 import {
   dealerReservations,
+  dealerSeatReservations,
   hiddenFanReservations,
   hiddenFanStates,
   mobilePositionLabels,
@@ -18,6 +20,31 @@ const fan = {
   scale: 1,
 };
 describe('static mobile reservations', () => {
+  it('reserves an absent action above the crown, including its entry animation', () => {
+    const lane = crownActionReservation({
+      seatLeft: 100,
+      seatTop: 250,
+      seatWidth: 80,
+      rise: 90,
+      tagHeight: 20,
+      scale: 1,
+    });
+    expect(lane).toEqual({ left: 86, top: 131, width: 108, height: 32 });
+    // The final tag starts at134 and ends154; both its upward pop and downward
+    // entrance fit this same lane before a tag exists in the DOM.
+    expect(lane.top).toBeLessThanOrEqual(134 - 2);
+    expect(lane.top + lane.height).toBeGreaterThanOrEqual(154 + 8);
+    const scaled = crownActionReservation({
+      seatLeft: 50,
+      seatTop: 125,
+      seatWidth: 40,
+      rise: 90,
+      tagHeight: 20,
+      scale: 0.5,
+    });
+    expect(scaled).toEqual({ left: 43, top: 65.5, width: 54, height: 16 });
+  });
+
   it('reserves position labels reachable on the ring, including a dead button', () => {
     expect(mobilePositionLabels(6).sort()).toEqual(['BB', 'CO', 'MP', 'SB', 'UTG']);
     expect(mobilePositionLabels(9)).toContain('UTG+2');
@@ -91,11 +118,62 @@ describe('static mobile reservations', () => {
       }
     }
   });
+  it('reserves the inward phone fan at its four-pixel shoulder gap', () => {
+    for (const side of ['left', 'right'] as const) {
+      const [back] = hiddenFanReservations({ ...fan, side, inward: true, count: 1 });
+      if (side === 'left') expect(back.left).toBeCloseTo(140 + 26 + 4);
+      else expect(back.left + back.width).toBeCloseTo(140 - 26 - 4);
+    }
+  });
   it('anchors one unrotated card exactly one pixel above the plate', () => {
     const [card] = hiddenFanReservations({ ...fan, count: 1, side: 'right' });
     expect(card.top + card.height).toBeCloseTo(245);
     expect(card.height).toBeCloseTo(52 * 0.346);
     expect(card.left).toBeCloseTo(140 + 26 - 0.8 * card.width);
+  });
+  it('preserves the round nine-seat dealer footprint and frees its transparent corners', () => {
+    const anchors = [
+      [50, 100],
+      [4, 78],
+      [4, 50],
+      [4, 22],
+      [27, 0],
+      [73, 0],
+      [96, 22],
+      [96, 50],
+      [96, 78],
+    ].map(([x, y]) => ({ x, y }));
+    const scalerSize = { w: 528, h: 756, railBets: false, portraitTags: true, portraitTaper: 0 };
+    const canvas = { left: 36, top: 226, width: 528, height: 756 };
+    const boxes = dealerSeatReservations({
+      canvas,
+      scale: 1,
+      dealerSize: 38,
+      viewportWidth: 600,
+      scalerSize,
+      anchors,
+    });
+    const pos = dealerButtonPositionClearOfSeat(
+      anchors[0],
+      scalerSize,
+      seatPodPx(600, true, 528),
+      anchors
+    );
+    const cx = canvas.left + (pos.x * canvas.width) / 100,
+      cy = canvas.top + (pos.y * canvas.height) / 100;
+    const reserved = (x: number, y: number) =>
+      boxes.some(
+        (b) =>
+          x >= b.left - 1e-8 &&
+          x <= b.left + b.width + 1e-8 &&
+          y >= b.top - 1e-8 &&
+          y <= b.top + b.height + 1e-8
+      );
+    for (let degrees = 0; degrees < 360; degrees++) {
+      const theta = (degrees * Math.PI) / 180;
+      expect(reserved(cx + 21 * Math.cos(theta), cy + 21 * Math.sin(theta))).toBe(true);
+    }
+    expect(reserved(cx - 20, cy + 20)).toBe(false);
   });
   it('covers natural dealer boxes and every straight glide between owners', () => {
     const canvas = { left: 30, top: 90, width: 480, height: 900 };

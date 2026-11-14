@@ -606,6 +606,21 @@ function isLeagueResult(raw: unknown): raw is LeagueResult {
   if (!isRecord(raw)) return false;
   const value = withoutOptionalCounters(raw);
   if (value === null) return false;
+  /* 2026-11-13 (HU-EVAL-006): the block standard error rides beside the
+     per-pair one. Both keys or neither; a finite non-negative figure from at
+     least two blocks, and never more blocks than pairs. */
+  if ('blockStderr' in value || 'stderrBlocks' in value) {
+    if (
+      !isFiniteNumber(value.blockStderr, 0) ||
+      !isNonnegativeSafeInteger(value.stderrBlocks) ||
+      value.stderrBlocks < 2 ||
+      !isNonnegativeSafeInteger(value.hands) ||
+      value.stderrBlocks * 2 > value.hands
+    )
+      return false;
+    delete value.blockStderr;
+    delete value.stderrBlocks;
+  }
   /* A result straight from runMatchup carries its divergence evidence
      (2026-09-21, "a league matchup that measures nothing says so"); a result
      assembled from components (GtoV31CandidateEvaluation) does not. Both

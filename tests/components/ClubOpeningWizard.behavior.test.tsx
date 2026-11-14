@@ -172,7 +172,7 @@ describe('no silent chip movement', () => {
     next();
 
     expect(screen.getByText('0 Chips')).toBeInTheDocument();
-    expect(screen.getByText('99.7K Chips')).toBeInTheDocument();
+    expect(screen.getByText('99,700 Chips')).toBeInTheDocument();
     expect(screen.getAllByText(/Already Funded/)).toHaveLength(2);
     await act(async () => next());
     await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
@@ -301,7 +301,7 @@ describe('paid leaderboards: the allocation funds the Promo Wallet', () => {
     toLeaderboards('not_now');
     const presets = screen.getByLabelText('Suggested Leaderboard Prize Budgets');
     for (const button of within(presets).getAllByRole('button')) expect(button).toBeEnabled();
-    fireEvent.click(within(presets).getByRole('button', { name: '1K Chips' }));
+    fireEvent.click(within(presets).getByRole('button', { name: '1,000 Chips' }));
     expect(alertText()).toBe('Confirm The Exact Leaderboard Promo Transfer Before Continuing');
     expect(
       screen.getByRole('checkbox', {
@@ -321,7 +321,7 @@ describe('paid leaderboards: the allocation funds the Promo Wallet', () => {
     expect(primary()).toBeEnabled();
     expect(
       screen.getByText(
-        'Every Round Is Paid Only From The Promo Wallet, Which Holds 1.5K Chips After Setup.'
+        'Every Round Is Paid Only From The Promo Wallet, Which Holds 1,500 Chips After Setup.'
       )
     ).toBeInTheDocument();
   });
@@ -414,21 +414,20 @@ describe('new opening leaderboards are Promo-only', () => {
 });
 
 describe('figures', () => {
-  it('prints compact chips without decimals and shows a real shortfall in place of a clamped zero', () => {
+  it('prints exact chips and shows a real shortfall in place of a clamped zero', () => {
     mount({ clubBank: 600.75 });
     const container = document.body;
-    expect(screen.getByLabelText('600 Chips In Club Bank')).toBeInTheDocument();
+    expect(screen.getByLabelText('600.75 Chips In Club Bank')).toBeInTheDocument();
     walkToReview({ paid: true });
     // 100 BBJ + 500 Promotion + 500 Leaderboards against a 600 chip bank.
     const balance = container.querySelector('.club-setup-wizard__ledger-balance');
     expect(balance).toHaveClass('is-short');
     expect(balance).toHaveTextContent('Short By 500 Chips');
     expect(container.querySelector('.club-setup-wizard__ledger-total')).toHaveTextContent(
-      '1.1K Chips'
+      '1,100 Chips'
     );
     expect(alertText()).toBe('Setup Allocation Exceeds The Club Bank');
     expect(primary()).toBeDisabled();
-    expect(container.textContent).not.toMatch(/\d\.\d\d/);
   });
 
   it('confirms the exact total on the review screen', () => {
@@ -737,24 +736,24 @@ describe('round two: kit parts, data casing and figures', () => {
     expect(scroll?.querySelector('.club-setup-wizard__main')).not.toBeNull();
   });
 
-  it('prints a minimum compact and the transfer it asks for in full', () => {
+  it('prints a minimum exactly and the transfer it asks for in full', () => {
     mount({ clubBank: 100000 });
     toBbj();
     choose(/^Not Now/);
     next();
     choose(/^Enable Spins/);
     fireEvent.change(screen.getByLabelText(/Largest Spin Buy-In/), { target: { value: '100' } });
-    expect(screen.getByText('Coverage Minimum: 20K Chips')).toBeInTheDocument();
+    expect(screen.getByText('Coverage Minimum: 20,000 Chips')).toBeInTheDocument();
     expect(
       screen.getByRole('checkbox', {
         name: 'Transfer Exactly 20,000 Chips From The Club Bank Into The Spin Reserve',
       })
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/Club Bank After Every Transfer Chosen So Far: 80K Chips/)
+      screen.getByText(/Club Bank After Every Transfer Chosen So Far: 80,000 Chips/)
     ).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText(/Spin Reserve Seed/), { target: { value: '19999' } });
-    expect(alertText()).toBe('This Spin Board Requires At Least 20K Chips');
+    expect(alertText()).toBe('This Spin Board Requires At Least 20,000 Chips');
     expect(primary()).toBeDisabled();
   });
 

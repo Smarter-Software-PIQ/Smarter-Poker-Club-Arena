@@ -47,7 +47,7 @@ const table = read('pages/TablePage.tsx');
 
 describe('a pre-start seat-first seat leaves through its refund', () => {
   it('handleLeaveTable routes seat-first holders to the replay-safe refund service', () => {
-    const body = sliceMethod(table, 'const handleLeaveTable = async () => {');
+    const body = sliceMethod(table, 'const handleLeaveTable = async (');
     expect(body).toContain('seatFirstBuyIn && tableState.heroSeat > 0');
     expect(body).toContain('tournamentService.leaveTournamentSeatAndRefund');
     /* It must return before ever reaching the engine-first path. Matched on
@@ -84,7 +84,7 @@ describe('releasing a seat releases every claim on it', () => {
     /* Each exit is bounded by the structure that owns it — the method for the
        menu's Leave Table, and the button's own label for the footer's Leave
        Seat — so both windows grow with their code. */
-    const menuExit = sliceMethod(table, 'const handleLeaveTable = async () => {');
+    const menuExit = sliceMethod(table, 'const handleLeaveTable = async (');
     expect(menuExit).toContain("'TablePage.leave_table_seat_first'");
     expect(menuExit, 'the menu exit leaves pendingSeat set').toContain('setPendingSeat(null)');
     expect(menuExit).toContain('setSeatFirstConfirm(null)');

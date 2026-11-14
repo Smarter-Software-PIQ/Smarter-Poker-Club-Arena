@@ -56,6 +56,29 @@ describe('omahaTournamentFirstIn: the replacement for a fold', () => {
     expect(omahaTournamentFirstIn({ ...base, effectiveStackBB: 20.5 })).toBeNull();
   });
 
+  it('a three-handed winner-take-all table acts to 30 big blinds; heads-up keeps 20', () => {
+    // Measured 2026-11-14 (spin, seed 93002): +0.14 to +0.22 BB per hand at
+    // 22/25/30 BB against every opponent; heads-up the same extension lost
+    // to the re-shoving opponent (PLO5, 30 BB), so heads-up stays at 20.
+    const spin = { ...base, tableSize: 3, playersLeft: 3, paidPlacesLeft: 1, percentile: 0.02 };
+    for (const effectiveStackBB of [22, 25, 30])
+      expect(omahaTournamentFirstIn({ ...spin, effectiveStackBB })).toEqual({ a: 'jam' });
+    expect(omahaTournamentFirstIn({ ...spin, effectiveStackBB: 30.5 })).toBeNull();
+    expect(omahaTournamentFirstIn({ ...base, effectiveStackBB: 22 })).toBeNull();
+    expect(omahaTournamentFirstIn({ ...spin, effectiveStackBB: 25, paidPlacesLeft: 3 })).toBeNull();
+    const close = {
+      ...spin,
+      position: 'bb' as const,
+      raises: 1,
+      toCall: 4,
+      stack: 46,
+      pot: 8,
+      percentile: 0.9,
+    };
+    expect(omahaTournamentFirstIn({ ...close, effectiveStackBB: 25 })).toEqual({ a: 'call' });
+    expect(omahaTournamentFirstIn({ ...close, effectiveStackBB: 31 })).toBeNull();
+  });
+
   it('three-handed, the small blind against the big blind alone plays the same way', () => {
     expect(
       omahaTournamentFirstIn({ ...base, tableSize: 3, paidPlacesLeft: 1, percentile: 0.02 })
@@ -114,12 +137,42 @@ describe('omahaTournamentFirstIn: the replacement for a fold', () => {
     expect(omahaTournamentFirstIn({ ...bb, playersLeft: 10, percentile: 0.99 })).toBeNull();
   });
 
-  it('three-handed it acts only when one place is paid; heads-up any payout', () => {
+  it('three-handed with pay jumps only the small blind acts, on its top 60 percent, when every player left is paid; heads-up any payout', () => {
+    // Measured 2026-11-14 (payouts 25/17/13, seed 97003, conserved ICM
+    // equity): +0.008 to +0.023 percent of the pool per hand pooled against
+    // every opponent, no cell below zero.
     const three = { ...base, tableSize: 3, playersLeft: 3, percentile: 0.99 };
-    expect(omahaTournamentFirstIn({ ...three, paidPlacesLeft: 3 })).toBeNull();
+    const jumps = { ...three, paidPlacesLeft: 3 };
+    expect(omahaTournamentFirstIn({ ...jumps, percentile: 0.41 })).toEqual({ a: 'jam' });
+    expect(omahaTournamentFirstIn({ ...jumps, percentile: 0.39 })).toBeNull();
+    expect(omahaTournamentFirstIn({ ...three, paidPlacesLeft: 1, percentile: 0.02 })).toEqual({
+      a: 'jam',
+    });
+    // A money bubble (two of three paid) or an unknown payout keeps the fold.
     expect(omahaTournamentFirstIn({ ...three, paidPlacesLeft: 2 })).toBeNull();
     expect(omahaTournamentFirstIn({ ...three, paidPlacesLeft: Number.NaN })).toBeNull();
-    expect(omahaTournamentFirstIn({ ...three, paidPlacesLeft: 1 })).toEqual({ a: 'jam' });
+    // Pay jumps act to 20 BB (not the spin's 30), narrowed by the risk premium.
+    expect(omahaTournamentFirstIn({ ...jumps, effectiveStackBB: 20 })).toEqual({ a: 'jam' });
+    expect(omahaTournamentFirstIn({ ...jumps, effectiveStackBB: 20.5 })).toBeNull();
+    expect(omahaTournamentFirstIn({ ...jumps, riskPremium: 0.05, percentile: 0.49 })).toBeNull();
+    expect(omahaTournamentFirstIn({ ...jumps, riskPremium: 0.05, percentile: 0.52 })).toEqual({
+      a: 'jam',
+    });
+    // The big blind keeps the engine fold with pay jumps.
+    expect(
+      omahaTournamentFirstIn({
+        ...jumps,
+        position: 'bb',
+        raises: 1,
+        toCall: 4,
+        stack: 36,
+        pot: 8,
+      })
+    ).toBeNull();
+    // 0 is the previous rule: pay jumps stand aside.
+    expect(
+      omahaTournamentFirstIn(jumps, { ...OMAHA_TOURNAMENT_FIRST_IN, payJumpBlindVsBlindShare: 0 })
+    ).toBeNull();
     for (const paidPlacesLeft of [1, 2, Number.NaN])
       expect(omahaTournamentFirstIn({ ...base, paidPlacesLeft, percentile: 0.99 })).toEqual({
         a: 'jam',
@@ -195,10 +248,12 @@ describe('omahaTournamentFirstIn: the replacement for a fold', () => {
       headsUpShare: 1,
       blindVsBlindShare: 1,
       maxStackBB: 20,
+      winnerTakeAllMaxStackBB: 30,
       maxTableSize: 3,
       bigBlindDefendShare: 0.75,
       bigBlindMaxPrice: 0.5,
       bigBlindClosingShare: 0.75,
+      payJumpBlindVsBlindShare: 0.6,
     });
   });
 });
@@ -432,6 +487,19 @@ describe(
       ).toBeGreaterThanOrEqual(0.4);
     });
 
+    it('three-handed winner-take-all at 22 to 30 big blinds the small blind stops folding too', () => {
+      for (const stackBB of [22, 25, 30]) {
+        const on = folds('plo4', 3, stackBB, 'tournament', {});
+        const off = folds('plo4', 3, stackBB, 'tournament', { omahaTournamentFirstIn: false });
+        expect([stackBB, on.share <= 0.05]).toEqual([stackBB, true]);
+        expect([stackBB, off.share >= on.share + 0.25]).toEqual([stackBB, true]);
+      }
+      // Deeper than 30 the engine decides alone.
+      expect(folds('plo4', 3, 35, 'tournament', {}).actions).toEqual(
+        folds('plo4', 3, 35, 'tournament', { omahaTournamentFirstIn: false }).actions
+      );
+    });
+
     it.each(['plo4', 'plo5', 'plo6'] as const)(
       '%s: the tournament utility arbiter evaluates and owns the widened small blind raise',
       (variant) => {
@@ -623,15 +691,15 @@ describe(
       );
     });
 
-    it('a three-handed final table with pay jumps keeps the engine folds', () => {
-      const payJumps = (opts: HorseDecideOpts) => {
+    it('a three-handed final table with pay jumps: the small blind plays its top 60 percent, the rest still fold', () => {
+      const payJumps = (opts: HorseDecideOpts, payoutPct = [50, 30, 20]) => {
         const actions: string[] = [];
         for (let i = 0; i < 60; i++) {
           HorseMind.reset();
           const { hero, state } = smallBlindSpot('plo4', 3, 10, 'tournament', 9700 + i * 29);
           if (state.tournament) {
-            state.tournament.payoutPct = [50, 30, 20];
-            state.tournament.spotsPaid = 3;
+            state.tournament.payoutPct = payoutPct;
+            state.tournament.spotsPaid = payoutPct.length;
           }
           const d = HorseLogic.decide(hero, state, 'balanced', {}, { mind: false, ...opts });
           actions.push(`${d.action}:${d.amount ?? ''}`);
@@ -639,8 +707,18 @@ describe(
         return actions;
       };
       const on = payJumps({});
-      expect(on).toEqual(payJumps({ omahaTournamentFirstIn: false }));
+      const off = payJumps({ omahaTournamentFirstIn: false });
+      const foldCount = (a: string[]) => a.filter((x) => x.startsWith('fold')).length;
+      expect(foldCount(on)).toBeLessThan(foldCount(off));
       expect(on.some((a) => a.startsWith('fold'))).toBe(true);
+      // Only folds change: every hand the engine already played is untouched.
+      on.forEach((a, k) => {
+        if (!off[k].startsWith('fold')) expect(a).toEqual(off[k]);
+      });
+      // A partial arm keeps the other defaults; share 0 is the previous rule.
+      expect(payJumps({ omahaTournamentFirstIn: { payJumpBlindVsBlindShare: 0 } })).toEqual(off);
+      // A money bubble (three left, two paid) keeps every engine fold.
+      expect(payJumps({}, [65, 35])).toEqual(payJumps({ omahaTournamentFirstIn: false }, [65, 35]));
     });
 
     it('a short-handed table with other tables still running keeps the engine folds', () => {

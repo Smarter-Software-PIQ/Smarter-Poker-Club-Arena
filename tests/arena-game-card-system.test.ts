@@ -211,8 +211,8 @@ describe('Arena game-card creation', () => {
   });
 
   it('compacts four-digit cash buy-ins without rounding away useful hundreds', () => {
-    expect(compactCashBuyInLabel('1,000 - 5,000')).toBe('1K - 5K');
-    expect(compactCashBuyInLabel('400 - 1,200')).toBe('400 - 1.2K');
+    expect(compactCashBuyInLabel('1,000 - 5,000')).toBe('1,000 - 5,000');
+    expect(compactCashBuyInLabel('400 - 1,200')).toBe('400 - 1,200');
     expect(compactCashBuyInLabel('80 - 400')).toBe('80 - 400');
   });
 

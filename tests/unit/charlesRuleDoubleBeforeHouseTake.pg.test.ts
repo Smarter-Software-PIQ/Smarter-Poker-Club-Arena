@@ -1,5 +1,6 @@
 import { expect, it } from 'vitest';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 
@@ -67,9 +68,15 @@ it('adds back the house take from the pots a player won before judging a Charles
     '/usr/bin',
   ].find((dir) => ['initdb', 'pg_ctl', 'psql'].every((name) => existsSync(`${dir}/${name}`)));
   if (!bin) throw new Error('PostgreSQL binaries are required for the Charles Rule regression');
-  const cache = resolve(root, 'node_modules/.cache');
+  // PostgreSQL refuses to run its server as root. A root shell (an agent
+  // container's pre-push) runs the server as an unprivileged system user in a
+  // world-writable scratch directory; every other shell runs it as itself.
+  const asRoot = typeof process.getuid === 'function' && process.getuid() === 0;
+  const serverUser = 'nobody';
+  const cache = asRoot ? tmpdir() : resolve(root, 'node_modules/.cache');
   mkdirSync(cache, { recursive: true });
   const scratch = mkdtempSync(resolve(cache, 'charles-rule-'));
+  if (asRoot) chmodSync(scratch, 0o777);
   const port = 20000 + Math.floor(Math.random() * 30000);
   const data = resolve(scratch, 'data');
   const env: NodeJS.ProcessEnv = {
@@ -78,19 +85,28 @@ it('adds back the house take from the pots a player won before judging a Charles
     PGHOST: '127.0.0.1',
     PGPORT: String(port),
     PGDATABASE: 'postgres',
-    PGUSER: process.env.USER || 'runner',
+    PGUSER: asRoot ? serverUser : process.env.USER || 'runner',
     PGSSLMODE: 'disable',
   };
   delete env.PGSERVICE;
   delete env.PGSERVICEFILE;
+  const server = (cmd: string) => cmd === 'initdb' || cmd === 'pg_ctl';
   const run = (cmd: string, args: string[], input?: string) =>
-    execFileSync(`${bin}/${cmd}`, args, {
-      cwd: root,
-      env,
-      input,
-      encoding: 'utf8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    asRoot && server(cmd)
+      ? execFileSync('runuser', ['-u', serverUser, '--', `${bin}/${cmd}`, ...args], {
+          cwd: scratch,
+          env,
+          input,
+          encoding: 'utf8',
+          stdio: ['pipe', 'pipe', 'pipe'],
+        })
+      : execFileSync(`${bin}/${cmd}`, args, {
+          cwd: root,
+          env,
+          input,
+          encoding: 'utf8',
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
   const sql = (text: string) => run('psql', ['-X', '-v', 'ON_ERROR_STOP=1', '-q'], text);
   const one = (text: string) =>
     run('psql', ['-X', '-At', '-v', 'ON_ERROR_STOP=1', '-c', text]).trim();

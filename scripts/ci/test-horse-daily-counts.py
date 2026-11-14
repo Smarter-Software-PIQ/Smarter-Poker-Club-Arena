@@ -215,6 +215,9 @@ def main():
             command([PG/'pg_ctl','-D',data,'-m','immediate','-w','stop'])
 
     subprocess.run([sys.executable, '-B', str(ROOT/'scripts/ci/test-horse-future-purchase-budget.py')], cwd=ROOT, env={**ENV, 'PG_BIN':str(PG), 'TMPDIR':str(BASE)}, check=True, timeout=120)
+    # 2026-11-14: the daily audit's incomplete-telemetry note (migration 20261114001636) shares this required
+    # native owner too: its own private cluster, started after this one is stopped; no new workflow step.
+    subprocess.run([sys.executable, '-B', str(ROOT/'scripts/ci/test-horse-audit-incomplete-telemetry.py')], cwd=ROOT, env={**ENV, 'PG_BIN':str(PG), 'TMPDIR':str(BASE)}, check=True, timeout=120)
 
     # Daily horse reporting shares this existing required native owner. Run the
     # source-bound audit fixture after the accepted-hand cluster is stopped;

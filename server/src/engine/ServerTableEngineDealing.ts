@@ -1142,7 +1142,20 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           // A completed short-handed sweep is real progress just like the
           // startup waiting sweep. Stamp after all awaited idle work so a
           // hung read or move remains visible to the existing watchdog.
-          this.markProgress();
+          //
+          // NOT WHEN THE GATE ITSELF IS THE REASON (#10741, 2026-11-13): if the
+          // seats this pass judged dealable already reach the minimum and a
+          // hold below the gate still left it short, the table is stuck, not
+          // waiting. Leaving the clock alone lets the stall watch and /health
+          // see it (it reported 0 stalled while four FLO8 tables sat for hours).
+          if (
+            !(
+              candidates.length >= this.minPlayersToDeal() &&
+              dealable.some((p) => !this.isBlindedOff(p.user_id))
+            )
+          ) {
+            this.markProgress();
+          }
           await this.sleep(3000);
           continue;
         }

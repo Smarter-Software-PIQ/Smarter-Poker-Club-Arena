@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { useFitText } from '../lobby/game-cards/useFitText';
-import { stopLightningPlaying } from '../../lightning/lightningSessionApi';
+import {
+  stopLightningPlaying,
+  type LightningStopPlayingResult,
+} from '../../lightning/lightningSessionApi';
 import { useToast } from '../common/Toast';
 import { reportError } from '../../utils/errorReporter';
 import './LightningLeaveControl.css';
@@ -19,8 +22,8 @@ export function LightningLeaveControl({
   onCancel,
 }: {
   clusterId: string;
-  onLeave: () => Promise<void>;
-  ensureStopped?: () => Promise<boolean>;
+  onLeave: (stop: LightningStopPlayingResult) => Promise<void>;
+  ensureStopped?: () => Promise<LightningStopPlayingResult | null>;
   onLeaveIntentChange?: (leaving: boolean) => void;
   /** The stop is confirmed and the page will leave when this hand ends. */
   queued?: boolean;
@@ -28,7 +31,7 @@ export function LightningLeaveControl({
   onCancel?: () => Promise<boolean>;
 }) {
   const [busy, setBusy] = useState(false);
-  const [stopped, setStopped] = useState(false);
+  const [stopped, setStopped] = useState<LightningStopPlayingResult | null>(null);
   const inFlight = useRef(false);
   const mounted = useRef(false);
   const toast = useToast();
@@ -44,7 +47,7 @@ export function LightningLeaveControl({
      label now says what the button has always done. */
   // A cancelled leave sends the stop again next time.
   useEffect(() => {
-    if (!queued) setStopped(false);
+    if (!queued) setStopped(null);
   }, [queued]);
   const label = busy
     ? queued
@@ -74,21 +77,16 @@ export function LightningLeaveControl({
     setBusy(true);
     try {
       onLeaveIntentChange?.(true);
-      if (!stopped) {
-        const confirmed = ensureStopped
-          ? await ensureStopped()
-          : (await stopLightningPlaying(clusterId))?.ok === true;
-        if (!mounted.current) return;
-        if (!confirmed) {
-          onLeaveIntentChange?.(false);
-          toast.warning('Could Not Confirm Your Stop Request. Please Try Again.');
-          return;
-        }
-        setStopped(true);
+      const receipt =
+        stopped ?? (await (ensureStopped ? ensureStopped() : stopLightningPlaying(clusterId)));
+      if (!mounted.current) return;
+      if (!receipt?.ok) {
+        onLeaveIntentChange?.(false);
+        toast.warning('Could Not Confirm Your Stop Request. Please Try Again.');
+        return;
       }
-      // The durable stop already refuses every new deal. The hand in front of
-      // the player is still theirs to play: onLeave waits for it to end.
-      if (mounted.current) await onLeave();
+      setStopped(receipt);
+      await onLeave(receipt);
     } catch (error) {
       if (mounted.current) onLeaveIntentChange?.(false);
       reportError(error, 'LightningLeaveControl.leave');

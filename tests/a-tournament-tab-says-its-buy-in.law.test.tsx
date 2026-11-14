@@ -6,6 +6,7 @@ import { resolve } from 'node:path';
 import { TableTabBar, type TabInfo } from '../src/components/table/TableTabBar';
 import {
   TOURNAMENT_TAB_LABEL_MAX_GLYPHS,
+  TOURNAMENT_TAB_EXACT_BUY_IN_CEILING,
   tournamentTabBuyInLabel,
   tournamentTabEventName,
   readTournamentTabInfo,
@@ -108,7 +109,7 @@ describe('a tournament tab with no live hand', () => {
       })
     );
     expect(subOf(el)).toBeNull();
-    expect(tournamentTabBuyInLabel(5.5)).toBe('6');
+    expect(tournamentTabBuyInLabel(5.5)).toBe('5.50');
     metadata.read.mockClear();
   });
 
@@ -408,13 +409,14 @@ describe('hole cards win', () => {
 });
 
 describe('the figure cannot outgrow the pill', () => {
-  it('formats the buy-in compactly, rounded down, with no decimals under a thousand', () => {
+  it('prints the exact buy-in, never abbreviated or rounded (Dan 2026-11-13)', () => {
     expect(tournamentTabBuyInLabel(55)).toBe('55');
     expect(tournamentTabBuyInLabel(999)).toBe('999');
-    expect(tournamentTabBuyInLabel(1100)).toBe('1.1K');
-    expect(tournamentTabBuyInLabel(10000)).toBe('10K');
-    expect(tournamentTabBuyInLabel(51115)).toBe('51.1K');
-    expect(tournamentTabBuyInLabel(2500000)).toBe('2.5M');
+    expect(tournamentTabBuyInLabel(1100)).toBe('1,100');
+    expect(tournamentTabBuyInLabel(10000)).toBe('10,000');
+    expect(tournamentTabBuyInLabel(51115)).toBe('51,115');
+    expect(tournamentTabBuyInLabel(2500000)).toBe('2,500,000');
+    expect(tournamentTabBuyInLabel(22.5)).toBe('22.50');
     expect(tournamentTabBuyInLabel(0)).toBe(FREE_BUY_LABEL);
   });
 
@@ -426,8 +428,9 @@ describe('the figure cannot outgrow the pill', () => {
   });
 
   it('never exceeds the pill budget for any buy-in, so "51115/..." cannot recur', () => {
-    const samples = [0, 1, 9, 55, 999, 1000, 1001, 9999, 51115, 123456, 999999, 1e6, 987654321];
-    for (let p = 0; p <= 11; p++) samples.push(10 ** p - 1, 10 ** p, 10 ** p + 1);
+    const samples = [0, 1, 9, 55, 999, 1000, 1001, 9999, 51115, 123456, 999999, 1e6, 999999.99];
+    for (let p = 0; p <= 6; p++) samples.push(10 ** p - 1, 10 ** p, 10 ** p + 1);
+    samples.push(TOURNAMENT_TAB_EXACT_BUY_IN_CEILING);
     for (const n of samples) {
       const label = tournamentTabBuyInLabel(n);
       expect(label.length, `${n} -> "${label}"`).toBeLessThanOrEqual(
@@ -436,7 +439,7 @@ describe('the figure cannot outgrow the pill', () => {
       expect(label).not.toContain('/');
     }
     // The pill renders exactly that string, whole.
-    const el = pill(tab({ gameCode: 'MTT', isTournament: true, tournamentBuyIn: 987654321 }));
+    const el = pill(tab({ gameCode: 'MTT', isTournament: true, tournamentBuyIn: 9876543 }));
     expect(subOf(el)).toBeNull();
   });
 

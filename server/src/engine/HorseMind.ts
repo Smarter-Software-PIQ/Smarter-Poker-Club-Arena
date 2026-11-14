@@ -4,6 +4,7 @@ import {
   mergeMultiwayRiverStates,
   type MultiwayRiverReadState,
 } from './HorseMultiwayRiverRead.js';
+import { omahaTightRead, type OmahaTightRead } from './HorseOmahaTightOpponent.js';
 import {
   riverPositionIncrements,
   riverTripleCheckRaiseIncrements,
@@ -155,6 +156,7 @@ import {
   type PostReleaseOpportunities,
   type StyleProvenance,
 } from './HorseOpponentStyle.js';
+import { publicMemoryDomainKey } from './HorsePublicMemoryDomain.js';
 import { addStyleReadMs, noteStyleShadowEngaged } from './HorseStyleShadow.js';
 
 /** Match the controller's full-raise marker: an all-in button can be a call
@@ -1151,7 +1153,14 @@ export class HorseMind {
   /** Post-release opportunity counts per row (the m of the pre-repair discount), SUPPLIED by importPostReleaseObservations
    *  from a persisted or recomputed source. Never incremented here: a process-memory counter would reset with the daily
    *  engine restart and never lift the discount. */
-  private static postReleaseObservations = new Map<string, PostReleaseOpportunities>();
+  private static postReleaseObservations = new Map<
+    string,
+    { all: PostReleaseOpportunities | null; byDomain: Map<string, PostReleaseOpportunities> }
+  >();
+  /** The public domain key (speed:ante) of the durable profile imported at each row, or null when it has none on
+   *  file. A post-release count supplied WITH a domain lifts the discount only on a profile of that same domain: a
+   *  player's Lightning hands never lift the discount of a table-speed profile that did not learn them. */
+  private static durableProfileDomain = new Map<string, string | null>();
   /** STYLE READ A2: river first bets by size bucket per player (memory only, live only, LRU-capped). */
   private static styleSizeShown = new Map<string, SizeBucketTallies>();
   /** STYLE READ #4: postflop aggression and raise opportunities per street, per (variant, format, table size, player). */
@@ -1702,6 +1711,7 @@ export class HorseMind {
       this.durableOpponentVersions.set(key, version);
       this.durableProfileComplete.set(key, profileQualification(p).complete);
       this.durableProfilePreRepair.set(key, preRepairKeyed(p.mode, p.public_memory_domain));
+      this.durableProfileDomain.set(key, publicMemoryDomainKey(p.public_memory_domain));
       this.durableOpponentImportClock.set(key, this.stats.get(p.user_id)?.hands ?? 0);
       applied++;
     }
@@ -1711,6 +1721,7 @@ export class HorseMind {
       this.durableOpponentVersions.delete(key);
       this.durableProfileComplete.delete(key);
       this.durableProfilePreRepair.delete(key);
+      this.durableProfileDomain.delete(key);
       this.postReleaseObservations.delete(key);
       this.durableOpponentImportClock.delete(key);
     }
@@ -1720,6 +1731,7 @@ export class HorseMind {
           this.durableOpponentVersions.delete(key);
           this.durableProfileComplete.delete(key);
           this.durableProfilePreRepair.delete(key);
+          this.durableProfileDomain.delete(key);
           this.postReleaseObservations.delete(key);
           this.durableOpponentImportClock.delete(key);
         }
@@ -1742,6 +1754,8 @@ export class HorseMind {
       variant: string;
       mode: MemoryMode;
       size: MemorySize;
+      /** speed:ante of the hands counted; omitted = the supplier vouches for the row's own profile */
+      domain?: string;
       opportunities: PostReleaseOpportunities;
     }>
   ): number {
@@ -1750,8 +1764,11 @@ export class HorseMind {
     this.assertPostReleaseRows(rows);
     for (const r of rows) {
       const key = opponentMemoryKey(r.user_id, r.variant as MemoryVariant, r.mode, r.size);
+      const e = this.postReleaseObservations.get(key) ?? { all: null, byDomain: new Map() };
+      if (r.domain === undefined) e.all = { ...r.opportunities };
+      else e.byDomain.set(r.domain, { ...r.opportunities });
       this.postReleaseObservations.delete(key);
-      this.postReleaseObservations.set(key, { ...r.opportunities });
+      this.postReleaseObservations.set(key, e);
     }
     while (this.postReleaseObservations.size > EXPLOIT_ROW_CAP)
       this.postReleaseObservations.delete(this.postReleaseObservations.keys().next().value!);
@@ -1765,6 +1782,8 @@ export class HorseMind {
       variant: string;
       mode: MemoryMode;
       size: MemorySize;
+      /** speed:ante of the hands counted; omitted = the supplier vouches for the row's own profile */
+      domain?: string;
       opportunities: PostReleaseOpportunities;
     }>
   ): void {
@@ -1775,6 +1794,9 @@ export class HorseMind {
       memoryVariant(r.variant) !== null &&
       ['cash', 'tournament'].includes(r.mode) &&
       ['hu', 'short', 'full'].includes(r.size) &&
+      (r.domain === undefined ||
+        (typeof r.domain === 'string' &&
+          /^(table|lightning):(none|individual|big_blind)$/.test(r.domain))) &&
       !!r.opportunities &&
       typeof r.opportunities === 'object' &&
       Object.entries(r.opportunities).every(
@@ -1954,6 +1976,7 @@ export class HorseMind {
       variant: string;
       mode: MemoryMode;
       size: MemorySize;
+      domain?: string;
       hands: readonly PersistedHandForProvenance[];
     }>,
     releaseStartMs: number
@@ -1973,6 +1996,7 @@ export class HorseMind {
       variant: string;
       mode: MemoryMode;
       size: MemorySize;
+      domain?: string;
       hands: readonly PersistedHandForProvenance[];
     }>,
     releaseStartMs: number
@@ -1981,6 +2005,7 @@ export class HorseMind {
     variant: string;
     mode: MemoryMode;
     size: MemorySize;
+    domain?: string;
     opportunities: PostReleaseOpportunities;
   }> {
     const out = rows.map((r) => ({
@@ -1988,6 +2013,7 @@ export class HorseMind {
       variant: r.variant,
       mode: r.mode,
       size: r.size,
+      ...(r.domain === undefined ? {} : { domain: r.domain }),
       opportunities: postReleaseOpportunitiesFromHistory(r.hands, r.user_id, releaseStartMs),
     }));
     this.assertPostReleaseRows(out);
@@ -2034,7 +2060,11 @@ export class HorseMind {
       let m: number | null = null;
       for (const k of known) {
         if (this.durableProfilePreRepair.get(k) === false) continue;
-        const v = this.postReleaseObservations.get(k)?.[stat];
+        // a count supplied with a domain applies only to a profile of that domain; an undomained count is the
+        // supplier's own statement about this row
+        const e = this.postReleaseObservations.get(k);
+        const d = this.durableProfileDomain.get(k);
+        const v = (d ? e?.byDomain.get(d)?.[stat] : undefined) ?? e?.all?.[stat];
         const mm = typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0;
         m = m === null ? mm : Math.min(m, mm);
       }
@@ -2238,6 +2268,39 @@ export class HorseMind {
       return presumed.read;
     }
     return read;
+  }
+
+  /**
+   * OMAHA TIGHT OPPONENT (2026-11-13, HorseOmahaTightOpponent, default off):
+   * the low-side tight read of this opponent for the decision in flight, from
+   * the same decayed counters opponentRead reads (the exact context's durable
+   * row, probe-adjusted) and its high-side exploit read. Null outside an
+   * Omaha decision or below the evidence floor. Pure: no fires, no writes.
+   * Only HorseLogic calls it, and only with omahaTightOpponent on.
+   */
+  static omahaTightReadOf(userId: string): OmahaTightRead | null {
+    const scope = this.decisionScope;
+    if (!scope || !scope.startsWith('omaha:')) return null;
+    const variant = memoryVariant(this.decisionVariant);
+    const size = scope.split(':')[1] as MemorySize;
+    const durable = variant ? this.blendDurableRead(userId, variant, size, false) : undefined;
+    const raw =
+      durable ??
+      (this.durableOpponentMemory && variant
+        ? undefined
+        : this.exploitCounters.get(`${scope}|${userId}`));
+    // probeAdjusted without its receipt: the same counters, no fire.
+    const pooled = this.stats.get(userId);
+    const counters =
+      raw && this.probeAwareAggression
+        ? probeAdjustedCounters(raw, pooled?.ctBets, pooled?.ctProbes)
+        : raw;
+    return omahaTightRead(
+      counters,
+      scope,
+      this.decisionVariant,
+      opponentExploitRead(counters, scope, this.decisionVariant)
+    );
   }
 
   /**
@@ -2540,6 +2603,7 @@ export class HorseMind {
     this.durableOpponentVersions.clear();
     this.durableProfileComplete.clear();
     this.durableProfilePreRepair.clear();
+    this.durableProfileDomain.clear();
     this.postReleaseObservations.clear();
     this.styleSizeShown.clear();
     this.styleAggression.clear();
@@ -3586,8 +3650,23 @@ export class HorseMind {
     // tight-preflop maniac more). Null read = the legacy profile, unchanged.
     const read = this.opponentRead(userId);
     if (!read) return legacy;
-    const bluff = postflopBluffMod(read);
-    const thin = readValueThinMod(read);
+    let bluff = postflopBluffMod(read);
+    // STYLE READ, PRE-REPAIR (2026-11-14): the over-folder increase of this read stands on the same stored
+    // fold-to-bet counter the legacy branch below stands down for. A cash table-speed profile built before the
+    // showdown-memory repair holds folds without the calls, so while its post-release count is under the engagement
+    // line the increase is withheld here too (same switch, same receipt). A station's decrease is never withheld.
+    // The thin-value cut the read takes from the same figure (a folder is value-bet thinner) is withheld with it.
+    let withheld = false;
+    if (bluff !== null && bluff > 1 && this.foldToBetPreRepairExcluded(userId)) {
+      if (options.styleFoldRatePreRepair === true) {
+        noteFire('style_pre_repair_fold_rate_discounted_seen');
+        bluff = null;
+        withheld = true;
+      } else if (options.styleFoldRatePreRepairShadow === true)
+        noteStyleShadowEngaged('styleFoldRatePreRepair', 1);
+    }
+    const thinRead = readValueThinMod(read);
+    const thin = withheld && thinRead !== null && thinRead < 1 ? null : thinRead;
     const shift = callDownRespectShift(read);
     if (bluff === null && thin === null && shift === 0) return legacy;
     return {

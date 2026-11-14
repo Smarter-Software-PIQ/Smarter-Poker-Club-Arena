@@ -35,8 +35,15 @@ export interface OmahaTournamentFirstInParams {
   headsUpShare: number;
   /** Small blind against the big blind alone at a larger measured table. */
   blindVsBlindShare: number;
-  /** Deepest effective stack (big blinds) the module acts at. Deeper, the engine's fold stands. */
+  /** Deepest effective stack (big blinds) the module acts at heads-up. Deeper, the engine's fold stands. */
   maxStackBB: number;
+  /** Deepest effective stack (big blinds) at a three-handed table paying one
+   *  place (a winner-take-all spin). Measured 2026-11-14 (spin, seed 93002,
+   *  22/25/30 BB, PLO4+PLO5): +0.14 to +0.22 BB per hand pooled against every
+   *  opponent at every depth, no cell below zero. Heads-up the same extension
+   *  lost to the re-shoving opponent in PLO5 at 30 BB, so heads-up keeps
+   *  maxStackBB. */
+  winnerTakeAllMaxStackBB: number;
   /** Largest table (players dealt in) the module acts at. */
   maxTableSize: number;
   /** Heads-up big blind against one raise: share defended. */
@@ -48,16 +55,25 @@ export interface OmahaTournamentFirstInParams {
    *  Measured 2026-11-13 (spin, seed 90006, 12/15/20 BB): pooled +0.13 to
    *  +0.19 BB per hand against every opponent, no cell below zero. */
   bigBlindClosingShare: number;
+  /** Three-handed final table with pay jumps (every player left is paid),
+   *  small blind against the big blind alone: share of hands played (no big
+   *  blind call there; ceiling maxStackBB). 0 stands aside. Measured
+   *  2026-11-14 (payouts 25/17/13, seed 97003, 8/12/20 BB, PLO4+PLO5,
+   *  conserved ICM equity): +0.008 to +0.023 percent of the pool per hand
+   *  pooled against every opponent, no cell below zero. */
+  payJumpBlindVsBlindShare: number;
 }
 
 export const OMAHA_TOURNAMENT_FIRST_IN: OmahaTournamentFirstInParams = {
   headsUpShare: 1,
   blindVsBlindShare: 1,
   maxStackBB: 20,
+  winnerTakeAllMaxStackBB: 30,
   maxTableSize: 3,
   bigBlindDefendShare: 0.75,
   bigBlindMaxPrice: 0.5,
   bigBlindClosingShare: 0.75,
+  payJumpBlindVsBlindShare: 0.6,
 };
 
 export interface OmahaTournamentFirstInInput {
@@ -89,11 +105,13 @@ export interface OmahaTournamentFirstInInput {
    *  adaptive opponent in every cell, scored in ICM equity. */
   playersLeft: number;
   /** Paid places among the players left (trusted payout curve; NaN when
-   *  unknown). Three-handed the rule acts only when one place is paid (a
-   *  winner-take-all spin): at a three-handed final table with pay jumps the
-   *  2026-11-13 evaluation (R4, seed 90007, payouts 25/17/13, ICM equity)
-   *  lost to the adaptive opponent at every depth and gained nothing against
-   *  the others. Heads-up, ICM is chip-proportional and this does not apply. */
+   *  unknown). Three-handed with one place paid (a winner-take-all spin) the
+   *  full rule acts; with pay jumps and every player left paid only the
+   *  small blind against the big blind alone acts, at payJumpBlindVsBlindShare
+   *  (the 2026-11-13 R4 rejection rested on a scoring error: a busted player
+   *  was valued at 0, not its locked prize); a money bubble or an unknown
+   *  payout stands aside. Heads-up, ICM is chip-proportional and this does
+   *  not apply. */
   paidPlacesLeft: number;
 }
 
@@ -109,8 +127,10 @@ export function omahaTournamentFirstIn(
   if (i.allInOrFold || i.satelliteLocked) return null;
   if (!(i.tableSize >= 2) || i.tableSize > p.maxTableSize) return null;
   if (!(i.playersLeft >= 2) || i.playersLeft > i.tableSize) return null;
-  if (i.tableSize > 2 && i.paidPlacesLeft !== 1) return null;
-  if (!(i.effectiveStackBB > 0) || i.effectiveStackBB > p.maxStackBB) return null;
+  const payJumps = i.tableSize > 2 && i.paidPlacesLeft !== 1;
+  if (payJumps && !(i.paidPlacesLeft > 1 && i.paidPlacesLeft >= i.playersLeft)) return null;
+  const ceilingBB = i.tableSize > 2 && !payJumps ? p.winnerTakeAllMaxStackBB : p.maxStackBB;
+  if (!(i.effectiveStackBB > 0) || i.effectiveStackBB > ceilingBB) return null;
   // Two points of range for each point of the engine's own risk premium,
   // never more than half the range.
   const narrowed = Math.min(0.5, Math.max(0, i.riskPremium) * 2);
@@ -124,10 +144,18 @@ export function omahaTournamentFirstIn(
     // range from the button was measured and rejected (it lost to a big
     // blind that re-shoves against it).
     if (i.position === 'sb' && i.liveOpponents === 1) {
-      return plays(i.tableSize <= 2 ? p.headsUpShare : p.blindVsBlindShare) ? { a: 'jam' } : null;
+      const share =
+        i.tableSize <= 2
+          ? p.headsUpShare
+          : payJumps
+            ? p.payJumpBlindVsBlindShare
+            : p.blindVsBlindShare;
+      return plays(share) ? { a: 'jam' } : null;
     }
     return null;
   }
+  // With pay jumps the big blind keeps the engine's fold.
+  if (payJumps) return null;
   if (
     i.position === 'bb' &&
     i.raises === 1 &&

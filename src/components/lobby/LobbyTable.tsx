@@ -1093,7 +1093,9 @@ function CashStyleCopy({ entry }: { entry: LobbyEntry }) {
      SPACE." A single word takes the bay's full size; the fitter still shrinks
      it to the glass width. */
   return (
-    <span className={`premium-cash-style${lines.length === 1 ? ' premium-cash-style--single' : ''}`}>
+    <span
+      className={`premium-cash-style${lines.length === 1 ? ' premium-cash-style--single' : ''}`}
+    >
       {lines.map((line, index) => (
         <CashStyleLine key={index} text={line.text} title={line.title} />
       ))}
@@ -2620,6 +2622,7 @@ export default function LobbyTable({
                   data-live={entry.live ? 'true' : 'false'}
                   data-players={entry.players}
                   data-capacity={entry.capacity}
+                  data-table-capacity={entry.kind === 'cash' ? entry.raw.max_players : undefined}
                   data-target={entry.game ? 'game' : 'table'}
                   data-warm-table={entry.kind === 'cash' ? entry.id : undefined}
                   className={compactRowClass(entry)}

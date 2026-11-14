@@ -2051,6 +2051,28 @@ for (const [width, heightOverride] of occupiedViewports)
             const source = getComputedStyle(wager.parentElement!);
             const number = (style: CSSStyleDeclaration, name: string) =>
               parseFloat(style.getPropertyValue(name)) || 0;
+            const stack = wager.querySelector('.cp-stacks');
+            const pot =
+              document.querySelector('.pot-display__pile--pot') ??
+              document.querySelector('.pot-area');
+            if (
+              innerWidth > 480 &&
+              innerWidth <= 640 &&
+              innerHeight > innerWidth &&
+              wager.closest('.table-page')?.getAttribute('data-seats') === '9' &&
+              stack &&
+              pot
+            ) {
+              const from = box(stack),
+                to = box(pot);
+              const ring = wager.closest<HTMLElement>('.table-scaler')!;
+              const scale = box(ring).width / ring.offsetWidth;
+              const x = from.left + from.width / 2 + number(moved, '--collect-dx') * scale;
+              const y = from.top + from.height / 2 + number(moved, '--collect-dy') * scale;
+              if (Math.hypot(x - to.left - to.width / 2, y - to.top - to.height / 2) > 2)
+                violations.push(`Collection Missed Pot: ${x},${y} vs ${JSON.stringify(to)}`);
+              continue;
+            }
             for (const axis of ['x', 'y']) {
               const restDelta =
                 number(moved, `--bet-offset-${axis}`) - number(source, `--bet-offset-${axis}`);

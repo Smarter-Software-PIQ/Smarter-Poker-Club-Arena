@@ -290,11 +290,11 @@ describe('the tournament break card', () => {
         myPlayer={{ ...props.topPlayers[0], isCurrentUser: true }}
       />
     );
-    expect(screen.getByText('292.5K')).toHaveAttribute('title', '292,500');
-    expect(screen.getByText('5.1K')).toHaveAttribute('title', '5,166');
+    expect(screen.getByText('292,500')).toHaveAttribute('title', '292,500');
+    expect(screen.getByText('5,166')).toHaveAttribute('title', '5,166');
     const leaders = screen.getByRole('region', { name: 'Chip Leaders' });
     expect(within(leaders).getByText('FISH')).toBeVisible();
-    expect(within(leaders).getByText('910.7K')).toHaveAttribute('title', '910,719');
+    expect(within(leaders).getByText('910,719')).toHaveAttribute('title', '910,719');
     expect(screen.getByText('Your Status')).toBeVisible();
   });
 

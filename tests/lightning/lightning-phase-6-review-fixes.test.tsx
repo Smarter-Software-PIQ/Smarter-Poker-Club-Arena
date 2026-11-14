@@ -237,7 +237,7 @@ describe('1. a Lightning room leaves and adds on through its anchor seat', () =>
     expect(resolver).toContain('lightningAnchorSeat(session)');
     expect(resolver).toContain("return 'unreadable';");
 
-    const leave = sliceMethod(PAGE, 'const handleLeaveTable = async () => {');
+    const leave = sliceMethod(PAGE, 'const handleLeaveTable = async (');
     expect(leave).toContain('await resolveLightningLeave()');
     expect(leave).toMatch(
       // HIT AND RUN (2026-11-06): the confirmation travels as a fifth argument.

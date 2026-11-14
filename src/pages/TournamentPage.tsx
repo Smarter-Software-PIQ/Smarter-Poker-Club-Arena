@@ -1726,7 +1726,7 @@ export default function TournamentPage() {
                   <span className="tourn-value sc-ink--gold">
                     {topBountyCents(mysteryBounty.inventory) > 0
                       ? `${formatCents(topBountyCents(mysteryBounty.inventory), selectedUnitCents)}${moneySuffixAtUnit(selectedUnitCents)}`
-                      : 'Drawn When The Mystery Phase Opens'}
+                      : 'Shown When The Prize Pool Is Finalized'}
                   </span>
                 </div>
                 <div className="tourn-row">

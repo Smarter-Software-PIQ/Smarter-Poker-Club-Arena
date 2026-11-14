@@ -403,3 +403,19 @@ describe('the device constants the phone table publishes', () => {
     expect(writer).toMatch(/if \(phoneSafeTop === null\)/);
   });
 });
+
+describe('the phone table rests just above the complete hero box', () => {
+  it('moves the six and nine seat canvas down without changing its height budget', () => {
+    const css = stripComments(read('src/pages/TablePage.css'));
+    const lowered = css.match(
+      /\.table-page:where\(\[data-seats='6'\], \[data-seats='9'\]\) \.table-container\s*\{\s*padding-top:\s*calc\(var\(--sp-table-top\) \+ ([\d.]+)px\);\s*padding-bottom:\s*calc\(var\(--sp-table-bottom\) - ([\d.]+)px\);\s*\}/
+    );
+    expect(lowered, 'a lower table keeps its existing static height and width').not.toBeNull();
+    const down = Number(lowered![1]);
+    expect(down).toBe(Number(lowered![2]));
+    expect(down).toBeGreaterThan(0);
+    // The full built-app phone witness has a 6.1px minimum gap, including the
+    // hand label. Retain 2px of clearance for subpixel rounding at the rail.
+    expect(down).toBeLessThanOrEqual(6.1 - 2);
+  });
+});

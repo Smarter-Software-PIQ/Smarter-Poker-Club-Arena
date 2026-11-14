@@ -405,6 +405,25 @@ export interface WinLossFigure {
   /** Fees for this exact selected period, never lifetime roster totals. */
   fees?: number;
   downline_fees?: number;
+  /**
+   * The same figures as the exact decimal text Postgres returned (`::text`),
+   * for display. A numeric(20,2) or unconstrained value can carry more digits
+   * than a JavaScript number; the number fields stay for sign and sorting.
+   */
+  net_text?: string | null;
+  fees_text?: string;
+  downline_fees_text?: string;
+}
+
+/** Read the period summary's money columns as decimal text as well as numbers. */
+export const PERIOD_SUMMARY_SELECT =
+  '*,net_text:net::text,fees_text:fees::text,downline_fees_text:downline_fees::text';
+
+/** Exact decimal text from a `::text` column, or undefined when absent or malformed. */
+function decimalText(value: unknown): string | undefined {
+  return typeof value === 'string' && /^-?\d+(\.\d+)?$/.test(value.trim())
+    ? value.trim()
+    : undefined;
 }
 
 export interface MemberWinLoss {
@@ -724,6 +743,7 @@ export const ClubRosterService = {
               p_user_ids: batch,
               p_period: period,
             })
+            .select(PERIOD_SUMMARY_SELECT)
             .setHeader('x-client-info', 'club-arena-member-results/2');
           if (typeof (request as any).abortSignal === 'function') {
             request = (request as any).abortSignal(attemptSignal);
@@ -741,10 +761,16 @@ export const ClubRosterService = {
             Number.isFinite(Number(value));
           if (!validFee(row.fees) || !validFee(row.downline_fees))
             throw new Error('The Period Fee Response Was Incomplete');
+          const netText = row.net === null ? null : decimalText(row.net_text);
+          const feesText = decimalText(row.fees_text);
+          const downlineText = decimalText(row.downline_fees_text);
           out.set(row.user_id, {
             ...winLossFigure(row),
             fees: num(row.fees),
             downline_fees: num(row.downline_fees),
+            ...(netText !== undefined ? { net_text: netText } : {}),
+            ...(feesText !== undefined ? { fees_text: feesText } : {}),
+            ...(downlineText !== undefined ? { downline_fees_text: downlineText } : {}),
           });
         }
       }

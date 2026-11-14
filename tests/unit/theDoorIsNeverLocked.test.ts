@@ -34,10 +34,7 @@ const slice = (from: string, to: string) => {
 };
 
 describe('Leave Table (the menu door)', () => {
-  const body = slice(
-    'const handleLeaveTable = async () => {',
-    'const handleForceLeaveTable = async'
-  );
+  const body = slice('const handleLeaveTable = async (', 'const handleForceLeaveTable = async');
 
   it('never returns silently for a missing user or table', () => {
     // The old first line: `if (!tableId || !userId) return;` - a player whose
@@ -151,10 +148,7 @@ describe('the helpers that make it true', () => {
  */
 describe('the lobby comes first, the cash-out follows', () => {
   it('the menu door navigates BEFORE it awaits the cash-out', () => {
-    const body = slice(
-      'const handleLeaveTable = async () => {',
-      'const handleForceLeaveTable = async'
-    );
+    const body = slice('const handleLeaveTable = async (', 'const handleForceLeaveTable = async');
     const engine = body.indexOf('await tableService.leaveTable(');
     expect(engine).toBeGreaterThan(-1);
     const before = body.slice(0, engine);
@@ -178,7 +172,7 @@ describe('the lobby comes first, the cash-out follows', () => {
   });
 
   it('each door arms a fresh navigation so the second door of a session is not swallowed', () => {
-    const menu = slice('const handleLeaveTable = async () => {', 'const liveSeat = ');
+    const menu = slice('const handleLeaveTable = async (', 'const liveSeat = ');
     expect(menu).toMatch(/leaveNavigatedRef\.current = false;/);
     const force = slice('const handleForceLeaveTable = async () => {', 'const forceLiveSeat = ');
     expect(force).toMatch(/leaveNavigatedRef\.current = false;/);

@@ -1,0 +1,4 @@
+{
+  "_owner": "#10740 (#10758): created by migration 20261113225904, merged after the 04:00 seal of the engine that calls it.",
+  "functions": ["fn_lightning_owed_leave_returns_to_pool"]
+}

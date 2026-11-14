@@ -776,6 +776,28 @@ describe('CashierTradePage club load ordering', () => {
     expect(within(panel).getByLabelText('Club Totals For These Filters')).toHaveTextContent('--');
   });
 
+  it('prints a club total past 15 significant digits exactly, never through a JavaScript number', async () => {
+    // numeric(20,2) and unconstrained sums: the RPC returns exact text.
+    installHistoryTables();
+    installRpc((name) =>
+      Promise.resolve({
+        data:
+          name === 'fn_cashier_history_summary'
+            ? {
+                ...clubHistoryTotals,
+                volume: '123456789012345678.91',
+                cashouts_paid: '0.000000001',
+              }
+            : [],
+        error: null,
+      })
+    );
+    const panel = await openHistory();
+    const totals = within(panel).getByLabelText('Club Totals For These Filters');
+    await waitFor(() => expect(totals).toHaveTextContent('123,456,789,012,345,678.91'));
+    expect(totals).toHaveTextContent('0.000000001');
+  });
+
   it('stops a late incomplete total from scheduling reads after history closes', async () => {
     installHistoryTables();
     const summary = deferred<{ data: unknown; error: null }>();

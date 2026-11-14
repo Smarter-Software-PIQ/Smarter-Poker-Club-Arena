@@ -77,6 +77,7 @@ import { playerDisplayName, PLAYER_NAME_COLUMNS } from '../utils/playerDisplayNa
 import { resolvePageClubId, pickPreferredClubId } from '../utils/resolvePageClubId';
 import { SEND_DESTINATION_LABELS } from '../utils/cashierSendWallets';
 import type { ClubBankRecipientWallet } from '../components/wallet/cashierModes';
+import { sumChips } from '../utils/cashierAmount';
 type AgentTab =
   | 'overview'
   | 'players'
@@ -1206,10 +1207,8 @@ function AgentDashboardContent() {
           >
             <strong>{pendingCashouts.length}</strong> Pending Cashout Request
             {pendingCashouts.length !== 1 ? 's' : ''} -{' '}
-            {fmtChips(
-              pendingCashouts.reduce((sum: number, c: CashoutRequest) => sum + (c.amount || 0), 0)
-            )}{' '}
-            Chips Waiting
+            {fmtChips(sumChips(pendingCashouts.map((c: CashoutRequest) => c.amount || 0)))} Chips
+            Waiting
           </div>
         )}
 
@@ -1282,9 +1281,7 @@ function AgentDashboardContent() {
               <div className="admin-stat-card">
                 <div className="admin-stat-value" style={{ color: '#FA383E' }}>
                   {cashoutsAvailable
-                    ? fmtChips(
-                        pendingCashouts.reduce((s: number, c: CashoutRequest) => s + c.amount, 0)
-                      )
+                    ? fmtChips(sumChips(pendingCashouts.map((c: CashoutRequest) => c.amount)))
                     : 'Unavailable'}
                 </div>
                 <div className="admin-stat-label">Cashout Amount</div>
@@ -1374,10 +1371,7 @@ function AgentDashboardContent() {
               <div className="admin-stat-card">
                 <div className="admin-stat-value">
                   {fmtChips(
-                    filteredPlayers.reduce(
-                      (sum: number, p: DownlineMember) => sum + (p.chip_balance || 0),
-                      0
-                    )
+                    sumChips(filteredPlayers.map((p: DownlineMember) => p.chip_balance || 0))
                   )}
                 </div>
                 <div className="admin-stat-label">Total Chips</div>
@@ -1553,9 +1547,7 @@ function AgentDashboardContent() {
               <div className="admin-stat-card">
                 <div className="admin-stat-value" style={{ color: '#FA383E' }}>
                   {cashoutsAvailable
-                    ? fmtChips(
-                        pendingCashouts.reduce((s: number, c: CashoutRequest) => s + c.amount, 0)
-                      )
+                    ? fmtChips(sumChips(pendingCashouts.map((c: CashoutRequest) => c.amount)))
                     : 'Unavailable'}
                 </div>
                 <div className="admin-stat-label">Total Amount</div>

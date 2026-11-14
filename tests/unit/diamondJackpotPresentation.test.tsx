@@ -106,4 +106,9 @@ it('paid Diamond celebration names the wallet, while chip celebrations retain ta
   expect(screen.queryByText('Chips Added Directly To Your Table Balance!')).toBeNull();
   rerender(<BBJCelebration {...props} asset="chips" />);
   expect(screen.getByText('Chips Added Directly To Your Table Balance!')).toBeTruthy();
+  rerender(<BBJCelebration {...props} asset="chips" chipDestination="wallet" />);
+  expect(screen.getByText('Payout Destination: Your Club Wallet')).toBeTruthy();
+  expect(screen.queryByText('Chips Added Directly To Your Table Balance!')).toBeNull();
+  rerender(<BBJCelebration {...props} asset="chips" chipDestination="wallet" heroShare={0} />);
+  expect(screen.getByText('Payout Destination: Players’ Club Wallets')).toBeTruthy();
 });

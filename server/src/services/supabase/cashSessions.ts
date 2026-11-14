@@ -255,6 +255,53 @@ export async function setCashSessionBlindOff(
 }
 
 /**
+ * #10740: a queued Lightning leave whose cash-out the hand count refused goes
+ * back to the pool as a blind off (fn_lightning_owed_leave_returns_to_pool).
+ * The database asks the leave door itself whether hands are owed and refuses,
+ * writing nothing, for a forced request, a live hand, a stale occupancy or
+ * nothing owed. Null on any failure: nothing changed, ask again next pass.
+ */
+let lastOwedLeaveWarnAt = 0;
+export async function returnOwedLightningLeaveToPool(
+  userId: string,
+  tableId: string,
+  seatNumber: number,
+  occupancyId: string
+): Promise<{ returned: boolean; handsRemaining: number; reason: string | null } | null> {
+  try {
+    const { data, error } = await supabase.rpc('fn_lightning_owed_leave_returns_to_pool', {
+      p_user_id: userId,
+      p_table_id: tableId,
+      p_seat_number: seatNumber,
+      p_occupancy_id: occupancyId,
+    });
+    if (error || !data || typeof data !== 'object' || Array.isArray(data)) {
+      // Asked every release pass while a seat is held; say so once a minute.
+      if (error && Date.now() - lastOwedLeaveWarnAt > 60_000) {
+        lastOwedLeaveWarnAt = Date.now();
+        console.warn(
+          `[cashSessions] owed Lightning leave for ${tableId.slice(0, 8)} not returned: ${error.message}`
+        );
+      }
+      return null;
+    }
+    const row = data as { returned?: unknown; hands_remaining?: unknown; reason?: unknown };
+    const hands = Number(row.hands_remaining);
+    return {
+      returned: row.returned === true,
+      handsRemaining: Number.isFinite(hands) ? Math.max(0, Math.floor(hands)) : 0,
+      reason: typeof row.reason === 'string' ? row.reason : null,
+    };
+  } catch (err: any) {
+    console.warn(
+      `[cashSessions] owed Lightning leave transport failure for ${tableId.slice(0, 8)}:`,
+      err?.message
+    );
+    return null;
+  }
+}
+
+/**
  * HIT AND RUN (Lightning): which of these pool sessions are being blinded off
  * and still owe hands. An unreadable answer is the empty set: the seat then
  * plays on its ordinary clock, which is never a reason to fold a player.

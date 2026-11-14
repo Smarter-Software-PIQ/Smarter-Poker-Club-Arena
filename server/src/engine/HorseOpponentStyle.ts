@@ -398,6 +398,26 @@ export const STYLE_THRESHOLDS = Object.freeze({
    *  pot including his bet). Stands down at or below, full at or above. DEVELOPMENT-derived. */
   raiseSprStandDown: 2,
   raiseSprFull: 6,
+  /** #4: the evidence (magnitude times confidence) at which raise respect reaches full weight; also the least
+   *  confidence the passive read needs before the value-raise arm (#4b) acts at all. */
+  raiseRespectFullEvidence: 0.5,
+  /**
+   * #4b VALUE RAISE (2026-11-14): a turn or river raise over the Horse's own wager from a credibly passive player
+   * is read through a value-heavier raise stratum. Evidence bar: at least this many of his own raise opportunities
+   * on the turn and river together (streets with a Horse reference), on top of the per-street minimum. Weight: 1
+   * while his raise rate on the street is at or below the Horse rate, falling linearly to 0 at twice that rate; and
+   * by raise size, full from valueRaiseFullSize times the bet, half at valueRaiseHalfSize, linear between and below.
+   * CALIBRATE: no league or expected-value validation yet.
+   */
+  valueRaiseMinStreetOpps: 20,
+  valueRaiseFullSize: 3,
+  valueRaiseHalfSize: 2,
+  /**
+   * #4b COMMITMENT PRICE: when a call would leave the raiser at most this share of the pot after the call, the river
+   * wager is already priced in, so the continue decision is taken at the whole-commitment price and a continue puts
+   * the rest in at once.
+   */
+  raiseCommitRemainderMaxPot: 0.25,
   /** #6: tight opener / re-raiser, bounded bar moves. CALIBRATE. */
   tightOpenerMaxBarMove: 0.1,
   tightOpenerCallBump: 0.04,
@@ -424,6 +444,11 @@ export const STYLE_CONSUMER_BOUNDS = Object.freeze({
     unit: 'equity shaded off a one-pair-or-worse call',
     max: STYLE_THRESHOLDS.raiseShadeCap,
     note: 'ramps with decision-time SPR; zero at or below raiseSprStandDown',
+  }),
+  valueRaise: Object.freeze({
+    unit: 'weight of the value-heavy raise stratum in the blended equity (0 to 1)',
+    max: 1,
+    note: 'turn and river, cash, two pair or worse facing a raise over its own wager; scaled by his street raise rate and by the raise size; decides only when the blended equity is under the price laid; never against an unknown, neutral or aggressive read',
   }),
   valueExtraction: Object.freeze({
     unit: 'value size multiplier / value equity bar / slow-play multiplier',
@@ -1865,10 +1890,66 @@ export function raiseRespectShade(
   );
   return (
     T.raiseShadeCap *
-    clamp((s.magnitude * s.confidence) / 0.5, 0, 1) *
+    clamp((s.magnitude * s.confidence) / T.raiseRespectFullEvidence, 0, 1) *
     depth *
     (1 - style.release.fraction) *
     style.confidenceCap
+  );
+}
+
+/**
+ * OPTION #4b - VALUE RAISE (same switch as #4, styleRaiseRespect).
+ *  mechanism   the weight (0 to 1) with which a raise over the Horse's own wager is read as value: the caller blends
+ *              the equity against a value-heavy raise stratum with the plain equity by this weight (times its own
+ *              raise-size weight) and, in a cash pot where the call leaves him almost nothing behind, prices the
+ *              continue at the whole commitment
+ *  applies     hold'em family, cash, heads-up, TURN and RIVER only (never the flop); hero holds two pair or worse
+ *  evidence    all of: (a) the aggression axis credibly passive at confidence >= raiseRespectFullEvidence. That axis
+ *              mixes preflop raising with postflop betting, so (b) its postflop half must carry the read on its own:
+ *              the postflop bet-and-raise share credibly low; (c) the street-raise axis itself: at least
+ *              conditionedMinOpps of his raise opportunities on this street against an in-format Horse reference
+ *              (no reference, no engagement) and at least valueRaiseMinStreetOpps on turn and river together.
+ *              None of it needs showdown memory or a pre-repair statistic.
+ *  magnitude   1 while his raise rate on this street is at or below the Horse rate, linear to 0 at twice the Horse
+ *              rate; times (1 - release) and the confidence cap
+ *  stand-down  unknown, unsupported, neutral or aggressive read (unknown is not tight); a bluff-weighted betting
+ *              range; a high street-raise signal; release >= 0.5 (shrinks proportionally before that)
+ */
+export function valueRaiseWeight(
+  style: OpponentStyleRead | null | undefined,
+  street: 'turn' | 'river'
+): number {
+  if (!actionable(style)) return 0;
+  const T = STYLE_THRESHOLDS;
+  const a = style.aggression;
+  if (a.side !== 'passive' || !a.credible || !(a.confidence >= T.raiseRespectFullEvidence))
+    return 0;
+  if (style.signals.aggressionShare.side !== 'low') return 0;
+  if (style.bettingRange.side === 'bluff-weighted') return 0;
+  const raise = style.signals.streetRaise;
+  const sr = raise?.[street];
+  if (
+    !raise ||
+    !sr ||
+    !(num(sr.n) >= T.conditionedMinOpps) ||
+    !(num(sr.horse) > 0) ||
+    sr.side === 'high'
+  )
+    return 0;
+  if (!(num(raise.turn?.n) + num(raise.river?.n) >= T.valueRaiseMinStreetOpps)) return 0;
+  const ramp = 1 - clamp((num(sr.mean) - num(sr.horse)) / num(sr.horse), 0, 1);
+  return ramp * (1 - style.release.fraction) * style.confidenceCap;
+}
+
+/** #4b: the raise-size weight. `sizeRatio` is the raise-to amount over the wager it raised. */
+export function valueRaiseSizeWeight(sizeRatio: number): number {
+  const T = STYLE_THRESHOLDS;
+  return clamp(
+    0.5 +
+      (0.5 * (num(sizeRatio) - T.valueRaiseHalfSize)) /
+        (T.valueRaiseFullSize - T.valueRaiseHalfSize),
+    0,
+    1
   );
 }
 

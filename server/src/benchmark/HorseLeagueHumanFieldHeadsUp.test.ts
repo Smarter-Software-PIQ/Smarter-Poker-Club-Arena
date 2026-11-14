@@ -15,7 +15,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   HUMAN_HU_BB_DEFENDS_TO_PRICE,
   HUMAN_HU_BB_DEFENDS_TO_PRICE_40BB,
+  HUMAN_HU_BB_DEFENDS_VS_MINRAISE_40BB_READS_OFF,
   HUMAN_HU_COMMIT_UNDER_POT,
+  HU_BB_DEFENDS_TO_PRICE_40BB_READS_OFF,
+  HU_READS_OFF_CARDS,
   HU_EXPLOITER_CARDS,
   HU_LIMP_EVERY_BUTTON_PERSONA,
   HU_MINRAISE_EVERY_BUTTON_PERSONA,
@@ -331,4 +334,143 @@ describe('the heads-up exploiter personas and cards', { timeout: 600_000 }, () =
       expect(shareOf(r.humanResponses?.[node], ...actions)).toBe(share);
     }
   );
+});
+
+/**
+ * THE READS-OFF CARDS (2026-11-13, HU-EVAL-014): huBbDefendsToPrice where the
+ * Horse has no read on its opponent, the case no card measured.
+ */
+describe('the reads-off heads-up cards', { timeout: 600_000 }, () => {
+  const human = HU_READS_OFF_CARDS.find(
+    (m) => m.name === HUMAN_HU_BB_DEFENDS_VS_MINRAISE_40BB_READS_OFF
+  )!;
+  const mirror = HU_READS_OFF_CARDS.find((m) => m.name === HU_BB_DEFENDS_TO_PRICE_40BB_READS_OFF)!;
+
+  it('both are on the nightly set: the flag on against off, 40bb, memory learning off', () => {
+    expect(HU_READS_OFF_CARDS).toHaveLength(2);
+    for (const c of HU_READS_OFF_CARDS) {
+      expect(LEAGUE_MATCHUPS).toContain(c);
+      expect(c).toMatchObject({
+        seats: 2,
+        stackBB: 40,
+        hybridBaseline: true,
+        moodClock: 'deal_seed',
+        memoryLearning: 'off',
+        a: { huBbDefendsToPrice: true },
+        b: {},
+      });
+    }
+    expect(human).toMatchObject({
+      pairs: HUMAN_FIELD_PAIRS,
+      opponentPopulation: HUMAN,
+      humanPersona: HU_MINRAISE_EVERY_BUTTON_PERSONA,
+    });
+    expect(mirror.opponentPopulation).toBeUndefined();
+    expect(mirror.pairs).toBe(6000);
+    expect(new Set(LEAGUE_MATCHUPS.map((m) => m.name)).size).toBe(LEAGUE_MATCHUPS.length);
+  });
+
+  it('they are the existing 40bb cards with learning off and nothing else changed', () => {
+    const { memoryLearning: _h, name: _hn, ...humanRest } = human;
+    const { name: _en, ...exploiter } = HU_EXPLOITER_CARDS.find(
+      (m) => m.humanPersona === HU_MINRAISE_EVERY_BUTTON_PERSONA
+    )!;
+    expect(humanRest).toEqual(exploiter);
+    const { memoryLearning: _m, name: _mn, ...mirrorRest } = mirror;
+    const { name: _bn, ...base } = LEAGUE_MATCHUPS.find(
+      (m) => m.name === 'hu_bb_defends_to_price_40bb'
+    )!;
+    expect(mirrorRest).toEqual(base);
+    // The cards they are built from carry no such option: their rows are unchanged.
+    for (const m of LEAGUE_MATCHUPS) {
+      if (!HU_READS_OFF_CARDS.includes(m)) expect(m.memoryLearning).toBeUndefined();
+    }
+  });
+
+  it('the stored row says the reads were off, on these cards only', () => {
+    expect(leagueResultConfig(human, 'a')).toEqual({
+      huBbDefendsToPrice: true,
+      opponentPopulation: HUMAN,
+      humanPersona: HU_MINRAISE_EVERY_BUTTON_PERSONA,
+      memoryLearning: 'off',
+    });
+    expect(leagueResultConfig(human, 'b')).toEqual({
+      opponentPopulation: HUMAN,
+      humanPersona: HU_MINRAISE_EVERY_BUTTON_PERSONA,
+      memoryLearning: 'off',
+    });
+    expect(leagueResultConfig(mirror, 'a')).toEqual({
+      huBbDefendsToPrice: true,
+      memoryLearning: 'off',
+    });
+    expect(leagueResultConfig(mirror, 'b')).toEqual({ memoryLearning: 'off' });
+    const plain = LEAGUE_MATCHUPS.find((m) => m.name === 'hu_bb_defends_to_price_40bb')!;
+    expect(leagueResultConfig(plain, 'a')).toBe(plain.a);
+  });
+
+  it('the flag still defaults off: the card measures, it switches nothing on', () => {
+    expect(human.b).toEqual({});
+    expect(mirror.b).toEqual({});
+  });
+
+  it.each([
+    [HUMAN_HU_BB_DEFENDS_VS_MINRAISE_40BB_READS_OFF],
+    [HU_BB_DEFENDS_TO_PRICE_40BB_READS_OFF],
+  ])('%s: no decision observes, the arms diverge, nothing illegal', async (name) => {
+    const cardUnderTest = HU_READS_OFF_CARDS.find((m) => m.name === name)!;
+    const observed: unknown[] = [];
+    const original = HorseLogic.decide.bind(HorseLogic);
+    vi.spyOn(HorseLogic, 'decide').mockImplementation((player, gs, style, mods, opts) => {
+      observed.push(opts?.observeMind);
+      return original(player, gs, style, mods, opts);
+    });
+    const r = await runMatchup(cardUnderTest, 300, 20261112);
+    expect(observed.length).toBeGreaterThan(300);
+    expect(new Set(observed)).toEqual(new Set([false]));
+    expect(r.illegalActions).toBe(0);
+    expect(r.truncatedStreets).toBe(0);
+    expect(r.inert).not.toBe(true);
+    expect(r.divergentPairs ?? 0).toBeGreaterThan(0);
+    expect(horseLeagueComputeResponseIsValid({ type: 'MATCHUP_RESULT', jobId: 1, result: r })).toBe(
+      true
+    );
+    if (cardUnderTest.opponentPopulation) {
+      expect(shareOf(r.humanResponses?.['preflop/unopened'], 'raise')).toBe(1);
+    }
+  });
+
+  it('with no read the big blind folds far more to the min-raise than with one, flag off', async () => {
+    // The reason the card exists: the same brain, flag off, 300 pairs each.
+    const plain = HU_EXPLOITER_CARDS.find(
+      (m) => m.humanPersona === HU_MINRAISE_EVERY_BUTTON_PERSONA
+    )!;
+    const foldShare = async (m: LeagueMatchup) => {
+      let faced = 0;
+      let folded = 0;
+      const original = HorseLogic.decide.bind(HorseLogic);
+      const spy = vi
+        .spyOn(HorseLogic, 'decide')
+        .mockImplementation((player, gs, style, mods, opts) => {
+          const d = original(player, gs, style, mods, opts);
+          const facingOnlyOpen =
+            gs.stage === 'preflop' &&
+            (gs.actionHistory?.length ?? 0) === 1 &&
+            opts?.huBbDefendsToPrice !== true;
+          if (facingOnlyOpen) {
+            faced++;
+            if (d.action === 'fold') folded++;
+          }
+          return d;
+        });
+      await runMatchup(m, 300, 20261112);
+      spy.mockRestore();
+      return { faced, share: folded / Math.max(1, faced) };
+    };
+    const noRead = await foldShare(human);
+    const withRead = await foldShare(plain);
+    expect(noRead.faced).toBeGreaterThan(100);
+    expect(withRead.faced).toBeGreaterThan(100);
+    expect(noRead.share).toBeGreaterThan(0.4);
+    expect(noRead.share).toBeGreaterThan(withRead.share + 0.2);
+  });
 });

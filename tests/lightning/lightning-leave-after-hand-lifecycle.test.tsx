@@ -43,13 +43,17 @@ function Page(props: {
 }) {
   const [hand, set] = useState(props.initial);
   setHand = set;
-  const waits = lightningLeaveWaitsForHand({
-    inLightningRoom: true,
-    roomClosed: false,
-    handInProgress: hand.handInProgress,
-    handSettling: hand.handSettling,
-    heroStatus: hand.heroStatus,
-  });
+  const waits = lightningLeaveWaitsForHand(
+    hand.ready
+      ? {
+          stage: hand.handInProgress ? 'flop' : 'waiting',
+          hand_id: 'current',
+          players: [{ user_id: 'u1', is_folded: hand.heroStatus === 'folded' }],
+        }
+      : null,
+    hand.handSettling ? 'current' : null,
+    'u1'
+  );
   const queue = useLightningLeaveAfterHand({
     userId: 'u1',
     poolSessionId: 'pool-1',
@@ -63,10 +67,7 @@ function Page(props: {
       <span data-testid="acting">{waits ? 'acting' : 'idle'}</span>
       <LightningLeaveControl
         clusterId="cluster"
-        onLeave={async () => {
-          if (waits) queue.queue();
-          else await props.leave();
-        }}
+        onLeave={async (stop) => queue.queue(stop.inHand && !waits)}
         queued={queue.queued}
         onCancel={async () => {
           const answer = await props.resume();
@@ -119,6 +120,7 @@ describe('Lightning Leave Next Hand, the whole lifecycle', () => {
   });
 
   it('between hands it leaves at once, nothing queued', async () => {
+    mocks.stop.mockResolvedValue({ ok: true, exited: true, inHand: false });
     const storage = memoryStorage();
     const leave = vi.fn(async () => {});
     render(
@@ -134,6 +136,23 @@ describe('Lightning Leave Next Hand, the whole lifecycle', () => {
     });
     expect(leave).toHaveBeenCalledOnce();
     expect(storage.map.has(KEY)).toBe(false);
+  });
+
+  it('retains an in-hand stop across stale idle snapshots and reload until the reserved deal completes', async () => {
+    const storage = memoryStorage();
+    const leave = vi.fn(async () => {});
+    const props = { storage, leave, resume: vi.fn(), initial: { ...live, handInProgress: false } };
+    const before = render(<Page {...props} />);
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Leave Next Hand' })));
+    expect(storage.map.get(KEY)).toBe('awaiting-hand');
+    before.unmount();
+    render(<Page {...props} />);
+    await act(async () => setHand({ ...props.initial }));
+    expect(leave).not.toHaveBeenCalled();
+    await act(async () => setHand(live));
+    expect(leave).not.toHaveBeenCalled();
+    await act(async () => setHand({ ...live, handSettling: true }));
+    expect(leave).toHaveBeenCalledOnce();
   });
 
   it('a reload mid-hand keeps the queued leave and still leaves when that hand ends', async () => {

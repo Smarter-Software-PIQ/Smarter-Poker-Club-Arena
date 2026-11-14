@@ -1,0 +1,3 @@
+# tests/a-queued-lightning-leave-owing-hands-returns-to-the-pool.law.test.ts
+
+Dan, 2026-11-06 (Hit And Run): a player in profit who leaves early "will be blinded off for the remaining hands". A Lightning leave queued behind a live hand that then owes hands is returned to the pool as that blind off (#10740, migration 20261113225904): the engine-only door asks the leave door what is owed, refuses a forced exit, a live hand or nothing owed, moves no chips, and the anchor judges the count at the database's stack; `scripts/qualify-lightning-owed-leave.mjs` reproduces the strand and proves completion in CI. People and horses alike.

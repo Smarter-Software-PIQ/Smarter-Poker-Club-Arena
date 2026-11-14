@@ -303,6 +303,32 @@ describe('the box in the corner', () => {
     expect(mocks.rpc).toHaveBeenCalledWith('fn_cash_game_lobby', { p_game_id: GAME });
   });
 
+  it('withholds all seat-change buttons on a Lightning feeder while retaining its lobby and move information', async () => {
+    mocks.rpc.mockResolvedValue({ data: lobby(), error: null });
+    render(
+      <>
+        <CashClusterHUD
+          gameId={GAME}
+          seatChangeEnabled={false}
+          onOpenLobby={vi.fn()}
+          onSeatChange={vi.fn()}
+        />
+        <MustMoveLobbyModal
+          isOpen
+          gameId={GAME}
+          currentTableId={FEEDER}
+          seatChangeEnabled={false}
+          onClose={vi.fn()}
+        />
+      </>
+    );
+    await waitFor(() =>
+      expect(screen.getByText('You Are Number 2 On The Must Move List.')).toBeTruthy()
+    );
+    expect(screen.queryByText('Seat Change')).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Request/ })).toBeNull();
+  });
+
   it('puts LOBBY in the action pill row, hamburger-sized, on cluster tables only', () => {
     const page = read('src/pages/MultiTablePage.tsx');
     /* The button exists and asks THIS table for its lobby over the bus - the

@@ -29,12 +29,14 @@
  *      folded changes nothing.
  *   3. Response: against proven tight play the Horse keeps exactly its
  *      unknown-opponent baseline (the engine has no preflop tight exploit);
- *      against an observed raiser it stops shoving and calls or folds; it
- *      re-raises the open of a player who raises every hand and calls the
- *      open of a selective re-raiser.
+ *      against an observed raiser the price arithmetic decides: it calls, and
+ *      where it refuses the range play decides (PLO6-AUDIT-013), so the Horse
+ *      never folds there a hand it shoves against everyone else; it re-raises
+ *      the open of a player who raises every hand and calls the open of a
+ *      selective re-raiser.
  *   4. The receipt maniac_pressure_preflop fires for an unknown opponent too
- *      (the Omaha presumption supplies the width), so the receipt alone does
- *      not show that a maniac was observed.
+ *      (the Omaha presumption supplies the width), so that receipt alone does
+ *      not show that a maniac was observed; observed_maniac_raiser_seen does.
  *
  * This file records behaviour; it is not a statement that each response is
  * the best play. If a deliberate change to the shared Omaha read or to these
@@ -139,7 +141,8 @@ function decideAt(
   ord: number,
   cls: OpponentClass,
   seat: number,
-  edit?: (gs: Record<string, unknown>) => void
+  edit?: (gs: Record<string, unknown>, hero: { cards: unknown[] }) => void,
+  opts: Record<string, unknown> = {}
 ): Cell {
   const st = stateAt(FX, FX.actions.find((a) => a.ord === ord)!);
   const gs = structuredClone(st.gs) as unknown as Record<string, unknown>;
@@ -149,7 +152,7 @@ function decideAt(
   for (const a of gs.actionHistory as { seat: number; userId: string }[]) a.userId = uid(a.seat);
   if (Array.isArray(gs.humanUserIds))
     gs.humanUserIds = (gs.humanUserIds as string[]).map((id) => uid(Number(id.slice(1))));
-  edit?.(gs);
+  edit?.(gs, hero as unknown as { cards: unknown[] });
   const cell: Cell = { actions: {}, receipts: {} };
   for (const profile of replayProfiles('cash')) {
     for (const seed of COMPLAINT_SEEDS) {
@@ -162,7 +165,7 @@ function decideAt(
         HorseMind.importDurableOpponentProfiles([
           {
             user_id: uid(seat),
-            variant: 'plo6',
+            variant: (gs.gameVariant ?? 'plo6') as 'plo6' | 'plo5',
             mode: 'cash',
             size: 'full',
             observed_hands: 300,
@@ -173,6 +176,7 @@ function decideAt(
       drainFires();
       const decision = HorseLogic.decide(hero, gs as never, profile.style, profile.mods, {
         telemetry: true,
+        ...opts,
       } as never);
       for (const fire of drainFires())
         cell.receipts[fire.feature] = (cell.receipts[fire.feature] ?? 0) + fire.fires;
@@ -301,15 +305,61 @@ describe('PLO6 response: the same node against each class of raiser', () => {
     }
   );
 
-  it.each(OBSERVED_RAISERS)(
-    '%s: an observed raiser is called or folded to, never shoved on',
-    (cls) => {
-      const four = decideAt(FOUR_BET_NODE, cls, FOUR_BETTOR);
-      expect(four.actions.all_in).toBeUndefined();
-      expect(four.actions.call).toBeGreaterThan(four.actions.fold ?? 0);
-      expect(four.receipts.plo_opponent_presumption_disproved).toBeUndefined();
+  // PLO6-AUDIT-013. Before plo6ManiacPriceRefusalToRangePlay the refused seeds
+  // were folds, so the Horse played tighter against an observed raiser than
+  // against anyone else. A refusal now goes to the range play, which shoves here.
+  const REFUSED = { sustained: 18, selective: 12, wasRaisingNowQuiet: 18 } as const;
+  const REFUSAL = 'plo6_maniac_price_refusal_range_play_seen';
+  const OFF = { plo6ManiacPriceRefusalToRangePlay: false };
+
+  it.each(OBSERVED_RAISERS)('%s: an observed raiser is never folded to at the deep node', (cls) => {
+    const refused = REFUSED[cls as keyof typeof REFUSED];
+    const four = decideAt(FOUR_BET_NODE, cls, FOUR_BETTOR);
+    expect(four.actions).toEqual({ call: CELL - refused, all_in: refused });
+    expect(four.receipts[REFUSAL]).toBe(refused);
+    expect(four.receipts.plo_opponent_presumption_disproved).toBeUndefined();
+  });
+
+  it.each(OBSERVED_RAISERS)('%s: with the option off the refused seeds fold, as before', (cls) => {
+    const refused = REFUSED[cls as keyof typeof REFUSED];
+    const four = decideAt(FOUR_BET_NODE, cls, FOUR_BETTOR, undefined, OFF);
+    expect(four.actions).toEqual({ call: CELL - refused, fold: refused });
+    expect(four.receipts[REFUSAL]).toBeUndefined();
+  });
+
+  it('the option moves nothing against an unknown, sparse, tight or newly raising raiser', () => {
+    for (const cls of ['unknown', 'sparse', 'wasQuietNowRaising', ...TIGHT] as const) {
+      const on = decideAt(FOUR_BET_NODE, cls, FOUR_BETTOR);
+      expect(on.actions, cls).toEqual(
+        decideAt(FOUR_BET_NODE, cls, FOUR_BETTOR, undefined, OFF).actions
+      );
+      expect(on.receipts[REFUSAL], cls).toBeUndefined();
     }
-  );
+  });
+
+  it('the option moves nothing at the open node, where the arithmetic is not used', () => {
+    for (const cls of OBSERVED_RAISERS) {
+      const on = decideAt(OPEN_NODE, cls, FIRST_RAISER);
+      expect(on.actions, cls).toEqual(
+        decideAt(OPEN_NODE, cls, FIRST_RAISER, undefined, OFF).actions
+      );
+      expect(on.receipts[REFUSAL], cls).toBeUndefined();
+    }
+  });
+
+  it('scope: the same node dealt as PLO5 keeps the fold, option on or off', () => {
+    const asPlo5 = (gs: Record<string, unknown>, hero: { cards: unknown[] }) => {
+      gs.gameVariant = 'plo5';
+      hero.cards = hero.cards.slice(0, 5);
+    };
+    const on = decideAt(FOUR_BET_NODE, 'sustained', FOUR_BETTOR, asPlo5);
+    const off = decideAt(FOUR_BET_NODE, 'sustained', FOUR_BETTOR, asPlo5, OFF);
+    // Not vacuous: the PLO5 deal does reach the refusal and folds it.
+    expect(on.actions.fold ?? 0).toBeGreaterThan(0);
+    expect(on.actions.all_in).toBeUndefined();
+    expect(on.actions).toEqual(off.actions);
+    expect(on.receipts[REFUSAL]).toBeUndefined();
+  });
 
   it.each(['sustained', 'wasRaisingNowQuiet'] as const)(
     "%s: that player's open is re-raised, never folded to",
@@ -348,6 +398,21 @@ describe('PLO6 response: the same node against each class of raiser', () => {
     expect(decideAt(FOUR_BET_NODE, 'sustained', FOUR_BETTOR).receipts.maniac_pressure_preflop).toBe(
       CELL
     );
+  });
+
+  it('observed_maniac_raiser_seen fires only for an observed raiser the Horse faces (PLO6-AUDIT-015)', () => {
+    const fires = (cell: Cell) => cell.receipts.observed_maniac_raiser_seen ?? 0;
+    expect(fires(baseline13)).toBe(0);
+    expect(fires(baseline7)).toBe(0);
+    for (const cls of ['sparse', 'wasQuietNowRaising', ...TIGHT] as const)
+      expect(fires(decideAt(FOUR_BET_NODE, cls, FOUR_BETTOR)), cls).toBe(0);
+    for (const cls of OBSERVED_RAISERS) {
+      expect(fires(decideAt(FOUR_BET_NODE, cls, FOUR_BETTOR)), cls).toBe(CELL);
+      expect(fires(decideAt(OPEN_NODE, cls, FIRST_RAISER)), cls).toBe(CELL);
+      // The same record on a player who is not the raiser faced is not counted.
+      expect(fires(decideAt(FOUR_BET_NODE, cls, FIRST_RAISER)), cls).toBe(0);
+      expect(fires(decideAt(FOUR_BET_NODE, cls, FOLDED_CALLER)), cls).toBe(0);
+    }
   });
 
   it('floor control: without the table VPIP floor the baseline is not a shove', () => {

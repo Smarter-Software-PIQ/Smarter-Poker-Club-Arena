@@ -163,9 +163,9 @@ it('mounts the actual shared workspace and weekly reader even when club applicab
   fireEvent.change(await screen.findByLabelText('Week Ending Monday'), {
     target: { value: '2026-09-14' },
   });
-  expect(await screen.findByText('100 Chips')).toBeInTheDocument();
-  expect(screen.getByText('60 Chips')).toBeInTheDocument();
-  expect(screen.getByText('40 Chips')).toBeInTheDocument();
+  expect(await screen.findByText('100.25 Chips')).toBeInTheDocument();
+  expect(screen.getByText('60.20 Chips')).toBeInTheDocument();
+  expect(screen.getByText('40.05 Chips')).toBeInTheDocument();
   expect(screen.queryByText('999 Chips')).not.toBeInTheDocument();
   expect(
     await screen.findByText(/A Standalone Club Run Could Not Be Established/)
@@ -190,6 +190,6 @@ it('keeps weekly statements visible when an invalid date is chosen without query
   });
   const calls = m.rpc.mock.calls.length;
   expect(screen.getByText('Choose A Valid Monday For The Accounting Week.')).toBeInTheDocument();
-  expect(await screen.findByText('40 Chips')).toBeInTheDocument();
+  expect(await screen.findByText('40.05 Chips')).toBeInTheDocument();
   expect(m.rpc).toHaveBeenCalledTimes(calls);
 });

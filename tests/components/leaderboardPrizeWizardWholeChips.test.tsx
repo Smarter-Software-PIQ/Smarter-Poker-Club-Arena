@@ -134,8 +134,8 @@ describe('the prize wizard prints whole chips and publishes exactly what it show
     } as LeaderboardSettings);
     await user.click(screen.getByRole('button', { name: /Yes, Show Prizes/i }));
     await user.click(screen.getByRole('button', { name: 'Continue' }));
-    // A balance at a glance stays compact.
-    expect(screen.getByText('1.2M')).toBeInTheDocument();
+    // The balance prints exactly, cents included (Dan 2026-11-13).
+    expect(screen.getByText('1,234,567.89')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Continue' }));
 
     // Balanced on 12,345 is 6,172.50 / 3,703.50 / 2,469 in cents.
@@ -149,7 +149,17 @@ describe('the prize wizard prints whole chips and publishes exactly what it show
     expect(reviewRow('Monthly Places')).toBe('24,691 / 14,815 / 9,876');
     expect(reviewRow('Monthly Total')).toBe('49,382 Chips');
     expect(reviewRow('Combined Commitment')).toBe('61,727 Chips');
-    expect(screen.queryByText(/\d\.\dK Chips|\d\.\d{2}/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/\d(\.\d)?[KMB]\b/)).not.toBeInTheDocument();
+    // Prizes stay whole chips: no confirmed prize figure carries a decimal.
+    for (const row of [
+      'Weekly Places',
+      'Weekly Total',
+      'Monthly Places',
+      'Monthly Total',
+      'Combined Commitment',
+    ]) {
+      expect(reviewRow(row)).not.toMatch(/\.\d/);
+    }
 
     await user.click(screen.getByRole('button', { name: 'Publish Prize Program' }));
     await waitFor(() => expect(saveLeaderboardRewardSetup).toHaveBeenCalledTimes(1));

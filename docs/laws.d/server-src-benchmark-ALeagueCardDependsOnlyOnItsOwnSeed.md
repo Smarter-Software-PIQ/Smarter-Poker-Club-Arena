@@ -1,0 +1,3 @@
+# server/src/benchmark/ALeagueCardDependsOnlyOnItsOwnSeed.law.test.ts
+
+A league card's result is a function of its own definition and seed: the same card gives the same answer run first, after another card, or beside one, and two identical arms never diverge, because both passes of a duplicate pair are dealt on one hand clock that depends on the run seed and the pair and on nothing else, so another seed is another draw (HU-EVAL-003/004, 2026-11-13: the process-wide timestamp counter made the 80bb heads-up mirror read -4.86 run first and -8.10 run second, and split identical arms at pair 803 against the limp persona).

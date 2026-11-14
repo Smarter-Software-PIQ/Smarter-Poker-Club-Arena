@@ -809,7 +809,8 @@ function RankingTabForTournament({
     () => living.reduce((sum, e) => sum + (Number(e.chips) || 0), 0),
     [living]
   );
-  const avgStack = living.length > 0 ? totalChips / living.length : 0;
+  // Whole chips, as DetailOverviewTab, TournamentHUD and TournamentBreakScreen read it.
+  const avgStack = living.length > 0 ? Math.trunc(totalChips / living.length) : 0;
   const leaderChips = living.length > 0 ? Number(living[0].chips) || 0 : 0;
 
   const bigBlind = useMemo(() => {

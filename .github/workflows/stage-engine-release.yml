@@ -18,7 +18,9 @@ name: Stage Exact Club Arena Engine Release
 # pushes, automatic push-Backup completions and the existing schedule compete
 # for one dated reservation. Its original job waits once until the cutoff,
 # refreshes protected source, then uses the same selection and receiver.
-# A missed date, changed release authority or failed owner never gains a retry.
+# A missed date or failed owner never gains a retry. Changed release authority
+# is not a retry: the date belongs to the first run reserved under the release
+# controls the cutoff binds, and a run reserved under older controls refuses.
 run-name: ${{ github.event_name == 'repository_dispatch' && (github.event.action == 'prepare-daily-engine' && github.event.sender.type == 'User' && 'Original operator daily preparation' || 'Operator request outside election') || github.event_name == 'workflow_run' && (github.event.workflow_run.event == 'push' && github.event.workflow_run.path == '.github/workflows/backup-engine.yml' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.conclusion == 'success' && 'Automatic Backup daily reservation' || 'Backup completion outside election') || 'Daily engine reservation' }}
 on:
   repository_dispatch:
@@ -189,15 +191,45 @@ jobs:
             trap 'rm -f -- "$runs_file"' EXIT
             if gh api --paginate --slurp "repos/$REPO/actions/workflows/stage-engine-release.yml/runs?created=${window_start}..${window_end}&per_page=100" > "$runs_file"; then
               verdict=$(RUNS_FILE="$runs_file" WINDOW_START="$window_start" WINDOW_END="$window_end" CUTOFF_EPOCH="$cutoff_epoch" python3 - <<'PYTHON'
-          import json, os
+          import importlib.util, json, os, re, sys
           from datetime import datetime
           def when(value):
               moment = datetime.fromisoformat(value.replace("Z", "+00:00"))
               if moment.utcoffset() is None:
                   raise ValueError("run time has no timezone")
               return moment
+          # THE DATE FOLLOWS THE RELEASE CONTROLS (2026-11-13). The cutoff step
+          # refuses a run whose own source carries other release controls than
+          # protected main at the cutoff ("never execute new release authority
+          # under an old reservation owner"). The election used to hand the
+          # date to the earliest run regardless, so one release-control merge
+          # during the five-hour reservation (an owner-window booking in
+          # server/release/owner-maintenance-windows.json, 2026-11-11 and
+          # 2026-11-13) stranded the whole day: the owner refused at 03:30 and
+          # every later run, which carried the new controls, had deferred to it.
+          # EngineCutoverMissed fired both mornings. An earlier run reserved
+          # under different release controls than this run's source is not an
+          # owner, so the first run carrying the controls the cutoff binds owns
+          # the date and nothing runs under older authority. A projection that
+          # cannot be read keeps the earlier run as owner, as before.
+          def authority_reader():
+              try:
+                  spec = importlib.util.spec_from_file_location("qualification", "scripts/ci/read-engine-prequalification.py")
+                  module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+                  return module
+              except Exception:
+                  return None
+          reader = authority_reader()
+          def authority(sha):
+              if reader is None or not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{40}", sha):
+                  return None
+              try:
+                  return reader.projection(sha, release_authority=True)
+              except Exception:
+                  return None
           try:
               me = int(os.environ["RUN_ID"])
+              mine = authority(os.environ.get("GITHUB_SHA", ""))
               start, end = when(os.environ["WINDOW_START"]), when(os.environ["WINDOW_END"])
               with open(os.environ["RUNS_FILE"], encoding="utf-8") as source:
                   document = json.load(source)
@@ -223,6 +255,10 @@ jobs:
                   if type(run.get("id")) is not int:
                       raise ValueError("run id unreadable")
                   if run["id"] < me:
+                      theirs = authority(run.get("head_sha")) if mine is not None else None
+                      if theirs is not None and theirs != mine:
+                          print(f"Earlier run {run['id']} reserved under other release controls; it cannot own this date.", file=sys.stderr)
+                          continue
                       earlier.append(run["id"])
               if earlier:
                   print("false", min(earlier))
@@ -279,6 +315,9 @@ jobs:
         env:
           CUTOFF_EPOCH: ${{ steps.admission.outputs.cutoff_epoch }}
           OWNER_WINDOW_ID: ${{ steps.admission.outputs.owner_window_id }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          THIS_RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
           # Admission already validated the exact finite owner dispatch. It
@@ -299,13 +338,40 @@ jobs:
           control=$(git rev-list --first-parent -1 --before="@$CUTOFF_EPOCH" refs/remotes/origin/main)
           [[ "$control" =~ ^[0-9a-f]{40}$ ]]
           # Never execute new release authority under an old reservation owner.
-          CONTROL="$control" python3 - <<'PYTHON'
+          if ! CONTROL="$control" python3 - <<'PYTHON'
           import importlib.util, os
           spec = importlib.util.spec_from_file_location("qualification", "scripts/ci/read-engine-prequalification.py")
           module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
           if module.projection(os.environ["GITHUB_SHA"], release_authority=True) != module.projection(os.environ["CONTROL"], release_authority=True):
               raise SystemExit("Release controls changed during reservation; keep serving.")
           PYTHON
+          then
+            # A REFUSED RESERVATION DEFERS ITS WINDOW MIGRATIONS TO THE RUN
+            # THAT OWNS THE DATE (owner instruction, 2026-11-14). The controls
+            # changed because a later protected-main push carried them, and
+            # that push's own run now owns this date (#10765). When that
+            # successor is visible, this run names no window-migration source,
+            # so the installer is launched once, by the owner, instead of by
+            # every refused reservation at the same instant (three runs on
+            # 2026-11-14, two cancelled with zero steps by the concurrency
+            # group). When no successor is visible, or the list cannot be
+            # read, the fallback below still names protected main, because a
+            # refusal must never again cost the migrations their break
+            # (2026-11-10 and 2026-11-11). UNKNOWN is said as unknown.
+            successor=unknown
+            if runs=$(gh api "repos/$REPO/actions/workflows/stage-engine-release.yml/runs?event=push&branch=main&per_page=100" 2>/dev/null); then
+              successor=$(printf '%s' "$runs" | jq -r --argjson me "${THIS_RUN_ID:-0}" \
+                '[.workflow_runs[] | select(.id > $me and (.status == "in_progress" or .status == "queued" or .status == "waiting")) | .id] | min // empty')
+              [ -n "$successor" ] || successor=none
+            fi
+            echo "successor=$successor" >> "$GITHUB_OUTPUT"
+            case "$successor" in
+              unknown) echo '::notice::The successor run list could not be read; window migrations fall back to protected main.' ;;
+              none) echo '::notice::No later run of this workflow is active; window migrations fall back to protected main.' ;;
+              *) echo "Later run $successor owns this date and installs the window migrations; this refused reservation names no window-migration source." ;;
+            esac
+            exit 1
+          fi
           echo "sha=$control" >> "$GITHUB_OUTPUT"
 
       - name: Compare the complete server tree
@@ -457,11 +523,16 @@ jobs:
         env:
           CUTOFF_EPOCH: ${{ steps.admission.outputs.cutoff_epoch }}
           BOUND_SHA: ${{ steps.cutoff.outputs.sha }}
+          SUCCESSOR_RUN: ${{ steps.cutoff.outputs.successor }}
         run: |
           set -euo pipefail
           if [ -n "${BOUND_SHA:-}" ]; then
             [[ "$BOUND_SHA" =~ ^[0-9a-f]{40}$ ]]
             echo "sha=$BOUND_SHA" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ "${SUCCESSOR_RUN:-}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Refused reservation: later run $SUCCESSOR_RUN owns this date; no window-migration source from this run."
             exit 0
           fi
           [[ "$CUTOFF_EPOCH" =~ ^[1-9][0-9]*$ ]]

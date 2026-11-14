@@ -47,11 +47,11 @@ describe('Credit admin tracks the Agent Wallet shortfall', () => {
     expect(readCreditMoney('1.2300')).toBe(1.23);
   });
 
-  it('keeps exact cents in data while compacting forward-facing chip display', () => {
+  it('keeps exact cents in data while printing the exact chip figure', () => {
     expect(readCreditMoney('100.25')).toBe(100.25);
     expect(creditAdminMoney(100)).toBe('100');
-    expect(creditAdminMoney(100.25)).toBe('100');
-    expect(creditAdminMoney(1290.99)).toBe('1.2K');
+    expect(creditAdminMoney(100.25)).toBe('100.25');
+    expect(creditAdminMoney(1290.99)).toBe('1,290.99');
   });
 
   it('refuses cents lost during number conversion even below the safe integer cent bound', () => {

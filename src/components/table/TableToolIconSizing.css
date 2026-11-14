@@ -18,8 +18,7 @@
 
    --sp-table-tool-frame is the painted square, and it defaults to the same
    control the hamburger is sized from, so the two can no longer disagree.
-   --sp-game-tool-size keeps its own consumers (the add-chips button, the seat
-   change dock) and is NOT what this reads any more.
+   --sp-game-tool-size keeps its own consumers (such as the add-chips button) and is NOT what this reads any more.
 
    The img BOX is the frame times the art's gutter scale, so it is ~1.25x the
    frame and overflows the 52px tile by about 7px a side. That is transparent

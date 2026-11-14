@@ -128,6 +128,7 @@ import {
 import { buildInventoryAtUnit, poolCentsFromNumeric } from './mysteryBountyPool.js';
 import { shuffleChests } from './mysteryBountyDraw.js';
 import {
+  mysteryBountyThresholdPlayers,
   mysteryBountyThresholdReached,
   mysteryPoolCents,
   mysteryBountyFieldTooSmall,
@@ -5920,6 +5921,10 @@ export abstract class TournamentManagerBase {
   protected mysteryBountyStage: MysteryBountyStage = 'pending';
   /** Guard against two sweeps overlapping across an await. */
   private mysteryBountySeeding = false;
+  /** The ladder has been sealed for the lobby (or the database says it was). */
+  private mysteryLadderSealed = false;
+  /** Earliest time the next seal attempt may run after one that failed. */
+  private mysteryLadderSealRetryAt = 0;
   /**
    * Every entry this event took - one per registration plus one per rebuy or
    * re-entry, which both increment `tournament_players.rebuys` on the one row
@@ -6230,6 +6235,17 @@ export abstract class TournamentManagerBase {
     if (decision.activate || decision.reason === 'hand_in_progress') {
       this.holdMysteryActivationBoundary();
     }
+    if (!decision.activate && decision.reason === 'threshold_not_reached') {
+      await this.maybeSealMysteryLadder(
+        fresh,
+        poolCents,
+        chestUnitCents,
+        playersRemaining,
+        activationMode,
+        totalEntries,
+        paidPlaces
+      );
+    }
     if (!decision.activate) return decision.reason === 'hand_in_progress';
 
     /* A BUST BELONGS TO THE PHASE ITS HAND WAS PLAYED IN (2026-09-11,
@@ -6351,6 +6367,98 @@ export abstract class TournamentManagerBase {
       return true;
     } finally {
       this.mysteryBountySeeding = false;
+    }
+  }
+
+  /**
+   * Seal the mystery ladder for the lobby as soon as entry has closed.
+   *
+   * Dan, 2026-11-13, verbatim: "ONCE THE PRIZE POOL IS 'FINALIZED' (AFTER THE
+   * ADD ON PERIOD) ALL MYSTERY BOUNTY PRIZES SHOULD BE SHOWN... DO NOT WAIT
+   * UNTIL PLAYERS ARE ITM TO REVEAL MYSTERY BOUNTY PRIZES."
+   *
+   * The pool cannot move once entry is closed, so the ladder is cut from the
+   * actual total, for the players who will be left when the phase opens, by
+   * the same builder the activation uses. `fn_mystery_bounty_seal` stores it
+   * and `fn_mystery_bounty_inventory` lists it; nothing is paid from it. When
+   * the phase opens, `fn_mystery_bounty_seed` puts these exact chests into
+   * play if the count and the pool still match.
+   */
+  protected async maybeSealMysteryLadder(
+    fresh: any,
+    poolCents: number,
+    chestUnitCents: number,
+    playersRemaining: number,
+    activationMode: MysteryBountyActivationMode,
+    totalEntries: number,
+    paidPlaces: number
+  ): Promise<void> {
+    if (this.mysteryLadderSealed) return;
+    // The field the phase opens at; never more players than are left now.
+    const playersAtOpen = Math.min(
+      playersRemaining,
+      mysteryBountyThresholdPlayers(
+        activationMode,
+        fresh.mystery_bounty_activation_value,
+        totalEntries,
+        paidPlaces
+      )
+    );
+    if (Date.now() < this.mysteryLadderSealRetryAt) return;
+    if (!Number.isSafeInteger(playersAtOpen) || playersAtOpen < 2 || !(poolCents > 0)) return;
+    // One attempt a minute at most: a refusal is stable until something changes.
+    this.mysteryLadderSealRetryAt = Date.now() + 60_000;
+    try {
+      const profile = resolveMysteryBountyProfile(fresh.mystery_bounty_profile);
+      const topPercent =
+        fresh.mystery_bounty_top_percent == null
+          ? DEFAULT_TOP_BOUNTY_PERCENT
+          : Number(fresh.mystery_bounty_top_percent);
+      const chests = shuffleChests(
+        buildInventoryAtUnit(poolCents, playersAtOpen - 1, profile, topPercent, chestUnitCents)
+      ).map((c) => ({ tier: c.tier, amount_cents: c.amountCents, seq: c.seq }));
+      const { data, error } = await supabase.rpc('fn_mystery_bounty_seal', {
+        p_tournament_id: this.tournamentId,
+        p_players_at_open: playersAtOpen,
+        p_chests: chests,
+      });
+      if (error) {
+        reportError(
+          new Error(
+            `[Tournament:${this.tournamentId.slice(0, 8)}] mystery ladder seal failed (${error.message})`
+          ),
+          'Tournament.mystery_ladder_seal_failed'
+        );
+        return;
+      }
+      const res = (data ?? {}) as {
+        ok?: boolean;
+        reason?: string;
+        already_sealed?: boolean;
+        pool_cents?: number;
+        chests?: number;
+      };
+      if (!res.ok) {
+        if (res.reason === 'already_activated') this.mysteryLadderSealed = true;
+        else if (res.reason !== 'entry_still_open') {
+          reportError(
+            new Error(
+              `[Tournament:${this.tournamentId.slice(0, 8)}] mystery ladder seal refused: ${res.reason}`
+            ),
+            'Tournament.mystery_ladder_seal_refused'
+          );
+        }
+        return;
+      }
+      this.mysteryLadderSealed = true;
+      if (!res.already_sealed) {
+        await this.broadcast('mystery_bounty_sealed', {
+          poolCents: Number(res.pool_cents) || poolCents,
+          chests: Number(res.chests) || playersAtOpen - 1,
+        });
+      }
+    } catch (err) {
+      reportError(err, 'Tournament.mystery_ladder_seal_threw');
     }
   }
 

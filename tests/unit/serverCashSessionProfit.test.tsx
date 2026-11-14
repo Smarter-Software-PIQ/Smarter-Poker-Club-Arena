@@ -117,6 +117,29 @@ describe('server-owned cash session profit', () => {
     );
   });
 
+  it('waits for the hand facts that land just after hand_history before reporting coverage', async () => {
+    const { reportError } = await import('../../src/utils/errorReporter');
+    mocks.rpc.mockResolvedValue(identity(3));
+    let reads = 0;
+    mocks.from.mockImplementation(() => {
+      reads += 1;
+      return reads === 1
+        ? page([
+            { hand_id: 'one', net: 1 },
+            { hand_id: 'two', net: 2 },
+          ])
+        : page([
+            { hand_id: 'one', net: 1 },
+            { hand_id: 'two', net: 2 },
+            { hand_id: 'three', net: 3 },
+          ]);
+    });
+    const view = renderHook(() => useServerCashSessionProfit('hero', 'table', true));
+    await waitFor(() => expect(view.result.current.table?.net).toBe(6), { timeout: 3000 });
+    expect(reportError).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
   it('updates from settled-hand events and reconnects, with no aggregation timer', async () => {
     const view = renderHook(() => useServerCashSessionProfit('hero', 'table', true));
     await waitFor(() => expect(view.result.current.table?.net).toBe(19.3));

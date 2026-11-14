@@ -21,7 +21,8 @@ import { describe, expect, it, vi } from 'vitest';
 // them out. 90s is 30x the measured solo runtime - past anything observed,
 // and still a real bound, so a genuinely hung child still fails the suite.
 // File-scoped on purpose: no global testTimeout, no --no-file-parallelism.
-vi.setConfig({ testTimeout: 90_000 });
+const SUBPROCESS_TEST_TIMEOUT_MS = 90_000;
+vi.setConfig({ testTimeout: SUBPROCESS_TEST_TIMEOUT_MS });
 
 const root = resolve(__dirname, '..');
 const transaction = readFileSync(
@@ -450,7 +451,7 @@ exit 91
         [join(generation, 'engine-release-transaction.sh'), '--run-id', runKey],
         {
           encoding: 'utf8',
-          timeout: 30_000,
+          timeout: SUBPROCESS_TEST_TIMEOUT_MS,
           killSignal: 'SIGKILL',
           env: {
             ...process.env,

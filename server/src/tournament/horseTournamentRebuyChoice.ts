@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { isMidwayFreeBuy } from './midwayFreeBuyPolicy.js';
+import { guaranteeShortNow } from '../services/horseOverlayCover.js';
 
 /** Share of eligible tournament busts on which a horse buys back in.
  *
@@ -17,6 +18,10 @@ export const MIDWAY_FREE_BUY_HORSE_REBUY_SHARE = 0.9;
 export function horseTournamentRebuyShareFor(
   row: Record<string, unknown> | null | undefined
 ): number {
+  /* Owner 2026-11-13: while an event's guarantee is not covered, every
+     eligible bust buys back in. The rebuy period, the event's own cap and the
+     wallet still decide whether the purchase is made. */
+  if (row && guaranteeShortNow(typeof row.id === 'string' ? row.id : null)) return 1;
   return row && isMidwayFreeBuy(row)
     ? MIDWAY_FREE_BUY_HORSE_REBUY_SHARE
     : HORSE_TOURNAMENT_REBUY_SHARE;

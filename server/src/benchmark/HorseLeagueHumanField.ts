@@ -105,7 +105,22 @@ export const HU_MINRAISE_EVERY_BUTTON_PERSONA = 'hu_minraise_every_button_v1' as
 export const HU_LIMP_EVERY_BUTTON_PERSONA = 'hu_limp_every_button_v1' as const;
 export const HU_THREE_BET_EVERY_HAND_PERSONA = 'hu_three_bet_every_hand_v1' as const;
 export const HU_SMALL_STAB_EVERY_STREET_PERSONA = 'hu_small_stab_every_street_v1' as const;
+/**
+ * THE OMAHA TIGHT FIELD (2026-11-13, the omahaTightOpponent evaluation). The
+ * Omaha development field's own profile (HUMAN_CALIBRATED_OMAHA_DEV_POPULATION_ID)
+ * with its preflop entry pushed to a proven nit: first in it raises the top 2%
+ * of hands and limps the next 0.5%, facing a raise it re-raises the top 1% and
+ * calls the next 2%, and over a limp it raises 2% of big blinds (calibrated:
+ * fold < 0.63 / raise >= 0.72 first in, < 0.63 / >= 0.83 facing a raise, 25%
+ * free raises). Postflop nodes keep the calibrated cutoffs. It exists so a
+ * Horse can meet players whose public history PROVES tight preflop play at
+ * six-handed tables, where the Horse envelope's low edge is very low; a
+ * development persona, not a calibrated population. Omaha development field
+ * only (HorseLeague refuses it anywhere else).
+ */
+export const OMAHA_TIGHT_FIELD_PERSONA = 'omaha_tight_field_v1' as const;
 export type HumanFieldPersona =
+  | typeof OMAHA_TIGHT_FIELD_PERSONA
   | typeof HU_WIDE_SB_AGGRESSOR_PERSONA
   | typeof HU_MINRAISE_EVERY_BUTTON_PERSONA
   | typeof HU_LIMP_EVERY_BUTTON_PERSONA
@@ -117,4 +132,5 @@ export const HUMAN_FIELD_PERSONAS: readonly HumanFieldPersona[] = Object.freeze(
   HU_LIMP_EVERY_BUTTON_PERSONA,
   HU_THREE_BET_EVERY_HAND_PERSONA,
   HU_SMALL_STAB_EVERY_STREET_PERSONA,
+  OMAHA_TIGHT_FIELD_PERSONA,
 ]);

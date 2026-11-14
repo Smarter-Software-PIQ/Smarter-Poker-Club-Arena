@@ -6,7 +6,9 @@
  * TABLE CONTAINER
  * ═══════════════════════════════════════════════════════════════════════════════ */
 
-.table-container {
+/* Keep data-table glass separate from the gameplay .table-container: its
+   backdrop must remain continuous through the transparent tournament dock. */
+.data-table-container {
   width: 100%;
   overflow-x: auto;
   border-radius: 10px;

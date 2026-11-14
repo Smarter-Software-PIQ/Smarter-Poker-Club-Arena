@@ -1,28 +1,23 @@
 import { useEffect, useRef, useState } from 'react';
 
-/**
- * LIGHTNING "LEAVE NEXT HAND" (Dan 2026-11-12): "WHEN YOU CLICK 'LEAVE NEXT
- * HAND' ... IT MEANS AFTER THE END OF THE CURRENT HAND, YOU LEAVE THE TABLE.
- * NOT AT THAT EXACT MOMENT."
- *
- * True while the leave must wait: the player is still live in the hand in
- * front of them. The hand is over for them once it settles, once they fold,
- * or once the room itself has closed; then the leave runs.
- */
-export function lightningLeaveWaitsForHand(input: {
-  inLightningRoom: boolean;
-  roomClosed: boolean;
-  handInProgress: boolean;
-  handSettling: boolean;
-  heroStatus: string | null | undefined;
-}): boolean {
+import {
+  isLightningIdleSnapshot,
+  lightningHandId,
+  type LightningSnapshotFields,
+} from './lightningHand';
+
+/** Use the room snapshot and this hand's settlement. Presentation can still
+ * show the previous hand during a reconnect or the transition between deals. */
+export function lightningLeaveWaitsForHand(
+  snapshot: LightningSnapshotFields | null | undefined,
+  settledHandId: string | null,
+  userId: string | null | undefined
+): boolean {
+  if (!snapshot || isLightningIdleSnapshot(snapshot)) return false;
+  if (settledHandId && lightningHandId(snapshot) === settledHandId) return false;
   return (
-    input.inLightningRoom &&
-    !input.roomClosed &&
-    input.handInProgress &&
-    !input.handSettling &&
-    !!input.heroStatus &&
-    input.heroStatus !== 'folded'
+    !Array.isArray(snapshot.players) ||
+    !snapshot.players.some((player) => player?.user_id === userId && player.is_folded === true)
   );
 }
 
@@ -41,10 +36,14 @@ function defaultStorage(): QueueStorage | null {
   }
 }
 
-function readQueued(storage: QueueStorage | null, key: string | null): boolean {
+function readQueued(
+  storage: QueueStorage | null,
+  key: string | null
+): false | true | 'awaiting-hand' {
   if (!key || !storage) return false;
   try {
-    return storage.getItem(key) === '1';
+    const value = storage.getItem(key);
+    return value === 'awaiting-hand' ? value : value === '1';
   } catch {
     return false;
   }
@@ -62,6 +61,7 @@ export function useLightningLeaveAfterHand(input: {
   poolSessionId: string | null | undefined;
   ready: boolean;
   waits: boolean;
+  roomClosed?: boolean;
   leave: () => unknown;
   alreadyLeaving?: () => boolean;
   onError?: (error: unknown) => void;
@@ -79,10 +79,10 @@ export function useLightningLeaveAfterHand(input: {
   const latest = useRef(input);
   latest.current = input;
 
-  const write = (value: boolean) => {
+  const write = (value: boolean | 'awaiting-hand') => {
     if (key && storage) {
       try {
-        if (value) storage.setItem(key, '1');
+        if (value) storage.setItem(key, value === true ? '1' : value);
         else storage.removeItem(key);
       } catch {
         /* Memory still holds the intent for this page. */
@@ -90,11 +90,21 @@ export function useLightningLeaveAfterHand(input: {
     }
     setState({ key, queued: value });
   };
-  const queue = () => write(true);
+  const queue = (awaitingHand = false) => write(awaitingHand ? 'awaiting-hand' : true);
   const clear = () => write(false);
 
   useEffect(() => {
-    if (!queued || !input.ready || input.waits) return;
+    if (!queued || !input.ready) return;
+    if (!input.roomClosed) {
+      if (input.waits) {
+        if (queued === 'awaiting-hand') write(true);
+        return;
+      }
+      // The server can already hold a deal or reservation while this client
+      // still has the previous idle snapshot. Only a subsequent live hand
+      // followed by its boundary, or the closed pool, releases that receipt.
+      if (queued === 'awaiting-hand') return;
+    }
     write(false);
     const { leave, alreadyLeaving, onError } = latest.current;
     if (alreadyLeaving?.()) return;
@@ -105,7 +115,7 @@ export function useLightningLeaveAfterHand(input: {
     }
     // write is recreated each render; the boundary itself is the trigger.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queued, input.ready, input.waits, key]);
+  }, [queued, input.ready, input.waits, input.roomClosed, key]);
 
-  return { queued, queue, clear };
+  return { queued: Boolean(queued), queue, clear };
 }

@@ -93,7 +93,8 @@ describe('P12.2 Phase 12 policy digest', () => {
     // MTT read admission adds source provenance, the tournament context status and ante math.
     // 44 since 2026-11-13: HorseMind reads the opponent style read (HorseOpponentStyle).
     // 45 since 2026-11-13: the style options ask for their shadow arm (HorseStyleShadow).
-    expect(closure).toHaveLength(45);
+    // 46 since 2026-11-14: HorseMind reads the Omaha tight read (HorseOmahaTightOpponent).
+    expect(closure).toHaveLength(46);
     expect(closure).toContain('src/engine/HorseStyleShadow.ts');
     expect(HORSE_PHASE12_POLICY_SOURCE_FILES).toContain('src/engine/HorseStyleShadow.ts');
     expect(closure).toContain('src/engine/HorseOpponentStyle.ts');

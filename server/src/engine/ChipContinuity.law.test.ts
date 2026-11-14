@@ -224,7 +224,8 @@ describe('the tracker reports transitions and renders answers', () => {
 describe('the engine wiring (source pins - each one is a leak that shipped once already elsewhere)', () => {
   it('HIT AND RUN: leaveTable asks first, and a confirmed leave is blinded off (owner 2026-11-06)', () => {
     const body = sliceMethod(SEATING, 'public async leaveTable(');
-    expect(body).toContain('this.chipContinuity.leaveLock(userId, player.stack)');
+    // #10740: an anchor judges the count at the database's stack, not the roster's.
+    expect(body).toContain('this.handCountStack(userId, player.stack)');
     expect(body).toContain("code: 'LEAVE_LOCKED'");
     expect(body).toContain('if (opts.confirmHandCount !== true) {');
     expect(body).toContain(
@@ -286,9 +287,9 @@ describe('the engine wiring (source pins - each one is a leak that shipped once 
     // release decides (2026-11-09, a completed blind off was never cashed out).
     const fresh = release.indexOf('await this.chipContinuity.evaluate(');
     expect(fresh).toBeGreaterThan(release.indexOf('if (this.isLightningAnchorNow()) {'));
-    expect(fresh).toBeLessThan(
-      release.indexOf('this.chipContinuity.leaveLock(userId, seated.stack).locked')
-    );
+    expect(fresh).toBeLessThan(release.indexOf('this.handCountStack(userId, seated.stack)'));
+    // #10740: a queued Lightning leave that still owes hands goes back to the pool.
+    expect(release).toContain('await this.returnOwedLightningLeaveToPool(userId, seated);');
     expect(sliceMethod(SEATING, 'public sitOut(')).toContain('this.withdrawBlindOff(userId)');
     expect(sliceMethod(SEATING, 'protected withdrawBlindOff(')).toContain(
       'this.leaveHeldByClock.delete(userId)'

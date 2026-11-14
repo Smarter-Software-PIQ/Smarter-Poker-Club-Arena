@@ -71,6 +71,7 @@ export interface MustMoveLobbyModalProps {
   isOpen: boolean;
   asset?: 'chips' | 'diamonds';
   lightning?: boolean;
+  seatChangeEnabled?: boolean;
   gameId: string | null | undefined;
   /** The table the viewer is looking at (highlighted in the list). */
   currentTableId: string | null | undefined;
@@ -96,6 +97,7 @@ export function MustMoveLobbyModal({
   isOpen,
   asset = 'chips',
   lightning = false,
+  seatChangeEnabled = true,
   gameId,
   currentTableId,
   onClose,
@@ -253,8 +255,9 @@ export function MustMoveLobbyModal({
      all - and this mirrors fn_cash_seat_change_request's own refusal, so the
      button and the door cannot disagree about what they forbid. */
   const frontTableId = lobby?.front_table_id ?? null;
+  const showSeatChange = !lightning && seatChangeEnabled;
   const canRequestTo = (t: LobbyTable): boolean =>
-    !lightning &&
+    showSeatChange &&
     Boolean(me?.seat_change.available) &&
     !isMainOne(t, frontTableId) &&
     t.id !== myTableId &&
@@ -365,7 +368,7 @@ export function MustMoveLobbyModal({
                   )}
 
                   {/* The seat change: once per stay, never from or to Main 1. */}
-                  {!lightning && !me.on_main_one && (
+                  {showSeatChange && !me.on_main_one && (
                     <div className="mml-seat-change">
                       <div className="mml-section-title">Seat Change</div>
                       {me.seat_change.request ? (

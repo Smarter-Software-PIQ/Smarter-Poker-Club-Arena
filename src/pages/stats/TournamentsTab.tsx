@@ -16,6 +16,7 @@ import { buildStatsTournamentEvidencePath } from '../../lib/statsEvidenceNavigat
 import { compactChips } from '../../utils/format';
 import { enumToTitleCase, titleCase } from '../../utils/titleCase';
 import type { ReactNode } from 'react';
+import { chipCents } from '../../utils/cashierAmount';
 
 export interface TournamentsTabProps {
   tourn: TournamentSummary;
@@ -165,7 +166,7 @@ export default function TournamentsTab({
                     className={`tournament-item-net ${num(t.total_won) - num(t.buyin) >= 0 ? 'positive' : 'negative'}`}
                   >
                     {num(t.total_won) - num(t.buyin) >= 0 ? '+' : ''}
-                    {compactChips(num(t.total_won) - num(t.buyin))}
+                    {compactChips(chipCents(num(t.total_won) - num(t.buyin)))}
                   </span>
                   {t.tournament_id ? (
                     <StatsEvidenceLink

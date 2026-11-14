@@ -6,7 +6,9 @@ BEGIN;
 SET LOCAL "request.jwt.claims"='{"role":"service_role"}';
 DO $$
 DECLARE owner constant uuid:='d1000000-0000-4000-8000-000000000002';
- d date:=(clock_timestamp() AT TIME ZONE 'America/Chicago')::date;
+ -- The day after the newest day the seed recorded, never the wall clock: the seed
+ -- and this assert run in separate sessions with a migration between them.
+ d date:=(SELECT max(day)+1 FROM public.diamond_spin_days WHERE owner_id=owner);
  legacy public.diamond_spin_days; opened public.diamond_spin_days; replay jsonb; result jsonb; supply numeric;
 BEGIN
  SELECT * INTO legacy FROM public.diamond_spin_days WHERE owner_id=owner AND day=d-1;

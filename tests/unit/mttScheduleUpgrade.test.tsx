@@ -244,7 +244,7 @@ describe('MTT schedule upgrade', () => {
     for (const row of rows) expect(row.classList.contains(rowClass)).toBe(true);
     const compact = document.querySelector('.compact-lobby tr[data-id="typed"]')!;
     const header = compact.previousElementSibling!;
-    expect(within(header as HTMLElement).getAllByText('10K Guarantee')).toHaveLength(1);
-    expect(within(compact as HTMLElement).queryByText('10K GTD')).toBeNull();
+    expect(within(header as HTMLElement).getAllByText('10,000 Guarantee')).toHaveLength(1);
+    expect(within(compact as HTMLElement).queryByText('10,000 GTD')).toBeNull();
   });
 });

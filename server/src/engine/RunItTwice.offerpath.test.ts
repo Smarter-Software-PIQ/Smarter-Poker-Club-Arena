@@ -20,6 +20,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { ServerTableEngine } from './ServerTableEngine.js';
 import { HandController } from './HandController.js';
 import type { HandConfig, HandEvent, SeatPlayer } from '../types.js';
+import { horseRunItTwiceRuns } from './HorseRunItTwice.js';
 
 const ownedEngineFixtures: Array<Record<string, any>> = [];
 const TABLE = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
@@ -29,7 +30,7 @@ function mkPlayers(stacks: number[]): SeatPlayer[] {
     (stack, i) =>
       ({
         seat: i + 1,
-        user_id: `u${i + 1}`,
+        user_id: WILLING[i] ?? `u${i + 1}`,
         username: `P${i + 1}`,
         stack,
         bet: 0,
@@ -41,6 +42,20 @@ function mkPlayers(stacks: number[]): SeatPlayer[] {
       }) as SeatPlayer
   );
 }
+
+/**
+ * 2026-11-13 (Dan): Horses run it twice only SOMETIMES, on their own public
+ * all-in equity (horseRunItTwiceRuns). This file tests the offer PATH, so the
+ * seats are two Horses that both agree on hand 1 at a coin flip in this
+ * 100 BB pot, and the equity read is injected at 0.5 (atAllIn). The last test
+ * keeps the owner's case: a lopsided all-in is not run twice.
+ */
+const WILLING = Array.from({ length: 5000 }, (_, n) => `u${n + 1}`)
+  .filter(
+    (id) =>
+      horseRunItTwiceRuns({ horseId: id, handNumber: 1, potBB: 100, equity: 0.5, maxRuns: 3 }) >= 2
+  )
+  .slice(0, 2);
 
 const cfg = (over: Partial<HandConfig> = {}): HandConfig =>
   ({
@@ -54,7 +69,7 @@ const cfg = (over: Partial<HandConfig> = {}): HandConfig =>
   }) as HandConfig;
 
 /** Build an engine parked at a real 2-way all-in runout, horses at every seat. */
-function atAllIn(stacks = [500, 500]) {
+function atAllIn(stacks = [500, 500], equity = [0.5, 0.5]) {
   const players = mkPlayers(stacks);
   const events: HandEvent[] = [];
   const hc = new HandController(cfg(), players, 1);
@@ -88,6 +103,9 @@ function atAllIn(stacks = [500, 500]) {
   e.hub = { emitEvent: (_t: string, p: Record<string, unknown>) => emitted.push(p) };
   e.broadcastCurrentState = vi.fn();
   e.broadcastAllInEquity = vi.fn().mockResolvedValue(undefined);
+  e.requestHorseRitEquity = vi
+    .fn()
+    .mockResolvedValue(Object.fromEntries(players.map((p, i) => [p.user_id, equity[i]])));
   e.sleep = vi.fn().mockResolvedValue(undefined);
   e.markProgress = vi.fn();
   // RIT on, insurance off - the live cash-table configuration.
@@ -165,6 +183,22 @@ describe('RIT offer path (the part production actually runs)', () => {
       'the wait must end in dealAndResolveRIT, not a single-board runout'
     ).toHaveBeenCalled();
     void events;
+  });
+
+  it('A LOPSIDED ALL-IN RUNS ONCE: the same two Horses do not agree at 95/5', async () => {
+    vi.useFakeTimers();
+    expect(WILLING).toHaveLength(2);
+    const { e, runoutEvent } = atAllIn([500, 500], [0.95, 0.05]);
+    const resolved = vi.fn();
+    e.dealAndResolveRIT = (...a: unknown[]) => resolved(...a);
+    const seen: string[] = [];
+    e.runItTwiceEngine.onEvent = (ev: { type: string }) => seen.push(ev.type);
+
+    e.handleAllInRunout(runoutEvent, e.seatedPlayers);
+    await vi.advanceTimersByTimeAsync(15000);
+
+    expect(seen).not.toContain('RIT_ACCEPTED');
+    expect(resolved).not.toHaveBeenCalled();
   });
 
   it('THE MONEY MOVES: a real 2-way all-in runs multiple boards and pays out', async () => {

@@ -7,16 +7,16 @@ const base = {
   late_reg_mins: 0,
   late_reg_levels: 12,
   rebuy_levels: 0,
-  current_level: 10,
-  level_started_at: new Date(now - 6 * 60_000).toISOString(),
+  current_level: 9,
+  level_started_at: new Date(now - 4 * 60_000).toISOString(),
   blind_structure: Array.from({ length: 12 }, () => ({ durationMinutes: 8 })),
 };
-describe('final ten-minute net overlay rescue', () => {
-  it('runs at ten minutes remaining, beyond the old thirty-minute horizon', () => {
+describe('final twenty-minute net overlay rescue (owner 2026-11-13; was ten)', () => {
+  it('runs at twenty minutes remaining, beyond the old thirty-minute horizon', () => {
     expect(horseOverlayRescueDue(base, now)).toBe(true);
     expect(
       horseOverlayRescueDue(
-        { ...base, level_started_at: new Date(now - 359_999).toISOString() },
+        { ...base, level_started_at: new Date(now - 239_999).toISOString() },
         now
       )
     ).toBe(false);
@@ -31,7 +31,7 @@ describe('final ten-minute net overlay rescue', () => {
     ).toBe(true);
     expect(horseOverlayRescueDue({ ...base, on_break: true, late_reg_mins: 100 }, now)).toBe(true);
   });
-  it('starts ten minutes before the estimated final add-on cutoff', () => {
+  it('starts twenty minutes before the estimated final add-on cutoff', () => {
     const addOn = { ...base, add_on_available: true, late_reg_mins: 90 };
     expect(horseOverlayRescueDue(addOn, now)).toBe(false);
     expect(horseOverlayRescueDue(addOn, now + 59_999)).toBe(false);

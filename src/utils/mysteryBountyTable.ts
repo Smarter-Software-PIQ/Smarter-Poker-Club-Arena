@@ -27,6 +27,13 @@
 export const MYSTERY_BOUNTIES_LIVE_TEXT = 'Mystery Bounties Are Now Live';
 
 /**
+ * The popup raised at the table when entry closes and the prizes are sealed
+ * (Dan 2026-11-13: "ONCE THE PRIZE POOL IS 'FINALIZED' ... ALL MYSTERY BOUNTY
+ * PRIZES SHOULD BE SHOWN"). Tapping it opens the lobby on the Bounties tab.
+ */
+export const MYSTERY_BOUNTY_PRIZES_SET_TEXT = 'Mystery Bounty Prizes Are Set. Tap To See Them';
+
+/**
  * Should this table announce that the chests are live? True exactly once per
  * event for the given `seen` set (one set per mounted table page).
  */

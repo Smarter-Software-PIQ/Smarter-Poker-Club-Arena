@@ -231,7 +231,8 @@ export function build(spot: Spot, pool: Pool = 'priced'): Built {
     addOnPeriodOpen: !!st.addOnPeriodOpen,
     handForHand: !!st.handForHand,
     handForHandExpected: !!st.handForHand,
-    satellite: false,
+    satellite: !!st.satellite,
+    ...(st.satelliteSeats !== undefined ? { satelliteSeats: Number(st.satelliteSeats) } : {}),
     rebuyAllowed: !!st.rebuyOpen,
     rebuyAffordable: !!st.rebuyOpen,
     reentryAllowed: !!st.reentryOpen,
@@ -293,7 +294,13 @@ export function build(spot: Spot, pool: Pool = 'priced'): Built {
  *  (explicit off) or 'absent' (no key at all, the production default). */
 export type Arm = boolean | 'absent';
 
-export function decideBuilt(rq: Built, seed: number, arm: Arm = true): Decided {
+export function decideBuilt(
+  rq: Built,
+  seed: number,
+  arm: Arm = true,
+  /** Further decide options for one case (an ablation that routes the spot). */
+  extra: Record<string, unknown> = {}
+): Decided {
   HorseMind.reset();
   seedFastRandom(seed);
   return HorseLogic.decide(
@@ -304,6 +311,7 @@ export function decideBuilt(rq: Built, seed: number, arm: Arm = true): Decided {
     {
       decisionTimeMs: TEMPLATE.decisionTimeMs,
       telemetry: true,
+      ...extra,
       ...(arm === 'absent' ? {} : { committedStackPricedIn: arm }),
     } as never
   ) as unknown as Decided;

@@ -153,7 +153,7 @@ import {
   type ClaimDestination,
 } from '../components/wallet/claimReturnWallets';
 import { SpadeConsole } from '../components/console/SpadeConsole';
-import { compactChips, formatWalletChips } from '../utils/format';
+import { compactChips, figureDigits, formatWalletChips } from '../utils/format';
 import {
   exactChipFigure,
   parseTradeAmount,
@@ -548,11 +548,29 @@ interface HistoryFeedRow {
  * downline), a downline as one group, or the whole club.
  */
 type HistorySummary = { filterKey: string } & (
-  | { mode: 'wallet' | 'group'; incoming: number; outgoing: number; net: number }
-  | { mode: 'club'; entries: number; volume: number; cashoutsPaid: number; complete: boolean }
+  | { mode: 'wallet' | 'group'; incoming: string; outgoing: string; net: string }
+  | { mode: 'club'; entries: number; volume: string; cashoutsPaid: string; complete: boolean }
 );
 
-/** A missing financial figure is unavailable, never a verified zero. */
+/**
+ * A history total as the exact decimal text the RPC returned (`round(x, 2)::text`).
+ * It never passes through a JavaScript number, so a total past 15 significant
+ * digits prints digit for digit (Dan 2026-11-13: exact figures always).
+ * A missing figure is unavailable, never a verified zero.
+ */
+function historyTotalAmount(value: unknown): string {
+  const digits =
+    typeof value === 'string' || typeof value === 'number' ? figureDigits(value) : null;
+  if (!digits) throw new Error('Invalid history total');
+  return `${digits.negative ? '-' : ''}${digits.whole}${digits.fraction ? `.${digits.fraction}` : ''}`;
+}
+
+/** A history total's sign, read from its digits, never from a rounded number. */
+const totalIsNegative = (amount: string) => amount.startsWith('-');
+const totalIsZero = (amount: string) => !/[1-9]/.test(amount);
+const totalMagnitude = (amount: string) => amount.replace(/^-/, '');
+
+/** A missing count is unavailable, never a verified zero. */
 function historyTotalNumber(value: unknown): number {
   if (
     (typeof value !== 'number' && typeof value !== 'string') ||
@@ -1834,8 +1852,8 @@ function CashierTradeWorkspace() {
           throw new Error('Invalid history summary');
         if (t?.mode === 'club') {
           const entries = historyTotalNumber(t.entries);
-          const volume = historyTotalNumber(t.volume);
-          const cashoutsPaid = historyTotalNumber(t.cashouts_paid);
+          const volume = historyTotalAmount(t.volume);
+          const cashoutsPaid = historyTotalAmount(t.cashouts_paid);
           if (typeof t.complete !== 'boolean') throw new Error('Invalid history summary');
           const complete = t.complete === true;
           setHistoryTotals({
@@ -1850,9 +1868,9 @@ function CashierTradeWorkspace() {
           if (!complete && attempt < 40) timer = setTimeout(() => void ask(attempt + 1), 1200);
           return;
         }
-        const incoming = historyTotalNumber(t.incoming);
-        const outgoing = historyTotalNumber(t.outgoing);
-        const net = historyTotalNumber(t.net);
+        const incoming = historyTotalAmount(t.incoming);
+        const outgoing = historyTotalAmount(t.outgoing);
+        const net = historyTotalAmount(t.net);
         setHistoryTotals({
           filterKey: historySummaryKey,
           mode: t?.mode === 'group' ? 'group' : 'wallet',
@@ -5456,7 +5474,7 @@ function CashierTradeWorkspace() {
                       <span className={styles.summaryLabel}>{who} Out</span>
                       <strong className={`${styles.summaryValue} ${styles.amtOut}`}>
                         {wallet
-                          ? wallet.outgoing > 0
+                          ? !totalIsZero(wallet.outgoing) && !totalIsNegative(wallet.outgoing)
                             ? `-${fmt(wallet.outgoing)}`
                             : fmt(0)
                           : '--'}
@@ -5466,11 +5484,15 @@ function CashierTradeWorkspace() {
                       <span className={styles.summaryLabel}>{who} Net</span>
                       <strong
                         className={`${styles.summaryValue} ${
-                          wallet ? (wallet.net >= 0 ? styles.amtIn : styles.amtOut) : ''
+                          wallet
+                            ? !totalIsNegative(wallet.net)
+                              ? styles.amtIn
+                              : styles.amtOut
+                            : ''
                         }`}
                       >
                         {wallet
-                          ? `${wallet.net >= 0 ? '+' : '-'}${fmt(Math.abs(wallet.net))}`
+                          ? `${!totalIsNegative(wallet.net) ? '+' : '-'}${fmt(totalMagnitude(wallet.net))}`
                           : '--'}
                       </strong>
                     </div>
