@@ -2578,7 +2578,7 @@ export interface HorseDecideOpts {
   /** Omaha high tournaments (HorseOmahaTournamentFirstIn): the small blind
    *  against the big blind alone, and the heads-up big blind facing one raise,
    *  replace the engine's fold by the hand's Omaha percentile, at three or
-   *  fewer players dealt and 20 BB or less (30 BB three-handed winner-take-all). Default on; false is the old
+   *  fewer players dealt and 20 BB or less (30 BB three-handed winner-take-all; with pay jumps the small blind alone, top 60 percent). Default on; false is the old
    *  engine; an object is a league arm's parameters. */
   omahaTournamentFirstIn?:
     | boolean
@@ -9275,9 +9275,9 @@ export class HorseLogic {
         return typeof tp === 'number' && Number.isFinite(tp) && tp > 0 ? tp : undefined;
       })(),
       // Paid places among the players left (trusted payout curve), undefined
-      // when unknown: three-handed, the Omaha first-in rule acts only when
-      // one place is paid (R4, 2026-11-13: it lost in ICM equity at a
-      // three-handed final table with pay jumps).
+      // when unknown: three-handed, the Omaha first-in rule acts fully when
+      // one place is paid and, with pay jumps, only for the small blind when
+      // every player left is paid (2026-11-14, conserved ICM re-score).
       tournamentPaidPlacesLeft: (() => {
         const t = trustedTournamentContext(gs);
         const left = t?.playersLeft;
