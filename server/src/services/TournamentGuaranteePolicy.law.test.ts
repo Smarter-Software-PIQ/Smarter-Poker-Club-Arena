@@ -20,7 +20,7 @@ describe('November midnight tournament guarantee reduction', () => {
     expect(apply({ ...base, start_time: new Date(start - 1).toISOString() }).guaranteed_prize).toBe(
       10000
     );
-    expect(apply(base)).toEqual({ ...base, name: 'Nightly 5K (NLH)', guaranteed_prize: 5000 });
+    expect(apply(base)).toEqual({ ...base, name: 'Nightly 5,000 (NLH)', guaranteed_prize: 5000 });
     expect(base.guaranteed_prize).toBe(10000);
   });
   it('keeps the exact nightly 35-chip rebuy schedule at 10K', () => {
@@ -30,11 +30,11 @@ describe('November midnight tournament guarantee reduction', () => {
     });
     expect(apply({ ...base, schedule_id: 'another-schedule' }).guaranteed_prize).toBe(5000);
   });
-  it('uses 1.5K for both 1.2K and 1.25K reduced guarantees without touching stacks', () => {
+  it('uses 1,500 for both 1,200 and 1,250 reduced guarantees without touching stacks', () => {
     for (const original of [2400, 2500]) {
       const result = apply({ ...base, guaranteed_prize: original, name: `${original} GTD` });
       expect(result.guaranteed_prize).toBe(1500);
-      expect(result.name).toBe('1500 GTD');
+      expect(result.name).toBe('1,500 GTD');
       expect(result.starting_chips).toBe(20000);
     }
     expect(apply({ ...base, guaranteed_prize: 3000 }).guaranteed_prize).toBe(1500);
@@ -82,8 +82,8 @@ describe('November midnight tournament guarantee reduction', () => {
       name: '40 Chip Freezeout - 5K GTD (NLH)',
       short_description: '5K GTD | 20K Stack | 8 Min Levels',
     });
-    expect(result.name).toBe('40 Chip Freezeout - 2.5K GTD (NLH)');
-    expect(result.short_description).toBe('2.5K GTD | 20K Stack | 8 Min Levels');
+    expect(result.name).toBe('40 Chip Freezeout - 2,500 GTD (NLH)');
+    expect(result.short_description).toBe('2,500 GTD | 20K Stack | 8 Min Levels');
   });
   it('uses unchanged schedule identity so reduced 5K cannot match the separate 2.5K event', () => {
     const source = readFileSync(
@@ -151,5 +151,16 @@ describe('November midnight tournament guarantee reduction', () => {
     expect(body.indexOf('withReducedTournamentGuarantee(')).toBeLessThan(
       body.indexOf('diamondSpawnConfig(')
     );
+  });
+  it('writes the reduced guarantee as the exact figure, never abbreviated (Dan 2026-11-13)', () => {
+    const named = (name: string, guaranteed_prize: number) =>
+      apply({ ...base, name, guaranteed_prize }).name;
+    expect(named('Sunday 50K Guarantee', 50000)).toBe('Sunday 25,000 Guarantee');
+    expect(named('Main Event 25,000 GTD', 25000)).toBe('Main Event 12,500 GTD');
+    expect(named('Free Roll 250 Chip Guarantee', 250)).toBe('Free Roll 125 Chip Guarantee');
+    expect(named('Odd 251 GTD', 251)).toBe('Odd 125.5 GTD');
+    // A figure that is not this guarantee is left as authored.
+    expect(named('1,500 GTD Bonus And 500 GTD Side', 500)).toBe('1,500 GTD Bonus And 250 GTD Side');
+    expect(named('Nightly 10K - 20K Stack', 10000)).toBe('Nightly 5,000 - 20K Stack');
   });
 });
