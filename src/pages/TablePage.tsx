@@ -707,12 +707,14 @@ import { useActorGapBridge } from '../hooks/useActorGapBridge';
 import HitRunCountPill from '../components/table/HitRunCountPill';
 import {
   useBigWinRestarted,
+  useCountdownResumed,
   useCountdownStarted,
   useHandsAddedByDouble,
 } from '../hooks/useHeroHandCount';
 import {
   blindOffLeaveText,
   bigWinStartedText,
+  countdownResumedText,
   charlesRuleText,
   countdownStartedText,
   fetchMyHandsOwed,
@@ -12211,6 +12213,9 @@ function LiveTablePage({
         : countdownStartedText(hands)
     )
   );
+  /* THE COUNTDOWN RESUMES (owner 2026-11-13): back in profit, the paused
+     count picks up where it stopped; said with the resumed number. */
+  useCountdownResumed(heroHandCount, (hands) => toast.info(countdownResumedText(hands)));
   /* THE CHARLES RULE AFTER A LARGE WIN (owner 2026-11-11): another +250 BB
      win while hands are owed resets the count to ten; said when it happens. */
   useBigWinRestarted(heroHandCount, (hands, bigWinBb) =>
@@ -30671,7 +30676,11 @@ function LiveTablePage({
           {/* HIT AND RUN: between Lightning hands the hero has no seat on this
               felt for the tracker to stand beside; the count still shows. */}
           {!tableState.isTournament && tableState.heroSeat <= 0 && !!lightningRoom && (
-            <HitRunCountPill hands={heroHandsOwed} reason={heroHandCount.reason ?? null} />
+            <HitRunCountPill
+              hands={heroHandsOwed}
+              reason={heroHandCount.reason ?? null}
+              paused={heroHandCount.paused ?? null}
+            />
           )}
           {/* THE HERO'S VPIP TRACKER (Dan 2026-09-04): to the left of the
               hero, hero only, the judged figure. A sibling of the seats at
@@ -30684,6 +30693,7 @@ function LiveTablePage({
             isTournament={tableState.isTournament}
             handsOwed={heroHandsOwed}
             handsReason={heroHandCount.reason ?? null}
+            handsPaused={heroHandCount.paused ?? null}
             handNumber={tableState.handNumber ?? 0}
             heroPos={
               tableState.heroSeat > 0 ? (seatPositions[tableState.heroSeat - 1] ?? null) : null
