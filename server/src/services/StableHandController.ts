@@ -503,7 +503,7 @@ export function planFloor(snap: FloorSnapshot): FloorPlan {
        same ceiling, and a table with a human on it is only thinned while it
        stays a real game. Counted after the stands already planned above. */
     if (!snap.killed && populationKnown) {
-      const seatCeiling = hostSeatCeiling(occ.max, snap.chicagoHour);
+      const seatCeiling = hostSeatCeiling(occ.max, snap.chicagoHour, snap.chicagoMinute);
       const hostTableIds = new Set(host.tables.map((t) => t.tableId));
       const planned = plan.stand.filter((o) => hostTableIds.has(o.tableId));
       const seatsOver = liveSeats - planned.length - seatCeiling;
@@ -633,7 +633,7 @@ export function planFloor(snap: FloorSnapshot): FloorPlan {
         plan.alerts.push(`over_night_cap host=${host.hostId}`);
       }
     }
-    const band = seatsPerHorseBand(snap.chicagoHour);
+    const band = seatsPerHorseBand(snap.chicagoHour, snap.chicagoMinute);
     const avg = host.uniqueLive > 0 ? liveSeats / host.uniqueLive : 0;
     if (host.uniqueLive > 0 && (avg < band.min || avg > band.max)) {
       plan.alerts.push(`seats_per_horse_out_of_band host=${host.hostId} avg=${avg.toFixed(2)}`);
@@ -764,10 +764,11 @@ export function stableHandHostCaps(
  */
 export function stableHandHostSeatCeilings(
   caps: ReadonlyMap<string, number>,
-  chicagoHour: number
+  chicagoHour: number,
+  minute = 0
 ): Map<string, number> {
   const out = new Map<string, number>();
-  for (const [hostId, cap] of caps) out.set(hostId, hostSeatCeiling(cap, chicagoHour));
+  for (const [hostId, cap] of caps) out.set(hostId, hostSeatCeiling(cap, chicagoHour, minute));
   return out;
 }
 

@@ -3,6 +3,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
+  compareLightningStarters,
+  lightningStarterGameSeats,
   LIGHTNING_HORSE_SEEDED,
   LIGHTNING_STARTER_PLAYERS,
   lightningStarterTables,
@@ -105,10 +107,35 @@ describe('a seeded Lightning game starts first', () => {
       src.indexOf('const orderedTables = [...tables, ...diamondTables].sort(')
     );
     const human = sort.indexOf('Number(humanShort(b)) - Number(humanShort(a))');
-    const starter = sort.indexOf('Number(lightningStarters.has(String(b.id)))');
+    const starter = sort.indexOf('compareLightningStarters(a, b, lightningStarters)');
     const cluster = sort.indexOf('Number(!!b.cluster_id) - Number(!!a.cluster_id)');
     expect(human).toBeGreaterThanOrEqual(0);
     expect(starter).toBeGreaterThan(human);
     expect(cluster).toBeGreaterThan(starter);
+  });
+
+  it("ranks starters by their game's players, not by Main or feeder (PLO4 .50/1, 2026-11-14)", () => {
+    const tables = [
+      table('m-nlh', NLH_ONE_TWO),
+      table('m-plo4', PLO4_ONE_TWO),
+      table('f-plo4-half', PLO4_HALF, { role: 'feeder', main_index: null }),
+    ];
+    const starters = lightningStarterGameSeats(tables, seats({ 'm-nlh': 3, 'm-plo4': 1 }));
+    expect([...starters.entries()].sort()).toEqual([
+      ['f-plo4-half', 0],
+      ['m-nlh', 3],
+      ['m-plo4', 1],
+    ]);
+    const order = [
+      { id: 'other-main' },
+      { id: 'm-nlh' },
+      { id: 'm-plo4' },
+      { id: 'f-plo4-half' },
+    ].sort((a, b) => compareLightningStarters(a, b, starters));
+    expect(order.map((t) => t.id)).toEqual(['f-plo4-half', 'm-plo4', 'm-nlh', 'other-main']);
+  });
+
+  it('leaves a non-starter pair to the ordinary order', () => {
+    expect(compareLightningStarters({ id: 'x' }, { id: 'y' }, new Map())).toBe(0);
   });
 });

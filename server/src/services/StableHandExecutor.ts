@@ -130,6 +130,25 @@ export const MAX_YIELDS_PER_CYCLE = 12;
 export const MAX_WIND_DOWN_PER_HOST_PER_CYCLE = 4;
 
 /**
+ * A FLOOR FAR OVER ITS CURVE WALKS DOWN FASTER (2026-11-14).
+ *
+ * Four a cycle could not keep up with the evening taper: measured 01:00 to
+ * 03:00 Chicago on 2026-11-14, the planner asked for about a hundred stands a
+ * cycle (seats 491 against a ceiling of 261) and four ran, so the floor sat
+ * over its curve all night and then met the night cap as a cliff. The planner
+ * still takes at most one seat per table per cycle; this only lets more
+ * tables give one up at once when the gap is large, one extra stand per ten
+ * planned, never more than ten a cycle.
+ */
+export const MAX_WIND_DOWN_PER_HOST_PER_CYCLE_CEILING = 10;
+export function windDownCapForHost(planned: number): number {
+  return Math.min(
+    MAX_WIND_DOWN_PER_HOST_PER_CYCLE_CEILING,
+    Math.max(MAX_WIND_DOWN_PER_HOST_PER_CYCLE, Math.ceil(Math.max(0, planned) / 10))
+  );
+}
+
+/**
  * Table flag writes per cycle.
  *
  * The first cycle after this ships has ~89 tables to mark for retirement and,
@@ -285,10 +304,13 @@ export function ripeWindDowns(
   holdUntil: ReadonlyMap<string, number>,
   opts: { maxPerHost?: number } = {}
 ): { execute: WindDownRequest[]; heldByCooldown: number; heldByCap: number } {
-  const maxPerHost = opts.maxPerHost ?? MAX_WIND_DOWN_PER_HOST_PER_CYCLE;
   let heldByCooldown = 0;
   let heldByCap = 0;
   const perHost = new Map<string, number>();
+  const plannedByHost = new Map<string, number>();
+  for (const r of requests)
+    if (r.order.reason === 'occupancy_wind_down')
+      plannedByHost.set(r.hostId, (plannedByHost.get(r.hostId) ?? 0) + 1);
   const execute: WindDownRequest[] = [];
 
   for (const r of requests) {
@@ -299,6 +321,7 @@ export function ripeWindDowns(
       continue;
     }
     const taken = perHost.get(r.hostId) ?? 0;
+    const maxPerHost = opts.maxPerHost ?? windDownCapForHost(plannedByHost.get(r.hostId) ?? 0);
     if (taken >= maxPerHost) {
       heldByCap++;
       continue;
