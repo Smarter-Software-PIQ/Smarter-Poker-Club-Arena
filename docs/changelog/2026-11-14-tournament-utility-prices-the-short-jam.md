@@ -1,0 +1,15 @@
+# The tournament utility prices the short stack's shove in pot limit and fixed limit
+
+Reported 2026-11-14 by the Feature Activation lane's decision spot matrix (seeds plo4 1663882339, plo6 1264265673, plo8 2568337932, flo8 2269140658, flh 530853016 and 547630635).
+
+In a pot-limit or fixed-limit tournament, a Horse with more than the call and less than the minimum bet or raise holds a menu with the all-in button and no sized wager (minRaiseTo and maxRaiseTo are null). The controller executes that button as a wager of the whole stack. `buildTournamentActionCandidates` built a pot-limit or fixed-limit jam only against a numeric ceiling, so the shove was missing from the candidates, and when the reference decision was that `all_in` the tournament utility refused the decision as `baseline_not_modeled`. The shove was played, legally, but upgrade 07 did not price the decision that put the tournament life at stake. No-limit built the jam and was priced.
+
+The menu alone cannot say what the button does: fixed limit shows the same menu on a capped street and to a seat that may not reopen, where the button is a call. So the utility input carries one new optional fact, `shortAllInWagers`, and `HorseLogic.phase7ShortAllInWagers` sets it from the controller's own rule: in pot limit the button without a sized wager is always the whole stack (an all-in above the pot cap is only advertised as a legal raise to the cap, which puts the sized wager on the menu); in fixed limit the street is not capped and the whole stack reaches no further than the standing bet plus the street's legal increment (the first test of `HandController.clampToStructure`). When it is set the builder adds the jam at the whole stack. The fact is committed in the utility input hash only when it is set, so every other input keeps its commitment.
+
+The shove is priced by the model no-limit already uses for it: each live opponent may call or fold, never re-raise, and folds at a rate set by the price of the extra chips it must pay (`mdfFold`: the raise over the contestable pot), so a small over-call shove carries almost no fold equity. No fold equity is assumed from a full raise the hero cannot make.
+
+Unchanged: no-limit candidates (the new branch is read only when the menu has no ceiling, and no-limit already built its jam there); every menu with a ceiling; the Phase 13 joint owners, which call the builder without the fact; cash games (the tournament utility runs in tournaments only). No telemetry or ledger string is added or renamed.
+
+Not changed here, and still refused as `baseline_not_modeled`: a fixed-limit reference decision of `all_in` on a capped street or from a seat that may not reopen, where the button executes as a call.
+
+Tests: `server/src/engine/HorseTournamentUtilityShortJam.test.ts`. The Feature Activation law `HorseDecisionSpotMatrix.law.test.ts` pins the refusal by name and goes red on this change by design; its last block is to be replaced by the plain rule (every tournament decision of that spot is priced).
