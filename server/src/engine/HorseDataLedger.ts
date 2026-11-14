@@ -1016,7 +1016,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'styleRaiseRespect',
-    '2026-11-13 STYLE READ #4: a flop or turn raise from a player whose postflop bet-and-raise share is credibly below the Horse mean (the raise-frequency proxy) shades a one-pair-or-worse call by up to 0.06 equity, scaled by the DECISION-TIME stack-to-pot ratio (effective stack behind before the decision over the pot including his bet): nothing at SPR 2 or below (one pair is a correct stack-off), full from SPR 6; heads-up, no side pots, no bounty event, no maniac read; released proportionally by the fast window; only ever adds a shade (never widens a call); default off, explicit true only',
+    '2026-11-13 STYLE READ #4: a flop or turn raise from a player whose postflop bet-and-raise share is credibly below the Horse mean (the raise-frequency proxy) shades a one-pair-or-worse call by up to 0.06 equity, scaled by the DECISION-TIME stack-to-pot ratio (effective stack behind before the decision over the pot including his bet): nothing at SPR 2 or below (one pair is a correct stack-off), full from SPR 6; heads-up, no side pots, no bounty event, no maniac read; released proportionally by the fast window; only ever adds a shade (never widens a call); default off, explicit true only. #4b (2026-11-14), same switch: in cash, heads-up, on the turn and river only, two pair or worse that bet and was raised by a credibly passive player (aggression axis passive at confidence 0.5 or more with its postflop bet-and-raise share credibly low, at least 8 of his raise opportunities on the street against a Horse reference and 20 on turn and river together) blends an estimate against a value-raise stratum into its equity, by a weight that is 1 at or below the Horse raise rate and 0 at twice it, times a raise-size weight (full from 3x the bet, half at 2x); the blend decides only when it is under the price laid; on the turn, when the call leaves the raiser a quarter of the pot or less, the price is the whole commitment and a continuing hand puts the rest in (overriding the call-once plan); never the flop, never tournaments, never an unknown, neutral or aggressive read; receipts style_value_raise_respect_seen and style_commitment_priced_seen',
     '2026-11-13'
   ),
   flag(
@@ -1180,6 +1180,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic.decide V66 raise shade (STYLE READ #4)',
     'a flop or turn raise from a credibly low-raise-frequency player added a decision-time-SPR-scaled shade to a one-pair-or-worse call; named *_seen',
     '2026-11-13'
+  ),
+  receipt(
+    'style_value_raise_respect_seen',
+    'HorseLogic.decide value-raise blend (STYLE READ #4b)',
+    "cash hold'em, heads-up, turn or river: two pair or worse that bet and was raised by a credibly passive player had its equity blended with a value-raise stratum estimate, and the blend took it from covering the bare call price to under it (the call became a fold); fired only then; named *_seen",
+    '2026-11-14'
+  ),
+  receipt(
+    'style_commitment_priced_seen',
+    'HorseLogic.decide value-raise commitment price (STYLE READ #4b)',
+    "cash hold'em, heads-up, turn, a call that leaves the raiser a quarter of the pot or less: the whole-commitment price changed the decision - the blended equity covered the bare call but not the whole commitment (fold), or a hand that continued put the rest in where the plain rules would have flat-called (jam); named *_seen",
+    '2026-11-14'
   ),
   receipt(
     'style_tight_opener_respect_seen',

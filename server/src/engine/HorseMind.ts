@@ -3650,8 +3650,23 @@ export class HorseMind {
     // tight-preflop maniac more). Null read = the legacy profile, unchanged.
     const read = this.opponentRead(userId);
     if (!read) return legacy;
-    const bluff = postflopBluffMod(read);
-    const thin = readValueThinMod(read);
+    let bluff = postflopBluffMod(read);
+    // STYLE READ, PRE-REPAIR (2026-11-14): the over-folder increase of this read stands on the same stored
+    // fold-to-bet counter the legacy branch below stands down for. A cash table-speed profile built before the
+    // showdown-memory repair holds folds without the calls, so while its post-release count is under the engagement
+    // line the increase is withheld here too (same switch, same receipt). A station's decrease is never withheld.
+    // The thin-value cut the read takes from the same figure (a folder is value-bet thinner) is withheld with it.
+    let withheld = false;
+    if (bluff !== null && bluff > 1 && this.foldToBetPreRepairExcluded(userId)) {
+      if (options.styleFoldRatePreRepair === true) {
+        noteFire('style_pre_repair_fold_rate_discounted_seen');
+        bluff = null;
+        withheld = true;
+      } else if (options.styleFoldRatePreRepairShadow === true)
+        noteStyleShadowEngaged('styleFoldRatePreRepair', 1);
+    }
+    const thinRead = readValueThinMod(read);
+    const thin = withheld && thinRead !== null && thinRead < 1 ? null : thinRead;
     const shift = callDownRespectShift(read);
     if (bluff === null && thin === null && shift === 0) return legacy;
     return {
