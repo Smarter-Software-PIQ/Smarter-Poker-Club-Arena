@@ -99,6 +99,11 @@ export function isActiveNow(horseId: string, hourUTC: number): boolean {
 // TO BE OCCUPYING AT LEAST 75% OF ALL SEATS IN THE CASH GAMES, AND THEY SHOULD
 // BE PLAYING 4 TABLES AT ONCE!"
 //
+// Owner 2026-11-13 narrows the last clause: "HORSES ARE SUPPOSED TO PLAY 2 CASH
+// GAMES AND 2 TOURNAMENTS. NOT 4 CASH GAMES." Four games in total, at most two
+// of them cash (HorseGameLoad.HORSE_MAX_CASH_TABLES). Do not restore four cash
+// tables from the sentence above.
+//
 // This supersedes two of Dan's own earlier rules, and both are DELETED rather
 // than left to argue with this one:
 //
