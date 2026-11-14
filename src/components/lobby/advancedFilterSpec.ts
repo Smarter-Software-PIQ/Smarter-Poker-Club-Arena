@@ -579,7 +579,7 @@ export const FILTER_SPECS: Record<Exclude<FilterGameType, 'ALL'>, GameFilterSpec
     // two keys) when the limit games shipped. There are exactly two limit
     // variants, both creatable, so the tab has something to sub-divide.
     /* Owner ruling, November 14, 2026: the limit games are Fixed Limit
-       (Hold'em) and Omaha 4, 5, 6 card and 8o, every one Classic. */
+       Holdem and Omaha 4, 5, 6 card and 8o, every one Classic. */
     games: FIXED_LIMIT_VARIANT_ORDER.map((key) => ({ key, label: FIXED_LIMIT_GAME_NAMES[key] })),
     styles: CASH_STYLES,
     range: BLIND_RANGE,

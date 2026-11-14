@@ -772,7 +772,7 @@ export default function TableConfigPage({
 
   // Generate the default table name, and KEEP IT TRACKING THE BLINDS.
   //
-  // Limit games are named "Fixed Limit 1/2" by their blinds (owner ruling,
+  // Limit games are named "Fixed Limit Holdem 1/2" by their blinds (owner ruling,
   // November 14, 2026). defaultTableName() defers to stakesLabel(), the one
   // place that decides, so the table name, the stakes column and the lobby row
   // all agree.

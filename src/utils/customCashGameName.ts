@@ -1,7 +1,7 @@
 /** Preserve the host name while omitting only generated game/stakes/style labels. */
 export function customCashGameName(name: string | null | undefined): string | null {
   if (!name?.trim() || name === 'Loading...') return null;
-  /* Owner ruling, November 14, 2026: limit games are named "Fixed Limit 1/2"
+  /* Owner ruling, November 14, 2026: limit games are named "Fixed Limit Holdem 1/2"
      and "Omaha 4 Card Fixed Limit" ... "Omaha 8o Fixed Limit", so those names
      are generated captions too, as are the older FLH / FLO8 spellings. */
   const variant =

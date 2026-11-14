@@ -63,7 +63,7 @@ describe('4a — the loaded form has a name the owner can save with', () => {
     });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(r.config.name).toBe('Fixed Limit 1/2');
+    expect(r.config.name).toBe('Fixed Limit Holdem 1/2');
   });
 });
 
@@ -195,6 +195,6 @@ describe('house rules for what the owner is told', () => {
   it('defaultTableName is the single naming decision', () => {
     expect(defaultTableName('NLH', 0.05, 0.1, 'nlh')).toBe('NLH 0.05/0.10');
     expect(defaultTableName('FLO8', 0.5, 1, 'flo8')).toBe('Omaha 8o Fixed Limit 0.50/1');
-    expect(defaultTableName('FLH', 2, 5, 'flh')).toBe('Fixed Limit 2/5');
+    expect(defaultTableName('FLH', 2, 5, 'flh')).toBe('Fixed Limit Holdem 2/5');
   });
 });

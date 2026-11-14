@@ -169,7 +169,7 @@ export const CASH_VARIANT_LONG: Readonly<Record<string, string>> = {
   plo6: 'Pot Limit Omaha 6',
   plo8: 'Omaha Hi-Lo',
   flo8: FIXED_LIMIT_GAME_NAMES.flo8,
-  flh: "Fixed Limit Hold'em",
+  flh: FIXED_LIMIT_GAME_NAMES.flh,
   short_deck: 'Short Deck',
   pineapple: "Pineapple Hold'em",
 };

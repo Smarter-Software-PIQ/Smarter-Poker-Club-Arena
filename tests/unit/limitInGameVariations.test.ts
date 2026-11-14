@@ -51,12 +51,12 @@ describe("Dan's ask: limit is offered as a game variation", () => {
   });
 
   it('labels them as the games they are, not as a raw enum', () => {
-    expect(variantDisplay('FLH').long).toBe("Fixed Limit Hold'em");
+    expect(variantDisplay('FLH').long).toBe('Fixed Limit Holdem');
     expect(variantDisplay('FLO8').long).toBe('Omaha 8o Fixed Limit');
     // The lower-case cash spelling has always worked; the tournament enum is
     // what was missing from TOURNEY_VARIANT_KEYS.
     // Owner ruling, November 14, 2026: the title word is the name, not FLH.
-    expect(variantDisplay('flh').short).toBe('Fixed Limit');
+    expect(variantDisplay('flh').short).toBe('Fixed Limit Holdem');
     expect(variantDisplay('flo8').short).toBe('Omaha 8o Fixed Limit');
   });
 

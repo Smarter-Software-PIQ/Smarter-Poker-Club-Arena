@@ -122,8 +122,9 @@ export function gameTypeLabel(variant: string | null | undefined): string | null
     .trim();
   if (!v) return null;
   if (v === 'nlh') return 'NLH';
-  /* Owner ruling, November 14, 2026: "FIXED LIMIT", never FLH or FLO8. */
-  if (v === 'flh') return 'Fixed Limit';
+  /* Owner ruling, November 14, 2026: "Fixed Limit Holdem (spelt out)" and the
+     Omaha fixed limit names, never FLH or FLO8. */
+  if (v === 'flh') return 'Fixed Limit Holdem';
   if (v === 'flo4') return 'Omaha 4 Card Fixed Limit';
   if (v === 'flo5') return 'Omaha 5 Card Fixed Limit';
   if (v === 'flo6') return 'Omaha 6 Card Fixed Limit';

@@ -13,6 +13,8 @@
 --    OMAHA 6 CARD FIXED LIMIT, OMAHA 8o FIXED LIMIT. GAME LIMITS SHOULD BE
 --    .25/.50 .50/1.00 1/2 2/5 AND 5/10 ... AND THEY ARE ALL ALWAYS CLASSIC
 --    GAME SET UP."
+-- and, the same morning, on the titles: "they need to say Fixed Limit Holdem
+-- (spelt out) not abbreviated."
 --
 -- 1. STAKES READ AS BLINDS. fn_cash_stakes_label printed a fixed-limit game by
 --    its BET sizes (blinds 1/2 read "2/4"), so the 2/5 and 5/10 blind games
@@ -21,7 +23,7 @@
 --    as the client's stakesLabel does from the same release. The bets are
 --    unchanged: the engine sizes them from the big blind.
 --
--- 2. THE NAMES. Games are named "Fixed Limit 1/2 Classic" and
+-- 2. THE NAMES. Games are named "Fixed Limit Holdem 1/2 Classic" and
 --    "Omaha 8o Fixed Limit 1/2 Classic" (and Omaha 4 / 5 / 6 Card Fixed Limit,
 --    which the engine deals from its next certified release; until then the
 --    creator's variant list still refuses them). fn_cash_game_ensure and the
@@ -69,7 +71,7 @@ DO $patch$
 DECLARE
   src text;
   old_labels constant text := $n$WHEN 'plo8' THEN 'PLO8' WHEN 'flo8' THEN 'FLO8' WHEN 'flh' THEN 'FLH'$n$;
-  new_labels constant text := $r$WHEN 'plo8' THEN 'PLO8' WHEN 'flo8' THEN 'Omaha 8o Fixed Limit' WHEN 'flh' THEN 'Fixed Limit'
+  new_labels constant text := $r$WHEN 'plo8' THEN 'PLO8' WHEN 'flo8' THEN 'Omaha 8o Fixed Limit' WHEN 'flh' THEN 'Fixed Limit Holdem'
     WHEN 'flo4' THEN 'Omaha 4 Card Fixed Limit' WHEN 'flo5' THEN 'Omaha 5 Card Fixed Limit'
     WHEN 'flo6' THEN 'Omaha 6 Card Fixed Limit'$r$;
   needle text;
@@ -170,7 +172,7 @@ BEGIN
        AND EXISTS (SELECT 1 FROM public.clubs c
                     WHERE c.id = cg.club_id AND c.lifecycle_status IS DISTINCT FROM 'retired')
   LOOP
-    v_label := CASE g.variant WHEN 'flh' THEN 'Fixed Limit' ELSE 'Omaha 8o Fixed Limit' END;
+    v_label := CASE g.variant WHEN 'flh' THEN 'Fixed Limit Holdem' ELSE 'Omaha 8o Fixed Limit' END;
     v_new := left(v_label || ' ' || public.fn_cash_stakes_label(g.sb, g.bb, g.variant)
                   || ' ' || initcap(g.template_name), 60);
     UPDATE public.cash_games SET name = v_new, updated_at = now() WHERE id = g.id;
@@ -230,7 +232,11 @@ BEGIN
     RAISE EXCEPTION 'fn_lightning_variant_allowed does not refuse fixed limit';
   END IF;
   IF strpos(pg_get_functiondef('public.fn_cash_game_ensure(uuid,text,numeric,numeric,text,integer)'::regprocedure),
-            'Omaha 8o Fixed Limit') = 0 THEN
+            'Omaha 8o Fixed Limit') = 0
+     OR strpos(pg_get_functiondef('public.fn_cash_game_ensure(uuid,text,numeric,numeric,text,integer)'::regprocedure),
+            '''Fixed Limit Holdem''') = 0
+     OR strpos(pg_get_functiondef('public.fn_cash_game_create_impl_20260905(uuid,text,text,numeric,numeric,integer,jsonb,text,boolean)'::regprocedure),
+            '''Fixed Limit Holdem''') = 0 THEN
     RAISE EXCEPTION 'fn_cash_game_ensure does not name fixed limit games';
   END IF;
   IF EXISTS (SELECT 1 FROM public.cash_games g

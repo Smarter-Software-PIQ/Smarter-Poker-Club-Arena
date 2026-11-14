@@ -409,12 +409,12 @@ const VARIANT_LABELS: Record<string, { short: string; long: string }> = {
      `ofc` variant was never used by a single row. Relabelled by migration
      20260823_retire_ofc_pineapple_variant.sql. */
   /* Limit family (the LIMIT lobby category classifies on these strings).
-     Owner ruling, November 14, 2026: limit games are titled "FIXED LIMIT 1/2"
+     Owner ruling, November 14, 2026: limit games are titled "Fixed Limit Holdem 1/2"
      and "OMAHA 4 CARD FIXED LIMIT" ... "OMAHA 8o FIXED LIMIT", never FLH or
      FLO8. `short` is the title word the card prints before the stakes, so it
      carries the whole name; the words come from src/lib/fixedLimitNames.ts. */
-  flh: { short: FIXED_LIMIT_GAME_NAMES.flh, long: "Fixed Limit Hold'em" },
-  limit_holdem: { short: FIXED_LIMIT_GAME_NAMES.flh, long: "Fixed Limit Hold'em" },
+  flh: { short: FIXED_LIMIT_GAME_NAMES.flh, long: FIXED_LIMIT_GAME_NAMES.flh },
+  limit_holdem: { short: FIXED_LIMIT_GAME_NAMES.flh, long: FIXED_LIMIT_GAME_NAMES.flh },
   flo4: { short: FIXED_LIMIT_GAME_NAMES.flo4, long: FIXED_LIMIT_GAME_NAMES.flo4 },
   flo5: { short: FIXED_LIMIT_GAME_NAMES.flo5, long: FIXED_LIMIT_GAME_NAMES.flo5 },
   flo6: { short: FIXED_LIMIT_GAME_NAMES.flo6, long: FIXED_LIMIT_GAME_NAMES.flo6 },

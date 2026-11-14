@@ -80,8 +80,8 @@ describe('HALF 2 — a table created from those cards lands in the LIMIT tab', (
   it('gives every limit game its owner name rather than echoing the raw column', () => {
     // Owner ruling, November 14, 2026: "FIXED LIMIT 1/2", "OMAHA 4 CARD FIXED
     // LIMIT" ... "OMAHA 8o FIXED LIMIT"; never FLH or FLO8.
-    expect(variantDisplay('flh').long).toBe("Fixed Limit Hold'em");
-    expect(variantDisplay('flh').short).toBe('Fixed Limit');
+    expect(variantDisplay('flh').long).toBe('Fixed Limit Holdem');
+    expect(variantDisplay('flh').short).toBe('Fixed Limit Holdem');
     expect(variantDisplay('flo4').short).toBe('Omaha 4 Card Fixed Limit');
     expect(variantDisplay('flo5').short).toBe('Omaha 5 Card Fixed Limit');
     expect(variantDisplay('flo6').short).toBe('Omaha 6 Card Fixed Limit');
@@ -133,7 +133,7 @@ describe('HALF 2b — the LIMIT tab can be sub-divided now that the keys exist',
     // The row was withheld originally because "inventing sub-variant chips
     // risks hiding real tables behind keys variantKey has not learnt". Every
     // key is learnt, which is what makes the chips safe. Owner November 14,
-    // 2026: Fixed Limit (Hold'em) and Omaha 4, 5, 6 card and 8o.
+    // 2026: Fixed Limit Holdem and Omaha 4, 5, 6 card and 8o.
     expect((FILTER_SPECS.LIMIT.games ?? []).map((g) => g.key)).toEqual([
       'flh',
       'flo4',

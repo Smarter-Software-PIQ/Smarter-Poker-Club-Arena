@@ -163,7 +163,8 @@ export function restoreTemplateConfig<T extends RestorableTableConfig>(
  * The auto-generated table name. stakesLabel is the one place that decides how
  * the stakes read, so the name, the stakes column and the lobby row cannot
  * disagree. Owner ruling, November 14, 2026: a limit game is named "Fixed Limit
- * 1/2" or "Omaha 8o Fixed Limit 1/2" (src/lib/fixedLimitNames.ts), by its blinds.
+ * Holdem 1/2" or "Omaha 8o Fixed Limit 1/2" (src/lib/fixedLimitNames.ts), by its
+ * blinds.
  */
 export function defaultTableName(
   gameLabel: string,

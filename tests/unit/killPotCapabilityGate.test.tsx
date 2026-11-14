@@ -153,7 +153,7 @@ describe('the cash creation flow offers kills only while the capability is live'
     'a %s capability draws no control and sends no kill key',
     async (readiness, available) => {
       capabilityAnswer = { data: registry(readiness, available), error: null };
-      await walkToRules(/^Classic/, 'Fixed Limit');
+      await walkToRules(/^Classic/, 'Fixed Limit Holdem');
       await waitFor(() => expect(capabilityAsked()).toBeGreaterThan(0));
       expect(screen.queryByTestId('cash-create-kill')).toBeNull();
       expect(document.body.textContent).not.toMatch(/Kill/);
@@ -165,7 +165,7 @@ describe('the cash creation flow offers kills only while the capability is live'
 
   it('a registry that could not be read is not a yes', async () => {
     capabilityAnswer = { data: null, error: { message: 'boom' } };
-    await walkToRules(/^Classic/, 'Fixed Limit');
+    await walkToRules(/^Classic/, 'Fixed Limit Holdem');
     await waitFor(() => expect(capabilityAsked()).toBeGreaterThan(0));
     expect(screen.queryByTestId('cash-create-kill')).toBeNull();
     expect(await createOverrides()).not.toHaveProperty('kill_mode');
@@ -181,7 +181,7 @@ describe('the cash creation flow offers kills only while the capability is live'
 
   it('a live capability offers Off / Half / Full and 8 / 10 / 12 / 15, and writes the choice through the owner door', async () => {
     capabilityAnswer = { data: registry('deployed', true), error: null };
-    await walkToRules(/^Classic/, 'Fixed Limit');
+    await walkToRules(/^Classic/, 'Fixed Limit Holdem');
     const group = await screen.findByTestId('cash-create-kill');
     expect(group.getAttribute('aria-label')).toBe('Kill Pots');
     for (const label of ['Off', 'Half Kill', 'Full Kill']) {
@@ -219,7 +219,7 @@ describe('the cash creation flow offers kills only while the capability is live'
 
   it('a live capability left at Off writes no kill at all', async () => {
     capabilityAnswer = { data: registry('deployed', true), error: null };
-    await walkToRules(/^Classic/, 'Fixed Limit');
+    await walkToRules(/^Classic/, 'Fixed Limit Holdem');
     await screen.findByTestId('cash-create-kill');
     const overrides = await createOverrides();
     for (const key of NO_KILL_KEY) expect(overrides).not.toHaveProperty(key);
@@ -230,7 +230,7 @@ describe('the cash creation flow offers kills only while the capability is live'
   it('a kill the door refuses is said, and the game is not reported as created with it', async () => {
     capabilityAnswer = { data: registry('deployed', true), error: null };
     killDoorAnswer = { data: null, error: { message: 'Kill Pots Are Not Available Yet' } };
-    await walkToRules(/^Classic/, 'Fixed Limit');
+    await walkToRules(/^Classic/, 'Fixed Limit Holdem');
     await screen.findByTestId('cash-create-kill');
     fireEvent.click(screen.getByRole('button', { name: 'Full Kill' }));
     await createOverrides();
@@ -251,7 +251,7 @@ describe('the cash creation flow offers kills only while the capability is live'
     capabilityAnswer = { data: registry('production_verified', true), error: null };
     render(<CashGameCreateFlow clubId="club-1" canBuildHere deniedMessage={null} />);
     fireEvent.click(screen.getByRole('button', { name: /^Lightning Games/ }));
-    for (const name of ['Fixed Limit', 'Omaha 8o Fixed Limit']) {
+    for (const name of ['Fixed Limit Holdem', 'Omaha 8o Fixed Limit']) {
       expect((screen.getByRole('button', { name }) as HTMLButtonElement).disabled, name).toBe(true);
     }
     expect(screen.queryByTestId('cash-create-kill')).toBeNull();
@@ -322,7 +322,7 @@ describe('the kill write goes through the door the database honours (20260924034
     expect(killSql).toContain("v_mode NOT IN ('off','half','full')");
 
     capabilityAnswer = { data: registry('deployed', true), error: null };
-    await walkToRules(/^Classic/, 'Fixed Limit');
+    await walkToRules(/^Classic/, 'Fixed Limit Holdem');
     await screen.findByTestId('cash-create-kill');
     fireEvent.click(screen.getByRole('button', { name: 'Half Kill' }));
     fireEvent.click(screen.getByRole('button', { name: '15 BB' }));
