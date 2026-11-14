@@ -17,16 +17,21 @@
  *                mixes: against the limp persona, pair 803 of seed 20261112
  *                folded the turn in one pass and called it in the other.
  *
- * Both passes of pair p are now dealt on leaguePairHandClock(p), a function
- * of the pair alone. These laws hold the property, not the mechanism: the
- * timestamps the brain is shown, and the result, are the same whatever ran
- * before, and identical arms never diverge.
+ * Both passes of pair p are now dealt on leaguePairHandClock(p, runSeed), a
+ * function of the run seed and the pair and of nothing else. These laws hold
+ * the property: the timestamps the brain is shown, and the result, are the
+ * same whatever ran before; identical arms never diverge; and another seed
+ * is another set of clocks, so the persona draws are not one frozen sample
+ * repeated every night and on every card.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HorseLogic } from '../engine/HorseLogic.js';
 import {
   HU_LIMP_EVERY_BUTTON_PERSONA,
+  LEAGUE_HAND_CLOCK_MAX_PAIRS,
+  LEAGUE_HAND_CLOCK_SEED_SLOTS,
   LEAGUE_MATCHUPS,
+  leaguePairHandClock,
   runMatchup,
   type LeagueMatchup,
   type LeagueResult,
@@ -111,6 +116,53 @@ describe('a league card gives the same result alone and after another card', () 
       runMatchup(card('hu_bb_defends_to_price'), 48, 5),
     ]);
     expect(measured(together)).toEqual(measured(alone));
+  }, 600_000);
+});
+
+describe('the hand clock is a function of the run seed and the pair alone', () => {
+  it('is unique inside a run, shared by nothing across seeds, and a safe integer', () => {
+    const seen = new Set<number>();
+    for (const seed of [0, 1, 4095, 20261112, 0xfffff123]) {
+      for (const p of [0, 1, 2, 11_999, 23_999, LEAGUE_HAND_CLOCK_MAX_PAIRS - 1]) {
+        const clock = leaguePairHandClock(p, seed);
+        expect(Number.isSafeInteger(clock)).toBe(true);
+        expect(clock).toBeGreaterThan(0);
+        expect(seen.has(clock), `seed ${seed} pair ${p} repeats a clock`).toBe(false);
+        seen.add(clock);
+        expect(leaguePairHandClock(p, seed)).toBe(clock);
+      }
+    }
+    // Room for every action of a hand before the next pair's clock (4,096 a slot, odd slots).
+    expect(leaguePairHandClock(1, 7) - leaguePairHandClock(0, 7)).toBe(8192);
+    // The last clock of one seed band is below the first of the next.
+    expect(leaguePairHandClock(LEAGUE_HAND_CLOCK_MAX_PAIRS - 1, 7)).toBeLessThan(
+      leaguePairHandClock(0, 8)
+    );
+    // Seeds one band cycle apart share a band: 4,096 bands, stated, not hidden.
+    expect(leaguePairHandClock(5, 7 + LEAGUE_HAND_CLOCK_SEED_SLOTS)).toBe(
+      leaguePairHandClock(5, 7)
+    );
+    expect(() => leaguePairHandClock(LEAGUE_HAND_CLOCK_MAX_PAIRS, 7)).toThrow();
+    expect(() => leaguePairHandClock(-1, 7)).toThrow();
+  });
+
+  it('another seed deals the same card on other clocks: no draw sample is frozen across nights', async () => {
+    const hu = card('hu_bb_defends_to_price_40bb');
+    const a = await runRecordingHandClocks(hu, 30, 20261112);
+    const b = await runRecordingHandClocks(hu, 30, 20261113);
+    const again = await runRecordingHandClocks(hu, 30, 20261112);
+    expect(a.clocks.length).toBeGreaterThan(30);
+    const inA = new Set(a.clocks);
+    expect(b.clocks.filter((c) => inA.has(c))).toEqual([]);
+    expect(again.clocks).toEqual(a.clocks);
+  }, 600_000);
+
+  it('two cards on one night are dealt on different clocks (the nightly seed carries the name)', async () => {
+    // runLeague seeds a card with dateSeed ^ hash32(name); two names, two seeds.
+    const a = await runRecordingHandClocks(card('hu_commit_under_pot'), 20, 20772 ^ 0x1234);
+    const b = await runRecordingHandClocks(card('hu_commit_under_pot'), 20, 20772 ^ 0x4321);
+    const inA = new Set(a.clocks);
+    expect(b.clocks.filter((c) => inA.has(c))).toEqual([]);
   }, 600_000);
 });
 

@@ -611,25 +611,43 @@ function nextHandTsBase(): number {
 
 /**
  * THE HAND CLOCK OF ONE DUPLICATE PAIR (2026-11-13, HU-EVAL-003/004). The
- * timestamp base both passes of pair `pairIndex` are dealt on, a function of
- * the pair alone. The brain keys per-hand draws on the hand's first action
- * timestamp (the persona indifference band and V48 chart adherence hash
- * `timestamp:userId`), and the process-wide counter above handed every
- * playHand call the next number in the process. So (a) the second card a
- * worker ran was dealt on other timestamps than the same card run first, and
- * gave another answer for the same seed (80bb heads-up mirror, 3,000 pairs,
- * seed 20261112: -4.86 first, -8.10 second), and (b) the two passes of one
- * pair never shared a timestamp, so two IDENTICAL arms drew different persona
- * mixes and diverged (2 of 6,000 pairs against the limp persona).
+ * timestamp base both passes of pair `pairIndex` of a run are dealt on: a
+ * function of the run seed and the pair, and of nothing else. The brain keys
+ * per-hand draws on the hand's first action timestamp (the persona
+ * indifference band and V48 chart adherence hash `timestamp:userId`), and the
+ * process-wide counter above handed every playHand call the next number in
+ * the process. So (a) the second card a worker ran was dealt on other
+ * timestamps than the same card run first, and gave another answer for the
+ * same seed (80bb heads-up mirror, 3,000 pairs, seed 20261112: -4.86 first,
+ * -8.10 second), and (b) the two passes of one pair never shared a
+ * timestamp, so two IDENTICAL arms drew different persona mixes and diverged
+ * (2 of 6,000 pairs against the limp persona).
  *
- * The value is the one pass 1 of that pair always had in a matchup run first
- * in a fresh process (1 + TS_STRIDE * (2p + 1)), so pass 1 of such a run is
- * unchanged; pass 2 now replays it instead of taking the next slot. Each pass
- * plays in its own HorseMind sandbox for the whole matchup, so the two passes
- * sharing a hand key share no plan, outlook or seen-action state.
+ * The run seed is folded in (its value modulo LEAGUE_HAND_CLOCK_SEED_SLOTS
+ * picks one of 4,096 disjoint bands) so the draws are not the same sample
+ * every night and on every card: the nightly seed carries the date and the
+ * card name, and a draw sample frozen across nights would be an error that
+ * pooling nights could never shrink. Same card and same seed: same clocks,
+ * whatever ran before. Inside a band the base is TS_STRIDE * (2p + 1), odd
+ * slots TS_STRIDE apart, so no two pairs of a run share a timestamp; the
+ * largest value is under 2^42. Each pass plays in its own HorseMind sandbox
+ * for the whole matchup, so the two passes sharing a hand key share no plan,
+ * outlook or seen-action state.
  */
-export function leaguePairHandClock(pairIndex: number): number {
-  return 1 + TS_STRIDE * (2 * pairIndex + 1);
+export const LEAGUE_HAND_CLOCK_SEED_SLOTS = 4096;
+export const LEAGUE_HAND_CLOCK_MAX_PAIRS = 65_536;
+export function leaguePairHandClock(pairIndex: number, runSeed: number): number {
+  if (
+    !Number.isSafeInteger(pairIndex) ||
+    pairIndex < 0 ||
+    pairIndex >= LEAGUE_HAND_CLOCK_MAX_PAIRS
+  ) {
+    throw new Error(
+      `leaguePairHandClock: pair ${pairIndex} is outside 0..${LEAGUE_HAND_CLOCK_MAX_PAIRS - 1}`
+    );
+  }
+  const band = (runSeed >>> 0) % LEAGUE_HAND_CLOCK_SEED_SLOTS;
+  return 1 + TS_STRIDE * (band * 2 * LEAGUE_HAND_CLOCK_MAX_PAIRS + 2 * pairIndex + 1);
 }
 
 /** The blocks the block standard error (LeagueResult.blockStderr) aims for. */
@@ -806,11 +824,15 @@ export function playHand(
   let minRaise = BB;
   let lastRaise = BB;
   const history: ActionRecord[] = [];
-  // V12.3: a per-call monotonic timestamp base. `handSeed >>> 1` collided
-  // across the two passes of a duplicate pair (same seed, same base), which
-  // made HorseMind.handKeyOf identical in both passes — config B then read
-  // config A's barrel plan, destroying the independence the duplicate design
-  // exists to provide. A process-wide counter cannot collide.
+  // The hand's timestamp base, which is also its HorseMind hand key. V12.3
+  // took it from a process-wide counter because `handSeed >>> 1` gave both
+  // passes of a duplicate pair one key while they shared HorseMind state, and
+  // config B read config A's barrel plan. 2026-11-13: the league runners now
+  // give both passes of a pair ONE key on purpose (leaguePairHandClock), so
+  // identical arms draw identical persona mixes; what keeps the arms apart is
+  // the per-pass sandbox (sb1 / sb2), which holds every plan, outlook and
+  // seen-action key. Do not "fix" the sharing. A direct caller that passes no
+  // clock still gets the counter.
   let ts = handClock ?? nextHandTsBase();
 
   const live = () => seats.filter((s) => !s.player.is_folded);
@@ -1493,7 +1515,7 @@ export async function runMatchup(
     const handSeed = (runSeed ^ (p * 2654435761)) >>> 0 || 1;
     const dealerSeat = (p % SEATS) + 1;
     // Both passes of the pair are dealt on one hand clock (leaguePairHandClock).
-    const handClock = leaguePairHandClock(p);
+    const handClock = leaguePairHandClock(p, runSeed);
     const withEvidence = (opts: HorseDecideOpts): HorseDecideOpts => {
       if (!opts.gtoV31DatasetChecksum && !opts.onGtoV31Decision) return opts;
       return {
@@ -1836,7 +1858,7 @@ async function runHumanFieldMatchup(
           learn,
           undefined,
           // Both passes of the pair are dealt on one hand clock.
-          leaguePairHandClock(p)
+          leaguePairHandClock(p, runSeed)
         );
       const a = play(optsA, modsA, sb1)[HERO];
       const b = play(optsB, modsB, sb2)[HERO];

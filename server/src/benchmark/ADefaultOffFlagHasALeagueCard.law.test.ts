@@ -22,7 +22,8 @@
  *     fifteen, for their owners.
  *   - the list was a literal in this file, so it could grow. Both lists are
  *     now held inside a frozen snapshot whose contents are hash-pinned: a name
- *     can leave a list, none can join one.
+ *     can leave a list; adding one means editing the list, the snapshot and
+ *     the pinned hash together, which no one does by accident.
  */
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -51,13 +52,29 @@ const UNDEALT_WHEN_WRITTEN = new Set([
 ]);
 
 /** Noted "default-off" (hyphen), unseen until 2026-11-13 (main 1c009e34), and
- *  undealt. Owned by other lanes; listed, not fixed, here. */
+ *  undealt. Listed, not fixed, here; UNDEALT_OWNERS names who gives each a card. */
 const UNDEALT_WHEN_WIDENED = new Set([
   'barrelContinuationOutlook',
   'smallPotNearNutRiverValue',
   'multiwayRiverBluffCheckRaise',
   'v53PloTourneyIcm',
 ]);
+
+/**
+ * The Horse Phase 1 lane that owns the card each widened flag still needs,
+ * and the PR that shipped the flag. The lane is assigned here by the flag's
+ * game (the flags shipped 2026-10-27/28, before the lanes existed) and is the
+ * heads-up lane's proposal until that lane confirms it in the shared tracker.
+ * v55OmahaRiverTripsFlat is not on a list (it has refused matchups) but no
+ * card can ever confirm it, so its owner is named too.
+ */
+const UNDEALT_OWNERS: Readonly<Record<string, { lane: string; shippedIn: string }>> = {
+  barrelContinuationOutlook: { lane: "Hold'em Strategy", shippedIn: '#8386' },
+  multiwayRiverBluffCheckRaise: { lane: "Hold'em Strategy", shippedIn: '#8386' },
+  smallPotNearNutRiverValue: { lane: 'PLO Strategy', shippedIn: '#8369' },
+  v53PloTourneyIcm: { lane: 'PLO Strategy', shippedIn: '#8366' },
+  v55OmahaRiverTripsFlat: { lane: 'PLO Strategy', shippedIn: 'V55' },
+};
 
 const SNAPSHOT_PATH = resolve(
   process.cwd(),
@@ -172,6 +189,14 @@ describe('a default-off Horse flag has a league card', () => {
     expect(UNDEALT_WHEN_WIDENED.size).toBeLessThanOrEqual(4);
     // No name is on both lists, and the lists name default-off flags only.
     expect([...UNDEALT_WHEN_WIDENED].filter((k) => UNDEALT_WHEN_WRITTEN.has(k))).toEqual([]);
+  });
+
+  it('every flag found when the matcher was widened names the lane that owes it a card', () => {
+    for (const k of UNDEALT_WHEN_WIDENED) {
+      expect(UNDEALT_OWNERS[k]?.lane, `${k} has no owning lane`).toMatch(/Strategy$/);
+      expect(UNDEALT_OWNERS[k]?.shippedIn.length ?? 0).toBeGreaterThan(0);
+    }
+    expect(UNDEALT_OWNERS.v55OmahaRiverTripsFlat.lane).toBe('PLO Strategy');
   });
 
   it('the heads-up flags this law was written for are switched on by a card', () => {
