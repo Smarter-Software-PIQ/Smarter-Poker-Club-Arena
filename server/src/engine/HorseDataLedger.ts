@@ -2955,8 +2955,8 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   receipt(
     'upgrade08_*',
-    'ServerTableEngineRunout; ServerTableEngineTurns; LightningHorse',
-    'a run-it-twice answer was scheduled or an insurance answer was sent, or kill-pot or seven-deuce context reached a decision request; named *_seen (occurrence, not a layer); silent where no table offers the side game',
+    'ServerTableEngineRunout; ServerTableEngineTurns; LightningHorse; HorseLogic',
+    'a run-it-twice answer was scheduled, an insurance offer went to a Horse leader (offered) or its answer was sent, kill-pot or seven-deuce context reached a decision request, or the brain read it in that decision (kill_pot_orbit, kill_pot_unopened, seven_deuce_overlay, seven_deuce_bounty); named *_seen (occurrence, not a layer); silent where no table offers the side game',
     '2026-11-12'
   ),
   receipt(
