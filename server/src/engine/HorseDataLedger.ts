@@ -3444,13 +3444,30 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'decide_nlh',
     0.01
   ),
+  // V27 BB defend answers ONE spot: the big blind facing a small blind's
+  // open-jam heads-up at charted depth (<= GTO_BB_DEFEND_MAX_BB), in every
+  // format that reaches it - cash, heads-up cash, Spin, Sit & Go and MTT.
+  // Until 2026-11-14 it was judged per decide_nlh, so its rate followed the
+  // tournament mix: when Spin starts were held on 2026-11-10 (6,220 -> 38 a
+  // day) the audit raised data_unread for four days while the chart kept
+  // answering. v27_gto_bb_defend_eligible counts every such spot before the
+  // chart is asked, so the ratio reads only whether the chart answered the
+  // spots it owns. A hydrated chart should answer nearly all of them, but a
+  // missing cell returns null, so the share is not assumed: no floor until a
+  // measured live day, and the drift audit still judges both keys against
+  // their own history meanwhile.
+  receipt(
+    'v27_gto_bb_defend_eligible',
+    'HorsePreflop (V27)',
+    'BB facing an SB open-jam heads-up at charted depth, before the chart is asked',
+    'V27'
+  ),
   receipt(
     'v27_gto_bb_defend',
     'HorsePreflop (V27)',
     'solver BB defend chart hit',
     'V27',
-    'decide_nlh',
-    0.005
+    'v27_gto_bb_defend_eligible'
   ),
   receipt('v29_*', 'GtoPostflop (V29)', 'flop solver cells and misses', 'V29', 'decide_nlh', 0.002),
   receipt(
