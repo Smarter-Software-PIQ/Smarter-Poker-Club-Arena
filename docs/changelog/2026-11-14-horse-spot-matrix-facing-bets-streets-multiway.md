@@ -26,13 +26,13 @@ In a pot-limit or fixed-limit tournament, a Horse facing a bet with more than th
 
 The pricing is a strategy change owned by the tournament strategy lane, so it is not made here. The law pins today's behaviour by name instead, the way the style matrix law pins the Pineapple tournament refusal (`KNOWN GAP upgrade 07 ...`, three tests):
 
-- the six shoves below are not priced: `phase7_tournament_utility` does not fire, the only refusal counter is `phase7_unavailable_baseline_not_modeled`, `phase7_utility_unavailable` is 1 and the decision's receipt says `baseline_not_modeled`;
-- the six decisions of the same spot in those structures where the Horse folds or calls are priced, with no refusal;
-- the six decisions of the same spot in no-limit tournaments are priced, the two shoves among them included.
+- every shove through the all-in button in those structures is not priced: `phase7_tournament_utility` is absent, the only `phase7_unavailable_*` counter is `phase7_unavailable_baseline_not_modeled`, `phase7_utility_unavailable` is 1 and the decision's `tournamentUtilityRefusal` is `baseline_not_modeled`;
+- every fold or call of the same spot in those structures is priced, with no refusal;
+- every decision of the same spot in no-limit tournaments is priced, shoves included.
 
-The pin is green only for that reason on those decisions. It goes red when the shove is priced, so whoever fixes the pricing must replace it with the plain rule. A refusal for any other reason fails in the cells.
+The pin is a rule over whatever the Horse returned, not a list of which decisions shove: actions are sampled and strategy may change them. It requires at least one shove as a witness and fails, saying how to restore witnesses, if there is none. It is green only for that refusal reason and goes red when a shove is priced, so whoever fixes the pricing must replace it with the plain rule. A refusal for any other reason fails in the cells. The pin must never be extended to a multiway spot (see determinism below).
 
-The six reproductions (spot `hu_flop_short_stack_all_in_is_the_only_raise`, tournament, heads-up flop, Horse in seat 1, big blind 20, menu fold, call, all_in, returned all_in):
+The six reproductions observed on 2026-11-14 (diagnostics, not asserted; spot `hu_flop_short_stack_all_in_is_the_only_raise`, tournament, heads-up flop, Horse in seat 1, big blind 20, menu fold, call, all_in, returned all_in):
 
 | Variant | Deck | Seed       | Horse stack | Pot | To call |
 | ------- | ---- | ---------- | ----------- | --- | ------- |
@@ -50,6 +50,10 @@ The six reproductions (spot `hu_flop_short_stack_all_in_is_the_only_raise`, tour
 
 ## Limits, Stated
 
+- Determinism: every run has the same inputs and the same sampling seed (fixed decks; the action history handed to the brain is restamped at fixed times). That is not the same decisions on every run: production prices some policy packs against a 4 ms wall clock, so wall-clock-budgeted pricing can still vary receipts and counters and, multiway in tournaments, the action. No assertion reads a wall-clock-budgeted counter (none of `phase10_*`, `phase11_*`, `phase12_*`, `phase13_*` or `*_operation_budget`), and none names a sampled action.
+- The game state handed to the worker is assembled by test support (`controllerDecisionState`), a mirror of the production builder in `ServerTableEngineTurns.ts` and not the builder itself; `humanUserIds` is absent, and the helper is typed for four variants and called with a cast for the other five.
+- Every seat is a Horse: no human opponent, so no opponent memory and no read of an opponent's style is exercised.
+- Every decision street is reached through a limped pot (calls and checks only before it): no raised or re-raised pot.
 - Postflop only. No antes, straddles, bomb pots, multi-board hands or kill pots.
 - The Horse is always making its first decision of the street, so a re-raise coming back to it and the betting-reopening rule are not exercised, except on the capped fixed-limit street.
 - Side pots with three or more all-in stacks are not built.
@@ -60,7 +64,7 @@ The six reproductions (spot `hu_flop_short_stack_all_in_is_the_only_raise`, tour
 
 ## Regression
 
-- `HorseDecisionSpotMatrix.law.test.ts`: 28 tests, all pass. Ten consecutive runs gave the same result, in 18 to 32 seconds each on a busy machine and 56 to 94 seconds for three runs taken at a load average above 65 (the slowest single test then took 10 seconds of its 60-second limit); the action history handed to the brain is restamped at fixed times, so the 512 decisions are the same on every run.
+- `HorseDecisionSpotMatrix.law.test.ts`: 29 tests, all pass, on repeated runs. It normally takes about 20 seconds; at a load average above 65 it took up to 94 seconds, with the slowest single test at 10 seconds. Tests use the suite's own timeout.
 - Mutation: removing the `upgrade01_action_line_posterior` fire in `HorseLogic.ts` fails all 18 cells; making the worker return a bet or raise one chip above the controller's maximum fails all 18 cells (outside the bounds, and refused by the controller). Both restored.
-- Mutation on the pin: letting `buildTournamentActionCandidates` build the jam without a numeric `maxRaiseTo` (the shove becomes priced) fails the pinned test. Restored.
+- Mutations on the pin: letting `buildTournamentActionCandidates` build the jam without a numeric `maxRaiseTo` (the shove becomes priced) fails the pinned test; renaming the refusal reason in production fails the pinned test and the cells; with no shove among the witnesses the pinned test fails with its lost-witnesses message. All restored.
 - `tests/law-registry.law.test.ts` passes with the new registry file.

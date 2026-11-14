@@ -31,7 +31,15 @@
  * worker seeds its randomness from the decision key). The key covers the
  * action history's timestamps, which the controller takes from the wall
  * clock; the copy handed to the brain is restamped at fixed times, so every
- * run of this file makes the same 512 decisions. Instead, every action
+ * run has the same inputs and the same sampling seed. That is not the same
+ * as the same 512 decisions: production prices some policy packs against a
+ * 4 ms wall clock (HorseLogic, the Phase 10 to 13 shadow and joint pricing),
+ * so their receipts and counters can differ between runs under load, and on
+ * a multiway tournament decision Phase 13 adopts its proposal only when the
+ * pricing finishes in time, so the action itself can differ on a slower
+ * machine. No assertion here reads a wall-clock-budgeted counter (none of
+ * phase10_*, phase11_*, phase12_*, phase13_* or *_operation_budget), and none
+ * names a sampled action. Instead, every action
  * the controller offers in every spot is executed on a twin of the same hand
  * (same deck, same script), at the minimum and at the maximum for a sized
  * wager, and one chip unit outside each bound must be refused. Across the
@@ -58,6 +66,15 @@
  * upgrades whose counters depend on what the table offers (03, 04, 05, 08,
  * 09, 10, 11, 12). The minimum raise is checked as a floor (current bet plus
  * one big blind), not recomputed from the last raise.
+ *
+ * Also stated: the game state handed to the worker is assembled by test
+ * support (`controllerDecisionState`), a mirror of the production builder in
+ * ServerTableEngineTurns.ts and not the builder itself; it carries no
+ * `humanUserIds`, and the helper is typed for four variants and called here
+ * with a cast for the other five. Every seat is a Horse: no human opponent,
+ * so no opponent memory and no read of an opponent's style is exercised.
+ * Every decision street is reached through a limped pot (calls and checks
+ * only before it), so no raised or re-raised pot and no preflop aggressor.
  *
  * What the controller's menu means in three of these spots, recorded because
  * the law depends on it (HandController.getAvailableActions):
@@ -619,6 +636,8 @@ interface ShortSpotPricing {
   action: string;
   /** phase7_tournament_utility fired once and the decision carries its ledger. */
   priced: boolean;
+  /** The phase7_tournament_utility counter itself; absent when it did not fire. */
+  utilityFires: number | undefined;
   /** Every `phase7_unavailable_*` counter the decision fired. */
   refusalCounters: string[];
   /** phase7_utility_unavailable, the refusal's umbrella counter. */
@@ -850,6 +869,7 @@ async function runSpot(
         structure,
         action: decision.action,
         priced: priced && decision.tournamentUtility !== undefined,
+        utilityFires: counted.phase7_tournament_utility,
         refusalCounters: refusals,
         unavailable: counted.phase7_utility_unavailable,
         receiptRefusal: decision.tournamentUtilityRefusal,
@@ -1018,7 +1038,7 @@ describe('variant x mode x spot: the production resolver, the production worker,
             problems.push(...(await runSpot(variant, mode, spec, rep, base + index * REPS + rep)));
         CELLS_RUN.add(`${variant} ${mode}`);
         expect(problems).toEqual([]);
-      }, 60_000);
+      });
     }
   }
 });
@@ -1070,77 +1090,80 @@ describe('across the matrix', () => {
  *
  * This pins today's behaviour by name, the way the style matrix law pins the
  * Pineapple tournament refusal. It is green while the gap exists, for this
- * reason and no other, and it goes red the moment the shove is priced: whoever
+ * reason and no other, and it goes red the moment a shove is priced: whoever
  * fixes the pricing must then replace this block with the plain rule (every
  * tournament decision of this spot is priced) and drop the carve-out in
  * runSpot. A refusal for any other reason already fails in the cells above.
  *
- * The decisions are the same on every run (fixed decks and timestamps), so the
- * six shoves are listed by their reproduction: variant, deck repetition and
- * deck seed of the spot `hu_flop_short_stack_all_in_is_the_only_raise`,
- * tournament, heads-up flop, Horse in seat 1, big blind 20.
+ * The pin is a rule over whatever the Horse returned, never a list of which
+ * decisions shove: actions are sampled and strategy may legitimately change
+ * them. It needs at least one shove to witness the gap and fails, saying so,
+ * if there is none.
+ *
+ * NEVER EXTEND THIS PIN TO A MULTIWAY SPOT. It holds because the spot is
+ * heads-up, where no wall-clock-budgeted pricing can change the action or
+ * the tournament utility's verdict. Multiway, in tournaments, Phase 13 adopts
+ * its proposal only when its pricing finishes inside 4 ms, so both would vary
+ * with machine load.
  */
 const KNOWN_GAP_REASON = 'baseline_not_modeled';
 const KNOWN_GAP_COUNTER = `phase7_unavailable_${KNOWN_GAP_REASON}`;
-const KNOWN_GAP_SHOVES = [
-  'plo4 rep=0 seed=1663882339',
-  'plo6 rep=0 seed=1264265673',
-  'plo8 rep=1 seed=2568337932',
-  'flo8 rep=1 seed=2269140658',
-  'flh rep=0 seed=530853016',
-  'flh rep=1 seed=547630635',
-];
 describe('KNOWN GAP upgrade 07 (reported 2026-11-14 to the tournament strategy lane): the all-in button as the only raise', () => {
-  const ofStructure = (noLimit: boolean) =>
-    SHORT_SPOT_PRICING.filter((d) => (d.structure === 'no_limit') === noLimit);
+  const witness = (d: ShortSpotPricing) => `${d.id} ${d.action}`;
+  const gapStructures = () => SHORT_SPOT_PRICING.filter((d) => d.structure !== 'no_limit');
+  const noLimit = () => SHORT_SPOT_PRICING.filter((d) => d.structure === 'no_limit');
+  const expectPriced = (decision: ShortSpotPricing) => {
+    const id = witness(decision);
+    expect(decision.priced, id).toBe(true);
+    expect(decision.utilityFires, id).toBe(1);
+    expect(decision.refusalCounters, id).toEqual([]);
+    expect(decision.unavailable, id).toBeUndefined();
+    expect(decision.receiptRefusal, id).toBeUndefined();
+  };
 
-  it('pinned: a pot-limit or fixed-limit tournament shove through the all-in button is NOT priced, refused as baseline_not_modeled and nothing else', () => {
+  it('the population is the whole short-stack spot: every tournament cell ran, two decks per variant', () => {
     expect(CELLS_RUN.size).toBe(VARIANTS.length * MODES.length);
-    // Two decks for each of the nine variants, tournaments only.
     expect(SHORT_SPOT_PRICING).toHaveLength(VARIANTS.length * REPS);
-    const shoves = ofStructure(false).filter((d) => d.action === 'all_in');
-    expect(shoves.map((d) => d.id)).toEqual(KNOWN_GAP_SHOVES);
+    // Four pot-limit and two fixed-limit variants; three no-limit.
+    expect(gapStructures()).toHaveLength(6 * REPS);
+    expect(noLimit()).toHaveLength(3 * REPS);
+    // Diagnostics only: which decisions shoved is sampled, and not a law.
+    console.log(
+      `short-stack spot, tournament decisions: ${SHORT_SPOT_PRICING.map(witness).join('; ')}`
+    );
+  });
+
+  it('pinned: every pot-limit or fixed-limit tournament shove through the all-in button is NOT priced, refused as baseline_not_modeled and nothing else', () => {
+    expect(CELLS_RUN.size).toBe(VARIANTS.length * MODES.length);
+    const shoves = gapStructures().filter((d) => d.action === 'all_in');
+    expect(
+      shoves.length,
+      'THE PIN LOST ITS WITNESSES: no pot-limit or fixed-limit tournament decision of ' +
+        'hu_flop_short_stack_all_in_is_the_only_raise returned all_in, so the known gap ' +
+        '(upgrade 07 refusing the shove as baseline_not_modeled) is no longer observed and ' +
+        'this test would pass on nothing. Restore witnesses by raising REPS or adding decks ' +
+        'for that spot until a shove occurs; do not delete the pin unless the gap is fixed. ' +
+        `Decisions seen: ${gapStructures().map(witness).join('; ')}`
+    ).toBeGreaterThan(0);
     for (const shove of shoves) {
-      expect(shove.priced, shove.id).toBe(false);
-      expect(shove.refusalCounters, shove.id).toEqual([KNOWN_GAP_COUNTER]);
-      expect(shove.unavailable, shove.id).toBe(1);
-      expect(shove.receiptRefusal, shove.id).toBe(KNOWN_GAP_REASON);
+      const id = witness(shove);
+      expect(shove.utilityFires, `${id}: phase7_tournament_utility`).toBeUndefined();
+      expect(shove.priced, id).toBe(false);
+      expect(shove.refusalCounters, id).toEqual([KNOWN_GAP_COUNTER]);
+      expect(shove.unavailable, `${id}: phase7_utility_unavailable`).toBe(1);
+      expect(shove.receiptRefusal, `${id}: tournamentUtilityRefusal`).toBe(KNOWN_GAP_REASON);
     }
   });
 
-  it('the same spot IS priced when the Horse folds or calls in pot limit and fixed limit', () => {
-    const passive = ofStructure(false).filter((d) => d.action !== 'all_in');
-    expect(passive.map((d) => `${d.id} ${d.action}`)).toEqual([
-      'plo4 rep=1 seed=1647104720 call',
-      'plo5 rep=0 seed=3189586728 call',
-      'plo5 rep=1 seed=3206364347 fold',
-      'plo6 rep=1 seed=1247488054 fold',
-      'plo8 rep=0 seed=2585115551 call',
-      'flo8 rep=0 seed=2285918277 call',
-    ]);
-    for (const decision of passive) {
-      expect(decision.priced, decision.id).toBe(true);
-      expect(decision.refusalCounters, decision.id).toEqual([]);
-      expect(decision.unavailable, decision.id).toBeUndefined();
-      expect(decision.receiptRefusal, decision.id).toBeUndefined();
-    }
+  it('every fold or call of the same spot in pot limit and fixed limit IS priced, with no refusal', () => {
+    expect(CELLS_RUN.size).toBe(VARIANTS.length * MODES.length);
+    for (const decision of gapStructures().filter((d) => d.action !== 'all_in'))
+      expectPriced(decision);
   });
 
-  it('the same spot IS priced in no-limit tournaments, the shove included', () => {
-    const noLimit = ofStructure(true);
-    expect(noLimit.map((d) => `${d.id} ${d.action}`)).toEqual([
-      'nlh rep=0 seed=2456099296 fold',
-      'nlh rep=1 seed=2472876915 all_in',
-      'short_deck rep=0 seed=350535654 all_in',
-      'short_deck rep=1 seed=367313273 fold',
-      'pineapple rep=0 seed=566050004 fold',
-      'pineapple rep=1 seed=582827623 fold',
-    ]);
-    for (const decision of noLimit) {
-      expect(decision.priced, decision.id).toBe(true);
-      expect(decision.refusalCounters, decision.id).toEqual([]);
-      expect(decision.unavailable, decision.id).toBeUndefined();
-      expect(decision.receiptRefusal, decision.id).toBeUndefined();
-    }
+  it('every decision of the same spot in no-limit tournaments IS priced, the shove included', () => {
+    expect(CELLS_RUN.size).toBe(VARIANTS.length * MODES.length);
+    expect(noLimit()).toHaveLength(3 * REPS);
+    for (const decision of noLimit()) expectPriced(decision);
   });
 });
