@@ -3,16 +3,22 @@ import './LightningLeaveControl.css';
 
 export function LightningLeaveControl({
   queued,
+  waitingForDeal = false,
   pending,
   onLeave,
   onCancel,
 }: {
   queued: boolean;
+  waitingForDeal?: boolean;
   pending: boolean;
   onLeave: () => void | Promise<void>;
   onCancel: () => void;
 }) {
-  const label = pending ? 'Leaving...' : queued ? 'Leaving After Hand' : 'Leave Next Hand';
+  const label = queued
+    ? waitingForDeal
+      ? 'Playing One More Hand'
+      : 'Leaving After This Hand'
+    : 'Leave Next Hand';
   const labelRef = useFitText<HTMLSpanElement>(label, 1, 0.5);
   return (
     <button

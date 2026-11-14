@@ -27,6 +27,7 @@ export class LeaveTableNextHandController {
   private armed = false;
   private arming = false;
   private leaving = false;
+  private resuming = false;
   private generation = 0;
   private state = EMPTY;
   private listeners = new Set<() => void>();
@@ -51,6 +52,7 @@ export class LeaveTableNextHandController {
     this.intent = null;
     this.armed = false;
     this.arming = false;
+    this.resuming = false;
     this.generation++;
     this.publish(EMPTY);
   }
@@ -86,6 +88,33 @@ export class LeaveTableNextHandController {
   }
   cancel = () => {
     this.clear();
+  };
+  /** Cancel an accepted feeder sit-out only after the server resumes the seat. */
+  resume = async (
+    sitBackIn: () => Promise<{ success: boolean; error?: string }>
+  ): Promise<boolean> => {
+    if (!this.intent || !this.armed || this.resuming || this.leaving) return false;
+    const generation = this.generation;
+    this.resuming = true;
+    this.publish({ queued: true, pending: true, error: null });
+    try {
+      const result = await sitBackIn();
+      if (generation !== this.generation) return false;
+      if (!result.success) throw new Error(result.error || 'Could Not Resume Play.');
+      this.clear();
+      return true;
+    } catch (error) {
+      if (generation === this.generation) {
+        this.resuming = false;
+        this.publish({
+          queued: true,
+          pending: false,
+          error: error instanceof Error ? error.message : 'Could Not Resume Play.',
+        });
+        this.tryLeave();
+      }
+      return false;
+    }
   };
   deactivate() {
     this.generation++;
@@ -146,6 +175,7 @@ export class LeaveTableNextHandController {
       !input?.ready ||
       !this.intent ||
       !this.armed ||
+      this.resuming ||
       this.leaving ||
       !input.seated ||
       input.handLive
@@ -200,6 +230,7 @@ export function useLeaveTableNextHand(input: LeaveNextHandInputs) {
     ...state,
     requestLeaveNextHand: controller.request,
     cancelQueuedLeave: controller.cancel,
+    resumeQueuedLeave: controller.resume,
     getError: () => controller.getSnapshot().error,
   };
 }

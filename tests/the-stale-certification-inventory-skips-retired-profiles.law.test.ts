@@ -33,7 +33,8 @@ describe('the stale certification inventory skips retired profiles', () => {
       "WHERE p.email LIKE 'ca-customization-cert-postdeploy-%@example.invalid'"
     );
     expect(code).toContain("AND p.status IS DISTINCT FROM 'deleted'");
-    expect(code).toContain('AND NOT public.fn_ca_certification_identity_retired(p.id)');
+    // 20261114192610 later dropped the retirement exclusion: a retired profile that is
+    // not deleted yet is handed to the door, which finishes it.
     expect(code).toContain('ORDER BY p.created_at, p.id LIMIT 21');
     expect(code).toContain("SET statement_timeout TO '8s'");
   });

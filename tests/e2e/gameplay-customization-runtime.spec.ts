@@ -1,3 +1,5 @@
+import { verifyLightningPreviousHandReview } from './support/lightningPreviousHandReview';
+import { tapLightningFold, verifyLightningFoldFrames } from './support/lightningFoldFrames';
 import { verifyHeroCelebrations } from './support/heroCelebrationProof';
 import {
   devices,
@@ -700,19 +702,31 @@ async function verifyPublishedLightning(
   context: BrowserContext,
   page: Page,
   account: TemporaryCustomizationAccount,
-  anchorTableId: string
+  anchorTableId: string,
+  testInfo: import('@playwright/test').TestInfo
 ) {
   const room = '11a70000-0000-4000-8000-0000000000a1';
   const cluster = 'c1a50000-0000-4000-8000-0000000000c1';
   const cards = [
     { rank: 'A', suit: 's' },
     { rank: 'K', suit: 'd' },
+    { rank: '10', suit: 'h' },
+    { rank: '9', suit: 'c' },
+    { rank: '8', suit: 's' },
   ];
   let seat = 1;
   let hand = 10;
+  let decisionAt = 0;
   let seq = 0;
   let vpipReads = 0;
   const stopRequests: { hand: string | null; visibleCards: number }[] = [];
+  let resumes = 0;
+  let countReads = 0;
+  let countFailures = 0;
+  let uncertainFold = false;
+  let foldPosts = 0;
+  let receiptSentAt = 0;
+  const receiptToReadMs: number[] = [];
   let handsOwed = 4;
   let handsPlayed = 6;
   const sockets = new Set<import('@playwright/test').WebSocketRoute>();
@@ -728,27 +742,30 @@ async function verifyPublishedLightning(
       lightning: {
         cluster_id: cluster,
         hand_id: `4a4d0000-0000-4000-8000-${String(hand).padStart(12, '0')}`,
-        name: 'NLH 1/2 Lightning Games',
+        name: 'PLO5 1/2 Lightning Games',
         small_blind: 1,
         big_blind: 2,
-        variant: 'nlh',
-        fast_fold_available: false,
+        variant: 'plo5',
+        fast_fold_available: !decisionAt,
+        fold_on_turn: true,
       },
       pot: 3,
       community_cards: [],
       community_cards2: [],
       community_cards3: [],
       current_bet: 2,
-      current_player: VILLAIN_ID,
+      hand_variant: 'plo5',
+      current_player: decisionAt ? account.id : VILLAIN_ID,
+      action_context: decisionAt ? `hand-${hand}:preflop:hero` : null,
       dealer_seat: 6,
       stage: 'preflop',
       min_raise: 4,
       last_raise: 2,
-      betting_structure: 'no_limit',
+      betting_structure: 'pot_limit',
       max_seats: 6,
-      turn_start_time_ms: Date.now(),
+      turn_start_time_ms: decisionAt || Date.now(),
       turn_duration_ms: 30_000,
-      turn_deadline_ms: Date.now() + 30_000,
+      turn_deadline_ms: (decisionAt || Date.now()) + 30_000,
       server_time_ms: Date.now(),
       time_bank_active: false,
       pots: [],
@@ -805,8 +822,8 @@ async function verifyPublishedLightning(
             meta: {
               clusterId: cluster,
               clubId: club,
-              name: 'NLH 1/2 Lightning Games',
-              variant: 'nlh',
+              name: 'PLO5 1/2 Lightning Games',
+              variant: 'plo5',
               smallBlind: 1,
               bigBlind: 2,
               maxPlayers: 6,
@@ -833,7 +850,7 @@ async function verifyPublishedLightning(
           socket.send(JSON.stringify({ type: 'SUBSCRIBED', tableId: room }));
           socket.send(JSON.stringify(snapshot()));
           socket.send(JSON.stringify(holeCards()));
-        } else if (message.type === 'RESYNC') {
+        } else if (message.type === 'RESYNC' && !uncertainFold) {
           socket.send(JSON.stringify(snapshot()));
           socket.send(JSON.stringify(holeCards()));
         } else if (message.type === 'UNSUBSCRIBE') sockets.delete(socket);
@@ -846,6 +863,13 @@ async function verifyPublishedLightning(
   await page.route('**/*', async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
+    if (new URL(request.url()).hostname === 'engine.smarter.poker' && path === '/action') {
+      foldPosts++;
+      return fulfillJson(
+        route,
+        uncertainFold ? { success: false, code: 'ACTION_STATE_PENDING' } : { success: true }
+      );
+    }
     if (path.endsWith('/fn_lightning_my_session')) {
       expect(request.postDataJSON()).toEqual({ p_cluster_id: cluster });
       return fulfillJson(route, {
@@ -860,7 +884,16 @@ async function verifyPublishedLightning(
       });
     }
     if (path.endsWith('/fn_my_hit_run_status')) {
+      countReads++;
+      if (receiptSentAt > 0) {
+        receiptToReadMs.push(Math.round(performance.now() - receiptSentAt));
+        receiptSentAt = 0;
+      }
       expect(request.postDataJSON()).toEqual({ p_table_id: anchorTableId });
+      if (countFailures > 0) {
+        countFailures--;
+        return route.fulfill({ status: 400, json: { message: 'Status temporarily unavailable' } });
+      }
       return fulfillJson(route, [
         {
           table_id: anchorTableId,
@@ -871,6 +904,11 @@ async function verifyPublishedLightning(
           hands_reason: handsOwed > 0 ? 'hit_run' : null,
         },
       ]);
+    }
+    if (path.endsWith('/fn_lightning_resume_playing')) {
+      expect(request.postDataJSON()).toEqual({ p_cluster_id: cluster });
+      resumes++;
+      return fulfillJson(route, { ok: true, withdrawn: true });
     }
     if (path.endsWith('/fn_lightning_stop_playing')) {
       expect(request.postDataJSON()).toEqual({ p_cluster_id: cluster });
@@ -914,7 +952,34 @@ async function verifyPublishedLightning(
   const hero = page.locator(`.seat--hero[data-player-id="${account.id}"]`);
   const faces = hero.locator('.seat__cards--hero .seat__card--face');
   await expect(hero.locator('.seat__avatar-img')).toBeVisible();
-  await expect(faces).toHaveCount(2);
+  await expect(faces).toHaveCount(5);
+  const picks = hero.locator('.seat__card-pick');
+  await expect(page.locator('.table-art-cover')).toBeHidden({ timeout: 15_000 });
+  const geometry = await picks.evaluateAll((nodes) =>
+    nodes.map((node, i) => {
+      const rect = node.getBoundingClientRect();
+      const next = nodes[i + 1]?.getBoundingClientRect();
+      const exposed = next ? next.left - rect.left : rect.width;
+      const hit = document.elementFromPoint(rect.left + exposed / 2, rect.top + rect.height / 2);
+      return {
+        width: rect.width,
+        height: rect.height,
+        exposed,
+        right: rect.right,
+        viewport: innerWidth,
+        hit: hit?.closest('.seat__card-pick') === node,
+      };
+    })
+  );
+  for (const card of geometry) {
+    expect(card.hit).toBe(true);
+    expect(card.exposed).toBeGreaterThanOrEqual(card.width * 0.45 - 1);
+    expect(card.right).toBeLessThanOrEqual(card.viewport);
+  }
+  await testInfo.attach('lightning-plo5-cards.png', {
+    body: await page.screenshot(),
+    contentType: 'image/png',
+  });
   await expect(page.getByTestId('vpip-badge')).toContainText('60%');
   await expect(page.getByTestId('hero-vpip-hand-count')).toHaveCount(0);
   const countdown = page.getByTestId('hit-run-count-pill');
@@ -927,6 +992,12 @@ async function verifyPublishedLightning(
       node.previousElementSibling?.classList.contains('table-brand__line--hand')
     )
   ).toBe(true);
+  await countdown.getByRole('button').click();
+  const rules = page.getByRole('dialog', { name: 'Hand Count Rules' });
+  await expect(rules).toBeVisible();
+  await expect(rules).toContainText('Losing Your Profit Pauses This Count');
+  await rules.getByRole('button', { name: 'Close' }).click();
+  await expect(rules).toBeHidden();
   const vpip = page.getByTestId('vpip-badge');
   const initialBox = await vpip.boundingBox();
   if (!initialBox) throw new Error('Lightning VPIP has no rendered bounds');
@@ -954,6 +1025,11 @@ async function verifyPublishedLightning(
     ).toEqual(cardWords);
   }
   await page.getByRole('button', { name: 'Leave Next Hand', exact: true }).click();
+  const waitingLeave = page.getByRole('button', { name: 'Playing One More Hand', exact: true });
+  await waitingLeave.click();
+  expect(resumes).toBe(0);
+  await page.getByRole('button', { name: 'Leave Next Hand', exact: true }).click();
+  await expect(waitingLeave).toBeVisible();
   const queuedNotice = page
     .locator('.toast')
     .filter({ hasText: 'You Will Play One More Hand Before Leaving' });
@@ -974,6 +1050,7 @@ async function verifyPublishedLightning(
   // An early folder's previous hands may settle while the current hand stays
   // on screen. Only the committed status read determines what the felt shows.
   const sendSettlement = (settledHand: number) => {
+    receiptSentAt = performance.now();
     const id = `4a4d0000-0000-4000-8000-${String(settledHand).padStart(12, '0')}`;
     send({
       type: 'EVENT',
@@ -994,7 +1071,14 @@ async function verifyPublishedLightning(
   await expect(count.locator('.hit-run-pill__count')).toHaveText('4');
   handsOwed = 3;
   handsPlayed = 7;
+  countFailures = 1;
   sendSettlement(8);
+  await expect(count.locator('.hit-run-pill__count')).toHaveText('3');
+  countFailures = 2;
+  sendSettlement(8);
+  const retry = page.getByRole('button', { name: 'Hand Count Unavailable · Retry' });
+  await expect(retry).toBeVisible();
+  await retry.click();
   await expect(count.locator('.hit-run-pill__count')).toHaveText('3');
   handsOwed = 0;
   sendSettlement(9);
@@ -1010,6 +1094,44 @@ async function verifyPublishedLightning(
   expect(Math.abs(updatedBox.x - initialBox.x)).toBeLessThanOrEqual(1);
   expect(Math.abs(updatedBox.y - initialBox.y)).toBeLessThanOrEqual(1);
   expect(stopRequests).toHaveLength(0);
+  uncertainFold = true;
+  await page.locator('.pre-action-btn.fold').click();
+  await expect(page.getByText(/Your Action Could Not Be Confirmed/i)).toBeVisible();
+  const priorSockets = [...sockets];
+  sockets.clear();
+  await Promise.all(
+    priorSockets.map((socket) => socket.close({ code: 1012, reason: 'Service Restart' }))
+  );
+  await expect.poll(() => sockets.size).toBeGreaterThan(0);
+  expect(foldPosts).toBe(1);
+  uncertainFold = false;
+  await tapLightningFold(page, room, '4a4d0000-0000-4000-8000-000000000010');
+  const folded = snapshot();
+  send({
+    ...folded,
+    state: {
+      ...folded.state,
+      stage: 'waiting',
+      hand_id: null,
+      players: [],
+      current_bet: 0,
+      current_player: null,
+      dealer_seat: 0,
+      pot: 0,
+      action_context: null,
+      turn_start_time_ms: 0,
+      turn_duration_ms: 0,
+      turn_deadline_ms: 0,
+      lightning: {
+        ...folded.state.lightning,
+        hand_id: null,
+        fast_fold_available: false,
+        player_balance: { user_id: account.id, stack: 500 },
+      },
+    },
+  });
+  await expect(page.locator('.pre-action-btn.fold')).toHaveCount(0);
+
   hand = 11;
   cards[0] = { rank: 'Q', suit: 'c' };
   send({
@@ -1030,9 +1152,62 @@ async function verifyPublishedLightning(
   await expect(hero.locator('.seat__cards--deal-pending')).toBeAttached();
   await expect(page.locator('.pre-action-bar, .action-panel--active')).toHaveCount(0);
   expect(stopRequests).toHaveLength(0);
+  await page.waitForFunction(() =>
+    window.lightningFoldProof?.frames.some((frame) => frame.flight === 30)
+  );
+  decisionAt = Date.now();
+  send(snapshot());
+  const action = page.locator('.action-panel--active button:enabled').first();
+  await expect(action).toBeVisible();
+  const decisionVisibleAt = await page.evaluate(() => Date.now());
+  for (const boundary of [10, 11]) {
+    send({
+      type: 'EVENT',
+      tableId: room,
+      ts: Date.now(),
+      payload: {
+        type: 'hand_started',
+        table_id: room,
+        hand_number: boundary,
+        dealer_seat: 6,
+        timestamp: Date.now(),
+      },
+    });
+    await page.evaluate(
+      () =>
+        new Promise<void>((done) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => done()))
+        )
+    );
+  }
+  const foldFrames = await verifyLightningFoldFrames(page, hand, decisionAt, 30_000, [
+    'Queen Of Clubs',
+    'King Of Diamonds',
+    'Ten Of Hearts',
+    'Nine Of Clubs',
+    'Eight Of Spades',
+  ]);
+  await testInfo.attach('lightning-fold-frames.json', {
+    body: JSON.stringify(foldFrames),
+    contentType: 'application/json',
+  });
+  await testInfo.attach('lightning-plo5-decision.png', {
+    body: await page.screenshot(),
+    contentType: 'image/png',
+  });
+  await testInfo.attach('lightning-decision-timing.json', {
+    body: JSON.stringify({
+      decisionAt,
+      observedAt: decisionVisibleAt,
+      deadline: decisionAt + 30_000,
+      observedRemainingMs: decisionAt + 30_000 - decisionVisibleAt,
+      geometry,
+    }),
+    contentType: 'application/json',
+  });
   await expect(page.locator('.table-brand__hand')).toContainText('Hand #11');
   await expect(page.getByTestId('vpip-badge')).toContainText('60%');
-  await expect.poll(() => stopRequests).toEqual([{ hand: 'Hand #11', visibleCards: 2 }]);
+  await expect.poll(() => stopRequests).toEqual([{ hand: 'Hand #11', visibleCards: 5 }]);
   await expect(faces.first()).toHaveCSS('opacity', '1');
   expect(
     await faces
@@ -1042,6 +1217,28 @@ async function verifyPublishedLightning(
   await expect(page.getByTestId('hero-hand-count')).toHaveCount(0);
   await expect.poll(() => vpipReads).toBeGreaterThanOrEqual(2);
   const stack = await hero.locator('.seat__stack').innerText();
+  const finishingLeave = page.getByRole('button', { name: 'Leaving After This Hand', exact: true });
+  await finishingLeave.click();
+  await expect.poll(() => resumes).toBe(1);
+  await expect(page.getByRole('button', { name: 'Leave Next Hand', exact: true })).toBeVisible();
+  const readsBeforeReplay = countReads;
+  // A delayed earlier settlement must refresh the authoritative count without
+  // painting its finished hand over the cards, stack, or hand number on B.
+  for (const event of ['pot_win', 'hand_complete']) {
+    send({
+      type: 'EVENT',
+      tableId: room,
+      ts: Date.now(),
+      payload: { type: event, table_id: room, hand_number: 8, winner_ids: [account.id], pot: 40 },
+    });
+  }
+  sendSettlement(8);
+  await expect.poll(() => countReads).toBeGreaterThan(readsBeforeReplay);
+  await expect(count).toHaveCount(0);
+  await expect(paused).toHaveCount(0);
+  await expect(hero.locator('.seat__stack')).toHaveText(stack);
+  await expect(page.locator('.table-brand__hand')).toContainText('Hand #11');
+  await expect(faces).toHaveCount(5);
   const award = {
     type: 'EVENT',
     tableId: room,
@@ -1073,6 +1270,7 @@ async function verifyPublishedLightning(
   send(award);
   // The following consumed hand is an acknowledgement after the replay,
   // so this assertion cannot pass just because the socket has not run yet.
+  decisionAt = 0;
   hand = 12;
   send(snapshot());
   send(holeCards());
@@ -1082,6 +1280,27 @@ async function verifyPublishedLightning(
   console.log(
     '[hero-celebration] published Lightning: stable hero/cards, locked VPIP, settlement countdown, top toast, next deal visible before stop, old-hand BBJ125, current stack unchanged'
   );
+  if (await celebration.isVisible()) await page.keyboard.press('Escape');
+  await verifyLightningPreviousHandReview(page, {
+    room,
+    viewer: account.id,
+    number: 11,
+    dealId: '4a4d0000-0000-4000-8000-000000000011',
+    advance: () => {
+      hand = 13;
+      send(snapshot());
+      send(holeCards());
+    },
+    disconnect: async () => {
+      const active = [...sockets];
+      sockets.clear();
+      await Promise.all(
+        active.map((socket) => socket.close({ code: 1012, reason: 'Service Restart' }))
+      );
+    },
+  });
+  expect(receiptToReadMs.length).toBeGreaterThanOrEqual(4);
+  return receiptToReadMs;
 }
 
 test.describe('published hero showdown celebrations', () => {
@@ -1188,7 +1407,33 @@ test.describe('published hero showdown celebrations', () => {
           context.setDefaultNavigationTimeout(30_000);
           const lightningPage = await context.newPage();
           await signIn(lightningPage, baseURL, account);
-          await verifyPublishedLightning(context, lightningPage, account, tableId);
+          const receiptToReadMs = await verifyPublishedLightning(
+            context,
+            lightningPage,
+            account,
+            tableId,
+            testInfo
+          );
+          // The virtual browser hand cannot write a real settlement. Independently
+          // time the actual read RPC with the same disposable authenticated account.
+          const rpcStarted = performance.now();
+          const actualRead = await account.client.rpc('fn_my_hit_run_status', {
+            p_table_id: tableId,
+          });
+          const readRoundTripMs = Math.round(performance.now() - rpcStarted);
+          expect(actualRead.error).toBeNull();
+          expect(Array.isArray(actualRead.data)).toBe(true);
+          console.log(
+            '[lightning-countdown-timing]',
+            JSON.stringify({ receiptToReadMs, readRoundTripMs })
+          );
+          await testInfo.attach('lightning-countdown-timing', {
+            body: JSON.stringify({
+              projectedReceiptToReadRequestMs: receiptToReadMs,
+              authenticatedRpcRoundTripMs: readRoundTripMs,
+            }),
+            contentType: 'application/json',
+          });
           await testInfo.attach('published-lightning-hero-vpip-bbj', {
             body: await lightningPage.screenshot(),
             contentType: 'image/png',

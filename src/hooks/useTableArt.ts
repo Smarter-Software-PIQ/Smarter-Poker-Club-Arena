@@ -118,7 +118,8 @@ export function useTableArt(
   backgroundUrl: string,
   selectionReady = true,
   selectionScope = 'default',
-  deckReady = true
+  deckReady = true,
+  decisionNeedsFelt = false
 ): TableArt {
   const both = () =>
     selectionReady && isTableImageDecoded(skinUrl) && isTableImageDecoded(backgroundUrl);
@@ -161,9 +162,14 @@ export function useTableArt(
   }, [key, skinUrl, backgroundUrl, selectionReady, selectionScope, retryRound]);
 
   useEffect(() => {
+    // Once play has begun, pending cosmetic files must never cover the hand again.
+    if (decisionNeedsFelt) {
+      setCoverExpired(true);
+      return;
+    }
     const id = window.setTimeout(() => setCoverExpired(true), TABLE_ART_MAX_COVER_MS);
     return () => window.clearTimeout(id);
-  }, []);
+  }, [decisionNeedsFelt]);
 
   // A theme change keeps painting the previous, already-decoded art until the
   // new pair has decoded, so the felt never blinks out mid-session.
@@ -188,6 +194,7 @@ export function useTableArt(
     ready: selectionReady && ready && deckReady,
     // Preserve the existing gameplay deadline. A failed preference read may
     // leave neutral artwork, but must never conceal a seated player's turn.
-    reveal: (selectionReady && (ready || everReady) && deckReady) || coverExpired,
+    reveal:
+      (selectionReady && (ready || everReady) && deckReady) || coverExpired || decisionNeedsFelt,
   };
 }

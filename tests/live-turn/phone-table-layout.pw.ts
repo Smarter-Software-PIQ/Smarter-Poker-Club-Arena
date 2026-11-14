@@ -23,6 +23,7 @@
  * measurement is in the 600px layout's own CSS px unless it says device px.
  */
 import { expect, test, type Page, type WebSocketRoute } from '@playwright/test';
+import { verifyLightningPreviousHandReview } from '../e2e/support/lightningPreviousHandReview';
 import { mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { PLAYER, newBackend, signIn } from '../stale-client/mock-backend';
@@ -75,6 +76,10 @@ interface Scenario {
   bombPot?: boolean;
   lightning?: boolean;
   plo4?: boolean;
+  plo5?: boolean;
+  pricedOffTurn?: boolean;
+  heroAlias?: string;
+  heroStack?: number;
   /** A Lightning game still in its feeder (MUST MOVE) game: its own table, the
    *  game's live players and Lightning start count as the database reports them. */
   feeder?: { live: number; on: number };
@@ -92,6 +97,8 @@ const PORTRAIT_URL: Record<Portrait, string> = {
 
 function snapshot(s: Scenario, heroSeat: number) {
   const id = s.lightning ? ROOM : TABLE;
+  const omaha = s.plo4 || s.plo5;
+  const variant = s.plo5 ? 'plo5' : s.plo4 ? 'plo4' : 'nlh';
   let v = 0;
   const fullRing = Array.from({ length: s.seats }, (_, i) => {
     const seat = i + 1;
@@ -100,14 +107,14 @@ function snapshot(s: Scenario, heroSeat: number) {
     return {
       seat,
       user_id: user,
-      username: hero ? 'Fixture' : NAMES[v - 1],
+      username: hero ? (s.heroAlias ?? 'Fixture') : NAMES[v - 1],
       avatar_url: s.art
         ? PORTRAIT_URL[hero ? s.art.hero : s.art.opponents[(v - 1) % s.art.opponents.length]]
         : '',
       equipped_frame: '',
       equipped_aura: '',
-      stack: 1000,
-      bet: s.plo4 && seat === 4 ? 4 : 0,
+      stack: hero ? (s.heroStack ?? 1000) : 1000,
+      bet: omaha && seat === 4 ? 4 : 0,
       totalInvested: 0,
       cards: [],
       is_folded: false,
@@ -126,7 +133,7 @@ function snapshot(s: Scenario, heroSeat: number) {
       hand_name: '',
     };
   });
-  const players = s.plo4 ? fullRing.filter((p) => p.seat === heroSeat || p.seat === 4) : fullRing;
+  const players = omaha ? fullRing.filter((p) => p.seat === heroSeat || p.seat === 4) : fullRing;
   const now = Date.now();
   return {
     table_id: id,
@@ -137,16 +144,17 @@ function snapshot(s: Scenario, heroSeat: number) {
           lightning: {
             hand_id: '4a4d0000-0000-4000-8000-000000000101',
             cluster_id: CLUSTER,
-            name: s.plo4 ? 'PLO4 0.25/0.50 Lightning Games' : 'NLH 0.25/0.50 Lightning Games',
+            name: variant.toUpperCase() + ' 0.25/0.50 Lightning Games',
             small_blind: 0.25,
             big_blind: 0.5,
-            variant: s.plo4 ? 'plo4' : 'nlh',
-            fast_fold_available: false,
+            variant,
+            fast_fold_available: s.pricedOffTurn === true,
+            fold_on_turn: s.pricedOffTurn === true,
           },
         }
       : {}),
     hand_number: 101,
-    pot: s.plo4 ? 16 : 15,
+    pot: omaha ? 16 : 15,
     community_cards: [
       { rank: 'K', suit: 's' },
       { rank: '8', suit: 'd' },
@@ -154,7 +162,7 @@ function snapshot(s: Scenario, heroSeat: number) {
     ],
     community_cards2: [],
     community_cards3: [],
-    hand_variant: s.plo4 ? 'plo4' : 'nlh',
+    hand_variant: variant,
     bomb_pot_in: s.bombPot ? 3 : null,
     bomb_pot_next_at: null,
     bomb_pot_waiting_for: null,
@@ -162,15 +170,15 @@ function snapshot(s: Scenario, heroSeat: number) {
     kill_next: null,
     ante: 0,
     ante_mode: null,
-    current_bet: s.plo4 ? 4 : 0,
-    current_player: PLAYER,
-    dealer_seat: s.plo4 ? 4 : s.seats,
+    current_bet: omaha ? 4 : 0,
+    current_player: s.pricedOffTurn ? players.find((p) => p.user_id !== PLAYER)!.user_id : PLAYER,
+    dealer_seat: omaha ? 4 : s.seats,
     stage: 'flop',
     winner_ids: [],
     winners: [],
     min_raise: 5,
     last_raise: 5,
-    betting_structure: 'no_limit',
+    betting_structure: s.plo5 ? 'pot_limit' : 'no_limit',
     action_context: `4a4d0000-0000-4000-8000-000000000101:flop:0:${heroSeat}:0`,
     turn_start_time_ms: now,
     turn_duration_ms: 600_000,
@@ -246,6 +254,12 @@ class TableEngine {
     return this.sockets.size > 0;
   }
 
+  async disconnect(): Promise<void> {
+    const sockets = [...this.sockets];
+    this.sockets.clear();
+    await Promise.all(sockets.map((ws) => ws.close({ code: 1012, reason: 'Service Restart' })));
+  }
+
   private onSocket(ws: WebSocketRoute): void {
     ws.onMessage((data) => {
       let msg: { type?: string; tableId?: string } | null = null;
@@ -289,6 +303,22 @@ class TableEngine {
     for (const ws of this.sockets) this.send(ws);
   }
 
+  nextLightningDeal(): void {
+    const next = this.state.hand_number + 1;
+    const id = '4a4d0000-0000-4000-8000-' + String(next).padStart(12, '0');
+    if (!this.state.lightning) throw new Error('Expected a Lightning room');
+    this.state = {
+      ...this.state,
+      hand_id: id,
+      hand_number: next,
+      lightning: { ...this.state.lightning, hand_id: id },
+      action_context: id + ':flop:0:' + this.heroSeat + ':0',
+      turn_start_time_ms: Date.now(),
+    };
+    this.seq++;
+    this.deliverDealtHand();
+  }
+
   releaseSettledRoom(): void {
     this.all({
       type: 'SNAPSHOT',
@@ -322,9 +352,16 @@ class TableEngine {
             user_id: PLAYER,
             seat_number: this.heroSeat,
             hand_number: this.state.hand_number,
-            cards: this.s.plo4
-              ? [...HERO_CARDS, { rank: '2', suit: 'd' }, { rank: '2', suit: 'h' }]
-              : HERO_CARDS,
+            cards: this.s.plo5
+              ? [
+                  ...HERO_CARDS,
+                  { rank: '2', suit: 'd' },
+                  { rank: '2', suit: 'h' },
+                  { rank: 'Q', suit: 's' },
+                ]
+              : this.s.plo4
+                ? [...HERO_CARDS, { rank: '2', suit: 'd' }, { rank: '2', suit: 'h' }]
+                : HERO_CARDS,
           },
         },
       })
@@ -376,7 +413,7 @@ function backendFor(s: Scenario, heroSeat: number) {
   const profile = {
     id: PLAYER,
     username: 'fixture',
-    alias: 'Fixture',
+    alias: s.heroAlias ?? 'Fixture',
     full_name: 'Live Turn Fixture',
     role: 'user',
     diamonds: 0,
@@ -525,7 +562,7 @@ async function openTable(page: Page, s: Scenario, holdFirstDeal = false): Promis
   await signIn(page, backendFor(s, heroSeat));
   if (s.lightning) {
     await page.addInitScript(
-      ([room, cluster, club, plo4]) => {
+      ([room, cluster, club, variant]) => {
         sessionStorage.setItem(
           'ca.lightning.pool-sessions.v1',
           JSON.stringify([
@@ -535,8 +572,8 @@ async function openTable(page: Page, s: Scenario, holdFirstDeal = false): Promis
               meta: {
                 clusterId: cluster,
                 clubId: club,
-                name: plo4 ? 'PLO4 0.25/0.50 Lightning Games' : 'NLH 0.25/0.50 Lightning Games',
-                variant: plo4 ? 'plo4' : 'nlh',
+                name: variant.toUpperCase() + ' 0.25/0.50 Lightning Games',
+                variant,
                 smallBlind: 0.25,
                 bigBlind: 0.5,
                 maxPlayers: 6,
@@ -551,7 +588,7 @@ async function openTable(page: Page, s: Scenario, holdFirstDeal = false): Promis
           ])
         );
       },
-      [ROOM, CLUSTER, CLUB, s.plo4 ?? false] as const
+      [ROOM, CLUSTER, CLUB, s.plo5 ? 'plo5' : s.plo4 ? 'plo4' : 'nlh'] as const
     );
   }
   await page.addInitScript(() => {
@@ -1090,7 +1127,9 @@ test('Lightning leave requested before the dealt snapshot waits for the hand', a
       return route.fulfill({ json: { ok: true, in_hand: true, exited: false } });
     });
     await page.getByRole('button', { name: 'Leave Next Hand', exact: true }).click();
-    await expect(page.getByRole('button', { name: 'Leaving After Hand' })).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'Playing One More Hand', exact: true })
+    ).toBeVisible();
     expect(stops).toBe(0);
     engine.deliverDealtHand();
     const check = page.locator('.action-panel .action-btn').filter({ hasText: /check/i }).first();
@@ -1104,10 +1143,174 @@ test('Lightning leave requested before the dealt snapshot waits for the hand', a
     ]);
     expect(action.postDataJSON()).toMatchObject({ tableId: ROOM, action: 'check' });
     engine.heroChecks();
-    await expect(page.getByRole('button', { name: 'Leaving After Hand' })).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'Leaving After This Hand', exact: true })
+    ).toBeVisible();
     await expect(page).toHaveURL(new RegExp('/table/' + ROOM));
     engine.releaseSettledRoom();
     await expect(page).not.toHaveURL(new RegExp('/table/' + ROOM));
+  } finally {
+    engine.dispose();
+  }
+});
+
+test('Lightning allows an explicit fast fold after a late same-hand reconnect', async ({
+  page,
+}) => {
+  const scenario = { ...SCENARIOS[0], lightning: true, plo5: true, pricedOffTurn: true };
+  const engine = await openTable(page, scenario, true);
+  const actions: unknown[] = [];
+  try {
+    await page.route('**/action', async (route) => {
+      if (route.request().method() !== 'POST') return route.fallback();
+      actions.push(route.request().postDataJSON());
+      return route.fulfill({
+        json:
+          actions.length === 1
+            ? { success: false, code: 'ACTION_STATE_PENDING' }
+            : { success: true },
+      });
+    });
+    engine.deliverDealtHand();
+    const fold = page.locator('.pre-action-btn.fold');
+    await expect(fold).toBeEnabled();
+    engine.holdFirstDeal();
+    await fold.click();
+    await expect(page.getByText(/Your Action Could Not Be Confirmed/i)).toBeVisible();
+    await engine.disconnect();
+    await expect.poll(() => engine.connected).toBe(true);
+    // The original one-shot resync gave up after 2.5s.
+    await page.waitForTimeout(2700);
+    expect(actions).toHaveLength(1);
+    engine.deliverDealtHand();
+    await expect(fold).toBeEnabled();
+    await fold.click();
+    await expect.poll(() => actions.length).toBe(2);
+    for (const action of actions)
+      expect(action).toMatchObject({
+        action: 'fast_fold',
+        actionContext: 'lightning-hand:4a4d0000-0000-4000-8000-000000000101',
+      });
+  } finally {
+    engine.dispose();
+  }
+});
+
+test('Lightning answers a check on press and ignores its old reply after the next deal', async ({
+  page,
+}) => {
+  const scenario = SCENARIOS.find((s) => s.lightning && !s.feeder && !s.plo4)!;
+  const engine = await openTable(page, scenario);
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const submissions: string[] = [];
+  try {
+    await page.route('**/action', async (route) => {
+      if (route.request().method() !== 'POST') return route.fallback();
+      submissions.push(route.request().postDataJSON().actionContext);
+      if (submissions.length === 1) {
+        await held;
+        return route.fulfill({
+          status: 400,
+          json: { success: false, code: 'STALE_ACTION', error: 'Old decision' },
+        });
+      }
+      return route.fulfill({ json: { success: true } });
+    });
+    const check = page.locator('.action-panel .action-btn').filter({ hasText: /check/i }).first();
+    await expect(check).toBeEnabled();
+    await check.evaluate((button) => {
+      (button as HTMLElement).click();
+      (button as HTMLElement).click();
+    });
+    await expect(page.locator('.seat-wrapper--hero .seat__action')).toHaveText(/check/i);
+    await expect.poll(() => submissions.length).toBe(1);
+    engine.nextLightningDeal();
+    await expect(page.locator('.table-brand__hand')).toContainText('102');
+    await expect(check).toBeEnabled();
+    release();
+    await check.click();
+    await expect.poll(() => submissions.length).toBe(2);
+    expect(submissions[0]).toContain('000101:flop');
+    expect(submissions[1]).toContain('000102:flop');
+    await expect(page.getByText('Old decision', { exact: true })).toHaveCount(0);
+  } finally {
+    release();
+    engine.dispose();
+  }
+});
+
+test.describe('375px Lightning PLO5', () => {
+  test.use({ viewport: { width: 375, height: 667 }, hasTouch: true, isMobile: true });
+
+  test('long alias and deep stack fit, and the raise slider receives taps after reconnect', async ({
+    page,
+  }) => {
+    const alias = 'MountainRiverCaptain';
+    const scenario: Scenario = {
+      name: '375px Lightning PLO5',
+      width: 375,
+      height: 667,
+      seats: 6,
+      lightning: true,
+      plo5: true,
+      heroAlias: alias,
+      heroStack: 1234567,
+    };
+    const engine = await openTable(page, scenario);
+    try {
+      const hero = page.locator('.seat-wrapper--hero');
+      const cards = hero.locator('.seat__cards--hero .seat__card');
+      const name = hero.locator('.seat__name-text');
+      const stack = hero.locator('.seat__stack');
+      await expect(cards).toHaveCount(5);
+      await expect(name).toHaveText(alias);
+      await expect(stack).toHaveText('1,234,567');
+      const plate = hero.locator('.seat__info');
+      for (const text of [name, stack]) {
+        const bounds = await text.evaluate((el) => {
+          const range = document.createRange();
+          range.selectNodeContents(el);
+          return range.getBoundingClientRect().toJSON();
+        });
+        const plateBounds = await plate.evaluate((el) => el.getBoundingClientRect().toJSON());
+        expect(bounds.left).toBeGreaterThanOrEqual(plateBounds.left - 1);
+        expect(bounds.right).toBeLessThanOrEqual(plateBounds.right + 1);
+      }
+      await engine.disconnect();
+      await expect.poll(() => engine.connected, { timeout: 30000 }).toBe(true);
+      await expect(cards).toHaveCount(5);
+      await expect(name).toHaveText(alias);
+      await expect(stack).toHaveText('1,234,567');
+      const raise = page.locator('.action-panel .action-btn').filter({ hasText: /raise/i });
+      await raise.tap();
+      const slider = page.getByRole('slider');
+      await expect(slider).toBeVisible();
+      const before = await slider.inputValue();
+      await slider.tap();
+      await expect.poll(() => slider.inputValue()).not.toBe(before);
+    } finally {
+      engine.dispose();
+    }
+  });
+});
+
+test('Lightning previous hand stays pinned and recovers a missed archive receipt on reconnect', async ({
+  page,
+}) => {
+  const engine = await openTable(page, SCENARIOS.find((s) => s.lightning)!);
+  try {
+    engine.nextLightningDeal();
+    await verifyLightningPreviousHandReview(page, {
+      room: ROOM,
+      viewer: PLAYER,
+      number: 101,
+      dealId: '4a4d0000-0000-4000-8000-000000000101',
+      advance: () => engine.nextLightningDeal(),
+      disconnect: () => engine.disconnect(),
+    });
   } finally {
     engine.dispose();
   }

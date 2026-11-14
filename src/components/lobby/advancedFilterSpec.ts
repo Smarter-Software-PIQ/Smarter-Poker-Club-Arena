@@ -49,6 +49,7 @@ import {
   type FilterableTournament,
 } from '../../utils/tournamentFilters';
 import { SPIN_VARIANT_KEYS, TOURNAMENT_VARIANT_KEYS } from '../../config/tournamentVariants';
+import { FIXED_LIMIT_GAME_NAMES, FIXED_LIMIT_VARIANT_ORDER } from '../../lib/fixedLimitNames';
 import { CASH_TEMPLATES, cashTemplateKey } from '../../config/cashGames';
 import type { PlatformCapabilityId } from '../../config/platformCapabilities';
 import { killModeOf } from '../../utils/killPot';
@@ -484,8 +485,12 @@ const VARIANT_CHIP_LABELS: Record<string, string> = {
   plo8: 'PLO Hi/Lo',
   short_deck: '6+',
   pineapple: 'Crazy Pineapple',
-  flh: 'FLH',
-  flo8: 'FLO8',
+  /* Owner ruling, November 14, 2026: limit games are called by name. */
+  flh: FIXED_LIMIT_GAME_NAMES.flh,
+  flo4: FIXED_LIMIT_GAME_NAMES.flo4,
+  flo5: FIXED_LIMIT_GAME_NAMES.flo5,
+  flo6: FIXED_LIMIT_GAME_NAMES.flo6,
+  flo8: FIXED_LIMIT_GAME_NAMES.flo8,
 };
 
 /* The MTT tab has always said OMAHA where the cash and Sit & Go tabs say PLO.
@@ -573,10 +578,9 @@ export const FILTER_SPECS: Record<Exclude<FilterGameType, 'ALL'>, GameFilterSpec
     // legacy `limit_holdem` / `limit_omaha` spellings, which fold into the same
     // two keys) when the limit games shipped. There are exactly two limit
     // variants, both creatable, so the tab has something to sub-divide.
-    games: [
-      { key: 'flh', label: 'FLH' },
-      { key: 'flo8', label: 'FLO8' },
-    ],
+    /* Owner ruling, November 14, 2026: the limit games are Fixed Limit
+       Holdem and Omaha 4, 5, 6 card and 8o, every one Classic. */
+    games: FIXED_LIMIT_VARIANT_ORDER.map((key) => ({ key, label: FIXED_LIMIT_GAME_NAMES[key] })),
     styles: CASH_STYLES,
     range: BLIND_RANGE,
     statuses: ACTIVE_CASH_STATUSES,
@@ -817,6 +821,12 @@ export function variantKey(raw: string | null | undefined): string {
   // it through unrecognised. Legacy rows spell it `limit_omaha` (2026-08-23).
   if (v === 'flo8' || v.includes('flo8') || v.includes('limit_omaha') || v.includes('limit omaha'))
     return 'flo8';
+  /* The fixed-limit Omahas (owner November 14, 2026), by code or by name, ahead
+     of the pot-limit tests and the "8o" spelling of the hi-lo game. */
+  if (v.includes('flo4') || /omaha\s*4\s*card\s*fixed/.test(v)) return 'flo4';
+  if (v.includes('flo5') || /omaha\s*5\s*card\s*fixed/.test(v)) return 'flo5';
+  if (v.includes('flo6') || /omaha\s*6\s*card\s*fixed/.test(v)) return 'flo6';
+  if (/omaha\s*8o\s*fixed/.test(v)) return 'flo8';
   if (v.includes('plo8') || v.includes('hi/lo') || v.includes('hilo')) return 'plo8';
 
   if (v.includes('plo6')) return 'plo6';

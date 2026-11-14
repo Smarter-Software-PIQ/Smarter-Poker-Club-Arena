@@ -151,7 +151,7 @@ describe('the table page reads the two rules in every place the arm can be spent
     const handler = PAGE.slice(start, PAGE.indexOf('lightningHotkeysRef.current =', start));
     // The handler disarms before it sends, so one pricing sends one request.
     expect(handler).toMatch(
-      /lightningFoldBusyRef\.current = true;[\s\S]{0,200}?lightningCheckFoldArmRef\.current = null;\s*setPreAction\(null\);/
+      /lightningFoldBusyRef\.current = lightningFoldHandId;[\s\S]{0,200}?lightningCheckFoldArmRef\.current = null;\s*setPreAction\(null\);/
     );
   });
   it('a fold the engine made for the arm is shown as a fold: cue and muck inside the exit hold', () => {

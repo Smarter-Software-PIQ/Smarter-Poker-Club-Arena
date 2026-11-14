@@ -159,8 +159,9 @@ describe('BBJ winner row names the stakes it was hit at', () => {
     ['plo4', '1.00', '2.00', '1/2 PLO'],
     ['nlh', '0.50', '1.00', '0.50/1 NLH'],
     ['nlh', '0.25', '0.50', '0.25/0.50 NLH'],
-    // Fixed limit reads its bet sizes, exactly as its lobby card does.
-    ['flh', '1.00', '2.00', '2/4 FLH'],
+    // Fixed limit reads its blinds and its name, exactly as its lobby card
+    // does (owner ruling, November 14, 2026).
+    ['flh', '1.00', '2.00', '1/2 Fixed Limit'],
   ])('%s at %s/%s reads %s', async (variant, sb, bb, expected) => {
     io.rpc.mockResolvedValue({
       data: [{ ...hit, game_variant: variant, small_blind: sb, big_blind: bb }],

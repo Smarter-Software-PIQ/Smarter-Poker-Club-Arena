@@ -54,6 +54,7 @@ import PageSkeleton from '../components/common/PageSkeleton';
 import MemberRakebackEditor from '../components/club/MemberRakebackEditor';
 import MemberCreditEditor from '../components/club/MemberCreditEditor';
 import RoleBadge, { roleColor } from '../components/club/RoleBadge';
+import MemberTransactionHistory from '../components/club/MemberTransactionHistory';
 import PlayerChangeHistory from '../components/club/PlayerChangeHistory';
 import ChipTransferModal from '../components/agent/ChipTransferModal';
 import MemberWatchAtTable from '../components/club/MemberWatchAtTable';
@@ -1304,6 +1305,21 @@ export default function MemberManagementPage() {
             )}
           </section>
         )}
+
+        {detail!.capabilities.can_view_financials &&
+          isAgentRole(identity!.role) &&
+          resolvedClubId &&
+          memberUuid &&
+          user?.id &&
+          myRoleLoaded && (
+            <MemberTransactionHistory
+              key={`${resolvedClubId}:${memberUuid}:${user.id}:${myRole}`}
+              clubId={resolvedClubId}
+              memberId={memberUuid}
+              viewerId={user.id}
+              scope={memberUuid === user.id ? 'mine' : isClubStaff(myRole) ? 'club' : 'downline'}
+            />
+          )}
 
         {/* ── Role ─────────────────────────────────────────────────────────── */}
 
