@@ -38,6 +38,7 @@ const HAND_THREE: Card[] = [
   { rank: 'J', suit: 'c' },
 ];
 
+const heroName = 'LightningFixturePlayer';
 const villain = (n: number) => `0bb0ffee-0000-4000-8000-00000000006${n}`;
 
 /** A Lightning hand as the engine publishes it to one room. */
@@ -50,7 +51,7 @@ function snapshot(hand: number, heroSeat: number, decisionAt = 0, variant = 'nlh
     return {
       seat,
       user_id: id,
-      username: hero ? 'Fixture' : `Villain${v}`,
+      username: hero ? heroName : `Villain${v}`,
       avatar_url: '',
       equipped_frame: '',
       equipped_aura: '',
@@ -296,8 +297,8 @@ class LightningEngine {
 function backend() {
   const profile = {
     id: PLAYER,
-    username: 'fixture',
-    alias: 'Fixture',
+    username: heroName,
+    alias: heroName,
     full_name: 'Live Turn Fixture',
     role: 'user',
     diamonds: 0,
@@ -485,6 +486,22 @@ test('PLO5 decision survives a delayed start with every visible frame and card h
   const engine = await openRoom(page, { muted: true });
   try {
     await firstHand(page, engine);
+    const name = page.locator('.seat--hero .seat__name');
+    await expect
+      .poll(() =>
+        name
+          .locator('.seat__name-text')
+          .evaluate((label) => Number(getComputedStyle(label).getPropertyValue('--fit')) || 1)
+      )
+      .toBeLessThan(1);
+    const nameLine = await name.evaluate((label) => ({
+      reserved: label.getBoundingClientRect().height,
+      normal: parseFloat(getComputedStyle(label).lineHeight),
+    }));
+    expect(
+      Math.abs(nameLine.reserved - nameLine.normal),
+      'the fitted name reserves the full hero line'
+    ).toBeLessThanOrEqual(1);
     const five = [
       ...HAND_TWO,
       { rank: '10', suit: 'd' },
