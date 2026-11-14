@@ -27,7 +27,7 @@ const root = resolve(__dirname, '..');
 const migrations = join(root, 'supabase/migrations');
 const MIGRATION = '20260929071925_a_tournament_start_locks_the_bank_without_blocking_foreign_k.sql';
 
-/** The body of the LAST migration that (re)defines public.<name>(), comments stripped. */
+/** The body of the LAST migration that (re)defines public.<name>(), line and block comments stripped. */
 function latestBody(name: string): { file: string; code: string } {
   const files = readdirSync(migrations)
     .filter((f) => f.endsWith('.sql'))
@@ -38,7 +38,10 @@ function latestBody(name: string): { file: string; code: string } {
   for (let i = files.length - 1; i >= 0; i -= 1) {
     const match = header.exec(readFileSync(join(migrations, files[i]), 'utf8'));
     if (match) {
+      // Block comments are prose too: the installed image explains its own
+      // lock choice in one ("FOR NO KEY UPDATE, NOT FOR UPDATE (2026-10-05)").
       const code = match[1]
+        .replace(/\/\*[\s\S]*?\*\//g, '')
         .split('\n')
         .map((line) => line.replace(/--.*$/, ''))
         .join('\n');
