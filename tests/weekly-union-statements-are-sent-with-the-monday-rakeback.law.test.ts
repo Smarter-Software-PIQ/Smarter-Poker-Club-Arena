@@ -82,8 +82,8 @@ describe('weekly union statements are sent with the monday rakeback', () => {
     expect(code).not.toMatch(/CREATE OR REPLACE FUNCTION public\.fn_midway_weekly_horse_promo\(/);
   });
 
-  it('the latest closed week reaches every club once', () => {
-    expect(code).toContain("'2026-11-09 08:00:00+00'");
-    expect(code).toContain('UNION_STATEMENT_CURRENT_WEEK_MOVED');
+  it('sends nothing already issued: a past week is delivered only after it is validated', () => {
+    expect(code).not.toMatch(/fn_deliver_accounting_invoice\(r\.id\)/);
+    expect(code).not.toContain('UNION_STATEMENT_CURRENT_WEEK_MOVED');
   });
 });

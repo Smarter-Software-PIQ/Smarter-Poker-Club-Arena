@@ -34,7 +34,7 @@ Johnny, Danny, minhloc73gr and Chase45 leave through `fn_remove_settled_club_mem
 - square-ups and union credit notes go through the existing accounting Messenger delivery to the club's owner and staff and the union's owner and admins; the union's own hub row stays record-only; the inbox lists the thread;
 - `weekly-union-books` (every two minutes) runs the same close tick job 272 runs, with the close's default 8-minute scope budget and a 15-minute statement, from the released Monday payout until every union it covered has a complete close, at most twelve hours;
 - when round 4 records, the union's owner and admins get one notification naming each club and what it owes or is owed, linked to the Union Statements board;
-- the latest closed week's square-ups were delivered once.
+- nothing already issued is sent by this change: the week ending 2026-11-09 is validated against the immutable ledger first (owner instruction) and delivered by its own change.
 
 ## 5. Weekly horse promo
 

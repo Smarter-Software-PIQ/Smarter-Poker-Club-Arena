@@ -62,8 +62,10 @@
 --   3. THE UNION SEES IT: when round 4 (the square-ups) is recorded for a
 --      week, the union's owner and admins get one notification naming every
 --      club and what it owes or is owed, linked to the Union Statements board.
---   4. The latest closed week's square-ups (week ending 2026-11-09) are
---      delivered now, once, so every club holds its current statement.
+--   4. Nothing already issued is sent by this migration. The owner asked for
+--      the week ending 2026-11-09 to be validated against the immutable
+--      ledger before it reaches anyone; it is delivered by its own change once
+--      that validation is recorded.
 --   5. The weekly horse promo leaves a receipt: the payout report recipient
 --      gets one notification per week with the budget, the horse count and
 --      the share. Eligibility, budget and the split are unchanged.
@@ -321,34 +323,5 @@ END $function$;
 -- The grants it already holds on production, stated: the engine only.
 REVOKE ALL ON FUNCTION public.fn_midway_weekly_horse_promo_due(timestamptz) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_midway_weekly_horse_promo_due(timestamptz) TO service_role;
-
--- -----------------------------------------------------------------------------
--- 4. The latest closed week's square-ups reach every club now, once.
--- -----------------------------------------------------------------------------
-DO $current$
-DECLARE r record; v jsonb; v_sent integer := 0;
-BEGIN
-  FOR r IN
-    SELECT si.id FROM public.settlement_invoices si
-     WHERE si.invoice_type = 'union_weekly_squareup'
-       AND si.breakdown->>'union_id' = 'fade0000-0000-0000-0000-000000000001'
-       AND (si.breakdown->>'period_end')::timestamptz = '2026-11-09 08:00:00+00'
-       AND si.status NOT IN ('paid', 'cancelled')
-       AND si.club_id IS DISTINCT FROM 'fade0000-0000-0000-0000-000000000001'::uuid
-     ORDER BY si.id
-  LOOP
-    v := public.fn_deliver_accounting_invoice(r.id);
-    IF COALESCE(v->>'success', 'false') <> 'true' OR COALESCE((v->>'delivered')::int, 0) < 1 THEN
-      RAISE EXCEPTION 'UNION_STATEMENT_DELIVERY_FAILED: % %', r.id, v::text;
-    END IF;
-    v_sent := v_sent + 1;
-  END LOOP;
-  -- Read 2026-11-14: Deep Stack Society, The Felt Society, KINGS CLUB, Club Savage.
-  IF v_sent <> 4 THEN
-    RAISE EXCEPTION 'UNION_STATEMENT_CURRENT_WEEK_MOVED: %', v_sent;
-  END IF;
-  RAISE NOTICE 'UNION_STATEMENTS_SENT: % clubs', v_sent;
-END
-$current$;
 
 COMMIT;
