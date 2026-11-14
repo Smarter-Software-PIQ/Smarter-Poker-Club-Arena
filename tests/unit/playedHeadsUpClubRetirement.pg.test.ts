@@ -160,7 +160,20 @@ it('installs the qualified retirement and refuses a changed protected unwind', (
       )
     );
     sql(source('20261002201605_spin_deactivation_names_the_reserve_row.sql'));
+    // Exercise the read-side pool predicate on both sides of its exact prefix bounds.
+    sql(`CREATE FUNCTION public.fn_get_club_welcome_package_reset_impact(pool uuid) RETURNS boolean
+      LANGUAGE sql AS $fn$
+        SELECT EXISTS(SELECT 1 FROM public.wallet_credit_idempotency i, (SELECT pool AS id) b
+          WHERE i.key LIKE 'bbjpromo:'||b.id::text||':%')
+      $fn$`);
     sql(source('20261114224153_scope_spin_deactivation_to_reserve_member_clubs.sql'));
+    const promoPrefix = 'bbjpromo:' + club;
+    sql(
+      `INSERT INTO wallet_credit_idempotency(key) VALUES ('${promoPrefix}9'),('${promoPrefix};x')`
+    );
+    expect(one(`SELECT fn_get_club_welcome_package_reset_impact('${club}')`)).toBe('f');
+    sql(`INSERT INTO wallet_credit_idempotency(key) VALUES ('${promoPrefix}:payout')`);
+    expect(one(`SELECT fn_get_club_welcome_package_reset_impact('${club}')`)).toBe('t');
     const patched = one("SELECT pg_get_functiondef('fn_spin_deactivate(uuid,uuid)'::regprocedure)");
     const count = patched.match(/SELECT count\(\*\)::integer INTO v_live_games[\s\S]*?;/)?.[0];
     if (!count || count.includes('fn_spin_reserve_owner(t.club_id)'))
