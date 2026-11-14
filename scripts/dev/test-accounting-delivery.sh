@@ -249,13 +249,19 @@ run_game_probe diamond-spins-every-movement-has-a-ledger-row 'NOTICE:  PASS Ever
 # database. Its commits never touch production or the rollback-probe baseline.
 "${diamond_psql[@]}" -c 'CREATE DATABASE diamond_custody_race TEMPLATE diamond_games_probe OWNER postgres'
 race_psql=("$pgbin/psql" -X -q -v ON_ERROR_STOP=1 -h "$fixture/socket" -p 55487 -U postgres -d diamond_custody_race)
+# ONE settlement day for the whole race (2026-11-14). The seed, both racers and
+# the assert each computed "yesterday in Chicago" from their own clock, so a run
+# that crossed midnight Chicago seeded one day and asserted another: the shard
+# failed at 06:00:01 UTC on 2026-11-14 with every expected column NULL.
+race_day=$("${race_psql[@]}" -Atc "SELECT (clock_timestamp() AT TIME ZONE 'America/Chicago')::date-1")
+race_psql+=(-v "race_day=$race_day")
 "${race_psql[@]}" -f "$diamond/daily-custody-concurrency-seed.sql" > "$fixture/custody-race-seed.stdout"
 "${race_psql[@]}" > "$fixture/custody-race-a.stdout" 2> "$fixture/custody-race-a.stderr" <<'SQL' &
 BEGIN;
 SET LOCAL lock_timeout='10s';
 SET LOCAL application_name='diamond-custody-race-a';
 SET LOCAL "request.jwt.claims"='{"role":"service_role"}';
-SELECT public.fn_diamond_spin_settle_day('d1000000-0000-4000-8000-000000000002',(clock_timestamp() AT TIME ZONE 'America/Chicago')::date-1);
+SELECT public.fn_diamond_spin_settle_day('d1000000-0000-4000-8000-000000000002',:'race_day'::date);
 SELECT pg_sleep(2);
 COMMIT;
 SQL
@@ -272,7 +278,7 @@ BEGIN;
 SET LOCAL lock_timeout='10s';
 SET LOCAL application_name='diamond-custody-race-b';
 SET LOCAL "request.jwt.claims"='{"role":"service_role"}';
-SELECT public.fn_diamond_spin_settle_day('d1000000-0000-4000-8000-000000000002',(clock_timestamp() AT TIME ZONE 'America/Chicago')::date-1);
+SELECT public.fn_diamond_spin_settle_day('d1000000-0000-4000-8000-000000000002',:'race_day'::date);
 COMMIT;
 SQL
 race_b=$!
@@ -289,7 +295,7 @@ if [ "$blocked" != 1 ] || ! grep -Fq '"replayed": true' "$fixture/custody-race-b
   echo 'The concurrent settlement did not block and replay its exact owner receipt' >&2
   exit 1
 fi
-"${race_psql[@]}" -f "$diamond/daily-custody-concurrency-assert.sql"
+"${race_psql[@]}" -c "SET test.race_day='$race_day'" -f "$diamond/daily-custody-concurrency-assert.sql"
 
 # --- D1 wheel v4 2026-09-21 ---
 # Owner rulings R2, R12, R13, R15 and the server half of R18 (Dan, 2026-09-21):
