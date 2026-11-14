@@ -77,7 +77,7 @@ it('opposite cent discrepancies remain visible despite a zero net difference', a
   render(<CashierConservationReport {...props} />);
   fireEvent.click(screen.getByRole('button', { name: 'Reconcile Now' }));
   expect(await screen.findByText('Discrepancies Found')).toBeTruthy();
-  expect(screen.getByText('Less Than 1 Chip')).toBeTruthy();
+  expect(screen.getByText('0.02')).toBeTruthy();
 });
 it.each([
   null,
@@ -174,10 +174,12 @@ it('validates exact amounts, coverage and the server verdict independently', () 
   expect(() => validateCashierConservation(report(), club)).not.toThrow();
 });
 it('never rounds a nonzero difference to an apparent zero', () => {
-  expect(conservationChips('0.000000001')).toBe('Less Than 1 Chip');
-  expect(conservationChips('-0.01')).toBe('Minus Less Than 1 Chip');
+  expect(conservationChips('0.000000001')).toBe('0.000000001');
+  expect(conservationChips('-0.01')).toBe('Minus 0.01');
   expect(conservationChips(null)).toBe('Unknown');
-  expect(conservationChips('1200.99')).toBe('1,200');
+  expect(conservationChips('1200.99')).toBe('1,200.99');
+  expect(conservationChips('1200.5')).toBe('1,200.50');
+  expect(conservationChips('1200')).toBe('1,200');
   expect(() => conservationChips('NaN')).toThrow();
 });
 

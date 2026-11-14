@@ -2,7 +2,7 @@
 
 Owner authorization 2026-11-14 01:20 Chicago: update the source bindings to bind the reviewed presentation changes, preserving every financial assertion and safeguard.
 
-Base: origin/main 74f7a5a45. Every hunk below changes a DISPLAYED string (or a test title/comment). No fixture row, RPC argument, wallet amount, ledger assertion, scope/RLS guard or money-movement expectation changes.
+Base: merge-base 2187dce7c (the six files hash identically at later origin/main 74f7a5a45). Every hunk below changes a DISPLAYED string (or a test title/comment). No fixture row, RPC argument, wallet amount, ledger assertion, scope/RLS guard or money-movement expectation changes.
 
 ## tests/cashier-weekly-statements.test.tsx
 
@@ -111,3 +111,7 @@ current sha256 46ac23883e61d38e4b3a3b4289d35f0bad1a5153b1292500e98af305a49f7063
 -    expect(formatWeeklyChipsForDisplay(rows[0].retainedByClub)).toBe('9.9B Chips');
 +    expect(formatWeeklyChipsForDisplay(rows[0].retainedByClub)).toBe('9,999,999,999.99 Chips');
 ```
+
+## Independent review (2026-11-14)
+
+A separate reviewer that had not seen the work checked all six diffs, the binding diff key by key, every previous/current hash against `git show <merge-base>` and the working tree, `verify-source-bindings.py`, and `src/utils/format.ts`. Verdict: PASS on every task. The two removed negative assertions only enforced the retired no-decimals display rule; the money guards beside them (other clubs' 999/888/777 never leaking, the `+40` sign guard, the exact `save('agent-a', 200.25, ...)` write) are unchanged.

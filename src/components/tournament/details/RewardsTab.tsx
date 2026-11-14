@@ -122,15 +122,14 @@ import {
   normalizeUnitCents,
 } from '../../../../server/src/tournament/tournamentUnit';
 import '../../../styles/tournament-lobby-3d.css';
+import { exactChips as sharedExactChips } from '../../../utils/format';
 import './HeroPin.css';
 import './RewardsTab.css';
 
 /** A source line keeps its cents when it has any: a 31.50 net entry rounded to
  *  32 prints lines that no longer add up to the figure beside them. */
 const exactChips = (value: number): string =>
-  Number.isInteger(value)
-    ? chips(value)
-    : value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  Number.isInteger(value) ? chips(value) : sharedExactChips(value);
 
 /* ═══════════════════════════════════════════════════════════════════════════
    PAYOUT STRUCTURE
