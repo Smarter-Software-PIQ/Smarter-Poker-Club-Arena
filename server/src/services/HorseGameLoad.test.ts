@@ -51,8 +51,14 @@ describe('the four-game limit is the database rule', () => {
   });
 
   it('capacity is the tighter of the two, never negative', () => {
-    expect(remainingGameCapacity({ seats: 0, bookings: 0, ownCashCeiling: 4 })).toBe(4);
+    // Owner 2026-11-13: two cash tables at most, whatever the tag says.
+    expect(remainingGameCapacity({ seats: 0, bookings: 0, ownCashCeiling: 4 })).toBe(2);
     expect(remainingGameCapacity({ seats: 0, bookings: 2, ownCashCeiling: 4 })).toBe(2);
+    expect(remainingGameCapacity({ seats: 2, bookings: 0, ownCashCeiling: 4 })).toBe(0);
+    // Two tournament seats do not use up the cash ceiling.
+    expect(remainingGameCapacity({ seats: 2, bookings: 0, ownCashCeiling: 4, cashSeats: 0 })).toBe(
+      2
+    );
     expect(remainingGameCapacity({ seats: 1, bookings: 0, ownCashCeiling: 2 })).toBe(1);
     expect(remainingGameCapacity({ seats: 3, bookings: 3, ownCashCeiling: 4 })).toBe(0);
     expect(remainingGameCapacity({ seats: 9, bookings: 9, ownCashCeiling: 4 })).toBe(0);

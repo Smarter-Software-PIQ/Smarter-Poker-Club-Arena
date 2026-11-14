@@ -80,6 +80,8 @@ import {
   recordOffDutyDeferred,
   recordOffDutyLeave,
 } from './HorseWorkSchedule.js';
+import { overlayCallAnswered, overlayCalled } from './horseOverlayCover.js';
+import { HORSE_MAX_CASH_TABLES } from './HorseGameLoad.js';
 import { chicagoCounterDay, tagBook } from './StableHandTags.js';
 import { chicagoNow } from './StableHandController.js';
 import { NIGHT_MIN_PLAYERS, controllerEnabled } from './StableHand.js';
@@ -1239,6 +1241,23 @@ export class HorseSessionRotator {
     const lightningGameIds = await this.readLightningGameIds(byTable);
     if (!this.lifecycleIsCurrent(generation)) return;
     let rosterLeaves = 0;
+    /* TWO CASH TABLES, AND A CASH SEAT GIVEN UP FOR A SHORT GUARANTEE (owner
+       2026-11-13): "HORSES ARE SUPPOSED TO PLAY 2 CASH GAMES AND 2
+       TOURNAMENTS. NOT 4 CASH GAMES. HORSES MUST LEAVE A CASH GAME AND PLAY A
+       TOURNAMENT IF A OVERLAY IS POSSIBLE!" byTable holds every open cash
+       seat, so this is each horse's whole cash count. A horse above the
+       ceiling, or one the overlay guard has called (horseOverlayCover), leaves
+       through the same ordinary door as the end of a shift: one such exit per
+       table per cycle, owed hands and orbits first, never a person left short. */
+    const cashSeatsByHorse = new Map<string, number>();
+    for (const tableSeats of byTable.values()) {
+      for (const seat of tableSeats) {
+        const uid = String(seat.user_id ?? '');
+        if (!uid || HorseSessionRotator.isLeaving(seat)) continue;
+        cashSeatsByHorse.set(uid, (cashSeatsByHorse.get(uid) ?? 0) + 1);
+      }
+    }
+    let eventLeaves = 0;
     /* Seats the roster/policy/duty pass already sent home this cycle: no
        later pass of the same cycle asks them again. */
     const rosterLeft = new Set<string>();
@@ -1373,7 +1392,10 @@ export class HorseSessionRotator {
           t?.tournament_id == null
             ? offDutyReason(uid, dutyBook?.states.get(uid), dutyNowMs, dutyWeekday, dutyToday)
             : null;
-        const offDuty = dutyReason !== null;
+        const cashHeld = t?.tournament_id == null ? (cashSeatsByHorse.get(uid) ?? 0) : 0;
+        const forEvents =
+          cashHeld > HORSE_MAX_CASH_TABLES || (cashHeld > 0 && overlayCalled(uid, dutyNowMs));
+        const offDuty = dutyReason !== null || forEvents;
         // Back on duty (or never off it): any earlier wait for a person is over.
         if (!offDuty) this.offDutyPersonHoldSince.delete(`${tableId}:${uid}`);
         if (!benched && !offPlo && !offGame && !restrictedCashGame && !outsideCashPlan && !offDuty)
@@ -1417,6 +1439,11 @@ export class HorseSessionRotator {
               offDutyLeaves++;
               recordOffDutyLeave(dutyReason);
             }
+            if (forEvents) {
+              eventLeaves++;
+              cashSeatsByHorse.set(uid, Math.max(0, cashHeld - 1));
+              overlayCallAnswered(uid);
+            }
             if (onlyOffDuty) {
               offDutyLeftHere++;
               offDutyExitTables.add(tableId);
@@ -1430,6 +1457,11 @@ export class HorseSessionRotator {
           reportError(err, 'HorseSessionRotator.rosterLeave');
         }
       }
+    }
+    if (eventLeaves > 0) {
+      console.log(
+        `[SessionRotator] ${eventLeaves} horse(s) left a cash seat - above two cash tables, or called to a guaranteed event that is short`
+      );
     }
     if (offDutyLeaves > 0) {
       console.log(

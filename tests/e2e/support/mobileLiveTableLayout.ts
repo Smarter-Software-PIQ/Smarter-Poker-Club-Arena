@@ -61,11 +61,18 @@ export async function certifyMobileLiveTableLayout(
   const capacity = await page.locator('.table-page:visible').first().getAttribute('data-seats');
   const proofTag = `mobile-live-table-${capacity || 'unknown'}max`;
   const originalViewport = page.viewportSize();
+  let proofFailure: { error: unknown } | undefined;
+  const changeViewport = async (size: { width: number; height: number }) => {
+    const current = page.viewportSize();
+    if (current?.width !== size.width || current.height !== size.height)
+      await page.setViewportSize(size);
+  };
   try {
     // The dedicated physical-phone cases own the four-width matrix. Keep an
     // existing hand/reconnect witness on its real device and stable canvas.
     for (const width of options.widths || [originalViewport?.width || 393]) {
-      await page.setViewportSize({ width, height: width === 320 ? 568 : 852 });
+      if (options.widths || !originalViewport)
+        await changeViewport({ width, height: width === 320 ? 568 : 852 });
       // Commit the resize and its observer-driven layout before measuring.
       await page.evaluate(
         () =>
@@ -144,9 +151,21 @@ export async function certifyMobileLiveTableLayout(
       'image/png'
     );
     await page.keyboard.press('Escape');
-  } finally {
-    if (originalViewport) await page.setViewportSize(originalViewport);
+  } catch (error) {
+    proofFailure = { error };
   }
+  if (originalViewport && !page.isClosed()) {
+    try {
+      await changeViewport(originalViewport);
+    } catch (error) {
+      if (!proofFailure) throw error;
+      testInfo.annotations.push({
+        type: 'viewport restoration failed',
+        description: String(error),
+      });
+    }
+  }
+  if (proofFailure) throw proofFailure.error;
 }
 
 /** Observe real payouts during the existing hand/reconnect case; never inject a hand. */
@@ -367,13 +386,51 @@ export function readMobileTableLayout(crowns: Readonly<Record<string, number>>) 
   )) {
     if (
       visible(wrap) &&
-      (getComputedStyle(wrap).filter !== 'none' || getComputedStyle(wrap).opacity !== '1')
+      (getComputedStyle(wrap).filter !== 'none' ||
+        getComputedStyle(wrap).opacity !== '1' ||
+        (matchMedia('(max-width: 768px) and (orientation: portrait)').matches &&
+          (getComputedStyle(wrap.parentElement!).filter !== 'none' ||
+            getComputedStyle(wrap.parentElement!).opacity !== '1')))
     )
       violations.push('Folded Portrait Has A Clipping Compositing Group');
   }
   for (const seat of table.querySelectorAll('.seat-wrapper--spot .seat:has(.seat__avatar--bust)')) {
     if (visible(seat) && getComputedStyle(seat).filter !== 'none')
       violations.push('Acting Portrait Has A Clipping Compositing Group');
+  }
+  if (matchMedia('(max-width: 768px) and (orientation: portrait)').matches) {
+    for (const seat of table.querySelectorAll('.seat:has(.seat__avatar--bust)')) {
+      const wrapper = seat.closest('.seat-wrapper');
+      if (
+        !table.classList.contains('table-page--winner-flash') &&
+        !wrapper?.classList.contains('seat-wrapper--dim')
+      )
+        continue;
+      const avatar = seat.querySelector('.seat__avatar--bust')!;
+      const parents = [wrapper, seat, avatar.parentElement!, avatar].filter(Boolean) as Element[];
+      if (
+        visible(avatar) &&
+        parents.some((element) => {
+          const style = getComputedStyle(element);
+          return style.filter !== 'none' || style.opacity !== '1';
+        })
+      )
+        violations.push('Celebration Or Dim Portrait Has A Clipping Compositing Group');
+    }
+
+    for (const seat of table.querySelectorAll(
+      '.seat:is(.seat--away, .seat--sitting_out):has(.seat__avatar--bust)'
+    )) {
+      const avatar = seat.querySelector('.seat__avatar--bust')!;
+      if (
+        visible(avatar) &&
+        [seat, avatar.parentElement!, avatar].some((element) => {
+          const style = getComputedStyle(element);
+          return style.filter !== 'none' || style.opacity !== '1';
+        })
+      )
+        violations.push('Inactive Portrait Has A Clipping Compositing Group');
+    }
   }
   // This is the enlarged phone-canvas contract, exercised at every physical
   // phone width by production. Legacy raw-width fixtures use another caption

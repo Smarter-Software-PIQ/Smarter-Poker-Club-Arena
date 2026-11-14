@@ -35,8 +35,15 @@ export interface OmahaTournamentFirstInParams {
   headsUpShare: number;
   /** Small blind against the big blind alone at a larger measured table. */
   blindVsBlindShare: number;
-  /** Deepest effective stack (big blinds) the module acts at. Deeper, the engine's fold stands. */
+  /** Deepest effective stack (big blinds) the module acts at heads-up. Deeper, the engine's fold stands. */
   maxStackBB: number;
+  /** Deepest effective stack (big blinds) at a three-handed table paying one
+   *  place (a winner-take-all spin). Measured 2026-11-14 (spin, seed 93002,
+   *  22/25/30 BB, PLO4+PLO5): +0.14 to +0.22 BB per hand pooled against every
+   *  opponent at every depth, no cell below zero. Heads-up the same extension
+   *  lost to the re-shoving opponent in PLO5 at 30 BB, so heads-up keeps
+   *  maxStackBB. */
+  winnerTakeAllMaxStackBB: number;
   /** Largest table (players dealt in) the module acts at. */
   maxTableSize: number;
   /** Heads-up big blind against one raise: share defended. */
@@ -54,6 +61,7 @@ export const OMAHA_TOURNAMENT_FIRST_IN: OmahaTournamentFirstInParams = {
   headsUpShare: 1,
   blindVsBlindShare: 1,
   maxStackBB: 20,
+  winnerTakeAllMaxStackBB: 30,
   maxTableSize: 3,
   bigBlindDefendShare: 0.75,
   bigBlindMaxPrice: 0.5,
@@ -110,7 +118,8 @@ export function omahaTournamentFirstIn(
   if (!(i.tableSize >= 2) || i.tableSize > p.maxTableSize) return null;
   if (!(i.playersLeft >= 2) || i.playersLeft > i.tableSize) return null;
   if (i.tableSize > 2 && i.paidPlacesLeft !== 1) return null;
-  if (!(i.effectiveStackBB > 0) || i.effectiveStackBB > p.maxStackBB) return null;
+  const ceilingBB = i.tableSize > 2 ? p.winnerTakeAllMaxStackBB : p.maxStackBB;
+  if (!(i.effectiveStackBB > 0) || i.effectiveStackBB > ceilingBB) return null;
   // Two points of range for each point of the engine's own risk premium,
   // never more than half the range.
   const narrowed = Math.min(0.5, Math.max(0, i.riskPremium) * 2);

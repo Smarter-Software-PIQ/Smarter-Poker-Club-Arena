@@ -1637,6 +1637,30 @@ function trustedTournamentContext(
 }
 
 /**
+ * COMMITTED STACK, any-two call (option committedStackPricedIn, default OFF; review 3e22706d H1): whether busting
+ * now can cost a pay jump that surviving this hand could win. The price of a tiny-stack call is chip arithmetic;
+ * on the bubble a fold cashes whenever another all-in loses, so the chip price is not the whole price. True when
+ * the trusted tournament context says hand for hand or near the bubble, when the event is a satellite, when the field
+ * is one off the money or within 15 percent of the paid places, when the Horse is already in the money (every bust-out below is a pay jump), and when the context is
+ * missing or untrusted (unknown is not "no pay jump"). Read only when the option is on.
+ */
+function committedPayJumpLive(gs: HorseGameStateV2): boolean {
+  const t = trustedTournamentContext(gs);
+  if (!t) return true;
+  if (t.handForHand === true || t.handForHandExpected === true || t.nearBubble === true)
+    return true;
+  // a seat is the whole prize: every satellite is live, whatever its seat count says (review 347b0afc L1)
+  if (t.satellite === true) return true;
+  const left = t.playersLeft ?? 0;
+  const paid = t.spotsPaid ?? 0;
+  if (!(left > 0 && paid > 0)) return true;
+  if (t.inMoney === true || left <= paid) return true;
+  // the feed's own near-bubble line (TournamentBrainContext), so one off the money is live in a small field too:
+  // 4 left with 3 paid is 1.33 times the paid places and is the bubble (review 347b0afc M1)
+  return left <= Math.max(paid + 1, Math.ceil(paid * 1.15));
+}
+
+/**
  * V7 ICM-lite: the survival premium in tournament play. Chips lost hurt more
  * than chips won help, so every calling threshold rises and bluff volume
  * drops — hardest around the bubble, gone again deep in the money with a big
@@ -2544,7 +2568,7 @@ export interface HorseDecideOpts {
   /** Omaha high tournaments (HorseOmahaTournamentFirstIn): the small blind
    *  against the big blind alone, and the heads-up big blind facing one raise,
    *  replace the engine's fold by the hand's Omaha percentile, at three or
-   *  fewer players dealt and 20 BB or less. Default on; false is the old
+   *  fewer players dealt and 20 BB or less (30 BB three-handed winner-take-all). Default on; false is the old
    *  engine; an object is a league arm's parameters. */
   omahaTournamentFirstIn?:
     | boolean
@@ -2584,6 +2608,12 @@ export interface HorseDecideOpts {
    * (HorseTokenCallPrice.ts, PLO6-AUDIT-010). Default on; false only for
    * the regression's non-vacuity control. */
   tokenCallPrice?: boolean;
+  /** PLO6 cash, the raiser faced is an observed maniac and not all in, the
+   * call is under 40% of the stack: a refusal by the price arithmetic goes
+   * to the range play instead of folding outright (PLO6-AUDIT-013,
+   * docs/horse-default-on.d/plo6ManiacPriceRefusalToRangePlay.md). Default
+   * on; false only for the regression's non-vacuity control. */
+  plo6ManiacPriceRefusalToRangePlay?: boolean;
   /** An Omaha preflop call of 40% of the stack with chips behind and an
    * opponent still to act is not priced as a final all-in call
    * (PLO6-AUDIT-005). OPT-IN, default off. The pricing gap is real (the
@@ -2766,7 +2796,8 @@ export interface HorseDecideOpts {
   limpReraiseIsoRead?: boolean;
   /** COMMIT UNDER THE POT (2026-11-07, commitUnderPotCall): heads-up NLH
    *  flop or turn, facing a bet with a remaining stack smaller than the pot,
-   *  the horse calls instead of folding. Default OFF: only explicit true. */
+   *  the horse calls instead of folding when the pot lays three to one or
+   *  better (HU-NLH-016). Default OFF: only explicit true. */
   commitUnderPot?: boolean;
   /** V65 (2026-10-31): Hold'em one-pair TURN calls of a wager hero did not
    *  initiate are shaded by the price, zero at a quarter-pot wager and
@@ -4962,6 +4993,10 @@ function riverBluffCheckRaise(
   return { ...proposed, ...legal };
 }
 
+/** HU-NLH-016: the most equity a commitUnderPot call may need. A quarter:
+ *  the pot lays three to one or better, a bet of half the pot or less. */
+export const COMMIT_UNDER_POT_MAX_PRICE = 0.25;
+
 /**
  * COMMIT UNDER THE POT (2026-11-07, flag commitUnderPot, default off): in a
  * heads-up no-limit hold'em pot on the flop or turn, a horse facing a bet
@@ -4973,6 +5008,17 @@ function riverBluffCheckRaise(
  * committed branch (stack-to-pot under 1.2) already prices such calls at the
  * pot odds; this rule removes the fold outright. Runs with the owner rules,
  * after every other layer.
+ *
+ * HU-NLH-016 (2026-11-13): the pot being compared already holds the bet, so
+ * "stack smaller than the pot" was true for every covering shove whatever
+ * its size, and a fold became a 38bb call into a 4bb pot with any hand. The
+ * fold is now removed only when the call is priced in: what the horse puts
+ * in (the call, or its stack when the call is all in for less) against the
+ * pot that call wins (the bet included, less the part of the bet a short
+ * stack cannot match) needs no more than COMMIT_UNDER_POT_MAX_PRICE. The
+ * brain's own equity for the hand does not reach this point (a decision
+ * carries no equity, and the rule also runs outside the brain), so the
+ * bound is a price alone and needs no read of the hand.
  */
 export function commitUnderPotCall(
   decision: HorseDecision,
@@ -4994,6 +5040,11 @@ export function commitUnderPotCall(
     : Math.max(0, (gs.currentBet ?? 0) - (player.bet ?? 0));
   const pot = Number.isFinite(gs.pot) ? Math.max(0, gs.pot) : 0;
   if (toCall <= 0.005 || stack <= 0.005 || !(stack < pot)) return decision;
+  // HU-NLH-016: the price. A call for less than the bet wins only the part
+  // of the pot it matches; the rest of the bet goes back to the bettor.
+  const committed = Math.min(toCall, stack);
+  const wins = Math.max(0, pot - (toCall - committed));
+  if (!(committed <= COMMIT_UNDER_POT_MAX_PRICE * (wins + committed) + 1e-9)) return decision;
   const legal = Array.isArray(gs.legalActions) ? new Set<string>(gs.legalActions) : null;
   const cents = (v: number) => Math.round(v * 100) / 100;
   if (toCall >= stack - 0.005) {
@@ -7631,6 +7682,13 @@ export class HorseLogic {
           orbit86?.fullRaises ?? raises
         )
       : null;
+    // Upgrade 08 evidence only: the side-game read this preflop decision's
+    // brain actually made. Nothing below reads these counters.
+    if (telemetryOn(opts)) {
+      if (orbit86?.killState.active) noteFire('upgrade08_kill_pot_orbit_seen');
+      if (orbit86?.killPotUnopened) noteFire('upgrade08_kill_pot_unopened_seen');
+      if (sidePre86?.sevenDeuce.enabled) noteFire('upgrade08_seven_deuce_overlay_seen');
+    }
     const straddleUnopened =
       ((opts.v18Straddle ?? true) !== false &&
         gs.straddleActive === true &&
@@ -8494,12 +8552,36 @@ export class HorseLogic {
             notePhase6Route('variant_fallback', 'variant_price');
             return { action: 'call', amount: Math.min(toCall, player.stack), thinkTime: 0 };
           }
-          notePhase6Route('variant_fallback', 'variant_price');
-          return {
-            action: 'fold',
-            thinkTime: 0,
-            ...(vi.isOmaha ? { continuationGuard: 'preflop_priced_refusal' as const } : {}),
-          };
+          // ═══ PLO6-AUDIT-013 A REFUSED MANIAC PRICE IS NOT A FOLD (2026-11-14) ═══
+          // Production hand 58751512, decision 13 (PLO6 1/2, 390bb, 161 to call
+          // into 520 after a four-bet): against an unknown or a proven tight
+          // four-bettor this arithmetic is not used and the range play shoves;
+          // against an observed maniac it is, its fixed margins put the bar at
+          // 0.346 against pot odds of 0.236, and three seeds in ten folded a
+          // hand whose every alternative is worth 28 to 137 big blinds. The
+          // maniac price exists to call lighter, never to play tighter than the
+          // Horse plays against everybody else. So where only the maniac read
+          // brought the decision here (the call is under 40% of the stack and
+          // the raiser is not all in), a refusal hands the decision to the
+          // range play below. PLO6 cash only: the evidence is one PLO6 cash
+          // node (docs/horse-default-on.d/plo6ManiacPriceRefusalToRangePlay.md).
+          const refusalToRangePlay38 =
+            opts.plo6ManiacPriceRefusalToRangePlay !== false &&
+            vi.isOmaha &&
+            !vi.isHiLo &&
+            vi.holeCount === 6 &&
+            !isTournamentMode(gs) &&
+            maniacPrice38 &&
+            !variantPrice38;
+          if (!refusalToRangePlay38) {
+            notePhase6Route('variant_fallback', 'variant_price');
+            return {
+              action: 'fold',
+              thinkTime: 0,
+              ...(vi.isOmaha ? { continuationGuard: 'preflop_priced_refusal' as const } : {}),
+            };
+          }
+          if (telemetryOn(opts)) noteFire('plo6_maniac_price_refusal_range_play_seen');
         } catch {
           if (telemetryOn(opts)) noteFire('v38_preflop_price_unavailable');
           /* No invented opponent/equity: the explicit range fallback decides. */
@@ -9038,7 +9120,9 @@ export class HorseLogic {
           }
         : {}),
       ...(huBbPrice ? { huBbPrice } : {}),
-      ...(opts.committedStackPricedIn === true ? { committedStackPricedIn: true } : {}),
+      ...(opts.committedStackPricedIn === true
+        ? { committedStackPricedIn: true, committedPayJumpLive: committedPayJumpLive(gs) }
+        : {}),
       ...(gtoOpen70 ? { gtoOpen: gtoOpen70 } : {}),
       ...(gtoDefend72 ? { gtoDefend: gtoDefend72 } : {}),
       ...(gtoVs3Bet73 ? { gtoVs3Bet: gtoVs3Bet73 } : {}),
@@ -9590,6 +9674,10 @@ export class HorseLogic {
                 }
               }
             }
+            // Upgrade 08 evidence only: the seven-deuce bounty credit this
+            // Horse holds is handed to the preflop thresholds just below.
+            if (telemetryOn(opts) && sidePre86 && sidePre86.sevenDeuce.preflopStrengthBonus > 0)
+              noteFire('upgrade08_seven_deuce_bounty_seen');
             return {
               v86UnblockedPreflop: true,
               v86MultiStreetUnblocked: opts.v86MultiStreetUnblocked !== false,
@@ -10795,6 +10883,12 @@ export class HorseLogic {
           sevenDeuceBountyPerPlayer: gs.sevenDeuceBountyPerPlayer,
         })
       : null;
+    // Upgrade 08 evidence only: the seven-deuce read this postflop decision
+    // made, and whether a bounty went to the pricing below (sideGamePotOverlay).
+    if (tele15 && sidePost86?.sevenDeuce.enabled) {
+      noteFire('upgrade08_seven_deuce_overlay_seen');
+      if (sidePost86.postflopPotOverlayChips > 0) noteFire('upgrade08_seven_deuce_bounty_seen');
+    }
 
     // V9 TIMING: how CLOSE is this decision? Distance of the MC equity from
     // the nearest strategy threshold. Razor-thin spots read as difficulty ~1

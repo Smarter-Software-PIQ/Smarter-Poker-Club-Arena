@@ -605,9 +605,14 @@ export async function lateRegisterHorsesOnce(
         ),
         lateEntries: late,
       });
-      // Owner November 7: independently rescue net guarantee coverage in the
-      // final ten minutes, even when the ordinary arrival plan is satisfied.
-      if (Number(t.guaranteed_prize) > 0 && horseOverlayRescueDue(t, nowMs)) {
+      /* Owner November 13 (after a 7,295 overlay on the Nightly 20K): while a
+         guarantee is not covered by net entries, every horse is on call for
+         it - off shift and rest day included (overlayCover) - and in the final
+         twenty minutes everything still missing is asked for at once,
+         with no per-cycle ceiling. Owner November 7's rescue was ten minutes,
+         capped at 40 a cycle, and drew only from on-shift horses. */
+      let overlayCover = false;
+      if (Number(t.guaranteed_prize) > 0) {
         const { data: funding, error: fundingError } = await supabase.rpc(
           'fn_ca_guarantee_funding',
           { p_tournament_id: t.id }
@@ -615,13 +620,9 @@ export async function lateRegisterHorsesOnce(
         if (!shouldContinue() || isMaintenanceFrozen()) return added;
         try {
           if (fundingError) throw new Error(fundingError.message);
-          want = Math.max(
-            want,
-            Math.min(
-              MAX_TOPUP_PER_CYCLE,
-              horseOverlayRescueEntries(funding, mttGuaranteeEntryAmount(t))
-            )
-          );
+          const missing = horseOverlayRescueEntries(funding, mttGuaranteeEntryAmount(t));
+          overlayCover = missing > 0;
+          if (horseOverlayRescueDue(t, nowMs)) want = Math.max(want, missing);
         } catch (error) {
           reportError(error, 'HorseOverlayGuard.net_overlay_funding_unreadable');
           // An unavailable rescue read cannot cancel ordinary legal arrivals.
@@ -632,13 +633,26 @@ export async function lateRegisterHorsesOnce(
       // topUpWithHorses counts the live field (registered + playing), so the
       // target is that field plus this cycle's arrivals.
       const isFree = (Number(t.buy_in_amount) || 0) <= 0;
-      const n = await seeder.topUpWithHorses(t.id, live + want, { allLanes: isFree });
+      const n = await seeder.topUpWithHorses(t.id, live + want, {
+        allLanes: isFree,
+        ...(overlayCover ? { overlayCover: true } : {}),
+      });
       added += n;
       if (!shouldContinue()) return added;
       if (n > 0) {
         console.log(
           `[HorseOverlayGuard] late registration ${t.name}: +${n} horse(s) ` +
             `(${late} late entries so far, level ${t.current_level ?? 0})`
+        );
+      }
+      if (overlayCover && n < want) {
+        // The failure that cost 7,295 on 2026-11-13 was silent. Say it.
+        reportError(
+          new Error(
+            `[HorseOverlayGuard] ${t.name} (${t.id.slice(0, 8)}) is short of its guarantee: ` +
+              `asked for ${want} horse(s), registered ${n}`
+          ),
+          'HorseOverlayGuard.overlay_cover_short'
         );
       }
     }

@@ -28,14 +28,36 @@ export interface HorseAuthorityAdmissionSummary {
   reason: string | null;
 }
 
+/**
+ * One cell inside an entry's variants x modes where a named part of its
+ * runtimeSurface does not run, with the engine's own reason for it. The rest
+ * of the surface still runs there, which is why the cell stays declared.
+ */
+export interface HorseUpgradeCellException {
+  variant: string;
+  mode: 'cash' | 'tournament';
+  /** The member of the entry's runtimeSurface that refuses the cell. */
+  surface: string;
+  /** The refusal reason that surface records (a receipt reason, verbatim). */
+  reason: string;
+}
+
 export interface HorseUpgradeCapabilityEntry {
   id: string;
   title: string;
   enabled: boolean;
   status: 'active' | 'qualified_gate_unselected';
+  /**
+   * Where the upgrade's code runs: every variant and mode in which a decision
+   * executes the runtimeSurface, whether or not the hand offers it anything
+   * to change. HorseUpgradeManifestRuntimeParity.law.test.ts holds the
+   * per-decision upgrades (01, 02, 06, 07, 12) to exactly this, cell by cell.
+   */
   variants: readonly string[];
   modes: readonly ('cash' | 'tournament')[];
   runtimeSurface: string;
+  /** Present only when a declared cell has a partial refusal. */
+  exceptions?: readonly HorseUpgradeCellException[];
 }
 
 export interface HorseUpgradeActivationManifest {
@@ -118,11 +140,16 @@ export const HORSE_UPGRADE_LIVE_EVIDENCE: Readonly<Record<string, readonly strin
     upgrade_08_side_games_integration: [
       '`upgrade08_rit_chooser_',
       '`upgrade08_rit_answer_',
+      "'upgrade08_insurance_offered_seen'",
       "'upgrade08_insurance_decline_seen'",
       "'upgrade08_insurance_accept_seen'",
       "'upgrade08_insurance_cashout_seen'",
       "'upgrade08_kill_pot_seen'",
+      "'upgrade08_kill_pot_orbit_seen'",
+      "'upgrade08_kill_pot_unopened_seen'",
       "'upgrade08_seven_deuce_seen'",
+      "'upgrade08_seven_deuce_overlay_seen'",
+      "'upgrade08_seven_deuce_bounty_seen'",
     ],
     upgrade_09_preaction_purge: [
       "'upgrade09_preaction_purge_table_seen'",
@@ -194,7 +221,11 @@ const UPGRADE_ENTRIES: readonly HorseUpgradeCapabilityEntry[] = Object.freeze([
     title: 'Combinatorial Blocker & Unblocker Card-Removal Scoring',
     enabled: true,
     status: 'active',
-    variants: ['nlh', 'plo4', 'plo5', 'plo6', 'plo8', 'short_deck', 'pineapple'],
+    // FLH and FLO8 included (2026-11-14): the postflop brain scores card
+    // removal with no variant condition, and the fixed-limit games reach the
+    // consumers (the continuation plan, and the EV engine's one-size
+    // candidates, which take the score's fold-equity delta).
+    variants: ALL_VARIANTS,
     modes: BOTH_MODES,
     runtimeSurface: 'HorseCardRemovalScorer,HorseEvEngine,HorseLogic',
   },
@@ -283,12 +314,28 @@ const UPGRADE_ENTRIES: readonly HorseUpgradeCapabilityEntry[] = Object.freeze([
   },
   {
     id: 'upgrade_12_specialty_variants',
-    title: 'PLO8/FLO8 Scoop-Freeroll, Short Deck Rank/Equity & Pineapple Discard Parity',
+    title:
+      'PLO8/FLO8 Scoop-Freeroll, Short Deck Rank/Equity, Pineapple Discard Parity & Remaining-Variant Pack For FLO8, FLH, Short Deck And Pineapple Cash',
     enabled: true,
     status: 'active',
-    variants: ['plo8', 'flo8', 'short_deck', 'pineapple'],
+    // FLH included (2026-11-14): it is one of the four games the remaining-
+    // variant pack decides (HORSE_PHASE12_VARIANTS), and this upgrade's own
+    // evidence counters (phase12_seen, phase12_fired) fire on every FLH
+    // decision. PLO8 is here for the low-outlook read, not the pack.
+    variants: ['plo8', 'flo8', 'flh', 'short_deck', 'pineapple'],
     modes: BOTH_MODES,
-    runtimeSurface: 'HorseEval,HorseLogic,ServerTableEngineRunout',
+    runtimeSurface: 'HorseEval,HorseLogic,ServerTableEngineRunout,RemainingVariantLivePolicy',
+    // The pack is consulted for a Pineapple tournament decision and refuses
+    // it; the reference brain decides there. Pineapple has no tournament
+    // format in the catalog, so this cell exists in the engine only.
+    exceptions: [
+      {
+        variant: 'pineapple',
+        mode: 'tournament',
+        surface: 'RemainingVariantLivePolicy',
+        reason: 'pineapple_tournament_unapproved',
+      },
+    ],
   },
   {
     id: 'upgrade_13_law_gate_and_watchcounters',
@@ -377,9 +424,31 @@ export function computeHorseUpgradeActivationManifest(): HorseUpgradeActivationM
 
   return {
     ...digestPayload,
-    manifestDigest: sha256Canonical(digestPayload),
+    manifestDigest: horseUpgradeManifestDigest(digestPayload),
     generatedAt: new Date().toISOString(),
   };
+}
+
+/**
+ * The digest host and workers compare: sha256 over the canonical (key-sorted)
+ * form of everything a manifest declares, every upgrade entry included. It
+ * leaves out only `generatedAt` and the digest itself. Exported so
+ * HorseUpgradeManifestDigest.test.ts can prove a changed entry changes it.
+ */
+export function horseUpgradeManifestDigest(
+  manifest: Pick<
+    HorseUpgradeActivationManifest,
+    'schema' | 'version' | 'sourceRevision' | 'engineVersion' | 'authorities' | 'upgrades'
+  >
+): string {
+  return sha256Canonical({
+    schema: manifest.schema,
+    version: manifest.version,
+    sourceRevision: manifest.sourceRevision,
+    engineVersion: manifest.engineVersion,
+    authorities: manifest.authorities,
+    upgrades: manifest.upgrades,
+  });
 }
 
 const SHA256_HEX = /^[0-9a-f]{64}$/;

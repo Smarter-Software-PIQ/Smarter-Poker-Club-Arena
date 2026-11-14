@@ -155,6 +155,13 @@
       "noticeAt": "2026-11-13T07:15:00Z",
       "notBefore": "2026-11-13T07:36:00Z",
       "notAfter": "2026-11-13T09:00:00Z"
+    },
+    {
+      "id": "2026-11-14-owner-offcycle-engine-0506z",
+      "kind": "engine",
+      "noticeAt": "2026-11-14T04:40:00Z",
+      "notBefore": "2026-11-14T05:06:00Z",
+      "notAfter": "2026-11-14T07:30:00Z"
     }
   ]
 }

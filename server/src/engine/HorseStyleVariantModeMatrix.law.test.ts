@@ -29,9 +29,18 @@
  *
  * The one combination the engine does not support is asserted by its own
  * reason, not skipped: the Phase 12 pack refuses Pineapple tournaments as
- * `pineapple_tournament_unapproved` (RemainingVariantLivePolicy), although the
- * manifest lists upgrade 12 for Pineapple in both modes. The reference brain
- * still decides there, legally, with 01, 02, 06 and 07.
+ * `pineapple_tournament_unapproved` (RemainingVariantLivePolicy). The manifest
+ * declares exactly that as upgrade 12's one exception (2026-11-14; before, it
+ * listed Pineapple in both modes and said nothing). The reference brain still
+ * decides there, legally, with 01, 02, 06 and 07.
+ *
+ * 2026-11-14: this law found two places where the manifest and the brain
+ * disagreed (upgrade 02 left FLH and FLO8 out although the scorer runs there;
+ * upgrade 12 left FLH out although the pack decides it) and pinned them as
+ * facts. The manifest now states what runs, the pins assert the corrected
+ * declaration, and HorseUpgradeManifestRuntimeParity.law.test.ts holds the two
+ * sides equal in both directions. The harness lives in
+ * HorseStyleVariantModeMatrix.test-support.ts, shared with that law.
  *
  * The second block passes each of the six style names to the brain as its
  * style argument. Production never does that for anything but the two mode
@@ -47,47 +56,28 @@
  * tournament decision, and the reverse).
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
-import { HandController } from './HandController.js';
-import type { Deck } from './PokerEngine.js';
-import { seedFastRandom } from './HorseEval.js';
 import {
   HORSE_HYBRID_PROFILES,
   horseHybridDecisionMatches,
   resolveHorseHybridProfile,
   type HorseHybridMode,
 } from './HorseHybridProfile.js';
-import { HorseMind } from './HorseMind.js';
-import { buildTournamentMState } from './HorseTournamentPreflop.js';
+import {
+  decideThroughWorker,
+  MODES,
+  startMatrixWorker,
+  stopMatrixWorker,
+  VARIANTS,
+  type CellResult,
+  type Variant,
+} from './HorseStyleVariantModeMatrix.test-support.js';
 import {
   computeHorseUpgradeActivationManifest,
   HORSE_UPGRADE_LIVE_EVIDENCE,
   type HorseUpgradeCapabilityEntry,
 } from './HorseUpgradeActivationManifest.js';
-import { captureHorseHandJournalContext } from './HorseDecisionHandBinding.js';
-import { applyTableCommitmentCap } from './ServerTableEngineTurns.js';
-import {
-  buildHorseDecisionKey,
-  type HorseDecisionWorkerResponse,
-} from './horseDecision/protocol.js';
 import { horseDecisionReceiptIsValid } from './horseDecision/responseValidation.js';
-import {
-  defaultHorseDecisionWorkerDependencies as defaults,
-  HorseDecisionWorkerRuntime,
-} from './horseDecision/workerRuntime.js';
-import {
-  controllerDecisionState,
-  controllerSpotRandom,
-  type ControllerSpot,
-} from './remainingVariants/RemainingVariantControllerSpots.test-support.js';
-import {
-  HORSE_ASSIGNED_STYLE,
-  RETIRED_HORSE_STYLES,
-  type HandConfig,
-  type HorseDecision,
-  type HorseStyle,
-  type SeatPlayer,
-} from '../types.js';
+import { HORSE_ASSIGNED_STYLE, RETIRED_HORSE_STYLES, type HorseStyle } from '../types.js';
 
 /** Keyed by the type, so a seventh style cannot be added without a row here. */
 const STYLE_ROWS: Record<HorseStyle, true> = {
@@ -99,19 +89,6 @@ const STYLE_ROWS: Record<HorseStyle, true> = {
   grinder: true,
 };
 const STYLES = Object.keys(STYLE_ROWS) as HorseStyle[];
-const VARIANTS = [
-  'nlh',
-  'plo4',
-  'plo5',
-  'plo6',
-  'plo8',
-  'flo8',
-  'flh',
-  'short_deck',
-  'pineapple',
-] as const;
-type Variant = (typeof VARIANTS)[number];
-const MODES = ['cash', 'tournament'] as const satisfies readonly HorseHybridMode[];
 
 /** The counter each per-decision upgrade emits on a postflop brain evaluation. */
 const PER_DECISION_COUNTER = {
@@ -123,7 +100,12 @@ type PerDecisionUpgrade = keyof typeof PER_DECISION_COUNTER;
 const PER_DECISION_UPGRADES = Object.keys(PER_DECISION_COUNTER) as PerDecisionUpgrade[];
 
 /** The upgrade 12 variants the Phase 12 remaining-variant pack decides. */
-const PHASE12_PACK_VARIANTS: ReadonlySet<Variant> = new Set(['flo8', 'short_deck', 'pineapple']);
+const PHASE12_PACK_VARIANTS: ReadonlySet<Variant> = new Set([
+  'flo8',
+  'flh',
+  'short_deck',
+  'pineapple',
+]);
 
 const HYBRID_EVIDENCE: Record<HorseHybridMode, string> = {
   cash: 'hybrid_v1_cash_grinder_decided',
@@ -154,295 +136,8 @@ function countersOf(id: string, counted: Record<string, number>): string[] {
   );
 }
 
-let worker: HorseDecisionWorkerRuntime;
-const messages: HorseDecisionWorkerResponse[] = [];
-let requestId = 1;
-
-beforeAll(async () => {
-  enableBrainTelemetry();
-  worker = new HorseDecisionWorkerRuntime((m) => messages.push(m), {
-    ...defaults,
-    startServices: async () => defaults.workerReadiness(),
-    stopServices: async () => {},
-    journalEnabled: () => false,
-    journalAcceptedHand: () => {},
-    journalLifecycle: () => {},
-    noteDecision: () => {},
-    // noteFeature is left at its production binding (noteFire), so the
-    // worker's own evidence lands in the same counters the brain's does.
-  });
-  await worker.start();
-});
-
-afterAll(async () => {
-  await worker.drain();
-  HorseMind.reset();
-  drainFires();
-});
-
-interface FlopSpot {
-  spot: ControllerSpot;
-  controller: HandController;
-  config: HandConfig;
-}
-
-/** A heads-up hand the controller dealt and both seats took passively to the flop. */
-function dealToFlop(variant: Variant, mode: HorseHybridMode, cell: number): FlopSpot {
-  const smallBlind = mode === 'tournament' ? 10 : 1;
-  const bigBlind = mode === 'tournament' ? 20 : 2;
-  const tableId = `77000000-0000-4000-8000-${String(cell + 1).padStart(12, '0')}`;
-  const config = {
-    tableId,
-    handNumber: 12,
-    gameVariant: variant,
-    smallBlind,
-    bigBlind,
-    isTournament: mode === 'tournament',
-    chipUnit: mode === 'tournament' ? 1 : 0.01,
-    rakeConfig: { percent: mode === 'cash' ? 5 : 0, cap: bigBlind * 3, noFlopNoDrop: true },
-  } as HandConfig;
-  const players: SeatPlayer[] = [137.5, 84].map(
-    (depth, idx) =>
-      ({
-        seat: idx + 1,
-        user_id: `78000000-0000-4000-8000-${String(cell * 10 + idx + 1).padStart(12, '0')}`,
-        username: `MatrixHorse_${cell}_${idx}`,
-        stack: depth * bigBlind,
-        bet: 0,
-        totalInvested: 0,
-        cards: [],
-        is_folded: false,
-        is_all_in: false,
-        is_sitting_out: false,
-        is_horse: true,
-      }) as SeatPlayer
-  );
-  const controller = new HandController(config, players, 1);
-
-  // The same seeded physical deck the action-space law deals from.
-  const deck = controller.getState().deck as unknown as Deck;
-  const cards = deck.getRemainingCards().sort((a, b) => {
-    const left = `${a.suit}:${a.rank}`;
-    const right = `${b.suit}:${b.rank}`;
-    return left < right ? -1 : left > right ? 1 : 0;
-  });
-  const rng = controllerSpotRandom((9100 + variant.charCodeAt(0) * 131) ^ 0x5eedface);
-  for (let i = cards.length - 1; i > 0; i--) {
-    const j = Math.floor(rng() * (i + 1));
-    [cards[i], cards[j]] = [cards[j], cards[i]];
-  }
-  deck.deal = (n = 1) => {
-    if (cards.length < n) throw new Error('matrix fixture exhausted the physical deck');
-    return cards.splice(0, n);
-  };
-  deck.dealOne = () => deck.deal(1)[0];
-  deck.remaining = () => cards.length;
-  deck.getRemainingCards = () => cards.slice();
-
-  controller.start();
-  for (let step = 0; step < 12; step++) {
-    const live = controller.getState();
-    if (live.stage === 'pineapple_discard') {
-      for (const p of live.players.filter((x) => !x.is_folded && x.cards.length === 3))
-        expect(controller.performDiscard(p.seat, 0), `${variant} ${mode} discard`).toBe(true);
-      controller.flushPineappleSettle();
-      continue;
-    }
-    if (live.stage !== 'preflop') break;
-    const pre = controllerDecisionState(controller, variant as never, mode, config);
-    if (!pre) break;
-    const passive = pre.state.legalActions?.includes('check') ? 'check' : 'call';
-    expect(controller.performAction(pre.hero.seat, passive), `${variant} ${mode} preflop`).toBe(
-      true
-    );
-  }
-
-  const spot = controllerDecisionState(controller, variant as never, mode, config);
-  if (!spot) throw new Error(`${variant} ${mode}: the controller offered no flop decision`);
-  expect(spot.state.stage, `${variant} ${mode}`).toBe('flop');
-  expect(spot.state.communityCards.length, `${variant} ${mode}`).toBe(3);
-
-  const blinds = controller.getBlindSnapshot?.() ?? {
-    smallBlind,
-    bigBlind,
-    ante: 0,
-    bigBlindAnte: false,
-  };
-  spot.state.smallBlind = blinds.smallBlind;
-  spot.state.bigBlind = blinds.bigBlind;
-  spot.state.ante = blinds.ante;
-  spot.state.bigBlindAnte = blinds.bigBlindAnte;
-  spot.state.allInOrFold = false;
-  spot.state.bbjConfig = spot.state.bbjConfig ?? null;
-
-  if (mode === 'tournament') {
-    // A coherent heads-up finish: two players left, both paid, two payouts,
-    // and a field that is exactly this table. The tournament utility refuses
-    // a context whose payouts or field do not reconcile (invalid_input,
-    // field_reconciliation), and a refused context proves nothing about it.
-    const live = controller.getState();
-    const stackByUser = Object.fromEntries(
-      live.players.map((p) => [p.user_id, p.stack + p.totalInvested])
-    );
-    const stacks = Object.values(stackByUser);
-    spot.state.tournament = {
-      schemaVersion: 1,
-      contextStatus: 'complete',
-      contextIssues: [],
-      sourceAgeMs: 0,
-      tournamentId: `matrix-tourney-${tableId}`,
-      tournamentType: 'MTT',
-      tournamentStatus: 'RUNNING',
-      gameVariant: variant,
-      entrants: 18,
-      playersLeft: live.players.length,
-      spotsPaid: live.players.length,
-      avgStackChips: stacks.reduce((a, b) => a + b, 0) / stacks.length,
-      medianStackChips: [...stacks].sort((a, b) => a - b)[Math.floor(stacks.length / 2)],
-      seatsPerTable: 6,
-      playersAtTable: live.players.length,
-      currentLevel: 4,
-      nearBubble: false,
-      inMoney: true,
-      registrationOpen: false,
-      lateRegistrationOpen: false,
-      registrationRequiresAuthorization: false,
-      isPko: false,
-      isBounty: false,
-      isMysteryBounty: false,
-      mysteryBountyStage: 'none',
-      reentryAllowed: false,
-      rebuyAllowed: false,
-      addOnAvailable: false,
-      onBreak: false,
-      handForHand: false,
-      handForHandExpected: false,
-      mysteryTopLive: false,
-      finalTable: true,
-      satellite: false,
-      satelliteSeats: 0,
-      maxReentries: 0,
-      maxRebuys: 0,
-      addOnCost: null,
-      addOnChips: null,
-      addOnLevels: null,
-      levelDurationMin: 10,
-      levelElapsedMin: 5,
-      nextBlindMult: 1.5,
-      bountyFactor: 0,
-      mysteryChestsLeft: 0,
-      mysteryMeanCents: 0,
-      mysteryTopCents: 0,
-      meanBountyCents: 0,
-      bountyByUser: {},
-      payoutPct: [65, 35],
-      stacks,
-      stackByUser,
-      currentSmallBlind: smallBlind,
-      currentBigBlind: bigBlind,
-      currentAnte: 0,
-      anteType: 'none',
-      nextSmallBlind: bigBlind,
-      nextBigBlind: bigBlind * 2,
-      nextAnte: 0,
-      nextBlindInMin: 5,
-      prizePoolCents: 250000,
-      bountyPoolCents: 0,
-      reentryOpen: false,
-      rebuyOpen: false,
-      addOnPeriodOpen: false,
-      reloadsUsed: 0,
-      addOnTaken: false,
-      rebuyAffordable: false,
-      addOnAffordable: false,
-      m: buildTournamentMState({
-        stackChips: spot.hero.stack,
-        smallBlind,
-        bigBlind,
-        ante: 0,
-        anteType: 'none',
-        playersAtTable: live.players.length,
-        nextSmallBlind: bigBlind,
-        nextBigBlind: bigBlind * 2,
-        nextAnte: 0,
-        minutesToNextLevel: 5,
-        opponentStacks: live.players
-          .filter((p) => p.user_id !== spot.hero.user_id)
-          .map((p) => ({ userId: p.user_id, stackChips: p.stack })),
-      }),
-    } as never;
-  }
-
-  spot.state.commitmentCapRemaining = applyTableCommitmentCap(
-    controller.getAuthoritativeActionState(spot.hero.user_id)!,
-    spot.hero,
-    mode === 'tournament',
-    0,
-    bigBlind
-  ).commitmentCapRemaining;
-
-  return { spot, controller, config };
-}
-
-interface CellResult {
-  decision: HorseDecision;
-  counted: Record<string, number>;
-  flop: FlopSpot;
-  style: HorseStyle;
-  mods: HorseProfile['mods'];
-}
-type HorseProfile = ReturnType<typeof resolveHorseHybridProfile>;
-
-/**
- * One DECIDE_FAST through the real worker runtime, with its counters. The
- * profile is resolved for the seat the controller put on the clock, as the
- * live table resolves it for the player whose turn it is.
- */
-async function decideThroughWorker(
-  variant: Variant,
-  mode: HorseHybridMode,
-  cell: number,
-  profileFor: (horseId: string) => HorseProfile
-): Promise<CellResult> {
-  HorseMind.reset();
-  seedFastRandom(20261113 + cell);
-  const flop = dealToFlop(variant, mode, cell);
-  const { spot, config } = flop;
-  const { style, mods } = profileFor(spot.hero.user_id);
-  const request = {
-    type: 'DECIDE_FAST' as const,
-    requestId: requestId++,
-    generation: 1,
-    fence: `${config.tableId}:${config.handNumber}:${spot.hero.seat}:${cell}:1`,
-    decisionKey: '',
-    decisionTimeMs: Date.UTC(2026, 10, 13, 18, 0, 0) + cell * 1000,
-    player: spot.hero,
-    gameState: spot.state,
-    style,
-    mods,
-    handJournalContext: captureHorseHandJournalContext(spot.state.actionHistory!),
-  };
-  request.decisionKey = buildHorseDecisionKey(request);
-
-  drainFires();
-  const before = messages.length;
-  worker.receive(request);
-  await worker.drain();
-  const counted = Object.fromEntries(drainFires().map((r) => [r.feature, r.fires]));
-  const answers = messages.slice(before);
-  const label = `${style} ${variant} ${mode}`;
-  // A refusal at the worker's validation boundary is an ERROR message; it
-  // must fail here with its own text, never read as "no decision".
-  expect(
-    answers.filter((m) => m.type === 'ERROR'),
-    label
-  ).toEqual([]);
-  const result = answers.find((m) => m.type === 'FAST_RESULT') as
-    | (HorseDecisionWorkerResponse & { decision: HorseDecision })
-    | undefined;
-  if (!result) throw new Error(`${label}: the worker returned no FAST_RESULT`);
-  return { decision: result.decision, counted, flop, style, mods };
-}
+beforeAll(startMatrixWorker);
+afterAll(stopMatrixWorker);
 
 /** Everything a cell owes regardless of which style reached the brain. */
 function expectProductionDecision(
@@ -507,7 +202,16 @@ function expectProductionDecision(
     const receipt = decision.remainingVariantPolicy;
     expect(receipt, `${label} upgrade 12`).toBeDefined();
     if (variant === 'pineapple' && mode === 'tournament') {
-      // Unsupported by the engine, for its documented reason.
+      // Unsupported by the engine, for its documented reason, which is the
+      // one exception the manifest declares for upgrade 12.
+      expect(upgrade('upgrade_12_specialty_variants').exceptions, label).toEqual([
+        {
+          variant: 'pineapple',
+          mode: 'tournament',
+          surface: 'RemainingVariantLivePolicy',
+          reason: 'pineapple_tournament_unapproved',
+        },
+      ]);
       expect(receipt?.reason, label).toBe('pineapple_tournament_unapproved');
       expect(receipt?.fired, label).toBe(false);
       expect(counted.phase12_fired, label).toBeUndefined();
@@ -534,10 +238,11 @@ describe('the matrix is the declared one', () => {
     expect(STYLES).toHaveLength(6);
   });
 
-  it('covers every variant and mode the manifest declares for the core and upgrades 01 and 06', () => {
+  it('covers every variant and mode the manifest declares for the core and upgrades 01, 02 and 06', () => {
     for (const id of [
       'core_action_freedom_and_turn_reliability',
       'upgrade_01_range_posteriors',
+      'upgrade_02_card_removal_blockers',
       'upgrade_06_public_timing_pacing',
     ]) {
       expect([...upgrade(id).variants].sort(), id).toEqual([...VARIANTS].sort());
@@ -545,22 +250,38 @@ describe('the matrix is the declared one', () => {
     }
   });
 
-  it('upgrade 02 is declared for seven variants: the manifest leaves FLH and FLO8 out, so the counter is not owed there', () => {
+  it('upgrade 02 is declared for all nine variants: FLH and FLO8 included, so the counter is owed there', () => {
+    // Until 2026-11-14 the manifest left FLH and FLO8 out while the scorer ran
+    // for them on every postflop decision.
     const declared = upgrade('upgrade_02_card_removal_blockers');
-    expect([...declared.variants].sort()).toEqual(
-      VARIANTS.filter((v) => v !== 'flh' && v !== 'flo8').sort()
-    );
+    expect([...declared.variants].sort()).toEqual([...VARIANTS].sort());
     expect([...declared.modes].sort()).toEqual([...MODES].sort());
+    expect(declared.exceptions).toBeUndefined();
     for (const mode of MODES) {
-      expect(applies('upgrade_02_card_removal_blockers', 'flh', mode)).toBe(false);
-      expect(applies('upgrade_02_card_removal_blockers', 'flo8', mode)).toBe(false);
+      expect(applies('upgrade_02_card_removal_blockers', 'flh', mode)).toBe(true);
+      expect(applies('upgrade_02_card_removal_blockers', 'flo8', mode)).toBe(true);
     }
   });
 
-  it('upgrade 12 is declared for PLO8, FLO8, Short Deck and Pineapple in both modes', () => {
+  it('upgrade 12 is declared for PLO8, FLO8, FLH, Short Deck and Pineapple in both modes, with the Pineapple tournament pack refusal as its one exception', () => {
     const declared = upgrade('upgrade_12_specialty_variants');
-    expect([...declared.variants].sort()).toEqual(['flo8', 'pineapple', 'plo8', 'short_deck']);
+    expect([...declared.variants].sort()).toEqual([
+      'flh',
+      'flo8',
+      'pineapple',
+      'plo8',
+      'short_deck',
+    ]);
     expect([...declared.modes].sort()).toEqual([...MODES].sort());
+    expect(declared.exceptions).toEqual([
+      {
+        variant: 'pineapple',
+        mode: 'tournament',
+        surface: 'RemainingVariantLivePolicy',
+        reason: 'pineapple_tournament_unapproved',
+      },
+    ]);
+    expect(declared.runtimeSurface.split(',')).toContain('RemainingVariantLivePolicy');
   });
 
   it('the single-mode upgrades are the ones the mode fences below rely on', () => {
