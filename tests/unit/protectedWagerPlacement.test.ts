@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   assignProtectedWagers,
+  capAllInSlot,
   firstWagerOnFelt,
   insideClassicGreen,
   wagerBoxesOverlap,
@@ -18,6 +19,25 @@ describe('shared measured wager rail assignment', () => {
     expect(next.left + next.width).toBeLessThan(300);
     expect(wagerBoxesOverlap(next, board)).toBe(false);
     expect(firstWagerOnFelt(next, canvas, felt, 13.2, true, board)).toBe(next);
+  });
+  it('fits the 375px top all-in marker inside gold nearest its displayed owner', () => {
+    const source = new DOMRect(189.55, 301.09, 28, 28);
+    const canvas = new DOMRect(36, 226, 528, 930.34);
+    const felt = new DOMRect(106.22, 308.8, 386.48, 747.06);
+    const owner = { x: 179, y: 135 };
+    const rivals = [
+      { x: 58, y: 384 },
+      { x: 422, y: 147 },
+    ];
+    const blockers = [new DOMRect(262, 466, 76, 19)];
+    const next = capAllInSlot(source, canvas, felt, owner, rivals, blockers, 1, true)!;
+    const x = next.left + next.width / 2,
+      y = next.top + next.height / 2;
+    expect(insideClassicGreen(next, canvas, 8)).toBe(true);
+    expect(Math.hypot(x - owner.x, y - owner.y) + 2).toBeLessThan(
+      Math.min(...rivals.map((r) => Math.hypot(x - r.x, y - r.y)))
+    );
+    expect(capAllInSlot(next, canvas, felt, owner, rivals, blockers, 1, true)).toBe(next);
   });
   it('preserves the sole slot of a constrained player instead of taking it greedily', () => {
     const first = box(0),

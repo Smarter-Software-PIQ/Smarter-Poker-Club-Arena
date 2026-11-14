@@ -5293,6 +5293,14 @@
   }
 }
 
+/* The top pair's nearest-player lanes meet at the curved end of the felt.
+   Keep the two-line ALL IN disc within that lane at the phone reference size. */
+@media (min-width: 481px) and (max-width: 640px) and (orientation: portrait) {
+  .table-page[data-seats='9'] .seat-wrapper--cap .seat__allin-puck {
+    --allin-puck-size: min(var(--dealer-btn-size, 28px), 28px);
+  }
+}
+
 /* A nine-seat top pod is centred on its fixed rail coordinate. A showdown
    description sits below the plate without adding to that centred height. */
 @media (min-width: 481px) and (max-width: 640px) and (orientation: portrait) {

@@ -157,6 +157,38 @@ export async function checkFixedMobileArtwork(
     await waitForMobileAvatarGrowth(page);
     await expect(page.locator('.seat > .seat__action')).toHaveCount(0);
     const withoutCaptions = await read();
+    if (settings.seats === '9' && settings.spectator === 'true' && shortPhone) {
+      // Keep the wagers mounted while the main-pot artwork arrives later.
+      const points = () =>
+        page.evaluate(readMobileTableLayout, {}).then((r) => r.restingCollectionEndpoints);
+      const directions = () =>
+        page
+          .locator('.seat__bet-chips:has(.cp-stacks)')
+          .evaluateAll((elements) =>
+            elements.map((e) => getComputedStyle(e).getPropertyValue('--collect-dy'))
+          );
+      const original = await directions();
+      expect(original.length).toBeGreaterThan(0);
+      await page.evaluate(() => {
+        const pile = document.querySelector('.pot-display__pile--pot')!;
+        const parent = pile.parentElement!;
+        pile.remove();
+        document.addEventListener('fixture-restore-pile', () => parent.appendChild(pile), {
+          once: true,
+        });
+      });
+      await expect.poll(directions).not.toEqual(original);
+      await page.evaluate(() => document.dispatchEvent(new Event('fixture-restore-pile')));
+      await expect
+        .poll(async () => {
+          const endpoints = await points();
+          return (
+            endpoints.length > 0 &&
+            endpoints.every((p) => p.target === 'pot-pile' && p.distance <= 2)
+          );
+        })
+        .toBe(true);
+    }
     if (settings.seats === '9' && settings.spectator === 'true' && !shortPhone) {
       const plate = page.locator('.seat[data-seat-num="6"] > .seat__info');
       const resting = (await plate.boundingBox())!;
