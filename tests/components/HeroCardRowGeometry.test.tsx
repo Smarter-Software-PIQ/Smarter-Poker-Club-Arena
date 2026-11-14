@@ -418,9 +418,9 @@ describe('hero hole-card row geometry', () => {
    * taken that row to 195px against 151px of room on a 375px phone.
    */
   it('sizes the tabled row from its own base, not the private two-card one', () => {
-    const revealed = RULES.filter((r) => r.selector.includes('.seat__cards--revealed')).filter(
-      (r) => /--sp-hero-card-w:/.test(r.body)
-    );
+    const revealed = RULES.filter((r) =>
+      r.selector.replaceAll(':not(.seat__cards--revealed)', '').includes('.seat__cards--revealed')
+    ).filter((r) => /--sp-hero-card-w:/.test(r.body));
 
     expect(revealed.length, 'the revealed row must set its own card width').toBeGreaterThan(0);
     for (const rule of revealed) {

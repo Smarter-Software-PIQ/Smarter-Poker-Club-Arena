@@ -5,7 +5,13 @@
   justify-content: center;
   column-gap: 0.4em;
   line-height: 1.1;
-  pointer-events: none;
+  pointer-events: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: help;
   white-space: nowrap;
 }
 
@@ -34,4 +40,34 @@
 }
 .hit-run-pill:has(.hit-run-pill__reason) {
   flex-wrap: wrap;
+}
+
+.hit-run-pill__help {
+  position: fixed;
+  inset: max(env(safe-area-inset-top), 12px) 0 auto;
+  margin: 0 auto;
+  width: min(340px, 90vw);
+  max-height: 45dvh;
+  overflow-y: auto;
+  pointer-events: auto;
+  padding: 12px 16px;
+  border: 1px solid #45adff;
+  border-radius: 8px;
+  background: #101820;
+  color: #f4f7fb;
+  font: 500 0.875rem/1.4 var(--font-body, sans-serif);
+  text-align: left;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.hit-run-pill__help p {
+  margin: 0.45em 0;
+}
+.hit-run-pill__help button {
+  background: transparent;
+  color: #8fd4ff;
+  border: 0;
+  padding: 8px 4px;
+  cursor: pointer;
 }

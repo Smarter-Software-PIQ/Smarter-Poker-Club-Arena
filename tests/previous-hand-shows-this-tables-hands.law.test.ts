@@ -106,7 +106,7 @@ describe('the correct hands', () => {
     expect(page).not.toContain('if (!cancelled && hands && hands.length > 0) {');
     // and the table id is a dependency of the fetch
     expect(page).toMatch(
-      /\}, \[\s*showHandHistory,\s*showHandDetail,\s*userId,\s*tableId,\s*lightningRoom\?\.poolSessionId,\s*lastHandId,\s*tableHistoryGameMode,?\s*\]\);/
+      /\}, \[\s*showHandHistory,\s*showHandDetail,\s*lightningReviewOpen,\s*userId,\s*tableId,\s*lightningRoom\?\.poolSessionId,\s*lastHandId,\s*tableHistoryGameMode,?\s*\]\);/
     );
   });
 
