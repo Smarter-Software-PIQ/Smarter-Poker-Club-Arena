@@ -77,11 +77,15 @@ describe('HALF 2 — a table created from those cards lands in the LIMIT tab', (
     expect('flo8'.includes('limit')).toBe(false);
   });
 
-  it('gives both a human label rather than echoing the raw column', () => {
+  it('gives every limit game its owner name rather than echoing the raw column', () => {
+    // Owner ruling, November 14, 2026: "FIXED LIMIT 1/2", "OMAHA 4 CARD FIXED
+    // LIMIT" ... "OMAHA 8o FIXED LIMIT"; never FLH or FLO8.
     expect(variantDisplay('flh').long).toBe("Fixed Limit Hold'em");
-    expect(variantDisplay('flo8').long).toBe('Fixed Limit Omaha Hi-Lo');
-    expect(variantDisplay('flh').short).toBe('FLH');
-    expect(variantDisplay('flo8').short).toBe('FLO8');
+    expect(variantDisplay('flh').short).toBe('Fixed Limit');
+    expect(variantDisplay('flo4').short).toBe('Omaha 4 Card Fixed Limit');
+    expect(variantDisplay('flo5').short).toBe('Omaha 5 Card Fixed Limit');
+    expect(variantDisplay('flo6').short).toBe('Omaha 6 Card Fixed Limit');
+    expect(variantDisplay('flo8').short).toBe('Omaha 8o Fixed Limit');
   });
 
   it('renders a lobby row whose stakes match the table it links to', () => {
@@ -97,9 +101,9 @@ describe('HALF 2 — a table created from those cards lands in the LIMIT tab', (
         max_players: 6,
         status: 'running',
       } as LobbyTableRow);
-    expect(row('flh').stakesLabel).toBe('2/4');
+    expect(row('flh').stakesLabel).toBe('1/2');
     expect(row('flh').stakesLabel).toBe(stakesLabel(1, 2, 'flh'));
-    expect(row('flo8').gameLabel).toBe('FLO8');
+    expect(row('flo8').gameLabel).toBe('Omaha 8o Fixed Limit');
   });
 
   it('passes the LIMIT tab filter with no saved preference', () => {
@@ -125,11 +129,18 @@ describe('HALF 2 — a table created from those cards lands in the LIMIT tab', (
 });
 
 describe('HALF 2b — the LIMIT tab can be sub-divided now that the keys exist', () => {
-  it('offers exactly the two limit variants as chips', () => {
+  it('offers exactly the limit variants as chips', () => {
     // The row was withheld originally because "inventing sub-variant chips
-    // risks hiding real tables behind keys variantKey has not learnt". Both
-    // keys are learnt now, which is what makes the chips safe.
-    expect((FILTER_SPECS.LIMIT.games ?? []).map((g) => g.key)).toEqual(['flh', 'flo8']);
+    // risks hiding real tables behind keys variantKey has not learnt". Every
+    // key is learnt, which is what makes the chips safe. Owner November 14,
+    // 2026: Fixed Limit (Hold'em) and Omaha 4, 5, 6 card and 8o.
+    expect((FILTER_SPECS.LIMIT.games ?? []).map((g) => g.key)).toEqual([
+      'flh',
+      'flo4',
+      'flo5',
+      'flo6',
+      'flo8',
+    ]);
   });
 
   it('shows a table when its own chip is ticked', () => {

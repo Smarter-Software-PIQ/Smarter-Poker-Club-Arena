@@ -24,6 +24,7 @@
  * This module is the whole decision, as a pure function, so every branch above
  * is pinned by a test rather than by a reviewer's memory.
  */
+import { fixedLimitGameName } from './fixedLimitNames';
 import { stakesLabel } from './bettingStructure';
 import {
   BLINDS_PRESETS,
@@ -159,9 +160,10 @@ export function restoreTemplateConfig<T extends RestorableTableConfig>(
 }
 
 /**
- * The auto-generated table name. Limit games are named by BET size, not blind
- * size, and stakesLabel is the one place that decides — so the name, the
- * stakes column and the lobby row cannot disagree.
+ * The auto-generated table name. stakesLabel is the one place that decides how
+ * the stakes read, so the name, the stakes column and the lobby row cannot
+ * disagree. Owner ruling, November 14, 2026: a limit game is named "Fixed Limit
+ * 1/2" or "Omaha 8o Fixed Limit 1/2" (src/lib/fixedLimitNames.ts), by its blinds.
  */
 export function defaultTableName(
   gameLabel: string,
@@ -169,5 +171,6 @@ export function defaultTableName(
   bigBlind: number,
   gameType: string | null | undefined
 ): string {
-  return `${gameLabel} ${stakesLabel(smallBlind, bigBlind, gameType)}`;
+  const name = fixedLimitGameName(gameType) ?? gameLabel;
+  return `${name} ${stakesLabel(smallBlind, bigBlind, gameType)}`;
 }

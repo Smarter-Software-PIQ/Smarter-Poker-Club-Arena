@@ -948,6 +948,15 @@
   background-image: url('/game-card-icons/lightning-chip-v1.png');
   filter: none;
 }
+/* Owner ruling, November 14, 2026: "ALL LIMIT GAMES SHOULD HAVE THERE 'OWN
+   ICON' THEY SHOULDN'T BE USING THE SPADE ICON". Every limit game is Classic,
+   so its chip takes Classic's silver treatment; the emblem is its own. */
+.has-premium-chassis
+  tr[data-game-heading][data-kind='cash'][data-limit-format='true']
+  .lt-tournament-icon {
+  background-image: url('/game-card-icons/fixed-limit-chip-v1.png');
+  filter: grayscale(1);
+}
 
 /* The separate start-time toggle occupies the first glass bay. Give Details
    the row hit area, so its own centre is not hidden beneath that toggle. */

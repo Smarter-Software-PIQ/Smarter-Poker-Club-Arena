@@ -21,17 +21,21 @@
  * Any change here must be made in the server module too.
  *
  * ── STAKES CONVENTION ────────────────────────────────────────────────────────
- * Fixed-limit games are posted by BET size, not blind size. A table storing
- * small_blind 1 / big_blind 2 is a "2/4" limit game: small bet 2 (preflop and
- * flop), big bet 4 (turn and river). `stakesLabel()` is the single place that
- * decides how a table's stakes read, so lobby rows, table headers and the
- * create-table flow cannot disagree about it.
+ * Every game, fixed limit included, is posted by its BLINDS (owner ruling,
+ * November 14, 2026: "GAME LIMITS SHOULD BE .25/.50 .50/1.00 1/2 2/5 AND 5/10"
+ * and "DISPLAYED AS 'FIXED LIMIT 1/2'"). A limit table storing small_blind 1 /
+ * big_blind 2 reads "1/2"; its small bet is 2 (preflop and flop) and its big
+ * bet 4 (turn and river), as fixedLimitBetSize says. Until that ruling a limit
+ * game read by its bet sizes ("FLH 2/4" for blinds 1/2), so the 5/10-blind game
+ * read 10/20 and looked above the 5/10 ceiling it actually sits on.
+ * `stakesLabel()` is still the single place that decides how a table's stakes
+ * read, so lobby rows, table headers and the create-table flow cannot disagree.
  */
 
 export type BettingStructure = 'no_limit' | 'pot_limit' | 'fixed_limit';
 
 const POT_LIMIT_VARIANTS = new Set(['plo4', 'plo5', 'plo6', 'plo8']);
-const FIXED_LIMIT_VARIANTS = new Set(['flh', 'flo8']);
+const FIXED_LIMIT_VARIANTS = new Set(['flh', 'flo4', 'flo5', 'flo6', 'flo8']);
 
 export function bettingStructureFor(variant?: string | null): BettingStructure {
   const v = (variant || '').toLowerCase();
@@ -54,24 +58,24 @@ export function fixedLimitBetSize(bigBlind: number, street?: string | null): num
   return bigBlind;
 }
 
-/** How a table's stakes read to a player: bet sizes for limit, blinds otherwise. */
 /**
  * The number a stakes sort orders a cash game by: the LARGER figure its
- * stakesLabel prints (2026-10-24). A no-limit or pot-limit "1/2" is blinds
- * 1/2; a fixed-limit "1/2" is blinds 0.50/1 posted as 1/2 bets. Sorting limit
- * rows by their raw big blind put that "1/2" half a level below the label it
- * prints, so on the ALL tab's High To Low a "1/2" FLH appeared again after the
- * whole 0.50/1 group - the split Dan ruled out on 2026-10-23 ("DISPLAY ALL THE
- * 1/2 GAMES FIRST ... AND THEN DO THE .50/1.00 GAME SAME WAY"). Within one
- * betting structure the order is unchanged (a constant factor).
+ * stakesLabel prints, which is the big blind for every game since the owner
+ * ruling of November 14, 2026 posted fixed limit by its blinds too. Dan
+ * 2026-10-23 ("DISPLAY ALL THE 1/2 GAMES FIRST ... AND THEN DO THE .50/1.00
+ * GAME SAME WAY") still holds: a "1/2" limit game sorts with every other "1/2".
+ * `variant` is kept so callers need not change.
  */
-export function stakesSortValue(bigBlind: number, variant?: string | null): number {
-  const bb = Number(bigBlind) || 0;
-  return isFixedLimitVariant(variant) ? bb * 2 : bb;
+export function stakesSortValue(bigBlind: number, _variant?: string | null): number {
+  return Number(bigBlind) || 0;
 }
 
-export function stakesLabel(smallBlind: number, bigBlind: number, variant?: string | null): string {
+/** How a table's stakes read to a player: its blinds, for every game. */
+export function stakesLabel(
+  smallBlind: number,
+  bigBlind: number,
+  _variant?: string | null
+): string {
   const fmt = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(2));
-  if (isFixedLimitVariant(variant)) return `${fmt(bigBlind)}/${fmt(bigBlind * 2)}`;
   return `${fmt(smallBlind)}/${fmt(bigBlind)}`;
 }
