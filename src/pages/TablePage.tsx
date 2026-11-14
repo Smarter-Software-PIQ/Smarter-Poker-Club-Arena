@@ -17678,10 +17678,7 @@ function LiveTablePage({
                 const tid = tableStateRef.current.tournamentId || table.tournament_id;
                 if (claimMysteryLiveAnnouncement(mysteryPrizesSetAnnouncedRef.current, tid)) {
                   toast.info(MYSTERY_BOUNTY_PRIZES_SET_TEXT, 6000, () => {
-                    setTournamentLobbyTabRequest((r) => ({
-                      tab: 'bounties',
-                      seq: (r?.seq ?? 0) + 1,
-                    }));
+                    setTournamentLobbyTabRequest((r) => ({ tab: 'bounties', seq: (r?.seq ?? 0) + 1 }));
                     setShowTournamentLobby(true);
                   });
                 }

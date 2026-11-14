@@ -192,12 +192,6 @@ export function useBigWinRestarted(
 }
 
 /**
- * THE COUNTDOWN RESUMES (owner 2026-11-13): a paused countdown picked up
- * again because the player is back in profit. Said with the resumed number
- * (7, not 10). A pause that resumes with every hand still to play is the
- * ordinary start announcement's to make.
- */
-/**
  * THE COUNTDOWN PAUSES (owner 2026-11-13): the player fell out of profit with
  * hands of the countdown left. Said once with the paused number, so the count
  * changing to "Countdown Paused" is never a surprise. A pause already standing
@@ -230,6 +224,12 @@ export function useCountdownPaused(
   }, [count.paused, handNumber]);
 }
 
+/**
+ * THE COUNTDOWN RESUMES (owner 2026-11-13): a paused countdown picked up
+ * again because the player is back in profit. Said with the resumed number
+ * (7, not 10). A pause that resumes with every hand still to play is the
+ * ordinary start announcement's to make.
+ */
 export function useCountdownResumed(count: HandCount, onResume: (hands: number) => void): void {
   const prev = useRef<HandCount>(NONE);
   const notify = useRef(onResume);
