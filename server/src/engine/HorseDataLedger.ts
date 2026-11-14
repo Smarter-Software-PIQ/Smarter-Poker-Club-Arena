@@ -3393,13 +3393,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'decide_nlh',
     0.01
   ),
+  // V27 BB defend answers ONE spot: the big blind facing a small blind's
+  // open-jam heads-up at charted depth. That spot lives almost entirely in
+  // Spins and heads-up Sit & Gos, so its rate per hold'em decision follows
+  // the tournament mix, not the wiring. When Spin starts were held on
+  // 2026-11-10 (6,220 -> 38 a day) the old decide_nlh floor raised
+  // data_unread for four days while the chart was still firing on every
+  // Spin it saw. Measured per Spin postflop gate (phase8_format_spin) the
+  // rate held 0.05-0.62 on every live day 2026-10-25..2026-11-14 (0.053
+  // lowest, 2026-11-14 partial); the floor sits well under that, so a real
+  // wiring break still trips it while a held format does not (a day with
+  // under 1000 Spin gates is not judged).
   receipt(
     'v27_gto_bb_defend',
     'HorsePreflop (V27)',
     'solver BB defend chart hit',
     'V27',
-    'decide_nlh',
-    0.005
+    'phase8_format_spin',
+    0.02
   ),
   receipt('v29_*', 'GtoPostflop (V29)', 'flop solver cells and misses', 'V29', 'decide_nlh', 0.002),
   receipt(
