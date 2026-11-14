@@ -65,6 +65,10 @@ on:
       - supabase/migrations/20261113225904_a_lightning_leave_that_owes_hands_returns_the_seat_to_the_po.sql
       - scripts/qualify-lightning-owed-leave.mjs
       - scripts/qualification/lightning-owed-leave/**
+      - supabase/migrations/20261114160836_an_owed_leave_alone_at_its_table_plays_on_in_its_game.sql
+      - scripts/qualify-owed-leave-plays-on.mjs
+      - scripts/qualification/owed-leave-plays-on/**
+      - tests/an-owed-leave-alone-at-its-table-plays-on-in-its-game.law.test.ts
       - scripts/qualification/lightning-blind-off/**
       - scripts/qualification/stable-admin-floor/fixture.mjs
       - tests/a-lightning-blind-off-always-completes.law.test.ts
@@ -107,6 +111,13 @@ jobs:
           PG_BIN: /usr/lib/postgresql/17/bin
           TMPDIR: ${{ runner.temp }}
         run: node scripts/qualify-lightning-owed-leave.mjs
+      # 2026-11-14 (migration 20261114160836): a held leave alone at its table
+      # whose game deals elsewhere must keep its obligation, bounded and recorded.
+      - name: An owed leave alone at its table plays on in its game
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+          TMPDIR: ${{ runner.temp }}
+        run: node scripts/qualify-owed-leave-plays-on.mjs
       # Runs as the runner user (non-root), exactly as the ci.yml step would.
       - name: Lightning hand counts every player dealt in, not every payer
         env:

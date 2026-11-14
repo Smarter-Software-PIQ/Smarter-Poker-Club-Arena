@@ -1,0 +1,3 @@
+# tests/an-owed-leave-alone-at-its-table-plays-on-in-its-game.law.test.ts
+
+Dan, 2026-11-06 (Hit And Run): hands owed in profit are owed to the game, not the table. A held leave alone at its table keeps its obligation while another live table of the same game has two players in (migration 20261114160836, `fn_owed_leave_plays_on_in_game`). The keep is engine-only, bounded at ten minutes, never applied to a forced exit, moves no chips and records every answer in `ca_owed_leave_decisions`. The engine asks before the per-table waiver, and `scripts/qualify-owed-leave-plays-on.mjs` proves it before and after in CI. People and horses alike.
