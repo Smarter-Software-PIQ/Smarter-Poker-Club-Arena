@@ -2772,7 +2772,8 @@ export interface HorseDecideOpts {
   limpReraiseIsoRead?: boolean;
   /** COMMIT UNDER THE POT (2026-11-07, commitUnderPotCall): heads-up NLH
    *  flop or turn, facing a bet with a remaining stack smaller than the pot,
-   *  the horse calls instead of folding. Default OFF: only explicit true. */
+   *  the horse calls instead of folding when the pot lays three to one or
+   *  better (HU-NLH-016). Default OFF: only explicit true. */
   commitUnderPot?: boolean;
   /** V65 (2026-10-31): Hold'em one-pair TURN calls of a wager hero did not
    *  initiate are shaded by the price, zero at a quarter-pot wager and
@@ -4968,6 +4969,10 @@ function riverBluffCheckRaise(
   return { ...proposed, ...legal };
 }
 
+/** HU-NLH-016: the most equity a commitUnderPot call may need. A quarter:
+ *  the pot lays three to one or better, a bet of half the pot or less. */
+export const COMMIT_UNDER_POT_MAX_PRICE = 0.25;
+
 /**
  * COMMIT UNDER THE POT (2026-11-07, flag commitUnderPot, default off): in a
  * heads-up no-limit hold'em pot on the flop or turn, a horse facing a bet
@@ -4979,6 +4984,17 @@ function riverBluffCheckRaise(
  * committed branch (stack-to-pot under 1.2) already prices such calls at the
  * pot odds; this rule removes the fold outright. Runs with the owner rules,
  * after every other layer.
+ *
+ * HU-NLH-016 (2026-11-13): the pot being compared already holds the bet, so
+ * "stack smaller than the pot" was true for every covering shove whatever
+ * its size, and a fold became a 38bb call into a 4bb pot with any hand. The
+ * fold is now removed only when the call is priced in: what the horse puts
+ * in (the call, or its stack when the call is all in for less) against the
+ * pot that call wins (the bet included, less the part of the bet a short
+ * stack cannot match) needs no more than COMMIT_UNDER_POT_MAX_PRICE. The
+ * brain's own equity for the hand does not reach this point (a decision
+ * carries no equity, and the rule also runs outside the brain), so the
+ * bound is a price alone and needs no read of the hand.
  */
 export function commitUnderPotCall(
   decision: HorseDecision,
@@ -5000,6 +5016,11 @@ export function commitUnderPotCall(
     : Math.max(0, (gs.currentBet ?? 0) - (player.bet ?? 0));
   const pot = Number.isFinite(gs.pot) ? Math.max(0, gs.pot) : 0;
   if (toCall <= 0.005 || stack <= 0.005 || !(stack < pot)) return decision;
+  // HU-NLH-016: the price. A call for less than the bet wins only the part
+  // of the pot it matches; the rest of the bet goes back to the bettor.
+  const committed = Math.min(toCall, stack);
+  const wins = Math.max(0, pot - (toCall - committed));
+  if (!(committed <= COMMIT_UNDER_POT_MAX_PRICE * (wins + committed) + 1e-9)) return decision;
   const legal = Array.isArray(gs.legalActions) ? new Set<string>(gs.legalActions) : null;
   const cents = (v: number) => Math.round(v * 100) / 100;
   if (toCall >= stack - 0.005) {
