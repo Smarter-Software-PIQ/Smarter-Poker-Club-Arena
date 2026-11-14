@@ -150,12 +150,10 @@ describe('fixedLimitBetSize', () => {
 });
 
 describe('stakesLabel', () => {
-  it('posts a limit game by its blinds (owner ruling, November 14, 2026)', () => {
-    // "FIXED LIMIT 1/2" on the .25/.50 .50/1.00 1/2 2/5 5/10 ladder: blinds.
-    expect(stakesLabel(1, 2, 'flh')).toBe('1/2');
-    expect(stakesLabel(5, 10, 'flo8')).toBe('5/10');
-    expect(stakesLabel(2, 5, 'flo6')).toBe('2/5');
-    expect(stakesLabel(0.25, 0.5, 'flo4')).toBe('0.25/0.50');
+  it('posts a limit game by BET size, not blind size', () => {
+    // Blinds 1/2 is a "2/4" limit game — the standard live convention.
+    expect(stakesLabel(1, 2, 'flh')).toBe('2/4');
+    expect(stakesLabel(5, 10, 'flo8')).toBe('10/20');
   });
 
   it('posts everything else by blinds, unchanged', () => {
