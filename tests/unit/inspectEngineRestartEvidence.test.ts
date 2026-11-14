@@ -27,14 +27,27 @@ describe('engine restart evidence inspector', () => {
     expect(result.status, result.stderr).toBe(0);
     const out = result.stdout.trim();
     expect(out).toContain('FATAL (GameServer.Uncaught_exception)');
-    for (const leaked of ['b6d94533', '12345678-abcd', '2500', 'secret', 'example.co', 'a@b.co', 'deadbeef']) {
+    for (const leaked of [
+      'b6d94533',
+      '12345678-abcd',
+      '2500',
+      'secret',
+      'example.co',
+      'a@b.co',
+      'deadbeef',
+    ]) {
       expect(out).not.toContain(leaked);
     }
   });
 
   it('refuses malformed, future, oversized or stale windows before any host read', () => {
-    const now = 'datetime=__import__("datetime"); now=datetime.datetime(2026,11,14,15,0,0,tzinfo=datetime.timezone.utc)';
-    const ok = py(`${now}; s,e=m["window"](sys.argv[2],sys.argv[3],now); print(m["iso"](s), m["iso"](e))`, '2026-11-14T06:10:00Z', '30');
+    const now =
+      'datetime=__import__("datetime"); now=datetime.datetime(2026,11,14,15,0,0,tzinfo=datetime.timezone.utc)';
+    const ok = py(
+      `${now}; s,e=m["window"](sys.argv[2],sys.argv[3],now); print(m["iso"](s), m["iso"](e))`,
+      '2026-11-14T06:10:00Z',
+      '30'
+    );
     expect(ok.status, ok.stderr).toBe(0);
     expect(ok.stdout.trim()).toBe('2026-11-14T06:10:00Z 2026-11-14T06:40:00Z');
     for (const [start, minutes] of [
@@ -47,6 +60,14 @@ describe('engine restart evidence inspector', () => {
     ]) {
       const bad = py(`${now}; m["window"](sys.argv[2],sys.argv[3],now)`, start, minutes);
       expect(bad.status, `${start} ${minutes}`).not.toBe(0);
+    }
+  });
+
+  it('admits only one 8-character hex focus prefix, or none', () => {
+    expect(py('print(m["parse_focus"](sys.argv[2]))', '-').stdout.trim()).toBe('None');
+    expect(py('print(m["parse_focus"](sys.argv[2]))', 'b6d94533').stdout.trim()).toBe('b6d94533');
+    for (const bad of ['B6D94533', 'b6d9453', 'b6d945333', 'b6d9453z', "'; ls", '']) {
+      expect(py('m["parse_focus"](sys.argv[2])', bad).status, bad).not.toBe(0);
     }
   });
 
@@ -80,5 +101,6 @@ describe('engine restart evidence inspector', () => {
     expect(workflowText).toContain('-o StrictHostKeyChecking=yes');
     expect(workflowText).toContain('-o GlobalKnownHostsFile=/dev/null');
     expect(workflowText).toContain('< scripts/ci/inspect-engine-restart-evidence.py');
+    expect(workflowText).toContain('^(-|[0-9a-f]{8})$');
   });
 });

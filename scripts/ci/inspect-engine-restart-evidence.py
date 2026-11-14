@@ -14,6 +14,11 @@ URL and e-mail is replaced before anything leaves this process, so no raw log
 line, user id, chip amount or secret is exported. It never writes, restarts,
 signals or changes anything on the host. The serving container's identity is
 read before and after, and the run refuses if it is not the expected release.
+
+An optional focus prefix (one 8-character tournament or table id prefix) also
+keeps the masked templates of every engine line that names it, with the
+prefix itself masked too, so one event's refusals inside the window can be
+read without exporting any line.
 """
 import datetime
 import json
@@ -201,8 +206,8 @@ def ordered(bucket):
             for template, entry in sorted(bucket.items(), key=lambda item: (item[1]['first'] or '', -item[1]['count']))]
 
 
-def read_container_log(name, start, end, keep, boundary=None):
-    templates, per_minute, tail = {}, {}, []
+def read_container_log(name, start, end, keep, boundary=None, focus=None):
+    templates, per_minute, tail, focused = {}, {}, [], {}
     scanned, truncated, first, last = 0, False, None, None
     argv = ['docker', 'logs', '--since', iso(start), '--until', iso(end), '--timestamps', name]
     for line in stream(argv):
@@ -226,8 +231,11 @@ def read_container_log(name, start, end, keep, boundary=None):
                 tail.pop(0)
         if keep(payload):
             add_template(templates, mask(payload), when)
+        if focus and focus in payload:
+            add_template(focused, mask(payload.replace(focus, '<F>')), when)
     return {'linesScanned': scanned, 'readTruncated': truncated, 'firstLineAt': first, 'lastLineAt': last,
             'linesPerMinute': per_minute, 'templates': ordered(templates),
+            'focusTemplates': ordered(focused) if focus else None,
             'tailBeforeBoundary': tail if boundary else None, 'boundary': boundary}
 
 
@@ -243,9 +251,20 @@ def read_journal(argv, keep):
     return {'linesScanned': scanned, 'templates': ordered(templates)}
 
 
-def main(expected, start_text, minutes_text):
+def parse_focus(text):
+    # '-' means none; otherwise one 8-character lowercase hex prefix (a
+    # tournament or table id prefix, as the engine logs them).
+    if text == '-':
+        return None
+    if not re.fullmatch(r'[0-9a-f]{8}', text or ''):
+        raise RuntimeError('focus_refused')
+    return text
+
+
+def main(expected, start_text, minutes_text, focus_text='-'):
     if not re.fullmatch(r'[0-9a-f]{40}', expected or ''):
         raise RuntimeError('expected_sha_refused')
+    focus = parse_focus(focus_text)
     start, end = window(start_text, minutes_text, datetime.datetime.now(datetime.timezone.utc))
     before = identity(expected)
     engine = container_state(CONTAINER)
@@ -261,6 +280,7 @@ def main(expected, start_text, minutes_text):
         'observedAt': datetime.datetime.now(datetime.timezone.utc).isoformat(),
         'engineSha': expected,
         'window': {'start': iso(start), 'end': iso(end)},
+        'focusPrefixGiven': focus is not None,
         'identityBefore': before,
         'hostBootedAt': run(['uptime', '-s']).stdout.strip()[:32],
         'engineContainer': engine,
@@ -268,7 +288,7 @@ def main(expected, start_text, minutes_text):
         'dockerEvents': docker_events(start, end),
         'autohealLog': read_container_log(AUTOHEAL, start, end, lambda payload: True),
         'engineLog': read_container_log(CONTAINER, start, end, lambda payload: bool(LIFECYCLE.search(payload)),
-                                        boundary),
+                                        boundary, focus),
         'kernelLog': read_journal(['journalctl', '-k', '--since', start.strftime('%Y-%m-%d %H:%M:%S UTC'),
                                    '--until', end.strftime('%Y-%m-%d %H:%M:%S UTC'), '--no-pager',
                                    '-o', 'short-iso'], lambda line: bool(KERNEL.search(line))),
@@ -285,9 +305,9 @@ def main(expected, start_text, minutes_text):
 
 def cli(argv):
     try:
-        if len(argv) != 4:
+        if len(argv) not in (4, 5):
             raise RuntimeError('argument_refused')
-        main(argv[1], argv[2], argv[3])
+        main(*argv[1:])
         return 0
     except Exception:
         # Never emit subprocess output, exception messages, URLs or log bodies.

@@ -15,6 +15,11 @@ on:
         required: true
         type: string
         default: '30'
+      focus_prefix:
+        description: Optional 8-character tournament or table id prefix to template, or - for none
+        required: true
+        type: string
+        default: '-'
 permissions:
   contents: read
 jobs:
@@ -27,6 +32,7 @@ jobs:
       EXPECTED_ENGINE_SHA: ${{ inputs.expected_engine_sha }}
       WINDOW_START_UTC: ${{ inputs.window_start_utc }}
       WINDOW_MINUTES: ${{ inputs.window_minutes }}
+      FOCUS_PREFIX: ${{ inputs.focus_prefix }}
       HETZNER_HOST: ${{ secrets.HETZNER_HOST }}
     steps:
       - uses: actions/checkout@v4
@@ -42,6 +48,7 @@ jobs:
           [[ "$EXPECTED_ENGINE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo '::error::Expected SHA refused'; exit 1; }
           [[ "$WINDOW_START_UTC" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || { echo '::error::Window start refused'; exit 1; }
           [[ "$WINDOW_MINUTES" =~ ^[0-9]{1,2}$ ]] || { echo '::error::Window refused'; exit 1; }
+          [[ "$FOCUS_PREFIX" =~ ^(-|[0-9a-f]{8})$ ]] || { echo '::error::Focus prefix refused'; exit 1; }
           [[ "$HETZNER_HOST" =~ ^[A-Za-z0-9.-]+$ ]] || { echo '::error::Configured host refused'; exit 1; }
           [ -n "$SSH_KEY" ] && [ -n "$HOST_KEY" ] || { echo '::error::Configured SSH metadata unavailable'; exit 1; }
           SSH_DIR="$RUNNER_TEMP/engine-restart-ssh-$GITHUB_RUN_ID"
@@ -57,7 +64,7 @@ jobs:
             -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$SSH_DIR/known_hosts" \
             -o GlobalKnownHostsFile=/dev/null -o ConnectTimeout=20 \
             -o ServerAliveInterval=15 -o ServerAliveCountMax=2 \
-            "root@$HETZNER_HOST" "python3 - '$EXPECTED_ENGINE_SHA' '$WINDOW_START_UTC' '$WINDOW_MINUTES'" \
+            "root@$HETZNER_HOST" "python3 - '$EXPECTED_ENGINE_SHA' '$WINDOW_START_UTC' '$WINDOW_MINUTES' '$FOCUS_PREFIX'" \
             < scripts/ci/inspect-engine-restart-evidence.py > "$RUNNER_TEMP/engine-restart-evidence.json"
           cat "$RUNNER_TEMP/engine-restart-evidence.json"
       - uses: actions/upload-artifact@v4
