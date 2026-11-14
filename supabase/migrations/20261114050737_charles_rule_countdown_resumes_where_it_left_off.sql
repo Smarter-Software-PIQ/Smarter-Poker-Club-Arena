@@ -21,15 +21,17 @@
 -- away, and the next hand in profit started a fresh count.
 --
 -- THE FIX, in that one branch. Losing the profit now PAUSES the countdown:
--- hr_hands_required, hr_hands_played and hr_doubles are kept, and a NULL
--- hr_reference_stack marks the pause. Coming back into profit resumes it:
+-- hr_hands_required, hr_hands_played, hr_doubles and hr_reference_stack are
+-- all kept, and a NULL hr_started_at (read only by the leave-ordering
+-- exemption below) marks the pause. Coming back into profit resumes it:
 --   * the hand that returns the player to profit is not counted, exactly as
 --     the hand that first starts a countdown is not counted, so a player who
 --     fell out with 7 hands left comes back to 7 hands left;
 --   * hands played while out of profit never count;
---   * the reference stack for the next double is the stack at the return to
---     profit (the same rule a fresh countdown uses), and hands a double added
---     before the pause stay owed;
+--   * the doubling reference is the one held before the pause (owner
+--     2026-11-13: "KEEP THE DOUBLING BASELINE FROM BEFORE THE PAUSE"), so the
+--     next double is still twice that stack, and hands a double added before
+--     the pause stay owed;
 --   * hr_started_at is re-stamped at the return, so a voluntary leave asked
 --     for while out of profit is still an already accepted departure
 --     (fn_cash_leave_check's asked-before exemption), as it was before.
@@ -44,7 +46,7 @@
 --
 -- Sessions open when this installs: a countdown already cleared by the old
 -- branch reads hr_hands_required = 0 and starts normally at its next hand in
--- profit; a running countdown has a reference stack and carries on. Nothing
+-- profit; a running countdown has a start stamp and carries on. Nothing
 -- is back-filled and no money moves.
 --
 -- Function image only (no hot-table lock): installs from protected main.
@@ -152,16 +154,18 @@ BEGIN
             END IF;
           ELSIF v_stack <= v_s.baseline THEN
             -- PROFIT GONE: the countdown is PAUSED, never cleared (owner
-            -- 2026-11-13). The hands played and the hands added by doubles
-            -- are kept; a NULL reference stack marks the pause. Nothing is
-            -- owed while out of profit (fn_cash_hit_run_hands_remaining).
-            v_ref := NULL;
-          ELSIF v_ref IS NULL THEN
+            -- 2026-11-13). The whole Charles Rule state is kept: the hands
+            -- played, the hands added by doubles, the doubles and the
+            -- doubling reference stack. Only the start stamp is cleared, and
+            -- that NULL is what marks the pause. Nothing is owed while out
+            -- of profit (fn_cash_hit_run_hands_remaining).
+            v_started := NULL;
+          ELSIF v_started IS NULL THEN
             -- BACK IN PROFIT: the countdown picks up where it left off. The
             -- hand that got them back is not one of the hands (the same as
-            -- the hand that first starts a countdown); the reference stack
-            -- and the start stamp are taken from this return to profit.
-            v_ref := v_stack; v_started := v_now;
+            -- the hand that first starts a countdown) and judges no double;
+            -- only the start stamp is taken from this return to profit.
+            v_started := v_now;
           ELSE
             v_played := v_played + 1;
             -- THE CHARLES RULE, judged before the house's take: the rake and

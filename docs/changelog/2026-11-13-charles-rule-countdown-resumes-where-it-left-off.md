@@ -22,16 +22,18 @@ changes that one branch (function image only, md5-guarded against the image
 production held, whose body was confirmed byte-identical to
 `20261111174148`):
 
-- Losing the profit pauses the countdown. The hands played and the hands added
-  by doubles are kept; a NULL `hr_reference_stack` marks the pause.
+- Losing the profit pauses the countdown. The whole Charles Rule state is kept:
+  hands played, hands added by doubles, the doubles and the doubling reference
+  stack. A NULL `hr_started_at` marks the pause.
 - Out of profit nothing is owed and the player may leave at any point, as
   before. Hands played out of profit never count.
 - Back in profit the count picks up where it stopped. The hand that returns
   the player to profit is not counted (the same as the hand that first starts
   a countdown), so 7 left comes back as 7 left.
-- The reference stack for the next double is the stack at the return to
-  profit; `hr_started_at` is re-stamped there, so a leave asked for while out
-  of profit is still honoured.
+- The doubling reference is the one held before the pause (owner 2026-11-13:
+  "KEEP THE DOUBLING BASELINE FROM BEFORE THE PAUSE"). `hr_started_at` is
+  re-stamped at the return, so a leave asked for while out of profit is still
+  honoured.
 - A completed count, the club's switch, the +250 BB obligation, the
   house-take double test and bank-the-win state are unchanged.
 

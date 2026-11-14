@@ -574,7 +574,7 @@ describe('the countdown resumes where it left off (owner 2026-11-13)', () => {
     expect(owed(P(60), T)).toMatchObject({ allowed: true, hands: 0 });
   });
 
-  it('keeps the hands a double added across the pause, and doubles again from the return stack', () => {
+  it('keeps the hands a double added and the doubling reference from before the pause', () => {
     seat(P(61), T, 100);
     classicHand(T, { [P(61)]: 10 }); // 110: countdown of ten
     classicHand(T, { [P(61)]: 60 }); // 170: one played
@@ -584,9 +584,12 @@ describe('the countdown resumes where it left off (owner 2026-11-13)', () => {
     expect(owed(P(61), T)).toMatchObject({ allowed: true, hands: 0 });
     classicHand(T, { [P(61)]: 20 }); // 110: back, eighteen left
     expect(owed(P(61), T)).toMatchObject({ allowed: false, hands: 18 });
-    classicHand(T, { [P(61)]: 110 }); // 220 >= 2 x 110 (the return stack): ten more
-    expect(count(P(61))).toMatchObject({ required: 30, played: 3, doubles: 2 });
-    expect(owed(P(61), T)).toMatchObject({ allowed: false, hands: 27 });
+    expect(Number(session(P(61)).hr_reference_stack)).toBe(230); // untouched by the pause
+    classicHand(T, { [P(61)]: 110 }); // 220: twice the return stack, not twice 230, so no double
+    expect(count(P(61))).toMatchObject({ required: 20, played: 3, doubles: 1 });
+    classicHand(T, { [P(61)]: 240 }); // 460 >= 2 x 230 (the reference before the pause): ten more
+    expect(count(P(61))).toMatchObject({ required: 30, played: 4, doubles: 2 });
+    expect(owed(P(61), T)).toMatchObject({ allowed: false, hands: 26 });
   });
 
   it('pauses and resumes more than once without losing a hand', () => {
@@ -615,5 +618,34 @@ describe('the countdown resumes where it left off (owner 2026-11-13)', () => {
     classicHand(T, { [P(63)]: 60 }); // back in profit after the request
     expect(count(P(63))).toMatchObject({ required: 10, played: 2 });
     expect(owed(P(63), T).allowed).toBe(true);
+  });
+
+  it('pauses and resumes a Lightning pool session the same way, from its own settlements', () => {
+    sql(`INSERT INTO table_seats (table_id, user_id, stack) VALUES ('${LT}', '${P(64)}', 100);
+         SELECT fn_cash_session_open('${P(64)}', '${LT}', 100);
+         UPDATE cash_player_session SET hr_engine_ack = true WHERE player_id = '${P(64)}';
+         INSERT INTO lightning_pool_session (cluster_id, player_id, cash_player_session_id, anchor_seat_id)
+           SELECT '${CL}', '${P(64)}', s.id, ts.id FROM cash_player_session s, table_seats ts
+            WHERE s.player_id = '${P(64)}' AND ts.user_id = '${P(64)}';`);
+    let stack = 100;
+    const poolHand = (net: number) => {
+      const id = H(++hand);
+      const after = stack + net;
+      sql(`INSERT INTO hand_history VALUES ('${id}', 0.5);
+           INSERT INTO lightning_hand VALUES ('${id}', '${CL}', clock_timestamp(), 6);
+           INSERT INTO lightning_hand_player VALUES ('${id}', '${P(64)}', ${net}, ${stack}, ${after});
+           UPDATE table_seats SET stack = ${after} WHERE user_id = '${P(64)}';`);
+      stack = after;
+      evaluate(LT, [P(64)], id, 'lightning');
+    };
+    poolHand(20); // in profit: ten
+    for (let i = 0; i < 3; i++) poolHand(0);
+    expect(owed(P(64), LT)).toMatchObject({ allowed: false, hands: 7 });
+    poolHand(-30); // paused
+    expect(owed(P(64), LT)).toMatchObject({ allowed: true, hands: 0 });
+    for (let i = 0; i < 4; i++) poolHand(0);
+    poolHand(40); // back in profit
+    expect(count(P(64))).toMatchObject({ required: 10, played: 3 });
+    expect(owed(P(64), LT)).toMatchObject({ allowed: false, hands: 7 });
   });
 });
