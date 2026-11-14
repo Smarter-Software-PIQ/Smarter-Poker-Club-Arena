@@ -4819,6 +4819,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'PersonaReRaise'
   ),
   receipt(
+    'holdem_persona_3bet_bluff_capped_seen',
+    'HorsePreflop via HorseLogic (holdemPersonaReRaiseMix)',
+    'default-off holdemPersonaReRaiseMix: a 3-bet bluff comparison whose probability times the Horse scale passed 1 and was held at 1, the only place the scaled bluff can lose frequency; named *_seen',
+    'PersonaReRaise'
+  ),
+  receipt(
+    'holdem_persona_squeeze_bluff_capped_seen',
+    'HorsePreflop via HorseLogic (holdemPersonaReRaiseMix)',
+    'default-off holdemPersonaReRaiseMix: a squeeze bluff comparison whose probability times the Horse scale passed 1 and was held at 1; named *_seen',
+    'PersonaReRaise'
+  ),
+  receipt(
     'holdem_persona_fourbet_reshove_eligible_seen',
     'HorsePreflop via HorseLogic (holdemPersonaReRaiseMix)',
     'default-off holdemPersonaReRaiseMix: at 26-35bb facing a 3-bet a four-bet reshove bluff class (A5s-A2s) reached the persona comparison; named *_seen',

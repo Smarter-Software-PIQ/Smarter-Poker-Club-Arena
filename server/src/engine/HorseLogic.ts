@@ -9374,6 +9374,10 @@ export class HorseLogic {
               noteFire('holdem_persona_3bet_bluff_eligible_seen');
             else if (layer === 'holdem_persona_3bet_bluff_changed_seen')
               noteFire('holdem_persona_3bet_bluff_changed_seen');
+            else if (layer === 'holdem_persona_3bet_bluff_capped_seen')
+              noteFire('holdem_persona_3bet_bluff_capped_seen');
+            else if (layer === 'holdem_persona_squeeze_bluff_capped_seen')
+              noteFire('holdem_persona_squeeze_bluff_capped_seen');
             else if (layer === 'holdem_persona_squeeze_bluff_eligible_seen')
               noteFire('holdem_persona_squeeze_bluff_eligible_seen');
             else if (layer === 'holdem_persona_squeeze_bluff_changed_seen')

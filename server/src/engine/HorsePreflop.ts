@@ -147,8 +147,10 @@ export type PreflopLayerReceipt =
   | 'style_tight_reraiser_respect_seen'
   | 'holdem_persona_3bet_bluff_eligible_seen'
   | 'holdem_persona_3bet_bluff_changed_seen'
+  | 'holdem_persona_3bet_bluff_capped_seen'
   | 'holdem_persona_squeeze_bluff_eligible_seen'
   | 'holdem_persona_squeeze_bluff_changed_seen'
+  | 'holdem_persona_squeeze_bluff_capped_seen'
   | 'holdem_persona_fourbet_reshove_eligible_seen'
   | 'holdem_persona_fourbet_reshove_changed_seen';
 
@@ -1340,6 +1342,13 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
         kind === 'squeeze'
           ? 'holdem_persona_squeeze_bluff_changed_seen'
           : 'holdem_persona_3bet_bluff_changed_seen'
+      );
+    // The cap is the only place the scaled bluff can lose frequency: counted.
+    if (p * persona.scale > 1)
+      ctx.noteLayer?.(
+        kind === 'squeeze'
+          ? 'holdem_persona_squeeze_bluff_capped_seen'
+          : 'holdem_persona_3bet_bluff_capped_seen'
       );
     return fires;
   };
