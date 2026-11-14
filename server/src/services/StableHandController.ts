@@ -44,6 +44,15 @@ import {
   type YieldCandidate,
 } from './StableHand.js';
 
+/**
+ * The dwell protects a table a person has LEFT, not one a person is playing at:
+ * while anyone is seated the ordinary rule (a table with a person keeps at
+ * least NIGHT_MIN_PLAYERS) decides, and the dwell starts when the last one goes.
+ */
+export function humanDepartureDwellApplies(humansSeated: number, withinDwell: boolean): boolean {
+  return humansSeated === 0 && withinDwell;
+}
+
 export interface TableSnapshot {
   tableId: string;
   hostId: string;

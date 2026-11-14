@@ -2505,10 +2505,11 @@ export class HorseFleetManager {
          seats-per-horse ceiling (StableHand.hostSeatCeiling). Updated as
          this cycle seats, exactly like bodiesOnHost. */
       const seatsOnHost = seatsOnHostFrom(allActiveSeats, hostOfTable);
+      const ceilingClock = chicagoNow();
       const seatCeilings = stableHandHostSeatCeilings(
         stableHandCaps,
-        chicagoNow().hour,
-        chicagoNow().minute
+        ceilingClock.hour,
+        ceilingClock.minute
       );
       /* WHERE EACH HORSE ALREADY IS. One body plays one club and one host at a
          time (section 11), and both are read from the live seat map rather

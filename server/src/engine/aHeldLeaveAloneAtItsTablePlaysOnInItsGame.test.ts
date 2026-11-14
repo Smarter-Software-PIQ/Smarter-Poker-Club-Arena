@@ -144,7 +144,8 @@ for (const [who, id, occ, seat] of [
       expect(cashoutVoluntary).not.toHaveBeenCalled();
       const seated = e.seatedPlayers.find((p: { user_id: string }) => p.user_id === id);
       expect(seated.leave_pending).toBe(false);
-      expect(sitBack).toHaveBeenCalledWith(TABLE, id);
+      // The blind off at a Classic table is the sit-out: it stays.
+      expect(sitBack).not.toHaveBeenCalled();
       expect(e.leaveHeldByClock.get(id)).toBe(occ);
 
       // Still held and waiting for the move: asked again, not released.

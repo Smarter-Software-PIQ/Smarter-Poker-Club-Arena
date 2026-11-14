@@ -3604,8 +3604,8 @@ export abstract class ServerTableEngineBase {
    * played, while the same game dealt 23 hands at another table in the next
    * 45 minutes. Hit and run is owed to the game. Before the waiver, the
    * database is asked (fn_owed_leave_plays_on_in_game) whether another table
-   * of the same game is dealing; if so the seat stops pending, keeps its blind
-   * off and stays held, and the game's consolidation moves it to a table that
+   * of the same game is dealing; if so the seat stops pending, stays sat out as
+   * its blind off and stays held, and the game's consolidation moves it to a table that
    * deals, where the restored hold plays the count out. The database bounds the
    * wait and records every answer. A null answer releases as before. The same
    * question for a person and a horse.
@@ -3624,8 +3624,9 @@ export abstract class ServerTableEngineBase {
     );
     if (!answer?.keep) return false;
     if (answer.returned) {
+      // Pending is withdrawn so the game may move the seat; the sit-out stays,
+      // because at a Classic table the blind off IS the sit-out (holdLockedLeave).
       seated.leave_pending = false;
-      this.disconnectEngine.sitBack(this.tableId, userId);
       console.log(
         `[ServerTableEngine:${this.tableId}] held leave for ${userId} plays on in its game - ${answer.handsRemaining} hands owed`
       );
