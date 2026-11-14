@@ -382,13 +382,54 @@ export function readMobileTableLayout(crowns: Readonly<Record<string, number>>) 
     table.dataset.seats === '9' &&
     matchMedia('(min-width: 481px) and (max-width: 640px) and (orientation: portrait)').matches
   ) {
+    const surface = table.querySelector('.table-surface');
+    if (surface && visible(surface)) {
+      const f = box(surface),
+        radius = f.width / 2;
+      for (const chip of table.querySelectorAll('.seat__bet-chips,.pot-display__pile--pot')) {
+        if (!visible(chip)) continue;
+        const r = box(chip);
+        const clear = [r.left, r.right].every((x) =>
+          [r.top, r.bottom].every(
+            (y) =>
+              Math.hypot(
+                x - (f.left + radius),
+                y - Math.max(f.top + radius, Math.min(f.bottom - radius, y))
+              ) <=
+              radius - 7.5
+          )
+        );
+        let clearsGold = true;
+        if (ring && table.dataset.feltTheme === 'classic_green') {
+          const art = box(ring);
+          const x = Math.max(
+            302.5 - ((r.left - art.left) * 605) / art.width,
+            ((r.right - art.left) * 605) / art.width - 302.5
+          );
+          const y = Math.max(
+            275 - ((r.top - art.top) * 1000) / art.height,
+            ((r.bottom - art.top) * 1000) / art.height - 725,
+            0
+          );
+          clearsGold = (x / 200.5) ** 2 + (y / 186) ** 2 < 1;
+        }
+        if (!clear || !clearsGold) violations.push('Nine-Max Chips Encroach On Rail');
+      }
+    }
     for (const wrapper of table.querySelectorAll('.seat-wrapper:not(.seat-wrapper--hero)')) {
       const seat = wrapper.querySelector<HTMLElement>('.seat:not(.seat--empty)');
       if (!seat || !visible(seat) || !visible(wrapper)) continue;
       const cap = wrapper.matches('.seat-wrapper--cap,.seat-wrapper--top');
       if (ring && cap) {
         const plate = seat.querySelector('.seat__info');
-        if (plate && visible(plate) && box(plate).top > box(ring).top + 2)
+        if (
+          plate &&
+          visible(plate) &&
+          box(plate).top >
+            box(ring).top +
+              12 * (box(ring).width / ((ring as HTMLElement).offsetWidth || box(ring).width)) +
+              2
+        )
           violations.push(`Chair ${seat.dataset.seatNum} Top Portrait Inside Nine-Max Table`);
       }
       const anchor = box(wrapper);
