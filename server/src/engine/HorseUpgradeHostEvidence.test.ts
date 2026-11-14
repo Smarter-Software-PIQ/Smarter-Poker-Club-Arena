@@ -61,7 +61,11 @@ afterEach(() => {
 });
 
 describe('upgrade 08: a run-it-twice choice or answer is one event for the Horse that made it', () => {
-  function schedule(o: { variant: string; tournament: boolean; piloted?: string }) {
+  // Since #10794 a Horse's run-it-twice answer is decided inside its response timer, after
+  // the offer's equity is read, so the counters and the per-Horse event fire when the answer
+  // is sent. The stub mirrors HorseUpgradeSideGameCounters.test.ts and runs the timers.
+  async function schedule(o: { variant: string; tournament: boolean; piloted?: string }) {
+    vi.useFakeTimers();
     const proto = ServerTableEngine.prototype as any;
     const ids = [id(1), id(2), id(3), HUMAN];
     proto.scheduleHorseRITResponses.call(
@@ -69,10 +73,17 @@ describe('upgrade 08: a run-it-twice choice or answer is one event for the Horse
         tableId: TABLE_ID,
         running: true,
         handCount: 4,
+        tableInfo: { big_blind: 2 },
         seatedPlayers: ids.map((user_id) => ({ user_id, is_horse: user_id !== HUMAN })),
         isOwnClientControlling: (userId: string) => userId === o.piloted,
-        setHandTimeout: () => {},
-        runItTwiceEngine: { hasPendingOffer: () => true, getState: () => ({ maxRuns: 3 }) },
+        setHandTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms),
+        runItTwiceEngine: {
+          hasPendingOffer: () => true,
+          getState: () => ({ maxRuns: 3, pot: 200 }),
+        },
+        horseRitOfferEquity: new Map(),
+        requestHorseRitEquity: async () => Object.fromEntries(ids.map((pid) => [pid, 0.5])),
+        horseRitRuns: proto.horseRitRuns,
         horseRitVerdict: proto.horseRitVerdict,
         respondToRIT: () => {},
         activeHandVariant: () => o.variant,
@@ -81,10 +92,12 @@ describe('upgrade 08: a run-it-twice choice or answer is one event for the Horse
       ids[0],
       ids
     );
+    await vi.advanceTimersByTimeAsync(5_000);
+    vi.useRealTimers();
   }
 
-  it('records the chooser and each answering Horse once, in the hand variant and lane, and no person', () => {
-    schedule({ variant: 'plo5', tournament: false });
+  it('records the chooser and each answering Horse once, in the hand variant and lane, and no person', async () => {
+    await schedule({ variant: 'plo5', tournament: false });
     const counted = fires();
     expect(
       (counted.upgrade08_rit_chooser_once_seen ?? 0) +
@@ -101,8 +114,8 @@ describe('upgrade 08: a run-it-twice choice or answer is one event for the Horse
     });
   });
 
-  it('records the lane of a tournament table, and nothing for a Horse seat a person client pilots', () => {
-    schedule({ variant: 'nlh', tournament: true, piloted: id(2) });
+  it('records the lane of a tournament table, and nothing for a Horse seat a person client pilots', async () => {
+    await schedule({ variant: 'nlh', tournament: true, piloted: id(2) });
     expect(cells()).toEqual({
       [`${id(1)}|nlh|tournament|${EIGHT}`]: [1, 1],
       [`${id(3)}|nlh|tournament|${EIGHT}`]: [1, 1],
