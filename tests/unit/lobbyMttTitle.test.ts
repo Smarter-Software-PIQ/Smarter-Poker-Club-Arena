@@ -308,6 +308,9 @@ describe('the lobby stylesheet and table (shipped invariants)', () => {
 
 it.each([
   ['40 Chip Bounty Freezeout - 2.5K GTD (NLH)', '40 Chip Bounty'],
+  // The engine writes a reduced guarantee as the exact figure (2026-11-14).
+  ['40 Chip Freezeout - 2,500 GTD (NLH)', '40 Chip Freezeout'],
+  ['Free Roll - 125.5 Chip Guarantee (NLH)', 'Free Roll'],
   ['25 Chip Mystery Bounty - 1K GTD (PLO4)', '25 Chip Mystery Bounty'],
   ['Satellite Into 40 Chip Freezeout', 'Satellite Into 40 Chip Freezeout'],
   ['Prime Time Free Buy (NLH)', 'Prime Time Free Buy'],
