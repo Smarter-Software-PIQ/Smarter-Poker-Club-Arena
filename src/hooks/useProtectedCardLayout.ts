@@ -776,6 +776,13 @@ export function useProtectedCardLayout(
           settled.current.pods.set(pod, String(shift));
         }
       }
+      // Avatar normalization and loaded fonts can change the crown rise in
+      // this frame. Complete SeatSlot's existing measurement synchronously,
+      // before allocating chairs, recording keep-outs or landing a wager.
+      // Otherwise its queued measurement can move a tag into a fixed neighbour.
+      scaler
+        .querySelectorAll('.seat')
+        .forEach((seat) => seat.dispatchEvent(new Event('seatcaptionmeasure')));
       if (artwork.space()) {
         // Metadata arrives after initial card placement. Rebase shown rows
         // once against the final opponent position, then retain that slot.
@@ -796,13 +803,6 @@ export function useProtectedCardLayout(
       // search against temporary raw-image bounds before metadata rebases them.
       // A terminal metadata failure still releases the baseline placer.
       if (artwork.awaitingMetadata() || artwork.awaitingInitialLayout()) return;
-      // Avatar normalization and loaded fonts can change the crown rise in
-      // this frame. Complete SeatSlot's existing measurement synchronously,
-      // before recording caption keep-outs or promoting a wager to landed.
-      // Otherwise its queued measurement can move a tag into a fixed bet.
-      scaler
-        .querySelectorAll('.seat')
-        .forEach((seat) => seat.dispatchEvent(new Event('seatcaptionmeasure')));
       // This synchronous transaction changes only chair/caption translation.
       // Project each already normalized portrait from one permanent snapshot
       // instead of walking its CSS transform chain for every trial candidate.

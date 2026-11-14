@@ -13,3 +13,11 @@ The shortened six-seat rail rests on its reserved floor, and the phone hero clea
 Hidden fans on both portrait layouts, including compact raw viewports, reserve the rotated bottom corner above the nameplate. The live screenshot certificate checks hidden and shown cards against the viewport, player plates, board, branding, dealer and controls.
 
 Hidden-fan wager reservations follow the same portrait phone boundary as the inward-fan CSS; legacy compact layouts keep their existing outboard search. Dense nine-seat observer browser cases share a sequential default-mode group to avoid simultaneous cold-allocation contention. Every case still runs after a failure, with its original assertions and 60-second deadline.
+
+## Short physical phone boundary
+
+The 320 by 568 phone uses a 600 by 1065 layout canvas. Its nine-seat ring now reserves a common 1.7 portrait scale before chair allocation; taller phones retain 2.1. The physical aspect ratio keeps the reservation unchanged when a keyboard opens. Added seated and observer coverage with the actual non-notched safe area and stable-height contract. The live artwork check now observes the existing twelve-second loading-cover contract plus assertion headroom.
+
+Eight fixed-art browser cases pass, including two short-phone cases; those fixtures also pass with the preceding CSS, so they are coverage rather than reproduction of the live packing failure. The retained production trace reproduces the failure. Publication and another actual live 320/375/393/430 check remain required.
+
+The initial chair allocator also ran before SeatSlot's synchronous caption measurement. Moved the existing measurement ahead of allocation, so a queued artwork-rise update cannot invalidate the chair placement immediately afterward. The real hook startup test fails against the old ordering and passes against the new ordering. Live verification now rejects captions behind the tab header as well as captions over cards and plates.

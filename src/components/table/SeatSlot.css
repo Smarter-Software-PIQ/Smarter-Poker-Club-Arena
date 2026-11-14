@@ -5269,3 +5269,13 @@
     filter: brightness(1.18) saturate(1.08);
   }
 }
+
+/* A 600px phone canvas can be only 1065px tall (320x568 hardware).
+   Nine chairs then have three side rows: reserve a 1.7x common portrait
+   before the finite allocator, leaving space for the board and adjacent
+   captions. Physical aspect ratio stays fixed when a keyboard opens. */
+@media (min-width: 481px) and (max-width: 640px) and (max-device-width: 480px) and (min-device-aspect-ratio: 12/23) and (orientation: portrait) {
+  .table-page[data-seats='9'] .seat-wrapper {
+    --sp-bust-scale: 1.7;
+  }
+}
