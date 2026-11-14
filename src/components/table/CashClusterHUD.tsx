@@ -109,16 +109,6 @@ export function CashClusterHUD({
           which has to be beside the seats it is about, and the seat-change /
           waitlist buttons, which are actions rather than a readout. Every
           figure the bar carried is one tap away inside the lobby. */}
-      {moveNotice && (
-        <div
-          className="cch-move-notice"
-          role="status"
-          aria-live="polite"
-          data-testid="cch-move-notice"
-        >
-          {moveNotice}
-        </div>
-      )}
       {seatChangeAvailable && seatChangeVisible && (
         <div className="cch-seat-change-control">
           <button
@@ -137,6 +127,16 @@ export function CashClusterHUD({
               <span className="cch-seat-change__label">Seat Change</span>
             </span>
           </button>
+        </div>
+      )}
+      {moveNotice && (
+        <div
+          className="cch-move-notice"
+          role="status"
+          aria-live="polite"
+          data-testid="cch-move-notice"
+        >
+          {moveNotice}
         </div>
       )}
       {listed && seatChangeVisible && (
