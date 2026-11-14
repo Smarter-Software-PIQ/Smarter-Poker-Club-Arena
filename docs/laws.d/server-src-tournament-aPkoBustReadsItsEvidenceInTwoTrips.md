@@ -1,0 +1,3 @@
+# server/src/tournament/aPkoBustReadsItsEvidenceInTwoTrips.law.test.ts
+
+A PKO bust's persisted knockout evidence is read in two sequential round trips, not four: the immutable candidate travels with the live-seat veto, and the exact atomic receipt travels with the knockout hand. Every check is still applied in the same order to the same rows (a bad candidate defers before any seat verdict, a seat veto before any receipt, an unreadable receipt before the hand), an unreadable read is still UNKNOWN and defers, and the knockout door still re-proves the candidate, receipt and seat under its own lock. Busts are recorded serially in hand order, so every trip here is paid once per bust (incident b6d94533, 2026-11-14).

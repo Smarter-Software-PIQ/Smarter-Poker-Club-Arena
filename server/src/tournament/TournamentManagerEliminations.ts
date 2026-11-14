@@ -3294,17 +3294,42 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
     };
 
     try {
-      const { data: candidateRow, error: candidateErr } = await supabase
-        .from('tournament_knockout_candidates')
-        .select(
-          'id,table_id,seat_id,seat_joined_at,hand_id,hand_number,stack_before,stack_after,state'
-        )
-        .eq('tournament_id', this.tournamentId)
-        .eq('eliminated_user_id', userId)
-        .order('hand_number', { ascending: false })
-        .order('id', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      /* TWO TRIPS FOR FOUR READS (2026-11-14, incident b6d94533). A PKO bust
+         is recorded one at a time, in hand order, and every round trip in
+         this method is paid once per bust in series: on the Midnight Free
+         Buy PKO (496 entries) eliminatePlayer held 886 ms of every second of
+         the sweep lane at a 3.9 s mean, about 13.5 busts a minute, while 20-34
+         a minute arrived and 110 waited a median 440 s. Database execution
+         was a small part of it (the claim 127 ms, the collect 200 ms mean);
+         the rest was sequential trips. The live-seat veto needs only the user
+         id, so it travels with the candidate read; the atomic receipt and the
+         hand both need only the candidate's identity, so they travel
+         together. Every check below runs in the same order on the same rows,
+         nothing is written, and the knockout door still re-proves the
+         candidate, receipt and seat under its own lock. */
+      const [candidateRead, liveSeatRead] = await Promise.all([
+        supabase
+          .from('tournament_knockout_candidates')
+          .select(
+            'id,table_id,seat_id,seat_joined_at,hand_id,hand_number,stack_before,stack_after,state'
+          )
+          .eq('tournament_id', this.tournamentId)
+          .eq('eliminated_user_id', userId)
+          .order('hand_number', { ascending: false })
+          .order('id', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        supabase
+          .from('table_seats')
+          .select(
+            'id,table_id,joined_at,stack,tables!table_seats_table_id_fkey!inner(tournament_id)'
+          )
+          .eq('user_id', userId)
+          .eq('tables.tournament_id', this.tournamentId)
+          .is('left_at', null)
+          .limit(2),
+      ]);
+      const { data: candidateRow, error: candidateErr } = candidateRead;
       if (candidateErr) return defer('latest knockout candidate is unreadable', candidateErr);
 
       const candidate = candidateRow as {
@@ -3349,13 +3374,7 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
       // the zero-stack seat, so no row is normal. One exact zero-stack legacy
       // row is tolerated until the RPC closes it; every other live shape proves
       // the candidate is stale or the player has already entered a new generation.
-      const { data: liveSeatRows, error: liveSeatErr } = await supabase
-        .from('table_seats')
-        .select('id,table_id,joined_at,stack,tables!table_seats_table_id_fkey!inner(tournament_id)')
-        .eq('user_id', userId)
-        .eq('tables.tournament_id', this.tournamentId)
-        .is('left_at', null)
-        .limit(2);
+      const { data: liveSeatRows, error: liveSeatErr } = liveSeatRead;
       if (liveSeatErr) return defer('live-seat safety veto is unreadable', liveSeatErr);
       const liveSeats = (liveSeatRows ?? []) as Array<{
         id?: unknown;
@@ -3377,17 +3396,27 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
         }
       }
 
-      const { data: atomicRow, error: atomicErr } = await supabase
-        .from('hand_atomic_commits')
-        .select('table_id,hand_id,hand_number,stack_result,committed_at')
-        .eq('table_id', tableId)
-        .eq('hand_number', handNumber)
-        .eq('hand_id', handId)
-        // The immutable candidate chooses the exact hand. This additional
-        // range bound makes a malformed pre-rebuy receipt impossible to read
-        // as evidence for the candidate's newer seat generation.
-        .gte('committed_at', seatJoinedAt)
-        .maybeSingle();
+      const [atomicRead, handRead] = await Promise.all([
+        supabase
+          .from('hand_atomic_commits')
+          .select('table_id,hand_id,hand_number,stack_result,committed_at')
+          .eq('table_id', tableId)
+          .eq('hand_number', handNumber)
+          .eq('hand_id', handId)
+          // The immutable candidate chooses the exact hand. This additional
+          // range bound makes a malformed pre-rebuy receipt impossible to read
+          // as evidence for the candidate's newer seat generation.
+          .gte('committed_at', seatJoinedAt)
+          .maybeSingle(),
+        supabase
+          .from('hand_history')
+          .select('id, table_id, hand_number, winners, players, pots')
+          .eq('id', handId)
+          .eq('table_id', tableId)
+          .eq('hand_number', handNumber)
+          .maybeSingle(),
+      ]);
+      const { data: atomicRow, error: atomicErr } = atomicRead;
       if (atomicErr)
         return defer(`atomic receipt for hand #${handNumber} is unreadable`, atomicErr);
       const atomic = atomicRow as {
@@ -3414,13 +3443,7 @@ export abstract class TournamentManagerEliminations extends TournamentManagerBas
         );
       }
 
-      const { data: hand, error: handErr } = await supabase
-        .from('hand_history')
-        .select('id, table_id, hand_number, winners, players, pots')
-        .eq('id', handId)
-        .eq('table_id', tableId)
-        .eq('hand_number', handNumber)
-        .maybeSingle();
+      const { data: hand, error: handErr } = handRead;
       if (handErr) return defer(`knockout hand #${handNumber} is unreadable`, handErr);
 
       const victim = Array.isArray(hand?.players)
