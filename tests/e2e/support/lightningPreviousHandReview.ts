@@ -18,7 +18,9 @@ export async function verifyLightningPreviousHandReview(
   let sessionReads = 0;
   let archiveReads = 0;
   const recentRoute = '**/rpc/fn_lightning_recent_hands';
-  const historyRoute = '**/rest/v1/hand_history?**';
+  const historyRoute = (url: URL) =>
+    url.pathname.endsWith('/hand_history') &&
+    url.searchParams.get('id')?.replaceAll('"', '') === 'in.(' + archiveId + ')';
   await page.route(recentRoute, async (route) => {
     expect(route.request().postDataJSON()).toEqual({ p_pool_session_id: room, p_limit: 50 });
     sessionReads++;
@@ -32,7 +34,7 @@ export async function verifyLightningPreviousHandReview(
   await page.route(historyRoute, async (route) => {
     const request = route.request();
     const id = new URL(request.url()).searchParams.get('id');
-    if (!id?.includes(archiveId)) return route.fallback();
+    // Reject any write to this fixture at the browser boundary.
     expect(request.method()).toBe('GET');
     expect(id?.replaceAll('"', '')).toBe('in.(' + archiveId + ')');
     archiveReads++;
