@@ -278,7 +278,36 @@ class TableEngine {
     }
   }
 
+  private holdDeal = false;
+
+  holdFirstDeal(): void {
+    this.holdDeal = true;
+  }
+
+  deliverDealtHand(): void {
+    this.holdDeal = false;
+    for (const ws of this.sockets) this.send(ws);
+  }
+
+  releaseSettledRoom(): void {
+    this.all({
+      type: 'SNAPSHOT',
+      tableId: this.id,
+      seq: ++this.seq,
+      state: {
+        ...this.state,
+        stage: 'waiting',
+        players: [],
+        current_player: null,
+        community_cards: [],
+        hand_id: null,
+        lightning: null,
+      },
+    });
+  }
+
   private send(ws: WebSocketRoute): void {
+    if (this.holdDeal) return;
     ws.send(
       JSON.stringify({ type: 'SNAPSHOT', tableId: this.id, seq: this.seq, state: this.state })
     );
@@ -467,7 +496,7 @@ function backendFor(s: Scenario, heroSeat: number) {
   });
 }
 
-async function openTable(page: Page, s: Scenario): Promise<TableEngine> {
+async function openTable(page: Page, s: Scenario, holdFirstDeal = false): Promise<TableEngine> {
   const heroSeat = 1;
   // The Dynamic Island, as the phone reports it, before the first paint.
   const cdp = await page.context().newCDPSession(page);
@@ -546,8 +575,10 @@ async function openTable(page: Page, s: Scenario): Promise<TableEngine> {
   }
   const engine = await TableEngine.install(page, s, heroSeat);
   engine.onDispose(() => cdp.detach().catch(() => {}));
+  if (holdFirstDeal) engine.holdFirstDeal();
   await page.goto(`table/${engine.id}`);
   await expect.poll(() => engine.connected, { timeout: 60_000 }).toBe(true);
+  if (holdFirstDeal) return engine;
   await expect(page.locator('.action-panel .action-btn').first()).toBeVisible({ timeout: 30_000 });
   await expect(page.locator('.seat-wrapper--hero .seat__strength')).toBeVisible({
     timeout: 15_000,
@@ -1032,4 +1063,35 @@ test.describe('the Lightning start ticker', () => {
       engine.dispose();
     }
   });
+});
+
+test('Lightning leave requested before the dealt snapshot waits for the hand', async ({ page }) => {
+  const scenario = SCENARIOS.find((s) => s.lightning && !s.feeder)!;
+  const engine = await openTable(page, scenario, true);
+  try {
+    await page.route('**/rpc/fn_lightning_stop_playing', (route) =>
+      route.fulfill({
+        json: { ok: true, in_hand: true, exited: false },
+      })
+    );
+    await page.getByRole('button', { name: 'Leave Next Hand', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Leaving After Hand' })).toBeVisible();
+    engine.deliverDealtHand();
+    const check = page.locator('.action-panel .action-btn').filter({ hasText: /check/i }).first();
+    await expect(check).toBeEnabled();
+    const [action] = await Promise.all([
+      page.waitForRequest(
+        (request) => request.method() === 'POST' && new URL(request.url()).pathname === '/action'
+      ),
+      check.click(),
+    ]);
+    expect(action.postDataJSON()).toMatchObject({ tableId: ROOM, action: 'check' });
+    engine.heroChecks();
+    await expect(page.getByRole('button', { name: 'Leaving After Hand' })).toBeVisible();
+    await expect(page).toHaveURL(new RegExp('/table/' + ROOM));
+    engine.releaseSettledRoom();
+    await expect(page).not.toHaveURL(new RegExp('/table/' + ROOM));
+  } finally {
+    engine.dispose();
+  }
 });
