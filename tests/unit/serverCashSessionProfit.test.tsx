@@ -140,6 +140,30 @@ describe('server-owned cash session profit', () => {
     view.unmount();
   });
 
+  it('still reports a hand whose facts never arrive, after the bounded wait, and shows no partial total', async () => {
+    const { reportError } = await import('../../src/utils/errorReporter');
+    mocks.rpc.mockResolvedValue(identity(3));
+    mocks.from.mockImplementation(() =>
+      page([
+        { hand_id: 'one', net: 1 },
+        { hand_id: 'two', net: 2 },
+      ])
+    );
+    const view = renderHook(() => useServerCashSessionProfit('hero', 'table', true));
+    await waitFor(
+      () =>
+        expect(reportError).toHaveBeenCalledWith(
+          expect.objectContaining({ message: 'Cash Session Hand Coverage Incomplete' }),
+          'CashSessionProfit.Read'
+        ),
+      { timeout: 4000 }
+    );
+    expect(reportError).toHaveBeenCalledTimes(1);
+    expect(mocks.from.mock.calls.length).toBe(3);
+    expect(view.result.current.table).toBeUndefined();
+    view.unmount();
+  });
+
   it('updates from settled-hand events and reconnects, with no aggregation timer', async () => {
     const view = renderHook(() => useServerCashSessionProfit('hero', 'table', true));
     await waitFor(() => expect(view.result.current.table?.net).toBe(19.3));

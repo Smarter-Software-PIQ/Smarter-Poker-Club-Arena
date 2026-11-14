@@ -6,4 +6,4 @@
 
 **Fix.** `useServerCashSessionProfit` now retries that one refusal up to twice, one second apart, before reporting it. The retries are bounded and the hook never polls. Every other refusal (invalid evidence, a changed sitting) is reported immediately, and a partial total is still never shown.
 
-Regression: `tests/unit/serverCashSessionProfit.test.tsx`, "waits for the hand facts that land just after hand_history before reporting coverage". It fails without the fix.
+Regressions in `tests/unit/serverCashSessionProfit.test.tsx`: "waits for the hand facts that land just after hand_history before reporting coverage" (fails without the fix) and "still reports a hand whose facts never arrive, after the bounded wait, and shows no partial total" (a genuine gap is reported once, after three reads, and no total is shown).
