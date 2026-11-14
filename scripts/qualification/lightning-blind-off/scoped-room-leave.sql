@@ -81,13 +81,13 @@ SELECT sim.ok(fn_get_lightning_room_cashout_receipt(sim.h(),sim.t(),1,:'spent',:
 ROLLBACK;
 SELECT sim.durable_room_state() AS before_stale \gset
 SET ROLE authenticated;
-SELECT fn_lightning_stop_playing('70000000-0000-4000-8000-000000000001', :'old_room') AS stale_stop \gset
-SELECT fn_lightning_resume_playing('70000000-0000-4000-8000-000000000001', :'old_room') AS stale_resume \gset
+SELECT fn_lightning_stop_room_playing('70000000-0000-4000-8000-000000000001', :'old_room') AS stale_stop \gset
+SELECT fn_lightning_resume_room_playing('70000000-0000-4000-8000-000000000001', :'old_room') AS stale_resume \gset
 RESET ROLE;
 SELECT sim.ok(:'stale_stop'::jsonb @> '{"ok":false,"reason":"SESSION_CHANGED"}' AND :'stale_resume'::jsonb @> '{"ok":false,"reason":"SESSION_CHANGED"}', 'stale room cannot stop/resume successor');
 SELECT sim.ok((SELECT stop_requested_at IS NULL AND exited_at IS NULL FROM lightning_pool_session WHERE id = :'new_room'), 'successor untouched');
 SELECT sim.ok(has_function_privilege('authenticated','public.fn_lightning_stop_playing(uuid)','execute') AND has_function_privilege('authenticated','public.fn_lightning_resume_playing(uuid)','execute'), 'existing client retains both legacy RPC grants during additive preparation');
-SELECT sim.ok(NOT has_function_privilege('anon','public.fn_lightning_stop_playing(uuid,uuid)','execute') AND NOT has_function_privilege('authenticated','smarter_private.lightning_room_leave_control(uuid,uuid,boolean)','execute'), 'private and anon doors remain closed');
+SELECT sim.ok(NOT has_function_privilege('anon','public.fn_lightning_stop_room_playing(uuid,uuid)','execute') AND NOT has_function_privilege('authenticated','smarter_private.lightning_room_leave_control(uuid,uuid,boolean)','execute'), 'private and anon doors remain closed');
 
 -- The older tab already passed stopped_leave_anchor before the new admission.
 -- Exercise the actual service writer it can finally reach after that response.
@@ -100,39 +100,39 @@ SELECT sim.ok(NOT has_function_privilege('authenticated','public.fn_lightning_re
   AND NOT has_function_privilege('anon','public.fn_lightning_request_room_departure(uuid,uuid,uuid,integer,uuid,boolean)','execute')
   AND has_function_privilege('service_role','public.fn_lightning_request_room_departure(uuid,uuid,uuid,integer,uuid,boolean)','execute'), 'only the engine may submit a physical Lightning departure');
 SELECT sim.ok(sim.durable_room_state() = :'before_stale'::jsonb, 'stale requests preserve every seat, balance, cash session, pool room, slot and event');
-SELECT sim.ok(NOT has_function_privilege('anon','public.fn_lightning_resume_playing(uuid,uuid)','execute')
+SELECT sim.ok(NOT has_function_privilege('anon','public.fn_lightning_resume_room_playing(uuid,uuid)','execute')
   AND has_function_privilege('service_role','public.fn_lightning_stop_playing(uuid)','execute')
   AND has_function_privilege('service_role','public.fn_lightning_resume_playing(uuid)','execute'), 'legacy service and anonymous grant boundaries');
 INSERT INTO lightning_instance(id, cluster_id, hand_id, state) VALUES ('50000000-0000-4000-8000-000000000001', sim.c(), '50000000-0000-4000-8000-000000000002', 'dealing');
 INSERT INTO lightning_reservation VALUES (sim.c(), sim.h(), 'committed', '50000000-0000-4000-8000-000000000001');
 SET ROLE authenticated;
-SELECT fn_lightning_stop_playing('70000000-0000-4000-8000-000000000001', :'new_room') AS stop_result \gset
+SELECT fn_lightning_stop_room_playing('70000000-0000-4000-8000-000000000001', :'new_room') AS stop_result \gset
 RESET ROLE;
 SELECT sim.ok(:'stop_result'::jsonb @> '{"ok":true,"in_hand":true}' AND :'stop_result'::jsonb->>'pool_session_id' = :'new_room', 'current room stop accepted');
 SELECT sim.durable_room_state() AS after_stop \gset
 SET ROLE authenticated;
-SELECT fn_lightning_stop_playing('70000000-0000-4000-8000-000000000001', :'new_room') AS repeated_stop \gset
-SELECT fn_lightning_resume_playing('70000000-0000-4000-8000-000000000001', :'old_room') AS obsolete_resume \gset
+SELECT fn_lightning_stop_room_playing('70000000-0000-4000-8000-000000000001', :'new_room') AS repeated_stop \gset
+SELECT fn_lightning_resume_room_playing('70000000-0000-4000-8000-000000000001', :'old_room') AS obsolete_resume \gset
 RESET ROLE;
 SELECT sim.ok(:'repeated_stop'::jsonb = :'stop_result'::jsonb AND :'obsolete_resume'::jsonb @> '{"ok":false,"reason":"SESSION_CHANGED"}'
   AND sim.durable_room_state() = :'after_stop'::jsonb, 'duplicate stop and stale resume preserve exact receipt and all durable state');
 UPDATE cash_games SET cluster_mode = 'frozen';
-SELECT sim.ok(fn_lightning_resume_playing(sim.c(), :'new_room') @> '{"ok":false,"reason":"FROZEN"}', 'freeze refusal retained');
+SELECT sim.ok(fn_lightning_resume_room_playing(sim.c(), :'new_room') @> '{"ok":false,"reason":"FROZEN"}', 'freeze refusal retained');
 UPDATE cash_games SET cluster_mode = 'lightning';
 SET ROLE authenticated;
-SELECT fn_lightning_resume_playing('70000000-0000-4000-8000-000000000001', :'new_room') AS resumed \gset
+SELECT fn_lightning_resume_room_playing('70000000-0000-4000-8000-000000000001', :'new_room') AS resumed \gset
 RESET ROLE;
 SELECT sim.ok(:'resumed'::jsonb @> '{"ok":true,"withdrawn":true}', 'current room can withdraw');
 SELECT sim.durable_room_state() AS after_resume \gset
 SET ROLE authenticated;
-SELECT fn_lightning_resume_playing('70000000-0000-4000-8000-000000000001', :'new_room') AS repeated_resume \gset
+SELECT fn_lightning_resume_room_playing('70000000-0000-4000-8000-000000000001', :'new_room') AS repeated_resume \gset
 RESET ROLE;
 SELECT sim.ok(:'repeated_resume'::jsonb @> '{"ok":true,"withdrawn":false}' AND sim.durable_room_state() = :'after_resume'::jsonb,
   'duplicate resume preserves every balance, room, slot and event');
 SELECT sim.ok(sim.durable_room_state()->'seats' = :'before_stale'::jsonb->'seats'
   AND sim.durable_room_state()->'cash_sessions' = :'before_stale'::jsonb->'cash_sessions'
   AND sim.durable_room_state()->'slots' = :'before_stale'::jsonb->'slots', 'valid stop and resume also preserve the funded seat and open slot');
-SELECT sim.ok(fn_lightning_stop_playing(sim.c(), :'new_room') @> '{"ok":true,"in_hand":true}', 'same room can requeue');
+SELECT sim.ok(fn_lightning_stop_room_playing(sim.c(), :'new_room') @> '{"ok":true,"in_hand":true}', 'same room can requeue');
 -- The final hand newly creates an obligation. Stay must still be available
 -- even if the reaper sees the settlement before the browser opens the prompt.
 UPDATE table_seats SET stack=40 WHERE user_id=sim.h();
@@ -142,7 +142,7 @@ UPDATE lightning_instance SET state='settled';
 UPDATE lightning_reservation SET state='released';
 SELECT fn_lightning_reap_expired_disconnects(sim.c());
 SELECT sim.ok((SELECT exited_at IS NULL AND stop_requested_at IS NULL FROM lightning_pool_session WHERE id=:'new_room'), 'new obligation holds for player choice');
-SELECT sim.ok(fn_lightning_resume_playing(sim.c(), :'new_room') @> '{"ok":true}', 'Stay keeps seat matching');
+SELECT sim.ok(fn_lightning_resume_room_playing(sim.c(), :'new_room') @> '{"ok":true}', 'Stay keeps seat matching');
 SELECT sim.durable_room_state() AS before_choice \gset
 SELECT fn_lightning_request_room_departure(:'new_room',sim.h(),sim.t(),1,:'held_occupancy',false) AS unconfirmed \gset
 SELECT sim.ok(:'unconfirmed'::jsonb @> '{"ok":false,"reason":"LEAVE_LOCKED","hands_remaining":10}'

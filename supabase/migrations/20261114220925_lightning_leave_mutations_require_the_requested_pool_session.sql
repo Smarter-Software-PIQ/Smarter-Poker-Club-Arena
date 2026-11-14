@@ -1,7 +1,7 @@
 -- A room's Leave and Keep Playing apply only to the pool session displayed in that tab.
 -- The existing cluster-wide doors retain ownership of freeze, RG, owed hands and settlement.
 -- @live-proof: (has_function_privilege('service_role','public.fn_lightning_request_room_departure(uuid,uuid,uuid,integer,uuid,boolean)','EXECUTE') AND NOT has_function_privilege('authenticated','public.fn_lightning_request_room_departure(uuid,uuid,uuid,integer,uuid,boolean)','EXECUTE') AND position('WHERE ts.id = p_seat_id FOR UPDATE OF ts' in pg_get_functiondef('public.fn_lightning_pool_enter(uuid,timestamptz)'::regprocedure)) > 0)
--- @live-proof: (has_function_privilege('authenticated','public.fn_lightning_stop_playing(uuid,uuid)','EXECUTE') AND has_function_privilege('authenticated','public.fn_lightning_resume_playing(uuid,uuid)','EXECUTE') AND NOT has_function_privilege('anon','public.fn_lightning_stop_playing(uuid,uuid)','EXECUTE') AND NOT has_function_privilege('authenticated','smarter_private.lightning_room_leave_control(uuid,uuid,boolean)','EXECUTE') AND position('P2L01' in pg_get_functiondef('smarter_private.lightning_room_leave_control(uuid,uuid,boolean)'::regprocedure)) > 0)
+-- @live-proof: (has_function_privilege('authenticated','public.fn_lightning_stop_room_playing(uuid,uuid)','EXECUTE') AND has_function_privilege('authenticated','public.fn_lightning_resume_room_playing(uuid,uuid)','EXECUTE') AND NOT has_function_privilege('anon','public.fn_lightning_stop_room_playing(uuid,uuid)','EXECUTE') AND NOT has_function_privilege('authenticated','smarter_private.lightning_room_leave_control(uuid,uuid,boolean)','EXECUTE') AND position('P2L01' in pg_get_functiondef('smarter_private.lightning_room_leave_control(uuid,uuid,boolean)'::regprocedure)) > 0)
 BEGIN;
 SET LOCAL lock_timeout = '1s';
 
@@ -39,16 +39,16 @@ END
 $$;
 REVOKE ALL ON FUNCTION smarter_private.lightning_room_leave_control(uuid,uuid,boolean) FROM PUBLIC,anon,authenticated;
 
-CREATE FUNCTION public.fn_lightning_stop_playing(p_cluster_id uuid, p_pool_session_id uuid)
+CREATE FUNCTION public.fn_lightning_stop_room_playing(p_cluster_id uuid, p_pool_session_id uuid)
 RETURNS jsonb LANGUAGE sql SECURITY DEFINER SET search_path TO 'public','pg_temp' AS $$
   SELECT smarter_private.lightning_room_leave_control(p_cluster_id,p_pool_session_id,false)
 $$;
-CREATE FUNCTION public.fn_lightning_resume_playing(p_cluster_id uuid, p_pool_session_id uuid)
+CREATE FUNCTION public.fn_lightning_resume_room_playing(p_cluster_id uuid, p_pool_session_id uuid)
 RETURNS jsonb LANGUAGE sql SECURITY DEFINER SET search_path TO 'public','pg_temp' AS $$
   SELECT smarter_private.lightning_room_leave_control(p_cluster_id,p_pool_session_id,true)
 $$;
-REVOKE ALL ON FUNCTION public.fn_lightning_stop_playing(uuid,uuid), public.fn_lightning_resume_playing(uuid,uuid) FROM PUBLIC,anon;
-GRANT EXECUTE ON FUNCTION public.fn_lightning_stop_playing(uuid,uuid), public.fn_lightning_resume_playing(uuid,uuid) TO authenticated;
+REVOKE ALL ON FUNCTION public.fn_lightning_stop_room_playing(uuid,uuid), public.fn_lightning_resume_room_playing(uuid,uuid) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.fn_lightning_stop_room_playing(uuid,uuid), public.fn_lightning_resume_room_playing(uuid,uuid) TO authenticated;
 -- A final hand can first put the player in profit after their stop. Until they
 -- confirm the blind-off, a voluntary stop must leave that decision open. The
 -- ordinary disconnect and RG exits retain their own confirmed-only rules.
