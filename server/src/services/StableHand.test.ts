@@ -37,6 +37,7 @@ import {
   isNightWindow,
   curvePctAt,
   hostSeatCeiling,
+  OCCUPANCY_CURVE_PCT,
   // bankroll
   isLicensed,
   buyInFor,
@@ -1111,9 +1112,10 @@ describe('the neediest band is one the host deals', () => {
 
 describe('October 26: cash activity is halved for every minute of the day', () => {
   it('preserves the old daily shape at half scale, including the night ceiling', () => {
-    // The 2026-11-14 taper: 22:00-01:00 read 37, 33, 28, 22 (were 38, 36, 35, 28).
+    // The 2026-11-14 taper: the 5-11 PM peak is unchanged (23:00 still 36); after
+    // it 00:00 and 01:00 read 29 and 22 (were 35 and 28), so 23:00-03:00 eases.
     const original = [
-      28, 22, 16, 10, 8, 7, 8, 9, 10, 14, 18, 22, 26, 28, 30, 33, 36, 38, 40, 40, 40, 39, 37, 33,
+      29, 22, 16, 10, 8, 7, 8, 9, 10, 14, 18, 22, 26, 28, 30, 33, 36, 38, 40, 40, 40, 39, 38, 36,
     ];
     for (const n of [0, 1, 17, 584, 1000]) {
       for (let h = 0; h < 24; h++)
@@ -1146,7 +1148,7 @@ describe('2026-11-14: the night is reached gradually, not dropped into', () => {
   const N = 1141;
   it('declines every quarter hour from 22:00 to 03:00 and never jumps', () => {
     const points: number[] = [];
-    for (const h of [22, 23, 0, 1, 2])
+    for (const h of [23, 0, 1, 2])
       for (const m of [0, 15, 30, 45]) points.push(occupancyTargetForHost(N, h, m).target);
     points.push(occupancyTargetForHost(N, 3, 0).target);
     for (let i = 1; i < points.length; i++) {
@@ -1168,9 +1170,17 @@ describe('2026-11-14: the night is reached gradually, not dropped into', () => {
     expect(hostSeatCeiling(100, 3, 0)).toBe(130);
     expect(hostSeatCeiling(100, 14, 30)).toBe(220);
   });
-  it('keeps the 5-11 PM peak', () => {
-    for (const h of [17, 18, 19, 20, 21])
-      expect(curvePctAt(h, 0)).toBeGreaterThanOrEqual(curvePctAt(16, 0));
-    expect(curvePctAt(22, 0)).toBeGreaterThan(curvePctAt(0, 0));
+  it('keeps the requested 5-11 PM peak exactly as it was', () => {
+    // Dan 2026-11-13: "MOST TABLES RUNNING FROM 5PM-11PM".
+    expect([17, 18, 19, 20, 21, 22, 23].map((h) => OCCUPANCY_CURVE_PCT[h])).toEqual([
+      38, 40, 40, 40, 39, 38, 36,
+    ]);
+    for (let h = 17; h <= 23; h++)
+      expect(curvePctAt(h, 0)).toBeGreaterThan(curvePctAt(16, 0) - 0.0001);
+  });
+  it('eases from 23:00 to the night by no more than 7 points an hour', () => {
+    const path = [23, 0, 1, 2, 3].map((h) => OCCUPANCY_CURVE_PCT[h]);
+    expect(path).toEqual([36, 29, 22, 16, 10]);
+    for (let i = 1; i < path.length; i++) expect(path[i - 1] - path[i]).toBeLessThanOrEqual(7);
   });
 });

@@ -166,6 +166,19 @@ describe('planFloor - occupancy', () => {
     expect(p.stand.some((s) => s.reason === 'occupancy_wind_down')).toBe(true);
   });
 
+  it('never winds down a table inside its human-departure dwell (Dan 2026-11-11)', () => {
+    const tables = [
+      ...Array.from({ length: 3 }, (_, i) => table({ tableId: `dwell${i}`, inHumanDwell: true })),
+      table({ tableId: 'free' }),
+    ];
+    const p = planFloor(
+      snap({ hosts: [{ hostId: MIDWAY_UNION_ID, n: 584, uniqueLive: 400, tables }] })
+    );
+    const wound = p.stand.filter((s) => s.reason === 'occupancy_wind_down').map((s) => s.tableId);
+    expect(wound.length).toBeGreaterThan(0);
+    expect(wound.every((id) => id === 'free')).toBe(true);
+  });
+
   it('reports the measured caps for both hosts', () => {
     const p = planFloor(
       snap({
