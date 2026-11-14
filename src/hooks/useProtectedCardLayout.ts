@@ -24,7 +24,7 @@ import {
 } from '../lib/protectedCardPlacement';
 import {
   assignProtectedWagers,
-  capAllInSlot,
+  capWagerSlot,
   firstWagerOnFelt,
   insideClassicGreen,
   greedyProtectedWagers,
@@ -257,7 +257,7 @@ export function useProtectedCardLayout(
           .filter((e) => e !== bet)
           .map((e) => e.getBoundingClientRect())
           .filter((r) => r.width && r.height);
-        const best = capAllInSlot(
+        const best = capWagerSlot(
           box,
           canvas,
           felt,
@@ -1660,6 +1660,39 @@ export function useProtectedCardLayout(
                       if (!obstacles.some((obstacle) => markerTouches(next, obstacle)))
                         clearOfTable.push(next);
                     }
+              }
+              // Top-cap contributions share the same narrow curved ownership
+              // lane as an all-in marker. The oval samples can miss that lane
+              // entirely when the neighbouring cap is empty and the amount is wide.
+              if (
+                ninePhoneFelt &&
+                !hasAllInMarker &&
+                bet.closest('.seat-wrapper--cap') &&
+                !clearOfTable.some(ownedBy)
+              ) {
+                const felt = scaler.querySelector('.table-surface')?.getBoundingClientRect();
+                if (felt) {
+                  const cap = capWagerSlot(
+                    box,
+                    canvas,
+                    felt,
+                    desired,
+                    playerCentres.filter((c) => Math.hypot(c.x - desired.x, c.y - desired.y) >= 1),
+                    obstacles,
+                    scale,
+                    classicGreen
+                  );
+                  if (cap && !obstacles.some((obstacle) => markerTouches(cap, obstacle))) {
+                    const candidate = {
+                      left: cap.left,
+                      top: cap.top,
+                      width: cap.width,
+                      height: cap.height,
+                      depth: 0,
+                    };
+                    clearOfTable.push(candidate);
+                  }
+                }
               }
               const nearest = [...clearOfTable].sort(byCost);
               const owned = nearest.filter(ownedBy);
