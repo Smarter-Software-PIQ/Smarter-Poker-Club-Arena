@@ -76,7 +76,7 @@ import {
   relayHorseDecisionJournalHealth,
 } from '../../services/HorseDecisionJournal.js';
 import { horseJournalJson } from '../../services/horseDecisionJournal/record.js';
-import { raiseHorseTelemetryGapAlert } from '../../services/horseTelemetryGapAlert.js';
+import { relayBrainTelemetryGapEvent } from '../../services/BrainTelemetryFlush.js';
 import { isHorseLifecycleRequest } from '../../services/horseDecisionJournal/lifecycle.js';
 import type { HorseDiscardExecutionObservation } from '../../services/horseDecisionJournal/discard.js';
 import {
@@ -1719,7 +1719,12 @@ export class LiveHorseDecisionWorkerClient {
       return ack;
     });
   }
-  private onMessage(message: HorseDecisionWorkerResponse | V31ControlAck): void {
+  private onMessage(
+    message:
+      | HorseDecisionWorkerResponse
+      | V31ControlAck
+      | { type: 'HORSE_TELEMETRY_GAP'; gap: unknown }
+  ): void {
     if (message?.type === 'V31_STORE_CONTROL_ACK') {
       this.v31Control?.receive(message);
       return;
@@ -1729,8 +1734,9 @@ export class LiveHorseDecisionWorkerClient {
       return;
     }
     if (message?.type === 'HORSE_TELEMETRY_GAP') {
-      // A telemetry batch the worker thread lost: raised here because this thread owns the alert journal.
-      void raiseHorseTelemetryGapAlert(message.gap);
+      // A worker thread's telemetry gap event. What is done with it is wired by the main process (index.ts),
+      // never imported here: this file is in the decision closure and the alert files must stay out of it.
+      relayBrainTelemetryGapEvent(message.gap);
       return;
     }
     const piggybackedDeltas = (message as { watchcounterDeltas?: HorseWatchcounterEntry[] })

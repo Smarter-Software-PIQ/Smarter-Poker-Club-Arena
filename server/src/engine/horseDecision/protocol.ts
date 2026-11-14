@@ -604,7 +604,6 @@ export type HorseDecisionWorkerResponse =
   | HorseDecisionWorkerCancelled
   | HorseDecisionWorkerError
   | WatchcounterDeltaWorkerMessage
-  | import('../../services/horseTelemetryGapAlert.js').HorseTelemetryGapMessage
   | { type: 'STOPPED' };
 
 /** Administrative control is separate from fenced action/FIFO request types. */

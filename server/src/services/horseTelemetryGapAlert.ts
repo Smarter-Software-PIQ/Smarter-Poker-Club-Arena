@@ -18,10 +18,23 @@
  * When a later day's alert of a kind is raised, the earlier days' alerts of that kind still firing in the journal
  * are resolved, so the journal's active list stays at one entry per kind.
  *
- * MAIN THREAD ONLY. The alert journal has one owner per process. A Horse decision worker thread never calls this:
- * it posts the gap to the main thread (worker.ts, HORSE_TELEMETRY_GAP) and client.ts calls it there.
+ * AN ALERT CLOSES ITSELF. The flush says 'written' when a batch is confirmed for a day (once per UTC day per
+ * thread, and once more after a loss it reported itself: BrainTelemetryFlush.ts, noteWritten). Every gap alert of
+ * an EARLIER day is then resolved: telemetry is flowing again. The alert's own day stays incomplete, and the
+ * resolution note says so. The open alerts are read from the alert journal, so a process started today closes
+ * what the process that stopped yesterday left open.
+ *
+ * MAIN THREAD ONLY, AND OUTSIDE THE DECISION CLOSURE. The alert journal has one owner per process. Nothing on the
+ * Horse decision path imports this file: index.ts injects handleHorseTelemetryGapEvent into the flush service
+ * (setBrainTelemetryGapSink), a worker thread posts its event to the main thread, and client.ts hands it to the
+ * same injected sink. HorseDecisionClosure.test.ts fails if an engine alert file enters the closure.
  */
-import { firingFingerprints, raiseEngineAlert, resolveEngineAlert } from './engineAlerts.js';
+import {
+  engineAlertDeliverySnapshot,
+  firingFingerprints,
+  raiseEngineAlert,
+  resolveEngineAlert,
+} from './engineAlerts.js';
 import type { EngineAlertInput } from './engineAlerts.js';
 
 export const HORSE_TELEMETRY_GAP_KINDS = [
@@ -47,9 +60,12 @@ export interface HorseTelemetryGap {
   intervalUncaptured?: boolean;
 }
 
-export interface HorseTelemetryGapMessage {
-  type: 'HORSE_TELEMETRY_GAP';
-  gap: HorseTelemetryGap;
+/** A batch was confirmed written for this UTC day: gap alerts of earlier days close. */
+export interface HorseTelemetryWritten {
+  kind: 'written';
+  day: string;
+  workerId: string;
+  thread: 'main' | 'worker';
 }
 
 const ALERT_NAME: Record<HorseTelemetryGapKind, string> = {
@@ -148,4 +164,48 @@ export async function raiseHorseTelemetryGapAlert(gap: unknown): Promise<void> {
   } catch {
     // An alarm never breaks the flush or the shutdown it reports on.
   }
+}
+
+/** A fingerprint that is never raised. Resolving a fingerprint that is not firing records nothing and sends
+ * nothing (engineAlertDelivery.ts, transition); it only makes the delivery read its journal. */
+const JOURNAL_LOAD_PROBE = `${HORSE_TELEMETRY_GAP_COMPONENT_PREFIX}journal-load`;
+
+/** Resolve every gap alert of a day earlier than `writtenDay`. Never throws. */
+export async function closeHorseTelemetryGapAlerts(writtenDay: string): Promise<void> {
+  try {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(writtenDay)) return;
+    // After a restart nothing may have read the journal yet, and yesterday's alert is only in the journal.
+    if (!engineAlertDeliverySnapshot().loaded)
+      await resolveEngineAlert(ALERT_NAME.rejected, JOURNAL_LOAD_PROBE);
+    const names = new Set(Object.values(ALERT_NAME));
+    for (const fingerprint of firingFingerprints()) {
+      const split = fingerprint.indexOf(':');
+      const alertname = fingerprint.slice(0, split);
+      const component = fingerprint.slice(split + 1);
+      if (!names.has(alertname) || !component.startsWith(HORSE_TELEMETRY_GAP_COMPONENT_PREFIX))
+        continue;
+      const day = component.slice(HORSE_TELEMETRY_GAP_COMPONENT_PREFIX.length);
+      // The same day never closes: a batch written today does not show today's loss is over.
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || day >= writtenDay) continue;
+      await resolveEngineAlert(
+        alertname,
+        component,
+        `Horse telemetry is being written again: a batch for ${writtenDay} was confirmed. ` +
+          `${day} stays incomplete; the counters lost that day are not recovered.`
+      );
+    }
+  } catch {
+    // An alarm never breaks the flush it reports on.
+  }
+}
+
+/** The one sink the main process injects into the flush service (index.ts). Validates everything it is given:
+ * an event can come from a worker thread. Never throws. */
+export async function handleHorseTelemetryGapEvent(event: unknown): Promise<void> {
+  const written = event as Partial<HorseTelemetryWritten> | null;
+  if (written !== null && typeof written === 'object' && written.kind === 'written') {
+    if (typeof written.day === 'string') await closeHorseTelemetryGapAlerts(written.day);
+    return;
+  }
+  await raiseHorseTelemetryGapAlert(event);
 }

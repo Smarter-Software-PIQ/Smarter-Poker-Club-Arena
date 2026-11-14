@@ -68,6 +68,7 @@ export class HorseBrainTelemetryPublisher {
   private queue: Pending[] = [];
   private inFlight: Promise<HorseBrainTelemetryPublishResult> | null = null;
   private dropped: HorseBrainTelemetryDrop | null = null;
+  private writtenDay: string | null = null;
   constructor(private readonly deps: Dependencies) {
     this.workerId = (deps.uuid ?? randomUUID)();
   }
@@ -102,6 +103,11 @@ export class HorseBrainTelemetryPublisher {
   /** The batch most recently dropped unwritten (results 'expired', 'rejected' and 'abandoned'). */
   lastDrop(): HorseBrainTelemetryDrop | null {
     return this.dropped;
+  }
+
+  /** The UTC day of the batch most recently confirmed written ('recorded' or 'replayed'). */
+  lastWrittenDay(): string | null {
+    return this.writtenDay;
   }
 
   private drop(): void {
@@ -222,6 +228,7 @@ export class HorseBrainTelemetryPublisher {
       throw Error('Horse telemetry batch acknowledgement invalid');
     }
     this.queue.shift();
+    this.writtenDay = pending.day;
     return ack.status as 'recorded' | 'replayed';
   }
 }

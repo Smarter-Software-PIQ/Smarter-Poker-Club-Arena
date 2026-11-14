@@ -1,39 +1,44 @@
 /**
- * A Horse decision worker thread's lost telemetry batch is alerted by the main thread (2026-11-14), and the
- * worker's shutdown series stays inside the engine's graceful deadline.
+ * A Horse decision worker thread's telemetry gap event reaches the sink the main process injects (2026-11-14),
+ * nothing on the decision path imports the engine alert module, and the worker's shutdown series stays inside
+ * the engine's graceful deadline.
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-const mocked = vi.hoisted(() => ({ raise: vi.fn() }));
-vi.mock('../../services/horseTelemetryGapAlert.js', () => ({
-  raiseHorseTelemetryGapAlert: mocked.raise,
-}));
 import { LiveHorseDecisionWorkerClient } from './client.js';
 import { HORSE_JOURNAL_STOP_TIMEOUT_MS } from '../../services/HorseDecisionJournal.js';
-import { BRAIN_TELEMETRY_SHUTDOWN_BUDGET_MS } from '../../services/BrainTelemetryFlush.js';
+import {
+  BRAIN_TELEMETRY_SHUTDOWN_BUDGET_MS,
+  setBrainTelemetryGapSink,
+} from '../../services/BrainTelemetryFlush.js';
 
 const source = (relative: string) =>
   readFileSync(fileURLToPath(new URL(relative, import.meta.url)), 'utf8');
 
-afterEach(() => mocked.raise.mockReset());
+afterEach(() => setBrainTelemetryGapSink(null));
+
+function clientWithFakeWorker() {
+  let onMessage: ((message: unknown) => void) | null = null;
+  const client = new LiveHorseDecisionWorkerClient({
+    workerFactory: () =>
+      ({
+        postMessage: () => undefined,
+        on: (event: string, handler: (message: unknown) => void) => {
+          if (event === 'message') onMessage = handler;
+        },
+        terminate: async () => 0,
+      }) as never,
+    maxInFlight: 1,
+  });
+  return { client, send: (message: unknown) => onMessage!(message) };
+}
 
 describe('worker telemetry gap relay', () => {
-  it('raises the alert on the main thread for a gap the worker posts, and does not treat it as a fault', async () => {
-    mocked.raise.mockResolvedValue(undefined);
-    let onMessage: ((message: unknown) => void) | null = null;
-    const posted: unknown[] = [];
-    const client = new LiveHorseDecisionWorkerClient({
-      workerFactory: () =>
-        ({
-          postMessage: (message: unknown) => posted.push(message),
-          on: (event: string, handler: (message: unknown) => void) => {
-            if (event === 'message') onMessage = handler;
-          },
-          terminate: async () => 0,
-        }) as never,
-      maxInFlight: 1,
-    });
+  it('hands a gap the worker posts to the sink the main process injected, and does not treat it as a fault', async () => {
+    const sink = vi.fn();
+    setBrainTelemetryGapSink(sink);
+    const { client, send } = clientWithFakeWorker();
     const gap = {
       kind: 'abandoned',
       batches: 1,
@@ -41,32 +46,58 @@ describe('worker telemetry gap relay', () => {
       workerId: 'worker-publisher-id',
       thread: 'worker',
     };
-    onMessage!({ type: 'HORSE_TELEMETRY_GAP', gap });
-    expect(mocked.raise).toHaveBeenCalledTimes(1);
-    expect(mocked.raise).toHaveBeenCalledWith(gap);
+    const written = { kind: 'written', day: '2026-11-15', workerId: 'w', thread: 'worker' };
+    send({ type: 'HORSE_TELEMETRY_GAP', gap });
+    send({ type: 'HORSE_TELEMETRY_GAP', gap: written });
+    expect(sink.mock.calls).toEqual([[gap], [written]]);
     expect(client.status().lastError).toBeNull();
     await client.stop().catch(() => undefined);
   });
 
-  it('gives the worker thread a sink that posts to the main thread before the runtime starts', () => {
-    const worker = source('./worker.ts');
-    const sink = worker.indexOf(
-      "setBrainTelemetryGapSink((gap) => port.postMessage({ type: 'HORSE_TELEMETRY_GAP', gap }));"
-    );
-    expect(sink).toBeGreaterThan(-1);
-    expect(sink).toBeLessThan(worker.indexOf('void runtime.start();'));
+  it('is harmless when the main process injected no sink, and when the sink throws', async () => {
+    const { client, send } = clientWithFakeWorker();
+    send({ type: 'HORSE_TELEMETRY_GAP', gap: { kind: 'rejected' } });
+    setBrainTelemetryGapSink(() => {
+      throw new Error('alert path down');
+    });
+    send({ type: 'HORSE_TELEMETRY_GAP', gap: { kind: 'rejected' } });
+    expect(client.status().lastError).toBeNull();
+    await client.stop().catch(() => undefined);
   });
 
-  it('never loads the engine alert module in the flush service a worker thread runs', () => {
-    const flush = source('../../services/BrainTelemetryFlush.ts');
-    // a static value import would open a second owner of the main thread's alert journal in every worker
-    expect(flush).not.toMatch(
-      /^import \{[^}]*\} from '\.\/(horseTelemetryGapAlert|engineAlerts)\.js';/m
+  it('the main process injects the engine alert handler before the telemetry flush starts', () => {
+    const index = source('../../index.ts');
+    const wire = index.indexOf(
+      'setBrainTelemetryGapSink((event) => void handleHorseTelemetryGapEvent(event));'
     );
-    expect(flush).toMatch(/^import type \{[^}]*\} from '\.\/horseTelemetryGapAlert\.js';/m);
-    expect(flush).toContain(
-      "else if (isMainThread)\n      void import('./horseTelemetryGapAlert.js')"
+    expect(wire).toBeGreaterThan(-1);
+    expect(index.indexOf('  startBrainTelemetryFlush();', wire)).toBeGreaterThan(wire);
+    expect(index.lastIndexOf('  startBrainTelemetryFlush();')).toBe(
+      index.indexOf('  startBrainTelemetryFlush();', wire)
     );
+  });
+
+  it('no file on the worker relay path loads the engine alert module', () => {
+    for (const file of [
+      '../../services/BrainTelemetryFlush.ts',
+      '../../services/HorseBrainTelemetryPublisher.ts',
+      './client.ts',
+      './worker.ts',
+      './workerRuntime.ts',
+      './protocol.ts',
+    ]) {
+      const text = source(file);
+      // a value import, a side-effect import or a dynamic import: each is a closure edge and a second journal owner
+      expect(text, file).not.toMatch(
+        /^import (?!type )[^;]*from '[^']*(horseTelemetryGapAlert|engineAlert[A-Za-z]*)\.js';/m
+      );
+      expect(text, file).not.toMatch(
+        /import\(\s*'[^']*(horseTelemetryGapAlert|engineAlert[A-Za-z]*)\.js'\s*\)\s*\.then/
+      );
+      expect(text, file).not.toMatch(
+        /await import\(\s*'[^']*(horseTelemetryGapAlert|engineAlert[A-Za-z]*)\.js'/
+      );
+    }
   });
 });
 

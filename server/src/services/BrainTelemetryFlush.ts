@@ -5,14 +5,19 @@
  * engine/BrainTelemetry.ts for what is being counted and why.
  */
 
-import { isMainThread } from 'node:worker_threads';
+import { isMainThread, parentPort } from 'node:worker_threads';
 import { supabase } from './supabase/client.js';
 import { reportError } from './errorReporter.js';
 import { HorseBrainTelemetryPublisher } from './HorseBrainTelemetryPublisher.js';
 import { resolveReleaseIdentity } from '../releaseIdentity.js';
-// Types only. This module also runs in every Horse decision worker thread, and a worker must never load the
-// engine alert module: it would open a second owner of the main thread's alert journal.
-import type { HorseTelemetryGap, HorseTelemetryGapKind } from './horseTelemetryGapAlert.js';
+// Types only, and it must stay so. This module is in the Horse decision closure (HorseDecisionClosure.ts) and runs
+// in every Horse decision worker thread: a value import here would put the engine alert files into the decision
+// digest and open a second owner of the main thread's alert journal.
+import type {
+  HorseTelemetryGap,
+  HorseTelemetryGapKind,
+  HorseTelemetryWritten,
+} from './horseTelemetryGapAlert.js';
 import {
   enableBrainTelemetry,
   drainFires,
@@ -38,41 +43,71 @@ const publisher = new HorseBrainTelemetryPublisher({
 });
 
 const THREAD = isMainThread ? 'main' : 'worker';
-let gapSink: ((gap: HorseTelemetryGap) => void) | null = null;
+let mainSink: ((event: unknown) => void) | null = null;
 
-/** A Horse decision worker thread hands its gaps to the main thread, which owns the engine alert journal
- * (horseDecision/worker.ts sets this to a post; horseDecision/client.ts raises the alert there). */
-export function setBrainTelemetryGapSink(sink: ((gap: HorseTelemetryGap) => void) | null): void {
-  gapSink = sink;
+/** The main process wires what happens to a telemetry gap event (index.ts: the engine alert path). This module is
+ * part of the Horse decision closure, so it never imports the alert module itself: the sink is injected, and
+ * without one an event is only what it already was, a counter and a log line. */
+export function setBrainTelemetryGapSink(sink: ((event: unknown) => void) | null): void {
+  mainSink = sink;
 }
 
+/** The engine alert journal has one owner, the main thread. A Horse decision worker thread posts its event to the
+ * main thread (horseDecision/client.ts hands it to relayBrainTelemetryGapEvent there); the main thread calls the
+ * injected sink. Never throws. */
+function deliver(event: unknown): void {
+  try {
+    if (!isMainThread) parentPort?.postMessage({ type: 'HORSE_TELEMETRY_GAP', gap: event });
+    else mainSink?.(event);
+  } catch {
+    // An alarm never breaks the flush or the shutdown it reports on.
+  }
+}
+
+/** Main thread: an event a worker thread posted. */
+export function relayBrainTelemetryGapEvent(event: unknown): void {
+  if (isMainThread) deliver(event);
+}
+
+// The day of this thread's last 'written' notice.
+let writtenNoticeDay: string | null = null;
+
 /** Every lost batch is alerted through the existing engine alert path (horseTelemetryGapAlert.ts), at most once
- * per kind per day. The main thread raises it itself; the alert module is loaded there only, on first use. Without
- * a sink a worker thread raises nothing: it must never write the main thread's journal. */
+ * per kind per day. */
 function reportGap(
   kind: HorseTelemetryGapKind,
   batches: number,
   day: string | undefined,
   shutdown?: { reason: string; intervalUncaptured: boolean }
 ): void {
-  try {
-    const gap: HorseTelemetryGap = {
-      kind,
-      batches,
-      day: day ?? new Date().toISOString().slice(0, 10),
-      workerId: publisher.publisherWorkerId(),
-      thread: THREAD,
-      ...(shutdown ? { reason: shutdown.reason } : {}),
-      ...(shutdown?.intervalUncaptured ? { intervalUncaptured: true } : {}),
-    };
-    if (gapSink) gapSink(gap);
-    else if (isMainThread)
-      void import('./horseTelemetryGapAlert.js')
-        .then((alerts) => alerts.raiseHorseTelemetryGapAlert(gap))
-        .catch(() => undefined);
-  } catch {
-    // An alarm never breaks the flush or the shutdown it reports on.
-  }
+  const gap: HorseTelemetryGap = {
+    kind,
+    batches,
+    day: day ?? new Date().toISOString().slice(0, 10),
+    workerId: publisher.publisherWorkerId(),
+    thread: THREAD,
+    ...(shutdown ? { reason: shutdown.reason } : {}),
+    ...(shutdown?.intervalUncaptured ? { intervalUncaptured: true } : {}),
+  };
+  deliver(gap);
+}
+
+/** AN ALERT CLOSES ITSELF. A batch confirmed written for a LATER day than an open alert's day proves telemetry is
+ * flowing again, and the main thread then resolves every gap alert of an earlier day. Said when the written day
+ * changes, so once per UTC day per thread and never on every flush. That is enough for every kind: batches are
+ * written oldest first, so a lost batch's day is never before this thread's last notice, and the first batch
+ * written for a later day than the loss is always a new day here. A process started today knows no notice at all,
+ * so its first written batch closes what a process that stopped yesterday left open. */
+function noteWritten(day: string | null): void {
+  if (day === null || day === writtenNoticeDay) return;
+  writtenNoticeDay = day;
+  const written: HorseTelemetryWritten = {
+    kind: 'written',
+    day,
+    workerId: publisher.publisherWorkerId(),
+    thread: THREAD,
+  };
+  deliver(written);
 }
 
 async function publishBatch(): Promise<
@@ -104,6 +139,7 @@ async function publishBatch(): Promise<
     );
     reportGap('expired', 1, publisher.lastDrop()?.day);
   }
+  if (result === 'recorded' || result === 'replayed') noteWritten(publisher.lastWrittenDay());
   return result;
 }
 
@@ -206,7 +242,8 @@ async function finishFlushes(generation: number, wasActive: boolean): Promise<vo
       if (result === 'recorded' || result === 'replayed') written++;
       else dropped++;
     }
-    if (publisher.pendingBatches() > 0) outcome = 'batch_bound';
+    // Exactly the bound written and nothing pending still leaves the last interval uncaptured: not a complete stop.
+    if (publisher.pendingBatches() > 0 || !captureStarted) outcome = 'batch_bound';
     reportUnwritten('batch bound');
   } finally {
     // SHUTDOWN EVIDENCE (2026-11-14). The fit of this stop inside the engine's 40,000 ms graceful deadline was

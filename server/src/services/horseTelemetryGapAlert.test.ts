@@ -7,9 +7,16 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { MemoryAlertJournal } from './engineAlertDelivery.js';
 import { emptyAlertJournal } from './engineAlertJournal.js';
-import { __setEngineAlertJournal, firingFingerprints } from './engineAlerts.js';
+import {
+  __setEngineAlertJournal,
+  engineAlertDeliverySnapshot,
+  firingFingerprints,
+  raiseEngineAlert,
+} from './engineAlerts.js';
 import {
   HORSE_TELEMETRY_GAP_KINDS,
+  closeHorseTelemetryGapAlerts,
+  handleHorseTelemetryGapEvent,
   horseTelemetryGapAlert,
   isHorseTelemetryGap,
   raiseHorseTelemetryGapAlert,
@@ -153,5 +160,108 @@ describe('Horse telemetry gap alerts', () => {
       save: async () => undefined,
     });
     await expect(raiseHorseTelemetryGapAlert(gap())).resolves.toBeUndefined();
+  });
+});
+
+describe('a Horse telemetry gap alert closes itself', () => {
+  const written = (day: string) => ({ kind: 'written', day, workerId: 'w', thread: 'worker' });
+
+  it('closes every kind of an earlier day on a written batch of a later day, and says the day stays incomplete', async () => {
+    for (const kind of HORSE_TELEMETRY_GAP_KINDS) await handleHorseTelemetryGapEvent(gap({ kind }));
+    await handleHorseTelemetryGapEvent(gap({ kind: 'expired', day: '2026-10-10' }));
+    expect(firingFingerprints()).toHaveLength(5);
+    await handleHorseTelemetryGapEvent(written('2026-11-15'));
+    expect(firingFingerprints()).toEqual([]);
+    const resolved = journal.state.pending.filter((event) => event.alert.status === 'resolved');
+    expect(resolved.map((event) => event.alert.fingerprint).sort()).toEqual([
+      'HorseTelemetryBatchAbandoned:horse-telemetry-2026-11-14',
+      'HorseTelemetryBatchExpired:horse-telemetry-2026-10-10',
+      'HorseTelemetryBatchExpired:horse-telemetry-2026-11-14',
+      'HorseTelemetryBatchRejected:horse-telemetry-2026-11-14',
+      'HorseTelemetryShutdownUnwritten:horse-telemetry-2026-11-14',
+    ]);
+    expect(
+      resolved.find((event) => event.alert.fingerprint.startsWith('HorseTelemetryBatchRejected'))!
+        .alert.annotations.summary
+    ).toBe(
+      'Horse telemetry is being written again: a batch for 2026-11-15 was confirmed. ' +
+        '2026-11-14 stays incomplete; the counters lost that day are not recovered.'
+    );
+  });
+
+  it('does not close an alert of the same day or of a later day', async () => {
+    await handleHorseTelemetryGapEvent(gap());
+    await handleHorseTelemetryGapEvent(gap({ kind: 'abandoned', day: '2026-11-15' }));
+    await handleHorseTelemetryGapEvent(written('2026-11-14'));
+    await handleHorseTelemetryGapEvent(written('2026-11-13'));
+    expect(firingFingerprints()).toEqual([
+      'HorseTelemetryBatchAbandoned:horse-telemetry-2026-11-15',
+      'HorseTelemetryBatchRejected:horse-telemetry-2026-11-14',
+    ]);
+    expect(events().filter((event) => event.status === 'resolved')).toEqual([]);
+  });
+
+  it('after a restart closes the alert the stopped process left in the journal, before anything else read it', async () => {
+    await handleHorseTelemetryGapEvent(
+      gap({ kind: 'shutdown_unwritten', batches: 2, thread: 'main', reason: 'time budget' })
+    );
+    // a new process: a new delivery over the same host journal, which nothing has loaded yet
+    const afterRestart = new MemoryAlertJournal(journal.state);
+    __setEngineAlertJournal(afterRestart);
+    expect(engineAlertDeliverySnapshot().loaded).toBe(false);
+    expect(firingFingerprints()).toEqual([]);
+    await handleHorseTelemetryGapEvent(written('2026-11-15'));
+    expect(firingFingerprints()).toEqual([]);
+    expect(afterRestart.state.active).toEqual([]);
+    expect(
+      afterRestart.state.pending.map((event) => [event.alert.status, event.alert.fingerprint])
+    ).toEqual([
+      ['firing', 'HorseTelemetryShutdownUnwritten:horse-telemetry-2026-11-14'],
+      ['resolved', 'HorseTelemetryShutdownUnwritten:horse-telemetry-2026-11-14'],
+    ]);
+  });
+
+  it('writes nothing and queues nothing when no gap alert is open, however often it is told', async () => {
+    let saves = 0;
+    const counting = new MemoryAlertJournal(emptyAlertJournal());
+    const save = counting.save.bind(counting);
+    counting.save = async (state) => {
+      saves++;
+      await save(state);
+    };
+    __setEngineAlertJournal(counting);
+    for (let i = 0; i < 5; i++) await handleHorseTelemetryGapEvent(written('2026-11-15'));
+    expect(saves).toBe(0);
+    expect(counting.state).toEqual(emptyAlertJournal());
+  });
+
+  it('never closes an alert that is not a telemetry gap alert', async () => {
+    await raiseEngineAlert({
+      alertname: 'HorseRiverValueLeak',
+      severity: 'warning',
+      component: 'horse-telemetry-2026-11-01',
+      summary: 'not ours',
+    });
+    await raiseEngineAlert({
+      alertname: 'HorseTelemetryBatchRejected',
+      severity: 'warning',
+      component: 'another-component',
+      summary: 'not ours either',
+    });
+    await handleHorseTelemetryGapEvent(written('2026-11-15'));
+    expect(firingFingerprints()).toEqual([
+      'HorseRiverValueLeak:horse-telemetry-2026-11-01',
+      'HorseTelemetryBatchRejected:another-component',
+    ]);
+  });
+
+  it('ignores a written notice without a valid day, and never throws', async () => {
+    await handleHorseTelemetryGapEvent(gap());
+    for (const bad of [{ kind: 'written' }, written('tomorrow'), written('2026-11-15T00:00:00Z')])
+      await expect(handleHorseTelemetryGapEvent(bad)).resolves.toBeUndefined();
+    await expect(closeHorseTelemetryGapAlerts('9999')).resolves.toBeUndefined();
+    expect(firingFingerprints()).toEqual([
+      'HorseTelemetryBatchRejected:horse-telemetry-2026-11-14',
+    ]);
   });
 });

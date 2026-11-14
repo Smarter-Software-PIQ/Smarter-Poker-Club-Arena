@@ -3,11 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mocked = vi.hoisted(() => ({ rpc: vi.fn(), report: vi.fn() }));
 vi.mock('./supabase/client.js', () => ({ supabase: { rpc: mocked.rpc } }));
 vi.mock('./errorReporter.js', () => ({ reportError: mocked.report }));
-// 2026-11-14: a lost batch is also handed to the engine alert path (BrainTelemetryFlush.gapsAndStopEvidence.test.ts
-// covers it). Kept out of this file so the alert system's own late log line cannot land in a later test's count.
-vi.mock('./horseTelemetryGapAlert.js', () => ({
-  raiseHorseTelemetryGapAlert: () => Promise.resolve(),
-}));
 const ack = (payload: string, status = 'recorded') => ({
   data: {
     version: 1,

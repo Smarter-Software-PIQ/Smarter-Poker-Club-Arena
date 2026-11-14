@@ -23,6 +23,15 @@
 -- same-day alert to the owner is the engine's (horseTelemetryGapAlert.ts);
 -- this is the audit's own record of it.
 --
+-- EXPIRED DROPS ARE DELIBERATELY NOT COUNTED HERE. The third drop counter,
+-- phase15_telemetry_batch_expired, is written on the day the writer refused
+-- a batch older than its 32-day receipt window. The day that lost counters
+-- is that batch's own day, more than 32 days before p_day, so adding it to
+-- this finding would call p_day incomplete when it is not, and the audit of
+-- the day that is incomplete ran a month earlier. The engine's alert
+-- (HorseTelemetryBatchExpired) names the affected day; this finding stays
+-- true to its title.
+--
 -- Two limits, stated in the finding itself:
 --  * the drop counter is written on the day of the DROP. A batch collected
 --    late one day and given up in the first hour of the next is counted on
@@ -38,12 +47,14 @@
 -- twice is a no-op. CREATE OR REPLACE keeps owner, SECURITY DEFINER,
 -- search_path and the ACL (postgres + service_role only).
 --
--- MEASURED: the patch was applied to the 20260904224836 + 20260906150532
--- definitions on a scratch PostgreSQL 17 cluster with a minimal
--- horse_brain_telemetry / horse_data_ledger: no drop counter - no finding;
--- rejected = 2 - one note naming 2 and 0; abandoned = 1 on another day - one
--- note for that day only; second run - unchanged (see the changelog
--- docs/changelog/2026-11-14-telemetry-gap-alerts-and-shutdown-evidence.md).
+-- MEASURED, AND KEPT: scripts/ci/test-horse-audit-incomplete-telemetry.py
+-- (run by scripts/ci/test-horse-daily-counts.py in the accounting_postgres
+-- job) builds the 20260904224836 + 20260906150532 definitions on a private
+-- PostgreSQL 17 cluster, applies this file and holds: no drop counter - no
+-- finding; rejected = 2 - one note naming 2 and 0; abandoned = 1 on another
+-- day - one note for that day only; expired alone - no finding; a second run
+-- - unchanged; owner, definer, search_path and ACL kept; a body without the
+-- anchor, or with two - refused and unchanged.
 --
 -- No table is read that the function did not already read
 -- (horse_brain_telemetry through fn_ledger_fires), no live table is touched,

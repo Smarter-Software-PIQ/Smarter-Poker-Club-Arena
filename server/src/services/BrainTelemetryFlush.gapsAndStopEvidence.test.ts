@@ -1,6 +1,7 @@
 /**
  * The real telemetry flush service (2026-11-14):
- *  1. every way a batch is lost hands one gap to the engine alert path, naming the day that batch belonged to;
+ *  1. every way a batch is lost hands one gap to the sink the main process injects (index.ts: the engine alert
+ *     path), naming the day that batch belonged to, and a later written day says so once, so the alert closes;
  *  2. the shutdown stop prints what it really took, wrote and left behind, and never runs past its budget plus one
  *     write timeout however slow the writer is.
  */
@@ -9,7 +10,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mocked = vi.hoisted(() => ({ rpc: vi.fn(), report: vi.fn(), raise: vi.fn() }));
 vi.mock('./supabase/client.js', () => ({ supabase: { rpc: mocked.rpc } }));
 vi.mock('./errorReporter.js', () => ({ reportError: mocked.report }));
-vi.mock('./horseTelemetryGapAlert.js', () => ({ raiseHorseTelemetryGapAlert: mocked.raise }));
 const ack = (payload: string) => ({
   data: {
     version: 1,
@@ -49,9 +49,15 @@ async function start() {
   const service = await import('./BrainTelemetryFlush.js');
   const telemetry = await import('../engine/BrainTelemetry.js');
   stop = service.stopBrainTelemetryFlush;
+  // what index.ts does in the main process, with a recorder in place of the alert handler
+  service.setBrainTelemetryGapSink(mocked.raise);
   service.startBrainTelemetryFlush();
   return { service, telemetry };
 }
+const events = () => mocked.raise.mock.calls.map((call) => call[0]);
+/** The losses handed to the sink, without the 'written' notices. */
+const gaps = () => events().filter((event) => event.kind !== 'written');
+const written = () => events().filter((event) => event.kind === 'written');
 /** A writer that answers after `ms`, or is cut off by the send's abort at the write timeout. */
 function slowWriter(ms: number) {
   mocked.rpc.mockImplementation((_name, args) => ({
@@ -92,14 +98,9 @@ describe('a lost Horse telemetry batch is handed to the engine alert path', () =
     }));
     telemetry.noteFire('lost_counter');
     await vi.advanceTimersByTimeAsync(60_000);
-    expect(mocked.raise).toHaveBeenCalledTimes(1);
-    expect(mocked.raise).toHaveBeenCalledWith({
-      kind,
-      batches: 1,
-      day: '2026-11-14',
-      workerId: workerIdOf(),
-      thread: 'main',
-    });
+    expect(gaps()).toEqual([
+      { kind, batches: 1, day: '2026-11-14', workerId: workerIdOf(), thread: 'main' },
+    ]);
     // the existing log line and counter are unchanged
     expect(mocked.report).toHaveBeenCalledWith(expect.any(Error), `BrainTelemetryFlush.${kind}`);
   });
@@ -114,14 +115,9 @@ describe('a lost Horse telemetry batch is handed to the engine alert path', () =
     telemetry.noteFire('stuck_counter');
     await vi.advanceTimersByTimeAsync(60_000 * HORSE_TELEMETRY_MAX_ATTEMPTS);
     expect(new Date().toISOString().slice(0, 10)).toBe('2026-11-15');
-    expect(mocked.raise).toHaveBeenCalledTimes(1);
-    expect(mocked.raise).toHaveBeenCalledWith({
-      kind: 'abandoned',
-      batches: 1,
-      day: '2026-11-14',
-      workerId: workerIdOf(),
-      thread: 'main',
-    });
+    expect(gaps()).toEqual([
+      { kind: 'abandoned', batches: 1, day: '2026-11-14', workerId: workerIdOf(), thread: 'main' },
+    ]);
   });
 
   it('hands every drop to the alert path; the alert system, not this service, keeps it to one a day', async () => {
@@ -131,11 +127,7 @@ describe('a lost Horse telemetry batch is handed to the engine alert path', () =
     }));
     telemetry.noteFire('lost_counter');
     await vi.advanceTimersByTimeAsync(60_000 * 3);
-    expect(mocked.raise.mock.calls.map((call) => call[0].kind)).toEqual([
-      'rejected',
-      'rejected',
-      'rejected',
-    ]);
+    expect(gaps().map((gap) => gap.kind)).toEqual(['rejected', 'rejected', 'rejected']);
   });
 
   it('raises nothing when every batch is written', async () => {
@@ -144,22 +136,35 @@ describe('a lost Horse telemetry batch is handed to the engine alert path', () =
     await vi.advanceTimersByTimeAsync(60_000);
     telemetry.noteFire('written_counter');
     await service.stopBrainTelemetryFlush();
-    expect(mocked.raise).not.toHaveBeenCalled();
+    expect(gaps()).toEqual([]);
   });
 
-  it('gives the gap to the sink a worker thread sets, and raises nothing itself', async () => {
+  it('is only a counter and a log line when the main process injected no sink', async () => {
     const { service, telemetry } = await start();
-    const posted: unknown[] = [];
-    service.setBrainTelemetryGapSink((gap) => posted.push(gap));
+    service.setBrainTelemetryGapSink(null);
     mocked.rpc.mockImplementationOnce(() => ({
       abortSignal: () => Promise.resolve(refusal('HORSE_FLUSH_DUPLICATE_FEATURE')),
     }));
     telemetry.noteFire('lost_counter');
-    await vi.advanceTimersByTimeAsync(60_000);
-    expect(posted).toEqual([
-      { kind: 'rejected', batches: 1, day: '2026-11-14', workerId: workerIdOf(), thread: 'main' },
+    await vi.advanceTimersByTimeAsync(60_000 * 2);
+    expect(events()).toEqual([]);
+    expect(mocked.report).toHaveBeenCalledWith(expect.any(Error), 'BrainTelemetryFlush.rejected');
+    expect(JSON.parse(mocked.rpc.mock.calls[1][1].p_payload).fires).toEqual([
+      { feature: 'phase15_telemetry_batch_rejected', fires: 1 },
     ]);
-    expect(mocked.raise).not.toHaveBeenCalled();
+  });
+
+  it('hands an event a worker thread posted to the same injected sink', async () => {
+    const { service } = await start();
+    const posted = {
+      kind: 'expired',
+      batches: 1,
+      day: '2026-10-01',
+      workerId: 'w',
+      thread: 'worker',
+    };
+    service.relayBrainTelemetryGapEvent(posted);
+    expect(events()).toEqual([posted]);
   });
 
   it('keeps flushing when the sink throws', async () => {
@@ -184,15 +189,16 @@ describe('a lost Horse telemetry batch is handed to the engine alert path', () =
     const stopping = service.stopBrainTelemetryFlush();
     await vi.advanceTimersByTimeAsync(30_000);
     await stopping;
-    expect(mocked.raise).toHaveBeenCalledTimes(1);
-    expect(mocked.raise).toHaveBeenCalledWith({
-      kind: 'shutdown_unwritten',
-      batches: service.brainTelemetryPendingBatches(),
-      day: '2026-11-14',
-      workerId: workerIdOf(),
-      thread: 'main',
-      reason: 'time budget',
-    });
+    expect(gaps()).toEqual([
+      {
+        kind: 'shutdown_unwritten',
+        batches: service.brainTelemetryPendingBatches(),
+        day: '2026-11-14',
+        workerId: workerIdOf(),
+        thread: 'main',
+        reason: 'time budget',
+      },
+    ]);
     expect(service.brainTelemetryPendingBatches()).toBeGreaterThan(0);
   });
 
@@ -209,15 +215,17 @@ describe('a lost Horse telemetry batch is handed to the engine alert path', () =
     // tick write 4.9 s, then stop writes at 4.9, 9.8 and 14.7 s: all four retained batches are written, and at
     // 19.6 s there is no time left to capture the counters behind them
     expect(service.brainTelemetryPendingBatches()).toBe(0);
-    expect(mocked.raise).toHaveBeenCalledWith({
-      kind: 'shutdown_unwritten',
-      batches: 0,
-      day: '2026-11-14',
-      workerId: workerIdOf(),
-      thread: 'main',
-      reason: 'time budget',
-      intervalUncaptured: true,
-    });
+    expect(gaps()).toEqual([
+      {
+        kind: 'shutdown_unwritten',
+        batches: 0,
+        day: '2026-11-14',
+        workerId: workerIdOf(),
+        thread: 'main',
+        reason: 'time budget',
+        intervalUncaptured: true,
+      },
+    ]);
     expect(mocked.report.mock.calls.at(-1)![0].message).toBe(
       'Horse telemetry: the last partial interval was not captured at shutdown (time budget)'
     );
@@ -229,7 +237,113 @@ describe('a lost Horse telemetry batch is handed to the engine alert path', () =
   });
 });
 
+describe('a written batch of a later day says so, so the alert closes itself', () => {
+  const notice = (day: string) => ({
+    kind: 'written',
+    day,
+    workerId: workerIdOf(),
+    thread: 'main',
+  });
+
+  it('says written once per UTC day, not on every flush', async () => {
+    const { telemetry } = await start();
+    for (let minute = 0; minute < 5; minute++) {
+      telemetry.noteFire('a_counter');
+      await vi.advanceTimersByTimeAsync(60_000);
+    }
+    expect(mocked.rpc).toHaveBeenCalledTimes(5);
+    expect(events()).toEqual([notice('2026-11-14')]);
+    // the next UTC day: one more
+    vi.setSystemTime(new Date('2026-11-15T00:00:30.000Z'));
+    for (let minute = 0; minute < 3; minute++) {
+      telemetry.noteFire('a_counter');
+      await vi.advanceTimersByTimeAsync(60_000);
+    }
+    expect(events()).toEqual([notice('2026-11-14'), notice('2026-11-15')]);
+  });
+
+  it('a process started today says written on its first batch, which closes what yesterday left open', async () => {
+    vi.setSystemTime(new Date('2026-11-15T03:00:00.000Z'));
+    const { telemetry } = await start(); // a fresh module: nothing remembered from the day before
+    telemetry.noteFire('first_counter_after_restart');
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(events()).toEqual([notice('2026-11-15')]);
+  });
+
+  it('does not say written again for a loss on the same day: today stays open until tomorrow', async () => {
+    const { telemetry } = await start();
+    telemetry.noteFire('a_counter');
+    await vi.advanceTimersByTimeAsync(60_000); // written notice for the 14th
+    mocked.rpc.mockImplementationOnce(() => ({
+      abortSignal: () => Promise.resolve(refusal('HORSE_FLUSH_INVALID_BOUNDS')),
+    }));
+    telemetry.noteFire('lost_counter');
+    await vi.advanceTimersByTimeAsync(60_000 * 3); // the loss, then two written batches the same day
+    expect(written()).toEqual([notice('2026-11-14')]);
+    expect(gaps().map((gap) => [gap.kind, gap.day])).toEqual([['rejected', '2026-11-14']]);
+    vi.setSystemTime(new Date('2026-11-15T00:00:30.000Z'));
+    telemetry.noteFire('a_counter');
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(written()).toEqual([notice('2026-11-14'), notice('2026-11-15')]);
+  });
+
+  it('an expired batch closes by the same rule: its day is before the day of the next written batch', async () => {
+    vi.setSystemTime(new Date('2026-11-13T23:58:30.000Z'));
+    const { telemetry } = await start();
+    mocked.rpc.mockImplementationOnce(() => ({
+      abortSignal: () => Promise.resolve(refusal('HORSE_FLUSH_EXPIRED')),
+    }));
+    telemetry.noteFire('old_counter');
+    await vi.advanceTimersByTimeAsync(60_000); // collected 23:59:30 on the 13th, refused as expired
+    await vi.advanceTimersByTimeAsync(60_000 * 2); // 00:00:30 and 00:01:30 on the 14th: written
+    expect(events().map((event) => [event.kind, event.day])).toEqual([
+      ['expired', '2026-11-13'],
+      ['written', '2026-11-14'],
+    ]);
+  });
+
+  it('says nothing when no batch is confirmed', async () => {
+    const { telemetry } = await start();
+    mocked.rpc.mockImplementation(() => ({
+      abortSignal: () => Promise.resolve({ data: null, error: { message: 'network' } }),
+    }));
+    telemetry.noteFire('stuck_counter');
+    await vi.advanceTimersByTimeAsync(60_000 * 5);
+    expect(events()).toEqual([]);
+  });
+});
+
 describe('the telemetry stop records how long it really took', () => {
+  it('calls a stop that wrote exactly the batch bound and never captured the last interval batch_bound, as its alert does', async () => {
+    const { service, telemetry } = await start();
+    const { BRAIN_TELEMETRY_SHUTDOWN_MAX_BATCHES: bound } = service;
+    // one capture that splits into bound + 1 batches by its latency rows (256 a batch)
+    for (let i = 0; i < 256 * (bound + 1); i++)
+      telemetry.noteDecisionMs(`scope_${String(i).padStart(5, '0')}`, 2);
+    await vi.advanceTimersByTimeAsync(60_000); // the tick writes the first; exactly `bound` stay retained
+    expect(service.brainTelemetryPendingBatches()).toBe(bound);
+    telemetry.noteFire('behind_the_retained_batches');
+    await service.stopBrainTelemetryFlush();
+    expect(service.brainTelemetryPendingBatches()).toBe(0);
+    expect(stopLine()).toMatchObject({
+      outcome: 'batch_bound',
+      batches_written: String(bound),
+      batches_unwritten: '0',
+      interval_captured: 'false',
+    });
+    expect(gaps()).toEqual([
+      {
+        kind: 'shutdown_unwritten',
+        batches: 0,
+        day: '2026-11-14',
+        workerId: workerIdOf(),
+        thread: 'main',
+        reason: 'batch bound',
+        intervalUncaptured: true,
+      },
+    ]);
+  });
+
   it('prints one line with the real duration and counts for a slow writer cut off by the budget', async () => {
     const { service, telemetry } = await start();
     fill(telemetry, 20_000); // 20,000 counters split into five batches of at most 4,096
@@ -269,7 +383,7 @@ describe('the telemetry stop records how long it really took', () => {
       batches_unwritten: '0',
       interval_captured: 'true',
     });
-    expect(mocked.raise).not.toHaveBeenCalled();
+    expect(gaps()).toEqual([]);
   });
 
   it('counts a batch dropped during the stop apart from the written ones', async () => {
