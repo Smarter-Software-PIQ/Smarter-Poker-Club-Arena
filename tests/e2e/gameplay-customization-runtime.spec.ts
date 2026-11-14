@@ -906,14 +906,14 @@ async function verifyPublishedLightning(
         },
       ]);
     }
-    if (path.endsWith('/fn_lightning_resume_playing')) {
+    if (path.endsWith('/fn_lightning_resume_room_playing')) {
       expect(request.postDataJSON()).toEqual({ p_cluster_id: cluster, p_pool_session_id: room });
       resumes++;
       if (resumes === 1)
         return route.fulfill({ status: 400, json: { code: 'PGRST202', message: 'No receipt' } });
       return fulfillJson(route, { ok: true, withdrawn: true });
     }
-    if (path.endsWith('/fn_lightning_stop_playing')) {
+    if (path.endsWith('/fn_lightning_stop_room_playing')) {
       expect(request.postDataJSON()).toEqual({ p_cluster_id: cluster, p_pool_session_id: room });
       stopRequests.push(
         await page.evaluate(() => ({
@@ -1438,7 +1438,10 @@ test.describe('published hero showdown celebrations', () => {
           // time the actual read RPC with the same disposable authenticated account.
           // A new, unfunded account has no pool session. The deployed database
           // must refuse both commands before calling either underlying mutation.
-          for (const rpc of ['fn_lightning_stop_playing', 'fn_lightning_resume_playing']) {
+          for (const rpc of [
+            'fn_lightning_stop_room_playing',
+            'fn_lightning_resume_room_playing',
+          ]) {
             const result = await account.client.rpc(rpc, {
               p_cluster_id: crypto.randomUUID(),
               p_pool_session_id: crypto.randomUUID(),

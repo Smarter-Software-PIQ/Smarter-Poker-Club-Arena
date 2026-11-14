@@ -12,7 +12,7 @@
  *
  * LIGHTNING PHASE 10 adds two more:
  *
- *   fn_lightning_stop_playing(p_cluster_id)  the responsible-gaming door: the
+ *   fn_lightning_stop_room_playing(p_cluster_id)  the responsible-gaming door: the
  *     caller stops after the current hand; the database ends the session
  *   fn_lightning_pool_status(p_cluster_id).auto_rebuy  LIGHTNING PHASE 12:
  *     the auto-rebuy status line (the operator's configuration and the
@@ -357,7 +357,7 @@ export async function fetchLightningRecentHands(
   return parseLightningRecentHands(data);
 }
 
-// ─── fn_lightning_stop_playing (LIGHTNING PHASE 10) ────────────────────────
+// ─── fn_lightning_stop_room_playing (LIGHTNING PHASE 10) ────────────────────────
 
 /**
  * PostgREST's "no such function": the Phase 10 migration has not landed yet.
@@ -411,7 +411,7 @@ export async function stopLightningPlaying(
   clusterId: string,
   poolSessionId: string
 ): Promise<LightningStopPlayingResult | null> {
-  const { data, error } = await supabase.rpc('fn_lightning_stop_playing', {
+  const { data, error } = await supabase.rpc('fn_lightning_stop_room_playing', {
     p_cluster_id: clusterId,
     p_pool_session_id: poolSessionId,
   });
@@ -438,14 +438,14 @@ export function parseLightningResumePlaying(raw: unknown): LightningResumePlayin
 
 /**
  * Dan 2026-11-12: a queued Leave Next Hand can be cancelled. Withdraws the
- * caller's own stop mark (fn_lightning_resume_playing) so they keep being
+ * caller's own stop mark (fn_lightning_resume_room_playing) so they keep being
  * dealt in. `null` means the function is not deployed yet.
  */
 export async function resumeLightningPlaying(
   clusterId: string,
   poolSessionId: string
 ): Promise<LightningResumePlayingResult | null> {
-  const { data, error } = await supabase.rpc('fn_lightning_resume_playing', {
+  const { data, error } = await supabase.rpc('fn_lightning_resume_room_playing', {
     p_cluster_id: clusterId,
     p_pool_session_id: poolSessionId,
   });

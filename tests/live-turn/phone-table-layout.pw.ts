@@ -1123,7 +1123,7 @@ test('Lightning leave requested before the dealt snapshot waits for the hand', a
   const engine = await openTable(page, scenario, true);
   try {
     let stops = 0;
-    await page.route('**/rpc/fn_lightning_stop_playing', (route) => {
+    await page.route('**/rpc/fn_lightning_stop_room_playing', (route) => {
       stops++;
       return route.fulfill({ json: { ok: true, in_hand: true, exited: false } });
     });
@@ -1341,7 +1341,7 @@ test('Lightning restores an unanswered Keep Playing request after a reload', asy
   let resumes = 0;
   const queueKey = 'ca:lightning-leave-after-hand:v1:' + PLAYER + ':' + ROOM;
   try {
-    await page.route('**/rpc/fn_lightning_stop_playing', (route) => {
+    await page.route('**/rpc/fn_lightning_stop_room_playing', (route) => {
       expect(route.request().postDataJSON()).toEqual({
         p_cluster_id: CLUSTER,
         p_pool_session_id: ROOM,
@@ -1349,7 +1349,7 @@ test('Lightning restores an unanswered Keep Playing request after a reload', asy
       stops++;
       return route.fulfill({ json: { ok: true, in_hand: true, exited: false } });
     });
-    await page.route('**/rpc/fn_lightning_resume_playing', (route) => {
+    await page.route('**/rpc/fn_lightning_resume_room_playing', (route) => {
       expect(route.request().postDataJSON()).toEqual({
         p_cluster_id: CLUSTER,
         p_pool_session_id: ROOM,
@@ -1397,10 +1397,10 @@ test('Lightning restores the newly owed final-hand choice after reload and Stay 
         ],
       })
     );
-    await page.route('**/rpc/fn_lightning_stop_playing', (route) =>
+    await page.route('**/rpc/fn_lightning_stop_room_playing', (route) =>
       route.fulfill({ json: { ok: true, in_hand: true, exited: false } })
     );
-    await page.route('**/rpc/fn_lightning_resume_playing', (route) => {
+    await page.route('**/rpc/fn_lightning_resume_room_playing', (route) => {
       expect(route.request().postDataJSON()).toEqual({
         p_cluster_id: CLUSTER,
         p_pool_session_id: ROOM,
