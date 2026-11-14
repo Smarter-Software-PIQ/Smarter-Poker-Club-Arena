@@ -1,0 +1,28 @@
+{
+  "frozenOn": "2026-11-13",
+  "frozenAtMain": "1c009e342544cd1bf157031cac990626b29ceacb",
+  "note": "The default-off Horse flags no league card switched on when ADefaultOffFlagHasALeagueCard.law.test.ts froze its lists. The law's lists must stay inside these and may only shrink. Never add a name: give the flag a card, or a refused matchup with its reason.",
+  "undealtWhenWritten": [
+    "v16Ratio",
+    "omahaPreflopCallWithActionBehind",
+    "vpipFloorDeepStackOff",
+    "styleValueBettorNotManiac",
+    "styleBigBetHonesty",
+    "styleRaiseRespect",
+    "styleTightReRaiserRespect",
+    "styleFoldRatePreRepair",
+    "styleValueExtraction",
+    "styleFoldBluff",
+    "readScopedShrink",
+    "nashPushFoldIcm",
+    "comboDrawPressure",
+    "riverBluffCheckRaise",
+    "riverPositionDefense"
+  ],
+  "undealtWhenWidened": [
+    "barrelContinuationOutlook",
+    "smallPotNearNutRiverValue",
+    "multiwayRiverBluffCheckRaise",
+    "v53PloTourneyIcm"
+  ]
+}
