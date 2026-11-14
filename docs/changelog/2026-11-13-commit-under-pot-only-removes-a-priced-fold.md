@@ -43,3 +43,9 @@ Declared before any result: 14 heads-up cells (25bb and 40bb; the horse mirror a
 opponents), 100,000 hands each, the new rule on against the flag off. The declaration and the results are in the
 heads-up audit evidence folder (evaluation/DECLARATION-HU-NLH-016.md, evaluation/RESULTS-HU-NLH-016.md). The
 default does not depend on the result.
+
+Result (all 56 jobs, rule applied as declared): FAIL. Three of 14 cells are below -2 standard errors: the
+every-button min-raiser at 25bb (-3.06 +/- 1.07 bb/100) and the calibrated field at 25bb (-0.18 +/- 0.06) and
+40bb (-0.29 +/- 0.11). Pooled horse mirror -0.10 +/- 0.14, pooled human field -0.36 +/- 0.24. The flag stays
+default OFF and is not a promotion candidate, priced or not. This change is the defect fix inside the off flag
+only.
