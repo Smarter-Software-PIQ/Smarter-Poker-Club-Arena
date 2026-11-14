@@ -242,6 +242,16 @@ it('moves no guarantee chips until registration, rebuys and the add-on have all 
       BB,
       `status, late_reg_levels, rebuy_levels, current_level, is_rebuy, guaranteed_prize, prize_pool, started_at|'RUNNING', 9, 12, 9, true, 1000, 600, now() - interval '2 hours'`
     );
+    // Level 8: registration is still open; the pool is open for that reason.
+    sql(`UPDATE tournaments SET current_level = 8 WHERE id='${BB}';`);
+    expect(one(`SELECT fn_tournament_late_registration_open('${BB}')`)).toBe('t');
+    const stillEntering = JSON.parse(
+      one(`SELECT fn_close_tournament_entry_window('${BB}', 'engine.test')`)
+    );
+    expect(stillEntering).toMatchObject({ ok: true, entry_closed: false });
+    expect(stillEntering.reason).toBeUndefined();
+    // Level 9: registration stops at its configured deadline.
+    sql(`UPDATE tournaments SET current_level = 9 WHERE id='${BB}';`);
     expect(one(`SELECT fn_tournament_late_registration_open('${BB}')`)).toBe('f');
     const deferred = JSON.parse(
       one(`SELECT fn_close_tournament_entry_window('${BB}', 'engine.test')`)
@@ -267,6 +277,17 @@ it('moves no guarantee chips until registration, rebuys and the add-on have all 
     expect(closed).toMatchObject({ ok: true, entry_closed: true, finalized: true, overlay: 400 });
     expect(legs(BB)).toBe(1);
     expect(Number(one(`SELECT prize_pool FROM tournaments WHERE id='${BB}'`))).toBe(1000);
+    // Retries, restarts and duplicate calls fund nothing a second time.
+    expect(JSON.parse(one(`SELECT fn_apply_prize_guarantee('${BB}', 'engine.test')`)).ok).toBe(
+      true
+    );
+    expect(
+      JSON.parse(one(`SELECT fn_close_tournament_entry_window('${BB}', 'engine.test')`)).ok
+    ).toBe(true);
+    expect(legs(BB)).toBe(1);
+    expect(Number(one(`SELECT prize_pool FROM tournaments WHERE id='${BB}'`))).toBe(1000);
+    // Once the pool is final, no rebuy is offered.
+    expect(JSON.parse(one(`SELECT fn_ca_tournament_rebuy_window('${BB}')`)).open).toBe(false);
 
     // 2. An add-on event ends at the actual add-on end, not before.
     const AO = 'a0000000-0000-0000-0000-000000000001';
@@ -275,6 +296,8 @@ it('moves no guarantee chips until registration, rebuys and the add-on have all 
       `status, late_reg_levels, rebuy_levels, current_level, is_rebuy, add_on_available, addon_period_triggered, addon_period_started_at, addon_period_ends_at, guaranteed_prize, prize_pool, started_at|'RUNNING', 10, 12, 10, true, true, true, now(), now() + interval '1 minute', 20000, 12000, now() - interval '2 hours'`
     );
     expect(one(`SELECT fn_ca_guarantee_entry_period_ended('${AO}')`)).toBe('f');
+    // Rebuys and late registration stay open through the actual add-on end.
+    expect(JSON.parse(one(`SELECT fn_ca_tournament_rebuy_window('${AO}')`)).open).toBe(true);
     expect(() => houseLeg(AO)).toThrow(/GUARANTEE_CHIPS_BEFORE_ENTRY_CLOSE/);
     expect(
       JSON.parse(one(`SELECT fn_apply_prize_guarantee('${AO}', 'engine.addon_period_end')`)).reason
@@ -344,6 +367,12 @@ it('moves no guarantee chips until registration, rebuys and the add-on have all 
         `SELECT amount FROM chip_ledger WHERE idempotency_key='tourney:${SW}:satellite_seat_overlay'`
       )
     ).toBe('90.00');
+    expect(Number(one(`SELECT prize_pool FROM tournaments WHERE id='${SW}'`))).toBe(150);
+    expect(JSON.parse(one(`SELECT fn_apply_prize_guarantee('${SW}', 'engine.test')`)).ok).toBe(
+      true
+    );
+    expect(one(`SELECT fn_ca_fund_satellite_seats_at_close_locked('${SW}')`)).toBe('0');
+    expect(legs(SW)).toBe(1);
     expect(Number(one(`SELECT prize_pool FROM tournaments WHERE id='${SW}'`))).toBe(150);
 
     const SN = 'f0000000-0000-0000-0000-000000000002';
