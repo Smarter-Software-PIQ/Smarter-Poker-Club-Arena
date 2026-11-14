@@ -30,7 +30,7 @@ export function useHeroHandCount(opts: {
   tableId: string | null | undefined;
   lightningClusterId: string | null | undefined;
   handNumber: number;
-  settledLightningHandId?: string | null;
+  settledLightningHandId?: string | number | null;
   lightningConnected?: boolean;
   onLightningAnchor?: (anchor: { room: string; tableId: string; occupancyId: string }) => void;
   engine:
@@ -41,9 +41,11 @@ export function useHeroHandCount(opts: {
         bigWinBb?: number | null;
       }
     | undefined;
-}): HandCount {
+}): HandCount & { retryRead?: () => void } {
   const { enabled, tableId, lightningClusterId, handNumber, engine } = opts;
   const [read, setRead] = useState<HandCount>(NONE);
+  const [unavailable, setUnavailable] = useState(false);
+  const [readVersion, setReadVersion] = useState(0);
   const anchorRef = useRef<{ room: string; cluster: string; table: string } | null>(null);
   const onLightningAnchor = opts.onLightningAnchor;
   const boundary = lightningClusterId ? opts.settledLightningHandId : handNumber;
@@ -60,11 +62,12 @@ export function useHeroHandCount(opts: {
   useEffect(() => {
     if (!enabled || !tableId || (useEngine && engineOwed !== null)) {
       setRead(NONE);
+      setUnavailable(false);
       return;
     }
     if (useEngine && pauseWatch.current?.possible !== true) return;
     let cancelled = false;
-    const refresh = async () => {
+    const refresh = async (retry = false): Promise<void> => {
       let target: string | null = tableId;
       if (lightningClusterId) {
         target =
@@ -92,9 +95,17 @@ export function useHeroHandCount(opts: {
           }
         }
       }
-      if (!target || cancelled) return;
-      const count = await readMyHandCount(target);
-      if (cancelled || !count) return;
+      if (cancelled) return;
+      const count = target ? await readMyHandCount(target) : null;
+      if (cancelled) return;
+      if (!count) {
+        if (lightningClusterId) {
+          if (!retry && connected) return refresh(true);
+          setUnavailable(true);
+        }
+        return;
+      }
+      setUnavailable(false);
       const watch = pauseWatch.current;
       if (useEngine && watch?.tableId === target)
         watch.possible = count.done !== true && (count.owed !== null || count.paused != null);
@@ -116,11 +127,15 @@ export function useHeroHandCount(opts: {
     lightningClusterId,
     boundary,
     connected,
+    readVersion,
     onLightningAnchor,
   ]);
 
   if (!enabled) return NONE;
-  if (!useEngine) return read;
+  if (!useEngine)
+    return lightningClusterId && unavailable
+      ? { ...read, retryRead: () => setReadVersion((version) => version + 1) }
+      : read;
   const owed = engineOwed;
   return {
     owed,
