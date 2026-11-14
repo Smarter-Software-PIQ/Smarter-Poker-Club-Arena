@@ -46,7 +46,11 @@ describe('heads-up rematch live certification', () => {
     });
     expect(config).not.toHaveProperty('id');
     const fromText = certificationConfig(
-      { ...template, blind_structure: '[{"level":1,"smallBlind":10,"bigBlind":20}]', payout_structure: '[{"place":1,"percentage":100}]' },
+      {
+        ...template,
+        blind_structure: '[{"level":1,"smallBlind":10,"bigBlind":20}]',
+        payout_structure: '[{"place":1,"percentage":100}]',
+      },
       'cert-club'
     );
     expect(Array.isArray(fromText.blind_structure)).toBe(true);
@@ -54,11 +58,19 @@ describe('heads-up rematch live certification', () => {
   });
 
   it('is UNKNOWN when gated, and fails on any failed case or unfinished cleanup', () => {
-    expect(verdict({ gate: { run: false, reason: 'closed' }, steps: [], cleanup: [] }).conclusion).toBe('unknown');
+    expect(
+      verdict({ gate: { run: false, reason: 'closed' }, steps: [], cleanup: [] }).conclusion
+    ).toBe('unknown');
     const ok = [{ name: 'a', ok: true }];
-    expect(verdict({ gate: { run: true }, steps: ok, cleanup: [{ step: 'x', ok: true }] }).conclusion).toBe('pass');
-    expect(verdict({ gate: { run: true }, steps: ok, cleanup: [{ step: 'x', ok: false }] }).conclusion).toBe('fail');
-    expect(verdict({ gate: { run: true }, steps: [{ name: 'a', ok: false }], cleanup: [] }).conclusion).toBe('fail');
+    expect(
+      verdict({ gate: { run: true }, steps: ok, cleanup: [{ step: 'x', ok: true }] }).conclusion
+    ).toBe('pass');
+    expect(
+      verdict({ gate: { run: true }, steps: ok, cleanup: [{ step: 'x', ok: false }] }).conclusion
+    ).toBe('fail');
+    expect(
+      verdict({ gate: { run: true }, steps: [{ name: 'a', ok: false }], cleanup: [] }).conclusion
+    ).toBe('fail');
     expect(verdict({ gate: { run: true }, steps: [], cleanup: [] }).conclusion).toBe('fail');
   });
 
@@ -75,7 +87,9 @@ describe('heads-up rematch live certification', () => {
 
   it('the account sweep recognizes its club by the same prefix and never offers it to a welcome door', () => {
     const account = readFileSync('scripts/ci/production-e2e-account.mjs', 'utf8');
-    expect(account).toContain(`export const HEADS_UP_CLUB_NAME_PREFIX = '${HEADS_UP_CERT_CLUB_NAME_PREFIX}';`);
+    expect(account).toContain(
+      `export const HEADS_UP_CLUB_NAME_PREFIX = '${HEADS_UP_CERT_CLUB_NAME_PREFIX}';`
+    );
     expect(account).toMatch(/CERTIFICATION_CLUB_NAME_PREFIXES = \[[^\]]*HEADS_UP_CLUB_NAME_PREFIX/);
     expect(account).toContain('Refusing to retire heads-up rematch certification club');
     const script = readFileSync('scripts/ci/certify-heads-up-rematch.mjs', 'utf8');
@@ -83,7 +97,11 @@ describe('heads-up rematch live certification', () => {
   });
 
   it('a stranded club is settled only when it is an active Cert HU club with every game ended', async () => {
-    const environment = { SUPABASE_URL: 'https://db.example', SUPABASE_SERVICE_ROLE_KEY: 'k', VITE_SUPABASE_ANON_KEY: 'a' };
+    const environment = {
+      SUPABASE_URL: 'https://db.example',
+      SUPABASE_SERVICE_ROLE_KEY: 'k',
+      VITE_SUPABASE_ANON_KEY: 'a',
+    };
     const writes: string[] = [];
     const respond = (games: Array<{ id: string; status: string }>, name = 'Cert HU 12345678') =>
       (async (url: string, init?: { method?: string }) => {
@@ -95,9 +113,20 @@ describe('heads-up rematch live certification', () => {
             : url.includes('/rest/v1/tournament_players?') && url.includes('tournament_id=eq.g')
               ? [{ user_id: 'player' }]
               : [];
-        return { ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body) };
+        return {
+          ok: true,
+          status: 200,
+          json: async () => body,
+          text: async () => JSON.stringify(body),
+        };
       }) as unknown as typeof fetch;
-    const args = { environment, clubId: 'club', ownerId: 'owner', isReserved: () => true, log: () => {} };
+    const args = {
+      environment,
+      clubId: 'club',
+      ownerId: 'owner',
+      isReserved: () => true,
+      log: () => {},
+    };
     await expect(
       settleStrandedHeadsUpClub({ ...args, fetchImpl: respond([{ id: 'g', status: 'RUNNING' }]) })
     ).rejects.toThrow('1 game(s) have not ended yet');
@@ -109,17 +138,23 @@ describe('heads-up rematch live certification', () => {
 
   it('creates nothing while its club could not be retired afterwards', async () => {
     const mod = await import('../../scripts/ci/certify-heads-up-rematch.mjs');
-    expect(mod.CERTIFICATION_CLUB_CAN_RETIRE).toBe(false);
-    expect(mod.CERTIFICATION_CLUB_RETIREMENT_BLOCKER).toMatch(/no door retires a certification club/);
+    expect(await mod.certificationClubCanRetire(async () => ({ available: true }))).toBe(true);
+    expect(await mod.certificationClubCanRetire(async () => ({ code: 'PGRST202' }))).toBe(false);
     const script = readFileSync('scripts/ci/certify-heads-up-rematch.mjs', 'utf8');
-    expect(script.indexOf('!CERTIFICATION_CLUB_CAN_RETIRE')).toBeLessThan(script.indexOf('createProductionE2EAccount({'));
+    expect(script.indexOf('await certificationClubCanRetire(svcRpc)')).toBeLessThan(
+      script.indexOf('createProductionE2EAccount({')
+    );
     expect(script).not.toContain("'fn_remove_first_club_welcome_games'");
   });
 
   it('watches each table only after the engine starts it, and reconnects on an error as well as a close', () => {
     const script = readFileSync('scripts/ci/certify-heads-up-rematch.mjs', 'utf8');
-    expect(script.indexOf('watch(S.source.tableId)')).toBeGreaterThan(script.indexOf("step('the engine started the first game'"));
-    expect(script.indexOf('watch(S.target.tableId)')).toBeGreaterThan(script.indexOf("step('the engine started the rematch'"));
+    expect(script.indexOf('watch(S.source.tableId)')).toBeGreaterThan(
+      script.indexOf("step('the engine started the first game'")
+    );
+    expect(script.indexOf('watch(S.target.tableId)')).toBeGreaterThan(
+      script.indexOf("step('the engine started the rematch'")
+    );
     expect(script).toContain('ws.onerror = () => retry(');
     expect(script).toContain('ws.onclose = (e) => retry(');
   });
