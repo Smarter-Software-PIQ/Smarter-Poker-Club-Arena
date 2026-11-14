@@ -212,6 +212,21 @@ def main():
         assert len(absent) == 1 and absent[0]['severity'] == 'warn', absent
         assert absent[0]['evidence']['days_since_last_heads_up_row'] == 11
 
+        # 7b. A REFUSED ROW IS NOT A CARD THAT RAN. A retired card
+        #     (hu_break_even_bluff) writes a refused, zero-hand row every
+        #     night; with only that row the card is still listed and the
+        #     absent flag still fires, on the age of the last MEASURED row.
+        league('2026-11-27', 'hu_break_even_bluff', 0, 0, 0, 'refused')
+        league('2026-11-27', 'human_field_six_max', 6000, 2.0, 0.7)
+        f = findings('2026-11-26')
+        summary = by_code(f, 'league_heads_up_summary')
+        assert len(summary) == 1 and summary[0]['evidence']['heads_up_cards'] == 1, summary
+        absent = by_code(f, 'league_heads_up_absent')
+        assert len(absent) == 1 and absent[0]['severity'] == 'warn', absent
+        assert absent[0]['evidence']['heads_up_cards_on_newest_run'] == 1
+        assert absent[0]['evidence']['measured_heads_up_cards_on_newest_run'] == 0
+        assert absent[0]['evidence']['last_heads_up_run_date'] == '2026-11-14'
+
         # 8. The league did not run for the night at all: the newest run is
         #    reported as what it is (not the audited night) AND the absent
         #    flag fires.

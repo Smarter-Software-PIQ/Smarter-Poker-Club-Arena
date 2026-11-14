@@ -78,3 +78,11 @@ Not applied to any database. The live `fn_run_horse_daily_audit` was not read
 for this change: the anchor is the line migrations 20261107140000 and
 20261110054654 both key on. If production does not carry that line exactly
 once the migration refuses and changes nothing.
+
+## Review change (REVIEW-HU-DAILY-AUDIT-6139a955, R1)
+
+A refused row is not a card that ran. The retired `hu_break_even_bluff` writes
+a refused, zero-hand row on every league run, which would have kept the
+"no heads-up card" flag and its seven-day warning silent for good. The flag and
+the last-run date now count only measured rows (not refused, hands above zero);
+refused rows are still listed. The test gains that case.

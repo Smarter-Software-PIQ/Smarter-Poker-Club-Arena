@@ -64,9 +64,10 @@ SET search_path TO 'public'
 AS $function$
 declare
   v_run date;                 -- the league run the audit's league loop reads
-  v_last date;                -- newest run that holds any heads-up card
+  v_last date;                -- newest run on which a heads-up card was MEASURED
   v_league_rows bigint := 0;  -- every card on v_run
-  v_n bigint := 0;            -- heads-up cards on v_run
+  v_n bigint := 0;            -- heads-up cards on v_run (refused ones included: they are listed)
+  v_m bigint := 0;            -- heads-up cards on v_run that were measured (not refused, hands > 0)
   v_cards jsonb := '[]'::jsonb;
   v_fresh boolean;
   v_findings jsonb := '[]'::jsonb;
@@ -78,13 +79,20 @@ begin
   select max(l.run_date) into v_last
     from public.horse_league_results l
    where l.run_date <= p_day + 1
-     and (left(l.matchup, 3) = 'hu_' or left(l.matchup, 9) = 'human_hu_');
+     and (left(l.matchup, 3) = 'hu_' or left(l.matchup, 9) = 'human_hu_')
+     -- A refused row is written every night for a retired card
+     -- (hu_break_even_bluff): it is not a heads-up card that ran.
+     and coalesce(l.status, 'measured') <> 'refused'
+     and coalesce(l.hands, 0) > 0;
 
   v_fresh := v_run is not null and v_run >= p_day;
 
   if v_run is not null then
     select count(*),
            count(*) filter (where x.heads_up),
+           count(*) filter (where x.heads_up
+                               and coalesce(x.status, 'measured') <> 'refused'
+                               and coalesce(x.hands, 0) > 0),
            coalesce(jsonb_agg(jsonb_build_object(
              'name', x.matchup,
              'hands', x.hands,
@@ -92,7 +100,7 @@ begin
              'stderr', x.stderr,
              'status', coalesce(x.status, 'measured')) order by x.matchup)
              filter (where x.heads_up), '[]'::jsonb)
-      into v_league_rows, v_n, v_cards
+      into v_league_rows, v_n, v_m, v_cards
       from (select l.matchup, l.hands, l.bb100, l.stderr, l.status,
                    (left(l.matchup, 3) = 'hu_' or left(l.matchup, 9) = 'human_hu_') as heads_up
               from public.horse_league_results l
@@ -114,7 +122,7 @@ begin
       'recommendation', 'One line per league card whose name starts with hu_ or human_hu_: name, hands, bb100, stderr, status. This is a report, not a verdict: a negative, refused or empty card is judged by the league findings above it. Compare each line with the same card on earlier days before reading a change as a regression.');
   end if;
 
-  if v_n = 0 or not v_fresh then
+  if v_m = 0 or not v_fresh then
     v_findings := v_findings || jsonb_build_object(
       'severity', case when v_last is not null and v_last >= p_day - 6 then 'info' else 'warn' end,
       'category', 'gto', 'code', 'league_heads_up_absent',
@@ -124,6 +132,7 @@ begin
         'newest_league_run', v_run,
         'league_rows_on_newest_run', v_league_rows,
         'heads_up_cards_on_newest_run', v_n,
+        'measured_heads_up_cards_on_newest_run', v_m,
         'last_heads_up_run_date', v_last,
         'days_since_last_heads_up_row', case when v_last is not null then p_day + 1 - v_last end),
       'recommendation', 'The league rotates its card, so one night without a heads-up card is expected now and then and is reported as info. It becomes warn when no heads-up card has produced a row for seven days: then check that the hu_ and human_hu_ cards are still on the league card and that the nightly window is long enough to reach them.');
