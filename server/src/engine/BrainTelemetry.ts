@@ -26,6 +26,8 @@
 
 const fires = new Map<string, number>();
 let enabled = false;
+/** The open per-decision fire scope, or null (withDecisionFireScope below). */
+let decisionScope: Set<string> | null = null;
 
 /** Armed once by the flush service at engine boot. */
 export function enableBrainTelemetry(): void {
@@ -64,6 +66,39 @@ export function withBrainTelemetrySuspended<T>(fn: () => T): T {
 export function noteFire(feature: string): void {
   if (!enabled) return;
   fires.set(feature, (fires.get(feature) ?? 0) + 1);
+  decisionScope?.add(feature);
+}
+
+/**
+ * PER-DECISION FIRE SCOPE (2026-11-14, per-Horse upgrade evidence).
+ *
+ * The counters above carry no Horse: a fire is a fleet total. While fn runs,
+ * every key noteFire counts is also collected here, so the one caller that
+ * knows whose decision this is (workerRuntime, FAST) can record which
+ * upgrades that Horse's decision exercised. Measurement only: nothing reads
+ * the set before the decision has been made.
+ *
+ * - Only counted fires are collected: a paused evaluation
+ *   (withBrainTelemetrySuspended) and a process with telemetry off add nothing.
+ * - SYNCHRONOUS fn only. The scope is a module variable, so it is correct only
+ *   while no other decision can run inside fn. The worker's FAST execution is
+ *   synchronous end to end and the worker runs one job per event-loop turn on
+ *   a single chain (workerRuntime.receive), so no second decision can
+ *   interleave. A fn that returned a promise would close the scope at its
+ *   first await and collect nothing after it.
+ * - Re-entrant: a nested call collects into its own set, restores the outer
+ *   one in a finally (also on a throw) and hands its keys to the outer scope.
+ */
+export function withDecisionFireScope<T>(fn: () => T): { value: T; fired: ReadonlySet<string> } {
+  const outer = decisionScope;
+  const fired = new Set<string>();
+  decisionScope = fired;
+  try {
+    return { value: fn(), fired };
+  } finally {
+    decisionScope = outer;
+    if (outer) for (const feature of fired) outer.add(feature);
+  }
 }
 
 /** True when the caller opted this decision into telemetry. */
