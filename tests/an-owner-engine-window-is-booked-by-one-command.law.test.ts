@@ -23,7 +23,7 @@ describe('an owner engine window is booked by one command', () => {
       timeout: CHILD_HANG_GUARD_MS,
     });
     expect(result.status, result.stdout + result.stderr).toBe(0);
-    expect(result.stderr).toMatch(/Ran 5 tests/);
+    expect(result.stderr).toMatch(/Ran 9 tests/);
     expect(result.stderr).not.toMatch(/skipped=/);
   }, 900_000);
 
