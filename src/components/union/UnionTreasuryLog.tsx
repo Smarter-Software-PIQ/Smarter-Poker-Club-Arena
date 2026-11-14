@@ -17,7 +17,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { reportError } from '../../utils/errorReporter';
 import { fmt } from '../../utils/format';
-import { exactChipFigure } from '../../utils/cashierAmount';
+import { chipCents, exactChipFigure } from '../../utils/cashierAmount';
 import { enumToTitleCase, titleCase } from '../../utils/titleCase';
 import { downloadCsv, toCsv } from '../../utils/downloadCsv';
 import { WalletDeskHeading, WalletDeskRow } from '../wallet/WalletDesk';
@@ -307,7 +307,7 @@ export function UnionTreasuryLog({
                 <span className="wdesk__sep">{`${fmt(Number(summary.today_out_count))} Outs`}</span>
               </>
             }
-            figure={exactChipFigure(todayIn - Number(summary.today_out))}
+            figure={exactChipFigure(chipCents(todayIn - Number(summary.today_out)))}
           />
           <WalletDeskRow
             name={
@@ -321,7 +321,7 @@ export function UnionTreasuryLog({
                 <span className="wdesk__sep wdesk__out">{`Out -${exactChipFigure(Number(summary.week_out))}`}</span>
               </>
             }
-            figure={exactChipFigure(Number(summary.week_in) - Number(summary.week_out))}
+            figure={exactChipFigure(chipCents(Number(summary.week_in) - Number(summary.week_out)))}
           />
           <WalletDeskRow
             name={
@@ -335,7 +335,9 @@ export function UnionTreasuryLog({
                 <span className="wdesk__sep wdesk__out">{`Out -${exactChipFigure(Number(summary.month_out))}`}</span>
               </>
             }
-            figure={exactChipFigure(Number(summary.month_in) - Number(summary.month_out))}
+            figure={exactChipFigure(
+              chipCents(Number(summary.month_in) - Number(summary.month_out))
+            )}
           />
         </div>
       )}

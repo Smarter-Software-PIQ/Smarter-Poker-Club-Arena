@@ -16,6 +16,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { compactChips } from '../../utils/format';
 import './SessionHistory.css';
+import { chipCents } from '../../utils/cashierAmount';
 
 interface SessionRecord {
   id: string;
@@ -272,7 +273,7 @@ const SessionHistory: React.FC<SessionHistoryProps> = ({ initialSessions, rangeL
                       <span className="detail-label">P/L Per Hand</span>
                       <span className="detail-value">
                         {session.handsPlayed > 0
-                          ? compactChips(session.profitLoss / session.handsPlayed)
+                          ? compactChips(chipCents(session.profitLoss / session.handsPlayed))
                           : '0'}
                       </span>
                     </div>

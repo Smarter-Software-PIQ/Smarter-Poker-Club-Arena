@@ -76,3 +76,29 @@ every digit a supported data source can hold") and
 for digit). Values PostgREST returns as JSON numbers are parsed by the browser
 before any formatter sees them; for those, the 15-digit bound applies at the
 read, far above every live value.
+
+## No noise guessing; decimal text on the Player Management read (follow-up)
+
+The 15-significant-digit number path could itself discard a meaningful digit,
+and it decided by appearance what counted as noise. Now:
+
+- A number prints the exact decimal it denotes (shortest round-trip form,
+  exponent expanded). Decimal text and bigints are copied digit for digit.
+- Client arithmetic applies the explicit chip rule, cents, before formatting:
+  `chipCents` / `sumChips` at every inline sum, difference or average passed to
+  a chip formatter (union treasury nets, wallet previews in the transfer and
+  union wallet modals, cashier previews, union buy-in, union treasury total,
+  agent commission total, tournament results, session profit per hand,
+  Lightning owed blinds). `exactChipFigure` (cashier amounts, all scale-2
+  sources) applies cents to numbers and prints text exactly.
+- Player Management's list reads `ca_club_members_period_summary` with
+  `net::text`, `fees::text` and `downline_fees::text`, and prints that text
+  (W/L, fees, downline fees and the fee tooltip). The numbers stay for sign and
+  sort.
+
+Still JSON numbers, so the read itself is exact only to 15 significant digits
+(every value up to 9,999,999,999,999.99 at cents): the Player Management wallet
+balance and member record (`ca_club_members_page`, `ca_club_member_win_loss`
+return jsonb, so a fix is a SQL change), the cashier roster wallets
+(`fn_club_cashier_members_page_v3`) and history rows (`fn_cashier_history_feed`).
+Live maxima: member wallet 19,392.60, agent wallet 209,693.62.

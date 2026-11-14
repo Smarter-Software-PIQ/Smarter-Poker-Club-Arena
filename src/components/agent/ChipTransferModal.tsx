@@ -65,6 +65,7 @@ import {
 } from '../../hooks/useRecipientWalletBalances';
 import './ChipTransferModal.css';
 import { reportError } from '../../utils/errorReporter';
+import { chipCents } from '../../utils/cashierAmount';
 
 interface Recipient {
   id: string;
@@ -916,7 +917,7 @@ export default function ChipTransferModal({
                   {/* An unread balance is Unknown, never a fabricated 0 -> 0. */}
                   {senderBalance === null
                     ? 'Unknown'
-                    : `${formatWalletChips(senderBalance)} → ${formatWalletChips(Math.max(0, senderBalance - parseFloat(amount)))}`}
+                    : `${formatWalletChips(senderBalance)} → ${formatWalletChips(chipCents(Math.max(0, senderBalance - parseFloat(amount))))}`}
                 </span>
               </div>
               <div className="preview-row">
@@ -926,7 +927,7 @@ export default function ChipTransferModal({
                 <span>
                   {destinationBalance === null
                     ? 'Unknown'
-                    : `${formatWalletChips(destinationBalance)} → ${formatWalletChips(destinationBalance + parseFloat(amount))}`}
+                    : `${formatWalletChips(destinationBalance)} → ${formatWalletChips(chipCents(destinationBalance + parseFloat(amount)))}`}
                 </span>
               </div>
             </div>

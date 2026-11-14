@@ -509,13 +509,26 @@ export const ordinal = (n: unknown): string => {
 export type FigureInput = number | string | bigint | null | undefined;
 
 /**
- * A double holds every decimal of up to 15 significant digits exactly; the
- * 16th and 17th digits are binary noise (0.1 + 0.2 = 0.30000000000000004).
- * A NUMBER input keeps all 15, wherever the decimal point is (0.000000001
- * stays itself). A STRING or BIGINT input is formatted digit for digit with
- * no limit at all, because it never passes through a double.
+ * A STRING or BIGINT figure is formatted digit for digit with no limit, because
+ * it never passes through a double: decimal text from the database is the
+ * authority and is preserved exactly. A NUMBER figure prints the exact decimal
+ * that number denotes (its shortest round-trip form, exponent expanded). The
+ * formatter never decides that a trailing digit is noise; a caller that did
+ * arithmetic applies its own explicit precision rule (for chips, cents via
+ * sumChips) before formatting.
  */
-export const NUMBER_SIGNIFICANT_DIGITS = 15;
+const plainNumberText = (value: number): string => {
+  const text = String(value);
+  const match = /^(-?)(\d+)(?:\.(\d+))?e([+-]\d+)$/.exec(text);
+  if (!match) return text;
+  const [, sign, int, frac = '', expText] = match;
+  const exp = Number(expText);
+  const digits = int + frac;
+  const point = int.length + exp;
+  if (point <= 0) return `${sign}0.${'0'.repeat(-point)}${digits}`;
+  if (point >= digits.length) return `${sign}${digits}${'0'.repeat(point - digits.length)}`;
+  return `${sign}${digits.slice(0, point)}.${digits.slice(point)}`;
+};
 
 const DECIMAL_TEXT = /^[-+]?(\d+(\.\d*)?|\.\d+)$/;
 
@@ -530,10 +543,7 @@ export function figureDigits(
     if (!DECIMAL_TEXT.test(text)) return null;
   } else if (typeof value === 'number') {
     if (!Number.isFinite(value)) return null;
-    text = Number(value.toPrecision(NUMBER_SIGNIFICANT_DIGITS)).toLocaleString('en-US', {
-      useGrouping: false,
-      maximumFractionDigits: 20,
-    });
+    text = plainNumberText(value);
   } else return null;
   const negative = text.startsWith('-');
   const [rawWhole = '', rawFraction = ''] = text.replace(/^[-+]/, '').split('.');

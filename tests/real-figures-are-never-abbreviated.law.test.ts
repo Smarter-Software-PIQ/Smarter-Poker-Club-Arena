@@ -25,6 +25,7 @@ import {
 } from '../src/utils/format';
 import { formatWeeklyChipsForDisplay } from '../src/services/ClubWeeklyAccountingReader';
 import { tournamentTabBuyInLabel } from '../src/lib/tournamentTabLabel';
+import { chipCents, sumChips } from '../src/utils/cashierAmount';
 
 const ROOT = join(__dirname, '..');
 
@@ -60,7 +61,6 @@ describe('real figures are never abbreviated', () => {
     expect(exactChips(-12345.6789)).toBe('-12,345.6789');
     expect(exactChips(1234567.5)).toBe('1,234,567.50');
     expect(exactChips(9_999_999_999.99)).toBe('9,999,999,999.99');
-    expect(exactChips(0.1 + 0.2)).toBe('0.30'); // float noise is not data
     expect(exactChips(0)).toBe('0');
     expect(exactChips(-0)).toBe('0');
     expect(winLossChips(0.125)).toBe('+0.125');
@@ -80,8 +80,8 @@ describe('real figures are never abbreviated', () => {
   it('keeps every digit a supported data source can hold', () => {
     // numeric(20,2) columns (wallet balances, jackpot payouts) and 792
     // unconstrained numeric columns reach these formatters. A string or bigint
-    // is copied digit for digit; a number keeps all 15 significant digits a
-    // double holds exactly, wherever the decimal point falls.
+    // is copied digit for digit; a number prints the exact decimal it denotes,
+    // and client arithmetic rounds to cents (chipCents / sumChips) before printing.
     const max20 = '999999999999999999.99';
     expect(exactChips(max20)).toBe('999,999,999,999,999,999.99');
     expect(feeFigure(max20)).toBe('999,999,999,999,999,999.99');
@@ -94,9 +94,15 @@ describe('real figures are never abbreviated', () => {
     expect(exactChips('-0.00')).toBe('0');
     expect(exactChips('1.2K')).toBe('0'); // not a figure: never parsed as one
     expect(exactChips(0.000000001)).toBe('0.000000001'); // past the old 8-place cap
-    expect(exactChips(123456789012.345)).toBe('123,456,789,012.345'); // 15 significant
-    expect(exactChips(90071992547409.91)).toBe('90,071,992,547,409.90'); // 16th digit is beyond a double
-    expect(formatWalletChips(0.1 + 0.2)).toBe('0.30'); // binary noise is not a stored digit
+    expect(exactChips(123456789012.345)).toBe('123,456,789,012.345');
+    // A number prints the exact decimal it denotes; nothing is judged noise.
+    expect(exactChips(1234567890.1234567)).toBe('1,234,567,890.1234567');
+    expect(exactChips(1e21)).toBe('1,000,000,000,000,000,000,000');
+    expect(exactChips(1.5e-12)).toBe('0.0000000000015');
+    expect(formatWalletChips(0.1 + 0.2)).toBe('0.30000000000000004');
+    // Client arithmetic applies the explicit chip rule (cents) first.
+    expect(formatWalletChips(chipCents(0.1 + 0.2))).toBe('0.30');
+    expect(formatWalletChips(sumChips([0.1, 0.2]))).toBe('0.30');
   });
 
   it('no source file builds a K / M / B suffix from a divided figure', () => {
