@@ -287,6 +287,7 @@ export const ArenaLobbyGameCard = memo(function ArenaLobbyGameCard({
       data-live={entry.live ? 'true' : 'false'}
       data-players={entry.players}
       data-capacity={entry.capacity}
+      data-table-capacity={entry.kind === 'cash' ? entry.raw.max_players : undefined}
       data-target={entry.game ? 'game' : 'table'}
       data-warm-table={entry.kind === 'cash' ? entry.id : undefined}
       onPointerEnter={() => {
