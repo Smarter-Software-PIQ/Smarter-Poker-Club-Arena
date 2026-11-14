@@ -256,6 +256,8 @@ class BookOwnerEngineWindow(unittest.TestCase):
             (dict(predecessor='A1' * 20), None, r'--predecessor must be a 40-hex'),
             (dict(contains='c3' * 19), None, r'--contains must be a 40-hex'),
             (dict(window_id='2026-11-20 owner;test'), None, r'--window-id must be lowercase'),
+            # The runtime floor refuses ids longer than 64 characters, so the command does too.
+            (dict(window_id='2026-11-20-owner-test-engine-0606z-' + 'x' * 30), None, r'--window-id must be lowercase'),
             (dict(not_before='2026-11-20T06:06:00+00:00'), None, r'--not-before must be UTC ISO'),
             (dict(), order_text(A['predecessor']).replace('twenty minutes', '20 minutes'), r"lacks required text.*'twenty minutes'"),
             (dict(), order_text(A['predecessor']).replace('not extended', 'kept'), r"lacks required text.*'not extended'"),
@@ -264,6 +266,38 @@ class BookOwnerEngineWindow(unittest.TestCase):
         for changes, order, pattern in refusals:
             with self.subTest(pattern=pattern):
                 self.assert_refused(self.book(A, order=order, **changes), pattern, before)
+
+    def test_a_write_that_fails_part_way_restores_every_file(self):
+        # Run the command in process and make the third rename into place fail
+        # after two files were already replaced: every original must come back.
+        import importlib.util
+        from unittest import mock
+        before = self.snapshot()
+        tag = A['window_id']
+        self.book(A, dry_run=True)
+        spec = importlib.util.spec_from_file_location('book_window_under_test', SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        real, calls = os.replace, []
+
+        def flaky(src, dst):
+            calls.append(dst)
+            if len(calls) == 3:
+                raise OSError(28, 'No space left on device')
+            return real(src, dst)
+
+        argv = ['--repo', str(self.repo), '--window-id', tag, '--predecessor', A['predecessor'],
+                '--contains', A['contains'], '--notice-at', A['notice_at'], '--not-before', A['not_before'],
+                '--not-after', A['not_after'], '--slug', A['slug'],
+                '--owner-order-file', str(self.inputs / f'{tag}-order.txt'),
+                '--summary-file', str(self.inputs / f'{tag}-summary.txt'),
+                '--changelog-file', str(self.inputs / f'{tag}-changelog.txt')]
+        with mock.patch.object(module.os, 'replace', flaky):
+            status = module.main(argv)
+        self.assertEqual(status, 2)
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(sorted(p.name for p in self.repo.rglob('*.booking-tmp')), [])
 
     def test_refuses_when_an_expected_occurrence_count_is_wrong(self):
         current = self.constant('NOV7_OWNER_ID', FLOOR_PY)

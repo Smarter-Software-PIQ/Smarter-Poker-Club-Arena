@@ -26,6 +26,7 @@ import argparse
 import ast
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -52,7 +53,9 @@ LAWS = (FLOOR_LAW, DAILY_LAW, NOTICE_LAW)
 CHICAGO = ZoneInfo('America/Chicago')
 ISO_Z = re.compile(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z')
 SHA = re.compile(r'[0-9a-f]{40}')
-WINDOW_ID = re.compile(r'[a-z0-9][a-z0-9-]{0,78}[a-z0-9]')
+# At most 64 characters: the runtime floor refuses longer ids
+# (server/scripts/engine-release-activation-floor.py owner window identity).
+WINDOW_ID = re.compile(r'[a-z0-9][a-z0-9-]{0,62}[a-z0-9]')
 SLUG = re.compile(r'[a-z0-9][a-z0-9-]*[a-z0-9]')
 MIN_NOTICE_LEAD = 20 * 60
 BAND = (330, 2940)          # admitted announcement second-of-hour (:05:30 to :49:00)
@@ -624,10 +627,29 @@ class Booking:
         return '\n'.join(lines)
 
     def write(self):
-        for path, text in self.files.items():
-            target = self.repo / path
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(text.encode('utf-8'))
+        # All or nothing on disk too: stage every file beside its target, then
+        # rename each into place; any failure restores what was replaced and
+        # removes what was created, so a refused write leaves the tree as it was.
+        staged, done = [], []
+        try:
+            for path, text in self.files.items():
+                target = self.repo / path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                temp = target.with_name(target.name + '.booking-tmp')
+                temp.write_bytes(text.encode('utf-8'))
+                staged.append((temp, target, target.read_bytes() if target.exists() else None))
+            for temp, target, original in staged:
+                os.replace(temp, target)
+                done.append((target, original))
+        except OSError as error:
+            for target, original in reversed(done):
+                if original is None:
+                    target.unlink(missing_ok=True)
+                else:
+                    target.write_bytes(original)
+            for temp, _target, _original in staged:
+                temp.unlink(missing_ok=True)
+            raise Refusal(f'could not write the booking ({error}); every file was restored') from error
 
 
 def run_floor_suite(repo):
@@ -678,7 +700,11 @@ def main(argv=None):
     if args.dry_run:
         print('DRY RUN: nothing written.')
         return 0
-    booking.write()
+    try:
+        booking.write()
+    except Refusal as refusal:
+        print(f'REFUSED, nothing written: {refusal}', file=sys.stderr)
+        return 2
     print(f'written. Running {FLOOR_SUITE} ...', flush=True)
     passed, output = run_floor_suite(booking.repo)
     print('\n'.join(output.rstrip('\n').split('\n')[-12 if passed else -200:]))
