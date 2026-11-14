@@ -58,6 +58,8 @@ export interface TournamentLobbyModalProps {
   /** The table this popup is open over. See TournamentDetails `currentTableId`. */
   currentTableId?: string;
   onClose: () => void;
+  /** Open this tab (a new `seq` re-applies it). See TournamentDetails. */
+  requestedTab?: { tab: string; seq: number };
 }
 
 const stopTouch = (e: TouchEvent) => e.stopPropagation();
@@ -67,6 +69,7 @@ export function TournamentLobbyModal({
   tournamentId,
   currentTableId,
   onClose,
+  requestedTab,
 }: TournamentLobbyModalProps) {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const restoreFocusTo = useRef<HTMLElement | null>(null);
@@ -206,6 +209,7 @@ export function TournamentLobbyModal({
             suppressAutoOpenTable
             onClose={onClose}
             currentTableId={currentTableId}
+            requestedTab={requestedTab}
           />
         </div>
       </div>
