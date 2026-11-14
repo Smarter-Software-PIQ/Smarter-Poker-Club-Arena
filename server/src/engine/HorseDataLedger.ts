@@ -1293,6 +1293,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HuBbPrice'
   ),
   flag(
+    'huOpenerDefendsToPrice',
+    "2026-11-14 default OFF (HU-NLH-010): heads-up no-limit hold'em cash, exactly two dealt in, the small blind that made the only open and faces exactly one 3-bet of 1.8x-7x that is not all in, 20-150bb effective, calls a hand its bars fold when the class's all-in equity against the 3-bettor's range (equity table HorseHuBbDefence.HU_BB_EQUITY read as a linear range: the opponent read's re-raise share when engaged and 20% or wider, else the 20% reference, the narrowest column; a read narrower than 20% has no column and the fold stays), times a 0.85 in-position realisation, covers the rake-aware pot odds, under the same stack cap as the existing call; measured before (heads-up audit, real HorseLogic.decide, mind off): the opener folded 81.0-92.2% of its opens to a 3-bet across 17-150bb and four sizings against a break-even of 62.5-66.7% (22-66, A2s-A9s, AJo, ATo, T9s, 98s folded in 20 of 20 seeds), 90.2% of 6,107 in play at 40bb, because two-handed tables never reach the V73 per-seat read (three or more dealt) and the general bar continues about the top tenth of all hands; widen-only and call-only (a fold becomes a call; no 4-bet, jam or sizing changes), three or more dealt, tournaments, Omaha, short deck, pot and fixed limit, straddles, bomb pots and all-in-or-fold unchanged; not proposed for activation (the owner's preflop range hold governs); league human_hu_opener_defends_vs_threebet_40bb; docs/changelog/2026-11-14-heads-up-opener-and-limper-defend-to-price.md",
+    'HuDefence'
+  ),
+  flag(
+    'huLimpDefendsToPrice',
+    "2026-11-14 default OFF (HU-NLH-011): heads-up no-limit hold'em cash, exactly two dealt in, the small blind that limped and faces exactly one raise to 6bb or less that is not all in, 20-150bb effective, calls the limp its bars fold when the class's all-in equity against the raiser's range (HorseHuBbDefence.HU_BB_EQUITY read as a linear range at the 20% reference, the narrowest column, never widened by a read because no read measures a raise over a limp; an engaged raise read narrower than 20% has no column and the fold stays), times a 0.8 realisation, covers the rake-aware pot odds; measured before (heads-up audit, real HorseLogic.decide): the limp is 14-15% of cash deals to 50bb and folded 100% to a raise to 3bb, 4bb, 6bb or all in at every depth 17-150bb, 98.8% of 2,672 in play at 40bb, a min-raise laying 3:1 included, because the limp band sits below every call bar of the single-raise branch; the price decides, so the call thins as the raise grows (law sweep over all 169 classes at 40bb: 109 call a min-raise, 38 a raise to 2.5bb, 21 to 3bb, 3 to 4bb, none above 6bb) and most limps still fold to the 3.5-4.5bb raise the horses themselves make; widen-only and call-only (the limp itself, limp-raises and every existing call unchanged), three or more dealt, tournaments, Omaha, short deck, pot and fixed limit, straddles, bomb pots and all-in-or-fold unchanged; not proposed for activation (the owner's preflop range hold governs); league human_hu_limp_defends_vs_minraise_40bb; docs/changelog/2026-11-14-heads-up-opener-and-limper-defend-to-price.md",
+    'HuDefence'
+  ),
+  flag(
     'committedStackPricedIn',
     "2026-11-13 default OFF (study HVH2D-NLH-M-COMMIT and HVH2D-NLH-007a): no-limit hold'em tournament, Phase 6 multiway all-in branch (two opponents all in, or one all in plus a caller or a raise), the priced-in guard in decidePreflopV7 no longer stands aside for that branch when the price is 0.05 or better, when 2bb or less remain behind and either the hand clears 0.26 or the price is 0.12 or better with two opponents or fewer in the hand and no pay jump live (three ways the worst two cards hold about 0.12 against two tight ranges; with three or more opponents the 0.26 floor applies above the 0.05 token price), or when the hero has half or more of the stack it started the hand with in the pot and the hand clears 0.26 (v87PricedInMinStrength's tournament floor); a committed hand at 0.5 or better whose call is all in is priced in up to 0.18; with a pay jump live (hand for hand, near or one off the bubble in any field size, in the money, a satellite, or an unknown payout context) the rule makes no call that can bust the Horse: the 2bb clauses and the 0.18 all-in bar stand aside, and the half-stack clause acts only when the call leaves more than 2bb behind, so those spots decide as with the flag off above the 0.05 token price; two-card no-limit hold'em only: Omaha, short deck, fixed limit and pineapple decide as with the flag off; measured before (six development-packet spots rebuilt from stored hand facts with the live M state, HorseLogic.decide at a89093a1, 12 context variants x 12 seeds): 33, 77, A8s (31 chips into 6,062), A7o, QJs and J8o folded 144 of 144 each, the reference proposal itself, because line 'multiway_all_in return out' switched the guard off; with the flag on 33, 77, A8s, A7o and QJs continue and J8o (junk, arbiter prefers the fold) still folds; a fresh multiway decision, the deep-stack control, cash and every other node are unchanged and the tournament utility arbiter still runs after it; no league evidence for the rule as it stands (one seed of card mtt6_committed_stack_priced_in_4bb, +6.58 +/- 0.74 bb/100, predates the 0.26 floor and the price rule on the 2bb case); enabling it is a separate owner decision",
     'CommitPrice'
@@ -4854,6 +4864,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorsePreflop via HorseLogic (huBbDefendsToPrice)',
     'default-off huBbDefendsToPrice: heads-up big blind facing the only open called a hand the V11 heads-up bars folded, because its realised equity against the opener range covered the price',
     'HuBbPrice'
+  ),
+  receipt(
+    'hu_opener_defends_to_price',
+    'HorsePreflop via HorseLogic (huOpenerDefendsToPrice)',
+    'default-off huOpenerDefendsToPrice: the heads-up opener facing one 3-bet called a hand its bars folded, because its realised equity against the 3-bettor range covered the price',
+    'HuDefence'
+  ),
+  receipt(
+    'hu_limp_defends_to_price',
+    'HorsePreflop via HorseLogic (huLimpDefendsToPrice)',
+    'default-off huLimpDefendsToPrice: the heads-up small blind that limped and faced one raise called a hand its bars folded, because its realised equity against the raiser range covered the price',
+    'HuDefence'
   ),
   receipt(
     'nash_call_vs_jam',

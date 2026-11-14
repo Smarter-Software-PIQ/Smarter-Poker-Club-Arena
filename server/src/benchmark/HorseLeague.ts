@@ -2846,6 +2846,52 @@ export const HU_READS_OFF_CARDS: readonly LeagueMatchup[] = Object.freeze([
 LEAGUE_MATCHUPS.push(...HU_READS_OFF_CARDS);
 
 /**
+ * THE HEADS-UP DEFENCE CARDS (2026-11-14, HU-NLH-010 and HU-NLH-011). Two
+ * default-OFF options, one card each, heads-up 40bb with the live cash Hybrid
+ * persona and the deal-seeded mood clock, arm A the option on and arm B the
+ * live default:
+ *  - huOpenerDefendsToPrice against hu_three_bet_every_hand_v1, the persona
+ *    that re-raises every open, which is the line the opener's fold to a
+ *    3-bet pays.
+ *  - huLimpDefendsToPrice against hu_minraise_every_button_v1. No heads-up
+ *    persona raises every limp; each raises a limp with the wide profile's
+ *    top 35%, and this is the one whose raise is the minimum (to 2bb), the
+ *    raise a limp-folder gives the most to. The others raise to 3.75bb and
+ *    the horses to 3.5-4.5bb, where the price leaves almost nothing to call.
+ * The cards only measure. Both options stay default OFF and neither is
+ * proposed for activation: the owner's preflop range hold governs.
+ */
+export const HUMAN_HU_OPENER_DEFENDS_VS_THREEBET_40BB = `${HUMAN_FIELD_NAME_PREFIX}hu_opener_defends_vs_threebet_40bb`;
+export const HUMAN_HU_LIMP_DEFENDS_VS_MINRAISE_40BB = `${HUMAN_FIELD_NAME_PREFIX}hu_limp_defends_vs_minraise_40bb`;
+export const HU_DEFENCE_CARDS: readonly LeagueMatchup[] = Object.freeze([
+  {
+    name: HUMAN_HU_OPENER_DEFENDS_VS_THREEBET_40BB,
+    seats: 2,
+    stackBB: 40,
+    pairs: HUMAN_FIELD_PAIRS,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: { huOpenerDefendsToPrice: true },
+    b: {},
+    opponentPopulation: HUMAN_CALIBRATED_POPULATION_ID,
+    humanPersona: HU_THREE_BET_EVERY_HAND_PERSONA,
+  },
+  {
+    name: HUMAN_HU_LIMP_DEFENDS_VS_MINRAISE_40BB,
+    seats: 2,
+    stackBB: 40,
+    pairs: HUMAN_FIELD_PAIRS,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: { huLimpDefendsToPrice: true },
+    b: {},
+    opponentPopulation: HUMAN_CALIBRATED_POPULATION_ID,
+    humanPersona: HU_MINRAISE_EVERY_BUTTON_PERSONA,
+  },
+] satisfies LeagueMatchup[]);
+LEAGUE_MATCHUPS.push(...HU_DEFENCE_CARDS);
+
+/**
  * UNMEASURABLE MATCHUPS (2026-10-31). A matchup the league deliberately does
  * not deal, with the reason. Every run writes one `status = 'refused'` row per
  * entry (hands = 0) BEFORE the first hand, so the daily audit reads the
