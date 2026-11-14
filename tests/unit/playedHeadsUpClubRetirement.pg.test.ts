@@ -81,7 +81,7 @@ it('installs the qualified retirement and refuses a changed protected unwind', (
     const migration = readFileSync(
       resolve(
         root,
-        'supabase/migrations/20261114200423_played_heads_up_certification_clubs_retire_with_their_history.sql'
+        'supabase/migrations/20261114200423_retire_played_heads_up_certification_clubs.sql'
       ),
       'utf8'
     );
