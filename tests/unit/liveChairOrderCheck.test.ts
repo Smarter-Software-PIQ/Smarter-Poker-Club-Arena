@@ -98,3 +98,76 @@ it('live verification refuses action captions over cards or player plates', () =
   (seat.querySelector('.seat__action') as HTMLElement).dataset.box = '100,70,60,20';
   expect(read()).toEqual([]);
 });
+
+it('live verification refuses a caption behind the header', () => {
+  mount(RING);
+  (document.querySelector('.table-page') as HTMLElement).dataset.seats = '9';
+  vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList);
+  document.body.insertAdjacentHTML(
+    'afterbegin',
+    '<div class="multi-table-page__tab-bar-wrapper" data-box="0,0,600,80"></div>'
+  );
+  document.querySelector('.seat')!.innerHTML =
+    '<div class="seat__action" data-box="100,70,60,20">Fold</div>';
+  expect(readMobileTableLayout({}).violations).toContain(
+    'Action Caption Outside Playable Viewport'
+  );
+  (document.querySelector('.seat__action') as HTMLElement).dataset.box = '100,81,60,20';
+  expect(readMobileTableLayout({}).violations).not.toContain(
+    'Action Caption Outside Playable Viewport'
+  );
+});
+
+it.each(['away', 'sitting_out'])('live verification refuses clipped %s portraits', (status) => {
+  mount(RING);
+  vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList);
+  const seat = document.querySelector<HTMLElement>('.seat')!;
+  seat.classList.add(`seat--${status}`);
+  seat.style.cssText = 'opacity:0.55;filter:none';
+  seat.innerHTML =
+    '<div class="seat__avatar-wrap" style="opacity:1;filter:none"><div class="seat__avatar seat__avatar--bust" data-box="100,100,80,80" style="opacity:1;filter:grayscale(0.6)"></div></div>';
+  const violation = 'Inactive Portrait Has A Clipping Compositing Group';
+  expect(readMobileTableLayout({}).violations).toContain(violation);
+  seat.style.opacity = '1';
+  expect(readMobileTableLayout({}).violations).toContain(violation);
+  seat.querySelector<HTMLElement>('.seat__avatar')!.style.filter = 'none';
+  expect(readMobileTableLayout({}).violations).not.toContain(violation);
+});
+
+it.each(['winner', 'dim', 'winner-dim'])(
+  'live verification refuses clipped %s portraits',
+  (state) => {
+    mount(RING);
+    vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList);
+    const table = document.querySelector('.table-page')!;
+    const seat = document.querySelector<HTMLElement>('.seat')!;
+    const wrapper = seat.closest<HTMLElement>('.seat-wrapper')!;
+    table.classList.toggle('table-page--winner-flash', state.includes('winner'));
+    wrapper.classList.toggle('seat-wrapper--dim', state.includes('dim'));
+    wrapper.style.cssText = 'opacity:1;filter:none';
+    seat.style.cssText = 'opacity:1;filter:none';
+    seat.innerHTML =
+      '<div class="seat__avatar-wrap" style="opacity:1;filter:brightness(0.73)"><div class="seat__avatar seat__avatar--bust" data-box="100,100,80,80" style="opacity:1;filter:none"><img class="seat__avatar-img" style="filter:brightness(0.73) brightness(0.85) saturate(0.9);opacity:0.78"></div></div>';
+    const violation = 'Celebration Or Dim Portrait Has A Clipping Compositing Group';
+    expect(readMobileTableLayout({}).violations).toContain(violation);
+    seat.querySelector<HTMLElement>('.seat__avatar-wrap')!.style.filter = 'none';
+    seat.style.opacity = '0.78';
+    expect(readMobileTableLayout({}).violations).toContain(violation);
+    seat.style.opacity = '1';
+    expect(readMobileTableLayout({}).violations).not.toContain(violation);
+  }
+);
+
+it('live verification refuses folded seat opacity even when its avatar wrapper is clear', () => {
+  mount(RING);
+  vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList);
+  const seat = document.querySelector<HTMLElement>('.seat')!;
+  seat.classList.add('seat--folded');
+  seat.style.cssText = 'opacity:0.75;filter:none';
+  seat.innerHTML =
+    '<div class="seat__avatar-wrap" data-box="100,100,80,80" style="opacity:1;filter:none"><div class="seat__avatar seat__avatar--bust"><img style="opacity:0.4875;filter:brightness(0.73) brightness(0.8) saturate(0.55)"></div></div>';
+  const violation = 'Folded Portrait Has A Clipping Compositing Group';
+  expect(readMobileTableLayout({}).violations).toContain(violation);
+  seat.style.opacity = '1';
+  expect(readMobileTableLayout({}).violations).not.toContain(violation);
+});

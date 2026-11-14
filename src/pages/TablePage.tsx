@@ -8253,6 +8253,7 @@ function LiveTablePage({
     qualifyingHandLabel: string;
   } | null>(null);
   const [bbjCelebrationData, setBbjCelebrationData] = useState<{
+    chipDestination?: 'table' | 'wallet';
     totalPayout: number;
     loser: { userId: string; username: string; share: number; handName: string };
     winner: { userId: string; username: string; share: number; handName: string };
@@ -14786,6 +14787,7 @@ function LiveTablePage({
           const hitData = bbjHitDataRef.current;
 
           setBbjCelebrationData({
+            chipDestination: lightningRoomRef.current ? 'wallet' : 'table',
             totalPayout,
             loser: {
               userId: loserPayout?.userId || hitData?.loserUserId || '',

@@ -140,11 +140,16 @@ export const HORSE_UPGRADE_LIVE_EVIDENCE: Readonly<Record<string, readonly strin
     upgrade_08_side_games_integration: [
       '`upgrade08_rit_chooser_',
       '`upgrade08_rit_answer_',
+      "'upgrade08_insurance_offered_seen'",
       "'upgrade08_insurance_decline_seen'",
       "'upgrade08_insurance_accept_seen'",
       "'upgrade08_insurance_cashout_seen'",
       "'upgrade08_kill_pot_seen'",
+      "'upgrade08_kill_pot_orbit_seen'",
+      "'upgrade08_kill_pot_unopened_seen'",
       "'upgrade08_seven_deuce_seen'",
+      "'upgrade08_seven_deuce_overlay_seen'",
+      "'upgrade08_seven_deuce_bounty_seen'",
     ],
     upgrade_09_preaction_purge: [
       "'upgrade09_preaction_purge_table_seen'",

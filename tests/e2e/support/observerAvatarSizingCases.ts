@@ -18,10 +18,16 @@ export function registerObserverAvatarSizingCases() {
   ] as const)
     test(
       mobileArtwork
-        ? `fixed mobile avatar artwork: ${mobileArtwork.seats}-max ${mobileArtwork.cards}-card ${mobileArtwork.spectator === 'true' ? 'spectator' : 'seated'}${mobileArtwork.occupiedSeats ? ' heads-up' : ''}`
+        ? `fixed mobile avatar artwork: ${mobileArtwork.seats}-max ${mobileArtwork.cards}-card ${mobileArtwork.spectator === 'true' ? 'spectator' : 'seated'}${mobileArtwork.occupiedSeats ? ' heads-up' : ''}${'shortPhone' in mobileArtwork ? ' short physical phone' : ''}`
         : `spectators match avatar artwork and retain fixed chairs at ${width}px${emptyBottom ? ' with an empty bottom chair' : ''}`,
-      async ({ page }, testInfo) => {
+      async ({ page, browser }, testInfo) => {
         test.setTimeout(60_000);
+        const shortPhone = mobileArtwork && 'shortPhone' in mobileArtwork;
+        if (shortPhone)
+          page = await browser.newPage({
+            viewport: { width: 600, height: 1065 },
+            screen: { width: 320, height: 568 },
+          });
         const root = process.cwd();
         const built = buildSync({
           entryPoints: ['tests/e2e/support/portraitRailFixture.tsx'],
@@ -139,6 +145,7 @@ export function registerObserverAvatarSizingCases() {
             mobileArtwork
           );
           await page.screenshot({ path: testInfo.outputPath('fixed-mobile-artwork.png') });
+          if (shortPhone) await page.context().close();
           return;
         }
         await page.addScriptTag({
