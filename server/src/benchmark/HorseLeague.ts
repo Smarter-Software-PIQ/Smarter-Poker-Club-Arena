@@ -89,6 +89,7 @@ import {
   HU_LIMP_EVERY_BUTTON_PERSONA,
   HU_THREE_BET_EVERY_HAND_PERSONA,
   HU_SMALL_STAB_EVERY_STREET_PERSONA,
+  OMAHA_TIGHT_FIELD_PERSONA,
   HUMAN_FIELD_PERSONAS,
   type HumanFieldPersona,
 } from './HorseLeagueHumanField.js';
@@ -107,6 +108,7 @@ export {
   HU_LIMP_EVERY_BUTTON_PERSONA,
   HU_THREE_BET_EVERY_HAND_PERSONA,
   HU_SMALL_STAB_EVERY_STREET_PERSONA,
+  OMAHA_TIGHT_FIELD_PERSONA,
   HUMAN_FIELD_PERSONAS,
   type HumanFieldPersona,
 } from './HorseLeagueHumanField.js';
@@ -192,6 +194,13 @@ export interface LeagueResult {
   /** Human-field results only: the calibrated opponents' responses per
    *  decision node, both arms, counts only. Proof the field actually played. */
   humanResponses?: Record<string, Record<string, number>>;
+  /** 2026-11-13 (HU-EVAL-006): the standard error of bb100 from contiguous
+   *  blocks of pairs (blockStandardError), next to the per-pair `stderr`,
+   *  whose meaning is unchanged. Absent under two blocks and on results
+   *  assembled from components. */
+  blockStderr?: number;
+  /** The number of blocks blockStderr was computed from. */
+  stderrBlocks?: number;
 }
 
 export interface LeagueBenchmarkComponent {
@@ -431,17 +440,49 @@ export interface LeagueHandObserver {
  */
 export function leagueResultConfig(
   matchup: Pick<LeagueMatchup, 'a' | 'b' | 'opponentPopulation'> &
-    Partial<Pick<LeagueMatchup, 'humanPersona'>>,
+    Partial<Pick<LeagueMatchup, 'humanPersona' | 'memoryLearning'>>,
   arm: 'a' | 'b'
 ): Record<string, unknown> {
   const opts = matchup[arm] as Record<string, unknown>;
+  // 2026-11-13: a card dealt with memory learning off says so in its row. No
+  // card had the option before the reads-off cards, so no existing row changes.
+  const reads = matchup.memoryLearning ? { memoryLearning: matchup.memoryLearning } : {};
   return matchup.opponentPopulation
     ? {
         ...opts,
         opponentPopulation: matchup.opponentPopulation,
         ...(matchup.humanPersona ? { humanPersona: matchup.humanPersona } : {}),
+        ...reads,
       }
-    : opts;
+    : matchup.memoryLearning
+      ? { ...opts, ...reads }
+      : opts;
+}
+
+/** The scenario name of the block standard error component a nightly row stores. */
+export const LEAGUE_BLOCK_STDERR_SCENARIO = 'paired_difference_block_stderr';
+
+/**
+ * What the nightly runner stores in candidate_benchmark_components
+ * (2026-11-13, HU-EVAL-006): the result's own components, then, when the run
+ * was long enough to have one, the block standard error as one more entry.
+ * `stderr` (the column the pooled verdict, the audit and the tuner read)
+ * keeps its per-pair meaning; the block figure sits beside it in a column no
+ * consumer of a nightly card reads. bb100 and hands repeat the row's own.
+ */
+export function leagueStoredComponents(r: LeagueResult): unknown[] {
+  if (r.blockStderr === undefined || r.stderrBlocks === undefined) return r.benchmarkComponents;
+  return [
+    ...r.benchmarkComponents,
+    {
+      scenario: LEAGUE_BLOCK_STDERR_SCENARIO,
+      hands: r.hands,
+      bb100: r.bb100,
+      stderr: r.blockStderr,
+      blocks: r.stderrBlocks,
+      perPairStderr: r.stderr,
+    },
+  ];
 }
 
 export interface LeagueGameContext {
@@ -584,6 +625,83 @@ function nextHandTsBase(): number {
   return handTsCounter;
 }
 
+/**
+ * THE HAND CLOCK OF ONE DUPLICATE PAIR (2026-11-13, HU-EVAL-003/004). The
+ * timestamp base both passes of pair `pairIndex` of a run are dealt on: a
+ * function of the run seed and the pair, and of nothing else. The brain keys
+ * per-hand draws on the hand's first action timestamp (the persona
+ * indifference band and V48 chart adherence hash `timestamp:userId`), and the
+ * process-wide counter above handed every playHand call the next number in
+ * the process. So (a) the second card a worker ran was dealt on other
+ * timestamps than the same card run first, and gave another answer for the
+ * same seed (80bb heads-up mirror, 3,000 pairs, seed 20261112: -4.86 first,
+ * -8.10 second), and (b) the two passes of one pair never shared a
+ * timestamp, so two IDENTICAL arms drew different persona mixes and diverged
+ * (2 of 6,000 pairs against the limp persona).
+ *
+ * The run seed is folded in (its value modulo LEAGUE_HAND_CLOCK_SEED_SLOTS
+ * picks one of 4,096 disjoint bands) so the draws are not the same sample
+ * every night and on every card: the nightly seed carries the date and the
+ * card name, and a draw sample frozen across nights would be an error that
+ * pooling nights could never shrink. Same card and same seed: same clocks,
+ * whatever ran before. Inside a band the base is TS_STRIDE * (2p + 1), odd
+ * slots TS_STRIDE apart, so no two pairs of a run share a timestamp; the
+ * largest value is under 2^42. Each pass plays in its own HorseMind sandbox
+ * for the whole matchup, so the two passes sharing a hand key share no plan,
+ * outlook or seen-action state.
+ */
+export const LEAGUE_HAND_CLOCK_SEED_SLOTS = 4096;
+export const LEAGUE_HAND_CLOCK_MAX_PAIRS = 65_536;
+export function leaguePairHandClock(pairIndex: number, runSeed: number): number {
+  if (
+    !Number.isSafeInteger(pairIndex) ||
+    pairIndex < 0 ||
+    pairIndex >= LEAGUE_HAND_CLOCK_MAX_PAIRS
+  ) {
+    throw new Error(
+      `leaguePairHandClock: pair ${pairIndex} is outside 0..${LEAGUE_HAND_CLOCK_MAX_PAIRS - 1}`
+    );
+  }
+  const band = (runSeed >>> 0) % LEAGUE_HAND_CLOCK_SEED_SLOTS;
+  return 1 + TS_STRIDE * (band * 2 * LEAGUE_HAND_CLOCK_MAX_PAIRS + 2 * pairIndex + 1);
+}
+
+/** The blocks the block standard error (LeagueResult.blockStderr) aims for. */
+export const LEAGUE_STDERR_BLOCK_TARGET = 40;
+/** The fewest pairs a block may hold; a shorter run gets fewer blocks. */
+export const LEAGUE_STDERR_BLOCK_MIN_PAIRS = 25;
+
+/**
+ * BLOCK STANDARD ERROR (2026-11-13, HU-EVAL-006). The per-pair differences
+ * cut into equal contiguous blocks (LEAGUE_STDERR_BLOCK_TARGET of them when
+ * each can hold LEAGUE_STDERR_BLOCK_MIN_PAIRS pairs, fewer otherwise, a
+ * remainder of pairs at the end left out); the value is the sample standard
+ * deviation of the block means over sqrt(blocks), in the units of `values`.
+ * It does not assume neighbouring pairs are independent, which the per-pair
+ * figure does while each arm's memory persists across the matchup. It is an
+ * estimate from few blocks (about 11% relative noise at 40), and it cannot
+ * see a difference between whole runs. Null under two blocks.
+ */
+export function blockStandardError(
+  values: readonly number[]
+): { stderr: number; blocks: number; pairsPerBlock: number } | null {
+  const blocks = Math.min(
+    LEAGUE_STDERR_BLOCK_TARGET,
+    Math.floor(values.length / LEAGUE_STDERR_BLOCK_MIN_PAIRS)
+  );
+  if (blocks < 2) return null;
+  const pairsPerBlock = Math.floor(values.length / blocks);
+  const means: number[] = [];
+  for (let b = 0; b < blocks; b++) {
+    let sum = 0;
+    for (let k = 0; k < pairsPerBlock; k++) sum += values[b * pairsPerBlock + k];
+    means.push(sum / pairsPerBlock);
+  }
+  const mean = means.reduce((a, x) => a + x, 0) / blocks;
+  const variance = means.reduce((a, x) => a + (x - mean) * (x - mean), 0) / (blocks - 1);
+  return { stderr: Math.sqrt(variance / blocks), blocks, pairsPerBlock };
+}
+
 const FULL_DECK: Card[] = [];
 for (const suit of SUITS) for (const rank of RANKS) FULL_DECK.push({ rank, suit });
 
@@ -635,7 +753,10 @@ export function playHand(
    *  (LeagueMatchup.memoryLearning). Default true: the pre-existing path. */
   learn: boolean = true,
   /** 2026-11-07: read-only hand observer; absent on every existing path. */
-  observer?: LeagueHandObserver
+  observer?: LeagueHandObserver,
+  /** 2026-11-13: the timestamp base this hand is dealt on (leaguePairHandClock).
+   *  Absent: the next slot of the process-wide counter, as every direct caller. */
+  handClock?: number
 ): number[] {
   const SEATS = numSeats;
   if (humanField && !(leagueFieldVariants(humanField.population) ?? []).includes(gameVariant)) {
@@ -719,12 +840,16 @@ export function playHand(
   let minRaise = BB;
   let lastRaise = BB;
   const history: ActionRecord[] = [];
-  // V12.3: a per-call monotonic timestamp base. `handSeed >>> 1` collided
-  // across the two passes of a duplicate pair (same seed, same base), which
-  // made HorseMind.handKeyOf identical in both passes — config B then read
-  // config A's barrel plan, destroying the independence the duplicate design
-  // exists to provide. A process-wide counter cannot collide.
-  let ts = nextHandTsBase();
+  // The hand's timestamp base, which is also its HorseMind hand key. V12.3
+  // took it from a process-wide counter because `handSeed >>> 1` gave both
+  // passes of a duplicate pair one key while they shared HorseMind state, and
+  // config B read config A's barrel plan. 2026-11-13: the league runners now
+  // give both passes of a pair ONE key on purpose (leaguePairHandClock), so
+  // identical arms draw identical persona mixes; what keeps the arms apart is
+  // the per-pass sandbox (sb1 / sb2), which holds every plan, outlook and
+  // seen-action key. Do not "fix" the sharing. A direct caller that passes no
+  // clock still gets the counter.
+  let ts = handClock ?? nextHandTsBase();
 
   const live = () => seats.filter((s) => !s.player.is_folded);
   const canAct = () => seats.filter((s) => !s.player.is_folded && !s.player.is_all_in);
@@ -1425,6 +1550,8 @@ export async function runMatchup(
     if (p > 0 && (p & 0x0f) === 0) await new Promise((res) => setImmediate(res));
     const handSeed = (runSeed ^ (p * 2654435761)) >>> 0 || 1;
     const dealerSeat = (p % SEATS) + 1;
+    // Both passes of the pair are dealt on one hand clock (leaguePairHandClock).
+    const handClock = leaguePairHandClock(p, runSeed);
     const withEvidence = (opts: HorseDecideOpts): HorseDecideOpts => {
       if (!opts.gtoV31DatasetChecksum && !opts.onGtoV31Decision) return opts;
       return {
@@ -1487,7 +1614,9 @@ export async function runMatchup(
       modsEvenIsA,
       undefined,
       styleOf,
-      learn
+      learn,
+      undefined,
+      handClock
     );
     const net2 = playHand(
       handSeed,
@@ -1502,7 +1631,9 @@ export async function runMatchup(
       modsEvenIsB,
       undefined,
       styleOf,
-      learn
+      learn,
+      undefined,
+      handClock
     );
 
     let aNet = 0;
@@ -1529,6 +1660,7 @@ export async function runMatchup(
   // historical comparisons still hold — only the scale was wrong.
   const A_HANDS_PER_PAIR = (SEATS / 2) * 2;
   const stderr = (sd / Math.sqrt(Math.max(1, n)) / A_HANDS_PER_PAIR) * 100;
+  const block = blockStandardError(perPairDiff);
   return {
     matchup: matchup.name,
     hands: n * 2,
@@ -1547,6 +1679,9 @@ export async function runMatchup(
     benchmarkComponents: [],
     divergentPairs,
     inert: n > 0 && (divergentPairs === 0 || stderr === 0),
+    ...(block
+      ? { blockStderr: (block.stderr / A_HANDS_PER_PAIR) * 100, stderrBlocks: block.blocks }
+      : {}),
   };
 }
 
@@ -1575,6 +1710,28 @@ export function humanFieldPersonaProfile(
 ): Readonly<HumanCalibratedProfile> {
   if (!HUMAN_FIELD_PERSONAS.includes(persona)) {
     throw new Error(`Unknown human-field persona: ${String(persona)}`);
+  }
+  if (persona === OMAHA_TIGHT_FIELD_PERSONA) {
+    if (
+      table.population !== HUMAN_CALIBRATED_OMAHA_DEV_POPULATION_ID ||
+      !HUMAN_CALIBRATED_OMAHA_DEV_FIELD_VARIANTS.includes(table.variant)
+    ) {
+      throw new Error(
+        `${persona} is a persona of the ${HUMAN_CALIBRATED_OMAHA_DEV_POPULATION_ID} field; ` +
+          `refused for ${table.population} ${table.variant} at ${table.seats} seats`
+      );
+    }
+    const omaha = humanCalibratedProfileFor(table.variant);
+    return Object.freeze({
+      ...omaha,
+      id: `${omaha.id}-${persona}`,
+      preflop: Object.freeze({ ...omaha.preflop, freeRaise: 0.02 }),
+      cutoffs: Object.freeze({
+        ...(omaha.cutoffs ?? {}),
+        'preflop/unopened': { fold: 0.975, raise: 0.98 },
+        'preflop/facing_raise': { fold: 0.97, raise: 0.99 },
+      }),
+    });
   }
   if (
     table.population !== HUMAN_CALIBRATED_POPULATION_ID ||
@@ -1773,7 +1930,10 @@ async function runHumanFieldMatchup(
           () => mods,
           field,
           styleOf,
-          learn
+          learn,
+          undefined,
+          // Both passes of the pair are dealt on one hand clock.
+          leaguePairHandClock(p, runSeed)
         );
       const a = play(optsA, modsA, sb1)[HERO];
       const b = play(optsB, modsB, sb2)[HERO];
@@ -1795,6 +1955,7 @@ async function runHumanFieldMatchup(
   const diff = meanSe(perPairDiff);
   const durationMs = Date.now() - t0;
   const stderr = diff.se * 100;
+  const block = blockStandardError(perPairDiff);
   const component = (scenario: string, xs: number[]): LeagueBenchmarkComponent => {
     const s = meanSe(xs);
     return {
@@ -1833,6 +1994,7 @@ async function runHumanFieldMatchup(
     inert: n > 0 && (divergentPairs === 0 || stderr === 0),
     opponentPopulation: population,
     humanResponses: responses,
+    ...(block ? { blockStderr: block.stderr * 100, stderrBlocks: block.blocks } : {}),
   };
 }
 
@@ -1869,6 +2031,23 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     pairs: 6000,
     productionStyles: true,
     a: { omahaNeutralUnknown: true },
+    b: {},
+  })),
+  // 2026-11-13 OMAHA TIGHT OPPONENT (omahaTightOpponent, default OFF): a
+  // respects a proven tight raiser and steals wider from proven tight
+  // folders, b is today's brain. Against a Horse field the evidence standard
+  // is rarely met (Horses play inside their own envelope), so this card is
+  // expected to be near inert; the declared evaluation is in
+  // docs/changelog/2026-11-14-omaha-tight-opponent.md. Against a Horse field the evidence standard
+  // is almost never met (Horses play inside their own envelope), so this card
+  // is expected to be near inert; the declared evaluation is
+  // docs/changelog/2026-11-14-omaha-tight-opponent.md.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_tight_opponent`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaTightOpponent: true },
     b: {},
   })),
   // V15 BOATS (2026-09-28): default OFF. a turns it on, b is today's brain.
@@ -2684,6 +2863,54 @@ export const HU_EXPLOITER_CARDS: readonly LeagueMatchup[] = Object.freeze(
     ])
 );
 LEAGUE_MATCHUPS.push(...HU_EXPLOITER_CARDS);
+
+/**
+ * THE READS-OFF HEADS-UP CARDS (2026-11-13, HU-EVAL-014). Every heads-up card
+ * above plays one long session against one opponent with memory learning on,
+ * so it measures the steady state, where the live brain has already read an
+ * every-button min-raiser and the big blind folds 2.2% of the time; there
+ * huBbDefendsToPrice changes almost nothing. The 58.7% fold the flag was
+ * written for is the answer to an opponent the Horse has no read on: a new
+ * opponent, the first hands. No card measured that case.
+ *
+ * These two do: the same arms, 40bb, the live cash Hybrid persona and the
+ * deal-seeded mood clock, with memoryLearning 'off', so every opponent read
+ * stays at its empty prior for the whole card (the full brain still plays).
+ * One against the hu_minraise_every_button_v1 persona of the calibrated
+ * field, one horse against horse. Exploratory local runs read about +16 to
+ * +19 bb/100 against the min-raiser. The cards only measure: the flag stays
+ * default OFF, and no other card's arms, seed or deals change. Their stored
+ * config carries memoryLearning, so a row says its reads were off.
+ */
+export const HUMAN_HU_BB_DEFENDS_VS_MINRAISE_40BB_READS_OFF = `${HUMAN_FIELD_NAME_PREFIX}hu_bb_defends_vs_minraise_40bb_reads_off`;
+export const HU_BB_DEFENDS_TO_PRICE_40BB_READS_OFF = 'hu_bb_defends_to_price_40bb_reads_off';
+export const HU_READS_OFF_CARDS: readonly LeagueMatchup[] = Object.freeze([
+  {
+    name: HUMAN_HU_BB_DEFENDS_VS_MINRAISE_40BB_READS_OFF,
+    seats: 2,
+    stackBB: 40,
+    pairs: HUMAN_FIELD_PAIRS,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    memoryLearning: 'off',
+    a: { huBbDefendsToPrice: true },
+    b: {},
+    opponentPopulation: HUMAN_CALIBRATED_POPULATION_ID,
+    humanPersona: HU_MINRAISE_EVERY_BUTTON_PERSONA,
+  },
+  {
+    name: HU_BB_DEFENDS_TO_PRICE_40BB_READS_OFF,
+    seats: 2,
+    stackBB: 40,
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    memoryLearning: 'off',
+    a: { huBbDefendsToPrice: true },
+    b: {},
+  },
+] satisfies LeagueMatchup[]);
+LEAGUE_MATCHUPS.push(...HU_READS_OFF_CARDS);
 
 /**
  * UNMEASURABLE MATCHUPS (2026-10-31). A matchup the league deliberately does
@@ -3852,7 +4079,7 @@ export async function runLeague(
             candidate_policy_hits: r.candidatePolicyHits,
             candidate_execution_mismatches: r.candidateExecutionMismatches,
             candidate_node_roles: r.candidateNodeRoles,
-            candidate_benchmark_components: r.benchmarkComponents,
+            candidate_benchmark_components: leagueStoredComponents(r) as never,
           },
           { onConflict: 'run_date,matchup' }
         );

@@ -1915,7 +1915,7 @@ jobs:
           mkdir -p e2e-report
           PLAYWRIGHT_JSON_OUTPUT_NAME=e2e-report/cash-observation.json npx playwright test \
             tests/e2e/production-mobile-lobby-chrome.spec.ts \
-            --grep '^.*(View Game opens four spectator games while preserving the lobby page|joining an ordinary waiting list opens observation and preserves the queue)$' \
+            --grep '^.*(View Game opens four spectator games while preserving the lobby page|clustered cash admission explains wallet requirements and preserves observation)$' \
             --project=chromium --project=webkit-footer --reporter=line,json --workers=1 --retries=0 \
             --trace=retain-on-failure --output=test-results/cash-observation
           browser_rc=$?

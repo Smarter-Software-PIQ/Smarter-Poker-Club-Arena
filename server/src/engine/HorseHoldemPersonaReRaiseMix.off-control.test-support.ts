@@ -3,10 +3,12 @@
  * runs, and the recorder of the OFF control.
  *
  * The control in fixtures/horse-holdem-persona-reraise-off-control.json was
- * recorded by `recordOffControl()` from the parent commit of the persona
- * re-raise mix, 8a8656b17b5 (main, before the option existed): this file and
+ * recorded by `recordOffControl()` from main at 0aca5e03c7f, the commit this
+ * branch was last merged with (main does not have the option; first recorded
+ * from 8a8656b17b5, the branch's parent, and re-recorded at the merge: the two
+ * recordings are the same, line for line): this file and
  * benchmark/HoldemPreflopProbe.ts were copied into a `git archive` of that
- * commit and run under its own vitest setup. Each line is one decision:
+ * commit and run under its own vitest setup. The file's `recordedFrom` names it. Each line is one decision:
  * action, amount and the shared random stream's state after it. Not
  * production code and not imported by any.
  *

@@ -51,6 +51,10 @@
  *  `fn_enforce_four_table_limit`. */
 export const CONCURRENT_GAME_LIMIT = 4;
 
+/** Owner 2026-11-13: a horse plays at most two cash tables; the other two of
+ *  its four games are for tournaments. */
+export const HORSE_MAX_CASH_TABLES = 2;
+
 /**
  * A BOOKING IS A GAME AN HOUR BEFORE IT STARTS (2026-09-06, Dan: "PROCEED").
  *
@@ -173,6 +177,11 @@ export function concurrentGameLoad(load: Pick<GameLoad, 'seats' | 'bookings'>): 
  * against seats plus bookings.
  */
 export function remainingGameCapacity(load: GameLoad): number {
+  /* TWO CASH TABLES, TWO TOURNAMENTS (owner 2026-11-13: "HORSES ARE SUPPOSED
+     TO PLAY 2 CASH GAMES AND 2 TOURNAMENTS. NOT 4 CASH GAMES."). The cash
+     ceiling never exceeds HORSE_MAX_CASH_TABLES whatever the tag says, so two
+     of the four games stay free for events. That night 165 horses held 477
+     cash seats and a guaranteed event could not find entrants. */
   /* ── THE CASH CEILING IS MEASURED AGAINST CASH SEATS (2026-09-06) ─────────
      The paragraph above has always said "measured against cash seats", and
      the code has always subtracted `load.seats` - which the fleet builds from
@@ -187,7 +196,10 @@ export function remainingGameCapacity(load: GameLoad): number {
      stricter one - it refuses seats the database would allow, which is the
      safe direction to be wrong in. The fleet passes it. */
   const cashSeats = Math.max(0, Math.floor(load.cashSeats ?? load.seats));
-  const byOwnCeiling = Math.max(0, Math.floor(load.ownCashCeiling) - cashSeats);
+  const byOwnCeiling = Math.max(
+    0,
+    Math.min(HORSE_MAX_CASH_TABLES, Math.floor(load.ownCashCeiling)) - cashSeats
+  );
   const byPlatform = Math.max(0, CONCURRENT_GAME_LIMIT - concurrentGameLoad(load));
   return Math.min(byOwnCeiling, byPlatform);
 }

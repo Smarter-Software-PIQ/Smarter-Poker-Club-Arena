@@ -1,3 +1,3 @@
 # server/src/benchmark/ADefaultOffFlagHasALeagueCard.law.test.ts
 
-Every Horse decision flag shipped default OFF is dealt by an arm of some nightly league card, so the league can ever confirm it; the flags undealt when the law was written are named in a list that may only shrink (HU-AUDIT-002, 2026-11-12: commitUnderPot shipped off with no card).
+Every Horse decision flag shipped default OFF is switched on in exactly one arm of some nightly league card while the other arm leaves it unset or false, so the league can ever confirm it, or it is the one-arm question of a refused matchup that writes its reason every night; an arm that only sets the flag false is not a card. The flags undealt when the law was written are named in a list that is checked against a frozen, hash-pinned snapshot and may only shrink (HU-AUDIT-002, 2026-11-12: commitUnderPot shipped off with no card; HU-EVAL-010, 2026-11-13).
