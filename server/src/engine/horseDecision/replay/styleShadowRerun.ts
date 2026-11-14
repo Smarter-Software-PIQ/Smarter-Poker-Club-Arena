@@ -21,13 +21,25 @@
  * with the option off. Measures 1 and 2 read s and c rows; o rows check the on arm against its own off arm.
  *
  * A DEEP second look replays exactly only with its original FAST record (exactReplay's originalFastRecords: the
- * earlier FAST decisions of the same producer and hand, at most 256); the script supplies them. Each row names its
- * decision (decision_id), its turn (turn_key, shared by a FAST decision and its DEEP second look), its lane and
- * whether the execution witness names it (executed), so the evaluation counts one row per executed decision.
+ * earlier FAST decisions of the same producer and hand, at most 256); the script supplies them.
+ *
+ * ONE ROW PER EXECUTED TURN (review finding B1, 2026-11-13). A FAST decision and its DEEP second look are two
+ * requests of one turn. The journal's turn key hashes the request id (HorseDecisionJournal.ts `turnKey`), so the two
+ * lanes have DIFFERENT journal turn keys and each has its own execution witness under its own key. Each row
+ * therefore carries:
+ *   - turn_key: the journal turn key of this request (joins the row to its own execution witness, nothing else);
+ *   - turn_identity: the lane-independent turn, sha256 of [generation, fence, decisionKey, decisionTimeMs] from the
+ *     snapshot, which a FAST decision and its DEEP look share (the journal turn key without the request id);
+ *   - executed: from the witness's executionStatus, never from the mere presence of a witness: t = this request's
+ *     proposal was executed (intended or coerced), f = it was not (not_executed: retired or superseded; fallback:
+ *     the check/fold fallback ran instead), u = unknown (no witness for this request, or unverified / pending);
+ *   - execution_status: the witness status itself, `none` when no witness for this request was joined.
+ * The evaluation counts rows with executed = t only, one per (turn_identity, opt): styleShadowCountedRows.
  *
  * Nothing here writes to the journal, the database or telemetry; it runs offline on a journal copy
  * (server/scripts/style-shadow-rerun.mjs) and only on the source that made the record (exactReplay refuses others).
  */
+import { createHash } from 'node:crypto';
 import {
   STYLE_SWITCH_OPTIONS,
   styleSwitchDecisionOpts,
@@ -47,14 +59,17 @@ import {
   type HorseExactReplayVerdict,
 } from './exactReplay.js';
 
-export const STYLE_SHADOW_RERUN_VERSION = 'style-shadow-rerun-v1';
+/** v2 (2026-11-13, review finding B1): turn_identity and execution_status added, executed from the witness status. */
+export const STYLE_SHADOW_RERUN_VERSION = 'style-shadow-rerun-v2';
 
 /** The CSV columns, in the order style-evaluation.sql's style_shadow_decisions table declares them. */
 export const STYLE_SHADOW_RERUN_COLUMNS = [
   'decision_id',
   'turn_key',
+  'turn_identity',
   'lane',
   'executed',
+  'execution_status',
   'street_ordinal',
   'table_id',
   'hand_number',
@@ -72,12 +87,16 @@ export const STYLE_SHADOW_RERUN_COLUMNS = [
 export interface StyleShadowRerunRow {
   /** the journal record's own event id: one per decision, the key every evaluation join uses */
   decision_id: string;
-  /** the journal turn key: a FAST decision and its DEEP second look share it */
+  /** the journal turn key of THIS request (it hashes the request id, so a FAST decision and its DEEP second look
+   * have different ones); it joins the row to its own execution witness and is not a turn */
   turn_key: string;
+  /** the lane-independent turn: a FAST decision and its DEEP second look share it (styleShadowTurnIdentity) */
+  turn_identity: string;
   lane: 'fast' | 'deep';
-  /** t = the execution witness names this decision's request, f = it names another (the other lane of the turn),
-   * empty = no witness joined */
-  executed: 't' | 'f' | null;
+  /** t = this request's proposal was executed, f = it was not, u = unknown; see the module comment */
+  executed: StyleShadowExecuted;
+  /** the witness's executionStatus, or `none` when no witness for this request was joined */
+  execution_status: StyleShadowExecutionStatus;
   /** the Horse's own betting actions already on this street before the decision (0 = its first), from the
    * decision's action history; the evaluation finds the decision in hand_history as the (ordinal + 1)-th */
   street_ordinal: number;
@@ -104,7 +123,8 @@ export type StyleShadowRerunStatus =
   | 'all_off'
   /** the baseline did not replay exactly; the outcome is in `baseline` */
   | 'baseline_not_exact'
-  /** no hand identity could be read from the decision (legacy or malformed fence) */
+  /** no hand or turn identity could be read from the decision (legacy or malformed fence, a snapshot without its
+   * generation, decision key or decision time) */
   | 'no_hand_identity'
   /** re-run; an option whose arms gave no decision, or whose live arm is not the recorded decision, is in
    * `failedOptions` and gives no row */
@@ -143,16 +163,102 @@ function streetOrdinal(snapshot: Record<string, unknown>): number {
   ).length;
 }
 
-/** Whether the joined execution witness names this decision's request (see StyleShadowRerunRow.executed). */
-function executedLane(execution: unknown, snapshot: Record<string, unknown>): 't' | 'f' | null {
-  if (!obj(execution) || typeof execution.body !== 'string') return null;
-  try {
-    const identity = (JSON.parse(execution.body) as { identity?: unknown }).identity;
-    if (!obj(identity) || identity.decisionKey !== snapshot.decisionKey) return null;
-    return identity.requestId === snapshot.requestId ? 't' : 'f';
-  } catch {
+/**
+ * The lane-independent turn of a decision snapshot: the journal's turn key material without the request id
+ * (HorseDecisionJournal.ts `turnKey` is [generation, fence, requestId, decisionKey, decisionTimeMs]). A DEEP second
+ * look is the FAST request re-sent with a new request id (client.ts decideDeep), so both lanes give the same value;
+ * another turn differs in the fence and in the decision key, which binds the whole game state. Null when the
+ * snapshot does not carry all four.
+ */
+export function styleShadowTurnIdentity(snapshot: unknown): string | null {
+  if (
+    !obj(snapshot) ||
+    typeof snapshot.generation !== 'number' ||
+    typeof snapshot.fence !== 'string' ||
+    typeof snapshot.decisionKey !== 'string' ||
+    typeof snapshot.decisionTimeMs !== 'number'
+  )
     return null;
+  return createHash('sha256')
+    .update(
+      JSON.stringify([
+        snapshot.generation,
+        snapshot.fence,
+        snapshot.decisionKey,
+        snapshot.decisionTimeMs,
+      ])
+    )
+    .digest('hex');
+}
+
+const EXECUTION_STATUSES = [
+  'pending',
+  'intended',
+  'coerced',
+  'fallback',
+  'not_executed',
+  'unverified',
+] as const;
+export type StyleShadowExecutionStatus = (typeof EXECUTION_STATUSES)[number] | 'none';
+export type StyleShadowExecuted = 't' | 'f' | 'u';
+
+/**
+ * What the execution witness says happened to THIS request's proposal (HorseExecutionWitness.executionStatus):
+ * intended / coerced = the controller accepted the Horse's intended action (coerced: with an adjusted amount or
+ * class) -> t; not_executed = retired (a second look that agreed, a FAST decision replaced by its second look, an
+ * abandoned turn, a late response) and fallback = the check/fold fallback ran instead -> f; anything else
+ * (unverified, pending, an unknown status) and no witness for this request -> u. A witness under another turn key
+ * or naming another decision or request is not this request's witness.
+ */
+export function styleShadowExecution(
+  execution: unknown,
+  record: Record<string, unknown>,
+  snapshot: Record<string, unknown>
+): { executed: StyleShadowExecuted; execution_status: StyleShadowExecutionStatus } {
+  const unknown = { executed: 'u', execution_status: 'none' } as const;
+  if (!obj(execution) || typeof execution.body !== 'string') return unknown;
+  if (execution.kind !== 'execution' || execution.turnKey !== record.turnKey) return unknown;
+  let witness: unknown;
+  try {
+    witness = JSON.parse(execution.body);
+  } catch {
+    return unknown;
   }
+  if (!obj(witness) || !obj(witness.identity)) return unknown;
+  if (
+    witness.identity.decisionKey !== snapshot.decisionKey ||
+    witness.identity.requestId !== snapshot.requestId
+  )
+    return unknown;
+  const status = EXECUTION_STATUSES.find((s) => s === witness.executionStatus);
+  if (!status) return unknown;
+  return {
+    executed:
+      status === 'intended' || status === 'coerced'
+        ? 't'
+        : status === 'not_executed' || status === 'fallback'
+          ? 'f'
+          : 'u',
+    execution_status: status,
+  };
+}
+
+/**
+ * The rows the evaluation counts: executed ones only, one per turn and option. With executed = t at most one lane
+ * of a turn has a row; if a journal ever held two, the DEEP look (the later decision) is kept. style-evaluation
+ * SQL applies the same rule (`executed = 't'`, `distinct on (turn_identity, opt)`).
+ */
+export function styleShadowCountedRows(
+  rows: readonly StyleShadowRerunRow[]
+): StyleShadowRerunRow[] {
+  const kept = new Map<string, StyleShadowRerunRow>();
+  for (const row of rows) {
+    if (row.executed !== 't') continue;
+    const key = `${row.turn_identity}\u0000${row.opt}`;
+    const held = kept.get(key);
+    if (!held || (held.lane !== 'deep' && row.lane === 'deep')) kept.set(key, row);
+  }
+  return [...kept.values()];
 }
 
 function callPrice(snapshot: Record<string, unknown>): number {
@@ -214,10 +320,12 @@ export async function styleShadowRerunRecord(
   } catch {
     hand = null;
   }
-  if (!hand || typeof player.seat !== 'number') {
+  const turnIdentity = styleShadowTurnIdentity(snapshot);
+  if (!hand || typeof player.seat !== 'number' || turnIdentity === null) {
     out.status = 'no_hand_identity';
     return out;
   }
+  const execution = styleShadowExecution(options.execution, raw, snapshot);
   // the Horse's treatment of each option, from the one resolver the live worker uses (the canary law: nothing else
   // reads the canary bucket)
   const live = styleSwitchDecisionOpts(states, horseId, true);
@@ -245,12 +353,15 @@ export async function styleShadowRerunRecord(
       out.failedOptions.push(option);
       continue;
     }
-    // the arm the Horse ran must be the recorded decision (the baseline), or the re-run is not the live decision
+    // the arm the Horse ran must be the recorded decision (the baseline), or the re-run is not the live decision;
+    // its random position after the decision must be the baseline's too (review finding B4: arms run one after
+    // another in one process, and state carried from one into the next would show here first)
     const committed = liveOn ? withOn : withOff;
     const other = liveOn ? withOff : withOn;
     if (
       committed.action !== baseline.replayed.action ||
-      committed.amount !== baseline.replayed.amount
+      committed.amount !== baseline.replayed.amount ||
+      committed.rngAfter !== baseline.replayed.rngAfter
     ) {
       out.failedOptions.push(option);
       continue;
@@ -260,8 +371,10 @@ export async function styleShadowRerunRecord(
     out.rows.push({
       decision_id: String(raw.eventId ?? ''),
       turn_key: String(raw.turnKey ?? ''),
+      turn_identity: turnIdentity,
       lane: snapshot.type === 'DECIDE_DEEP' ? 'deep' : 'fast',
-      executed: executedLane(options.execution, snapshot),
+      executed: execution.executed,
+      execution_status: execution.execution_status,
       street_ordinal: ordinal,
       table_id: hand.tableId,
       hand_number: hand.handNumber,
