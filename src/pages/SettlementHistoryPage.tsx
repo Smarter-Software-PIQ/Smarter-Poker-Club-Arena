@@ -24,6 +24,7 @@ import { compactChips } from '../utils/format';
 import { parseSettlementHistory, type SettlementHistoryCycle } from '../utils/settlementHistory';
 import { titleCase } from '../utils/titleCase';
 import styles from './SettlementHistoryPage.module.css';
+import { chipCents } from '../utils/cashierAmount';
 
 export default function SettlementHistoryPage() {
   const navigate = useNavigate();
@@ -212,8 +213,8 @@ export default function SettlementHistoryPage() {
     };
   }, [loadHistory, scopeStatus, scopeClubId, scopePlatformWide, scope.userId, user?.id]);
 
-  const totalRakeAllTime = cycles.reduce((s, c) => s + c.totalRake, 0);
-  const totalSettled = cycles.reduce((s, c) => s + c.netSettlement, 0);
+  const totalRakeAllTime = chipCents(cycles.reduce((s, c) => s + c.totalRake, 0));
+  const totalSettled = chipCents(cycles.reduce((s, c) => s + c.netSettlement, 0));
   const maxRake = Math.max(...cycles.map((c) => c.totalRake), 1);
 
   if (scope.status !== 'ready' || scope.userId !== user?.id) {

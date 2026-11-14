@@ -125,6 +125,7 @@ import '../../../styles/tournament-lobby-3d.css';
 import { exactChips as sharedExactChips } from '../../../utils/format';
 import './HeroPin.css';
 import './RewardsTab.css';
+import { chipCents } from '../../../utils/cashierAmount';
 
 /** A source line keeps its cents when it has any: a 31.50 net entry rounded to
  *  32 prints lines that no longer add up to the figure beside them. */
@@ -756,8 +757,8 @@ export default function RewardsTab({
     const fundedPool = num(t.bounty_pool);
     const fundedPaid = num(t.bounty_pool_paid);
 
-    const liveTotal = ledger.liveHeads.reduce((s, v) => s + v, 0);
-    const claimedTotal = ledger.claimedHeads.reduce((s, v) => s + v, 0);
+    const liveTotal = chipCents(ledger.liveHeads.reduce((s, v) => s + v, 0));
+    const claimedTotal = chipCents(ledger.claimedHeads.reduce((s, v) => s + v, 0));
 
     /* The funded columns are money the server maintains inside the same
        transaction that pays a bounty, so they win when they exist. The head

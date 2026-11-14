@@ -115,7 +115,7 @@ const SessionHistory: React.FC<SessionHistoryProps> = ({ initialSessions, rangeL
     return { count, type: isWin ? ('winning' as const) : ('losing' as const) };
   }, [sessions]);
 
-  const totalProfit = sessions.reduce((sum, s) => sum + s.profitLoss, 0);
+  const totalProfit = chipCents(sessions.reduce((sum, s) => sum + s.profitLoss, 0));
   const winningSessions = sessions.filter((s) => s.profitLoss > 0).length;
   const winRate =
     sessions.length > 0 ? ((winningSessions / sessions.length) * 100).toFixed(1) : '0';

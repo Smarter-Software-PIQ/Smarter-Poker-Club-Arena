@@ -102,3 +102,13 @@ balance and member record (`ca_club_members_page`, `ca_club_member_win_loss`
 return jsonb, so a fix is a SQL change), the cashier roster wallets
 (`fn_club_cashier_members_page_v3`) and history rows (`fn_cashier_history_feed`).
 Live maxima: member wallet 19,392.60, agent wallet 209,693.62.
+
+Independent review of b428cc861 found client sums computed outside the
+formatter call (into a variable or a reduce) that would now print binary sums
+such as 0.6000000000000001. Each chip-amount aggregate is now held to cents
+with `chipCents` / `sumChips`: agent dashboard pending cash-outs and downline
+wallets, union spin reserve, `displayTotalPool` (prize pool + bounty pool),
+session history total, stats brief recent profit, Rewards live and claimed
+bounty heads, agent score card, commission history totals, settlement history
+totals, agent management weekly rake, bomb pot report antes/rake/pot, admin
+dashboard total rake. Counts, BigInt cents and felt figures needed nothing.

@@ -1446,7 +1446,7 @@ export default function UnionDashboardPage() {
                       {unionSpins.state === null
                         ? '-'
                         : formatWalletChips(
-                            (wallets.spin_reserve_wallet || 0) + unionSpins.balance
+                            sumChips([wallets.spin_reserve_wallet || 0, unionSpins.balance])
                           )}
                     </div>
                     <div className="admin-stat-label">Spins Treasury ›</div>

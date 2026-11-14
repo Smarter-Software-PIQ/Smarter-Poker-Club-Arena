@@ -615,7 +615,7 @@ export const feeFigure = (value: FigureInput): string => {
 export const countFigure = (value: number | null | undefined): string =>
   value == null ? 'Restricted' : (Number(value) || 0).toLocaleString();
 
-/** Wallet balances always show separators and exactly two decimals (Dan, 2026-10-18). */
+/** Wallet balances always show separators and at least two decimals; every stored decimal is kept (Dan 2026-10-18, 2026-11-13). */
 export const formatWalletChips = (amount: FigureInput): string => {
   const d = figureDigits(amount);
   if (!d) return '-';
