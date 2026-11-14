@@ -130,9 +130,12 @@ import { downloadCsv, toCsv } from '../utils/downloadCsv';
 import { cashoutStatusLabel, waitingFor } from '../utils/cashoutStatus';
 import styles from './CashierTradePage.module.css';
 import { playerDisplayName, PLAYER_NAME_COLUMNS } from '../utils/playerDisplayName';
+import { selectTextTwins } from '../lib/selectTextTwins';
 import {
   compareCashierRoster,
+  CASHIER_ROSTER_SELECT,
   DEFAULT_CASHIER_ROSTER_SORT,
+  exactDecimalText,
   mapCashierRoster,
   mapCashierRosterSortKeys,
   nextCashierRosterSort,
@@ -231,6 +234,8 @@ interface TradeRecordRow {
   createdAt: string;
   type: string;
   amount: number;
+  /** The amount as the exact decimal text the ledger holds, for display. */
+  amountText?: string;
   /** Relative to the viewer; managed means neither party is the viewer. */
   direction: 'in' | 'out' | 'managed';
   counterparty: string;
@@ -339,7 +344,10 @@ function CashierPlayerCard({
   walletControl,
   walletBalance,
 }: {
-  row: Pick<DownlineRow, 'userId' | 'name' | 'playerNumber' | 'avatarUrl' | 'chipBalance'>;
+  row: Pick<
+    DownlineRow,
+    'userId' | 'name' | 'playerNumber' | 'avatarUrl' | 'chipBalance' | 'chipBalanceText'
+  >;
   balanceLabel: string;
   walletControl?: React.ReactNode;
   walletBalance?: number | null;
@@ -377,7 +385,7 @@ function CashierPlayerCard({
             text={
               walletBalance === null
                 ? 'Unavailable'
-                : formatWalletChips(walletBalance ?? row.chipBalance)
+                : formatWalletChips(walletBalance ?? row.chipBalanceText ?? row.chipBalance)
             }
           />
         </span>
@@ -526,12 +534,19 @@ const HISTORY_EXPORT_CAP = 5000;
 /** One Transaction History page; older pages are read by cursor, not offset. */
 const HISTORY_PAGE = 50;
 
+/**
+ * fn_cashier_history_feed's columns, with the amount again as exact decimal
+ * text for display (Dan 2026-11-13: real figures print whole).
+ */
+const HISTORY_FEED_SELECT = '*,amount_text:amount::text';
+
 /** A row of fn_cashier_history_feed. */
 interface HistoryFeedRow {
   id: string;
   created_at: string;
   transaction_type: string | null;
   amount: number | string | null;
+  amount_text?: string | null;
   from_user_id: string | null;
   to_user_id: string | null;
   notes: string | null;
@@ -1285,14 +1300,14 @@ function CashierTradeWorkspace() {
           let pageNumber = 0;
           for (;;) {
             const rosterPageStartedAt = Date.now();
-            const { data: memberRows, error: dlErr } = await supabase.rpc(
-              'fn_club_cashier_members_page_v3',
-              {
+            const { data: memberRows, error: dlErr } = await selectTextTwins(
+              supabase.rpc('fn_club_cashier_members_page_v3', {
                 p_club_id: clubUuid,
                 p_after_role_rank: afterRoleRank,
                 p_after_user_id: afterUserId,
                 p_limit: rosterPageSize,
-              }
+              }),
+              CASHIER_ROSTER_SELECT
             );
             if (dlErr) {
               complete = false;
@@ -1612,6 +1627,9 @@ function CashierTradeWorkspace() {
       createdAt: r.created_at,
       type: (r.transaction_type as string) || 'transfer',
       amount: Number(r.amount) || 0,
+      ...(exactDecimalText(r.amount_text) !== undefined
+        ? { amountText: exactDecimalText(r.amount_text) }
+        : {}),
       direction,
       // A third party reads a Club Bank send by the pot that paid,
       // never its operator: a send nobody pressed reads the same.
@@ -1674,19 +1692,22 @@ function CashierTradeWorkspace() {
       // player and a search, and the server answers with the club's rows only
       // to an owner, co-owner or admin, a downline's only to its agent, and
       // otherwise the viewer's own.
-      const { data, error } = await supabase.rpc('fn_cashier_history_feed', {
-        p_club_id: clubUuid,
-        p_scope: historyBook,
-        p_kind: historyKind,
-        p_from: historyRangeStart(historyRange),
-        p_to: null,
-        p_person: historyPerson,
-        p_search: historySearch || null,
-        p_before_at: null,
-        p_before_id: null,
-        // One sentinel row says whether an older page exists.
-        p_limit: HISTORY_PAGE + 1,
-      });
+      const { data, error } = await selectTextTwins(
+        supabase.rpc('fn_cashier_history_feed', {
+          p_club_id: clubUuid,
+          p_scope: historyBook,
+          p_kind: historyKind,
+          p_from: historyRangeStart(historyRange),
+          p_to: null,
+          p_person: historyPerson,
+          p_search: historySearch || null,
+          p_before_at: null,
+          p_before_id: null,
+          // One sentinel row says whether an older page exists.
+          p_limit: HISTORY_PAGE + 1,
+        }),
+        HISTORY_FEED_SELECT
+      );
       if (!isMounted.current || seq !== recordSeqRef.current) return false;
       // A discarded error rendered as "No trades recorded yet", which is a
       // different statement from "we could not read them".
@@ -1755,18 +1776,21 @@ function CashierTradeWorkspace() {
     const viewer = user.id;
     setRecordsLoadingMore(true);
     try {
-      const { data, error } = await supabase.rpc('fn_cashier_history_feed', {
-        p_club_id: clubUuid,
-        p_scope: historyBook,
-        p_kind: historyKind,
-        p_from: historyRangeStart(historyRange),
-        p_to: null,
-        p_person: historyPerson,
-        p_search: historySearch || null,
-        p_before_at: last.createdAt,
-        p_before_id: last.id,
-        p_limit: HISTORY_PAGE + 1,
-      });
+      const { data, error } = await selectTextTwins(
+        supabase.rpc('fn_cashier_history_feed', {
+          p_club_id: clubUuid,
+          p_scope: historyBook,
+          p_kind: historyKind,
+          p_from: historyRangeStart(historyRange),
+          p_to: null,
+          p_person: historyPerson,
+          p_search: historySearch || null,
+          p_before_at: last.createdAt,
+          p_before_id: last.id,
+          p_limit: HISTORY_PAGE + 1,
+        }),
+        HISTORY_FEED_SELECT
+      );
       if (!isMounted.current || filterEpoch !== recordFilterEpochRef.current) return;
       if (error) throw error;
       const rows = (data || []) as HistoryFeedRow[];
@@ -1924,18 +1948,21 @@ function CashierTradeWorkspace() {
       let before: { at: string; id: string } | null = null;
       while (rows.length < HISTORY_EXPORT_CAP) {
         if (!isCurrentExport()) return;
-        const { data, error } = await supabase.rpc('fn_cashier_history_feed', {
-          p_club_id: club,
-          p_scope: historyBook,
-          p_kind: historyKind,
-          p_from: from,
-          p_to: null,
-          p_person: historyPerson,
-          p_search: historySearch || null,
-          p_before_at: before?.at ?? null,
-          p_before_id: before?.id ?? null,
-          p_limit: pageSize + 1,
-        });
+        const { data, error } = await selectTextTwins(
+          supabase.rpc('fn_cashier_history_feed', {
+            p_club_id: club,
+            p_scope: historyBook,
+            p_kind: historyKind,
+            p_from: from,
+            p_to: null,
+            p_person: historyPerson,
+            p_search: historySearch || null,
+            p_before_at: before?.at ?? null,
+            p_before_id: before?.id ?? null,
+            p_limit: pageSize + 1,
+          }),
+          HISTORY_FEED_SELECT
+        );
         if (!isCurrentExport()) return;
         if (error) throw error;
         const page = (data || []) as HistoryFeedRow[];
@@ -1948,7 +1975,8 @@ function CashierTradeWorkspace() {
             direction === 'in' ? 'In' : direction === 'out' ? 'Out' : 'Transfer',
             r.from_name || (r.from_user_id ? 'A Member' : 'Club'),
             r.to_name || (r.to_user_id ? 'A Member' : ''),
-            (Math.round((Number(r.amount) || 0) * 100) / 100).toFixed(2),
+            exactDecimalText(r.amount_text) ??
+              (Math.round((Number(r.amount) || 0) * 100) / 100).toFixed(2),
             walletRoute(r) ?? '',
             ledgerRowTitle(r, r.from_name, r.to_name, viewer) ?? r.notes ?? '',
             r.invoice_number ?? '',
@@ -5139,7 +5167,7 @@ function CashierTradeWorkspace() {
                             <span className={styles.rosterBalanceLine}>
                               <span className={styles.rowSub}>Player Wallet</span>
                               <strong className={styles.rowBalance}>
-                                {formatWalletChips(r.chipBalance)}
+                                {formatWalletChips(r.chipBalanceText ?? r.chipBalance)}
                               </strong>
                             </span>
                           )}
@@ -5591,7 +5619,7 @@ function CashierTradeWorkspace() {
                         dialogTriggerRef.current = event.currentTarget;
                         setReceipt(r);
                       }}
-                      aria-label={`Open Receipt For ${r.title ? r.title : `${r.direction === 'managed' ? 'Chip Movement' : r.direction === 'out' ? 'Payment To' : 'Payment From'} ${r.counterparty}`}, ${fmt(r.amount)} Chips`}
+                      aria-label={`Open Receipt For ${r.title ? r.title : `${r.direction === 'managed' ? 'Chip Movement' : r.direction === 'out' ? 'Payment To' : 'Payment From'} ${r.counterparty}`}, ${fmt(r.amountText ?? r.amount)} Chips`}
                     >
                       <div className={styles.rowInfo}>
                         <span className={styles.rowName}>
@@ -5647,7 +5675,7 @@ function CashierTradeWorkspace() {
                         className={`${styles.rowBalance} ${r.sign === '+' ? styles.amtIn : r.sign === '-' ? styles.amtOut : ''}`}
                       >
                         {r.sign ?? ''}
-                        {fmt(r.amount)}
+                        {fmt(r.amountText ?? r.amount)}
                       </span>
                       <span className={styles.receiptCue}>Receipt</span>
                     </button>
@@ -6037,7 +6065,7 @@ function CashierTradeWorkspace() {
                     }
                   >
                     {receipt.sign ?? ''}
-                    {exactChipFigure(receipt.amount)}
+                    {exactChipFigure(receipt.amountText ?? receipt.amount)}
                   </strong>
                   <small className="sc-label sc-ink--muted">Chips</small>
                 </div>

@@ -334,7 +334,9 @@ describe('#ClubArenaConsole is the Cashier visual authority', () => {
       }
     }
     expect(read('src/pages/CashierTradePage.tsx')).toContain('const fmt = compactChips;');
-    expect(read('src/pages/CashierTradePage.tsx')).toContain('formatWalletChips(r.chipBalance)');
+    expect(read('src/pages/CashierTradePage.tsx')).toContain(
+      'formatWalletChips(r.chipBalanceText ?? r.chipBalance)'
+    );
     expect(read('src/pages/CashierPage.tsx')).toContain(
       'formatWalletChips(selectedRecipientData.balance)'
     );

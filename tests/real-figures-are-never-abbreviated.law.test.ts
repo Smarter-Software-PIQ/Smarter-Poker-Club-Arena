@@ -116,4 +116,34 @@ describe('real figures are never abbreviated', () => {
     }
     expect(offenders).toEqual([]);
   });
+
+  it('figures past 15 significant digits reach the screen as exact decimal text', () => {
+    // A JSON number keeps ~15 significant digits, so each read whose columns
+    // can hold more (numeric(20,2) wallets, unbounded totals) also carries the
+    // figure as text, and the display prefers it.
+    const src = (path: string) => readFileSync(join(ROOT, path), 'utf8');
+    const migration = src(
+      'supabase/migrations/20261114172156_member_figures_carry_exact_decimal_text.sql'
+    );
+    for (const fn of ['ca_club_members_page', 'ca_club_member_detail', 'ca_club_member_win_loss'])
+      expect(migration).toContain(`'public.${fn}(`);
+    const trade = src('src/pages/CashierTradePage.tsx');
+    expect(trade).toContain("const HISTORY_FEED_SELECT = '*,amount_text:amount::text';");
+    expect(trade.match(/HISTORY_FEED_SELECT\n/g)?.length).toBe(3);
+    expect(trade).toContain('CASHIER_ROSTER_SELECT\n');
+    expect(trade).toContain('fmt(r.amountText ?? r.amount)');
+    expect(trade).toContain('formatWalletChips(r.chipBalanceText ?? r.chipBalance)');
+    const roster = src('src/services/ClubRosterService.ts');
+    expect(roster).toContain('textTwinSelect(ROSTER_MONEY_KEYS)');
+    expect(roster).toContain('textTwinSelect(DOWNLINE_MONEY_KEYS)');
+    expect(src('src/pages/MemberManagementPage.tsx')).toContain(
+      'formatWalletChips(wallets.player_wallet_text ?? wallets.player_wallet)'
+    );
+    expect(src('src/components/club/MemberWinLossCard.tsx')).toContain(
+      'playerRecordMoney(figure.net_text ?? figure.net, true)'
+    );
+    expect(src('src/pages/ClubMembersPage.tsx')).toContain(
+      'walletFigure(member.player_wallet_text ?? member.player_wallet)'
+    );
+  });
 });

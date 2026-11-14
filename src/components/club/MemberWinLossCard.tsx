@@ -46,11 +46,16 @@ function WinLossRow({ label, figure }: { label: string; figure: WinLossFigure })
     <div className={`mm-stat mm-winloss__row${tone(figure.net)}`}>
       <span className="mm-stat__label">{label}</span>
       <span className="mm-stat__value">
-        {figure.net === null ? 'Unavailable' : playerRecordMoney(figure.net, true)}
+        {figure.net === null
+          ? 'Unavailable'
+          : playerRecordMoney(figure.net_text ?? figure.net, true)}
       </span>
       <span className="mm-winloss__split">
-        Cash {figure.cash === null ? 'Unavailable' : playerRecordMoney(figure.cash, true)} /
-        Tournaments {playerRecordMoney(figure.mtt, true)}
+        Cash{' '}
+        {figure.cash === null
+          ? 'Unavailable'
+          : playerRecordMoney(figure.cash_text ?? figure.cash, true)}{' '}
+        / Tournaments {playerRecordMoney(figure.mtt_text ?? figure.mtt, true)}
       </span>
     </div>
   );
