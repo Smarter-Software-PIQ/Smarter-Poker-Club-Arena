@@ -85,11 +85,10 @@
  *   - heads-up against a shorter stack that is all-in, the menu still offers
  *     raise and all_in to the deep stack, although nobody is left to answer.
  *
- * One known gap is pinned, not hidden (last describe block): in pot-limit and
- * fixed-limit tournaments the short-stack shove through the all-in button is
- * not priced by upgrade 07; the tournament utility refuses it as
- * `baseline_not_modeled`. Reported 2026-11-14 to the tournament strategy lane.
- * Upgrade 07 is required, exactly once, on every other tournament decision.
+ * Upgrade 07 is required, exactly once, on every tournament decision. The
+ * former known gap (last describe block: the pot-limit and fixed-limit
+ * short-stack shove through the all-in button, refused as
+ * `baseline_not_modeled`) was repaired by #10793 and is now pinned as priced.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
@@ -854,15 +853,6 @@ async function runSpot(
     const refusals = Object.keys(counted).filter((key) => key.startsWith('phase7_unavailable_'));
     const priced = refusals.length === 0 && counted.phase7_tournament_utility === 1;
     const text = `${UPGRADE_07}: phase7_tournament_utility=${counted.phase7_tournament_utility} refusals=[${refusals}], ${got}`;
-    // The known gap, and only it, is pinned by its own test below: the
-    // all-in button pressed as the only raise in pot limit or fixed limit,
-    // refused for exactly this reason. Any other refusal fails here.
-    const knownGap =
-      spec.kind === 'short' &&
-      structure !== 'no_limit' &&
-      decision.action === 'all_in' &&
-      refusals.length === 1 &&
-      refusals[0] === 'phase7_unavailable_baseline_not_modeled';
     if (spec.kind === 'short')
       SHORT_SPOT_PRICING.push({
         id: `${variant} rep=${rep} seed=${seed}`,
@@ -874,7 +864,7 @@ async function runSpot(
         unavailable: counted.phase7_utility_unavailable,
         receiptRefusal: decision.tournamentUtilityRefusal,
       });
-    if (!knownGap) owe(priced, text);
+    owe(priced, text);
   } else {
     owe(counted.phase7_tournament_utility === undefined, 'tournament utility in a cash game');
   }
@@ -1071,43 +1061,28 @@ describe('across the matrix', () => {
 });
 
 /**
- * KNOWN GAP, pinned (found by this law and reported to the tournament
- * strategy lane, which owns HorseTournamentUtility, on 2026-11-14).
+ * FORMER KNOWN GAP, repaired (found by this law on 2026-11-14 and repaired by
+ * the tournament strategy lane in #10793).
  *
  * In a pot-limit or fixed-limit tournament, a Horse facing a bet with more
  * than the call and less than the minimum raise behind holds the menu fold,
- * call, all_in with no minRaiseTo or maxRaiseTo (HandController withholds the
- * sized raise and keeps the button). The controller executes that all_in as a
- * wager: the whole stack goes in above the bet. When the brain's reference
- * decision is that all_in, HorseTournamentUtility.buildTournamentActionCandidates
- * builds no jam candidate, because for these two structures it requires a
- * numeric maxRaiseTo (`ceilingTo !== null`); the baseline is then missing from
- * the candidates and the utility refuses with `baseline_not_modeled`. The
- * shove is played, legally, but it is not priced by the tournament utility:
- * upgrade 07 does not fire on the decision that puts the tournament life at
- * stake. No-limit builds the jam without the ceiling and is priced.
- *
- * This pins today's behaviour by name, the way the style matrix law pins the
- * Pineapple tournament refusal. It is green while the gap exists, for this
- * reason and no other, and it goes red the moment a shove is priced: whoever
- * fixes the pricing must then replace this block with the plain rule (every
- * tournament decision of this spot is priced) and drop the carve-out in
- * runSpot. A refusal for any other reason already fails in the cells above.
+ * call, all_in with no minRaiseTo or maxRaiseTo. The controller executes that
+ * all_in as a wager of the whole stack. buildTournamentActionCandidates used
+ * to build no jam candidate there, so the utility refused the shove as
+ * `baseline_not_modeled`. It now builds the jam from the all_in itself, and
+ * every decision of this spot is priced, the shove included, with no refusal.
  *
  * The pin is a rule over whatever the Horse returned, never a list of which
- * decisions shove: actions are sampled and strategy may legitimately change
- * them. It needs at least one shove to witness the gap and fails, saying so,
- * if there is none.
+ * decisions shove. It needs at least one shove as witness and fails, saying
+ * so, if there is none.
  *
- * NEVER EXTEND THIS PIN TO A MULTIWAY SPOT. It holds because the spot is
- * heads-up, where no wall-clock-budgeted pricing can change the action or
- * the tournament utility's verdict. Multiway, in tournaments, Phase 13 adopts
- * its proposal only when its pricing finishes inside 4 ms, so both would vary
- * with machine load.
+ * NEVER EXTEND THIS PIN TO A MULTIWAY SPOT: multiway, in tournaments, Phase 13
+ * adopts its proposal only when its pricing finishes inside 4 ms, so the
+ * action and the verdict would vary with machine load.
  */
 const KNOWN_GAP_REASON = 'baseline_not_modeled';
 const KNOWN_GAP_COUNTER = `phase7_unavailable_${KNOWN_GAP_REASON}`;
-describe('KNOWN GAP upgrade 07 (reported 2026-11-14 to the tournament strategy lane): the all-in button as the only raise', () => {
+describe('upgrade 07, formerly a known gap (reported 2026-11-14, repaired by #10793): the all-in button as the only raise', () => {
   const witness = (d: ShortSpotPricing) => `${d.id} ${d.action}`;
   const gapStructures = () => SHORT_SPOT_PRICING.filter((d) => d.structure !== 'no_limit');
   const noLimit = () => SHORT_SPOT_PRICING.filter((d) => d.structure === 'no_limit');
@@ -1132,25 +1107,21 @@ describe('KNOWN GAP upgrade 07 (reported 2026-11-14 to the tournament strategy l
     );
   });
 
-  it('pinned: every pot-limit or fixed-limit tournament shove through the all-in button is NOT priced, refused as baseline_not_modeled and nothing else', () => {
+  it('fixed (upgrade 07, #10793): every pot-limit or fixed-limit tournament shove through the all-in button IS priced, with no refusal', () => {
     expect(CELLS_RUN.size).toBe(VARIANTS.length * MODES.length);
     const shoves = gapStructures().filter((d) => d.action === 'all_in');
     expect(
       shoves.length,
       'THE PIN LOST ITS WITNESSES: no pot-limit or fixed-limit tournament decision of ' +
-        'hu_flop_short_stack_all_in_is_the_only_raise returned all_in, so the known gap ' +
-        '(upgrade 07 refusing the shove as baseline_not_modeled) is no longer observed and ' +
+        'hu_flop_short_stack_all_in_is_the_only_raise returned all_in, so the repaired gap ' +
+        '(upgrade 07 pricing the shove through the all-in button) is no longer observed and ' +
         'this test would pass on nothing. Restore witnesses by raising REPS or adding decks ' +
-        'for that spot until a shove occurs; do not delete the pin unless the gap is fixed. ' +
+        'for that spot until a shove occurs; do not delete the pin. ' +
         `Decisions seen: ${gapStructures().map(witness).join('; ')}`
     ).toBeGreaterThan(0);
     for (const shove of shoves) {
-      const id = witness(shove);
-      expect(shove.utilityFires, `${id}: phase7_tournament_utility`).toBeUndefined();
-      expect(shove.priced, id).toBe(false);
-      expect(shove.refusalCounters, id).toEqual([KNOWN_GAP_COUNTER]);
-      expect(shove.unavailable, `${id}: phase7_utility_unavailable`).toBe(1);
-      expect(shove.receiptRefusal, `${id}: tournamentUtilityRefusal`).toBe(KNOWN_GAP_REASON);
+      expectPriced(shove);
+      expect(shove.refusalCounters, witness(shove)).not.toContain(KNOWN_GAP_COUNTER);
     }
   });
 

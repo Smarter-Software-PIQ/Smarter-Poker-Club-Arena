@@ -278,6 +278,8 @@ export function horseTournamentUtilityInputSha256(input: TournamentUtilityInput)
     minRaiseTo: input.minRaiseTo,
     maxRaiseTo: input.maxRaiseTo,
     bettingStructure: input.bettingStructure,
+    // Committed only when claimed, so every other input keeps its commitment.
+    ...(input.shortAllInWagers === undefined ? {} : { shortAllInWagers: input.shortAllInWagers }),
     baseline: { action: input.baseline.action, amount: input.baseline.amount ?? null },
     heroEquity: input.heroEquity,
     equitySampleSize: input.equitySampleSize,
