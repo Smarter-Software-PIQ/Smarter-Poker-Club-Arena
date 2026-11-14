@@ -1,0 +1,3 @@
+# tests/cashier-dialog-clears-the-chrome.law.test.ts
+
+Dan, 2026-11-14: selecting several players in the cashier "silently fails". Send Out with two or more recipients grew past the screen and its Cancel and Confirm plates lay under the fixed bottom nav, so a tap on Confirm landed on a nav link and no multi-recipient batch was ever submitted. The law pins that the Trade cashier's overlay reserves the header's measured height (`--ca-global-header-height` / `--ca-in-tab-header-height`) and the footer's live height (`--bottom-nav-stack-base`), that the dialog scrolls inside what is left, and that the chrome still publishes those heights.

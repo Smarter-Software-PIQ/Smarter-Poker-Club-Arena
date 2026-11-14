@@ -1,0 +1,3 @@
+# tests/test-accounts-leave-the-poker-arena-for-good.law.test.ts
+
+Dan, 2026-11-14: remove every PostDeploy test account across the Poker Arena, and only KingFish and SmarterPokerOfficial belong in Midway Union. The cleanup door's retained-ledger-actor branch now marks a retired test identity's profile deleted, so the October 16 deleted-account triggers remove it from every club and list. The law pins that change, that the residue leaves through those triggers (162-minute age floor, fixture-club owners left to their own door, no hand-written balance, no deleted row), that Midway's extra members leave through the staff door as the owner, and that a live test identity is never listed in another person's cashier or addressed an invoice.
