@@ -25,8 +25,10 @@ const root = resolve(__dirname, '../..');
 const read = (path: string) => readFileSync(resolve(root, path), 'utf8');
 const MIGRATION =
   'supabase/migrations/20261026015255_lightning_never_runs_short_deck_omaha_hi_lo_or_pineapple.sql';
-const EXCLUDED = ['short_deck', 'flo8', 'plo8', 'pineapple'];
-const ALLOWED = ['nlh', 'flh', 'plo4', 'plo5', 'plo6'];
+/* Owner ruling, November 14, 2026: every limit game is Classic, so Fixed
+   Limit and every limit Omaha join the excluded games. */
+const EXCLUDED = ['short_deck', 'flo8', 'plo8', 'pineapple', 'flh', 'flo4', 'flo5', 'flo6'];
+const ALLOWED = ['nlh', 'plo4', 'plo5', 'plo6'];
 const id = '33333333-3333-4333-8333-333333333333';
 
 const game = (variant: string) => ({

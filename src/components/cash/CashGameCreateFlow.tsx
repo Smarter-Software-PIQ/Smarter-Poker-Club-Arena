@@ -52,6 +52,7 @@ import {
 } from '../../services/GameServerAPI';
 import { presetsFor, DEFAULT_BLINDS_INDEX } from '../../config/blindsPresets';
 import { isFixedLimitVariant, stakesLabel } from '../../lib/bettingStructure';
+import { fixedLimitGameName } from '../../lib/fixedLimitNames';
 import { isEightOrBetterVariant } from '../../utils/handEvaluator';
 import { getRakeConfig } from '../../config/RakeConfig';
 import { formatCurrency } from '../../lib/utils';
@@ -707,7 +708,7 @@ export default function CashGameCreateFlow({
               data={{
                 id: 'cash-game-preview',
                 family: snapshot.family === 'plo' ? 'plo' : 'nlh',
-                title: `${variant.toUpperCase()} ${stakesLabel(stakes.sb, stakes.bb, variant)}`,
+                title: `${fixedLimitGameName(variant) ?? variant.toUpperCase()} ${stakesLabel(stakes.sb, stakes.bb, variant)}`,
                 subtitle: templateLabel(template),
                 styleNote: cashTemplateNote(template) ?? undefined,
                 gameType: variant.toUpperCase(),
