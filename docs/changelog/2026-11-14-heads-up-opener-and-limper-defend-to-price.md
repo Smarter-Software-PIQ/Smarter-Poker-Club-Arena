@@ -65,18 +65,42 @@ written. The next step is the isolation run the audit names.
 
 ## Tests
 
-- `server/src/engine/HorseHeadsUpOpenerAndLimperDefendToPrice.law.test.ts` (38 tests, new law): failing before the
-  rule (6 fail with the two rule lines disabled), passing after. Every change is a fold that became a call; every
+- `server/src/engine/HorseHeadsUpOpenerAndLimperDefendToPrice.law.test.ts` (44 tests, new law): failing before
+  the rule (6 fail with the two rule lines disabled), passing after. Every change is a fold that became a call; every
   called class has the equity the price asks for; a larger raise is called by fewer hands; eleven out-of-scope spots
-  per option (three dealt, tournament, Omaha, short deck, fixed limit, all-in raise, all-in-or-fold, straddle, bomb
-  pot, under 20bb, over 150bb) change nothing; explicit false equals unset for every class; each option leaves the
-  other's spot alone.
+  per option (three dealt, tournament, Omaha, short deck, fixed limit, pot-limit hold'em, all-in raise,
+  all-in-or-fold, straddle, bomb pot, under 20bb, over 150bb) change nothing; explicit false equals unset for every
+  class; each option leaves the other's spot alone; each option's receipt fires exactly on the classes whose final
+  decision it changed (40bb and 25bb opener spots, 40bb min-raise limper spot), with telemetry leaving every
+  decision as it is.
 - `HorseDataLedger`: a flag row and a receipt row per option.
 - League: `human_hu_opener_defends_vs_threebet_40bb` (against hu_three_bet_every_hand_v1) and
   `human_hu_limp_defends_vs_minraise_40bb` (against hu_minraise_every_button_v1, the one persona whose raise over a
   limp is the minimum). Both 40bb, option on against off.
 
+## Review changes (independent review of 2017e96d)
+
+- R1, receipt only. The opener receipt fired at the preflop intent stage, before the final dominated-offsuit layer
+  (`HorseHoldemPremiumAggression` rule 1, `dominated_3bet_fold`), which folds offsuit unpaired non-AK hands facing a
+  3-bet of 2.5x or more above 20bb effective (`PUSH_FOLD_EFFECTIVE_BB`, strict). At 40bb, 2bb open 3-bet to 6bb, it
+  fired on 31 classes while 19 decisions changed. Both receipts are now deferred: `HorseLogic.decideInternal` emits
+  them after every later owner, only when the final action is still the call (or a call for the whole stack). No
+  decision can change: the rule, its gates and every layer are untouched; only where the counter is incremented moved.
+- The 20bb versus 40bb difference in what the opener calls (31 against 19 classes at 2bb to 6bb) is that same layer,
+  not the price: at 20bb effective it stands aside, at 21bb and deeper it folds those hands back.
+- Added the pot-limit hold'em scope negative to the law test.
+
 ## Evaluation
 
 Declared before any result in the heads-up lane's evidence folder (`evaluation/DECLARATION-HU-DEFENCE.md`); results
-in `evaluation/RESULTS-HU-DEFENCE.md`, adverse cells kept. Whatever they read, both options stay default OFF.
+in `evaluation/RESULTS-HU-DEFENCE.md`, adverse cells kept. Heads-up NLH cash, 25bb and 40bb, against the horse mirror
+and five heads-up human-field personas, 100,000 hands per cell, option on against off, run on 2017e96d (96 jobs, 0
+failed, no deviation). Rule: an option passes when none of its 12 cells is below -2 standard errors.
+
+- `huOpenerDefendsToPrice`: PASS, 12 of 12 cells, lowest z -1.31. Pooled mirror -0.08 +/- 0.25 bb/100, pooled
+  personas +0.34 +/- 0.36; one clearly positive cell (wide small-blind aggressor, 40bb, +4.75 +/- 1.29).
+- `huLimpDefendsToPrice`: PASS under the rule, but inert in 10 of 12 cells (it never acted). Only the min-raise
+  persona cells move: +2.07 +/- 1.68 at 25bb and +3.51 +/- 2.50 at 40bb, neither significant. Against this field the
+  option barely acts.
+
+Both options stay default OFF. Neither is proposed for activation: the owner's preflop range hold governs.

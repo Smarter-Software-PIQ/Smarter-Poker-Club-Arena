@@ -4690,6 +4690,11 @@ const nearNutChosenRaises = new WeakSet<HorseDecision>();
 let barrelOutlookRiverPending = false;
 // v53PloTourneyIcm receipt state: the ICM shifts changed the reference choice.
 let v53IcmAppliedPending = false;
+// huOpenerDefendsToPrice / huLimpDefendsToPrice receipt state: the preflop
+// intent turned a fold into a call. The receipt fires only if the final
+// decision is still that call (a later owner, e.g. the dominated-offsuit
+// 3-bet fold above 20bb effective, may fold it back). Receipt only.
+let huDefendToPricePending: 'hu_opener_defends_to_price' | 'hu_limp_defends_to_price' | null = null;
 // The near-nut candidate kept a raise the PLO6 flat rule would have flatted.
 let nearNutFlatExceptionUsed = false;
 // barrelContinuationOutlook changed the reference choice; judged at the end.
@@ -6283,6 +6288,7 @@ export class HorseLogic {
     } finally {
       barrelOutlookRiverPending = false;
       v53IcmAppliedPending = false;
+      huDefendToPricePending = null;
       nearNutFlatExceptionUsed = false;
       barrelOutlookAppliedPending = false;
       phase7EquityEvidence = null;
@@ -6309,6 +6315,7 @@ export class HorseLogic {
     phase12DecisionEquityCeiling = null;
     barrelOutlookRiverPending = false;
     v53IcmAppliedPending = false;
+    huDefendToPricePending = null;
     nearNutFlatExceptionUsed = false;
     barrelOutlookAppliedPending = false;
     // Authored JSON and older direct callers can supply arbitrary strings.
@@ -6548,6 +6555,8 @@ export class HorseLogic {
     const nearNutChosen = nearNutChosenRaises.delete(decision) && nearNutReference !== null;
     const v53IcmApplied = v53IcmAppliedPending;
     v53IcmAppliedPending = false;
+    const huDefendToPrice = huDefendToPricePending;
+    huDefendToPricePending = null;
     const barrelOutlookApplied = barrelOutlookAppliedPending;
     barrelOutlookAppliedPending = false;
     const v54StationCheck = v54StationChecks.has(decision);
@@ -7441,6 +7450,21 @@ export class HorseLogic {
         (decision.amount ?? null) !== (beforePhase10.amount ?? null))
     )
       noteFire('v53_plo_icm_superseded');
+    // huOpenerDefendsToPrice / huLimpDefendsToPrice: the call they made counts
+    // only if it is still the final action (a call, or a call for the whole stack).
+    if (
+      huDefendToPrice &&
+      tele &&
+      (decision.action === 'call' ||
+        (decision.action === 'all_in' &&
+          (player.bet || 0) + player.stack <= (gs.currentBet || 0) + 1e-9))
+    )
+      // Literal keys: the ledger contract finds each receipt by its noteFire call.
+      noteFire(
+        huDefendToPrice === 'hu_opener_defends_to_price'
+          ? 'hu_opener_defends_to_price'
+          : 'hu_limp_defends_to_price'
+      );
     // The reference choice a skill changed must survive every later owner to
     // count as applied; a later owner that replaced it superseded it.
     const referenceKept =
@@ -9991,9 +10015,12 @@ export class HorseLogic {
       if (intent.receipt === 'v74_nlh_open_size') noteFire('v74_nlh_open_size');
       else if (intent.receipt === 'cash_nlh_three_bet_size') noteFire('cash_nlh_three_bet_size');
       else if (intent.receipt === 'hu_bb_defends_to_price') noteFire('hu_bb_defends_to_price');
-      else if (intent.receipt === 'hu_opener_defends_to_price')
-        noteFire('hu_opener_defends_to_price');
-      else if (intent.receipt === 'hu_limp_defends_to_price') noteFire('hu_limp_defends_to_price');
+      // Deferred: fired in decideInternal only if the final decision is still the call.
+      else if (
+        intent.receipt === 'hu_opener_defends_to_price' ||
+        intent.receipt === 'hu_limp_defends_to_price'
+      )
+        huDefendToPricePending = intent.receipt;
       else if (intent.receipt === 'committed_stack_priced_in')
         noteFire('committed_stack_priced_in_seen');
       else if (intent.receipt === 'v76_retired_four_bet_bluff')

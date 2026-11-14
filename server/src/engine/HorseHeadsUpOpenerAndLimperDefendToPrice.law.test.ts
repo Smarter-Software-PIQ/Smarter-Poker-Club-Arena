@@ -16,8 +16,12 @@
  *  - it never adds a raise, changes a size or removes a call;
  *  - it fires only in no-limit hold'em cash with exactly two dealt in: not
  *    blind against blind after a dealt-in button folded, not in a
- *    tournament, not in Omaha or short deck or fixed limit, not against an
- *    all-in raise, not on an all-in-or-fold table or in a straddled pot;
+ *    tournament, not in Omaha or short deck or fixed limit or pot limit, not
+ *    against an all-in raise, not on an all-in-or-fold table or in a straddled
+ *    pot;
+ *  - its receipt counts only a call that is still the final decision (review
+ *    R1, 2026-11-14): above 20bb effective the dominated-offsuit 3-bet fold
+ *    turns some of the opener's calls back into folds, and those do not count;
  *  - off, or unset, every decision is the one made today, and each option
  *    leaves the other's spot alone.
  *
@@ -29,6 +33,8 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { HorseLogic, type HorseGameStateV2 } from './HorseLogic.js';
 import { seedFastRandom } from './HorseEval.js';
+import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
+import { horseVariantRulesFor } from './VariantRules.js';
 import { HAND_CLASSES } from './HorseGtoOpeningRanges.js';
 import {
   HU_DEFENCE_REFERENCE_WIDTH_PCT,
@@ -196,6 +202,10 @@ const OUT_OF_SCOPE: readonly [string, Partial<Spot>][] = [
   ['four-card Omaha', { variant: 'plo4' }],
   ['short deck', { variant: 'short_deck' }],
   ['fixed limit', { variant: 'flh' }],
+  [
+    "pot-limit hold'em",
+    { extra: { variantRules: horseVariantRulesFor('nlh'), bettingStructure: 'pot_limit' } },
+  ],
   ['an all-in raise', { raiserAllIn: true }],
   ['an all-in-or-fold table', { extra: { allInOrFold: true } }],
   ['a straddled pot', { extra: { straddleActive: true } }],
@@ -353,5 +363,67 @@ describe('the width the price is read against', () => {
     expect(HU_LIMP_REALIZATION).toBeLessThan(1);
     expect(huOpenerRequiredEquity(0.34)).toBeGreaterThan(0.34);
     expect(huLimpRequiredEquity(0.25)).toBeGreaterThan(0.25);
+  });
+});
+
+/**
+ * The receipt is the final decision (review R1). Telemetry is switched on here
+ * and stays on for the rest of the process, so this block runs last.
+ */
+describe('each receipt is a call that reached the final decision', () => {
+  /** Per class: the final action, and whether the option's receipt fired. */
+  function sweepWithReceipts(spot: Spot, opts: Record<string, unknown>, key: string) {
+    const hybrid = HORSE_HYBRID_PROFILES.cash;
+    const action: Record<string, string> = {};
+    const fired: string[] = [];
+    drainFires();
+    for (const h of HAND_CLASSES) {
+      const { hero, gs } = stateFor(spot, holeFor(h.cls, false));
+      seedFastRandom(7 + h.cls.charCodeAt(0) * 31 + h.cls.charCodeAt(1));
+      action[h.cls] = HorseLogic.decide(
+        hero,
+        gs,
+        hybrid.style,
+        { ...hybrid.mods },
+        { mind: false, decisionTimeMs: Date.UTC(2026, 10, 14, 12, 0, 0), telemetry: true, ...opts }
+      ).action;
+      const n = drainFires().find((r) => r.feature === key)?.fires ?? 0;
+      expect(n, h.cls).toBeLessThanOrEqual(1);
+      if (n === 1) fired.push(h.cls);
+    }
+    return { action, fired };
+  }
+
+  const cases: readonly [string, Spot, Record<string, unknown>, string][] = [
+    [
+      'opener, 40bb, 2bb open 3-bet to 6bb',
+      opener({ openBB: 2, raiseBB: 6 }),
+      OPENER,
+      'hu_opener_defends_to_price',
+    ],
+    ['opener, 40bb, 2.5bb open 3-bet to 8bb', opener(), OPENER, 'hu_opener_defends_to_price'],
+    [
+      'opener, 25bb, 2bb open 3-bet to 6bb',
+      opener({ stackBB: 25, openBB: 2, raiseBB: 6 }),
+      OPENER,
+      'hu_opener_defends_to_price',
+    ],
+    ['limper, 40bb, min-raise', limper(), LIMPER, 'hu_limp_defends_to_price'],
+  ];
+
+  it.each(cases)('%s: receipts equal the changed final decisions', (_name, spot, on, key) => {
+    enableBrainTelemetry();
+    const withOn = sweepWithReceipts(spot, on, key);
+    const withOff = sweepWithReceipts(spot, {}, key);
+    // Telemetry is a receipt only: the decisions are the ones made without it.
+    expect(withOn.action).toEqual(sweep(spot, on));
+    expect(withOff.action).toEqual(sweep(spot, {}));
+    const changed = Object.keys(withOn.action).filter(
+      (k) => withOn.action[k] !== withOff.action[k]
+    );
+    expect(changed.length).toBeGreaterThan(0);
+    expect(withOff.fired).toEqual([]);
+    // Sorted: pair classes such as '22' are integer-like keys, which objects list first.
+    expect([...withOn.fired].sort()).toEqual([...changed].sort());
   });
 });
