@@ -67,6 +67,12 @@
  *     all_in executes as the call, leaving the rest of the stack behind;
  *   - heads-up against a shorter stack that is all-in, the menu still offers
  *     raise and all_in to the deep stack, although nobody is left to answer.
+ *
+ * One known gap is pinned, not hidden (last describe block): in pot-limit and
+ * fixed-limit tournaments the short-stack shove through the all-in button is
+ * not priced by upgrade 07; the tournament utility refuses it as
+ * `baseline_not_modeled`. Reported 2026-11-14 to the tournament strategy lane.
+ * Upgrade 07 is required, exactly once, on every other tournament decision.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
@@ -602,8 +608,25 @@ const REACHED = new Map<Structure, Reached>(
 const DECKS_SEEN = new Set<number>();
 const BOARDS_SEEN = new Set<string>();
 const CELLS_RUN = new Set<string>();
-/** Reproductions of the one known engine defect; see the last describe block. */
-const UPGRADE_07_SHORT_JAM_REFUSALS: string[] = [];
+/**
+ * What upgrade 07 did on every tournament decision of the short-stack spot
+ * (the all-in button as the only raise); pinned in the last describe block.
+ */
+interface ShortSpotPricing {
+  /** `variant rep=N seed=N`: the reproduction. */
+  id: string;
+  structure: Structure;
+  action: string;
+  /** phase7_tournament_utility fired once and the decision carries its ledger. */
+  priced: boolean;
+  /** Every `phase7_unavailable_*` counter the decision fired. */
+  refusalCounters: string[];
+  /** phase7_utility_unavailable, the refusal's umbrella counter. */
+  unavailable: number | undefined;
+  /** The decision's own receipt of the refusal. */
+  receiptRefusal: string | undefined;
+}
+const SHORT_SPOT_PRICING: ShortSpotPricing[] = [];
 
 const near = (a: number, b: number) => Math.abs(a - b) < 0.006;
 
@@ -812,16 +835,26 @@ async function runSpot(
     const refusals = Object.keys(counted).filter((key) => key.startsWith('phase7_unavailable_'));
     const priced = refusals.length === 0 && counted.phase7_tournament_utility === 1;
     const text = `${UPGRADE_07}: phase7_tournament_utility=${counted.phase7_tournament_utility} refusals=[${refusals}], ${got}`;
-    // The known defect, and only it, is reported by its own test below: the
-    // all-in button pressed as the only raise in pot limit or fixed limit.
-    const knownDefect =
+    // The known gap, and only it, is pinned by its own test below: the
+    // all-in button pressed as the only raise in pot limit or fixed limit,
+    // refused for exactly this reason. Any other refusal fails here.
+    const knownGap =
       spec.kind === 'short' &&
       structure !== 'no_limit' &&
       decision.action === 'all_in' &&
       refusals.length === 1 &&
       refusals[0] === 'phase7_unavailable_baseline_not_modeled';
-    if (knownDefect) UPGRADE_07_SHORT_JAM_REFUSALS.push(`${text} :: ${where}`);
-    else owe(priced, text);
+    if (spec.kind === 'short')
+      SHORT_SPOT_PRICING.push({
+        id: `${variant} rep=${rep} seed=${seed}`,
+        structure,
+        action: decision.action,
+        priced: priced && decision.tournamentUtility !== undefined,
+        refusalCounters: refusals,
+        unavailable: counted.phase7_utility_unavailable,
+        receiptRefusal: decision.tournamentUtilityRefusal,
+      });
+    if (!knownGap) owe(priced, text);
   } else {
     owe(counted.phase7_tournament_utility === undefined, 'tournament utility in a cash game');
   }
@@ -1019,7 +1052,8 @@ describe('across the matrix', () => {
 });
 
 /**
- * KNOWN ENGINE DEFECT, kept failing on purpose (found by this law, 2026-11-14).
+ * KNOWN GAP, pinned (found by this law and reported to the tournament
+ * strategy lane, which owns HorseTournamentUtility, on 2026-11-14).
  *
  * In a pot-limit or fixed-limit tournament, a Horse facing a bet with more
  * than the call and less than the minimum raise behind holds the menu fold,
@@ -1034,12 +1068,79 @@ describe('across the matrix', () => {
  * upgrade 07 does not fire on the decision that puts the tournament life at
  * stake. No-limit builds the jam without the ceiling and is priced.
  *
- * Every other assertion of the law holds for these decisions (they are in the
- * cells above); only upgrade 07 is carved out to here.
+ * This pins today's behaviour by name, the way the style matrix law pins the
+ * Pineapple tournament refusal. It is green while the gap exists, for this
+ * reason and no other, and it goes red the moment the shove is priced: whoever
+ * fixes the pricing must then replace this block with the plain rule (every
+ * tournament decision of this spot is priced) and drop the carve-out in
+ * runSpot. A refusal for any other reason already fails in the cells above.
+ *
+ * The decisions are the same on every run (fixed decks and timestamps), so the
+ * six shoves are listed by their reproduction: variant, deck repetition and
+ * deck seed of the spot `hu_flop_short_stack_all_in_is_the_only_raise`,
+ * tournament, heads-up flop, Horse in seat 1, big blind 20.
  */
-describe('KNOWN DEFECT upgrade 07: the all-in button as the only raise, pot limit and fixed limit tournaments', () => {
-  it('DEFECT: a short-stack shove over a bet is priced by the tournament utility (fails: refused as baseline_not_modeled)', () => {
+const KNOWN_GAP_REASON = 'baseline_not_modeled';
+const KNOWN_GAP_COUNTER = `phase7_unavailable_${KNOWN_GAP_REASON}`;
+const KNOWN_GAP_SHOVES = [
+  'plo4 rep=0 seed=1663882339',
+  'plo6 rep=0 seed=1264265673',
+  'plo8 rep=1 seed=2568337932',
+  'flo8 rep=1 seed=2269140658',
+  'flh rep=0 seed=530853016',
+  'flh rep=1 seed=547630635',
+];
+describe('KNOWN GAP upgrade 07 (reported 2026-11-14 to the tournament strategy lane): the all-in button as the only raise', () => {
+  const ofStructure = (noLimit: boolean) =>
+    SHORT_SPOT_PRICING.filter((d) => (d.structure === 'no_limit') === noLimit);
+
+  it('pinned: a pot-limit or fixed-limit tournament shove through the all-in button is NOT priced, refused as baseline_not_modeled and nothing else', () => {
     expect(CELLS_RUN.size).toBe(VARIANTS.length * MODES.length);
-    expect(UPGRADE_07_SHORT_JAM_REFUSALS).toEqual([]);
+    // Two decks for each of the nine variants, tournaments only.
+    expect(SHORT_SPOT_PRICING).toHaveLength(VARIANTS.length * REPS);
+    const shoves = ofStructure(false).filter((d) => d.action === 'all_in');
+    expect(shoves.map((d) => d.id)).toEqual(KNOWN_GAP_SHOVES);
+    for (const shove of shoves) {
+      expect(shove.priced, shove.id).toBe(false);
+      expect(shove.refusalCounters, shove.id).toEqual([KNOWN_GAP_COUNTER]);
+      expect(shove.unavailable, shove.id).toBe(1);
+      expect(shove.receiptRefusal, shove.id).toBe(KNOWN_GAP_REASON);
+    }
+  });
+
+  it('the same spot IS priced when the Horse folds or calls in pot limit and fixed limit', () => {
+    const passive = ofStructure(false).filter((d) => d.action !== 'all_in');
+    expect(passive.map((d) => `${d.id} ${d.action}`)).toEqual([
+      'plo4 rep=1 seed=1647104720 call',
+      'plo5 rep=0 seed=3189586728 call',
+      'plo5 rep=1 seed=3206364347 fold',
+      'plo6 rep=1 seed=1247488054 fold',
+      'plo8 rep=0 seed=2585115551 call',
+      'flo8 rep=0 seed=2285918277 call',
+    ]);
+    for (const decision of passive) {
+      expect(decision.priced, decision.id).toBe(true);
+      expect(decision.refusalCounters, decision.id).toEqual([]);
+      expect(decision.unavailable, decision.id).toBeUndefined();
+      expect(decision.receiptRefusal, decision.id).toBeUndefined();
+    }
+  });
+
+  it('the same spot IS priced in no-limit tournaments, the shove included', () => {
+    const noLimit = ofStructure(true);
+    expect(noLimit.map((d) => `${d.id} ${d.action}`)).toEqual([
+      'nlh rep=0 seed=2456099296 fold',
+      'nlh rep=1 seed=2472876915 all_in',
+      'short_deck rep=0 seed=350535654 all_in',
+      'short_deck rep=1 seed=367313273 fold',
+      'pineapple rep=0 seed=566050004 fold',
+      'pineapple rep=1 seed=582827623 fold',
+    ]);
+    for (const decision of noLimit) {
+      expect(decision.priced, decision.id).toBe(true);
+      expect(decision.refusalCounters, decision.id).toEqual([]);
+      expect(decision.unavailable, decision.id).toBeUndefined();
+      expect(decision.receiptRefusal, decision.id).toBeUndefined();
+    }
   });
 });

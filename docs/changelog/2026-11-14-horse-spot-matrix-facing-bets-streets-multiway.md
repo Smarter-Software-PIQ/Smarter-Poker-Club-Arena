@@ -20,11 +20,33 @@ Test only: no production source changes, so no decision, wager, think time, queu
 - The controller's bounds are recomputed from the betting structure: no-limit may wager the stack; pot-limit may raise to the current bet plus the pot after calling, and bet the pot; fixed limit has one size, the big blind on the flop and twice that on the turn and river, and none once the street is capped.
 - Which action the Horse picks is never asserted (decisions are sampled). Instead every action the controller offers is executed on a twin of the same hand, at the minimum and the maximum for a sized wager, and one chip unit outside each bound must be refused. Fold, check, call, bet, raise and all-in must each have been offered and accepted in each of the three betting structures.
 
-## Defect Found, Not Fixed Here
+## Known Gap, Pinned (Reported 2026-11-14 To The Tournament Strategy Lane)
 
-One test is left failing on purpose: `KNOWN DEFECT upgrade 07: the all-in button as the only raise, pot limit and fixed limit tournaments`.
+In a pot-limit or fixed-limit tournament, a Horse facing a bet with more than the call and less than the minimum raise behind holds the menu fold, call, all_in with no `minRaiseTo` or `maxRaiseTo`. The controller executes that all_in as a wager: the whole stack goes in above the bet. When the brain's reference decision is that all_in, `buildTournamentActionCandidates` (`HorseTournamentUtility.ts`) builds no jam candidate, because for these two structures it requires a numeric `maxRaiseTo`. The baseline is then missing from the candidates, the utility refuses with `baseline_not_modeled`, and the shove is played without being priced by the tournament utility (upgrade 07). No-limit builds the jam without the ceiling and is priced. The decision itself is legal and accepted; every other assertion holds for it.
 
-In a pot-limit or fixed-limit tournament, a Horse facing a bet with more than the call and less than the minimum raise behind holds the menu fold, call, all_in with no `minRaiseTo` or `maxRaiseTo`. The controller executes that all_in as a wager: the whole stack goes in above the bet. When the brain's reference decision is that all_in, `buildTournamentActionCandidates` (`HorseTournamentUtility.ts`) builds no jam candidate, because for these two structures it requires a numeric `maxRaiseTo`. The baseline is then missing from the candidates, the utility refuses with `baseline_not_modeled`, and the shove is played without being priced by the tournament utility. No-limit builds the jam without the ceiling and is priced. Six of the twelve short-stack decisions in those structures reproduce it (plo4, plo6, plo8, flo8, flh). The decision itself is legal and accepted; every other assertion holds for it.
+The pricing is a strategy change owned by the tournament strategy lane, so it is not made here. The law pins today's behaviour by name instead, the way the style matrix law pins the Pineapple tournament refusal (`KNOWN GAP upgrade 07 ...`, three tests):
+
+- the six shoves below are not priced: `phase7_tournament_utility` does not fire, the only refusal counter is `phase7_unavailable_baseline_not_modeled`, `phase7_utility_unavailable` is 1 and the decision's receipt says `baseline_not_modeled`;
+- the six decisions of the same spot in those structures where the Horse folds or calls are priced, with no refusal;
+- the six decisions of the same spot in no-limit tournaments are priced, the two shoves among them included.
+
+The pin is green only for that reason on those decisions. It goes red when the shove is priced, so whoever fixes the pricing must replace it with the plain rule. A refusal for any other reason fails in the cells.
+
+The six reproductions (spot `hu_flop_short_stack_all_in_is_the_only_raise`, tournament, heads-up flop, Horse in seat 1, big blind 20, menu fold, call, all_in, returned all_in):
+
+| Variant | Deck | Seed       | Horse stack | Pot | To call |
+| ------- | ---- | ---------- | ----------- | --- | ------- |
+| plo4    | 0    | 1663882339 | 60          | 80  | 40      |
+| plo6    | 0    | 1264265673 | 60          | 80  | 40      |
+| plo8    | 1    | 2568337932 | 60          | 80  | 40      |
+| flo8    | 1    | 2269140658 | 30          | 60  | 20      |
+| flh     | 0    | 530853016  | 30          | 60  | 20      |
+| flh     | 1    | 547630635  | 30          | 60  | 20      |
+
+## Other Findings, Not Changed
+
+- Heads-up against a shorter stack that is all-in, the controller still offers raise and all_in to the deep stack, and the Horse takes that raise in some decisions. The controller records the raise and returns the uncalled part at once, so it costs exactly the call (asserted by the law); the hand history shows a raise nobody could answer.
+- On a capped fixed-limit street the menu is fold, call, all_in to a deep stack, and all_in there means the call: it executes as the call and the rest of the stack stays behind (asserted by the law). Facing an all-in that covers the Horse, all_in on the menu is likewise the call.
 
 ## Limits, Stated
 
@@ -36,16 +58,9 @@ In a pot-limit or fixed-limit tournament, a Horse facing a bet with more than th
 - The minimum raise is checked as a floor (the current bet plus one big blind), not recomputed from the last raise.
 - Two decks per spot is a sample. A spot type that passes here is proven reachable and legal on those decks, not on every board.
 
-## What The Controller's Menu Means In Three Spots
-
-Recorded because the law depends on it, and because two of them read oddly:
-
-- Facing an all-in that covers the Horse, the menu is fold, call, all_in; all_in there is the call.
-- On a capped fixed-limit street the menu is fold, call, all_in to a deep stack; all_in executes as the call and the rest of the stack stays behind.
-- Heads-up against a shorter stack that is all-in, the menu still offers raise and all_in to the deep stack. The controller records the raise and returns the uncalled part at once, so it costs exactly the call (asserted). The Horse takes that raise in some of these decisions; the hand history then shows a raise nobody could answer.
-
 ## Regression
 
-- `HorseDecisionSpotMatrix.law.test.ts`: 25 tests pass, 1 fails on purpose (the defect above). Ten consecutive runs gave the same result and the same six reproductions, in 19 to 28 seconds each; the action history handed to the brain is restamped at fixed times, so the 512 decisions are the same on every run.
+- `HorseDecisionSpotMatrix.law.test.ts`: 28 tests, all pass. Ten consecutive runs gave the same result, in 18 to 32 seconds each on a busy machine and 56 to 94 seconds for three runs taken at a load average above 65 (the slowest single test then took 10 seconds of its 60-second limit); the action history handed to the brain is restamped at fixed times, so the 512 decisions are the same on every run.
 - Mutation: removing the `upgrade01_action_line_posterior` fire in `HorseLogic.ts` fails all 18 cells; making the worker return a bet or raise one chip above the controller's maximum fails all 18 cells (outside the bounds, and refused by the controller). Both restored.
+- Mutation on the pin: letting `buildTournamentActionCandidates` build the jam without a numeric `maxRaiseTo` (the shove becomes priced) fails the pinned test. Restored.
 - `tests/law-registry.law.test.ts` passes with the new registry file.
