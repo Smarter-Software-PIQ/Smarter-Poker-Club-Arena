@@ -1,0 +1,3 @@
+# tests/a-chip-formatter-never-receives-raw-arithmetic.law.test.ts
+
+Dan 2026-11-13: real figures print exactly. The chip formatters copy the digits they are given and never guess that a trailing digit is floating-point noise, so client arithmetic on chip figures must apply the explicit chip rule before formatting (`sumChips` for a sum, `chipCents` otherwise, `Math.trunc` or `Math.round` for a whole figure). The law scans every source file for a chip formatter, or a file-local alias of one, whose figure argument holds a bare `+ - * /` between operands outside those rules, an array index or a callback.
