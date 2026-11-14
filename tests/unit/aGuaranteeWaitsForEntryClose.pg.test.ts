@@ -54,6 +54,27 @@ CREATE TABLE public.chip_ledger (
 CREATE UNIQUE INDEX chip_ledger_key ON public.chip_ledger (idempotency_key) WHERE idempotency_key IS NOT NULL;
 CREATE TABLE public.alerts (sev text, src text, msg text);
 CREATE TABLE public.ca_declared_money_triggers (table_name text, trigger_name text, note text);
+CREATE TABLE public.ca_money_rpc_registry (proname text PRIMARY KEY, status text, notes text);
+-- The production money-function registry guard (ab_ca_money_rpc_registered),
+-- so the install proves every function that writes a balance is registered.
+CREATE FUNCTION public.fn_ca_money_rpc_balance_columns() RETURNS text[] LANGUAGE sql AS $$
+  SELECT ARRAY['chip_balance','held_chips','locked_chips','credit_used','stack','balance','chips','prize','bounty_winnings','chip_treasury','promo_wallet'] $$;
+CREATE FUNCTION public.fn_ca_money_rpc_writes_balances(p_src text) RETURNS boolean LANGUAGE sql AS $$
+  SELECT COALESCE(
+    p_src ~* 'UPDATE\s+(public\.)?(club_members|club_wallets|union_wallets|unions|table_seats|bbj_pools|clubs|agents|wallets|spin_bonus_pools|tournament_players)\y'
+    OR p_src ~* 'INSERT\s+INTO\s+(public\.)?(club_members|club_wallets|union_wallets|unions|bbj_pools|clubs|agents|wallets|spin_bonus_pools)\y', false)
+  AND COALESCE(p_src ~* ('\y(' || array_to_string(public.fn_ca_money_rpc_balance_columns(), '|') || ')\y'), false) $$;
+CREATE FUNCTION public.fn_ca_money_rpc_registry_guard() RETURNS event_trigger LANGUAGE plpgsql AS $$
+DECLARE obj record; v_name text; v_src text;
+BEGIN
+  FOR obj IN SELECT * FROM pg_event_trigger_ddl_commands() LOOP
+    IF obj.object_type <> 'function' OR obj.schema_name IS DISTINCT FROM 'public' THEN CONTINUE; END IF;
+    SELECT p.proname, p.prosrc INTO v_name, v_src FROM pg_proc p WHERE p.oid = obj.objid AND p.prokind = 'f';
+    IF v_name IS NULL OR NOT public.fn_ca_money_rpc_writes_balances(v_src) THEN CONTINUE; END IF;
+    IF EXISTS (SELECT 1 FROM public.ca_money_rpc_registry g WHERE g.proname = v_name) THEN CONTINUE; END IF;
+    RAISE EXCEPTION 'REFUSED: % writes balance columns and is not in ca_money_rpc_registry', v_name;
+  END LOOP;
+END $$;
 
 CREATE FUNCTION public.fn_ca_tournament_is_unlimited(uuid) RETURNS boolean LANGUAGE sql AS $$ SELECT true $$;
 CREATE FUNCTION public.fn_ca_lock_settlement_lane_for_tournament(uuid) RETURNS void LANGUAGE sql AS $$ SELECT $$;
@@ -168,6 +189,11 @@ it('moves no guarantee chips until registration, rebuys and the add-on have all 
     for (const name of ['late', 'rebuy', 'close', 'apply', 'lock']) sql(`${fixture(name)};`);
     sql(`CREATE TRIGGER zz_ca_fund_overlay_on_lock BEFORE UPDATE OF status ON public.tournaments
            FOR EACH ROW EXECUTE FUNCTION public.fn_ca_fund_overlay_on_lock();`);
+    sql(`INSERT INTO ca_money_rpc_registry (proname, status) VALUES
+           ('fn_apply_prize_guarantee', 'approved'), ('fn_ca_fund_overlay_on_lock', 'approved'),
+           ('fn_ca_apply_prize_guarantee_core', 'approved');
+         CREATE EVENT TRIGGER ab_ca_money_rpc_registered ON ddl_command_end
+           EXECUTE FUNCTION public.fn_ca_money_rpc_registry_guard();`);
     sql(`INSERT INTO clubs (id, chip_treasury) VALUES ('${CLUB}', 100000);
          INSERT INTO union_wallets (union_id, chip_balance) VALUES ('${UNION}', 100000);`);
 
@@ -189,6 +215,12 @@ it('moves no guarantee chips until registration, rebuys and the add-on have all 
       .replace('8d9f9f1d6f6806bac9aec0202de08997', live.lock);
     sql(pointed);
     sql(readFileSync(resolve(root, M2), 'utf8'));
+    // The money-moving function is registered before it exists.
+    expect(
+      one(
+        `SELECT status FROM ca_money_rpc_registry WHERE proname='fn_ca_fund_satellite_seats_at_close_locked'`
+      )
+    ).toBe('approved');
 
     const ev = (id: string, cols: string) =>
       sql(`INSERT INTO tournaments (id, name, club_id, union_id, ${cols.split('|')[0]})
@@ -210,6 +242,16 @@ it('moves no guarantee chips until registration, rebuys and the add-on have all 
       BB,
       `status, late_reg_levels, rebuy_levels, current_level, is_rebuy, guaranteed_prize, prize_pool, started_at|'RUNNING', 9, 12, 9, true, 1000, 600, now() - interval '2 hours'`
     );
+    // Level 8: registration is still open; the pool is open for that reason.
+    sql(`UPDATE tournaments SET current_level = 8 WHERE id='${BB}';`);
+    expect(one(`SELECT fn_tournament_late_registration_open('${BB}')`)).toBe('t');
+    const stillEntering = JSON.parse(
+      one(`SELECT fn_close_tournament_entry_window('${BB}', 'engine.test')`)
+    );
+    expect(stillEntering).toMatchObject({ ok: true, entry_closed: false });
+    expect(stillEntering.reason).toBeUndefined();
+    // Level 9: registration stops at its configured deadline.
+    sql(`UPDATE tournaments SET current_level = 9 WHERE id='${BB}';`);
     expect(one(`SELECT fn_tournament_late_registration_open('${BB}')`)).toBe('f');
     const deferred = JSON.parse(
       one(`SELECT fn_close_tournament_entry_window('${BB}', 'engine.test')`)
@@ -235,6 +277,17 @@ it('moves no guarantee chips until registration, rebuys and the add-on have all 
     expect(closed).toMatchObject({ ok: true, entry_closed: true, finalized: true, overlay: 400 });
     expect(legs(BB)).toBe(1);
     expect(Number(one(`SELECT prize_pool FROM tournaments WHERE id='${BB}'`))).toBe(1000);
+    // Retries, restarts and duplicate calls fund nothing a second time.
+    expect(JSON.parse(one(`SELECT fn_apply_prize_guarantee('${BB}', 'engine.test')`)).ok).toBe(
+      true
+    );
+    expect(
+      JSON.parse(one(`SELECT fn_close_tournament_entry_window('${BB}', 'engine.test')`)).ok
+    ).toBe(true);
+    expect(legs(BB)).toBe(1);
+    expect(Number(one(`SELECT prize_pool FROM tournaments WHERE id='${BB}'`))).toBe(1000);
+    // Once the pool is final, no rebuy is offered.
+    expect(JSON.parse(one(`SELECT fn_ca_tournament_rebuy_window('${BB}')`)).open).toBe(false);
 
     // 2. An add-on event ends at the actual add-on end, not before.
     const AO = 'a0000000-0000-0000-0000-000000000001';
@@ -243,6 +296,8 @@ it('moves no guarantee chips until registration, rebuys and the add-on have all 
       `status, late_reg_levels, rebuy_levels, current_level, is_rebuy, add_on_available, addon_period_triggered, addon_period_started_at, addon_period_ends_at, guaranteed_prize, prize_pool, started_at|'RUNNING', 10, 12, 10, true, true, true, now(), now() + interval '1 minute', 20000, 12000, now() - interval '2 hours'`
     );
     expect(one(`SELECT fn_ca_guarantee_entry_period_ended('${AO}')`)).toBe('f');
+    // Rebuys and late registration stay open through the actual add-on end.
+    expect(JSON.parse(one(`SELECT fn_ca_tournament_rebuy_window('${AO}')`)).open).toBe(true);
     expect(() => houseLeg(AO)).toThrow(/GUARANTEE_CHIPS_BEFORE_ENTRY_CLOSE/);
     expect(
       JSON.parse(one(`SELECT fn_apply_prize_guarantee('${AO}', 'engine.addon_period_end')`)).reason
@@ -312,6 +367,12 @@ it('moves no guarantee chips until registration, rebuys and the add-on have all 
         `SELECT amount FROM chip_ledger WHERE idempotency_key='tourney:${SW}:satellite_seat_overlay'`
       )
     ).toBe('90.00');
+    expect(Number(one(`SELECT prize_pool FROM tournaments WHERE id='${SW}'`))).toBe(150);
+    expect(JSON.parse(one(`SELECT fn_apply_prize_guarantee('${SW}', 'engine.test')`)).ok).toBe(
+      true
+    );
+    expect(one(`SELECT fn_ca_fund_satellite_seats_at_close_locked('${SW}')`)).toBe('0');
+    expect(legs(SW)).toBe(1);
     expect(Number(one(`SELECT prize_pool FROM tournaments WHERE id='${SW}'`))).toBe(150);
 
     const SN = 'f0000000-0000-0000-0000-000000000002';
