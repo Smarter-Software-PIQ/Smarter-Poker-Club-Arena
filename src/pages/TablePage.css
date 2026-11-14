@@ -4221,6 +4221,7 @@ button.post-bb-overlay-button {
 .table-page.ca-raising .table-hud__lower,
 .table-page.ca-raising .tbc-widget,
 .table-page.ca-raising .prev-hand-card-wrapper,
+.table-page.ca-raising .hud-seat-change-dock,
 .table-page.ca-raising .chat-collapsed {
   opacity: 0;
   pointer-events: none;

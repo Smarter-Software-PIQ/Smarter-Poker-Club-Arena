@@ -139,7 +139,7 @@
 
 .chat-collapsed {
   position: fixed;
-  right: 8px;
+  right: var(--table-chat-edge, 8px);
   /* ═══ THE BOTTOM-EDGE LINE (Dan 2026-08-25, item 6) ═══
      "The time bank button needs to be lower, same level as the chat button.
      The bottoms of both icons should be equal at the bottom."
@@ -758,32 +758,51 @@
    right — the spot the stats icon vacated (it moved to the upper LEFT, see
    TableHUD.css at the same breakpoint). Same 54px derivation: 42px tab bar
    + 12px clearance. The open chat panel itself is untouched. */
+/* Both fixed controls resolve against the layout-contained table page.
+   The embedded page already begins below its tab bar. */
+.hud-seat-change-dock {
+  position: fixed;
+  left: var(--table-chat-edge, 8px);
+  top: calc(env(safe-area-inset-top, 0px) + 54px);
+}
+
 @media (max-width: 768px) {
-  .table-hud .lightning-leave-control,
-  .chat-collapsed {
-    top: calc(env(safe-area-inset-top, 0px) + 54px);
+  .table-page {
+    --table-chat-edge: 6px;
+    --table-chat-top: calc(env(safe-area-inset-top, 0px) + 54px);
+  }
+
+  .multi-table-page .table-page {
+    --table-chat-top: 12px;
   }
 
   .table-hud .lightning-leave-control {
     position: fixed;
-    left: 6px;
+    left: var(--table-chat-edge);
   }
 
-  .chat-collapsed {
+  .table-hud .lightning-leave-control,
+  .chat-collapsed,
+  .hud-seat-change-dock {
+    top: var(--table-chat-top);
     bottom: auto;
-    right: 6px;
   }
 }
 
-/* Multi-table pages already start below the tab bar. Their layout/paint
-   containment makes fixed descendants page-relative too; adding the bar's
-   height here counted it twice and covered the upper-right player's portrait.
-   Anchor explicitly in the owned page and retain the 12px under-bar gap. */
-@media (max-width: 768px) {
-  .multi-table-page .table-hud .lightning-leave-control,
-  .multi-table-page .chat-collapsed {
-    position: absolute;
-    top: 12px;
+/* On wide tables Chat sits above the action bar. Reserve its mirrored tile
+   before Previous Hand only while a seat-change icon occupies that space. */
+@media (width > 768px) {
+  .hud-seat-change-dock:has(.cch-seat-change--control) {
+    top: auto;
+    bottom: var(--sp-hud-line);
+  }
+
+  .hud-seat-change-dock:has(.cch-seat-change--control) .cch-column {
+    flex-direction: column-reverse;
+  }
+
+  .table-hud:has(.cch-seat-change--control) .table-hud__lower {
+    padding-left: calc(var(--table-chat-edge, 8px) + var(--sp-hud-tile-size) + 8px);
   }
 }
 
