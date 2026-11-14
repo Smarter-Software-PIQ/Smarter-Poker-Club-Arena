@@ -25,7 +25,7 @@ import { resolveClubUUID } from '../utils/clubIdResolver';
 import { SpadeConsole } from '../components/console/SpadeConsole';
 import PageBar from '../components/help/PageBar';
 import { compactChips, formatWalletChips } from '../utils/format';
-import { exactChipFigure, parseTradeAmount } from '../utils/cashierAmount';
+import { exactChipFigure, parseTradeAmount, sumChips } from '../utils/cashierAmount';
 import { safeErrorMessage } from '../utils/safeErrorMessage';
 import { platformFrozenMessage } from '../utils/platformFrozen';
 import { titleCase } from '../utils/titleCase';
@@ -609,8 +609,7 @@ export default function AgentPortalPage() {
               </div>
             ))}
             <div className={styles.totalRow}>
-              Total: {compactChips(commissionData.reduce((sum, day) => sum + day.commissions, 0))}{' '}
-              Chips
+              Total: {compactChips(sumChips(commissionData.map((day) => day.commissions)))} Chips
             </div>
           </div>
         )}

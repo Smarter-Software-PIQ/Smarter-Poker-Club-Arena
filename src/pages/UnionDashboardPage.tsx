@@ -44,6 +44,7 @@ import { EmptyState, ErrorState } from '../components/common/EmptyState';
 import CasinoSurfaceHeader from '../components/rewards/RewardsSurfaceHeader';
 import { playerDisplayName, PLAYER_NAME_COLUMNS } from '../utils/playerDisplayName';
 import { downloadCsv } from '../utils/downloadCsv';
+import { sumChips } from '../utils/cashierAmount';
 // ── Helpers ─────────────────────────────────────────────────
 const pct = (n: number | null | undefined) => `${((Number(n) || 0) * 100).toFixed(1)}%`;
 
@@ -1445,7 +1446,7 @@ export default function UnionDashboardPage() {
                       {unionSpins.state === null
                         ? '-'
                         : formatWalletChips(
-                            (wallets.spin_reserve_wallet || 0) + unionSpins.balance
+                            sumChips([wallets.spin_reserve_wallet || 0, unionSpins.balance])
                           )}
                     </div>
                     <div className="admin-stat-label">Spins Treasury ›</div>
@@ -2476,7 +2477,7 @@ export default function UnionDashboardPage() {
               <div className="admin-stats-grid" style={{ marginTop: '16px' }}>
                 <div className="admin-stat-card">
                   <div className="admin-stat-value" style={{ color: '#31A24C' }}>
-                    {fmt(clubs.reduce((s, c) => s + (c.chip_treasury || 0), 0))}
+                    {fmt(sumChips(clubs.map((c) => c.chip_treasury || 0)))}
                   </div>
                   <div className="admin-stat-label">Total Treasury</div>
                 </div>

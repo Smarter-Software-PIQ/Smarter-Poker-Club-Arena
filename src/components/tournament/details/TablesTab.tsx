@@ -387,7 +387,8 @@ export default function TablesTab({
     () => livingEntries.reduce((sum, e) => sum + (Number(e.chips) || 0), 0),
     [livingEntries]
   );
-  const fieldAvg = livingEntries.length > 0 ? fieldTotal / livingEntries.length : 0;
+  // Whole chips, the house average-stack rule.
+  const fieldAvg = livingEntries.length > 0 ? Math.trunc(fieldTotal / livingEntries.length) : 0;
 
   const scaleMax = useMemo(() => {
     let top = 0;

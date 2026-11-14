@@ -32,6 +32,7 @@ import CasinoSurfaceHeader from '../components/rewards/RewardsSurfaceHeader';
 import GameCreationActions from '../components/club/GameCreationActions';
 import { unionService } from '../services/UnionService';
 import { ErrorState } from '../components/common/EmptyState';
+import { chipCents } from '../utils/cashierAmount';
 
 const formatDate = (ts: string | null) => {
   if (!ts) return '-';
@@ -611,7 +612,9 @@ export default function UnionGamesPage() {
                   <div className={styles.tournMeta}>
                     <span>
                       {' '}
-                      {fmtChips(Number(t.buy_in_amount || 0) + Number(t.buy_in_fee || 0))}
+                      {fmtChips(
+                        chipCents(Number(t.buy_in_amount || 0) + Number(t.buy_in_fee || 0))
+                      )}
                     </span>
                     <span>
                       {t.current_players || 0}

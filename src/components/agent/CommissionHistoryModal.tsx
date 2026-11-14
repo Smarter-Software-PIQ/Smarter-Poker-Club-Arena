@@ -31,6 +31,7 @@ import styles from './CommissionHistoryModal.module.css';
 import { reportError } from '../../utils/errorReporter';
 import { compactChips } from '../../utils/format';
 import { SpadeConsole } from '../console/SpadeConsole';
+import { chipCents } from '../../utils/cashierAmount';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -147,31 +148,39 @@ export default function CommissionHistoryModal({
         );
 
         // Calculate summary
-        const totalEarned = data
-          .filter((e: any) => (e.source_type || 'rake') === 'rake')
-          .reduce((sum: number, e: any) => sum + (e.amount || 0), 0);
-        const totalPaid = data
-          .filter((e: any) => (e.source_type || 'rake') === 'payout')
-          .reduce((sum: number, e: any) => sum + Math.abs(e.amount || 0), 0);
+        const totalEarned = chipCents(
+          data
+            .filter((e: any) => (e.source_type || 'rake') === 'rake')
+            .reduce((sum: number, e: any) => sum + (e.amount || 0), 0)
+        );
+        const totalPaid = chipCents(
+          data
+            .filter((e: any) => (e.source_type || 'rake') === 'payout')
+            .reduce((sum: number, e: any) => sum + Math.abs(e.amount || 0), 0)
+        );
 
         const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
         const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
 
-        const thisMonth = data
-          .filter(
-            (e: any) =>
-              new Date(e.created_at) >= thisMonthStart && (e.source_type || 'rake') === 'rake'
-          )
-          .reduce((sum: number, e: any) => sum + (e.amount || 0), 0);
+        const thisMonth = chipCents(
+          data
+            .filter(
+              (e: any) =>
+                new Date(e.created_at) >= thisMonthStart && (e.source_type || 'rake') === 'rake'
+            )
+            .reduce((sum: number, e: any) => sum + (e.amount || 0), 0)
+        );
 
-        const lastMonth = data
-          .filter(
-            (e: any) =>
-              new Date(e.created_at) >= lastMonthStart &&
-              new Date(e.created_at) < thisMonthStart &&
-              (e.source_type || 'rake') === 'rake'
-          )
-          .reduce((sum: number, e: any) => sum + (e.amount || 0), 0);
+        const lastMonth = chipCents(
+          data
+            .filter(
+              (e: any) =>
+                new Date(e.created_at) >= lastMonthStart &&
+                new Date(e.created_at) < thisMonthStart &&
+                (e.source_type || 'rake') === 'rake'
+            )
+            .reduce((sum: number, e: any) => sum + (e.amount || 0), 0)
+        );
 
         setSummary({
           totalEarned,

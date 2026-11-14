@@ -1,6 +1,10 @@
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
 import { useRecentRecipients } from '../hooks/useRecentRecipients';
-import { formatCashierAmountInput, cashierAmountInputValue } from '../utils/cashierAmount';
+import {
+  cashierAmountInputValue,
+  chipCents,
+  formatCashierAmountInput,
+} from '../utils/cashierAmount';
 import {
   reserveCashierWalletOperation,
   clearCashierWalletOperation,
@@ -2767,7 +2771,7 @@ function CashierContent() {
                       <span className="sc-label sc-ink--blue">Your Agent Wallet</span>
                       <span className={`${styles.value} sc-ink--silver`}>
                         {formatWalletChips(myAgentWallet)} →{' '}
-                        {formatWalletChips(Math.max(0, myAgentWallet - typedChips))}
+                        {formatWalletChips(chipCents(Math.max(0, myAgentWallet - typedChips)))}
                       </span>
                     </div>
                     <div className={styles.row}>
@@ -2777,7 +2781,7 @@ function CashierContent() {
                       <span className={`${styles.value} sc-ink--silver`}>
                         {canHoldAgentWallet(selectedRecipientData.role)
                           ? `Agent Wallet Receives ${chipFigure(typedChips)} Chips`
-                          : `${formatWalletChips(selectedRecipientData.balance)} → ${formatWalletChips(selectedRecipientData.balance + typedChips)}`}
+                          : `${formatWalletChips(selectedRecipientData.balance)} → ${formatWalletChips(chipCents(selectedRecipientData.balance + typedChips))}`}
                       </span>
                     </div>
                     <div className={styles.row}>

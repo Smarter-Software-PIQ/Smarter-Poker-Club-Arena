@@ -61,6 +61,7 @@ import { safeErrorMessage } from '../utils/safeErrorMessage';
 import { playerDisplayName, PLAYER_NAME_COLUMNS } from '../utils/playerDisplayName';
 import { resolvePageClubId, pickPreferredClubId } from '../utils/resolvePageClubId';
 import { downloadCsv } from '../utils/downloadCsv';
+import { chipCents } from '../utils/cashierAmount';
 // ── Helpers ─────────────────────────────────────────────────
 const formatDate = (ts: string | null | undefined) => {
   if (!ts) return '';
@@ -313,9 +314,8 @@ function DashboardTab({ clubId }: { clubId: string }) {
       const agents = members.filter((m: { role?: string }) =>
         ['agent', 'super_agent', 'sub_agent'].includes(m.role || '')
       );
-      const totalRake = rakeData.reduce(
-        (sum: number, r: { total_rake?: number }) => sum + (r.total_rake || 0),
-        0
+      const totalRake = chipCents(
+        rakeData.reduce((sum: number, r: { total_rake?: number }) => sum + (r.total_rake || 0), 0)
       );
 
       // Player Acquisition (new members in last 30 days)

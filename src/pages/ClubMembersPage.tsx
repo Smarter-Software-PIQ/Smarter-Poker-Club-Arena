@@ -255,11 +255,12 @@ function winLossToneOf(figure: WinLossFigure | undefined): string {
 
 /** Win / loss for one row: the figure, "Unavailable" after a failed read, or "...". */
 function winLossText(winLoss: WinLossFigure | undefined, unavailable: boolean): string {
-  if (winLoss) return winLoss.net === null ? 'Unavailable' : winLossChips(winLoss.net);
+  if (winLoss)
+    return winLoss.net === null ? 'Unavailable' : winLossChips(winLoss.net_text ?? winLoss.net);
   return unavailable ? 'Unavailable' : '...';
 }
 
-function periodFeeText(value: number | undefined, unavailable: boolean): string {
+function periodFeeText(value: number | string | undefined, unavailable: boolean): string {
   return value === undefined ? (unavailable ? 'Unavailable' : '...') : feeFigure(value);
 }
 
@@ -269,10 +270,10 @@ function feeTitle(
   label: string
 ): string | undefined {
   if (figures?.fees === undefined) return undefined;
-  const exact = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  const fees = feeFigure(figures.fees_text ?? figures.fees);
   return figures.downline_fees !== undefined && (member.downline_total ?? 0) > 0
-    ? `${label} ${exact(figures.fees)}. Downline Fees ${exact(figures.downline_fees)}.`
-    : `${label} ${exact(figures.fees)}.`;
+    ? `${label} ${fees}. Downline Fees ${feeFigure(figures.downline_fees_text ?? figures.downline_fees)}.`
+    : `${label} ${fees}.`;
 }
 
 function abortLike(error: unknown): boolean {
@@ -2260,7 +2261,9 @@ export const MemberRow = memo(function MemberRow({
           </span>
           {simpleMode && member.can_view_financials && (
             <span className="member-simple-balance" title={feeTitle(member, winLoss, feeLabel)}>
-              <strong>{periodFeeText(winLoss?.fees, winLossUnavailable)}</strong>
+              <strong>
+                {periodFeeText(winLoss?.fees_text ?? winLoss?.fees, winLossUnavailable)}
+              </strong>
               <span>{feeLabel}</span>
               <span
                 className={`member-simple-balance__secondary${secondaryTone}`}
@@ -2270,7 +2273,11 @@ export const MemberRow = memo(function MemberRow({
               </span>
               {(member.downline_total ?? 0) > 0 && winLoss?.downline_fees !== undefined && (
                 <span className="member-simple-balance__downline">
-                  Downline {periodFeeText(winLoss?.downline_fees, winLossUnavailable)}
+                  Downline{' '}
+                  {periodFeeText(
+                    winLoss?.downline_fees_text ?? winLoss?.downline_fees,
+                    winLossUnavailable
+                  )}
                 </span>
               )}
               <strong
@@ -2305,12 +2312,15 @@ export const MemberRow = memo(function MemberRow({
                 <>
                   <Metric
                     label={feeLabel}
-                    value={periodFeeText(winLoss?.fees, winLossUnavailable)}
+                    value={periodFeeText(winLoss?.fees_text ?? winLoss?.fees, winLossUnavailable)}
                     accent
                   />
                   <Metric
                     label="Downline Fees"
-                    value={periodFeeText(winLoss?.downline_fees, winLossUnavailable)}
+                    value={periodFeeText(
+                      winLoss?.downline_fees_text ?? winLoss?.downline_fees,
+                      winLossUnavailable
+                    )}
                     accent
                   />
                 </>

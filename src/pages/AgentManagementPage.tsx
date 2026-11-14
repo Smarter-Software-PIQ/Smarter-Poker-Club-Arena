@@ -78,6 +78,7 @@ import { reportError } from '../utils/errorReporter';
 import { safeErrorMessage } from '../utils/safeErrorMessage';
 import { QUERY_LIMITS } from '../lib/constants';
 import { parseAgentPayablesPayload, type AgentPayables } from '../utils/agentManagementPayload';
+import { chipCents } from '../utils/cashierAmount';
 // ═══════════════════════════════════════════════════════════════════════════════
 // COMPONENT
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -568,7 +569,7 @@ export default function AgentManagementPage() {
   const totalAgents = agents.length;
   const activeAgents = agents.filter((a) => a.status === 'active').length;
   const totalPlayers = agents.reduce((sum, a) => sum + a.totalPlayers, 0);
-  const weeklyRake = agents.reduce((sum, a) => sum + a.weeklyRakeGenerated, 0);
+  const weeklyRake = chipCents(agents.reduce((sum, a) => sum + a.weeklyRakeGenerated, 0));
 
   // Format helpers
   /* One place the three agent roles are spelled. The Credit Limits table used
