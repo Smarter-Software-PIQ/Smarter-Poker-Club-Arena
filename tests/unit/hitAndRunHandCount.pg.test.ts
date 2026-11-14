@@ -7,6 +7,11 @@ import { resolve } from 'node:path';
  * HIT AND RUN (owner 2026-11-06), on real isolated PostgreSQL: the installed
  * migration's state machine, guard, Lightning source rule, grandfathered
  * leaves, blind-off read and the Lightning settlement trigger.
+ *
+ * This file installs that first migration alone, so it still shows its
+ * original "clears on losing the profit" branch. Owner 2026-11-13 replaced
+ * that branch: the countdown now pauses and resumes where it left off
+ * (20261114050737, pinned in charlesRuleBigWin.pg.test.ts).
  */
 const MIGRATION = 'supabase/migrations/20261106203853_hit_and_run_ten_hands_in_profit.sql';
 
