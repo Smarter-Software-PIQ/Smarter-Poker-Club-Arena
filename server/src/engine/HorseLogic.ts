@@ -7917,6 +7917,10 @@ export class HorseLogic {
         }
         if (telemetryOn(opts) && (maniacRaiserWidth !== null || maniacBehindWidth !== null))
           noteFire('maniac_pressure_preflop');
+        // PLO6-AUDIT-015: maniac_pressure_preflop also fires when the Omaha
+        // presumption supplied the width. This one fires only when the raiser
+        // faced is a maniac on its own record, so the two can be told apart.
+        if (telemetryOn(opts) && observedManiacRaiser) noteFire('observed_maniac_raiser_seen');
       } catch {
         /* reads are best-effort */
       }

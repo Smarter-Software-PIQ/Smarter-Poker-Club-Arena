@@ -33,8 +33,8 @@
  *      re-raises the open of a player who raises every hand and calls the
  *      open of a selective re-raiser.
  *   4. The receipt maniac_pressure_preflop fires for an unknown opponent too
- *      (the Omaha presumption supplies the width), so the receipt alone does
- *      not show that a maniac was observed.
+ *      (the Omaha presumption supplies the width), so that receipt alone does
+ *      not show that a maniac was observed; observed_maniac_raiser_seen does.
  *
  * This file records behaviour; it is not a statement that each response is
  * the best play. If a deliberate change to the shared Omaha read or to these
@@ -348,6 +348,21 @@ describe('PLO6 response: the same node against each class of raiser', () => {
     expect(decideAt(FOUR_BET_NODE, 'sustained', FOUR_BETTOR).receipts.maniac_pressure_preflop).toBe(
       CELL
     );
+  });
+
+  it('observed_maniac_raiser_seen fires only for an observed raiser the Horse faces (PLO6-AUDIT-015)', () => {
+    const fires = (cell: Cell) => cell.receipts.observed_maniac_raiser_seen ?? 0;
+    expect(fires(baseline13)).toBe(0);
+    expect(fires(baseline7)).toBe(0);
+    for (const cls of ['sparse', 'wasQuietNowRaising', ...TIGHT] as const)
+      expect(fires(decideAt(FOUR_BET_NODE, cls, FOUR_BETTOR)), cls).toBe(0);
+    for (const cls of OBSERVED_RAISERS) {
+      expect(fires(decideAt(FOUR_BET_NODE, cls, FOUR_BETTOR)), cls).toBe(CELL);
+      expect(fires(decideAt(OPEN_NODE, cls, FIRST_RAISER)), cls).toBe(CELL);
+      // The same record on a player who is not the raiser faced is not counted.
+      expect(fires(decideAt(FOUR_BET_NODE, cls, FIRST_RAISER)), cls).toBe(0);
+      expect(fires(decideAt(FOUR_BET_NODE, cls, FOLDED_CALLER)), cls).toBe(0);
+    }
   });
 
   it('floor control: without the table VPIP floor the baseline is not a shove', () => {

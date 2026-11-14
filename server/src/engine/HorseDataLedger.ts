@@ -2482,6 +2482,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     "a maniac raised or is still to act: its shoves and re-raises priced by equity, opens capped to what continues, no bluff raises (Dan: 'NOT RAISE A HAND WITH THE INTENTION OF FOLDING')",
     'OPPX'
   ),
+  // PLO6-AUDIT-015 (2026-11-13). In Omaha maniac_pressure_preflop fires for
+  // an unknown opponent too, because the presumption supplies a width. This
+  // receipt counts only the raiser faced whose own record reads as a maniac.
+  // No floor: it needs a real maniac at the table. Named _seen for the same
+  // reason: a day with none is ordinary, and the daily drift audit must not
+  // read that day as a layer going silent.
+  receipt(
+    'observed_maniac_raiser_seen',
+    'HorseLogic (maniac pressure, observedManiacRaiser)',
+    'the raiser the Horse faces reads as a maniac on its own public record, not on the Omaha presumption',
+    'OPPX'
+  ),
   receipt(
     'river_bluff_checkraise_evaluated',
     'HorseLogic.riverBluffCheckRaise',
