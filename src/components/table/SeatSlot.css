@@ -5176,6 +5176,10 @@
 /* Six/nine portrait tables reserve the same enlarged art before card packing.
    Keep card, text and control dimensions independent of portrait scale. */
 @media (min-width: 481px) and (max-width: 640px) and (orientation: portrait) {
+  .table-page:where([data-seats='6'], [data-seats='9'])
+    .seat__cards--opponent:not(.seat__cards--revealed) {
+    translate: var(--sp-fan-clear-x, 0px) var(--sp-fan-clear-y, 0px);
+  }
   .table-page:where([data-seats='6'], [data-seats='9']) .seat-wrapper {
     --sp-bust-scale: 2.1;
   }

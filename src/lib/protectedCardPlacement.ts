@@ -47,3 +47,58 @@ export function placeProtectedCardRow(
   }
   return best;
 }
+
+export function placeHiddenFans(
+  scaler: HTMLElement,
+  page: Element,
+  pageBox: DOMRect,
+  scale: number
+) {
+  // Closed hands follow the shoulder. On short rings a neighbouring plate
+  // or the board can reach that shoulder after the chairs are locked.
+  const displays = Array.from(
+    page.querySelectorAll(
+      '.community-area,.table-brand,.pot-display,.seat__info,.seat__strength,.seat__action,.seat__position-badge,.seat__cards--revealed .seat__card,.seat__cards--hero .seat__card,.action-panel,.spectator-footer-bar'
+    )
+  )
+    .map((node) => node.getBoundingClientRect())
+    .filter((r) => r.width && r.height);
+  for (const row of scaler.querySelectorAll<HTMLElement>(
+    '.seat__cards--opponent:not(.seat__cards--revealed)'
+  )) {
+    const cards = Array.from(row.querySelectorAll('.seat__card'))
+      .map((card) => card.getBoundingClientRect())
+      .filter((r) => r.width && r.height);
+    if (!cards.length) continue;
+    const dx = (parseFloat(row.style.getPropertyValue('--sp-fan-clear-x')) || 0) * scale;
+    const dy = (parseFloat(row.style.getPropertyValue('--sp-fan-clear-y')) || 0) * scale;
+    const left = Math.min(...cards.map((c) => c.left)) - dx;
+    const top = Math.min(...cards.map((c) => c.top)) - dy;
+    const fan = {
+      left,
+      top,
+      width: Math.max(...cards.map((c) => c.right)) - dx - left,
+      height: Math.max(...cards.map((c) => c.bottom)) - dy - top,
+    };
+    // Keep the complete fan on its own shoulder. Cards keep their size,
+    // splay and animations. Subsequent markers avoid its actual position.
+    const reach = fan.height;
+    const minX = Math.max(pageBox.left, left - reach),
+      minY = Math.max(pageBox.top, top - reach);
+    const bounds = {
+      left: minX,
+      top: minY,
+      width: Math.min(pageBox.right, left + fan.width + reach) - minX,
+      height: Math.min(pageBox.bottom, top + fan.height + reach) - minY,
+    };
+    const placed = placeProtectedCardRow(fan, displays, bounds, 0.5) ?? fan;
+    for (const [property, offset] of [
+      ['--sp-fan-clear-x', placed.left - left],
+      ['--sp-fan-clear-y', placed.top - top],
+    ] as const) {
+      const value = offset ? `${offset / scale}px` : '';
+      if (row.style.getPropertyValue(property) !== value) row.style.setProperty(property, value);
+    }
+    displays.push(new DOMRect(placed.left, placed.top, placed.width, placed.height));
+  }
+}
