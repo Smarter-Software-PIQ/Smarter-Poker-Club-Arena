@@ -919,6 +919,9 @@ async function verifyPublishedLightning(
   await expect(page.getByTestId('hero-vpip-hand-count')).toHaveCount(0);
   const countdown = page.getByTestId('hit-run-count-pill');
   await expect(countdown).toBeVisible();
+  await expect(page.locator('.table-brand').getByRole('status')).toContainText(
+    'Hands Before You Can Leave'
+  );
   expect(
     await countdown.evaluate((node) =>
       node.previousElementSibling?.classList.contains('table-brand__line--hand')

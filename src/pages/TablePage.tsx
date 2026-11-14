@@ -29098,7 +29098,10 @@ function LiveTablePage({
                   </div>
                 ) : null}
 
-                <div className="table-brand" aria-hidden="true">
+                <div
+                  className="table-brand"
+                  aria-hidden={!(lightningRoom || lightningCapableClusterId)}
+                >
                   <img
                     className="table-brand__logo"
                     src={smarterPokerLetterLogo}
