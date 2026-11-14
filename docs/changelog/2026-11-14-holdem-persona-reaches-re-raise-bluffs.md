@@ -26,15 +26,16 @@ Value 3-bets and value squeezes are not scaled. They are decided by a strength b
 
 ## What Is Declared, Not Hidden
 
-- **The reshove bluff is reduced, on purpose, for now.** The design also proposes adding A9s to A6s for Horses above the average, which would keep the fleet's total unchanged. That set is not added here: it waits for the value check. Until then a Horse below the average shoves A5s to A2s less often and nobody shoves more, so with the option on the fleet shoves these hands less than today.
+- **The reshove bluff is reduced.** A Horse below the average shoves A5s to A2s less often and nobody shoves more, so with the option on the fleet shoves these hands less than today. The first design record said fleet frequencies were preserved; for the reshove that is not true of this build.
 - **"The average is preserved" is a model figure.** The scale averages 1 across ids only if ids fall evenly across the persona buckets and every Horse meets these spots equally often. On the 900 synthetic ids used for measuring, the average scale is 1.00346. The real fleet's ids have not been read.
-- **The cap.** Where the bluff probability times the scale would pass 1 it is held at 1. Those cases are not counted separately yet.
+- **The cap.** Where the bluff probability times the scale would pass 1 it is held at 1. This is the only place the 3-bet bluff and the squeeze bluff can lose frequency. Each case is counted (`holdem_persona_3bet_bluff_capped_seen`, `holdem_persona_squeeze_bluff_capped_seen`) and the measuring tool reports the count.
+- **No hands are added to make the total match** (owner instruction 2026-11-14). The A9s to A6s set is not built in any form. The size of the reshove reduction is to be measured before anything ships; the model's expected figure is 90.5 percent of today's bluff reshoves (LAG 100, TAG 95.1, Tricky 87.5, Nit 66.4).
 - **Hand identity.** The state a decision receives carries no hand number, so "this hand" means public state plus cards. Two hands with the same Horse, cards, seats, stack and pot give the same number.
 - **A changed counter counts comparisons, not actions.** The 3-bet and squeeze `_changed_seen` counters fire when the scaled comparison disagrees with the draw it replaced. The fold-equity test still runs after it and can refuse the bluff either way.
 
 ## Counters
 
-Six, all occurrence counters: `holdem_persona_3bet_bluff_eligible_seen` and `_changed_seen`, `holdem_persona_squeeze_bluff_eligible_seen` and `_changed_seen`, `holdem_persona_fourbet_reshove_eligible_seen` and `_changed_seen`. Eligible means the decision reached the comparison with the option on.
+Eight, all occurrence counters: `holdem_persona_3bet_bluff_eligible_seen`, `_changed_seen` and `_capped_seen`, the same three for `holdem_persona_squeeze_bluff`, and `holdem_persona_fourbet_reshove_eligible_seen` and `_changed_seen`. Eligible means the decision reached the comparison with the option on.
 
 ## Proof
 
@@ -50,9 +51,22 @@ Six, all occurrence counters: `holdem_persona_3bet_bluff_eligible_seen` and `_ch
 
 ## Measuring It
 
-`server/src/benchmark/HoldemPersonaReRaiseProbe.ts` (command line `server/scripts/holdem-persona-reraise-probe.ts`): 900 synthetic ids in exactly 225 LAG, 180 Tricky, 360 TAG and 135 Nit, 100 nine-handed tables, every seat rotation, preflop only, option on and option off on the same code, eligible and taken per behaviour with a 95% Wilson interval, pooled and by archetype.
+`server/src/benchmark/HoldemPersonaReRaiseProbe.ts` (command line `server/scripts/holdem-persona-reraise-probe.ts`): 900 synthetic ids in exactly 225 LAG, 180 Tricky, 360 TAG and 135 Nit, 100 nine-handed tables, every seat rotation, preflop only, option on and option off on the same code. For each of the three behaviours it reports eligible and taken with a 95% Wilson interval: pooled, by archetype and by tenth of the fleet ordered by scale. For the 3-bet bluff and the squeeze bluff it also reports how often the cap bound. For the reshove it also reports by effective stack (25 to 26, 26 to 28, 28 to 30, 30 to 32, 32 to 35 big blinds), what a bluff hand that did not shove did instead (fold or call), and the expected rate from the model, so measured and expected can be compared.
 
-A smoke run only (2,700 hands per arm, far too few to judge anything) shows it works: cash 100 big blinds 3-bet bluff 30.7% on against 31.4% off, squeeze bluff 22.3% against 20.8%; tournament 20 to 40 big blinds 3-bet bluff 23.5% against 22.4%, reshove 13 of 13 on and 9 of 9 off. The full run has not been done.
+The reshove's expected rate with the option on, as a share of today's bluff reshoves: 90.5 percent pooled; LAG 100, TAG 95.1, Tricky 87.5, Nit 66.4. That is an expected loss of 9.5 percent of bluff reshoves across the fleet. It is a model figure, not a measurement.
+
+The reshove site is named 26 to 35 big blinds, but its existing condition is "more than 25, up to 35". The 25 to 26 row shows the part the name leaves out. That condition was not changed.
+
+A smoke run only (2,700 hands per arm per cell, far too few to judge anything) shows the tool works:
+
+- Cash 100 big blinds: 3-bet bluff 122 of 398 on (30.7%) against 122 of 389 off (31.4%), cap bound 9 times, all LAG; squeeze bluff 41 of 184 (22.3%) against 40 of 192 (20.8%), cap never bound; no reshove spots at this depth.
+- Cash 20 to 40 big blinds: 3-bet bluff 95 of 741 (12.8%) against 87 of 743 (11.7%); reshove 13 of 15 on (86.7%) against 17 of 17 off; the two that did not shove were both Nits, one called and one folded.
+- Tournament 20 to 40 big blinds: 3-bet bluff 138 of 587 (23.5%) against 134 of 599 (22.4%), cap bound 8 times; reshove 13 of 13 on and 9 of 9 off.
+
+The full run has not been done. For the reshove it needs both of these (about 630,000 hands per arm each):
+
+    cd server && MODE=cash DEPTH=20-40 HANDS=700 npx tsx scripts/holdem-persona-reraise-probe.ts
+    cd server && MODE=tournament DEPTH=20-40 HANDS=700 npx tsx scripts/holdem-persona-reraise-probe.ts
 
 League card `cash6_holdem_persona_reraise_mix` deals the option (six-handed cash). Not yet run.
 

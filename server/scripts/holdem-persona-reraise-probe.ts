@@ -6,6 +6,7 @@
  *     cd server && npx tsx scripts/holdem-persona-reraise-probe.ts
  *     SEATS=9 MODE=cash DEPTH=100 HANDS=700 SEED=20261114 npx tsx scripts/holdem-persona-reraise-probe.ts
  *     MODE=tournament DEPTH=20-40 ...   # the stacks the 26-35bb reshove needs
+ *     MODE=cash DEPTH=20-40 ...         # the same stacks in cash (100bb never reaches it)
  *     JSON=1 ...                        # the report as JSON
  *
  * HANDS is per table per seat rotation: the default 700 is 630,000 hands per

@@ -11,8 +11,11 @@
  *     fleet of synthetic ids in exactly the model's 25/20/40/15 archetype
  *     mix, every seat rotation, reporting per behaviour (3-bet bluff, squeeze
  *     bluff, 26-35bb four-bet reshove bluff) eligible, taken and the rate
- *     with a 95% Wilson interval, pooled and per archetype, with the option
- *     on and with it off on the same code.
+ *     with a 95% Wilson interval, pooled, per archetype, per scale decile
+ *     and (the reshove) per effective-stack bucket inside 26-35bb, with the
+ *     option on and with it off on the same code; how often the
+ *     min(1, p * scale) cap bound; what a refused reshove bluff did instead;
+ *     and the model's E[min(1, scale)] to hold the measured reshove against.
  *
  * "Eligible" is the decision reaching the mix comparison. With the option on
  * that is the *_eligible_seen receipt. With it off no receipt exists, so each
@@ -30,7 +33,13 @@
 import { HorseLogic } from '../engine/HorseLogic.js';
 import { restoreFastRandom, saveFastRandom, seedFastRandom } from '../engine/HorseEval.js';
 import { HORSE_HYBRID_PROFILES } from '../engine/HorseHybridProfile.js';
-import { holdemPersonaFor, type HorseHoldemArchetype } from '../engine/HorsePersona.js';
+import {
+  HOLDEM_ARCHETYPE_NLH_3BET_MIX,
+  HOLDEM_MODEL_MEAN_NLH_3BET_MIX,
+  holdemPersonaFor,
+  holdemPersonaReRaiseScale,
+  type HorseHoldemArchetype,
+} from '../engine/HorsePersona.js';
 import { drainFires, enableBrainTelemetry } from '../engine/BrainTelemetry.js';
 import { SUITS, RANKS } from '../engine/PokerEngine.js';
 import type { ActionRecord, Card, HandStage, SeatPlayer } from '../types.js';
@@ -104,6 +113,8 @@ export interface ProbeSpot {
   raises: number;
   callers: number;
   limpers: number;
+  /** Hero's stack plus bet against the deepest live opponent's, in big blinds. */
+  effectiveBB: number;
   /** One read per arm, in arm order. reads[0] drove the hand. */
   reads: ProbeRead[];
 }
@@ -286,6 +297,11 @@ export function playProbeHand(
       raises,
       callers: callersOfLast,
       limpers,
+      effectiveBB:
+        Math.min(
+          hero.stack + hero.bet,
+          Math.max(0, ...live.filter((p) => p.seat !== hero.seat).map((p) => p.stack + p.bet))
+        ) / bb,
       reads,
     });
     acted.add(hero.seat);
@@ -384,15 +400,39 @@ export const PERSONA_BEHAVIOURS: readonly PersonaBehaviour[] = [
   'squeezeBluff',
   'fourBetReshove',
 ];
-const ELIGIBLE_KEY: Record<PersonaBehaviour, string> = {
-  threeBetBluff: 'holdem_persona_3bet_bluff_eligible_seen',
-  squeezeBluff: 'holdem_persona_squeeze_bluff_eligible_seen',
-  fourBetReshove: 'holdem_persona_fourbet_reshove_eligible_seen',
+const KEY: Record<PersonaBehaviour, { eligible: string; changed: string; capped?: string }> = {
+  threeBetBluff: {
+    eligible: 'holdem_persona_3bet_bluff_eligible_seen',
+    changed: 'holdem_persona_3bet_bluff_changed_seen',
+    capped: 'holdem_persona_3bet_bluff_capped_seen',
+  },
+  squeezeBluff: {
+    eligible: 'holdem_persona_squeeze_bluff_eligible_seen',
+    changed: 'holdem_persona_squeeze_bluff_changed_seen',
+    capped: 'holdem_persona_squeeze_bluff_capped_seen',
+  },
+  fourBetReshove: {
+    eligible: 'holdem_persona_fourbet_reshove_eligible_seen',
+    changed: 'holdem_persona_fourbet_reshove_changed_seen',
+  },
 };
-const CHANGED_KEY: Record<PersonaBehaviour, string> = {
-  threeBetBluff: 'holdem_persona_3bet_bluff_changed_seen',
-  squeezeBluff: 'holdem_persona_squeeze_bluff_changed_seen',
-  fourBetReshove: 'holdem_persona_fourbet_reshove_changed_seen',
+
+/**
+ * The reshove's effective-stack buckets (low exclusive, high inclusive). The
+ * site is named 26-35bb but its gate is "over 25, up to 35", so the first
+ * bucket is the part below 26 that the name leaves out.
+ */
+export const RESHOVE_STACK_BUCKETS: readonly (readonly [number, number])[] = [
+  [25, 26],
+  [26, 28],
+  [28, 30],
+  [30, 32],
+  [32, 35],
+];
+const stackBucketOf = (effBB: number): string => {
+  for (const [lo, hi] of RESHOVE_STACK_BUCKETS)
+    if (effBB > lo && effBB <= hi) return `${lo}-${hi}bb`;
+  return 'other';
 };
 
 export interface RateCell {
@@ -403,13 +443,13 @@ export interface RateCell {
   /** 95% Wilson interval, percent. */
   low: number;
   high: number;
-}
-export interface BehaviourReport {
-  pooled: RateCell;
-  byArchetype: Record<HorseHoldemArchetype, RateCell>;
   /** Option on only: comparisons whose answer differed from the unscaled one. */
   changed: number;
+  /** Option on, 3-bet and squeeze only: min(1, p * scale) held at 1. */
+  capped: number;
 }
+/** Rows keyed 'pooled', an archetype, 'decile N', or a stack bucket. */
+export type BehaviourReport = Record<string, RateCell>;
 export interface PersonaReRaiseReport {
   seats: number;
   mode: ProbeMode;
@@ -419,10 +459,18 @@ export interface PersonaReRaiseReport {
   tables: number;
   hands: number;
   seed: number;
-  /** Mean of nlh3BetMix / model mean over the ids used. */
+  /** Mean of the scale over the ids used. */
   meanScale: number;
+  /** Scale range of each decile of the ids used (decile 1 the tightest). */
+  deciles: { decile: number; ids: number; low: number; high: number; meanMin1: number }[];
+  /** The model's E[min(1, scale)], percent: the reshove bluff's expected rate. */
+  modelMin1: { pooled: number } & Record<HorseHoldemArchetype, number>;
+  /** E[min(1, scale)] over the ids used, percent. */
+  fleetMin1: { pooled: number } & Record<HorseHoldemArchetype, number>;
   on: Record<PersonaBehaviour, BehaviourReport>;
   off: Record<PersonaBehaviour, BehaviourReport>;
+  /** Option on: what a bluff class that did not reshove did instead. */
+  reshoveInstead: Record<string, number>;
 }
 
 export function wilson95(taken: number, n: number): { low: number; high: number } {
@@ -436,42 +484,68 @@ export function wilson95(taken: number, n: number): { low: number; high: number 
 }
 
 const pct1 = (x: number) => Math.round(x * 1000) / 10;
-const cellOf = (eligible: number, taken: number): RateCell => {
-  const w = wilson95(taken, eligible);
-  return {
-    eligible,
-    taken,
-    rate: eligible > 0 ? pct1(taken / eligible) : 0,
-    low: pct1(w.low),
-    high: pct1(w.high),
-  };
+
+/** The id-hash model's E[min(1, scale)]: pooled and per archetype, percent. */
+export function modelExpectedMin1(): { pooled: number } & Record<HorseHoldemArchetype, number> {
+  const out: Record<string, number> = {};
+  let pooled = 0;
+  for (const a of HOLDEM_ARCHETYPE_NLH_3BET_MIX) {
+    let sum = 0;
+    for (let h = 0; h < 1000; h++)
+      sum += Math.min(
+        1,
+        Math.round((a.base + (h / 1000) * a.span) * 100) / 100 / HOLDEM_MODEL_MEAN_NLH_3BET_MIX
+      );
+    out[a.archetype] = pct1(sum / 1000);
+    pooled += (a.sharePct / 100) * (sum / 1000);
+  }
+  return { ...out, pooled: pct1(pooled) } as { pooled: number } & Record<
+    HorseHoldemArchetype,
+    number
+  >;
+}
+
+type Raw = { e: number; t: number; c: number; cap: number };
+type Tally = Record<PersonaBehaviour, Map<string, Raw>>;
+const emptyTally = (): Tally => ({
+  threeBetBluff: new Map(),
+  squeezeBluff: new Map(),
+  fourBetReshove: new Map(),
+});
+const rawOf = (m: Map<string, Raw>, key: string): Raw => {
+  let r = m.get(key);
+  if (!r) m.set(key, (r = { e: 0, t: 0, c: 0, cap: 0 }));
+  return r;
 };
 
-type Tally = Record<PersonaBehaviour, Record<string, { e: number; t: number; c: number }>>;
-const emptyTally = (): Tally =>
-  Object.fromEntries(
+function reportOf(
+  tally: Tally,
+  rows: readonly string[]
+): Record<PersonaBehaviour, BehaviourReport> {
+  return Object.fromEntries(
     PERSONA_BEHAVIOURS.map((b) => [
       b,
-      Object.fromEntries(PROBE_ARCHETYPES.map((a) => [a, { e: 0, t: 0, c: 0 }])),
+      Object.fromEntries(
+        rows
+          .filter((k) => b === 'fourBetReshove' || !(k.endsWith('bb') || k === 'other'))
+          .map((k) => {
+            const r = tally[b].get(k) ?? { e: 0, t: 0, c: 0, cap: 0 };
+            const w = wilson95(r.t, r.e);
+            return [
+              k,
+              {
+                eligible: r.e,
+                taken: r.t,
+                rate: r.e > 0 ? pct1(r.t / r.e) : 0,
+                low: pct1(w.low),
+                high: pct1(w.high),
+                changed: r.c,
+                capped: r.cap,
+              },
+            ];
+          })
+      ),
     ])
-  ) as Tally;
-
-function reportOf(tally: Tally): Record<PersonaBehaviour, BehaviourReport> {
-  return Object.fromEntries(
-    PERSONA_BEHAVIOURS.map((b) => {
-      const rows = tally[b];
-      const sum = (k: 'e' | 't' | 'c') => PROBE_ARCHETYPES.reduce((a, x) => a + rows[x][k], 0);
-      return [
-        b,
-        {
-          pooled: cellOf(sum('e'), sum('t')),
-          byArchetype: Object.fromEntries(
-            PROBE_ARCHETYPES.map((a) => [a, cellOf(rows[a].e, rows[a].t)])
-          ),
-          changed: sum('c'),
-        },
-      ];
-    })
   ) as Record<PersonaBehaviour, BehaviourReport>;
 }
 
@@ -503,9 +577,43 @@ export function measurePersonaReRaise(o: MeasureOptions = {}): PersonaReRaiseRep
   const ids = o.ids ?? syntheticFleet();
   const tables = Math.floor(ids.length / seats);
   const archetypeOf = new Map(ids.map((id) => [id, holdemPersonaFor(id).archetype]));
+  const scaleOf = new Map(ids.map((id) => [id, holdemPersonaReRaiseScale(id)]));
   const archetypeIds = Object.fromEntries(
     PROBE_ARCHETYPES.map((a) => [a, ids.filter((id) => archetypeOf.get(id) === a).length])
   ) as Record<HorseHoldemArchetype, number>;
+  // Deciles of the ids used, by scale (ties broken by id order).
+  const ranked = ids
+    .map((id, i) => ({ id, i, s: scaleOf.get(id)! }))
+    .sort((x, y) => x.s - y.s || x.i - y.i);
+  const decileOf = new Map(
+    ranked.map((x, rank) => [x.id, Math.min(10, 1 + Math.floor((rank * 10) / ranked.length))])
+  );
+  const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
+  const deciles = Array.from({ length: 10 }, (_, d) => {
+    const xs = ranked.filter((x) => decileOf.get(x.id) === d + 1).map((x) => x.s);
+    return {
+      decile: d + 1,
+      ids: xs.length,
+      low: Math.round(Math.min(...xs) * 1000) / 1000,
+      high: Math.round(Math.max(...xs) * 1000) / 1000,
+      meanMin1: pct1(mean(xs.map((s) => Math.min(1, s)))),
+    };
+  });
+  const min1 = (keep: (id: string) => boolean) =>
+    pct1(mean(ids.filter(keep).map((id) => Math.min(1, scaleOf.get(id)!))));
+  const fleetMin1 = {
+    pooled: min1(() => true),
+    ...Object.fromEntries(
+      PROBE_ARCHETYPES.map((a) => [a, min1((id) => archetypeOf.get(id) === a)])
+    ),
+  } as { pooled: number } & Record<HorseHoldemArchetype, number>;
+  const rows = [
+    'pooled',
+    ...PROBE_ARCHETYPES,
+    ...deciles.map((d) => `decile ${d.decile}`),
+    ...RESHOVE_STACK_BUCKETS.map(([lo, hi]) => `${lo}-${hi}bb`),
+  ];
+  const reshoveInstead: Record<string, number> = {};
   let hands = 0;
   const run = (arm: 'on' | 'off'): Tally => {
     const tally = emptyTally();
@@ -524,16 +632,30 @@ export function measurePersonaReRaise(o: MeasureOptions = {}): PersonaReRaiseRep
             // whether the off decision reached the comparison.
             const look = arm === 'on' ? spot.reads[0] : spot.reads[1];
             const real = spot.reads[0];
-            const row = (b: PersonaBehaviour) => tally[b][archetypeOf.get(spot.heroId)!];
             for (const b of PERSONA_BEHAVIOURS) {
-              if (!look.fires.includes(ELIGIBLE_KEY[b])) continue;
-              const cell = row(b);
-              cell.e++;
-              if (b === 'fourBetReshove') {
-                if (arm === 'on' ? !real.fires.includes(CHANGED_KEY[b]) : real.action === 'all_in')
-                  cell.t++;
-              } else if (real.bluffBranch) cell.t++;
-              if (arm === 'on' && real.fires.includes(CHANGED_KEY[b])) cell.c++;
+              if (!look.fires.includes(KEY[b].eligible)) continue;
+              const reshove = b === 'fourBetReshove';
+              const taken = reshove
+                ? arm === 'on'
+                  ? !real.fires.includes(KEY[b].changed)
+                  : real.action === 'all_in'
+                : real.bluffBranch;
+              const groups = [
+                'pooled',
+                archetypeOf.get(spot.heroId)!,
+                `decile ${decileOf.get(spot.heroId)}`,
+                ...(reshove ? [stackBucketOf(spot.effectiveBB)] : []),
+              ];
+              for (const g of groups) {
+                const cell = rawOf(tally[b], g);
+                cell.e++;
+                if (taken) cell.t++;
+                if (arm === 'on' && real.fires.includes(KEY[b].changed)) cell.c++;
+                if (arm === 'on' && KEY[b].capped && real.fires.includes(KEY[b].capped!))
+                  cell.cap++;
+              }
+              if (reshove && arm === 'on' && !taken)
+                reshoveInstead[real.action] = (reshoveInstead[real.action] ?? 0) + 1;
             }
           });
         }
@@ -541,8 +663,13 @@ export function measurePersonaReRaise(o: MeasureOptions = {}): PersonaReRaiseRep
     }
     return tally;
   };
-  const on = reportOf(run('on'));
-  const off = reportOf(run('off'));
+  const onTally = run('on');
+  const offTally = run('off');
+  const extra = [...onTally.fourBetReshove.keys(), ...offTally.fourBetReshove.keys()].includes(
+    'other'
+  )
+    ? ['other']
+    : [];
   return {
     seats,
     mode,
@@ -552,15 +679,22 @@ export function measurePersonaReRaise(o: MeasureOptions = {}): PersonaReRaiseRep
     tables,
     hands,
     seed,
-    meanScale:
-      Math.round(
-        (ids.reduce((a, id) => a + holdemPersonaFor(id).nlh3BetMix, 0) / ids.length / 0.42143) *
-          100000
-      ) / 100000,
-    on,
-    off,
+    meanScale: Math.round(mean([...scaleOf.values()]) * 100000) / 100000,
+    deciles,
+    modelMin1: modelExpectedMin1(),
+    fleetMin1,
+    on: reportOf(onTally, [...rows, ...extra]),
+    off: reportOf(offTally, [...rows, ...extra]),
+    reshoveInstead,
   };
 }
+
+const LABEL: Record<PersonaBehaviour, string> = {
+  threeBetBluff: 'RULE 1  3-bet bluff',
+  squeezeBluff: 'RULE 2  squeeze bluff',
+  fourBetReshove:
+    'RULE 3  26-35bb four-bet reshove (gate: over 25bb, up to 35bb effective), bluff classes A5s-A2s',
+};
 
 export function formatPersonaReRaiseReport(rep: PersonaReRaiseReport): string {
   const lines: string[] = [];
@@ -568,22 +702,38 @@ export function formatPersonaReRaiseReport(rep: PersonaReRaiseReport): string {
   lines.push(
     `${rep.seats}-handed ${rep.mode} ${depth}: ${rep.ids} ids (LAG ${rep.archetypeIds.lag_shark} / TAG ${rep.archetypeIds.tag_crusher} / Tricky ${rep.archetypeIds.tricky_trap} / Nit ${rep.archetypeIds.nit_hunter}), ${rep.tables} tables x ${rep.seats} rotations, ${rep.hands} hands per arm, seed ${rep.seed}, mean scale ${rep.meanScale}`
   );
-  const cell = (c: RateCell) => `${c.taken}/${c.eligible} = ${c.rate}% (${c.low} to ${c.high})`;
+  const cell = (c: RateCell | undefined) =>
+    c ? `${c.taken}/${c.eligible} = ${c.rate}% (${c.low} to ${c.high})` : '0/0';
   for (const b of PERSONA_BEHAVIOURS) {
-    for (const arm of ['on', 'off'] as const) {
-      const x = rep[arm][b];
+    lines.push(LABEL[b]);
+    const reshove = b === 'fourBetReshove';
+    for (const row of Object.keys(rep.on[b])) {
+      const on = rep.on[b][row];
+      const off = rep.off[b][row];
+      const d = row.startsWith('decile ') ? rep.deciles[Number(row.slice(7)) - 1] : undefined;
+      const expected =
+        reshove && row === 'pooled'
+          ? `  expected on: model ${rep.modelMin1.pooled}%, these ids ${rep.fleetMin1.pooled}%`
+          : reshove && row in rep.modelMin1
+            ? `  expected on: model ${rep.modelMin1[row as HorseHoldemArchetype]}%, these ids ${rep.fleetMin1[row as HorseHoldemArchetype]}%`
+            : reshove && d
+              ? `  expected on: these ids ${d.meanMin1}%`
+              : '';
       lines.push(
-        `  ${b} ${arm.padEnd(3)} pooled ${cell(x.pooled)}` +
-          (arm === 'on' ? `  changed ${x.changed}` : '') +
-          `  | LAG ${cell(x.byArchetype.lag_shark)} | TAG ${cell(x.byArchetype.tag_crusher)} | Tricky ${cell(x.byArchetype.tricky_trap)} | Nit ${cell(x.byArchetype.nit_hunter)}`
+        `  ${(d ? `${row} (scale ${d.low}-${d.high})` : row).padEnd(30)} on ${cell(on)}` +
+          (reshove ? '' : ` capped ${on.capped}`) +
+          ` changed ${on.changed}  | off ${cell(off)}${expected}`
       );
     }
-    const inside =
-      rep.off[b].pooled.rate >= rep.on[b].pooled.low &&
-      rep.off[b].pooled.rate <= rep.on[b].pooled.high;
+    const on = rep.on[b].pooled;
+    const off = rep.off[b].pooled;
     lines.push(
-      `  ${b}: option-off rate ${rep.off[b].pooled.rate}% is ${inside ? 'INSIDE' : 'OUTSIDE'} the option-on pooled interval`
+      `  pooled: option-off rate ${off.rate}% is ${off.rate >= on.low && off.rate <= on.high ? 'INSIDE' : 'OUTSIDE'} the option-on interval ${on.low} to ${on.high}`
     );
+    if (reshove)
+      lines.push(
+        `  a bluff class that did not reshove did instead: ${JSON.stringify(rep.reshoveInstead)}`
+      );
   }
   return lines.join('\n');
 }
