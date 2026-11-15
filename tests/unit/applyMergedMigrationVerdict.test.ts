@@ -23,6 +23,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
+import { sliceStatement } from '../helpers/sourceWindow';
 
 const workflow = readFileSync(
   resolve(__dirname, '../../.github/workflows/apply-merged-migration.yml'),
@@ -217,7 +218,9 @@ describe('a verified recording answers from the history, not its shape', () => {
     const deferred = src.indexOf('if (deferredShapeRefusal && already.length === 0)');
     expect(read).toBeGreaterThan(-1);
     expect(deferred).toBeGreaterThan(read);
-    expect(src.slice(deferred, deferred + 200)).toContain('refused(deferredShapeRefusal)');
+    expect(
+      sliceStatement(src, 'if (deferredShapeRefusal && already.length === 0)')
+    ).toContain('refused(deferredShapeRefusal)');
   });
 });
 
