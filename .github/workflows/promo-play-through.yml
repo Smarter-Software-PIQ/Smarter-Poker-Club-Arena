@@ -1,0 +1,46 @@
+name: Promo play-through locks the grant until its fees are paid
+
+# Owner ruling 2026-11-15: promo chips carry a 4x play-through in fees before
+# they can be cashed out or claimed back; profit above the locked amount stays
+# cashable. Runs scripts/ci/test-promo-play-through.py against a throwaway
+# PostgreSQL 17 cluster, never production: it applies the real migrations and
+# proves the lock, the fee meter (cash rake share plus tournament fees net of
+# refunds), oldest-first filling, expiry, the go-live boundary and that a
+# browser role reaches only its own figure.
+# No timer (CLAUDE.md 10.85): pull_request only, scoped to the paths it proves.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - supabase/migrations/*_promo_play_through_*.sql
+      - scripts/ci/test-promo-play-through.py
+      - .github/workflows/promo-play-through.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: promo-play-through-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  promo-play-through:
+    name: Promo play-through lock ledger and fee meter
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL 17 from the signed PGDG source only
+        uses: ./.github/actions/install-postgres-17
+      - name: Promo play-through lock ledger and fee meter
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 scripts/ci/test-promo-play-through.py --output artifacts/promo-play-through
+      - name: Retain the regression evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: promo-play-through-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/promo-play-through/RESULTS.json
+          retention-days: 7
+          if-no-files-found: warn

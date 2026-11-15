@@ -398,6 +398,8 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
     `${PREFLOP_HOLD_REASON}; also measured harm (-0.51 +/- 0.15, manifest section 4)`
   ),
   nashPushFoldIcm: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
+  // 2026-11-15 Hold'em Strategy: the persona preflop layer widens or narrows opening ranges at deep cash tables.
+  holdemPersonaPreflop: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
   huBbDefendsToPrice: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
   facingOpenFullRingZone: hold(
     PREFLOP_HOLD_SOURCE,
@@ -412,6 +414,12 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
   huLimpDefendsToPrice: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
   // owner 21:30: the Omaha tight responses
   omahaTightOpponent: hold(
+    OMAHA_TIGHT_SOURCE,
+    'Omaha tight response: promotion evidence rows unmet'
+  ),
+  // 2026-11-15 PLO Strategy: the read-conditional 4-bet fold against a measured tight re-raiser is an
+  // Omaha tight response, so it is under the same owner hold (Hand Analysis wiring note N1).
+  omahaReraisedFoldVsTight: hold(
     OMAHA_TIGHT_SOURCE,
     'Omaha tight response: promotion evidence rows unmet'
   ),
