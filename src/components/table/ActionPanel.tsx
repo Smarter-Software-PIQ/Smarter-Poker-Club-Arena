@@ -13,6 +13,7 @@ import '../../styles/table-design-tokens.css';
 import './ActionPanel.css';
 import { formatBigBlinds, formatTableChips } from '../../utils/format';
 import {
+  ACTION_CONTROLLER_COLORS,
   normalizeActionController,
   type ActionControllerSettings,
 } from '../../lib/actionController';
@@ -1516,6 +1517,13 @@ export default function ActionPanel({
         connectionStale ? ' action-panel--stale' : ''
       }`}
       data-controller-color={controller.color}
+      style={
+        {
+          '--controller-filter': ACTION_CONTROLLER_COLORS.find(
+            (color) => color.id === controller.color
+          )?.filter,
+        } as React.CSSProperties
+      }
       data-table-capacity={maxPlayers >= 9 ? '9' : '6'}
       data-connection={connectionStale ? 'stale' : 'live'}
     >

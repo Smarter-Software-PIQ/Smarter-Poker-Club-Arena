@@ -23,11 +23,13 @@ describe('Action Controller settings gestures', () => {
         <ReadAtTable />
       </>
     );
-    expect(screen.getAllByRole('button')).toHaveLength(5);
-    fireEvent.click(screen.getByRole('button', { name: 'Ruby', exact: true }));
-    expect(live().color).toBe('red');
+    expect(screen.getAllByRole('button')).toHaveLength(6);
+    fireEvent.click(screen.getByRole('button', { name: 'Black Platinum', exact: true }));
+    expect(live().color).toBe('platinum');
     expect(
-      screen.getByRole('button', { name: 'Ruby', exact: true }).getAttribute('aria-pressed')
+      screen
+        .getByRole('button', { name: 'Black Platinum', exact: true })
+        .getAttribute('aria-pressed')
     ).toBe('true');
   });
   it('keeps uncommitted drafts out of the sizing path, reports invalid values and restores defaults', () => {

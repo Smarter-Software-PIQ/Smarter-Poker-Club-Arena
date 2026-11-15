@@ -5,6 +5,7 @@ import {
   default as ActionPanel,
 } from '../../src/components/table/ActionPanel';
 import {
+  ACTION_CONTROLLER_COLORS,
   DEFAULT_ACTION_CONTROLLER,
   normalizeActionController,
   validBetPresets,
@@ -99,7 +100,15 @@ describe('custom action-controller sizing', () => {
     expect(validBetPresets(value, 100)).toBe(false);
     expect(normalizeActionController({ preflop: value }).preflop).toEqual([2.5, 3, 3.5, 4]);
   });
-  it('has five colors and safely rejects a retired color', () => {
+  it('offers Arena Blue plus five casino palettes and reserves red for All In', () => {
+    expect(ACTION_CONTROLLER_COLORS.map((color) => color.id)).toEqual([
+      'blue',
+      'green',
+      'navy',
+      'platinum',
+      'gold',
+      'teal',
+    ]);
     expect(normalizeActionController({ color: 'unknown' }).color).toBe('blue');
   });
   it('removes Back and a preset only sizes, never submits', () => {

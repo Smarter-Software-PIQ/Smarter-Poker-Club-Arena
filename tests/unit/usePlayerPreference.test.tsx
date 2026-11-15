@@ -479,10 +479,10 @@ it('keeps Action Controller colors and both preset groups account-wide across mo
   const first = renderHook(() => useActionControllerSettings(), { wrapper });
   const second = renderHook(() => useActionControllerSettings(), { wrapper });
   await act(async () => {});
-  act(() => first.result.current.update({ color: 'purple' }));
+  act(() => first.result.current.update({ color: 'navy' }));
   act(() => second.result.current.update({ preflop: [2, 2.2, 5, 6] }));
   act(() => first.result.current.update({ postflop: [25, 40, 60, 125] }));
-  const expected = { color: 'purple', preflop: [2, 2.2, 5, 6], postflop: [25, 40, 60, 125] };
+  const expected = { color: 'navy', preflop: [2, 2.2, 5, 6], postflop: [25, 40, 60, 125] };
   expect(second.result.current.settings).toEqual(expected);
   first.unmount();
   second.unmount();

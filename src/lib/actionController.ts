@@ -1,10 +1,19 @@
 /** One catalog and one validation contract for the felt, settings and Studio. */
 export const ACTION_CONTROLLER_COLORS = [
   { id: 'blue', name: 'Arena Blue', filter: 'none' },
-  { id: 'green', name: 'Emerald', filter: 'hue-rotate(265deg)' },
-  { id: 'red', name: 'Ruby', filter: 'hue-rotate(130deg)' },
-  { id: 'purple', name: 'Amethyst', filter: 'hue-rotate(55deg)' },
-  { id: 'gold', name: 'Gold', filter: 'hue-rotate(190deg) brightness(1.6)' },
+  {
+    id: 'green',
+    name: 'Casino Emerald',
+    filter: 'hue-rotate(280deg) saturate(0.65) brightness(0.85)',
+  },
+  { id: 'navy', name: 'Midnight Navy', filter: 'saturate(0.55) brightness(0.7)' },
+  { id: 'platinum', name: 'Black Platinum', filter: 'grayscale(1) brightness(1.05)' },
+  {
+    id: 'gold',
+    name: 'Champagne Gold',
+    filter: 'hue-rotate(190deg) saturate(0.45) brightness(1.3)',
+  },
+  { id: 'teal', name: 'Deep Teal', filter: 'hue-rotate(300deg) saturate(0.6) brightness(0.85)' },
 ] as const;
 export type ActionControllerColor = (typeof ACTION_CONTROLLER_COLORS)[number]['id'];
 export interface ActionControllerSettings {

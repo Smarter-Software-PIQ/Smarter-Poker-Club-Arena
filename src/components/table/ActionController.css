@@ -1,19 +1,4 @@
-/* Approved painted chassis. Live text stays separate from the color treatment. */
-[data-controller-color='blue'] {
-  --controller-filter: none;
-}
-[data-controller-color='green'] {
-  --controller-filter: hue-rotate(265deg);
-}
-[data-controller-color='red'] {
-  --controller-filter: hue-rotate(130deg);
-}
-[data-controller-color='purple'] {
-  --controller-filter: hue-rotate(55deg);
-}
-[data-controller-color='gold'] {
-  --controller-filter: hue-rotate(190deg) brightness(1.6);
-}
+/* Approved painted chassis. Palette treatments are owned by actionController.ts. */
 .action-controller-paint,
 .action-controller-allin-paint {
   position: absolute;
@@ -341,7 +326,6 @@
     no-repeat;
   filter: var(--controller-filter, none);
 }
-.action-panel[data-controller-color] .action-btn--fold::before,
 .action-panel[data-controller-color] .action-btn--allin::before {
   filter: hue-rotate(130deg);
 }
@@ -416,4 +400,22 @@
   box-shadow: none !important;
   padding: 0 !important;
   transform: none !important;
+}
+
+/* Red is reserved for All In. Fold uses neutral machined steel. */
+.action-panel[data-controller-color] .action-btn--fold::before {
+  filter: grayscale(1) brightness(0.8);
+}
+.action-panel[data-controller-color] .raise-confirm--allin {
+  position: relative;
+  isolation: isolate;
+}
+.action-panel[data-controller-color] .raise-confirm--allin::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: url('/assets/club-buttons/action-controller-v1/chassis.webp') center 90% / 106% 357%
+    no-repeat;
+  filter: hue-rotate(130deg);
 }

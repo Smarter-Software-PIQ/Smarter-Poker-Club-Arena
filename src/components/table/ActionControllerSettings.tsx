@@ -107,6 +107,7 @@ export function ActionControllerSettings({ colorsOnly = false }: { colorsOnly?: 
             <span
               className="action-controller-mini"
               data-controller-color={color.id}
+              style={{ '--controller-filter': color.filter } as React.CSSProperties}
               aria-hidden="true"
             >
               <span className="action-controller-paint" />
