@@ -1,3 +1,4 @@
+import { useActionControllerSettings } from '../hooks/useActionControllerSettings';
 import { lightningJackpotAward } from '../lightning/lightningJackpotAward';
 import { lightningSeatKey } from '../lightning/lightningSeatKey';
 import { isRetiredTournamentTable } from '../lib/retiredTournamentVisibility';
@@ -3768,6 +3769,7 @@ function LiveTablePage({
     nonce: number;
     open: boolean;
     amount?: number;
+    presetIndex?: number;
   }>({ nonce: 0, open: false });
   const openRaisePanel = useCallback((amount?: number) => {
     setRaiseIntent((prev) => ({ nonce: prev.nonce + 1, open: true, amount }));
@@ -10415,6 +10417,7 @@ function LiveTablePage({
   observePublicEventRef.current = observePublicEvent;
 
   // User settings with persistence
+  const { settings: actionControllerSettings } = useActionControllerSettings();
   const { settings: userSettings, updateSetting } = useTableSettings();
   const userSettingsRef = useRef(userSettings);
   useEffect(() => {
@@ -26966,7 +26969,7 @@ function LiveTablePage({
        on a table where hero had no hand. That is the identical false-trigger the
        note on isHeroTurnContext documents. */
     isHeroTurn: isHeroTurnContext && heroDecisionReady,
-    isSizingOpen: raiseIntent.open,
+    isSizingOpen: raisePanelOpen,
     isSpectator: !heroAtTable,
     isModalOpen:
       !!tournamentWinner ||
@@ -27021,13 +27024,11 @@ function LiveTablePage({
     onToggleSound: () => setIsSoundEnabled(!isSoundEnabled),
     // FIX 199: onToggleHandStrength REMOVED — not allowed for live online gameplay
     onBetPreset: (preset: number) => {
-      // Bet presets: 0=1/3 pot, 1=1/2 pot, 2=3/4 pot, 3=pot
-      //Use tableState.pot instead of local engine state
-      const pot = tableState.pot || 0;
-      const fractions = [1 / 3, 1 / 2, 3 / 4, 1];
-      const fraction = fractions[preset] ?? 0.5;
-      const betAmount = Math.max(safeBB(tableState.blinds), Math.round(pot * fraction * 100) / 100);
-      openRaisePanel(betAmount);
+      setRaiseIntent((previous) => ({
+        nonce: previous.nonce + 1,
+        open: true,
+        presetIndex: preset,
+      }));
     },
     onClosePanel: () => {
       // Escape key → close ALL open modals/overlays
@@ -31719,6 +31720,8 @@ function LiveTablePage({
                           moved on 2026-08-26 and this line was corrected on
                           2026-08-27.) */}
                       <ActionPanel
+                        controllerSettings={actionControllerSettings}
+                        maxPlayers={tableState.maxPlayers}
                         onRaiseModeChange={setRaisePanelOpen}
                         canFold={true}
                         canCheck={callAmount === 0}
