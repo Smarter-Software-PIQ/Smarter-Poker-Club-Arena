@@ -352,6 +352,7 @@ import {
 } from './HorseTournamentPreflop.js';
 import {
   bettingStructureFor,
+  failureFallbackAction,
   fixedLimitBetSize,
   fixedLimitStreetBounds,
   potLimitRaiseTo,
@@ -4702,9 +4703,10 @@ function capturePhase7Equity(
  * bounds null) when the stack cannot reach the minimum. In pot limit an
  * all-in above the pot cap is advertised only as a legal raise to the cap, so
  * the sized wager is then on the menu too: the button without a sized wager is
- * always the whole stack. In fixed limit the same menu is also shown on a
- * capped street and to a seat that may not reopen, where the clamp turns the
- * button into a call, so the clamp's own test decides it
+ * always the whole stack. In fixed limit the same menu was until 2026-11-15
+ * also shown on a capped street and to a seat that may not reopen, where the
+ * clamp turns the button into a call; the controller no longer lists all_in
+ * there, and the clamp's own test still decides it here as well
  * (HandController.clampToStructure): the street is not capped and the whole
  * stack reaches no further than the standing bet plus the street's legal
  * increment. Anything unknown answers false, which is the candidate set as it
@@ -6892,8 +6894,24 @@ export class HorseLogic {
       phase12DecisionEquityCeiling = null;
       const toCall = Math.max(0, (gameState.currentBet || 0) - (player.bet || 0));
       if (telemetryOn(opts)) noteFire('phase15_brain_exception');
-      return toCall === 0
-        ? { action: 'check', thinkTime: 1500, policyFallback: 'brain_exception' }
+      if (toCall === 0)
+        return { action: 'check', thinkTime: 1500, policyFallback: 'brain_exception' };
+      // 2026-11-15: on FIXED LIMIT the safety net is price-aware - a call at a
+      // price of 4 to 1 or better when the menu offers `call`, else fold
+      // (BettingStructure.failureFallbackAction). Other structures fold.
+      const fallbackAction = failureFallbackAction({
+        structure: gameState.bettingStructure ?? bettingStructureFor(gameState.gameVariant),
+        toCall,
+        pot: gameState.pot,
+        legalActions: gameState.legalActions,
+      });
+      return fallbackAction === 'call'
+        ? {
+            action: 'call',
+            amount: Math.min(toCall, Math.max(0, player.stack || 0)),
+            thinkTime: 1500,
+            policyFallback: 'brain_exception',
+          }
         : { action: 'fold', thinkTime: 1500, policyFallback: 'brain_exception' };
     } finally {
       barrelOutlookRiverPending = false;
