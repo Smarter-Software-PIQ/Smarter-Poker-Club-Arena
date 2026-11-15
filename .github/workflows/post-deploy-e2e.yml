@@ -1763,10 +1763,6 @@ jobs:
           # here when it fails.
           run_suite gameplay-hero-celebration.json tests/e2e/gameplay-customization-runtime.spec.ts --project=chromium --grep=published.hero.showdown.celebrations.only.an.awarded.hero --reporter=line,json --workers=1 --retries=0
           gameplay_hero_celebration_rc=$?; [ $gameplay_hero_celebration_rc -ne 0 ] && rc=$gameplay_hero_celebration_rc
-          # A skipped case exits 0, and the shared executed-reports check below
-          # counts by spec file, so the gameplay journey would cover for it.
-          # Require this report, alone, to hold an executed case.
-          node scripts/ci/assert-e2e-actually-ran.mjs e2e-report/gameplay-hero-celebration.json || rc=1
 
           # Certify Stats first among the broader route checks. Cashier has its
           # own preceding release gate so this suite cannot hide its verdict.
@@ -2026,6 +2022,14 @@ jobs:
       # customization journey pass exactly once, without a skip or retry?
       # Report that answer independently so a Club Data or Financial Admin
       # defect cannot either impersonate or erase the Phase 1 evidence.
+      # A skipped case exits 0, and the shared check above counts by spec file,
+      # so the gameplay journey's execution would cover for a skipped
+      # celebration case. This report is therefore checked alone; a report
+      # that executed nothing fails the job (2026-11-15, review of #10905).
+      - name: Did the hero celebration case actually execute?
+        if: always() && steps.live.outputs.ready == 'true' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.tournament_only != 'true'
+        run: node scripts/ci/assert-e2e-actually-ran.mjs e2e-report/gameplay-hero-celebration.json
+
       - name: Did every Phase 1 customization journey pass exactly?
         id: phase1_coverage
         if: always() && steps.live.outputs.ready == 'true' && needs.publication-gate.outputs.client_navigation != 'true' && needs.publication-gate.outputs.tournament_only != 'true'
