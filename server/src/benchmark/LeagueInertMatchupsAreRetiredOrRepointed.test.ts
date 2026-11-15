@@ -39,7 +39,7 @@ describe('UNMEASURABLE_MATCHUPS', () => {
         // 2026-11-15: the league deals no Lightning domain (HorseLightningParticipation).
         'nlh_lightning_participation_holdem',
         'plo4_lightning_participation_omaha',
-        // 2026-11-15 (L-016): the league deals no Lightning domain (styleLightningSeparate).
+        // 2026-11-15 (L-016): the league deals no Lightning domain (lightningStyleReadSeparate).
         'nlh_style_lightning_separate',
         'plo4_v55_river_trips_flat',
         'plo5_v55_river_trips_flat',

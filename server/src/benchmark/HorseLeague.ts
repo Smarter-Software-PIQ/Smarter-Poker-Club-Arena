@@ -3182,15 +3182,15 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
     // Lightning-separate style read itself.
     name: 'nlh_style_lightning_separate',
     a: {
-      styleLightningSeparate: true,
+      lightningStyleReadSeparate: true,
       styleRaiseRespect: true,
       styleBigBetHonesty: true,
       styleValueBettorNotManiac: true,
     },
     b: { styleRaiseRespect: true, styleBigBetHonesty: true, styleValueBettorNotManiac: true },
     reason:
-      'No Lightning domain in the league table. styleLightningSeparate is DEFAULT OFF (HorseLogic: ' +
-      'opts.styleLightningSeparate === true) and it reaches the style read only on a decision whose ' +
+      'No Lightning domain in the league table. lightningStyleReadSeparate is DEFAULT OFF (HorseLogic: ' +
+      'opts.lightningStyleReadSeparate === true) and it reaches the style read only on a decision whose ' +
       'gs.publicMemoryDomain.speed is "lightning" (HorseLogic.prepareOriginalReads); the style read then takes ' +
       'postflop aggression, river size buckets and the Horse reference from the Lightning-only maps, which the ' +
       'learner fills only from hands it is given with speed "lightning". The league deals its own tables, sets ' +

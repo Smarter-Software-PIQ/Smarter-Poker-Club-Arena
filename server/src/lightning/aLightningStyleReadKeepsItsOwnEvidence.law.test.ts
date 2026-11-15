@@ -11,7 +11,7 @@
  * read pooled Lightning and Classic (table-speed) cash evidence, while the
  * exploit and profile counters it reads beside them are per domain.
  *
- * The fix (default OFF, decide option styleLightningSeparate):
+ * The fix (default OFF, decide option lightningStyleReadSeparate):
  *   - the learner ALSO files a Lightning hand (the worker passes the hand's
  *     speed, styleSpeedOf) into Lightning-only maps with the same keys and
  *     their own caps; the pooled maps are filled exactly as before;
@@ -342,7 +342,7 @@ const FOLDED = [1, 2, 3, 5, 9].map((s) => ({
 }));
 const SEEDS = Array.from({ length: 24 }, (_, i) => 0x57e1e + i * 7919);
 const ON = { styleRaiseRespect: true, styleBigBetHonesty: true, styleValueBettorNotManiac: true };
-const SEPARATE = { ...ON, styleLightningSeparate: true };
+const SEPARATE = { ...ON, lightningStyleReadSeparate: true };
 const LIGHTNING_DOMAIN = { version: 1, speed: 'lightning', ante: 'big_blind' };
 const TABLE_DOMAIN = { version: 1, speed: 'table', ante: 'none' };
 const seatOf = (
@@ -508,7 +508,7 @@ function tally(spot: () => Spot, setup: () => void, opts: Record<string, unknown
 const lightningSpot = () => turnCheckRaise(LIGHTNING_DOMAIN);
 const classicSpot = () => turnCheckRaise(TABLE_DOMAIN);
 
-describe('L-016: a Lightning style read can keep its own evidence (styleLightningSeparate, default off)', () => {
+describe('L-016: a Lightning style read can keep its own evidence (lightningStyleReadSeparate, default off)', () => {
   it('option off: the pooled read as today; the probe flip still happens (the defect, documented)', () => {
     const lightningOnly = tally(lightningSpot, () => install(LIGHTNING_AGG, LIGHTNING_AGG), ON);
     const pooled = tally(lightningSpot, () => install(POOLED_AGG, LIGHTNING_AGG), ON);
@@ -518,7 +518,7 @@ describe('L-016: a Lightning style read can keep its own evidence (styleLightnin
   });
 
   it('option off: every decision is byte-identical whatever the Lightning-only maps hold', () => {
-    for (const opts of [{}, ON, { ...ON, styleLightningSeparate: false }]) {
+    for (const opts of [{}, ON, { ...ON, lightningStyleReadSeparate: false }]) {
       for (const spot of [lightningSpot, classicSpot]) {
         const none = tally(spot, () => install(POOLED_AGG, null, LIGHTNING_DOMAIN, false), opts);
         const filled = tally(spot, () => install(POOLED_AGG, LIGHTNING_AGG), opts);
@@ -531,7 +531,7 @@ describe('L-016: a Lightning style read can keep its own evidence (styleLightnin
     // the option alone (no style consumer on) changes nothing either, even on a Lightning decision
     expect(
       tally(lightningSpot, () => install(POOLED_AGG, LIGHTNING_AGG), {
-        styleLightningSeparate: true,
+        lightningStyleReadSeparate: true,
       }).digests
     ).toEqual(tally(lightningSpot, () => install(POOLED_AGG, LIGHTNING_AGG), {}).digests);
   });
@@ -583,14 +583,14 @@ describe('L-016: a Lightning style read can keep its own evidence (styleLightnin
       HorseMind.setDecisionScope(null);
       return o;
     };
-    expect(readOptionsOf(lightningSpot(), SEPARATE).styleLightningSeparate).toBe(true);
-    expect('styleLightningSeparate' in readOptionsOf(lightningSpot(), ON)).toBe(false);
+    expect(readOptionsOf(lightningSpot(), SEPARATE).lightningStyleReadSeparate).toBe(true);
+    expect('lightningStyleReadSeparate' in readOptionsOf(lightningSpot(), ON)).toBe(false);
     expect(
-      'styleLightningSeparate' in
-        readOptionsOf(lightningSpot(), { ...ON, styleLightningSeparate: false })
+      'lightningStyleReadSeparate' in
+        readOptionsOf(lightningSpot(), { ...ON, lightningStyleReadSeparate: false })
     ).toBe(false);
-    expect('styleLightningSeparate' in readOptionsOf(classicSpot(), SEPARATE)).toBe(false);
-    expect('styleLightningSeparate' in readOptionsOf(turnCheckRaise(undefined), SEPARATE)).toBe(
+    expect('lightningStyleReadSeparate' in readOptionsOf(classicSpot(), SEPARATE)).toBe(false);
+    expect('lightningStyleReadSeparate' in readOptionsOf(turnCheckRaise(undefined), SEPARATE)).toBe(
       false
     );
     // with the option off the read options are exactly what they were

@@ -3329,7 +3329,7 @@ export interface HorseDecideOpts {
    *  tournament decisions are untouched. Receipts style_lightning_separate_read_seen and
    *  style_lightning_separate_empty_seen. Changes nothing unless a style consumer option reads the style.
    *  Default off; explicit true only. */
-  styleLightningSeparate?: boolean;
+  lightningStyleReadSeparate?: boolean;
   /**
    * 2026-11-13 STYLE READ SHADOW: the style options in shadow for this decision (HorseStyleShadow). Each computes
    * its adjustment and applies nothing; one that would have changed its input records that it engaged. Set by the
@@ -6765,9 +6765,9 @@ export class HorseLogic {
         : {}),
       // L-016 (2026-11-15): Lightning style evidence apart. Only an explicit true on a Lightning decision adds the
       // key, so with it off (or on a Classic or tournament decision) the options are exactly what they were.
-      ...(opts.styleLightningSeparate === true &&
+      ...(opts.lightningStyleReadSeparate === true &&
       gameState.publicMemoryDomain?.speed === 'lightning'
-        ? { styleLightningSeparate: true }
+        ? { lightningStyleReadSeparate: true }
         : {}),
     });
     // V3: ingest the action stream into the opponent-intelligence layer.

@@ -440,10 +440,10 @@ export interface DecisionReadOptions {
    *  the scope so the style read itself applies the pre-repair discount to the pooled rows it reads. Only an
    *  explicit true engages; absent, the style read is what it was. */
   styleFoldRatePreRepair?: boolean;
-  /** L-016 (2026-11-15): HorseDecideOpts.styleLightningSeparate, carried with the scope ONLY for a decision whose
+  /** L-016 (2026-11-15): HorseDecideOpts.lightningStyleReadSeparate, carried with the scope ONLY for a decision whose
    *  public memory domain is Lightning. The style read then takes postflop aggression, river size buckets and the
    *  Horse reference from the Lightning-only maps. Absent, the style read is what it was. */
-  styleLightningSeparate?: boolean;
+  lightningStyleReadSeparate?: boolean;
 }
 /** Decayed postflop facing-bet opportunities before the postflop fold rate reads. */
 export const FOLD_READ_MIN_OPPS = 8;
@@ -1221,7 +1221,7 @@ export class HorseMind {
   /** L-016 (2026-11-15): the same three style maps, same keys, filled ONLY from hands whose public memory domain is
    *  Lightning, in ADDITION to the pooled maps above (whose contents and eviction order do not change). Each has its
    *  own cap (STYLE_LIGHTNING_MAX_ROWS), so a Lightning row never evicts a pooled one. Read only behind the
-   *  default-off decide option styleLightningSeparate, on a Lightning decision. */
+   *  default-off decide option lightningStyleReadSeparate, on a Lightning decision. */
   private static styleSizeShownLightning = new Map<string, SizeBucketTallies>();
   private static styleAggressionLightning = new Map<string, StreetAggression>();
   private static styleHorseReferenceLightning = new Map<string, StreetAggression>();
@@ -2580,9 +2580,9 @@ export class HorseMind {
     // H1 (review 2026-11-13): evidence of THIS format and variant only. Shown strength comes from this context's
     // river size buckets. The scoped lifetime tallies (variant and table size, but cash and tournament mixed) enter
     // only as an explicit carry-over at styleCarryWeight (default 0); the all-variant pooled fallback never does.
-    // L-016 (2026-11-15): on a Lightning decision with styleLightningSeparate on (the option reaches this read only
+    // L-016 (2026-11-15): on a Lightning decision with lightningStyleReadSeparate on (the option reaches this read only
     // then), the three style maps are the Lightning-only ones; otherwise the pooled maps, exactly as before.
-    const lightningSeparate = this.decisionReadOptions.styleLightningSeparate === true;
+    const lightningSeparate = this.decisionReadOptions.lightningStyleReadSeparate === true;
     const sizeShownMap = lightningSeparate ? this.styleSizeShownLightning : this.styleSizeShown;
     const aggressionMap = lightningSeparate ? this.styleAggressionLightning : this.styleAggression;
     const horseReferenceMap = lightningSeparate
