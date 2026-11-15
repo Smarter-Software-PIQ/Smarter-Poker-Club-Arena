@@ -40,6 +40,7 @@ import {
 } from '../HorseOmahaRiverNutRaise.js';
 import { omahaBeatenMustCheck, omahaBeatenNoRaise } from '../HorseOmahaMadeHandDefense.js';
 import { omahaOnePairDiscipline } from '../HorseOmahaOnePair.js';
+import { huBalanceSpot } from '../HorseHeadsUpPostflopBalance.js';
 import { shortAllInSpot } from '../HorseShortAllInCallFloor.js';
 import { holdemFourBetSpot } from '../HorseHoldemPremiumAggression.js';
 import { tournamentShoveDiscipline } from '../HorseTournamentShoveDiscipline.js';
@@ -1195,10 +1196,38 @@ function policyGraphIsValid(
         ? transition.after.action === 'check'
         : String(context.gameState.gameVariant).toLowerCase() === variant &&
           onePairRuleProduces(previous, transition.after, context));
+    // HV31 FLOP-5 D1 (HorseHeadsUpPostflopBalance, option
+    // holdemHeadsUpPostflopBalance, default OFF): a heads-up in-position NLH
+    // cash bet becomes a check on a street checked to hero. A check puts no
+    // chip in; when the request is known, only where the rule's own spot
+    // test, re-run on it, says so (the paired-board river check's form).
+    // Its flop fold to a check-raise that becomes a call is admitted only
+    // with the request, in that spot (the short all-in call floor's form).
+    const huBalanceSpotOfRequest =
+      context === undefined ? null : huBalanceSpot(context.player, context.gameState);
+    const huBalanceBetToCheck =
+      transition.node === 'wager_rules' &&
+      variant === 'nlh' &&
+      transition.after.action === 'check' &&
+      previous !== null &&
+      previous.action === 'bet' &&
+      (context === undefined ||
+        huBalanceSpotOfRequest === 'flop_cbet' ||
+        huBalanceSpotOfRequest === 'turn_checked_to' ||
+        huBalanceSpotOfRequest === 'river_checked_to');
+    const huBalanceFoldToCall =
+      transition.node === 'wager_rules' &&
+      variant === 'nlh' &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      previous.action === 'fold' &&
+      huBalanceSpotOfRequest === 'flop_vs_check_raise';
     if (
       transition.node === 'wager_rules' &&
       changed &&
       !pairedBoardFold &&
+      !huBalanceBetToCheck &&
+      !huBalanceFoldToCall &&
       !pairedBoardRiverCheck &&
       !omahaBeatenBetToCheck &&
       !omahaOnePairReduction &&

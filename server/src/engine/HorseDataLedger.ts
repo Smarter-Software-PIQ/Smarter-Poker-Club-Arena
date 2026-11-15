@@ -929,6 +929,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'holdemHeadsUpPostflopBalance',
+    "HV31 FLOP-5 D1 (2026-11-15): no-limit hold'em cash, heads-up single-raised pot, hero in position, effective stack 20 bb or more: the flop c-bet after a check is one 0.75-pot size at a frequency by hand tier; a flop fold to a check-raise after the c-bet with a middle pair or better or a flush or open-ended straight draw becomes a call; a turn or river checked to hero bets one size (0.70 pot, full pot) at a frequency by tier (HorseHeadsUpPostflopBalance.ts; solver evidence FLOP-3 B9/B6, FLOP-4 C1). Default OFF (opt-in): only an explicit true switches it on. League card nlh_hu_postflop_balance",
+    'V94'
+  ),
+  flag(
     'plo6ManiacPriceRefusalToRangePlay',
     '2026-11-14 PLO6 cash preflop: when the raiser faced is an observed maniac and not all in and the call is under 40% of the stack, a refusal by the price arithmetic is decided by the range play, the play made against every other opponent, instead of an outright fold (PLO6-AUDIT-013, production hand 58751512; evidence docs/horse-default-on.d/plo6ManiacPriceRefusalToRangePlay.md)',
     'V92'
@@ -3659,6 +3664,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_one_pair_raise_folded',
     'HorseLogic wager_rules (HorseOmahaOnePair)',
     'a PLO4/PLO5 flop or turn raise with one pair and fewer than four nut-class outs, the call costing more than half the effective stack: became a fold',
+    'V94'
+  ),
+  receipt(
+    'hu_postflop_balance_flop_cbet',
+    'HorseLogic wager_rules (HorseHeadsUpPostflopBalance)',
+    'holdemHeadsUpPostflopBalance on: a heads-up in-position NLH cash flop c-bet decision after a check (single-raised pot) was replaced by the one 0.75-pot size or a check at the tier frequency',
+    'V94'
+  ),
+  receipt(
+    'hu_postflop_balance_check_raise_defend',
+    'HorseLogic wager_rules (HorseHeadsUpPostflopBalance)',
+    'holdemHeadsUpPostflopBalance on: a heads-up NLH cash flop fold to a check-raise after the horse c-bet, with a middle pair or better or a flush or open-ended straight draw, became a call',
+    'V94'
+  ),
+  receipt(
+    'hu_postflop_balance_later_street',
+    'HorseLogic wager_rules (HorseHeadsUpPostflopBalance)',
+    'holdemHeadsUpPostflopBalance on: a heads-up in-position NLH cash turn or river decision after a check (single-raised pot) was replaced by one size (0.70 pot turn, full pot river) or a check at the tier frequency',
     'V94'
   ),
   receipt(

@@ -2039,6 +2039,19 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaReraisedPotStackOffRealistic: true },
     b: {},
   })),
+  // 2026-11-15 HV31 FLOP-5 D1 HEADS-UP POSTFLOP BALANCE
+  // (holdemHeadsUpPostflopBalance, default OFF): a switches on the heads-up
+  // in-position hold'em c-bet, check-raise defence and turn/river balance
+  // (HorseHeadsUpPostflopBalance.ts); b is today's brain. The solver-side
+  // before/after measure is the HV31 B1 tool (flop) and its turn/river bank.
+  {
+    name: 'nlh_hu_postflop_balance',
+    variant: 'nlh',
+    pairs: 6000,
+    productionStyles: true,
+    a: { holdemHeadsUpPostflopBalance: true },
+    b: {},
+  },
   // 2026-11-15 OMAHA MADE-HAND DEFENCE (omahaBeatenMadeHandDefense) and
   // ONE-PAIR DISCIPLINE (omahaOnePairDiscipline), default OFF after their
   // declared evaluations failed: a switches the rule on, b is today's brain.
