@@ -11,7 +11,7 @@
  * immutable history and are never re-judged.
  */
 import assert from 'node:assert/strict';
-import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, unlinkSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -20,9 +20,9 @@ import {
   bookedRecords,
   bookingRecordViolations,
   FILE,
+  NOTICE_HEADROOM_MS,
   TOLERANCE_MS,
 } from '../../scripts/ci/check-owner-window-booking.mjs';
-import { bookingAdmission } from '../../scripts/ci/check-owner-window-notice-after-merge.mjs';
 
 const at = (s) => Date.parse(s);
 const doc = (windows = [], databaseWindows = []) => ({ version: 1, windows, databaseWindows });
@@ -59,10 +59,10 @@ test('a good future-dated booking passes', () => {
   const now = at('2026-11-10T04:43:28Z');
   const good = {
     ...TONIGHTS_BAD_RECORD,
-    id: '2026-11-10-owner-good-engine-0530z',
-    playerNoticeAt: '2026-11-10T05:10:00Z',
-    notBefore: '2026-11-10T05:30:00Z',
-    notAfter: '2026-11-10T07:30:00Z',
+    id: '2026-11-10-owner-good-engine-0535z',
+    playerNoticeAt: '2026-11-10T05:15:00Z',
+    notBefore: '2026-11-10T05:35:00Z',
+    notAfter: '2026-11-10T07:35:00Z',
   };
   assert.deepEqual(bookingRecordViolations(doc(), doc([good]), now), []);
 });
@@ -116,10 +116,13 @@ test('boundary: the tolerance window holds exactly', () => {
     notBefore,
     notAfter: '2026-11-10T07:40:00Z',
   });
-  // Exactly TOLERANCE_MS in the past still passes: an in-flight PR must not flake.
+  // Exactly TOLERANCE_MS in the past is not yet "in the past"; since
+  // 2026-11-15 such a notice is still refused, for lacking headroom.
   assert.equal(TOLERANCE_MS, 5 * 60 * 1000);
-  assert.deepEqual(bookingRecordViolations(doc(), doc([w('2026-11-10T04:55:00.000Z')]), now), []);
-  // One millisecond beyond the tolerance fails.
+  const edge = bookingRecordViolations(doc(), doc([w('2026-11-10T04:55:00.000Z')]), now);
+  assert.equal(edge.length, 1);
+  assert.match(edge[0], /less than 30 minutes ahead of validation time/);
+  // One millisecond beyond the tolerance is in the past (one finding, not two).
   const late = bookingRecordViolations(doc(), doc([w('2026-11-10T04:54:59.999Z')]), now);
   assert.equal(late.length, 1);
   assert.match(late[0], /playerNoticeAt .* is in the past at validation time/);
@@ -137,6 +140,36 @@ test('boundary: the tolerance window holds exactly', () => {
     now
   );
   assert.match(pastStart.join('\n'), /notBefore 2026-11-10T04:54:00Z is in the past/);
+});
+
+test('the notice must still be thirty minutes ahead when the booking is checked (2026-11-15)', () => {
+  // #10959: checks passed with the 11:40Z notice inside the old tolerance,
+  // then the pull request merged at 11:59:43Z, after its own notice.
+  assert.equal(NOTICE_HEADROOM_MS, 30 * 60 * 1000);
+  const record = (playerNoticeAt) => ({
+    id: '2026-11-15-owner-offcycle-engine-1206z',
+    playerNoticeAt,
+    notBefore: '2026-11-15T12:06:00Z',
+    notAfter: '2026-11-15T15:00:00Z',
+  });
+  const checkedAt = at('2026-11-15T11:40:00Z');
+  const exact = bookingRecordViolations(doc(), doc([record('2026-11-15T11:40:00Z')]), checkedAt);
+  assert.deepEqual(exact.length, 1);
+  assert.match(exact[0], /less than 30 minutes ahead/);
+  const now = at('2026-11-10T05:00:00Z');
+  const w = (playerNoticeAt) => ({
+    id: 'h',
+    playerNoticeAt,
+    notBefore: '2026-11-10T05:50:00Z',
+    notAfter: '2026-11-10T07:50:00Z',
+  });
+  assert.deepEqual(bookingRecordViolations(doc(), doc([w('2026-11-10T05:30:00.000Z')]), now), []);
+  const short = bookingRecordViolations(doc(), doc([w('2026-11-10T05:29:59.999Z')]), now);
+  assert.equal(short.length, 1);
+  assert.match(short[0], /h \(windows\): playerNoticeAt .* is less than 30 minutes ahead/);
+  // An unchanged record is never re-judged, so consumed history is unaffected.
+  const old = record('2026-11-15T11:40:00Z');
+  assert.deepEqual(bookingRecordViolations(doc([old]), doc([{ ...old }]), now), []);
 });
 
 test('ordering: notBefore >= playerNoticeAt, notAfter > notBefore', () => {
@@ -245,94 +278,60 @@ test('the after-merge backstop is untouched and still judges merged windows', as
   assert.equal(backstop.FILE, FILE);
 });
 
-// A historical finding is never a new authorization or a reason to rewrite
-// consumed history. Only exact, expired base records are non-blocking for a PR.
-test('PR admission retains expired history but refuses active, changed, missing-expiry and removed bad records', () => {
-  const now = at('2026-11-10T06:00:00Z');
-  const expired = { ...TONIGHTS_BAD_RECORD, notAfter: '2026-11-10T05:30:00Z' };
-  const base = doc([expired]);
-  assert.deepEqual(bookingAdmission(base, base, () => MERGE_INSTANT, now), {
-    failures: [], historical: [assertionFinding(expired, now)],
-  });
-  const future = { ...expired, id: 'future-booking', playerNoticeAt: '2026-11-10T07:00:00Z',
-    notBefore: '2026-11-10T07:20:00Z', notAfter: '2026-11-10T08:00:00Z' };
-  const withFuture = bookingAdmission(base, doc([expired, future]),
-    (id) => id === expired.id ? MERGE_INSTANT : null, now);
-  assert.equal(withFuture.failures.length, 0);
-  assert.equal(withFuture.historical.length, 1);
-  const boundary = doc([{ ...expired, notAfter: new Date(now).toISOString() }]);
-  assert.equal(bookingAdmission(boundary, boundary, () => MERGE_INSTANT, now - 1).failures.length, 1);
-  assert.equal(bookingAdmission(boundary, boundary, () => MERGE_INSTANT, now).historical.length, 1);
-  for (const change of [
-    { ...expired, notAfter: '2026-11-10T07:00:00Z' },
-    { ...expired, ownerOrder: 'different authority' },
-    { ...expired, notAfter: undefined },
-    { ...expired, id: 'new-booking' },
-  ]) {
-    const result = bookingAdmission(base, doc([change]), () => MERGE_INSTANT, now);
-    assert.ok(result.failures.length, JSON.stringify(change));
-  }
-  const active = doc([{ ...expired, notAfter: '2026-11-10T07:00:00Z' }]);
-  assert.ok(bookingAdmission(active, active, () => MERGE_INSTANT, now).failures.length);
-  const missing = doc([{ ...expired, notAfter: undefined }]);
-  assert.ok(bookingAdmission(missing, missing, () => MERGE_INSTANT, now).failures.length);
-  assert.match(bookingAdmission(base, doc(), () => MERGE_INSTANT, now).failures.join(), /retain.*historical/);
-  const db = doc([], [expired]);
-  assert.equal(bookingAdmission(db, db, () => MERGE_INSTANT, now).historical.length, 1);
-  assert.throws(() => bookingAdmission(base, doc([expired, expired]), () => MERGE_INSTANT, now), /Duplicate/);
-  assert.throws(() => bookingAdmission(base, { windows: {} }, () => MERGE_INSTANT, now), /Invalid/);
-});
-
-function assertionFinding(record, now) {
-  // Independent exact historical witness from the original backstop contract.
-  return `${record.id}: playerNoticeAt ${record.playerNoticeAt} is before the booking merged (${new Date(MERGE_INSTANT).toISOString()}); book a later notice and notBefore`;
-}
-
-test('actual CLI uses the explicit Git base, keeps full audit strict, and fails closed on unreadable history', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'booking-admission-'));
+test('actual CLI requires a valid on-main public witness and fails closed on unknown history', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'booking-witness-cli-'));
   const script = 'scripts/ci/check-owner-window-notice-after-merge.mjs';
+  const witnessPath = 'scripts/ci/owner-window-notice-witnesses.json';
   try {
     mkdirSync(join(dir, 'scripts/ci'), { recursive: true });
     mkdirSync(join(dir, 'server/release'), { recursive: true });
-    for (const name of ['check-owner-window-notice-after-merge.mjs', 'check-owner-window-booking.mjs']) {
-      writeFileSync(join(dir, 'scripts/ci', name), readFileSync(new URL(`../../scripts/ci/${name}`, import.meta.url)));
-    }
-    const expired = { ...TONIGHTS_BAD_RECORD, notAfter: '2026-11-10T05:30:00Z' };
-    const source = JSON.stringify(doc([expired]));
+    writeFileSync(join(dir, script), readFileSync(new URL(`../../${script}`, import.meta.url)));
+    const windows = JSON.parse(readFileSync(new URL(`../../${FILE}`, import.meta.url), 'utf8'));
+    const record = windows.windows.find(w => w.id === '2026-11-15-owner-offcycle-engine-1206z');
+    const witness = JSON.parse(readFileSync(new URL(`../../${witnessPath}`, import.meta.url), 'utf8'));
+    assert.ok(record);
+    const source = JSON.stringify(doc([record]));
     const file = join(dir, FILE);
     writeFileSync(file, source);
     const git = (...args) => {
       const result = spawnSync('git', args, { cwd: dir, encoding: 'utf8', env: {
-        ...process.env, GIT_AUTHOR_DATE: '2026-11-10T04:43:28Z', GIT_COMMITTER_DATE: '2026-11-10T04:43:28Z',
+        ...process.env, GIT_AUTHOR_DATE: '2026-11-15T11:59:42Z', GIT_COMMITTER_DATE: '2026-11-15T11:59:42Z',
       } });
       assert.equal(result.status, 0, result.stderr);
       return result.stdout.trim();
     };
     git('init', '-q'); git('add', '.');
-    git('-c', 'user.name=fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'original booking');
+    git('-c', 'user.name=fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'original consumed booking');
     const base = git('rev-parse', 'HEAD');
     git('update-ref', 'refs/remotes/origin/main', base);
-    const cli = (explicitBase) => {
+    const cli = explicitBase => {
       const env = { ...process.env };
       delete env.CI_BASE_SHA;
       if (explicitBase !== undefined) env.CI_BASE_SHA = explicitBase;
       return spawnSync(process.execPath, [script], { cwd: dir, env, encoding: 'utf8' });
     };
-    const scoped = cli(base);
-    assert.equal(scoped.status, 0, scoped.stderr);
-    assert.match(scoped.stderr, /HISTORICAL VIOLATION.*unchanged and expired/);
-    assert.match(scoped.stderr, /04:43:28/);
-    assert.equal(readFileSync(file, 'utf8'), source, 'the validator never rewrites history');
-    const audit = cli();
-    assert.equal(audit.status, 1);
-    assert.match(audit.stderr, /is before the booking merged/);
-    writeFileSync(file, JSON.stringify(doc([{ ...expired, ownerOrder: 'retargeted' }])));
-    assert.equal(cli(base).status, 1, 'editing an expired bad record is still refused');
+    assert.equal(cli(base).status, 1, 'a consumed record alone is never proof');
+    writeFileSync(join(dir, witnessPath), JSON.stringify(witness));
+    const accepted = cli(base);
+    assert.equal(accepted.status, 0, accepted.stderr);
+    assert.equal(cli().status, 0, 'full audit accepts the independently evidenced lead');
+    assert.equal(readFileSync(file, 'utf8'), source, 'no original record is rewritten');
+    const invalid = structuredClone(witness);
+    invalid.witnesses[0].activatedAt = invalid.witnesses[0].publicNoticeAt;
+    writeFileSync(join(dir, witnessPath), JSON.stringify(invalid));
+    assert.equal(cli(base).status, 1, 'a zero-lead witness cannot excuse a violation');
+    const fresh = structuredClone(witness);
+    fresh.witnesses[0].windowId = 'new-window';
+    writeFileSync(join(dir, witnessPath), JSON.stringify(fresh));
+    writeFileSync(file, JSON.stringify(doc([{ ...record, id: 'new-window' }])));
+    const newWindow = cli(base);
+    assert.equal(newWindow.status, 1);
+    assert.match(newWindow.stderr, /cannot excuse a window this change is booking/);
     writeFileSync(file, source);
-    const unknown = cli('missing-base');
-    assert.notEqual(unknown.status, 0, 'unreadable base is not an empty/clean history');
-    writeFileSync(file, '{');
-    assert.notEqual(cli(base).status, 0, 'unparseable source refuses admission');
+    writeFileSync(join(dir, witnessPath), JSON.stringify(witness));
+    assert.notEqual(cli('missing-base').status, 0, 'unreadable provenance refuses admission');
+    unlinkSync(join(dir, witnessPath));
+    assert.equal(cli().status, 1, 'removing the proof restores the full audit refusal');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

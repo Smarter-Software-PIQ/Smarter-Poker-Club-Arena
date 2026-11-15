@@ -16,8 +16,7 @@
  * moment it is validated. Unchanged records are immutable history and are
  * never re-judged, so a bad record that already reached main cannot turn this
  * check red on unrelated pull requests - that failure mode belongs to the
- * after-merge full audit. PR admission in that backstop retains unchanged,
- * expired findings as diagnostics; active/changed violations still refuse.
+ * after-merge backstop alone, and the backstop stays.
  *
  * Rules for each added or changed record (certifiedRecoveryProfile, the
  * certified emergency path, stays exempt as in both existing booking laws):
@@ -25,6 +24,14 @@
  *   - playerNoticeAt and notBefore are no earlier than validation time minus
  *     a small tolerance (an in-flight pull request must not flake while its
  *     checks run);
+ *   - playerNoticeAt is at least NOTICE_HEADROOM_MS (30 minutes) ahead of
+ *     validation time (2026-11-15): the checks run when the pull request is
+ *     pushed, not when it merges. #10959 passed this gate with its 11:40Z
+ *     notice inside the old five-minute tolerance and merged at 11:59:43Z, so
+ *     main held a notice that preceded its own booking and the after-merge
+ *     backstop went red on every pull request. Thirty minutes of headroom
+ *     absorbs an ordinary merge delay; a booking that waits longer must be
+ *     re-pushed and re-checked;
  *   - notBefore is not before playerNoticeAt;
  *   - notAfter is after notBefore.
  */
@@ -35,6 +42,8 @@ import { pathToFileURL } from 'node:url';
 export const FILE = 'server/release/owner-maintenance-windows.json';
 /** How far in the past a judged timestamp may sit at validation time. */
 export const TOLERANCE_MS = 5 * 60 * 1000;
+/** How far ahead of validation time a booked notice must still be. */
+export const NOTICE_HEADROOM_MS = 30 * 60 * 1000;
 
 const COLLECTIONS = ['windows', 'databaseWindows'];
 
@@ -101,6 +110,13 @@ export function bookingRecordViolations(baseDoc, headDoc, now) {
             `${iso(now)}; book a window that is still ahead of this pull request`
         );
       }
+    }
+    if (times.playerNoticeAt >= floor && times.playerNoticeAt < now + NOTICE_HEADROOM_MS) {
+      out.push(
+        `${name}: playerNoticeAt ${w.playerNoticeAt} is less than 30 minutes ahead of ` +
+          `validation time ${iso(now)}; an ordinary merge delay would carry it into the ` +
+          `past, so book a later notice and notBefore`
+      );
     }
     if (times.notBefore < times.playerNoticeAt) {
       out.push(`${name}: notBefore ${w.notBefore} is before playerNoticeAt ${w.playerNoticeAt}`);
