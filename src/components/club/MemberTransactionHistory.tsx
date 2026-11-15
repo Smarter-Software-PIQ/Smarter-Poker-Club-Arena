@@ -10,6 +10,7 @@ import { reportError } from '../../utils/errorReporter';
 import {
   ledgerDisplaySign,
   ledgerRowTitle,
+  walletRoute,
   presentChipTransaction,
   type ChipTransactionLike,
 } from '../wallet/describeChipTransaction';
@@ -102,20 +103,29 @@ export default function MemberTransactionHistory({ clubId, memberId, viewerId, s
       ) : rows.length === 0 ? (
         <p>No Chip Transactions Found.</p>
       ) : (
-        rows.slice(0, limit).map((row) => (
-          <div className="mm-stat" key={row.id}>
-            <span className="mm-stat__label">
-              {ledgerRowTitle(row, row.from_name, row.to_name, viewerId) ??
-                toTitleCase((row.transaction_type ?? 'Chip Transaction').replace(/_/g, ' '))}
-              <br />
-              <time dateTime={row.created_at}>{formatDateTime(row.created_at)}</time>
-            </span>
-            <strong className="mm-stat__value">
-              {ledgerDisplaySign(row, memberId)}
-              {formatWalletChips(row.amount_text ?? row.amount)}
-            </strong>
-          </div>
-        ))
+        rows.slice(0, limit).map((row) => {
+          const route = walletRoute(row);
+          return (
+            <div className="mm-stat" key={row.id}>
+              <span className="mm-stat__label">
+                {ledgerRowTitle(row, row.from_name, row.to_name, viewerId) ??
+                  toTitleCase((row.transaction_type ?? 'Chip Transaction').replace(/_/g, ' '))}
+                <br />
+                {route && (
+                  <>
+                    <span>From {route}</span>
+                    <br />
+                  </>
+                )}
+                <time dateTime={row.created_at}>{formatDateTime(row.created_at)}</time>
+              </span>
+              <strong className="mm-stat__value">
+                {ledgerDisplaySign(row, memberId)}
+                {formatWalletChips(row.amount_text ?? row.amount)}
+              </strong>
+            </div>
+          );
+        })
       )}
       {!expanded && rows && rows.length > 0 && (
         <button

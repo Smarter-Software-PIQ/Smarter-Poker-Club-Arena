@@ -45,6 +45,20 @@ describe('the rigged throwables', () => {
     }
   });
 
+  it('plays the animal calls during the visible donkey and chicken performances', () => {
+    const chicken = riggedThrowable('chicken')!.spec;
+    const bawk = chicken.beats.find((beat) => beat.marker === 'wide-cluck')!;
+    expect(chicken.audio).toContainEqual({ at: bawk.at, sample: 'chicken_bawk', gain: 1 });
+    const donkey = riggedThrowable('donkey')!.spec;
+    const bray = donkey.audio.find((cue) => cue.sample === 'donkey_hee_haw')!;
+    const manifest = JSON.parse(read('scripts/audio/throwable-cues.manifest.json'));
+    const call = manifest.cues.donkey_hee_haw;
+    expect(call.layers).toHaveLength(4);
+    expect(bray.at + call.trimEnd * 1000).toBeLessThanOrEqual(
+      throwableLandingMs(donkey) + donkey.payload.ms
+    );
+  });
+
   it('scales every rig payload graphic above the seat avatar while preserving the water-gun reference', () => {
     const player = read('src/components/table/ThrowablePlayer.css');
     expect(player).toMatch(/\.thr__payload > svg\s*\{[^}]*transform: scale\(1\.22\)/);

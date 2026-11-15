@@ -47,6 +47,7 @@ import {
   tokenCallPriceApplies,
   tokenCallRequiredEquity,
 } from './HorseTokenCallPrice.js';
+import { plo6TopSetIsCurrentNuts } from './HorsePlo6TopSetNut.js';
 import { horsePolicyRegistration, horsePolicyOwnership } from './HorsePolicyRegistry.js';
 import { hasHorseReviewSignals } from './HorseReviewSignals.js';
 import { evaluateJointLivePolicy } from './multiway/JointLivePolicy.js';
@@ -324,7 +325,7 @@ import {
   type TournamentMState,
   type TournamentPreflopPolicyInput,
 } from './HorseTournamentPreflop.js';
-import { potLimitRaiseTo } from './BettingStructure.js';
+import { fixedLimitStreetBounds, potLimitRaiseTo } from './BettingStructure.js';
 import { omahaTournamentPressure } from './HorseOmahaTournamentPressure.js';
 import { reportError } from '../services/errorReporter.js';
 import {
@@ -2628,6 +2629,15 @@ export interface HorseDecideOpts {
    * docs/horse-default-on.d/plo6ManiacPriceRefusalToRangePlay.md). Default
    * on; false only for the regression's non-vacuity control. */
   plo6ManiacPriceRefusalToRangePlay?: boolean;
+  /** PLO6 cash, one board, no bomb pot: in the solverless flop/turn call
+   * menu a top set that is the current nuts (board unpaired, no three of a
+   * suit, no three ranks in any five-rank window; HorsePlo6TopSetNut.ts) is
+   * priced at full realization instead of the out-of-position non-draw
+   * discount (PLO6-AUDIT P6-4: realization 0.75 folded the nuts at a
+   * one-third price multiway). OPT-IN, default off: five reconstructed cases
+   * in two days, Horse-only; activation needs its own evaluation and a
+   * docs/horse-default-on.d evidence file. Read as `=== true`. */
+  plo6TopSetNutRealization?: boolean;
   /** An Omaha preflop call of 40% of the stack with chips behind and an
    * opponent still to act is not priced as a final all-in call
    * (PLO6-AUDIT-005). OPT-IN, default off. The pricing gap is real (the
@@ -2816,6 +2826,12 @@ export interface HorseDecideOpts {
    *  hand whose call is the stack jams instead of folding: a 20bb opener
    *  facing a 3-bet to 11bb folded 97-98% of its open. Default OFF. */
   vs3BetShortStack?: boolean;
+  /** PLO6 COMMITMENT-ZONE 3-BET PRICE RELIEF (PLO6 tournament-folds study,
+   *  2026-11-14): in the V25 PLO commitment zone facing a re-raise, six-card
+   *  Omaha high takes the facing-3-bet price relief max(0, 0.5 - odds) * 1.6
+   *  instead of (0.4 - odds) * 1.2. Default OFF: only explicit true turns it
+   *  on. Chip-scored development-field evidence only; payout not measured. */
+  omahaCommitZoneThreeBetPriceRelief?: boolean;
   /** FACING A CLOSED ALL-IN RE-RAISE (2026-11-08, default ON): facing a
    *  3-bet or 4-bet made all in with every other live opponent all in or
    *  folded, the 3-bet node's 35% and the 4-bet node's 30% stack caps no
@@ -4387,6 +4403,64 @@ function capturePhase7Equity(
   };
 }
 
+/**
+ * Does the controller execute this menu's all-in button as a wager of the
+ * whole stack, although it offers no sized bet or raise? True only for the
+ * stack above the call and below the minimum wager, in pot limit and fixed
+ * limit (no-limit builds its jam without being told).
+ *
+ * HandController.getAvailableActions offers `all_in` only when its own clamp
+ * accepts it, and getAuthoritativeActionState withholds the sized wager (both
+ * bounds null) when the stack cannot reach the minimum. In pot limit an
+ * all-in above the pot cap is advertised only as a legal raise to the cap, so
+ * the sized wager is then on the menu too: the button without a sized wager is
+ * always the whole stack. In fixed limit the same menu is also shown on a
+ * capped street and to a seat that may not reopen, where the clamp turns the
+ * button into a call, so the clamp's own test decides it
+ * (HandController.clampToStructure): the street is not capped and the whole
+ * stack reaches no further than the standing bet plus the street's legal
+ * increment. Anything unknown answers false, which is the candidate set as it
+ * was.
+ */
+export function phase7ShortAllInWagers(
+  gs: HorseGameStateV2,
+  player: SeatPlayer,
+  structure: 'no_limit' | 'pot_limit' | 'fixed_limit'
+): boolean {
+  const legal = gs.legalActions;
+  if (
+    structure === 'no_limit' ||
+    gs.stateSchemaVersion !== 1 ||
+    gs.allInOrFold === true ||
+    !Array.isArray(legal) ||
+    !legal.includes('all_in') ||
+    legal.includes('bet') ||
+    legal.includes('raise') ||
+    (gs.minRaiseTo ?? null) !== null ||
+    (gs.maxRaiseTo ?? null) !== null
+  )
+    return false;
+  const toCall = Math.max(0, Number(gs.toCall ?? gs.currentBet - player.bet) || 0);
+  if (!(player.stack > toCall + 0.005)) return false;
+  if (structure === 'pot_limit') return true;
+  const betSize = gs.fixedBetSize;
+  if (
+    gs.wagersCapped !== false ||
+    !Array.isArray(gs.actionHistory) ||
+    typeof betSize !== 'number' ||
+    !(betSize > 0) ||
+    !Number.isFinite(gs.currentBet)
+  )
+    return false;
+  const increment = fixedLimitStreetBounds(
+    gs.actionHistory,
+    gs.stage,
+    betSize,
+    gs.currentBet
+  ).raiseSize;
+  return player.bet + player.stack <= gs.currentBet + increment + 0.005;
+}
+
 function buildPhase7UtilityInput(
   gs: HorseGameStateV2,
   player: SeatPlayer,
@@ -4398,6 +4472,9 @@ function buildPhase7UtilityInput(
 ): TournamentUtilityInput {
   if (!gs.pots || !gs.legalActions) throw new Error('joint_utility_canonical_state_unavailable');
   const toCall = Math.max(0, gs.currentBet - player.bet);
+  const bettingStructure =
+    gs.bettingStructure ??
+    (vi.isFixedLimit ? 'fixed_limit' : vi.isPotLimit ? 'pot_limit' : 'no_limit');
   return {
     v86AsymmetricIcmAndPreflop: opts?.v86UnblockedPreflop !== false,
     // Tournament stacks and awards use whole chips. Model the same button-
@@ -4417,9 +4494,15 @@ function buildPhase7UtilityInput(
     legalActions: gs.legalActions,
     minRaiseTo: gs.minRaiseTo ?? null,
     maxRaiseTo: gs.maxRaiseTo ?? null,
-    bettingStructure:
-      gs.bettingStructure ??
-      (vi.isFixedLimit ? 'fixed_limit' : vi.isPotLimit ? 'pot_limit' : 'no_limit'),
+    bettingStructure,
+    // The short stack's shove through the all-in button is priced as the
+    // wager the controller executes, not left out of the candidates. Only
+    // when the reference decision IS that shove: a jam added beside a
+    // reference fold or call is a near twin of the call, the two overlap in
+    // the arbiter's uncertainty gate and an override of the fold is lost.
+    ...(decision.action === 'all_in' && phase7ShortAllInWagers(gs, player, bettingStructure)
+      ? { shortAllInWagers: true }
+      : {}),
     baseline: decision,
     heroEquity: evidence7.equity,
     equitySampleSize: evidence7.sampleSize,
@@ -6840,6 +6923,13 @@ export class HorseLogic {
                   noteFire(`phase7_objective_${result.ledger.objective}`);
                   noteFire(`phase7_icm_${result.ledger.icmMethod}`);
                   if (result.ledger.overrodeBaseline) noteFire('phase7_utility_override');
+                  // The reference short shove (priced through shortAllInWagers),
+                  // countable by variant: priced, and replaced by the utility.
+                  if (phase8UtilityInput.shortAllInWagers === true) {
+                    noteFire(`phase7_short_shove_priced_${gs.gameVariant}_seen`);
+                    if (selected.action !== 'all_in')
+                      noteFire(`phase7_short_shove_replaced_${gs.gameVariant}_seen`);
+                  }
                   if (result.ledger.sidePotCount > 1) noteFire('phase7_side_pot');
                   if (result.ledger.playersBehind.length > 0) noteFire('phase7_players_behind');
                   if (result.ledger.objective === 'pko') noteFire('phase7_bounty_utility');
@@ -7197,12 +7287,16 @@ export class HorseLogic {
                   if (jointPolicy.receipt.mode === 'candidate') {
                     if (earlierApplied && !this.sameJointAction(selected, beforePhase13))
                       selectionRefusal = 'earlier_phase_applied';
-                    else
+                    else {
                       decision = {
                         ...beforePhase13,
                         ...selected,
                         tournamentUtility: evaluated.result.ledger,
                       };
+                      // The same receipt when this owner replaces the shove.
+                      if (tele && input.shortAllInWagers === true && selected.action !== 'all_in')
+                        noteFire(`phase7_short_shove_replaced_${gs.gameVariant}_seen`);
+                    }
                   }
                 } else {
                   jointPolicy.receipt.utilityOwner = 'phase7_unavailable';
@@ -9518,6 +9612,8 @@ export class HorseLogic {
       facingOpenShortHandedZone: opts.v70FacingOpenZone === false ? undefined : true,
       facingOpenFullRingZone: opts.facingOpenFullRingZone === true ? true : undefined,
       vs3BetShortJam: opts.vs3BetShortStack === true ? true : undefined,
+      omahaCommitZoneThreeBetPriceRelief:
+        opts.omahaCommitZoneThreeBetPriceRelief === true ? true : undefined,
       // V18 STRADDLE: the shape the fallback above detected - hand the
       // truth to the preflop engine so its unopened branch owns the pot.
       // V28: the single source of truth computed above — unopened for EVERY
@@ -17477,11 +17573,26 @@ export class HorseLogic {
       }
       // Flop / turn in a solverless game: realized equity vs the raked price.
       const drawy38 = cat <= 1 && drawsLive && equity >= (street === 'flop' ? 0.3 : 0.2);
-      const realization38 = realizationFactor({
+      let realization38 = realizationFactor({
         street: street === 'turn' ? 'turn' : 'flop',
         inPosition: ip,
         drawy: drawy38,
       });
+      // PLO6-AUDIT P6-4 (opt-in): a top set that is the current nuts is not
+      // the marginal non-draw the street/position discount models.
+      if (
+        opts.plo6TopSetNutRealization === true &&
+        vi.isOmaha &&
+        !vi.isHiLo &&
+        vi.holeCount === 6 &&
+        !isTournamentMode(gs) &&
+        !multiBoard36 &&
+        gs.bombPot !== true &&
+        plo6TopSetIsCurrentNuts(player.cards, board)
+      ) {
+        realization38 = 1;
+        if (telemetryOn(opts)) noteFire('plo6_top_set_nut_realization_seen');
+      }
       let comboFoldMul38 = 1;
       if (comboRaise38) {
         try {

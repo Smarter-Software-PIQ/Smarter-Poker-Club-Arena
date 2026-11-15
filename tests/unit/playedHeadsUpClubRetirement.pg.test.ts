@@ -136,6 +136,99 @@ it('installs the qualified retirement and refuses a changed protected unwind', (
         `SELECT count(*) FROM hand_history JOIN tournaments ON tournaments.id=tournament_id WHERE status='COMPLETED'`
       )
     ).toBe('1');
+    // Reconstruct the deployed deactivation from its two protected migrations.
+    const source = (file: string) =>
+      readFileSync(resolve(root, 'supabase/migrations', file), 'utf8');
+    const functionThroughComment = (file: string, name: string) => {
+      const text = source(file);
+      return text.slice(
+        text.indexOf('CREATE OR REPLACE FUNCTION public.' + name + '('),
+        text.indexOf('COMMENT ON FUNCTION public.' + name + '(')
+      );
+    };
+    sql('DROP FUNCTION fn_spin_deactivate(uuid,uuid)');
+    sql(
+      functionThroughComment(
+        '20260822030000_union_level_spin_reserve_wallet.sql',
+        'fn_spin_reserve_owner'
+      )
+    );
+    sql(
+      functionThroughComment(
+        '20260902010000_return_inactive_spin_seed_principal.sql',
+        'fn_spin_deactivate'
+      )
+    );
+    sql(source('20261002201605_spin_deactivation_names_the_reserve_row.sql'));
+    // Exercise the read-side pool predicate on both sides of its exact prefix bounds.
+    sql(`CREATE FUNCTION public.fn_get_club_welcome_package_reset_impact(pool uuid) RETURNS boolean
+      LANGUAGE sql AS $fn$
+        SELECT EXISTS(SELECT 1 FROM public.wallet_credit_idempotency i, (SELECT pool AS id) b
+          WHERE i.key LIKE 'bbjpromo:'||b.id::text||':%')
+      $fn$`);
+    sql(source('20261114224153_scope_spin_deactivation_to_reserve_member_clubs.sql'));
+    const promoPrefix = 'bbjpromo:' + club;
+    sql(
+      `INSERT INTO wallet_credit_idempotency(key) VALUES ('${promoPrefix}9'),('${promoPrefix};x')`
+    );
+    expect(one(`SELECT fn_get_club_welcome_package_reset_impact('${club}')`)).toBe('f');
+    sql(`INSERT INTO wallet_credit_idempotency(key) VALUES ('${promoPrefix}:payout')`);
+    expect(one(`SELECT fn_get_club_welcome_package_reset_impact('${club}')`)).toBe('t');
+    const patched = one("SELECT pg_get_functiondef('fn_spin_deactivate(uuid,uuid)'::regprocedure)");
+    const count = patched.match(/SELECT count\(\*\)::integer INTO v_live_games[\s\S]*?;/)?.[0];
+    if (!count || count.includes('fn_spin_reserve_owner(t.club_id)'))
+      throw new Error('Missing indexed Spin lookup');
+    // 1 independent, 2 self-owned union, 3 and 4 union members, 5 absent club
+    // row, 6 union owner with no clubs row, 7 null tournament owner.
+    sql(`CREATE TABLE scope_ids AS SELECT n,gen_random_uuid() AS id FROM generate_series(1,7) n`);
+    sql(`INSERT INTO clubs(id,union_id) SELECT a.id,b.id FROM scope_ids a
+          LEFT JOIN scope_ids b ON b.n=CASE WHEN a.n IN (2,3) THEN 2 WHEN a.n=4 THEN 6 END
+          WHERE a.n BETWEEN 1 AND 4;
+        INSERT INTO tournaments(id,club_id,tournament_type,status)
+          SELECT gen_random_uuid(),CASE WHEN n<7 THEN id END,'SPIN','REGISTERING' FROM scope_ids;
+        INSERT INTO tournaments(id,club_id,tournament_type,status)
+          SELECT gen_random_uuid(),id,'SPIN','COMPLETED' FROM scope_ids;
+        INSERT INTO tournaments(id,club_id,tournament_type,status)
+          SELECT gen_random_uuid(),id,'SNG','REGISTERING' FROM scope_ids;`);
+    const countSQL = count
+      .replace(' INTO v_live_games', '')
+      .replace(/v_owner/g, 'scope.id')
+      .replace(';', '');
+    expect(
+      one(`SELECT array_agg((${countSQL}) ORDER BY scope.n)
+      FROM (SELECT * FROM scope_ids UNION ALL SELECT 8,NULL::uuid) scope`)
+    ).toBe('{1,2,0,0,1,2,0,0}');
+    // Exercise the actual impact wrapper against the terminal receipt written above.
+    // The reset walk throws if called. A matching receipt skips that walk while
+    // an unrelated, missing or malformed receipt still takes the pre-reset path.
+    const originalImpact = source('20261002152925_club_retirement_safe_unwind.sql');
+    const beginImpact = originalImpact.indexOf('CREATE FUNCTION public.fn_club_retirement_impact(');
+    const endImpact = originalImpact.indexOf('$function$;', beginImpact) + '$function$;'.length;
+    sql(`DROP FUNCTION public.fn_club_retirement_impact(uuid);
+      ALTER TABLE public.wheel_configs ADD COLUMN host_kind text;
+      ALTER TABLE public.diamond_game_configs ADD COLUMN host_kind text;
+      CREATE FUNCTION public.fn_club_retirement_impact_core_20260906(uuid) RETURNS jsonb
+      LANGUAGE sql AS $$ SELECT '{"open_obligations":2,"wallet_chips":11}'::jsonb $$;
+      DROP FUNCTION public.fn_get_club_welcome_package_reset_impact(uuid);
+      CREATE FUNCTION public.fn_get_club_welcome_package_reset_impact(uuid) RETURNS jsonb
+      LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'package history inspected'; END $$;
+      INSERT INTO public.tournament_schedules(id,club_id,active) VALUES(gen_random_uuid(),'${club}',true);`);
+    sql(originalImpact.slice(beginImpact, endImpact));
+    const inspect = (id: string) =>
+      JSON.parse(one(`SELECT public.fn_club_retirement_impact('${id}')`));
+    expect(() => inspect(club)).toThrow(/package history inspected/);
+    sql(source('20261114231625_skip_settled_welcome_history_in_retirement_impact.sql'));
+    expect(inspect(club)).toMatchObject({
+      open_obligations: 3,
+      active_tournament_schedules: 1,
+      wallet_chips: 11,
+      pristine_welcome_retire_available: false,
+    });
+    expect(() => inspect('11111111-1111-1111-1111-111111111111')).toThrow(
+      /package history inspected/
+    );
+    sql("UPDATE public.club_welcome_reset_receipts SET result = result - 'operation_id'");
+    expect(() => inspect(club)).toThrow(/package history inspected/);
   } finally {
     if (started) run('pg_ctl', ['-D', data, '-m', 'immediate', 'stop']);
     rmSync(scratch, { recursive: true, force: true });

@@ -884,6 +884,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V92'
   ),
   flag(
+    'plo6TopSetNutRealization',
+    'opt-in arm, default off (2026-11-14): PLO6 cash, one board, no bomb pot, flop or turn: in the solverless call menu a top set that is the current nuts (board unpaired, no three of a suit, no three ranks in any five-rank window) is priced at full realization instead of the 0.75 out-of-position non-draw discount (PLO6-AUDIT P6-4: five reconstructed top-set folds at a one-third price multiway). Five cases in two days, Horse-only, reconstructed replay, so production never sets it',
+    'V93'
+  ),
+  flag(
     'omahaPreflopCallWithActionBehind',
     'opt-in arm, default off (2026-11-13): Omaha preflop, a call costing 40% of the stack that leaves chips behind while an opponent still owes a decision is sent to the range play, not the final all-in arithmetic (PLO6-AUDIT-005, production hand 58751512). The pricing gap is real but the value check does not support the rule as built: the folded hands hold 40% to 55% equity at a price near 38%, the rule was merged without a value check and nothing measured since supplies one, so production never sets it',
     'V90'
@@ -1325,6 +1330,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   flag(
     'vs3BetShortStack',
     '2026-11-07 default OFF: the V73 opener-facing-one-3-bet read reaches 12bb effective (V73_SHORT_MIN_EFFECTIVE_BB) instead of 25bb, and a hand the read continues whose call the stack cap refuses (the call is the stack) jams instead of folding; measured before (HorseLogic.decide, live personas, 24 samples per class): a 20bb button facing a big-blind 3-bet to 11bb folded 97-98% of its 45% open in cash and in tournaments; on, it jams about half its open; league vs3bet_short_stack: see docs/changelog/2026-11-07-horse-preflop-defence-leaks.md (one human-calibrated seed below -2 stderr, so it stays off)',
+    'PfLeaks'
+  ),
+  flag(
+    'omahaCommitZoneThreeBetPriceRelief',
+    '2026-11-14 default OFF: six-card Omaha high in the V25 PLO commitment zone facing a re-raise takes the facing-3-bet price relief max(0, 0.5 - odds) * 1.6 instead of (0.4 - odds) * 1.2; development human field, chips only, paired 200 x 200 PLO6 MTT 40bb: +6.83 +/- 3.78 (seed 20261120) and +7.62 +/- 3.77 (seed 20261130) bb/100; PLO5 and PLO6 100bb cash byte-identical; payout (ICM) not measured, so it stays off; PLO6 tournament-folds study FINDING.md follow-ups A, D, E',
     'PfLeaks'
   ),
   flag(
@@ -2534,6 +2544,14 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'a PLO6 cash price refused against an observed maniac raiser was handed to the range play instead of being folded',
     'V92'
   ),
+  // PLO6-AUDIT P6-4 (2026-11-14). An occurrence counter for an opt-in arm
+  // production never sets: silence is its ordinary state.
+  receipt(
+    'plo6_top_set_nut_realization_seen',
+    'HorseLogic V38 flop/turn call menu (plo6TopSetNutRealization, PLO6-AUDIT P6-4)',
+    'a PLO6 cash top set that is the current nuts was priced at full realization in the flop/turn call menu',
+    'V93'
+  ),
   receipt(
     'river_bluff_checkraise_evaluated',
     'HorseLogic.riverBluffCheckRaise',
@@ -3026,7 +3044,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'upgrade08_*',
     'ServerTableEngineRunout; ServerTableEngineTurns; LightningHorse; HorseLogic',
-    "a run-it-twice answer was decided, on the Horse's public all-in equity, as its delayed send fired (2026-11-13), an insurance offer went to a Horse leader (offered) or its answer was sent, kill-pot or seven-deuce context reached a decision request, or the brain read it in that decision (kill_pot_orbit, kill_pot_unopened, seven_deuce_overlay, seven_deuce_bounty); named *_seen (occurrence, not a layer); silent where no table offers the side game",
+    "a run-it-twice answer was decided, on the Horse's public all-in equity, as its delayed send fired (2026-11-13; counts answers actually sent, so raw rit counts step down from the 2026-11-14 deploy), an insurance offer went to a Horse leader (offered) or its answer was sent, kill-pot or seven-deuce context reached a decision request, or the brain read it in that decision (kill_pot_orbit, kill_pot_unopened, seven_deuce_overlay, seven_deuce_bounty); named *_seen (occurrence, not a layer); silent where no table offers the side game",
     '2026-11-12'
   ),
   receipt(
@@ -4482,6 +4500,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseTournamentUtility.evaluateTournamentUtility',
     'action-specific utility overrode the legacy heuristic or solver proposal',
     'Phase7'
+  ),
+  receipt(
+    'phase7_short_shove_*',
+    'HorseLogic (Phase 7 owner, shortAllInWagers)',
+    'phase7_short_shove_priced_<variant>_seen: a pot-limit or fixed-limit tournament reference all_in on the short menu (the all-in button, no sized wager, chips beyond the call) was priced by the tournament utility, the game variant in the name; phase7_short_shove_replaced_<variant>_seen: the utility then selected another action (fold or call) and that action was committed by the Phase 7 owner, or by the Phase 7 owner on the Phase 13 candidate path; replaced over priced is the replacement rate per variant; occurrence counters; named *_seen',
+    '2026-11-14'
   ),
   receipt(
     'phase7_utility_skip_incomplete',

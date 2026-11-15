@@ -157,6 +157,17 @@ export interface TournamentUtilityInput {
   minRaiseTo: number | null;
   maxRaiseTo: number | null;
   bettingStructure: 'no_limit' | 'pot_limit' | 'fixed_limit';
+  /**
+   * The menu offers the all-in button and no sized bet or raise, and the
+   * controller executes that button as a wager of the whole stack: the hero
+   * holds more than the call and less than the minimum bet or raise. Only the
+   * caller can know it (the same pot-limit or fixed-limit menu is also what a
+   * capped street or a seat that may not reopen shows, where the button is a
+   * call), so it is set from the controller's own rule and never inferred
+   * here. Absent, a pot-limit or fixed-limit menu with no ceiling builds no
+   * jam, exactly as before. No-limit never reads it.
+   */
+  shortAllInWagers?: true;
   baseline: HorseDecision;
   /** Structural-cap-calibrated equity target; samples retain outcome shape. */
   heroEquity: number;
@@ -342,6 +353,7 @@ export function buildTournamentActionCandidates(
     | 'pot'
     | 'currentBet'
     | 'bettingStructure'
+    | 'shortAllInWagers'
     | 'baseline'
   > & {
     settlement?: { chipUnit: 0.01 | 1 };
@@ -462,6 +474,9 @@ export function buildTournamentActionCandidates(
   // above the street ceiling as a bet or raise TO that ceiling, and as a call
   // where no wager is legal, so the jam is built at its executed raise-to and
   // every consumer that commits `investment` prices what the table does.
+  // With no ceiling on the menu at all (the sized wager is withheld because
+  // the stack is below the minimum), the button is the whole stack only where
+  // the caller says the controller executes it so (`shortAllInWagers`).
   const ceilingTo = typeof maxTo === 'number' && Number.isFinite(maxTo) ? maxTo : null;
   const jamIsRaise =
     legal.has('all_in') &&
@@ -470,7 +485,8 @@ export function buildTournamentActionCandidates(
       (input.bettingStructure === 'pot_limit' &&
         ceilingTo !== null &&
         hero.bet + hero.stack <= ceilingTo + EPS) ||
-      (input.bettingStructure === 'fixed_limit' && ceilingTo !== null));
+      (input.bettingStructure === 'fixed_limit' && ceilingTo !== null) ||
+      (ceilingTo === null && input.shortAllInWagers === true));
   if (jamIsRaise) {
     const jamTo = executedAllInTo(hero, input.bettingStructure, ceilingTo);
     uniqueCandidate(
@@ -606,6 +622,20 @@ function validateInput(input: TournamentUtilityInput): boolean {
     (input.maxRaiseTo !== null && !wholeNonNegative(input.maxRaiseTo)) ||
     (input.minRaiseTo === null) !== (input.maxRaiseTo === null) ||
     (input.minRaiseTo !== null && input.maxRaiseTo !== null && input.minRaiseTo > input.maxRaiseTo)
+  ) {
+    return false;
+  }
+  // The short all-in is a claim about one menu shape only: the button, no
+  // sized wager and chips beyond the call.
+  if (
+    input.shortAllInWagers !== undefined &&
+    (input.shortAllInWagers !== true ||
+      input.minRaiseTo !== null ||
+      input.maxRaiseTo !== null ||
+      !input.legalActions.includes('all_in') ||
+      input.legalActions.includes('bet') ||
+      input.legalActions.includes('raise') ||
+      !(input.hero.stack > input.toCall + EPS))
   ) {
     return false;
   }

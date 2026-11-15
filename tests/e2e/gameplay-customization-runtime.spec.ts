@@ -1183,17 +1183,14 @@ async function verifyPublishedLightning(
         )
     );
   }
-  const foldFrames = await verifyLightningFoldFrames(page, hand, decisionAt, 30_000, [
-    'Queen Of Clubs',
-    'King Of Diamonds',
-    'Ten Of Hearts',
-    'Nine Of Clubs',
-    'Eight Of Spades',
-  ]);
-  await testInfo.attach('lightning-fold-frames.json', {
-    body: JSON.stringify(foldFrames),
-    contentType: 'application/json',
-  });
+  await verifyLightningFoldFrames(
+    page,
+    hand,
+    decisionAt,
+    30_000,
+    ['Queen Of Clubs', 'King Of Diamonds', 'Ten Of Hearts', 'Nine Of Clubs', 'Eight Of Spades'],
+    testInfo
+  );
   await testInfo.attach('lightning-plo5-decision.png', {
     body: await page.screenshot(),
     contentType: 'image/png',
