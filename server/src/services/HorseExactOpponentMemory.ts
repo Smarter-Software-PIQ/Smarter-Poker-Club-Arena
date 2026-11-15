@@ -1,5 +1,5 @@
 import {
-  admitOpponentMemoryRead,
+  admitCompletedHandExactRead,
   opponentMemoryFailureKind,
   opponentMemoryLatencyEdge,
   queryError,
@@ -46,7 +46,7 @@ export async function readExactHorseOpponentProfiles(
   const startedAt = Date.now();
   let data: unknown;
   try {
-    data = await admitOpponentMemoryRead(async () => {
+    data = await admitCompletedHandExactRead(async () => {
       const response = await supabase
         .rpc('fn_horse_exact_profiles_read', {
           p_user_ids: ids,
