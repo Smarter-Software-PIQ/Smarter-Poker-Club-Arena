@@ -1082,6 +1082,8 @@ const TournamentHUDInner = memo(function TournamentHUDInner({
      the three figures and, of the windows, only hand-for-hand - the one that
      changes how the player must act. The longer notices (late registration,
      the add-on period) are on the open dock. Nothing here may be cut off. */
+  const stackOrPrize = spinPrizePool ?? shownAvg;
+  const stackOrPrizeText = stackOrPrize === undefined ? null : fmtChips(stackOrPrize);
   const statusLine = collapsed
     ? [
         levelText,
@@ -1241,14 +1243,14 @@ const TournamentHUDInner = memo(function TournamentHUDInner({
           )}
 
           {/* Spin prize pool, or average stack for longer tournament formats. */}
-          {(spinPrizePool !== undefined || shownAvg !== undefined) && (
-            <div className="tournament-dock__seg">
+          {stackOrPrizeText !== null && (
+            <div className="tournament-dock__seg tournament-dock__seg--chips">
               <span className="tournament-dock__label">
                 {spinPrizePool !== undefined ? 'Prize' : 'Avg'}
               </span>
-              <span className="tournament-dock__value">
-                {fmtChips(spinPrizePool ?? shownAvg ?? 0)}
-              </span>
+              <DockFitText className="tournament-dock__value" fitKey={stackOrPrizeText}>
+                {stackOrPrizeText}
+              </DockFitText>
             </div>
           )}
         </div>

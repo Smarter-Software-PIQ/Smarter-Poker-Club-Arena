@@ -299,7 +299,8 @@ describe('the tournament dock shows actual paid finishing places', () => {
   it('places the event-specific paid count between Left and Avg and refreshes from the event row', async () => {
     fx.tournamentAnswer = () =>
       ok(running({ prize_pool_finalized: true, payout_structure: JSON.stringify(payouts(11)) }));
-    await mount({ playersRemaining: 13, averageStack: 75000 });
+    await mount({ playersRemaining: 13, averageStack: 143333 });
+    expect(screen.getByText('143,333')).toHaveClass('tournament-dock__fit-text');
     const value = () =>
       screen.getByText('Paid').parentElement?.querySelector('.tournament-dock__value')?.textContent;
     expect(value()).toBe('11');
