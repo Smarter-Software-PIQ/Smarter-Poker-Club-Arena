@@ -1114,9 +1114,12 @@ BEGIN
   UPDATE public.ca_club_acct_projection_failures pf SET resolved_at = clock_timestamp()
    WHERE pf.acct_day = p_day AND pf.resolved_at IS NULL AND pf.source NOT LIKE 'pnl_boundary%';
   GET DIAGNOSTICS n_fix = ROW_COUNT;
+  -- A plain insert, not fn_ca_club_acct_fail: if the record cannot be
+  -- written the load aborts, so the day is never read as complete.
   IF n_unclassified > 0 THEN
-    PERFORM public.fn_ca_club_acct_fail('tournament_flow_unclassified', p_day,
-      n_unclassified || ' posted union tournament flow(s) no receipt rule classifies (day load)');
+    INSERT INTO public.ca_club_acct_projection_failures (source, acct_day, detail)
+    VALUES ('tournament_flow_unclassified', p_day,
+            n_unclassified || ' posted union tournament flow(s) no receipt rule classifies (day load)');
   END IF;
 
   INSERT INTO public.ca_club_acct_seed_log (acct_day, fact_rows, hand_rows) VALUES (p_day, n_f, n_h);

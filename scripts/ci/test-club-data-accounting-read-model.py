@@ -264,7 +264,13 @@ try:
                       "(SELECT count(*) FROM ca_club_acct_projection_failures WHERE acct_day = '2026-11-06')") == "1/1/0"
             and "could not be recorded" in p5.stderr,
             "a projection whose failure cannot be recorded still never refuses the money write")
-    run(psql("live"), "DELETE FROM fixture_bbj_outage; ALTER TABLE ca_club_acct_projection_failures DROP CONSTRAINT fixture_refuses;")
+    # A day load never swallows its own failure record: it aborts instead.
+    run(psql("live"), "DELETE FROM fixture_bbj_outage;")
+    before_log = q("live", "SELECT seeded_at FROM ca_club_acct_seed_log WHERE acct_day = '2026-11-02'")
+    run(psql("live"), load("2026-11-02", True), expect_fail="fixture_refuses")
+    require(q("live", "SELECT seeded_at FROM ca_club_acct_seed_log WHERE acct_day = '2026-11-02'") == before_log,
+            "a day load whose failure record cannot be written aborts and leaves the day as it was")
+    run(psql("live"), "ALTER TABLE ca_club_acct_projection_failures DROP CONSTRAINT fixture_refuses;")
 
     require(q("live", "SELECT NOT has_table_privilege('authenticated','public.ca_club_acct_fact','select') "
                       "AND NOT has_table_privilege('anon','public.ca_club_acct_fact','select') "

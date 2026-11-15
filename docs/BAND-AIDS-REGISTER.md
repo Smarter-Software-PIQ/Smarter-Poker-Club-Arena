@@ -28,6 +28,12 @@ loading that boundary again (`fn_ca_club_acct_load_boundary`, run by the same
 dispatched workflow, each boundary in its own transaction), which resolves
 both of its days; a day reload never resolves it.
 
+If even the failure record cannot be written (the failure table refuses the
+insert), the projection never refuses the money write either: the failure
+then appears only as a WARNING ("club data accounting ... could not be
+recorded") in the Postgres log, and the day reads complete although it is not.
+A day load never swallows its own failure record: it aborts instead.
+
 Both reloads are DEBT, not a fix. A recorded failure is a P0: the cause (the
 projection that raised) is found and changed so it cannot raise again, and
 only then is the day reloaded. No job looks for failures or reloads days.
