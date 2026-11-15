@@ -187,22 +187,29 @@ describe('the grammar bounds, from the measured reference', () => {
       ).toBe(true);
     };
 
-    requires('sleeping', 'snore_soft', 3500);
+    requires('sleeping', 'snore_soft', 2000);
     requires('screaming', 'scream_short', 900);
     requires('laughing_emoji', 'laugh_short', 867);
     requires('laughing_emoji', 'laugh_swell', 2867);
-    requires('sloth', 'yawn_breath', 2700);
+    requires('sloth', 'yawn_breath', 2500);
     requires('party_face', 'cheer_ooh', 1167);
-    requires('rat_card', 'cheer_ooh', 3000);
+    requires('rat_card', 'rat_chuckle', 3000);
     requires('facepalm', 'sigh_soft', 1400);
     requires('surrender', 'sad_trombone', 1200);
     requires('surrender', 'flag_flap', 2800);
     requires('vomit_rainbow', 'comic_burp', 1300);
-    requires('fish', 'water_lap', 700);
-    requires('blush', 'laugh_short', 1500);
-    requires('loser_hand', 'sad_trombone', 1800);
-    requires('thinking', 'cheer_ooh', 2400);
-    requires('pizza_slice', 'squirt_loop', 1800);
+    requires('fish', 'fish_slap', 700);
+    requires('blush', 'laugh_short', 1000);
+    requires('loser_hand', 'rat_chuckle', 1800);
+    requires('thinking', 'thoughtful_hum', 1200);
+    requires('pizza_slice', 'cheese_pull', 1800);
+    requires('bear', 'bear_growl', 2500);
+    requires('shark', 'shark_chomp', 500);
+    requires('crying_emoji', 'stifled_sob', 1200);
+    requires('angry_emoji', 'rage_grunt', 1667);
+    requires('ghost', 'ghost_wail', 800);
+    requires('doge', 'dog_huff', 200);
+    requires('skull', 'bone_chatter', 600);
     requires('energy_ball', 'magnet_hum', 700);
 
     const cues = JSON.parse(read('scripts/audio/throwable-cues.manifest.json')).cues;

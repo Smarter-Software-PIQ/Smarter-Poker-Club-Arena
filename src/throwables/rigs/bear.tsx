@@ -1,3 +1,4 @@
+import { PerformancePose } from '../PerformancePose';
 import { preloadThrowableCues } from '../cues';
 import { AtlasSprite } from '../AtlasSprite';
 import { RIG_VIEWBOX, type RigProps, type ThrowableRig } from '../rig';
@@ -23,7 +24,11 @@ export const spec: ThrowableSpec = {
     { at: 4500, marker: 'cut' },
   ],
   // Organic voice recordings are tracked separately from visual coverage.
-  audio: [{ at: 400, sample: 'thump_soft' }],
+  audio: [
+    { at: 400, sample: 'thump_soft', gain: 0.3 },
+    { at: 700, sample: 'laugh_short', gain: 0.7 },
+    { at: 2500, sample: 'bear_growl', gain: 0.94 },
+  ],
 };
 preloadThrowableCues(spec.audio.map((c) => c.sample));
 function Projectile(_props: RigProps) {
@@ -49,34 +54,46 @@ function Payload(_props: RigProps) {
             />
           </g>
           <g className="thr-bear__open">
-            <AtlasSprite
-              src="bear"
-              rect={[638, 8, 610, 610]}
-              x={-75}
-              y={-75}
-              width={150}
-              height={150}
+            <PerformancePose
+              src="bear-acting"
+              row={0}
+              rows={3}
+              x={-75.0}
+              y={-75.0}
+              width={150.0}
+              height={150.0}
+              duration={460}
+              delay={300}
+              repeats={3}
             />
           </g>
         </g>
         <g className="thr-bear__anger">
-          <AtlasSprite
-            src="bear"
-            rect={[20, 624, 610, 624]}
-            x={-75}
-            y={-75}
-            width={150}
-            height={150}
+          <PerformancePose
+            src="bear-acting"
+            row={1}
+            rows={3}
+            x={-73.317}
+            y={-75.0}
+            width={146.635}
+            height={150.0}
+            duration={450}
+            delay={1610}
+            repeats={1}
           />
         </g>
         <g className="thr-bear__roar">
-          <AtlasSprite
-            src="bear"
-            rect={[638, 624, 610, 624]}
-            x={-75}
-            y={-75}
-            width={150}
-            height={150}
+          <PerformancePose
+            src="bear-acting"
+            row={2}
+            rows={3}
+            x={-73.317}
+            y={-75.0}
+            width={146.635}
+            height={150.0}
+            duration={825}
+            delay={2080}
+            repeats={2}
           />
           <g className="thr-bear__flush">
             <AtlasSprite

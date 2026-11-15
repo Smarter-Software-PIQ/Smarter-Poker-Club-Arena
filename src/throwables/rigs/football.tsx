@@ -42,18 +42,9 @@ export const spec: ThrowableSpec = {
     },
   ],
   audio: [
-    {
-      at: 300,
-      sample: 'whoosh_low',
-    },
-    {
-      at: 900,
-      sample: 'chime_shimmer',
-    },
-    {
-      at: 1200,
-      sample: 'fanfare_short',
-    },
+    { at: 300, sample: 'leather_kick', gain: 0.95 },
+    { at: 900, sample: 'whoosh_low', gain: 0.45 },
+    { at: 1200, sample: 'fanfare_short', gain: 0.65 },
   ],
 };
 preloadThrowableCues(spec.audio.map((c) => c.sample));
@@ -90,7 +81,9 @@ function Payload(_props: RigProps) {
         <Posts />
       </g>
       <g className="thr-football__ball">
-        <Ball />
+        <g className="thr-football__spin">
+          <Ball />
+        </g>
       </g>
       <g className="thr-football__flash">
         <AtlasSprite

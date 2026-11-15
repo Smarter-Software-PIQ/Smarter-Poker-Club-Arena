@@ -1,3 +1,4 @@
+import { PerformancePose } from '../PerformancePose';
 import { AtlasSprite } from '../AtlasSprite';
 import { RIG_VIEWBOX, type RigProps, type ThrowableRig } from '../rig';
 import type { ThrowableSpec } from '../spec';
@@ -24,9 +25,9 @@ export const spec: ThrowableSpec = {
     { at: 4333, marker: 'cut' },
   ],
   audio: [
-    { at: 320, sample: 'boom' },
-    { at: 1600, sample: 'tick_settle' },
-    { at: 1633, sample: 'chime_shimmer' },
+    { at: 200, sample: 'dog_huff', gain: 0.88 },
+    { at: 1600, sample: 'finger_snap', gain: 0.8 },
+    { at: 3333, sample: 'chime_shimmer', gain: 0.22 },
   ],
 };
 preloadThrowableCues(spec.audio.map((c) => c.sample));
@@ -52,23 +53,31 @@ function Payload(_props: RigProps) {
       </g>
       <g className="thr-doge__pop">
         <g className="thr-doge__neutral">
-          <AtlasSprite
-            src="doge"
-            rect={[20, 10, 605, 690]}
-            x={-57}
-            y={-65}
-            width={114}
-            height={130}
+          <PerformancePose
+            src="doge-acting"
+            row={0}
+            rows={2}
+            x={-56.993}
+            y={-65.0}
+            width={113.986}
+            height={130.0}
+            duration={340}
+            delay={0}
+            repeats={2}
           />
         </g>
         <g className="thr-doge__wink">
-          <AtlasSprite
-            src="doge"
-            rect={[650, 10, 595, 690]}
-            x={-57}
-            y={-65}
-            width={114}
-            height={130}
+          <PerformancePose
+            src="doge-acting"
+            row={1}
+            rows={2}
+            x={-56.051}
+            y={-65.0}
+            width={112.101}
+            height={130.0}
+            duration={410}
+            delay={3130}
+            repeats={1}
           />
         </g>
         <g className="thr-doge__glasses">
