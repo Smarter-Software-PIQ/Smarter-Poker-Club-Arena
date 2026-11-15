@@ -140,7 +140,7 @@ BEGIN
   END IF;
 
   -- 2026-11-15: the installed successors the re-pinned bodies below come from.
-  -- 163238, 171135 and 20261115001816 are files in this repo; 174204 and 174518 are World Hub
+  -- 163238, 171135, 20261115001816, 20261115011401 and 20261115020001 are files in this repo; 174204 and 174518 are World Hub
   -- PR #2841 (shared database), kept byte for byte in
   -- scripts/ci/fixtures/world-hub-cashier-migrations-20261114.json. Each
   -- md5 is of the statement production recorded under that version.
@@ -180,6 +180,12 @@ BEGIN
        AND name = 'member_history_player_and_funding_filters'
        AND cardinality(statements) = 1
        AND md5(statements[1]) = 'de44c8ff76be374c742965f07c77d7cc'
+  ) OR NOT EXISTS (
+    SELECT 1 FROM supabase_migrations.schema_migrations
+     WHERE version = '20261115020001'
+       AND name = 'member_history_classifies_cashier_tickets_and_union_promo_fu'
+       AND cardinality(statements) = 1
+       AND md5(statements[1]) = '341fe86fea8a945b820c036ea62135ea'
   ) THEN
     RAISE EXCEPTION 'cashier 2026-11-14 successor migration history drift';
   END IF;
@@ -203,10 +209,14 @@ BEGIN
       -- (#10883, a member's promo allowance as of each send; its guard requires
       -- a26c9b50 and its two anchors added to a26c9b50 gave 5fb4cd6e exactly);
       -- then by 20261115011401 (member history player and funding filters;
-      -- its guard requires 5fb4cd6ebe8ed1005a38db1de36efab0).
+      -- its guard requires 5fb4cd6ebe8ed1005a38db1de36efab0, giving
+      -- 553be2e8b21cd6404a32add126a8b7d0); then by 20261115020001 (#10901,
+      -- member history classifies cashier tickets and union promo funding;
+      -- its guard requires 553be2e8 and its one anchor adds
+      -- 'member_union_promo_wallet').
       -- Re-pinned 2026-11-15 to the installed definition; 160320's own proof
       -- line keeps the earlier hash dad4d92ef739f520d0c512c9950d5c62.
-      'hash', '553be2e8b21cd6404a32add126a8b7d0',
+      'hash', '6c73793fccbdd5f4c2790f1ea0376e0c',
       'owner', 'postgres'
     ),
     jsonb_build_object(
