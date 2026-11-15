@@ -324,6 +324,43 @@ describe('the Phase 1 seal is owed exactly when its own condition holds', () => 
     expect(verdictJob).toMatch(/permissions:\n(?:\s+#.*\n)*\s+actions: read\n\s+contents: read/);
   });
 
+  it('runs the gameplay journey alone: its grep selects the contracted case and no other', () => {
+    // Post-Deploy E2E 43635213490, 43643304336 and 43652573106: the file ran
+    // whole, both of its cases passed, and the coverage contract (exactly one)
+    // answered NON-VERDICT. The celebration case has its own job and report.
+    const sweep = workflowStep('Run the specs that need a deployed page');
+    const line = sweep
+      .split('\n')
+      .find((text) => text.trim().startsWith('run_suite gameplay-customization-runtime.json'));
+    const grep = /--grep=(\S+)/.exec(line ?? '')?.[1];
+    expect(grep).toBeDefined();
+    const pattern = new RegExp(grep!);
+    const spec = readFileSync(
+      join(ROOT, 'tests/e2e/gameplay-customization-runtime.spec.ts'),
+      'utf8'
+    );
+    // Every case in the file, by its Playwright title path: describe, then test.
+    const cases: string[] = [];
+    let describe = '';
+    for (const text of spec.split('\n')) {
+      const d = /^test\.describe\('([^']+)'/.exec(text);
+      if (d) describe = d[1];
+      const t = /^ {2}test\('([^']+)'/.exec(text);
+      if (t) cases.push(`${describe} ${t[1]}`);
+    }
+    expect(cases.length).toBeGreaterThanOrEqual(2);
+    // Playwright greps the title path (project, file, describe, test) joined by
+    // spaces, so the pattern is not anchored at the describe.
+    const selected = cases.filter((title) => pattern.test(title));
+    const contract = contracts.find((c) => c.report === 'gameplay-customization-runtime.json')!;
+    expect(selected).toEqual([`production routed gameplay customization ${contract.title}`]);
+    // The case left out here is certified by its own job.
+    expect(WORKFLOW).toContain('PLAYWRIGHT_JSON_OUTPUT_NAME: e2e-report/hero-celebration.json');
+    expect(readFileSync(join(ROOT, 'playwright.hero-celebration.config.ts'), 'utf8')).toMatch(
+      /published hero showdown celebrations|only an awarded hero celebrates/
+    );
+  });
+
   it('brackets the three journeys, and runs them before every other sweep suite', () => {
     const sweep = workflowStep('Run the specs that need a deployed page');
     const before = sweep.indexOf('read_release release-bracket/phase1-before.json');

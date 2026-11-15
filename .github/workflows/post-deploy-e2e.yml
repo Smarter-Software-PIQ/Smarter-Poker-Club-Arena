@@ -1738,7 +1738,16 @@ jobs:
           run_suite customization-realtime.json tests/e2e/production-customization-realtime.spec.ts --project=chromium --reporter=line,json --workers=1 --retries=0
           customization_realtime_rc=$?; [ $customization_realtime_rc -ne 0 ] && rc=$customization_realtime_rc
 
-          run_suite gameplay-customization-runtime.json tests/e2e/gameplay-customization-runtime.spec.ts --project=chromium --reporter=line,json --workers=1 --retries=0
+          # ONE JOURNEY, BY ITS OWN DESCRIBE (2026-11-15). The spec file gained a
+          # second case on 2026-11-11 (the published hero showdown celebration,
+          # #10466, certified by its own job and report hero-celebration.json).
+          # Run whole, the file produced two passes, and the Phase 1 coverage
+          # contract, which accepts exactly one, answered NON-VERDICT on every
+          # run although both cases passed. The grep is the contracted
+          # journey's describe; dots stand for its spaces because run_suite
+          # word-splits its flags. tests/unit/phase1CustomizationCertificateCoverage.test.ts
+          # pins that it selects that journey and no other case in the file.
+          run_suite gameplay-customization-runtime.json tests/e2e/gameplay-customization-runtime.spec.ts --project=chromium --grep=production.routed.gameplay.customization.mobile.table.art --reporter=line,json --workers=1 --retries=0
           gameplay_customization_runtime_rc=$?; [ $gameplay_customization_runtime_rc -ne 0 ] && rc=$gameplay_customization_runtime_rc
 
           run_suite customization-commerce.json tests/e2e/production-customization-commerce.spec.ts --project=chromium --reporter=line,json --workers=1 --retries=0
