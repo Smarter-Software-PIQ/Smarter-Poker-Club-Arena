@@ -25,3 +25,9 @@ No evaluation: the league deals no fixed limit (refused matchups `flh_priced_pre
 
 - The defence never fired at a ring big blind, a flo8 heads-up big blind or a small blind: the verdict was fed `preflopCallOdds`, which divides by one minus the projected deduction (the hand's rake plus the fixed per-hand jackpot fee over the pot after the call). Preflop that pot is 4.5 big blinds, so the fraction is about 0.23 at every Midway fixed-limit stake and the price about 0.29 instead of 0.222, while the realization factors were calibrated at the raw price. The law tables carried no rake, so the laws passed. Now the defence reads the raw pot price; the laws add production-shaped rake and jackpot configuration.
 - Under the option the pack's `round3_big_blind_defended` rule was held for the reference; that rule fires only on a reference fold, so holding it turned pack calls into folds (66 recorded flh ring trials). It is no longer held; the three first-in rules still are.
+
+## Live switch (2026-11-15, Fixed-Limit lane)
+
+- Both options are registered in the Horse option switch (release default OFF, owner Fixed-Limit), shipped as the follow-up list migration `20261115212312_horse_option_switch_fixed_limit_preflop.sql`. `fixedLimitStealVsTightBlinds` is off-only by the existing steal hold. Registering changes no decision: with no row every Horse decides as before.
+- `docs/horse-default-on.d/fixedLimitPricedPreflop.md` records the eight evidence rows for switching `fixedLimitPricedPreflop` on by a row after review. Value is measured for unfloored cash tables only; floored tables and tournaments are not yet evaluated.
+- `HorseOptionSwitchMigrationLists.test.ts` (a) now compares the newest list migration to the registry (the same edit as the Fixed-Limit F1 live-switch head), so a first follow-up does not fail it.

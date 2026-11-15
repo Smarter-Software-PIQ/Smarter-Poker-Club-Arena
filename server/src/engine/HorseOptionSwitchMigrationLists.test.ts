@@ -3,7 +3,7 @@
  * (HorseOptionSwitchMigrationLists.ts, server/scripts/gen-horse-option-switch-sql.ts): the newest marker-bearing
  * migration is the whitelist, a change ships as a generated follow-up, and an installed file is never rewritten.
  */
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -12,6 +12,7 @@ import { STYLE_SWITCH_OPTIONS } from './HorseStyleSwitch.js';
 import {
   OPTION_SWITCH_BASE_MIGRATION,
   OPTION_SWITCH_FOLLOW_UP_COMMAND,
+  OPTION_SWITCH_MIGRATIONS_DIR,
   OPTION_SWITCH_PROOF_SCRIPT,
   newestOptionSwitchListMigration,
   optionSwitchFollowUpRefusal,
@@ -36,10 +37,14 @@ describe('a Horse option added after the switch is installed ships as a follow-u
   it('(a) a ledger option missing from the newest list fails with a message naming the --follow-up command', () => {
     const sql = optionSwitchFollowUpSql(NAME);
     expect(optionSwitchListDrift(FOLLOW_UP, sql)).toBeNull();
-    // the base migration as it stands equals the registry today
-    expect(
-      optionSwitchListDrift(OPTION_SWITCH_BASE_MIGRATION, read(OPTION_SWITCH_BASE_MIGRATION))
-    ).toBeNull();
+    // the newest list migration as it stands (the base until a follow-up ships) equals the registry today
+    const newest = newestOptionSwitchListMigration(
+      readdirSync(join(REPO, OPTION_SWITCH_MIGRATIONS_DIR)).map((name) => ({
+        name,
+        text: name.endsWith('.sql') ? read(`${OPTION_SWITCH_MIGRATIONS_DIR}/${name}`) : '',
+      }))
+    );
+    expect(optionSwitchListDrift(newest, read(newest))).toBeNull();
     // drop the last plain (switchable on/off) option from every plain list: the registry now has an option the
     // database whitelist does not
     const missing = OPTION_SWITCH_PLAIN_NAMES.filter(
