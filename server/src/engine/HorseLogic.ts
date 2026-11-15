@@ -82,7 +82,7 @@ import {
 import { horseVariantRulesFor } from './VariantRules.js';
 import { jointPlayersBehind } from './multiway/JointActionModel.js';
 import { horsePolicyDealtPlayers } from './multiway/DealtSeatCensus.js';
-import { tournamentSampleEquity } from './HorseTournamentUtility.js';
+import { payoutWeightOfPools, tournamentSampleEquity } from './HorseTournamentUtility.js';
 import { captureHorseTournamentUtilityObservations } from './HorseTournamentUtilityEvidence.js';
 import {
   evaluateRemainingVariantPolicy,
@@ -2040,12 +2040,14 @@ function realIcmInputs(
  * bubbleFactor, 1..5) from the same real-ICM inputs icmRisk prices, for the
  * push/fold tables (HorseNashPushFoldV2). 1 where one place is paid (a
  * one-place spin), null where the context cannot supply stacks, payouts or
- * hero's identity: the caller then plays chip EV.
+ * hero's identity: the caller then plays chip EV. A bust is valued at the
+ * place hero finishes (IcmModel bubbleFactor since 2026-11-15).
  */
 function heroBubbleFactor(
   gs: HorseGameStateV2,
   stackBB: number,
-  heroUserId?: string
+  heroUserId?: string,
+  riskCapChips?: number
 ): number | null {
   if (!isTournamentMode(gs)) return null;
   const explicit = trustedTournamentContext(gs);
@@ -2063,11 +2065,71 @@ function heroBubbleFactor(
   try {
     const inputs = realIcmInputs(gs, explicit, stackBB, heroUserId);
     if (!inputs) return null;
-    const bf = bubbleFactor(inputs.stacks, inputs.payouts, inputs.heroIdx, inputs.riskChips);
+    // A call against a shorter jam risks only the chips contested.
+    const risk =
+      typeof riskCapChips === 'number' && riskCapChips > 0
+        ? Math.max(1, Math.min(inputs.riskChips, riskCapChips))
+        : inputs.riskChips;
+    const bf = bubbleFactor(inputs.stacks, inputs.payouts, inputs.heroIdx, risk);
     return Number.isFinite(bf) ? bf : null;
   } catch {
     return null;
   }
+}
+
+/**
+ * PAYOUT-AWARE SHORT-STACK PUSH/FOLD (2026-11-15, hand 59441335). A 2.1bb
+ * cutoff at a nine-handed final table, in the money with a pay jump at every
+ * place, open-jammed 85o: the folded-to jam read the chip-EV Nash table
+ * (99.6% of hands at that depth) because the payout-aware read
+ * (nashPushFoldIcm) shipped off for contexts that carry no stack vector.
+ * With that option on (it stays default OFF under the owner's preflop range
+ * hold), where the trusted context does carry stacks, payouts and hero's
+ * identity, and a pay jump is live, hero's own bubble factor is the price of
+ * the jam and of the call against a jam. Returns the bubble factor to read (> 1), or
+ * null where chip EV stands exactly as before:
+ *  - not a tournament (ante cash tables), or no trusted context;
+ *  - no pay jump live: neither in the money, hand for hand, near the bubble,
+ *    nor within the feed's near-bubble line (max(paid + 1, 1.15 x paid));
+ *  - two or fewer left (V23: heads-up of an MTT plays chip EV);
+ *  - a satellite (its own seat-equity handling, V37, stands), a PKO or a
+ *    mystery bounty (head value this table does not price, #10614);
+ *  - a payout weight of zero (bounty-only event, #10614's stand-down);
+ *  - stacks, payouts or hero's identity unavailable (heroBubbleFactor null).
+ * In a bounty event the factor is moved toward 1 by the share of the award
+ * paid by place, prize / (prize + bounty), the weight the Phase 7 arbiter
+ * values payouts by (payoutWeightOfPools). riskCapChips, when given, caps
+ * the risk at the chips contested (a call against a shorter jam).
+ * Read only by the nashPushFoldIcm === true arm (default OFF, owner preflop
+ * range hold): unset or false, the jam and the call stay chip EV.
+ */
+export function payJumpBubbleFactor(
+  gs: HorseGameStateV2,
+  stackBB: number,
+  heroUserId?: string,
+  riskCapChips?: number
+): number | null {
+  if (!isTournamentMode(gs)) return null;
+  const t = trustedTournamentContext(gs);
+  if (!t) return null;
+  if (t.satellite === true || t.isPko === true || t.isMysteryBounty === true) return null;
+  const left = t.playersLeft ?? 0;
+  const paid = t.spotsPaid ?? 0;
+  if (!(left > 2 && paid > 0)) return null;
+  const payJumpLive =
+    t.inMoney === true ||
+    left <= paid ||
+    t.handForHand === true ||
+    t.handForHandExpected === true ||
+    t.nearBubble === true ||
+    left <= Math.max(paid + 1, Math.ceil(paid * 1.15));
+  if (!payJumpLive) return null;
+  const weight = Math.min(1, payoutWeightOfPools(t));
+  if (!(weight > 0)) return null;
+  const bf = heroBubbleFactor(gs, stackBB, heroUserId, riskCapChips);
+  if (bf === null || !(bf > 1)) return null;
+  const effective = 1 + (bf - 1) * weight;
+  return effective > 1 ? effective : null;
 }
 
 function icmRisk(
@@ -2833,6 +2895,16 @@ export interface HorseDecideOpts {
    *  bb/100, every card above 2 stderr on two seeds, none below); explicit
    *  false keeps the strength bar. */
   nashCallVsJam?: boolean;
+  /** ALL-IN-OR-FOLD CLOSING SEAT (2026-11-15, HVH2D-NLH-005, draft #10653):
+   *  at an All-In-Or-Fold hold'em table (cash or tournament), a hero facing a
+   *  lone all-in who closes the action (every other player still in the hand
+   *  is all in; a sitting-out seat is not a player behind) at an effective
+   *  12 big blinds or less (NASH_AOF_CLOSING_CALL_MAX_BB) answers from the
+   *  nashCallVsJam caller table instead of the fixed strength bar; the call
+   *  is returned as all_in. Every other All-In-Or-Fold seat and depth, and
+   *  every table that is not All-In-Or-Fold, is unchanged. Default OFF: only
+   *  explicit true turns it on (owner hold on HVH2D-NLH-005). */
+  aofClosingSeatNashCall?: boolean;
   /** NASH PUSH/FOLD ICM (2026-11-07, HorseNashPushFoldV2): in a tournament,
    *  the V71 folded-to jam and the nashCallVsJam call read hero's best
    *  response at hero's own bubble factor (IcmModel bubbleFactor from the
@@ -2840,7 +2912,15 @@ export interface HorseDecideOpts {
    *  cannot supply it) against the chip-EV equilibrium of everybody else,
    *  and the V71 jam reads ten-handed (nine behind) seats exactly. With a
    *  bubble factor of 1 and at most eight behind it is the V71 answer.
-   *  Default OFF: only explicit true turns it on. */
+   *  Default OFF: only explicit true turns it on. It changes a preflop
+   *  range, so it stays off under the owner's preflop range hold until he
+   *  lifts it by name (the option switch registers it off-only). Since
+   *  2026-11-15 (hand 59441335, an in-the-money 2.1bb final-table 85o
+   *  open-jam) true reads the bubble factor only where a pay jump is live
+   *  and the event is not a satellite, PKO or mystery bounty, moved toward 1
+   *  by the payout weight (payJumpBubbleFactor), and the call prices the
+   *  chips contested (the effective depth), not hero's whole stack; every
+   *  other spot reads the V2 table at a bubble factor of 1. */
   nashPushFoldIcm?: boolean;
   /** V72 (2026-10-31): Hold'em facing one open with nobody in (three or more
    *  dealt in) - the call / 3-bet base is set per (defender seat, opener
@@ -6730,6 +6810,11 @@ export function facingClosedAllInRaise(
   return open ? undefined : true;
 }
 
+/** All-In-Or-Fold tables: the deepest effective stack, in big blinds, at
+ * which a closing seat answers a lone all-in from the Nash caller table
+ * (HVH2D-NLH-005). Above it the fixed strength bar decides, as before. */
+export const NASH_AOF_CLOSING_CALL_MAX_BB = 12;
+
 /**
  * NOBODY IS LEFT TO FOLD (2026-11-12). True when every opponent still in the
  * hand is all in, so no raise by the hero can make anyone fold: the hand goes
@@ -8884,7 +8969,7 @@ export class HorseLogic {
       !vi.isFixedLimit &&
       !vi.isPotLimit &&
       gs.straddleActive !== true &&
-      gs.allInOrFold !== true
+      (gs.allInOrFold !== true || opts.aofClosingSeatNashCall === true)
     ) {
       const nashCall = (() => {
         const jammer = gs.players.find((p) => p.seat === lastRaiserSeat);
@@ -8894,6 +8979,21 @@ export class HorseLogic {
         // (posted blind included), the S of the table.
         const depth = Math.min(player.stack + player.bet, jammer.stack + jammer.bet) / bb;
         if (!(depth > 0) || depth > NASH_V2_CALL_MAX_BB) return null;
+        // ALL-IN-OR-FOLD, CLOSING SEAT ONLY (2026-11-12, HVH2D-NLH-005). The
+        // table answers at such a table only at 12 big blinds or less and
+        // only when hero closes the action: every other player still in the
+        // hand is all in, so the call ends the hand and nobody can overcall
+        // (the table prices the first caller only). Measured there against
+        // Horse all-ins: 17 of 41 folds by the fixed strength bar gave up a
+        // profitable call against the table's range. Every other seat and
+        // depth at an All-In-Or-Fold table stays with that bar (HorsePreflop).
+        if (
+          gs.allInOrFold === true &&
+          (depth > NASH_AOF_CLOSING_CALL_MAX_BB ||
+            !everyLiveOpponentIsAllIn(gs.players, player.seat))
+        ) {
+          return null;
+        }
         const jammerBehind = preflopPlayersBehind(lastRaiserSeat, gs, opts.v13 !== false);
         const heroBehind = preflopPlayersBehind(player.seat, gs, opts.v13 !== false);
         if (jammerBehind === null || heroBehind === null) return null;
@@ -8909,8 +9009,17 @@ export class HorseLogic {
         // spot the sb_push chart was solved for (the same no-ante game):
         // the V27 chart below keeps it.
         if (kind === 'bb' && jammerBehind === 1 && !(anteBB > 0)) return null;
-        const bubble =
-          opts.nashPushFoldIcm === true ? (heroBubbleFactor(gs, stackBB, player.user_id) ?? 1) : 1;
+        // NASH PUSH/FOLD ICM (default OFF, owner preflop range hold): only an
+        // explicit true prices the call at hero's bubble factor, where a pay
+        // jump is live (payJumpBubbleFactor, hand 59441335), for the chips
+        // contested (the effective depth), not hero's whole stack. Unset or
+        // false, chip EV, as before.
+        const payJumpCall =
+          opts.nashPushFoldIcm === true
+            ? payJumpBubbleFactor(gs, stackBB, player.user_id, depth * bb)
+            : null;
+        if (payJumpCall !== null && telemetryOn(opts)) noteFire('pay_jump_push_fold_seen');
+        const bubble = payJumpCall ?? 1;
         return nashV2CallProbability({
           hand: gtoHandClass(player.cards[0], player.cards[1]),
           jammerBehind,
@@ -8921,9 +9030,15 @@ export class HorseLogic {
         });
       })();
       if (nashCall !== null) {
-        if (telemetryOn(opts)) noteFire('nash_call_vs_jam');
+        if (telemetryOn(opts)) {
+          noteFire('nash_call_vs_jam');
+          // Reached at an All-In-Or-Fold table only with aofClosingSeatNashCall on.
+          if (gs.allInOrFold === true) noteFire('aof_closing_seat_nash_call_seen');
+        }
         notePhase6Route('solver', 'chart_bb_defend');
         if (fastRandom() < nashCall) {
+          // At an All-In-Or-Fold table the call of an all-in is the all-in.
+          if (gs.allInOrFold === true) return { action: 'all_in', thinkTime: 0 };
           return { action: 'call', amount: Math.min(toCall, player.stack), thinkTime: 0 };
         }
         return { action: 'fold', thinkTime: 0 };
@@ -9027,16 +9142,20 @@ export class HorseLogic {
           }
           const depth71 =
             deepestBehind71 > 0 ? Math.min(chartDepthBB, deepestBehind71) : chartDepthBB;
-          // NASH PUSH/FOLD ICM (default off): hero's own bubble factor, and
-          // a ten-handed seat (nine behind) read exactly, from the V2 table
+          // NASH PUSH/FOLD ICM (default OFF, owner preflop range hold): the V2
+          // table, so a ten-handed seat (nine behind) reads exactly, at hero's
+          // own bubble factor where a pay jump is live and the stacks and
+          // payouts price it (payJumpBubbleFactor, hand 59441335), else at 1
           // (bubble factor 1 and <= 8 behind is this V71 answer exactly).
           if (opts.nashPushFoldIcm === true) {
+            const payJump71 = payJumpBubbleFactor(gs, stackBB, player.user_id);
+            if (payJump71 !== null && telemetryOn(opts)) noteFire('pay_jump_push_fold_seen');
             return nashV2JamProbability({
               hand,
               behind: behind71,
               depthBB: depth71,
               anteBB: ante71,
-              bubble: heroBubbleFactor(gs, stackBB, player.user_id) ?? 1,
+              bubble: payJump71 ?? 1,
             });
           }
           return nashJamProbability({

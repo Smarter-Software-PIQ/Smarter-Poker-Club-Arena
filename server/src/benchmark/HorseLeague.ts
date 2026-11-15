@@ -592,6 +592,31 @@ function finalTableMttContext(seats: number, stackBB: number): LeagueGameContext
   };
 }
 
+/**
+ * 2026-11-15: the final-table MTT with the stack list and the seat identities
+ * the live feed sends (TournamentBrainContext stacks / stackByUser), for the
+ * payout-aware push/fold card (nashPushFoldIcm, hand 59441335; default OFF).
+ * Without them heroBubbleFactor has nothing to price and both arms play chip
+ * EV. Every seat
+ * starts each hand with stackBB big blinds, so the start-of-hand list is the
+ * same every hand; the deciding seat's own slot is replaced by its live stack
+ * (HorseLogic realIcmInputs).
+ */
+export function finalTableMttWithStacksContext(seats: number, stackBB: number): LeagueGameContext {
+  const ctx = finalTableMttContext(seats, stackBB);
+  const start = stackBB * BB;
+  return {
+    ...ctx,
+    tournament: {
+      ...ctx.tournament!,
+      stacks: Array.from({ length: seats }, () => start),
+      stackByUser: Object.fromEntries(
+        Array.from({ length: seats }, (_, s) => [`league-${s + 1}`, start])
+      ),
+    },
+  };
+}
+
 const DEFAULT_SEATS = 6;
 const BB = 2;
 const SB = 1;
@@ -2347,6 +2372,26 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: {},
     b: { nashCallVsJam: false },
   },
+  // 2026-11-15 PAYOUT-AWARE SHORT-STACK PUSH/FOLD (nashPushFoldIcm, hand
+  // 59441335; default OFF, owner preflop range hold). With the option on, a
+  // short stack with a pay jump live and the stacks, payouts and its identity
+  // in the context prices the V71 jam and the nashCallVsJam call at its own
+  // bubble factor; unset is chip EV. A six-handed in-the-money final table at
+  // 12bb with a 1bb big-blind ante and the stack list (the only league
+  // context where the option can act). The league scores chips, not payouts:
+  // the payout-aware arm gives up chips by design, so this card measures what
+  // the option costs in chips, not its value.
+  {
+    name: 'mtt6_ft_pay_jump_push_fold_12bb',
+    seats: 6,
+    stackBB: 12,
+    context: finalTableMttWithStacksContext(6, 12),
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: { nashPushFoldIcm: true },
+    b: {},
+  },
   // 2026-11-13 A COMMITTED STACK IS NOT FOLDED AT A PRICE
   // (committedStackPricedIn, default OFF; study HVH2D-NLH-M-COMMIT and
   // HVH2D-NLH-007a). Tournament multiway all-in only: arm A lets the priced-in
@@ -3261,6 +3306,25 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'protocol (development, selection and final seed classes). What would change this: a ' +
       'league context that deals the Lightning contract (fast-fold pool, big-blind ante of one ' +
       'big blind, a new table every hand) and sets the domain.',
+  },
+  // 2026-11-15 (Hold'em Strategy, parked item built default off): a
+  // tournament-table option this league cannot deal.
+  {
+    name: 'aof_closing_seat_nash_call',
+    seats: 6,
+    a: { aofClosingSeatNashCall: true },
+    b: {},
+    reason:
+      'No All-In-Or-Fold table in the league. aofClosingSeatNashCall is DEFAULT OFF (HorseLogic: ' +
+      'opts.aofClosingSeatNashCall === true) and acts only when gs.allInOrFold is true, the hero ' +
+      'faces a lone all-in at 12 big blinds or less and every other player still in the hand is ' +
+      'all in. The league deals open no-limit betting and never sets the All-In-Or-Fold flag, so ' +
+      'both arms would play identical poker and the card would report 0.00 +/- 0.00 every night. ' +
+      'Measured 2026-11-15 on this matchup as written: 0 of 2,000 pairs diverged (run seed ' +
+      '20261115). It is measured where the spot exists: the fixed-input replay of ten anonymised ' +
+      'production All-In-Or-Fold tournament requests in AnAofClosingSeatCallsFromTheNashTable.test.ts ' +
+      'and the HVH2D-NLH-005 equity rows. What would change this: a league context that deals ' +
+      'All-In-Or-Fold tables (legal actions fold or all in, tournament stacks of 12 big blinds or less).',
   },
   {
     name: 'hu_break_even_bluff',
