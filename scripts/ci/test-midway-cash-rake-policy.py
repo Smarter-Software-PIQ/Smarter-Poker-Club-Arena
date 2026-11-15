@@ -56,6 +56,11 @@ try:
  run(psql+['-c', "UPDATE tables SET small_blind=5,big_blind=10,rake_cap_bb=-1 WHERE id='b0000000-0000-0000-0000-000000000001'"])
  projected=run(psql+['-c', "SELECT effective_percent=10 AND effective_cap_bb*10=12.5 FROM fn_effective_rake_config('b0000000-0000-0000-0000-000000000001')"])
  if projected.stdout.strip()!='t': raise RuntimeError('Midway 5/10 projected price exceeded the ceiling')
+ sql(ROOT/'supabase/migrations/20261115070500_midway_fixed_limit_rake_maximum.sql')
+ for variant,cap in [('flh',5),('flo4',5),('flo5',5),('flo6',5),('flo8',5),('plo8',12.5),('nlh',12.5)]:
+  run(psql+['-c', f"UPDATE tables SET game_variant='{variant}' WHERE id='b0000000-0000-0000-0000-000000000001'"])
+  check=run(psql+['-c',f"SELECT effective_percent=10 AND effective_cap_bb*10={cap} FROM fn_effective_rake_config('b0000000-0000-0000-0000-000000000001')"])
+  if check.stdout.strip()!='t': raise RuntimeError('Incorrect cash cap for '+variant)
  # The exact migration must refuse replay, without partially applying anything.
  replay=run(psql+['-f',str(MIGRATION)],check=False)
  if replay.returncode==0: raise RuntimeError('installed migration unexpectedly replayed')

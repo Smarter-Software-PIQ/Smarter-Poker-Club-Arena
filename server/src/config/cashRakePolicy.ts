@@ -2,6 +2,8 @@
 export const MIDWAY_UNION_ID = 'fade0000-0000-0000-0000-000000000001';
 export const DEFAULT_CASH_RAKE_CAP_BB = 2.5;
 export const MIDWAY_MAX_RAKE_CHIPS = 12.5;
+export const MIDWAY_FIXED_LIMIT_MAX_RAKE_CHIPS = 5;
+const fixedLimitCashVariants = new Set(['flh', 'flo4', 'flo5', 'flo6', 'flo8']);
 export type CashRakeScope = 'midway' | 'standalone' | 'standard';
 
 export function cashRakeScope(
@@ -19,7 +21,8 @@ export function scopedCashRake(
   scope: CashRakeScope,
   percent?: number | null,
   capBB?: number | null,
-  policyVersion: 1 | 2 = 2
+  policyVersion: 1 | 2 | 3 = 3,
+  variant = ''
 ): { rakePercent: number; rakeCap: number } {
   const set = (v: number | null | undefined): v is number =>
     v != null && Number.isFinite(Number(v)) && Number(v) >= 0;
@@ -28,12 +31,13 @@ export function scopedCashRake(
   const cap = set(capBB) ? Number(capBB) : DEFAULT_CASH_RAKE_CAP_BB;
   const boundedCap = custom ? cap : Math.min(cap, DEFAULT_CASH_RAKE_CAP_BB);
   const stakeCap = Math.floor(Math.max(0, bigBlind) * boundedCap * 100 + 1e-8) / 100;
+  const midwayMax =
+    policyVersion >= 3 && fixedLimitCashVariants.has(variant.toLowerCase())
+      ? MIDWAY_FIXED_LIMIT_MAX_RAKE_CHIPS
+      : MIDWAY_MAX_RAKE_CHIPS;
   return {
     rakePercent: Math.min(rate, custom ? 100 : 10),
     // A cent that rounds up must never take a Midway pot above 2.5 BB.
-    rakeCap:
-      scope === 'midway' && policyVersion === 2
-        ? Math.min(stakeCap, MIDWAY_MAX_RAKE_CHIPS)
-        : stakeCap,
+    rakeCap: scope === 'midway' && policyVersion >= 2 ? Math.min(stakeCap, midwayMax) : stakeCap,
   };
 }
