@@ -107,6 +107,9 @@ export async function readHorsePooledPublicBootstrap(
           ...(row.public_memory_domain !== undefined
             ? { public_memory_domain: row.public_memory_domain }
             : {}),
+          ...(row.last_accepted_hand_id !== undefined
+            ? { last_accepted_hand_id: row.last_accepted_hand_id }
+            : {}),
           ...copyLongCounters(row),
         });
         kept++;

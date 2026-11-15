@@ -579,7 +579,9 @@ export function getFullRakeConfig(
       bigBlind,
       override.scope,
       override.rakePercent,
-      override.rakeCapBB
+      override.rakeCapBB,
+      3,
+      variant
     ));
   }
 

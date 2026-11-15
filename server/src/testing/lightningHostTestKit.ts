@@ -1,3 +1,4 @@
+import { confirmedSeatRole } from '../engine/HorseConfirmedSeatRole.js';
 /**
  * An in-memory Lightning backend and hub for the hand-host tests and the
  * Lightning card/money law. No database: every call is recorded, and the
@@ -152,6 +153,7 @@ export function fakeBackend(
       equippedFrame: '',
       equippedAura: '',
       isHorse: horses.has(p),
+      [confirmedSeatRole]: horses.has(p) ? 'horse' : 'human',
     };
   });
   if (opts.participantsOverride) participants = opts.participantsOverride(participants);

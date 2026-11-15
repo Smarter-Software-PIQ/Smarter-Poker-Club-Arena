@@ -48,8 +48,15 @@ describe('the action-behind rule in every Omaha game it reaches (PLO6-AUDIT-005)
     '%s cash: the default puts the chips in; opted in, the rule folds',
     (variant, cards) => {
       const fx = as(variant, cards);
-      expect(actions(fx).every((a) => !('fold' in a))).toBe(true);
-      expect(actions(fx, ON).every((a) => Object.keys(a).join() === 'fold')).toBe(true);
+      // The re-raised-pot preflop cell (owner 2026-11-14/15) is a later,
+      // independent rule that folds this re-raised continue without aces in
+      // PLO4/PLO5 cash; it is ablated here so this measures the action-behind
+      // rule alone (HorseOmahaReraisedPot.test.ts pins it).
+      const base = { omahaReraisedPotDiscipline: false };
+      expect(actions(fx, base).every((a) => !('fold' in a))).toBe(true);
+      expect(actions(fx, { ...base, ...ON }).every((a) => Object.keys(a).join() === 'fold')).toBe(
+        true
+      );
     }
   );
 

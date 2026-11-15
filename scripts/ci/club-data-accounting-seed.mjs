@@ -64,31 +64,37 @@ async function main() {
     console.log(`[seed] live projection since ${live.rows[0].live_from.toISOString()}`);
     // Every kept week boundary, each in its own short transaction, so a
     // certificate version arriving meanwhile waits at most one boundary.
-    const kept = await client.query(
-      'SELECT DISTINCT k.union_id, k.boundary FROM public.ca_union_pnl_boundary_capture k ORDER BY 1, 2'
-    );
-    for (const row of kept.rows) {
-      const b = await inTransaction(client, 'READ COMMITTED', '120s', () =>
-        client.query('SELECT public.fn_ca_club_acct_load_boundary($1, $2) AS n', [
-          row.union_id,
-          row.boundary,
-        ])
+    // Loaded before the days and again after them: a week whose boundary
+    // certificate followed its invoice reconciles to the invoice only once
+    // its days are loaded (20261115080136).
+    async function loadBoundaries(when) {
+      const kept = await client.query(
+        'SELECT DISTINCT k.union_id, k.boundary FROM public.ca_union_pnl_boundary_capture k ORDER BY 1, 2'
       );
-      if (b.rows[0].n === null)
-        throw new Error(
-          `boundary ${row.boundary.toISOString()} is being loaded by another transaction`
+      for (const row of kept.rows) {
+        const b = await inTransaction(client, 'READ COMMITTED', '120s', () =>
+          client.query('SELECT public.fn_ca_club_acct_load_boundary($1, $2) AS n', [
+            row.union_id,
+            row.boundary,
+          ])
         );
-      console.log(
-        `[seed] boundary ${row.boundary.toISOString()} union ${row.union_id}: ${b.rows[0].n} rows`
+        if (b.rows[0].n === null)
+          throw new Error(
+            `boundary ${row.boundary.toISOString()} is being loaded by another transaction`
+          );
+        console.log(
+          `[seed] ${when}: boundary ${row.boundary.toISOString()} union ${row.union_id}: ${b.rows[0].n} rows`
+        );
+      }
+      const exact = await client.query(
+        'SELECT boundary, opening_exact, closing_exact, opening_basis, closing_basis FROM public.ca_club_acct_boundary_log ORDER BY boundary'
       );
+      for (const r of exact.rows)
+        console.log(
+          `[seed] ${when}: boundary ${r.boundary.toISOString()} opening ${r.opening_exact} (${r.opening_basis}), closing ${r.closing_exact} (${r.closing_basis})`
+        );
     }
-    const exact = await client.query(
-      'SELECT boundary, opening_exact, closing_exact FROM public.ca_club_acct_boundary_log WHERE NOT (opening_exact AND closing_exact) ORDER BY boundary'
-    );
-    for (const r of exact.rows)
-      console.log(
-        `[seed] boundary ${r.boundary.toISOString()} not invoice-exact: opening ${r.opening_exact}, closing ${r.closing_exact}`
-      );
+    await loadBoundaries('before the days');
     for (const day of days) {
       const seeded = await client.query(
         'SELECT 1 FROM public.ca_club_acct_seed_log WHERE acct_day = $1',
@@ -142,6 +148,7 @@ async function main() {
           `(${windows.rowCount} parts, slowest ${(slowest / 1000).toFixed(1)} s)`
       );
     }
+    await loadBoundaries('after the days');
   } finally {
     await client.end().catch(() => {});
   }

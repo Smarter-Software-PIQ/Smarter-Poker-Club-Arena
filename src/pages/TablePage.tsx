@@ -21,7 +21,11 @@ import {
   insuranceOfferEquity,
   validAllInEquityEntries,
 } from '../lib/allInEquityDisplay';
-import { fetchStoppedLightningAnchor } from '../lightning/lightningLeaveAnchor';
+import {
+  fetchStoppedLightningAnchor,
+  rememberLightningLeaveAnchor,
+  rememberedLightningLeaveAnchor,
+} from '../lightning/lightningLeaveAnchor';
 import { useLightningFinalDeal } from '../lightning/useLightningFinalDeal';
 import { useLightningLeaveStop } from '../lightning/useLightningLeaveStop';
 import { resumeLightningPlaying } from '../lightning/lightningSessionApi';
@@ -12126,6 +12130,18 @@ function LiveTablePage({
    *   - `null`: a Lightning room with no open pool session: nothing to cash out.
    *   - 'unreadable': the read failed; the seat may hold chips, so it stays.
    */
+  const [verifiedLightningAnchor, setVerifiedLightningAnchor] = useState<{
+    room: string;
+    tableId: string;
+    occupancyId: string;
+  } | null>(null);
+  const noteLightningAnchor = useCallback(
+    (anchor: { room: string; tableId: string; occupancyId: string }) => {
+      if (userId) rememberLightningLeaveAnchor(userId, anchor.room, anchor);
+      setVerifiedLightningAnchor(anchor);
+    },
+    [userId]
+  );
   const resolveLightningLeave = async (): Promise<
     LightningAnchorSeat | null | undefined | 'unreadable'
   > => {
@@ -12133,11 +12149,26 @@ function LiveTablePage({
     if (!room || !userId || userId === 'guest') return undefined;
     try {
       const session = await fetchMyLightningSession(room.clusterId);
-      if (!hasLightningRoom(session)) return await fetchStoppedLightningAnchor(session, userId);
+      if (!hasLightningRoom(session)) {
+        if (session.poolSessionId && session.poolSessionId !== room.poolSessionId)
+          throw new Error('Lightning Leave Session Changed');
+        const original =
+          verifiedLightningAnchor?.room === room.poolSessionId
+            ? verifiedLightningAnchor
+            : rememberedLightningLeaveAnchor(userId, room.poolSessionId);
+        return await fetchStoppedLightningAnchor(session, userId, room, original);
+      }
       if (session.poolSessionId !== room.poolSessionId)
         throw new Error('Lightning Leave Session Changed');
       const anchor = lightningAnchorSeat(session);
-      if (anchor) return anchor;
+      if (anchor) {
+        noteLightningAnchor({
+          room: room.poolSessionId,
+          tableId: anchor.anchorTableId,
+          occupancyId: anchor.occupancyId,
+        });
+        return anchor;
+      }
       /* An open session whose anchor the answer did not name: the chips are
          somewhere real, so this is never treated as "nothing to cash out". */
       reportError(
@@ -12164,11 +12195,6 @@ function LiveTablePage({
   const stopLightningForLeave = useLightningLeaveStop(lightningRoom, userId);
   const [settledLightningHandId, setSettledLightningHandId] = useState<string | null>(null);
   const [lightningCountReceipt, setLightningCountReceipt] = useState(0);
-  const [verifiedLightningAnchor, setVerifiedLightningAnchor] = useState<{
-    room: string;
-    tableId: string;
-    occupancyId: string;
-  } | null>(null);
   const heroHandCount = useHeroHandCount({
     enabled:
       !!userId &&
@@ -12179,7 +12205,7 @@ function LiveTablePage({
     lightningClusterId: lightningRoom?.clusterId ?? null,
     handNumber: tableState.handNumber ?? 0,
     settledLightningHandId: lightningCountReceipt,
-    onLightningAnchor: setVerifiedLightningAnchor,
+    onLightningAnchor: noteLightningAnchor,
     lightningConnected: engineWsStatus === 'connected',
     engine: heroHandsOwedEngine,
   });
@@ -12233,9 +12259,17 @@ function LiveTablePage({
     }
     return fetchMyHandsOwed(target);
   };
-  const handleLeaveTable = async (afterLightningHand = false) => {
+  const handleLeaveTable = async (
+    afterLightningHand = false,
+    finalChoice?: {
+      confirmed: boolean;
+      current: () => boolean;
+      ask: (hands: number) => void;
+      accepted: () => void;
+    }
+  ) => {
     if (leaveRequestActiveRef.current) return;
-    const confirmedHandCount = hitRunConfirmedRef.current;
+    const confirmedHandCount = finalChoice?.confirmed ?? hitRunConfirmedRef.current;
     hitRunConfirmedRef.current = false;
     if (!confirmedHandCount) {
       leaveRequestActiveRef.current = true;
@@ -12245,7 +12279,12 @@ function LiveTablePage({
       } finally {
         leaveRequestActiveRef.current = false;
       }
+      if (finalChoice && !finalChoice.current()) return;
       if (owed !== null) {
+        if (finalChoice) {
+          finalChoice.ask(owed);
+          return;
+        }
         hitRunConfirmFromTabRef.current = false;
         setHitRunConfirmHands(owed);
         return;
@@ -12304,6 +12343,7 @@ function LiveTablePage({
        there is anything to cash out. */
       const lightningSummaryRoom = lightningRoomRef.current;
       const lightningLeave = await resolveLightningLeave();
+      if (finalChoice && !finalChoice.current()) return;
       if (lightningLeave === 'unreadable') {
         setLeaveAttentionSuppressed(false);
         goToLobbyKeepingSeat(seatCopy(tableState.arenaAsset).couldNotCashOutYet);
@@ -12316,6 +12356,7 @@ function LiveTablePage({
         ? lightningLeave.seatNumber
         : Math.max(tableState.heroSeat, heroSeatRef.current);
       if (!tableId || !userId || liveSeat <= 0 || lightningLeave === null) {
+        finalChoice?.accepted();
         leaveWithoutCashout(liveSeat);
         return;
       }
@@ -12388,8 +12429,9 @@ function LiveTablePage({
       const seatAtLeave = tableState.heroSeat;
       const handStatsAsOf = Date.now();
 
-      // The lobby first (rule above). Everything below completes behind it.
-      showLobbyNow();
+      // A final-hand decision can still require an owed-hands choice at the writer.
+      if (finalChoice && !finalChoice.current()) return;
+      if (!finalChoice) showLobbyNow();
 
       try {
         const leaveTableId = lightningLeave ? lightningLeave.anchorTableId : tableId;
@@ -12401,6 +12443,7 @@ function LiveTablePage({
               {
                 seatNumber: lightningLeave.seatNumber,
                 occupancyId: lightningLeave.occupancyId,
+                poolSessionId: lightningSummaryRoom!.poolSessionId,
               },
               confirmedHandCount
             )
@@ -12411,6 +12454,12 @@ function LiveTablePage({
               undefined,
               confirmedHandCount
             );
+        if (result.success) finalChoice?.accepted();
+        if (finalChoice && result.needsConfirmation && result.handsRemaining) {
+          setLeaveAttentionSuppressed(false);
+          finalChoice.ask(result.handsRemaining);
+          return;
+        }
         if (result.success && result.blindOff) {
           // HIT AND RUN: the seat stays, blinded off for the owed hands; the
           // engine cashes it out when they are played. The tab stays too.
@@ -12651,8 +12700,6 @@ function LiveTablePage({
      mid-hand still leaves at the end of that hand (Dan 2026-11-12). It runs
      only once the engine's own snapshot for this page is applied (or the room
      has closed), never off a half-hydrated felt. */
-  const [resumingLightning, setResumingLightning] = useState(false);
-  const resumeLightningBusy = useRef(false);
   const lightningLeaveAfterHand = useLightningLeaveAfterHand({
     userId,
     poolSessionId: lightningRoom?.poolSessionId ?? null,
@@ -12662,59 +12709,71 @@ function LiveTablePage({
         appliedExitSnapshot?.snapshot === engineSnapshot &&
         appliedExitSnapshot.tableId === tableId &&
         appliedExitSnapshot.userId === userId),
-    resuming: resumingLightning,
+    connected: engineWsStatus === 'connected' || lightningRoomClosed,
     roomClosed: lightningRoomClosed,
     waits: lightningHeroInLiveHand,
     leave: () => handleLeaveTable(true),
+    finish: async (confirmed, current) => {
+      let result: number | 'accepted' | 'unknown' = 'unknown';
+      await handleLeaveTable(true, {
+        confirmed,
+        current,
+        ask: (hands) => {
+          result = hands;
+        },
+        accepted: () => {
+          result = 'accepted';
+        },
+      });
+      return result;
+    },
     alreadyLeaving: () => leaveNavigatedRef.current,
-    onError: (error) => reportError(error, 'TablePage.lightning_leave_after_hand'),
-  });
-  const leaveLightningAfterThisHand = async (stop: { inHand: boolean; exited: boolean }) => {
-    if (stop.exited && !stop.inHand) {
-      await handleLeaveTable(true);
-      return;
-    }
-    lightningLeaveAfterHand.queue(stop.inHand && !lightningHeroInLiveHand);
-    if (stop.inHand || lightningHeroInLiveHand) {
-      toast.info('You Will Leave The Table After This Hand. Tap Again To Keep Playing.');
-    }
-  };
-  /* CANCEL (Dan 2026-11-12): tapping "Leaving After Hand" withdraws the stop
-     so the player keeps being dealt in. If the hand already settled and the
-     session ended, the leave stands and finishes. */
-  const cancelLightningLeave = async (): Promise<boolean> => {
-    const room = lightningRoomRef.current;
-    if (!room || resumeLightningBusy.current) return false;
-    resumeLightningBusy.current = true;
-    setResumingLightning(true);
-    let answer;
-    try {
-      answer = await resumeLightningPlaying(room.clusterId);
-    } catch (error) {
-      reportError(error, 'TablePage.lightning_cancel_leave');
-      toast.warning('Could Not Cancel Your Leave. Please Try Again.');
-      return false;
-    } finally {
-      resumeLightningBusy.current = false;
-      setResumingLightning(false);
-    }
-    if (answer?.ok) {
-      lightningLeaveAfterHand.clear();
-      stopLightningForLeave.reset();
-      toast.info('You Will Keep Playing.');
+    onError: (error) => {
+      reportError(error, 'TablePage.lightning_leave_after_hand');
+      toast.warning('Could Not Confirm Your Request. Tap Again To Keep Playing.');
+    },
+    performCommand: async (command) => {
+      const room = lightningRoomRef.current;
+      if (!room) return 'unknown';
+      if (command === 'stopping') {
+        const stop = await stopLightningForLeave.receipt();
+        if (!stop) {
+          toast.warning('Could Not Confirm Your Leave. Tap Again To Keep Playing.');
+          return 'unknown';
+        }
+        if (!stop.ok) {
+          toast.warning('Could Not Queue Your Leave. Please Try Again.');
+          return false;
+        }
+        if (stop.inHand && !lightningHeroInLiveHand) return 'awaiting-hand';
+        return true;
+      }
+      const answer = await resumeLightningPlaying(room.clusterId, room.poolSessionId);
+      if (!answer) return 'unknown';
+      if (answer.ok) {
+        stopLightningForLeave.reset();
+        toast.info('You Will Keep Playing.');
+        return false;
+      }
+      if (answer.reason === 'LEAVE_CONFIRMED') {
+        toast.info('Your Confirmed Leave Is Being Completed.');
+        return false;
+      }
+      if (answer.reason === 'SESSION_CHANGED' || answer.reason === 'NO_SESSION') return false;
+      if (answer.reason === 'EXITED') {
+        toast.info('This Hand Already Ended. You Are Leaving The Table.');
+      } else {
+        toast.warning(
+          answer.reason === 'RG_LIMIT'
+            ? 'Your Play Limits Do Not Allow More Hands Right Now.'
+            : 'Could Not Cancel Your Leave. Please Try Again.'
+        );
+      }
       return true;
-    }
-    if (answer?.reason === 'EXITED') {
-      toast.info('This Hand Already Ended. You Are Leaving The Table.');
-      return false;
-    }
-    toast.warning(
-      answer?.reason === 'RG_LIMIT'
-        ? 'Your Play Limits Do Not Allow More Hands Right Now.'
-        : 'Could Not Cancel Your Leave. Please Try Again.'
-    );
-    return false;
-  };
+    },
+  });
+  const resumingLightning = lightningLeaveAfterHand.busy;
+  const cancelLightningLeave = () => lightningLeaveAfterHand.request('resuming');
 
   // Presentation is keyed by occupancy, independently of the roster exit latch.
   // A roster read can observe leave_pending before the websocket seat_left.
@@ -27189,6 +27248,7 @@ function LiveTablePage({
 
   const finalLightningDeal = useLightningFinalDeal({
     userId,
+    poolSessionId: lightningRoom?.poolSessionId,
     anchor: lightningRoom
       ? verifiedLightningAnchor?.room === lightningRoom.poolSessionId
         ? verifiedLightningAnchor
@@ -27217,9 +27277,7 @@ function LiveTablePage({
         if (!(await leaveNextHand.requestLeaveNextHand())) throw new Error('Leave unconfirmed');
         return;
       }
-      const stop = await stopLightningForLeave.receipt();
-      if (!stop?.ok) throw new Error('Lightning stop unconfirmed');
-      await leaveLightningAfterThisHand(stop);
+      lightningLeaveAfterHand.request('stopping');
     },
     onError: () => toast.warning('Could Not Confirm Your Leave. Please Try Again.'),
   });
@@ -27232,13 +27290,13 @@ function LiveTablePage({
   }, [leaveNextHandQueued, onTableInfoUpdate]);
   const requestLeaveAtNextHand = async () => {
     if (lightningRoom || lightningCapableClusterId) {
-      if (finalLightningDeal.pending || leaveNextHand.pending || resumeLightningBusy.current)
+      if (finalLightningDeal.pending || leaveNextHand.pending || lightningLeaveAfterHand.busy)
         return;
-      if (finalLightningDeal.queued) {
+      if (lightningLeaveAfterHand.queued) cancelLightningLeave();
+      else if (finalLightningDeal.queued) {
         finalLightningDeal.cancel();
         toast.info('You Will Keep Playing.');
-      } else if (lightningLeaveAfterHand.queued) await cancelLightningLeave();
-      else if (leaveNextHand.queued && tableId) {
+      } else if (leaveNextHand.queued && tableId) {
         await leaveNextHand.resumeQueuedLeave(handleSitBackIn);
         const error = leaveNextHand.getError();
         if (error) toast.warning(error);
@@ -27853,6 +27911,7 @@ function LiveTablePage({
         ? lightningAnchorFunding.funded
         : undefined,
     follow: (poolSessionId) => {
+      finalLightningDeal.followIntoRoom(poolSessionId);
       if (embeddedTableId) {
         onTableInfoUpdate?.({ movedToTableId: poolSessionId });
         return;
@@ -32284,12 +32343,20 @@ function LiveTablePage({
       />
       {/* HIT AND RUN (owner 2026-11-06): the full-screen leave confirmation. */}
       <HitRunLeaveConfirm
-        handsRemaining={hitRunConfirmHands}
+        handsRemaining={lightningLeaveAfterHand.owed ?? hitRunConfirmHands}
         onStay={() => {
+          if (lightningLeaveAfterHand.owed) {
+            lightningLeaveAfterHand.decide(false);
+            return;
+          }
           setHitRunConfirmHands(null);
           hitRunConfirmFromTabRef.current = false;
         }}
         onLeave={async () => {
+          if (lightningLeaveAfterHand.owed) {
+            lightningLeaveAfterHand.decide(true);
+            return;
+          }
           setHitRunConfirmHands(null);
           hitRunConfirmFromTabRef.current = false;
           hitRunConfirmedRef.current = true;

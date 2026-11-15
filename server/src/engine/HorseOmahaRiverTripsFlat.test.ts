@@ -101,8 +101,18 @@ describe('V55 Omaha river trips flat', () => {
     // class won 17% (docs/changelog/2026-10-25-plo6-river-unpaired-discipline.md).
     for (let seed = 1; seed <= 40; seed++) expect(decide(seed, true, 'plo6').action).toBe('fold');
   });
-  it('reproduces the recorded re-shove with the switch off', () => {
-    for (let seed = 1; seed <= 40; seed++) expect(decide(seed, false).action).toBe('all_in');
+  // Owner ruling 2026-11-14 (hand 59401453, HorseOmahaRiverNutRaise.ts): only
+  // the nuts raise an Omaha river bet, so the re-shove is gone by default
+  // whether or not V55 is on. The recorded re-shove needs both off.
+  it('reproduces the recorded re-shove with the switch and the river nut-raise rule off', () => {
+    for (let seed = 1; seed <= 40; seed++)
+      expect(
+        decide(seed, false, 'plo4', 'river', false, { omahaRiverNutRaiseOnly: false }).action
+      ).toBe('all_in');
+  });
+  it('with the switch off the river nut-raise rule still makes it a call', () => {
+    for (let seed = 1; seed <= 40; seed++)
+      expect(decide(seed, false)).toEqual({ action: 'call', amount: 37.64 });
   });
   it('preserves dry-board top sets and every earlier-street decision', () => {
     const { hero, gs } = spot('plo4', 'river', true);

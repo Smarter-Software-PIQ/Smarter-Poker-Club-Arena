@@ -110,7 +110,7 @@ export default function ClubSettingsPage() {
      (Dan 2026-10-16, src/lib/referralId.ts). */
   const [playerNumber, setPlayerNumber] = useState<string | null>(null);
   const cashPolicyVersion = useCashRakePolicyVersion();
-  const cashPolicyReady = cashPolicyVersion === 1 || cashPolicyVersion === 2;
+  const cashPolicyReady = cashPolicyVersion !== null && cashPolicyVersion !== 0;
   const [inUnion, setInUnion] = useState<boolean>(false);
   const [clubNumericId, setClubNumericId] = useState<number | null>(null);
   const [resolvedClubIdentity, setResolvedClubIdentity] = useState<{

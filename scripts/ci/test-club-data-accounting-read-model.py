@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Native qualification of 20261115020010, 20261115020011 and 20261115063000. No production access.
+"""Native qualification of 20261115020010, 20261115020011, 20261115063000 and 20261115075440. No production access.
 
 Club Data's accounting read model carries the union invoice's own records,
 keyed by the 02:00 America/Chicago accounting day: the live projection writes
@@ -29,7 +29,9 @@ MODEL = M / "20261115020010_club_data_accounting_read_model.sql"
 LIVE = M / "20261115020011_club_data_accounting_read_model_goes_live.sql"
 VIEWS = M / "20261115034141_club_data_accounting_reader_views.sql"
 ROUTE = M / "20261115034142_club_data_readers_route_union_clubs_to_the_accounting_model.sql"
+RECONCILE = M / "20261115080136_club_data_boundary_side_reconciled_to_its_invoice.sql"
 PARTS = M / "20261115063000_club_data_history_loads_a_day_in_bounded_parts.sql"
+ONCE = M / "20261115075440_club_data_history_load_reads_each_row_once.sql"
 BASE = ROOT / "tests/fixtures/club-data-union-weeks/fixture.sql"
 FIX = ROOT / "tests/fixtures/club-data-accounting"
 PG = Path(os.environ.get("PG_BIN") or next((p for p in ("/usr/lib/postgresql/17/bin", "/usr/lib/postgresql/16/bin",
@@ -157,6 +159,7 @@ try:
 
     # 20261115063000: the same days loaded in bounded parts give the same rows.
     run(psql("live"), PARTS.read_text())
+    run(psql("live"), ONCE.read_text())
     run(psql("live"), parts("2026-11-02", True) + parts("2026-11-03", True))
     parted = q("live", "SELECT md5(string_agg(f::text, ',' ORDER BY club_id, acct_day, game_id, user_id, src)) FROM ca_club_acct_fact f")
     require(parted == after, "a day loaded in bounded parts holds exactly the rows of the one-transaction load")
@@ -252,6 +255,45 @@ try:
             "SELECT club_id, result, hands FROM ca_club_acct_fact_journal WHERE acct_day = '2026-11-04') x GROUP BY 1) y")
     run(psql("live"), load("2026-11-04", True))
     require(q("live", sums) == totals, "a one-transaction rebuild of that day gives the same figures")
+
+    # (2c) 20261115075440, D2: a hand written inside a SUBtransaction whose
+    # parent is still open at the parted load's snapshot, committed before
+    # the slices run. Its subtransaction xid is not in the snapshot's
+    # in-progress list; it must be counted once (by the live projection).
+    def hand_on(n, at):
+        return hand(n).replace("2026-11-04 12:00+00", at)
+
+    a = background()
+    a.stdin.write("BEGIN; SELECT txid_current(); SAVEPOINT s1; " + hand_on(20, "2026-11-07 12:00+00")
+                  + "RELEASE SAVEPOINT s1; SELECT pg_sleep(3); COMMIT;\n")
+    a.stdin.flush()
+    time.sleep(1.0)
+    run(psql("live"), parts("2026-11-07", between="SELECT pg_sleep(4);\n"))
+    finish(a, "")
+    d7 = sums.replace("2026-11-04", "2026-11-07")
+    require(q("live", d7) == "a0000000-0000-0000-0000-000000000001=-1/1,a41434bb-8d0c-400a-8f0d-e8b3d65afed4=1/1",
+            "a row written in a subtransaction whose parent was open at the load's snapshot is counted once (" + q("live", d7) + ")")
+    run(psql("live"), load("2026-11-07", True))
+    require(q("live", d7) == "a0000000-0000-0000-0000-000000000001=-1/1,a41434bb-8d0c-400a-8f0d-e8b3d65afed4=1/1",
+            "a one-transaction rebuild of that day agrees")
+
+    # D3: a slice sent twice, a finish without every slice, a day after the
+    # live projection's day, and a slice whose begin is not on record.
+    begin7 = ("BEGIN ISOLATION LEVEL REPEATABLE READ; SELECT fn_ca_club_acct_seed_begin('2026-11-07', true)->>'snapshot' AS snap \\gset\nCOMMIT;\n")
+    slice1 = "SELECT fn_ca_club_acct_seed_slice('2026-11-07', fn_ca_accounting_day_start('2026-11-07'), fn_ca_accounting_day_start('2026-11-07') + interval '2 hours', :'snap') IS NOT NULL;\n"
+    run(psql("live"), begin7 + slice1 + slice1, expect_fail="duplicate key")
+    run(psql("live"), begin7 + slice1 + "SELECT fn_ca_club_acct_seed_finish('2026-11-07', :'snap', 0, 0, 0);",
+        expect_fail="not covered exactly")
+    require(q("live", "SELECT count(*) FROM ca_club_acct_seed_log WHERE acct_day = '2026-11-07'") == "0",
+            "a day whose slices do not cover it is not logged loaded")
+    run(psql("live"), "SELECT fn_ca_club_acct_seed_slice('2026-11-07', fn_ca_accounting_day_start('2026-11-07'), "
+        "fn_ca_accounting_day_start('2026-11-07') + interval '2 hours', pg_current_snapshot());", expect_fail="no load begun")
+    run(psql("live"), "BEGIN ISOLATION LEVEL REPEATABLE READ; SELECT fn_ca_club_acct_seed_begin('2099-01-01'); COMMIT;",
+        expect_fail="after the live projection")
+    run(psql("live"), parts("2026-11-07", True))
+    require(q("live", d7) == "a0000000-0000-0000-0000-000000000001=-1/1,a41434bb-8d0c-400a-8f0d-e8b3d65afed4=1/1"
+            and q("live", "SELECT fact_rows > 0 FROM ca_club_acct_seed_log WHERE acct_day = '2026-11-07'") in ("t", "f"),
+            "a complete parted load after the refusals logs the day with the same figures")
 
     # (3) The 32-lock budget: one hand with 40 players takes 32 row locks; the
     # rest of its rows go to the journal, and the figures are whole.
@@ -349,10 +391,12 @@ try:
     expected = ("2a1132b9-5ba2-42e6-9f01-30a7fcffebe3:2026-11-02=3.25/2.00,2a1132b9-5ba2-42e6-9f01-30a7fcffebe3:2026-11-03=2.00/-1.20,"
                 "2a1132b9-5ba2-42e6-9f01-30a7fcffebe3:2026-11-05=0.00/0.40,"
                 "a0000000-0000-0000-0000-000000000001:2026-11-02=0.00/3.50,a0000000-0000-0000-0000-000000000001:2026-11-03=4.00/2.00,"
-                "a0000000-0000-0000-0000-000000000001:2026-11-04=0.00/-4.00,a0000000-0000-0000-0000-000000000001:2026-11-08=0.00/12.00,"
+                "a0000000-0000-0000-0000-000000000001:2026-11-04=0.00/-4.00,a0000000-0000-0000-0000-000000000001:2026-11-07=0.00/-1.00,"
+                "a0000000-0000-0000-0000-000000000001:2026-11-08=0.00/12.00,"
                 "a0000000-0000-0000-0000-000000000001:2026-11-09=0.00/-16.00,"
                 "a41434bb-8d0c-400a-8f0d-e8b3d65afed4:2026-11-01=1.00/0.00,a41434bb-8d0c-400a-8f0d-e8b3d65afed4:2026-11-02=7.50/-6.40,"
-                "a41434bb-8d0c-400a-8f0d-e8b3d65afed4:2026-11-03=6.00/1.00,a41434bb-8d0c-400a-8f0d-e8b3d65afed4:2026-11-04=0.00/4.00")
+                "a41434bb-8d0c-400a-8f0d-e8b3d65afed4:2026-11-03=6.00/1.00,a41434bb-8d0c-400a-8f0d-e8b3d65afed4:2026-11-04=0.00/4.00,"
+                "a41434bb-8d0c-400a-8f0d-e8b3d65afed4:2026-11-07=0.00/1.00")
     got = q("live", "SELECT string_agg(club_id || ':' || stat_date || '=' || f || '/' || r, ',' ORDER BY club_id, stat_date) FROM ("
                     "SELECT club_id, stat_date, sum(fee)::numeric(20,2) f, sum(winnings)::numeric(20,2) r FROM ca_club_acct_fact_ct GROUP BY 1, 2 "
                     "HAVING sum(fee) <> 0 OR sum(winnings) <> 0) x")
@@ -377,7 +421,7 @@ try:
     cov = q("live", "SELECT fn_ca_club_acct_coverage('a41434bb-8d0c-400a-8f0d-e8b3d65afed4', '2026-11-02', '2026-11-08') - 'window_start' - 'window_end'")
     require(cov == '{"source": "ca_club_acct_fact", "complete": false, "day_zone": "America/Chicago", "failed_days": ["2026-11-02", '
                    '"2026-11-03", "2026-11-06"], "provisional": false, "day_boundary": "02:00", "missing_days": ["2026-11-05", "2026-11-06", '
-                   '"2026-11-07", "2026-11-08"], "provisional_from": null, "awaiting_boundary_days": [], "not_invoice_exact_days": []}',
+                   '"2026-11-08"], "provisional_from": null, "awaiting_boundary_days": [], "not_invoice_exact_days": []}',
             "coverage of the invoice week names its unloaded and failed days, not another union's boundary failure: " + cov)
     require(q("live", "SELECT fn_ca_club_acct_coverage('a41434bb-8d0c-400a-8f0d-e8b3d65afed4', '2026-10-30', '2026-11-01')->'not_invoice_exact_days'")
             == '["2026-11-01"]'
@@ -486,6 +530,68 @@ try:
                           "AND NOT has_function_privilege('service_role', 'public.fn_ca_club_cash_felt_union_basis(uuid,date,date,text,text,text)', 'execute') "
                           "AND NOT has_function_privilege('service_role', 'public.fn_ca_club_cash_felt_chicago_basis(uuid,date,date,text,text,text)', 'execute')") == "t",
             "the installed reader is kept byte for byte; the router has its arguments, defaults and grants; neither basis is callable around it")
+
+    # 20261115080136 (audit D1): a boundary side certified only after its
+    # week's invoice is loaded when it reconciles the week to the invoice per
+    # club to the cent, and never otherwise.
+    run(psql("live"), RECONCILE.read_text())
+    for d in ("2026-11-05", "2026-11-06", "2026-11-07", "2026-11-08"):
+        if q("live", f"SELECT count(*) FROM ca_club_acct_seed_log WHERE acct_day = '{d}'") == "0":
+            run(psql("live"), load(d))
+    # The week's invoices now predate both kept versions of its closing side.
+    run(psql("live"), "UPDATE settlement_invoices si SET created_at = '2026-11-10 00:00+00' FROM settlement_periods sp "
+                      "WHERE sp.id = si.period_id AND sp.start_at = '2026-11-02 08:00+00';")
+    run(psql("live"), BOUNDARIES)
+    require(q("live", "SELECT closing_exact::text || '/' || coalesce(closing_basis, '-') FROM ca_club_acct_boundary_log "
+                      "WHERE boundary = '2026-11-09 08:00+00'") == "false/-"
+            and '"days_not_whole"' in q("live", "SELECT fn_ca_club_acct_verify_week('fade0000-0000-0000-0000-000000000001', '2026-11-02 08:00+00')"),
+            "a side whose kept versions all follow its week's invoice loads nothing, and a week with an open projection failure is never reconciled")
+    # The fixture's deliberate failures of that week are set aside.
+    run(psql("live"), "UPDATE ca_club_acct_projection_failures SET resolved_at = now() WHERE resolved_at IS NULL "
+                      "AND acct_day BETWEEN '2026-11-02' AND '2026-11-08';")
+    model = ("SELECT club_id, round(sum(result), 2) r FROM (SELECT club_id, result FROM ca_club_acct_fact WHERE union_id = "
+             "'fade0000-0000-0000-0000-000000000001' AND acct_day BETWEEN '2026-11-02' AND '2026-11-08' UNION ALL "
+             "SELECT club_id, result FROM ca_club_acct_fact_journal WHERE union_id = 'fade0000-0000-0000-0000-000000000001' "
+             "AND acct_day BETWEEN '2026-11-02' AND '2026-11-08' UNION ALL "
+             "SELECT (h->>'club_id')::uuid, (h->>'amount')::numeric FROM ca_union_pnl_boundary_capture k, "
+             "jsonb_array_elements(k.value->'holdings') h WHERE k.boundary = '2026-11-09 08:00+00' AND h->>'kind' = "
+             "'deferred_tournament_result' AND k.certified_at = (SELECT min(certified_at) FROM ca_union_pnl_boundary_capture "
+             "WHERE boundary = '2026-11-09 08:00+00') UNION ALL "
+             "SELECT (h->>'club_id')::uuid, -(h->>'amount')::numeric FROM ca_union_pnl_boundary_capture k, "
+             "jsonb_array_elements(k.value->'holdings') h WHERE k.boundary = '2026-11-02 08:00+00' AND h->>'kind' = "
+             "'deferred_tournament_result' AND k.certified_at = (SELECT min(certified_at) FROM ca_union_pnl_boundary_capture "
+             "WHERE boundary = '2026-11-02 08:00+00')) x GROUP BY 1")
+    # Every club of the model gets an invoice holding its total; one is a cent off.
+    run(psql("live"), f"""
+      INSERT INTO settlement_periods (club_id, union_id, start_at, end_at, status)
+        SELECT m.club_id, 'fade0000-0000-0000-0000-000000000001', '2026-11-02 08:00+00', '2026-11-09 08:00+00', 'processing'
+          FROM ({model}) m WHERE NOT EXISTS (SELECT 1 FROM settlement_invoices si JOIN settlement_periods sp ON sp.id = si.period_id
+            WHERE si.club_id = m.club_id AND sp.start_at = '2026-11-02 08:00+00');
+      INSERT INTO settlement_invoices (club_id, period_id, invoice_type, invoice_number, status, breakdown, created_at)
+        SELECT sp.club_id, sp.id, 'union_weekly_squareup', 'FX-' || left(sp.club_id::text, 4), 'generated', '{{}}'::jsonb,
+               '2026-11-10 00:00+00'
+          FROM settlement_periods sp WHERE sp.start_at = '2026-11-02 08:00+00'
+           AND NOT EXISTS (SELECT 1 FROM settlement_invoices si WHERE si.period_id = sp.id);
+      UPDATE settlement_invoices si SET breakdown = si.breakdown || jsonb_build_object('players_won',
+             COALESCE((SELECT m.r FROM ({model}) m WHERE m.club_id = si.club_id), 0)
+             + CASE WHEN si.club_id = 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4' THEN 0.01 ELSE 0 END)
+        FROM settlement_periods sp WHERE sp.id = si.period_id AND sp.start_at = '2026-11-02 08:00+00';""")
+    v = q("live", "SELECT fn_ca_club_acct_verify_week('fade0000-0000-0000-0000-000000000001', '2026-11-02 08:00+00')")
+    require('"verified": false' in v and '"does_not_reconcile"' in v
+            and q("live", "SELECT closing_exact::text FROM ca_club_acct_boundary_log WHERE boundary = '2026-11-09 08:00+00'") == "false",
+            "a kept version that leaves any club a cent away from its invoice is not loaded: " + v[:300])
+    run(psql("live"), "UPDATE settlement_invoices si SET breakdown = si.breakdown || jsonb_build_object('players_won', "
+                      "(si.breakdown->>'players_won')::numeric - 0.01) FROM settlement_periods sp WHERE sp.id = si.period_id "
+                      "AND sp.start_at = '2026-11-02 08:00+00' AND si.club_id = 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4';")
+    run(psql("live"), BOUNDARIES)
+    require(q("live", "SELECT closing_exact::text || '/' || closing_basis || '/' || (closing_md5 = (SELECT value_md5 FROM "
+                      "ca_union_pnl_boundary_capture WHERE boundary = '2026-11-09 08:00+00' ORDER BY certified_at LIMIT 1))::text "
+                      "FROM ca_club_acct_boundary_log WHERE boundary = '2026-11-09 08:00+00'") == "true/reconciled_to_invoice/true"
+            and q("live", "SELECT opening_exact::text || '/' || opening_basis FROM ca_club_acct_boundary_log "
+                          "WHERE boundary = '2026-11-02 08:00+00'") == "true/reconciled_to_invoice"
+            and q("live", "SELECT sum(result) FROM ca_club_acct_fact WHERE src = 2 AND acct_day = '2026-11-08' "
+                          "AND last_at = '2026-11-09 08:00+00'") == "12.00",
+            "reloading the boundary loads the earliest kept version once the week reconciles to its invoice to the cent")
 
     require(q("live", "SELECT NOT has_table_privilege('authenticated','public.ca_club_acct_fact','select') "
                       "AND NOT has_table_privilege('anon','public.ca_club_acct_fact','select') "

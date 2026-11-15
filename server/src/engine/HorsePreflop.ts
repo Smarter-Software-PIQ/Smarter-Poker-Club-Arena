@@ -148,6 +148,44 @@ export interface PreflopIntent {
     | 'v86_plo_three_bettor_continues';
 }
 
+/** What a facing-a-raise branch reported through PreflopCtx.noteThresholds. */
+export interface PreflopThresholdsSeen {
+  threeBet: number | null;
+  call: number | null;
+  fourBet: number | null;
+  strength: number;
+}
+
+/**
+ * THE PER-DECISION READ RECEIPT (2026-11-15, accepted from the Human-vs-Horse
+ * lane): one bounded, journal-only record for every preflop decision facing a
+ * raise, so a witness can see that an opponent read moved a bar without
+ * replaying the decision with the switch off. `base*` are the bars of the same
+ * decision with the style and maniac reads taken out (a rewound
+ * counterfactual of the same intent engine, no RNG drawn, no telemetry);
+ * the plain fields are the bars the decision used. `consumer` 'maniac_price'
+ * is the maniac raise-width arithmetic (HorseLogic), which decides before any
+ * bar exists: its call threshold is the required equity and strength is the
+ * equity against the maniac's range. Never changes a decision.
+ */
+export interface PreflopReadReceipt {
+  version: 1;
+  consumer: 'range_play' | 'maniac_price';
+  /** Names passed to noteLayer in this decision, then the maniac reads present (at most 16). */
+  layers: readonly string[];
+  strength: number | null;
+  /** The last facing-open authority branch, when one fired. */
+  branch: string | null;
+  baseThreeBetThreshold: number | null;
+  baseCallThreshold: number | null;
+  baseFourBetThreshold: number | null;
+  threeBetThreshold: number | null;
+  callThreshold: number | null;
+  fourBetThreshold: number | null;
+  /** maniac_price only: the raiser's read width. */
+  maniacWidth?: number;
+}
+
 /**
  * HU-HILO-002 (default OFF, HorseDecideOpts.omahaHiLoTournamentFirstIn): the
  * shares the pot-limit Omaha hi-lo heads-up tournament arm passes to
@@ -526,6 +564,11 @@ export interface PreflopCtx {
    *  named here when that layer moves a bar. This module has no telemetry. */
   noteLayer?: (layer: PreflopLayerReceipt) => void;
   noteAuthority?: (event: PreflopAuthorityEvent) => void;
+  /** Receipt only (2026-11-15, LATER LAYERS KEEP THE STYLE READ): the bars a
+   *  facing-a-raise branch decided with, after every opponent-read move.
+   *  Facing one raise: the 3-bet and call bars; facing a 3-bet or more: the
+   *  4-bet and call bars. Never changes the action. */
+  noteThresholds?: (seen: PreflopThresholdsSeen) => void;
   /** Short deck keeps its own calibration; the cash pressure layer skips it. */
   isShortDeck?: boolean;
   /** League calibration arm (2026-10-30): added to the tournament call bar
@@ -2170,7 +2213,21 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
         const bluffTarget = raiseIsoTo();
         const bluffTargetCoins =
           bluffTarget.a === 'raiseTo' ? (bluffTarget.to ?? Infinity) : Infinity;
-        if (bluffTargetCoins <= effCoins * 0.34) {
+        // LATER LAYERS KEEP THE STYLE READ (2026-11-15): this branch returns
+        // before the opener bars, so the tight-opener respect read
+        // (styleTightReRaiserRespect, set on exploitOpener with maxBarMove only
+        // while that option is on) was never consulted and a 5-high suited
+        // limp re-raised a credibly tight raiser to 16bb. The bluff is not
+        // taken against a raiser that read respects; the hand calls the
+        // iso-raise below. The premium-pair value limp-reraise is above and
+        // unchanged. With the option off the field is absent: unchanged.
+        const respectedTightRaiser =
+          ctx.exploitOpener !== undefined &&
+          !ctx.exploitOpener.wide &&
+          typeof ctx.exploitOpener.maxBarMove === 'number';
+        if (bluffTargetCoins <= effCoins * 0.34 && respectedTightRaiser) {
+          ctx.noteLayer?.('style_tight_opener_respect_seen');
+        } else if (bluffTargetCoins <= effCoins * 0.34) {
           recordLimpIsoAuthority('v87_ep_limp_reraise_bluff', false);
           return bluffTarget;
         }
@@ -2978,6 +3035,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     }
     threeBetThresh = phase6CapBar(threeBetThresh);
     callThresh = phase6CapBar(callThresh);
+    ctx.noteThresholds?.({ threeBet: threeBetThresh, call: callThresh, fourBet: null, strength });
     const bbDiscount =
       position === 'bb' || (unblocked86 && ctx.heroPriorAction === 'post_straddle_or_kill')
         ? 0.06
@@ -3608,6 +3666,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       fourBetThresh = phase6CapBar(fourBetThresh + 0.03);
       callThresh = phase6CapBar(callThresh + 0.05);
     }
+    ctx.noteThresholds?.({ threeBet: null, call: callThresh, fourBet: fourBetThresh, strength });
     // ═══ PLO6-AUDIT-004 THE VPIP FLOOR DOES NOT SET THE STACK-OFF BAR ═══
     // (2026-11-12) vpipFloorMul scales `tightness`, and every bar here is a
     // product of it, so on a 50% floor table a seat in its first hands had its
@@ -3725,16 +3784,22 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       toCall < effectiveStack4Bet * 0.65 &&
       ctx.satellite?.locked !== true
     ) {
+      // LATER LAYERS KEEP THE STYLE READ (2026-11-15): against a credibly tight
+      // 3-bettor (styleTightReRaiserRespect on and its read engaged, the same
+      // field that raised the 4-bet and call bars above) the bluff and blocker
+      // reshoves are dropped; the value reshoves are unchanged, and the
+      // tournament utility still runs after this as it does today.
+      const reshoveBluffAllowed = ctx.maniacNoBluff !== true && vsTightReRaiser === undefined;
       if (v87HoleClass !== null) {
         if (
           V87_FOUR_BET_VALUE_SHOVE_CLASSES.has(v87HoleClass) ||
-          (ctx.maniacNoBluff !== true && V87_FOUR_BET_BLUFF_SHOVE_CLASSES.has(v87HoleClass))
+          (reshoveBluffAllowed && V87_FOUR_BET_BLUFF_SHOVE_CLASSES.has(v87HoleClass))
         ) {
           return { a: 'jam' };
         }
       } else if (
         strength >= t(0.76) ||
-        (ctx.maniacNoBluff !== true && ctx.holdsAce === true && strength >= t(0.58))
+        (reshoveBluffAllowed && ctx.holdsAce === true && strength >= t(0.58))
       ) {
         return { a: 'jam' };
       }
