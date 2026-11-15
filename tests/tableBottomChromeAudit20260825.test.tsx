@@ -10,6 +10,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { sliceCall } from './helpers/sourceWindow';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import ActionPanel from '../src/components/table/ActionPanel';
 import PreActionBar from '../src/components/table/PreActionBar';
@@ -279,6 +280,29 @@ describe('the action-error toast clears itself', () => {
    * so the toast sat over the middle of the felt covering the board until the
    * player found the small x on it.
    */
+  it('gives each forbidden tournament action a fresh table alert, including after dismissal', () => {
+    const page = readFileSync(resolve(__dirname, '../src/pages/TablePage.tsx'), 'utf8');
+    const declaration = sliceCall(page, 'const explainShoveOrFold = useCallback');
+    const setActionErrorData = vi.fn();
+    const explain = new Function(
+      'useCallback',
+      'setActionErrorData',
+      'toast',
+      declaration + '; return explainShoveOrFold'
+    )((callback: () => void) => callback, setActionErrorData, { info: vi.fn() });
+
+    const { rerender } = render(<ActionErrorToast errorData={null} onClear={vi.fn()} />);
+    for (let tap = 0; tap < 2; tap++) {
+      explain();
+      expect(setActionErrorData).toHaveBeenCalledTimes(tap + 1);
+      const alert = setActionErrorData.mock.calls[tap][0];
+      rerender(<ActionErrorToast errorData={alert} onClear={vi.fn()} />);
+      expect(screen.getByRole('alert')).toHaveTextContent(/only press all in or fold/i);
+      rerender(<ActionErrorToast errorData={null} onClear={vi.fn()} />);
+      expect(screen.queryByRole('alert')).toBeNull();
+    }
+  });
+
   it('fires after four seconds even when the parent re-renders constantly', () => {
     const onClear = vi.fn();
     /* `errorData` is hoisted so its IDENTITY is stable across the re-renders
