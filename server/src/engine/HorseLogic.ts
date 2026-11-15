@@ -65,6 +65,8 @@ import {
 import type { OmahaReadConditional } from './HorseOmahaReadConditional.js';
 import { omahaRiverMediumBetCall } from './HorseOmahaRiverMediumBetCalls.js';
 import {
+  omahaBareOverpairFlopFacingBetSpot,
+  omahaBareOverpairFlopFacingBetVerdict,
   omahaBareOverpairOopFlopSpot,
   omahaOverpairOopTurnBarrelSpot,
   omahaPairedRiverThinLeadSpot,
@@ -72,6 +74,8 @@ import {
   omahaOopTurnCheckAfterFlopCallSpot,
   omahaOopTurnFacingBetVerdict,
   omahaTurnBetLacksRiverPlan,
+  type OmahaBareOverpairContRead,
+  type OmahaBareOverpairContVerdict,
   type OmahaRiverShoveEnv,
 } from './HorseOmahaOopChecks.js';
 import {
@@ -7852,6 +7856,103 @@ function omahaOopTurnFacingBetRule(
   }
 }
 
+/** The continuation verdict of the decision in progress, computed once (the
+ *  rule runs in omahaOopCheckRules and again outermost). Cleared at the start
+ *  of every decision (decideInternal). */
+let omahaBareOverpairContMemo: {
+  player: SeatPlayer;
+  gs: HorseGameStateV2;
+  mind: boolean;
+  verdict: OmahaBareOverpairContVerdict | null;
+} | null = null;
+
+/**
+ * omahaBareOverpairOopFlopCheck, the continuation (HorseOmahaOopChecks.ts):
+ * heads-up on the flop, having checked the bare pair out of position and
+ * facing his bet: never a raise; a call when the expected value of the call
+ * (the Horse's exact cards against the bettor's range, his measured read, the
+ * price, an out-of-position realisation discount) clears its margin, else a
+ * fold. Null when the option is off or the spot does not hold (the caller
+ * goes on, multiway included); the decision given when the verdict cannot be
+ * computed or already agrees. Called from omahaOopCheckRules and again
+ * outermost from omahaOwnerRuledFinal. The turn and river raise rule
+ * (omahaTurnRiverRaiseNeedsNuts) never sees a flop decision. Exported for
+ * its tests.
+ */
+export function omahaBareOverpairFlopFacingBetRule(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision | null {
+  if (opts.omahaBareOverpairOopFlopCheck !== true || String(gs.stage ?? '') !== 'flop') return null;
+  try {
+    const spot = omahaBareOverpairFlopFacingBetSpot(player, gs);
+    if (spot === null) return null;
+    const mind = opts.mind !== false;
+    const memo = omahaBareOverpairContMemo;
+    let verdict: OmahaBareOverpairContVerdict | null;
+    if (memo && memo.player === player && memo.gs === gs && memo.mind === mind)
+      verdict = memo.verdict;
+    else {
+      let read: OmahaBareOverpairContRead | null = null;
+      if (mind) {
+        try {
+          const rc = HorseMind.omahaReadConditionalOf(spot.opponent.user_id);
+          if (rc && rc.measured === true) {
+            const ev = HorseMind.omahaFacingBetEvReadOf(
+              spot.opponent.user_id,
+              'turn',
+              spot.potFrac,
+              false
+            );
+            read = {
+              measured: true,
+              valueLeader: rc.valueLeader === true,
+              postflopAggressor: rc.postflopAggressor === true || ev?.postflopManiac === true,
+              betCheckedToRatio: ev?.measured === true ? ev.betCheckedToRatio : null,
+            };
+          }
+        } catch {
+          read = null;
+        }
+      }
+      verdict = omahaBareOverpairFlopFacingBetVerdict(spot, player, gs, read, {
+        rake: isTournamentMode(gs)
+          ? 0
+          : rakeDrag(gs.pot, gs.bigBlind, gs.rakeConfig, dealtHorseTableSize(gs, player.seat)),
+        realization: realizationFactor({ street: 'flop', inPosition: false }),
+      });
+      omahaBareOverpairContMemo = { player, gs, mind, verdict };
+    }
+    if (verdict === null) return decision;
+    const tele = telemetryOn(opts);
+    if (!verdict.call) {
+      if (decision.action === 'fold') return decision;
+      if (tele) noteFire('omaha_bare_overpair_oop_flop_check_folded');
+      const folded: HorseDecision = { ...decision, action: 'fold' };
+      delete folded.amount;
+      delete folded.continuationGuard;
+      return folded;
+    }
+    if (decision.action === 'call') return decision;
+    // The ledger contract finds each receipt by the first literal of its noteFire call.
+    const flatted = decision.action !== 'fold';
+    if (tele)
+      noteFire(
+        flatted
+          ? 'omaha_bare_overpair_oop_flop_check_raise_flatted'
+          : 'omaha_bare_overpair_oop_flop_check_called'
+      );
+    const called: HorseDecision = { ...decision, action: 'call', amount: spot.call };
+    delete called.continuationGuard;
+    return called;
+  } catch {
+    if (telemetryOn(opts)) noteFire('omaha_strategy_rule_failed');
+    return decision;
+  }
+}
+
 /**
  * PRECEDENCE, outermost of the wager rules on both decision paths (lane
  * owner 2026-11-15): the owner-ruled turn verdict facing a bet is final. No
@@ -7867,6 +7968,8 @@ function omahaOwnerRuledFinal(
 ): HorseDecision {
   const faced = omahaOopTurnFacingBetRule(decision, player, gs, opts);
   if (faced !== null) return faced;
+  const flopFaced = omahaBareOverpairFlopFacingBetRule(decision, player, gs, opts);
+  if (flopFaced !== null) return flopFaced;
   // A wager facing no bet that reached here in a spot an owner-ruled check
   // rule, the turn river-plan test or the street plan checks was proposed by
   // a later rule (omahaBigDrawAggression): the check stands. The inner rules
@@ -7980,6 +8083,12 @@ function omahaOopCheckRules(
   // again outermost (omahaOwnerRuledFinal), so no later rule overturns it.
   if (oopTurnOn) {
     const faced = omahaOopTurnFacingBetRule(decision, player, gs, opts);
+    if (faced !== null) return faced;
+  }
+  // omahaBareOverpairOopFlopCheck, facing the flop bet after the check (the
+  // continuation): the same pattern, and again outermost.
+  if (flopOn) {
+    const faced = omahaBareOverpairFlopFacingBetRule(decision, player, gs, opts);
     if (faced !== null) return faced;
   }
   if (decision.action !== 'bet' && decision.action !== 'raise' && decision.action !== 'all_in')
@@ -9736,6 +9845,7 @@ export class HorseLogic {
     planReadCapture?: HorsePlanReadCapture
   ): HorseDecision {
     omahaFacingBetEvMemo = null;
+    omahaBareOverpairContMemo = null;
     // omahaVpipFloorByLimp's pending fold is per decision: a decision that
     // threw between setting and reading it must not hand it to the next one.
     vpipFloorLimpFoldPending = false;
