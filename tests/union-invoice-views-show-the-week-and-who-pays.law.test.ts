@@ -149,3 +149,47 @@ describe('a union invoice view shows its week and who pays whom', () => {
     expect(board).toContain("throw new Error('Statement credit notes do not reconcile')");
   });
 });
+
+describe('a union invoice view subtracts credit notes from what is unpaid and from its totals', () => {
+  const followUps = readdirSync(dir).filter((file) =>
+    file.endsWith('_union_invoice_views_subtract_credits_from_balances_and_totals.sql')
+  );
+  if (followUps.length !== 1) throw new Error('Expected One Union Invoice Balances Migration');
+  const followUp = readFileSync(`${dir}/${followUps[0]}`, 'utf8').replace(/^--[^\n]*$/gm, '');
+
+  it('patches only the reviewed sources, in one transaction, writing nothing', () => {
+    expect(followUp.match(/^BEGIN;$/gm)).toHaveLength(1);
+    expect(followUp.match(/^COMMIT;$/gm)).toHaveLength(1);
+    expect(followUp).toContain(
+      "'public.ca_union_statement_board(uuid,date,integer)'::regprocedure,\n  'a95dd4e582a6888bcd08b7e8d4c9ddb0'"
+    );
+    expect(followUp).toContain(
+      "'smarter_private.union_weekly_invoice_body(uuid)'::regprocedure,\n  'a7276e1a0f917bc06a8a3da7a0167c97'"
+    );
+    expect(followUp).toContain('UNION_INVOICE_BALANCES_ANCHOR_NOT_UNIQUE');
+    expect(followUp).not.toMatch(/\b(UPDATE|INSERT\s+INTO|DELETE\s+FROM)\s+public\./i);
+    expect(followUp).not.toMatch(/fn_deliver_accounting_invoice\s*\(/);
+  });
+
+  it('the unpaid balance is the amount after credit notes less payments, on the board and in the body', () => {
+    expect(followUp).toContain(
+      'round(GREATEST(COALESCE(b.remaining_after_credits, abs(b.amount)) - b.paid_total, 0), 2)'
+    );
+    expect(followUp).toContain("E'\\nRemaining Unpaid Balance: '");
+    expect(followUp).toContain('greatest(v_remaining - v_paid, 0)');
+    expect(board).toContain('Math.max(remainingAfterCredits - cents(parsed.paid_total ?? 0), 0)');
+    expect(page).toContain("['Remaining Unpaid Balance', c.remaining_unpaid ?? null]");
+    expect(page).toContain("'remaining_unpaid_balance'");
+  });
+
+  it('the rakeback credit is never described as a club payment', () => {
+    expect(followUp).toContain('Less Club Rakeback Credit Is The Rakeback ');
+    expect(page).toContain('Less Club Rakeback Credit Is The Rakeback The Union Paid The Club');
+    expect(page).not.toContain('The Net Loss Lines, Less Club Rakeback Credit,');
+  });
+
+  it('the tiles state what is owed after credit notes', () => {
+    expect(board).toContain('clubs_owe: afterCreditTotals.clubs_owe / 100');
+    expect(board).toContain('net: afterCreditTotals.net / 100');
+  });
+});
