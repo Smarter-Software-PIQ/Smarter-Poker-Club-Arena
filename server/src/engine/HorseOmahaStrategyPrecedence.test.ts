@@ -39,6 +39,7 @@ import {
   omahaPairedTurnBarrelSpot,
 } from './HorseOmahaOopChecks.js';
 import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
+import { horseDecisionReceiptRefusal } from './horseDecision/responseValidation.js';
 import {
   replayProfiles,
   stateAt,
@@ -60,6 +61,19 @@ const forced = vi.hoisted(() => ({
   evCall: null as boolean | null,
   evThrows: false,
   evCalls: 0,
+  /** card impact proposes the full pot where the engine bet less */
+  impactBigger: false,
+  /** the made-hand defence checks every wager facing no bet (its own test replaced) */
+  defenceChecks: false,
+  /** strong-hand value proposes a half-pot bet where the final answer is a check */
+  strongBet: false,
+  /** the turn river-plan test refuses a bet above this amount */
+  lacksPlanAbove: null as number | null,
+  /** the street plan prices the check line far above the bet line */
+  planChecks: false,
+  planRuns: 0,
+  /** the turn plan, re-read on the river, calls this river */
+  planCallsRiver: false,
 }));
 
 vi.mock('./HorseOmahaCardImpact.js', async (original) => {
@@ -75,6 +89,11 @@ vi.mock('./HorseOmahaCardImpact.js', async (original) => {
         return {
           changed: 'press_bet',
           decision: { ...decision, action: 'bet', amount: Math.round(rest[1].pot * 0.5) },
+        };
+      if (forced.impactBigger && decision.action === 'bet')
+        return {
+          changed: 'resized',
+          decision: { ...decision, amount: Math.round(rest[1].pot) },
         };
       if (forced.impactCheck && decision.action !== 'check') {
         const checked = { ...decision, action: 'check' };
@@ -93,6 +112,65 @@ vi.mock('./HorseOmahaStreetPlan.js', async (original) => {
       if (forced.planThrows) throw new Error('forced street plan failure');
       return (real.omahaStreetPlanTurnSpot as (...x: unknown[]) => unknown)(...a);
     },
+    omahaStreetPlan: (...a: unknown[]) => {
+      forced.planRuns++;
+      const plan = (real.omahaStreetPlan as (...x: unknown[]) => unknown)(...a) as {
+        lines: { ev: number }[];
+      } | null;
+      if (!forced.planChecks || !plan || plan.lines.length < 2) return plan;
+      const lines = plan.lines.map((l, i) => (i === 0 ? { ...l, ev: plan.lines[1].ev + 1e6 } : l));
+      return { ...plan, lines };
+    },
+    omahaPlanRiverVerdict: (...a: unknown[]) =>
+      forced.planCallsRiver
+        ? 'call'
+        : (real.omahaPlanRiverVerdict as (...x: unknown[]) => unknown)(...a),
+  };
+});
+vi.mock('./HorseOmahaMadeHandDefense.js', async (original) => {
+  const real = await original<typeof import('./HorseOmahaMadeHandDefense.js')>();
+  return {
+    ...real,
+    omahaBeatenNoBet: (decision: HorseDecision, ...rest: unknown[]) => {
+      if (
+        forced.defenceChecks &&
+        rest[2] === true &&
+        ['bet', 'raise', 'all_in'].includes(decision.action)
+      ) {
+        const checked = { ...decision, action: 'check' };
+        delete checked.amount;
+        return { decision: checked, changed: 'river_check' };
+      }
+      return (real.omahaBeatenNoBet as (...x: unknown[]) => unknown)(decision, ...rest);
+    },
+  };
+});
+vi.mock('./HorseOmahaStrongHandValue.js', async (original) => {
+  const real = await original<typeof import('./HorseOmahaStrongHandValue.js')>();
+  return {
+    ...real,
+    omahaStrongHandValueDecision: (
+      decision: HorseDecision,
+      ...rest: [never, { pot: number }, never]
+    ) => {
+      if (forced.strongBet && decision.action === 'check')
+        return {
+          changed: 'value_bet',
+          priced: true,
+          decision: { ...decision, action: 'bet', amount: Math.round(rest[1].pot * 0.5) },
+        };
+      return (real.omahaStrongHandValueDecision as (...a: unknown[]) => unknown)(decision, ...rest);
+    },
+  };
+});
+vi.mock('./HorseOmahaOopChecks.js', async (original) => {
+  const real = await original<typeof import('./HorseOmahaOopChecks.js')>();
+  return {
+    ...real,
+    omahaTurnBetLacksRiverPlan: (...a: unknown[]) =>
+      forced.lacksPlanAbove !== null
+        ? Number(a[2]) > forced.lacksPlanAbove
+        : (real.omahaTurnBetLacksRiverPlan as (...x: unknown[]) => unknown)(...a),
   };
 });
 vi.mock('./HorseOmahaFacingBetEv.js', async (original) => {
@@ -133,6 +211,13 @@ afterEach(() => {
     evCall: null,
     evThrows: false,
     evCalls: 0,
+    impactBigger: false,
+    defenceChecks: false,
+    strongBet: false,
+    lacksPlanAbove: null,
+    planChecks: false,
+    planRuns: 0,
+    planCallsRiver: false,
   });
   HorseMind.setDecisionScope(null);
   HorseMind.reset();
@@ -199,14 +284,17 @@ const leader = { measured: true, tightReRaiser: false, valueLeader: true } as Om
 
 interface Outcome {
   actions: string[];
+  amounts: (number | null)[];
   fires: string[][];
   bytes: string[];
+  /** the worker receipt validator's refusal of each decision (null = admitted) */
+  refusals: (string | null)[];
 }
 const bytesOf = (d: unknown): string =>
   JSON.stringify(d, (k, v) => (k === 'latencyMs' || k === 'elapsedMs' ? undefined : v));
 function play(build: () => Node, opts: HorseDecideOpts, valueLeader = true): Outcome {
   enableBrainTelemetry();
-  const out: Outcome = { actions: [], fires: [], bytes: [] };
+  const out: Outcome = { actions: [], amounts: [], fires: [], bytes: [], refusals: [] };
   for (const s of SEEDS) {
     HorseMind.reset();
     if (valueLeader)
@@ -219,7 +307,14 @@ function play(build: () => Node, opts: HorseDecideOpts, valueLeader = true): Out
       ...opts,
     } as never);
     out.actions.push(d.action);
+    out.amounts.push(d.amount ?? null);
     out.bytes.push(bytesOf(d));
+    out.refusals.push(
+      horseDecisionReceiptRefusal(structuredClone(d), String(st.gs.gameVariant), {
+        player: st.hero,
+        gameState: st.gs,
+      })
+    );
     out.fires.push(drainFires().map((f) => f.feature));
     vi.restoreAllMocks();
   }
@@ -522,4 +617,91 @@ describe('audit 2026-11-15 item 2: omahaOopTurnCheckAfterFlopCall multiway, the 
       ).toEqual(SEEDS.map(() => 'fold'));
     }
   );
+});
+
+describe('conflict sweep 2026-11-15, the open findings', () => {
+  /** the nut straight on the unpaired turn 5d 8d 9h 2h: 7-6 for the nine-high straight */
+  const NUTS = 'AsAh7c6s4h';
+  const DEFENCE: HorseDecideOpts = { omahaMadeHandDefenseVsValueLeader: true };
+
+  it('B3: the street plan never asks the facing-bet expected value on a hypothetical river, and runs once per bet size', () => {
+    const TRIPLE: HorseDecideOpts = {
+      omahaStreetPlan: true,
+      omahaFacingBetEv: true,
+      omahaBluffCatcherFoldVsValueLeader: true,
+    };
+    enableBrainTelemetry();
+    let planned = 0;
+    for (const s of SEEDS) {
+      HorseMind.reset();
+      seedFastRandom(s);
+      const st = nodeAt(ACES, TURN, NUTS);
+      forced.evCalls = 0;
+      forced.planRuns = 0;
+      const d = HorseLogic.decide(st.hero, st.gs, LIVE.style, LIVE.mods, {
+        telemetry: true,
+        ...TRIPLE,
+        omahaBigDrawAggression: true,
+        omahaCardImpact: true,
+      } as never);
+      // the turn decision faces no bet: nothing asks the exact-hand count
+      expect(forced.evCalls).toBe(0);
+      // one plan per bet size priced (the engine's and, at most, card impact's)
+      expect(forced.planRuns).toBeLessThanOrEqual(2);
+      if (forced.planRuns > 0) planned++;
+      expect(['bet', 'check', 'all_in']).toContain(d.action);
+    }
+    drainFires();
+    expect(planned).toBeGreaterThan(0);
+  });
+
+  it('S1: the facing-bet expected value yields to a turn plan that calls this river', () => {
+    const PLAN_EV: HorseDecideOpts = { omahaStreetPlan: true, omahaFacingBetEv: true };
+    forced.evCall = false;
+    // without a plan that calls, the verdict (a fold) is the single decider
+    const noPlan = play(() => facingAfterCheck(ACES, RIVER, 0.5), PLAN_EV, false);
+    expect(fired(noPlan, 'omaha_facing_bet_ev_fold')).toBe(SEEDS.length);
+    expect(all(noPlan, 'fold')).toBe(true);
+    forced.planCallsRiver = true;
+    const planOnly = play(
+      () => facingAfterCheck(ACES, RIVER, 0.5),
+      { omahaStreetPlan: true },
+      false
+    );
+    const both = play(() => facingAfterCheck(ACES, RIVER, 0.5), PLAN_EV, false);
+    expect(fired(both, 'omaha_facing_bet_ev_fold')).toBe(0);
+    expect(fired(both, 'omaha_facing_bet_ev_call')).toBe(0);
+    expect(both.actions).toEqual(planOnly.actions);
+    expect(fired(both, 'omaha_street_plan_followed')).toBe(
+      fired(planOnly, 'omaha_street_plan_followed')
+    );
+    // a followed plan ends in the call it planned
+    both.fires.forEach((f, i) => {
+      if (f.includes('omaha_street_plan_followed'))
+        expect(['call', 'all_in']).toContain(both.actions[i]);
+    });
+  });
+
+  it('audit item 7: the street plan attaches its record to a copy; the validator and a JSON round trip carry the field', () => {
+    let carried = 0;
+    for (const s of SEEDS) {
+      HorseMind.reset();
+      seedFastRandom(s);
+      const st = nodeAt(ACES, TURN, NUTS);
+      const d = HorseLogic.decide(st.hero, st.gs, LIVE.style, LIVE.mods, {
+        omahaStreetPlan: true,
+      } as never);
+      if (d.streetPlan === undefined) continue;
+      carried++;
+      const wire = JSON.parse(JSON.stringify(d)) as HorseDecision;
+      expect(wire.streetPlan).toEqual(JSON.parse(JSON.stringify(d.streetPlan)));
+      expect(
+        horseDecisionReceiptRefusal(wire, String(st.gs.gameVariant), {
+          player: st.hero,
+          gameState: st.gs,
+        })
+      ).toBeNull();
+    }
+    expect(carried).toBeGreaterThan(0);
+  });
 });
