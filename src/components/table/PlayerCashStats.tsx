@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { masterBus } from '../../core/MasterBus';
 import { reportError } from '../../utils/errorReporter';
+import './ThrowableSelector.css';
 
 interface CashGameStats {
   tableId: string;
