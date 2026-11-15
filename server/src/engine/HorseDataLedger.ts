@@ -904,6 +904,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaReraisedPotDiscipline',
+    'Owner ruling 2026-11-14 23:49 (re-raised pots): PLO4/PLO5 cash, facing a 4-bet or more preflop a hand without a pair of aces or a premium structure folds unless the committed call pays the price against aces; in a pot raised three or more times preflop, one pair or two pair below top two does not put its stack in unless its equity against aces or top two or better pays the price (HorseOmahaReraisedPot.ts). Default on by owner order 2026-11-15 00:55 (value unmeasured); explicit false switches it off',
+    'V94'
+  ),
+  flag(
     'omahaNutClassValueSize',
     'Dan 2026-11-14: a PLO4/PLO5 high bet or raise with the nuts or an effective-nut hand for the street is the full pot (the pot-limit maximum, the stack when smaller) on the flop, turn and river. Default on by owner order 2026-11-15 00:32 (value unmeasured); explicit false switches it off',
     'V94'
@@ -3577,6 +3582,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_nut_class_pot_wager',
     'HorseLogic wager_rules (HorseOmahaMadeHandDefense)',
     'a PLO4/PLO5 bet or raise with the nuts or an effective-nut hand was sized up to the full pot (or the stack)',
+    'V94'
+  ),
+  receipt(
+    'omaha_reraised_pot_preflop_fold',
+    'HorseLogic call discipline (HorseOmahaReraisedPot)',
+    'PLO4/PLO5 cash continue facing a 4-bet or more preflop with a hand without aces or a premium structure, not paying the committed price against aces: folded',
+    'V94'
+  ),
+  receipt(
+    'omaha_reraised_pot_postflop_fold',
+    'HorseLogic call discipline (HorseOmahaReraisedPot)',
+    'PLO4/PLO5 cash stack-off with one pair or two pair below top two in a pot raised three or more times preflop, equity against aces or top two or better under the price: folded',
+    'V94'
+  ),
+  receipt(
+    'omaha_reraised_pot_priced_in',
+    'HorseLogic call discipline (HorseOmahaReraisedPot)',
+    'a re-raised-pot continue the rule examined kept, because its equity against the declared range paid the price',
     'V94'
   ),
   receipt(

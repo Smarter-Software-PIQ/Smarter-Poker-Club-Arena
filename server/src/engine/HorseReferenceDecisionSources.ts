@@ -63,6 +63,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the default-off PLO6 top-set current-nuts test (PLO6-AUDIT P6-4, 2026-11-14) that sets full realization in the V38 flop/turn call menu',
     'src/engine/HorseOmahaRiverNutRaise.ts':
       'the final Omaha high river rule (Dan 2026-11-14, hand 59401453): a raise facing a wager stands only with the nuts or an effective-nut hand, every other raise becomes a call, before the call-discipline folds',
+    'src/engine/HorseOmahaReraisedPot.ts':
+      'the default-off Omaha re-raised-pot discipline (owner ruling 2026-11-14 23:49): facing a 4-bet or more preflop a hand without aces or a premium structure folds, and in such a pot one pair or two pair below top two does not stack off unless priced against a declared strong range; the outermost call-discipline fold',
     'src/engine/HorseOmahaMadeHandDefense.ts':
       'the final Omaha made-hand rules (Dan 2026-11-14, hands 59414191 and 59416584): a hand a possible straight or flush beats does not raise a turn wager or bet into the fresh card out of position, and a nut-class wager is the full pot, right after the river nut-raise rule',
     'src/engine/HorseOmahaCurrentNuts.ts':
