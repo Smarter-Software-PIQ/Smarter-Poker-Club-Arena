@@ -93,9 +93,12 @@ import {
   LOBBY_TAB_PREFIX,
   isLobbyLike,
   isPageTab,
+  findTournamentSeatTab,
+  followTournamentMoves,
   isTournamentRow,
   pickObserveSlot,
   pruneStaleSeatedTabs,
+  supersededTournamentSeats,
 } from '../utils/tabSlots';
 import {
   hubTabSubtitle,
@@ -176,6 +179,13 @@ const TournamentDetails = lazyWithRetry(() => import('./tournament/TournamentDet
 interface TableInstance {
   followPlayer?: FollowTournamentPlayer;
   id: string;
+  /**
+   * The tournament this table belongs to (absent for cash). It is how every
+   * seat path recognises a balance move as the SAME chair moving - see
+   * findTournamentSeatTab in utils/tabSlots.ts. Set by the tab factories that
+   * read the table row and reported by TablePage.
+   */
+  tournamentId?: string;
   name: string;
   stakes: string;
   isMyTurn: boolean;
@@ -451,6 +461,36 @@ const popLobbyTournament = (t: TableInstance): TableInstance => {
  */
 const tabIsTournament = (t: TableInstance | undefined): boolean =>
   !!t && (t.isTournament === true || isTournamentGameCode(t.gameCode));
+
+/**
+ * THE TAB FOLLOWS THE CHAIR: `current` becomes `dest`, in place. Every move
+ * path builds the moved tab here so none of them can drop what the next move
+ * needs to recognise it - a re-pointed tab that lost `seated` was no longer
+ * the player's chair to the following move, which then opened a new tab and
+ * left this one behind as an observer.
+ */
+const moveSeatTab = (
+  current: TableInstance,
+  dest: string,
+  patch: Partial<TableInstance> = {}
+): TableInstance => ({
+  id: dest,
+  kind: 'table',
+  name: current.name,
+  stakes: current.stakes,
+  isMyTurn: false,
+  pot: 0,
+  ...(current.seated === true ? { seated: true } : {}),
+  clusterId: current.clusterId,
+  gameCode: current.gameCode,
+  isTournament: tabIsTournament(current),
+  tournamentId: current.tournamentId,
+  tournamentBuyIn: current.tournamentBuyIn,
+  tournamentBuyInLabel: current.tournamentBuyInLabel,
+  tournamentName: current.tournamentName,
+  ...(tabIsTournament(current) ? { arrivedByMoveAt: Date.now() } : {}),
+  ...patch,
+});
 
 const clearLobbyTournaments = (t: TableInstance): TableInstance => ({
   ...t,
@@ -995,6 +1035,8 @@ export default function MultiTablePage() {
     tableId: string;
     registrationLobbyTabId?: string;
     tableName?: string;
+    /** Present for a tournament seat: lets a balance move re-point its tab. */
+    tournamentId?: string;
     seat?: number;
     userId?: string; // FIX: added so we can filter to own events only
   }
@@ -1161,7 +1203,7 @@ export default function MultiTablePage() {
       try {
         const { data: seatRows, error: seatErr } = await supabase
           .from('table_seats')
-          .select('table_id')
+          .select('table_id, joined_at')
           .eq('user_id', user.id)
           .is('left_at', null);
         if (!isCurrent() || seatErr || !Array.isArray(seatRows)) return;
@@ -1199,7 +1241,24 @@ export default function MultiTablePage() {
             .map((tab) => tab.id)
         );
         const visibleAnchors = anchorRows.filter((row) => !isRetiredTournamentTable(row));
-        ids = ids.filter((id) => visibleAnchors.some((row) => row.id === id));
+        /* ONE TOURNAMENT, ONE CHAIR (owner 2026-11-14). A balance move writes
+           the destination chair before it closes the source, so a read in
+           that window returns both. The older one is the move's source, not a
+           second table to open: only the newest live seat per tournament is
+           the player's chair, and the fold below re-points its tab. */
+        const superseded = supersededTournamentSeats(
+          seatRows.map((row) => ({
+            tableId: row.table_id as string,
+            tournamentId: visibleAnchors.find((r) => r.id === row.table_id)?.tournament_id as
+              | string
+              | null
+              | undefined,
+            joinedAt: (row as { joined_at?: string | null }).joined_at,
+          }))
+        );
+        ids = ids.filter(
+          (id) => visibleAnchors.some((row) => row.id === id) && !superseded.has(id)
+        );
         const recovered = await resolveLightningSeatRooms(visibleAnchors, undefined, keepAnchors);
         if (!isCurrent()) return;
         recovered.rooms.forEach((room) => registerLightningPoolSession(room));
@@ -1208,8 +1267,17 @@ export default function MultiTablePage() {
           visibleAnchors.map((row, index) => [row.id, tblRows[index].id])
         );
         ids = ids.map((id) => restoredIds.get(id) ?? id);
+        const tournamentOfRow = (id: string) =>
+          (tblRows.find((row) => row.id === id)?.tournament_id as string | null | undefined) ??
+          undefined;
+        const tabTournament = (tab: TableInstance) => tab.tournamentId ?? tournamentOfRow(tab.id);
+        const chairs = ids.map((id) => ({ tableId: id, tournamentId: tournamentOfRow(id) }));
+        // A chair that moved is re-pointed below, not closed: it gets no toast.
+        const movedChairIds = new Set(
+          followTournamentMoves(tablesRef.current, chairs, (tab) => tab, tabTournament).movedFrom
+        );
         const previousSeatedIds = tablesRef.current
-          .filter((tab) => isTableTab(tab) && tab.seated === true)
+          .filter((tab) => isTableTab(tab) && tab.seated === true && !movedChairIds.has(tab.id))
           .map((tab) => tab.id);
         // Publish a durable finish before pruning can unmount TablePage and
         // cancel its delayed elimination report. A balancer move publishes none.
@@ -1224,7 +1292,20 @@ export default function MultiTablePage() {
         setTables((prev) => {
           if (!isCurrent()) return prev;
           const liveSeatIds = new Set([...ids, ...retainedReportTabs]);
-          const survivors = pruneStaleSeatedTabs(prev, liveSeatIds);
+          const followed = followTournamentMoves(
+            prev,
+            chairs,
+            (tab, dest) => {
+              const row = tblRows.find((r) => r.id === dest);
+              return moveSeatTab(tab, dest, {
+                seated: true,
+                tournamentId: tournamentOfRow(dest),
+                ...(row?.name ? { name: formatGameTitle(row.name as string) || tab.name } : {}),
+              });
+            },
+            tabTournament
+          );
+          const survivors = pruneStaleSeatedTabs(followed.tabs, liveSeatIds);
           const known = new Set(survivors.map((t) => t.id));
           const room = Math.max(0, MAX_TABLES - survivors.length);
           /* Lightning: an anchor seat whose room tab is open is already shown
@@ -1291,6 +1372,7 @@ export default function MultiTablePage() {
                 maxPlayers: row?.max_players as number | undefined,
               }),
               isTournament: rowIsTournament,
+              tournamentId: (row?.tournament_id as string | null | undefined) ?? undefined,
               isMyTurn: false,
               pot: 0,
               // Dan 2026-08-30: `kind` was omitted here, and the prune below
@@ -1329,12 +1411,17 @@ export default function MultiTablePage() {
           const prunedCount = prev.length - survivors.length;
           // A bare URL can already own a tab when its first seat read succeeds.
           // Carry that confirmed admission so a later rebuild can reconcile it.
+          // The confirmation also names the tab's tournament, so a later move
+          // of this chair is recognised by every path (see moveSeatTab).
           const confirmed = survivors.map((tab) =>
-            liveSeatIds.has(tab.id) && isTableTab(tab) && tab.seated !== true
-              ? { ...tab, seated: true }
+            liveSeatIds.has(tab.id) &&
+            isTableTab(tab) &&
+            (tab.seated !== true || (!tab.tournamentId && tournamentOfRow(tab.id)))
+              ? { ...tab, seated: true, tournamentId: tab.tournamentId ?? tournamentOfRow(tab.id) }
               : tab
           );
           if (
+            followed.movedFrom.length === 0 &&
             prunedCount === 0 &&
             additions.length === 0 &&
             confirmed.every((tab, index) => tab === prev[index])
@@ -1618,6 +1705,7 @@ export default function MultiTablePage() {
                         tournamentBuyIn: t.tournamentBuyIn,
                         tournamentBuyInLabel: t.tournamentBuyInLabel,
                         tournamentName: t.tournamentName,
+                        tournamentId: tourId ?? undefined,
                       }
                     : t
                 )
@@ -1693,9 +1781,28 @@ export default function MultiTablePage() {
       }
 
       if (existing) {
-        return existing.seated
+        return existing.seated && (!e.tournamentId || existing.tournamentId)
           ? prev
-          : prev.map((t) => (t.id === e.tableId ? { ...t, seated: true } : t));
+          : prev.map((t) =>
+              t.id === e.tableId
+                ? { ...t, seated: true, tournamentId: t.tournamentId ?? e.tournamentId }
+                : t
+            );
+      }
+
+      /* A seat in a tournament this player already sits in is that chair
+         being balanced, whichever source reported it first: re-point the
+         chair's tab in place and never add one (owner 2026-11-14). */
+      const chairIndex = findTournamentSeatTab(prev, e.tableId, e.tournamentId);
+      if (chairIndex >= 0) {
+        return prev.map((t, index) =>
+          index === chairIndex
+            ? moveSeatTab(t, e.tableId, {
+                seated: true,
+                ...(e.tableName ? { name: formatGameTitle(e.tableName) || t.name } : {}),
+              })
+            : t
+        );
       }
 
       const seatedTab: TableInstance = {
@@ -1706,6 +1813,7 @@ export default function MultiTablePage() {
         pot: 0,
         kind: 'table',
         seated: true,
+        ...(e.tournamentId ? { tournamentId: e.tournamentId, isTournament: true } : {}),
       };
 
       // Seat events never consume a page the player still has open.
@@ -3821,32 +3929,11 @@ export default function MultiTablePage() {
               );
           }
           const next = prev.slice();
-          next[idx] = {
-            id: dest,
-            buyInRequested: updates.buyInRequested,
-            name: current.name,
-            stakes: current.stakes,
-            isMyTurn: false,
-            pot: 0,
-            /* THE GAME DOES NOT CHANGE WHEN THE TABLE DOES (2026-09-06). A             must-move / seat change / balance move re-points this tab at
-             another table OF THE SAME GAME, so the cluster is the one thing
-             that certainly survives it. Dropping it here blanked
-             `activeClusterId` until the remounted TablePage reported it again -
-             and in that gap the LOBBY button vanished and the 4-square jumped
-             ~74px sideways, at the exact moment the player was being moved. */
-            clusterId: current.clusterId,
-            gameCode: current.gameCode,
-            isTournament: tabIsTournament(current),
-            /* A balance move stays inside ONE tournament, so its price moves
-               with the chair. Without this the tab would drop to a bare code
-               until the buy-in was read again. */
-            tournamentBuyIn: current.tournamentBuyIn,
-            tournamentBuyInLabel: current.tournamentBuyInLabel,
-            tournamentName: current.tournamentName,
-            /* Only a TOURNAMENT move is something done to the player without
-               their asking; the table page reads this to say so on the felt. */
-            ...(tabIsTournament(current) ? { arrivedByMoveAt: Date.now() } : {}),
-          } as TableInstance;
+          /* Same game, same tournament, same chair: moveSeatTab keeps the
+             cluster, the price, the tournament and - the part this used to
+             drop - `seated`, so the NEXT move still finds this tab as the
+             player's chair instead of opening a new one beside it. */
+          next[idx] = moveSeatTab(current, dest, { buyInRequested: updates.buyInRequested });
           return next;
         }
         let changed = false;

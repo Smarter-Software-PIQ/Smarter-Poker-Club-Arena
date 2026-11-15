@@ -437,8 +437,8 @@ export function walletRoute(row: ChipTransactionLike): string | null {
           : meta.destination === 'player_wallet'
             ? 'Player Wallet'
             : 'Promo Wallet';
-      if (meta.destination === 'tournament_ticket') return 'Promo Wallet To Tournament Ticket';
-      return `${type === 'club_promo_send' ? 'Club Promo Wallet' : 'Promo Wallet'} To ${dest}`;
+      const source = type === 'club_promo_send' ? 'Club Promo Wallet' : 'Promo Wallet';
+      return `${source} To ${meta.destination === 'tournament_ticket' ? 'Tournament Ticket' : dest}`;
     }
     case 'peer_transfer':
       return meta.source === 'player_wallet' && meta.destination

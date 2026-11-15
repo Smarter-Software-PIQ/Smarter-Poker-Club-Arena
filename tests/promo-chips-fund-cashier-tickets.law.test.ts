@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
+import { walletRoute } from '../src/components/wallet/describeChipTransaction';
+
 const read = (path: string) => readFileSync(path, 'utf8');
 const migration = read(
   'supabase/migrations/20261112184216_promo_chips_fund_cashier_tickets_and_cancel_returns_escrow.sql'
@@ -122,7 +124,13 @@ describe('Promo tickets: one batch call, a readable allowance and recoverable re
     expect(followUp).toContain("IF md5(d) <> '0bb17681b38164a7a2746e17d07597b3'");
     expect(followUp).toContain("AND metadata->>''destination''=''tournament_ticket''))");
     const history = read('src/components/wallet/describeChipTransaction.ts');
-    expect(history).toContain("return 'Promo Wallet To Tournament Ticket';");
+    const metadata = { destination: 'tournament_ticket' };
+    expect(walletRoute({ transaction_type: 'promo_wallet_send', metadata })).toBe(
+      'Promo Wallet To Tournament Ticket'
+    );
+    expect(walletRoute({ transaction_type: 'club_promo_send', metadata })).toBe(
+      'Club Promo Wallet To Tournament Ticket'
+    );
     expect(history).toContain('Tournament Ticket`;');
   });
 });
