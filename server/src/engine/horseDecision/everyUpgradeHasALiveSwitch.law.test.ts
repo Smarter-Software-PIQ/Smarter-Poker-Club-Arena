@@ -486,6 +486,34 @@ describe('the owner order of 2026-11-14 22:01: every ledger option has an on/off
       expectStatus(name, 'harm', /^declared evaluation measured harm/);
     expectStatus('omahaNeutralUnknown', 'harm', /failed evaluation/);
     expectStatus('fixedLimitRiverFullBetRead', 'harm', /failed evaluation/);
+    // PLO Strategy's declared evaluations of 2026-11-15 that FAILED: off-only, each citing its inbox record
+    for (const name of [
+      'omahaReraisedPotDiscipline',
+      'omahaOnePairDiscipline',
+      'omahaBeatenMadeHandDefense',
+      'omahaBluffCatcherRaiseFold',
+    ]) {
+      expectStatus(
+        name,
+        'harm',
+        /^PLO Strategy evaluation result, inbox 2026-11-15T\d\d:\d\d:\d\dZ \(/
+      );
+      expect(OPTION_SWITCH_OFF_ONLY[name]!.reason, name).toMatch(
+        /^failed its declared evaluation: .*z -\d/
+      );
+    }
+    // inconclusive or not yet evaluated: registered on/off (the activation manifest keeps them OFF)
+    for (const name of [
+      'omahaReraisedPotStackOffFold',
+      'omahaReraisedPotStackOffRealistic',
+      'omahaNutClassValueSize',
+      'fixedLimitHiLoNutLowRiverBet',
+      'fixedLimitRiverOneBetValueRaise',
+      'fixedLimitCallIsNotACommitment',
+      'fixedLimitHiLoLowHalfFloor',
+      'fixedLimitOmahaNoPresumption',
+    ])
+      expect(optionSwitchOffOnly(name), name).toBeNull();
     expectStatus('v55OmahaRiverTripsFlat', 'superseded', /made-hand defense repair/);
     expect(OPTION_SWITCH_OFF_ONLY.commitUnderPot!.reason).toMatch(/RESULTS-HU-NLH-016, FAIL/);
     // future options are held by name pattern: a steal, All-In-Or-Fold widening

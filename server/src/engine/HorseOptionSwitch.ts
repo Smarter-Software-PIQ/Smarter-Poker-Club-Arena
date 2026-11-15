@@ -294,6 +294,9 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_ON: readonly string[] = Object.freeze
   'v43Tempo',
   'v86UnblockedPreflop',
   'v86MultiStreetUnblocked',
+  'omahaRiverNutRaiseOnly',
+  'omahaTurnSetPound',
+  'omahaNutClassValueSize',
 ]);
 export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freeze([
   'omahaTightOpponentSteal',
@@ -324,6 +327,18 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'vs3BetShortStack',
   'omahaCommitZoneThreeBetPriceRelief',
   'commitUnderPot',
+  'omahaBeatenMadeHandDefense',
+  'omahaBluffCatcherRaiseFold',
+  'omahaReraisedPotDiscipline',
+  'omahaReraisedPotStackOffFold',
+  'omahaReraisedPotStackOffRealistic',
+  'omahaOnePairDiscipline',
+  'fixedLimitRiverFullBetRead',
+  'fixedLimitHiLoNutLowRiverBet',
+  'fixedLimitRiverOneBetValueRaise',
+  'fixedLimitCallIsNotACommitment',
+  'fixedLimitHiLoLowHalfFloor',
+  'fixedLimitOmahaNoPresumption',
 ]);
 /** Decided by code: a parent option, a variant gate or a mixed read (see each ledger note). */
 export const OPTION_SWITCH_RELEASE_DEFAULT_CODE: readonly string[] = Object.freeze([
@@ -362,6 +377,13 @@ const harm = (reason: string): OptionSwitchOffOnly =>
     status: 'harm' as const,
     reason,
     source: 'declared evaluation measured harm (activation manifest, section 4)',
+  });
+/** A PLO option that FAILED its declared evaluation (PLO Strategy's inbox record, results file named). */
+const ploFailed = (reason: string, record: string): OptionSwitchOffOnly =>
+  Object.freeze({
+    status: 'harm' as const,
+    reason: `failed its declared evaluation: ${reason}`,
+    source: `PLO Strategy evaluation result, inbox ${record}`,
   });
 const PREFLOP_HOLD_SOURCE = 'owner preflop range hold';
 const PREFLOP_HOLD_REASON = 'changes a preflop range: held until the owner lifts it by name';
@@ -418,6 +440,23 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
     reason: 'failed evaluation: off-only from the moment the option lands in the ledger',
     source: 'programme coordinator, 2026-11-14 (failed evaluation)',
   }),
+  // PLO Strategy's declared evaluations, 2026-11-15: FAILED; each reads === true (default OFF) on main since #10963
+  omahaReraisedPotDiscipline: ploFailed(
+    'LAG-value seat PLO5 -11.95 bb/100 (SE 5.14, z -2.32) broke the harm bar',
+    '2026-11-15T09:47:06Z (reraised-pot-20261115/RESULTS-2.md, PROTOCOL-2 E1)'
+  ),
+  omahaOnePairDiscipline: ploFailed(
+    'Horse-only mirror PLO4 -0.77 bb/100 (SE 0.34, z -2.30) broke bar 2 of its frozen rule; off as declared',
+    '2026-11-15T09:51:53Z (one-pair-20261115/RESULTS.md); off head 2026-11-15T10:05:36Z'
+  ),
+  omahaBeatenMadeHandDefense: ploFailed(
+    'Horses vs LAG-value seat PLO4 -23.73 bb/100 (SE 8.21, z -2.89), PLO5 -16.17 (SE 6.69, z -2.42)',
+    '2026-11-15T10:02:10Z (eval3-20261115/RESULTS-omahaBeatenMadeHandDefense.md)'
+  ),
+  omahaBluffCatcherRaiseFold: ploFailed(
+    'bluff-raising field PLO4 -1.39 bb/100 (SE 0.58, z -2.38), Horse-only PLO4 -0.78 (z -2.34), PLO5 -0.88 (z -2.01)',
+    '2026-11-15T11:40:49Z (eval3-20261115/RESULTS-omahaBluffCatcherRaiseFold.md)'
+  ),
   v24PloDefense: Object.freeze({
     status: 'harm' as const,
     reason: 'off-only stops an explicit true; it changes nothing by default',
@@ -439,9 +478,7 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
  * Off-only names that are not ledger options YET: covered by exact name so they are off-only the moment they land.
  * The law allows an OPTION_SWITCH_OFF_ONLY name outside the ledger only when it is listed here.
  */
-export const OPTION_SWITCH_OFF_ONLY_PENDING: readonly string[] = Object.freeze([
-  'fixedLimitRiverFullBetRead',
-]);
+export const OPTION_SWITCH_OFF_ONLY_PENDING: readonly string[] = Object.freeze([]);
 /** Future options held by name pattern: a blind steal, All-In-Or-Fold widening. */
 const OFF_ONLY_PATTERNS: ReadonlyArray<readonly [RegExp, OptionSwitchOffOnly]> = [
   [
