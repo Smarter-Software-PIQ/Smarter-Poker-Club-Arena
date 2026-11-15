@@ -35,8 +35,12 @@
 --
 --   1. public.ca_union_pnl_boundary_capture: an append-only copy of every
 --      'ready' pnl_boundary certificate, value byte for byte with its md5,
---      keyed by (union, boundary, value md5) so a recertified boundary is a
---      new row and the earlier value is kept. Nothing updates or deletes it.
+--      one row per version: keyed by (union, boundary, certified_at), so a
+--      recertified boundary is a new row and every earlier version is kept,
+--      including a value that goes A -> B -> A (three versions, not two).
+--      value_md5 is part of the key only so that two different values
+--      certified at the same instant would both be kept, never one dropped.
+--      Nothing updates or deletes it.
 --   2. Every such certificate production holds now is copied, in this
 --      transaction, and the count is asserted before COMMIT.
 --   3. trg_ca_union_pnl_boundary_capture copies each later 'ready'
@@ -50,9 +54,10 @@
 -- after invoices are issued (measured: every held certificate was certified
 -- after at least one invoice that reads its boundary). The version an issued
 -- invoice used is the latest version certified at or before that invoice's
--- created_at; when no kept version qualifies, that side of the boundary is
--- not invoice-exact and a consumer must say so, never substitute a later
--- version. value keeps every key byte for byte, including
+-- created_at: fn_ca_union_pnl_boundary_for_invoice(union, boundary,
+-- issued_at) returns it, or NULL when no kept version qualifies. NULL means
+-- that side of the boundary is not invoice-exact; a consumer must say so and
+-- never substitute a later version. value keeps every key byte for byte, including
 -- _original_inventory_generation (inventory_basis_cache_read strips it), so
 -- identical holdings certified under two generations are two rows; consumers
 -- read value->'holdings'.
@@ -71,8 +76,9 @@
 -- refusal rolls everything back cleanly. Merge outside :38-:42 and the
 -- :50-:03 UTC break. No foreign key to any table.
 --
--- @live-proof: NOT EXISTS (SELECT 1 FROM public.accounting_close_certificates c WHERE c.kind = 'pnl_boundary' AND c.period_start = c.period_end AND c.value->>'status' = 'ready' AND NOT EXISTS (SELECT 1 FROM public.ca_union_pnl_boundary_capture k WHERE (k.union_id, k.boundary, k.value_md5) = (c.union_id, c.period_start, md5(c.value::text))))
--- @live-proof: EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.accounting_close_certificates'::regclass AND tgname = 'trg_ca_union_pnl_boundary_capture' AND tgenabled = 'O')
+-- @live-proof: NOT EXISTS (SELECT 1 FROM public.accounting_close_certificates c WHERE c.kind = 'pnl_boundary' AND c.period_start = c.period_end AND c.value->>'status' = 'ready' AND NOT EXISTS (SELECT 1 FROM public.ca_union_pnl_boundary_capture k WHERE (k.union_id, k.boundary, k.certified_at, k.value_md5) = (c.union_id, c.period_start, c.certified_at, md5(c.value::text))))
+-- @live-proof: EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.accounting_close_certificates'::regclass AND tgname = 'trg_ca_union_pnl_boundary_capture' AND tgenabled = 'A')
+-- @live-proof: to_regprocedure('public.fn_ca_union_pnl_boundary_for_invoice(uuid,timestamptz,timestamptz)') IS NOT NULL
 
 BEGIN;
 SET LOCAL lock_timeout = '1s';
@@ -97,10 +103,10 @@ CREATE TABLE public.ca_union_pnl_boundary_capture (
   value        jsonb       NOT NULL,
   value_md5    text        NOT NULL CHECK (value_md5 = md5(value::text)),
   captured_at  timestamptz NOT NULL DEFAULT clock_timestamp(),
-  PRIMARY KEY (union_id, boundary, value_md5)
+  PRIMARY KEY (union_id, boundary, certified_at, value_md5)
 );
 COMMENT ON TABLE public.ca_union_pnl_boundary_capture IS
-  'Append-only copy of every ready pnl_boundary accounting close certificate (deferred tournament entries and other holdings at a union week boundary), kept after fn_accounting_close_certify retires the certificate. A recertified boundary is a new row. The version an issued invoice used is the latest one certified at or before the invoice''s created_at; when none qualifies that side is not invoice-exact. value is byte-exact including _original_inventory_generation; read value->''holdings''. 20261115015159.';
+  'Append-only copy of every ready pnl_boundary accounting close certificate (deferred tournament entries and other holdings at a union week boundary), kept after fn_accounting_close_certify retires the certificate. One row per version, keyed by certified_at: a recertified boundary is a new row. The version an issued invoice used is fn_ca_union_pnl_boundary_for_invoice(union, boundary, invoice created_at): the latest certified at or before it, or NULL (not invoice-exact) when none qualifies. value is byte-exact including _original_inventory_generation; read value->''holdings''. 20261115015159.';
 
 CREATE TABLE public.ca_union_pnl_boundary_capture_failures (
   id           bigserial   PRIMARY KEY,
@@ -157,7 +163,7 @@ BEGIN
     BEGIN
       INSERT INTO public.ca_union_pnl_boundary_capture (union_id, boundary, certified_at, value, value_md5)
       VALUES (NEW.union_id, NEW.period_start, NEW.certified_at, NEW.value, md5(NEW.value::text))
-      ON CONFLICT (union_id, boundary, value_md5) DO NOTHING;
+      ON CONFLICT (union_id, boundary, certified_at, value_md5) DO NOTHING;
     EXCEPTION WHEN OTHERS THEN
       INSERT INTO public.ca_union_pnl_boundary_capture_failures (union_id, boundary, certified_at, value, detail)
       VALUES (NEW.union_id, NEW.period_start, NEW.certified_at, NEW.value, SQLSTATE || ' ' || SQLERRM);
@@ -173,13 +179,32 @@ REVOKE ALL ON FUNCTION public.fn_ca_union_pnl_boundary_capture(), public.fn_ca_u
 CREATE TRIGGER trg_ca_union_pnl_boundary_capture
   AFTER INSERT OR UPDATE OF value, certified_at ON public.accounting_close_certificates
   FOR EACH ROW EXECUTE FUNCTION public.fn_ca_union_pnl_boundary_capture();
+-- The copy is taken under session_replication_role = replica too.
+ALTER TABLE public.accounting_close_certificates ENABLE ALWAYS TRIGGER trg_ca_union_pnl_boundary_capture;
+
+-- The version of a boundary an invoice issued at p_issued_at used: the
+-- latest kept version certified at or before it. NULL when none qualifies
+-- (that side is not invoice-exact) or when p_issued_at is NULL; a reader
+-- that wants the latest version of a week with no invoice yet passes
+-- 'infinity'. Two values certified at the same instant (never measured)
+-- resolve to the one captured last.
+CREATE FUNCTION public.fn_ca_union_pnl_boundary_for_invoice(p_union uuid, p_boundary timestamptz,
+                                                            p_issued_at timestamptz)
+RETURNS public.ca_union_pnl_boundary_capture LANGUAGE sql STABLE STRICT SET search_path = public AS $function$
+  SELECT k.* FROM public.ca_union_pnl_boundary_capture k
+   WHERE k.union_id = p_union AND k.boundary = p_boundary AND k.certified_at <= p_issued_at
+   ORDER BY k.certified_at DESC, k.captured_at DESC
+   LIMIT 1;
+$function$;
+REVOKE ALL ON FUNCTION public.fn_ca_union_pnl_boundary_for_invoice(uuid, timestamptz, timestamptz)
+  FROM PUBLIC, anon, authenticated, service_role;
 
 -- Every ready boundary certificate production holds now.
 INSERT INTO public.ca_union_pnl_boundary_capture (union_id, boundary, certified_at, value, value_md5)
 SELECT c.union_id, c.period_start, c.certified_at, c.value, md5(c.value::text)
   FROM public.accounting_close_certificates c
  WHERE c.kind = 'pnl_boundary' AND c.period_start = c.period_end AND c.value->>'status' = 'ready'
-ON CONFLICT (union_id, boundary, value_md5) DO NOTHING;
+ON CONFLICT (union_id, boundary, certified_at, value_md5) DO NOTHING;
 
 DO $proof$
 DECLARE v_held bigint; v_kept bigint;
@@ -189,7 +214,8 @@ BEGIN
   SELECT count(*) INTO v_kept FROM public.accounting_close_certificates c
    WHERE c.kind = 'pnl_boundary' AND c.period_start = c.period_end AND c.value->>'status' = 'ready'
      AND EXISTS (SELECT 1 FROM public.ca_union_pnl_boundary_capture k
-                  WHERE (k.union_id, k.boundary, k.value_md5) = (c.union_id, c.period_start, md5(c.value::text))
+                  WHERE (k.union_id, k.boundary, k.certified_at, k.value_md5)
+                        = (c.union_id, c.period_start, c.certified_at, md5(c.value::text))
                     AND k.value = c.value);
   IF v_kept <> v_held THEN
     RAISE EXCEPTION 'pnl boundary capture kept % of % ready certificates', v_kept, v_held;
