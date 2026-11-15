@@ -65,6 +65,14 @@ const WATCHER = '20000000-0000-4000-8000-0000000000b2';
 const SEED = 20261115;
 const LONG_DECAY = Math.pow(0.5, 1 / 120);
 const PHI = (Math.sqrt(5) - 1) / 2;
+/**
+ * The decision's own time, fixed. The decision key binds its hour (protocol.ts buildHorseDecisionKey, decisionHour),
+ * and the worker seeds the decision's random stream from that key, so the hour chooses the mixed-strategy draw. Read
+ * from the wall clock, this river spot's deep look landed on the other side of the draw from the fast look in some
+ * hours (2026-11-15T11Z on main), the same defect #10955 fixed in the pre-repair worker test. Fixed far after any wall
+ * clock the test runs at, because a decision reads only observations made before its own time.
+ */
+const DECISION_TIME_MS = Date.UTC(2099, 0, 1, 0, 0, 30);
 
 const readiness = () => {
   const { identity, charts, postflop, postflopV31, postflopV31Dataset } =
@@ -90,7 +98,7 @@ function riverRequest(): FastHorseDecisionRequest {
   const request = {
     ...base,
     // The pooled row is learned now; a decision fenced before it could not read it.
-    decisionTimeMs: Date.now() + 60_000,
+    decisionTimeMs: DECISION_TIME_MS,
     gameState: { ...base.gameState, publicMemoryDomain: TABLE },
   } as unknown as FastHorseDecisionRequest;
   return { ...request, decisionKey: buildHorseDecisionKey(request) };
@@ -377,5 +385,36 @@ describe('an ordinary tight regular through the decision worker', () => {
     HorseMind.reset();
     const verdict = await exactReplayHorseDecisionRecord(before.record, { runningSource: SOURCE });
     expect(verdict.outcome, verdict.firstDifference ?? '').toBe('replayed_exact');
+  });
+
+  it('the outcome does not depend on the wall clock the test runs at', async () => {
+    const id = villain();
+    const at = async (wall: string | null) => {
+      if (wall) {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(new Date(wall));
+      }
+      try {
+        HorseMind.reset();
+        const o = await throughTheWorker(
+          true,
+          watchStyle(() => id)
+        );
+        return [o.fast.decision.action, o.fast.decision.amount ?? null, o.deepAction, o.deepAmount];
+      } finally {
+        vi.useRealTimers();
+        vi.restoreAllMocks();
+      }
+    };
+    const real = await at(null);
+    // 11Z is the hour the wall-clock decision time failed in on main; 07Z, 14Z and 17Z failed the sibling test
+    for (const wall of [
+      '2026-11-15T11:30:00Z',
+      '2026-11-15T07:05:00Z',
+      '2026-11-15T14:30:00Z',
+      '2026-11-15T17:30:00Z',
+    ])
+      expect(await at(wall), wall).toEqual(real);
+    expect(real[2]).toBe(real[0]);
   });
 });
