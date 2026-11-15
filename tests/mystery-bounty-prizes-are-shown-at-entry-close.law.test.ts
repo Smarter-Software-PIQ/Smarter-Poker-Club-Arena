@@ -73,6 +73,20 @@ describe('mystery bounty prizes are shown at entry close', () => {
     expect(body).toContain('<> s.pool_cents');
   });
 
+  it('the seed passes the sealed ladder a bigint pool, so the call resolves', () => {
+    // sum(bigint) is numeric in Postgres. Passed bare, the call looks for
+    // fn_mystery_sealed_ladder_for_open(uuid, integer, numeric), which does not
+    // exist, and every mystery activation fails (2026-11-14, two MTTs dark).
+    const { sql } = latestDeclaring('fn_mystery_sealed_ladder_for_open');
+    expect(sql).toMatch(/p_count integer,\s*p_pool_cents bigint/);
+    const fixed = migrationFiles().some((f) =>
+      readMigration(f).includes(
+        "sum((x->>''amount_cents'')::bigint)::bigint FROM jsonb_array_elements(v_norm) x));"
+      )
+    );
+    expect(fixed).toBe(true);
+  });
+
   it('the lobby re-reads and the table announces when the prizes are sealed', () => {
     expect(read('src/hooks/useMysteryBounty.ts')).toContain("type === 'mystery_bounty_sealed'");
     const table = read('src/pages/TablePage.tsx');
