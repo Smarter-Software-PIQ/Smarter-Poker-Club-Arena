@@ -3471,6 +3471,12 @@ describe('P10 audit F8: a PLO4 receipt whose input binding fails validation', ()
           decisionTimeMs: 0,
           phase10Plo4: mode,
           phase10EvidenceMode: true,
+          // The 2026-11-14 river rule (only the nuts raise an Omaha river
+          // bet) would turn this fixture's non-nut flush raise into a call,
+          // and the client would then re-run that rule against the unrelated
+          // request this test splices the decision into. It is held off: this
+          // test is about the Phase 10 input binding alone.
+          omahaRiverNutRaiseOnly: false,
         }
       )
     );

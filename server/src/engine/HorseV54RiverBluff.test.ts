@@ -347,12 +347,20 @@ describe('V54 default off reproduces the brain before it, byte for byte', () => 
         // golden records; it is ablated too and pinned in horseDecisionGravity.test.ts.
         const opts: HorseDecideOpts =
           flag === undefined
-            ? { riverBluffBaseline: false, riverBluffMultiway: false, decisionGravityTiming: false }
+            ? {
+                riverBluffBaseline: false,
+                riverBluffMultiway: false,
+                decisionGravityTiming: false,
+                // Dan 2026-11-15: the Omaha one-pair river rule owns river
+                // value bets later; pinned in HorseOmahaOnePair.test.ts.
+                omahaOnePairDiscipline: false,
+              }
             : {
                 v54RiverBluff: flag,
                 riverBluffBaseline: false,
                 riverBluffMultiway: false,
                 decisionGravityTiming: false,
+                omahaOnePairDiscipline: false,
               };
         const run = (key: string, lines: string[]) =>
           expect(digest(lines), key).toBe(golden[key].sha256);
