@@ -1239,6 +1239,11 @@ export class HorseMind {
    *  null outside a sandbox and for a sandbox that carries none. */
   private static pooledProvenance: Map<string, PooledRowProvenance> | null = null;
   private static decisionVariant: string | null = null;
+  /** The betting structure of the decision in flight, as the game state
+   *  states it (HorseLogic.prepareOriginalReads); null when the caller gave
+   *  none, and then decisionBettingStructure() derives it from the variant.
+   *  Cleared with the scope. */
+  private static decisionStructure: BettingStructure | null = null;
   /** Read calibration options of the decision in flight (DecisionReadOptions). */
   private static decisionReadOptions: DecisionReadOptions = {};
   /** dedupe of processed ActionRecords across repeated decide() calls */
@@ -2317,6 +2322,9 @@ export class HorseMind {
    * whose betting structure is fixed limit; the tallies are pooled per player
    * across games, so excluding the fixed-limit hands at count time also stops
    * them diluting or inflating the same player's no-limit probe share.
+   * READ TIME (F1b, 2026-11-15): the same switch also stops his no-limit
+   * probe share discounting a fixed-limit read (fixedLimitReadIgnoresProbes
+   * below), so one switch governs fixed-limit probe handling at both ends.
    *
    * PROCESS-LEVEL, SOURCE DEFAULT ON (2026-11-15; off until then). Counting
    * happens outside a decision (the completed-hand learner, workerRuntime
@@ -2364,6 +2372,44 @@ export class HorseMind {
     return this.fixedLimitRiverBetsAreValueEvidence;
   }
 
+  /**
+   * A FIXED-LIMIT READ IS NEVER PROBE-DISCOUNTED (2026-11-15, Fixed-Limit
+   * lane, "F1b"; the read-time half of FIXED-LIMIT BETS ARE NEVER PROBES and
+   * governed by the same process switch). The probe tallies are pooled per
+   * player across games and, with the switch on, hold only his no-limit and
+   * pot-limit bets; applying that share to a fixed-limit read discounted his
+   * fixed-limit betCheckedTo by how he min-bets at OTHER games, although every
+   * fixed-limit bet is the street's one legal size. True while the switch is
+   * on and the decision in flight is fixed limit by its BETTING STRUCTURE
+   * (decisionBettingStructure: the game state's own structure, the variant
+   * only when the state gives none), so a fixed-limit Omaha of any card count
+   * is covered without naming its variant. No-limit and pot-limit reads, every
+   * read outside a decision and every read with the switch off are unchanged.
+   */
+  private static fixedLimitReadIgnoresProbes(): boolean {
+    return (
+      this.fixedLimitBetsAreNeverProbes &&
+      this.decisionScope !== null &&
+      this.decisionBettingStructure() === 'fixed_limit'
+    );
+  }
+
+  /** The betting structure of the decision in flight: the game state's own
+   *  (setDecisionBettingStructure), else the variant's (bettingStructureFor). */
+  static decisionBettingStructure(): BettingStructure {
+    return this.decisionStructure ?? bettingStructureFor(this.decisionVariant);
+  }
+
+  /** Set by HorseLogic beside the decision scope from the game state's
+   *  bettingStructure; cleared with the scope. Ignored without a scope. */
+  static setDecisionBettingStructure(structure: BettingStructure | null | undefined): void {
+    this.decisionStructure =
+      this.decisionScope &&
+      (structure === 'fixed_limit' || structure === 'pot_limit' || structure === 'no_limit')
+        ? structure
+        : null;
+  }
+
   private static probeAdjusted<T extends Partial<ExploitCounters>>(
     userId: string,
     counters: T | undefined
@@ -2371,6 +2417,11 @@ export class HorseMind {
     if (!counters || !this.probeAwareAggression) return counters;
     const pooled = this.stats.get(userId);
     const adjusted = probeAdjustedCounters(counters, pooled?.ctBets, pooled?.ctProbes);
+    if (adjusted !== counters && this.fixedLimitReadIgnoresProbes()) {
+      // F1b: the discount would have come from his other games' probes.
+      noteFire('fixed_limit_read_probe_discount_withheld');
+      return counters;
+    }
     if (adjusted !== counters) noteFire('opponent_read_probe_bets_discounted');
     return adjusted;
   }
@@ -2437,7 +2488,7 @@ export class HorseMind {
     if (
       family === 'omaha' &&
       this.decisionReadOptions.fixedLimitOmahaNoPresumption === true &&
-      bettingStructureFor(this.decisionVariant) === 'fixed_limit'
+      this.decisionBettingStructure() === 'fixed_limit'
     ) {
       noteFire('fixed_limit_omaha_presumption_withheld');
       return read;
@@ -2478,7 +2529,7 @@ export class HorseMind {
     // probeAdjusted without its receipt: the same counters, no fire.
     const pooled = this.stats.get(userId);
     const counters =
-      raw && this.probeAwareAggression
+      raw && this.probeAwareAggression && !this.fixedLimitReadIgnoresProbes()
         ? probeAdjustedCounters(raw, pooled?.ctBets, pooled?.ctProbes)
         : raw;
     return omahaTightRead(
@@ -2522,7 +2573,7 @@ export class HorseMind {
     const own = this.decisionExploitCounters(userId);
     const pooled = this.stats.get(userId);
     const counters =
-      own && this.probeAwareAggression
+      own && this.probeAwareAggression && !this.fixedLimitReadIgnoresProbes()
         ? probeAdjustedCounters(own, pooled?.ctBets, pooled?.ctProbes)
         : own;
     const carryWeight = this.decisionReadOptions.styleCarryWeight ?? 0;
@@ -2647,6 +2698,7 @@ export class HorseMind {
     this.decisionMode = mode;
     this.decisionScope = scope;
     this.decisionVariant = scope ? variant : null;
+    this.decisionStructure = null;
     if (!scope) this.decisionReadOptions = {};
   }
 
@@ -2810,6 +2862,7 @@ export class HorseMind {
     this.decisionMode = 'cash';
     this.decisionScope = null;
     this.decisionVariant = null;
+    this.decisionStructure = null;
   }
 
   // ───────────────────────────────────────────────────────────────────────
@@ -3234,6 +3287,7 @@ export class HorseMind {
     }
     const liveScope = this.decisionScope;
     const liveVariant = this.decisionVariant;
+    const liveStructure = this.decisionStructure;
     const liveMode = this.decisionMode;
     const liveDurable = this.durableOpponentMemory;
     this.durableOpponentMemory = false;
@@ -3278,6 +3332,7 @@ export class HorseMind {
     this.sandboxDepth = 1;
     this.decisionScope = null;
     this.decisionVariant = null;
+    this.decisionStructure = null;
     try {
       return runWithWinnerReadState((sandbox.winnerReads ??= createWinnerReadState()), fn);
     } finally {
@@ -3300,6 +3355,7 @@ export class HorseMind {
       this.sandboxDepth = 0;
       this.decisionScope = liveScope;
       this.decisionVariant = liveVariant;
+      this.decisionStructure = liveStructure;
       this.decisionMode = liveMode;
       this.durableOpponentMemory = liveDurable;
     }
@@ -3786,7 +3842,10 @@ export class HorseMind {
         : undefined;
       if (counters && env && counters.betCheckedToOpp > 0) {
         const pooled = this.stats.get(userId);
-        const adjusted = probeAdjustedCounters(counters, pooled?.ctBets, pooled?.ctProbes);
+        // F1b: a fixed-limit read takes no probe share (fixedLimitReadIgnoresProbes).
+        const adjusted = this.fixedLimitReadIgnoresProbes()
+          ? counters
+          : probeAdjustedCounters(counters, pooled?.ctBets, pooled?.ctProbes);
         bct = statRead(adjusted.betCheckedTo, adjusted.betCheckedToOpp, env.betCheckedTo, ['high']);
       }
     }

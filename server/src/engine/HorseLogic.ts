@@ -6738,6 +6738,12 @@ export class HorseLogic {
       typeof gameState.gameVariant === 'string' ? gameState.gameVariant : null,
       gameState.gameMode === 'tournament' || gameState.tournament ? 'tournament' : 'cash'
     );
+    // The decision's betting structure, as the state states it (the same
+    // value observe() counts with below), so the fixed-limit reads key on the
+    // structure and not on the variant name. Cleared with the scope.
+    HorseMind.setDecisionBettingStructure(
+      gameState.bettingStructure ?? bettingStructureFor(gameState.gameVariant)
+    );
     // Read calibration options travel with the scope and are cleared with it.
     HorseMind.setDecisionReadOptions({
       postflopFoldRate: opts.readPostflopFoldRate === true,

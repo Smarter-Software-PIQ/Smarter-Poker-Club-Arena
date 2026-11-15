@@ -5449,6 +5449,13 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'a checked-to postflop bet in a fixed-limit hand was counted without a probe tally (neither ctBets nor ctProbes), so it stays whole in betCheckedTo',
     'FixedLimitAdaptation'
   ),
+  // No floor: fixed-limit decisions against a player with a no-limit/pot-limit probe history (same process switch).
+  receipt(
+    'fixed_limit_read_probe_discount_withheld',
+    'HorseMind.probeAdjusted (A FIXED-LIMIT READ IS NEVER PROBE-DISCOUNTED, F1b, under the process switch HorseMind.setFixedLimitBetsAreNeverProbes, source default FIXED_LIMIT_BETS_ARE_NEVER_PROBES_DEFAULT = true)',
+    "a fixed-limit decision's opponent read was left whole although the player's pooled no-limit/pot-limit probe share would have discounted his betCheckedTo",
+    'FixedLimitAdaptation'
+  ),
   // No floor: fixed-limit calls with a player left to act, with the opt-in option on.
   receipt(
     'fixed_limit_call_priced_remaining_action_seen',
