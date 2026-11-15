@@ -939,6 +939,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaBigBetIsPotShare',
+    'PLO Strategy lane 2026-11-15 (root cause of the river folds of strong made hands to half-pot bets): in PLO4/PLO5 cash, high only, the Omaha aggressor tier (HorseEval.omahaAggressorTier) does not count the range read 20 big blind big-bet mark for a turn or river wager under 70 percent of the pot it went into; that wager is tiered by its pot share, its streets and whether it was a raise. The mark itself (OppPostflopRead.bigBet) and its other consumers, a wager of 70 percent or more, the flop and every other game are unchanged; V56 follows the tier. Default OFF (opt-in); league cards plo4/plo5 _omaha_big_bet_is_pot_share',
+    'V94'
+  ),
+  flag(
     'omahaNutClassValueSize',
     'Dan 2026-11-14: a PLO4/PLO5 high bet or raise with the nuts or an effective-nut hand for the street is the full pot (the pot-limit maximum, the stack when smaller) on the flop, turn and river. Default OFF (opt-in): its declared evaluation failed on the Horse-only cells (PLO4 -1.19, PLO5 -1.31 bb/100; human field +2.29)',
     'V94'
@@ -3799,6 +3804,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_river_medium_bet_strong_hand_call_unpriced',
     'HorseLogic wager_rules (HorseOmahaRiverMediumBetCalls, omahaRiverMediumBetStrongHandCalls)',
     'a river fold of two pair or better in the spot whose hand does not hold up against the bettor’s possible holdings 1.5 times as often as the price asks: the fold kept',
+    'V94'
+  ),
+  receipt(
+    'omaha_big_bet_by_pot_share',
+    'HorseLogic decidePostflop range reads (omahaBigBetIsPotShare; HorseEval.omahaAggressorTier)',
+    'a PLO4/PLO5 cash turn or river decision in which some opponent wager of 20 big blinds or more but under 70 percent of the pot was tiered lower than the legacy tier (the 20 big blind mark not counted)',
     'V94'
   ),
   receipt(

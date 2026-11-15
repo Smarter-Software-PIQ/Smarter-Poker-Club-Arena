@@ -6,7 +6,8 @@
  * river: who sat where, every recorded action in order (seat | street |
  * action | amount | origin | full raise | dead), the snapshot the engine
  * recorded with the fold, and the folding Horse's own cards. No user ids and
- * no person's cards. `expand` turns an entry into the complaint-replay shape
+ * no person's cards (a Horse's own recorded cards are committed the way the
+ * complaint fixtures under horseComplaints/ commit them, in `hole`). `expand` turns an entry into the complaint-replay shape
  * (HorseComplaintReplay.stateAt), exactly as a complaint fixture is read.
  */
 import type {

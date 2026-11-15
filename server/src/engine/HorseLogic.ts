@@ -1666,6 +1666,10 @@ export interface HorseGameStateV2 extends HorseGameState {
  * survives only for callers that pass no mode, and no longer mislabels
  * high-stakes cash once the engine passes gameMode: 'cash'.
  */
+/** omahaBigBetIsPotShare: a turn or river wager under this share of the pot is
+ * not tiered as a big bet (the aggressor tier's own pot-share line). */
+export const OMAHA_BIG_BET_POT_SHARE = 0.7;
+
 function isTournamentMode(gs: HorseGameStateV2): boolean {
   if (gs.gameMode) return gs.gameMode === 'tournament';
   return gs.tournament != null || (gs.bigBlind ?? 0) >= 10;
@@ -2796,6 +2800,17 @@ export interface HorseDecideOpts {
    * `=== true`) until its declared evaluation passes; league cards
    * plo4/plo5 _omaha_river_medium_bet_strong_hand_calls. */
   omahaRiverMediumBetStrongHandCalls?: boolean;
+  /** PLO Strategy lane 2026-11-15, the root cause behind the river folds
+   * above: in PLO4/PLO5 cash (high only) the Omaha aggressor tier
+   * (HorseEval.omahaAggressorTier) no longer counts the range read's 20 big
+   * blind "big bet" mark for a turn or river wager under 70 percent of the
+   * pot it went into; such a wager is tiered by its pot share, its streets
+   * and whether it was a raise. A wager of 70 percent or more, the flop,
+   * every other game and every other consumer of the mark are unchanged.
+   * V56 (weak trips against a tier-3 line) follows the tier. Default OFF
+   * (opt-in, read `=== true`) until its declared evaluation passes; league
+   * cards plo4/plo5 _omaha_big_bet_is_pot_share. */
+  omahaBigBetIsPotShare?: boolean;
   /** A token-priced committed call is not barred by stack-off premiums
    * (HorseTokenCallPrice.ts, PLO6-AUDIT-010). Default on; false only for
    * the regression's non-vacuity control. */
@@ -11724,6 +11739,41 @@ export class HorseLogic {
               r.aggrW = Math.min(r.aggrW ?? 0, 0.08);
             }
           }
+        }
+        // ═══ omahaBigBetIsPotShare (PLO Strategy lane 2026-11-15, opt-in) ═══
+        // The range read marks any wager of 20 big blinds or more as a big
+        // bet, and omahaAggressorTier adds a tier for that mark exactly as
+        // for a wager of 70 percent of the pot. In a 200bb pot a half-pot
+        // bet is 100bb: it was tiered as a pot-sized bet and priced as 81 to
+        // 88 percent trips, straights and full houses. With the option on,
+        // in PLO4/PLO5 cash (high only), a turn or river wager under
+        // OMAHA_BIG_BET_POT_SHARE of the pot it went into is tiered by its
+        // pot share alone. 0.7 is the tier's own existing pot-share line, on
+        // both streets; the flop keeps the mark. `bigBet` itself is not
+        // touched, so every other consumer reads it as before.
+        if (
+          opts.omahaBigBetIsPotShare === true &&
+          oppReads &&
+          (gs.gameVariant === 'plo4' || gs.gameVariant === 'plo5') &&
+          !isTournamentMode(gs) &&
+          !vi.isHiLo &&
+          (gs.stage === 'turn' || gs.stage === 'river')
+        ) {
+          let differs = false;
+          for (const r of oppReads) {
+            if (
+              !r ||
+              r.bigBet !== true ||
+              r.lastStage !== gs.stage ||
+              typeof r.lastFrac !== 'number' ||
+              !(r.lastFrac < OMAHA_BIG_BET_POT_SHARE)
+            )
+              continue;
+            const legacy = omahaAggressorTier(r);
+            r.tierByPotShare = true;
+            if (omahaAggressorTier(r) !== legacy) differs = true;
+          }
+          if (differs && tele15) noteFire('omaha_big_bet_by_pot_share');
         }
         if (tele15) {
           if (bands && bands.some((b) => b !== null)) {

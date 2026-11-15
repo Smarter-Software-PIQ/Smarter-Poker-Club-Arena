@@ -2149,6 +2149,17 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaRiverMediumBetStrongHandCalls: true },
     b: {},
   })),
+  // 2026-11-15 OMAHA BIG BET IS A POT SHARE (default OFF): the Omaha aggressor
+  // tier does not count the 20 big blind big-bet mark for a turn or river
+  // wager under 70 percent of the pot; a switches it on, b is today's brain.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_big_bet_is_pot_share`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaBigBetIsPotShare: true },
+    b: {},
+  })),
   // V15 BOATS (2026-09-28): default OFF. a turns it on, b is today's brain.
   // Ship it default ON only after this resolves significant positive.
   // 2026-11-06: V15 boats is default ON in PLO5 cash (v15BoatsOn), so the

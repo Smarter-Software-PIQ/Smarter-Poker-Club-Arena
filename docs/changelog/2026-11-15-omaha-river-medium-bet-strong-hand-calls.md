@@ -21,3 +21,9 @@ With the option unset or false the brain decides exactly as before. The range es
 - No declared evaluation has been run.
 - When on, the option reopens the owner's paired-board fold for trips or better in this one spot; that needs the owner's word.
 - The estimate that prices every bet of 20 big blinds as a big bet is still in place.
+
+## Follow-up the same day: the root cause as its own option
+
+`omahaBigBetIsPotShare` (off by default, read `=== true`), separate from the option above. In PLO4 / PLO5 cash (high only) the Omaha aggressor tier no longer counts the 20 big blind big-bet mark for a turn or river wager under 70 percent of the pot it went into; 70 percent is the tier's own existing pot-share line, used on both streets. The flop, a wager of 70 percent or more, every other game and every other reader of the mark are unchanged; the weak-trips rule (V56) follows the tier. Receipt `omaha_big_bet_by_pot_share` when the tier differs from the old one. League cards plo4/plo5 `_omaha_big_bet_is_pot_share`. Evidence file `docs/horse-default-on.d/omahaBigBetIsPotShare.md`.
+
+With only this option on, of the eleven recorded folds: against an unknown bettor four become calls on every seed (one best hand, three beaten two pairs); with the bettor's memory rows loaded five do (two best hands). The two sets facing a second or third barrel, the trips facing a third barrel and the flush on the paired board still fold: a second and third betting street raise the tier on their own, and the paired-board fold is a separate rule.
