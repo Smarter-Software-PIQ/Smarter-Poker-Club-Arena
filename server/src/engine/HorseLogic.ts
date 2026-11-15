@@ -71,6 +71,7 @@ import {
 import {
   OMAHA_PLAY_STYLE_NEUTRAL,
   OMAHA_TIGHT_EXPECTED_VPIP_PCT,
+  omahaPlayStyleIndifferenceAggressionBias,
   omahaPlayStyleMapped,
   omahaPlayStylePersona,
   omahaPlayStylePostflopDials,
@@ -3362,10 +3363,12 @@ export interface HorseDecideOpts {
    * every Horse has a playing style for life (HorsePlayStyle.horsePlayStyleFor:
    * a hash of its id, uniform thirds, or the authored persona.playStyle) and
    * the game's mapping reads it. Omaha (HorseOmahaPlayStyle, PLO4/PLO5 cash,
-   * three seats or more): 'tight' raises every preflop bar and lowers the
-   * bluff volume and reads the TAG Crusher gears; 'pressure' lowers the
-   * preflop bars and raises bluff volume and aggression IN POSITION only,
-   * reading the LAG Shark gears there; 'current' is today's play exactly.
+   * three seats or more): 'tight' raises the preflop ENTRY bars (first in,
+   * call) and lowers the bluff volume, keeps the value 3-bet and 4-bet bars
+   * and reads the TAG Crusher gears; 'pressure' lowers the preflop bars and
+   * raises bluff volume, aggression and the continuation-bet frequency IN
+   * POSITION only, reading the LAG Shark gears there; 'current' is today's
+   * play exactly.
    * Every dial is a bounded scale on an existing frequency (0.75..1.25) and
    * acts before the owner-ruled chain, which stays final. Every style plays
    * 'current' in tournaments, in Lightning, at 50 bb effective or less and
@@ -13557,6 +13560,9 @@ export class HorseLogic {
       // horsePlayStyles: the three scales are 1 (no multiplication is made)
       // unless the option is on and this Horse plays a non-current style here.
       tightness: stylePre ? params.tightness * stylePre.tightnessMul : params.tightness,
+      ...(stylePre
+        ? { valueRaiseTightness: params.tightness * stylePre.valueRaiseTightnessMul }
+        : {}),
       bluffFreq: stylePre ? params.bluffFreq * stylePre.bluffFreqMul : params.bluffFreq,
       aggression: stylePre ? params.aggression * stylePre.aggressionMul : params.aggression,
       slowplayFreq: params.slowplayFreq,
@@ -14759,13 +14765,22 @@ export class HorseLogic {
           .filter((p) => p.seat !== player.seat && !p.is_folded && !p.is_sitting_out)
           .map((p) => p.seat)
       );
+    let styleCbetMul = 1;
     if (horsePlayStylePending !== 'current') {
       const dials = omahaPlayStylePostflopDials(horsePlayStylePending, styleInPosition);
+      styleCbetMul = dials.cbetFreqMul;
+      const aggressionBias = omahaPlayStyleIndifferenceAggressionBias(
+        horsePlayStylePending,
+        styleInPosition
+      );
       if (dials !== OMAHA_PLAY_STYLE_NEUTRAL)
         params = {
           ...params,
           bluffFreq: params.bluffFreq * dials.bluffFreqMul,
           aggression: params.aggression * dials.aggressionMul,
+          ...(aggressionBias !== undefined && params.evIndifference
+            ? { evIndifference: { ...params.evIndifference, aggressionBias } }
+            : {}),
         };
     }
     const planHandKey = horsePlanHandKey(gs.actionHistory, opts.mindPlanContext);
@@ -19367,6 +19382,8 @@ export class HorseLogic {
         );
       }
       let cbetFreqMult = boardFavorsAggressor ? 1.35 : 1.0;
+      // horsePlayStyles: the pressure style in position c-bets and barrels more often.
+      if (styleCbetMul !== 1) cbetFreqMult *= styleCbetMul;
       // V16 DEEP READS: heads-up, c-bet the player in front of you, not the
       // population average. 0.6 + ftc maps a 75% folder to x1.35 and a 30%
       // station to x0.9, clamped to keep the read a reshaping, not a switch.

@@ -12,14 +12,16 @@
  * 4-bet range options, omahaNoCallColdFourBetWithoutPremium): those rules read
  * the decision the styled brain produced and stay final for every style.
  *
- *   tight     every preflop bar a little higher (fewer first-in hands, fewer
- *             calls), fewer bluffs on every street, the TAG Crusher gears (or
- *             the Horse's own Nit Hunter gears). Sizes unchanged.
+ *   tight     tight-AGGRESSIVE: the preflop entry bars higher (fewer first-in
+ *             hands, fewer calls), the value 3-bet and 4-bet bars as today,
+ *             fewer bluffs on every street, the TAG Crusher gears (or the
+ *             Horse's own Nit Hunter gears). Sizes unchanged.
  *   current   nothing: no scale is applied and the Horse keeps its archetype.
  *   pressure  IN POSITION only (cutoff and button before the flop; last to act
  *             after it): lower preflop bars, more bluff volume and raise
- *             aggression, the LAG Shark gears (more 3-bets with the elite
- *             coordinated class, more turn probes, more combo-draw pressure).
+ *             aggression, more continuation bets, the LAG Shark gears (more
+ *             3-bets with the elite coordinated class, more turn probes, more
+ *             combo-draw pressure).
  *             Out of position it is the current style exactly.
  *
  * Bounds: every multiplier lies in [0.75, 1.25] (OMAHA_PLAY_STYLE_MUL_MIN and
@@ -57,43 +59,58 @@ export const OMAHA_TIGHT_EXPECTED_VPIP_PCT: Readonly<Record<string, number>> = {
 
 /** The scales one decision applies. All 1 = today's play. */
 export interface OmahaPlayStyleDials {
-  /** On StyleParams.tightness: every preflop bar (first-in, call, 3-bet, 4-bet). */
+  /** On StyleParams.tightness for the ENTRY bars: first-in, limp, cold call, call of a re-raise. */
   tightnessMul: number;
+  /** On StyleParams.tightness for the VALUE re-raise bars (3-bet and 4-bet). */
+  valueRaiseTightnessMul: number;
   /** On StyleParams.bluffFreq: bluff and semi-bluff frequency, every street. */
   bluffFreqMul: number;
   /** On StyleParams.aggression: 3-bet bars, raise and barrel frequency. */
   aggressionMul: number;
+  /** On the continuation-bet frequency (decidePostflop cbetFreqMult: the dry-board c-bet and barrel without a made hand). */
+  cbetFreqMul: number;
 }
 
 export const OMAHA_PLAY_STYLE_NEUTRAL: OmahaPlayStyleDials = Object.freeze({
   tightnessMul: 1,
+  valueRaiseTightnessMul: 1,
   bluffFreqMul: 1,
   aggressionMul: 1,
+  cbetFreqMul: 1,
 });
 
 /** tight, any position, before the flop. */
 export const OMAHA_TIGHT_PREFLOP: OmahaPlayStyleDials = Object.freeze({
-  tightnessMul: 1.2,
+  tightnessMul: 1.15,
+  // Tight-AGGRESSIVE: the strong hands re-raise exactly as today.
+  valueRaiseTightnessMul: 1,
   bluffFreqMul: 0.8,
   aggressionMul: 1,
+  cbetFreqMul: 1,
 });
 /** tight, any position, after the flop. Tightness is a preflop dial and is not read there. */
 export const OMAHA_TIGHT_POSTFLOP: OmahaPlayStyleDials = Object.freeze({
   tightnessMul: 1,
+  valueRaiseTightnessMul: 1,
   bluffFreqMul: 0.8,
   aggressionMul: 1,
+  cbetFreqMul: 1,
 });
 /** pressure, cutoff and button, before the flop. */
 export const OMAHA_PRESSURE_PREFLOP_IP: OmahaPlayStyleDials = Object.freeze({
-  tightnessMul: 0.88,
-  bluffFreqMul: 1.15,
-  aggressionMul: 1.08,
+  tightnessMul: 0.75,
+  valueRaiseTightnessMul: 0.9,
+  bluffFreqMul: 1.2,
+  aggressionMul: 1.1,
+  cbetFreqMul: 1,
 });
 /** pressure, last to act, after the flop. */
 export const OMAHA_PRESSURE_POSTFLOP_IP: OmahaPlayStyleDials = Object.freeze({
   tightnessMul: 1,
-  bluffFreqMul: 1.15,
-  aggressionMul: 1.1,
+  valueRaiseTightnessMul: 1,
+  bluffFreqMul: 1.25,
+  aggressionMul: 1.2,
+  cbetFreqMul: 1.25,
 });
 
 const bounded = (d: OmahaPlayStyleDials): OmahaPlayStyleDials => {
@@ -103,8 +120,10 @@ const bounded = (d: OmahaPlayStyleDials): OmahaPlayStyleDials => {
       : 1;
   return {
     tightnessMul: c(d.tightnessMul),
+    valueRaiseTightnessMul: c(d.valueRaiseTightnessMul),
     bluffFreqMul: c(d.bluffFreqMul),
     aggressionMul: c(d.aggressionMul),
+    cbetFreqMul: c(d.cbetFreqMul),
   };
 };
 
@@ -166,11 +185,39 @@ export function omahaPlayStyleArchetype(
   return own;
 }
 
-/** The persona gears of this decision (ploPersonaFor when the style is current). */
+/**
+ * The persona gears of this decision (ploPersonaFor when the style is
+ * current). Tight keeps the higher of its own and the band's elite re-raise
+ * mix: the strong coordinated hands re-raise at least as often as today.
+ */
 export function omahaPlayStylePersona(
   horseId: string,
   style: HorsePlayStyle,
   inPosition: boolean
 ): HorsePloPersona {
-  return ploPersonaOfArchetype(horseId, omahaPlayStyleArchetype(horseId, style, inPosition));
+  const persona = ploPersonaOfArchetype(
+    horseId,
+    omahaPlayStyleArchetype(horseId, style, inPosition)
+  );
+  if (style !== 'tight') return persona;
+  const own = ploPersonaOfArchetype(horseId, ploArchetypeFor(horseId));
+  return { ...persona, plo3BetMix: Math.max(persona.plo3BetMix, own.plo3BetMix) };
+}
+
+/**
+ * The aggression tie-break of the EV engine (HorsePersona
+ * indifferenceAggressionBias, a per-Horse seed in -0.12..+0.12 BB that acts
+ * only among candidates within 0.12 BB of the best). The pressure style in
+ * position reads the top of that existing range, so between a bet and a check
+ * the engine prices as equal it bets. Every other case: undefined, the
+ * Horse's own seed.
+ */
+export const OMAHA_PRESSURE_IP_INDIFFERENCE_AGGRESSION_BIAS = 0.12;
+export function omahaPlayStyleIndifferenceAggressionBias(
+  style: HorsePlayStyle,
+  inPosition: boolean
+): number | undefined {
+  return style === 'pressure' && inPosition
+    ? OMAHA_PRESSURE_IP_INDIFFERENCE_AGGRESSION_BIAS
+    : undefined;
 }

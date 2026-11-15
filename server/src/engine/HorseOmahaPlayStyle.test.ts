@@ -33,7 +33,12 @@ import {
 import { horseDecisionReceiptRefusal } from './horseDecision/responseValidation.js';
 import { runMatchup } from '../benchmark/HorseLeague.js';
 import { HUMAN_CALIBRATED_OMAHA_DEV_POPULATION_ID } from '../benchmark/HorseLeagueHumanField.js';
-import { ploArchetypeFor, ploPersonaFor, ploPersonaOfArchetype } from './HorsePersona.js';
+import {
+  HORSE_INDIFFERENCE_EV_BAND_BB,
+  ploArchetypeFor,
+  ploPersonaFor,
+  ploPersonaOfArchetype,
+} from './HorsePersona.js';
 import { HORSE_PLAY_STYLES, type HorsePlayStyle } from './HorsePlayStyle.js';
 import {
   OMAHA_PLAY_STYLE_MUL_MAX,
@@ -45,6 +50,7 @@ import {
   OMAHA_TIGHT_POSTFLOP,
   OMAHA_TIGHT_PREFLOP,
   omahaPlayStyleArchetype,
+  omahaPlayStyleIndifferenceAggressionBias,
   omahaPlayStyleMapped,
   omahaPlayStylePersona,
   omahaPlayStylePostflopDials,
@@ -94,11 +100,7 @@ describe('the dials', () => {
     }
     expect(omahaPlayStylePreflopDials('pressure', false)).toBe(OMAHA_PLAY_STYLE_NEUTRAL);
     expect(omahaPlayStylePostflopDials('pressure', false)).toBe(OMAHA_PLAY_STYLE_NEUTRAL);
-    expect(OMAHA_PLAY_STYLE_NEUTRAL).toEqual({
-      tightnessMul: 1,
-      bluffFreqMul: 1,
-      aggressionMul: 1,
-    });
+    expect(Object.values(OMAHA_PLAY_STYLE_NEUTRAL).every((x) => x === 1)).toBe(true);
   });
 
   it('the direction: tight raises the bars and lowers the bluffs; pressure in position the reverse', () => {
@@ -106,6 +108,9 @@ describe('the dials', () => {
     expect(tight).toEqual(omahaPlayStylePreflopDials('tight', false));
     expect(tight.tightnessMul).toBeGreaterThan(1);
     expect(tight.bluffFreqMul).toBeLessThan(1);
+    // Tight-AGGRESSIVE: the value re-raise bars are today's.
+    expect(tight.valueRaiseTightnessMul).toBe(1);
+    expect(tight.aggressionMul).toBe(1);
     expect(omahaPlayStylePostflopDials('tight', false).bluffFreqMul).toBeLessThan(1);
     expect(omahaPlayStylePostflopDials('tight', true).aggressionMul).toBe(1);
     const pre = omahaPlayStylePreflopDials('pressure', true);
@@ -116,6 +121,21 @@ describe('the dials', () => {
     expect(post.tightnessMul).toBe(1);
     expect(post.bluffFreqMul).toBeGreaterThan(1);
     expect(post.aggressionMul).toBeGreaterThan(1);
+    expect(post.cbetFreqMul).toBeGreaterThan(1);
+    // The EV engine's aggression tie-break: the top of the seed's own range, in position only.
+    expect(omahaPlayStyleIndifferenceAggressionBias('pressure', true)).toBe(0.12);
+    expect(omahaPlayStyleIndifferenceAggressionBias('pressure', true)).toBeLessThanOrEqual(
+      HORSE_INDIFFERENCE_EV_BAND_BB
+    );
+    for (const [st, pos] of [
+      ['pressure', false],
+      ['tight', true],
+      ['tight', false],
+      ['current', true],
+      ['current', false],
+    ] as const)
+      expect(omahaPlayStyleIndifferenceAggressionBias(st, pos)).toBeUndefined();
+    expect(omahaPlayStylePostflopDials('tight', true).cbetFreqMul).toBe(1);
   });
 
   it('the archetype follows the style: never tight by style and LAG by archetype', () => {
@@ -141,7 +161,9 @@ describe('the dials', () => {
       // Fewer non-premium 3-bets and river bluffs tight than under pressure in position.
       const t = omahaPlayStylePersona(id, 'tight', true);
       const p = omahaPlayStylePersona(id, 'pressure', true);
-      expect(t.plo3BetMix).toBeLessThan(p.plo3BetMix);
+      expect(t.plo3BetMix).toBeLessThanOrEqual(p.plo3BetMix);
+      // The strong coordinated hands re-raise at least as often tight as today.
+      expect(t.plo3BetMix).toBeGreaterThanOrEqual(ploPersonaFor(id).plo3BetMix);
       expect(t.riverBluffGear).toBeLessThan(p.riverBluffGear);
     }
     expect(seen.size).toBe(4);
@@ -244,7 +266,12 @@ interface Outcome {
   fires: string[][];
 }
 const ENTER = new Set(['call', 'raise', 'bet', 'all_in']);
-function play(build: () => St, opts: HorseDecideOpts, seeds: number[] = SEEDS): Outcome {
+function play(
+  build: () => St,
+  opts: HorseDecideOpts,
+  seeds: number[] = SEEDS,
+  mods: typeof LIVE.mods = LIVE.mods
+): Outcome {
   enableBrainTelemetry();
   const out: Outcome = { bytes: [], actions: [], fires: [] };
   for (const s of seeds) {
@@ -252,7 +279,7 @@ function play(build: () => St, opts: HorseDecideOpts, seeds: number[] = SEEDS): 
     drainFires();
     seedFastRandom(s);
     const st = build();
-    const d = HorseLogic.decide(st.hero, st.gs, LIVE.style, LIVE.mods, {
+    const d = HorseLogic.decide(st.hero, st.gs, LIVE.style, mods, {
       mind: false,
       telemetry: true,
       ...opts,
@@ -407,6 +434,50 @@ describe('monotone: tight enters fewer hands, pressure more in position, the sam
       const base = play(() => recorded(ord, { node: oop }), {});
       expect(play(() => recorded(ord, { node: oop }), style('pressure')).bytes).toEqual(base.bytes);
     }
+  });
+});
+
+describe('tight is tight-aggressive: it enters fewer hands and re-raises its strong hands as today', () => {
+  const RAISE = new Set(['raise', 'bet', 'all_in']);
+  /** Decision 7: the button facing an open to 9 and two callers. */
+  const facingOpen = (hole: string) => () => recorded(7, { hole, node: noFloor });
+
+  it('with the bluffs off, every hand the current style re-raises the tight style re-raises too', () => {
+    const noBluff = { ...LIVE.mods, bluffFreq: 0 };
+    let current = 0;
+    let tight = 0;
+    for (const hole of HANDS) {
+      const c = play(facingOpen(hole), {}, SEEDS, noBluff);
+      const t = play(facingOpen(hole), style('tight'), SEEDS, noBluff);
+      c.actions.forEach((a, i) => {
+        if (RAISE.has(a)) expect([hole, i, RAISE.has(t.actions[i])]).toEqual([hole, i, true]);
+      });
+      current += c.actions.filter((a) => RAISE.has(a)).length;
+      tight += t.actions.filter((a) => RAISE.has(a)).length;
+    }
+    expect(current).toBeGreaterThan(0);
+    expect(tight).toBeGreaterThanOrEqual(current);
+  });
+
+  it('with the live profile it calls less, and re-raises a larger share of the hands it plays', () => {
+    const tally = (opts: HorseDecideOpts) => {
+      let raises = 0;
+      let calls = 0;
+      for (const hole of HANDS)
+        for (const a of play(facingOpen(hole), opts).actions) {
+          if (RAISE.has(a)) raises++;
+          else if (a === 'call') calls++;
+        }
+      return { raises, calls };
+    };
+    const c = tally({});
+    const t = tally(style('tight'));
+    // eslint-disable-next-line no-console
+    console.log(
+      `[facing an open, ${HANDS.length * SEEDS.length} decisions] current ${c.raises} re-raises ${c.calls} calls; tight ${t.raises} re-raises ${t.calls} calls`
+    );
+    expect(t.calls).toBeLessThan(c.calls);
+    expect(t.raises / (t.raises + t.calls)).toBeGreaterThan(c.raises / (c.raises + c.calls));
   });
 });
 
