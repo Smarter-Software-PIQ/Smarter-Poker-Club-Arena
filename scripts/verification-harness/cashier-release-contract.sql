@@ -180,6 +180,12 @@ BEGIN
        AND name = 'member_history_player_and_funding_filters'
        AND cardinality(statements) = 1
        AND md5(statements[1]) = 'de44c8ff76be374c742965f07c77d7cc'
+  ) OR NOT EXISTS (
+    SELECT 1 FROM supabase_migrations.schema_migrations
+     WHERE version = '20261115020001'
+       AND name = 'member_history_classifies_cashier_tickets_and_union_promo_fu'
+       AND cardinality(statements) = 1
+       AND md5(statements[1]) = '341fe86fea8a945b820c036ea62135ea'
   ) THEN
     RAISE EXCEPTION 'cashier 2026-11-14 successor migration history drift';
   END IF;
@@ -204,9 +210,10 @@ BEGIN
       -- a26c9b50 and its two anchors added to a26c9b50 gave 5fb4cd6e exactly);
       -- then by 20261115011401 (member history player and funding filters;
       -- its guard requires 5fb4cd6ebe8ed1005a38db1de36efab0).
+      -- 20261115020001 added the union promo member filter to that feed.
       -- Re-pinned 2026-11-15 to the installed definition; 160320's own proof
       -- line keeps the earlier hash dad4d92ef739f520d0c512c9950d5c62.
-      'hash', '553be2e8b21cd6404a32add126a8b7d0',
+      'hash', '6c73793fccbdd5f4c2790f1ea0376e0c',
       'owner', 'postgres'
     ),
     jsonb_build_object(
@@ -260,6 +267,7 @@ BEGIN
       -- failed on it every run. The migration is committed alongside this.
       -- Every OTHER hash in this file was re-checked against production at the
       -- same time and all five still match.
+      -- 20261115020001 added the union promo member filter to that feed.
       -- Re-pinned 2026-11-15: 20261114163238 (#10832) replaced the body so the
       -- roster leaves out reserved certification identities
       -- (fn_ca_reserved_certification_identity); earlier pin 69233cd46670fbc2989173f6ba9f4328.
