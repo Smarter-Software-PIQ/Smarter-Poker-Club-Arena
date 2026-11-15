@@ -1,0 +1,17 @@
+-- Journal coordinates for the selected hands only (at most 32 ids). Read-only, one statement, 10 s. Placeholders: {{IDS}} {{SOURCE_SHA}}.
+-- Journal key = sha256(lower(commit table uuid):commit hand number:original lease). Verified on 2026-11-11 against five retained
+-- ordinary captures and, through the deployed reader, two Lightning hands and one ordinary hand on serving f7735.
+BEGIN READ ONLY;
+SET LOCAL statement_timeout='10000ms';
+SELECT row_to_json(q) FROM (
+ SELECT c.hand_id,c.table_id,c.hand_number,
+  CASE WHEN c.post_commit_payload#>>'{accepted_hand_facts,horse_accepted_terminal,sourceRelease}'='{{SOURCE_SHA}}' THEN 'accepted_terminal'
+       WHEN c.post_commit_payload#>>'{accepted_hand_facts,horse_accepted_terminal,sourceRelease}' IS NULL
+        AND c.post_commit_payload#>>'{accepted_hand_facts,horse_journal_identity,version}'='1' THEN 'lightning_journal_identity' END AS binding_route,
+  coalesce(c.post_commit_payload#>>'{accepted_hand_facts,horse_accepted_terminal,originalLease}',c.post_commit_payload#>>'{accepted_hand_facts,horse_journal_identity,lease_generation}') AS original_lease,
+  (c.post_commit_payload#>>'{accepted_hand_facts,horse_accepted_terminal,observation,handKey}') IS NOT DISTINCT FROM
+   CASE WHEN c.post_commit_payload#>'{accepted_hand_facts,horse_accepted_terminal}' IS NOT NULL THEN lower(c.table_id::text)||':'||c.hand_number::text END AS anchor_ok,
+  (c.post_commit_completed_at IS NOT NULL) AS post_commit_completed
+ FROM public.hand_atomic_commits c WHERE c.hand_id IN ({{IDS}})
+) q;
+COMMIT;
