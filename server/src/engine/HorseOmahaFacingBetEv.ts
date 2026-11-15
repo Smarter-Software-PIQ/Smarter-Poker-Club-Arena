@@ -51,7 +51,6 @@
 import type { Card, SeatPlayer } from '../types.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
 import { scoreOmahaHiPartial } from './HorseEval.js';
-import { scoreFiveCards } from './HorseFiveCardScore.js';
 import { RANK_VALUES } from './PokerEngine.js';
 import { v81StreetWager } from './HorseOmahaBigBetCalls.js';
 
@@ -505,15 +504,16 @@ for (const r of RANKS) RANK_OF_VALUE[RANK_VALUES[r]] = r;
  * go with it). Those fives depend on the pair's two ranks and on whether all
  * five cards share a suit, so each river card is scored once per rank pair
  * (and once more per rank pair in the river card's suit when two board cards
- * share it) with the engine's own five-card score, and every pair reads its
- * score from that table.
+ * share it) with the engine's own evaluator, and every pair reads its score from
+ * that table.
  */
 function evRivers(core: EvCore, hole: Card[], board: Card[], unseen: Card[]): EvRiver[] {
   const { m, scores } = core;
   const rv = new Int32Array(m);
   for (let i = 0; i < m; i++) rv[i] = RANK_VALUES[unseen[i].rank];
   const five: Card[] = [board[0], board[1], board[2], board[3], board[0]];
-  const hand: Card[] = [board[0], board[0], board[0], board[0], board[0]];
+  const pair: Card[] = [board[0], board[0]];
+  const three: Card[] = [board[0], board[0], board[0]];
   const W = 16;
   const plain = new Float64Array(W * W);
   const suited = new Float64Array(W * W);
@@ -525,31 +525,31 @@ function evRivers(core: EvCore, hole: Card[], board: Card[], unseen: Card[]): Ev
     plain.fill(0);
     suited.fill(0);
     let flushSuit: string | null = null;
-    hand[4] = rc;
+    three[2] = rc;
     for (let a = 0; a < 4; a++)
       for (let b = a + 1; b < 4; b++) {
         const x = board[a];
         const y = board[b];
-        hand[2] = x;
-        hand[3] = y;
+        three[0] = x;
+        three[1] = y;
         const mono = x.suit === rc.suit && y.suit === rc.suit;
         // Not a flush: one of the pair in a suit the board card is not.
         const off = SUITS.find((s) => s !== x.suit)!;
         for (let p = 2; p <= 14; p++) {
-          hand[0] = { rank: RANK_OF_VALUE[p], suit: off } as Card;
+          pair[0] = { rank: RANK_OF_VALUE[p], suit: off } as Card;
           for (let q = p; q <= 14; q++) {
-            hand[1] = { rank: RANK_OF_VALUE[q], suit: rc.suit } as Card;
-            const s = scoreFiveCards(hand);
+            pair[1] = { rank: RANK_OF_VALUE[q], suit: rc.suit } as Card;
+            const s = scoreOmahaHiPartial(pair, three);
             if (s > plain[p * W + q]) plain[p * W + q] = s;
           }
         }
         if (!mono) continue;
         flushSuit = rc.suit;
         for (let p = 2; p <= 14; p++) {
-          hand[0] = { rank: RANK_OF_VALUE[p], suit: rc.suit } as Card;
+          pair[0] = { rank: RANK_OF_VALUE[p], suit: rc.suit } as Card;
           for (let q = p + 1; q <= 14; q++) {
-            hand[1] = { rank: RANK_OF_VALUE[q], suit: rc.suit } as Card;
-            const s = scoreFiveCards(hand);
+            pair[1] = { rank: RANK_OF_VALUE[q], suit: rc.suit } as Card;
+            const s = scoreOmahaHiPartial(pair, three);
             if (s > suited[p * W + q]) suited[p * W + q] = s;
           }
         }
