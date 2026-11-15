@@ -13,7 +13,7 @@ jobs(){ for b in "$C"/witness-batch-*.mjs; do [ -e "$b" ] && echo "$(basename $b
 if [ "$MODE" = start ]; then SHA=${HVH_SHA:?}; IMG=${HVH_IMAGE:?}
   $SSH "sudo mkdir -p $H && sudo chmod 700 $H && { sudo mkdir $H/.operation.lock 2>/dev/null && echo $HVH_OPERATOR | sudo tee $H/.operation.lock/OPERATOR >/dev/null || sudo grep -qx $HVH_OPERATOR $H/.operation.lock/OPERATOR; } && sudo test ! -e $H/runner.sh" || { echo "refused: $H/runner.sh exists (already started)"; exit 9; }
   jobs | while read in out t; do [ -e "$C/$out" ] && continue; src="$C/$in"; [ -e "$src" ] || src="$C/batches/$in"
-    $SSH "sudo tee $H/$in >/dev/null" < "$src" || exit 3; [ "$($SSH "sudo sha256sum $H/$in" | cut -c1-64)" = "$(shasum -a 256 "$src" | cut -c1-64)" ] || { echo "copy mismatch $in"; exit 3; }; echo "$in $out $t"; done > "$C/host-jobs.txt" || exit 3
+    $SSH "sudo tee $H/$in >/dev/null" < "$src" || exit 3; [ "$($SSH "sudo sha256sum $H/$in" < /dev/null | cut -c1-64)" = "$(shasum -a 256 "$src" | cut -c1-64)" ] || { echo "copy mismatch $in"; exit 3; }; echo "$in $out $t"; done > "$C/host-jobs.txt" || exit 3
   [ -s "$C/host-jobs.txt" ] || { echo "nothing to run"; exit 0; }
   { echo '#!/bin/bash'; echo "cd $H; umask 077"; echo 'while read in out t; do [ -e "$out" ] || [ -e "$out.partial" ] && { echo "$(date -u +%FT%TZ) refused $out exists" >> runner.log; continue; }'
     echo '  echo "$(date -u +%FT%TZ) start $out" >> runner.log'

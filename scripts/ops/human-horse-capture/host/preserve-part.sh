@@ -1,10 +1,10 @@
 #!/bin/bash
-# Preservation part N of a declared capture window, run as root on the engine host. Manifest of journal segment files with mtime in (FROM, TO]
-# with sha256 taken BEFORE copying, byte copies (rsync, never links, 40 MB/s, idle IO, oldest first), then sha256 verify of every copy and link
-# count 1 (the journal readers require private, single-link segment files). Read-only on the journal. One operator: the lock in WORK_DIR.
-# usage: preserve-part.sh PART FROM_EPOCH TO_EPOCH OPERATOR WORK_DIR PRESERVE_DIR [JOURNAL_DIR]
-# Exit: 0 done (read the verify line), 7 another operator holds WORK_DIR, 9 this part's manifest already exists.
-set -u; PART=${1:?part}; FROM=${2:?epoch}; TO=${3:?epoch}; OP=${4:?operator}; W=${5:?work dir}; P=${6:?preserve dir}; J=${7:-/var/lib/club-arena/horse-decisions}; umask 077
+# preservation part N (toolkit v3 generic; args PART FROM TO OPERATOR RELEASE8) on ca-engine (same procedure as hvh-preserve-06d45e7d part.sh): manifest of segment files with mtime in (FROM, TO] with sha256 taken BEFORE copying,
+# byte copy (rsync, no links, 40 MB/s, idle IO, oldest first), then sha256 verify of every copy and link count 1. Read-only on the journal. One operator: the lock in the work folder.
+# Repository port: HVH_WORK_DIR, HVH_PRESERVE_DIR, HVH_JOURNAL_DIR override the host folders below (defaults unchanged); shards are every archive-shard-* present.
+# Exit: 0 done (read the verify line), 2 bad release, 7 another operator holds the work folder, 9 this part's manifest already exists.
+set -u; PART=${1:?}; FROM=${2:?epoch}; TO=${3:?epoch}; OP=${4:?operator}; R=${5:?release8}; case "$R" in *[!0-9a-z-]*|"") echo "refused: release"; exit 2;; esac
+P=${HVH_PRESERVE_DIR:-/var/lib/club-arena/hvh-preserve-$R}; J=${HVH_JOURNAL_DIR:-/var/lib/club-arena/horse-decisions}; W=${HVH_WORK_DIR:-/root/hvh-work-$R}; umask 077
 mkdir -p $W $P; chmod 700 $W $P
 { mkdir $W/.operation.lock 2>/dev/null && echo $OP > $W/.operation.lock/OPERATOR; } || grep -qx "$OP" $W/.operation.lock/OPERATOR || { echo "refused: operator"; exit 7; }
 M=$P/MANIFEST-part$PART.tsv; [ -e $M ] || [ -e $M.partial ] && { echo "refused: part$PART exists"; exit 9; }

@@ -100,10 +100,22 @@ def keys_light(start, end, outp):
     ok = [h for h in hands if h.get('k')]
     outp.write_text(json.dumps({'sourceSha': SHA, 'source': 'hand_history.has_human (light; census reconciles)', 'startUtc': start, 'endUtc': end, 'humanHands': len(hands), 'withKey': len(ok), 'withoutKey': len(hands) - len(ok), 'failedSegments': failed, 'hands': ok})); outp.chmod(0o600)
     print(json.dumps({'humanHands': len(hands), 'withKey': len(ok), 'failedSegments': failed}))
+def keys_variant(start, end, variant, outp):
+    """v3 support read keys: every committed CASH hand of one variant (Horse-only included), same key formula as keys_light. For bounded lane asks (e.g. PLO6 maniac_price)."""
+    import re as _re
+    if not _re.fullmatch(r'[a-z0-9_]{2,16}', variant): raise SystemExit('refused: variant')
+    outp = new(outp); hands = []; failed = []
+    for a, b in __import__('segments').pairs(start, end, 1):
+        r, err = pg.rows("select row_to_json(q) from (select c.hand_id h, encode(sha256(convert_to(lower(c.table_id::text)||':'||c.hand_number::text||':'||coalesce(c.post_commit_payload#>>'{accepted_hand_facts,horse_accepted_terminal,originalLease}',c.post_commit_payload#>>'{accepted_hand_facts,horse_journal_identity,lease_generation}'),'UTF8')),'hex') k, hh.has_human human, (extract(epoch from coalesce(hh.started_at,hh.created_at))*1000)::bigint start_ms from public.hand_history hh join public.hand_atomic_commits c on c.hand_id=hh.id where hh.game_variant = '%s' and hh.tournament_id is null and hh.created_at >= '%s' and hh.created_at < '%s') q;" % (variant, a, b), 20000)
+        if r is None: failed.append([a, b, err]); continue
+        hands += r
+    ok = [h for h in hands if h.get('k')]
+    outp.write_text(json.dumps({'sourceSha': SHA, 'source': 'hand_history %s cash (support read)' % variant, 'startUtc': start, 'endUtc': end, 'hands_total': len(hands), 'withKey': len(ok), 'failedSegments': failed, 'hands': ok})); outp.chmod(0o600)
+    print(json.dumps({'hands': len(hands), 'withKey': len(ok), 'human': sum(1 for h in ok if h.get('human')), 'failedSegments': failed}))
 def keys_batch(keys_json, outp):
     """Witness batch straight from a keys file (keys_light), for the originals-first order."""
     outp = new(outp); hk = json.loads(Path(keys_json).read_text()); hands = [{'k': h['k'], 'h': h['h']} for h in hk['hands']]
     if not hands or len(hands) > 2500: raise SystemExit('refused: %d hands' % len(hands))
     outp.write_text('const selection=' + json.dumps({'sourceSha': SHA, 'hands': hands, 'limitSec': 1100}) + ';\n' + (T / 'witness-reader.mjs').read_text()); outp.chmod(0o600)
     print(json.dumps({'file': str(outp), 'hands': len(hands)}))
-if __name__ == '__main__': {'batches': batches, 'priors': priors, 'fires': fires, 'cohort': cohort, 'origins': origins, 'keys_light': keys_light, 'keys_batch': keys_batch}[sys.argv[1]](*sys.argv[2:])
+if __name__ == '__main__': {'batches': batches, 'priors': priors, 'fires': fires, 'cohort': cohort, 'origins': origins, 'keys_light': keys_light, 'keys_variant': keys_variant, 'keys_batch': keys_batch}[sys.argv[1]](*sys.argv[2:])

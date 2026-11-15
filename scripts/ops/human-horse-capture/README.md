@@ -53,3 +53,20 @@ bash tests/test_operator_lock.sh "$(mktemp -d)"   # operator and run locks
 bash tests/test_verify_release.sh                 # git fixture + fake health
 bash tests/test_preserve_window.sh                # GNU/Linux only: fake journal, stub and real parts
 ```
+
+## Refresh to the archive's toolkit v3, 2026-11-15 (session 01BbZPDhhqSDALp7kec7EfDM)
+Brought up to the archive copy `capture-toolkit-v2` at TOOLS.sha256 digest `a4dade9d928499d9` (full: `a4dade9d928499d91964904b070a46e6cc4d8becf484d6aafa3d308669fc1ad4`;
+the port above was `ac697de2f39e5149`). The archive copy is untouched. Every file TOOLS.sha256 lists now matches the archive apart from the repository adaptations:
+- identical to the archive: `post_capture.py` (keys_variant), `witness-reader.mjs` (vpipFloor, preflopReadReceipt, streetAggressions, lastAggressor.allIn), and the new
+  `window.py` (the only ISO-to-epoch conversion), `near_tight.py`, `plo6_maniac_price.py` (v2, two sets), `RUNBOOK.md` (v3 section);
+- archive change applied on top of the adaptations: `run-capture-steps.sh` (census resume), `run-originals-host.sh` (stdin fix of the sha check);
+- new with adaptations: `preserve-host.sh` (Mac-side start/close/status/stop of the bounded host preservation; retains the reader image at declaration),
+  `HVH_ENGINE_HOST` and `HVH_JOURNAL_DIR` honoured, the journal directory passed to the host job;
+- `host/preserve-window.sh`, `host/preserve-part.sh` take the archive's v3 interface (`OPERATOR RELEASE8`; FROM/END files written by `preserve-host.sh`, END re-read
+  every pass so `close` needs no restart, RING-GAP line). The repository adaptations stay as environment overrides with the archive's defaults:
+  `HVH_WORK_DIR` (`/root/hvh-work-<R>`), `HVH_PRESERVE_DIR` (`/var/lib/club-arena/hvh-preserve-<R>`), `HVH_JOURNAL_DIR`, every `archive-shard-*` present instead of
+  shards 1-7, and the test tunables `HVH_PART_INTERVAL`, `HVH_RETRY_SLEEP`, `HVH_LOAD_WAIT`, `HVH_DISK_FLOOR_KB`, `HVH_PART_SCRIPT`. The earlier explicit
+  `WORK_DIR PRESERVE_DIR FROM END` arguments are gone; `tests/test_preserve_window.sh` uses the new interface.
+- archive tests ported to `tests/` (checks unchanged; wrapped for `unittest discover`; scratch under `HVH_TEST_TMP`, default the system temporary directory, always
+  removed): `test_window.py` (13 checks), `test_near_tight.py` (8), `test_plo6_maniac_price.py` (15). Results are in TESTS.md.
+- `.prettierignore` now lists this directory's `*.md`: the pre-commit formatter would otherwise merge the runbook's numbered command lines and rewrite the carried test record.
