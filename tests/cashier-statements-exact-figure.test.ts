@@ -141,7 +141,7 @@ describe('the statements certificate reads exact figures', () => {
     for (const line of lines) {
       if (line.startsWith('/*')) open = true;
       inBlock.push(open);
-      if (open && line.endsWith('*/')) open = false;
+      if (open && line.includes('*/')) open = false;
     }
     const at = (line: string) => {
       const index = lines.indexOf(line);
@@ -175,8 +175,10 @@ describe('the statements certificate reads exact figures', () => {
     expect(lines[differing + 2]).toBe(');');
     expect(compare).toBeLessThan(differing);
     expect(differing).toBeLessThan(verdict);
-    // Only the verdict may say it matches: no early return can claim a match.
-    expect(spec.split("'matches the server'").length - 1).toBe(2);
+    // Only the verdict may say it matches: no early return can claim a match,
+    // in any quotes; and the figures compared are the ones read from the glass.
+    expect(spec.split('matches the server').length - 1).toBe(2);
+    expect(spec.split('const figures =').length - 1).toBe(2);
     expect(lines[verdict + 1]).toBe("? 'matches the server'");
     // The comparison poll is awaited, so the test cannot end before it.
     const poll = lines.lastIndexOf('.poll(', query);
@@ -189,6 +191,9 @@ describe('the statements certificate reads exact figures', () => {
     const close = raw.findIndex((line, index) => index > branch && line.startsWith(`${indent}}`));
     expect(branch).toBeLessThan(query);
     expect(close).toBeGreaterThan(message + 2);
+    // Directly in that branch, not under a further condition inside it
+    // (independent review of 7e0bec5a, D2).
+    expect(raw[poll - 1]).toBe(`${indent}  await expect`);
     // No poll prints a club's figures into the run log.
     expect(spec).not.toContain("figures.join('|')");
     // The step that runs this certificate sets the flag.

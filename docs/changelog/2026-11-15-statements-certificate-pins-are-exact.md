@@ -7,4 +7,8 @@ Follow-up to #10940, closing overwatch's notes on its review of e4cb37d2 and the
 - The earlier "terminal state" poll no longer prints the club's figures into the run log; it reports how many it saw.
 - The helper says plainly that both sides go through `Number()`, so the comparison is exact to double precision only.
 
-Test-only. Limits: the pins are exact lines, so reformatting those lines needs the test updated with them; older failure messages outside this change (the totals text, the entry pill) can still show figures when a check fails.
+The comparison poll must also sit directly in that branch, not under a further condition, and only the verdict may say "matches the server".
+
+Test-only. Proof: 9 of 9 at head; the three original mutations and seven later ones (=== for !==, a figure compared with itself, an early match, a dropped await, a block comment, the poll moved into the refusal branch, the poll under a further condition) each fail.
+
+Limits: source-text pins narrow the ways to weaken the certificate but cannot rule out every rewrite that keeps the pinned lines intact (for example a block comment opened at the end of a line); the pins are exact lines, so reformatting them needs the test updated; the privacy guard catches the literal `figures.join('|')` only; and older failure messages outside this change (the totals text, the entry pill, `expectExactCashierFigures`) can still show figures when a check fails.
