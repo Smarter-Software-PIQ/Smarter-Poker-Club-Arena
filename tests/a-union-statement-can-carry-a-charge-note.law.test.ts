@@ -132,6 +132,20 @@ describe('a union statement can carry a charge note', () => {
     expect(migration).toMatch(/CHARGE_NOTE_GRANTS_DIFFER_FROM_CREDIT_NOTE/);
   });
 
+  it('a delivered union statement can be marked paid: the guard ignores only the four payment keys', () => {
+    const sig = 'public.fn_accounting_document_immutable()';
+    const patch = patchOf(sig);
+    expect(patch!.md5).toBe(preimages.functions[sig].md5);
+    for (const side of ['NEW', 'OLD']) {
+      expect(patch!.text).toContain(
+        `${side}.deductions,CASE WHEN OLD.invoice_type IN('union_weekly_squareup','union_weekly_credit_note','union_weekly_debit_note')\n` +
+          `         THEN ${side}.breakdown-ARRAY['paid_total','paid_at','paid_by','payments'] ELSE ${side}.breakdown END,`
+      );
+    }
+    // Exactly the two breakdown anchors change; nothing else in the guard.
+    expect((patch!.text.match(/\$a\$, '1'/g) ?? []).length).toBe(2);
+  });
+
   it('the one charge note is re-derived from rows and refuses to be issued twice', () => {
     expect(migration).toMatch(/CHARGE_NOTE_DERIVATION_MOVED/);
     expect(migration).toMatch(

@@ -61,10 +61,30 @@ recipients and read "KINGS CLUB Pays Midway Union 43.86 Chips More"; 000034
 owed 110,158.16 on the board, in the outstanding reader and when marked paid;
 no other statement or credit note changed in any reader or on the board.
 
-## Found on the way, not changed here
+## Mark Paid works on a delivered union statement again
 
-Marking a delivered union statement paid (`ca_union_set_statement_paid`) is
-refused today by the issued-document guard (`issued_accounting_invoice_is_immutable`):
-the paid write changes `status` and `breakdown`, which the guard freezes once a
-statement is delivered, and every Midway statement was delivered on
-2026-11-15. The rehearsal hit it before the charge note was involved.
+Found while rehearsing this file: `ca_union_set_statement_paid` records a
+payment in `breakdown` (`paid_total`, `paid_at`, `paid_by`, `payments`), and
+the issued-document guard `fn_accounting_document_immutable` froze the whole
+`breakdown` of a delivered document, so Mark Paid failed with
+`issued_accounting_invoice_is_immutable` on every delivered union statement
+(every Midway statement since 2026-11-15).
+
+Fix, in the same migration: for `union_weekly_squareup`,
+`union_weekly_credit_note` and `union_weekly_debit_note` only, the guard
+compares `breakdown` without those four keys. Every other column, every other
+breakdown key and every other document type keep the exact rule they had.
+
+Rolled-back production rehearsal: before the migration, Mark Paid on 000034
+was refused; after it, part payment (100,000.00), full payment (110,158.16,
+status paid, 2 payments recorded, still marked delivered) and reopening all
+succeeded. Changing another breakdown key, the amount, the notes or the due
+date of 000034 was still refused, and so was a payment key on a delivered club
+weekly accounting document. `plpgsql_check` found nothing in the patched guard.
+The native test covers the same cases.
+
+The captured copies of the old guard in older test fixtures
+(`scripts/ci/fixtures/rakeback-cascade-real-*`,
+`scripts/qualification/approved-agent-adjustment/fixtures/*`) are dated
+snapshots that load their own body and md5 together; they do not check
+production and are left as captured.

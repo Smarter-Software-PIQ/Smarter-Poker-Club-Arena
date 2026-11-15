@@ -120,11 +120,15 @@ CREATE TABLE public.settlement_invoices(
   from_entity_type text, from_entity_id text, to_entity_type text, to_entity_id text,
   gross_amount numeric, net_amount numeric, deductions numeric, breakdown jsonb, status text DEFAULT 'generated',
   chips_transferred boolean DEFAULT false, due_at timestamptz, notes text, message_sent boolean DEFAULT false,
-  message_sent_at timestamptz, created_at timestamptz NOT NULL DEFAULT clock_timestamp(), updated_at timestamptz);
+  message_sent_at timestamptz, created_at timestamptz NOT NULL DEFAULT clock_timestamp(), updated_at timestamptz,
+  source_union_presettlement_id uuid, source_ledger_id uuid, source_credit_invoice_id uuid, source_credit_payment_id uuid,
+  transferred_at timestamptz, chip_transfer_id uuid, overdue_at timestamptz, reminders_sent int, last_reminder_at timestamptz);
 CREATE TABLE public.accounting_invoice_deliveries(invoice_id uuid, recipient_id uuid, message_id uuid, notification_id uuid);
 CREATE TABLE public.union_presettlements(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), union_id uuid, club_id uuid,
   received_at timestamptz, reference text, method text, applied_settlement_id uuid, amount numeric);
 CREATE TABLE public.harness_bodies(invoice_id uuid, body text);
+CREATE FUNCTION public.fn_ca_launch_accounting_invoice_transition(jsonb, jsonb) RETURNS boolean
+  LANGUAGE sql STABLE AS $$ SELECT false $$;
 CREATE FUNCTION public.fn_is_platform_admin() RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT false $$;
 CREATE FUNCTION public.ca_can_view_club_finances(uuid) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT false $$;
 CREATE FUNCTION public.ca_can_oversee_union(p uuid) RETURNS boolean LANGUAGE sql STABLE AS
@@ -192,6 +196,7 @@ CREATE OR REPLACE FUNCTION public.fn_deliver_accounting_invoice(p_invoice_id uui
 DECLARE t text;
 BEGIN
   SELECT invoice_type INTO t FROM settlement_invoices WHERE id = p_invoice_id;
+  UPDATE settlement_invoices SET message_sent = true, message_sent_at = now() WHERE id = p_invoice_id;
   IF t IN ('union_weekly_squareup','union_weekly_credit_note','union_weekly_debit_note') THEN
     INSERT INTO harness_bodies VALUES (p_invoice_id, smarter_private.union_weekly_invoice_body(p_invoice_id));
   END IF;
@@ -200,6 +205,10 @@ BEGIN
 END $$;
 CREATE TRIGGER accounting_invoice_deliver AFTER INSERT ON public.settlement_invoices
   FOR EACH ROW EXECUTE FUNCTION fn_accounting_invoice_deliver_on_insert();
+-- Every fixture statement is delivered, as every Midway statement is on production.
+SELECT public.fn_deliver_accounting_invoice(id) FROM public.settlement_invoices;
+CREATE TRIGGER accounting_invoice_immutable BEFORE DELETE OR UPDATE ON public.settlement_invoices
+  FOR EACH ROW EXECUTE FUNCTION fn_accounting_document_immutable();
 """)
 
     # 1. The union owner issues the 000034 charge note.
@@ -259,6 +268,38 @@ CREATE TRIGGER accounting_invoice_deliver AFTER INSERT ON public.settlement_invo
     check('paid in full owes exactly statement - credit + charge', p['owed'] == 850 and p['paid_total'] == 850 and p['fully_settled'], p)
     p = json.loads(as_user(OWNER, f"SELECT public.ca_union_set_statement_paid('{S34}', true, NULL, NULL);"))
     check('000034 is paid at 110,158.16', p['owed'] == 110158.16 and p['paid_total'] == 110158.16, p)
+    check('the paid statements are delivered statements',
+          run(f"SELECT count(*) FROM settlement_invoices s WHERE s.id IN ('{S34}','{S50}') AND s.message_sent "
+              f"AND EXISTS (SELECT 1 FROM accounting_invoice_deliveries d WHERE d.invoice_id = s.id);") == '2')
+    rec = run(f"SELECT status||'|'||(breakdown->>'paid_total')||'|'||jsonb_array_length(breakdown->'payments')||'|'||"
+              f"(breakdown->'payments'->0->>'amount')||'|'||(breakdown->'payments'->1->>'amount') FROM settlement_invoices WHERE id='{S50}';")
+    check('a delivered statement records the partial and the full payment', rec == 'paid|850.00|2|800.00|50.00', rec)
+
+    # 7. The guard still freezes everything but the four payment keys.
+    for label, sql in [
+        ('another breakdown key', f"UPDATE settlement_invoices SET breakdown = breakdown || '{{\"eco_amount\": 1}}' WHERE id='{S34}';"),
+        ('a payment key together with another key', f"UPDATE settlement_invoices SET breakdown = breakdown || '{{\"paid_total\": 1, \"presettled\": 5}}' WHERE id='{S34}';"),
+        ('net_amount', f"UPDATE settlement_invoices SET net_amount = net_amount + 1 WHERE id='{S34}';"),
+        ('notes', f"UPDATE settlement_invoices SET notes = 'edited' WHERE id='{S34}';"),
+        ('due_at', f"UPDATE settlement_invoices SET due_at = due_at + interval '1 day' WHERE id='{S34}';"),
+        ('a charge note amount', f"UPDATE settlement_invoices SET net_amount = 1 WHERE id='{r['debit_note_id']}';"),
+        ('deleting a delivered statement', f"DELETE FROM settlement_invoices WHERE id='{S40}';"),
+    ]:
+        e = command(PSQL, sql, allow_error=True)
+        check(f'a delivered union statement still refuses {label}',
+              e.returncode != 0 and 'issued_accounting_invoice_is_immutable' in e.stderr, e.stderr)
+    run(f"INSERT INTO settlement_invoices(id,club_id,invoice_type,invoice_number,from_entity_type,from_entity_id,to_entity_type,"
+        f"to_entity_id,net_amount,breakdown) VALUES ('10000000-0000-4000-8000-000000000099','{KC}','club_weekly_accounting','CA-9',"
+        f"'club','{KC}','union','{U}',5,'{{}}'::jsonb);")
+    e = command(PSQL, "UPDATE settlement_invoices SET breakdown = breakdown || '{\"paid_total\": 5}' "
+                      "WHERE id='10000000-0000-4000-8000-000000000099';", allow_error=True)
+    check('another issued document type still refuses even a payment key',
+          e.returncode != 0 and 'issued_accounting_invoice_is_immutable' in e.stderr, e.stderr)
+    u = json.loads(as_user(OWNER, f"SELECT public.ca_union_set_statement_paid('{S50}', false, NULL, 'reopened');"))
+    check('a delivered statement can be reopened', u['status'] == 'generated' and u['paid_total'] == 0, u)
+    rec = run(f"SELECT status||'|'||(breakdown->>'paid_total')||'|'||jsonb_array_length(breakdown->'payments')||'|'||"
+              f"(breakdown->'payments'->2->>'reversal') FROM settlement_invoices WHERE id='{S50}';")
+    check('reopening keeps the payment history and appends the reversal', rec == 'generated|0|3|true', rec)
 
     # 5. The credit-note cap counts charges.
     as_user(None, f"SELECT public.fn_union_issue_debit_note('{S60}', 20, 'server charge', false);")

@@ -38,6 +38,14 @@
 --     fn_union_send_club_message ('union_debit_note' / debit_note_id) and
 --     fn_union_club_statement_of_account (entry_type 'debit_note', "Charge note
 --     against ...", same sign as the statement).
+--   * Mark Paid works on a delivered union statement again: the issued-
+--     document guard (fn_accounting_document_immutable) froze the whole
+--     breakdown, and ca_union_set_statement_paid writes the payment into it,
+--     so every delivered union statement refused Mark Paid
+--     (issued_accounting_invoice_is_immutable). For union_weekly_squareup /
+--     _credit_note / _debit_note only, the guard ignores the four payment
+--     keys (paid_total, paid_at, paid_by, payments); everything else is
+--     frozen exactly as before.
 --   Every body is patched from its installed source under an md5 guard
 --   (captured in scripts/ci/fixtures/union-charge-notes/production-preimages
 --   .json); every anchor must occur the stated number of times; owner, ACL,
@@ -64,7 +72,7 @@
 -- TIMING: not to be installed before 2026-11-16 18:00Z (the Monday payout
 -- and statement issue at 10:00Z changes statement readers' inputs).
 --
--- @live-proof: position('union_weekly_debit_note' IN (SELECT pg_get_constraintdef(c.oid) FROM pg_constraint c WHERE c.conname = 'settlement_invoices_invoice_type_check' AND c.conrelid = 'public.settlement_invoices'::regclass))>0 AND to_regprocedure('public.fn_union_issue_debit_note(uuid,numeric,text,boolean)') IS NOT NULL AND position('union_weekly_debit_note' IN pg_get_functiondef('public.fn_union_invoice_outstanding(uuid)'::regprocedure))>0 AND position('union_weekly_debit_note' IN pg_get_functiondef('public.ca_union_set_statement_paid(uuid,boolean,numeric,text)'::regprocedure))>0 AND position('charge_notes' IN pg_get_functiondef('public.ca_union_statement_board(uuid,date,integer)'::regprocedure))>0 AND position('union_weekly_debit_note' IN pg_get_functiondef('public.fn_deliver_accounting_invoice(uuid)'::regprocedure))>0 AND (SELECT count(*) FROM public.settlement_invoices dn JOIN public.settlement_invoices s ON s.id = dn.adjusts_invoice_id WHERE dn.invoice_type = 'union_weekly_debit_note' AND s.invoice_number = 'MIDWAY-2026-000034' AND dn.net_amount = 43.86 AND dn.status IS DISTINCT FROM 'cancelled') = 1 AND public.fn_union_invoice_outstanding((SELECT s.id FROM public.settlement_invoices s WHERE s.invoice_number = 'MIDWAY-2026-000034')) = 110158.16
+-- @live-proof: position('union_weekly_debit_note' IN (SELECT pg_get_constraintdef(c.oid) FROM pg_constraint c WHERE c.conname = 'settlement_invoices_invoice_type_check' AND c.conrelid = 'public.settlement_invoices'::regclass))>0 AND to_regprocedure('public.fn_union_issue_debit_note(uuid,numeric,text,boolean)') IS NOT NULL AND position('union_weekly_debit_note' IN pg_get_functiondef('public.fn_union_invoice_outstanding(uuid)'::regprocedure))>0 AND position('union_weekly_debit_note' IN pg_get_functiondef('public.ca_union_set_statement_paid(uuid,boolean,numeric,text)'::regprocedure))>0 AND position('charge_notes' IN pg_get_functiondef('public.ca_union_statement_board(uuid,date,integer)'::regprocedure))>0 AND position('union_weekly_debit_note' IN pg_get_functiondef('public.fn_deliver_accounting_invoice(uuid)'::regprocedure))>0 AND position('ARRAY[''paid_total'',''paid_at'',''paid_by'',''payments'']' IN pg_get_functiondef('public.fn_accounting_document_immutable()'::regprocedure))>0 AND (SELECT count(*) FROM public.settlement_invoices dn JOIN public.settlement_invoices s ON s.id = dn.adjusts_invoice_id WHERE dn.invoice_type = 'union_weekly_debit_note' AND s.invoice_number = 'MIDWAY-2026-000034' AND dn.net_amount = 43.86 AND dn.status IS DISTINCT FROM 'cancelled') = 1 AND public.fn_union_invoice_outstanding((SELECT s.id FROM public.settlement_invoices s WHERE s.invoice_number = 'MIDWAY-2026-000034')) = 110158.16
 
 BEGIN;
 SET LOCAL lock_timeout = '3s';
@@ -282,6 +290,24 @@ $a$                     || COALESCE(' - ' || (si.breakdown->>'reason'), '')
                 ELSE 'Weekly statement '$a$, '1',
 $a$AND si.invoice_type IN ('union_weekly_squareup', 'union_weekly_credit_note')$a$,
 $a$AND si.invoice_type IN ('union_weekly_squareup', 'union_weekly_credit_note', 'union_weekly_debit_note')$a$, '1']);
+
+-- MARK PAID ON A DELIVERED UNION STATEMENT (found 2026-11-15 while
+-- rehearsing this file). ca_union_set_statement_paid records the payment in
+-- breakdown (paid_total, paid_at, paid_by, payments); the issued-document
+-- guard froze the whole breakdown once a statement was delivered, so Mark
+-- Paid failed with issued_accounting_invoice_is_immutable on every delivered
+-- union statement. For the three union weekly documents only, the guard now
+-- compares breakdown without those four payment keys. Every other column,
+-- every other breakdown key and every other document type keep the exact
+-- current rule; status is already outside the frozen row.
+SELECT pg_temp.cn_patch('public.fn_accounting_document_immutable()'::regprocedure,
+  '8ec25e2d39e02451020b5ce8e9ec5a1b', ARRAY[
+$a$NEW.deductions,NEW.breakdown,$a$,
+$a$NEW.deductions,CASE WHEN OLD.invoice_type IN('union_weekly_squareup','union_weekly_credit_note','union_weekly_debit_note')
+         THEN NEW.breakdown-ARRAY['paid_total','paid_at','paid_by','payments'] ELSE NEW.breakdown END,$a$, '1',
+$a$OLD.deductions,OLD.breakdown,$a$,
+$a$OLD.deductions,CASE WHEN OLD.invoice_type IN('union_weekly_squareup','union_weekly_credit_note','union_weekly_debit_note')
+         THEN OLD.breakdown-ARRAY['paid_total','paid_at','paid_by','payments'] ELSE OLD.breakdown END,$a$, '1']);
 
 DROP FUNCTION pg_temp.cn_patch(regprocedure, text, text[]);
 
