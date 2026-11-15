@@ -122,3 +122,46 @@ it('refreshes recent sends and claims from the member perspective and shows only
   );
   expect(screen.getAllByText(/50.00 Of 50 Used/)).toHaveLength(1);
 });
+
+it('combines full-history filters, resets the cursor on changes and clears them for the preview', async () => {
+  rpc.mockImplementation((_name, args) => ({
+    abortSignal: async () => ({
+      data: Array.from({ length: args.p_limit }, (_, index) => ({
+        id: String(index + 1),
+        created_at: '2026-11-14T18:26:42Z',
+        transaction_type: 'peer_transfer',
+        from_user_id: 'agent',
+        to_user_id: 'other',
+        to_name: 'Player',
+        amount_text: '50.00',
+      })),
+    }),
+  }));
+  render(<MemberTransactionHistory clubId="club" memberId="agent" revision={0} scope="club" />);
+  fireEvent.click(await screen.findByRole('button', { name: 'See All' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Next' }));
+  await screen.findByRole('button', { name: 'Previous' });
+  fireEvent.change(screen.getByLabelText('Player Search'), { target: { value: ' Sliceoflife ' } });
+  fireEvent.change(screen.getByLabelText('Funding Wallet'), {
+    target: { value: 'member_promo_wallet' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Apply Filters' }));
+  const expectQuery = (player: string | null, wallet: string, cursor: string | null) =>
+    expect(rpc).toHaveBeenLastCalledWith(
+      'fn_cashier_history_feed',
+      expect.objectContaining({
+        p_search: player,
+        p_kind: wallet,
+        p_before_id: cursor,
+        p_person: 'agent',
+      })
+    );
+  await waitFor(() => expectQuery('Sliceoflife', 'member_promo_wallet', null));
+  fireEvent.click(await screen.findByRole('button', { name: 'Next' }));
+  await waitFor(() => expectQuery('Sliceoflife', 'member_promo_wallet', '25'));
+  fireEvent.click(screen.getByRole('button', { name: 'Clear Filters' }));
+  await waitFor(() => expectQuery(null, 'all', null));
+  expect(screen.getByLabelText('Player Search')).toHaveValue('');
+  fireEvent.click(screen.getByRole('button', { name: 'Show Recent' }));
+  await waitFor(() => expectQuery(null, 'all', null));
+});
