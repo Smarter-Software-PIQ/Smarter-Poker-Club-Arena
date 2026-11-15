@@ -29,7 +29,7 @@
  *     // window-ok: <why this is not a source pin>
  */
 import { describe, it, expect } from 'vitest';
-import { execFileSync } from 'child_process';
+import { spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { sliceYamlBlock } from '../helpers/sourceWindow';
@@ -68,34 +68,34 @@ function collect(dir: string, out: string[] = []): string[] {
 // pattern, pathspec or quoting setting can narrow it; and this file always
 // holds both strings, so a search that does not return this file - including
 // git grep's "no match" exit 1 - is broken, and the suite reads every file as
-// before. Without git, or on any git error, it does the same.
+// before. Without git, on a non-zero exit, or when git writes anything to
+// stderr (an unreadable file is skipped with a warning and exit 0), it does
+// the same.
 const SELF = path.relative(ROOT, __filename).split(path.sep).join('/');
 function candidates(): string[] {
   const all = () => DIRS.flatMap((d) => collect(d));
-  let out: string;
-  try {
-    out = execFileSync(
-      'git',
-      [
-        'grep',
-        '-z',
-        '-l',
-        '-F',
-        '--untracked',
-        '--all-match',
-        '-e',
-        'readFileSync',
-        '-e',
-        '.slice(',
-        '--',
-        ...DIRS,
-      ],
-      { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }
-    );
-  } catch {
-    return all();
-  }
-  const found = out
+  const r = spawnSync(
+    'git',
+    [
+      'grep',
+      '-z',
+      '-l',
+      '-F',
+      '--untracked',
+      '--all-match',
+      '-e',
+      'readFileSync',
+      '-e',
+      '.slice(',
+      '--',
+      ...DIRS,
+    ],
+    { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }
+  );
+  // git grep skips a file it cannot read, says so on stderr and still exits 0
+  // (delta review of f02a5c80, B2), so any stderr is a git error too.
+  if (r.error || r.status !== 0 || r.stderr) return all();
+  const found = r.stdout
     .split('\0')
     .filter((rel) => TEST_FILE.test(rel) && !rel.split('/').some((part) => SKIP.has(part)));
   return found.includes(SELF) ? found : all();
