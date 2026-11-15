@@ -46,6 +46,18 @@
 BEGIN;
 SET LOCAL lock_timeout = '1s';
 
+-- The trigger calls phase 1's recorder on every promo credit. Installed
+-- without it, the first promo chip sent would fail its own transaction, so
+-- this file refuses to install until phase 1 (20261115210559) is in place.
+DO $guard$
+BEGIN
+  IF to_regclass('public.ca_promo_play_through_grants') IS NULL
+     OR to_regprocedure('public.fn_ca_promo_play_through_record_grant(uuid,uuid,numeric,text,text,uuid,text,uuid,numeric)') IS NULL THEN
+    RAISE EXCEPTION 'promo play-through phase 1 (20261115210559) is not installed; this trigger is not created without it';
+  END IF;
+END
+$guard$;
+
 CREATE FUNCTION public.fn_ca_promo_play_through_on_ledger()
 RETURNS trigger
 LANGUAGE plpgsql
