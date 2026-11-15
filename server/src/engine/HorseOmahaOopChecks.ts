@@ -652,10 +652,14 @@ export function omahaOopTurnFacingBetVerdict(
     const share = omahaTurnRedrawShare(hero.cards, board, hero.knownDeadCards ?? []);
     const outs = Math.round(share * unseen);
     const stack = Number.isFinite(hero.stack) ? Math.max(0, hero.stack) : 0;
-    const call = Math.min(Math.max(0, gs.toCall as number), stack);
+    // what is owed, derived when the state carries no toCall (the league)
+    const owed = Number.isFinite(gs.toCall)
+      ? Math.max(0, gs.toCall as number)
+      : Math.max(0, (gs.currentBet || 0) - (Number.isFinite(hero.bet) ? hero.bet : 0));
+    const call = Math.min(owed, stack);
     if (!(call > 0.005)) return null;
     const pot = Number.isFinite(gs.pot) ? Math.max(0, gs.pot) : 0;
-    const livePot = Math.max(0, pot - ((gs.toCall as number) - call));
+    const livePot = Math.max(0, pot - (owed - call));
     const price = call / (livePot + call);
     if (
       outs >= OMAHA_OOP_TURN_MIN_NUT_OUTS &&

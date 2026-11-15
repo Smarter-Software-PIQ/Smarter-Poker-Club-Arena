@@ -55,6 +55,7 @@ import {
   omahaCardImpactCheckAdmissible,
 } from '../HorseOmahaCardImpact.js';
 import { omahaReraiseRuleProducesCall } from '../HorseOmahaOopReraisedPot.js';
+import { omahaDrawRaiseBarOf } from '../HorseOmahaBigDrawAggression.js';
 import { shortAllInSpot } from '../HorseShortAllInCallFloor.js';
 import { OMAHA_FACING_BET_EV_VARIANTS, omahaFacingBetEvSpot } from '../HorseOmahaFacingBetEv.js';
 import { holdemFourBetSpot } from '../HorseHoldemPremiumAggression.js';
@@ -1354,9 +1355,22 @@ function policyGraphIsValid(
       context !== undefined &&
       String(context.gameState.gameVariant).toLowerCase() === variant &&
       omahaReraiseRuleProducesCall(context.player, context.gameState, transition.after.amount);
+    // Owner 2026-11-15 12:30 (omahaNoDrawRaiseOutOfPosition): a raise with a
+    // draw out of position, or in position with a bare flush draw, becomes a
+    // call. Admitted only with the request, where the bar re-run on it agrees.
+    const omahaDrawRaiseToCall =
+      transition.node === 'wager_rules' &&
+      (variant === 'plo4' || variant === 'plo5') &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      ['raise', 'all_in'].includes(previous.action) &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      omahaDrawRaiseBarOf(context.player, context.gameState) !== null;
     if (
       transition.node === 'wager_rules' &&
       changed &&
+      !omahaDrawRaiseToCall &&
       !pairedBoardFold &&
       !omahaRiverMediumBetCalled &&
       !omahaCardImpactBetToCheck &&

@@ -50,7 +50,12 @@ import {
   omahaTurnRedrawShare,
 } from './HorseOmahaMadeHandDefense.js';
 import { omahaOnePairDiscipline } from './HorseOmahaOnePair.js';
-import { omahaBigDrawVerdict } from './HorseOmahaBigDrawAggression.js';
+import {
+  omahaBigDrawVerdict,
+  omahaDrawRaiseBarOf,
+  omahaHeroInPosition,
+  type OmahaDrawRaiseBar,
+} from './HorseOmahaBigDrawAggression.js';
 import type { OmahaReadConditional } from './HorseOmahaReadConditional.js';
 import { omahaRiverMediumBetCall } from './HorseOmahaRiverMediumBetCalls.js';
 import {
@@ -3193,6 +3198,19 @@ export interface HorseDecideOpts {
    * made hands. Default OFF (opt-in, read `=== true`) until its declared
    * evaluation passes; league cards plo4/plo5 _omaha_big_draw_aggression. */
   omahaBigDrawAggression?: boolean;
+  /** Owner 2026-11-15 12:30 ("RAISING WITH DRAWS SHOULD NEVER HAPPEN OUT OF
+   * POSITION. ONLY IN POSITION WHEN ITS COMBO DRAWS, NOT NAKED NUT FLUSH
+   * DRAWS."): on a PLO4/PLO5 cash flop or turn the brain's existing raises
+   * with a draw (below two pair, with a flush draw or 8+ straight outs:
+   * the baseline semi-bluff raise, the pressure semi-bluff raise, the combo
+   * draw pump, and any other raise that reaches the final answer) are not
+   * made out of position, and in position not with a bare flush draw
+   * (HorseOmahaBigDrawAggression.omahaDrawRaiseBar). At the three raise
+   * sites the hand falls through to today's call-or-fold verdict; a raise
+   * from any other owner becomes a call. Two pair or better is a made hand
+   * and untouched. Default OFF (opt-in, read `=== true`); league cards
+   * plo4/plo5 _omaha_no_draw_raise_out_of_position. */
+  omahaNoDrawRaiseOutOfPosition?: boolean;
   /** A token-priced committed call is not barred by stack-off premiums
    * (HorseTokenCallPrice.ts, PLO6-AUDIT-010). Default on; false only for
    * the regression's non-vacuity control. */
@@ -7083,10 +7101,12 @@ export function omahaBigDrawAggression(
             : []),
           ...(stack > 0 && heroBet + stack <= potCapTo + 0.005 ? ['all_in'] : []),
         ];
-    // In position: no live opponent acts after hero on this street.
-    const after = (seat: number): number => (((seat - (gs.dealerSeat ?? 0) - 1) % 32) + 32) % 32;
-    const inPosition =
-      typeof gs.dealerSeat === 'number' && live.every((p) => after(p.seat) < after(player.seat));
+    // In position: no live opponent acts after hero on a later street.
+    const inPosition = omahaHeroInPosition(
+      player.seat,
+      gs.dealerSeat,
+      live.map((p) => p.seat)
+    );
     const useMind = opts.mind !== false;
     const verdict = omahaBigDrawVerdict({
       variant: String(gs.gameVariant ?? ''),
@@ -7146,6 +7166,53 @@ export function omahaBigDrawAggression(
   } catch {
     return decision;
   }
+}
+
+/**
+ * omahaNoDrawRaiseOutOfPosition, the final answer (owner 2026-11-15 12:30;
+ * default OFF): a raise, or an all-in that raises, facing a wager with a draw
+ * the ruling bars becomes a call. The three named raise sites inside the
+ * brain are gated where they stand (they fall through to today's verdict);
+ * this catches a draw raise from any other owner. Draws no random number.
+ */
+export function omahaNoDrawRaiseFinal(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
+  if (opts.omahaNoDrawRaiseOutOfPosition !== true) return decision;
+  if (decision.action !== 'raise' && decision.action !== 'all_in') return decision;
+  try {
+    const heroBet = Number.isFinite(player.bet) ? Math.max(0, player.bet ?? 0) : 0;
+    const toCall = Number.isFinite(gs.toCall)
+      ? Math.max(0, gs.toCall as number)
+      : Math.max(0, (gs.currentBet || 0) - heroBet);
+    const stack = Number.isFinite(player.stack) ? Math.max(0, player.stack) : 0;
+    if (toCall <= 0.005 || stack <= toCall + 0.005) return decision;
+    if (Array.isArray(gs.legalActions) && !gs.legalActions.includes('call')) return decision;
+    if (omahaDrawRaiseBarOf(player, gs) === null) return decision;
+    if (telemetryOn(opts)) noteFire('omaha_no_draw_raise_final_call');
+    return { ...decision, action: 'call', amount: toCall };
+  } catch {
+    return decision;
+  }
+}
+
+/** The two draw rules of 2026-11-15, outermost in the wager rules: the bar on
+ * a draw raise first, then the priced big-draw wager (which obeys the bar). */
+function omahaDrawRules(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
+  return omahaBigDrawAggression(
+    omahaNoDrawRaiseFinal(decision, player, gs, opts),
+    player,
+    gs,
+    opts
+  );
 }
 
 /**
@@ -7265,6 +7332,8 @@ function omahaBigBetCallFold(
       opts.omahaBluffCatcherFoldVsValueLeader === true &&
       opts.mind !== false &&
       faced.bettorSeat !== player.seat &&
+      // Cash only (audit 2026-11-15): the read and its evidence are cash play.
+      !isTournamentMode(gs) &&
       // The facing-bet expected value, when it answers this spot, is the single decider.
       omahaFacingBetEvOf(player, gs, opts) === null;
     const bluffCatcherCell =
@@ -7430,7 +7499,10 @@ function omahaOopTurnFacingBetRule(
     if (verdict === null) return null;
     const tele = telemetryOn(opts);
     const stack = Number.isFinite(player.stack) ? Math.max(0, player.stack) : 0;
-    const toCall = Math.max(0, gs.toCall as number);
+    const heroBet = Number.isFinite(player.bet) ? Math.max(0, player.bet ?? 0) : 0;
+    const toCall = Number.isFinite(gs.toCall)
+      ? Math.max(0, gs.toCall as number)
+      : Math.max(0, (gs.currentBet || 0) - heroBet);
     const isRaise =
       decision.action === 'raise' || (decision.action === 'all_in' && stack > toCall + 0.005);
     if (verdict === 'fold_no_outs') {
@@ -7472,7 +7544,34 @@ function omahaOwnerRuledFinal(
   gs: HorseGameStateV2,
   opts: HorseDecideOpts
 ): HorseDecision {
-  return omahaOopTurnFacingBetRule(decision, player, gs, opts) ?? decision;
+  const faced = omahaOopTurnFacingBetRule(decision, player, gs, opts);
+  if (faced !== null) return faced;
+  // A wager facing no bet that reached here in a spot an owner-ruled check
+  // rule, the turn river-plan test or the street plan checks was proposed by
+  // a later rule (omahaBigDrawAggression): the check stands. The inner rules
+  // are deterministic on the same state, so a bet they let through is not
+  // touched here.
+  if (
+    opts.omahaBigDrawAggression !== true ||
+    (decision.action !== 'bet' && decision.action !== 'all_in' && decision.action !== 'raise')
+  )
+    return decision;
+  try {
+    const quiet: HorseDecideOpts = { ...opts, telemetry: false };
+    const checked = (d: HorseDecision): boolean => d.action === 'check';
+    if (
+      checked(omahaOopCheckRules(decision, player, gs, quiet)) ||
+      (opts.omahaStreetPlan === true && checked(omahaStreetPlanRules(decision, player, gs, quiet)))
+    ) {
+      if (telemetryOn(opts)) noteFire('omaha_owner_ruled_check_kept');
+      const c: HorseDecision = { ...decision, action: 'check' };
+      delete c.amount;
+      return c;
+    }
+  } catch {
+    if (telemetryOn(opts)) noteFire('omaha_strategy_rule_failed');
+  }
+  return decision;
 }
 
 /**
@@ -7806,8 +7905,10 @@ function omahaFacingBetEvRule(
     if (tele) noteFire('omaha_facing_bet_ev_changed');
     if (verdict.call) {
       const called: HorseDecision = spot.allIn
-        ? { ...decision, action: 'all_in', amount: undefined }
+        ? { ...decision, action: 'all_in' }
         : { ...decision, action: 'call', amount: spot.paid };
+      // the whole-stack call carries no amount key at all
+      if (spot.allIn) delete called.amount;
       delete called.continuationGuard;
       return called;
     }
@@ -8170,7 +8271,7 @@ function pairedBoardFoldOutsideGraph(
 ): HorseDecision {
   return decision.policyGraph === undefined
     ? omahaOwnerRuledFinal(
-        omahaBigDrawAggression(
+        omahaDrawRules(
           omahaFacingBetEvRule(
             omahaRiverMediumBetStrongHandCalls(
               omahaOopReraisedPotStrongRange(
@@ -9031,6 +9132,9 @@ export class HorseLogic {
     planReadCapture?: HorsePlanReadCapture
   ): HorseDecision {
     omahaFacingBetEvMemo = null;
+    // omahaVpipFloorByLimp's pending fold is per decision: a decision that
+    // threw between setting and reading it must not hand it to the next one.
+    vpipFloorLimpFoldPending = false;
     phase7EquityEvidence = null;
     phase10EquityEvidence = null;
     phase11DecisionEquityCeiling = null;
@@ -10172,7 +10276,7 @@ export class HorseLogic {
       if (tele && nutRaise.changed === 'fold_restored')
         noteFire('omaha_river_non_nut_raise_fold_restored');
       const prePremium = omahaOwnerRuledFinal(
-        omahaBigDrawAggression(
+        omahaDrawRules(
           omahaFacingBetEvRule(
             omahaRiverMediumBetStrongHandCalls(
               omahaOopReraisedPotStrongRange(
@@ -10309,15 +10413,27 @@ export class HorseLogic {
           vi
         );
         return {
-          decision: omahaBigDrawAggression(
-            onePair({ ...finalWager, action: legal.action, amount: legal.amount }),
+          decision: omahaOwnerRuledFinal(
+            omahaDrawRules(
+              onePair({ ...finalWager, action: legal.action, amount: legal.amount }),
+              player,
+              gs,
+              opts
+            ),
             player,
             gs,
             opts
           ),
         };
       }
-      return { decision: omahaBigDrawAggression(onePair(finalWager), player, gs, opts) };
+      return {
+        decision: omahaOwnerRuledFinal(
+          omahaDrawRules(onePair(finalWager), player, gs, opts),
+          player,
+          gs,
+          opts
+        ),
+      };
     }).decision;
     // Forced-phase authority (2026-11-07): an owner wager rule above may replace
     // an authorised Phase 10-13 candidate; its receipt must say so
@@ -15337,6 +15453,23 @@ export class HorseLogic {
     };
     // V74: an Omaha hand with no flush draw, under eight straight outs and
     // (hi-lo) no nut low draw is not a semi-bluff.
+    // omahaNoDrawRaiseOutOfPosition (owner 2026-11-15 12:30, default off): a
+    // draw raise about to be made out of position, or in position with a
+    // bare flush draw, is not made; the site falls through to today's verdict.
+    const drawRaiseBarred = (site: 'ft' | 'v53' | 'v86'): boolean => {
+      if (opts.omahaNoDrawRaiseOutOfPosition !== true) return false;
+      let bar: OmahaDrawRaiseBar | null = null;
+      try {
+        bar = omahaDrawRaiseBarOf(player, gs);
+      } catch {
+        bar = null;
+      }
+      if (bar === null) return false;
+      if (tele15 && site === 'ft') noteFire('omaha_no_draw_raise_ft_semibluff');
+      if (tele15 && site === 'v53') noteFire('omaha_no_draw_raise_v53_semibluff');
+      if (tele15 && site === 'v86') noteFire('omaha_no_draw_raise_v86_pump');
+      return true;
+    };
     const v74NoDrawRaise = (): boolean => {
       if ((opts.v74OmahaSemiBluffNeedsDraw ?? true) === false) return false;
       const d = drawInfo40();
@@ -16765,7 +16898,13 @@ export class HorseLogic {
         opponents.length === 1 &&
         // The comment above names bottom pair; `cat <= 1` is no pair, a hand
         // the baseline always owns. One pair is admitted only by the opt-in.
-        cat <= (opts.omahaRiverNutBlockerBluffReachable === true ? 2 : 1) &&
+        // PLO4/PLO5 cash only (audit 2026-11-15).
+        cat <=
+          (opts.omahaRiverNutBlockerBluffReachable === true &&
+          (vi.holeCount === 4 || vi.holeCount === 5) &&
+          !isTournamentMode(gs)
+            ? 2
+            : 1) &&
         equity < 0.28 &&
         hasVariantBlocker(player.cards, board, vi) &&
         !boardPaired15 &&
@@ -20046,7 +20185,7 @@ export class HorseLogic {
             pFr = Math.max(pFr, ploPersona?.comboDrawAggro ?? 0.85, 0.85);
           }
         }
-        if (fastRandom() < pFr) {
+        if (fastRandom() < pFr && !drawRaiseBarred('ft')) {
           const raiseToFr = currentBet + (pot + toCall) * (0.75 + fastRandom() * 0.25);
           if (
             !multiBoard36 &&
@@ -20170,7 +20309,8 @@ export class HorseLogic {
             0.5 *
             omahaDrawMod() *
             (pressure53 ? pressure53.semiBluffMul : 1)
-        )
+        ) &&
+      !drawRaiseBarred('v53')
     ) {
       if (tele15 && pressure53) noteFire('v53_pressure_semibluff_raise');
       if (tele15 && pressure53 && equity >= pressure53.semiBluffTop)
@@ -21097,7 +21237,11 @@ export class HorseLogic {
         const pumpAggro86 = lagManiacPump86
           ? Math.max(0.88, ploPersona?.comboDrawAggro ?? 0.65)
           : (ploPersona?.comboDrawAggro ?? 0.65);
-        if ((nutComboPump86 || plo8ScoopPump86) && v86Hash01(v86SeedKey, 8632) < pumpAggro86) {
+        if (
+          (nutComboPump86 || plo8ScoopPump86) &&
+          v86Hash01(v86SeedKey, 8632) < pumpAggro86 &&
+          !drawRaiseBarred('v86')
+        ) {
           const raiseTo86 =
             currentBet + (pot + toCall) * (0.85 + v86Hash01(v86SeedKey, 8633) * 0.15);
           if (

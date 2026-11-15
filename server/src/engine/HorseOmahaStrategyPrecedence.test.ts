@@ -8,7 +8,8 @@
  *      position after the flop bet was called (omahaOopTurnCheckAfterFlopCall:
  *      check; facing the bet call the nut draw, never raise, fold with no
  *      out), the paired turn and paired river without a full house against a
- *      value leader. omahaCardImpact, omahaStreetPlan and omahaFacingBetEv,
+ *      value leader. omahaCardImpact, omahaStreetPlan, omahaBigDrawAggression
+ *      and omahaFacingBetEv,
  *      each alone and all together, cannot change them;
  *  (b) on the river, omahaFacingBetEv on, its verdict is the single decider:
  *      omahaRiverMediumBetStrongHandCalls, omahaPairedBoardFoldRespectsPrice
@@ -258,12 +259,19 @@ const ALL: HorseDecideOpts = {
   omahaCardImpact: true,
   omahaStreetPlan: true,
   omahaFacingBetEv: true,
+  omahaBigDrawAggression: true,
+  omahaNoDrawRaiseOutOfPosition: true,
 };
 const ARMS: [string, HorseDecideOpts][] = [
   ['the owner-ruled options alone', OWNER],
   ['+ omahaCardImpact', { ...OWNER, omahaCardImpact: true }],
   ['+ omahaStreetPlan', { ...OWNER, omahaStreetPlan: true }],
   ['+ omahaFacingBetEv', { ...OWNER, omahaFacingBetEv: true }],
+  ['+ omahaBigDrawAggression', { ...OWNER, omahaBigDrawAggression: true }],
+  [
+    '+ omahaBigDrawAggression and omahaStreetPlan',
+    { ...OWNER, omahaBigDrawAggression: true, omahaStreetPlan: true },
+  ],
   ['every option on', ALL],
 ];
 

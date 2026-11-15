@@ -16,6 +16,10 @@ New `server/src/engine/HorseOmahaBigDrawAggression.ts`: the big-draw classes by 
 
 It stays passive against a measured station without the equity, against three or more opponents, against two opponents without the nut end, when facing a raise of its own bet, and never touches a paired board, a made hand, or a weak or non-nut draw. With the option unset or false the brain plays exactly as before. League cards `plo4_omaha_big_draw_aggression` and `plo5_omaha_big_draw_aggression`.
 
+## Owner ruling 12:30 (second commit)
+
+"RAISING WITH DRAWS SHOULD NEVER HAPPEN OUT OF POSITION. ONLY IN POSITION WHEN ITS COMBO DRAWS, NOT NAKED NUT FLUSH DRAWS." `omahaBigDrawAggression` now never raises out of position and adds no bet out of position; in position it raises only a combo draw (a flush draw with a straight draw, or a pair with a nut draw), never a bare wrap or a bare nut flush draw, and still bets the pot when checked to. A second option, `omahaNoDrawRaiseOutOfPosition` (off by default), applies the same bar to the brain's existing draw raises: the baseline semi-bluff raise, the pressure semi-bluff raise and the combo draw pump fall through to today's call-or-fold verdict, and any other draw raise reaching the final answer becomes a call. Receipts `omaha_no_draw_raise_ft_semibluff`, `_v53_semibluff`, `_v86_pump`, `_final_call`. A made hand with a draw (two pair or better) is untouched.
+
 ## Evaluation
 
 Not yet declared or run. The protocol and pass rule go into the evidence archive (`plo-handoff-review-01a1cbbd/combodraw-20261115/`) before any graded run; the verdict is added here when it is read.

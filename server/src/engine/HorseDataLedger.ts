@@ -1049,6 +1049,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaNoDrawRaiseOutOfPosition',
+    'Owner 2026-11-15 12:30 ("RAISING WITH DRAWS SHOULD NEVER HAPPEN OUT OF POSITION. ONLY IN POSITION WHEN ITS COMBO DRAWS, NOT NAKED NUT FLUSH DRAWS."): on a PLO4/PLO5 cash flop or turn the existing raises with a draw (below two pair, with a flush draw or 8+ straight outs: the baseline semi-bluff raise, the pressure semi-bluff raise, the combo draw pump, and any other raise reaching the final answer) are not made out of position, nor in position with a bare flush draw; the three sites fall through to the call-or-fold verdict, any other raise becomes a call; two pair or better is untouched (HorseOmahaBigDrawAggression.omahaDrawRaiseBar). Default OFF (opt-in); league cards plo4/plo5 _omaha_no_draw_raise_out_of_position',
+    'V94'
+  ),
+  flag(
     'omahaNutClassValueSize',
     'Dan 2026-11-14: a PLO4/PLO5 high bet or raise with the nuts or an effective-nut hand for the street is the full pot (the pot-limit maximum, the stack when smaller) on the flop, turn and river. Default OFF (opt-in): its declared evaluation failed on the Horse-only cells (PLO4 -1.19, PLO5 -1.31 bb/100; human field +2.29)',
     'V94'
@@ -4153,7 +4158,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'omaha_owner_ruled_check_kept',
     'HorseLogic wager_rules (omahaOwnBetRules, precedence 2026-11-15)',
-    'a pricing rule (omahaStreetPlan or omahaCardImpact) proposed a bet in a spot an owner-ruled check rule checks (omahaOopCheckRules): the bet was not made',
+    'a pricing rule (omahaStreetPlan or omahaCardImpact) or the big-draw wager (omahaBigDrawAggression) proposed a bet in a spot an owner-ruled check rule (omahaOopCheckRules) or the street plan checks: the bet was not made',
     'V94'
   ),
   receipt(
@@ -4208,6 +4213,30 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_big_draw_aggression_withheld',
     'HorseLogic wager_rules (HorseOmahaBigDrawAggression, omahaBigDrawAggression)',
     'a check or call with a declared big draw the rule examined and kept: the passive line was worth more (low fold equity without the equity), three or more opponents, two opponents without the nut end, a raise of its own bet, or no legal wager',
+    'V94'
+  ),
+  receipt(
+    'omaha_no_draw_raise_ft_semibluff',
+    'HorseLogic (HorseOmahaBigDrawAggression.omahaDrawRaiseBar, omahaNoDrawRaiseOutOfPosition)',
+    'PLO4/PLO5 cash flop or turn, the baseline flop/turn semi-bluff raise with a draw out of position, or in position with a bare flush draw: not made, the hand went on to the call-or-fold verdict',
+    'V94'
+  ),
+  receipt(
+    'omaha_no_draw_raise_v53_semibluff',
+    'HorseLogic (HorseOmahaBigDrawAggression.omahaDrawRaiseBar, omahaNoDrawRaiseOutOfPosition)',
+    'PLO4/PLO5 cash flop or turn, the pressure semi-bluff raise with a draw out of position, or in position with a bare flush draw: not made, the hand went on to the call-or-fold verdict',
+    'V94'
+  ),
+  receipt(
+    'omaha_no_draw_raise_v86_pump',
+    'HorseLogic (HorseOmahaBigDrawAggression.omahaDrawRaiseBar, omahaNoDrawRaiseOutOfPosition)',
+    'PLO4/PLO5 cash flop or turn, the combo draw pump raise with a draw out of position, or in position with a bare flush draw: not made, the hand went on to the call-or-fold verdict',
+    'V94'
+  ),
+  receipt(
+    'omaha_no_draw_raise_final_call',
+    'HorseLogic (HorseOmahaBigDrawAggression.omahaDrawRaiseBar, omahaNoDrawRaiseOutOfPosition)',
+    'PLO4/PLO5 cash flop or turn, a raise from any other owner that reached the final answer with a draw out of position, or in position with a bare flush draw: not made, it became a call',
     'V94'
   ),
   receipt(

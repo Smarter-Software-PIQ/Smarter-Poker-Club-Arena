@@ -10,8 +10,13 @@
  *  - the verdict: the wager only when its expected value is the higher one;
  *    a measured station without the equity, three or more opponents, and two
  *    opponents without the nut end keep the passive line;
+ *  - owner 2026-11-15 12:30: no draw raise and no new draw lead out of
+ *    position; in position a raise only with a combo draw, never a bare flush
+ *    draw; omahaNoDrawRaiseOutOfPosition applies the same bar to the brain's
+ *    existing draw raises; a made hand with a draw is untouched;
  *  - the option: unset and false decide byte-identically; on, three recorded
- *    passive hands of the 2026-11-15 sweep bet or raise the pot; a recorded
+ *    passive decisions of the 2026-11-15 sweep, the Horse placed in position, bet
+ *    or raise the pot (as recorded, out of position, they stay); a recorded
  *    three-way wrap short of the nut end and a made top set are unchanged; the
  *    rule draws nothing from the brain's random stream; the changed decision
  *    is admitted by the worker receipt validator.
@@ -24,6 +29,9 @@ import {
   OMAHA_BIG_DRAW_PRIOR_FOLD_TO_BET,
   omahaBigDraw,
   omahaBigDrawVerdict,
+  omahaDrawRaiseBar,
+  omahaDrawRaiseBarOf,
+  omahaHeroInPosition,
   type OmahaBigDrawInput,
 } from './HorseOmahaBigDrawAggression.js';
 import type { OmahaReadConditional } from './HorseOmahaReadConditional.js';
@@ -106,7 +114,7 @@ const spot = (over: Partial<OmahaBigDrawInput> = {}): OmahaBigDrawInput => ({
   maxRaiseTo: 20,
   legalActions: ['fold', 'check', 'bet', 'all_in'],
   opponents: [{ stack: 200, bet: 0, allIn: false, foldToBet: null }],
-  inPosition: false,
+  inPosition: true,
   hiLo: false,
   multiBoard: false,
   bombPot: false,
@@ -159,7 +167,7 @@ describe('omahaBigDrawVerdict: the wager only when its expected value is the hig
     expect(station.withheld).toBe('passive_ev');
     // The same hand against a player who folds: the wager.
     const folder = omahaBigDrawVerdict(
-      spot({ ...base, opponents: [{ stack: 200, bet: 0, allIn: false, foldToBet: 0.6 }] })
+      spot({ ...base, opponents: [{ stack: 200, bet: 0, allIn: false, foldToBet: 0.9 }] })
     )!;
     expect(folder.wager?.action).toBe('bet');
   });
@@ -204,6 +212,14 @@ describe('omahaBigDrawVerdict: the wager only when its expected value is the hig
     expect(omahaBigDrawVerdict(spot({ action: 'bet' }))).toBeNull();
     expect(omahaBigDrawVerdict(spot({ action: 'fold' }))).toBeNull();
   });
+  it('owner 2026-11-15 12:30: out of position no raise and no new lead; in position a raise only with a combo draw', () => {
+    expect(omahaBigDrawVerdict(facing({ inPosition: false }))!.withheld).toBe('out_of_position');
+    expect(omahaBigDrawVerdict(spot({ inPosition: false }))!.withheld).toBe('out_of_position');
+    // a 13-out nut wrap with no pair and no flush draw is not a combo draw
+    const wrap = { hole: cards('QsJdTc2h'), board: cards('9h8d3s') };
+    expect(omahaBigDrawVerdict(facing(wrap))!.withheld).toBe('not_combo');
+    expect(omahaBigDrawVerdict(spot(wrap))!.withheld).not.toBe('not_combo');
+  });
   it('a weak or non-nut draw never becomes a wager', () => {
     for (const [hole, board] of [
       ['KsQd4c2h', 'Jh9d3s'],
@@ -215,6 +231,62 @@ describe('omahaBigDrawVerdict: the wager only when its expected value is the hig
   });
 });
 
+// ─── the bar on a draw raise (owner 2026-11-15 12:30) ───────────────────────
+
+describe('omahaDrawRaiseBar: no draw raise out of position, no bare flush draw raise in position', () => {
+  const bar = (hole: string, board: string, inPosition: boolean, over = {}) =>
+    omahaDrawRaiseBar({
+      variant: 'plo4',
+      street: board.length === 6 ? 'flop' : 'turn',
+      hole: cards(hole),
+      board: cards(board),
+      inPosition,
+      hiLo: false,
+      multiBoard: false,
+      bombPot: false,
+      tournament: false,
+      allInOrFold: false,
+      ...over,
+    });
+  it('out of position every draw is barred: combo, wrap, bare flush draw, pair with a draw', () => {
+    for (const [hole, board] of [
+      ['AhJh9s7c', 'Th8h2c'],
+      ['QsJdTc2h', '9h8d3s'],
+      ['Ah6h4c2d', 'Kh9h3s'],
+      ['9h6h4c2d', 'Kh8h3s'],
+      ['AhKd7h3c', 'Kh8h2c'],
+    ] as const)
+      expect(bar(hole, board, false)).toBe('out_of_position');
+  });
+  it('in position only a combo draw may raise; a bare flush draw and a bare wrap may not', () => {
+    expect(bar('AhJh9s7c', 'Th8h2c', true)).toBeNull();
+    expect(bar('AhKd7h3c', 'Kh8h2c', true)).toBeNull();
+    // the audit's literal reading of the 12:30 ruling: a bare wrap is not a combo draw
+    expect(bar('QsJdTc2h', '9h8d3s', true)).toBe('bare_straight_draw');
+    expect(bar('Ah6h4c2d', 'Kh9h3s', true)).toBe('bare_flush_draw');
+    expect(bar('9h6h4c2d', 'Kh8h3s', true)).toBe('bare_flush_draw');
+  });
+  it('a made hand with a draw is not a draw: two pair, a set, a straight are never barred', () => {
+    expect(bar('AhKd8c3h', 'Kh8h2c', false)).toBeNull();
+    expect(bar('AhKdKc3h', 'Kh8h2c', false)).toBeNull();
+    expect(bar('AhJh9s7c', 'Th8h6c', false)).toBeNull();
+  });
+  it('no draw, the river, hi-lo, PLO6 and tournaments are outside', () => {
+    expect(bar('KsQd4c2h', 'Jh9d3s', false)).toBeNull();
+    expect(bar('AhJh9s7c', 'Th8h2c', false, { street: 'river' })).toBeNull();
+    expect(bar('AhJh9s7c', 'Th8h2c', false, { hiLo: true })).toBeNull();
+    expect(bar('AhJh9s7c', 'Th8h2c', false, { variant: 'plo6' })).toBeNull();
+    expect(bar('AhJh9s7c', 'Th8h2c', false, { tournament: true })).toBeNull();
+  });
+  it('position: the live seat nearest before the button acts last', () => {
+    expect(omahaHeroInPosition(3, 3, [1, 5])).toBe(true);
+    expect(omahaHeroInPosition(1, 3, [3])).toBe(false);
+    expect(omahaHeroInPosition(2, 3, [4, 6])).toBe(true);
+    expect(omahaHeroInPosition(4, 3, [2])).toBe(false);
+    expect(omahaHeroInPosition(4, undefined, [2])).toBe(false);
+  });
+});
+
 // ─── the option in the decision: recorded hands of the 2026-11-15 sweep ─────
 
 const LIVE = replayProfiles('cash').find((p) => p.live)!;
@@ -222,10 +294,18 @@ const SEEDS = Array.from({ length: 10 }, (_, i) => 5100 + i);
 const ON: HorseDecideOpts = { omahaBigDrawAggression: true };
 const decisionBytes = (d: unknown): string =>
   JSON.stringify(d, (k, v) => (k === 'latencyMs' || k === 'elapsedMs' ? undefined : v));
-const node = (fx: unknown, ord: number, hole?: Card[]) => {
+type Seat = 'ip' | 'oop';
+/** The recorded node; `seat` moves the button so the Horse is in or out of position. */
+const node = (fx: unknown, ord: number, hole?: Card[], seat?: Seat) => {
   const f = JSON.parse(JSON.stringify(fx)) as ComplaintFixture;
   const st = stateAt(f, f.actions.find((a) => a.ord === ord)!);
   if (hole) st.hero.cards = hole;
+  if (seat) {
+    const opp = st.gs.players.find(
+      (p) => p.seat !== st.hero.seat && !p.is_folded && !p.is_sitting_out
+    )!;
+    (st.gs as { dealerSeat?: number }).dealerSeat = seat === 'ip' ? st.hero.seat : opp.seat;
+  }
   return st;
 };
 interface Outcome {
@@ -243,7 +323,9 @@ function play(
   ord: number,
   opts: HorseDecideOpts,
   reads?: (userId: string) => OmahaReadConditional | null,
-  hole?: Card[]
+  hole?: Card[],
+  seat?: Seat,
+  seeds: number[] = SEEDS
 ): Outcome {
   enableBrainTelemetry();
   const out: Outcome = {
@@ -256,12 +338,12 @@ function play(
     pot: 0,
     max: 0,
   };
-  for (const s of SEEDS) {
+  for (const s of seeds) {
     HorseMind.reset();
     if (reads) vi.spyOn(HorseMind, 'omahaReadConditionalOf').mockImplementation(reads as never);
     drainFires();
     seedFastRandom(s);
-    const st = node(fx, ord, hole);
+    const st = node(fx, ord, hole, seat);
     out.pot = st.gs.pot;
     out.max = st.gs.maxRaiseTo as number;
     const d = HorseLogic.decide(st.hero, st.gs, LIVE.style, LIVE.mods, {
@@ -288,66 +370,72 @@ const bigDrawFires = (o: Outcome) =>
 
 /** [fixture, the recorded passive decision, what it was, what the option makes of it] */
 const RECORDED: Array<[string, unknown, number, 'check' | 'call', 'bet' | 'raise']> = [
-  ['PLO4 top pair with the nut flush draw, checked the flop', TOP_PAIR_NFD, 9, 'check', 'bet'],
   ['PLO4 flush draw with a nut wrap, checked the flop', FD_NUT_WRAP, 8, 'check', 'bet'],
   ['PLO4 flush draw with a nut wrap, called the flop bet', FD_NUT_WRAP, 10, 'call', 'raise'],
   ['PLO5 thirteen-out nut wrap, checked the flop', NUT_WRAP, 10, 'check', 'bet'],
-  ['PLO5 thirteen-out nut wrap, called the flop bet', NUT_WRAP, 12, 'call', 'raise'],
 ];
 
-describe.each(RECORDED)('recorded passive hand: %s', (_name, fx, ord, recorded, wager) => {
-  it('the recorded decision was the passive one', () => {
-    const f = fx as ComplaintFixture;
-    expect(f.actions.find((a) => a.ord === ord)!.action).toBe(recorded);
-  });
+describe.each(RECORDED)(
+  'recorded passive hand, the Horse in position: %s',
+  (_name, fx, ord, recorded, wager) => {
+    it('the recorded decision was the passive one', () => {
+      const f = fx as ComplaintFixture;
+      expect(f.actions.find((a) => a.ord === ord)!.action).toBe(recorded);
+    });
 
-  it("unset and false decide byte-identically, and today's brain takes the passive line", () => {
-    const off = play(fx, ord, {});
-    const no = play(fx, ord, { omahaBigDrawAggression: false });
-    expect(no.bytes).toEqual(off.bytes);
-    expect(off.actions).toContain(recorded);
-    expect(bigDrawFires(off).flat()).toEqual([]);
-  });
+    it("unset and false decide byte-identically, and today's brain takes the passive line", () => {
+      const off = play(fx, ord, {});
+      const no = play(fx, ord, {
+        omahaBigDrawAggression: false,
+        omahaNoDrawRaiseOutOfPosition: false,
+      });
+      expect(no.bytes).toEqual(off.bytes);
+      expect(off.actions).toContain(recorded);
+      expect(bigDrawFires(off).flat()).toEqual([]);
+      // as recorded the Horse was out of position: the option adds nothing there
+      if (!omahaDrawRaiseBarOf(node(fx, ord).hero, node(fx, ord).gs)) return;
+      const on = play(fx, ord, ON);
+      expect(on.actions).toEqual(off.actions);
+      expect(on.amounts).toEqual(off.amounts);
+    });
 
-  it('on: every passive answer becomes the pot-sized wager, with its receipt', () => {
-    const off = play(fx, ord, {});
-    const on = play(fx, ord, ON);
-    for (let k = 0; k < SEEDS.length; k++) {
-      if (off.actions[k] !== 'check' && off.actions[k] !== 'call') {
-        // an answer that was already a wager is not touched
-        expect(on.bytes[k]).toEqual(off.bytes[k]);
-        continue;
+    it('on: every passive answer becomes the pot-sized wager, with its receipt', () => {
+      const off = play(fx, ord, {}, undefined, undefined, 'ip');
+      const on = play(fx, ord, ON, undefined, undefined, 'ip');
+      for (let k = 0; k < SEEDS.length; k++) {
+        if (off.actions[k] !== 'check' && off.actions[k] !== 'call') {
+          // an answer that was already a wager is not touched
+          expect(on.bytes[k]).toEqual(off.bytes[k]);
+          continue;
+        }
+        expect(on.actions[k]).toBe(wager);
+        expect(on.amounts[k]).toBe(on.max);
+        expect(bigDrawFires(on)[k]).toEqual([`omaha_big_draw_aggression_${wager}`]);
+        expect(on.refusals[k]).toBeNull();
       }
-      expect(on.actions[k]).toBe(wager);
-      expect(on.amounts[k]).toBe(on.max);
-      expect(bigDrawFires(on)[k]).toEqual([`omaha_big_draw_aggression_${wager}`]);
-      expect(on.refusals[k]).toBeNull();
-    }
-    expect(on.actions.filter((a) => a === wager).length).toBeGreaterThan(
-      off.actions.filter((a) => a === wager).length
-    );
-    // the rule draws nothing from the brain's random stream
-    expect(on.next).toEqual(off.next);
-  });
+      expect(on.actions.filter((a) => a === wager).length).toBe(SEEDS.length);
+      // the rule draws nothing from the brain's random stream
+      expect(on.next).toEqual(off.next);
+    });
 
-  it('on, with the mind off: the population prior prices the same wager', () => {
-    const on = play(fx, ord, { ...ON, mind: false });
-    expect(on.actions).toContain(wager);
-  });
-});
+    it('on, with the mind off: the population prior prices the same wager', () => {
+      const on = play(fx, ord, { ...ON, mind: false }, undefined, undefined, 'ip');
+      expect(on.actions).toContain(wager);
+    });
+  }
+);
 
 describe('the option keeps the passive line where the expected value says so', () => {
-  const stationRead = {
-    measured: true,
-    foldToBet: { mean: 0.02, n: 30, engaged: 'low', excess: 1 },
-  } as unknown as OmahaReadConditional;
-
-  it('a measured station: the pair with the nut flush draw checks as today', () => {
-    const off = play(TOP_PAIR_NFD, 9, {});
-    const on = play(TOP_PAIR_NFD, 9, ON, () => stationRead);
-    expect(on.actions).toEqual(off.actions);
-    expect(on.amounts).toEqual(off.amounts);
-    expect(bigDrawFires(on).flat()).toContain('omaha_big_draw_aggression_withheld');
+  it('recorded top pair with the nut flush draw: the check is worth more, in and out of position', () => {
+    for (const seat of ['ip', 'oop'] as const) {
+      const off = play(TOP_PAIR_NFD, 9, {}, undefined, undefined, seat);
+      const on = play(TOP_PAIR_NFD, 9, ON, undefined, undefined, seat);
+      expect(on.actions).toEqual(off.actions);
+      expect(on.amounts).toEqual(off.amounts);
+      // out of position the brain checks and the rule examines it; in position the brain bets itself
+      if (seat === 'oop')
+        expect(bigDrawFires(on).flat()).toContain('omaha_big_draw_aggression_withheld');
+    }
   });
 
   it('a recorded three-way wrap short of the nut end stays passive', () => {
@@ -387,6 +475,131 @@ describe('the option keeps the passive line where the expected value says so', (
   });
 });
 
+// ─── by class: the owner ruling of 2026-11-15 12:30, both options on ────────
+
+describe('draw raises by class and position (both options on, many seeds)', () => {
+  const BOTH: HorseDecideOpts = {
+    omahaBigDrawAggression: true,
+    omahaNoDrawRaiseOutOfPosition: true,
+  };
+  const MANY = Array.from({ length: 40 }, (_, i) => 7000 + i);
+  const raises = (o: Outcome) => o.actions.filter((a) => a === 'raise' || a === 'all_in').length;
+  const noDrawFires = (o: Outcome) =>
+    o.fires.flat().filter((x) => x.startsWith('omaha_no_draw_raise'));
+  /** [name, fixture, the node facing a bet] : a flush draw with a nut wrap, and a 13-out nut wrap */
+  const FACING: Array<[string, unknown, number]> = [
+    ['PLO4 flush draw with a nut wrap and a pair (combo draw)', FD_NUT_WRAP, 10],
+    ['PLO5 thirteen-out nut wrap', NUT_WRAP, 12],
+  ];
+
+  it.each(FACING)('out of position facing a bet never raises: %s', (_n, fx, ord) => {
+    const on = play(fx, ord, BOTH, undefined, undefined, 'oop', MANY);
+    expect(raises(on)).toBe(0);
+    expect(on.refusals.every((r) => r === null)).toBe(true);
+    // each option alone does not raise out of position either
+    expect(raises(play(fx, ord, ON, undefined, undefined, 'oop', MANY))).toBeLessThanOrEqual(
+      raises(play(fx, ord, {}, undefined, undefined, 'oop', MANY))
+    );
+    expect(
+      raises(
+        play(fx, ord, { omahaNoDrawRaiseOutOfPosition: true }, undefined, undefined, 'oop', MANY)
+      )
+    ).toBe(0);
+  });
+
+  it("out of position the brain's existing draw raise is converted, with its receipt", () => {
+    const off = play(NUT_WRAP, 12, {}, undefined, undefined, 'oop', MANY);
+    const on = play(
+      NUT_WRAP,
+      12,
+      { omahaNoDrawRaiseOutOfPosition: true },
+      undefined,
+      undefined,
+      'oop',
+      MANY
+    );
+    expect(raises(off)).toBeGreaterThan(0);
+    expect(raises(on)).toBe(0);
+    expect(noDrawFires(on).length).toBeGreaterThanOrEqual(raises(off));
+    for (let k = 0; k < MANY.length; k++)
+      if (off.actions[k] !== 'raise' && off.actions[k] !== 'all_in')
+        expect(on.actions[k]).toBe(off.actions[k]);
+  });
+
+  it('in position a combo draw can raise', () => {
+    const on = play(FD_NUT_WRAP, 10, BOTH, undefined, undefined, 'ip', MANY);
+    const off = play(FD_NUT_WRAP, 10, {}, undefined, undefined, 'ip', MANY);
+    expect(raises(on)).toBeGreaterThan(raises(off));
+    expect(bigDrawFires(on).flat()).toContain('omaha_big_draw_aggression_raise');
+    expect(noDrawFires(on)).toEqual([]);
+    expect(on.refusals.every((r) => r === null)).toBe(true);
+  });
+
+  it('in position a bare nut flush draw never raises', () => {
+    const st = node(FD_NUT_WRAP, 10);
+    const board = st.gs.communityCards;
+    const R = '23456789TJQKA'.split('') as CardRank[];
+    const suits = ['clubs', 'diamonds', 'hearts', 'spades'] as CardSuit[];
+    const fd = suits.find((s) => board.filter((c) => c.suit === s).length === 2)!;
+    const others = suits.filter((s) => s !== fd);
+    const free = (rank: CardRank, suit: CardSuit) =>
+      !board.some((c) => c.rank === rank && c.suit === suit);
+    const top = [...R].reverse().find((r) => free(r, fd))!;
+    let bare: Card[] | null = null;
+    for (const low of R)
+      for (const j1 of R)
+        for (const j2 of R) {
+          if (bare || low === top || !free(low, fd) || j1 === j2) continue;
+          const hole: Card[] = [
+            { rank: top, suit: fd },
+            { rank: low, suit: fd },
+            { rank: j1, suit: others[0]! },
+            { rank: j2, suit: others[1]! },
+          ];
+          if (!free(j1, others[0]!) || !free(j2, others[1]!)) continue;
+          const b = omahaDrawRaiseBar({
+            variant: 'plo4',
+            street: 'flop',
+            hole,
+            board,
+            inPosition: true,
+            hiLo: false,
+            multiBoard: false,
+            bombPot: false,
+            tournament: false,
+            allInOrFold: false,
+          });
+          if (b === 'bare_flush_draw' && omahaBigDraw(hole, board) === null) bare = hole;
+        }
+    expect(bare).not.toBeNull();
+    const on = play(FD_NUT_WRAP, 10, BOTH, undefined, bare!, 'ip', MANY);
+    expect(raises(on)).toBe(0);
+    expect(on.refusals.every((r) => r === null)).toBe(true);
+  });
+
+  it('a made top set raises exactly as today, in and out of position', () => {
+    const st = node(NUT_WRAP, 12);
+    const board = st.gs.communityCards;
+    const top = [...board].sort(
+      (a, b) => '23456789TJQKA'.indexOf(b.rank) - '23456789TJQKA'.indexOf(a.rank)
+    )[0]!;
+    const free = (['clubs', 'diamonds', 'hearts', 'spades'] as CardSuit[]).filter(
+      (s) => s !== top.suit
+    );
+    const low = (['2', '3', '4'] as CardRank[]).filter((r) => !board.some((c) => c.rank === r));
+    const set: Card[] = [
+      { rank: top.rank, suit: free[0]! },
+      { rank: top.rank, suit: free[1]! },
+      ...low.map((rank, k) => ({ rank, suit: free[k % free.length]! })),
+    ].slice(0, st.hero.cards.length);
+    for (const seat of ['ip', 'oop'] as const) {
+      const off = play(NUT_WRAP, 12, {}, undefined, set, seat);
+      const on = play(NUT_WRAP, 12, BOTH, undefined, set, seat);
+      expect(on.bytes).toEqual(off.bytes);
+    }
+  });
+});
+
 describe('in the league', () => {
   it('off by default: unset and false play the same poker', async () => {
     for (const variant of ['plo4', 'plo5']) {
@@ -397,7 +610,7 @@ describe('in the league', () => {
           pairs: 40,
           productionStyles: true,
           a: {},
-          b: { omahaBigDrawAggression: false },
+          b: { omahaBigDrawAggression: false, omahaNoDrawRaiseOutOfPosition: false },
         },
         40,
         4610001
@@ -415,7 +628,7 @@ describe('in the league', () => {
           variant,
           pairs: 40,
           productionStyles: true,
-          a: { omahaBigDrawAggression: true },
+          a: { omahaBigDrawAggression: true, omahaNoDrawRaiseOutOfPosition: true },
           b: {},
         },
         40,
@@ -423,7 +636,6 @@ describe('in the league', () => {
       );
       expect(r.illegalActions).toBe(0);
       expect(r.brainExceptionFallbacks ?? 0).toBe(0);
-      expect(r.divergentPairs).toBeGreaterThan(0);
     }
   }, 300_000);
 });

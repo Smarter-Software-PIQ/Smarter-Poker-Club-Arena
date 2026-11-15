@@ -309,7 +309,9 @@ export function omahaRiverMediumBetCall(
   if (!spot) return { decision, changed: null, spot: null };
   if (!spot.priced) return { decision, changed: 'unpriced', spot };
   const called: HorseDecision = spot.allIn
-    ? { ...decision, action: 'all_in', amount: undefined }
+    ? { ...decision, action: 'all_in' }
     : { ...decision, action: 'call', amount: spot.paid };
+  // the whole-stack call carries no amount key at all
+  if (spot.allIn) delete called.amount;
   return { decision: called, changed: 'called', spot };
 }
