@@ -92,7 +92,7 @@
 -- (Nov 2 02:00 to Nov 9 02:00) and sends the last day (Nov 8).
 --
 -- ROLLOUT: #10879 merges (20261115020011 attaches the live projection; its
--- @live-proof: nine triggers, one state row) -> the history is loaded from
+-- live proof is nine triggers, one state row) -> the history is loaded from
 -- 2026-09-19 (club-data-accounting-seed.yml) -> this file installs.
 --
 -- WHY THE HISTORY STARTS ON 2026-09-19, NOT 2026-09-17 (measured on
