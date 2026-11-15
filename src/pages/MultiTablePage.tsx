@@ -267,6 +267,12 @@ interface TableInstance {
   seatChangeEnabled?: boolean;
   buttonTheme?: string;
   isAutoRebuyEnabled?: boolean;
+  standUpNextBB?: boolean;
+  straddleAvailable?: boolean;
+  straddleEnabled?: boolean;
+  straddleBusy?: boolean;
+  heroSeated?: boolean;
+  leaveNextHandQueued?: boolean;
   /** Dan 2026-08-21: short game code the tab shows when no hand is live
    *  (NLH / PLO5 / SPIN / MTT / HU). Best-effort at first paint, replaced by
    *  TablePage's authoritative value the moment it loads. */
@@ -2396,6 +2402,12 @@ export default function MultiTablePage() {
           seatChangeEnabled: t.seatChangeEnabled,
           buttonTheme: t.buttonTheme,
           isAutoRebuyEnabled: t.isAutoRebuyEnabled,
+          standUpNextBB: t.standUpNextBB,
+          straddleAvailable: t.straddleAvailable,
+          straddleEnabled: t.straddleEnabled,
+          straddleBusy: t.straddleBusy,
+          heroSeated: t.heroSeated,
+          leaveNextHandQueued: t.leaveNextHandQueued,
           /* Dan 2026-10-04: a tournament tab prints its buy-in, never its
              blinds or a pot. The bar decides; it only needs to be told. */
           isTournament: t.isTournament,

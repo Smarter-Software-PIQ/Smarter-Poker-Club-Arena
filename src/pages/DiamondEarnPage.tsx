@@ -1,4 +1,5 @@
 import DiamondSpinsTabs from '../components/games/DiamondSpinsTabs';
+import { writeClipboard } from '../lib/share';
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuthUser } from '../hooks/useAuthUser';
@@ -136,9 +137,7 @@ function DiamondEarnGuide() {
   const copy = async () => {
     if (!guide?.referral_code) return;
     try {
-      await navigator.clipboard.writeText(
-        `https://smarter.poker/?ref=${encodeURIComponent(guide.referral_code)}`
-      );
+      await writeClipboard(`https://smarter.poker/?ref=${encodeURIComponent(guide.referral_code)}`);
       setCopied(true);
     } catch (e) {
       reportError(e, 'DiamondEarnPage.copy');

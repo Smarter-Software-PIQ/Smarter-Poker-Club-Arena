@@ -3,6 +3,7 @@ import { publicMemoryDomainKey } from '../HorsePublicMemoryDomain.js';
 import { createHash } from 'node:crypto';
 import {
   computeDonorHandClockStaleness,
+  copyLongCounters,
   opponentMemoryDonors,
   opponentMemoryKey,
   opponentProfileVersion,
@@ -105,6 +106,8 @@ export class PooledPublicProfiles {
           observed_hands: p.observed_hands,
           initialized: p.initialized,
           counters: { ...p.counters },
+          // The long participation window travels with its row (absent stays absent).
+          ...copyLongCounters(p),
         },
         at: snapshot.availableAtMs,
         // Saved notes are fresh at boot; staleness counts the hands the
@@ -200,6 +203,7 @@ export class PooledPublicProfiles {
           observed_hands: p.observed_hands,
           initialized: p.initialized,
           counters: { ...p.counters },
+          ...copyLongCounters(p),
         },
         at,
         clock: this.clocks.get(p.user_id)?.count ?? 0,

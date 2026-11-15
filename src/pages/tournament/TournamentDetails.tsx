@@ -112,7 +112,7 @@ import { useTournamentStageView } from '../../hooks/useTournamentStageView';
 import { subscribeTournamentStandings } from '../../services/tournamentStandingsUpdates';
 import { openTableAsObserver } from '../../utils/observeTable';
 import { titleCase } from '../../utils/titleCase';
-import { publicOrigin } from '../../lib/appBase';
+import { shareLink, tournamentShareUrl } from '../../lib/share';
 import { DAY_COMPLETE_LABEL, isBaggedStatus } from '../../utils/multiDaySchedule';
 
 interface TournamentSnapshotOwner {
@@ -1736,20 +1736,18 @@ export default function TournamentDetails({
    * tournament page.
    */
   const shareTournament = useCallback(async () => {
-    const url = `${publicOrigin()}/hub/club-arena/tournaments/${tournament?.id ?? ''}`;
-    const title = tournament?.name || 'Tournament';
-    try {
-      if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
-        await navigator.share({ title, url });
-        return;
-      }
-      await navigator.clipboard.writeText(url);
-      toast?.success?.('Tournament link copied');
-    } catch (err) {
-      // AbortError just means the player dismissed the share sheet.
-      if (err instanceof Error && err.name === 'AbortError') return;
-      toast?.error?.('Could not share this tournament');
+    if (!tournament?.id) {
+      toast?.error?.('Tournament Link Unavailable');
+      return;
     }
+    const url = tournamentShareUrl(tournament.id);
+    const outcome = await shareLink({
+      source: 'TournamentDetails.share',
+      title: tournament.name || 'Tournament',
+      url,
+    });
+    if (outcome === 'copied') toast?.success?.('Tournament Link Copied');
+    else if (outcome === 'failed') toast?.error?.(`Could Not Share. Copy This Link: ${url}`);
   }, [tournament?.id, tournament?.name, toast]);
 
   /**

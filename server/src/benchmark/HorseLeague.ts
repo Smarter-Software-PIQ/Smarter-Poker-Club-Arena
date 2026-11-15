@@ -1999,6 +1999,19 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaTightOpponent: true },
     b: {},
   })),
+  // 2026-11-14 OMAHA TIGHT STEAL (omahaTightOpponentSteal, default OFF): the
+  // steal half of omahaTightOpponent alone, in OMAHA_TIGHT_STEAL_VARIANTS
+  // (six-card only). Against a Horse field the evidence standard is rarely
+  // met, so this card is expected to be near inert; the declared evaluation
+  // is in the PLO6 audit archive (phase1-play/tight-plo6-league).
+  {
+    name: 'plo6_omaha_tight_opponent_steal',
+    variant: 'plo6',
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaTightOpponentSteal: true },
+    b: {},
+  },
   // V15 BOATS (2026-09-28): default OFF. a turns it on, b is today's brain.
   // Ship it default ON only after this resolves significant positive.
   // 2026-11-06: V15 boats is default ON in PLO5 cash (v15BoatsOn), so the
@@ -2965,6 +2978,139 @@ export interface UnmeasurableMatchup extends Pick<
 }
 
 export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.freeze([
+  // 2026-11-14 (Fixed-Limit lane, SPEC-FL-01..03): three default-off
+  // fixed-limit arms. Refused, not dealt: this league cannot ask the question.
+  ...(
+    [
+      ['flh_river_full_bet_read', 'flh', { fixedLimitRiverFullBetRead: true }, 1],
+      ['flo8_river_full_bet_read', 'flo8', { fixedLimitRiverFullBetRead: true }, 2],
+      ['flo8_nut_low_river_bet', 'flo8', { fixedLimitHiLoNutLowRiverBet: true }, 1],
+      ['flh_river_one_bet_value_raise', 'flh', { fixedLimitRiverOneBetValueRaise: true }, 0],
+    ] as const
+  ).map(([name, variant, a, d]) => ({
+    name,
+    variant,
+    seats: 2,
+    a,
+    b: {},
+    reason:
+      'Unanswerable by this league: playHand deals no-limit and pot-limit betting and has no ' +
+      'fixed-limit street unit, wager cap or controller menu, and every gate of this option ' +
+      'requires a fixed-limit state (HorseLogic: vi.isFixedLimit). The option is DEFAULT OFF (read as === true). ' +
+      'Measured 2026-11-15 by running this refused matchup through runMatchup (seed 20261115, 300 pairs): ' +
+      `${d} of 300 pairs diverged. The league deals the variant's cards with its own betting while ` +
+      'HorseLogic takes the fixed-limit path from the variant name, so that divergence is not a ' +
+      'fixed-limit measurement and decides nothing. ' +
+      'What would change this: the fixed-limit duplicate league of the ' +
+      'Fixed-Limit lane evaluation protocol (real HandController, flh and flo8, six seats and ' +
+      'heads-up), which is not built yet; until it is, the fixtures in ' +
+      'AFixedLimitRiverBetIsReadAsAFullBet.law.test.ts and its two siblings are the only evidence.',
+  })),
+  // 2026-11-14 (Fixed-Limit lane, adaptation fix F2, the call price): a default-off
+  // fixed-limit arm. Refused, not dealt: this league cannot ask the question.
+  ...(
+    [
+      ['flo8_call_is_not_a_commitment', 'flo8', 6, { fixedLimitCallIsNotACommitment: true }, 11],
+      ['flh_call_is_not_a_commitment', 'flh', 6, { fixedLimitCallIsNotACommitment: true }, 6],
+    ] as const
+  ).map(([name, variant, seats, a, d]) => ({
+    name,
+    variant,
+    seats,
+    a,
+    b: {},
+    reason:
+      'Unanswerable by this league: playHand deals no-limit and pot-limit betting and has no ' +
+      'fixed-limit street unit, wager cap or controller menu, and every gate of this option ' +
+      'requires a fixed-limit state (HorseLogic: vi.isFixedLimit). The option is DEFAULT OFF (read as === true). ' +
+      'Measured 2026-11-15 by running this refused matchup through runMatchup (seed 20261115, 300 pairs): ' +
+      `${d} of 300 pairs diverged. The league deals the variant's cards with its own betting while ` +
+      'HorseLogic takes the fixed-limit path from the variant name, so that divergence is not a ' +
+      'fixed-limit measurement and decides nothing. ' +
+      'What would change this: a fixed-limit duplicate league (real ' +
+      'HandController, flh and flo8, heads-up and six seats); until it is built, the fixtures in ' +
+      'AFixedLimitCallIsNotACommitment.law.test.ts and the Fixed-Limit lane diagnostic-harness measurements are the only evidence.',
+  })),
+  // 2026-11-14 (Fixed-Limit lane, adaptation fix F3, the hi-lo low half): a default-off
+  // fixed-limit arm. Refused, not dealt: this league cannot ask the question.
+  ...(
+    [['flo8_hilo_low_half_floor', 'flo8', 6, { fixedLimitHiLoLowHalfFloor: true }, 6]] as const
+  ).map(([name, variant, seats, a, d]) => ({
+    name,
+    variant,
+    seats,
+    a,
+    b: {},
+    reason:
+      'Unanswerable by this league: playHand deals no-limit and pot-limit betting and has no ' +
+      'fixed-limit street unit, wager cap or controller menu, and every gate of this option ' +
+      'requires a fixed-limit state (HorseLogic: vi.isFixedLimit). The option is DEFAULT OFF (read as === true). ' +
+      'Measured 2026-11-15 by running this refused matchup through runMatchup (seed 20261115, 300 pairs): ' +
+      `${d} of 300 pairs diverged. The league deals the variant's cards with its own betting while ` +
+      'HorseLogic takes the fixed-limit path from the variant name, so that divergence is not a ' +
+      'fixed-limit measurement and decides nothing. ' +
+      'What would change this: a fixed-limit duplicate league (real ' +
+      'HandController, flh and flo8, heads-up and six seats); until it is built, the fixtures in ' +
+      'AFixedLimitHiLoLowHalfIsKept.law.test.ts and the Fixed-Limit lane diagnostic-harness measurements are the only evidence.',
+  })),
+  // 2026-11-14 (Fixed-Limit lane, tight fix T1, the Omaha presumption): a
+  // default-off fixed-limit arm. Refused, not dealt: this league cannot ask the question.
+  {
+    name: 'flo8_no_omaha_presumption',
+    variant: 'flo8',
+    seats: 2,
+    a: { fixedLimitOmahaNoPresumption: true },
+    b: {},
+    reason:
+      'Unanswerable by this league: playHand deals no-limit and pot-limit betting and has no ' +
+      'fixed-limit street unit, wager cap or controller menu, and the option acts only on a ' +
+      'fixed-limit Omaha decision (HorseMind.opponentRead: bettingStructureFor(variant) === ' +
+      "'fixed_limit'). The option is DEFAULT OFF (read as === true). " +
+      'Measured 2026-11-15 by running this refused matchup through runMatchup (seed 20261115, 300 pairs): ' +
+      "81 of 300 pairs diverged. The league deals the variant's cards with its own betting while " +
+      'HorseMind reads the variant name as fixed limit, so that divergence is not a fixed-limit ' +
+      'measurement and decides nothing. What would change this: a ' +
+      'fixed-limit duplicate league (real HandController, flo8, heads-up and three seats, tight ' +
+      'and maniac fields); until it is built, the fixtures in ' +
+      'AFixedLimitOmahaHasNoPresumption.law.test.ts and the Fixed-Limit lane diagnostic-harness measurements are the only evidence.',
+  },
+  {
+    name: 'plo4_lightning_participation_omaha',
+    variant: 'plo4',
+    a: { lightningParticipationOmaha: true },
+    b: {},
+    reason:
+      'No Lightning domain in the league table. lightningParticipationOmaha is DEFAULT OFF (HorseLogic: ' +
+      'opts.lightningParticipationOmaha === true) and its one predicate (HorseLightningParticipation) ' +
+      'requires gs.publicMemoryDomain.speed === "lightning" with a big-blind ante, four to six ' +
+      'dealt, cash. The league deals its own tables and no league context carries a public ' +
+      'memory domain, so both arms would play identical poker (the option refuses with ' +
+      'lightning_participation_refused_not_lightning_seen) and the card would report 0.00 +/- ' +
+      '0.00 every night. Measured 2026-11-15 on this matchup as written: 0 of 2,000 pairs ' +
+      'diverged (run seed 20261114). It is measured where the domain exists: the paired Lightning harness ' +
+      '(lightning/LightningPairedEval.test.ts, LIGHTNING_EVAL_CANDIDATE) under the declared ' +
+      'protocol (development, selection and final seed classes). What would change this: a ' +
+      'league context that deals the Lightning contract (fast-fold pool, big-blind ante of one ' +
+      'big blind, a new table every hand) and sets the domain.',
+  },
+  {
+    name: 'nlh_lightning_participation_holdem',
+    a: { lightningParticipationHoldem: true },
+    b: {},
+    reason:
+      'No Lightning domain in the league table. lightningParticipationHoldem is DEFAULT OFF (HorseLogic: ' +
+      'opts.lightningParticipationHoldem === true) and its one predicate (HorseLightningParticipation) ' +
+      'requires gs.publicMemoryDomain.speed === "lightning" with a big-blind ante, four to six ' +
+      'dealt, cash. The league deals its own tables and no league context carries a public ' +
+      'memory domain, so both arms would play identical poker (the option refuses with ' +
+      'lightning_participation_refused_not_lightning_seen) and the card would report 0.00 +/- ' +
+      '0.00 every night. Measured 2026-11-15 on this matchup as written: 0 of 2,000 pairs ' +
+      'diverged (run seed 20261114). It is measured where the domain exists: the paired Lightning harness ' +
+      '(lightning/LightningPairedEval.test.ts, LIGHTNING_EVAL_CANDIDATE) under the declared ' +
+      'protocol (development, selection and final seed classes). What would change this: a ' +
+      'league context that deals the Lightning contract (fast-fold pool, big-blind ante of one ' +
+      'big blind, a new table every hand) and sets the domain.',
+  },
   {
     name: 'hu_break_even_bluff',
     seats: 2,

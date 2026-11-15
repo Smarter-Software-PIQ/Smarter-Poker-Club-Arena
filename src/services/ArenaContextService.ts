@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { parseArenaIdentity, type ArenaAccessContext } from '../../server/src/domain/ArenaContext';
+import { isUUID } from '../utils/clubIdResolver';
 
 // Match the existing ClubWorkspace authorization-read deadline. A timeout is
 // unreadable access, never a membership refusal or an authorization grant.
@@ -7,6 +8,46 @@ const ARENA_ACCESS_READ_TIMEOUT_MS = 10_000;
 
 /** Fresh server entitlement. No localStorage, synthetic membership or chip fallback. */
 export async function getArenaContext(clubKey: string): Promise<ArenaAccessContext | null> {
+  const context = await readArenaContext(clubKey);
+  if (context !== null) return context;
+  /* A RENAMED CLUB KEEPS ITS OLD SLUG (2026-11-14). fn_poker_arena_context
+     matches a key against the club's id, code and CURRENT slug, so the old
+     /clubs/club-jaqk links answered "Arena Not Found" after club-jaqk became
+     the-felt-society. Only when the server finds no club does the one club
+     resolver answer: it asks the clubs table first and the rename history
+     second, so a club holding the slug now always wins. The entitlement is
+     then read again for that club's id, by the same server function, so
+     membership and authorization are exactly the current slug's. The lookup
+     is the strict resolver under the same deadline as the entitlement read:
+     a club nobody holds is "Arena Not Found", while a failed or slow lookup
+     is a failure the boundary reports and reads again, never a verdict. */
+  const key = clubKey.trim();
+  if (!key || isUUID(key) || /^\d+$/.test(key)) return null;
+  const clubUUID = await resolveRenamedArenaKey(key);
+  return clubUUID ? readArenaContext(clubUUID) : null;
+}
+
+async function resolveRenamedArenaKey(key: string): Promise<string | null> {
+  const { ClubNotFoundError, resolveClubUUIDStrict } =
+    await import('../utils/strictClubIdResolver');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ARENA_ACCESS_READ_TIMEOUT_MS);
+  try {
+    return await resolveClubUUIDStrict(key, controller.signal);
+  } catch (error) {
+    if (error instanceof ClubNotFoundError) return null;
+    if (controller.signal.aborted) throw new Error('Arena Access Read Timed Out');
+    // The read's own failure (a PostgREST code, a dropped connection, a
+    // timeout) decides how the boundary classifies it and whether it reads
+    // again, exactly as a failed entitlement read does.
+    const cause = (error as { cause?: unknown } | null)?.cause;
+    throw cause ?? error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function readArenaContext(clubKey: string): Promise<ArenaAccessContext | null> {
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<never>((_, reject) => {

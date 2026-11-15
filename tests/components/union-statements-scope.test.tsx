@@ -43,10 +43,14 @@ vi.mock('../../src/lib/supabase', () => ({
   },
 }));
 
-vi.mock('../../src/utils/downloadCsv', () => ({
-  csvEscape: (value: unknown) => String(value ?? ''),
-  downloadCsv: (...args: unknown[]) => testState.downloadCsv(...args),
-}));
+// The real spreadsheet escaping runs, so CSV assertions read the exact file.
+vi.mock('../../src/utils/downloadCsv', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/utils/downloadCsv')>();
+  return {
+    csvEscape: actual.csvEscape,
+    downloadCsv: (...args: unknown[]) => testState.downloadCsv(...args),
+  };
+});
 
 vi.mock('../../src/utils/errorReporter', () => ({
   reportError: (...args: unknown[]) => testState.reportError(...args),
@@ -960,7 +964,33 @@ describe('a credited invoice and an invoice with the cash and tournament split',
     fireEvent.click(screen.getByRole('button', { name: 'Export CSV' }));
     const csv = testState.downloadCsv.mock.calls[0][1] as string;
     const deepRow = csv.split('\n').find((r) => r.includes('MIDWAY-2026-000038'))!;
-    expect(deepRow).toContain('Credited In Full, Nothing Due,MIDWAY-2026-000099,0.00,');
+    expect(deepRow).toContain('"Credited In Full, Nothing Due",MIDWAY-2026-000099,0.00,');
+  });
+
+  it('subtracts credit notes from the tiles and the remaining unpaid balance', async () => {
+    await render1((value) => {
+      const deep = value.clubs.find((c: any) => c.invoice_number === 'MIDWAY-2026-000038');
+      deep.credit_notes = [{ invoice_number: 'MIDWAY-2026-000099', amount: 96919.54 }];
+      deep.remaining_after_credits = 0;
+      const kings = value.clubs.find((c: any) => c.invoice_number === 'MIDWAY-2026-000039');
+      kings.credit_notes = [{ invoice_number: 'MIDWAY-2026-000098', amount: 42.96 }];
+      kings.remaining_after_credits = 6000;
+    });
+    const tile = (label: string) =>
+      screen.getByText(label, { selector: 'dt' }).parentElement?.querySelector('dd')?.textContent;
+    expect(tile('Clubs Owe')).toBe('94,305.04');
+    expect(tile('Union Owes')).toBe('21.25');
+    expect(tile('Still Outstanding')).toBe('94,326.29');
+    fireEvent.click(screen.getByRole('button', { name: 'KINGS CLUB Statement Details' }));
+    const unpaid = screen.getByText('Remaining Unpaid Balance').parentElement;
+    expect(unpaid).toHaveTextContent('6,000.00');
+    fireEvent.click(screen.getByRole('button', { name: 'Export CSV' }));
+    const csv = testState.downloadCsv.mock.calls[0][1] as string;
+    const header = csv.split('\n')[0].split(',');
+    const deepRow = csv.split('\n').find((r) => r.includes('MIDWAY-2026-000038'))!;
+    expect(header).toContain('remaining_unpaid_balance');
+    expect(header).not.toContain('outstanding');
+    expect(deepRow).toContain(',0.00,');
   });
 
   it('states which lines count toward the club and which from the club side', async () => {
@@ -986,7 +1016,7 @@ describe('a credited invoice and an invoice with the cash and tournament split',
     const note = screen.getByText(/^Signs: Player Win\/Loss, Player Result Excluding Fees/);
     expect(note).toHaveTextContent('Negative Means Players Lost Or The Club Pays');
     expect(note).toHaveTextContent(
-      'The Net Loss Lines, Less Club Rakeback Credit, ECO Charge Or Credit And Full Weekly Net Are Counted From The Club Side, So Positive Means Players Lost Or The Club Pays.'
+      'The Net Loss Lines, ECO Charge Or Credit And Full Weekly Net Are Counted From The Club Side, So Positive Means Players Lost Or The Club Pays. Less Club Rakeback Credit Is The Rakeback The Union Paid The Club, Subtracted In The Full Weekly Net.'
     );
     expect(screen.queryByText(/Cash And Tournament Player Split Was Not Recorded/)).toBeNull();
   });

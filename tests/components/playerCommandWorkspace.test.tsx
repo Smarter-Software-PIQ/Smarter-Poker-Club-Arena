@@ -284,7 +284,11 @@ it('keeps its filter and sort read owned while its own URL replacement is awaiti
   await act(async () => {});
   expect(sort()).toHaveValue('name');
   expect(aborts).toBe(0);
-  expect(f.page.mock.calls.map(([, query]) => query.sort)).toEqual(['activity', 'activity', 'name']);
+  expect(f.page.mock.calls.map(([, query]) => query.sort)).toEqual([
+    'activity',
+    'activity',
+    'name',
+  ]);
   await act(async () => {
     f.holdOwnReplace = false;
     f.releaseReplaces.splice(0).forEach((release) => release());
@@ -484,7 +488,8 @@ it('keeps private roster search out of durable storage and URLs', async () => {
   ).join('');
   expect(durable).not.toContain('Private Alias 761');
   expect(screen.getByTestId('location').textContent).not.toContain('Private');
-  vi.mocked(supabase.rpc).mockImplementation((() => Promise.resolve({ data: null, error: null })) as any);
+  vi.mocked(supabase.rpc).mockImplementation((() =>
+    Promise.resolve({ data: null, error: null })) as any);
   useUserStore.setState({ user: null });
 });
 
@@ -639,4 +644,29 @@ it('adopts Active Now on upgrade while retaining the old workspace search and co
   expect(search()).toHaveValue('Player');
   expect(screen.getByRole('combobox', { name: 'Filter Players' })).toHaveValue('agents');
   expect(screen.getByRole('checkbox', { name: 'Wallets', exact: true })).toBeChecked();
+});
+
+it('opens a single club transaction history from the simple and advanced player directory', async () => {
+  render(tree());
+  await settle();
+  fireEvent.click(screen.getByRole('button', { name: 'Simple' }));
+  const toggle = screen.getByRole('button', { name: 'Club Transaction History' });
+  expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  fireEvent.click(toggle);
+  expect(screen.getByRole('region', { name: 'Transaction History' })).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Advanced' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Club Transaction History' }));
+  expect(screen.queryByRole('region', { name: 'Transaction History' })).toBeNull();
+});
+
+it('keeps the club-wide history out of an agent’s directory', async () => {
+  f.summary.mockResolvedValue({
+    viewer_role: 'agent',
+    capabilities: { can_view_financials: true },
+    counts: { total: 80, online: 0, seated: 0, agents: 80, admins: 0 },
+  });
+  render(tree());
+  await settle();
+  expect(screen.getByRole('searchbox', { name: 'Search Club Members' })).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Club Transaction History' })).toBeNull();
 });

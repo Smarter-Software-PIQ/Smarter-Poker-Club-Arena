@@ -11,6 +11,7 @@
  */
 
 import { copyToClipboard } from '../../lib/copyToClipboard';
+import { hasShareSheet, shareLink } from '../../lib/share';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { haptic } from '../../services/SoundService';
 import { CardImage, type Card } from '../table/CardImage';
@@ -822,19 +823,18 @@ export function ShareHand({
 
   // Native share (mobile)
   const handleNativeShare = useCallback(async () => {
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: 'Hand Replay - ' + clubName,
-          text: shareText,
-          url: shareUrl,
-        });
-        onShared?.();
-      } catch (error) {
-        if ((error as { name?: string } | null)?.name !== 'AbortError') {
-          reportError(error, 'ShareHand.Share_failed');
-        }
-      }
+    const outcome = await shareLink({
+      source: 'ShareHand.share',
+      title: 'Hand Replay - ' + clubName,
+      text: shareText,
+      url: shareUrl,
+    });
+    // Sent means the sheet took it or the link reached the clipboard.
+    if (outcome === 'shared' || outcome === 'copied') onShared?.();
+    if (outcome === 'copied') {
+      setCopied(true);
+      clearTimeout(copiedTimerRef.current!);
+      copiedTimerRef.current = setTimeout(() => setCopied(false), 2000);
     }
   }, [shareText, shareUrl, clubName, onShared]);
 
@@ -944,7 +944,7 @@ export function ShareHand({
                 </button>
               </div>
 
-              {'share' in navigator && (
+              {hasShareSheet() && (
                 <button className="share-hand__native-share" onClick={handleNativeShare}>
                   Share
                 </button>
@@ -1006,7 +1006,7 @@ export function ShareHand({
               <textarea className="share-hand__embed-code" value={embedCode} readOnly rows={3} />
               <button
                 className="share-hand__copy-embed"
-                onClick={() => navigator.clipboard.writeText(embedCode)}
+                onClick={() => void copyToClipboard(embedCode)}
               >
                 Copy Embed Code
               </button>

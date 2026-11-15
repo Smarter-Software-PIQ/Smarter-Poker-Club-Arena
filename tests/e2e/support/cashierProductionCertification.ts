@@ -69,8 +69,18 @@ export async function expectCashierAxeClean(
 // #10797). Every node that carries a figure must print an exact one: separators,
 // cents kept, never K/M/B. The earlier rule here refused any decimal, which a
 // correct exact figure now has. Only figure nodes are read, never the page text.
-export async function expectExactCashierFigures(figures: Locator, name: string): Promise<void> {
+//
+// `expected` is how many figure nodes there must be. Without it a change of
+// markup would leave the locator empty and the check would pass on nothing
+// (independent post-merge review of #10889, note 1).
+export async function expectExactCashierFigures(
+  figures: Locator,
+  name: string,
+  expected: number | readonly number[]
+): Promise<void> {
   const texts = await figures.allInnerTexts();
+  const allowed = typeof expected === 'number' ? [expected] : expected;
+  expect(allowed, `${name}: ${texts.length} figure nodes found`).toContain(texts.length);
   expect(inexactFigures(texts), `${name} shows a figure that is not exact`).toEqual([]);
 }
 
