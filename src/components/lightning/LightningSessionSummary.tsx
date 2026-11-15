@@ -13,6 +13,8 @@
  * any chip: nothing here spends.
  */
 import { useEffect, useState } from 'react';
+import { webAppUrl } from '../../lib/appBase';
+import { shareLink } from '../../lib/share';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -131,15 +133,14 @@ function useShareResult(summary: Summary | null, name?: string | null) {
         ? lightningStatRows(summary, 'summary').map((row) => row.label + ': ' + row.value)
         : []),
     ].join('\n');
-    try {
-      if (navigator.share) await navigator.share({ title: 'Session Results', text });
-      else {
-        await navigator.clipboard.writeText(text);
-        setLabel('Copied');
-      }
-    } catch (error) {
-      if (!(error instanceof DOMException && error.name === 'AbortError')) setLabel('Retry Share');
-    }
+    const outcome = await shareLink({
+      source: 'LightningSessionSummary.share',
+      title: 'Session Results',
+      text,
+      url: webAppUrl(),
+    });
+    if (outcome === 'copied') setLabel('Copied');
+    else if (outcome === 'failed') setLabel('Retry Share');
   };
   return { label, onClick };
 }

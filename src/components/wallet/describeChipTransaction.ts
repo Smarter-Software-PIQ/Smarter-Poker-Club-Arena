@@ -407,7 +407,34 @@ export function describeChipTransaction(
 export function walletRoute(row: ChipTransactionLike): string | null {
   const shown = presentChipTransaction(row);
   const type = String(shown.transaction_type ?? '');
+  const meta = shown.metadata ?? {};
   switch (type) {
+    case 'tournament_ticket_issue':
+      // The cashier debits the issuer and records the remaining Player Wallet balance.
+      // Satellite awards share this type but come from a tournament payout.
+      return typeof meta.issuer_id === 'string' &&
+        meta.issuer_id.trim() !== '' &&
+        typeof meta.issuer_balance_after === 'number' &&
+        meta.source_satellite_id == null &&
+        meta.payout_id == null
+        ? 'Player Wallet To Tournament Ticket'
+        : null;
+    case 'promo_disbursement':
+      if (meta.source_kind !== 'union') return null;
+      if (meta.target_kind === 'player') return 'Union Promo Wallet To Player Wallet';
+      if (meta.target_kind === 'club') {
+        if (meta.lands_as === 'ordinary_chips') return 'Union Promo Wallet To Club Bank';
+        if (meta.lands_as === 'club_promo_wallet') return 'Union Promo Wallet To Club Promo Wallet';
+      }
+      return 'Union Promo Wallet To Unrecorded Destination';
+    case 'union_promo_send':
+      if (meta.destination === 'player_wallet') return 'Union Promo Wallet To Player Wallet';
+      if (meta.destination === 'promo_float') return 'Union Promo Wallet To Promo Wallet';
+      return 'Union Promo Wallet To Unrecorded Destination';
+    case 'union_promo_to_club':
+      return meta.destination === 'club_promo_wallet'
+        ? 'Union Promo Wallet To Club Promo Wallet'
+        : 'Union Promo Wallet To Unrecorded Destination';
     case 'cashout_request_escrow':
       return 'Player Wallet To Held Cash-Out';
     case 'cashout_approved':
@@ -420,7 +447,6 @@ export function walletRoute(row: ChipTransactionLike): string | null {
       break;
   }
   if (!WALLET_MOVE_TYPES.has(type)) return null;
-  const meta = (shown.metadata ?? {}) as Record<string, unknown>;
   const dest = walletName(meta.destination, 'Player Wallet');
   switch (type) {
     case 'agent_wallet_self_stake':

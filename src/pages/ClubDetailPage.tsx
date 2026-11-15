@@ -30,7 +30,8 @@ import { ClubsService } from '../services/ClubsService';
 import ConfirmModal from '../components/common/ConfirmModal';
 import PageSkeleton from '../components/common/PageSkeleton';
 import { useVisibilityRefresh } from '../hooks/useVisibilityRefresh';
-import { resolveClubIdFilter, resolveClubUUID } from '../utils/clubIdResolver';
+import { resolveClubUUID } from '../utils/clubIdResolver';
+import { resolveClubLookupFilter } from '../utils/strictClubIdResolver';
 import { withClubContext } from '../utils/clubScopedPath';
 import GlobalUXIndicators from '../components/common/GlobalUXIndicators';
 import { retryFetch } from '../utils/retryFetch';
@@ -743,7 +744,7 @@ export default function ClubDetailPage() {
       let mappedTables: ClubTable[] = [];
 
       // Load club from Supabase
-      const { column: clubCol, value: clubVal } = resolveClubIdFilter(clubId);
+      const { column: clubCol, value: clubVal } = await resolveClubLookupFilter(clubId);
       const { data: clubData, error: clubError } = await supabase
         .from('clubs')
         .select(

@@ -26,14 +26,25 @@ interface Entry extends ChipTransactionLike {
 
 interface Props {
   clubId: string;
-  memberId: string;
+  memberId: string | null;
   revision: number;
   scope: 'club' | 'downline' | 'mine';
 }
 
 type Cursor = Pick<Entry, 'created_at' | 'id'>;
 
-function memberTitle(row: Entry, memberId: string): string {
+function memberTitle(row: Entry, memberId: string | null): string {
+  if (memberId === null) {
+    const title = ledgerRowTitle(row, row.from_name, row.to_name, null);
+    if (title) return title;
+    return [
+      toTitleCase((row.transaction_type || 'Chip Transaction').replace(/_/g, ' ')),
+      row.from_name,
+      row.to_name,
+    ]
+      .filter(Boolean)
+      .join(' · ');
+  }
   const incoming = row.to_user_id === memberId;
   const outgoing = row.from_user_id === memberId;
   const from = row.from_name || 'A Member';
@@ -74,7 +85,7 @@ function memberTitle(row: Entry, memberId: string): string {
 }
 
 export default function MemberTransactionHistory({ clubId, memberId, revision, scope }: Props) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(memberId === null);
   const [cursors, setCursors] = useState<Cursor[]>([]);
   const [player, setPlayer] = useState('');
   const [wallet, setWallet] = useState('member_all');
@@ -98,7 +109,8 @@ export default function MemberTransactionHistory({ clubId, memberId, revision, s
                 p_club_id: clubId,
                 p_scope: scope,
                 p_person: memberId,
-                p_kind: expanded && (player || wallet !== 'member_all') ? wallet : 'all',
+                p_kind:
+                  memberId && expanded && (player || wallet !== 'member_all') ? wallet : 'all',
                 p_search: expanded && player ? player : null,
                 p_before_at: cursor?.created_at ?? null,
                 p_before_id: cursor?.id ?? null,
@@ -116,6 +128,7 @@ export default function MemberTransactionHistory({ clubId, memberId, revision, s
       } catch (error) {
         if (!controller.signal.aborted) {
           reportError(error, 'MemberTransactionHistory.read');
+          setRows(null);
           setFailed(true);
         }
       }
@@ -152,7 +165,10 @@ export default function MemberTransactionHistory({ clubId, memberId, revision, s
           onSubmit={(event) => {
             event.preventDefault();
             const data = new FormData(event.currentTarget);
-            filter(String(data.get('player') ?? '').trim(), String(data.get('wallet')));
+            filter(
+              String(data.get('player') ?? '').trim(),
+              String(data.get('wallet') ?? 'member_all')
+            );
           }}
           onReset={() => filter('', 'member_all')}
         >
@@ -160,18 +176,21 @@ export default function MemberTransactionHistory({ clubId, memberId, revision, s
             <span className="mm-field__label">Player Search</span>
             <input type="search" name="player" placeholder="Player Name" />
           </label>
-          <label className="mm-field">
-            <span className="mm-field__label">Funding Wallet</span>
-            <select className="mm-assign__select" name="wallet" defaultValue="member_all">
-              <option value="member_all">All Wallets</option>
-              <option value="member_player_wallet">Player Wallet</option>
-              <option value="member_agent_wallet">Agent Wallet</option>
-              <option value="member_promo_wallet">Promo Wallet</option>
-              <option value="member_club_bank">Club Bank</option>
-              <option value="member_club_promo_wallet">Club Promo Wallet</option>
-              <option value="member_held_cashout">Held Cash-Out</option>
-            </select>
-          </label>
+          {memberId && (
+            <label className="mm-field">
+              <span className="mm-field__label">Funding Wallet</span>
+              <select className="mm-assign__select" name="wallet" defaultValue="member_all">
+                <option value="member_all">All Wallets</option>
+                <option value="member_player_wallet">Player Wallet</option>
+                <option value="member_agent_wallet">Agent Wallet</option>
+                <option value="member_promo_wallet">Promo Wallet</option>
+                <option value="member_club_bank">Club Bank</option>
+                <option value="member_club_promo_wallet">Club Promo Wallet</option>
+                <option value="member_union_promo_wallet">Union Promo Wallet</option>
+                <option value="member_held_cashout">Held Cash-Out</option>
+              </select>
+            </label>
+          )}
           <button type="submit" className="mm-downline__show-more">
             Apply Filters
           </button>
@@ -267,13 +286,15 @@ export default function MemberTransactionHistory({ clubId, memberId, revision, s
               Next
             </button>
           )}
-          <button
-            type="button"
-            className="mm-downline__show-more"
-            onClick={() => changeView(false, [])}
-          >
-            Show Recent
-          </button>
+          {memberId && (
+            <button
+              type="button"
+              className="mm-downline__show-more"
+              onClick={() => changeView(false, [])}
+            >
+              Show Recent
+            </button>
+          )}
         </>
       )}
     </section>

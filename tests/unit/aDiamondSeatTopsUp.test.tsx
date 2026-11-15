@@ -72,7 +72,11 @@ describe('A Diamond seat tops up from the custody it sat with', () => {
        surface that can open the cashier reads the one decision, and every
        remaining `setShowCashier(true)` sits behind `canTopUpSeat` or calls
        `seatCanAddFunds` itself. */
-    expect(TABLE_PAGE.match(/canTopUpSeat/g) ?? []).toHaveLength(4);
+    /* TWO SINCE 2026-11-14: the declaration and the seat's own header control.
+       The other two were rows of TablePage's own TableMenu, which no table
+       rendered (every table is embedded); it is deleted and the tab bar's menu
+       reads the same rule through the `canAddFunds` the page reports. */
+    expect(TABLE_PAGE.match(/canTopUpSeat/g) ?? []).toHaveLength(2);
     // The standalone Auto Top Up switch now shares the same funded-seat answer.
     /* And every surface that ASKS the question reads the same function. This
        is a census of a NAMED set rather than a ceiling on an unrelated one:

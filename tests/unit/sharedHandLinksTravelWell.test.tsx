@@ -211,10 +211,11 @@ describe('Link sends from a phone in one tap', () => {
   it('the modal shares on a coarse pointer and copies otherwise', () => {
     const modal = src('src/components/table/HandDetailModal.tsx');
     expect(modal).toContain("window.matchMedia('(pointer: coarse)').matches");
-    expect(modal).toContain('await navigator.share({');
-    expect(modal).toContain(
-      "if ((error as { name?: string } | null)?.name === 'AbortError') return false;"
-    );
+    /* 2026-11-14: the sheet, its cancel and its fall-through to the copy live
+       in src/lib/share.ts; a closed sheet is still "not sent". */
+    expect(modal).toContain('if (phone && hasShareSheet()) {');
+    expect(modal).toContain("source: 'HandDetailModal.sendLink',");
+    expect(modal).toContain("if (outcome === 'cancelled') return false;");
     expect(modal).toContain('void sendLink(hand, link).then((sent) => {');
     expect(modal).toContain('useSenderInviteCode(hand?.tableId, heroId, isOpen)');
     setPhone(false);

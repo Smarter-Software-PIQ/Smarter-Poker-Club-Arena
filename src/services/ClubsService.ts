@@ -13,7 +13,7 @@ import { PLAYER_NAME_COLUMNS } from '../utils/playerDisplayName';
 import { retryFetch } from '../utils/retryFetch';
 import { sanitizeInput } from '../utils/sanitizeInput';
 import { escapeIlikePattern } from '../utils/clubSlug';
-import { resolveClubUUID, resolveClubIdFilter } from '../utils/clubIdResolver';
+import { isUUID, resolveClubUUID } from '../utils/clubIdResolver';
 import { QUERY_LIMITS } from '../lib/constants';
 import { reportError } from '../utils/errorReporter';
 import { serverRefusalMessage } from '../utils/safeErrorMessage';
@@ -86,17 +86,31 @@ export async function searchClubs(query: string): Promise<Club[]> {
 }
 
 /**
- * Get a single club by ID or slug
+ * Get a single club by ID, club code or slug (current or former, through the
+ * one club resolver). An identifier no club answers is null, as before; a
+ * lookup that failed is an error, never "no such club". The strict resolver
+ * is loaded on demand so this module (imported almost everywhere) does not
+ * pull its chunk into every page that reads a club.
  */
 export async function getClub(identifier: string): Promise<Club | null> {
-  const filter = resolveClubIdFilter(identifier);
+  let clubUUID = identifier;
+  if (!isUUID(identifier)) {
+    const { ClubNotFoundError, resolveClubUUIDStrict } =
+      await import('../utils/strictClubIdResolver');
+    try {
+      clubUUID = await resolveClubUUIDStrict(identifier);
+    } catch (lookupError) {
+      if (lookupError instanceof ClubNotFoundError) return null;
+      throw new Error('Failed to get club');
+    }
+  }
 
   const { data, error } = await supabase
     .from('clubs')
     .select(
       'id, club_id, name, slug, description, avatar_url, logo_url, banner_url, color_theme, member_count, online_count, table_count, is_public, requires_approval, gps_restricted, owner_id, union_id, settings, created_at, updated_at, level, hierarchy_units_rounded_up, player_threshold_current, player_threshold_next, hierarchy_threshold_current, hierarchy_threshold_next'
     )
-    .eq(filter.column, filter.value)
+    .eq('id', clubUUID)
     .maybeSingle();
 
   if (error) {

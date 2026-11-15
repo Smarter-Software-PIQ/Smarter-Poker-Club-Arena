@@ -1,0 +1,3 @@
+# tests/every-share-goes-through-one-door.law.test.ts
+
+Dan, 2026-11-14: the tournament, break-screen and stats share buttons did nothing where the system share sheet refused or the Clipboard API was denied, because some twenty-five share and copy handlers each hand-rolled "sheet, else clipboard" and each dead-ended differently. The law pins that `src/lib/share.ts` is the only caller of `navigator.share` and `src/lib/copyToClipboard.ts` the only caller of `clipboard.writeText`, that a refused sheet falls through to the copy and is reported, and that every tournament share builds its address with `tournamentShareUrl`.

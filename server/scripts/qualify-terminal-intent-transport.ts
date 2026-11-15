@@ -57,7 +57,7 @@ const server = createServer(async (req, res) => {
     await db.query('BEGIN');
     await db.query("SET LOCAL statement_timeout='12s'; SET LOCAL lock_timeout='8s'");
     await db.query(
-      "SELECT set_config('request.jwt.claims','{\"role\":\"service_role\"}',true),set_config('request.jwt.claim.role','service_role',true),set_config('request.headers',$1,true),set_config('app.smarter_data_actor','tournament-manager',true),set_config('app.smarter_manager_request_fenced','protocol-2',true),set_config('app.smarter_tournament_id',$2,true),set_config('app.smarter_tournament_lease_generation',$3,true)",
+      "SELECT set_config('request.jwt.claims','{\"role\":\"service_role\"}',true),set_config('request.jwt.claim.role','service_role',true),set_config('request.headers',$1,true),set_config('app.smarter_data_actor','tournament-manager',true),set_config('app.smarter_tournament_id',$2,true),set_config('app.smarter_tournament_lease_generation',$3,true)",
       [JSON.stringify(req.headers), event, generation]
     );
     await db.query('SET LOCAL ROLE service_role');

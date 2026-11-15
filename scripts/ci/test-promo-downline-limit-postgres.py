@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Real promo send core, public/batch doors and concurrent sessions in isolated PG17."""
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -89,9 +90,25 @@ try:
         query(MIGRATION.read_text())
     print('CORE_HASH', query("SELECT md5(pg_get_functiondef('fn_promo_wallet_send_core_20261004(uuid,uuid,numeric,text,text,uuid)'::regprocedure));"), flush=True)
     if not args.baseline:
-        body_hash = query("SELECT md5(prosrc) FROM pg_proc WHERE oid='fn_promo_wallet_send_core_20261004(uuid,uuid,numeric,text,text,uuid)'::regprocedure;")
+        body = query("SELECT prosrc FROM pg_proc WHERE oid='fn_promo_wallet_send_core_20261004(uuid,uuid,numeric,text,text,uuid)'::regprocedure;")
         contract = (ROOT/'scripts/verification-harness/cashier-release-contract.sql').read_text()
-        check('live browser contract pins the qualified cap body', f"'hash', '{body_hash}'" in contract)
+        # 2026-11-15: production no longer holds this migration's body unchanged.
+        # World Hub 20261114174204 (PR #2841, shared database) patched it in place
+        # at one anchor (the per-agent 24-hour ceiling), and the live contract pins
+        # that installed successor and names the migration. The body qualified here
+        # must still be its exact preimage: this migration's body plus that one
+        # recorded patch is the pinned hash, and this body alone is no longer pinned.
+        # psql -qAt drops the leading and trailing newline of prosrc; restore them.
+        qualified = '\n' + body.strip('\n') + '\n'
+        check('this migration still yields the qualified cap body', hashlib.md5(qualified.encode()).hexdigest() == '7087a67e16f6d7990c28fbb549464bef')
+        sibling = next(item for item in json.loads((ROOT/'scripts/ci/fixtures/world-hub-cashier-migrations-20261114.json').read_text()) if item['version'] == '20261114174204')
+        check('the recorded sibling migration is byte-exact', hashlib.sha256(sibling['sql'].encode()).hexdigest() == sibling['sha256'])
+        anchor = re.search(r'anchor := \$a\$(.*?)\$a\$;', sibling['sql'], re.S).group(1)
+        added = re.search(r'updated := replace\(original, anchor, \$n\$(.*?)\$n\$\);', sibling['sql'], re.S).group(1)
+        check('the sibling patch anchors exactly once in the qualified body', qualified.count(anchor) == 1)
+        installed_hash = hashlib.md5(qualified.replace(anchor, added).encode()).hexdigest()
+        check('live browser contract pins the qualified cap body plus its one recorded successor patch', f"'hash', '{installed_hash}'" in contract and "version = '20261114174204'" in contract)
+        check('the superseded body alone is no longer pinned', "'hash', '7087a67e16f6d7990c28fbb549464bef'" not in contract)
     first_op = str(uuid.uuid4())
     check('first split send', send(30, op=first_op)['success'])
     result = refused(20.01)
