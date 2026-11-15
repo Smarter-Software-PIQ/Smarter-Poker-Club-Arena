@@ -196,6 +196,28 @@ describe('the rake snapshot on a union', () => {
     expect(screen.getAllByText('Chicago Time').length).toBeGreaterThan(0);
   });
 
+  it('names its headline as the caller says, "Rake / Fee" by default', async () => {
+    const report = payload('club', [clubRow(CLUB_A, 'SHARK CLUB')]);
+    rpcMock.mockImplementation((fn: string) =>
+      Promise.resolve({ data: fn === 'ca_rake_snapshot_v2' ? report : null, error: null })
+    );
+    const view = render(
+      <RakeSnapshotPanel clubId={null} unionId={UNION_ID} userId={USER_ID} scopes={['union']} />
+    );
+    expect(await screen.findByText('Rake / Fee')).toBeInTheDocument();
+    view.rerender(
+      <RakeSnapshotPanel
+        clubId={null}
+        unionId={UNION_ID}
+        userId={USER_ID}
+        scopes={['union']}
+        headlineLabel="Agent Rake Production"
+      />
+    );
+    expect(screen.getByText('Agent Rake Production')).toBeInTheDocument();
+    expect(screen.queryByText('Rake / Fee')).toBeNull();
+  });
+
   it('lets an in-flight snapshot finish through repeated ledger refreshes', async () => {
     let resolveRead!: (value: unknown) => void;
     const pending = new Promise((resolve) => {

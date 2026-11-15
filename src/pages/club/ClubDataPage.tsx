@@ -370,6 +370,10 @@ interface CachedPlayerLedger {
   hasMore: boolean;
 }
 
+/** The Rake Snapshot's basis, said beside a union club's invoice-basis figures. */
+const AGENT_RAKE_PRODUCTION_NOTE =
+  'Agent Rake Production: Seat Club And Agent Downline, Chicago Midnight Days. Not The Union Invoice Basis.';
+
 /** What a money tile shows when there is no figure to show. Never "0.00". */
 const NO_VALUE = '-';
 
@@ -3302,14 +3306,19 @@ export default function ClubDataPage() {
           )}
         </SpadeConsole>
 
+        {/* The rake snapshot keeps its own basis (lead, 2026-11-15): agent and
+          club rake production by seat club and agent downline on Chicago
+          midnight days, the basis for agent commissions. For a union club it
+          sits beside invoice-basis figures, so it says so and its headline is
+          never called "Fee". Other clubs are unchanged. */}
         {clubUuid && unionBasis && (
-          <p className={`sc-copy ${styles.note}`}>
-            The Rake Snapshot Below Has Its Own Periods And Reads The Daily Rake Rollup On Chicago
-            Calendar Days. It Is Not The Union Invoice Basis; The Club Pulse And Ledger Are.
+          <p className={`sc-copy ${styles.note}`} data-testid="rake-snapshot-basis">
+            {AGENT_RAKE_PRODUCTION_NOTE}
           </p>
         )}
         {clubUuid && (
           <RakeSnapshotPanel
+            headlineLabel={unionBasis ? 'Agent Rake Production' : undefined}
             unframed
             clubId={clubUuid}
             userId={userId}
