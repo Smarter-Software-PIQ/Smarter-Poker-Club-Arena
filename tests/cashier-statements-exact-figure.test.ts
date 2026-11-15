@@ -132,11 +132,22 @@ describe('the statements certificate reads exact figures', () => {
     // Whole trimmed lines, exactly: a commented-out check or an inverted
     // .not.toBe(...) is a different line and fails here (overwatch, review of
     // e4cb37d2, note 1).
-    const lines = spec.split('\n').map((line) => line.trim());
+    const raw = spec.split('\n');
+    const lines = raw.map((line) => line.trim());
+    // A pinned line inside a /* ... */ block is commented out even though its
+    // text is intact (independent review of 849b09ec, note 2).
+    const inBlock: boolean[] = [];
+    let open = false;
+    for (const line of lines) {
+      if (line.startsWith('/*')) open = true;
+      inBlock.push(open);
+      if (open && line.endsWith('*/')) open = false;
+    }
     const at = (line: string) => {
       const index = lines.indexOf(line);
       expect(index, line).toBeGreaterThan(-1);
       expect(lines.lastIndexOf(line), `${line} appears once`).toBe(index);
+      expect(inBlock[index], `${line} is not inside a block comment`).toBe(false);
       return index;
     };
     const refusal = at("if (process.env.E2E_REQUIRE_AUTH === '1')");
@@ -156,6 +167,28 @@ describe('the statements certificate reads exact figures', () => {
     expect(lines[message + 1]).toBe(')');
     expect(lines[message + 2]).toBe(".toBe('matches the server');");
     expect(spec).not.toMatch(/\.not\s*\.toBe\('matches the server'\)/);
+    // Each figure is compared with the server's own figure, between the
+    // expected figures and the verdict (independent review of 849b09ec, note 1:
+    // === for !== or a value compared with itself passed the earlier pin).
+    const differing = at("const differing = ['In', 'Out', 'Managed', 'Entries'].filter(");
+    expect(lines[differing + 1]).toBe('(_, index) => figures[index] !== expected[index]');
+    expect(lines[differing + 2]).toBe(');');
+    expect(compare).toBeLessThan(differing);
+    expect(differing).toBeLessThan(verdict);
+    // Only the verdict may say it matches: no early return can claim a match.
+    expect(spec.split("'matches the server'").length - 1).toBe(2);
+    expect(lines[verdict + 1]).toBe("? 'matches the server'");
+    // The comparison poll is awaited, so the test cannot end before it.
+    const poll = lines.lastIndexOf('.poll(', query);
+    expect(poll).toBeGreaterThan(-1);
+    expect(lines[poll - 1]).toBe('await expect');
+    // The comparison runs only in the authorized branch, which the refusal
+    // check above guards; it closes after the comparison.
+    const branch = at('if (authorized) {');
+    const indent = raw[branch].match(/^\s*/)?.[0] ?? '';
+    const close = raw.findIndex((line, index) => index > branch && line.startsWith(`${indent}}`));
+    expect(branch).toBeLessThan(query);
+    expect(close).toBeGreaterThan(message + 2);
     // No poll prints a club's figures into the run log.
     expect(spec).not.toContain("figures.join('|')");
     // The step that runs this certificate sets the flag.
