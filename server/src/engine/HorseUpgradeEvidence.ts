@@ -27,14 +27,18 @@
  * never queued.
  *
  * AN OPPORTUNITY COUNTER IS NOT AN INVOCATION (2026-11-15). The manifest's
- * live-evidence list proves a path executed for the fleet; some of its
- * counters fire when a spot merely qualifies. upgrade10_fast_window_ready_seen
- * is upgrade 10's own opportunity count (HorseOpponentExploit fastWindowReady:
- * "always returns true, so it never changes which branch runs"), fired about
- * twenty times per decision, so on a7965514 it marked 99.6 % of decisions as
- * upgrade 10 invoked while the window engaged 42 times in the day. Needles in
- * PER_HORSE_OPPORTUNITY_ONLY_NEEDLES are therefore not invocation evidence
- * here; the fleet list is unchanged.
+ * live-evidence list proves a path executed for the fleet; a counter in it can
+ * fire when a spot merely qualifies. upgrade10_fast_window_ready_seen is upgrade
+ * 10's own opportunity count (HorseOpponentExploit fastWindowReady: "always
+ * returns true, so it never changes which branch runs"), evaluated before the
+ * edge test on every opponent read: 40.9 million fleet fires against 273,980
+ * recorded decisions on a7965514 on 2026-11-14. It marked 272,838 of those
+ * decisions and all 762 Horses as upgrade 10 invoked while the window engaged
+ * 42 times. Needles in PER_HORSE_OPPORTUNITY_ONLY_NEEDLES are therefore not
+ * invocation evidence here; the fleet list and the manifest are unchanged.
+ * Only upgrade 10's needles have been classified this way so far; an
+ * upgrade 10 invocation is a floor (the window's other read changes fire no
+ * counter).
  *
  * WHAT A NEEDLE IS. The manifest lists each upgrade's counters as source text:
  * a quoted needle is one exact counter name, a needle that opens with a
