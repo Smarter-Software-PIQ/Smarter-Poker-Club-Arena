@@ -2414,6 +2414,21 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { holdemPersonaReRaiseMix: true },
     b: {},
   },
+  // 2026-11-15 HOLD'EM PERSONA PREFLOP (plan lines 85 and 152), default OFF,
+  // so arm A turns it on: nine-handed 100bb no-limit hold'em cash, where the
+  // archetype range shifts and the persona re-raise mix all act. The card's
+  // seats are the league's own ids, not the fleet's 25/20/40/15 mix (the
+  // opportunity-weighted HoldemPersonaPreflopProbe measures that). Not yet run.
+  {
+    name: 'cash9_holdem_persona_preflop',
+    seats: 9,
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { holdemPersonaPreflop: true },
+    b: {},
+  },
   {
     name: 'nlh_20bb_vs3bet_short_stack',
     stackBB: 20,

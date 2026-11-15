@@ -1454,6 +1454,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'PersonaReRaise'
   ),
   flag(
+    'holdemPersonaPreflop',
+    "2026-11-15 default OFF (plan lines 85 and 152; owner order 2026-11-15 08:05 Chicago to build the missing persona promises; range-width part needs the owner's decision under the preflop range hold, packet PACKET-PERSONA-PREFLOP-20261115.md): one option for the Hold'em persona's preflop layer (HorseHoldemPersonaPreflop), two-card no-limit hold'em only. (1) It turns on the persona re-raise mix (everything holdemPersonaReRaiseMix does: 3-bet and squeeze bluffs on the Horse's zero-draw per-hand unit, scaled by nlh3BetMix / 0.42143, held at min(1, scale) against a raiser the style read classifies as tight; four-bet reshoves are not persona-specific, owner decision R3-B). (2) On V87, V85 cash action tables deeper than 50bb, not All-In-Or-Fold, the seat's opening share (gtoOpen70, the iso bar over 1-2 limpers included) and the defender's continue share facing one open (gtoDefend72, before the V87 multiway widening) move by the archetype's fixed points: LAG Shark +4 / +1.5, Tricky Trap 0 / 0, TAG Crusher -1 / -2, Nit Hunter -3 / -3, times the V85 depth weight (0 at 50bb or less, full from 85bb); the continue share never goes below the value 3-bet share or above 88 percent; the value bar, the bluff probability, nlhOpeningTightness and referenceNlhOpenings (the Hybrid protection of calibrated opening widths) are not read or written; on a table with a VPIP floor a negative shift is withheld (counted by holdem_persona_floor_held_seen). (3) The Nit Hunter's described behaviour, preflop half: facing a raiser the existing exploit read holds credibly wide (one raise) or a limper it holds credibly loose (never a presumed read; needs opponent memory), a Nit Hunter's shift becomes +2 open (isolation) / 0 continue instead of -3 / -3 (the existing exploit layer's own wider value 3-bets and isolation against such players are unchanged and apply to every Horse); the postflop half ('stabs capped checked ranges') is not built. Tournaments, Omaha, short deck, pot limit, fixed limit, hi-lo and All-In-Or-Fold get no range shift; tournaments still get the re-raise mix. No draw is added, removed or moved; nothing reads a realised frequency. Measured, Horses against Horses, synthetic ids, preflop only: see docs/changelog/2026-11-15-holdem-persona-preflop.md; enabling it is a separate owner decision",
+    'PersonaPreflop'
+  ),
+  flag(
     'nashCallVsJam',
     "2026-11-07 default ON (league nash_call_vs_jam, mirror, two seeds x 20,000 pairs: MTT six-max 10bb +4.72 +/- 0.64 / +3.41 +/- 0.63, 15bb +2.40 +/- 0.68 / +2.17 +/- 0.68, nine-max 12bb +1.82 +/- 0.42 / +2.23 +/- 0.44, heads-up 12bb +4.86 +/- 1.17 / +3.89 +/- 1.16, cash six-max 12bb +0.80 +/- 0.38 / +0.78 +/- 0.39, 20bb cards neutral or inert, none below; the human-calibrated field never open-jams so its cards are inert): no-limit hold'em, hero folded to a lone open-jam (the first and only raise, all in, nobody has called) at <= 20bb effective calls or folds from the chip-EV Nash jam-or-fold table's CALLER side (HorseNashPushFoldV2.data.ts, server/scripts/nash-push-fold/solve.py --v2: first caller only, exact card removal) by the jammer's dealt-in players behind (1..9), hero's caller kind (unposted seat, small blind, big blind), effective depth and dead ante, cash and tournament; measured before (HorseLogic.decide, live Hybrid personas, production memory_charts_gold hydrated, 24 samples per class): a big blind facing a button jam called 5.2% at 10bb and 9.8% at 20bb in cash and 6.3% at 10bb and 20bb in a big-blind-ante tournament, against Nash 23.1% / 11.5% and 38.2% / 19.6%, and only the big blind against a small-blind jam had a chart (sb_push, the no-ante game, which keeps that spot when there is no dead ante); a maniac's jam keeps the maniac pricing; explicit off arm retained; deeper jams, called jams, Omaha, short deck, pot and fixed limit unchanged; league nash_call_vs_jam; docs/changelog/2026-11-07-nash-push-fold-v2.md",
     'NashV2'
@@ -5327,6 +5332,30 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic (holdemPersonaReRaiseMix)',
     'default-off holdemPersonaReRaiseMix: the persona field was built for a decision whose caller supplied no hand (no opts.mindPlanContext.hand: table id and allocated hand number), so its units came from the public-state fallback, which is not deterministic per hand; expected to be zero on the live worker path and in the league card and the probe; named *_seen',
     'PersonaReRaise'
+  ),
+  receipt(
+    'holdem_persona_open_shift_seen',
+    'HorseLogic (holdemPersonaPreflop)',
+    "default-off holdemPersonaPreflop: a no-limit hold'em cash open (or isolation over limpers) decision deeper than 50bb had its seat's opening share moved by the Hold'em archetype's points; an occurrence counter with no floor, named *_seen",
+    'PersonaPreflop'
+  ),
+  receipt(
+    'holdem_persona_continue_shift_seen',
+    'HorseLogic (holdemPersonaPreflop)',
+    "default-off holdemPersonaPreflop: a no-limit hold'em cash decision facing one open deeper than 50bb had its continue share moved by the Hold'em archetype's points; named *_seen",
+    'PersonaPreflop'
+  ),
+  receipt(
+    'holdem_persona_floor_held_seen',
+    'HorseLogic (holdemPersonaPreflop)',
+    'default-off holdemPersonaPreflop: the table has a VPIP floor and the archetype shift was negative, so the narrowing was withheld (the persona never pushes a Horse toward the floor); named *_seen',
+    'PersonaPreflop'
+  ),
+  receipt(
+    'holdem_persona_nit_punish_seen',
+    'HorseLogic (holdemPersonaPreflop)',
+    'default-off holdemPersonaPreflop: a Nit Hunter faced a raiser read credibly wide or a limper read credibly loose, and its range shift became +2 open / 0 continue; named *_seen',
+    'PersonaPreflop'
   ),
   receipt(
     'hu_bb_defends_to_price',

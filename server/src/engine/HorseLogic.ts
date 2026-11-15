@@ -536,6 +536,12 @@ import {
   ploPersonaFor,
   type HorsePersonaV2,
 } from './HorsePersona.js';
+import {
+  holdemPersonaContinueBar,
+  holdemPersonaOpenSharePct,
+  holdemPersonaRange,
+  type HoldemPersonaRange,
+} from './HorseHoldemPersonaPreflop.js';
 // V38 (2026-09-03): the EV engine — the arithmetic behind every choice, the
 // arbiter for the games with no solver export and for every river fold/call
 // the hold'em solver range did not answer. See HorseEvEngine.ts.
@@ -2974,6 +2980,21 @@ export interface HorseDecideOpts {
    *  unchanged. A preflop range change. Default OFF: only explicit true turns
    *  it on. */
   holdemPersonaReRaiseMix?: boolean;
+  /** HOLD'EM PERSONA PREFLOP (2026-11-15, plan lines 85 and 152; module
+   *  HorseHoldemPersonaPreflop). One option for the Hold'em persona's preflop
+   *  layer, two-card no-limit hold'em only: (1) turns on the persona re-raise
+   *  mix above (3-bet and squeeze bluffs per hand + persona; reshoves stay
+   *  not persona-specific, R3-B); (2) on V85 cash tables deeper than 50bb,
+   *  shifts the seat's opening share and the defender's continue share by the
+   *  archetype's fixed points (LAG +4 / +1.5, Tricky 0 / 0, TAG -1 / -2, Nit
+   *  Hunter -3 / -3), tapering with the V85 depth weight, never narrowing on
+   *  a table with a VPIP floor, never moving a value bar or a tightness
+   *  multiplier; (3) a Nit Hunter facing a credibly wide opener or a
+   *  credibly loose limper (existing reads, never presumed) opens / isolates
+   *  +2 points and does not tighten its continue range. A preflop range
+   *  change. Default OFF: only
+   *  explicit true turns it on. */
+  holdemPersonaPreflop?: boolean;
   /** SHORT-STACK 3-BET DEFENCE (2026-11-07): the V73 read reaches 12bb
    *  effective (V73_SHORT_MIN_EFFECTIVE_BB) instead of 25bb, and a continuing
    *  hand whose call is the stack jams instead of folding: a 20bb opener
@@ -9653,7 +9674,11 @@ export class HorseLogic {
           // cap in HorsePreflop: scale = min(1, scale). No read (mind off, no
           // profile, a presumed read, too little data to be actionable) is
           // not a tight read: unknown is not capped.
-          if (opts.holdemPersonaReRaiseMix === true && !vi.isOmaha && read?.presumed !== true) {
+          if (
+            (opts.holdemPersonaReRaiseMix === true || opts.holdemPersonaPreflop === true) &&
+            !vi.isOmaha &&
+            read?.presumed !== true
+          ) {
             const personaStyle = HorseMind.styleReadUncounted(raiser.user_id);
             personaHeldByTightRead =
               (raises === 1
@@ -9874,6 +9899,36 @@ export class HorseLogic {
     })();
     // At 50bb or less V85's ranges are the prior ranges, exactly.
     const defend85 = cashAction85 && depth85 > V85_DEPTH_NONE_BB;
+    // ═══ HOLD'EM PERSONA PREFLOP: RANGE WIDTH (2026-11-15, default OFF) ═══
+    // HorseHoldemPersonaPreflop. Two-card no-limit hold'em, V87 on, V85 cash
+    // action table, a Horse with an id. The archetype's fixed points move the
+    // opening share (gtoOpen70) and the continue share (gtoDefend72) in share
+    // space; the V85 depth weight makes them zero at 50bb or less. No draw,
+    // no tightness multiplier, no value bar. Undefined without the option.
+    const personaRange87: HoldemPersonaRange | undefined =
+      opts.holdemPersonaPreflop === true &&
+      v87On &&
+      cashAction85 &&
+      vi.holeCount === 2 &&
+      !vi.isOmaha &&
+      !vi.isShortDeck &&
+      !vi.isFixedLimit &&
+      !vi.isPotLimit &&
+      gs.allInOrFold !== true &&
+      player.cards.length === 2 &&
+      typeof player.user_id === 'string' &&
+      player.user_id.length > 0
+        ? holdemPersonaRange(
+            player.user_id,
+            Number(gs.vpipFloor ?? 0) > 0,
+            (raises === 1 && evidencedWideRaiser87) ||
+              (raises === 0 && limpers > 0 && exploitIso > 0)
+          )
+        : undefined;
+    if (personaRange87 && telemetryOn(opts)) {
+      if (personaRange87.floorHeld) noteFire('holdem_persona_floor_held_seen');
+      if (personaRange87.punishing) noteFire('holdem_persona_nit_punish_seen');
+    }
     const gtoOpen70 = (() => {
       if (opts.v70GtoOpeningRanges === false) return undefined;
       if (
@@ -9903,8 +9958,15 @@ export class HorseLogic {
       if (mapped === null) return undefined;
       const ante70 = (gs.ante ?? 0) > 0;
       if (telemetryOn(opts)) noteFire('v70_gto_open');
+      const target70 = cashAction85 ? v85OpenTargetShare(behind, ante70, dealt70, depth85) : 0;
+      const personaTarget70 =
+        cashAction85 && personaRange87 && personaRange87.shift.openPts !== 0
+          ? holdemPersonaOpenSharePct(target70, personaRange87.shift.openPts, depth85)
+          : target70;
+      if (personaTarget70 !== target70 && telemetryOn(opts))
+        noteFire('holdem_persona_open_shift_seen');
       const baseBar70 = cashAction85
-        ? scoreAtShare(v85OpenTargetShare(behind, ante70, dealt70, depth85) / 100)
+        ? scoreAtShare(personaTarget70 / 100)
         : gtoOpenBar(behind, ante70, dealt70, cashProfile85);
       return {
         strength: clamp01(mapped + strengthJitter),
@@ -9952,9 +10014,22 @@ export class HorseLogic {
       });
       if (!d72) return undefined;
       if (telemetryOn(opts)) noteFire('v72_defend_vs_opener');
+      // HOLD'EM PERSONA PREFLOP: the continue share moves by the archetype's
+      // points (cash action tables deeper than 50bb only; value bar fixed).
+      const continueBar72 =
+        defend85 && personaRange87 && personaRange87.shift.continuePts !== 0
+          ? holdemPersonaContinueBar(
+              d72.continueBar,
+              d72.valueBar,
+              personaRange87.shift.continuePts,
+              depth85
+            )
+          : d72.continueBar;
+      if (continueBar72 !== d72.continueBar && telemetryOn(opts))
+        noteFire('holdem_persona_continue_shift_seen');
       return {
         strength: clamp01(d72.continueStrength + strengthJitter),
-        continueBar: d72.continueBar,
+        continueBar: continueBar72,
         valueBar: d72.valueBar,
         bluffProb: d72.bluffProb,
         defender,
@@ -10192,7 +10267,7 @@ export class HorseLogic {
       // PERSONA RE-RAISE MIX (D3 option C, default OFF). Two-card no-limit
       // hold'em by a Horse with an id, and nothing else: no field is added
       // for any other decision, so those run the code they ran before.
-      ...(opts.holdemPersonaReRaiseMix === true
+      ...(opts.holdemPersonaReRaiseMix === true || opts.holdemPersonaPreflop === true
         ? !vi.isOmaha &&
           !vi.isShortDeck &&
           !vi.isFixedLimit &&
