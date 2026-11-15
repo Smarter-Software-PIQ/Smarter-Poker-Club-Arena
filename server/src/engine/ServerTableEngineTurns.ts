@@ -3454,12 +3454,18 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
         if (st.currentPlayerSeat !== seat) return;
       }
       let preApplied = false;
+      // FORCED-ACTION COUNTING (2026-11-15): the fold of a player who left while not on turn is the engine's, not
+      // a choice he made at this node, exactly as the on-turn leave fold (foldLeaverNow) and a timeout are. It is
+      // recorded 'forced', so no learner (exploit counters, SQL reducer, style tallies, public stats) counts it as
+      // a voluntary fold or its hand as a participation opportunity. A pre-action fold he armed himself stays
+      // 'pre_action'.
+      const leaveFold = this.hasCommittedLeaveFold(player.user_id);
       try {
         preApplied = controllerAtBeat.performAction(
           seat,
-          (this.hasCommittedLeaveFold(player.user_id) ? 'fold' : preResult.action) as any,
-          this.hasCommittedLeaveFold(player.user_id) ? undefined : preResult.amount,
-          'pre_action',
+          (leaveFold ? 'fold' : preResult.action) as any,
+          leaveFold ? undefined : preResult.amount,
+          leaveFold ? 'forced' : 'pre_action',
           this.horseClockObserver(
             seat,
             armedPreAction === 'auto_check_fold' && !this.hasCommittedLeaveFold(player.user_id)

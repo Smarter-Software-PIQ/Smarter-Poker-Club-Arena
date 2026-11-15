@@ -92,8 +92,15 @@ writes agents.agent_wallet_balance outside the weekly rounds, byte-exact (debit-
 reserves round 2 sets: debits refused for the reserved part and moving for the rest, credit-only doors landing, the
 v3 commission fallback, and the two ON DELETE CASCADE foreign keys into agents. Stand-ins there are marked.
 
-NOT RUN: job 272 union-weekly-rakeback-close (the post-money books: P&L,
-documents, invoices; the runner owns the money), tournaments, standalone
+UNION BOOKS TICK (20261115181339, fixtures/.../union-books.py): on a copy of the paid and released week, cron job 564
+(weekly-union-books) as cron.job has it: with 20261114163249's body every tick raises weekly_payout_original_bounded_tick_required;
+with 20261115181339 installed whole it waits while a scope is owed, yields to a held scheduler lock, runs the real Midway weekly
+horse promo once, enters the close (fn_process_weekly_accounting_scope) under its 900 s statement, and returns NULL once the
+union's close is complete, never moving a chip. Byte-exact additions: union-books.json, union-books-relations.json. Stand-ins
+there are marked. The close itself is not run (see below).
+
+NOT RUN: the union's weekly close itself (job 272 union-weekly-rakeback-close and the close job 564 enters: P&L,
+documents, invoices; about 357 production functions this fixture does not carry), tournaments, standalone
 clubs, row level security, grants, foreign keys.
 
 The last stdout line is the verdict: {"status":"passed","cases":N}.
@@ -295,6 +302,7 @@ try:
     case('the three migrations install whole from disk on production definitions (after the first two the fixture equals what production runs today, md5 read 2026-11-11); they replace only: '+', '.join(x.split('.')[1] for x in MIGRATED)+'; 20261111132447 compiles against the real relations, its six live proofs are true, a second install refuses, and no client role may call its functions or read its reserves')
     if A.stop_after=='install': raise SystemExit(0)
     exec((F/'cases.py').read_text())
+    exec((F/'union-books.py').read_text())
     exec((F/'club-isolation.py').read_text())
     if A.usage_out: A.usage_out.write_text(json.dumps(usage(),indent=0))
     unshifted={k.split('(')[0] for k,v in FUNCS.items() if re.search(r'\b(CURRENT_DATE|CURRENT_TIMESTAMP|CURRENT_TIME|LOCALTIMESTAMP|LOCALTIME)\b',v['def'],re.I)}&set(usage()['functions'])

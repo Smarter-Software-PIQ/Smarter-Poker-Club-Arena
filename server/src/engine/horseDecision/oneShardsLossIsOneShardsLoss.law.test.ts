@@ -205,3 +205,53 @@ describe('a horse decision shard that dies after boot', () => {
     void stopping.catch(() => undefined);
   });
 });
+
+/**
+ * HA-10878-1 LIFECYCLE (lane.ts): a replaced shard resolves the persisted switch state before it serves. The pool
+ * hands it the last delivery the running shards hold, as its first message, so the replacement and its siblings
+ * never decide with different switch states; a delivery the siblings would refuse it refuses on its first read
+ * (everyUpgradeHasALiveSwitch.law.test.ts).
+ */
+describe('a replaced shard is handed the switch state its siblings hold', () => {
+  const delivery = (seq: number, options: Record<string, string>) => ({
+    type: 'STYLE_SWITCH_STATE' as const,
+    seq,
+    status: 'ok' as const,
+    readAtEpochMs: 1_700_000_000_000 + seq,
+    config: { version: 2, style: { version: 1, options: { styleFoldBluff: 'on' } }, options },
+  });
+  const switchMessages = (worker: FakeWorker) =>
+    worker.sent.filter((m) => m.type === 'STYLE_SWITCH_STATE');
+
+  it("the last delivery is the replacement's first message, before any request, and later ones follow it", async () => {
+    const t = bootedPool(2);
+    await boot(t);
+    const valid = delivery(1, { v16Hu: 'off' });
+    const unevidenced = delivery(2, { v62RiverBettorPolarity: 'on' });
+    t.pool.broadcastStyleSwitch(valid);
+    t.pool.broadcastStyleSwitch(unevidenced);
+    t.workers[1]!.crash();
+    await settle();
+    expect(t.workers).toHaveLength(3);
+    const replacement = t.workers[2]!;
+    // the latest delivery, exactly as the siblings got it (its age is still measured from the database read)
+    expect(replacement.sent[0]).toBe(unevidenced);
+    expect(switchMessages(replacement)).toEqual([unevidenced]);
+    replacement.emit(ready());
+    await settle();
+    const next = delivery(3, { v16Hu: 'off' });
+    t.pool.broadcastStyleSwitch(next);
+    expect(switchMessages(replacement)).toEqual([unevidenced, next]);
+    expect(switchMessages(t.workers[0]!)).toEqual([valid, unevidenced, next]);
+    expect(t.onFatal).not.toHaveBeenCalled();
+  });
+
+  it('a replacement spawned before any delivery is handed nothing, as its siblings hold nothing', async () => {
+    const t = bootedPool(2);
+    await boot(t);
+    t.workers[0]!.crash();
+    await settle();
+    expect(t.workers).toHaveLength(3);
+    expect(switchMessages(t.workers[2]!)).toEqual([]);
+  });
+});

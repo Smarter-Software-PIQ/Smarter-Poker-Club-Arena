@@ -14,11 +14,12 @@
  * for an extra feeder hand merely to announce it. Other moves keep their
  * announced-hand contract; idle tables can execute every pending move.
  *
- * THREE REASONS, TWO ENTRIES (Dan 2026-09-05). `must_move` and `break` are
- * the game moving the player: they arrive dealt in, owing nothing, and take
- * the big blind when it comes round (`entry_hold = 'moved'`). `seat_change`
- * is the player's own once-per-stay table change from the Must Move Lobby:
- * they arrive as a new entrant who has agreed to post (`waiting` + agreed).
+ * EVERY REASON, ONE ENTRY (Dan 2026-11-15, replacing the 2026-09-05 seat-change
+ * post). `must_move`, `break`, `balance` and `seat_change` (the player's own
+ * once-per-stay table change from the Must Move Lobby) all come from a previous
+ * table in the game: they arrive owing nothing and take the big blind when it
+ * comes round (`entry_hold = 'moved'`). docs/LAWS.md, "A moved player never
+ * posts to enter".
  *
  * A SWAP is two `seat_change` moves linked by `swap_move_id`: both chairs are
  * occupied, so neither can land alone. Each side is executed at its own

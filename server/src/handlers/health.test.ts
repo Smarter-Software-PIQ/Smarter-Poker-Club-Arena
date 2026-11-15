@@ -116,6 +116,8 @@ describe('handleHealth', () => {
       heldBytes: 0,
       holdBudgetBytes: 4 * 1024 * 1024 * 1024,
       holdTrimmedSegments: 0,
+      minRetentionMs: 108_000_000,
+      retentionBreaches: 0,
       compressedBytes: 6_476_021_020,
       maxBytes: 8 * 1024 * 1024 * 1024,
       records: 7_000_000,
