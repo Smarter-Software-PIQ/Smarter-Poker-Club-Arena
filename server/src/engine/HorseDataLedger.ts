@@ -1099,6 +1099,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V93'
   ),
   flag(
+    'plo6NoMultiwayBetWithWeakMadeHand',
+    'opt-in, default off (PLO6 lane 2026-11-15, SWEEP-PLO6 family D2): PLO6 high, one board, no bomb pot, not all-in-or-fold, cash and tournaments, flop or turn, nothing to call, two or more live opponents: a bet with a weak made hand (one pair below the top card of the board, bottom two pair, or the board pair with such a pair) that holds no nut flush draw, under eight straight outs and under four nut-straight outs and is not nut class becomes a check (HorsePlo6MultiwayWeakBet.ts). No opponent read. Development evidence: 62 such bets in 58 hands, hand net -1,403.7 bb, in 912 human-seated PLO6 cash hands over five days, mostly one opponent; unevaluated (docs/horse-option-authority.d/plo6NoMultiwayBetWithWeakMadeHand.md). Default OFF (read === true) until its declared evaluation passes',
+    'V94'
+  ),
+  flag(
     'fixedLimitRiverFullBetRead',
     "opt-in arm, default off (2026-11-14): fixed limit, river, facing a wager: the wagerer is read as having made a full bet (a raise as a raise) instead of a small no-limit bet, in the range samplers only (HorseFixedLimitWagerRead.ts; SPEC-FL-01). Hold'em contact sampler at its ceiling; Omaha high and hi-lo on a no-low board step the aggressor tier and draw the made-hand stratum exactly; hi-lo heads-up keeps the low half under the weak-high cap. Fixtures and a mechanism only, so production never sets it",
     'V94'
@@ -3093,6 +3098,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic V38 flop/turn call menu (plo6TopSetNutRealization, PLO6-AUDIT P6-4)',
     'a PLO6 cash top set that is the current nuts was priced at full realization in the flop/turn call menu',
     'V93'
+  ),
+  // PLO6 lane 2026-11-15 (plo6NoMultiwayBetWithWeakMadeHand). An occurrence
+  // counter for a default-off option production does not set: silence is its
+  // ordinary state. One receipt: the rule reads no opponent, so it has no
+  // withheld state.
+  receipt(
+    'plo6_multiway_weak_made_hand_bet_checked',
+    'HorseLogic wager_rules (HorsePlo6MultiwayWeakBet, plo6NoMultiwayBetWithWeakMadeHand)',
+    'PLO6 flop or turn bet facing nothing against two or more live opponents with a weak made hand (one pair below the top card, bottom two pair, or the board pair with such a pair), no nut flush draw, under eight straight outs, under four nut-straight outs, not nut class: turned into a check',
+    'V94'
   ),
   // Fixed-Limit lane SPEC-FL-01..03 (2026-11-14). Occurrence counters for
   // opt-in arms production never sets: silence is their ordinary state.

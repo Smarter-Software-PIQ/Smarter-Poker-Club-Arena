@@ -2719,6 +2719,25 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { plo6TopSetNutRealization: true },
     b: {},
   },
+  // 2026-11-15 (PLO6 lane, SWEEP-PLO6 family D2) PLO6 MULTIWAY BET WITH A
+  // WEAK MADE HAND (plo6NoMultiwayBetWithWeakMadeHand,
+  // HorsePlo6MultiwayWeakBet.ts), default OFF: arm A turns a flop or turn bet
+  // facing nothing against two or more live opponents, with a pair below the
+  // top card or bottom two pair and no qualifying draw, into a check; arm B
+  // is today's brain. Six seats, so the pot is multiway, and the production
+  // personas: measured 2026-11-15 (seed 20261115, 600 pairs) the arms diverged
+  // in 14 pairs with productionStyles and in 0 with the Hybrid baseline, whose
+  // one persona does not make this bet in the league. The card only measures;
+  // the default is unchanged.
+  {
+    name: 'plo6_no_multiway_bet_with_weak_made_hand',
+    variant: 'plo6',
+    seats: 6,
+    pairs: 6000,
+    productionStyles: true,
+    a: { plo6NoMultiwayBetWithWeakMadeHand: true },
+    b: {},
+  },
   // 2026-11-13 OMAHA TOURNAMENT FIRST-IN (HorseOmahaTournamentFirstIn),
   // default ON: a is today's brain, b the engine fold it replaces. The small
   // blind against the big blind alone plays every hand as the pot-limit

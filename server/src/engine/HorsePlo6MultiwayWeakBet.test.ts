@@ -1,8 +1,9 @@
 /**
  * PLO6: a multiway bet with a weak made hand and no draw becomes a check
- * (HorsePlo6MultiwayWeakBet.ts, option plo6NoMultiwayBetWithWeakMadeHand; the
- * module is not wired into HorseLogic at this commit, so these cases call it
- * directly). Every hand and board here is invented.
+ * (HorsePlo6MultiwayWeakBet.ts, option plo6NoMultiwayBetWithWeakMadeHand).
+ * These cases call the module directly; the option through HorseLogic.decide
+ * is HorsePlo6MultiwayWeakBetWiring.test.ts. Every hand and board here is
+ * invented.
  */
 import { describe, expect, it } from 'vitest';
 import type { Card, CardRank, CardSuit, HorseDecision, SeatPlayer } from '../types.js';

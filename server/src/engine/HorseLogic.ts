@@ -115,6 +115,7 @@ import {
   tokenCallRequiredEquity,
 } from './HorseTokenCallPrice.js';
 import { plo6TopSetIsCurrentNuts } from './HorsePlo6TopSetNut.js';
+import { plo6NoMultiwayBetWithWeakMadeHand } from './HorsePlo6MultiwayWeakBet.js';
 import {
   FIXED_LIMIT_ONE_BET_RAISE_BREAK_EVEN,
   fixedLimitFullBetRead,
@@ -3382,6 +3383,19 @@ export interface HorseDecideOpts {
    * in two days, Horse-only; activation needs its own evaluation and a
    * docs/horse-default-on.d evidence file. Read as `=== true`. */
   plo6TopSetNutRealization?: boolean;
+  /** PLO6 lane 2026-11-15 (SWEEP-PLO6 family D2: 45 multiway bets with an
+   * underpair or bottom two pair, hand net -1,005.5 bb, the largest PLO6 cash
+   * family): six-card Omaha high, one board, no bomb pot, not all-in-or-fold,
+   * cash and tournaments; flop or turn, nothing to call, two or more live
+   * opponents, a weak made hand (one pair below the board's top card, bottom
+   * two pair, or the board's pair with such a pair) with no nut flush draw,
+   * under eight straight outs and under four nut-straight outs, not nut
+   * class: a bet becomes a check (HorsePlo6MultiwayWeakBet.ts). No opponent
+   * read. Default OFF (opt-in, read `=== true`); development evidence on five
+   * days and mostly one opponent, unevaluated
+   * (docs/horse-option-authority.d/plo6NoMultiwayBetWithWeakMadeHand.md);
+   * league card plo6_no_multiway_bet_with_weak_made_hand. */
+  plo6NoMultiwayBetWithWeakMadeHand?: boolean;
   /** Fixed limit, river, facing a wager (SPEC-FL-01): the wagerer's read is
    * marked a FULL bet (a raise as a raise) so the range samplers stop
    * pricing a fixed bet as a small no-limit bet (HorseFixedLimitWagerRead.ts).
@@ -7978,6 +7992,18 @@ function omahaOwnerRuledFinal(
   if (faced !== null) return faced;
   const flopFaced = omahaBareOverpairFlopFacingBetRule(decision, player, gs, opts);
   if (flopFaced !== null) return flopFaced;
+  // plo6NoMultiwayBetWithWeakMadeHand: a wager that reached here in its spot
+  // was proposed by a rule after omahaOwnBetRules; the check stands. The
+  // option's own receipt is not fired a second time.
+  if (
+    opts.plo6NoMultiwayBetWithWeakMadeHand === true &&
+    plo6MultiwayWeakBetRule(decision, player, gs, { ...opts, telemetry: false }) !== decision
+  ) {
+    if (telemetryOn(opts)) noteFire('omaha_owner_ruled_check_kept');
+    const c: HorseDecision = { ...decision, action: 'check' };
+    delete c.amount;
+    return c;
+  }
   // A wager facing no bet that reached here in a spot an owner-ruled check
   // rule, the turn river-plan test or the street plan checks was proposed by
   // a later rule (omahaBigDrawAggression): the check stands. The inner rules
@@ -8006,6 +8032,27 @@ function omahaOwnerRuledFinal(
   return decision;
 }
 
+/** PLO6 lane 2026-11-15 (SWEEP-PLO6 family D2), HorsePlo6MultiwayWeakBet.ts:
+ * default-off; a PLO6 multiway flop or turn bet with a weak made hand and no
+ * qualifying draw becomes a check. Never touches a decision facing a bet;
+ * draws no random number. Unset or false it returns the decision it was
+ * given. Runs first in omahaOwnBetRules, with the owner-ruled checks (final
+ * there), and is kept outermost by omahaOwnerRuledFinal. */
+function plo6MultiwayWeakBetRule(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
+  if (opts.plo6NoMultiwayBetWithWeakMadeHand !== true) return decision;
+  const ruled = plo6NoMultiwayBetWithWeakMadeHand(decision, player, gs);
+  // The key is HorsePlo6MultiwayWeakBet.PLO6_MULTIWAY_WEAK_BET_RECEIPT, written
+  // out so the ledger's fired-receipt scan reads it.
+  if (ruled.changed === 'bet_checked' && telemetryOn(opts))
+    noteFire('plo6_multiway_weak_made_hand_bet_checked');
+  return ruled.decision;
+}
+
 /**
  * PRECEDENCE of the own-bet rules in wager_rules (lane owner 2026-11-15):
  * (i) the owner-ruled checks (omahaOopCheckRules: the bare overpair flop
@@ -8024,7 +8071,12 @@ function omahaOwnBetRules(
   gs: HorseGameStateV2,
   opts: HorseDecideOpts
 ): HorseDecision {
-  const ruled = omahaOopCheckRules(decision, player, gs, opts);
+  const ruled = omahaOopCheckRules(
+    plo6MultiwayWeakBetRule(decision, player, gs, opts),
+    player,
+    gs,
+    opts
+  );
   if (ruled !== decision) return ruled;
   if (opts.omahaStreetPlan !== true && opts.omahaCardImpact !== true) return ruled;
   const priced = omahaCardImpactRule(

@@ -708,3 +708,70 @@ describe('PLO6 final river discipline receipt', () => {
     expect(reduction('plo6', 'raise', 'call', 0)).toBe(false);
   });
 });
+
+describe('PLO6 multiway weak made-hand bet-to-check receipt (plo6NoMultiwayBetWithWeakMadeHand)', () => {
+  const SUITS = { c: 'clubs', d: 'diamonds', h: 'hearts', s: 'spades' } as const;
+  const cards = (spec: string) =>
+    (spec.match(/../g) ?? []).map((t) => ({
+      rank: t[0],
+      suit: SUITS[t[1] as keyof typeof SUITS],
+    })) as never[];
+  /** Invented: sevens under a king on a dry flop, no draw. */
+  const WEAK = '7h7cQd6s3h2c';
+  /** Invented: top set of kings. */
+  const TOP_SET = 'KhKcQd6s3h2c';
+  function toCheck(
+    variant: string,
+    from: HorseDecision['action'],
+    o: { hole?: string; headsUp?: boolean; facing?: boolean; noRequest?: boolean } = {}
+  ) {
+    const graph = new HorsePolicyGraph(() => 0);
+    let decision: HorseDecision = {
+      action: from,
+      amount: from === 'bet' || from === 'raise' ? 10 : undefined,
+      thinkTime: 1,
+    };
+    for (const node of HORSE_POLICY_ORDER) {
+      decision = graph.run(node, node === 'reference' ? null : decision, () => {
+        if (node !== 'wager_rules') return { decision };
+        const checked: HorseDecision = { ...decision, action: 'check' };
+        delete checked.amount;
+        return { decision: checked };
+      }).decision;
+    }
+    const { hero, state } = jointPolicyFixture('plo6', 1, 'cash', 'flop');
+    hero.cards = cards(o.hole ?? WEAK);
+    state.communityCards = cards('Ks9d4c');
+    state.legalActions = ['check', 'bet'];
+    if (o.headsUp)
+      state.players.forEach((p, i) => {
+        if (p.seat !== hero.seat && i > 1) p.is_folded = true;
+      });
+    if (o.headsUp)
+      expect(state.players.filter((p) => p.seat !== hero.seat && !p.is_folded).length).toBe(1);
+    if (o.facing) {
+      state.toCall = 4;
+      state.currentBet = hero.bet + 4;
+      state.legalActions = ['fold', 'call', 'raise'];
+    }
+    return horseDecisionReceiptIsValid(
+      graph.finish(decision),
+      variant,
+      o.noRequest ? undefined : { player: hero, gameState: state }
+    );
+  }
+  it('admits a PLO6 bet, raise or shove that became a check in the spot', () => {
+    expect(toCheck('plo6', 'bet')).toBe(true);
+    expect(toCheck('plo6', 'raise')).toBe(true);
+    expect(toCheck('plo6', 'all_in')).toBe(true);
+    // a check puts no chip in: a retained receipt without its request is admitted
+    expect(toCheck('plo6', 'bet', { noRequest: true })).toBe(true);
+  });
+  it('refuses it outside the spot and in every other game', () => {
+    expect(toCheck('plo6', 'bet', { hole: TOP_SET })).toBe(false);
+    expect(toCheck('plo6', 'bet', { headsUp: true })).toBe(false);
+    expect(toCheck('plo6', 'bet', { facing: true })).toBe(false);
+    for (const variant of ['nlh', 'plo8', 'flo8']) expect(toCheck(variant, 'bet')).toBe(false);
+    expect(toCheck('nlh', 'bet', { noRequest: true })).toBe(false);
+  });
+});

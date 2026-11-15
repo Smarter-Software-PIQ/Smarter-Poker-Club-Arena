@@ -1,8 +1,8 @@
 /**
  * PLO6: A MULTIWAY BET WITH A WEAK MADE HAND AND NO DRAW BECOMES A CHECK
  * (PLO6 lane, 2026-11-15; option plo6NoMultiwayBetWithWeakMadeHand, default
- * OFF, to be read `=== true` by the caller). NOT WIRED at this commit: this
- * file is the rule and its cases; HorseLogic does not call it yet.
+ * OFF, read `=== true` by the caller: HorseLogic.plo6MultiwayWeakBetRule, in
+ * omahaOwnBetRules and kept outermost by omahaOwnerRuledFinal).
  *
  * The leak. The PLO6 human-table sweep (agent-evidence extreme-archive
  * plo6-audit-01TLQer9Hdf phase1-play plo-port-20261115 SWEEP-PLO6.md, family
