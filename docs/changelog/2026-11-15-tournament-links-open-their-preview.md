@@ -18,3 +18,16 @@ gets the plain card, exactly like a missing one.
 
 Tests: `tests/unit/shareDoor.test.ts` and `tests/unit/tournamentBreakScreen.test.tsx`
 pin the new address.
+
+## Also in this change: a copy that did not happen is said on screen
+
+Found during the signed-in check on production (2026-11-15): in a browser
+where both the Clipboard API and the selection copy were refused, Share Hand's
+Copy button showed nothing at all; the failure only reached the error log.
+Share Hand now says "Copy Is Blocked Here. The Link Is Selected, Copy It By
+Hand." and selects the link, for Copy, for a refused Share sheet, and for Copy
+Embed Code (which also now says "Embed Code Copied" when it works).
+
+Copy-only buttons (`copyText`) are now counted in `SHARE_OUTCOME` like
+shares, once per tap. The share ladder's own copy step uses the uncounted
+`copyTextOnce`, so a share that falls through to the copy is still one row.

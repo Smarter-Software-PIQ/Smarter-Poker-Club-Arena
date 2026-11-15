@@ -86,11 +86,21 @@ export function shareClipboardText(text: string | undefined, url: string): strin
   return t ? `${t} ${url}` : url;
 }
 
-/** Copy only. False when neither the Clipboard API nor a selection copy worked. */
-export async function copyText(text: string, source: string): Promise<boolean> {
+async function copyTextOnce(text: string, source: string): Promise<boolean> {
   const ok = await copyToClipboard(text);
   if (!ok)
     reportError(new Error('Clipboard refused and selection copy failed'), `${source}.copy_failed`);
+  return ok;
+}
+
+/**
+ * Copy only. False when neither the Clipboard API nor a selection copy worked.
+ * Counted like a share (copied / failed): a copy button is how most desktop
+ * players share.
+ */
+export async function copyText(text: string, source: string): Promise<boolean> {
+  const ok = await copyTextOnce(text, source);
+  recordOutcome(source, ok ? 'copied' : 'failed');
   return ok;
 }
 
@@ -185,7 +195,7 @@ async function shareLinkOnce(input: ShareLinkInput): Promise<ShareOutcome> {
 
   const clip = input.clipboardText || (url ? shareClipboardText(text, url) : text);
   if (!clip) return 'failed';
-  return (await copyText(clip, source)) ? 'copied' : 'failed';
+  return (await copyTextOnce(clip, source)) ? 'copied' : 'failed';
 }
 
 export interface ShareFileInput extends Omit<ShareLinkInput, 'url'> {

@@ -16,6 +16,7 @@ vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  copyText,
   profileShareUrl,
   setShareOutcomeSink,
   shareButtonLabel,
@@ -116,6 +117,22 @@ describe('share outcomes are counted once, without the link', () => {
       source: 'StatsShareCard.share',
       outcome: 'copied',
     });
+  });
+
+  it('a copy-only button is counted too, once, as copied or failed', async () => {
+    vi.stubGlobal('navigator', { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
+    await expect(copyText(URL_, 'ShareHand.copy')).resolves.toBe(true);
+    await settle();
+    expect(record).toHaveBeenCalledTimes(1);
+    expect(record).toHaveBeenCalledWith('SHARE_OUTCOME', { source: 'ShareHand.copy', outcome: 'copied' });
+    record.mockClear();
+    vi.stubGlobal('navigator', {
+      clipboard: { writeText: vi.fn().mockRejectedValue(new DOMException('x', 'NotAllowedError')) },
+    });
+    (document as unknown as { execCommand: unknown }).execCommand = vi.fn().mockReturnValue(false);
+    await expect(copyText(URL_, 'ShareHand.copy')).resolves.toBe(false);
+    expect(record).toHaveBeenCalledTimes(1);
+    expect(record).toHaveBeenCalledWith('SHARE_OUTCOME', { source: 'ShareHand.copy', outcome: 'failed' });
   });
 
   it('a saved picture is counted as saved', async () => {
