@@ -20,6 +20,10 @@ New `server/src/engine/HorseOmahaOopChecks.ts` (three public-information spots) 
 
 No decision facing a bet changes. With all three unset or false the brain plays exactly as before. League cards plo4/plo5 for each; evidence files in `docs/horse-default-on.d/`.
 
+## Addition: hand 59521326
+
+A fourth option, `omahaPairedTurnNoBarrelWithoutBoatVsValueLeader` (off by default): turn, heads-up, out of position, the flop bet or raise called, the turn card pairs the board, less than a full house: the bet becomes a check, only against a measured postflop value leader. Receipts `omaha_paired_turn_barrel_checked`, `_withheld`. In that hand the river fold of the nut straight came from the 2026-10-25 paired-board fold, which overrode the reference decision's call at a price of 0.213; that rule is unchanged here.
+
 ## Evaluation
 
 Not run. To be declared in the evidence archive (`plo-handoff-review-01a1cbbd/pairedriver-20261115/`) before any graded run; the verdicts are added here when they are read.

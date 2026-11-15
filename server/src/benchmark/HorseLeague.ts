@@ -2183,6 +2183,14 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
       b: {},
     },
     {
+      name: `${variant}_omaha_paired_turn_no_barrel_without_boat_vs_value_leader`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { omahaPairedTurnNoBarrelWithoutBoatVsValueLeader: true },
+      b: {},
+    },
+    {
       name: `${variant}_omaha_bare_overpair_oop_flop_check`,
       variant,
       pairs: 6000,

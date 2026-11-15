@@ -54,6 +54,7 @@ import {
   omahaBareOverpairOopFlopSpot,
   omahaOverpairOopTurnBarrelSpot,
   omahaPairedRiverThinLeadSpot,
+  omahaPairedTurnBarrelSpot,
 } from './HorseOmahaOopChecks.js';
 import {
   omahaReraisedPostflopCell,
@@ -2844,6 +2845,15 @@ export interface HorseDecideOpts {
    * and multiway; no stack-to-pot exception. Default OFF (opt-in, read
    * `=== true`); league cards plo4/plo5 _omaha_bare_overpair_oop_flop_check. */
   omahaBareOverpairOopFlopCheck?: boolean;
+  /** Lane owner 2026-11-15 (hand 59521326): PLO4/PLO5 cash, heads-up, turn,
+   * the Horse out of position, its flop bet or raise called, the turn card
+   * pairs the board and the Horse holds less than a full house (a straight, a
+   * flush or weaker): the turn bet becomes a check, only against a MEASURED
+   * postflop value leader. A full house or better still bets; in position the
+   * Horse plays as today. Needs the mind on. Default OFF (opt-in, read
+   * `=== true`); league cards plo4/plo5
+   * _omaha_paired_turn_no_barrel_without_boat_vs_value_leader. */
+  omahaPairedTurnNoBarrelWithoutBoatVsValueLeader?: boolean;
   /** A token-priced committed call is not barred by stack-off premiums
    * (HorseTokenCallPrice.ts, PLO6-AUDIT-010). Default on; false only for
    * the regression's non-vacuity control. */
@@ -6299,8 +6309,8 @@ function pairedBoardRiverCheck(
 }
 
 /**
- * Owner 2026-11-15 (hand 59517323), HorseOmahaOopChecks.ts: three default-off
- * options that turn a bet facing no wager into a check. The flop rule
+ * Owner 2026-11-15 (hands 59517323 and 59521326), HorseOmahaOopChecks.ts:
+ * default-off options that turn a bet facing no wager into a check. The flop rule
  * (omahaBareOverpairOopFlopCheck) reads no opponent; the turn and river rules
  * (omahaOverpairNoOopBarrelVsValueLeader,
  * omahaPairedRiverNoThinLeadVsValueLeader) apply only when every live
@@ -6318,7 +6328,8 @@ function omahaOopCheckRules(
   const flopOn = opts.omahaBareOverpairOopFlopCheck === true;
   const turnOn = opts.omahaOverpairNoOopBarrelVsValueLeader === true;
   const riverOn = opts.omahaPairedRiverNoThinLeadVsValueLeader === true;
-  if (!flopOn && !turnOn && !riverOn) return decision;
+  const pairedTurnOn = opts.omahaPairedTurnNoBarrelWithoutBoatVsValueLeader === true;
+  if (!flopOn && !turnOn && !riverOn && !pairedTurnOn) return decision;
   if (decision.action !== 'bet' && decision.action !== 'raise' && decision.action !== 'all_in')
     return decision;
   try {
@@ -6335,20 +6346,28 @@ function omahaOopCheckRules(
       return checked();
     }
     const turnSpot = stage === 'turn' && turnOn && omahaOverpairOopTurnBarrelSpot(player, gs);
+    const pairedTurnSpot =
+      !turnSpot && stage === 'turn' && pairedTurnOn && omahaPairedTurnBarrelSpot(player, gs);
     const riverSpot = stage === 'river' && riverOn && omahaPairedRiverThinLeadSpot(player, gs);
-    if (!turnSpot && !riverSpot) return decision;
+    if (!turnSpot && !pairedTurnSpot && !riverSpot) return decision;
     if (!omahaEveryLiveOpponentIs(player, gs, opts, (r) => r.valueLeader)) {
       if (tele)
         noteFire(
           turnSpot
             ? 'omaha_overpair_oop_turn_barrel_withheld'
-            : 'omaha_paired_river_thin_lead_withheld'
+            : pairedTurnSpot
+              ? 'omaha_paired_turn_barrel_withheld'
+              : 'omaha_paired_river_thin_lead_withheld'
         );
       return decision;
     }
     if (tele)
       noteFire(
-        turnSpot ? 'omaha_overpair_oop_turn_barrel_checked' : 'omaha_paired_river_thin_lead_checked'
+        turnSpot
+          ? 'omaha_overpair_oop_turn_barrel_checked'
+          : pairedTurnSpot
+            ? 'omaha_paired_turn_barrel_checked'
+            : 'omaha_paired_river_thin_lead_checked'
       );
     return checked();
   } catch {

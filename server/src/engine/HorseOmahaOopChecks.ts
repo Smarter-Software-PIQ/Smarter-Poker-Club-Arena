@@ -30,6 +30,12 @@
  *    behind and called the Horse's flop bet, one pair only (a draw picked up,
  *    the nut flush draw included, is not an improved made hand), a straight
  *    possible on the board; only against a MEASURED postflop value leader.
+ *  - omahaPairedTurnNoBarrelWithoutBoatVsValueLeader (hand 59521326: a flop
+ *    check-raise with the nut straight called, then a bet into the turn card
+ *    that paired the board, then a fold of the straight on the river): turn,
+ *    heads-up, the opponent acts behind and called the Horse's flop bet or
+ *    raise, the turn card pairs the board, less than a full house; only
+ *    against a MEASURED postflop value leader.
  *  - omahaPairedRiverNoThinLeadVsValueLeader: river, the final board paired,
  *    less than a full house, a live opponent called the Horse's flop or turn
  *    bet; only when every live opponent is a MEASURED postflop value leader.
@@ -201,11 +207,35 @@ export function omahaPairedRiverThinLeadSpot(hero: SeatPlayer, gs: HorseGameStat
   }
 }
 
-/** Any of the three spots: what the worker receipt validator admits as a bet turned into a check. */
+/**
+ * omahaPairedTurnNoBarrelWithoutBoatVsValueLeader, the public half: turn,
+ * exactly one live opponent, who acts behind and called hero's flop bet or
+ * raise; the turn card pairs the board; hero holds less than a full house (a
+ * straight, a flush or weaker).
+ */
+export function omahaPairedTurnBarrelSpot(hero: SeatPlayer, gs: HorseGameStateV2): boolean {
+  try {
+    if (omahaOopCheckStreet(hero, gs) !== 'turn') return false;
+    const live = liveOpponents(hero, gs);
+    if (live.length !== 1) return false;
+    const board: Card[] = gs.communityCards ?? [];
+    const turnCard = board[3];
+    if (!board.slice(0, 3).some((c) => c.rank === turnCard.rank)) return false;
+    const cat = category(hero.cards, board);
+    if (!(cat > 0) || cat >= FULL_HOUSE) return false;
+    if (!omahaCallersOfHeroBet(hero, gs, 'flop').has(live[0].seat)) return false;
+    return omahaOpponentActsBehind(hero, gs);
+  } catch {
+    return false;
+  }
+}
+
+/** Any of the spots: what the worker receipt validator admits as a bet turned into a check. */
 export function omahaOopCheckSpot(hero: SeatPlayer, gs: HorseGameStateV2): boolean {
   return (
     omahaBareOverpairOopFlopSpot(hero, gs) ||
     omahaOverpairOopTurnBarrelSpot(hero, gs) ||
+    omahaPairedTurnBarrelSpot(hero, gs) ||
     omahaPairedRiverThinLeadSpot(hero, gs)
   );
 }

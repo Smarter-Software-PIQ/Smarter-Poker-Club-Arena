@@ -1235,11 +1235,11 @@ function policyGraphIsValid(
       context !== undefined &&
       String(context.gameState.gameVariant).toLowerCase() === variant &&
       mediumBetRuleProducesCall(transition.after, context);
-    // Owner 2026-11-15 (HorseOmahaOopChecks, three default-off options): a bet
+    // Owner 2026-11-15 (HorseOmahaOopChecks, default-off options): a bet
     // facing no wager becomes a check on the flop out of position with a bare
     // pair, on the turn after the flop bet was called, and on a paired river
     // into a caller. A check puts no chip in; when the request is known, only
-    // where one of the three public spots, re-run on it, holds (the receipt
+    // where one of the public spots, re-run on it, holds (the receipt
     // context carries neither the options nor the opponent read).
     const omahaOopBetToCheck =
       transition.node === 'wager_rules' &&

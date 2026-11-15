@@ -954,6 +954,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaPairedTurnNoBarrelWithoutBoatVsValueLeader',
+    'Lane owner 2026-11-15 (hand 59521326): PLO4/PLO5 cash, heads-up, turn, out of position, the flop bet or raise called, the turn card pairs the board, less than a full house (a straight, a flush or weaker): the turn bet becomes a check, only against a measured postflop value leader (HorseOmahaOopChecks.ts). A full house or better still bets. Default OFF (read === true) until its declared evaluation passes',
+    'V94'
+  ),
+  flag(
     'omahaBareOverpairOopFlopCheck',
     'Owner 2026-11-15 11:05 (hand 59517323): PLO4/PLO5 cash, flop, out of position (an opponent still acts behind), one pair only, no flush draw and under eight straight outs, the flop two-tone or connected: a bet becomes a check, heads-up and multiway, with no opponent read and no stack-to-pot exception (HorseOmahaOopChecks.ts). Default OFF (read === true) until its declared evaluation passes',
     'V94'
@@ -3848,6 +3853,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'omaha_overpair_oop_turn_barrel_withheld',
     'HorseLogic wager_rules (HorseOmahaOopChecks, omahaOverpairNoOopBarrelVsValueLeader)',
+    "the same turn bet where the opponent is not a measured value leader: today's play kept",
+    'V94'
+  ),
+  receipt(
+    'omaha_paired_turn_barrel_checked',
+    'HorseLogic wager_rules (HorseOmahaOopChecks, omahaPairedTurnNoBarrelWithoutBoatVsValueLeader)',
+    'PLO4/PLO5 cash heads-up turn bet out of position with less than a full house, on the turn card that paired the board, after the flop bet or raise was called, against a measured postflop value leader: turned into a check',
+    'V94'
+  ),
+  receipt(
+    'omaha_paired_turn_barrel_withheld',
+    'HorseLogic wager_rules (HorseOmahaOopChecks, omahaPairedTurnNoBarrelWithoutBoatVsValueLeader)',
     "the same turn bet where the opponent is not a measured value leader: today's play kept",
     'V94'
   ),
