@@ -34,6 +34,7 @@
     "fn_ca_club_acct_hand_lock",
     "fn_ca_club_acct_touch_hands",
     "fn_ca_club_acct_link_hands",
+    "fn_ca_club_acct_link_row",
     "fn_ca_club_acct_flow_rows",
     "fn_ca_club_acct_bbj_rows",
     "fn_ca_club_acct_boundary_rows",

@@ -526,6 +526,8 @@ $function$;
 
 -- The participants the invoice reader uses for a link resolution
 -- (fn_union_pnl_linked_cash_outcomes), and the hand's recognition time.
+-- Callers pass each resolution without its proof (about 3.7 kB) and with
+-- proof_ok = (proof_md5 = md5(proof::text)) instead (fn_ca_club_acct_link_row).
 CREATE FUNCTION public.fn_ca_club_acct_link_hands(p_links jsonb)
 RETURNS jsonb LANGUAGE sql STABLE SET search_path = public, smarter_private AS $function$
   SELECT COALESCE(jsonb_agg(jsonb_build_object(
@@ -536,11 +538,20 @@ RETURNS jsonb LANGUAGE sql STABLE SET search_path = public, smarter_private AS $
                                  ELSE r.evidence END)->'participants')), '[]'::jsonb)
     FROM jsonb_to_recordset(COALESCE(p_links, '[]'::jsonb)) AS r(table_id uuid, hand_number bigint, hand_id uuid,
            outcome_payload_hash text, outcome_evidence_md5 text, roster_source text, game_scope jsonb,
-           evidence jsonb, proof jsonb, proof_md5 text)
+           evidence jsonb, proof_ok boolean)
     JOIN public.unions u ON u.id::text = r.game_scope->>'game_union_id'
     JOIN public.union_pnl_cash_outcomes o ON o.table_id = r.table_id AND o.hand_number = r.hand_number
    WHERE r.hand_id = o.hand_id AND r.outcome_payload_hash = o.payload_hash
-     AND r.outcome_evidence_md5 = md5(o.evidence::text) AND r.proof_md5 = md5(r.proof::text);
+     AND r.outcome_evidence_md5 = md5(o.evidence::text) AND r.proof_ok;
+$function$;
+
+-- A link resolution as fn_ca_club_acct_link_hands reads it.
+CREATE FUNCTION public.fn_ca_club_acct_link_row(r public.union_pnl_cash_outcome_link_resolutions)
+RETURNS jsonb LANGUAGE sql STABLE SET search_path = public AS $function$
+  SELECT jsonb_build_object('table_id', r.table_id, 'hand_number', r.hand_number, 'hand_id', r.hand_id,
+           'outcome_payload_hash', r.outcome_payload_hash, 'outcome_evidence_md5', r.outcome_evidence_md5,
+           'roster_source', r.roster_source, 'game_scope', r.game_scope, 'evidence', r.evidence,
+           'proof_ok', COALESCE(r.proof_md5 = md5(r.proof::text), false));
 $function$;
 
 -- 4e. Tournament flows, owned by their receipts as
@@ -759,7 +770,7 @@ RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public SET l
 DECLARE v jsonb;
 BEGIN
   v := public.fn_ca_club_acct_hand_rows(public.fn_ca_club_acct_link_hands(
-         (SELECT jsonb_agg(to_jsonb(n)) FROM new_rows n)));
+         (SELECT jsonb_agg(public.fn_ca_club_acct_link_row(n)) FROM new_rows n)));
   PERFORM public.fn_ca_club_acct_put(v->'facts', 0::smallint);
   PERFORM public.fn_ca_club_acct_put_hands(v->'hands', 0::smallint);
   RETURN NULL;
@@ -931,7 +942,7 @@ BEGIN
     n_f := n_f + jsonb_array_length(v->'facts'); n_h := n_h + jsonb_array_length(v->'hands');
 
     v := public.fn_ca_club_acct_hand_rows(public.fn_ca_club_acct_link_hands((
-      SELECT jsonb_agg(to_jsonb(r)) FROM public.union_pnl_cash_outcome_link_resolutions r
+      SELECT jsonb_agg(public.fn_ca_club_acct_link_row(r)) FROM public.union_pnl_cash_outcome_link_resolutions r
         JOIN public.union_pnl_cash_outcomes o ON o.table_id = r.table_id AND o.hand_number = r.hand_number
        WHERE o.recognized_at >= w_lo AND o.recognized_at < w_hi AND r.game_scope->>'game_union_id' IS NOT NULL)));
     PERFORM public.fn_ca_club_acct_put(v->'facts', 1::smallint);
@@ -996,6 +1007,7 @@ REVOKE ALL ON FUNCTION
   public.fn_ca_club_acct_touch_participants(public.union_pnl_cash_outcome_touches),
   public.fn_ca_club_acct_unshaped_participants(public.union_pnl_cash_outcome_touches),
   public.fn_ca_club_acct_touch_hands(jsonb), public.fn_ca_club_acct_link_hands(jsonb),
+  public.fn_ca_club_acct_link_row(public.union_pnl_cash_outcome_link_resolutions),
   public.fn_ca_club_acct_hand_lock(uuid, bigint),
   public.fn_ca_club_acct_flow_rows(jsonb), public.fn_ca_club_acct_bbj_rows(uuid, uuid, timestamptz),
   public.fn_ca_club_acct_boundary_rows(uuid, timestamptz, jsonb, date, int),
