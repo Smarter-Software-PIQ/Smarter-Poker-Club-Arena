@@ -2275,6 +2275,30 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaEliteContinuesVsMeasuredWideThreeBettor: true },
     b: {},
   })),
+  // 2026-11-15 OMAHA OUT-OF-POSITION RE-RAISED POT STRONG RANGE (default OFF):
+  // a preflop call of a 3-bet or more out of position against the last raiser
+  // stands only with suited aces, as a priced commitment, or with a
+  // coordinated hand clearing the price plus the out-of-position margin.
+  // a switches it on, b is today's brain.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_oop_reraised_pot_strong_range`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaOopReraisedPotStrongRange: true },
+    b: {},
+  })),
+  // 2026-11-15 (default OFF): the caller of a re-raised pot continues on the
+  // flop only with two pair or better, a pair with a nut-leaning draw or a
+  // strong draw. a switches it on, b is today's brain.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_reraised_pot_flop_continue_needs_equity_shape`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaReraisedPotFlopContinueNeedsEquityShape: true },
+    b: {},
+  })),
   // V15 BOATS (2026-09-28): default OFF. a turns it on, b is today's brain.
   // Ship it default ON only after this resolves significant positive.
   // 2026-11-06: V15 boats is default ON in PLO5 cash (v15BoatsOn), so the

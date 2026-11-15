@@ -12,11 +12,11 @@ Against an observed maniac raiser every re-raise of the Horse's raise is decided
 
 ## What changed
 
-`HorseOmahaReadConditional.ts` gains a measured WIDE RE-RAISER read (15+ decayed hands, the presumption evidenced or disproved; 12+ decayed re-raise opportunities; re-raise rate credibly above the Horse mean at 0.9 with a shrunk mean of 0.15 or more; withdrawn by a recent window without re-raises; a presumed read never counts). With the option on, a fold the maniac-price arithmetic produces becomes a call when a PLO4/PLO5 cash Horse opened, faces exactly one re-raise heads-up against the price from a measured wide re-raiser, holds an elite-class hand the class read marks as a shallow 4-bet hand, and the call is under 40% of the stack at raw pot odds of 0.34 or less. It never creates a raise; the 4-bet logic is untouched. Receipts `omaha_elite_continues_vs_measured_wide_three_bettor` and `_withheld`. League cards plo4/plo5. Evidence file `docs/horse-default-on.d/omahaEliteContinuesVsMeasuredWideThreeBettor.md`. With the option unset or false the brain decides exactly as before.
+`HorseOmahaReadConditional.ts` gains a measured WIDE RE-RAISER read (15+ decayed hands, the presumption evidenced or disproved; 12+ decayed re-raise opportunities; re-raise rate credibly above the Horse mean at 0.9 with a shrunk mean of 0.15 or more; withdrawn by a recent window without re-raises; a presumed read never counts). With the option on, a fold the maniac-price arithmetic produces becomes a call when a PLO4/PLO5 cash Horse opened, faces exactly one re-raise heads-up against the price from a measured wide re-raiser, will be in position against him after the flop (owner 2026-11-15 11:49: out of position the fold stands), holds an elite-class hand the class read marks as a shallow 4-bet hand, and the call is under 40% of the stack at raw pot odds of 0.34 or less. It never creates a raise; the 4-bet logic is untouched. Receipts `omaha_elite_continues_vs_measured_wide_three_bettor` and `_withheld`. League cards plo4/plo5. Evidence file `docs/horse-default-on.d/omahaEliteContinuesVsMeasuredWideThreeBettor.md`. With the option unset or false the brain decides exactly as before.
 
-## Decisions census (before -> on, fold share facing his 3-bet)
+## Decisions census
 
-PLO4 9.8% -> 0 (40-hand read), 7.3% -> 0 (834-hand read); PLO5 34.3% -> 0 and 31.5% -> 0. Every changed decision is a fold that became a call; raise counts, the unknown and tight arms and every open and squeeze cell are identical. Archive `plo-handoff-review-01a1cbbd/3betdef-20261115/`.
+Only the in-position scenario (button open against a big-blind 3-bet) changes; there every fold of these hands becomes a call. The out-of-position scenarios, the unknown and tight arms and every open and squeeze cell are identical. Per-cell fold shares before and after: archive `plo-handoff-review-01a1cbbd/3betdef-20261115/census-diff.txt`.
 
 ## Evaluation
 

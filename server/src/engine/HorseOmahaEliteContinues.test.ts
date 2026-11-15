@@ -1,7 +1,8 @@
 /**
  * omahaEliteContinuesVsMeasuredWideThreeBettor (2026-11-15, default OFF):
- * a PLO4/PLO5 cash Horse that opened and faces one re-raise from a MEASURED
- * wide re-raiser does not fold an elite-class hand to the maniac-price
+ * a PLO4/PLO5 cash Horse that opened, faces one re-raise from a MEASURED
+ * wide re-raiser and will be IN POSITION against him (owner 2026-11-15
+ * 11:49: out of position the fold stands) does not fold an elite-class hand to the maniac-price
  * arithmetic; the fold becomes a call.
  *
  *  - the read: the production PLO5 winner's counters are a wide re-raiser; a
@@ -128,17 +129,25 @@ const VILLAIN = '40000000-0000-4000-8000-0000000000c3';
 const other = (n: number) => `4000000${n}-0000-4000-8000-0000000000f${n}`;
 
 /**
- * Six-handed pot limit, 100bb (blinds 1/2, dealer seat 6): hero in the
- * cutoff (seat 5) opens to 7, the button (seat 6) re-raises pot to 24, the
- * blinds fold; hero faces 17 more into 34.
+ * Six-handed pot limit, 100bb (blinds 1/2, dealer seat 6).
+ * In position (default): hero on the button (seat 6) opens to 7, the big
+ * blind (seat 2) re-raises pot to 22; hero faces 15 more into 30.
+ * Out of position: hero in the cutoff (seat 5) opens to 7, the button
+ * (seat 6) re-raises pot to 24, the blinds fold; hero faces 17 more into 34.
  */
 function threeBetGs(
   variant: string,
   hole: string,
-  over: Partial<HorseGameStateV2> = {}
+  over: Partial<HorseGameStateV2> = {},
+  outOfPosition = false
 ): { hero: SeatPlayer; gs: HorseGameStateV2 } {
-  const uid = (n: number) => (n === 5 ? HERO : n === 6 ? VILLAIN : other(n));
-  const bet: Record<number, number> = { 1: 1, 2: 2, 3: 0, 4: 0, 5: 7, 6: 24 };
+  const heroSeat = outOfPosition ? 5 : 6;
+  const villainSeat = outOfPosition ? 6 : 2;
+  const to = outOfPosition ? 24 : 22;
+  const uid = (n: number) => (n === heroSeat ? HERO : n === villainSeat ? VILLAIN : other(n));
+  const bet: Record<number, number> = { 1: 1, 2: 2, 3: 0, 4: 0, 5: 0, 6: 0 };
+  bet[heroSeat] = 7;
+  bet[villainSeat] = to;
   const players = [1, 2, 3, 4, 5, 6].map(
     (n) =>
       ({
@@ -148,11 +157,11 @@ function threeBetGs(
         stack: 200 - bet[n],
         bet: bet[n],
         totalInvested: bet[n],
-        cards: n === 5 ? cards(hole) : [],
-        is_folded: n < 5,
+        cards: n === heroSeat ? cards(hole) : [],
+        is_folded: n !== heroSeat && n !== villainSeat,
         is_all_in: false,
         is_sitting_out: false,
-        is_horse: n === 5,
+        is_horse: n === heroSeat,
       }) as SeatPlayer
   );
   const act = (seat: number, action: string, amount: number, timestamp: number) => ({
@@ -164,15 +173,17 @@ function threeBetGs(
     ...(action === 'raise' ? { isFullRaise: true } : {}),
     timestamp,
   });
+  const pot = Object.values(bet).reduce((a, b) => a + b, 0);
+  const toCall = to - 7;
   const gs = {
     players,
     communityCards: [],
-    pot: 34,
-    currentBet: 24,
-    toCall: 17,
-    minRaise: 17,
-    minRaiseTo: 41,
-    maxRaiseTo: 75,
+    pot,
+    currentBet: to,
+    toCall,
+    minRaise: to - 7,
+    minRaiseTo: to + (to - 7),
+    maxRaiseTo: to + pot + toCall,
     legalActions: ['fold', 'call', 'raise', 'all_in'],
     stage: 'preflop',
     gameVariant: variant,
@@ -180,19 +191,30 @@ function threeBetGs(
     bigBlind: 2,
     dealerSeat: 6,
     gameMode: 'cash',
-    actionHistory: [
-      act(1, 'sb', 1, 1),
-      act(2, 'bb', 2, 2),
-      act(3, 'fold', 0, 3),
-      act(4, 'fold', 0, 4),
-      act(5, 'raise', 7, 5),
-      act(6, 'raise', 24, 6),
-      act(1, 'fold', 0, 7),
-      act(2, 'fold', 0, 8),
-    ],
+    actionHistory: outOfPosition
+      ? [
+          act(1, 'sb', 1, 1),
+          act(2, 'bb', 2, 2),
+          act(3, 'fold', 0, 3),
+          act(4, 'fold', 0, 4),
+          act(5, 'raise', 7, 5),
+          act(6, 'raise', 24, 6),
+          act(1, 'fold', 0, 7),
+          act(2, 'fold', 0, 8),
+        ]
+      : [
+          act(1, 'sb', 1, 1),
+          act(2, 'bb', 2, 2),
+          act(3, 'fold', 0, 3),
+          act(4, 'fold', 0, 4),
+          act(5, 'fold', 0, 5),
+          act(6, 'raise', 7, 6),
+          act(1, 'fold', 0, 7),
+          act(2, 'raise', 22, 8),
+        ],
     ...over,
   } as unknown as HorseGameStateV2;
-  return { hero: players[4], gs };
+  return { hero: players[heroSeat - 1], gs };
 }
 
 const SEEDS = Array.from({ length: 24 }, (_, i) => 5100 + i);
@@ -234,14 +256,12 @@ const WITHHELD = `${FIRE}_withheld`;
 const count = (o: Outcome, f: string) => o.fires.filter((x) => x.includes(f)).length;
 const folds = (o: Outcome) => o.actions.filter((a) => a === 'fold').length;
 
-/** Elite-class hands the census found folding to the measured winner's 3-bet. */
+/** Elite-class hands the census found folding, in position, to the measured winner's 3-bet. */
 const ELITE = [
-  { variant: 'plo5', hole: '8c7cTh9s6h', cls: 'rundown_ds' },
-  { variant: 'plo5', hole: 'JsAd2d3sTc', cls: 'ax_nut_suited' },
-  { variant: 'plo5', hole: 'Qd6hKhTsJs', cls: 'broadway_conn_ds' },
-  { variant: 'plo5', hole: '4dKsKd9c4c', cls: 'kk_ds' },
-  { variant: 'plo4', hole: '8cTd9c7d', cls: 'rundown_ds' },
-  { variant: 'plo4', hole: 'Ks6dAsTd', cls: 'ax_nut_suited' },
+  { variant: 'plo5', hole: '8d7h6h5c7c', cls: 'rundown_ds' },
+  { variant: 'plo5', hole: '3dAhQs2hJs', cls: 'ax_nut_suited' },
+  { variant: 'plo5', hole: 'TdJcKd7dQc', cls: 'broadway_conn_ds' },
+  { variant: 'plo4', hole: '8h5h6d7d', cls: 'rundown_ds' },
 ];
 
 describe.each(ELITE)('$variant $hole ($cls) opened, facing one re-raise', (p) => {
@@ -270,7 +290,7 @@ describe.each(ELITE)('$variant $hole ($cls) opened, facing one re-raise', (p) =>
     on.actions.forEach((a, i) => {
       if (off.actions[i] === 'fold') {
         expect(a).toBe('call');
-        expect(JSON.parse(on.bytes[i]).amount).toBe(17);
+        expect(JSON.parse(on.bytes[i]).amount).toBe(15);
         expect(on.fires[i]).toContain(FIRE);
         changed++;
       } else {
@@ -335,6 +355,16 @@ describe.each(ELITE)('$variant $hole ($cls) opened, facing one re-raise', (p) =>
     const on = playMany(build, ON, WINNER);
     expect(on.bytes).toEqual(off.bytes);
     expect(count(on, FIRE)).toBe(0);
+  });
+
+  it('on, OUT of position against the re-raiser (cutoff open, button 3-bet): as off, the fold stands', () => {
+    const oop = () => threeBetGs(p.variant, p.hole, {}, true);
+    const off = playMany(oop, {}, WINNER);
+    const on = playMany(oop, ON, WINNER);
+    expect(folds(off)).toBeGreaterThan(0);
+    expect(on.bytes).toEqual(off.bytes);
+    expect(on.next).toEqual(off.next);
+    expect(count(on, FIRE) + count(on, WITHHELD)).toBe(0);
   });
 
   it('on, in a tournament: as off', () => {

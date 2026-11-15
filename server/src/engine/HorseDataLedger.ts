@@ -929,6 +929,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaOopReraisedPotStrongRange',
+    'Owner 2026-11-15 11:49, 11:51 and 11:55 (calling 3-bets and 4-bets out of position needs a much stronger range and must not happen just because the opponent is aggressive; the range is rundowns, straight makers and double-suited hands, not big cards with a dangler or high cards with low cards): a PLO4/PLO5 cash preflop call facing a 3-bet or more from a raiser the Horse acts before on every later street, or facing a 4-bet or more in either position, stands only with suited aces, as a commitment (equity above the price and, facing a 3-bet, a stack-to-pot ratio after the call under 1; facing a 4-bet or more, the call itself all in), or with a coordinated hand (at most one pair, every card in one connected rank group, one-rank gaps limited; bare aces excused) whose equity against the range the mind reads for the raiser is at least the price plus the realization margin (0.10 out of position, 0.05 in position, 0.03 more facing a 4-bet with exactly one ace or king). Otherwise the call folds; raises and a call of a 3-bet in position are unchanged. Default off (opt-in) until its declared evaluation passes.',
+    'V94'
+  ),
+  flag(
+    'omahaReraisedPotFlopContinueNeedsEquityShape',
+    'Owner 2026-11-15 11:55 (the caller of a 3-bet or 4-bet continues on the flop only with a pair plus a straight or flush draw, or better): PLO4/PLO5 cash, on the flop of a pot raised twice or more preflop that the Horse called, a call or raise facing a wager stands only with two pair or better of its own, one pair with a nut-leaning draw (nut flush draw, or 8+ straight outs with 4+ to the nut straight), a strong draw (8+ outs to a nut-class hand, or a flush draw with 8+ straight outs), or when the call costs under 10% of the resulting pot. Otherwise it folds. Default off (opt-in) until its declared evaluation passes.',
+    'V94'
+  ),
+  flag(
     'omahaMadeHandDefenseVsValueLeader',
     'Owner 2026-11-15 01:03: the PLO4/PLO5/PLO6 turn no-raise and scare-card checks of omahaBeatenMadeHandDefense apply only when every live opponent is a measured postflop value leader: bet when checked to not credibly above the Horse mean, not a postflop maniac, fold to a bet at least and river call at most the Horse mean, on 8+ decayed postflop opportunities; preflop width is not part of it; a presumed read never counts (HorseOmahaReadConditional.ts). Against an over-bluffer, a station or an unknown player the Horse plays as today. Default OFF (opt-in); league cards plo4/plo5 _omaha_made_hand_defense_vs_value_leader',
     'V94'
@@ -3882,6 +3892,30 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_elite_continues_vs_measured_wide_three_bettor_withheld',
     'HorseLogic V38 preflop price (HorseOmahaReadConditional, omahaEliteContinuesVsMeasuredWideThreeBettor)',
     "an elite-class hand the maniac-price arithmetic refused facing one re-raise of the Horse's open, where the re-raiser is not a measured wide re-raiser or the price is above the bound: today's fold kept",
+    'V94'
+  ),
+  receipt(
+    'omaha_reraised_flop_continue_folded',
+    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaReraisedPotFlopContinueNeedsEquityShape)',
+    'PLO4/PLO5 cash flop continue (call or raise) facing a wager in a pot raised twice or more preflop that the Horse called, without two pair or better, a pair with a nut-leaning draw or a strong draw, at a price of 10% of the resulting pot or more: folded',
+    'V94'
+  ),
+  receipt(
+    'omaha_reraised_flop_continue_kept',
+    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaReraisedPotFlopContinueNeedsEquityShape)',
+    'a flop continue in a re-raised pot the Horse called that the flop cell examined and kept: two pair or better, a pair with a nut-leaning draw, a strong draw, or a cheap call',
+    'V94'
+  ),
+  receipt(
+    'omaha_oop_reraised_call_folded',
+    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaOopReraisedPotStrongRange)',
+    'PLO4/PLO5 cash preflop call of a 3-bet or more out of position against the last raiser, or of a 4-bet or more in either position, with a hand that is not coordinated or whose equity against his range is short of the price plus the realization margin (short of the price alone when the call commits the stack): folded',
+    'V94'
+  ),
+  receipt(
+    'omaha_oop_reraised_call_kept',
+    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaOopReraisedPotStrongRange)',
+    'a preflop call of a 3-bet or more out of position, or of a 4-bet or more, that the cell examined and kept: suited aces, a commitment priced in, or a coordinated hand clearing the price plus the realization margin',
     'V94'
   ),
   receipt(

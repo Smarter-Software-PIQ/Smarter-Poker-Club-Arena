@@ -541,6 +541,10 @@ import {
 import { variantPostflopProfile, variantPreflopShift } from './HorseVariantProfile.js';
 import { handClassRead, omahaSuitAndCoreQuality, omahaEliteClassRead } from './HorseHandClasses.js';
 import {
+  omahaOopReraisedCallCell,
+  omahaReraisedFlopContinueCell,
+} from './HorseOmahaOopReraisedPot.js';
+import {
   premiumPreflopAnchors,
   shouldPriceTerminalFlop,
   makeBarrelContinuation,
@@ -2970,7 +2974,9 @@ export interface HorseDecideOpts {
    * raw equity for a call priced at 33%, on 160-176 samples, and folds
    * elite-class hands 7-10% (PLO4) and 31-34% (PLO5) of the time. With this
    * on, a FOLD that arithmetic produces becomes a CALL when: the Horse opened
-   * and faces exactly one re-raise, heads-up against the price; the
+   * and faces exactly one re-raise, heads-up against the price, and will
+   * be IN POSITION against the re-raiser after the flop (owner 2026-11-15
+   * 11:49: out of position the fold stands); the
    * re-raiser is a measured wide re-raiser (HorseOmahaReadConditional.ts
    * wideReRaiser: 15+ decayed hands, 12+ decayed re-raise opportunities,
    * re-raise rate credibly (0.9) above the Horse mean with a shrunk mean of
@@ -2988,6 +2994,36 @@ export interface HorseDecideOpts {
    * passes; league cards plo4/plo5
    * _omaha_elite_continues_vs_measured_wide_three_bettor. */
   omahaEliteContinuesVsMeasuredWideThreeBettor?: boolean;
+  /** Owner 2026-11-15 11:49 and 11:51 (Horses call 3-bets and 4-bets out of
+   * position too lightly, and must not call just because the opponent is
+   * aggressive; the out-of-position calling range is rundowns, straight
+   * makers and double-suited hands, not big cards with a dangler): PLO4/PLO5
+   * cash, a preflop CALL facing a 3-bet or more from a raiser the Horse will
+   * act before on every later street stands only with suited aces, as a
+   * commitment (equity above the price and, facing a 3-bet, a stack-to-pot
+   * ratio after the call under 1; facing a 4-bet or more, the call itself
+   * all in), or with a COORDINATED hand whose equity against the raiser's
+   * range clears the price plus the 0.10 out-of-position realization margin
+   * (HorseOmahaOopReraisedPot.ts: all cards one connected group, no
+   * dangler, no high-cards-plus-low-cards split). Owner 11:55: the same test
+   * applies to a call of a 4-bet or more IN position (margin 0.05), with 0.03
+   * more for a hand holding exactly one ace or king. Otherwise it folds;
+   * raises are untouched; a call of a 3-bet in position is unchanged.
+   * Default OFF (opt-in, read `=== true`) until its declared evaluation
+   * passes; league cards plo4/plo5 _omaha_oop_reraised_pot_strong_range. */
+  omahaOopReraisedPotStrongRange?: boolean;
+  /** Owner 2026-11-15 11:55 (after calling a 3-bet or 4-bet the Horse
+   * continues on the flop only with a pair plus a straight or flush draw, or
+   * better): PLO4/PLO5 cash, on the flop of a pot raised twice or more
+   * preflop that the Horse called, a call or raise facing a wager stands
+   * only with two pair or better of its own, one pair with a nut-leaning
+   * draw (the nut flush draw, or 8+ straight outs with 4+ to the nut
+   * straight), a strong draw (8+ outs to a nut-class hand, or a flush draw
+   * with 8+ straight outs), or when the call costs under 10% of the
+   * resulting pot (HorseOmahaOopReraisedPot.ts). Otherwise it folds. Default
+   * OFF (opt-in, read `=== true`) until its declared evaluation passes;
+   * league cards plo4/plo5 _omaha_reraised_pot_flop_continue_needs_equity_shape. */
+  omahaReraisedPotFlopContinueNeedsEquityShape?: boolean;
   /** A token-priced committed call is not barred by stack-off premiums
    * (HorseTokenCallPrice.ts, PLO6-AUDIT-010). Default on; false only for
    * the regression's non-vacuity control. */
@@ -6224,6 +6260,173 @@ function omahaPostflopPressureWithheld(
     return false;
   }
 }
+/** Order to act on a postflop street: the small blind first, the dealer last. */
+function postflopOrder(seat: number, dealerSeat: number | undefined): number {
+  const d = seat - (dealerSeat ?? 0);
+  return d <= 0 ? d + 1024 : d;
+}
+
+/**
+ * omahaOopReraisedPotStrongRange (owner 2026-11-15 11:49 and 11:51; default
+ * OFF, read `=== true`): a preflop call of a 3-bet or more, out of position
+ * against the last raiser, stands only when HorseOmahaOopReraisedPot's cell
+ * keeps it; otherwise it becomes a fold. Every other decision, a raise
+ * included, is returned as is. Runs outermost on both decision paths. Draws
+ * no number from the brain's random stream.
+ */
+function omahaOopReraisedPotStrongRange(
+  decision0: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
+  // The flop rule (its own option) shares this outermost seat; the two never
+  // meet on one decision (one is preflop, the other the flop).
+  const decision = omahaReraisedPotFlopContinue(decision0, player, gs, opts);
+  if (opts.omahaOopReraisedPotStrongRange !== true) return decision;
+  if (decision.action !== 'call') return decision;
+  try {
+    if (String(gs.stage ?? '') !== 'preflop') return decision;
+    if (Array.isArray(gs.legalActions) && !gs.legalActions.includes('fold')) return decision;
+    const preflopRaises = preflopRaiseCount(gs.actionHistory);
+    if (preflopRaises < 2) return decision;
+    const stack = Number.isFinite(player.stack) ? Math.max(0, player.stack) : 0;
+    const heroBet = Number.isFinite(player.bet) ? Math.max(0, player.bet ?? 0) : 0;
+    const toCall = Number.isFinite(gs.toCall)
+      ? Math.max(0, gs.toCall as number)
+      : Math.max(0, (gs.currentBet || 0) - heroBet);
+    if (toCall <= 0.005) return decision;
+    // The last preflop raiser other than hero is the raiser faced.
+    const history = gs.actionHistory ?? [];
+    let raiser: SeatPlayer | undefined;
+    for (let k = history.length - 1; k >= 0; k--) {
+      const a = history[k]!;
+      if (a.stage !== 'preflop' || a.seat === player.seat) continue;
+      if (a.action !== 'raise' && a.action !== 'all_in' && a.action !== 'bet') continue;
+      raiser = gs.players.find((p) => p.seat === a.seat);
+      break;
+    }
+    if (!raiser || raiser.is_folded || raiser.is_all_in) return decision;
+    // In position against him a call of a 3-bet is unchanged (the cell's scope).
+    const outOfPosition =
+      postflopOrder(player.seat, gs.dealerSeat) < postflopOrder(raiser.seat, gs.dealerSeat);
+    const bb = gs.bigBlind || 1;
+    let band: [number, number] | null = null;
+    if (opts.mind !== false) {
+      try {
+        band = HorseMind.bandFor(
+          raiser.user_id,
+          gs.actionHistory,
+          bb,
+          true,
+          null,
+          undefined,
+          HorseMind.initialPublicMoney(gs.players, gs.actionHistory, gs.pot) ?? undefined
+        );
+      } catch {
+        band = null;
+      }
+    }
+    const verdict = omahaOopReraisedCallCell({
+      variant: String(gs.gameVariant ?? ''),
+      hole: player.cards ?? [],
+      dead: player.knownDeadCards ?? [],
+      outOfPosition,
+      preflopRaises,
+      toCall,
+      stack,
+      pot: Number.isFinite(gs.pot) ? Math.max(0, gs.pot) : 0,
+      band,
+      hiLo: gs.variantRules
+        ? gs.variantRules.splitLow8OrBetter
+        : variantInfo(gs.gameVariant).isHiLo,
+      multiBoard: !!(gs.communityCards2?.length || gs.communityCards3?.length),
+      bombPot: gs.bombPot === true,
+      tournament: isTournamentMode(gs),
+      allInOrFold: gs.allInOrFold === true,
+    });
+    if (verdict === null) return decision;
+    const tele = telemetryOn(opts);
+    if (!verdict.fold) {
+      if (tele) noteFire('omaha_oop_reraised_call_kept');
+      return decision;
+    }
+    if (tele) noteFire('omaha_oop_reraised_call_folded');
+    // The decision's ownership receipts travel with it, as the re-raised-pot fold keeps them.
+    const folded: HorseDecision = { ...decision, action: 'fold' };
+    delete folded.amount;
+    return folded;
+  } catch {
+    return decision;
+  }
+}
+
+/**
+ * omahaReraisedPotFlopContinueNeedsEquityShape (owner 2026-11-15 11:55;
+ * default OFF, read `=== true`): on the flop of a pot raised twice or more
+ * preflop that the Horse called, a call or raise facing a wager stands only
+ * when HorseOmahaOopReraisedPot's flop cell keeps it; otherwise it becomes a
+ * fold. Every other decision is returned as is. Draws no random number.
+ */
+function omahaReraisedPotFlopContinue(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
+  if (opts.omahaReraisedPotFlopContinueNeedsEquityShape !== true) return decision;
+  if (decision.action !== 'call' && decision.action !== 'raise' && decision.action !== 'all_in')
+    return decision;
+  try {
+    if (String(gs.stage ?? '') !== 'flop') return decision;
+    if (Array.isArray(gs.legalActions) && !gs.legalActions.includes('fold')) return decision;
+    const history = gs.actionHistory ?? [];
+    let lastRaiserSeat = -1;
+    for (const a of history) {
+      if (a.stage !== 'preflop') continue;
+      if (
+        a.action === 'raise' ||
+        a.action === 'bet' ||
+        (a.action === 'all_in' && a.isFullRaise !== undefined)
+      )
+        lastRaiserSeat = a.seat;
+    }
+    const heroBet = Number.isFinite(player.bet) ? Math.max(0, player.bet ?? 0) : 0;
+    const toCall = Number.isFinite(gs.toCall)
+      ? Math.max(0, gs.toCall as number)
+      : Math.max(0, (gs.currentBet || 0) - heroBet);
+    const verdict = omahaReraisedFlopContinueCell({
+      variant: String(gs.gameVariant ?? ''),
+      hole: player.cards ?? [],
+      board: gs.communityCards ?? [],
+      dead: player.knownDeadCards ?? [],
+      preflopRaises: preflopRaiseCount(history),
+      heroLastPreflopRaiser: lastRaiserSeat === player.seat,
+      toCall,
+      stack: Number.isFinite(player.stack) ? Math.max(0, player.stack) : 0,
+      pot: Number.isFinite(gs.pot) ? Math.max(0, gs.pot) : 0,
+      hiLo: gs.variantRules
+        ? gs.variantRules.splitLow8OrBetter
+        : variantInfo(gs.gameVariant).isHiLo,
+      multiBoard: !!(gs.communityCards2?.length || gs.communityCards3?.length),
+      bombPot: gs.bombPot === true,
+      tournament: isTournamentMode(gs),
+    });
+    if (verdict === null) return decision;
+    const tele = telemetryOn(opts);
+    if (!verdict.fold) {
+      if (tele) noteFire('omaha_reraised_flop_continue_kept');
+      return decision;
+    }
+    if (tele) noteFire('omaha_reraised_flop_continue_folded');
+    const folded: HorseDecision = { ...decision, action: 'fold' };
+    delete folded.amount;
+    return folded;
+  } catch {
+    return decision;
+  }
+}
+
 /** omahaEliteContinuesVsMeasuredWideThreeBettor: the elite classes that continue. */
 const OMAHA_ELITE_CONTINUE_CLASSES: ReadonlySet<string> = new Set([
   'broadway_conn_ds',
@@ -6960,26 +7163,32 @@ function pairedBoardFoldOutsideGraph(
 ): HorseDecision {
   return decision.policyGraph === undefined
     ? omahaRiverMediumBetStrongHandCalls(
-        omahaOutermostCallDiscipline(
-          omahaReraisedPotFold(
-            omahaBigBetCallFold(
-              omahaOopCheckRules(
-                pairedBoardRiverCheck(
-                  pairedBoardFold(
-                    omahaMadeHandDefenseRules(
-                      omahaRiverNutRaiseOnly(
-                        decision,
+        omahaOopReraisedPotStrongRange(
+          omahaOutermostCallDiscipline(
+            omahaReraisedPotFold(
+              omahaBigBetCallFold(
+                omahaOopCheckRules(
+                  pairedBoardRiverCheck(
+                    pairedBoardFold(
+                      omahaMadeHandDefenseRules(
+                        omahaRiverNutRaiseOnly(
+                          decision,
+                          player,
+                          gs,
+                          // The default-off near-nut value candidate keeps its own raise
+                          // when a league arm switches it on; production never does.
+                          opts.omahaRiverNutRaiseOnly !== false &&
+                            !nearNutChosenRaises.has(decision)
+                        ).decision,
                         player,
                         gs,
-                        // The default-off near-nut value candidate keeps its own raise
-                        // when a league arm switches it on; production never does.
-                        opts.omahaRiverNutRaiseOnly !== false && !nearNutChosenRaises.has(decision)
-                      ).decision,
+                        opts,
+                        null,
+                        nearNutChosenRaises.has(decision)
+                      ),
                       player,
                       gs,
-                      opts,
-                      null,
-                      nearNutChosenRaises.has(decision)
+                      opts
                     ),
                     player,
                     gs,
@@ -8920,19 +9129,24 @@ export class HorseLogic {
       if (tele && nutRaise.changed === 'fold_restored')
         noteFire('omaha_river_non_nut_raise_fold_restored');
       const prePremium = omahaRiverMediumBetStrongHandCalls(
-        omahaOutermostCallDiscipline(
-          omahaReraisedPotFold(
-            omahaBigBetCallFold(
-              omahaOopCheckRules(
-                pairedBoardRiverCheck(
-                  pairedBoardFold(
-                    omahaMadeHandDefenseRules(
-                      nutRaise.decision,
+        omahaOopReraisedPotStrongRange(
+          omahaOutermostCallDiscipline(
+            omahaReraisedPotFold(
+              omahaBigBetCallFold(
+                omahaOopCheckRules(
+                  pairedBoardRiverCheck(
+                    pairedBoardFold(
+                      omahaMadeHandDefenseRules(
+                        nutRaise.decision,
+                        player,
+                        gs,
+                        opts,
+                        beforePhase10,
+                        nearNutChosen
+                      ),
                       player,
                       gs,
-                      opts,
-                      beforePhase10,
-                      nearNutChosen
+                      opts
                     ),
                     player,
                     gs,
@@ -10290,6 +10504,11 @@ export class HorseLogic {
             !raiserAllIn38 &&
             effCall38 < player.stack &&
             inPotPlayers38.length === 1 &&
+            // Owner 2026-11-15 11:49: a call out of position is not what this
+            // option is for. Only where the Horse acts after the re-raiser on
+            // every later street.
+            postflopOrder(player.seat, gs.dealerSeat) >
+              postflopOrder(raiser38.seat, gs.dealerSeat) &&
             (!Array.isArray(gs.legalActions) || gs.legalActions.includes('call'))
           ) {
             let continues = false;
