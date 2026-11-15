@@ -2039,6 +2039,20 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaReraisedPotStackOffRealistic: true },
     b: {},
   })),
+  // 2026-11-15 OMAHA NUT-CLASS VALUE SIZE (omahaNutClassValueSize, default
+  // OFF after its evaluation failed): a switches it on, b is today's brain.
+  // NOTE: the league's Horse state lacks stateSchemaVersion, legalActions,
+  // minRaiseTo and maxRaiseTo, without which this rule returns unchanged
+  // (eval3-20261115/AUDIT-SCHEMA-GUARD.md); this card measures nothing until
+  // the league supplies them.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_nut_class_value_size`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaNutClassValueSize: true },
+    b: {},
+  })),
   // 2026-11-15 HV31 FLOP-5 D1 HEADS-UP POSTFLOP BALANCE
   // (holdemHeadsUpPostflopBalance, default OFF): a switches on the heads-up
   // in-position hold'em c-bet, check-raise defence and turn/river balance

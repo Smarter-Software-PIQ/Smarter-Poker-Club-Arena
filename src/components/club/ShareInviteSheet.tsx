@@ -18,7 +18,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { copyText, shareLink } from '../../lib/share';
+import { copyText, hasShareSheet, shareButtonLabel, shareLink } from '../../lib/share';
 import { createPortal } from 'react-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import { SpadeConsole } from '../console/SpadeConsole';
@@ -240,7 +240,7 @@ export function ShareInviteSheet({
               ? {
                   secondary: { label: 'Open Club', onClick: onClose },
                   primary: {
-                    label: copied ? 'Link Copied' : 'Send Link',
+                    label: copied ? 'Link Copied' : hasShareSheet() ? 'Send Link' : 'Copy Link',
                     onClick: handleShare,
                     disabled: !link,
                   },
@@ -383,7 +383,7 @@ export function ShareInviteSheet({
                 onClick={handleShare}
                 disabled={!link}
               >
-                Share
+                {shareButtonLabel()}
               </button>
               <button type="button" className="rfc-word sc-ink--white" onClick={onClose}>
                 Close

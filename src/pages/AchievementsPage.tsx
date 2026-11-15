@@ -1,6 +1,6 @@
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
 import { webAppUrl } from '../lib/appBase';
-import { shareLink } from '../lib/share';
+import { hasShareSheet, shareLink } from '../lib/share';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  *  ACHIEVEMENTS PAGE — Player Achievements & Badges with Real-Time Unlocks
@@ -951,7 +951,7 @@ export default function AchievementsPage() {
                       }
                     }}
                   >
-                    Share Achievement
+                    {hasShareSheet() ? 'Share Achievement' : 'Copy Achievement'}
                   </button>
                 </>
               ) : (

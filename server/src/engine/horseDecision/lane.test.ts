@@ -19,6 +19,8 @@ import {
   MAX_HORSE_DECISION_WORKERS,
   horseDecisionShard,
   horseDecisionWorkerCount,
+  startLiveHorseDecisionWorker,
+  stopLiveHorseDecisionWorker,
 } from './lane.js';
 
 /**
@@ -609,5 +611,87 @@ describe('STYLE READ LIVE SWITCH delivery through the pool (2026-11-13)', () => 
     };
     expect(() => pool.broadcastStyleSwitch(message)).not.toThrow();
     expect(workers[1]!.sent).toContainEqual(message);
+  });
+});
+
+/**
+ * HA-10878-1 LIFECYCLE (lane.ts, styleSwitchFirstDelivery): a started process resolves the persisted switch state
+ * before the lane is handed out, so no shard serves a decision that reads a switched option before the first read
+ * has reached it or has failed. The replacement half is in oneShardsLossIsOneShardsLoss.law.test.ts; what the worker
+ * does with the delivery on its first decision is in everyUpgradeHasALiveSwitch.law.test.ts.
+ */
+describe('HA-10878-1 lifecycle: a starting lane resolves the switch state before it serves', () => {
+  const settle = async () => {
+    for (let i = 0; i < 6; i++) await new Promise((resolve) => setImmediate(resolve));
+  };
+  const booting = (read: () => Promise<unknown>) => {
+    const workers: FakeWorker[] = [];
+    let resolved = false;
+    const lane = startLiveHorseDecisionWorker({
+      workers: 2,
+      journalCapacity: { shards: undefined },
+      workerFactory: () => {
+        const worker = new FakeWorker(workers.length);
+        workers.push(worker);
+        return worker;
+      },
+      styleSwitchRead: read,
+    });
+    void lane.then(() => (resolved = true)).catch(() => undefined);
+    return { lane, workers, resolved: () => resolved };
+  };
+  const stop = async (workers: FakeWorker[]) => {
+    const stopping = stopLiveHorseDecisionWorker();
+    await settle();
+    for (const worker of workers) worker.emit({ type: 'STOPPED' } as never);
+    await stopping;
+  };
+  const switchMessages = (worker: FakeWorker) =>
+    worker.sent.filter((m) => m.type === 'STYLE_SWITCH_STATE');
+
+  it("does not resolve until the first read has been delivered to every shard, as each shard's first message", async () => {
+    const config = {
+      version: 2,
+      style: { version: 1, options: { styleFoldBluff: 'on' } },
+      options: { v16Hu: 'off', v62RiverBettorPolarity: 'on' },
+    };
+    let answer: (value: unknown) => void = () => {};
+    let reads = 0;
+    const t = booting(() => {
+      reads++;
+      return new Promise((resolve) => (answer = resolve));
+    });
+    try {
+      expect(t.workers).toHaveLength(2);
+      for (const worker of t.workers) worker.emit(ready());
+      await settle();
+      // every shard is READY and the read has started, but the lane is not handed out yet
+      expect(reads).toBe(1);
+      expect(t.resolved()).toBe(false);
+      for (const worker of t.workers) expect(switchMessages(worker)).toEqual([]);
+      answer(config);
+      await t.lane;
+      for (const worker of t.workers) {
+        const delivered = switchMessages(worker);
+        expect(delivered).toHaveLength(1);
+        expect(delivered[0]).toMatchObject({ seq: 1, status: 'ok', config });
+        // nothing else has been posted to the shard since it became ready: the delivery is ahead of every request
+        expect(worker.sent.at(-1)).toBe(delivered[0]);
+      }
+    } finally {
+      await stop(t.workers);
+    }
+  });
+
+  it('a first read that fails still resolves, with nothing delivered: every shard at the release default', async () => {
+    const t = booting(() => Promise.reject(new Error('database unavailable')));
+    try {
+      for (const worker of t.workers) worker.emit(ready());
+      await t.lane;
+      expect(t.resolved()).toBe(true);
+      for (const worker of t.workers) expect(switchMessages(worker)).toEqual([]);
+    } finally {
+      await stop(t.workers);
+    }
   });
 });

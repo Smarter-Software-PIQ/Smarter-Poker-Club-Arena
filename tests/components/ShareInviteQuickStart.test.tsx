@@ -61,11 +61,12 @@ describe('new club send link', () => {
       })
     );
   });
-  it('copies the link when native sharing is unavailable', async () => {
+  it('copies the link when native sharing is unavailable, and says Copy Link', async () => {
     Object.defineProperty(navigator, 'share', { configurable: true, value: undefined });
     mount();
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Send Link' })).toBeEnabled());
-    fireEvent.click(screen.getByRole('button', { name: 'Send Link' }));
+    // No share sheet: the plate is worded for what the tap does (2026-11-15).
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Copy Link' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Copy Link' }));
     await waitFor(() =>
       expect(mocks.copy).toHaveBeenCalledWith('Join River Kings\n\nhttps://smarter.poker/i/ABC2345')
     );

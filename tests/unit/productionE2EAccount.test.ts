@@ -2672,7 +2672,9 @@ describe('stale certification residue drains', () => {
       if (url.includes('/auth/v1/admin/users/player'))
         return Response.json({ id: 'player', email: 'someone@gmail.com' });
       if (url.includes('/rest/v1/rpc/fn_ca_retire_welcome_certification_club')) {
-        retiredByDoor.push(JSON.parse(String(init?.body)).p_club_id);
+        const retirement = JSON.parse(String(init?.body));
+        expect(retirement.p_reason).toBe('stale-cert-recovery'); // registered maintenance, same guarded door
+        retiredByDoor.push(retirement.p_club_id);
         return Response.json({ success: true, chips_retired: 100000 });
       }
       return new Response('unexpected request', { status: 500 });

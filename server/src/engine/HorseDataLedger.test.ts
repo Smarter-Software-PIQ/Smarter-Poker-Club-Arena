@@ -109,6 +109,8 @@ const RECEIPT_ONLY_FILES = [
   'engine/ServerTableEngineSettlement.ts',
   // STYLE READ live switch (2026-11-13): state changes are counted where the configuration is read.
   'engine/HorseStyleSwitch.ts',
+  // Every decision upgrade has a live switch (2026-11-14): the same, for the registered non-style options.
+  'engine/HorseOptionSwitch.ts',
   // Per-Horse upgrade evidence (2026-11-14): the aggregate's cap and identity counters, and the
   // publisher's outcomes (its injected noteFeature is BrainTelemetry.noteFire in production).
   'engine/HorseUpgradeEvidence.ts',

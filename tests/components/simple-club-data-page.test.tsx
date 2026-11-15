@@ -18,6 +18,18 @@ function chicagoInstant(day: string, hhmmss: string): Date {
 }
 
 const CLUB_ID = 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4';
+/** A calendar date moved by whole days (zone free). */
+const shiftDay = (day: string, days: number): string => {
+  const d = new Date(`${day}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+};
+/**
+ * The window-end picker shows the boundary the window stops at, the day after
+ * the last day the readers are sent. This fixture's club is in no union, so
+ * the boundary is Chicago midnight.
+ */
+const WINDOW_END = 'Window Ends At 12:00 AM (Chicago Time)';
 
 const TEST_END_DATE = chicagoToday();
 const testRangeStart = new Date(`${TEST_END_DATE}T00:00:00Z`);
@@ -77,7 +89,9 @@ const snapshot = {
     },
   ],
   row_count: 1,
-  union_id: 'union-1',
+  // A club in no union: it answers on Chicago midnight days and its "today"
+  // is the calendar day (stage 2 readers: a union club states union_id).
+  union_id: null,
   data_updated_at: '2026-08-30T12:05:00Z',
   generated_at: '2026-08-30T12:05:02Z',
 };
@@ -231,6 +245,7 @@ const authState = vi.hoisted(() => ({
 }));
 
 const routeState = vi.hoisted(() => ({ clubId: 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4' }));
+const rakePanelProps = vi.hoisted(() => ({ current: null as Record<string, unknown> | null }));
 const rpcMock = vi.hoisted(() => vi.fn());
 const fromMock = vi.hoisted(() => vi.fn());
 const downloadMock = vi.hoisted(() => vi.fn(() => true));
@@ -293,7 +308,10 @@ vi.mock('../../src/hooks/useMasterBusSubscription', () => ({
  * stderr of every test in the file.
  */
 vi.mock('../../src/components/club/RakeSnapshotPanel', () => ({
-  default: () => null,
+  default: (props: Record<string, unknown>) => {
+    rakePanelProps.current = props;
+    return null;
+  },
 }));
 
 import ClubDataPage from '../../src/pages/club/ClubDataPage';
@@ -420,18 +438,19 @@ describe('Simple Club Data', () => {
   it('routes the calendar and simple game/stakes controls into the authoritative query', async () => {
     render(<ClubDataPage />);
     await screen.findByText('Shark Table One');
-    const calendar = screen.getByLabelText('Period Ending (Chicago Time)');
+    const calendar = screen.getByLabelText(WINDOW_END);
     const callsBefore = rpcMock.mock.calls.length;
     fireEvent.change(calendar, { target: { value: '2999-12-31' } });
-    expect(calendar).toHaveValue(TEST_END_DATE);
+    expect(calendar).toHaveValue(shiftDay(TEST_END_DATE, 1));
     expect(rpcMock.mock.calls).toHaveLength(callsBefore);
     fireEvent.change(calendar, { target: { value: '' } });
-    expect(calendar).toHaveValue(TEST_END_DATE);
+    expect(calendar).toHaveValue(shiftDay(TEST_END_DATE, 1));
+    // A window that stops at Aug 15 12:00 AM holds Aug 14 as its last day.
     fireEvent.change(calendar, { target: { value: '2026-08-15' } });
     await waitFor(() =>
       expect(rpcMock).toHaveBeenCalledWith(
         'ca_club_data_snapshot_v2',
-        expect.objectContaining({ p_end: '2026-08-15' })
+        expect.objectContaining({ p_end: '2026-08-14' })
       )
     );
     fireEvent.click(screen.getByRole('button', { name: 'Omaha', exact: true }));
@@ -512,16 +531,14 @@ for (const historical of [false, true]) {
     try {
       render(<ClubDataPage />);
       await screen.findByText('Shark Table One');
-      const calendar = screen.getByLabelText('Period Ending (Chicago Time)');
+      const calendar = screen.getByLabelText(WINDOW_END);
       const chosen = historical ? TEST_START_DATE : TEST_END_DATE;
-      if (historical) fireEvent.change(calendar, { target: { value: chosen } });
+      if (historical) fireEvent.change(calendar, { target: { value: shiftDay(chosen, 1) } });
       await act(async () => {
         await vi.advanceTimersByTimeAsync(60_000);
       });
-      const tomorrow = new Date(`${TEST_END_DATE}T00:00:00Z`);
-      tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
-      const expected = historical ? chosen : tomorrow.toISOString().slice(0, 10);
-      expect(calendar).toHaveValue(expected);
+      const expected = historical ? chosen : shiftDay(TEST_END_DATE, 1);
+      expect(calendar).toHaveValue(shiftDay(expected, 1));
       expect(rpcMock).toHaveBeenCalledWith(
         'ca_club_data_snapshot_v2',
         expect.objectContaining({ p_end: expected })
@@ -573,21 +590,313 @@ for (const intent of ['calendar', 'previous period']) {
       tomorrowDay.setUTCDate(tomorrowDay.getUTCDate() + 1);
       const tomorrow = chicagoInstant(tomorrowDay.toISOString().slice(0, 10), '00:00:10');
       vi.setSystemTime(tomorrow);
-      const calendar = screen.getByLabelText('Period Ending (Chicago Time)');
-      fireEvent.change(calendar, { target: { value: tomorrowDay.toISOString().slice(0, 10) } });
-      if (intent === 'calendar') fireEvent.change(calendar, { target: { value: TEST_END_DATE } });
-      else {
+      const calendar = screen.getByLabelText(WINDOW_END);
+      const tomorrowIso = tomorrowDay.toISOString().slice(0, 10);
+      fireEvent.change(calendar, { target: { value: shiftDay(tomorrowIso, 1) } });
+      if (intent === 'calendar') {
+        fireEvent.change(calendar, { target: { value: shiftDay(TEST_END_DATE, 1) } });
+      } else {
         fireEvent.click(screen.getByRole('button', { name: '1 Day', exact: true }));
         fireEvent.click(screen.getByRole('button', { name: 'Previous Period' }));
       }
-      expect(calendar).toHaveValue(TEST_END_DATE);
+      expect(calendar).toHaveValue(shiftDay(TEST_END_DATE, 1));
       await act(async () => {
         await vi.advanceTimersByTimeAsync(60_000);
       });
-      expect(calendar).toHaveValue(TEST_END_DATE);
+      expect(calendar).toHaveValue(shiftDay(TEST_END_DATE, 1));
     } finally {
       cleanup();
       vi.useRealTimers();
     }
   });
 }
+
+/* STAGE 2 (2026-11-15): a union club's readers answer on the 02:00 Chicago
+   accounting day; the report counts, selects and labels the window by it. */
+it('a union club reads the 02:00 accounting window and says what it counts', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  // Noon: the calendar and accounting days agree, so the request is today's.
+  vi.setSystemTime(chicagoInstant(TEST_END_DATE, '12:00:00'));
+  try {
+    const union = {
+      ...snapshot,
+      summary: { ...snapshot.summary, on_felt: 640.5 },
+      accounting_basis: 'union_invoice_accounting',
+      day_basis: 'America/Chicago 02:00',
+      accounting_coverage: {
+        complete: false,
+        missing_days: [],
+        failed_days: ['2026-11-04'],
+        not_invoice_exact_days: [],
+        provisional: true,
+        provisional_from: '2026-11-09',
+        window_start: '2026-11-02T08:00:00+00:00',
+        window_end: '2026-11-16T08:00:00+00:00',
+      },
+    };
+    rpcMock.mockImplementation(async (fn: string, args?: Record<string, unknown>) => {
+      if (fn === 'ca_club_data_snapshot_v2') return { data: union, error: null };
+      if (fn === 'ca_club_game_page') return { data: gamePageFor(args), error: null };
+      if (fn === 'ca_club_union_invoices') return { data: [], error: null };
+      return { data: null, error: null };
+    });
+    render(<ClubDataPage />);
+    await screen.findByText('Shark Table One');
+    expect(rpcMock).toHaveBeenCalledWith(
+      'ca_club_data_snapshot_v2',
+      expect.objectContaining({ p_start: TEST_START_DATE, p_end: TEST_END_DATE })
+    );
+    // The chip prints the reader's own boundary instants.
+    expect(screen.getByText('Nov 2, 2026 2:00 AM To Nov 16, 2026 2:00 AM')).toBeInTheDocument();
+    // The basis follows the verified answer (an effect after it paints).
+    expect(await screen.findByLabelText('Window Ends At 2:00 AM (Chicago Time)')).toHaveValue(
+      shiftDay(TEST_END_DATE, 1)
+    );
+    expect(screen.getByText('Days Run 2:00 AM To 2:00 AM Chicago Time.')).toBeInTheDocument();
+    expect(screen.getByText(/^Union Invoice Basis\. Fee Is The Rake Credited/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/^Provisional From Nov 9, 2026 2:00 AM Chicago Time: No Weekly Invoice/)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Incomplete: Load Failed: Nov 4, 2026. These Totals Can Differ From The Union Invoice Until Those Days Are Whole.'
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByText('On The Felt Now 640.50')).toBeInTheDocument();
+    // Explanations sit behind a closed "?" (Dan, 2026-11-15), never on the page.
+    expect(screen.getByText(/^Union Invoice Basis\. Fee Is/).closest('details')?.open).toBe(false);
+    expect(screen.getByTestId('rake-snapshot-basis').closest('details')).not.toBeNull();
+    // The rake snapshot keeps its own basis and never reads as the Fee tile.
+    expect(screen.getByTestId('rake-snapshot-basis')).toHaveTextContent(
+      'Agent Rake Production: Seat Club And Agent Downline, Chicago Midnight Days. Not The Union Invoice Basis.'
+    );
+    expect(rakePanelProps.current?.headlineLabel).toBe('Agent Rake Production');
+  } finally {
+    cleanup();
+    vi.useRealTimers();
+  }
+});
+
+it('a club in no union keeps the rake snapshot exactly as it was', async () => {
+  rakePanelProps.current = null;
+  render(<ClubDataPage />);
+  await screen.findByText('Shark Table One');
+  await waitFor(() => expect(rakePanelProps.current).not.toBeNull());
+  expect(rakePanelProps.current?.headlineLabel).toBeUndefined();
+  expect(screen.queryByTestId('rake-snapshot-basis')).toBeNull();
+});
+
+/* REVIEW BLOCKER (2026-11-15): between midnight and 02:00 Chicago a union
+   club's reader clamps the last day to the accounting day still open. The
+   page asks for the calendar day before it knows the basis; the clamped
+   answer must teach it the basis and lead to a re-read, never to "Could Not
+   Load Club Data". */
+describe('a union club opened between midnight and 02:00 Chicago', () => {
+  const OPEN_DAY = '2026-11-15'; // fn_ca_accounting_day at Mon 2026-11-16 01:30 CST
+  function unionAnswer(args: Record<string, unknown>) {
+    const requestedEnd = String(args.p_end);
+    const end = requestedEnd > OPEN_DAY ? OPEN_DAY : requestedEnd;
+    const start = String(args.p_start);
+    const days =
+      Math.round((Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86_400_000) +
+      1;
+    return {
+      ...snapshot,
+      range: { start, end, days },
+      previous_range: { start: shiftDay(start, -days), end: shiftDay(start, -1), days },
+      accounting_basis: 'union_invoice_accounting',
+      day_basis: 'America/Chicago 02:00',
+      accounting_coverage: {
+        complete: true,
+        missing_days: [],
+        failed_days: [],
+        not_invoice_exact_days: [],
+        provisional: true,
+        provisional_from: '2026-11-09',
+        window_start: `${start}T08:00:00+00:00`,
+        window_end: `${shiftDay(end, 1)}T08:00:00+00:00`,
+      },
+    };
+  }
+
+  it('re-reads the open accounting day and paints the ledger, with a union CSV window', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date('2026-11-16T07:30:00Z'));
+    try {
+      rpcMock.mockImplementation(async (fn: string, args?: Record<string, unknown>) => {
+        if (fn === 'ca_club_data_snapshot_v2') return { data: unionAnswer(args!), error: null };
+        if (fn === 'ca_club_union_invoices') return { data: [], error: null };
+        if (fn === 'ca_club_game_export_start') {
+          return { data: { export_id: 'export-u', total_rows: 1, status: 'ready' }, error: null };
+        }
+        if (fn === 'ca_club_data_export_page') {
+          return {
+            data: { rows: [snapshot.rows[0]], total_rows: 1, next_offset: 1, has_more: false },
+            error: null,
+          };
+        }
+        if (fn === 'ca_club_data_export_cancel') return { data: true, error: null };
+        return { data: null, error: null };
+      });
+      render(<ClubDataPage />);
+      expect(await screen.findByText('Shark Table One')).toBeInTheDocument();
+      const asked = rpcMock.mock.calls
+        .filter(([fn]) => fn === 'ca_club_data_snapshot_v2')
+        .map(([, a]) => a as Record<string, string>);
+      expect(asked[0]).toMatchObject({ p_start: '2026-11-03', p_end: '2026-11-16' });
+      expect(asked.at(-1)).toMatchObject({ p_start: '2026-11-02', p_end: OPEN_DAY });
+      expect(await screen.findByLabelText('Window Ends At 2:00 AM (Chicago Time)')).toHaveValue(
+        '2026-11-16'
+      );
+      expect(screen.getByText('Nov 2, 2026 2:00 AM To Nov 16, 2026 2:00 AM')).toBeInTheDocument();
+      expect(screen.queryByText('Ledger Unavailable')).toBeNull();
+      expect(screen.queryByText(/Could Not Load/i)).toBeNull();
+
+      // The export states the same window, from the answer it belongs to.
+      fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+      const exportButton = await screen.findByRole('button', { name: 'Export As CSV' });
+      await waitFor(() => expect(exportButton).toBeEnabled());
+      fireEvent.click(exportButton);
+      await waitFor(() => expect(downloadMock).toHaveBeenCalledOnce(), { timeout: 10_000 });
+      const [name, csv] = downloadMock.mock.calls[0] as unknown as [string, string];
+      expect(name).toBe('club_data_2026-11-02_to_2026-11-16.csv');
+      const [head, row] = csv.split('\n');
+      expect(head.endsWith(',window_start,window_end')).toBe(true);
+      expect(row.split(',').slice(-2)).toEqual([
+        '2026-11-02T08:00:00.000Z',
+        '2026-11-16T08:00:00.000Z',
+      ]);
+    } finally {
+      cleanup();
+      vi.useRealTimers();
+    }
+  }, 20_000);
+});
+
+/* #10921 review: a union club's window that starts before its join day is
+   answered on its pre-union Chicago basis, and the report says so. */
+it('a union club window before its join day shows the Chicago-basis labels', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  vi.setSystemTime(new Date('2026-11-16T18:00:00Z')); // Mon 12:00 CST
+  const JOIN_DAY = '2026-11-02';
+  try {
+    rpcMock.mockImplementation(async (fn: string, args?: Record<string, unknown>) => {
+      if (fn === 'ca_club_data_snapshot_v2') {
+        const start = String(args!.p_start);
+        const end = String(args!.p_end);
+        const days =
+          Math.round(
+            (Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86_400_000
+          ) + 1;
+        const base = {
+          ...snapshot,
+          union_id: 'fade0000-0000-0000-0000-000000000001',
+          range: { start, end, days },
+          previous_range: { start: shiftDay(start, -days), end: shiftDay(start, -1), days },
+        };
+        return {
+          data:
+            start >= JOIN_DAY
+              ? {
+                  ...base,
+                  accounting_basis: 'union_invoice_accounting',
+                  day_basis: 'America/Chicago 02:00',
+                }
+              : {
+                  ...base,
+                  accounting_basis: 'chicago_net_money_flow',
+                  day_basis: 'America/Chicago',
+                },
+          error: null,
+        };
+      }
+      if (fn === 'ca_club_union_invoices') return { data: [], error: null };
+      return { data: null, error: null };
+    });
+    render(<ClubDataPage />);
+    await screen.findByText('Shark Table One');
+    expect(await screen.findByLabelText('Window Ends At 2:00 AM (Chicago Time)')).toHaveValue(
+      '2026-11-17'
+    );
+    expect(screen.getByText(/^Union Invoice Basis\./)).toBeInTheDocument();
+    // Pick a window that ends Oct 15: its 14 days start Oct 1, before the join day.
+    fireEvent.change(screen.getByLabelText('Window Ends At 2:00 AM (Chicago Time)'), {
+      target: { value: '2026-10-15' },
+    });
+    expect(
+      await screen.findByText('Oct 1, 2026 12:00 AM To Oct 15, 2026 12:00 AM')
+    ).toBeInTheDocument();
+    expect(rpcMock).toHaveBeenCalledWith(
+      'ca_club_data_snapshot_v2',
+      expect.objectContaining({ p_start: '2026-10-01', p_end: '2026-10-14' })
+    );
+    const picker = screen.getByLabelText('Window Ends At 12:00 AM (Chicago Time)');
+    expect(picker).toHaveValue('2026-10-15');
+    // Today is still counted on the union's accounting day.
+    expect(picker).toHaveAttribute('max', '2026-11-17');
+    expect(screen.getByText('Days Run Midnight To Midnight Chicago Time.')).toBeInTheDocument();
+    expect(screen.queryByText(/^Union Invoice Basis\./)).toBeNull();
+    expect(screen.queryByTestId('rake-snapshot-basis')).toBeNull();
+  } finally {
+    cleanup();
+    vi.useRealTimers();
+  }
+});
+
+/* REVIEW BLOCKER (2026-11-15): "today" follows the club, not the answer. A
+   union club whose window starting before its join day is answered on its
+   pre-union Chicago basis must not flip today between the two days. */
+it('a union club at 01:30 CST settles in two reads when its window crosses the join day', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  vi.setSystemTime(new Date('2026-11-16T07:30:00Z')); // Mon 01:30 CST
+  const OPEN_DAY = '2026-11-15';
+  const JOIN_DAY = '2026-11-03'; // the midnight-day window starts here, the 2 AM one a day earlier
+  try {
+    rpcMock.mockImplementation(async (fn: string, args?: Record<string, unknown>) => {
+      if (fn === 'ca_club_data_snapshot_v2') {
+        const start = String(args!.p_start);
+        const union = start >= JOIN_DAY;
+        const requested = String(args!.p_end);
+        // The union basis clamps the last day to the open accounting day.
+        const end = union && requested > OPEN_DAY ? OPEN_DAY : requested;
+        const days =
+          Math.round(
+            (Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86_400_000
+          ) + 1;
+        return {
+          data: {
+            ...snapshot,
+            union_id: 'fade0000-0000-0000-0000-000000000001',
+            range: { start, end, days },
+            previous_range: { start: shiftDay(start, -days), end: shiftDay(start, -1), days },
+            ...(union
+              ? { accounting_basis: 'union_invoice_accounting', day_basis: 'America/Chicago 02:00' }
+              : { accounting_basis: 'chicago_net_money_flow', day_basis: 'America/Chicago' }),
+          },
+          error: null,
+        };
+      }
+      if (fn === 'ca_club_union_invoices') return { data: [], error: null };
+      return { data: null, error: null };
+    });
+    render(<ClubDataPage />);
+    await screen.findByText('Shark Table One');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    const asked = rpcMock.mock.calls
+      .filter(([fn]) => fn === 'ca_club_data_snapshot_v2')
+      .map(([, a]) => a as Record<string, string>);
+    expect(asked.length).toBeLessThanOrEqual(2);
+    expect(asked[0]).toMatchObject({ p_start: '2026-11-03', p_end: '2026-11-16' });
+    expect(asked.at(-1)).toMatchObject({ p_start: '2026-11-02', p_end: OPEN_DAY });
+    // The window is labelled on the basis it was answered on; today stays 2 AM.
+    expect(screen.getByText('Nov 2, 2026 12:00 AM To Nov 16, 2026 12:00 AM')).toBeInTheDocument();
+    const picker = screen.getByLabelText('Window Ends At 12:00 AM (Chicago Time)');
+    expect(picker).toHaveValue('2026-11-16');
+    expect(picker).toHaveAttribute('max', '2026-11-16');
+  } finally {
+    cleanup();
+    vi.useRealTimers();
+  }
+}, 20_000);
