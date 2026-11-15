@@ -57,6 +57,12 @@ export const OMAHA_STRATEGY_CONSTANT_DEFAULTS = Object.freeze({
   bigBetPotShare: 0.7,
   /** HorseOmahaTournamentScope OMAHA_TOURNAMENT_PUSH_FOLD_MAX_BB */
   tournamentPushFoldMaxBB: 14,
+  /**
+   * HorseOmahaMadeHandDefense OMAHA_TURN_REDRAW_NUT_FULL_HOUSE_ONLY (a switch:
+   * 0 or 1). 0: omahaTurnRedrawShare counts every full house or better as an
+   * out. 1: only one no bigger full house beats (PLO6 lane, H9).
+   */
+  turnRedrawNutFullHouseOnly: 0,
 });
 export type OmahaStrategyConstantKey = keyof typeof OMAHA_STRATEGY_CONSTANT_DEFAULTS;
 export type OmahaPlo6StrategyCalibration = Partial<Record<OmahaStrategyConstantKey, number>>;

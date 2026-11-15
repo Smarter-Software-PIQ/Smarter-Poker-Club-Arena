@@ -6,17 +6,27 @@
  *
  *   H20  the hole-count checks read the game's hole count, never a literal
  *        4 or 5, so a rule whose game gate admits PLO6 is not silently off.
+ *   H9   omahaTurnRedrawShare can count only the full houses no bigger full
+ *        house beats (the PLO6 lane's calibration switches it on for PLO6).
+ *
+ * The PLO4/PLO5 pins below were computed on the base head 8e6bbbea675, before
+ * any of these changes, over the same fixed deals.
  */
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HorseMind } from './HorseMind.js';
+import { RANKS, SUITS } from './PokerEngine.js';
 import {
   OMAHA_STRATEGY_HOLE_COUNTS,
+  omahaStrategyConstant,
   omahaStrategyHoleCount,
   omahaStrategyHoleCountServed,
+  registerOmahaPlo6StrategyCalibration,
   withOmahaStrategyGameScope,
 } from './HorseOmahaStrategyGame.js';
+import { omahaTurnRedrawShare, omahaTurnRedrawShareOf } from './HorseOmahaMadeHandDefense.js';
 import { omahaBluffCatcherCell, v81Cell, type BluffCatcherInput } from './HorseOmahaBigBetCalls.js';
 import {
   omahaBigDraw,
@@ -47,11 +57,35 @@ const cards = (spec: string): Card[] =>
 const plo6On = <T>(fn: () => T): T => withOmahaStrategyGameScope({ plo6: true }, fn);
 
 afterEach(() => {
+  registerOmahaPlo6StrategyCalibration({});
   vi.restoreAllMocks();
   HorseMind.setDecisionScope(null);
   HorseMind.reset();
   omahaCardImpactResetCache();
 });
+
+const DECK: Card[] = [];
+for (const suit of SUITS) for (const rank of RANKS) DECK.push({ rank, suit } as Card);
+/** Fixed deals (a linear congruential shuffle), the same ones the pins were computed on. */
+function deals(holeCount: number, boardCount: number, n: number, seed: number) {
+  let s = seed >>> 0;
+  const next = () => {
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
+  const out: Array<{ hole: Card[]; board: Card[] }> = [];
+  for (let k = 0; k < n; k++) {
+    const d = DECK.slice();
+    for (let i = 0; i < holeCount + boardCount; i++) {
+      const j = i + Math.floor(next() * (d.length - i));
+      const t = d[i]!;
+      d[i] = d[j]!;
+      d[j] = t;
+    }
+    out.push({ hole: d.slice(0, holeCount), board: d.slice(holeCount, holeCount + boardCount) });
+  }
+  return out;
+}
 
 type Node = ReturnType<typeof stateAt>;
 /** The recorded PLO5 turn node (hand 59521326, the Horse to act, nothing to call). */
@@ -243,5 +277,69 @@ describe('H20: the hole count comes from the game', () => {
       expect(priced!.impact.options.length).toBeGreaterThan(0);
       expect(priced!.impact.options.every((o) => Number.isFinite(o.ev))).toBe(true);
     });
+  });
+});
+
+describe('H9: the turn redraw share can count only the full houses no bigger one beats', () => {
+  const TURN = cards('KsJd2dTc');
+
+  it('any full house (today): a set has ten outs; nut only: middle set has one, top set all ten', () => {
+    // middle set: K, 2 and T rivers make jacks full, which kings full beats; the case jack makes quads
+    expect(omahaTurnRedrawShare(cards('JcJs7c7h3s'), TURN)).toBeCloseTo(10 / 43, 9);
+    expect(omahaTurnRedrawShare(cards('JcJs7c7h3s'), TURN, [], false)).toBeCloseTo(10 / 43, 9);
+    expect(omahaTurnRedrawShare(cards('JcJs7c7h3s'), TURN, [], true)).toBeCloseTo(1 / 43, 9);
+    // top set: every pairing river makes kings full or quads, which no full house beats
+    expect(omahaTurnRedrawShare(cards('KcKd7c7h3s'), TURN)).toBeCloseTo(10 / 43, 9);
+    expect(omahaTurnRedrawShare(cards('KcKd7c7h3s'), TURN, [], true)).toBeCloseTo(10 / 43, 9);
+    // bottom two pair: four outs today, none of them the nut full house
+    expect(omahaTurnRedrawShare(cards('Td2c7c7h3s'), TURN)).toBeCloseTo(4 / 43, 9);
+    expect(omahaTurnRedrawShare(cards('Td2c7c7h3s'), TURN, [], true)).toBe(0);
+    // the nut flush and nut straight outs are counted the same either way
+    const draw = cards('AdQd7c7h3s');
+    expect(omahaTurnRedrawShare(draw, TURN, [], true)).toBe(omahaTurnRedrawShare(draw, TURN));
+    expect(omahaTurnRedrawShare(draw, TURN)).toBeGreaterThan(0);
+  });
+
+  it('nut only never counts more than today, on fixed PLO4, PLO5 and PLO6 deals', () => {
+    for (const h of [4, 5, 6])
+      for (const { hole, board } of deals(h, 4, 60, 100 + h))
+        expect(omahaTurnRedrawShare(hole, board, [], true)).toBeLessThanOrEqual(
+          omahaTurnRedrawShare(hole, board)
+        );
+  });
+
+  it('PLO4/PLO5 read the measure exactly as before, with or without a PLO6 calibration (pinned)', () => {
+    const PIN: Record<number, string> = {
+      4: 'd115c83d77da6c0c5c85649cdc3547ac46e7d16b9bbea2471b2a4e8480634c4b',
+      5: '7b30f035692dc81d047ed4d176acee861c4a626dbdedcac24f5e6c1250dff361',
+    };
+    for (const calibration of [{}, { turnRedrawNutFullHouseOnly: 1 }]) {
+      registerOmahaPlo6StrategyCalibration(calibration);
+      for (const h of [4, 5]) {
+        expect(
+          omahaStrategyConstant('turnRedrawNutFullHouseOnly', { gameVariant: `plo${h}` })
+        ).toBe(0);
+        const digest = createHash('sha256');
+        for (const { hole, board } of deals(h, 4, 400, 9000 + h))
+          digest.update(
+            `${omahaTurnRedrawShareOf({ gameVariant: `plo${h}` }, hole, board).toFixed(12)}\n`
+          );
+        expect(digest.digest('hex')).toBe(PIN[h]);
+      }
+    }
+  });
+
+  it("PLO6 reads today's measure until its calibration sets the switch, then nut only", () => {
+    const six = cards('JcJs7c7h3s4h');
+    const gs = { gameVariant: 'plo6' };
+    expect(omahaTurnRedrawShareOf(gs, six, TURN)).toBeCloseTo(10 / 42, 9);
+    registerOmahaPlo6StrategyCalibration({ turnRedrawNutFullHouseOnly: 1 });
+    expect(omahaTurnRedrawShareOf(gs, six, TURN)).toBeCloseTo(1 / 42, 9);
+    // a known dead card is not an out
+    expect(omahaTurnRedrawShareOf(gs, six, TURN, cards('Jh'))).toBe(0);
+    expect(omahaTurnRedrawShareOf({ gameVariant: 'plo5' }, cards('JcJs7c7h3s'), TURN)).toBeCloseTo(
+      10 / 43,
+      9
+    );
   });
 });

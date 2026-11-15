@@ -80,7 +80,7 @@ import { RANKS, SUITS } from './PokerEngine.js';
 import {
   omahaBeatenByBoard,
   omahaNutClassNow,
-  omahaTurnRedrawShare,
+  omahaTurnRedrawShareOf,
 } from './HorseOmahaMadeHandDefense.js';
 import {
   ploPairedBoardFoldRespectsPrice,
@@ -624,7 +624,7 @@ export function omahaTurnBetLacksRiverPlan(
  * (the Horse's bet or raise was called, or the Horse called his), not nut
  * class. With `outs` the unseen river cards that make the nut flush or nut
  * straight on the board that card makes, or a full house or better
- * (omahaTurnRedrawShare, Omaha's two-card rule), and `price` the call over
+ * (omahaTurnRedrawShareOf, Omaha's two-card rule), and `price` the call over
  * the pot after it:
  *  - 'call_nut_draw': outs >= OMAHA_OOP_TURN_MIN_NUT_OUTS (4) and
  *    price <= outs / unseen + OMAHA_OOP_TURN_SHOWDOWN_CREDIT (0.15, a stated
@@ -737,7 +737,7 @@ export function omahaOopTurnFacingBetVerdict(
     const board: Card[] = gs.communityCards ?? [];
     const unseen = omahaUnseenRiverCards(hero, board).length;
     if (unseen === 0) return null;
-    const share = omahaTurnRedrawShare(hero.cards, board, hero.knownDeadCards ?? []);
+    const share = omahaTurnRedrawShareOf(gs, hero.cards, board, hero.knownDeadCards ?? []);
     const outs = Math.round(share * unseen);
     const stack = Number.isFinite(hero.stack) ? Math.max(0, hero.stack) : 0;
     // what is owed, derived when the state carries no toCall (the league)

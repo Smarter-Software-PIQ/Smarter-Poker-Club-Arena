@@ -48,6 +48,7 @@ import {
   OMAHA_RAISE_NEEDS_NUTS_VARIANTS,
 } from './HorseOmahaTurnRiverRaiseNeedsNuts.js';
 import { OMAHA_STRONG_HAND_VALUE_VARIANTS } from './HorseOmahaStrongHandValue.js';
+import { OMAHA_TURN_REDRAW_NUT_FULL_HOUSE_ONLY } from './HorseOmahaMadeHandDefense.js';
 import { RERAISED_POT_VARIANTS } from './HorseOmahaReraisedPot.js';
 import {
   OMAHA_TOURNAMENT_EXTENSION_VARIANTS,
@@ -158,6 +159,7 @@ describe('omahaStrategyConstant', () => {
     eliteContinueMaxPotOdds: OMAHA_ELITE_CONTINUE_MAX_POT_ODDS,
     bigBetPotShare: OMAHA_BIG_BET_POT_SHARE,
     tournamentPushFoldMaxBB: OMAHA_TOURNAMENT_PUSH_FOLD_MAX_BB,
+    turnRedrawNutFullHouseOnly: OMAHA_TURN_REDRAW_NUT_FULL_HOUSE_ONLY,
   };
 
   it("the defaults are the modules' own constants, for every game", () => {

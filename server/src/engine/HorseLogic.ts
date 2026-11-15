@@ -53,7 +53,7 @@ import {
   omahaBeatenNoRaise,
   omahaNutClassValueSize,
   omahaNutClassNow,
-  omahaTurnRedrawShare,
+  omahaTurnRedrawShareOf,
 } from './HorseOmahaMadeHandDefense.js';
 import { omahaOnePairDiscipline } from './HorseOmahaOnePair.js';
 import {
@@ -7768,7 +7768,7 @@ function omahaBigBetCallFold(
             ),
             redrawShare:
               street === 'turn'
-                ? omahaTurnRedrawShare(shared.hole, shared.board, player.knownDeadCards ?? [])
+                ? omahaTurnRedrawShareOf(gs, shared.hole, shared.board, player.knownDeadCards ?? [])
                 : 0,
           })
         : null;
