@@ -6844,6 +6844,8 @@ export class HorseLogic {
         throw new Error('Horse policy variant is not registered with its canonical name');
       }
       this.prepareOriginalReads(player, gameState, opts);
+      // C6 (2026-11-15): one style read per opponent per decision; the next setDecisionScope closes the memo.
+      HorseMind.beginStyleReadMemo();
       // V44 SECOND LOOK: a deep replay runs the same path at a larger
       // sample. Bracketed so a throw cannot leave the depth raised for the
       // next horse to act.

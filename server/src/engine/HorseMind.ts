@@ -1244,6 +1244,7 @@ export class HorseMind {
   }
   /** TEST-HARNESS ONLY: forget the style learner's per-context rows (one cell or tournament per arm pairing). */
   static clearHarnessStyleMemory(): void {
+    this.bumpStyleMemoEpoch();
     if (!this.harnessStyleLearning)
       throw new Error('clearHarnessStyleMemory is for test harnesses only');
     this.styleSizeShown.clear();
@@ -1300,6 +1301,7 @@ export class HorseMind {
      *  probe tally at all. Absent: treated as not fixed limit (unchanged). */
     bettingStructure?: BettingStructure | null
   ): void {
+    this.bumpStyleMemoEpoch();
     if (!history || history.length === 0) return;
     // FIXED-LIMIT BETS ARE NEVER PROBES (2026-11-14): a fixed-limit bet is
     // the street's one legal size, so it says nothing about a min-bettor's
@@ -1778,6 +1780,7 @@ export class HorseMind {
   }
 
   static importDurableOpponentProfiles(rows: readonly DurableOpponentProfile[]): number {
+    this.bumpStyleMemoEpoch();
     if (this.sandboxDepth > 0 || this.decisionEffectSink)
       throw new Error('durable profile import outside live boundary');
     if (!Array.isArray(rows) || rows.length > 10 || rows.some((p) => !validOpponentProfile(p)))
@@ -1844,6 +1847,7 @@ export class HorseMind {
       opportunities: PostReleaseOpportunities;
     }>
   ): number {
+    this.bumpStyleMemoEpoch();
     if (this.sandboxDepth > 0 || this.decisionEffectSink)
       throw new Error('post-release observation import outside live boundary');
     this.assertPostReleaseRows(rows);
@@ -1955,6 +1959,7 @@ export class HorseMind {
       hands: readonly PersistedHandForStyle[];
     }>
   ): number {
+    this.bumpStyleMemoEpoch();
     return this.importSizeBuckets(
       rows.map((r) => ({
         user_id: r.user_id,
@@ -1976,6 +1981,7 @@ export class HorseMind {
       aggression: StreetAggression;
     }>
   ): number {
+    this.bumpStyleMemoEpoch();
     if ((this.sandboxDepth > 0 || this.decisionEffectSink) && !this.harnessStyleLearning)
       throw new Error('style aggression import outside live boundary');
     let applied = 0;
@@ -2020,6 +2026,7 @@ export class HorseMind {
       reference: StreetAggression;
     }>
   ): number {
+    this.bumpStyleMemoEpoch();
     if ((this.sandboxDepth > 0 || this.decisionEffectSink) && !this.harnessStyleLearning)
       throw new Error('style reference import outside live boundary');
     let applied = 0;
@@ -2060,6 +2067,7 @@ export class HorseMind {
       buckets: SizeBucketTallies;
     }>
   ): number {
+    this.bumpStyleMemoEpoch();
     // L8: the same boundary rule as the other style imports (live, or a harness that switched learning on)
     if ((this.sandboxDepth > 0 || this.decisionEffectSink) && !this.harnessStyleLearning)
       throw new Error('size bucket import outside live boundary');
@@ -2534,10 +2542,91 @@ export class HorseMind {
     // LATENCY (2026-11-13): the style read's own time per decision, against the pre-registered budget
     const t0 = performance.now();
     try {
-      return this.styleReadUntimed(userId);
+      // READ EACH OPPONENT ONCE PER DECISION (2026-11-15, opponent classifier C6): inside one decision the read is a
+      // pure function of state nothing changes, so a repeat returns the first result and fires its receipts again.
+      const memo = this.styleMemo;
+      if (memo) {
+        const hit = memo.get(userId);
+        if (hit && this.styleMemoValid(hit.inputs)) {
+          this.styleMemoHits++;
+          if (this.decisionScope) this.fireStyleReadReceipts(hit.style);
+          return hit.style;
+        }
+      }
+      const style = this.styleReadUntimed(userId);
+      if (memo) {
+        this.styleMemoMisses++;
+        memo.set(userId, { inputs: this.styleMemoInputs(), style });
+      }
+      return style;
     } finally {
       addStyleReadMs(performance.now() - t0);
     }
+  }
+
+  /**
+   * READ EACH OPPONENT ONCE PER DECISION (2026-11-15, Hold'em Strategy lane, opponent classifier C6). The style read
+   * went over its 0.25 ms budget on about 6% of decisions because one decision read the same opponent up to nine
+   * times. HorseLogic opens a memo after the decision's original reads are prepared (beginStyleReadMemo); the next
+   * setDecisionScope closes it. A memo entry is used only while every input of the read is the same object and no
+   * memory write has happened since (styleMemoEpoch, bumped by every observe, import, reset and effect application),
+   * so a hit returns exactly what a fresh read would; its receipts fire again, so telemetry is unchanged.
+   * Process switch setStyleReadMemo(false) restores a fresh read every time.
+   */
+  private static styleMemo: Map<
+    string,
+    { inputs: readonly unknown[]; style: OpponentStyleRead }
+  > | null = null;
+  private static styleMemoOn = true;
+  private static styleMemoEpoch = 0;
+  private static styleMemoHits = 0;
+  private static styleMemoMisses = 0;
+  static setStyleReadMemo(on: boolean): void {
+    this.styleMemoOn = on;
+    if (!on) this.styleMemo = null;
+  }
+  static beginStyleReadMemo(): void {
+    this.styleMemo = this.styleMemoOn && this.decisionScope ? new Map() : null;
+  }
+  /** Test and diagnostics hook: memo hits and fresh reads since the last call. */
+  static takeStyleReadMemoCounts(): { hits: number; misses: number } {
+    const out = { hits: this.styleMemoHits, misses: this.styleMemoMisses };
+    this.styleMemoHits = 0;
+    this.styleMemoMisses = 0;
+    return out;
+  }
+  private static bumpStyleMemoEpoch(): void {
+    this.styleMemoEpoch++;
+  }
+  private static styleMemoInputs(): readonly unknown[] {
+    return [
+      this.styleMemoEpoch,
+      this.decisionScope,
+      this.decisionVariant,
+      this.decisionMode,
+      this.decisionReadOptions,
+      this.exploitCounters,
+      this.stats,
+      this.scoped,
+      this.durableOpponentMemory,
+      this.probeAwareAggression,
+      this.pooledProvenance,
+      this.donorStaleness,
+      this.sandboxDepth,
+    ];
+  }
+  private static styleMemoValid(inputs: readonly unknown[]): boolean {
+    const now = this.styleMemoInputs();
+    return now.length === inputs.length && now.every((v, i) => v === inputs[i]);
+  }
+  private static fireStyleReadReceipts(style: OpponentStyleRead): void {
+    noteFire(`style_label_${style.label}_seen`);
+    if (style.release.standDown) noteFire('style_read_released_seen');
+    // 2026-11-15: VPIP, PFR or the call share was read from the 120-hand long participation window.
+    if (style.receipt.longWindow.length > 0) noteFire('style_long_participation_seen');
+    // 2026-11-15: the multi-signal route (styleTightMultiSignal) read this opponent tight.
+    if (style.receipt.tightMultiSignal?.startsWith('tight:'))
+      noteFire('style_tight_multi_signal_seen');
   }
 
   private static styleReadUntimed(userId: string): OpponentStyleRead {
@@ -2620,13 +2709,7 @@ export class HorseMind {
           }
         : inFormat,
     });
-    noteFire(`style_label_${style.label}_seen`);
-    if (style.release.standDown) noteFire('style_read_released_seen');
-    // 2026-11-15: VPIP, PFR or the call share was read from the 120-hand long participation window.
-    if (style.receipt.longWindow.length > 0) noteFire('style_long_participation_seen');
-    // 2026-11-15: the multi-signal route (styleTightMultiSignal) read this opponent tight.
-    if (style.receipt.tightMultiSignal?.startsWith('tight:'))
-      noteFire('style_tight_multi_signal_seen');
+    this.fireStyleReadReceipts(style);
     return style;
   }
 
@@ -2681,6 +2764,8 @@ export class HorseMind {
     this.decisionScope = scope;
     this.decisionVariant = scope ? variant : null;
     if (!scope) this.decisionReadOptions = {};
+    // C6: a style read memo lives inside one decision only.
+    this.styleMemo = null;
   }
 
   /** Set by HorseLogic beside the decision scope; cleared with it. */
@@ -2786,6 +2871,7 @@ export class HorseMind {
   static importScoped(
     rows: Array<{ user_id: string; scope: string } & Partial<OpponentStats>>
   ): number {
+    this.bumpStyleMemoEpoch();
     let applied = 0;
     const num = (v: unknown): number => (typeof v === 'number' && isFinite(v) && v >= 0 ? v : 0);
     for (const r of rows) {
@@ -2813,6 +2899,7 @@ export class HorseMind {
 
   /** Test hook: wipe all memory. */
   static reset(): void {
+    this.bumpStyleMemoEpoch();
     resetWinnerReads();
     this.stats.clear();
     this.seenActions.clear();
@@ -2877,6 +2964,7 @@ export class HorseMind {
    * Returns the number of rows applied.
    */
   static importStats(rows: Array<{ user_id: string } & Partial<OpponentStats>>): number {
+    this.bumpStyleMemoEpoch();
     let applied = 0;
     for (const r of rows) {
       if (!r || typeof r.user_id !== 'string' || r.user_id.length === 0) continue;
@@ -3095,6 +3183,7 @@ export class HorseMind {
 
   /** Apply one accepted decision's idempotent intent writes in FIFO order. */
   static applyDecisionEffects(effects: readonly HorseMindDecisionEffect[]): void {
+    this.bumpStyleMemoEpoch();
     if (!horseDecisionEffectsAreValid(effects)) {
       throw new Error('HorseMind.applyDecisionEffects: invalid decision effects');
     }
@@ -4894,6 +4983,7 @@ export class HorseMind {
      *  same population the boot rebuild reads */
     styleHasHuman = false
   ): void {
+    this.bumpStyleMemoEpoch();
     // V45: settlement runs outside any decision; the scope travels with the
     // hand and is cleared on the way out.
     const prevScope = this.decisionScope;
