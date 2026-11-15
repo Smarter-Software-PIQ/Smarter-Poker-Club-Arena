@@ -152,6 +152,7 @@ import {
   profileQualification,
   unknownStyle,
   PRE_REPAIR_STATS,
+  type PreRepairStat,
   type OpponentStyleRead,
   type PostReleaseOpportunities,
   type StyleProvenance,
@@ -426,6 +427,10 @@ export interface DecisionReadOptions {
    *  explicitly uncertain read instead of the shared aggressive raise
    *  presumption. Default off until its league comparison is accepted. */
   omahaNeutralUnknown?: boolean;
+  /** STYLE READ pre-repair (2026-11-14): the same switch as ExploitReadOptions.styleFoldRatePreRepair, carried with
+   *  the scope so the style read itself applies the pre-repair discount to the pooled rows it reads. Only an
+   *  explicit true engages; absent, the style read is what it was. */
+  styleFoldRatePreRepair?: boolean;
 }
 /** Decayed postflop facing-bet opportunities before the postflop fold rate reads. */
 export const FOLD_READ_MIN_OPPS = 8;
@@ -760,6 +765,21 @@ export interface HorseMindSandbox {
    *  player has played since that row was last refreshed, on the player's own
    *  hand clock (PooledPublicProfiles). Absent when the read carried no donor. */
   donorStaleness?: Map<string, number>;
+  /** PRE-REPAIR PROVENANCE ON THE POOLED PUBLIC PATH (2026-11-14): for each pooled row in `exploit`
+   *  (opponentMemoryKey) that is pre-repair keyed (HorseOpponentStyle.preRepairKeyed: a cash table-speed row, or a
+   *  cash row with no public domain on file), that keying and the post-release opportunity counts resolved for the
+   *  row when the decision's read was assembled (HorseMind.pooledRowProvenance). It travels with the decision's own
+   *  state, never in a process-wide map, so two decisions never see each other's rows and a second look or an
+   *  exact replay reads what the first look read. Absent when the read carried no such row. */
+  pooledProvenance?: Map<string, PooledRowProvenance>;
+}
+
+/** What one pre-repair keyed pooled row carries into a decision; see HorseMindSandbox.pooledProvenance. */
+export interface PooledRowProvenance {
+  /** true: cash and table speed; null: cash with no public domain on file (treated as affected) */
+  preRepair: true | null;
+  /** m per showdown-dependent statistic, as supplied at boot for this row and its domain; 0 when none was */
+  postRelease: Record<PreRepairStat, number>;
 }
 
 /** V23: what hero decided AT BET TIME it would do about a raise. */
@@ -1190,6 +1210,9 @@ export class HorseMind {
   /** The sandbox's donor staleness (HorseMindSandbox.donorStaleness) while one
    *  runs; null outside a sandbox or for a read that carried no donor. */
   private static donorStaleness: Map<string, number> | null = null;
+  /** The sandbox's pooled pre-repair provenance (HorseMindSandbox.pooledProvenance) while one is installed;
+   *  null outside a sandbox and for a sandbox that carries none. */
+  private static pooledProvenance: Map<string, PooledRowProvenance> | null = null;
   private static decisionVariant: string | null = null;
   /** Read calibration options of the decision in flight (DecisionReadOptions). */
   private static decisionReadOptions: DecisionReadOptions = {};
@@ -1808,7 +1831,40 @@ export class HorseMind {
       throw new Error('invalid post-release observation row');
   }
 
-  /** True when this decision's Hold'em exact profile is pre-repair and its fold-to-bet is still excluded. */
+  /**
+   * PRE-REPAIR PROVENANCE OF ONE POOLED PUBLIC ROW (2026-11-14). The decision worker reads opponent rows from the
+   * pooled public profiles that arrive with accepted hands (horseDecision/observerReads), never through
+   * importDurableOpponentProfiles, so the provenance that import records never existed for a production decision and
+   * the pre-repair discount could not engage. This returns, for one such row, the same two facts the import keeps:
+   * the keying from the row's own mode and public domain, and the post-release counts supplied at boot for that row
+   * and that domain (a count supplied with a domain applies only to a row of that domain; an undomained count is the
+   * supplier's own statement about the row). null for a row that is not pre-repair keyed (tournament, lightning), so
+   * a decision without an affected row carries nothing. Pure read of the boot input: no write, no count kept here.
+   * The caller stores the result with the decision's own state (HorseMindSandbox.pooledProvenance).
+   */
+  static pooledRowProvenance(
+    p: Pick<
+      DurableOpponentProfile,
+      'user_id' | 'variant' | 'mode' | 'size' | 'public_memory_domain'
+    >
+  ): PooledRowProvenance | null {
+    const preRepair = preRepairKeyed(p.mode, p.public_memory_domain);
+    if (preRepair === false) return null;
+    const e = this.postReleaseObservations.get(
+      opponentMemoryKey(p.user_id, p.variant, p.mode, p.size)
+    );
+    const d = publicMemoryDomainKey(p.public_memory_domain);
+    const postRelease = {} as Record<PreRepairStat, number>;
+    for (const stat of PRE_REPAIR_STATS) {
+      const v = (d ? e?.byDomain.get(d)?.[stat] : undefined) ?? e?.all?.[stat];
+      postRelease[stat] = typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0;
+    }
+    return { preRepair, postRelease };
+  }
+
+  /** True when this decision's Hold'em exact profile is pre-repair and its fold-to-bet is still excluded. Both callers
+   *  stand behind styleFoldRatePreRepair (or its shadow, which records and applies nothing), so the pooled rows'
+   *  provenance is always consulted here. */
   private static foldToBetPreRepairExcluded(userId: string): boolean {
     const scope = this.decisionScope;
     if (!scope || !scope.startsWith('holdem:')) return false;
@@ -1818,7 +1874,8 @@ export class HorseMind {
       userId,
       variant,
       this.decisionMode,
-      scope.split(':')[1] as MemorySize
+      scope.split(':')[1] as MemorySize,
+      true
     );
     return preRepairDiscount(prov, 'foldToBet').excluded;
   }
@@ -2029,7 +2086,11 @@ export class HorseMind {
     userId: string,
     variant: MemoryVariant | null,
     mode: MemoryMode,
-    size: MemorySize
+    size: MemorySize,
+    /** Consult the pooled rows' pre-repair provenance carried by this decision's own state. Only a caller behind
+     *  styleFoldRatePreRepair passes true: with it false the result is exactly what it was before 2026-11-14. It
+     *  never touches `complete` (and so never the profile cap), which stays what it was on every path. */
+    pooledPreRepair = false
   ): StyleProvenance {
     const durableMemoryOn = this.durableOpponentMemory && variant !== null;
     const keys = variant
@@ -2055,6 +2116,18 @@ export class HorseMind {
       if (f === true) preRepair = true;
       else if (f === null && preRepair !== true) preRepair = null;
     }
+    // The pooled public rows this decision reads (the production path) carry their keying with the decision's state.
+    // A key counts only while its row is still among the counters the read stands on.
+    const pooledRows: PooledRowProvenance[] = [];
+    if (pooledPreRepair && this.pooledProvenance)
+      for (const k of keys) {
+        const p = this.pooledProvenance.get(k);
+        if (p && this.exploitCounters.has(k)) pooledRows.push(p);
+      }
+    for (const p of pooledRows) {
+      if (p.preRepair === true) preRepair = true;
+      else if (preRepair !== true) preRepair = null;
+    }
     const postRelease: PostReleaseOpportunities = {};
     for (const stat of PRE_REPAIR_STATS) {
       let m: number | null = null;
@@ -2065,6 +2138,11 @@ export class HorseMind {
         const e = this.postReleaseObservations.get(k);
         const d = this.durableProfileDomain.get(k);
         const v = (d ? e?.byDomain.get(d)?.[stat] : undefined) ?? e?.all?.[stat];
+        const mm = typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0;
+        m = m === null ? mm : Math.min(m, mm);
+      }
+      for (const p of pooledRows) {
+        const v = p.postRelease[stat];
         const mm = typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0;
         m = m === null ? mm : Math.min(m, mm);
       }
@@ -2349,7 +2427,15 @@ export class HorseMind {
     // Provenance: a durable profile imported without complete observations is
     // discounted; a counter row built live by this process is complete; a
     // durable context nobody qualified is "not known" (capped, not trusted).
-    const provenance = this.styleProvenanceOf(userId, variant, mode, size);
+    // PRE-REPAIR (2026-11-14): the pooled rows' keying reaches this read only behind styleFoldRatePreRepair, so with
+    // that option off the read is exactly what it was.
+    const provenance = this.styleProvenanceOf(
+      userId,
+      variant,
+      mode,
+      size,
+      this.decisionReadOptions.styleFoldRatePreRepair === true
+    );
     // H1 (review 2026-11-13): evidence of THIS format and variant only. Shown strength comes from this context's
     // river size buckets. The scoped lifetime tallies (variant and table size, but cash and tournament mixed) enter
     // only as an explicit carry-over at styleCarryWeight (default 0); the all-variant pooled fallback never does.
@@ -2973,6 +3059,13 @@ export class HorseMind {
             const row = this.exploitCounters.get(key);
             if (row) view.exploit.set(key, { ...row });
             else if (this.durableOpponentMemory) view.exploit.set(key, freshExploitCounters());
+            // The second look and an exact replay apply the same pre-repair discount the first look did.
+            const rowProvenance = row ? this.pooledProvenance?.get(key) : undefined;
+            if (rowProvenance)
+              (view.pooledProvenance ??= new Map()).set(key, {
+                preRepair: rowProvenance.preRepair,
+                postRelease: { ...rowProvenance.postRelease },
+              });
             // The second look reads exactly what the first did, so the donor
             // contexts opponentRead may borrow travel with the exact one.
             if (!memoryContext) continue;
@@ -2983,6 +3076,12 @@ export class HorseMind {
               const donorAge = this.donorStaleness?.get(donorKey);
               if (donor && donorAge !== undefined)
                 (view.donorStaleness ??= new Map()).set(donorKey, donorAge);
+              const donorProvenance = donor ? this.pooledProvenance?.get(donorKey) : undefined;
+              if (donorProvenance)
+                (view.pooledProvenance ??= new Map()).set(donorKey, {
+                  preRepair: donorProvenance.preRepair,
+                  postRelease: { ...donorProvenance.postRelease },
+                });
             }
           }
       for (const other of ids) {
@@ -3044,9 +3143,11 @@ export class HorseMind {
       flopStab: this.flopStabCounters,
       planFingerprints: this.planFingerprints,
       donorStaleness: this.donorStaleness,
+      pooledProvenance: this.pooledProvenance,
     };
     this.stats = sandbox.stats;
     this.donorStaleness = sandbox.donorStaleness ?? null;
+    this.pooledProvenance = sandbox.pooledProvenance ?? null;
     // A sandbox built before the exploit layer (or by a caller that only
     // knows the older fields) reads as "no exploit memory", never as live.
     this.exploitCounters = sandbox.exploit ?? new Map();
@@ -3081,6 +3182,7 @@ export class HorseMind {
       this.outlooks = live.outlooks;
       this.planFingerprints = live.planFingerprints;
       this.donorStaleness = live.donorStaleness;
+      this.pooledProvenance = live.pooledProvenance;
       this.scoped = live.scoped;
       this.dirtyScoped = live.dirtyScoped;
       this.exploitCounters = live.exploit;

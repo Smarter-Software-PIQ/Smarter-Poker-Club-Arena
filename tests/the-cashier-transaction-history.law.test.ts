@@ -171,7 +171,11 @@ describe('the cashier transaction history', () => {
     expect(contract).toContain(
       "'signature', 'public.fn_cashier_transaction_history(uuid,text,integer,integer)',"
     );
-    expect(contract).toContain("'hash', '3919f3ef7a21ed33e2f0c7a80113c7d2'");
+    // 20261024203917's body, then World Hub 20261114174518 (PR #2841) named the
+    // union or club that sent; the contract pins the installed successor only.
+    expect(contract).toContain("'hash', '0aa3eec4528c3b586a3750e9fce45d4f'");
+    expect(contract).not.toContain("'hash', '3919f3ef7a21ed33e2f0c7a80113c7d2'");
+    expect(contract).toContain("version = '20261114174518'");
   });
 
   it('enforces the same rule in the database: the scope narrows a book, never widens it', () => {
