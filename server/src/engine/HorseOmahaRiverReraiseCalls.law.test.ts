@@ -178,7 +178,11 @@ function decideMany(s: ReturnType<typeof river>, opts: Record<string, unknown> =
 }
 const putIn = (acts: string[]) =>
   acts.filter((a) => a.startsWith('call') || a.startsWith('all_in')).length;
-const OFF = { v84OmahaRiverReraiseCalls: false };
+// Dan 2026-11-14: the bluff-catcher cells (HorseOmahaBigBetCalls,
+// omahaBluffCatcherRaiseFold) fold the same PLO4/PLO5 river calls when V84 is
+// off. "Off is today" here means both off, so this law keeps measuring V84;
+// HorseOmahaMadeHandDefense.test.ts pins the newer cells.
+const OFF = { v84OmahaRiverReraiseCalls: false, omahaBluffCatcherRaiseFold: false };
 
 // Board Kh 9h 4h 7c 2d: hearts possible, unpaired. Qh-x is the second-nut
 // flush (Ah is live above it); Ah-x is the nut flush.
@@ -384,8 +388,11 @@ describe('V84 boundaries', () => {
   });
 
   type Built = ReturnType<typeof river>;
+  // "Today" is V84 on with the 2026-11-14 bluff-catcher cells held off: a
+  // spot outside V84 may be folded by those cells (a river raise after the
+  // horse only called), which is their rule, not V84's.
   const today = (label: string, s: Built, seeds = 15) => {
-    const on = decideMany(s, {}, seeds);
+    const on = decideMany(s, { omahaBluffCatcherRaiseFold: false }, seeds);
     const off = decideMany(s, OFF, seeds);
     expect(on.acts, label).toEqual(off.acts);
     expect(on.fires, label).toBe(0);
@@ -435,10 +442,14 @@ describe('V84 boundaries', () => {
         { stage: 'river', seat: 1, userId: 'hero', action: 'call', amount: 24, timestamp: 92 },
         { stage: 'river', seat: 3, userId: 'folder0', action: 'raise', amount: 96, timestamp: 93 },
       ] as never[]);
-    today('called first', {
+    const calledFirst = {
       hero: players[0],
       gs: { ...s.gs, players, actionHistory: history, pot: 54 + 24 + 24 + 96 },
-    } as Built);
+    } as Built;
+    today('called first', calledFirst);
+    // Dan 2026-11-14: by default the bluff-catcher cell folds this call (a
+    // second-nut flush raised on the river with chips behind).
+    expect(putIn(decideMany(calledFirst, {}, 15).acts)).toBe(0);
   });
 
   it('a paired board, a nut flush and a heads-up table keep today', () => {

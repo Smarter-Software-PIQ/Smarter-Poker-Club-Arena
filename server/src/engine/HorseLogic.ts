@@ -42,6 +42,12 @@ import { hiLoRiverLowHalfFloor } from './HorseHiLoLowHalf.js';
 import { omahaCurrentNutsRaise } from './HorseOmahaCurrentNuts.js';
 import { omahaRiverNutRaiseOnly } from './HorseOmahaRiverNutRaise.js';
 import {
+  omahaBeatenNoBet,
+  omahaBeatenNoRaise,
+  omahaNutClassValueSize,
+  omahaTurnRedrawShare,
+} from './HorseOmahaMadeHandDefense.js';
+import {
   TOKEN_CALL_COUNTED_PRICE,
   TOKEN_CALL_PRICE,
   tokenCallIsCovered,
@@ -445,6 +451,8 @@ import {
 import { anteOrbitCostBB } from './AnteMath.js';
 import {
   callLargeRiverBoatWager,
+  bettorWageredPreviousStreet,
+  omahaBluffCatcherCell,
   v81Cell,
   v81StreetWager,
   v84Cell,
@@ -2643,6 +2651,26 @@ export interface HorseDecideOpts {
    * check it back for a fresh straight card. Default on; false only for the
    * complaint law's non-vacuity control. */
   omahaTurnSetPound?: boolean;
+  /** Dan 2026-11-14 (hands 59414191, 59416584): in PLO4/PLO5/PLO6 high on one
+   * board a two pair, set, non-nut straight or non-nut flush that a possible
+   * straight or flush beats never raises a turn wager (it calls), checks the
+   * turn or river card that made the straight or flush possible when a
+   * player still acts behind, and does not bet the river into a player who
+   * bet or raised a street on which it was already possible
+   * (HorseOmahaMadeHandDefense.ts). Default on; false only for the complaint
+   * laws' non-vacuity control. */
+  omahaBeatenMadeHandDefense?: boolean;
+  /** Dan 2026-11-14: the PLO4/PLO5 big-bet call discipline also folds a
+   * bluff catcher that is raised on the turn or river, or that faces a
+   * 0.9-pot+ turn bet from a player who also bet the flop, unless the turn
+   * redraw pays the price (HorseOmahaBigBetCalls.ts, omahaBluffCatcherCell).
+   * Default on; false only for the regression's non-vacuity control. */
+  omahaBluffCatcherRaiseFold?: boolean;
+  /** Dan 2026-11-14: a PLO4/PLO5 bet or raise with the nuts or an
+   * effective-nut hand for the street is the full pot on the flop, turn and
+   * river (HorseOmahaMadeHandDefense.ts, omahaNutClassValueSize). Default
+   * on; false only for the regression's non-vacuity control. */
+  omahaNutClassValueSize?: boolean;
   /** A token-priced committed call is not barred by stack-off premiums
    * (HorseTokenCallPrice.ts, PLO6-AUDIT-010). Default on; false only for
    * the regression's non-vacuity control. */
@@ -5519,12 +5547,12 @@ function omahaBigBetCallFold(
       riverSetCell: opts.omahaRiverNutRaiseOnly !== false && stack > toCall + 0.005,
     };
     const callPrice = Math.min(toCall, stack) / (pot + Math.min(toCall, stack));
-    const v81 =
+    const v81Base =
       isCall && v81On
         ? v81Cell({ ...shared, heroHasStreetChips: heroBet > 0.005, callPrice })
         : null;
     const v84 =
-      isCall && v81 === null && v84On && faced.bettorSeat !== player.seat
+      isCall && v81Base === null && v84On && faced.bettorSeat !== player.seat
         ? v84Cell({
             ...shared,
             heroWageredStreet:
@@ -5533,6 +5561,32 @@ function omahaBigBetCallFold(
             allInOrFold: gs.allInOrFold === true,
           })
         : null;
+    // The bluff-catcher cells come after V84: a call V84 already folds keeps
+    // its V84 receipt.
+    const bluffCatcher =
+      isCall &&
+      v81Base === null &&
+      v84 === null &&
+      v81On &&
+      opts.omahaBluffCatcherRaiseFold !== false
+        ? omahaBluffCatcherCell({
+            ...shared,
+            heroHasStreetChips: heroBet > 0.005,
+            callPrice,
+            chipsBehindCall: stack > toCall + 0.005,
+            allInOrFold: gs.allInOrFold === true,
+            bettorWageredPreviousStreet: bettorWageredPreviousStreet(
+              gs.actionHistory,
+              street,
+              faced.bettorSeat
+            ),
+            redrawShare:
+              street === 'turn'
+                ? omahaTurnRedrawShare(shared.hole, shared.board, player.knownDeadCards ?? [])
+                : 0,
+          })
+        : null;
+    const v81 = v81Base ?? bluffCatcher;
     if (v81 === null && v84 === null) {
       const bettorRead86 = HorseMind.opponentRead(bettor.user_id);
       const v86BettorManiac =
@@ -5572,6 +5626,7 @@ function omahaBigBetCallFold(
     }
     if (telemetryOn(opts)) {
       if (v81 === 'trips_set_drawy') noteFire('v81_river_set_big_bet_fold');
+      if (bluffCatcher !== null) noteFire('omaha_bluff_catcher_raise_fold');
       noteFire(
         v81 !== null
           ? 'v81_omaha_big_bet_call_fold'
@@ -5634,6 +5689,43 @@ function pairedBoardRiverCheck(
 }
 
 /** The outer safety net: only a decision the policy graph never signed. */
+/**
+ * Dan 2026-11-14 (hands 59414191, 59416584), HorseOmahaMadeHandDefense.ts: the
+ * final Omaha made-hand rules, in order. A hand a possible straight or flush
+ * beats does not raise a turn wager and does not bet into the fresh card out
+ * of position or into the river's earlier bettor; a nut-class wager is the
+ * full pot. Runs in the wager_rules node right after the river nut-raise
+ * rule and before the call-discipline folds.
+ */
+function omahaMadeHandDefenseRules(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts,
+  reference: HorseDecision | null
+): HorseDecision {
+  // The default-off near-nut river value candidate keeps its own raise and
+  // its own size when a league arm switches it on; production never does.
+  if (opts.smallPotNearNutRiverValue === true && smallPotNearNutRiverValue(player, gs))
+    return decision;
+  const tele = telemetryOn(opts);
+  const defenseOn = opts.omahaBeatenMadeHandDefense !== false;
+  const flat = omahaBeatenNoRaise(decision, player, gs, defenseOn, reference);
+  if (tele && flat.changed === 'flatted') noteFire('omaha_turn_beaten_raise_flatted');
+  if (tele && flat.changed === 'fold_restored') noteFire('omaha_turn_beaten_raise_fold_restored');
+  const noBet = omahaBeatenNoBet(flat.decision, player, gs, defenseOn);
+  if (tele && noBet.changed === 'fresh_card_check') noteFire('omaha_beaten_fresh_card_check');
+  if (tele && noBet.changed === 'river_check') noteFire('omaha_beaten_river_no_value_bet');
+  const sized = omahaNutClassValueSize(
+    noBet.decision,
+    player,
+    gs,
+    opts.omahaNutClassValueSize !== false
+  );
+  if (tele && sized.changed === 'pot_sized') noteFire('omaha_nut_class_pot_wager');
+  return sized.decision;
+}
+
 function pairedBoardFoldOutsideGraph(
   decision: HorseDecision,
   player: SeatPlayer,
@@ -5644,15 +5736,23 @@ function pairedBoardFoldOutsideGraph(
     ? omahaBigBetCallFold(
         pairedBoardRiverCheck(
           pairedBoardFold(
-            omahaRiverNutRaiseOnly(
-              decision,
+            omahaMadeHandDefenseRules(
+              omahaRiverNutRaiseOnly(
+                decision,
+                player,
+                gs,
+                // The default-off near-nut value candidate keeps its own raise
+                // when a league arm switches it on; production never does.
+                opts.omahaRiverNutRaiseOnly !== false &&
+                  !(
+                    opts.smallPotNearNutRiverValue === true && smallPotNearNutRiverValue(player, gs)
+                  )
+              ).decision,
               player,
               gs,
-              // The default-off near-nut value candidate keeps its own raise
-              // when a league arm switches it on; production never does.
-              opts.omahaRiverNutRaiseOnly !== false &&
-                !(opts.smallPotNearNutRiverValue === true && smallPotNearNutRiverValue(player, gs))
-            ).decision,
+              opts,
+              null
+            ),
             player,
             gs,
             opts
@@ -7543,7 +7643,12 @@ export class HorseLogic {
         noteFire('omaha_river_non_nut_raise_fold_restored');
       const prePremium = omahaBigBetCallFold(
         pairedBoardRiverCheck(
-          pairedBoardFold(nutRaise.decision, player, gs, opts),
+          pairedBoardFold(
+            omahaMadeHandDefenseRules(nutRaise.decision, player, gs, opts, beforePhase10),
+            player,
+            gs,
+            opts
+          ),
           player,
           gs,
           opts

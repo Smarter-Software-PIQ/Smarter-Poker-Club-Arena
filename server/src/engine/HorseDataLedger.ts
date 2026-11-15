@@ -894,6 +894,21 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaBeatenMadeHandDefense',
+    'Dan 2026-11-14 (hands 59414191, 59416584): PLO4/PLO5/PLO6 high on one board, a two pair, set, non-nut straight or non-nut flush that a possible straight or flush beats never raises a turn wager (it calls), checks the turn or river card that made it possible when a player still acts behind, and does not bet the river into a player who bet or raised a street on which it was already possible (HorseOmahaMadeHandDefense.ts). Default on; explicit false is the complaint law control',
+    'V94'
+  ),
+  flag(
+    'omahaBluffCatcherRaiseFold',
+    'Dan 2026-11-14: the PLO4/PLO5 big-bet call discipline also folds a bluff catcher (two pair, set or trips on a straight- or flush-possible board, non-nut straight, non-nut flush) that is raised 0.9 pot or more on the turn or river, or faces a 0.9-pot+ turn bet from a player who also bet or raised the flop, unless the turn redraw pays the price; a measured postflop over-bluffer keeps the call. Default on; explicit false is the regression control',
+    'V94'
+  ),
+  flag(
+    'omahaNutClassValueSize',
+    'Dan 2026-11-14: a PLO4/PLO5 high bet or raise with the nuts or an effective-nut hand for the street is the full pot (the pot-limit maximum, the stack when smaller) on the flop, turn and river. Default on; explicit false is the regression control',
+    'V94'
+  ),
+  flag(
     'plo6ManiacPriceRefusalToRangePlay',
     '2026-11-14 PLO6 cash preflop: when the raiser faced is an observed maniac and not all in and the call is under 40% of the stack, a refusal by the price arithmetic is decided by the range play, the play made against every other opponent, instead of an outright fold (PLO6-AUDIT-013, production hand 58751512; evidence docs/horse-default-on.d/plo6ManiacPriceRefusalToRangePlay.md)',
     'V92'
@@ -3429,6 +3444,42 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'v81_river_set_big_bet_fold',
     'HorseLogic (V81, river set cell)',
     'PLO4/PLO5 river call of a 0.9-pot+ wager with a set or trips on a straight- or flush-possible board: folded (counted inside v81_omaha_big_bet_call_fold as well)',
+    'V94'
+  ),
+  receipt(
+    'omaha_turn_beaten_raise_flatted',
+    'HorseLogic wager_rules (HorseOmahaMadeHandDefense)',
+    'PLO4/PLO5/PLO6 high turn raise or all-in over a wager with a made hand a possible straight or flush beats: became a call',
+    'V94'
+  ),
+  receipt(
+    'omaha_turn_beaten_raise_fold_restored',
+    'HorseLogic wager_rules (HorseOmahaMadeHandDefense)',
+    'a later policy owner raised a turn hand the reference had folded, with a made hand a possible straight or flush beats: the fold came back',
+    'V94'
+  ),
+  receipt(
+    'omaha_beaten_fresh_card_check',
+    'HorseLogic wager_rules (HorseOmahaMadeHandDefense)',
+    'a turn or river bet with a made hand the street card made beatable by a straight or flush, with a player still to act behind: became a check',
+    'V94'
+  ),
+  receipt(
+    'omaha_beaten_river_no_value_bet',
+    'HorseLogic wager_rules (HorseOmahaMadeHandDefense)',
+    'a river bet with a made hand a possible straight or flush beats, into a player who bet or raised a street on which it was already possible: became a check',
+    'V94'
+  ),
+  receipt(
+    'omaha_nut_class_pot_wager',
+    'HorseLogic wager_rules (HorseOmahaMadeHandDefense)',
+    'a PLO4/PLO5 bet or raise with the nuts or an effective-nut hand was sized up to the full pot (or the stack)',
+    'V94'
+  ),
+  receipt(
+    'omaha_bluff_catcher_raise_fold',
+    'HorseLogic (V81, bluff-catcher cells)',
+    'PLO4/PLO5 call of a 0.9-pot+ turn or river raise (or a turn bet from the flop bettor) with a bluff catcher: folded (counted inside v81_omaha_big_bet_call_fold as well)',
     'V94'
   ),
   receipt(

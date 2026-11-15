@@ -263,6 +263,104 @@ export function v81Cell(i: V81Input): string | null {
 }
 
 /**
+ * BLUFF-CATCHER CELLS (Dan 2026-11-14, with hands 59414191 and 59416584: "Horses
+ * are calling every one of his value raises with bluff catchers"). PLO4 / PLO5.
+ *
+ * V81 above folds a big-bet CALL only when the horse has no chips in on the
+ * street, and V84 folds one class after the horse's own river wager. Neither
+ * covers the horse that bet or called on the street and is then RAISED, and
+ * on the turn V81 folds three narrow classes only. These cells extend the
+ * same discipline, under every V81 condition (a wager of 0.9 pot or more,
+ * more than 20bb effective, not a heads-up table, not a bounty event, not a
+ * bomb pot, not an all-in-or-fold table, a call price of 0.13 or more, the
+ * bettor not MEASURED as a postflop over-bluffer) and only when the call leaves chips behind (a call
+ * that is itself all in stays with the committed-call owner, V88):
+ *
+ *   - facing a RAISE on the river (the horse has chips in on the street):
+ *     two pair, a set or trips on a straight- or flush-possible board, a
+ *     straight that is not the nut straight or sits on a flush or paired
+ *     board, a flush that is not the nut flush, the nut flush on a paired
+ *     board;
+ *   - facing a RAISE on the turn, or a turn bet of 0.9 pot or more from a
+ *     player who also bet or raised the flop: two pair, a set or trips on a
+ *     straight- or flush-possible board, a non-nut straight or one on a flush
+ *     or paired board, a non-nut flush. NOT folded when the redraw pays the
+ *     price: the share of unseen river cards that make a full house or the
+ *     nut flush or nut straight is at least the call price.
+ *
+ * These cells rest on the owner's ruling. The V81 measurement did not admit
+ * them: it never observed a call with the horse's own chips in on the street
+ * (that was its exclusion), and its turn rows for sets and two pair straddle
+ * zero over every bettor (it did not split by the bettor's flop action).
+ */
+export const BLUFF_CATCHER_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
+const BLUFF_CATCHER_TURN = new Set([
+  'two_pair',
+  'trips_set_drawy',
+  'straight_nonnut',
+  'straight_flushboard',
+  'straight_flushboard_paired',
+  'straight_paired',
+  'flush_second',
+  'flush_second_paired',
+  'flush_dominated',
+  'flush_dominated_paired',
+]);
+const BLUFF_CATCHER_RIVER = new Set([...BLUFF_CATCHER_TURN, 'flush_nut_paired']);
+
+export interface BluffCatcherInput extends V81Input {
+  /** The call leaves chips behind (it is not itself all in). */
+  chipsBehindCall: boolean;
+  /** The bettor also bet or raised on the previous street. */
+  bettorWageredPreviousStreet: boolean;
+  /** Turn only: share of unseen river cards that make the hand nut class. */
+  redrawShare: number;
+  /** An all-in-or-fold table: outside the cells, like V84. */
+  allInOrFold?: boolean;
+}
+
+/** The bluff-catcher cell this call falls in (`bc_<class>`), or null. */
+export function omahaBluffCatcherCell(i: BluffCatcherInput): string | null {
+  const variant = String(i.variant).toLowerCase();
+  if (!BLUFF_CATCHER_VARIANTS.has(variant)) return null;
+  if (i.hiLo || i.multiBoard || i.bombPot || i.headsUpTable || i.bountyEvent) return null;
+  if (i.allInOrFold === true) return null;
+  if (i.bettorOverBluffs || !i.chipsBehindCall) return null;
+  if (!(i.potFrac >= V81_MIN_POT_FRAC) || !(i.effectiveBB > V81_MIN_EFFECTIVE_BB)) return null;
+  if (!(i.callPrice >= V81_MIN_CALL_PRICE)) return null;
+  if (!Array.isArray(i.hole) || i.hole.length !== (variant === 'plo4' ? 4 : 5)) return null;
+  if (i.street === 'river' && i.board.length === 5) {
+    if (!i.heroHasStreetChips) return null;
+    const cls = omahaCallClass(i.hole, i.board);
+    return BLUFF_CATCHER_RIVER.has(cls) ? `bc_${cls}` : null;
+  }
+  if (i.street === 'turn' && i.board.length === 4) {
+    if (!i.heroHasStreetChips && !i.bettorWageredPreviousStreet) return null;
+    const cls = omahaCallClass(i.hole, i.board);
+    if (!BLUFF_CATCHER_TURN.has(cls)) return null;
+    if (i.redrawShare >= i.callPrice) return null;
+    return `bc_${cls}`;
+  }
+  return null;
+}
+
+/** True when `seat` bet, raised or went all in on the street before `street`. */
+export function bettorWageredPreviousStreet(
+  history: readonly V81Action[] | undefined,
+  street: string,
+  seat: number
+): boolean {
+  const previous = street === 'river' ? 'turn' : street === 'turn' ? 'flop' : null;
+  if (previous === null || !Array.isArray(history)) return false;
+  return history.some(
+    (a) =>
+      String(a.stage) === previous &&
+      a.seat === seat &&
+      (a.action === 'bet' || a.action === 'raise' || a.action === 'all_in')
+  );
+}
+
+/**
  * V84 OMAHA RIVER RE-RAISE CALL DISCIPLINE (2026-11-07). PLO4 / PLO5 / PLO6.
  *
  * The call side V81 leaves out: the horse BET or RAISED the river itself and

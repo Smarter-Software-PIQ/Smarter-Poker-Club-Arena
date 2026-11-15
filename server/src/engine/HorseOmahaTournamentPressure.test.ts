@@ -481,6 +481,12 @@ describe(
       // (HorseOmahaRiverNutRaise.test.ts pins both).
       omahaRiverNutRaiseOnly: false,
       omahaTurnSetPound: false,
+      // Dan 2026-11-14 (hands 59414191, 59416584): the made-hand defense,
+      // the bluff-catcher cells and the nut-class pot size, likewise
+      // (HorseOmahaMadeHandDefense.test.ts pins them).
+      omahaBeatenMadeHandDefense: false,
+      omahaBluffCatcherRaiseFold: false,
+      omahaNutClassValueSize: false,
     };
 
     it.each(CORPUS_VARIANTS)(

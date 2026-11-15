@@ -38,6 +38,7 @@ import {
   OMAHA_RIVER_NUT_RAISE_VARIANTS,
   omahaRiverNutRaiseOnly,
 } from '../HorseOmahaRiverNutRaise.js';
+import { omahaBeatenMustCheck, omahaBeatenNoRaise } from '../HorseOmahaMadeHandDefense.js';
 import { shortAllInSpot } from '../HorseShortAllInCallFloor.js';
 import { holdemFourBetSpot } from '../HorseHoldemPremiumAggression.js';
 import { tournamentShoveDiscipline } from '../HorseTournamentShoveDiscipline.js';
@@ -984,12 +985,14 @@ function riverNutRuleProducesCall(
   after: HorsePolicyAction,
   context: HorseDecisionReceiptContext
 ): boolean {
-  const result = omahaRiverNutRaiseOnly(
-    { action: before.action, amount: before.amount ?? undefined, thinkTime: 0 },
-    context.player,
-    context.gameState,
-    true
-  );
+  const start = { action: before.action, amount: before.amount ?? undefined, thinkTime: 0 };
+  const river = omahaRiverNutRaiseOnly(start, context.player, context.gameState, true);
+  // Dan 2026-11-14 (HorseOmahaMadeHandDefense rule 1): the turn half, a hand
+  // a possible straight or flush beats. The two rules never share a street.
+  const result =
+    river.changed !== null
+      ? river
+      : omahaBeatenNoRaise(start, context.player, context.gameState, true);
   return (
     result.changed === 'flatted' &&
     result.decision.action === 'call' &&
@@ -1136,11 +1139,26 @@ function policyGraphIsValid(
       context !== undefined &&
       String(context.gameState.gameVariant).toLowerCase() === variant &&
       riverNutRuleProducesCall(previous, transition.after, context);
+    // Dan 2026-11-14 (HorseOmahaMadeHandDefense rule 2): a bet with a hand a
+    // possible straight or flush beats becomes a check on the fresh card out
+    // of position, and on the river into an earlier street's bettor. A check
+    // puts no chip in; when the request is known, only where the rule's own
+    // test, re-run on it, says so (the paired-board river check's form).
+    const omahaBeatenBetToCheck =
+      transition.node === 'wager_rules' &&
+      OMAHA_RIVER_NUT_RAISE_VARIANTS.has(variant) &&
+      transition.after.action === 'check' &&
+      previous !== null &&
+      ['bet', 'raise', 'all_in'].includes(previous.action) &&
+      (context === undefined ||
+        (String(context.gameState.gameVariant).toLowerCase() === variant &&
+          omahaBeatenMustCheck(context.player, context.gameState) !== null));
     if (
       transition.node === 'wager_rules' &&
       changed &&
       !pairedBoardFold &&
       !pairedBoardRiverCheck &&
+      !omahaBeatenBetToCheck &&
       !shortAllInCall &&
       !noFourBetFold &&
       !plo6RiverRaiseToCall &&
