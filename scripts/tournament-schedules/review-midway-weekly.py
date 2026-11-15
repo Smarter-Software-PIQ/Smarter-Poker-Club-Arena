@@ -18,7 +18,10 @@ import zipfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-GAMES = {'NLH': 'nlh', 'PLO4': 'plo4', 'PLO5': 'plo5', 'PLO6': 'plo6', 'PLO8': 'plo8'}
+# Fixed-limit Hold'em and fixed-limit Omaha hi-lo: every creation gate already
+# accepts them (ScheduledTournamentService GAME_TYPE_MAP, the database creators,
+# BettingStructure); the overwatch decision of 2026-11-15 schedules one of each.
+GAMES = {'NLH': 'nlh', 'PLO4': 'plo4', 'PLO5': 'plo5', 'PLO6': 'plo6', 'PLO8': 'plo8', 'FLH': 'flh', 'FLO8': 'flo8'}
 VARIANTS = {'freezeout', 'bounty', 'progressive_bounty', 'mystery_bounty', 'satellite'}
 ELIGIBLE = {'ANNOUNCED', 'REGISTERING', 'SCHEDULED', 'PENDING'}
 STARTED = {'RUNNING', 'BREAK', 'PAUSED', 'COMPLETED', 'FINISHED'}
@@ -140,6 +143,9 @@ def validate(doc):
         require(type(seats) is int and seats > 0, path + '/terms/table_size', 'Positive coherent table size required')
         if game == 'PLO6':
             require(type(seats) is int and seats <= 7, path + '/terms/table_size', 'Game exceeds card capacity')
+        if game == 'FLO8':
+            # Four hole cards each: ten seats is the decided ceiling for this game.
+            require(type(seats) is int and seats <= 10, path + '/terms/table_size', 'Game exceeds card capacity')
         target = config.get('satelliteTargetName')
         if variant == 'satellite' or target is not None:
             matches = [e for e in doc['events'] if isinstance(e, dict) and isinstance(target, str) and target and isinstance(e.get('name'), str) and (e['name'] == target or e['name'].startswith(target))]

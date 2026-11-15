@@ -51,18 +51,13 @@ describe('Lightning Leave Next Hand waits for the end of the current hand', () =
     expect(tag).toContain('onLeave={requestLeaveAtNextHand}');
     expect(tag).not.toContain('onLeave={handleLeaveTable}');
     expect(tag).toContain('finalLightningDeal.queued || lightningLeaveAfterHand.queued');
-    expect(PAGE).toContain(
-      'else if (lightningLeaveAfterHand.queued) await cancelLightningLeave();'
-    );
+    expect(PAGE).toContain('if (lightningLeaveAfterHand.queued) cancelLightningLeave();');
     // Nothing suppresses the action bar or cancels pre-actions while the hand plays.
     expect(tag).not.toContain('onLeaveIntentChange');
   });
   it('the waiting leave queues during a live hand through the saved queue', () => {
-    const body = PAGE.slice(PAGE.indexOf('const leaveLightningAfterThisHand'));
-    expect(body).toContain(
-      'lightningLeaveAfterHand.queue(stop.inHand && !lightningHeroInLiveHand)'
-    );
-    expect(body).toMatch(/if \(stop.exited && !stop.inHand\) \{\s+await handleLeaveTable\(true\)/);
+    expect(PAGE).toContain("lightningLeaveAfterHand.request('stopping')");
+    expect(PAGE).toContain("if (stop.inHand && !lightningHeroInLiveHand) return 'awaiting-hand'");
     expect(PAGE).toContain('if (!afterLightningHand && lightningRoomRef.current && tableId)');
     const hook = PAGE.slice(PAGE.indexOf('useLightningLeaveAfterHand({'));
     expect(hook).toMatch(
@@ -72,9 +67,9 @@ describe('Lightning Leave Next Hand waits for the end of the current hand', () =
     expect(hook).toMatch(/ready:\s+lightningRoomClosed \|\|\s+\(!!engineSnapshot &&/);
   });
   it('a cancel withdraws the stop and re-arms it for next time', () => {
-    const body = PAGE.slice(PAGE.indexOf('const cancelLightningLeave'));
-    expect(body).toMatch(/resumeLightningPlaying\(room\.clusterId\)/);
-    expect(body).toMatch(/lightningLeaveAfterHand\.clear\(\);\s+stopLightningForLeave\.reset\(\);/);
+    expect(PAGE).toContain('resumeLightningPlaying(room.clusterId, room.poolSessionId)');
+    expect(PAGE).toContain("lightningLeaveAfterHand.request('resuming')");
+    expect(PAGE).toContain('stopLightningForLeave.reset()');
   });
   it('a settled hand is never folded on the way out', () => {
     expect(PAGE).toMatch(/const handStillLive = tableState\.isHandInProgress && !handSettling;/);

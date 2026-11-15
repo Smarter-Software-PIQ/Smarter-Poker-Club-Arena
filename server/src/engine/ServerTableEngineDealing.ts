@@ -1,3 +1,6 @@
+import { confirmedHuman } from './HorseConfirmedSeatRole.js';
+import { horseSavedProfilePresence } from '../services/HorseSavedProfilePresence.js';
+import { publicMemoryDomainFromRules } from './HorsePublicMemoryDomain.js';
 /**
  * ServerTableEngine, layer 5/8 — the dealing loop, blinds refresh, hand deal, hole-card delivery.
  *
@@ -4066,6 +4069,34 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           : undefined
       );
       const preparedController = this.handController;
+      // The upcoming roster can start a read. Only a later FAST with the same
+      // actual dealt seats, original hand, lease and rules can use its result.
+      if (
+        players.some(confirmedHuman) &&
+        players.some((p) => p.is_horse === true) &&
+        players.every((p) => typeof p.is_horse === 'boolean')
+      ) {
+        const lease = this.getEngineLeaseAuthority();
+        const blinds = preparedController.getBlindSnapshot();
+        const domain =
+          blinds && publicMemoryDomainFromRules('table', blinds.ante, blinds.bigBlindAnte);
+        if (lease?.verified && lease.generation && domain) {
+          horseSavedProfilePresence.prime({
+            tableId: this.tableId,
+            handNumber,
+            lease: lease.generation,
+            variant: config.gameVariant,
+            mode: this.isTournamentTable() ? 'tournament' : 'cash',
+            domain,
+            roster: players.map((p) => ({
+              seat: p.seat_number,
+              id: p.user_id,
+              human: confirmedHuman(p),
+            })),
+          });
+        }
+      }
+
       this.currentHandCashRakePolicy =
         !config.isTournament && config.asset !== 'diamonds'
           ? preparedController.getRakeConfigSnapshot()

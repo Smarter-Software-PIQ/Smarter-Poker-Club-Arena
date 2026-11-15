@@ -65,10 +65,12 @@ it('follows the same physical seat into a pool and isolates every other occupanc
   };
   const first = renderHook(useLightningFinalDeal, { initialProps: props });
   act(() => first.result.current.queue());
+  act(() => first.result.current.followIntoRoom('pool-A'));
   first.unmount();
   const room = renderHook(useLightningFinalDeal, {
     initialProps: {
       ...props,
+      poolSessionId: 'pool-A',
       anchor: null as typeof anchor | null,
       currentHand: 49,
       presentedHand: 49,
@@ -79,10 +81,41 @@ it('follows the same physical seat into a pool and isolates every other occupanc
     { userId: 'owner', anchor: { ...anchor, tableId: 'other-table' } },
     { userId: 'owner', anchor: { ...anchor, occupancyId: 'replacement-occupancy' } },
   ]) {
-    room.rerender({ ...props, ...unrelated, currentHand: 49, presentedHand: 49 });
+    room.rerender({
+      ...props,
+      poolSessionId: 'pool-A',
+      ...unrelated,
+      currentHand: 49,
+      presentedHand: 49,
+    });
     expect(room.result.current.queued).toBe(false);
   }
   expect(stop).not.toHaveBeenCalled();
-  await act(async () => room.rerender({ ...props, currentHand: 49, presentedHand: 49 }));
+  await act(async () =>
+    room.rerender({ ...props, poolSessionId: 'pool-A', currentHand: 49, presentedHand: 49 })
+  );
+  expect(stop).toHaveBeenCalledOnce();
+});
+
+it('a pending final deal from room A cannot stop room B reusing the same funded seat', async () => {
+  const stop = vi.fn(async () => {});
+  const props = {
+    userId: 'player',
+    poolSessionId: 'A',
+    anchor: { tableId: 'table', occupancyId: 'same' },
+    currentHand: 1,
+    presentedHand: 1,
+    roomClosed: false,
+    onPresented: stop,
+    onError: vi.fn(),
+  };
+  const view = renderHook(useLightningFinalDeal, { initialProps: props });
+  act(() => view.result.current.queue());
+  await act(async () =>
+    view.rerender({ ...props, poolSessionId: 'B', currentHand: 2, presentedHand: 2 })
+  );
+  expect(view.result.current.queued).toBe(false);
+  expect(stop).not.toHaveBeenCalled();
+  await act(async () => view.rerender({ ...props, currentHand: 2, presentedHand: 2 }));
   expect(stop).toHaveBeenCalledOnce();
 });

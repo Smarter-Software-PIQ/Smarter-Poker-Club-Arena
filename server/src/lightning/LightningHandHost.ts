@@ -1,3 +1,5 @@
+import { confirmedHuman } from '../engine/HorseConfirmedSeatRole.js';
+import { horseSavedProfilePresence } from '../services/HorseSavedProfilePresence.js';
 import { noteLightningHandForBankTheWin } from './LightningBankTheWin.js';
 import { publicMemoryDomainFromRules } from '../engine/HorsePublicMemoryDomain.js';
 import { recheckHorseFeaturesBeforeAcceptance } from '../engine/HorseFeatureAuthority.js';
@@ -125,6 +127,7 @@ import {
 } from '../engine/presentation/handEventFrames.js';
 import { buildDailyMissionHandEvents } from '../engine/dailyMissionEvents.js';
 import type {
+  AcceptedActionOrigin,
   ActionRecord,
   ActionType,
   Card,
@@ -768,6 +771,33 @@ export class LightningHandHost {
       if (variantRefusal) {
         outcome = variantRefusal;
         return void (await this.abandon(variantRefusal));
+      }
+      const lease = this.deps.leaseFor(this.hostTableId);
+      const ante = (this.rules.ante_enabled ?? true) ? Number(this.rules.ante ?? 0) || 0 : 0;
+      const domain = publicMemoryDomainFromRules(
+        'lightning',
+        ante,
+        this.rules.big_blind_ante_enabled === true
+      );
+      if (
+        lease &&
+        domain &&
+        participants.some(confirmedHuman) &&
+        participants.every((p) => typeof p.isHorse === 'boolean')
+      ) {
+        horseSavedProfilePresence.prime({
+          tableId: this.hostTableId,
+          handNumber: this.handNumber,
+          lease: lease.generation,
+          variant: String(this.rules.game_variant || 'nlh'),
+          mode: 'cash',
+          domain,
+          roster: participants.map((p) => ({
+            seat: p.seat,
+            id: p.playerId,
+            human: confirmedHuman(p),
+          })),
+        });
       }
       // Asked above for the matcher's list, which the formation check has
       // just proved is exactly these participants.
@@ -1840,6 +1870,9 @@ export class LightningHandHost {
         userId,
         seat: me.seat,
         horseProfile: this.participants.get(userId)?.horseProfile,
+        savedProfileHumanIds: [...this.participants.values()]
+          .filter(confirmedHuman)
+          .map((p) => p.playerId),
         humanUserIds: [...this.participants.entries()]
           .filter(([, participant]) => participant.isHorse === false)
           .map(([id]) => id),
@@ -2006,7 +2039,7 @@ export class LightningHandHost {
       userId,
       action,
       undefined,
-      'pre_action',
+      'forced',
       action === 'fold' ? 'normal' : undefined
     ).success;
   }
@@ -2336,8 +2369,8 @@ export class LightningHandHost {
     this.disconnect.recordConnectedTimeout(this.timerKey, userId);
     this.telemetry.timeout(this.clusterId, this.handId, userId, this.now());
     if (auth?.legalActions.includes('check'))
-      this.applyAction(userId, 'check', undefined, 'unknown');
-    else this.applyAction(userId, 'fold', undefined, 'unknown', 'normal');
+      this.applyAction(userId, 'check', undefined, 'forced');
+    else this.applyAction(userId, 'fold', undefined, 'forced', 'normal');
   }
 
   private onTimeBankEvent(e: TimeBankEvent): void {
@@ -2444,6 +2477,9 @@ export class LightningHandHost {
         userId,
         seat: me.seat,
         horseProfile: this.participants.get(userId)?.horseProfile,
+        savedProfileHumanIds: [...this.participants.values()]
+          .filter(confirmedHuman)
+          .map((p) => p.playerId),
         humanUserIds: [...this.participants.entries()]
           .filter(([, participant]) => participant.isHorse === false)
           .map(([id]) => id),
@@ -2793,7 +2829,7 @@ export class LightningHandHost {
   private pendingFolds = new Map<
     string,
     {
-      origin: 'player' | 'horse_policy';
+      origin: 'player' | 'pre_action' | 'horse_policy';
       onAccepted?: (record: Readonly<ActionRecord>) => void;
       onAbandoned?: () => void;
     }
@@ -2816,19 +2852,13 @@ export class LightningHandHost {
     if (me.is_folded) return { success: false, error: 'Already folded' };
     if (me.is_all_in || !BETTING_STAGES.has(st.stage) || !this.foldAvailable(userId, st))
       return { success: false, error: 'Fold is not available' };
+    const origin = as?.origin ?? (this.foldFromPreAction ? 'pre_action' : 'player');
     if (st.currentPlayerSeat === me.seat)
-      return this.applyAction(
-        userId,
-        'fold',
-        undefined,
-        as?.origin ?? 'player',
-        type,
-        as?.onAccepted
-      );
+      return this.applyAction(userId, 'fold', undefined, origin, type, as?.onAccepted);
     if (this.actionLock)
       return { success: false, error: 'Action already being processed - try again' };
     this.pendingFolds.set(userId, {
-      origin: as?.origin ?? 'player',
+      origin,
       onAccepted: as?.onAccepted,
       onAbandoned: as?.onAbandoned,
     });
@@ -2850,7 +2880,7 @@ export class LightningHandHost {
     userId: string,
     action: string,
     amount: number | undefined,
-    origin: 'player' | 'pre_action' | 'horse_policy' | 'horse_fallback' | 'unknown',
+    origin: AcceptedActionOrigin,
     foldType?: LightningFoldType,
     onAccepted?: (record: Readonly<ActionRecord>) => void
   ): { success: boolean; error?: string; code?: string } {
@@ -2892,6 +2922,7 @@ export class LightningHandHost {
     // timeout is recorded as one (timeoutAct); every other actor - human or
     // horse alike, never asked which - is timed the same way.
     const decisionMs =
+      origin !== 'forced' &&
       origin !== 'pre_action' &&
       origin !== 'unknown' &&
       this.turnUser === userId &&

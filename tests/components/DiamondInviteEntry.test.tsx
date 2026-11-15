@@ -4,6 +4,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import InvitePage from '../../src/pages/InvitePage';
+import { clearClubUUIDCache } from '../../src/utils/clubIdResolver';
+
+const DIAMOND_ID = 'd1a40000-0000-4000-8000-000000000001';
 
 const mocks = vi.hoisted(() => ({
   from: vi.fn(),
@@ -23,11 +26,12 @@ describe('Diamond invitation entry', () => {
   beforeEach(() => {
     cleanup();
     vi.clearAllMocks();
+    clearClubUUIDCache();
     const query = { select: vi.fn(), eq: vi.fn(), maybeSingle: vi.fn() };
     query.select.mockReturnValue(query);
     query.eq.mockReturnValue(query);
     query.maybeSingle.mockResolvedValue({
-      data: { id: 'diamond-id', name: 'Diamond Arena', asset: 'diamonds' },
+      data: { id: DIAMOND_ID, name: 'Diamond Arena', asset: 'diamonds' },
       error: null,
     });
     mocks.from.mockReturnValue(query);
@@ -40,13 +44,15 @@ describe('Diamond invitation entry', () => {
         <MemoryRouter initialEntries={['/invite/diamond?ref=123']}>
           <Routes>
             <Route path="/invite/:clubId" element={<InvitePage />} />
-            <Route path="/clubs/diamond-id" element={<div>Guarded Diamond Destination</div>} />
+            <Route path={`/clubs/${DIAMOND_ID}`} element={<div>Guarded Diamond Destination</div>} />
           </Routes>
         </MemoryRouter>
       );
       expect(await screen.findByText('Guarded Diamond Destination')).toBeTruthy();
-      expect(mocks.from).toHaveBeenCalledTimes(1);
-      expect(mocks.from).toHaveBeenCalledWith('clubs');
+      // Two reads of clubs and nothing else: the resolver's lookup of the slug
+      // (no tab has resolved it yet) and the club row by the id it answered.
+      expect(mocks.from).toHaveBeenCalledTimes(2);
+      expect(mocks.from.mock.calls.every(([table]) => table === 'clubs')).toBe(true);
       expect(mocks.join).not.toHaveBeenCalled();
       expect(screen.queryByRole('button', { name: /join club/i })).toBeNull();
     }

@@ -69,6 +69,10 @@ describe('V54 station intent survives the actual worker policy graph', () => {
           ploPairedBoardRiverCheck: false,
           riverBluffBaseline: false,
           flopTurnBluffBaseline: false,
+          // The Omaha one-pair river cell (2026-11-15) checks one-pair river
+          // bets on straight- or flush-possible boards, independent of V54;
+          // it is ablated for the same reason (HorseOmahaOnePair.test.ts pins it).
+          omahaOnePairDiscipline: false,
         };
         const d = await original(...args);
         if (args[1].stage === 'river' && args[3].v54RiverBluff === false)

@@ -193,17 +193,26 @@ describe('V15 boats, flag on', () => {
 
 describe('V15 boats is off by default outside PLO5 cash', () => {
   it(
-    'with no flag the brain is unchanged: the under-full still re-raises',
+    'with no flag V15 boats changes nothing: without the river nut-raise rule the under-full still re-raises',
     () => {
+      // Owner ruling 2026-11-14 (hand 59401453, HorseOmahaRiverNutRaise.ts):
+      // only the nuts raise an Omaha river bet. That later rule is held off
+      // here so this still measures the V15 boats default alone.
+      const ruleOff = { omahaRiverNutRaiseOnly: false };
       let aggressive = 0;
       for (const seed of SEEDS) {
-        const a = raisedOnRiver(TENS_FULL, seed, {});
-        expect(a).toBe(raisedOnRiver(TENS_FULL, seed, { v15Boats: false }));
+        const a = raisedOnRiver(TENS_FULL, seed, ruleOff);
+        expect(a).toBe(raisedOnRiver(TENS_FULL, seed, { ...ruleOff, v15Boats: false }));
         if (a === 'raise' || a === 'all_in') aggressive++;
       }
       // Pins that the default really is off; flip this when the league
       // resolves and the default changes, in the same commit.
       expect(aggressive).toBeGreaterThan(0);
+      // With the river rule on (the production default) a full house a bigger
+      // full house beats does not re-raise the river, V15 boats on or off.
+      for (const seed of SEEDS)
+        for (const opts of [{}, { v15Boats: false }])
+          expect(['raise', 'all_in']).not.toContain(raisedOnRiver(TENS_FULL, seed, opts));
     },
     SUITE_TIMEOUT_MS
   );

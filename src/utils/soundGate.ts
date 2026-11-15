@@ -60,4 +60,16 @@ export function persistSoundPreference(enabled: boolean): void {
   } catch {
     /* unavailable */
   }
+  /* Tell every mounted switch (2026-11-14). The gate was readable and silent:
+     a switch that had read it once had no way to learn it had moved, which is
+     how one table's Sounds row went stale when another table changed it. Same
+     shape as the vibration gate's event. */
+  try {
+    window.dispatchEvent(new Event(SOUND_PREFERENCE_EVENT));
+  } catch {
+    /* no window (tests, workers): nothing is mounted to tell */
+  }
 }
+
+/** Fired on `window` whenever the persisted sound preference is written. */
+export const SOUND_PREFERENCE_EVENT = 'ca:sound-preference';

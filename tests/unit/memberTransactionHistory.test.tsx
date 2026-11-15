@@ -205,3 +205,101 @@ it('retires old receipts when a refresh fails and keeps them hidden until Retry 
   finishRetry();
   expect(await screen.findByText('Sent To Second Player')).toBeVisible();
 });
+
+it('pages the combined club book without a person filter and names both parties', async () => {
+  rpc.mockImplementation((_name, args) => ({
+    abortSignal: async () => ({
+      data: Array.from({ length: 26 }, (_, i) => ({
+        id: String(i + 1),
+        created_at: '2026-11-15T05:00:00Z',
+        from_user_id: 'agent',
+        from_name: 'River',
+        to_user_id: 'player',
+        to_name: 'Shark',
+        amount_text: '10.25',
+        transaction_type: 'peer_transfer',
+      })).slice(0, args.p_before_id ? 1 : 26),
+    }),
+  }));
+  render(<MemberTransactionHistory clubId="club" memberId={null} revision={0} scope="club" />);
+  expect(await screen.findAllByText('River Sent To Shark')).toHaveLength(25);
+  fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+  await waitFor(() => expect(screen.getAllByText('River Sent To Shark')).toHaveLength(1));
+  expect(rpc).toHaveBeenLastCalledWith(
+    'fn_cashier_history_feed',
+    expect.objectContaining({
+      p_club_id: 'club',
+      p_scope: 'club',
+      p_person: null,
+      p_kind: 'all',
+      p_before_id: '25',
+    })
+  );
+});
+
+it('applies inclusive Chicago dates with the funding wallet across combined pages and clears them', async () => {
+  rpc.mockImplementation((_name, args) => ({
+    abortSignal: async () => ({
+      data: Array.from({ length: args.p_limit }, (_, i) => ({
+        id: String(i),
+        created_at: '2026-11-01T07:00:00Z',
+        amount_text: '1',
+        transaction_type: 'agent_wallet_send',
+        from_name: 'Sender',
+        to_name: 'Recipient',
+      })),
+    }),
+  }));
+  render(<MemberTransactionHistory clubId="club" memberId={null} revision={0} scope="club" />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Next' }));
+  await waitFor(() =>
+    expect(rpc).toHaveBeenLastCalledWith(
+      'fn_cashier_history_feed',
+      expect.objectContaining({ p_before_id: '24' })
+    )
+  );
+  const change = (label: string, value: string) =>
+    fireEvent.change(screen.getByLabelText(label), { target: { value } });
+  change('Start Date (Chicago)', '2026-11-01');
+  change('End Date (Chicago)', '2026-10-31');
+  change('Funding Wallet', 'member_agent_wallet');
+  const apply = screen.getByRole('button', { name: 'Apply Filters' });
+  const before = rpc.mock.calls.length;
+  fireEvent.click(apply);
+  expect(await screen.findByRole('alert')).toHaveTextContent('End Date');
+  expect(rpc.mock.calls.length).toBe(before);
+  change('End Date (Chicago)', '2026-11-01');
+  fireEvent.click(apply);
+  const selected = {
+    p_from: '2026-11-01 00:00 America/Chicago',
+    p_to: '2026-11-02 00:00 America/Chicago',
+    p_kind: 'funded_agent_wallet',
+    p_person: null,
+  };
+  await waitFor(() =>
+    expect(rpc).toHaveBeenLastCalledWith(
+      'fn_cashier_history_feed',
+      expect.objectContaining({ ...selected, p_before_id: null })
+    )
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Next' }));
+  await waitFor(() =>
+    expect(rpc).toHaveBeenLastCalledWith(
+      'fn_cashier_history_feed',
+      expect.objectContaining({ ...selected, p_before_id: '24' })
+    )
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Clear Filters' }));
+  await waitFor(() =>
+    expect(rpc).toHaveBeenLastCalledWith(
+      'fn_cashier_history_feed',
+      expect.objectContaining({
+        p_kind: 'all',
+        p_person: null,
+        p_from: null,
+        p_to: null,
+        p_before_id: null,
+      })
+    )
+  );
+});

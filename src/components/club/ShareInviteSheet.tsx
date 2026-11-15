@@ -18,13 +18,13 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { copyText, shareLink } from '../../lib/share';
 import { createPortal } from 'react-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import { SpadeConsole } from '../console/SpadeConsole';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { useUserStore } from '../../stores/useUserStore';
 import { reportError } from '../../utils/errorReporter';
-import { IS_NATIVE_BUILD, isNativePlatform } from '../../lib/appBase';
 import {
   getClubInviteStats,
   getMyInviteLink,
@@ -36,20 +36,6 @@ import {
 } from '../../services/ClubInviteService';
 import '../social/ReferralModal.css';
 import './ShareInviteSheet.css';
-
-/**
- * The system share sheet on the app build (src/lib/native/share.ts). A function
- * of its own so IS_NATIVE_BUILD removes the import, and the Capacitor plugin
- * with it, from the web bundle (see StatsShareCard.tsx for why it cannot sit
- * inside the handler's try). Resolves false on the web, where the caller uses
- * navigator.share or the clipboard instead.
- */
-async function shareInviteOnNative(title: string, text: string, url: string): Promise<boolean> {
-  if (!IS_NATIVE_BUILD || !isNativePlatform()) return false;
-  const { nativeShareText } = await import('../../lib/native/share');
-  await nativeShareText(title, text, url);
-  return true;
-}
 
 export interface ShareInviteSheetProps {
   isOpen: boolean;
@@ -183,10 +169,7 @@ export function ShareInviteSheet({
     if (!link) return;
     const epoch = scopeEpoch.current;
     setCopyError(false);
-    try {
-      await navigator.clipboard.writeText(`${shareText}\n\n${link.shortUrl}`);
-    } catch (err) {
-      reportError(err, 'ShareInviteSheet.copy');
+    if (!(await copyText(`${shareText}\n\n${link.shortUrl}`, 'ShareInviteSheet.copy'))) {
       if (scopeEpoch.current === epoch && renderedScope.current === scopeIdentity)
         setCopyError(true);
       return;
@@ -203,22 +186,24 @@ export function ShareInviteSheet({
     if (!link) return;
     const epoch = scopeEpoch.current;
     setShareError(false);
-    try {
-      if (await shareInviteOnNative(clubName, shareText, link.shortUrl)) return;
-      if (scopeEpoch.current !== epoch || renderedScope.current !== scopeIdentity) return;
-      if (navigator.share) {
-        await navigator.share({ title: clubName, text: shareText, url: link.shortUrl });
-      } else {
-        await handleCopy();
-      }
-    } catch (err) {
-      // AbortError is the player closing the share sheet, not a failure.
-      if ((err as Error)?.name !== 'AbortError') {
-        reportError(err, 'ShareInviteSheet.share');
+    /* src/lib/share.ts: native sheet, Web Share, then the copy. A sheet that
+       refuses falls through to the copy instead of ending on an error. */
+    const outcome = await shareLink({
+      source: 'ShareInviteSheet.share',
+      title: clubName,
+      text: shareText,
+      url: link.shortUrl,
+      clipboardText: `${shareText}\n\n${link.shortUrl}`,
+    });
+    if (scopeEpoch.current !== epoch || renderedScope.current !== scopeIdentity) return;
+    if (outcome === 'copied') {
+      setCopied(true);
+      if (copiedTimer.current) clearTimeout(copiedTimer.current);
+      copiedTimer.current = setTimeout(() => {
         if (scopeEpoch.current === epoch && renderedScope.current === scopeIdentity)
-          setShareError(true);
-      }
-    }
+          setCopied(false);
+      }, 2000);
+    } else if (outcome === 'failed') setShareError(true);
   };
 
   const figures: Array<[string, number | null]> = [

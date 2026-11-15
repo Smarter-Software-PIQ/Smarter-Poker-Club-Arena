@@ -28,6 +28,9 @@ import {
   LIGHTNING_EVAL_PAIRS_SCHEMA,
   LIGHTNING_EVAL_SCHEMA,
   LIGHTNING_EVAL_SEEDS,
+  LIGHTNING_EVAL_SELECTION,
+  LIGHTNING_EVAL_FINAL,
+  LIGHTNING_EVAL_STAGE_HANDS_PER_CELL,
   LIGHTNING_EVAL_SMOKE,
   classifyLightningEntry,
   createLightningDryStreakTracker,
@@ -136,6 +139,13 @@ describe('the paired Lightning evaluation harness', () => {
     expect(new Set(all).size).toBe(all.length);
     for (const config of [LIGHTNING_EVAL_SMOKE, LIGHTNING_EVAL_FULL])
       for (const seed of config.seeds) expect(lightningEvalSeedClassOf(seed)).toBe('development');
+    // The staged configurations deal only their own class, on the declared matrix.
+    for (const config of [LIGHTNING_EVAL_SELECTION, LIGHTNING_EVAL_FINAL]) {
+      for (const seed of config.seeds)
+        expect(lightningEvalSeedClassOf(seed)).toBe(config.seedClass);
+      expect(config.cells.length).toBe(LIGHTNING_EVAL_FULL.cells.length);
+      expect(config.handsPerCell).toBe(LIGHTNING_EVAL_STAGE_HANDS_PER_CELL);
+    }
     // The declared full matrix: every variant, table size, stack and field.
     expect(LIGHTNING_EVAL_FULL.cells.length).toBe(3 * 3 * 3 * (LIGHTNING_EVAL_FIELDS.length + 1));
     expect(new Set(LIGHTNING_EVAL_SMOKE.cells.map((c) => c.variant)).size).toBe(3);
@@ -689,11 +699,17 @@ describe('the paired Lightning evaluation harness', () => {
  * line per paired hand (the input of the merge below).
  */
 const requested = process.env.LIGHTNING_EVAL_CONFIG;
-describe.runIf(requested === 'smoke' || requested === 'full')(
+const STAGED: Record<string, LightningEvalConfig> = {
+  smoke: LIGHTNING_EVAL_SMOKE,
+  full: LIGHTNING_EVAL_FULL,
+  selection: LIGHTNING_EVAL_SELECTION,
+  final: LIGHTNING_EVAL_FINAL,
+};
+describe.runIf(requested !== undefined && requested in STAGED)(
   'the paired Lightning evaluation runner',
   () => {
     it('runs the declared configuration and writes its report', async () => {
-      const config = requested === 'full' ? LIGHTNING_EVAL_FULL : LIGHTNING_EVAL_SMOKE;
+      const config = STAGED[requested!]!;
       const outDir = process.env.LIGHTNING_EVAL_OUT;
       if (!outDir) throw new Error('LIGHTNING_EVAL_OUT (a directory) is required');
       const range = process.env.LIGHTNING_EVAL_CELLS?.split(':').map(Number);

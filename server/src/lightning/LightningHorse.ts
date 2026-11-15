@@ -86,6 +86,7 @@ export interface LightningHorseTurn {
   earlyLook?: boolean;
   /** PLO PRESUMPTION (2026-10-25): the participants a person plays. */
   humanUserIds?: readonly string[];
+  savedProfileHumanIds?: readonly string[];
   sevenDeuceEnabled?: boolean;
   sevenDeuceBountyBB?: number;
 }
@@ -191,6 +192,7 @@ export function buildLightningHorseSnapshot(turn: LightningHorseTurn): LiveHorse
   if (turn.handJournalCoordinate) noteFire('lightning_original_hand_bound');
   else noteFire('lightning_original_hand_unbound');
   const snapshot: LiveHorseDecisionSnapshot = {
+    savedProfileHumanIds: turn.savedProfileHumanIds ? [...turn.savedProfileHumanIds] : undefined,
     handJournalContext: captureHorseHandJournalContext(turn.actions),
     ...(turn.handJournalCoordinate ? { handJournalCoordinate: turn.handJournalCoordinate } : {}),
     generation: turn.generation,

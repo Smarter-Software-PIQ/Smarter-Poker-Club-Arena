@@ -77,7 +77,18 @@ const decide = (input: ReturnType<typeof plo4ReferenceSpot>, phase10Plo4: Plo4Li
     input.state,
     'balanced',
     {},
-    { telemetry: false, mind: false, decisionTimeMs: 0, phase10Plo4, phase10EvidenceMode: true }
+    // The 2026-11-14 river rule (only the nuts raise an Omaha river bet,
+    // HorseOmahaRiverNutRaise.ts) is a later, independent wager rule that
+    // turns the non-nut flush raise Phase 7 selects here into a call. It is
+    // held off so this still measures Phase 10 against Phase 7 alone.
+    {
+      telemetry: false,
+      mind: false,
+      decisionTimeMs: 0,
+      phase10Plo4,
+      phase10EvidenceMode: true,
+      omahaRiverNutRaiseOnly: false,
+    }
   );
 };
 

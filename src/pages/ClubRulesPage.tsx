@@ -6,6 +6,7 @@
  */
 
 import { useState, useEffect, useRef } from 'react';
+import { writeClipboard } from '../lib/share';
 import { isClubStaff, normaliseRole, type ClubRole } from '../types/clubRoles';
 import { useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
@@ -13,11 +14,8 @@ import { masterBus } from '../core/MasterBus';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { useToast } from '../components/common/Toast';
 import { sanitizeInput } from '../utils/sanitizeInput';
-import {
-  resolveClubIdFilter,
-  resolveClubUUID,
-  resolveClubUUIDStrict,
-} from '../utils/clubIdResolver';
+import { resolveClubUUID, resolveClubUUIDStrict } from '../utils/clubIdResolver';
+import { resolveClubLookupFilter } from '../utils/strictClubIdResolver';
 import { useVisibilityRefresh } from '../hooks/useVisibilityRefresh';
 import './ClubRulesPage.css';
 import PageSkeleton from '../components/common/PageSkeleton';
@@ -157,9 +155,6 @@ export default function ClubRulesPage() {
     setLoadError(false);
     setLoading(true);
     try {
-      // Load club info
-      const { column: clubCol, value: clubVal } = resolveClubIdFilter(clubId!);
-
       // SWR: show cached rules instantly
       const swrKey = `rules_cache_${user?.id || 'signed-out'}_${clubId}`;
       try {
@@ -179,6 +174,8 @@ export default function ClubRulesPage() {
          club has published no rules": the page rendered empty (or a stale
          sessionStorage copy), set no loadError, said nothing, and the owner
          lost the Edit button at the same time. */
+      const { column: clubCol, value: clubVal } = await resolveClubLookupFilter(clubId!);
+      if (!isCurrent()) return;
       const { data: club, error: clubErr } = await supabase
         .from('clubs')
         .select('name, settings, owner_id')
@@ -348,7 +345,7 @@ export default function ClubRulesPage() {
               className: 'rules-copy',
               disabled: !rules,
               onClick: () => {
-                void navigator.clipboard?.writeText(rules).then(
+                void writeClipboard(rules).then(
                   () => toast.success('Rules Copied'),
                   () => toast.error('Could Not Copy')
                 );

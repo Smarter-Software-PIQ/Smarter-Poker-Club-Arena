@@ -1,6 +1,7 @@
 import { publicMemoryDomainKey } from '../engine/HorsePublicMemoryDomain.js';
 import { supabase } from './supabase.js';
 import {
+  copyLongCounters,
   validOpponentProfile,
   type DurableOpponentProfile,
 } from '../engine/HorseOpponentMemory.js';
@@ -34,7 +35,10 @@ type Page = (
 const readPage: Page = (afterUserId, signal) => {
   let query = supabase
     .from('horse_exact_profiles')
-    .select('user_id,variant,mode,size,counters,observed_hands,initialized,public_memory_domain')
+    // Every column (2026-11-15): the long participation window (long_counters) arrives with its row once its
+    // migration is installed, and a named column that is not yet installed would fail the whole boot read.
+    // validOpponentProfile checks the fields it needs; the extra ones are not copied.
+    .select('*')
     .gt('observed_hands', 0);
   if (afterUserId !== null) query = query.gt('user_id', afterUserId);
   return query
@@ -91,7 +95,23 @@ export async function readHorsePooledPublicBootstrap(
         ]);
         if (seen.has(key)) return null;
         seen.add(key);
-        profiles.push(row);
+        // Keep the profile's own fields only (the read is every column, see readPage).
+        profiles.push({
+          user_id: row.user_id,
+          variant: row.variant,
+          mode: row.mode,
+          size: row.size,
+          counters: row.counters,
+          observed_hands: row.observed_hands,
+          initialized: row.initialized,
+          ...(row.public_memory_domain !== undefined
+            ? { public_memory_domain: row.public_memory_domain }
+            : {}),
+          ...(row.last_accepted_hand_id !== undefined
+            ? { last_accepted_hand_id: row.last_accepted_hand_id }
+            : {}),
+          ...copyLongCounters(row),
+        });
         kept++;
       }
       if (!full) {

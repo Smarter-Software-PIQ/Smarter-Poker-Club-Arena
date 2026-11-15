@@ -42,11 +42,13 @@ describe('Settings async route isolation', () => {
       loadingRef: { current: false },
       activeSettingsScopeRef,
       settingsReadVersionRef,
-      resolveClubIdFilter: () => ({ column: 'slug', value: 'shark-club' }),
-      retryFetch: () =>
-        new Promise((resolve) => {
-          settle = resolve;
-        }),
+      resolveClubLookupFilter: async () => ({ column: 'slug', value: 'shark-club' }),
+      retryFetch: vi.fn(
+        () =>
+          new Promise((resolve) => {
+            settle = resolve;
+          })
+      ),
       setSettings,
       setResolvedClubIdentity,
       setLoading,
@@ -55,6 +57,8 @@ describe('Settings async route isolation', () => {
       ...Object.values(context)
     );
     const pending = load(() => true, { silent: true });
+    // The club read starts once the route's club lookup filter has resolved.
+    await vi.waitFor(() => expect(context.retryFetch).toHaveBeenCalledTimes(1));
     activeSettingsScopeRef.current = 'another-club:operator';
     settingsReadVersionRef.current += 1;
     settle({ id: 'previous-club', name: 'Previous Club', owner_id: 'operator' });
