@@ -1,0 +1,5 @@
+{
+  "_owner": "agent/claude/club-data-keeps-pnl-boundaries. Migration 20261115015159 (append-only copy of every ready pnl_boundary accounting close certificate; installed at merge through apply-merged-migration).",
+  "tables": ["ca_union_pnl_boundary_capture", "ca_union_pnl_boundary_capture_failures"],
+  "functions": ["fn_ca_union_pnl_boundary_capture", "fn_ca_union_pnl_boundary_capture_immutable"]
+}
