@@ -36,7 +36,7 @@ export function validBetPresets(value: unknown, max: number): value is number[] 
         Number.isFinite(n) &&
         n >= 1 &&
         n <= max &&
-        Math.abs(n * 10 - Math.round(n * 10)) < 1e-7
+        Math.abs(n * 100 - Math.round(n * 100)) < 1e-7
     )
   );
 }

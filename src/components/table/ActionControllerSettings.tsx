@@ -32,7 +32,7 @@ function PresetEditor({
   const apply = () => {
     const parsed = draft.map((value) => (value.trim() === '' ? NaN : Number(value)));
     if (!validBetPresets(parsed, max)) {
-      setError(`Enter Four Values From 1 To ${max}, With At Most One Decimal Place.`);
+      setError(`Enter Four Values From 1 To ${max}, With At Most Two Decimal Places.`);
       return;
     }
     onApply(parsed);

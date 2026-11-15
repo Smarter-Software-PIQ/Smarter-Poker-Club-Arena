@@ -254,6 +254,7 @@ async function verifyCase(
         v56PressureCounterfactual: 'off',
         captureV56PressureWitness: true,
         styleStates: state.style ?? null,
+        optionStates: state.options ?? null,
       })
     );
     if (journalHash(horseJournalJson(input)) !== originalDigest) return finish('original_mutated');

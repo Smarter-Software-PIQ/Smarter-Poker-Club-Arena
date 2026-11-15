@@ -10,6 +10,9 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { sliceStatement } from '../helpers/sourceWindow';
 
 vi.mock('../../src/core/MasterBus', () => ({
   masterBus: { emit: vi.fn(), subscribe: vi.fn(() => () => {}) },
@@ -62,6 +65,29 @@ describe('the Seat Change row', () => {
 
   it('is hidden while the table has not said which it is', () => {
     const menu = open({ seatChangeEnabled: false });
+    expect(menu.textContent).not.toContain('Seat Change');
+  });
+});
+
+/* NOT AT A TOURNAMENT (2026-11-15). Seen live at a running MTT table: the menu
+   offered "Seat Change ON", a switch for the must-move button that only cash
+   cluster tables draw, so pressing it changed nothing on the screen. The page
+   now reports seat change off at a tournament, and not as Lightning, so the
+   row above is not drawn at all. */
+describe('at a tournament table', () => {
+  const TABLE_PAGE = readFileSync(resolve(__dirname, '../../src/pages/TablePage.tsx'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
+
+  it('the page reports seat change off', () => {
+    const enabled = sliceStatement(TABLE_PAGE, 'const seatChangeEnabled =');
+    expect(enabled).toMatch(/^const seatChangeEnabled =\s*!tableState\.isTournament &&/);
+  });
+
+  it('and not as Lightning, so the menu draws no Seat Change row', () => {
+    const offInLightning = sliceStatement(TABLE_PAGE, 'const seatChangeOffInLightning =');
+    expect(offInLightning).not.toMatch(/isTournament/);
+    const menu = open({ seatChangeEnabled: false, seatChangeOffInLightning: false });
     expect(menu.textContent).not.toContain('Seat Change');
   });
 });

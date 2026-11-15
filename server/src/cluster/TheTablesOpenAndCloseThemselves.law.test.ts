@@ -738,8 +738,10 @@ describe('the deep dive after the first live cycle (20260905050000)', () => {
 /**
  * THE MUST MOVE LOBBY (Dan 2026-09-05, 20260905060000). The roster is the
  * must-move order, a seat change once per stay (never from or to Main 1),
- * swaps land both chairs at once, and the two entries: a seat change posts,
- * a move by the game does not. The floor is for winners.
+ * swaps land both chairs at once, and the two entries as first shipped: a
+ * seat change posted, a move by the game did not. Since 2026-11-15 no move
+ * posts (docs/LAWS.md, "A moved player never posts to enter"); the entry
+ * assertions below read the immutable 2026-09-05 file. The floor is for winners.
  */
 const LOBBY = read(
   'supabase/migrations/20260905060000_the_must_move_lobby_a_seat_change_and_the_order_you_joined.sql'
@@ -839,7 +841,7 @@ describe('the must move lobby: the roster is the order, the seat change is once,
     );
   });
 
-  it('entry by reason: a seat change posts, a move by the game does not', () => {
+  it('entry by reason as first shipped (2026-09-05 file; superseded 2026-11-15)', () => {
     expect(exec).toMatch(
       /v_hold := CASE WHEN m\.reason = 'seat_change' THEN 'waiting' ELSE 'moved' END/
     );

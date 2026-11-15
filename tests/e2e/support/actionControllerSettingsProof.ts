@@ -2,8 +2,8 @@ import { expect, type Locator } from '@playwright/test';
 
 const SAVED_CONTROLLER = {
   color: 'green',
-  preflop: [2.2, 2.8, 3.3, 4.5],
-  postflop: [25, 40, 65, 125],
+  preflop: [2.25, 2.8, 3.3, 4.5],
+  postflop: [25, 33.33, 66.67, 125],
 };
 
 /** Reserved-account production proof. No action, buy-in or chip movement occurs. */
