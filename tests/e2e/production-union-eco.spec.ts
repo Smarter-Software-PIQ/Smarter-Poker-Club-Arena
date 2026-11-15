@@ -1,12 +1,17 @@
 import { test, expect } from '@playwright/test';
 import { readEcoIdentity, ECO_CASE } from '../../scripts/verification-harness/cashier-ui-proof.mjs';
 import { unionEcoComponents } from '../../src/utils/unionEco';
-import { compactChips } from '../../src/utils/format';
+import { formatWalletChips } from '../../src/utils/format';
 import { titleCase } from '../../src/utils/titleCase';
+import {
+  parseUnionStatementBoard,
+  unionStatementPayLine,
+  unionStatementWeekLabel,
+} from '../../src/utils/unionStatementBoard';
 
 const UNION = 'fade0000-0000-0000-0000-000000000001';
-const displayedMoney = (n: number) =>
-  n !== 0 && Math.abs(n) < 1 ? (n < 0 ? 'Under 1 Owed' : 'Under 1') : compactChips(n);
+// Statement figures print exactly as stored (owner specification 2026-11-14).
+const displayedMoney = (n: number) => formatWalletChips(n);
 
 test(ECO_CASE, async ({ page }) => {
   test.setTimeout(120000);
@@ -97,6 +102,57 @@ test(ECO_CASE, async ({ page }) => {
       'The displayed lane must match its recorded amount'
     ).toBe(true);
   }
+  // Owner specification 2026-11-14, item 8: every stored invoice of the
+  // selected week shows its 2 AM Chicago week, issuer, recipient and who pays
+  // whom, and the union's own house row is listed apart. Values are compared,
+  // never printed.
+  const parsed = parseUnionStatementBoard(board, UNION, null);
+  const boardWeek = unionStatementWeekLabel(parsed.period_start_at, parsed.period_end_at);
+  expect(Boolean(boardWeek), 'The board must carry its stored week instants').toBe(true);
+  expect(
+    (await page.getByText(`Week: ${boardWeek}`, { exact: true }).count()) === 1,
+    'The selected week must print as its Chicago boundaries'
+  ).toBe(true);
+  const unionLabel = titleCase(String(parsed.union_name ?? ''));
+  const houseRegion = page.getByRole('region', { name: 'Union House Club Statement' });
+  for (const statement of parsed.clubs.filter((row) => row.status !== 'missing')) {
+    const clubLabel = titleCase(statement.club_name);
+    const control = page.getByRole('button', {
+      name: `${clubLabel} Statement Details`,
+      exact: true,
+    });
+    expect(
+      (await houseRegion
+        .getByRole('button', { name: `${clubLabel} Statement Details`, exact: true })
+        .count()) === (statement.union_house ? 1 : 0),
+      'The house row, and only the house row, must be listed apart'
+    ).toBe(true);
+    if ((await control.getAttribute('aria-expanded')) !== 'true') await control.click();
+    const lines = await page
+      .locator(`dl[aria-label="${clubLabel} Statement Document"] > div`)
+      .evaluateAll((rows) =>
+        Object.fromEntries(
+          rows.map((row) => [
+            row.querySelector('dt')?.textContent ?? '',
+            row.querySelector('dd')?.textContent ?? '',
+          ])
+        )
+      );
+    const square = statement.direction === 'square' || statement.amount === 0;
+    const payLine = unionStatementPayLine(statement, clubLabel, unionLabel);
+    const week = unionStatementWeekLabel(statement.period_start_at, statement.period_end_at);
+    expect(
+      Boolean(week) &&
+        String(lines.Week ?? '').startsWith(String(week)) &&
+        lines.Invoice === statement.invoice_number &&
+        lines['Issued By'] === unionLabel &&
+        String(lines['Issued To'] ?? '').startsWith(clubLabel) &&
+        lines['Amount Due'] ===
+          (square ? payLine : `${payLine} ${displayedMoney(Math.abs(statement.amount))}`),
+      'Each stored invoice must show its week, number, parties and who pays whom exactly'
+    ).toBe(true);
+  }
+
   await page.evaluate(() => {
     const state = window as unknown as { ecoCsv?: Promise<string> };
     const original = URL.createObjectURL;
@@ -119,6 +175,14 @@ test(ECO_CASE, async ({ page }) => {
       csv.includes('tournament_eco_amount') &&
       components.every((c) => csv.includes(c.record_id!)),
     'CSV must retain both distinct recorded lane identities'
+  ).toBe(true);
+  expect(
+    typeof csv === 'string' &&
+      csv.includes('payer_pays_payee') &&
+      parsed.clubs.every(
+        (row) => row.status === 'missing' || csv.includes(String(row.invoice_number))
+      ),
+    'CSV must carry every stored invoice with its week and parties'
   ).toBe(true);
   expect(
     mutationAttempted,

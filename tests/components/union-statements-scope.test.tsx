@@ -842,6 +842,46 @@ describe('the five stored invoices for the week ending 2026-11-09', () => {
     expect(screen.getByText(/No Rakeback Was Paid To Midway Union For This Week/)).toBeVisible();
   });
 
+  it('shows every stored document exactly as the signed-in live check reads it', async () => {
+    const { default: fixture } =
+      await import('../fixtures/union-invoice-week-2026-11-02/board.json');
+    const { parseUnionStatementBoard, unionStatementPayLine, unionStatementWeekLabel } =
+      await import('../../src/utils/unionStatementBoard');
+    const { formatWalletChips } = await import('../../src/utils/format');
+    await load();
+    const parsed = parseUnionStatementBoard(structuredClone(fixture), UNION, null);
+    const house = screen.getByRole('region', { name: 'Union House Club Statement' });
+    for (const statement of parsed.clubs) {
+      const label = statement.club_name;
+      expect(house.querySelectorAll(`button[aria-label="${label} Statement Details"]`).length).toBe(
+        statement.union_house ? 1 : 0
+      );
+      open(label);
+      const rows = [
+        ...document.querySelectorAll(`dl[aria-label="${label} Statement Document"] > div`),
+      ];
+      const lines = Object.fromEntries(
+        rows.map((row) => [
+          row.querySelector('dt')?.textContent ?? '',
+          row.querySelector('dd')?.textContent ?? '',
+        ])
+      );
+      const square = statement.direction === 'square' || statement.amount === 0;
+      const payLine = unionStatementPayLine(statement, label, 'Midway Union');
+      expect(lines.Invoice).toBe(statement.invoice_number);
+      expect(
+        lines.Week.startsWith(
+          unionStatementWeekLabel(statement.period_start_at, statement.period_end_at)!
+        )
+      ).toBe(true);
+      expect(lines['Issued By']).toBe('Midway Union');
+      expect(lines['Issued To'].startsWith(label)).toBe(true);
+      expect(lines['Amount Due']).toBe(
+        square ? payLine : `${payLine} ${formatWalletChips(Math.abs(statement.amount))}`
+      );
+    }
+  });
+
   it('exports every document with its week, parties, direction and exact figures', async () => {
     await load();
     fireEvent.click(screen.getByRole('button', { name: 'Export CSV' }));
