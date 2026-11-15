@@ -26,7 +26,7 @@ Supplied by hand: the opponents are scripts (sustained maniac, gear-changer swit
 
 ## Value
 
-Status: MET
+Status: MET for count time (F1). Read time (F1b): NOT MEASURED, offline cells queued (AB-EVALUATION-2.md section 0.8, judged by the default-on harm rule); no PASS is claimed for F1b.
 
 The change acts on a read, not on one node, so the value is measured per paired deal over whole sessions (V, candidate 26b7604b, F1 alone switched on in arm A). Three opponent ranges, one of them value-only:
 
@@ -49,6 +49,8 @@ Deals: flh 6 seats 1,841 / 4,694 / 8,119; flo8 6 seats 685 / 2,367 / 4,107; flh 
 
 Sensitivity: positive against the wide range, zero against value only (a tight-value bettor's bet rate stays under the envelope with or without the probe discount, L section 4, so no read changes), and between zero and +0.29 against the gear-changer, which was the declared risk cell (a half-life-30 read lags each gear change). These are simulated values against scripted opponents, not production results.
 
+F1b (read time, follow-up pull request): its value is NOT MEASURED. Every number above is F1 at count time (snapshot 26b7604b). The declared F1b cells (AB-EVALUATION-2.md section 0.8: a sustained maniac whose profile carries a seeded no-limit probe history, for value; the Horse field with the same seeding, for reach; arm B = F1 alone) are queued and judged only by the harm rule (any validated cell below -1 - 2 SE = harm).
+
 ## Continuation
 
 Status: MET
@@ -57,7 +59,7 @@ Met offline; the one part that is live-only (how a real person who plays like a 
 
 ## Reach
 
-Status: MET
+Status: MET for count time (F1). Read time (F1b): NOT MEASURED (the F1b paragraph below is a code argument; offline reach cells queued, AB-EVALUATION-2.md section 0.8).
 
 Human-facing decisions that change today: none. Since 2026-11-03 no person has sat at a fixed-limit table (Q section 2), and no human record holds a probe tally (the tallies are memory only, rebuilt at each worker boot; Q section 1).
 
@@ -77,7 +79,7 @@ Gated in code to hands whose betting structure is `fixed_limit` (`bettingStructu
 
 Status: MET
 
-`fixed_limit_bet_not_a_probe_seen` (registered in `HorseDataLedger.ts`) fires for each checked-to postflop bet in a fixed-limit hand that is counted without a probe tally; with the default on it is expected to fire at every fixed-limit table, and its silence while fixed-limit tables run means the default is not in effect. On fixed-limit decisions `opponent_read_probe_bets_discounted` no longer fires (F1b); `fixed_limit_read_probe_discount_withheld` (registered in `HorseDataLedger.ts`) fires instead each time a fixed-limit read was left whole that a player's no-limit/pot-limit probe share would have discounted, so its count is the live reach of F1b.
+`fixed_limit_bet_not_a_probe_seen` (registered in `HorseDataLedger.ts`) fires for each checked-to postflop bet in a fixed-limit hand that is counted without a probe tally; with the default on it is expected to fire at every fixed-limit table, and its silence while fixed-limit tables run means the default is not in effect. On fixed-limit decisions `opponent_read_probe_bets_discounted` no longer fires (F1b); `fixed_limit_read_probe_discount_withheld` (registered in `HorseDataLedger.ts`) fires instead, inside `HorseMind.probeAdjusted` only, each time a fixed-limit read was left whole that a player's no-limit/pot-limit probe share would have discounted. It counts read calls, not decisions (up to three calls per opponent read), and the three direct sites (`omahaTightReadOf`, `styleRead`, `streetBullyRead`) do not receipt, so it is evidence that F1b engages, not a count of the decisions it changes.
 
 ## Limits
 

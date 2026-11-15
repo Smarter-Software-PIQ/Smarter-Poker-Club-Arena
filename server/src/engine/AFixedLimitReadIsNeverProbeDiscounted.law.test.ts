@@ -32,9 +32,11 @@ import {
   type ReadScope,
 } from './HorseMind.js';
 import {
+  exploitEnvelopeFor,
   isPostflopManiac,
   opponentExploitRead,
   probeAdjustedCounters,
+  statRead,
 } from './HorseOpponentExploit.js';
 import { omahaTightRead } from './HorseOmahaTightOpponent.js';
 import { HorseLogic, type HorseGameStateV2 } from './HorseLogic.js';
@@ -249,6 +251,78 @@ describe('a fixed-limit read is never probe-discounted', () => {
     const ploOff = readAt('omaha:hu', 'plo4', undefined, () => HorseMind.styleRead(OPP));
     HorseMind.setFixedLimitBetsAreNeverProbes(true);
     expect(readAt('omaha:hu', 'plo4', undefined, () => HorseMind.styleRead(OPP))).toEqual(ploOff);
+  });
+
+  it('streetBullyRead: the counter fallback (presumed read, no flop-stab row) takes no probe share at fixed limit, and keeps it at pot limit', () => {
+    // The fallback inside streetBullyRead runs only when the read gives no
+    // betCheckedTo of its own (an Omaha read the presumption supplied) and
+    // there is no flop-stab row for this scope and player (as after a worker
+    // boot, when the counters come from the durable store and no flop has
+    // been seen yet). Ten passive fixed-limit hands keep the preflop evidence
+    // under PRESUMPTION_PROOF_MIN_OPPS, so the flo8 read stays presumed.
+    HorseMind.setFixedLimitBetsAreNeverProbes(true);
+    const passiveBettorHand = () => {
+      const out: ActionRecord[] = [];
+      const push = (userId: string, action: string, amount: number, stage: string) =>
+        out.push({
+          seat: userId === HERO ? 1 : 2,
+          userId,
+          action,
+          amount,
+          timestamp: ts++,
+          stage,
+        } as ActionRecord);
+      push(OPP, 'call', BB / 2, 'preflop');
+      push(HERO, 'check', 0, 'preflop');
+      for (const [stage, bet] of [
+        ['flop', 2],
+        ['turn', 4],
+        ['river', 4],
+      ] as const) {
+        push(HERO, 'check', 0, stage);
+        push(OPP, 'bet', bet, stage);
+        push(HERO, 'call', bet, stage);
+      }
+      return out;
+    };
+    feed(10, passiveBettorHand, 'omaha:hu', 'flo8', 'fixed_limit');
+    feed(30, noLimitProbeHand, 'omaha:full', 'plo4', 'pot_limit');
+    feed(10, noLimitPotBetHand, 'omaha:full', 'plo4', 'pot_limit');
+    const s = HorseMind.getStats(OPP)!;
+    expect(s.ctBets).toBe(120);
+    expect(s.ctProbes).toBe(90);
+    (HorseMind as unknown as { flopStabCounters: Map<string, unknown> }).flopStabCounters.delete(
+      `omaha:hu|${OPP}`
+    );
+    expect(HorseMind.getFlopStabCounters(OPP, 'omaha:hu')).toBeUndefined();
+    const raw = HorseMind.getExploitCounters(OPP, 'omaha:hu')!;
+    expect(raw.betCheckedToOpp).toBeGreaterThan(0);
+    const adjusted = probeAdjustedCounters(raw, s.ctBets, s.ctProbes);
+    const want = (c: typeof raw, variant: string) =>
+      statRead(
+        c.betCheckedTo,
+        c.betCheckedToOpp,
+        exploitEnvelopeFor('omaha:hu', variant)!.betCheckedTo,
+        ['high']
+      ).mean;
+    const bully = () => HorseMind.streetBullyRead(OPP);
+    // The path is the presumed one.
+    const presumed = readAt('omaha:hu', 'flo8', 'fixed_limit') as { presumed?: boolean } | null;
+    expect(presumed?.presumed).toBe(true);
+    // Fixed limit, switch on: the whole counters.
+    const on = readAt('omaha:hu', 'flo8', 'fixed_limit', bully) as { stabRate: number };
+    expect(on.stabRate).toBeCloseTo(want(raw, 'flo8'), 12);
+    // Switch off: discounted exactly as before.
+    HorseMind.setFixedLimitBetsAreNeverProbes(false);
+    const off = readAt('omaha:hu', 'flo8', 'fixed_limit', bully) as { stabRate: number };
+    expect(off.stabRate).toBeCloseTo(want(adjusted, 'flo8'), 12);
+    expect(on.stabRate).toBeGreaterThan(off.stabRate);
+    // Pot limit (the same counters read as a plo4 decision): discounted, identical on and off.
+    const ploOff = readAt('omaha:hu', 'plo4', 'pot_limit', bully);
+    HorseMind.setFixedLimitBetsAreNeverProbes(true);
+    const ploOn = readAt('omaha:hu', 'plo4', 'pot_limit', bully) as { stabRate: number };
+    expect(ploOn).toEqual(ploOff);
+    expect(ploOn.stabRate).toBeCloseTo(want(adjusted, 'plo4'), 12);
   });
 
   it('keys on the betting structure, not the variant name: plo4 card rules with fixed-limit betting are a fixed-limit read', () => {
