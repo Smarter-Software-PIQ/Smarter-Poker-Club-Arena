@@ -29,6 +29,7 @@
  *     // window-ok: <why this is not a source pin>
  */
 import { describe, it, expect } from 'vitest';
+import { execFileSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { sliceYamlBlock } from '../helpers/sourceWindow';
@@ -55,6 +56,43 @@ function collect(dir: string, out: string[] = []): string[] {
 }
 
 /** Blank comments so a doc comment ABOUT the bad pattern is not an instance of it. */
+// THE SCAN READS ONLY FILES THAT CAN HOLD AN OFFENDER (2026-11-15).
+// Reading all ~6,000 test files one by one took 30-92 s on the shared SSD while
+// other lanes' gates ran, and timed out every pre-push on the Mac (load 20-46).
+// A window is a `.slice(` call in a suite that reads source (`readFileSync`), so
+// a file without both strings cannot be an offender. git grep finds the files
+// holding both, in parallel; this suite then applies the same rules to exactly
+// those files. Untracked test files are included; the same directories are
+// skipped. Without git (or on any git error) it falls back to reading every
+// file, as before.
+function candidates(): string[] {
+  try {
+    const out = execFileSync(
+      'git',
+      [
+        'grep',
+        '-l',
+        '--untracked',
+        '--all-match',
+        '-e',
+        'readFileSync',
+        '-e',
+        '\\.slice(',
+        '--',
+        ...DIRS.flatMap((d) => [`${d}/*.test.ts`, `${d}/*.test.tsx`]),
+      ],
+      { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }
+    );
+    return out
+      .split('\n')
+      .filter((rel) => TEST_FILE.test(rel) && !rel.split('/').some((part) => SKIP.has(part)));
+  } catch (error) {
+    // git grep exits 1 when nothing matches: no candidate, nothing to read.
+    if ((error as { status?: number }).status === 1) return [];
+    return DIRS.flatMap((d) => collect(d));
+  }
+}
+
 const decomment = (s: string) =>
   s
     .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
@@ -66,7 +104,7 @@ describe('no test bounds a source pin with a magic number', () => {
   it('every window is bounded by a structure, via tests/helpers/sourceWindow', () => {
     const offenders: string[] = [];
 
-    for (const rel of DIRS.flatMap((d) => collect(d))) {
+    for (const rel of candidates()) {
       const raw = fs.readFileSync(path.join(ROOT, rel), 'utf8');
       // Only source-reading suites: this bug cannot exist where nothing is read.
       if (!raw.includes('readFileSync')) continue;
