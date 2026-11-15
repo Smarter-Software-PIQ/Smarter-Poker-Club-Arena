@@ -1,4 +1,6 @@
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
+import { webAppUrl } from '../lib/appBase';
+import { shareLink } from '../lib/share';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  *  ACHIEVEMENTS PAGE — Player Achievements & Badges with Real-Time Unlocks
@@ -932,20 +934,14 @@ export default function AchievementsPage() {
                       const ach = selectedAchievement;
                       const sharingScope = userId;
                       const shareText = `I just unlocked "${ach.name}" on Club Arena! ${ach.description}`;
-                      try {
-                        if (navigator.share) {
-                          await navigator.share({
-                            title: `Achievement: ${ach.name}`,
-                            text: shareText,
-                            url: 'https://smarter.poker',
-                          });
-                        } else {
-                          await navigator.clipboard.writeText(shareText);
-                          toast?.success('Achievement copied to clipboard!');
-                        }
-                      } catch (_err) {
-                        // A native cancellation does not open another dialog.
-                        if ((_err as Error)?.name === 'AbortError') return;
+                      const outcome = await shareLink({
+                        source: 'AchievementsPage.share',
+                        title: `Achievement: ${ach.name}`,
+                        text: shareText,
+                        url: webAppUrl('achievements'),
+                      });
+                      if (outcome === 'copied') toast?.success('Achievement Copied To Clipboard');
+                      if (outcome === 'failed') {
                         if (scopeRef.current !== sharingScope) return;
                         setSelectedAchievement(null);
                         if (shareTimerRef.current) clearTimeout(shareTimerRef.current);

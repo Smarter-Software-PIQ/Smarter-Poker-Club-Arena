@@ -207,7 +207,9 @@ describe('share & invite deep sweep', () => {
   it('asks the database about a pending invite at most once per browser session', () => {
     const fwd = src('src/components/home/PendingInviteForward.tsx');
     // The slot is spent on a real answer (pending or not), never on a failed read.
-    const spend = fwd.indexOf("window.sessionStorage.setItem(PENDING_INVITE_SHOWN_KEY, pending ? pending.clubId : 'checked')");
+    const spend = fwd.indexOf(
+      "window.sessionStorage.setItem(PENDING_INVITE_SHOWN_KEY, pending ? pending.clubId : 'checked')"
+    );
     expect(spend).toBeGreaterThan(fwd.indexOf('getPendingClubInvite()'));
     expect(spend).toBeLessThan(fwd.indexOf('.catch('));
     // A pending invite is still forwarded to.
@@ -224,14 +226,14 @@ describe('share & invite deep sweep', () => {
 
   it('opens the system share sheet on the app build', () => {
     const sheet = src('src/components/club/ShareInviteSheet.tsx');
-    expect(sheet).toContain("const { nativeShareText } = await import('../../lib/native/share');");
-    expect(sheet).toContain('if (!IS_NATIVE_BUILD || !isNativePlatform()) return false;');
-    expect(sheet).toContain(
-      'if (await shareInviteOnNative(clubName, shareText, link.shortUrl)) return;'
-    );
-    // The web keeps navigator.share with the clipboard behind it.
-    expect(sheet).toContain('if (navigator.share) {');
-    expect(sheet).toContain('await handleCopy();');
+    /* 2026-11-14: src/lib/share.ts owns the ladder (native sheet, Web Share,
+       then the copy); the sheet names its source and its exact copied form. */
+    expect(sheet).toContain("source: 'ShareInviteSheet.share',");
+    expect(sheet).toContain('clipboardText: `${shareText}\\n\\n${link.shortUrl}`,');
+    const door = src('src/lib/share.ts');
+    expect(door).toContain("const { nativeShareText } = await import('./native/share');");
+    expect(door).toContain('if (IS_NATIVE_BUILD && isNativePlatform()) {');
+    expect(door).toContain("if (n && typeof n.share === 'function') {");
     expect(src('src/lib/native/share.ts')).toContain('export async function nativeShareText(');
   });
 

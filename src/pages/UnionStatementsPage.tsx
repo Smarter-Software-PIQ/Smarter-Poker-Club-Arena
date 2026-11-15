@@ -180,7 +180,7 @@ function boardToCsv(rows: BoardClub[], unionName: string | null): string {
     'due_at',
     'payment_details_available',
     'paid_total',
-    'outstanding',
+    'remaining_unpaid_balance',
     'rake_generated',
     'rakeback_due',
     'union_fee_kept',
@@ -240,7 +240,7 @@ function boardToCsv(rows: BoardClub[], unionName: string | null): string {
       r.due_at,
       r.payment_details_available,
       csvMoney(r.paid_total),
-      csvMoney(r.outstanding),
+      csvMoney(r.remaining_unpaid),
       csvMoney(r.rake_generated),
       csvMoney(r.rakeback_due),
       csvMoney(r.union_fee_kept),
@@ -825,7 +825,7 @@ export default function UnionStatementsPage() {
       ['Combined ECO Adjustment (Negative Means The Club Pays)', c.eco_amount],
       ['Recorded Presettlements', c.presettled],
       ['Settled In Chips', c.settled_in_chips ?? null],
-      ['Remaining Unpaid Balance', c.outstanding],
+      ['Remaining Unpaid Balance', c.remaining_unpaid ?? null],
     ];
     return (
       <div className={styles.clubRow} key={c.club_id}>
@@ -963,9 +963,9 @@ export default function UnionStatementsPage() {
                 The Two Player Figures Differ By Exactly The Rake Generated; Neither Is An Amount
                 Due.
                 {c.weekly_player_results
-                  ? ' The Net Loss Lines, Less Club Rakeback Credit, ECO Charge Or Credit And Full Weekly Net Are Counted From The Club Side, So Positive Means Players Lost Or The Club Pays. Full Weekly Net Includes The Fees Players Paid And Recorded ECO; It Is A Summary, Not An Additional Payment Request.'
+                  ? ' The Net Loss Lines, ECO Charge Or Credit And Full Weekly Net Are Counted From The Club Side, So Positive Means Players Lost Or The Club Pays. Less Club Rakeback Credit Is The Rakeback The Union Paid The Club, Subtracted In The Full Weekly Net. Full Weekly Net Includes The Fees Players Paid And Recorded ECO; It Is A Summary, Not An Additional Payment Request.'
                   : ' The Cash And Tournament Player Split Was Not Recorded On This Invoice.'}{' '}
-                The Unpaid Balance Follows The Amount Due Above.
+                The Remaining Unpaid Balance Is The Amount Due Above Less Recorded Payments.
               </div>
             )}
             {c.payment_details_available === false && (
@@ -978,7 +978,7 @@ export default function UnionStatementsPage() {
               <div className={styles.breakdownLine}>
                 <span>Part Paid</span>
                 <span>
-                  {money(c.paid_total)} Of {money(Math.abs(c.amount))}
+                  {money(c.paid_total)} Of {money(remaining)}
                 </span>
               </div>
             )}

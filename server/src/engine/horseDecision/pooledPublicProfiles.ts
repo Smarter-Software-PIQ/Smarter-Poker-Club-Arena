@@ -1,8 +1,12 @@
+import { verifiedSavedPresence } from './savedProfilePresence.js';
+import { isDeepStrictEqual } from 'node:util';
 import { learnablePublicAction } from '../HorseOpponentExploit.js';
 import { publicMemoryDomainKey } from '../HorsePublicMemoryDomain.js';
 import { createHash } from 'node:crypto';
 import {
   computeDonorHandClockStaleness,
+  copyLongCounters,
+  durableProfileCounters,
   opponentMemoryDonors,
   opponentMemoryKey,
   opponentProfileVersion,
@@ -18,7 +22,26 @@ export interface PooledPublicProfileReceipt {
   /** 1: the digest covers the exact rows alone (a read with no donor).
    *  2: the read carried sibling table-size donors and the digest covers
    *  `{ rows, donors }`. The version names the digest preimage. */
-  version: 1 | 2;
+  version: 1 | 2 | 3;
+  /** Version 3 binds each named exact or donor row to its own accepted event.
+   * Legacy rows can contribute figures without supplying an event binding. */
+  lineage?: Array<{
+    userId: string;
+    size: DurableOpponentProfile['size'];
+    observedHands: number;
+    handId: string;
+  }>;
+  /** Selection at the original decision. Older retained receipts lack this field.
+   * A process cache hit includes rows previously warmed at worker bootstrap. */
+  rowSources?: {
+    version: 1;
+    rows: Array<{
+      userId: string;
+      size: DurableOpponentProfile['size'];
+      observedHands: number;
+      source: 'saved_at_deal' | 'in_process';
+    }>;
+  };
   source: 'accepted_hand_public_profiles' | 'saved_and_accepted_public_profiles';
   availableAtMs: number;
   digest: string;
@@ -37,7 +60,7 @@ export interface PooledPublicDonor {
  * older queued snapshot reads the clock as it stood at its own cutoff. */
 interface HandClock {
   count: number;
-  marks: Array<[at: number, count: number]>;
+  marks: Array<[at: number, count: number, learnableRowKey: string | null]>;
 }
 const CLOCK_MARKS = 8;
 /** Consecutive failed completed-hand refreshes a shared exact row survives, counted on the player's own
@@ -68,7 +91,10 @@ export class PooledPublicProfiles {
   >();
   private readonly clocks = new Map<string, HandClock>();
   private readonly seen = new Set<string>();
+  private readonly rejectedVersions = new Map<string, number>();
+  private spilledVersionBounds?: Float64Array;
   private lastAt = 0;
+  private evictedClockThroughMs = -1;
   private bootstrapped = false;
   constructor(
     private readonly now: () => number = Date.now,
@@ -101,6 +127,7 @@ export class PooledPublicProfiles {
           ...(p.public_memory_domain
             ? { public_memory_domain: { ...p.public_memory_domain } }
             : {}),
+          ...(p.last_accepted_hand_id ? { last_accepted_hand_id: p.last_accepted_hand_id } : {}),
           user_id: p.user_id,
           variant: p.variant,
           mode: p.mode,
@@ -108,6 +135,8 @@ export class PooledPublicProfiles {
           observed_hands: p.observed_hands,
           initialized: p.initialized,
           counters: { ...p.counters },
+          // The long participation window travels with its row (absent stays absent).
+          ...copyLongCounters(p),
         },
         at: snapshot.availableAtMs,
         // Saved notes are fresh at boot; staleness counts the hands the
@@ -150,10 +179,10 @@ export class PooledPublicProfiles {
     this.lastAt = at;
     this.seen.add(key);
     while (this.seen.size > this.capacity) this.seen.delete(this.seen.values().next().value!);
-    for (const id of actors) this.tick(id, at);
     const rowKey = (id: string) =>
       opponentMemoryKey(id, context.variant as DurableOpponentProfile['variant'], mode, size) +
       (context.version === 2 ? '|' + publicMemoryDomainKey(context.publicMemoryDomain) : '');
+    for (const id of actors) this.tick(id, at, learningActors.has(id) ? rowKey(id) : null);
     const valid =
       Array.isArray(profiles) &&
       profiles.length <= 10 &&
@@ -193,7 +222,7 @@ export class PooledPublicProfiles {
         (this.clocks.get(id)?.count ?? 0) - kept.clock <= MAX_FAILED_PROFILE_REFRESHES
       )
         continue;
-      this.rows.delete(key);
+      this.invalidate(key);
     }
     if (!valid) return 0;
     let learned = 0;
@@ -201,12 +230,21 @@ export class PooledPublicProfiles {
       if (!learningActors.has(p.user_id)) continue;
       const k = profileKey(p);
       const previous = this.rows.get(k);
+      const version = opponentProfileVersion(p);
+      if (!previous && version <= this.rejectedThrough(k)) continue;
       if (previous) {
-        const previousVersion = opponentProfileVersion(previous.profile),
-          version = opponentProfileVersion(p);
+        const previousVersion = opponentProfileVersion(previous.profile);
         if (previousVersion > version) continue; // an out-of-order older hand cannot erase newer notes
         if (previousVersion === version) {
-          this.rows.delete(k); // this new hand has no confirmed fresh profile
+          // A prior RPC may already have read this completed hand's row.
+          // Its original availability stays valid for earlier queued snapshots.
+          if (
+            p.last_accepted_hand_id === hand.committedHandId &&
+            previous.profile.last_accepted_hand_id === hand.committedHandId &&
+            isDeepStrictEqual(durableProfileCounters(previous.profile), durableProfileCounters(p))
+          )
+            continue;
+          this.invalidate(k); // this new hand has no confirmed fresh profile
           continue;
         }
       }
@@ -216,6 +254,7 @@ export class PooledPublicProfiles {
           ...(p.public_memory_domain
             ? { public_memory_domain: { ...p.public_memory_domain } }
             : {}),
+          ...(p.last_accepted_hand_id ? { last_accepted_hand_id: p.last_accepted_hand_id } : {}),
           user_id: p.user_id,
           variant: p.variant,
           mode: p.mode,
@@ -223,6 +262,7 @@ export class PooledPublicProfiles {
           observed_hands: p.observed_hands,
           initialized: p.initialized,
           counters: { ...p.counters },
+          ...copyLongCounters(p),
         },
         at,
         clock: this.clocks.get(p.user_id)?.count ?? 0,
@@ -248,6 +288,11 @@ export class PooledPublicProfiles {
     const domainSuffix =
       context.version === 2 ? '|' + publicMemoryDomainKey(context.publicMemoryDomain) : '';
     let availableAtMs = 0;
+    const selectedSaved = new Set<DurableOpponentProfile>();
+    const saved = verifiedSavedPresence(request, request.savedProfilePresence);
+    const savedAt = saved?.availableAtMs;
+    const requestAt = saved?.requestedAtMs;
+
     for (const player of request.gameState.players) {
       if (
         !request.gameState.dealtSeatIds?.includes(player.seat) ||
@@ -255,15 +300,43 @@ export class PooledPublicProfiles {
       )
         continue;
       const variant = context.variant as DurableOpponentProfile['variant'];
-      const found = this.rows.get(
-        opponentMemoryKey(player.user_id, variant, mode, size) + domainSuffix
-      );
+      const baseKey = opponentMemoryKey(player.user_id, variant, mode, size);
+      const exactKey = baseKey + domainSuffix;
+      const found = this.rows.get(exactKey);
       // A newer receipt is unavailable to an older queued snapshot. Never
       // substitute it or relabel its availability with the decision clock.
-      if (found && found.at <= request.decisionTimeMs) {
-        rows.push(structuredClone(found.profile));
+      const eligible = found && found.at <= request.decisionTimeMs ? found : null;
+      const candidate = saved?.exactProfiles?.find((p) => p.user_id === player.user_id);
+      // Keep this fallback inside the current read. A completion/retry racing the
+      // DB snapshot may have invalidated its counters before the decision cutoff.
+      const clock = candidate && this.clocks.get(player.user_id);
+      const intervening =
+        candidate &&
+        requestAt != null &&
+        (this.evictedClockThroughMs >= requestAt ||
+          (clock &&
+            ((clock.marks[0]![1] > 1 && clock.marks[0]![0] >= requestAt) ||
+              clock.marks.some(
+                ([at, , updatedKey]) =>
+                  at >= requestAt &&
+                  at <= request.decisionTimeMs &&
+                  (updatedKey === exactKey || updatedKey === baseKey)
+              ))));
+      const preferSaved =
+        candidate &&
+        savedAt != null &&
+        !intervening &&
+        opponentProfileVersion(candidate) >
+          (eligible ? opponentProfileVersion(eligible.profile) : this.rejectedThrough(exactKey));
+      if (preferSaved) {
+        rows.push(candidate);
         noted.add(player.user_id);
-        availableAtMs = Math.max(availableAtMs, found.at);
+        availableAtMs = Math.max(availableAtMs, savedAt);
+        selectedSaved.add(candidate);
+      } else if (eligible) {
+        rows.push(structuredClone(eligible.profile));
+        noted.add(player.user_id);
+        availableAtMs = Math.max(availableAtMs, eligible.at);
       }
       for (const [donorMode, donorSize] of opponentMemoryDonors(mode, size)) {
         const donor = this.rows.get(
@@ -287,32 +360,84 @@ export class PooledPublicProfiles {
         a.profile.user_id.localeCompare(b.profile.user_id) ||
         a.profile.size.localeCompare(b.profile.size)
     );
+    const selectedRows = [...rows, ...donors.map((donor) => donor.profile)];
+    const lineage = selectedRows.flatMap((profile) =>
+      profile.last_accepted_hand_id
+        ? [
+            {
+              userId: profile.user_id,
+              size: profile.size,
+              observedHands: profile.observed_hands,
+              handId: profile.last_accepted_hand_id,
+            },
+          ]
+        : []
+    );
     return {
       rows,
       donors,
       receipt: {
-        version: donors.length ? 2 : 1,
-        source: this.bootstrapped
-          ? 'saved_and_accepted_public_profiles'
-          : 'accepted_hand_public_profiles',
+        version: lineage.length ? 3 : donors.length ? 2 : 1,
+        ...(lineage.length ? { lineage } : {}),
+        rowSources: {
+          version: 1,
+          rows: selectedRows.map((p) => ({
+            userId: p.user_id,
+            size: p.size,
+            observedHands: p.observed_hands,
+            source: selectedSaved.has(p) ? 'saved_at_deal' : 'in_process',
+          })),
+        },
+        source:
+          this.bootstrapped || selectedSaved.size > 0
+            ? 'saved_and_accepted_public_profiles'
+            : 'accepted_hand_public_profiles',
         availableAtMs,
         // Without donors the digest is exactly the exact rows' digest it was
         // (version 1); with donors it covers both (version 2).
         digest: createHash('sha256')
-          .update(JSON.stringify(donors.length ? { rows, donors } : rows))
+          .update(JSON.stringify(lineage.length || donors.length ? { rows, donors } : rows))
           .digest('hex'),
         profiles: noted.size,
       },
     };
   }
-  private tick(userId: string, at: number): void {
+  private rejectedThrough(key: string): number {
+    const known = this.rejectedVersions.get(key);
+    if (known !== undefined) return known;
+    return this.spilledVersionBounds?.[this.spillBucket(key)] ?? -1;
+  }
+  private spillBucket(key: string): number {
+    return createHash('sha256').update(key).digest().readUInt32LE(0) % this.capacity;
+  }
+  private invalidate(key: string): void {
+    const row = this.rows.get(key);
+    if (!row) return;
+    this.rows.delete(key);
+    this.rejectedVersions.delete(key);
+    this.rejectedVersions.set(key, opponentProfileVersion(row.profile));
+    if (this.rejectedVersions.size <= this.capacity) return;
+    // Keep a conservative bound even after the exact rejected key is evicted.
+    // Hash collisions can suppress a cold read, but never attribute a version
+    // to a player. A retained exact key or resident row keeps its own precedence.
+    const [evicted, version] = this.rejectedVersions.entries().next().value!;
+    this.rejectedVersions.delete(evicted);
+    const bounds = (this.spilledVersionBounds ??= new Float64Array(this.capacity).fill(-1));
+    const bucket = this.spillBucket(evicted);
+    bounds[bucket] = Math.max(bounds[bucket]!, version);
+  }
+  private tick(userId: string, at: number, learnableRowKey: string | null): void {
     const clock = this.clocks.get(userId) ?? { count: 0, marks: [] };
     clock.count++;
-    clock.marks.push([at, clock.count]);
+    clock.marks.push([at, clock.count, learnableRowKey]);
     if (clock.marks.length > CLOCK_MARKS) clock.marks.shift();
     this.clocks.delete(userId);
     this.clocks.set(userId, clock);
-    while (this.clocks.size > this.capacity) this.clocks.delete(this.clocks.keys().next().value!);
+    if (this.clocks.size > this.capacity) {
+      const [id, evicted] = this.clocks.entries().next().value!;
+      this.evictedClockThroughMs = Math.max(this.evictedClockThroughMs, evicted.marks.at(-1)![0]);
+      this.clocks.delete(id);
+    }
   }
   /** The player's hand clock as it stood at `cutoffMs`. A row available at the
    * cutoff was learned at or before it, so the clock is never below its mark. */
@@ -329,7 +454,10 @@ export class PooledPublicProfiles {
     this.clocks.clear();
     this.rows.clear();
     this.seen.clear();
+    this.rejectedVersions.clear();
+    this.spilledVersionBounds = undefined;
     this.lastAt = 0;
+    this.evictedClockThroughMs = -1;
     this.bootstrapped = false;
   }
 }

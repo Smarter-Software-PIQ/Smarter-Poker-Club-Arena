@@ -26,6 +26,7 @@
  */
 
 import { useState, useEffect } from 'react';
+import { copyText } from '../../lib/share';
 import { useIsMounted } from '../../hooks/useIsMounted';
 import { supabase } from '../../lib/supabase';
 import { referralIdFor } from '../../lib/referralId';
@@ -254,8 +255,13 @@ export default function PlayerInviteModal({
   // Copy the invite link
   const copyCode = () => {
     if (!inviteCode) return;
-    navigator.clipboard.writeText(inviteCode);
-    setMessage({ type: 'success', text: 'Link copied!' });
+    void copyText(inviteCode, 'PlayerInviteModal.copy').then((ok) =>
+      setMessage(
+        ok
+          ? { type: 'success', text: 'Link Copied' }
+          : { type: 'error', text: 'Could Not Copy. Select The Link To Copy It.' }
+      )
+    );
   };
 
   if (!isOpen) return null;

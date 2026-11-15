@@ -135,7 +135,13 @@ export function cashBuyInSeatConflictText(raw: unknown): string | null {
   return null;
 }
 
-export function cashBuyInRefusalText(raw: unknown): string | null {
+export function cashBuyInRefusalText(
+  raw: unknown,
+  context?: {
+    /** The stack this player left this game with, when the server says that is what raised the minimum. */
+    leftWith?: number;
+  }
+): string | null {
   const seatConflict = cashBuyInSeatConflictText(raw);
   if (seatConflict) return seatConflict;
   // Maintenance break refusal is definitive (2026-10-16).
@@ -163,10 +169,20 @@ export function cashBuyInRefusalText(raw: unknown): string | null {
       ? `This Table Requires A Career VPIP Of At Least ${vpip[1]} Percent`
       : 'This Table Has A Minimum Career VPIP You Do Not Meet Yet';
   }
-  /* CHIP CONTINUITY: the rejoin floor. The number is the whole message
-     (OPORD 1.3 section 6.1: the minimum is just higher, no paragraph why). */
+  /* CHIP CONTINUITY: the rejoin floor.
+
+     OWNER INSTRUCTION 2026-11-14 (Dan): a player refused for buying in below
+     what he left with is told exactly that, "not whatever this pop up message
+     was". This replaces OPORD 1.3 section 6.1's "the minimum is just higher,
+     no paragraph why" for the one case where the client KNOWS the reason:
+     `fn_cash_effective_buyin` answered `floor_applied`, and the number the
+     door quotes is that same number. BUYIN_BELOW_FLOOR is also raised for the
+     ordinary table minimum, and without that knowledge it stays a number. */
   if (/BUYIN_BELOW_FLOOR/.test(m)) {
     const amt = m.match(/right now is ([\d,.]+)/);
+    const leftWith = Number(context?.leftWith ?? 0);
+    if (amt && leftWith > 0 && Math.abs(Number(amt[1].replace(/,/g, '')) - leftWith) < 0.005)
+      return `You Left This Game With ${amt[1]}. Your Buy In Must Be At Least ${amt[1]}.`;
     return amt
       ? `The Minimum Buy In For This Game Right Now Is ${amt[1]}`
       : 'The Minimum Buy In For This Game Is Higher Right Now';

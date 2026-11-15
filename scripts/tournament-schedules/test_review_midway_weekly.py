@@ -151,6 +151,21 @@ class ReviewTests(unittest.TestCase):
                 review.candidate_from_workbook(path, base)
 
 
+    def test_fixed_limit_games_are_supported_and_flo8_seats_are_capped(self):
+        candidate = copy.deepcopy(self.catalog)
+        fixed = {e['terms']['game_type']: e for e in candidate['events'] if e['terms']['game_type'] in ('FLH', 'FLO8')}
+        self.assertEqual(sorted(fixed), ['FLH', 'FLO8'])
+        self.assertEqual(review.validate(candidate), [])
+        for game, event in fixed.items():
+            self.assertEqual(event['config']['gameVariant'], game.lower())
+            self.assertFalse(event['terms']['is_rebuy'] or event['terms']['is_reentry'] or event['terms']['add_on_available'])
+        fixed['FLO8']['terms']['table_size'] = fixed['FLO8']['config']['tableSize'] = 11
+        self.assertTrue(any(e['path'].endswith('/terms/table_size') and 'card capacity' in e['message'] for e in review.validate(candidate)))
+        candidate = copy.deepcopy(self.catalog)
+        flh = next(e for e in candidate['events'] if e['terms']['game_type'] == 'FLH')
+        flh['config']['gameVariant'] = 'nlh'
+        self.assertTrue(any('coherent game' in e['message'] for e in review.validate(candidate)))
+
     def test_cli_requires_fresh_timestamp(self):
         with tempfile.TemporaryDirectory(dir=HERE) as folder:
             candidate = Path(folder) / 'candidate.json'

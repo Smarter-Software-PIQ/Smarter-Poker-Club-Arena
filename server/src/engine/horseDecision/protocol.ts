@@ -50,6 +50,8 @@ export type LiveHorseDecideOpts = Omit<
 >;
 
 export interface LiveHorseDecisionSnapshot extends HorseDecisionFence {
+  /** Private original-seat classification. Omitted legacy snapshots cannot prove eligibility. */
+  savedProfileHumanIds?: string[];
   /** Private accepted-history prefix captured beside the live turn. Diagnostic
    * binding only; excluded from strategy sampling, included in input validation. */
   handJournalContext?: import('../HorseDecisionHandBinding.js').HorseHandJournalContext | null;
@@ -193,6 +195,8 @@ export function validatedHorsePolicySamplingKey(
 }
 
 export interface FastHorseDecisionRequest extends LiveHorseDecisionSnapshot {
+  /** Private diagnostic on the original journal snapshot, never a strategy input. */
+  savedProfilePresence?: import('./savedProfilePresence.js').SavedPresenceReceipt;
   /** Private individual read hydration, not a caller policy control or action authority. */
   ownPublicHistory?: import('./ownPublicHistory.js').HorseOwnPublicHistoryPacket;
   ownPublicHistoryState?: 'pending' | 'available' | 'unavailable';

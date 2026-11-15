@@ -32,8 +32,11 @@ describe('pressure behavior evidence uses the accepted horse action', () => {
 describe('V53 pressure is on for every horse by default, in every Omaha game', () => {
   for (const variant of ['plo4', 'plo5', 'plo6'] as const) {
     it(`${variant}: default options 3-bet the aggressive human more, and the layer fires`, () => {
-      const on = playPressureArm(variant, 110, 5, {});
-      const off = playPressureArm(variant, 110, 5, { v53Pressure: false });
+      // 220 hands (was 110): the made-hand defence of 2026-11-14 changes how
+      // postflop hands end, which shifts later deals; at 110 hands the PLO6
+      // 3-bet counts tied at 16. The larger sample keeps the strict claim.
+      const on = playPressureArm(variant, 220, 5, {});
+      const off = playPressureArm(variant, 220, 5, { v53Pressure: false });
       expect(on.fires.v53_pressure_preflop ?? 0).toBeGreaterThan(0);
       expect(off.fires.v53_pressure_preflop ?? 0).toBe(0);
       expect(on.vsOpen.raise).toBeGreaterThan(off.vsOpen.raise);

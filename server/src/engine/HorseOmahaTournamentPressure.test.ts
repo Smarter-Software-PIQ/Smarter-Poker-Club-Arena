@@ -475,6 +475,23 @@ describe(
       // Omaha tournament first-in (Dan 2026-11-12) replaces short-handed folds
       // independently of V53; HorseOmahaTournamentFirstIn.law.test.ts pins it.
       omahaTournamentFirstIn: false,
+      // Dan 2026-11-14 (hand 59401453): the Omaha river nut-raise rule and
+      // the turn set size change play independently of V53; their explicit
+      // off arms keep this baseline byte-identical
+      // (HorseOmahaRiverNutRaise.test.ts pins both).
+      omahaRiverNutRaiseOnly: false,
+      omahaTurnSetPound: false,
+      // Dan 2026-11-14 (hands 59414191, 59416584): the made-hand defense,
+      // the bluff-catcher cells and the nut-class pot size, likewise
+      // (HorseOmahaMadeHandDefense.test.ts pins them).
+      omahaBeatenMadeHandDefense: false,
+      omahaBluffCatcherRaiseFold: false,
+      omahaNutClassValueSize: false,
+      // Dan 2026-11-14/15: the one-pair discipline and the re-raised-pot
+      // discipline, likewise (HorseOmahaOnePair.test.ts and
+      // HorseOmahaReraisedPot.test.ts pin them).
+      omahaOnePairDiscipline: false,
+      omahaReraisedPotDiscipline: false,
     };
 
     it.each(CORPUS_VARIANTS)(

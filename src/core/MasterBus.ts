@@ -1218,6 +1218,8 @@ export interface BusPayloadMap {
       | 'AUTO_TOP_UP'
       | 'TOGGLE_SOUNDS'
       | 'TOGGLE_VIBRATIONS'
+      | 'TOGGLE_STRADDLE'
+      | 'CLUB_MARKETPLACE'
       | 'REBUY'
       | 'ADD_ON'
       | 'SESSION_STATS'
@@ -1442,6 +1444,12 @@ class MasterBusCore {
        an event that IS a user's tap must never be deduplicated by payload. */
     'OPEN_MUST_MOVE_LOBBY',
     'OPEN_TOURNAMENT_LOBBY',
+    /* The hamburger's rows are taps too (Dan 2026-11-14: "THE SOUNDS BUTTON AND
+       ANY OTHER BUTTONS YOU CLICK, SILENTLY FAIL"). Every press of Sounds at one
+       table carries the same payload, and the switches now leave the menu open,
+       so ON then OFF inside 500ms is an ordinary thing to do. The second press
+       must arrive. */
+    'TABLE_MENU_ACTION',
   ];
 
   // Navigation belongs to the browser tab where the player requested it.
@@ -1452,6 +1460,13 @@ class MasterBusCore {
     'OPEN_OBSERVE_TABLE',
     'OPEN_MUST_MOVE_LOBBY',
     'OPEN_TOURNAMENT_LOBBY',
+    /* A menu press is carried out by the table in the window it was pressed in.
+       Replayed in a second window holding the same table, a TOGGLE flipped
+       again from that window's own reading and wrote the shared sound keys
+       back, so the switch the player had just turned on turned itself off.
+       Settings travel between windows as SETTINGS_CHANGED, which carries the
+       value and not a second press. */
+    'TABLE_MENU_ACTION',
   ]);
 
   // #4b Channel factory registry for auto-recovery

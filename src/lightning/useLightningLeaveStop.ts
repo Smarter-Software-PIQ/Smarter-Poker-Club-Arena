@@ -24,8 +24,8 @@ export function useLightningLeaveStop(
   const receipt = async (): Promise<LightningStopPlayingResult | null> => {
     if (!room || !key || current.current !== key) return null;
     if (request.current?.key === key) return request.current.result;
-    const result = stopLightningPlaying(room.clusterId).then(
-      (out) => (out?.ok === true && current.current === key ? out : null),
+    const result = stopLightningPlaying(room.clusterId, room.poolSessionId).then(
+      (out) => (current.current === key ? out : null),
       (error) => {
         reportError(error, 'LightningLeaveStop.stop');
         return null;
@@ -33,7 +33,7 @@ export function useLightningLeaveStop(
     );
     request.current = { key, result };
     const ok = await result;
-    if (!ok && request.current?.result === result) request.current = null;
+    if (!ok?.ok && request.current?.result === result) request.current = null;
     return ok;
   };
   /** A withdrawn stop (cancelled Leave Next Hand) must be sent again next time. */
