@@ -36,6 +36,10 @@
  *    heads-up, the opponent acts behind and called the Horse's flop bet or
  *    raise, the turn card pairs the board, less than a full house; only
  *    against a MEASURED postflop value leader.
+ *  - omahaTurnBetNeedsRiverPlan (hand 59521326, no opponent read): a
+ *    heads-up turn bet that leaves less than half the resulting pot behind
+ *    is checked when the Horse's own fold rules would fold more than 35% of
+ *    the rivers to an all-in for what is left.
  *  - omahaPairedRiverNoThinLeadVsValueLeader: river, the final board paired,
  *    less than a full house, a live opponent called the Horse's flop or turn
  *    bet; only when every live opponent is a MEASURED postflop value leader.
@@ -49,6 +53,7 @@
 import type { Card, SeatPlayer } from '../types.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
 import { omahaBoardShape, omahaDrawQuality, omahaMadeClass, variantInfo } from './HorseEval.js';
+import { RANKS, SUITS } from './PokerEngine.js';
 
 export const OMAHA_OOP_CHECK_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
 
@@ -230,9 +235,70 @@ export function omahaPairedTurnBarrelSpot(hero: SeatPlayer, gs: HorseGameStateV2
   }
 }
 
+/**
+ * omahaTurnBetNeedsRiverPlan (lane owner 2026-11-15, hand 59521326): a turn
+ * bet that leaves less than half of the resulting pot behind is the stack
+ * decision, so the Horse must be able to call the river with it. The public
+ * geometry: turn, heads-up, a bet (not an all-in) of `bet`, after which the
+ * smaller of the two stacks is under OMAHA_TURN_PLAN_BEHIND_SHARE of the pot
+ * the called bet makes. Returns the opponent, the chips left behind and that
+ * pot, or null. HorseLogic then asks the Horse's own fold rules on every
+ * river card and checks when they fold more than OMAHA_TURN_PLAN_FOLD_SHARE
+ * of them to an all-in for what is left.
+ */
+export const OMAHA_TURN_PLAN_BEHIND_SHARE = 0.5;
+export const OMAHA_TURN_PLAN_FOLD_SHARE = 0.35;
+
+export interface OmahaTurnBetGeometry {
+  opponent: SeatPlayer;
+  /** the effective chips left behind after the bet is called */
+  behind: number;
+  /** the pot after the bet is called */
+  potAfter: number;
+}
+
+export function omahaTurnBetShortBehind(
+  hero: SeatPlayer,
+  gs: HorseGameStateV2,
+  bet: number | undefined
+): OmahaTurnBetGeometry | null {
+  try {
+    if (omahaOopCheckStreet(hero, gs) !== 'turn') return null;
+    if (!Number.isFinite(bet) || !((bet as number) > 0)) return null;
+    const live = liveOpponents(hero, gs);
+    if (live.length !== 1) return null;
+    const opponent = live[0];
+    if (opponent.is_all_in) return null;
+    const heroStack = Number.isFinite(hero.stack) ? hero.stack : 0;
+    const oppStack = Number.isFinite(opponent.stack) ? opponent.stack : 0;
+    const behind = Math.min(heroStack, oppStack) - (bet as number);
+    if (!(behind > 0.005)) return null;
+    const pot = Number.isFinite(gs.pot) ? Math.max(0, gs.pot) : 0;
+    const potAfter = pot + 2 * (bet as number);
+    if (behind >= OMAHA_TURN_PLAN_BEHIND_SHARE * potAfter) return null;
+    return { opponent, behind, potAfter };
+  } catch {
+    return null;
+  }
+}
+
+/** Every river card hero cannot see (the deck minus hole, board and known dead cards). */
+export function omahaUnseenRiverCards(hero: SeatPlayer, board: Card[]): Card[] {
+  const key = (c: Card) => `${c.rank}:${c.suit}`;
+  const removed = new Set([...hero.cards, ...board, ...(hero.knownDeadCards ?? [])].map(key));
+  const out: Card[] = [];
+  for (const suit of SUITS)
+    for (const rank of RANKS) {
+      const card = { rank, suit } as Card;
+      if (!removed.has(key(card))) out.push(card);
+    }
+  return out;
+}
+
 /** Any of the spots: what the worker receipt validator admits as a bet turned into a check. */
-export function omahaOopCheckSpot(hero: SeatPlayer, gs: HorseGameStateV2): boolean {
+export function omahaOopCheckSpot(hero: SeatPlayer, gs: HorseGameStateV2, bet?: number): boolean {
   return (
+    omahaTurnBetShortBehind(hero, gs, bet) !== null ||
     omahaBareOverpairOopFlopSpot(hero, gs) ||
     omahaOverpairOopTurnBarrelSpot(hero, gs) ||
     omahaPairedTurnBarrelSpot(hero, gs) ||

@@ -2191,6 +2191,22 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
       b: {},
     },
     {
+      name: `${variant}_omaha_paired_board_fold_respects_price`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { omahaPairedBoardFoldRespectsPrice: true },
+      b: {},
+    },
+    {
+      name: `${variant}_omaha_turn_bet_needs_river_plan`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { omahaTurnBetNeedsRiverPlan: true },
+      b: {},
+    },
+    {
       name: `${variant}_omaha_bare_overpair_oop_flop_check`,
       variant,
       pairs: 6000,

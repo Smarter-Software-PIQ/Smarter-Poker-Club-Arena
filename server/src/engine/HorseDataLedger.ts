@@ -959,6 +959,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaPairedBoardFoldRespectsPrice',
+    'Lane owner 2026-11-15 (hand 59521326): PLO4/PLO5 cash, the 2026-10-25 paired-board fold does not override the reference decision when the call price (the call over the pot after it) is at most 0.25 and the Horse holds a straight or a flush, or the call is for the rest of an effective stack of which it has already put in at least 60% this hand; the reference decision stands and may still fold (HorsePloPairedBoardFold.ploPairedBoardFoldRespectsPrice). Default OFF (read === true) until its declared evaluation passes',
+    'PLO paired-board fold'
+  ),
+  flag(
+    'omahaTurnBetNeedsRiverPlan',
+    'Lane owner 2026-11-15 (hand 59521326): PLO4/PLO5 cash heads-up, a turn bet that would leave less than half of the resulting pot behind becomes a check when on more than 35% of the river cards the Horse own fold rules (paired-board fold, big-bet call folds) would fold to an all-in for what is left; exact enumeration, no opponent read (HorseOmahaOopChecks.ts, HorseLogic omahaTurnBetLacksRiverPlan). Default OFF (read === true) until its declared evaluation passes',
+    'V94'
+  ),
+  flag(
     'omahaBareOverpairOopFlopCheck',
     'Owner 2026-11-15 11:05 (hand 59517323): PLO4/PLO5 cash, flop, out of position (an opponent still acts behind), one pair only, no flush draw and under eight straight outs, the flop two-tone or connected: a bet becomes a check, heads-up and multiway, with no opponent read and no stack-to-pot exception (HorseOmahaOopChecks.ts). Default OFF (read === true) until its declared evaluation passes',
     'V94'
@@ -3866,6 +3876,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_paired_turn_barrel_withheld',
     'HorseLogic wager_rules (HorseOmahaOopChecks, omahaPairedTurnNoBarrelWithoutBoatVsValueLeader)',
     "the same turn bet where the opponent is not a measured value leader: today's play kept",
+    'V94'
+  ),
+  receipt(
+    'omaha_paired_board_fold_price_respected',
+    'HorseLogic.decide (HorsePloPairedBoardFold, omahaPairedBoardFoldRespectsPrice)',
+    'PLO4/PLO5 cash paired-board fold that stood aside: the call price was 0.25 or better and the Horse held a straight or flush, or the call was for the rest of a stack at least 60% in; the reference decision stood',
+    'PLO paired-board fold'
+  ),
+  receipt(
+    'omaha_turn_bet_without_river_plan_checked',
+    'HorseLogic wager_rules (HorseOmahaOopChecks, omahaTurnBetNeedsRiverPlan)',
+    'PLO4/PLO5 cash heads-up turn bet that would leave less than half the resulting pot behind, with a hand the Horse own rules fold on more than 35% of rivers to an all-in for the rest: turned into a check',
     'V94'
   ),
   receipt(

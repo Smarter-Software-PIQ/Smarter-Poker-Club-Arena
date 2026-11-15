@@ -1249,7 +1249,11 @@ function policyGraphIsValid(
       ['bet', 'raise', 'all_in'].includes(previous.action) &&
       (context === undefined ||
         (String(context.gameState.gameVariant).toLowerCase() === variant &&
-          omahaOopCheckSpot(context.player, context.gameState)));
+          omahaOopCheckSpot(
+            context.player,
+            context.gameState,
+            previous.action === 'bet' ? (previous.amount ?? undefined) : undefined
+          )));
     if (
       transition.node === 'wager_rules' &&
       changed &&

@@ -24,6 +24,11 @@ No decision facing a bet changes. With all three unset or false the brain plays 
 
 A fourth option, `omahaPairedTurnNoBarrelWithoutBoatVsValueLeader` (off by default): turn, heads-up, out of position, the flop bet or raise called, the turn card pairs the board, less than a full house: the bet becomes a check, only against a measured postflop value leader. Receipts `omaha_paired_turn_barrel_checked`, `_withheld`. In that hand the river fold of the nut straight came from the 2026-10-25 paired-board fold, which overrode the reference decision's call at a price of 0.213; that rule is unchanged here.
 
+Two more options from the same hand, both off by default:
+
+- `omahaPairedBoardFoldRespectsPrice`: in PLO4/PLO5 cash the 2026-10-25 paired-board fold ("IT'S A FOLD 100% OF THE TIME", `2026-10-25-plo5-plo6-no-full-house-folds-on-a-paired-board.md`) does not override the reference decision when the call price is at most 0.25 and the Horse holds a straight or a flush, or the call is for the rest of an effective stack at least 60% in. Receipt `omaha_paired_board_fold_price_respected`. It narrows a binding owner rule and needs his ruling before it is switched on.
+- `omahaTurnBetNeedsRiverPlan`: a heads-up turn bet that would leave less than half the resulting pot behind becomes a check when the Horse's own fold rules would fold more than 35% of the rivers to an all-in for what is left. Receipt `omaha_turn_bet_without_river_plan_checked`.
+
 ## Evaluation
 
 Not run. To be declared in the evidence archive (`plo-handoff-review-01a1cbbd/pairedriver-20261115/`) before any graded run; the verdicts are added here when they are read.
