@@ -132,7 +132,9 @@ describe('a consumed window that merged after its notice passes only on its publ
   });
 
   it('the window record main holds is the one the witness excuses, unchanged', () => {
-    const windows = JSON.parse(readFileSync('server/release/owner-maintenance-windows.json', 'utf8'));
+    const windows = JSON.parse(
+      readFileSync('server/release/owner-maintenance-windows.json', 'utf8')
+    );
     const own = windows.windows.find((w: { id: string }) => w.id === ID);
     expect([own.playerNoticeAt, own.notBefore, own.notAfter]).toEqual([
       W.playerNoticeAt,
@@ -151,7 +153,12 @@ describe('a consumed window that merged after its notice passes only on its publ
     expect(v.join('\n')).toMatch(/less than 20 minutes after notice/);
     expect(v.join('\n')).toMatch(/is before the booking merged/);
     expect(
-      bookingViolations(doc(W), merged, NOW, withWitness({ activatedAt: '2026-11-15T12:26:39.256Z' }))
+      bookingViolations(
+        doc(W),
+        merged,
+        NOW,
+        withWitness({ activatedAt: '2026-11-15T12:26:39.256Z' })
+      )
     ).toEqual([]);
   });
 
@@ -166,7 +173,12 @@ describe('a consumed window that merged after its notice passes only on its publ
   });
 
   it('refuses an activation after notAfter, before notBefore, or not yet happened', () => {
-    const late = bookingViolations(doc(W), merged, NOW, withWitness({ activatedAt: '2026-11-15T15:00:01Z' }));
+    const late = bookingViolations(
+      doc(W),
+      merged,
+      NOW,
+      withWitness({ activatedAt: '2026-11-15T15:00:01Z' })
+    );
     expect(late.join('\n')).toMatch(/is after notAfter/);
     const early = bookingViolations(
       doc({ ...W, notBefore: '2026-11-15T13:30:00Z' }),
@@ -189,7 +201,12 @@ describe('a consumed window that merged after its notice passes only on its publ
     expect(
       bookingViolations(doc({ ...W, playerNoticeAt: undefined }), merged, NOW, witnessDoc)
     ).toEqual([`${ID}: playerNoticeAt is required`]);
-    const orphan = bookingViolations(doc({ ...W, id: 'other' }), () => at('2026-11-15T11:00:00Z'), NOW, witnessDoc);
+    const orphan = bookingViolations(
+      doc({ ...W, id: 'other' }),
+      () => at('2026-11-15T11:00:00Z'),
+      NOW,
+      witnessDoc
+    );
     expect(orphan).toEqual([expect.stringContaining('names no booked window')]);
     const dup = bookingViolations(doc(W), merged, NOW, {
       version: 1,
@@ -198,7 +215,9 @@ describe('a consumed window that merged after its notice passes only on its publ
     expect(dup).toEqual([expect.stringContaining('duplicate witness')]);
     const bare = bookingViolations(doc(W), merged, NOW, {
       version: 1,
-      witnesses: [{ windowId: ID, publicNoticeAt: real.publicNoticeAt, activatedAt: real.activatedAt }],
+      witnesses: [
+        { windowId: ID, publicNoticeAt: real.publicNoticeAt, activatedAt: real.activatedAt },
+      ],
     });
     expect(bare.join('\n')).toMatch(/must name its workflow and integer runId/);
     expect(bare.join('\n')).toMatch(/is before the booking merged/);
@@ -206,6 +225,16 @@ describe('a consumed window that merged after its notice passes only on its publ
       expect.stringContaining('version 1 with a witnesses array is required'),
       expect.stringContaining('is before the booking merged'),
     ]);
+    for (const field of ['publicNoticeAt', 'activatedAt']) {
+      const invalidDate = bookingViolations(
+        doc(W),
+        merged,
+        NOW,
+        withWitness({ [field]: '2026-99-15T12:06:39Z' })
+      );
+      expect(invalidDate.join('\n')).toContain(`${field} must be an ISO UTC timestamp`);
+      expect(invalidDate.join('\n')).toContain('is before the booking merged');
+    }
   });
 
   it('the witness file is outside the server tree, so it is never an engine release input', () => {
