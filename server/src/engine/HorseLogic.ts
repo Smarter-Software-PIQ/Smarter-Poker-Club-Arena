@@ -38,7 +38,7 @@ import {
 import { HorsePolicyGraph } from './HorsePolicyGraph.js';
 import { decisionGravity } from './horseDecisionGravity.js';
 import { riverNutsRaise, fullPotNearPotWager, hasRiverNuts } from './HorseRiverNuts.js';
-import { hiLoRiverLowHalfFloor } from './HorseHiLoLowHalf.js';
+import { hiLoCappedRiverShare, hiLoRiverLowHalfFloor } from './HorseHiLoLowHalf.js';
 import { omahaCurrentNutsRaise } from './HorseOmahaCurrentNuts.js';
 import {
   TOKEN_CALL_COUNTED_PRICE,
@@ -3003,6 +3003,11 @@ export interface HorseDecideOpts {
    *  street while a player left to act can still raise
    *  (HorseFixedLimitCallPrice.ts). Read only as === true: default OFF. */
   fixedLimitCallIsNotACommitment?: boolean;
+  /** FIXED-LIMIT HI-LO LOW HALF (2026-11-14, Fixed-Limit lane): on a
+   *  fixed-limit hi-lo river the V40 weak-high cap never goes below half of
+   *  the hand's sampled low share, heads-up and multiway
+   *  (HorseHiLoLowHalf.ts). Read only as === true: default OFF. */
+  fixedLimitHiLoLowHalfFloor?: boolean;
   /** Hi-lo river bluffs with a low possible (2026-11-07,
    *  HorseRiverBluffRange.ts): the nut low with no high bets the freeroll;
    *  air bluffs the whole pot only when the opponent is unlikely to hold a
@@ -15363,8 +15368,17 @@ export class HorseLogic {
             isRiver,
             opponents: oppCount,
             lowShare: hiLoSplit?.lo,
+            // FIXED-LIMIT HI-LO (2026-11-14, opt-in): heads-up and multiway.
+            fixedLimitLowHalf: opts.fixedLimitHiLoLowHalfFloor === true,
           });
-          eq15 = Math.min(eq15, Math.max(0.08, cap40, lowHalf40));
+          if (
+            tele15 &&
+            vi.isFixedLimit &&
+            lowHalf40 > Math.max(0.08, cap40) &&
+            eq15 > Math.max(0.08, cap40)
+          )
+            noteFire('fixed_limit_hilo_low_half_kept_seen');
+          eq15 = hiLoCappedRiverShare(eq15, cap40, lowHalf40);
           if (opts.v87DeepDiveDiscipline !== false)
             noteHorseDeepDiveRule(
               'flop_cap',

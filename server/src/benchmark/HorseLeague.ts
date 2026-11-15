@@ -2970,6 +2970,24 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'HandController, flh and flo8, heads-up and six seats); until it is built, the fixtures in ' +
       'AFixedLimitCallIsNotACommitment.law.test.ts and the Fixed-Limit lane diagnostic-harness measurements are the only evidence.',
   })),
+  // 2026-11-14 (Fixed-Limit lane, adaptation fix F3, the hi-lo low half): a default-off
+  // fixed-limit arm. Refused, not dealt: this league cannot ask the question.
+  ...([['flo8_hilo_low_half_floor', 'flo8', 6, { fixedLimitHiLoLowHalfFloor: true }]] as const).map(
+    ([name, variant, seats, a]) => ({
+      name,
+      variant,
+      seats,
+      a,
+      b: {},
+      reason:
+        'Unanswerable by this league: playHand deals no-limit and pot-limit betting and has no ' +
+        'fixed-limit street unit, wager cap or controller menu, and every gate of this option ' +
+        'requires a fixed-limit state (HorseLogic: vi.isFixedLimit). The option is DEFAULT OFF ' +
+        '(read as === true). What would change this: a fixed-limit duplicate league (real ' +
+        'HandController, flh and flo8, heads-up and six seats); until it is built, the fixtures in ' +
+        'AFixedLimitHiLoLowHalfIsKept.law.test.ts and the Fixed-Limit lane diagnostic-harness measurements are the only evidence.',
+    })
+  ),
   {
     name: 'hu_break_even_bluff',
     seats: 2,
