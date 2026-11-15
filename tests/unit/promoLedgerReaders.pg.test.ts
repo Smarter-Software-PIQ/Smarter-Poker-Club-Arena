@@ -122,19 +122,27 @@ it('counts typed promo legs on every reader and rejects a changed preimage', () 
     sql(fixtures[0].definition.replace('WITH sides AS', 'WITH sides AS /* drift */'));
     expect(() => sql(migration)).toThrow(/PROMO_READER_PREIMAGE_CHANGED/);
     installOriginal();
-    sql(`CREATE TABLE public.ca_drift_incidents(id uuid PRIMARY KEY,status text,source text,discrepancy_amount numeric,expected_amount numeric,actual_amount numeric);
-      INSERT INTO ca_drift_incidents VALUES('7b5937ca-770f-476f-bbc5-c3d7d655b944','open','fn_ca_ledger_replay',180,-80,100);
+    sql(`CREATE TABLE public.ca_drift_incidents(id uuid PRIMARY KEY,status text,source text,discrepancy_amount numeric,expected_amount numeric,actual_amount numeric,root_cause text,correction_ref text,closure_basis text);
+      INSERT INTO ca_drift_incidents(id,status,source,discrepancy_amount,expected_amount,actual_amount) VALUES('7b5937ca-770f-476f-bbc5-c3d7d655b944','open','fn_ca_ledger_replay',180,-80,100);
       CREATE TABLE public.ca_account_snapshots(id bigserial PRIMARY KEY,account_key text,account_type text,entity_id uuid,club_id uuid,column_name text,
         balance numeric,taken_at timestamptz,is_baseline boolean,unexplained numeric,cum_unexplained numeric,basis_version text,note text,read_snapshot text);
       INSERT INTO ca_account_snapshots(id,account_key,account_type,entity_id,column_name,balance,taken_at,unexplained,cum_unexplained,basis_version,read_snapshot)
       SELECT id,'promo_wallet:${owner}:agents.promo_wallet_balance','promo_wallet','${owner}','agents.promo_wallet_balance',bal,at,err,err,'one-snapshot-v4','${snapshot}'
       FROM (VALUES(48396,0,now()-interval '1 hour',0),(84765,100,now(),180))v(id,bal,at,err);
       CREATE FUNCTION public.fn_ca_incident_action(uuid,text,text,uuid,text,text) RETURNS jsonb LANGUAGE plpgsql AS $f$
-      BEGIN UPDATE public.ca_drift_incidents SET status='resolved' WHERE id=$1; RETURN jsonb_build_object('ok',true); END $f$;
+      BEGIN UPDATE public.ca_drift_incidents SET status='resolved',root_cause=$5,correction_ref=$6,closure_basis='operator' WHERE id=$1; RETURN jsonb_build_object('ok',true); END $f$;
       UPDATE public.agents SET promo_wallet_balance=101 WHERE user_id='${owner}';`);
+    // The actual production resolution trigger must accept the migration's evidence.
+    sql(readFileSync(resolve(root, 'tests/unit/fixtures/promo-resolution-guard.sql'), 'utf8'));
+    sql(`CREATE TRIGGER resolution_guard BEFORE UPDATE ON public.ca_drift_incidents
+      FOR EACH ROW EXECUTE FUNCTION public.fn_ca_resolution_needs_a_cause()`);
     expect(() => sql(migration)).toThrow(/PROMO_READING_STILL_DISAGREES/);
     expect(net(queries[0])).toBe('-80.00'); // refusal rolled back all reader replacements
     sql(`UPDATE public.agents SET promo_wallet_balance=100 WHERE user_id='${owner}'`);
+    expect(() =>
+      sql(migration.replace("'migration 20261115064521_", "'supabase/migrations/20261115064521_"))
+    ).toThrow(/Supply correction_ref/);
+    expect(net(queries[0])).toBe('-80.00');
     sql(migration);
     expect(one('SELECT status FROM ca_drift_incidents')).toBe('resolved');
     expect(one('SELECT count(*) FROM ca_account_snapshots')).toBe('3');
