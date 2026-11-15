@@ -1724,6 +1724,26 @@ function trustedTournamentContext(
  * is one off the money or within 15 percent of the paid places, when the Horse is already in the money (every bust-out below is a pay jump), and when the context is
  * missing or untrusted (unknown is not "no pay jump"). Read only when the option is on.
  */
+/**
+ * The trusted tournament stage the Omaha full-table small blind rule
+ * (HorseOmahaTournamentFirstIn, 4 to 8 dealt) stands aside on: the feed's
+ * near-bubble flag, hand-for-hand on or expected, and any satellite. Absent or
+ * untrusted context leaves players left unknown, so that rule stands aside
+ * there as well.
+ */
+function omahaFirstInStage(gs: HorseGameStateV2): {
+  nearBubble: boolean;
+  handForHand: boolean;
+  satellite: boolean;
+} {
+  const t = trustedTournamentContext(gs);
+  return {
+    nearBubble: t?.nearBubble === true,
+    handForHand: t?.handForHand === true || t?.handForHandExpected === true,
+    satellite: t?.satellite === true,
+  };
+}
+
 function committedPayJumpLive(gs: HorseGameStateV2): boolean {
   const t = trustedTournamentContext(gs);
   if (!t) return true;
@@ -2648,7 +2668,10 @@ export interface HorseDecideOpts {
   /** Omaha high tournaments (HorseOmahaTournamentFirstIn): the small blind
    *  against the big blind alone, and the heads-up big blind facing one raise,
    *  replace the engine's fold by the hand's Omaha percentile, at three or
-   *  fewer players dealt and 20 BB or less (30 BB three-handed winner-take-all; with pay jumps the small blind alone, top 60 percent). Default on; false is the old
+   *  fewer players dealt and 20 BB or less (30 BB three-handed winner-take-all; with pay jumps the small blind alone, top 60 percent).
+   *  Four to eight dealt, PLO4/PLO5 only, the small blind folded to plays its
+   *  top 40 percent at 20 BB or less, never on the bubble, hand-for-hand or in
+   *  a satellite. Default on; false is the old
    *  engine; an object is a league arm's parameters. */
   omahaTournamentFirstIn?:
     | boolean
@@ -11236,6 +11259,10 @@ export class HorseLogic {
         ? {
             omahaTournamentFirstIn: {
               percentile: omahaPreflopPercentile(player.cards, false),
+              // 4 to 8 dealt the rule acts in PLO4/PLO5 only, and never on
+              // the bubble, hand-for-hand or in a satellite.
+              holeCount: vi.holeCount,
+              ...omahaFirstInStage(gs),
               ...(typeof opts.omahaTournamentFirstIn === 'object'
                 ? { params: opts.omahaTournamentFirstIn }
                 : {}),
@@ -11336,8 +11363,10 @@ export class HorseLogic {
       tableSize:
         (opts.v20Mzone ?? true) !== false ? dealtHorseTableSize(gs, player.seat) : undefined,
       // Players left in the whole tournament, from the TRUSTED context only
-      // (undefined when absent). The Omaha first-in rule acts only at the
-      // final table: off it, the 2026-11-13 bubble evaluation measured a loss.
+      // (undefined when absent). The short-handed Omaha first-in rule acts
+      // only at the final table: off it, the 2026-11-13 bubble evaluation
+      // measured a loss. 4 to 8 dealt, the full-table small blind rule reads
+      // it with the paid places for the near-bubble line; unknown stands aside.
       tournamentPlayersLeft: (() => {
         const tp = trustedTournamentContext(gs)?.playersLeft;
         return typeof tp === 'number' && Number.isFinite(tp) && tp > 0 ? tp : undefined;
@@ -11541,6 +11570,7 @@ export class HorseLogic {
             else if (layer === 'omaha_tournament_first_in') noteFire('omaha_tournament_first_in');
             else if (layer === 'omaha_hilo_tournament_first_in')
               noteFire('omaha_hilo_tournament_first_in');
+            else if (layer === 'omaha_full_table_sb_steal') noteFire('omaha_full_table_sb_steal');
             else if (layer === 'bluff_raise_refused_no_fold_equity_seen')
               noteFire('bluff_raise_refused_no_fold_equity_seen');
             else if (layer === 'style_tight_opener_respect_seen')

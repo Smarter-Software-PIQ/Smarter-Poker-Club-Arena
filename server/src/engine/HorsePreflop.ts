@@ -62,6 +62,7 @@ import { limpReraiseIsoBar } from './HorseLimpReraiseRead.js';
 import { fixedLimitHasNoJamOrFold } from './HorseFixedLimitStructure.js';
 import {
   OMAHA_TOURNAMENT_FIRST_IN,
+  omahaFullTableSbStealTable,
   omahaTournamentFirstIn,
   type OmahaTournamentFirstInParams,
 } from './HorseOmahaTournamentFirstIn.js';
@@ -203,6 +204,9 @@ export const OMAHA_HILO_TOURNAMENT_FIRST_IN: OmahaTournamentFirstInParams = Obje
   bigBlindMaxPrice: 0.5,
   bigBlindClosingShare: 0,
   payJumpBlindVsBlindShare: 0,
+  // The Omaha high full-table small-blind steal does not reach hi-lo.
+  fullTableSbStealShare: 0,
+  fullTableSbStealMaxStackBB: 0,
 });
 
 /** Layers that report through PreflopCtx.noteLayer (receipt only). */
@@ -214,6 +218,7 @@ export type PreflopLayerReceipt =
   | 'bluff_raise_refused_no_fold_equity_seen'
   | 'omaha_tournament_first_in'
   | 'omaha_hilo_tournament_first_in'
+  | 'omaha_full_table_sb_steal'
   | 'style_tight_opener_respect_seen'
   | 'style_tight_reraiser_respect_seen';
 
@@ -550,9 +555,18 @@ export interface PreflopCtx {
   cashActionSizes?: boolean;
   /** Dan 2026-10-24 NLH cash pressure (3-bet and defend wider); undefined = on. */
   cashAggression?: boolean;
-  /** Omaha high tournament: the hand's percentile among Omaha hands and,
-   *  for league arms only, replacement shares. Undefined = the rule is off. */
-  omahaTournamentFirstIn?: { percentile: number; params?: Partial<OmahaTournamentFirstInParams> };
+  /** Omaha high tournament: the hand's percentile among Omaha hands, its
+   *  hole-card count, the trusted stage flags the full-table small blind rule
+   *  stands aside on and, for league arms only, replacement shares.
+   *  Undefined = the rule is off. */
+  omahaTournamentFirstIn?: {
+    percentile: number;
+    holeCount?: number;
+    nearBubble?: boolean;
+    handForHand?: boolean;
+    satellite?: boolean;
+    params?: Partial<OmahaTournamentFirstInParams>;
+  };
   /** Pot-limit Omaha hi-lo tournament, heads-up (HU-HILO-002, default OFF):
    *  the hand's hi-lo percentile and, for league arms only, replacement
    *  shares. Undefined = the rule is off. */
@@ -1171,14 +1185,26 @@ export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
     !ctx.omahaHiLo &&
     ctx.mode === 'tournament'
   ) {
+    // A league arm may name only the parameters it changes: anything it
+    // leaves out keeps the published default (a partial object must never
+    // zero the other shares and silently switch the rule off).
+    const firstInParams = ctx.omahaTournamentFirstIn.params
+      ? {
+          ...OMAHA_TOURNAMENT_FIRST_IN,
+          ...Object.fromEntries(
+            Object.entries(ctx.omahaTournamentFirstIn.params).filter(([, v]) => v !== undefined)
+          ),
+        }
+      : OMAHA_TOURNAMENT_FIRST_IN;
+    // Unknown table size (a league ablation arm only) must not read as
+    // heads-up: NaN makes the rule stand aside.
+    const firstInTableSize = ctx.tableSize ?? Number.NaN;
     const widened = omahaTournamentFirstIn(
       {
         percentile: ctx.omahaTournamentFirstIn.percentile,
         position: ctx.position,
         liveOpponents: ctx.oppsLeft,
-        // Unknown table size (a league ablation arm only) must not read as
-        // heads-up: NaN makes the rule stand aside.
-        tableSize: ctx.tableSize ?? Number.NaN,
+        tableSize: firstInTableSize,
         // Unknown players-left must not read as a final table either.
         playersLeft: ctx.tournamentPlayersLeft ?? Number.NaN,
         paidPlacesLeft: ctx.tournamentPaidPlacesLeft ?? Number.NaN,
@@ -1192,21 +1218,21 @@ export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
         riskPremium: ctx.riskAdd,
         allInOrFold: ctx.allInOrFold === true,
         satelliteLocked: ctx.satellite?.locked === true,
+        holeCount: ctx.omahaTournamentFirstIn.holeCount,
+        nearBubble: ctx.omahaTournamentFirstIn.nearBubble === true,
+        handForHand: ctx.omahaTournamentFirstIn.handForHand === true,
+        satellite: ctx.omahaTournamentFirstIn.satellite === true,
       },
-      // A league arm may name only the parameters it changes: anything it
-      // leaves out keeps the published default (a partial object must never
-      // zero the other shares and silently switch the rule off).
-      ctx.omahaTournamentFirstIn.params
-        ? {
-            ...OMAHA_TOURNAMENT_FIRST_IN,
-            ...Object.fromEntries(
-              Object.entries(ctx.omahaTournamentFirstIn.params).filter(([, v]) => v !== undefined)
-            ),
-          }
-        : OMAHA_TOURNAMENT_FIRST_IN
+      firstInParams
     );
     if (widened) {
-      ctx.noteLayer?.('omaha_tournament_first_in');
+      // Four to eight dealt only the full-table small blind rule acts, so it
+      // has its own receipt.
+      ctx.noteLayer?.(
+        omahaFullTableSbStealTable({ tableSize: firstInTableSize }, firstInParams)
+          ? 'omaha_full_table_sb_steal'
+          : 'omaha_tournament_first_in'
+      );
       return widened;
     }
   }

@@ -27,6 +27,18 @@
  * tables larger than were measured, and stacks deeper than were measured. The
  * tournament utility arbiter (Phase 7) still evaluates and owns the final
  * action.
+ *
+ * FULL TABLE, SMALL BLIND FOLDED TO (item 4, 2026-11-15). At four to eight
+ * players dealt the short-handed rule stands aside. There, in PLO4 and PLO5
+ * only, the small blind folded to with the big blind alone, at an effective
+ * stack of 20 BB or less, pot-raises its top 40 percent of Omaha hands
+ * (fullTableSbStealShare, flat) instead of the engine's fold. The big blind's
+ * decision is not touched. It stands aside on the money bubble (the feed's
+ * near-bubble line, and its flag), hand-for-hand, in any satellite, at
+ * All-In-Or-Fold tables and when the field or the payout is unknown. The
+ * 14-20 BB band was in the evaluation's grid, but at 18 BB the candidate
+ * never acted against the declared fields, so the measured value comes from
+ * 10 and 14 BB.
  */
 import type { PreflopIntent, PreflopPosition } from './HorsePreflop.js';
 
@@ -62,6 +74,19 @@ export interface OmahaTournamentFirstInParams {
    *  conserved ICM equity): +0.008 to +0.023 percent of the pool per hand
    *  pooled against every opponent, no cell below zero. */
   payJumpBlindVsBlindShare: number;
+  /** Four to eight players dealt, PLO4 or PLO5 only, the small blind folded
+   *  to with the big blind alone, effective stack at most
+   *  fullTableSbStealMaxStackBB: share of hands that pot-raise instead of the
+   *  engine's fold (flat; the risk premium does not narrow it). Never on the
+   *  money bubble, hand-for-hand or in a satellite. 0 stands aside. Measured
+   *  under a protocol frozen before running (ITEM4-PROTOCOL.md section B;
+   *  6 and 8 handed, PLO4 and PLO5, 10/14/18 BB, 4,000 deal groups per cell,
+   *  conserved prize equity): +0.0017 percent of the pool per hand pooled
+   *  (SE 0.00015), no cell below -1 SE, and still positive against a big
+   *  blind that re-shoves or calls its top half. */
+  fullTableSbStealShare: number;
+  /** Deepest effective stack (big blinds) the full-table small blind acts at. */
+  fullTableSbStealMaxStackBB: number;
 }
 
 export const OMAHA_TOURNAMENT_FIRST_IN: OmahaTournamentFirstInParams = {
@@ -74,7 +99,13 @@ export const OMAHA_TOURNAMENT_FIRST_IN: OmahaTournamentFirstInParams = {
   bigBlindMaxPrice: 0.5,
   bigBlindClosingShare: 0.75,
   payJumpBlindVsBlindShare: 0.6,
+  fullTableSbStealShare: 0.4,
+  fullTableSbStealMaxStackBB: 20,
 };
+
+/** The players-dealt range the full-table small blind rule was measured at. */
+const FULL_TABLE_MIN_DEALT = 4;
+const FULL_TABLE_MAX_DEALT = 8;
 
 export interface OmahaTournamentFirstInInput {
   /** The hand's percentile among Omaha hands of its size, 0 (worst) to 1. */
@@ -113,6 +144,28 @@ export interface OmahaTournamentFirstInInput {
    *  payout stands aside. Heads-up, ICM is chip-proportional and this does
    *  not apply. */
   paidPlacesLeft: number;
+  /** Hole cards per hand. The full-table small blind rule acts only at 4 or 5
+   *  (PLO4, PLO5: the evaluated variants); absent stands aside. */
+  holeCount?: number;
+  /** Trusted tournament context: the feed's near-bubble flag. */
+  nearBubble?: boolean;
+  /** Trusted tournament context: hand-for-hand is on or expected. */
+  handForHand?: boolean;
+  /** Trusted tournament context: the event is a satellite. */
+  satellite?: boolean;
+}
+
+/** True when the full-table small blind rule, and not the short-handed rule,
+ *  owns this table: four to eight players dealt with its share on. */
+export function omahaFullTableSbStealTable(
+  i: Pick<OmahaTournamentFirstInInput, 'tableSize'>,
+  p: OmahaTournamentFirstInParams = OMAHA_TOURNAMENT_FIRST_IN
+): boolean {
+  return (
+    p.fullTableSbStealShare > 0 &&
+    i.tableSize >= FULL_TABLE_MIN_DEALT &&
+    i.tableSize <= FULL_TABLE_MAX_DEALT
+  );
 }
 
 /**
@@ -125,6 +178,22 @@ export function omahaTournamentFirstIn(
 ): PreflopIntent | null {
   if (!(i.toCall > 0) || !Number.isFinite(i.percentile)) return null;
   if (i.allInOrFold || i.satelliteLocked) return null;
+  if (omahaFullTableSbStealTable(i, p)) {
+    // PLO4 and PLO5 only: PLO6 was not evaluated at these tables.
+    if (i.holeCount !== 4 && i.holeCount !== 5) return null;
+    // Never on the bubble, hand-for-hand or in a satellite.
+    if (i.nearBubble === true || i.handForHand === true || i.satellite === true) return null;
+    const left = i.playersLeft;
+    const paid = i.paidPlacesLeft;
+    // Unknown field or payout: stand aside.
+    if (!(left >= 2) || !(paid >= 1)) return null;
+    // The feed's near-bubble line (TournamentBrainContext), as evaluated.
+    if (left > paid && left <= Math.max(paid + 1, Math.ceil(paid * 1.15))) return null;
+    if (!(i.effectiveStackBB > 0) || i.effectiveStackBB > p.fullTableSbStealMaxStackBB) return null;
+    if (i.raises === 0 && i.limpers === 0 && i.position === 'sb' && i.liveOpponents === 1)
+      return i.percentile >= 1 - p.fullTableSbStealShare ? { a: 'jam' } : null;
+    return null;
+  }
   if (!(i.tableSize >= 2) || i.tableSize > p.maxTableSize) return null;
   if (!(i.playersLeft >= 2) || i.playersLeft > i.tableSize) return null;
   const payJumps = i.tableSize > 2 && i.paidPlacesLeft !== 1;
