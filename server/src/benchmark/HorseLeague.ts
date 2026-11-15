@@ -1999,6 +1999,21 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaTightOpponent: true },
     b: {},
   })),
+  // 2026-11-15 OMAHA BLUFF-CATCHER FOLD (omahaBluffCatcherRaiseFold, default
+  // OFF): a folds two pair, sets and non-nut straights and flushes to a raise
+  // or a flop-bettor's turn bet of 0.9 pot or more with chips behind; b is
+  // today's brain. It ships off because it folds on bet size alone and has no
+  // value or continuation measurement (owner 2026-11-14 23:10: no blanket
+  // fold); it goes on only after a declared paired evaluation that includes a
+  // field raising for value only and a field that bluff-raises.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_bluff_catcher_raise_fold`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaBluffCatcherRaiseFold: true },
+    b: {},
+  })),
   // V15 BOATS (2026-09-28): default OFF. a turns it on, b is today's brain.
   // Ship it default ON only after this resolves significant positive.
   // 2026-11-06: V15 boats is default ON in PLO5 cash (v15BoatsOn), so the
