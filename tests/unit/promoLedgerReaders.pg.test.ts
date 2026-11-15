@@ -3,6 +3,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } f
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
+import { stalePinGuardSQL } from '../../scripts/ci/migration-stale-pins.mjs';
 
 it('counts typed promo legs on every reader and rejects a changed preimage', () => {
   const root = resolve(__dirname, '../..');
@@ -106,12 +107,17 @@ it('counts typed promo legs on every reader and rejects a changed preimage', () 
         `SELECT net FROM ${reader} WHERE entity_id='${owner}' AND column_name='agents.promo_wallet_balance'`
       );
     for (const query of queries) expect(net(query)).toBe('-80.00');
-    const migration = readFileSync(
+    const migrationSource = readFileSync(
       resolve(
         root,
         'supabase/migrations/20261115064521_promo_ledger_readers_resolve_their_own_account_type.sql'
       ),
       'utf8'
+    );
+    const migration = stalePinGuardSQL(
+      'supabase/migrations/20261115064521_promo_ledger_readers_resolve_their_own_account_type.sql',
+      migrationSource,
+      migrationSource
     );
     sql(fixtures[0].definition.replace('WITH sides AS', 'WITH sides AS /* drift */'));
     expect(() => sql(migration)).toThrow(/PROMO_READER_PREIMAGE_CHANGED/);

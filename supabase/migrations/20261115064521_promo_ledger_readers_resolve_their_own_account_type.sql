@@ -4,7 +4,7 @@
 -- unlabelled agent sends and claims and reporting 180 chips of fictitious drift.
 -- Preserve explicit labels, unknown owners, every leg and snapshot semantics.
 -- @live-proof: position('WHEN EXISTS (SELECT 1 FROM public.agents a' in pg_get_functiondef('public.fn_ca_leg_accounts(timestamptz,timestamptz)'::regprocedure)) > 0
-BEGIN ISOLATION LEVEL REPEATABLE READ;
+BEGIN;
 SET LOCAL lock_timeout = '3s';
 SET LOCAL statement_timeout = '60s';
 
@@ -46,6 +46,7 @@ DECLARE
   v_owner constant uuid := '47965354-0e56-43ef-931c-ddaab82af765';
   v_inc constant uuid := '7b5937ca-770f-476f-bbc5-c3d7d655b944';
   b record; s record; v_net numeric; v_balance numeric; v_result jsonb;
+  v_snapshot text; v_legs uuid[];
   v_note constant text := 'The promo ledger reader omitted 180.00 net chips from typed unlabelled promo transfers. The corrected reader accounts for all 100.00 chips since the zero baseline; the wallet is correct. No player balance, journal row or original reading was changed.';
 BEGIN
   IF to_regclass('public.ca_drift_incidents') IS NULL THEN RETURN; END IF;
@@ -61,10 +62,17 @@ BEGIN
     WHERE account_key=v_key ORDER BY taken_at DESC LIMIT 1;
   IF b.balance IS DISTINCT FROM 0 OR s.id IS DISTINCT FROM 84765 OR s.balance IS DISTINCT FROM 100 OR s.unexplained IS DISTINCT FROM 180 OR s.cum_unexplained IS DISTINCT FROM 180
      OR b.read_snapshot IS NULL THEN RAISE EXCEPTION 'PROMO_READING_EVIDENCE_CHANGED'; END IF;
-  SELECT net INTO STRICT v_net
-    FROM public.fn_ca_leg_accounts_since_snapshot_for(b.taken_at,b.read_snapshot::pg_snapshot,ARRAY[v_owner])
-    WHERE account_key=v_key;
-  SELECT sum(promo_wallet_balance) INTO v_balance FROM public.agents WHERE id=v_owner OR user_id=v_owner;
+  -- One statement owns the balance, journal, visibility horizon and visible
+  -- subtransaction legs even under the installer's READ COMMITTED isolation.
+  SELECT a.net,
+    (SELECT sum(promo_wallet_balance) FROM public.agents WHERE id=v_owner OR user_id=v_owner),
+    pg_current_snapshot()::text,
+    (SELECT COALESCE(array_agg(l.id ORDER BY l.id),'{}') FROM public.chip_ledger l
+      WHERE l.created_at>now()-interval '30 minutes'
+        AND public.fn_ca_xid8(l.xmin)>=pg_snapshot_xmin(pg_current_snapshot()))
+  INTO STRICT v_net,v_balance,v_snapshot,v_legs
+  FROM public.fn_ca_leg_accounts_since_snapshot_for(b.taken_at,b.read_snapshot::pg_snapshot,ARRAY[v_owner]) a
+  WHERE a.account_key=v_key;
   IF v_net IS DISTINCT FROM 100 OR v_balance IS DISTINCT FROM 100 OR v_balance-b.balance-v_net IS DISTINCT FROM 0 THEN
     RAISE EXCEPTION 'PROMO_READING_STILL_DISAGREES: journal %, balance %',v_net,v_balance;
   END IF;
@@ -72,12 +80,9 @@ BEGIN
     (account_key,account_type,entity_id,club_id,column_name,balance,taken_at,
      is_baseline,unexplained,cum_unexplained,basis_version,note,read_snapshot)
   VALUES(v_key,s.account_type,s.entity_id,s.club_id,s.column_name,v_balance,clock_timestamp(),
-    false,0,0,s.basis_version,'20261115064521: '||v_note,pg_current_snapshot()::text);
+    false,0,0,s.basis_version,'20261115064521: '||v_note,v_snapshot);
   INSERT INTO public.ca_ledger_replay_readings(read_snapshot,read_at,committed_legs)
-  SELECT pg_current_snapshot()::text,clock_timestamp(),COALESCE(array_agg(l.id ORDER BY l.id),'{}')
-    FROM public.chip_ledger l
-    WHERE l.created_at>now()-interval '30 minutes'
-      AND public.fn_ca_xid8(l.xmin)>=pg_snapshot_xmin(pg_current_snapshot())
+  VALUES(v_snapshot,clock_timestamp(),v_legs)
   ON CONFLICT(read_snapshot) DO NOTHING;
   v_result := public.fn_ca_incident_action(v_inc,'resolve',v_note,NULL,
     'Typed promo_wallet sides were wrongly made conditional on the opposite column label in all three fn_ca_leg_accounts readers.',
