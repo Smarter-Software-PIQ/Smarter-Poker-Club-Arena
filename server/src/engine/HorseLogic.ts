@@ -2744,7 +2744,8 @@ export interface HorseDecideOpts {
    * call is under 40% of the stack: a refusal by the price arithmetic goes
    * to the range play instead of folding outright (PLO6-AUDIT-013,
    * docs/horse-default-on.d/plo6ManiacPriceRefusalToRangePlay.md). Default
-   * on; false only for the regression's non-vacuity control. */
+   * OFF (opt-in) since 2026-11-16: its reach row was not met by the deadline
+   * Hand Analysis set (production changed-decision count not shown). */
   plo6ManiacPriceRefusalToRangePlay?: boolean;
   /** PLO6 cash, one board, no bomb pot: in the solverless flop/turn call
    * menu a top set that is the current nuts (board unpaired, no three of a
@@ -9384,7 +9385,7 @@ export class HorseLogic {
           // range play below. PLO6 cash only: the evidence is one PLO6 cash
           // node (docs/horse-default-on.d/plo6ManiacPriceRefusalToRangePlay.md).
           const refusalToRangePlay38 =
-            opts.plo6ManiacPriceRefusalToRangePlay !== false &&
+            opts.plo6ManiacPriceRefusalToRangePlay === true &&
             vi.isOmaha &&
             !vi.isHiLo &&
             vi.holeCount === 6 &&

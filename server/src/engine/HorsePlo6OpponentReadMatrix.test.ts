@@ -311,10 +311,12 @@ describe('PLO6 response: the same node against each class of raiser', () => {
   const REFUSED = { sustained: 18, selective: 12, wasRaisingNowQuiet: 18 } as const;
   const REFUSAL = 'plo6_maniac_price_refusal_range_play_seen';
   const OFF = { plo6ManiacPriceRefusalToRangePlay: false };
+  // Default OFF (opt-in) since 2026-11-16: every case of the arm passes ON.
+  const ON = { plo6ManiacPriceRefusalToRangePlay: true };
 
   it.each(OBSERVED_RAISERS)('%s: an observed raiser is never folded to at the deep node', (cls) => {
     const refused = REFUSED[cls as keyof typeof REFUSED];
-    const four = decideAt(FOUR_BET_NODE, cls, FOUR_BETTOR);
+    const four = decideAt(FOUR_BET_NODE, cls, FOUR_BETTOR, undefined, ON);
     expect(four.actions).toEqual({ call: CELL - refused, all_in: refused });
     expect(four.receipts[REFUSAL]).toBe(refused);
     expect(four.receipts.plo_opponent_presumption_disproved).toBeUndefined();
@@ -335,7 +337,7 @@ describe('PLO6 response: the same node against each class of raiser', () => {
     '%s: floored, every hand-off is counted as continued, and its final action is the shove',
     (cls) => {
       const refused = REFUSED[cls as keyof typeof REFUSED];
-      const four = decideAt(FOUR_BET_NODE, cls, FOUR_BETTOR);
+      const four = decideAt(FOUR_BET_NODE, cls, FOUR_BETTOR, undefined, ON);
       expect(four.receipts[FLOORED_CONTINUED]).toBe(refused);
       expect(four.receipts[FLOORED_CONTINUED]).toBe(four.actions.all_in);
       expect(four.receipts[FLOORED_FOLDED]).toBeUndefined();
@@ -348,7 +350,7 @@ describe('PLO6 response: the same node against each class of raiser', () => {
     '%s: unfloored, the hand-off still fires but every one ends as a fold, counted as folded',
     (cls) => {
       const refused = REFUSED[cls as keyof typeof REFUSED];
-      const four = decideAt(FOUR_BET_NODE, cls, FOUR_BETTOR, noFloor);
+      const four = decideAt(FOUR_BET_NODE, cls, FOUR_BETTOR, noFloor, ON);
       const handOffs = four.receipts[REFUSAL] ?? 0;
       expect(handOffs).toBeGreaterThan(0);
       expect(four.receipts[UNFLOORED_FOLDED]).toBe(handOffs);
@@ -372,6 +374,14 @@ describe('PLO6 response: the same node against each class of raiser', () => {
     expect(outcome(decideAt(FOUR_BET_NODE, 'sustained', FOUR_BETTOR, noFloor, OFF))).toBe(0);
   });
 
+  it.each(OBSERVED_RAISERS)('%s: by default (no option set) the refused seeds fold', (cls) => {
+    const refused = REFUSED[cls as keyof typeof REFUSED];
+    const four = decideAt(FOUR_BET_NODE, cls, FOUR_BETTOR);
+    expect(four.actions).toEqual({ call: CELL - refused, fold: refused });
+    expect(four.actions).toEqual(decideAt(FOUR_BET_NODE, cls, FOUR_BETTOR, undefined, OFF).actions);
+    expect(four.receipts[REFUSAL]).toBeUndefined();
+  });
+
   it.each(OBSERVED_RAISERS)('%s: with the option off the refused seeds fold, as before', (cls) => {
     const refused = REFUSED[cls as keyof typeof REFUSED];
     const four = decideAt(FOUR_BET_NODE, cls, FOUR_BETTOR, undefined, OFF);
@@ -381,7 +391,7 @@ describe('PLO6 response: the same node against each class of raiser', () => {
 
   it('the option moves nothing against an unknown, sparse, tight or newly raising raiser', () => {
     for (const cls of ['unknown', 'sparse', 'wasQuietNowRaising', ...TIGHT] as const) {
-      const on = decideAt(FOUR_BET_NODE, cls, FOUR_BETTOR);
+      const on = decideAt(FOUR_BET_NODE, cls, FOUR_BETTOR, undefined, ON);
       expect(on.actions, cls).toEqual(
         decideAt(FOUR_BET_NODE, cls, FOUR_BETTOR, undefined, OFF).actions
       );
@@ -391,7 +401,7 @@ describe('PLO6 response: the same node against each class of raiser', () => {
 
   it('the option moves nothing at the open node, where the arithmetic is not used', () => {
     for (const cls of OBSERVED_RAISERS) {
-      const on = decideAt(OPEN_NODE, cls, FIRST_RAISER);
+      const on = decideAt(OPEN_NODE, cls, FIRST_RAISER, undefined, ON);
       expect(on.actions, cls).toEqual(
         decideAt(OPEN_NODE, cls, FIRST_RAISER, undefined, OFF).actions
       );
@@ -404,7 +414,7 @@ describe('PLO6 response: the same node against each class of raiser', () => {
       gs.gameVariant = 'plo5';
       hero.cards = hero.cards.slice(0, 5);
     };
-    const on = decideAt(FOUR_BET_NODE, 'sustained', FOUR_BETTOR, asPlo5);
+    const on = decideAt(FOUR_BET_NODE, 'sustained', FOUR_BETTOR, asPlo5, ON);
     const off = decideAt(FOUR_BET_NODE, 'sustained', FOUR_BETTOR, asPlo5, OFF);
     // Not vacuous: the PLO5 deal does reach the refusal and folds it.
     expect(on.actions.fold ?? 0).toBeGreaterThan(0);
