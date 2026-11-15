@@ -89,6 +89,8 @@ import {
   HU_LIMP_EVERY_BUTTON_PERSONA,
   HU_THREE_BET_EVERY_HAND_PERSONA,
   HU_SMALL_STAB_EVERY_STREET_PERSONA,
+  HU_NIT_BIG_BLIND_PERSONA,
+  HU_FOLD_SB_DEFEND_BB_PERSONA,
   OMAHA_TIGHT_FIELD_PERSONA,
   HUMAN_FIELD_PERSONAS,
   type HumanFieldPersona,
@@ -108,6 +110,8 @@ export {
   HU_LIMP_EVERY_BUTTON_PERSONA,
   HU_THREE_BET_EVERY_HAND_PERSONA,
   HU_SMALL_STAB_EVERY_STREET_PERSONA,
+  HU_NIT_BIG_BLIND_PERSONA,
+  HU_FOLD_SB_DEFEND_BB_PERSONA,
   OMAHA_TIGHT_FIELD_PERSONA,
   HUMAN_FIELD_PERSONAS,
   type HumanFieldPersona,
@@ -1713,6 +1717,27 @@ export function humanFieldPersonaProfile(
   // Strength is a percentile in [0, 1): a cutoff of 0 always passes and a
   // cutoff above 1 never does, so "every hand" and "never" are exact.
   switch (persona) {
+    case HU_NIT_BIG_BLIND_PERSONA:
+      return Object.freeze({
+        ...base,
+        id: `${base.id}-${persona}`,
+        preflop: Object.freeze({ ...base.preflop, freeRaise: 0.03 }),
+        cutoffs: Object.freeze({
+          ...(base.cutoffs ?? {}),
+          'preflop/unopened': { fold: 0.9, raise: 0.9 },
+          'preflop/facing_raise': { fold: 0.91, raise: 0.99 },
+        }),
+      });
+    case HU_FOLD_SB_DEFEND_BB_PERSONA:
+      return Object.freeze({
+        ...base,
+        id: `${base.id}-${persona}`,
+        cutoffs: Object.freeze({
+          ...(base.cutoffs ?? {}),
+          'preflop/unopened': { fold: 0.97, raise: 0.97 },
+          'preflop/facing_raise': { fold: 0.55, raise: 0.92 },
+        }),
+      });
     case HU_WIDE_SB_AGGRESSOR_PERSONA:
       return Object.freeze({ ...wide, cutoffs: Object.freeze(wideCutoffs) });
     case HU_MINRAISE_EVERY_BUTTON_PERSONA:
@@ -3058,6 +3083,32 @@ export const HU_BB_UNREAD_CARDS: readonly LeagueMatchup[] = Object.freeze([
   },
 ] satisfies LeagueMatchup[]);
 LEAGUE_MATCHUPS.push(...HU_BB_UNREAD_CARDS);
+
+/**
+ * THE HEADS-UP STEAL CARD (2026-11-15, D6). huSmallBlindStealsVsTightBigBlind,
+ * default OFF, heads-up 40bb with the live cash Hybrid persona and the
+ * deal-seeded mood clock, arm A the option on and arm B the live default,
+ * against hu_nit_big_blind_v1, the big blind that folds about 91% of the time:
+ * the one opponent the option exists for. Memory learning on (the league
+ * default): the steal needs the read. The card only measures; the option stays
+ * default OFF and is not proposed for activation.
+ */
+export const HUMAN_HU_SB_STEALS_VS_NIT_40BB = `${HUMAN_FIELD_NAME_PREFIX}hu_sb_steals_vs_nit_40bb`;
+export const HU_STEAL_CARDS: readonly LeagueMatchup[] = Object.freeze([
+  {
+    name: HUMAN_HU_SB_STEALS_VS_NIT_40BB,
+    seats: 2,
+    stackBB: 40,
+    pairs: HUMAN_FIELD_PAIRS,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: { huSmallBlindStealsVsTightBigBlind: true },
+    b: {},
+    opponentPopulation: HUMAN_CALIBRATED_POPULATION_ID,
+    humanPersona: HU_NIT_BIG_BLIND_PERSONA,
+  },
+] satisfies LeagueMatchup[]);
+LEAGUE_MATCHUPS.push(...HU_STEAL_CARDS);
 
 /**
  * UNMEASURABLE MATCHUPS (2026-10-31). A matchup the league deliberately does

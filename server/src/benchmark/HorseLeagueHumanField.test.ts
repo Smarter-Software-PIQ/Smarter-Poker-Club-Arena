@@ -99,6 +99,8 @@ const EXPECTED_PERSONA_CARDS: Array<[string, string]> = [
   ['human_hu_limp_defends_vs_minraise_40bb', 'hu_minraise_every_button_v1'],
   // 2026-11-15 (HU-NLH-001d): the unread big blind option, memory learning off.
   ['human_hu_bb_defends_unread_vs_minraise_40bb', 'hu_minraise_every_button_v1'],
+  // 2026-11-15 (D6): the default-off steal against a heads-up nit big blind.
+  ['human_hu_sb_steals_vs_nit_40bb', 'hu_nit_big_blind_v1'],
 ];
 
 /** Persona cards whose arms must be seen to diverge here (2026-11-15). The
@@ -108,6 +110,7 @@ const PERSONA_CARDS_THAT_MUST_DIVERGE = [
   'human_hu_opener_defends_vs_wide_40bb',
   'human_hu_limp_defends_vs_minraise_40bb',
   'human_hu_bb_defends_unread_vs_minraise_40bb',
+  'human_hu_sb_steals_vs_nit_40bb',
 ];
 
 afterEach(() => {
@@ -320,7 +323,8 @@ describe(
         // Measured 2026-11-15 at this seed and size (deterministic for a
         // strategy build; raw outputs in the heads-up evidence folder
         // round2/cards/probes): the opener card diverged in 40 of 1,500 pairs,
-        // the limp card in 209 and the unread big blind card in 330. A floor of
+        // the limp card in 209, the unread big blind card in 330 and the D6
+        // steal card in 106. A floor of
         // 10 keeps a wide margin and still fails a card that has gone nearly
         // inert (the retired every-hand card diverged 1 of 4,000 with reads on).
         const r = await runMatchup(card, 1500, 4242);

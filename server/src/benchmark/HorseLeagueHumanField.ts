@@ -106,6 +106,24 @@ export const HU_LIMP_EVERY_BUTTON_PERSONA = 'hu_limp_every_button_v1' as const;
 export const HU_THREE_BET_EVERY_HAND_PERSONA = 'hu_three_bet_every_hand_v1' as const;
 export const HU_SMALL_STAB_EVERY_STREET_PERSONA = 'hu_small_stab_every_street_v1' as const;
 /**
+ * THE HEADS-UP TIGHT BIG BLINDS (2026-11-15, D6, huSmallBlindStealsVsTightBigBlind).
+ * Every heads-up persona above defends its big blind wide; none folds it, so a
+ * small blind that never steals from a nit could not be seen. Each is the
+ * calibrated NLH profile (not the wide one) with its preflop entry replaced:
+ *  - hu_nit_big_blind_v1: a heads-up nit. First in it raises the top 10% and
+ *    never limps; facing a raise it continues with the top 9% (calls 8%,
+ *    re-raises the top 1%), so it folds its big blind about 91% of the time;
+ *    over a limp it raises 3% of big blinds.
+ *  - hu_fold_sb_defend_bb_v1: the case the steal's worst-case bound is built
+ *    for: it opens only the top 3% of small blinds but defends 45% of big
+ *    blinds (re-raises 8%), so its VPIP looks tight while its big blind does
+ *    not fold. A steal that misreads it as a folder pays here.
+ * Postflop nodes keep the calibrated cutoffs. Development personas, not
+ * calibrated populations. Heads-up NLH only.
+ */
+export const HU_NIT_BIG_BLIND_PERSONA = 'hu_nit_big_blind_v1' as const;
+export const HU_FOLD_SB_DEFEND_BB_PERSONA = 'hu_fold_sb_defend_bb_v1' as const;
+/**
  * THE OMAHA TIGHT FIELD (2026-11-13, the omahaTightOpponent evaluation). The
  * Omaha development field's own profile (HUMAN_CALIBRATED_OMAHA_DEV_POPULATION_ID)
  * with its preflop entry pushed to a proven nit: first in it raises the top 2%
@@ -125,12 +143,16 @@ export type HumanFieldPersona =
   | typeof HU_MINRAISE_EVERY_BUTTON_PERSONA
   | typeof HU_LIMP_EVERY_BUTTON_PERSONA
   | typeof HU_THREE_BET_EVERY_HAND_PERSONA
-  | typeof HU_SMALL_STAB_EVERY_STREET_PERSONA;
+  | typeof HU_SMALL_STAB_EVERY_STREET_PERSONA
+  | typeof HU_NIT_BIG_BLIND_PERSONA
+  | typeof HU_FOLD_SB_DEFEND_BB_PERSONA;
 export const HUMAN_FIELD_PERSONAS: readonly HumanFieldPersona[] = Object.freeze([
   HU_WIDE_SB_AGGRESSOR_PERSONA,
   HU_MINRAISE_EVERY_BUTTON_PERSONA,
   HU_LIMP_EVERY_BUTTON_PERSONA,
   HU_THREE_BET_EVERY_HAND_PERSONA,
   HU_SMALL_STAB_EVERY_STREET_PERSONA,
+  HU_NIT_BIG_BLIND_PERSONA,
+  HU_FOLD_SB_DEFEND_BB_PERSONA,
   OMAHA_TIGHT_FIELD_PERSONA,
 ]);

@@ -353,6 +353,15 @@ export interface PreflopCtx {
   omahaTightReRaiser?: { fourBetBump: number; callBump: number };
   omahaTightSteal?: { openWiden: number };
   /**
+   * HU SMALL BLIND STEALS VS A TIGHT BIG BLIND (2026-11-15, D6, option
+   * huSmallBlindStealsVsTightBigBlind, HorseHuTightBigBlindSteal): set only
+   * for the heads-up no-limit hold'em small blind first in when the big
+   * blind is a proven tight folder whose worst-case fold share clears the
+   * largest heads-up open's break-even on folds alone. Every hand opens.
+   * Undefined = unchanged.
+   */
+  huTightBigBlindSteal?: { pFoldLower: number; breakEven: number };
+  /**
    * 2026-10-24 V53 PRESSURE (HorseOpponentExploit.aggressiveOpenerPressure):
    * the single raiser is a credibly WIDE opener. Heads-up against them the
    * value 3-bet widens to these bars - in position the most - and the
@@ -2467,6 +2476,17 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       (position === 'late' || position === 'sb')
     ) {
       openThresh -= Math.max(0, ctx.omahaTightSteal.openWiden);
+    }
+    // HU SMALL BLIND STEALS VS A TIGHT BIG BLIND (D6, default off): the big
+    // blind's worst-case fold share pays the open on folds alone, so every
+    // hand opens. No limp, no size change; nothing facing action is touched.
+    if (
+      ctx.huTightBigBlindSteal !== undefined &&
+      !ctx.isOmaha &&
+      limpers === 0 &&
+      position === 'sb'
+    ) {
+      openThresh = Math.min(openThresh, 0);
     }
     openThresh = phase6CapBar(openThresh);
     // MANIAC PRESSURE: never open a hand that has to fold to the maniac's
