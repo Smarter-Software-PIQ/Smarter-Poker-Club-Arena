@@ -2384,6 +2384,23 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { plo6TopSetNutRealization: true },
     b: {},
   },
+  // 2026-11-16 (PLO6-AUDIT-013) PLO6 MANIAC PRICE REFUSAL TO THE RANGE PLAY
+  // (plo6ManiacPriceRefusalToRangePlay), opt-in since 2026-11-16 because its
+  // production reach row was not met by the deadline Hand Analysis set: arm A
+  // hands a price refused against an observed maniac to the range play, arm
+  // B is today's brain (the fold). The arm needs an observed-maniac read on
+  // the raiser faced, so whether self-play reaches it is not measured here;
+  // the card exists so the nightly league can report it before anyone
+  // proposes the default again. The default is unchanged by this card.
+  {
+    name: 'plo6_maniac_price_refusal_to_range_play',
+    variant: 'plo6',
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: { plo6ManiacPriceRefusalToRangePlay: true },
+    b: {},
+  },
   // 2026-11-13 OMAHA TOURNAMENT FIRST-IN (HorseOmahaTournamentFirstIn),
   // default ON: a is today's brain, b the engine fold it replaces. The small
   // blind against the big blind alone plays every hand as the pot-limit
