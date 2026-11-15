@@ -10,10 +10,10 @@
  *     note;
  *   - every reader that SUBTRACTS credit notes also ADDS charge notes;
  *   - the issuing function keeps the credit note's caller rule and grants;
- *   - the client board reconciles and labels charge notes where it does
- *     credit notes.
  * The behaviour itself is proved in PostgreSQL 17 by
- * scripts/ci/test-union-charge-notes-postgres.py.
+ * scripts/ci/test-union-charge-notes-postgres.py; the client board's
+ * reconciliation and "Charge Note" label by tests/unit/unionStatementBoard
+ * .test.ts and tests/components/union-statements-scope.test.tsx.
  */
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -30,8 +30,6 @@ const preimages = JSON.parse(
     'utf8'
   )
 ) as { functions: Record<string, { md5: string; definition: string }> };
-const board = readFileSync(join(ROOT, 'src/utils/unionStatementBoard.ts'), 'utf8');
-const page = readFileSync(join(ROOT, 'src/pages/UnionStatementsPage.tsx'), 'utf8');
 
 /** The cn_patch call for one signature: its md5 and its edit text. */
 function patchOf(sig: string): { md5: string; text: string } | null {
@@ -141,13 +139,5 @@ describe('a union statement can carry a charge note', () => {
     );
     expect(migration).toMatch(/RETURN; {2}-- already charged/);
     expect(migration).toMatch(/IS DISTINCT FROM 110158\.16/);
-  });
-
-  it('the client reconciles and labels charge notes where it does credit notes', () => {
-    expect(board).toMatch(/parsed\.charge_notes = optionalCredits\(row\.charge_notes, 'charge'\);/);
-    expect(board).toMatch(/Math\.abs\(cents\(parsed\.amount\)\) - credited \+ charged/);
-    expect((board.match(/adjusted\(/g) ?? []).length).toBeGreaterThanOrEqual(4);
-    expect(page).toMatch(/<dt>Charge Note<\/dt>/);
-    expect(page).toMatch(/'charged_by',/);
   });
 });
