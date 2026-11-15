@@ -994,6 +994,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaManiacReRaiseWidthMeasured',
+    'Full sweep 2026-11-15 (4,573 human PLO4/PLO5 cash hands): against the biggest winner the Horses 4-bet without aces 21 times (-1,441 bb) and called his re-raises; the decisions replay as v53_pressure_four_bet and the maniac price call, priced against a range the read sets at his whole raising width (0.69) for his 3-bet and 0.58 for his 5-bet. With this on (PLO4/PLO5 cash) a measured maniac whose re-raises rest on 12 or more decayed opportunities is read on a re-raising line at his own re-raise rate (never wider than today); the price arithmetic and its margins are unchanged. HorseMind.bandFor. Default off (opt-in) until its declared evaluation passes.',
+    'V94'
+  ),
+  flag(
     'omahaNutClassValueSize',
     'Dan 2026-11-14: a PLO4/PLO5 high bet or raise with the nuts or an effective-nut hand for the street is the full pot (the pot-limit maximum, the stack when smaller) on the flop, turn and river. Default OFF (opt-in): its declared evaluation failed on the Horse-only cells (PLO4 -1.19, PLO5 -1.31 bb/100; human field +2.29)',
     'V94'
@@ -3854,6 +3859,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_vpip_floor_three_bet_bar_kept',
     'HorseLogic reference preflop (omahaVpipFloorByLimp)',
     'PLO4/PLO5 cash, facing a raise, the VPIP floor unmet: a re-raise or shove the unfloored brain does not make was withheld (its call, a call at the call-down price, or the fold instead)',
+    'V94'
+  ),
+  receipt(
+    'omaha_maniac_reraise_width_measured',
+    'HorseMind.bandFor (omahaManiacReRaiseWidthMeasured)',
+    'PLO4/PLO5 cash: the range of a measured maniac on a re-raising line (3-bet, 4-bet or more) was read at his own counted re-raise rate, narrower than his whole raising width',
     'V94'
   ),
   receipt(

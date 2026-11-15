@@ -413,6 +413,11 @@ export function aggressionShownAsValue(
  */
 export interface DecisionReadOptions {
   postflopFoldRate?: boolean;
+  /** omahaManiacReRaiseWidthMeasured (2026-11-15): a maniac's re-raise is
+   *  read at his own measured re-raise rate once it rests on
+   *  OMAHA_MANIAC_RERAISE_MIN_OPPS decayed opportunities, not at his whole
+   *  raising width (see bandFor). Absent = unchanged. */
+  omahaManiacReRaiseMeasured?: boolean;
   shrinkResponseReads?: boolean;
   /** Break-even postflop bluffing (see BREAK_EVEN_BLUFF below). */
   breakEvenBluff?: boolean;
@@ -892,6 +897,8 @@ export function readScopeOf(variant: string | null | undefined, dealtCount: numb
  * other game's read.
  */
 export const SCOPED_SHRINK_STRENGTH = 16;
+/** Decayed re-raise opportunities from which a maniac's own re-raise rate is his re-raising width (omahaManiacReRaiseWidthMeasured). */
+export const OMAHA_MANIAC_RERAISE_MIN_OPPS = 12;
 /** [successes, opportunities] pairs a scoped read divides and shrinks. */
 const SCOPED_SHRINK_RATES = [
   ['vpip', 'hands'],
@@ -3646,7 +3653,23 @@ export class HorseMind {
       // whole raising width (a jammer seldom faces a raise, so its 3-bet
       // statistic alone never engages), and its 4-bet keeps that width
       // instead of halving it (reRaiseLineWidth).
-      const maniac = maniacRaiseWidth(read);
+      const maniacWhole = maniacRaiseWidth(read);
+      // omahaManiacReRaiseWidthMeasured (2026-11-15, default off): the rule
+      // above exists because a jammer's re-raise statistic never engages. A
+      // maniac whose re-raises HAVE been counted (the production PLO5 winner
+      // raises 55-82% and re-raises 33%) is read on a re-raising line at his
+      // measured re-raise rate, never wider than today's read.
+      const measuredReRaise =
+        this.decisionReadOptions.omahaManiacReRaiseMeasured === true &&
+        maniacWhole !== null &&
+        read.presumed !== true &&
+        (line === 'threebet' || line === 'fourbet') &&
+        read.stats.threeBet.n >= OMAHA_MANIAC_RERAISE_MIN_OPPS
+          ? Math.min(maniacWhole, Math.max(0.02, read.stats.threeBet.mean))
+          : null;
+      if (measuredReRaise !== null && measuredReRaise < maniacWhole!)
+        noteFire('omaha_maniac_reraise_width_measured');
+      const maniac = measuredReRaise ?? maniacWhole;
       const width =
         line === 'open'
           ? openerRangeWidth(read)

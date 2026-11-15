@@ -2248,6 +2248,20 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
       b: {},
     },
   ]),
+  // 2026-11-15 OMAHA MANIAC RE-RAISE WIDTH (HorseMind.bandFor, default OFF;
+  // full sweep, the biggest winner): a measured maniac's 3-bet and 4-bet are
+  // read at his own counted re-raise rate instead of his whole raising width
+  // (omahaManiacReRaiseWidthMeasured); a switches it on, b is today's brain.
+  // The mirror's memory learning is on (the league default); the read engages
+  // only on a seat measured as a maniac with 12+ re-raise opportunities.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_maniac_reraise_width_measured`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaManiacReRaiseWidthMeasured: true },
+    b: {},
+  })),
   // V15 BOATS (2026-09-28): default OFF. a turns it on, b is today's brain.
   // Ship it default ON only after this resolves significant positive.
   // 2026-11-06: V15 boats is default ON in PLO5 cash (v15BoatsOn), so the

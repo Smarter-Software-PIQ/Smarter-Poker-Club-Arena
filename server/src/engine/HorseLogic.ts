@@ -2946,6 +2946,23 @@ export interface HorseDecideOpts {
    * passes; the league seats no floored table (refused matchups plo4/plo5
    * _omaha_vpip_floor_by_limp). */
   omahaVpipFloorByLimp?: boolean;
+  /** Full sweep 2026-11-15 (4,573 human PLO4/PLO5 cash hands): against the
+   * biggest winner the Horses 4-bet without aces 21 times (-1,441 bb) and
+   * called his re-raises without aces 22 times; 18 of the 21 4-bets replay as
+   * v53_pressure_four_bet and the calls as the maniac price call, both priced
+   * against a range the read (HorseMind.bandFor) sets at his whole RAISING
+   * width (0.69) for his 3-bet and 0.58 for his 5-bet, because a maniac's
+   * re-raise is read as wide as his opens. With this on (PLO4/PLO5 cash) a
+   * measured maniac whose re-raises rest on 12+ decayed opportunities is read
+   * on a re-raising line at his own re-raise rate (the shrunk posterior:
+   * 0.25 for that player's 33% over 15 opportunities, 0.16 for his 4-bet or
+   * more by reRaiseLineWidth), never wider than today. The
+   * price arithmetic, its margins and every bar are unchanged: only the range
+   * the equity is taken against. A presumed read, a maniac without counted
+   * re-raises and every non-maniac are read as today. Default OFF (opt-in,
+   * read `=== true`) until its declared evaluation passes; league cards
+   * plo4/plo5 _omaha_maniac_reraise_width_measured. */
+  omahaManiacReRaiseWidthMeasured?: boolean;
   /** A token-priced committed call is not barred by stack-off premiums
    * (HorseTokenCallPrice.ts, PLO6-AUDIT-010). Default on; false only for
    * the regression's non-vacuity control. */
@@ -7565,6 +7582,11 @@ export class HorseLogic {
       scopedShrink: opts.readScopedShrink === true,
       omahaEvFoldModel: (opts.omahaEvFoldModel ?? true) !== false,
       omahaNeutralUnknown: opts.omahaNeutralUnknown === true,
+      ...(opts.omahaManiacReRaiseWidthMeasured === true &&
+      (gameState.gameVariant === 'plo4' || gameState.gameVariant === 'plo5') &&
+      !(gameState.gameMode === 'tournament' || gameState.tournament)
+        ? { omahaManiacReRaiseMeasured: true }
+        : {}),
       fixedLimitOmahaNoPresumption: opts.fixedLimitOmahaNoPresumption === true,
       ...(typeof opts.styleCarryOverWeight === 'number' && opts.styleCarryOverWeight > 0
         ? { styleCarryWeight: Math.min(1, opts.styleCarryOverWeight) }

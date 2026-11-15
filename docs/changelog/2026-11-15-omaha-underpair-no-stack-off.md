@@ -32,6 +32,16 @@ Owner, 11:35: "ADD IN A LIMP FOLD TO GET THE VPIP UP IF THEY ARE NOT PLAYING ENO
 
 Cause 1 above is the floor: `vpipFloorMul` multiplies the style tightness and with it every preflop bar, raises included, until the Horse's judged VPIP reaches the steering target (70.6% on a 50% table). A third option, `omahaVpipFloorByLimp` (off by default, PLO4/PLO5 cash), takes the preflop decision a second time without the floor and lets the floor buy only the cheapest voluntary action: the limp first in, a call facing a raise (never a re-raise or a shove), and a fold to a raise after a limp unless the hand clears the ordinary bar. A limp counts as VPIP (`handFacts.ts`, `deriveFlowFlags`). With it on, the recorded re-raise to 50 is a call of 9 and the shove facing the 4-bet is a call. It reverses, for this case only, the owner's rule of 2026-08-30 that a Horse never open-limps. Receipts `omaha_vpip_floor_limp`, `omaha_vpip_floor_limp_fold`, `omaha_vpip_floor_three_bet_bar_kept`; evidence file `docs/horse-default-on.d/omahaVpipFloorByLimp.md`. The league seats no floored table, so the option is a refused matchup there and is unmeasured.
 
+## The full sweep's preflop leaks (added the same day)
+
+The sweep of 4,573 human-seated PLO4/PLO5 cash hands ranks three preflop spots first. Each flagged decision was replayed from its stored snapshot (private rows; `full-sweep-20261115/private/preflop3/`):
+
+- Calls of a 4-bet or more without aces (72): the re-raiser was the original opener 25 times, an earlier caller or 3-bettor 28 times and a cold third player 19 times; 64 were 150 big blinds or deeper and 48 faced a pot-sized re-raise (price 0.33 to 0.40). `omahaNoCallColdFourBetWithoutPremium` reaches 7 of them. The 22 with the winner at the table replay as the maniac price call.
+- 3-bets with a weak pair (61): 20 are the VPIP floor (`omahaVpipFloorByLimp` turns 19 into calls and 1 into a fold), 5 the V86 elite 3-bet, 5 clear the unfloored value bar, 12 appear only when the opener is read as an aggressive raiser, and 19 do not replay without the live read.
+- 4-bets without aces against the winner (21): 18 replay as the V53 pressure 4-bet, priced against a range as wide as his opens.
+
+A fourth option, `omahaManiacReRaiseWidthMeasured` (off by default), reads a measured maniac's re-raise at his own counted re-raise rate instead of his whole raising width; the price arithmetic is unchanged. Replayed, 9 of the 18 4-bets that reproduce are no longer made (those hands lost 1,008 bb); most of the calls of his 5-bets remain calls. Evidence file `docs/horse-default-on.d/omahaManiacReRaiseWidthMeasured.md`.
+
 ## Open
 
-None of the three options is shown to gain: the recorded calls were at or near their price, and the floor option cannot be dealt by the league. All wait for a declared evaluation.
+None of the four options is shown to gain: the recorded calls were at or near their price, and the floor option cannot be dealt by the league. All wait for a declared evaluation.
