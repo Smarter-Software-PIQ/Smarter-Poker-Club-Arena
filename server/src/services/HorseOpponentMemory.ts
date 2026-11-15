@@ -93,7 +93,8 @@ export function queryError(
   });
 }
 
-/** Process-wide admission, shared by decision and completed-hand readers. No
+/** Process-wide admission for the decision-path readers (the completed-hand exact read and the
+ * donor read have their own gates below). No
  * queued work survives a turn or launches later without an original request. */
 export function createOpponentMemoryReadAdmission(now = () => Date.now()) {
   let active = 0;
@@ -126,6 +127,21 @@ export const admitOpponentMemoryRead = createOpponentMemoryReadAdmission();
  * inheriting the exact read's lockout.
  */
 const admitOpponentDonorRead = createOpponentMemoryReadAdmission();
+/**
+ * COMPLETED-HAND EXACT READS ARE ADMITTED ON THEIR OWN (2026-11-15). The
+ * exact (speed/ante domain) read runs after an accepted hand, outside any
+ * decision. On 2026-11-14 a Free Buy rebuy period queued PostgREST behind a
+ * tournament-wide advisory lock; those post-commit reads passed their 1.5 s
+ * abort (50 timeouts in 19:09Z to 19:30Z), and each failure closed the gate
+ * the decision-path reader shares for 1.5 s, refusing 223 more reads as busy
+ * (observation-06d45e7d-20261114/MEMORY-READ-ROOT-CAUSE.md). Like the donor
+ * read above, the completed-hand exact read keeps the same bound (8 active,
+ * 1.5 s after a failure) on its own gate, so a stall it meets cannot close
+ * the decision-path gate. The legacy completed-hand read (no public memory
+ * domain, readHorseOpponentProfiles from handHistory) is admitted here too,
+ * so no completed-hand read shares the decision gate (Hold'em review M1).
+ */
+export const admitCompletedHandExactRead = createOpponentMemoryReadAdmission();
 
 /** A busy admission refusal is counted (noteFire) and logged as one throttled
  * line; any other failure keeps its full report. See errorReporter.reportThrottled. */
@@ -178,7 +194,13 @@ const validatedOpponentProfiles = createOpponentMemoryProfileCache();
  *   horse_opponent_memory_read_cache_fallback  (answered from known profiles)
  */
 export type OpponentMemoryLatencyEdge =
-  'unknown' | 'le50' | 'le100' | 'le250' | 'le500' | 'le1000' | 'gt1000';
+  | 'unknown'
+  | 'le50'
+  | 'le100'
+  | 'le250'
+  | 'le500'
+  | 'le1000'
+  | 'gt1000';
 export type OpponentMemoryFailureKind = 'incomplete' | 'timeout' | 'busy' | 'failed';
 /** The latency edge shared by every durable opponent-memory read receipt
  * family (legacy horse_opponent_memory_read_ms_*, exact horse_exact_memory_read_ms_*). */
@@ -214,7 +236,10 @@ export async function readHorseOpponentProfiles(
   variant: string,
   mode: MemoryMode,
   size: MemorySize,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  /** The decision path keeps the shared decision gate (default). The legacy completed-hand read
+   * passes admitCompletedHandExactRead, so its timeouts cannot close the decision gate either. */
+  admit: <T>(read: () => Promise<T>) => Promise<T> = admitOpponentMemoryRead
 ): Promise<DurableOpponentProfile[]> {
   const v = memoryVariant(variant);
   if (!v) return [];
@@ -226,7 +251,7 @@ export async function readHorseOpponentProfiles(
   const read =
     variantSchema.get(v)?.retryAt != null
       ? Promise.reject<DurableOpponentProfile[]>(new UnsupportedOpponentMemoryVariant(v))
-      : admitOpponentMemoryRead(async () => {
+      : admit(async () => {
           const { data, error } = await supabase
             .rpc('fn_horse_exploit_profiles_read', {
               p_user_ids: ids,

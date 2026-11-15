@@ -767,3 +767,17 @@
   margin: 0;
   color: var(--cd-muted);
 }
+
+/* Live status with its "?" beside it. Explanations live behind the "?"
+   (Dan, 2026-11-15): they never print on the page. */
+.liveRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 8px 16px 0;
+}
+
+.liveRow .liveLine {
+  margin: 0;
+}

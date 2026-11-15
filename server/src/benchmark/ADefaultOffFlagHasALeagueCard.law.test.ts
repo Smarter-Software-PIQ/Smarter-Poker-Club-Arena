@@ -45,7 +45,8 @@ const UNDEALT_WHEN_WRITTEN = new Set([
   'styleValueExtraction',
   'styleFoldBluff',
   'readScopedShrink',
-  'nashPushFoldIcm',
+  // nashPushFoldIcm left 2026-11-15: still default OFF, now dealt by
+  // mtt6_ft_pay_jump_push_fold_12bb (hand 59441335).
   'comboDrawPressure',
   'riverBluffCheckRaise',
   'riverPositionDefense',

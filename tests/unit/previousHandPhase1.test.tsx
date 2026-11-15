@@ -157,7 +157,9 @@ describe('TablePage takes the saved hand as it lands', () => {
 
   it('listens to hand_history_saved and prepends by id', () => {
     expect(page).toContain('void takeSavedHandRef.current(savedId);');
-    expect(page).toContain('const row = await handHistoryService.getHand(savedId);');
+    expect(page).toContain(
+      'const row = await handHistoryService.getHand(savedId, { includeObserved: true });'
+    );
     expect(page).toContain('const next = prependHand(prev, record, Number.POSITIVE_INFINITY);');
   });
 
@@ -169,17 +171,17 @@ describe('TablePage takes the saved hand as it lands', () => {
     // Ordinary tables still require physical table equality. A Lightning room
     // is a pool session, whose authenticated saved events name physical hands.
     expect(page).toMatch(
-      /if \(!row \|\| \(!lightningRoom\?\.poolSessionId && row\.table_id !== tableId\)\) return;/
+      /if \(\s*!row \|\|\s*\(!lightningRoom\?\.poolSessionId &&\s*engineSnapshotRef\.current\?\.lightning_observer !== true &&\s*row\.table_id !== tableId\)\s*\)\s*return;/
     );
   });
 
   it('uses the pool session for both history hydration and the lazy replay lookup', () => {
     const hydration = page.slice(page.indexOf('return startHandHistoryHydration({'));
     expect(hydration).toMatch(
-      /getPlayerHands\(userId, HAND_HISTORY_PAGE, \{\s*tableId,\s*gameMode: tableHistoryGameMode,\s*lightningPoolSessionId: lightningRoom\?\.poolSessionId,\s*throwOnError: true,/
+      /getPlayerHands\(userId, HAND_HISTORY_PAGE, \{\s*tableId,\s*gameMode: tableHistoryGameMode,\s*includeObserved: true,\s*lightningPoolSessionId: lightningRoom\?\.poolSessionId,\s*throwOnError: true,/
     );
     expect(page).toMatch(
-      /getPlayerHands\(userId, 1, \{\s*tableId,\s*gameMode: tableHistoryGameMode,\s*lightningPoolSessionId: lightningRoom\?\.poolSessionId,\s*throwOnError: true,/
+      /getPlayerHands\(userId, 1, \{\s*tableId,\s*gameMode: tableHistoryGameMode,\s*includeObserved: true,\s*lightningPoolSessionId: lightningRoom\?\.poolSessionId,\s*throwOnError: true,/
     );
   });
 
@@ -189,7 +191,7 @@ describe('TablePage takes the saved hand as it lands', () => {
       page.indexOf('const takeSavedHandRef = useRef(')
     );
     const continuation = savedRead.split(
-      'const row = await handHistoryService.getHand(savedId);'
+      'const row = await handHistoryService.getHand(savedId, { includeObserved: true });'
     )[1];
     expect(continuation).toBeTruthy();
     const beforeCommit = continuation.split(
@@ -289,7 +291,9 @@ describe('the surfaces', () => {
     render(
       <HandHistoryPanel isOpen onClose={() => {}} hands={[]} heroId={HERO} viewerSeated={false} />
     );
-    expect(document.querySelector('.hh-panel__empty')?.textContent).toMatch(/You Are Watching/);
+    expect(document.querySelector('.hh-panel__empty')?.textContent).toMatch(
+      /Watch A Hand From Start To Finish/
+    );
     cleanup();
     render(
       <HandDetailModal isOpen onClose={() => {}} hands={[]} heroId={HERO} viewerSeated={false} />
