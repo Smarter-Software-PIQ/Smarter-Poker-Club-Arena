@@ -223,3 +223,23 @@ Disjoint ownership for parallel work:
   copies pinned by md5 from a read-only production probe (all 13 preimages
   matched). Native test sections 6-7 pass (incl. 01:59:59 / 02:00:00 CST seat
   boundary through the router, byte-identical renamed original, grants).
+
+## #10921 review rework (2026-11-15 04:50Z)
+- Routing by window (B1): fn_ca_club_data_reads_union_basis(club, start, end);
+  union_clubs.joined_at (DS 2026-10-12, SV 2026-10-21, FS/KC 2026-02-28) and the
+  model's first day (09-17 after the load). Pre-join answers: Chicago basis +
+  basis_reason, union_id kept. Native test caught and fixed a GREATEST(NULL, d)
+  bug that would have routed clubs in no union to the union basis.
+- Clamp in player_totals copy; game_ct mapped to ca_club_acct_fact_ct (grouped
+  view dropped); helpers revoked from authenticated; coverage: provisional =
+  after the last issued invoice, failures scoped by union where named, no NULL
+  days (fail() derives, legacy rows dated); snapshot previous_coverage + null
+  deltas; live proofs for the read-only routers; law test; workflow paths;
+  manifest fragment. New copy md5s from read-only probe (subst md5
+  e53fe443ff0c00e2b09871c0ab1b8467 equal local and prod).
+- Hands (#10879): raked hands where a club player changed stack, table-club
+  fallback; #10879 head fa3c73276 reviewer-confirmed, merging on green.
+- Reconciliation add (coordinator): union-wide Club Data cash total vs hand
+  deltas -772,299.77 + BBJ stack awards (seat 6,604.50 + wallet 8,638.89 =
+  15,243.39) = -757,056.38; count of participant rows with null earning club
+  in the week (expect 0; stop and report otherwise).

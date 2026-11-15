@@ -151,7 +151,10 @@ CREATE FUNCTION public.fn_ca_club_data_union_basis_from(p_club_id uuid)
 RETURNS date LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $function$
   SELECT CASE
     WHEN EXISTS (SELECT 1 FROM public.unions u WHERE u.id = p_club_id) THEN public.fn_ca_club_acct_facts_from()
-    ELSE (SELECT GREATEST(min(public.fn_ca_accounting_day(uc.joined_at)), public.fn_ca_club_acct_facts_from())
+    -- No union_clubs row: NULL (GREATEST would otherwise ignore the missing
+    -- join day and route a club in no union to the union basis).
+    ELSE (SELECT CASE WHEN count(*) = 0 THEN NULL
+                      ELSE GREATEST(min(public.fn_ca_accounting_day(uc.joined_at)), public.fn_ca_club_acct_facts_from()) END
             FROM public.union_clubs uc WHERE uc.club_id = p_club_id)
   END;
 $function$;

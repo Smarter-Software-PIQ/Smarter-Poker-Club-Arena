@@ -23,6 +23,8 @@ on:
       - tests/fixtures/club-data-union-weeks/**
       - supabase/migrations/20261115020010_club_data_accounting_read_model.sql
       - supabase/migrations/20261115020011_club_data_accounting_read_model_goes_live.sql
+      - supabase/migrations/20261115034141_club_data_accounting_reader_views.sql
+      - supabase/migrations/20261115034142_club_data_readers_route_union_clubs_to_the_accounting_model.sql
       - supabase/migrations/20261115015159_union_pnl_boundary_certificates_are_kept.sql
       - tests/fixtures/club-data-accounting/**
       - scripts/ci/test-club-data-accounting-read-model.py
