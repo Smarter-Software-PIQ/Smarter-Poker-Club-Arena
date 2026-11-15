@@ -207,10 +207,14 @@ export function omahaRiverMediumBetSpot(
     const board = gs.communityCards ?? [];
     const hole = player.cards ?? [];
     if (board.length !== 5 || hole.length !== Number(variant.at(-1))) return null;
+    if (!Number.isFinite(player.bet) || !Number.isFinite(gs.currentBet)) return null;
+    // What the Horse owes: gs.toCall, or the current bet less its own chips
+    // when the state carries no toCall (the league; audit 2026-11-15, item 3).
+    const toCall = Number.isFinite(gs.toCall)
+      ? (gs.toCall as number)
+      : Math.max(0, gs.currentBet - player.bet);
     if (
-      !Number.isFinite(gs.toCall) ||
-      !(gs.toCall! > 0.005) ||
-      !Number.isFinite(gs.currentBet) ||
+      !(toCall > 0.005) ||
       !Number.isFinite(gs.pot) ||
       !Number.isFinite(player.stack) ||
       !(player.stack > 0) ||
@@ -222,7 +226,7 @@ export function omahaRiverMediumBetSpot(
       player.is_sitting_out
     )
       return null;
-    if (Math.abs(gs.currentBet - gs.toCall!) > 0.011) return null;
+    if (Math.abs(gs.currentBet - toCall) > 0.011) return null;
 
     // The street's opening bet and nothing over it.
     const wagers = (gs.actionHistory ?? []).filter(
@@ -262,12 +266,16 @@ export function omahaRiverMediumBetSpot(
     if (made.category < TWO_PAIR) return null;
     if (made.category === TWO_PAIR && (made.boardPaired || made.cls === 'board2p')) return null;
 
-    const allIn = player.stack <= gs.toCall! + 0.005;
-    const paid = Math.min(player.stack, gs.toCall!);
-    if (allIn ? !gs.legalActions?.includes('all_in') : !gs.legalActions?.includes('call'))
+    const allIn = player.stack <= toCall + 0.005;
+    const paid = Math.min(player.stack, toCall);
+    // A state without a menu (the league) allows the call, as the sibling rules read it.
+    if (
+      Array.isArray(gs.legalActions) &&
+      (allIn ? !gs.legalActions.includes('all_in') : !gs.legalActions.includes('call'))
+    )
       return null;
     // A short call wins only what it covers of the bet it faces.
-    const winnable = gs.pot - (others.length === 1 ? gs.toCall! - paid : 0);
+    const winnable = gs.pot - (others.length === 1 ? toCall - paid : 0);
     if (!(winnable > 0)) return null;
     const price = paid / (winnable + paid);
     const holds = omahaRiverHoldsShare(hole, board, player.knownDeadCards ?? []);
