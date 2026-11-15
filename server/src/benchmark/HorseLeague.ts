@@ -2472,6 +2472,22 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
   // the same in-the-money final table; a values a bust at the place it pays,
   // b at 0 as before. Chips, not payouts, are scored, so this card measures
   // what the corrected bubble factor costs or gains in chips.
+  // 2026-11-15 STACK-SCALED UTILITY MARGIN (tournamentUtilityStackScaledMargin,
+  // default OFF): the same in-the-money final table; a measures the utility's
+  // equity margin against the candidate's own sensitivity, b against the whole
+  // pool as before. Chips, not payouts, are scored: the card measures what the
+  // narrower margin costs or gains in chips, not its payout value.
+  {
+    name: 'mtt6_ft_utility_stack_scaled_margin_12bb',
+    seats: 6,
+    stackBB: 12,
+    context: finalTableMttWithStacksContext(6, 12),
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: { tournamentUtilityStackScaledMargin: true },
+    b: {},
+  },
   {
     name: 'mtt6_ft_icm_bust_pays_place_12bb',
     seats: 6,
@@ -3138,20 +3154,18 @@ export const HU_EXPLOITER_CARDS: readonly LeagueMatchup[] = Object.freeze(
       ['small_stab', HU_SMALL_STAB_EVERY_STREET_PERSONA, { huBbDefendsToPrice: true }, {}],
     ] as const
   )
-    .map(
-      ([short, persona, a, b]): LeagueMatchup => ({
-        name: `${HUMAN_FIELD_NAME_PREFIX}hu_bb_defends_vs_${short}_40bb`,
-        seats: 2,
-        stackBB: 40,
-        pairs: HUMAN_FIELD_PAIRS,
-        hybridBaseline: true,
-        moodClock: 'deal_seed',
-        a: { ...a },
-        b: { ...b },
-        opponentPopulation: HUMAN_CALIBRATED_POPULATION_ID,
-        humanPersona: persona,
-      })
-    )
+    .map(([short, persona, a, b]): LeagueMatchup => ({
+      name: `${HUMAN_FIELD_NAME_PREFIX}hu_bb_defends_vs_${short}_40bb`,
+      seats: 2,
+      stackBB: 40,
+      pairs: HUMAN_FIELD_PAIRS,
+      hybridBaseline: true,
+      moodClock: 'deal_seed',
+      a: { ...a },
+      b: { ...b },
+      opponentPopulation: HUMAN_CALIBRATED_POPULATION_ID,
+      humanPersona: persona,
+    }))
     .concat([
       {
         name: `${HUMAN_FIELD_NAME_PREFIX}hu_v7_preflop_vs_limper_40bb`,
@@ -3536,38 +3550,36 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'nodes. V31 is certified through fn_audit_gto_v31_certified and ' +
       'benchmark/GtoV31CandidateEvaluation.ts, which is where its verdict lives.',
   },
-  ...(['plo4', 'plo5', 'plo6'] as const).map(
-    (variant): UnmeasurableMatchup => ({
-      name: `${variant}_v55_river_trips_flat`,
-      variant,
-      stackBB: 400,
-      a: { v55OmahaRiverTripsFlat: true },
-      b: {},
-      reason:
-        'Unreachable in self-play, not dead. v55OmahaRiverTripsFlat is DEFAULT OFF ' +
-        '(HorseLogic: opts.v55OmahaRiverTripsFlat === true) and only changes a river ' +
-        'Omaha decision holding weak trips (trips through a board pair) or a set on a ' +
-        'straight/flush-possible board, facing a raise with the money committed. The flag ' +
-        'still reaches code: HorseOmahaRiverTripsFlat.test.ts pins the recorded re-shove ' +
-        'turning into a call. But the league stopped dealing that spot when the ' +
-        '2026-10-26 river changes went in - the paired-board fold (#8088 PLO5/PLO6, #8104 ' +
-        'PLO4: trips without a full house fold on a paired turn or river) and V56 ' +
-        '(v56OmahaPressureRange, default ON, #8067: the vulnerable river set is priced ' +
-        'against the strict pressure range) - so neither arm ever reaches the raise-war ' +
-        'branch V55 changes. ' +
-        (variant === 'plo6'
-          ? 'Never on the standing card: the declared 6000-pair probe at seed 20261024 had ' +
-            'zero divergent pairs. '
-          : `Nightly at 400bb: ${
-              variant === 'plo4' ? '+0.07 +/- 0.17 on 2026-10-26, then' : ''
-            } 0 of 6,000 pairs diverged on every run from 2026-10-27 to 2026-10-30 ` +
-            `(${variant === 'plo5' ? 'and 2026-10-31 read 0.48 +/- 0.48: one divergent pair, bb100 = stderr' : 'and again 2026-10-31'}). `) +
-        'Re-probed 2026-10-31 on main 18dd7c6ab: 0 of 2,000 pairs at seed 20261031 ' +
-        '(PLO4 and PLO5, 400bb). The layer stays opt-in with no measured edge and no ' +
-        'promotion claim. What would change this: switching the paired-board fold and ' +
-        'V56 off on both arms, which would measure a brain production does not play.',
-    })
-  ),
+  ...(['plo4', 'plo5', 'plo6'] as const).map((variant): UnmeasurableMatchup => ({
+    name: `${variant}_v55_river_trips_flat`,
+    variant,
+    stackBB: 400,
+    a: { v55OmahaRiverTripsFlat: true },
+    b: {},
+    reason:
+      'Unreachable in self-play, not dead. v55OmahaRiverTripsFlat is DEFAULT OFF ' +
+      '(HorseLogic: opts.v55OmahaRiverTripsFlat === true) and only changes a river ' +
+      'Omaha decision holding weak trips (trips through a board pair) or a set on a ' +
+      'straight/flush-possible board, facing a raise with the money committed. The flag ' +
+      'still reaches code: HorseOmahaRiverTripsFlat.test.ts pins the recorded re-shove ' +
+      'turning into a call. But the league stopped dealing that spot when the ' +
+      '2026-10-26 river changes went in - the paired-board fold (#8088 PLO5/PLO6, #8104 ' +
+      'PLO4: trips without a full house fold on a paired turn or river) and V56 ' +
+      '(v56OmahaPressureRange, default ON, #8067: the vulnerable river set is priced ' +
+      'against the strict pressure range) - so neither arm ever reaches the raise-war ' +
+      'branch V55 changes. ' +
+      (variant === 'plo6'
+        ? 'Never on the standing card: the declared 6000-pair probe at seed 20261024 had ' +
+          'zero divergent pairs. '
+        : `Nightly at 400bb: ${
+            variant === 'plo4' ? '+0.07 +/- 0.17 on 2026-10-26, then' : ''
+          } 0 of 6,000 pairs diverged on every run from 2026-10-27 to 2026-10-30 ` +
+          `(${variant === 'plo5' ? 'and 2026-10-31 read 0.48 +/- 0.48: one divergent pair, bb100 = stderr' : 'and again 2026-10-31'}). `) +
+      'Re-probed 2026-10-31 on main 18dd7c6ab: 0 of 2,000 pairs at seed 20261031 ' +
+      '(PLO4 and PLO5, 400bb). The layer stays opt-in with no measured edge and no ' +
+      'promotion claim. What would change this: switching the paired-board fold and ' +
+      'V56 off on both arms, which would measure a brain production does not play.',
+  })),
 ] as UnmeasurableMatchup[]);
 
 for (const u of UNMEASURABLE_MATCHUPS) {

@@ -50,13 +50,7 @@ export type LedgerKind =
   | 'tag';
 
 export type LedgerCadence =
-  | 'per_action'
-  | 'per_hand'
-  | 'per_sit'
-  | 'minute'
-  | 'boot'
-  | 'nightly'
-  | 'legacy_unused';
+  'per_action' | 'per_hand' | 'per_sit' | 'minute' | 'boot' | 'nightly' | 'legacy_unused';
 
 export interface LedgerEntry {
   key: string;
@@ -1561,6 +1555,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'Omaha tight opponent'
   ),
   flag(
+    'tournamentUtilityStackScaledMargin',
+    "2026-11-15 STACK-SCALED UTILITY MARGIN (hand 59441335; Hold'em Strategy): the tournament utility (HorseTournamentUtility evaluateCandidate) measured each candidate's equity-uncertainty margin as the equity standard error times the WHOLE payout pool, which is wider than a short stack's whole tournament equity, so the payout check always deferred to the reference action for a short stack. With explicit true the margin is the equity standard error times the candidate's own utility sensitivity to the Horse's showdown share (the regression slope of utility on share over the calibrated samples, bounded by the utility span), and never wider than the whole-pool margin it replaces. Folds keep a zero margin. Read only as === true: default OFF; unset is byte-identical.",
+    '2026-11-15'
+  ),
+  flag(
     'icmBustPaysPlace',
     '2026-11-15 PAID BUST (Hand Analysis B3; hand 59441335): IcmModel bubbleFactor and pairwiseBubbleFactor value a bust at the place the player finishes (paid in the money) instead of 0, for the decision only (withIcmBustPaysPlace in HorseLogic.decide). Before, in the money a whole-stack risk was charged every payout including the one a bust collects anyway, and a final-table short stack read the factor cap of 5. Affects the V16 ICM premium, the covered-opponent fold pressure in HorseTournamentUtility and the payout-aware push/fold tables. Read only as === true: default OFF.',
     '2026-11-15'
@@ -1938,17 +1937,15 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
       ['callRespect', 'variant call respect offset (HorseVariantProfile)'],
       ['familyBias', 'V18 sizing family hashed from the horse id'],
     ] as const
-  ).map(
-    ([key, note]): LedgerEntry => ({
-      key,
-      kind: 'param',
-      source: 'STYLE_PARAMS[style] resolved with HorseProfileMods in HorseLogic.decide',
-      cadence: 'per_action',
-      consumer: 'HorseLogic.decide / HorsePreflop.decidePreflopV7',
-      note,
-      since: key === 'familyBias' ? 'V18' : 'V2',
-    })
-  ),
+  ).map(([key, note]): LedgerEntry => ({
+    key,
+    kind: 'param',
+    source: 'STYLE_PARAMS[style] resolved with HorseProfileMods in HorseLogic.decide',
+    cadence: 'per_action',
+    consumer: 'HorseLogic.decide / HorsePreflop.decidePreflopV7',
+    note,
+    since: key === 'familyBias' ? 'V18' : 'V2',
+  })),
 
   // ─────────────────────────────────────────────────────────────────────────
   // PROFILE KEYS. profiles.horse_profile (jsonb). Read at sit-down today
@@ -1984,22 +1981,20 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
         'V48',
       ],
     ] as const
-  ).map(
-    ([key, note, since]): LedgerEntry => ({
-      key,
-      kind: 'profile',
-      source: 'profiles.horse_profile (jsonb) via resolveHorseStyle',
-      cadence: 'per_sit',
-      consumer:
-        key === 'persona'
-          ? 'HorsePersona.resolvePersona (ServerTableEngineDealing straddle round); HorseLogic.followsSolver (the GTO consult)'
-          : key.startsWith('leaks')
-            ? 'HorseLogic.leakLoad (diagnostic only); HorseLogic.decide (ignored-evidence receipt)'
-            : 'HorseLogic.decide',
-      note,
-      since,
-    })
-  ),
+  ).map(([key, note, since]): LedgerEntry => ({
+    key,
+    kind: 'profile',
+    source: 'profiles.horse_profile (jsonb) via resolveHorseStyle',
+    cadence: 'per_sit',
+    consumer:
+      key === 'persona'
+        ? 'HorsePersona.resolvePersona (ServerTableEngineDealing straddle round); HorseLogic.followsSolver (the GTO consult)'
+        : key.startsWith('leaks')
+          ? 'HorseLogic.leakLoad (diagnostic only); HorseLogic.decide (ignored-evidence receipt)'
+          : 'HorseLogic.decide',
+    note,
+    since,
+  })),
 
   // ─────────────────────────────────────────────────────────────────────────
   // HORSEMIND COUNTERS. One OpponentStats per observed player, shared by the

@@ -3625,6 +3625,12 @@ export interface HorseDecideOpts {
    *  the player finishes (paid in the money) instead of 0, for this decision (withIcmBustPaysPlace). Tournaments in
    *  the money only change. Read only as === true: default OFF. */
   icmBustPaysPlace?: boolean;
+  /** STACK-SCALED UTILITY MARGIN (2026-11-15, hand 59441335): the tournament utility's equity-uncertainty margin
+   *  for a candidate is the equity standard error times that candidate's own utility sensitivity to the Horse's
+   *  showdown share (HorseTournamentUtility stackScaledMargin), never wider than the whole-pool margin it replaces.
+   *  Before, the margin was measured against the whole payout pool, wider than a short stack's whole tournament
+   *  equity, so the payout check could never overrule a short stack. Read only as === true: default OFF. */
+  tournamentUtilityStackScaledMargin?: boolean;
   holdemRiverFullHouseValue?: boolean;
   v87RiverBlockBetTrap?: boolean;
   v87HollywoodTank?: boolean;
@@ -4996,6 +5002,10 @@ function buildPhase7UtilityInput(
     (vi.isFixedLimit ? 'fixed_limit' : vi.isPotLimit ? 'pot_limit' : 'no_limit');
   return {
     v86AsymmetricIcmAndPreflop: opts?.v86UnblockedPreflop !== false,
+    // tournamentUtilityStackScaledMargin (2026-11-15, default OFF): the key is added only when the option is true.
+    ...(opts && opts.tournamentUtilityStackScaledMargin === true
+      ? { stackScaledMargin: true }
+      : {}),
     // Tournament stacks and awards use whole chips. Model the same button-
     // ordered odd-chip and unmatched-contribution rules as final settlement.
     settlement: {
