@@ -1221,6 +1221,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     '2026-11-13'
   ),
   receipt(
+    'style_engaged_*',
+    'horseDecision workerRuntime (STYLE READ engagement receipts)',
+    'style_engaged_<opt>_<c|t|l>_seen: an option that is ON applied its adjustment in one live fast decision (the same non-neutral condition its shadow arm records under), by format (c Classic cash, t tournament, l Lightning: publicMemoryDomain.speed lightning); one fire per engaged ON option per decision, a per-decision engagement count only: no re-decision runs and the committed decision is unchanged; 21 keys (opt vb bb rr tr fr ve fb x 3 formats); occurrence counter; named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
     'style_read_timed_seen',
     'horseDecision workerRuntime (STYLE READ latency)',
     'a live fast decision ran with at least one style option not off, and the style read time inside it was recorded (horse_decision_latency scope style_read); the denominator of style_read_over_budget_seen; occurrence counter; named *_seen',

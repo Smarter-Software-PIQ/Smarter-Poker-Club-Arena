@@ -160,7 +160,7 @@ import {
   type StyleProvenance,
 } from './HorseOpponentStyle.js';
 import { publicMemoryDomainKey } from './HorsePublicMemoryDomain.js';
-import { addStyleReadMs, noteStyleShadowEngaged } from './HorseStyleShadow.js';
+import { addStyleReadMs, noteStyleEngaged, noteStyleShadowEngaged } from './HorseStyleShadow.js';
 
 /** Match the controller's full-raise marker: an all-in button can be a call
  * or a short raise and must not invent an aggressive read. */
@@ -3927,6 +3927,7 @@ export class HorseMind {
     if (bluff !== null && bluff > 1 && this.foldToBetPreRepairExcluded(userId)) {
       if (options.styleFoldRatePreRepair === true) {
         noteFire('style_pre_repair_fold_rate_discounted_seen');
+        noteStyleEngaged('styleFoldRatePreRepair', 1, 'on');
         bluff = null;
         withheld = true;
       } else if (options.styleFoldRatePreRepairShadow === true)
@@ -3943,11 +3944,7 @@ export class HorseMind {
     // stand-down, so the receipt fired and a value bettor was still called
     // down as a maniac. With the option on, a value bettor is never widened
     // here either; the receipt fires once per read, where the effect applies.
-    if (
-      callDownMod > 1 &&
-      options.styleValueBettor === true &&
-      isValueBettor(this.styleRead(userId))
-    ) {
+    if (callDownMod > 1 && options.styleValueBettor === true && this.valueBettorOnEngaged(userId)) {
       if (!this.legacyValueBettorHeld) noteFire('style_value_bettor_not_maniac_seen');
       callDownMod = Math.min(1, legacy.callDownMod);
     }
@@ -3956,6 +3953,18 @@ export class HorseMind {
       callDownMod,
       valueThinMod: thin ?? legacy.valueThinMod,
     };
+  }
+
+  /**
+   * STYLE READ #2 with the option ON: isValueBettor(styleRead(userId)), the same one read in the same place as
+   * before; when it holds (the stand-down applies) the on arm records that it engaged (LIVE RECEIPTS 2026-11-15,
+   * telemetry only).
+   */
+  private static valueBettorOnEngaged(userId: string): boolean {
+    const vbStyle = this.styleRead(userId);
+    if (!isValueBettor(vbStyle)) return false;
+    noteStyleEngaged('styleValueBettorNotManiac', vbStyle.confidenceCap, 'on');
+    return true;
   }
 
   /** The legacy read's value-bettor stand-down fired on its last call
@@ -3999,6 +4008,7 @@ export class HorseMind {
         noteFire('legacy_fold_rate_branch_seen');
         if (options.styleFoldRatePreRepair === true && this.foldToBetPreRepairExcluded(userId)) {
           noteFire('style_pre_repair_fold_rate_discounted_seen');
+          noteStyleEngaged('styleFoldRatePreRepair', 1, 'on');
         } else {
           if (
             options.styleFoldRatePreRepairShadow === true &&
@@ -4059,7 +4069,7 @@ export class HorseMind {
         // neutral respect.
         if (options.aggressionNeedsBluffs !== false && aggressionShownAsValue(s)) {
           noteFire('v83_aggression_shown_as_value');
-        } else if (options.styleValueBettor === true && isValueBettor(this.styleRead(userId))) {
+        } else if (options.styleValueBettor === true && this.valueBettorOnEngaged(userId)) {
           // STYLE READ #2: a credibly low-raise-frequency or high
           // shown-strength bettor is not a maniac on the ratio alone.
           noteFire('style_value_bettor_not_maniac_seen');

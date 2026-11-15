@@ -241,7 +241,7 @@ import {
   type OpponentStyleRead,
   type TightReRaiser,
 } from './HorseOpponentStyle.js';
-import { noteStyleShadowEngaged, styleShadowArm } from './HorseStyleShadow.js';
+import { noteStyleEngaged, noteStyleShadowEngaged, styleShadowArm } from './HorseStyleShadow.js';
 
 /**
  * STYLE READ: a bounty event prices a call with the bounty, which the style
@@ -9559,6 +9559,8 @@ export class HorseLogic {
               ) {
                 exploitOpenerBeforeStyle = exploitOpener;
                 styleOpenerApplied = true;
+                // LIVE RECEIPTS (2026-11-15): the on arm records that it applied (telemetry only)
+                noteStyleEngaged('styleTightReRaiserRespect', style.confidenceCap, 'on');
                 exploitOpener = {
                   wide: false,
                   threeBetBar: strengthBarForTopShare(0.4 * tight.rangeWidth),
@@ -9571,8 +9573,11 @@ export class HorseLogic {
               }
             } else if (raises >= 2 && !exploitReRaiser) {
               const tightRe = tightReRaiserRespect(style) ?? undefined;
-              if (armTr === 'on') styleTightReRaiser = tightRe;
-              else if (tightRe)
+              if (armTr === 'on') {
+                styleTightReRaiser = tightRe;
+                if (tightRe)
+                  noteStyleEngaged('styleTightReRaiserRespect', style.confidenceCap, 'on');
+              } else if (tightRe)
                 noteStyleShadowEngaged('styleTightReRaiserRespect', style.confidenceCap);
             }
           }
@@ -11473,6 +11478,7 @@ export class HorseLogic {
             if (mul !== null && mul !== 1 && armFb === 'shadow')
               noteStyleShadowEngaged('styleFoldBluff', fbStyle.confidenceCap);
             else if (mul !== null && mul !== 1) {
+              noteStyleEngaged('styleFoldBluff', fbStyle.confidenceCap, 'on');
               exploit = {
                 ...exploit,
                 bluffMod: exploit.bluffMod * mul,
@@ -11583,6 +11589,7 @@ export class HorseLogic {
           if (ve && armVe === 'shadow')
             noteStyleShadowEngaged('styleValueExtraction', veStyle.confidenceCap);
           else if (ve) {
+            noteStyleEngaged('styleValueExtraction', veStyle.confidenceCap, 'on');
             exploitValueSize *= ve.sizeMul;
             styleThinShift = ve.thinShift;
             if (ve.slowplayMul !== 1)
@@ -11862,6 +11869,7 @@ export class HorseLogic {
             if (armVh === 'shadow')
               noteStyleShadowEngaged('styleRaiseRespect', vhStyle.confidenceCap);
             else {
+              noteStyleEngaged('styleRaiseRespect', vhStyle.confidenceCap, 'on');
               styleRaiseWeight = weightVh;
               styleRaiseReads = oppReads.map((read) =>
                 read && read.raised === true && read.lastStage === street
@@ -16743,7 +16751,10 @@ export class HorseLogic {
             if (styleRaiseShade > 0)
               noteStyleShadowEngaged('styleRaiseRespect', rrStyle.confidenceCap);
             styleRaiseShade = 0;
-          } else if (styleRaiseShade > 0 && tele15) noteFire('style_raise_respect_seen');
+          } else if (styleRaiseShade > 0) {
+            noteStyleEngaged('styleRaiseRespect', rrStyle.confidenceCap, 'on');
+            if (tele15) noteFire('style_raise_respect_seen');
+          }
         }
       } catch {
         /* the style read is best-effort */
@@ -18112,6 +18123,7 @@ export class HorseLogic {
             if (styleAdd > 0 && armBb === 'shadow')
               noteStyleShadowEngaged('styleBigBetHonesty', bbStyle.confidenceCap);
             else if (styleAdd > 0) {
+              noteStyleEngaged('styleBigBetHonesty', bbStyle.confidenceCap, 'on');
               respect += styleAdd;
               if (telemetryOn(opts)) noteFire('style_big_bet_honesty_seen');
             }
@@ -18128,6 +18140,7 @@ export class HorseLogic {
             if (cap !== null && armBb === 'shadow')
               noteStyleShadowEngaged('styleBigBetHonesty', capStyle.confidenceCap);
             else if (cap !== null) {
+              noteStyleEngaged('styleBigBetHonesty', capStyle.confidenceCap, 'on');
               const ko = styleBountyContext(trustedTournament)
                 ? styleKnockoutCredit(gs, player, bettorId, opts)
                 : 0;

@@ -52,6 +52,43 @@ export function takeStyleShadowEngaged(): StyleShadowEngagement[] {
 
 export function clearStyleShadowEngaged(): void {
   engaged.clear();
+  liveEngaged.clear();
+}
+
+/**
+ * LIVE ENGAGEMENT RECEIPTS (2026-11-15): what an option that is ON recorded when its adjustment actually applied (the
+ * same non-neutral condition its shadow arm records under). Kept apart from the shadow record, so the shadow
+ * re-decision is exactly what it was. The worker reads it after the committed decision only to count engagement by
+ * format (style_engaged_*); nothing re-decides because of it. Telemetry only: recording reads nothing new and changes
+ * nothing in the decision. Bounded: at most one entry per option (seven).
+ */
+const liveEngaged = new Map<StyleSwitchOption, StyleShadowEngagement>();
+
+/**
+ * Record that a style option engaged in the arm it ran in: 'on' (it applied its adjustment) or 'shadow' (exactly
+ * noteStyleShadowEngaged). First note per option and arm wins.
+ */
+export function noteStyleEngaged(
+  option: StyleSwitchOption,
+  confidence: number,
+  arm: 'on' | 'shadow'
+): void {
+  if (arm === 'shadow') {
+    noteStyleShadowEngaged(option, confidence);
+    return;
+  }
+  if (liveEngaged.has(option)) return;
+  liveEngaged.set(option, {
+    option,
+    confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0,
+  });
+}
+
+/** Take (and clear) what the last decision recorded for the options that are ON. */
+export function takeStyleLiveEngaged(): StyleShadowEngagement[] {
+  const out = [...liveEngaged.values()];
+  liveEngaged.clear();
+  return out;
 }
 
 /** The style read's own time inside one decision (HorseMind.styleRead), in ms, for the latency budget. */
@@ -102,6 +139,33 @@ export const STYLE_SHADOW_VARIANTS = Object.freeze([
   'pineapple',
   'short_deck',
 ] as const);
+
+/** The engagement receipt format: tournament, else Lightning (publicMemoryDomain.speed), else Classic cash. */
+export type StyleReceiptFormat = 'cash' | 'tournament' | 'lightning';
+
+/**
+ * The format an engagement receipt (style_engaged_*) names for a game state: `tournament` for a tournament, `lightning`
+ * for a game whose public memory domain is Lightning speed, `cash` otherwise. Lightning is cash, so the shadow receipt
+ * (styleShadowAggregateKey, c|t) counts it under `c`; the engagement receipt tells it apart from Classic cash.
+ */
+export function styleReceiptFormat(gs: {
+  readonly gameMode?: unknown;
+  readonly tournament?: unknown;
+  readonly publicMemoryDomain?: { readonly speed?: unknown } | null;
+}): StyleReceiptFormat {
+  if (gs.gameMode === 'tournament' || gs.tournament) return 'tournament';
+  return gs.publicMemoryDomain?.speed === 'lightning' ? 'lightning' : 'cash';
+}
+
+const FORMAT_CODE: Record<StyleReceiptFormat, string> = {
+  cash: 'c',
+  tournament: 't',
+  lightning: 'l',
+};
+/** The format code of an engagement receipt: c (Classic cash), t (tournament), l (Lightning). */
+export function styleReceiptFormatCode(format: StyleReceiptFormat): string {
+  return FORMAT_CODE[format] ?? 'c';
+}
 
 /** What a changed shadow decision is counted under. */
 export interface StyleShadowReceipt {

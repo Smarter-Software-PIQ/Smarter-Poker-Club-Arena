@@ -284,8 +284,12 @@ import {
   clearStyleShadowEngaged,
   STYLE_READ_BUDGET_MS,
   STYLE_SHADOW_REDECIDE_BUDGET_MS,
+  styleReceiptFormat,
+  styleReceiptFormatCode,
   styleShadowAggregateKey,
+  styleShadowOptionCode,
   styleShadowPick,
+  takeStyleLiveEngaged,
   takeStyleReadMs,
   takeStyleShadowEngaged,
   type StyleShadowEngagement,
@@ -3037,6 +3041,7 @@ export class HorseDecisionWorkerRuntime {
       takeStyleReadMs();
     }
     let styleEngaged: StyleShadowEngagement[] = [];
+    let styleLiveEngaged: StyleShadowEngagement[] = [];
     let fastOpts: Parameters<HorseDecisionWorkerDependencies['decide']>[4] | undefined;
     const player = deepFreeze(request.player);
     const gameState = deepFreeze(request.gameState);
@@ -3081,6 +3086,7 @@ export class HorseDecisionWorkerRuntime {
       this.deps.restoreRng(canonicalRng);
       if (styleActive) {
         styleEngaged = takeStyleShadowEngaged();
+        styleLiveEngaged = takeStyleLiveEngaged();
         // LATENCY (2026-11-13): the style read's own time in this decision, against the 0.25 ms budget. Counted only
         // when a consumer read a style (M2 note: a decision where none ran would dilute the over-budget share).
         const styleMs = takeStyleReadMs();
@@ -3282,6 +3288,16 @@ export class HorseDecisionWorkerRuntime {
       throw error;
     }
     this.deps.noteFeature(`phase15_plan_issue_${planIssueDisposition}`);
+    // LIVE ENGAGEMENT RECEIPTS (2026-11-15): an option that is ON and applied its adjustment in this decision is
+    // counted by format, once per engaged option per decision. Telemetry only: nothing re-decides because of an ON
+    // option (the live counterfactual is Hold'em Strategy's R1), and the shadow below is unchanged.
+    const styleFormat =
+      styleLiveEngaged.length > 0 ? styleReceiptFormat(request.gameState) : 'cash';
+    // style_engaged_<opt>_<c|t|l>_seen: 7 options x 3 formats = 21 keys
+    for (const e of styleLiveEngaged)
+      this.deps.noteFeature(
+        `style_engaged_${styleShadowOptionCode(e.option)}_${styleReceiptFormatCode(styleFormat)}_seen`
+      );
     // SHADOW (2026-11-13): after the committed result is sent, before this turn of the loop ends (so Horse memory
     // is exactly what the decision read). M2: at most ONE re-decision per decision, never with work queued behind
     // this one, never when the committed decision already took longer than the budget, and only at the committed
