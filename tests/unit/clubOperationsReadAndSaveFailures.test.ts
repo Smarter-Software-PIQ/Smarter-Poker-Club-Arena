@@ -185,10 +185,12 @@ describe('Rules and announcements route/account isolation', () => {
     let settle!: (result: unknown) => void;
     const query: Record<string, unknown> = {};
     for (const method of ['select', 'eq']) query[method] = () => query;
-    query.maybeSingle = () =>
-      new Promise((done) => {
-        settle = done;
-      });
+    query.maybeSingle = vi.fn(
+      () =>
+        new Promise((done) => {
+          settle = done;
+        })
+    );
     const activeScopeRef = { current: 'club-a:account-a' };
     const setRules = vi.fn();
     const load = handler('ClubRulesPage.tsx', 'loadRules', 'const handleSave', {
@@ -201,11 +203,13 @@ describe('Rules and announcements route/account isolation', () => {
       setLoadError: vi.fn(),
       setLoading: vi.fn(),
       setRules,
-      resolveClubIdFilter: () => ({ column: 'slug', value: 'club-a' }),
+      resolveClubLookupFilter: async () => ({ column: 'slug', value: 'club-a' }),
       sessionStorage: { getItem: () => null },
       supabase: { from: () => query },
     });
     const pending = load(() => true);
+    // The club read starts once the route's club lookup filter has resolved.
+    await vi.waitFor(() => expect(query.maybeSingle).toHaveBeenCalledTimes(1));
     activeScopeRef.current = 'club-b:account-b';
     settle({
       data: { name: 'Former Club', settings: { rules_text: 'Private Rules' } },

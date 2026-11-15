@@ -154,9 +154,6 @@ export default function ClubRulesPage() {
     setLoadError(false);
     setLoading(true);
     try {
-      // Load club info
-      const { column: clubCol, value: clubVal } = await resolveClubLookupFilter(clubId!);
-
       // SWR: show cached rules instantly
       const swrKey = `rules_cache_${user?.id || 'signed-out'}_${clubId}`;
       try {
@@ -176,6 +173,7 @@ export default function ClubRulesPage() {
          club has published no rules": the page rendered empty (or a stale
          sessionStorage copy), set no loadError, said nothing, and the owner
          lost the Edit button at the same time. */
+      const { column: clubCol, value: clubVal } = await resolveClubLookupFilter(clubId!);
       const { data: club, error: clubErr } = await supabase
         .from('clubs')
         .select('name, settings, owner_id')
