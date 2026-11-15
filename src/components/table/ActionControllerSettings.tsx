@@ -94,10 +94,48 @@ export function ActionControllerSettings() {
   const { settings, update } = useActionControllerSettings();
   const [editPresets, setEditPresets] = useState(false);
   const panelId = useId();
-  const tabId = useId();
+  const buttonId = useId();
   return (
     <section className="action-controller-settings" aria-label="Action Controller">
-      <h3>Action Controller</h3>
+      <div className="action-controller-settings-header">
+        <h3>Action Controller</h3>
+        <button
+          className="action-controller-edit-button"
+          type="button"
+          id={buttonId}
+          aria-label="Change Default Button Amounts"
+          aria-expanded={editPresets}
+          aria-controls={panelId}
+          onClick={() => setEditPresets((open) => !open)}
+        >
+          <span aria-hidden="true">
+            <span>Change Default</span>
+            <span>Button Amounts</span>
+          </span>
+        </button>
+      </div>
+      <div role="region" id={panelId} aria-labelledby={buttonId} hidden={!editPresets}>
+        <PresetEditor
+          label="Preflop Multipliers"
+          values={settings.preflop}
+          defaults={DEFAULT_ACTION_CONTROLLER.preflop}
+          max={100}
+          suffix="X"
+          onApply={(preflop) => update({ preflop })}
+        />
+        <PresetEditor
+          label="Postflop Pot Percentages"
+          values={settings.postflop}
+          defaults={DEFAULT_ACTION_CONTROLLER.postflop}
+          max={1000}
+          suffix="%"
+          onApply={(postflop) => update({ postflop })}
+        />
+        <p>
+          Preflop Uses The Bet You Face, Or The Big Blind. Postflop Uses The Pot After Calling.
+          Legal Minimums, Stack And Pot-Limit Caps Still Apply.
+        </p>
+      </div>
       <div className="action-controller-colors" aria-label="Action Controller Colors">
         {ACTION_CONTROLLER_COLORS.map((color) => (
           <button
@@ -120,42 +158,6 @@ export function ActionControllerSettings() {
             <span className="action-controller-choice-name">{color.name}</span>
           </button>
         ))}
-      </div>
-      <div role="tablist" aria-label="Action Controller Settings">
-        <button
-          className="action-controller-edit-tab"
-          type="button"
-          role="tab"
-          id={tabId}
-          aria-selected={editPresets}
-          aria-expanded={editPresets}
-          aria-controls={panelId}
-          onClick={() => setEditPresets((open) => !open)}
-        >
-          Change Default Button Amounts
-        </button>
-      </div>
-      <div role="tabpanel" id={panelId} aria-labelledby={tabId} hidden={!editPresets}>
-        <PresetEditor
-          label="Preflop Multipliers"
-          values={settings.preflop}
-          defaults={DEFAULT_ACTION_CONTROLLER.preflop}
-          max={100}
-          suffix="X"
-          onApply={(preflop) => update({ preflop })}
-        />
-        <PresetEditor
-          label="Postflop Pot Percentages"
-          values={settings.postflop}
-          defaults={DEFAULT_ACTION_CONTROLLER.postflop}
-          max={1000}
-          suffix="%"
-          onApply={(postflop) => update({ postflop })}
-        />
-        <p>
-          Preflop Uses The Bet You Face, Or The Big Blind. Postflop Uses The Pot After Calling.
-          Legal Minimums, Stack And Pot-Limit Caps Still Apply.
-        </p>
       </div>
       <p>Applies To All Your Tables. Tap Outside The Open Controller To Close It.</p>
     </section>
