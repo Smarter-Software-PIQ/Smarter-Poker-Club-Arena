@@ -58,6 +58,8 @@ describe('UNMEASURABLE_MATCHUPS', () => {
         // Hold'em Strategy lane (2026-11-15): the long shown river memory reads a durable
         // record no league hand has (no pooled public rows, no worker); its reason states it.
         'nlh_long_shown_river_memory',
+        // Hold'em Strategy (2026-11-15): the completeness cap reads pooled-row qualification no league hand has.
+        'nlh_profile_completeness_cap',
         // Hold'em Strategy (2026-11-15): no All-In-Or-Fold table.
         'aof_closing_seat_nash_call',
       ].sort()
