@@ -7,6 +7,7 @@
  * exact replay of the journaled decision (read frame v17). With the option off, or with a complete row, nothing is
  * carried: the frame is not v17 and the decision is what it was.
  */
+import { OptionSwitchHolder, optionSwitchSourceFromStates } from '../HorseOptionSwitch.js';
 import { randomUUID } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -166,7 +167,12 @@ interface Outcome {
   record: ReturnType<typeof makeHorseJournalRecord>;
 }
 
-async function throughTheWorker(on: boolean, log: Seen[], complete = false): Promise<Outcome> {
+async function throughTheWorker(
+  on: boolean,
+  log: Seen[],
+  complete = false,
+  switched?: 'on' | 'off'
+): Promise<Outcome> {
   HorseMind.reset();
   restoreFastRandom(SEED);
   const request = riverRequest(on);
@@ -201,6 +207,15 @@ async function throughTheWorker(on: boolean, log: Seen[], complete = false): Pro
     noteFeature: () => {},
     now: () => performance.now(),
     styleSwitch: new StyleSwitchHolder(styleSwitchSourceFromStates(allOn()), () => {}),
+    // the live option switch alone may turn the cap on or off (the read view sees the effective option)
+    ...(switched
+      ? {
+          optionSwitch: new OptionSwitchHolder(
+            optionSwitchSourceFromStates({ holdemProfileCompletenessCap: switched }),
+            () => {}
+          ),
+        }
+      : {}),
   };
   enableBrainTelemetry();
   const runtime = new HorseDecisionWorkerRuntime((m) => messages.push(m), deps);
@@ -229,7 +244,8 @@ async function throughTheWorker(on: boolean, log: Seen[], complete = false): Pro
   runtime.receive({ ...deepDraft, decisionKey: buildHorseDecisionKey(deepDraft) } as never);
   await runtime.drain();
   const deep = messages.find((m) => m.type === 'DEEP_RESULT') as
-    { decision: { action: string; amount?: number | null } } | undefined;
+    | { decision: { action: string; amount?: number | null } }
+    | undefined;
   if (!deep) throw new Error(`no DEEP result: ${JSON.stringify(messages.at(-1))}`);
   const deepReads = [...log];
   const frame = (payloads[0] as { readFrame: { version: string; json: string } }).readFrame;
@@ -309,6 +325,18 @@ describe('an incomplete pooled profile through the decision worker', () => {
     expect(verdict.replayed?.amount).toBe(on.fast.decision.amount ?? null);
     expect(log.length).toBeGreaterThan(0);
     expect(log.every((r) => r.cap <= 0.4 + 1e-12)).toBe(true);
+  });
+
+  it('a live switch row ON alone (nothing in the request) caps the read; a row OFF beats the request', async () => {
+    const id = villain();
+    const log = watchStyle(() => id);
+    const rowOn = await throughTheWorker(false, log, false, 'on');
+    expect(rowOn.reads.fast.length).toBeGreaterThan(0);
+    expect(rowOn.reads.fast.every((r) => r.cap <= 0.4 + 1e-12)).toBe(true);
+    expect(rowOn.frameVersion).toBe('horse-decision-reads-v17');
+    log.length = 0;
+    const rowOff = await throughTheWorker(true, log, false, 'off');
+    expect(rowOff.frameVersion).not.toBe('horse-decision-reads-v17');
   });
 
   it('the option off: the same incomplete row is read uncapped, the frame is not v17, as with a complete row', async () => {
