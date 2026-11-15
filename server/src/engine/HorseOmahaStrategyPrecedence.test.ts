@@ -624,6 +624,38 @@ describe('conflict sweep 2026-11-15, the open findings', () => {
   const NUTS = 'AsAh7c6s4h';
   const DEFENCE: HorseDecideOpts = { omahaMadeHandDefenseVsValueLeader: true };
 
+  it('B2: a check the made-hand defence makes stands over a card-impact bet and a strong-hand value bet', () => {
+    forced.defenceChecks = true;
+    for (const [pricing, flag] of [
+      [{ omahaCardImpact: true }, 'impactBet'],
+      [{ omahaStrongHandValue: true }, 'strongBet'],
+    ] as [HorseDecideOpts, 'impactBet' | 'strongBet'][]) {
+      forced.impactBet = false;
+      forced.strongBet = false;
+      forced[flag] = true;
+      // the proposal is real: without the defence the pricing rule's bet is made
+      const alone = play(() => nodeAt(ACES, RIVER), pricing);
+      const bets = alone.actions.filter((a) => a === 'bet').length;
+      expect(bets).toBeGreaterThan(0);
+      const on = play(() => nodeAt(ACES, RIVER), { ...DEFENCE, ...pricing });
+      expect(on.actions).toEqual(SEEDS.map(() => 'check'));
+      expect(fired(on, 'omaha_owner_ruled_check_kept')).toBeGreaterThan(0);
+      expect(on.refusals).toEqual(SEEDS.map(() => null));
+      // not a measured value leader: the read-gated defence is withheld and the bet is made
+      const aloneNoRead = play(() => nodeAt(ACES, RIVER), pricing, false);
+      const noRead = play(() => nodeAt(ACES, RIVER), { ...DEFENCE, ...pricing }, false);
+      expect(noRead.actions).toEqual(aloneNoRead.actions);
+      expect(noRead.actions.some((a) => a === 'bet')).toBe(true);
+      // the unconditional defence needs no read
+      const always = play(
+        () => nodeAt(ACES, RIVER),
+        { omahaBeatenMadeHandDefense: true, ...pricing },
+        false
+      );
+      expect(all(always, 'check')).toBe(true);
+    }
+  });
+
   it('B3: the street plan never asks the facing-bet expected value on a hypothetical river, and runs once per bet size', () => {
     const TRIPLE: HorseDecideOpts = {
       omahaStreetPlan: true,
@@ -653,6 +685,55 @@ describe('conflict sweep 2026-11-15, the open findings', () => {
     }
     drainFires();
     expect(planned).toBeGreaterThan(0);
+  });
+
+  it('B4: a nut-class turn bet is not re-checked by the street plan outermost, and the validator admits it', () => {
+    forced.planChecks = true;
+    const off = play(() => nodeAt(ACES, TURN, NUTS), {});
+    expect(off.actions.some((a) => a === 'bet')).toBe(true);
+    for (const opts of [
+      { omahaStreetPlan: true, omahaBigDrawAggression: true },
+      { omahaStreetPlan: true, omahaStrongHandValue: true },
+      { ...ALL, omahaCardImpact: false, omahaOopTurnCheckAfterFlopCall: false },
+    ] as HorseDecideOpts[]) {
+      const on = play(() => nodeAt(ACES, TURN, NUTS), opts);
+      expect(on.actions).toEqual(off.actions);
+      expect(on.amounts).toEqual(off.amounts);
+      expect(fired(on, 'omaha_nut_class_wager_kept')).toBe(
+        off.actions.filter((a) => a === 'bet').length
+      );
+      expect(fired(on, 'omaha_owner_ruled_check_kept')).toBe(0);
+      expect(on.refusals).toEqual(SEEDS.map(() => null));
+    }
+  });
+
+  it('S3: the outermost own-bet re-check runs with any pricing option on, not only the big-draw wager', () => {
+    forced.strongBet = true;
+    // the paired river without a full house into a value leader: the owner rule checks
+    const on = play(() => nodeAt(ACES, RIVER), { ...OWNER, omahaStrongHandValue: true });
+    expect(on.actions).toEqual(SEEDS.map(() => 'check'));
+    expect(fired(on, 'omaha_owner_ruled_check_kept')).toBe(SEEDS.length);
+    // no pricing option on: the rule does not run at all
+    const none = play(() => nodeAt(ACES, RIVER), OWNER);
+    expect(fired(none, 'omaha_owner_ruled_check_kept')).toBe(0);
+  });
+
+  it('S2: a bigger size the owner rules refuse leaves the bet they had let through, at its own size', () => {
+    const off = play(() => nodeAt(ACES, TURN), {});
+    const bets = off.actions.filter((a) => a === 'bet').length;
+    expect(bets).toBeGreaterThan(0);
+    forced.impactBigger = true;
+    // the river-plan test passes the engine's size and refuses the full pot
+    forced.lacksPlanAbove = Math.max(...off.amounts.map((a) => a ?? 0));
+    const on = play(() => nodeAt(ACES, TURN), {
+      omahaTurnBetNeedsRiverPlan: true,
+      omahaCardImpact: true,
+    });
+    expect(on.actions).toEqual(off.actions);
+    expect(on.amounts).toEqual(off.amounts);
+    expect(fired(on, 'omaha_owner_approved_bet_kept')).toBe(bets);
+    expect(fired(on, 'omaha_owner_ruled_check_kept')).toBe(0);
+    expect(on.refusals).toEqual(SEEDS.map(() => null));
   });
 
   it('S1: the facing-bet expected value yields to a turn plan that calls this river', () => {

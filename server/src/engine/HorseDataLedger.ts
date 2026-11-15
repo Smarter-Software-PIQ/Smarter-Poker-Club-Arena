@@ -4389,8 +4389,14 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   receipt(
     'omaha_owner_ruled_check_kept',
+    'HorseLogic wager_rules (omahaOwnBetRules and omahaOwnerRuledFinal, precedence 2026-11-15)',
+    'a pricing rule (omahaCardImpact, omahaStrongHandValue), the big-draw wager (omahaBigDrawAggression) or the checked-to pricing bet proposed a bet in a spot an owner-ruled check rule (omahaOopCheckRules), the made-hand defence (omahaBeatenMadeHandDefense, omahaMadeHandDefenseVsValueLeader) or the street plan checks: the bet was not made',
+    'V94'
+  ),
+  receipt(
+    'omaha_owner_approved_bet_kept',
     'HorseLogic wager_rules (omahaOwnBetRules, precedence 2026-11-15)',
-    'a pricing rule (omahaStreetPlan or omahaCardImpact) or the big-draw wager (omahaBigDrawAggression) proposed a bet in a spot an owner-ruled check rule (omahaOopCheckRules) or the street plan checks: the bet was not made',
+    'omahaCardImpact proposed another size for a bet the owner rules had let through, and an owner-ruled check rule, the made-hand defence or the street plan refuses that size: the bet stands at the size it had',
     'V94'
   ),
   receipt(

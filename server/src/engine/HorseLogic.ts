@@ -7852,12 +7852,70 @@ function omahaOopTurnFacingBetRule(
   }
 }
 
+/** A wager: a bet, a raise or an all-in. */
+function omahaIsWager(d: HorseDecision): boolean {
+  return d.action === 'bet' || d.action === 'raise' || d.action === 'all_in';
+}
+
+/** One of the pricing options that can put a wager where the owner rules left a check. */
+function omahaPricingOptionOn(opts: HorseDecideOpts): boolean {
+  return (
+    opts.omahaCardImpact === true ||
+    opts.omahaStreetPlan === true ||
+    opts.omahaStrongHandValue === true ||
+    opts.omahaBigDrawAggression === true
+  );
+}
+
+/**
+ * Would a rule that outranks the pricing rules check this wager? Quiet (no
+ * receipt, no random number). True when (i) an owner-ruled check rule
+ * (omahaOopCheckRules) checks it, (ii) the made-hand defence checks it
+ * (omahaBeatenMadeHandDefense, or omahaMadeHandDefenseVsValueLeader with
+ * every live opponent a measured value leader: a hand a possible straight or
+ * flush beats does not bet into the fresh card out of position or into the
+ * river's earlier bettor), or (iii) the street plan checks it; a nut-class
+ * wager is exempt from (iii) only (owner 2026-11-15 00:32: a nut-class bet
+ * is never checked by a pricing rule).
+ */
+function omahaWagerIsChecked(
+  wagered: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): boolean {
+  if (!omahaIsWager(wagered)) return false;
+  const quiet: HorseDecideOpts = { ...opts, telemetry: false };
+  if (omahaOopCheckRules(wagered, player, gs, quiet).action === 'check') return true;
+  const defenseOn = opts.omahaBeatenMadeHandDefense === true;
+  if (
+    (defenseOn || opts.omahaMadeHandDefenseVsValueLeader === true) &&
+    omahaBeatenNoBet(wagered, player, gs, true).changed !== null &&
+    (defenseOn || omahaEveryLiveOpponentIs(player, gs, quiet, (r) => r.valueLeader))
+  )
+    return true;
+  return (
+    opts.omahaStreetPlan === true &&
+    !omahaNutClassNow(player, gs) &&
+    omahaStreetPlanRules(wagered, player, gs, quiet).action === 'check'
+  );
+}
+
 /**
  * PRECEDENCE, outermost of the wager rules on both decision paths (lane
  * owner 2026-11-15): the owner-ruled turn verdict facing a bet is final. No
  * rule that ran after omahaOopCheckRules (the big-bet cells, the re-raised
  * pot rules, the facing-bet expected value) leaves a raise, a fold of the
  * nut draw at its price or a call with no out standing in that spot.
+ *
+ * Facing no bet, with any pricing option on (omahaCardImpact,
+ * omahaStreetPlan, omahaStrongHandValue, omahaBigDrawAggression): a wager
+ * that reached here in a spot an owner-ruled check rule, the made-hand
+ * defence or the street plan checks was proposed by a later rule (the
+ * big-draw wager, the strong-hand value bet, the node's checked-to pricing
+ * bet): the check stands (omahaWagerIsChecked; a nut-class wager is not
+ * re-checked by the street plan). The inner rules are deterministic on the
+ * same state, so a bet they let through is not touched here.
  */
 function omahaOwnerRuledFinal(
   decision: HorseDecision,
@@ -7867,23 +7925,9 @@ function omahaOwnerRuledFinal(
 ): HorseDecision {
   const faced = omahaOopTurnFacingBetRule(decision, player, gs, opts);
   if (faced !== null) return faced;
-  // A wager facing no bet that reached here in a spot an owner-ruled check
-  // rule, the turn river-plan test or the street plan checks was proposed by
-  // a later rule (omahaBigDrawAggression): the check stands. The inner rules
-  // are deterministic on the same state, so a bet they let through is not
-  // touched here.
-  if (
-    opts.omahaBigDrawAggression !== true ||
-    (decision.action !== 'bet' && decision.action !== 'all_in' && decision.action !== 'raise')
-  )
-    return decision;
+  if (!omahaPricingOptionOn(opts) || !omahaIsWager(decision)) return decision;
   try {
-    const quiet: HorseDecideOpts = { ...opts, telemetry: false };
-    const checked = (d: HorseDecision): boolean => d.action === 'check';
-    if (
-      checked(omahaOopCheckRules(decision, player, gs, quiet)) ||
-      (opts.omahaStreetPlan === true && checked(omahaStreetPlanRules(decision, player, gs, quiet)))
-    ) {
+    if (omahaWagerIsChecked(decision, player, gs, opts)) {
       if (telemetryOn(opts)) noteFire('omaha_owner_ruled_check_kept');
       const c: HorseDecision = { ...decision, action: 'check' };
       delete c.amount;
@@ -7900,12 +7944,17 @@ function omahaOwnerRuledFinal(
  * (i) the owner-ruled checks (omahaOopCheckRules: the bare overpair flop
  * check, the turn check after the called flop bet, the paired-turn and
  * paired-river no-bet rules, the turn bet that needs a river plan) act first
- * and are final; (ii) the pricing rules (omahaStreetPlanRules, then
- * omahaCardImpactRule) act only where those did not, and a bet they propose
- * in a spot an owner rule checks is not made (omaha_owner_ruled_check_kept);
- * (iii) a nut-class wager is never turned into a check or made smaller by a
- * pricing rule (omaha_nut_class_wager_kept). A failure keeps the decision
- * the owner rules gave.
+ * and are final, and so is a check the made-hand defence made
+ * (omahaMadeHandDefenseRules, which ran before this rule); (ii) the pricing
+ * rules (omahaStreetPlanRules, then omahaCardImpactRule) act only where
+ * those did not, and a wager omahaCardImpact proposes that an owner-ruled
+ * check rule, the made-hand defence or the street plan checks is not made:
+ * the decision as the street plan left it stands, a check
+ * (omaha_owner_ruled_check_kept) or the bet the owner rules had already let
+ * through at its own size (omaha_owner_approved_bet_kept); (iii) a nut-class
+ * wager is never turned into a check or made smaller by a pricing rule
+ * (omaha_nut_class_wager_kept). A failure keeps the decision the owner
+ * rules gave.
  */
 function omahaOwnBetRules(
   decision: HorseDecision,
@@ -7916,26 +7965,20 @@ function omahaOwnBetRules(
   const ruled = omahaOopCheckRules(decision, player, gs, opts);
   if (ruled !== decision) return ruled;
   if (opts.omahaStreetPlan !== true && opts.omahaCardImpact !== true) return ruled;
-  const priced = omahaCardImpactRule(
-    omahaStreetPlanRules(ruled, player, gs, opts),
-    player,
-    gs,
-    opts
-  );
+  const planned = omahaStreetPlanRules(ruled, player, gs, opts);
+  let priced = omahaCardImpactRule(planned, player, gs, opts);
   if (priced === ruled) return ruled;
-  const wager = (d: HorseDecision): boolean =>
-    d.action === 'bet' || d.action === 'raise' || d.action === 'all_in';
   try {
-    if (wager(priced)) {
-      const vetoed = omahaOopCheckRules(priced, player, gs, { ...opts, telemetry: false });
-      if (vetoed !== priced && !wager(vetoed)) {
-        if (telemetryOn(opts)) noteFire('omaha_owner_ruled_check_kept');
-        return wager(ruled) ? vetoed : ruled;
-      }
+    if (priced !== planned && omahaWagerIsChecked(priced, player, gs, opts)) {
+      if (telemetryOn(opts))
+        noteFire(
+          omahaIsWager(planned) ? 'omaha_owner_approved_bet_kept' : 'omaha_owner_ruled_check_kept'
+        );
+      priced = planned;
     }
     if (
-      wager(ruled) &&
-      (!wager(priced) ||
+      omahaIsWager(ruled) &&
+      (!omahaIsWager(priced) ||
         (typeof priced.amount === 'number' &&
           typeof ruled.amount === 'number' &&
           priced.amount < ruled.amount - 0.005)) &&
