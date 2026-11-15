@@ -1,3 +1,4 @@
+import { actorRole, confirmedSeatRole } from '../../engine/HorseConfirmedSeatRole.js';
 import { readPendingOperatorCashClose } from '../operatorCashClose.js';
 /**
  * Supabase helpers — table + seat reads and stack/chip syncing.
@@ -337,6 +338,7 @@ function seatedPlayerFrom(seat: SeatRow, profile: SeatedProfileRow) {
     stack: seat.stack,
     seat_number: seat.seat_number || 1,
     is_horse: profile.is_horse || false,
+    [confirmedSeatRole]: actorRole(profile.is_horse),
     reconnect_membership: {
       is_vip: profile.is_vip,
       vip_tier: profile.vip_tier,

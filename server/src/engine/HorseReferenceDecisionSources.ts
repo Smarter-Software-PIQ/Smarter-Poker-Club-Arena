@@ -227,6 +227,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'boundary: bounded saved-only service bootstrap with closed public profile schema and original resolved availability before worker READY; no turn query or private history',
     'src/services/HorseOwnPublicHistory.ts':
       'boundary: the individual service-only public reader pins its exact native-qualified database definition, context and bounded query; provider transport is not strategy authority',
+    'src/engine/horseDecision/savedProfilePresence.ts':
+      'the original dealt roster, saved profile validation and decision cutoff governing request-local public counters',
     'src/engine/horseDecision/pooledPublicProfiles.ts':
       'owner-authorized shared public aggregate admission, saved bootstrap, context/version/cutoff and detached read projection consumed by reference decisions',
     'src/engine/horseDecision/observerReads.ts':

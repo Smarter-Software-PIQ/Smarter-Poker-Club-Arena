@@ -1,3 +1,4 @@
+import { actorRole, confirmedSeatRole } from '../engine/HorseConfirmedSeatRole.js';
 /**
  * ═══════════════════════════════════════════════════════════════════════════
  *  THE LIGHTNING DEALER'S DOORS TO THE DATABASE (Lightning Phase 6, 2026-09-27)
@@ -292,6 +293,7 @@ export async function loadLightningParticipants(
       equippedFrame: profile?.equipped_frame ?? '',
       equippedAura: profile?.equipped_aura ?? '',
       isHorse: profile?.is_horse === true,
+      [confirmedSeatRole]: actorRole(profile?.is_horse),
       horseProfile: profile?.horse_profile ?? undefined,
     };
   });

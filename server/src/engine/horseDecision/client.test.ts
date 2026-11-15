@@ -1,3 +1,4 @@
+import { horseSavedProfilePresence } from '../../services/HorseSavedProfilePresence.js';
 import { HORSE_REQUEST_MAX_PENDING, HorseRequestCapacityError } from './requestRetentionBudget.js';
 import { HorseOwnPublicHistoryCache } from './ownPublicHistory.js';
 import {
@@ -3981,6 +3982,42 @@ it.each(['missing', 'malformed', 'wrong_shard', 'future', 'extra_field'])(
     expect(client.status().phase).toBe('ready');
   }
 );
+
+it('original FAST replaces a caller-authored saved-profile claim with host-owned evidence', async () => {
+  const worker = new FakeWorker();
+  const client = new LiveHorseDecisionWorkerClient({ workerFactory: () => worker });
+  const privateReceipt = {
+    version: 1,
+    scope: 'horse_exact_profiles',
+    binding: null,
+    status: 'unavailable',
+    requestedAtMs: null,
+    availableAtMs: null,
+    rows: [],
+  } as const;
+  const read = vi
+    .spyOn(horseSavedProfilePresence, 'forSnapshot')
+    .mockReturnValue({ ...privateReceipt, rows: [] });
+  try {
+    const snap = snapshot('saved-provenance');
+    const request = client.decideFast(
+      Object.assign(snap, { savedProfilePresence: { status: 'available', rows: ['forged'] } })
+    );
+    worker.emitMessage(ready);
+    expect(worker.sent[0]).toMatchObject({
+      type: 'DECIDE_FAST',
+      savedProfilePresence: privateReceipt,
+    });
+    worker.emitMessage(fastResult(1, snap.fence));
+    await request;
+    expect(read).toHaveBeenCalledOnce();
+  } finally {
+    read.mockRestore();
+    const stopping = client.stop();
+    worker.emitMessage({ type: 'STOPPED' });
+    await stopping;
+  }
+});
 
 it('terminal client stop releases only its cache and prevents a pending load from resurrecting it', async () => {
   const c = {
