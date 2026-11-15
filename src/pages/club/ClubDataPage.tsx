@@ -1176,7 +1176,12 @@ export default function ClubDataPage() {
   }, []);
   useEffect(() => {
     snapshotRef.current = snapshot;
-    if (snapshot) setDayBasis(clubDataDayBasis(snapshot));
+    // "Today" follows an answer whose window reaches the present. A window
+    // that starts before a union club joined its union is answered on the
+    // club's pre-union Chicago basis; that labels the window, not today.
+    if (snapshot && snapshot.range.end >= clubDataDayOn('accounting')) {
+      setDayBasis(clubDataDayBasis(snapshot));
+    }
   }, [snapshot]);
   // Another club or account starts from the calendar day until it answers.
   useEffect(() => {
@@ -3002,14 +3007,18 @@ export default function ClubDataPage() {
   );
 
   const summary = snapshot?.summary;
+  // Every label states the basis the visible answer was given on (a union
+  // club's window that starts before it joined reads its Chicago basis);
+  // before an answer, the basis "today" is counted on.
+  const answerBasis: ClubDataDayBasis = snapshot ? clubDataDayBasis(snapshot) : dayBasis;
   // The window by its real boundaries: the reader's own instants when it
   // stated them, otherwise the selection on this club's basis.
   const windowLabel =
     (snapshot && coverageWindowLabel(snapshot.accounting_coverage)) ||
-    clubDataWindowLabel(startDate, endDate, dayBasis);
-  const windowEndLabel = `Window Ends At ${clubDataBoundaryClock(dayBasis)} (${CLUB_DATA_ZONE_LABEL})`;
+    clubDataWindowLabel(startDate, endDate, answerBasis);
+  const windowEndLabel = `Window Ends At ${clubDataBoundaryClock(answerBasis)} (${CLUB_DATA_ZONE_LABEL})`;
   const notices = coverageNotices(snapshot?.accounting_coverage);
-  const unionBasis = dayBasis === 'accounting';
+  const unionBasis = answerBasis === 'accounting';
   const filtersActive = game !== 'ALL' || stakes !== 'ALL' || search.trim() !== '';
   const weeklyPlayerResults = useMemo(() => {
     if (!latestInvoice?.breakdown) return null;
@@ -3042,7 +3051,7 @@ export default function ClubDataPage() {
   // zero, and nothing is a percentage of nothing - so nothing is shown.
   const prevDaysCount = prevRange?.days ?? preset;
   const prevWindowLabel = prevRange
-    ? clubDataWindowLabel(prevRange.start, prevRange.end, dayBasis) ||
+    ? clubDataWindowLabel(prevRange.start, prevRange.end, answerBasis) ||
       `${prevRange.start} To ${prevRange.end}`
     : '';
   const prevDays = `${prevDaysCount} Day${prevDaysCount === 1 ? '' : 's'}`;
@@ -3531,8 +3540,8 @@ export default function ClubDataPage() {
               }}
             />
           </label>
-          <p className={`sc-copy ${styles.note}`}>{clubDataDayRule(dayBasis)}.</p>
-          {snapshot && dayBasis === 'accounting' && (
+          <p className={`sc-copy ${styles.note}`}>{clubDataDayRule(answerBasis)}.</p>
+          {snapshot && answerBasis === 'accounting' && (
             <p className={`sc-copy ${styles.note}`}>{UNION_BASIS_DEFINITIONS}</p>
           )}
           {notices.provisional && (

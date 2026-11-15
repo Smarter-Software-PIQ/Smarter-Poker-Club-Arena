@@ -455,7 +455,12 @@ export default function ClubDataSimplePage() {
         return;
       }
       setSnapshot(data);
-      setDayBasis(clubDataDayBasis(data));
+      // "Today" follows an answer whose window reaches the present; a window
+      // before a union club joined its union is answered on its Chicago basis,
+      // which labels that window, not today.
+      if ((data.range?.end ?? endDate) >= clubDataDayOn('accounting')) {
+        setDayBasis(clubDataDayBasis(data));
+      }
       setPlayerSearchAccess(identityKey);
       setSnapshotScope(requestScope);
       if (data.club_name) setClubName(data.club_name);
@@ -575,7 +580,11 @@ export default function ClubDataSimplePage() {
 
   const summary = visibleSnapshot?.summary ?? null;
   const isDownline = visibleSnapshot?.scope === 'downline';
-  const unionBasis = dayBasis === 'accounting';
+  // Every label states the basis the visible answer was given on.
+  const answerBasis: ClubDataDayBasis = visibleSnapshot
+    ? clubDataDayBasis(visibleSnapshot)
+    : dayBasis;
+  const unionBasis = answerBasis === 'accounting';
   // Stage 2: on the union basis member_fees is the downline's fees from the
   // accounting records on the same 02:00 days (equal to the screen's fee),
   // not the viewer's own earned share on UTC days.
@@ -585,8 +594,8 @@ export default function ClubDataSimplePage() {
   const notices = coverageNotices(visibleSnapshot?.accounting_coverage);
   const windowLabel =
     (visibleSnapshot && coverageWindowLabel(visibleSnapshot.accounting_coverage)) ||
-    clubDataWindowLabel(startDate, endDate, dayBasis);
-  const boundaryClock = clubDataBoundaryClock(dayBasis);
+    clubDataWindowLabel(startDate, endDate, answerBasis);
+  const boundaryClock = clubDataBoundaryClock(answerBasis);
   const feeText = isDownline
     ? formatMoney(visibleSnapshot?.member_fees?.total_fees)
     : summary
@@ -713,8 +722,8 @@ export default function ClubDataSimplePage() {
             />
           </label>
           <p>
-            {clubDataDayRule(dayBasis)}. The Window Starts At {boundaryClock} On The Start Date And
-            Stops At {boundaryClock} On The End Date. Up To 93 Days.
+            {clubDataDayRule(answerBasis)}. The Window Starts At {boundaryClock} On The Start Date
+            And Stops At {boundaryClock} On The End Date. Up To 93 Days.
           </p>
           {rangeError && <p role="alert">{rangeError}</p>}
           <button type="button" className={styles.retry} onClick={() => setEditingDates(false)}>
@@ -826,7 +835,7 @@ export default function ClubDataSimplePage() {
           clubId={clubUuid}
           start={startDate}
           end={endDate}
-          basis={dayBasis}
+          basis={answerBasis}
           game={game}
           stakes={stakesApply ? stakes : 'ALL'}
           search={search || null}

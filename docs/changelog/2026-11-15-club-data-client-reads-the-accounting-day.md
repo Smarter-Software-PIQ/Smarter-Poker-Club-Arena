@@ -54,6 +54,15 @@ keeps Chicago midnight days. This is the client half.
   Production", never "Fee" (RakeSnapshotPanel `headlineLabel`, default
   unchanged for every other caller).
 
+- Labels follow each answer, never the club: a union club's window that
+  starts before it joined its union is answered on its pre-union Chicago
+  basis, and both screens then show midnight boundaries and the Chicago-basis
+  text. "Today" follows only an answer whose window reaches the present
+  (#10921 review, 2026-11-15).
+- On the union basis tournament fees are recognized when the tournament
+  settles, so there is no running MTT fee; the definitions say so and no
+  screen shows one.
+
 ## Changes every club sees
 
 - The end-date pickers on both screens now mean the boundary the window stops

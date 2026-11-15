@@ -224,7 +224,8 @@ export function clubDataDayRule(basis: ClubDataDayBasis): string {
  * plus every tournament result, MTT Winnings is finished MTTs only.
  */
 export const UNION_BASIS_DEFINITIONS =
-  "Union Invoice Basis. Fee Is The Rake Credited To The Club, The Invoice's Rake Generated. " +
+  "Union Invoice Basis. Fee Is The Rake Credited To The Club, The Invoice's Rake Generated; " +
+  'Tournament Fees Are Recognized When The Tournament Settles. ' +
   "Total Winnings Is The Players' Result: Cash Winnings (Each Cash Hand's Stack Change, Bad Beat " +
   'Jackpot Awards Included) Plus Tournament Results (MTT Winnings, Sit And Go Results And ' +
   'Unfinished MTT Entries). MTT Winnings Are Finished MTTs Only: Prizes, Bounties And Refunds ' +

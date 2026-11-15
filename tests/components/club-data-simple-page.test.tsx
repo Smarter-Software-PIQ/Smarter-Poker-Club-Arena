@@ -683,6 +683,11 @@ describe('the union invoice basis', () => {
       screen.getByText(/^Days Run 2:00 AM To 2:00 AM Chicago Time\. Union Invoice Basis\./)
     ).toBeTruthy();
     expect(screen.getByText(/Total Winnings Equals Its Player Win\/Loss/)).toBeTruthy();
+    // Tournament fees count when the tournament settles; no running MTT fee.
+    expect(
+      screen.getByText(/Tournament Fees Are Recognized When The Tournament Settles\./)
+    ).toBeTruthy();
+    expect(screen.queryByText(/Running MTT Fee/i)).toBeNull();
     // Total Winnings is cash plus every tournament result; MTT Winnings is
     // finished MTTs only (review, 2026-11-15).
     expect(
@@ -702,6 +707,41 @@ describe('the union invoice basis', () => {
     expect(screen.getByText('On The Felt Now (Not In Total Winnings)')).toBeTruthy();
     expect(screen.getByText('5,400.00')).toBeTruthy();
     expect(screen.queryByText(/Net Entries And Payouts In Chicago Time/)).toBeNull();
+  });
+
+  it('a window before the club joined its union reads and says the Chicago basis', async () => {
+    // The readers answer a union club's window that starts before its join
+    // day on the club's pre-union Chicago midnight basis (#10921 review).
+    rpcMock.mockImplementation(async (_fn: string, args: Record<string, string>) => ({
+      data:
+        args.p_start >= '2026-11-02'
+          ? unionLive
+          : {
+              ...live,
+              range: { start: args.p_start, end: args.p_end, days: 7 },
+              accounting_basis: 'chicago_net_money_flow',
+              day_basis: 'America/Chicago',
+            },
+      error: null,
+    }));
+    routeState.search = new URLSearchParams({ dataStart: '2026-11-02', dataUntil: '2026-11-09' });
+    render(<ClubDataSimplePage />);
+    expect(await screen.findByText('Nov 2, 2026 2:00 AM To Nov 9, 2026 2:00 AM')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Select Date Range' }));
+    fireEvent.change(screen.getByLabelText('Start Date'), { target: { value: '2026-10-01' } });
+    fireEvent.change(screen.getByLabelText('End Date'), { target: { value: '2026-10-08' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply Dates' }));
+    expect(await screen.findByText('Oct 1, 2026 12:00 AM To Oct 8, 2026 12:00 AM')).toBeTruthy();
+    expect(rpcMock.mock.calls.at(-1)?.[1]).toMatchObject({
+      p_start: '2026-10-01',
+      p_end: '2026-10-07',
+    });
+    expect(screen.getByText(/Net Entries And Payouts In Chicago Time/)).toBeTruthy();
+    expect(screen.queryByText(/Union Invoice Basis/)).toBeNull();
+    expect(screen.queryByText(/Provisional/)).toBeNull();
+    expect(screen.queryByText('On The Felt Now (Not In Total Winnings)')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Select Date Range' }));
+    expect(screen.getByText(/^Days Run Midnight To Midnight Chicago Time\./)).toBeTruthy();
   });
 
   it('the date editor stops the window at 02:00 on the end date it shows', async () => {

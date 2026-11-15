@@ -767,3 +767,72 @@ describe('a union club opened between midnight and 02:00 Chicago', () => {
     }
   }, 20_000);
 });
+
+/* #10921 review: a union club's window that starts before its join day is
+   answered on its pre-union Chicago basis, and the report says so. */
+it('a union club window before its join day shows the Chicago-basis labels', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  vi.setSystemTime(new Date('2026-11-16T18:00:00Z')); // Mon 12:00 CST
+  const JOIN_DAY = '2026-11-02';
+  try {
+    rpcMock.mockImplementation(async (fn: string, args?: Record<string, unknown>) => {
+      if (fn === 'ca_club_data_snapshot_v2') {
+        const start = String(args!.p_start);
+        const end = String(args!.p_end);
+        const days =
+          Math.round(
+            (Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86_400_000
+          ) + 1;
+        const base = {
+          ...snapshot,
+          range: { start, end, days },
+          previous_range: { start: shiftDay(start, -days), end: shiftDay(start, -1), days },
+        };
+        return {
+          data:
+            start >= JOIN_DAY
+              ? {
+                  ...base,
+                  accounting_basis: 'union_invoice_accounting',
+                  day_basis: 'America/Chicago 02:00',
+                }
+              : {
+                  ...base,
+                  accounting_basis: 'chicago_net_money_flow',
+                  day_basis: 'America/Chicago',
+                },
+          error: null,
+        };
+      }
+      if (fn === 'ca_club_union_invoices') return { data: [], error: null };
+      return { data: null, error: null };
+    });
+    render(<ClubDataPage />);
+    await screen.findByText('Shark Table One');
+    expect(await screen.findByLabelText('Window Ends At 2:00 AM (Chicago Time)')).toHaveValue(
+      '2026-11-17'
+    );
+    expect(screen.getByText(/^Union Invoice Basis\./)).toBeInTheDocument();
+    // Pick a window that ends Oct 15: its 14 days start Oct 1, before the join day.
+    fireEvent.change(screen.getByLabelText('Window Ends At 2:00 AM (Chicago Time)'), {
+      target: { value: '2026-10-15' },
+    });
+    expect(
+      await screen.findByText('Oct 1, 2026 12:00 AM To Oct 15, 2026 12:00 AM')
+    ).toBeInTheDocument();
+    expect(rpcMock).toHaveBeenCalledWith(
+      'ca_club_data_snapshot_v2',
+      expect.objectContaining({ p_start: '2026-10-01', p_end: '2026-10-14' })
+    );
+    const picker = screen.getByLabelText('Window Ends At 12:00 AM (Chicago Time)');
+    expect(picker).toHaveValue('2026-10-15');
+    // Today is still counted on the union's accounting day.
+    expect(picker).toHaveAttribute('max', '2026-11-17');
+    expect(screen.getByText('Days Run Midnight To Midnight Chicago Time.')).toBeInTheDocument();
+    expect(screen.queryByText(/^Union Invoice Basis\./)).toBeNull();
+    expect(screen.queryByTestId('rake-snapshot-basis')).toBeNull();
+  } finally {
+    cleanup();
+    vi.useRealTimers();
+  }
+});
