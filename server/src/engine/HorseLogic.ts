@@ -552,6 +552,7 @@ import {
   holdemPersonaRange,
   type HoldemPersonaRange,
 } from './HorseHoldemPersonaPreflop.js';
+import { holdemPersonaPostflopScales } from './HorseHoldemPersonaPostflop.js';
 // V38 (2026-09-03): the EV engine — the arithmetic behind every choice, the
 // arbiter for the games with no solver export and for every river fold/call
 // the hold'em solver range did not answer. See HorseEvEngine.ts.
@@ -1669,9 +1670,7 @@ export interface HorseGameStateV2 extends HorseGameState {
   /** Live Seven-Deuce (7-2) bounty table configuration. */
   sevenDeuceEnabled?: boolean;
   sevenDeuceBounty?:
-    | number
-    | { enabled?: boolean; bountyBB?: number; perPlayerAmount?: number }
-    | null;
+    number | { enabled?: boolean; bountyBB?: number; perPlayerAmount?: number } | null;
   sevenDeuceBountyBB?: number | null;
   sevenDeuceBountyPerPlayer?: number | null;
 }
@@ -2702,8 +2701,7 @@ export interface HorseDecideOpts {
    *  fewer players dealt and 20 BB or less (30 BB three-handed winner-take-all; with pay jumps the small blind alone, top 60 percent). Default on; false is the old
    *  engine; an object is a league arm's parameters. */
   omahaTournamentFirstIn?:
-    | boolean
-    | Partial<import('./HorseOmahaTournamentFirstIn.js').OmahaTournamentFirstInParams>;
+    boolean | Partial<import('./HorseOmahaTournamentFirstIn.js').OmahaTournamentFirstInParams>;
   /** Pot-limit Omaha hi-lo tournaments, exactly two dealt in at the final
    *  table, 20 BB or less (HU-HILO-002): the omahaTournamentFirstIn fold
    *  replacement by the hand's hi-lo percentile (small blind first in; big
@@ -2711,8 +2709,7 @@ export interface HorseDecideOpts {
    *  arm's parameters, switches it on. Fixed-limit hi-lo and every table of
    *  three or more are outside it. */
   omahaHiLoTournamentFirstIn?:
-    | boolean
-    | Partial<import('./HorseOmahaTournamentFirstIn.js').OmahaTournamentFirstInParams>;
+    boolean | Partial<import('./HorseOmahaTournamentFirstIn.js').OmahaTournamentFirstInParams>;
   /** League-only override of the V67 extra raise shade; production never
    * sets it. */
   v67RiverRaiseShadeOverride?: number;
@@ -3072,6 +3069,13 @@ export interface HorseDecideOpts {
    *  unchanged. A preflop range change. Default OFF: only explicit true turns
    *  it on. */
   holdemPersonaReRaiseMix?: boolean;
+  /** HOLD'EM PERSONA POSTFLOP (2026-11-15, persona promises P17 and P21; HorseHoldemPersonaPostflop): in two-card
+   *  no-limit hold'em the V87 flop check-trap and check-raise into a stabber read the persona's trapFrequency
+   *  (fleet mean kept at 0.42), the turn takeaway is scaled by archetype (the Nit Hunter stabs capped checked
+   *  ranges more) and the heads-up dry-flop range continuation bet by archetype, each with a fleet mean of 1 and
+   *  never above 1 against an opponent read as tight. No new draw. Not All-In-Or-Fold. Default OFF: only an
+   *  explicit true turns it on. */
+  holdemPersonaPostflop?: boolean;
   /** HOLD'EM PERSONA PREFLOP (2026-11-15, plan lines 85 and 152; module
    *  HorseHoldemPersonaPreflop). One option for the Hold'em persona's preflop
    *  layer, two-card no-limit hold'em only: (1) turns on the persona re-raise
@@ -9757,8 +9761,7 @@ export class HorseLogic {
     // STYLE READ #6 widens the type by two optional bounds; the exploit read's own
     // PreflopOpenerExploit (HorseOpponentExploit) is untouched.
     let exploitOpener:
-      | (PreflopOpenerExploit & { maxBarMove?: number; callBump?: number })
-      | undefined;
+      (PreflopOpenerExploit & { maxBarMove?: number; callBump?: number }) | undefined;
     let exploitPressure: AggressiveOpenerPressure | undefined;
     let exploitReRaiser: { fourBetBar: number; callBar: number } | undefined;
     let styleTightReRaiser: TightReRaiser | undefined;
@@ -14016,6 +14019,21 @@ export class HorseLogic {
       vi.holeCount === 2 &&
       player.cards.length === 2;
     const persona87 = isV87Nlh ? holdemPersonaFor(player.user_id) : null;
+    // HOLD'EM PERSONA POSTFLOP (2026-11-15, default OFF): the persona's scales on three existing V87 mixes. The
+    // tight read is asked without style accounting (styleReadUncounted), as the persona re-raise cap does.
+    const personaPost87 =
+      opts.holdemPersonaPostflop === true &&
+      isV87Nlh &&
+      gs.gameVariant === 'nlh' &&
+      gs.allInOrFold !== true
+        ? holdemPersonaPostflopScales(
+            player.user_id,
+            useMind &&
+              opponents.some(
+                (o) => tightOpenerRespect(HorseMind.styleReadUncounted(o.user_id)) !== null
+              )
+          )
+        : null;
     const draw87 =
       isV87Nlh && !isRiver
         ? v87HoldemCleanDrawOuts(player.cards, board)
@@ -14211,9 +14229,10 @@ export class HorseLogic {
           oppCount <= 2 &&
           anyStabber87 &&
           (((tptk87 || cat >= 3) && !premiumLocked87) || draw87.outs >= 12) &&
-          unit87('oopstabtrap') < 0.42
+          unit87('oopstabtrap') < (personaPost87?.trap ?? 0.42)
         ) {
           if (tele15) noteFire('v87_oop_stab_trap');
+          if (tele15 && personaPost87) noteFire('holdem_persona_postflop_trap_seen');
           return { action: 'check', thinkTime: 0 };
         }
         // (5) Turn takeaway: the flop stabber checked the turn. Fire 62-72%.
@@ -14223,9 +14242,11 @@ export class HorseLogic {
           oppCount === 1 &&
           oppLive87 &&
           bully87?.checkedTurnAfterFlopStab === true &&
-          unit87('turntakeaway') < Math.min(0.9, 0.55 + (persona87?.probeRate ?? 0.4) * 0.6)
+          unit87('turntakeaway') <
+            Math.min(0.9, (0.55 + (persona87?.probeRate ?? 0.4) * 0.6) * (personaPost87?.stab ?? 1))
         ) {
           if (tele15) noteFire('v87_turn_takeaway');
+          if (tele15 && personaPost87) noteFire('holdem_persona_postflop_stab_seen');
           planBarrel(equity);
           return this.betSize(
             planHandKey,
@@ -14266,7 +14287,7 @@ export class HorseLogic {
           !premiumLocked87 &&
           equity < 0.62 &&
           exploit.bluffMod >= 0.9 &&
-          unit87('rangecbet') < (cat <= 1 ? 0.52 : 0.58)
+          unit87('rangecbet') < (cat <= 1 ? 0.52 : 0.58) * (personaPost87?.cbet ?? 1)
         ) {
           let rangeCbetBlocked87 = stationValue;
           if (useMind && singleOpp87) {
@@ -18118,7 +18139,7 @@ export class HorseLogic {
       (tptk87 || cat >= 3) &&
       !dominated21 &&
       opponents.some((o) => !o.is_all_in && o.stack > 0) &&
-      unit87('stabxr') < 0.42
+      unit87('stabxr') < (personaPost87?.trap ?? 0.42)
     ) {
       const raiseTo87 = currentBet + (pot + toCall) * (0.8 + unit87('pumpsize') * 0.2);
       const commits87 =
