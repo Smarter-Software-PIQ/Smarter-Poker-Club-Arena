@@ -147,3 +147,11 @@ it('uses the taller overlapping rail only for nine-max tables', () => {
   rerender(<ActionPanel {...panel} maxPlayers={9} onAction={vi.fn()} />);
   expect(container.querySelector('.action-panel')?.getAttribute('data-table-capacity')).toBe('9');
 });
+
+it('offers a direct All In button in a shove-or-fold tournament even when regular raises are available', () => {
+  const action = vi.fn();
+  render(<ActionPanel {...panel} shoveOrFold onAction={action} />);
+  expect(screen.queryByLabelText('Open Raise Panel')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'All In' }));
+  expect(action).toHaveBeenCalledWith('allin', expect.any(Number));
+});
