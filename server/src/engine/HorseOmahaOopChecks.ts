@@ -38,8 +38,8 @@
  *    against a MEASURED postflop value leader.
  *  - omahaTurnBetNeedsRiverPlan (hand 59521326, no opponent read): a
  *    heads-up turn bet that leaves less than half the resulting pot behind
- *    is checked when the Horse's own fold rules would fold more than 35% of
- *    the rivers to an all-in for what is left.
+ *    is checked when the Horse's own paired-board fold would fold more than
+ *    35% of the rivers to an all-in for what is left.
  *  - omahaPairedRiverNoThinLeadVsValueLeader: river, the final board paired,
  *    less than a full house, a live opponent called the Horse's flop or turn
  *    bet; only when every live opponent is a MEASURED postflop value leader.
@@ -54,6 +54,10 @@ import type { Card, SeatPlayer } from '../types.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
 import { omahaBoardShape, omahaDrawQuality, omahaMadeClass, variantInfo } from './HorseEval.js';
 import { RANKS, SUITS } from './PokerEngine.js';
+import {
+  ploPairedBoardFoldRespectsPrice,
+  ploPairedBoardMustFold,
+} from './HorsePloPairedBoardFold.js';
 
 export const OMAHA_OOP_CHECK_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
 
@@ -242,9 +246,8 @@ export function omahaPairedTurnBarrelSpot(hero: SeatPlayer, gs: HorseGameStateV2
  * geometry: turn, heads-up, a bet (not an all-in) of `bet`, after which the
  * smaller of the two stacks is under OMAHA_TURN_PLAN_BEHIND_SHARE of the pot
  * the called bet makes. Returns the opponent, the chips left behind and that
- * pot, or null. HorseLogic then asks the Horse's own fold rules on every
- * river card and checks when they fold more than OMAHA_TURN_PLAN_FOLD_SHARE
- * of them to an all-in for what is left.
+ * pot, or null. omahaTurnBetLacksRiverPlan then asks the paired-board fold on
+ * every river card.
  */
 export const OMAHA_TURN_PLAN_BEHIND_SHARE = 0.5;
 export const OMAHA_TURN_PLAN_FOLD_SHARE = 0.35;
@@ -295,10 +298,92 @@ export function omahaUnseenRiverCards(hero: SeatPlayer, board: Card[]): Card[] {
   return out;
 }
 
+/**
+ * True when the turn bet of `bet` leaves under half the resulting pot behind
+ * (omahaTurnBetShortBehind) and, on more than OMAHA_TURN_PLAN_FOLD_SHARE of
+ * the unseen river cards, the Horse's own paired-board fold would fold to an
+ * all-in for what is left after a river check. `respectPrice` applies that
+ * fold's price exception (omahaPairedBoardFoldRespectsPrice). Exact
+ * enumeration of at most 47 cards: no Monte Carlo, no opponent read, no
+ * random number. The big-bet call folds are not asked (they read the
+ * opponent memory, which the receipt validator cannot re-run).
+ */
+export function omahaTurnBetLacksRiverPlan(
+  hero: SeatPlayer,
+  gs: HorseGameStateV2,
+  bet: number | undefined,
+  o: { respectPrice?: boolean; v86MultiStreetUnblocked?: boolean } = {}
+): boolean {
+  try {
+    const geo = omahaTurnBetShortBehind(hero, gs, bet);
+    if (geo === null) return false;
+    const board: Card[] = gs.communityCards ?? [];
+    const rivers = omahaUnseenRiverCards(hero, board);
+    if (rivers.length === 0) return false;
+    const wager = bet as number;
+    const shove = geo.behind;
+    const after = {
+      cards: hero.cards,
+      user_id: hero.user_id,
+      stack: Math.max(0, hero.stack - wager),
+      bet: 0,
+      totalInvested: (Number.isFinite(hero.totalInvested) ? (hero.totalInvested ?? 0) : 0) + wager,
+    };
+    const players = [
+      { user_id: hero.user_id, is_folded: false, is_all_in: false, stack: after.stack, bet: 0 },
+      {
+        user_id: geo.opponent.user_id,
+        is_folded: false,
+        is_all_in: geo.opponent.stack - wager - shove <= 0.005,
+        stack: Math.max(0, geo.opponent.stack - wager - shove),
+        bet: shove,
+      },
+    ];
+    const pot = geo.potAfter + shove;
+    let folds = 0;
+    for (const card of rivers) {
+      const river = [...board, card];
+      if (
+        !ploPairedBoardMustFold({
+          gameVariant: gs.gameVariant,
+          hiLo: false,
+          multiBoard: false,
+          board: river,
+          hero: after,
+          players,
+          currentBet: shove,
+          toCall: shove,
+          pot,
+          v86MultiStreetUnblocked: o.v86MultiStreetUnblocked !== false,
+        })
+      )
+        continue;
+      if (
+        o.respectPrice === true &&
+        ploPairedBoardFoldRespectsPrice({
+          gameVariant: gs.gameVariant,
+          board: river,
+          hero: after,
+          players,
+          currentBet: shove,
+          toCall: shove,
+          pot,
+        })
+      )
+        continue;
+      folds++;
+    }
+    return folds / rivers.length > OMAHA_TURN_PLAN_FOLD_SHARE;
+  } catch {
+    return false;
+  }
+}
+
 /** Any of the spots: what the worker receipt validator admits as a bet turned into a check. */
 export function omahaOopCheckSpot(hero: SeatPlayer, gs: HorseGameStateV2, bet?: number): boolean {
   return (
-    omahaTurnBetShortBehind(hero, gs, bet) !== null ||
+    // the widest form of the river plan test (no price exception, no fold exemption)
+    omahaTurnBetLacksRiverPlan(hero, gs, bet, { v86MultiStreetUnblocked: false }) ||
     omahaBareOverpairOopFlopSpot(hero, gs) ||
     omahaOverpairOopTurnBarrelSpot(hero, gs) ||
     omahaPairedTurnBarrelSpot(hero, gs) ||

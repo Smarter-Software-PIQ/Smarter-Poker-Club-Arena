@@ -27,7 +27,7 @@ A fourth option, `omahaPairedTurnNoBarrelWithoutBoatVsValueLeader` (off by defau
 Two more options from the same hand, both off by default:
 
 - `omahaPairedBoardFoldRespectsPrice`: in PLO4/PLO5 cash the 2026-10-25 paired-board fold ("IT'S A FOLD 100% OF THE TIME", `2026-10-25-plo5-plo6-no-full-house-folds-on-a-paired-board.md`) does not override the reference decision when the call price is at most 0.25 and the Horse holds a straight or a flush, or the call is for the rest of an effective stack at least 60% in. Receipt `omaha_paired_board_fold_price_respected`. It narrows a binding owner rule and needs his ruling before it is switched on.
-- `omahaTurnBetNeedsRiverPlan`: a heads-up turn bet that would leave less than half the resulting pot behind becomes a check when the Horse's own fold rules would fold more than 35% of the rivers to an all-in for what is left. Receipt `omaha_turn_bet_without_river_plan_checked`.
+- `omahaTurnBetNeedsRiverPlan`: a heads-up turn bet that would leave less than half the resulting pot behind becomes a check when the Horse's own paired-board fold would fold more than 35% of the rivers to an all-in for what is left (the big-bet call folds are not asked). Receipt `omaha_turn_bet_without_river_plan_checked`.
 
 ## Evaluation
 

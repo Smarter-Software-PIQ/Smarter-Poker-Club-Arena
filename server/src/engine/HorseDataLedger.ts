@@ -965,7 +965,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'omahaTurnBetNeedsRiverPlan',
-    'Lane owner 2026-11-15 (hand 59521326): PLO4/PLO5 cash heads-up, a turn bet that would leave less than half of the resulting pot behind becomes a check when on more than 35% of the river cards the Horse own fold rules (paired-board fold, big-bet call folds) would fold to an all-in for what is left; exact enumeration, no opponent read (HorseOmahaOopChecks.ts, HorseLogic omahaTurnBetLacksRiverPlan). Default OFF (read === true) until its declared evaluation passes',
+    'Lane owner 2026-11-15 (hand 59521326): PLO4/PLO5 cash heads-up, a turn bet that would leave less than half of the resulting pot behind becomes a check when on more than 35% of the river cards the Horse own paired-board fold (with its price exception when that option is on) would fold to an all-in for what is left; exact enumeration, no opponent read; the big-bet call folds are not asked (HorseOmahaOopChecks.omahaTurnBetLacksRiverPlan). Default OFF (read === true) until its declared evaluation passes',
     'V94'
   ),
   flag(
@@ -3887,7 +3887,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'omaha_turn_bet_without_river_plan_checked',
     'HorseLogic wager_rules (HorseOmahaOopChecks, omahaTurnBetNeedsRiverPlan)',
-    'PLO4/PLO5 cash heads-up turn bet that would leave less than half the resulting pot behind, with a hand the Horse own rules fold on more than 35% of rivers to an all-in for the rest: turned into a check',
+    'PLO4/PLO5 cash heads-up turn bet that would leave less than half the resulting pot behind, with a hand the Horse own paired-board fold folds on more than 35% of rivers to an all-in for the rest: turned into a check',
     'V94'
   ),
   receipt(

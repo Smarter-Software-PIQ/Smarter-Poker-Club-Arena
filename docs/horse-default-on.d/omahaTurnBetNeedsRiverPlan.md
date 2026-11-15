@@ -8,7 +8,7 @@ Status: MET
 
 In hand 59521326 a Horse bet 373 into 669 on the turn, leaving 524 behind a pot of 1,415, with a hand its own paired-board fold then folded on the river: it put 700 in and folded. A turn bet that leaves less than half the resulting pot behind is the stack decision.
 
-This option (`omahaOopCheckRules` and `omahaTurnBetLacksRiverPlan` in `HorseLogic.ts`; geometry `omahaTurnBetShortBehind` in `server/src/engine/HorseOmahaOopChecks.ts`) acts on a heads-up turn bet (not an all-in) after which the smaller stack is under 0.5 of the pot the called bet makes. It enumerates every unseen river card and asks the Horse's own fold rules whether they would fold to an all-in for what is left: the paired-board fold (with its price exception when that option is on) and, where that does not fold, the big-bet call folds (`omahaBigBetCallFold`). When more than 35% of the rivers fold, the bet becomes a check.
+This option (`omahaOopCheckRules` in `HorseLogic.ts`; `omahaTurnBetShortBehind` and `omahaTurnBetLacksRiverPlan` in `server/src/engine/HorseOmahaOopChecks.ts`) acts on a heads-up turn bet (not an all-in) after which the smaller stack is under 0.5 of the pot the called bet makes. It enumerates every unseen river card and asks the Horse's own paired-board fold (with its price exception when that option is on) whether it would fold to an all-in for what is left. When more than 35% of the rivers fold, the bet becomes a check.
 
 ## Input fidelity
 
@@ -52,6 +52,7 @@ Status: MET
 
 - The 0.5 and 35% thresholds are stated, not fitted.
 - The river question is a shove for exactly what is left after a river check; other river lines are not asked.
-- The receipt validator re-runs only the geometry (turn, heads-up, under half the pot behind), not the river enumeration.
+- The big-bet call folds (`omahaBigBetCallFold`) are not asked: they read the opponent memory, which the receipt validator cannot re-run, so a hand those rules would fold on the river (a non-nut straight or flush on an unpaired board) is not caught.
+- The receipt validator re-runs the same river test in its widest form.
 - With `omahaPairedBoardFoldRespectsPrice` on, a straight on a paired turn has a river plan at such prices and the bet stands.
 - Live behaviour is unverified: the option is off.

@@ -55,9 +55,7 @@ import {
   omahaOverpairOopTurnBarrelSpot,
   omahaPairedRiverThinLeadSpot,
   omahaPairedTurnBarrelSpot,
-  omahaTurnBetShortBehind,
-  omahaUnseenRiverCards,
-  OMAHA_TURN_PLAN_FOLD_SHARE,
+  omahaTurnBetLacksRiverPlan,
 } from './HorseOmahaOopChecks.js';
 import {
   omahaReraisedPostflopCell,
@@ -2873,10 +2871,12 @@ export interface HorseDecideOpts {
   omahaPairedBoardFoldRespectsPrice?: boolean;
   /** Lane owner 2026-11-15 (hand 59521326): PLO4/PLO5 cash, heads-up. A turn
    * bet that would leave less than half of the resulting pot behind becomes
-   * a check when, on more than 35% of the river cards, the Horse's own fold
-   * rules (the paired-board fold and the big-bet call folds) would fold to an
-   * all-in for what is left (HorseOmahaOopChecks.omahaTurnBetShortBehind,
-   * omahaTurnBetLacksRiverPlan). No opponent read, no Monte Carlo. Default
+   * a check when, on more than 35% of the river cards, the Horse's own
+   * paired-board fold (with its price exception when that option is on)
+   * would fold to an all-in for what is left
+   * (HorseOmahaOopChecks.omahaTurnBetLacksRiverPlan). The big-bet call folds
+   * are not asked: they read the opponent memory, which the receipt validator
+   * cannot re-run. No opponent read, no Monte Carlo. Default
    * OFF (opt-in, read `=== true`); league cards plo4/plo5
    * _omaha_turn_bet_needs_river_plan. */
   omahaTurnBetNeedsRiverPlan?: boolean;
@@ -6354,137 +6354,6 @@ function pairedBoardRiverCheck(
 }
 
 /**
- * omahaTurnBetNeedsRiverPlan: true when a heads-up turn bet of `bet` leaves
- * less than half the resulting pot behind and, on more than
- * OMAHA_TURN_PLAN_FOLD_SHARE of the unseen river cards, the Horse's own fold
- * rules would fold to an all-in for what is left: the paired-board fold
- * (with its price exception when that option is on) and, where that one does
- * not fold, the big-bet call folds (omahaBigBetCallFold) asked on the river
- * that bet and shove would make. Exact enumeration of at most 47 cards; no
- * Monte Carlo, no telemetry, no random number.
- */
-function omahaTurnBetLacksRiverPlan(
-  bet: number | undefined,
-  player: SeatPlayer,
-  gs: HorseGameStateV2,
-  opts: HorseDecideOpts
-): boolean {
-  const geo = omahaTurnBetShortBehind(player, gs, bet);
-  if (geo === null) return false;
-  const board = gs.communityCards ?? [];
-  const rivers = omahaUnseenRiverCards(player, board);
-  if (rivers.length === 0) return false;
-  const wager = bet as number;
-  const shove = geo.behind;
-  const invested =
-    (Number.isFinite(player.totalInvested) ? (player.totalInvested ?? 0) : 0) + wager;
-  const hero: SeatPlayer = {
-    ...player,
-    stack: Math.max(0, player.stack - wager),
-    bet: 0,
-    totalInvested: invested,
-  };
-  const opp: SeatPlayer = {
-    ...geo.opponent,
-    stack: Math.max(0, geo.opponent.stack - wager - shove),
-    bet: shove,
-    totalInvested:
-      (Number.isFinite(geo.opponent.totalInvested) ? (geo.opponent.totalInvested ?? 0) : 0) +
-      wager +
-      shove,
-    is_all_in: geo.opponent.stack - wager - shove <= 0.005,
-  };
-  const players = (gs.players ?? []).map((p) =>
-    p.seat === player.seat ? hero : p.seat === opp.seat ? opp : p
-  );
-  const t = Date.now();
-  const history = [
-    ...(gs.actionHistory ?? []),
-    {
-      stage: 'turn',
-      seat: player.seat,
-      userId: player.user_id,
-      action: 'bet',
-      amount: wager,
-      timestamp: t,
-    },
-    {
-      stage: 'turn',
-      seat: opp.seat,
-      userId: opp.user_id,
-      action: 'call',
-      amount: wager,
-      timestamp: t,
-    },
-    {
-      stage: 'river',
-      seat: player.seat,
-      userId: player.user_id,
-      action: 'check',
-      amount: 0,
-      timestamp: t,
-    },
-    {
-      stage: 'river',
-      seat: opp.seat,
-      userId: opp.user_id,
-      action: opp.is_all_in ? 'all_in' : 'bet',
-      amount: shove,
-      isFullRaise: true,
-      timestamp: t,
-    },
-  ] as ActionRecord[];
-  const quiet: HorseDecideOpts = { ...opts, telemetry: false };
-  const call: HorseDecision = { action: 'call', amount: shove, thinkTime: 0 };
-  const respectPrice = opts.omahaPairedBoardFoldRespectsPrice === true;
-  let folds = 0;
-  for (const card of rivers) {
-    const river = [...board, card];
-    const riverGs = {
-      ...gs,
-      players,
-      communityCards: river,
-      stage: 'river',
-      pot: geo.potAfter + shove,
-      currentBet: shove,
-      toCall: shove,
-      minRaiseTo: null,
-      maxRaiseTo: null,
-      legalActions: ['fold', 'call'],
-      actionHistory: history,
-    } as unknown as HorseGameStateV2;
-    const pairedFold =
-      opts.ploPairedBoardFold !== false &&
-      ploPairedBoardMustFold({
-        gameVariant: gs.gameVariant,
-        hiLo: false,
-        multiBoard: false,
-        board: river,
-        hero,
-        players,
-        currentBet: shove,
-        toCall: shove,
-        pot: geo.potAfter + shove,
-        v86MultiStreetUnblocked: opts.v86MultiStreetUnblocked !== false,
-      }) &&
-      !(
-        respectPrice &&
-        ploPairedBoardFoldRespectsPrice({
-          gameVariant: gs.gameVariant,
-          board: river,
-          hero,
-          players,
-          currentBet: shove,
-          toCall: shove,
-          pot: geo.potAfter + shove,
-        })
-      );
-    if (pairedFold || omahaBigBetCallFold(call, hero, riverGs, quiet).action === 'fold') folds++;
-  }
-  return folds / rivers.length > OMAHA_TURN_PLAN_FOLD_SHARE;
-}
-
-/**
  * Owner 2026-11-15 (hands 59517323 and 59521326), HorseOmahaOopChecks.ts:
  * default-off options that turn a bet facing no wager into a check. The flop rule
  * (omahaBareOverpairOopFlopCheck) reads no opponent; the turn and river rules
@@ -6528,7 +6397,14 @@ function omahaOopCheckRules(
     const riverSpot = stage === 'river' && riverOn && omahaPairedRiverThinLeadSpot(player, gs);
     const riverPlan = (): HorseDecision => {
       if (!planOn || stage !== 'turn' || decision.action !== 'bet') return decision;
-      if (!omahaTurnBetLacksRiverPlan(decision.amount, player, gs, opts)) return decision;
+      if (
+        opts.ploPairedBoardFold === false ||
+        !omahaTurnBetLacksRiverPlan(player, gs, decision.amount, {
+          respectPrice: opts.omahaPairedBoardFoldRespectsPrice === true,
+          v86MultiStreetUnblocked: opts.v86MultiStreetUnblocked !== false,
+        })
+      )
+        return decision;
       if (tele) noteFire('omaha_turn_bet_without_river_plan_checked');
       return checked();
     };
