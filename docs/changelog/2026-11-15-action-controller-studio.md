@@ -6,4 +6,4 @@ Table Studio now offers Arena Blue plus five casino-inspired review choices: Cas
 
 Preferences reuse the existing account-scoped, revision-checked user_page_preferences owner, with its cache, ordered writes, pending intent recovery and cross-component updates. No schema or engine change is needed. Painted assets use blank faces with fitted live text; optimized WebP derivatives total about a quarter megabyte.
 
-Validation and publication receipts belong to the task checkpoint on SSD2. The owner explicitly requires color review before publication and the global replacement. Red is reserved for All In; Fold uses neutral machined steel. This change must not merge to the publishing branch until that approval is received. Development previews are not production evidence.
+The owner approved all six displayed palettes and authorized publication on November 15. Validation and publication receipts belong to the task checkpoint on SSD2. Red is reserved for All In; Fold uses neutral machined steel. Development previews are not production evidence; completion requires the normal protected merge, client publication and live verification.
