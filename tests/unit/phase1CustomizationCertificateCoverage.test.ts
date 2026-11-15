@@ -354,10 +354,25 @@ describe('the Phase 1 seal is owed exactly when its own condition holds', () => 
     const selected = cases.filter((title) => pattern.test(title));
     const contract = contracts.find((c) => c.report === 'gameplay-customization-runtime.json')!;
     expect(selected).toEqual([`production routed gameplay customization ${contract.title}`]);
-    // The case left out here is certified by its own job.
-    expect(WORKFLOW).toContain('PLAYWRIGHT_JSON_OUTPUT_NAME: e2e-report/hero-celebration.json');
-    expect(readFileSync(join(ROOT, 'playwright.hero-celebration.config.ts'), 'utf8')).toMatch(
-      /published hero showdown celebrations|only an awarded hero celebrates/
+    // The other case still runs on every publication: its own suite and
+    // report, after the bracket, selecting only that case, and its failure
+    // still fails the sweep.
+    const other = sweep
+      .split('\n')
+      .find((text) => text.trim().startsWith('run_suite gameplay-hero-celebration.json'));
+    const otherPattern = new RegExp(/--grep=(\S+)/.exec(other ?? '')?.[1] ?? '$^');
+    expect(cases.filter((title) => otherPattern.test(title))).toEqual(
+      cases.filter((title) => !pattern.test(title))
+    );
+    expect(cases.filter((title) => !pattern.test(title))).toHaveLength(1);
+    expect(sweep.indexOf('run_suite gameplay-hero-celebration.json')).toBeGreaterThan(
+      sweep.indexOf('read_release release-bracket/phase1-after.json')
+    );
+    expect(sweep).toContain(
+      'gameplay_hero_celebration_rc=$?; [ $gameplay_hero_celebration_rc -ne 0 ] && rc=$gameplay_hero_celebration_rc'
+    );
+    expect(workflowStep('Did the suite actually verify production?')).toContain(
+      'e2e-report/gameplay-hero-celebration.json'
     );
   });
 
