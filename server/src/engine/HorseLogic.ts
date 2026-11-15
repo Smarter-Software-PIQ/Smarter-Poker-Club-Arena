@@ -2664,8 +2664,9 @@ export interface HorseDecideOpts {
    * turn or river card that made the straight or flush possible when a
    * player still acts behind, and does not bet the river into a player who
    * bet or raised a street on which it was already possible
-   * (HorseOmahaMadeHandDefense.ts). Default on by the owner's order of
-   * 2026-11-15 00:32 (unmeasured, declared); false switches it off. */
+   * (HorseOmahaMadeHandDefense.ts). Default OFF (opt-in): its declared
+   * evaluation FAILED (eval3, 2026-11-15): Horses vs a loose-aggressive
+   * value seat PLO4 -23.73 bb/100 (z -2.89), PLO5 -16.17 (z -2.42). */
   omahaBeatenMadeHandDefense?: boolean;
   /** Dan 2026-11-14: the PLO4/PLO5 big-bet call discipline also folds a
    * bluff catcher that is raised on the turn or river, or that faces a
@@ -2711,8 +2712,9 @@ export interface HorseDecideOpts {
    * flush-possible board folds unless the bettor is a measured postflop
    * over-bluffer; on the flop and turn one pair with fewer than four
    * nut-class outs does not raise or call a stack-sized wager
-   * (HorseOmahaOnePair.ts). Default on by the owner's order of 2026-11-15
-   * 00:37 to 00:56 (unmeasured, declared); false switches it off. */
+   * (HorseOmahaOnePair.ts). Default OFF (opt-in): its declared evaluation
+   * FAILED (2026-11-15): Horse-only PLO4 -0.77 bb/100 (z -2.30); the
+   * development human field leaned positive (+0.79, z +1.89). */
   omahaOnePairDiscipline?: boolean;
   /** A token-priced committed call is not barred by stack-off premiums
    * (HorseTokenCallPrice.ts, PLO6-AUDIT-010). Default on; false only for
@@ -5909,7 +5911,7 @@ function omahaMadeHandDefenseRules(
   // never does. Every other decision in that spot follows the rules.
   if (nearNutChosenRaise && decision.action === 'raise') return decision;
   const tele = telemetryOn(opts);
-  const defenseOn = opts.omahaBeatenMadeHandDefense !== false;
+  const defenseOn = opts.omahaBeatenMadeHandDefense === true;
   const flat = omahaBeatenNoRaise(decision, player, gs, defenseOn, reference);
   if (tele && flat.changed === 'flatted') noteFire('omaha_turn_beaten_raise_flatted');
   if (tele && flat.changed === 'fold_restored') noteFire('omaha_turn_beaten_raise_fold_restored');
@@ -7897,7 +7899,7 @@ export class HorseLogic {
       // (the checked-to pricing below included); a declared river bluff, or
       // the river bluff check-raise, keeps its wager.
       const onePair = (d: HorseDecision): HorseDecision => {
-        const r = omahaOnePairDiscipline(d, player, gs, opts.omahaOnePairDiscipline !== false, {
+        const r = omahaOnePairDiscipline(d, player, gs, opts.omahaOnePairDiscipline === true, {
           declaredBluff: riverBluffDeclared || checkRaised !== floored,
           bettorOverBluffs: (seat) => {
             const bettor = gs.players.find((p) => p.seat === seat);

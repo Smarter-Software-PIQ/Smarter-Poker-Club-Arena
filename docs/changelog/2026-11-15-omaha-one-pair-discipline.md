@@ -19,3 +19,7 @@ Ordered into the 4 AM release switched on. Read `!== false`; the league card is 
 ## Dry boards exempt (owner, 2026-11-15 01:32 America/Chicago)
 
 "THIS NEEDS TO BE THE CASE ON BOARDS THAT ALREADY HAVE STRAIGHTS WHERE ONE PAIR HANDS ARE DRAWING DEAD, OR ON VERY WET COORDINATED BOARDS. SOME DRY BOARDS ARE THE EXCEPTION THOUGH..." The river value-bet cell and the flop/turn stack-off cell now apply only where a straight or a flush is possible on the board (`omahaBoardThreat`); the river call cell already required it. On a dry board the Horse's line is unchanged.
+
+## Off after its evaluation (2026-11-15)
+
+The declared evaluation (source 9d9ad486; 200 sessions x 300 pairs per cell) failed its frozen rule on the Horse-only PLO4 cell (-0.77 bb/100, SE 0.34, z -2.30); the development human field leaned positive (pooled +0.79, SE 0.41). `omahaOnePairDiscipline` is read `=== true` again with plo4/plo5 league cards. Where this section and an earlier one disagree, this section is the head's state.

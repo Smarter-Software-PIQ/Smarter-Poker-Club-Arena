@@ -1,5 +1,5 @@
 /**
- * OMAHA ONE-PAIR DISCIPLINE (option omahaOnePairDiscipline, default on by owner order 2026-11-15).
+ * OMAHA ONE-PAIR DISCIPLINE (option omahaOnePairDiscipline, default OFF after its evaluation failed).
  *
  * Owner complaints of 2026-11-14 (PLO5 cash): hands 59407629 and 59430325,
  * a river value bet with one pair; hand 59431232, a river check-call of a
@@ -494,7 +494,7 @@ describe('with the option off nothing changes', () => {
   // equals the one recorded on the base commit 033173b4 (before this change
   // existed; the engine files reverted, this test file run against them).
   const BASE_DIGEST = 'b559b1e049a15104f3d174378c7d8200c9a7b0f638f27fb62b1d7c21ce2a7125';
-  it('absent and true are identical (on by default); every new rule false equals the base commit, on the sample', () => {
+  it('absent and false are identical (off by default); every new rule false equals the base commit, on the sample', () => {
     const nodes: { name: string; s: ReturnType<typeof stateAt> }[] = [];
     for (const fx of [FA, F1, FB])
       for (const a of fx.actions)
@@ -523,7 +523,7 @@ describe('with the option off nothing changes', () => {
           omahaNutClassValueSize: false,
           omahaReraisedPotDiscipline: false,
         });
-        expect(run({})).toBe(run({ omahaOnePairDiscipline: true }));
+        expect(run({})).toBe(run({ omahaOnePairDiscipline: false }));
         lines.push(`${name}:${seed}:${base}`);
       }
     expect(lines.length).toBeGreaterThan(80);

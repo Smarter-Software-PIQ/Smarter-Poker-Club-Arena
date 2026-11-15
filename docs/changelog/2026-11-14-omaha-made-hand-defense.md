@@ -63,3 +63,7 @@ PLO6 pressure evidence (`HorseV53PressureBehavior`): at 110 hands the PLO6 3-bet
 ## Owner's order, 2026-11-15 00:32 America/Chicago
 
 Told that the turn made-hand rule and the nut-class pot size would ship switched off as unmeasured, the owner ordered them into this release switched on. `omahaBeatenMadeHandDefense` and `omahaNutClassValueSize` are therefore read `!== false` (on); their evidence files mark Value and Continuation (and Reach for the size rule) NOT MET with the owner's authority, and say so. `omahaBluffCatcherRaiseFold` stays off (owner 2026-11-14 23:10: no blanket fold). Their league cards are removed with the default; the declared paired evaluation runs outside the league and a failing result switches the option off again. Where this section and an earlier one disagree about on and off, this section is the head's state.
+
+## Off after its evaluation (2026-11-15)
+
+`omahaBeatenMadeHandDefense` failed its declared evaluation (eval3; source 9d9ad486; 200 sessions x 300 pairs per cell): Horses against a loose-aggressive value seat PLO4 -23.73 bb/100 (SE 8.21, z -2.89), PLO5 -16.17 (SE 6.69, z -2.42); development human field pooled -0.72 (SE 1.27). It is read `=== true` again with plo4/plo5 league cards. `omahaRiverNutRaiseOnly`, `omahaTurnSetPound` and `omahaNutClassValueSize` are unchanged. Where this section and an earlier one disagree about on and off, this section is the head's state.

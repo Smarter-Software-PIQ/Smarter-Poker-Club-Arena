@@ -1,7 +1,7 @@
 /**
  * OMAHA ONE-PAIR DISCIPLINE (Dan 2026-11-14, PLO5 cash hands 59407629,
  * 59430325, 59431232, 59417700 and 59426444). Option omahaOnePairDiscipline,
- * default on by owner order 2026-11-15 00:56: explicit false switches it off.
+ * default OFF after its evaluation failed (2026-11-15): only an explicit true switches it on.
  *
  * The complaints: the Horse bets the river with one pair (a value bet only
  * better hands call); it check-calls a pot-sized river bet after the flush

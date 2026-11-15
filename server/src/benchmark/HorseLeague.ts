@@ -2039,6 +2039,27 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaReraisedPotStackOffRealistic: true },
     b: {},
   })),
+  // 2026-11-15 OMAHA MADE-HAND DEFENCE (omahaBeatenMadeHandDefense) and
+  // ONE-PAIR DISCIPLINE (omahaOnePairDiscipline), default OFF after their
+  // declared evaluations failed: a switches the rule on, b is today's brain.
+  ...(['plo4', 'plo5'] as const).flatMap((variant) => [
+    {
+      name: `${variant}_omaha_beaten_made_hand_defense`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { omahaBeatenMadeHandDefense: true },
+      b: {},
+    },
+    {
+      name: `${variant}_omaha_one_pair_discipline`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { omahaOnePairDiscipline: true },
+      b: {},
+    },
+  ]),
   // 2026-11-15 OMAHA RE-RAISED POT DISCIPLINE, preflop cell
   // (omahaReraisedPotDiscipline, default OFF after its evaluation failed):
   // a switches it on, b is today's brain.
