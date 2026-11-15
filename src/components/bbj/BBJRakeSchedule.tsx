@@ -1,3 +1,4 @@
+import './BBJBasicPanel.css';
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { getRakeConfig } from '../../config/RakeConfig';
