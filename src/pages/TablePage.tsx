@@ -32937,7 +32937,8 @@ function LiveTablePage({
               /* No seat was bought: there is no room for this tab to follow. */
               if (anchorLightningClusterId) clearLightningEntryIntent(tableId);
               const message =
-                cashBuyInRefusalText(outcome.error) ?? 'The Server Refused This Buy-In.';
+                cashBuyInRefusalText(outcome.error, { leftWith: cashoutMinBuyIn }) ??
+                'The Server Refused This Buy-In.';
               if (
                 /^SEAT_RESERVED:/.test(
                   String(
