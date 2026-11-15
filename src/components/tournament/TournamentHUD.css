@@ -193,7 +193,8 @@
 
 /* Keep grouped chip totals legible alongside the short Level, Left and Paid values. */
 .tournament-dock__seg--chips {
-  flex-grow: 1.6;
+  flex: 0 1 auto;
+  max-width: 26%;
 }
 
 .tournament-dock__seg--wide {
