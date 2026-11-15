@@ -112,8 +112,11 @@ try:
         "('pnl_boundary', 'fade0000-0000-0000-0000-000000000001', '2026-11-30 08:00+00', '2026-11-30 08:00+00', "
         "'{\"status\":\"ready\"}');")
     require(q("SELECT count(*) FROM accounting_close_certificates WHERE period_start = '2026-11-30 08:00+00'") == "1"
-            and q("SELECT count(*) FROM ca_union_pnl_boundary_capture_failures WHERE boundary = '2026-11-30 08:00+00'") == "1",
-            "a copy that raises is recorded and the certificate still commits")
+            and q("SELECT count(*) FROM ca_union_pnl_boundary_capture_failures WHERE boundary = '2026-11-30 08:00+00' "
+                  "AND value = '{\"status\":\"ready\"}' AND certified_at IS NOT NULL") == "1",
+            "a copy that raises is recorded with its value and the certificate still commits")
+    run("DELETE FROM ca_union_pnl_boundary_capture_failures;", expect_fail="append-only")
+    run("SET session_replication_role = replica; DELETE FROM ca_union_pnl_boundary_capture;", expect_fail="permission denied")
 
     for role in ("authenticated", "service_role"):
         run(f"SET ROLE {role}; SELECT count(*) FROM public.ca_union_pnl_boundary_capture;", expect_fail="permission denied")

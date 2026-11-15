@@ -42,20 +42,36 @@
 --   3. trg_ca_union_pnl_boundary_capture copies each later 'ready'
 --      pnl_boundary certificate in the statement that writes it. It never
 --      refuses the certificate: a copy that raises is recorded in
---      ca_union_pnl_boundary_capture_failures with the certificate key and
---      surfaced, and the certificate stands.
+--      ca_union_pnl_boundary_capture_failures with the certificate's key,
+--      certified_at and value (so the evidence outlives the certificate), and
+--      the certificate stands.
+--
+-- WHICH VERSION AN INVOICE USED. Certificates are recomputed and recertified
+-- after invoices are issued (measured: every held certificate was certified
+-- after at least one invoice that reads its boundary). The version an issued
+-- invoice used is the latest version certified at or before that invoice's
+-- created_at; when no kept version qualifies, that side of the boundary is
+-- not invoice-exact and a consumer must say so, never substitute a later
+-- version. value keeps every key byte for byte, including
+-- _original_inventory_generation (inventory_basis_cache_read strips it), so
+-- identical holdings certified under two generations are two rows; consumers
+-- read value->'holdings'.
 --
 -- A boundary absent from this table is a boundary nobody can account for;
 -- the Club Data reader reports a week edge whose boundary is not here as
 -- incomplete rather than placing its deferred entries anywhere.
 --
 -- Lock: CREATE TRIGGER takes SHARE ROW EXCLUSIVE on
--- accounting_close_certificates, which only the weekly close and the
--- 04:00/04:05 Chicago maintenance job write (tens of milliseconds, measured
--- by the review); one attempt with a 1 s lock timeout, never a loop. No
--- foreign key to any table.
+-- accounting_close_certificates for about a second. Writers (measured by the
+-- review, 2026-11-15): fn_accounting_close_certify through pg_cron job 272
+-- every five minutes (its hourly :40 run lasts 34-36 s), and the DELETEs of
+-- smarter_private.admit_cash_funding_contracts, admit_cash_atomic_contracts,
+-- admit_own_agent_source and prepare_own_agent_interpretation (none in the
+-- last ten days). One attempt with a 1 s lock timeout, never a loop: a
+-- refusal rolls everything back cleanly. Merge outside :38-:42 and the
+-- :50-:03 UTC break. No foreign key to any table.
 --
--- @live-proof: (SELECT count(*) FROM public.ca_union_pnl_boundary_capture) >= 6
+-- @live-proof: NOT EXISTS (SELECT 1 FROM public.accounting_close_certificates c WHERE c.kind = 'pnl_boundary' AND c.period_start = c.period_end AND c.value->>'status' = 'ready' AND NOT EXISTS (SELECT 1 FROM public.ca_union_pnl_boundary_capture k WHERE (k.union_id, k.boundary, k.value_md5) = (c.union_id, c.period_start, md5(c.value::text))))
 -- @live-proof: EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.accounting_close_certificates'::regclass AND tgname = 'trg_ca_union_pnl_boundary_capture' AND tgenabled = 'O')
 
 BEGIN;
@@ -84,17 +100,19 @@ CREATE TABLE public.ca_union_pnl_boundary_capture (
   PRIMARY KEY (union_id, boundary, value_md5)
 );
 COMMENT ON TABLE public.ca_union_pnl_boundary_capture IS
-  'Append-only copy of every ready pnl_boundary accounting close certificate (deferred tournament entries and other holdings at a union week boundary), kept after fn_accounting_close_certify retires the certificate. A recertified boundary is a new row; the latest per (union, boundary) is the one with the greatest certified_at. 20261115015159.';
+  'Append-only copy of every ready pnl_boundary accounting close certificate (deferred tournament entries and other holdings at a union week boundary), kept after fn_accounting_close_certify retires the certificate. A recertified boundary is a new row. The version an issued invoice used is the latest one certified at or before the invoice''s created_at; when none qualifies that side is not invoice-exact. value is byte-exact including _original_inventory_generation; read value->''holdings''. 20261115015159.';
 
 CREATE TABLE public.ca_union_pnl_boundary_capture_failures (
-  id          bigserial   PRIMARY KEY,
-  union_id    uuid,
-  boundary    timestamptz,
-  detail      text        NOT NULL,
-  failed_at   timestamptz NOT NULL DEFAULT clock_timestamp()
+  id           bigserial   PRIMARY KEY,
+  union_id     uuid,
+  boundary     timestamptz,
+  certified_at timestamptz,
+  value        jsonb,
+  detail       text        NOT NULL,
+  failed_at    timestamptz NOT NULL DEFAULT clock_timestamp()
 );
 COMMENT ON TABLE public.ca_union_pnl_boundary_capture_failures IS
-  'A pnl_boundary certificate whose copy raised. The certificate itself committed; the boundary is reported incomplete by Club Data until its cause is fixed. Any row here is a defect to fix at its cause.';
+  'A pnl_boundary certificate whose copy raised, with its certified_at and value so the evidence outlives the certificate. The certificate itself committed. Append-only. Any row here is a defect (P0) to fix at its cause.';
 
 ALTER TABLE public.ca_union_pnl_boundary_capture ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ca_union_pnl_boundary_capture_failures ENABLE ROW LEVEL SECURITY;
@@ -116,6 +134,17 @@ CREATE TRIGGER ca_union_pnl_boundary_capture_immutable
 CREATE TRIGGER ca_union_pnl_boundary_capture_no_truncate
   BEFORE TRUNCATE ON public.ca_union_pnl_boundary_capture
   FOR EACH STATEMENT EXECUTE FUNCTION public.fn_ca_union_pnl_boundary_capture_immutable();
+CREATE TRIGGER ca_union_pnl_boundary_capture_failures_immutable
+  BEFORE UPDATE OR DELETE ON public.ca_union_pnl_boundary_capture_failures
+  FOR EACH ROW EXECUTE FUNCTION public.fn_ca_union_pnl_boundary_capture_immutable();
+CREATE TRIGGER ca_union_pnl_boundary_capture_failures_no_truncate
+  BEFORE TRUNCATE ON public.ca_union_pnl_boundary_capture_failures
+  FOR EACH STATEMENT EXECUTE FUNCTION public.fn_ca_union_pnl_boundary_capture_immutable();
+-- Evidence holds under session_replication_role = replica too.
+ALTER TABLE public.ca_union_pnl_boundary_capture ENABLE ALWAYS TRIGGER ca_union_pnl_boundary_capture_immutable;
+ALTER TABLE public.ca_union_pnl_boundary_capture ENABLE ALWAYS TRIGGER ca_union_pnl_boundary_capture_no_truncate;
+ALTER TABLE public.ca_union_pnl_boundary_capture_failures ENABLE ALWAYS TRIGGER ca_union_pnl_boundary_capture_failures_immutable;
+ALTER TABLE public.ca_union_pnl_boundary_capture_failures ENABLE ALWAYS TRIGGER ca_union_pnl_boundary_capture_failures_no_truncate;
 
 -- The copy of each later ready boundary certificate, in the statement that
 -- writes it. Never refuses the certificate.
@@ -130,8 +159,8 @@ BEGIN
       VALUES (NEW.union_id, NEW.period_start, NEW.certified_at, NEW.value, md5(NEW.value::text))
       ON CONFLICT (union_id, boundary, value_md5) DO NOTHING;
     EXCEPTION WHEN OTHERS THEN
-      INSERT INTO public.ca_union_pnl_boundary_capture_failures (union_id, boundary, detail)
-      VALUES (NEW.union_id, NEW.period_start, SQLSTATE || ' ' || SQLERRM);
+      INSERT INTO public.ca_union_pnl_boundary_capture_failures (union_id, boundary, certified_at, value, detail)
+      VALUES (NEW.union_id, NEW.period_start, NEW.certified_at, NEW.value, SQLSTATE || ' ' || SQLERRM);
       RAISE WARNING 'pnl boundary capture failed for % %: % %', NEW.union_id, NEW.period_start, SQLSTATE, SQLERRM;
     END;
   END IF;
