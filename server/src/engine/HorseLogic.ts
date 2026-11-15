@@ -327,9 +327,14 @@ import {
 } from './HorseTournamentPreflop.js';
 import {
   bettingStructureFor,
+  fixedLimitBetSize,
   fixedLimitStreetBounds,
   potLimitRaiseTo,
 } from './BettingStructure.js';
+import {
+  fixedLimitCallRequiredEquity,
+  fixedLimitRemainingAction,
+} from './HorseFixedLimitCallPrice.js';
 import { omahaTournamentPressure } from './HorseOmahaTournamentPressure.js';
 import { reportError } from '../services/errorReporter.js';
 import {
@@ -2991,6 +2996,13 @@ export interface HorseDecideOpts {
    *  min-bets every street is not read as a maniac whose real bets are then
    *  called down. Default on; false ablates it. */
   probeAwareAggression?: boolean;
+  /** FIXED-LIMIT CALL IS NOT A COMMITMENT (2026-11-14, Fixed-Limit lane):
+   *  a fixed-limit call is never priced in the committed branch (no
+   *  stack-to-pot or invested-share term, no V20 multiway commit bar); it is
+   *  priced on the chips to call plus the expected further wagers of the
+   *  street while a player left to act can still raise
+   *  (HorseFixedLimitCallPrice.ts). Read only as === true: default OFF. */
+  fixedLimitCallIsNotACommitment?: boolean;
   /** Hi-lo river bluffs with a low possible (2026-11-07,
    *  HorseRiverBluffRange.ts): the nut low with no high bets the freeroll;
    *  air bluffs the whole pot only when the opponent is unlikely to hold a
@@ -15046,6 +15058,40 @@ export class HorseLogic {
     // opposite of the layer's stated intent. (gs.pot already includes the
     // outstanding bet; `pot` here is that minus any uncallable excess.)
     const potOdds = toCall / ((pot + toCall) * (1 - (callDeductionFraction ?? rakeMarg)));
+    // FIXED-LIMIT CALL PRICE (2026-11-14, opt-in fixedLimitCallIsNotACommitment):
+    // a fixed-limit call costs the chips to call now plus the expected further
+    // wagers of this street (a raise by a player left to act, the street not
+    // capped). The excess over the bare raked price is a shade on the equity
+    // the V38 verdicts are handed, as V61/V65/V66 shades are. A closing call
+    // (nobody behind, street capped, caller all in) carries no shade.
+    const flCallPrice =
+      opts.fixedLimitCallIsNotACommitment === true && vi.isFixedLimit && toCall > 0
+        ? fixedLimitCallRequiredEquity({
+            ...fixedLimitRemainingAction({
+              players: gs.players,
+              heroSeat: player.seat,
+              currentBet: gs.currentBet,
+              stage: street,
+              actionHistory: gs.actionHistory,
+              wagersCapped: gs.wagersCapped,
+            }),
+            pot,
+            toCall,
+            unit:
+              Number.isFinite(gs.fixedBetSize) && (gs.fixedBetSize as number) > 0
+                ? (gs.fixedBetSize as number)
+                : fixedLimitBetSize(
+                    Number.isFinite(gs.fixedLimitSmallBet) && (gs.fixedLimitSmallBet as number) > 0
+                      ? (gs.fixedLimitSmallBet as number)
+                      : gs.bigBlind,
+                    street
+                  ),
+            stackAfterCall: stack - toCall,
+            deduction: callDeductionFraction ?? rakeMarg,
+          })
+        : null;
+    const shadeFlCall = flCallPrice ? Math.max(0, flCallPrice.required - flCallPrice.bare) : 0;
+    if (shadeFlCall > 0 && tele15) noteFire('fixed_limit_call_priced_remaining_action_seen');
     // ═══ THE BET-RATIO SCALE, STATED ONCE AND FOR ALL (2026-08-27) ═══
     // `gs.pot` INCLUDES the bet hero is facing (HandController adds to
     // state.pot the moment the wager is posted). So `toCall / pot` is
@@ -15696,10 +15742,28 @@ export class HorseLogic {
     // Covering chips cannot change the existing cash HU commitment policy.
     // Physical stack still owns survival and legality. The same qualified
     // exposure prices retained-plan commitment and supplies a bounded wager.
-    const committedLegacy =
+    // FIXED-LIMIT CALL IS NOT A COMMITMENT (2026-11-14, Fixed-Limit lane,
+    // opt-in). The commitment test reads a stack-to-pot ratio under 1.2 or
+    // 30 percent of the stack already in as "the money is in" and prices the
+    // call in the committed branch, which adds the V20 multiway bar (commit20,
+    // up to 0.12) and the raised-class shades to pot odds. A fixed-limit call
+    // risks its own incremental cost, not a stack: a multiway flo8 pot
+    // outgrows a 50-big-blind stack by the river, so every river call there
+    // was priced as a stack-off (diagnostic harness: mean commit20 0.092,
+    // required 0.172 against a price of 0.050, 206 of 206 six-seat river
+    // folds). With the option on, a fixed-limit call is never committed: no
+    // stack-to-pot or invested-share term. It goes to the V38 verdicts, which
+    // price it with the remaining action of the street (flCallPrice above,
+    // HorseFixedLimitCallPrice.ts).
+    const fixedLimitCallNotCommitted =
+      opts.fixedLimitCallIsNotACommitment === true && vi.isFixedLimit;
+    const committedByStack =
       spr < 1.2 ||
       toCall >= stack ||
       (investedNow > 0 && investedNow / (commitmentStack + investedNow) >= 0.3);
+    const committedLegacy = !fixedLimitCallNotCommitted && committedByStack;
+    if (fixedLimitCallNotCommitted && committedByStack && toCall > 0 && tele15)
+      noteFire('fixed_limit_call_not_a_commitment_seen');
     // ═══ V66 BET, RAISED, ONE PAIR (2026-10-31) ═══ single-board hold'em,
     // flop or turn: hero bet (or raised) this street and now faces a raise,
     // holding the V61 bluff-catch class (one pair, or two pair through the
@@ -15867,9 +15931,10 @@ export class HorseLogic {
       const callable66 = Math.min(toCall, commitmentStack);
       const postCallSpr66 = (commitmentStack - callable66) / (pot + callable66);
       committed =
-        toCall >= stack ||
-        postCallSpr66 < 1 ||
-        (investedBefore66 > 0 && investedBefore66 / (commitmentStack + investedNow) >= 0.3);
+        !fixedLimitCallNotCommitted &&
+        (toCall >= stack ||
+          postCallSpr66 < 1 ||
+          (investedBefore66 > 0 && investedBefore66 / (commitmentStack + investedNow) >= 0.3));
       if (v66Class && tele15 && (shade66 > 0 || committed !== committedLegacy))
         noteFire('v66_bet_raised_one_pair');
       if (v87OmahaBetRaised && tele15 && (shade87Omaha > 0 || committed !== committedLegacy))
@@ -15880,9 +15945,10 @@ export class HorseLogic {
       const callable86 = Math.min(toCall, commitmentStack);
       const postCallSpr86 = (commitmentStack - callable86) / (pot + callable86);
       committed =
-        toCall >= stack ||
-        postCallSpr86 < 1 ||
-        (investedBefore86 > 0 && investedBefore86 / (commitmentStack + investedNow) >= 0.3);
+        !fixedLimitCallNotCommitted &&
+        (toCall >= stack ||
+          postCallSpr86 < 1 ||
+          (investedBefore86 > 0 && investedBefore86 / (commitmentStack + investedNow) >= 0.3));
     }
     // ═══ STYLE READ #4b COMMITMENT PRICE (2026-11-14, same switch) ═══ in
     // the reviewed hand the call left the raiser 0.13 of the pot: the river
@@ -17557,7 +17623,7 @@ export class HorseLogic {
         if (v67Class) shade61 = shade67;
         const v = riverCallVerdict({
           indifference: evIndifference(),
-          equity: clamp01(eqRead38 - shade61 - shade87Omaha),
+          equity: clamp01(eqRead38 - shade61 - shade87Omaha - shadeFlCall),
           pot,
           toCall,
           stack,
@@ -17619,7 +17685,7 @@ export class HorseLogic {
         // shade is subtracted from the equity handed to the flop/turn
         // verdict, as V61 subtracts shade61 on the river. A draw carries
         // neither, so comboRaise38 is not affected.
-        equity: clamp01(eqRead38 - shade65 - shade66 - shade68 - shade87Omaha),
+        equity: clamp01(eqRead38 - shade65 - shade66 - shade68 - shade87Omaha - shadeFlCall),
         pot,
         toCall,
         stack,

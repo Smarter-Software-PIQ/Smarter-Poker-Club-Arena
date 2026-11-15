@@ -1338,6 +1338,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'PfLeaks'
   ),
   flag(
+    'fixedLimitCallIsNotACommitment',
+    '2026-11-14 default OFF: a fixed-limit call is never priced in the committed branch (no stack-to-pot or invested-share term, so no V20 multiway commit bar or stack-off shade); it is priced on its incremental cost plus the remaining action of the street (HorseFixedLimitCallPrice.ts: the chips to call now plus the expected further wagers if a player left to act raises before the cap, at an ASSUMED per-player raise rate of 0.12; a closing call is the bare raked price), as a shade on the equity the V38 river and flop/turn verdicts are handed; diagnostic harness before (L-ADAPTATION-DIAGNOSIS section 3): flo8 six seats, every river fold took the committed branch, required 3.4 x the price; refused by the league (it deals no fixed limit), see UNMEASURABLE_MATCHUPS',
+    'FixedLimitAdaptation'
+  ),
+  flag(
     'facingClosedAllIn',
     "2026-11-08 default ON: no-limit hold'em (not fixed limit, not short deck) at an effective stack of 40bb or less (CLOSED_ALL_IN_MAX_EFFECTIVE_BB; deeper, the cap keeps a style from stacking off light), hero facing a 3-bet or 4-bet that was made all in with every other player still in the hand all in, folded or sitting out (the call closes the betting and risks exactly the price): the 3-bet node's 35%-of-stack cap and the 4-bet node's 30% cap no longer veto a call the price-aware strength bar makes (the companion 4-bet-node change, the no-limit hold'em call/jam bars no longer multiplying a style tightness above 1, is unconditional source and not under this flag); measured before on 391f7bc0 (2026-11-07 21:20 to 2026-11-08 20:30 UTC, hand_history publicNode): tournament NLH heads-up openers facing a 12-25bb all-in 3-bet folded 205 of 212, six-handed 165 of 173, and replayed through HorseLogic.decide QQ (22bb jam, 43% to call), JJ, TT, AKo, AQo, 99, 88 all folded at the cap, and in cash the Grinder hybrid folded KK at 121bb, QQ, AKo to a sized 4-bet because 0.95 x 1.0976 and 0.88 x 1.0976 both hit BAR_CAP 0.965; opponent identity is never read; Omaha unchanged; explicit off arm restores both caps; docs/changelog/2026-11-08-horse-opener-facing-an-all-in-3-bet.md",
     'F3B'
@@ -5106,6 +5111,20 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'fixed_limit_bet_not_a_probe_seen',
     'HorseMind.observe (FIXED-LIMIT BETS ARE NEVER PROBES, process switch HorseMind.setFixedLimitBetsAreNeverProbes, source default FIXED_LIMIT_BETS_ARE_NEVER_PROBES_DEFAULT = false)',
     'a checked-to postflop bet in a fixed-limit hand was counted without a probe tally (neither ctBets nor ctProbes), so it stays whole in betCheckedTo',
+    'FixedLimitAdaptation'
+  ),
+  // No floor: fixed-limit calls with a player left to act, with the opt-in option on.
+  receipt(
+    'fixed_limit_call_priced_remaining_action_seen',
+    'HorseLogic facing-a-bet call price (fixedLimitCallIsNotACommitment, HorseFixedLimitCallPrice.ts)',
+    'a fixed-limit call with a live player left to act on an uncapped street was priced above the bare call by the expected further wagers of the street',
+    'FixedLimitAdaptation'
+  ),
+  // No floor: fixed-limit calls only, with the opt-in option on.
+  receipt(
+    'fixed_limit_call_not_a_commitment_seen',
+    'HorseLogic facing-a-bet commitment test (fixedLimitCallIsNotACommitment)',
+    'a fixed-limit call the stack-to-pot or invested test would have priced as a commitment was priced as the one bet it is',
     'FixedLimitAdaptation'
   ),
   // No floor: fires only against an opponent whose checked-to bets include probes.
