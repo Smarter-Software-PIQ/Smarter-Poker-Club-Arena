@@ -6360,8 +6360,10 @@ function LiveTablePage({
   const [shoveOrFoldTable, setShoveOrFoldTable] = useState<string | null>(null);
   const shoveOrFold = Boolean(tableId && shoveOrFoldTable === tableId);
   const explainShoveOrFold = useCallback(() => {
-    toast.info('This is an All In or Fold tournament. You can only press All In or Fold.');
-  }, [toast]);
+    setActionErrorData({
+      error: 'This is an All In or Fold tournament. You can only press All In or Fold.',
+    });
+  }, []);
   const [tournamentTypeLine, setTournamentTypeLine] = useState<string | null>(null);
   const headsUpAnnouncedRef = useRef<Set<string>>(new Set());
   const finalTableAnnouncedRef = useRef<Set<string>>(new Set());
