@@ -59,7 +59,10 @@ describe('every share goes through one door', () => {
     expect(door).toMatch(
       /if \(isCancel\(error\)\) return 'cancelled';\s*reportError\(error, `\$\{source\}\.share_refused`\)/
     );
-    expect(door).toMatch(/copyText\(clip, source\)\) \? 'copied' : 'failed'/);
+    // 2026-11-15: the ladder's copy step is copyTextOnce, the uncounted copy,
+    // because shareLink counts the whole tap once; the exported copyText
+    // counts a copy-only button.
+    expect(door).toMatch(/copyTextOnce\(clip, source\)\) \? 'copied' : 'failed'/);
     const copy = stripComments(readFileSync(join(SRC, 'lib/copyToClipboard.ts'), 'utf8'));
     expect(copy).toMatch(/return copyBySelection\(text\)/);
   });

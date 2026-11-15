@@ -920,7 +920,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'omahaNutClassValueSize',
-    'Dan 2026-11-14: a PLO4/PLO5 high bet or raise with the nuts or an effective-nut hand for the street is the full pot (the pot-limit maximum, the stack when smaller) on the flop, turn and river. Default on by owner order 2026-11-15 00:32 (value unmeasured); explicit false switches it off',
+    'Dan 2026-11-14: a PLO4/PLO5 high bet or raise with the nuts or an effective-nut hand for the street is the full pot (the pot-limit maximum, the stack when smaller) on the flop, turn and river. Default OFF (opt-in): its declared evaluation failed on the Horse-only cells (PLO4 -1.19, PLO5 -1.31 bb/100; human field +2.29)',
     'V94'
   ),
   flag(
@@ -1202,6 +1202,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseStyleSwitch (STYLE READ live switch)',
     'style_switch_<option>_<state>_seen: an option of the style read changed runtime state (off, shadow, canary, on) at a configuration read, the option and the new state in the name; style_switch_config_invalid_seen / style_switch_config_unreadable_seen / style_switch_config_stale_seen: the configuration was not the documented shape, could not be read, or was delivered more than two poll intervals ago, and every option failed safe to off; occurrence counters; named *_seen',
     '2026-11-13'
+  ),
+  receipt(
+    'option_switch_*',
+    'HorseOptionSwitch (every decision upgrade has a live switch)',
+    'option_switch_<option>_<on|off|default>_seen: a registered non-style decision option changed its switched value at a configuration read in this worker (on: passed true; off: passed false; default: its row went away or the configuration failed, so the code default decides), the option and the new value in the name; option_switch_config_invalid_seen / option_switch_config_unreadable_seen / option_switch_config_stale_seen: the configuration was not the documented shape, could not be read, or was delivered more than two poll intervals ago, and every non-style option went back to its RELEASE DEFAULT (not to off; the seven style options keep their own rule, style_switch_*: off); occurrence counters; named *_seen',
+    '2026-11-14'
   ),
   receipt(
     'style_shadow*',

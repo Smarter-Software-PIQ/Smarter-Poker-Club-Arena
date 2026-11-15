@@ -10,8 +10,7 @@
  * - Preview card
  */
 
-import { copyToClipboard } from '../../lib/copyToClipboard';
-import { hasShareSheet, shareLink } from '../../lib/share';
+import { copyText, hasShareSheet, shareLink } from '../../lib/share';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { haptic } from '../../services/SoundService';
 import { CardImage, type Card } from '../table/CardImage';
@@ -751,6 +750,23 @@ export function ShareHand({
 }: ShareHandProps) {
   const staggerTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const [copied, setCopied] = useState(false);
+  /*
+   * A copy that did not happen is said on screen (2026-11-15). Until then a
+   * refused copy only reached the error log and the Copy button looked like
+   * it had done nothing. The link is selected so it can be copied by hand.
+   */
+  const [copyFailed, setCopyFailed] = useState(false);
+  const [embedState, setEmbedState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const urlInputRef = useRef<HTMLInputElement | null>(null);
+  const embedRef = useRef<HTMLTextAreaElement | null>(null);
+  const selectForHand = (el: HTMLInputElement | HTMLTextAreaElement | null) => {
+    try {
+      el?.focus();
+      el?.select();
+    } catch {
+      /* the text is still on screen */
+    }
+  };
   // CA-2 BUG FIX: track the "Copied" dismiss timer so it can be cancelled on
   // unmount — was calling setCopied on an already-unmounted component.
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -787,18 +803,18 @@ export function ShareHand({
   // Copy link
   const handleCopy = useCallback(async () => {
     haptic.light();
-    // copyToClipboard falls back to a selection copy when the Clipboard API
-    // is present but refused, and only a copy that happened counts as sent.
-    if (await copyToClipboard(shareUrl)) {
+    // copyText falls back to a selection copy when the Clipboard API is
+    // present but refused, reports a copy that did not happen, and counts the
+    // outcome. Only a copy that happened counts as sent.
+    if (await copyText(shareUrl, 'ShareHand.copy')) {
       onShared?.();
+      setCopyFailed(false);
       setCopied(true);
       clearTimeout(copiedTimerRef.current!);
       copiedTimerRef.current = setTimeout(() => setCopied(false), 2000);
     } else {
-      reportError(
-        new Error('Clipboard refused and selection copy failed'),
-        'ShareHand.Copy_failed'
-      );
+      setCopyFailed(true);
+      selectForHand(urlInputRef.current);
     }
   }, [shareUrl, onShared]);
 
@@ -832,9 +848,13 @@ export function ShareHand({
     // Sent means the sheet took it or the link reached the clipboard.
     if (outcome === 'shared' || outcome === 'copied') onShared?.();
     if (outcome === 'copied') {
+      setCopyFailed(false);
       setCopied(true);
       clearTimeout(copiedTimerRef.current!);
       copiedTimerRef.current = setTimeout(() => setCopied(false), 2000);
+    } else if (outcome === 'failed') {
+      setCopyFailed(true);
+      selectForHand(urlInputRef.current);
     }
   }, [shareText, shareUrl, clubName, onShared]);
 
@@ -934,7 +954,14 @@ export function ShareHand({
           {activeTab === 'link' && (
             <div className="share-hand__link-tab">
               <div className="share-hand__url-box">
-                <input type="text" value={shareUrl} readOnly className="share-hand__url-input" />
+                <input
+                  ref={urlInputRef}
+                  type="text"
+                  value={shareUrl}
+                  readOnly
+                  className="share-hand__url-input"
+                  aria-label="Hand Link"
+                />
                 <button
                   className={`share-hand__copy-btn ${copied ? 'share-hand__copy-btn--success' : ''}`}
                   aria-label={copied ? 'Link Copied' : 'Copy Link'}
@@ -943,6 +970,11 @@ export function ShareHand({
                   {copied ? 'Copied' : 'Copy'}
                 </button>
               </div>
+              {copyFailed && (
+                <p className="share-hand__copy-failed" role="alert">
+                  Copy Is Blocked Here. The Link Is Selected, Copy It By Hand.
+                </p>
+              )}
 
               {hasShareSheet() && (
                 <button className="share-hand__native-share" onClick={handleNativeShare}>
@@ -1003,13 +1035,30 @@ export function ShareHand({
 
           {activeTab === 'embed' && (
             <div className="share-hand__embed-tab">
-              <textarea className="share-hand__embed-code" value={embedCode} readOnly rows={3} />
+              <textarea
+                ref={embedRef}
+                className="share-hand__embed-code"
+                value={embedCode}
+                readOnly
+                rows={3}
+                aria-label="Embed Code"
+              />
               <button
                 className="share-hand__copy-embed"
-                onClick={() => void copyToClipboard(embedCode)}
+                onClick={() => {
+                  void copyText(embedCode, 'ShareHand.embed').then((ok) => {
+                    setEmbedState(ok ? 'copied' : 'failed');
+                    if (!ok) selectForHand(embedRef.current);
+                  });
+                }}
               >
-                Copy Embed Code
+                {embedState === 'copied' ? 'Embed Code Copied' : 'Copy Embed Code'}
               </button>
+              {embedState === 'failed' && (
+                <p className="share-hand__copy-failed" role="alert">
+                  Copy Is Blocked Here. The Code Is Selected, Copy It By Hand.
+                </p>
+              )}
             </div>
           )}
         </div>

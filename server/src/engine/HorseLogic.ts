@@ -2706,7 +2706,9 @@ export interface HorseDecideOpts {
   /** Dan 2026-11-14: a PLO4/PLO5 bet or raise with the nuts or an
    * effective-nut hand for the street is the full pot on the flop, turn and
    * river (HorseOmahaMadeHandDefense.ts, omahaNutClassValueSize). Default
-   * on by the owner's order of 2026-11-15 00:32 (unmeasured); false is off. */
+   * OFF (opt-in): its declared evaluation with the live-table fields in the
+   * league state (PROTOCOL-nutsize-2) FAILED on the Horse-only cells (PLO4
+   * -1.19, PLO5 -1.31 bb/100) while the human field gained +2.29 (z +5.2). */
   omahaNutClassValueSize?: boolean;
   /** Owner ruling 2026-11-14 23:49 (re-raised pots): PLO4/PLO5 cash, facing
    * a 4-bet or more preflop a hand without aces or a premium structure folds
@@ -6126,7 +6128,7 @@ function omahaMadeHandDefenseRules(
     noBet.decision,
     player,
     gs,
-    opts.omahaNutClassValueSize !== false
+    opts.omahaNutClassValueSize === true
   );
   if (tele && sized.changed === 'pot_sized') noteFire('omaha_nut_class_pot_wager');
   return sized.decision;

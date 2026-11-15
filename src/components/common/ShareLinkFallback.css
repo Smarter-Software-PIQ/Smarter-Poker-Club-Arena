@@ -1,0 +1,27 @@
+/* The link itself, when nothing could copy it (ShareLinkFallback.tsx). */
+.share-link-fallback {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.share-link-fallback__note {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #ff6b6b;
+}
+
+.share-link-fallback__url {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  font-size: 0.8125rem;
+  font-family: 'JetBrains Mono', monospace;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+  color: #e6edf3;
+  outline: none;
+}

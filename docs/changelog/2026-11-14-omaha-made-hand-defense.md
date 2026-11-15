@@ -67,3 +67,7 @@ Told that the turn made-hand rule and the nut-class pot size would ship switched
 ## Off after its evaluation (2026-11-15)
 
 `omahaBeatenMadeHandDefense` failed its declared evaluation (eval3; source 9d9ad486; 200 sessions x 300 pairs per cell): Horses against a loose-aggressive value seat PLO4 -23.73 bb/100 (SE 8.21, z -2.89), PLO5 -16.17 (SE 6.69, z -2.42); development human field pooled -0.72 (SE 1.27). It is read `=== true` again with plo4/plo5 league cards. `omahaRiverNutRaiseOnly`, `omahaTurnSetPound` and `omahaNutClassValueSize` are unchanged. Where this section and an earlier one disagree about on and off, this section is the head's state.
+
+## Nut-class value size off after its evaluation (2026-11-15)
+
+`omahaNutClassValueSize` served on from the owner window 1206z by the owner's order. Its declared re-run with the live-table fields supplied to the league (PROTOCOL-nutsize-2) gained against the development human field (pooled +2.29 bb/100, SE 0.44) and lost on both Horse-only cells (PLO4 -1.19, SE 0.41; PLO5 -1.31, SE 0.59), breaking the declared harm bar. It is read `=== true` again with plo4/plo5 league cards. A default-brain test now pins that neither the made-hand defence nor the nut-class size fires with the options unset.

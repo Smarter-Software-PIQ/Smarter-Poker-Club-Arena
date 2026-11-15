@@ -1,3 +1,4 @@
+import { ActionControllerSettings } from './ActionControllerSettings';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  *  SETTINGS PANEL — Table Preferences
@@ -379,6 +380,8 @@ export function SettingsPanel({
               checked={settings.showBetSizePresets}
               onChange={() => handleToggle('showBetSizePresets')}
             />
+
+            <ActionControllerSettings />
 
             {/* Dan 2026-08-28: "add a toggle in the table settings... to turn
                 the ticker on or off." Governs the scrolling tournament and
