@@ -23,6 +23,7 @@
 import { describe, expect, it } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { sliceBetween } from './helpers/sourceWindow';
 
 const DIR = join(__dirname, '..', 'supabase', 'migrations');
 const FILE = '20261115150131_a_jackpot_share_follows_the_hand_club.sql';
@@ -36,13 +37,16 @@ describe('a jackpot share follows the hand club', () => {
     expect(body).toMatch(/FROM public\.cash_participant_funding_receipts x/);
     expect(body).toMatch(/x\.seat_joined_at <= seat_payout\.created_at/);
     // the retained member record, whatever its status: no status filter
-    const retained = body.slice(body.indexOf('IF v_club IS NOT NULL AND NOT EXISTS'));
-    expect(retained.slice(0, 400)).not.toMatch(/status/);
+    const retained = sliceBetween(body, 'IF v_club IS NOT NULL AND NOT EXISTS', 'END IF;');
+    expect(retained).toMatch(/cm\.user_id = p_user_id AND cm\.club_id = v_club/);
+    expect(retained).not.toMatch(/status/);
   });
 
   it('the table club and the home club are removed and refused by the post-image', () => {
     expect(sql).toMatch(/c_from constant text := '\/\* THE SEAT''S CLUB FIRST/);
-    expect(sql).toMatch(/c_to constant text := E'v_club := public\.fn_player_home_club\(p_user_id, NULL\);/);
+    expect(sql).toMatch(
+      /c_to constant text := E'v_club := public\.fn_player_home_club\(p_user_id, NULL\);/
+    );
     expect(sql).toMatch(/OR position\('fn_player_home_club' IN d\) > 0/);
     expect(sql).toMatch(/OR position\('FROM public\.tables t' IN d\) > 0/);
   });
