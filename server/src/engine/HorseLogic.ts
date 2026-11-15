@@ -9594,7 +9594,7 @@ export class HorseLogic {
       ...(opts.omahaManiacReRaiseWidthMeasured === true &&
       (gameState.gameVariant === 'plo4' || gameState.gameVariant === 'plo5') &&
       !(gameState.gameMode === 'tournament' || gameState.tournament)
-        ? { omahaManiacReRaiseMeasured: true }
+        ? { omahaManiacReRaiseMeasured: true, omahaManiacReRaiseReceipt: telemetryOn(opts) }
         : {}),
       fixedLimitOmahaNoPresumption: opts.fixedLimitOmahaNoPresumption === true,
       ...(typeof opts.styleCarryOverWeight === 'number' && opts.styleCarryOverWeight > 0
