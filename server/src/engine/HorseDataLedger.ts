@@ -1484,6 +1484,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'FixedLimitAdaptation'
   ),
   flag(
+    'fixedLimitRiverStrongHandLeads',
+    "2026-11-15 default OFF (Fixed-Limit lane W8): fixed limit only, river, nothing to call, the Horse first to act (no opponent has acted on the river) and the reference checks: a full house or better that at most 12 percent of the opponents' holdings beat (card-exact over the unseen cards with the engine's scorers; hold'em also refuses a board that plays and an under-full boat) bets one big bet instead (HorseFixedLimitRiverLead.ts); hi-lo with a low possible and no Horse low leads only into two or more opponents who can act; an aggressive read on the next opponent to act keeps the check; not facing a wager, not checked to, never all in, never a tournament stack under 20 big blinds; measured before (AD-STRONG-RIVER-CHECKS): first-to-act full+ checks 31-58 percent, flo8 heads-up rivers then check through 42-50 percent; refused by the league (it deals no fixed limit), see UNMEASURABLE_MATCHUPS",
+    'FixedLimitAdaptation'
+  ),
+  flag(
     'fixedLimitOmahaNoPresumption',
     '2026-11-14 default OFF: on a fixed-limit Omaha decision (flo8) HorseMind.opponentRead does not apply the shared aggressive raise presumption (presumedAggressorRead, a pot-limit policy that prices a pot-sized raise); the opponent own measured read stands; pot-limit Omaha unchanged; measured before (O-TIGHT-FL-DIAGNOSIS): a 21-27 percent flo8 raiser (tight-value script) stayed presumed at 1,000 hands and the Horse opened 159 of 400 first-in buttons against him versus 202 with memory off; refused by the league (it deals no fixed limit), see UNMEASURABLE_MATCHUPS',
     'FixedLimitAdaptation'
@@ -5454,6 +5459,13 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'fixed_limit_call_priced_remaining_action_seen',
     'HorseLogic facing-a-bet call price (fixedLimitCallIsNotACommitment, HorseFixedLimitCallPrice.ts)',
     'a fixed-limit call with a live player left to act on an uncapped street was priced above the bare call by the expected further wagers of the street',
+    'FixedLimitAdaptation'
+  ),
+  // No floor: fixed-limit rivers only, with the opt-in option on.
+  receipt(
+    'fixed_limit_river_strong_hand_lead',
+    'HorseLogic reference layer (fixedLimitRiverStrongHandLeads, HorseFixedLimitRiverLead.ts)',
+    'a fixed-limit first-to-act river check with a full house or better that few holdings beat became a one-big-bet lead',
     'FixedLimitAdaptation'
   ),
   // No floor: fixed-limit calls only, with the opt-in option on.

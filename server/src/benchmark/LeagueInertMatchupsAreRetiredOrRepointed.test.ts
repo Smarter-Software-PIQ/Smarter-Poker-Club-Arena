@@ -55,6 +55,9 @@ describe('UNMEASURABLE_MATCHUPS', () => {
         'flh_call_is_not_a_commitment',
         'flo8_hilo_low_half_floor',
         'flo8_no_omaha_presumption',
+        // Fixed-Limit lane W8 (2026-11-15): the strong river lead.
+        'flh_river_strong_hand_leads',
+        'flo8_river_strong_hand_leads',
       ].sort()
     );
     const card = new Set(LEAGUE_MATCHUPS.map((m) => m.name));

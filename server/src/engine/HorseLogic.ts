@@ -70,6 +70,10 @@ import {
   nutLowBlockersHeld,
   streetWagerSignal,
 } from './HorseFixedLimitWagerRead.js';
+import {
+  fixedLimitRiverLeadStrength,
+  fixedLimitRiverStrongHandLeads,
+} from './HorseFixedLimitRiverLead.js';
 import { horsePolicyRegistration, horsePolicyOwnership } from './HorsePolicyRegistry.js';
 import { hasHorseReviewSignals } from './HorseReviewSignals.js';
 import { evaluateJointLivePolicy } from './multiway/JointLivePolicy.js';
@@ -201,6 +205,7 @@ import {
   maniacRaiseWidth,
   reRaiseWidth,
   isPostflopManiac,
+  isAggressor,
   preflopVsOpener,
   aggressiveOpenerPressure,
   aggressiveBettorPressure,
@@ -2776,6 +2781,18 @@ export interface HorseDecideOpts {
    * and no raise-frequency draw; the one-pair, war and danger gates stay.
    * OPT-IN, default off. Read as `=== true`. */
   fixedLimitRiverOneBetValueRaise?: boolean;
+  /** Fixed limit, river, nothing to call, the Horse first to act (no opponent
+   * has acted on the river), the reference checks, and the hand is a full
+   * house or better that at most 12 percent of the opponents' holdings beat
+   * (HorseFixedLimitRiverLead.ts, card-exact with the engine's scorers; hold'em
+   * also refuses a board that plays and an under-full boat): bet one big bet.
+   * Hi-lo with a low possible and no Horse low leads only into two or more
+   * opponents who can act; an aggressive read on the next opponent to act
+   * (isAggressor / isPostflopManiac) keeps the check. Not facing a wager,
+   * not checked to, no bomb pot or multi-board, never an all-in bet, never a
+   * tournament stack under 20 big blinds (Fixed-Limit lane W8). OPT-IN,
+   * default off. Read as `=== true`. */
+  fixedLimitRiverStrongHandLeads?: boolean;
   /** An Omaha preflop call of 40% of the stack with chips behind and an
    * opponent still to act is not priced as a final all-in call
    * (PLO6-AUDIT-005). OPT-IN, default off. The pricing gap is real (the
@@ -4208,6 +4225,117 @@ function maniacCallDown(
  * returned untouched: cash games, deeper stacks, a raise already in, a fold,
  * no maniac behind.
  */
+/**
+ * FIXED LIMIT: A STRONG RIVER HAND LEADS (opt-in fixedLimitRiverStrongHandLeads,
+ * Fixed-Limit lane W8). Inside the reference like the maniac call-down, so
+ * every later owner sees the lead as the reference's own choice. Returns the
+ * reference untouched unless the option is on and every gate of
+ * HorseFixedLimitRiverLead.fixedLimitRiverStrongHandLeads passes; then one
+ * big bet (the legalizer clamps it to the street's fixed size). No random
+ * draw is taken on any path, so off and inert are byte-identical.
+ */
+function fixedLimitRiverStrongHandLead(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  vi: VariantInfo,
+  opts: HorseDecideOpts
+): HorseDecision {
+  if (opts.fixedLimitRiverStrongHandLeads !== true) return decision;
+  if (decision.action !== 'check' || gs.stage !== 'river' || vi.isFixedLimit !== true)
+    return decision;
+  try {
+    const board = gs.communityCards ?? [];
+    const toCall = Math.max(0, (gs.currentBet || 0) - (player.bet || 0));
+    const hist = gs.actionHistory ?? [];
+    const firstToActOnRiver = !hist.some((a) => a.stage === 'river');
+    const players =
+      gs.dealtSeatIds !== undefined
+        ? horsePolicyDealtPlayers(gs.players, player.seat, gs.dealtSeatIds)
+        : gs.players;
+    const canAct = players.filter(
+      (p) =>
+        p.seat !== player.seat && !p.is_folded && !p.is_all_in && !p.is_sitting_out && p.stack > 0
+    );
+    const betUnit = Number(gs.fixedBetSize ?? gs.minRaiseTo ?? 0);
+    const bb = Number(gs.bigBlind) > 0 ? Number(gs.bigBlind) : 1;
+    const betLegal = !Array.isArray(gs.legalActions) || gs.legalActions.includes('bet');
+    const multi =
+      gs.bombPot === true ||
+      (gs.boardCount ?? 1) > 1 ||
+      (gs.communityCards2?.length ?? 0) > 0 ||
+      (gs.communityCards3?.length ?? 0) > 0;
+    // Cheap gates first: the card-exact strength walk runs only when it can matter.
+    const pre = fixedLimitRiverStrongHandLeads({
+      isFixedLimit: true,
+      isRiver: board.length === 5,
+      toCall,
+      firstToActOnRiver,
+      referenceAction: decision.action,
+      betLegal,
+      bombPotOrMultiBoard: multi,
+      opponentsWhoCanAct: canAct.length,
+      betLeavesChips: betUnit > 0 && player.stack > betUnit,
+      tournament: isTournamentMode(gs),
+      stackBigBlinds: player.stack / bb,
+      isHiLo: false,
+      lowPossible: false,
+      horseHoldsLow: false,
+      strong: true,
+      nextOpponentAggressive: false,
+    });
+    if (pre !== 'lead') return decision;
+    const strength = fixedLimitRiverLeadStrength(
+      player.cards,
+      board,
+      vi.isOmaha === true,
+      canAct.length,
+      player.cards.length,
+      player.knownDeadCards ?? []
+    );
+    if (!strength.strong) return decision;
+    const isHiLo = vi.isHiLo === true;
+    const lowPossible = isHiLo && !noLowPossible(board);
+    const horseHoldsLow = lowPossible && scoreOmahaLow(player.cards, board) !== Infinity;
+    // The first opponent to act after the Horse (clockwise by seat).
+    const next = [...canAct].sort(
+      (a, b) => ((a.seat - player.seat + 1000) % 1000) - ((b.seat - player.seat + 1000) % 1000)
+    )[0];
+    let nextOpponentAggressive = false;
+    if (opts.mind !== false && next) {
+      try {
+        const read = HorseMind.opponentRead(next.user_id);
+        nextOpponentAggressive = isAggressor(read) || isPostflopManiac(read);
+      } catch {
+        /* reads are best-effort: no read is the baseline */
+      }
+    }
+    const verdict = fixedLimitRiverStrongHandLeads({
+      isFixedLimit: true,
+      isRiver: true,
+      toCall,
+      firstToActOnRiver,
+      referenceAction: decision.action,
+      betLegal,
+      bombPotOrMultiBoard: multi,
+      opponentsWhoCanAct: canAct.length,
+      betLeavesChips: true,
+      tournament: isTournamentMode(gs),
+      stackBigBlinds: player.stack / bb,
+      isHiLo,
+      lowPossible,
+      horseHoldsLow,
+      strong: true,
+      nextOpponentAggressive,
+    });
+    if (verdict !== 'lead') return decision;
+    if (telemetryOn(opts)) noteFire('fixed_limit_river_strong_hand_lead');
+    return { ...decision, action: 'bet', amount: betUnit };
+  } catch {
+    return decision;
+  }
+}
+
 const MANIAC_JAM_MAX_BB = 20;
 function maniacShortStackJam(
   decision: HorseDecision,
@@ -7167,6 +7295,7 @@ export class HorseLogic {
       // every later owner sees it as the reference's own choice.
       decision = maniacCallDown(decision, player, gs, vi, opts);
       decision = maniacShortStackJam(decision, player, gs, opts);
+      decision = fixedLimitRiverStrongHandLead(decision, player, gs, vi, opts);
       return { decision };
     }).decision;
 

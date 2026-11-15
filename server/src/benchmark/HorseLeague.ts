@@ -3144,6 +3144,32 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'and maniac fields); until it is built, the fixtures in ' +
       'AFixedLimitOmahaHasNoPresumption.law.test.ts and the Fixed-Limit lane diagnostic-harness measurements are the only evidence.',
   },
+  // 2026-11-15 (Fixed-Limit lane W8, a strong river hand leads): a
+  // default-off fixed-limit arm. Refused, not dealt: this league cannot ask
+  // the question.
+  ...(
+    [
+      ['flh_river_strong_hand_leads', 'flh', 6, { fixedLimitRiverStrongHandLeads: true }, 0],
+      ['flo8_river_strong_hand_leads', 'flo8', 6, { fixedLimitRiverStrongHandLeads: true }, 0],
+    ] as const
+  ).map(([name, variant, seats, a, d]) => ({
+    name,
+    variant,
+    seats,
+    a,
+    b: {},
+    reason:
+      'Unanswerable by this league: playHand deals no-limit and pot-limit betting and has no ' +
+      'fixed-limit street unit, wager cap or controller menu, and every gate of this option ' +
+      'requires a fixed-limit state (HorseLogic: vi.isFixedLimit). The option is DEFAULT OFF (read as === true). ' +
+      'Measured 2026-11-15 by running this refused matchup through runMatchup (seed 20261115, 300 pairs): ' +
+      `${d} of 300 pairs diverged. The league deals the variant's cards with its own betting while ` +
+      'HorseLogic takes the fixed-limit path from the variant name, so that divergence is not a ' +
+      'fixed-limit measurement and decides nothing. What would change this: a fixed-limit duplicate ' +
+      'league (real HandController, flh and flo8, heads-up and six seats, Horse, tight-value and ' +
+      'maniac fields); until it is built, the fixtures in AFixedLimitStrongRiverHandLeads.law.test.ts ' +
+      'are the only evidence.',
+  })),
   {
     name: 'plo4_lightning_participation_omaha',
     variant: 'plo4',
