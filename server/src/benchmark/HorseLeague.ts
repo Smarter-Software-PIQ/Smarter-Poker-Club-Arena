@@ -2723,14 +2723,16 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
   // WEAK MADE HAND (plo6NoMultiwayBetWithWeakMadeHand,
   // HorsePlo6MultiwayWeakBet.ts), default OFF: arm A turns a flop or turn bet
   // facing nothing against two or more live opponents, with a pair below the
-  // top card or two pair without it and no qualifying draw, into a check; arm B
+  // top card, two pair without it or (added the same day) a pocket pair above
+  // the top card of an unpaired board and no qualifying draw, into a check; arm B
   // is today's brain. Six seats, so the pot is multiway, and the production
   // personas: measured 2026-11-15 (seed 20261115, 600 pairs) the arms diverged
   // in 14 pairs with productionStyles and in 0 with the Hybrid baseline, whose
   // one persona does not make this bet in the league (productionStyles
   // re-measured after the pre-review fixes of the same day: 14 pairs again;
-  // the Hybrid count was measured before them). The card only measures;
-  // the default is unchanged.
+  // the Hybrid count was measured before them; neither count was re-run
+  // after the overpair class was added, which can only add divergent pairs).
+  // The card only measures; the default is unchanged.
   {
     name: 'plo6_no_multiway_bet_with_weak_made_hand',
     variant: 'plo6',

@@ -341,9 +341,8 @@ describe('the decision stands, as the same object', () => {
     expectKept('KhKdQc7s3h2c');
   });
 
-  it('a hand above the weak class: top pair, an overpair, top two, top and bottom, a set', () => {
+  it('a hand above the weak class: top pair, top two, top and bottom, a set', () => {
     expectKept('KhQc7s6d3h2c');
-    expectKept('AhAcQd6s3h2c');
     expectKept('Kh9hQc7s3h2c');
     expectKept('Kh4dQc7s3h2c');
     // Top and any other pair is never caught on the turn either.
@@ -399,6 +398,121 @@ describe('the decision stands, as the same object', () => {
 
   it('a board that does not match the street', () => {
     expectKept(UNDERPAIR, { board: 'Ks9d4cJh', stage: 'flop' });
+  });
+});
+
+describe('the overpair (a pocket pair above an unpaired board)', () => {
+  /** A dry queen-high flop: three suits, no three ranks inside five. */
+  const Q_FLOP = 'Qs8d3c';
+  /** Aces over it, no flush draw, no straight out. */
+  const ACES = 'AhAc9d6s4h2c';
+  /** Kings over it, no flush draw, no straight out. */
+  const KINGS = 'KhKc9d6s4h2c';
+
+  it('with no draw, three-way: the bet becomes a check on the flop and the turn', () => {
+    for (const hole of [ACES, KINGS]) {
+      expect(plo6QualifyingDraw(cards(hole), cards(Q_FLOP))).toBe(false);
+      const r = run(hole, { board: Q_FLOP });
+      expect(plo6MultiwayWeakBetSpot(r.hero, r.gs)).toEqual({
+        street: 'flop',
+        hand: 'overpair',
+        liveOpponents: 2,
+      });
+      expect(r.out.changed).toBe('bet_checked');
+      expect(r.out.decision.action).toBe('check');
+    }
+    const turn = run(ACES, { board: 'Qs8d3cJh', stage: 'turn' });
+    expect(plo6MultiwayWeakBetSpot(turn.hero, turn.gs)?.hand).toBe('overpair');
+    expect(turn.out.changed).toBe('bet_checked');
+    // A pair of tens over a nine-high board is the same class as aces.
+    const tens = run('ThTc7d5s3h2c', { board: '9s6d2h' });
+    expect(plo6WeakMadeHand(tens.hero.cards, tens.gs.communityCards)).toBe('overpair');
+  });
+
+  it('with a flush draw that is not to the nuts and no straight draw: still a check', () => {
+    const hole = 'AhAcKs6s4h2c';
+    const board = 'Qs8s3c';
+    expect(omahaDrawQuality(cards(hole), cards(board))).toMatchObject({
+      nutFlushDraw: false,
+      dominatedFlushDraw: true,
+    });
+    expect(plo6QualifyingDraw(cards(hole), cards(board))).toBe(false);
+    expect(run(hole, { board }).out.changed).toBe('bet_checked');
+  });
+
+  it('heads-up the bet is kept', () => {
+    expect(plo6WeakMadeHand(cards(ACES), cards(Q_FLOP))).toBe('overpair');
+    expectKept(ACES, { board: Q_FLOP, headsUp: true });
+  });
+
+  it('the nut flush draw keeps the bet', () => {
+    const hole = 'AsAc9d6s4h2c';
+    const board = 'Qs8s3c';
+    expect(plo6WeakMadeHand(cards(hole), cards(board))).toBe('overpair');
+    expect(omahaDrawQuality(cards(hole), cards(board)).nutFlushDraw).toBe(true);
+    expectKept(hole, { board });
+  });
+
+  it('eight or more straight outs keep the bet', () => {
+    // Kings over queen-jack with ten-nine: an ace-less open-ended draw.
+    const hole = 'KhKcTd9s4h2c';
+    const board = 'QsJd3c';
+    expect(plo6WeakMadeHand(cards(hole), cards(board))).toBe('overpair');
+    expect(omahaDrawQuality(cards(hole), cards(board)).straightOuts).toBeGreaterThanOrEqual(8);
+    expectKept(hole, { board });
+  });
+
+  it('four outs to the nut straight keep the bet', () => {
+    // Aces over king-queen with a jack: any ten makes the nut straight.
+    const hole = 'AhAcJd6s4h2c';
+    const board = 'KsQd3c';
+    const draw = omahaDrawQuality(cards(hole), cards(board));
+    expect(draw.straightOuts).toBeLessThan(8);
+    expect(draw.nutStraightOuts).toBeGreaterThanOrEqual(4);
+    expect(plo6WeakMadeHand(cards(hole), cards(board))).toBe('overpair');
+    expectKept(hole, { board });
+  });
+
+  it('a combo draw (a flush draw of any rank with four or more straight outs) keeps the bet', () => {
+    // Queens over ten-nine, king-high spades, and two gutshots (a jack or a
+    // seven) whose spade cards make the flush and are not counted.
+    const hole = 'QhQc8d6dKs2s';
+    const board = 'Ts9s3c';
+    const draw = omahaDrawQuality(cards(hole), cards(board));
+    expect(draw).toMatchObject({ nutFlushDraw: false, dominatedFlushDraw: true });
+    expect(draw.straightOuts).toBeGreaterThanOrEqual(4);
+    expect(draw.straightOuts).toBeLessThan(8);
+    expect(draw.nutStraightOuts).toBeLessThan(4);
+    expect(plo6WeakMadeHand(cards(hole), cards(board))).toBe('overpair');
+    expectKept(hole, { board });
+  });
+
+  it('on a paired board the pocket pair above it is not in the class', () => {
+    expect(plo6WeakMadeHand(cards(ACES), cards('QsQd3c'))).toBeNull();
+    expectKept(ACES, { board: 'QsQd3c' });
+    expect(plo6WeakMadeHand(cards(ACES), cards('Qs8d3c3h'))).toBeNull();
+    expectKept(ACES, { board: 'Qs8d3c3h', stage: 'turn' });
+  });
+
+  it('a set, top pair and top two pair are untouched beside it', () => {
+    // A set of aces is not one pair.
+    expect(plo6WeakMadeHand(cards(ACES), cards('As8d3c'))).toBeNull();
+    expectKept(ACES, { board: 'As8d3c' });
+    // Top pair with an ace kicker.
+    expect(plo6WeakMadeHand(cards('AhQc9d6s4h2c'), cards(Q_FLOP))).toBeNull();
+    expectKept('AhQc9d6s4h2c', { board: Q_FLOP });
+    // Top two pair.
+    expect(plo6WeakMadeHand(cards('Qh8c9d6s4h2c'), cards(Q_FLOP))).toBeNull();
+    expectKept('Qh8c9d6s4h2c', { board: Q_FLOP });
+    // Exactly two hole cards play: aces with a queen beside them is top pair
+    // or a pair of aces, and the aces are the best hand.
+    expect(plo6WeakMadeHand(cards('AhAcQd6s4h2c'), cards(Q_FLOP))).toBe('overpair');
+  });
+
+  it('facing a bet, on the river and in PLO5 nothing changes', () => {
+    expectKept(ACES, { board: Q_FLOP, gs: { toCall: 8, currentBet: 8 } });
+    expectKept(ACES, { board: 'Qs8d3cJh7s', stage: 'river' });
+    expectKept('AhAc9d6s4h', { board: Q_FLOP, variant: 'plo5' });
   });
 });
 

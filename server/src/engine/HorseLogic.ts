@@ -3388,10 +3388,15 @@ export interface HorseDecideOpts {
    * family): six-card Omaha high, one board, no bomb pot, not all-in-or-fold,
    * cash and tournaments; flop or turn, nothing to call, two or more live
    * opponents, a weak made hand (one pair below the board's top card, two
-   * pair without the top card, or the board's pair with such a pair) with no
+   * pair without the top card, the board's pair with such a pair, or, added
+   * the same day on its own measurement of 28 bets, hand net -1,008.2 bb, an
+   * overpair: a pocket pair above the top card of an unpaired board) with no
    * nut flush draw, under eight straight outs, under four nut-straight outs
    * and no flush draw with four or more straight outs, not nut
-   * class: a bet becomes a check (HorsePlo6MultiwayWeakBet.ts). No opponent
+   * class: a bet becomes a check (HorsePlo6MultiwayWeakBet.ts). The overpair
+   * class is not omahaBareOverpairOopFlopCheck, which is PLO4/PLO5, the flop,
+   * the last preflop aggressor out of position: this one is PLO6, flop and
+   * turn, two or more opponents, any position. No opponent
    * read. Default OFF (opt-in, read `=== true`); development evidence on five
    * days and mostly one opponent, unevaluated
    * (docs/horse-option-authority.d/plo6NoMultiwayBetWithWeakMadeHand.md);

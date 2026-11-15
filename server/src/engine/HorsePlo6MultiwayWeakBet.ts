@@ -20,15 +20,18 @@
  * (plo6WeakMadeHand): one pair below the board's top card (a pocket pair
  * under it, or a pair with a lower board card), two pair without the board's
  * top card (bottom two pair on the flop; on the turn any two pair that does
- * not hold the top rank), or the board's own pair with such a pair. It holds
+ * not hold the top rank), the board's own pair with such a pair, or an
+ * overpair (a pocket pair above the top card of an unpaired board; added
+ * 2026-11-15 on its own measurement, THE OVERPAIR below). It holds
  * no qualifying draw (plo6QualifyingDraw): no nut flush draw, fewer than
  * eight straight outs, fewer than four outs to the nut straight, and no
  * combo draw (a flush draw of any rank with four or more straight outs). It
  * is not nut class (omahaNutClassNow). Then a bet becomes a check.
  *
  * It never turns a check into anything, never touches a decision facing a
- * bet, a heads-up pot, the river, top pair, an overpair, top and any other
- * pair, a set or better, a hand with the qualifying draw, or a nut-class hand. It
+ * bet, a heads-up pot, the river, top pair, an overpair on a paired board,
+ * top and any other pair, a set or better, a hand with the qualifying draw,
+ * or a nut-class hand. It
  * reads hero's cards, the board and the public seats; it draws no random
  * number, calls no telemetry and keeps no state (the caller fires
  * PLO6_MULTIWAY_WEAK_BET_RECEIPT).
@@ -38,9 +41,10 @@
  * more still live) and on the street; bet size and pot size were measured
  * and neither separates the losses (below), and a check has no price to
  * weigh. Defence on bad ground: with six cards each opponent holds fifteen
- * two-card hands, so a pair under the top card multiway is rarely best and
- * is rarely folded to (the bets below made every opponent fold 7 times in
- * 62). Nut and combo draws stay aggressive: the draw keeps the bet.
+ * two-card hands, so one pair multiway, under the top card or over it, is
+ * rarely best and is rarely folded to (the bets below made every opponent
+ * fold 12 times in 90). Nut and combo draws stay aggressive: the draw keeps
+ * the bet.
  *
  * MEASURED (development evidence, unevaluated). Population: every Horse
  * decision with a person live in PLO6 cash, 2026-11-10T21:30Z to
@@ -59,6 +63,9 @@
  * "Hand net" is the Horse's result for the whole hand, not the value of the
  * bet; a hand is counted once per row. removed = the bet would become a
  * check; lost / won = hands with a result of zero or less / above zero.
+ * The rows from here to "Decisions taken from it" are the five classes built
+ * first, WITHOUT the overpair; the overpair's own rows and the totals of the
+ * final rule (90 bets, -2,715.1 bb) follow under THE OVERPAIR.
  *
  *   multiway flop and turn bets, all hands        454 bets, +3,827.4 bb
  *   CHOSEN (this file) removed                     62 bets in 59 hands,
@@ -118,18 +125,77 @@
  *     12 to 25 bb 27: -336.0, over 25 bb 22: -1,048.0; called 39 (-915.6),
  *     raised 14 (-598.3, all 14 lost)
  *
+ * THE OVERPAIR (added 2026-11-15; measured before it was built, on the same
+ * 912 hands with the same method and this file's own functions;
+ * MULTIWAY-WEAK-BET-WIRING.md section 13). Multiway flop and turn bets with
+ * a pocket pair above the top card of an unpaired board, one pair the best
+ * hand (bets: net; lost; won; ratio):
+ *   every such bet                    44 bets in 41 hands: -810.7 bb; lost
+ *     21 hands -1,746.2; won 20 hands +935.5; 1.87
+ *   with no qualifying draw (REMOVED) 28 bets in 26 hands: -1,008.2 bb; lost
+ *     15 hands -1,406.3; won 11 hands +398.1; 3.53
+ *   kept by the draw                  16 bets in 16 hands: +276.3 bb; lost 6
+ *     hands -339.9; won 10 hands +616.2; 0.55 (nut flush draw 8: +139.3;
+ *     eight or more straight outs 4: -39.8; four or more nut-straight outs
+ *     3: +98.0; combo draw 1: +78.8). This is the cost side the draw test
+ *     avoids.
+ *   the removed 28 by cell:
+ *   flop 26: -1,008.2; -1,406.3; +398.1; 3.53
+ *   turn 2: -229.4, both lost (both hands also hold one of the flop bets)
+ *   aces 11: -419.5; -506.9; +87.4; 5.80
+ *   kings 10: -466.6; -644.8; +178.2; 3.62
+ *   queens or lower 7: -122.0; -254.6; +132.5; 1.92
+ *   two opponents 16: -891.3; -1,038.0; +146.7; 7.08
+ *   three or more 12: -116.9; -368.3; +251.4; 1.46
+ *   dry board (three suits, no three ranks inside five) 8: -500.2; -601.5;
+ *     +101.3; 5.94
+ *   two-tone, monotone or connected board 20: -737.4; -1,034.1; +296.8; 3.48
+ *   pot under 12 bb 1: -9.3   12 to 25 bb 14: -401.7; -560.9; +159.2; 3.52
+ *   pot over 25 bb 13: -826.6; -1,065.4; +238.9; 4.46
+ *   answered by: everyone folded 5 (+90.9), called 17 (-621.8), raised 6
+ *     (-477.3)
+ * The bar, stated before any cell was read: build only if the removed set
+ * loses at least 2.0 to 1 on at least 20 bets and no cell of 8 or more bets
+ * known at the decision (street, rank, opponents, board, pot) has a ratio
+ * under 1.0. Met with no exclusion; the weakest such cell is three or more
+ * opponents (1.46). Cells under 8 bets that won and are removed all the
+ * same: queens or lower on a two-tone, monotone or connected board (6 bets,
+ * +50.0 bb), kings against three or more (4 bets, +17.4 bb), a flush draw
+ * that is not to the nuts with one to three straight outs (4 bets, +118.7
+ * bb). Left out on the evidence: an overpair on a PAIRED board (4 bets with
+ * no draw, +257.1 bb, all four won) and heads-up (27 bets, +213.3 bb).
+ * Not PLO Strategy's omahaBareOverpairOopFlopCheck (HorseOmahaOopChecks.ts):
+ * that option is PLO4 and PLO5 cash, the flop only, the Horse the last
+ * preflop aggressor and out of position, heads-up or multiway, with a
+ * heads-up continuation after its check; any flush draw keeps its bet. This
+ * class is PLO6, flop and turn, two or more opponents, any position, with
+ * the betting lead or without it, and this file's draw test. Neither acts
+ * in the other's games.
+ *
+ * THE FINAL RULE (the five classes and the overpair) removes 90 bets in 85
+ * hands, -2,715.1 bb: lost 58 hands -3,496.2 bb, won 27 hands +781.1 bb
+ * (4.48 to 1). Flop 68 bets -2,267.8 bb, turn 22 bets -722.9 bb; two
+ * opponents 43 (-1,903.4), three or more 47 (-868.1); everyone folded 12
+ * (+159.6). The same hands kept by the draw: 60 bets, +96.2 bb (lost 28
+ * hands -1,402.6, won 30 hands +1,498.8). Every other multiway flop/turn
+ * bet: 364 bets, +6,143.5 bb. The final spot was already checked 363 times.
+ *
  * Decisions taken from it. The river is left out: 3 such river bets in the
  * window (-80.1 bb), too few to rule on. The nut flush draw keeps the bet by
  * the owner's rule on nut draws although the 11 such bets lost (-274.7 bb):
  * owed to the evaluation, not decided here. Heads-up is out of scope by the
- * option's name; the same hands bet heads-up were 21 bets, -413.6 bb.
+ * option's name; the same hands bet heads-up were 21 bets, -413.6 bb (with
+ * the overpair 48 bets, -200.3 bb).
  * Tournaments: 3 such bets in 2 hands of the one tournament of the window
  * (+23.4 bb):
  * no evidence either way; allowed because the change only removes chips put
  * in.
  *
  * Limits. Five days; 7 persons, one of them in 667 of the 912 hands (57 of
- * the 62 removed bets had one person live), so this is mostly one opponent.
+ * the 62 removed bets had one person live; of the final 90, 82, and that one
+ * person was live at 74 of them and at 25 of the overpair's 28), so this is
+ * mostly one opponent. The overpair's cells are 1 to 26 bets: the bar it
+ * passed is a screen on five days, not an evaluation.
  * Whole-hand results, all-in luck not removed, no solver grade, rake as
  * recorded. The conditions were chosen on the same hands they are measured
  * on. It has had no paired evaluation: default OFF until it has one.
@@ -162,6 +228,8 @@ const RANK_VALUE: Record<string, number> = Object.fromEntries(
 
 /**
  * The weak made hands of this rule, by what the best two hole cards make:
+ *  - overpair: one pair, a pocket pair above the top card of an unpaired
+ *    board (on a paired board the same pocket pair is not in the class);
  *  - underpair: one pair, a pocket pair below the board's top card;
  *  - low_pair: one pair made with a board card that is not the top card;
  *  - bottom_two_pair: two pair without the top card of an unpaired board (on
@@ -172,6 +240,7 @@ const RANK_VALUE: Record<string, number> = Object.fromEntries(
  *    pair plus one of the two pairs above (two pair in name only).
  */
 export type Plo6WeakMadeHand =
+  | 'overpair'
   | 'underpair'
   | 'low_pair'
   | 'bottom_two_pair'
@@ -180,8 +249,9 @@ export type Plo6WeakMadeHand =
 
 /**
  * The weak made hand six hole cards hold on a flop or turn board, or null:
- * no pair of hero's own, top pair, an overpair, top two pair, top and any
- * other pair, a set or anything better is not one. The category is the engine's
+ * no pair of hero's own, top pair, an overpair on a paired board, top two
+ * pair, top and any other pair, a set or anything better is not one. The
+ * category is the engine's
  * own (omahaMadeClass: exactly two hole cards and three board cards).
  */
 export function plo6WeakMadeHand(
@@ -213,7 +283,9 @@ export function plo6WeakMadeHand(
   if (own <= 0) return null;
   if (category === ONE_PAIR) {
     // On a paired board one pair is the board's pair: no made hand of hero's.
-    if (paired || own >= top) return null;
+    if (paired || own === top) return null;
+    // Above the top card of the board the pair is a pocket pair: an overpair.
+    if (own > top) return 'overpair';
     return own === pocket ? 'underpair' : 'low_pair';
   }
   if (!paired) {

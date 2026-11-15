@@ -31,9 +31,20 @@ An independent review of the branch found two poker faults in the rule and sever
 - Before the fixes the numbers were 62 bets in 58 hands, -1,403.7 bb (4.33 to 1). The fixes were decided on the poker, not chosen on these numbers; 3 bets a side is too few to judge them.
 - Notes: the `omaha_owner_ruled_check_kept` ledger description names the PLO6 rule; three calibration entries (`OMAHA_OOP_TURN_TOKEN_PRICE`, `omahaStrongHandNow`, `OMAHA_WIDE_RERAISE_MIN_RATE`) are labelled `kept_plo5_unmeasured` because no PLO6 measurement file backs them; a unit case tests the rule's own game-name check alone; the authority file states that an all-in opponent counts as live.
 
+## The overpair class (same day, measured before it was built)
+
+The sweep work had also found, and not built, bare overpair bets multiway. They were measured on the same 912 hands with the same method and the module's own functions, against a bar stated before the cells were read: build only if the removed set loses at least 2.0 to 1 on at least 20 bets, and no cell of 8 or more bets known at the decision has a ratio under 1.0.
+
+- Measured: a multiway flop or turn bet with a pocket pair above the top card of an unpaired board and no qualifying draw: 28 bets in 26 hands, hand net -1,008.2 bb (lost 15 hands -1,406.3 bb, won 11 hands +398.1 bb, 3.53 to 1). Aces 11 bets -419.5 bb, kings 10 bets -466.6 bb, queens or lower 7 bets -122.0 bb; two opponents 16 bets -891.3 bb, three or more 12 bets -116.9 bb. The bar is met with no exclusion.
+- The same overpairs with a qualifying draw won (16 bets, +276.3 bb): the draw test keeps them.
+- Built: `plo6WeakMadeHand` returns a sixth class, `overpair`. Same spot, same draw exemptions, same nut-class exclusion. An overpair on a paired board is not in the class (4 bets, +257.1 bb), and heads-up stays out (27 bets, +213.3 bb).
+- The option now removes 90 bets in 85 hands, hand net -2,715.1 bb (lost 58 hands -3,496.2 bb, won 27 hands +781.1 bb, 4.48 to 1; flop 68 bets -2,267.8 bb, turn 22 bets -722.9 bb). The Evidence section above gives the five classes without the overpair.
+- This is not PLO Strategy's `omahaBareOverpairOopFlopCheck`: that option is PLO4 and PLO5 cash, the flop only, the Horse the last preflop aggressor and out of position. This class is PLO6, flop and turn, two or more opponents, any position.
+- With the option off nothing changes; no PLO4 or PLO5 decision changes. The league reach count was not re-run. 25 of the 28 bets were against the same one person: a screen, not an evaluation.
+
 ## Tests
 
-`HorsePlo6MultiwayWeakBetWiring.test.ts` (through `HorseLogic.decide`, invented cards): unset equals false at every seed and no receipt; on, every bet in the spot becomes a check and the receipt fires once per bet; unchanged heads-up, in PLO5, facing a bet, with the nut flush draw and with a nut-class hand; a later rule's bet does not stand. `responseValidation.test.ts`: the admitted and refused transitions.
+`HorsePlo6MultiwayWeakBetWiring.test.ts` (through `HorseLogic.decide`, invented cards): unset equals false at every seed and no receipt; on, every bet in the spot becomes a check and the receipt fires once per bet; unchanged heads-up, in PLO5, facing a bet, with the nut flush draw and with a nut-class hand; a later rule's bet does not stand. `responseValidation.test.ts`: the admitted and refused transitions. `HorsePlo6MultiwayWeakBet.test.ts`: the overpair checked three-way with no draw on the flop and the turn, kept heads-up, kept with each qualifying draw, not in the class on a paired board; a set, top pair and top two pair untouched.
 
 ## Not done
 
