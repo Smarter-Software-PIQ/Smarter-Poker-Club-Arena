@@ -17,6 +17,7 @@ import React, { useCallback, useMemo, useState, useEffect, useRef } from 'react'
 import TableMenu, { createDefaultMenuSections, type MenuSection } from './TableMenu';
 import { TileViewIcon } from './TableMenuIcons';
 import { masterBus } from '../../core/MasterBus';
+import { HUB_SOCIAL_FEED_PATH } from '../../utils/hubTab';
 import { formatGameTitle } from '../../utils/formatGameTitle';
 import { useButtonImage } from '../../hooks/useButtonImage';
 import { isTournamentGameCode } from '../../utils/gameCode';
@@ -1108,7 +1109,7 @@ export function TableTabBar({
               [
                 ['Open Lobby', onOpenLobby ? () => onOpenLobby() : null],
                 ['Open Hub', onOpenHub ? () => onOpenHub('/hub') : null],
-                ['Social', onOpenHub ? () => onOpenHub('/hub/social') : null],
+                ['Social', onOpenHub ? () => onOpenHub(HUB_SOCIAL_FEED_PATH) : null],
                 ['Messages', onOpenHub ? () => onOpenHub('/hub/messenger') : null],
               ] as const
             ).map(([label, fn]) =>

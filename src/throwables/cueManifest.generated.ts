@@ -112,6 +112,9 @@ export const THROWABLE_CUE_MANIFEST: Record<string, CueManifestEntry> = {
   cheese_pull: { placeholder: false, license: 'CC0-1.0' },
   bubble_pop: { placeholder: false, license: 'CC0-1.0' },
   rose_kiss: { placeholder: false, license: 'CC0-1.0' },
+  grizzly_warning: { placeholder: false, license: 'CC0-1.0' },
+  grizzly_growl: { placeholder: false, license: 'CC0-1.0' },
+  sushi_chop: { placeholder: false, license: 'Own-Synthesis' },
 };
 
 export const THROWABLE_CUE_ALLOWED_LICENSES: readonly string[] = [

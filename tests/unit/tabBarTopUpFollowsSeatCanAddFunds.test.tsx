@@ -74,6 +74,22 @@ describe('TableTabBar', () => {
     return screen.getByRole('menu');
   };
 
+  it('opens the World Hub social feed from the add-tab menu', () => {
+    const onOpenHub = vi.fn();
+    render(
+      <TableTabBar
+        tabs={[tab()]}
+        activeTabId="table-1"
+        onTabSelect={() => {}}
+        onAddTable={() => {}}
+        onOpenHub={onOpenHub}
+      />
+    );
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Open Another Table' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Social' }));
+    expect(onOpenHub).toHaveBeenCalledWith('/hub/social-media');
+  });
+
   it('omits both items at a seat that reported it cannot add funds', () => {
     const menu = open([tab({ canAddFunds: false })]);
     expect(menu.textContent).toContain('Sit Out');

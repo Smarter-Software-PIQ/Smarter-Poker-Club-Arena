@@ -1692,3 +1692,15 @@
   max-width: 100%;
   overflow-wrap: anywhere;
 }
+
+.mm-history__filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr));
+  align-items: end;
+  gap: 0.5rem;
+}
+
+.mm-history__filters select {
+  min-height: 44px;
+  font-size: 16px;
+}

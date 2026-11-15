@@ -21,11 +21,14 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
+  findTournamentSeatTab,
+  followTournamentMoves,
   isFreeSlot,
   isLobbyLike,
   isTournamentRow,
   pickObserveSlot,
   pruneStaleSeatedTabs,
+  supersededTournamentSeats,
   type SlotTab,
 } from '../../src/utils/tabSlots';
 
@@ -158,5 +161,56 @@ describe('a table the server moved you off is closed on rebuild', () => {
   it('keeps every tab when the server still has all the seats', () => {
     const tabs = [rebuiltTab('A'), seatedTab('B'), lobbyTab];
     expect(pruneStaleSeatedTabs(tabs, new Set(['A', 'B']))).toHaveLength(3);
+  });
+});
+
+describe('an MTT balance move re-points the chair tab, whichever source lands first', () => {
+  /**
+   * Owner 2026-11-14: a table balance / break SOMETIMES opened the destination
+   * as a new tab and left the old table open to watch. The engine writes the
+   * destination chair before closing the source, and the seat poll
+   * (TABLE_SEATED) or the seat rebuild could land in that window before the
+   * socket / INSERT re-point. Both used to append the destination.
+   */
+  const T = 'mtt-1';
+  const chair = (id: string): SlotTab => ({ id, kind: 'table', seated: true, tournamentId: T });
+  const repoint = (tab: SlotTab, dest: string): SlotTab => ({ ...tab, id: dest });
+
+  it('TABLE_SEATED for the destination finds the tournament chair to re-point', () => {
+    const tabs = [lobbyTab, chair('A'), seatedTab('CASH')];
+    expect(findTournamentSeatTab(tabs, 'B', T)).toBe(1);
+    // Another tournament, a watch of the same event and a cash seat are not the chair.
+    expect(findTournamentSeatTab(tabs, 'B', 'mtt-2')).toBe(-1);
+    expect(findTournamentSeatTab([{ ...chair('A'), followPlayer: {} }], 'B', T)).toBe(-1);
+    expect(findTournamentSeatTab(tabs, 'B', undefined)).toBe(-1);
+  });
+
+  it('a rebuild that reads both chairs mid-move re-points in place instead of adding a tab', () => {
+    const prev = [lobbyTab, chair('A')];
+    const seats = [
+      { tableId: 'A', tournamentId: T, joinedAt: '2026-11-14T10:00:00Z' },
+      { tableId: 'B', tournamentId: T, joinedAt: '2026-11-14T11:00:00Z' },
+    ];
+    const superseded = supersededTournamentSeats(seats);
+    expect([...superseded]).toEqual(['A']);
+    const live = seats.filter((s) => !superseded.has(s.tableId));
+    const { tabs, movedFrom } = followTournamentMoves(prev, live, repoint);
+    const after = pruneStaleSeatedTabs(tabs, new Set(live.map((s) => s.tableId)));
+    // Same slot, no extra tab, old table not left open.
+    expect(after.map((t) => t.id)).toEqual(['lobby:1', 'B']);
+    expect(movedFrom).toEqual(['A']);
+  });
+
+  it('leaves separate tournaments and cash tables as separate tabs', () => {
+    const prev = [chair('A'), seatedTab('CASH')];
+    const live = [
+      { tableId: 'A', tournamentId: T },
+      { tableId: 'CASH', tournamentId: null },
+      { tableId: 'C', tournamentId: 'mtt-2' },
+    ];
+    expect(supersededTournamentSeats(live).size).toBe(0);
+    const { tabs, movedFrom } = followTournamentMoves(prev, live, repoint);
+    expect(tabs.map((t) => t.id)).toEqual(['A', 'CASH']);
+    expect(movedFrom).toEqual([]);
   });
 });
