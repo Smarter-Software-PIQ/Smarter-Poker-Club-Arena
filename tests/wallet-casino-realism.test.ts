@@ -101,7 +101,7 @@ describe('wallets can send, receive and earn - wired to the real doors', () => {
   });
 
   it('receives: player id, profile link and every credit in the diamond ledger', () => {
-    expect(PAGE).toContain('navigator.clipboard.writeText(text)');
+    expect(PAGE).toContain("copyTextShared(text, 'PlayerWalletPage.copy')");
     // The read moved into useDiamondLedger on 2026-09-05 (see the pagination
     // suite below); the pin moved with it rather than being dropped.
     expect(LEDGER).toContain(".from('diamond_transactions')");

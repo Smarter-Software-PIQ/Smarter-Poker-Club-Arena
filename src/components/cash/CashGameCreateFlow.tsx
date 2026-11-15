@@ -979,8 +979,8 @@ export default function CashGameCreateFlow({
                   stakes.bb,
                   variant || 'nlh',
                   stakes.sb,
-                  cashPolicyVersion === 1
-                    ? override
+                  cashPolicyVersion !== null && cashPolicyVersion !== 0
+                    ? { ...override, policyVersion: cashPolicyVersion }
                     : { rakePercent: override?.rakePercent, rakeCapBB: override?.rakeCapBB }
                 );
                 const capInBB = stakes.bb > 0 ? priced.rakeCap / stakes.bb : 0;

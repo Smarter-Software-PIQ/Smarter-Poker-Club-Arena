@@ -5,7 +5,9 @@ describe('cash rake display follows the serving engine contract', () => {
   it.each([
     [{ version: 'legacy' }, 0],
     [{ version: 'new', cashRakePolicyVersion: 1 }, 1],
-    [{ version: 'future', cashRakePolicyVersion: 2 }, null],
+    [{ version: 'future', cashRakePolicyVersion: 2 }, 2],
+    [{ version: 'unknown', cashRakePolicyVersion: 3 }, 3],
+    [{ version: 'unknown', cashRakePolicyVersion: 4 }, null],
     [{}, null],
   ])('reads %j as %s', async (body, expected) => {
     const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => body });

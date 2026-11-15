@@ -15,7 +15,7 @@
     ".github/workflows/unpaid-lightning-funding-contracts.yml": "5a2a703ad7d198e1154ee7e5adcab6ea2b774981957c0027344b4c0a8f6f1e7d",
     "scripts/ci/contract-index-recovery.mjs": "f348be2a919456e08ec9293bfc0f36b6af0be254588d379bfd3cca297e55bd7c",
     "scripts/ci/contract-index-recovery.test.mjs": "8727c21046ea29fe1a01fb3433ee0d94f975c4e91805a52e0e0673b6671c6e98",
-    "scripts/ci/apply-recorded-migration.mjs": "a0fe1c2fca5a26ba3c2e7deff8b59d86ef6c9bcdabababce85a5f47b4b17faaa",
+    "scripts/ci/apply-recorded-migration.mjs": "bac977604d8c65ab93cf1f115b3d19496fab1f67593ad5f8571e7124e59540ac",
     ".github/workflows/apply-merged-migration.yml": "873b7e1f39837dd4fd93624f5ba2d5a258137983eb415abd72a71b7c93887139",
     "docs/changelog/2026-10-28-cash-selector-bounded-build-recovery.md": "30ec99aca57f738f841167aefca2c47c8c68cda088f7b6189b3e46e532137f1e",
     "scripts/ci/fixtures/cash-link-union-proof-index/actual-function-cold-plans.py": "31974fb62fbb677047a80686903e6c96f8f11db1a64c8bc0daccb5242c17ac7d"
@@ -152,5 +152,11 @@
     "before": "852f6f3fa0d897072353903152fb60b8a330f57d0ccaf9489d20c95e16fdbef7",
     "after": "873b7e1f39837dd4fd93624f5ba2d5a258137983eb415abd72a71b7c93887139",
     "review": "Reviewed exact diff. Three changes only: the workflow token gains pull-requests: read so the dispatch-intent proof can read the merged pull request a pull_request_target sender cites; the apply job's if compares github.actor as well as github.triggering_actor (github.actor survives a re-run) and refuses a re-run started by github-actions[bot] (one fewer redundant parenthesis pair around the unchanged admission); and the proof step runs whenever either actor is a bot other than the Autopilot App. The migration selection, queue, applier command, timeouts, environment and secret names are unchanged; no qualification result or financial proof changed."
+  },
+  "aRecordingAnswersFromTheHistory20261115": {
+    "path": "scripts/ci/apply-recorded-migration.mjs",
+    "before": "a0fe1c2fca5a26ba3c2e7deff8b59d86ef6c9bcdabababce85a5f47b4b17faaa",
+    "after": "bac977604d8c65ab93cf1f115b3d19496fab1f67593ad5f8571e7124e59540ac",
+    "review": "The only change in apply-recorded-migration.mjs: one import of classifyMigration from recording-only.mjs, and a transaction-shape refusal that waits for the existing schema_migrations read when the file is a manifest-verified recording (manifestMatched, judged on the bytes this run read). Installed: the existing ALREADY-APPLIED path, nothing sent. Not installed: refused for its shape exactly as before, before anything is sent. A recording's preamble is empty, so no index is built and shape.body is never read for it. Every other file is still refused on the spot. Nothing sent, bound or recorded for an installable migration changes. Found when run 43675732635 refused the byte-exact recording of 20261115001336 (#10913) that the dispatcher had sent expecting ALREADY-APPLIED."
   }
 }

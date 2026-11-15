@@ -33,7 +33,7 @@ import {
   breakMiniState,
   breakWaitingLabel,
 } from './breakScreenCopy';
-import { publicOrigin, IS_NATIVE_BUILD, isNativePlatform } from '../../lib/appBase';
+import { shareLink, tournamentShareUrl } from '../../lib/share';
 import './TournamentBreakScreen.css';
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -196,6 +196,7 @@ export function TournamentBreakScreen({
   }, [isVisible, tournamentId, !!addOnNotice, breakEndsAtMs]);
   const sharing = useRef(false);
   const [shareMessage, setShareMessage] = useState('');
+  const [shareFallbackUrl, setShareFallbackUrl] = useState('');
   const shareTournament = async () => {
     if (sharing.current) return;
     if (!tournamentId) {
@@ -204,20 +205,20 @@ export function TournamentBreakScreen({
     }
     sharing.current = true;
     setShareMessage('');
-    const url = `${publicOrigin()}/hub/club-arena/tournaments/${encodeURIComponent(tournamentId)}`;
+    setShareFallbackUrl('');
+    const url = tournamentShareUrl(tournamentId);
     try {
-      if (IS_NATIVE_BUILD && isNativePlatform()) {
-        const { nativeShareText } = await import('../../lib/native/share');
-        await nativeShareText(tournamentName, '', url);
-      } else if (typeof navigator.share === 'function') {
-        await navigator.share({ title: tournamentName, url });
-      } else {
-        await navigator.clipboard.writeText(url);
-        setShareMessage('Tournament Link Copied');
-      }
-    } catch (error) {
-      if (!(error instanceof Error && error.name === 'AbortError')) {
-        setShareMessage('Could Not Share Tournament. Please Try Again.');
+      /* src/lib/share.ts: sheet, then clipboard, then the link itself on
+         screen. A sheet that refuses no longer ends the tap. */
+      const outcome = await shareLink({
+        source: 'TournamentBreakScreen.share',
+        title: tournamentName,
+        url,
+      });
+      if (outcome === 'copied') setShareMessage('Tournament Link Copied');
+      else if (outcome === 'failed') {
+        setShareMessage('Could Not Share Tournament. Copy The Link Below.');
+        setShareFallbackUrl(url);
       }
     } finally {
       sharing.current = false;
@@ -550,10 +551,7 @@ export function TournamentBreakScreen({
     return Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) : 0;
   }, [countingDown, displayTime, breakTotalSeconds]);
 
-  const getTimerColor = () => {
-    if (!countingDown) return '#45adff';
-    return displayTime <= 10 ? '#ff5b6e' : '#ffd700';
-  };
+  const timerColor = countingDown && displayTime <= 10 ? '#e4e7ec' : '#45adff';
   const waitingForResume = countingDown && displayTime === 0;
 
   // Expiry retires this presentation only. The engine still owns all play
@@ -667,6 +665,7 @@ export function TournamentBreakScreen({
     <div
       className="break-screen"
       role="dialog"
+      data-popup-chassis="none"
       aria-modal="false"
       aria-labelledby="break-title"
       onKeyDown={(event) => {
@@ -685,12 +684,14 @@ export function TournamentBreakScreen({
           title={breakConsoleTitle(!!addOnNotice, extendedForDailyUpdate)}
           onClose={() => setMinimized(true)}
           pill="Share"
-          pillInk="gold"
           foot="foot"
         >
           {shareMessage && (
             <p className="break-screen__share-message" role="alert">
               {shareMessage}
+              {shareFallbackUrl && (
+                <span className="break-screen__share-link">{shareFallbackUrl}</span>
+              )}
             </p>
           )}
           <h1 id="break-title" className="break-screen__title">
@@ -723,7 +724,7 @@ export function TournamentBreakScreen({
                       ? 'Last Hand In Play'
                       : 'Waiting For Tables To Finish'
                 }
-                style={{ color: getTimerColor() }}
+                style={{ color: timerColor }}
               >
                 {countingDown ? formatTime(displayTime) : addOnNotice ? 'Last Hand' : 'Waiting'}
               </span>
@@ -733,7 +734,7 @@ export function TournamentBreakScreen({
                   d="M0 2 H200"
                   pathLength="100"
                   strokeDasharray={`${progressPercent} 100`}
-                  style={{ stroke: getTimerColor() }}
+                  style={{ stroke: timerColor }}
                 />
               </svg>
             </div>
@@ -928,16 +929,18 @@ export function TournamentBreakScreen({
                     className={`break-screen__leader ${player.isCurrentUser ? 'break-screen__leader--me' : ''}`}
                   >
                     <span className="break-screen__leader-rank">{player.rank}</span>
-                    {player.avatar ? (
-                      <img
-                        className="break-screen__leader-avatar"
-                        src={player.avatar}
-                        alt=""
-                        loading="lazy"
-                      />
-                    ) : null}
-                    <span className="break-screen__leader-name">{player.playerName}</span>
-                    {player.isCurrentUser && <span className="break-screen__you">You</span>}
+                    <span className="break-screen__leader-player">
+                      {player.avatar ? (
+                        <img
+                          className="break-screen__leader-avatar"
+                          src={player.avatar}
+                          alt=""
+                          loading="lazy"
+                        />
+                      ) : null}
+                      <span className="break-screen__leader-name">{player.playerName}</span>
+                      {player.isCurrentUser && <span className="break-screen__you">You</span>}
+                    </span>
                     <span
                       className="break-screen__leader-stack"
                       title={player.stack.toLocaleString('en-US')}

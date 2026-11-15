@@ -3,7 +3,16 @@ import json
 import re
 from pathlib import Path
 from ordinary_terminal_transport import compose, DATA
-from satellite_bubble_handoff import MIGRATION, transport, satellite_lease_overlay, bubble_handoff
+from satellite_bubble_handoff import MIGRATION, transport, satellite_lease_overlay, bubble_handoff, install_original_request
+
+# The final-deal doors' manager scope check, as production installs it.
+# Until 2026-11-15 this fixture read the never-installed Stage-B body from
+# 20260910055955_stage_b_current_postimage_contraction.sql.pending and emulated
+# a hook marker (app.smarter_manager_request_fenced) production never sets, so
+# the proposal deal passed here while production raised 42883 at every door.
+SCOPE_MIGRATION = 'supabase/migrations/20261115052022_the_final_deal_manager_scope_resolves_and_the_v2_place_branc.sql'
+SCOPE_REVOKE = ('REVOKE ALL ON FUNCTION public.fn_assert_tournament_manager_write_scope(uuid)\n'
+                '  FROM PUBLIC, anon, authenticated, service_role;')
 from satellite_qualifier_fixture import sha
 
 
@@ -60,8 +69,8 @@ def qualify(e, root, output, satellite_template=None, satellite_probe=None, qual
         root / 'server/src/tournament/satelliteQualifierRpc.ts', root / 'server/src/services/supabase/dataActorContext.ts']
     hashes.update({str(p.relative_to(root)): sha(p) for p in transport_inputs})
     transport_proofs = []
-    def run_transport(database, kind, event, winner):
-        transport_proofs.append(transport(e, root, output, database, kind, event, winner))
+    def run_transport(database, kind, event, winner, installed=False):
+        transport_proofs.append(transport(e, root, output, database, kind, event, winner, installed))
     for kind in ['mtt', 'sng', 'spin']:
         database = e.database()
         e.sql(database, file=foundation, label='durable-' + kind + '-catalog', seconds=180)
@@ -86,10 +95,14 @@ UPDATE public.tournaments SET current_players=2,status='RUNNING',started_at=now(
 """ + deal_seed[stop:]
     deal_opening = output / 'deal-opening.sql'
     deal_opening.write_text(deal_seed)
-    scope_path = root / 'supabase/migrations/20260910055955_stage_b_current_postimage_contraction.sql.pending'
-    scope = re.findall(r'(CREATE OR REPLACE FUNCTION public\.fn_assert_tournament_manager_write_scope\(.*?AS (\$[^$]*\$).*?\2;)', scope_path.read_text(), re.S)
-    if len(scope) != 1:
+    scope_path = root / SCOPE_MIGRATION
+    scope_source = scope_path.read_text()
+    scope = re.findall(r'(CREATE FUNCTION public\.fn_assert_tournament_manager_write_scope\(.*?AS (\$[^$]*\$).*?\2;)', scope_source, re.S)
+    if len(scope) != 1 or scope_source.count(SCOPE_REVOKE) != 1:
         raise RuntimeError('exact manager scope source missing')
+    if 'smarter_manager_request_fenced' in scope[0][0] or \
+            'smarter_private.assert_terminal_request_generation(p_tournament_id, v_generation)' not in scope[0][0]:
+        raise RuntimeError('manager scope must assert the durable terminal door authority')
     expansion = root / 'scripts/deploy/phase-three-versioned-final-deal.sql'
     activation = root / 'scripts/deploy/phase-three-activate-versioned-final-deal.sql'
     consent = root / 'scripts/ci/fixtures/terminal-original-request/deal-consent.sql'
@@ -100,14 +113,15 @@ UPDATE public.tournaments SET current_players=2,status='RUNNING',started_at=now(
         database = e.database()
         e.sql(database, file=foundation, label='durable-' + kind + '-catalog', seconds=180)
         e.sql(database, file=deal_opening, label='durable-' + kind + '-funded-opening', seconds=90)
-        e.sql(database, scope[0][0], label='durable-' + kind + '-exact-manager-scope')
+        install_original_request(e, root, database, kind)
+        e.sql(database, scope[0][0] + '\n' + SCOPE_REVOKE, label='durable-' + kind + '-exact-manager-scope')
         e.sql(database, file=expansion, label='durable-' + kind + '-consent-expansion')
         if kind == 'PROPOSAL_DEAL':
             e.sql(database, file=activation, label='durable-proposal-activation')
             e.sql(database, file=consent, label='durable-real-participant-consent')
         else:
             e.sql(database, file=legacy_votes, label='durable-legacy-consent')
-        run_transport(database, kind, '92010000-0000-0000-0000-000000000001', '')
+        run_transport(database, kind, '92010000-0000-0000-0000-000000000001', '', installed=True)
     if satellite_template is not None:
         lease_overlay = satellite_lease_overlay(root, output)
         marker = 'CREATE FUNCTION pg_temp.satellite_full_assert('
