@@ -444,6 +444,24 @@ describe('the stored week, the parties and the amount due (week ending 2026-11-0
     );
   });
 
+  it('the unpaid balance and the tiles are after credit notes and payments', () => {
+    const value = fresh();
+    value.clubs[0].credit_notes = [{ invoice_number: 'MIDWAY-2026-000099', amount: 96919.54 }];
+    value.clubs[0].remaining_after_credits = 0;
+    const board = parseUnionStatementBoard(value, UNION, '2026-11-09');
+    expect(board.clubs[0].remaining_unpaid).toBe(0);
+    expect(board.totals).toMatchObject({
+      clubs_owe: 94348,
+      union_owes: 21.25,
+      net: 94326.75,
+      outstanding: 94369.25,
+    });
+    // A server that already subtracts credits from the row's outstanding is read the same.
+    value.clubs[0].outstanding = 0;
+    value.totals.outstanding = 94369.25;
+    expect(parseUnionStatementBoard(value, UNION, '2026-11-09').clubs[0].remaining_unpaid).toBe(0);
+  });
+
   it('refuses a house flag that is not the club_id = union id identity', () => {
     const value = fresh();
     value.clubs[0].union_house = true;
