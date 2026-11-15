@@ -1307,7 +1307,6 @@ export default function MemberManagementPage() {
         )}
 
         {detail!.capabilities.can_view_financials &&
-          isAgentRole(identity!.role) &&
           resolvedClubId &&
           memberUuid &&
           user?.id &&
