@@ -112,3 +112,7 @@ a six-handed in-the-money final table that carries a stack list (the other
 league tournament contexts carry none, so the option cannot act there); the
 league scores chips, so the card measures the option's chip cost, not its
 value, and it has not been run. Pools are assumed.
+
+## Dependency on the paid-bust valuation (2026-11-15, Hand Analysis D1)
+
+`nashPushFoldIcm` on implies the paid-bust valuation of `icmBustPaysPlace` for the decision (`HorseLogic.decide` opens `withIcmBustPaysPlace` when either option is true). With `nashPushFoldIcm` alone the 2.1bb stack of hand 59441335 reads the factor of the payouts above ninth, not the cap of 5. Pinned in `AShortStackJamPricesThePayJump.law.test.ts`.
