@@ -3219,6 +3219,20 @@ export interface HorseDecideOpts {
    *  evaluation passed (2026-11-14, development fields); default-on still
    *  needs docs/HORSE-DECISION-CHANGE-EVIDENCE.md rows 2-5. */
   omahaTightOpponent?: boolean;
+  /** Omaha tight steal (owner ruling 2026-11-14 17:42 Chicago: the Omaha
+   *  tight requirement stays; build and evaluate a defensible response). The
+   *  STEAL half of omahaTightOpponent alone, in the Omaha high variants listed
+   *  in OMAHA_TIGHT_STEAL_VARIANTS (six-card only today): first in from late
+   *  position or the small blind with every player left to act a PROVEN tight
+   *  folder, the open bar comes down by half the fold-equity surplus
+   *  (HorseOmahaTightOpponent.omahaTightSteal, unchanged). The respect half is
+   *  NOT included: measured alone on six-card it is undecided
+   *  (plo6-audit-01TLQer9Hdf/phase1-play/tight-plo6-league). One option for
+   *  all Omaha (PLO Strategy, 2026-11-15): a variant joins the list in one
+   *  reviewed line when its own evaluation supports it. OPT-IN, default off,
+   *  read as `=== true`; omahaTightOpponent true still turns on both halves in
+   *  every Omaha high game, as before. */
+  omahaTightOpponentSteal?: boolean;
   /** Items 21 and 23 (2026-11-05): a planned barrel records the next-street
    *  contender set and stack-to-pot exposure it expects, and the next street
    *  withdraws the plan when a contender the plan never expected is still in
@@ -4762,6 +4776,11 @@ export const PLO6_RIVER_CHEAP_PRICE = 0.1;
 export const PLO6_RIVER_UNPAIRED_FOLD_BEAT_PROB = 0.3;
 /** Unpaired board, beaten this often: call at most, never raise. */
 export const PLO6_RIVER_UNPAIRED_RAISE_BEAT_PROB = 0.15;
+/** Omaha high variants in which omahaTightOpponentSteal acts. Six-card only:
+ *  the steal half's declared evaluation exists for six-card Omaha alone
+ *  (PLO6 audit archive, phase1-play/tight-plo6-league). A variant is added
+ *  here only with its own supporting evaluation, in a reviewed change. */
+export const OMAHA_TIGHT_STEAL_VARIANTS: ReadonlySet<string> = new Set(['plo6']);
 // Private, one-use provenance from the actual value branch. No request or
 // serialized decision field can grant the PLO6 low-commitment flat exception.
 const nearNutValueReferenceRaises = new WeakSet<HorseDecision>();
@@ -8953,8 +8972,15 @@ export class HorseLogic {
     let omahaTightOpener: OmahaTightOpener | undefined;
     let omahaTightReRaiser: OmahaTightReRaiser | undefined;
     let omahaTightSteal: OmahaTightSteal | undefined;
+    // The six-card steal-only arm runs the same reads and the same steal
+    // shift; it never reaches the respect branch.
+    const tightRespectOn = opts.omahaTightOpponent === true;
+    const tightStealOn =
+      tightRespectOn ||
+      (opts.omahaTightOpponentSteal === true &&
+        OMAHA_TIGHT_STEAL_VARIANTS.has(String(gs.gameVariant ?? '').toLowerCase()));
     if (
-      opts.omahaTightOpponent === true &&
+      tightStealOn &&
       opts.mind !== false &&
       vi.isOmaha &&
       !vi.isHiLo &&
@@ -8965,7 +8991,7 @@ export class HorseLogic {
       !gs.communityCards3?.length
     ) {
       try {
-        if (raises >= 1 && lastRaiserSeat >= 0) {
+        if (raises >= 1 && lastRaiserSeat >= 0 && tightRespectOn) {
           const raiserT = gs.players.find((p) => p.seat === lastRaiserSeat);
           const effT = raiserT
             ? Math.min(player.stack + player.bet, raiserT.stack + raiserT.bet) / bb

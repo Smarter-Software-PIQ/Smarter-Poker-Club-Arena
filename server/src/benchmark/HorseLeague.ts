@@ -1999,6 +1999,19 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaTightOpponent: true },
     b: {},
   })),
+  // 2026-11-14 OMAHA TIGHT STEAL (omahaTightOpponentSteal, default OFF): the
+  // steal half of omahaTightOpponent alone, in OMAHA_TIGHT_STEAL_VARIANTS
+  // (six-card only). Against a Horse field the evidence standard is rarely
+  // met, so this card is expected to be near inert; the declared evaluation
+  // is in the PLO6 audit archive (phase1-play/tight-plo6-league).
+  {
+    name: 'plo6_omaha_tight_opponent_steal',
+    variant: 'plo6',
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaTightOpponentSteal: true },
+    b: {},
+  },
   // V15 BOATS (2026-09-28): default OFF. a turns it on, b is today's brain.
   // Ship it default ON only after this resolves significant positive.
   // 2026-11-06: V15 boats is default ON in PLO5 cash (v15BoatsOn), so the
