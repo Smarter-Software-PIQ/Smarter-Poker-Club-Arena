@@ -44,7 +44,7 @@
 --
 -- NOT retired here, on purpose:
 --
---    * public.fn_player_home_club(uuid, uuid): the club look-up that picks the
+--    * public.fn_player_home_club, uuid and uuid: the club look-up that picks the
 --      club holding the player's largest balance. The audit's two uses of it in
 --      the Bad Beat Jackpot credit path (tables.club_id then
 --      fn_player_home_club, in bbj_credit_one_recipient) were already removed
