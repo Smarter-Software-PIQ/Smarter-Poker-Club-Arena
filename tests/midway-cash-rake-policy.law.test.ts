@@ -40,6 +40,16 @@ describe('owner rule: Midway cash caps are 2.5 BB and standalone clubs choose th
         }
       }
   });
+  it('prices the serving engine during rollout and rollback', () => {
+    for (const [policyVersion, expected] of [
+      [1, 25],
+      [2, 12.5],
+    ] as const) {
+      expect(getRakeConfig(10, 'nlh', 5, { scope: 'midway', policyVersion }).rakeCap).toBe(
+        expected
+      );
+    }
+  });
   it('connects physical, Lightning, displayed rules and frozen hand receipts', () => {
     for (const path of [
       'server/src/engine/ServerTableEngineBase.ts',
@@ -64,8 +74,8 @@ describe('owner rule: Midway cash caps are 2.5 BB and standalone clubs choose th
     expect(read('src/hooks/useEffectiveRake.ts')).toContain(
       'default_rake_percent, rake_cap, union_id'
     );
-    expect(read('src/hooks/useEffectiveRake.ts')).toMatch(/version === 1\s*\? override/);
-    expect(read('server/src/GameServer.ts')).toContain('cashRakePolicyVersion: 1');
+    expect(read('src/hooks/useEffectiveRake.ts')).toMatch(/policyVersion: version/);
+    expect(read('server/src/GameServer.ts')).toContain('cashRakePolicyVersion: 2');
   });
   it('runs native migration, future-write and history qualification in CI', () => {
     expect(read('.github/workflows/midway-cash-rake-policy.yml')).toContain(
