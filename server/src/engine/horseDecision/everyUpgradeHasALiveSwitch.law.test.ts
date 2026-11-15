@@ -596,6 +596,25 @@ describe('the owner order of 2026-11-14 22:01: every ledger option has an on/off
     expect(look.replayState.options).toEqual({ v16Hu: 'off', v62RiverBettorPolarity: 'on' });
     expect(w.features).toContain('option_switch_v62RiverBettorPolarity_on_seen');
   });
+
+  it('a worker that starts while a row names a refused option or decision plumbing never applies it, on its very first read', async () => {
+    for (const bad of [
+      'v54RiverBluff',
+      'phase13Joint',
+      'v87DeepDiveDiscipline',
+      'telemetry',
+      'mind',
+    ]) {
+      const w = opened({ wired: true });
+      expect(w.deliver(v2({ [bad]: 'on', v16Hu: 'off' }))).toBe(true);
+      const look = await w.fast();
+      for (const opts of look.opts) expect(switchedKeys(opts), bad).toEqual([]);
+      expect(look.replayState.version, bad).toBe(V3);
+      expect(w.features, bad).toContain('option_switch_config_invalid_seen');
+      expect(w.features, bad).not.toContain(`option_switch_${bad}_on_seen`);
+      await closeAll();
+    }
+  });
 });
 
 describe('the refused options are refused on both sides', () => {
