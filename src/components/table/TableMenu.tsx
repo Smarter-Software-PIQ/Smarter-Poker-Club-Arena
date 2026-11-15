@@ -77,7 +77,29 @@ export interface MenuAction {
    * PLAYING PAGE").
    */
   keepOpen?: boolean;
+  /**
+   * A switch's state, for assistive technology. Every `keepOpen` row is
+   * announced as a checkbox; when this is absent the row's ON badge decides.
+   */
+  checked?: boolean;
 }
+
+/**
+ * Rows that act on the hero's SEAT. A spectator has none, so each of these
+ * either did nothing (Stand Up Next Big Blind flipped a flag nothing read) or
+ * reached the page only to be told there is no seat. Dropped when the table
+ * page reports the hero is not seated; absent keeps them, as with
+ * `canAddFunds`. Leave Table stays: it is how a spectator closes the table.
+ */
+const SEAT_ONLY_ROWS = new Set([
+  'sitout',
+  'standup-bb',
+  'straddle',
+  'rebuy',
+  'addon',
+  'auto-top-up',
+  'leave-next-hand',
+]);
 
 export interface MenuSection {
   title?: string;
@@ -178,9 +200,13 @@ export function createDefaultMenuSections(
      * yet) keeps both, exactly as before.
      */
     canAddFunds?: boolean;
+    /** The table page's own answer to "does the hero hold a seat here". */
+    heroSeated?: boolean;
+    /** A straddle change is in flight; the row waits for the engine. */
+    straddleBusy?: boolean;
   }
 ): MenuSection[] {
-  return [
+  const sections: MenuSection[] = [
     {
       title: 'Quick Actions',
       actions: [
@@ -209,6 +235,7 @@ export function createDefaultMenuSections(
                 label: 'Straddle',
                 icon: <AddOnIcon />,
                 badge: state?.straddleBadge,
+                disabled: state?.straddleBusy === true,
                 keepOpen: true,
                 onClick: handlers.onToggleStraddle,
               },
@@ -297,7 +324,11 @@ export function createDefaultMenuSections(
           icon: <LeaderboardIcon />,
           onClick: handlers.onLeaderboard || (() => {}),
         },
-        ...(handlers.onSessionStats
+        /* Not at a tournament. This opens the cash session ledger (time at the
+           table, blinds, bought in, up or down), which has nothing to say
+           about a tournament entry. TablePage's own menu withheld it there;
+           that rule was lost with the menu nobody could open. */
+        ...(handlers.onSessionStats && !state?.isTournament
           ? [
               {
                 id: 'session-stats',
@@ -378,6 +409,13 @@ export function createDefaultMenuSections(
       ],
     },
   ];
+  if (state?.heroSeated !== false) return sections;
+  return sections
+    .map((section) => ({
+      ...section,
+      actions: section.actions.filter((action) => !SEAT_ONLY_ROWS.has(action.id)),
+    }))
+    .filter((section) => section.actions.length > 0);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -525,6 +563,7 @@ export function TableMenu({
           icon: <NameTagIcon />,
           badge: useRealName ? 'Real Name' : 'Username',
           keepOpen: true,
+          checked: useRealName,
           onClick: handleUseRealNameToggle,
         },
         ...(onOpenIdentity
@@ -741,17 +780,9 @@ export function TableMenu({
                       return (
                         <button
                           key={action.id}
-                          role={
-                            action.id === 'seat-change-visibility' || action.id === 'auto-time-bank'
-                              ? 'menuitemcheckbox'
-                              : 'menuitem'
-                          }
+                          role={action.keepOpen ? 'menuitemcheckbox' : 'menuitem'}
                           aria-checked={
-                            action.id === 'seat-change-visibility'
-                              ? seatChangeVisible
-                              : action.id === 'auto-time-bank'
-                                ? playerSettings.auto_time_bank
-                                : undefined
+                            action.keepOpen ? (action.checked ?? action.badge === 'ON') : undefined
                           }
                           className={`table-menu__action ${action.danger ? 'table-menu__action--danger' : ''} ${action.disabled ? 'table-menu__action--disabled' : ''}`}
                           onClick={() => handleActionClick(action)}

@@ -87,12 +87,33 @@ describe('every row is answered', () => {
     );
     expect(passed.length).toBeGreaterThan(10);
     const builder = sliceStatement(MENU, 'export function createDefaultMenuSections(');
-    const rows = builder.slice(builder.indexOf('return ['));
+    const rows = builder.slice(builder.indexOf('const sections: MenuSection[] = ['));
     for (const handler of passed) {
       expect(rows, `${handler} is passed to the menu and used by no row`).toMatch(
         new RegExp(`handlers\\.${handler}\\b`)
       );
     }
+  });
+});
+
+describe('one subscription answers the menu', () => {
+  it('the table page subscribes to TABLE_MENU_ACTION exactly once', () => {
+    expect(TABLE_PAGE.match(/useMasterBusSubscription\('TABLE_MENU_ACTION'/g) ?? []).toHaveLength(
+      1
+    );
+  });
+
+  it('and ignores a press addressed to any other table', () => {
+    const handler = sliceCall(TABLE_PAGE, "useMasterBusSubscription('TABLE_MENU_ACTION'");
+    expect(handler).toMatch(/if \(event\.tableId !== tableId\) return;/);
+    expect(handler).not.toMatch(/event: any/);
+  });
+});
+
+describe('nothing is left of the menu no table rendered', () => {
+  it('its lobby button has no styles and no script still looks for it', () => {
+    expect(read('src/pages/TablePage.css')).not.toContain('add-chips-icon-btn');
+    expect(read('e2e-live/multitable-walk.mjs')).not.toContain('add-chips-icon-btn');
   });
 });
 
@@ -103,6 +124,8 @@ describe('what the rows show is reported by the table page', () => {
     ['straddleEnabled', /straddleEnabled: isStraddleEnabled/],
     ['leaveNextHandQueued', /onTableInfoUpdate\?\.\(\{ leaveNextHandQueued \}\)/],
     ['isAutoRebuyEnabled', /onTableInfoUpdate\?\.\(\{ isAutoRebuyEnabled \}\)/],
+    ['straddleBusy', /straddleBusy,/],
+    ['heroSeated', /heroSeated: tableState\.heroSeat > 0/],
   ])('%s travels page -> tab -> menu', (field, report) => {
     expect(TABLE_PAGE).toMatch(report);
     expect(MULTI).toMatch(new RegExp(`${field}: t\\.${field}`));
