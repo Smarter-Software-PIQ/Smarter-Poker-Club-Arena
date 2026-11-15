@@ -5249,3 +5249,9 @@ button.post-bb-overlay-button {
     margin-top: var(--sp-nine-cap-room);
   }
 }
+
+/* Sizing is a DOM state. Hide the tools in the same paint as the overlay,
+   including the frame before the child effect reports its mode to React. */
+.table-page:has(.action-panel--raise) .table-hud__lower {
+  display: none;
+}

@@ -53,11 +53,10 @@ describe('the pause is said once', () => {
     expect(atOpen).not.toHaveBeenCalled();
   });
 
-  it('is wired into the table', () => {
+  it('does not display a paused countdown on the table after the November 15 owner correction', () => {
     const page = read('src/pages/TablePage.tsx').replace(/\s+/g, ' ');
-    expect(page).toContain(
-      'useCountdownPaused(heroHandCount, tableState.handNumber ?? 0, (hands) => toast.info(countdownPausedToastText(hands)) );'
-    );
+    expect(page).not.toContain('useCountdownPaused(');
+    expect(page).not.toContain('countdownPausedToastText(');
   });
 });
 

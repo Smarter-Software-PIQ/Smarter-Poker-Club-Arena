@@ -63,6 +63,9 @@ interface HandClock {
   marks: Array<[at: number, count: number, learnableRowKey: string | null]>;
 }
 const CLOCK_MARKS = 8;
+/** Consecutive failed completed-hand refreshes a shared exact row survives, counted on the player's own
+ * hand clock (hands they acted in since the row was last refreshed). Exported for tests. */
+export const MAX_FAILED_PROFILE_REFRESHES = 3;
 /** Owner-authorized herd notes. Public aggregate counters only; no card,
  * decision-plan, wager or caller-authored FAST packet enters this cache.
  * The existing accepted-hand broadcaster supplies every worker. No IO,
@@ -198,9 +201,29 @@ export class PooledPublicProfiles {
       );
     // A newer accepted action is known even when its profile read failed.
     // Never let stale aggregate counters suppress fresher individual learning.
+    // A FAILED REFRESH IS NOT A NEWER PROFILE (2026-11-15): when the read itself
+    // failed (durableOpponentProfilesRead 'failed'; busy or timed out behind an
+    // upstream queue, MEMORY-READ-ROOT-CAUSE.md), the saved database row is
+    // still complete and returns at the player's next successful read. The
+    // shared row is kept while the player has missed at most
+    // MAX_FAILED_PROFILE_REFRESHES refreshes on their own hand clock, so one
+    // stall does not drop every Horse to its thin individual read of that
+    // player; past that bound it is dropped as before. A successful read that
+    // returns no row for the actor still drops it.
     const returned = new Set(valid ? profiles.map((p) => p.user_id) : []);
-    for (const id of actors)
-      if (learningActors.has(id) && !returned.has(id)) this.invalidate(rowKey(id));
+    const readFailed = hand.durableOpponentProfilesRead === 'failed';
+    for (const id of actors) {
+      if (!learningActors.has(id) || returned.has(id)) continue;
+      const key = rowKey(id);
+      const kept = this.rows.get(key);
+      if (
+        readFailed &&
+        kept &&
+        (this.clocks.get(id)?.count ?? 0) - kept.clock <= MAX_FAILED_PROFILE_REFRESHES
+      )
+        continue;
+      this.invalidate(key);
+    }
     if (!valid) return 0;
     let learned = 0;
     for (const p of profiles) {

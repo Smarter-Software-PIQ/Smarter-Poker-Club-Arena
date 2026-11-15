@@ -518,7 +518,15 @@ export async function processLeavePending(
    * in a live Lightning hand, so the caller can retry THOSE seats on its next
    * pass without re-sweeping seats the stay clock is holding.
    */
-  onLightningDeferred?: (userId: string, occupancyId: string) => void
+  onLightningDeferred?: (userId: string, occupancyId: string) => void,
+  /**
+   * A SEAT STAYS UNTIL ITS POT HAS BEEN PUSHED (2026-11-15). Settlement runs
+   * while the hand is still being presented; a seat this answers true for is
+   * left exactly as it is (still leave_pending, nothing paid, not reported
+   * departed) and is cashed out by the next-hand sweep once the pot has
+   * landed. Absent everywhere except settlement.
+   */
+  holdSeat?: (userId: string, occupancyId: string) => boolean
 ): Promise<Array<{ userId: string; occupancyId: string }>> {
   /* Deliberately does NOT select `stack`. This query only ENUMERATES which
      seats asked to leave; the amount comes from the locked read inside
@@ -566,6 +574,7 @@ export async function processLeavePending(
 
   const cashedOut: Array<{ userId: string; occupancyId: string }> = [];
   for (const seat of pendingSeats) {
+    if (holdSeat?.(seat.user_id, seat.occupancy_id)) continue;
     const out: { lockedMs: number | null; failed: boolean; lightning: boolean } = {
       lockedMs: null,
       failed: false,

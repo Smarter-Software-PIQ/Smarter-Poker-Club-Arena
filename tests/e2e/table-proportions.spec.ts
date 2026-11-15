@@ -3529,3 +3529,132 @@ test.describe('observer avatar artwork allocations', () => {
   test.describe.configure({ mode: 'default' });
   registerObserverAvatarSizingCases();
 });
+
+test('six-max dealer stays fixed through hero wagers and sizing tools stay behind the raise panel', async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(90_000);
+  const { buildSync } = await import('esbuild');
+  const built = buildSync({
+    entryPoints: ['tests/e2e/support/portraitRailFixture.tsx'],
+    jsx: 'automatic',
+    outfile: 'seat-ui.js',
+    bundle: true,
+    write: false,
+    metafile: true,
+    format: 'iife',
+    platform: 'browser',
+    loader: {
+      '.css': 'empty',
+      '.png': 'dataurl',
+      '.webp': 'dataurl',
+      '.svg': 'dataurl',
+      '.jpg': 'dataurl',
+    },
+    define: {
+      'import.meta.env': JSON.stringify({
+        VITE_SUPABASE_URL: 'https://kuklfnapbkmacvwxktbh.supabase.co',
+        VITE_SUPABASE_ANON_KEY: 'local-fixture',
+        DEV: true,
+      }),
+      'process.env.NODE_ENV': '"test"',
+    },
+  });
+  const readStyle = (file: string): string =>
+    readFileSync(resolve(process.cwd(), file), 'utf8').replace(
+      /^\s*@import\s+(?:url\()?['"]([^'"]+)['"]\)?\s*;/gm,
+      (_, child: string) => readStyle(resolve(dirname(file), child))
+    );
+  const sheets = [
+    ...new Set([
+      'src/styles/club-engine.css',
+      'src/styles/animations.css',
+      'src/styles/metallic-popups.css',
+      'src/pages/MultiTablePage.css',
+      'src/components/table/TableTabBar.css',
+      'src/pages/TablePage.css',
+      'src/components/table/ActionPanel.css',
+      ...Object.keys(built.metafile!.inputs).filter((f) => f.endsWith('.css')),
+      'src/components/table/TableChat.css',
+      'src/components/table/TableVisualHotfix.css',
+    ]),
+  ];
+  const realCss = sheets.map(readStyle).join('\n');
+  await page.setViewportSize({ width: 393, height: 852 });
+  await page.route('**/avatars/table/**', (route) =>
+    route.fulfill({
+      body: readFileSync(tableArtFixture('vip_wolf@2x.webp')),
+      contentType: 'image/webp',
+    })
+  );
+  await page.route('**/cards/**', (route) => {
+    const name = new URL(route.request().url()).pathname.split('/cards/')[1];
+    const file = resolve(process.cwd(), 'public/cards', name);
+    return route.fulfill({
+      body: readFileSync(existsSync(file) ? file : file.replace(/\.webp$/, '.png')),
+      contentType: file.endsWith('.png') ? 'image/png' : 'image/webp',
+    });
+  });
+  await page.route('**/rest/v1/**', (route) => route.fulfill({ json: [] }));
+  await page.route('**/buttons/black/icon-*.webp', (route) => {
+    const name = new URL(route.request().url()).pathname.split('/').pop()!;
+    const file = tableArtFixture(name);
+    return route.fulfill(
+      existsSync(file)
+        ? { body: readFileSync(file), contentType: 'image/webp' }
+        : { status: 404, body: '' }
+    );
+  });
+  await page.route('https://smarter.poker/hub/club-arena/__seat_ui', (route) =>
+    route.fulfill({
+      contentType: 'text/html',
+      body: `<html data-seats="6" data-cards="4" data-revealed="false" data-jackpot="none" data-dealer="0" data-bets="" data-action="active"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${realCss}</style></head><body><div id="root"></div></body></html>`,
+    })
+  );
+  await page.goto('https://smarter.poker/hub/club-arena/__seat_ui');
+  await page.addScriptTag({ content: built.outputFiles.find((f) => f.path.endsWith('.js'))!.text });
+  await page.waitForFunction(
+    () =>
+      document.querySelectorAll('.seat__avatar-img').length === 6 &&
+      [...document.querySelectorAll<HTMLImageElement>('.seat__avatar-img')].every(
+        (i) => i.complete && i.naturalWidth > 0
+      )
+  );
+  const settle = () =>
+    page.evaluate(async () => {
+      for (let i = 0; i < 3; i++) {
+        await Promise.all(
+          document
+            .getAnimations()
+            .filter((a) => a.effect?.getComputedTiming().iterations !== Infinity)
+            .map((a) => a.finished.catch(() => {}))
+        );
+        await new Promise<void>((done) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => done()))
+        );
+      }
+    });
+  await settle();
+  const initial = await page.locator('.dealer-button').boundingBox();
+  expect(initial).not.toBeNull();
+  await page.screenshot({ path: testInfo.outputPath('before-wager.png') });
+  for (const amount of ['2', '12', '120000']) {
+    await page.evaluate((value) => {
+      document.documentElement.dataset.bets = '0';
+      document.documentElement.dataset.betAmount = value;
+      document.dispatchEvent(new Event('fixture-runout'));
+    }, amount);
+    await settle();
+    const current = await page.locator('.dealer-button').boundingBox();
+    expect(current!.x, 'A hero wager cannot move the dealer horizontally').toBeCloseTo(
+      initial!.x,
+      1
+    );
+    expect(current!.y, 'A hero wager cannot move the dealer vertically').toBeCloseTo(initial!.y, 1);
+  }
+  await page.screenshot({ path: testInfo.outputPath('after-wager.png') });
+  await page.getByRole('button', { name: /Open .* Panel/ }).click();
+  await expect(page.locator('.action-panel--raise')).toBeVisible();
+  await expect(page.locator('.table-hud__lower')).toBeHidden();
+  await page.screenshot({ path: testInfo.outputPath('raise-tools-behind.png') });
+});
