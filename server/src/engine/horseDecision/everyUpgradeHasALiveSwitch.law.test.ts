@@ -34,8 +34,10 @@
  * off only at the registry, the parser, the decision options and the database (states function, table CHECK, setter),
  * and `on` for every other option needs the option's OWN citation (authority: <option> <file> sha256 <64 hex>).
  *
- * WHEN THIS LAW FAILS ON THE DATABASE LISTS: run `npx tsx scripts/gen-horse-option-switch-sql.ts` in server/ (it
- * rewrites the name lists of the migration from the registry) and update the lists of the PostgreSQL proof script.
+ * WHEN THIS LAW FAILS ON THE DATABASE LISTS: the database whitelist is the NEWEST migration carrying the registry
+ * markers (HorseOptionSwitchMigrationLists.ts). Migration 20261114072215 is installed and never edited; run
+ * `npx tsx scripts/gen-horse-option-switch-sql.ts --follow-up <YYYYMMDDHHMMSS>_horse_option_switch_<what>` in server/
+ * (a new migration re-asserting the lists; it also sets the lists of the PostgreSQL proof script).
  *
  * The decisions are real: HorseDecisionWorkerRuntime DECIDE_FAST through runtime.receive with the real
  * HorseLogic.decide underneath (the harness of styleSwitchRuntime.law.test.ts). The database half is read from the
@@ -83,6 +85,13 @@ import {
   parseOptionSwitchConfig,
   type OptionSwitchStates,
 } from '../HorseOptionSwitch.js';
+import {
+  OPTION_SWITCH_BASE_MIGRATION,
+  OPTION_SWITCH_MIGRATIONS_DIR,
+  newestOptionSwitchListMigration,
+  optionSwitchListDrift,
+  optionSwitchListDriftMessage,
+} from '../HorseOptionSwitchMigrationLists.js';
 import { computeHorseUpgradeActivationManifest } from '../HorseUpgradeActivationManifest.js';
 import { createStyleSwitchWorkerInbox, readSwitchThrough } from './styleSwitchDelivery.js';
 import { isHorseDecisionReplayState } from './replayState.js';
@@ -91,10 +100,16 @@ import { requestAt, workerHarness } from '../../testing/horseRegression/plan/fix
 
 const REPO = fileURLToPath(new URL('../../../../', import.meta.url));
 const read = (path: string) => readFileSync(join(REPO, path), 'utf8');
-const MIGRATION_PATH =
-  'supabase/migrations/20261114072215_every_horse_upgrade_has_a_live_switch.sql';
+const MIGRATION_PATH = OPTION_SWITCH_BASE_MIGRATION;
 /** The migration without its comments: what the database executes. */
 const SQL = read(MIGRATION_PATH).replace(/--[^\n]*/g, '');
+/** The database whitelist: the newest migration carrying the registry markers (the base, or its latest follow-up). */
+const LIST_MIGRATION_PATH = newestOptionSwitchListMigration(
+  readdirSync(join(REPO, OPTION_SWITCH_MIGRATIONS_DIR))
+    .filter((name) => name.endsWith('.sql'))
+    .map((name) => ({ name, text: read(`${OPTION_SWITCH_MIGRATIONS_DIR}/${name}`) }))
+);
+const LIST_SQL = read(LIST_MIGRATION_PATH).replace(/--[^\n]*/g, '');
 /** TypeScript without comments: what runs. */
 const strip = (text: string) =>
   text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[\s;{}(),])\/\/[^\n]*/g, '$1');
@@ -111,6 +126,17 @@ const FUNCTIONS = [
 const fn = (name: string) => {
   const found = FUNCTIONS.find((f) => f.name === name);
   if (!found) throw new Error(`the migration does not create ${name}`);
+  return found;
+};
+/** The functions of the list migration (the base, or the newest follow-up that re-asserts the lists). */
+const LIST_FUNCTIONS = [
+  ...LIST_SQL.matchAll(
+    /CREATE (OR REPLACE )?FUNCTION public\.(\w+)\(([^)]*)\)([\s\S]*?)AS \$function\$([\s\S]*?)\$function\$;/g
+  ),
+].map((m) => ({ replaced: !!m[1], name: m[2]!, args: m[3]!, header: m[4]!, body: m[5]! }));
+const listFn = (name: string) => {
+  const found = LIST_FUNCTIONS.find((f) => f.name === name);
+  if (!found) throw new Error(`${LIST_MIGRATION_PATH} does not create ${name}`);
   return found;
 };
 
@@ -150,14 +176,13 @@ const PREFLOP_HOLD_NAMES = [
   'committedStackPricedIn',
   'vs3BetShortStack',
 ];
-const GENERATOR =
-  'the migration lists differ from the registry: run "npx tsx scripts/gen-horse-option-switch-sql.ts" in server/';
+const GENERATOR = optionSwitchListDriftMessage(LIST_MIGRATION_PATH);
 const noteFor = (option: string) =>
   optionSwitchOnNote(option, OPTION_SWITCH_ON_AUTHORITY_FILE, OPTION_SWITCH_ON_AUTHORITY_SHA256);
-/** One CHECK constraint of the migration, by name, up to its closing semicolon. */
+/** One CHECK constraint of the list migration, by name, up to its closing semicolon. */
 const constraint = (name: string) => {
-  const found = new RegExp(`ADD CONSTRAINT ${name} CHECK \\(([\\s\\S]*?)\\);`).exec(SQL);
-  if (!found) throw new Error(`the migration does not add ${name}`);
+  const found = new RegExp(`ADD CONSTRAINT ${name} CHECK \\(([\\s\\S]*?)\\);`).exec(LIST_SQL);
+  if (!found) throw new Error(`${LIST_MIGRATION_PATH} does not add ${name}`);
   return found[1]!;
 };
 
@@ -302,7 +327,7 @@ describe('condition 8: the database whitelist is the engine registry', () => {
   });
 
   it('fn_ca_horse_option_switch_states answers each registered option with its states and anything else with NULL', () => {
-    const body = fn('fn_ca_horse_option_switch_states').body;
+    const body = listFn('fn_ca_horse_option_switch_states').body;
     const arms = [...body.matchAll(/WHEN p_option IN \(([^)]*)\)\s*THEN ARRAY\[([^\]]*)\]/g)].map(
       (m) => ({ names: sorted(quoted(m[1]!)), states: quoted(m[2]!) })
     );
@@ -318,6 +343,39 @@ describe('condition 8: the database whitelist is the engine registry', () => {
       expect(answer(entry.name), entry.name).toEqual([...entry.states]);
     // one attempt, no retry: the ALTERs wait at most three seconds for the table
     expect(SQL).toMatch(/^\s*BEGIN;\s*SET LOCAL lock_timeout = '3s';/);
+    expect(LIST_SQL).toMatch(/^\s*BEGIN;\s*SET LOCAL lock_timeout = '3s';/);
+  });
+
+  it('the whitelist is the newest migration carrying the registry markers; a follow-up re-asserts the lists and nothing else', () => {
+    // the generator's own check agrees with this law
+    expect(
+      optionSwitchListDrift(LIST_MIGRATION_PATH, read(LIST_MIGRATION_PATH)),
+      GENERATOR
+    ).toBeNull();
+    if (LIST_MIGRATION_PATH === MIGRATION_PATH) return;
+    // a follow-up: one transaction; every existing row is checked before anything changes; the three constraints are
+    // dropped and re-added (idempotent); the states function is replaced; nothing else is created, granted or written
+    expect(LIST_SQL.trim()).toMatch(/^BEGIN;[\s\S]*COMMIT;$/);
+    const check = LIST_SQL.indexOf('$existing_rows_fit$');
+    expect(check).toBeGreaterThan(0);
+    expect(check).toBeLessThan(LIST_SQL.indexOf('ALTER TABLE'));
+    for (const name of [
+      'ca_horse_style_switch_option_is_registered',
+      'ca_horse_style_switch_on_cites_authority',
+      'ca_horse_style_switch_state_fits_option',
+    ])
+      expect(LIST_SQL, name).toContain(
+        `DROP CONSTRAINT IF EXISTS ${name},\n  ADD CONSTRAINT ${name} CHECK (`
+      );
+    expect(LIST_FUNCTIONS.map((f) => [f.name, f.replaced])).toEqual([
+      ['fn_ca_horse_option_switch_states', true],
+    ]);
+    expect(LIST_SQL).not.toMatch(
+      /CREATE\s+TABLE|ADD\s+COLUMN|CREATE\s+(UNIQUE\s+)?INDEX|CREATE\s+TRIGGER|INSERT\s+INTO|UPDATE\s+public|DELETE\s+FROM/i
+    );
+    expect(
+      [...LIST_SQL.matchAll(/GRANT\s+[^;]*?\sTO\s+([^;]*);/g)].map((m) => m[1]!.trim())
+    ).toEqual(['service_role']);
   });
 
   it('the schema manifest names exactly the functions the migration adds, and the migration adds no table or column', () => {
@@ -826,7 +884,7 @@ describe('the refused options are refused on both sides', () => {
   });
 
   it('the database whitelist names none of them, and set and clear refuse a name that is not registered', () => {
-    const whitelisted = new Set(quoted(SQL.slice(0, SQL.indexOf('$readback$'))));
+    const whitelisted = new Set(quoted(LIST_SQL.slice(0, LIST_SQL.indexOf('$readback$'))));
     for (const name of OPTION_SWITCH_NAMES) expect(whitelisted.has(name), name).toBe(true);
     for (const name of REFUSED_NAMES) expect(whitelisted.has(name), name).toBe(false);
     for (const name of ['fn_ca_horse_option_switch_set', 'fn_ca_horse_option_switch_clear']) {
