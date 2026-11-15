@@ -38,6 +38,32 @@ export function addCalendarDays(iso: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+/**
+ * THE ACCOUNTING DAY (20261114235606): 02:00 to 02:00 America/Chicago, the
+ * boundary the union weekly invoice uses. Mirrors public.fn_ca_accounting_day,
+ * daylight saving included: the two hours come off the Chicago wall clock,
+ * not off the instant, so the spring-forward day starts at 03:00 CDT (02:00
+ * does not exist) and the fall-back day runs 25 hours.
+ */
+export function accountingDay(at: Date | string | number = new Date()): string {
+  const d = at instanceof Date ? at : new Date(at);
+  if (Number.isNaN(d.getTime())) return '';
+  const p = Object.fromEntries(
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone: CLUB_DATA_TIME_ZONE,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      hourCycle: 'h23',
+    })
+      .formatToParts(d)
+      .map((part) => [part.type, part.value])
+  );
+  const day = `${p.year}-${p.month}-${p.day}`;
+  return Number(p.hour) < 2 ? addCalendarDays(day, -1) : day;
+}
+
 /** HH:MM of an instant on the Chicago clock. */
 export function chicagoClock(at: Date | string | number): string {
   const d = at instanceof Date ? at : new Date(at);

@@ -1,4 +1,9 @@
 import { noteHorseDeepDiveRule } from './HorseDeepDiveReceipt.js';
+import {
+  lightningParticipationBbDefend,
+  lightningParticipationFirstIn,
+  type LightningParticipationCtx,
+} from './HorseLightningParticipation.js';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  * HORSE PREFLOP V7 — Position-Pair Preflop Mastery (2026-07-24)
@@ -90,7 +95,9 @@ export interface PreflopAuthorityEvent {
     | 'v87_ep_limp_suited_connector'
     | 'v87_ep_limp_reraise_value'
     | 'v87_ep_limp_reraise_bluff'
-    | 'v87_ep_limp_call_iso';
+    | 'v87_ep_limp_call_iso'
+    | 'lightning_participation_first_in'
+    | 'lightning_participation_bb_defend';
   strength: number;
   threeBetThreshold: number;
   effectiveThreeBetThreshold: number;
@@ -352,6 +359,8 @@ export interface PreflopCtx {
   vs3BetShortJam?: boolean;
   /** See HorseDecideOpts.omahaCommitZoneThreeBetPriceRelief. Default off. */
   omahaCommitZoneThreeBetPriceRelief?: boolean;
+  /** See HorseLightningParticipation. Absent = the option is off or the hand is outside its predicate. */
+  lightningParticipation?: LightningParticipationCtx;
   /** V77 (2026-11-02): the V70 open width (percent of 1,326 combos) of the
    *  seat that made the ONLY raise hero faces, dealt-census indexed and
    *  ante-aware. Supplied by HorseLogic for no-limit hold'em facing exactly
@@ -2491,7 +2500,23 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
         ? ctx.maniacOpenBar + (position === 'early' ? 0.08 : 0.04)
         : ctx.maniacOpenBar;
     const maniacBarOk = !v87 || nlhManiacFloor === undefined || strength >= nlhManiacFloor;
-    if (openStrength >= openThresh && maniacBarOk) {
+    // LIGHTNING PARTICIPATION (default off): the Omaha first-in cell of this
+    // seat. Absent the option this is the base test, unchanged.
+    const opens = lightningParticipationFirstIn(ctx.lightningParticipation, {
+      isOmaha: ctx.isOmaha === true,
+      position,
+      limpers,
+      straddled,
+      toCall,
+      strength,
+      openThresh,
+      baseOpens: openStrength >= openThresh && maniacBarOk,
+      depthBB: Math.min(stackBB, ctx.effectiveStackBB ?? stackBB),
+      tightness: ctx.tightness,
+      lagBullyIpBehind: ctx.lagBullyIpBehind,
+      noteAuthority: ctx.noteAuthority,
+    });
+    if (opens) {
       // V20 ORANGE ZONE (M 6-10): there is no raise-fold — a standard open
       // is a third of the stack, and folding it to a reshove afterward is
       // the worst line short-stack poker offers. The opening range OPEN-JAMS
@@ -3375,6 +3400,31 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
         return { a: 'call', receipt: 'hu_limp_defends_to_price' };
       }
     }
+    // LIGHTNING PARTICIPATION (default off): where this branch folds, the big
+    // blind's Lightning continue range at this price is asked. Absent the
+    // option the answer is the fold, unchanged.
+    const foldOrLightningDefend = (): PreflopIntent =>
+      lightningParticipationBbDefend(ctx.lightningParticipation, {
+        isOmaha: ctx.isOmaha === true,
+        position,
+        raiserPosition: vs,
+        callers,
+        toCall,
+        pot: pricePot,
+        priceOK,
+        depthBB: v82HandStartBB,
+        strength: def72 ? def72.strength : strength,
+        tightness: ctx.tightness,
+        holdemContinueBar: def72?.continueBar,
+        opponentRead:
+          tightOpener !== undefined ||
+          styleOpenerBarMove > 0 ||
+          (vsOpener != null && !vsOpener.wide && (vsOpener.callBump ?? 0) > 0) ||
+          (pressure !== undefined && !pressureIp),
+        noteAuthority: ctx.noteAuthority,
+      })
+        ? { a: 'call' }
+        : { a: 'fold' };
     if (def72) {
       // V72: the big blind closes the action at the best price of the orbit,
       // so (as the V34 floor below did for the buckets) its defence is its
@@ -3391,7 +3441,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
         );
         if (def72.strength >= bbBar72) return { a: 'call' };
       }
-      return { a: 'fold' };
+      return foldOrLightningDefend();
     }
     /**
      * ═══ V34 (2026-09-02): THE BIG BLIND DEFENDS ITS BLIND ═══════════════
@@ -3435,7 +3485,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       }
       if (strength >= bbFloor) return { a: 'call' };
     }
-    return { a: 'fold' };
+    return foldOrLightningDefend();
   }
 
   // ── Facing a 3-bet or bigger ──

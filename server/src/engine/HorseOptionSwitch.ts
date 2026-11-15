@@ -296,6 +296,9 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_ON: readonly string[] = Object.freeze
   'v86MultiStreetUnblocked',
 ]);
 export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freeze([
+  'omahaTightOpponentSteal',
+  'lightningParticipationHoldem',
+  'lightningParticipationOmaha',
   'v16Hu',
   'v16Ratio',
   'v17RiverProbe',
@@ -364,6 +367,8 @@ const PREFLOP_HOLD_SOURCE = 'owner preflop range hold';
 const PREFLOP_HOLD_REASON = 'changes a preflop range: held until the owner lifts it by name';
 const OMAHA_TIGHT_SOURCE =
   'owner ruling 2026-11-14 21:30 Chicago (Omaha tight responses stay OFF until promotion evidence passes)';
+const OWNING_LANE_SOURCE =
+  'owning lane keeps it OFF (PLO6 05:04:38Z / Lightning 05:04:25Z inbox rows)';
 export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly>> = Object.freeze({
   // owner preflop range hold
   v46ShortDeck: hold(
@@ -413,6 +418,16 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
     reason: 'failed evaluation: off-only from the moment the option lands in the ledger',
     source: 'programme coordinator, 2026-11-14 (failed evaluation)',
   }),
+  v24PloDefense: Object.freeze({
+    status: 'harm' as const,
+    reason: 'off-only stops an explicit true; it changes nothing by default',
+    source:
+      'release default ON with a PLO6-cash measured-harm carve-out (-2.34 +/- 1.12); an explicit true is unverified against the carve-out',
+  }),
+  // kept OFF by the owning lane
+  plo6TopSetNutRealization: hold(OWNING_LANE_SOURCE, 'the owning lane keeps it OFF'),
+  omahaCommitZoneThreeBetPriceRelief: hold(OWNING_LANE_SOURCE, 'the owning lane keeps it OFF'),
+  lightningParticipationOmaha: hold(OWNING_LANE_SOURCE, 'the owning lane keeps it OFF'),
   // superseded
   v55OmahaRiverTripsFlat: Object.freeze({
     status: 'superseded' as const,
@@ -425,7 +440,6 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
  * The law allows an OPTION_SWITCH_OFF_ONLY name outside the ledger only when it is listed here.
  */
 export const OPTION_SWITCH_OFF_ONLY_PENDING: readonly string[] = Object.freeze([
-  'omahaTightOpponentSteal',
   'fixedLimitRiverFullBetRead',
 ]);
 /** Future options held by name pattern: a blind steal, All-In-Or-Fold widening. */

@@ -115,6 +115,9 @@ const RECEIPT_ONLY_FILES = [
   // publisher's outcomes (its injected noteFeature is BrainTelemetry.noteFire in production).
   'engine/HorseUpgradeEvidence.ts',
   'services/HorseUpgradeEvidenceFlush.ts',
+  // Lightning participation (2026-11-15, default off): the predicate and its cells count their own
+  // opportunity, change and refusal receipts where they answer.
+  'engine/HorseLightningParticipation.ts',
 ];
 const RECEIPT_SOURCE = BRAIN_SOURCE + '\n' + RECEIPT_ONLY_FILES.map(read).join('\n');
 

@@ -517,9 +517,20 @@ describe('the owner order of 2026-11-14 22:01: every ledger option has an on/off
       sorted(OPTION_SWITCH_PLAIN_NAMES)
     );
     expect(OPTION_SWITCH_OFF_ONLY_NAMES.length).toBeGreaterThanOrEqual(19);
-    // an option whose release default is ON is never off-only by measured harm (that would preserve nothing)
+    // measured harm is off-only for an option that ships off; the one exception is v24PloDefense, whose default
+    // carries a PLO6-cash carve-out: off-only there only stops an explicit true
     for (const entry of OPTION_SWITCH_PLAIN_REGISTRY)
-      if (entry.offOnly?.status === 'harm') expect(entry.releaseDefault, entry.name).toBe('off');
+      if (entry.offOnly?.status === 'harm')
+        expect(entry.releaseDefault, entry.name).toBe(
+          entry.name === 'v24PloDefense' ? 'code' : 'off'
+        );
+    expectStatus('v24PloDefense', 'harm', /PLO6-cash measured-harm carve-out/);
+    for (const name of [
+      'plo6TopSetNutRealization',
+      'omahaCommitZoneThreeBetPriceRelief',
+      'lightningParticipationOmaha',
+    ])
+      expectStatus(name, 'hold', /^owning lane keeps it OFF/);
     // enforced: the registry, the parser (the whole set is invalid), the decision options, module load
     for (const name of OPTION_SWITCH_OFF_ONLY_NAMES) {
       const entry = OPTION_SWITCH_PLAIN_REGISTRY.find((e) => e.name === name)!;

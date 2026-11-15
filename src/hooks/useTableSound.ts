@@ -16,7 +16,7 @@ import { useState, useEffect, useRef } from 'react';
 import { soundService } from '../services/SoundService';
 import { isSoundAllowed } from '../utils/soundGate';
 import { setVibrationAllowed, isVibrationPreferred } from '../utils/vibrationGate';
-import { setTableSetting } from './useTableSettings';
+import { setTableSetting, useTableSettings } from './useTableSettings';
 import { usePlayerPreference } from './usePlayerPreference';
 
 export interface UseTableSoundReturn {
@@ -98,6 +98,28 @@ export function useTableSound(): UseTableSoundReturn {
     false,
     'global'
   );
+
+  /**
+   * FOLLOW A CHANGE MADE SOMEWHERE ELSE (2026-11-14).
+   *
+   * The two switches above are per-mounted-table React state, seeded once. The
+   * setting is one per account, and it is also changed by the tab bar's menu
+   * (through another table's page), the settings panel, the header menu and
+   * another device. Each of those reaches the shared store and the gates and
+   * left THIS copy where it was, so a second table's switch showed the old
+   * value and its first press computed `!stale` and changed nothing.
+   *
+   * The store commits through `applyGateChanges` before it notifies, so when
+   * its value moves the gate already holds the answer. Re-read the gate, which
+   * stays the one authority this state is seeded from.
+   */
+  const { settings: sharedSettings } = useTableSettings();
+  useEffect(() => {
+    setIsSoundEnabledRaw(isSoundAllowed());
+  }, [sharedSettings.isSoundEnabled]);
+  useEffect(() => {
+    setIsVibrationEnabledRaw(isVibrationPreferred());
+  }, [sharedSettings.isHapticEnabled]);
 
   // Persist to localStorage whenever values change
   useEffect(() => {

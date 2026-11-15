@@ -36,6 +36,9 @@ describe('UNMEASURABLE_MATCHUPS', () => {
     expect(names.sort()).toEqual(
       [
         'hu_break_even_bluff',
+        // 2026-11-15: the league deals no Lightning domain (HorseLightningParticipation).
+        'nlh_lightning_participation_holdem',
+        'plo4_lightning_participation_omaha',
         'plo4_v55_river_trips_flat',
         'plo5_v55_river_trips_flat',
         'plo6_v55_river_trips_flat',

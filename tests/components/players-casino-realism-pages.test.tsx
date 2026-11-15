@@ -621,8 +621,10 @@ describe('the member record survives a failed background refresh', () => {
     await waitFor(() => expect(state.getMemberDetail).toHaveBeenCalledTimes(2));
     expect(state.getMemberDetail.mock.calls[1][2]).toEqual(state.getMemberDetail.mock.calls[0][2]);
     await act(async () => failAuthority(new Error('offline')));
-    const banner = await screen.findByRole('alert');
-    expect(banner).toHaveTextContent('Member Connection Interrupted');
+    const banner = (await screen.findByText('Member Connection Interrupted')).closest(
+      '[role="alert"]'
+    );
+    expect(banner).toBeVisible();
     expect(banner).toHaveTextContent('The Record Below Is From The Previous Successful Read.');
     expect(screen.getByRole('heading', { name: 'River Shark' })).toBeVisible();
     expect(screen.getByText('Cash Hands')).toBeVisible();

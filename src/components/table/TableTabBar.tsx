@@ -51,6 +51,11 @@ export interface TabInfo {
   seatChangeEnabled?: boolean;
   /** Reported by the owning table page, like `isAutoRebuyEnabled`. */
   standUpNextBB?: boolean;
+  /** The seat may straddle (host enabled it, cash game, hero seated). */
+  straddleAvailable?: boolean;
+  straddleEnabled?: boolean;
+  /** A leave is queued for the end of the current hand. */
+  leaveNextHandQueued?: boolean;
   /**
    * PokerBros parity: the hero's hole cards at this table, comma-joined
    * ("Ah,Qc" / "Td,9h"; "" or undefined when not in a hand or folded).
@@ -630,6 +635,18 @@ export function TableTabBar({
                   tableId: activeTabId,
                   action: 'STAND_UP_BB',
                 }),
+              onToggleStraddle: tabs.find((t) => t.id === activeTabId)?.straddleAvailable
+                ? () =>
+                    masterBus.emit('TABLE_MENU_ACTION', {
+                      tableId: activeTabId,
+                      action: 'TOGGLE_STRADDLE',
+                    })
+                : undefined,
+              onOpenMarketplace: () =>
+                masterBus.emit('TABLE_MENU_ACTION', {
+                  tableId: activeTabId,
+                  action: 'CLUB_MARKETPLACE',
+                }),
               onRebuy: () =>
                 masterBus.emit('TABLE_MENU_ACTION', { tableId: activeTabId, action: 'REBUY' }),
               onAutoTopUp: () =>
@@ -689,6 +706,10 @@ export function TableTabBar({
               /* Every switch says ON or OFF. A switch with no badge when off
                  reads as a row that does nothing. */
               standUpBBBadge: tabs.find((t) => t.id === activeTabId)?.standUpNextBB ? 'ON' : 'OFF',
+              straddleBadge: tabs.find((t) => t.id === activeTabId)?.straddleEnabled ? 'ON' : 'OFF',
+              leaveNextHandBadge: tabs.find((t) => t.id === activeTabId)?.leaveNextHandQueued
+                ? 'ON'
+                : undefined,
               autoTopUpBadge: tabs.find((t) => t.id === activeTabId)?.isAutoRebuyEnabled
                 ? 'ON'
                 : 'OFF',
