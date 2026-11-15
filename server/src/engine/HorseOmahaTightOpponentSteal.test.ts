@@ -1,5 +1,6 @@
 /**
- * OMAHA TIGHT STEAL (omahaTightOpponentSteal, default OFF; owner ruling
+ * OMAHA TIGHT STEAL (omahaTightOpponentSteal, default ON by owner order
+ * 2026-11-14 19:25 to 19:34 Chicago; built under the owner ruling
  * 2026-11-14 17:42 Chicago: the Omaha tight requirement stays and a
  * defensible response must be built and evaluated).
  *
@@ -9,8 +10,9 @@
  * negative cash point estimate (PLO6 audit archive,
  * phase1-play/tight-plo6-league). Fixed four-handed spots and seeds, built
  * like HorseOmahaTightOpponent.law.test.ts:
- *  - absent, false and a non-boolean truthy value decide byte-identically;
- *  - on, six-card, the button first in with both blinds PROVEN tight folders
+ *  - absent, true and a non-boolean truthy value are ON and decide
+ *    byte-identically; explicit false is the off arm;
+ *  - on (absent), six-card, the button first in with both blinds PROVEN tight folders
  *    opens a hand it folds otherwise, with plo_tight_blinds_steal;
  *  - on, the respect spot (a proven tight raiser faced) decides exactly as off,
  *    although omahaTightOpponent itself flats that hand: no respect;
@@ -226,8 +228,8 @@ function play(
   }
   return { decisions, actions, fires };
 }
-const ON: HorseDecideOpts = { omahaTightOpponentSteal: true };
-const OFF: HorseDecideOpts = {};
+const ON: HorseDecideOpts = {};
+const OFF: HorseDecideOpts = { omahaTightOpponentSteal: false };
 const STEAL_HANDS = ['Qh7s8d5h3c2d', 'QdJc8h6s4c3d'];
 /** omahaTightOpponent flats this hand against a proven tight raiser; this option must not. */
 const RESPECT_HAND = 'KdQdJsTs9c8h';
@@ -243,21 +245,30 @@ describe('omahaTightOpponentSteal', () => {
     expect([...OMAHA_TIGHT_STEAL_VARIANTS]).toEqual(['plo6']);
   });
 
-  it('off: absent, false or a non-boolean truthy value decide byte-identically, nothing fires', () => {
+  it('default on: absent, true and a non-boolean truthy value decide byte-identically', () => {
     for (const hole of [...STEAL_HANDS, RESPECT_HAND]) {
       for (const kind of ['steal', 'respect'] as const) {
         const s: Spot = { variant: 'plo6', kind, hole };
         const table = kind === 'steal' ? TIGHT_BLINDS : ({ raiser: 'tight' } as const);
-        const absent = play(s, table, OFF);
+        const absent = play(s, table, ON);
         for (const opts of [
-          { omahaTightOpponentSteal: false },
+          { omahaTightOpponentSteal: true },
           { omahaTightOpponentSteal: 1 as unknown as boolean },
         ]) {
           const o = play(s, table, opts);
           expect(o.decisions, `${kind} ${hole}`).toEqual(absent.decisions);
-          expect([...o.fires]).toEqual([]);
+          expect([...o.fires]).toEqual([...absent.fires]);
         }
-        expect([...absent.fires]).toEqual([]);
+      }
+    }
+  });
+
+  it('explicit false is the off arm: nothing tight fires at either node', () => {
+    for (const hole of [...STEAL_HANDS, RESPECT_HAND]) {
+      for (const kind of ['steal', 'respect'] as const) {
+        const s: Spot = { variant: 'plo6', kind, hole };
+        const table = kind === 'steal' ? TIGHT_BLINDS : ({ raiser: 'tight' } as const);
+        expect([...play(s, table, OFF).fires], `${kind} ${hole}`).toEqual([]);
       }
     }
   });

@@ -3229,9 +3229,11 @@ export interface HorseDecideOpts {
    *  NOT included: measured alone on six-card it is undecided
    *  (plo6-audit-01TLQer9Hdf/phase1-play/tight-plo6-league). One option for
    *  all Omaha (PLO Strategy, 2026-11-15): a variant joins the list in one
-   *  reviewed line when its own evaluation supports it. OPT-IN, default off,
-   *  read as `=== true`; omahaTightOpponent true still turns on both halves in
-   *  every Omaha high game, as before. */
+   *  reviewed line when its own evaluation supports it. DEFAULT ON (owner
+   *  order 2026-11-14 19:25 to 19:34 Chicago: activate the tight-opponent
+   *  adjustments; evidence docs/horse-default-on.d/omahaTightOpponentSteal.md);
+   *  explicit false switches it off. omahaTightOpponent true still turns on
+   *  both halves in every Omaha high game, as before. */
   omahaTightOpponentSteal?: boolean;
   /** Items 21 and 23 (2026-11-05): a planned barrel records the next-street
    *  contender set and stack-to-pot exposure it expects, and the next street
@@ -9006,7 +9008,7 @@ export class HorseLogic {
     const tightRespectOn = opts.omahaTightOpponent === true;
     const tightStealOn =
       tightRespectOn ||
-      (opts.omahaTightOpponentSteal === true &&
+      (opts.omahaTightOpponentSteal !== false &&
         OMAHA_TIGHT_STEAL_VARIANTS.has(String(gs.gameVariant ?? '').toLowerCase()));
     if (
       tightStealOn &&
