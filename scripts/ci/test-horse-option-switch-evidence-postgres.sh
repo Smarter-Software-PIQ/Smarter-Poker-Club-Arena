@@ -172,6 +172,49 @@ q "SELECT public.fn_ca_horse_option_switch_set('readScopedShrink', 'on', 'fixtur
 q "SELECT public.fn_ca_horse_option_switch_clear('readScopedShrink', 'fixture', 'read')" >/dev/null
 check "the wide read names the off row and no cleared row" '{"v16Hu": "off"}' "$(q "SELECT public.fn_ca_horse_option_switch_effective()->'options'")"
 
+# THE EVIDENCE RECORD (migration *_the_horse_option_switch_on_needs_a_recorded_evidence_row.sql): installed after
+# the assertions above, which prove the switch as first installed. From here 'on' for a non-style option also needs
+# the sha256 its note cites to be recorded for that option. Not applied with OPTION_SWITCH_MIGRATION set.
+if [ -z "${OPTION_SWITCH_MIGRATION:-}" ]; then
+  evidence_migration="$(ls "$repo"/supabase/migrations/*_the_horse_option_switch_on_needs_a_recorded_evidence_row.sql)"
+  "${psql[@]}" -f "$evidence_migration"
+  "${psql[@]}" -f "$evidence_migration"
+  echo "ok    evidence record $(basename "$evidence_migration") installed (twice)"
+  sha_a='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+  sha_b='bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+  sha_c='cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc'
+  ev='readScopedShrink'
+  check "the style row survives the evidence migration" "on" "$(q "SELECT state FROM public.ca_horse_style_switch WHERE option = 'styleFoldBluff'")"
+  expect_refusal "$ev: on with a well-formed citation and no evidence row is refused" "only after its evidence is recorded" "SELECT public.fn_ca_horse_option_switch_set('$ev', 'on', 'fixture', 'authority: $ev docs/x.md sha256 $sha_a')"
+  expect_refusal "$ev: on with a junk note is still refused first" "cites its own authority" "SELECT public.fn_ca_horse_option_switch_set('$ev', 'on', 'fixture', 'try on')"
+  q "SELECT public.fn_ca_horse_option_switch_record_evidence('$ev', 'docs/x.md', '$sha_a', 'evidence', 'Hand Analysis ACCEPT fixture', 'abcdef1', 'fixture')" >/dev/null
+  q "SELECT public.fn_ca_horse_option_switch_set('$ev', 'on', 'fixture', 'authority: $ev docs/x.md sha256 $sha_a')" >/dev/null
+  check "$ev: on with a recorded evidence row is written" "on" "$(q "SELECT state FROM public.ca_horse_style_switch WHERE option = '$ev'")"
+  q "SELECT public.fn_ca_horse_option_switch_set('$ev', 'off', 'fixture', 'rollback')" >/dev/null
+  check "$ev: off needs no evidence" "off" "$(q "SELECT state FROM public.ca_horse_style_switch WHERE option = '$ev'")"
+  expect_refusal "$ev: on citing a sha256 that is not recorded is refused" "only after its evidence is recorded" "SELECT public.fn_ca_horse_option_switch_set('$ev', 'on', 'fixture', 'authority: $ev docs/x.md sha256 $sha_b')"
+  q "SELECT public.fn_ca_horse_option_switch_record_evidence('$ev', 'docs/x.md', '$sha_b', 'owner_forced', 'OWNER (verbatim): fixture order', NULL, 'fixture')" >/dev/null
+  q "SELECT public.fn_ca_horse_option_switch_set('$ev', 'on', 'fixture', 'authority: $ev docs/x.md sha256 $sha_b')" >/dev/null
+  check "$ev: on with an owner-forced record is written" "on" "$(q "SELECT state FROM public.ca_horse_style_switch WHERE option = '$ev'")"
+  q "SELECT public.fn_ca_horse_option_switch_clear('$ev', 'fixture', 'clear')" >/dev/null
+  check "$ev: clear needs no evidence" "0" "$(q "SELECT count(*) FROM public.ca_horse_style_switch WHERE option = '$ev'")"
+  expect_refusal "an evidence row of another option does not open this one" "only after its evidence is recorded" "SELECT public.fn_ca_horse_option_switch_set('handReading', 'on', 'fixture', 'authority: handReading docs/x.md sha256 $sha_a')"
+  expect_refusal "the record refuses an off-only option" "is off-only" "SELECT public.fn_ca_horse_option_switch_record_evidence('commitUnderPot', 'docs/x.md', '$sha_c', 'evidence', 'ref', NULL, 'fixture')"
+  expect_refusal "the record refuses an unregistered option" "not a switchable option" "SELECT public.fn_ca_horse_option_switch_record_evidence('notAnOption', 'docs/x.md', '$sha_c', 'evidence', 'ref', NULL, 'fixture')"
+  expect_refusal "the record refuses a style option" "is a style option" "SELECT public.fn_ca_horse_option_switch_record_evidence('styleFoldBluff', 'docs/x.md', '$sha_c', 'evidence', 'ref', NULL, 'fixture')"
+  expect_refusal "the record refuses an empty reference" "a reference is required" "SELECT public.fn_ca_horse_option_switch_record_evidence('$ev', 'docs/x.md', '$sha_c', 'evidence', '  ', NULL, 'fixture')"
+  expect_refusal "the record refuses another kind" "evidence or owner_forced" "SELECT public.fn_ca_horse_option_switch_record_evidence('$ev', 'docs/x.md', '$sha_c', 'approved', 'ref', NULL, 'fixture')"
+  expect_refusal "the record refuses a malformed sha256" "64 lowercase hex" "SELECT public.fn_ca_horse_option_switch_record_evidence('$ev', 'docs/x.md', 'ABC', 'evidence', 'ref', NULL, 'fixture')"
+  expect_refusal "the record refuses the same file twice" "already recorded" "SELECT public.fn_ca_horse_option_switch_record_evidence('$ev', 'docs/x.md', '$sha_a', 'evidence', 'ref', NULL, 'fixture')"
+  expect_refusal "an off-only option stays refused with any note" "does not support state on" "SELECT public.fn_ca_horse_option_switch_set('commitUnderPot', 'on', 'fixture', 'authority: commitUnderPot docs/x.md sha256 $sha_a')"
+  expect_refusal "service_role cannot write the evidence table directly" "permission denied" "SET ROLE service_role; INSERT INTO public.ca_horse_option_switch_evidence (option, evidence_path, evidence_sha256, kind, reference, recorded_by) VALUES ('$ev', 'docs/x.md', '$sha_c', 'evidence', 'ref', 'fixture')"
+  expect_refusal "anon cannot record evidence" "permission denied" "SET ROLE anon; SELECT public.fn_ca_horse_option_switch_record_evidence('$ev', 'docs/x.md', '$sha_c', 'evidence', 'ref', NULL, 'fixture')"
+  q "SELECT public.fn_ca_horse_option_switch_set('styleFoldBluff', 'shadow', 'fixture', 'style')" >/dev/null
+  q "SELECT public.fn_ca_horse_option_switch_set('styleFoldBluff', 'on', 'fixture', 'style')" >/dev/null
+  check "a style option still goes on without an evidence row" "on" "$(q "SELECT state FROM public.ca_horse_style_switch WHERE option = 'styleFoldBluff'")"
+  check "the evidence rows are the two recorded" "2" "$(q "SELECT count(*) FROM public.ca_horse_option_switch_evidence")"
+fi
+
 if [ "$fail" = 0 ]; then
   echo 'PASS  every option switch evidence assertion held'
 else
