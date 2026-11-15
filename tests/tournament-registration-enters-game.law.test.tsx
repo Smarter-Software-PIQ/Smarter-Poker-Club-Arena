@@ -55,7 +55,11 @@ it('opens and enters the fresh assigned tournament once, including after a remou
       state: { tournamentSeat: { tournamentId: 'event', lobbyTabId: null } },
     })
   );
-  expect(m.emit).toHaveBeenCalledWith('TABLE_SEATED', { tableId: 'assigned', seat: 0 });
+  expect(m.emit).toHaveBeenCalledWith('TABLE_SEATED', {
+    tableId: 'assigned',
+    seat: 0,
+    tournamentId: 'event',
+  });
   view.unmount();
   render(<TournamentAutoSeat />);
   await new Promise((resolve) => setTimeout(resolve, 0));
@@ -81,7 +85,11 @@ it('does not select another table for the same admitted tournament', async () =>
   m.rows = [seat('moved')];
   render(<TournamentAutoSeat />);
   await new Promise((resolve) => setTimeout(resolve, 0));
-  expect(m.emit).toHaveBeenCalledWith('TABLE_SEATED', { tableId: 'moved', seat: 0 });
+  expect(m.emit).toHaveBeenCalledWith('TABLE_SEATED', {
+    tableId: 'moved',
+    seat: 0,
+    tournamentId: 'event',
+  });
   expect(m.navigate).toHaveBeenCalledTimes(1);
 });
 it('keeps later-day resumes in the background', async () => {
@@ -90,7 +98,11 @@ it('keeps later-day resumes in the background', async () => {
   m.rows = [seat('day-two')];
   render(<TournamentAutoSeat />);
   await waitFor(() =>
-    expect(m.emit).toHaveBeenCalledWith('TABLE_SEATED', { tableId: 'day-two', seat: 0 })
+    expect(m.emit).toHaveBeenCalledWith('TABLE_SEATED', {
+      tableId: 'day-two',
+      seat: 0,
+      tournamentId: 'event',
+    })
   );
   expect(m.navigate).not.toHaveBeenCalled();
 });

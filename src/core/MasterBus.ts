@@ -1297,6 +1297,9 @@ export interface TableEventPayload {
   seat?: number;
   tableName?: string;
   userId?: string;
+  /** The tournament a seated table belongs to; a seat in a tournament the
+   *  player already sits in is a balance move of that chair, not a new table. */
+  tournamentId?: string;
 }
 
 export interface BalancePayload {
