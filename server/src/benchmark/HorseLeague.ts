@@ -2223,6 +2223,31 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
       b: {},
     },
   ]),
+  // 2026-11-15 OMAHA UNDERPAIR RULES (HorseOmahaUnderpair, default OFF; owner
+  // complaint, hand 59518335): the fold of a hand without aces or a premium
+  // structure when the Horse's own re-raise is re-raised cold
+  // (omahaNoCallColdFourBetWithoutPremium) and the fold of an underpair with
+  // no real draw to a flop bet and a call
+  // (omahaUnderpairNoMultiwayFlopContinue); a switches one on, b is today's
+  // brain.
+  ...(['plo4', 'plo5'] as const).flatMap((variant) => [
+    {
+      name: `${variant}_omaha_no_call_cold_four_bet`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { omahaNoCallColdFourBetWithoutPremium: true },
+      b: {},
+    },
+    {
+      name: `${variant}_omaha_underpair_no_multiway_flop_continue`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { omahaUnderpairNoMultiwayFlopContinue: true },
+      b: {},
+    },
+  ]),
   // V15 BOATS (2026-09-28): default OFF. a turns it on, b is today's brain.
   // Ship it default ON only after this resolves significant positive.
   // 2026-11-06: V15 boats is default ON in PLO5 cash (v15BoatsOn), so the

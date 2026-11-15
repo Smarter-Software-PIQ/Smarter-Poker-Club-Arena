@@ -60,6 +60,12 @@ import {
   type OmahaRiverShoveEnv,
 } from './HorseOmahaOopChecks.js';
 import {
+  omahaColdFourBetCell,
+  omahaColdFourBetFaced,
+  omahaFlopBetAndCallFaced,
+  omahaUnderpairFlopCell,
+} from './HorseOmahaUnderpair.js';
+import {
   omahaReraisedPostflopCell,
   omahaReraisedPreflopCell,
   preflopRaiseCount,
@@ -2896,6 +2902,27 @@ export interface HorseDecideOpts {
    * `=== true`); league cards plo4/plo5
    * _omaha_pressure_needs_postflop_aggression. */
   omahaPressureNeedsPostflopAggression?: boolean;
+  /** Owner complaint 2026-11-15 (hand 59518335, PLO5 cash): a Horse that
+   * re-raised before the flop and is re-raised COLD (by a player whose raise
+   * is his first voluntary money of the hand, not the opener or a caller)
+   * folds a hand without a pair of aces or a premium structure
+   * (omahaReraisedPremium), unless the call is all in or leaves no more
+   * behind than the call itself and its equity against aces pays the direct
+   * price (HorseOmahaUnderpair.ts, omahaColdFourBetCell). PLO4/PLO5 cash, one
+   * board, high only. A measured maniac re-raiser is not given the fold.
+   * Independent of omahaReraisedPotDiscipline and omahaReraisedFoldVsTight.
+   * Default OFF (opt-in, read `=== true`) until its declared evaluation
+   * passes; league cards plo4/plo5 _omaha_no_call_cold_four_bet. */
+  omahaNoCallColdFourBetWithoutPremium?: boolean;
+  /** Owner complaint 2026-11-15, as above: on an unpaired flop, facing a bet
+   * AND a call from two live opponents, exactly one pair below the board's
+   * top card with no flush draw and fewer than eight nut-straight outs folds
+   * instead of continuing, unless the call costs less than a tenth of the
+   * resulting pot (HorseOmahaUnderpair.ts, omahaUnderpairFlopCell). PLO4/PLO5
+   * cash, one board, high only; heads-up flops are untouched. Default OFF
+   * (opt-in, read `=== true`) until its declared evaluation passes; league
+   * cards plo4/plo5 _omaha_underpair_no_multiway_flop_continue. */
+  omahaUnderpairNoMultiwayFlopContinue?: boolean;
   /** A token-priced committed call is not barred by stack-off premiums
    * (HorseTokenCallPrice.ts, PLO6-AUDIT-010). Default on; false only for
    * the regression's non-vacuity control. */
@@ -6171,6 +6198,156 @@ function omahaReraisedFoldVsTight(
   }
 }
 
+/**
+ * omahaNoCallColdFourBetWithoutPremium (owner complaint 2026-11-15, hand
+ * 59518335; default OFF, read `=== true`): hero's own preflop re-raise was
+ * re-raised cold (omahaColdFourBetFaced). A continue (call, raise or all-in)
+ * becomes a fold when omahaColdFourBetCell says so; every other decision is
+ * returned as is. A measured maniac re-raiser keeps today's play, as in
+ * omahaReraisedPotFold. Draws no random number.
+ */
+function omahaColdFourBetFold(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
+  if (opts.omahaNoCallColdFourBetWithoutPremium !== true) return decision;
+  if (decision.action !== 'call' && decision.action !== 'raise' && decision.action !== 'all_in')
+    return decision;
+  try {
+    if (String(gs.stage ?? '') !== 'preflop') return decision;
+    if (Array.isArray(gs.legalActions) && !gs.legalActions.includes('fold')) return decision;
+    const coldSeat = omahaColdFourBetFaced(gs.actionHistory, player.seat);
+    if (coldSeat === null) return decision;
+    const stack = Number.isFinite(player.stack) ? Math.max(0, player.stack) : 0;
+    const heroBet = Number.isFinite(player.bet) ? Math.max(0, player.bet ?? 0) : 0;
+    const toCall = Number.isFinite(gs.toCall)
+      ? Math.max(0, gs.toCall as number)
+      : Math.max(0, (gs.currentBet || 0) - heroBet);
+    if (toCall <= 0.005) return decision;
+    if (opts.mind !== false) {
+      const raiser = gs.players.find((p) => p.seat === coldSeat);
+      const read = raiser ? HorseMind.opponentRead(raiser.user_id) : null;
+      if (read && read.presumed !== true && maniacRaiseWidth(read) !== null) return decision;
+    }
+    const verdict = omahaColdFourBetCell({
+      variant: String(gs.gameVariant ?? ''),
+      street: 'preflop',
+      hole: player.cards ?? [],
+      board: gs.communityCards ?? [],
+      dead: player.knownDeadCards ?? [],
+      preflopRaises: preflopRaiseCount(gs.actionHistory),
+      action: decision.action,
+      toCall,
+      stack,
+      pot: Number.isFinite(gs.pot) ? Math.max(0, gs.pot) : 0,
+      hiLo: gs.variantRules
+        ? gs.variantRules.splitLow8OrBetter
+        : variantInfo(gs.gameVariant).isHiLo,
+      multiBoard: !!(gs.communityCards2?.length || gs.communityCards3?.length),
+      bombPot: gs.bombPot === true,
+      tournament: isTournamentMode(gs),
+      allInOrFold: gs.allInOrFold === true,
+    });
+    if (verdict === null) return decision;
+    const tele = telemetryOn(opts);
+    if (!verdict.fold) {
+      if (tele) noteFire('omaha_no_call_cold_four_bet_without_premium_priced_in');
+      return decision;
+    }
+    if (tele) noteFire('omaha_no_call_cold_four_bet_without_premium');
+    // The decision's ownership receipts travel with it, as the discipline's fold keeps them.
+    const folded: HorseDecision = { ...decision, action: 'fold' };
+    delete folded.amount;
+    return folded;
+  } catch {
+    return decision;
+  }
+}
+
+/**
+ * omahaUnderpairNoMultiwayFlopContinue (owner complaint 2026-11-15, hand
+ * 59518335; default OFF, read `=== true`): on the flop, facing a bet and a
+ * call from two live opponents, a continue with one pair below the board's
+ * top card and no flush draw or nut open-ended or wrap draw becomes a fold
+ * when omahaUnderpairFlopCell says so. Draws no random number.
+ */
+function omahaUnderpairFlopFold(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
+  if (opts.omahaUnderpairNoMultiwayFlopContinue !== true) return decision;
+  if (decision.action !== 'call' && decision.action !== 'raise' && decision.action !== 'all_in')
+    return decision;
+  try {
+    if (String(gs.stage ?? '') !== 'flop') return decision;
+    if (Array.isArray(gs.legalActions) && !gs.legalActions.includes('fold')) return decision;
+    const stack = Number.isFinite(player.stack) ? Math.max(0, player.stack) : 0;
+    const heroBet = Number.isFinite(player.bet) ? Math.max(0, player.bet ?? 0) : 0;
+    const toCall = Number.isFinite(gs.toCall)
+      ? Math.max(0, gs.toCall as number)
+      : Math.max(0, (gs.currentBet || 0) - heroBet);
+    if (toCall <= 0.005) return decision;
+    const live = new Set(
+      (gs.players ?? [])
+        .filter((p) => p.seat !== player.seat && !p.is_folded && !p.is_sitting_out)
+        .map((p) => p.seat)
+    );
+    const verdict = omahaUnderpairFlopCell({
+      variant: String(gs.gameVariant ?? ''),
+      street: 'flop',
+      hole: player.cards ?? [],
+      board: gs.communityCards ?? [],
+      action: decision.action,
+      toCall,
+      stack,
+      pot: Number.isFinite(gs.pot) ? Math.max(0, gs.pot) : 0,
+      betAndCall: omahaFlopBetAndCallFaced(gs.actionHistory, player.seat, live),
+      hiLo: gs.variantRules
+        ? gs.variantRules.splitLow8OrBetter
+        : variantInfo(gs.gameVariant).isHiLo,
+      multiBoard: !!(gs.communityCards2?.length || gs.communityCards3?.length),
+      bombPot: gs.bombPot === true,
+      tournament: isTournamentMode(gs),
+      allInOrFold: gs.allInOrFold === true,
+    });
+    if (verdict === null) return decision;
+    const tele = telemetryOn(opts);
+    if (!verdict.fold) {
+      if (tele) noteFire('omaha_underpair_no_multiway_flop_continue_priced_in');
+      return decision;
+    }
+    if (tele) noteFire('omaha_underpair_no_multiway_flop_continue');
+    const folded: HorseDecision = { ...decision, action: 'fold' };
+    delete folded.amount;
+    return folded;
+  } catch {
+    return decision;
+  }
+}
+
+/**
+ * The outermost Omaha call disciplines, in order: the read-conditional
+ * preflop fold, the cold re-raise fold and the multiway underpair flop fold.
+ * Each is opt-in; with all three unset the decision is returned as is.
+ */
+function omahaOutermostCallDiscipline(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
+  return omahaUnderpairFlopFold(
+    omahaColdFourBetFold(omahaReraisedFoldVsTight(decision, player, gs, opts), player, gs, opts),
+    player,
+    gs,
+    opts
+  );
+}
+
 function omahaBigBetCallFold(
   decision: HorseDecision,
   player: SeatPlayer,
@@ -6633,7 +6810,7 @@ function pairedBoardFoldOutsideGraph(
 ): HorseDecision {
   return decision.policyGraph === undefined
     ? omahaRiverMediumBetStrongHandCalls(
-        omahaReraisedFoldVsTight(
+        omahaOutermostCallDiscipline(
           omahaReraisedPotFold(
             omahaBigBetCallFold(
               omahaOopCheckRules(
@@ -8584,7 +8761,7 @@ export class HorseLogic {
       if (tele && nutRaise.changed === 'fold_restored')
         noteFire('omaha_river_non_nut_raise_fold_restored');
       const prePremium = omahaRiverMediumBetStrongHandCalls(
-        omahaReraisedFoldVsTight(
+        omahaOutermostCallDiscipline(
           omahaReraisedPotFold(
             omahaBigBetCallFold(
               omahaOopCheckRules(

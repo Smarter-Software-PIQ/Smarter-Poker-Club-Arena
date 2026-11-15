@@ -979,6 +979,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaNoCallColdFourBetWithoutPremium',
+    "Owner complaint 2026-11-15 (hand 59518335, PLO5 cash): a Horse whose own preflop re-raise is re-raised cold (the re-raiser had put no voluntary money in before; not the opener or a caller) folds a PLO4/PLO5 cash hand without a pair of aces or a premium structure (omahaReraisedPremium), unless the call is all in or leaves no more behind than the call itself and its equity against aces pays the direct price. A measured maniac re-raiser keeps today's play. HorseOmahaUnderpair.ts. Default off (opt-in) until its declared evaluation passes.",
+    'V94'
+  ),
+  flag(
+    'omahaUnderpairNoMultiwayFlopContinue',
+    'Owner complaint 2026-11-15 (hand 59518335, PLO5 cash): on an unpaired PLO4/PLO5 cash flop, facing a bet and a call from two live opponents, exactly one pair below the top card of the board with no flush draw and fewer than eight nut-straight outs folds instead of continuing, unless the call costs less than a tenth of the resulting pot. Heads-up flops are untouched. HorseOmahaUnderpair.ts. Default off (opt-in) until its declared evaluation passes.',
+    'V94'
+  ),
+  flag(
     'omahaNutClassValueSize',
     'Dan 2026-11-14: a PLO4/PLO5 high bet or raise with the nuts or an effective-nut hand for the street is the full pot (the pot-limit maximum, the stack when smaller) on the flop, turn and river. Default OFF (opt-in): its declared evaluation failed on the Horse-only cells (PLO4 -1.19, PLO5 -1.31 bb/100; human field +2.29)',
     'V94'
@@ -3797,6 +3807,30 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_reraised_fold_vs_tight_withheld',
     'HorseLogic call discipline (HorseOmahaReadConditional, omahaReraisedFoldVsTight)',
     "a continue facing a 4-bet or more whose last raiser is not a measured tight re-raiser (wide, maniac, unknown or presumed): the cell was not asked, today's play",
+    'V94'
+  ),
+  receipt(
+    'omaha_no_call_cold_four_bet_without_premium',
+    'HorseLogic call discipline (HorseOmahaUnderpair, omahaNoCallColdFourBetWithoutPremium)',
+    'PLO4/PLO5 cash continue by a Horse whose own preflop re-raise was re-raised cold, with a hand without aces or a premium structure, the call not all in and leaving more behind than the call (or not paying the price against aces): folded',
+    'V94'
+  ),
+  receipt(
+    'omaha_no_call_cold_four_bet_without_premium_priced_in',
+    'HorseLogic call discipline (HorseOmahaUnderpair, omahaNoCallColdFourBetWithoutPremium)',
+    "a continue facing a cold re-raise of the Horse's own re-raise that the cell examined and kept: the call is all in or leaves no more behind than the call, and its equity against aces pays the direct price",
+    'V94'
+  ),
+  receipt(
+    'omaha_underpair_no_multiway_flop_continue',
+    'HorseLogic call discipline (HorseOmahaUnderpair, omahaUnderpairNoMultiwayFlopContinue)',
+    'PLO4/PLO5 cash flop continue facing a bet and a call from two live opponents with one pair below the top card of the board, no flush draw and fewer than eight nut-straight outs, at a tenth of the resulting pot or more: folded',
+    'V94'
+  ),
+  receipt(
+    'omaha_underpair_no_multiway_flop_continue_priced_in',
+    'HorseLogic call discipline (HorseOmahaUnderpair, omahaUnderpairNoMultiwayFlopContinue)',
+    'the same multiway underpair flop continue kept, because the call costs less than a tenth of the resulting pot',
     'V94'
   ),
   receipt(
