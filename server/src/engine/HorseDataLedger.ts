@@ -1485,7 +1485,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'fixedLimitPricedPreflop',
-    "2026-11-15 default OFF (Fixed-Limit lane W5): fixed limit only, first in the seat raises the stated reference share by players behind (HorseFixedLimitPreflop.ts; the small blind folded to also completes a band, the heads-up button raises flh 85% / flo8 70%), and a blind's fold facing exactly one raise (no limper, no caller) becomes a call when its realized equity against the opener's reference range covers the rake-aware price; 3-bet/cap ranges and tournament stacks of 20bb or less unchanged; the phase12 round-3 entry rules retain this reference in fixed limit",
+    "2026-11-15 default OFF (Fixed-Limit lane W5): fixed limit only, first in the seat raises the stated reference share by players behind (HorseFixedLimitPreflop.ts; the small blind folded to also completes a band, the heads-up button raises flh 85% / flo8 70%), and a blind's fold facing exactly one raise (no limper, no caller) becomes a call when its realized equity against the opener's reference range covers its pot price (call / (pot + call); rake is inside the realization calibration, not deducted again: 2026-11-15 fix); 3-bet/cap ranges and tournament stacks of 20bb or less unchanged; the phase12 round-3 FIRST-IN entry rules retain this reference in fixed limit (the big blind defended rule is not held: it could only fold a call)",
     'FixedLimitAdaptation'
   ),
   flag(

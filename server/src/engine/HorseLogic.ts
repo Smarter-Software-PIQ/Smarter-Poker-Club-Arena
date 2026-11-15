@@ -3165,10 +3165,10 @@ export interface HorseDecideOpts {
    *  players behind (the small blind folded to also completes a band; the
    *  heads-up button raises flh 85% / flo8 70%), and a blind's fold facing
    *  exactly one raise becomes a call when its realized equity against the
-   *  opener's reference range covers the rake-aware price
-   *  (HorseFixedLimitPreflop.ts). 3-bet/cap ranges and tournament stacks of
-   *  20 big blinds or less are unchanged. With it on, the phase12 pack's
-   *  round-3 preflop entry rules retain this reference in fixed limit.
+   *  opener's reference range covers its raw pot price (the calibration's
+   *  price; 2026-11-15 fix) (HorseFixedLimitPreflop.ts). 3-bet/cap ranges and
+   *  tournament stacks of 20 big blinds or less are unchanged. With it on, the
+   *  phase12 pack's round-3 preflop FIRST-IN entry rules retain this reference in fixed limit.
    *  Read only as === true: default OFF. */
   fixedLimitPricedPreflop?: boolean;
   /** FIXED-LIMIT STEAL VS TIGHT BLINDS (Fixed-Limit lane W5, 2026-11-15): in

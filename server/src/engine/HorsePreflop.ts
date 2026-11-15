@@ -1209,7 +1209,20 @@ export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
         bigBlind: ctx.bigBlind,
         currentBet: ctx.currentBet,
         blind: ctx.position === 'sb' || ctx.position === 'bb' ? ctx.position : null,
-        odds: effCallFl > 0 ? preflopCallOdds(ctx, pricePotFl, effCallFl) : 1,
+        // W5 fix (2026-11-15): the defence is read at the RAW pot price,
+        // call / (pot + call). Its realization factors
+        // (FIXED_LIMIT_DEFENCE_REALIZATION) are calibrated to the published
+        // defence widths at that price (3.5 to 1, heads-up 3 to 1), and those
+        // published widths are for raked games. preflopCallOdds divides by
+        // (1 - callDeductionFraction), which projects the whole hand's rake
+        // and the fixed per-hand jackpot fee onto the pot after this call:
+        // preflop that pot is 4.5 big blinds, so the fraction is about 0.23 at
+        // every Midway fixed-limit stake and the price 0.29 instead of 0.222.
+        // Fed that price the ring defence never fired in 1,845 recorded hands
+        // (r2/R2-REACH-CONTINUATION.md); only the heads-up hold'em big blind
+        // cleared it. Rake therefore enters this verdict once, through the
+        // calibration, not twice.
+        odds: effCallFl > 0 ? effCallFl / Math.max(1e-9, pricePotFl + effCallFl) : 1,
         maniacOpenBar: ctx.maniacOpenBar,
       },
       out

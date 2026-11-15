@@ -1081,12 +1081,14 @@ export function evaluateRemainingVariantPolicy(
   opponentStation = false,
   /** FIXED-LIMIT PRICED PREFLOP (Fixed-Limit lane W5, 2026-11-15; HorseLogic
    *  passes HorseDecideOpts.fixedLimitPricedPreflop === true on a fixed-limit
-   *  table, default false). The round-3 preflop entry rules over the reference
-   *  (open tightened, heads-up open, small blind steal, big blind defended)
-   *  retain the reference instead: that reference IS the priced first-in and
-   *  defence of the option, so the pack's bars (which fold a quarter to a
-   *  third of a standard late-position opening range, FL-PRE-02) give way to
-   *  it. Fixed limit only; every other variant and the default are unchanged. */
+   *  table, default false). The round-3 preflop FIRST-IN rules over the
+   *  reference (open tightened, heads-up open, small blind steal) retain the
+   *  reference instead: first in, that reference IS the option's priced
+   *  first-in answer, so the pack's bars (which fold a quarter to a third of a
+   *  standard late-position opening range, FL-PRE-02) give way to it. The big
+   *  blind defended rule is NOT held (2026-11-15): it fires only on a
+   *  reference fold, so holding it could only turn a call into a fold. Fixed
+   *  limit only; every other variant and the default are unchanged. */
   fixedLimitPricedPrecedence = false
 ) {
   const start = now(),
@@ -1663,7 +1665,12 @@ export function evaluateRemainingVariantPolicy(
       baseline.action === 'fold' &&
       shape.quality >= bars.call - rules.bigBlindDefendBelowCallBar
     )
-      return precedence('round3_big_blind_defended') ?? finish('round3_big_blind_defended', call());
+      // W5 fix (2026-11-15): NO precedence here. This rule fires only on a
+      // reference FOLD, so "retaining the reference" could only ever turn the
+      // pack's call into a fold (66 recorded flh ring big-blind trials did).
+      // A priced defence that fires makes the reference a call, and then this
+      // rule does not fire at all; the option never folds a big blind's call.
+      return finish('round3_big_blind_defended', call());
     return finish('round3_reference_retained', retained());
   }
   // The exact FLO8 card facts, computed before sampling (the order the

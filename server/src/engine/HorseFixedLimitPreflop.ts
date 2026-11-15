@@ -28,8 +28,9 @@
  *  2. A BLIND FACING EXACTLY ONE RAISE (no limper, no caller, the raiser not
  *     all in): a FOLD of the existing bars becomes a CALL when the hand's
  *     showdown equity against the opener's reference range, times the
- *     out-of-position realization, covers the rake-aware price
- *     (preflopCallOdds), less a realization factor per player still to act
+ *     out-of-position realization, covers the RAW pot price call /
+ *     (pot + call) (2026-11-15 fix: the realization is calibrated at that
+ *     price; preflopCallOdds' projected deduction is not applied again), less a realization factor per player still to act
  *     behind (the small blind has the big blind behind it). Calls and 3-bets
  *     the old bars made are unchanged (3-bet and cap ranges unchanged).
  *
@@ -299,7 +300,9 @@ export interface FixedLimitPricedSpot {
   currentBet: number;
   /** blind seat of hero, if any */
   blind: 'sb' | 'bb' | null;
-  /** the rake-aware price of calling (preflopCallOdds), for the defence */
+  /** the RAW pot price of calling, call / (pot + call), for the defence: the
+   *  realization factors are calibrated at this price (2026-11-15 fix; the
+   *  projected rake-and-jackpot deduction is not applied a second time) */
   odds: number;
   /** a maniac behind: the open bar may not go below this (strength) */
   maniacOpenBar?: number;

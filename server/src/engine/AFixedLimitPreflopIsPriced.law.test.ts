@@ -26,12 +26,15 @@ import { describe, expect, it } from 'vitest';
 import type { Card } from '../types.js';
 import { deal, decide, lcg, menuOf, type Table } from './HuVariantSpot.test-support.js';
 import {
+  FIXED_LIMIT_DEFENCE_REALIZATION,
   FIXED_LIMIT_OPEN_BAND,
   FIXED_LIMIT_OPEN_REFERENCE,
   fixedLimitBlindDefence,
+  fixedLimitEquityVsTopShare,
   fixedLimitOpenShare,
   type FixedLimitPreflopVariant,
 } from './HorseFixedLimitPreflop.js';
+import { horseCallDeductionFraction } from './HorseCallDeductions.js';
 import { holdemPreflopScore, omahaElitePreflopStrength } from './HorseEval.js';
 import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
 import { evaluateRemainingVariantPolicy } from './remainingVariants/RemainingVariantLivePolicy.js';
@@ -299,4 +302,239 @@ describe('off is the old answer; no-limit and pot-limit never see the option', (
       }
     }
   }, 240_000);
+});
+
+// ═══ 2026-11-15 FIX (R2 replay of 1,845 recorded Horse-only hands) ═══
+// The tables above carry no rake, so the price the brain read was the raw
+// 2/9. Production carries rake and a per-hand jackpot fee; the projected
+// deduction over the 4.5bb preflop pot is about 0.23, and the defence was fed
+// 0.29: it never fired at a ring big blind. These cases run on production-
+// shaped deductions (10% rake, the jackpot fee 0.6bb) and hold the defence to
+// the widths its calibration states at the raw price.
+const RAKED = {
+  percent: 10,
+  cap: 5,
+  noFlopNoDrop: true,
+  playerCountCaps: [{ players: 2, cap: 2.52 }],
+};
+const BBJ = { enabled: true, feeBB: 0.6, minPotBB: 0, minPlayersDealt: 2 };
+
+function raked(t: Table): Table {
+  const c = t.controller as unknown as {
+    getRakeConfigSnapshot: () => unknown;
+    getChipRulesSnapshot: () => Record<string, unknown>;
+  };
+  const rules = c.getChipRulesSnapshot.bind(c);
+  c.getRakeConfigSnapshot = () => RAKED;
+  c.getChipRulesSnapshot = () => ({ ...rules(), bbjConfig: BBJ });
+  return t;
+}
+
+/** The generated table's defence width: the largest top share whose realized equity covers `odds`. */
+function tableWidth(
+  variant: FixedLimitPreflopVariant,
+  dealt: number,
+  openerBehind: number,
+  odds: number
+) {
+  const opener = fixedLimitOpenShare(variant, dealt, openerBehind)!;
+  let w = 0;
+  for (let s = 0; s <= 1.0001; s += 0.005)
+    if (
+      fixedLimitEquityVsTopShare(variant, s, opener.raise) *
+        FIXED_LIMIT_DEFENCE_REALIZATION[variant] >=
+      odds
+    )
+      w = s;
+  return Math.min(1, w);
+}
+
+/** Dealer at seat 1 (6-max): 1 BTN, 2 SB, 3 BB, 4 UTG, 5 HJ, 6 CO. The opener raises, every other seat folds to `to`. */
+function facingOne(
+  variant: string,
+  n: number,
+  opener: number,
+  to: number,
+  i: number,
+  coldCall?: number,
+  limper?: number
+) {
+  const t = raked(table(variant, n, 5200 + i));
+  if (limper !== undefined) {
+    foldTo(t, limper);
+    t.controller.performAction(limper, 'call', undefined, 'player');
+  }
+  foldTo(t, opener);
+  t.controller.performAction(opener, 'raise', menuOf(t).minRaiseTo ?? undefined, 'player');
+  for (let k = 0; k < 12; k++) {
+    const cur = t.controller.getCurrentPlayer()!;
+    if (cur.seat === to) return t;
+    t.controller.performAction(
+      cur.seat,
+      cur.seat === coldCall ? 'call' : 'fold',
+      undefined,
+      'player'
+    );
+  }
+  throw new Error(`seat ${to} never reached`);
+}
+
+function defenceRun(
+  variant: FixedLimitPreflopVariant,
+  n: number,
+  opener: number,
+  openerBehind: number,
+  hero: number,
+  heroBehind: number
+) {
+  enableBrainTelemetry();
+  const deals = 300;
+  let width = -1;
+  let fires = 0;
+  let defendOn = 0;
+  let defendOff = 0;
+  let counted = 0;
+  for (let i = 0; i < deals; i++) {
+    const t = facingOne(variant, n, opener, hero, i);
+    const menu = menuOf(t);
+    const state = t.controller.getState();
+    const odds = menu.toCall / (state.pot + menu.toCall);
+    if (width < 0) width = tableWidth(variant, n, openerBehind, odds);
+    const s0 = strengthOf(variant, heroCards(t, hero));
+    let calls = true;
+    for (let j = -0.03; j <= 0.0301 && calls; j += 0.005)
+      calls = fixedLimitBlindDefence({
+        variant,
+        dealt: n,
+        strength: Math.min(1, Math.max(0, s0 + j)),
+        openerBehind,
+        behind: heroBehind,
+        odds,
+      })!.calls;
+    drainFires();
+    const run = decide(t, 11000 + i, { ...ON, telemetry: true });
+    const fired = drainFires();
+    const classFold = fired.some((f) => f.feature === 'v46_class_fold');
+    if (fired.some((f) => f.feature === 'fixed_limit_priced_blind_defence')) fires++;
+    // The test reproduces production's price shape: the projected deduction is large.
+    if (i === 0)
+      expect(horseCallDeductionFraction(run.hero, run.gs, menu.toCall) ?? 0).toBeGreaterThan(0.15);
+    const off = decide(t, 11000 + i, {}).d;
+    const on = run.d;
+    // The option never folds a hand the old code continued.
+    if (off.action !== 'fold') expect(on.action, `${variant} deal ${i}`).not.toBe('fold');
+    if (calls && !classFold) expect(on.action, `${variant} deal ${i} s=${s0}`).not.toBe('fold');
+    if (off.action === 'raise') expect(on.action).toBe('raise');
+    if (!classFold) {
+      counted++;
+      if (on.action !== 'fold') defendOn++;
+      if (off.action !== 'fold') defendOff++;
+    }
+  }
+  return {
+    width,
+    fires,
+    defend: defendOn / Math.max(1, counted),
+    defendOff: defendOff / Math.max(1, counted),
+  };
+}
+
+describe('2026-11-15 fix: the blind defends to its price under production rake and jackpot fees (option on)', () => {
+  const RING: [string, number, number][] = [
+    ['UTG', 4, 5],
+    ['CO', 6, 3],
+    ['BTN', 1, 2],
+  ];
+  for (const variant of VARIANTS) {
+    for (const [label, opener, openerBehind] of RING) {
+      it(`${variant} 6-max big blind vs ${label}: defends at least the generated width (-5 points); it fires wherever the old code defends less`, () => {
+        const r = defenceRun(variant, 6, opener, openerBehind, 3, 0);
+        expect(
+          r.defend,
+          `${variant} ${label} defend ${r.defend} width ${r.width}`
+        ).toBeGreaterThanOrEqual(r.width - FIXED_LIMIT_OPEN_BAND);
+        // Where the old code already defends at least the width (flh versus
+        // the early seats) the option has nothing to add and need not fire.
+        if (r.defendOff < r.width - FIXED_LIMIT_OPEN_BAND) expect(r.fires).toBeGreaterThan(0);
+      }, 240_000);
+    }
+  }
+  it('flo8 heads-up big blind (3 to 1): defends at least the generated width (-5 points), and it fires', () => {
+    const r = defenceRun('flo8', 2, 1, 1, 2, 0);
+    expect(r.defend).toBeGreaterThanOrEqual(r.width - FIXED_LIMIT_OPEN_BAND);
+    expect(r.fires).toBeGreaterThan(0);
+  }, 240_000);
+  // The small blind is in scope (the design defends "a blind"): with the big
+  // blind still to act its realization is discounted once (0.85). It never
+  // folds a hand above its own verdict and never folds a hand the old code
+  // continued; at 3 to 10 it seldom needs to fire, so no count is pinned.
+  for (const variant of VARIANTS) {
+    it(`${variant} 6-max small blind vs the button: above its verdict it never folds`, () => {
+      defenceRun(variant, 6, 1, 2, 2, 1);
+    }, 240_000);
+  }
+  it('a cold caller or a limper in the pot: the option leaves the big blind exactly as it was', () => {
+    for (const variant of VARIANTS) {
+      for (let i = 0; i < 60; i++) {
+        const cold = facingOne(variant, 6, 4, 3, i, 6);
+        expect(pick(decide(cold, 900 + i, ON).d), `${variant} cold ${i}`).toEqual(
+          pick(decide(cold, 900 + i, {}).d)
+        );
+        const limped = facingOne(variant, 6, 6, 3, i, undefined, 4);
+        expect(pick(decide(limped, 950 + i, ON).d), `${variant} limp ${i}`).toEqual(
+          pick(decide(limped, 950 + i, {}).d)
+        );
+      }
+    }
+  }, 240_000);
+  it('off: with the options passed false the raked big blind decides exactly as with them absent', () => {
+    for (const variant of VARIANTS) {
+      for (let i = 0; i < 80; i++) {
+        const t = facingOne(variant, 6, [4, 6, 1][i % 3], 3, i);
+        const a = decide(t, 700 + i, {}).d;
+        const b = decide(t, 700 + i, {
+          fixedLimitPricedPreflop: false,
+          fixedLimitStealVsTightBlinds: false,
+        }).d;
+        expect(pick(b), `${variant} ${i}`).toEqual(pick(a));
+      }
+    }
+  }, 240_000);
+});
+
+describe('2026-11-15 fix: the pack big blind defended rule is not held for the reference', () => {
+  function bbPack(variant: string, precedence: boolean, i: number) {
+    const t = facingOne(variant, 6, 1, 3, 400 + i);
+    const { hero, gs } = decide(t, 4400 + i, ON);
+    const fold = { action: 'fold', thinkTime: 1000 } as HorseDecision;
+    return evaluateRemainingVariantPolicy(
+      hero,
+      gs,
+      fold,
+      null,
+      'candidate',
+      () => 0,
+      1,
+      false,
+      false,
+      precedence
+    );
+  }
+  // Only the fixed-limit hold'em pack has the rule (the flo8 round-4 pack sets
+  // bigBlindDefendBelowCallBar to null), so this is a flh case.
+  for (const variant of ['flh']) {
+    it(`${variant}: a big blind the pack defends stays defended under the option`, () => {
+      let found = 0;
+      for (let i = 0; i < 300 && found < 5; i++) {
+        const off = bbPack(variant, false, i);
+        if (off.receipt.reason !== 'round3_big_blind_defended') continue;
+        found++;
+        expect(off.decision.action).toBe('call');
+        const on = bbPack(variant, true, i);
+        expect(on.decision.action).toBe('call');
+        expect(on.receipt.reason).toBe('round3_big_blind_defended');
+      }
+      expect(found).toBeGreaterThan(0);
+    });
+  }
 });
