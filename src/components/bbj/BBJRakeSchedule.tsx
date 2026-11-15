@@ -118,7 +118,7 @@ async function loadRows({ clubId, unionId, tableId, asset }: Props): Promise<Row
   if (diamond && !rows.length) {
     for (const p of diamond.data)
       rows.push({
-        game: 'All cash games',
+        game: 'All Cash Games',
         name: '',
         sb: null,
         bb: p.big_blind,
@@ -154,22 +154,23 @@ export function BBJRakeSchedule(props: Props) {
     return (
       <p className="bbj-basic__rules" role="status">
         {failed
-          ? 'Rake schedule unavailable.'
+          ? 'Rake Schedule Unavailable.'
           : rows
-            ? 'No cash games are listed.'
-            : 'Loading rake schedule…'}
+            ? 'No Cash Games Are Listed.'
+            : 'Loading Rake Schedule…'}
       </p>
     );
   return (
     <div className="bbj-basic__scroll">
-      <table className="bbj-basic__table" aria-label="Cash game rake by stakes">
+      <table className="bbj-basic__table" aria-label="Cash Game Rake By Stakes">
         <thead>
           <tr>
             <th>Cash Game</th>
             <th>Stakes</th>
             <th>Rake</th>
             <th>
-              Cap <span className="bbj-basic__subhead">{asset}</span>
+              Cap{' '}
+              <span className="bbj-basic__subhead">{asset === 'chips' ? 'Chips' : 'Diamonds'}</span>
             </th>
           </tr>
         </thead>
@@ -179,7 +180,7 @@ export function BBJRakeSchedule(props: Props) {
               <td>
                 {r.game}
                 <small className="bbj-basic__subhead">{r.name}</small>
-                {r.dealt && <small className="bbj-basic__subhead">{r.dealt} dealt</small>}
+                {r.dealt && <small className="bbj-basic__subhead">{r.dealt} Dealt</small>}
               </td>
               <td>{r.sb === null ? 'BB ' + r.bb : r.sb + '/' + r.bb}</td>
               <td>{r.rate}%</td>
