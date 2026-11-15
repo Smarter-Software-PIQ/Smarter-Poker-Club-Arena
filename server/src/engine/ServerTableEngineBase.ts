@@ -682,7 +682,15 @@ export abstract class ServerTableEngineBase {
    * at engine construction. null in unit tests / until PR-2 wiring lands.
    */
   protected hub: TableStateHub | null = null;
+  protected readonly committedSeatSitOut = new Set<string>();
+  protected readonly seatSitOutVersions = new WeakMap<object, number>();
   protected readonly seatSitOutPersistence = new SeatSitOutPersistence((room, event) => {
+    if (
+      !this.seatedPlayers.some(
+        (p) => p.user_id === event.player_id && p.occupancy_id === event.occupancy_id
+      )
+    )
+      return;
     // The committed original transition, including forced sit-outs, owns the
     // held departure. The anchor remains dealable; the hand host folds it.
     if (event.blind_off === true) {
@@ -3924,8 +3932,19 @@ export abstract class ServerTableEngineBase {
           }
         }
         if (!occupancyId) return;
+        const key = `${this.tableId}:${event.playerId}:${occupancyId}`;
+        if (this.committedSeatSitOut.has(key)) return;
+        const state = this.disconnectEngine.getState(this.tableId, event.playerId);
+        const version = state ? (this.seatSitOutVersions.get(state) ?? 0) + 1 : 0;
+        if (state) this.seatSitOutVersions.set(state, version);
         void this.seatSitOutPersistence
-          .persist(this.tableId, event.playerId, occupancyId, sittingOut)
+          .persist(this.tableId, event.playerId, occupancyId, sittingOut, () => {
+            const current = this.disconnectEngine.getState(this.tableId, event.playerId);
+            return (
+              (current === state && (!state || this.seatSitOutVersions.get(state) === version)) ||
+              current?.isSittingOut === sittingOut
+            );
+          })
           .catch((err) => {
             reportError(err, 'ServerTableEngine.' + this.tableId + '.sitout_persist_threw');
           });

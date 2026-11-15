@@ -32,7 +32,8 @@ export class SeatSitOutPersistence {
     tableId: string,
     playerId: string,
     occupancyId: string,
-    sittingOut: boolean
+    sittingOut: boolean,
+    mayPublish: () => boolean = () => true
   ): Promise<SitOutReceipt | null> {
     const key = `${tableId}:${playerId}:${occupancyId}`;
     const prior = this.pending.get(key) ?? Promise.resolve();
@@ -83,15 +84,16 @@ export class SeatSitOutPersistence {
               : stamp !== null
           )
             throw new Error('Sit-out clock unverified');
-          this.emit(result.pool_session_id, {
-            type: 'lightning_sitout_changed',
-            pool_session_id: result.pool_session_id,
-            player_id: playerId,
-            occupancy_id: occupancyId,
-            sitting_out: sittingOut,
-            sit_out_at: stamp as string | null,
-            ...(result.blind_off ? { blind_off: true } : {}),
-          });
+          if (mayPublish())
+            this.emit(result.pool_session_id, {
+              type: 'lightning_sitout_changed',
+              pool_session_id: result.pool_session_id,
+              player_id: playerId,
+              occupancy_id: occupancyId,
+              sitting_out: sittingOut,
+              sit_out_at: stamp as string | null,
+              ...(result.blind_off ? { blind_off: true } : {}),
+            });
         }
         return result;
       });

@@ -258,7 +258,7 @@ describe('tournament sit-outs are dealt in and blinded off (bug 2)', () => {
     expect(base).toMatch(/PLAYER_SAT_OUT/);
     expect(base).toMatch(/PLAYER_SAT_BACK/);
     expect(base).toMatch(
-      /this\.seatSitOutPersistence\s*\.persist\(this\.tableId, event\.playerId, occupancyId, sittingOut\)/
+      /this\.seatSitOutPersistence\s*\.persist\(\s*this\.tableId,\s*event\.playerId,\s*occupancyId,\s*sittingOut,/
     );
     expect(persistence).toMatch(/\.rpc\('fn_cash_seat_sitout'/);
     expect(persistence).toContain('p_sitting_out: sittingOut');

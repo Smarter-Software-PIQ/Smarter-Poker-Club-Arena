@@ -77,6 +77,109 @@ afterEach(() => {
 });
 const events = () =>
   engine.hub.emitEvent.mock.calls.filter(([, e]: any) => e.type === 'lightning_sitout_changed');
+it('a newer forced sit-out on the same occupancy supersedes an earlier return ACK', async () => {
+  blind = true;
+  engine.tableInfo.cluster_id = table;
+  engine.dealingHaltLock = true;
+  engine.dealingHaltReason = 'lightning';
+  engine.disconnectEngine.registerPlayer(table, player);
+  Object.assign(engine.disconnectEngine.getState(table, player), {
+    isSittingOut: true,
+    sitOutByClient: true,
+    sitOutReason: 'voluntary',
+  });
+  engine.leaveHeldByClock.set(player, occupancy);
+  const back = engine.sitOutAndWait(player, false, { requestedByClient: true });
+  await vi.waitFor(() => expect(writes).toEqual([false]));
+  engine.disconnectEngine.sitOut(table, player, 'forced');
+  release();
+  expect(await back).toMatchObject({ success: false, code: 'SITOUT_SUPERSEDED' });
+  await vi.waitFor(() => expect(events()).toHaveLength(1));
+  expect(writes).toEqual([false, true]);
+  expect(events()[0][1]).toMatchObject({ sitting_out: true, blind_off: true });
+  expect(engine.disconnectEngine.isSittingOut(table, player)).toBe(true);
+  expect(engine.disconnectEngine.getState(table, player).sitOutReason).toBe('voluntary');
+  expect(engine.leaveHeldByClock.get(player)).toBe(occupancy);
+  expect(engine.returnedFromSitOutAtMs.has(player)).toBe(false);
+});
+it('a current hand started during the sit-out write is allowed to finish normally', async () => {
+  const request = engine.sitOutAndWait(player, true, { requestedByClient: true });
+  await vi.waitFor(() => expect(writes).toEqual([true]));
+  const hand = { performAction: vi.fn() };
+  engine.handController = hand;
+  release();
+  expect(await request).toMatchObject({ success: true, willFoldNextHand: true });
+  expect(engine.handController).toBe(hand);
+  expect(hand.performAction).not.toHaveBeenCalled();
+  expect(engine.pendingSitOut.has(player)).toBe(true);
+  expect(engine.disconnectEngine.isSittingOut(table, player)).toBe(false);
+  expect(writes).toEqual([true]);
+});
+it('an old occupancy ACK cannot clear the replacement seat intention', async () => {
+  engine.disconnectEngine.registerPlayer(table, player);
+  Object.assign(engine.disconnectEngine.getState(table, player), {
+    isSittingOut: true,
+    sitOutByClient: true,
+  });
+  const back = engine.sitOutAndWait(player, false, { requestedByClient: true });
+  await vi.waitFor(() => expect(writes).toEqual([false]));
+  engine.seatedPlayers[0] = { ...engine.seatedPlayers[0], occupancy_id: pool };
+  engine.leaveHeldByClock.set(player, pool);
+  release();
+  expect(await back).toMatchObject({ success: false });
+  expect(engine.disconnectEngine.isSittingOut(table, player)).toBe(true);
+  expect(engine.leaveHeldByClock.get(player)).toBe(pool);
+  expect(engine.returnedFromSitOutAtMs.has(player)).toBe(false);
+  expect(events()).toEqual([]);
+});
+describe('a rejected return preserves the original local sit-out', () => {
+  it.each(['P2S01', 'P2S02', '55006', 'missing'])(
+    'retains all local intentions on %s and permits retry',
+    async (code) => {
+      engine.tableInfo.cluster_id = table;
+      engine.dealingHaltLock = true;
+      engine.dealingHaltReason = 'lightning';
+      engine.seatedPlayers[0].is_sitting_out = true;
+      engine.seatedPlayers[0].sit_out_at = stamp;
+      engine.disconnectEngine.registerPlayer(table, player);
+      Object.assign(engine.disconnectEngine.getState(table, player), {
+        isSittingOut: true,
+        sitOutByClient: true,
+        sitOutSince: Date.parse(stamp),
+        sitOutReason: 'voluntary',
+      });
+      engine.leaveHeldByClock.set(player, occupancy);
+      engine.chipContinuity.markBlindOff(player, true);
+      engine.pendingSitOut.add(player);
+      missing = code === 'missing';
+      fail = !missing;
+      failCode = code;
+      const request = engine.sitOutAndWait(player, false, { requestedByClient: true });
+      await vi.waitFor(() => expect(writes).toEqual([false]));
+      release();
+      if (missing) expect(await request).toMatchObject({ success: false });
+      else await expect(request).rejects.toThrow();
+      engine.restoreSitOutsFromSeats();
+      expect(engine.disconnectEngine.isSittingOut(table, player)).toBe(true);
+      expect(engine.isClientSitOut(player)).toBe(true);
+      expect(engine.leaveHeldByClock.get(player)).toBe(occupancy);
+      expect(engine.pendingSitOut.has(player)).toBe(true);
+      expect(engine.returnedFromSitOutAtMs.has(player)).toBe(false);
+      expect(engine.returningFromSitout.has(player)).toBe(false);
+      expect(events()).toEqual([]);
+      missing = false;
+      fail = false;
+      expect(await engine.sitOutAndWait(player, false, { requestedByClient: true })).toMatchObject({
+        success: true,
+      });
+      expect(engine.disconnectEngine.isSittingOut(table, player)).toBe(false);
+      expect(engine.isClientSitOut(player)).toBe(false);
+      expect(engine.leaveHeldByClock.has(player)).toBe(false);
+      expect(engine.pendingSitOut.has(player)).toBe(false);
+      expect(writes).toEqual([false, false]);
+    }
+  );
+});
 describe('the original sit-out transaction publishes its acknowledged occupancy', () => {
   it('keeps the HTTP response and published stamp behind the database ACK', async () => {
     let answered = false;
