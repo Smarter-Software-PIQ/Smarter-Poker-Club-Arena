@@ -5702,12 +5702,13 @@ function omahaMadeHandDefenseRules(
   player: SeatPlayer,
   gs: HorseGameStateV2,
   opts: HorseDecideOpts,
-  reference: HorseDecision | null
+  reference: HorseDecision | null,
+  nearNutChosenRaise = false
 ): HorseDecision {
-  // The default-off near-nut river value candidate keeps its own raise and
-  // its own size when a league arm switches it on; production never does.
-  if (opts.smallPotNearNutRiverValue === true && smallPotNearNutRiverValue(player, gs))
-    return decision;
+  // The default-off near-nut river value candidate keeps the raise it chose
+  // itself, at its own size, when a league arm switches it on; production
+  // never does. Every other decision in that spot follows the rules.
+  if (nearNutChosenRaise && decision.action === 'raise') return decision;
   const tele = telemetryOn(opts);
   const defenseOn = opts.omahaBeatenMadeHandDefense !== false;
   const flat = omahaBeatenNoRaise(decision, player, gs, defenseOn, reference);
@@ -5743,15 +5744,13 @@ function pairedBoardFoldOutsideGraph(
                 gs,
                 // The default-off near-nut value candidate keeps its own raise
                 // when a league arm switches it on; production never does.
-                opts.omahaRiverNutRaiseOnly !== false &&
-                  !(
-                    opts.smallPotNearNutRiverValue === true && smallPotNearNutRiverValue(player, gs)
-                  )
+                opts.omahaRiverNutRaiseOnly !== false && !nearNutChosenRaises.has(decision)
               ).decision,
               player,
               gs,
               opts,
-              null
+              null,
+              nearNutChosenRaises.has(decision)
             ),
             player,
             gs,
@@ -7634,8 +7633,7 @@ export class HorseLogic {
         wagered,
         player,
         gs,
-        opts.omahaRiverNutRaiseOnly !== false &&
-          !(opts.smallPotNearNutRiverValue === true && smallPotNearNutRiverValue(player, gs)),
+        opts.omahaRiverNutRaiseOnly !== false && !nearNutChosen,
         beforePhase10
       );
       if (tele && nutRaise.changed === 'flatted') noteFire('omaha_river_non_nut_raise_flatted');
@@ -7644,7 +7642,14 @@ export class HorseLogic {
       const prePremium = omahaBigBetCallFold(
         pairedBoardRiverCheck(
           pairedBoardFold(
-            omahaMadeHandDefenseRules(nutRaise.decision, player, gs, opts, beforePhase10),
+            omahaMadeHandDefenseRules(
+              nutRaise.decision,
+              player,
+              gs,
+              opts,
+              beforePhase10,
+              nearNutChosen
+            ),
             player,
             gs,
             opts
