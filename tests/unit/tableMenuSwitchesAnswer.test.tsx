@@ -30,6 +30,7 @@ vi.mock('../../src/core/MasterBus', () => ({
 import { createDefaultMenuSections } from '../../src/components/table/TableMenu';
 import { TableTabBar, type TabInfo } from '../../src/components/table/TableTabBar';
 import { setTableSetting } from '../../src/hooks/useTableSettings';
+import { sliceBetween, sliceCall } from '../helpers/sourceWindow';
 
 const read = (p: string) => readFileSync(resolve(__dirname, '..', '..', p), 'utf8');
 const code = (p: string) =>
@@ -173,9 +174,10 @@ describe('the reports the badges depend on', () => {
   });
 
   it('only the Settings page save may mute a table through SETTINGS_UPDATED', () => {
-    const at = TABLE_PAGE.indexOf("useMasterBusSubscription('SETTINGS_UPDATED'");
-    expect(at).toBeGreaterThan(-1);
-    const listener = TABLE_PAGE.slice(at, at + 1200);
+    const listener = sliceCall(
+      read('src/pages/TablePage.tsx'),
+      "useMasterBusSubscription('SETTINGS_UPDATED'"
+    );
     expect(listener).toMatch(
       /if \(payload\?\.source === 'settings-page' && s\.soundEnabled === false\) \{\s*soundService\.setEnabled\(false\);/
     );
@@ -184,9 +186,8 @@ describe('the reports the badges depend on', () => {
 
   it('a menu press is never deduplicated and never replayed in another window', () => {
     const list = (name: string) => {
-      const at = BUS.indexOf(name);
-      expect(at).toBeGreaterThan(-1);
-      return BUS.slice(at + name.length, BUS.indexOf(']', at + name.length));
+      expect(BUS).toContain(name);
+      return sliceBetween(BUS, name, ']');
     };
     expect(list('DEDUP_BYPASS: BusEventType[] = [')).toContain("'TABLE_MENU_ACTION'");
     expect(list('LOCAL_NAVIGATION_EVENTS = new Set<BusEventType>([')).toContain(
