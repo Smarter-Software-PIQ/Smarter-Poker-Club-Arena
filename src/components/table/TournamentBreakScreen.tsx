@@ -550,10 +550,7 @@ export function TournamentBreakScreen({
     return Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) : 0;
   }, [countingDown, displayTime, breakTotalSeconds]);
 
-  const getTimerColor = () => {
-    if (!countingDown) return '#45adff';
-    return displayTime <= 10 ? '#ff5b6e' : '#ffd700';
-  };
+  const timerColor = countingDown && displayTime <= 10 ? '#e4e7ec' : '#45adff';
   const waitingForResume = countingDown && displayTime === 0;
 
   // Expiry retires this presentation only. The engine still owns all play
@@ -667,6 +664,7 @@ export function TournamentBreakScreen({
     <div
       className="break-screen"
       role="dialog"
+      data-popup-chassis="none"
       aria-modal="false"
       aria-labelledby="break-title"
       onKeyDown={(event) => {
@@ -685,7 +683,6 @@ export function TournamentBreakScreen({
           title={breakConsoleTitle(!!addOnNotice, extendedForDailyUpdate)}
           onClose={() => setMinimized(true)}
           pill="Share"
-          pillInk="gold"
           foot="foot"
         >
           {shareMessage && (
@@ -723,7 +720,7 @@ export function TournamentBreakScreen({
                       ? 'Last Hand In Play'
                       : 'Waiting For Tables To Finish'
                 }
-                style={{ color: getTimerColor() }}
+                style={{ color: timerColor }}
               >
                 {countingDown ? formatTime(displayTime) : addOnNotice ? 'Last Hand' : 'Waiting'}
               </span>
@@ -733,7 +730,7 @@ export function TournamentBreakScreen({
                   d="M0 2 H200"
                   pathLength="100"
                   strokeDasharray={`${progressPercent} 100`}
-                  style={{ stroke: getTimerColor() }}
+                  style={{ stroke: timerColor }}
                 />
               </svg>
             </div>
@@ -928,16 +925,18 @@ export function TournamentBreakScreen({
                     className={`break-screen__leader ${player.isCurrentUser ? 'break-screen__leader--me' : ''}`}
                   >
                     <span className="break-screen__leader-rank">{player.rank}</span>
-                    {player.avatar ? (
-                      <img
-                        className="break-screen__leader-avatar"
-                        src={player.avatar}
-                        alt=""
-                        loading="lazy"
-                      />
-                    ) : null}
-                    <span className="break-screen__leader-name">{player.playerName}</span>
-                    {player.isCurrentUser && <span className="break-screen__you">You</span>}
+                    <span className="break-screen__leader-player">
+                      {player.avatar ? (
+                        <img
+                          className="break-screen__leader-avatar"
+                          src={player.avatar}
+                          alt=""
+                          loading="lazy"
+                        />
+                      ) : null}
+                      <span className="break-screen__leader-name">{player.playerName}</span>
+                      {player.isCurrentUser && <span className="break-screen__you">You</span>}
+                    </span>
                     <span
                       className="break-screen__leader-stack"
                       title={player.stack.toLocaleString('en-US')}
