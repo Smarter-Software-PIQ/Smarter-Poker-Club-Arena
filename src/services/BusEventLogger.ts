@@ -11,6 +11,7 @@ import { supabase } from '../lib/supabase';
 import { masterBus, type BusEventType } from '../core/MasterBus';
 import { useUserStore } from '../stores/useUserStore';
 import { reportError } from '../utils/errorReporter';
+import { setShareOutcomeSink } from '../lib/share';
 
 interface LogEntry {
   event_type: string;
@@ -43,6 +44,9 @@ class BusEventLoggerService {
   start(): void {
     if (this.started) return;
     this.started = true;
+
+    // Every share and copy button reports its outcome here (src/lib/share.ts).
+    setShareOutcomeSink((source, outcome) => this.record('SHARE_OUTCOME', { source, outcome }));
 
     // Subscribe to each critical event
     for (const eventType of CRITICAL_EVENTS) {
@@ -129,6 +133,7 @@ class BusEventLoggerService {
 
   /** Stop the logger and clean up */
   stop(): void {
+    setShareOutcomeSink(null);
     this.unsubscribes.forEach((fn) => fn());
     this.unsubscribes = [];
     if (this.flushTimer) {

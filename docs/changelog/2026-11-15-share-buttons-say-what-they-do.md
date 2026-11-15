@@ -33,6 +33,11 @@ built, wired in and tested.
    the link, the text or the file. The row goes through this tab's own logger
    batch (`busEventLogger.record`), not the MasterBus, because the bus repeats
    events to every open tab and each tab's logger would write the tap again.
+   The logger registers itself with the share door when the app starts it
+   (`setShareOutcomeSink`); the door imports nothing from the logger, so the
+   logger's stores never ride into a sharing surface's bundle. The first
+   version imported it, and the fixture-built Diamond Spins e2e bundle
+   refused the import (`resolveActiveVip` not in its header-store fixture).
 
 5. **Tournament share preview, database side.** Migration `20261115161427`
    adds `fn_ca_tournament_share_preview(uuid)`, the reader behind the World

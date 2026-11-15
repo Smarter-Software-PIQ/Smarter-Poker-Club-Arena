@@ -11,12 +11,13 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const record = vi.fn();
-vi.mock('../../src/services/BusEventLogger', () => ({ busEventLogger: { record } }));
 vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
 
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   profileShareUrl,
+  setShareOutcomeSink,
   shareButtonLabel,
   shareFile,
   shareLink,
@@ -24,9 +25,13 @@ import {
 
 const URL_ = 'https://smarter.poker/hub/club-arena/tournaments/abc';
 
-/** The outcome is recorded after a dynamic import resolves. */
+/** Stands in for BusEventLogger.record, which registers itself on start. */
+const record = vi.fn();
+setShareOutcomeSink((source, outcome) => record('SHARE_OUTCOME', { source, outcome }));
+
+/** Kept from the first version: the sink is synchronous, so nothing to wait for. */
 async function settle() {
-  for (let i = 0; i < 5; i += 1) await new Promise((r) => setTimeout(r, 0));
+  await Promise.resolve();
 }
 
 describe('shareButtonLabel', () => {
@@ -132,7 +137,17 @@ describe('share outcomes are counted once, without the link', () => {
     });
   });
 
-  it('a logger that cannot load never changes what the player was told', async () => {
+  it('the door imports nothing from the logger; the logger registers itself on start', () => {
+    const door = readFileSync(join(__dirname, '../../src/lib/share.ts'), 'utf8');
+    expect(door).not.toMatch(/from ['"][^'"]*BusEventLogger['"]|import\(['"][^'"]*BusEventLogger['"]\)/);
+    const logger = readFileSync(join(__dirname, '../../src/services/BusEventLogger.ts'), 'utf8');
+    expect(logger).toMatch(
+      /setShareOutcomeSink\(\(source, outcome\) => this\.record\('SHARE_OUTCOME', \{ source, outcome \}\)\)/
+    );
+    expect(logger).toMatch(/stop\(\): void \{\s*setShareOutcomeSink\(null\);/);
+  });
+
+  it('a logger that throws never changes what the player was told', async () => {
     record.mockImplementationOnce(() => {
       throw new Error('logger down');
     });

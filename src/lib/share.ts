@@ -123,13 +123,25 @@ export function shareButtonLabel(kind: ShareKind = 'link', sheet: boolean = hasS
  * link, the text or the file. The row goes through this tab's own logger
  * batch, not the MasterBus, because the bus repeats events to every other open
  * tab and each tab's logger would write the same tap again.
+ *
+ * The logger REGISTERS itself here when the app starts it
+ * (BusEventLogger.start). This file imports nothing from it: every surface
+ * that shares imports this door, and the logger's stores have no business in
+ * their bundles (a fixture-built e2e bundle refused the import on 2026-11-15).
  */
+export type ShareOutcomeSink = (source: string, outcome: ShareOutcome) => void;
+let outcomeSink: ShareOutcomeSink | null = null;
+
+export function setShareOutcomeSink(sink: ShareOutcomeSink | null): void {
+  outcomeSink = sink;
+}
+
 function recordOutcome(source: string, outcome: ShareOutcome): ShareOutcome {
-  void import('../services/BusEventLogger')
-    .then((m) => m.busEventLogger.record('SHARE_OUTCOME', { source, outcome }))
-    .catch(() => {
-      /* counting is a measurement; a failed import never touches the share */
-    });
+  try {
+    outcomeSink?.(source, outcome);
+  } catch {
+    /* counting is a measurement; it never changes what the player was told */
+  }
   return outcome;
 }
 
