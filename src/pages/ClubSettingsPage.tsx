@@ -24,7 +24,7 @@ import PageSkeleton from '../components/common/PageSkeleton';
 import AuditLog from '../components/admin/AuditLog';
 import { StatsExport } from '../components/admin/StatsExport';
 import { resolveClubUUID } from '../utils/clubIdResolver';
-import { resolveClubLookupFilter } from '../utils/clubLookupFilter';
+import { resolveClubLookupFilter } from '../utils/strictClubIdResolver';
 import { useVisibilityRefresh } from '../hooks/useVisibilityRefresh';
 import { useIsMounted } from '../hooks/useIsMounted';
 import '../components/common/ButtonSpinner.css';

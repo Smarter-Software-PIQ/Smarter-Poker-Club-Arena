@@ -193,15 +193,18 @@ async function hasSignedInSession(): Promise<boolean | null> {
  * The slug a club holds now when `clubIdParam` is a slug it held before, so an
  * old link can be rewritten to the current one (SlugEnforcer); null for a
  * current slug, an id, a club code or a slug nobody ever held. A current slug
- * costs nothing once this tab has resolved it: former slugs are never cached,
- * so a cached answer is always a club that holds the slug now.
+ * costs nothing once this tab has resolved it. Former slugs are never cached,
+ * so a cached answer is a club that held the slug, as its CURRENT slug, when
+ * this tab asked (memory only, for the life of the tab); it is not re-checked
+ * against a later rename in the same tab.
  */
 export async function currentSlugForFormerClubSlug(clubIdParam: string): Promise<string | null> {
   if (resolveClubIdFilter(clubIdParam).column !== 'slug') return null;
   if (resolveClubUUIDSync(clubIdParam)) return null;
   const clubUUID = await resolveClubUUID(clubIdParam);
   // resolveClubUUID caches what the clubs table answered and never what the
-  // history answered, so a cache entry now means a club holds this slug.
+  // history answered, so a cache entry now means the clubs table answered:
+  // the slug is a current one, not a former one.
   if (!isUUID(clubUUID) || resolveClubUUIDSync(clubIdParam)) return null;
   const { data, error } = await supabase
     .from('clubs')

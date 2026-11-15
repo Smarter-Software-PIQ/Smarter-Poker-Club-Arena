@@ -219,6 +219,50 @@ describe('Rules and announcements route/account isolation', () => {
     expect(setRules).not.toHaveBeenCalled();
   });
 
+  it('paints a cached copy only for the club it was cached for, before any lookup', async () => {
+    let resolveLookup!: (filter: unknown) => void;
+    const query: Record<string, unknown> = {};
+    for (const method of ['select', 'eq']) query[method] = () => query;
+    query.maybeSingle = vi.fn(async () => ({
+      data: { name: 'Former Club', settings: { rules_text: 'Private Rules' } },
+      error: null,
+    }));
+    const activeScopeRef = { current: 'club-a:account-a' };
+    const setRules = vi.fn();
+    const setClubName = vi.fn();
+    const getItem = vi.fn(() => JSON.stringify({ name: 'Cached Club A', rules: 'Cached Rules A' }));
+    const load = handler('ClubRulesPage.tsx', 'loadRules', 'const handleSave', {
+      clubId: 'club-a',
+      user: { id: 'account-a' },
+      scopeKey: 'club-a:account-a',
+      activeScopeRef,
+      requestVersionRef: { current: 0 },
+      loadingRef: { current: false },
+      setLoadError: vi.fn(),
+      setLoading: vi.fn(),
+      setRules,
+      setClubName,
+      resolveClubLookupFilter: () =>
+        new Promise((done) => {
+          resolveLookup = done;
+        }),
+      sessionStorage: { getItem },
+      supabase: { from: () => query },
+    });
+    const pending = load(() => true);
+    // The cached copy is painted in the same tick, while club-a is current.
+    expect(getItem).toHaveBeenCalledWith('rules_cache_account-a_club-a');
+    expect(setRules.mock.calls).toEqual([['Cached Rules A']]);
+    expect(setClubName.mock.calls).toEqual([['Cached Club A']]);
+    // The route moves on while the club lookup is still resolving.
+    activeScopeRef.current = 'club-b:account-b';
+    resolveLookup({ column: 'id', value: 'uuid-a' });
+    await pending;
+    expect(query.maybeSingle).not.toHaveBeenCalled();
+    expect(setRules.mock.calls).toEqual([['Cached Rules A']]);
+    expect(setClubName.mock.calls).toEqual([['Cached Club A']]);
+  });
+
   it('clears protected content on scope reset and never uses unowned legacy cache keys', () => {
     for (const file of ['ClubAnnouncementsPage.tsx', 'ClubRulesPage.tsx']) {
       const source = readFileSync(`src/pages/${file}`, 'utf8');

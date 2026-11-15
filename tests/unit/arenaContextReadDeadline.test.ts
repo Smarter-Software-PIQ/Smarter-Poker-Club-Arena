@@ -44,7 +44,12 @@ it('preserves a verified absent arena and clears the request deadline', async ()
   mocks.rpc.mockReturnValue({ abortSignal: () => response, then: response.then.bind(response) });
   // A slug the server does not know is asked of the club resolver once (a
   // renamed club's former slug); no club and no rename answers it here.
-  const absent = { select: () => absent, eq: () => absent, maybeSingle: async () => response };
+  const absent = {
+    select: () => absent,
+    eq: () => absent,
+    abortSignal: () => absent,
+    maybeSingle: async () => response,
+  };
   mocks.from.mockReturnValue(absent);
   await expect(getArenaContext('missing')).resolves.toBeNull();
   expect(mocks.rpc).toHaveBeenCalledTimes(1);

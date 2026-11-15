@@ -1,6 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { parseArenaIdentity, type ArenaAccessContext } from '../../server/src/domain/ArenaContext';
-import { isUUID, resolveClubUUID } from '../utils/clubIdResolver';
+import { isUUID } from '../utils/clubIdResolver';
 
 // Match the existing ClubWorkspace authorization-read deadline. A timeout is
 // unreadable access, never a membership refusal or an authorization grant.
@@ -17,11 +17,30 @@ export async function getArenaContext(clubKey: string): Promise<ArenaAccessConte
      resolver answer: it asks the clubs table first and the rename history
      second, so a club holding the slug now always wins. The entitlement is
      then read again for that club's id, by the same server function, so
-     membership and authorization are exactly the current slug's. */
+     membership and authorization are exactly the current slug's. The lookup
+     is the strict resolver under the same deadline as the entitlement read:
+     a club nobody holds is "Arena Not Found", while a failed or slow lookup
+     is a failure the boundary reports and reads again, never a verdict. */
   const key = clubKey.trim();
   if (!key || isUUID(key) || /^\d+$/.test(key)) return null;
-  const clubUUID = await resolveClubUUID(key);
-  return isUUID(clubUUID) ? readArenaContext(clubUUID) : null;
+  const clubUUID = await resolveRenamedArenaKey(key);
+  return clubUUID ? readArenaContext(clubUUID) : null;
+}
+
+async function resolveRenamedArenaKey(key: string): Promise<string | null> {
+  const { ClubNotFoundError, resolveClubUUIDStrict } =
+    await import('../utils/strictClubIdResolver');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ARENA_ACCESS_READ_TIMEOUT_MS);
+  try {
+    return await resolveClubUUIDStrict(key, controller.signal);
+  } catch (error) {
+    if (error instanceof ClubNotFoundError) return null;
+    if (controller.signal.aborted) throw new Error('Arena Access Read Timed Out');
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function readArenaContext(clubKey: string): Promise<ArenaAccessContext | null> {

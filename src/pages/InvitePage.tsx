@@ -11,7 +11,7 @@ import { ClubJoinService } from '../services/ClubJoinService';
 import { useToast } from '../components/common/Toast';
 import { masterBus } from '../core/MasterBus';
 import './InvitePage.css';
-import { resolveClubLookupFilter } from '../utils/clubLookupFilter';
+import { resolveClubLookupFilter } from '../utils/strictClubIdResolver';
 import PageSkeleton from '../components/common/PageSkeleton';
 import { useVisibilityRefresh } from '../hooks/useVisibilityRefresh';
 import { reportError } from '../utils/errorReporter';

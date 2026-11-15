@@ -100,8 +100,10 @@ export default function SlugEnforcer() {
     } catch {
       return;
     }
-    // Ids are the effect above; a six-digit code never changes.
-    if (UUID_SEGMENT.test(segment) || /^\d+$/.test(segment)) return;
+    // Ids are the effect above; a six-digit code never changes; a static
+    // route under /clubs/ (clubs/create) is not a club.
+    if (UUID_SEGMENT.test(segment) || /^\d+$/.test(segment) || STATIC_CLUB_ROUTES.has(segment))
+      return;
     let current = true;
     const onDeparture = () => {
       current = false;
@@ -130,3 +132,5 @@ export default function SlugEnforcer() {
 }
 
 const UUID_SEGMENT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Static routes App.tsx declares under /clubs/ ahead of /clubs/:clubId. */
+const STATIC_CLUB_ROUTES = new Set(['create']);

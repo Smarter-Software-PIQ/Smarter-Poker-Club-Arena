@@ -150,7 +150,7 @@ import { isFixedLimitVariant } from '../lib/bettingStructure';
 
 import { useVisibilityRefresh } from '../hooks/useVisibilityRefresh';
 import { resolveClubUUID, resolveClubUUIDSync } from '../utils/clubIdResolver';
-import { resolveClubLookupFilter } from '../utils/clubLookupFilter';
+import { resolveClubLookupFilter } from '../utils/strictClubIdResolver';
 import { useIsMounted } from '../hooks/useIsMounted';
 import GlobalUXIndicators from '../components/common/GlobalUXIndicators';
 import BBJInfoModal from '../components/bbj/BBJInfoModal';

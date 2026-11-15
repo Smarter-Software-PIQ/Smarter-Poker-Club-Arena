@@ -58,7 +58,7 @@ import {
   confirmedAgentWalletReceipt,
 } from '../../services/AgentWalletIntent';
 import { resolveClubUUID } from '../../utils/clubIdResolver';
-import { resolveClubLookupFilter } from '../../utils/clubLookupFilter';
+import { resolveClubLookupFilter } from '../../utils/strictClubIdResolver';
 import { SEND_DESTINATION_LABELS } from '../../utils/cashierSendWallets';
 import {
   useRecipientWalletBalances,

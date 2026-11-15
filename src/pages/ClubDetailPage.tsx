@@ -31,7 +31,7 @@ import ConfirmModal from '../components/common/ConfirmModal';
 import PageSkeleton from '../components/common/PageSkeleton';
 import { useVisibilityRefresh } from '../hooks/useVisibilityRefresh';
 import { resolveClubUUID } from '../utils/clubIdResolver';
-import { resolveClubLookupFilter } from '../utils/clubLookupFilter';
+import { resolveClubLookupFilter } from '../utils/strictClubIdResolver';
 import { withClubContext } from '../utils/clubScopedPath';
 import GlobalUXIndicators from '../components/common/GlobalUXIndicators';
 import { retryFetch } from '../utils/retryFetch';

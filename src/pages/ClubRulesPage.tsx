@@ -14,7 +14,7 @@ import { useAuthUser } from '../hooks/useAuthUser';
 import { useToast } from '../components/common/Toast';
 import { sanitizeInput } from '../utils/sanitizeInput';
 import { resolveClubUUID, resolveClubUUIDStrict } from '../utils/clubIdResolver';
-import { resolveClubLookupFilter } from '../utils/clubLookupFilter';
+import { resolveClubLookupFilter } from '../utils/strictClubIdResolver';
 import { useVisibilityRefresh } from '../hooks/useVisibilityRefresh';
 import './ClubRulesPage.css';
 import PageSkeleton from '../components/common/PageSkeleton';
@@ -174,6 +174,7 @@ export default function ClubRulesPage() {
          sessionStorage copy), set no loadError, said nothing, and the owner
          lost the Edit button at the same time. */
       const { column: clubCol, value: clubVal } = await resolveClubLookupFilter(clubId!);
+      if (!isCurrent()) return;
       const { data: club, error: clubErr } = await supabase
         .from('clubs')
         .select('name, settings, owner_id')

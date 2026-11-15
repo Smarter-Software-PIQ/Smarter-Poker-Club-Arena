@@ -29,7 +29,7 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { act, render, screen } from '@testing-library/react';
-import { MemoryRouter, useLocation } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation, useNavigationType } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const FELT = 'a0000000-0000-0000-0000-000000000001';
@@ -40,6 +40,7 @@ const db = vi.hoisted(() => ({
   clubs: [] as Row[],
   history: [] as Row[],
   historyError: null as { message: string; code?: string } | null,
+  historyHangs: false,
   reads: [] as string[],
   rpcs: [] as Array<{ fn: string; args: Record<string, unknown> }>,
   arena: (_key: string): unknown => null,
@@ -66,6 +67,7 @@ vi.mock('../src/lib/supabase', () => {
       abortSignal: () => chain,
       maybeSingle: async () => {
         db.reads.push(`${name}:${filters.map(([c, v]) => `${c}=${String(v)}`).join(',')}`);
+        if (name === 'club_slug_history' && db.historyHangs) return new Promise(() => {});
         if (name === 'club_slug_history' && db.historyError)
           return { data: null, error: db.historyError };
         const rows = name === 'clubs' ? db.clubs : name === 'club_slug_history' ? db.history : [];
@@ -94,10 +96,10 @@ import {
   currentSlugForFormerClubSlug,
   resolveClubUUID,
 } from '../src/utils/clubIdResolver';
-import { resolveClubLookupFilter } from '../src/utils/clubLookupFilter';
 import {
   ClubNotFoundError,
   ClubResolutionError,
+  resolveClubLookupFilter,
   resolveClubUUIDStrict,
 } from '../src/utils/strictClubIdResolver';
 import { getArenaContext } from '../src/services/ArenaContextService';
@@ -123,6 +125,7 @@ beforeEach(() => {
   db.clubs = [];
   db.history = [];
   db.historyError = null;
+  db.historyHangs = false;
   db.reads = [];
   db.rpcs = [];
   db.arena = () => null;
@@ -274,11 +277,41 @@ describe('the arena entitlement for an old link is the club it names, read by th
     await expect(getArenaContext('no-such-club')).resolves.toBeNull();
     expect(db.rpcs).toHaveLength(1);
   });
+
+  it('a failed lookup is a failure the boundary reads again, never "Arena Not Found"', async () => {
+    renamed();
+    db.historyError = { message: 'permission denied for function', code: '42883' };
+    await expect(getArenaContext('club-jaqk')).rejects.toThrow(/could not be resolved/i);
+    expect(db.rpcs).toHaveLength(1);
+  });
+
+  it('a lookup that never answers ends at the entitlement read deadline', async () => {
+    renamed();
+    db.historyHangs = true;
+    vi.useFakeTimers();
+    try {
+      const outcome = getArenaContext('club-jaqk').then(
+        () => 'resolved',
+        (error: Error) => error.message
+      );
+      await vi.advanceTimersByTimeAsync(10_000);
+      await expect(outcome).resolves.toBe('Arena Access Read Timed Out');
+      expect(db.rpcs).toHaveLength(1);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 function Where() {
   const location = useLocation();
-  return <output>{`${location.pathname}${location.search}${location.hash}`}</output>;
+  const navigation = useNavigationType();
+  return (
+    <output data-navigation={navigation}>
+      {`${location.pathname}${location.search}${location.hash}`}
+    </output>
+  );
 }
 
 async function settle() {
@@ -304,6 +337,23 @@ describe('an old link rewrites itself to the current slug', () => {
     expect(screen.getByRole('status').textContent).toBe(
       '/clubs/the-felt-society/data?dataStart=2026-11-02&dataEnd=2026-11-09#week'
     );
+    // Replaced, not pushed: Back never returns to the old link.
+    expect(screen.getByRole('status').getAttribute('data-navigation')).toBe('REPLACE');
+  });
+
+  it('never treats the static clubs/create route as a club', async () => {
+    renamed();
+    render(
+      <MemoryRouter initialEntries={['/clubs/create']}>
+        <Routes>
+          <Route path="*" element={<SlugEnforcer />} />
+        </Routes>
+        <Where />
+      </MemoryRouter>
+    );
+    await settle();
+    expect(db.reads).toEqual([]);
+    expect(screen.getByRole('status').textContent).toBe('/clubs/create');
   });
 
   it('leaves an old link alone for a signed-out visitor (it rewrites after sign-in)', async () => {
@@ -343,11 +393,7 @@ describe('every consumer that turns a club param into a club uses the resolver',
   it('resolveClubIdFilter is called only inside the resolver modules', () => {
     const callers = files.filter((path) => /\bresolveClubIdFilter\(/.test(src(path)));
     expect(callers.sort()).toEqual(
-      [
-        'src/utils/clubIdResolver.ts',
-        'src/utils/clubLookupFilter.ts',
-        'src/utils/strictClubIdResolver.ts',
-      ].sort()
+      ['src/utils/clubIdResolver.ts', 'src/utils/strictClubIdResolver.ts'].sort()
     );
   });
 
@@ -365,17 +411,22 @@ describe('every consumer that turns a club param into a club uses the resolver',
       'src/pages/ClubRulesPage.tsx',
       'src/pages/InvitePage.tsx',
       'src/components/agent/ChipTransferModal.tsx',
+      'src/pages/ClubDetailPage.tsx',
     ]) {
       expect(src(path), path).toMatch(/await resolveClubLookupFilter\(/);
     }
+    // getClub: an id is used as is; anything else goes through the resolver.
+    expect(src('src/services/ClubsService.ts')).toContain(
+      'const clubUUID = isUUID(identifier) ? identifier : await resolveClubUUID(identifier);'
+    );
   });
 
   it('the strict resolver, the arena check and the redirect read the same history', () => {
     expect(src('src/utils/strictClubIdResolver.ts')).toContain(
-      'formerClubId = await readFormerSlugClubId(clubIdParam, signal);'
+      '(attemptSignal) => readFormerSlugClubId(clubIdParam, attemptSignal),'
     );
     expect(src('src/services/ArenaContextService.ts')).toContain(
-      'const clubUUID = await resolveClubUUID(key);'
+      'return await resolveClubUUIDStrict(key, controller.signal);'
     );
     expect(src('src/components/common/SlugEnforcer.tsx')).toContain(
       'resolver.currentSlugForFormerClubSlug(segment)'
