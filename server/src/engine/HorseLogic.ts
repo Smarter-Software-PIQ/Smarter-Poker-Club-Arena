@@ -6231,6 +6231,12 @@ export class HorseLogic {
       ...(typeof opts.styleCarryOverWeight === 'number' && opts.styleCarryOverWeight > 0
         ? { styleCarryWeight: Math.min(1, opts.styleCarryOverWeight) }
         : {}),
+      // STYLE READ pre-repair (2026-11-14): the style read applies the pre-repair discount to the pooled rows it
+      // reads behind the same switch as the exploit read. Only an explicit true adds the key, so with it off the
+      // options (and every read they reach) are exactly what they were.
+      ...(opts.styleFoldRatePreRepair === true && opts.mind !== false
+        ? { styleFoldRatePreRepair: true }
+        : {}),
     });
     // V3: ingest the action stream into the opponent-intelligence layer.
     // Wrapped so observation can never take down a decision.
