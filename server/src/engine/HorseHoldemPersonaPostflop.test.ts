@@ -63,7 +63,7 @@ describe('the persona postflop scales', () => {
   });
 
   it('the bluffing scales never exceed 1 against a tight opponent; the trap is not a bluff and is unchanged', () => {
-    for (const id of IDS.slice(0, 400)) {
+    for (const id of IDS) {
       const free = holdemPersonaPostflopScales(id, false);
       const held = holdemPersonaPostflopScales(id, true);
       expect(held.cbet).toBeLessThanOrEqual(1);
