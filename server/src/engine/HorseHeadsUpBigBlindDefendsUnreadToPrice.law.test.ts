@@ -355,6 +355,18 @@ describe('each receipt is a call that reached the final decision', () => {
     ['cash, 40bb, 2bb open', spot()],
     ['cash, 25bb, 2.5bb open', spot({ stackBB: 25, openBB: 2.5 })],
     ['tournament, two left, 40bb, 2bb open', twoLeft()],
+    // A big-blind ante lowers the V34 tournament big blind floor below the
+    // heads-up call bar, so a later fallback in the same branch could call a
+    // hand the option already called (review of 87f605a5, N1). The receipt
+    // must still equal the changed final decisions there.
+    [
+      'tournament, two left, 25bb, 2bb open, big-blind ante',
+      twoLeft({ stackBB: 25, extra: { ante: BB, bigBlindAnte: true, pot: 4 * BB } }),
+    ],
+    [
+      'tournament, two left, 40bb, 2bb open, big-blind ante',
+      twoLeft({ extra: { ante: BB, bigBlindAnte: true, pot: 4 * BB } }),
+    ],
   ];
 
   it.each(cases)('%s: receipts equal the changed final decisions', (_name, s) => {

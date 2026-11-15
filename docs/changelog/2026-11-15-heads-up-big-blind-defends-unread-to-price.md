@@ -4,8 +4,8 @@ Heads-up lane, round 2 (builder bbdef). New default-OFF option `huBbDefendsUnrea
 
 ## The defect
 
-Heads-up, the Horse's big blind folds about 58.7% to every open at 15-50bb when it has no read on the opener
-(heads-up audit, MEASUREMENTS P4). Against a player who min-raises every button that is about a 16-19 bb/100 leak
+Heads-up, the Horse's big blind folds about 58.7% to a 2-3bb open at 15-50bb when it has no read on the opener
+(heads-up audit finding HU-NLH-001). Against a player who min-raises every button that is about a 16-19 bb/100 leak
 until a read engages. The earlier option `huBbDefendsToPrice` was not supported by its declared evaluation
 (HU-NLH-001c: human field at 25-40bb +0.53 +/- 0.46 bb/100). The diagnosis (evidence folder, round2/bbdef/DIAGNOSIS.md):
 
@@ -28,13 +28,27 @@ in the event and it is not a satellite: the payout is then linear in chips, as t
 Production heads-up NLH with people in the last 14 days was 2,062 tournament hands (1,953 of them two-max SNGs) against
 103 cash hands. Widen-only and call-only. An engaged read, more than 50bb, three or more dealt, a larger field, a
 satellite, a missing or untrusted tournament context, Omaha, short deck, pot and fixed limit, straddles, bomb pots and
-all-in-or-fold tables keep today's answer. The receipt counts only a call that is still the final decision.
+all-in-or-fold tables keep today's answer. The receipt counts only a call that is still the final decision, and only
+where every later layer of the branch would have folded: the option's call is applied after them (they answer only call
+or fold), because with a big-blind ante the V34 tournament floor calls some of these hands itself (exact-head review of
+87f605a5, finding N1: receipts 82 classes against 70 changed at 25bb two left). Decisions are identical to the
+evaluated rule: 86,528 decisions over 512 spot and arm combinations compared before and after, 0 different.
 
 ## Evidence
 
 Declared evaluation DECLARATION-HU-NLH-001d.md, results RESULTS-HU-NLH-001d.md (evidence folder
 hu-audit-01UxDLnM/round2/bbdef). Development evidence only: scripted personas, a six-max-fitted calibrated profile,
 Horse mirrors, empty solver stores.
+
+## Exploiter-card series
+
+Under the heads-up lane's exploiter-card rule (hu-audit-01UxDLnM/evaluation/EXPLOITER-ACCEPTANCE.md), a merge that
+changes HorseHuBbDefence.ts, the huBbPrice block or V7 preflop restarts the count of valid nights for the exploiter
+cards human_hu_bb_defends_vs_minraise_40bb, human_hu_bb_defends_vs_threebet_40bb, human_hu_bb_defends_vs_small_stab_40bb
+and human_hu_v7_preflop_vs_limper_40bb. This change appends to HorseHuBbDefence.ts and adds a branch to
+decidePreflopV7Core directly after the huBbPrice block, so by the rule's text the series of those four cards restarts at
+zero valid nights on the first release that carries it, although the addition is default OFF. Their rows are not pooled
+across that release.
 
 ## Pins
 

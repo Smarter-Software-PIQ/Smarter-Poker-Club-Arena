@@ -3461,12 +3461,21 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     // huBbDefendsUnreadToPrice, default off): the same price as above, read
     // only while the opener is unread and with the 0.7 realisation the
     // bottom of the defending range measurably gets. Widen-only, call-only.
+    // Every layer below in this branch answers only call or fold, so the
+    // option's call is applied where they would fold (unreadOrFold) and the
+    // hand is the same either way; the receipt then marks only a fold the
+    // option turned into a call. With a big-blind ante the V34 tournament
+    // floor sits below the heads-up call bar and calls some of these hands
+    // itself (review of 87f605a5, N1).
+    let unreadCall = false;
     if (ctx.huBbUnreadPrice && position === 'bb' && callers === 0 && priceOK && toCall > 0) {
       const odds = preflopCallOdds(ctx, pricePot, Math.min(toCall, stack));
-      if (ctx.huBbUnreadPrice.equity >= huBbUnreadRequiredEquity(odds)) {
-        return { a: 'call', receipt: 'hu_bb_defends_unread_to_price' };
-      }
+      unreadCall = ctx.huBbUnreadPrice.equity >= huBbUnreadRequiredEquity(odds);
     }
+    const unreadOrFold = (intent: PreflopIntent): PreflopIntent =>
+      unreadCall && intent.a === 'fold'
+        ? { a: 'call', receipt: 'hu_bb_defends_unread_to_price' }
+        : intent;
     // HU LIMPER DEFENDS TO ITS PRICE (HU-NLH-011, flag huLimpDefendsToPrice,
     // default off): the small blind's limp band sits below every call bar
     // above, so it folded 99-100% of its limps to any raise, a min-raise
@@ -3520,7 +3529,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
         );
         if (def72.strength >= bbBar72) return { a: 'call' };
       }
-      return foldOrLightningDefend();
+      return unreadOrFold(foldOrLightningDefend());
     }
     /**
      * ═══ V34 (2026-09-02): THE BIG BLIND DEFENDS ITS BLIND ═══════════════
@@ -3564,7 +3573,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       }
       if (strength >= bbFloor) return { a: 'call' };
     }
-    return foldOrLightningDefend();
+    return unreadOrFold(foldOrLightningDefend());
   }
 
   // ── Facing a 3-bet or bigger ──

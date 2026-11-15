@@ -317,12 +317,15 @@ describe(
       async (name) => {
         const card = LEAGUE_MATCHUPS.find((m) => m.name === name)!;
         expect(card, `${name} left the card`).toBeDefined();
-        // Measured 2026-11-15 on b262fd3e0 at this seed and size; the count is
-        // deterministic for a strategy build. Both options act on about 1-2% of
-        // heads-up pairs, so 1,500 pairs leaves a margin of several pairs.
+        // Measured 2026-11-15 at this seed and size (deterministic for a
+        // strategy build; raw outputs in the heads-up evidence folder
+        // round2/cards/probes): the opener card diverged in 40 of 1,500 pairs,
+        // the limp card in 209 and the unread big blind card in 330. A floor of
+        // 10 keeps a wide margin and still fails a card that has gone nearly
+        // inert (the retired every-hand card diverged 1 of 4,000 with reads on).
         const r = await runMatchup(card, 1500, 4242);
         expect(r.hands).toBe(3000);
-        expect(r.divergentPairs).toBeGreaterThan(0);
+        expect(r.divergentPairs).toBeGreaterThanOrEqual(10);
         expect(r.inert).toBe(false);
         expect(r.stderr).toBeGreaterThan(0);
         expect(r.illegalActions).toBe(0);

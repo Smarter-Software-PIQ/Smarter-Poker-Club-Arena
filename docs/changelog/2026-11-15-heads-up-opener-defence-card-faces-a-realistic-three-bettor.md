@@ -18,9 +18,13 @@ Probes on b262fd3e0 (real `runMatchup`):
 | ---------------------------------------- | ----------------------- | ----- | --------------- |
 | every-hand 3-bettor, reads on            | 2026-11-15 nightly seed | 2,000 | 0               |
 | every-hand 3-bettor, reads on            | 20261115                | 4,000 | 1               |
-| every-hand 3-bettor, memory learning off | 2026-11-15 nightly seed | 4,000 | 82              |
+| every-hand 3-bettor, memory learning off | 20261115                | 4,000 | 88              |
+| every-hand 3-bettor, memory learning off | 2026-11-15 nightly seed | 4,000 | 94              |
 
-So the read, not the spot, stands the option aside.
+So the read, not the spot, stands the option aside. Raw outputs of every probe in this table, and the nightly row
+(id 8826), are in the heads-up evidence folder hu-audit-01UxDLnM/round2/cards/probes (re-measured 2026-11-15 about
+17:20Z with the same driver on b262fd3e0). An earlier memory-off figure of 82 of 4,000, quoted before it was archived,
+did not reproduce at either seed and is replaced by the two measured rows.
 
 ## What changed
 

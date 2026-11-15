@@ -2930,10 +2930,11 @@ export interface HorseDecideOpts {
    *  heads-up reference open width, times a 0.7 realisation, covers the
    *  rake-aware pot odds. Cash, and a tournament only when its trusted
    *  context says exactly two players are left in the event and it is not a
-   *  satellite. Widen-only and call-only; an engaged read, 80bb, three or
-   *  more dealt, Omaha, short deck, pot and fixed limit, straddles, bomb pots
-   *  and all-in-or-fold unchanged. Default OFF: only explicit true turns it
-   *  on (league human_hu_bb_defends_unread_vs_minraise_40bb). */
+   *  satellite. Widen-only and call-only; an engaged read, more than 50bb,
+   *  three or more dealt, Omaha, short deck, pot and fixed limit,
+   *  straddles, bomb pots and all-in-or-fold unchanged. Default OFF: only
+   *  explicit true turns it on (league
+   *  human_hu_bb_defends_unread_vs_minraise_40bb). */
   huBbDefendsUnreadToPrice?: boolean;
   /** HU OPENER DEFENDS TO ITS PRICE (2026-11-14, HU-NLH-010,
    *  HorseHuBbDefence): heads-up no-limit hold'em cash, hero made the only

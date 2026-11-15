@@ -3232,8 +3232,10 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'reported status inert, 0 of 12,000 pairs diverged, both arms +123.90 bb/100. ' +
       'Divergence probes 2026-11-15 on b262fd3e0 (heads-up lane, round 2): 0 of 2,000 pairs ' +
       "at that night's seed and 1 of 4,000 pairs at seed 20261115 with reads on; with memory " +
-      'learning off (no read, the 20% reference) the same card diverged in 82 of 4,000 pairs, ' +
-      'so the read, not the spot, is what stands the option aside. The option is measured ' +
+      'learning off (no read, the 20% reference) the same card diverged in 88 of 4,000 pairs ' +
+      "at seed 20261115 and 94 of 4,000 at that night's seed (raw outputs in the heads-up " +
+      'evidence folder hu-audit-01UxDLnM/round2/cards/probes), so the read, not the spot, is ' +
+      'what stands the option aside. The option is measured ' +
       'where it acts: human_hu_opener_defends_vs_wide_40bb (hu_wide_sb_aggressor_v1, a big ' +
       'blind that 3-bets light but not every hand). What would change this: a change to the ' +
       'opener read or to the option that lets the price, not the read, answer an every-hand ' +
