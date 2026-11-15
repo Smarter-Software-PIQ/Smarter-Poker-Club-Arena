@@ -140,7 +140,7 @@ BEGIN
   END IF;
 
   -- 2026-11-15: the installed successors the re-pinned bodies below come from.
-  -- 163238 and 171135 are files in this repo; 174204 and 174518 are World Hub
+  -- 163238, 171135 and 20261115001816 are files in this repo; 174204 and 174518 are World Hub
   -- PR #2841 (shared database), kept byte for byte in
   -- scripts/ci/fixtures/world-hub-cashier-migrations-20261114.json. Each
   -- md5 is of the statement production recorded under that version.
@@ -168,6 +168,12 @@ BEGIN
        AND name = 'cashier_history_names_the_union_or_club_that_sent'
        AND cardinality(statements) = 1
        AND md5(statements[1]) = '91a27c8751992e6f60ad6ba1ec7756fe'
+  ) OR NOT EXISTS (
+    SELECT 1 FROM supabase_migrations.schema_migrations
+     WHERE version = '20261115001816'
+       AND name = 'member_history_promo_allowance_as_of_send'
+       AND cardinality(statements) = 1
+       AND md5(statements[1]) = 'b4330bff195e8470d5a0a80e773d7e1c'
   ) THEN
     RAISE EXCEPTION 'cashier 2026-11-14 successor migration history drift';
   END IF;
@@ -186,10 +192,13 @@ BEGIN
       -- Then patched in place by World Hub 20261114174518 (sender names for a
       -- union or club; World Hub PR #2841, scripts/ci/fixtures/
       -- world-hub-cashier-migrations-20261114.json) and by 20261114171135
-      -- (#10834/#10849, club book reads each type group by its own index).
+      -- (#10834/#10849, club book reads each type group by its own index),
+      -- which made a26c9b5097203fdc0b3109bd649ddec1; then by 20261115001816
+      -- (#10883, a member's promo allowance as of each send; its guard requires
+      -- a26c9b50 and its two anchors added to a26c9b50 give this body exactly).
       -- Re-pinned 2026-11-15 to the installed definition; 160320's own proof
       -- line keeps the earlier hash dad4d92ef739f520d0c512c9950d5c62.
-      'hash', 'a26c9b5097203fdc0b3109bd649ddec1',
+      'hash', '5fb4cd6ebe8ed1005a38db1de36efab0',
       'owner', 'postgres'
     ),
     jsonb_build_object(

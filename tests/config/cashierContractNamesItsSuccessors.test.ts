@@ -17,10 +17,12 @@
  * re-pinned hash. A migration that only reads a pinned function (a grant
  * check, a live proof) is listed in READ_ONLY below with its reason.
  *
- * Limit: this runs in this repository. A World Hub migration reaches it only
- * once it is recorded in a fixture here; the post-deploy contract remains the
- * check for anything installed before that.
+ * Limits: this runs in this repository. A World Hub migration reaches it only
+ * once it is recorded in a fixture here, and a function name assembled at run
+ * time (format(), concatenation) is not seen. The post-deploy contract, which
+ * compares the installed bodies, remains the check for both.
  */
+import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -32,8 +34,16 @@ const contract = readFileSync(
 );
 const FLOOR = '20261114000000';
 
-/** Migrations that name a pinned function without changing its body. */
+/**
+ * Migrations that name a pinned function without changing its body, each with
+ * the reason (checked below: the version exists, is detected, and the reason
+ * says what it does instead).
+ */
 const READ_ONLY: Readonly<Record<string, string>> = {};
+
+/** Real `WHERE version = '<v>'` lines of the contract; comments do not count. */
+const named = (version: string) =>
+  new RegExp(`^\\s*WHERE version = '${version}'\\s*$`, 'm').test(contract);
 
 const pinned = [
   ...new Set(
@@ -43,25 +53,33 @@ const pinned = [
 
 const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-/** Pinned functions whose definition this SQL creates, replaces or patches. */
+/**
+ * Pinned functions whose definition this SQL creates, replaces, alters or
+ * patches. Schema-qualified or not, quoted or not. GRANT, REVOKE and COMMENT ON
+ * statements do not change a definition and are removed first.
+ */
 export function changedPinnedFunctions(sql: string, names: readonly string[]): string[] {
   const code = sql
     .split('\n')
     .filter((line) => !line.trimStart().startsWith('--'))
-    .join('\n');
+    .join('\n')
+    .replace(/\b(?:GRANT|REVOKE)\b[^;]*;/gi, ' ')
+    .replace(/\bCOMMENT\s+ON\b[^;]*;/gi, ' ');
   return names.filter((name) => {
     const n = escape(name);
+    const fn = `(?:"?public"?\\s*\\.\\s*)?"?${n}"?\\s*\\(`;
+    const qualified = `'(?:"?public"?\\.)"?${n}"?\\(`;
     return (
-      new RegExp(`FUNCTION\\s+public\\.${n}\\s*\\(`, 'i').test(code) ||
-      new RegExp(`pg_get_functiondef\\(\\s*'public\\.${n}\\(`, 'i').test(code) ||
-      new RegExp(`'public\\.${n}\\([^']*\\)'\\s*::\\s*regprocedure`, 'i').test(code) ||
+      new RegExp(`FUNCTION\\s+${fn}`, 'i').test(code) ||
+      new RegExp(`pg_get_functiondef\\(\\s*${qualified}`, 'i').test(code) ||
+      new RegExp(`${qualified}[^']*\\)'\\s*::\\s*regprocedure`, 'i').test(code) ||
       // a signature handed to a patch loop (ARRAY['public.fn(...)', ...] LOOP);
       // privilege checks, grants and comments only read the function
       code
         .split('\n')
         .some(
           (line) =>
-            new RegExp(`'public\\.${n}\\(`, 'i').test(line) &&
+            new RegExp(qualified, 'i').test(line) &&
             !/has_function_privilege|\b(GRANT|REVOKE|COMMENT ON)\b/i.test(line)
         )
     );
@@ -130,14 +148,84 @@ describe('the cashier release contract names every migration that changed a pinn
     ).toEqual([]);
   });
 
+  it('sees unqualified and quoted names, and not a grant or a comment', () => {
+    const names = ['fn_cashier_history_feed'];
+    for (const sql of [
+      'CREATE OR REPLACE FUNCTION fn_cashier_history_feed(p uuid)',
+      'CREATE OR REPLACE FUNCTION "public"."fn_cashier_history_feed"(p uuid)',
+      'ALTER FUNCTION public.fn_cashier_history_feed(uuid) SET search_path = public',
+      'd := pg_get_functiondef(\'"public"."fn_cashier_history_feed"(uuid)\'::regprocedure);',
+    ])
+      expect(changedPinnedFunctions(sql, names), sql).toEqual(names);
+    for (const sql of [
+      'GRANT EXECUTE ON FUNCTION public.fn_cashier_history_feed(uuid) TO authenticated;',
+      'REVOKE ALL ON FUNCTION\n  public.fn_cashier_history_feed(uuid)\n  FROM anon;',
+      "COMMENT ON FUNCTION public.fn_cashier_history_feed(uuid) IS 'x';",
+    ])
+      expect(changedPinnedFunctions(sql, names), sql).toEqual([]);
+  });
+
+  it('a version is named only by a real WHERE line, never by a comment', () => {
+    expect(named('20261114171135')).toBe(true);
+    expect(named('20261114')).toBe(false);
+    const commentOnly = contract.replace(
+      /^(\s*)WHERE version = '20261114171135'$/m,
+      "$1-- WHERE version = '20261114171135'"
+    );
+    expect(new RegExp(`^\\s*WHERE version = '20261114171135'\\s*$`, 'm').test(commentOnly)).toBe(
+      false
+    );
+  });
+
   it('every migration from 2026-11-14 that changes a pinned function is named', () => {
     const missing: string[] = [];
     for (const { version, sql, source } of migrations()) {
       const changed = changedPinnedFunctions(sql, pinned);
       if (changed.length === 0 || Object.hasOwn(READ_ONLY, version)) continue;
-      if (!contract.includes(`version = '${version}'`))
-        missing.push(`${source} changes ${changed.join(', ')}`);
+      if (!named(version)) missing.push(`${source} changes ${changed.join(', ')}`);
     }
     expect(missing).toEqual([]);
+  });
+
+  it('a read-only exception names a real migration the check sees, with its reason', () => {
+    const all = migrations();
+    for (const [version, reason] of Object.entries(READ_ONLY)) {
+      const hit = all.find((m) => m.version === version);
+      expect(hit, version).toBeDefined();
+      expect(changedPinnedFunctions(hit!.sql, pinned).length, version).toBeGreaterThan(0);
+      expect(reason.trim().length, version).toBeGreaterThanOrEqual(20);
+    }
+  });
+
+  it('each World Hub fixture is linked to the statement production recorded', () => {
+    const fixtures = resolve(ROOT, 'scripts/ci/fixtures');
+    const code = (sql: string) =>
+      sql
+        .split('\n')
+        .filter((line) => line.trim() !== '' && !line.trim().startsWith('--'))
+        .map((line) => line.trimEnd())
+        .join('\n');
+    for (const file of readdirSync(fixtures).filter((f) =>
+      /^world-hub-cashier-migrations-\d+\.json$/.test(f)
+    ))
+      for (const item of JSON.parse(readFileSync(resolve(fixtures, file), 'utf8')) as Array<{
+        version: string;
+        sql: string;
+        recordedStatementMd5: string;
+        recordedCodeMd5: string;
+      }>) {
+        // The repository bytes and production's recorded statement differ in
+        // comments only: their non-comment lines hash the same.
+        expect(createHash('md5').update(code(item.sql)).digest('hex'), item.version).toBe(
+          item.recordedCodeMd5
+        );
+        // And the contract pins exactly that recorded statement for the version.
+        const block = contract.slice(
+          contract.search(new RegExp(`WHERE version = '${item.version}'`))
+        );
+        expect(block.slice(0, 400), item.version).toContain(
+          `md5(statements[1]) = '${item.recordedStatementMd5}'`
+        );
+      }
   });
 });

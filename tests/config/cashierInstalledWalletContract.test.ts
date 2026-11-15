@@ -141,11 +141,14 @@ it.each([
     .find((line) => line.startsWith('-- @live-proof:') && line.includes(`public.${name}(`));
   expect(proof).toContain(`= '${hash}'`);
   // The feed was later patched in place (World Hub 20261114174518, then
-  // 20261114171135); the contract pins only that installed successor.
-  const pinned = name === 'fn_cashier_history_feed' ? 'a26c9b5097203fdc0b3109bd649ddec1' : hash;
+  // 20261114171135, then 20261115001816); the contract pins only that
+  // installed successor.
+  const pinned = name === 'fn_cashier_history_feed' ? '5fb4cd6ebe8ed1005a38db1de36efab0' : hash;
   if (pinned !== hash) {
     expect(contract).toContain("version = '20261114174518'");
     expect(contract).toContain("version = '20261114171135'");
+    expect(contract).toContain("version = '20261115001816'");
+    expect(contract).not.toContain("'hash', 'a26c9b5097203fdc0b3109bd649ddec1'");
   }
   const start = contract.indexOf(`'signature', 'public.${name}(`);
   expect(start).toBeGreaterThanOrEqual(0);
