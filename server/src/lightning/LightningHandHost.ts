@@ -3556,6 +3556,15 @@ export class LightningHandHost {
             player_id: participant.playerId,
             timestamp: savedAt,
           });
+        // Public physical observers watched this same completed deal. Their
+        // transport receipt is bound to its archive id, never a player's room.
+        this.deps.onPublicEvent?.(this, {
+          type: 'hand_history_saved',
+          table_id: this.hostTableId,
+          hand_number: this.handNumber,
+          hand_id: out.value.handHistoryId,
+          timestamp: savedAt,
+        });
         // LIGHTNING PHASE 10: the settled boundary, before anyone is released:
         // every auto-rebuy and horse top-up ask of this boundary has been
         // answered before its players can be matched again (the database

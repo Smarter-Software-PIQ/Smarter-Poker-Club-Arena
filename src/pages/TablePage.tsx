@@ -10855,6 +10855,7 @@ function LiveTablePage({
         handHistoryService.getPlayerHands(userId, HAND_HISTORY_PAGE, {
           tableId,
           gameMode: tableHistoryGameMode,
+          includeObserved: true,
           lightningPoolSessionId: lightningRoom?.poolSessionId,
           throwOnError: true,
         }),
@@ -10925,6 +10926,7 @@ function LiveTablePage({
       const rows = await handHistoryService.getPlayerHands(userId, HAND_HISTORY_PAGE, {
         tableId,
         gameMode: tableHistoryGameMode,
+        includeObserved: true,
         beforeHandNumber: oldest.handNumber,
         throwOnError: true,
       });
@@ -10973,7 +10975,7 @@ function LiveTablePage({
         return;
       try {
         const savedScope = `${userId}:${tableId}:${lightningRoom?.poolSessionId ?? ''}:${tableHistoryGameMode}`;
-        const row = await handHistoryService.getHand(savedId);
+        const row = await handHistoryService.getHand(savedId, { includeObserved: true });
         if (
           handHistoryScopeRef.current !== savedScope ||
           handHistoryViewerRef.current !== userId ||
@@ -10990,7 +10992,13 @@ function LiveTablePage({
         if (stateAfterAwait !== 'ready') return;
         // Lightning's authenticated room announces a physical hand, whereas
         // this page's tableId is the player's pool session, not a tables row.
-        if (!row || (!lightningRoom?.poolSessionId && row.table_id !== tableId)) return;
+        if (
+          !row ||
+          (!lightningRoom?.poolSessionId &&
+            engineSnapshotRef.current?.lightning_observer !== true &&
+            row.table_id !== tableId)
+        )
+          return;
         if (Boolean(row.tournament_id) !== (tableHistoryGameMode === 'tournament')) return;
         const record = adaptServiceHandToPanel(row, userId);
         setHandHistory((prev) => {
@@ -11018,6 +11026,7 @@ function LiveTablePage({
         const hands = await handHistoryService.getPlayerHands(userId, 1, {
           tableId,
           gameMode: tableHistoryGameMode,
+          includeObserved: true,
           lightningPoolSessionId: lightningRoom?.poolSessionId,
           throwOnError: true,
         });
@@ -13952,7 +13961,7 @@ function LiveTablePage({
       // seen a hand finish yet, but it races the insert — tapping Replay
       // straight after a hand could return the PREVIOUS hand. This event is
       // authoritative and arrives before the player can realistically tap.
-      if (eventType === 'hand_history_saved') {
+      if (eventType === 'hand_history_saved' || eventType === 'observed_hand_saved') {
         const receiptRoom = handState.pool_session_id;
         if (
           receiptRoom &&

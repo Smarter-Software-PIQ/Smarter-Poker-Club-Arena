@@ -37,6 +37,8 @@
 // fast-json-patch ships as CommonJS; Node-ESM can only import it as a
 // default import, so destructure `compare` from the default export.
 import jsonPatch from 'fast-json-patch';
+import { ObservedHands } from './ObservedHands.js';
+import { recordObservedHands } from '../services/supabase/observedHands.js';
 import { WEBSOCKET_HARD_BACKPRESSURE_BYTES as HUB_HARD_BACKPRESSURE_BYTES } from './webSocketBackpressure.js';
 import type { Operation as JsonPatchOperation } from 'fast-json-patch';
 import { captureAllInEquity, captureRitEvent } from '../services/supabase/handFacts.js';
@@ -272,6 +274,7 @@ export class TableStateHub {
     return projection.owner === owner;
   }
   /** B12: messages skipped because a socket was backed up past the soft limit. */
+  private observedHands = new ObservedHands<HubSubscriber>();
   private softDropped = 0;
   /** B12: subscribers evicted because a socket blew past the hard limit. */
   private hardDropped = 0;
@@ -357,6 +360,7 @@ export class TableStateHub {
     const room = this.rooms.get(tableId);
     if (!room) return;
     room.subscribers.delete(sub);
+    this.observedHands.leave(sub, tableId);
   }
 
   /**
@@ -364,6 +368,7 @@ export class TableStateHub {
    */
   unsubscribeAll(sub: HubSubscriber): void {
     for (const room of this.rooms.values()) room.subscribers.delete(sub);
+    this.observedHands.leave(sub);
   }
 
   /**
@@ -400,6 +405,16 @@ export class TableStateHub {
 
     const room = this.rooms.get(tableId);
     if (!room) return;
+    const handNumber = Number(payload.hand_number);
+    if (payload.type === 'hand_started')
+      this.observedHands.start(tableId, handNumber, room.subscribers);
+    if (payload.type === 'hand_history_saved' && typeof payload.hand_id === 'string') {
+      const viewers = this.observedHands.take(tableId, handNumber);
+      if (viewers.length)
+        void recordObservedHands(tableId, payload.hand_id, handNumber, viewers).then((saved) => {
+          if (saved) this.emitEvent(tableId, { ...payload, type: 'observed_hand_saved' }, owner);
+        });
+    }
     // SHOWDOWN POLISH 2026-08-25: stamp the per-table event sequence.
     const seq = (this.eventSeqs.get(tableId) ?? 0) + 1;
     this.eventSeqs.set(tableId, seq);
@@ -410,6 +425,7 @@ export class TableStateHub {
       { type: 'EVENT', tableId, seq, ts: Date.now(), payload },
       retention?.delivered
     );
+    if (payload.type === 'hand_complete') this.observedHands.finish(tableId, handNumber);
   }
 
   /** SHOWDOWN POLISH 2026-08-25: per-table monotonic EVENT sequence. */
@@ -497,6 +513,7 @@ export class TableStateHub {
    * sequence reset.
    */
   dropTable(tableId: string): void {
+    this.observedHands.clear(tableId);
     const room = this.rooms.get(tableId);
     if (!room) return;
     if (room.subscribers.size === 0) {
@@ -704,12 +721,14 @@ export class TableStateHub {
       } else if (message.type === 'DELTA' && !sent) {
         room.missingState.add(sub);
       }
+      if (!sent) this.observedHands.missed(room.tableId, sub);
       if (sent) delivered?.add(sub);
     }
   }
 
   private sendSnapshot(room: TableRoom, sub: HubSubscriber, payload: string): boolean {
     const sent = this.safeSend(room.tableId, sub, payload);
+    if (!sent) this.observedHands.missed(room.tableId, sub);
     if (sent) room.missingState.delete(sub);
     else room.missingState.add(sub);
     return sent;

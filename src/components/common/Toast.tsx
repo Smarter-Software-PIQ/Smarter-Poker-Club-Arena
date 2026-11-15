@@ -13,6 +13,7 @@ import React, {
   useRef,
   useEffect,
   useMemo,
+  useLayoutEffect,
 } from 'react';
 import { formatPopupText } from '../../utils/popupStyle';
 import {
@@ -239,10 +240,42 @@ function ToastContainer({
   toasts: Toast[];
   removeToast: (id: string) => void;
 }) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const messenger = Array.from(
+      document.querySelectorAll<HTMLElement>(
+        '.table-page[data-lightning-hud="true"] .chat-collapsed'
+      )
+    ).find((node) => node.getClientRects().length > 0);
+    if (!messenger) return;
+    const place = () => {
+      const bottom = messenger.getBoundingClientRect().bottom;
+      container.style.top = `${bottom + 8}px`;
+      container.style.maxHeight = `max(0px, calc(100dvh - ${bottom + 24}px))`;
+    };
+    place();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(place);
+    observer?.observe(messenger);
+    window.addEventListener('resize', place);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', place);
+      container.style.removeProperty('top');
+      container.style.removeProperty('max-height');
+    };
+  }, [toasts.length]);
   if (toasts.length === 0) return null;
 
   return (
-    <div className="toast-container" role="region" aria-live="polite" aria-label="Notifications">
+    <div
+      ref={containerRef}
+      className="toast-container"
+      role="region"
+      aria-live="polite"
+      aria-label="Notifications"
+    >
       {toasts.map((toast) => (
         <ToastItem key={toast.id} toast={toast} onRemove={() => removeToast(toast.id)} />
       ))}
