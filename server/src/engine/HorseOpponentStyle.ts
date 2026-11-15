@@ -124,6 +124,7 @@ import {
   betaCdf,
   exploitEnvelopeFor,
   exploitHandIncrements,
+  learnablePublicAction,
   type ExploitCounters,
   type ExploitHandAction,
   type ExploitEnvelopeCell,
@@ -2338,7 +2339,10 @@ export function postflopAggressionIncrements(
       wager = 0;
     }
     if (a.stage !== 'flop' && a.stage !== 'turn' && a.stage !== 'river') continue;
-    if (!a.userId || a.origin === 'forced') continue;
+    // FORCED-ACTION COUNTING (2026-11-15): the same provenance rule as the exploit counters
+    // (learnablePublicAction): a forced action is skipped, and a fold counts only when its source is a player, his
+    // own pre-action or the Horse policy. A timed-out, fallback or unattributed fold is not a raise opportunity.
+    if (!a.userId || !learnablePublicAction(a)) continue;
     const amt = Math.max(0, num(a.amount));
     const raising =
       a.action === 'bet' || a.action === 'raise' || (a.action === 'all_in' && amt > wager);
