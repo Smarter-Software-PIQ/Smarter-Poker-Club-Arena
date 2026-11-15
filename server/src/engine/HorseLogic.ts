@@ -15436,8 +15436,7 @@ export class HorseLogic {
           // goes below that half (HorseHiLoLowHalf.ts; 0 everywhere else).
           const lowHalf40 = hiLoRiverLowHalfFloor({
             isHiLo: vi.isHiLo === true,
-            // SPEC-FL-01 (opt-in): fixed-limit hi-lo keeps the low half too.
-            isFixedLimit: vi.isFixedLimit === true && opts.fixedLimitRiverFullBetRead !== true,
+            isFixedLimit: vi.isFixedLimit === true,
             isRiver,
             opponents: oppCount,
             lowShare: hiLoSplit?.lo,

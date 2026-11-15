@@ -19,9 +19,9 @@ Date: 2026-11-14. Lane: Fixed-Limit specialist (SPEC-FL-01, SPEC-FL-02, SPEC-FL-
     Omaha high, and hi-lo only on a board where no low is possible: the
     aggressor tier steps as for a pot-sized bet and the made-hand stratum is
     drawn exactly (`placeOmahaPressureCombo`) instead of by bounded
-    rejection. Hi-lo heads-up: the weak-high cap keeps the low half
-    (`hiLoRiverLowHalfFloor` now also answers for fixed limit under this
-    option). Receipt `fixed_limit_river_full_bet_read_seen`.
+    rejection. The hi-lo low half under the weak-high cap is not part of
+    this option (a separate fixed-limit change owns it). Receipt
+    `fixed_limit_river_full_bet_read_seen`.
   - `fixedLimitHiLoNutLowRiverBet` (SPEC-FL-02). Fixed-limit hi-lo cash,
     heads-up, river unbet or checked to hero: the river-bluff module's
     `freeroll` (nut low, no high) bets every time instead of 55 percent,
