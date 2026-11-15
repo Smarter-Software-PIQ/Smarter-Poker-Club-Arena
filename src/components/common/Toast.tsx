@@ -251,9 +251,15 @@ function ToastContainer({
     ).find((node) => node.getClientRects().length > 0);
     if (!messenger) return;
     const place = () => {
-      const bottom = messenger.getBoundingClientRect().bottom;
-      container.style.top = `${bottom + 8}px`;
-      container.style.maxHeight = `max(0px, calc(100dvh - ${bottom + 24}px))`;
+      const anchor = messenger.getBoundingClientRect();
+      const below = anchor.bottom + 8;
+      const height = Math.min(container.scrollHeight, window.innerHeight * 0.3);
+      // A short viewport can put Messenger at the bottom edge. Keep the
+      // notification visible above it when its contents cannot fit below.
+      const top =
+        window.innerHeight - below - 16 >= height ? below : Math.max(16, anchor.top - 8 - height);
+      container.style.top = `${top}px`;
+      container.style.maxHeight = `min(30dvh, max(0px, calc(100dvh - ${top + 16}px)))`;
     };
     place();
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(place);
