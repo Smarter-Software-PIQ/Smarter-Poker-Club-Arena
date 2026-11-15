@@ -7,9 +7,13 @@ it by name, and the option switch registers it off-only. HorseLogic reads it
 only as `=== true`, so `HorseDefaultOnNeedsEvidence.law.test.ts` does not
 require this file today. If the owner lifts the hold, flipping the default
 needs this file with its pull request reference and the NOT MET rows below
-answered. What ships live from the same change is the plain repair
-underneath: a bust in the money is worth its place (`IcmModel.bubbleFactor`),
-which every live bubble-factor reader now prices.
+answered. The repair underneath, a bust in the money is worth its place
+(`IcmModel.bubbleFactor`), does not ship live: it is the registered option
+`icmBustPaysPlace` (default OFF, switched live), and this option's payout
+read depends on it. With `nashPushFoldIcm` on and `icmBustPaysPlace` off the
+in-the-money short stack reads the factor cap of 5 again (Hand Analysis note
+D1), so `nashPushFoldIcm` must imply `icmBustPaysPlace` before its hold is
+lifted.
 
 What the option does when switched on: a no-limit hold'em tournament short
 stack whose trusted context carries the stacks, the payouts and its
