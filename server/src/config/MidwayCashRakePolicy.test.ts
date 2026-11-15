@@ -27,7 +27,7 @@ describe('Midway cash policy, owner instruction 2026-10-21', () => {
           typeof rakeCapBB === 'number' && Number.isFinite(rakeCapBB) && rakeCapBB >= 0
             ? Math.min(rakeCapBB, 2.5)
             : 2.5;
-        expect(full.rakeCap).toBe(Math.floor(bb * expectedBB * 100 + 1e-8) / 100);
+        expect(full.rakeCap).toBe(Math.min(12.5, Math.floor(bb * expectedBB * 100 + 1e-8) / 100));
         expect(full.rakeCap).toBeLessThanOrEqual(bb * 2.5 + 1e-9);
         expect(full.rakePercent).toBe(10);
         const old = getFullRakeConfig(sb, bb, variant);
@@ -54,7 +54,7 @@ describe('Midway cash policy, owner instruction 2026-10-21', () => {
     expect(full.rakeCap).toBe(200);
     expect(
       getFullRakeConfig(5, 10, 'nlh', { scope: 'midway', rakePercent: 15, rakeCapBB: 20 }).rakeCap
-    ).toBe(25);
+    ).toBe(12.5);
     expect(getFullRakeConfig(5, 10, 'nlh', { scope: 'midway', rakePercent: 15 }).rakePercent).toBe(
       10
     );
@@ -84,6 +84,9 @@ describe('Midway cash policy, owner instruction 2026-10-21', () => {
       rake_cap_bb: 20,
     };
     expect(physical.getRakeConfig(0.1, 0.2).cap).toBe(0.5);
+    const high = physical.getRakeConfig(5, 10);
+    expect(calculateRake(500, true, high, 6)).toBe(12.5);
+    expect(calculateRake(50, true, high, 6)).toBe(5);
     physical.tableInfo.union_id = null;
     physical.clubRakeDefaults = { rakePercent: 15, rakeCapBB: 20, unionId: null };
     expect(physical.getRakeConfig(0.1, 0.2).cap).toBe(4);
@@ -92,8 +95,8 @@ describe('Midway cash policy, owner instruction 2026-10-21', () => {
     const config = lightning.buildHandConfig(
       {
         union_id: MIDWAY_UNION_ID,
-        small_blind: 0.1,
-        big_blind: 0.2,
+        small_blind: 5,
+        big_blind: 10,
         game_variant: 'plo5',
         max_players: 9,
         rake_cap_bb: 20,
@@ -102,7 +105,7 @@ describe('Midway cash policy, owner instruction 2026-10-21', () => {
       2,
       []
     );
-    expect(config.rakeConfig.cap).toBe(0.5);
+    expect(calculateRake(500, true, config.rakeConfig, 6)).toBe(12.5);
     expect(config.rakeConfig.cashPolicy).toEqual({ version: 1, scope: 'midway' });
   });
   it('rounds fractional-cent caps downward and rejects non-finite settings', () => {
