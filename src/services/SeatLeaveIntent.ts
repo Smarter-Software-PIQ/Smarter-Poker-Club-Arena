@@ -8,11 +8,17 @@ type Intent = {
   tableId: string;
   seatNumber: number;
   occupancyId: string;
+  poolSessionId?: string;
+  origin?: 'physical-table';
   state: 'pending' | 'resolved';
   action?: 'kick';
   reason?: string;
 };
-export type SeatOccupancyTarget = { seatNumber: number; occupancyId: string };
+export type SeatOccupancyTarget = {
+  seatNumber: number;
+  occupancyId: string;
+  poolSessionId?: string;
+};
 export type SeatLeaveResult = {
   success: boolean;
   chipsReturned: number;
@@ -49,6 +55,8 @@ function validIntent(
     x.seatNumber >= 0 &&
     typeof x.occupancyId === 'string' &&
     UUID.test(x.occupancyId) &&
+    (x.poolSessionId === undefined ||
+      (typeof x.poolSessionId === 'string' && UUID.test(x.poolSessionId))) &&
     (x.state === 'pending' || x.state === 'resolved')
   );
 }
@@ -83,7 +91,11 @@ async function requestSeatWithIntent(
   target?: SeatOccupancyTarget
 ): Promise<SeatLeaveResult> {
   const key =
-    (action.kind === 'kick' ? 'ca:seat-kick:v1:' : 'ca:seat-leave:v1:') + userId + ':' + tableId;
+    (action.kind === 'kick' ? 'ca:seat-kick:v1:' : 'ca:seat-leave:v1:') +
+    userId +
+    ':' +
+    tableId +
+    (target?.poolSessionId ? ':' + target.poolSessionId : '');
   const active = running.get(key);
   if (active)
     return target && action.kind === 'kick'
@@ -146,6 +158,9 @@ async function requestSeatWithIntent(
             tableId,
             seatNumber: data.seat_number,
             occupancyId: data.occupancy_id,
+            ...(target?.poolSessionId
+              ? { poolSessionId: target.poolSessionId }
+              : { origin: 'physical-table' }),
             state: 'pending',
             ...(action.kind === 'kick' ? { action: 'kick', reason: action.reason } : {}),
           };
@@ -160,6 +175,8 @@ async function requestSeatWithIntent(
         (intent.occupancyId !== target.occupancyId || intent.seatNumber !== target.seatNumber)
       )
         throw new Error('An Earlier Removal Must Be Confirmed Before Removing A Different Seat.');
+      if (target?.poolSessionId !== intent.poolSessionId)
+        throw new Error('An Earlier Lightning Room Leave Is Still Pending.');
       intent = { ...intent, state: 'pending' };
       // Persist before sending. Storage failure must not create an unrepeatable request.
       storage.setItem(key, JSON.stringify(intent));
@@ -172,9 +189,31 @@ async function requestSeatWithIntent(
               intent.occupancyId,
               intent.reason!
             )
-          : action.confirmHandCount === true
-            ? await notifyServerLeaveOccupancy(tableId, intent.seatNumber, intent.occupancyId, true)
-            : await notifyServerLeaveOccupancy(tableId, intent.seatNumber, intent.occupancyId);
+          : intent.poolSessionId
+            ? await notifyServerLeaveOccupancy(
+                tableId,
+                intent.seatNumber,
+                intent.occupancyId,
+                action.confirmHandCount === true,
+                intent.poolSessionId
+              )
+            : intent.origin !== 'physical-table'
+              ? await notifyServerLeaveOccupancy(
+                  tableId,
+                  intent.seatNumber,
+                  intent.occupancyId,
+                  action.confirmHandCount === true,
+                  undefined,
+                  true
+                )
+              : action.confirmHandCount === true
+                ? await notifyServerLeaveOccupancy(
+                    tableId,
+                    intent.seatNumber,
+                    intent.occupancyId,
+                    true
+                  )
+                : await notifyServerLeaveOccupancy(tableId, intent.seatNumber, intent.occupancyId);
       if (!response || typeof response !== 'object' || Array.isArray(response)) {
         throw new Error('The Server Did Not Confirm The Leave.');
       }
@@ -182,6 +221,7 @@ async function requestSeatWithIntent(
       const matches =
         result.protocol === 'seat-occupancy-v1' &&
         result.occupancyId === intent.occupancyId &&
+        (!intent.poolSessionId || result.poolSessionId === intent.poolSessionId) &&
         result.seatNumber === intent.seatNumber;
       // HIT AND RUN (owner 2026-11-06): a confirmed leave with hands still
       // owed is accepted and HELD: the seat is blinded off until they are

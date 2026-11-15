@@ -364,14 +364,15 @@ describe('the sizing panel is attached to the footer', () => {
     expect(screen.getByLabelText('Close Raise Panel').getAttribute('aria-expanded')).toBe('true');
   });
 
-  it('gives the player Back as the way out of the overlay', () => {
+  it('lets the player dismiss with Escape without a Back button', () => {
     // The row is not tappable while the overlay is up (it has been
     // `pointer-events: none` since 2026-08-26 and is now `display: none`), so
     // this button is the exit and has to work.
     atWidth(PHONE);
     render(<ActionPanel {...base} onAction={vi.fn()} />);
     openPanel();
-    fireEvent.click(screen.getByLabelText('Back'));
+    expect(screen.queryByLabelText('Back')).toBeNull();
+    fireEvent.keyDown(document, { key: 'Escape' });
     expect(screen.queryByLabelText('Raise Amount')).toBeNull();
     expect(screen.getByLabelText('Open Raise Panel').getAttribute('aria-expanded')).toBe('false');
   });
@@ -427,7 +428,8 @@ describe('the bottom reserve cannot move under a player mid-drag', () => {
     expect(document.body.classList.contains('ca-raising')).toBe(false);
     openPanel();
     expect(document.body.classList.contains('ca-raising')).toBe(true);
-    fireEvent.click(screen.getByLabelText('Back'));
+    expect(screen.queryByLabelText('Back')).toBeNull();
+    fireEvent.keyDown(document, { key: 'Escape' });
     expect(document.body.classList.contains('ca-raising')).toBe(false);
   });
 
@@ -450,7 +452,8 @@ describe('the bottom reserve cannot move under a player mid-drag', () => {
       openPanel();
       expect(host.classList.contains('ca-raising')).toBe(true);
       expect(document.body.classList.contains('ca-raising')).toBe(false);
-      fireEvent.click(screen.getByLabelText('Back'));
+      expect(screen.queryByLabelText('Back')).toBeNull();
+      fireEvent.keyDown(document, { key: 'Escape' });
       expect(host.classList.contains('ca-raising')).toBe(false);
     } finally {
       host.remove();

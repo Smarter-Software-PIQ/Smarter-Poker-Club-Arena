@@ -1567,17 +1567,21 @@ export async function notifyServerLeaveOccupancy(
   seatNumber: number,
   occupancyId: string,
   /** HIT AND RUN: the player confirmed leaving with hands still owed. */
-  confirmHandCount = false
+  confirmHandCount = false,
+  poolSessionId?: string,
+  replayLegacy = false
 ): Promise<unknown> {
   try {
     const headers = await getAuthHeaders();
-    const response = await engineFetch(`${GAME_SERVER_URL}/leave-occupancy`, {
+    const route = poolSessionId ? '/leave-lightning-occupancy' : '/leave-occupancy';
+    const response = await engineFetch(GAME_SERVER_URL + route, {
       method: 'POST',
       headers,
       body: JSON.stringify({
         tableId,
         seatNumber,
         occupancyId,
+        ...(poolSessionId ? { poolSessionId } : replayLegacy ? {} : { origin: 'physical-table' }),
         ...(confirmHandCount ? { confirmHandCount: true } : {}),
       }),
     });

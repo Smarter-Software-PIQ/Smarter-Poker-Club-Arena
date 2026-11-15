@@ -118,6 +118,13 @@ export interface TableMenuProps {
   onToggle: () => void;
   sections: MenuSection[];
   seatChangeEnabled?: boolean;
+  /**
+   * Seat Change is off because this is a Lightning game, not because the
+   * table's mode is still loading. The row is then shown, disabled, saying so,
+   * rather than vanishing (2026-11-15): a row that is there on one table and
+   * gone on the next reads as a bug.
+   */
+  seatChangeOffInLightning?: boolean;
   position?: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
   tableName?: string;
   /** WebSocket connection status */
@@ -428,6 +435,7 @@ export function TableMenu({
   onToggle,
   sections: propSections,
   seatChangeEnabled = true,
+  seatChangeOffInLightning = false,
   position = 'top-right',
   tableName,
   connectionStatus = 'connected',
@@ -601,7 +609,18 @@ export function TableMenu({
                 onClick: () => setSeatChangeVisible(!seatChangeVisible),
               },
             ]
-          : []),
+          : seatChangeOffInLightning
+            ? [
+                {
+                  id: 'seat-change-visibility',
+                  label: 'Seat Change',
+                  icon: <SettingsIcon />,
+                  badge: 'Off In Lightning',
+                  disabled: true,
+                  onClick: () => {},
+                },
+              ]
+            : []),
       ],
     },
   ];
