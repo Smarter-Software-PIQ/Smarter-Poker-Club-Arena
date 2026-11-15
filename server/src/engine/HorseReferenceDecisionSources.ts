@@ -124,6 +124,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
     'src/engine/GtoCharts.ts': 'the open-jam and big-blind-versus-small-blind jam charts',
     'src/engine/GtoPostflop.ts': 'the heads-up NLH postflop solver consult',
     'src/engine/GtoPostflopV31.ts': 'the V31 solver consult',
+    'src/engine/GtoV31CellContractV3Serving.ts':
+      'the default-OFF cell contract v3 serving switch (FLOP-5 D6): whether a store declaring cell contract v3 is consulted with the v3 context',
     'src/engine/HorseV31CertifiedPolicy.ts':
       'the V31 certified playbook consult (eligibility, lookup, sampling, legalization), moved out of HorseLogic 2026-11-06',
     'src/engine/HorseGtoExecution.ts':

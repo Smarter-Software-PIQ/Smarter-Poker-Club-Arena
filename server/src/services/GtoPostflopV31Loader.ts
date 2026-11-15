@@ -40,6 +40,7 @@ import {
   gtoV31PolicyContractValid,
 } from '../engine/GtoPostflopV31.js';
 import { createAdaptiveRefreshLoop } from './AdaptiveRefreshLoop.js';
+import { gtoV31CellContractV3ServingOn } from '../engine/GtoV31CellContractV3Serving.js';
 
 const REFRESH_MS = 6 * 60 * 60_000;
 const RETRY_MS = 30_000;
@@ -117,6 +118,10 @@ function readV31CellPage(data: unknown, expectedDatasetId?: string): GtoV31Runti
     const legacy = { ...row };
     if (row.feature_contract_version === null) delete legacy.feature_contract_version;
     if (row.policy_export_schema === null) delete legacy.policy_export_schema;
+    // Cell contract v3 readers (switch on) carry these two columns; NULL is a
+    // v2 cell, which reads exactly as it does through the v2 readers.
+    if (row.cell_contract_version === null) delete legacy.cell_contract_version;
+    if (row.line_class === null) delete legacy.line_class;
     return legacy;
   }) as GtoV31RuntimeRow[];
 }
@@ -206,10 +211,12 @@ async function loadGtoPostflopV31Attempt(): Promise<{ ok: boolean; count: number
     }
     const rows: GtoV31RuntimeRow[] = [];
     for (let offset = 0; ; ) {
-      const { data, error } = await supabase.rpc('fn_gto_v31_active_cells', {
-        p_offset: offset,
-        p_limit: PAGE,
-      });
+      // Cell contract v3 (FLOP-5 D6, dormant): the v3 reader only when the
+      // default-OFF switch is on; the v2 reader never returns a v3 cell.
+      const request = { p_offset: offset, p_limit: PAGE };
+      const { data, error } = gtoV31CellContractV3ServingOn()
+        ? await supabase.rpc('fn_gto_v31_active_cells_v3', request)
+        : await supabase.rpc('fn_gto_v31_active_cells', request);
       if (error) throw new Error(error.message);
       const page = readV31CellPage(data);
       if (page.length === 0) break;
@@ -334,11 +341,11 @@ export async function loadGtoPostflopV31Evaluation(
   }
   const rows: GtoV31RuntimeRow[] = [];
   for (let offset = 0; ; ) {
-    const { data, error } = await supabase.rpc('fn_gto_v31_evaluation_cells', {
-      p_dataset_id: datasetId,
-      p_offset: offset,
-      p_limit: PAGE,
-    });
+    // Cell contract v3 (FLOP-5 D6, dormant): as in the live load above.
+    const request = { p_dataset_id: datasetId, p_offset: offset, p_limit: PAGE };
+    const { data, error } = gtoV31CellContractV3ServingOn()
+      ? await supabase.rpc('fn_gto_v31_evaluation_cells_v3', request)
+      : await supabase.rpc('fn_gto_v31_evaluation_cells', request);
     if (error) throw new Error(error.message);
     const page = readV31CellPage(data, datasetId);
     if (page.length === 0) break;

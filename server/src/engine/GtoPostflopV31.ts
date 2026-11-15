@@ -1479,6 +1479,20 @@ export function gtoV31StoreIsEmpty(datasetChecksum?: string): boolean {
   return !selected || selected.size === 0;
 }
 
+/**
+ * The cell contract of the store a lookup would read (the active store, or the
+ * benchmark evaluation store `datasetChecksum` names): 'v3' only when its cells
+ * declare cell contract v3, 'v2' for any other loaded store, null when empty.
+ * Read-only; used by the dormant v3 consult (GtoV31CellContractV3Serving).
+ */
+export function gtoV31StoreCellContract(datasetChecksum?: string): 'v2' | 'v3' | null {
+  const selected = datasetChecksum
+    ? evaluationStores.get(datasetChecksum)?.cells
+    : activeStore.cells;
+  if (!selected || selected.size === 0) return null;
+  return selected.values().next().value?.seal.cell_contract_version === 'v3' ? 'v3' : 'v2';
+}
+
 export function gtoPostflopV31Count(): number {
   return activeStore.cells.size;
 }

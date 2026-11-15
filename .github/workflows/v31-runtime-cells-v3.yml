@@ -1,0 +1,39 @@
+name: V31 runtime cells store cell contract v3 and change nothing for v2
+
+# Native proof of migration 20261115143957 against a throwaway PostgreSQL 17
+# cluster (never production), on the production shapes in
+# scripts/ci/fixtures/v31-runtime-cells-v3: scripts/ci/test-v31-runtime-cells-v3.py
+# with its mutation checks. No timer (CLAUDE.md 10.85): pull_request only,
+# scoped to the paths it proves.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - supabase/migrations/20261115143957_v31_runtime_cells_store_cell_contract_v3_dormant.sql
+      - scripts/ci/test-v31-runtime-cells-v3.py
+      - scripts/ci/test-v31-round-registration.py
+      - scripts/ci/fixtures/v31-runtime-cells-v3/**
+      - .github/workflows/v31-runtime-cells-v3.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v31-runtime-cells-v3-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  v31-runtime-cells-v3:
+    name: V31 runtime cells store cell contract v3 and keep every v2 answer
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL 17 from the signed PGDG source only
+        uses: ./.github/actions/install-postgres-17
+      # Runs as the runner user (non-root).
+      - name: Native proof and mutation checks
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: |
+          python3 scripts/ci/test-v31-runtime-cells-v3.py --mutations

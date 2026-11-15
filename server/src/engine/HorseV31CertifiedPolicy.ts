@@ -26,12 +26,15 @@ import { handClass as gtoHandClass } from './GtoCharts.js';
 import { beyondGtoDepthCeiling, rollMix } from './GtoPostflop.js';
 import {
   gtoStreetAdviceV31,
+  gtoStreetAdviceV31V3,
+  gtoV31StoreCellContract,
   gtoV31StoreIsEmpty,
   type GtoV31GameFamily,
   type GtoV31Objective,
 } from './GtoPostflopV31.js';
 import {
   classifyGtoDecisionContext,
+  classifyGtoDecisionContextV3,
   gtoV31FlopRootStack,
   gtoV31HasHeadsUpPostflopLine,
   gtoV31Position,
@@ -41,6 +44,7 @@ import {
 import { aggressiveBettorPressure, riverFoldLowerBound } from './HorseOpponentExploit.js';
 import type { OpponentExploitRead } from './HorseOpponentExploit.js';
 import { cellDepthIsPrimary, gtoV31ExecutionMatches, noteGtoMiss } from './HorseGtoExecution.js';
+import { gtoV31CellContractV3ServingOn } from './GtoV31CellContractV3Serving.js';
 
 export interface V31CertifiedInput {
   street: HandStage;
@@ -328,17 +332,70 @@ export function decideV31Certified(input: V31CertifiedInput): HorseDecision | nu
     if (tooDeep31 && tele15) noteFire('gto_skip_too_deep');
     else if (beyond31 && tele15) noteFire('gto_served_beyond_depth_ceiling');
 
-    const direct31 =
-      context31 &&
-      family31 &&
-      objective31 &&
-      utility31 &&
-      heroSeat31 &&
-      opponentSeat31 &&
-      stackBB31 !== null &&
-      heroSeat31.tableSize === opponentSeat31.tableSize &&
-      gtoV31HasHeadsUpPostflopLine(gs.actionHistory, player.seat, opponent31.seat) &&
-      !tooDeep31
+    // CELL CONTRACT v3 (FLOP-5 D6, DORMANT). Only when the store this lookup
+    // reads declares cell contract v3 AND the default-OFF switch is on is the
+    // consult keyed by the v3 context (role incl. donk, facing, public line,
+    // 200 bb). In every other case v3Store31 is false and the v2 consult below
+    // runs exactly as before; neither check draws a random number.
+    const v3Store31 =
+      gtoV31StoreCellContract(opts.gtoV31DatasetChecksum) === 'v3' &&
+      gtoV31CellContractV3ServingOn();
+    const context31V3 =
+      v3Store31 && effective31 !== null
+        ? classifyGtoDecisionContextV3({
+            street,
+            hero: player,
+            opponents,
+            actionHistory: gs.actionHistory,
+            currentBet: gs.currentBet,
+            pot: gs.pot,
+            effectiveRootChips: effective31,
+          })
+        : null;
+
+    const direct31 = v3Store31
+      ? context31V3 &&
+        family31 &&
+        objective31 &&
+        utility31 &&
+        heroSeat31 &&
+        opponentSeat31 &&
+        stackBB31 !== null &&
+        heroSeat31.tableSize === opponentSeat31.tableSize &&
+        gtoV31HasHeadsUpPostflopLine(gs.actionHistory, player.seat, opponent31.seat) &&
+        !tooDeep31
+        ? gtoStreetAdviceV31V3({
+            street,
+            family: family31,
+            objective: objective31,
+            utilityContext: utility31,
+            tableSize: heroSeat31.tableSize,
+            potType: potType31,
+            heroPosition: heroSeat31.position,
+            opponentPosition: opponentSeat31.position,
+            stackBB: stackBB31,
+            board: gs.communityCards,
+            hand: hand31,
+            holeCards: player.cards,
+            // A v3 store is keyed by `v3` (role, facing, line), which overrides
+            // these three v2-typed fields; 'donk' has no v2 spelling.
+            nodeRole: context31V3.nodeRole === 'donk' ? 'open' : context31V3.nodeRole,
+            facingKind: context31V3.facingKind,
+            facingSizeBucket: context31V3.facingSizeBucket,
+            datasetChecksum: opts.gtoV31DatasetChecksum,
+            v3: context31V3,
+          })
+        : null
+      : context31 &&
+          family31 &&
+          objective31 &&
+          utility31 &&
+          heroSeat31 &&
+          opponentSeat31 &&
+          stackBB31 !== null &&
+          heroSeat31.tableSize === opponentSeat31.tableSize &&
+          gtoV31HasHeadsUpPostflopLine(gs.actionHistory, player.seat, opponent31.seat) &&
+          !tooDeep31
         ? gtoStreetAdviceV31({
             street,
             family: family31,
@@ -439,6 +496,9 @@ export function decideV31Certified(input: V31CertifiedInput): HorseDecision | nu
           });
           if (
             opts.onGtoV31Decision &&
+            // The decision record has no v3 'donk' role (only a v3 store
+            // answers one; dormant): such a decision is not recorded.
+            direct31.nodeRole !== 'donk' &&
             hand31 &&
             context31 &&
             family31 &&

@@ -1,0 +1,11 @@
+{
+  "_owner": "hv31-d6-v3-dormant-01Gw7aDr",
+  "_comment": "Migration 20261115143957_v31_runtime_cells_store_cell_contract_v3_dormant adds the cell contract v3 columns, the v3 cell readers and the registration cell-contract read; installed through Apply Merged Migration after merge (dormant: read only when GTO_V31_CELL_CONTRACT_V3_SERVING=on).",
+  "functions": [
+    "fn_gto_v31_active_cells_v3",
+    "fn_gto_v31_evaluation_cells_v3",
+    "fn_gto_v31_registration_cell_contract",
+    "fn_gto_v31_runtime_cell_contract_immutable"
+  ],
+  "columns": { "gto_v31_runtime_cells": ["cell_contract_version", "line_class"] }
+}
