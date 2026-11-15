@@ -11,7 +11,8 @@ import {
   StyleSwitchHolder,
 } from './HorseStyleSwitch.js';
 import {
-  OPTION_SWITCH_EVIDENCED_ON,
+  OPTION_SWITCH_HOLDS,
+  OPTION_SWITCH_NOT_A_SWITCH,
   OPTION_SWITCH_NOTHING_SWITCHED,
   OPTION_SWITCH_PLAIN_NAMES,
   OPTION_SWITCH_PLAIN_REGISTRY,
@@ -52,7 +53,7 @@ const present = (raw: unknown, receivedAtMs: number): OptionSwitchReading => ({
 });
 
 describe('the registry', () => {
-  it('carries the seven style options with all four states and every other option with off, and on only with evidence', () => {
+  it('carries the seven style options with all four states and every other ledger option with off and on', () => {
     expect(OPTION_SWITCH_REGISTRY.slice(0, 7).map((e) => e.name)).toEqual([
       ...STYLE_SWITCH_OPTIONS,
     ]);
@@ -60,21 +61,22 @@ describe('the registry', () => {
       expect(e.states).toEqual(['off', 'shadow', 'canary', 'on']);
       expect(e.shadowArm).toBe(true);
     }
-    expect(OPTION_SWITCH_PLAIN_REGISTRY).toHaveLength(14);
+    expect(OPTION_SWITCH_PLAIN_REGISTRY.length).toBeGreaterThan(150);
     for (const e of OPTION_SWITCH_PLAIN_REGISTRY) {
-      // HA-10878-1: on only with promotion evidence (docs/horse-default-on.d/<option>.md)
-      expect(e.states, e.name).toEqual(
-        OPTION_SWITCH_EVIDENCED_ON.includes(e.name) ? ['off', 'on'] : ['off']
-      );
+      // owner order 2026-11-14 22:01: every registered option has an on/off switch
+      expect(e.states, e.name).toEqual(['off', 'on']);
       expect(e.shadowArm, e.name).toBe(false);
-      expect(e.releaseDefault, e.name).toBe('off');
+      expect(['off', 'on', 'code'], e.name).toContain(e.releaseDefault);
       expect(e.owner.length, e.name).toBeGreaterThan(0);
       expect(e.scope.length, e.name).toBeGreaterThan(0);
       expect(e.description.length, e.name).toBeGreaterThan(0);
       expect(e.description, e.name).not.toMatch(/\n/);
+      expect(Object.hasOwn(OPTION_SWITCH_NOT_A_SWITCH, e.name), e.name).toBe(false);
     }
-    expect(OPTION_SWITCH_EVIDENCED_ON).toEqual([]);
-    expect(optionSwitchStatesOf('commitUnderPot')).toEqual(['off']);
+    expect(optionSwitchStatesOf('commitUnderPot')).toEqual(['off', 'on']);
+    expect(OPTION_SWITCH_HOLDS.commitUnderPot).toMatch(/stays off at the cutover/);
+    expect(optionSwitchStatesOf('omahaHiLoTournamentFirstIn')).toEqual(['off', 'on']);
+    expect(optionSwitchStatesOf('decisionTimeMs')).toBeNull();
     expect(optionSwitchStatesOf('styleFoldBluff')).toEqual(['off', 'shadow', 'canary', 'on']);
     expect(optionSwitchStatesOf('v54RiverBluff')).toBeNull();
   });
@@ -91,6 +93,13 @@ describe('the parser', () => {
     ]);
   });
 
+  it('accepts on for a registered option, beside a valid off', () => {
+    expect(parseOptionSwitchConfig(v2({ v16Hu: 'off', commitUnderPot: 'on' }))).toEqual({
+      ok: true,
+      states: { v16Hu: 'off', commitUnderPot: 'on' },
+    });
+  });
+
   it('accepts the version 1 style answer (a database without the wider function) as nothing switched', () => {
     expect(parseOptionSwitchConfig({ version: 1, options: { styleFoldBluff: 'on' } })).toEqual({
       ok: true,
@@ -102,11 +111,7 @@ describe('the parser', () => {
     ['shadow for an option without a shadow arm', v2({ v16Hu: 'shadow' })],
     ['canary for an option without a shadow arm', v2({ commitUnderPot: 'canary' })],
     ['an unknown option', v2({ notAnOption: 'on' })],
-    [
-      'on for an option without promotion evidence (HA-10878-1)',
-      v2({ v62RiverBettorPolarity: 'on' }),
-    ],
-    ['on beside a valid off (HA-10878-1)', v2({ v16Hu: 'off', commitUnderPot: 'on' })],
+    ['a parameter that is not an on/off option', v2({ decisionTimeMs: 'on' })],
     ['an authority-gated option', v2({ v54RiverBluff: 'on' })],
     ['a style option in the non-style half', v2({ styleFoldBluff: 'on' })],
     ['an unknown state', v2({ v16Hu: 'yes' })],
@@ -131,16 +136,16 @@ describe('the parser', () => {
 });
 
 describe('the decision options', () => {
-  it('nothing switched gives {}; off passes false, on passes true only with evidence, no row passes nothing', () => {
+  it('nothing switched gives {}; off passes false, on passes true, no row passes nothing', () => {
     expect(optionSwitchDecisionOpts(OPTION_SWITCH_NOTHING_SWITCHED)).toEqual({});
     expect(optionSwitchDecisionOpts(null)).toEqual({});
     expect(optionSwitchDecisionOpts({ v16Hu: 'off', readScopedShrink: 'off' })).toEqual({
       v16Hu: false,
       readScopedShrink: false,
     });
-    // HA-10878-1: an unvalidated on for an option without evidence passes nothing
     expect(optionSwitchDecisionOpts({ v16Hu: 'off', commitUnderPot: 'on' })).toEqual({
       v16Hu: false,
+      commitUnderPot: true,
     });
   });
 

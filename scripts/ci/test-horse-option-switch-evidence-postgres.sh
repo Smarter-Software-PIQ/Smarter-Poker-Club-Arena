@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# HA-10878-1, proven by execution on a THROWAWAY PostgreSQL 17: the option switch
-# refuses 'on' for every non-style option that has no promotion evidence file
-# (docs/horse-default-on.d/<option>.md), at the set function, at the old style
-# setter and at the table itself (any writer). 'off' and clear stay available
-# for every registered option, each write leaves one audit row with its actor,
-# the refused options stay refused, and the seven style options keep 'on',
-# 'shadow' and 'canary' exactly as before.
+# The owner order of 2026-11-14 22:01 Chicago (every option has an on/off switch),
+# proven by execution on a THROWAWAY PostgreSQL 17: every registered non-style
+# option is offered off and on; 'on' WITHOUT a note that cites its authority is
+# refused at the set function, at the old style setter and at the table itself
+# (any writer); 'on' WITH the authority note is written and leaves an audit row
+# with the note and the actor; 'off' and clear stay available for every
+# registered option; the refused options stay refused; and the seven style
+# options keep 'on', 'shadow' and 'canary' exactly as before. It replaces the
+# evidence-file rule (HA-10878-1) for the switch. It enables nothing.
 #
 # It installs the style switch migration (20261113201841) and then the option
 # switch migration (20261114072215, or OPTION_SWITCH_MIGRATION to prove the
@@ -46,8 +48,10 @@ option_migration="${OPTION_SWITCH_MIGRATION:-$repo/supabase/migrations/202611140
 "${psql[@]}" -f "$option_migration"
 
 style='styleValueBettorNotManiac styleBigBetHonesty styleRaiseRespect styleTightReRaiserRespect styleFoldRatePreRepair styleValueExtraction styleFoldBluff'
-plain='v16Hu v16Ratio v17RiverProbe v23ShortDeck v32FacingDefense v33DepthCeiling v55OmahaRiverTripsFlat commitUnderPot v62RiverBettorPolarity readPostflopFoldRate readShrinkResponse readBreakEvenBluff readScopedShrink omahaNeutralUnknown'
-refused='comboDrawPressure v54RiverBluff riverPositionDefense riverBluffCheckRaise barrelContinuationOutlook smallPotNearNutRiverValue multiwayRiverBluffCheckRaise v53PloTourneyIcm phase8Postflop phase8PolicyFamily phase8CatastropheGuard phase10Plo4 phase11Omaha phase12Remaining phase13Joint phase14 phase14Corrective phase15Anything v87DeepDiveDiscipline v87ShouldSuppressOmahaPositionStab pillar2PositionStab v31GtoSuitAware solverRound7 heldOutPack allInOrFoldWidening aofWidening blindSteal vpipFloorDeepStackOff omahaPreflopCallWithActionBehind v46ShortDeck nashPushFoldIcm huBbDefendsToPrice huOpenerDefendsToPrice huLimpDefendsToPrice facingOpenFullRingZone committedStackPricedIn vs3BetShortStack holdemPersonaReRaiseMix notAnOption'
+plain='telemetry observeMind mind streetIQ handReading v7 v7Preflop v7Barrels v7SizeReads v7CounterAdapt v7AdaptiveMC v8 v8Draws v8HiLo v8Nlh v9 v9Sizing v9Timing decisionGravityTiming v9Mood v10 v10Cbet v10Spr v10Rake v10ThinValue v10Iso v11 v12 v12Ranges v12River v13 v15 v15Boats v16Reads v16Icm v16Hu v16Blockers v16SizeCond v16PloPolar v16Ratio v17Pos v17RiverProbe v17CatchBlock v17ShortDeck v18Straddle v18Squeeze v18SelfImage v18ExploitSize v18Families v20Multiway v20Mzone v21River v21Deep v23Endgame v23Plan v23Reads v23Variants v23ShortDeck v23Spin v24Bounty v24PloDefense v25PloTourney v26Prizes v27GtoCharts v29GtoFlop v30GtoTurnRiver v32FacingDefense v33DepthCeiling v37Satellite v38Ev v40Omaha holdemPremiumAggression holdemDominatedFold ploPairedBoardFold ploPairedBoardRiverCheck ploSuitedAcesFourBet v86PloOverhaul v87HoldemOverhaul v87RiverBlockBetTrap v87HollywoodTank v87FlopStabCheckRaise v46Charts v46ShortDeck v51RiverFlat v55OmahaRiverTripsFlat v56OmahaPressureRange v57TournamentAggression v61RiverOnePairShade v66BetRaisedOnePair v67RiverBetRaisedOnePair v88CommitmentHonored omahaTournamentFirstIn omahaHiLoTournamentFirstIn tokenCallPrice plo6ManiacPriceRefusalToRangePlay plo6TopSetNutRealization v64RiverRaiseNeedsTwoPair v63LargeRiverBetShade v74OmahaSemiBluffNeedsDraw v62RiverBettorPolarity v60CashPressure v65TurnOnePairShade v68TurnAirDrawCalls v69TurnCallGaps v70GtoOpeningRanges v71AnteAwarePushFold v72DefenceByOpener v73Vs3BetDefence v75SqueezeDefence v79TopPairWeakKicker v81OmahaBigBetCalls v15RiverNoNearLock v85CashAction v84OmahaRiverReraiseCalls v83AggressionNeedsBluffs readPostflopFoldRate readShrinkResponse readBreakEvenBluff omahaEvFoldModel omahaNeutralUnknown omahaTightOpponent readScopedShrink planFingerprint v80TopPairStrongKicker v78NoCommittingBluffRaise v70FacingOpenZone huBbDefendsToPrice huOpenerDefendsToPrice huLimpDefendsToPrice committedStackPricedIn nashCallVsJam nashPushFoldIcm facingOpenFullRingZone vs3BetShortStack omahaCommitZoneThreeBetPriceRelief facingClosedAllIn limpReraiseIsoRead commitUnderPot v77SeatAwareJams v76RetireFourBetBluffBand v74NlhOpenSizes v52RangeAdvantage v53Pressure v58Plo6RiverNuts v59Plo6RiverUnpaired drawOutlookQuality committedRaiseDiscipline callDeductionPricing flopTurnBluffBaseline riverBluffBaseline riverLeadRange riverBluffHiLo riverBluffMultiway riverFastCalldown probeAwareAggression riverBluffFixedLimit riverBluffShortDeck riverBluffBombPot riverBluffMultiBoard v43Tempo v41Leaks v86UnblockedPreflop v86MultiStreetUnblocked'
+refused='comboDrawPressure v54RiverBluff riverPositionDefense riverBluffCheckRaise barrelContinuationOutlook smallPotNearNutRiverValue multiwayRiverBluffCheckRaise v53PloTourneyIcm phase8Postflop phase8PolicyFamily phase8CatastropheGuard phase10Plo4 phase11Omaha phase12Remaining phase13Joint phase14 phase14Corrective phase15Anything v87DeepDiveDiscipline v87ShouldSuppressOmahaPositionStab pillar2PositionStab v31GtoSuitAware solverRound7 heldOutPack vpipFloorDeepStackOff omahaPreflopCallWithActionBehind notAnOption leakMapRead'
+authority='authority: OWNER-MESSAGE-20261114-2201CT-EVERY-FEATURE-ON-WITH-SWITCH.md sha256 2080c2026d5553e11ac288a74fcef51d20f81b30c0a9da446b5063a9f7196bf1'
+plain_count=$(set -- $plain; echo $#)
 
 fail=0
 check() { # name, expected, actual
@@ -60,49 +64,40 @@ refusal() {
   if out="$("${psql[@]}" -At -c "$1" 2>&1)"; then echo WROTE; else printf '%s' "$out" | sed -n 's/^.*ERROR:  //p' | head -1; fi
 }
 
-# The options allowed 'on', as the database answers, and as the evidence directory says.
-db_on=""
-for o in $style $plain; do
-  if [ "$(q "SELECT 'on' = ANY (public.fn_ca_horse_option_switch_states('$o'))")" = t ]; then db_on="$db_on $o"; fi
-done
-dir_on=""
-for o in $style; do dir_on="$dir_on $o"; done
-for o in $plain; do [ -f "$repo/docs/horse-default-on.d/$o.md" ] && dir_on="$dir_on $o"; done
-check "the options the database offers 'on' are the style options plus those with an evidence file" "$dir_on" "$db_on"
-
 audit_before="$(q 'SELECT count(*) FROM public.ca_horse_style_switch_audit')"
 for o in $plain; do
-  if [ -f "$repo/docs/horse-default-on.d/$o.md" ]; then
-    check "$o (evidenced) can be set on" "{off,on}" "$(q "SELECT public.fn_ca_horse_option_switch_states('$o')")"
-    continue
-  fi
-  check "$o is offered off only" "{off}" "$(q "SELECT public.fn_ca_horse_option_switch_states('$o')")"
+  check "$o is offered off and on" "{off,on}" "$(q "SELECT public.fn_ca_horse_option_switch_states('$o')")"
   r="$(refusal "SELECT public.fn_ca_horse_option_switch_set('$o', 'on', 'fixture', 'try on')")"
-  case "$r" in *"has no promotion evidence"*) check "$o: the set function refuses on" refused refused;;
-    *) check "$o: the set function refuses on" refused "$r";; esac
+  case "$r" in *"may be set on only with a note that cites its authority"*) check "$o: the set function refuses on without the authority note" refused refused;;
+    *) check "$o: the set function refuses on without the authority note" refused "$r";; esac
+  r="$(refusal "SELECT public.fn_ca_horse_option_switch_set('$o', 'on', 'fixture', NULL)")"
+  case "$r" in *"may be set on only with a note that cites its authority"*) check "$o: the set function refuses on with no note" refused refused;;
+    *) check "$o: the set function refuses on with no note" refused "$r";; esac
   r="$(refusal "INSERT INTO public.ca_horse_style_switch (option, state, updated_by) VALUES ('$o', 'on', 'owner-role')")"
-  case "$r" in *"ca_horse_style_switch_on_needs_evidence"*) check "$o: the table refuses an on row from any writer" refused refused;;
-    *) check "$o: the table refuses an on row from any writer" refused "$r";; esac
+  case "$r" in *"ca_horse_style_switch_on_cites_authority"*) check "$o: the table refuses an on row without the authority note from any writer" refused refused;;
+    *) check "$o: the table refuses an on row without the authority note from any writer" refused "$r";; esac
   r="$(refusal "SELECT public.fn_ca_horse_style_switch_set('$o', 'on', 'fixture', 'old setter')")"
   [ "$r" = WROTE ] && check "$o: the old style setter refuses it" refused WROTE || check "$o: the old style setter refuses it" refused refused
   q "SELECT public.fn_ca_horse_option_switch_set('$o', 'off', 'fixture', 'rollback')" >/dev/null
   check "$o: off is written" "off" "$(q "SELECT state FROM public.ca_horse_style_switch WHERE option = '$o'")"
   r="$(refusal "UPDATE public.ca_horse_style_switch SET state = 'on' WHERE option = '$o'")"
-  case "$r" in *"ca_horse_style_switch_on_needs_evidence"*) check "$o: the table refuses turning its off row on" refused refused;;
-    *) check "$o: the table refuses turning its off row on" refused "$r";; esac
+  case "$r" in *"ca_horse_style_switch_on_cites_authority"*) check "$o: the table refuses turning its off row on without the authority note" refused refused;;
+    *) check "$o: the table refuses turning its off row on without the authority note" refused "$r";; esac
+  q "SELECT public.fn_ca_horse_option_switch_set('$o', 'on', 'fixture', '$authority')" >/dev/null
+  check "$o: on with the authority note is written" "on|$authority" "$(q "SELECT state || '|' || note FROM public.ca_horse_style_switch WHERE option = '$o'")"
   q "SELECT public.fn_ca_horse_option_switch_clear('$o', 'fixture', 'clear')" >/dev/null
   check "$o: clear removes the row" "0" "$(q "SELECT count(*) FROM public.ca_horse_style_switch WHERE option = '$o'")"
 done
-check "every off and clear wrote one audit row with its actor; no refused on wrote one" \
-  "$((audit_before + 28))" "$(q "SELECT count(*) FROM public.ca_horse_style_switch_audit")"
-check "no audit row records an un-evidenced on" "0" \
-  "$(q "SELECT count(*) FROM public.ca_horse_style_switch_audit WHERE new_state = 'on' AND option NOT IN ('$(echo $style | sed "s/ /','/g")')")"
+check "every off, on and clear wrote one audit row; no refused on wrote one" \
+  "$((audit_before + 3 * plain_count))" "$(q "SELECT count(*) FROM public.ca_horse_style_switch_audit")"
+check "every audit row of an on for a non-style option carries the authority note" "$plain_count|0" \
+  "$(q "SELECT count(*) FILTER (WHERE note = '$authority') || '|' || count(*) FILTER (WHERE note IS DISTINCT FROM '$authority') FROM public.ca_horse_style_switch_audit WHERE new_state = 'on' AND option NOT IN ('$(echo $style | sed "s/ /','/g")')")"
 check "the audit rows name their actor" "0" "$(q "SELECT count(*) FROM public.ca_horse_style_switch_audit WHERE changed_by IS DISTINCT FROM 'fixture'")"
 
 for o in $refused; do
   check "$o is not switchable" "" "$(q "SELECT public.fn_ca_horse_option_switch_states('$o')")"
   for s in on off; do
-    r="$(refusal "SELECT public.fn_ca_horse_option_switch_set('$o', '$s', 'fixture', 'held')")"
+    r="$(refusal "SELECT public.fn_ca_horse_option_switch_set('$o', '$s', 'fixture', '$authority')")"
     case "$r" in *"not a switchable option"*) check "$o: set $s is refused" refused refused;; *) check "$o: set $s is refused" refused "$r";; esac
   done
   r="$(refusal "SELECT public.fn_ca_horse_option_switch_clear('$o', 'fixture', 'held')")"
@@ -120,11 +115,13 @@ for o in $style; do
 done
 
 q "SELECT public.fn_ca_horse_option_switch_set('v16Hu', 'off', 'fixture', 'read')" >/dev/null
-check "the wide read names the off row and no on row" '{"v16Hu": "off"}' "$(q "SELECT public.fn_ca_horse_option_switch_effective()->'options'")"
+q "SELECT public.fn_ca_horse_option_switch_set('commitUnderPot', 'on', 'fixture', '$authority')" >/dev/null
+q "SELECT public.fn_ca_horse_option_switch_clear('commitUnderPot', 'fixture', 'read')" >/dev/null
+check "the wide read names the off row and no cleared row" '{"v16Hu": "off"}' "$(q "SELECT public.fn_ca_horse_option_switch_effective()->'options'")"
 
 if [ "$fail" = 0 ]; then
   echo 'PASS  every option switch evidence assertion held'
 else
-  echo 'FAIL  the option switch accepts on without evidence, or lost off, clear, audit or a refusal'
+  echo 'FAIL  the option switch accepts on without its authority, or lost on, off, clear, audit or a refusal'
   exit 1
 fi

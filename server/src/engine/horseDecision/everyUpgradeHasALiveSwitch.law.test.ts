@@ -11,30 +11,38 @@
  *   3. READABLE AND AUDITED. The effective state has a read function; set and clear each write the audit table with
  *      the actor and the time.
  *   4. EMPTY = RELEASE DEFAULT. With nothing switched a real decision is handed exactly the options it was handed
- *      before this existed, and every registered option is read by the brain as `=== true` / `!== true` only, so
- *      "not passed" and "off" are the same answer. An unknown or held option is refused by the database function
- *      and by the worker.
+ *      before this existed; off passes false and on passes true for every registered option. An unknown or refused
+ *      option is refused by the database function and by the worker.
  *   5. WHO MAY WRITE. service_role only; SECURITY DEFINER with a pinned search_path.
  *   6. FAILURE. Nothing delivered, unreadable, invalid or malformed all leave every option at its release default,
  *      and a real decision still completes.
  *   7. REPLAY. A decision replays with the switched set its own record carries, never the live one.
  *   8. THE DATABASE WHITELIST IS THE ENGINE REGISTRY, and the schema manifest names the functions the migration adds.
  *
- * And HA-10878-1: `on` for a non-style option needs promotion evidence that binds to the option by name, scope and
- * the digest of its code path, at the registry, the parser, both SQL functions and the table (proven on a real
- * PostgreSQL 17 by scripts/ci/test-horse-option-switch-evidence-postgres.sh); and a started, restarted or replaced
- * worker resolves the persisted switch state before it serves a decision that reads a switched option.
+ * THE OWNER ORDER OF 2026-11-14 22:01 CHICAGO (OWNER-MESSAGE-20261114-2201CT-EVERY-FEATURE-ON-WITH-SWITCH.md, sha256
+ * 2080c2026d5553e11ac288a74fcef51d20f81b30c0a9da446b5063a9f7196bf1) replaces HA-10878-1's evidence-file rule FOR THE
+ * SWITCH: "EVERY SINGLE FUNCTION FEATURE, SKILL ETC ... HAS AN ON OFF SWITCH". So the registry is exactly the on/off
+ * options of the data ledger minus the refused names; `on` is accepted by the engine for every registered option and
+ * by the database when the note cites the authority (proven on a real PostgreSQL 17 by
+ * scripts/ci/test-horse-option-switch-evidence-postgres.sh); an option under an owner hold or measured harmful is
+ * registered and its hold or verdict is recorded; and a started, restarted or replaced worker resolves the persisted
+ * switch state before it serves a decision that reads a switched option. Nothing here enables an option, and nothing
+ * here is described as passing promotion evidence (the source-default law HorseDefaultOnNeedsEvidence is untouched).
+ *
+ * WHEN THIS LAW FAILS ON THE DATABASE LISTS: run `npx tsx scripts/gen-horse-option-switch-sql.ts` in server/ (it
+ * rewrites the name lists of the migration from the registry) and update the lists of the PostgreSQL proof script.
  *
  * The decisions are real: HorseDecisionWorkerRuntime DECIDE_FAST through runtime.receive with the real
  * HorseLogic.decide underneath (the harness of styleSwitchRuntime.law.test.ts). The database half is read from the
  * migration source; the migration's own read-back block runs the same refusals where it is installed.
  */
-import { createHash } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { HORSE_DATA_LEDGER } from '../HorseDataLedger.js';
 import { HorseLogic } from '../HorseLogic.js';
 import { HorseMind } from '../HorseMind.js';
 import { seedFastRandom } from '../HorseEval.js';
@@ -42,12 +50,17 @@ import { HORSE_FEATURE_FLAGS } from '../HorseFeatureAuthority.js';
 import { STYLE_SWITCH_OPTIONS, StyleSwitchHolder } from '../HorseStyleSwitch.js';
 import {
   assertOptionSwitchRegistry,
-  OPTION_SWITCH_EVIDENCED_ON,
+  OPTION_SWITCH_HOLDS,
   OPTION_SWITCH_NAMES,
+  OPTION_SWITCH_NOT_A_SWITCH,
+  OPTION_SWITCH_ON_AUTHORITY,
   OPTION_SWITCH_PLAIN_NAMES,
   OPTION_SWITCH_PLAIN_REGISTRY,
   OPTION_SWITCH_REFUSED,
   OPTION_SWITCH_REGISTRY,
+  OPTION_SWITCH_RELEASE_DEFAULT_CODE,
+  OPTION_SWITCH_RELEASE_DEFAULT_OFF,
+  OPTION_SWITCH_RELEASE_DEFAULT_ON,
   OptionSwitchHolder,
   optionSwitchDecisionOpts,
   optionSwitchRefusal,
@@ -87,7 +100,7 @@ const fn = (name: string) => {
   return found;
 };
 
-/** The names the brief holds, beside OPTION_SWITCH_REFUSED: each must be refused by name or by pattern. */
+/** The names refused, beside OPTION_SWITCH_REFUSED: each must be refused by name or by pattern. */
 const HELD_BY_THE_OWNER = [
   ...HORSE_FEATURE_FLAGS,
   'v53PloTourneyIcm',
@@ -107,12 +120,13 @@ const HELD_BY_THE_OWNER = [
   'v31GtoSuitAware',
   'solverRound7',
   'heldOutPack',
-  'allInOrFoldWidening',
-  'aofWidening',
-  'blindSteal',
+  'leakMapRead',
   'vpipFloorDeepStackOff',
   'omahaPreflopCallWithActionBehind',
-  // the preflop range hold
+];
+const REFUSED_NAMES = [...new Set([...Object.keys(OPTION_SWITCH_REFUSED), ...HELD_BY_THE_OWNER])];
+/** Registered under an owner hold or a measured verdict: each exists in the ledger and carries its text. */
+const PREFLOP_HOLD_NAMES = [
   'v46ShortDeck',
   'nashPushFoldIcm',
   'huBbDefendsToPrice',
@@ -121,9 +135,16 @@ const HELD_BY_THE_OWNER = [
   'facingOpenFullRingZone',
   'committedStackPricedIn',
   'vs3BetShortStack',
-  'holdemPersonaReRaiseMix',
 ];
-const REFUSED_NAMES = [...new Set([...Object.keys(OPTION_SWITCH_REFUSED), ...HELD_BY_THE_OWNER])];
+const GENERATOR =
+  'the migration lists differ from the registry: run "npx tsx scripts/gen-horse-option-switch-sql.ts" in server/';
+const AUTHORITY_NOTE = `authority: ${OPTION_SWITCH_ON_AUTHORITY}`;
+/** One CHECK constraint of the migration, by name, up to its closing semicolon. */
+const constraint = (name: string) => {
+  const found = new RegExp(`ADD CONSTRAINT ${name} CHECK \\(([\\s\\S]*?)\\);`).exec(SQL);
+  if (!found) throw new Error(`the migration does not add ${name}`);
+  return found[1]!;
+};
 
 const v2 = (options: Record<string, unknown>, style: Record<string, unknown> = {}) => ({
   version: 2,
@@ -221,8 +242,16 @@ async function closeAll() {
 }
 afterEach(closeAll);
 
+/**
+ * Registered options the worker hands every decision itself, switch or no switch (the baseline proves the list in
+ * condition 1). They are registered because they are on/off ledger options; they are left out when a test asks
+ * which keys the SWITCH added.
+ */
+const WORKER_HANDS: readonly string[] = ['telemetry', 'observeMind'];
 const switchedKeys = (opts: Record<string, unknown>) =>
-  Object.keys(opts).filter((k) => OPTION_SWITCH_PLAIN_NAMES.includes(k));
+  Object.keys(opts).filter(
+    (k) => OPTION_SWITCH_PLAIN_NAMES.includes(k) && !WORKER_HANDS.includes(k)
+  );
 /** What a decision was handed, in a form two runs can be compared by (functions and undefined drop out alike). */
 /** The wager itself; the rest of a decision carries the worker's own authority epoch, which is random per worker. */
 const wagerOf = (decision: { action: string; amount?: number | null; thinkTime?: number }) => ({
@@ -248,34 +277,28 @@ async function baseline() {
 
 describe('condition 8: the database whitelist is the engine registry', () => {
   it('the table accepts exactly the registered options', () => {
-    const check = /ca_horse_style_switch_option_is_registered CHECK \(option IN \(([^)]*)\)\)/.exec(
-      SQL
-    );
-    expect(check).not.toBeNull();
-    expect(sorted(quoted(check![1]!))).toEqual(sorted(OPTION_SWITCH_NAMES));
+    expect(
+      sorted(quoted(constraint('ca_horse_style_switch_option_is_registered'))),
+      GENERATOR
+    ).toEqual(sorted(OPTION_SWITCH_NAMES));
   });
 
   it('shadow and canary are accepted only for the seven style options', () => {
-    const check =
-      /ca_horse_style_switch_state_fits_option CHECK \(\s*state IN \('off', 'on'\)\s*OR option IN \(([^)]*)\)\)/.exec(
-        SQL
-      );
-    expect(check).not.toBeNull();
-    expect(sorted(quoted(check![1]!))).toEqual(sorted(STYLE_SWITCH_OPTIONS));
+    const check = constraint('ca_horse_style_switch_state_fits_option');
+    expect(check).toMatch(/^\s*state IN \('off', 'on'\)\s*OR option IN \(/);
+    expect(sorted(quoted(check).filter((n) => n !== 'off' && n !== 'on'))).toEqual(
+      sorted(STYLE_SWITCH_OPTIONS)
+    );
   });
 
   it('fn_ca_horse_option_switch_states answers each registered option with its states and anything else with NULL', () => {
     const body = fn('fn_ca_horse_option_switch_states').body;
-    const arms = [
-      ...body.matchAll(
-        /WHEN p_option (?:IN \(([^)]*)\)|= ANY \(ARRAY\[([^\]]*)\]::text\[\]\))\s*THEN ARRAY\[([^\]]*)\]/g
-      ),
-    ].map((m) => ({ names: sorted(quoted(m[1] ?? m[2]!)), states: quoted(m[3]!) }));
-    // the evidenced arm comes before the off-only arm, so an evidenced option answers off and on (HA-10878-1)
-    expect(arms).toEqual([
+    const arms = [...body.matchAll(/WHEN p_option IN \(([^)]*)\)\s*THEN ARRAY\[([^\]]*)\]/g)].map(
+      (m) => ({ names: sorted(quoted(m[1]!)), states: quoted(m[2]!) })
+    );
+    expect(arms, GENERATOR).toEqual([
       { names: sorted(STYLE_SWITCH_OPTIONS), states: ['off', 'shadow', 'canary', 'on'] },
-      { names: sorted(OPTION_SWITCH_EVIDENCED_ON), states: ['off', 'on'] },
-      { names: sorted(OPTION_SWITCH_PLAIN_NAMES), states: ['off'] },
+      { names: sorted(OPTION_SWITCH_PLAIN_NAMES), states: ['off', 'on'] },
     ]);
     const answer = (name: string) => arms.find((a) => a.names.includes(name))?.states;
     expect(body).toMatch(/ELSE NULL\s*END/);
@@ -302,281 +325,148 @@ describe('condition 8: the database whitelist is the engine registry', () => {
   });
 });
 
-/**
- * HA-10878-1: a fleet-wide `on` row for a non-style option is the same behaviour as turning it on by default, so the
- * switch offers `on` only where docs/horse-default-on.d/<option>.md exists (the naming rule of
- * HorseDefaultOnNeedsEvidence.law.test.ts) and binds to that option. The style options keep their own controls.
- */
-const EVIDENCE_DIR = 'docs/horse-default-on.d';
-const EVIDENCE_ROWS = [
-  'Mechanism',
-  'Input fidelity',
-  'Value',
-  'Continuation',
-  'Reach',
-  'Scope',
-  'Visibility',
-  'Limits',
-] as const;
-const hasEvidenceFile = (name: string) => existsSync(join(REPO, EVIDENCE_DIR, `${name}.md`));
-const escapeRe = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-/**
- * THE OPTION'S CODE PATH (HA-10878-1, the evidence binds to the implementation it measured): every runtime source
- * file under server/src whose code (comments aside) names the option, except this switch's own registry
- * (HorseOptionSwitch.ts names every option; this law holds it). Tests, test support, the benchmark league, scripts
- * and test harnesses are not runtime and are left out. The digest covers each file's path and exact content, so a
- * change to any file the option's decisions run through makes its evidence stale, and this law fails until the
- * evidence file carries the new digest, re-affirmed in the same pull request.
- */
-const SOURCE_ROOT = 'server/src';
-const SWITCH_REGISTRY_FILE = 'server/src/engine/HorseOptionSwitch.ts';
-const NOT_RUNTIME = /(^|\/)(benchmark|scripts|testing)\/|\.test\.ts$|\.test-support\.ts$|\.d\.ts$/;
-type SourceFile = { path: string; text: string; code: string };
-let runtimeSources: readonly SourceFile[] | null = null;
-function runtimeSourceFiles(): readonly SourceFile[] {
-  if (runtimeSources) return runtimeSources;
-  const found: SourceFile[] = [];
-  const walk = (dir: string) => {
-    for (const entry of readdirSync(join(REPO, dir), { withFileTypes: true })) {
-      const path = `${dir}/${entry.name}`;
-      if (entry.isDirectory()) walk(path);
-      else if (/\.m?ts$/.test(entry.name) && !NOT_RUNTIME.test(path)) {
-        const text = read(path);
-        found.push({ path, text, code: strip(text) });
-      }
-    }
-  };
-  walk(SOURCE_ROOT);
-  runtimeSources = found.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
-  return runtimeSources;
-}
-/** The runtime files that read the option, as path and exact content, sorted by path. */
-function optionCodePath(name: string): Array<readonly [string, string]> {
-  const word = new RegExp(`\\b${escapeRe(name)}\\b`);
-  return runtimeSourceFiles()
-    .filter((f) => f.path !== SWITCH_REGISTRY_FILE && word.test(f.code))
-    .map((f) => [f.path, f.text] as const);
-}
-/** The option's name, then each file's path and exact content: two options never share a digest. */
-function codePathDigest(name: string, files: ReadonlyArray<readonly [string, string]>): string {
-  const hash = createHash('sha256').update(`option:${name}\0`);
-  for (const [path, text] of files) hash.update(path).update('\0').update(text).update('\0');
-  return `sha256:${hash.digest('hex')}`;
-}
-const optionCodeDigest = (name: string) => codePathDigest(name, optionCodePath(name));
-
-/**
- * What an evidence file lacks before it may unlock `on` for this option; empty means it binds. It binds by exact
- * option name, names its pull request and the scope it was measured for (variants and formats; the switch scope
- * must equal the registry scope, or the option stays off-only because this law fails), and carries the head it was
- * reviewed at and the digest of the option's code path now (`codeDigest`).
- */
-function switchEvidenceGaps(
-  name: string,
-  scope: string,
-  text: string,
-  codeDigest: string
-): string[] {
-  const gaps: string[] = [];
-  if (!new RegExp(`^#\\s+${escapeRe(name)}\\b`, 'm').test(text)) gaps.push(`a "# ${name}" title`);
-  if (!/#[1-9]\d{3,}|\/pull\/[1-9]\d*/.test(text)) gaps.push('a pull request reference');
-  const measured = /^Switch scope:\s*(.+?)\s*$/m.exec(text)?.[1];
-  if (measured !== scope) gaps.push(`"Switch scope: ${scope}" (the registry scope)`);
-  if (!/^Variants:\s*\S/m.test(text)) gaps.push('"Variants: <the variants measured>"');
-  if (!/^Formats:\s*\S/m.test(text)) gaps.push('"Formats: <the formats measured>"');
-  if (!/^Reviewed head:\s*[0-9a-f]{40}\s*$/m.test(text)) gaps.push('"Reviewed head: <40-hex sha>"');
-  const digest = /^Code digest:\s*(\S+)\s*$/m.exec(text)?.[1];
-  if (digest !== codeDigest)
-    gaps.push(
-      `"Code digest: ${codeDigest}" (the option's code path is not the one the evidence measured: re-review and re-affirm)`
-    );
-  const lines = text.split('\n');
-  for (const row of EVIDENCE_ROWS) {
-    const at = lines.findIndex((l) =>
-      new RegExp(`^#{1,6}\\s*(?:\\d+[.)]?\\s*)?${row}\\s*$`, 'i').test(l.trim())
-    );
-    const body =
-      at < 0
-        ? ''
-        : (lines
-            .slice(at + 1)
-            .join('\n')
-            .split(/^#{1,6}\s/m)[0] ?? '');
-    if (body.replace(/\s/g, '').length < 20) gaps.push(`content under "## ${row}"`);
-  }
-  return gaps;
-}
-
-/** The names between each pair of registry:evidenced-on-options markers of the migration, as written. */
-const evidencedBlocks = () =>
-  [
-    ...read(MIGRATION_PATH).matchAll(
-      /registry:evidenced-on-options:begin([\s\S]*?)registry:evidenced-on-options:end/g
-    ),
-  ].map((m) => sorted(quoted(m[1]!)));
-
-describe('HA-10878-1: on needs promotion evidence, at the registry, the database and the engine', () => {
-  const unevidenced = OPTION_SWITCH_PLAIN_NAMES.filter(
-    (n) => !OPTION_SWITCH_EVIDENCED_ON.includes(n)
+/** The on/off type of every member of HorseDecideOpts, read from the interface source. */
+function decideOptTypes(): Map<string, string> {
+  const file = ts.createSourceFile(
+    'HorseLogic.ts',
+    read('server/src/engine/HorseLogic.ts'),
+    ts.ScriptTarget.Latest,
+    true
   );
+  const types = new Map<string, string>();
+  const walk = (node: ts.Node): void => {
+    if (ts.isInterfaceDeclaration(node) && node.name.text === 'HorseDecideOpts')
+      for (const member of node.members)
+        if (member.name && ts.isPropertySignature(member))
+          types.set(member.name.getText(file), member.type?.getText(file) ?? '');
+    ts.forEachChild(node, walk);
+  };
+  walk(file);
+  return types;
+}
+/** boolean, or a union with boolean in it (boolean | <object>). */
+const acceptsBoolean = (type: string) =>
+  type
+    .split('|')
+    .map((part) => part.trim())
+    .includes('boolean');
 
-  it('the options offered on are exactly the registered non-style options with an evidence file, by exact name', () => {
-    expect(sorted(OPTION_SWITCH_EVIDENCED_ON)).toEqual(
-      sorted(OPTION_SWITCH_PLAIN_NAMES.filter(hasEvidenceFile))
+describe('the owner order of 2026-11-14 22:01: every ledger option has an on/off switch, and on cites the authority', () => {
+  const ledgerFlags = HORSE_DATA_LEDGER.filter((e) => e.kind === 'flag').map((e) => e.key);
+  const types = decideOptTypes();
+
+  it('the registry is exactly the boolean-typed ledger options minus the refused ones; every other ledger option is refused or a named parameter', () => {
+    expect(ledgerFlags.length).toBeGreaterThan(200);
+    expect(new Set(ledgerFlags).size).toBe(ledgerFlags.length);
+    expect(types.size).toBeGreaterThan(200);
+    const style = STYLE_SWITCH_OPTIONS as readonly string[];
+    const expected = ledgerFlags.filter(
+      (name) =>
+        !style.includes(name) &&
+        acceptsBoolean(types.get(name) ?? '') &&
+        optionSwitchRefusal(name) === null
     );
-    for (const name of OPTION_SWITCH_EVIDENCED_ON)
-      expect(OPTION_SWITCH_PLAIN_NAMES).toContain(name);
-    for (const entry of OPTION_SWITCH_PLAIN_REGISTRY)
-      expect(entry.states.includes('on'), entry.name).toBe(
-        OPTION_SWITCH_EVIDENCED_ON.includes(entry.name)
-      );
-    // the evidence directory is read, not assumed empty: it holds files for options this switch does not carry
-    expect(readdirSync(join(REPO, EVIDENCE_DIR)).length).toBeGreaterThan(1);
-  });
-
-  it('every evidence file that unlocks on names its option, pull request, measured scope, reviewed head and the digest of its code path now', () => {
-    for (const entry of OPTION_SWITCH_PLAIN_REGISTRY.filter((e) => e.states.includes('on')))
+    // a new ledger option that is an on/off option registers itself; one that is not must be named a parameter
+    expect(OPTION_SWITCH_PLAIN_NAMES).toEqual(expected);
+    for (const name of ledgerFlags) {
+      const type = types.get(name);
+      expect(type, `${name} is a ledger flag and a key of HorseDecideOpts`).toBeDefined();
+      const where = [
+        OPTION_SWITCH_NAMES.includes(name) ? 'registered' : null,
+        optionSwitchRefusal(name) !== null ? 'refused' : null,
+        Object.hasOwn(OPTION_SWITCH_NOT_A_SWITCH, name) ? 'parameter' : null,
+      ].filter(Boolean);
       expect(
-        switchEvidenceGaps(
-          entry.name,
-          entry.scope,
-          read(join(EVIDENCE_DIR, `${entry.name}.md`)),
-          optionCodeDigest(entry.name)
-        ),
-        entry.name
-      ).toEqual([]);
-    // the reader is not vacuous
-    const digest = optionCodeDigest('v16Hu');
-    const complete = (name: string, scope: string) =>
-      `# ${name} (#12345)\n\nSwitch scope: ${scope}\nVariants: NLH\nFormats: cash, tournament\n` +
-      `Reviewed head: ${'a'.repeat(40)}\nCode digest: ${digest}\n\n` +
-      EVIDENCE_ROWS.map((row) => `## ${row}\nA real answer of useful length for this row.\n`).join(
-        '\n'
-      );
-    const file = complete('v16Hu', 'Heads-up postflop');
-    expect(switchEvidenceGaps('v16Hu', 'Heads-up postflop', file, digest)).toEqual([]);
-    // evidence for one option does not unlock another
-    expect(
-      switchEvidenceGaps('v16Ratio', 'Heads-up postflop', file, optionCodeDigest('v16Ratio'))
-    ).toEqual(
-      expect.arrayContaining([
-        'a "# v16Ratio" title',
-        expect.stringMatching(/^"Code digest: sha256:[0-9a-f]{64}" \(the option's code path/),
-      ])
-    );
-    // a scope the evidence does not cover: the option stays off-only (this law fails) until the scopes match
-    expect(switchEvidenceGaps('v16Hu', 'All', file, digest)).toEqual([
-      '"Switch scope: All" (the registry scope)',
-    ]);
-    expect(
-      switchEvidenceGaps('v16Hu', 'Heads-up postflop', file.replace(/^Variants:.*\n/m, ''), digest)
-    ).toEqual(['"Variants: <the variants measured>"']);
-    expect(
-      switchEvidenceGaps('v16Hu', 'Heads-up postflop', file.replace(/^Formats:.*\n/m, ''), digest)
-    ).toEqual(['"Formats: <the formats measured>"']);
-    expect(
-      switchEvidenceGaps(
-        'v16Hu',
-        'Heads-up postflop',
-        file.replace(/Reviewed head.*\n/, ''),
-        digest
-      )
-    ).toEqual(['"Reviewed head: <40-hex sha>"']);
-    // a source change to the option's code path makes the evidence stale until it is re-affirmed
-    const [first, ...rest] = optionCodePath('v16Hu');
-    const changed = codePathDigest('v16Hu', [[first![0], `${first![1]}\n`], ...rest]);
-    expect(changed).not.toBe(digest);
-    expect(switchEvidenceGaps('v16Hu', 'Heads-up postflop', file, changed)).toEqual([
-      `"Code digest: ${changed}" (the option's code path is not the one the evidence measured: re-review and re-affirm)`,
-    ]);
-    expect(
-      switchEvidenceGaps(
-        'v16Hu',
-        'Heads-up postflop',
-        file.replace(`Code digest: ${digest}`, `Code digest: ${changed}`),
-        changed
-      )
-    ).toEqual([]);
-    expect(
-      switchEvidenceGaps(
-        'v16Hu',
-        'Heads-up postflop',
-        file.replace('## Value\nA real answer of useful length for this row.', '## Value\nTBD'),
-        digest
-      )
-    ).toEqual(['content under "## Value"']);
-  });
-
-  it("an option's code path is the runtime source that reads it, and its digest moves with any change to that source", () => {
-    for (const name of OPTION_SWITCH_PLAIN_NAMES) {
-      const path = optionCodePath(name).map(([p]) => p);
-      // the brain reads every registered option, so its code path is never empty
-      expect(path, name).toContain('server/src/engine/HorseLogic.ts');
-      expect(
-        path.filter((p) => NOT_RUNTIME.test(p) || p === SWITCH_REGISTRY_FILE),
-        name
-      ).toEqual([]);
+        where,
+        `${name} (${type}) must be registered, refused or listed in OPTION_SWITCH_NOT_A_SWITCH`
+      ).toHaveLength(1);
+      if (where[0] === 'parameter')
+        expect(acceptsBoolean(type!), `${name} is listed as a parameter`).toBe(false);
     }
-    const files = optionCodePath('v16Hu');
-    const digest = codePathDigest('v16Hu', files);
-    expect(digest).toMatch(/^sha256:[0-9a-f]{64}$/);
-    expect(optionCodeDigest('v16Hu')).toBe(digest);
-    // bound to the option: another option over the same files has another digest
-    expect(codePathDigest('v16Ratio', files)).not.toBe(digest);
-    // one byte in any file of the path, a renamed file, a file gone or a file added: each is a new digest
-    files.forEach((_, i) =>
-      expect(
-        codePathDigest(
-          'v16Hu',
-          files.map(([p, t], j) => [p, j === i ? `${t} ` : t] as const)
-        ),
-        files[i]![0]
-      ).not.toBe(digest)
-    );
-    expect(
-      codePathDigest(
-        'v16Hu',
-        files.map(([p, t], j) => [j === 0 ? `${p}x` : p, t] as const)
-      )
-    ).not.toBe(digest);
-    expect(codePathDigest('v16Hu', files.slice(1))).not.toBe(digest);
-    expect(
-      codePathDigest('v16Hu', [...files, ['server/src/engine/Added.ts', 'x'] as const])
-    ).not.toBe(digest);
+    for (const name of Object.keys(OPTION_SWITCH_NOT_A_SWITCH)) expect(ledgerFlags).toContain(name);
+    for (const name of style) expect(ledgerFlags).toContain(name);
+    for (const name of [
+      'omahaHiLoTournamentFirstIn',
+      'huBbDefendsToPrice',
+      'huOpenerDefendsToPrice',
+      'huLimpDefendsToPrice',
+    ])
+      expect(OPTION_SWITCH_PLAIN_REGISTRY.find((e) => e.name === name)?.owner, name).toBe(
+        'Heads Up'
+      );
   });
 
-  it('a registry that offers on without evidence throws where it is declared', () => {
-    for (const name of unevidenced) {
-      const entry = OPTION_SWITCH_PLAIN_REGISTRY.find((e) => e.name === name)!;
-      expect(() =>
-        assertOptionSwitchRegistry(
-          OPTION_SWITCH_REGISTRY.map((e) =>
-            e.name === name ? { ...entry, states: ['off', 'on'] as const } : e
-          )
-        )
-      ).toThrow(/no promotion evidence/);
+  it('every registered option offers off and on, and its release default is on, off or code from the static lists', () => {
+    for (const entry of OPTION_SWITCH_PLAIN_REGISTRY) {
+      expect([...entry.states], entry.name).toEqual(['off', 'on']);
+      expect(entry.shadowArm, entry.name).toBe(false);
+      expect(entry.description.length, entry.name).toBeGreaterThan(0);
+      expect(entry.description.length, entry.name).toBeLessThanOrEqual(160);
+      expect(entry.releaseDefault, entry.name).toBe(
+        OPTION_SWITCH_RELEASE_DEFAULT_ON.includes(entry.name)
+          ? 'on'
+          : OPTION_SWITCH_RELEASE_DEFAULT_OFF.includes(entry.name)
+            ? 'off'
+            : 'code'
+      );
+    }
+    const listed = [
+      ...OPTION_SWITCH_RELEASE_DEFAULT_ON,
+      ...OPTION_SWITCH_RELEASE_DEFAULT_OFF,
+      ...OPTION_SWITCH_RELEASE_DEFAULT_CODE,
+    ];
+    expect(new Set(listed).size).toBe(listed.length);
+    for (const name of listed) expect(OPTION_SWITCH_PLAIN_NAMES, name).toContain(name);
+    // a registry entry without on, or a parameter, throws where the registry is declared
+    const first = OPTION_SWITCH_PLAIN_REGISTRY[0]!;
+    expect(() => assertOptionSwitchRegistry([{ ...first, states: ['off'] as const }])).toThrow(
+      /must support off and on/
+    );
+    expect(() =>
+      assertOptionSwitchRegistry([{ ...first, name: Object.keys(OPTION_SWITCH_NOT_A_SWITCH)[0]! }])
+    ).toThrow(/a parameter, not an on\/off option/);
+  });
+
+  it('an option under an owner hold or measured harmful is registered with a switch and carries its hold or verdict', () => {
+    for (const name of PREFLOP_HOLD_NAMES) {
+      expect(ledgerFlags, name).toContain(name);
+      expect(optionSwitchRefusal(name), name).toBeNull();
+      const entry = OPTION_SWITCH_PLAIN_REGISTRY.find((e) => e.name === name);
+      expect([...(entry?.states ?? [])], name).toEqual(['off', 'on']);
+      expect(entry?.hold, name).toMatch(/^owner preflop range hold \(recorded/);
+    }
+    const commit = OPTION_SWITCH_PLAIN_REGISTRY.find((e) => e.name === 'commitUnderPot')!;
+    expect(commit.hold).toMatch(/RESULTS-HU-NLH-016, FAIL\): stays off at the cutover/);
+    expect(commit.releaseDefault).toBe('off');
+    expect(sorted(Object.keys(OPTION_SWITCH_HOLDS))).toEqual(
+      sorted([...PREFLOP_HOLD_NAMES, 'commitUnderPot'])
+    );
+    for (const [name, text] of Object.entries(OPTION_SWITCH_HOLDS)) {
+      expect(OPTION_SWITCH_NAMES, name).toContain(name);
+      expect(text.length, name).toBeGreaterThan(20);
     }
   });
 
-  it('the database: the table and the states function list exactly the evidenced names, and set refuses on before any write', () => {
-    expect(evidencedBlocks()).toEqual([
-      sorted(OPTION_SWITCH_EVIDENCED_ON),
-      sorted(OPTION_SWITCH_EVIDENCED_ON),
-    ]);
-    const table =
-      /ca_horse_style_switch_on_needs_evidence CHECK \(\s*state <> 'on'\s*OR option IN \(([^)]*)\)\s*OR option = ANY \(ARRAY\[([^\]]*)\]::text\[\]\)\s*\)/.exec(
-        SQL
-      );
-    expect(table).not.toBeNull();
-    expect(sorted(quoted(table![1]!))).toEqual(sorted(STYLE_SWITCH_OPTIONS));
-    expect(sorted(quoted(table![2]!))).toEqual(sorted(OPTION_SWITCH_EVIDENCED_ON));
+  it('the database: on for a non-style option needs a note that cites the authority, at the set function and at the table', () => {
+    expect(OPTION_SWITCH_ON_AUTHORITY).toBe(
+      'OWNER-MESSAGE-20261114-2201CT-EVERY-FEATURE-ON-WITH-SWITCH.md sha256 2080c2026d5553e11ac288a74fcef51d20f81b30c0a9da446b5063a9f7196bf1'
+    );
+    expect(AUTHORITY_NOTE.length).toBeGreaterThanOrEqual(24);
+    expect(AUTHORITY_NOTE.length).toBeLessThanOrEqual(500);
+    const table = constraint('ca_horse_style_switch_on_cites_authority');
+    expect(table).toMatch(
+      /^\s*state <> 'on'\s*OR option IN \(([^)]*)\)\s*OR \(note IS NOT NULL AND note LIKE 'authority: %' AND length\(note\) >= 24\)\s*$/
+    );
+    expect(sorted(quoted(table).filter((n) => n !== 'on'))).toEqual(sorted(STYLE_SWITCH_OPTIONS));
+    expect(SQL).not.toMatch(/on_needs_evidence|promotion evidence/);
     const body = fn('fn_ca_horse_option_switch_set').body;
     const guard = body.search(
-      /IF p_state = 'on' AND NOT \('on' = ANY \(v_states\)\) THEN\s*RAISE EXCEPTION 'option % has no promotion evidence/
+      /IF p_state = 'on' AND NOT \('shadow' = ANY \(v_states\)\)\s*AND NOT \(p_note IS NOT NULL AND p_note LIKE 'authority: %' AND length\(p_note\) >= 24\) THEN\s*RAISE EXCEPTION 'option % may be set on only with a note that cites its authority \(authority: <file and sha256>\)'/
     );
     expect(guard).toBeGreaterThan(0);
     expect(guard).toBeLessThan(body.search(/INSERT INTO/));
+    // the audit row keeps the note, the actor and the time
+    expect(body).toMatch(/VALUES \(p_option, v_old, p_state, p_actor, v_at, p_note\);/);
     // the old style setter writes the seven style names only, so it cannot write on for any other option
     const oldSetter = read(
       'supabase/migrations/20261113201841_the_horse_style_read_has_a_live_switch.sql'
@@ -589,7 +479,7 @@ describe('HA-10878-1: on needs promotion evidence, at the registry, the database
     const job = ci.slice(ci.search(/^  accounting_postgres:\s*$/m));
     const block = job.slice(0, job.slice(1).search(/^  [A-Za-z0-9_-]+:\s*$/m) + 1);
     expect(block).toMatch(
-      /- name: The Horse option switch refuses on without promotion evidence \(HA-10878-1\)\n\s+if: matrix\.shard == \d\n\s+env:\n\s+PG_BIN: \/usr\/lib\/postgresql\/17\/bin\n\s+TMPDIR: \$\{\{ runner\.temp \}\}\n\s+run: bash scripts\/ci\/test-horse-option-switch-evidence-postgres\.sh\n/
+      /- name: The Horse option switch [^\n]*\n\s+if: matrix\.shard == \d\n\s+env:\n\s+PG_BIN: \/usr\/lib\/postgresql\/17\/bin\n\s+TMPDIR: \$\{\{ runner\.temp \}\}\n\s+run: bash scripts\/ci\/test-horse-option-switch-evidence-postgres\.sh\n/
     );
     // no second workflow of its own: the repository's real-PostgreSQL proofs run in that job
     expect(existsSync(join(REPO, '.github/workflows/horse-option-switch-evidence-proof.yml'))).toBe(
@@ -602,38 +492,50 @@ describe('HA-10878-1: on needs promotion evidence, at the registry, the database
       return found![1]!.split(/\s+/);
     };
     expect(sorted(list('style'))).toEqual(sorted(STYLE_SWITCH_OPTIONS));
-    expect(sorted(list('plain'))).toEqual(sorted(OPTION_SWITCH_PLAIN_NAMES));
+    expect(sorted(list('plain')), 'update the plain list of the proof script').toEqual(
+      sorted(OPTION_SWITCH_PLAIN_NAMES)
+    );
     for (const name of REFUSED_NAMES) expect(list('refused'), name).toContain(name);
+    expect(script).toContain(`authority='${AUTHORITY_NOTE}'`);
     // a proof that did not run is not a pass
     expect(script).not.toMatch(/SKIPPED/);
     expect(script).toMatch(/^\s*echo "FAIL  no PostgreSQL binaries .*exit 1$/m);
     expect(script).toMatch(/^  echo 'PASS  every option switch evidence assertion held'$/m);
   });
 
-  it('the engine refuses a configuration carrying on for an option without evidence: every non-style option runs at its release default', () => {
-    expect(unevidenced.length).toBeGreaterThan(0);
-    for (const name of unevidenced) {
-      // a valid off for another option beside it: the bad on takes the whole set down, not just itself
-      const other = name === 'v16Hu' ? 'commitUnderPot' : 'v16Hu';
-      expect(optionSwitchStatesFrom({ [name]: 'on' }), name).toBeNull();
-      expect(parseOptionSwitchConfig(v2({ [name]: 'on', [other]: 'off' })), name).toEqual({
+  it('the engine accepts on and off for every registered option: on passes true, off passes false', () => {
+    for (const name of OPTION_SWITCH_PLAIN_NAMES) {
+      expect(optionSwitchStatesFrom({ [name]: 'on' }), name).toEqual({ [name]: 'on' });
+      expect(optionSwitchStatesFrom({ [name]: 'off' }), name).toEqual({ [name]: 'off' });
+      expect(parseOptionSwitchConfig(v2({ [name]: 'on' })), name).toEqual({
+        ok: true,
+        states: { [name]: 'on' },
+      });
+      expect(optionSwitchDecisionOpts({ [name]: 'on' }), name).toEqual({ [name]: true });
+      expect(optionSwitchDecisionOpts({ [name]: 'off' }), name).toEqual({ [name]: false });
+      for (const state of ['shadow', 'canary', 'default', '', true, 1, null])
+        expect(optionSwitchStatesFrom({ [name]: state }), name).toBeNull();
+    }
+    const notes: string[] = [];
+    let raw: unknown = v2({ v16Hu: 'off' });
+    const holder = new OptionSwitchHolder(
+      (now) => ({ kind: 'present', raw, receivedAtMs: now }),
+      (f) => notes.push(f)
+    );
+    expect(holder.refresh(0)).toEqual({ v16Hu: 'off' });
+    raw = v2({ v16Hu: 'on', commitUnderPot: 'off' });
+    expect(holder.refresh(60_000)).toEqual({ v16Hu: 'on', commitUnderPot: 'off' });
+    expect(notes).toEqual(
+      expect.arrayContaining([
+        'option_switch_v16Hu_on_seen',
+        'option_switch_commitUnderPot_off_seen',
+      ])
+    );
+    // a parameter is not a switch: the whole set is invalid
+    for (const name of Object.keys(OPTION_SWITCH_NOT_A_SWITCH))
+      expect(parseOptionSwitchConfig(v2({ [name]: 'on', v16Hu: 'off' })), name).toEqual({
         ok: false,
       });
-      expect(optionSwitchDecisionOpts({ [name]: 'on' } as never), name).toEqual({});
-      const notes: string[] = [];
-      let raw: unknown = v2({ [other]: 'off' });
-      const holder = new OptionSwitchHolder(
-        (now) => ({ kind: 'present', raw, receivedAtMs: now }),
-        (f) => notes.push(f)
-      );
-      expect(holder.refresh(0)).toEqual({ [other]: 'off' });
-      raw = v2({ [name]: 'on', [other]: 'off' });
-      expect(holder.refresh(60_000), name).toEqual({});
-      expect(notes, name).toContain('option_switch_config_invalid_seen');
-      expect(notes, name).not.toContain(`option_switch_${name}_on_seen`);
-      // off and clear stay available
-      expect(optionSwitchStatesFrom({ [name]: 'off' }), name).toEqual({ [name]: 'off' });
-    }
   });
 
   /**
@@ -672,19 +574,24 @@ describe('HA-10878-1: on needs promotion evidence, at the registry, the database
     );
   });
 
-  it('a worker that starts while an un-evidenced on row exists never applies it, on its very first read', async () => {
+  it('a worker that starts while an on row exists applies it on its very first decision: on passes true', async () => {
     const w = opened({ wired: true });
     expect(w.deliver(v2({ v62RiverBettorPolarity: 'on', v16Hu: 'off' }))).toBe(true);
     const look = await w.fast();
-    for (const opts of look.opts) expect(switchedKeys(opts)).toEqual([]);
-    expect(look.replayState.version).toBe(V3);
-    expect(w.features).toContain('option_switch_config_invalid_seen');
-    expect(w.features).not.toContain('option_switch_v62RiverBettorPolarity_on_seen');
+    expect(look.opts.length).toBeGreaterThan(0);
+    for (const opts of look.opts) {
+      expect(switchedKeys(opts).sort()).toEqual(['v16Hu', 'v62RiverBettorPolarity']);
+      expect(opts.v62RiverBettorPolarity).toBe(true);
+      expect(opts.v16Hu).toBe(false);
+    }
+    expect(look.replayState.version).toBe(V5);
+    expect(look.replayState.options).toEqual({ v16Hu: 'off', v62RiverBettorPolarity: 'on' });
+    expect(w.features).toContain('option_switch_v62RiverBettorPolarity_on_seen');
   });
 });
 
-describe('the held options are refused on both sides', () => {
-  it('no registered option is a held one, and registering one throws where the registry is declared', () => {
+describe('the refused options are refused on both sides', () => {
+  it('no registered option is a refused one, and registering one throws where the registry is declared', () => {
     for (const entry of OPTION_SWITCH_REGISTRY)
       expect(optionSwitchRefusal(entry.name), entry.name).toBeNull();
     for (const name of REFUSED_NAMES) {
@@ -703,6 +610,7 @@ describe('the held options are refused on both sides', () => {
 
   it('the database whitelist names none of them, and set and clear refuse a name that is not registered', () => {
     const whitelisted = new Set(quoted(SQL.slice(0, SQL.indexOf('$readback$'))));
+    for (const name of OPTION_SWITCH_NAMES) expect(whitelisted.has(name), name).toBe(true);
     for (const name of REFUSED_NAMES) expect(whitelisted.has(name), name).toBe(false);
     for (const name of ['fn_ca_horse_option_switch_set', 'fn_ca_horse_option_switch_clear']) {
       const body = fn(name).body;
@@ -721,11 +629,16 @@ describe('the held options are refused on both sides', () => {
       'v87DeepDiveDiscipline',
       'v31GtoSuitAware',
       'vpipFloorDeepStackOff',
-      'committedStackPricedIn',
-      'huBbDefendsToPrice',
+      'comboDrawPressure',
+      'omahaPreflopCallWithActionBehind',
       'notAnOption',
     ])
       expect(readback, name).toContain(`fn_ca_horse_option_switch_states('${name}') IS NOT NULL`);
+    // and names no registered option as refused
+    for (const name of OPTION_SWITCH_NAMES)
+      expect(readback, name).not.toContain(
+        `fn_ca_horse_option_switch_states('${name}') IS NOT NULL`
+      );
   });
 
   it('the worker ignores them: a delivery naming one switches nothing, and no key reaches the brain', () => {
@@ -737,14 +650,6 @@ describe('the held options are refused on both sides', () => {
         v16Hu: false,
       });
     }
-  });
-
-  it('no registered option is read by the preflop range code (the preflop range hold)', () => {
-    const preflop = ['HorsePreflop.ts', 'HorseHuBbDefence.ts', 'HorseGtoVs3BetRanges.ts']
-      .map((f) => code(`server/src/engine/${f}`))
-      .join('\n');
-    for (const name of OPTION_SWITCH_PLAIN_NAMES)
-      expect(new RegExp(`\\b${name}\\b`).test(preflop), name).toBe(false);
   });
 });
 
@@ -761,7 +666,8 @@ describe('condition 2: the switch is fleet-wide per option', () => {
         'fn_ca_horse_style_switch_effective()',
       ]
     );
-    expect(SQL).not.toMatch(WHO);
+    // the option names themselves are data (one is named for a tournament): everything else is judged
+    expect(SQL.replace(/'[A-Za-z0-9]+'/g, "''")).not.toMatch(WHO);
     expect(SQL).toMatch(/ON CONFLICT \(option\) DO UPDATE/);
   });
 
@@ -853,32 +759,6 @@ describe('conditions 3 and 5: readable, audited, and written by service_role onl
 });
 
 describe('condition 4: nothing switched is the release default', () => {
-  it('every registered option ships off, and the brain reads it only as "=== true" or "!== true"', () => {
-    const dir = join(REPO, 'server/src/engine');
-    const sources = (readdirSync(dir, { recursive: true }) as string[])
-      .filter(
-        (f) =>
-          f.endsWith('.ts') &&
-          !/\.test\.|test-support|HorseOptionSwitch\.ts$|HorseDataLedger\.ts$/.test(f)
-      )
-      .map((f) => ({ f, text: code(join('server/src/engine', f)) }));
-    for (const entry of OPTION_SWITCH_PLAIN_REGISTRY) {
-      expect(entry.releaseDefault, entry.name).toBe('off');
-      let reads = 0;
-      for (const { f, text } of sources)
-        for (const m of text.matchAll(
-          new RegExp(`\\.${entry.name}\\b(?!\\s*[:?(])([^\\n]{0,16})`, 'g')
-        )) {
-          reads++;
-          expect(
-            m[1],
-            `${f}: ${entry.name} is read as something other than a strict true test`
-          ).toMatch(/^\s*(===|!==)\s*true\b/);
-        }
-      expect(reads, `${entry.name} is read by the brain`).toBeGreaterThan(0);
-    }
-  });
-
   it('the resolved options of an empty switch are exactly nothing, for every registered option', () => {
     for (const empty of [{}, null, undefined, optionSwitchStatesFrom({})])
       expect(optionSwitchDecisionOpts(empty)).toEqual({});
@@ -910,7 +790,7 @@ describe('condition 4: nothing switched is the release default', () => {
     }
   });
 
-  it('a row reaches a real decision as off = false (on = true only with evidence), the same way for every decision, and is journaled', async () => {
+  it('a row reaches a real decision as off = false and on = true, the same way for every decision, and is journaled', async () => {
     const before = await baseline();
     const w = opened({ wired: true });
     w.deliver(v2({ v62RiverBettorPolarity: 'off', v16Hu: 'off' }));
@@ -941,7 +821,7 @@ describe('condition 1: a switch never reaches what an authority or the manifest 
     k === 'v53PloTourneyIcm' ||
     /^phase\d/.test(k);
 
-  it('with every registered option switched (on where evidenced, else off), the authority-owned options a real decision is handed do not move', async () => {
+  it('with every registered option switched on, the authority-owned options a real decision is handed do not move', async () => {
     const manifestBefore = manifestNow();
     const before = await baseline();
     const w = opened({ wired: true });
@@ -956,7 +836,13 @@ describe('condition 1: a switch never reaches what an authority or the manifest 
       HORSE_FEATURE_FLAGS.length
     );
     expect(pick(look.opts.at(-1)!)).toEqual(pick(before.opts.at(-1)!));
-    expect(switchedKeys(look.opts.at(-1)!).sort()).toEqual(sorted(OPTION_SWITCH_PLAIN_NAMES));
+    expect(switchedKeys(look.opts.at(-1)!).sort()).toEqual(
+      sorted(OPTION_SWITCH_PLAIN_NAMES.filter((n) => !WORKER_HANDS.includes(n)))
+    );
+    // the registered keys a decision carries with no switch at all are exactly the worker's own
+    expect(
+      sorted(Object.keys(before.opts.at(-1)!).filter((k) => OPTION_SWITCH_PLAIN_NAMES.includes(k)))
+    ).toEqual(sorted(WORKER_HANDS));
     // the published manifest does not depend on the switch
     expect(manifestNow()).toBe(manifestBefore);
     for (const name of OPTION_SWITCH_NAMES) expect(AUTHORITY_KEY(name), name).toBe(false);
@@ -980,7 +866,8 @@ describe('condition 1: a switch never reaches what an authority or the manifest 
 describe('condition 6: a failed or malformed read leaves the release default and never stops a decision', () => {
   it.each([
     ['an option this engine does not know', v2({ somethingNewer: 'on', v16Hu: 'on' })],
-    ['a held option', v2({ committedStackPricedIn: 'on', v16Hu: 'on' })],
+    ['a refused option', v2({ v54RiverBluff: 'on', v16Hu: 'on' })],
+    ['a parameter', v2({ decisionTimeMs: 'on', v16Hu: 'on' })],
     ['a state that is not one', v2({ v16Hu: 7 })],
     ['shadow for an option without a shadow arm', v2({ v16Hu: 'shadow' })],
     [
@@ -1106,7 +993,7 @@ describe('condition 6: the read falls back only when the database does not have 
 });
 
 describe('condition 7: a decision replays with the switched set its record carries', () => {
-  it('the record carries the set (v5), an older version carrying one is refused, and a held option is not a valid record', async () => {
+  it('the record carries the set (v5), an older version carrying one is refused, and a refused option is not a valid record', async () => {
     const w = opened({ wired: true });
     w.deliver(v2({ v62RiverBettorPolarity: 'off', v16Hu: 'off' }));
     const { replayState } = await w.fast();
@@ -1119,13 +1006,13 @@ describe('condition 7: a decision replays with the switched set its record carri
     });
     expect(recordedSwitchStates(record({ ...replayState, version: V3 }))).toEqual({ ok: false });
     expect(
-      recordedSwitchStates(record({ ...replayState, options: { committedStackPricedIn: 'on' } }))
+      recordedSwitchStates(record({ ...replayState, options: { v54RiverBluff: 'on' } }))
     ).toEqual({ ok: false });
     expect(recordedSwitchStates(record({ ...replayState, options: {} }))).toEqual({ ok: false });
-    // HA-10878-1: a record carrying on for an option without evidence is not a valid record either
+    // a record carrying on for a registered option is a valid record
     expect(
       recordedSwitchStates(record({ ...replayState, options: { v62RiverBettorPolarity: 'on' } }))
-    ).toEqual({ ok: false });
+    ).toEqual({ ok: true, states: null, options: { v62RiverBettorPolarity: 'on' } });
   });
 
   it('the replay wiring hands the brain the recorded set at any later time, with no live read', async () => {
