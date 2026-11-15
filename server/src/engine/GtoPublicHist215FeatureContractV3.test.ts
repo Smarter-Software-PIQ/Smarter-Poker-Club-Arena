@@ -72,7 +72,15 @@ function wire(context: Partial<Public215Template['context']> = {}): Public215Tem
 const compile = (
   w: Public215Template,
   v: typeof PUBLIC_HIST215_V1 | typeof PUBLIC_HIST215_V2 | typeof PUBLIC_HIST215_V3
-) => compilePublic215Template(w, public215Digest(w), v);
+) => {
+  // A hist215-v3 template is authored over a cell contract v3 cell (15 keys).
+  if (v === PUBLIC_HIST215_V3)
+    w = {
+      ...w,
+      context: { ...w.context, cell_contract: 'v3', line_class: 'x.b-mid' },
+    } as unknown as Public215Template;
+  return compilePublic215Template(w, public215Digest(w), v);
+};
 
 describe('public215 feature contract v3 (cell contract v3, dormant)', () => {
   it('is v2 plus two appended one-hots, with its own pinned digest', () => {

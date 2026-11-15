@@ -1,10 +1,14 @@
 name: V31 runtime cells store cell contract v3 and change nothing for v2
 
-# Native proof of migration 20261115143957 against a throwaway PostgreSQL 17
-# cluster (never production), on the production shapes in
-# scripts/ci/fixtures/v31-runtime-cells-v3: scripts/ci/test-v31-runtime-cells-v3.py
-# with its mutation checks. No timer (CLAUDE.md 10.85): pull_request only,
-# scoped to the paths it proves.
+# Native proofs against a throwaway PostgreSQL 17 cluster (never production),
+# each with its mutation checks:
+#   migration 20261115143957 on the production shapes in
+#   scripts/ci/fixtures/v31-runtime-cells-v3 (scripts/ci/test-v31-runtime-cells-v3.py);
+#   migration 20261115162745 (v3 cells built and sealed, hist215-v3 storable)
+#   on top of it, on the production shapes in
+#   scripts/ci/fixtures/v31-cell-contract-v3-build-seal
+#   (scripts/ci/test-v31-cell-contract-v3-build-seal.py).
+# No timer (CLAUDE.md 10.85): pull_request only, scoped to the paths it proves.
 on:
   pull_request:
     branches: [main]
@@ -13,6 +17,11 @@ on:
       - scripts/ci/test-v31-runtime-cells-v3.py
       - scripts/ci/test-v31-round-registration.py
       - scripts/ci/fixtures/v31-runtime-cells-v3/**
+      - supabase/migrations/20261115162745_v31_cell_contract_v3_cells_are_built_and_sealed_and_hist215_.sql
+      - scripts/ci/test-v31-cell-contract-v3-build-seal.py
+      - scripts/ci/test-v31-range-provenance.py
+      - scripts/ci/fixtures/v31-cell-contract-v3-build-seal/**
+      - scripts/ci/fixtures/v31-public215-v2-sql/02-r8-ts-vectors.json
       - .github/workflows/v31-runtime-cells-v3.yml
 
 permissions:
@@ -37,3 +46,8 @@ jobs:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: |
           python3 scripts/ci/test-v31-runtime-cells-v3.py --mutations
+      - name: Native proof of the v3 build and seal layer and mutation checks
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: |
+          python3 scripts/ci/test-v31-cell-contract-v3-build-seal.py --mutations
