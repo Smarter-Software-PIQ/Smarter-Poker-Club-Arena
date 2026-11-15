@@ -34,6 +34,9 @@ RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public'
     WHERE ts.user_id=p_user_id AND ts.table_id=p_table_id AND ts.occupancy_id=p_occupancy_id
       AND ts.left_at IS NULL AND ps.entered_at >= ts.joined_at)
 $$;
+REVOKE ALL ON FUNCTION public.fn_lightning_legacy_leave_requires_reload(uuid,uuid,uuid) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_lightning_legacy_leave_requires_reload(uuid,uuid,uuid) TO service_role;
+
 -- Withdrawing a stop cannot undo another device's confirmed financial leave.
 -- Distinguish that outcome from an ordinary, idempotent Keep Playing.
 DO $patch$
