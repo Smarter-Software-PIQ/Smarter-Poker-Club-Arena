@@ -159,9 +159,49 @@ it('combines full-history filters, resets the cursor on changes and clears them 
   await waitFor(() => expectQuery('Sliceoflife', 'member_promo_wallet', null));
   fireEvent.click(await screen.findByRole('button', { name: 'Next' }));
   await waitFor(() => expectQuery('Sliceoflife', 'member_promo_wallet', '25'));
+  fireEvent.change(screen.getByLabelText('Funding Wallet'), {
+    target: { value: 'member_union_promo_wallet' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Apply Filters' }));
+  await waitFor(() => expectQuery('Sliceoflife', 'member_union_promo_wallet', null));
   fireEvent.click(screen.getByRole('button', { name: 'Clear Filters' }));
   await waitFor(() => expectQuery(null, 'all', null));
   expect(screen.getByLabelText('Player Search')).toHaveValue('');
   fireEvent.click(screen.getByRole('button', { name: 'Show Recent' }));
   await waitFor(() => expectQuery(null, 'all', null));
+});
+
+it('retires old receipts when a refresh fails and keeps them hidden until Retry succeeds', async () => {
+  const row = {
+    id: 'first',
+    created_at: '2026-11-14T18:26:42Z',
+    from_user_id: 'agent',
+    to_user_id: 'other',
+    to_name: 'First Player',
+    transaction_type: 'agent_wallet_send',
+    amount_text: '25.00',
+  };
+  let finishRetry!: () => void;
+  rpc
+    .mockReturnValueOnce({ abortSignal: async () => ({ data: [row] }) })
+    .mockReturnValueOnce({ abortSignal: async () => ({ error: new Error('Read interrupted') }) })
+    .mockReturnValueOnce({
+      abortSignal: () =>
+        new Promise((resolve) => {
+          finishRetry = () =>
+            resolve({ data: [{ ...row, id: 'second', to_name: 'Second Player' }] });
+        }),
+    });
+  const history = (revision: number) => (
+    <MemberTransactionHistory clubId="club" memberId="agent" revision={revision} scope="club" />
+  );
+  const { rerender } = render(history(1));
+  await screen.findByText('Sent To First Player');
+  rerender(history(2));
+  fireEvent.click(await screen.findByRole('button', { name: 'Retry' }));
+  expect(screen.queryByText('Sent To First Player')).toBeNull();
+  expect(screen.getByText('Loading Transactions…')).toBeVisible();
+  await waitFor(() => expect(finishRetry).toBeTypeOf('function'));
+  finishRetry();
+  expect(await screen.findByText('Sent To Second Player')).toBeVisible();
 });
