@@ -4238,6 +4238,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
+    'omaha_paired_board_no_boat_oop_bet_checked',
+    'HorseLogic wager_rules (HorseOmahaOopChecks, omahaPairedTurnNoBarrelWithoutBoatVsValueLeader on the turn, omahaPairedRiverNoThinLeadVsValueLeader on the river)',
+    'PLO4/PLO5 cash turn or river bet with less than a full house on a paired board, out of position, in a line the two narrower spots do not cover, into opponents who are all measured postflop value leaders: turned into a check',
+    'V94'
+  ),
+  receipt(
+    'omaha_paired_board_no_boat_ip_bet_checked_by_price',
+    'HorseLogic wager_rules (HorseOmahaOopChecks, omahaPairedTurnNoBarrelWithoutBoatVsValueLeader on the turn, omahaPairedRiverNoThinLeadVsValueLeader on the river)',
+    'the same bet in position, heads-up against a measured postflop value leader, turned into a check because the priced comparison of the check, the bet and every other size (the card-impact model) says the check is worth more; a bet the comparison keeps is left',
+    'V94'
+  ),
+  receipt(
     'omaha_overpair_oop_turn_barrel_checked',
     'HorseLogic wager_rules (HorseOmahaOopChecks, omahaOverpairNoOopBarrelVsValueLeader)',
     'PLO4/PLO5 cash heads-up turn bet out of position with one pair, after the flop bet was called, on a board where a straight is possible, against a measured postflop value leader: turned into a check',
@@ -4331,6 +4343,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_card_impact_freeroll_pot',
     'HorseLogic wager_rules (HorseOmahaCardImpact, omahaCardImpact)',
     'PLO4/PLO5 cash heads-up turn: the Horse holds the nuts, other holdings tie it and four or more river cards lift it over them; the full pot is the best size and replaces the chosen action',
+    'V94'
+  ),
+  receipt(
+    'omaha_card_impact_paired_board_press_withheld',
+    'HorseLogic wager_rules (HorseOmahaCardImpact, omahaCardImpact)',
+    'the card-impact comparison wanted a bet where the brain checked, or a larger bet, on a paired turn or river board with less than a full house against a measured postflop value leader: not made, the decision given stands',
     'V94'
   ),
   receipt(

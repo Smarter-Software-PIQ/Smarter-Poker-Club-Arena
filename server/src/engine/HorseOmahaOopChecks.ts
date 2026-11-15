@@ -44,6 +44,13 @@
  *  - omahaPairedRiverNoThinLeadVsValueLeader: river, the final board paired,
  *    less than a full house, a live opponent called the Horse's flop or turn
  *    bet; only when every live opponent is a MEASURED postflop value leader.
+ *  - both paired-board options, every other line (omahaPairedBoardNoBoatSpot;
+ *    conflict sweep S4): a paired turn or river board, less than a full
+ *    house, every live opponent a MEASURED postflop value leader. Out of
+ *    position the bet is a check; in position, heads-up, it is a check only
+ *    when the priced comparison of the check and the bet (the card-impact
+ *    model, HorseOmahaCardImpact) says the check is worth more. A nut-class
+ *    hand is left alone.
  *
  * Scope of all three: PLO4 and PLO5 cash, pot limit, one board, high only,
  * nothing to call, check legal. A call or fold facing a bet is never touched.
@@ -258,6 +265,35 @@ export function omahaPairedTurnBarrelSpot(hero: SeatPlayer, gs: HorseGameStateV2
     return omahaOpponentActsBehind(hero, gs);
   } catch {
     return false;
+  }
+}
+
+/**
+ * The wider public spot behind omahaPairedTurnNoBarrelWithoutBoatVsValueLeader
+ * and omahaPairedRiverNoThinLeadVsValueLeader (conflict sweep 2026-11-15, S4:
+ * the two spots above cover one line each, and the same bet was made in
+ * every other line): turn or river, nothing to call, the board paired on any
+ * street, the Horse holds less than a full house. `outOfPosition`: a live
+ * opponent still acts behind. `headsUp`: one live opponent. HorseLogic checks
+ * the bet out of position against measured value leaders; in position only
+ * when the priced comparison of the check and the bet says check.
+ */
+export function omahaPairedBoardNoBoatSpot(
+  hero: SeatPlayer,
+  gs: HorseGameStateV2
+): { street: 'turn' | 'river'; outOfPosition: boolean; headsUp: boolean } | null {
+  try {
+    const street = omahaOopCheckStreet(hero, gs);
+    if (street !== 'turn' && street !== 'river') return null;
+    const board: Card[] = gs.communityCards ?? [];
+    if (!omahaBoardShape(board).paired) return null;
+    const cat = category(hero.cards, board);
+    if (!(cat > 0) || cat >= FULL_HOUSE) return null;
+    const live = liveOpponents(hero, gs);
+    if (live.length === 0) return null;
+    return { street, outOfPosition: omahaOpponentActsBehind(hero, gs), headsUp: live.length === 1 };
+  } catch {
+    return null;
   }
 }
 
@@ -719,6 +755,7 @@ export function omahaOopCheckSpot(hero: SeatPlayer, gs: HorseGameStateV2, bet?: 
     omahaBareOverpairOopFlopSpot(hero, gs) ||
     omahaOverpairOopTurnBarrelSpot(hero, gs) ||
     omahaPairedTurnBarrelSpot(hero, gs) ||
-    omahaPairedRiverThinLeadSpot(hero, gs)
+    omahaPairedRiverThinLeadSpot(hero, gs) ||
+    omahaPairedBoardNoBoatSpot(hero, gs) !== null
   );
 }

@@ -640,13 +640,21 @@ describe('conflict sweep 2026-11-15, the open findings', () => {
       forced.impactBet = false;
       forced.strongBet = false;
       forced[flag] = true;
-      // the proposal is real: without the defence the pricing rule's bet is made
       const alone = play(() => nodeAt(ACES, RIVER), pricing);
       const bets = alone.actions.filter((a) => a === 'bet').length;
-      expect(bets).toBeGreaterThan(0);
       const on = play(() => nodeAt(ACES, RIVER), { ...DEFENCE, ...pricing });
       expect(on.actions).toEqual(SEEDS.map(() => 'check'));
-      expect(fired(on, 'omaha_owner_ruled_check_kept')).toBeGreaterThan(0);
+      if (flag === 'impactBet') {
+        // Sweep S4: on this paired river, without a full house, against a
+        // measured value leader the card-impact comparison no longer creates
+        // the bet itself, so there is nothing for the defence to overrule.
+        expect(bets).toBe(0);
+        expect(fired(alone, 'omaha_card_impact_paired_board_press_withheld')).toBeGreaterThan(0);
+      } else {
+        // the proposal is real: without the defence the pricing rule's bet is made
+        expect(bets).toBeGreaterThan(0);
+        expect(fired(on, 'omaha_owner_ruled_check_kept')).toBeGreaterThan(0);
+      }
       expect(on.refusals).toEqual(SEEDS.map(() => null));
       // not a measured value leader: the read-gated defence is withheld and the bet is made
       const aloneNoRead = play(() => nodeAt(ACES, RIVER), pricing, false);
@@ -660,6 +668,8 @@ describe('conflict sweep 2026-11-15, the open findings', () => {
         false
       );
       expect(all(always, 'check')).toBe(true);
+      // against no value leader the card-impact bet is proposed, and the defence's check stands over it
+      expect(fired(always, 'omaha_owner_ruled_check_kept')).toBeGreaterThan(0);
     }
   });
 

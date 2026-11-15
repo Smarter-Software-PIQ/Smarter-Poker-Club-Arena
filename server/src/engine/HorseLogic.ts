@@ -67,6 +67,7 @@ import { omahaRiverMediumBetCall } from './HorseOmahaRiverMediumBetCalls.js';
 import {
   omahaBareOverpairOopFlopSpot,
   omahaOverpairOopTurnBarrelSpot,
+  omahaPairedBoardNoBoatSpot,
   omahaPairedRiverThinLeadSpot,
   omahaPairedTurnBarrelSpot,
   omahaOopTurnCheckAfterFlopCallSpot,
@@ -8083,7 +8084,33 @@ function omahaOopCheckRules(
       if (tele) noteFire('omaha_turn_bet_without_river_plan_checked');
       return checked();
     };
-    if (!turnSpot && !pairedTurnSpot && !riverSpot) return riverPlan();
+    if (!turnSpot && !pairedTurnSpot && !riverSpot) {
+      // The same two options in every other line (conflict sweep S4): a
+      // paired turn or river board, less than a full house, every live
+      // opponent a measured value leader. Out of position the bet is a
+      // check. In position it is a check only when the priced comparison
+      // says the check is worth more (owner: defence out of position; no
+      // blanket rule in position).
+      const wide =
+        (stage === 'turn' && pairedTurnOn) || (stage === 'river' && riverOn)
+          ? omahaPairedBoardNoBoatSpot(player, gs)
+          : null;
+      if (
+        wide !== null &&
+        omahaEveryLiveOpponentIs(player, gs, opts, (r) => r.valueLeader) &&
+        !omahaNutClassNow(player, gs)
+      ) {
+        if (wide.outOfPosition) {
+          if (tele) noteFire('omaha_paired_board_no_boat_oop_bet_checked');
+          return checked();
+        }
+        if (wide.headsUp && omahaPairedBoardPricedCheck(decision, player, gs, opts)) {
+          if (tele) noteFire('omaha_paired_board_no_boat_ip_bet_checked_by_price');
+          return checked();
+        }
+      }
+      return riverPlan();
+    }
     if (!omahaEveryLiveOpponentIs(player, gs, opts, (r) => r.valueLeader)) {
       if (tele)
         noteFire(
@@ -8106,6 +8133,37 @@ function omahaOopCheckRules(
     return checked();
   } catch {
     return decision;
+  }
+}
+
+/**
+ * In position on a paired board without a full house against a measured
+ * value leader: does the priced comparison of the bet, the check and every
+ * other size (the card-impact model, read as omahaCardImpactRule reads it)
+ * say the check is worth more? False when the model has no answer (out of
+ * its scope, a bluff candidate) or keeps a bet. Quiet; draws no random number.
+ */
+function omahaPairedBoardPricedCheck(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): boolean {
+  if (decision.action !== 'bet' && decision.action !== 'all_in') return false;
+  try {
+    const scope = omahaCardImpactScope(player, gs);
+    if (!scope) return false;
+    let read: OmahaReadConditional | null = null;
+    if (opts.mind !== false) {
+      try {
+        read = HorseMind.omahaReadConditionalOf(scope.opponent.user_id);
+      } catch {
+        read = null;
+      }
+    }
+    return omahaCardImpactDecision(decision, player, gs, read)?.changed === 'defence_check';
+  } catch {
+    return false;
   }
 }
 
@@ -8547,6 +8605,19 @@ function omahaCardImpactRule(
       omahaNutClassNow(player, gs)
     )
       return decision;
+    // Conflict sweep S4: on a paired turn or river board, with less than a
+    // full house, against a measured postflop value leader, the comparison
+    // does not create a bet or make one bigger, in any position or line
+    // (owner: defence on the bad card). The decision given stands; a
+    // smaller bet and a check are still its to make.
+    if (
+      (result.changed === 'press_bet' || result.changed === 'freeroll_pot') &&
+      omahaPairedBoardNoBoatSpot(player, gs) !== null &&
+      omahaEveryLiveOpponentIs(player, gs, opts, (r) => r.valueLeader)
+    ) {
+      if (telemetryOn(opts)) noteFire('omaha_card_impact_paired_board_press_withheld');
+      return decision;
+    }
     if (telemetryOn(opts)) {
       noteFire('omaha_card_impact_changed');
       if (result.changed === 'defence_check') noteFire('omaha_card_impact_defence_check');
