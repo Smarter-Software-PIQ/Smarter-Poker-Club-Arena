@@ -752,7 +752,9 @@ describe('the tab follows the chair', () => {
        this pin is about what the CODE does, and prose explaining the law it
        obeys must never be able to satisfy it or to break it. */
     const body = blankNonCode(block);
-    expect(body).toMatch(/next\[idx\] = \{\s*id: dest,/);
+    /* Built by moveSeatTab, the one factory every move path shares, so the
+       re-pointed tab keeps `seated` and the next move still finds its chair. */
+    expect(body).toMatch(/next\[idx\] = moveSeatTab\(current, dest,/);
     /* AND THE PIN CAN ACTUALLY FAIL NOW (2026-09-10). `/activeIndex/` is case
        sensitive, so it never matched `setActiveIndex(` - the one spelling the
        law is about. Proved by inserting `setActiveIndex(idx);` into this very

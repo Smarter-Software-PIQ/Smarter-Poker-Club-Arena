@@ -158,6 +158,17 @@ try:
  print('PASS: full migration/preimage guards; legacy promo returns; real feed, downline authorization and totals exclude game/buy-in rows')
  print('PASS: unrestricted personal claims for all three agent roles; no original send, replay, conservation and denial of other-member/club/promo abuse')
  print('PASS: 15 source/destination combinations, conservation, single journal, destination-bound replay, authority, credit repayment, duplicate claim, rollback')
+ # Reuse this same isolated history book and its authority / cursor contracts.
+ history_fixture = ROOT / 'scripts/ci/fixtures/agent-wallet'
+ q((history_fixture / 'member-history-party-names.sql').read_text())
+ migrations = ROOT / 'supabase/migrations'
+ for name in ['20261114171135_cashier_history_club_book_reads_by_index_per_type_group.sql',
+              '20261115001816_member_history_promo_allowance_as_of_send.sql',
+              '20261115011401_member_history_player_and_funding_filters.sql',
+              '20261115020001_member_history_classifies_cashier_tickets_and_union_promo_fu.sql']:
+  q((migrations / name).read_text())
+ q((history_fixture / 'member-history-search-and-funding.sql').read_text())
+ print('PASS: member player and funding filters precede pagination and preserve visible-party authority')
 finally:
  if (cluster/'data/postmaster.pid').exists():
   stop=subprocess.run([str(PG/'pg_ctl'),'-D',str(cluster/'data'),'-m','fast','-w','stop'],capture_output=True)

@@ -104,6 +104,7 @@ Level: each cue's assembled mix is measured and peak-normalised to -1 dBFS, offs
 | `reel_spin_loop`        | `anoisesrc=color=white:seed=419:sample_rate=48000:duration=1.45`                                           |
 | `paper_horn`            | `aevalsrc=atan(4*sin(2*PI*(340*t+23*t*t)+2*sin(2*PI*680*t))):s=48000:d=0.42`                               |
 | `finger_snap`           | `anoisesrc=color=pink:seed=17:d=0.09`                                                                      |
+| `sushi_chop`            | `anoisesrc=color=brown:seed=31:d=0.11`, `sine=frequency=470:duration=0.07`                                 |
 
 ## Kenney - Interface Sounds (1.0)
 
@@ -269,3 +270,14 @@ Level: each cue's assembled mix is measured and peak-normalised to -1 dBFS, offs
 | Cue            | Source file(s) |
 | -------------- | -------------- |
 | `chicken_bawk` | `hen.mp3`      |
+
+## Yellowstone grizzly bear vocalizations
+
+- Author: Dan Bergum / National Park Service; CC0 distribution by Nivatius
+- Licence: CC0-1.0
+- URL: https://freesound.org/people/Nivatius/sounds/519518/
+
+| Cue               | Source file(s) |
+| ----------------- | -------------- |
+| `grizzly_warning` | `field.mp3`    |
+| `grizzly_growl`   | `field.mp3`    |

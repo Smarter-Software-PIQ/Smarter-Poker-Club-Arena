@@ -165,6 +165,15 @@
       "url": "https://freesound.org/people/Rudmer_Rotteveel/sounds/316920/",
       "dir": "freesound-hen",
       "download": "https://cdn.freesound.org/previews/316/316920_4921277-hq.mp3"
+    },
+    "yellowstone-grizzly": {
+      "kind": "local",
+      "title": "Yellowstone grizzly bear vocalizations",
+      "author": "Dan Bergum / National Park Service; CC0 distribution by Nivatius",
+      "license": "CC0-1.0",
+      "url": "https://freesound.org/people/Nivatius/sounds/519518/",
+      "dir": "grizzly",
+      "download": "https://cdn.freesound.org/previews/519/519518_7143328-hq.mp3"
     }
   },
   "cues": {
@@ -1935,6 +1944,51 @@
         }
       ],
       "trimEnd": 0.21
+    },
+    "grizzly_warning": {
+      "source": "yellowstone-grizzly",
+      "levelDb": -3,
+      "layers": [
+        {
+          "file": "field.mp3",
+          "at": 0,
+          "gain": 1,
+          "filter": "atrim=start=32.96:duration=1.38,asetpts=PTS-STARTPTS,highpass=f=50,afade=t=in:d=0.025,afade=t=out:st=1.26:d=0.12"
+        }
+      ],
+      "trimEnd": 1.38
+    },
+    "grizzly_growl": {
+      "source": "yellowstone-grizzly",
+      "levelDb": -3,
+      "layers": [
+        {
+          "file": "field.mp3",
+          "at": 0,
+          "gain": 1,
+          "filter": "atrim=start=69.85:duration=1.83,asetpts=PTS-STARTPTS,highpass=f=50,afade=t=in:d=0.025,afade=t=out:st=1.71:d=0.12"
+        }
+      ],
+      "trimEnd": 1.83
+    },
+    "sushi_chop": {
+      "source": "own-synthesis",
+      "levelDb": -5,
+      "layers": [
+        {
+          "lavfi": "anoisesrc=color=brown:seed=31:d=0.11",
+          "at": 0,
+          "gain": 1,
+          "filter": "highpass=f=200,lowpass=f=2400,afade=t=out:st=0.003:d=0.084"
+        },
+        {
+          "lavfi": "sine=frequency=470:duration=0.07",
+          "at": 0.005,
+          "gain": 0.45,
+          "filter": "afade=t=out:st=0:d=0.06"
+        }
+      ],
+      "trimEnd": 0.13
     }
   }
 }

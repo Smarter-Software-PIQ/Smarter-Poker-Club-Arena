@@ -141,6 +141,25 @@ export interface PreflopIntent {
     | 'v86_plo_three_bettor_continues';
 }
 
+/**
+ * HU-HILO-002 (default OFF, HorseDecideOpts.omahaHiLoTournamentFirstIn): the
+ * shares the pot-limit Omaha hi-lo heads-up tournament arm passes to
+ * omahaTournamentFirstIn. The heads-up shares and the 20 BB ceiling are the
+ * Omaha high ones; every three-handed branch is zero and the table is capped
+ * at two dealt in.
+ */
+export const OMAHA_HILO_TOURNAMENT_FIRST_IN: OmahaTournamentFirstInParams = Object.freeze({
+  headsUpShare: 1,
+  blindVsBlindShare: 0,
+  maxStackBB: 20,
+  winnerTakeAllMaxStackBB: 0,
+  maxTableSize: 2,
+  bigBlindDefendShare: 0.75,
+  bigBlindMaxPrice: 0.5,
+  bigBlindClosingShare: 0,
+  payJumpBlindVsBlindShare: 0,
+});
+
 /** Layers that report through PreflopCtx.noteLayer (receipt only). */
 export type PreflopLayerReceipt =
   | 'v60_cash_pressure_facing_open'
@@ -149,6 +168,7 @@ export type PreflopLayerReceipt =
   | 'v87_deep_dive_discipline'
   | 'bluff_raise_refused_no_fold_equity_seen'
   | 'omaha_tournament_first_in'
+  | 'omaha_hilo_tournament_first_in'
   | 'style_tight_opener_respect_seen'
   | 'style_tight_reraiser_respect_seen';
 
@@ -486,6 +506,13 @@ export interface PreflopCtx {
   /** Omaha high tournament: the hand's percentile among Omaha hands and,
    *  for league arms only, replacement shares. Undefined = the rule is off. */
   omahaTournamentFirstIn?: { percentile: number; params?: Partial<OmahaTournamentFirstInParams> };
+  /** Pot-limit Omaha hi-lo tournament, heads-up (HU-HILO-002, default OFF):
+   *  the hand's hi-lo percentile and, for league arms only, replacement
+   *  shares. Undefined = the rule is off. */
+  omahaHiLoTournamentFirstIn?: {
+    percentile: number;
+    params?: Partial<OmahaTournamentFirstInParams>;
+  };
   /** Receipt callback (#8694): the caller fires the V60 cash pressure receipt
    *  named here when that layer moves a bar. This module has no telemetry. */
   noteLayer?: (layer: PreflopLayerReceipt) => void;
@@ -1128,6 +1155,57 @@ export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
     );
     if (widened) {
       ctx.noteLayer?.('omaha_tournament_first_in');
+      return widened;
+    }
+  }
+  // ═══ OMAHA HI-LO HEADS-UP TOURNAMENT FIRST-IN (HU-HILO-002, default OFF) ═══
+  // The same commitment-zone fold in pot-limit Omaha hi-lo: heads-up at 20 BB
+  // or less the small blind folds 83-85 percent first in and the big blind
+  // folds 81-91 percent to one raise. #10687 left hi-lo out for want of its
+  // own evaluation. This block applies the same replacement module with the
+  // hand's HI-LO percentile and its own limits (exactly two dealt in; no
+  // three-handed branch), only when the caller switched the option on.
+  if (
+    out.a === 'fold' &&
+    ctx.omahaHiLoTournamentFirstIn !== undefined &&
+    ctx.isOmaha &&
+    ctx.omahaHiLo === true &&
+    ctx.isFixedLimit !== true &&
+    ctx.mode === 'tournament'
+  ) {
+    const widened = omahaTournamentFirstIn(
+      {
+        percentile: ctx.omahaHiLoTournamentFirstIn.percentile,
+        position: ctx.position,
+        liveOpponents: ctx.oppsLeft,
+        tableSize: ctx.tableSize ?? Number.NaN,
+        playersLeft: ctx.tournamentPlayersLeft ?? Number.NaN,
+        paidPlacesLeft: ctx.tournamentPaidPlacesLeft ?? Number.NaN,
+        effectiveStackBB: ctx.effectiveStackBB ?? ctx.stackBB,
+        raises: ctx.raises,
+        limpers: ctx.limpers,
+        callers: ctx.callers,
+        toCall: ctx.toCall,
+        stack: ctx.stack,
+        pot: ctx.pot,
+        riskPremium: ctx.riskAdd,
+        allInOrFold: ctx.allInOrFold === true,
+        satelliteLocked: ctx.satellite?.locked === true,
+      },
+      {
+        ...OMAHA_HILO_TOURNAMENT_FIRST_IN,
+        ...Object.fromEntries(
+          Object.entries(ctx.omahaHiLoTournamentFirstIn.params ?? {}).filter(
+            ([, v]) => v !== undefined
+          )
+        ),
+        // Heads-up only, whatever a league arm passes: the three-handed
+        // branches were never measured for hi-lo.
+        maxTableSize: 2,
+      }
+    );
+    if (widened) {
+      ctx.noteLayer?.('omaha_hilo_tournament_first_in');
       return widened;
     }
   }

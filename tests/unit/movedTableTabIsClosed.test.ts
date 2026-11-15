@@ -59,9 +59,11 @@ describe('the seat rebuild prunes, not just adds', () => {
     expect(CODE).toMatch(/const liveSeatIds = new Set\(\[\.\.\.ids, \.\.\.retainedReportTabs\]\)/);
     expect(CODE).toContain('await reportRemovedTournamentSeats(');
     expect(CODE.indexOf('await reportRemovedTournamentSeats(')).toBeLessThan(
-      CODE.indexOf('pruneStaleSeatedTabs(prev, liveSeatIds)')
+      CODE.indexOf('pruneStaleSeatedTabs(followed.tabs, liveSeatIds)')
     );
-    expect(CODE).toMatch(/survivors\s*=\s*pruneStaleSeatedTabs\(prev, liveSeatIds\)/);
+    // A tournament chair that moved is re-pointed first (followTournamentMoves),
+    // then the prune runs over the result with the same live seat set.
+    expect(CODE).toMatch(/survivors\s*=\s*pruneStaleSeatedTabs\(followed\.tabs, liveSeatIds\)/);
   });
 
   it('never prunes an observer tab or a lobby tab', () => {

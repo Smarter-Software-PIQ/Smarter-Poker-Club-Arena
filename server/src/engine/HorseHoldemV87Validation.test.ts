@@ -1660,10 +1660,13 @@ describe('V87.1 Holdem Elite Strategy & Ecosystem Independent Validation', () =>
         })
       ).toBe('raise');
 
-      // Verify secondLookReads encoded `horse-decision-reads-v13` carrying `scopedFlopStab`!
+      // Verify secondLookReads encoded the frame carrying `scopedFlopStab`! Since 2026-11-14 this read also carries
+      // the pre-repair provenance of its pooled cash row (the boot profile has no public domain on file, which is
+      // keyed "cannot tell, treated as affected"), so the frame is `horse-decision-reads-v14`: v13 plus that list.
       const secondLookEntry = [...(hydratedWorker.rt as any).secondLookReads.values()][0] as any;
-      expect(secondLookEntry.frame.version).toBe('horse-decision-reads-v13');
+      expect(secondLookEntry.frame.version).toBe('horse-decision-reads-v14');
       expect(secondLookEntry.frame.json).toContain('scopedFlopStab');
+      expect(secondLookEntry.frame.json).toContain('pooledProvenance');
 
       // Run DECIDE_DEEP on the hydrated worker and prove flopStab + winnerReads survive second look!
       const deepDraft = {
