@@ -17,6 +17,7 @@ vi.mock('../services/supabase/client.js', () => ({
 }));
 vi.mock('../services/errorReporter.js', () => ({ reportError: vi.fn() }));
 const { mulberry32 } = await import('../engine/HandFuzzer.js');
+const { learnablePublicAction } = await import('../engine/HorseOpponentExploit.js');
 const { HorseLogic } = await import('../engine/HorseLogic.js');
 const kit = await import('../testing/lightningHostTestKit.js');
 const { lightningRequestId } = await import('./LightningHandHost.js');
@@ -152,10 +153,23 @@ describe('early fold is private until the ordered turn', () => {
       const result = t.calls.settle[0].results.find((p) => p.playerId === waiting.user_id)!;
       expect(result.won).toBe(0);
       expect(result.foldType).toBe('fast');
+      const fold = acceptedAction(t.host, waiting.user_id, 'fold');
+      expect(fold.origin).toBe('player');
+      expect(learnablePublicAction(fold)).toBe(true);
       expect(t.released.filter((p) => p.playerId === waiting.user_id)).toHaveLength(1);
     });
   }
 });
+
+function acceptedAction(
+  host: ReturnType<typeof buildHost>['host'],
+  userId: string,
+  action: string
+) {
+  const record = host['actions'].find((a) => a.userId === userId && a.action === action);
+  if (!record || typeof record.origin !== 'string') throw Error('Missing accepted action origin');
+  return { action, origin: record.origin };
+}
 
 function conserve(settle: any, stacks: number[]) {
   const before = stacks.reduce((a, b) => a + b, 0);
@@ -442,6 +456,29 @@ describe('fast fold and fold & watch', () => {
     ).toBe(30000);
   });
 
+  it.each(['current', 'waiting'])(
+    'a %s seat’s armed fold remains a voluntary pre-action',
+    async (seat) => {
+      const formed = formedHand(4, 2110);
+      const t = buildHost(formed, [100, 100, 100, 100]);
+      await t.host.start();
+      await flush();
+      const state = t.host.peekState()!;
+      const id =
+        seat === 'current'
+          ? state.players.find((p) => p.seat === state.currentPlayerSeat)!.user_id
+          : formed.sb;
+      expect(t.host.setPreAction(id, 'auto_fold', undefined, formed.handId).success).toBe(true);
+      await playOut(t.host, mulberry32(2110), (_u, legal) =>
+        legal.includes('check') ? 'check' : 'call'
+      );
+      await flush();
+      const fold = acceptedAction(t.host, id, 'fold');
+      expect(fold.origin).toBe('pre_action');
+      expect(learnablePublicAction(fold)).toBe(true);
+    }
+  );
+
   it('legacy watch and explicit pre-fold still honor live feature pauses', async () => {
     const formed = formedHand(3, 2170);
     const flags = { fastFold: false, foldWatch: true };
@@ -585,6 +622,9 @@ describe('the clock, the time bank and a horse', () => {
     await flush();
     const after = t.host.peekState()!.players.find((p) => p.user_id === current.user_id)!;
     expect(after.is_folded).toBe(true);
+    const expired = acceptedAction(t.host, current.user_id, 'fold');
+    expect(expired.origin).toBe('forced');
+    expect(learnablePublicAction(expired)).toBe(false);
     expect(t.calls.fastFold[0]).toMatchObject({ playerId: current.user_id, foldType: 'normal' });
     expect(t.released).toContainEqual({ playerId: current.user_id, why: 'normal' });
   });
@@ -617,8 +657,38 @@ describe('the clock, the time bank and a horse', () => {
     const [leaver] = [...owed];
     const seat = t.host.peekState()!.players.find((p) => p.user_id === leaver)!;
     expect(seat.is_folded).toBe(true);
+    const forced = acceptedAction(t.host, leaver!, 'fold');
+    expect(forced.origin).toBe('forced');
+    expect(learnablePublicAction(forced)).toBe(false);
     // Folded well inside the 15 s turn clock, with no time bank and no client.
     expect(t.hub.frames.some((f) => f.payload.type === 'TIME_BANK_ACTIVATED')).toBe(false);
+  });
+
+  it.each(['blind-off', 'expired clock'])('a free check by %s supplies no read', async (reason) => {
+    vi.useFakeTimers({
+      toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
+    });
+    const formed = formedHand(3, 2311);
+    const t = buildHost(formed, [100, 100, 100], {
+      deps: {
+        sleep: () => Promise.resolve(),
+        blindOffPlayers: async () => new Set(reason === 'blind-off' ? [formed.bb] : []),
+      },
+    });
+    await t.host.start();
+    await flush();
+    for (let i = 0; i < 2; i++) {
+      const state = t.host.peekState()!;
+      const actor = state.players.find((p) => p.seat === state.currentPlayerSeat)!;
+      expect(actor.user_id).not.toBe(formed.bb);
+      expect(t.host.handlePlayerAction(actor.user_id, 'call').success).toBe(true);
+      await flush();
+    }
+    await vi.advanceTimersByTimeAsync(reason === 'blind-off' ? 1000 : 36000);
+    await flush();
+    const check = acceptedAction(t.host, formed.bb, 'check');
+    expect(check.origin).toBe('forced');
+    expect(learnablePublicAction(check)).toBe(false);
   });
 
   it('a stale action context from another turn is refused', async () => {

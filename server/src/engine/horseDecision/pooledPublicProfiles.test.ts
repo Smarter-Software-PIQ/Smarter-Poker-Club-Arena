@@ -455,6 +455,27 @@ describe('exact public rule domains', () => {
       )
     ).toBe(false);
   });
+  it('retains the original cutoff when the accepted hand whose row was already read arrives', () => {
+    let now = 100;
+    const pool = new PooledPublicProfiles(() => now);
+    const earlier = exactCompletion();
+    const later = structuredClone(earlier);
+    later.generation++;
+    later.handKey = table + ':1000002';
+    later.fence = table + ':1000002:' + lease + ':observe';
+    later.observerParticipants!.handKey = table + ':1000002:' + lease;
+    later.committedHandId = '40000000-0000-4000-8000-000000000099';
+    earlier.durableOpponentProfiles![0]!.last_accepted_hand_id = later.committedHandId;
+    later.durableOpponentProfiles![0]!.last_accepted_hand_id = later.committedHandId;
+    expect(pool.observe(earlier)).toBe(1);
+    now = 200;
+    expect(pool.observe(later)).toBe(0);
+    const r = exactRequest(tableDomain);
+    r.decisionTimeMs = 100;
+    expect(pool.read(r)?.receipt.availableAtMs).toBe(100);
+    r.decisionTimeMs = 99;
+    expect(pool.read(r)).toBeNull();
+  });
   it('isolates speed and ante, preserving the original decision cutoff', () => {
     const pool = new PooledPublicProfiles(() => 100);
     expect(pool.observe(exactCompletion())).toBe(1);

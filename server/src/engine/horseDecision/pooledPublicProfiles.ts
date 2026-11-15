@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util';
 import { learnablePublicAction } from '../HorseOpponentExploit.js';
 import { publicMemoryDomainKey } from '../HorsePublicMemoryDomain.js';
 import { createHash } from 'node:crypto';
@@ -192,6 +193,14 @@ export class PooledPublicProfiles {
           version = opponentProfileVersion(p);
         if (previousVersion > version) continue; // an out-of-order older hand cannot erase newer notes
         if (previousVersion === version) {
+          // A prior RPC may already have read this completed hand's row.
+          // Its original availability stays valid for earlier queued snapshots.
+          if (
+            p.last_accepted_hand_id === hand.committedHandId &&
+            previous.profile.last_accepted_hand_id === hand.committedHandId &&
+            isDeepStrictEqual(previous.profile.counters, p.counters)
+          )
+            continue;
           this.rows.delete(k); // this new hand has no confirmed fresh profile
           continue;
         }

@@ -5,15 +5,15 @@ import { execFileSync } from 'node:child_process';
 import { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 const bridge = vi.hoisted(() => ({
-  query: null as null | ((args: any) => Promise<any>),
+  query: null as null | ((args: any, name: string) => Promise<any>),
   calls: 0,
 }));
 vi.mock('../src/services/supabase.js', () => ({
   supabase: {
-    rpc: (_name: string, args: any) => ({
+    rpc: (name: string, args: any) => ({
       abortSignal: async () => {
         bridge.calls++;
-        return bridge.query!(args);
+        return bridge.query!(args, name);
       },
     }),
   },
@@ -1203,3 +1203,181 @@ it('isolates accepted public rule domains without breaking legacy accepted hands
     rmSync(scratch, { recursive: true, force: true });
   }
 }, 60000);
+
+it('carries one accepted human hand through exact storage into the next pooled FAST decision', async () => {
+  const { workerHarness, requestAt, heroId, opponentId, tableId, otherTableId, lease } =
+    await import('../src/testing/horseRegression/plan/fixture.js');
+  const { buildHorseDecisionKey } = await import('../src/engine/horseDecision/protocol.js');
+  const { HorseObserverParticipantRegistry } =
+    await import('../src/engine/horseDecision/observerParticipants.js');
+  const { HorseLogic } = await import('../src/engine/HorseLogic.js');
+  const { horseObserverReadsUsedPublicPool } =
+    await import('../src/engine/HorseObserverReadEvidence.js');
+  const { readExactHorseOpponentProfiles } =
+    await import('../src/services/HorseExactOpponentMemory.js');
+  const { fakeHorseLane } = await import('../src/testing/lightningHostTestKit.js');
+  const { observeLightningHand } = await import('../src/lightning/LightningHorseObservation.js');
+
+  const migrations = join(process.cwd(), '../supabase/migrations');
+  // Install the exact profile trigger on the protected receipt relation used by settlement.
+  const settlement = readFileSync(
+    join(
+      migrations,
+      '20260908042100_an_accepted_hand_is_one_commit_and_stats_leave_the_hot_path.sql'
+    ),
+    'utf8'
+  );
+  const receiptDdl = settlement.match(
+    /CREATE TABLE IF NOT EXISTS public\.hand_atomic_commits \([\s\S]*?\n\);/
+  );
+  if (!receiptDdl) throw Error('Missing accepted-hand receipt definition');
+  await client.query(
+    'ALTER TABLE hand_history ADD COLUMN table_id uuid, ADD COLUMN hand_number bigint'
+  );
+  await client.query(receiptDdl[0]);
+  await client.query(
+    readFileSync(
+      join(migrations, '20261106091733_horse_public_memory_exact_rule_domains.sql'),
+      'utf8'
+    )
+  );
+
+  await client.query(
+    readFileSync(
+      join(migrations, '20261115010037_bind_horse_exact_profiles_to_their_accepted_hand.sql'),
+      'utf8'
+    )
+  );
+
+  const priorBridge = bridge.query;
+  bridge.query = async (args, name) => {
+    expect(name).toBe('fn_horse_exact_profiles_read');
+    const result = await client.query(
+      'select * from fn_horse_exact_profiles_read($1,$2,$3,$4,$5,$6)',
+      [args.p_user_ids, args.p_variant, args.p_mode, args.p_size, args.p_speed, args.p_ante]
+    );
+    return {
+      data: result.rows.map((row) => ({ ...row, observed_hands: Number(row.observed_hands) })),
+      error: null,
+    };
+  };
+  const registry = new HorseObserverParticipantRegistry();
+  const { opponentMemoryKey } = await import('../src/engine/HorseOpponentMemory.js');
+  const key = opponentMemoryKey(opponentId, 'nlh', 'cash', 'hu');
+  const decisionRows: Array<ReturnType<typeof freshExploitCounters> | undefined> = [];
+  const runtime = workerHarness({
+    decide: HorseLogic.decide.bind(HorseLogic),
+    snapshotDecisionReads: (...args) => {
+      const view = HorseMind.snapshotDecisionReads(...args);
+      decisionRows.push(view.exploit?.get(key));
+      return view;
+    },
+  });
+  const domain = { version: 1, speed: 'lightning', ante: 'none' } as const;
+  const handId = 'a3000000-0000-4000-8000-000000000001';
+  const handNumber = 1000100;
+  const request = (id: number, table: string, hand: number) => {
+    const fast = requestAt(id, table, hand);
+    fast.gameState.publicMemoryDomain = domain;
+    fast.gameState.humanUserIds = [opponentId];
+    fast.decisionTimeMs = Date.now();
+    fast.decisionKey = buildHorseDecisionKey(fast);
+    return fast;
+  };
+  const saved = () => readExactHorseOpponentProfiles([opponentId], 'nlh', 'cash', 'hu', domain);
+  try {
+    expect(await saved()).toEqual([]);
+    const first = request(1, tableId, handNumber);
+    await runtime.fast(first);
+    registry.capture(first);
+    expect(decisionRows.length).toBeGreaterThan(0);
+    expect(decisionRows.at(-1)?.hands ?? 0).toBe(0);
+    expect(horseObserverReadsUsedPublicPool(runtime.captures.at(-1)?.observerReads, first)).toBe(
+      false
+    );
+
+    const actions = first.gameState.actionHistory!.map((a) => ({
+      ...a,
+      origin: a.userId === opponentId ? 'player' : 'horse_policy',
+    }));
+    await client.query('BEGIN');
+    try {
+      await client.query(
+        'insert into hand_history(id,table_id,hand_number,game_variant,players,actions,public_memory_domain,horse_exploit_dealt_count) values($1,$2,$3,$4,$5,$6,$7,2)',
+        [
+          handId,
+          tableId,
+          handNumber,
+          'nlh',
+          JSON.stringify([{ userId: heroId }, { userId: opponentId }]),
+          JSON.stringify(actions),
+          domain,
+        ]
+      );
+      expect(await saved()).toEqual([]);
+      await client.query(
+        "insert into hand_atomic_commits(table_id,hand_number,hand_id,payload_hash,stack_result) values($1,$2,$3,repeat('a',64),'{}')",
+        [tableId, handNumber, handId]
+      );
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    }
+    const profiles = await saved();
+    expect(profiles).toMatchObject([
+      { user_id: opponentId, observed_hands: 1, counters: { hands: 1, vpip: 1, pfr: 0 } },
+    ]);
+    const transport = fakeHorseLane();
+    const report = vi.fn();
+    await observeLightningHand(
+      {
+        hostTableId: tableId,
+        handNumber,
+        handHistoryId: handId,
+        leaseGeneration: lease,
+        variant: 'nlh',
+        bigBlind: 2,
+        dealtCount: 2,
+        hasHuman: true,
+        publicMemoryDomain: domain,
+        actions,
+        showdown: [],
+      },
+      {
+        lane: () => transport.lane,
+        schema: async () => 'installed',
+        readProfiles: readHorseOpponentProfiles,
+        report,
+      }
+    );
+    expect(report).not.toHaveBeenCalled();
+    expect(transport.observed).toHaveLength(1);
+    const [completed] = transport.observed;
+    runtime.runtime.receive({
+      ...completed,
+      type: 'OBSERVE_COMPLETED_HAND',
+      requestId: 2,
+      observerParticipants: registry.take(completed),
+    });
+    await runtime.runtime.drain();
+    const next = request(3, otherTableId, handNumber + 1);
+    const result = await runtime.fast(next);
+    expect(decisionRows.at(-1)).toEqual(profiles[0]!.counters);
+    expect(result.decision.policyFallback).not.toBe('brain_exception');
+    expect(next.gameState.legalActions).toContain(result.decision.action);
+    const receipt = runtime.captures.at(-1)?.observerReads;
+    expect(horseObserverReadsUsedPublicPool(receipt, next)).toBe(true);
+    expect(receipt).toMatchObject({
+      pooledPublicProfiles: {
+        version: 3,
+        profiles: 1,
+        source: 'accepted_hand_public_profiles',
+        lineage: [{ userId: opponentId, size: 'hu', observedHands: 1, handId }],
+      },
+    });
+  } finally {
+    bridge.query = priorBridge;
+    await runtime.close();
+  }
+});
