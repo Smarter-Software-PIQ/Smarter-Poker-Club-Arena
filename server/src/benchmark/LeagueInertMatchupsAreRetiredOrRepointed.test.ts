@@ -45,6 +45,16 @@ describe('UNMEASURABLE_MATCHUPS', () => {
         'v16_ratio_rescale',
         'v18_exploit_size',
         'v31_gto_suit_aware',
+        // Fixed-Limit lane (2026-11-14): default-off fixed-limit options this
+        // league cannot deal (no fixed-limit betting); each reason states it.
+        'flh_river_full_bet_read',
+        'flo8_river_full_bet_read',
+        'flo8_nut_low_river_bet',
+        'flh_river_one_bet_value_raise',
+        'flo8_call_is_not_a_commitment',
+        'flh_call_is_not_a_commitment',
+        'flo8_hilo_low_half_floor',
+        'flo8_no_omaha_presumption',
       ].sort()
     );
     const card = new Set(LEAGUE_MATCHUPS.map((m) => m.name));

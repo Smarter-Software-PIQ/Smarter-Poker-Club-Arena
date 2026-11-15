@@ -631,7 +631,16 @@ function observeCompletedHandInMind(request: ObserveCompletedHandRequest): void 
     const previousScope = HorseMind.currentScope();
     HorseMind.setDecisionScope(completed.scope);
     try {
-      HorseMind.observe(completed.actions, [], identity, undefined, request.bigBlind);
+      HorseMind.observe(
+        completed.actions,
+        [],
+        identity,
+        undefined,
+        request.bigBlind,
+        // FIXED-LIMIT BETS ARE NEVER PROBES: every accepted-hand sender names the
+        // hand's variant in riverCallContext (handHistory.ts, LightningHorseObservation.ts).
+        request.riverCallContext ? bettingStructureFor(request.riverCallContext.variant) : null
+      );
     } finally {
       HorseMind.setDecisionScope(previousScope);
     }

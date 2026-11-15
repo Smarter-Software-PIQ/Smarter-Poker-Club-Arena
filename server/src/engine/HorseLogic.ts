@@ -38,7 +38,7 @@ import {
 import { HorsePolicyGraph } from './HorsePolicyGraph.js';
 import { decisionGravity } from './horseDecisionGravity.js';
 import { riverNutsRaise, fullPotNearPotWager, hasRiverNuts } from './HorseRiverNuts.js';
-import { hiLoRiverLowHalfFloor } from './HorseHiLoLowHalf.js';
+import { hiLoCappedRiverShare, hiLoRiverLowHalfFloor } from './HorseHiLoLowHalf.js';
 import { omahaCurrentNutsRaise } from './HorseOmahaCurrentNuts.js';
 import { omahaRiverNutRaiseOnly } from './HorseOmahaRiverNutRaise.js';
 import {
@@ -61,6 +61,15 @@ import {
   tokenCallRequiredEquity,
 } from './HorseTokenCallPrice.js';
 import { plo6TopSetIsCurrentNuts } from './HorsePlo6TopSetNut.js';
+import {
+  FIXED_LIMIT_ONE_BET_RAISE_BREAK_EVEN,
+  fixedLimitFullBetRead,
+  fixedLimitOneBetValueRaise,
+  hiLoNutLowRiverBets,
+  noLowPossible,
+  nutLowBlockersHeld,
+  streetWagerSignal,
+} from './HorseFixedLimitWagerRead.js';
 import { horsePolicyRegistration, horsePolicyOwnership } from './HorsePolicyRegistry.js';
 import { hasHorseReviewSignals } from './HorseReviewSignals.js';
 import { evaluateJointLivePolicy } from './multiway/JointLivePolicy.js';
@@ -339,7 +348,16 @@ import {
   type TournamentMState,
   type TournamentPreflopPolicyInput,
 } from './HorseTournamentPreflop.js';
-import { fixedLimitStreetBounds, potLimitRaiseTo } from './BettingStructure.js';
+import {
+  bettingStructureFor,
+  fixedLimitBetSize,
+  fixedLimitStreetBounds,
+  potLimitRaiseTo,
+} from './BettingStructure.js';
+import {
+  fixedLimitCallRequiredEquity,
+  fixedLimitRemainingAction,
+} from './HorseFixedLimitCallPrice.js';
 import { omahaTournamentPressure } from './HorseOmahaTournamentPressure.js';
 import { reportError } from '../services/errorReporter.js';
 import {
@@ -2735,6 +2753,27 @@ export interface HorseDecideOpts {
    * in two days, Horse-only; activation needs its own evaluation and a
    * docs/horse-default-on.d evidence file. Read as `=== true`. */
   plo6TopSetNutRealization?: boolean;
+  /** Fixed limit, river, facing a wager (SPEC-FL-01): the wagerer's read is
+   * marked a FULL bet (a raise as a raise) so the range samplers stop
+   * pricing a fixed bet as a small no-limit bet (HorseFixedLimitWagerRead.ts).
+   * Hold'em: the contact sampler takes its ceiling. Omaha high, and hi-lo
+   * only on a board where no low is possible: the aggressor tier steps up as
+   * for a pot-sized bet and the made-hand stratum is drawn exactly. Hi-lo
+   * heads-up: the weak-high cap never goes below the low half (the nut low
+   * is not folded). Withheld against a measured over-bluffer. OPT-IN, default
+   * off: fixtures and a mechanism only. Read as `=== true`. */
+  fixedLimitRiverFullBetRead?: boolean;
+  /** Fixed-limit hi-lo cash, heads-up, river unbet or checked to hero
+   * (SPEC-FL-02): the nut low with no high (the river-bluff module's
+   * freeroll) bets every time instead of 55 percent, except into a station
+   * with the bare nut low. OPT-IN, default off. Read as `=== true`. */
+  fixedLimitHiLoNutLowRiverBet?: boolean;
+  /** Fixed-limit hold'em, river, facing exactly one wager on an uncapped
+   * street (SPEC-FL-03): the value raise uses the one-bet break-even (0.60
+   * plus the multiway and domination terms) with no stack-to-pot adjustment
+   * and no raise-frequency draw; the one-pair, war and danger gates stay.
+   * OPT-IN, default off. Read as `=== true`. */
+  fixedLimitRiverOneBetValueRaise?: boolean;
   /** An Omaha preflop call of 40% of the stack with chips behind and an
    * opponent still to act is not priced as a final all-in call
    * (PLO6-AUDIT-005). OPT-IN, default off. The pricing gap is real (the
@@ -3095,6 +3134,23 @@ export interface HorseDecideOpts {
    *  min-bets every street is not read as a maniac whose real bets are then
    *  called down. Default on; false ablates it. */
   probeAwareAggression?: boolean;
+  /** FIXED-LIMIT CALL IS NOT A COMMITMENT (2026-11-14, Fixed-Limit lane):
+   *  a fixed-limit call is never priced in the committed branch (no
+   *  stack-to-pot or invested-share term, no V20 multiway commit bar); it is
+   *  priced on the chips to call plus the expected further wagers of the
+   *  street while a player left to act can still raise
+   *  (HorseFixedLimitCallPrice.ts). Read only as === true: default OFF. */
+  fixedLimitCallIsNotACommitment?: boolean;
+  /** FIXED-LIMIT HI-LO LOW HALF (2026-11-14, Fixed-Limit lane): on a
+   *  fixed-limit hi-lo river the V40 weak-high cap never goes below half of
+   *  the hand's sampled low share, heads-up and multiway
+   *  (HorseHiLoLowHalf.ts). Read only as === true: default OFF. */
+  fixedLimitHiLoLowHalfFloor?: boolean;
+  /** FIXED-LIMIT OMAHA HAS NO PRESUMPTION (2026-11-14, Fixed-Limit lane): on
+   *  a fixed-limit Omaha decision the shared aggressive raise presumption
+   *  (presumedAggressorRead) is not applied; the opponent's own measured read
+   *  stands (HorseMind.opponentRead). Read only as === true: default OFF. */
+  fixedLimitOmahaNoPresumption?: boolean;
   /** Hi-lo river bluffs with a low possible (2026-11-07,
    *  HorseRiverBluffRange.ts): the nut low with no high bets the freeroll;
    *  air bluffs the whole pot only when the opponent is unlikely to hold a
@@ -6580,6 +6636,7 @@ export class HorseLogic {
       scopedShrink: opts.readScopedShrink === true,
       omahaEvFoldModel: (opts.omahaEvFoldModel ?? true) !== false,
       omahaNeutralUnknown: opts.omahaNeutralUnknown === true,
+      fixedLimitOmahaNoPresumption: opts.fixedLimitOmahaNoPresumption === true,
       ...(typeof opts.styleCarryOverWeight === 'number' && opts.styleCarryOverWeight > 0
         ? { styleCarryWeight: Math.min(1, opts.styleCarryOverWeight) }
         : {}),
@@ -6601,7 +6658,9 @@ export class HorseLogic {
           gameState.players,
           opts.mindObservationHand,
           undefined,
-          gameState.bigBlind
+          gameState.bigBlind,
+          // FIXED-LIMIT BETS ARE NEVER PROBES: the hand's structure (HorseMind).
+          gameState.bettingStructure ?? bettingStructureFor(gameState.gameVariant)
         );
       } catch {
         /* observation is best-effort */
@@ -11349,6 +11408,33 @@ export class HorseLogic {
           noteFire('v56_omaha_pressure_range');
       }
     }
+    // ═══ SPEC-FL-01 FIXED-LIMIT RIVER FULL-BET READ (opt-in, 2026-11-14) ═══
+    // A fixed-limit bet is 0.1 to 0.33 pot and never 20 big blinds, so every
+    // size-keyed range read sat at its weakest setting. The river wagerer's
+    // read is marked structurally: a bet is a full bet, a raise is a raise.
+    // Hi-lo with a low possible keeps its reads (a river bet there is often a
+    // low); a measured over-bluffer keeps the full contact range, as for V62.
+    if (
+      opts.fixedLimitRiverFullBetRead === true &&
+      vi.isFixedLimit &&
+      isRiver &&
+      facingBet &&
+      extraBoards.length === 0 &&
+      gs.bombPot !== true &&
+      exploit.callDownMod <= 1 &&
+      oppReads &&
+      (!vi.isHiLo || noLowPossible(gs.communityCards))
+    ) {
+      const wagers91 = streetWagerSignal(gs.actionHistory, 'river');
+      let marked91 = false;
+      oppReads = oppReads.map((read, i) => {
+        const kind91 = read ? wagers91.byUser.get(opponents[i]?.user_id) : undefined;
+        if (!read || !kind91) return read;
+        marked91 = true;
+        return fixedLimitFullBetRead(read, kind91, vi.isOmaha);
+      });
+      if (marked91 && tele15) noteFire('fixed_limit_river_full_bet_read_seen');
+    }
     // ═══ V62 RIVER BETTOR POLARITY (2026-10-30) ═══ Single-board Hold'em,
     // facing a river wager from a bettor without an over-bluffer read: the
     // sampler keeps that bettor's hand by the likelihood they bet it at this
@@ -14058,7 +14144,22 @@ export class HorseLogic {
               rangeChange?.nutAdvantage !== true,
           });
           const rollRb = fastRandom();
-          if (sizeRb.sizeFrac > 0 && !stationLowFold86 && rollRb < pRb) {
+          // SPEC-FL-02 (opt-in): the fixed-limit hi-lo nut-low freeroll bets
+          // every time; the draw above is still taken, so off is unchanged.
+          const nutLowBet92 =
+            opts.fixedLimitHiLoNutLowRiverBet === true &&
+            !isTournamentMode(gs) &&
+            hiLoNutLowRiverBets({
+              isFixedLimit: vi.isFixedLimit === true,
+              isHiLo: vi.isHiLo === true,
+              headsUp: opponents.length === 1,
+              freeroll: eligRb.selection === 'freeroll',
+              opponentCanRespond: !oppRb.is_all_in && oppRb.stack > 0,
+              opponentNeverFolds: stationRb || stationLowFold86,
+              nutLowBlockers: nutLowBlockersHeld(player.cards, board),
+            });
+          if (nutLowBet92 && tele15) noteFire('hilo_nut_low_freeroll_bet');
+          if (sizeRb.sizeFrac > 0 && ((!stationLowFold86 && rollRb < pRb) || nutLowBet92)) {
             const betRb = this.betSize(
               planHandKey,
               pot,
@@ -15587,6 +15688,40 @@ export class HorseLogic {
     // opposite of the layer's stated intent. (gs.pot already includes the
     // outstanding bet; `pot` here is that minus any uncallable excess.)
     const potOdds = toCall / ((pot + toCall) * (1 - (callDeductionFraction ?? rakeMarg)));
+    // FIXED-LIMIT CALL PRICE (2026-11-14, opt-in fixedLimitCallIsNotACommitment):
+    // a fixed-limit call costs the chips to call now plus the expected further
+    // wagers of this street (a raise by a player left to act, the street not
+    // capped). The excess over the bare raked price is a shade on the equity
+    // the V38 verdicts are handed, as V61/V65/V66 shades are. A closing call
+    // (nobody behind, street capped, caller all in) carries no shade.
+    const flCallPrice =
+      opts.fixedLimitCallIsNotACommitment === true && vi.isFixedLimit && toCall > 0
+        ? fixedLimitCallRequiredEquity({
+            ...fixedLimitRemainingAction({
+              players: gs.players,
+              heroSeat: player.seat,
+              currentBet: gs.currentBet,
+              stage: street,
+              actionHistory: gs.actionHistory,
+              wagersCapped: gs.wagersCapped,
+            }),
+            pot,
+            toCall,
+            unit:
+              Number.isFinite(gs.fixedBetSize) && (gs.fixedBetSize as number) > 0
+                ? (gs.fixedBetSize as number)
+                : fixedLimitBetSize(
+                    Number.isFinite(gs.fixedLimitSmallBet) && (gs.fixedLimitSmallBet as number) > 0
+                      ? (gs.fixedLimitSmallBet as number)
+                      : gs.bigBlind,
+                    street
+                  ),
+            stackAfterCall: stack - toCall,
+            deduction: callDeductionFraction ?? rakeMarg,
+          })
+        : null;
+    const shadeFlCall = flCallPrice ? Math.max(0, flCallPrice.required - flCallPrice.bare) : 0;
+    if (shadeFlCall > 0 && tele15) noteFire('fixed_limit_call_priced_remaining_action_seen');
     // ═══ THE BET-RATIO SCALE, STATED ONCE AND FOR ALL (2026-08-27) ═══
     // `gs.pot` INCLUDES the bet hero is facing (HandController adds to
     // state.pot the moment the wager is posted). So `toCall / pot` is
@@ -15858,8 +15993,17 @@ export class HorseLogic {
             isRiver,
             opponents: oppCount,
             lowShare: hiLoSplit?.lo,
+            // FIXED-LIMIT HI-LO (2026-11-14, opt-in): heads-up and multiway.
+            fixedLimitLowHalf: opts.fixedLimitHiLoLowHalfFloor === true,
           });
-          eq15 = Math.min(eq15, Math.max(0.08, cap40, lowHalf40));
+          if (
+            tele15 &&
+            vi.isFixedLimit &&
+            lowHalf40 > Math.max(0.08, cap40) &&
+            eq15 > Math.max(0.08, cap40)
+          )
+            noteFire('fixed_limit_hilo_low_half_kept_seen');
+          eq15 = hiLoCappedRiverShare(eq15, cap40, lowHalf40);
           if (opts.v87DeepDiveDiscipline !== false)
             noteHorseDeepDiveRule(
               'flop_cap',
@@ -16237,10 +16381,28 @@ export class HorseLogic {
     // Covering chips cannot change the existing cash HU commitment policy.
     // Physical stack still owns survival and legality. The same qualified
     // exposure prices retained-plan commitment and supplies a bounded wager.
-    const committedLegacy =
+    // FIXED-LIMIT CALL IS NOT A COMMITMENT (2026-11-14, Fixed-Limit lane,
+    // opt-in). The commitment test reads a stack-to-pot ratio under 1.2 or
+    // 30 percent of the stack already in as "the money is in" and prices the
+    // call in the committed branch, which adds the V20 multiway bar (commit20,
+    // up to 0.12) and the raised-class shades to pot odds. A fixed-limit call
+    // risks its own incremental cost, not a stack: a multiway flo8 pot
+    // outgrows a 50-big-blind stack by the river, so every river call there
+    // was priced as a stack-off (diagnostic harness: mean commit20 0.092,
+    // required 0.172 against a price of 0.050, 206 of 206 six-seat river
+    // folds). With the option on, a fixed-limit call is never committed: no
+    // stack-to-pot or invested-share term. It goes to the V38 verdicts, which
+    // price it with the remaining action of the street (flCallPrice above,
+    // HorseFixedLimitCallPrice.ts).
+    const fixedLimitCallNotCommitted =
+      opts.fixedLimitCallIsNotACommitment === true && vi.isFixedLimit;
+    const committedByStack =
       spr < 1.2 ||
       toCall >= stack ||
       (investedNow > 0 && investedNow / (commitmentStack + investedNow) >= 0.3);
+    const committedLegacy = !fixedLimitCallNotCommitted && committedByStack;
+    if (fixedLimitCallNotCommitted && committedByStack && toCall > 0 && tele15)
+      noteFire('fixed_limit_call_not_a_commitment_seen');
     // ═══ V66 BET, RAISED, ONE PAIR (2026-10-31) ═══ single-board hold'em,
     // flop or turn: hero bet (or raised) this street and now faces a raise,
     // holding the V61 bluff-catch class (one pair, or two pair through the
@@ -16408,9 +16570,10 @@ export class HorseLogic {
       const callable66 = Math.min(toCall, commitmentStack);
       const postCallSpr66 = (commitmentStack - callable66) / (pot + callable66);
       committed =
-        toCall >= stack ||
-        postCallSpr66 < 1 ||
-        (investedBefore66 > 0 && investedBefore66 / (commitmentStack + investedNow) >= 0.3);
+        !fixedLimitCallNotCommitted &&
+        (toCall >= stack ||
+          postCallSpr66 < 1 ||
+          (investedBefore66 > 0 && investedBefore66 / (commitmentStack + investedNow) >= 0.3));
       if (v66Class && tele15 && (shade66 > 0 || committed !== committedLegacy))
         noteFire('v66_bet_raised_one_pair');
       if (v87OmahaBetRaised && tele15 && (shade87Omaha > 0 || committed !== committedLegacy))
@@ -16421,9 +16584,10 @@ export class HorseLogic {
       const callable86 = Math.min(toCall, commitmentStack);
       const postCallSpr86 = (commitmentStack - callable86) / (pot + callable86);
       committed =
-        toCall >= stack ||
-        postCallSpr86 < 1 ||
-        (investedBefore86 > 0 && investedBefore86 / (commitmentStack + investedNow) >= 0.3);
+        !fixedLimitCallNotCommitted &&
+        (toCall >= stack ||
+          postCallSpr86 < 1 ||
+          (investedBefore86 > 0 && investedBefore86 / (commitmentStack + investedNow) >= 0.3));
     }
     // ═══ STYLE READ #4b COMMITMENT PRICE (2026-11-14, same switch) ═══ in
     // the reviewed hand the call left the raiser 0.13 of the pot: the river
@@ -16900,17 +17064,33 @@ export class HorseLogic {
         cat === 1 &&
         potFrac <= 0.35 &&
         actionPosterior86?.rangeCapped === true);
-    const valueRaiseThresh =
-      0.68 +
-      mw +
-      (isRiver ? 0.04 : 0) +
-      sprAdj +
-      dominationPenalty +
-      (spin23 ? -0.02 : 0) -
-      // Two pair or better only: against a wide bettor one pair is a
-      // bluff-catcher that calls and lets them keep firing (the trap and
-      // call-down reads own it); raising it only folds out their air.
-      (pressure53 && cat >= 3 ? pressure53.valueBarDrop : 0);
+    // SPEC-FL-03 (opt-in): fixed-limit hold'em, river, exactly one wager to
+    // answer on an uncapped street. The raise risks one bet, so the bar is
+    // the one-bet break-even and the no-limit frequency draw is not taken.
+    const flOneBetRaise93 =
+      opts.fixedLimitRiverOneBetValueRaise === true &&
+      !multiBoard36 &&
+      gs.bombPot !== true &&
+      fixedLimitOneBetValueRaise({
+        isFixedLimit: vi.isFixedLimit === true,
+        isOmaha: vi.isOmaha,
+        isRiver,
+        wagersOnStreet: isRiver ? streetWagerSignal(gs.actionHistory, 'river').wagers : 0,
+        wagersCapped: gs.wagersCapped === true,
+        raiseLegal: !Array.isArray(gs.legalActions) || gs.legalActions.includes('raise'),
+      });
+    const valueRaiseThresh = flOneBetRaise93
+      ? FIXED_LIMIT_ONE_BET_RAISE_BREAK_EVEN + mw + dominationPenalty
+      : 0.68 +
+        mw +
+        (isRiver ? 0.04 : 0) +
+        sprAdj +
+        dominationPenalty +
+        (spin23 ? -0.02 : 0) -
+        // Two pair or better only: against a wide bettor one pair is a
+        // bluff-catcher that calls and lets them keep firing (the trap and
+        // call-down reads own it); raising it only folds out their air.
+        (pressure53 && cat >= 3 ? pressure53.valueBarDrop : 0);
     if (bluffCatch64 && eq15 >= valueRaiseThresh) {
       if (tele15) noteFire('v64_river_raise_needs_two_pair');
     } else if (eq15 >= valueRaiseThresh) {
@@ -17017,11 +17197,12 @@ export class HorseLogic {
       const oopBoost = useIQ && !ip ? params.checkRaiseFreq * 0.6 : 0;
       const originalValueRaise =
         !(dangered && cat < 6) &&
-        fastRandom() <
-          Math.max(
-            0.55 * params.aggression + params.checkRaiseFreq + oopBoost,
-            pressure53 && cat >= 3 ? pressure53.raiseFloor : 0
-          );
+        (flOneBetRaise93 ||
+          fastRandom() <
+            Math.max(
+              0.55 * params.aggression + params.checkRaiseFreq + oopBoost,
+              pressure53 && cat >= 3 ? pressure53.raiseFloor : 0
+            ));
       const nearNutValueRaise =
         !originalValueRaise &&
         !(dangered && cat < 6) &&
@@ -17039,6 +17220,8 @@ export class HorseLogic {
         if (telemetryOn(opts) && nearNutValueRaise) noteFire('small_pot_near_nut_value_raise');
         if (tele15 && v86NearNutValueRaise) noteFire('v86_small_pot_near_nut_raise');
         if (tele15 && pressure53 && cat >= 3) noteFire('v53_pressure_value_raise');
+        if (tele15 && flOneBetRaise93 && originalValueRaise)
+          noteFire('fixed_limit_river_one_bet_value_raise');
         // V18 EXPLOIT SIZING: on the river, a station (valueThinMod > 1)
         // pays a bigger raise; a nit calls only what a smaller one asks.
         let sizeF = v86NearNutValueRaise
@@ -18099,7 +18282,7 @@ export class HorseLogic {
         if (v67Class) shade61 = shade67;
         const v = riverCallVerdict({
           indifference: evIndifference(),
-          equity: clamp01(eqRead38 - shade61 - shade87Omaha),
+          equity: clamp01(eqRead38 - shade61 - shade87Omaha - shadeFlCall),
           pot,
           toCall,
           stack,
@@ -18161,7 +18344,7 @@ export class HorseLogic {
         // shade is subtracted from the equity handed to the flop/turn
         // verdict, as V61 subtracts shade61 on the river. A draw carries
         // neither, so comboRaise38 is not affected.
-        equity: clamp01(eqRead38 - shade65 - shade66 - shade68 - shade87Omaha),
+        equity: clamp01(eqRead38 - shade65 - shade66 - shade68 - shade87Omaha - shadeFlCall),
         pot,
         toCall,
         stack,
