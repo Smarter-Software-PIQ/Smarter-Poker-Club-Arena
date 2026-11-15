@@ -27224,7 +27224,13 @@ function LiveTablePage({
 
   // A feeder can still deal ordinary hands while its Lightning switch is on.
   // Wait for a confirmed Classic answer before offering a table change.
+  /* NOT AT A TOURNAMENT (2026-11-15). The switch only shows or hides the
+     must-move Seat Change button, which exists at cash cluster tables alone.
+     At a tournament table it flipped a preference that changed nothing on the
+     screen: the silent button Dan reported. Tournament seats are assigned, so
+     the row is not offered there at all. */
   const seatChangeEnabled =
+    !tableState.isTournament &&
     !lightningRoom &&
     !lightningObserver &&
     (!tableState.clusterId ||
