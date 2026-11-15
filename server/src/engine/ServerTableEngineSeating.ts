@@ -1747,8 +1747,11 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
   } | null = null;
 
   /** Called by the dealing loop as a hand is dealt. */
-  protected beginCompletionPresentation(userIds: string[]): void {
-    this.completionPresentation = { players: new Set(userIds), deferred: new Map() };
+  protected beginCompletionPresentation(dealt: Array<{ user_id: string }>): void {
+    this.completionPresentation = {
+      players: new Set(dealt.map((p) => p.user_id)),
+      deferred: new Map(),
+    };
   }
 
   /**

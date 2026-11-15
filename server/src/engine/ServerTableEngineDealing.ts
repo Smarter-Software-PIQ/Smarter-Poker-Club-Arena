@@ -1280,16 +1280,9 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
 
         // Deal hand (self-transition: running → running for next hand)
         this.setLoopPhase('dealing');
-        // A SEAT STAYS UNTIL ITS POT HAS BEEN PUSHED (2026-11-15): from the
-        // deal until the completion hold ends, a participant's leave keeps
-        // the chair on the felt (ServerTableEngineSeating.completionPresentation).
-        this.beginCompletionPresentation(activePlayers.map((p) => p.user_id));
-        try {
-          await this.dealHand(activePlayers);
-        } catch (err) {
-          this.endCompletionPresentation();
-          throw err;
-        }
+        this.beginCompletionPresentation(activePlayers);
+        await this.dealHand(activePlayers);
+        // completionPresentation (Seating): the chair stays until its pot is pushed.
         if (!this.running) this.endCompletionPresentation();
         this.consecutiveErrors = 0;
 
@@ -1701,6 +1694,8 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           }
         }
       } catch (err) {
+        // A hand that died never reaches its completion hold (completionPresentation).
+        this.endCompletionPresentation();
         const errMsg =
           err instanceof Error
             ? err.message

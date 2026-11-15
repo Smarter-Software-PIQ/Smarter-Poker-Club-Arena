@@ -88,7 +88,7 @@ function makeEngineInCompletionHold() {
   }));
   // HAND_COMPLETE has fired: the controller is gone, the pot is not yet pushed.
   e.handController = null;
-  e.beginCompletionPresentation([HUMAN, HORSE]);
+  e.beginCompletionPresentation([{ user_id: HUMAN }, { user_id: HORSE }]);
   e.hub = { emitEvent: vi.fn(), publish: vi.fn(), sendToUser: vi.fn() };
   e.broadcastCurrentState = vi.fn(async () => undefined);
   e.inLiveLightningHand = vi.fn(async () => false);
@@ -146,7 +146,7 @@ describe('the dealing loop owns the window', () => {
   const dealing = readFileSync(join(here, 'ServerTableEngineDealing.ts'), 'utf8');
 
   it('opens it at the deal and closes it right after the completion hold', () => {
-    const open = dealing.indexOf('this.beginCompletionPresentation(activePlayers');
+    const open = dealing.indexOf('this.beginCompletionPresentation(activePlayers)');
     const deal = dealing.indexOf('await this.dealHand(activePlayers)');
     const hold = dealing.indexOf('await this.awaitHandCompletionDisplay(resultDisplayMs)');
     const close = dealing.indexOf('this.endCompletionPresentation()', hold);
