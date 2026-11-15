@@ -1412,6 +1412,50 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'facing a 3-bet or more from a credibly tight re-raiser the 4-bet and call bars rose, bounded; named *_seen',
     '2026-11-13'
   ),
+  flag(
+    'styleTightMultiSignal',
+    "2026-11-15 TIGHT BEYOND VPIP (opponent classifier C2): the style read's participation axis, when the VPIP-only and call-share routes leave it neutral, is tight if VPIP is credibly (90%) below the Horse VPIP mean of the cell and raise share (PFR / VPIP) is credibly above the Horse share plus 0.02 or fold to 3-bet credibly above the Horse mean plus 0.04 (8 or more decayed opportunities each), with VPIP and call share not high and raise share not credibly low (a caller-heavy player never qualifies); never overrides a loose read; consumers unchanged (#6a / #6b still need PFR credibly low; #2's tight route and the labels see the side); hold'em style read; default OFF, read === true only; evidence docs/horse-default-on.d/styleTightMultiSignal.md",
+    '2026-11-15'
+  ),
+  receipt(
+    'style_tight_multi_signal_seen',
+    'HorseMind.styleRead (styleTightMultiSignal)',
+    'a style read was made tight by the multi-signal route (VPIP credibly below the Horse mean, corroborated by raise share or fold to 3-bet); receipt.tightMultiSignal carries the posterior probabilities; counts reads; named *_seen',
+    '2026-11-15'
+  ),
+  flag(
+    'holdemManiacSampleGate',
+    "2026-11-15 A REGULAR IS NOT A MANIAC (opponent classifier C3): no-limit hold'em reads from HorseMind.opponentRead carry the maniac sample gate (HorseOpponentExploit.withManiacSampleGate) and maniacRaiseWidth then needs at least 15 decayed hands; its opener route needs PFR credibly (90%) above the size's regular line (Horse PFR P99 of the cell plus 0.10: full 0.2985, short 0.4566, heads-up 0.5326), first-in raising alone no longer qualifies; its re-raise route needs at least 8 decayed 3-bet opportunities; every maniac response keyed on maniacRaiseWidth sees the gated read; Omaha and fixed-limit untouched; default OFF, read === true only; evidence docs/horse-default-on.d/holdemManiacSampleGate.md",
+    '2026-11-15'
+  ),
+  receipt(
+    'maniac_sample_gate_withheld_seen',
+    'HorseMind.opponentRead (holdemManiacSampleGate)',
+    'the ungated read had a preflop maniac width and the gated read has none (thin sample, PFR not credibly beyond the regular line, or too few 3-bet opportunities); counts reads; named *_seen',
+    '2026-11-15'
+  ),
+  flag(
+    'holdemCallDownExcludesCurrentHand',
+    "2026-11-15 IN-HAND WAGERS ARE NOT HISTORY (opponent classifier C7 F1, HU-MEM-013 V6): in a hold'em decision the legacy aggression ratio behind the lifetime call-down multiplier (HorseMind.legacyExploit, ratio above 2.5 on 12+ actions sets 1.2) subtracts the opponent's own wagers in the hand being decided (HorseMind.currentHandWagers of the decision's action history, carried in the decision read options), never below zero, so the bets the Horse faces are not evidence that the same bettor bluffs; Omaha and every other read unchanged; default OFF, read === true only; evidence docs/horse-default-on.d/holdemCallDownExcludesCurrentHand.md",
+    '2026-11-15'
+  ),
+  receipt(
+    'holdem_call_down_excludes_current_hand_seen',
+    'HorseMind.legacyExploit (holdemCallDownExcludesCurrentHand)',
+    'the read with the current hand would have entered the maniac branch and the read without it does not; counts reads; named *_seen',
+    '2026-11-15'
+  ),
+  flag(
+    'holdemCallDownNeedsStyleEvidence',
+    "2026-11-15 ONE READ ANSWERS THE CALL-DOWN (opponent classifier C7 F2, HU-MEM-013 V6): in a hold'em decision whose scope bucket is under SCOPE_MIN_HANDS (the pooled tallies answer the lifetime read) and whose style read has no supported individual read, the legacy maniac call-down multiplier (1.2) stays neutral, so a multiplier the style layer cannot see never widens a call; reduced-to-two tables are the case found; default OFF, read === true only; evidence docs/horse-default-on.d/holdemCallDownNeedsStyleEvidence.md",
+    '2026-11-15'
+  ),
+  receipt(
+    'holdem_call_down_needs_style_evidence_seen',
+    'HorseMind.legacyExploit (holdemCallDownNeedsStyleEvidence)',
+    'the legacy maniac multiplier was held neutral because the pooled tallies answered and the style read had no supported individual read; counts reads; named *_seen',
+    '2026-11-15'
+  ),
   receipt(
     'style_long_shown_memory_seen',
     'HorseMind.styleRead (STYLE READ, long shown river memory)',

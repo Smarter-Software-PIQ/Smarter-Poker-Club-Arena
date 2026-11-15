@@ -2028,6 +2028,53 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { styleTightPlayerExploit: true },
     b: {},
   },
+  // 2026-11-15 C7 F1 (holdemCallDownExcludesCurrentHand, default OFF): a takes
+  // the hand being decided out of the legacy aggression ratio; b is today's.
+  // Production observes the hand before the read; a run without learning does
+  // not, and there the subtraction is clamped at zero.
+  {
+    name: 'nlh_call_down_excludes_current_hand',
+    pairs: 6000,
+    a: { holdemCallDownExcludesCurrentHand: true },
+    b: {},
+  },
+  // 2026-11-15 C7 F2 (holdemCallDownNeedsStyleEvidence, default OFF): a keeps
+  // the legacy maniac multiplier neutral when the pooled tallies answer and the
+  // style read has no evidence; b is today's. Expected near inert Horse vs Horse.
+  {
+    name: 'nlh_call_down_needs_style_evidence',
+    pairs: 6000,
+    a: { holdemCallDownNeedsStyleEvidence: true },
+    b: {},
+  },
+  // 2026-11-15 A REGULAR IS NOT A MANIAC (holdemManiacSampleGate, default OFF):
+  // a gates the preflop maniac width (15 decayed hands, PFR credibly beyond the
+  // size's regular line, 8 decayed 3-bet opportunities); b is today's read.
+  // Against a Horse field the maniac width rarely engages, so the card is
+  // expected to be near inert; its value question is against humans.
+  {
+    name: 'nlh_maniac_sample_gate',
+    pairs: 6000,
+    a: { holdemManiacSampleGate: true },
+    b: {},
+  },
+  // 2026-11-15 TIGHT BEYOND VPIP (styleTightMultiSignal, default OFF): a reads
+  // a neutral player tight when VPIP is credibly below the Horse mean and fold
+  // to 3-bet or raise share corroborates; b is today's read. The style read is
+  // taken only by a style consumer, so both arms switch on the two consumers
+  // that see the tight side (#2 and #6); the card measures the read alone.
+  // Against a Horse field the route is expected to be near inert.
+  {
+    name: 'nlh_style_tight_multi_signal',
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      styleTightMultiSignal: true,
+      styleValueBettorNotManiac: true,
+      styleTightReRaiserRespect: true,
+    },
+    b: { styleValueBettorNotManiac: true, styleTightReRaiserRespect: true },
+  },
   // 2026-11-14 OMAHA TIGHT STEAL (omahaTightOpponentSteal, default OFF): the
   // steal half of omahaTightOpponent alone, in OMAHA_TIGHT_STEAL_VARIANTS
   // (six-card only). Against a Horse field the evidence standard is rarely
