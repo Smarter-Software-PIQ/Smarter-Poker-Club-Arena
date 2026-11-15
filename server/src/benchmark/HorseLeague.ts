@@ -2953,12 +2953,12 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
   // fixed-limit arms. Refused, not dealt: this league cannot ask the question.
   ...(
     [
-      ['flh_river_full_bet_read', 'flh', { fixedLimitRiverFullBetRead: true }],
-      ['flo8_river_full_bet_read', 'flo8', { fixedLimitRiverFullBetRead: true }],
-      ['flo8_nut_low_river_bet', 'flo8', { fixedLimitHiLoNutLowRiverBet: true }],
-      ['flh_river_one_bet_value_raise', 'flh', { fixedLimitRiverOneBetValueRaise: true }],
+      ['flh_river_full_bet_read', 'flh', { fixedLimitRiverFullBetRead: true }, 1],
+      ['flo8_river_full_bet_read', 'flo8', { fixedLimitRiverFullBetRead: true }, 2],
+      ['flo8_nut_low_river_bet', 'flo8', { fixedLimitHiLoNutLowRiverBet: true }, 1],
+      ['flh_river_one_bet_value_raise', 'flh', { fixedLimitRiverOneBetValueRaise: true }, 0],
     ] as const
-  ).map(([name, variant, a]) => ({
+  ).map(([name, variant, a, d]) => ({
     name,
     variant,
     seats: 2,
@@ -2967,8 +2967,12 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
     reason:
       'Unanswerable by this league: playHand deals no-limit and pot-limit betting and has no ' +
       'fixed-limit street unit, wager cap or controller menu, and every gate of this option ' +
-      'requires a fixed-limit state (HorseLogic: vi.isFixedLimit). The option is DEFAULT OFF ' +
-      '(read as === true). What would change this: the fixed-limit duplicate league of the ' +
+      'requires a fixed-limit state (HorseLogic: vi.isFixedLimit). The option is DEFAULT OFF (read as === true). ' +
+      'Measured 2026-11-15 by running this refused matchup through runMatchup (seed 20261115, 300 pairs): ' +
+      `${d} of 300 pairs diverged. The league deals the variant's cards with its own betting while ` +
+      'HorseLogic takes the fixed-limit path from the variant name, so that divergence is not a ' +
+      'fixed-limit measurement and decides nothing. ' +
+      'What would change this: the fixed-limit duplicate league of the ' +
       'Fixed-Limit lane evaluation protocol (real HandController, flh and flo8, six seats and ' +
       'heads-up), which is not built yet; until it is, the fixtures in ' +
       'AFixedLimitRiverBetIsReadAsAFullBet.law.test.ts and its two siblings are the only evidence.',
@@ -2977,10 +2981,10 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
   // fixed-limit arm. Refused, not dealt: this league cannot ask the question.
   ...(
     [
-      ['flo8_call_is_not_a_commitment', 'flo8', 6, { fixedLimitCallIsNotACommitment: true }],
-      ['flh_call_is_not_a_commitment', 'flh', 6, { fixedLimitCallIsNotACommitment: true }],
+      ['flo8_call_is_not_a_commitment', 'flo8', 6, { fixedLimitCallIsNotACommitment: true }, 11],
+      ['flh_call_is_not_a_commitment', 'flh', 6, { fixedLimitCallIsNotACommitment: true }, 6],
     ] as const
-  ).map(([name, variant, seats, a]) => ({
+  ).map(([name, variant, seats, a, d]) => ({
     name,
     variant,
     seats,
@@ -2989,29 +2993,37 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
     reason:
       'Unanswerable by this league: playHand deals no-limit and pot-limit betting and has no ' +
       'fixed-limit street unit, wager cap or controller menu, and every gate of this option ' +
-      'requires a fixed-limit state (HorseLogic: vi.isFixedLimit). The option is DEFAULT OFF ' +
-      '(read as === true). What would change this: a fixed-limit duplicate league (real ' +
+      'requires a fixed-limit state (HorseLogic: vi.isFixedLimit). The option is DEFAULT OFF (read as === true). ' +
+      'Measured 2026-11-15 by running this refused matchup through runMatchup (seed 20261115, 300 pairs): ' +
+      `${d} of 300 pairs diverged. The league deals the variant's cards with its own betting while ` +
+      'HorseLogic takes the fixed-limit path from the variant name, so that divergence is not a ' +
+      'fixed-limit measurement and decides nothing. ' +
+      'What would change this: a fixed-limit duplicate league (real ' +
       'HandController, flh and flo8, heads-up and six seats); until it is built, the fixtures in ' +
       'AFixedLimitCallIsNotACommitment.law.test.ts and the Fixed-Limit lane diagnostic-harness measurements are the only evidence.',
   })),
   // 2026-11-14 (Fixed-Limit lane, adaptation fix F3, the hi-lo low half): a default-off
   // fixed-limit arm. Refused, not dealt: this league cannot ask the question.
-  ...([['flo8_hilo_low_half_floor', 'flo8', 6, { fixedLimitHiLoLowHalfFloor: true }]] as const).map(
-    ([name, variant, seats, a]) => ({
-      name,
-      variant,
-      seats,
-      a,
-      b: {},
-      reason:
-        'Unanswerable by this league: playHand deals no-limit and pot-limit betting and has no ' +
-        'fixed-limit street unit, wager cap or controller menu, and every gate of this option ' +
-        'requires a fixed-limit state (HorseLogic: vi.isFixedLimit). The option is DEFAULT OFF ' +
-        '(read as === true). What would change this: a fixed-limit duplicate league (real ' +
-        'HandController, flh and flo8, heads-up and six seats); until it is built, the fixtures in ' +
-        'AFixedLimitHiLoLowHalfIsKept.law.test.ts and the Fixed-Limit lane diagnostic-harness measurements are the only evidence.',
-    })
-  ),
+  ...(
+    [['flo8_hilo_low_half_floor', 'flo8', 6, { fixedLimitHiLoLowHalfFloor: true }, 6]] as const
+  ).map(([name, variant, seats, a, d]) => ({
+    name,
+    variant,
+    seats,
+    a,
+    b: {},
+    reason:
+      'Unanswerable by this league: playHand deals no-limit and pot-limit betting and has no ' +
+      'fixed-limit street unit, wager cap or controller menu, and every gate of this option ' +
+      'requires a fixed-limit state (HorseLogic: vi.isFixedLimit). The option is DEFAULT OFF (read as === true). ' +
+      'Measured 2026-11-15 by running this refused matchup through runMatchup (seed 20261115, 300 pairs): ' +
+      `${d} of 300 pairs diverged. The league deals the variant's cards with its own betting while ` +
+      'HorseLogic takes the fixed-limit path from the variant name, so that divergence is not a ' +
+      'fixed-limit measurement and decides nothing. ' +
+      'What would change this: a fixed-limit duplicate league (real ' +
+      'HandController, flh and flo8, heads-up and six seats); until it is built, the fixtures in ' +
+      'AFixedLimitHiLoLowHalfIsKept.law.test.ts and the Fixed-Limit lane diagnostic-harness measurements are the only evidence.',
+  })),
   // 2026-11-14 (Fixed-Limit lane, tight fix T1, the Omaha presumption): a
   // default-off fixed-limit arm. Refused, not dealt: this league cannot ask the question.
   {
@@ -3024,7 +3036,11 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'Unanswerable by this league: playHand deals no-limit and pot-limit betting and has no ' +
       'fixed-limit street unit, wager cap or controller menu, and the option acts only on a ' +
       'fixed-limit Omaha decision (HorseMind.opponentRead: bettingStructureFor(variant) === ' +
-      "'fixed_limit'). The option is DEFAULT OFF (read as === true). What would change this: a " +
+      "'fixed_limit'). The option is DEFAULT OFF (read as === true). " +
+      'Measured 2026-11-15 by running this refused matchup through runMatchup (seed 20261115, 300 pairs): ' +
+      "81 of 300 pairs diverged. The league deals the variant's cards with its own betting while " +
+      'HorseMind reads the variant name as fixed limit, so that divergence is not a fixed-limit ' +
+      'measurement and decides nothing. What would change this: a ' +
       'fixed-limit duplicate league (real HandController, flo8, heads-up and three seats, tight ' +
       'and maniac fields); until it is built, the fixtures in ' +
       'AFixedLimitOmahaHasNoPresumption.law.test.ts and the Fixed-Limit lane diagnostic-harness measurements are the only evidence.',
