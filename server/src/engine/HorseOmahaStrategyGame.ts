@@ -63,6 +63,20 @@ export const OMAHA_STRATEGY_CONSTANT_DEFAULTS = Object.freeze({
    * out. 1: only one no bigger full house beats (PLO6 lane, H9).
    */
   turnRedrawNutFullHouseOnly: 0,
+  /**
+   * HorseOmahaCardImpact OMAHA_CARD_IMPACT_DISTINCT_DRAW_OUTS (a switch: 0 or
+   * 1). 0: a sampled hand's draw outs are the fixed form (flush 9 or 5.4,
+   * three per straight rank, added). 1: every live completing card once, a
+   * non-nut flush card 0.6 (PLO6 lane, H19).
+   */
+  cardImpactDistinctDrawOuts: 0,
+  /**
+   * HorseOmahaBigDrawAggression OMAHA_BIG_DRAW_CONTINUE_STRAIGHT_OUTS. 0: no
+   * straight draw is in the range that continues against a bet. N > 0: a
+   * hand with N or more straight outs continues against a bet (PLO6 lane,
+   * H15: 13).
+   */
+  bigDrawContinueStraightOuts: 0,
 });
 export type OmahaStrategyConstantKey = keyof typeof OMAHA_STRATEGY_CONSTANT_DEFAULTS;
 export type OmahaPlo6StrategyCalibration = Partial<Record<OmahaStrategyConstantKey, number>>;

@@ -78,7 +78,8 @@
  */
 import type { Card, SeatPlayer } from '../types.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
-import { RANKS, SUITS } from './PokerEngine.js';
+import { RANKS, RANK_VALUES, SUITS } from './PokerEngine.js';
+import { omahaRankMask, omahaStraightOutRanks } from './HorseOmahaCardImpact.js';
 import { omahaNutStatus, scoreOmahaHi, scoreOmahaHiPartial, variantInfo } from './HorseEval.js';
 import { omahaCashOnlyExcludes, omahaIcmPremiumOf } from './HorseOmahaTournamentScope.js';
 import {
@@ -389,8 +390,37 @@ function drawSuits(board: readonly Card[]): Array<{ suit: string; top: number }>
   return out;
 }
 
-/** 0 = does not continue; 1 = continues against a bet; 2 = continues against a raise too. */
-export function omahaBigDrawContinues(opp: readonly Card[], board: readonly Card[]): 0 | 1 | 2 {
+/**
+ * The straight outs at which an opponent hand that holds nothing else of the
+ * continuing range continues against a bet; 0: straight draws are not in the
+ * continuing range (PLO4/PLO5, as the option was measured). Read per game
+ * through omahaStrategyConstant('bigDrawContinueStraightOuts'); the PLO6
+ * lane's value is 13, the wrap line of omahaBigDraw (H15).
+ */
+export const OMAHA_BIG_DRAW_CONTINUE_STRAIGHT_OUTS = 0;
+
+/**
+ * The next cards that give this hand a straight under the two-card rule: for
+ * every rank that completes one, the four cards of it less the copies the
+ * hand holds itself. By rank (a card that also completes a flush is counted).
+ */
+export function omahaBigDrawStraightOutCards(opp: readonly Card[], board: readonly Card[]): number {
+  let outs = 0;
+  for (const r of omahaStraightOutRanks(omahaRankMask(opp), omahaRankMask(board)))
+    outs += 4 - opp.filter((c) => RANK_VALUES[c.rank] === r).length;
+  return outs;
+}
+
+/**
+ * 0 = does not continue; 1 = continues against a bet; 2 = continues against a raise too.
+ * `straightOutsToContinue` (default 0: off, the range as it was): a hand
+ * outside the range with at least that many straight outs continues against a bet.
+ */
+export function omahaBigDrawContinues(
+  opp: readonly Card[],
+  board: readonly Card[],
+  straightOutsToContinue = 0
+): 0 | 1 | 2 {
   const cat = catOf([...opp], [...board]);
   if (cat >= 4) return 2;
   let fd = false;
@@ -408,6 +438,11 @@ export function omahaBigDrawContinues(opp: readonly Card[], board: readonly Card
   }
   if (nfd) return cat === 2 ? 2 : 1;
   if (cat === 2 && fd && strongPair(opp, board, cat)) return 1;
+  if (
+    straightOutsToContinue > 0 &&
+    omahaBigDrawStraightOutCards(opp, board) >= straightOutsToContinue
+  )
+    return 1;
   return 0;
 }
 
@@ -448,11 +483,15 @@ export function omahaBigDrawEquities(
   const won = [0, 0, 0];
   const got = [0, 0, 0];
   const h = [...hole];
+  // Straight draws in the continuing range: none in PLO4/PLO5 (the key reads 0).
+  const continueStraightOuts = omahaStrategyConstant('bigDrawContinueStraightOuts', {
+    gameVariant: `plo${size}`,
+  });
   for (let k = 0; k < samples; k++) {
     const d = deck.slice();
     draw(size, d, 0);
     const opp = d.slice(0, size);
-    const level = omahaBigDrawContinues(opp, board);
+    const level = omahaBigDrawContinues(opp, board, continueStraightOuts);
     let share = 0;
     for (let r = 0; r < OMAHA_BIG_DRAW_RUNOUTS; r++) {
       draw(need, d, size);

@@ -8,6 +8,9 @@
  *        4 or 5, so a rule whose game gate admits PLO6 is not silently off.
  *   H9   omahaTurnRedrawShare can count only the full houses no bigger full
  *        house beats (the PLO6 lane's calibration switches it on for PLO6).
+ *   H19  the card impact's draw outs of a sampled hand can be the distinct
+ *        live completing cards instead of fixed flush and straight counts.
+ *   H15  the big draw's continuing range can hold straight draws (13 outs).
  *
  * The PLO4/PLO5 pins below were computed on the base head 8e6bbbea675, before
  * any of these changes, over the same fixed deals.
@@ -30,6 +33,9 @@ import { omahaTurnRedrawShare, omahaTurnRedrawShareOf } from './HorseOmahaMadeHa
 import { omahaBluffCatcherCell, v81Cell, type BluffCatcherInput } from './HorseOmahaBigBetCalls.js';
 import {
   omahaBigDraw,
+  omahaBigDrawContinues,
+  omahaBigDrawEquities,
+  omahaBigDrawStraightOutCards,
   omahaBigDrawVerdict,
   omahaDrawRaiseBar,
   type OmahaBigDrawInput,
@@ -43,11 +49,13 @@ import {
 } from './HorseOmahaStreetPlan.js';
 import {
   omahaCardImpactDecision,
+  omahaCardImpactDrawOuts,
   omahaCardImpactResetCache,
   omahaCardImpactScope,
 } from './HorseOmahaCardImpact.js';
 import { stateAt, type ComplaintFixture } from './HorseComplaintReplay.js';
 import type { Card, CardRank, CardSuit, HorseDecision } from '../types.js';
+import ACES from './horseComplaints/plo5-aces-up-leads-the-board-pairing-river-into-a-two-street-caller.fixture.json';
 import STRAIGHT from './horseComplaints/plo5-straight-barrels-the-board-pairing-turn-then-folds-the-river.fixture.json';
 
 const SUIT: Record<string, CardSuit> = { c: 'clubs', d: 'diamonds', h: 'hearts', s: 'spades' };
@@ -341,5 +349,157 @@ describe('H9: the turn redraw share can count only the full houses no bigger one
       10 / 43,
       9
     );
+  });
+});
+
+describe('H19: the draw outs of a sampled hand in the card impact', () => {
+  const FLOP = cards('Th7h2c');
+  const liveFor = (...seen: Card[][]): Card[] => {
+    const gone = new Set(seen.flat().map((c) => `${c.rank}${c.suit}`));
+    return DECK.filter((c) => !gone.has(`${c.rank}${c.suit}`));
+  };
+
+  it('fixed form (PLO4/PLO5): flush 9 or 5.4, three per straight rank, added, whatever is held', () => {
+    // the nut heart draw, and a six or a jack makes a straight
+    expect(omahaCardImpactDrawOuts(cards('AhKh9s8c'), FLOP, null)).toBe(15);
+    // four hearts in the hand: still nine flush outs
+    expect(omahaCardImpactDrawOuts(cards('AhKh5h4h9s8c'), FLOP, null)).toBe(15);
+    // a heart draw that is not the nut draw
+    expect(omahaCardImpactDrawOuts(cards('9h8hKsQc'), FLOP, null)).toBeCloseTo(11.4, 9);
+    expect(omahaCardImpactDrawOuts(cards('AhKh9s8c'), cards('Th7h2c3d4s'), null)).toBe(0);
+  });
+
+  it('distinct form: every live completing card once; held and dead cards are not outs', () => {
+    const four = cards('AhKh9s8c');
+    // nine hearts are left, and three sixes and three jacks that are not hearts
+    expect(omahaCardImpactDrawOuts(four, FLOP, liveFor(four, FLOP))).toBe(15);
+    // the Horse holds two hearts and a six: three outs fewer
+    expect(omahaCardImpactDrawOuts(four, FLOP, liveFor(four, FLOP, cards('Qh3h6s')))).toBe(12);
+    // six cards with four hearts: seven hearts are left, not nine
+    const six = cards('AhKh5h4h9s8c');
+    expect(omahaCardImpactDrawOuts(six, FLOP, liveFor(six, FLOP))).toBe(13);
+    // not the nut draw: the six and the jack of hearts count once (1), the other seven hearts 0.6
+    const weak = cards('9h8hKsQc');
+    expect(omahaCardImpactDrawOuts(weak, FLOP, liveFor(weak, FLOP))).toBeCloseTo(
+      2 + 7 * 0.6 + 6,
+      9
+    );
+    expect(omahaCardImpactDrawOuts(four, cards('Th7h2c3d4s'), liveFor(four))).toBe(0);
+  });
+
+  const impactDigest = (): string => {
+    const digest = createHash('sha256');
+    for (const [fx, ord] of [
+      [ACES, 16],
+      [ACES, 18],
+      [STRAIGHT, 16],
+      [STRAIGHT, 18],
+    ] as const) {
+      const f = JSON.parse(JSON.stringify(fx)) as ComplaintFixture;
+      const st = stateAt(f, f.actions.find((a) => a.ord === ord)!);
+      const r = omahaCardImpactDecision({ action: 'check' } as HorseDecision, st.hero, st.gs, null);
+      digest.update(JSON.stringify(r?.impact ?? null));
+    }
+    return digest.digest('hex');
+  };
+
+  it('PLO5: the whole card impact of the four recorded nodes is as before, with or without a PLO6 calibration (pinned)', () => {
+    const PIN = 'cd3685c0a30c325d1d270f9f31b46574d6ca90d2223c2a4459a57c123e59d0f9';
+    expect(impactDigest()).toBe(PIN);
+    omahaCardImpactResetCache();
+    registerOmahaPlo6StrategyCalibration({ cardImpactDistinctDrawOuts: 1 });
+    expect(omahaStrategyConstant('cardImpactDistinctDrawOuts', { gameVariant: 'plo5' })).toBe(0);
+    expect(omahaStrategyConstant('cardImpactDistinctDrawOuts', { gameVariant: 'plo4' })).toBe(0);
+    expect(impactDigest()).toBe(PIN);
+  });
+
+  it('PLO6: the fixed form until its calibration sets the switch; then the distinct form prices the turn', () => {
+    const six = turnNodePlo6();
+    const check = { action: 'check' } as HorseDecision;
+    const price = () =>
+      plo6On(() => JSON.stringify(omahaCardImpactDecision(check, six.hero, six.gs, null)?.impact));
+    const fixed = price();
+    expect(fixed).not.toBe('undefined');
+    omahaCardImpactResetCache();
+    expect(price()).toBe(fixed);
+    omahaCardImpactResetCache();
+    registerOmahaPlo6StrategyCalibration({ cardImpactDistinctDrawOuts: 1 });
+    const distinct = price();
+    expect(distinct).not.toBe('undefined');
+    expect(distinct).not.toBe(fixed);
+    // the Horse's own counts do not depend on the sampled range's draw outs
+    expect(JSON.parse(distinct).own).toEqual(JSON.parse(fixed).own);
+  });
+});
+
+describe('H15: straight draws in the range that continues against a big-draw bet', () => {
+  const FLOP = cards('9h8d3s');
+
+  it('the straight outs of a hand: the thirteen-out wrap, by rank with the held copies removed', () => {
+    // a seven (four), and a ten, jack or queen (three each: one of each is held)
+    expect(omahaBigDrawStraightOutCards(cards('QsJdTc2h'), FLOP)).toBe(13);
+    expect(omahaBigDrawStraightOutCards(cards('JsTd4c2h'), FLOP)).toBe(8);
+    expect(omahaBigDrawStraightOutCards(cards('KsKd4c2h'), FLOP)).toBe(0);
+    // a made straight has no straight outs
+    expect(omahaBigDrawStraightOutCards(cards('JsTd4c2h'), cards('9h8d7s'))).toBe(0);
+  });
+
+  it('off (0, PLO4/PLO5): a wrap does not continue; at 13 it continues against a bet only', () => {
+    const wrap = cards('QsJdTc2h');
+    expect(omahaBigDrawContinues(wrap, FLOP)).toBe(0);
+    expect(omahaBigDrawContinues(wrap, FLOP, 0)).toBe(0);
+    expect(omahaBigDrawContinues(wrap, FLOP, 13)).toBe(1);
+    expect(omahaBigDrawContinues(wrap, FLOP, 14)).toBe(0);
+    expect(omahaBigDrawContinues(cards('JsTd4c2h'), FLOP, 13)).toBe(0);
+    // the rest of the range is unchanged by the argument
+    for (const hand of ['9s9d4c2h', '9s8s4c2h', 'KsKd4c2h', 'AsQd4c2h'])
+      expect(omahaBigDrawContinues(cards(hand), FLOP, 13)).toBe(
+        omahaBigDrawContinues(cards(hand), FLOP)
+      );
+  });
+
+  it('PLO4/PLO5: the range and the equities are as before, with or without a PLO6 calibration (pinned)', () => {
+    const CONTINUES: Record<number, string> = {
+      4: '248fa14581488c943ed4cffff24edf269a33a14aa50ec135d34cf79e62741eec',
+      5: 'd2f11b5d551b8a227d604c94d6f65c6a7610bf3794dd0a83cd00c944e5bd2549',
+    };
+    const EQUITIES: Record<number, string> = {
+      4: '367ccdf0a16fbd3b6dde515555888028815ad1c524ea33489f4c00765ce45b8f',
+      5: '04897a23a1301d49756d176401422d4e9620fffa5b2df9ed22c0176aad264e5b',
+    };
+    for (const calibration of [{}, { bigDrawContinueStraightOuts: 13 }]) {
+      registerOmahaPlo6StrategyCalibration(calibration);
+      for (const h of [4, 5]) {
+        expect(
+          omahaStrategyConstant('bigDrawContinueStraightOuts', { gameVariant: `plo${h}` })
+        ).toBe(0);
+        const range = createHash('sha256');
+        for (const boardCount of [3, 4])
+          for (const { hole, board } of deals(h, boardCount, 400, 7000 + h + boardCount))
+            range.update(`${omahaBigDrawContinues(hole, board)}`);
+        expect(range.digest('hex')).toBe(CONTINUES[h]);
+        const equities = createHash('sha256');
+        for (const { hole, board } of deals(h, 3, 12, 5000 + h))
+          equities.update(JSON.stringify(omahaBigDrawEquities(hole, board)));
+        expect(equities.digest('hex')).toBe(EQUITIES[h]);
+      }
+    }
+  });
+
+  it('PLO6: the range as it was until its calibration sets 13 outs; then wraps join the range that continues', () => {
+    const hole = cards('AhJh9s7c4d3s');
+    const board = cards('Th8h2c');
+    const before = omahaBigDrawEquities(hole, board)!;
+    registerOmahaPlo6StrategyCalibration({ bigDrawContinueStraightOuts: 13 });
+    const after = omahaBigDrawEquities(hole, board)!;
+    // the same sampled hands and run-outs: only the range they are put in moves
+    expect(after.all).toBe(before.all);
+    expect(after.bet).not.toBe(before.bet);
+    // five cards are untouched by the PLO6 value
+    const five = cards('AhJh9s7c4d');
+    registerOmahaPlo6StrategyCalibration({});
+    const fiveBefore = omahaBigDrawEquities(five, board);
+    registerOmahaPlo6StrategyCalibration({ bigDrawContinueStraightOuts: 13 });
+    expect(omahaBigDrawEquities(five, board)).toEqual(fiveBefore);
   });
 });

@@ -360,8 +360,12 @@ export interface OmahaCardImpactInput {
 const cache = new Map<string, OmahaCardImpact | null>();
 const CACHE_MAX = 128;
 
-/** Straight-draw rank outs by rank masks (bit r = rank value r, ace also bit 1). */
-function straightRankOuts(holeMask: number, boardMask: number): number {
+/**
+ * The ranks (2 to 14) whose arrival gives the hand a straight it does not
+ * hold, by rank masks (bit r = rank value r, ace also bit 1), under the
+ * two-card rule. Empty when the hand already holds a straight.
+ */
+export function omahaStraightOutRanks(holeMask: number, boardMask: number): number[] {
   const made = (bm: number): boolean => {
     for (let top = 14; top >= 5; top--) {
       let w = 0;
@@ -376,17 +380,22 @@ function straightRankOuts(holeMask: number, boardMask: number): number {
     }
     return false;
   };
-  if (made(boardMask)) return 0;
-  let outs = 0;
+  const out: number[] = [];
+  if (made(boardMask)) return out;
   for (let r = 2; r <= 14; r++) {
     const bit = (1 << r) | (r === 14 ? 2 : 0);
     if (boardMask & (1 << r)) continue;
-    if (made(boardMask | bit)) outs++;
+    if (made(boardMask | bit)) out.push(r);
   }
-  return outs;
+  return out;
 }
 
-const rankMask = (cards: Card[]): number => {
+/** Straight-draw rank outs by rank masks (bit r = rank value r, ace also bit 1). */
+const straightRankOuts = (holeMask: number, boardMask: number): number =>
+  omahaStraightOutRanks(holeMask, boardMask).length;
+
+/** The rank mask of some cards (bit r = rank value r, ace also bit 1). */
+export const omahaRankMask = (cards: readonly Card[]): number => {
   let m = 0;
   for (const c of cards) {
     const v = RANK_VALUES[c.rank];
@@ -395,6 +404,56 @@ const rankMask = (cards: Card[]): number => {
   }
   return m;
 };
+const rankMask = omahaRankMask;
+
+/**
+ * 0: the draw outs of a sampled hand are the fixed form below (PLO4/PLO5, as
+ * the option was measured). 1: the distinct form (PLO6 lane, H19). Read per
+ * game through omahaStrategyConstant('cardImpactDistinctDrawOuts').
+ */
+export const OMAHA_CARD_IMPACT_DISTINCT_DRAW_OUTS = 0;
+
+/**
+ * The draw outs of a hand before the river (0 on a five-card board).
+ *
+ * Fixed form (`live` null; PLO4/PLO5): a flush draw is 9 outs when it is the
+ * nut draw and 5.4 otherwise, however many of the suit are held or gone; a
+ * straight draw is 3 outs for every rank that completes it; the two are
+ * added, so a card that completes both is counted twice.
+ *
+ * Distinct form (`live` = the cards that can still come: not in this hand,
+ * not in the Horse's hand, not on the board; PLO6 lane 2026-11-15, H19):
+ * every live card that completes the flush or a straight is counted once; a
+ * card that only completes a flush that is not the nut flush counts 0.6
+ * (5.4 / 9, the fixed form's own weight).
+ */
+export function omahaCardImpactDrawOuts(
+  hand: readonly Card[],
+  b: readonly Card[],
+  live: readonly Card[] | null
+): number {
+  if (b.length >= 5) return 0;
+  let outs = 0;
+  const flush = new Map<string, number>();
+  for (const suit of SUITS) {
+    const onBoard = b.filter((c) => c.suit === suit);
+    if (onBoard.length !== 2) continue;
+    const mine = hand.filter((c) => c.suit === suit);
+    if (mine.length < 2) continue;
+    const taken = new Set(onBoard.map((c) => RANK_VALUES[c.rank]));
+    let topFree = 14;
+    while (taken.has(topFree)) topFree--;
+    const nut = mine.some((c) => RANK_VALUES[c.rank] === topFree);
+    outs = Math.max(outs, nut ? 9 : 5.4);
+    flush.set(suit, nut ? 1 : 0.6);
+  }
+  if (live === null) return outs + straightRankOuts(rankMask(hand), rankMask(b)) * 3;
+  const ranks = new Set(omahaStraightOutRanks(rankMask(hand), rankMask(b)));
+  let distinct = 0;
+  for (const c of live)
+    distinct += Math.max(flush.get(c.suit) ?? 0, ranks.has(RANK_VALUES[c.rank]) ? 1 : 0);
+  return distinct;
+}
 
 /** The whole computation. Null when it cannot be made. */
 export function omahaCardImpact(input: OmahaCardImpactInput): OmahaCardImpact | null {
@@ -417,6 +476,7 @@ export function omahaCardImpact(input: OmahaCardImpactInput): OmahaCardImpact | 
     read,
     input.amounts.map(round2),
     input.seedSalt ?? 0,
+    omahaStrategyConstant('cardImpactDistinctDrawOuts', { gameVariant: `plo${hole.length}` }),
   ]);
   const hit = cache.get(cacheKey);
   if (hit !== undefined)
@@ -574,23 +634,22 @@ export function omahaCardImpact(input: OmahaCardImpactInput): OmahaCardImpact | 
     sFlop[k] = tFlop === tPrev ? sPrev[k] : best(k, tFlop);
   }
   // Draw outs before the river, by suit and rank counts.
+  // (omahaCardImpactDrawOuts: the fixed form, or for a game whose calibration
+  // sets cardImpactDistinctDrawOuts the distinct live cards.)
+  const distinctOuts =
+    omahaStrategyConstant('cardImpactDistinctDrawOuts', { gameVariant: `plo${h}` }) === 1;
   const outsOf = (k: number, b: Card[]): number => {
     if (b.length >= 5) return 0;
     const cards: Card[] = [];
     for (let c = 0; c < h; c++) cards.push(unseen[hands[k * h + c]]);
-    let outs = 0;
-    for (const suit of SUITS) {
-      const onBoard = b.filter((c) => c.suit === suit);
-      if (onBoard.length !== 2) continue;
-      const mine = cards.filter((c) => c.suit === suit);
-      if (mine.length < 2) continue;
-      const taken = new Set(onBoard.map((c) => RANK_VALUES[c.rank]));
-      let topFree = 14;
-      while (taken.has(topFree)) topFree--;
-      const nut = mine.some((c) => RANK_VALUES[c.rank] === topFree);
-      outs = Math.max(outs, nut ? 9 : 5.4);
-    }
-    return outs + straightRankOuts(rankMask(cards), rankMask(b)) * 3;
+    if (!distinctOuts) return omahaCardImpactDrawOuts(cards, b, null);
+    // What could still come on that board: the cards nobody is known to hold
+    // (his own removed), and the board cards dealt after it.
+    const live: Card[] = board.slice(b.length);
+    const mine = new Set<number>();
+    for (let c = 0; c < h; c++) mine.add(hands[k * h + c]);
+    for (let u = 0; u < n; u++) if (!mine.has(u)) live.push(unseen[u]);
+    return omahaCardImpactDrawOuts(cards, b, live);
   };
   const drawOf = (k: number, b: Card[]): number =>
     Math.min(0.6, outsOf(k, b) * (b.length === 3 ? 0.038 : 0.021));

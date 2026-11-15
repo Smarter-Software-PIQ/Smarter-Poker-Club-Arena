@@ -37,12 +37,20 @@ import {
   OMAHA_OOP_TURN_SHOWDOWN_CREDIT,
   OMAHA_OOP_TURN_TOKEN_PRICE,
 } from './HorseOmahaOopChecks.js';
-import { OMAHA_CARD_IMPACT_MARGIN, OMAHA_CARD_IMPACT_VARIANTS } from './HorseOmahaCardImpact.js';
+import {
+  OMAHA_CARD_IMPACT_DISTINCT_DRAW_OUTS,
+  OMAHA_CARD_IMPACT_MARGIN,
+  OMAHA_CARD_IMPACT_VARIANTS,
+} from './HorseOmahaCardImpact.js';
 import {
   OMAHA_STREET_PLAN_MARGIN_POT_SHARE,
   OMAHA_STREET_PLAN_VARIANTS,
 } from './HorseOmahaStreetPlan.js';
-import { OMAHA_BIG_DRAW_MARGIN, OMAHA_BIG_DRAW_VARIANTS } from './HorseOmahaBigDrawAggression.js';
+import {
+  OMAHA_BIG_DRAW_CONTINUE_STRAIGHT_OUTS,
+  OMAHA_BIG_DRAW_MARGIN,
+  OMAHA_BIG_DRAW_VARIANTS,
+} from './HorseOmahaBigDrawAggression.js';
 import {
   OMAHA_RAISE_NEEDS_NUTS_FOLD_PRICE,
   OMAHA_RAISE_NEEDS_NUTS_VARIANTS,
@@ -160,6 +168,8 @@ describe('omahaStrategyConstant', () => {
     bigBetPotShare: OMAHA_BIG_BET_POT_SHARE,
     tournamentPushFoldMaxBB: OMAHA_TOURNAMENT_PUSH_FOLD_MAX_BB,
     turnRedrawNutFullHouseOnly: OMAHA_TURN_REDRAW_NUT_FULL_HOUSE_ONLY,
+    cardImpactDistinctDrawOuts: OMAHA_CARD_IMPACT_DISTINCT_DRAW_OUTS,
+    bigDrawContinueStraightOuts: OMAHA_BIG_DRAW_CONTINUE_STRAIGHT_OUTS,
   };
 
   it("the defaults are the modules' own constants, for every game", () => {
