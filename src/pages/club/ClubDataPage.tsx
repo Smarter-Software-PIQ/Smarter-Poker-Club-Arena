@@ -57,6 +57,8 @@ import {
   coverageNotices,
   coverageWindowLabel,
   isCalendarDate,
+  isUnionClubAnswer,
+  UNION_BASIS_DEFINITIONS,
   type ClubDataCoverage,
   type ClubDataDayBasis,
 } from '../../lib/clubDataDay';
@@ -621,6 +623,20 @@ function isInvoiceRow(value: unknown): value is InvoiceRow {
   return Math.round(value.outstanding * 100) === Math.max(amountCents - paidCents, 0);
 }
 
+/**
+ * A UNION CLUB'S READER CLAMPS THE LAST DAY TO THE ACCOUNTING DAY STILL OPEN
+ * (stage 2). Until an answer states the basis, this page asks for the
+ * calendar day; between midnight and 02:00 Chicago that is one day past the
+ * open accounting day, so a union club answers for the day before. True when
+ * `answeredEnd` is exactly that clamp of `requestedEnd`: the answer is not
+ * an error, it tells the page its basis, and the page re-reads the window it
+ * actually holds instead of painting or caching one it did not ask for.
+ */
+function isAccountingDayClamp(answeredEnd: unknown, requestedEnd: string): boolean {
+  const open = clubDataDayOn('accounting');
+  return answeredEnd === open && requestedEnd > open;
+}
+
 function isValidDate(value: unknown): value is string {
   return typeof value === 'string' && Number.isFinite(Date.parse(value));
 }
@@ -991,6 +1007,13 @@ export default function ClubDataPage() {
   const dayBasisRef = useRef<ClubDataDayBasis>('calendar');
   dayBasisRef.current = dayBasis;
   const [endDate, setEndDate] = useState<string>(() => clubDataDayOn('calendar'));
+  const endDateRef = useRef(endDate);
+  endDateRef.current = endDate;
+  // Which reads a clamped answer is waiting to repeat (see the [dayBasis] effect).
+  const basisRereadRef = useRef({ games: false, players: false });
+  // The newest reads, for the [dayBasis] effect declared before them.
+  const loadRef = useRef<(showSpinner: boolean) => Promise<boolean>>(async () => false);
+  const loadPlayersRef = useRef<() => Promise<boolean>>(async () => false);
   const [game, setGame] = usePlayerPreference<GameFilter>('club/ClubDataPage:game', 'ALL');
   const [stakes, setStakes] = usePlayerPreference<StakesFilter>('club/ClubDataPage:stakes', 'ALL');
   const [gameSort, setGameSort] = usePlayerPreference<GameSort>(
@@ -1161,7 +1184,9 @@ export default function ClubDataPage() {
   }, []);
   useEffect(() => {
     snapshotRef.current = snapshot;
-    if (snapshot) setDayBasis(clubDataDayBasis(snapshot));
+    // "Today" follows the club (isUnionClubAnswer): once a union club is
+    // known its today is the 2:00 AM day, and nothing moves it back.
+    if (isUnionClubAnswer(snapshot)) setDayBasis('accounting');
   }, [snapshot]);
   // Another club or account starts from the calendar day until it answers.
   useEffect(() => {
@@ -1173,7 +1198,18 @@ export default function ClubDataPage() {
     const today = clubDataDayOn(dayBasis);
     const previousToday = observedUtcDayRef.current;
     observedUtcDayRef.current = today;
-    setEndDate((cur) => (cur === previousToday || cur > today ? today : cur));
+    const cur = endDateRef.current;
+    const moves = cur === previousToday || cur > today;
+    setEndDate((current) => (current === previousToday || current > today ? today : current));
+    // A clamped answer kept the skeleton up for the re-read the move causes.
+    // If 02:00 passed in between, the end does not move: read again here so
+    // the skeleton never waits for the next poll.
+    const pending = basisRereadRef.current;
+    basisRereadRef.current = { games: false, players: false };
+    if (!moves) {
+      if (pending.games) void loadRef.current(true);
+      if (pending.players) void loadPlayersRef.current();
+    }
   }, [dayBasis]);
   useEffect(() => {
     playersRef.current = players;
@@ -1448,6 +1484,9 @@ export default function ClubDataPage() {
           ? heldSummary.snapshot
           : null;
       if (!sortOnlySummary) verifiedGameSummaryRef.current = null;
+      // Set when the answer only told the page its day basis; the re-read it
+      // causes owns the skeleton, so this one does not take it down.
+      let basisReread = false;
       try {
         // The snapshot already owns the optimized recent-row query. Running a
         // second 42k-row page sort beside it doubled cold database pressure and
@@ -1524,6 +1563,19 @@ export default function ClubDataPage() {
             if (outcome.clearData) setSnapshot(null);
           }
           if (isAuthzError(rpcError)) setSnapshot(null);
+          return false;
+        } else if (
+          dayBasisRef.current !== 'accounting' &&
+          isRecord(data) &&
+          clubDataDayBasis(data) === 'accounting' &&
+          isRecord(data.range) &&
+          isAccountingDayClamp(data.range.end, endDate)
+        ) {
+          // A union club answered for the open accounting day. Adopt its basis;
+          // the [dayBasis] effect moves the pinned end there and reads again.
+          basisReread = true;
+          basisRereadRef.current.games = true;
+          setDayBasis('accounting');
           return false;
         } else if (
           !isVerifiedSnapshot(data, expectedGameSnapshot) ||
@@ -1719,7 +1771,12 @@ export default function ClubDataPage() {
         // when a newer foreground load has taken it over - never on the
         // ordering of background polls, which is what left it up for ever.
         // See the note beside `spinnerVersion`.
-        if (!cancelledRef.current && showSpinner && spinnerVersion.current === myVersion) {
+        if (
+          !cancelledRef.current &&
+          showSpinner &&
+          spinnerVersion.current === myVersion &&
+          !basisReread
+        ) {
           setLoading(false);
         }
       }
@@ -1838,6 +1895,7 @@ export default function ClubDataPage() {
       const showSpinner = !preserveOnError || !playersRef.current;
       let settleColdRead: ((success: boolean) => void) | undefined;
       let readSucceeded = false;
+      let basisReread = false;
       if (showSpinner) {
         playersSpinnerVersion.current = myVersion;
         setPlayersLoading(true);
@@ -1897,6 +1955,18 @@ export default function ClubDataPage() {
             if (outcome.clearData) setPlayers(null);
           }
           if (isAuthzError(rpcError)) setPlayers(null);
+          return false;
+        } else if (
+          dayBasisRef.current !== 'accounting' &&
+          isRecord(data) &&
+          isRecord(data.range) &&
+          isAccountingDayClamp(data.range.end, endDate)
+        ) {
+          // The player readers keep their shape and state no basis; the same
+          // clamp tells the page this is a union club. Re-read, never paint.
+          basisReread = true;
+          basisRereadRef.current.players = true;
+          setDayBasis('accounting');
           return false;
         } else if (
           !isVerifiedPlayerBreakdown(data, expectedPlayerRange) ||
@@ -1980,7 +2050,12 @@ export default function ClubDataPage() {
         // The skeleton comes down when the request that RAISED it settles, or
         // when a newer foreground load has taken it over. Never on the
         // ordering of background polls. See `spinnerVersion`.
-        if (!cancelledRef.current && showSpinner && playersSpinnerVersion.current === myVersion) {
+        if (
+          !cancelledRef.current &&
+          showSpinner &&
+          playersSpinnerVersion.current === myVersion &&
+          !basisReread
+        ) {
           setPlayersLoading(false);
         }
       }
@@ -2046,6 +2121,9 @@ export default function ClubDataPage() {
     playerCacheKey,
     playerScopeKey,
   ]);
+
+  loadRef.current = (showSpinner: boolean) => load(showSpinner);
+  loadPlayersRef.current = () => loadPlayers();
 
   const loadMoreGames = useCallback(async () => {
     if (
@@ -2762,7 +2840,17 @@ export default function ClubDataPage() {
   }, [clubUuid, isHydrating, userId, load, loadInvoices, loadPlayers, tab, realtimeFeeds]);
 
   const exportCsv = useCallback(async () => {
-    if (!clubUuid || exporting) return;
+    // The window comes from the verified answer this export belongs to: the
+    // reader's own boundary instants when it states them (union basis),
+    // otherwise the selection on the basis that answer was given on. With no
+    // verified answer for this window there is no export (the control is
+    // disabled too): a basis is never guessed into a file.
+    const answered = snapshotRef.current;
+    if (!clubUuid || exporting || !answered) return;
+    const coverage = answered.accounting_coverage;
+    const instant = (at: string | undefined) =>
+      at && Number.isFinite(Date.parse(at)) ? new Date(at).toISOString() : null;
+    const computed = clubDataWindow(startDate, endDate, clubDataDayBasis(answered));
     const controller = new AbortController();
     const generation = ++exportGenerationRef.current;
     const viewKey = exportViewKey;
@@ -2770,10 +2858,9 @@ export default function ClubDataPage() {
     setExporting(true);
     setExportNote(null);
     setExportProgress({ stage: 'preparing', loaded: 0, total: null });
-    const exportWindow = clubDataWindow(startDate, endDate, dayBasis);
     const csvWindow: ExportWindow = {
-      start: exportWindow ? exportWindow.start.toISOString() : '',
-      end: exportWindow ? exportWindow.end.toISOString() : '',
+      start: instant(coverage?.window_start) ?? computed?.start.toISOString() ?? '',
+      end: instant(coverage?.window_end) ?? computed?.end.toISOString() ?? '',
     };
     // The file name carries the pair the owner picked: first day, and the
     // boundary the window stops at.
@@ -2896,7 +2983,6 @@ export default function ClubDataPage() {
     search,
     gameSort,
     exportViewKey,
-    dayBasis,
   ]);
 
   const cancelExport = useCallback(() => {
@@ -2938,14 +3024,18 @@ export default function ClubDataPage() {
   );
 
   const summary = snapshot?.summary;
+  // Every label states the basis the visible answer was given on (a union
+  // club's window that starts before it joined reads its Chicago basis);
+  // before an answer, the basis "today" is counted on.
+  const answerBasis: ClubDataDayBasis = snapshot ? clubDataDayBasis(snapshot) : dayBasis;
   // The window by its real boundaries: the reader's own instants when it
   // stated them, otherwise the selection on this club's basis.
   const windowLabel =
     (snapshot && coverageWindowLabel(snapshot.accounting_coverage)) ||
-    clubDataWindowLabel(startDate, endDate, dayBasis);
-  const windowEndLabel = `Window Ends At ${clubDataBoundaryClock(dayBasis)} (${CLUB_DATA_ZONE_LABEL})`;
+    clubDataWindowLabel(startDate, endDate, answerBasis);
+  const windowEndLabel = `Window Ends At ${clubDataBoundaryClock(answerBasis)} (${CLUB_DATA_ZONE_LABEL})`;
   const notices = coverageNotices(snapshot?.accounting_coverage);
-  const unionBasis = dayBasis === 'accounting';
+  const unionBasis = answerBasis === 'accounting';
   const filtersActive = game !== 'ALL' || stakes !== 'ALL' || search.trim() !== '';
   const weeklyPlayerResults = useMemo(() => {
     if (!latestInvoice?.breakdown) return null;
@@ -2978,7 +3068,7 @@ export default function ClubDataPage() {
   // zero, and nothing is a percentage of nothing - so nothing is shown.
   const prevDaysCount = prevRange?.days ?? preset;
   const prevWindowLabel = prevRange
-    ? clubDataWindowLabel(prevRange.start, prevRange.end, dayBasis) ||
+    ? clubDataWindowLabel(prevRange.start, prevRange.end, answerBasis) ||
       `${prevRange.start} To ${prevRange.end}`
     : '';
   const prevDays = `${prevDaysCount} Day${prevDaysCount === 1 ? '' : 's'}`;
@@ -3253,7 +3343,8 @@ export default function ClubDataPage() {
                 else void exportCsv();
               },
               disabled:
-                !exporting && (tab === 'players' ? !sortedPlayers.length : !snapshot?.rows?.length),
+                !exporting &&
+                (tab === 'players' ? !sortedPlayers.length || !snapshot : !snapshot?.rows?.length),
               'aria-label': exporting ? 'Cancel CSV Export' : 'Export As CSV',
               title: exporting ? 'Cancel CSV Export' : 'Export As CSV',
             },
@@ -3467,18 +3558,9 @@ export default function ClubDataPage() {
               }}
             />
           </label>
-          <p className={`sc-copy ${styles.note}`}>{clubDataDayRule(dayBasis)}.</p>
-          {snapshot && dayBasis === 'accounting' && (
-            <p className={`sc-copy ${styles.note}`}>
-              Union Invoice Basis. Fee Is The Rake Credited To The Club, The Invoice&apos;s Rake
-              Generated. Total Winnings Is The Players&apos; Result: Each Cash Hand&apos;s Stack
-              Change, Bad Beat Jackpot Awards Included, Plus MTT Winnings. MTT Winnings Are Prizes,
-              Bounties And Refunds Less Buy-Ins, Rebuys And Add-Ons; An Entry In A Tournament Still
-              Running At A Week Boundary Counts In The Week It Settles, As On The Invoice. For A
-              Whole Invoice Week With No Filters, Fee Equals The Invoice&apos;s Rake Generated And
-              Total Winnings Equals Its Player Win/Loss (Its Player Net Loss With The Sign
-              Reversed). Chips Still On The Felt Are Not Added.
-            </p>
+          <p className={`sc-copy ${styles.note}`}>{clubDataDayRule(answerBasis)}.</p>
+          {snapshot && answerBasis === 'accounting' && (
+            <p className={`sc-copy ${styles.note}`}>{UNION_BASIS_DEFINITIONS}</p>
           )}
           {notices.provisional && (
             <p className={`sc-copy sc-ink--gold ${styles.note}`} role="status">
@@ -3531,7 +3613,7 @@ export default function ClubDataPage() {
               {summary ? money(summary.total_winnings) : NO_VALUE}
             </dd>
             {summary && <dd className={styles.figureMeta}>{absNote(delta?.winnings_abs)}</dd>}
-            {summary && unionBasis && Number.isFinite(Number(summary.on_felt)) && (
+            {summary && unionBasis && typeof summary.on_felt === 'number' && (
               <dd className={`sc-ink--muted ${styles.figureMeta}`}>
                 On The Felt Now {money(summary.on_felt)} (Not Added)
               </dd>
@@ -3548,7 +3630,10 @@ export default function ClubDataPage() {
               summary.running_mtt_entries !== undefined &&
               Number.isFinite(Number(summary.running_mtt_entries)) && (
                 <dd className={`sc-ink--muted ${styles.figureMeta}`}>
-                  Unfinished MTT Entries {money(summary.running_mtt_entries)}
+                  {unionBasis
+                    ? 'Unfinished MTT Entries (Buy-Ins For MTTs Not Yet Finished, In Total Winnings)'
+                    : 'Unfinished MTT Entries'}{' '}
+                  {money(summary.running_mtt_entries)}
                 </dd>
               )}
           </div>

@@ -161,6 +161,25 @@ export function clubDataDayBasis(answer: unknown): ClubDataDayBasis {
   return 'calendar';
 }
 
+/**
+ * THE DAY "TODAY" IS COUNTED ON FOLLOWS THE CLUB, NOT THE ANSWER (review,
+ * 2026-11-15). Labels, windows and definitions follow each answer, but a
+ * union club's window that starts before it joined its union is answered on
+ * its pre-union Chicago basis, so letting "today" follow answers can flip it
+ * between the two days for ever (a 14-day window starting on the join day
+ * under midnight days starts one day earlier under the 2:00 AM day). A club
+ * the readers place in a union (a club-level union_id, which both screens'
+ * readers return), or any answer on the union basis, makes today the 2:00 AM
+ * day; nothing moves it back for that club and account.
+ */
+export function isUnionClubAnswer(answer: unknown): boolean {
+  if (!answer || typeof answer !== 'object') return false;
+  const unionId = (answer as { union_id?: unknown }).union_id;
+  return (
+    (typeof unionId === 'string' && unionId.length > 0) || clubDataDayBasis(answer) === 'accounting'
+  );
+}
+
 /** Today (or the day of `at`) on a basis. */
 export function clubDataDayOn(basis: ClubDataDayBasis, at: Date | string | number = new Date()) {
   return basis === 'accounting' ? accountingDay(at) : chicagoDay(at);
@@ -217,6 +236,22 @@ export const CLUB_DATA_DAY_RULE = 'Days Run 2:00 AM To 2:00 AM Chicago Time';
 export function clubDataDayRule(basis: ClubDataDayBasis): string {
   return basis === 'accounting' ? CLUB_DATA_DAY_RULE : 'Days Run Midnight To Midnight Chicago Time';
 }
+
+/**
+ * What the union basis figures are, and which of them equal the invoice
+ * (stage 2 contract, corrected 2026-11-15 by review): Total Winnings is cash
+ * plus every tournament result, MTT Winnings is finished MTTs only.
+ */
+export const UNION_BASIS_DEFINITIONS =
+  "Union Invoice Basis. Fee Is The Rake Credited To The Club, The Invoice's Rake Generated; " +
+  'Tournament Fees Are Recognized When The Tournament Settles. ' +
+  "Total Winnings Is The Players' Result: Cash Winnings (Each Cash Hand's Stack Change, Bad Beat " +
+  'Jackpot Awards Included) Plus Tournament Results (MTT Winnings, Sit And Go Results And ' +
+  'Unfinished MTT Entries). MTT Winnings Are Finished MTTs Only: Prizes, Bounties And Refunds ' +
+  'Less Buy-Ins, Rebuys And Add-Ons; An Entry In A Tournament Still Running At A Week Boundary ' +
+  'Counts In The Week It Settles, As On The Invoice. For A Whole Invoice Week With No Filters, ' +
+  "Fee Equals The Invoice's Rake Generated And Total Winnings Equals Its Player Win/Loss (Its " +
+  'Player Net Loss With The Sign Reversed). Chips Still On The Felt Are Not Added.';
 
 /**
  * fn_ca_club_acct_coverage: whether the accounting read model holds the

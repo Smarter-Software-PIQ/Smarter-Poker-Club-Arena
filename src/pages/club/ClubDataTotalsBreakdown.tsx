@@ -221,8 +221,9 @@ export default function ClubDataTotalsBreakdown({
         {metric === 'mtt_winnings' &&
           (unionBasis ? (
             <p>
-              Union Invoice Basis: Prizes, Bounties And Refunds Less Buy-Ins, Rebuys And Add-Ons. An
-              Entry In A Tournament Still Running At A Week Boundary Counts In The Week It Settles.
+              Union Invoice Basis: Finished MTTs Only. Prizes, Bounties And Refunds Less Buy-Ins,
+              Rebuys And Add-Ons. An Entry In A Tournament Still Running At A Week Boundary Counts
+              In The Week It Settles.
             </p>
           ) : (
             <p>Finished MTTs Only. Amounts Are Net Entries And Payouts.</p>
@@ -230,8 +231,9 @@ export default function ClubDataTotalsBreakdown({
         {metric === 'total_winnings' &&
           (unionBasis ? (
             <p>
-              Union Invoice Basis: Each Cash Hand&apos;s Stack Change, Bad Beat Jackpot Awards
-              Included, Plus MTT Winnings. Chips Still On The Felt Are Not Added.
+              Union Invoice Basis: Cash Winnings (Each Cash Hand&apos;s Stack Change, Bad Beat
+              Jackpot Awards Included) Plus Tournament Results (MTT Winnings, Sit And Go Results And
+              Unfinished MTT Entries). Chips Still On The Felt Are Not Added.
             </p>
           ) : (
             <p>Net Results Include Cash, Tournaments And Chips Still On The Felt.</p>

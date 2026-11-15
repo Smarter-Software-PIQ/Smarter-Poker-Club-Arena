@@ -27,6 +27,15 @@ keeps Chicago midnight days. This is the client half.
   what does not (chips on the felt, shown and not added; running tournament
   entries, counted in the week they settle); incomplete and provisional
   banners.
+- Total Winnings on the union basis is cash winnings plus every tournament
+  result (MTT Winnings, Sit And Go results and unfinished MTT entries); MTT
+  Winnings is finished MTTs only, and the Unfinished MTT Entries line says it
+  is inside Total Winnings (review correction, 2026-11-15).
+- Between midnight and 02:00 Chicago a union club's readers clamp the last day
+  to the accounting day still open. The full report asks for the calendar day
+  before it knows the basis; a clamped answer (snapshot or player reads) now
+  sets the basis and re-reads the open day instead of failing as "Could Not
+  Load Club Data" (review blocker, 2026-11-15).
 - Simple screen URL: `dataStart` + `dataUntil` (the boundary). A legacy
   `dataEnd` link is still read as the last day.
 - Agent (downline) fee tile: on the union basis it is the downline's
@@ -36,7 +45,45 @@ keeps Chicago midnight days. This is the client half.
   its own answer's basis and coverage; totals are exact decimal sums (BigInt),
   figures exact, never rounded to two places.
 - Full report exports: every CSV row carries `window_start` / `window_end`
-  (UTC instants of [start, end)); file names carry the picked pair.
+  (UTC instants of [start, end)), taken from the verified answer the export
+  belongs to (the reader's own boundary instants on the union basis); file
+  names carry the picked pair (`club_data_<start>_to_<end>.csv`).
+- Full report, union clubs and the union: the Rake Snapshot panel is labelled
+  "Agent Rake Production: Seat Club And Agent Downline, Chicago Midnight Days.
+  Not The Union Invoice Basis." and its headline reads "Agent Rake
+  Production", never "Fee" (RakeSnapshotPanel `headlineLabel`, default
+  unchanged for every other caller).
+
+- Labels follow each answer, never the club: a union club's window that
+  starts before it joined its union is answered on its pre-union Chicago
+  basis, and both screens then show midnight boundaries and the Chicago-basis
+  text (#10921 review, 2026-11-15).
+- "Today" (the picker clock, the pinned end) follows the club, never the
+  answer: a club the readers place in a union (club-level `union_id`) or any
+  union-basis answer makes today the 2:00 AM day, and nothing moves it back
+  for that club and account. Letting today follow answers looped re-reads
+  between 00:00 and 02:00 when a window crossed the join day (review blocker,
+  2026-11-15); tests on both screens settle in two reads at 01:30 CST.
+- A clamped answer that lands just before 02:00 with its re-read decided just
+  after now reads once more instead of leaving the skeleton up until the next
+  poll. The full report's exports require a verified answer for the window
+  (the Players export is disabled without one); no basis is guessed into a
+  file.
+- On the union basis tournament fees are recognized when the tournament
+  settles, so there is no running MTT fee; the definitions say so and no
+  screen shows one.
+
+## Changes every club sees
+
+- The end-date pickers on both screens now mean the boundary the window stops
+  at, for every club (12:00 AM for a club in no union, 2:00 AM for a union
+  club). The windows read are the same; a legacy `dataEnd` link still means
+  its last day.
+- The CSV file names changed for every club, to `club_data_<start>_to_<end>.csv`
+  and `club_players_<start>_to_<end>.csv`.
+- Accepted edge: a `dataUntil` URL written before 02:00 for a union club can
+  name the boundary one day past the open accounting day; it is refused as
+  outside the window and the screen shows today.
 - Full report: a note that the Rake Snapshot panel keeps its own periods on
   Chicago calendar days and is not the invoice basis.
 - Money on the Simple screen prints through the exact formatter

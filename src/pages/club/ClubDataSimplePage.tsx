@@ -68,6 +68,8 @@ import {
   coverageNotices,
   coverageWindowLabel,
   isCalendarDate,
+  isUnionClubAnswer,
+  UNION_BASIS_DEFINITIONS,
   type ClubDataCoverage,
   type ClubDataDayBasis,
 } from '../../lib/clubDataDay';
@@ -132,6 +134,8 @@ interface Snapshot {
   scope?: 'club' | 'downline';
   club_name?: string | null;
   reporting_scope?: 'club' | 'union';
+  /** The club's union, when it is in one (or is one). Decides "today". */
+  union_id?: string | null;
   accounting_basis?: 'utc_net_money_flow' | 'chicago_net_money_flow' | 'union_invoice_accounting';
   day_basis?: string;
   /** fn_ca_club_acct_coverage (union basis only). */
@@ -454,7 +458,9 @@ export default function ClubDataSimplePage() {
         return;
       }
       setSnapshot(data);
-      setDayBasis(clubDataDayBasis(data));
+      // "Today" follows the club (isUnionClubAnswer): once a union club is
+      // known its today is the 2:00 AM day, and nothing moves it back.
+      if (isUnionClubAnswer(data)) setDayBasis('accounting');
       setPlayerSearchAccess(identityKey);
       setSnapshotScope(requestScope);
       if (data.club_name) setClubName(data.club_name);
@@ -574,7 +580,11 @@ export default function ClubDataSimplePage() {
 
   const summary = visibleSnapshot?.summary ?? null;
   const isDownline = visibleSnapshot?.scope === 'downline';
-  const unionBasis = dayBasis === 'accounting';
+  // Every label states the basis the visible answer was given on.
+  const answerBasis: ClubDataDayBasis = visibleSnapshot
+    ? clubDataDayBasis(visibleSnapshot)
+    : dayBasis;
+  const unionBasis = answerBasis === 'accounting';
   // Stage 2: on the union basis member_fees is the downline's fees from the
   // accounting records on the same 02:00 days (equal to the screen's fee),
   // not the viewer's own earned share on UTC days.
@@ -584,8 +594,8 @@ export default function ClubDataSimplePage() {
   const notices = coverageNotices(visibleSnapshot?.accounting_coverage);
   const windowLabel =
     (visibleSnapshot && coverageWindowLabel(visibleSnapshot.accounting_coverage)) ||
-    clubDataWindowLabel(startDate, endDate, dayBasis);
-  const boundaryClock = clubDataBoundaryClock(dayBasis);
+    clubDataWindowLabel(startDate, endDate, answerBasis);
+  const boundaryClock = clubDataBoundaryClock(answerBasis);
   const feeText = isDownline
     ? formatMoney(visibleSnapshot?.member_fees?.total_fees)
     : summary
@@ -712,8 +722,8 @@ export default function ClubDataSimplePage() {
             />
           </label>
           <p>
-            {clubDataDayRule(dayBasis)}. The Window Starts At {boundaryClock} On The Start Date And
-            Stops At {boundaryClock} On The End Date. Up To 93 Days.
+            {clubDataDayRule(answerBasis)}. The Window Starts At {boundaryClock} On The Start Date
+            And Stops At {boundaryClock} On The End Date. Up To 93 Days.
           </p>
           {rangeError && <p role="alert">{rangeError}</p>}
           <button type="button" className={styles.retry} onClick={() => setEditingDates(false)}>
@@ -825,7 +835,7 @@ export default function ClubDataSimplePage() {
           clubId={clubUuid}
           start={startDate}
           end={endDate}
-          basis={dayBasis}
+          basis={answerBasis}
           game={game}
           stakes={stakesApply ? stakes : 'ALL'}
           search={search || null}
@@ -849,7 +859,11 @@ export default function ClubDataSimplePage() {
         summary.running_mtt_entries !== undefined &&
         summary.running_mtt_entries !== null && (
           <dl className={styles.runningLine} aria-label="Unfinished MTT Entries">
-            <dt>Unfinished MTT Entries</dt>
+            <dt>
+              {unionBasis
+                ? 'Unfinished MTT Entries (Buy-Ins For MTTs Not Yet Finished, In Total Winnings)'
+                : 'Unfinished MTT Entries'}
+            </dt>
             <dd
               className={inkFor(summary.running_mtt_entries)}
               title={formatMoney(summary.running_mtt_entries)}
@@ -882,14 +896,7 @@ export default function ClubDataSimplePage() {
       </div>
       {visibleSnapshot && unionBasis && (
         <p className={styles.liveLine}>
-          Union Invoice Basis. {clubDataDayRule('accounting')}. Fee Is The Rake Credited To The
-          Club, The Invoice&apos;s Rake Generated. Total Winnings Is The Players&apos; Result: Each
-          Cash Hand&apos;s Stack Change, Bad Beat Jackpot Awards Included, Plus MTT Winnings. MTT
-          Winnings Are Prizes, Bounties And Refunds Less Buy-Ins, Rebuys And Add-Ons; An Entry In A
-          Tournament Still Running At A Week Boundary Counts In The Week It Settles, As On The
-          Invoice. For A Whole Invoice Week With No Filters, Fee Equals The Invoice&apos;s Rake
-          Generated And Total Winnings Equals Its Player Win/Loss (Its Player Net Loss With The Sign
-          Reversed). Chips Still On The Felt Are Not Added.
+          {clubDataDayRule('accounting')}. {UNION_BASIS_DEFINITIONS}
         </p>
       )}
       {notices.provisional && (
