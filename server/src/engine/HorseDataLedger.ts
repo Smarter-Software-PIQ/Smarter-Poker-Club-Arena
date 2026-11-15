@@ -651,6 +651,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'decision-size think time (horseDecisionGravity): longer on all-ins, big bets, big pots and the river, quicker on a preflop fold or small-pot check; default on, false ablates (2026-11-07)',
     'V9'
   ),
+  flag(
+    'horseActionTimeIsPublicOnly',
+    "Owner order 2026-11-15 (timing tell): every Horse think time, every variant and format, comes from horsePublicActionTimeMs: street, board, pot, price, stacks, players, the action shown, the seat tempo persona and a random stream of its own; the private difficulty hint, the hold'em made-hand Hollywood trigger and the strategy random stream no longer reach it. Default OFF (opt-in): only an explicit true switches it on",
+    'V94'
+  ),
   flag('v9Mood', 'hourly mood gear-shift per horse', 'V9'),
   flag('v10', 'V10 master: c-bet read, SPR, rake, thin value, limp iso', 'V10'),
   flag('v10Cbet', 'range-advantage c-bet read', 'V10'),

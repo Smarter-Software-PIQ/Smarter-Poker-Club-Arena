@@ -37,6 +37,7 @@ import {
 } from './HorsePhase6Attribution.js';
 import { HorsePolicyGraph } from './HorsePolicyGraph.js';
 import { decisionGravity } from './horseDecisionGravity.js';
+import { horsePublicActionTimeMs, type HorsePublicTimingSpot } from './horsePublicActionTime.js';
 import { riverNutsRaise, fullPotNearPotWager, hasRiverNuts } from './HorseRiverNuts.js';
 import { hiLoCappedRiverShare, hiLoRiverLowHalfFloor } from './HorseHiLoLowHalf.js';
 import { omahaCurrentNutsRaise } from './HorseOmahaCurrentNuts.js';
@@ -2351,6 +2352,15 @@ export interface HorseDecideOpts {
   /** Ablation hook: the 2026-11-07 decision-size timing (horseDecisionGravity).
    *  Default on; false reproduces the think time recorded before it. */
   decisionGravityTiming?: boolean;
+  /** Owner order 2026-11-15 ("there is a timing tell ... fix that globally"):
+   *  the think time of every Horse action, in every variant and format, is
+   *  produced by horsePublicActionTimeMs from what the table can see (street,
+   *  board, pot, price, stacks, players, the action itself, the seat's tempo
+   *  persona) and a random stream of its own. The brain's private difficulty
+   *  hint, the hold'em made-hand Hollywood trigger and the strategy random
+   *  stream no longer reach it. Default OFF (opt-in): only an explicit true
+   *  switches it on; unset or false is the shipped computeThinkTime. */
+  horseActionTimeIsPublicOnly?: boolean;
   v9Mood?: boolean;
   /** disable the V10 strategy layer: range-advantage c-bets, SPR-scaled
    *  commitment / pot control, river blocker bluff-catching, rake-aware pot
@@ -9137,9 +9147,34 @@ export class HorseLogic {
       phase12DecisionEquityCeiling = null;
       const toCall = Math.max(0, (gameState.currentBet || 0) - (player.bet || 0));
       if (telemetryOn(opts)) noteFire('phase15_brain_exception');
+      // PUBLIC-ONLY ACTION TIME: the safety net's fixed 1,500 ms is a mark of
+      // which path answered. With the option on it is paced like any other
+      // check or fold in this public spot.
+      let netThinkTime = 1500;
+      if (opts.horseActionTimeIsPublicOnly === true) {
+        try {
+          netThinkTime = horsePublicActionTimeMs(
+            HorseLogic.publicTimingSpot(
+              gameState,
+              player.user_id,
+              toCall === 0 ? 'check' : 'fold',
+              undefined,
+              [1400, 4200],
+              {
+                useTiming: (opts.v9Timing ?? opts.v9) !== false,
+                useGravity: opts.decisionGravityTiming !== false,
+                hollywoodRaise: false,
+                holdemHollywood: false,
+              }
+            )
+          );
+        } catch {
+          netThinkTime = 1500;
+        }
+      }
       return toCall === 0
-        ? { action: 'check', thinkTime: 1500, policyFallback: 'brain_exception' }
-        : { action: 'fold', thinkTime: 1500, policyFallback: 'brain_exception' };
+        ? { action: 'check', thinkTime: netThinkTime, policyFallback: 'brain_exception' }
+        : { action: 'fold', thinkTime: netThinkTime, policyFallback: 'brain_exception' };
     } finally {
       barrelOutlookRiverPending = false;
       riverBluffDeclaredPending = false;
@@ -10590,6 +10625,41 @@ export class HorseLogic {
               ? Math.max(0, rawDeadlineMs - nowRefMs)
               : Math.max(0, rawDeadlineMs)
           : undefined;
+      if (opts.horseActionTimeIsPublicOnly === true) {
+        // PUBLIC-ONLY ACTION TIME: the one producer is horsePublicActionTimeMs.
+        // The private stashes are cleared unread, and the strategy stream is
+        // advanced by exactly the draws computeThinkTime would have taken, so
+        // every later strategy decision is the one it would have been.
+        difficultyHint = 0;
+        v87HollywoodEligible = false;
+        const useTiming87 = (opts.v9Timing ?? opts.v9) !== false;
+        fastRandom();
+        if (useTiming87) fastRandom();
+        decision.thinkTime = horsePublicActionTimeMs(
+          HorseLogic.publicTimingSpot(
+            gs,
+            player.user_id,
+            decision.action,
+            decision.amount,
+            params.thinkRange,
+            {
+              useTiming: useTiming87,
+              useGravity: opts.decisionGravityTiming !== false,
+              hollywoodRaise:
+                opts.v86PloOverhaul !== false &&
+                (vi.isOmaha || vi.isShortDeck || vi.holeCount !== 2),
+              holdemHollywood:
+                opts.v87HoldemOverhaul !== false &&
+                opts.v87HollywoodTank !== false &&
+                !vi.isOmaha &&
+                !vi.isShortDeck &&
+                vi.holeCount === 2,
+            },
+            deadlineRemainingMs
+          )
+        );
+        return { decision };
+      }
       decision.thinkTime = this.computeThinkTime(
         decision,
         gs,
@@ -21782,6 +21852,93 @@ export class HorseLogic {
   // ─────────────────────────────────────────────────────────────────────
   // THINK TIME — humanlike pacing, style- and situation-aware
   // ─────────────────────────────────────────────────────────────────────
+
+  /**
+   * PUBLIC-ONLY ACTION TIME (owner order 2026-11-15): the spot the table can
+   * see, for horsePublicActionTimeMs. Reads the public game state, the seat's
+   * id and the action about to be shown. It takes no hole cards, no hand
+   * class, no equity and no receipt of which rule decided (the law test reads
+   * this function's source).
+   */
+  static publicTimingSpot(
+    gs: HorseGameStateV2,
+    seatUserId: string,
+    action: string,
+    amount: number | undefined,
+    thinkRange: readonly [number, number],
+    switches: {
+      useTiming: boolean;
+      useGravity: boolean;
+      hollywoodRaise: boolean;
+      holdemHollywood: boolean;
+    },
+    deadlineRemainingMs?: number
+  ): HorsePublicTimingSpot {
+    const seat = gs.players.find((p) => p.user_id === seatUserId);
+    const toCall = Math.max(0, (gs.currentBet || 0) - (Number(seat?.bet) || 0));
+    const pot = Number.isFinite(gs.contestablePot)
+      ? Math.max(0, gs.contestablePot as number)
+      : gs.pot;
+    let opponentStack = 0;
+    let contestingPlayers = 0;
+    for (const p of gs.players) {
+      if (!p.is_folded && (!p.is_sitting_out || p.is_all_in)) contestingPlayers++;
+      if (p === seat || p.is_folded) continue;
+      opponentStack = Math.max(opponentStack, Number(p.stack) || 0);
+    }
+    const board = Array.isArray(gs.communityCards) ? gs.communityCards : [];
+    let boardCount = 1;
+    if (Array.isArray(gs.communityCards2) && gs.communityCards2.length >= 3) boardCount++;
+    if (Array.isArray(gs.communityCards3) && gs.communityCards3.length >= 3) boardCount++;
+    const tournament = gs.gameMode === 'tournament';
+    const bigBlind = gs.bigBlind > 0 ? gs.bigBlind : 1;
+    const aggressive = action === 'raise' || action === 'all_in';
+    // Public half of the V87 hold'em Hollywood rule: the wager everyone sees.
+    let holdemHollywood = false;
+    if (switches.holdemHollywood) {
+      if (gs.stage === 'preflop') {
+        const preflop = (gs.actionHistory ?? []).filter((a) => a.stage === 'preflop');
+        const priorRaises = preflop.filter(
+          (a) => a.action === 'raise' || (a.action === 'all_in' && a.isFullRaise !== false)
+        ).length;
+        const limpedBefore =
+          seat !== undefined &&
+          preflop.some((a) => a.seat === seat.seat && a.action === 'call') &&
+          !preflop.some((a) => a.seat === seat.seat && a.action === 'raise');
+        holdemHollywood = aggressive && (priorRaises >= 2 || limpedBefore);
+      } else {
+        holdemHollywood =
+          (aggressive && toCall > 0) ||
+          (gs.stage === 'river' && (aggressive || action === 'bet') && pot / bigBlind >= 20);
+      }
+    }
+    return {
+      stage: gs.stage,
+      action,
+      amount,
+      toCall,
+      pot,
+      bigBlind: gs.bigBlind,
+      heroStack: Number(seat?.stack) || 0,
+      opponentStack,
+      contestingPlayers,
+      board,
+      boardCount,
+      tournament,
+      facingTournamentShove:
+        toCall > 0 &&
+        isTournamentMode(gs) &&
+        facingShovePrice(gs.currentBet, gs.currentBet - toCall, gs.players),
+      deliberateCheckFold: tournament && !canQuickCheckFold(seatUserId),
+      tempoSeed: seatUserId,
+      thinkRange,
+      useTiming: switches.useTiming,
+      useGravity: switches.useGravity,
+      hollywoodRaise: switches.hollywoodRaise,
+      hollywoodHoldem: holdemHollywood,
+      deadlineRemainingMs,
+    };
+  }
 
   /**
    * V14: any think time at or above this is a deliberate TIME BANK burn. The
