@@ -1399,6 +1399,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'Omaha tight opponent'
   ),
   flag(
+    'holdemRiverFullHouseValue',
+    "2026-11-15 HOLD'EM RIVER FULL HOUSE VALUE (HorseHoldemRiverFullHouseValue; owner order 11:20 Chicago, the shared audit of Hold'em hands against people): in no-limit hold'em on the river, out of position without the betting lead, a full house or better that uses a hole card (not an under-full, not a trips-board boat, not the board playing) leads 70% of the time through the existing monster sizing instead of checking to the prior aggressor at the V11 initiative gate; the rest keeps the check. Replay of the 131 flagged decisions on main: 48 still checked at that gate, 19 of them qualifying hands. Read === true, default OFF.",
+    '2026-11-15'
+  ),
+  flag(
     'omahaTightOpponentSteal',
     '2026-11-14 owner ruling 17:42 Chicago (Omaha tight requirement stays; a defensible response must be built and evaluated): Omaha high variants in OMAHA_TIGHT_STEAL_VARIANTS (six-card only), the STEAL half of omahaTightOpponent alone (first in from late position or the small blind, every player left to act a PROVEN tight folder: the open bar comes down by half the fold-equity surplus over a pot-sized open break-even, at most 0.10); the respect half is excluded because, measured alone on six-card, it is undecided with a negative cash point estimate. Default OFF (read === true). Evaluation: plo6-audit-01TLQer9Hdf/phase1-play/tight-plo6-league (development persona fields; production reach against people was 0 of 12 six-card records on 2026-11-14). Default-on needs docs/horse-default-on.d/omahaTightOpponentSteal.md with the eight rows.',
     'Omaha tight steal'
@@ -5696,6 +5701,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic preflop all-in arithmetic (omahaPreflopCallWithActionBehind, PLO6-AUDIT-005)',
     'an Omaha preflop call of 40% of the stack with chips and action behind was sent to the range play, not priced as a final all-in',
     'V90'
+  ),
+  receipt(
+    'holdem_river_full_house_lead_seen',
+    'HorseLogic not-facing-a-bet river (holdemRiverFullHouseValue)',
+    "a qualifying no-limit hold'em river full house led into the prior aggressor instead of checking at the V11 initiative gate",
+    '2026-11-15'
   ),
   receipt(
     'v87_turn_takeaway',

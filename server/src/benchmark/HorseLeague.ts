@@ -2014,6 +2014,18 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaBluffCatcherRaiseFold: true },
     b: {},
   })),
+  // 2026-11-15 HOLD'EM RIVER FULL HOUSE VALUE (holdemRiverFullHouseValue,
+  // default OFF): a leads a qualifying river full house out of position into
+  // the prior aggressor (70%); b checks it, as today. Full houses in that seat
+  // are rare, so the card is expected to move little; its evidence is the
+  // replay of the audited hands in docs/horse-default-on.d.
+  {
+    name: 'nlh_river_full_house_value',
+    variant: 'nlh',
+    pairs: 6000,
+    a: { holdemRiverFullHouseValue: true },
+    b: {},
+  },
   // 2026-11-14 OMAHA TIGHT STEAL (omahaTightOpponentSteal, default OFF): the
   // steal half of omahaTightOpponent alone, in OMAHA_TIGHT_STEAL_VARIANTS
   // (six-card only). Against a Horse field the evidence standard is rarely
