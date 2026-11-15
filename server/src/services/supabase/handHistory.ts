@@ -11,7 +11,11 @@ import {
 } from '../../engine/HorsePublicMemoryDomain.js';
 import { readExactHorseOpponentProfiles } from '../HorseExactOpponentMemory.js';
 import { publicHandStatsFrame } from '../../engine/presentation/publicHandStats.js';
-import { horseOpponentMemorySchema, readHorseOpponentProfiles } from '../HorseOpponentMemory.js';
+import {
+  admitCompletedHandExactRead,
+  horseOpponentMemorySchema,
+  readHorseOpponentProfiles,
+} from '../HorseOpponentMemory.js';
 import { memoryVariant, type DurableOpponentProfile } from '../../engine/HorseOpponentMemory.js';
 /**
  * Supabase helpers — the 4-tier hand history writer (Bible V8 §2.18).
@@ -1073,7 +1077,14 @@ export async function logHandHistory(params: {
         if (actors.length)
           durableOpponentProfiles = await (
             params.publicMemoryDomain === undefined
-              ? readHorseOpponentProfiles
+              ? // Legacy completed-hand read: its own admission gate, never the decision gate (M1).
+                (
+                  ids: string[],
+                  v: string,
+                  mode: 'cash' | 'tournament',
+                  size: 'hu' | 'short' | 'full'
+                ) =>
+                  readHorseOpponentProfiles(ids, v, mode, size, undefined, admitCompletedHandExactRead)
               : (
                   ids: string[],
                   v: string,

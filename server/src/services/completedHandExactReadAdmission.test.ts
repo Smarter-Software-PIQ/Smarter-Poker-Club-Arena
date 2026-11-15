@@ -2,7 +2,11 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 const mock = vi.hoisted(() => ({ rpc: vi.fn(), abortSignal: vi.fn() }));
 vi.mock('./supabase.js', () => ({ supabase: { rpc: mock.rpc } }));
 import { readExactHorseOpponentProfiles } from './HorseExactOpponentMemory.js';
-import { admitCompletedHandExactRead, admitOpponentMemoryRead } from './HorseOpponentMemory.js';
+import {
+  admitCompletedHandExactRead,
+  admitOpponentMemoryRead,
+  readHorseOpponentProfiles,
+} from './HorseOpponentMemory.js';
 import { isOpponentMemoryBusyRefusal } from './errorReporter.js';
 
 /* COMPLETED-HAND EXACT READS ARE ADMITTED ON THEIR OWN (2026-11-15). On
@@ -49,6 +53,27 @@ it('a failed decision-path read does not close the completed-hand gate', async (
       throw Object.assign(new Error('opponent memory unavailable: 57014'), { code: '57014' });
     })
   ).rejects.toThrow();
+  await expect(admitCompletedHandExactRead(async () => 'completed read')).resolves.toBe(
+    'completed read'
+  );
+});
+
+/* M1 (Hold'em review of 86f125a2): the LEGACY completed-hand read (no public memory domain) goes
+   through readHorseOpponentProfiles with the completed-hand gate, so its timeout cannot close the
+   decision gate either; the decision path keeps the decision gate by default. */
+it('a timed-out legacy completed-hand read leaves the decision-path gate open', async () => {
+  await expect(
+    readHorseOpponentProfiles([id], 'nlh', 'cash', 'full', undefined, admitCompletedHandExactRead)
+  ).rejects.toThrow();
+  await expect(admitOpponentMemoryRead(async () => 'decision read')).resolves.toBe('decision read');
+  const refused = await admitCompletedHandExactRead(async () => 'second').catch((e) => e);
+  expect(isOpponentMemoryBusyRefusal(refused)).toBe(true);
+});
+
+it('the decision-path read still closes its own gate on a timeout (default unchanged)', async () => {
+  await expect(readHorseOpponentProfiles([id], 'nlh', 'cash', 'full')).rejects.toThrow();
+  const refused = await admitOpponentMemoryRead(async () => 'next').catch((e) => e);
+  expect(isOpponentMemoryBusyRefusal(refused)).toBe(true);
   await expect(admitCompletedHandExactRead(async () => 'completed read')).resolves.toBe(
     'completed read'
   );
