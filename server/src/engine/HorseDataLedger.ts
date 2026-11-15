@@ -1024,6 +1024,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaFacingBetEv',
+    "Owner 2026-11-15 11:39 (the fold-or-call decision facing a bet must depend on the hand, the player and the pot size to value): in PLO4/PLO5 cash, high only, one board, on the turn and the river, when the Horse faces a bet or a raise and today's brain answers fold or call, one expected-value decision replaces that answer: the exact count of the opponent holdings that beat, tie and lose to the Horse's actual hand (its own cards removed; every river card on the turn), weighted by a value region sized by the bet's share of the pot and the bettor's line and a bluff share moved by his measured tendencies and his shown-down results at that size when stored; the call is made when EV(call) on the actual pot and call exceeds 2 percent of the final pot, with every other player in the hand to beat as well. It replaces, in that spot, the paired-board fold, the big-bet and bluff-catcher cells, the committed-call bar and the river and turn call verdicts; it never raises and never changes a raise (HorseOmahaFacingBetEv.ts). Default OFF (opt-in); league cards plo4/plo5 _omaha_facing_bet_ev",
+    'V94'
+  ),
+  flag(
     'omahaNutClassValueSize',
     'Dan 2026-11-14: a PLO4/PLO5 high bet or raise with the nuts or an effective-nut hand for the street is the full pot (the pot-limit maximum, the stack when smaller) on the flop, turn and river. Default OFF (opt-in): its declared evaluation failed on the Horse-only cells (PLO4 -1.19, PLO5 -1.31 bb/100; human field +2.29)',
     'V94'
@@ -4093,6 +4098,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_card_impact_changed',
     'HorseLogic wager_rules (HorseOmahaCardImpact, omahaCardImpact)',
     'any decision the card-impact comparison replaced: a check, a larger bet, the freeroll pot or a smaller bet (the smaller bet has no receipt of its own)',
+    'V94'
+  ),
+  receipt(
+    'omaha_facing_bet_ev_call',
+    'HorseLogic wager_rules (HorseOmahaFacingBetEv, omahaFacingBetEv)',
+    "PLO4/PLO5 cash turn or river, facing a bet or a raise, today's answer a fold or a call: the expected value of the call, on the exact holdings count, the bettor's range and the actual price, exceeds the margin: call (the whole-stack call is the all-in)",
+    'V94'
+  ),
+  receipt(
+    'omaha_facing_bet_ev_fold',
+    'HorseLogic wager_rules (HorseOmahaFacingBetEv, omahaFacingBetEv)',
+    'the same decision, the expected value of the call at or under the margin: fold',
+    'V94'
+  ),
+  receipt(
+    'omaha_facing_bet_ev_changed',
+    'HorseLogic wager_rules (HorseOmahaFacingBetEv, omahaFacingBetEv)',
+    "the expected-value verdict differs from the answer today's rules gave (a fold became a call or a call became a fold); the legacy rule is the legacy receipt fired in the same decision",
     'V94'
   ),
   receipt(

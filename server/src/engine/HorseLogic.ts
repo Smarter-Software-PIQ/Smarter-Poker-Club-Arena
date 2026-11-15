@@ -69,6 +69,7 @@ import {
   omahaUnderpairFlopCell,
 } from './HorseOmahaUnderpair.js';
 import { omahaCardImpactDecision, omahaCardImpactScope } from './HorseOmahaCardImpact.js';
+import { omahaFacingBetEvSpot, omahaFacingBetEvVerdict } from './HorseOmahaFacingBetEv.js';
 import {
   omahaReraisedPostflopCell,
   omahaReraisedPreflopCell,
@@ -3097,6 +3098,27 @@ export interface HorseDecideOpts {
    * smaller. Default OFF (opt-in, read `=== true`) until its declared
    * evaluation passes; league cards plo4/plo5 _omaha_card_impact. */
   omahaCardImpact?: boolean;
+  /** Owner 2026-11-15 11:39 (the fold-or-call decision facing a bet must
+   * depend on the hand, the player and the pot size to value, not on "always
+   * fold to a big bet"): in PLO4/PLO5 cash, high only, one board, on the turn
+   * and the river, when the Horse faces a bet or a raise and today's brain
+   * answers fold or call, ONE expected-value decision replaces that answer
+   * (HorseOmahaFacingBetEv.ts). Hand: the exact count, over the unseen cards
+   * with the Horse's own cards removed, of the opponent holdings that beat,
+   * tie and lose to its actual hand (every river card on the turn). Player: a
+   * value region sized by the bet's share of the pot and his line, and a
+   * bluff share moved by his measured tendencies
+   * (HorseMind.omahaFacingBetEvReadOf) and, when the memory carries them, his
+   * shown-down results at this bet size. Price: the call is made when
+   * EV(call) on the actual pot and call exceeds 2 percent of the final pot;
+   * every other player in the hand must be beaten too. In that spot it
+   * replaces the paired-board fold, the big-bet cells, the river and turn
+   * call verdicts, the committed-call bar and the bluff-catcher cells: they
+   * no longer veto. It never raises and never changes a raise
+   * (omahaRiverNutRaiseOnly and the made-hand defence stay). Default OFF
+   * (opt-in, read `=== true`) until its declared evaluation passes; league
+   * cards plo4/plo5 _omaha_facing_bet_ev. */
+  omahaFacingBetEv?: boolean;
   /** A token-priced committed call is not barred by stack-off premiums
    * (HorseTokenCallPrice.ts, PLO6-AUDIT-010). Default on; false only for
    * the regression's non-vacuity control. */
@@ -7335,6 +7357,92 @@ function omahaRiverMediumBetStrongHandCalls(
 }
 
 /**
+ * omahaFacingBetEv (owner 2026-11-15 11:39; default OFF, read `=== true`):
+ * the PLO4/PLO5 cash turn and river fold-or-call decision facing a bet or a
+ * raise is ONE expected-value decision (HorseOmahaFacingBetEv.ts). Runs
+ * outermost of the call-discipline rules on both decision paths: it reads
+ * their final answer only to know whether today's brain folded, called or
+ * raised. A raise is left alone (the raise rules own it); a fold or a call
+ * (the whole-stack call included) is replaced by the EV verdict, so the
+ * paired-board fold, the big-bet cells, the committed-call bar and the river
+ * and turn call verdicts are inputs no longer vetoes in this spot.
+ *
+ * The player read is public: HorseMind.omahaFacingBetEvReadOf (measured
+ * bet-when-checked-to against the Horse mean, a measured postflop maniac,
+ * shown-down results by bet size when the memory carries them). With the mind
+ * off, or no row for the bettor, the population prior decides.
+ *
+ * Receipts: omaha_facing_bet_ev_call / _fold (the verdict), and
+ * omaha_facing_bet_ev_changed when it differs from today's answer; the
+ * legacy branch is the legacy receipt fired in the same decision
+ * (v38_river_fold, plo_paired_board_fold, ...): noteFire carries no payload.
+ */
+function omahaFacingBetEvRule(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
+  if (opts.omahaFacingBetEv !== true) return decision;
+  try {
+    const stack = Number.isFinite(player.stack) ? Math.max(0, player.stack) : 0;
+    const heroBet = Number.isFinite(player.bet) ? Math.max(0, player.bet ?? 0) : 0;
+    const toCall = Number.isFinite(gs.toCall)
+      ? Math.max(0, gs.toCall as number)
+      : Math.max(0, (gs.currentBet || 0) - heroBet);
+    const legacyCall =
+      decision.action === 'call' || (decision.action === 'all_in' && stack <= toCall + 0.005);
+    if (decision.action !== 'fold' && !legacyCall) return decision;
+    const spot = omahaFacingBetEvSpot(player, gs);
+    if (!spot) return decision;
+    let read: ReturnType<typeof HorseMind.omahaFacingBetEvReadOf> = null;
+    if (opts.mind !== false) {
+      try {
+        const bettor = (gs.players ?? []).find((p) => p.seat === spot.bettorSeat);
+        read = bettor
+          ? HorseMind.omahaFacingBetEvReadOf(bettor.user_id, spot.street, spot.potFrac)
+          : null;
+      } catch {
+        read = null;
+      }
+    }
+    const verdict = omahaFacingBetEvVerdict(
+      spot,
+      player.cards ?? [],
+      gs.communityCards ?? [],
+      player.knownDeadCards ?? [],
+      read,
+      {
+        rake: isTournamentMode(gs)
+          ? 0
+          : rakeDrag(gs.pot, gs.bigBlind, gs.rakeConfig, dealtHorseTableSize(gs, player.seat)),
+        realization: realizationFactor({
+          street: 'turn',
+          inPosition: actsLastPostflop(player.seat, gs.dealerSeat, gs.players ?? []),
+        }),
+      }
+    );
+    if (!verdict) return decision;
+    const tele = telemetryOn(opts);
+    if (tele) noteFire(verdict.call ? 'omaha_facing_bet_ev_call' : 'omaha_facing_bet_ev_fold');
+    if (verdict.call === legacyCall) return decision;
+    if (tele) noteFire('omaha_facing_bet_ev_changed');
+    if (verdict.call) {
+      const called: HorseDecision = spot.allIn
+        ? { ...decision, action: 'all_in', amount: undefined }
+        : { ...decision, action: 'call', amount: spot.paid };
+      delete called.continuationGuard;
+      return called;
+    }
+    const folded: HorseDecision = { ...decision, action: 'fold' };
+    delete folded.amount;
+    return folded;
+  } catch {
+    return decision;
+  }
+}
+
+/**
  * Owner 2026-11-15 11:41, HorseOmahaCardImpact.ts (omahaCardImpact, default
  * OFF): at a PLO4/PLO5 cash heads-up turn or river decision with nothing to
  * call, the chosen check or bet is priced beside a check and every bet size
@@ -7393,30 +7501,35 @@ function pairedBoardFoldOutsideGraph(
   opts: HorseDecideOpts
 ): HorseDecision {
   return decision.policyGraph === undefined
-    ? omahaRiverMediumBetStrongHandCalls(
-        omahaOopReraisedPotStrongRange(
-          omahaOutermostCallDiscipline(
-            omahaReraisedPotFold(
-              omahaBigBetCallFold(
-                omahaCardImpactRule(
-                  omahaOopCheckRules(
-                    pairedBoardRiverCheck(
-                      pairedBoardFold(
-                        omahaMadeHandDefenseRules(
-                          omahaRiverNutRaiseOnly(
-                            decision,
+    ? omahaFacingBetEvRule(
+        omahaRiverMediumBetStrongHandCalls(
+          omahaOopReraisedPotStrongRange(
+            omahaOutermostCallDiscipline(
+              omahaReraisedPotFold(
+                omahaBigBetCallFold(
+                  omahaCardImpactRule(
+                    omahaOopCheckRules(
+                      pairedBoardRiverCheck(
+                        pairedBoardFold(
+                          omahaMadeHandDefenseRules(
+                            omahaRiverNutRaiseOnly(
+                              decision,
+                              player,
+                              gs,
+                              // The default-off near-nut value candidate keeps its own raise
+                              // when a league arm switches it on; production never does.
+                              opts.omahaRiverNutRaiseOnly !== false &&
+                                !nearNutChosenRaises.has(decision)
+                            ).decision,
                             player,
                             gs,
-                            // The default-off near-nut value candidate keeps its own raise
-                            // when a league arm switches it on; production never does.
-                            opts.omahaRiverNutRaiseOnly !== false &&
-                              !nearNutChosenRaises.has(decision)
-                          ).decision,
+                            opts,
+                            null,
+                            nearNutChosenRaises.has(decision)
+                          ),
                           player,
                           gs,
-                          opts,
-                          null,
-                          nearNutChosenRaises.has(decision)
+                          opts
                         ),
                         player,
                         gs,
@@ -9384,22 +9497,27 @@ export class HorseLogic {
       if (tele && nutRaise.changed === 'flatted') noteFire('omaha_river_non_nut_raise_flatted');
       if (tele && nutRaise.changed === 'fold_restored')
         noteFire('omaha_river_non_nut_raise_fold_restored');
-      const prePremium = omahaRiverMediumBetStrongHandCalls(
-        omahaOopReraisedPotStrongRange(
-          omahaOutermostCallDiscipline(
-            omahaReraisedPotFold(
-              omahaBigBetCallFold(
-                omahaCardImpactRule(
-                  omahaOopCheckRules(
-                    pairedBoardRiverCheck(
-                      pairedBoardFold(
-                        omahaMadeHandDefenseRules(
-                          nutRaise.decision,
+      const prePremium = omahaFacingBetEvRule(
+        omahaRiverMediumBetStrongHandCalls(
+          omahaOopReraisedPotStrongRange(
+            omahaOutermostCallDiscipline(
+              omahaReraisedPotFold(
+                omahaBigBetCallFold(
+                  omahaCardImpactRule(
+                    omahaOopCheckRules(
+                      pairedBoardRiverCheck(
+                        pairedBoardFold(
+                          omahaMadeHandDefenseRules(
+                            nutRaise.decision,
+                            player,
+                            gs,
+                            opts,
+                            beforePhase10,
+                            nearNutChosen
+                          ),
                           player,
                           gs,
-                          opts,
-                          beforePhase10,
-                          nearNutChosen
+                          opts
                         ),
                         player,
                         gs,

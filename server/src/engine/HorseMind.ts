@@ -7,6 +7,11 @@ import {
 import { omahaTightRead, type OmahaTightRead } from './HorseOmahaTightOpponent.js';
 import { omahaReadConditional, type OmahaReadConditional } from './HorseOmahaReadConditional.js';
 import {
+  omahaBetSizeBucket,
+  type OmahaBetSizeBucket,
+  type OmahaFacingBetEvRead,
+} from './HorseOmahaFacingBetEv.js';
+import {
   riverPositionIncrements,
   riverTripleCheckRaiseIncrements,
 } from './HorseRiverPositionRead.js';
@@ -1216,6 +1221,16 @@ export class HorseMind {
   private static durableProfileDomain = new Map<string, string | null>();
   /** STYLE READ A2: river first bets by size bucket per player (memory only, live only, LRU-capped). */
   private static styleSizeShown = new Map<string, SizeBucketTallies>();
+  /** OMAHA FACING-BET EV (2026-11-15, default off): per player and decision scope, per street and bet-size bucket
+   *  (under 40 / 40 to 70 / 70 percent of the pot and over), his bets that reached showdown and how many of them were
+   *  the best hand. NOT LEARNED YET: observeHandComplete is not told who won the hand, so the only writer is
+   *  importOmahaBetSizeShown. Read by omahaFacingBetEvReadOf alone. */
+  private static omahaBetSizeShown = new Map<
+    string,
+    Partial<
+      Record<'turn' | 'river', Partial<Record<OmahaBetSizeBucket, { shown: number; best: number }>>>
+    >
+  >();
   /** STYLE READ #4: postflop aggression and raise opportunities per street, per (variant, format, table size, player). */
   private static styleAggression = new Map<string, StreetAggression>();
   /** #4 (M2): the Horse population's postflop aggression and raise opportunities per (variant, format, table size). */
@@ -2508,6 +2523,66 @@ export class HorseMind {
    * omahaMadeHandDefenseVsValueLeader, omahaBluffCatcherFoldVsValueLeader or
    * omahaEliteContinuesVsMeasuredWideThreeBettor (its wideReRaiser) on.
    */
+  /**
+   * OMAHA FACING-BET EV (2026-11-15, HorseOmahaFacingBetEv, default off): the
+   * public read of one bettor for the decision in flight: whether his own
+   * evidence supplies a read (omahaReadConditionalOf.measured), his
+   * bet-when-checked-to posterior mean over the Horse mean of this game and
+   * table size, whether he is a measured postflop maniac, and the
+   * size-bucketed shown-down tallies for this street and bet size when the
+   * memory carries them. Null outside an Omaha decision. Pure: no fires, no
+   * writes. Only HorseLogic calls it, and only with omahaFacingBetEv on.
+   */
+  static omahaFacingBetEvReadOf(
+    userId: string,
+    street: 'turn' | 'river',
+    potFrac: number
+  ): OmahaFacingBetEvRead | null {
+    const scope = this.decisionScope;
+    if (!scope || !scope.startsWith('omaha:')) return null;
+    const rc = this.omahaReadConditionalOf(userId);
+    const env = exploitEnvelopeFor(scope, this.decisionVariant);
+    const mean = env?.betCheckedTo.mean ?? 0;
+    const exploit = this.opponentRead(userId);
+    const cell =
+      this.omahaBetSizeShown.get(`${scope}|${userId}`)?.[street]?.[omahaBetSizeBucket(potFrac)] ??
+      null;
+    return {
+      measured: rc?.measured === true,
+      betCheckedToRatio:
+        rc?.measured === true && mean > 0 && rc.betCheckedTo.n > 0
+          ? rc.betCheckedTo.mean / mean
+          : null,
+      postflopManiac:
+        rc?.measured === true && exploit !== null && exploit.presumed !== true
+          ? isPostflopManiac(exploit)
+          : false,
+      sizeShown: cell ? { shown: cell.shown, best: cell.best } : null,
+    };
+  }
+
+  /**
+   * OMAHA FACING-BET EV: supply the size-bucketed shown-down tallies of one
+   * player for one decision scope (replaces that player's row). The tallies
+   * are public showdown facts: per street and bucket, his bets that reached
+   * showdown and those that were the best hand. Until the learner is told the
+   * hand's winners this is the only writer (a boot supplier or a test).
+   */
+  static importOmahaBetSizeShown(
+    scope: ReadScope,
+    userId: string,
+    rows: Partial<
+      Record<'turn' | 'river', Partial<Record<OmahaBetSizeBucket, { shown: number; best: number }>>>
+    >
+  ): void {
+    if (!scope || !userId) return;
+    const key = `${scope}|${userId}`;
+    this.omahaBetSizeShown.delete(key);
+    this.omahaBetSizeShown.set(key, JSON.parse(JSON.stringify(rows)));
+    while (this.omahaBetSizeShown.size > MAX_TRACKED_PLAYERS)
+      this.omahaBetSizeShown.delete(this.omahaBetSizeShown.keys().next().value!);
+  }
+
   static omahaReadConditionalOf(userId: string): OmahaReadConditional | null {
     const scope = this.decisionScope;
     if (!scope || !scope.startsWith('omaha:')) return null;
@@ -2846,6 +2921,7 @@ export class HorseMind {
     this.durableProfileDomain.clear();
     this.postReleaseObservations.clear();
     this.styleSizeShown.clear();
+    this.omahaBetSizeShown.clear();
     this.styleAggression.clear();
     this.styleHorseReference.clear();
     this.durableOpponentImportClock.clear();

@@ -2331,6 +2331,20 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaCardImpact: true },
     b: {},
   })),
+  // 2026-11-15 OMAHA FACING-BET EV (HorseOmahaFacingBetEv, default OFF): the
+  // PLO4/PLO5 cash turn and river fold-or-call decision facing a bet or a
+  // raise is one expected-value decision on the exact holdings count, the
+  // bettor's range and the price; a switches it on, b is today's brain. The
+  // mirror's memory learning is on (the league default), so the measured
+  // bet-when-checked-to read moves the bluff share on the Horses' own play.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_facing_bet_ev`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaFacingBetEv: true },
+    b: {},
+  })),
   // V15 BOATS (2026-09-28): default OFF. a turns it on, b is today's brain.
   // Ship it default ON only after this resolves significant positive.
   // 2026-11-06: V15 boats is default ON in PLO5 cash (v15BoatsOn), so the

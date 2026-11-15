@@ -54,6 +54,7 @@ import {
   omahaCardImpactCheckAdmissible,
 } from '../HorseOmahaCardImpact.js';
 import { shortAllInSpot } from '../HorseShortAllInCallFloor.js';
+import { OMAHA_FACING_BET_EV_VARIANTS, omahaFacingBetEvSpot } from '../HorseOmahaFacingBetEv.js';
 import { holdemFourBetSpot } from '../HorseHoldemPremiumAggression.js';
 import { tournamentShoveDiscipline } from '../HorseTournamentShoveDiscipline.js';
 
@@ -1296,12 +1297,33 @@ function policyGraphIsValid(
       (context === undefined ||
         (String(context.gameState.gameVariant).toLowerCase() === variant &&
           omahaCardImpactCheckAdmissible(context.player, context.gameState)));
+    // Owner 2026-11-15 (HorseOmahaFacingBetEv, option omahaFacingBetEv): in
+    // PLO4/PLO5 cash on the turn and the river a fold facing a bet becomes the
+    // call when the expected value of the call clears its margin (the reverse,
+    // call to fold, is the fold admission above). The verdict reads the
+    // opponent memory, which the request does not carry, so the fold -> call
+    // is admitted only with the request, only in the spot the rule covers and
+    // only for the exact chips the call puts in. Its whole-stack form is an
+    // all-in, a wager action.
+    const omahaFacingBetEvCalled =
+      transition.node === 'wager_rules' &&
+      OMAHA_FACING_BET_EV_VARIANTS.has(variant) &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      previous.action === 'fold' &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      (() => {
+        const spot = omahaFacingBetEvSpot(context.player, context.gameState);
+        return spot !== null && !spot.allIn && spot.paid === transition.after.amount;
+      })();
     if (
       transition.node === 'wager_rules' &&
       changed &&
       !pairedBoardFold &&
       !omahaRiverMediumBetCalled &&
       !omahaCardImpactBetToCheck &&
+      !omahaFacingBetEvCalled &&
       !pairedBoardRiverCheck &&
       !omahaBeatenBetToCheck &&
       !omahaOopBetToCheck &&
