@@ -109,6 +109,7 @@ import {
   isPostflopManiac,
   looseCallerWidth,
   maniacRaiseWidth,
+  withManiacSampleGate,
   mergeExploitRows,
   mergeFlopStabRows,
   observeExploitRow,
@@ -442,6 +443,10 @@ export interface DecisionReadOptions {
    *  tight route (HorseOpponentStyle.tightMultiSignalRead). Only an explicit true engages; absent, the read is what
    *  it was. */
   styleTightMultiSignal?: boolean;
+  /** MANIAC SAMPLE GATE (2026-11-15, HorseDecideOpts.holdemManiacSampleGate): no-limit hold'em reads carry the gate's
+   *  evidence (HorseOpponentExploit.withManiacSampleGate), so maniacRaiseWidth needs 15 decayed hands and PFR credibly
+   *  above the size's regular line. Only an explicit true engages; absent, every read is what it was. */
+  holdemManiacSampleGate?: boolean;
 }
 /** Decayed postflop facing-bet opportunities before the postflop fold rate reads. */
 export const FOLD_READ_MIN_OPPS = 8;
@@ -2400,18 +2405,23 @@ export class HorseMind {
             )
           )
         : [];
-    const read = opponentExploitRead(
-      this.probeAdjusted(
-        userId,
-        durable ??
-          (this.durableOpponentMemory && variant
-            ? undefined
-            : this.exploitCounters.get(`${scope}|${userId}`))
-      ),
-      scope,
-      this.decisionVariant,
-      siblings
+    const readCounters = this.probeAdjusted(
+      userId,
+      durable ??
+        (this.durableOpponentMemory && variant
+          ? undefined
+          : this.exploitCounters.get(`${scope}|${userId}`))
     );
+    const ungated = opponentExploitRead(readCounters, scope, this.decisionVariant, siblings);
+    // MANIAC SAMPLE GATE (2026-11-15, option holdemManiacSampleGate, default off): no-limit hold'em only.
+    const read =
+      this.decisionReadOptions.holdemManiacSampleGate === true &&
+      family === 'holdem' &&
+      memoryVariant(this.decisionVariant) === 'nlh'
+        ? withManiacSampleGate(ungated, readCounters, scope, this.decisionVariant)
+        : ungated;
+    if (read !== ungated && maniacRaiseWidth(ungated) !== null && maniacRaiseWidth(read) === null)
+      noteFire('maniac_sample_gate_withheld_seen');
     if (read?.corroborated) noteFire('opponent_exploit_corroborated');
     // Owner update 2026-10-27: the same public-information policy applies
     // against people and horses. Every unknown Omaha opponent receives the

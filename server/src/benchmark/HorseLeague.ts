@@ -2014,6 +2014,17 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaBluffCatcherRaiseFold: true },
     b: {},
   })),
+  // 2026-11-15 A REGULAR IS NOT A MANIAC (holdemManiacSampleGate, default OFF):
+  // a gates the preflop maniac width (15 decayed hands, PFR credibly beyond the
+  // size's regular line, 8 decayed 3-bet opportunities); b is today's read.
+  // Against a Horse field the maniac width rarely engages, so the card is
+  // expected to be near inert; its value question is against humans.
+  {
+    name: 'nlh_maniac_sample_gate',
+    pairs: 6000,
+    a: { holdemManiacSampleGate: true },
+    b: {},
+  },
   // 2026-11-15 TIGHT BEYOND VPIP (styleTightMultiSignal, default OFF): a reads
   // a neutral player tight when VPIP is credibly below the Horse mean and fold
   // to 3-bet or raise share corroborates; b is today's read. The style read is

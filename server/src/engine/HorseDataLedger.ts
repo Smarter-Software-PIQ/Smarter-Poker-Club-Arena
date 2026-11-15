@@ -1346,6 +1346,17 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'a style read was made tight by the multi-signal route (VPIP credibly below the Horse mean, corroborated by raise share or fold to 3-bet); receipt.tightMultiSignal carries the posterior probabilities; counts reads; named *_seen',
     '2026-11-15'
   ),
+  flag(
+    'holdemManiacSampleGate',
+    "2026-11-15 A REGULAR IS NOT A MANIAC (opponent classifier C3): no-limit hold'em reads from HorseMind.opponentRead carry the maniac sample gate (HorseOpponentExploit.withManiacSampleGate) and maniacRaiseWidth then needs at least 15 decayed hands; its opener route needs PFR credibly (90%) above the size's regular line (Horse PFR P99 of the cell plus 0.10: full 0.2985, short 0.4566, heads-up 0.5326), first-in raising alone no longer qualifies; its re-raise route needs at least 8 decayed 3-bet opportunities; every maniac response keyed on maniacRaiseWidth sees the gated read; Omaha and fixed-limit untouched; default OFF, read === true only; evidence docs/horse-default-on.d/holdemManiacSampleGate.md",
+    '2026-11-15'
+  ),
+  receipt(
+    'maniac_sample_gate_withheld_seen',
+    'HorseMind.opponentRead (holdemManiacSampleGate)',
+    'the ungated read had a preflop maniac width and the gated read has none (thin sample, PFR not credibly beyond the regular line, or too few 3-bet opportunities); counts reads; named *_seen',
+    '2026-11-15'
+  ),
   receipt(
     'style_long_participation_seen',
     'HorseMind.styleRead (STYLE READ, long participation window)',

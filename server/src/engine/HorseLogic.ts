@@ -3285,6 +3285,11 @@ export interface HorseDecideOpts {
    *  contrary evidence (HorseOpponentStyle.tightMultiSignalRead). Receipt style_tight_multi_signal_seen. Read only
    *  as === true: default OFF. */
   styleTightMultiSignal?: boolean;
+  /** MANIAC SAMPLE GATE (2026-11-15, opponent classifier C3): a no-limit hold'em opponent has a preflop maniac width
+   *  (maniacRaiseWidth) only after 15 decayed hands, with PFR credibly above the size's regular line (Horse PFR P99 +
+   *  0.10) or 8+ decayed 3-bet opportunities for the re-raise route (HorseOpponentExploit.withManiacSampleGate).
+   *  Receipt maniac_sample_gate_withheld_seen. Read only as === true: default OFF. */
+  holdemManiacSampleGate?: boolean;
   /** STYLE READ #3 (2026-11-13): a large turn bet, a large river bet or ANY
    *  river raise from a credibly value-heavy bettor earns extra respect,
    *  capped at the existing callDownRespectShift ceiling (+0.15), never on a
@@ -6761,6 +6766,8 @@ export class HorseLogic {
         : {}),
       // TIGHT BEYOND VPIP (2026-11-15, opponent classifier): plumbing only, key added only when true.
       ...(opts.styleTightMultiSignal === true ? { styleTightMultiSignal: true } : {}),
+      // MANIAC SAMPLE GATE (2026-11-15, opponent classifier): plumbing only, key added only when true.
+      ...(opts.holdemManiacSampleGate === true ? { holdemManiacSampleGate: true } : {}),
     });
     // V3: ingest the action stream into the opponent-intelligence layer.
     // Wrapped so observation can never take down a decision.
