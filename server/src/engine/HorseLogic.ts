@@ -295,6 +295,7 @@ import {
   V85_DEPTH_NONE_BB,
   v85OpenTargetShare,
 } from './HorseGtoOpeningRanges.js';
+import { lightningParticipationCtx } from './HorseLightningParticipation.js';
 import {
   huBbEquityVsOpener,
   huDefenceWidthPct,
@@ -2880,6 +2881,17 @@ export interface HorseDecideOpts {
    *  instead of (0.4 - odds) * 1.2. Default OFF: only explicit true turns it
    *  on. Chip-scored development-field evidence only; payout not measured. */
   omahaCommitZoneThreeBetPriceRelief?: boolean;
+  /** LIGHTNING PARTICIPATION, hold'em (2026-11-15, default OFF; true enables
+   *  it). Lightning cash only (public memory domain speed 'lightning', four to
+   *  six dealt, big-blind ante, no-limit hold'em): the big blind's continue
+   *  width against one open is read at the price the ante lays
+   *  (HorseLightningParticipation). No own-participation input exists. */
+  lightningParticipationHoldem?: boolean;
+  /** LIGHTNING PARTICIPATION, Omaha (2026-11-15, default OFF; true enables
+   *  it). Lightning cash PLO4 / PLO5 only, same predicate: first-in raise
+   *  cells by seat, players dealt and depth, and the big blind's continue
+   *  range by price against one raise (HorseLightningParticipation). */
+  lightningParticipationOmaha?: boolean;
   /** FACING A CLOSED ALL-IN RE-RAISE (2026-11-08, default ON): facing a
    *  3-bet or 4-bet made all in with every other live opponent all in or
    *  folded, the 3-bet node's 35% and the 4-bet node's 30% stack caps no
@@ -3284,6 +3296,20 @@ export interface HorseDecideOpts {
    *  evaluation passed (2026-11-14, development fields); default-on still
    *  needs docs/HORSE-DECISION-CHANGE-EVIDENCE.md rows 2-5. */
   omahaTightOpponent?: boolean;
+  /** Omaha tight steal (owner ruling 2026-11-14 17:42 Chicago: the Omaha
+   *  tight requirement stays; build and evaluate a defensible response). The
+   *  STEAL half of omahaTightOpponent alone, in the Omaha high variants listed
+   *  in OMAHA_TIGHT_STEAL_VARIANTS (six-card only today): first in from late
+   *  position or the small blind with every player left to act a PROVEN tight
+   *  folder, the open bar comes down by half the fold-equity surplus
+   *  (HorseOmahaTightOpponent.omahaTightSteal, unchanged). The respect half is
+   *  NOT included: measured alone on six-card it is undecided
+   *  (plo6-audit-01TLQer9Hdf/phase1-play/tight-plo6-league). One option for
+   *  all Omaha (PLO Strategy, 2026-11-15): a variant joins the list in one
+   *  reviewed line when its own evaluation supports it. OPT-IN, default off,
+   *  read as `=== true`; omahaTightOpponent true still turns on both halves in
+   *  every Omaha high game, as before. */
+  omahaTightOpponentSteal?: boolean;
   /** Items 21 and 23 (2026-11-05): a planned barrel records the next-street
    *  contender set and stack-to-pot exposure it expects, and the next street
    *  withdraws the plan when a contender the plan never expected is still in
@@ -4827,6 +4853,11 @@ export const PLO6_RIVER_CHEAP_PRICE = 0.1;
 export const PLO6_RIVER_UNPAIRED_FOLD_BEAT_PROB = 0.3;
 /** Unpaired board, beaten this often: call at most, never raise. */
 export const PLO6_RIVER_UNPAIRED_RAISE_BEAT_PROB = 0.15;
+/** Omaha high variants in which omahaTightOpponentSteal acts. Six-card only:
+ *  the steal half's declared evaluation exists for six-card Omaha alone
+ *  (PLO6 audit archive, phase1-play/tight-plo6-league). A variant is added
+ *  here only with its own supporting evaluation, in a reviewed change. */
+export const OMAHA_TIGHT_STEAL_VARIANTS: ReadonlySet<string> = new Set(['plo6']);
 // Private, one-use provenance from the actual value branch. No request or
 // serialized decision field can grant the PLO6 low-commitment flat exception.
 const nearNutValueReferenceRaises = new WeakSet<HorseDecision>();
@@ -4845,6 +4876,10 @@ let v53IcmAppliedPending = false;
 let huDefendToPricePending: 'hu_opener_defends_to_price' | 'hu_limp_defends_to_price' | null = null;
 // The near-nut candidate kept a raise the PLO6 flat rule would have flatted.
 let nearNutFlatExceptionUsed = false;
+// plo6ManiacPriceRefusalToRangePlay outcome receipt state (HA-10768-1): the
+// refusal was handed to the range play at a table with or without a VPIP
+// floor; judged against the FINAL action at the end of the decision.
+let plo6RefusalHandOffPending: 'floored' | 'unfloored' | null = null;
 // barrelContinuationOutlook changed the reference choice; judged at the end.
 let barrelOutlookAppliedPending = false;
 
@@ -6445,6 +6480,7 @@ export class HorseLogic {
     } finally {
       barrelOutlookRiverPending = false;
       v53IcmAppliedPending = false;
+      plo6RefusalHandOffPending = null;
       huDefendToPricePending = null;
       nearNutFlatExceptionUsed = false;
       barrelOutlookAppliedPending = false;
@@ -6472,6 +6508,7 @@ export class HorseLogic {
     phase12DecisionEquityCeiling = null;
     barrelOutlookRiverPending = false;
     v53IcmAppliedPending = false;
+    plo6RefusalHandOffPending = null;
     huDefendToPricePending = null;
     nearNutFlatExceptionUsed = false;
     barrelOutlookAppliedPending = false;
@@ -6712,6 +6749,8 @@ export class HorseLogic {
     const nearNutChosen = nearNutChosenRaises.delete(decision) && nearNutReference !== null;
     const v53IcmApplied = v53IcmAppliedPending;
     v53IcmAppliedPending = false;
+    const plo6RefusalHandOff = plo6RefusalHandOffPending;
+    plo6RefusalHandOffPending = null;
     const huDefendToPrice = huDefendToPricePending;
     huDefendToPricePending = null;
     const barrelOutlookApplied = barrelOutlookAppliedPending;
@@ -7633,6 +7672,26 @@ export class HorseLogic {
           ? 'hu_opener_defends_to_price'
           : 'hu_limp_defends_to_price'
       );
+    // plo6ManiacPriceRefusalToRangePlay (HA-10768-1): the hand-off receipt
+    // above counts refusals sent to the range play; these count what the
+    // decision finally was, by table floor. Off, every one of them was a fold,
+    // so "continued" is the action the option changed; "folded" changed nothing.
+    if (plo6RefusalHandOff && tele) {
+      const continued = decision.action !== 'fold';
+      // Literal keys: the ledger contract finds each receipt by its noteFire call.
+      if (plo6RefusalHandOff === 'floored')
+        noteFire(
+          continued
+            ? 'plo6_maniac_price_refusal_floored_continued'
+            : 'plo6_maniac_price_refusal_floored_folded'
+        );
+      else
+        noteFire(
+          continued
+            ? 'plo6_maniac_price_refusal_unfloored_continued'
+            : 'plo6_maniac_price_refusal_unfloored_folded'
+        );
+    }
     // The reference choice a skill changed must survive every later owner to
     // count as applied; a later owner that replaced it superseded it.
     const referenceKept =
@@ -8834,6 +8893,7 @@ export class HorseLogic {
             };
           }
           if (telemetryOn(opts)) noteFire('plo6_maniac_price_refusal_range_play_seen');
+          plo6RefusalHandOffPending = Number(gs.vpipFloor ?? 0) > 0 ? 'floored' : 'unfloored';
         } catch {
           if (telemetryOn(opts)) noteFire('v38_preflop_price_unavailable');
           /* No invented opponent/equity: the explicit range fallback decides. */
@@ -9027,8 +9087,15 @@ export class HorseLogic {
     let omahaTightOpener: OmahaTightOpener | undefined;
     let omahaTightReRaiser: OmahaTightReRaiser | undefined;
     let omahaTightSteal: OmahaTightSteal | undefined;
+    // The six-card steal-only arm runs the same reads and the same steal
+    // shift; it never reaches the respect branch.
+    const tightRespectOn = opts.omahaTightOpponent === true;
+    const tightStealOn =
+      tightRespectOn ||
+      (opts.omahaTightOpponentSteal === true &&
+        OMAHA_TIGHT_STEAL_VARIANTS.has(String(gs.gameVariant ?? '').toLowerCase()));
     if (
-      opts.omahaTightOpponent === true &&
+      tightStealOn &&
       opts.mind !== false &&
       vi.isOmaha &&
       !vi.isHiLo &&
@@ -9039,7 +9106,7 @@ export class HorseLogic {
       !gs.communityCards3?.length
     ) {
       try {
-        if (raises >= 1 && lastRaiserSeat >= 0) {
+        if (raises >= 1 && lastRaiserSeat >= 0 && tightRespectOn) {
           const raiserT = gs.players.find((p) => p.seat === lastRaiserSeat);
           const effT = raiserT
             ? Math.min(player.stack + player.bet, raiserT.stack + raiserT.bet) / bb
@@ -9706,6 +9773,23 @@ export class HorseLogic {
       vs3BetShortJam: opts.vs3BetShortStack === true ? true : undefined,
       omahaCommitZoneThreeBetPriceRelief:
         opts.omahaCommitZoneThreeBetPriceRelief === true ? true : undefined,
+      lightningParticipation:
+        opts.lightningParticipationHoldem === true || opts.lightningParticipationOmaha === true
+          ? lightningParticipationCtx(
+              {
+                holdem: opts.lightningParticipationHoldem === true,
+                omaha: opts.lightningParticipationOmaha === true,
+              },
+              gs,
+              {
+                heroUserId: player.user_id,
+                dealt: dealtHorseTableSize(gs, player.seat),
+                behind: preflopPlayersBehind(player.seat, gs, opts.v13 !== false),
+                mind: opts.mind !== false,
+                telemetry: telemetryOn(opts),
+              }
+            )
+          : undefined,
       // V18 STRADDLE: the shape the fallback above detected - hand the
       // truth to the preflop engine so its unopened branch owns the pot.
       // V28: the single source of truth computed above — unopened for EVERY

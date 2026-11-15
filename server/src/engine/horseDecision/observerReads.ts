@@ -2,7 +2,7 @@ import { publicMemoryDomainKey } from '../HorsePublicMemoryDomain.js';
 import { bettingStructureFor } from '../BettingStructure.js';
 import { riverPublicNode } from '../HorseMultiwayRiverRead.js';
 import { PooledPublicProfiles, type PooledPublicProfileReceipt } from './pooledPublicProfiles.js';
-import { opponentMemoryKey } from '../HorseOpponentMemory.js';
+import { durableProfileCounters, opponentMemoryKey } from '../HorseOpponentMemory.js';
 import { observerParticipantsBind } from './observerParticipants.js';
 import { ownPublicHistoryIsValid, type HorseOwnPublicHistoryPacket } from './ownPublicHistory.js';
 import { completedHandActionsForMind } from './completedHandActions.js';
@@ -662,15 +662,16 @@ export class HorseObserverReads {
         : entry.state;
     if (pooled) {
       for (const row of pooled.rows)
+        // Its counters and, when the row has one, its long participation window (2026-11-15).
         executionState.exploit!.set(
           opponentMemoryKey(row.user_id, row.variant, row.mode, row.size),
-          { ...row.counters }
+          durableProfileCounters(row)
         );
       // The sibling table size of the same public-memory domain, for a thin
       // or missing exact row to borrow at its hand-clock staleness.
       for (const { profile: row, staleness } of pooled.donors) {
         const key = opponentMemoryKey(row.user_id, row.variant, row.mode, row.size);
-        executionState.exploit!.set(key, { ...row.counters });
+        executionState.exploit!.set(key, durableProfileCounters(row));
         executionState.donorStaleness!.set(key, staleness);
       }
       if (floorBootEligible && entry.context && this.floorBootstrap) {

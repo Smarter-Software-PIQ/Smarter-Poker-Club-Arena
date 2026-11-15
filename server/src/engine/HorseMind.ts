@@ -11,6 +11,7 @@ import {
 } from './HorseRiverPositionRead.js';
 import {
   MEMORY_VARIANTS,
+  durableProfileCounters,
   memoryVariant,
   opponentMemoryKey,
   validOpponentProfile,
@@ -1764,7 +1765,7 @@ export class HorseMind {
       const version = opponentProfileVersion(p);
       if (this.exploitCounters.has(key) && known !== undefined && known >= version) continue;
       this.exploitCounters.delete(key);
-      this.exploitCounters.set(key, { ...p.counters });
+      this.exploitCounters.set(key, durableProfileCounters(p));
       this.durableOpponentVersions.set(key, version);
       this.durableProfileComplete.set(key, profileQualification(p).complete);
       this.durableProfilePreRepair.set(key, preRepairKeyed(p.mode, p.public_memory_domain));
@@ -2586,6 +2587,8 @@ export class HorseMind {
     });
     noteFire(`style_label_${style.label}_seen`);
     if (style.release.standDown) noteFire('style_read_released_seen');
+    // 2026-11-15: VPIP, PFR or the call share was read from the 120-hand long participation window.
+    if (style.receipt.longWindow.length > 0) noteFire('style_long_participation_seen');
     return style;
   }
 
