@@ -86,7 +86,7 @@ BEGIN
   ON CONFLICT(read_snapshot) DO NOTHING;
   v_result := public.fn_ca_incident_action(v_inc,'resolve',v_note,NULL,
     'Typed promo_wallet sides were wrongly made conditional on the opposite column label in all three fn_ca_leg_accounts readers.',
-    'supabase/migrations/20261115064521_promo_ledger_readers_resolve_their_own_account_type.sql');
+    'migration 20261115064521_promo_ledger_readers_resolve_their_own_account_type.sql');
   IF v_result->>'ok' IS DISTINCT FROM 'true' THEN
     RAISE EXCEPTION 'PROMO_INCIDENT_RESOLUTION_REFUSED: %',v_result;
   END IF;
