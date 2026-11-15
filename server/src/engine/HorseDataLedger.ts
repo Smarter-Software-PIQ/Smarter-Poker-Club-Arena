@@ -905,7 +905,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'omahaReraisedPotDiscipline',
-    'Owner ruling 2026-11-14 23:49 (re-raised pots): PLO4/PLO5 cash, facing a 4-bet or more preflop a hand without a pair of aces or a premium structure folds unless the committed call pays the price against aces; in a pot raised three or more times preflop, one pair or two pair below top two does not put its stack in unless its equity against aces or top two or better pays the price (HorseOmahaReraisedPot.ts). Default on by owner order 2026-11-15 00:55 (value unmeasured); explicit false switches it off',
+    'Owner ruling 2026-11-14 23:49 (re-raised pots): PLO4/PLO5 cash, facing a 4-bet or more preflop a hand without a pair of aces or a premium structure folds unless the committed call pays the price against aces; the postflop half is the separate opt-in omahaReraisedPotStackOffFold (HorseOmahaReraisedPot.ts). Default on by owner order 2026-11-15 00:55 (value unmeasured); explicit false switches it off',
+    'V94'
+  ),
+  flag(
+    'omahaReraisedPotStackOffFold',
+    'Owner ruling 2026-11-14 23:49 (re-raised pots), postflop half: in a PLO4/PLO5 cash pot raised three or more times preflop, one pair or two pair below top two does not put its stack in unless its equity against aces or top two or better pays the price (HorseOmahaReraisedPot.ts). Default OFF (opt-in): a development probe found the calls it folds positive against Horse holdings; it goes on only after its declared evaluation passes',
     'V94'
   ),
   flag(

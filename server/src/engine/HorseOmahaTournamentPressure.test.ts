@@ -487,6 +487,11 @@ describe(
       omahaBeatenMadeHandDefense: false,
       omahaBluffCatcherRaiseFold: false,
       omahaNutClassValueSize: false,
+      // Dan 2026-11-14/15: the one-pair discipline and the re-raised-pot
+      // discipline, likewise (HorseOmahaOnePair.test.ts and
+      // HorseOmahaReraisedPot.test.ts pin them).
+      omahaOnePairDiscipline: false,
+      omahaReraisedPotDiscipline: false,
     };
 
     it.each(CORPUS_VARIANTS)(

@@ -204,7 +204,11 @@ describe('in the league (anonymised seats)', () => {
           variant,
           pairs: 300,
           productionStyles: true,
-          a: { omahaReraisedPotDiscipline: true, telemetry: true },
+          a: {
+            omahaReraisedPotDiscipline: true,
+            omahaReraisedPotStackOffFold: true,
+            telemetry: true,
+          },
           b: { omahaReraisedPotDiscipline: false, telemetry: true },
         },
         300,
@@ -264,7 +268,10 @@ describe('in the decision (turn of a 4-bet pot, call for the rest of the stack)'
     for (const hole of ['Td3d9c8h7s', 'AsQd9c8h7s']) {
       const s = fourBetTurn(hole);
       const off = decideMany(s, { omahaReraisedPotDiscipline: false });
-      const on = decideMany(s, { omahaReraisedPotDiscipline: true });
+      const on = decideMany(s, {
+        omahaReraisedPotDiscipline: true,
+        omahaReraisedPotStackOffFold: true,
+      });
       expect(off.some((r) => r.action === 'call' || r.action === 'all_in')).toBe(true);
       on.forEach((r, i) => {
         if (off[i].action === 'call' || off[i].action === 'all_in') {
@@ -280,14 +287,18 @@ describe('in the decision (turn of a 4-bet pot, call for the rest of the stack)'
   it('top two pair, a made straight, and the same two pair in a pot raised only twice, are unchanged', () => {
     for (const hole of ['AsKd9c8h7s', 'QhJs9c8h7s']) {
       const s = fourBetTurn(hole);
-      expect(strip(decideMany(s, { omahaReraisedPotDiscipline: true }))).toEqual(
-        strip(decideMany(s, { omahaReraisedPotDiscipline: false }))
-      );
+      expect(
+        strip(
+          decideMany(s, { omahaReraisedPotDiscipline: true, omahaReraisedPotStackOffFold: true })
+        )
+      ).toEqual(strip(decideMany(s, { omahaReraisedPotDiscipline: false })));
     }
     const twice = fourBetTurn('Td3d9c8h7s', false);
-    expect(strip(decideMany(twice, { omahaReraisedPotDiscipline: true }))).toEqual(
-      strip(decideMany(twice, { omahaReraisedPotDiscipline: false }))
-    );
+    expect(
+      strip(
+        decideMany(twice, { omahaReraisedPotDiscipline: true, omahaReraisedPotStackOffFold: true })
+      )
+    ).toEqual(strip(decideMany(twice, { omahaReraisedPotDiscipline: false })));
   });
 
   it('on by default: unset and true decide the same and leave the stream where it was', () => {

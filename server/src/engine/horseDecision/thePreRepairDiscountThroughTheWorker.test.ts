@@ -14,7 +14,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { HorseLogic } from '../HorseLogic.js';
 import { HorseMind } from '../HorseMind.js';
 import { equityGovernor } from '../EquityLoadGovernor.js';
@@ -289,6 +289,19 @@ const sameWorker = (decision: unknown): unknown =>
       key === 'epoch' || key === 'latencyMs' || key === 'elapsedMs' ? undefined : value
     )
   );
+
+// CLOCK PIN (2026-11-15, PLO Strategy, to unblock every pre-push gate): this
+// file's outcome depended on the wall clock. On an unchanged tree (origin/main
+// 54c9aac8) it passed with Date.now before 2026-11-15T07:00Z and failed after
+// (FAST bet, DEEP check), shown by shifting Date.now alone. The test is about
+// the pre-repair discount, not the clock, so Date.now runs from a fixed
+// instant at real speed. The owning lane replaces this with the root cause.
+const CLOCK_PIN_MS = Date.parse('2026-11-15T06:30:00Z');
+beforeEach(() => {
+  const realNow = Date.now.bind(Date);
+  const started = realNow();
+  vi.spyOn(Date, 'now').mockImplementation(() => CLOCK_PIN_MS + (realNow() - started));
+});
 
 afterEach(() => {
   vi.restoreAllMocks();

@@ -32,3 +32,7 @@ Declared before any graded run (Horse mirror, development human field, one loose
 ## Owner's order, 2026-11-15 00:55 America/Chicago
 
 Ordered into the 4 AM release switched on. `omahaReraisedPotDiscipline` is read `!== false`; its league card is removed with the default. Its evidence file marks Value, Continuation and Reach NOT MET with the owner's authority. The declared paired evaluation runs after this head's gate (option on against explicit false); a failing result switches it off again. Where this section and an earlier one disagree about on and off, this section is the head's state.
+
+## Split at the release head
+
+Only the preflop cell ships on. The postflop cell is the separate opt-in `omahaReraisedPotStackOffFold` (default OFF, league cards plo4/plo5 `_omaha_reraised_pot_stack_off_fold`): the development probe found the calls it folds positive against Horse holdings, so it waits for its evaluation. Figures in the evidence file.

@@ -2686,6 +2686,14 @@ export interface HorseDecideOpts {
    * (HorseOmahaReraisedPot.ts). Default on by the owner's order of
    * 2026-11-15 00:55 (unmeasured, declared); false switches it off. */
   omahaReraisedPotDiscipline?: boolean;
+  /** The postflop half of omahaReraisedPotDiscipline: in a pot raised three
+   * or more times preflop, one pair or two pair below top two does not put
+   * the stack in unless its equity against aces or top two or better pays
+   * the price (HorseOmahaReraisedPot.ts, omahaReraisedPostflopCell). Default
+   * OFF (opt-in) until its declared evaluation passes: a development probe
+   * found the calls it folds positive against Horse holdings. Needs
+   * omahaReraisedPotDiscipline on as well. */
+  omahaReraisedPotStackOffFold?: boolean;
   /** Dan 2026-11-14 (hands 59407629, 59430325, 59431232, 59417700,
    * 59426444): PLO4/PLO5 high on one board, one pair or less never bets or
    * raises the river for value (a declared river bluff excepted); a river
@@ -5581,8 +5589,17 @@ function omahaReraisedPotFold(
       tournament: isTournamentMode(gs),
       allInOrFold: gs.allInOrFold === true,
     };
+    // The postflop cell is opt-in (omahaReraisedPotStackOffFold === true): in
+    // a development Horse-mirror probe the calls it folds had positive
+    // all-in equity against the holdings actually shown (PLO4 n38, PLO5 n22),
+    // so it waits for its declared evaluation. The preflop cell's folds were
+    // negative-equity calls in the same probe (PLO4 n4, PLO5 n2) and it is on.
     const verdict =
-      street === 'preflop' ? omahaReraisedPreflopCell(input) : omahaReraisedPostflopCell(input);
+      street === 'preflop'
+        ? omahaReraisedPreflopCell(input)
+        : opts.omahaReraisedPotStackOffFold === true
+          ? omahaReraisedPostflopCell(input)
+          : null;
     if (verdict === null) return decision;
     const tele = telemetryOn(opts);
     if (!verdict.fold) {

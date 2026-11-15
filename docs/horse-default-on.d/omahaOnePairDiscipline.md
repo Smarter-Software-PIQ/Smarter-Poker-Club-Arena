@@ -1,5 +1,7 @@
 # omahaOnePairDiscipline (owner complaints 2026-11-14: hands 59407629, 59430325, 59431232, 59417700, 59426444)
 
+Carried by the release pull request that supersedes #10937 (branch agent/plo-madehandon-01Gw7aDt/fix/omaha-made-hand-defense-on), built on #10937.
+
 ## STATUS: ON by default (read `!== false`) on the owner's order of 2026-11-15 00:37 to 00:56 America/Chicago
 
 It is on by the owner's order, given after the lane told him it was built, unmeasured and not in the 4 AM release (his words are at the end of this file). Rows marked NOT MET are unmeasured and rest on that authority alone; the declared paired evaluation runs after this head's gate and a failing result switches the option off again. The owner's words on the misplays it answers (PLO Strategy chat, 2026-11-14, exactly as typed, "[...]" marks words left out): 21:33 (hand 59431232) "[...] CHECKS FLOP, BETS 33% POT ON TURN, CHECK CALLS POT BET WHEN FLUSH AND STRAGITH GET THERE!!!! STOP [...] CALLING RIVER BETS WHEN WE CAN'T [...] BEAT ANYTHING!!!!!!!". The one-pair river bets (59407629, 59430325) and the one-pair stack-offs (59426444, 59417700) are the lane's open findings from the same evening. These name the misplays; they are not a measurement of the rule.

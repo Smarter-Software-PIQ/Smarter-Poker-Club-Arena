@@ -1,6 +1,12 @@
 # omahaReraisedPotDiscipline (owner ruling 2026-11-14 23:49, hand 59455160; pull request not yet opened, branch agent/plo-reraised-01Gw7aDt/fix/omaha-reraised-pot-discipline)
 
+Carried by the release pull request that supersedes #10937 (branch agent/plo-madehandon-01Gw7aDt/fix/omaha-made-hand-defense-on), built on #10937.
+
 On by default (read `!== false`) on the owner's order of 2026-11-15 00:55 America/Chicago, given after the lane told him the rule was built but unmeasured and would not be in the 4 AM release (his words are at the end of this file). Rows marked NOT MET are unmeasured and rest on that authority alone. A paired evaluation was declared before any graded run (Horse mirror, development human field, one loose-aggressive value seat, one light 4-bettor seat; PLO4 and PLO5); it runs after this head's gate, its verdict is recorded in the changelog, and a failing result switches the option off again. Evidence for the eight rows of [HORSE-DECISION-CHANGE-EVIDENCE.md](../HORSE-DECISION-CHANGE-EVIDENCE.md). Chip amounts are big blinds.
+
+## Split at the release head (2026-11-15)
+
+Only the PREFLOP cell is on by default: a continue facing a 4-bet or more without aces or a premium structure folds unless the committed call pays the price against aces. In the development Horse-mirror probe the all-in preflop calls it folds had negative all-in equity value (PLO4 n4, mean -32 bb; PLO5 n2, mean -54 bb). The POSTFLOP cell (one pair or two pair below top two not stacking off in a pot raised three or more times) is the separate opt-in option `omahaReraisedPotStackOffFold`, default OFF with league cards: in the same probe the calls it folds had positive all-in equity value against the holdings shown (PLO4 n38, +13 bb, equity 0.317 against a price of 0.227; PLO5 n22, +9 bb, 0.264 against 0.225). A rule that folds winning calls is not the fix the owner asked for; it goes on only after its declared evaluation passes.
 
 ## Mechanism
 
