@@ -238,12 +238,18 @@ describe('Lightning idle return and recovery', () => {
 it('the actual footer permits idle Lightning return before spectator/reserved branches', () => {
   const source = readFileSync('src/pages/TablePage.tsx', 'utf8');
   expect(source).toMatch(/heroIsSittingOut =[\s\S]*?lightningSitOut\.sittingOut/);
-  expect(source).toMatch(
-    /heroSeat <= 0\s*&&\s*!heroIsSittingOut\s*&&\s*!\(lightningRoom && lightningSitOut\.readError\) \? \(/
+  const errorFooter = source.indexOf('data-state="seat-status-unavailable"');
+  expect(errorFooter).toBeGreaterThan(0);
+  expect(errorFooter).toBeLessThan(source.indexOf('data-state="lightning-between-hands"'));
+  expect(
+    source.slice(errorFooter, source.indexOf('data-state="lightning-between-hands"'))
+  ).toContain('Retry Seat Status');
+  expect(source.slice(errorFooter - 300, errorFooter)).toMatch(
+    /!lightningHeroInRoster\s*&&\s*lightningSitOut\.readError\s*&&\s*!heroIsSittingOut/
   );
-  expect(source).toMatch(
-    /heroIsSittingOut \|\| \(lightningRoom && lightningSitOut\.readError\) \? \([\s\S]*?data-state="sitting-out"/
-  );
+
+  expect(source).toMatch(/heroSeat <= 0\s*&&\s*!heroIsSittingOut \? \(/);
+  expect(source).toMatch(/heroIsSittingOut \? \([\s\S]*?data-state="sitting-out"/);
   expect(source).toMatch(
     /lightningSitOut\.acknowledge\(tableId, String\(userId\), true, requestVersion,[\s\S]*?blindOff: res\.blindOff === true/
   );
