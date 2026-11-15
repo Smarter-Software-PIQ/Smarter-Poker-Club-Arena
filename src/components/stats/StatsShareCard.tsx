@@ -19,7 +19,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { downloadBlob } from '../../utils/downloadCsv';
-import { shareFile } from '../../lib/share';
+import { hasShareSheet, profileShareUrl, shareFile } from '../../lib/share';
 import './StatsShareCard.css';
 import {
   playerStyleFromStats,
@@ -62,6 +62,12 @@ interface Props {
   scopeLabel?: string;
   /** Masks player identity and every numeric artifact in presentation mode. */
   privacyPresentationMode?: boolean;
+  /**
+   * The player whose card this is (2026-11-15). The share carries their public
+   * profile link, so whoever receives the picture has somewhere to go. Never
+   * in presentation mode: that mode hides who the player is.
+   */
+  profileUserId?: string;
 }
 
 const W = 1200;
@@ -96,8 +102,11 @@ export default function StatsShareCard({
   rangeLabel,
   scopeLabel,
   privacyPresentationMode = false,
+  profileUserId,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const shareLinkUrl =
+    profileUserId && !privacyPresentationMode ? profileShareUrl(profileUserId) : null;
   const style = useMemo(
     () =>
       styleSource
@@ -336,6 +345,7 @@ export default function StatsShareCard({
         blob,
         filename: 'smarter-poker-stats.png',
         title: 'My Smarter Poker Stats',
+        ...(shareLinkUrl ? { text: 'My Poker Stats On Smarter.Poker', url: shareLinkUrl } : {}),
         download: (filename, file) => {
           // The estate's one file door (utils/downloadCsv): an anchor on the
           // web, the system share sheet in the app.
@@ -366,7 +376,7 @@ export default function StatsShareCard({
       </div>
       {styleNote && !privacyPresentationMode && <p className="sharecard-style-note">{styleNote}</p>}
       <button type="button" className="sharecard-btn" onClick={handleShare} disabled={busy}>
-        {busy ? 'Preparing...' : 'Share Or Save Image'}
+        {busy ? 'Preparing...' : hasShareSheet() ? 'Share Or Save Image' : 'Save Image'}
       </button>
       <p className="sharecard-note" role="status" aria-live="polite">
         {note}

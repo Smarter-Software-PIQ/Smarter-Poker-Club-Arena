@@ -407,7 +407,7 @@ describe('Tournament details snapshot recovery', () => {
       expect(action.getAttribute('aria-label')).toMatch(/^Late Register, \d+ Levels? Remaining$/);
       expect(action.className).toContain('tournament-register-button');
       expect(action.className).toContain('late-reg');
-      expect(action.className).not.toBe(footer.getByRole('button', { name: 'Share' }).className);
+      expect(action.className).not.toBe(footer.getByRole('button', { name: 'Copy Link' }).className);
       fireEvent.click(action);
       expect(fixture.register).toHaveBeenCalledTimes(1);
       expect(fixture.register).toHaveBeenCalledWith(
@@ -507,7 +507,7 @@ describe('Tournament details snapshot recovery', () => {
       const footerRegister = footer.getByRole('button', { name: 'Register', exact: true });
       expect(footerRegister.className).toContain('tournament-register-button');
       expect(footerRegister.className).not.toBe(
-        footer.getByRole('button', { name: 'Share', exact: true }).className
+        footer.getByRole('button', { name: 'Copy Link', exact: true }).className
       );
     }
   );

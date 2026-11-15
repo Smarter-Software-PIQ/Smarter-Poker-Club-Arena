@@ -65,8 +65,32 @@ class BusEventLoggerService {
       this.unsubscribes.push(unsub);
     }
 
-    // Periodic flush
-    this.flushTimer = setInterval(() => this.flush(), BATCH_FLUSH_INTERVAL);
+    // Periodic flush (record() may already have started one)
+    if (!this.flushTimer) this.flushTimer = setInterval(() => this.flush(), BATCH_FLUSH_INTERVAL);
+  }
+
+  /**
+   * Record one event from THIS tab only (2026-11-15, share outcomes). The
+   * MasterBus repeats every event to the other open tabs, and each tab runs its
+   * own logger, so an event that must be counted once is handed to the batch
+   * directly instead of being emitted. Starts the flush timer if the app has
+   * not started the logger yet; never throws into the caller.
+   */
+  record(eventType: string, payload: Record<string, unknown>): void {
+    try {
+      this.batch.push({
+        event_type: eventType,
+        payload,
+        user_id: useUserStore.getState().user?.id || null,
+        created_at: new Date().toISOString(),
+      });
+      if (this.batch.length >= MAX_BATCH_SIZE) void this.flush();
+      else if (!this.flushTimer) {
+        this.flushTimer = setInterval(() => void this.flush(), BATCH_FLUSH_INTERVAL);
+      }
+    } catch {
+      /* a measurement never breaks the action it measures */
+    }
   }
 
   /** Flush the current batch to Supabase */

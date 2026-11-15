@@ -100,7 +100,44 @@ export function hasShareSheet(): boolean {
   return typeof nav()?.share === 'function';
 }
 
+/*
+ * THE BUTTON SAYS WHAT THE TAP WILL DO (2026-11-15).
+ *
+ * A desktop browser has no share sheet, so "Share" there copies the link (or
+ * saves the picture) and nothing visible opens. Players read that as "the
+ * button did nothing". Where there is no sheet the button is worded for what
+ * actually happens: Copy Link for a link, Save Image for a picture.
+ */
+export type ShareKind = 'link' | 'image';
+
+export function shareButtonLabel(kind: ShareKind = 'link', sheet: boolean = hasShareSheet()): string {
+  if (sheet) return 'Share';
+  return kind === 'image' ? 'Save Image' : 'Copy Link';
+}
+
+/*
+ * WHICH SHARE BUTTONS GET USED (2026-11-15).
+ *
+ * Every outcome, success included, is one SHARE_OUTCOME row in the existing
+ * bus_event_log: the button (source) and what happened (outcome). Never the
+ * link, the text or the file. The row goes through this tab's own logger
+ * batch, not the MasterBus, because the bus repeats events to every other open
+ * tab and each tab's logger would write the same tap again.
+ */
+function recordOutcome(source: string, outcome: ShareOutcome): ShareOutcome {
+  void import('../services/BusEventLogger')
+    .then((m) => m.busEventLogger.record('SHARE_OUTCOME', { source, outcome }))
+    .catch(() => {
+      /* counting is a measurement; a failed import never touches the share */
+    });
+  return outcome;
+}
+
 export async function shareLink(input: ShareLinkInput): Promise<ShareOutcome> {
+  return recordOutcome(input.source, await shareLinkOnce(input));
+}
+
+async function shareLinkOnce(input: ShareLinkInput): Promise<ShareOutcome> {
   const { source } = input;
   const url = input.url || '';
   const title = input.title || 'Smarter.Poker';
@@ -154,6 +191,10 @@ export interface ShareFileInput extends Omit<ShareLinkInput, 'url'> {
  * beside it. A sheet that refuses the file falls through like any other.
  */
 export async function shareFile(input: ShareFileInput): Promise<ShareOutcome> {
+  return recordOutcome(input.source, await shareFileOnce(input));
+}
+
+async function shareFileOnce(input: ShareFileInput): Promise<ShareOutcome> {
   const { source, blob, filename } = input;
   const title = input.title || 'Smarter.Poker';
   const text = (input.text || '').trim();
@@ -190,11 +231,16 @@ export async function shareFile(input: ShareFileInput): Promise<ShareOutcome> {
     await input.download(filename, blob);
   } catch (error) {
     reportError(error, `${source}.download_failed`);
-    if (input.url) return shareLink({ source, url: input.url, title, text });
+    if (input.url) return shareLinkOnce({ source, url: input.url, title, text });
     return 'failed';
   }
   if (sentence) await copyToClipboard(sentence);
   return 'saved';
+}
+
+/** A player's public profile, the address the stats card carries. */
+export function profileShareUrl(userId: string, origin?: string): string {
+  return `${origin ?? publicOrigin()}/hub/club-arena/profile/${encodeURIComponent(userId)}`;
 }
 
 /** The address a tournament is shared as. One builder, so every surface sends the same link. */
