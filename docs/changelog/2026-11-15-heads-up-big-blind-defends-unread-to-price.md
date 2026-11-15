@@ -28,7 +28,9 @@ in the event and it is not a satellite: the payout is then linear in chips, as t
 Production heads-up NLH with people in the last 14 days was 2,062 tournament hands (1,953 of them two-max SNGs) against
 103 cash hands. Widen-only and call-only. An engaged read, more than 50bb, three or more dealt, a larger field, a
 satellite, a missing or untrusted tournament context, Omaha, short deck, pot and fixed limit, straddles, bomb pots and
-all-in-or-fold tables keep today's answer. The receipt counts only a call that is still the final decision, and only
+all-in-or-fold tables keep today's answer. With the mind option off every opener counts as unread, and "unread" means
+that no RFI or PFR statistic has engaged, not that no hands were seen: a long-known opener whose numbers sit inside the
+normal band is priced at the reference width. The receipt counts only a call that is still the final decision, and only
 where every later layer of the branch would have folded: the option's call is applied after them (they answer only call
 or fold), because with a big-blind ante the V34 tournament floor calls some of these hands itself (exact-head review of
 87f605a5, finding N1: receipts 82 classes against 70 changed at 25bb two left). Decisions are identical to the

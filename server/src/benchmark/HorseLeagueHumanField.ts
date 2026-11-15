@@ -114,7 +114,7 @@ export const HU_SMALL_STAB_EVERY_STREET_PERSONA = 'hu_small_stab_every_street_v1
  *    never limps; facing a raise it continues with the top 9% (calls 8%,
  *    re-raises the top 1%), so it folds its big blind about 91% of the time;
  *    over a limp it raises 3% of big blinds.
- *  - hu_fold_sb_defend_bb_v1: the case the steal's worst-case bound is built
+ *  - hu_fold_sb_defend_bb_v1: the case the steal's fold-share estimate is built
  *    for: it opens only the top 3% of small blinds but defends 45% of big
  *    blinds (re-raises 8%), so its VPIP looks tight while its big blind does
  *    not fold. A steal that misreads it as a folder pays here.

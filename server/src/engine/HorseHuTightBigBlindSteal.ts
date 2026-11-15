@@ -24,11 +24,16 @@
  * THE STEAL: heads-up, each player is the big blind in half the hands, so the
  * share of big blinds he continues with is at most HU_BIG_BLIND_HAND_SHARE_BOUND
  * times his VPIP (all of his voluntary hands in the big blind). His fold share
- * is therefore at least 1 - 2 x VPIP. When that worst case clears the
+ * is therefore estimated as 1 - 2 x VPIP. When that estimate clears the
  * break-even of the largest heads-up open on folds alone (the open loses its
  * whole risk every time it is called), every hand is a profitable open and
  * every hand opens. Otherwise nothing changes. Widen-only: no size changes, no
  * jam, no limp, nothing facing a raise.
+ * It is an estimate, not a strict bound: it uses the posterior mean VPIP
+ * (not an upper bound), assumes exactly half of his counted hands were big
+ * blinds, and does not separate walks and limped pots in the hand count;
+ * a law case pinning these three assumptions is required before the option
+ * is ever proposed for activation (Hand Analysis review of 0039d2bc, N5).
  *
  * Pure: no state, no random draws.
  */
@@ -73,7 +78,7 @@ export interface HuTightFolderRead {
 }
 
 export interface HuTightBigBlindSteal {
-  /** the big blind's worst-case fold share, 1 - 2 x posterior VPIP */
+  /** the big blind's estimated fold share, 1 - 2 x posterior mean VPIP */
   pFoldLower: number;
   /** the fold share the open needs to break even on folds alone */
   breakEven: number;

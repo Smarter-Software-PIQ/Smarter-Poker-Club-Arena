@@ -16,7 +16,7 @@ Hand Analysis graded D6 on 2026-11-15 (heads-up serving policy): heads-up no-lim
 
 ## Evidence
 
-Declaration `hu-audit-01UxDLnM/round2/d68/DECLARATION-HU-D6.md` (sha256 7ef09344), written before any candidate result.
+Declaration `hu-audit-01UxDLnM/round2/d68/DECLARATION-HU-D6.md`, written before any candidate result: its recorded sha256 7ef09344 is the hash of its first 51 lines (5,825 bytes); an amendment dated 16:38Z (the yield stop and the order of reading) was appended after the development results existed, so the file as a whole hashes differently.
 Results (`round2/d68/RESULTS-HU-D6.md`), arm A (on) minus arm B (live) on duplicate deals, bb/100, 25,000 pairs per cell per phase, z with the declared 1.1 SE inflation:
 
 | cell                                                                                       | development               | confirmation              |
@@ -28,7 +28,12 @@ Results (`round2/d68/RESULTS-HU-D6.md`), arm A (on) minus arm B (live) on duplic
 | fold-sb-defend-bb 100bb                                                                    | +0.16 +/- 0.05            | -0.15 +/- 0.13            |
 | wide 40/100bb, calibrated 40bb, mirror 40/100bb, nit with memory off, wide tournament 30bb | inert (0 divergent pairs) | inert (0 divergent pairs) |
 
-Declared rule: SUPPORTED (nit pool z_conf +14.48, development +12.09; no no-harm cell at or below z -2; memory-off cell 0 divergent pairs; 0 illegal actions, truncated streets and brain fallbacks). Tournament branch kept (z_conf +17.36). Development evidence only: scripted personas on the calibrated profile and Horse mirrors, not human play.
+Declared rule: SUPPORTED (nit pool z_conf +14.48, development +12.09; no no-harm cell at or below z -2; memory-off cell 0 divergent pairs; 0 illegal actions, truncated streets and brain fallbacks). Tournament branch kept (z_conf +17.36). Development evidence only: scripted personas on the calibrated profile and Horse mirrors, not human play; no rake in the league; empty solver stores; measured on a tree without huBbDefendsUnreadToPrice (the two options were never measured together).
+
+## Limits stated by the exact-head review (Hand Analysis, 0039d2bc)
+
+- The fold share 1 - 2 x VPIP is an estimate, not a strict bound: it uses the posterior mean VPIP, assumes exactly half of his counted hands were big blinds, and does not separate walks and limped pots in the hand count. The break-even gate is strict in practice (cash needs VPIP under about 0.17). A law case pinning these three assumptions is required before the option is ever proposed for activation.
+- The receipt `hu_tight_big_blind_steal` counts qualifying spots (every hand considered for the open), including hands that would have opened anyway and hands a later layer still does not open; it is not a count of changed decisions.
 
 ## Not done here
 

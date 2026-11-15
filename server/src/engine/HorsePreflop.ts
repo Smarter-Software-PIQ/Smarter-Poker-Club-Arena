@@ -356,7 +356,7 @@ export interface PreflopCtx {
    * HU SMALL BLIND STEALS VS A TIGHT BIG BLIND (2026-11-15, D6, option
    * huSmallBlindStealsVsTightBigBlind, HorseHuTightBigBlindSteal): set only
    * for the heads-up no-limit hold'em small blind first in when the big
-   * blind is a proven tight folder whose worst-case fold share clears the
+   * blind is a proven tight folder whose estimated fold share clears the
    * largest heads-up open's break-even on folds alone. Every hand opens.
    * Undefined = unchanged.
    */
@@ -2478,7 +2478,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       openThresh -= Math.max(0, ctx.omahaTightSteal.openWiden);
     }
     // HU SMALL BLIND STEALS VS A TIGHT BIG BLIND (D6, default off): the big
-    // blind's worst-case fold share pays the open on folds alone, so every
+    // blind's estimated fold share pays the open on folds alone, so every
     // hand opens. No limp, no size change; nothing facing action is touched.
     if (
       ctx.huTightBigBlindSteal !== undefined &&

@@ -12,7 +12,7 @@
  * This option is a first-in widening and nothing else:
  *  - it acts only when the big blind is a proven tight folder on the existing
  *    decayed heads-up counters (HorseHuTightBigBlindSteal.huTightFolderRead)
- *    and his worst-case fold share, 1 - 2 x VPIP, clears the largest heads-up
+ *    and his estimated fold share, 1 - 2 x VPIP, clears the largest heads-up
  *    open's break-even on folds alone; then every hand opens;
  *  - every change is a fold or a limp that became an open; a hand that
  *    already opened keeps its size;
@@ -64,7 +64,7 @@ type Row = { hands: number; vpip: number; pfr: number };
 const NIT: Row = { hands: 40, vpip: 0.1, pfr: 0.07 };
 /** A sound heads-up player at the population mean. */
 const SOUND: Row = { hands: 40, vpip: 0.42, pfr: 0.32 };
-/** Folds his small blind, defends his big blind: VPIP 24%, still above the bar's worst case. */
+/** Folds his small blind, defends his big blind: VPIP 24%, still above the bar's estimate. */
 const DEFENDER: Row = { hands: 40, vpip: 0.24, pfr: 0.02 };
 /** A nit with too little evidence. */
 const SPARSE: Row = { hands: 10, vpip: 0.1, pfr: 0.07 };
@@ -237,7 +237,7 @@ describe('huTightFolderRead and the steal price (pure)', () => {
     expect(huTightBigBlindSteal(read(SOUND), cashRisk, 1.5)).toBeNull();
   });
 
-  it('the worst case is 1 - 2 x VPIP against the largest open, on folds alone', () => {
+  it('the estimated fold share is 1 - 2 x VPIP against the largest open, on folds alone', () => {
     expect(HU_STEAL_CASH_OPEN_CEILING_BB).toBe(3.5);
     expect(HU_STEAL_TOURNAMENT_OPEN_CEILING_BB).toBe(2.5);
     const folder = { hands: 40, folder: true, vpip: 0.15 };

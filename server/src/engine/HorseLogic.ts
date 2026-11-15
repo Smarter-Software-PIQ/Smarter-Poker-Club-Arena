@@ -3427,7 +3427,7 @@ export interface HorseDecideOpts {
    *  hold'em, exactly two dealt in, the small blind first in with no limper,
    *  20-150bb effective, against a big blind the existing decayed counters
    *  prove a tight folder (VPIP credibly at or below 0.6 of the heads-up
-   *  population mean, no wide read, not raising again) whose worst-case fold
+   *  population mean, no wide read, not raising again) whose estimated fold
    *  share (1 - 2 x VPIP) clears the largest heads-up open's break-even on
    *  folds alone: every hand opens. Cash, and a tournament only when its
    *  trusted context says exactly two players are left and it is not a
@@ -9703,7 +9703,7 @@ export class HorseLogic {
     // ═══ HU SMALL BLIND STEALS VS A TIGHT BIG BLIND (2026-11-15, D6, default off) ═══
     // HorseHuTightBigBlindSteal: the heads-up no-limit hold'em small blind
     // first in, against a big blind the existing counters prove a tight
-    // folder whose worst-case fold share pays the largest heads-up open on
+    // folder whose estimated fold share pays the largest heads-up open on
     // folds alone: every hand opens. A tournament only with exactly two
     // players left that is not a satellite (chips are then linear in prize).
     let huTightBigBlindSteal: HuTightBigBlindSteal | undefined;
