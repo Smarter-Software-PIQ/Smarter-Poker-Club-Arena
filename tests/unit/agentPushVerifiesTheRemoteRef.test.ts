@@ -185,6 +185,13 @@ describe('scripts/agent-push.sh', () => {
 // workers running for up to 40 minutes, and a green run would still push.
 // See docs/changelog/2026-11-15-agent-push-stops-its-own-tree.md.
 describe('scripts/agent-push.sh stops its own process tree', () => {
+  // The stop cases run under the PATH bash and, where it is bash 3.2 (macOS),
+  // under /bin/bash too (review of b18e25b7, finding 10d).
+  const systemBash = spawnSync('/bin/bash', ['-c', 'echo "${BASH_VERSINFO[0]}"'], {
+    encoding: 'utf8',
+  });
+  const shells =
+    systemBash.status === 0 && systemBash.stdout.trim() === '3' ? ['bash', '/bin/bash'] : ['bash'];
   const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
   const until = async (what: () => boolean, ms: number) => {
     for (const end = Date.now() + ms; Date.now() < end; await sleep(50)) if (what()) return true;
@@ -201,6 +208,14 @@ describe('scripts/agent-push.sh stops its own process tree', () => {
   const recorded = () =>
     ['worker.pid', 'shim.pid', 'step.pid', 'helper.pid'].map(pidFrom).filter((p) => p > 1);
   // Any live (non-zombie) member of process group `pgid`.
+  const pgidOf = (pid: number) =>
+    Number(spawnSync('ps', ['-o', 'pgid=', '-p', String(pid)], { encoding: 'utf8' }).stdout.trim());
+  const childrenOf = (pid: number) =>
+    spawnSync('ps', ['-A', '-o', 'pid=', '-o', 'ppid='], { encoding: 'utf8' })
+      .stdout.split('\n')
+      .map((line) => line.trim().split(/\s+/).map(Number))
+      .filter(([, ppid]) => ppid === pid)
+      .map(([child]) => child as number);
   const groupAlive = (pgid: number) =>
     spawnSync('ps', ['-A', '-o', 'pgid=', '-o', 'stat='], { encoding: 'utf8' })
       .stdout.split('\n')
@@ -235,9 +250,12 @@ describe('scripts/agent-push.sh stops its own process tree', () => {
   };
 
   // A `git` whose push stands in for the hook: it starts a worker that ignores
-  // SIGHUP and SIGINT (as the hook's vitest effectively did), then sits there.
-  // Had the push been allowed to finish it would leave a `pushed` marker.
-  const hangingPushPath = () => {
+  // SIGHUP and SIGINT (as the hook's vitest effectively did), and with
+  // `ignoreTerm` SIGTERM too, then sits there. Had the push been allowed to
+  // finish it would leave a `pushed` marker. The step is git itself (the
+  // helper runs the real command, never a shell function), so this script's
+  // parent is the helper.
+  const hangingPushPath = (ignoreTerm = false) => {
     writeFileSync(
       join(shimDir, 'git'),
       [
@@ -245,9 +263,9 @@ describe('scripts/agent-push.sh stops its own process tree', () => {
         'for a in "$@"; do',
         '  if [ "$a" = push ]; then',
         `    echo $$ > "${join(fixture, 'shim.pid')}"`,
-        `    echo $PPID > "${join(fixture, 'step.pid')}"`,
-        `    ps -o ppid= -p $PPID | tr -d ' ' > "${join(fixture, 'helper.pid')}"`,
-        `    ( trap '' HUP INT; exec sleep 300 ) &`,
+        `    echo $$ > "${join(fixture, 'step.pid')}"`,
+        `    echo $PPID > "${join(fixture, 'helper.pid')}"`,
+        `    ( trap '' HUP INT${ignoreTerm ? ' TERM' : ''}; exec sleep 300 ) &`,
         `    echo $! > "${join(fixture, 'worker.pid')}"`,
         '    sleep 300',
         `    echo done > "${join(fixture, 'pushed')}"`,
@@ -262,30 +280,35 @@ describe('scripts/agent-push.sh stops its own process tree', () => {
     return { ...env(), AGENT_PUSH_LOAD_WAIT_SECONDS: '0', PATH: `${shimDir}:${process.env.PATH}` };
   };
 
-  for (const [signal, code] of [
-    ['SIGHUP', 129],
-    ['SIGINT', 130],
-    ['SIGTERM', 143],
-  ] as const) {
-    it(`on ${signal} terminates git push, the hook and its workers, and pushes nothing`, async () => {
-      const run = spawn('bash', [helper], { cwd: tree, env: hangingPushPath() });
-      let stderr = '';
-      run.stderr.on('data', (chunk) => (stderr += chunk));
-      const exited = new Promise<number | null>((done) => run.on('exit', (c) => done(c)));
-      expect(await until(() => existsSync(join(fixture, 'worker.pid')), 30_000), stderr).toBe(true);
-      const worker = workerPid();
-      expect(running(worker)).toBe(true);
+  for (const shell of shells)
+    for (const [signal, code] of [
+      ['SIGHUP', 129],
+      ['SIGINT', 130],
+      ['SIGTERM', 143],
+    ] as const) {
+      it(`on ${signal} terminates git push, the hook and its workers, and pushes nothing (${shell})`, async () => {
+        const run = spawn(shell, [helper], { cwd: tree, env: hangingPushPath() });
+        let stderr = '';
+        run.stderr.on('data', (chunk) => (stderr += chunk));
+        const exited = new Promise<number | null>((done) => run.on('exit', (c) => done(c)));
+        expect(await until(() => existsSync(join(fixture, 'worker.pid')), 30_000), stderr).toBe(
+          true
+        );
+        const worker = workerPid();
+        expect(running(worker)).toBe(true);
 
-      const stopped = Date.now();
-      run.kill(signal);
-      expect(await exited, stderr).toBe(code);
-      expect(Date.now() - stopped).toBeLessThan(8_000);
-      expect(stderr).toMatch(/STOPPED: received .*git push was stopped before it completed/);
-      expect(await until(() => !running(worker), 2_000)).toBe(true);
-      expect(existsSync(join(fixture, 'pushed'))).toBe(false);
-      expect(remoteRef('agent/feature')).toBe('');
-    });
-  }
+        const stopped = Date.now();
+        run.kill(signal);
+        expect(await exited, stderr).toBe(code);
+        expect(Date.now() - stopped).toBeLessThan(8_000);
+        expect(stderr).toMatch(
+          /STOPPED: received .*terminated the process tree this run started; git push was interrupted and may or may not have updated the remote ref/
+        );
+        expect(await until(() => !running(worker), 2_000)).toBe(true);
+        expect(existsSync(join(fixture, 'pushed'))).toBe(false);
+        expect(remoteRef('agent/feature')).toBe('');
+      });
+    }
 
   it('stops when the shell that launched it dies (the screen -X quit case)', async () => {
     const log = join(fixture, 'push.log');
@@ -309,7 +332,7 @@ describe('scripts/agent-push.sh stops its own process tree', () => {
     expect(await until(() => !running(helperPid as number), 8_000)).toBe(true);
     expect(await until(() => !running(worker), 2_000)).toBe(true);
     expect(readFileSync(log, 'utf8')).toMatch(
-      /STOPPED: its parent process went away.*git push was stopped before it completed/
+      /STOPPED: its parent process went away.*git push was interrupted and may or may not have updated the remote ref/
     );
     expect(existsSync(join(fixture, 'pushed'))).toBe(false);
     expect(remoteRef('agent/feature')).toBe('');
@@ -409,6 +432,83 @@ describe('scripts/agent-push.sh stops its own process tree', () => {
     });
   }
 
+  for (const shell of shells) {
+    // Review of b18e25b7, finding 10a: a worker that ignores SIGTERM as well is
+    // SIGKILLed after five seconds, and the helper still prints its STOPPED line.
+    it(`a worker that also ignores SIGTERM is killed after five seconds (${shell})`, async () => {
+      const run = spawn(shell, [helper], { cwd: tree, env: hangingPushPath(true) });
+      let stderr = '';
+      run.stderr.on('data', (chunk) => (stderr += chunk));
+      const exited = new Promise<number | null>((done) => run.on('exit', (c) => done(c)));
+      expect(await until(() => existsSync(join(fixture, 'worker.pid')), 30_000), stderr).toBe(true);
+      const worker = workerPid();
+      const stopped = Date.now();
+      run.kill('SIGTERM');
+      expect(await exited, stderr).toBe(143);
+      expect(Date.now() - stopped).toBeLessThan(10_000);
+      expect(stderr).toMatch(
+        /STOPPED: received SIGTERM; terminated the process tree this run started/
+      );
+      expect(await until(() => !running(worker), 2_000)).toBe(true);
+      expect(existsSync(join(fixture, 'pushed'))).toBe(false);
+      expect(remoteRef('agent/feature')).toBe('');
+    });
+
+    // Review of b18e25b7, finding 1: `pkill -f agent-push.sh` matches the helper
+    // and its watcher (forked shells keep the helper's arguments), never git.
+    // The recorded step is git itself, so the helper still stops it.
+    it(`SIGTERM to the helper and its watcher together still stops git push and its workers (${shell})`, async () => {
+      const run = spawn(shell, [helper], { cwd: tree, env: hangingPushPath() });
+      let stderr = '';
+      run.stderr.on('data', (chunk) => (stderr += chunk));
+      const exited = new Promise<number | null>((done) => run.on('exit', (c) => done(c)));
+      expect(await until(() => existsSync(join(fixture, 'worker.pid')), 30_000), stderr).toBe(true);
+      await sleep(1_500);
+      const step = pidFrom('shim.pid');
+      const worker = workerPid();
+      expect(pidFrom('helper.pid')).toBe(run.pid);
+      const watchers = childrenOf(run.pid as number).filter((p) => p !== step);
+      expect(watchers.length, String(watchers)).toBeGreaterThan(0);
+      for (const pid of [run.pid as number, ...watchers]) process.kill(pid, 'SIGTERM');
+      expect(await exited, stderr).toBe(143);
+      expect(await until(() => !running(step) && !running(worker), 8_000), stderr).toBe(true);
+      expect(stderr).toMatch(
+        /STOPPED: received SIGTERM; terminated the process tree this run started/
+      );
+      expect(existsSync(join(fixture, 'pushed'))).toBe(false);
+      expect(remoteRef('agent/feature')).toBe('');
+    });
+
+    // Review of b18e25b7, finding 2: a helper that leads its own process group
+    // (setsid, a terminal job) must not count itself among its group's orphans
+    // when its parent goes away.
+    it(`a helper that leads its own process group stops cleanly when its parent goes away (${shell})`, async () => {
+      const log = join(fixture, 'push.log');
+      const launcher = spawn(
+        'bash',
+        [
+          '-c',
+          `perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV' ${shell} "${helper}" 2> "${log}" & wait`,
+        ],
+        { cwd: tree, env: hangingPushPath(), stdio: 'ignore' }
+      );
+      expect(await until(() => existsSync(join(fixture, 'worker.pid')), 30_000)).toBe(true);
+      const helperPid = pidFrom('helper.pid');
+      const worker = workerPid();
+      expect(pgidOf(helperPid)).toBe(helperPid);
+      launcher.kill('SIGKILL');
+      const text = () => (existsSync(log) ? readFileSync(log, 'utf8') : '');
+      expect(
+        await until(() => /STOPPED: its parent process went away/.test(text()), 6_000),
+        text()
+      ).toBe(true);
+      expect(text()).toMatch(/terminated the process tree this run started/);
+      expect(await until(() => !running(helperPid) && !running(worker), 3_000), text()).toBe(true);
+      expect(existsSync(join(fixture, 'pushed'))).toBe(false);
+      expect(remoteRef('agent/feature')).toBe('');
+    });
+  }
+
   // Review of 6016f5d6, N1 and N3, pinned at the source: the delayed SIGKILL
   // re-checks that each pid is still the process it was, a stop that lands
   // while a step is being started is held until the step is recorded, and the
@@ -419,5 +519,8 @@ describe('scripts/agent-push.sh stops its own process tree', () => {
     expect(src).toMatch(/STARTING=1\n\s+"\$@" &\n\s+STEP_PID=\$!/);
     expect(src).toMatch(/if \[ -n "\$STARTING" \]; then\n\s+PENDING_REASON=\$1/);
     expect(src).not.toMatch(/^\s*set -m/m);
+    // review of b18e25b7, finding 1: the long steps run git itself, not a function
+    expect(src).toMatch(/owned "\$\{REMOTE_GIT\[@\]\}" push -u/);
+    expect(src).not.toMatch(/owned remote_git/);
   });
 });

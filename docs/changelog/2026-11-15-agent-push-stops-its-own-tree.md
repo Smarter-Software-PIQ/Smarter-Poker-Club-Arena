@@ -35,7 +35,8 @@ Stops, and what each does:
 - SIGHUP, SIGINT or SIGTERM: the trap terminates the step and every process
   descended from it, waits up to five seconds, then sends SIGKILL to each
   that is still the same process (its start time is re-checked first, so a
-  reused pid is never signalled), prints one `STOPPED:` line naming the
+  pid reused in a later second is not signalled; ps start times have
+  one-second resolution), prints one `STOPPED:` line naming the
   reason and the phase, and exits 129, 130 or 143. A stop that lands while a
   step is being started and recorded is held until the record exists, then
   acted on.
@@ -47,9 +48,37 @@ Stops, and what each does:
 
 When the helper leads its own process group, members of that group that were
 orphaned (their parent exited and they were reparented to pid 1) are stopped
-too. It can still under-kill a child that starts a session of its own after
+too, except the helper itself and its watcher. It can still under-kill a child that starts a session of its own after
 its parent has exited: such a process is in neither the group nor the parent
 walk.
+
+## Second review (of b18e25b7)
+
+An independent review of b18e25b7 (`hu-audit-01UxDLnM/reviews/REVIEW-HU-R2-TOOL-b18e25b7-independent.md`)
+found two blocking defects, both fixed here:
+
+1. The fetch and push steps were a shell function, so the recorded step was
+   a forked bash with git as its child. A stop that killed the helper's
+   shells by name (`pkill -f agent-push.sh` matches the helper, its watcher
+   and that forked bash, never git) left git push running as an orphan while
+   the helper printed STOPPED. The long steps now run the real command
+   (`owned "${REMOTE_GIT[@]}" push ...`), so the recorded pid is git itself,
+   and the watcher keeps a once-a-second snapshot (pid and start time) of the
+   step's whole tree, so its workers are still found and stopped after the
+   step's own pid is gone.
+2. A helper leading its own process group whose parent was gone counted
+   itself among the group's orphans and SIGKILLed itself after five seconds:
+   no STOPPED line, exit 137. It now excludes itself and its watcher.
+
+Also from that review: the watcher decides "the helper is gone" with
+`kill -0` (no fork), so a failed `ps` on a loaded Mac is not read as a dead
+helper; a pid without a recorded start time is signalled only as the
+helper's own child or as an orphan in its group; the watcher is signalled
+only while it is still the helper's child; the step's pid is recorded before
+its start time is read; the helper prints one line when the lost-parent rule
+is off; a stop during the push says the push "may or may not have updated
+the remote ref", and the watcher no longer claims to have terminated a step
+that had already ended.
 
 ## The detached-launch rule (review B2)
 
@@ -61,7 +90,11 @@ detects the nohup case by trapping SIGHUP and sending it to itself once at
 start: `trap -p` shows a signal ignored on entry in bash 5 but not in the
 bash 3.2 that macOS ships, and this probe gives the same answer in both.
 Before, `nohup ... & disown; sleep 2` was stopped while `nohup ... &` with a
-launcher that had already exited ran on. The supported detached launch is the
+launcher that had already exited ran on. Those two launches are not stopped
+when their parent goes away, but they stay in the launcher's process group,
+so a launcher that kills its whole group takes them too. The rule reads an
+orphan as reparented to pid 1 (macOS); under a Linux child subreaper, a helper
+whose launcher exited before it started is not stopped by it. The supported detached launch is the
 `screen -dmS` line above (PUBLISHING.md, "Push and protected merge").
 
 A `STOPPED:` line is not proof that nothing landed. During the push and
@@ -90,5 +123,12 @@ of the helper alone is followed by its watcher stopping the step; a launcher
 that returns while the helper runs in the background without nohup leaves
 nothing running. Three detached launches (nohup with a lingering launcher,
 nohup with a launcher that exits at once, and `AGENT_PUSH_DETACHED=1`) each
-complete a verified push. A source pin holds the pid re-check before
-SIGKILL, the held stop during a step start, and the absence of `set -m`.
+complete a verified push. Added for the second review, each
+under the PATH bash and, on macOS, under /bin/bash 3.2 as well (with the
+three signal cases): a worker that also ignores SIGTERM is SIGKILLed after
+five seconds and the STOPPED line is still printed; SIGTERM to the helper
+and its watcher together (what `pkill -f agent-push.sh` does) still stops
+git push and its workers; a helper that leads its own process group stops
+cleanly, with its STOPPED line, when its parent goes away. A source pin
+holds the pid re-check before SIGKILL, the held stop during a step start,
+the absence of `set -m`, and that the push step is git itself.
