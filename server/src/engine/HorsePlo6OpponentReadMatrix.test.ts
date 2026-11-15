@@ -307,7 +307,8 @@ describe('PLO6 response: the same node against each class of raiser', () => {
 
   // PLO6-AUDIT-013. Before plo6ManiacPriceRefusalToRangePlay the refused seeds
   // were folds, so the Horse played tighter against an observed raiser than
-  // against anyone else. A refusal now goes to the range play, which shoves here.
+  // against anyone else. With the option on, a refusal goes to the range play,
+  // which shoves here; by default (opt-in since 2026-11-16) it folds, as before.
   const REFUSED = { sustained: 18, selective: 12, wasRaisingNowQuiet: 18 } as const;
   const REFUSAL = 'plo6_maniac_price_refusal_range_play_seen';
   const OFF = { plo6ManiacPriceRefusalToRangePlay: false };

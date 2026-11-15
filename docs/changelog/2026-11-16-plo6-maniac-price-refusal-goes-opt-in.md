@@ -8,7 +8,7 @@
 
 ## Why
 
-Hand Analysis set a fixed time for the option's reach row (rulings 2026-11-15T06:00:45Z, 14:59:59Z and 16:08:40Z): only a changed accepted decision measured from the decision journal by the decision read keeps it on. None was measured, so the option goes opt-in, as ruled. The case that applied (no eligible opportunity, eligible decisions with no changed action, unreadable evidence, or a harmful decision) is recorded with this pull request. Unless that record names a harmful decision, this is a promotion-evidence disposition, because the production evidence the row requires was not shown; it is not a finding that the change is wrong. The receipts count the first pass only, so the decision journal was read for both passes.
+Hand Analysis set a fixed time for the option's reach row (rulings 2026-11-15T06:00:45Z, 14:59:59Z and 16:08:40Z): only a changed accepted decision measured from the decision journal by the decision read keeps it on. None was measured, so the option goes opt-in, as ruled. The case that applied (no eligible opportunity, eligible decisions with no changed action, unreadable evidence, or a harmful decision) is recorded with this pull request. Unless that record names a harmful decision, this is a promotion-evidence disposition, because the production evidence the row requires was not shown; it is not a finding that the change is wrong. The receipts count the first pass only, so the decision journal was read for both passes where it was retained; the 54c9aac8 window's second-look decisions are unreadable (see the evidence file).
 
 ## Evidence
 

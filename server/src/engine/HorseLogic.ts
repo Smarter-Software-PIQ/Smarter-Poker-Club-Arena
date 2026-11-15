@@ -9384,6 +9384,8 @@ export class HorseLogic {
           // the raiser is not all in), a refusal hands the decision to the
           // range play below. PLO6 cash only: the evidence is one PLO6 cash
           // node (docs/horse-default-on.d/plo6ManiacPriceRefusalToRangePlay.md).
+          // Opt-in since 2026-11-16 (=== true): its reach row was not met by the
+          // deadline Hand Analysis set; unset, the refusal folds as before.
           const refusalToRangePlay38 =
             opts.plo6ManiacPriceRefusalToRangePlay === true &&
             vi.isOmaha &&

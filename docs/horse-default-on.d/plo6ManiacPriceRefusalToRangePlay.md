@@ -52,7 +52,7 @@ At the matched node with the read installed: 18 of 60 decisions change against t
 
 In production the number of changed decisions is NOT measured, so this row is not met (Hand Analysis ruling 2026-11-15T06:00:45Z). No owner authority is retained for the unmet row and none is claimed.
 
-What is measured, with live inputs, from `horse_brain_telemetry` (read 2026-11-15T05:46Z): `plo6_maniac_price_refusal_range_play_seen` fired 4 times on 2026-11-14 and once on 2026-11-15; `observed_maniac_raiser_seen` fired 276 and 395 times on the same days. Those 5 are refusals handed to the range play. That is an upper count of changed decisions, not the count: the range play may still fold. None was already the new action by construction (the old action was a fold).
+What is measured, with live inputs, from `horse_brain_telemetry` (read 2026-11-15T05:46Z): `plo6_maniac_price_refusal_range_play_seen` fired 4 times on 2026-11-14 and once on 2026-11-15; `observed_maniac_raiser_seen` fired 276 and 395 times on the same days. Those 5 are first-pass hand-offs to the range play. Changed decisions may be fewer (the range play may still fold), and second-look hand-offs are not counted, so this is not a bound on changed decisions. None was already the new action by construction (the old action was a fold).
 
 Why the hand record cannot supply the count: a recorded hand carries the action and the public node, and it does not carry the opponent read, the guard or a receipt marker. Six-card cash preflop Horse decisions at the price gate alone (a raise before, the call under 40% of the stack, and two raises or a call of 25% or more) numbered 8,190 from 2026-11-14T12:00Z to 2026-11-15T05:50Z; only the maniac read picks the 5 out of a set like that. Whether any of the 5 faced a person is not known: 41 six-card cash hands had a person on 2026-11-14 and 1 on 2026-11-15.
 
@@ -60,9 +60,9 @@ How the row was written: the four receipts `plo6_maniac_price_refusal_{floored,u
 
 Result: NOT MET (Hand Analysis rulings 2026-11-15T06:00:45Z, 14:59:59Z and 16:08:40Z). Only a changed accepted decision measured from the decision journal by the decision read keeps the option on; none was measured, so the option went opt-in in the pull request that made this change. Which case applied is recorded with that pull request and in the PLO6 archive (`phase1-play/maniac-row5/DECISION.md`): no eligible opportunity (the evidence was unavailable), eligible decisions with no changed action, unreadable evidence, or a harmful decision. In the first three cases this is a promotion-evidence disposition: the production reach the row requires was not shown. It is not a finding that the decision is wrong.
 
-What the measurement could and could not see: the hand-off receipt and the four outcome receipts count the first pass only. The deep second look runs the same decision with this option on and telemetry off (`horseDecision/workerRuntime.ts`), and its action can be the one the table executes, so a zero receipt count does not exclude a hand-off; the decision journal is read for both passes. The journal of the first release in the window (54c9aac8, 2026-11-15T10:00:17Z to 13:15:53Z) was not retained, so its second-look decisions are unreadable; its first-pass receipt count stands.
+What the measurement could and could not see: the hand-off receipt and the four outcome receipts count the first pass only. While the option was on by default (until this change), the deep second look ran the same decision with it on and telemetry off (`horseDecision/workerRuntime.ts`), and its action could be the one the table executed, so a zero receipt count does not exclude a hand-off; the decision journal is read for both passes. The journal of the first release in the window (54c9aac8, 2026-11-15T10:00:17Z to 13:15:53Z) was not retained, so its second-look decisions are unreadable; its first-pass receipt count stands.
 
-Earlier ceiling, kept for the record: in the frozen two-day interval (2026-11-10T15:50Z to 2026-11-12T15:50Z), human-facing PLO6 cash, 596 hands, 648 Horse preflop decisions faced a human's raise; 71 were re-raise sized (20 big blinds or more to call, under 40% of the stack) and 51 of those were folds. The rule reads the public record and not who the raiser is, so a Horse whose record reads as a maniac is treated the same way.
+Earlier ceiling, kept for the record: in the frozen two-day interval (2026-11-10T15:50Z to 2026-11-12T15:50Z), human-facing PLO6 cash, 596 hands, 648 Horse preflop decisions faced a human's raise; 71 were re-raise sized (20 big blinds or more to call, under 40% of the stack) and 51 of those were folds. Decisions facing a Horse's raise are not in this count. The rule reads the public record and not who the raiser is, so a Horse whose record reads as a maniac is treated the same way.
 
 ## Scope
 
@@ -74,7 +74,7 @@ Gated in code to all of: Omaha high with six hole cards (PLO6), cash, the raiser
 
 Status: MET
 
-`plo6_maniac_price_refusal_range_play_seen` fires each time a refusal is handed to the range play (registered in `HorseDataLedger.ts`; an occurrence counter, so a quiet day is not a fault). Its denominator is `observed_maniac_raiser_seen` (#10750).
+`plo6_maniac_price_refusal_range_play_seen` fires each time a refusal is handed to the range play on the first pass (telemetry on; the deep second look is not counted) (registered in `HorseDataLedger.ts`; an occurrence counter, so a quiet day is not a fault). Its denominator is `observed_maniac_raiser_seen` (#10750).
 
 ## Limits
 
@@ -83,7 +83,7 @@ Status: MET
 - One recorded node and one holding. The opponent's record is synthetic.
 - The tournament, hi-lo, all-in raiser and 40% exclusions are code conditions with no matched case of their own.
 - The value figures are simulated against three assumed ranges with full equity realization on the call line; they are not win rates.
-- The production reach is an upper count (5 hand-offs in about 30 hours), not a count of changed decisions; row 5 is not met.
+- The production reach shown is a first-pass count of hand-offs (5 in about 30 hours), not a count of changed decisions, and second-look hand-offs are not counted; row 5 is not met.
 - The rule changes the fold only. It does not make the Horse shove where the call was chosen, so against an observed maniac at this node the Horse still calls 42 times in 60 where the shove is worth more.
 - It makes no change against a tight raiser. At this node the shove against an aces-only range is worth 28.1 when the opener calls and 69.2 when he folds, against 34.5 for the call, so no change there is supported.
 - Natural use needs a human who reads as a maniac at a PLO6 cash table and re-raises a Horse; until one is observed on a release that carries this, live behaviour is unverified.
