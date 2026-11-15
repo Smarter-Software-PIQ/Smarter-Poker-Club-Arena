@@ -334,6 +334,7 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaReraisedPotStackOffRealistic',
   'omahaOnePairDiscipline',
   'fixedLimitRiverFullBetRead',
+  'fixedLimitRiverStrongHandLeads',
   'fixedLimitHiLoNutLowRiverBet',
   'fixedLimitRiverOneBetValueRaise',
   'fixedLimitCallIsNotACommitment',
@@ -515,6 +516,11 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
     'PLO Strategy',
     'Omaha river',
     'river Omaha weak sets/trips keep call pricing without re-shoving',
+  ],
+  fixedLimitRiverStrongHandLeads: [
+    'Fixed-Limit',
+    'Fixed limit (flh, flo8) river, first to act, nothing to call',
+    'a first-to-act fixed-limit river full house or better that few holdings beat leads one big bet (W8)',
   ],
   commitUnderPot: [
     'Heads Up',
