@@ -55,52 +55,62 @@ function collect(dir: string, out: string[] = []): string[] {
   return out;
 }
 
-/** Blank comments so a doc comment ABOUT the bad pattern is not an instance of it. */
 // THE SCAN READS ONLY FILES THAT CAN HOLD AN OFFENDER (2026-11-15).
 // Reading all ~6,000 test files one by one took 30-92 s on the shared SSD while
 // other lanes' gates ran, and timed out every pre-push on the Mac (load 20-46).
 // A window is a `.slice(` call in a suite that reads source (`readFileSync`), so
 // a file without both strings cannot be an offender. git grep finds the files
 // holding both, in parallel; this suite then applies the same rules to exactly
-// those files. Untracked test files are included; the same directories are
-// skipped. Without git (or on any git error) it falls back to reading every
-// file, as before.
+// those files. Tracked and untracked (not ignored) test files are included; the
+// same directories are skipped.
+// FAIL CLOSED (independent review of 03a1496a, B1): the search uses fixed
+// strings (-F), plain directory paths and NUL-separated names (-z), so no git
+// pattern, pathspec or quoting setting can narrow it; and this file always
+// holds both strings, so a search that does not return this file - including
+// git grep's "no match" exit 1 - is broken, and the suite reads every file as
+// before. Without git, or on any git error, it does the same.
+const SELF = path.relative(ROOT, __filename).split(path.sep).join('/');
 function candidates(): string[] {
+  const all = () => DIRS.flatMap((d) => collect(d));
+  let out: string;
   try {
-    const out = execFileSync(
+    out = execFileSync(
       'git',
       [
         'grep',
+        '-z',
         '-l',
+        '-F',
         '--untracked',
         '--all-match',
         '-e',
         'readFileSync',
         '-e',
-        '\\.slice(',
+        '.slice(',
         '--',
-        ...DIRS.flatMap((d) => [`${d}/*.test.ts`, `${d}/*.test.tsx`]),
+        ...DIRS,
       ],
       { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }
     );
-    return out
-      .split('\n')
-      .filter((rel) => TEST_FILE.test(rel) && !rel.split('/').some((part) => SKIP.has(part)));
-  } catch (error) {
-    // git grep exits 1 when nothing matches: no candidate, nothing to read.
-    if ((error as { status?: number }).status === 1) return [];
-    return DIRS.flatMap((d) => collect(d));
+  } catch {
+    return all();
   }
+  const found = out
+    .split('\0')
+    .filter((rel) => TEST_FILE.test(rel) && !rel.split('/').some((part) => SKIP.has(part)));
+  return found.includes(SELF) ? found : all();
 }
 
+/** Blank comments so a doc comment ABOUT the bad pattern is not an instance of it. */
 const decomment = (s: string) =>
   s
     .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
     .replace(/\/\/[^\n]*/g, (m) => m.replace(/[^\n]/g, ' '));
 
 describe('no test bounds a source pin with a magic number', () => {
-  // Exhaustive SSD source scan measured 5.3-6.2s during concurrent local checks.
-  // Keep every input/assertion and a finite budget with room for I/O contention.
+  // The candidate scan takes a few seconds; the full-scan fallback measured
+  // 5.3-6.2 s on a quiet SSD and 30-92 s under load. Keep every input and
+  // assertion and a finite budget with room for I/O contention.
   it('every window is bounded by a structure, via tests/helpers/sourceWindow', () => {
     const offenders: string[] = [];
 
