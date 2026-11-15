@@ -79,7 +79,7 @@ BEGIN
     'holdemManiacSampleGate', 'holdemGearShiftReach', 'holdemCallDownExcludesCurrentHand',
     'holdemCallDownNeedsStyleEvidence', 'v84OmahaRiverReraiseCalls', 'v83AggressionNeedsBluffs',
     'readPostflopFoldRate', 'readShrinkResponse', 'readBreakEvenBluff', 'omahaEvFoldModel',
-    'omahaNeutralUnknown', 'omahaTightOpponent', 'holdemRiverFullHouseValue',
+    'omahaNeutralUnknown', 'omahaTightOpponent', 'icmBustPaysPlace', 'holdemRiverFullHouseValue',
     'omahaTightOpponentSteal', 'readScopedShrink', 'planFingerprint', 'v80TopPairStrongKicker',
     'v78NoCommittingBluffRaise', 'v70FacingOpenZone', 'huBbDefendsToPrice',
     'huOpenerDefendsToPrice', 'huLimpDefendsToPrice', 'committedStackPricedIn',
@@ -105,12 +105,13 @@ BEGIN
     'v16Hu', 'v17RiverProbe', 'v23ShortDeck', 'v24PloDefense', 'v32FacingDefense',
     'v33DepthCeiling', 'v46ShortDeck', 'v55OmahaRiverTripsFlat', 'omahaSmallBlindSteal',
     'omahaBeatenMadeHandDefense', 'omahaBluffCatcherRaiseFold', 'omahaReraisedPotDiscipline',
-    'omahaOnePairDiscipline', 'plo6TopSetNutRealization', 'fixedLimitRiverFullBetRead',
-    'v62RiverBettorPolarity', 'readPostflopFoldRate', 'omahaNeutralUnknown', 'omahaTightOpponent',
-    'omahaTightOpponentSteal', 'huBbDefendsToPrice', 'huOpenerDefendsToPrice',
-    'huLimpDefendsToPrice', 'committedStackPricedIn', 'holdemPersonaPreflop',
-    'aofClosingSeatNashCall', 'nashPushFoldIcm', 'facingOpenFullRingZone', 'vs3BetShortStack',
-    'omahaCommitZoneThreeBetPriceRelief', 'lightningParticipationOmaha', 'commitUnderPot'
+    'omahaReraisedFoldVsTight', 'omahaOnePairDiscipline', 'plo6TopSetNutRealization',
+    'fixedLimitRiverFullBetRead', 'v62RiverBettorPolarity', 'readPostflopFoldRate',
+    'omahaNeutralUnknown', 'omahaTightOpponent', 'omahaTightOpponentSteal', 'huBbDefendsToPrice',
+    'huOpenerDefendsToPrice', 'huLimpDefendsToPrice', 'committedStackPricedIn',
+    'holdemPersonaPreflop', 'aofClosingSeatNashCall', 'nashPushFoldIcm', 'facingOpenFullRingZone',
+    'vs3BetShortStack', 'omahaCommitZoneThreeBetPriceRelief', 'lightningParticipationOmaha',
+    'commitUnderPot'
     -- registry:off-only-options:end
     ) THEN
       RAISE EXCEPTION 'switch row % is on and the option is now off-only: set it off or clear it before this migration',
@@ -175,7 +176,7 @@ ALTER TABLE public.ca_horse_style_switch
     'holdemManiacSampleGate', 'holdemGearShiftReach', 'holdemCallDownExcludesCurrentHand',
     'holdemCallDownNeedsStyleEvidence', 'v84OmahaRiverReraiseCalls', 'v83AggressionNeedsBluffs',
     'readPostflopFoldRate', 'readShrinkResponse', 'readBreakEvenBluff', 'omahaEvFoldModel',
-    'omahaNeutralUnknown', 'omahaTightOpponent', 'holdemRiverFullHouseValue',
+    'omahaNeutralUnknown', 'omahaTightOpponent', 'icmBustPaysPlace', 'holdemRiverFullHouseValue',
     'omahaTightOpponentSteal', 'readScopedShrink', 'planFingerprint', 'v80TopPairStrongKicker',
     'v78NoCommittingBluffRaise', 'v70FacingOpenZone', 'huBbDefendsToPrice',
     'huOpenerDefendsToPrice', 'huLimpDefendsToPrice', 'committedStackPricedIn',
@@ -220,12 +221,13 @@ ALTER TABLE public.ca_horse_style_switch
     'v16Hu', 'v17RiverProbe', 'v23ShortDeck', 'v24PloDefense', 'v32FacingDefense',
     'v33DepthCeiling', 'v46ShortDeck', 'v55OmahaRiverTripsFlat', 'omahaSmallBlindSteal',
     'omahaBeatenMadeHandDefense', 'omahaBluffCatcherRaiseFold', 'omahaReraisedPotDiscipline',
-    'omahaOnePairDiscipline', 'plo6TopSetNutRealization', 'fixedLimitRiverFullBetRead',
-    'v62RiverBettorPolarity', 'readPostflopFoldRate', 'omahaNeutralUnknown', 'omahaTightOpponent',
-    'omahaTightOpponentSteal', 'huBbDefendsToPrice', 'huOpenerDefendsToPrice',
-    'huLimpDefendsToPrice', 'committedStackPricedIn', 'holdemPersonaPreflop',
-    'aofClosingSeatNashCall', 'nashPushFoldIcm', 'facingOpenFullRingZone', 'vs3BetShortStack',
-    'omahaCommitZoneThreeBetPriceRelief', 'lightningParticipationOmaha', 'commitUnderPot'
+    'omahaReraisedFoldVsTight', 'omahaOnePairDiscipline', 'plo6TopSetNutRealization',
+    'fixedLimitRiverFullBetRead', 'v62RiverBettorPolarity', 'readPostflopFoldRate',
+    'omahaNeutralUnknown', 'omahaTightOpponent', 'omahaTightOpponentSteal', 'huBbDefendsToPrice',
+    'huOpenerDefendsToPrice', 'huLimpDefendsToPrice', 'committedStackPricedIn',
+    'holdemPersonaPreflop', 'aofClosingSeatNashCall', 'nashPushFoldIcm', 'facingOpenFullRingZone',
+    'vs3BetShortStack', 'omahaCommitZoneThreeBetPriceRelief', 'lightningParticipationOmaha',
+    'commitUnderPot'
     -- registry:off-only-options:end
     ))
     OR option IN (
@@ -255,12 +257,13 @@ AS $function$
     'v16Hu', 'v17RiverProbe', 'v23ShortDeck', 'v24PloDefense', 'v32FacingDefense',
     'v33DepthCeiling', 'v46ShortDeck', 'v55OmahaRiverTripsFlat', 'omahaSmallBlindSteal',
     'omahaBeatenMadeHandDefense', 'omahaBluffCatcherRaiseFold', 'omahaReraisedPotDiscipline',
-    'omahaOnePairDiscipline', 'plo6TopSetNutRealization', 'fixedLimitRiverFullBetRead',
-    'v62RiverBettorPolarity', 'readPostflopFoldRate', 'omahaNeutralUnknown', 'omahaTightOpponent',
-    'omahaTightOpponentSteal', 'huBbDefendsToPrice', 'huOpenerDefendsToPrice',
-    'huLimpDefendsToPrice', 'committedStackPricedIn', 'holdemPersonaPreflop',
-    'aofClosingSeatNashCall', 'nashPushFoldIcm', 'facingOpenFullRingZone', 'vs3BetShortStack',
-    'omahaCommitZoneThreeBetPriceRelief', 'lightningParticipationOmaha', 'commitUnderPot'
+    'omahaReraisedFoldVsTight', 'omahaOnePairDiscipline', 'plo6TopSetNutRealization',
+    'fixedLimitRiverFullBetRead', 'v62RiverBettorPolarity', 'readPostflopFoldRate',
+    'omahaNeutralUnknown', 'omahaTightOpponent', 'omahaTightOpponentSteal', 'huBbDefendsToPrice',
+    'huOpenerDefendsToPrice', 'huLimpDefendsToPrice', 'committedStackPricedIn',
+    'holdemPersonaPreflop', 'aofClosingSeatNashCall', 'nashPushFoldIcm', 'facingOpenFullRingZone',
+    'vs3BetShortStack', 'omahaCommitZoneThreeBetPriceRelief', 'lightningParticipationOmaha',
+    'commitUnderPot'
     -- registry:off-only-options:end
     )
       THEN ARRAY['off']
@@ -310,7 +313,7 @@ AS $function$
     'holdemManiacSampleGate', 'holdemGearShiftReach', 'holdemCallDownExcludesCurrentHand',
     'holdemCallDownNeedsStyleEvidence', 'v84OmahaRiverReraiseCalls', 'v83AggressionNeedsBluffs',
     'readPostflopFoldRate', 'readShrinkResponse', 'readBreakEvenBluff', 'omahaEvFoldModel',
-    'omahaNeutralUnknown', 'omahaTightOpponent', 'holdemRiverFullHouseValue',
+    'omahaNeutralUnknown', 'omahaTightOpponent', 'icmBustPaysPlace', 'holdemRiverFullHouseValue',
     'omahaTightOpponentSteal', 'readScopedShrink', 'planFingerprint', 'v80TopPairStrongKicker',
     'v78NoCommittingBluffRaise', 'v70FacingOpenZone', 'huBbDefendsToPrice',
     'huOpenerDefendsToPrice', 'huLimpDefendsToPrice', 'committedStackPricedIn',
@@ -353,12 +356,13 @@ BEGIN
     'v16Hu', 'v17RiverProbe', 'v23ShortDeck', 'v24PloDefense', 'v32FacingDefense',
     'v33DepthCeiling', 'v46ShortDeck', 'v55OmahaRiverTripsFlat', 'omahaSmallBlindSteal',
     'omahaBeatenMadeHandDefense', 'omahaBluffCatcherRaiseFold', 'omahaReraisedPotDiscipline',
-    'omahaOnePairDiscipline', 'plo6TopSetNutRealization', 'fixedLimitRiverFullBetRead',
-    'v62RiverBettorPolarity', 'readPostflopFoldRate', 'omahaNeutralUnknown', 'omahaTightOpponent',
-    'omahaTightOpponentSteal', 'huBbDefendsToPrice', 'huOpenerDefendsToPrice',
-    'huLimpDefendsToPrice', 'committedStackPricedIn', 'holdemPersonaPreflop',
-    'aofClosingSeatNashCall', 'nashPushFoldIcm', 'facingOpenFullRingZone', 'vs3BetShortStack',
-    'omahaCommitZoneThreeBetPriceRelief', 'lightningParticipationOmaha', 'commitUnderPot'
+    'omahaReraisedFoldVsTight', 'omahaOnePairDiscipline', 'plo6TopSetNutRealization',
+    'fixedLimitRiverFullBetRead', 'v62RiverBettorPolarity', 'readPostflopFoldRate',
+    'omahaNeutralUnknown', 'omahaTightOpponent', 'omahaTightOpponentSteal', 'huBbDefendsToPrice',
+    'huOpenerDefendsToPrice', 'huLimpDefendsToPrice', 'committedStackPricedIn',
+    'holdemPersonaPreflop', 'aofClosingSeatNashCall', 'nashPushFoldIcm', 'facingOpenFullRingZone',
+    'vs3BetShortStack', 'omahaCommitZoneThreeBetPriceRelief', 'lightningParticipationOmaha',
+    'commitUnderPot'
     -- registry:off-only-options:end
        ]::text[]) AS n
        WHERE public.fn_ca_horse_option_switch_states(n) IS DISTINCT FROM ARRAY['off'])
@@ -409,7 +413,7 @@ BEGIN
     'holdemManiacSampleGate', 'holdemGearShiftReach', 'holdemCallDownExcludesCurrentHand',
     'holdemCallDownNeedsStyleEvidence', 'v84OmahaRiverReraiseCalls', 'v83AggressionNeedsBluffs',
     'readPostflopFoldRate', 'readShrinkResponse', 'readBreakEvenBluff', 'omahaEvFoldModel',
-    'omahaNeutralUnknown', 'omahaTightOpponent', 'holdemRiverFullHouseValue',
+    'omahaNeutralUnknown', 'omahaTightOpponent', 'icmBustPaysPlace', 'holdemRiverFullHouseValue',
     'omahaTightOpponentSteal', 'readScopedShrink', 'planFingerprint', 'v80TopPairStrongKicker',
     'v78NoCommittingBluffRaise', 'v70FacingOpenZone', 'huBbDefendsToPrice',
     'huOpenerDefendsToPrice', 'huLimpDefendsToPrice', 'committedStackPricedIn',
