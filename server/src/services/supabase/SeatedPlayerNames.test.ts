@@ -1,3 +1,4 @@
+import { confirmedHuman } from '../../engine/HorseConfirmedSeatRole.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { loadSeatedPlayers } from './tables.js';
 import { supabase } from './client.js';
@@ -28,6 +29,7 @@ describe('the engine roster uses the Must-Move lobby poker alias', () => {
       { display_name: 'Real Person', first_name: 'Real', last_name: 'Person' },
       'Player',
     ],
+    ['nullable role', { display_name: 'RiverKing', is_horse: null }, 'RiverKing'],
     ['legacy pseudonym', { display_name: 'RiverKing', full_name: 'Real Person' }, 'RiverKing'],
   ])('%s matches in both roster transports', async (_label, profile, expected) => {
     const seat = { id: 'seat', user_id: 'user', occupancy_id: 'stay', seat_number: 1, stack: 20 };
@@ -54,6 +56,11 @@ describe('the engine roster uses the Must-Move lobby poker alias', () => {
       { data: [{ id: 'user', ...profile }], error: null },
     ];
     const fallback = await loadSeatedPlayers('table');
+    const expectedHuman = 'is_horse' in profile && profile.is_horse === false;
+    for (const row of [embedded[0]!, fallback[0]!]) {
+      expect(confirmedHuman(row)).toBe(expectedHuman);
+      expect(JSON.stringify(row)).not.toContain('confirmed-seat-role');
+    }
     expect(embedded[0].username).toBe(expected);
     expect(fallback[0].username).toBe(expected);
     expect(embedded[0]).not.toHaveProperty('full_name');

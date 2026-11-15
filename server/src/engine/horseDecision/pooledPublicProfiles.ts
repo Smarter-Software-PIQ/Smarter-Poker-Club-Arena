@@ -1,3 +1,4 @@
+import { verifiedSavedPresence } from './savedProfilePresence.js';
 import { isDeepStrictEqual } from 'node:util';
 import { learnablePublicAction } from '../HorseOpponentExploit.js';
 import { publicMemoryDomainKey } from '../HorsePublicMemoryDomain.js';
@@ -244,6 +245,11 @@ export class PooledPublicProfiles {
     const domainSuffix =
       context.version === 2 ? '|' + publicMemoryDomainKey(context.publicMemoryDomain) : '';
     let availableAtMs = 0;
+    let usedSaved = false;
+    const saved = verifiedSavedPresence(request, request.savedProfilePresence);
+    const savedAt = saved?.availableAtMs;
+    const requestAt = saved?.requestedAtMs;
+
     for (const player of request.gameState.players) {
       if (
         !request.gameState.dealtSeatIds?.includes(player.seat) ||
@@ -256,10 +262,32 @@ export class PooledPublicProfiles {
       );
       // A newer receipt is unavailable to an older queued snapshot. Never
       // substitute it or relabel its availability with the decision clock.
-      if (found && found.at <= request.decisionTimeMs) {
-        rows.push(structuredClone(found.profile));
+      const eligible = found && found.at <= request.decisionTimeMs ? found : null;
+      const candidate = saved?.exactProfiles?.find((p) => p.user_id === player.user_id);
+      // Keep this fallback inside the current read. A completion/retry racing the
+      // DB snapshot may have invalidated its counters before the decision cutoff.
+      const clock = candidate && this.clocks.get(player.user_id);
+      const intervening =
+        candidate &&
+        requestAt != null &&
+        (clock
+          ? clock.marks.some(([at]) => at >= requestAt && at <= request.decisionTimeMs) ||
+            (clock.marks[0]![1] > 1 && clock.marks[0]![0] > request.decisionTimeMs)
+          : this.clocks.size >= this.capacity && this.lastAt >= requestAt);
+      const preferSaved =
+        candidate &&
+        savedAt != null &&
+        !intervening &&
+        (!eligible || opponentProfileVersion(candidate) > opponentProfileVersion(eligible.profile));
+      if (preferSaved) {
+        rows.push(candidate);
         noted.add(player.user_id);
-        availableAtMs = Math.max(availableAtMs, found.at);
+        availableAtMs = Math.max(availableAtMs, savedAt);
+        usedSaved = true;
+      } else if (eligible) {
+        rows.push(structuredClone(eligible.profile));
+        noted.add(player.user_id);
+        availableAtMs = Math.max(availableAtMs, eligible.at);
       }
       for (const [donorMode, donorSize] of opponentMemoryDonors(mode, size)) {
         const donor = this.rows.get(
@@ -301,9 +329,10 @@ export class PooledPublicProfiles {
       receipt: {
         version: lineage.length ? 3 : donors.length ? 2 : 1,
         ...(lineage.length ? { lineage } : {}),
-        source: this.bootstrapped
-          ? 'saved_and_accepted_public_profiles'
-          : 'accepted_hand_public_profiles',
+        source:
+          this.bootstrapped || usedSaved
+            ? 'saved_and_accepted_public_profiles'
+            : 'accepted_hand_public_profiles',
         availableAtMs,
         // Without donors the digest is exactly the exact rows' digest it was
         // (version 1); with donors it covers both (version 2).

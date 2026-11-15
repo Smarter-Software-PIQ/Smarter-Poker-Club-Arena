@@ -1,3 +1,4 @@
+import { verifiedSavedPresence } from './savedProfilePresence.js';
 import { HorseDeepDiveCapture } from '../HorseDeepDiveReceipt.js';
 import { HORSE_REQUEST_MAX_PLANS } from './requestRetentionBudget.js';
 import { horseHybridDecisionMatches } from '../HorseHybridProfile.js';
@@ -3178,7 +3179,12 @@ export class HorseDecisionWorkerRuntime {
     try {
       if (this.deps.journalEnabled?.() ?? true)
         this.deps.journalDecision?.(request, {
-          snapshot: request,
+          snapshot: request.savedProfilePresence
+            ? {
+                ...request,
+                savedProfilePresence: verifiedSavedPresence(request, request.savedProfilePresence),
+              }
+            : request,
           observerReads: this.observerReads.receipt(request),
           readFrame,
           rangeConsumption: rangeCapture?.finish(readFrame?.sha256 ?? null),

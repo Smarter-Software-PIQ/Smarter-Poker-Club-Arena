@@ -1,3 +1,5 @@
+import type { DurableOpponentProfile } from '../HorseOpponentMemory.js';
+import { SavedProfilePresenceCache } from './savedProfilePresence.js';
 import { describe, it, expect, afterEach } from 'vitest';
 import { PooledPublicProfiles } from './pooledPublicProfiles.js';
 import { horseDecisionReceiptRefusal } from './responseValidation.js';
@@ -218,6 +220,115 @@ describe('owner-authorized public herd profiles', () => {
   });
 });
 
+it('reads one accepted exact saved row through a cold worker and HorseLogic without mutating its pool', async () => {
+  const { workerHarness, requestAt, heroId, opponentId, tableId, otherTableId, lease } =
+    await import('../../testing/horseRegression/plan/fixture.js');
+  const { HorseLogic } = await import('../HorseLogic.js');
+  const { buildHorseDecisionKey } = await import('./protocol.js');
+  const domain = { version: 1, speed: 'table', ante: 'none' } as const;
+  const lastHand = '77777777-7777-4777-8777-777777777777';
+  const profile: DurableOpponentProfile = {
+    user_id: opponentId,
+    variant: 'nlh',
+    mode: 'cash',
+    size: 'hu',
+    public_memory_domain: domain,
+    observed_hands: 60,
+    initialized: true,
+    last_accepted_hand_id: lastHand,
+    counters: { ...freshExploitCounters(), hands: 60, vpip: 53, pfr: 48, rfiOpp: 50, rfi: 44 },
+  };
+  const req = requestAt();
+  req.gameState.publicMemoryDomain = domain;
+  req.gameState.humanUserIds = [opponentId];
+  req.savedProfileHumanIds = [opponentId];
+  const at = req.decisionTimeMs - 5;
+  const cache = new SavedProfilePresenceCache(
+    async () => [{ user_id: opponentId, presence: 'exact', exact_profile: profile }],
+    () => at
+  );
+  cache.prime({
+    tableId,
+    handNumber: 1000100,
+    lease,
+    variant: 'nlh',
+    mode: 'cash',
+    domain,
+    roster: [
+      { id: heroId, seat: 1, human: false },
+      { id: opponentId, seat: 2, human: true },
+    ],
+  });
+  await new Promise<void>((r) => setImmediate(r));
+  req.savedProfilePresence = cache.forSnapshot(req);
+  expect(req.savedProfilePresence?.rows).toMatchObject([
+    { presence: 'exact', priorParticipation: 'accepted_profile_present' },
+  ]);
+  let consumed = false;
+  const h = workerHarness({
+    decide: (...args) => {
+      const decision = HorseLogic.decide(...args);
+      HorseMind.setDecisionScope('holdem:hu', 'nlh', 'cash');
+      consumed = HorseMind.opponentRead(opponentId)?.stats.pfr !== undefined;
+      return decision;
+    },
+  });
+  try {
+    req.decisionKey = buildHorseDecisionKey(req);
+    expect((await h.fast(req)).type).toBe('FAST_RESULT');
+    expect(consumed).toBe(true);
+    const evidence = h.captures.at(-1)!.observerReads;
+    expect(evidence).toMatchObject({
+      pooledPublicProfiles: {
+        source: 'saved_and_accepted_public_profiles',
+        lineage: [{ userId: opponentId, handId: lastHand, observedHands: 60 }],
+      },
+    });
+    // Same worker, next original hand with no saved packet: request-local only.
+    const next = requestAt(20, tableId, 1000101);
+    next.gameState.publicMemoryDomain = domain;
+    next.savedProfileHumanIds = [opponentId];
+    next.decisionKey = buildHorseDecisionKey(next);
+    await h.fast(next);
+    expect(consumed).toBe(false);
+    // A snapshot from the same millisecond as receipt cannot see that row.
+    expect(new PooledPublicProfiles().read({ ...req, decisionTimeMs: at })).toBeNull();
+    const pool = new PooledPublicProfiles(() => at - 1);
+    const newer = {
+      ...profile,
+      counters: { ...profile.counters, hands: 62 },
+      observed_hands: 62,
+      last_accepted_hand_id: '88888888-8888-4888-8888-888888888888',
+    } as const;
+    expect(pool.bootstrap({ availableAtMs: at - 1, profiles: [newer] })).toBe(true);
+    expect(pool.read(req)?.rows[0]?.observed_hands).toBe(62);
+    const raced = new PooledPublicProfiles(() => at + 1);
+    const completed: ObserveCompletedHandRequest = {
+      type: 'OBSERVE_COMPLETED_HAND',
+      requestId: 42,
+      generation: 1000101,
+      fence: `${otherTableId}:1000101:${lease}:observe`,
+      handKey: `${otherTableId}:1000101`,
+      committedHandId: committed,
+      bigBlind: 2,
+      publicMemoryDomain: domain,
+      actions: [
+        { userId: opponentId, seat: 2, action: 'raise', amount: 8, stage: 'preflop', timestamp: 1 },
+      ],
+      observerParticipants: {
+        version: 1,
+        handKey: `${otherTableId}:1000101:${lease}`,
+        status: 'bound',
+        contexts: [horseObserverReadContextFromRequest(req)!],
+      },
+    };
+    expect(raced.read(req)?.rows[0]?.last_accepted_hand_id).toBe(lastHand);
+    raced.observe(completed);
+    expect(raced.read(req)).toBeNull();
+  } finally {
+    await h.close();
+  }
+});
 it('carries accepted public notes through the actual worker and HorseLogic read frame', async () => {
   const { workerHarness, requestAt, heroId, opponentId, tableId, otherTableId, lease } =
     await import('../../testing/horseRegression/plan/fixture.js');

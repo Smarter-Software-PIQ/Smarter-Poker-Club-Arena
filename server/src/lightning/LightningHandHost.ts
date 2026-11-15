@@ -1,3 +1,5 @@
+import { confirmedHuman } from '../engine/HorseConfirmedSeatRole.js';
+import { horseSavedProfilePresence } from '../services/HorseSavedProfilePresence.js';
 import { noteLightningHandForBankTheWin } from './LightningBankTheWin.js';
 import { publicMemoryDomainFromRules } from '../engine/HorsePublicMemoryDomain.js';
 import { recheckHorseFeaturesBeforeAcceptance } from '../engine/HorseFeatureAuthority.js';
@@ -769,6 +771,33 @@ export class LightningHandHost {
       if (variantRefusal) {
         outcome = variantRefusal;
         return void (await this.abandon(variantRefusal));
+      }
+      const lease = this.deps.leaseFor(this.hostTableId);
+      const ante = (this.rules.ante_enabled ?? true) ? Number(this.rules.ante ?? 0) || 0 : 0;
+      const domain = publicMemoryDomainFromRules(
+        'lightning',
+        ante,
+        this.rules.big_blind_ante_enabled === true
+      );
+      if (
+        lease &&
+        domain &&
+        participants.some(confirmedHuman) &&
+        participants.every((p) => typeof p.isHorse === 'boolean')
+      ) {
+        horseSavedProfilePresence.prime({
+          tableId: this.hostTableId,
+          handNumber: this.handNumber,
+          lease: lease.generation,
+          variant: String(this.rules.game_variant || 'nlh'),
+          mode: 'cash',
+          domain,
+          roster: participants.map((p) => ({
+            seat: p.seat,
+            id: p.playerId,
+            human: confirmedHuman(p),
+          })),
+        });
       }
       // Asked above for the matcher's list, which the formation check has
       // just proved is exactly these participants.
@@ -1841,6 +1870,9 @@ export class LightningHandHost {
         userId,
         seat: me.seat,
         horseProfile: this.participants.get(userId)?.horseProfile,
+        savedProfileHumanIds: [...this.participants.values()]
+          .filter(confirmedHuman)
+          .map((p) => p.playerId),
         humanUserIds: [...this.participants.entries()]
           .filter(([, participant]) => participant.isHorse === false)
           .map(([id]) => id),
@@ -2445,6 +2477,9 @@ export class LightningHandHost {
         userId,
         seat: me.seat,
         horseProfile: this.participants.get(userId)?.horseProfile,
+        savedProfileHumanIds: [...this.participants.values()]
+          .filter(confirmedHuman)
+          .map((p) => p.playerId),
         humanUserIds: [...this.participants.entries()]
           .filter(([, participant]) => participant.isHorse === false)
           .map(([id]) => id),

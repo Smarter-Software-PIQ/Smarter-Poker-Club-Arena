@@ -4,7 +4,11 @@
   "functions": [
     "fn_horse_public_domain_valid",
     "fn_horse_exact_accept_hand",
-    "fn_horse_exact_profiles_read"
+    "fn_horse_exact_profiles_read",
+    "fn_horse_saved_profile_presence"
   ],
-  "columns": { "hand_history": ["public_memory_domain"] }
+  "columns": {
+    "hand_history": ["public_memory_domain"],
+    "horse_exact_profiles": ["last_accepted_hand_id"]
+  }
 }
