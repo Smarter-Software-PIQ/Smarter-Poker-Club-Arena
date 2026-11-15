@@ -317,6 +317,7 @@ import {
   HU_BB_MAX_OPEN_BB,
   HU_BB_MAX_STACK_BB,
   HU_BB_MIN_STACK_BB,
+  HU_BB_UNREAD_MAX_STACK_BB,
   HU_LIMP_MAX_RAISE_BB,
 } from './HorseHuBbDefence.js';
 import { gtoDefence, V72_MAX_OPEN_BB } from './HorseGtoDefenceRanges.js';
@@ -2921,6 +2922,19 @@ export interface HorseDecideOpts {
    *  six-max and tournaments unchanged. Default OFF: only explicit true turns
    *  it on (league hu_bb_defends_to_price). */
   huBbDefendsToPrice?: boolean;
+  /** HU BB DEFENDS TO ITS PRICE AGAINST AN UNREAD OPENER (2026-11-15,
+   *  HU-NLH-001d, HorseHuBbDefence): heads-up no-limit hold'em, the big blind
+   *  facing the only open (no limp, no caller, opener not all in, open above
+   *  1.05bb and at most 6bb), 20-50bb effective, the opener with no engaged
+   *  RFI/PFR read, continues every hand whose all-in equity against the V70
+   *  heads-up reference open width, times a 0.7 realisation, covers the
+   *  rake-aware pot odds. Cash, and a tournament only when its trusted
+   *  context says exactly two players are left in the event and it is not a
+   *  satellite. Widen-only and call-only; an engaged read, 80bb, three or
+   *  more dealt, Omaha, short deck, pot and fixed limit, straddles, bomb pots
+   *  and all-in-or-fold unchanged. Default OFF: only explicit true turns it
+   *  on (league human_hu_bb_defends_unread_vs_minraise_40bb). */
+  huBbDefendsUnreadToPrice?: boolean;
   /** HU OPENER DEFENDS TO ITS PRICE (2026-11-14, HU-NLH-010,
    *  HorseHuBbDefence): heads-up no-limit hold'em cash, hero made the only
    *  open and faces exactly one 3-bet of 1.8x-7x that is not all in, 20-150bb
@@ -5071,7 +5085,11 @@ let v53IcmAppliedPending = false;
 // intent turned a fold into a call. The receipt fires only if the final
 // decision is still that call (a later owner, e.g. the dominated-offsuit
 // 3-bet fold above 20bb effective, may fold it back). Receipt only.
-let huDefendToPricePending: 'hu_opener_defends_to_price' | 'hu_limp_defends_to_price' | null = null;
+let huDefendToPricePending:
+  | 'hu_opener_defends_to_price'
+  | 'hu_limp_defends_to_price'
+  | 'hu_bb_defends_unread_to_price'
+  | null = null;
 // The near-nut candidate kept a raise the PLO6 flat rule would have flatted.
 let nearNutFlatExceptionUsed = false;
 // plo6ManiacPriceRefusalToRangePlay outcome receipt state (HA-10768-1): the
@@ -8171,7 +8189,9 @@ export class HorseLogic {
       noteFire(
         huDefendToPrice === 'hu_opener_defends_to_price'
           ? 'hu_opener_defends_to_price'
-          : 'hu_limp_defends_to_price'
+          : huDefendToPrice === 'hu_bb_defends_unread_to_price'
+            ? 'hu_bb_defends_unread_to_price'
+            : 'hu_limp_defends_to_price'
       );
     // plo6ManiacPriceRefusalToRangePlay (HA-10768-1): the hand-off receipt
     // above counts refusals sent to the range play; these count what the
@@ -9993,6 +10013,46 @@ export class HorseLogic {
       const equity = huBbEquityVsOpener(cls, widthPct);
       return equity === null ? undefined : { equity };
     })();
+    // ═══ HU BB DEFENDS TO ITS PRICE AGAINST AN UNREAD OPENER (2026-11-15,
+    // HU-NLH-001d, default off) ═══ the same spot as huBbPrice, 20-50bb,
+    // only while the opener has no engaged read, priced at the reference
+    // open width (HorseHuBbDefence). A tournament is in scope only with
+    // exactly two players left in the event and not a satellite: the payout
+    // is then linear in chips. Missing or untrusted context stands aside.
+    const huBbUnreadPrice = (() => {
+      if (!(opts.huBbDefendsUnreadToPrice === true)) return undefined;
+      if (raises !== 1 || callers !== 0 || limpers !== 0 || lastRaiserSeat < 0) return undefined;
+      if (heroPreviouslyActed || player.cards.length !== 2) return undefined;
+      if (vi.isOmaha || vi.isShortDeck || vi.isFixedLimit || vi.isPotLimit) return undefined;
+      if (gs.allInOrFold === true || gs.straddleActive === true || gs.bombPot) return undefined;
+      if (isTournamentMode(gs)) {
+        const t = trustedTournamentContext(gs);
+        if (!t || t.playersLeft !== 2 || t.satellite === true) return undefined;
+      }
+      if (dealtHorseTableSize(gs, player.seat) !== 2) return undefined;
+      if (preflopPlayersBehind(player.seat, gs, opts.v13 !== false) !== 0) return undefined;
+      const opener = gs.players.find((p) => p.seat === lastRaiserSeat);
+      if (!opener || opener.is_all_in || opener.user_id === player.user_id) return undefined;
+      const openToBB = bb > 0 ? gs.currentBet / bb : 0;
+      if (!(openToBB > 1.05 && openToBB <= HU_BB_MAX_OPEN_BB)) return undefined;
+      const effBB =
+        bb > 0 ? Math.min(player.stack + player.bet, opener.stack + opener.bet) / bb : 0;
+      if (effBB < HU_BB_MIN_STACK_BB || effBB > HU_BB_UNREAD_MAX_STACK_BB) return undefined;
+      const cls = holdemClass(player.cards[0], player.cards[1]);
+      if (!cls) return undefined;
+      if (opts.mind !== false) {
+        let read: number | null = null;
+        try {
+          read = openerRangeWidth(HorseMind.opponentRead(opener.user_id));
+        } catch {
+          // An unreadable read is not a read: stand aside, keep today's answer.
+          return undefined;
+        }
+        if (read !== null) return undefined;
+      }
+      const equity = huBbEquityVsOpener(cls, OPEN_TARGET_HU[(gs.ante ?? 0) > 0 ? 'ante' : 'cash']);
+      return equity === null ? undefined : { equity };
+    })();
     // ═══ HU OPENER / LIMPER DEFEND TO THEIR PRICE (2026-11-14, HU-NLH-010
     // and HU-NLH-011, both default off) ═══ two dealt in, hero the small
     // blind whose open was 3-bet or whose limp was raised: the class's equity
@@ -10085,6 +10145,7 @@ export class HorseLogic {
           }
         : {}),
       ...(huBbPrice ? { huBbPrice } : {}),
+      ...(huBbUnreadPrice ? { huBbUnreadPrice } : {}),
       ...(huOpenerPrice ? { huOpenerPrice } : {}),
       ...(huLimpPrice ? { huLimpPrice } : {}),
       ...(opts.committedStackPricedIn === true
@@ -10892,7 +10953,8 @@ export class HorseLogic {
       // Deferred: fired in decideInternal only if the final decision is still the call.
       else if (
         intent.receipt === 'hu_opener_defends_to_price' ||
-        intent.receipt === 'hu_limp_defends_to_price'
+        intent.receipt === 'hu_limp_defends_to_price' ||
+        intent.receipt === 'hu_bb_defends_unread_to_price'
       )
         huDefendToPricePending = intent.receipt;
       else if (intent.receipt === 'committed_stack_priced_in')

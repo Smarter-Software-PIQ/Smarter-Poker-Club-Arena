@@ -55,6 +55,7 @@ import type { HeroPriorPreflopAction } from './HorsePreflopOrbitState.js';
 import { cashNlhThreeBetRaiseTo } from './HorseCashThreeBetSize.js';
 import {
   huBbRequiredEquity,
+  huBbUnreadRequiredEquity,
   huLimpRequiredEquity,
   huOpenerRequiredEquity,
 } from './HorseHuBbDefence.js';
@@ -139,6 +140,7 @@ export interface PreflopIntent {
     | 'plo_suited_aces_four_bet'
     | 'plo_suited_aces_four_bettor_continues'
     | 'hu_bb_defends_to_price'
+    | 'hu_bb_defends_unread_to_price'
     | 'hu_opener_defends_to_price'
     | 'hu_limp_defends_to_price'
     | 'committed_stack_priced_in'
@@ -412,6 +414,15 @@ export interface PreflopCtx {
    *  the spot in scope; a fold of the heads-up defence becomes a call when
    *  the realised equity covers the price. Absent = unchanged. */
   huBbPrice?: { equity: number };
+  /** HU BB DEFENDS TO ITS PRICE AGAINST AN UNREAD OPENER (2026-11-15,
+   *  HU-NLH-001d, flag huBbDefendsUnreadToPrice, default off;
+   *  HorseHuBbDefence): heads-up no-limit hold'em, hero the big blind facing
+   *  the only open from an opener with no engaged read, 20-50bb effective,
+   *  cash or a tournament with exactly two players left. `equity` is this
+   *  class's all-in equity against the reference open width. Present only
+   *  with the flag on and the spot in scope; a fold becomes a call when the
+   *  equity at the 0.7 realisation covers the price. Absent = unchanged. */
+  huBbUnreadPrice?: { equity: number };
   /** HU OPENER DEFENDS TO ITS PRICE (HU-NLH-010, flag huOpenerDefendsToPrice,
    *  default off; HorseHuBbDefence): heads-up no-limit hold'em cash, hero made
    *  the only open and faces exactly one 3-bet that is not all in. `equity`
@@ -3444,6 +3455,16 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       const odds = preflopCallOdds(ctx, pricePot, Math.min(toCall, stack));
       if (ctx.huBbPrice.equity >= huBbRequiredEquity(odds)) {
         return { a: 'call', receipt: 'hu_bb_defends_to_price' };
+      }
+    }
+    // HU BB DEFENDS TO ITS PRICE AGAINST AN UNREAD OPENER (HU-NLH-001d, flag
+    // huBbDefendsUnreadToPrice, default off): the same price as above, read
+    // only while the opener is unread and with the 0.7 realisation the
+    // bottom of the defending range measurably gets. Widen-only, call-only.
+    if (ctx.huBbUnreadPrice && position === 'bb' && callers === 0 && priceOK && toCall > 0) {
+      const odds = preflopCallOdds(ctx, pricePot, Math.min(toCall, stack));
+      if (ctx.huBbUnreadPrice.equity >= huBbUnreadRequiredEquity(odds)) {
+        return { a: 'call', receipt: 'hu_bb_defends_unread_to_price' };
       }
     }
     // HU LIMPER DEFENDS TO ITS PRICE (HU-NLH-011, flag huLimpDefendsToPrice,

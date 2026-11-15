@@ -3025,6 +3025,34 @@ export const HU_DEFENCE_CARDS: readonly LeagueMatchup[] = Object.freeze([
 LEAGUE_MATCHUPS.push(...HU_DEFENCE_CARDS);
 
 /**
+ * THE UNREAD BIG BLIND CARD (2026-11-15, HU-NLH-001d). huBbDefendsUnreadToPrice
+ * (default OFF) acts only while the opener has no engaged read, so the card
+ * that measures it keeps every read at its empty prior (memoryLearning 'off')
+ * for the whole card: heads-up 40bb against the hu_minraise_every_button_v1
+ * persona of the calibrated field (the near min-raise is the open heads-up
+ * players make in production), the live cash Hybrid persona and the
+ * deal-seeded mood clock, arm A the option on and arm B the live default.
+ * The card only measures; the option stays default OFF.
+ */
+export const HUMAN_HU_BB_DEFENDS_UNREAD_VS_MINRAISE_40BB = `${HUMAN_FIELD_NAME_PREFIX}hu_bb_defends_unread_vs_minraise_40bb`;
+export const HU_BB_UNREAD_CARDS: readonly LeagueMatchup[] = Object.freeze([
+  {
+    name: HUMAN_HU_BB_DEFENDS_UNREAD_VS_MINRAISE_40BB,
+    seats: 2,
+    stackBB: 40,
+    pairs: HUMAN_FIELD_PAIRS,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    memoryLearning: 'off',
+    a: { huBbDefendsUnreadToPrice: true },
+    b: {},
+    opponentPopulation: HUMAN_CALIBRATED_POPULATION_ID,
+    humanPersona: HU_MINRAISE_EVERY_BUTTON_PERSONA,
+  },
+] satisfies LeagueMatchup[]);
+LEAGUE_MATCHUPS.push(...HU_BB_UNREAD_CARDS);
+
+/**
  * UNMEASURABLE MATCHUPS (2026-10-31). A matchup the league deliberately does
  * not deal, with the reason. Every run writes one `status = 'refused'` row per
  * entry (hands = 0) BEFORE the first hand, so the daily audit reads the
