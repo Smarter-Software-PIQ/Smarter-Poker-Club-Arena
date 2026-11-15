@@ -1019,6 +1019,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaRiverNutBlockerBluffReachable',
+    'PLO Strategy 2026-11-15: the Omaha nut-blocker river bluff (receipt v86_river_nut_blocker_bluff) is on but has never fired in production, because its made-hand gate is no pair at all (cat <= 1) and the baseline river bluff answers every no-pair heads-up river first. On, the gate is one pair or less, the bottom-pair band its own comment names (one pair, 0.25 to 0.28 equity, nut blocker, heads-up, unpaired board, capped opponent, never a station). Opt-in, default off, read === true; its declared evaluation has not been run.',
+    'V94'
+  ),
+  flag(
     'omahaOnePairDiscipline',
     'Dan 2026-11-14 (hands 59407629, 59430325, 59431232, 59417700, 59426444): PLO4/PLO5 high on one board, no bomb pot: one pair or less never bets or raises the river for value (a river bluff the reference brain declared keeps its wager); a river call of a 0.66-pot+ wager with two pair or less on a straight- or flush-possible board folds unless the bettor is a measured postflop over-bluffer; on the flop and turn one pair with fewer than four nut-class outs does not raise (call when the call is small, fold when it costs more than half the effective stack) and does not call a wager costing more than half the effective stack (HorseOmahaOnePair.ts). Default OFF (opt-in): its declared evaluation failed (Horse-only PLO4 -0.77 bb/100, z -2.30)',
     'V94'

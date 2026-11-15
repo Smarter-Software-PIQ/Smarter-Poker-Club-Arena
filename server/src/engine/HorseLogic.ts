@@ -3024,6 +3024,19 @@ export interface HorseDecideOpts {
    * OFF (opt-in, read `=== true`) until its declared evaluation passes;
    * league cards plo4/plo5 _omaha_reraised_pot_flop_continue_needs_equity_shape. */
   omahaReraisedPotFlopContinueNeedsEquityShape?: boolean;
+  /** PLO Strategy 2026-11-15: the Omaha nut-blocker river bluff
+   * (v86_river_nut_blocker_bluff) is written for "air/bottom-pair at
+   * 0.18-0.28 equity" holding the nut blocker, but its made-hand gate is
+   * `cat <= 1`, which is no pair at all. A no-pair Omaha river hand is under
+   * the baseline river bluff's 0.25 air line, and the baseline answers every
+   * such heads-up spot against a capped opponent first, so the rule has never
+   * fired in production. On, the gate is one pair or less (`cat <= 2`), which
+   * lets the rule reach the one band the baseline leaves: one pair, 0.25 to
+   * 0.28 equity, nut blocker held. Every other gate is unchanged (heads-up,
+   * unpaired board, capped opponent, never a station, tournament risk).
+   * OPT-IN, default off, read as `=== true`: it changes live decisions and
+   * its declared evaluation has not been run. */
+  omahaRiverNutBlockerBluffReachable?: boolean;
   /** A token-priced committed call is not barred by stack-off premiums
    * (HorseTokenCallPrice.ts, PLO6-AUDIT-010). Default on; false only for
    * the regression's non-vacuity control. */
@@ -15688,7 +15701,9 @@ export class HorseLogic {
         !barrelOutlookRiverPending &&
         (opts.riverBluffBaseline ?? true) !== false &&
         opponents.length === 1 &&
-        cat <= 1 &&
+        // The comment above names bottom pair; `cat <= 1` is no pair, a hand
+        // the baseline always owns. One pair is admitted only by the opt-in.
+        cat <= (opts.omahaRiverNutBlockerBluffReachable === true ? 2 : 1) &&
         equity < 0.28 &&
         hasVariantBlocker(player.cards, board, vi) &&
         !boardPaired15 &&

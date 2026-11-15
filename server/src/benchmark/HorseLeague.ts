@@ -2299,6 +2299,18 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaReraisedPotFlopContinueNeedsEquityShape: true },
     b: {},
   })),
+  // 2026-11-15 OMAHA NUT-BLOCKER RIVER BLUFF REACHABLE
+  // (omahaRiverNutBlockerBluffReachable, default OFF): the v86 nut-blocker
+  // river bluff admits one pair (0.25-0.28 equity) instead of no pair only;
+  // a switches it on, b is today's brain, where the rule never fires.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_river_nut_blocker_bluff_reachable`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaRiverNutBlockerBluffReachable: true },
+    b: {},
+  })),
   // V15 BOATS (2026-09-28): default OFF. a turns it on, b is today's brain.
   // Ship it default ON only after this resolves significant positive.
   // 2026-11-06: V15 boats is default ON in PLO5 cash (v15BoatsOn), so the
