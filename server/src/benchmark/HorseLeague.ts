@@ -2072,6 +2072,16 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { holdemCallDownNeedsStyleEvidence: true },
     b: {},
   },
+  // 2026-11-15 A GEAR SHIFT IS REACHABLE (holdemGearShiftReach, default OFF): a
+  // reads a confirmed regime break on the fast window at the ordinary
+  // credibility; b is today's read. Horses do not change gear, so the card is
+  // expected to be near inert; its value question is against humans.
+  {
+    name: 'nlh_gear_shift_reach',
+    pairs: 6000,
+    a: { holdemGearShiftReach: true },
+    b: {},
+  },
   // 2026-11-15 A REGULAR IS NOT A MANIAC (holdemManiacSampleGate, default OFF):
   // a gates the preflop maniac width (15 decayed hands, PFR credibly beyond the
   // size's regular line, 8 decayed 3-bet opportunities); b is today's read.

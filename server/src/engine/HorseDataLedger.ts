@@ -1435,6 +1435,17 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     '2026-11-15'
   ),
   flag(
+    'holdemGearShiftReach',
+    "2026-11-15 A GEAR SHIFT IS REACHABLE (opponent classifier C5, audit I): no-limit hold'em reads from HorseMind.opponentRead judge a confirmed regime break (styleShiftReleased, long read not engaged, 8+ fast opportunities) on the 8-hand window at the ordinary credibility (EXPLOIT_CREDIBILITY 0.90) instead of 0.95 in the gear-shift branch, and also try it where the long mean has crossed the envelope edge but the fast window missed the 0.97 fast-engage line; aggressive statistics only (pfr, rfi, threeBet, betCheckedTo), high side only; the calm direction (the fast-window OFF switch) is untouched; Omaha and fixed-limit untouched; default OFF, read === true only; evidence docs/horse-default-on.d/holdemGearShiftReach.md",
+    '2026-11-15'
+  ),
+  receipt(
+    'holdem_gear_shift_reach_seen',
+    'HorseOpponentExploit.opponentExploitRead (holdemGearShiftReach)',
+    'a statistic the long window and the stricter fast lines left unengaged was engaged high from the fast window at the ordinary credibility after a confirmed regime break; counts read computations; named *_seen',
+    '2026-11-15'
+  ),
+  flag(
     'holdemCallDownExcludesCurrentHand',
     "2026-11-15 IN-HAND WAGERS ARE NOT HISTORY (opponent classifier C7 F1, HU-MEM-013 V6): in a hold'em decision the legacy aggression ratio behind the lifetime call-down multiplier (HorseMind.legacyExploit, ratio above 2.5 on 12+ actions sets 1.2) subtracts the opponent's own wagers in the hand being decided (HorseMind.currentHandWagers of the decision's action history, carried in the decision read options), never below zero, so the bets the Horse faces are not evidence that the same bettor bluffs; Omaha and every other read unchanged; default OFF, read === true only; evidence docs/horse-default-on.d/holdemCallDownExcludesCurrentHand.md",
     '2026-11-15'

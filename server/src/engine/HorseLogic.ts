@@ -3388,6 +3388,12 @@ export interface HorseDecideOpts {
    *  0.10) or 8+ decayed 3-bet opportunities for the re-raise route (HorseOpponentExploit.withManiacSampleGate).
    *  Receipt maniac_sample_gate_withheld_seen. Read only as === true: default OFF. */
   holdemManiacSampleGate?: boolean;
+  /** GEAR SHIFT REACH (2026-11-15, opponent classifier C5): a no-limit hold'em opponent whose recent play has
+   *  visibly broken from his history (styleShiftReleased) and whose long read is not engaged is read aggressive from
+   *  the 8-hand window at the ordinary 0.90 credibility instead of 0.95 / 0.97 (HorseOpponentExploit.GEAR_SHIFT_REACH;
+   *  pfr, rfi, threeBet, betCheckedTo, high side only). Receipt holdem_gear_shift_reach_seen. Read only as === true:
+   *  default OFF. */
+  holdemGearShiftReach?: boolean;
   /** IN-HAND WAGERS ARE NOT HISTORY (2026-11-15, opponent classifier C7 F1): in a hold'em decision the legacy
    *  aggression ratio behind the lifetime call-down multiplier no longer counts the opponent's wagers in the hand
    *  being decided (HorseMind.currentHandWagers), so the bets the Horse faces are not evidence that the same bettor
@@ -6886,6 +6892,8 @@ export class HorseLogic {
       ...(opts.styleTightMultiSignal === true ? { styleTightMultiSignal: true } : {}),
       // MANIAC SAMPLE GATE (2026-11-15, opponent classifier): plumbing only, key added only when true.
       ...(opts.holdemManiacSampleGate === true ? { holdemManiacSampleGate: true } : {}),
+      // GEAR SHIFT REACH (2026-11-15, opponent classifier C5): plumbing only, key added only when true.
+      ...(opts.holdemGearShiftReach === true ? { holdemGearShiftReach: true } : {}),
       // C7 F1 / F2 (2026-11-15, opponent classifier): keys added only when the option is true.
       ...(opts.holdemCallDownExcludesCurrentHand === true &&
       (HorseMind.currentScope() ?? '').startsWith('holdem:')
