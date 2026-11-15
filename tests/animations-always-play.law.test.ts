@@ -1162,8 +1162,9 @@ describe('LAW: the pot ships to a winner who has already stood up (Dan 2026-11-1
     expect(TABLE_PAGE).toContain('const idx = winnerSeatIdx(wid);');
   });
   it('the pot pill never returns silently because the winner has no live seat', () => {
-    const at = TABLE_PAGE.indexOf('const idx = winnerSeatIdx(wid);');
-    expect(at).toBeGreaterThan(0);
-    expect(TABLE_PAGE.slice(at, at + 400)).not.toMatch(/if \(idx < 0\) return;/);
+    // The whole startPush closure, bounded by its own braces.
+    const push = sliceEnclosingBlock(TABLE_PAGE, 'const idx = winnerSeatIdx(wid);');
+    expect(push).toContain('setPotCollectTo(');
+    expect(push).not.toMatch(/if \(idx < 0\) return;/);
   });
 });
