@@ -5644,8 +5644,15 @@ function pairedBoardFoldOutsideGraph(
     ? omahaBigBetCallFold(
         pairedBoardRiverCheck(
           pairedBoardFold(
-            omahaRiverNutRaiseOnly(decision, player, gs, opts.omahaRiverNutRaiseOnly !== false)
-              .decision,
+            omahaRiverNutRaiseOnly(
+              decision,
+              player,
+              gs,
+              // The default-off near-nut value candidate keeps its own raise
+              // when a league arm switches it on; production never does.
+              opts.omahaRiverNutRaiseOnly !== false &&
+                !(opts.smallPotNearNutRiverValue === true && smallPotNearNutRiverValue(player, gs))
+            ).decision,
             player,
             gs,
             opts
@@ -7527,7 +7534,8 @@ export class HorseLogic {
         wagered,
         player,
         gs,
-        opts.omahaRiverNutRaiseOnly !== false,
+        opts.omahaRiverNutRaiseOnly !== false &&
+          !(opts.smallPotNearNutRiverValue === true && smallPotNearNutRiverValue(player, gs)),
         beforePhase10
       );
       if (tele && nutRaise.changed === 'flatted') noteFire('omaha_river_non_nut_raise_flatted');
