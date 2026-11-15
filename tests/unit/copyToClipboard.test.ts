@@ -62,7 +62,9 @@ describe('copyToClipboard', () => {
 
   it('both Copy Link buttons go through it and only a real copy counts as sent', () => {
     const share = readFileSync('src/components/table/ShareHand.tsx', 'utf8');
-    expect(share).toContain('if (await copyToClipboard(shareUrl)) {');
+    // 2026-11-15: ShareHand copies through copyText (src/lib/share.ts), which is
+    // copyToClipboard plus the failure report and the outcome count.
+    expect(share).toContain("if (await copyText(shareUrl, 'ShareHand.copy')) {");
     expect(share).not.toContain('await navigator.clipboard.writeText(shareUrl)');
     const modal = readFileSync('src/components/table/HandDetailModal.tsx', 'utf8');
     expect(modal).toContain('const ok = await copyToClipboard(text);');

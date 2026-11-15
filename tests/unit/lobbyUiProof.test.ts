@@ -282,7 +282,12 @@ it('keeps each closed mode limited to its owned browser journeys with cleanup', 
   expect(tournamentDoor.indexOf("page.on('framenavigated', observeRoute)")).toBeLessThan(
     tournamentDoor.indexOf("tournament.getByRole('button', { name: /^Details:/ }).click()")
   );
-  expect(journey).toContain("url.searchParams.get('user_id') === `eq.${ownerId}`");
+  // The owner-scoped live-seat read (user_id, left_at, the table_id/joined_at
+  // select) lives in one predicate, pinned to the app's read by
+  // tests/unit/ownedSeatRefreshRead.test.ts.
+  expect(journey).toContain(
+    'isOwnedLiveSeatRead(response.request().method(), new URL(response.url()), ownerId)'
+  );
   expect(journey).toContain("document.dispatchEvent(new Event('visibilitychange'))");
   expect(journey).toContain('expect(await refreshed.json()');
   expect(journey).toContain("name: 'Close Lobby', exact: true");

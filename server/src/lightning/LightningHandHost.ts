@@ -412,6 +412,10 @@ export interface LightningHandHostDeps {
   /** Shared presentation only; never personal Lightning blocks or hole cards. */
   onPublicState?(host: LightningHandHost, state: Record<string, unknown>): void;
   onPublicEvent?(host: LightningHandHost, event: Record<string, unknown>): void;
+  observedHands?(
+    host: LightningHandHost,
+    handNumber: number
+  ): import('../transport/ObservedHands.js').ObservedHandReceipt[];
   /**
    * LIGHTNING PHASE 12: the hand's first frame was sent to this player's room
    * at `atMs` (engine clock). The registry closes it on that room's RENDER_ACK
@@ -762,9 +766,10 @@ export class LightningHandHost {
         this.watching.set(p.playerId, p.poolSessionId);
       }
       // HIT AND RUN: who of these is being blinded off. Read beside the deal,
-      // never awaited by it: a seat whose answer has not landed by its turn
-      // simply plays its ordinary clock this hand.
-      this.loadBlindOff(participants.map((p) => p.poolSessionId));
+      // in parallel with the existing rule/bank reads. The deal must know
+      // who needs automatic actions before it can publish the first turn.
+      const blindOffP = this.loadBlindOff(participants.map((p) => p.poolSessionId));
+      blindOffP.catch(() => undefined);
       this.rules = await rulesP;
       timing.mark('rules');
       const variantRefusal = this.checkVariant(this.rules);
@@ -801,7 +806,7 @@ export class LightningHandHost {
       }
       // Asked above for the matcher's list, which the formation check has
       // just proved is exactly these participants.
-      await banksP;
+      await Promise.all([banksP, blindOffP]);
       timing.mark('time_banks');
       if (this.state !== 'starting') {
         outcome = 'aborted_while_reading';
@@ -1836,6 +1841,21 @@ export class LightningHandHost {
       if (!this.foldAvailable(userId, st)) continue;
       const auth = hc.getAuthoritativeActionState(userId, { asIfToAct: true });
       if (!auth?.canAct || !(auth.toCall > 0.005) || auth.legalActions.includes('check')) continue;
+      // THE BIG BLIND WAITS FOR ITS PRICE (2026-11-15, L-017). Preflop, the big
+      // blind closes the action: while a live seat still owes chips to the
+      // current bet, callers can still come in and improve its price, and an
+      // early fold priced "as if to act now" is final (the held fold is
+      // published at its turn without asking again). It decides once, on its
+      // own turn. Every other early look is unchanged.
+      if (
+        st.stage === 'preflop' &&
+        userId === this.formed.bb &&
+        st.players.some(
+          (o) =>
+            o.user_id !== userId && !o.is_folded && !o.is_all_in && o.bet < st.currentBet - 0.005
+        )
+      )
+        continue;
       this.startHorseEarlyLook(userId, st.stage);
     }
   }
@@ -2017,15 +2037,12 @@ export class LightningHandHost {
   /** HIT AND RUN: players whose seats this hand blinds off. */
   private readonly blindOff = new Set<string>();
 
-  private loadBlindOff(poolSessionIds: readonly string[]): void {
+  private async loadBlindOff(poolSessionIds: readonly string[]): Promise<void> {
     const read = this.deps.blindOffPlayers;
     if (!read || poolSessionIds.length === 0) return;
-    void read(poolSessionIds)
-      .then((ids) => {
-        if (this.isTerminal()) return;
-        for (const id of ids) if (this.participants.has(id)) this.blindOff.add(id);
-      })
-      .catch(() => undefined);
+    const ids = await read(poolSessionIds);
+    if (this.isTerminal()) return;
+    for (const id of ids) if (this.participants.has(id)) this.blindOff.add(id);
   }
 
   /** Check if free, fold otherwise. True when the action landed. */
@@ -3420,6 +3437,8 @@ export class LightningHandHost {
     }
     const requestId = lightningRequestId(this.handId, 'settle');
     const handRow = this.handRow(state, rake, bbj);
+    const observedHands = this.deps.observedHands?.(this, this.handNumber);
+    if (observedHands?.length) handRow._observed_hands = observedHands;
     // A LIGHTNING HAND IS A HAND IN THE STATS (2026-10-24): the physical
     // hand's private per-hand facts, built once so every retry sends the same
     // request. Without them the hand settles exactly as before.
@@ -3541,6 +3560,15 @@ export class LightningHandHost {
             player_id: participant.playerId,
             timestamp: savedAt,
           });
+        // Public physical observers watched this same completed deal. Their
+        // transport receipt is bound to its archive id, never a player's room.
+        this.deps.onPublicEvent?.(this, {
+          type: 'hand_history_saved',
+          table_id: this.hostTableId,
+          hand_number: this.handNumber,
+          hand_id: out.value.handHistoryId,
+          timestamp: savedAt,
+        });
         // LIGHTNING PHASE 10: the settled boundary, before anyone is released:
         // every auto-rebuy and horse top-up ask of this boundary has been
         // answered before its players can be matched again (the database

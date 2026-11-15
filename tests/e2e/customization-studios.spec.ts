@@ -190,6 +190,47 @@ const COORDINATED_LOOKS = [
 test.describe('real Table Studio browser flows', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
 
+  test('Action Controller presets are editable directly in Table Studio and survive reopening', async ({
+    context,
+    page,
+  }) => {
+    await mockStudioBackend(context);
+    let studio = await openStudio(page);
+    const controller = studio.getByRole('region', { name: 'Action Controller', exact: true });
+    const editTab = controller.getByRole('tab', { name: 'Change Default Button Amounts' });
+    await expect(editTab).toHaveAttribute('aria-expanded', 'false');
+    await expect(controller.getByRole('textbox')).toHaveCount(0);
+    const colors = await controller.locator('.action-controller-colors').boundingBox();
+    const tab = await editTab.boundingBox();
+    expect(tab!.y).toBeGreaterThanOrEqual(colors!.y + colors!.height);
+    await editTab.click();
+    await expect(controller.getByRole('textbox')).toHaveCount(8);
+    const groups = [
+      ['Preflop Multipliers', [2.25, 2.8, 3.3, 4.5]],
+      ['Postflop Pot Percentages', [25, 33.33, 66.67, 125]],
+    ] as const;
+    for (const [group, values] of groups) {
+      for (let index = 0; index < values.length; index++) {
+        await studio
+          .getByLabel(`${group} Option ${index + 1}`, { exact: true })
+          .fill(String(values[index]));
+      }
+      await studio.getByRole('button', { name: `Apply ${group}`, exact: true }).click();
+    }
+    await controller.screenshot({
+      path: test.info().outputPath('action-controller-preset-editor.png'),
+    });
+    studio = await openStudio(page);
+    await studio.getByRole('tab', { name: 'Change Default Button Amounts' }).click();
+    for (const [group, values] of groups) {
+      for (let index = 0; index < values.length; index++) {
+        await expect(
+          studio.getByLabel(`${group} Option ${index + 1}`, { exact: true })
+        ).toHaveValue(String(values[index]));
+      }
+    }
+  });
+
   test('real tiles repaint the real preview, persist, and broadcast to a second tab', async ({
     context,
     page,

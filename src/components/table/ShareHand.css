@@ -519,3 +519,11 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* A copy that did not happen is said on screen (2026-11-15). */
+.share-hand__copy-failed {
+  margin: 8px 0 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #ff6b6b;
+}

@@ -108,17 +108,18 @@ it.each([
 it('names an admission refusal busy and keeps the refusal identity for the caller', async () => {
   await armTelemetry();
   const { isOpponentMemoryBusyRefusal } = await import('./errorReporter.js');
-  // Hold the shared admission closed with one pending read, then ask again.
+  // Hold the exact read's admission closed with pending reads, then ask again.
   let release!: () => void;
   mock.abortSignal.mockReturnValueOnce(
     new Promise((resolve) => {
       release = () => resolve({ data: [row()], error: null });
     })
   );
-  const { admitOpponentMemoryRead } = await import('./HorseOpponentMemory.js');
+  // The exact read has its own admission gate (completed-hand reads, 2026-11-15).
+  const { admitCompletedHandExactRead } = await import('./HorseOpponentMemory.js');
   const refusals: unknown[] = [];
   const holds = Array.from({ length: 8 }, () =>
-    admitOpponentMemoryRead(() => new Promise<void>((resolve) => setTimeout(resolve, 5)))
+    admitCompletedHandExactRead(() => new Promise<void>((resolve) => setTimeout(resolve, 5)))
   );
   await readExactHorseOpponentProfiles([id], 'plo6', 'cash', 'short', domain).catch((e) =>
     refusals.push(e)

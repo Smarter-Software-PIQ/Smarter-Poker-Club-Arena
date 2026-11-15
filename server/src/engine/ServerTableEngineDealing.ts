@@ -529,12 +529,12 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
               } else if (!this.returningFromSitout.has(p.user_id) && !this.isTournamentTable()) {
                 this.registerWaitForBB(p.user_id);
                 if (entryHold === 'waiting' && entryAgreed) {
-                  // A SEAT CHANGE ARRIVES (Dan 2026-09-05): "SEAT CHANGE ALWAYS
-                  // RE POSTS THE BB WHEN GETTING TO A NEW TABLE." The executor
-                  // wrote the agreement on the chair; the same replay that
-                  // honours a tapped POST honours it - the live big blind on
-                  // the next deal, held until clear if they landed between the
-                  // button and the blind.
+                  // An arrival already carrying a standing agreement to post.
+                  // Since 2026-11-15 no seat move writes one (every move lands
+                  // 'moved', docs/LAWS.md "A moved player never posts to
+                  // enter"); a row written before then is honoured once - the
+                  // live big blind on the next deal, held until clear if it
+                  // landed between the button and the blind.
                   this.postBBWhenClear.add(p.user_id);
                   this.persistEntryHold(p.user_id, { hold: 'waiting', agreed: true });
                 }
@@ -1280,7 +1280,10 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
 
         // Deal hand (self-transition: running → running for next hand)
         this.setLoopPhase('dealing');
+        this.beginCompletionPresentation(activePlayers);
         await this.dealHand(activePlayers);
+        // completionPresentation (Seating): the chair stays until its pot is pushed.
+        if (!this.running) this.endCompletionPresentation();
         this.consecutiveErrors = 0;
 
         // Bible V8 §4.23: Formal cleanup timing between hands.
@@ -1371,6 +1374,8 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           // mucked.
           this.setLoopPhase('post_hand_hold');
           await this.awaitHandCompletionDisplay(resultDisplayMs);
+          // The pot has been pushed: deferred leavers' chairs may go now.
+          this.endCompletionPresentation();
           // Phase 2: the hand-free broadcast. Clients animate the board clear
           // from it, and it is what makes the Rabbit Hunt button visible.
           this.broadcastCurrentState(); // Sends clean state (no hand in progress)
@@ -1689,6 +1694,8 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           }
         }
       } catch (err) {
+        // A hand that died never reaches its completion hold (completionPresentation).
+        this.endCompletionPresentation();
         const errMsg =
           err instanceof Error
             ? err.message

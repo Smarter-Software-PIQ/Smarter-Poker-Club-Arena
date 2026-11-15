@@ -373,10 +373,17 @@ export async function lightningBlindOffPlayers(
   const out = new Set<string>();
   if (poolSessionIds.length === 0) return out;
   try {
-    const { data, error } = await supabase.rpc('fn_lightning_blind_off_players', {
-      p_pool_session_ids: [...poolSessionIds],
-    });
-    if (error || !Array.isArray(data)) return out;
+    const { data, error } = await supabase
+      .rpc('fn_lightning_blind_off_players', {
+        p_pool_session_ids: [...poolSessionIds],
+      })
+      .abortSignal(AbortSignal.timeout(8000));
+    if (error || !Array.isArray(data)) {
+      console.warn(
+        '[cashSessions] Lightning blind-off authority unavailable; ordinary action clocks retained'
+      );
+      return out;
+    }
     for (const row of data as unknown[]) {
       const id =
         typeof row === 'string'
@@ -387,7 +394,9 @@ export async function lightningBlindOffPlayers(
       if (id) out.add(id);
     }
   } catch {
-    /* empty set */
+    console.warn(
+      '[cashSessions] Lightning blind-off authority unavailable; ordinary action clocks retained'
+    );
   }
   return out;
 }

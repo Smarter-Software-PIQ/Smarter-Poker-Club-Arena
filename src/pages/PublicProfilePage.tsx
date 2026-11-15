@@ -43,7 +43,7 @@ import { vipStatusLabel } from '../utils/vipStatus';
 import type { ArenaRecord } from '../utils/arenaRecord';
 import { readSeparatedPublicArenaRecord } from '../services/PublicArenaRecordRead';
 import { formatCount, formatPct, formatMemberSince } from '../utils/format';
-import { shareLink } from '../lib/share';
+import { shareButtonLabel, shareLink } from '../lib/share';
 
 export default function PublicProfilePage() {
   const { userId } = useParams<{ userId: string }>();
@@ -547,7 +547,7 @@ export default function PublicProfilePage() {
             stylesheet loaded, Share left the grid and floated. `actionBtn` is
             its real styling. */}
         <button type="button" className={styles.actionBtn} onClick={handleShare}>
-          Share
+          {shareButtonLabel()}
         </button>
       </div>
 
