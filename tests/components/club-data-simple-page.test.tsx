@@ -905,7 +905,7 @@ describe('the union invoice basis', () => {
       screen.getByText('Nov 2, 2026 2:00 AM To Nov 9, 2026 2:00 AM Chicago Time')
     ).toBeTruthy();
     expect(
-      screen.getByText(/^Union Invoice Basis: Cash Winnings \(Each Cash Hand's Stack Change/)
+      screen.getByText(/^Union Invoice Basis: Cash Winnings \(The Stack Change Of Each Cash Hand/)
     ).toBeTruthy();
     expect(screen.getByText('0.30')).toBeTruthy(); // 0.1 + 0.2, exactly
     expect(screen.getByText('-1,951,998.17')).toBeTruthy(); // the net, exactly

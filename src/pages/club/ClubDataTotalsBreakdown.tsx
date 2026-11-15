@@ -231,7 +231,7 @@ export default function ClubDataTotalsBreakdown({
         {metric === 'total_winnings' &&
           (unionBasis ? (
             <p>
-              Union Invoice Basis: Cash Winnings (Each Cash Hand&apos;s Stack Change, Bad Beat
+              Union Invoice Basis: Cash Winnings (The Stack Change Of Each Cash Hand, Bad Beat
               Jackpot Awards Included) Plus Tournament Results (MTT Winnings, Sit And Go Results And
               Unfinished MTT Entries). Chips Still On The Felt Are Not Added.
             </p>
