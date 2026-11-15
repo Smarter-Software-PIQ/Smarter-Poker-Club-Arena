@@ -166,7 +166,7 @@ CREATE TABLE public.ca_club_acct_hands (
 );
 CREATE INDEX ca_club_acct_hands_day_idx ON public.ca_club_acct_hands (acct_day, club_id);
 COMMENT ON TABLE public.ca_club_acct_hands IS
-  'Raked hands (accepted rake > 0) a club had at least one participant in, per table and accounting day, from the same hand records as ca_club_acct_fact: the Club Data hand count, raked hands as before 20261022103651. Readers add ca_club_acct_hands_journal.';
+  'The Club Data hand count of 20261022103651 on accounting records, per club, table and accounting day: raked hands (accepted rake > 0) in which at least one of the club''s players changed stack (observed stack delta not zero); a raked hand in which no participant with an earning club changed stack counts for the table''s club. Readers add ca_club_acct_hands_journal.';
 
 CREATE TABLE public.ca_club_acct_hands_journal (
   id           bigint      GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -473,8 +473,14 @@ $function$;
 --     them), raked (the hand's accepted rake > 0). A participant the record
 --     names no player for is the club's unattributed player. Returns
 --     {"facts": [...], "hands": [...]}: a fact's hands are the cash hands the
---     player took part in; a hands row counts the RAKED hands the club took
---     part in per table (the Club Data hand count, as before 20261022103651).
+--     player took part in; a hands row is the Club Data hand count of
+--     20261022103651, on accounting records: per table, the RAKED hands
+--     (accepted rake above zero) in which at least one of the club's players
+--     changed stack (observed stack delta not zero; a player dealt in who
+--     neither put chips in nor won any does not count the hand for the club),
+--     and a raked hand in which no participant with an earning club changed
+--     stack is the table club's. Live and history paths count the same way,
+--     so an escrow correction's +1 and -1 rows still net.
 CREATE FUNCTION public.fn_ca_club_acct_hand_rows(p_hands jsonb)
 RETURNS jsonb LANGUAGE sql STABLE SET search_path = public AS $function$
   WITH h AS (
@@ -498,9 +504,17 @@ RETURNS jsonb LANGUAGE sql STABLE SET search_path = public AS $function$
                'result', p.sign * p.delta, 'hands', p.sign, 'at', p.recognized_at)) FROM p), '[]'::jsonb),
     'hands', COALESCE((SELECT jsonb_agg(jsonb_build_object(
                'club_id', c.club_id, 'acct_day', c.acct_day, 'table_id', c.table_id, 'hands', c.n))
-               FROM (SELECT p.club_id, p.acct_day, p.table_id, sum(p.sign) AS n
+               FROM (SELECT x.club_id, x.acct_day, x.table_id, sum(x.sign) AS n
                        FROM (SELECT DISTINCT p.club_id, p.acct_day, p.table_id, p.hand_number, p.sign FROM p
-                              WHERE p.club_id IS NOT NULL AND p.raked) p
+                              WHERE p.club_id IS NOT NULL AND p.raked AND p.delta <> 0
+                             UNION
+                             -- A raked hand in which no participant with an
+                             -- earning club changed stack is the table club's.
+                             SELECT t.club_id, public.fn_ca_accounting_day(h.recognized_at), h.table_id, h.hand_number, h.sign
+                               FROM h JOIN public.tables t ON t.id = h.table_id
+                              WHERE h.raked AND t.club_id IS NOT NULL
+                                AND NOT EXISTS (SELECT 1 FROM p WHERE p.table_id = h.table_id AND p.hand_number = h.hand_number
+                                                 AND p.sign = h.sign AND p.club_id IS NOT NULL AND p.delta <> 0)) x
                       GROUP BY 1, 2, 3) c), '[]'::jsonb));
 $function$;
 

@@ -9,7 +9,7 @@
 -- reader does; what those helpers compute is qualified by their own tests.
 CREATE SCHEMA IF NOT EXISTS smarter_private;
 
-CREATE TABLE public.tables (id uuid PRIMARY KEY, union_id uuid);
+CREATE TABLE public.tables (id uuid PRIMARY KEY, union_id uuid, club_id uuid);
 CREATE TABLE public.rake_records (id uuid PRIMARY KEY, table_id uuid);
 CREATE TABLE public.tournament_players (id uuid PRIMARY KEY, tournament_id uuid NOT NULL);
 

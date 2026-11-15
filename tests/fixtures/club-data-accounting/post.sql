@@ -24,11 +24,18 @@ INSERT INTO smarter_private.posthand_escrow_certificates (table_id, hand_number,
      jsonb_build_object('earning_club_id', :F, 'user_id', :u2, 'observed_stack_delta', 5))));
 INSERT INTO union_pnl_cash_outcomes (table_id, hand_number, hand_id, recognized_at, payload_hash, game_scope, evidence) VALUES
   (:T1, 5, gen_random_uuid(), '2026-11-03 12:00+00', 'h5', jsonb_build_object('game_union_id', :U), '{"status":"ready"}'),
+  (:T1, 6, gen_random_uuid(), '2026-11-03 13:30+00', 'h6', jsonb_build_object('game_union_id', :U), '{"status":"ready"}'),
   (:T2, 2, 'aaaa0000-0000-0000-0000-000000000002', '2026-11-03 12:30+00', 'l2', '{}', '{"status":"ready","accepted_rake":"0"}');
 INSERT INTO union_pnl_cash_outcome_touches VALUES
   (:T1, 5, '2026-11-03 12:00+00', :U, false, '0.2', jsonb_build_array(
      jsonb_build_object('earning_club_id', :K, 'user_id', :u1, 'observed_stack_delta', 1),
-     jsonb_build_object('earning_club_id', :D, 'user_id', :u3, 'observed_stack_delta', -1.20)));
+     jsonb_build_object('earning_club_id', :D, 'user_id', :u3, 'observed_stack_delta', -1.20),
+     -- Dealt in, no chips in and none won: the hand is not The Felt Society's.
+     jsonb_build_object('earning_club_id', :F, 'user_id', :u2, 'observed_stack_delta', 0))),
+  -- Raked, and no participant with an earning club changed stack: the
+  -- hand is the table club's (T1's club is the union's house club).
+  (:T1, 6, '2026-11-03 13:30+00', :U, false, '0.3', jsonb_build_array(
+     jsonb_build_object('user_id', :u3, 'observed_stack_delta', -0.30)));
 INSERT INTO union_pnl_cash_outcome_link_resolutions (table_id, hand_number, hand_id, outcome_payload_hash, outcome_evidence_md5,
   roster_source, game_scope, evidence, proof, proof_md5)
 SELECT :T2, 2, o.hand_id, o.payload_hash, md5(o.evidence::text), 'manifest', jsonb_build_object('game_union_id', :U),
