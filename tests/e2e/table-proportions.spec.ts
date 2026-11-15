@@ -3521,7 +3521,14 @@ test('the phone pot shine and on-turn avatar scan retain their paths without rep
 
 // Spectator artwork shares the occupied bottom chair's unchanged display size.
 import { registerObserverAvatarSizingCases } from './support/observerAvatarSizingCases';
-registerObserverAvatarSizingCases();
+test.describe('observer avatar artwork allocations', () => {
+  // Match the dense-ring groups above: cold portrait decoding and layout must
+  // not compete across four workers for the same browser CPU budget. Default
+  // mode retains every independent case after a failure, all assertions and
+  // each existing 60s deadline; the rest of this file remains parallel/sharded.
+  test.describe.configure({ mode: 'default' });
+  registerObserverAvatarSizingCases();
+});
 
 test('six-max dealer stays fixed through hero wagers and sizing tools stay behind the raise panel', async ({
   page,

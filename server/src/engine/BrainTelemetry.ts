@@ -65,8 +65,49 @@ export function withBrainTelemetrySuspended<T>(fn: () => T): T {
 
 export function noteFire(feature: string): void {
   if (!enabled) return;
+  if (isOncePerDecisionReceipt(feature)) {
+    // R1 (2026-11-15, audit C 6-7): a read-time style receipt counts at most once per decision. Inside a FAST
+    // decision's fire scope a second read of the same receipt is not counted again; a suppressed evaluation (the
+    // DEEP second look, a re-decision) counts none, because the FAST look already counted the read.
+    if (oncePerDecisionSuppressed > 0) return;
+    if (decisionScope?.has(feature)) return;
+  }
   fires.set(feature, (fires.get(feature) ?? 0) + 1);
   decisionScope?.add(feature);
+}
+
+/**
+ * READ-TIME STYLE RECEIPTS, ONCE PER DECISION (2026-11-15, R1). These fire where an opponent's style read is
+ * taken or an input moved, and some are not telemetry-gated: the same bettor is read at two places in one
+ * decision (HorseMind.exploit through tableExploit and again for respect), and the DEEP second look (telemetry
+ * off) passed through them again. They are counted at most once per FAST decision and never in a suppressed
+ * evaluation. The action-change receipts (*_changed_action_seen) are the per-decision evidence that the
+ * committed action moved; these say only that a read was made or an input moved.
+ */
+const ONCE_PER_DECISION_RECEIPTS: ReadonlySet<string> = new Set([
+  'style_fold_bluff_seen',
+  'style_value_extraction_seen',
+  'style_value_bettor_not_maniac_seen',
+  'style_pre_repair_fold_rate_discounted_seen',
+  'style_read_released_seen',
+  'style_long_participation_seen',
+]);
+const ONCE_PER_DECISION_PREFIXES: readonly string[] = ['style_label_'];
+export function isOncePerDecisionReceipt(feature: string): boolean {
+  return (
+    ONCE_PER_DECISION_RECEIPTS.has(feature) ||
+    ONCE_PER_DECISION_PREFIXES.some((p) => feature.startsWith(p))
+  );
+}
+let oncePerDecisionSuppressed = 0;
+/** Run fn with the once-per-decision read receipts not counted (a second look or a re-decision). */
+export function withOncePerDecisionReceiptsSuppressed<T>(fn: () => T): T {
+  oncePerDecisionSuppressed++;
+  try {
+    return fn();
+  } finally {
+    oncePerDecisionSuppressed--;
+  }
 }
 
 /**
