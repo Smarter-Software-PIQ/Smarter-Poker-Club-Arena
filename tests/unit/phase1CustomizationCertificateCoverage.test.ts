@@ -373,6 +373,14 @@ describe('the Phase 1 seal is owed exactly when its own condition holds', () => 
     expect(sweep).toContain(
       'gameplay_hero_celebration_rc=$?; [ $gameplay_hero_celebration_rc -ne 0 ] && rc=$gameplay_hero_celebration_rc'
     );
+    // A skip exits 0 and the shared check counts by spec file, so this report
+    // is also checked alone, right after its run, and a miss fails the sweep.
+    expect(sweep).toContain(
+      'node scripts/ci/assert-e2e-actually-ran.mjs e2e-report/gameplay-hero-celebration.json || rc=1'
+    );
+    expect(
+      sweep.indexOf('assert-e2e-actually-ran.mjs e2e-report/gameplay-hero-celebration.json')
+    ).toBeGreaterThan(sweep.indexOf('run_suite gameplay-hero-celebration.json'));
     expect(workflowStep('Did the suite actually verify production?')).toContain(
       'e2e-report/gameplay-hero-celebration.json'
     );

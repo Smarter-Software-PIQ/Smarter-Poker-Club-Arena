@@ -2,7 +2,7 @@
 
 ## What failed
 
-Post-Deploy E2E 43635213490, 43643304336 and 43652573106: "Classify the Phase 1 customization certificate" answered NON-VERDICT, "gameplay-customization-runtime.json did not contain its one exact first-attempt pass".
+Post-Deploy E2E 43635213490, 43643304336 and 43652573106: the step "Did every Phase 1 customization journey pass exactly?" answered NON-VERDICT, "gameplay-customization-runtime.json did not contain its one exact first-attempt pass", and the next step, "Classify the Phase 1 customization certificate", then failed with "Phase 1 customization coverage was missing or incomplete".
 
 ## Cause
 
@@ -16,7 +16,7 @@ The independent review of #10889 found this: the failure was not downstream of t
 ## Change
 
 - The sweep runs the contracted gameplay journey by its own describe (`--grep=production.routed.gameplay.customization.mobile.table.art`; dots stand for spaces because `run_suite` word-splits its flags), inside the Phase 1 bracket. The coverage contract is unchanged and still refuses an extra spec.
-- The celebration case keeps running on every publication: its own `run_suite` right after the bracket, its own report `gameplay-hero-celebration.json`, listed with the reports the run must have executed, and its failure still fails the sweep. (The separate `hero-celebration-proof` job is dispatch-only and nothing sends its event, so it could not stand in; the first version of this change wrongly relied on it and the independent review refused that.)
+- The celebration case keeps running on every publication: its own `run_suite` right after the bracket, its own report `gameplay-hero-celebration.json`, listed with the reports the run must have executed, and its failure still fails the sweep. Because a skipped case exits 0 and the shared executed-reports check counts by spec file, its report is also checked alone right after its run (`assert-e2e-actually-ran.mjs`), so a skip fails the sweep too. (The separate `hero-celebration-proof` job is dispatch-only and nothing sends its event, so it could not stand in; the first version of this change wrongly relied on it and the independent review refused that.)
 - Not changed: the celebration case's own release-identity race. When it fails for that reason it stays red and visible; it no longer blocks the Phase 1 certificate, which was never about it.
 
 ## Verified

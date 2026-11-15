@@ -1763,6 +1763,10 @@ jobs:
           # here when it fails.
           run_suite gameplay-hero-celebration.json tests/e2e/gameplay-customization-runtime.spec.ts --project=chromium --grep=published.hero.showdown.celebrations.only.an.awarded.hero --reporter=line,json --workers=1 --retries=0
           gameplay_hero_celebration_rc=$?; [ $gameplay_hero_celebration_rc -ne 0 ] && rc=$gameplay_hero_celebration_rc
+          # A skipped case exits 0, and the shared executed-reports check below
+          # counts by spec file, so the gameplay journey would cover for it.
+          # Require this report, alone, to hold an executed case.
+          node scripts/ci/assert-e2e-actually-ran.mjs e2e-report/gameplay-hero-celebration.json || rc=1
 
           # Certify Stats first among the broader route checks. Cashier has its
           # own preceding release gate so this suite cannot hide its verdict.
