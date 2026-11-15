@@ -215,6 +215,9 @@ function fmtClock(totalSeconds: number): string {
   return `${m}:${sec.toString().padStart(2, '0')}`;
 }
 
+// Only the bottom dock's average is approximate; blinds and prizes stay exact.
+const dockAverage = new Intl.NumberFormat('en-US', { notation: 'compact' });
+
 function fmtChips(n: number): string {
   if (!Number.isFinite(n) || n <= 0) return '-';
   // Exact, never K/M (Dan 2026-11-13).
@@ -1078,12 +1081,19 @@ const TournamentHUDInner = memo(function TournamentHUDInner({
   /* One line. Collapsed, it IS the dock: the three figures a player glances
      at. Open, it carries whatever window is running (late registration, hand
      for hand, the add-on period) above the full row. */
+  const stackOrPrizeText =
+    spinPrizePool !== undefined
+      ? fmtChips(spinPrizePool)
+      : shownAvg === undefined
+        ? null
+        : Number.isFinite(shownAvg) && shownAvg > 0
+          ? dockAverage.format(shownAvg)
+          : '-';
   /* Collapsed it has one short line to spend on a 375px phone, so it carries
      the three figures and, of the windows, only hand-for-hand - the one that
      changes how the player must act. The longer notices (late registration,
      the add-on period) are on the open dock. Nothing here may be cut off. */
-  const stackOrPrize = spinPrizePool ?? shownAvg;
-  const stackOrPrizeText = stackOrPrize === undefined ? null : fmtChips(stackOrPrize);
+
   const statusLine = collapsed
     ? [
         levelText,

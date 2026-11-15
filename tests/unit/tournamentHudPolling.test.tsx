@@ -300,7 +300,7 @@ describe('the tournament dock shows actual paid finishing places', () => {
     fx.tournamentAnswer = () =>
       ok(running({ prize_pool_finalized: true, payout_structure: JSON.stringify(payouts(11)) }));
     await mount({ playersRemaining: 13, averageStack: 143333 });
-    expect(screen.getByText('143,333')).toHaveClass('tournament-dock__fit-text');
+    expect(screen.getByText('143K')).toHaveClass('tournament-dock__fit-text');
     const value = () =>
       screen.getByText('Paid').parentElement?.querySelector('.tournament-dock__value')?.textContent;
     expect(value()).toBe('11');
@@ -313,6 +313,16 @@ describe('the tournament dock shows actual paid finishing places', () => {
     await broadcast('late_reg_closed');
     expect(value()).toBe('3');
   });
+  it.each([
+    [{ averageStack: 999 }, '999'],
+    [{ averageStack: 113000 }, '113K'],
+    [{ averageStack: 1123456 }, '1.1M'],
+    [{ averageStack: 1123456, spinPrizePool: 113000 }, '113,000'],
+  ] as const)('formats only the average compactly: %j', async (props, expected) => {
+    await mount(props);
+    expect(screen.getByText(expected)).toHaveClass('tournament-dock__fit-text');
+  });
+
   it.each([null, [], 'invalid', [{ place: 1, percentage: 0 }]])(
     'does not fabricate a Paid count from %j',
     async (payout_structure) => {
