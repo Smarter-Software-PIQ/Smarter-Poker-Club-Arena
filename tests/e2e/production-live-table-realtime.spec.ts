@@ -2447,7 +2447,10 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
           const capacity = await table.getAttribute('data-seats');
           if (!capacity || !['6', '9'].includes(capacity) || capacities.has(capacity)) continue;
           await expect(table.locator('.seat__avatar-img')).not.toHaveCount(0);
-          await certifyMobileLiveTableLayout(page, testInfo, { requireAvatarGrowth: true });
+          await certifyMobileLiveTableLayout(page, testInfo, {
+            requireAvatarGrowth: true,
+            spectator: true,
+          });
           capacities.add(capacity);
           if (capacities.size === 2) break;
         }

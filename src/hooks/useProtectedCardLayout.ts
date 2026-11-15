@@ -124,10 +124,11 @@ export function useProtectedCardLayout(
           settled.current.podKey === geometry
             ? settled.current.podPoses
             : new WeakMap<HTMLElement, string>();
+        const retainedDealer = settled.current.podKey === geometry ? settled.current.dealer : null;
         settled.current = {
           key,
           podKey: geometry,
-          dealer: null,
+          dealer: retainedDealer,
           rows: new WeakMap(),
           pods: retainedPods,
           podPoses: retainedPoses,
@@ -1319,15 +1320,26 @@ export function useProtectedCardLayout(
           .filter((bet) => settled.current.wagers.get(bet)?.landed)
           .map(visibleBox)
           .filter((box): box is CardBox => box !== null);
-        const reservedDealer = placeDealerButton(
-          scaler,
-          canvas,
-          scale,
-          getPoints,
-          obstacles.concat(retainedWagerBoxes),
-          hardObstacles.concat(retainedWagerBoxes),
-          retainedWagerBoxes
-        );
+        // A landed wager must use the dealer's reserved lane as an obstacle,
+        // never displace the button after the player puts chips in.
+        const fixedDealer =
+          settled.current.dealer?.owner ===
+          `${dealerElement?.dataset.ownerX}:${dealerElement?.dataset.ownerY}`;
+        const reservedDealer =
+          fixedDealer && dealerElement
+            ? // Preserve the reserved point through wager changes. A portrait
+              // can settle after artwork decodes or a reveal changes its pod;
+              // recheck ownership without allowing chips to displace the point.
+              placeDealerButton(scaler, canvas, scale, getPoints, obstacles, hardObstacles)
+            : placeDealerButton(
+                scaler,
+                canvas,
+                scale,
+                getPoints,
+                obstacles.concat(retainedWagerBoxes),
+                hardObstacles.concat(retainedWagerBoxes),
+                retainedWagerBoxes
+              );
         if (reservedDealer) {
           obstacles.push(reservedDealer);
           hardObstacles.push(reservedDealer);

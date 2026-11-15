@@ -176,6 +176,19 @@ whichever test the next agent notices first.
   must-move, break or balance moves as a 10.6 violation, and do not cite this
   ruling to add any client-side auto-switch.
 
+- **A moved player never posts to enter (ruled 2026-11-15, Dan):** "WHEN A
+  PLAYER IS MOVED ON A MUST MOVE GAME TO A NEW TABLE, THEY NEVER NEED TO POST
+  TO RECEIVE A HAND, IF THEY ARE COMING FROM A PREVIOUS TABLE. THEY ONLY POST
+  IF THEY ARE IN THE BB OR IF THEY ARE SITTING OUT AND MISS THE BLINDS." This
+  replaces the 2026-09-05 rule "SEAT CHANGE ALWAYS RE POSTS THE BB WHEN GETTING
+  TO A NEW TABLE". Every seat move (`must_move`, `break`, `balance` and
+  `seat_change`, swaps included) arrives `entry_hold = 'moved'`, not agreed
+  (`20261115170236_a_moved_player_never_posts_to_enter_a_new_table.sql`),
+  pinned by `tests/a-moved-player-never-posts-to-enter.law.test.ts`. The
+  seat-change assertions in `TheTablesOpenAndCloseThemselves.law.test.ts` and
+  `PresenceFollowsTheMove.test.ts` read the immutable 2026-09-05 migration
+  files and describe history only. Do not restore a post for a moved player.
+
 - **Lightning is six-seat Action and Madness only (ruled 2026-10-19, Dan):**
   "classic games never get lightning games, only action and madness, make all
   lightning games 6 handed." (19:44 Central). Classic never gets Lightning

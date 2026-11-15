@@ -3839,6 +3839,13 @@ jobs:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 -B scripts/ci/test-stall-progress-proof.py
 
+      - name: The Horse option switch writes on only with its authority, and keeps off and clear
+        if: matrix.shard == 7
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+          TMPDIR: ${{ runner.temp }}
+        run: bash scripts/ci/test-horse-option-switch-evidence-postgres.sh
+
       - name: Certified V31 PostgreSQL 17 behavior gate
         if: >-
           matrix.shard == 7 &&

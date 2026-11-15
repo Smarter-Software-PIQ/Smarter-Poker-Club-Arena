@@ -98,7 +98,7 @@ export async function performOrdinaryTurn(page, turn) {
           await slider.press('Home');
           if (await click(panel.getByRole('button',{name:/^Raise [0-9]/}).first())) return;
         }
-        await click(panel.getByRole('button',{name:'Back',exact:true}).first());
+        await slider.press('Escape');
       } else return; // The original turn vanished while its panel opened.
     }
   }

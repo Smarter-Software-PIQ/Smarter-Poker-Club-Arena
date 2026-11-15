@@ -22,7 +22,7 @@ export default function HitRunCountPill({
 }): React.ReactElement | null {
   const helpId = useId();
   const owing = hands !== null && hands > 0;
-  const count = owing ? hands : paused;
+  const count = owing ? hands : null;
   if (retryRead)
     return (
       <button type="button" className="hit-run-pill" onClick={retryRead}>

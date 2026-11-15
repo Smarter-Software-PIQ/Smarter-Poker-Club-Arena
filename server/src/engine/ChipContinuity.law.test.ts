@@ -290,7 +290,10 @@ describe('the engine wiring (source pins - each one is a leak that shipped once 
     expect(fresh).toBeLessThan(release.indexOf('this.handCountStack(userId, seated.stack)'));
     // #10740: a queued Lightning leave that still owes hands goes back to the pool.
     expect(release).toContain('await this.returnOwedLightningLeaveToPool(userId, seated);');
-    expect(sliceMethod(SEATING, 'public sitOut(')).toContain('this.withdrawBlindOff(userId)');
+    expect(sliceMethod(SEATING, 'public sitOut(')).toContain(
+      'return this.applySitOut(userId, sitOut, proof)'
+    );
+    expect(sliceMethod(SEATING, 'private applySitOut(')).toContain('this.withdrawBlindOff(userId)');
     expect(sliceMethod(SEATING, 'protected withdrawBlindOff(')).toContain(
       'this.leaveHeldByClock.delete(userId)'
     );
@@ -367,7 +370,7 @@ describe('the engine wiring (source pins - each one is a leak that shipped once 
   });
 
   it('sit-out and sit-in report to the clock; presence is swept from the heartbeat tick', () => {
-    const sitOut = sliceMethod(SEATING, 'public sitOut(');
+    const sitOut = sliceMethod(SEATING, 'private applySitOut(');
     expect(sitOut).toContain('this.chipContinuity');
     const hb = sliceMethod(BASE, 'protected scheduleHeartbeatCheck()');
     expect(hb).toContain('sweepPresence(');

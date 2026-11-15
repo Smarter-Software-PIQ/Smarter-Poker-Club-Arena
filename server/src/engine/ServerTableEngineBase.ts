@@ -682,7 +682,24 @@ export abstract class ServerTableEngineBase {
    * at engine construction. null in unit tests / until PR-2 wiring lands.
    */
   protected hub: TableStateHub | null = null;
-  private readonly seatSitOutPersistence = new SeatSitOutPersistence((room, event) => {
+  protected readonly committedSeatSitOut = new Set<string>();
+  protected readonly seatSitOutVersions = new WeakMap<object, number>();
+  protected readonly seatSitOutPersistence = new SeatSitOutPersistence((room, event) => {
+    if (
+      !this.seatedPlayers.some(
+        (p) => p.user_id === event.player_id && p.occupancy_id === event.occupancy_id
+      )
+    )
+      return;
+    // The committed original transition, including forced sit-outs, owns the
+    // held departure. The anchor remains dealable; the hand host folds it.
+    if (event.blind_off === true) {
+      this.leaveHeldByClock.set(event.player_id, event.occupancy_id);
+      this.chipContinuity.markBlindOff(event.player_id, true);
+    } else if (!event.sitting_out) {
+      this.leaveHeldByClock.delete(event.player_id);
+      this.chipContinuity.markBlindOff(event.player_id, false);
+    }
     this.hub?.emitEvent(room, { ...event });
   });
   protected tableInfo: TableInfo | null = null;
@@ -3915,8 +3932,19 @@ export abstract class ServerTableEngineBase {
           }
         }
         if (!occupancyId) return;
+        const key = `${this.tableId}:${event.playerId}:${occupancyId}`;
+        if (this.committedSeatSitOut.has(key)) return;
+        const state = this.disconnectEngine.getState(this.tableId, event.playerId);
+        const version = state ? (this.seatSitOutVersions.get(state) ?? 0) + 1 : 0;
+        if (state) this.seatSitOutVersions.set(state, version);
         void this.seatSitOutPersistence
-          .persist(this.tableId, event.playerId, occupancyId, sittingOut)
+          .persist(this.tableId, event.playerId, occupancyId, sittingOut, () => {
+            const current = this.disconnectEngine.getState(this.tableId, event.playerId);
+            return (
+              (current === state && (!state || this.seatSitOutVersions.get(state) === version)) ||
+              current?.isSittingOut === sittingOut
+            );
+          })
           .catch((err) => {
             reportError(err, 'ServerTableEngine.' + this.tableId + '.sitout_persist_threw');
           });
@@ -5472,6 +5500,14 @@ export abstract class ServerTableEngineBase {
       if (this.leaveHeldByClock.has(p.user_id) || !p.occupancy_id) continue;
       const row = this.chipContinuity.row(p.user_id);
       if (!row?.blind_off) continue;
+      if (this.isLightningAnchorNow()) {
+        // A restart after the final owed deal must still restore the original
+        // departure intention. The normal release door checks the count and
+        // live hand before cashing out; zero owed must not lose that intention.
+        this.leaveHeldByClock.set(p.user_id, p.occupancy_id);
+        this.chipContinuity.markBlindOff(p.user_id, true);
+        continue;
+      }
       const lock = this.chipContinuity.leaveLock(
         p.user_id,
         this.handCountStack(p.user_id, p.stack)
