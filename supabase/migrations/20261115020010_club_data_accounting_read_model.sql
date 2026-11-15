@@ -292,10 +292,16 @@ BEGIN
 END;
 $function$;
 
+-- Records a failure; never raises (a record that cannot be written becomes a
+-- WARNING), so a projection can never refuse the money write it follows.
 CREATE FUNCTION public.fn_ca_club_acct_fail(p_source text, p_day date, p_detail text, p_key text DEFAULT NULL)
-RETURNS void LANGUAGE sql SECURITY DEFINER SET search_path = public AS $function$
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $function$
+BEGIN
   INSERT INTO public.ca_club_acct_projection_failures (source, source_key, acct_day, detail)
   VALUES (p_source, p_key, p_day, p_detail);
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING 'club data accounting: % failure for % could not be recorded: % % (%)', p_source, p_day, SQLSTATE, SQLERRM, p_detail;
+END;
 $function$;
 
 -- A boundary's key, independent of the session's time zone.
@@ -740,8 +746,12 @@ BEGIN
     (SELECT jsonb_agg(to_jsonb(n)) FROM new_rows n)), 0::smallint);
   RETURN NULL;
 EXCEPTION WHEN OTHERS THEN
-  PERFORM public.fn_ca_club_acct_fail('cash_fee', (SELECT public.fn_ca_club_acct_safe_day(min(n.earned_at)) FROM new_rows n),
-    SQLSTATE || ' ' || SQLERRM || ' ids=' || COALESCE((SELECT string_agg(n.id::text, ',') FROM new_rows n), ''));
+  BEGIN
+    PERFORM public.fn_ca_club_acct_fail('cash_fee', (SELECT public.fn_ca_club_acct_safe_day(min(n.earned_at)) FROM new_rows n),
+      SQLSTATE || ' ' || SQLERRM || ' ids=' || COALESCE((SELECT string_agg(n.id::text, ',') FROM new_rows n), ''));
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'club data accounting projection could not record its failure: % %', SQLSTATE, SQLERRM;
+  END;
   RETURN NULL;
 END;
 $function$;
@@ -753,9 +763,13 @@ BEGIN
     (SELECT jsonb_agg(to_jsonb(n)) FROM new_rows n)), 0::smallint);
   RETURN NULL;
 EXCEPTION WHEN OTHERS THEN
-  PERFORM public.fn_ca_club_acct_fail('cash_fee_admission',
-    public.fn_ca_club_acct_day_of_sources(ARRAY(SELECT n.source_id FROM new_rows n)),
-    SQLSTATE || ' ' || SQLERRM || ' sources=' || COALESCE((SELECT string_agg(n.source_id::text, ',') FROM new_rows n), ''));
+  BEGIN
+    PERFORM public.fn_ca_club_acct_fail('cash_fee_admission',
+      public.fn_ca_club_acct_day_of_sources(ARRAY(SELECT n.source_id FROM new_rows n)),
+      SQLSTATE || ' ' || SQLERRM || ' sources=' || COALESCE((SELECT string_agg(n.source_id::text, ',') FROM new_rows n), ''));
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'club data accounting projection could not record its failure: % %', SQLSTATE, SQLERRM;
+  END;
   RETURN NULL;
 END;
 $function$;
@@ -767,8 +781,12 @@ BEGIN
     (SELECT jsonb_agg(to_jsonb(n)) FROM new_rows n)), 0::smallint);
   RETURN NULL;
 EXCEPTION WHEN OTHERS THEN
-  PERFORM public.fn_ca_club_acct_fail('tournament_fee', (SELECT public.fn_ca_club_acct_safe_day(min(n.recognized_at)) FROM new_rows n),
-    SQLSTATE || ' ' || SQLERRM || ' sources=' || COALESCE((SELECT string_agg(n.source_id::text, ',') FROM new_rows n), ''));
+  BEGIN
+    PERFORM public.fn_ca_club_acct_fail('tournament_fee', (SELECT public.fn_ca_club_acct_safe_day(min(n.recognized_at)) FROM new_rows n),
+      SQLSTATE || ' ' || SQLERRM || ' sources=' || COALESCE((SELECT string_agg(n.source_id::text, ',') FROM new_rows n), ''));
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'club data accounting projection could not record its failure: % %', SQLSTATE, SQLERRM;
+  END;
   RETURN NULL;
 END;
 $function$;
@@ -784,8 +802,12 @@ BEGIN
   PERFORM public.fn_ca_club_acct_put_hands(v->'hands', 0::smallint);
   RETURN NULL;
 EXCEPTION WHEN OTHERS THEN
-  PERFORM public.fn_ca_club_acct_fail('cash_hand', (SELECT public.fn_ca_club_acct_safe_day(min(n.recognized_at)) FROM new_rows n),
-    SQLSTATE || ' ' || SQLERRM || ' hands=' || COALESCE((SELECT string_agg(n.table_id::text || ':' || n.hand_number, ',') FROM new_rows n), ''));
+  BEGIN
+    PERFORM public.fn_ca_club_acct_fail('cash_hand', (SELECT public.fn_ca_club_acct_safe_day(min(n.recognized_at)) FROM new_rows n),
+      SQLSTATE || ' ' || SQLERRM || ' hands=' || COALESCE((SELECT string_agg(n.table_id::text || ':' || n.hand_number, ',') FROM new_rows n), ''));
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'club data accounting projection could not record its failure: % %', SQLSTATE, SQLERRM;
+  END;
   RETURN NULL;
 END;
 $function$;
@@ -800,9 +822,13 @@ BEGIN
   PERFORM public.fn_ca_club_acct_put_hands(v->'hands', 0::smallint);
   RETURN NULL;
 EXCEPTION WHEN OTHERS THEN
-  PERFORM public.fn_ca_club_acct_fail('linked_hand',
-    public.fn_ca_club_acct_day_of_hands(ARRAY(SELECT n.table_id FROM new_rows n), ARRAY(SELECT n.hand_number FROM new_rows n)),
-    SQLSTATE || ' ' || SQLERRM || ' hands=' || COALESCE((SELECT string_agg(n.table_id::text || ':' || n.hand_number, ',') FROM new_rows n), ''));
+  BEGIN
+    PERFORM public.fn_ca_club_acct_fail('linked_hand',
+      public.fn_ca_club_acct_day_of_hands(ARRAY(SELECT n.table_id FROM new_rows n), ARRAY(SELECT n.hand_number FROM new_rows n)),
+      SQLSTATE || ' ' || SQLERRM || ' hands=' || COALESCE((SELECT string_agg(n.table_id::text || ':' || n.hand_number, ',') FROM new_rows n), ''));
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'club data accounting projection could not record its failure: % %', SQLSTATE, SQLERRM;
+  END;
   RETURN NULL;
 END;
 $function$;
@@ -831,9 +857,13 @@ BEGIN
   PERFORM public.fn_ca_club_acct_put_hands(v->'hands', 0::smallint);
   RETURN NULL;
 EXCEPTION WHEN OTHERS THEN
-  PERFORM public.fn_ca_club_acct_fail('escrow_certificate',
-    public.fn_ca_club_acct_day_of_hands(ARRAY(SELECT n.table_id FROM new_rows n), ARRAY(SELECT n.hand_number FROM new_rows n)),
-    SQLSTATE || ' ' || SQLERRM || ' hands=' || COALESCE((SELECT string_agg(n.table_id::text || ':' || n.hand_number, ',') FROM new_rows n), ''));
+  BEGIN
+    PERFORM public.fn_ca_club_acct_fail('escrow_certificate',
+      public.fn_ca_club_acct_day_of_hands(ARRAY(SELECT n.table_id FROM new_rows n), ARRAY(SELECT n.hand_number FROM new_rows n)),
+      SQLSTATE || ' ' || SQLERRM || ' hands=' || COALESCE((SELECT string_agg(n.table_id::text || ':' || n.hand_number, ',') FROM new_rows n), ''));
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'club data accounting projection could not record its failure: % %', SQLSTATE, SQLERRM;
+  END;
   RETURN NULL;
 END;
 $function$;
@@ -861,8 +891,12 @@ BEGIN
   END IF;
   RETURN NULL;
 EXCEPTION WHEN OTHERS THEN
-  PERFORM public.fn_ca_club_acct_fail('tournament_flow', public.fn_ca_club_acct_safe_day(NEW.recognized_at),
-    SQLSTATE || ' ' || SQLERRM || ' ledger=' || NEW.ledger_id);
+  BEGIN
+    PERFORM public.fn_ca_club_acct_fail('tournament_flow', public.fn_ca_club_acct_safe_day(NEW.recognized_at),
+      SQLSTATE || ' ' || SQLERRM || ' ledger=' || NEW.ledger_id);
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'club data accounting projection could not record its failure: % %', SQLSTATE, SQLERRM;
+  END;
   RETURN NULL;
 END;
 $function$;
@@ -875,8 +909,12 @@ BEGIN
   PERFORM public.fn_ca_club_acct_put(public.fn_ca_club_acct_bbj_rows(NEW.payout_id, NEW.user_id, NEW.created_at), 0::smallint);
   RETURN NULL;
 EXCEPTION WHEN OTHERS THEN
-  PERFORM public.fn_ca_club_acct_fail('bbj_award', public.fn_ca_club_acct_safe_day(NEW.created_at),
-    SQLSTATE || ' ' || SQLERRM || ' payout=' || NEW.payout_id || ' user=' || NEW.user_id);
+  BEGIN
+    PERFORM public.fn_ca_club_acct_fail('bbj_award', public.fn_ca_club_acct_safe_day(NEW.created_at),
+      SQLSTATE || ' ' || SQLERRM || ' payout=' || NEW.payout_id || ' user=' || NEW.user_id);
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'club data accounting projection could not record its failure: % %', SQLSTATE, SQLERRM;
+  END;
   RETURN NULL;
 END;
 $function$;
@@ -897,9 +935,13 @@ BEGIN
   END IF;
   RETURN NULL;
 EXCEPTION WHEN OTHERS THEN
-  PERFORM public.fn_ca_club_acct_fail('pnl_boundary', d, SQLSTATE || ' ' || SQLERRM || ' boundary=' || v_key, v_key)
-     FROM unnest(ARRAY[public.fn_ca_club_acct_safe_day(NEW.boundary),
-                       public.fn_ca_club_acct_safe_day(NEW.boundary - interval '1 microsecond')]) d;
+  BEGIN
+    PERFORM public.fn_ca_club_acct_fail('pnl_boundary', d, SQLSTATE || ' ' || SQLERRM || ' boundary=' || v_key, v_key)
+       FROM unnest(ARRAY[public.fn_ca_club_acct_safe_day(NEW.boundary),
+                         public.fn_ca_club_acct_safe_day(NEW.boundary - interval '1 microsecond')]) d;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'club data accounting projection could not record its failure: % %', SQLSTATE, SQLERRM;
+  END;
   RETURN NULL;
 END;
 $function$;
@@ -907,6 +949,39 @@ $function$;
 CREATE TRIGGER ca_club_acct_boundary
   AFTER INSERT ON public.ca_union_pnl_boundary_capture
   FOR EACH ROW EXECUTE FUNCTION public.trg_ca_club_acct_boundary();
+
+-- The certificate copy (20261115015159, installed text md5 95729de2...)
+-- records a failed copy; if that record itself cannot be written it now
+-- becomes a WARNING instead of refusing the certificate. Nothing else changes.
+DO $capture$ BEGIN
+  IF (SELECT md5(prosrc) FROM pg_proc WHERE oid = 'public.fn_ca_union_pnl_boundary_capture()'::regprocedure)
+     <> '95729de2731d6fdcb7e7fa928b69a638' THEN
+    RAISE EXCEPTION 'pnl boundary capture preimage changed';
+  END IF;
+END $capture$;
+CREATE OR REPLACE FUNCTION public.fn_ca_union_pnl_boundary_capture()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
+SET lock_timeout = '50ms' AS $function$
+BEGIN
+  IF NEW.kind = 'pnl_boundary' AND NEW.period_start = NEW.period_end
+     AND NEW.value->>'status' = 'ready' THEN
+    BEGIN
+      INSERT INTO public.ca_union_pnl_boundary_capture (union_id, boundary, certified_at, value, value_md5)
+      VALUES (NEW.union_id, NEW.period_start, NEW.certified_at, NEW.value, md5(NEW.value::text))
+      ON CONFLICT (union_id, boundary, certified_at, value_md5) DO NOTHING;
+    EXCEPTION WHEN OTHERS THEN
+      BEGIN
+        INSERT INTO public.ca_union_pnl_boundary_capture_failures (union_id, boundary, certified_at, value, detail)
+        VALUES (NEW.union_id, NEW.period_start, NEW.certified_at, NEW.value, SQLSTATE || ' ' || SQLERRM);
+      EXCEPTION WHEN OTHERS THEN
+        NULL;
+      END;
+      RAISE WARNING 'pnl boundary capture failed for % %: % %', NEW.union_id, NEW.period_start, SQLSTATE, SQLERRM;
+    END;
+  END IF;
+  RETURN NULL;
+END;
+$function$;
 
 -- ---------------------------------------------------------------------------
 -- 6. The day load. One accounting day per call, inside one REPEATABLE READ
@@ -1039,9 +1114,12 @@ BEGIN
   UPDATE public.ca_club_acct_projection_failures pf SET resolved_at = clock_timestamp()
    WHERE pf.acct_day = p_day AND pf.resolved_at IS NULL AND pf.source NOT LIKE 'pnl_boundary%';
   GET DIAGNOSTICS n_fix = ROW_COUNT;
+  -- A plain insert, not fn_ca_club_acct_fail: if the record cannot be
+  -- written the load aborts, so the day is never read as complete.
   IF n_unclassified > 0 THEN
-    PERFORM public.fn_ca_club_acct_fail('tournament_flow_unclassified', p_day,
-      n_unclassified || ' posted union tournament flow(s) no receipt rule classifies (day load)');
+    INSERT INTO public.ca_club_acct_projection_failures (source, acct_day, detail)
+    VALUES ('tournament_flow_unclassified', p_day,
+            n_unclassified || ' posted union tournament flow(s) no receipt rule classifies (day load)');
   END IF;
 
   INSERT INTO public.ca_club_acct_seed_log (acct_day, fact_rows, hand_rows) VALUES (p_day, n_f, n_h);

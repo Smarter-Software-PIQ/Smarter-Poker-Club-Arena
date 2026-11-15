@@ -22,8 +22,19 @@ are lost for that accounting day, the failure is recorded in
 as incomplete instead of showing a wrong figure. Loading the day again
 (`club-data-accounting-seed.yml`, `rebuild: true`, dispatched by a person,
 never on a schedule) makes the figures whole and marks the failure resolved.
+A week-boundary failure (`pnl_boundary`, `pnl_boundary_busy`: a certificate
+version that arrived while that boundary was being loaded) is made whole by
+loading that boundary again (`fn_ca_club_acct_load_boundary`, run by the same
+dispatched workflow, each boundary in its own transaction), which resolves
+both of its days; a day reload never resolves it.
 
-That reload is DEBT, not a fix. A recorded failure is a P0: the cause (the
+If even the failure record cannot be written (the failure table refuses the
+insert), the projection never refuses the money write either: the failure
+then appears only as a WARNING ("club data accounting ... could not be
+recorded") in the Postgres log, and the day reads complete although it is not.
+A day load never swallows its own failure record: it aborts instead.
+
+Both reloads are DEBT, not a fix. A recorded failure is a P0: the cause (the
 projection that raised) is found and changed so it cannot raise again, and
 only then is the day reloaded. No job looks for failures or reloads days.
 Root fix that retires this entry: a projection with no failure path, proved
