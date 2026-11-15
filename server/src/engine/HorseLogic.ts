@@ -3274,6 +3274,12 @@ export interface HorseDecideOpts {
    *  (HorseOpponentStyle.preRepairDiscount). Hold'em only. Receipt style_pre_repair_fold_rate_discounted_seen.
    *  Default off; explicit true only. */
   styleFoldRatePreRepair?: boolean;
+  /** A LONG MEMORY OF SHOWN RIVER STRENGTH (2026-11-15, HorseLongShownMemory): the style read's river size buckets
+   *  may take a bucket from the opponent's durable shown river record (horse_exact_profiles.shown_river, a half-life
+   *  of 40 shown river bets, carried by the decision's pooled public row) when it holds more shown bets than the
+   *  in-process 72-hour bucket; never their sum. Receipts style_long_shown_memory_seen and
+   *  style_long_shown_memory_older_seen. Default off; explicit true only. */
+  styleLongShownMemory?: boolean;
   /** STYLE READ A4 (2026-11-13): value extraction against a credible caller (HorseOpponentStyle.valueExtraction).
    *  Receipt style_value_extraction_seen. Default off; explicit true only. */
   styleValueExtraction?: boolean;
@@ -6753,6 +6759,10 @@ export class HorseLogic {
       // options (and every read they reach) are exactly what they were.
       ...(opts.styleFoldRatePreRepair === true && opts.mind !== false
         ? { styleFoldRatePreRepair: true }
+        : {}),
+      // LONG SHOWN RIVER MEMORY (2026-11-15): only an explicit true adds the key (HorseLongShownMemory).
+      ...(opts.styleLongShownMemory === true && opts.mind !== false
+        ? { styleLongShownMemory: true }
         : {}),
     });
     // V3: ingest the action stream into the opponent-intelligence layer.

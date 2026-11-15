@@ -3048,6 +3048,26 @@ export interface UnmeasurableMatchup extends Pick<
 }
 
 export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.freeze([
+  // 2026-11-15 (Hold'em Strategy lane): the long shown river memory. Refused, not
+  // dealt: the evidence it reads does not exist in a league hand.
+  {
+    name: 'nlh_long_shown_river_memory',
+    variant: 'nlh',
+    seats: 6,
+    a: { styleLongShownMemory: true },
+    b: {},
+    reason:
+      'Unanswerable by this league: the option reads one thing, the durable shown river record ' +
+      '(horse_exact_profiles.shown_river) that a pooled public row carries into a live worker decision ' +
+      '(horseDecision/observerReads -> HorseMindSandbox.pooledShownRiver). playHand calls HorseLogic.decide ' +
+      'directly, with no pooled public rows, no accepted-hand database learner and no worker, so the record is ' +
+      'never present and both arms read the same in-process size buckets. The option is DEFAULT OFF (read as === true). ' +
+      'Measured 2026-11-15 by running this refused matchup through runMatchup (seed 20261115, 300 pairs): ' +
+      '0 of 300 pairs diverged (inert, as the structure says). ' +
+      'What would change this: a league that replays accepted hands into the pooled public profiles across a ' +
+      'simulated restart; until it exists, aShownRiverBettorIsRememberedAcrossARestart.law.test.ts and its worker ' +
+      'test (FAST, DEEP and exact replay) are the evidence.',
+  },
   // 2026-11-14 (Fixed-Limit lane, SPEC-FL-01..03): three default-off
   // fixed-limit arms. Refused, not dealt: this league cannot ask the question.
   ...(

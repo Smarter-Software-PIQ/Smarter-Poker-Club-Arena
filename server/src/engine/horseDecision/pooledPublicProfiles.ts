@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import {
   computeDonorHandClockStaleness,
   copyLongCounters,
+  copyShownRiver,
   durableProfileCounters,
   opponentMemoryDonors,
   opponentMemoryKey,
@@ -134,6 +135,8 @@ export class PooledPublicProfiles {
           counters: { ...p.counters },
           // The long participation window travels with its row (absent stays absent).
           ...copyLongCounters(p),
+          // So does its durable shown river record (2026-11-15; a malformed one is dropped).
+          ...copyShownRiver(p),
         },
         at: snapshot.availableAtMs,
         // Saved notes are fresh at boot; staleness counts the hands the
@@ -240,6 +243,7 @@ export class PooledPublicProfiles {
           initialized: p.initialized,
           counters: { ...p.counters },
           ...copyLongCounters(p),
+          ...copyShownRiver(p),
         },
         at,
         clock: this.clocks.get(p.user_id)?.count ?? 0,

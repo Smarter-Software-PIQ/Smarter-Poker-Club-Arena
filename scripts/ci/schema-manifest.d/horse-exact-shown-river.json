@@ -1,0 +1,6 @@
+{
+  "_owner": "feat/horses-remember-shown-river-strength-durably-20261115",
+  "_comment": "Declared by migration 20261115144258 (the exact opponent profile remembers shown river strength); source declaration only, not installation proof.",
+  "functions": ["fn_horse_shown_river_increments", "fn_horse_shown_river_add"],
+  "columns": { "horse_exact_profiles": ["shown_river"] }
+}
