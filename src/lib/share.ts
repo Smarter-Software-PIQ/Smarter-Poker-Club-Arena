@@ -255,9 +255,20 @@ export function profileShareUrl(userId: string, origin?: string): string {
   return `${origin ?? publicOrigin()}/hub/club-arena/profile/${encodeURIComponent(userId)}`;
 }
 
-/** The address a tournament is shared as. One builder, so every surface sends the same link. */
+/**
+ * The address a tournament is shared as. One builder, so every surface sends
+ * the same link.
+ *
+ * smarter.poker/t/<id> (2026-11-15), not the Club Arena page itself: the World
+ * Hub serves it with the event's own preview card (name, buy-in, guarantee,
+ * start time) through fn_ca_tournament_share_preview, sends a signed-in
+ * player straight on to /hub/club-arena/tournaments/<id>, and shows a
+ * signed-out friend what they were invited to with one Register button
+ * instead of a bare sign-in page. Private, VIP-only and non-public-club events
+ * get the plain card there, exactly like a missing one.
+ */
 export function tournamentShareUrl(tournamentId: string, origin?: string): string {
-  return `${origin ?? publicOrigin()}/hub/club-arena/tournaments/${encodeURIComponent(tournamentId)}`;
+  return `${origin ?? publicOrigin()}/t/${encodeURIComponent(tournamentId)}`;
 }
 
 /**
