@@ -31,7 +31,8 @@
  * fire when a spot merely qualifies. upgrade10_fast_window_ready_seen is upgrade
  * 10's own opportunity count (HorseOpponentExploit fastWindowReady: "always
  * returns true, so it never changes which branch runs"), evaluated before the
- * edge test on every opponent read: 40.9 million fleet fires against 273,980
+ * edge test on every qualifying read (a fast-engage stat, not engaged, with a
+ * full enough fast window): 40.9 million fleet fires against 273,980
  * recorded decisions on a7965514 on 2026-11-14. It marked 272,838 of those
  * decisions and all 762 Horses as upgrade 10 invoked while the window engaged
  * 42 times. Needles in PER_HORSE_OPPORTUNITY_ONLY_NEEDLES are therefore not
