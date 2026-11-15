@@ -18,15 +18,17 @@
  * no prize-equity question). Flop or turn, nothing to call, a check legal,
  * TWO OR MORE live opponents. The Horse's best hand is a weak made hand
  * (plo6WeakMadeHand): one pair below the board's top card (a pocket pair
- * under it, or a pair with a lower board card), bottom two pair, or the
- * board's own pair with such a pair. It holds no qualifying draw
- * (plo6QualifyingDraw): no nut flush draw, fewer than eight straight outs
- * and fewer than four outs to the nut straight. It is not nut class
- * (omahaNutClassNow). Then a bet becomes a check.
+ * under it, or a pair with a lower board card), two pair without the board's
+ * top card (bottom two pair on the flop; on the turn any two pair that does
+ * not hold the top rank), or the board's own pair with such a pair. It holds
+ * no qualifying draw (plo6QualifyingDraw): no nut flush draw, fewer than
+ * eight straight outs, fewer than four outs to the nut straight, and no
+ * combo draw (a flush draw of any rank with four or more straight outs). It
+ * is not nut class (omahaNutClassNow). Then a bet becomes a check.
  *
  * It never turns a check into anything, never touches a decision facing a
- * bet, a heads-up pot, the river, top pair, an overpair, top two pair, a
- * set or better, a hand with the qualifying draw, or a nut-class hand. It
+ * bet, a heads-up pot, the river, top pair, an overpair, top and any other
+ * pair, a set or better, a hand with the qualifying draw, or a nut-class hand. It
  * reads hero's cards, the board and the public seats; it draws no random
  * number, calls no telemetry and keeps no state (the caller fires
  * PLO6_MULTIWAY_WEAK_BET_RECEIPT).
@@ -37,38 +39,51 @@
  * and neither separates the losses (below), and a check has no price to
  * weigh. Defence on bad ground: with six cards each opponent holds fifteen
  * two-card hands, so a pair under the top card multiway is rarely best and
- * is rarely folded to (the bets below made every opponent fold 9 times in
+ * is rarely folded to (the bets below made every opponent fold 7 times in
  * 62). Nut and combo draws stay aggressive: the draw keeps the bet.
  *
  * MEASURED (development evidence, unevaluated). Population: every Horse
  * decision with a person live in PLO6 cash, 2026-11-10T21:30Z to
  * 2026-11-15T20:05Z, 912 hands (the sweep's own extraction SQL, SELECT only,
  * re-run 2026-11-15; the sweep's D2 row reproduced exactly: 45 bets, 43
- * hands, -1,005.5 bb). Hands were classed with THIS file's functions.
+ * hands, -1,005.5 bb). Hands were classed with THIS file's functions. The
+ * rows are re-measured on the same hands after the pre-review fixes of
+ * 2026-11-15 (the combo draw keeps the bet; two pair without the top card
+ * is one class on the flop and the turn), except where a row says it was
+ * measured before them. Before the fixes the file removed 62 bets in 58
+ * hands, -1,403.7 bb (lost 41 hands -1,825.9 bb, won 17 hands +422.2 bb,
+ * 4.33 to 1). The combo line keeps 3 of those bets (+15.6 bb: lost 1 hand
+ * -41.0, won 2 hands +56.6); the turn two-pair class removes 3 more turn
+ * bets (-305.1 bb, all three hands lost). The two fixes were decided on the
+ * poker in review, not chosen on these numbers.
  * "Hand net" is the Horse's result for the whole hand, not the value of the
  * bet; a hand is counted once per row. removed = the bet would become a
  * check; lost / won = hands with a result of zero or less / above zero.
  *
  *   multiway flop and turn bets, all hands        454 bets, +3,827.4 bb
- *   CHOSEN (this file) removed                     62 bets in 58 hands,
- *     -1,403.7 bb: lost 41 hands -1,825.9 bb, won 17 hands +422.2 bb
- *     (removed loss to removed win 4.33 to 1)
- *   every other multiway flop/turn bet (kept)     392 bets, +4,866.5 bb
- *   same weak hands, kept by the draw              40 bets, -97.0 bb
- *     (lost 20 hands -922.9 bb, won 18 hands +825.9 bb)
- *   the spot already checked by the Horses        312 checks
+ *   CHOSEN (this file) removed                     62 bets in 59 hands,
+ *     -1,706.9 bb: lost 43 hands -2,089.9 bb, won 16 hands +383.0 bb
+ *     (removed loss to removed win 5.46 to 1)
+ *   every other multiway flop/turn bet (kept)     392 bets, +5,187.2 bb
+ *   same weak hands, kept by the draw              44 bets, -180.1 bb
+ *     (lost 22 hands -1,062.7 bb, won 20 hands +882.5 bb)
+ *   the spot already checked by the Horses        302 checks
  *
- *   of the sweep's 45 D2 bets: removed 42 (-1,103.6 bb; lost 28 hands
- *     -1,455.8, won 12 hands +352.2); kept 3 (+98.2 bb; a pair with four or
- *     more nut-straight outs). Of the 40 graded mistakes (40% pot or more)
- *     38 are removed (-804.2 bb), of the 5 graded minor (under 40% pot) 4
- *     (-299.4 bb, all four lost): bet size does not separate them.
+ *   of the sweep's 45 D2 bets: removed 41 (-1,142.7 bb; lost 28 hands
+ *     -1,455.8, won 11 hands +313.1); kept 4 (+137.3 bb; three a pair with
+ *     four or more nut-straight outs, one a combo draw). Of the 40 graded
+ *     mistakes (40% pot or more) 37 are removed (-843.4 bb), of the 5 graded
+ *     minor (under 40% pot) 4 (-299.4 bb, all four lost): bet size does not
+ *     separate them.
  *   removed and not in D2 (a pair with a lower board card, the paired-board
- *     forms with it, hands D2 left out on straight outs the engine does not
- *     count): 20 bets, -300.1 bb (lost 13 hands -370.1, won 5 hands +70.0).
- *     This is the cost side: the winning bets the wider class removes.
+ *     forms with it, turn two pair without the top card, hands D2 left out
+ *     on straight outs the engine does not count): 21 bets, -564.2 bb (lost
+ *     15 hands -634.1, won 5 hands +70.0). This is the cost side: the
+ *     winning bets the wider class removes.
  *
- *   candidate condition sets (removed bets: net; lost; won; ratio):
+ *   candidate condition sets, MEASURED BEFORE THE PRE-REVIEW FIXES (two pair
+ *   by the flop definition on both streets, no combo line; the choice among
+ *   them was made on these rows) (removed bets: net; lost; won; ratio):
  *   hands   | draw that keeps the bet                 | removed
  *   D2 hands| nut flush draw or 8+ straight outs      | 49: -1,048.3; -1,570.9; +522.6; 3.01
  *   D2 hands| nut flush draw or 8+ nut-straight outs  | 57: -1,003.4; -1,769.0; +765.6; 2.31
@@ -84,26 +99,32 @@
  *   bets with four to seven straight outs, not to the nuts, that lost
  *   -370.1 bb (lost 12 hands -532.4, won 7 hands +162.4); the chosen set
  *   removes those, has the next best ratio and removes the most net loss.
+ *   After the fixes the final set (the chosen row, less a flush draw with
+ *   four or more straight outs, plus turn two pair without the top card) is
+ *   62: -1,706.9; -2,089.9; +383.0; 5.46, and removes 17 of those four-to-
+ *   seven-out bets (-411.2 bb; lost 12 hands -517.0, won 5 hands +105.8).
  *
- *   the chosen 62 by cell (bets: net; lost; won):
- *   flop 43: -1,220.5; -1,530.6; +310.1      turn 19: -211.9; -351.7; +139.7
- *   pocket underpair 31: -885.0; -1,133.9; +248.8
- *   pair with a lower board card 11: -124.4; -174.4; +50.0
- *   bottom two pair 4: -134.7; -142.6; +7.9
+ *   the final 62 by cell (bets: net; lost; won):
+ *   flop 42: -1,259.6; -1,530.6; +271.0      turn 20: -493.5; -615.7; +122.2
+ *   pocket underpair 29: -883.1; -1,092.8; +209.7
+ *   pair with a lower board card 10: -124.4; -174.4; +50.0
+ *   two pair without the top card 7: -439.8; -447.7; +7.9
  *   board pair with a pocket underpair 8: -127.2; -232.9; +105.7
  *   board pair with a low pair 8: -134.7; -154.6; +20.0
- *   two opponents 28: -710.4      three or more 34: -732.2
- *   bet under 40% pot 6: -348.3   bet 40% pot or more 56: -1,099.3
- *   pot under 12 bb 13: -4.5      12 to 25 bb 27: -336.0      over 25 bb 22: -1,048.0
- *   answered by: everyone folded 9 (+125.3), called 39 (-915.6), raised 14
- *     (-598.3, all 14 lost)
+ *   two opponents 27: -1,012.1    three or more 35: -751.2
+ *   bet under 40% pot 6: -348.3   bet 40% pot or more 56: -1,402.5
+ *   answered by: everyone folded 7 (+68.7)
+ *   not re-measured, the 62 bets before the fixes: pot under 12 bb 13: -4.5,
+ *     12 to 25 bb 27: -336.0, over 25 bb 22: -1,048.0; called 39 (-915.6),
+ *     raised 14 (-598.3, all 14 lost)
  *
  * Decisions taken from it. The river is left out: 3 such river bets in the
  * window (-80.1 bb), too few to rule on. The nut flush draw keeps the bet by
  * the owner's rule on nut draws although the 11 such bets lost (-274.7 bb):
  * owed to the evaluation, not decided here. Heads-up is out of scope by the
- * option's name; the same hands bet heads-up were 22 bets, -452.5 bb.
- * Tournaments: 2 such bets in the one tournament of the window (+23.4 bb):
+ * option's name; the same hands bet heads-up were 21 bets, -413.6 bb.
+ * Tournaments: 3 such bets in 2 hands of the one tournament of the window
+ * (+23.4 bb):
  * no evidence either way; allowed because the change only removes chips put
  * in.
  *
@@ -128,6 +149,8 @@ export const PLO6_MULTIWAY_WEAK_BET_MIN_OPPONENTS = 2;
 export const PLO6_MULTIWAY_WEAK_BET_STRAIGHT_OUTS = 8;
 /** Outs to the nut straight from which a draw is a draw to the nuts (a nut gutshot or more). */
 export const PLO6_MULTIWAY_WEAK_BET_NUT_STRAIGHT_OUTS = 4;
+/** Straight outs from which a flush draw of any rank is a combo draw (a gutshot or more). */
+export const PLO6_MULTIWAY_WEAK_BET_COMBO_STRAIGHT_OUTS = 4;
 
 const STREET_BOARD: Record<string, number> = { flop: 3, turn: 4 };
 const ONE_PAIR = 2;
@@ -141,7 +164,10 @@ const RANK_VALUE: Record<string, number> = Object.fromEntries(
  * The weak made hands of this rule, by what the best two hole cards make:
  *  - underpair: one pair, a pocket pair below the board's top card;
  *  - low_pair: one pair made with a board card that is not the top card;
- *  - bottom_two_pair: two pair with the two lowest ranks of an unpaired board;
+ *  - bottom_two_pair: two pair without the top card of an unpaired board (on
+ *    the flop the two lowest ranks; on the turn any two pair of hero's that
+ *    does not hold the board's top rank, so a flop bottom two pair is the
+ *    same class after a turn card that does not pair it);
  *  - underpair_on_paired_board / low_pair_on_paired_board: the board's own
  *    pair plus one of the two pairs above (two pair in name only).
  */
@@ -154,8 +180,8 @@ export type Plo6WeakMadeHand =
 
 /**
  * The weak made hand six hole cards hold on a flop or turn board, or null:
- * no pair of hero's own, top pair, an overpair, top two pair, top and bottom
- * pair, a set or anything better is not one. The category is the engine's
+ * no pair of hero's own, top pair, an overpair, top two pair, top and any
+ * other pair, a set or anything better is not one. The category is the engine's
  * own (omahaMadeClass: exactly two hole cards and three board cards).
  */
 export function plo6WeakMadeHand(
@@ -192,6 +218,9 @@ export function plo6WeakMadeHand(
   }
   if (!paired) {
     if (matched.length < 2) return null;
+    // Turn: any two pair that does not hold the board's top rank (matched is
+    // highest first, so the best two pair holds the top rank or none does).
+    if (board.length === 4) return matched[0] !== top ? 'bottom_two_pair' : null;
     const lowest = boardRanks.slice(-2);
     return matched[0] === lowest[0] && matched[1] === lowest[1] ? 'bottom_two_pair' : null;
   }
@@ -206,17 +235,21 @@ export function plo6WeakMadeHand(
 
 /**
  * The draw that keeps the bet: the nut flush draw, eight or more straight
- * outs (open-ended or a wrap), or four or more outs to the nut straight.
- * omahaDrawQuality's own counts: a card that makes hero a flush or a full
- * house is not a straight out, and a nut-straight out is a straight no two
- * hole cards beat on a board with no pair and no possible flush.
+ * outs (open-ended or a wrap), four or more outs to the nut straight, or a
+ * combo draw: a flush draw of any rank together with four or more straight
+ * outs. omahaDrawQuality's own counts: a card that makes hero a flush or a
+ * full house is not a straight out (so an open-ender with a flush draw reads
+ * six straight outs, which is why the combo line is four and not eight), and
+ * a nut-straight out is a straight no two hole cards beat on a board with no
+ * pair and no possible flush.
  */
 export function plo6QualifyingDraw(hole: readonly Card[], board: readonly Card[]): boolean {
   const draw = omahaDrawQuality([...hole], [...board], false);
   return (
     draw.nutFlushDraw ||
     draw.straightOuts >= PLO6_MULTIWAY_WEAK_BET_STRAIGHT_OUTS ||
-    draw.nutStraightOuts >= PLO6_MULTIWAY_WEAK_BET_NUT_STRAIGHT_OUTS
+    draw.nutStraightOuts >= PLO6_MULTIWAY_WEAK_BET_NUT_STRAIGHT_OUTS ||
+    (draw.dominatedFlushDraw && draw.straightOuts >= PLO6_MULTIWAY_WEAK_BET_COMBO_STRAIGHT_OUTS)
   );
 }
 

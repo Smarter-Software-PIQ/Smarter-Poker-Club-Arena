@@ -5,7 +5,7 @@
  * is HorsePlo6MultiwayWeakBetWiring.test.ts. Every hand and board here is
  * invented.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Card, CardRank, CardSuit, HorseDecision, SeatPlayer } from '../types.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
 import {
@@ -15,7 +15,25 @@ import {
   plo6QualifyingDraw,
   plo6WeakMadeHand,
 } from './HorsePlo6MultiwayWeakBet.js';
+import { omahaDrawQuality } from './HorseEval.js';
 import { omahaNutClassNow } from './HorseOmahaMadeHandDefense.js';
+
+/**
+ * An invented game name that the variant table reads as six-card pot-limit
+ * Omaha high, exactly as it reads 'plo6'. No such name exists (six hole cards
+ * imply 'plo6' today), so the rule's own name check can only be tested alone
+ * this way: with it removed, a hand under this name would pass every other
+ * gate of the spot. Every real name is answered by the real table.
+ */
+const SIX_CARD_OMAHA_UNDER_ANOTHER_NAME = 'six_card_omaha_test_name';
+vi.mock('./HorseEval.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./HorseEval.js')>();
+  return {
+    ...actual,
+    variantInfo: (name: string) =>
+      actual.variantInfo(name === 'six_card_omaha_test_name' ? 'plo6' : name),
+  };
+});
 
 const SUIT: Record<string, CardSuit> = { c: 'clubs', d: 'diamonds', h: 'hearts', s: 'spades' };
 const cards = (s: string): Card[] =>
@@ -167,6 +185,43 @@ describe('the bet becomes a check in the spot', () => {
     expect(run(hole, { board: 'Ks9s4c' }).out.changed).toBe('bet_checked');
   });
 
+  it('with a gutshot that is not to the nuts and no flush draw', () => {
+    // Fours under the nine; six-five needs a seven, and jack-ten beats it.
+    const hole = '4h4c6d5sKhQd';
+    const draw = omahaDrawQuality(cards(hole), cards('9s8d3c'));
+    expect(draw).toMatchObject({
+      straightOuts: 4,
+      nutStraightOuts: 0,
+      nutFlushDraw: false,
+      dominatedFlushDraw: false,
+    });
+    expect(plo6WeakMadeHand(cards(hole), cards('9s8d3c'))).toBe('underpair');
+    expect(plo6QualifyingDraw(cards(hole), cards('9s8d3c'))).toBe(false);
+    expect(run(hole, { board: '9s8d3c' }).out.changed).toBe('bet_checked');
+  });
+
+  it('with a flush draw that is not to the nuts and under four straight outs', () => {
+    const hole = '7h7cQs6s3h2c';
+    const draw = omahaDrawQuality(cards(hole), cards('Ks9s4c'));
+    expect(draw.dominatedFlushDraw).toBe(true);
+    expect(draw.nutFlushDraw).toBe(false);
+    expect(draw.straightOuts).toBeLessThan(4);
+    expect(plo6QualifyingDraw(cards(hole), cards('Ks9s4c'))).toBe(false);
+  });
+
+  it('bottom two pair on the flop is the same class after a turn card that does not pair it', () => {
+    const flop = run(BOTTOM_TWO);
+    expect(plo6MultiwayWeakBetSpot(flop.hero, flop.gs)?.hand).toBe('bottom_two_pair');
+    expect(flop.out.changed).toBe('bet_checked');
+    const turn = run(BOTTOM_TWO, { board: 'Ks9d4cJd', stage: 'turn' });
+    expect(plo6MultiwayWeakBetSpot(turn.hero, turn.gs)).toEqual({
+      street: 'turn',
+      hand: 'bottom_two_pair',
+      liveOpponents: 2,
+    });
+    expect(turn.out.changed).toBe('bet_checked');
+  });
+
   it('counts an all-in opponent as live', () => {
     const { hero, gs } = spot(UNDERPAIR);
     gs.players[2].is_all_in = true;
@@ -194,6 +249,19 @@ describe('the decision stands, as the same object', () => {
     expectKept('7h7cQd6s', { variant: 'plo4' });
     // Six-card Omaha with the wrong number of cards is not judged either.
     expectKept('7h7cQd6s3h', { variant: 'plo6' });
+  });
+
+  it('six-card Omaha under any name but plo6 (the name check alone)', () => {
+    // The mocked table reads this name as it reads plo6, so only the rule's
+    // own name check can refuse it.
+    const { hero, gs } = spot(UNDERPAIR, { variant: SIX_CARD_OMAHA_UNDER_ANOTHER_NAME });
+    expect(plo6WeakMadeHand(hero.cards, gs.communityCards)).toBe('underpair');
+    expect(plo6QualifyingDraw(hero.cards, gs.communityCards)).toBe(false);
+    expectKept(UNDERPAIR, { variant: SIX_CARD_OMAHA_UNDER_ANOTHER_NAME });
+    expectKept(BOTTOM_TWO, { variant: SIX_CARD_OMAHA_UNDER_ANOTHER_NAME });
+    // The control: the very same node under the name plo6 is the spot.
+    expect(run(UNDERPAIR, { variant: 'plo6' }).out.changed).toBe('bet_checked');
+    expect(run(UNDERPAIR, { variant: 'PLO6' }).out.changed).toBe('bet_checked');
   });
 
   it('hi-lo', () => {
@@ -224,6 +292,26 @@ describe('the decision stands, as the same object', () => {
     expect(plo6WeakMadeHand(cards(hole), cards('Ks9s4c'))).toBe('underpair');
     expect(plo6QualifyingDraw(cards(hole), cards('Ks9s4c'))).toBe(true);
     expectKept(hole, { board: 'Ks9s4c' });
+  });
+
+  it('a combo draw: a flush draw that is not to the nuts with an open-ended straight draw', () => {
+    // Sevens under the ten, eight-seven open-ended on ten-nine, king-high spades.
+    const hole = '7h7c8dKs2s4d';
+    const board = 'Ts9s3c';
+    const draw = omahaDrawQuality(cards(hole), cards(board));
+    // The two spade straight cards make a flush, so they are not straight outs.
+    expect(draw).toMatchObject({ straightOuts: 6, nutFlushDraw: false, dominatedFlushDraw: true });
+    expect(draw.nutStraightOuts).toBeLessThan(4);
+    expect(plo6WeakMadeHand(cards(hole), cards(board))).toBe('underpair');
+    expect(plo6QualifyingDraw(cards(hole), cards(board))).toBe(true);
+    expectKept(hole, { board });
+    // The same flush draw with three straight outs instead is not a combo draw.
+    const thin = '7h7cQdKs2s4d';
+    expect(omahaDrawQuality(cards(thin), cards(board))).toMatchObject({
+      straightOuts: 3,
+      dominatedFlushDraw: true,
+    });
+    expect(plo6QualifyingDraw(cards(thin), cards(board))).toBe(false);
   });
 
   it('a wrap', () => {
@@ -258,6 +346,11 @@ describe('the decision stands, as the same object', () => {
     expectKept('AhAcQd6s3h2c');
     expectKept('Kh9hQc7s3h2c');
     expectKept('Kh4dQc7s3h2c');
+    // Top and any other pair is never caught on the turn either.
+    for (const hole of ['Kh9hQc7s3h2c', 'Kh4dQc7s3h2c', 'KhJcQc7s3h2c']) {
+      expect(plo6WeakMadeHand(cards(hole), cards('Ks9d4cJd'))).toBeNull();
+      expectKept(hole, { board: 'Ks9d4cJd', stage: 'turn' });
+    }
     expectKept('4h4dQc7s3h2c');
     expectKept('KhQc7s6d3h2c', { board: 'KsKd4c' });
   });
@@ -321,9 +414,24 @@ describe('the hand classes', () => {
     expect(cls('JhJcQd6s3h2c', FLOP)).toBe('underpair');
   });
 
-  it('bottom two on the turn is the two lowest of four ranks', () => {
+  it('on the turn any two pair without the top card is the weak two pair', () => {
     expect(cls('4h2dQc7s6h5c', 'Ks9d4c2s')).toBe('bottom_two_pair');
-    expect(cls('9h4dQc7s6h5c', 'Ks9d4c2s')).toBeNull();
+    // The flop's bottom two (nines and fours) after a deuce: still weak.
+    expect(cls('9h4dQc7s6h5c', 'Ks9d4c')).toBe('bottom_two_pair');
+    expect(cls('9h4dQc7s6h5c', 'Ks9d4c2s')).toBe('bottom_two_pair');
+    expect(cls('9h2dQc7s6h5c', 'Ks9d4c2s')).toBe('bottom_two_pair');
+    // Three hole cards pair the board: the best two pair decides.
+    expect(cls('9h4d2dQc7s6h', 'Ks9d4c2s')).toBe('bottom_two_pair');
+    expect(cls('Kh4d2dQc7s6h', 'Ks9d4c2s')).toBeNull();
+    // With the top card it is not weak, whatever the other pair.
+    expect(cls('Kh9hQc7s6h5c', 'Ks9d4c2s')).toBeNull();
+    expect(cls('Kh2dQc7s6h5c', 'Ks9d4c2s')).toBeNull();
+  });
+
+  it('on the flop the weak two pair stays the two lowest ranks', () => {
+    expect(cls('9h4dQc7s3h2c', FLOP)).toBe('bottom_two_pair');
+    expect(cls('Kh9hQc7s3h2c', FLOP)).toBeNull();
+    expect(cls('Kh4dQc7s3h2c', FLOP)).toBeNull();
   });
 
   it('two hole cards that pair two board cards above the board pair are a real two pair', () => {

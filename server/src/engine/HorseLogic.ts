@@ -3387,9 +3387,10 @@ export interface HorseDecideOpts {
    * underpair or bottom two pair, hand net -1,005.5 bb, the largest PLO6 cash
    * family): six-card Omaha high, one board, no bomb pot, not all-in-or-fold,
    * cash and tournaments; flop or turn, nothing to call, two or more live
-   * opponents, a weak made hand (one pair below the board's top card, bottom
-   * two pair, or the board's pair with such a pair) with no nut flush draw,
-   * under eight straight outs and under four nut-straight outs, not nut
+   * opponents, a weak made hand (one pair below the board's top card, two
+   * pair without the top card, or the board's pair with such a pair) with no
+   * nut flush draw, under eight straight outs, under four nut-straight outs
+   * and no flush draw with four or more straight outs, not nut
    * class: a bet becomes a check (HorsePlo6MultiwayWeakBet.ts). No opponent
    * read. Default OFF (opt-in, read `=== true`); development evidence on five
    * days and mostly one opponent, unevaluated

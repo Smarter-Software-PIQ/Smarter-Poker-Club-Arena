@@ -71,8 +71,16 @@ const SEEDS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
 
 /** Queen, ace, five with two spades. */
 const BOARD = 'QdAs5s';
-/** A five (a pair below the top card), threes under it, no qualifying draw. */
-const LOW_PAIR = '3s3d4s6d5hQs';
+/**
+ * A five (a pair below the top card), threes under it, no qualifying draw:
+ * a queen-high spade draw with no straight out.
+ */
+const LOW_PAIR = '3s3d9s6d5hQs';
+/**
+ * The same hand with the four of spades for the nine: the queen-high spade
+ * draw now has four straight outs (a deuce makes the wheel), a combo draw.
+ */
+const COMBO_DRAW = '3s3d4s6d5hQs';
 /** Nines and fives on K 5 9: the two lowest ranks of the flop. */
 const BOTTOM_TWO: Over = { hole: '5c6d9h8hAhQd', board: 'Kd5s9d' };
 /** A pair of fives on T 5 K two hearts, no heart draw to the nuts. */
@@ -285,6 +293,8 @@ describe('plo6NoMultiwayBetWithWeakMadeHand through decide', () => {
     ['facing a bet', { facingBet: true }],
     // The king of spades with a spade on the ace-high two-spade flop.
     ['the nut flush draw', { hole: '3s3dKs6d5hQc' }],
+    // A flush draw that is not to the nuts together with four straight outs.
+    ['a combo draw', { hole: COMBO_DRAW }],
     // Top set of aces on an unpaired flop.
     ['a nut-class hand (top set)', { hole: 'AcAd4s6d5h9c' }],
   ];

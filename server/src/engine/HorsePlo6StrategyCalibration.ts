@@ -65,7 +65,10 @@ const CONSTANTS = {
   /** H9. PLO4/PLO5 count any full house or better as an out. See plo6TurnNutOuts. */
   omahaTurnRedrawShare: d('full_house_only_when_no_bigger_full_house', '3.1, 3.2, 3.16; H9'),
   OMAHA_OOP_TURN_MIN_NUT_OUTS: d(4, '3.1; 4/42 against 4/43: out counts do not scale'),
-  OMAHA_OOP_TURN_TOKEN_PRICE: m(0.15, '3.1; M2 TOKEN_CALL_PRICE, live in PLO6'),
+  OMAHA_OOP_TURN_TOKEN_PRICE: k(
+    0.15,
+    '3.1; same line as M2 TOKEN_CALL_PRICE; no PLO6 measurement file'
+  ),
   OMAHA_OOP_TURN_SHOWDOWN_CREDIT: k(0.15, '3.1; builder allowance'),
   OMAHA_RAISE_NEEDS_NUTS_FOLD_PRICE: k(1 / 3, '3.2; builder constant'),
   /** Flush outs >= 5 with straight outs >= 8, or a strong pair with a draw. */
@@ -182,8 +185,11 @@ const CONSTANTS = {
   /** H29. Hole count minus three; all six cards one group; pass share 8.20% (N1). */
   COORDINATED_MAX_GAPS: d(3, '3.24, 3.22/3.23; unmeasured as strategy; dangler open'),
   /** PLO4/PLO5: any full house or better, or nut class. See plo6StrongHandForValue. */
-  omahaStrongHandNow: m('nut_class_only', '3.20; M1 paired-board rows, owner PLO6 text'),
-  OMAHA_WIDE_RERAISE_MIN_RATE: d(0.15, '3.28; PLO6 Horse mean 0.0484 x 3 = 0.145 (N2)'),
+  omahaStrongHandNow: k(
+    'nut_class_only',
+    '3.20; owner PLO6 text; M1 rows cited, no measurement file'
+  ),
+  OMAHA_WIDE_RERAISE_MIN_RATE: k(0.15, '3.28; PLO6 Horse mean 0.0484 x 3 = 0.145 (N2); unmeasured'),
   OMAHA_TIGHT_RERAISE_MIN_OPPS: d(12, '3.27; an observation count'),
   OMAHA_WIDE_RERAISE_MIN_OPPS: d(12, '3.28; an observation count'),
   OMAHA_VALUE_LEADER_MIN_OPPS: d(8, '3.17, 3.18; an observation count'),
@@ -269,7 +275,7 @@ const FOUR_OF_SIX: readonly (readonly number[])[] = (() => {
 })();
 
 // ── Preflop classes ──
-/** Four distinct ranks inside a span of four, lowest seven or higher, suited two plus two. */
+/** Four distinct ranks inside a five-rank window, lowest seven or higher, suited two plus two. */
 function rundownTwoPlusTwo(four: readonly Card[]): boolean {
   const ranks = four.map(rankOf);
   if (new Set(ranks).size !== 4) return false;

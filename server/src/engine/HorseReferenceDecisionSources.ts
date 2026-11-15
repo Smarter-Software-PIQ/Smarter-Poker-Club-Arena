@@ -62,7 +62,7 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
     'src/engine/HorsePlo6TopSetNut.ts':
       'the default-off PLO6 top-set current-nuts test (PLO6-AUDIT P6-4, 2026-11-14) that sets full realization in the V38 flop/turn call menu',
     'src/engine/HorsePlo6MultiwayWeakBet.ts':
-      'the default-off PLO6 multiway weak made-hand bet-to-check (PLO6 lane 2026-11-15, plo6NoMultiwayBetWithWeakMadeHand): a flop or turn bet facing nothing against two or more live opponents with a pair below the top card, bottom two pair or the board pair with such a pair, no nut flush draw, under eight straight outs and under four nut-straight outs, not nut class, becomes a check; runs with the owner-ruled own-bet checks in the wager rules',
+      'the default-off PLO6 multiway weak made-hand bet-to-check (PLO6 lane 2026-11-15, plo6NoMultiwayBetWithWeakMadeHand): a flop or turn bet facing nothing against two or more live opponents with a pair below the top card, two pair without the top card or the board pair with such a pair, no nut flush draw, under eight straight outs, under four nut-straight outs and no flush draw with four or more straight outs, not nut class, becomes a check; runs with the owner-ruled own-bet checks in the wager rules',
     'src/engine/HorseOmahaRiverNutRaise.ts':
       'the final Omaha high river rule (Dan 2026-11-14, hand 59401453): a raise facing a wager stands only with the nuts or an effective-nut hand, every other raise becomes a call, before the call-discipline folds',
     'src/engine/HorseOmahaReraisedPot.ts':

@@ -87,7 +87,12 @@ describe('PLO6 strategy constants', () => {
   it('holds the three PLO6 values that change and the measured river lines', () => {
     expect(PLO6_HOLE_PAIRS).toBe(15);
     expect(K.COORDINATED_MAX_GAPS).toMatchObject({ value: 3, basis: 'derived' });
-    expect(K.omahaStrongHandNow).toMatchObject({ value: 'nut_class_only', basis: 'measured' });
+    expect(K.omahaStrongHandNow).toMatchObject({
+      value: 'nut_class_only',
+      basis: 'kept_plo5_unmeasured',
+    });
+    expect(K.OMAHA_OOP_TURN_TOKEN_PRICE.basis).toBe('kept_plo5_unmeasured');
+    expect(K.OMAHA_WIDE_RERAISE_MIN_RATE.basis).toBe('kept_plo5_unmeasured');
     expect(K.omahaReraisedPremium.basis).toBe('derived');
     expect(K['holeCheck.holeCount'].value).toBe(6);
     expect(K.PLO6_RIVER_FOLD_BEAT_PROB).toMatchObject({ value: 0.15, basis: 'measured' });

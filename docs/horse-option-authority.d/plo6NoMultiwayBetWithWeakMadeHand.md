@@ -4,9 +4,9 @@ Status: built, OFF, unevaluated; switching ON needs recorded authority. Evidence
 
 ## What it does
 
-A PLO6 multiway bet with a weak made hand and no qualifying draw becomes a check. The spot (`plo6MultiwayWeakBetSpot` in `server/src/engine/HorsePlo6MultiwayWeakBet.ts`): six-card Omaha high, pot limit, one board, not a bomb pot, not all-in-or-fold; cash and tournaments; flop or turn; nothing to call and a check legal; two or more live opponents (not folded, not sitting out; an all-in opponent counts). The Horse's best hand is a weak made hand: one pair below the top card of the board (a pocket pair under it, or a pair with a lower board card), bottom two pair, or the board's own pair with such a pair. It holds no qualifying draw: no nut flush draw, fewer than eight straight outs and fewer than four outs to the nut straight. It is not nut class. Then a bet (or a raise or all-in that opens the betting) becomes a check.
+A PLO6 multiway bet with a weak made hand and no qualifying draw becomes a check. The spot (`plo6MultiwayWeakBetSpot` in `server/src/engine/HorsePlo6MultiwayWeakBet.ts`): six-card Omaha high, pot limit, one board, not a bomb pot, not all-in-or-fold; cash and tournaments; flop or turn; nothing to call and a check legal; two or more live opponents (not folded, not sitting out; an all-in opponent counts). The Horse's best hand is a weak made hand: one pair below the top card of the board (a pocket pair under it, or a pair with a lower board card), two pair without the top card of the board (bottom two pair on the flop; on the turn any two pair that does not hold the board's top rank, so a flop bottom two pair stays in the class after a turn card that does not pair it), or the board's own pair with such a pair. It holds no qualifying draw: no nut flush draw, fewer than eight straight outs, fewer than four outs to the nut straight, and no combo draw (a flush draw of any rank together with four or more straight outs; a straight card that also makes the flush is not counted as a straight out, so an open-ended draw with a flush draw reads six). It is not nut class. Then a bet (or a raise or all-in that opens the betting) becomes a check.
 
-It never turns a check into anything and never touches a decision facing a bet, a heads-up pot, the river, PLO4 or PLO5, top pair, an overpair, top two pair, a set or better, a hand with the qualifying draw or a nut-class hand. It reads the Horse's cards, the board and the public seats; no opponent read; no random number.
+It never turns a check into anything and never touches a decision facing a bet, a heads-up pot, the river, PLO4 or PLO5, top pair, an overpair, top and any other pair, a set or better, a hand with the qualifying draw or a nut-class hand. It reads the Horse's cards, the board and the public seats; no opponent read; no random number.
 
 Where it runs: first in `omahaOwnBetRules` (`HorseLogic.ts`, both decision paths), with the owner-ruled own-bet checks, so the pricing rules never see the bet; `omahaOwnerRuledFinal` keeps the check when a later rule proposes a bet in the spot (receipt `omaha_owner_ruled_check_kept`). The decision receiver admits the bet-to-check transition only in PLO6 and, when the request is known, only where the spot re-run on it holds (`responseValidation.ts`).
 
@@ -31,39 +31,42 @@ plo6_multiway_weak_made_hand_bet_checked (one receipt: the rule reads no opponen
 
 ## Tests
 
-`HorsePlo6MultiwayWeakBet.test.ts` (the rule's own cases), `HorsePlo6MultiwayWeakBetWiring.test.ts` (through `HorseLogic.decide`: unset equals false at every seed with no receipt; on, every bet in the spot becomes a check and the receipt fires once per bet; no change heads-up, in PLO5, facing a bet, with the nut flush draw, with a nut-class hand; a later rule's bet does not stand), `responseValidation.test.ts` (the admitted and refused transitions).
+`HorsePlo6MultiwayWeakBet.test.ts` (the rule's own cases, among them the combo draw kept, the bare flush draw and the bare gutshot checked, two pair the same class on the flop and the turn, and the rule's own game-name check tested alone), `HorsePlo6MultiwayWeakBetWiring.test.ts` (through `HorseLogic.decide`: unset equals false at every seed with no receipt; on, every bet in the spot becomes a check and the receipt fires once per bet; no change heads-up, in PLO5, facing a bet, with the nut flush draw, with a nut-class hand; a later rule's bet does not stand), `responseValidation.test.ts` (the admitted and refused transitions).
 
 ## Measured (development evidence, unevaluated)
 
-Population: every Horse decision with a person live in PLO6 cash, 2026-11-10T21:30Z to 2026-11-15T20:05Z: 912 hands, 7 persons, one person in 667 of the hands. "Net" is the Horse's whole-hand result, a hand counted once per row. Source: `agent-evidence/extreme-archive/plo6-audit-01TLQer9Hdf/phase1-play/plo-port-20261115/MULTIWAY-WEAK-BET-WIRING.md`, section 9.
+Population: every Horse decision with a person live in PLO6 cash, 2026-11-10T21:30Z to 2026-11-15T20:05Z: 912 hands, 7 persons, one person in 667 of the hands. "Net" is the Horse's whole-hand result, a hand counted once per row. Source: `agent-evidence/extreme-archive/plo6-audit-01TLQer9Hdf/phase1-play/plo-port-20261115/MULTIWAY-WEAK-BET-WIRING.md`, section 9 and its section "After pre-review" (2026-11-15). The rows below are re-measured on the same hands with the final conditions (after the pre-review fixes: the combo draw keeps the bet; two pair without the top card is one class on the flop and the turn). Before the fixes the option removed 62 bets in 58 hands, -1,403.7 bb (lost 41 hands -1,825.9, won 17 hands +422.2, 4.33). The combo line keeps 3 of those bets (+15.6 bb: lost 1 hand -41.0, won 2 hands +56.6); the turn two-pair class removes 3 more turn bets (-305.1 bb, all three hands lost). The two fixes were decided on the poker in review, not chosen on these numbers.
 
-| set                                                       | bets | hands | net bb   | lost (hands, bb) | won (hands, bb) | lost to won |
-| --------------------------------------------------------- | ---- | ----- | -------- | ---------------- | --------------- | ----------- |
-| every multiway flop or turn bet                           | 454  | 402   | +3,827.4 | 173, -11,491.2   | 229, +15,318.6  | 0.75        |
-| sweep family D2                                           | 45   | 43    | -1,005.5 | 29, -1,470.8     | 14, +465.4      | 3.16        |
-| the option removes                                        | 62   | 58    | -1,403.7 | 41, -1,825.9     | 17, +422.2      | 4.33        |
-| of them, in D2                                            | 42   | 40    | -1,103.6 | 28, -1,455.8     | 12, +352.2      | 4.13        |
-| of them, not in D2 (the cost side of the wider class)     | 20   | 18    | -300.1   | 13, -370.1       | 5, +70.0        | 5.29        |
-| D2 bets the option keeps (four or more nut-straight outs) | 3    | 3     | +98.2    | 1, -15.0         | 2, +113.2       | 0.13        |
-| the same weak hands, kept by the draw                     | 40   | 38    | -97.0    | 20, -922.9       | 18, +825.9      | 1.12        |
-| every other multiway flop or turn bet (untouched)         | 392  | 349   | +4,866.5 | 137, -10,029.9   | 212, +14,896.4  | 0.67        |
+| set                                                      | bets | hands | net bb   | lost (hands, bb) | won (hands, bb) | lost to won |
+| -------------------------------------------------------- | ---- | ----- | -------- | ---------------- | --------------- | ----------- |
+| every multiway flop or turn bet                          | 454  | 402   | +3,827.4 | 173, -11,491.2   | 229, +15,318.6  | 0.75        |
+| sweep family D2                                          | 45   | 43    | -1,005.5 | 29, -1,470.8     | 14, +465.4      | 3.16        |
+| the option removes                                       | 62   | 59    | -1,706.9 | 43, -2,089.9     | 16, +383.0      | 5.46        |
+| of them, on the flop                                     | 42   | 42    | -1,259.6 | 30, -1,530.6     | 12, +271.0      | 5.65        |
+| of them, on the turn                                     | 20   | 20    | -493.5   | 15, -615.7       | 5, +122.2       | 5.04        |
+| of them, in D2                                           | 41   | 39    | -1,142.7 | 28, -1,455.8     | 11, +313.1      | 4.65        |
+| of them, not in D2 (the cost side of the wider class)    | 21   | 20    | -564.2   | 15, -634.1       | 5, +70.0        | 9.06        |
+| D2 bets the option keeps (nut-straight outs, combo draw) | 4    | 4     | +137.3   | 1, -15.0         | 3, +152.3       | 0.10        |
+| the same weak hands, kept by the draw                    | 44   | 42    | -180.1   | 22, -1,062.7     | 20, +882.5      | 1.20        |
+| every other multiway flop or turn bet (untouched)        | 392  | 349   | +5,187.2 | 135, -9,765.9    | 214, +14,953.0  | 0.65        |
 
-The Horses already check this spot 312 times in the window against the 62 bets. Of the 62 removed bets, 57 had exactly one person live.
+The Horses already check this spot 302 times in the window against the 62 bets. Of the 62 removed bets, 57 had exactly one person live.
 
 ## Evidence rows
 
 - Mechanism, scope, visibility (flag and receipt in `HorseDataLedger.ts`), tests: MET.
 - Option unset or false: the decision is identical to the base at every seed of the wiring test's spots, and no receipt fires. The lane's decision-digest pin on PLO6 cells is not recorded here.
-- Value: NOT MET. Development evidence only (the table above): 62 bets, -1,403.7 bb net removed against +422.2 bb of winning hands removed, lost to won 4.33. No paired evaluation has been run.
-- Continuation: NOT MET. What the checked hand does on the next street, and what a check wins where the bet took the pot (9 of the 62 bets), is not measured.
-- Reach: NOT MET. 62 bets in 912 hands, 7 persons, one person in 667 of the hands; not counted in production; league card `plo6_no_multiway_bet_with_weak_made_hand` (six seats, production personas) has not been run as an evaluation; a 600-pair reach check (seed 20261115) diverged in 14 pairs, so the league reaches the spot.
+- Value: NOT MET. Development evidence only (the table above): 62 bets, -1,706.9 bb net removed against +383.0 bb of winning hands removed, lost to won 5.46. No paired evaluation has been run.
+- Continuation: NOT MET. What the checked hand does on the next street, and what a check wins where the bet took the pot (7 of the 62 bets), is not measured.
+- Reach: NOT MET. 62 bets in 912 hands, 7 persons, one person in 667 of the hands; not counted in production; league card `plo6_no_multiway_bet_with_weak_made_hand` (six seats, production personas) has not been run as an evaluation; a 600-pair reach check (seed 20261115) diverged in 14 pairs, and in 14 again after the pre-review fixes, so the league reaches the spot.
 
 ## Limits
 
 - Five days, 912 cash hands, 7 persons, one person in 667 hands: mostly one opponent.
 - Whole-hand results, not the value of the bet; all-in luck not removed; rake as recorded; no solver grade; no counterfactual.
-- The conditions were chosen on the same hands they are measured on. Cells under about 10 bets are not stable; the draw thresholds (eight straight outs, four nut-straight outs) rest on cells of 4 to 19 bets.
+- The conditions were chosen on the same hands they are measured on. Cells under about 10 bets are not stable; the draw thresholds (eight straight outs, four nut-straight outs) rest on cells of 4 to 19 bets, and the combo line (a flush draw with four or more straight outs) on 3 bets; the combo line and the turn two-pair class come from review of the poker, and their cells (3 bets each) are too small to support or refute them.
 - No opponent read: the rule cannot tell a player who calls everything from one who folds.
-- Tournaments are admitted on the argument that a check adds no chips, not on evidence (2 such bets in the window, +23.4 bb).
+- An all-in opponent counts as live: a pot against one opponent who can still act and one who is all in is multiway for this rule, although only one player can answer the bet. Not measured apart.
+- Tournaments are admitted on the argument that a check adds no chips, not on evidence (3 such bets in 2 hands in the window, +23.4 bb).
 - The nut flush draw keeps the bet although the 11 such bets in the window lost (-274.7 bb): owed to the evaluation.
-- Outside the option and not built: the same hands bet heads-up (22 bets, -452.5 bb) and on the river (3 bets, -80.1 bb).
+- Outside the option and not built: the same hands bet heads-up (21 bets, -413.6 bb) and on the river (3 bets, -80.1 bb).

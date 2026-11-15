@@ -1100,7 +1100,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'plo6NoMultiwayBetWithWeakMadeHand',
-    'opt-in, default off (PLO6 lane 2026-11-15, SWEEP-PLO6 family D2): PLO6 high, one board, no bomb pot, not all-in-or-fold, cash and tournaments, flop or turn, nothing to call, two or more live opponents: a bet with a weak made hand (one pair below the top card of the board, bottom two pair, or the board pair with such a pair) that holds no nut flush draw, under eight straight outs and under four nut-straight outs and is not nut class becomes a check (HorsePlo6MultiwayWeakBet.ts). No opponent read. Development evidence: 62 such bets in 58 hands, hand net -1,403.7 bb, in 912 human-seated PLO6 cash hands over five days, mostly one opponent; unevaluated (docs/horse-option-authority.d/plo6NoMultiwayBetWithWeakMadeHand.md). Default OFF (read === true) until its declared evaluation passes',
+    'opt-in, default off (PLO6 lane 2026-11-15, SWEEP-PLO6 family D2): PLO6 high, one board, no bomb pot, not all-in-or-fold, cash and tournaments, flop or turn, nothing to call, two or more live opponents: a bet with a weak made hand (one pair below the top card of the board, two pair without the top card, or the board pair with such a pair) that holds no nut flush draw, under eight straight outs, under four nut-straight outs and no flush draw with four or more straight outs and is not nut class becomes a check (HorsePlo6MultiwayWeakBet.ts). No opponent read. Development evidence: 62 such bets in 59 hands, hand net -1,706.9 bb, in 912 human-seated PLO6 cash hands over five days, mostly one opponent; unevaluated (docs/horse-option-authority.d/plo6NoMultiwayBetWithWeakMadeHand.md). Default OFF (read === true) until its declared evaluation passes',
     'V94'
   ),
   flag(
@@ -3106,7 +3106,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'plo6_multiway_weak_made_hand_bet_checked',
     'HorseLogic wager_rules (HorsePlo6MultiwayWeakBet, plo6NoMultiwayBetWithWeakMadeHand)',
-    'PLO6 flop or turn bet facing nothing against two or more live opponents with a weak made hand (one pair below the top card, bottom two pair, or the board pair with such a pair), no nut flush draw, under eight straight outs, under four nut-straight outs, not nut class: turned into a check',
+    'PLO6 flop or turn bet facing nothing against two or more live opponents with a weak made hand (one pair below the top card, two pair without the top card, or the board pair with such a pair), no nut flush draw, under eight straight outs, under four nut-straight outs, no flush draw with four or more straight outs, not nut class: turned into a check',
     'V94'
   ),
   // Fixed-Limit lane SPEC-FL-01..03 (2026-11-14). Occurrence counters for
@@ -4440,7 +4440,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'omaha_owner_ruled_check_kept',
     'HorseLogic wager_rules (omahaOwnBetRules, precedence 2026-11-15)',
-    'a pricing rule (omahaStreetPlan or omahaCardImpact) or the big-draw wager (omahaBigDrawAggression) proposed a bet in a spot an owner-ruled check rule (omahaOopCheckRules) or the street plan checks: the bet was not made',
+    'a pricing rule (omahaStreetPlan or omahaCardImpact) or the big-draw wager (omahaBigDrawAggression) proposed a bet in a spot an owner-ruled check rule (omahaOopCheckRules) or the street plan checks, or a rule that ran after omahaOwnBetRules proposed a wager in the spot the PLO6 multiway weak made-hand rule checks (plo6NoMultiwayBetWithWeakMadeHand, HorsePlo6MultiwayWeakBet.ts, with that option on): the bet was not made',
     'V94'
   ),
   receipt(
