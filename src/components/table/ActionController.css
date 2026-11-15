@@ -419,3 +419,22 @@
     no-repeat;
   filter: hue-rotate(130deg);
 }
+
+.action-controller-edit-tab {
+  display: block;
+  width: 100%;
+  min-height: 48px;
+  margin-top: 12px;
+  padding: 8px;
+  border: 0;
+  background: transparent;
+  color: #45adff;
+  font:
+    700 16px 'Roboto Condensed',
+    sans-serif;
+  text-align: left;
+  cursor: pointer;
+}
+.action-controller-edit-tab[aria-selected='true'] {
+  text-decoration: underline;
+}
