@@ -1,4 +1,5 @@
 import { durableRecovery, recoveryDigest } from './CashierDurableRecovery';
+import { copyToClipboard } from '../lib/copyToClipboard';
 import { CASHIER_RECOVERY_PREFIX, CASHIER_REQUEST_RECOVERY_PREFIX } from '../utils/clearUserCaches';
 
 export { CASHIER_RECOVERY_PREFIX, CASHIER_REQUEST_RECOVERY_PREFIX };
@@ -815,24 +816,7 @@ export function readCashierOnlineState(): boolean {
 }
 
 export async function copyCashierText(text: string): Promise<boolean> {
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-      return true;
-    }
-    const field = document.createElement('textarea');
-    field.value = text;
-    field.setAttribute('readonly', '');
-    field.style.position = 'fixed';
-    field.style.opacity = '0';
-    document.body.appendChild(field);
-    field.select();
-    const copied = document.execCommand('copy');
-    field.remove();
-    return copied;
-  } catch {
-    return false;
-  }
+  return copyToClipboard(text);
 }
 
 export type CashierRpcFailure = 'refused' | 'unknown';

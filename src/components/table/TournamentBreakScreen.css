@@ -598,3 +598,14 @@
   outline: 2px solid #45adff;
   outline-offset: 2px;
 }
+
+/* The link itself, selectable, when neither a sheet nor the clipboard took it. */
+.break-screen__share-link {
+  display: block;
+  margin-top: 4px;
+  color: #45adff;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  user-select: all;
+  -webkit-user-select: all;
+}

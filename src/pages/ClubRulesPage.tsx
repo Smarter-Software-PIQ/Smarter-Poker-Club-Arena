@@ -6,6 +6,7 @@
  */
 
 import { useState, useEffect, useRef } from 'react';
+import { writeClipboard } from '../lib/share';
 import { isClubStaff, normaliseRole, type ClubRole } from '../types/clubRoles';
 import { useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
@@ -344,7 +345,7 @@ export default function ClubRulesPage() {
               className: 'rules-copy',
               disabled: !rules,
               onClick: () => {
-                void navigator.clipboard?.writeText(rules).then(
+                void writeClipboard(rules).then(
                   () => toast.success('Rules Copied'),
                   () => toast.error('Could Not Copy')
                 );
