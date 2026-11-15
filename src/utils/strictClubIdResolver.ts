@@ -1,5 +1,10 @@
 import { supabase } from '../lib/supabase';
-import { isUUID, resolveClubIdFilter, resolveClubUUIDSync } from './clubIdResolver';
+import {
+  isUUID,
+  readFormerSlugClubId,
+  resolveClubIdFilter,
+  resolveClubUUIDSync,
+} from './clubIdResolver';
 import { reportError } from './errorReporter';
 import { runRosterReadWithRetry } from './rosterReadReliability';
 
@@ -56,6 +61,22 @@ export async function resolveClubUUIDStrict(
     throw new ClubResolutionError(clubIdParam, error);
   }
 
-  if (!data?.id || !isUUID(data.id)) throw new ClubNotFoundError(clubIdParam);
-  return data.id;
+  if (data?.id && isUUID(data.id)) return data.id;
+
+  // A RENAMED CLUB KEEPS ITS OLD SLUG (2026-11-14): a slug no club holds now
+  // is read from the rename history, through the same reader the permissive
+  // resolver uses. Its answer is never cached, so a club that later takes the
+  // slug wins above. A failed history read is a resolution failure, never
+  // "not found".
+  if (filter.column === 'slug') {
+    let formerClubId: string | null;
+    try {
+      formerClubId = await readFormerSlugClubId(clubIdParam, signal);
+    } catch (error) {
+      reportError(error, 'clubIdResolver.resolveClubUUIDStrict.formerSlug', { clubIdParam });
+      throw new ClubResolutionError(clubIdParam, error);
+    }
+    if (formerClubId) return formerClubId;
+  }
+  throw new ClubNotFoundError(clubIdParam);
 }

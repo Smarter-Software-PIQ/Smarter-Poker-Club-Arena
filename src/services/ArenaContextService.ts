@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { parseArenaIdentity, type ArenaAccessContext } from '../../server/src/domain/ArenaContext';
+import { isUUID, resolveClubUUID } from '../utils/clubIdResolver';
 
 // Match the existing ClubWorkspace authorization-read deadline. A timeout is
 // unreadable access, never a membership refusal or an authorization grant.
@@ -7,6 +8,23 @@ const ARENA_ACCESS_READ_TIMEOUT_MS = 10_000;
 
 /** Fresh server entitlement. No localStorage, synthetic membership or chip fallback. */
 export async function getArenaContext(clubKey: string): Promise<ArenaAccessContext | null> {
+  const context = await readArenaContext(clubKey);
+  if (context !== null) return context;
+  /* A RENAMED CLUB KEEPS ITS OLD SLUG (2026-11-14). fn_poker_arena_context
+     matches a key against the club's id, code and CURRENT slug, so the old
+     /clubs/club-jaqk links answered "Arena Not Found" after club-jaqk became
+     the-felt-society. Only when the server finds no club does the one club
+     resolver answer: it asks the clubs table first and the rename history
+     second, so a club holding the slug now always wins. The entitlement is
+     then read again for that club's id, by the same server function, so
+     membership and authorization are exactly the current slug's. */
+  const key = clubKey.trim();
+  if (!key || isUUID(key) || /^\d+$/.test(key)) return null;
+  const clubUUID = await resolveClubUUID(key);
+  return isUUID(clubUUID) ? readArenaContext(clubUUID) : null;
+}
+
+async function readArenaContext(clubKey: string): Promise<ArenaAccessContext | null> {
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<never>((_, reject) => {
