@@ -1383,6 +1383,21 @@
         "path": "server/release/activation-floor.json",
         "sha256": "17f91cf399b0380355eb422d60a5c1ae27568fd0e400ebba58c883d185e20f00"
       }
+    },
+    {
+      "id": "2026-11-15-owner-offcycle-engine-1206z",
+      "ownerOrder": "Dan directly in Claude session_01Gw7aDsyGp1JW7eryHtqyJH assigned this session the engine release on November 14, 2026 at 22:05 America/Chicago (\"You are assigned custody of the next early engine release ... execute the earliest qualified owner-authorized off-cycle cutover, and verify production through post-seal completion.\" and \"Do not default to the routine 4 AM window.\") and ordered at 23:53 and 23:56 Chicago: \"I NEED YOU TO JUST MERGE AND CUT OVER THE PLO CHANGES BY THEM SELF.\" and \"PLO WILL BE PUSHED BY ITS SELF AS A STAND ALONE ENGINE CUT OVER, THEN EVERYTHING ELSE AFTER THAT, COORDINATE WITH THE PLO STRATEGY CHAT TO GET THIS ORGANIZED AND COMPLETED.\" At 00:52 Chicago November 15 he ordered the first release to the daily break (\"DO IT ALL AT 4AM\"); the Omaha made-hand defense repair could not pass its own gate and be certified before that break's 03:30 cutoff, so the daily 04:00 Chicago break carried protected main without it and the single-use window 2026-11-15-owner-offcycle-engine-0806z lapsed unused, undispatched; it is not extended, renewed or replayed. This session holds sole release custody; no release, pending seal, finalization or awaiting-certificate owner is active. One fresh SINGLE-USE engine activation of exact serving 54c9aac87f7804b41b0a6278e99d068396f08f9b, containing at minimum protected main 065ef6a7cccb32952c90c38c6bb0ef28de124378; the release custodian starts the one Stage operation for the certified candidate that contains the Omaha made-hand defense repair with its exact-head review, together with whichever of the per-option Horse switch (with its migration installed), the fixed-limit maniac adaptation and the Hold'em tight-respect repair have been merged through their protected reviews before this booking; an item not merged by then is named with its owner as not delivered. Strategy options merged OFF or in shadow stay in that state; a cutover activates none of them, and switching afterward goes only through the audited setter. Admission opens 06:06 Chicago November 15 after the twenty-minute notice and expires at 09:00 Chicago November 15; the later expiry exists only so that one re-certification can still be used if the production schema or release controls move. The maintained announcement guard (:05:30 to :49:00) is unchanged. Independently observe twenty minutes of the actual primary public notice; later publication delays admission within fixed expiry. Require compatible current-schema Backup with full 1800-second soak and both-direction rehearsal against the actual predecessor, exact protected target/control, all four qualification shards, immutable candidate and rollback images, 120s last-hand notice, hand-boundary drain, durable freeze, 300s break, full 285s proof/rollback reserve, one-use custody, SEALED identity, v3 thaw, gameplay verification and fresh post-seal Backup. Pillar 2, R7/R8, leak maps, withdrawn rules, excluded held-out datasets and unapproved defence, persona or exploitation candidates stay disabled; report zero opportunities honestly. The single shared Human vs Horse capture is not duplicated; the capture declared on the predecessor ends at the last whole minute before the announcement and the new build gets its own declaration. No migration in this window, new tournament-start hold, direct restart, automatic renewal, watcher or competing dispatcher.",
+      "contains": "065ef6a7cccb32952c90c38c6bb0ef28de124378",
+      "playerNoticeAt": "2026-11-15T11:40:00Z",
+      "notBefore": "2026-11-15T12:06:00Z",
+      "notAfter": "2026-11-15T15:00:00Z",
+      "announcementPolicy": "earliest-certified",
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "c800ccd0b2069570d3f0e451d88073ad158dbbc4f3b63da60df32893380d51cb"
+      }
     }
   ],
   "databaseWindows": [
