@@ -682,7 +682,24 @@ export abstract class ServerTableEngineBase {
    * at engine construction. null in unit tests / until PR-2 wiring lands.
    */
   protected hub: TableStateHub | null = null;
-  private readonly seatSitOutPersistence = new SeatSitOutPersistence((room, event) => {
+  protected readonly committedSeatSitOut = new Set<string>();
+  protected readonly seatSitOutVersions = new WeakMap<object, number>();
+  protected readonly seatSitOutPersistence = new SeatSitOutPersistence((room, event) => {
+    if (
+      !this.seatedPlayers.some(
+        (p) => p.user_id === event.player_id && p.occupancy_id === event.occupancy_id
+      )
+    )
+      return;
+    // The committed original transition, including forced sit-outs, owns the
+    // held departure. The anchor remains dealable; the hand host folds it.
+    if (event.blind_off === true) {
+      this.leaveHeldByClock.set(event.player_id, event.occupancy_id);
+      this.chipContinuity.markBlindOff(event.player_id, true);
+    } else if (!event.sitting_out) {
+      this.leaveHeldByClock.delete(event.player_id);
+      this.chipContinuity.markBlindOff(event.player_id, false);
+    }
     this.hub?.emitEvent(room, { ...event });
   });
   protected tableInfo: TableInfo | null = null;
@@ -3915,8 +3932,19 @@ export abstract class ServerTableEngineBase {
           }
         }
         if (!occupancyId) return;
+        const key = `${this.tableId}:${event.playerId}:${occupancyId}`;
+        if (this.committedSeatSitOut.has(key)) return;
+        const state = this.disconnectEngine.getState(this.tableId, event.playerId);
+        const version = state ? (this.seatSitOutVersions.get(state) ?? 0) + 1 : 0;
+        if (state) this.seatSitOutVersions.set(state, version);
         void this.seatSitOutPersistence
-          .persist(this.tableId, event.playerId, occupancyId, sittingOut)
+          .persist(this.tableId, event.playerId, occupancyId, sittingOut, () => {
+            const current = this.disconnectEngine.getState(this.tableId, event.playerId);
+            return (
+              (current === state && (!state || this.seatSitOutVersions.get(state) === version)) ||
+              current?.isSittingOut === sittingOut
+            );
+          })
           .catch((err) => {
             reportError(err, 'ServerTableEngine.' + this.tableId + '.sitout_persist_threw');
           });
@@ -5472,6 +5500,14 @@ export abstract class ServerTableEngineBase {
       if (this.leaveHeldByClock.has(p.user_id) || !p.occupancy_id) continue;
       const row = this.chipContinuity.row(p.user_id);
       if (!row?.blind_off) continue;
+      if (this.isLightningAnchorNow()) {
+        // A restart after the final owed deal must still restore the original
+        // departure intention. The normal release door checks the count and
+        // live hand before cashing out; zero owed must not lose that intention.
+        this.leaveHeldByClock.set(p.user_id, p.occupancy_id);
+        this.chipContinuity.markBlindOff(p.user_id, true);
+        continue;
+      }
       const lock = this.chipContinuity.leaveLock(
         p.user_id,
         this.handCountStack(p.user_id, p.stack)
@@ -5975,10 +6011,14 @@ export abstract class ServerTableEngineBase {
     if (pending === null) return [];
     diagnostic?.phase('move_hold_reconciliation');
     this.reconcileSeatMoveHolds(pending);
+    // 2026-11-15: a seat held back for its pot push asked to leave; it is
+    // cashed out by the next-hand sweep and is never moved to another table.
+    // Hold reconciliation above still sees the complete list.
+    const movable = pending.filter((m) => !this.heldDepartures?.has(m.source_occupancy_id));
     // Stage the hand-boundary state BEFORE the transaction. The destination
     // may observe its committed seat before this RPC response returns, including
     // idle moves that never passed through a hand-start announcement.
-    for (const m of pending) {
+    for (const m of movable) {
       if (!seatMoveIsDue(m, opts)) continue;
       this.depositPresenceForMove(m.player_id, m.to_table_id, m.move_id, m.source_occupancy_id);
     }
@@ -5991,7 +6031,7 @@ export abstract class ServerTableEngineBase {
           ...opts,
           shouldContinue: () => this.lifecycleCanMutate(),
         },
-        pending,
+        movable,
         diagnostic?.move_execution
       );
       diagnostic?.move_execution.finish();
@@ -7076,7 +7116,34 @@ export abstract class ServerTableEngineBase {
    * the roster. Keyed by occupancy, so a player who has already rejoined in a
    * new seat keeps the new seat's state.
    */
+  /**
+   * A SEAT STAYS UNTIL ITS POT HAS BEEN PUSHED (2026-11-15). Occupancies whose
+   * departure was held back for the end-of-hand presentation (see
+   * ServerTableEngineSeating.completionPresentation), keyed by occupancy id.
+   * While an occupancy is here no seat move may carry it to another table:
+   * its player asked to leave, and the next-hand sweep is about to cash it
+   * out. When that cash-out lands, releaseDepartedSeats announces it.
+   */
+  protected heldDepartures: Map<string, { userId: string; seatNumber: number }> = new Map();
+
   protected releaseDepartedSeats(departed: Array<{ userId: string; occupancyId: string }>): void {
+    let announced = false;
+    for (const { userId: leftUserId, occupancyId } of departed) {
+      const held = this.heldDepartures?.get(occupancyId);
+      if (held && held.userId === leftUserId) {
+        this.heldDepartures.delete(occupancyId);
+        this.hub?.emitEvent(this.tableId, {
+          type: 'seat_left',
+          table_id: this.tableId,
+          seat: held.seatNumber,
+          user_id: leftUserId,
+          mid_hand: false,
+          timestamp: Date.now(),
+        });
+        announced = true;
+      }
+    }
+    if (announced) this.wakeClusterGame('seat_left');
     for (const { userId: leftUserId, occupancyId } of departed) {
       const current = this.seatedPlayers.find((sp) => sp.user_id === leftUserId);
       if (current && current.occupancy_id !== occupancyId) continue;

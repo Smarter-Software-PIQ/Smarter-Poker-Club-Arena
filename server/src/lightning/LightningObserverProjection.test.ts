@@ -67,6 +67,23 @@ describe('Lightning public physical observer projection', () => {
     expect(viewer(hub).messages[0].state.hand_id).toBe('classic-resumed');
   });
 
+  it('captures only the selected complete hand into its original archive submission', () => {
+    const hub = new TableStateHub();
+    const projection = new LightningObserverProjection(hub, () => ['anchor']);
+    const a = { clusterId: 'cluster' },
+      b = { clusterId: 'cluster' };
+    viewer(hub);
+    projection.started(a);
+    projection.event(a, { type: 'hand_started', hand_number: 10 });
+    projection.event(a, { type: 'hand_complete', hand_number: 10 });
+    expect(projection.completedReceipts(b, 10)).toEqual([]);
+    const accepted = [{ table_id: 'anchor', hand_number: 10, viewer_id: 'observer' }];
+    expect(projection.completedReceipts(a, 10)).toEqual(accepted);
+    expect(projection.completedReceipts(a, 10)).toEqual(accepted);
+    projection.event(a, { type: 'hand_history_saved', hand_number: 10, hand_id: 'archive' });
+    expect(projection.completedReceipts(a, 10)).toEqual([]);
+  });
+
   it('wires public observers through the production hosting owner without granting pool access', async () => {
     const { LightningHosting, LightningRegistry } = await import('./LightningRegistry.js');
     const { LIGHTNING_AUTO_REBUY_DEFAULTS } = await import('./LightningConfig.js');

@@ -637,6 +637,35 @@
   white-space: nowrap;
 }
 
+/* Fees on top, the player's balance under it, both right-aligned. */
+.mm-downline__money {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+}
+
+.mm-downline__balance {
+  font-family: Rajdhani, 'Arial Narrow', sans-serif;
+  font-size: 0.86rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--ca-text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.mm-downline__money-label {
+  margin-right: 0.35rem;
+  font-family: inherit;
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ca-text-faint);
+}
+
 .mm-downline__more {
   margin: 0.3rem 0 0;
   text-align: center;

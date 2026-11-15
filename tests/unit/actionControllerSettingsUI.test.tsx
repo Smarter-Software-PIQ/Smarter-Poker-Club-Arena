@@ -20,7 +20,7 @@ describe('Action Controller settings gestures', () => {
   it('updates the live table when a Studio color is selected', () => {
     render(
       <>
-        <ActionControllerSettings colorsOnly />
+        <ActionControllerSettings />
         <ReadAtTable />
       </>
     );
@@ -40,6 +40,7 @@ describe('Action Controller settings gestures', () => {
         <ReadAtTable />
       </>
     );
+    fireEvent.click(screen.getByRole('tab', { name: 'Change Default Button Amounts' }));
     const input = screen.getByLabelText('Preflop Multipliers Option 1');
     fireEvent.change(input, { target: { value: '' } });
     fireEvent.click(screen.getByRole('button', { name: 'Apply Preflop Multipliers' }));
@@ -91,6 +92,7 @@ it('edits all eight defaults and uses each saved value through the live controll
     </>
   );
   const { rerender } = render(view(true));
+  fireEvent.click(screen.getByRole('tab', { name: 'Change Default Button Amounts' }));
   for (const [group, values] of [
     ['Preflop Multipliers', [2.25, 2.8, 3.3, 4.5]],
     ['Postflop Pot Percentages', [25, 33.33, 66.67, 125]],
