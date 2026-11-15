@@ -238,6 +238,7 @@ stop_watcher() {
   if [ -n "$WATCHER" ] &&
     [ "$(ps -o ppid= -p "$WATCHER" 2>/dev/null | tr -d ' ')" = "$MAIN_PID" ]; then
     kill -TERM "$WATCHER" 2>/dev/null
+    wait "$WATCHER" 2>/dev/null
   fi
   WATCHER=
 }
@@ -248,7 +249,7 @@ on_stop() {
   local outcome='nothing was pushed' what='terminated the process tree this run started'
   [ "$PHASE" = push ] && outcome='git push was interrupted and may or may not have updated the remote ref'
   [ "$PHASE" = verify ] && outcome='git push had already returned; the remote ref was not verified'
-  stop_tree "$STEP_PID" "$STEP_START" "$SWEEP" || what='no process this run started was still running'
+  stop_tree "$STEP_PID" "$STEP_START" "$SWEEP" || what='found no process of this run still running'
   STEP_PID=
   stop_watcher
   say "STOPPED: $1; $what; $outcome."
@@ -298,6 +299,10 @@ owned() {
   local rc=$?
   STEP_PID=
   STEP_START=
+  # A step that ended on its own with a failure (killed by name, crashed) can
+  # leave its workers orphaned: stop what of its snapshot is still the same
+  # process (second review of 4550cae7, note 3).
+  if [ "$rc" -ne 0 ]; then stop_tree "" "" "$SWEEP"; fi
   if [ -n "$STATE_FILE" ]; then
     : > "$STATE_FILE"
     : > "$STATE_FILE.tree"
@@ -318,9 +323,13 @@ MAIN_START=$(pid_start "$MAIN_PID")
     gone=
     if ! kill -0 "$MAIN_PID" 2>/dev/null; then
       gone=1
-    elif [ -n "$MAIN_START" ]; then
-      now=$(pid_start "$MAIN_PID")
-      [ -n "$now" ] && [ "$now" != "$MAIN_START" ] && gone=1
+    else
+      # a killed helper that its parent has not reaped yet is a zombie
+      case "$(ps -o stat= -p "$MAIN_PID" 2>/dev/null)" in *Z*) gone=1 ;; esac
+      if [ -z "$gone" ] && [ -n "$MAIN_START" ]; then
+        now=$(pid_start "$MAIN_PID")
+        [ -n "$now" ] && [ "$now" != "$MAIN_START" ] && gone=1
+      fi
     fi
     step=
     [ -n "$STATE_FILE" ] && step=$(cat "$STATE_FILE" 2>/dev/null)
@@ -371,9 +380,13 @@ REMOTE_GIT=(env ${AMBIENT_TOKEN_STRIP[@]+"${AMBIENT_TOKEN_STRIP[@]}"} git
   -c url.https://github.com/.insteadOf=git@github.com:
   -c url.https://github.com/.insteadOf=ssh://git@github.com/
   -c credential.helper=
-  -c 'credential.helper=!gh auth git-credential')
+  -c 'credential.helper=!gh auth git-credential'
+  -c agentpush.helper=agent-push.sh)
 # The quick reads (ls-remote) call this in the foreground. The long steps
 # (fetch, push) run "${REMOTE_GIT[@]}" through owned, so the job is git itself.
+# The inert agentpush.helper setting puts this script's name in git's own
+# arguments, so a stop or a check by name (pkill -f / pgrep -f agent-push.sh)
+# also reaches git push (second review of 4550cae7, note 4).
 remote_git() {
   "${REMOTE_GIT[@]}" "$@" </dev/null
 }

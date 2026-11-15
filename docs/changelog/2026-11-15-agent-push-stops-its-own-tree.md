@@ -80,6 +80,16 @@ is off; a stop during the push says the push "may or may not have updated
 the remote ref", and the watcher no longer claims to have terminated a step
 that had already ended.
 
+The delta review of that fix (`reviews/REVIEW-HU-R2-TOOL-4550cae7-delta-independent.md`,
+ACCEPT WITH NOTES) led to five more small changes: git's own arguments carry
+the inert setting `agentpush.helper=agent-push.sh`, so a stop or check by
+name also reaches git push; a step that fails on its own has what is left of
+its snapshot stopped; a helper that is a zombie its parent has not reaped
+counts as gone; the watcher is waited for before the state files are
+removed; and the "nothing left" wording says what was found, not more. In
+the tests, the clean-up kills only a pid that still has the start time the
+stub recorded, and the stop cases keep their state files in the fixture.
+
 ## The detached-launch rule (review B2)
 
 One rule, independent of timing: the helper stops when its parent process

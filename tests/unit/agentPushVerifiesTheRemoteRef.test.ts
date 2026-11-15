@@ -222,8 +222,19 @@ describe('scripts/agent-push.sh stops its own process tree', () => {
       .map((line) => line.trim().split(/\s+/))
       .some(([g, stat]) => Number(g) === pgid && stat !== undefined && !stat.startsWith('Z'));
   // A failed case must not leave a 300-second worker behind on the shared Mac.
+  // Only a pid that is still the process the stub recorded (same start time)
+  // is killed: on the shared Mac a reused pid would be another agent's process.
+  const startOf = (pid: number) =>
+    spawnSync('ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8' })
+      .stdout.replace(/\s+/g, ' ')
+      .trim();
   afterEach(() => {
-    for (const pid of recorded()) {
+    for (const name of ['worker', 'shim', 'step', 'helper']) {
+      const pid = pidFrom(`${name}.pid`);
+      const file = join(fixture, `${name}.start`);
+      if (pid <= 1 || !existsSync(file)) continue;
+      const start = readFileSync(file, 'utf8').replace(/\s+/g, ' ').trim();
+      if (start === '' || startOf(pid) !== start) continue;
       try {
         process.kill(pid, 'SIGKILL');
       } catch {
@@ -246,7 +257,13 @@ describe('scripts/agent-push.sh stops its own process tree', () => {
       ].join('\n')
     );
     chmodSync(join(shimDir, 'git'), 0o755);
-    return { ...env(), AGENT_PUSH_LOAD_WAIT_SECONDS: '0', PATH: `${shimDir}:${process.env.PATH}` };
+    // TMPDIR in the fixture: a state file left by a SIGKILL case goes with it.
+    return {
+      ...env(),
+      AGENT_PUSH_LOAD_WAIT_SECONDS: '0',
+      PATH: `${shimDir}:${process.env.PATH}`,
+      TMPDIR: fixture,
+    };
   };
 
   // A `git` whose push stands in for the hook: it starts a worker that ignores
@@ -266,7 +283,12 @@ describe('scripts/agent-push.sh stops its own process tree', () => {
         `    echo $$ > "${join(fixture, 'step.pid')}"`,
         `    echo $PPID > "${join(fixture, 'helper.pid')}"`,
         `    ( trap '' HUP INT${ignoreTerm ? ' TERM' : ''}; exec sleep 300 ) &`,
-        `    echo $! > "${join(fixture, 'worker.pid')}"`,
+        '    w=$!',
+        `    ps -o lstart= -p $$ > "${join(fixture, 'shim.start')}"`,
+        `    ps -o lstart= -p $$ > "${join(fixture, 'step.start')}"`,
+        `    ps -o lstart= -p $PPID > "${join(fixture, 'helper.start')}"`,
+        `    ps -o lstart= -p $w > "${join(fixture, 'worker.start')}"`,
+        `    echo $w > "${join(fixture, 'worker.pid')}"`,
         '    sleep 300',
         `    echo done > "${join(fixture, 'pushed')}"`,
         '    exit 0',
@@ -277,7 +299,13 @@ describe('scripts/agent-push.sh stops its own process tree', () => {
       ].join('\n')
     );
     chmodSync(join(shimDir, 'git'), 0o755);
-    return { ...env(), AGENT_PUSH_LOAD_WAIT_SECONDS: '0', PATH: `${shimDir}:${process.env.PATH}` };
+    // TMPDIR in the fixture: a state file left by a SIGKILL case goes with it.
+    return {
+      ...env(),
+      AGENT_PUSH_LOAD_WAIT_SECONDS: '0',
+      PATH: `${shimDir}:${process.env.PATH}`,
+      TMPDIR: fixture,
+    };
   };
 
   for (const shell of shells)
