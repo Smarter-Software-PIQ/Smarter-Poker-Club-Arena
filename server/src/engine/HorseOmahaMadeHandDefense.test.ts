@@ -122,6 +122,7 @@ const same = (a: Run[], b: Run[]) =>
   expect(a.map((r) => [r.action, r.amount])).toEqual(b.map((r) => [r.action, r.amount]));
 
 const DEFENSE_OFF = { omahaBeatenMadeHandDefense: false };
+const BLUFF_CATCHER_ON = { omahaBluffCatcherRaiseFold: true };
 const ALL_OFF = {
   omahaBeatenMadeHandDefense: false,
   omahaBluffCatcherRaiseFold: false,
@@ -543,15 +544,18 @@ describe('a bluff catcher folds to a value raise', () => {
   it('the set that bet the river and is raised the pot folds', () => {
     const s = spot(FA, 24, riverRaised);
     expect(s.gs.toCall).toBe(531);
-    const runs = decideMany(s);
+    // The cell is opt-in (owner 2026-11-14 23:10: no blanket fold without a
+    // measurement): switched on it folds, by default the set calls.
+    const runs = decideMany(s, BLUFF_CATCHER_ON);
     expect(count(runs, 'fold')).toBe(SEEDS.length);
+    expect(count(decideMany(s), 'fold')).toBe(0);
   });
 
   it('against a measured postflop over-bluffer the bluff-catcher fold is not made', () => {
     const s = spot(FA, 24, riverRaised);
     vi.spyOn(HorseMind, 'opponentRead').mockImplementation(((id: string) =>
       id === 'p6' ? { stats: { betCheckedTo: { engaged: 'high', mean: 0.9 } } } : null) as never);
-    const runs = decideMany(s);
+    const runs = decideMany(s, BLUFF_CATCHER_ON);
     expect(fired(runs, 'omaha_bluff_catcher_raise_fold')).toBe(0);
     expect(count(runs, 'call')).toBe(SEEDS.length);
   });
@@ -585,12 +589,11 @@ describe('a bluff catcher folds to a value raise', () => {
 
   it('turn: the bare set folds to the same raise, and calls it with the rule off', () => {
     const s = spot(FB4, 20, { ...turnRaised, hole: 'TcTs8d9c2s' });
-    const runs = decideMany(s);
+    const runs = decideMany(s, BLUFF_CATCHER_ON);
     expect(count(runs, 'fold')).toBe(SEEDS.length);
     expect(fired(runs, 'omaha_bluff_catcher_raise_fold')).toBeGreaterThan(0);
-    expect(
-      fired(decideMany(s, { omahaBluffCatcherRaiseFold: false }), 'omaha_bluff_catcher_raise_fold')
-    ).toBe(0);
+    // Off is the default.
+    expect(fired(decideMany(s), 'omaha_bluff_catcher_raise_fold')).toBe(0);
   });
 });
 

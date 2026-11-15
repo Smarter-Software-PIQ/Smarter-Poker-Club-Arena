@@ -5568,7 +5568,7 @@ function omahaBigBetCallFold(
       v81Base === null &&
       v84 === null &&
       v81On &&
-      opts.omahaBluffCatcherRaiseFold !== false
+      opts.omahaBluffCatcherRaiseFold === true
         ? omahaBluffCatcherCell({
             ...shared,
             heroHasStreetChips: heroBet > 0.005,

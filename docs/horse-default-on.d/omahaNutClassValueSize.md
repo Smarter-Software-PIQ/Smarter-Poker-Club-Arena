@@ -40,3 +40,13 @@ Gated in code to all of: PLO4 or PLO5, not Hi-Lo, not fixed limit, one board, no
 - The current nuts on the flop or turn can be outdrawn; the rule sizes for the street, not for the runout.
 - Reach is not counted.
 - Live behaviour is unverified until a release carries this and the receipt is read.
+
+## Owner's instruction, verbatim (PLO Strategy chat, 2026-11-14, America/Chicago)
+
+The owner's own text, exactly as typed; "[...]" marks words left out, nothing is reworded. Full record: evidence archive `plo-handoff-review-01a1cbbd/river-raise-59401453/OWNER-TEXT-20261114-PLO-CHAT-VERBATIM.md`.
+
+- 19:25 (hand 59401453): "[...] THEY UNDER BET THE TURN [...] AND WHY [...] ISN'T THE HORSE POUNDING THE TURN [...]"
+- 20:43: "[...] WINNING THE MINIMUM WITH VALUE HANDS BECAUSE THEY ARE BETTING FRACTIONS OF POTS, AND NOT RE RAISING BIG ENOUGH PRE TO BUILD POTS... YOU NEED TO FIX THIS NOW!!"
+- 21:33 (hand 59431232): "[...] CHECKS FLOP, BETS 33% POT ON TURN [...]"
+
+This option is ON by default on that instruction. Its value against a calling range is not measured (stated in the rows above); it changes a size only when the Horse holds the nuts or an effective-nut hand for the street.

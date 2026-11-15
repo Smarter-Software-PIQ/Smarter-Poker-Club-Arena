@@ -51,3 +51,7 @@ No pinned expectation was changed in `HorseHeadsUpCommitment.test.ts` or `HorseP
 ## Evidence and limits
 
 `docs/horse-default-on.d/omahaBeatenMadeHandDefense.md`, `omahaBluffCatcherRaiseFold.md` and `omahaNutClassValueSize.md` answer the eight evidence rows. No value comparison supports the sign of any of the three; they rest on the owner's rulings. Reach: 9 of 38 recorded Horse turn raises facing a wager were made with a beaten hand and become calls; the other rules were not counted in production.
+
+## After the exact-head review (2026-11-15)
+
+`omahaBluffCatcherRaiseFold` ships OFF by default (opt-in): it folds on bet size alone and has no value or continuation measurement, which the owner's 23:10 instruction rules out as a default. Code, receipts and tests stay; the tests switch it on explicitly. `omahaBeatenMadeHandDefense` and `omahaNutClassValueSize` stay ON on the owner's verbatim instruction, now quoted in their evidence files. `omahaRiverNutRaiseOnly` and `omahaTurnSetPound` are unchanged.

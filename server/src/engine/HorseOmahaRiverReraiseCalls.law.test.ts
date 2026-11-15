@@ -447,9 +447,9 @@ describe('V84 boundaries', () => {
       gs: { ...s.gs, players, actionHistory: history, pot: 54 + 24 + 24 + 96 },
     } as Built;
     today('called first', calledFirst);
-    // Dan 2026-11-14: by default the bluff-catcher cell folds this call (a
-    // second-nut flush raised on the river with chips behind).
-    expect(putIn(decideMany(calledFirst, {}, 15).acts)).toBe(0);
+    // Dan 2026-11-14: with the opt-in bluff-catcher cell switched on, this
+    // call (a second-nut flush raised on the river with chips behind) folds.
+    expect(putIn(decideMany(calledFirst, { omahaBluffCatcherRaiseFold: true }, 15).acts)).toBe(0);
   });
 
   it('a paired board, a nut flush and a heads-up table keep today', () => {

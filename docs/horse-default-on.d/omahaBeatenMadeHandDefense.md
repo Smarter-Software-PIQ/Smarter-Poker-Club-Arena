@@ -57,3 +57,13 @@ Receipts registered in `HorseDataLedger.ts`: `omaha_turn_beaten_raise_flatted`, 
 - "Possible" is a board test (three ranks in a five-rank window, three of a suit). It does not weigh how likely the straight is.
 - Reach for the two checking rules is not counted, and the reach window for the turn raises is not recorded.
 - Live behaviour is unverified until a release carries this and the receipts are read.
+
+## Owner's instruction, verbatim (PLO Strategy chat, 2026-11-14, America/Chicago)
+
+The owner's own text, exactly as typed; "[...]" marks words left out, nothing is reworded. Full record: evidence archive `plo-handoff-review-01a1cbbd/river-raise-59401453/OWNER-TEXT-20261114-PLO-CHAT-VERBATIM.md`.
+
+- 20:39 (hand 59416584): "[...] WHY IS THE ONE HORSE BETTING ON THAT TURN, AND WHY [...] IS THE OTHER HORSE RAISING TURN ON A CLEAR CALL ONLY.... THEY SHOULD BOTH BE PLAYING DEFENSE OR MORE CAUTIOUS WHEN THE STRAIGHT CARD COMES!"
+- 20:40 (hand 59414191): "[...] THE HORSE AGAIN RAISES WHEN CLEARLY THERE IS A STRAIGHT OUT THERE. [...] WHY AREN'T THE HORSES AWARD THAT STRAIGHTS BE TWO PAIRS AND SETS?!?!?!?"
+- 22:02: "NO RAISING THE TURN AS WELL WITHOUT THE NUTS OR CLOSE TO THE NUTS! HOW MANY TIMES HAVE I SHOWN YOU A RAISE WITH TOP SET ON THE TURN WITH 2-3 DIFFERENT STRAIGHTS AND OR FLUSHES OUT THERE... STOP THE MADNESS AND THE BLEEDING! [...] FIX THIS NOW"
+
+This option is ON by default on that instruction. Its value, continuation and reach rows are not measured (stated in the rows above); its actions are a call or a check, never a fold.

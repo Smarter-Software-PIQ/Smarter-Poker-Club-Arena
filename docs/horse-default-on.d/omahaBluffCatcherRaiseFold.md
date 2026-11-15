@@ -1,5 +1,11 @@
 # omahaBluffCatcherRaiseFold (owner ruling 2026-11-14, with hands 59414191 and 59416584)
 
+## STATUS: OFF by default (opt-in, `=== true`)
+
+Owner instruction of 2026-11-14 23:10 America/Chicago to the reviewer (retained by Hand Analysis, `OWNER-INSTRUCTION-20261114-2310CT-FINISH-SCOPE-NO-BLANKET-SWITCH-ON.md`): no blanket switch-on, and no blanket fold in place of "continue too lightly". This cell folds on bet size alone, with no value row, no continuation measurement and no adverse control, so it ships OFF with its switch and receipts. It goes ON only after a declared paired evaluation passes (cells: PLO4 and PLO5, human-like field, a field that raises rivers for value only, and a field that bluff-raises at twice the human rate) and an exact-head review.
+
+The owner's own words on the misplay it answers (PLO Strategy chat, same day, exactly as typed, "[...]" marks words left out): 20:43 "HORSES ARE JUST CALLING EVERY SINGLE ONE OF HIS VALUE RAISES!!! CALLING EVERYTHING WITH BLUFF CATCHERS [...]"; 21:33 "[...] STOP [...] CALLING RIVER BETS WHEN WE CAN'T [...] BEAT ANYTHING!!!!!!!". Those name the misplay; they are not a measurement of this cell.
+
 On by default. Evidence for the eight rows of [HORSE-DECISION-CHANGE-EVIDENCE.md](../HORSE-DECISION-CHANGE-EVIDENCE.md). The pull request that carries this file is the one titled "Omaha turn and river: a made hand a straight or flush beats plays defense"; the rule it extends is V81 (the Omaha big-bet call discipline, `HorseOmahaBigBetCalls.ts`), and the made-hand class beside it, V40, was last touched for the river in #10642.
 
 This option is turned on by the owner's direct ruling ("Horses are calling every one of his value raises with bluff catchers"), as a defect repair. It was not admitted by the V81 measurement and no value row supports it; that is stated under Value and Limits.
