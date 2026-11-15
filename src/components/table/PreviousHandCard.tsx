@@ -7,7 +7,11 @@
  * Turned into a pure icon button to match the time bank and chat buttons.
  */
 
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { handHistoryService } from '../../services/HandHistoryService';
+import { adaptServiceHandToPanel } from '../../lib/handHistoryAdapter';
+import { reportError } from '../../utils/errorReporter';
+import type { PreviousLightningDeal } from '../../lightning/usePreviousLightningDeal';
 import './PreviousHandCard.css';
 import type { HandRecord } from './HandHistoryPanel';
 import { useButtonImage } from '../../hooks/useButtonImage';
@@ -86,15 +90,74 @@ export function PreviousHandCard({
   );
 }
 
+export function LightningPreviousHandReview({
+  deal,
+  room,
+  viewer,
+  connected,
+  receipt,
+  onClose,
+}: {
+  deal: PreviousLightningDeal;
+  room: string;
+  viewer: string;
+  connected: boolean;
+  receipt?: { archiveId: string | null };
+  onClose: () => void;
+}) {
+  const [result, setResult] = useState<{
+    status: 'pending' | 'unavailable' | 'failed' | 'ready';
+    hand?: HandRecord;
+  }>({ status: 'pending' });
+  const [reconnect, setReconnect] = useState(0);
+  const wasConnected = useRef(connected);
+  useEffect(() => {
+    if (connected && !wasConnected.current) setReconnect((count) => count + 1);
+    wasConnected.current = connected;
+  }, [connected]);
+  useEffect(() => {
+    let active = true;
+    void handHistoryService
+      .getPreviousLightningHand(viewer, room, deal, receipt)
+      .then((read) => {
+        if (active)
+          setResult(
+            read.state === 'ready'
+              ? { status: 'ready', hand: adaptServiceHandToPanel(read.hand, viewer) }
+              : { status: read.state }
+          );
+      })
+      .catch((error) => {
+        if (!active) return;
+        reportError(error, 'LightningPreviousHandReview');
+        setResult({ status: 'failed' });
+      });
+    return () => {
+      active = false;
+    };
+  }, [viewer, room, deal, receipt, reconnect]);
+  return (
+    <LightningPreviousHandResult
+      handNumber={deal.number}
+      hand={result.hand}
+      historyFailed={result.status === 'failed'}
+      archiveUnavailable={result.status === 'unavailable'}
+      onClose={onClose}
+    />
+  );
+}
+
 export function LightningPreviousHandResult({
   handNumber,
   hand,
   historyFailed,
+  archiveUnavailable = false,
   onClose,
 }: {
   handNumber: number;
   hand?: Pick<HandRecord, 'handNumber' | 'streets' | 'potTotal' | 'heroResult'>;
   historyFailed: boolean;
+  archiveUnavailable?: boolean;
   onClose: () => void;
 }) {
   return (
@@ -114,6 +177,8 @@ export function LightningPreviousHandResult({
               {hand.heroResult}
             </div>
           </>
+        ) : archiveUnavailable ? (
+          'Hand Settled · History Unavailable'
         ) : historyFailed ? (
           'Hand History Unavailable'
         ) : (

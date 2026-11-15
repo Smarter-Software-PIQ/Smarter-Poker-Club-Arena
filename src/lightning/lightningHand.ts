@@ -44,6 +44,7 @@ export const LIGHTNING_NEXT_HAND_FADE_MS = 240;
 
 /** The part of an engine snapshot these rules read. Every field is optional. */
 export interface LightningSnapshotFields {
+  table_id?: unknown;
   hand_id?: unknown;
   hand_number?: unknown;
   /** 'waiting' between hands: the idle snapshot after a fold carries it. */

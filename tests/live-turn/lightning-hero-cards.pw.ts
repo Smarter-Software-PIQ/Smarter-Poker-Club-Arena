@@ -11,6 +11,7 @@
  * a live hand shows no cards at all there, because deliveries that arrive
  * before the page knows its player were discarded and nothing asked again.
  */
+import { tapLightningFold, verifyLightningFoldFrames } from '../e2e/support/lightningFoldFrames';
 import { writeFile } from 'node:fs/promises';
 import { expect, test, type Page, type WebSocketRoute } from '@playwright/test';
 import { PLAYER, newBackend, signIn } from '../stale-client/mock-backend';
@@ -37,6 +38,7 @@ const HAND_THREE: Card[] = [
   { rank: 'J', suit: 'c' },
 ];
 
+const heroName = 'LightningFixturePlayer';
 const villain = (n: number) => `0bb0ffee-0000-4000-8000-00000000006${n}`;
 
 /** A Lightning hand as the engine publishes it to one room. */
@@ -49,7 +51,7 @@ function snapshot(hand: number, heroSeat: number, decisionAt = 0, variant = 'nlh
     return {
       seat,
       user_id: id,
-      username: hero ? 'Fixture' : `Villain${v}`,
+      username: hero ? heroName : `Villain${v}`,
       avatar_url: '',
       equipped_frame: '',
       equipped_aura: '',
@@ -84,7 +86,8 @@ function snapshot(hand: number, heroSeat: number, decisionAt = 0, variant = 'nlh
       small_blind: 0.25,
       big_blind: 0.5,
       variant,
-      fast_fold_available: false,
+      fast_fold_available: !decisionAt,
+      fold_on_turn: true,
     },
     hand_number: hand,
     pot: 0.75,
@@ -95,7 +98,7 @@ function snapshot(hand: number, heroSeat: number, decisionAt = 0, variant = 'nlh
     ante: 0,
     ante_mode: null,
     current_bet: 0.5,
-    current_player: decisionAt ? PLAYER : null,
+    current_player: decisionAt ? PLAYER : villain(1),
     dealer_seat: 6,
     stage: 'preflop',
     winner_ids: [],
@@ -132,7 +135,7 @@ class LightningEngine {
   private sockets = new Set<WebSocketRoute>();
   private seq = 0;
   private eventSeq = 0;
-  private state: ReturnType<typeof snapshot> | null = null;
+  private state: Record<string, unknown> | null = null;
   /** What a RESYNC re-sends, as rePushHoleCards does; null withholds it. */
   private heroCards: { hand: number; seat: number; cards: Card[] } | null = null;
   private pinger: ReturnType<typeof setInterval> | null = null;
@@ -232,7 +235,7 @@ class LightningEngine {
     this.heroCards = { hand, seat, cards };
   }
 
-  handStarted(hand: number): void {
+  handEvent(hand: number, type: string): void {
     this.eventSeq += 1;
     this.all({
       type: 'EVENT',
@@ -240,7 +243,7 @@ class LightningEngine {
       seq: this.eventSeq,
       ts: Date.now(),
       payload: {
-        type: 'hand_started',
+        type,
         table_id: ROOM,
         hand_number: hand,
         dealer_seat: 6,
@@ -249,9 +252,44 @@ class LightningEngine {
     });
   }
 
-  publish(hand: number, heroSeat: number, decisionAt = 0, variant = 'nlh'): void {
+  handStarted(hand: number): void {
+    this.handEvent(hand, 'hand_started');
+  }
+
+  waitingAfterFold(hand: number, seat: number): void {
+    const last = snapshot(hand, seat);
+    this.heroCards = null;
+    this.state = {
+      ...last,
+      stage: 'waiting',
+      hand_id: null,
+      players: [],
+      pot: 0,
+      current_bet: 0,
+      current_player: null,
+      dealer_seat: 0,
+      lightning: {
+        ...last.lightning,
+        hand_id: null,
+        fast_fold_available: false,
+        player_balance: { user_id: PLAYER, stack: 100 },
+      },
+    };
+    this.all({ type: 'SNAPSHOT', tableId: ROOM, seq: ++this.seq, state: this.state });
+  }
+
+  publish(
+    hand: number,
+    heroSeat: number,
+    decisionAt = 0,
+    variant = 'nlh',
+    board: Card[] = []
+  ): void {
     this.seq += 1;
-    this.state = snapshot(hand, heroSeat, decisionAt, variant);
+    this.state = {
+      ...snapshot(hand, heroSeat, decisionAt, variant),
+      ...(board.length ? { stage: 'flop', community_cards: board } : {}),
+    };
     this.all({ type: 'SNAPSHOT', tableId: ROOM, seq: this.seq, state: this.state });
   }
 }
@@ -259,8 +297,8 @@ class LightningEngine {
 function backend() {
   const profile = {
     id: PLAYER,
-    username: 'fixture',
-    alias: 'Fixture',
+    username: heroName,
+    alias: heroName,
     full_name: 'Live Turn Fixture',
     role: 'user',
     diamonds: 0,
@@ -448,15 +486,47 @@ test('PLO5 decision survives a delayed start with every visible frame and card h
   const engine = await openRoom(page, { muted: true });
   try {
     await firstHand(page, engine);
+    const name = page.locator('.seat--hero .seat__name');
+    await expect
+      .poll(() =>
+        name
+          .locator('.seat__name-text')
+          .evaluate((label) => Number(getComputedStyle(label).getPropertyValue('--fit')) || 1)
+      )
+      .toBeLessThan(1);
+    const nameLine = await name.evaluate((label) => ({
+      reserved: label.getBoundingClientRect().height,
+      normal: parseFloat(getComputedStyle(label).lineHeight),
+    }));
+    expect(
+      Math.abs(nameLine.reserved - nameLine.normal),
+      'the fitted name reserves the full hero line'
+    ).toBeLessThanOrEqual(1);
     const five = [
       ...HAND_TWO,
       { rank: '10', suit: 'd' },
       { rank: '9', suit: 'h' },
       { rank: '8', suit: 's' },
     ];
+    await tapLightningFold(page, ROOM, '4a4d0000-0000-4000-8000-000000000101');
+    engine.waitingAfterFold(101, 6);
+    await expect(page.locator('.pre-action-btn.fold')).toHaveCount(0);
+    engine.handStarted(101);
+    await page.evaluate(
+      () =>
+        new Promise<void>((done) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => done()))
+        )
+    );
+
+    await page.evaluate(() => document.documentElement.style.setProperty('--animation-speed', '3'));
+    engine.handStarted(102);
+    engine.publish(102, 1, 0, 'plo5');
+    engine.deal(102, 1, five);
+    await expect(page.locator('.deal-animation__card')).toHaveCount(30);
+    await expect(page.locator('.deal-animation')).toHaveCount(0);
     const decisionAt = Date.now();
     engine.publish(102, 1, decisionAt, 'plo5');
-    engine.deal(102, 1, five);
     const picks = page.locator('.seat--hero .seat__cards--hero .seat__card-pick');
     await expect(picks).toHaveCount(5);
     const actions = page.locator('.action-panel--active button:enabled').first();
@@ -484,65 +554,60 @@ test('PLO5 decision survives a delayed start with every visible frame and card h
       expect(card.right).toBeLessThanOrEqual(card.viewport);
       expect(card.exposed).toBeGreaterThanOrEqual(card.width * 0.45 - 1);
     }
-    // Start sampling before a duplicated boundary. The row must stay face up,
-    // and the already usable controls must stay on screen for every frame.
-    await page.evaluate(() => {
-      const sample = () => {
-        const faces = [
-          ...document.querySelectorAll('.seat--hero .seat__cards--hero .seat__card--face'),
-        ];
-        const action = document.querySelector<HTMLElement>('.action-panel--active button:enabled');
-        return {
-          time: Date.now(),
-          faces: faces.filter((face) => getComputedStyle(face).opacity === '1').length,
-          actionTop: action?.getBoundingClientRect().top ?? null,
-        };
-      };
-      const frames = [sample()];
-      Object.assign(window, { lightningProofFrames: frames });
-      const collect = () => {
-        frames.push(sample());
-        if (frames.at(-1)!.time - frames[0].time < 1400) requestAnimationFrame(collect);
-      };
-      requestAnimationFrame(collect);
-    });
-    engine.handStarted(102);
-    await page.waitForFunction(() => {
-      const frames = (window as unknown as { lightningProofFrames: { time: number }[] })
-        .lightningProofFrames;
-      return frames.at(-1)!.time - frames[0].time >= 1400;
-    });
-    const frames = await page.evaluate(
+    engine.handStarted(101);
+    await page.evaluate(
       () =>
-        (
-          window as unknown as {
-            lightningProofFrames: { time: number; faces: number; actionTop: number | null }[];
-          }
-        ).lightningProofFrames
+        new Promise<void>((done) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => done()))
+        )
     );
+    engine.handStarted(102);
+    await page.waitForTimeout(250);
+    const receipt = await verifyLightningFoldFrames(page, 102, decisionAt, 30_000, [
+      'Ten Of Diamonds',
+      'Nine Of Hearts',
+      'Eight Of Spades',
+      'Seven Of Clubs',
+      'Two Of Hearts',
+    ]);
     const framePath = testInfo.outputPath('decision-frames.json');
-    await writeFile(
-      framePath,
-      JSON.stringify({
-        geometry,
-        decisionAt,
-        deadline: decisionAt + 30_000,
-        observedRemainingMs: decisionAt + 30_000 - frames[0].time,
-        frames,
-      })
-    );
+    await writeFile(framePath, JSON.stringify({ geometry, ...receipt }));
     await testInfo.attach('decision-frames', { path: framePath, contentType: 'application/json' });
     const frameImage = testInfo.outputPath('plo5-active.png');
     await page.screenshot({ path: frameImage });
     await testInfo.attach('plo5-active', { path: frameImage, contentType: 'image/png' });
-    expect(frames.length).toBeGreaterThan(2);
-    expect(frames[0].time).toBeLessThan(decisionAt + 30_000);
-    expect(
-      frames.every(
-        (f) =>
-          f.faces === 5 && f.actionTop !== null && Math.abs(f.actionTop - frames[0].actionTop!) <= 1
-      )
-    ).toBe(true);
+  } finally {
+    engine.dispose();
+  }
+});
+
+test('a prior hand award timer cannot clear the next flop or withhold its controls after a snapshot-first start', async ({
+  page,
+}) => {
+  const engine = await openRoom(page, { muted: true });
+  try {
+    await firstHand(page, engine);
+    engine.handEvent(101, 'hand_complete');
+    await page.evaluate(
+      () =>
+        new Promise<void>((done) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => done()))
+        )
+    );
+    engine.publish(102, 1, Date.now(), 'nlh', [
+      { rank: '3', suit: 'c' },
+      { rank: '4', suit: 'h' },
+      { rank: '5', suit: 's' },
+    ]);
+    engine.deal(102, 1, HAND_TWO);
+    const flop = page.locator('.community-cards__card img.card-image__img');
+    await expect(flop).toHaveCount(3);
+    await expect(page.getByRole('button', { name: 'Fold', exact: true })).toBeVisible();
+    engine.handStarted(102);
+    // The existing uncontested award hold has now run to its original completion.
+    await page.waitForTimeout(5000);
+    await expect(flop).toHaveCount(3);
+    await expect(page.getByRole('button', { name: 'Fold', exact: true })).toBeVisible();
   } finally {
     engine.dispose();
   }

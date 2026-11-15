@@ -179,7 +179,7 @@ describe('3. LIGHTNING FOLD answers the press', () => {
     expect(refusal).toContain('revert();');
     expect(refusal).toContain('if (!quiet) toast.warning');
     const unknown = handler.slice(handler.indexOf('} else if (uncertain)'));
-    expect(unknown).toContain('await awaitEngineState(');
+    expect(unknown).toContain('requestEngineSnapshot();');
     expect(unknown).not.toContain('revert();');
   });
 

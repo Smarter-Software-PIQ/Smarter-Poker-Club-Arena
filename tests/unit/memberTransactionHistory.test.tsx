@@ -43,3 +43,34 @@ it('previews six entries and pages the selected agent’s full club history usin
   fireEvent.click(screen.getByRole('button', { name: 'Show Recent' }));
   await waitFor(() => expect(screen.getAllByText('-9,007,199,254,740,993.12')).toHaveLength(6));
 });
+
+it('identifies the funding wallet for otherwise identical sends in the preview and full history', async () => {
+  const data = [
+    ['peer_transfer', 'player_wallet'],
+    ['promo_wallet_send', 'promo_wallet'],
+    ['agent_wallet_send', 'agent_wallet'],
+  ].map(([transaction_type, source], index) => ({
+    id: String(index),
+    created_at: '2026-11-14T18:26:42Z',
+    from_user_id: 'agent',
+    to_user_id: 'player',
+    from_name: 'Sender',
+    to_name: 'Recipient',
+    amount_text: '50.00',
+    transaction_type,
+    metadata: { source, destination: 'player_wallet' },
+  }));
+  rpc.mockReturnValue({ abortSignal: async () => ({ data }) });
+  render(<MemberTransactionHistory clubId="club" memberId="agent" viewerId="staff" scope="club" />);
+  async function expectRoutes() {
+    for (const wallet of ['Player', 'Promo', 'Agent']) {
+      const label = await screen.findByText('From ' + wallet + ' Wallet To Player Wallet');
+      const row = label.closest('.mm-stat');
+      expect(row?.textContent).toContain('Sender Sent To Recipient');
+      expect(row?.textContent).toContain('-50.00');
+    }
+  }
+  await expectRoutes();
+  fireEvent.click(screen.getByRole('button', { name: 'See All' }));
+  await expectRoutes();
+});

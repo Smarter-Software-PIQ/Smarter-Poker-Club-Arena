@@ -145,10 +145,10 @@ describe('the count between Lightning hands', () => {
     rerender(<HitRunCountPill hands={null} />);
     expect(screen.queryByTestId('hit-run-count-pill')).toBeNull();
   });
-  it('TablePage renders it only for a seatless Lightning hero at a cash table', () => {
+  it('TablePage wires the Lightning countdown and its retry below the hand number', () => {
     const page = flat('src/pages/TablePage.tsx');
     expect(page).toMatch(
-      /<HitRunCountPill hands=\{heroHandsOwed\} reason=\{heroHandCount\.reason \?\? null\} paused=\{heroHandCount\.paused \?\? null\} \/>/
+      /\(lightningRoom \|\| lightningCapableClusterId\) && \( <HitRunCountPill retryRead=\{heroHandCount\.retryRead\} hands=\{heroHandsOwed\} reason=\{heroHandCount\.reason \?\? null\} paused=\{heroHandCount\.paused \?\? null\} \/>/
     );
     const css = read('src/components/table/HitRunCountPill.css')
       .replace(/\/\*[\s\S]*?\*\//g, '')

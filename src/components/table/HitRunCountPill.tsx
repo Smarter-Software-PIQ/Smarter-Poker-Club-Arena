@@ -13,14 +13,22 @@ export default function HitRunCountPill({
   hands,
   reason = null,
   paused = null,
+  retryRead,
 }: {
   hands: number | null;
   reason?: HandsOwedReason | null;
   paused?: number | null;
+  retryRead?: () => void;
 }): React.ReactElement | null {
   const helpId = useId();
   const owing = hands !== null && hands > 0;
   const count = owing ? hands : paused;
+  if (retryRead)
+    return (
+      <button type="button" className="hit-run-pill" onClick={retryRead}>
+        Hand Count Unavailable · Retry
+      </button>
+    );
   if (!count || count <= 0) return null;
   const why = owing ? handsOwedReasonText(reason) : pausedHandsLeftText(count);
   const label = owing ? HIT_RUN_COUNT_LABEL : HIT_RUN_PAUSED_LABEL;
