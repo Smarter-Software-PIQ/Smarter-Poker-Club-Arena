@@ -23,13 +23,140 @@
 #
 # Exit codes: git's own code when fetch or push fail (141 included);
 #             2 refused before pushing (shared clone, main, detached HEAD);
-#             3 push reported success but the remote ref is not HEAD.
+#             3 push reported success but the remote ref is not HEAD;
+#             129/130/143 stopped by SIGHUP (or its parent shell going away),
+#             SIGINT or SIGTERM: the whole tree it started is terminated and
+#             nothing further is pushed.
 set -uo pipefail
 
 REMOTE=${AGENT_PUSH_REMOTE:-origin}
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 say() { printf '[agent-push] %s\n' "$*" >&2; }
+
+# IT OWNS THE PROCESS TREE IT STARTS (2026-11-15). Agents launch this helper
+# detached (`screen -dmS name bash -c 'bash scripts/agent-push.sh > log 2>&1'`)
+# and "stop" it with `screen -S name -X quit`. That killed the screen and the
+# outer shell, but this script, git push, the pre-push hook and its vitest
+# workers ran on for up to 40 minutes on the shared Mac, and a run that went
+# green would still have PUSHED a branch its agent believed it had stopped.
+# Three times on 2026-11-15. Bash runs a trap only after its foreground child
+# returns, and the hook's own HUP trap waits on vitest the same way, so a
+# hangup reached nothing that could act on it.
+#
+# So every step that can take time runs as a background job in a process
+# group of its own (`set -m` around the launch; bash 3.2 and 5, with or
+# without a terminal), and this shell waits on it with `wait`, which a trapped
+# signal interrupts at once. On SIGHUP, SIGINT or SIGTERM, or when a watcher
+# sees that this script's parent is gone (it was reparented), the handler
+# terminates that group and every process descended from it, escalates to
+# SIGKILL after five seconds, prints one STOPPED line and exits non-zero
+# without starting or finishing a push. Nothing here forces, skips a hook or
+# changes what the gate runs.
+STEP_PGID=
+PHASE=before
+MAIN_PID=$$
+ORIG_PPID=$PPID
+WATCHER=
+
+# Every pid descended from $1, read from one process table (pid and ppid only).
+# shellcheck disable=SC2329 # reached from the signal traps below
+descendants_of() {
+  ps -A -o pid= -o ppid= 2>/dev/null | awk -v root="$1" '
+    { parent[$1] = $2; order[NR] = $1 }
+    END {
+      found[root] = 1
+      grew = 1
+      while (grew) {
+        grew = 0
+        for (i = 1; i <= NR; i++) {
+          p = order[i]
+          if (!(p in found) && (parent[p] in found)) { found[p] = 1; grew = 1; print p }
+        }
+      }
+    }'
+}
+
+# True while any process of group $1, or any pid in the list $2, is still
+# running (a zombie awaiting its parent does not count).
+# shellcheck disable=SC2329 # reached from the signal traps below
+tree_running() {
+  ps -A -o pid= -o pgid= -o stat= 2>/dev/null | awk -v g="$1" -v list=" $2 " '
+    $3 !~ /^Z/ && ($2 == g || index(list, " " $1 " ")) { found = 1 }
+    END { exit !found }'
+}
+
+# shellcheck disable=SC2329 # reached from the signal traps below
+stop_step_tree() {
+  [ -n "$STEP_PGID" ] || return 0
+  local tree pid tries=0
+  tree=$(descendants_of "$STEP_PGID" | tr '\n' ' ')
+  kill -TERM -- "-$STEP_PGID" 2>/dev/null
+  for pid in $STEP_PGID $tree; do kill -TERM "$pid" 2>/dev/null; done
+  while tree_running "$STEP_PGID" "$tree"; do
+    if [ "$tries" -ge 20 ]; then
+      kill -KILL -- "-$STEP_PGID" 2>/dev/null
+      for pid in $STEP_PGID $tree; do kill -KILL "$pid" 2>/dev/null; done
+      break
+    fi
+    sleep 0.25
+    tries=$((tries + 1))
+  done
+  STEP_PGID=
+}
+
+# shellcheck disable=SC2329 # reached from the signal traps below
+stop_watcher() {
+  [ -n "$WATCHER" ] && kill "$WATCHER" 2>/dev/null
+  WATCHER=
+}
+
+# shellcheck disable=SC2329 # reached from the signal traps below
+on_stop() {
+  trap '' HUP INT TERM USR1
+  local outcome='nothing was pushed'
+  [ "$PHASE" = push ] && outcome='git push was stopped before it completed'
+  [ "$PHASE" = verify ] && outcome='git push had already returned; the remote ref was not verified'
+  stop_step_tree
+  stop_watcher
+  say "STOPPED: $1; terminated the process tree this run started; $outcome."
+  exit "$2"
+}
+trap 'on_stop "received SIGHUP" 129' HUP
+trap 'on_stop "received SIGINT" 130' INT
+trap 'on_stop "received SIGTERM" 143' TERM
+trap 'on_stop "its parent process went away" 129' USR1
+trap 'stop_watcher' EXIT
+
+# Run "$@" as a job with its own process group and wait for it. Returns its
+# exit code; a stop signal interrupts the wait and on_stop takes the group down.
+owned() {
+  set -m
+  "$@" &
+  STEP_PGID=$!
+  set +m
+  wait "$STEP_PGID"
+  local rc=$?
+  STEP_PGID=
+  return "$rc"
+}
+
+# A launcher that exits (the screen session or its shell is killed) leaves
+# this script reparented; nothing then signals it. Watch for that. A run
+# started directly under pid 1 has no launcher to lose and is not watched.
+if [ "$ORIG_PPID" -gt 1 ]; then
+  (
+    while kill -0 "$MAIN_PID" 2>/dev/null; do
+      now=$(ps -o ppid= -p "$MAIN_PID" 2>/dev/null | tr -d ' ')
+      if [ -n "$now" ] && [ "$now" != "$ORIG_PPID" ]; then
+        kill -USR1 "$MAIN_PID" 2>/dev/null
+        exit 0
+      fi
+      sleep 1
+    done
+  ) </dev/null &
+  WATCHER=$!
+fi
 
 # HTTPS instead of SSH for github.com, credentials from `gh`, and no ambient
 # GH_TOKEN/GITHUB_TOKEN (they override gh's own login with whatever a parent
@@ -84,7 +211,7 @@ fi
 HEAD_SHA=$(git rev-parse HEAD)
 
 say "fetching $REMOTE main (the pre-push hook compares against it)"
-remote_git fetch "$REMOTE" main
+owned remote_git fetch "$REMOTE" main
 rc=$?
 if [ "$rc" -ne 0 ]; then
   say "FAILED: git fetch $REMOTE main exited $rc."
@@ -128,7 +255,7 @@ for pkg in "$TREE_TOP" "$TREE_TOP/server"; do
 done
 
 # Show existing admission before expensive hooks; never skips a gate.
-node "$SCRIPT_DIR/ci/execution-preview.mjs"
+owned node "$SCRIPT_DIR/ci/execution-preview.mjs"
 rc=$?
 if [ "$rc" -ne 0 ]; then
   say "FAILED: execution preview could not inspect this candidate ($rc)."
@@ -150,14 +277,16 @@ if [ "$(uname -s)" = Darwin ]; then
     load=$(sysctl -n vm.loadavg 2>/dev/null | awk '{ print int($2) }')
     [ -n "$load" ] && [ "$load" -lt $(( cores * 3 / 2 )) ] && break
     [ "$waited" -eq 0 ] && say "waiting for the Mac's load ($load on $cores cores) to fall below $(( cores * 3 / 2 )) before running the gate (up to ${budget}s)"
-    sleep 15
+    owned sleep 15
     waited=$(( waited + 15 ))
   done
 fi
 
 say "pushing $BRANCH ($HEAD_SHA) to $REMOTE; the pre-push hook can take minutes"
-remote_git push -u "$REMOTE" "refs/heads/$BRANCH:refs/heads/$BRANCH"
+PHASE=push
+owned remote_git push -u "$REMOTE" "refs/heads/$BRANCH:refs/heads/$BRANCH"
 rc=$?
+PHASE=verify
 if [ "$rc" -ne 0 ]; then
   if [ "$rc" -eq 141 ]; then
     say "FAILED: git push died with SIGPIPE (exit 141); the connection closed under it."
