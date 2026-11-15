@@ -2482,6 +2482,8 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
           // reads the new leave_pending row can never cash this seat out early.
           const presentation = this.completionPresentation;
           presentation?.deferred.set(userId, { occupancyId: player.occupancy_id, written: false });
+          // And no seat move may carry it away while the request is in flight.
+          this.noteHeldDeparture(userId, player.occupancy_id);
           try {
             await requestSeatDeparture(
               userId,
@@ -2492,6 +2494,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
             );
           } catch {
             presentation?.deferred.delete(userId);
+            this.heldDepartures.delete(player.occupancy_id);
             return {
               success: false,
               immediate: false,
@@ -2502,10 +2505,12 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
             this.seatedPlayers.some(
               (p) => p.user_id === userId && p.occupancy_id !== player.occupancy_id
             )
-          )
+          ) {
+            presentation?.deferred.delete(userId);
+            this.heldDepartures.delete(player.occupancy_id);
             return stale();
+          }
           player.leave_pending = true;
-          this.noteHeldDeparture(userId, player.occupancy_id);
           const entry = presentation?.deferred.get(userId);
           if (entry) entry.written = true;
           if (this.completionPresentation !== presentation || !presentation) {

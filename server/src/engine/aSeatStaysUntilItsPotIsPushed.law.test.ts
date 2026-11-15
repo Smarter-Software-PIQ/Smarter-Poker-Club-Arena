@@ -228,6 +228,16 @@ describe('review fixes (2026-11-15)', () => {
     expect(base.slice(exec, base.indexOf(');', exec))).toContain('movable,');
   });
 
+  it('the seat-move block is in place before the departure request is written', async () => {
+    const e = makeEngineInCompletionHold();
+    let blockedDuringWrite: boolean | null = null;
+    departure.mockImplementationOnce(async () => {
+      blockedDuringWrite = e.heldDepartures.has(OCC[HUMAN]);
+    });
+    await e.leaveTable(HUMAN);
+    expect(blockedDuringWrite).toBe(true);
+  });
+
   it('when the held seat is cashed out, every client is told it left', async () => {
     const e = makeEngineInCompletionHold();
     e.wakeClusterGame = vi.fn();
