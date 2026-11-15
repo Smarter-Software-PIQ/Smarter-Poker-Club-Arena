@@ -86,6 +86,7 @@ export interface TableModalsLayerProps {
   isActive?: boolean;
   // Core context
   tableId: string | undefined;
+  cashStatsClusterId?: string | null;
   userId: string;
   username: string;
   /**
@@ -1157,7 +1158,7 @@ function TableModalsLayerImpl(props: TableModalsLayerProps) {
           <ThrowableSelector
             userId={userId}
             throwsEnabled={v8Settings.emoji_enabled}
-            cashTableId={!isTournament && tableId ? tableId : undefined}
+            cashTableId={isTournament ? undefined : (props.cashStatsClusterId ?? tableId)}
             targetName={selectedPlayerForNotes?.name}
             targetUserId={selectedPlayerForNotes?.id}
             hasNote={selectedPlayerHasNote}

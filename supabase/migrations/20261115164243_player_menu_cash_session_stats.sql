@@ -40,7 +40,7 @@ BEGIN
       AND c.purpose='cash_seat' AND c.state='active'
   )
   SELECT jsonb_agg(jsonb_build_object('tableId',s.id,'table',s.name,'unit',s.unit,'boughtIn',s.bought_in,
-    'hands',a.hands,'net',a.net,'vpip',a.vpip,'pfr',a.pfr) ORDER BY (s.id=p_table_id) DESC,s.id)
+    'hands',a.hands,'net',a.net,'vpip',a.vpip,'pfr',a.pfr) ORDER BY (s.id=p_table_id OR s.cluster_id IS NOT DISTINCT FROM p_table_id) DESC,s.id)
   INTO result FROM sittings s
   CROSS JOIN LATERAL (
     SELECT count(*) AS hands,
@@ -53,7 +53,7 @@ BEGIN
     WHERE h.created_at>=s.opened_at AND ht.tournament_id IS NULL
       AND (ht.id=s.id OR (s.cluster_id IS NOT NULL AND ht.cluster_id=s.cluster_id))
       AND h.players @> jsonb_build_array(jsonb_build_object('userId',p_player_id::text))
-  ) a WHERE EXISTS (SELECT 1 FROM seats WHERE id=p_table_id);
+  ) a WHERE EXISTS (SELECT 1 FROM seats WHERE id=p_table_id OR cluster_id=p_table_id);
   RETURN result;
 END;
 $fn$;

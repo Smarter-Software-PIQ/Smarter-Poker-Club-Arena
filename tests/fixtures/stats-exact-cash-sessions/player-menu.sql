@@ -27,6 +27,8 @@ BEGIN
   IF jsonb_array_length(stats) IS DISTINCT FROM 2 OR (stats->0) @>
     '{"hands":1,"net":-12.5,"boughtIn":200,"vpip":100,"pfr":0}' IS NOT TRUE
     OR (stats->1->>'net')::numeric IS DISTINCT FROM 0 THEN RAISE EXCEPTION 'session mismatch %',stats; END IF;
+  UPDATE tables SET cluster_id=club WHERE id=game;
+  IF public.ca_player_menu_cash_stats(club,player) IS NULL THEN RAISE EXCEPTION 'pool room'; END IF;
   PERFORM set_config('request.jwt.claim.sub',outsider::text,true);
   IF public.ca_player_menu_cash_stats(game,player) IS NOT NULL THEN RAISE EXCEPTION 'unrelated viewer'; END IF;
   PERFORM set_config('request.jwt.claim.sub','47965354-0e56-43ef-931c-ddaab82af765',true);

@@ -19,7 +19,9 @@ export function PlayerCashStats({ tableId, playerId }: { tableId: string; player
   const [expanded, setExpanded] = useState(false);
   useEffect(() => {
     let serial = 0;
-    async function refresh() {
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    async function read(attempt: number) {
+      clearTimeout(retryTimer);
       const request = ++serial;
       try {
         const { data, error } = await supabase.rpc('ca_player_menu_cash_stats', {
@@ -28,14 +30,20 @@ export function PlayerCashStats({ tableId, playerId }: { tableId: string; player
         });
         if (request !== serial) return;
         if (error) throw error;
-        setGames(Array.isArray(data) ? data : []);
+        const rows: CashGameStats[] = Array.isArray(data) ? data : [];
+        setGames(rows);
+        // Completion can precede the per-player hand facts by one database commit.
+        if (expanded && attempt < 2 && rows.some((game) => game.net === null)) {
+          retryTimer = setTimeout(() => void read(attempt + 1), 1000);
+        }
       } catch (error) {
         if (request !== serial) return;
         setGames([]);
         reportError(error, 'PlayerCashStats.read');
       }
     }
-    void refresh();
+    const refresh = () => void read(0);
+    refresh();
     const unsubscribe = expanded
       ? [
           masterBus.subscribe('HAND_COMPLETED', refresh),
@@ -45,6 +53,7 @@ export function PlayerCashStats({ tableId, playerId }: { tableId: string; player
         ]
       : [];
     return () => {
+      clearTimeout(retryTimer);
       serial++;
       unsubscribe.forEach((stop) => stop());
     };
@@ -67,12 +76,12 @@ export function PlayerCashStats({ tableId, playerId }: { tableId: string; player
               {game.table} · {game.unit}
             </strong>
             <div>
-              Bought in {game.boughtIn ?? 'Unavailable'} · Up / Down{' '}
+              Bought In {game.boughtIn ?? 'Unavailable'} · Up / Down{' '}
               {game.net == null ? 'Pending' : (game.net > 0 ? '+' : '') + game.net}
             </div>
             <div>
-              {game.hands} hands · VPIP {game.vpip == null ? '—' : game.vpip + '%'} · PFR{' '}
-              {game.pfr == null ? '—' : game.pfr + '%'}
+              {game.hands} Hands · VPIP {game.vpip == null ? 'N/A' : game.vpip + '%'} · PFR{' '}
+              {game.pfr == null ? 'N/A' : game.pfr + '%'}
             </div>
           </div>
         ))}
