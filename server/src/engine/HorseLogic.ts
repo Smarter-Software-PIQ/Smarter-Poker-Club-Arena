@@ -50,6 +50,7 @@ import {
   omahaTurnRedrawShare,
 } from './HorseOmahaMadeHandDefense.js';
 import { omahaOnePairDiscipline } from './HorseOmahaOnePair.js';
+import { omahaBigDrawVerdict } from './HorseOmahaBigDrawAggression.js';
 import type { OmahaReadConditional } from './HorseOmahaReadConditional.js';
 import { omahaRiverMediumBetCall } from './HorseOmahaRiverMediumBetCalls.js';
 import {
@@ -3177,6 +3178,21 @@ export interface HorseDecideOpts {
    * short-handed first-in rule acts, as on main before this rule. Receipt
    * omaha_full_table_sb_steal. */
   omahaSmallBlindSteal?: boolean;
+  /** Owner 2026-11-15 11:55 (play the combo draws and nut draws hard and
+   * fast; too many conservative plays with huge-equity draws): on a PLO4/PLO5
+   * cash flop or turn, a check or a call with a declared big draw
+   * (HorseOmahaBigDrawAggression.ts: the nut flush draw with a wrap, a
+   * straight draw or a pair; a 13+ out wrap to the nuts; a pair or a flush
+   * draw with nine nut straight outs) becomes a pot-sized bet or raise (the
+   * stack when a later street puts it in anyway) only when that wager's
+   * expected value is the higher one: fold equity from each opponent's
+   * measured fold to a bet (the population prior without a read) and the
+   * Horse's equity against the range that continues. Passive against a
+   * measured station without the equity, three or more opponents, two
+   * opponents without the nut end, paired boards, weak and non-nut draws,
+   * made hands. Default OFF (opt-in, read `=== true`) until its declared
+   * evaluation passes; league cards plo4/plo5 _omaha_big_draw_aggression. */
+  omahaBigDrawAggression?: boolean;
   /** A token-priced committed call is not barred by stack-off premiums
    * (HorseTokenCallPrice.ts, PLO6-AUDIT-010). Default on; false only for
    * the regression's non-vacuity control. */
@@ -7014,6 +7030,125 @@ function omahaUnderpairFlopFold(
 }
 
 /**
+ * omahaBigDrawAggression (owner 2026-11-15 11:55; default OFF, read
+ * `=== true`): the final answer's check or call with a declared big draw on a
+ * PLO4/PLO5 cash flop or turn becomes a pot-sized bet or raise (or the stack)
+ * when HorseOmahaBigDrawAggression.omahaBigDrawVerdict prices the wager above
+ * the passive line; every other decision is returned as is. Fold equity is
+ * each live opponent's fold to a bet as HorseMind.omahaReadConditionalOf
+ * reads it (the module's population prior with the mind off or no read).
+ * Runs outermost in the wager rules, after every owner that can fold, check
+ * or call. Draws no random number.
+ */
+export function omahaBigDrawAggression(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
+  if (opts.omahaBigDrawAggression !== true) return decision;
+  if (decision.action !== 'check' && decision.action !== 'call') return decision;
+  try {
+    const street = String(gs.stage ?? '');
+    if (street !== 'flop' && street !== 'turn') return decision;
+    const live = (gs.players ?? []).filter(
+      (p) => p.seat !== player.seat && !p.is_folded && !p.is_sitting_out
+    );
+    if (live.length === 0) return decision;
+    const heroBet = Number.isFinite(player.bet) ? Math.max(0, player.bet ?? 0) : 0;
+    const toCall = Number.isFinite(gs.toCall)
+      ? Math.max(0, gs.toCall as number)
+      : Math.max(0, (gs.currentBet || 0) - heroBet);
+    const stack = Number.isFinite(player.stack) ? Math.max(0, player.stack) : 0;
+    const pot = Number.isFinite(gs.pot) ? Math.max(0, gs.pot) : 0;
+    const currentBet = Number.isFinite(gs.currentBet) ? Math.max(0, gs.currentBet) : 0;
+    // The live engine states the wager menu; a state without one (the league
+    // simulator) gets the pot-limit menu the engine would state.
+    const potCapTo = currentBet + pot + toCall;
+    const maxRaiseTo = Number.isFinite(gs.maxRaiseTo)
+      ? (gs.maxRaiseTo as number)
+      : Math.min(heroBet + stack, potCapTo);
+    const minRaiseTo = Number.isFinite(gs.minRaiseTo)
+      ? (gs.minRaiseTo as number)
+      : Math.min(
+          maxRaiseTo,
+          currentBet + Math.max(gs.bigBlind || 0, gs.lastRaise || 0, gs.minRaise || 0)
+        );
+    const legalActions: readonly string[] = Array.isArray(gs.legalActions)
+      ? gs.legalActions
+      : [
+          ...(toCall > 0.005 ? ['fold', 'call'] : ['check']),
+          ...(maxRaiseTo > currentBet + 0.005 && stack > toCall + 0.005
+            ? [currentBet > 0.005 ? 'raise' : 'bet']
+            : []),
+          ...(stack > 0 && heroBet + stack <= potCapTo + 0.005 ? ['all_in'] : []),
+        ];
+    // In position: no live opponent acts after hero on this street.
+    const after = (seat: number): number => (((seat - (gs.dealerSeat ?? 0) - 1) % 32) + 32) % 32;
+    const inPosition =
+      typeof gs.dealerSeat === 'number' && live.every((p) => after(p.seat) < after(player.seat));
+    const useMind = opts.mind !== false;
+    const verdict = omahaBigDrawVerdict({
+      variant: String(gs.gameVariant ?? ''),
+      street,
+      hole: player.cards ?? [],
+      board: gs.communityCards ?? [],
+      dead: player.knownDeadCards ?? [],
+      action: decision.action,
+      pot,
+      toCall,
+      stack,
+      heroBet,
+      currentBet,
+      minRaiseTo,
+      maxRaiseTo,
+      legalActions,
+      opponents: live.map((p) => {
+        let foldToBet: number | null = null;
+        if (useMind) {
+          try {
+            foldToBet = HorseMind.omahaReadConditionalOf(p.user_id)?.foldToBet.mean ?? null;
+          } catch {
+            foldToBet = null;
+          }
+        }
+        return {
+          stack: Number.isFinite(p.stack) ? Math.max(0, p.stack) : 0,
+          bet: Number.isFinite(p.bet) ? Math.max(0, p.bet ?? 0) : 0,
+          allIn: p.is_all_in === true,
+          foldToBet,
+        };
+      }),
+      inPosition,
+      hiLo: gs.variantRules
+        ? gs.variantRules.splitLow8OrBetter
+        : variantInfo(gs.gameVariant).isHiLo,
+      multiBoard: !!(gs.communityCards2?.length || gs.communityCards3?.length),
+      bombPot: gs.bombPot === true,
+      tournament: isTournamentMode(gs),
+      allInOrFold: gs.allInOrFold === true,
+      wagersCapped: gs.wagersCapped === true,
+    });
+    if (verdict === null) return decision;
+    const tele = telemetryOn(opts);
+    if (verdict.wager === null) {
+      if (tele) noteFire('omaha_big_draw_aggression_withheld');
+      return decision;
+    }
+    const raised = decision.action === 'call';
+    if (tele && raised) noteFire('omaha_big_draw_aggression_raise');
+    if (tele && !raised) noteFire('omaha_big_draw_aggression_bet');
+    // The decision's ownership receipts travel with it, as the other final rules keep them.
+    const wagered: HorseDecision = { ...decision, action: verdict.wager.action };
+    if (verdict.wager.amount === undefined) delete wagered.amount;
+    else wagered.amount = verdict.wager.amount;
+    return wagered;
+  } catch {
+    return decision;
+  }
+}
+
+/**
  * The outermost Omaha call disciplines, in order: the read-conditional
  * preflop fold, the cold re-raise fold and the multiway underpair flop fold.
  * Each is opt-in; with all three unset the decision is returned as is.
@@ -8035,30 +8170,35 @@ function pairedBoardFoldOutsideGraph(
 ): HorseDecision {
   return decision.policyGraph === undefined
     ? omahaOwnerRuledFinal(
-        omahaFacingBetEvRule(
-          omahaRiverMediumBetStrongHandCalls(
-            omahaOopReraisedPotStrongRange(
-              omahaOutermostCallDiscipline(
-                omahaReraisedPotFold(
-                  omahaBigBetCallFold(
-                    omahaOwnBetRules(
-                      pairedBoardRiverCheck(
-                        pairedBoardFold(
-                          omahaMadeHandDefenseRules(
-                            omahaRiverNutRaiseOnly(
-                              decision,
+        omahaBigDrawAggression(
+          omahaFacingBetEvRule(
+            omahaRiverMediumBetStrongHandCalls(
+              omahaOopReraisedPotStrongRange(
+                omahaOutermostCallDiscipline(
+                  omahaReraisedPotFold(
+                    omahaBigBetCallFold(
+                      omahaOwnBetRules(
+                        pairedBoardRiverCheck(
+                          pairedBoardFold(
+                            omahaMadeHandDefenseRules(
+                              omahaRiverNutRaiseOnly(
+                                decision,
+                                player,
+                                gs,
+                                // The default-off near-nut value candidate keeps its own raise
+                                // when a league arm switches it on; production never does.
+                                opts.omahaRiverNutRaiseOnly !== false &&
+                                  !nearNutChosenRaises.has(decision)
+                              ).decision,
                               player,
                               gs,
-                              // The default-off near-nut value candidate keeps its own raise
-                              // when a league arm switches it on; production never does.
-                              opts.omahaRiverNutRaiseOnly !== false &&
-                                !nearNutChosenRaises.has(decision)
-                            ).decision,
+                              opts,
+                              null,
+                              nearNutChosenRaises.has(decision)
+                            ),
                             player,
                             gs,
-                            opts,
-                            null,
-                            nearNutChosenRaises.has(decision)
+                            opts
                           ),
                           player,
                           gs,
@@ -10032,22 +10172,27 @@ export class HorseLogic {
       if (tele && nutRaise.changed === 'fold_restored')
         noteFire('omaha_river_non_nut_raise_fold_restored');
       const prePremium = omahaOwnerRuledFinal(
-        omahaFacingBetEvRule(
-          omahaRiverMediumBetStrongHandCalls(
-            omahaOopReraisedPotStrongRange(
-              omahaOutermostCallDiscipline(
-                omahaReraisedPotFold(
-                  omahaBigBetCallFold(
-                    omahaOwnBetRules(
-                      pairedBoardRiverCheck(
-                        pairedBoardFold(
-                          omahaMadeHandDefenseRules(
-                            nutRaise.decision,
+        omahaBigDrawAggression(
+          omahaFacingBetEvRule(
+            omahaRiverMediumBetStrongHandCalls(
+              omahaOopReraisedPotStrongRange(
+                omahaOutermostCallDiscipline(
+                  omahaReraisedPotFold(
+                    omahaBigBetCallFold(
+                      omahaOwnBetRules(
+                        pairedBoardRiverCheck(
+                          pairedBoardFold(
+                            omahaMadeHandDefenseRules(
+                              nutRaise.decision,
+                              player,
+                              gs,
+                              opts,
+                              beforePhase10,
+                              nearNutChosen
+                            ),
                             player,
                             gs,
-                            opts,
-                            beforePhase10,
-                            nearNutChosen
+                            opts
                           ),
                           player,
                           gs,
@@ -10164,10 +10309,15 @@ export class HorseLogic {
           vi
         );
         return {
-          decision: onePair({ ...finalWager, action: legal.action, amount: legal.amount }),
+          decision: omahaBigDrawAggression(
+            onePair({ ...finalWager, action: legal.action, amount: legal.amount }),
+            player,
+            gs,
+            opts
+          ),
         };
       }
-      return { decision: onePair(finalWager) };
+      return { decision: omahaBigDrawAggression(onePair(finalWager), player, gs, opts) };
     }).decision;
     // Forced-phase authority (2026-11-07): an owner wager rule above may replace
     // an authorised Phase 10-13 candidate; its receipt must say so

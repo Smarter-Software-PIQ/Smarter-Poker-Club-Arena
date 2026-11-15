@@ -1044,6 +1044,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaBigDrawAggression',
+    'Owner 2026-11-15 11:55 (play the combo draws and nut draws hard and fast; too many conservative plays with huge-equity draws): on a PLO4/PLO5 cash flop or turn a check or a call with a declared big draw (nut flush draw with a wrap, a straight draw or a pair; a 13+ out wrap with nine nut outs; a pair or a flush draw with nine nut straight outs; never a paired board, a made hand, a bare or non-nut draw) becomes a pot-sized bet or raise, or the stack when a later street puts it in anyway, only when its expected value is the higher one: fold equity from each opponent measured fold to a bet (population prior without a read), equity against the range that continues; passive against three or more opponents and against two without the nut end (HorseOmahaBigDrawAggression.ts). Default OFF (opt-in); league cards plo4/plo5 _omaha_big_draw_aggression',
+    'V94'
+  ),
+  flag(
     'omahaNutClassValueSize',
     'Dan 2026-11-14: a PLO4/PLO5 high bet or raise with the nuts or an effective-nut hand for the street is the full pot (the pot-limit maximum, the stack when smaller) on the flop, turn and river. Default OFF (opt-in): its declared evaluation failed on the Horse-only cells (PLO4 -1.19, PLO5 -1.31 bb/100; human field +2.29)',
     'V94'
@@ -4185,6 +4190,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_street_plan_followed',
     'HorseLogic.decide (HorseOmahaStreetPlan, omahaStreetPlan; inside the paired-board fold)',
     'PLO4/PLO5 cash heads-up river call after the Horse turn bet was called: the turn plan, recomputed from the public history, calls this river card for this bet or less, so the paired-board fold stood aside and the reference decision stood',
+    'V94'
+  ),
+  receipt(
+    'omaha_big_draw_aggression_raise',
+    'HorseLogic wager_rules (HorseOmahaBigDrawAggression, omahaBigDrawAggression)',
+    'PLO4/PLO5 cash flop or turn call with a declared big draw whose pot-sized raise (or stack) was priced above the call: raised',
+    'V94'
+  ),
+  receipt(
+    'omaha_big_draw_aggression_bet',
+    'HorseLogic wager_rules (HorseOmahaBigDrawAggression, omahaBigDrawAggression)',
+    'PLO4/PLO5 cash flop or turn check with a declared big draw whose pot-sized bet (or stack) was priced above the check: bet',
+    'V94'
+  ),
+  receipt(
+    'omaha_big_draw_aggression_withheld',
+    'HorseLogic wager_rules (HorseOmahaBigDrawAggression, omahaBigDrawAggression)',
+    'a check or call with a declared big draw the rule examined and kept: the passive line was worth more (low fold equity without the equity), three or more opponents, two opponents without the nut end, a raise of its own bet, or no legal wager',
     'V94'
   ),
   receipt(
