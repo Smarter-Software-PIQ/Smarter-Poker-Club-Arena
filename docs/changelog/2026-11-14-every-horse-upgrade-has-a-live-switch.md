@@ -17,7 +17,8 @@ same options and journals the same replay state as one with no switch wired.
 Service role only; every change is recorded in `ca_horse_style_switch_audit`
 with the actor, the time and a note.
 
-    SELECT public.fn_ca_horse_option_switch_set('<option>', 'off', '<actor>', '<note>');  -- 'on' only with evidence, below
+    SELECT public.fn_ca_horse_option_switch_set('<option>', 'off', '<actor>', '<note>');
+    SELECT public.fn_ca_horse_option_switch_set('<option>', 'on', '<actor>', 'authority: <option> <file> sha256 <64 hex>');  -- see "Live on and off" at the end
     SELECT public.fn_ca_horse_option_switch_clear('<option>', '<actor>', '<note>');  -- back to the release default
     SELECT public.fn_ca_horse_option_switch_effective();
 
@@ -40,6 +41,11 @@ earns its promotion evidence (see the next section): `v16Hu`,
 `readBreakEvenBluff`, `readScopedShrink`, `omahaNeutralUnknown`.
 
 ## 'on' needs promotion evidence (HA-10878-1)
+
+> **SUPERSEDED for the switch (2026-11-14 22:01 and 23:10 Chicago, see the updates and "Live on and off" at the
+> end).** This section describes the first design. There is no `OPTION_SWITCH_EVIDENCED_ON` list in the engine
+> any more: `on` is not compiled into a release. It is kept as the record of HA-10878-1; the source-default law
+> (`HorseDefaultOnNeedsEvidence.law.test.ts`) still applies to changing a default in source.
 
 A fleet-wide `on` row for one of the fourteen is the same behaviour as turning
 that option on by default, with no review between the row and the decision. So
@@ -176,3 +182,28 @@ Owner order (retained as OWNER-MESSAGE-20261114-2201CT-EVERY-FEATURE-ON-WITH-SWI
 ## Update, 2026-11-14 23:10 Chicago: approved OFF states are enforced, and on needs the option's own citation
 
 Owner ruling (retained as OWNER-INSTRUCTION-20261114-2310CT-FINISH-SCOPE-NO-BLANKET-SWITCH-ON.md): "Preserve approved OFF states. No automatic blanket switch-on after sealing." Hand Analysis's review of e58c14ab (blocker B1) found that a hold was only recorded and that one generic note could switch any option on. Now: an option in OPTION_SWITCH_OFF_ONLY (owner hold: the preflop range hold and the 21:30 Omaha tight ruling; measured harm or failed evaluation: commitUnderPot and the activation manifest's section 4 list; superseded: v55OmahaRiverTripsFlat) is registered with off only. The registry does not offer on, the parser treats an on row for it as an invalid configuration, the decision options never pass true for it, and the database answers ARRAY['off'] so the set function and the table refuse on from any writer with any note. Lifting a hold is a reviewed source change to that map. For every other registered non-style option, on is written only with the option's own citation ("authority: <option> <file> sha256 <64 hex>"), at the set function and at the table; a junk note, a generic authority note, another option's citation and a note without a sha256 are refused (optionSwitchOnNote builds a valid note). v41Leaks is refused by name (owner hold: leak maps). The migration sets a 3 second lock_timeout and makes one attempt. Still no row is added and no option is enabled.
+
+## Live on and off, without an engine release (owner order 2026-11-15 11:24 Chicago)
+
+Owner (verbatim): "NO THESE NEED TO BE "PRE BUILT IN" AND LITERALLY JUST TURNED ON AND OFF WITHOUT REQUIRING A NEW ENGINE CUT OVER. THATS HOW THESE MUST BE BUILT."
+
+That is how the switch works as built (no code change in this update; the sections above that say otherwise are superseded):
+
+- An option is PRE-BUILT: it ships in an engine release behind its ledger flag, at its release default (normally off), and registers itself in the switch (after the base migration is installed, through the follow-up migration route).
+- From then on it is turned ON and OFF live. Service role, audited, about 30 seconds to every decision worker, no engine release, restart or cutover:
+
+      SELECT public.fn_ca_horse_option_switch_set('<option>', 'on',  '<actor>', 'authority: <option> <file> sha256 <64 hex>');
+      SELECT public.fn_ca_horse_option_switch_set('<option>', 'off', '<actor>', '<note>');
+      SELECT public.fn_ca_horse_option_switch_clear('<option>', '<actor>', '<note>');   -- back to the release default
+      SELECT public.fn_ca_horse_option_switch_effective();
+
+  The `on` note is the option's own citation: its name, then the file that authorises it (its evidence file, the reviewer's ACCEPT record, or the owner's retained order) and that file's sha256. The engine has no compiled list of options that may go on: `optionSwitchStatesFrom` accepts `on` for every registered option that is not off-only, and `optionSwitchDecisionOpts` passes `true`.
+
+- Proven: `everyUpgradeHasALiveSwitch.law.test.ts` ("the engine accepts on and off for every registered option that is not off-only", "a worker that starts while an on row exists applies it on its very first decision", "a row reaches a real decision as off = false and on = true") and the PostgreSQL proof (`scripts/ci/test-horse-option-switch-evidence-postgres.sh`: `on` with the option's own citation is written; junk, generic and blanket notes are refused).
+
+What still needs a release or a reviewed source change, on purpose:
+
+- The option's CODE must be in the serving engine. A rule that has not shipped cannot be switched on; build it in (default off) first.
+- An OFF-ONLY option (owner hold, measured harm or failed evaluation, superseded; the steal and All-In-Or-Fold patterns) never goes on by any note. Lifting one is a reviewed change to `OPTION_SWITCH_OFF_ONLY`, then a release.
+- The refused names (held-out packs, phase packs, Pillar 2, R7/R8, leak maps, withdrawn rules) are not switchable at all.
+- The database checks the citation's form (the option's own name and a sha256), not the file behind it: whether the evidence meets the bar is the independent reviewer's verdict, recorded before the row is set. The audit table keeps who set it, when and with which citation.
