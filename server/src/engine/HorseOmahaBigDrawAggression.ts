@@ -193,6 +193,35 @@ export function omahaHeroInPosition(
   return liveOpponentSeats.every((s) => after(s) < after(heroSeat));
 }
 
+/**
+ * THE ONE DEFINITION of the combo draw that may raise in position (owner
+ * ruling 2026-11-15 12:30, read literally by the lane owner after the audit):
+ * a draw below two pair (a flush draw, or eight or more straight outs) that is
+ * a flush draw with eight or more straight outs, or a strong pair with a draw.
+ * A bare flush draw and a bare straight draw or wrap are not. Used by the
+ * draw-raise bar here and by omahaTurnRiverRaiseNeedsNuts's turn exception.
+ */
+export function omahaComboDrawForRaise(
+  hole: readonly Card[],
+  board: readonly Card[],
+  dead: readonly Card[] = []
+): boolean {
+  try {
+    const h = [...hole];
+    const b = [...board];
+    if (b.length !== 3 && b.length !== 4) return false;
+    const cat = catOf(h, b);
+    if (cat >= 3) return false;
+    const o = drawOuts(h, b, dead);
+    const flush = o.flushOuts >= 5;
+    if (!flush && o.straightOuts < 8) return false;
+    if (flush && o.straightOuts >= 8) return true;
+    return strongPair(hole, board, cat);
+  } catch {
+    return false;
+  }
+}
+
 export type OmahaDrawRaiseBar = 'out_of_position' | 'bare_flush_draw' | 'bare_straight_draw';
 
 /**
@@ -230,12 +259,7 @@ export function omahaDrawRaiseBar(i: {
     const flush = o.flushOuts >= 5;
     if (!flush && o.straightOuts < 8) return null;
     if (!i.inPosition) return 'out_of_position';
-    // In position ONLY a combo draw raises (owner ruling 12:30, read
-    // literally by the lane owner after the 2026-11-15 audit): a flush draw
-    // with eight or more straight outs, or a strong pair with a draw. A bare
-    // flush draw and a bare straight draw or wrap may not raise.
-    if (flush && o.straightOuts >= 8) return null;
-    if (strongPair(i.hole, i.board, cat)) return null;
+    if (omahaComboDrawForRaise(i.hole, i.board, i.dead ?? [])) return null;
     return flush ? 'bare_flush_draw' : 'bare_straight_draw';
   } catch {
     return null;

@@ -17,11 +17,11 @@
  * This file holds the public scope, the raise test, the combo-draw exception
  * and the fallback price; it draws no random number.
  */
-import type { Card, HorseDecision, SeatPlayer } from '../types.js';
+import type { HorseDecision, SeatPlayer } from '../types.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
-import { RANKS, SUITS } from './PokerEngine.js';
-import { omahaNutStatus, scoreOmahaHiPartial, variantInfo } from './HorseEval.js';
+import { variantInfo } from './HorseEval.js';
 import { omahaNutClassNow } from './HorseOmahaMadeHandDefense.js';
+import { omahaComboDrawForRaise } from './HorseOmahaBigDrawAggression.js';
 
 export const OMAHA_RAISE_NEEDS_NUTS_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
 
@@ -123,47 +123,13 @@ export function omahaDecisionRaises(
   return false;
 }
 
-const key = (c: Card): string => `${c.rank}:${c.suit}`;
-const rv = (c: Card): number => RANKS.indexOf(c.rank);
-const catOf = (hole: Card[], board: Card[]): number =>
-  Math.floor(scoreOmahaHiPartial(hole, board) / 0x100000);
-const unpaired = (board: readonly Card[]): boolean =>
-  new Set(board.map((c) => c.rank)).size === board.length;
-
-/** Top pair, an overpair, or two pair (the 12:30 rule's strong pair). */
-function strongPair(hole: readonly Card[], board: readonly Card[], cat: number): boolean {
-  if (cat === 3) return true;
-  if (cat !== 2) return false;
-  const top = Math.max(...board.map(rv));
-  if (hole.some((c) => rv(c) === top)) return true;
-  const n = new Map<number, number>();
-  for (const c of hole) n.set(rv(c), (n.get(rv(c)) ?? 0) + 1);
-  for (const [r, k] of n) if (k >= 2 && r > top) return true;
-  return false;
-}
-
-/** Next-card straight and flush outs by enumeration with the two-card rule (12:30 rule's count). */
-function drawOuts(h: Card[], b: Card[], dead: readonly Card[]) {
-  const seen = new Set([...h, ...b, ...dead].map(key));
-  let straightOuts = 0;
-  let flushOuts = 0;
-  for (const rank of RANKS)
-    for (const suit of SUITS) {
-      const card = { rank, suit } as Card;
-      if (seen.has(key(card))) continue;
-      const next = [...b, card];
-      const st = omahaNutStatus(h, next);
-      if (st.category === 6) flushOuts++;
-      else if (st.category === 5) straightOuts++;
-    }
-  return { straightOuts, flushOuts };
-}
-
 /**
- * The 12:30 exception, turn only: the hand is a draw below two pair (the 12:30
- * rule's definition), the Horse is in position, and it is a combo draw: a
- * flush draw with an 8+ out straight draw or with a strong pair. A made hand,
- * a draw out of position, a bare flush draw and a bare wrap are not excepted.
+ * The 12:30 exception, turn only: the Horse is in position and the hand is the
+ * combo draw that may raise there, by the ONE definition in
+ * HorseOmahaBigDrawAggression.omahaComboDrawForRaise (a draw below two pair
+ * that is a flush draw with an 8+ out straight draw, or a strong pair with a
+ * draw). A made hand, a draw out of position, a bare flush draw and a bare
+ * wrap are not excepted.
  */
 export function omahaTurnComboDrawRaisePermitted(
   player: SeatPlayer,
@@ -172,14 +138,13 @@ export function omahaTurnComboDrawRaisePermitted(
 ): boolean {
   try {
     if (scope.street !== 'turn' || !scope.inPosition) return false;
-    const h = [...(player.cards ?? [])];
-    const b = [...(gs.communityCards ?? [])];
-    if (b.length !== 4) return false;
-    const cat = catOf(h, b);
-    if (cat >= 3) return false;
-    const o = drawOuts(h, b, player.knownDeadCards ?? []);
-    if (o.flushOuts < 5) return false;
-    return o.straightOuts >= 8 || strongPair(h, b, cat);
+    if ((gs.communityCards ?? []).length !== 4) return false;
+    // One definition: the combodraw module's (HorseOmahaBigDrawAggression).
+    return omahaComboDrawForRaise(
+      player.cards ?? [],
+      gs.communityCards ?? [],
+      player.knownDeadCards ?? []
+    );
   } catch {
     return false;
   }
