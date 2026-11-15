@@ -12,9 +12,11 @@ import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
+  ACCOUNTING_HARNESS_READS,
   accountingJobInputs,
   classifyChangedPaths,
 } from '../../scripts/ci/classify-ci-changes.mjs';
+import { generatedAccountingHarnessReads } from '../../scripts/ci/accounting-harness-reads.mjs';
 
 const root = resolve(__dirname, '../..');
 const ci = readFileSync(join(root, '.github/workflows/ci.yml'), 'utf8');
@@ -52,5 +54,41 @@ describe('the accounting job names its own inputs', () => {
 
   it('fails open when ci.yml cannot be read', () => {
     expect(accountingJobInputs(mkdtempSync(join(tmpdir(), 'no-ci-')))).toBeNull();
+  });
+
+  // 2026-11-15: #10888 changed the cashier release contract and its fixture;
+  // neither is named in the block, the change admitted no job, and the promo
+  // proof that reads both (started by the exact-intent harness) broke on main.
+  describe('what a harness reads admits the job that runs it', () => {
+    it('the committed list equals what the harnesses read today', () => {
+      expect(readFileSync(join(root, ACCOUNTING_HARNESS_READS), 'utf8')).toBe(
+        generatedAccountingHarnessReads(root)
+      );
+    }, 180_000);
+
+    it('admits the accounting job and the unit suite for the #10888 files', () => {
+      for (const path of [
+        'scripts/verification-harness/cashier-release-contract.sql',
+        'scripts/ci/fixtures/world-hub-cashier-migrations-20261114.json',
+        'scripts/ci/test-promo-downline-limit-postgres.py',
+      ]) {
+        const flags = classifyChangedPaths([path]);
+        expect(flags.server, path).toBe(true);
+        expect(flags.tests, path).toBe(true);
+      }
+    });
+
+    it('follows a harness one named harness starts, and a directory it reads', () => {
+      expect(named).not.toContain('scripts/ci/test-promo-downline-limit-postgres.py');
+      expect(
+        classifyChangedPaths(['scripts/ci/fixtures/chip-wallet-choice/setup.sql']).server
+      ).toBe(true);
+    });
+
+    it('the list itself admits the job, and an unrelated file still admits nothing', () => {
+      expect(classifyChangedPaths([ACCOUNTING_HARNESS_READS]).server).toBe(true);
+      expect(classifyChangedPaths(['docs/changelog/x.md']).server).toBe(false);
+      expect(accountingJobInputs()?.('src/App.tsx')).toBe(false);
+    });
   });
 });

@@ -3,7 +3,7 @@
   "repository_files": {
     "scripts/ci/qualification-input-projections.py": "0e1a3b603b4b8adee23b915beb2e3b427c32aa31fb79186e77427293c6f50b86",
     "scripts/qualification/ci-accounting-inputs.json": "ddf0e982f660cfe8be74899b9439422a7e38899b982d05aec67abe1706c79a75",
-    "scripts/qualification/ci-admission-inputs.json": "8275cc6a48e74b21dc56c8d4ed5a143cb9dae6ffabba8dca65366d4920007887",
+    "scripts/qualification/ci-admission-inputs.json": "095e0a2f3157842e4116647327f4130e7529b8312ce2d96bf7908b489de7d667",
     "tests/fixtures/earlybird-fee-custody/setup.sql": "ac34d5f9432bd6c4ede4072439e66a6f93c7ffc0f5df53ca5a42d6d72c01e573",
     "tests/fixtures/earlybird-fee-custody/funding-scope.json": "342424a2012da6b9f987e5265d772e59f610dac74c4b5c89d1a718c8ec13e8ff",
     "tests/fixtures/earlybird-fee-custody/originals.json": "216b0724f54e34df563dbf24741c23a596cdf1534653da20e16affb464f326d0",
@@ -989,5 +989,15 @@
   ],
   "financialRecertification": false,
   "executionPerformed": false
-}
+},
+  "whatAHarnessReadsAdmitsItsJob20261115": {
+    "paths": {
+      "scripts/qualification/ci-admission-inputs.json": {
+        "before": "8275cc6a48e74b21dc56c8d4ed5a143cb9dae6ffabba8dca65366d4920007887",
+        "after": "095e0a2f3157842e4116647327f4130e7529b8312ce2d96bf7908b489de7d667"
+      }
+    },
+    "review": "Reviewed exact diff: classify-ci-changes.mjs's accountingJobInputs() now also admits every file listed in scripts/ci/accounting-harness-reads.json, the generated set of repository files and directories that an accounting_postgres harness reads (followed through the scripts/ci|dev/test-* harnesses one of them starts), and every accounting input also admits the unit suite. ci-admission-inputs.json changes only in 54 cases, each server false -> true (phase4 unchanged); regenerated with qualification-input-projections.py --write. It only widens job admission; no job is skipped that ran before. Financial inputs, assertions and historical qualification states unchanged; source identity only, no financial recertification.",
+    "reason": "2026-11-15: #10888 changed scripts/verification-harness/cashier-release-contract.sql and its fixture; neither is named in the accounting block, the change admitted no job, and scripts/ci/test-promo-downline-limit-postgres.py, which reads both, broke on main (fixed forward by #10916). Owner 2026-11-14 23:10 Chicago: applicable cashier changes must select the accounting proofs they affect."
+  }
 }

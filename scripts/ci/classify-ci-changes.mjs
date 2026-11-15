@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, readFileSync } from 'node:fs';
+import { appendFileSync, readFileSync, statSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pathToFileURL } from 'node:url';
@@ -140,10 +140,99 @@ export function accountingJobInputs(root = REPO_ROOT) {
       ) || []
     );
     if (!named.size) return null;
-    return (p) => named.has(p);
+    const reads = accountingHarnessReadsManifest(root);
+    return (p) =>
+      named.has(p) ||
+      p === ACCOUNTING_HARNESS_READS ||
+      reads.files.has(p) ||
+      reads.directories.some((d) => p.startsWith(d));
   } catch {
     return null;
   }
+}
+
+// WHAT A HARNESS READS IS AN INPUT OF THE JOB THAT RUNS IT (2026-11-15).
+//
+// #10888 changed scripts/verification-harness/cashier-release-contract.sql and
+// its fixture scripts/ci/fixtures/world-hub-cashier-migrations-20261114.json.
+// Neither is named in the accounting_postgres block, so the change admitted
+// no job at all, and scripts/ci/test-promo-downline-limit-postgres.py, which
+// reads both (and is itself reached only through
+// scripts/ci/test-cashier-authority-exact-intent-postgres.py), was not run. It
+// broke on main. Restating the list by hand is how the gap opened, so the job
+// is read once more: every repository path a named harness spells out as a
+// literal, followed through the harnesses it starts, admits the job. A literal
+// that names an existing file admits that file; one that names an existing
+// directory admits everything under it; anything else (a partial name built at
+// run time) admits nothing. Only widens admission; never skips a job.
+//
+// Reading several hundred harnesses takes seconds on a busy disk, so the set
+// is generated into ACCOUNTING_HARNESS_READS (node
+// scripts/ci/accounting-harness-reads.mjs --write) and the classifier reads
+// that file. tests/unit/theAccountingJobNamesItsOwnInputs.test.ts regenerates
+// it and fails when it differs, and every accounting input admits the unit
+// suite, so a harness that starts reading a new file cannot merge unlisted.
+// Only harnesses the job starts are followed: a named one, or a
+// scripts/ci|dev/test-* harness one of them names.
+export const ACCOUNTING_HARNESS_READS = 'scripts/ci/accounting-harness-reads.json';
+export function accountingHarnessReadsManifest(root = REPO_ROOT) {
+  try {
+    const value = JSON.parse(readFileSync(resolve(root, ACCOUNTING_HARNESS_READS), 'utf8'));
+    return { files: new Set(value.files), directories: value.directories };
+  } catch {
+    return { files: new Set(), directories: [] };
+  }
+}
+export function accountingJobNamedInputs(root = REPO_ROOT) {
+  const workflow = readFileSync(resolve(root, '.github/workflows/ci.yml'), 'utf8');
+  const start = workflow.search(/^  accounting_postgres:\s*$/m);
+  if (start < 0) return new Set();
+  const rest = workflow.slice(start + 1);
+  const next = rest.search(/^  [A-Za-z0-9_-]+:\s*$/m);
+  const block = next < 0 ? rest : rest.slice(0, next);
+  return new Set(
+    block.match(
+      /(?:scripts|tests|server\/scripts|operations)\/[A-Za-z0-9_./-]+\.(?:py|sh|mjs|sql|ts|js|json)/g
+    ) || []
+  );
+}
+const STARTED_HARNESS = /^scripts\/(?:ci|dev)\/test-[^/]+\.(?:py|sh|mjs)$/;
+const HARNESS_SOURCE = /\.(?:py|sh|mjs|js|ts|mts)$/;
+const HARNESS_LITERAL = /\b(?:scripts|tests|server\/scripts|operations|supabase)\/[\w./-]+/g;
+export function accountingHarnessReads(root, named) {
+  const files = new Set();
+  const directories = new Set();
+  const queue = [...named];
+  const seen = new Set(queue);
+  while (queue.length) {
+    const harness = queue.shift();
+    if (!HARNESS_SOURCE.test(harness)) continue;
+    let source;
+    try {
+      source = readFileSync(resolve(root, harness), 'utf8');
+    } catch {
+      continue;
+    }
+    for (const literal of source.match(HARNESS_LITERAL) || []) {
+      const path = literal.replace(/[./]+$/, '');
+      let stat;
+      try {
+        stat = statSync(resolve(root, path));
+      } catch {
+        continue;
+      }
+      if (stat.isDirectory()) {
+        if (path.split('/').length >= 3) directories.add(`${path}/`);
+      } else if (stat.isFile()) {
+        if (!named.has(path)) files.add(path);
+        if (!seen.has(path) && STARTED_HARNESS.test(path)) {
+          seen.add(path);
+          queue.push(path);
+        }
+      }
+    }
+  }
+  return { files: [...files].sort(), directories: [...directories].sort() };
 }
 const accountingJobInput =
   accountingJobInputs() || ((p) => /^scripts\/(?:ci|dev)\/test-[^/]+$/.test(p));
@@ -613,6 +702,10 @@ export function classifyChangedPaths(paths) {
       matches(satelliteLedgerAuditIndex) ||
       matches(certificationPlayerIndex),
     tests:
+      // Every accounting input also runs the unit suite: unit tests pin the
+      // same contracts and fixtures (tests/config/cashier*Contract.test.ts),
+      // and the law that regenerates ACCOUNTING_HARNESS_READS lives there.
+      paths.some(accountingJobInput) ||
       // The existing Horse study wrapper discovers these Python regressions.
       // Source-only edits must execute it, not merely a skipped unit gate.
       matches(/^scripts\/ops\/(?:(?:test_)?horse[-_][^/]+|(?:test_)?omaha_reference)\.py$/) ||
