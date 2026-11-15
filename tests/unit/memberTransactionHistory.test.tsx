@@ -205,3 +205,34 @@ it('retires old receipts when a refresh fails and keeps them hidden until Retry 
   finishRetry();
   expect(await screen.findByText('Sent To Second Player')).toBeVisible();
 });
+
+it('pages the combined club book without a person filter and names both parties', async () => {
+  rpc.mockImplementation((_name, args) => ({
+    abortSignal: async () => ({
+      data: Array.from({ length: 26 }, (_, i) => ({
+        id: String(i + 1),
+        created_at: '2026-11-15T05:00:00Z',
+        from_user_id: 'agent',
+        from_name: 'River',
+        to_user_id: 'player',
+        to_name: 'Shark',
+        amount_text: '10.25',
+        transaction_type: 'peer_transfer',
+      })).slice(0, args.p_before_id ? 1 : 26),
+    }),
+  }));
+  render(<MemberTransactionHistory clubId="club" memberId={null} revision={0} scope="club" />);
+  expect(await screen.findAllByText('River Sent To Shark')).toHaveLength(25);
+  fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+  await waitFor(() => expect(screen.getAllByText('River Sent To Shark')).toHaveLength(1));
+  expect(rpc).toHaveBeenLastCalledWith(
+    'fn_cashier_history_feed',
+    expect.objectContaining({
+      p_club_id: 'club',
+      p_scope: 'club',
+      p_person: null,
+      p_kind: 'all',
+      p_before_id: '25',
+    })
+  );
+});
