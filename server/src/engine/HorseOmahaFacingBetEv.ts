@@ -44,12 +44,15 @@
  *          called this bet (a strong range), one all in from an earlier
  *          street, and one still to act behind the Horse.
  *
- * Pure: no state, no random draws, no telemetry, no opponent memory. The
- * caller (HorseLogic) supplies the measured read.
+ * Pure: no random draws, no telemetry, no opponent memory; the only state is
+ * a memo of exact counts for the last few hands (the same cards give the
+ * same counts). The caller (HorseLogic) supplies the measured read.
  */
 import type { Card, SeatPlayer } from '../types.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
 import { scoreOmahaHiPartial } from './HorseEval.js';
+import { scoreFiveCards } from './HorseFiveCardScore.js';
+import { RANK_VALUES } from './PokerEngine.js';
 import { v81StreetWager } from './HorseOmahaBigBetCalls.js';
 
 export const OMAHA_FACING_BET_EV_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
@@ -220,32 +223,161 @@ export class PairSet {
 
 /**
  * The number of n-card holdings drawn from m cards that contain NO pair of
- * `bar` (and not the card `skip`, when given). Cards are taken in rising
- * order with the cards barred by those already taken carried as a mask; the
- * last card is counted, not walked. Exact.
+ * `bar` (and not the card `skip`, when given). Exact.
+ *
+ * A card no barred pair touches combines freely with every other card, so
+ * only the cards a barred pair touches are walked: the holdings with k of
+ * those cards and no barred pair are counted for every k (cards taken in
+ * rising order, the cards barred by those already taken dropped from the
+ * mask, the last card counted, not walked), and each is completed from the
+ * untouched cards by the binomial.
  */
 export function countHoldingsWithout(m: number, n: number, bar: PairSet, skip = -1): number {
   let allLo = m >= 32 ? -1 : (1 << m) - 1;
   let allHi = m > 32 ? (1 << (m - 32)) - 1 : 0;
   if (skip >= 0 && skip < 32) allLo &= ~(1 << skip);
   else if (skip >= 32) allHi &= ~(1 << (skip - 32));
+  return countHoldingsAmong(m, n, bar, allLo, allHi);
+}
+
+/** The same count over the cards of the mask (allLo, allHi) only. */
+function countHoldingsAmong(
+  m: number,
+  n: number,
+  bar: PairSet,
+  allLo: number,
+  allHi: number
+): number {
+  if (n === 0) return 1;
   const lo = bar.lo;
   const hi = bar.hi;
-  const count = (start: number, left: number, barLo: number, barHi: number): number => {
-    const fromLo = start >= 32 ? 0 : start === 0 ? -1 : ~((1 << start) - 1);
-    const fromHi = start <= 32 ? -1 : ~((1 << (start - 32)) - 1);
-    const freeLo = ~barLo & allLo & fromLo;
-    const freeHi = ~barHi & allHi & fromHi;
-    if (left === 1) return popcount(freeLo) + popcount(freeHi);
-    let total = 0;
-    for (let i = start; i <= m - left; i++) {
-      const free = i < 32 ? (freeLo >>> i) & 1 : (freeHi >>> (i - 32)) & 1;
-      if (!free) continue;
-      total += count(i + 1, left - 1, barLo | lo[i], barHi | hi[i]);
+  // The cards a barred pair touches, with the barred partners each has among the cards allowed.
+  const nbLo = new Int32Array(m);
+  const nbHi = new Int32Array(m);
+  const touched: number[] = [];
+  let tiedLo = 0;
+  let tiedHi = 0;
+  let loose = 0;
+  for (let i = 0; i < m; i++) {
+    if (((i < 32 ? allLo >>> i : allHi >>> (i - 32)) & 1) === 0) continue;
+    const l = lo[i] & allLo;
+    const h = hi[i] & allHi;
+    if (l === 0 && h === 0) {
+      loose++;
+      continue;
     }
-    return total;
-  };
-  return count(0, n, 0, 0);
+    nbLo[i] = l;
+    nbHi[i] = h;
+    touched.push(i);
+    if (i < 32) tiedLo |= 1 << i;
+    else tiedHi |= 1 << (i - 32);
+  }
+  // sets[k]: the holdings of k touched cards with no barred pair
+  const sets = new Float64Array(n + 1);
+  sets[0] = 1;
+  if (touched.length > 0) {
+    // Cards with the same barred partners are interchangeable (the cards of
+    // one rank outside a flush suit are): a group whose members are not
+    // barred from each other gives any number of its cards, a group whose
+    // members are all barred from each other gives one. Walking groups
+    // instead of cards counts the same holdings in far fewer steps.
+    const rep: number[] = [];
+    const size: number[] = [];
+    /** 0 one card, 1 members not barred from each other, 2 members all barred from each other */
+    const kind: number[] = [];
+    for (const u of touched) {
+      const ul = nbLo[u];
+      const uh = nbHi[u];
+      const ubl = u < 32 ? 1 << u : 0;
+      const ubh = u < 32 ? 0 : 1 << (u - 32);
+      let joined = false;
+      for (let c = 0; c < rep.length && !joined; c++) {
+        const r = rep[c];
+        if (kind[c] !== 2 && ul === nbLo[r] && uh === nbHi[r]) {
+          kind[c] = 1;
+          size[c]++;
+          joined = true;
+        } else if (kind[c] !== 1) {
+          const rbl = r < 32 ? 1 << r : 0;
+          const rbh = r < 32 ? 0 : 1 << (r - 32);
+          if ((ul | ubl) === (nbLo[r] | rbl) && (uh | ubh) === (nbHi[r] | rbh)) {
+            kind[c] = 2;
+            size[c]++;
+            joined = true;
+          }
+        }
+      }
+      if (!joined) {
+        rep.push(u);
+        size.push(1);
+        kind.push(0);
+      }
+    }
+    const groups = rep.length;
+    if (groups * 10 <= touched.length * 7) {
+      const ways: number[][] = size.map((sz, c) => {
+        const row = [0];
+        if (kind[c] === 2) row.push(sz);
+        else for (let k = 1; k <= Math.min(sz, n); k++) row.push(choose(sz, k));
+        return row;
+      });
+      const walkGroups = (
+        start: number,
+        freeLo: number,
+        freeHi: number,
+        taken: number,
+        weight: number
+      ): void => {
+        for (let c = start; c < groups; c++) {
+          const r = rep[c];
+          if (((r < 32 ? freeLo >>> r : freeHi >>> (r - 32)) & 1) === 0) continue;
+          const row = ways[c];
+          const nl = freeLo & ~nbLo[r];
+          const nh = freeHi & ~nbHi[r];
+          for (let k = 1; k < row.length && taken + k <= n; k++) {
+            const w = weight * row[k];
+            sets[taken + k] += w;
+            if (taken + k < n && c + 1 < groups) walkGroups(c + 1, nl, nh, taken + k, w);
+          }
+        }
+      };
+      walkGroups(0, tiedLo, tiedHi, 0, 1);
+    } else {
+      // Few interchangeable cards: the cards themselves, in rising order,
+      // the cards barred by those already taken dropped from the mask, the
+      // last card counted, not walked.
+      const walk = (freeLo: number, freeHi: number, taken: number): void => {
+        const c = popcount(freeLo) + popcount(freeHi);
+        if (c === 0) return;
+        sets[taken + 1] += c;
+        if (taken + 1 >= n) return;
+        const last = taken + 2 >= n;
+        let f = freeLo;
+        while (f !== 0) {
+          const b = f & -f;
+          const i = 31 - Math.clz32(b);
+          f ^= b;
+          const nl = f & ~lo[i];
+          const nh = freeHi & ~hi[i];
+          if (last) sets[n] += popcount(nl) + popcount(nh);
+          else if ((nl | nh) !== 0) walk(nl, nh, taken + 1);
+        }
+        f = freeHi;
+        while (f !== 0) {
+          const b = f & -f;
+          const i = 31 - Math.clz32(b);
+          f ^= b;
+          const nh = f & ~hi[32 + i];
+          if (last) sets[n] += popcount(nh);
+          else if (nh !== 0) walk(0, nh, taken + 1);
+        }
+      };
+      walk(tiedLo, tiedHi, 0);
+    }
+  }
+  let total = 0;
+  for (let k = 0; k <= n; k++) if (sets[k] > 0) total += sets[k] * choose(loose, n - k);
+  return total;
 }
 
 function unseenCards(hole: Card[], board: Card[], dead: Card[]): Card[] | null {
@@ -278,6 +410,12 @@ function pairScores(unseen: Card[], board: Card[]): Float64Array {
   return out;
 }
 
+/** The two sets hold the same pairs. */
+function samePairs(a: PairSet, b: PairSet): boolean {
+  for (let i = 0; i < a.m; i++) if (a.lo[i] !== b.lo[i] || a.hi[i] !== b.hi[i]) return false;
+  return true;
+}
+
 /** Pairs with score above `t` (strict) or at least `t`. */
 function pairsAbove(scores: Float64Array, m: number, t: number, orEqual: boolean): PairSet {
   const set = new PairSet(m);
@@ -289,6 +427,161 @@ function pairsAbove(scores: Float64Array, m: number, t: number, orEqual: boolean
   return set;
 }
 
+/** One river card of a turn hand: the Horse's score on it and the pairs that beat / at least tie it. */
+interface EvRiver {
+  B: PairSet;
+  BT: PairSet;
+}
+
+/**
+ * What one hand (hole, board, dead cards) fixes whatever the value share
+ * asked: the pair scores, and every exact count already taken, by name. The
+ * counts are pure functions of the cards, so a second question about the same
+ * hand (the facing-bet verdict, the raise rule's verdict, the strong-hand
+ * raise sizes, the deep look's replays) takes none of them again.
+ */
+interface EvCore {
+  id: string;
+  m: number;
+  n: number;
+  total: number;
+  scores: Float64Array;
+  sorted: Float64Array;
+  /** holdings above the threshold at a sorted index */
+  above: Map<number, number>;
+  /** exact counts by name */
+  counted: Map<string, number>;
+  /** turn only, built on first use */
+  rivers: EvRiver[] | null;
+}
+
+const EV_CORES: EvCore[] = [];
+const EV_CORES_MAX = 6;
+const EV_CORE_COUNTS_MAX = 6000;
+
+function evCore(hole: Card[], board: Card[], dead: Card[], unseen: Card[]): EvCore {
+  const id = `${hole.map(key).join(',')}|${board.map(key).join(',')}|${dead.map(key).join(',')}`;
+  const at = EV_CORES.findIndex((c) => c.id === id);
+  if (at >= 0) {
+    const hit = EV_CORES[at];
+    if (at > 0) {
+      EV_CORES.splice(at, 1);
+      EV_CORES.unshift(hit);
+    }
+    if (hit.counted.size > EV_CORE_COUNTS_MAX) hit.counted.clear();
+    return hit;
+  }
+  const m = unseen.length;
+  const scores = pairScores(unseen, board);
+  const distinct = new Set<number>();
+  for (let i = 0; i < m; i++) for (let j = i + 1; j < m; j++) distinct.add(scores[i * m + j]);
+  const core: EvCore = {
+    id,
+    m,
+    n: hole.length,
+    total: choose(m, hole.length),
+    scores,
+    sorted: Float64Array.from([...distinct].sort((a, b) => a - b)),
+    above: new Map(),
+    counted: new Map(),
+    rivers: null,
+  };
+  EV_CORES.unshift(core);
+  if (EV_CORES.length > EV_CORES_MAX) EV_CORES.length = EV_CORES_MAX;
+  return core;
+}
+
+/** Test seam: forget the remembered hands. */
+export function omahaEvHandCountsResetCache(): void {
+  EV_CORES.length = 0;
+}
+
+const RANK_OF_VALUE: string[] = [];
+for (const r of RANKS) RANK_OF_VALUE[RANK_VALUES[r]] = r;
+
+/**
+ * Every river card of a turn hand. A pair's river score is the better of its
+ * turn score and its best five with the river card (the six board pairs that
+ * go with it). Those fives depend on the pair's two ranks and on whether all
+ * five cards share a suit, so each river card is scored once per rank pair
+ * (and once more per rank pair in the river card's suit when two board cards
+ * share it) with the engine's own five-card score, and every pair reads its
+ * score from that table.
+ */
+function evRivers(core: EvCore, hole: Card[], board: Card[], unseen: Card[]): EvRiver[] {
+  const { m, scores } = core;
+  const rv = new Int32Array(m);
+  for (let i = 0; i < m; i++) rv[i] = RANK_VALUES[unseen[i].rank];
+  const five: Card[] = [board[0], board[1], board[2], board[3], board[0]];
+  const hand: Card[] = [board[0], board[0], board[0], board[0], board[0]];
+  const W = 16;
+  const plain = new Float64Array(W * W);
+  const suited = new Float64Array(W * W);
+  const rivers: EvRiver[] = [];
+  for (let k = 0; k < m; k++) {
+    const rc = unseen[k];
+    five[4] = rc;
+    const hero = scoreOmahaHiPartial(hole, five);
+    plain.fill(0);
+    suited.fill(0);
+    let flushSuit: string | null = null;
+    hand[4] = rc;
+    for (let a = 0; a < 4; a++)
+      for (let b = a + 1; b < 4; b++) {
+        const x = board[a];
+        const y = board[b];
+        hand[2] = x;
+        hand[3] = y;
+        const mono = x.suit === rc.suit && y.suit === rc.suit;
+        // Not a flush: one of the pair in a suit the board card is not.
+        const off = SUITS.find((s) => s !== x.suit)!;
+        for (let p = 2; p <= 14; p++) {
+          hand[0] = { rank: RANK_OF_VALUE[p], suit: off } as Card;
+          for (let q = p; q <= 14; q++) {
+            hand[1] = { rank: RANK_OF_VALUE[q], suit: rc.suit } as Card;
+            const s = scoreFiveCards(hand);
+            if (s > plain[p * W + q]) plain[p * W + q] = s;
+          }
+        }
+        if (!mono) continue;
+        flushSuit = rc.suit;
+        for (let p = 2; p <= 14; p++) {
+          hand[0] = { rank: RANK_OF_VALUE[p], suit: rc.suit } as Card;
+          for (let q = p + 1; q <= 14; q++) {
+            hand[1] = { rank: RANK_OF_VALUE[q], suit: rc.suit } as Card;
+            const s = scoreFiveCards(hand);
+            if (s > suited[p * W + q]) suited[p * W + q] = s;
+          }
+        }
+      }
+    const B = new PairSet(m);
+    const BT = new PairSet(m);
+    for (let i = 0; i < m; i++) {
+      if (i === k) continue;
+      const ri = rv[i];
+      const flushI = flushSuit !== null && unseen[i].suit === flushSuit;
+      for (let j = i + 1; j < m; j++) {
+        if (j === k) continue;
+        const rj = rv[j];
+        const at = ri <= rj ? ri * W + rj : rj * W + ri;
+        let s = scores[i * m + j];
+        const t = plain[at];
+        if (t > s) s = t;
+        if (flushI && unseen[j].suit === flushSuit) {
+          const u = suited[at];
+          if (u > s) s = u;
+        }
+        if (s >= hero) {
+          BT.add(i, j);
+          if (s > hero) B.add(i, j);
+        }
+      }
+    }
+    rivers.push({ B, BT });
+  }
+  return rivers;
+}
+
 /**
  * The score threshold t such that the holdings whose best pair scores ABOVE t
  * are, as nearly as the pair scores allow, the strongest `share` of all
@@ -296,18 +589,19 @@ function pairsAbove(scores: Float64Array, m: number, t: number, orEqual: boolean
  * count. Returns the threshold and the exact number of holdings above it.
  */
 function topShareThreshold(
-  scores: Float64Array,
-  sorted: Float64Array,
-  m: number,
-  n: number,
-  total: number,
+  core: EvCore,
   share: number,
   memo: Map<number, number>
 ): { t: number; above: number } {
+  const { scores, sorted, m, n, total } = core;
   const aboveOf = (idx: number): number => {
     let v = memo.get(idx);
     if (v === undefined) {
-      v = total - countHoldingsWithout(m, n, pairsAbove(scores, m, sorted[idx], false));
+      v = core.above.get(idx);
+      if (v === undefined) {
+        v = total - countHoldingsWithout(m, n, pairsAbove(scores, m, sorted[idx], false));
+        core.above.set(idx, v);
+      }
       memo.set(idx, v);
     }
     return v;
@@ -338,7 +632,7 @@ export interface OmahaEvHandCounts {
   unseen: number;
   holeCount: number;
   holdings: number;
-  /** two-card pairs scored and exact counts taken (the work done) */
+  /** two-card pairs and exact counts the answer rests on (the size of the question) */
   pairsScored: number;
   counts: number;
   /** against every holding (uniform): the Horse wins / ties */
@@ -359,6 +653,9 @@ export interface OmahaEvHandCounts {
  * OMAHA_EV_BLUFF_POOL of holdings. Turn: other = every non-value holding, and
  * each share is the average over every river card of the showdown result.
  * Null when the cards do not form an Omaha turn or river hand.
+ *
+ * The last few hands are remembered (EvCore): a count is a pure function of
+ * the cards, so asking again returns the same numbers without counting again.
  */
 export function omahaEvHandCounts(
   hole: Card[],
@@ -369,40 +666,43 @@ export function omahaEvHandCounts(
   if (!Array.isArray(hole) || !Array.isArray(board)) return null;
   if (hole.length !== 4 && hole.length !== 5) return null;
   if (board.length !== 4 && board.length !== 5) return null;
-  const unseen = unseenCards(hole, board, Array.isArray(dead) ? dead : []);
+  const deadCards = Array.isArray(dead) ? dead : [];
+  const unseen = unseenCards(hole, board, deadCards);
   if (!unseen) return null;
   const m = unseen.length;
   const n = hole.length;
   if (m < n + 1 || m > 48) return null;
-  const total = choose(m, n);
-  const scores = pairScores(unseen, board);
-  const distinct = new Set<number>();
-  for (let i = 0; i < m; i++) for (let j = i + 1; j < m; j++) distinct.add(scores[i * m + j]);
-  const sorted = Float64Array.from([...distinct].sort((a, b) => a - b));
+  const core = evCore(hole, board, deadCards, unseen);
+  const { total, scores } = core;
   const memo = new Map<number, number>();
   let counts = 0;
   let pairsScored = (m * (m - 1)) / 2;
-  const cnt = (bar: PairSet, skip = -1): number => {
+  const cnt = (name: string, bar: () => PairSet, skip = -1): number => {
     counts++;
-    return countHoldingsWithout(m, n, bar, skip);
+    let c = core.counted.get(name);
+    if (c === undefined) {
+      c = countHoldingsWithout(m, n, bar(), skip);
+      core.counted.set(name, c);
+    }
+    return c;
   };
   const share = Math.max(0.01, Math.min(0.95, valueShare));
-  const v = topShareThreshold(scores, sorted, m, n, total, share, memo);
+  const v = topShareThreshold(core, share, memo);
 
   if (board.length === 5) {
     const hero = scoreOmahaHiPartial(hole, board);
     if (!(hero > 0)) return null;
     const B = pairsAbove(scores, m, hero, false);
     const BT = pairsAbove(scores, m, hero, true);
-    const noB = cnt(B);
-    const noBT = cnt(BT);
+    const noB = cnt('B', () => B);
+    const noBT = cnt('BT', () => BT);
     /** Win / tie shares against the holdings whose best pair is ABOVE t (count `above`). */
     const againstAbove = (t: number, above: number): OmahaEvShares => {
       if (!(above > 0)) return { win: 0, tie: 0 };
       if (hero <= t) return { win: 0, tie: 0 }; // every holding above t beats the hand
       const S = pairsAbove(scores, m, t, false);
-      const winIn = noBT - cnt(BT.union(S));
-      const notBeatenIn = noB - cnt(B.union(S));
+      const winIn = noBT - cnt(`BT+${t}`, () => BT.union(S));
+      const notBeatenIn = noB - cnt(`B+${t}`, () => B.union(S));
       return { win: winIn / above, tie: (notBeatenIn - winIn) / above };
     };
     /** Win / tie shares against the holdings whose best pair is AT OR BELOW t. */
@@ -410,11 +710,11 @@ export function omahaEvHandCounts(
       const below = total - above;
       if (!(below > 0)) return { win: 0, tie: 0 };
       const S = pairsAbove(scores, m, t, false);
-      const winIn = cnt(BT.union(S));
-      const notBeatenIn = cnt(B.union(S));
+      const winIn = cnt(`BT+${t}`, () => BT.union(S));
+      const notBeatenIn = cnt(`B+${t}`, () => B.union(S));
       return { win: winIn / below, tie: (notBeatenIn - winIn) / below };
     };
-    const pool = topShareThreshold(scores, sorted, m, n, total, 1 - OMAHA_EV_BLUFF_POOL, memo);
+    const pool = topShareThreshold(core, 1 - OMAHA_EV_BLUFF_POOL, memo);
     const topMemo = new Map<number, OmahaEvShares & { share: number }>();
     return {
       street: 'river',
@@ -428,24 +728,20 @@ export function omahaEvHandCounts(
       all: { win: noBT / total, tie: (noB - noBT) / total },
       value: (() => {
         // top V at full weight, the thin-value band under it at half weight
-        const core = againstAbove(v.t, v.above);
+        const core0 = againstAbove(v.t, v.above);
         const wide = topShareThreshold(
-          scores,
-          sorted,
-          m,
-          n,
-          total,
+          core,
           Math.min(0.97, share * (1 + OMAHA_EV_THIN_VALUE_BAND)),
           memo
         );
         const band = wide.above - v.above;
-        if (!(band > 0)) return core;
+        if (!(band > 0)) return core0;
         const all = againstAbove(wide.t, wide.above);
         const w = OMAHA_EV_THIN_VALUE_WEIGHT;
         const weight = v.above + w * band;
         const part = (c: number, a: number): number =>
           (c * v.above + w * (a * wide.above - c * v.above)) / weight;
-        return { win: part(core.win, all.win), tie: part(core.tie, all.tie) };
+        return { win: part(core0.win, all.win), tie: part(core0.tie, all.tie) };
       })(),
       other: againstBelow(pool.t, pool.above),
       valueShare: v.above / total,
@@ -453,7 +749,7 @@ export function omahaEvHandCounts(
         const k = Math.round(s * 1000);
         let r = topMemo.get(k);
         if (!r) {
-          const th = topShareThreshold(scores, sorted, m, n, total, s, memo);
+          const th = topShareThreshold(core, s, memo);
           r = { ...againstAbove(th.t, th.above), share: th.above / total };
           topMemo.set(k, r);
         }
@@ -462,10 +758,11 @@ export function omahaEvHandCounts(
     } as OmahaEvHandCounts;
   }
 
-  // TURN: every river card. A pair's river score is the better of its turn
-  // score and its best five with the river card (the six board triples that
-  // use it), so only those are scored.
-  const V = pairsAbove(scores, m, v.t, false);
+  // TURN: every river card (evRivers).
+  if (core.rivers === null) core.rivers = evRivers(core, hole, board, unseen);
+  const rivers = core.rivers;
+  let V: PairSet | null = null;
+  const valueSet = (): PairSet => (V ??= pairsAbove(scores, m, v.t, false));
   let allWin = 0;
   let allTie = 0;
   let valWin = 0;
@@ -476,43 +773,59 @@ export function omahaEvHandCounts(
   let valN = 0;
   let othN = 0;
   const perRiver = choose(m - 1, n);
-  const two: Card[] = [unseen[0], unseen[0]];
-  const tri: Card[][] = [];
-  for (let a = 0; a < 4; a++) for (let b = a + 1; b < 4; b++) tri.push([board[a], board[b]]);
-  const five: Card[] = [board[0], board[1], board[2], board[3], board[0]];
-  const three: Card[] = [board[0], board[1], board[0]];
-  for (let k = 0; k < m; k++) {
-    const rc = unseen[k];
-    five[4] = rc;
-    const hero = scoreOmahaHiPartial(hole, five);
-    const B = new PairSet(m);
-    const BT = new PairSet(m);
-    for (let i = 0; i < m; i++) {
-      if (i === k) continue;
-      two[0] = unseen[i];
-      for (let j = i + 1; j < m; j++) {
-        if (j === k) continue;
-        two[1] = unseen[j];
-        let s = scores[i * m + j];
-        for (const [x, y] of tri) {
-          three[0] = x;
-          three[1] = y;
-          three[2] = rc;
-          const s2 = scoreOmahaHiPartial(two, three);
-          if (s2 > s) s = s2;
-        }
-        if (s >= hero) {
-          BT.add(i, j);
-          if (s > hero) B.add(i, j);
-        }
+  // The holdings with no value pair, over every card: one count. Without
+  // the river card k it is that less the holdings that contain k, which are
+  // k with a smaller holding of the cards no value pair joins to k.
+  let noVAny = -1;
+  const noValueWithout = (k: number): number => {
+    counts++;
+    const name = `${k}:V${v.t}`;
+    let c = core.counted.get(name);
+    if (c === undefined) {
+      const set = valueSet();
+      if (noVAny < 0) {
+        const all = `V${v.t}`;
+        const known = core.counted.get(all);
+        noVAny = known === undefined ? countHoldingsWithout(m, n, set) : known;
+        if (known === undefined) core.counted.set(all, noVAny);
       }
+      let lo = (m >= 32 ? -1 : (1 << m) - 1) & ~set.lo[k];
+      let hi = (m > 32 ? (1 << (m - 32)) - 1 : 0) & ~set.hi[k];
+      if (k < 32) lo &= ~(1 << k);
+      else hi &= ~(1 << (k - 32));
+      c = noVAny - countHoldingsAmong(m, n - 1, set, lo, hi);
+      core.counted.set(name, c);
     }
+    return c;
+  };
+  for (let k = 0; k < m; k++) {
+    const { B, BT } = rivers[k];
     pairsScored += ((m - 1) * (m - 2)) / 2;
-    const noB = cnt(B, k);
-    const noBT = cnt(BT, k);
-    const noV = cnt(V, k);
-    const noBV = cnt(B.union(V), k);
-    const noBTV = cnt(BT.union(V), k);
+    // Two sets with the same pairs have the same count: taken once.
+    const taken: Array<[PairSet, number]> = [];
+    const cntK = (name: string, bar: () => PairSet): number => {
+      counts++;
+      let c = core.counted.get(name);
+      if (c === undefined) {
+        const set = bar();
+        for (const [other, n0] of taken)
+          if (samePairs(other, set)) {
+            c = n0;
+            break;
+          }
+        if (c === undefined) {
+          c = countHoldingsWithout(m, n, set, k);
+          taken.push([set, c]);
+        }
+        core.counted.set(name, c);
+      }
+      return c;
+    };
+    const noB = cntK(`${k}:B`, () => B);
+    const noBT = cntK(`${k}:BT`, () => BT);
+    const noV = noValueWithout(k);
+    const noBV = cntK(`${k}:B+${v.t}`, () => B.union(valueSet()));
+    const noBTV = cntK(`${k}:BT+${v.t}`, () => BT.union(valueSet()));
     allN += perRiver;
     allWin += noBT;
     allTie += noB - noBT;
@@ -527,8 +840,8 @@ export function omahaEvHandCounts(
   const heroNow = scoreOmahaHiPartial(hole, board);
   const BTnow = pairsAbove(scores, m, heroNow, true);
   const Bnow = pairsAbove(scores, m, heroNow, false);
-  const noBnow = cnt(Bnow);
-  const noBTnow = cnt(BTnow);
+  const noBnow = cnt('B', () => Bnow);
+  const noBTnow = cnt('BT', () => BTnow);
   const topMemo = new Map<number, OmahaEvShares & { share: number }>();
   return {
     street: 'turn',
@@ -547,12 +860,12 @@ export function omahaEvHandCounts(
       const kk = Math.round(s * 1000);
       let r = topMemo.get(kk);
       if (!r) {
-        const th = topShareThreshold(scores, sorted, m, n, total, s, memo);
+        const th = topShareThreshold(core, s, memo);
         if (!(th.above > 0) || heroNow <= th.t) r = { win: 0, tie: 0, share: th.above / total };
         else {
           const S = pairsAbove(scores, m, th.t, false);
-          const winIn = noBTnow - cnt(BTnow.union(S));
-          const nb = noBnow - cnt(Bnow.union(S));
+          const winIn = noBTnow - cnt(`BT+${th.t}`, () => BTnow.union(S));
+          const nb = noBnow - cnt(`B+${th.t}`, () => Bnow.union(S));
           r = { win: winIn / th.above, tie: (nb - winIn) / th.above, share: th.above / total };
         }
         topMemo.set(kk, r);
