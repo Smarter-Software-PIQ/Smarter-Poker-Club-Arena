@@ -1015,7 +1015,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'omahaBareOverpairOopFlopCheck',
-    'Owner 2026-11-15 11:05 (hand 59517323): PLO4/PLO5 cash, flop, out of position (an opponent still acts behind), one pair only, no flush draw and under eight straight outs, the flop two-tone or connected: a bet becomes a check, heads-up and multiway, with no opponent read and no stack-to-pot exception. The continuation, heads-up only: having checked and facing the flop bet, never a raise; a call when the expected value of the call (the exact cards against the bettor range by his bet size, moved by his measured read, at the price, with a stated 0.75 out-of-position realisation discount that is not measured) clears 2 percent of the final pot, else a fold; multiway and the whole-stack call keep the decision (HorseOmahaOopChecks.ts). Default OFF (read === true) until its declared evaluation passes',
+    'Owner 2026-11-15 11:05 (hand 59517323), widened 14:19 and 14:23 (all big pairs with the betting lead): PLO4/PLO5 cash, flop, the Horse was the last preflop aggressor and is out of position (an opponent still acts behind) with a bare big pair, a pocket pair that is an overpair to the flop or pocket queens or better with at most one overcard on it, exactly one pair made, no flush draw and under eight straight outs, on any flop texture: a bet becomes a check, heads-up and multiway, with no opponent read and no stack-to-pot exception. The continuation, heads-up only: having checked and facing the flop bet, never a raise; a call when the expected value of the call (the exact cards against the bettor range by his bet size, moved by his measured read, at the price, with a stated 0.75 out-of-position realisation discount that is not measured) clears 2 percent of the final pot, else a fold; multiway and the whole-stack call keep the decision (HorseOmahaOopChecks.ts). Default OFF (read === true) until its declared evaluation passes',
     'V94'
   ),
   flag(
@@ -4312,25 +4312,25 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'omaha_bare_overpair_oop_flop_checked',
     'HorseLogic wager_rules (HorseOmahaOopChecks, omahaBareOverpairOopFlopCheck)',
-    'PLO4/PLO5 cash flop bet out of position with one pair, no flush draw and under eight straight outs, on a two-tone or connected flop: turned into a check',
+    'PLO4/PLO5 cash flop bet out of position by the last preflop aggressor with a bare big pair (a pocket overpair, or pocket queens or better with at most one overcard on the flop; one pair made, no flush draw, under eight straight outs): turned into a check',
     'V94'
   ),
   receipt(
     'omaha_bare_overpair_oop_flop_check_called',
     'HorseLogic wager_rules (HorseOmahaOopChecks, omahaBareOverpairOopFlopCheck, the continuation)',
-    'heads-up on the flop, having checked the bare pair out of position and facing a bet: the expected value of the call (exact cards against the bettor range, his measured read, the price, a 0.75 out-of-position realisation discount) clears 2 percent of the final pot: a fold turned into a call',
+    'heads-up on the flop, the last preflop aggressor having checked the bare big pair out of position and facing a bet: the expected value of the call (exact cards against the bettor range, his measured read, the price, a 0.75 out-of-position realisation discount) clears 2 percent of the final pot: a fold turned into a call',
     'V94'
   ),
   receipt(
     'omaha_bare_overpair_oop_flop_check_folded',
     'HorseLogic wager_rules (HorseOmahaOopChecks, omahaBareOverpairOopFlopCheck, the continuation)',
-    'heads-up on the flop, having checked the bare pair out of position and facing a bet: the expected value of the call does not clear its margin: a call or a raise turned into a fold',
+    'heads-up on the flop, the last preflop aggressor having checked the bare big pair out of position and facing a bet: the expected value of the call does not clear its margin: a call or a raise turned into a fold',
     'V94'
   ),
   receipt(
     'omaha_bare_overpair_oop_flop_check_raise_flatted',
     'HorseLogic wager_rules (HorseOmahaOopChecks, omahaBareOverpairOopFlopCheck, the continuation)',
-    'heads-up on the flop, having checked the bare pair out of position and facing a bet, the call clearing its margin: a raise turned into a call (never a check-raise)',
+    'heads-up on the flop, the last preflop aggressor having checked the bare big pair out of position and facing a bet, the call clearing its margin: a raise turned into a call (never a check-raise)',
     'V94'
   ),
   receipt(

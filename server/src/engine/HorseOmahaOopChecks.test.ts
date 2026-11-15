@@ -44,7 +44,9 @@ import {
   omahaBareOverpairContLean,
   omahaBareOverpairFlopFacingBetSpot,
   omahaBareOverpairFlopFacingBetVerdict,
+  omahaBareBigPairOnFlop,
   omahaBareOverpairOopFlopSpot,
+  omahaHeroHasPreflopLead,
   omahaOverpairOopTurnBarrelSpot,
   omahaPairedRiverThinLeadSpot,
   type OmahaBareOverpairContRead,
@@ -470,9 +472,9 @@ describe('boundaries: today’s decision', () => {
     }
   });
 
-  it('flop: a dry rainbow flop is not the spot; a multiway pot is', () => {
+  it('flop: any texture is the spot, a dry rainbow flop included; a multiway pot is', () => {
     const dry = nodeAt(FLOP, { board: '2dKh7s' });
-    expect(omahaBareOverpairOopFlopSpot(dry.hero, dry.gs)).toBe(false);
+    expect(omahaBareOverpairOopFlopSpot(dry.hero, dry.gs)).toBe(true);
     const st = nodeAt(FLOP);
     const three = {
       ...st.gs,
@@ -1017,5 +1019,148 @@ describe('omahaBareOverpairOopFlopCheck, the continuation: facing the flop bet a
     };
     expect(omahaBareOverpairFlopFacingBetSpot(st.hero, noCheck as never)).toBeNull();
     expect(omahaBareOverpairFlopFacingBetSpot({ ...st.hero, bet: 20 }, st.gs)).toBeNull();
+  });
+});
+
+describe('omahaBareOverpairOopFlopCheck, the spot (owner 14:19 and 14:23): every big pair with the betting lead', () => {
+  /** The Horse 4-bet before the flop in the fixture: it has the lead. */
+  const lead = (hole: string, board: string) => (): Node => nodeAt(FLOP, { hole, board });
+  /** The same node with the caller as the last preflop aggressor: no lead. */
+  const noLead = (hole: string, board: string) => (): Node => {
+    const st = nodeAt(FLOP, { hole, board });
+    const history = [...(st.gs.actionHistory ?? [])];
+    const pre = history.filter((a) => String(a.stage) === 'preflop');
+    const mine = [...pre].reverse().find((a) => a.seat === HERO && String(a.action) === 'raise')!;
+    const his = [...pre].reverse().find((a) => a.seat === CALLER && String(a.action) === 'call')!;
+    return {
+      ...st,
+      gs: {
+        ...st.gs,
+        actionHistory: history.map((a) =>
+          a === mine ? { ...a, action: 'call' } : a === his ? { ...a, action: 'raise' } : a
+        ),
+      },
+    } as Node;
+  };
+  const BIG: [string, string, string][] = [
+    ['aces, 5-8-9 two-tone (the recorded hand)', 'AsAhQs7c4h', '5d8d9h'],
+    ['aces, K-7-2 rainbow', 'AsAhQs9c4h', 'Kd7c2h'],
+    ['kings, 9-6-2 two-tone', 'KsKhQs8c3h', '9d6d2h'],
+    ['queens, 9-6-2 two-tone', 'QsQhJs4c3h', '9d6d2h'],
+    ['jacks, an overpair on a ten-high flop', 'JsJhKs4c3h', 'Td6d2h'],
+    ['queens with one overcard, an ace-high flop', 'QsQhJs8c3h', 'Ad7d2h'],
+    ['kings with one overcard, an ace-high flop', 'KsKhJs8c3h', 'Ad7d2h'],
+  ];
+  const OUTSIDE: [string, string, string][] = [
+    ['top pair made by a board card', 'AsKhQsJc2h', 'Ad8d3h'],
+    ['a small pocket pair under the board', '9s9hQs4c3h', 'Kd7d2h'],
+    ['jacks with one overcard', 'JsJhTs4c3h', 'Ad7d2h'],
+    ['queens with two overcards', 'QsQhJs4c3h', 'AdKd2h'],
+    ['aces with a flush draw', 'AdAhQd7c4h', '5d8d9h'],
+    ['aces with a wrap', 'AsAh7s6c4h', '5d8d9h'],
+    ['a set of aces', 'AsAhQs7c4h', 'Ad8d3h'],
+    ['aces and two pair', 'AsAhKs7c4h', 'Kd7d2h'],
+  ];
+
+  it('the hand: a pocket overpair, or queens or better with at most one overcard; one pair, backdoor draws only', () => {
+    for (const [name, hole, board] of BIG)
+      expect(omahaBareBigPairOnFlop(cards(hole), cards(board)), name).toBe(true);
+    for (const [name, hole, board] of OUTSIDE)
+      expect(omahaBareBigPairOnFlop(cards(hole), cards(board)), name).toBe(false);
+    // PLO4 too
+    expect(omahaBareBigPairOnFlop(cards('QsQhJs4c'), cards('9d6d2h'))).toBe(true);
+    expect(omahaBareBigPairOnFlop(cards('AsKhQsJc'), cards('Ad8d3h'))).toBe(false);
+  });
+
+  it('the lead: the last preflop bet or raise was the Horse’s; a caller, a limped pot and a flat all-in are not', () => {
+    const st = lead('AsAhQs7c4h', '5d8d9h')();
+    expect(omahaHeroHasPreflopLead(st.hero, st.gs)).toBe(true);
+    const off = noLead('AsAhQs7c4h', '5d8d9h')();
+    expect(omahaHeroHasPreflopLead(off.hero, off.gs)).toBe(false);
+    const limped = {
+      ...st.gs,
+      actionHistory: (st.gs.actionHistory ?? []).map((a) =>
+        String(a.stage) === 'preflop' && String(a.action) === 'raise' ? { ...a, action: 'call' } : a
+      ),
+    };
+    expect(omahaHeroHasPreflopLead(st.hero, limped as never)).toBe(false);
+    const flatJam = {
+      ...st.gs,
+      actionHistory: [
+        ...(st.gs.actionHistory ?? []).filter((a) => String(a.stage) === 'preflop'),
+        { stage: 'preflop', seat: CALLER, action: 'all_in', amount: 148, isFullRaise: false },
+      ],
+    };
+    expect(omahaHeroHasPreflopLead(st.hero, flatJam as never)).toBe(true);
+  });
+
+  it('with the lead: every big pair is the spot and checks at every seed, with the receipt where the brain bet', () => {
+    let bets = 0;
+    for (const [name, hole, board] of BIG) {
+      const build = lead(hole, board);
+      const st = build();
+      expect(omahaBareOverpairOopFlopSpot(st.hero, st.gs), name).toBe(true);
+      const off = play(build, {});
+      const on = play(build, FLOP_ON);
+      expect(wagers(on), name).toBe(0);
+      expect(hasFire(on, 'omaha_bare_overpair_oop_flop_checked'), name).toBe(wagers(off));
+      expect(on.next, name).toEqual(off.next);
+      bets += wagers(off);
+      // unset, false and truthy non-boolean: the same bytes
+      for (const v of [false, 1 as unknown as boolean])
+        expect(play(build, { omahaBareOverpairOopFlopCheck: v }).bytes, name).toEqual(off.bytes);
+    }
+    expect(bets).toBeGreaterThan(0);
+  });
+
+  it('without the lead: the same hands are not the spot and decide as today', () => {
+    for (const [name, hole, board] of BIG) {
+      const build = noLead(hole, board);
+      const st = build();
+      expect(omahaBareOverpairOopFlopSpot(st.hero, st.gs), name).toBe(false);
+      const on = play(build, FLOP_ON);
+      expect(on.bytes, name).toEqual(play(build, {}).bytes);
+      expect(hasFire(on, 'omaha_bare_overpair_oop_flop_checked'), name).toBe(0);
+    }
+  });
+
+  it('with the lead but outside the class (top pair from the board, small pairs, real draws, sets): as today', () => {
+    for (const [name, hole, board] of OUTSIDE) {
+      const build = lead(hole, board);
+      const st = build();
+      expect(omahaBareOverpairOopFlopSpot(st.hero, st.gs), name).toBe(false);
+      const on = play(build, FLOP_ON);
+      expect(on.bytes, name).toEqual(play(build, {}).bytes);
+      expect(hasFire(on, 'omaha_bare_overpair_oop_flop_checked'), name).toBe(0);
+    }
+  });
+
+  it('the continuation needs the lead too: without it the checked big pair facing a bet decides as today', () => {
+    for (const frac of [0.33, 1]) {
+      const build = (): Node => {
+        const st = facingAfterCheck(FLOP, Math.round(357 * frac));
+        const history = [...(st.gs.actionHistory ?? [])];
+        const pre = history.filter((a) => String(a.stage) === 'preflop');
+        const mine = [...pre]
+          .reverse()
+          .find((a) => a.seat === HERO && String(a.action) === 'raise')!;
+        const his = [...pre]
+          .reverse()
+          .find((a) => a.seat === CALLER && String(a.action) === 'call')!;
+        return {
+          ...st,
+          gs: {
+            ...st.gs,
+            actionHistory: history.map((a) =>
+              a === mine ? { ...a, action: 'call' } : a === his ? { ...a, action: 'raise' } : a
+            ),
+          },
+        } as Node;
+      };
+      const st = build();
+      expect(omahaBareOverpairFlopFacingBetSpot(st.hero, st.gs)).toBeNull();
+      const on = play(build, FLOP_ON);
+      expect(on.bytes).toEqual(play(build, {}).bytes);
+    }
   });
 });

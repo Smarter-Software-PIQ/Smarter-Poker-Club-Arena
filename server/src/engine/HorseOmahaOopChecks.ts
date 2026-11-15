@@ -23,9 +23,16 @@
  * (omahaOopCheckRules, wager_rules node, after the paired-board river check)
  * turns a bet in such a spot into a check:
  *
- *  - omahaBareOverpairOopFlopCheck: flop, an opponent still acts behind, one
- *    pair only, no flush draw and under eight straight outs, the flop two-tone
- *    or connected. No opponent read: heads-up and multiway.
+ *  - omahaBareOverpairOopFlopCheck (owner 2026-11-15 11:05, widened 14:19
+ *    and 14:23: "IT SHOULD BE ALL BIG PAIRS, KK AND QQ AS WELL WHEN THE HORSE
+ *    HAS THE BETTING LEAD AND CONTROL OF THE HAND"): flop, the Horse was the
+ *    last preflop aggressor (its raise, 3-bet or 4-bet was called), an
+ *    opponent still acts behind, and its hand is a bare big pair: a pocket
+ *    pair that is an overpair to the board, or pocket queens or better with
+ *    at most one overcard on the board; exactly one pair made, no flush draw
+ *    and under eight straight outs. Any flop texture. No opponent read:
+ *    heads-up and multiway. Without the betting lead, with top pair made by
+ *    a board card, a small pair, a real draw or a set, it does nothing.
  *  - omahaOverpairNoOopBarrelVsValueLeader: turn, heads-up, the opponent acts
  *    behind and called the Horse's flop bet, one pair only (a draw picked up,
  *    the nut flush draw included, is not an improved made hand), a straight
@@ -193,28 +200,57 @@ export function omahaCallersOfHeroBet(
 const category = (hole: Card[], board: Card[]): number => omahaMadeClass(hole, board).category;
 
 /**
- * omahaBareOverpairOopFlopCheck: flop, an opponent acts behind, exactly one
- * pair, no flush draw, fewer than eight straight outs, and the flop is
- * two-tone (two or more of a suit) or allows a straight.
+ * omahaBareOverpairOopFlopCheck: flop, the Horse has the betting lead (the
+ * last preflop aggressor), an opponent acts behind, and the hand is a bare
+ * big pair (omahaBareBigPairOnFlop).
  */
 export function omahaBareOverpairOopFlopSpot(hero: SeatPlayer, gs: HorseGameStateV2): boolean {
   try {
     if (omahaOopCheckStreet(hero, gs) !== 'flop') return false;
-    if (!bareOnePairOnFlop(hero.cards, gs.communityCards ?? [])) return false;
+    if (!omahaBareBigPairOnFlop(hero.cards, gs.communityCards ?? [])) return false;
+    if (!omahaHeroHasPreflopLead(hero, gs)) return false;
     return omahaOpponentActsBehind(hero, gs);
   } catch {
     return false;
   }
 }
 
-/** The hand and flop of omahaBareOverpairOopFlopCheck: exactly one pair, no
- *  flush draw, fewer than eight straight outs, the flop two-tone or connected. */
-function bareOnePairOnFlop(hole: Card[], board: Card[]): boolean {
+/**
+ * The betting lead: the last bet or raise before the flop was the Horse's
+ * (an all-in that did not raise is a call). A limped pot has no lead.
+ */
+export function omahaHeroHasPreflopLead(hero: SeatPlayer, gs: HorseGameStateV2): boolean {
+  let last: number | null = null;
+  for (const a of gs.actionHistory ?? []) {
+    if (String(a.stage) !== 'preflop') continue;
+    const act = String(a.action);
+    if (act === 'bet' || act === 'raise') last = a.seat;
+    else if (act === 'all_in' && (last === null || a.isFullRaise === true)) last = a.seat;
+  }
+  return last === hero.seat;
+}
+
+/** The smallest pocket pair that counts with one overcard on the board: queens. */
+export const OMAHA_BIG_PAIR_MIN_RANK = 'Q';
+
+/**
+ * The hand of omahaBareOverpairOopFlopCheck: a pocket pair in the hand that
+ * is an overpair to the flop, or pocket queens or better with at most one
+ * higher card on the flop; exactly one pair made; no flush draw and fewer
+ * than eight straight outs (backdoor draws only).
+ */
+export function omahaBareBigPairOnFlop(hole: Card[], board: Card[]): boolean {
+  if (board.length !== 3) return false;
+  const count = new Map<string, number>();
+  for (const c of hole) count.set(c.rank, (count.get(c.rank) ?? 0) + 1);
+  let pocket = -1;
+  for (const [rank, n] of count)
+    if (n >= 2) pocket = Math.max(pocket, RANKS.indexOf(rank as never));
+  if (pocket < 0) return false;
+  const over = board.filter((c) => RANKS.indexOf(c.rank) > pocket).length;
+  const big = pocket >= RANKS.indexOf(OMAHA_BIG_PAIR_MIN_RANK as never);
+  if (!(over === 0 || (big && over === 1))) return false;
   if (category(hole, board) !== ONE_PAIR) return false;
-  const suits = new Map<string, number>();
-  for (const c of board) suits.set(c.suit, (suits.get(c.suit) ?? 0) + 1);
-  const twoTone = Array.from(suits.values()).some((n) => n >= 2);
-  if (!twoTone && !omahaBoardShape(board).straightPossible) return false;
   const draw = omahaDrawQuality(hole, board, false);
   if (draw.nutFlushDraw || draw.dominatedFlushDraw) return false;
   return draw.straightOuts < OMAHA_OOP_CHECK_STRAIGHT_DRAW_OUTS;
@@ -737,7 +773,7 @@ export function omahaOopTurnFacingBetVerdict(
 /**
  * omahaBareOverpairOopFlopCheck, THE CONTINUATION (2026-11-15; the same
  * option, no option of its own): the flop was checked out of position with
- * the bare pair and the one opponent bet. Owner 11:39: no blanket rule, the
+ * the bare big pair and the one opponent bet. Owner 11:39: no blanket rule, the
  * call or fold is "hand and player dependant and pot size to value
  * dependant"; owner 12:09: no check-raise without the nuts. So, heads-up:
  * never a raise; a call when the expected value of the call clears its
@@ -786,8 +822,8 @@ export function omahaOopTurnFacingBetVerdict(
  *
  * Scope: PLO4 / PLO5 cash, pot limit, one board, high only, the flop, exactly
  * one live opponent, the Horse checked first with no chips in on the street
- * and he bet, the hand and flop of the check rule, and the call is not for
- * the whole stack. Multiway, a raise war and the whole-stack call keep
+ * and he bet, the betting lead and the bare big pair of the check rule, and
+ * the call is not for the whole stack. Multiway, a raise war and the whole-stack call keep
  * today's decision.
  */
 export const OMAHA_BARE_OVERPAIR_CONT_REALIZATION = 0.75;
@@ -833,7 +869,8 @@ export function omahaBareOverpairFlopFacingBetSpot(
     if (mine.length !== 1 || String(mine[0].action) !== 'check') return null;
     if (his.length !== 1 || !['bet', 'all_in'].includes(String(his[0].action))) return null;
     if (flop.indexOf(mine[0]) > flop.indexOf(his[0])) return null;
-    if (!bareOnePairOnFlop(hero.cards, gs.communityCards ?? [])) return null;
+    if (!omahaBareBigPairOnFlop(hero.cards, gs.communityCards ?? [])) return null;
+    if (!omahaHeroHasPreflopLead(hero, gs)) return null;
     const stack = Number.isFinite(hero.stack) ? Math.max(0, hero.stack) : 0;
     const owed = Number.isFinite(gs.toCall)
       ? Math.max(0, gs.toCall as number)

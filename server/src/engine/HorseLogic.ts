@@ -3009,12 +3009,15 @@ export interface HorseDecideOpts {
    * still bets. Needs the mind on. Default OFF (opt-in, read `=== true`);
    * league cards plo4/plo5 _omaha_overpair_no_oop_barrel_vs_value_leader. */
   omahaOverpairNoOopBarrelVsValueLeader?: boolean;
-  /** Owner 2026-11-15 11:05 (hand 59517323): PLO4/PLO5 cash, flop, the Horse
-   * out of position (an opponent still acts behind), one pair only, no flush
-   * draw and under eight straight outs (backdoor draws only), the flop
-   * two-tone or connected: a bet becomes a check. No opponent read; heads-up
-   * and multiway; no stack-to-pot exception. Default OFF (opt-in, read
-   * `=== true`); league cards plo4/plo5 _omaha_bare_overpair_oop_flop_check. */
+  /** Owner 2026-11-15 11:05 (hand 59517323), widened 14:19 and 14:23: PLO4/PLO5
+   * cash, flop, the Horse was the last preflop aggressor and is out of
+   * position (an opponent still acts behind) with a bare big pair: a pocket
+   * overpair, or pocket queens or better with at most one overcard on the
+   * flop; one pair made, no flush draw and under eight straight outs: a bet
+   * becomes a check. No opponent read; heads-up and multiway; any flop
+   * texture. Heads-up, having checked and facing the bet: never a raise, a
+   * call or a fold by the expected value of the call. Default OFF (opt-in,
+   * read `=== true`); league cards plo4/plo5 _omaha_bare_overpair_oop_flop_check. */
   omahaBareOverpairOopFlopCheck?: boolean;
   /** Lane owner 2026-11-15 (hand 59521326): PLO4/PLO5 cash, heads-up, turn,
    * the Horse out of position, its flop bet or raise called, the turn card
@@ -7868,7 +7871,7 @@ let omahaBareOverpairContMemo: {
 
 /**
  * omahaBareOverpairOopFlopCheck, the continuation (HorseOmahaOopChecks.ts):
- * heads-up on the flop, having checked the bare pair out of position and
+ * heads-up on the flop, having checked the bare big pair out of position and
  * facing his bet: never a raise; a call when the expected value of the call
  * (the Horse's exact cards against the bettor's range, his measured read, the
  * price, an out-of-position realisation discount) clears its margin, else a
