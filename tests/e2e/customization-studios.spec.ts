@@ -190,6 +190,83 @@ const COORDINATED_LOOKS = [
 test.describe('real Table Studio browser flows', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
 
+  test('Action Controller presets are editable directly in Table Studio and survive reopening', async ({
+    context,
+    page,
+  }) => {
+    await mockStudioBackend(context);
+    await page.setViewportSize({ width: 375, height: 844 });
+    let studio = await openStudio(page);
+    const controller = studio.getByRole('region', { name: 'Action Controller', exact: true });
+    const editTab = controller.getByRole('tab', { name: 'Change Default Button Amounts' });
+    await expect(editTab).toHaveAttribute('aria-selected', 'false');
+    await expect(controller.getByRole('textbox')).toHaveCount(0);
+    const colors = await controller.locator('.action-controller-colors').boundingBox();
+    const tab = await editTab.boundingBox();
+    const heading = await controller
+      .getByRole('tab', { name: 'Action Controller', exact: true })
+      .boundingBox();
+    expect(tab!.x).toBeGreaterThanOrEqual(heading!.x + heading!.width);
+    expect(tab!.y + tab!.height).toBeLessThanOrEqual(colors!.y);
+    expect(heading!.y + heading!.height / 2).toBeGreaterThanOrEqual(tab!.y);
+    expect(heading!.y + heading!.height / 2).toBeLessThanOrEqual(tab!.y + tab!.height);
+    expect(tab!.height).toBeGreaterThanOrEqual(48);
+    await controller.screenshot({
+      path: test.info().outputPath('action-controller-heading-button.png'),
+    });
+    await controller
+      .getByRole('tab', { name: 'Action Controller', exact: true })
+      .press('ArrowRight');
+    await expect(editTab).toHaveAttribute('aria-selected', 'true');
+    await expect(editTab).toBeFocused();
+    await expect(controller.getByRole('textbox')).toHaveCount(8);
+    await expect(controller.getByRole('button', { name: 'Arena Blue', exact: true })).toBeHidden();
+    const groups = [
+      ['Preflop Multipliers', [2.25, 2.8, 3.3, 4.5]],
+      ['Postflop Pot Percentages', [25, 33.33, 66.67, 125]],
+    ] as const;
+    for (const [group, values] of groups) {
+      for (let index = 0; index < values.length; index++) {
+        await studio
+          .getByLabel(`${group} Option ${index + 1}`, { exact: true })
+          .fill(String(values[index]));
+      }
+      await studio.getByRole('button', { name: `Apply ${group}`, exact: true }).click();
+    }
+    await controller.screenshot({
+      path: test.info().outputPath('action-controller-preset-editor.png'),
+    });
+    studio = await openStudio(page);
+    await studio.getByRole('tab', { name: 'Change Default Button Amounts' }).click();
+    for (const [group, values] of groups) {
+      for (let index = 0; index < values.length; index++) {
+        await expect(
+          studio.getByLabel(`${group} Option ${index + 1}`, { exact: true })
+        ).toHaveValue(String(values[index]));
+      }
+    }
+    await studio.getByRole('tab', { name: 'Action Controller', exact: true }).click();
+    await page.setViewportSize({ width: 1040, height: 950 });
+    const desktopController = studio.getByRole('region', {
+      name: 'Action Controller',
+      exact: true,
+    });
+    const desktopButton = await desktopController
+      .getByRole('tab', { name: 'Change Default Button Amounts' })
+      .boundingBox();
+    const desktopHeading = await desktopController
+      .getByRole('tab', { name: 'Action Controller', exact: true })
+      .boundingBox();
+    const desktopColors = await desktopController
+      .locator('.action-controller-colors')
+      .boundingBox();
+    expect(desktopButton!.x).toBeGreaterThanOrEqual(desktopHeading!.x + desktopHeading!.width);
+    expect(desktopButton!.y + desktopButton!.height).toBeLessThanOrEqual(desktopColors!.y);
+    await desktopController.screenshot({
+      path: test.info().outputPath('action-controller-heading-desktop.png'),
+    });
+  });
+
   test('real tiles repaint the real preview, persist, and broadcast to a second tab', async ({
     context,
     page,

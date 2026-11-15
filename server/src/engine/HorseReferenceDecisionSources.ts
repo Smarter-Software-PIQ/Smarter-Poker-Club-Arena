@@ -69,6 +69,14 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the final Omaha made-hand rules (Dan 2026-11-14, hands 59414191 and 59416584): a hand a possible straight or flush beats does not raise a turn wager or bet into the fresh card out of position, and a nut-class wager is the full pot, right after the river nut-raise rule',
     'src/engine/HorseOmahaOnePair.ts':
       'the default-off Omaha one-pair rules (Dan 2026-11-14, hands 59407629, 59430325, 59431232, 59417700, 59426444) on the final answer of the wager rules: no one-pair river value wager, no beaten river call of a 0.66-pot wager, no one-pair flop or turn stack-off',
+    'src/engine/HorseTightPlayerExploit.ts':
+      "the default-off responses to a credibly tight player (styleTightPlayerExploit, 2026-11-15): the checked-to bluff scale on the turn and river and the tight-limper isolation widening in no-limit hold'em",
+    'src/engine/HorseLongShownMemory.ts':
+      "the default-off durable shown river record (styleLongShownMemory, 2026-11-15): which river size bucket the style read takes from the opponent's record instead of the 72-hour window",
+    'src/engine/HorseHoldemPersonaPreflop.ts':
+      "the off-only persona preflop layer (holdemPersonaPreflop, owner preflop range hold): persona 3-bet and squeeze mix, deep cash opening-range offsets and the Nit Hunter loose-opener response in no-limit hold'em",
+    'src/engine/HorseHoldemRiverFullHouseValue.ts':
+      "the default-off river full-house lead (holdemRiverFullHouseValue, 2026-11-15 audit of 131 river full-house decisions): which boats skip the out-of-position initiative check in no-limit hold'em",
     'src/engine/HorseFixedLimitWagerRead.ts':
       'the default-off fixed-limit structural wager read (SPEC-FL-01..03, 2026-11-14): the river full-bet mark for the range samplers, the hi-lo nut-low river bet and the one-bet value-raise bar',
     'src/engine/HorseOmahaCurrentNuts.ts':

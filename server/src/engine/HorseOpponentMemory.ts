@@ -10,6 +10,7 @@ import {
   type ExploitCountersWithLong,
   type ExploitLongCounters,
 } from './HorseOpponentExploit.js';
+import { validShownRiverRecord, type ShownRiverRecord } from './HorseLongShownMemory.js';
 
 export const MEMORY_VARIANTS = [
   'nlh',
@@ -46,6 +47,33 @@ export interface DurableOpponentProfile {
    * 27-key counters JSON every reader validates keeps its exact shape.
    */
   long_counters?: ExploitLongCounters | null;
+  /**
+   * 2026-11-15 the durable shown river evidence of this exact row (horse_exact_profiles.shown_river: river first bets
+   * by size bucket, shown and strong, aged with a half-life of 40 shown bets, written by the accepted-hand learner
+   * from the hand after its column was installed; HorseLongShownMemory). Null or absent: none on file. Never part of
+   * the row's validity: a stored copy keeps it only when it is well formed (copyShownRiver), and a decision reads it
+   * only behind styleLongShownMemory.
+   */
+  shown_river?: ShownRiverRecord | null;
+}
+
+/** A copy of a profile's shown river record for a stored copy of the profile: absent stays absent, null stays null,
+ *  and a malformed record is dropped (absent) rather than failing the row, so the row's counters keep their reader. */
+export function copyShownRiver(p: {
+  shown_river?: unknown;
+}): Pick<DurableOpponentProfile, 'shown_river'> {
+  if (p.shown_river === undefined) return {};
+  if (p.shown_river === null) return { shown_river: null };
+  if (!validShownRiverRecord(p.shown_river)) return {};
+  const r = p.shown_river;
+  const buckets: ShownRiverRecord['buckets'] = {};
+  for (const [k, c] of Object.entries(r.buckets))
+    buckets[k as keyof ShownRiverRecord['buckets']] = {
+      bets: c!.bets,
+      shown: c!.shown,
+      strong: c!.strong,
+    };
+  return { shown_river: { since: r.since, buckets } };
 }
 
 /** A profile's long participation window, valid or not: exactly lHands, lVpip, lPfr, finite and non-negative,

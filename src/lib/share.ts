@@ -86,11 +86,21 @@ export function shareClipboardText(text: string | undefined, url: string): strin
   return t ? `${t} ${url}` : url;
 }
 
-/** Copy only. False when neither the Clipboard API nor a selection copy worked. */
-export async function copyText(text: string, source: string): Promise<boolean> {
+async function copyTextOnce(text: string, source: string): Promise<boolean> {
   const ok = await copyToClipboard(text);
   if (!ok)
     reportError(new Error('Clipboard refused and selection copy failed'), `${source}.copy_failed`);
+  return ok;
+}
+
+/**
+ * Copy only. False when neither the Clipboard API nor a selection copy worked.
+ * Counted like a share (copied / failed): a copy button is how most desktop
+ * players share.
+ */
+export async function copyText(text: string, source: string): Promise<boolean> {
+  const ok = await copyTextOnce(text, source);
+  recordOutcome(source, ok ? 'copied' : 'failed');
   return ok;
 }
 
@@ -185,7 +195,7 @@ async function shareLinkOnce(input: ShareLinkInput): Promise<ShareOutcome> {
 
   const clip = input.clipboardText || (url ? shareClipboardText(text, url) : text);
   if (!clip) return 'failed';
-  return (await copyText(clip, source)) ? 'copied' : 'failed';
+  return (await copyTextOnce(clip, source)) ? 'copied' : 'failed';
 }
 
 export interface ShareFileInput extends Omit<ShareLinkInput, 'url'> {
@@ -255,9 +265,20 @@ export function profileShareUrl(userId: string, origin?: string): string {
   return `${origin ?? publicOrigin()}/hub/club-arena/profile/${encodeURIComponent(userId)}`;
 }
 
-/** The address a tournament is shared as. One builder, so every surface sends the same link. */
+/**
+ * The address a tournament is shared as. One builder, so every surface sends
+ * the same link.
+ *
+ * smarter.poker/t/<id> (2026-11-15), not the Club Arena page itself: the World
+ * Hub serves it with the event's own preview card (name, buy-in, guarantee,
+ * start time) through fn_ca_tournament_share_preview, sends a signed-in
+ * player straight on to /hub/club-arena/tournaments/<id>, and shows a
+ * signed-out friend what they were invited to with one Register button
+ * instead of a bare sign-in page. Private, VIP-only and non-public-club events
+ * get the plain card there, exactly like a missing one.
+ */
 export function tournamentShareUrl(tournamentId: string, origin?: string): string {
-  return `${origin ?? publicOrigin()}/hub/club-arena/tournaments/${encodeURIComponent(tournamentId)}`;
+  return `${origin ?? publicOrigin()}/t/${encodeURIComponent(tournamentId)}`;
 }
 
 /**

@@ -706,7 +706,6 @@ import { useActorGapBridge } from '../hooks/useActorGapBridge';
 import HitRunCountPill from '../components/table/HitRunCountPill';
 import {
   useBigWinRestarted,
-  useCountdownPaused,
   useCountdownResumed,
   useCountdownStarted,
   useHandsAddedByDouble,
@@ -714,7 +713,6 @@ import {
 import {
   blindOffLeaveText,
   bigWinStartedText,
-  countdownPausedToastText,
   countdownResumedText,
   charlesRuleText,
   countdownStartedText,
@@ -6221,7 +6219,9 @@ function LiveTablePage({
       if (res?.success) {
         if (
           lightningRoom &&
-          !lightningSitOut.acknowledge(tableId, String(userId), true, requestVersion)
+          !lightningSitOut.acknowledge(tableId, String(userId), true, requestVersion, {
+            blindOff: res.blindOff === true,
+          })
         )
           return;
         setSitOutSince(Date.now());
@@ -6357,6 +6357,13 @@ function LiveTablePage({
   const [tournamentEventName, setTournamentEventName] = useState('');
   /* Dan 2026-11-05: the line under the event name says what KIND of event it
      is (PKO Event, Mystery Bounty Event, ...). See utils/tournamentTypeLabel. */
+  const [shoveOrFoldTable, setShoveOrFoldTable] = useState<string | null>(null);
+  const shoveOrFold = Boolean(tableId && shoveOrFoldTable === tableId);
+  const explainShoveOrFold = useCallback(() => {
+    setActionErrorData({
+      error: 'This is an All In or Fold tournament. You can only press All In or Fold.',
+    });
+  }, []);
   const [tournamentTypeLine, setTournamentTypeLine] = useState<string | null>(null);
   const headsUpAnnouncedRef = useRef<Set<string>>(new Set());
   const finalTableAnnouncedRef = useRef<Set<string>>(new Set());
@@ -10859,6 +10866,7 @@ function LiveTablePage({
         handHistoryService.getPlayerHands(userId, HAND_HISTORY_PAGE, {
           tableId,
           gameMode: tableHistoryGameMode,
+          includeObserved: true,
           lightningPoolSessionId: lightningRoom?.poolSessionId,
           throwOnError: true,
         }),
@@ -10929,6 +10937,7 @@ function LiveTablePage({
       const rows = await handHistoryService.getPlayerHands(userId, HAND_HISTORY_PAGE, {
         tableId,
         gameMode: tableHistoryGameMode,
+        includeObserved: true,
         beforeHandNumber: oldest.handNumber,
         throwOnError: true,
       });
@@ -10977,7 +10986,7 @@ function LiveTablePage({
         return;
       try {
         const savedScope = `${userId}:${tableId}:${lightningRoom?.poolSessionId ?? ''}:${tableHistoryGameMode}`;
-        const row = await handHistoryService.getHand(savedId);
+        const row = await handHistoryService.getHand(savedId, { includeObserved: true });
         if (
           handHistoryScopeRef.current !== savedScope ||
           handHistoryViewerRef.current !== userId ||
@@ -10994,7 +11003,13 @@ function LiveTablePage({
         if (stateAfterAwait !== 'ready') return;
         // Lightning's authenticated room announces a physical hand, whereas
         // this page's tableId is the player's pool session, not a tables row.
-        if (!row || (!lightningRoom?.poolSessionId && row.table_id !== tableId)) return;
+        if (
+          !row ||
+          (!lightningRoom?.poolSessionId &&
+            engineSnapshotRef.current?.lightning_observer !== true &&
+            row.table_id !== tableId)
+        )
+          return;
         if (Boolean(row.tournament_id) !== (tableHistoryGameMode === 'tournament')) return;
         const record = adaptServiceHandToPanel(row, userId);
         setHandHistory((prev) => {
@@ -11022,6 +11037,7 @@ function LiveTablePage({
         const hands = await handHistoryService.getPlayerHands(userId, 1, {
           tableId,
           gameMode: tableHistoryGameMode,
+          includeObserved: true,
           lightningPoolSessionId: lightningRoom?.poolSessionId,
           throwOnError: true,
         });
@@ -12235,10 +12251,6 @@ function LiveTablePage({
   /* THE COUNTDOWN RESUMES (owner 2026-11-13): back in profit, the paused
      count picks up where it stopped; said with the resumed number. */
   useCountdownResumed(heroHandCount, (hands) => toast.info(countdownResumedText(hands)));
-  /* THE COUNTDOWN PAUSES: out of profit with hands left, said once. */
-  useCountdownPaused(heroHandCount, tableState.handNumber ?? 0, (hands) =>
-    toast.info(countdownPausedToastText(hands))
-  );
   /* THE CHARLES RULE AFTER A LARGE WIN (owner 2026-11-11): another +250 BB
      win while hands are owed resets the count to ten; said when it happens. */
   useBigWinRestarted(heroHandCount, (hands, bigWinBb) =>
@@ -13956,7 +13968,7 @@ function LiveTablePage({
       // seen a hand finish yet, but it races the insert — tapping Replay
       // straight after a hand could return the PREVIOUS hand. This event is
       // authoritative and arrives before the player can realistically tap.
-      if (eventType === 'hand_history_saved') {
+      if (eventType === 'hand_history_saved' || eventType === 'observed_hand_saved') {
         const receiptRoom = handState.pool_session_id;
         if (
           receiptRoom &&
@@ -15396,6 +15408,7 @@ function LiveTablePage({
          same courtesy: up to five attempts, 1s/2s/4s/8s backoff, stopping
          the moment the component unmounts or data lands. */
       type TableBootstrapRow = {
+        all_in_or_fold?: boolean;
         id: string;
         name: string | null;
         game_variant: string | null;
@@ -15461,7 +15474,7 @@ function LiveTablePage({
         const res = await supabase
           .from('tables')
           .select(
-            'id, union_id, arena:clubs!fk_tables_club_id(id, asset, is_platform, union_id), name, game_variant, game_type, tournament_id, stakes, small_blind, big_blind, max_players, club_id, settings, min_buy_in, max_buy_in, straddle_enabled, bomb_pot_enabled, bomb_pot_frequency, bomb_pot_ante_multiplier, bomb_pot_double_board, bomb_pot_board_count, bomb_pot_trigger_mode, bomb_pot_interval_seconds, bomb_pot_variant, bomb_pot_announce_seconds, bomb_pot_ante_fixed, bomb_pot_min_players, bomb_pot_button_policy, cluster_id, nit_game, maintain_percent_min, maintain_hands'
+            'id, union_id, arena:clubs!fk_tables_club_id(id, asset, is_platform, union_id), name, game_variant, game_type, tournament_id, all_in_or_fold, stakes, small_blind, big_blind, max_players, club_id, settings, min_buy_in, max_buy_in, straddle_enabled, bomb_pot_enabled, bomb_pot_frequency, bomb_pot_ante_multiplier, bomb_pot_double_board, bomb_pot_board_count, bomb_pot_trigger_mode, bomb_pot_interval_seconds, bomb_pot_variant, bomb_pot_announce_seconds, bomb_pot_ante_fixed, bomb_pot_min_players, bomb_pot_button_policy, cluster_id, nit_game, maintain_percent_min, maintain_hands'
           )
           .eq('id', tableId)
           .maybeSingle();
@@ -15542,6 +15555,7 @@ function LiveTablePage({
       if (isMounted) setTableLoadFailure(null);
 
       if (table && !error) {
+        setShoveOrFoldTable(table.tournament_id && table.all_in_or_fold ? table.id : null);
         let arenaIdentity;
         try {
           arenaIdentity = parseTableArenaIdentity(table);
@@ -16063,6 +16077,7 @@ function LiveTablePage({
               tournamentId: table.tournament_id,
             });
           }
+          setShoveOrFoldTable(table.all_in_or_fold || tournData?.all_in_or_fold ? table.id : null);
           loadedTournamentStatus = typeof tournData?.status === 'string' ? tournData.status : null;
           const satelliteTarget = tournData?.satellite_target_id ?? tournData?.satellite_target;
           loadedSatelliteTarget =
@@ -19166,6 +19181,33 @@ function LiveTablePage({
   useEffect(() => {
     tableStateRef.current = tableState;
   }, [tableState]);
+
+  /**
+   * THE POT GOES TO THE CHAIR THE WINNER WON IT IN (Dan 2026-11-15).
+   *
+   * "THE PREVIOUS HAND PLAYED, DID NOT AWARD THE POT, OR SHIP IT TO THE
+   * WINNING PLAYER ANIMATION." Hand 59517030 (Kings Club, Madness PLO5 1/2):
+   * the seat-4 winner stood up 1.26 s after the hand ended, while the
+   * four-way showdown was still being read, so by the time pot_win was
+   * handled the winner had no seat in the snapshot and the fan flew to the
+   * neutral point under the pot. Every player's LAST seat index is kept here,
+   * so a winner who has already left is still paid on the felt at the chair
+   * the pot was won from. The engine now also keeps that chair until the push
+   * has landed (completionPresentation in ServerTableEngineSeating); this is
+   * the client half, and it covers every client still holding an old engine.
+   */
+  const lastSeatIdxByPlayerRef = useRef<Map<string, number>>(new Map());
+  useEffect(() => {
+    tableState.players.forEach((p, idx) => {
+      if (p?.id) lastSeatIdxByPlayerRef.current.set(p.id, idx);
+    });
+  }, [tableState.players]);
+  /** Live seat index, else the seat this player last held on this client, else -1. */
+  const winnerSeatIdx = useCallback((playerId: string): number => {
+    const live = tableStateRef.current.players.findIndex((p) => p?.id === playerId);
+    if (live >= 0) return live;
+    return lastSeatIdxByPlayerRef.current.get(playerId) ?? -1;
+  }, []);
 
   /**
    * The resolved format, readable from inside the engine-event callback.
@@ -22320,7 +22362,7 @@ function LiveTablePage({
               // instead. Estimating remains for legacy non-exact groups.
               if (g.exact && !(w.amount > 0)) continue;
               // SeatPlayer.id is the userId — players[] index = seatNumber - 1.
-              const seatIdx = tableStateRef.current.players.findIndex((p) => p?.id === w.userId);
+              const seatIdx = winnerSeatIdx(w.userId);
               /**
                * SEAT LOOKUP FAILURE IS NOT A REASON TO SKIP THE ANIMATION
                * (Dan 2026-08-27, the ship-pot invariant above).
@@ -22420,7 +22462,7 @@ function LiveTablePage({
               perPlayer: {},
             };
             for (const wid of winnerIds) {
-              const seatIdx = tableStateRef.current.players.findIndex((p) => p?.id === wid);
+              const seatIdx = winnerSeatIdx(wid);
               const seatPct =
                 seatIdx >= 0
                   ? seatPositionsRef.current[seatIdx] || { x: 50, y: 50 }
@@ -22750,14 +22792,19 @@ function LiveTablePage({
                 return;
               }
               const wid = winnerIds[0];
-              const idx = tableStateRef.current.players.findIndex((p) => p?.id === wid);
-              if (idx < 0) return;
+              // 2026-11-15: a winner who has already stood up is still pushed
+              // the pot, at the chair it was won from (winnerSeatIdx). Never a
+              // silent return: that was the pot vanishing on hand 59517030.
+              const idx = winnerSeatIdx(wid);
               const root = tableScalerRef.current?.closest('.table-page') ?? null;
               const source = potViewportPoint(root, potPos);
               const target = winnerViewportPoint(
                 root,
                 wid,
-                seatPctToViewportPx(tableScalerRef.current, seatPositionsRef.current[idx])
+                seatPctToViewportPx(
+                  tableScalerRef.current,
+                  (idx >= 0 ? seatPositionsRef.current[idx] : undefined) ?? UNSEATED_WINNER_PCT
+                )
               );
               const scale =
                 (tableScalerRef.current?.getBoundingClientRect().width ?? 0) /
@@ -26661,6 +26708,7 @@ function LiveTablePage({
      the players, so it is not being done inside a sweep. */
 
   const handleRaise = () => {
+    if (shoveOrFold) return explainShoveOrFold();
     openRaisePanel();
   };
 
@@ -26693,6 +26741,7 @@ function LiveTablePage({
   //Server is authoritative — all actions go through submitAction
   const handleActionPanelAction = useCallback(
     async (action: 'fold' | 'check' | 'call' | 'raise' | 'allin', amount?: number) => {
+      if (shoveOrFold && action !== 'fold' && action !== 'allin') return explainShoveOrFold();
       if (lightningRoomRef.current) {
         const onFelt = lightningDecisionKey(
           tableId,
@@ -26905,6 +26954,8 @@ function LiveTablePage({
       tableId,
       userId,
       submitActionWithToast,
+      shoveOrFold,
+      explainShoveOrFold,
       renderedLightningDecision,
       applyOptimisticHeroAction,
     ]
@@ -27024,6 +27075,7 @@ function LiveTablePage({
     onToggleSound: () => setIsSoundEnabled(!isSoundEnabled),
     // FIX 199: onToggleHandStrength REMOVED — not allowed for live online gameplay
     onBetPreset: (preset: number) => {
+      if (shoveOrFold) return explainShoveOrFold();
       setRaiseIntent((previous) => ({
         nonce: previous.nonce + 1,
         open: true,
@@ -27211,7 +27263,13 @@ function LiveTablePage({
 
   // A feeder can still deal ordinary hands while its Lightning switch is on.
   // Wait for a confirmed Classic answer before offering a table change.
+  /* NOT AT A TOURNAMENT (2026-11-15). The switch only shows or hides the
+     must-move Seat Change button, which exists at cash cluster tables alone.
+     At a tournament table it flipped a preference that changed nothing on the
+     screen: the silent button Dan reported. Tournament seats are assigned, so
+     the row is not offered there at all. */
   const seatChangeEnabled =
+    !tableState.isTournament &&
     !lightningRoom &&
     !lightningObserver &&
     (!tableState.clusterId ||
@@ -30782,7 +30840,8 @@ function LiveTablePage({
                       setSelectedPlayerForNotes(
                         displayPlayer ? { id: displayPlayer.id, name: displayPlayer.name } : null
                       );
-                      if (v8Settings.emoji_enabled) setShowThrowableSelector(true);
+                      if (v8Settings.emoji_enabled || !tableState.tournamentId)
+                        setShowThrowableSelector(true);
                       else if (displayPlayer) setShowPlayerNotes(true);
                     }
                   }}
@@ -31167,7 +31226,24 @@ function LiveTablePage({
       <div className="action-panel-wrapper">
         {/* POKERBROS-spec: persistent footer bar — NEVER empty. Dan rule
             2026-04-17: action bar fixed to footer at all times, every state. */}
-        {heroWaitingForButton ? (
+        {lightningRoom &&
+        !lightningHeroInRoster &&
+        lightningSitOut.readError &&
+        !heroIsSittingOut ? (
+          <div className="spectator-footer-bar" data-state="seat-status-unavailable">
+            <span className="spectator-footer-bar__label" role="status" aria-live="polite">
+              Seat Status Unavailable
+            </span>
+            <button
+              type="button"
+              className="spectator-footer-bar__cta"
+              disabled={lightningSitOut.reading}
+              onClick={lightningSitOut.retryRead}
+            >
+              Retry Seat Status
+            </button>
+          </div>
+        ) : heroWaitingForButton ? (
           <div className="spectator-footer-bar" data-state="waiting-for-button" role="status">
             <span className="spectator-footer-bar__label">
               {tableState.isTournament ? 'Sitting Out' : 'Waiting For The Button To Pass'}
@@ -31524,19 +31600,21 @@ function LiveTablePage({
               aria-live="polite"
               aria-atomic="true"
             >
-              {sitOutBadgeLabel(
-                sitOutMsRemaining({
-                  sitOutSince,
-                  isTournament: tableState.isTournament,
-                  now: sitOutTick,
-                }),
-                /* 2026-09-04 (audit item 3): the engine says whether this
+              {lightningSitOut.blindOff
+                ? 'Posting Blinds Until Your Hand Count Ends'
+                : sitOutBadgeLabel(
+                    sitOutMsRemaining({
+                      sitOutSince,
+                      isTournament: tableState.isTournament,
+                      now: sitOutTick,
+                    }),
+                    /* 2026-09-04 (audit item 3): the engine says whether this
                    sit-out was forced (two timeouts) or chosen, and the bar
                    says so too. Same I'm Back either way. */
-                disconnectStates[userId ?? '']?.sitOutReason === 'forced'
-                  ? 'You Timed Out Two Times, So You Are Sitting Out'
-                  : 'You Are Sitting Out'
-              )}
+                    disconnectStates[userId ?? '']?.sitOutReason === 'forced'
+                      ? 'You Timed Out Two Times, So You Are Sitting Out'
+                      : 'You Are Sitting Out'
+                  )}
             </span>
             <button
               type="button"
@@ -31772,6 +31850,7 @@ function LiveTablePage({
                            clamped to minRaise and 2X/3X/4X/5X produced the
                            same number. See ActionPanel presets. */
                         currentBet={serverCurrentBet}
+                        shoveOrFold={shoveOrFold}
                         onAction={handleActionPanelAction}
                         /* The documented R / E hotkey and the 1/2/3/4 pot-fraction
                            keys arrive here. Before 2026-08-20 they set a
@@ -31933,6 +32012,8 @@ function LiveTablePage({
                         ? lightningOwes <= 0
                         : (tableState.currentBet || 0) <=
                           (tableState.lastBetAmounts?.[tableState.heroSeat - 1] || 0);
+                    if (shoveOrFold && next && (next !== 'fold' || heroOwesNothing))
+                      return explainShoveOrFold();
                     if (lightningRoom && next === 'fold' && !heroOwesNothing) {
                       void handleLightningFold('fast_fold');
                       return;
@@ -32377,6 +32458,7 @@ function LiveTablePage({
         }}
       />
       <TableModalsLayer
+        cashStatsClusterId={lightningRoom?.clusterId}
         isActive={isActive}
         /* THE DIAMONDS-TO-CHIPS DOOR (Dan 2026-09-10). The club the player
            came in through, never the union that hosts the table: membership,

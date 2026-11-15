@@ -95,6 +95,7 @@ describe('custom action-controller sizing', () => {
     [2, 3, 4, Infinity],
     [0, 3, 4, 5],
     [2, 3, 4, 101],
+    [2.001, 3, 4, 5],
     ['2', 3, 4, 5],
   ])('rejects malformed multiplier settings: %j', (value) => {
     expect(validBetPresets(value, 100)).toBe(false);
@@ -146,4 +147,12 @@ it('uses the taller overlapping rail only for nine-max tables', () => {
   expect(container.querySelector('.action-panel')?.getAttribute('data-table-capacity')).toBe('6');
   rerender(<ActionPanel {...panel} maxPlayers={9} onAction={vi.fn()} />);
   expect(container.querySelector('.action-panel')?.getAttribute('data-table-capacity')).toBe('9');
+});
+
+it('offers a direct All In button in a shove-or-fold tournament even when regular raises are available', () => {
+  const action = vi.fn();
+  render(<ActionPanel {...panel} shoveOrFold onAction={action} />);
+  expect(screen.queryByLabelText('Open Raise Panel')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'All In' }));
+  expect(action).toHaveBeenCalledWith('allin', expect.any(Number));
 });

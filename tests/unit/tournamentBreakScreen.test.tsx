@@ -97,7 +97,7 @@ describe('the tournament break card', () => {
     expect(share).toHaveBeenCalledTimes(1);
     expect(share).toHaveBeenCalledWith({
       title: props.tournamentName,
-      url: expect.stringMatching(/\/hub\/club-arena\/tournaments\/share-event$/),
+      url: expect.stringMatching(/\/t\/share-event$/),
     });
     await act(async () => finish());
   });
@@ -110,7 +110,7 @@ describe('the tournament break card', () => {
     await act(async () =>
       fireEvent.click(screen.getByRole('button', { name: 'Copy Tournament Link' }))
     );
-    expect(writeText).toHaveBeenCalledWith(expect.stringMatching(/tournaments\/share-event$/));
+    expect(writeText).toHaveBeenCalledWith(expect.stringMatching(/\/t\/share-event$/));
     expect(screen.getByRole('alert')).toHaveTextContent('Tournament Link Copied');
     writeText.mockRejectedValue(new Error('Denied'));
     await act(async () =>

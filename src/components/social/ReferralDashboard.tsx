@@ -6,6 +6,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { copyText, shareLink } from '../../lib/share';
+import { ShareLinkFallback } from '../common/ShareLinkFallback';
 import { useIsMounted } from '../../hooks/useIsMounted';
 import { useMasterBusSubscription } from '../../hooks/useMasterBusSubscription';
 import {
@@ -31,6 +32,7 @@ export default function ReferralDashboard({ userId }: ReferralDashboardProps) {
   const [milestones, setMilestones] = useState<ReferralMilestone[]>([]);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [shareFallbackUrl, setShareFallbackUrl] = useState('');
   const toast = useToast();
   const isMounted = useIsMounted();
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -115,6 +117,7 @@ export default function ReferralDashboard({ userId }: ReferralDashboardProps) {
 
   const handleShare = async () => {
     const url = referralUrl();
+    setShareFallbackUrl('');
     /* Diamonds, and the number the server actually pays a new player. Dan
        2026-09-05: nothing on this platform earns chips. */
     const shareText = `Join me on Club Arena. Use my referral code ${stats.code} to start with bonus diamonds.`;
@@ -128,7 +131,9 @@ export default function ReferralDashboard({ userId }: ReferralDashboardProps) {
     });
     if (!isMounted.current) return;
     if (outcome === 'copied') toast.success('Invite Link Copied');
-    else if (outcome === 'failed') toast.error(`Could Not Share. Copy This Link: ${url}`);
+    // On the page, not in the toast: an error toast is sanitised and the URL
+    // never reached the player (components/common/ShareLinkFallback.tsx).
+    else if (outcome === 'failed') setShareFallbackUrl(url);
   };
 
   if (loading) {
@@ -180,6 +185,7 @@ export default function ReferralDashboard({ userId }: ReferralDashboardProps) {
       <button className="refd-share-btn" onClick={handleShare}>
         Invite Friends
       </button>
+      {shareFallbackUrl && <ShareLinkFallback url={shareFallbackUrl} label="Invite Link" />}
     </div>
   );
 }

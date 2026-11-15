@@ -2,8 +2,8 @@ import { expect, type Locator } from '@playwright/test';
 
 const SAVED_CONTROLLER = {
   color: 'green',
-  preflop: [2.2, 2.8, 3.3, 4.5],
-  postflop: [25, 40, 65, 125],
+  preflop: [2.25, 2.8, 3.3, 4.5],
+  postflop: [25, 33.33, 66.67, 125],
 };
 
 /** Reserved-account production proof. No action, buy-in or chip movement occurs. */
@@ -20,6 +20,7 @@ export async function verifyPublishedControllerSettings(
       .evaluateAll((items) => items.map((item) => item.getAttribute('data-controller-color')))
   ).toEqual(['blue', 'green', 'navy', 'platinum', 'gold', 'teal']);
   await controller.getByRole('button', { name: 'Casino Emerald', exact: true }).click();
+  await controller.getByRole('tab', { name: 'Change Default Button Amounts' }).click();
   for (const [group, values] of [
     ['Preflop Multipliers', SAVED_CONTROLLER.preflop],
     ['Postflop Pot Percentages', SAVED_CONTROLLER.postflop],
@@ -37,9 +38,12 @@ export async function verifyPublishedControllerSettings(
 
 export async function expectPublishedControllerSettings(settings: Locator) {
   const controller = settings.getByRole('region', { name: 'Action Controller', exact: true });
+  await controller.getByRole('tab', { name: 'Action Controller', exact: true }).click();
+  const editor = controller.getByRole('tab', { name: 'Change Default Button Amounts' });
   await expect(
     controller.getByRole('button', { name: 'Casino Emerald', exact: true })
   ).toHaveAttribute('aria-pressed', 'true', { timeout: 60_000 });
+  await editor.click();
   for (const [group, values] of [
     ['Preflop Multipliers', SAVED_CONTROLLER.preflop],
     ['Postflop Pot Percentages', SAVED_CONTROLLER.postflop],
