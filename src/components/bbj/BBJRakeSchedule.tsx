@@ -222,7 +222,7 @@ export function BBJRakeSchedule(props: Props) {
                               )}
                             </div>
                           ))
-                        : '–'}
+                        : '-'}
                     </td>
                   );
                 })}
