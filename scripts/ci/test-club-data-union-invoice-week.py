@@ -88,9 +88,11 @@ try:
             "eight-day reading is not a week; no re-attribution; refusals; recorded rename resolves")
     require(q("live", "SELECT has_function_privilege('authenticated','public.ca_club_data_union_weeks(uuid,date,date)','execute') "
                       "AND NOT has_function_privilege('anon','public.ca_club_data_union_weeks(uuid,date,date)','execute') "
-                      "AND NOT has_table_privilege('authenticated','public.club_slug_history','select') "
+                      "AND has_table_privilege('authenticated','public.club_slug_history','select') "
+                      "AND NOT has_table_privilege('authenticated','public.club_slug_history','insert,update,delete') "
+                      "AND NOT has_table_privilege('anon','public.club_slug_history','select') "
                       "AND has_function_privilege('authenticated','public.ca_club_id_for_slug(text)','execute')") == "t",
-            "signed-in callers only; the history table is read through its function")
+            "signed-in callers only; the rename history is read-only to them")
     # The reader holds no write and no lock a hand waits on.
     require(q("live", "SELECT provolatile FROM pg_proc WHERE oid='public.ca_club_data_union_weeks(uuid,date,date)'::regprocedure") == "s",
             "the invoice week reader is STABLE (read-only)")

@@ -270,8 +270,16 @@ CREATE TABLE public.club_slug_history (
 CREATE INDEX club_slug_history_club_idx ON public.club_slug_history (club_id);
 ALTER TABLE public.club_slug_history ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.club_slug_history FROM PUBLIC, anon, authenticated, service_role;
+-- A former slug names a club exactly as its current slug does, so a signed-in
+-- caller may read the row the same way it reads clubs.slug. The client
+-- resolver reads it as a table: an RPC there would add a function call to
+-- every route that resolves a club and shift every caller's own RPC sequence.
+-- Nobody but the rename trigger (owner rights) writes it.
+GRANT SELECT ON public.club_slug_history TO authenticated, service_role;
+CREATE POLICY club_slug_history_signed_in_read ON public.club_slug_history
+  FOR SELECT TO authenticated USING (true);
 COMMENT ON TABLE public.club_slug_history IS
-  'Former clubs.slug values and the club that held them, written by trg_club_slug_keeps_its_history in the statement that renames the club. Read only through ca_club_id_for_slug. A slug a club currently holds is never listed here.';
+  'Former clubs.slug values and the club that held them, written by trg_club_slug_keeps_its_history in the statement that renames the club. Read-only to signed-in callers; ca_club_id_for_slug answers current-or-former in one call. A slug a club currently holds is never listed here.';
 
 CREATE FUNCTION public.ca_club_id_for_slug(p_slug text)
 RETURNS uuid LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $function$

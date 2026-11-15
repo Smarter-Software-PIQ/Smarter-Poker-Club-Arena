@@ -157,19 +157,25 @@ export async function resolveClubUUID(clubIdParam: string, signal?: AbortSignal)
 
   // A RENAMED CLUB KEEPS ITS OLD SLUG (2026-11-14). club-jaqk became
   // the-felt-society and every /clubs/club-jaqk link stopped resolving. A slug
-  // no club holds now is asked of the rename history (ca_club_id_for_slug,
-  // 20261114235606); the answer is cached under the old slug like any other.
+  // no club holds now is looked up in the rename history (club_slug_history,
+  // 20261114235606), which the renaming statement itself writes; the answer is
+  // cached under the old slug like any other. A table read, not an RPC: this
+  // resolver sits in front of 100+ callers and must not add a call to their
+  // own RPC sequences.
   if (!error && filter.column === 'slug') {
-    const former = supabase.rpc('ca_club_id_for_slug', { p_slug: clubIdParam });
-    const { data: formerId, error: formerError } = await (signal
-      ? former.abortSignal(signal)
-      : former);
+    const former = supabase
+      .from('club_slug_history')
+      .select('club_id')
+      .eq('former_slug', clubIdParam);
+    const { data: formerRow, error: formerError } = await (
+      signal ? former.abortSignal(signal) : former
+    ).maybeSingle();
     if (formerError) {
       reportError(formerError, 'clubIdResolver.formerSlug', { clubIdParam });
-    } else if (typeof formerId === 'string' && isUUID(formerId)) {
-      uuidCache.set(clubIdParam, formerId);
+    } else if (typeof formerRow?.club_id === 'string' && isUUID(formerRow.club_id)) {
+      uuidCache.set(clubIdParam, formerRow.club_id);
       persistMap();
-      return formerId;
+      return formerRow.club_id;
     }
   }
 

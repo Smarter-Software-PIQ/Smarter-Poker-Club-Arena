@@ -265,9 +265,18 @@ describe('a renamed club keeps its old slug', () => {
     expect(sql).not.toMatch(/REFERENCES\s+public\.clubs/i);
   });
 
-  it('the one client resolver asks the history when no club holds the slug', () => {
+  it('the one client resolver reads the history when no club holds the slug, without an RPC', () => {
     const resolver = src('src/utils/clubIdResolver.ts');
     expect(resolver).toContain("if (!error && filter.column === 'slug') {");
-    expect(resolver).toContain("supabase.rpc('ca_club_id_for_slug', { p_slug: clubIdParam })");
+    expect(resolver).toContain(".from('club_slug_history')");
+    expect(resolver).toContain(".eq('former_slug', clubIdParam)");
+    // The resolver fronts 100+ callers that sequence their own RPCs.
+    expect(resolver).not.toContain('supabase.rpc(');
+    const sql = squash(latestDeclaring('ca_club_id_for_slug').sql);
+    expect(sql).toContain(
+      'GRANT SELECT ON public.club_slug_history TO authenticated, service_role;'
+    );
+    expect(sql).toContain('FOR SELECT TO authenticated USING (true);');
+    expect(sql).not.toMatch(/GRANT (INSERT|UPDATE|DELETE|ALL)[^;]*club_slug_history/i);
   });
 });
