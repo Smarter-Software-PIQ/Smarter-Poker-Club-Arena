@@ -18,6 +18,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { downloadBlob } from '../../utils/downloadCsv';
 import { shareFile } from '../../lib/share';
 import './StatsShareCard.css';
 import {
@@ -336,16 +337,9 @@ export default function StatsShareCard({
         filename: 'smarter-poker-stats.png',
         title: 'My Smarter Poker Stats',
         download: (filename, file) => {
-          const url = URL.createObjectURL(file);
-          const link = document.createElement('a');
-          link.href = url;
-          link.download = filename;
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-          // Revoke later: revoking synchronously can cancel the download in
-          // some browsers before it has read the blob.
-          setTimeout(() => URL.revokeObjectURL(url), 10_000);
+          // The estate's one file door (utils/downloadCsv): an anchor on the
+          // web, the system share sheet in the app.
+          downloadBlob(filename, file);
         },
       });
       if (outcome === 'saved') setNote('Saved To Your Downloads.');

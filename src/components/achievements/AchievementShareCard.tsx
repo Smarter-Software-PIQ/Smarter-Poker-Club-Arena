@@ -13,6 +13,7 @@
  */
 
 import React, { useRef, useCallback, useState, useEffect } from 'react';
+import { downloadBlob } from '../../utils/downloadCsv';
 import { shareFile } from '../../lib/share';
 import { haptic } from '../../services/HapticService';
 import './AchievementShareCard.css';
@@ -210,13 +211,10 @@ export const AchievementShareCard: React.FC<AchievementShareCardProps> = ({
       filename,
       title: `${name}`,
       text: `I just unlocked "${name}" on Club Arena! ${description}`,
-      download: (file, png) => {
-        const href = URL.createObjectURL(png);
-        const link = document.createElement('a');
-        link.download = file;
-        link.href = href;
-        link.click();
-        setTimeout(() => URL.revokeObjectURL(href), 10_000);
+      download: (filename, file) => {
+        // The estate's one file door (utils/downloadCsv): an anchor on the
+        // web, the system share sheet in the app.
+        downloadBlob(filename, file);
       },
     });
     setSharing(false);

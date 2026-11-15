@@ -53,7 +53,7 @@ Link content corrected on the way through:
 
 `tests/every-share-goes-through-one-door.law.test.ts` (no `navigator.share`
 or `clipboard.writeText` outside the door) and `tests/unit/shareDoor.test.ts`
-(each dead end, as a case). Five source-text pins that named the old raw
+(each dead end, as a case). Six source-text pins that named the old raw
 calls moved to the new mechanism in this commit.
 
 ## Not changed
