@@ -86,6 +86,7 @@ export interface TableModalsLayerProps {
   isActive?: boolean;
   // Core context
   tableId: string | undefined;
+  cashStatsClusterId?: string | null;
   userId: string;
   username: string;
   /**
@@ -1152,10 +1153,12 @@ function TableModalsLayerImpl(props: TableModalsLayerProps) {
       )}
 
       {/* Throwable Selector */}
-      {showThrowableSelector && userId && v8Settings.emoji_enabled && (
+      {showThrowableSelector && userId && (v8Settings.emoji_enabled || !isTournament) && (
         <div className="throwable-selector-overlay">
           <ThrowableSelector
             userId={userId}
+            throwsEnabled={v8Settings.emoji_enabled}
+            cashTableId={isTournament ? undefined : (props.cashStatsClusterId ?? tableId)}
             targetName={selectedPlayerForNotes?.name}
             targetUserId={selectedPlayerForNotes?.id}
             hasNote={selectedPlayerHasNote}

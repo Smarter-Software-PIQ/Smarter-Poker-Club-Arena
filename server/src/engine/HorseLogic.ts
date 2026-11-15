@@ -5,6 +5,10 @@ import {
 } from './HorseNonBottomRiverValue.js';
 import { reconcileHorsePhaseReceipts } from './HorsePhaseControllerWithdrawal.js';
 import { priorAggressorCheckedThisStreet } from './HorseCheckedAggressor.js';
+import {
+  HOLDEM_RIVER_BOAT_LEAD_FREQUENCY,
+  holdemRiverLeadBoat,
+} from './HorseHoldemRiverFullHouseValue.js';
 import type { HorsePlanReadCapture } from './HorsePlanReadReceipt.js';
 import type { HorseRangeConsumptionCapture } from './HorseRangeConsumptionReceipt.js';
 import { smallPotNearNutRiverValue } from './HorseNearNutRiverValue.js';
@@ -3577,6 +3581,12 @@ export interface HorseDecideOpts {
    *  exact pre-V87 behavior for historical frozen-digest corpora. */
   v87HoldemOverhaul?: boolean;
   /** Feature-only offline ablations. Live callers keep the default enabled. */
+  /** HOLD'EM RIVER FULL HOUSE VALUE (2026-11-15, HorseHoldemRiverFullHouseValue): in no-limit hold'em on the
+   *  river, out of position without the betting lead, a full house or better that uses a hole card (not an
+   *  under-full, not a trips-board boat, not the board playing) leads 70% of the time through the existing
+   *  monster sizing; the rest keeps the check. Receipt holdem_river_full_house_lead_seen. Read only as === true:
+   *  default OFF. */
+  holdemRiverFullHouseValue?: boolean;
   v87RiverBlockBetTrap?: boolean;
   v87HollywoodTank?: boolean;
   v87FlopStabCheckRaise?: boolean;
@@ -15198,6 +15208,27 @@ export class HorseLogic {
           }
         }
       }
+      // HOLD'EM RIVER FULL HOUSE VALUE (2026-11-15, option holdemRiverFullHouseValue, default off): the gate below
+      // checks every hand to the prior aggressor; on the river a qualifying full house leads instead (70%), sized
+      // by the monster branch that follows. The option off draws no random number and changes nothing.
+      const holdemRiverBoatLead =
+        opts.holdemRiverFullHouseValue === true &&
+        isRiver &&
+        !vi.isOmaha &&
+        !vi.isShortDeck &&
+        !vi.isFixedLimit &&
+        gs.gameVariant === 'nlh' &&
+        !multiBoard36 &&
+        !gs.bombPot &&
+        !gs.allInOrFold &&
+        cat >= 7 &&
+        !dominated21 &&
+        initiative === 'opp' &&
+        !prevChecked &&
+        !ip &&
+        holdemRiverLeadBoat(player.cards, board) &&
+        fastRandom() < HOLDEM_RIVER_BOAT_LEAD_FREQUENCY;
+      if (holdemRiverBoatLead && tele15) noteFire('holdem_river_full_house_lead_seen');
       // ═══ V11 INITIATIVE GATE (Dan 2026-08-22): no more donk leads ═══
       // A player WITHOUT the betting lead, acting BEFORE the prior-street
       // aggressor, checks the overwhelming majority of his range — strong
@@ -15218,6 +15249,7 @@ export class HorseLogic {
         !ip &&
         !priorAggressorCheckedThisStreet(gs.actionHistory, street) &&
         !checkedToNonBottomRiverBoat(player, gs) &&
+        !holdemRiverBoatLead &&
         !v86SmallPotNearNut &&
         !(
           v86 &&
