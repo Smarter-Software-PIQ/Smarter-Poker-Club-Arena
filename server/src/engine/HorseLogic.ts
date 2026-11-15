@@ -7198,11 +7198,6 @@ function omahaReraisedFoldVsTight(
     }
     if (raiserId === null) return decision;
     const tele = telemetryOn(opts);
-    const read = HorseMind.omahaReadConditionalOf(raiserId);
-    if (!read?.tightReRaiser) {
-      if (tele) noteFire('omaha_reraised_fold_vs_tight_withheld');
-      return decision;
-    }
     const verdict = omahaReraisedPreflopCell({
       variant: String(gs.gameVariant ?? ''),
       street: 'preflop',
@@ -7222,7 +7217,14 @@ function omahaReraisedFoldVsTight(
       tournament: isTournamentMode(gs),
       allInOrFold: gs.allInOrFold === true,
     });
+    // The cell's own gate first (PLO4/PLO5 high, one board, no bomb pot): in
+    // Hold'em, PLO8 and FLO8 the option is silent, its withheld receipt too.
     if (verdict === null) return decision;
+    const read = HorseMind.omahaReadConditionalOf(raiserId);
+    if (!read?.tightReRaiser) {
+      if (tele) noteFire('omaha_reraised_fold_vs_tight_withheld');
+      return decision;
+    }
     if (!verdict.fold) {
       if (tele) noteFire('omaha_reraised_fold_vs_tight_priced_in');
       return decision;
@@ -7737,7 +7739,9 @@ function omahaBigBetCallFold(
     }
     if (telemetryOn(opts)) {
       if (v81 === 'trips_set_drawy') noteFire('v81_river_set_big_bet_fold');
-      if (bluffCatcher !== null) noteFire('omaha_bluff_catcher_raise_fold');
+      // the unconditional option's own receipt; the read-gated option fired its own above
+      if (bluffCatcher !== null && opts.omahaBluffCatcherRaiseFold === true)
+        noteFire('omaha_bluff_catcher_raise_fold');
       noteFire(
         v81 !== null
           ? 'v81_omaha_big_bet_call_fold'
