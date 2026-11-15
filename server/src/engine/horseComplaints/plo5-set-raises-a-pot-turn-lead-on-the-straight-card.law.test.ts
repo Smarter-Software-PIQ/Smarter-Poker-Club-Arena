@@ -41,6 +41,15 @@ describe('complaint law: PLO5 set does not raise a pot-sized turn lead on the ca
     expect(complaintPathHits(FX)).toEqual([]);
   });
 
+  // Added by hand to the generated law: the recorded raise needs the opponent
+  // memory present (with it off this node already called before the rule
+  // existed), so the law above is only half of it. With the memory on and
+  // empty, where the raise came from, no profile raises either. This is the
+  // assertion that fails on the source before the rule.
+  it('with the opponent memory on, where the recorded raise came from, no profile raises either', () => {
+    expect(complaintPathHits(FX, { mind: true })).toEqual([]);
+  });
+
   it.skipIf(!FX.control)(
     'control: with the governing rule off, the replay takes the path again',
     () => {
