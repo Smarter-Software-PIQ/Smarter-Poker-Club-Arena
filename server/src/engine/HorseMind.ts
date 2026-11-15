@@ -2497,8 +2497,8 @@ export class HorseMind {
    * decayed counters omahaTightReadOf reads (the exact context's row,
    * probe-adjusted) and their high-side exploit read. A presumed read is never
    * measured. Null outside an Omaha decision. Pure: no fires, no writes. Only
-   * HorseLogic calls it, and only with omahaReraisedFoldVsTight or
-   * omahaMadeHandDefenseVsValueLeader on.
+   * HorseLogic calls it, and only with omahaReraisedFoldVsTight,
+   * omahaMadeHandDefenseVsValueLeader or omahaBluffCatcherFoldVsValueLeader on.
    */
   static omahaReadConditionalOf(userId: string): OmahaReadConditional | null {
     const scope = this.decisionScope;

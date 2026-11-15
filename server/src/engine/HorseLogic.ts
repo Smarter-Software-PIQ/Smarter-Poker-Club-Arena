@@ -2764,6 +2764,21 @@ export interface HorseDecideOpts {
    * until its declared evaluation passes; league cards plo4/plo5
    * _omaha_made_hand_defense_vs_value_leader. */
   omahaMadeHandDefenseVsValueLeader?: boolean;
+  /** Owner (PLO Strategy, 2026-11-15): Horses call big river bets and raises
+   * with bluff catchers against a player who always has it. The bluff-catcher
+   * cells of omahaBluffCatcherRaiseFold (omahaBluffCatcherCell, unchanged,
+   * with every exception it has: the priced turn redraw, the measured
+   * postflop over-bluffer, chips behind the call) fold only when the player
+   * whose bet or raise the Horse faces is a MEASURED postflop value leader
+   * (HorseOmahaReadConditional.ts, the read of
+   * omahaMadeHandDefenseVsValueLeader; a presumed read never counts). The
+   * unconditional option failed its evaluation because it also folds to
+   * players who bluff-raise; against an over-bluffer, a station or an unknown
+   * or presumed player this option gives today's decision. Needs the mind
+   * on. Has no effect while omahaBluffCatcherRaiseFold is on. Default OFF
+   * (opt-in, read `=== true`), unmeasured; league cards plo4/plo5
+   * _omaha_bluff_catcher_fold_vs_value_leader. */
+  omahaBluffCatcherFoldVsValueLeader?: boolean;
   /** A token-priced committed call is not barred by stack-off premiums
    * (HorseTokenCallPrice.ts, PLO6-AUDIT-010). Default on; false only for
    * the regression's non-vacuity control. */
@@ -6067,12 +6082,21 @@ function omahaBigBetCallFold(
         : null;
     // The bluff-catcher cells come after V84: a call V84 already folds keeps
     // its V84 receipt.
-    const bluffCatcher =
+    // omahaBluffCatcherFoldVsValueLeader (default off): the same cells, kept
+    // only when the player whose wager is faced is a measured value leader;
+    // it stands aside while the unconditional option is on and with the mind
+    // off. With both options off nothing below changes.
+    const bluffCatcherVsLeader =
+      opts.omahaBluffCatcherRaiseFold !== true &&
+      opts.omahaBluffCatcherFoldVsValueLeader === true &&
+      opts.mind !== false &&
+      faced.bettorSeat !== player.seat;
+    const bluffCatcherCell =
       isCall &&
       v81Base === null &&
       v84 === null &&
       v81On &&
-      opts.omahaBluffCatcherRaiseFold === true
+      (opts.omahaBluffCatcherRaiseFold === true || bluffCatcherVsLeader)
         ? omahaBluffCatcherCell({
             ...shared,
             heroHasStreetChips: heroBet > 0.005,
@@ -6090,6 +6114,23 @@ function omahaBigBetCallFold(
                 : 0,
           })
         : null;
+    let bluffCatcher = bluffCatcherCell;
+    if (bluffCatcherVsLeader && bluffCatcherCell !== null) {
+      let facedIsValueLeader = false;
+      try {
+        const read = HorseMind.omahaReadConditionalOf(bettor.user_id);
+        facedIsValueLeader = read !== null && read.measured === true && read.valueLeader === true;
+      } catch {
+        facedIsValueLeader = false;
+      }
+      if (telemetryOn(opts))
+        noteFire(
+          facedIsValueLeader
+            ? 'omaha_bluff_catcher_fold_vs_value_leader'
+            : 'omaha_bluff_catcher_fold_vs_value_leader_withheld'
+        );
+      if (!facedIsValueLeader) bluffCatcher = null;
+    }
     const v81 = v81Base ?? bluffCatcher;
     if (v81 === null && v84 === null) {
       const bettorRead86 = HorseMind.opponentRead(bettor.user_id);

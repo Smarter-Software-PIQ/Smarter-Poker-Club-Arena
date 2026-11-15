@@ -2121,6 +2121,20 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
       b: {},
     },
   ]),
+  // 2026-11-15 OMAHA BLUFF-CATCHER FOLD VS A VALUE LEADER
+  // (omahaBluffCatcherFoldVsValueLeader, default OFF, unmeasured): a makes the
+  // bluff-catcher folds of omahaBluffCatcherRaiseFold only when the player
+  // whose bet or raise is faced is a measured postflop value leader
+  // (HorseOmahaReadConditional); b is today's brain. Memory learning on (the
+  // league default), so the read engages on measured play.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_bluff_catcher_fold_vs_value_leader`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaBluffCatcherFoldVsValueLeader: true },
+    b: {},
+  })),
   // V15 BOATS (2026-09-28): default OFF. a turns it on, b is today's brain.
   // Ship it default ON only after this resolves significant positive.
   // 2026-11-06: V15 boats is default ON in PLO5 cash (v15BoatsOn), so the

@@ -929,6 +929,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaBluffCatcherFoldVsValueLeader',
+    'Owner 2026-11-15 (PLO Strategy: Horses call big river bets and raises with bluff catchers against a player who always has it): the PLO4/PLO5 bluff-catcher folds of omahaBluffCatcherRaiseFold (a 0.9-pot+ turn or river raise, or a 0.9-pot+ turn bet from the flop bettor, with every exception of that rule) apply only when the player whose bet or raise is faced is a measured postflop value leader: bet when checked to not credibly above the Horse mean, not a postflop maniac, fold to a bet at least and river call at most the Horse mean, on 8+ decayed postflop opportunities; a presumed read never counts (HorseOmahaReadConditional.ts). Against an over-bluffer, a station or an unknown player the Horse plays as today. Default OFF (opt-in), unmeasured; league cards plo4/plo5 _omaha_bluff_catcher_fold_vs_value_leader',
+    'V94'
+  ),
+  flag(
     'omahaNutClassValueSize',
     'Dan 2026-11-14: a PLO4/PLO5 high bet or raise with the nuts or an effective-nut hand for the street is the full pot (the pot-limit maximum, the stack when smaller) on the flop, turn and river. Default OFF (opt-in): its declared evaluation failed on the Horse-only cells (PLO4 -1.19, PLO5 -1.31 bb/100; human field +2.29)',
     'V94'
@@ -3759,6 +3764,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_value_leader_defense_withheld',
     'HorseLogic wager_rules (HorseOmahaReadConditional, omahaMadeHandDefenseVsValueLeader)',
     "a turn raise or a turn/river bet the made-hand defence would change, some live opponent not a measured value leader (over-bluffer, station, unknown or presumed): today's play kept",
+    'V94'
+  ),
+  receipt(
+    'omaha_bluff_catcher_fold_vs_value_leader',
+    'HorseLogic (V81, bluff-catcher cells; HorseOmahaReadConditional, omahaBluffCatcherFoldVsValueLeader)',
+    'PLO4/PLO5 call of a 0.9-pot+ turn or river raise (or a turn bet from the flop bettor) with a bluff catcher, the player faced a measured postflop value leader: folded (omaha_bluff_catcher_raise_fold and v81_omaha_big_bet_call_fold count the fold as well)',
+    'V94'
+  ),
+  receipt(
+    'omaha_bluff_catcher_fold_vs_value_leader_withheld',
+    'HorseLogic (V81, bluff-catcher cells; HorseOmahaReadConditional, omahaBluffCatcherFoldVsValueLeader)',
+    "a bluff-catcher call the cells would fold, the player faced not a measured value leader (over-bluffer, station, unknown or presumed): today's play kept",
     'V94'
   ),
   receipt(
