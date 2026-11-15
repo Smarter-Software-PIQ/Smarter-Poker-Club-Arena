@@ -1,3 +1,4 @@
+import { PerformancePose } from '../PerformancePose';
 import { AtlasSprite } from '../AtlasSprite';
 import { RIG_VIEWBOX, type RigProps, type ThrowableRig } from '../rig';
 import type { ThrowableSpec } from '../spec';
@@ -18,16 +19,17 @@ export const spec: ThrowableSpec = {
     { at: 433, marker: 'pop' },
     { at: 600, marker: 'eyes-grow' },
     { at: 900, marker: 'scream' },
+    { at: 1113, marker: 'jaw-drop' },
     { at: 1200, marker: 'sweat' },
+    { at: 1413, marker: 'jaw-extended' },
     { at: 2000, marker: 'shake' },
     { at: 3000, marker: 'sweat-stops' },
-    { at: 3400, marker: 'jaw-drop' },
-    { at: 3550, marker: 'jaw-extended' },
     { at: 4000, marker: 'cut' },
   ],
   audio: [
-    { at: 433, sample: 'pop_soft', gain: 0.3 },
-    { at: 900, sample: 'scream_short' },
+    { at: 433, sample: 'pop_soft', gain: 0.25 },
+    { at: 900, sample: 'scream_short', gain: 0.95 },
+    { at: 3000, sample: 'sigh_soft', gain: 0.37 },
   ],
 };
 preloadThrowableCues(spec.audio.map((cue) => cue.sample));
@@ -79,12 +81,34 @@ function Payload(_props: RigProps) {
           </g>
           <g className="thr-screaming__scream-end">
             <g className="thr-screaming__scream">
-              <Tile tile={1} x={-65} y={-65} width={130} height={130} />
+              <PerformancePose
+                src="screaming-acting"
+                row={0}
+                rows={2}
+                x={-65.0}
+                y={-65.0}
+                width={130.0}
+                height={130.0}
+                duration={500}
+                delay={530}
+                repeats={2}
+              />
             </g>
           </g>
           <g className="thr-screaming__jaw">
             <g className="thr-screaming__jaw-fall">
-              <Tile tile={2} x={-65} y={-65} width={130} height={160} />
+              <PerformancePose
+                src="screaming-acting"
+                row={1}
+                rows={2}
+                x={-65.0}
+                y={-50.0}
+                width={130.0}
+                height={130.0}
+                duration={630}
+                delay={800}
+                repeats={2}
+              />
             </g>
           </g>
         </g>

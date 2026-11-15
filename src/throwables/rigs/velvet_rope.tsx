@@ -1,3 +1,4 @@
+import { PerformancePose } from '../PerformancePose';
 import { AtlasSprite } from '../AtlasSprite';
 import { RIG_VIEWBOX, type RigProps, type ThrowableRig } from '../rig';
 import type { ThrowableSpec } from '../spec';
@@ -22,8 +23,9 @@ export const spec: ThrowableSpec = {
     { at: 4000, marker: 'cut' },
   ],
   audio: [
-    { at: 850, sample: 'lid_clank', gain: 0.25 },
-    { at: 1000, sample: 'tick_settle', gain: 0.3 },
+    { at: 550, sample: 'stone_drop', gain: 0.3 },
+    { at: 850, sample: 'brass_hook', gain: 0.85 },
+    { at: 1250, sample: 'flute_clink_soft', gain: 0.43 },
   ],
 };
 preloadThrowableCues(spec.audio.map((cue) => cue.sample));
@@ -75,7 +77,18 @@ function Payload(_props: RigProps) {
         <Tile tile={0} x={55} y={-80} width={35} height={165} />
       </g>
       <g className="thr-velvet_rope__rope">
-        <Tile tile={1} x={-77} y={-15} width={154} height={75} />
+        <PerformancePose
+          src="velvet_rope-acting"
+          row={0}
+          rows={1}
+          x={-62.745}
+          y={-15.0}
+          width={125.49}
+          height={75.0}
+          duration={750}
+          delay={495}
+          repeats={2}
+        />
       </g>
       <g className="thr-velvet_rope__sign">
         <Tile tile={2} x={-52} y={4} width={104} height={75} />

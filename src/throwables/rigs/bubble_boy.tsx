@@ -1,3 +1,4 @@
+import { PerformancePose } from '../PerformancePose';
 import { AvatarCopy } from '../AvatarCopy';
 import { AtlasSprite } from '../AtlasSprite';
 import { RIG_VIEWBOX, type RigProps, type ThrowableRig } from '../rig';
@@ -23,8 +24,8 @@ export const spec: ThrowableSpec = {
     { at: 4000, marker: 'cut' },
   ],
   audio: [
-    { at: 750, sample: 'water_lap', gain: 0.25 },
-    { at: 3300, sample: 'cork_pop', gain: 0.4 },
+    { at: 750, sample: 'bubble_tick', gain: 0.43 },
+    { at: 3300, sample: 'bubble_pop', gain: 0.96 },
   ],
 };
 preloadThrowableCues(spec.audio.map((cue) => cue.sample));
@@ -73,7 +74,18 @@ function Payload({ targetAvatar }: RigProps) {
         <AvatarCopy snapshot={targetAvatar} />
       </g>
       <g className="thr-bubble_boy__bubble">
-        <Tile tile={0} x={-85} y={-85} width={170} height={170} />
+        <PerformancePose
+          src="bubble_boy-acting"
+          row={0}
+          rows={1}
+          x={-85.0}
+          y={-83.901}
+          width={170.0}
+          height={167.802}
+          duration={670}
+          delay={2270}
+          repeats={1}
+        />
       </g>
       <g className="thr-bubble_boy__burst">
         <Tile tile={2} x={-105} y={-145} width={210} height={210} />

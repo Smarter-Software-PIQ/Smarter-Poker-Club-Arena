@@ -1,3 +1,4 @@
+import { PerformancePose } from '../PerformancePose';
 import { AtlasSprite } from '../AtlasSprite';
 import { RIG_VIEWBOX, type RigProps, type ThrowableRig } from '../rig';
 import type { ThrowableSpec } from '../spec';
@@ -25,8 +26,9 @@ export const spec: ThrowableSpec = {
     { at: 4000, marker: 'cut' },
   ],
   audio: [
-    { at: 2800, sample: 'bubble_tick', gain: 0.4 },
-    { at: 3500, sample: 'snore_soft' },
+    { at: 1200, sample: 'yawn_breath', gain: 0.35 },
+    { at: 2000, sample: 'snore_soft', gain: 0.74 },
+    { at: 2800, sample: 'bubble_tick', gain: 0.35 },
   ],
 };
 preloadThrowableCues(spec.audio.map((cue) => cue.sample));
@@ -77,7 +79,18 @@ function Payload(_props: RigProps) {
             <Tile tile={0} x={-65} y={-65} width={130} height={130} />
           </g>
           <g className="thr-sleeping__closed">
-            <Tile tile={1} x={-65} y={-65} width={130} height={130} />
+            <PerformancePose
+              src="sleeping-acting"
+              row={0}
+              rows={1}
+              x={-65.0}
+              y={-65.0}
+              width={130.0}
+              height={130.0}
+              duration={1220}
+              delay={260}
+              repeats={3}
+            />
           </g>
           <g className="thr-sleeping__cap">
             <Tile tile={2} x={-78} y={-112} width={155} height={115} />

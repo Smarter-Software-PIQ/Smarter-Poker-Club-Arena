@@ -25,7 +25,7 @@
 .thr-screaming__scream-end {
   transform-origin: 0 0;
   animation: thr-screaming-scream-end calc(0.001s * var(--animation-speed, 1)) linear
-    calc(3.067s * var(--animation-speed, 1)) forwards;
+    calc(0.78s * var(--animation-speed, 1)) forwards;
 }
 @keyframes thr-screaming-scream-end {
   to {
@@ -36,7 +36,7 @@
   transform-origin: 0 0;
   opacity: 0;
   animation: thr-screaming-jaw calc(0.001s * var(--animation-speed, 1)) linear
-    calc(3.067s * var(--animation-speed, 1)) forwards;
+    calc(0.78s * var(--animation-speed, 1)) forwards;
 }
 @keyframes thr-screaming-jaw {
   from {
@@ -49,7 +49,7 @@
 .thr-screaming__shake {
   transform-origin: 0 0;
   animation: thr-screaming-shake calc(0.12s * var(--animation-speed, 1)) linear
-    calc(0.567s * var(--animation-speed, 1)) infinite;
+    calc(0.567s * var(--animation-speed, 1)) 8;
 }
 @keyframes thr-screaming-shake {
   0%,
@@ -82,7 +82,7 @@
 .thr-screaming__jaw-fall {
   transform-origin: 0 0;
   animation: thr-screaming-jaw-fall calc(0.3s * var(--animation-speed, 1)) ease-out
-    calc(3.067s * var(--animation-speed, 1)) forwards;
+    calc(0.78s * var(--animation-speed, 1)) forwards;
 }
 @keyframes thr-screaming-jaw-fall {
   from {

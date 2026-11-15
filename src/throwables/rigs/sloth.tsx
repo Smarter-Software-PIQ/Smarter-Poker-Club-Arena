@@ -1,3 +1,4 @@
+import { PerformancePose } from '../PerformancePose';
 import { AtlasSprite } from '../AtlasSprite';
 import { RIG_VIEWBOX, type RigProps, type ThrowableRig } from '../rig';
 import type { ThrowableSpec } from '../spec';
@@ -26,7 +27,8 @@ export const spec: ThrowableSpec = {
   ],
   audio: [
     { at: 433, sample: 'pop_soft', gain: 0.25 },
-    { at: 2700, sample: 'yawn_breath' },
+    { at: 2500, sample: 'yawn_breath', gain: 0.88 },
+    { at: 3200, sample: 'sigh_soft', gain: 0.33 },
   ],
 };
 preloadThrowableCues(spec.audio.map((cue) => cue.sample));
@@ -79,11 +81,33 @@ function Payload(_props: RigProps) {
           </g>
           <g className="thr-sloth__yawn-end">
             <g className="thr-sloth__yawn">
-              <Tile tile={2} x={-57} y={-57} width={114} height={114} />
+              <PerformancePose
+                src="sloth-acting"
+                row={0}
+                rows={2}
+                x={-57.0}
+                y={-57.0}
+                width={114.0}
+                height={114.0}
+                duration={820}
+                delay={2120}
+                repeats={1}
+              />
             </g>
           </g>
           <g className="thr-sloth__sleepy">
-            <Tile tile={3} x={-57} y={-57} width={114} height={114} />
+            <PerformancePose
+              src="sloth-acting"
+              row={1}
+              rows={2}
+              x={-57.0}
+              y={-57.0}
+              width={114.0}
+              height={114.0}
+              duration={940}
+              delay={2740}
+              repeats={1}
+            />
           </g>
           <g className="thr-sloth__blink-two">
             <Tile tile={1} x={-57} y={-57} width={114} height={114} />

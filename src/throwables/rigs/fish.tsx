@@ -1,3 +1,4 @@
+import { PerformancePose } from '../PerformancePose';
 import { AtlasSprite } from '../AtlasSprite';
 import { RIG_VIEWBOX, type RigProps, type ThrowableRig } from '../rig';
 import type { ThrowableSpec } from '../spec';
@@ -25,9 +26,9 @@ export const spec: ThrowableSpec = {
     { at: 3400, marker: 'cut' },
   ],
   audio: [
-    { at: 700, sample: 'water_lap', gain: 0.5 },
+    { at: 700, sample: 'fish_slap', gain: 0.9 },
     { at: 1700, sample: 'whoosh_low', gain: 0.3 },
-    { at: 1967, sample: 'whoosh_low', gain: 0.3 },
+    { at: 1967, sample: 'fish_slap', gain: 0.54 },
   ],
 };
 preloadThrowableCues(spec.audio.map((c) => c.sample));
@@ -69,10 +70,32 @@ function Payload({ uid }: RigProps) {
         <g className="thr-fish__rest">
           <g transform="translate(0 -18) rotate(-24)">
             <g className="thr-fish__closed">
-              <FishPose />
+              <PerformancePose
+                src="fish-acting"
+                row={1}
+                rows={2}
+                x={-75.0}
+                y={-75.0}
+                width={150.0}
+                height={150.0}
+                duration={255}
+                delay={65}
+                repeats={6}
+              />
             </g>
             <g className="thr-fish__open">
-              <FishPose open />
+              <PerformancePose
+                src="fish-acting"
+                row={0}
+                rows={2}
+                x={-75.0}
+                y={-75.0}
+                width={150.0}
+                height={150.0}
+                duration={255}
+                delay={65}
+                repeats={6}
+              />
             </g>
             <g className="thr-fish__gash">
               <path d="M-12 -13L6 10L1 10L-16 -10Z" fill={`url(#${uid}mark)`} />
