@@ -1096,10 +1096,13 @@ function importedWindow(
 
 /**
  * FIXED-LIMIT BETS ARE NEVER PROBES (2026-11-14): the process-level source
- * default of HorseMind.setFixedLimitBetsAreNeverProbes. OFF: a fixed-limit
+ * default of HorseMind.setFixedLimitBetsAreNeverProbes. ON since 2026-11-15
+ * as a defect repair (fixed-limit maniac recognition), with its eight
+ * evidence rows in docs/horse-default-on.d/fixedLimitBetsAreNeverProbes.md.
+ * OFF (setFixedLimitBetsAreNeverProbes(false)) is the rollback: a fixed-limit
  * hand's bets are probe-counted exactly as before. See the switch's note.
  */
-export const FIXED_LIMIT_BETS_ARE_NEVER_PROBES_DEFAULT = false;
+export const FIXED_LIMIT_BETS_ARE_NEVER_PROBES_DEFAULT = true;
 
 /**
  * FIXED-LIMIT RIVER BETS ARE SHOWDOWN VALUE EVIDENCE (2026-11-14): the
@@ -2236,16 +2239,18 @@ export class HorseMind {
    * across games, so excluding the fixed-limit hands at count time also stops
    * them diluting or inflating the same player's no-limit probe share.
    *
-   * PROCESS-LEVEL, SOURCE DEFAULT OFF. Counting happens outside a decision
-   * (the completed-hand learner, workerRuntime observeCompletedHandInMind)
-   * as well as at the top of one, and the two paths share one dedupe, so a
+   * PROCESS-LEVEL, SOURCE DEFAULT ON (2026-11-15; off until then). Counting
+   * happens outside a decision (the completed-hand learner, workerRuntime
+   * observeCompletedHandInMind) as well as at the top of one, and the two paths share one dedupe, so a
    * per-decision option would count the same hand two ways. The switch is
    * therefore one value for the process: FIXED_LIMIT_BETS_ARE_NEVER_PROBES_DEFAULT
    * is what production runs (live requests carry no decide options), and
    * setFixedLimitBetsAreNeverProbes is for tests, harnesses and replay.
-   * Turning it on in production is a default change under
-   * docs/HORSE-DECISION-CHANGE-EVIDENCE.md: the eight evidence rows go in
-   * docs/horse-default-on.d/fixedLimitBetsAreNeverProbes.md with that change.
+   * Turning it on in production was a default change under
+   * docs/HORSE-DECISION-CHANGE-EVIDENCE.md: the eight evidence rows are in
+   * docs/horse-default-on.d/fixedLimitBetsAreNeverProbes.md, and the law
+   * HorseDefaultOnNeedsEvidence fails a process-switch default of true in
+   * this file without its evidence file.
    */
   private static fixedLimitBetsAreNeverProbes = FIXED_LIMIT_BETS_ARE_NEVER_PROBES_DEFAULT;
   static setFixedLimitBetsAreNeverProbes(on: boolean): void {
