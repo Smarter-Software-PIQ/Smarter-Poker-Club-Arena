@@ -208,5 +208,8 @@ describe('a default-off Horse flag has a league card', () => {
     expect(defaultOff()).toContain('huLimpDefendsToPrice');
     expect(cards.has('huOpenerDefendsToPrice')).toBe(true);
     expect(cards.has('huLimpDefendsToPrice')).toBe(true);
+    // 2026-11-14 (HU-HILO-002): shipped with its card.
+    expect(defaultOff()).toContain('omahaHiLoTournamentFirstIn');
+    expect(cards.has('omahaHiLoTournamentFirstIn')).toBe(true);
   });
 });
