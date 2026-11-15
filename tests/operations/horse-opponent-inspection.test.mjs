@@ -153,7 +153,8 @@ test('attributes an exact pooled read only to its reconciled original selected a
       hand,
       { status },
       () => used,
-      () => (bound ? { status: 'bound', actionOrdinal: 5 } : { status: 'unavailable' })
+      () => (bound ? { status: 'bound', actionOrdinal: 5 } : { status: 'unavailable' }),
+      'private-subject-2'
     );
   assert.deepEqual(check(capture, execution, 'reconciled'), {
     actionOrdinal: 5,
@@ -165,6 +166,21 @@ test('attributes an exact pooled read only to its reconciled original selected a
     speed: 'lightning',
     ante: 'big_blind',
   });
+  const mixed = structuredClone(capture);
+  mixed.observerReads.pooledPublicProfiles.rowSources = {
+    version: 1,
+    rows: [
+      { userId: 'private-subject-1', size: 'full', observedHands: 7, source: 'saved_at_deal' },
+      { userId: 'private-subject-2', size: 'full', observedHands: 3, source: 'in_process' },
+    ],
+  };
+  const traced = check(mixed, execution, 'reconciled');
+  assert.deepEqual(traced.profileReadRows, {
+    savedAtDeal: 1,
+    inProcess: 1,
+    forRequestedOpponent: [{ size: 'full', source: 'in_process' }],
+  });
+  assert.ok(!JSON.stringify(traced).includes('private-subject'));
   for (const args of [
     [capture, execution, 'incomplete'],
     [capture, execution, 'reconciled', false],

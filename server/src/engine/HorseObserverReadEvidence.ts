@@ -83,21 +83,27 @@ export function horseObserverReadsUsedPublicPool(
   )
     return false;
   const p = pooledPublicProfiles as Record<string, unknown>;
+  const scope = horseObserverReadContextFromRequest(request);
+  if (!scope || !Array.isArray(request.gameState?.players)) return false;
+  const opponents = new Set(
+    request.gameState.players
+      .filter(
+        (player) =>
+          player &&
+          player.user_id !== scope.observerId &&
+          request.gameState.dealtSeatIds?.includes(player.seat)
+      )
+      .map((player) => player.user_id)
+  );
+  const size = scope.dealtCount <= 2 ? 'hu' : scope.dealtCount <= 5 ? 'short' : 'full';
   if (p.version === 3) {
-    if (!Array.isArray(p.lineage) || !p.lineage.length || p.lineage.length > 18) return false;
-    const scope = horseObserverReadContextFromRequest(request);
-    if (scope?.version !== 2 || !Array.isArray(request.gameState?.players)) return false;
-    const opponents = new Set(
-      request.gameState.players
-        .filter(
-          (player) =>
-            player &&
-            player.user_id !== scope.observerId &&
-            request.gameState.dealtSeatIds?.includes(player.seat)
-        )
-        .map((player) => player.user_id)
-    );
-    const size = scope.dealtCount <= 2 ? 'hu' : scope.dealtCount <= 5 ? 'short' : 'full';
+    if (
+      scope.version !== 2 ||
+      !Array.isArray(p.lineage) ||
+      !p.lineage.length ||
+      p.lineage.length > 18
+    )
+      return false;
     const seen = new Set<string>();
     const subjects = new Set<string>();
     for (const row of p.lineage) {
@@ -122,8 +128,64 @@ export function horseObserverReadsUsedPublicPool(
     }
     if (subjects.size > Number(p.profiles)) return false;
   }
+  if (p.version !== 3 && Object.hasOwn(p, 'lineage')) return false;
+  const hasRowSources = Object.hasOwn(p, 'rowSources');
+  if (hasRowSources) {
+    if (
+      !p.rowSources ||
+      typeof p.rowSources !== 'object' ||
+      Array.isArray(p.rowSources) ||
+      Object.keys(p.rowSources).sort().join(',') !== 'rows,version'
+    )
+      return false;
+    const sources = p.rowSources as Record<string, unknown>;
+    if (
+      sources.version !== 1 ||
+      !Array.isArray(sources.rows) ||
+      !sources.rows.length ||
+      sources.rows.length > 18
+    )
+      return false;
+    const seen = new Map<string, number>();
+    const subjects = new Set<string>();
+    let hasDonor = false;
+    for (const row of sources.rows) {
+      if (
+        !row ||
+        Object.keys(row).sort().join(',') !== 'observedHands,size,source,userId' ||
+        !opponents.has(row.userId) ||
+        !['hu', 'short', 'full'].includes(row.size) ||
+        (size === 'hu') !== (row.size === 'hu') ||
+        !Number.isSafeInteger(row.observedHands) ||
+        row.observedHands < 0 ||
+        !['saved_at_deal', 'in_process'].includes(row.source) ||
+        (row.source === 'saved_at_deal' &&
+          (scope.version !== 2 ||
+            row.size !== size ||
+            row.observedHands < 1 ||
+            p.source !== 'saved_and_accepted_public_profiles'))
+      )
+        return false;
+      const key = row.userId + ':' + row.size;
+      if (seen.has(key)) return false;
+      seen.set(key, row.observedHands);
+      subjects.add(row.userId);
+      if (row.size !== size) hasDonor = true;
+    }
+    if (
+      subjects.size !== p.profiles ||
+      (p.version === 1 && hasDonor) ||
+      (p.version === 2 && !hasDonor)
+    )
+      return false;
+    if (
+      Array.isArray(p.lineage) &&
+      p.lineage.some((row) => seen.get(row.userId + ':' + row.size) !== row.observedHands)
+    )
+      return false;
+  }
   if (
-    Object.keys(p).length !== (p.version === 3 ? 6 : 5) ||
+    Object.keys(p).length !== (p.version === 3 ? 6 : 5) + (hasRowSources ? 1 : 0) ||
     // 1: digest of the exact rows; 2: digest of { rows, donors } (sibling
     // table-size donors, 2026-11-08).
     ![1, 2, 3].includes(p.version as number) ||

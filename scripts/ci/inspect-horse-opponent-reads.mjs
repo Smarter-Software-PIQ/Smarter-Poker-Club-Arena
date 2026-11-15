@@ -170,7 +170,15 @@ export function summarizeDecision(record, capture, view, opponentId, independent
 }
 // A reconciled hand can contain both independent and shared reads. Attribute
 // the shared read only to the original decision whose selected wager landed.
-export function acceptedSharedRead(capture, execution, hand, review, usedPublicPool, bind) {
+export function acceptedSharedRead(
+  capture,
+  execution,
+  hand,
+  review,
+  usedPublicPool,
+  bind,
+  opponentId
+) {
   const context = capture.observerReads?.context;
   if (
     !hand ||
@@ -187,10 +195,27 @@ export function acceptedSharedRead(capture, execution, hand, review, usedPublicP
     return null;
   const binding = bind(execution, hand);
   if (binding.status !== 'bound') return null;
+  const pool = capture.observerReads.pooledPublicProfiles;
+  const rows = pool.rowSources?.rows;
   return {
     actionOrdinal: binding.actionOrdinal,
-    profileDigest: capture.observerReads.pooledPublicProfiles.digest,
-    profileSource: capture.observerReads.pooledPublicProfiles.source,
+    profileDigest: pool.digest,
+    profileSource: pool.source,
+    ...(rows
+      ? {
+          profileReadRows: {
+            savedAtDeal: rows.filter((r) => r.source === 'saved_at_deal').length,
+            inProcess: rows.filter((r) => r.source === 'in_process').length,
+            ...(opponentId
+              ? {
+                  forRequestedOpponent: rows
+                    .filter((r) => r.userId === opponentId)
+                    .map(({ size, source }) => ({ size, source })),
+                }
+              : {}),
+          },
+        }
+      : {}),
     variant: context.variant,
     format: context.format,
     dealtCount: context.dealtCount,
@@ -434,7 +459,8 @@ export async function inspect(p) {
               hand,
               review,
               horseObserverReadsUsedPublicPool,
-              bind
+              bind,
+              opponentId
             );
           }
           decisions.push(row);

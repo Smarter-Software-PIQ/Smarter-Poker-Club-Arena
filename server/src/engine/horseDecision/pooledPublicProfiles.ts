@@ -31,6 +31,17 @@ export interface PooledPublicProfileReceipt {
     observedHands: number;
     handId: string;
   }>;
+  /** Selection at the original decision. Older retained receipts lack this field.
+   * A process cache hit includes rows previously warmed at worker bootstrap. */
+  rowSources?: {
+    version: 1;
+    rows: Array<{
+      userId: string;
+      size: DurableOpponentProfile['size'];
+      observedHands: number;
+      source: 'saved_at_deal' | 'in_process';
+    }>;
+  };
   source: 'accepted_hand_public_profiles' | 'saved_and_accepted_public_profiles';
   availableAtMs: number;
   digest: string;
@@ -77,6 +88,8 @@ export class PooledPublicProfiles {
   >();
   private readonly clocks = new Map<string, HandClock>();
   private readonly seen = new Set<string>();
+  private readonly rejectedVersions = new Map<string, number>();
+  private spilledVersionBounds?: Float64Array;
   private lastAt = 0;
   private evictedClockThroughMs = -1;
   private bootstrapped = false;
@@ -187,16 +200,17 @@ export class PooledPublicProfiles {
     // Never let stale aggregate counters suppress fresher individual learning.
     const returned = new Set(valid ? profiles.map((p) => p.user_id) : []);
     for (const id of actors)
-      if (learningActors.has(id) && !returned.has(id)) this.rows.delete(rowKey(id));
+      if (learningActors.has(id) && !returned.has(id)) this.invalidate(rowKey(id));
     if (!valid) return 0;
     let learned = 0;
     for (const p of profiles) {
       if (!learningActors.has(p.user_id)) continue;
       const k = profileKey(p);
       const previous = this.rows.get(k);
+      const version = opponentProfileVersion(p);
+      if (!previous && version <= this.rejectedThrough(k)) continue;
       if (previous) {
-        const previousVersion = opponentProfileVersion(previous.profile),
-          version = opponentProfileVersion(p);
+        const previousVersion = opponentProfileVersion(previous.profile);
         if (previousVersion > version) continue; // an out-of-order older hand cannot erase newer notes
         if (previousVersion === version) {
           // A prior RPC may already have read this completed hand's row.
@@ -207,7 +221,7 @@ export class PooledPublicProfiles {
             isDeepStrictEqual(durableProfileCounters(previous.profile), durableProfileCounters(p))
           )
             continue;
-          this.rows.delete(k); // this new hand has no confirmed fresh profile
+          this.invalidate(k); // this new hand has no confirmed fresh profile
           continue;
         }
       }
@@ -251,7 +265,7 @@ export class PooledPublicProfiles {
     const domainSuffix =
       context.version === 2 ? '|' + publicMemoryDomainKey(context.publicMemoryDomain) : '';
     let availableAtMs = 0;
-    let usedSaved = false;
+    const selectedSaved = new Set<DurableOpponentProfile>();
     const saved = verifiedSavedPresence(request, request.savedProfilePresence);
     const savedAt = saved?.availableAtMs;
     const requestAt = saved?.requestedAtMs;
@@ -289,12 +303,13 @@ export class PooledPublicProfiles {
         candidate &&
         savedAt != null &&
         !intervening &&
-        (!eligible || opponentProfileVersion(candidate) > opponentProfileVersion(eligible.profile));
+        opponentProfileVersion(candidate) >
+          (eligible ? opponentProfileVersion(eligible.profile) : this.rejectedThrough(exactKey));
       if (preferSaved) {
         rows.push(candidate);
         noted.add(player.user_id);
         availableAtMs = Math.max(availableAtMs, savedAt);
-        usedSaved = true;
+        selectedSaved.add(candidate);
       } else if (eligible) {
         rows.push(structuredClone(eligible.profile));
         noted.add(player.user_id);
@@ -322,7 +337,8 @@ export class PooledPublicProfiles {
         a.profile.user_id.localeCompare(b.profile.user_id) ||
         a.profile.size.localeCompare(b.profile.size)
     );
-    const lineage = [...rows, ...donors.map((donor) => donor.profile)].flatMap((profile) =>
+    const selectedRows = [...rows, ...donors.map((donor) => donor.profile)];
+    const lineage = selectedRows.flatMap((profile) =>
       profile.last_accepted_hand_id
         ? [
             {
@@ -340,8 +356,17 @@ export class PooledPublicProfiles {
       receipt: {
         version: lineage.length ? 3 : donors.length ? 2 : 1,
         ...(lineage.length ? { lineage } : {}),
+        rowSources: {
+          version: 1,
+          rows: selectedRows.map((p) => ({
+            userId: p.user_id,
+            size: p.size,
+            observedHands: p.observed_hands,
+            source: selectedSaved.has(p) ? 'saved_at_deal' : 'in_process',
+          })),
+        },
         source:
-          this.bootstrapped || usedSaved
+          this.bootstrapped || selectedSaved.size > 0
             ? 'saved_and_accepted_public_profiles'
             : 'accepted_hand_public_profiles',
         availableAtMs,
@@ -353,6 +378,30 @@ export class PooledPublicProfiles {
         profiles: noted.size,
       },
     };
+  }
+  private rejectedThrough(key: string): number {
+    const known = this.rejectedVersions.get(key);
+    if (known !== undefined) return known;
+    return this.spilledVersionBounds?.[this.spillBucket(key)] ?? -1;
+  }
+  private spillBucket(key: string): number {
+    return createHash('sha256').update(key).digest().readUInt32LE(0) % this.capacity;
+  }
+  private invalidate(key: string): void {
+    const row = this.rows.get(key);
+    if (!row) return;
+    this.rows.delete(key);
+    this.rejectedVersions.delete(key);
+    this.rejectedVersions.set(key, opponentProfileVersion(row.profile));
+    if (this.rejectedVersions.size <= this.capacity) return;
+    // Keep a conservative bound even after the exact rejected key is evicted.
+    // Hash collisions can suppress a cold read, but never attribute a version
+    // to a player. A retained exact key or resident row keeps its own precedence.
+    const [evicted, version] = this.rejectedVersions.entries().next().value!;
+    this.rejectedVersions.delete(evicted);
+    const bounds = (this.spilledVersionBounds ??= new Float64Array(this.capacity).fill(-1));
+    const bucket = this.spillBucket(evicted);
+    bounds[bucket] = Math.max(bounds[bucket]!, version);
   }
   private tick(userId: string, at: number, learnableRowKey: string | null): void {
     const clock = this.clocks.get(userId) ?? { count: 0, marks: [] };
@@ -382,6 +431,8 @@ export class PooledPublicProfiles {
     this.clocks.clear();
     this.rows.clear();
     this.seen.clear();
+    this.rejectedVersions.clear();
+    this.spilledVersionBounds = undefined;
     this.lastAt = 0;
     this.evictedClockThroughMs = -1;
     this.bootstrapped = false;
