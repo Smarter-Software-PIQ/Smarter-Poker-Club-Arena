@@ -86,6 +86,14 @@ describe('the statements certificate reads exact figures', () => {
     ])
       expect(page, line).toContain(line);
     expect(page).toContain('const isZero = (value: string) => !/[1-9]/.test(value);');
+    // The page's chips() is compactChips, and compactChips is exactChips: the
+    // formatter this certificate hands the helper (review of 41b4bda8, N2).
+    expect(page).toMatch(
+      /function chips\(value: string\): string \{\s*return compactChips\(Number\(value\)\);\s*\}/
+    );
+    expect(readFileSync('src/utils/format.ts', 'utf8')).toContain(
+      'export const compactChips = (n: FigureInput): string => exactChips(n);'
+    );
     const spec = readFileSync('tests/e2e/production-cashier-statements.spec.ts', 'utf8');
     expect(spec).toContain("'Statement Totals on the glass differ from the server'");
   });
