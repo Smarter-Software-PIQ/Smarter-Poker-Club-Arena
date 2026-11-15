@@ -447,6 +447,10 @@ export interface DecisionReadOptions {
    *  evidence (HorseOpponentExploit.withManiacSampleGate), so maniacRaiseWidth needs 15 decayed hands and PFR credibly
    *  above the size's regular line. Only an explicit true engages; absent, every read is what it was. */
   holdemManiacSampleGate?: boolean;
+  /** GEAR SHIFT REACH (2026-11-15, HorseDecideOpts.holdemGearShiftReach): no-limit hold'em reads from opponentRead
+   *  judge a confirmed regime break on the fast window at the ordinary credibility (HorseOpponentExploit.
+   *  GEAR_SHIFT_REACH). Only an explicit true engages; absent, every read is what it was. */
+  holdemGearShiftReach?: boolean;
   /** IN-HAND WAGERS ARE NOT HISTORY (2026-11-15, opponent classifier C7 F1, HorseDecideOpts.
    *  holdemCallDownExcludesCurrentHand): each opponent's wagers in the hand being decided (HorseMind.currentHandWagers
    *  of the decision's own action history). The legacy aggression ratio that sets the lifetime call-down multiplier
@@ -2438,7 +2442,19 @@ export class HorseMind {
           ? undefined
           : this.exploitCounters.get(`${scope}|${userId}`))
     );
-    const ungated = opponentExploitRead(readCounters, scope, this.decisionVariant, siblings);
+    // GEAR SHIFT REACH (2026-11-15, option holdemGearShiftReach, default off): no-limit hold'em only; absent, the
+    // fifth argument is undefined and the read is what it was.
+    const ungated = opponentExploitRead(
+      readCounters,
+      scope,
+      this.decisionVariant,
+      siblings,
+      this.decisionReadOptions.holdemGearShiftReach === true &&
+        family === 'holdem' &&
+        memoryVariant(this.decisionVariant) === 'nlh'
+        ? { gearShift: true }
+        : undefined
+    );
     // MANIAC SAMPLE GATE (2026-11-15, option holdemManiacSampleGate, default off): no-limit hold'em only.
     const read =
       this.decisionReadOptions.holdemManiacSampleGate === true &&
