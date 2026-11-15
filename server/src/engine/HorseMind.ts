@@ -5,6 +5,8 @@ import {
   type MultiwayRiverReadState,
 } from './HorseMultiwayRiverRead.js';
 import { omahaTightRead, type OmahaTightRead } from './HorseOmahaTightOpponent.js';
+import { omahaReadConditional, type OmahaReadConditional } from './HorseOmahaReadConditional.js';
+import type { OmahaFacingBetEvRead } from './HorseOmahaFacingBetEv.js';
 import {
   riverPositionIncrements,
   riverTripleCheckRaiseIncrements,
@@ -414,6 +416,11 @@ export function aggressionShownAsValue(
  */
 export interface DecisionReadOptions {
   postflopFoldRate?: boolean;
+  /** omahaManiacReRaiseWidthMeasured (2026-11-15): a maniac's re-raise is
+   *  read at his own measured re-raise rate once it rests on
+   *  OMAHA_MANIAC_RERAISE_MIN_OPPS decayed opportunities, not at his whole
+   *  raising width (see bandFor). Absent = unchanged. */
+  omahaManiacReRaiseMeasured?: boolean;
   shrinkResponseReads?: boolean;
   /** Break-even postflop bluffing (see BREAK_EVEN_BLUFF below). */
   breakEvenBluff?: boolean;
@@ -933,6 +940,8 @@ export function readScopeOf(variant: string | null | undefined, dealtCount: numb
  * other game's read.
  */
 export const SCOPED_SHRINK_STRENGTH = 16;
+/** Decayed re-raise opportunities from which a maniac's own re-raise rate is his re-raising width (omahaManiacReRaiseWidthMeasured). */
+export const OMAHA_MANIAC_RERAISE_MIN_OPPS = 12;
 /** [successes, opportunities] pairs a scoped read divides and shrinks. */
 const SCOPED_SHRINK_RATES = [
   ['vpip', 'hands'],
@@ -2560,6 +2569,106 @@ export class HorseMind {
   }
 
   /**
+   * OMAHA READ-CONDITIONAL DEFENCE (2026-11-15, HorseOmahaReadConditional,
+   * default off): whether this opponent is a measured tight re-raiser and a
+   * measured postflop value leader for the decision in flight, from the same
+   * decayed counters omahaTightReadOf reads (the exact context's row,
+   * probe-adjusted) and their high-side exploit read. A presumed read is never
+   * measured. Null outside an Omaha decision. Pure: no fires, no writes. Only
+   * HorseLogic calls it, and only with omahaReraisedFoldVsTight,
+   * omahaMadeHandDefenseVsValueLeader, omahaBluffCatcherFoldVsValueLeader or
+   * omahaEliteContinuesVsMeasuredWideThreeBettor (its wideReRaiser) on.
+   */
+  /**
+   * OMAHA FACING-BET EV (2026-11-15, HorseOmahaFacingBetEv, default off): the
+   * public read of one bettor for the decision in flight: whether his own
+   * evidence supplies a read (omahaReadConditionalOf.measured), his
+   * bet-when-checked-to posterior mean over the Horse mean of this game and
+   * table size, whether he is a measured postflop maniac, and, WHEN THE
+   * OPPONENT MEMORY CARRIES IT, how often his river bets of this size were
+   * the best hand at showdown.
+   *
+   * That last read has no store of its own (first-hand opponent learning: one
+   * learner, one profile). It is an OPTIONAL field on the existing river
+   * size-bucket tallies (styleSizeShown, HorseOpponentStyle.SizeBucketTallies:
+   * per bucket bets / shown / strong): `best`, the shown-down bets of that
+   * bucket that won chips, and optionally `second`, those that showed a strong
+   * hand and did not win. No learner writes either field today, so this
+   * returns sizeShown null and the population prior decides; the field is the
+   * opponent-memory owner's to add. A raise and a turn bet have no such row.
+   *
+   * Null outside an Omaha decision. Pure: no fires, no writes. Only HorseLogic
+   * calls it, and only with omahaFacingBetEv on.
+   */
+  static omahaFacingBetEvReadOf(
+    userId: string,
+    street: 'turn' | 'river',
+    potFrac: number,
+    isRaise = false
+  ): OmahaFacingBetEvRead | null {
+    const scope = this.decisionScope;
+    if (!scope || !scope.startsWith('omaha:')) return null;
+    const rc = this.omahaReadConditionalOf(userId);
+    const env = exploitEnvelopeFor(scope, this.decisionVariant);
+    const mean = env?.betCheckedTo.mean ?? 0;
+    const exploit = this.opponentRead(userId);
+    const variant = memoryVariant(this.decisionVariant);
+    const size = scope.split(':')[1] as MemorySize;
+    const cell =
+      street === 'river' && !isRaise && variant
+        ? (this.styleSizeShown.get(styleSizeKey(userId, variant, this.decisionMode, size))?.[
+            sizeBucketOf(potFrac)
+          ] as { shown: number; best?: number; second?: number } | undefined)
+        : undefined;
+    return {
+      measured: rc?.measured === true,
+      betCheckedToRatio:
+        rc?.measured === true && mean > 0 && rc.betCheckedTo.n > 0
+          ? rc.betCheckedTo.mean / mean
+          : null,
+      postflopManiac:
+        rc?.measured === true && exploit !== null && exploit.presumed !== true
+          ? isPostflopManiac(exploit)
+          : false,
+      sizeShown:
+        cell && typeof cell.best === 'number' && Number.isFinite(cell.best)
+          ? {
+              shown: cell.shown,
+              best: cell.best,
+              ...(typeof cell.second === 'number' && Number.isFinite(cell.second)
+                ? { second: cell.second }
+                : {}),
+            }
+          : null,
+    };
+  }
+
+  static omahaReadConditionalOf(userId: string): OmahaReadConditional | null {
+    const scope = this.decisionScope;
+    if (!scope || !scope.startsWith('omaha:')) return null;
+    const variant = memoryVariant(this.decisionVariant);
+    const size = scope.split(':')[1] as MemorySize;
+    const durable = variant ? this.blendDurableRead(userId, variant, size, false) : undefined;
+    const raw =
+      durable ??
+      (this.durableOpponentMemory && variant
+        ? undefined
+        : this.exploitCounters.get(`${scope}|${userId}`));
+    // probeAdjusted without its receipt: the same counters, no fire.
+    const pooled = this.stats.get(userId);
+    const counters =
+      raw && this.probeAwareAggression
+        ? probeAdjustedCounters(raw, pooled?.ctBets, pooled?.ctProbes)
+        : raw;
+    return omahaReadConditional(
+      counters,
+      scope,
+      this.decisionVariant,
+      opponentExploitRead(counters, scope, this.decisionVariant)
+    );
+  }
+
+  /**
    * STYLE READ (2026-11-13, HorseOpponentStyle): how this opponent plays, on
    * two axes (entry: loose to tight; honesty: bluff-heavy to value-heavy) with
    * confidence and a telemetry-only label, for the decision in flight. It reads
@@ -3796,7 +3905,23 @@ export class HorseMind {
       // whole raising width (a jammer seldom faces a raise, so its 3-bet
       // statistic alone never engages), and its 4-bet keeps that width
       // instead of halving it (reRaiseLineWidth).
-      const maniac = maniacRaiseWidth(read);
+      const maniacWhole = maniacRaiseWidth(read);
+      // omahaManiacReRaiseWidthMeasured (2026-11-15, default off): the rule
+      // above exists because a jammer's re-raise statistic never engages. A
+      // maniac whose re-raises HAVE been counted (the production PLO5 winner
+      // raises 55-82% and re-raises 33%) is read on a re-raising line at his
+      // measured re-raise rate, never wider than today's read.
+      const measuredReRaise =
+        this.decisionReadOptions.omahaManiacReRaiseMeasured === true &&
+        maniacWhole !== null &&
+        read.presumed !== true &&
+        (line === 'threebet' || line === 'fourbet') &&
+        read.stats.threeBet.n >= OMAHA_MANIAC_RERAISE_MIN_OPPS
+          ? Math.min(maniacWhole, Math.max(0.02, read.stats.threeBet.mean))
+          : null;
+      if (measuredReRaise !== null && measuredReRaise < maniacWhole!)
+        noteFire('omaha_maniac_reraise_width_measured');
+      const maniac = measuredReRaise ?? maniacWhole;
       const width =
         line === 'open'
           ? openerRangeWidth(read)
