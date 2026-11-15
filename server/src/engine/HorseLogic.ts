@@ -286,6 +286,7 @@ import {
   V85_DEPTH_NONE_BB,
   v85OpenTargetShare,
 } from './HorseGtoOpeningRanges.js';
+import { lightningParticipationCtx } from './HorseLightningParticipation.js';
 import {
   huBbEquityVsOpener,
   huDefenceWidthPct,
@@ -2841,6 +2842,17 @@ export interface HorseDecideOpts {
    *  instead of (0.4 - odds) * 1.2. Default OFF: only explicit true turns it
    *  on. Chip-scored development-field evidence only; payout not measured. */
   omahaCommitZoneThreeBetPriceRelief?: boolean;
+  /** LIGHTNING PARTICIPATION, hold'em (2026-11-15, default OFF; true enables
+   *  it). Lightning cash only (public memory domain speed 'lightning', four to
+   *  six dealt, big-blind ante, no-limit hold'em): the big blind's continue
+   *  width against one open is read at the price the ante lays
+   *  (HorseLightningParticipation). No own-participation input exists. */
+  lightningParticipationHoldem?: boolean;
+  /** LIGHTNING PARTICIPATION, Omaha (2026-11-15, default OFF; true enables
+   *  it). Lightning cash PLO4 / PLO5 only, same predicate: first-in raise
+   *  cells by seat, players dealt and depth, and the big blind's continue
+   *  range by price against one raise (HorseLightningParticipation). */
+  lightningParticipationOmaha?: boolean;
   /** FACING A CLOSED ALL-IN RE-RAISE (2026-11-08, default ON): facing a
    *  3-bet or 4-bet made all in with every other live opponent all in or
    *  folded, the 3-bet node's 35% and the 4-bet node's 30% stack caps no
@@ -9702,6 +9714,23 @@ export class HorseLogic {
       vs3BetShortJam: opts.vs3BetShortStack === true ? true : undefined,
       omahaCommitZoneThreeBetPriceRelief:
         opts.omahaCommitZoneThreeBetPriceRelief === true ? true : undefined,
+      lightningParticipation:
+        opts.lightningParticipationHoldem === true || opts.lightningParticipationOmaha === true
+          ? lightningParticipationCtx(
+              {
+                holdem: opts.lightningParticipationHoldem === true,
+                omaha: opts.lightningParticipationOmaha === true,
+              },
+              gs,
+              {
+                heroUserId: player.user_id,
+                dealt: dealtHorseTableSize(gs, player.seat),
+                behind: preflopPlayersBehind(player.seat, gs, opts.v13 !== false),
+                mind: opts.mind !== false,
+                telemetry: telemetryOn(opts),
+              }
+            )
+          : undefined,
       // V18 STRADDLE: the shape the fallback above detected - hand the
       // truth to the preflop engine so its unopened branch owns the pot.
       // V28: the single source of truth computed above — unopened for EVERY
