@@ -444,6 +444,32 @@ describe('the stored week, the parties and the amount due (week ending 2026-11-0
     );
   });
 
+  it('a charged invoice owes its amount plus its charge notes, and the charges must reconcile', () => {
+    const value = fresh();
+    value.clubs[0].charge_notes = [{ invoice_number: 'MIDWAY-2026-000100', amount: 43.86 }];
+    value.clubs[0].remaining_after_credits = 96963.4;
+    const deep = parseUnionStatementBoard(value, UNION, '2026-11-09').clubs[0];
+    expect(unionStatementAmountDue(deep, deep.club_name, 'Midway Union')).toBe(
+      'Deep Stack Society Pays Midway Union 96,963.40 After Charge'
+    );
+    expect(deep.remaining_unpaid).toBe(96963.4);
+    value.clubs[0].credit_notes = [{ invoice_number: 'MIDWAY-2026-000099', amount: 900 }];
+    value.clubs[0].remaining_after_credits = 96063.4;
+    const both = parseUnionStatementBoard(value, UNION, '2026-11-09').clubs[0];
+    expect(unionStatementAmountDue(both, both.club_name, 'Midway Union')).toBe(
+      'Deep Stack Society Pays Midway Union 96,063.40 After Credit And Charge'
+    );
+    // A remainder that ignores the charge note does not reconcile.
+    value.clubs[0].remaining_after_credits = 96019.54;
+    expect(() => parseUnionStatementBoard(value, UNION, '2026-11-09')).toThrow(
+      'Statement credit notes do not reconcile'
+    );
+    value.clubs[0].charge_notes = [];
+    expect(() => parseUnionStatementBoard(value, UNION, '2026-11-09')).toThrow(
+      'Statement charge notes are invalid'
+    );
+  });
+
   it('the unpaid balance and the tiles are after credit notes and payments', () => {
     const value = fresh();
     value.clubs[0].credit_notes = [{ invoice_number: 'MIDWAY-2026-000099', amount: 96919.54 }];
