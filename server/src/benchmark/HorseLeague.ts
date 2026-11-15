@@ -2577,6 +2577,19 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { facingOpenFullRingZone: true },
     b: {},
   },
+  // 2026-11-15 HOLD'EM PERSONA POSTFLOP (holdemPersonaPostflop, default OFF):
+  // a reads the persona on three V87 postflop mixes (check-trap, turn
+  // takeaway, range continuation bet); b is today's fleet mix. Not yet run.
+  {
+    name: 'cash6_holdem_persona_postflop',
+    seats: 6,
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { holdemPersonaPostflop: true },
+    b: {},
+  },
   // 2026-11-14 PERSONA RE-RAISE MIX (D3 option C), default OFF, so arm A
   // turns it on: six-handed 100bb no-limit hold'em cash, where the 3-bet
   // bluff and the squeeze bluff are met every orbit. The card's seats are the
