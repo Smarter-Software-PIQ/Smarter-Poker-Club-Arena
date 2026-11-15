@@ -64,6 +64,21 @@ chair. The window is opened synchronously beside the deal (nothing is awaited
 between the lease-authority check and `dealHand`), and the dealing loop's
 error handler closes it if a hand dies.
 
+Independent review follow-ups (same PR):
+
+- The window opens at HAND_COMPLETE (`markHandCompletedForPresentation`),
+  before settlement starts, not at the deal. A leave that lands before or
+  during the deal takes its ordinary path, so a leaver is never dealt in.
+- A held occupancy is recorded in `heldDepartures`. `executePendingSeatMoves`
+  never moves it to another table (a must-move used to be able to carry a
+  held leaver's stack to the Main with `leave_pending` cleared), and hold
+  reconciliation still sees the full list.
+- When the held seat is cashed out, `releaseDepartedSeats` emits `seat_left`
+  and wakes the Cluster, as the between-hands branch did.
+- The end of the hold sits a deferred leaver out only once the departure
+  request is durable, so a failed write never leaves a player sat out while
+  still seated.
+
 Client (`TablePage`): `POT_WIN` resolves winners through `winnerSeatIdx`,
 which is the live seat or else the last seat this client saw the player in.
 The pot pill no longer returns silently. This covers clients while the old

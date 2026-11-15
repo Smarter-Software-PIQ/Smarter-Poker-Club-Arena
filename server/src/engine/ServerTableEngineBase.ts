@@ -5975,10 +5975,14 @@ export abstract class ServerTableEngineBase {
     if (pending === null) return [];
     diagnostic?.phase('move_hold_reconciliation');
     this.reconcileSeatMoveHolds(pending);
+    // 2026-11-15: a seat held back for its pot push asked to leave; it is
+    // cashed out by the next-hand sweep and is never moved to another table.
+    // Hold reconciliation above still sees the complete list.
+    const movable = pending.filter((m) => !this.heldDepartures?.has(m.source_occupancy_id));
     // Stage the hand-boundary state BEFORE the transaction. The destination
     // may observe its committed seat before this RPC response returns, including
     // idle moves that never passed through a hand-start announcement.
-    for (const m of pending) {
+    for (const m of movable) {
       if (!seatMoveIsDue(m, opts)) continue;
       this.depositPresenceForMove(m.player_id, m.to_table_id, m.move_id, m.source_occupancy_id);
     }
@@ -5991,7 +5995,7 @@ export abstract class ServerTableEngineBase {
           ...opts,
           shouldContinue: () => this.lifecycleCanMutate(),
         },
-        pending,
+        movable,
         diagnostic?.move_execution
       );
       diagnostic?.move_execution.finish();
@@ -7076,7 +7080,34 @@ export abstract class ServerTableEngineBase {
    * the roster. Keyed by occupancy, so a player who has already rejoined in a
    * new seat keeps the new seat's state.
    */
+  /**
+   * A SEAT STAYS UNTIL ITS POT HAS BEEN PUSHED (2026-11-15). Occupancies whose
+   * departure was held back for the end-of-hand presentation (see
+   * ServerTableEngineSeating.completionPresentation), keyed by occupancy id.
+   * While an occupancy is here no seat move may carry it to another table:
+   * its player asked to leave, and the next-hand sweep is about to cash it
+   * out. When that cash-out lands, releaseDepartedSeats announces it.
+   */
+  protected heldDepartures: Map<string, { userId: string; seatNumber: number }> = new Map();
+
   protected releaseDepartedSeats(departed: Array<{ userId: string; occupancyId: string }>): void {
+    let announced = false;
+    for (const { userId: leftUserId, occupancyId } of departed) {
+      const held = this.heldDepartures?.get(occupancyId);
+      if (held && held.userId === leftUserId) {
+        this.heldDepartures.delete(occupancyId);
+        this.hub?.emitEvent(this.tableId, {
+          type: 'seat_left',
+          table_id: this.tableId,
+          seat: held.seatNumber,
+          user_id: leftUserId,
+          mid_hand: false,
+          timestamp: Date.now(),
+        });
+        announced = true;
+      }
+    }
+    if (announced) this.wakeClusterGame('seat_left');
     for (const { userId: leftUserId, occupancyId } of departed) {
       const current = this.seatedPlayers.find((sp) => sp.user_id === leftUserId);
       if (current && current.occupancy_id !== occupancyId) continue;

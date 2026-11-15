@@ -4738,7 +4738,11 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
         // Lightning (2026-09-26): a seat deferred here is retried every pass.
         (userId, occupancyId) => this.noteLightningDeferredLeave(userId, occupancyId),
         // 2026-11-15: a seat still in the presentation stays until the push lands.
-        (userId) => this.holdsSeatForPresentation(userId)
+        (userId, occupancyId) => {
+          if (!this.holdsSeatForPresentation(userId)) return false;
+          this.noteHeldDeparture(userId, occupancyId);
+          return true;
+        }
       ),
       this.tableInfo?.cluster_id
         ? pendingSeatMoves(this.tableId, diagnostic?.move_read)

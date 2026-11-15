@@ -1743,15 +1743,41 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
    */
   protected completionPresentation: {
     players: Set<string>;
-    deferred: Map<string, string>;
+    /** Set at HAND_COMPLETE. Before it, nothing is being presented. */
+    completed: boolean;
+    /** userId -> occupancy and whether its departure request is written. */
+    deferred: Map<string, { occupancyId: string; written: boolean }>;
   } | null = null;
 
-  /** Called by the dealing loop as a hand is dealt. */
+  /**
+   * Called by the dealing loop as a hand is dealt: records who is in it. The
+   * window itself opens only at HAND_COMPLETE (markHandCompletedForPresentation),
+   * so a leave that lands before or during the deal takes its ordinary path.
+   */
   protected beginCompletionPresentation(dealt: Array<{ user_id: string }>): void {
+    // A held occupancy that is no longer seated has left by whatever path.
+    for (const occupancyId of [...this.heldDepartures.keys()]) {
+      if (!this.seatedPlayers.some((p) => p.occupancy_id === occupancyId))
+        this.heldDepartures.delete(occupancyId);
+    }
     this.completionPresentation = {
       players: new Set(dealt.map((p) => p.user_id)),
+      completed: false,
       deferred: new Map(),
     };
+  }
+
+  /** HAND_COMPLETE: the hand is settled and its presentation begins. */
+  protected markHandCompletedForPresentation(): void {
+    if (this.completionPresentation) this.completionPresentation.completed = true;
+  }
+
+  /** The hold reaches seat moves and the seat_left announcement through Base. */
+  protected noteHeldDeparture(userId: string, occupancyId: string): void {
+    const seat = this.seatedPlayers.find(
+      (p) => p.user_id === userId && p.occupancy_id === occupancyId
+    );
+    if (seat) this.heldDepartures.set(occupancyId, { userId, seatNumber: seat.seat_number });
   }
 
   /**
@@ -1763,7 +1789,10 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
     const presentation = this.completionPresentation;
     this.completionPresentation = null;
     if (!presentation) return;
-    for (const [userId, occupancyId] of presentation.deferred) {
+    for (const [userId, { occupancyId, written }] of presentation.deferred) {
+      // An unwritten request is finished by its own leaveTable call, which
+      // sits the player out only once the departure is durable.
+      if (!written) continue;
       if (this.seatedPlayers.some((p) => p.user_id === userId && p.occupancy_id === occupancyId))
         this.disconnectEngine.sitOut(this.tableId, userId, 'voluntary');
     }
@@ -1779,7 +1808,13 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
    */
   protected holdsSeatForPresentation(userId: string): boolean {
     const presentation = this.completionPresentation;
-    if (!presentation || !this.running || !presentation.players.has(userId)) return false;
+    if (
+      !presentation ||
+      !presentation.completed ||
+      !this.running ||
+      !presentation.players.has(userId)
+    )
+      return false;
     if (presentation.deferred.has(userId)) return true;
     return (
       this.currentHandPerPotAwards.some((a) => a.userId === userId && a.amount > 0) ||
@@ -1792,7 +1827,8 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
     return (
       this.running === true &&
       this.handController === null &&
-      this.completionPresentation?.players.has(userId) === true
+      this.completionPresentation?.completed === true &&
+      this.completionPresentation.players.has(userId)
     );
   }
 
@@ -2445,7 +2481,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
           // is recorded BEFORE the durable write, so a settlement sweep that
           // reads the new leave_pending row can never cash this seat out early.
           const presentation = this.completionPresentation;
-          presentation?.deferred.set(userId, player.occupancy_id);
+          presentation?.deferred.set(userId, { occupancyId: player.occupancy_id, written: false });
           try {
             await requestSeatDeparture(
               userId,
@@ -2469,6 +2505,9 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
           )
             return stale();
           player.leave_pending = true;
+          this.noteHeldDeparture(userId, player.occupancy_id);
+          const entry = presentation?.deferred.get(userId);
+          if (entry) entry.written = true;
           if (this.completionPresentation !== presentation || !presentation) {
             // The hold ended while the request was being written.
             this.disconnectEngine.sitOut(this.tableId, userId, 'voluntary');

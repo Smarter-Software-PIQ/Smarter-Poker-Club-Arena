@@ -89,6 +89,7 @@ function makeEngineInCompletionHold() {
   // HAND_COMPLETE has fired: the controller is gone, the pot is not yet pushed.
   e.handController = null;
   e.beginCompletionPresentation([{ user_id: HUMAN }, { user_id: HORSE }]);
+  e.markHandCompletedForPresentation();
   e.hub = { emitEvent: vi.fn(), publish: vi.fn(), sendToUser: vi.fn() };
   e.broadcastCurrentState = vi.fn(async () => undefined);
   e.inLiveLightningHand = vi.fn(async () => false);
@@ -194,7 +195,63 @@ describe('settlement keeps a presented seat until the push has landed', () => {
     expect(loop).toBeGreaterThan(0);
     expect(ask).toBeGreaterThan(loop);
     expect(pay).toBeGreaterThan(ask);
-    expect(settlement).toContain('(userId) => this.holdsSeatForPresentation(userId)');
+    expect(settlement).toContain('if (!this.holdsSeatForPresentation(userId)) return false;');
+    expect(settlement).toContain('this.noteHeldDeparture(userId, occupancyId);');
+  });
+});
+
+describe('review fixes (2026-11-15)', () => {
+  it('before HAND_COMPLETE nothing is presented: a leave at the deal takes the ordinary path', async () => {
+    const e = makeEngineInCompletionHold();
+    e.beginCompletionPresentation([{ user_id: HUMAN }, { user_id: HORSE }]); // dealt, not completed
+    const res = await e.leaveTable(HUMAN);
+    expect(res).toMatchObject({ success: true, immediate: true });
+    expect(cashout).toHaveBeenCalled();
+    e.currentHandPerPotAwards = [{ userId: HORSE, potIndex: 0, low: false, amount: 10 }];
+    expect(e.holdsSeatForPresentation(HORSE)).toBe(false);
+  });
+
+  it('a held seat is never carried to another table by a seat move', async () => {
+    const e = makeEngineInCompletionHold();
+    await e.leaveTable(HUMAN);
+    expect(e.heldDepartures.has(OCC[HUMAN])).toBe(true);
+    const here = dirname(fileURLToPath(import.meta.url));
+    const base = readFileSync(join(here, 'ServerTableEngineBase.ts'), 'utf8');
+    const at = base.indexOf('protected async executePendingSeatMoves(');
+    const filter = base.indexOf(
+      'const movable = pending.filter((m) => !this.heldDepartures?.has(m.source_occupancy_id));',
+      at
+    );
+    const exec = base.indexOf('outcome = await executePendingSeatMoves(', at);
+    expect(filter).toBeGreaterThan(at);
+    expect(exec).toBeGreaterThan(filter);
+    expect(base.slice(exec, base.indexOf(');', exec))).toContain('movable,');
+  });
+
+  it('when the held seat is cashed out, every client is told it left', async () => {
+    const e = makeEngineInCompletionHold();
+    e.wakeClusterGame = vi.fn();
+    await e.leaveTable(HORSE);
+    e.endCompletionPresentation();
+    e.releaseDepartedSeats([{ userId: HORSE, occupancyId: OCC[HORSE] }]);
+    const left = e.hub.emitEvent.mock.calls.map((c: any[]) => c[1]).filter((ev: any) => ev?.type === 'seat_left');
+    expect(left).toEqual([expect.objectContaining({ user_id: HORSE, seat: 2, mid_hand: false })]);
+    expect(e.wakeClusterGame).toHaveBeenCalledWith('seat_left');
+    expect(e.heldDepartures.has(OCC[HORSE])).toBe(false);
+  });
+
+  it('a write that fails after the hold ended leaves the player seated and NOT sat out', async () => {
+    const e = makeEngineInCompletionHold();
+    e.currentHandPerPotAwards = [];
+    e.currentHandShowdownResults = [];
+    departure.mockImplementationOnce(async () => {
+      e.endCompletionPresentation(); // the hold ends mid-write
+      throw new Error('db down');
+    });
+    const res = await e.leaveTable(HUMAN);
+    expect(res.success).toBe(false);
+    expect(e.disconnectEngine.isSittingOut(TABLE, HUMAN)).toBe(false);
+    expect(e.heldDepartures.has(OCC[HUMAN])).toBe(false);
   });
 });
 
