@@ -19,6 +19,7 @@ import {
   HUMAN_HU_COMMIT_UNDER_POT,
   HU_BB_DEFENDS_TO_PRICE_40BB_READS_OFF,
   HU_READS_OFF_CARDS,
+  HU_BB_UNREAD_CARDS,
   HU_EXPLOITER_CARDS,
   HU_LIMP_EVERY_BUTTON_PERSONA,
   HU_MINRAISE_EVERY_BUTTON_PERSONA,
@@ -382,9 +383,38 @@ describe('the reads-off heads-up cards', { timeout: 600_000 }, () => {
     )!;
     expect(mirrorRest).toEqual(base);
     // The cards they are built from carry no such option: their rows are unchanged.
+    // The one other card that keeps reads at their empty prior by design is the
+    // unread big blind card (HU-NLH-001d), named here and pinned below.
     for (const m of LEAGUE_MATCHUPS) {
-      if (!HU_READS_OFF_CARDS.includes(m)) expect(m.memoryLearning).toBeUndefined();
+      if (!HU_READS_OFF_CARDS.includes(m) && !HU_BB_UNREAD_CARDS.includes(m))
+        expect(m.memoryLearning).toBeUndefined();
     }
+  });
+
+  it('the unread big blind card is the only other reads-off card, and its row says so', () => {
+    expect(HU_BB_UNREAD_CARDS).toHaveLength(1);
+    const unread = HU_BB_UNREAD_CARDS[0]!;
+    expect(LEAGUE_MATCHUPS).toContain(unread);
+    expect(unread).toMatchObject({
+      seats: 2,
+      stackBB: 40,
+      memoryLearning: 'off',
+      a: { huBbDefendsUnreadToPrice: true },
+      b: {},
+      opponentPopulation: HUMAN,
+      humanPersona: HU_MINRAISE_EVERY_BUTTON_PERSONA,
+    });
+    expect(leagueResultConfig(unread, 'a')).toEqual({
+      huBbDefendsUnreadToPrice: true,
+      opponentPopulation: HUMAN,
+      humanPersona: HU_MINRAISE_EVERY_BUTTON_PERSONA,
+      memoryLearning: 'off',
+    });
+    expect(leagueResultConfig(unread, 'b')).toEqual({
+      opponentPopulation: HUMAN,
+      humanPersona: HU_MINRAISE_EVERY_BUTTON_PERSONA,
+      memoryLearning: 'off',
+    });
   });
 
   it('the stored row says the reads were off, on these cards only', () => {
