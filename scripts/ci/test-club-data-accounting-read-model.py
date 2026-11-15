@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Native qualification of 20261115020010, 20261115020011 and 20261115063000. No production access.
+"""Native qualification of 20261115020010, 20261115020011, 20261115063000 and 20261115075440. No production access.
 
 Club Data's accounting read model carries the union invoice's own records,
 keyed by the 02:00 America/Chicago accounting day: the live projection writes
@@ -28,6 +28,7 @@ CAPTURE = M / "20261115015159_union_pnl_boundary_certificates_are_kept.sql"
 MODEL = M / "20261115020010_club_data_accounting_read_model.sql"
 LIVE = M / "20261115020011_club_data_accounting_read_model_goes_live.sql"
 PARTS = M / "20261115063000_club_data_history_loads_a_day_in_bounded_parts.sql"
+ONCE = M / "20261115075440_club_data_history_load_reads_each_row_once.sql"
 BASE = ROOT / "tests/fixtures/club-data-union-weeks/fixture.sql"
 FIX = ROOT / "tests/fixtures/club-data-accounting"
 PG = Path(os.environ.get("PG_BIN") or next((p for p in ("/usr/lib/postgresql/17/bin", "/usr/lib/postgresql/16/bin",
@@ -155,6 +156,7 @@ try:
 
     # 20261115063000: the same days loaded in bounded parts give the same rows.
     run(psql("live"), PARTS.read_text())
+    run(psql("live"), ONCE.read_text())
     run(psql("live"), parts("2026-11-02", True) + parts("2026-11-03", True))
     parted = q("live", "SELECT md5(string_agg(f::text, ',' ORDER BY club_id, acct_day, game_id, user_id, src)) FROM ca_club_acct_fact f")
     require(parted == after, "a day loaded in bounded parts holds exactly the rows of the one-transaction load")
@@ -250,6 +252,45 @@ try:
             "SELECT club_id, result, hands FROM ca_club_acct_fact_journal WHERE acct_day = '2026-11-04') x GROUP BY 1) y")
     run(psql("live"), load("2026-11-04", True))
     require(q("live", sums) == totals, "a one-transaction rebuild of that day gives the same figures")
+
+    # (2c) 20261115075440, D2: a hand written inside a SUBtransaction whose
+    # parent is still open at the parted load's snapshot, committed before
+    # the slices run. Its subtransaction xid is not in the snapshot's
+    # in-progress list; it must be counted once (by the live projection).
+    def hand_on(n, at):
+        return hand(n).replace("2026-11-04 12:00+00", at)
+
+    a = background()
+    a.stdin.write("BEGIN; SELECT txid_current(); SAVEPOINT s1; " + hand_on(20, "2026-11-07 12:00+00")
+                  + "RELEASE SAVEPOINT s1; SELECT pg_sleep(3); COMMIT;\n")
+    a.stdin.flush()
+    time.sleep(1.0)
+    run(psql("live"), parts("2026-11-07", between="SELECT pg_sleep(4);\n"))
+    finish(a, "")
+    d7 = sums.replace("2026-11-04", "2026-11-07")
+    require(q("live", d7) == "a0000000-0000-0000-0000-000000000001=-1/1,a41434bb-8d0c-400a-8f0d-e8b3d65afed4=1/1",
+            "a row written in a subtransaction whose parent was open at the load's snapshot is counted once (" + q("live", d7) + ")")
+    run(psql("live"), load("2026-11-07", True))
+    require(q("live", d7) == "a0000000-0000-0000-0000-000000000001=-1/1,a41434bb-8d0c-400a-8f0d-e8b3d65afed4=1/1",
+            "a one-transaction rebuild of that day agrees")
+
+    # D3: a slice sent twice, a finish without every slice, a day after the
+    # live projection's day, and a slice whose begin is not on record.
+    begin7 = ("BEGIN ISOLATION LEVEL REPEATABLE READ; SELECT fn_ca_club_acct_seed_begin('2026-11-07', true)->>'snapshot' AS snap \\gset\nCOMMIT;\n")
+    slice1 = "SELECT fn_ca_club_acct_seed_slice('2026-11-07', fn_ca_accounting_day_start('2026-11-07'), fn_ca_accounting_day_start('2026-11-07') + interval '2 hours', :'snap') IS NOT NULL;\n"
+    run(psql("live"), begin7 + slice1 + slice1, expect_fail="duplicate key")
+    run(psql("live"), begin7 + slice1 + "SELECT fn_ca_club_acct_seed_finish('2026-11-07', :'snap', 0, 0, 0);",
+        expect_fail="not covered exactly")
+    require(q("live", "SELECT count(*) FROM ca_club_acct_seed_log WHERE acct_day = '2026-11-07'") == "0",
+            "a day whose slices do not cover it is not logged loaded")
+    run(psql("live"), "SELECT fn_ca_club_acct_seed_slice('2026-11-07', fn_ca_accounting_day_start('2026-11-07'), "
+        "fn_ca_accounting_day_start('2026-11-07') + interval '2 hours', pg_current_snapshot());", expect_fail="no load begun")
+    run(psql("live"), "BEGIN ISOLATION LEVEL REPEATABLE READ; SELECT fn_ca_club_acct_seed_begin('2099-01-01'); COMMIT;",
+        expect_fail="after the live projection")
+    run(psql("live"), parts("2026-11-07", True))
+    require(q("live", d7) == "a0000000-0000-0000-0000-000000000001=-1/1,a41434bb-8d0c-400a-8f0d-e8b3d65afed4=1/1"
+            and q("live", "SELECT fact_rows > 0 FROM ca_club_acct_seed_log WHERE acct_day = '2026-11-07'") in ("t", "f"),
+            "a complete parted load after the refusals logs the day with the same figures")
 
     # (3) The 32-lock budget: one hand with 40 players takes 32 row locks; the
     # rest of its rows go to the journal, and the figures are whole.
