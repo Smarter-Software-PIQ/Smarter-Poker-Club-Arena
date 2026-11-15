@@ -18,7 +18,15 @@ export interface PooledPublicProfileReceipt {
   /** 1: the digest covers the exact rows alone (a read with no donor).
    *  2: the read carried sibling table-size donors and the digest covers
    *  `{ rows, donors }`. The version names the digest preimage. */
-  version: 1 | 2;
+  version: 1 | 2 | 3;
+  /** Version 3 binds each named exact or donor row to its own accepted event.
+   * Legacy rows can contribute figures without supplying an event binding. */
+  lineage?: Array<{
+    userId: string;
+    size: DurableOpponentProfile['size'];
+    observedHands: number;
+    handId: string;
+  }>;
   source: 'accepted_hand_public_profiles' | 'saved_and_accepted_public_profiles';
   availableAtMs: number;
   digest: string;
@@ -98,6 +106,7 @@ export class PooledPublicProfiles {
           ...(p.public_memory_domain
             ? { public_memory_domain: { ...p.public_memory_domain } }
             : {}),
+          ...(p.last_accepted_hand_id ? { last_accepted_hand_id: p.last_accepted_hand_id } : {}),
           user_id: p.user_id,
           variant: p.variant,
           mode: p.mode,
@@ -193,6 +202,7 @@ export class PooledPublicProfiles {
           ...(p.public_memory_domain
             ? { public_memory_domain: { ...p.public_memory_domain } }
             : {}),
+          ...(p.last_accepted_hand_id ? { last_accepted_hand_id: p.last_accepted_hand_id } : {}),
           user_id: p.user_id,
           variant: p.variant,
           mode: p.mode,
@@ -264,11 +274,24 @@ export class PooledPublicProfiles {
         a.profile.user_id.localeCompare(b.profile.user_id) ||
         a.profile.size.localeCompare(b.profile.size)
     );
+    const lineage = [...rows, ...donors.map((donor) => donor.profile)].flatMap((profile) =>
+      profile.last_accepted_hand_id
+        ? [
+            {
+              userId: profile.user_id,
+              size: profile.size,
+              observedHands: profile.observed_hands,
+              handId: profile.last_accepted_hand_id,
+            },
+          ]
+        : []
+    );
     return {
       rows,
       donors,
       receipt: {
-        version: donors.length ? 2 : 1,
+        version: lineage.length ? 3 : donors.length ? 2 : 1,
+        ...(lineage.length ? { lineage } : {}),
         source: this.bootstrapped
           ? 'saved_and_accepted_public_profiles'
           : 'accepted_hand_public_profiles',
@@ -276,7 +299,7 @@ export class PooledPublicProfiles {
         // Without donors the digest is exactly the exact rows' digest it was
         // (version 1); with donors it covers both (version 2).
         digest: createHash('sha256')
-          .update(JSON.stringify(donors.length ? { rows, donors } : rows))
+          .update(JSON.stringify(lineage.length || donors.length ? { rows, donors } : rows))
           .digest('hex'),
         profiles: noted.size,
       },

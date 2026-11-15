@@ -77,9 +77,12 @@ try:
  assert run('untrusted-read-denied',"SELECT has_table_privilege('service_role','horse_memory_before_fold_provenance','SELECT');")=='f'
  accept(31,domain)
  assert run('forced-only-skipped',"SELECT count(*) FROM horse_exact_profiles WHERE user_id='"+human+"';")=='0'
+ run('install-accepted-lineage',(ROOT/'supabase/migrations/20261115010037_bind_horse_exact_profiles_to_their_accepted_hand.sql').read_text())
+ assert run('legacy-lineage-unknown',"SELECT count(*) FROM horse_exact_profiles WHERE last_accepted_hand_id IS NOT NULL;")=='0'
  actions.insert(0,{'userId':human,'action':'raise','stage':'preflop','origin':'player'})
  accept(32,domain)
  assert run('mixed-hand',"SELECT observed_hands||':'||(counters->>'pfr')||':'||(counters->>'foldTo3BetOpp') FROM horse_exact_profiles WHERE user_id='"+human+"';")=='1:1:0'
+ assert run('first-lineage',"SELECT p.observed_hands||':'||(p.last_accepted_hand_id=h.id)::text FROM fn_horse_exact_profiles_read(ARRAY['"+human+"'],'plo4','cash','full','table','none') p CROSS JOIN hand_history h WHERE h.hand_number=1000032;")=='1:true'
  run('repeat-cutoff',corrective)
  assert run('repeat-preserves-clean',"SELECT observed_hands FROM horse_exact_profiles WHERE user_id='"+human+"';")=='1'
  for origin,expected in [(None,False),('unknown',False),('horse_fallback',False),('forced',False),('pre_action',True),('player',True),('horse_policy',True)]:

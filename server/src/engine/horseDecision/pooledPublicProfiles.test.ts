@@ -424,6 +424,37 @@ describe('exact public rule domains', () => {
     h.durableOpponentProfiles![0]!.public_memory_domain = tableDomain;
     return h;
   }
+  it('binds the private worker read to the saved version and its actual accepted hand', () => {
+    const bank = new HorseObserverReads(20, 20, () => 100);
+    const observation = exactCompletion();
+    // A postcommit RPC can already include another table's later accepted hand.
+    const savedHandId = '40000000-0000-4000-8000-000000000099';
+    Object.assign(observation.durableOpponentProfiles![0]!, {
+      last_accepted_hand_id: savedHandId,
+    });
+    bank.complete(observation, () => {});
+    const next = request(other);
+    next.gameState.publicMemoryDomain = tableDomain;
+    bank.run(next, () => {});
+    const evidence = bank.receipt(next);
+    expect(evidence?.pooledPublicProfiles).toMatchObject({
+      version: 3,
+      lineage: [{ userId: opponent, size: 'hu', observedHands: 60, handId: savedHandId }],
+    });
+    expect(horseObserverReadsUsedPublicPool(evidence, next)).toBe(true);
+    expect(
+      horseObserverReadsUsedPublicPool(
+        {
+          ...evidence,
+          pooledPublicProfiles: {
+            ...evidence!.pooledPublicProfiles,
+            lineage: [{ userId: other, size: 'hu', observedHands: 60, handId: savedHandId }],
+          },
+        },
+        next
+      )
+    ).toBe(false);
+  });
   it('isolates speed and ante, preserving the original decision cutoff', () => {
     const pool = new PooledPublicProfiles(() => 100);
     expect(pool.observe(exactCompletion())).toBe(1);

@@ -83,11 +83,50 @@ export function horseObserverReadsUsedPublicPool(
   )
     return false;
   const p = pooledPublicProfiles as Record<string, unknown>;
+  if (p.version === 3) {
+    if (!Array.isArray(p.lineage) || !p.lineage.length || p.lineage.length > 18) return false;
+    const scope = horseObserverReadContextFromRequest(request);
+    if (scope?.version !== 2 || !Array.isArray(request.gameState?.players)) return false;
+    const opponents = new Set(
+      request.gameState.players
+        .filter(
+          (player) =>
+            player &&
+            player.user_id !== scope.observerId &&
+            request.gameState.dealtSeatIds?.includes(player.seat)
+        )
+        .map((player) => player.user_id)
+    );
+    const size = scope.dealtCount <= 2 ? 'hu' : scope.dealtCount <= 5 ? 'short' : 'full';
+    const seen = new Set<string>();
+    const subjects = new Set<string>();
+    for (const row of p.lineage) {
+      if (
+        !row ||
+        typeof row !== 'object' ||
+        Array.isArray(row) ||
+        Object.keys(row).sort().join(',') !== 'handId,observedHands,size,userId' ||
+        !opponents.has(row.userId) ||
+        !['hu', 'short', 'full'].includes(row.size) ||
+        (size === 'hu') !== (row.size === 'hu') ||
+        !Number.isSafeInteger(row.observedHands) ||
+        row.observedHands < 1 ||
+        typeof row.handId !== 'string' ||
+        !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(row.handId)
+      )
+        return false;
+      const key = row.userId + ':' + row.size;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      subjects.add(row.userId);
+    }
+    if (subjects.size > Number(p.profiles)) return false;
+  }
   if (
-    Object.keys(p).length !== 5 ||
+    Object.keys(p).length !== (p.version === 3 ? 6 : 5) ||
     // 1: digest of the exact rows; 2: digest of { rows, donors } (sibling
     // table-size donors, 2026-11-08).
-    ![1, 2].includes(p.version as number) ||
+    ![1, 2, 3].includes(p.version as number) ||
     !['accepted_hand_public_profiles', 'saved_and_accepted_public_profiles'].includes(
       p.source as string
     ) ||

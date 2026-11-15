@@ -34,7 +34,9 @@ type Page = (
 const readPage: Page = (afterUserId, signal) => {
   let query = supabase
     .from('horse_exact_profiles')
-    .select('user_id,variant,mode,size,counters,observed_hands,initialized,public_memory_domain')
+    .select(
+      'user_id,variant,mode,size,counters,observed_hands,initialized,public_memory_domain,last_accepted_hand_id'
+    )
     .gt('observed_hands', 0);
   if (afterUserId !== null) query = query.gt('user_id', afterUserId);
   return query
