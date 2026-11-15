@@ -1270,6 +1270,8 @@ interface TablePageProps {
     standUpNextBB?: boolean;
     straddleAvailable?: boolean;
     straddleEnabled?: boolean;
+    straddleBusy?: boolean;
+    heroSeated?: boolean;
     leaveNextHandQueued?: boolean;
     /**
      * PokerBros parity (Dan 2026-08-20, from live multi-table footage): each
@@ -6236,78 +6238,6 @@ function LiveTablePage({
     userId,
   ]);
 
-  // ─── Table Menu Actions ────────────────────────────────────────────────
-  useMasterBusSubscription('TABLE_MENU_ACTION', (event) => {
-    if (event.tableId !== tableId) return;
-
-    switch (event.action) {
-      case 'SHOW_TOURNAMENT_DOCK':
-        setTournamentDockClosed(false);
-        break;
-      case 'SIT_OUT':
-        void handleSitOut();
-        break;
-      case 'REBUY':
-        /* A SPECTATOR HAS NO SEAT TO TOP UP (audit C2-17). The tab bar offers
-           this item to everyone at the table, and for a spectator the sheet
-           opened only for the engine to answer "Player not seated". The seat's
-           own header control already asked; this asks the same question. */
-        if (tableState.heroSeat <= 0) {
-          toast.info('Take A Seat To Top Up.');
-          break;
-        }
-        /* THE TAB BAR'S TOP UP ITEM WAS DEAD AT A DIAMOND SEAT (2026-09-12).
-           This refused every non-chip asset, and `createDefaultMenuSections`
-           renders the item unconditionally because the tab bar does not know
-           the arena - so a Diamond cash player tapped Top Up and nothing
-           happened at all: no sheet, no refusal, no error. The seat's own
-           control had already learned that a Diamond cash seat HAS a funded
-           top-up writer; this had not. Both read the one rule now. */
-        if (!seatCanAddFunds(tableState.arenaAsset, tableState.isTournament)) break;
-        if (tableState.isTournament) {
-          handleTournamentRebuy();
-        } else {
-          setShowCashier(true);
-        }
-        break;
-      case 'LEADERBOARD':
-        setShowLeaderboard(true);
-        break;
-      case 'SESSION_STATS':
-        setShowSessionStats(true);
-        break;
-      case 'SETTINGS':
-        setShowSettings(true);
-        break;
-      case 'HAND_HISTORY':
-        setShowHandHistory(true);
-        break;
-      case 'HELP':
-        setShowGameRules(true);
-        break;
-      case 'ADD_ON':
-        handleTournamentAddOn();
-        break;
-      case 'LEAVE_TABLE':
-        openLeaveConfirm();
-        break;
-      case 'LEAVE_TABLE_NEXT_HAND':
-        void requestLeaveAtNextHand();
-        break;
-      case 'FORCE_LEAVE_TABLE':
-        handleForceLeaveTable();
-        break;
-      case 'CHANGE_AVATAR':
-        // Open the Hub avatar selector in a new window
-        avatarService.openAvatarSelector();
-        break;
-      case 'TOGGLE_ALIAS':
-        // Instead of hard-toggling, open the new Identity Settings Modal
-        setShowIdentityModal(true);
-        break;
-    }
-  });
-
   // Buy-in processing lock to prevent double-click
   const buyInProcessingRef = useRef(false);
   // The durable journal owns an unanswered purchase across cancel/reload.
@@ -8190,6 +8120,9 @@ function LiveTablePage({
          A Diamond tournament seat reports false and loses the two items that
          this page would only have refused. */
       canAddFunds: seatCanAddFunds(tableState.arenaAsset, tableState.isTournament),
+      /* The menu drops its seat-only rows for a spectator (2026-11-14). Asked
+         of this page, which owns the seat, not inferred from the tab. */
+      heroSeated: tableState.heroSeat > 0,
       gameCode: heroTabGameCode,
       decision: heroTabDecision,
       timeBank: heroTabTimeBank,
@@ -9387,8 +9320,9 @@ function LiveTablePage({
     onTableInfoUpdate?.({
       straddleAvailable: isStraddleAvailable,
       straddleEnabled: isStraddleEnabled,
+      straddleBusy,
     });
-  }, [isStraddleAvailable, isStraddleEnabled, onTableInfoUpdate]);
+  }, [isStraddleAvailable, isStraddleEnabled, straddleBusy, onTableInfoUpdate]);
 
   const handleToggleStraddle = useCallback(
     async (next: boolean) => {
@@ -15186,8 +15120,8 @@ function LiveTablePage({
   const [heroProfile, setHeroProfile] = useState<NameableProfile | null>(null);
 
   // Sync settings when changed from other components (like TableMenu)
-  useMasterBusSubscription('TABLE_MENU_ACTION', (event: any) => {
-    if (event.tableId && event.tableId !== tableId) return;
+  useMasterBusSubscription('TABLE_MENU_ACTION', (event) => {
+    if (event.tableId !== tableId) return;
     if (event.action === 'STAND_UP_BB') {
       // STALE CLOSURE. This bus callback is registered once, so `standUpNextBB`
       // inside it is whatever the value was at registration - `!standUpNextBB`
@@ -15250,6 +15184,76 @@ function LiveTablePage({
          menu item could only ever turn haptics ON: tapping "Vibrations" to mute
          them set them to `!false` = true, every time. */
       updateSetting('isHapticEnabled', !isVibrationPreferred());
+    }
+    /* The rows that open or do something, as opposed to the switches above.
+       ONE subscription answers the menu (2026-11-14): there were two, 9,000
+       lines apart with different guards, and a new row had to guess which.
+       tests/the-table-has-one-menu.law.test.ts counts them. */
+    switch (event.action) {
+      case 'SHOW_TOURNAMENT_DOCK':
+        setTournamentDockClosed(false);
+        break;
+      case 'SIT_OUT':
+        void handleSitOut();
+        break;
+      case 'REBUY':
+        /* A SPECTATOR HAS NO SEAT TO TOP UP (audit C2-17). The tab bar offers
+           this item to everyone at the table, and for a spectator the sheet
+           opened only for the engine to answer "Player not seated". The seat's
+           own header control already asked; this asks the same question. */
+        if (tableState.heroSeat <= 0) {
+          toast.info('Take A Seat To Top Up.');
+          break;
+        }
+        /* THE TAB BAR'S TOP UP ITEM WAS DEAD AT A DIAMOND SEAT (2026-09-12).
+           This refused every non-chip asset, and `createDefaultMenuSections`
+           renders the item unconditionally because the tab bar does not know
+           the arena - so a Diamond cash player tapped Top Up and nothing
+           happened at all: no sheet, no refusal, no error. The seat's own
+           control had already learned that a Diamond cash seat HAS a funded
+           top-up writer; this had not. Both read the one rule now. */
+        if (!seatCanAddFunds(tableState.arenaAsset, tableState.isTournament)) break;
+        if (tableState.isTournament) {
+          handleTournamentRebuy();
+        } else {
+          setShowCashier(true);
+        }
+        break;
+      case 'LEADERBOARD':
+        setShowLeaderboard(true);
+        break;
+      case 'SESSION_STATS':
+        setShowSessionStats(true);
+        break;
+      case 'SETTINGS':
+        setShowSettings(true);
+        break;
+      case 'HAND_HISTORY':
+        setShowHandHistory(true);
+        break;
+      case 'HELP':
+        setShowGameRules(true);
+        break;
+      case 'ADD_ON':
+        handleTournamentAddOn();
+        break;
+      case 'LEAVE_TABLE':
+        openLeaveConfirm();
+        break;
+      case 'LEAVE_TABLE_NEXT_HAND':
+        void requestLeaveAtNextHand();
+        break;
+      case 'FORCE_LEAVE_TABLE':
+        handleForceLeaveTable();
+        break;
+      case 'CHANGE_AVATAR':
+        // Open the Hub avatar selector in a new window
+        avatarService.openAvatarSelector();
+        break;
+      case 'TOGGLE_ALIAS':
+        // Instead of hard-toggling, open the new Identity Settings Modal
+        setShowIdentityModal(true);
+        break;
     }
   });
 
@@ -18558,36 +18562,14 @@ function LiveTablePage({
     if (tableState.arenaAsset === 'diamonds') retryAccountBalance();
   });
 
-  // ── Bus Listener: live settings sync (theme, sound, deck changes) ──
-  useMasterBusSubscription('SETTINGS_UPDATED', (payload: any) => {
-    const s = payload?.settings || payload;
-    if (!s) return;
-    // Apply sound preference if changed
-    // MUTE ONLY (2026-09-27). This payload is the Settings page's cached copy,
-    // re-sent on every tab return and theme change, and it goes stale the
-    // moment the player mutes at the table or in the menu (those write the
-    // sound keys, not this cache). So it may only ever turn sound OFF: a stale
-    // `true` here must never un-mute a player. Sound ON from the Settings page
-    // already arrives through useTableSettings (applyGateChanges -> setEnabled).
-    // Off goes through the engine, which also returns the Safari audio session
-    // to "ambient", so a player's music is not left paused.
-    /* AND ONLY FROM THE SETTINGS PAGE'S OWN SAVE (2026-11-14). The same event
-       is also sent by the account sync and by the theme mirror, each carrying
-       the cached copy described above. A player who had once muted in Settings
-       and then turned Sounds ON at the table was muted again by the next of
-       those, with every switch still reading ON. A cached copy is not a
-       choice; the page's save is. */
-    if (payload?.source === 'settings-page' && s.soundEnabled === false) {
-      soundService.setEnabled(false);
-    }
-    // 2026-08-18: a `deckStyle` branch used to live here writing
-    // STORAGE_KEYS.DECK_STYLE. Nothing ever sent that key and nothing ever read
-    // that storage entry, and its presence made this listener look like the
-    // route by which the settings page reached the table. It was not — the real
-    // route is useTableSettings' SETTINGS_CHANGED subscription, which the
-    // settings page now feeds via updateSettings(). Deck style, card back, pot
-    // odds, animation speed and the rest all arrive that way.
-  });
+  /* NO SETTINGS_UPDATED LISTENER, DELIBERATELY (2026-11-14). The one here read
+     `soundEnabled` out of the Settings page's cached copy, which the account
+     sync and the theme mirror re-send and which goes stale the moment a player
+     changes sound at the table. It could un-mute (fixed 2026-09-27) and then
+     re-mute (narrowed earlier on 2026-11-14) a player against their own
+     choice. The Settings page reaches the table through useTableSettings
+     (updateSettings -> applyGateChanges), in both directions, so this route
+     carried nothing that one does not. Nothing at the table reads that cache. */
 
   // ── Bus Listeners: Phase 8 — Action Rejection + Timer Events ──
   useMasterBusSubscription('ACTION_REJECTED', (payload: any) => {
