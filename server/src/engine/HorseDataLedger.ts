@@ -1211,6 +1211,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     '2026-11-13'
   ),
   receipt(
+    'style_long_participation_seen',
+    'HorseMind.styleRead (STYLE READ, long participation window)',
+    'a style read took VPIP, PFR or the call share from the 120-hand long participation window (ExploitCounters lHands / lVpip / lPfr, horse_exact_profiles.long_counters) because it held more evidence than the 30-hand window and both leaned low or even; receipt.longWindow names which; counts reads; named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
     'style_read_released_seen',
     'HorseMind.styleRead (STYLE READ)',
     'a style read was taken for a player whose fast or recent window released it to stand-down (release fraction 0.5 or more); counts reads; named *_seen',

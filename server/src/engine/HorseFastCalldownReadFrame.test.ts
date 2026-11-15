@@ -13,6 +13,7 @@ import {
   encodeHorseDecisionReads,
   type HorseDecisionReadFrame,
 } from './HorseDecisionReadFrame.js';
+import { withoutLongParticipation } from './HorseLongParticipation.test-support.js';
 import { FCA_HERO, FCA_OPP, playFcaPhase } from './HorseFastCalldownRead.test-support.js';
 import { composeFastCalldownWindows, observeFastCalldownRiver } from './HorseFastCalldownRead.js';
 import type { SeatPlayer } from '../types.js';
@@ -30,7 +31,7 @@ const reseal = (frame: HorseDecisionReadFrame, body: unknown): HorseDecisionRead
 afterEach(() => HorseMind.reset());
 
 describe('fast call-down read through the decision read frame', () => {
-  it('carries river recency and present flop evidence in v13 and replays the same read', () => {
+  it('carries river recency and present flop evidence in v15 and replays the same read', () => {
     playFcaPhase('fold', 30);
     playFcaPhase('call', 10);
     HorseMind.setDecisionScope('holdem:hu', 'nlh', 'cash');
@@ -45,7 +46,8 @@ describe('fast call-down read through the decision read frame', () => {
     });
     const frame = encodeHorseDecisionReads(view, players, null);
     expect(view.flopStab?.size).toBeGreaterThan(0);
-    expect(frame.version).toBe('horse-decision-reads-v13');
+    // Learned rows carry the long participation window since 2026-11-15 (v15, which carries every v13 list).
+    expect(frame.version).toBe('horse-decision-reads-v15');
     const restored = decodeHorseDecisionReads(frame, players, null);
     expect(restored.flopStab).toEqual(view.flopStab);
     expect(restored.stats.get(FCA_OPP)).toMatchObject({
@@ -74,7 +76,8 @@ describe('fast call-down read through the decision read frame', () => {
         delete row.rvCalls;
       }
     delete view.flopStab; // Historical predecessor views did not carry this later sidecar.
-    const frame = encodeHorseDecisionReads(view, players, null);
+    // Nor the long participation window (2026-11-15).
+    const frame = encodeHorseDecisionReads(withoutLongParticipation(view), players, null);
     expect(frame.version).not.toBe('horse-decision-reads-v10');
     expect(frame.json).not.toContain('riverRecency');
     expect(
@@ -110,7 +113,8 @@ describe('fast call-down read through the decision read frame', () => {
         size: 'hu',
       });
       delete view.flopStab; // Exercise the actual retained v10 decoder contract.
-      const frame = encodeHorseDecisionReads(view, players, null);
+      // A retained v10 view had no long participation window (2026-11-15) either.
+      const frame = encodeHorseDecisionReads(withoutLongParticipation(view), players, null);
       expect(frame.version).toBe('horse-decision-reads-v10');
       const body = JSON.parse(frame.json);
       if (fault === 'missing') delete body.riverRecency;
