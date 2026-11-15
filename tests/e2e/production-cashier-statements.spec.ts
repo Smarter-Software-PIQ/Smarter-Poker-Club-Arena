@@ -23,7 +23,12 @@ import {
   expectExactCashierFigures,
 } from './support/cashierProductionCertification';
 import { exactChips } from '../../src/utils/format';
-import { ENTRY_PILL, EXACT_FIGURE, statementTotalsFigures } from './support/exact-figure';
+import {
+  ENTRY_PILL,
+  EXACT_FIGURE,
+  sameStatementQuery,
+  statementTotalsFigures,
+} from './support/exact-figure';
 
 const CLUB_ID = process.env.E2E_CLUB_ID || 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4';
 const HAS_AUTH = Boolean(process.env.SP_EMAIL && process.env.SP_PASS);
@@ -73,14 +78,20 @@ test.describe('Cashier Statements - authenticated production route', () => {
         timeout: 60_000,
       })
       .catch(() => null);
-    // Every totals answer, newest last: the ledger is live, so the page may
-    // ask again, and the glass is compared with the answer it last received.
-    const totalsAnswers: unknown[] = [];
+    // Every totals answer with the request that asked for it, in the order the
+    // answers arrived. The slot is taken when the answer arrives and filled
+    // when its body is read, so "newest" is the last answer received, never
+    // the last body parsed, and a newest answer still being read is waited for.
+    const totalsAnswers: ({ asked: unknown; answer: unknown } | null)[] = [];
     page.on('response', (response) => {
       if (new URL(response.url()).pathname !== TOTALS_RPC || response.status() !== 200) return;
+      const slot = totalsAnswers.push(null) - 1;
+      const asked: unknown = response.request().postDataJSON();
       void response
         .json()
-        .then((answer: unknown) => totalsAnswers.push(answer))
+        .then((answer: unknown) => {
+          totalsAnswers[slot] = { asked, answer };
+        })
         .catch(() => undefined);
     });
 
@@ -128,6 +139,12 @@ test.describe('Cashier Statements - authenticated production route', () => {
       'boolean'
     );
     const authorized = body.authorized === true && body.scope !== 'none';
+    // The certification run signs in as an administrator of this club, so a
+    // refusal there is a defect, and the refusal branch below must not turn
+    // the certificate green with no totals compared (overwatch, review of
+    // 41b4bda8, B1).
+    if (process.env.E2E_REQUIRE_AUTH === '1')
+      expect(authorized, 'the certification account was refused its own club statement').toBe(true);
     await testInfo.attach('cashier-statement-page-verdict.json', {
       body: JSON.stringify({
         httpStatus: response.status(),
@@ -221,15 +238,26 @@ test.describe('Cashier Statements - authenticated production route', () => {
         .poll(
           async () => {
             const figures = (await totals.locator('strong').allTextContents()).map(asText);
-            const newest = totalsAnswers.at(-1) as { totals?: unknown } | undefined;
-            const served = newest?.totals as
+            if (totalsAnswers.length === 0) return 'no totals answer';
+            const newest = totalsAnswers.at(-1);
+            if (!newest) return 'newest totals answer still being read';
+            // Same club, period and filters as the entries on the glass: the
+            // totals request must carry the page request's own arguments.
+            if (!sameStatementQuery(newest.asked, response.request().postDataJSON()))
+              return 'totals were asked for a different club, period or filter than the page';
+            const served = (newest.answer as { totals?: unknown } | null)?.totals as
               | Parameters<typeof statementTotalsFigures>[0]
               | undefined;
-            if (!served) return `no totals answer|${figures.join('|')}`;
+            if (!served) return 'newest totals answer carries no totals';
             const expected = statementTotalsFigures(served, exactChips);
-            return figures.join('|') === expected.join('|')
+            // The verdict names which figure differs and never prints a club's
+            // totals into the run log.
+            const differing = ['In', 'Out', 'Managed', 'Entries'].filter(
+              (_, index) => figures[index] !== expected[index]
+            );
+            return figures.length === 4 && differing.length === 0
               ? 'matches the server'
-              : `glass ${figures.join('|')} server ${expected.join('|')}`;
+              : `differs: ${differing.join(', ') || 'figure count'}`;
           },
           { timeout: 30_000, message: 'Statement Totals on the glass differ from the server' }
         )

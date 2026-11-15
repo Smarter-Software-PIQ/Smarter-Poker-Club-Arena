@@ -44,5 +44,23 @@ export function statementTotalsFigures(
   ];
 }
 
+/**
+ * Whether a totals request asks about the same statement as a page request:
+ * the same club, period and filters. The page request also carries its paging
+ * (`p_cursor`, `p_limit`), which the totals request has no use for; every other
+ * argument must be present on both sides with the same value.
+ */
+export function sameStatementQuery(totalsAsked: unknown, pageAsked: unknown): boolean {
+  const query = (asked: unknown): string | null => {
+    if (!asked || typeof asked !== 'object' || Array.isArray(asked)) return null;
+    const entries = Object.entries(asked as Record<string, unknown>)
+      .filter(([name]) => name !== 'p_cursor' && name !== 'p_limit')
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+    return entries.length > 0 ? JSON.stringify(entries) : null;
+  };
+  const totals = query(totalsAsked);
+  return totals !== null && totals === query(pageAsked);
+}
+
 /** The entry-count pill: "1 Entry", "2,111 Entries", or "Live Ledger". */
 export const ENTRY_PILL = /^(?:\d{1,3}(?:,\d{3})* (?:Entry|Entries)|Live Ledger)\s*$/;

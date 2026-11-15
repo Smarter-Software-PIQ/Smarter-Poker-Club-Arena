@@ -11,6 +11,7 @@ import {
   ENTRY_PILL,
   EXACT_FIGURE,
   inexactFigures,
+  sameStatementQuery,
   statementTotalsFigures,
 } from './e2e/support/exact-figure';
 
@@ -96,5 +97,59 @@ describe('the statements certificate reads exact figures', () => {
     );
     const spec = readFileSync('tests/e2e/production-cashier-statements.spec.ts', 'utf8');
     expect(spec).toContain("'Statement Totals on the glass differ from the server'");
+  });
+
+  it('accepts totals only for the same club, period and filters as the page', () => {
+    const page = {
+      p_club_id: 'c',
+      p_from: '2026-11-01',
+      p_kind: null,
+      p_cursor: null,
+      p_limit: 50,
+    };
+    expect(sameStatementQuery({ p_kind: null, p_from: '2026-11-01', p_club_id: 'c' }, page)).toBe(
+      true
+    );
+    expect(sameStatementQuery({ p_club_id: 'c', p_from: '2026-10-01', p_kind: null }, page)).toBe(
+      false
+    );
+    expect(sameStatementQuery({ p_club_id: 'd', p_from: '2026-11-01', p_kind: null }, page)).toBe(
+      false
+    );
+    expect(sameStatementQuery({ p_club_id: 'c', p_from: '2026-11-01' }, page)).toBe(false);
+    expect(sameStatementQuery(null, page)).toBe(false);
+    expect(sameStatementQuery({}, {})).toBe(false);
+    // The application sends both requests the same arguments, paging apart.
+    const hook = readFileSync('src/hooks/useCashierStatement.ts', 'utf8');
+    expect(hook).toContain("supabase.rpc('fn_cashier_statement_totals', pageArgs)");
+    expect(hook).toMatch(
+      /supabase\.rpc\('fn_cashier_statement_page', \{\s*\.\.\.pageArgs,\s*p_cursor: null,\s*p_limit: STATEMENT_PAGE_SIZE,\s*\}\)/
+    );
+  });
+
+  it('cannot pass on a refusal in the certification run, and compares before it passes', () => {
+    const spec = readFileSync('tests/e2e/production-cashier-statements.spec.ts', 'utf8');
+    expect(spec).toMatch(
+      /if \(process\.env\.E2E_REQUIRE_AUTH === '1'\)\s*expect\(authorized, [^)]*\)\.toBe\(\s*true\s*\);/
+    );
+    expect(spec.indexOf("process.env.E2E_REQUIRE_AUTH === '1'")).toBeLessThan(
+      spec.indexOf('if (authorized) {')
+    );
+    for (const line of [
+      'sameStatementQuery(newest.asked, response.request().postDataJSON())',
+      'statementTotalsFigures(served, exactChips)',
+      'figures.length === 4 && differing.length === 0',
+      ".toBe('matches the server');",
+    ])
+      expect(spec, line).toContain(line);
+    // The step that runs this certificate sets the flag.
+    const workflow = readFileSync('.github/workflows/post-deploy-e2e.yml', 'utf8');
+    const run = workflow.indexOf(
+      'npx playwright test tests/e2e/production-cashier-statements.spec.ts'
+    );
+    const env = workflow.lastIndexOf('env:', run);
+    expect(run).toBeGreaterThan(-1);
+    expect(workflow.slice(env, run)).toContain("E2E_REQUIRE_AUTH: '1'");
+    expect(workflow.slice(env, run)).not.toMatch(/\n {6}- name:/);
   });
 });
