@@ -53,11 +53,19 @@ export function resolveClubIdFilter(clubIdParam: string): {
 // removes an entire serial network roundtrip from the front of EVERY wallet
 // and lobby mount that arrives with an integer club code in the URL.
 //
+// A SLUG IS NOT IMMUTABLE (2026-11-14). club-jaqk became the-felt-society, and
+// the rename trigger (20261114235607) frees an old slug for another club. So
+// only the six-digit code is persisted; a slug answer lives in memory for this
+// tab, and a former slug's answer (club_slug_history) is never cached at all,
+// so the clubs table is asked first every time and the club holding a slug
+// now always wins over the club that held it before.
+//
 // The persisted map lives under ONE localStorage key (not one key per club)
 // and is purged on sign-out by clearUserCaches — the set of clubs a person
 // has visited is their data.
 export const CLUB_UUID_MAP_KEY = 'club_arena_uuid_map_v1';
 const MAX_PERSISTED_MAPPINGS = 200;
+const IMMUTABLE_CLUB_KEY = /^\d+$/;
 
 const uuidCache = new Map<string, string>();
 let persistedLoaded = false;
@@ -71,7 +79,12 @@ function loadPersistedMap(): void {
     const parsed = JSON.parse(raw) as Record<string, string>;
     if (parsed && typeof parsed === 'object') {
       for (const [k, v] of Object.entries(parsed)) {
-        if (typeof v === 'string' && UUID_REGEX.test(v) && !uuidCache.has(k)) {
+        if (
+          IMMUTABLE_CLUB_KEY.test(k) &&
+          typeof v === 'string' &&
+          UUID_REGEX.test(v) &&
+          !uuidCache.has(k)
+        ) {
           uuidCache.set(k, v);
         }
       }
@@ -83,7 +96,9 @@ function loadPersistedMap(): void {
 
 function persistMap(): void {
   try {
-    const entries = Array.from(uuidCache.entries()).slice(-MAX_PERSISTED_MAPPINGS);
+    const entries = Array.from(uuidCache.entries())
+      .filter(([k]) => IMMUTABLE_CLUB_KEY.test(k))
+      .slice(-MAX_PERSISTED_MAPPINGS);
     localStorage.setItem(CLUB_UUID_MAP_KEY, JSON.stringify(Object.fromEntries(entries)));
   } catch {
     /* best-effort */
@@ -126,6 +141,55 @@ export function clearClubUUIDCache(): void {
   persistedLoaded = false;
 }
 
+/**
+ * The club that formerly held `clubIdParam` as its slug, from the rename
+ * history; null when no rename recorded it. Ask the clubs table first: a slug
+ * a club holds now always wins. A failed read throws, so a strict caller never
+ * mistakes it for "no such club". Read-only to signed-in callers (RLS).
+ */
+export async function readFormerSlugClubId(
+  clubIdParam: string,
+  signal?: AbortSignal
+): Promise<string | null> {
+  const former = supabase
+    .from('club_slug_history')
+    .select('club_id')
+    .eq('former_slug', clubIdParam);
+  const { data: formerRow, error: formerError } = await (
+    signal ? former.abortSignal(signal) : former
+  ).maybeSingle();
+  if (formerError) throw formerError;
+  const formerClubId = (formerRow as { club_id?: unknown } | null)?.club_id;
+  return typeof formerClubId === 'string' && isUUID(formerClubId) ? formerClubId : null;
+}
+
+/**
+ * The slug a club holds now when `clubIdParam` is a slug it held before, so an
+ * old link can be rewritten to the current one (SlugEnforcer); null for a
+ * current slug, an id, a club code or a slug nobody ever held. A current slug
+ * costs nothing once this tab has resolved it: former slugs are never cached,
+ * so a cached answer is always a club that holds the slug now.
+ */
+export async function currentSlugForFormerClubSlug(clubIdParam: string): Promise<string | null> {
+  if (resolveClubIdFilter(clubIdParam).column !== 'slug') return null;
+  if (resolveClubUUIDSync(clubIdParam)) return null;
+  const clubUUID = await resolveClubUUID(clubIdParam);
+  // resolveClubUUID caches what the clubs table answered and never what the
+  // history answered, so a cache entry now means a club holds this slug.
+  if (!isUUID(clubUUID) || resolveClubUUIDSync(clubIdParam)) return null;
+  const { data, error } = await supabase
+    .from('clubs')
+    .select('slug')
+    .eq('id', clubUUID)
+    .maybeSingle();
+  if (error) {
+    reportError(error, 'clubIdResolver.currentSlugForFormerClubSlug', { clubIdParam });
+    return null;
+  }
+  const slug = (data as { slug?: unknown } | null)?.slug;
+  return typeof slug === 'string' && slug !== '' && slug !== clubIdParam ? slug : null;
+}
+
 export async function resolveClubUUID(clubIdParam: string, signal?: AbortSignal): Promise<string> {
   // Already a UUID — return as-is
   if (isUUID(clubIdParam)) return clubIdParam;
@@ -158,24 +222,17 @@ export async function resolveClubUUID(clubIdParam: string, signal?: AbortSignal)
   // A RENAMED CLUB KEEPS ITS OLD SLUG (2026-11-14). club-jaqk became
   // the-felt-society and every /clubs/club-jaqk link stopped resolving. A slug
   // no club holds now is looked up in the rename history (club_slug_history,
-  // 20261114235606), which the renaming statement itself writes; the answer is
-  // cached under the old slug like any other. A table read, not an RPC: this
+  // 20261114235606), which the renaming statement itself writes. The answer is
+  // NOT cached: if a club later takes the freed slug, the next lookup must
+  // find that club in the query above. A table read, not an RPC: this
   // resolver sits in front of 100+ callers and must not add a call to their
   // own RPC sequences.
   if (!error && filter.column === 'slug') {
-    const former = supabase
-      .from('club_slug_history')
-      .select('club_id')
-      .eq('former_slug', clubIdParam);
-    const { data: formerRow, error: formerError } = await (
-      signal ? former.abortSignal(signal) : former
-    ).maybeSingle();
-    if (formerError) {
+    try {
+      const formerClubId = await readFormerSlugClubId(clubIdParam, signal);
+      if (formerClubId) return formerClubId;
+    } catch (formerError) {
       reportError(formerError, 'clubIdResolver.formerSlug', { clubIdParam });
-    } else if (typeof formerRow?.club_id === 'string' && isUUID(formerRow.club_id)) {
-      uuidCache.set(clubIdParam, formerRow.club_id);
-      persistMap();
-      return formerRow.club_id;
     }
   }
 

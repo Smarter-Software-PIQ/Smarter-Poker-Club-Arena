@@ -23,7 +23,8 @@ import { sanitizeInput } from '../utils/sanitizeInput';
 import PageSkeleton from '../components/common/PageSkeleton';
 import AuditLog from '../components/admin/AuditLog';
 import { StatsExport } from '../components/admin/StatsExport';
-import { resolveClubIdFilter, resolveClubUUID } from '../utils/clubIdResolver';
+import { resolveClubUUID } from '../utils/clubIdResolver';
+import { resolveClubLookupFilter } from '../utils/clubLookupFilter';
 import { useVisibilityRefresh } from '../hooks/useVisibilityRefresh';
 import { useIsMounted } from '../hooks/useIsMounted';
 import '../components/common/ButtonSpinner.css';
@@ -743,7 +744,7 @@ export default function ClubSettingsPage() {
     // tear the rendered form down to a skeleton.
     if (!opts?.silent && (!getIsMounted || getIsMounted())) setLoading(true);
     try {
-      const { column: clubCol, value: clubVal } = resolveClubIdFilter(clubId!);
+      const { column: clubCol, value: clubVal } = await resolveClubLookupFilter(clubId!);
       const data = await retryFetch(
         () =>
           supabase

@@ -13,7 +13,8 @@ import { PLAYER_NAME_COLUMNS } from '../utils/playerDisplayName';
 import { retryFetch } from '../utils/retryFetch';
 import { sanitizeInput } from '../utils/sanitizeInput';
 import { escapeIlikePattern } from '../utils/clubSlug';
-import { resolveClubUUID, resolveClubIdFilter } from '../utils/clubIdResolver';
+import { resolveClubUUID } from '../utils/clubIdResolver';
+import { resolveClubLookupFilter } from '../utils/clubLookupFilter';
 import { QUERY_LIMITS } from '../lib/constants';
 import { reportError } from '../utils/errorReporter';
 import { serverRefusalMessage } from '../utils/safeErrorMessage';
@@ -89,7 +90,7 @@ export async function searchClubs(query: string): Promise<Club[]> {
  * Get a single club by ID or slug
  */
 export async function getClub(identifier: string): Promise<Club | null> {
-  const filter = resolveClubIdFilter(identifier);
+  const filter = await resolveClubLookupFilter(identifier);
 
   const { data, error } = await supabase
     .from('clubs')

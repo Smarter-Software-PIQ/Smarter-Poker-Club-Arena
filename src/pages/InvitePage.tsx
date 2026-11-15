@@ -11,7 +11,7 @@ import { ClubJoinService } from '../services/ClubJoinService';
 import { useToast } from '../components/common/Toast';
 import { masterBus } from '../core/MasterBus';
 import './InvitePage.css';
-import { resolveClubIdFilter } from '../utils/clubIdResolver';
+import { resolveClubLookupFilter } from '../utils/clubLookupFilter';
 import PageSkeleton from '../components/common/PageSkeleton';
 import { useVisibilityRefresh } from '../hooks/useVisibilityRefresh';
 import { reportError } from '../utils/errorReporter';
@@ -132,7 +132,7 @@ export default function InvitePage() {
           // error wearing a plausible business message, on a public route.
           clubQuery = clubQuery.eq('code', inviteCode);
         } else if (clubId) {
-          const { column, value } = resolveClubIdFilter(clubId);
+          const { column, value } = await resolveClubLookupFilter(clubId);
           clubQuery = clubQuery.eq(column, value);
         } else {
           if (!getIsMounted || getIsMounted()) {

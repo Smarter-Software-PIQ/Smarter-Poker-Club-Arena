@@ -149,7 +149,8 @@ import './ClubHomeMobilePremium.css';
 import { isFixedLimitVariant } from '../lib/bettingStructure';
 
 import { useVisibilityRefresh } from '../hooks/useVisibilityRefresh';
-import { resolveClubIdFilter, resolveClubUUID, resolveClubUUIDSync } from '../utils/clubIdResolver';
+import { resolveClubUUID, resolveClubUUIDSync } from '../utils/clubIdResolver';
+import { resolveClubLookupFilter } from '../utils/clubLookupFilter';
 import { useIsMounted } from '../hooks/useIsMounted';
 import GlobalUXIndicators from '../components/common/GlobalUXIndicators';
 import BBJInfoModal from '../components/bbj/BBJInfoModal';
@@ -2696,7 +2697,7 @@ function ClubHomePageContent({
       if (getIsMounted && !getIsMounted()) return;
 
       // Load club info — smart resolve: clubId may be UUID or integer club_id
-      const { column: clubCol, value: clubVal } = resolveClubIdFilter(clubId);
+      const { column: clubCol, value: clubVal } = await resolveClubLookupFilter(clubId);
       const { data: clubData, error: clubError } = await retryFetch(
         () =>
           supabase

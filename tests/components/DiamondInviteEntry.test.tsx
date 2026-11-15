@@ -45,8 +45,10 @@ describe('Diamond invitation entry', () => {
         </MemoryRouter>
       );
       expect(await screen.findByText('Guarded Diamond Destination')).toBeTruthy();
-      expect(mocks.from).toHaveBeenCalledTimes(1);
+      // Reads of clubs only: the club row, and the resolver's lookup of the
+      // slug while this tab has not resolved it yet.
       expect(mocks.from).toHaveBeenCalledWith('clubs');
+      expect(mocks.from.mock.calls.every(([table]) => table === 'clubs')).toBe(true);
       expect(mocks.join).not.toHaveBeenCalled();
       expect(screen.queryByRole('button', { name: /join club/i })).toBeNull();
     }

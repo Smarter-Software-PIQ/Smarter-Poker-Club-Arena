@@ -13,11 +13,8 @@ import { masterBus } from '../core/MasterBus';
 import { useAuthUser } from '../hooks/useAuthUser';
 import { useToast } from '../components/common/Toast';
 import { sanitizeInput } from '../utils/sanitizeInput';
-import {
-  resolveClubIdFilter,
-  resolveClubUUID,
-  resolveClubUUIDStrict,
-} from '../utils/clubIdResolver';
+import { resolveClubUUID, resolveClubUUIDStrict } from '../utils/clubIdResolver';
+import { resolveClubLookupFilter } from '../utils/clubLookupFilter';
 import { useVisibilityRefresh } from '../hooks/useVisibilityRefresh';
 import './ClubRulesPage.css';
 import PageSkeleton from '../components/common/PageSkeleton';
@@ -158,7 +155,7 @@ export default function ClubRulesPage() {
     setLoading(true);
     try {
       // Load club info
-      const { column: clubCol, value: clubVal } = resolveClubIdFilter(clubId!);
+      const { column: clubCol, value: clubVal } = await resolveClubLookupFilter(clubId!);
 
       // SWR: show cached rules instantly
       const swrKey = `rules_cache_${user?.id || 'signed-out'}_${clubId}`;
