@@ -19183,6 +19183,33 @@ function LiveTablePage({
   }, [tableState]);
 
   /**
+   * THE POT GOES TO THE CHAIR THE WINNER WON IT IN (Dan 2026-11-15).
+   *
+   * "THE PREVIOUS HAND PLAYED, DID NOT AWARD THE POT, OR SHIP IT TO THE
+   * WINNING PLAYER ANIMATION." Hand 59517030 (Kings Club, Madness PLO5 1/2):
+   * the seat-4 winner stood up 1.26 s after the hand ended, while the
+   * four-way showdown was still being read, so by the time pot_win was
+   * handled the winner had no seat in the snapshot and the fan flew to the
+   * neutral point under the pot. Every player's LAST seat index is kept here,
+   * so a winner who has already left is still paid on the felt at the chair
+   * the pot was won from. The engine now also keeps that chair until the push
+   * has landed (completionPresentation in ServerTableEngineSeating); this is
+   * the client half, and it covers every client still holding an old engine.
+   */
+  const lastSeatIdxByPlayerRef = useRef<Map<string, number>>(new Map());
+  useEffect(() => {
+    tableState.players.forEach((p, idx) => {
+      if (p?.id) lastSeatIdxByPlayerRef.current.set(p.id, idx);
+    });
+  }, [tableState.players]);
+  /** Live seat index, else the seat this player last held on this client, else -1. */
+  const winnerSeatIdx = useCallback((playerId: string): number => {
+    const live = tableStateRef.current.players.findIndex((p) => p?.id === playerId);
+    if (live >= 0) return live;
+    return lastSeatIdxByPlayerRef.current.get(playerId) ?? -1;
+  }, []);
+
+  /**
    * The resolved format, readable from inside the engine-event callback.
    *
    * That callback closes over its own render, so it cannot read
@@ -22335,7 +22362,7 @@ function LiveTablePage({
               // instead. Estimating remains for legacy non-exact groups.
               if (g.exact && !(w.amount > 0)) continue;
               // SeatPlayer.id is the userId — players[] index = seatNumber - 1.
-              const seatIdx = tableStateRef.current.players.findIndex((p) => p?.id === w.userId);
+              const seatIdx = winnerSeatIdx(w.userId);
               /**
                * SEAT LOOKUP FAILURE IS NOT A REASON TO SKIP THE ANIMATION
                * (Dan 2026-08-27, the ship-pot invariant above).
@@ -22435,7 +22462,7 @@ function LiveTablePage({
               perPlayer: {},
             };
             for (const wid of winnerIds) {
-              const seatIdx = tableStateRef.current.players.findIndex((p) => p?.id === wid);
+              const seatIdx = winnerSeatIdx(wid);
               const seatPct =
                 seatIdx >= 0
                   ? seatPositionsRef.current[seatIdx] || { x: 50, y: 50 }
@@ -22765,14 +22792,19 @@ function LiveTablePage({
                 return;
               }
               const wid = winnerIds[0];
-              const idx = tableStateRef.current.players.findIndex((p) => p?.id === wid);
-              if (idx < 0) return;
+              // 2026-11-15: a winner who has already stood up is still pushed
+              // the pot, at the chair it was won from (winnerSeatIdx). Never a
+              // silent return: that was the pot vanishing on hand 59517030.
+              const idx = winnerSeatIdx(wid);
               const root = tableScalerRef.current?.closest('.table-page') ?? null;
               const source = potViewportPoint(root, potPos);
               const target = winnerViewportPoint(
                 root,
                 wid,
-                seatPctToViewportPx(tableScalerRef.current, seatPositionsRef.current[idx])
+                seatPctToViewportPx(
+                  tableScalerRef.current,
+                  (idx >= 0 ? seatPositionsRef.current[idx] : undefined) ?? UNSEATED_WINNER_PCT
+                )
               );
               const scale =
                 (tableScalerRef.current?.getBoundingClientRect().width ?? 0) /

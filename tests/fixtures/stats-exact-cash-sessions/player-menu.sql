@@ -33,6 +33,24 @@ BEGIN
   IF public.ca_player_menu_cash_stats(game,player) IS NOT NULL THEN RAISE EXCEPTION 'unrelated viewer'; END IF;
   PERFORM set_config('request.jwt.claim.sub','47965354-0e56-43ef-931c-ddaab82af765',true);
   IF public.ca_player_menu_cash_stats(game,player) IS NULL THEN RAISE EXCEPTION 'owner denied'; END IF;
+  -- The same occupied table and club cannot grant access to another agent's player.
+  INSERT INTO club_members(user_id,club_id,status,role,agent_id) VALUES
+    (outsider,club,'active','agent',NULL);
+  INSERT INTO table_seats(id,table_id,user_id) VALUES(gen_random_uuid(),game,outsider);
+  INSERT INTO cash_player_session(id,player_id,club_id,scope_type,scope_id,table_id,opened_at,baseline)
+    VALUES(gen_random_uuid(),outsider,club,'table',game,game,now()-interval '1 hour',100);
+  IF public.ca_player_menu_cash_stats(game,outsider) IS NULL THEN RAISE EXCEPTION 'owner denied unrelated seat'; END IF;
+  PERFORM set_config('request.jwt.claim.sub',viewer::text,true);
+  IF public.ca_player_menu_cash_stats(game,outsider) IS NOT NULL THEN RAISE EXCEPTION 'same-table outsider leaked'; END IF;
+  PERFORM set_config('request.jwt.claim.sub',outsider::text,true);
+  IF public.ca_player_menu_cash_stats(game,player) IS NOT NULL THEN RAISE EXCEPTION 'unrelated active agent'; END IF;
+  PERFORM set_config('request.jwt.claim.sub',middle_agent::text,true);
+  IF public.ca_player_menu_cash_stats(game,player) IS NULL THEN RAISE EXCEPTION 'direct agent denied'; END IF;
+  UPDATE club_members SET status='inactive' WHERE user_id=middle_agent;
+  IF public.ca_player_menu_cash_stats(game,player) IS NOT NULL THEN RAISE EXCEPTION 'inactive agent'; END IF;
+  PERFORM set_config('request.jwt.claim.sub',viewer::text,true);
+  IF public.ca_player_menu_cash_stats(game,player) IS NOT NULL THEN RAISE EXCEPTION 'inactive chain'; END IF;
+  PERFORM set_config('request.jwt.claim.sub','47965354-0e56-43ef-931c-ddaab82af765',true);
   DELETE FROM ca_hand_facts WHERE hand_id=hand;
   IF public.ca_player_menu_cash_stats(game,player)->0->'net' IS DISTINCT FROM 'null'::jsonb THEN RAISE EXCEPTION 'partial facts'; END IF;
   UPDATE tables SET tournament_id=gen_random_uuid() WHERE id=game;
