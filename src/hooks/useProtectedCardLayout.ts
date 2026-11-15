@@ -1327,7 +1327,10 @@ export function useProtectedCardLayout(
           `${dealerElement?.dataset.ownerX}:${dealerElement?.dataset.ownerY}`;
         const reservedDealer =
           fixedDealer && dealerElement
-            ? dealerSettledBox(scaler, dealerElement)
+            ? // Preserve the reserved point through wager changes. A portrait
+              // can settle after artwork decodes or a reveal changes its pod;
+              // recheck ownership without allowing chips to displace the point.
+              placeDealerButton(scaler, canvas, scale, getPoints, obstacles, hardObstacles)
             : placeDealerButton(
                 scaler,
                 canvas,

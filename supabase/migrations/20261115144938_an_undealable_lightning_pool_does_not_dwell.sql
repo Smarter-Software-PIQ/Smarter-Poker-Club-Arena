@@ -4,6 +4,7 @@
 -- Keep hysteresis at playable populations; an undealable population must use
 -- the existing pending-off/drain/custody transition without its population dwell.
 -- No new scheduler, seat repair, financial write or engine replacement.
+-- @live-proof: (position('v_floor_until IS NOT NULL AND v_live >= 4' in pg_get_functiondef('public.fn_cash_cluster_lightning_drive(uuid)'::regprocedure)) > 0 AND position('live_eligible' in pg_get_functiondef('public.fn_cash_cluster_begin_pending_off(uuid,uuid,text)'::regprocedure)) > 0 AND position('::integer, 0) >= 4 THEN' in pg_get_functiondef('public.fn_cash_cluster_begin_pending_off(uuid,uuid,text)'::regprocedure)) > 0)
 BEGIN;
 SET LOCAL lock_timeout='1s';
 SET LOCAL statement_timeout='8s';
