@@ -43,6 +43,15 @@ const db = vi.hoisted(() => ({
   reads: [] as string[],
   rpcs: [] as Array<{ fn: string; args: Record<string, unknown> }>,
   arena: (_key: string): unknown => null,
+  reported: [] as string[],
+  session: { user: { id: 'signed-in' } } as unknown,
+}));
+
+vi.mock('../src/utils/errorReporter', async (original) => ({
+  ...(await original<typeof import('../src/utils/errorReporter')>()),
+  reportError: (_error: unknown, where: string) => {
+    db.reported.push(where);
+  },
 }));
 
 vi.mock('../src/lib/supabase', () => {
@@ -68,6 +77,7 @@ vi.mock('../src/lib/supabase', () => {
   };
   return {
     supabase: {
+      auth: { getSession: async () => ({ data: { session: db.session }, error: null }) },
       from: (name: string) => table(name),
       rpc: (fn: string, args: Record<string, unknown>) => {
         db.rpcs.push({ fn, args });
@@ -116,6 +126,8 @@ beforeEach(() => {
   db.reads = [];
   db.rpcs = [];
   db.arena = () => null;
+  db.reported = [];
+  db.session = { user: { id: 'signed-in' } };
   clearClubUUIDCache();
   localStorage.clear();
 });
@@ -173,10 +185,43 @@ describe('a former slug resolves through the one resolver', () => {
       column: 'slug',
       value: 'no-such-club',
     });
-    db.historyError = { message: 'permission denied', code: '42501' };
+    db.historyError = { message: 'upstream connect error', code: 'PGRST000' };
     const error = await resolveClubUUIDStrict('club-jaqk').catch((caught) => caught);
     expect(error).toBeInstanceOf(ClubResolutionError);
     expect(error).not.toBeInstanceOf(ClubNotFoundError);
+  });
+
+  it('a signed-out visitor never asks the history, and nothing is reported', async () => {
+    renamed();
+    db.session = null;
+    await expect(resolveClubUUID('club-jaqk')).resolves.toBe('club-jaqk');
+    await expect(resolveClubUUIDStrict('club-jaqk')).rejects.toBeInstanceOf(ClubNotFoundError);
+    await expect(resolveClubLookupFilter('club-jaqk')).resolves.toEqual({
+      column: 'slug',
+      value: 'club-jaqk',
+    });
+    await expect(currentSlugForFormerClubSlug('club-jaqk')).resolves.toBeNull();
+    expect(db.reads.some((read) => read.startsWith('club_slug_history:'))).toBe(false);
+    expect(db.reported).toEqual([]);
+    // The current slug still resolves for them: clubs is public.
+    await expect(resolveClubUUID('the-felt-society')).resolves.toBe(FELT);
+    // Signed in, the same old slug resolves.
+    db.session = { user: { id: 'signed-in' } };
+    await expect(resolveClubUUID('club-jaqk')).resolves.toBe(FELT);
+  });
+
+  it('a session that lapses before the read is refused quietly too', async () => {
+    renamed();
+    // club_slug_history grants nothing to anon: PostgREST answers 42501.
+    db.historyError = { message: 'permission denied for table club_slug_history', code: '42501' };
+    await expect(resolveClubUUID('club-jaqk')).resolves.toBe('club-jaqk');
+    await expect(resolveClubUUIDStrict('club-jaqk')).rejects.toBeInstanceOf(ClubNotFoundError);
+    await expect(currentSlugForFormerClubSlug('club-jaqk')).resolves.toBeNull();
+    expect(db.reported).toEqual([]);
+    // Any other failure is still a fault somebody hears about.
+    db.historyError = { message: 'upstream connect error', code: 'PGRST000' };
+    await resolveClubUUID('club-jaqk');
+    expect(db.reported).toEqual(['clubIdResolver.formerSlug']);
   });
 
   it('an id or a club code never asks the history', async () => {
@@ -259,6 +304,22 @@ describe('an old link rewrites itself to the current slug', () => {
     expect(screen.getByRole('status').textContent).toBe(
       '/clubs/the-felt-society/data?dataStart=2026-11-02&dataEnd=2026-11-09#week'
     );
+  });
+
+  it('leaves an old link alone for a signed-out visitor (it rewrites after sign-in)', async () => {
+    renamed();
+    db.session = null;
+    render(
+      <MemoryRouter initialEntries={['/clubs/club-jaqk/data?dataStart=2026-11-02']}>
+        <SlugEnforcer />
+        <Where />
+      </MemoryRouter>
+    );
+    await settle();
+    expect(screen.getByRole('status').textContent).toBe(
+      '/clubs/club-jaqk/data?dataStart=2026-11-02'
+    );
+    expect(db.reported).toEqual([]);
   });
 
   it('leaves a current slug where it is', async () => {

@@ -67,6 +67,9 @@ export const CLUB_UUID_MAP_KEY = 'club_arena_uuid_map_v1';
 const MAX_PERSISTED_MAPPINGS = 200;
 const IMMUTABLE_CLUB_KEY = /^\d+$/;
 
+// PostgreSQL insufficient_privilege: club_slug_history grants no read to anon.
+const HISTORY_CLOSED_TO_THIS_CALLER = '42501';
+
 const uuidCache = new Map<string, string>();
 let persistedLoaded = false;
 
@@ -145,12 +148,20 @@ export function clearClubUUIDCache(): void {
  * The club that formerly held `clubIdParam` as its slug, from the rename
  * history; null when no rename recorded it. Ask the clubs table first: a slug
  * a club holds now always wins. A failed read throws, so a strict caller never
- * mistakes it for "no such club". Read-only to signed-in callers (RLS).
+ * mistakes it for "no such club".
+ *
+ * The history is readable by signed-in callers only (no anon grant). With no
+ * signed-in session it is not asked at all: the old slug simply does not
+ * resolve for a signed-out visitor, nothing is reported, and the same link
+ * resolves (and SlugEnforcer rewrites it) once they sign in. A session that
+ * lapses between that check and the read is refused with 42501, which is the
+ * same answer and is equally quiet.
  */
 export async function readFormerSlugClubId(
   clubIdParam: string,
   signal?: AbortSignal
 ): Promise<string | null> {
+  if ((await hasSignedInSession()) === false) return null;
   const former = supabase
     .from('club_slug_history')
     .select('club_id')
@@ -158,9 +169,24 @@ export async function readFormerSlugClubId(
   const { data: formerRow, error: formerError } = await (
     signal ? former.abortSignal(signal) : former
   ).maybeSingle();
-  if (formerError) throw formerError;
+  if (formerError) {
+    if ((formerError as { code?: string }).code === HISTORY_CLOSED_TO_THIS_CALLER) return null;
+    throw formerError;
+  }
   const formerClubId = (formerRow as { club_id?: unknown } | null)?.club_id;
   return typeof formerClubId === 'string' && isUUID(formerClubId) ? formerClubId : null;
+}
+
+/** true or false when the client can say; null when it cannot tell. */
+async function hasSignedInSession(): Promise<boolean | null> {
+  const auth = (supabase as { auth?: { getSession?: unknown } }).auth;
+  if (typeof auth?.getSession !== 'function') return null;
+  try {
+    const { data } = await supabase.auth.getSession();
+    return Boolean(data?.session);
+  } catch {
+    return null;
+  }
 }
 
 /**

@@ -33,9 +33,15 @@ failed:
 - `src/utils/clubLookupFilter.ts`: `resolveClubLookupFilter` is the filter for
   a `clubs` read keyed by a route param. An id or code keeps its column with no
   lookup; a slug resolves through `resolveClubUUID` and the read filters by id.
-  ClubHomePage, ClubSettingsPage, ClubRulesPage, InvitePage, ChipTransferModal,
-  ClubDetailPage and `ClubsService.getClub` use it; `resolveClubIdFilter` is now
-  called only inside the resolver modules.
+  ClubHomePage, ClubSettingsPage, ClubRulesPage, InvitePage, ChipTransferModal
+  and ClubDetailPage use it; `ClubsService.getClub` resolves through
+  `resolveClubUUID` (importing the lookup module there hoisted its chunk into
+  every chunk importing ClubsService and put AnalysisTab 0.02 KB over its stats
+  budget). `resolveClubIdFilter` is now called only inside the resolver modules.
+- A signed-out visitor never asks the history (it grants nothing to anon): the
+  old slug does not resolve for them, nothing is reported, and it resolves and
+  is rewritten once they sign in. A 42501 from a session that lapsed before
+  the read is the same quiet answer; any other history failure is reported.
 - `src/utils/strictClubIdResolver.ts`: a slug no club holds is read from the
   history before "not found"; a failed history read is a resolution error.
 - `src/services/ArenaContextService.ts`: when the server finds no club for a
