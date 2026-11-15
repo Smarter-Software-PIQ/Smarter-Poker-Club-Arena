@@ -100,7 +100,9 @@ async function loadRows({ clubId, unionId, tableId, asset }: Props): Promise<Row
         bb,
         table.game_variant,
         sb,
-        version === 1 ? override : { ...override, scope: undefined }
+        version === 1 || version === 2
+          ? { ...override, policyVersion: version }
+          : { ...override, scope: undefined }
       );
       if (!chip?.data) throw new Error('Missing chip rake rules');
       for (const price of chipPrices(
