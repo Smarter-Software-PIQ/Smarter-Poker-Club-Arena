@@ -924,6 +924,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaEliteContinuesVsMeasuredWideThreeBettor',
+    'PLO Strategy lane 2026-11-15 (decisions census): a PLO4/PLO5 cash Horse that opened and faces exactly one re-raise, heads-up against the price, from a player MEASURED to re-raise wide (15+ decayed hands, 12+ decayed re-raise opportunities, re-raise rate credibly above the Horse mean with a shrunk mean of 0.15 or more; a presumed read never counts) does not fold an elite-class hand (double-suited rundown or connected broadway, double-suited kings, nut-suited ace bridge, aces; only the hands the class read marks as shallow 4-bet hands) to the maniac-price arithmetic when the call is under 40% of the stack at raw pot odds of 0.34 or less: the fold becomes a call. Never creates a raise. Hi-Lo, PLO6, bomb pots, multi-board and tournaments are outside. Default off (opt-in) until its declared evaluation passes.',
+    'V94'
+  ),
+  flag(
     'omahaMadeHandDefenseVsValueLeader',
     'Owner 2026-11-15 01:03: the PLO4/PLO5/PLO6 turn no-raise and scare-card checks of omahaBeatenMadeHandDefense apply only when every live opponent is a measured postflop value leader: bet when checked to not credibly above the Horse mean, not a postflop maniac, fold to a bet at least and river call at most the Horse mean, on 8+ decayed postflop opportunities; preflop width is not part of it; a presumed read never counts (HorseOmahaReadConditional.ts). Against an over-bluffer, a station or an unknown player the Horse plays as today. Default OFF (opt-in); league cards plo4/plo5 _omaha_made_hand_defense_vs_value_leader',
     'V94'
@@ -3865,6 +3870,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_maniac_reraise_width_measured',
     'HorseMind.bandFor (omahaManiacReRaiseWidthMeasured)',
     'PLO4/PLO5 cash: the range of a measured maniac on a re-raising line (3-bet, 4-bet or more) was read at his own counted re-raise rate, narrower than his whole raising width',
+    'V94'
+  ),
+  receipt(
+    'omaha_elite_continues_vs_measured_wide_three_bettor',
+    'HorseLogic V38 preflop price (HorseOmahaReadConditional, omahaEliteContinuesVsMeasuredWideThreeBettor)',
+    'PLO4/PLO5 cash, the Horse opened and a measured wide re-raiser 3-bet it: an elite-class hand the maniac-price arithmetic refused called instead of folding (call under 40% of the stack, raw pot odds 0.34 or less)',
+    'V94'
+  ),
+  receipt(
+    'omaha_elite_continues_vs_measured_wide_three_bettor_withheld',
+    'HorseLogic V38 preflop price (HorseOmahaReadConditional, omahaEliteContinuesVsMeasuredWideThreeBettor)',
+    "an elite-class hand the maniac-price arithmetic refused facing one re-raise of the Horse's open, where the re-raiser is not a measured wide re-raiser or the price is above the bound: today's fold kept",
     'V94'
   ),
   receipt(

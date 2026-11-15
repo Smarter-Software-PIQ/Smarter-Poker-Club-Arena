@@ -2963,6 +2963,31 @@ export interface HorseDecideOpts {
    * read `=== true`) until its declared evaluation passes; league cards
    * plo4/plo5 _omaha_maniac_reraise_width_measured. */
   omahaManiacReRaiseWidthMeasured?: boolean;
+  /** PLO Strategy lane 2026-11-15 (decisions census, archive
+   * plo-handoff-review-01a1cbbd/elite-20261115 and 3betdef-20261115): when a
+   * PLO4/PLO5 cash Horse opens and a player MEASURED to re-raise wide 3-bets
+   * it, the maniac-price arithmetic (V38/V53) asks 51% (PLO4) or 53% (PLO5)
+   * raw equity for a call priced at 33%, on 160-176 samples, and folds
+   * elite-class hands 7-10% (PLO4) and 31-34% (PLO5) of the time. With this
+   * on, a FOLD that arithmetic produces becomes a CALL when: the Horse opened
+   * and faces exactly one re-raise, heads-up against the price; the
+   * re-raiser is a measured wide re-raiser (HorseOmahaReadConditional.ts
+   * wideReRaiser: 15+ decayed hands, 12+ decayed re-raise opportunities,
+   * re-raise rate credibly (0.9) above the Horse mean with a shrunk mean of
+   * 0.15 or more, not withdrawn by a recent quiet window; a presumed read
+   * never counts); the hand is an elite class (broadway_conn_ds, rundown_ds,
+   * kk_ds, ax_nut_suited, aa_ds, aa_dry) that the class read marks as a
+   * shallow 4-bet hand (canFourBetShallow, the census population: a
+   * single-suited ace bridge or a low gapped rundown is not one); the call
+   * is under 40% of the stack
+   * and its raw pot odds are at most
+   * OMAHA_ELITE_CONTINUE_MAX_POT_ODDS (0.34, a pot-sized re-raise). It never
+   * creates a raise; the 4-bet logic is untouched. Hi-Lo, PLO6, bomb pots,
+   * multi-board, all-in-or-fold and tournaments are outside. Needs the mind
+   * on. Default OFF (opt-in, read `=== true`) until its declared evaluation
+   * passes; league cards plo4/plo5
+   * _omaha_elite_continues_vs_measured_wide_three_bettor. */
+  omahaEliteContinuesVsMeasuredWideThreeBettor?: boolean;
   /** A token-priced committed call is not barred by stack-off premiums
    * (HorseTokenCallPrice.ts, PLO6-AUDIT-010). Default on; false only for
    * the regression's non-vacuity control. */
@@ -6199,6 +6224,18 @@ function omahaPostflopPressureWithheld(
     return false;
   }
 }
+/** omahaEliteContinuesVsMeasuredWideThreeBettor: the elite classes that continue. */
+const OMAHA_ELITE_CONTINUE_CLASSES: ReadonlySet<string> = new Set([
+  'broadway_conn_ds',
+  'rundown_ds',
+  'kk_ds',
+  'ax_nut_suited',
+  'aa_ds',
+  'aa_dry',
+]);
+/** omahaEliteContinuesVsMeasuredWideThreeBettor: the most the call may cost, as raw pot odds
+ *  (call / (pot + call)); a pot-sized re-raise is one third. */
+export const OMAHA_ELITE_CONTINUE_MAX_POT_ODDS = 0.34;
 
 /**
  * HorseOmahaReadConditional: true when the mind is on and every live
@@ -10231,6 +10268,51 @@ export class HorseLogic {
             }
             notePhase6Route('variant_fallback', 'variant_price');
             return { action: 'call', amount: Math.min(toCall, player.stack), thinkTime: 0 };
+          }
+          // ═══ AN ELITE HAND CONTINUES AGAINST A MEASURED WIDE 3-BETTOR (2026-11-15) ═══
+          // omahaEliteContinuesVsMeasuredWideThreeBettor (default OFF, read
+          // `=== true`; see the option's comment). Only the refusal of this
+          // arithmetic is changed, and only to a call; no random draw.
+          if (
+            opts.omahaEliteContinuesVsMeasuredWideThreeBettor === true &&
+            opts.mind !== false &&
+            vi.isOmaha &&
+            (vi.holeCount === 4 || vi.holeCount === 5) &&
+            !(gs.variantRules ? gs.variantRules.splitLow8OrBetter : vi.isHiLo) &&
+            !isTournamentMode(gs) &&
+            gs.bombPot !== true &&
+            !(gs.communityCards2?.length || gs.communityCards3?.length) &&
+            raises === 2 &&
+            firstRaiserSeat === player.seat &&
+            lastRaiserSeat !== player.seat &&
+            maniacPrice38 &&
+            !variantPrice38 &&
+            !raiserAllIn38 &&
+            effCall38 < player.stack &&
+            inPotPlayers38.length === 1 &&
+            (!Array.isArray(gs.legalActions) || gs.legalActions.includes('call'))
+          ) {
+            let continues = false;
+            let asked = false;
+            try {
+              const elite = omahaEliteClassRead(player.cards, false);
+              if (OMAHA_ELITE_CONTINUE_CLASSES.has(elite.cls) && elite.canFourBetShallow === true) {
+                asked = true;
+                continues =
+                  HorseMind.omahaReadConditionalOf(raiser38.user_id)?.wideReRaiser === true &&
+                  effCall38 / (pot38 + effCall38) <= OMAHA_ELITE_CONTINUE_MAX_POT_ODDS;
+              }
+            } catch {
+              continues = false;
+            }
+            if (continues) {
+              if (telemetryOn(opts))
+                noteFire('omaha_elite_continues_vs_measured_wide_three_bettor');
+              notePhase6Route('variant_fallback', 'variant_price');
+              return { action: 'call', amount: Math.min(toCall, player.stack), thinkTime: 0 };
+            }
+            if (asked && telemetryOn(opts))
+              noteFire('omaha_elite_continues_vs_measured_wide_three_bettor_withheld');
           }
           // ═══ PLO6-AUDIT-013 A REFUSED MANIAC PRICE IS NOT A FOLD (2026-11-14) ═══
           // Production hand 58751512, decision 13 (PLO6 1/2, 390bb, 161 to call

@@ -2505,7 +2505,8 @@ export class HorseMind {
    * probe-adjusted) and their high-side exploit read. A presumed read is never
    * measured. Null outside an Omaha decision. Pure: no fires, no writes. Only
    * HorseLogic calls it, and only with omahaReraisedFoldVsTight,
-   * omahaMadeHandDefenseVsValueLeader or omahaBluffCatcherFoldVsValueLeader on.
+   * omahaMadeHandDefenseVsValueLeader, omahaBluffCatcherFoldVsValueLeader or
+   * omahaEliteContinuesVsMeasuredWideThreeBettor (its wideReRaiser) on.
    */
   static omahaReadConditionalOf(userId: string): OmahaReadConditional | null {
     const scope = this.decisionScope;

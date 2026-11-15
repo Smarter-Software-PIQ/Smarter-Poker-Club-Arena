@@ -66,6 +66,20 @@
  *              engaged high): no station.
  *            Preflop width is not part of it.
  *
+ *  WIDE RE-RAISER  (2026-11-15, omahaEliteContinuesVsMeasuredWideThreeBettor)
+ *            measured; at least OMAHA_WIDE_RERAISE_MIN_OPPS decayed re-raise
+ *            opportunities; his re-raise rate is credibly
+ *            (OMAHA_WIDE_RERAISE_CREDIBILITY, 0.9 one-sided) ABOVE the Horse
+ *            mean, and its shrunk posterior mean is at least
+ *            OMAHA_WIDE_RERAISE_MIN_RATE (0.15, about three times the Horse
+ *            mean of 4.7%): a range that wide holds far more than premiums. A
+ *            recent window in which he stopped re-raising (fast window,
+ *            EXPLOIT_FAST_MIN_N opportunities, credibly at or below the Horse
+ *            mean at EXPLOIT_FAST_OFF_CREDIBILITY) withdraws the read. The
+ *            production PLO5 winner (15 decayed opportunities, 33%) is one;
+ *            the exploit read's own high-side engagement is not required (at
+ *            15 opportunities it has not engaged yet).
+ *
  * Pure: no state, no random draws, no telemetry.
  */
 import type { ReadScope } from './HorseMind.js';
@@ -96,6 +110,12 @@ export const OMAHA_READCOND_MIN_HANDS = PRESUMPTION_PROOF_MIN_OPPS;
 export const OMAHA_TIGHT_RERAISE_MIN_OPPS = 12;
 /** One-sided credibility that he re-raises no more than the average Horse. */
 export const OMAHA_TIGHT_RERAISE_CREDIBILITY = EXPLOIT_CREDIBILITY;
+/** Decayed re-raise opportunities before a wide re-raiser can be read. */
+export const OMAHA_WIDE_RERAISE_MIN_OPPS = OMAHA_TIGHT_RERAISE_MIN_OPPS;
+/** One-sided credibility that he re-raises MORE than the average Horse. */
+export const OMAHA_WIDE_RERAISE_CREDIBILITY = EXPLOIT_CREDIBILITY;
+/** The shrunk posterior re-raise rate at or above which a credibly-above-mean re-raiser is wide. */
+export const OMAHA_WIDE_RERAISE_MIN_RATE = 0.15;
 /** Decayed postflop opportunities (checked to, and facing a bet) before a value leader can be read. */
 export const OMAHA_VALUE_LEADER_MIN_OPPS = 8;
 /** One-sided credibility above the Horse mean bet-when-checked-to that makes an over-bluffer. */
@@ -108,6 +128,8 @@ export interface OmahaReadConditional {
   measured: boolean;
   /** measured tight re-raiser: omahaReraisedFoldVsTight applies against him */
   tightReRaiser: boolean;
+  /** measured wide re-raiser: omahaEliteContinuesVsMeasuredWideThreeBettor applies against him */
+  wideReRaiser: boolean;
   /** measured value-heavy postflop: omahaMadeHandDefenseVsValueLeader applies against him */
   valueLeader: boolean;
   /** his own postflop betting is measured high (bet when checked to engaged
@@ -193,6 +215,19 @@ export function omahaReadConditional(
       OMAHA_TIGHT_RERAISE_CREDIBILITY &&
     !reRaisingAgain;
 
+  // WIDE RE-RAISER
+  const stoppedReRaising =
+    fTbOpp >= EXPLOIT_FAST_MIN_N &&
+    credibleAtOrBelow(num(counters.fThreeBet), fTbOpp, tbMean, tbMean) >=
+      EXPLOIT_FAST_OFF_CREDIBILITY;
+  const wideReRaiser =
+    measured &&
+    tbOpp >= OMAHA_WIDE_RERAISE_MIN_OPPS &&
+    1 - credibleAtOrBelow(num(counters.threeBet), tbOpp, tbMean, tbMean) >=
+      OMAHA_WIDE_RERAISE_CREDIBILITY &&
+    stats.threeBet.mean >= OMAHA_WIDE_RERAISE_MIN_RATE &&
+    !stoppedReRaising;
+
   // VALUE LEADER (postflop only)
   const bctMean = envelope.betCheckedTo.mean;
   const bctOpp = num(counters.betCheckedToOpp);
@@ -229,6 +264,7 @@ export function omahaReadConditional(
     hands,
     measured,
     tightReRaiser,
+    wideReRaiser,
     valueLeader,
     postflopAggressor: bctOpp > 0 && overBluffs,
     threeBet: stats.threeBet,

@@ -2262,6 +2262,19 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaManiacReRaiseWidthMeasured: true },
     b: {},
   })),
+  // 2026-11-15 OMAHA ELITE CONTINUES VS A MEASURED WIDE 3-BETTOR (default
+  // OFF): a Horse that opened does not fold an elite-class hand to the
+  // maniac-price arithmetic facing one re-raise from a measured wide
+  // re-raiser; the fold becomes a call. a switches it on, b is today's brain.
+  // The mirror's memory learning is on (the league default).
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_elite_continues_vs_measured_wide_three_bettor`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaEliteContinuesVsMeasuredWideThreeBettor: true },
+    b: {},
+  })),
   // V15 BOATS (2026-09-28): default OFF. a turns it on, b is today's brain.
   // Ship it default ON only after this resolves significant positive.
   // 2026-11-06: V15 boats is default ON in PLO5 cash (v15BoatsOn), so the
