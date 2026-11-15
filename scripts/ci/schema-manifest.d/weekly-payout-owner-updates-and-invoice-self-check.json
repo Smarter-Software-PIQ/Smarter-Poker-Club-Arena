@@ -1,0 +1,15 @@
+{
+  "_owner": "feat/weekly-payout-owner-updates-and-invoice-self-check. Migration 20261115205037: the union owner is notified once per weekly-payout milestone and every club statement is compared with Club Data. Installed through apply-merged-migration after merge.",
+  "tables": [
+    "smarter_private.weekly_payout_owner_updates",
+    "smarter_private.weekly_invoice_club_data_checks"
+  ],
+  "functions": [
+    "smarter_private.weekly_payout_owner_chips",
+    "smarter_private.weekly_payout_owner_count",
+    "smarter_private.weekly_union_club_statements",
+    "smarter_private.weekly_invoice_club_data_check_next",
+    "smarter_private.weekly_payout_owner_milestones",
+    "smarter_private.weekly_payout_owner_notify_tick"
+  ]
+}
