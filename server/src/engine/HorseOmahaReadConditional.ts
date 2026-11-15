@@ -110,6 +110,12 @@ export interface OmahaReadConditional {
   tightReRaiser: boolean;
   /** measured value-heavy postflop: omahaMadeHandDefenseVsValueLeader applies against him */
   valueLeader: boolean;
+  /** his own postflop betting is measured high (bet when checked to engaged
+   *  high or credibly above the Horse mean, a postflop maniac, or a recent
+   *  burst), on at least one postflop opportunity of his own:
+   *  omahaPressureNeedsPostflopAggression licenses the pressure play only
+   *  against him. Never true for a value leader; preflop width is not read. */
+  postflopAggressor: boolean;
   threeBet: ExploitStatRead;
   betCheckedTo: ExploitStatRead;
   foldToBet: ExploitStatRead;
@@ -224,6 +230,7 @@ export function omahaReadConditional(
     measured,
     tightReRaiser,
     valueLeader,
+    postflopAggressor: bctOpp > 0 && overBluffs,
     threeBet: stats.threeBet,
     betCheckedTo: stats.betCheckedTo,
     foldToBet: stats.foldToBet,

@@ -2207,6 +2207,14 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
       b: {},
     },
     {
+      name: `${variant}_omaha_pressure_needs_postflop_aggression`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { omahaPressureNeedsPostflopAggression: true },
+      b: {},
+    },
+    {
       name: `${variant}_omaha_bare_overpair_oop_flop_check`,
       variant,
       pairs: 6000,

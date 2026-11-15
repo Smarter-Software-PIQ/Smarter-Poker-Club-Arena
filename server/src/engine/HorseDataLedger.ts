@@ -969,6 +969,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaPressureNeedsPostflopAggression',
+    'Lane owner 2026-11-15 (hand 59526261): PLO4/PLO5 cash, postflop: the V53 pressure play facing a bet (value-raise bar lowered 0.10, raise frequency 0.90, wider semi-bluff raise) and the maniac call-down priced on preflop raising width apply only when the bettor own postflop betting is measured high (isPostflopManiac or the read-conditional postflopAggressor); a preflop-wide or presumed-aggressive bettor who is a measured value leader or unmeasured after the flop gets none. With it a facing-bet value raise on the turn or river with a hand a possible straight or flush already beats (omahaBeatenByBoard), not nut class, becomes a call without needing a fresh scare card. Default OFF (read === true) until its declared evaluation passes',
+    'V94'
+  ),
+  flag(
     'omahaBareOverpairOopFlopCheck',
     'Owner 2026-11-15 11:05 (hand 59517323): PLO4/PLO5 cash, flop, out of position (an opponent still acts behind), one pair only, no flush draw and under eight straight outs, the flop two-tone or connected: a bet becomes a check, heads-up and multiway, with no opponent read and no stack-to-pot exception (HorseOmahaOopChecks.ts). Default OFF (read === true) until its declared evaluation passes',
     'V94'
@@ -3888,6 +3893,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_turn_bet_without_river_plan_checked',
     'HorseLogic wager_rules (HorseOmahaOopChecks, omahaTurnBetNeedsRiverPlan)',
     'PLO4/PLO5 cash heads-up turn bet that would leave less than half the resulting pot behind, with a hand the Horse own river fold rules fold on more than 35% of rivers to an all-in for the rest: turned into a check',
+    'V94'
+  ),
+  receipt(
+    'omaha_pressure_withheld_value_leader',
+    'HorseLogic postflop facing a bet and maniacCallDown (omahaPressureNeedsPostflopAggression)',
+    'PLO4/PLO5 cash postflop pressure play (V53 value-raise bar, raise frequency, semi-bluff raise) or preflop-width maniac call-down withheld: the bettor postflop betting is not measured high (a measured value leader, or only his preflop read or the presumption speaks)',
+    'V94'
+  ),
+  receipt(
+    'omaha_value_raise_beaten_by_board_flatted',
+    'HorseLogic postflop facing a bet, value-raise branch (omahaPressureNeedsPostflopAggression)',
+    'PLO4/PLO5 cash turn or river value raise facing a bet with a hand a possible straight or flush on the board already beats, not nut class: called instead, with no fresh scare card needed',
     'V94'
   ),
   receipt(

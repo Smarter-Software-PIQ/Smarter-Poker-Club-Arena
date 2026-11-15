@@ -29,6 +29,10 @@ Two more options from the same hand, both off by default:
 - `omahaPairedBoardFoldRespectsPrice`: in PLO4/PLO5 cash the 2026-10-25 paired-board fold ("IT'S A FOLD 100% OF THE TIME", `2026-10-25-plo5-plo6-no-full-house-folds-on-a-paired-board.md`) does not override the reference decision when the call price is at most 0.25 and the Horse holds a straight or a flush, or the call is for the rest of an effective stack at least 60% in. Receipt `omaha_paired_board_fold_price_respected`. It narrows a binding owner rule and needs his ruling before it is switched on.
 - `omahaTurnBetNeedsRiverPlan`: a heads-up turn bet that would leave less than half the resulting pot behind becomes a check when the Horse's own river fold rules (one function, `omahaRiverShoveFoldVerdict`: the paired-board fold, then the big-bet tier) would fold more than 35% of the rivers to an all-in for what is left. In that geometry the all-in is under half the pot, so the big-bet tier cannot fold today. Receipt `omaha_turn_bet_without_river_plan_checked`.
 
+## Addition: hand 59526261
+
+`omahaPressureNeedsPostflopAggression` (off by default): in PLO4/PLO5 cash after the flop the V53 pressure play facing a bet and the preflop-width maniac call-down apply only when the bettor's own postflop betting is measured high; a preflop-wide or presumed-aggressive bettor who is a value leader or unmeasured after the flop gets none (receipt `omaha_pressure_withheld_value_leader`). With it, a turn or river value raise with a hand a possible straight or flush already beats becomes a call without a fresh scare card (receipt `omaha_value_raise_beaten_by_board_flatted`).
+
 ## Evaluation
 
 Not run. To be declared in the evidence archive (`plo-handoff-review-01a1cbbd/pairedriver-20261115/`) before any graded run; the verdicts are added here when they are read.

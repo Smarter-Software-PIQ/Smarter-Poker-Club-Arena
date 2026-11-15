@@ -42,6 +42,7 @@ import { hiLoCappedRiverShare, hiLoRiverLowHalfFloor } from './HorseHiLoLowHalf.
 import { omahaCurrentNutsRaise } from './HorseOmahaCurrentNuts.js';
 import { omahaRiverNutRaiseOnly } from './HorseOmahaRiverNutRaise.js';
 import {
+  omahaBeatenByBoard,
   omahaBeatenNoBet,
   omahaBeatenNoRaise,
   omahaNutClassValueSize,
@@ -2881,6 +2882,20 @@ export interface HorseDecideOpts {
    * OFF (opt-in, read `=== true`); league cards plo4/plo5
    * _omaha_turn_bet_needs_river_plan. */
   omahaTurnBetNeedsRiverPlan?: boolean;
+  /** Lane owner 2026-11-15 (hand 59526261): PLO4/PLO5 cash, postflop. The
+   * pressure play against a bettor read as aggressive (V53: the value-raise
+   * bar lowered by 0.10, the raise frequency lifted to 0.90, the wider
+   * semi-bluff raise) and the maniac call-down apply only when the bettor's
+   * POSTFLOP betting is itself measured high (isPostflopManiac, or
+   * HorseMind.omahaReadConditionalOf postflopAggressor). A player who is wide
+   * or presumed aggressive before the flop and a measured value leader, or
+   * unmeasured, after it gets no postflop pressure adjustment. With it, a
+   * facing-bet value raise on the turn or river with a hand a possible
+   * straight or flush already beats (omahaBeatenByBoard), not nut class,
+   * becomes a call even without a fresh scare card. Default OFF (opt-in, read
+   * `=== true`); league cards plo4/plo5
+   * _omaha_pressure_needs_postflop_aggression. */
+  omahaPressureNeedsPostflopAggression?: boolean;
   /** A token-priced committed call is not barred by stack-off premiums
    * (HorseTokenCallPrice.ts, PLO6-AUDIT-010). Default on; false only for
    * the regression's non-vacuity control. */
@@ -4013,6 +4028,17 @@ function maniacCallDown(
     // A shared starting prior is not observed evidence for undoing a fold.
     const width = postflopOnly ? 1 : read?.presumed ? null : maniacRaiseWidth(read);
     if (width === null) return decision;
+    // omahaPressureNeedsPostflopAggression (default off): PLO4/PLO5 cash, a
+    // postflop call-down priced on the bettor's PREFLOP raising width needs
+    // his postflop betting measured high as well.
+    if (
+      !postflopOnly &&
+      street !== 'preflop' &&
+      omahaPostflopPressureWithheld(aggressorId, gs, opts)
+    ) {
+      if (telemetryOn(opts)) noteFire('omaha_pressure_withheld_value_leader');
+      return decision;
+    }
     // LATER LAYERS KEEP THE STYLE READ (2026-11-15, rule 4): a bettor the
     // style read classes a value bettor (styleValueBettorNotManiac on, the
     // same gates as the HorseMind option it sets: mind on, checked above,
@@ -6000,6 +6026,37 @@ function omahaReraisedPotFold(
     return folded;
   } catch {
     return decision;
+  }
+}
+
+const OMAHA_PRESSURE_OPTION_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
+
+/**
+ * omahaPressureNeedsPostflopAggression (default OFF, read `=== true`): true
+ * when the postflop pressure play against `bettorId` is withheld. PLO4/PLO5
+ * cash, flop to river. The play stays only when the bettor's own postflop
+ * betting is measured high: a postflop maniac (isPostflopManiac on his read)
+ * or HorseMind.omahaReadConditionalOf(...).postflopAggressor. A measured value
+ * leader, and a player whose only evidence is his preflop read or the PLO
+ * presumption, is withheld. The option off, another game, a tournament, the
+ * mind off or any failure is false (today's play).
+ */
+function omahaPostflopPressureWithheld(
+  bettorId: string,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): boolean {
+  if (opts.omahaPressureNeedsPostflopAggression !== true || opts.mind === false) return false;
+  try {
+    if (!OMAHA_PRESSURE_OPTION_VARIANTS.has(String(gs.gameVariant ?? '').toLowerCase()))
+      return false;
+    if (isTournamentMode(gs)) return false;
+    const stage = String(gs.stage ?? '');
+    if (stage !== 'flop' && stage !== 'turn' && stage !== 'river') return false;
+    if (isPostflopManiac(HorseMind.opponentRead(bettorId))) return false;
+    return HorseMind.omahaReadConditionalOf(bettorId)?.postflopAggressor !== true;
+  } catch {
+    return false;
   }
 }
 
@@ -17788,6 +17845,14 @@ export class HorseLogic {
             bettor53 = a.userId;
         }
         if (bettor53) pressure53 = aggressiveBettorPressure(HorseMind.opponentRead(bettor53), v86);
+        // omahaPressureNeedsPostflopAggression (default off): PLO4/PLO5 cash,
+        // the pressure play needs the bettor's own postflop betting measured
+        // high; a preflop-wide or presumed-aggressive bettor who is a value
+        // leader or unmeasured after the flop gets none.
+        if (pressure53 !== null && bettor53 && omahaPostflopPressureWithheld(bettor53, gs, opts)) {
+          pressure53 = null;
+          if (tele15) noteFire('omaha_pressure_withheld_value_leader');
+        }
       } catch {
         pressure53 = null;
       }
@@ -18027,6 +18092,24 @@ export class HorseLogic {
         toCall <= 4 * v86PostflopBb &&
         v86Hash01(v86SeedKey, 8638) < 0.88;
       if (originalValueRaise || nearNutValueRaise || v86NearNutValueRaise) {
+        // omahaPressureNeedsPostflopAggression (default off): the `dangered`
+        // guard above needs a FRESH scare card. On the turn or river a hand a
+        // possible straight or flush already beats, not nut class, calls. No
+        // raise-versus-call EV is computed here (it would need a range model
+        // per raise size); the call is the answer.
+        if (
+          opts.omahaPressureNeedsPostflopAggression === true &&
+          OMAHA_PRESSURE_OPTION_VARIANTS.has(String(gs.gameVariant ?? '').toLowerCase()) &&
+          !isTournamentMode(gs) &&
+          !vi.isHiLo &&
+          !multiBoard36 &&
+          (street === 'turn' || isRiver) &&
+          !nutClass15 &&
+          omahaBeatenByBoard(player.cards, board)
+        ) {
+          if (tele15) noteFire('omaha_value_raise_beaten_by_board_flatted');
+          return { action: 'call', amount: toCall, thinkTime: 0 };
+        }
         if (telemetryOn(opts) && nearNutValueRaise) noteFire('small_pot_near_nut_value_raise');
         if (tele15 && v86NearNutValueRaise) noteFire('v86_small_pot_near_nut_raise');
         if (tele15 && pressure53 && cat >= 3) noteFire('v53_pressure_value_raise');
