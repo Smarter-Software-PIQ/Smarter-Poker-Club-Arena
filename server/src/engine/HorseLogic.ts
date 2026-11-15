@@ -1675,7 +1675,9 @@ export interface HorseGameStateV2 extends HorseGameState {
   /** Live Seven-Deuce (7-2) bounty table configuration. */
   sevenDeuceEnabled?: boolean;
   sevenDeuceBounty?:
-    number | { enabled?: boolean; bountyBB?: number; perPlayerAmount?: number } | null;
+    | number
+    | { enabled?: boolean; bountyBB?: number; perPlayerAmount?: number }
+    | null;
   sevenDeuceBountyBB?: number | null;
   sevenDeuceBountyPerPlayer?: number | null;
 }
@@ -2706,7 +2708,8 @@ export interface HorseDecideOpts {
    *  fewer players dealt and 20 BB or less (30 BB three-handed winner-take-all; with pay jumps the small blind alone, top 60 percent). Default on; false is the old
    *  engine; an object is a league arm's parameters. */
   omahaTournamentFirstIn?:
-    boolean | Partial<import('./HorseOmahaTournamentFirstIn.js').OmahaTournamentFirstInParams>;
+    | boolean
+    | Partial<import('./HorseOmahaTournamentFirstIn.js').OmahaTournamentFirstInParams>;
   /** Pot-limit Omaha hi-lo tournaments, exactly two dealt in at the final
    *  table, 20 BB or less (HU-HILO-002): the omahaTournamentFirstIn fold
    *  replacement by the hand's hi-lo percentile (small blind first in; big
@@ -2714,7 +2717,8 @@ export interface HorseDecideOpts {
    *  arm's parameters, switches it on. Fixed-limit hi-lo and every table of
    *  three or more are outside it. */
   omahaHiLoTournamentFirstIn?:
-    boolean | Partial<import('./HorseOmahaTournamentFirstIn.js').OmahaTournamentFirstInParams>;
+    | boolean
+    | Partial<import('./HorseOmahaTournamentFirstIn.js').OmahaTournamentFirstInParams>;
   /** League-only override of the V67 extra raise shade; production never
    * sets it. */
   v67RiverRaiseShadeOverride?: number;
@@ -3656,6 +3660,12 @@ export interface HorseDecideOpts {
    *  the player finishes (paid in the money) instead of 0, for this decision (withIcmBustPaysPlace). Tournaments in
    *  the money only change. Read only as === true: default OFF. */
   icmBustPaysPlace?: boolean;
+  /** STACK-SCALED UTILITY MARGIN (2026-11-15, hand 59441335): the tournament utility's equity-uncertainty margin
+   *  for a candidate is the equity standard error times that candidate's own utility sensitivity to the Horse's
+   *  showdown share (HorseTournamentUtility stackScaledMargin), never wider than the whole-pool margin it replaces.
+   *  Before, the margin was measured against the whole payout pool, wider than a short stack's whole tournament
+   *  equity, so the payout check could never overrule a short stack. Read only as === true: default OFF. */
+  tournamentUtilityStackScaledMargin?: boolean;
   holdemRiverFullHouseValue?: boolean;
   v87RiverBlockBetTrap?: boolean;
   v87HollywoodTank?: boolean;
@@ -5027,6 +5037,10 @@ function buildPhase7UtilityInput(
     (vi.isFixedLimit ? 'fixed_limit' : vi.isPotLimit ? 'pot_limit' : 'no_limit');
   return {
     v86AsymmetricIcmAndPreflop: opts?.v86UnblockedPreflop !== false,
+    // tournamentUtilityStackScaledMargin (2026-11-15, default OFF): the key is added only when the option is true.
+    ...(opts && opts.tournamentUtilityStackScaledMargin === true
+      ? { stackScaledMargin: true }
+      : {}),
     // Tournament stacks and awards use whole chips. Model the same button-
     // ordered odd-chip and unmatched-contribution rules as final settlement.
     settlement: {
@@ -7079,18 +7093,21 @@ export class HorseLogic {
     deepDiveCapture?: HorseDeepDiveCapture
   ): HorseDecision {
     // icmBustPaysPlace (2026-11-15, default OFF): the paid-bust ICM valuation for this decision only.
-    return withIcmBustPaysPlace(opts.icmBustPaysPlace === true, () =>
-      withHorseDeepDiveCapture(deepDiveCapture, opts.v87DeepDiveDiscipline !== false, () =>
-        HorseLogic.decideCaptured(
-          player,
-          gameState,
-          style,
-          mods,
-          opts,
-          rangeCapture,
-          planReadCapture
+    // nashPushFoldIcm implies it (Hand Analysis D1): its payout read prices through the same bubble factor.
+    return withIcmBustPaysPlace(
+      opts.icmBustPaysPlace === true || opts.nashPushFoldIcm === true,
+      () =>
+        withHorseDeepDiveCapture(deepDiveCapture, opts.v87DeepDiveDiscipline !== false, () =>
+          HorseLogic.decideCaptured(
+            player,
+            gameState,
+            style,
+            mods,
+            opts,
+            rangeCapture,
+            planReadCapture
+          )
         )
-      )
     );
   }
 
@@ -9790,7 +9807,8 @@ export class HorseLogic {
     // STYLE READ #6 widens the type by two optional bounds; the exploit read's own
     // PreflopOpenerExploit (HorseOpponentExploit) is untouched.
     let exploitOpener:
-      (PreflopOpenerExploit & { maxBarMove?: number; callBump?: number }) | undefined;
+      | (PreflopOpenerExploit & { maxBarMove?: number; callBump?: number })
+      | undefined;
     let exploitPressure: AggressiveOpenerPressure | undefined;
     let exploitReRaiser: { fourBetBar: number; callBar: number } | undefined;
     let styleTightReRaiser: TightReRaiser | undefined;

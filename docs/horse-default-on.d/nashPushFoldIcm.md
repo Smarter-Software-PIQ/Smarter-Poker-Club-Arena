@@ -10,10 +10,8 @@ needs this file with its pull request reference and the NOT MET rows below
 answered. The repair underneath, a bust in the money is worth its place
 (`IcmModel.bubbleFactor`), does not ship live: it is the registered option
 `icmBustPaysPlace` (default OFF, switched live), and this option's payout
-read depends on it. With `nashPushFoldIcm` on and `icmBustPaysPlace` off the
-in-the-money short stack reads the factor cap of 5 again (Hand Analysis note
-D1), so `nashPushFoldIcm` must imply `icmBustPaysPlace` before its hold is
-lifted.
+read depends on it. `nashPushFoldIcm` on therefore implies the paid-bust
+valuation for the decision (Hand Analysis note D1; `HorseLogic.decide`).
 
 What the option does when switched on: a no-limit hold'em tournament short
 stack whose trusted context carries the stacks, the payouts and its
@@ -116,3 +114,7 @@ a six-handed in-the-money final table that carries a stack list (the other
 league tournament contexts carry none, so the option cannot act there); the
 league scores chips, so the card measures the option's chip cost, not its
 value, and it has not been run. Pools are assumed.
+
+## Dependency on the paid-bust valuation (2026-11-15, Hand Analysis D1)
+
+`nashPushFoldIcm` on implies the paid-bust valuation of `icmBustPaysPlace` for the decision (`HorseLogic.decide` opens `withIcmBustPaysPlace` when either option is true). With `nashPushFoldIcm` alone the 2.1bb stack of hand 59441335 reads the factor of the payouts above ninth, not the cap of 5. Pinned in `AShortStackJamPricesThePayJump.law.test.ts`.

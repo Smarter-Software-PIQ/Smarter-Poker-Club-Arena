@@ -50,7 +50,13 @@ export type LedgerKind =
   | 'tag';
 
 export type LedgerCadence =
-  'per_action' | 'per_hand' | 'per_sit' | 'minute' | 'boot' | 'nightly' | 'legacy_unused';
+  | 'per_action'
+  | 'per_hand'
+  | 'per_sit'
+  | 'minute'
+  | 'boot'
+  | 'nightly'
+  | 'legacy_unused';
 
 export interface LedgerEntry {
   key: string;
@@ -1595,6 +1601,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'Omaha tight opponent'
   ),
   flag(
+    'tournamentUtilityStackScaledMargin',
+    "2026-11-15 STACK-SCALED UTILITY MARGIN (hand 59441335; Hold'em Strategy): the tournament utility (HorseTournamentUtility evaluateCandidate) measured each candidate's equity-uncertainty margin as the equity standard error times the WHOLE payout pool, which is wider than a short stack's whole tournament equity, so the payout check always deferred to the reference action for a short stack. With explicit true the margin is the equity standard error times the candidate's own utility sensitivity to the Horse's showdown share (the regression slope of utility on share over the calibrated samples, bounded by the utility span), and never wider than the whole-pool margin it replaces. Folds keep a zero margin. Read only as === true: default OFF; unset is byte-identical.",
+    '2026-11-15'
+  ),
+  flag(
     'icmBustPaysPlace',
     '2026-11-15 PAID BUST (Hand Analysis B3; hand 59441335): IcmModel bubbleFactor and pairwiseBubbleFactor value a bust at the place the player finishes (paid in the money) instead of 0, for the decision only (withIcmBustPaysPlace in HorseLogic.decide). Before, in the money a whole-stack risk was charged every payout including the one a bust collects anyway, and a final-table short stack read the factor cap of 5. Affects the V16 ICM premium, the covered-opponent fold pressure in HorseTournamentUtility and the payout-aware push/fold tables. Read only as === true: default OFF.',
     '2026-11-15'
@@ -1681,7 +1692,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'nashPushFoldIcm',
-    "default OFF (owner preflop range hold; the option switch registers it off-only). 2026-11-15 (hand 59441335: a 2.1bb in-the-money final-table cutoff open-jammed 85o from the chip-EV table): with explicit true, a no-limit hold'em tournament short stack in the money, hand for hand or near the bubble, with stacks, payouts and its identity in the trusted context, not in a satellite, PKO or mystery bounty and with a payout weight above zero, prices the V71 folded-to jam and the nashCallVsJam call at its own bubble factor (a bust valued at the place it finishes, IcmModel bubbleFactor since 2026-11-15; the call priced on the chips contested) moved toward 1 by prize / (prize + bounty) (HorseLogic payJumpBubbleFactor; receipt pay_jump_push_fold_seen), and every other spot reads the V2 table at a bubble factor of 1; unset or false is chip EV, as before; league card mtt6_ft_pay_jump_push_fold_12bb; prepared evidence for lifting the hold docs/horse-default-on.d/nashPushFoldIcm.md; docs/changelog/2026-11-15-short-stack-shoves-price-the-payouts.md. 2026-11-07 shipped as an opt-in: in a tournament the V71 folded-to jam and the nashCallVsJam call read hero's best response at hero's own bubble factor (IcmModel bubbleFactor from the live stacks and payouts, the V16 real-ICM inputs; 1 when the context cannot supply them) against the chip-EV equilibrium of everybody else (HorseNashPushFoldV2, bubble factors 1/1.5/2/3 interpolated), and a ten-handed seat reads nine behind exactly instead of the eight-behind table; with a bubble factor of 1 and at most eight behind it is the V71 answer exactly; docs/changelog/2026-11-07-nash-push-fold-v2.md DEPENDENCY (2026-11-15, Hand Analysis D1): its payout read prices through the bubble factor, whose paid-bust valuation is the option icmBustPaysPlace (default OFF); with nashPushFoldIcm on and icmBustPaysPlace off the in-the-money short stack reads the factor cap of 5 again, so nashPushFoldIcm must imply icmBustPaysPlace before its hold is lifted.",
+    "default OFF (owner preflop range hold; the option switch registers it off-only). 2026-11-15 (hand 59441335: a 2.1bb in-the-money final-table cutoff open-jammed 85o from the chip-EV table): with explicit true, a no-limit hold'em tournament short stack in the money, hand for hand or near the bubble, with stacks, payouts and its identity in the trusted context, not in a satellite, PKO or mystery bounty and with a payout weight above zero, prices the V71 folded-to jam and the nashCallVsJam call at its own bubble factor (a bust valued at the place it finishes, IcmModel bubbleFactor since 2026-11-15; the call priced on the chips contested) moved toward 1 by prize / (prize + bounty) (HorseLogic payJumpBubbleFactor; receipt pay_jump_push_fold_seen), and every other spot reads the V2 table at a bubble factor of 1; nashPushFoldIcm on implies the paid-bust valuation of icmBustPaysPlace for the decision (HorseLogic.decide, Hand Analysis D1), so the short stack never reads the cap of 5 from a zero-valued bust; unset or false is chip EV, as before; league card mtt6_ft_pay_jump_push_fold_12bb; prepared evidence for lifting the hold docs/horse-default-on.d/nashPushFoldIcm.md; docs/changelog/2026-11-15-short-stack-shoves-price-the-payouts.md. 2026-11-07 shipped as an opt-in: in a tournament the V71 folded-to jam and the nashCallVsJam call read hero's best response at hero's own bubble factor (IcmModel bubbleFactor from the live stacks and payouts, the V16 real-ICM inputs; 1 when the context cannot supply them) against the chip-EV equilibrium of everybody else (HorseNashPushFoldV2, bubble factors 1/1.5/2/3 interpolated), and a ten-handed seat reads nine behind exactly instead of the eight-behind table; with a bubble factor of 1 and at most eight behind it is the V71 answer exactly; docs/changelog/2026-11-07-nash-push-fold-v2.md",
     'NashV2'
   ),
   flag(
@@ -1977,15 +1988,17 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
       ['callRespect', 'variant call respect offset (HorseVariantProfile)'],
       ['familyBias', 'V18 sizing family hashed from the horse id'],
     ] as const
-  ).map(([key, note]): LedgerEntry => ({
-    key,
-    kind: 'param',
-    source: 'STYLE_PARAMS[style] resolved with HorseProfileMods in HorseLogic.decide',
-    cadence: 'per_action',
-    consumer: 'HorseLogic.decide / HorsePreflop.decidePreflopV7',
-    note,
-    since: key === 'familyBias' ? 'V18' : 'V2',
-  })),
+  ).map(
+    ([key, note]): LedgerEntry => ({
+      key,
+      kind: 'param',
+      source: 'STYLE_PARAMS[style] resolved with HorseProfileMods in HorseLogic.decide',
+      cadence: 'per_action',
+      consumer: 'HorseLogic.decide / HorsePreflop.decidePreflopV7',
+      note,
+      since: key === 'familyBias' ? 'V18' : 'V2',
+    })
+  ),
 
   // ─────────────────────────────────────────────────────────────────────────
   // PROFILE KEYS. profiles.horse_profile (jsonb). Read at sit-down today
@@ -2021,20 +2034,22 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
         'V48',
       ],
     ] as const
-  ).map(([key, note, since]): LedgerEntry => ({
-    key,
-    kind: 'profile',
-    source: 'profiles.horse_profile (jsonb) via resolveHorseStyle',
-    cadence: 'per_sit',
-    consumer:
-      key === 'persona'
-        ? 'HorsePersona.resolvePersona (ServerTableEngineDealing straddle round); HorseLogic.followsSolver (the GTO consult)'
-        : key.startsWith('leaks')
-          ? 'HorseLogic.leakLoad (diagnostic only); HorseLogic.decide (ignored-evidence receipt)'
-          : 'HorseLogic.decide',
-    note,
-    since,
-  })),
+  ).map(
+    ([key, note, since]): LedgerEntry => ({
+      key,
+      kind: 'profile',
+      source: 'profiles.horse_profile (jsonb) via resolveHorseStyle',
+      cadence: 'per_sit',
+      consumer:
+        key === 'persona'
+          ? 'HorsePersona.resolvePersona (ServerTableEngineDealing straddle round); HorseLogic.followsSolver (the GTO consult)'
+          : key.startsWith('leaks')
+            ? 'HorseLogic.leakLoad (diagnostic only); HorseLogic.decide (ignored-evidence receipt)'
+            : 'HorseLogic.decide',
+      note,
+      since,
+    })
+  ),
 
   // ─────────────────────────────────────────────────────────────────────────
   // HORSEMIND COUNTERS. One OpponentStats per observed player, shared by the
