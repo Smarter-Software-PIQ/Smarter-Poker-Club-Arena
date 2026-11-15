@@ -825,7 +825,9 @@ let styleSwitchDelivery: ReturnType<typeof createStyleSwitchDelivery> | null = n
  * - Reconnect: the delivery holds no connection of its own; a database reconnect is the next read, and a worker
  *   keeps one port for its life.
  * In every case the worker's parser applies on its first read exactly as on later ones, so a row the engine refuses
- * (an un-evidenced on, a held option) is never revived by a restart.
+ * (a refused or unregistered name, or on for an off-only option: an owner hold, a measured harm, a superseded
+ * option; HorseOptionSwitch.ts OPTION_SWITCH_OFF_ONLY) is never revived by a restart: such a row makes the
+ * configuration invalid and every non-style option runs at its release default.
  */
 let styleSwitchFirstDelivery: Promise<void> | null = null;
 

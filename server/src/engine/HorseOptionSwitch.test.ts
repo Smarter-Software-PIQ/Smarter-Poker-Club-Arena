@@ -11,7 +11,10 @@ import {
   StyleSwitchHolder,
 } from './HorseStyleSwitch.js';
 import {
-  OPTION_SWITCH_HOLDS,
+  OPTION_SWITCH_OFF_ONLY,
+  optionSwitchOffOnly,
+  optionSwitchOnNote,
+  optionSwitchOnNoteCites,
   OPTION_SWITCH_NOT_A_SWITCH,
   OPTION_SWITCH_NOTHING_SWITCHED,
   OPTION_SWITCH_PLAIN_NAMES,
@@ -64,7 +67,8 @@ describe('the registry', () => {
     expect(OPTION_SWITCH_PLAIN_REGISTRY.length).toBeGreaterThan(150);
     for (const e of OPTION_SWITCH_PLAIN_REGISTRY) {
       // owner order 2026-11-14 22:01: every registered option has an on/off switch
-      expect(e.states, e.name).toEqual(['off', 'on']);
+      // owner 23:10: an off-only option (hold, harm, superseded) offers off alone
+      expect(e.states, e.name).toEqual(optionSwitchOffOnly(e.name) ? ['off'] : ['off', 'on']);
       expect(e.shadowArm, e.name).toBe(false);
       expect(['off', 'on', 'code'], e.name).toContain(e.releaseDefault);
       expect(e.owner.length, e.name).toBeGreaterThan(0);
@@ -73,8 +77,19 @@ describe('the registry', () => {
       expect(e.description, e.name).not.toMatch(/\n/);
       expect(Object.hasOwn(OPTION_SWITCH_NOT_A_SWITCH, e.name), e.name).toBe(false);
     }
-    expect(optionSwitchStatesOf('commitUnderPot')).toEqual(['off', 'on']);
-    expect(OPTION_SWITCH_HOLDS.commitUnderPot).toMatch(/stays off at the cutover/);
+    expect(optionSwitchStatesOf('commitUnderPot')).toEqual(['off']);
+    expect(OPTION_SWITCH_OFF_ONLY.commitUnderPot).toEqual(
+      expect.objectContaining({
+        status: 'harm',
+        reason: expect.stringMatching(/RESULTS-HU-NLH-016/),
+      })
+    );
+    expect(optionSwitchStatesOf('huBbDefendsToPrice')).toEqual(['off']);
+    expect(optionSwitchStatesOf('v41Leaks')).toBeNull();
+    const note = optionSwitchOnNote('readScopedShrink', 'FILE.md', 'a'.repeat(64));
+    expect(note).toBe(`authority: readScopedShrink FILE.md sha256 ${'a'.repeat(64)}`);
+    expect(optionSwitchOnNoteCites('readScopedShrink', note)).toBe(true);
+    expect(optionSwitchOnNoteCites('readShrinkResponse', note)).toBe(false);
     expect(optionSwitchStatesOf('omahaHiLoTournamentFirstIn')).toEqual(['off', 'on']);
     expect(optionSwitchStatesOf('decisionTimeMs')).toBeNull();
     expect(optionSwitchStatesOf('styleFoldBluff')).toEqual(['off', 'shadow', 'canary', 'on']);
@@ -94,9 +109,9 @@ describe('the parser', () => {
   });
 
   it('accepts on for a registered option, beside a valid off', () => {
-    expect(parseOptionSwitchConfig(v2({ v16Hu: 'off', commitUnderPot: 'on' }))).toEqual({
+    expect(parseOptionSwitchConfig(v2({ v16Hu: 'off', readScopedShrink: 'on' }))).toEqual({
       ok: true,
-      states: { v16Hu: 'off', commitUnderPot: 'on' },
+      states: { v16Hu: 'off', readScopedShrink: 'on' },
     });
   });
 
@@ -111,6 +126,11 @@ describe('the parser', () => {
     ['shadow for an option without a shadow arm', v2({ v16Hu: 'shadow' })],
     ['canary for an option without a shadow arm', v2({ commitUnderPot: 'canary' })],
     ['an unknown option', v2({ notAnOption: 'on' })],
+    ['on for an off-only option (measured harm)', v2({ commitUnderPot: 'on' })],
+    [
+      'on for an off-only option beside a valid off',
+      v2({ v16Hu: 'off', huBbDefendsToPrice: 'on' }),
+    ],
     ['a parameter that is not an on/off option', v2({ decisionTimeMs: 'on' })],
     ['an authority-gated option', v2({ v54RiverBluff: 'on' })],
     ['a style option in the non-style half', v2({ styleFoldBluff: 'on' })],
@@ -143,9 +163,13 @@ describe('the decision options', () => {
       v16Hu: false,
       readScopedShrink: false,
     });
-    expect(optionSwitchDecisionOpts({ v16Hu: 'off', commitUnderPot: 'on' })).toEqual({
+    expect(optionSwitchDecisionOpts({ v16Hu: 'off', readScopedShrink: 'on' })).toEqual({
       v16Hu: false,
-      commitUnderPot: true,
+      readScopedShrink: true,
+    });
+    // owner 23:10: an unvalidated on for an off-only option never passes true
+    expect(optionSwitchDecisionOpts({ v16Hu: 'off', commitUnderPot: 'on' } as never)).toEqual({
+      v16Hu: false,
     });
   });
 

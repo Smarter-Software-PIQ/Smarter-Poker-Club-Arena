@@ -12,15 +12,20 @@
 --
 -- WHAT AN OPERATOR CAN DO AFTER IT (service_role only, every change audited with actor, note and time):
 --   SELECT public.fn_ca_horse_option_switch_set('<option>', 'off', '<actor>', '<note>');
---   SELECT public.fn_ca_horse_option_switch_set('<option>', 'on', '<actor>', 'authority: <file and sha256>');
+--   SELECT public.fn_ca_horse_option_switch_set('<option>', 'on', '<actor>', 'authority: <option> <file> sha256 <hex>');
 --   SELECT public.fn_ca_horse_option_switch_clear('<option>', '<actor>', '<note>');   -- back to the release default
 --   SELECT public.fn_ca_horse_option_switch_effective();
 -- The seven style options also take 'shadow' and 'canary'. No other option does: it has no shadow arm in the
 -- engine, and the set function refuses those states for it by name.
 --
--- 'on' CITES ITS AUTHORITY. For a non-style option the set function writes 'on' only when the note starts with
--- 'authority: ' and names the authority (at least 24 characters), and the table refuses such a row without it
--- from any writer. The audit row keeps the note. 'off' and clear stay available for every registered option. The
+-- OWNER RULING (2026-11-14 23:10 Chicago): "Preserve approved OFF states. No automatic blanket switch-on after
+-- sealing." So an option under an owner hold, measured harmful or superseded (the names between the
+-- registry:off-only-options markers; OPTION_SWITCH_OFF_ONLY in the engine) answers ARRAY['off']: the set function
+-- and the table refuse 'on' for it from any writer, with any note. Lifting one is a reviewed source change.
+--
+-- 'on' CARRIES THE OPTION'S OWN CITATION. For every other non-style option the set function writes 'on' only when
+-- the note is 'authority: <option> <file> sha256 <64 lowercase hex>' (the option's own name, then its authority
+-- file and sha256), and the table refuses such a row without it from any writer. The audit row keeps the note. 'off' and clear stay available for every registered option. The
 -- style options keep their own states and controls, unchanged. This replaces the evidence-file rule this switch
 -- carried before (HA-10878-1) for the switch only; nothing here is described as passing promotion evidence.
 --
@@ -37,7 +42,7 @@
 -- NOT SWITCHABLE: the authority-gated held-out cash pack and held-out PLO cards, the phase packs, Pillar 2 (the
 -- deep-dive discipline), the R7/R8 solver rounds (V31), leak maps and the two withdrawn rules. They are not in the
 -- whitelist below, and the engine registry refuses them by name. An option under an owner hold or measured
--- harmful (the preflop range hold, commitUnderPot) IS registered; the engine registry records its hold or verdict.
+-- harmful (the preflop range hold, commitUnderPot) IS registered, off-only.
 --
 -- FLEET-WIDE ONLY: the table stays keyed by the option name alone. There is no per-Horse, per-lane, per-club or
 -- per-table dimension, and this migration adds no column.
@@ -48,6 +53,9 @@
 --
 -- COST: three ALTERs on a table of one row per switched option (seven today), read once per 30 seconds; no live table is touched.
 BEGIN;
+
+-- One attempt, no retry: the three ALTERs below take ACCESS EXCLUSIVE on a table read every 30 seconds.
+SET LOCAL lock_timeout = '3s';
 
 -- The option whitelist of the table: replace the seven-name check with the registry.
 DO $drop_old_whitelist$
@@ -110,12 +118,13 @@ ALTER TABLE public.ca_horse_style_switch
     'drawOutlookQuality', 'committedRaiseDiscipline', 'callDeductionPricing',
     'flopTurnBluffBaseline', 'riverBluffBaseline', 'riverLeadRange', 'riverBluffHiLo',
     'riverBluffMultiway', 'riverFastCalldown', 'probeAwareAggression', 'riverBluffFixedLimit',
-    'riverBluffShortDeck', 'riverBluffBombPot', 'riverBluffMultiBoard', 'v43Tempo', 'v41Leaks',
+    'riverBluffShortDeck', 'riverBluffBombPot', 'riverBluffMultiBoard', 'v43Tempo',
     'v86UnblockedPreflop', 'v86MultiStreetUnblocked'
     -- registry:plain-options:end
     ));
 
--- 'on' for a non-style option cites its authority in the note, from any writer.
+-- 'on' for a non-style option carries the option's OWN citation in the note, from any writer:
+-- 'authority: <option> <file> sha256 <64 lowercase hex>'.
 ALTER TABLE public.ca_horse_style_switch
   ADD CONSTRAINT ca_horse_style_switch_on_cites_authority CHECK (
     state <> 'on'
@@ -125,13 +134,23 @@ ALTER TABLE public.ca_horse_style_switch
     'styleTightReRaiserRespect', 'styleFoldRatePreRepair', 'styleValueExtraction', 'styleFoldBluff'
     -- registry:style-options:end
     )
-    OR (note IS NOT NULL AND note LIKE 'authority: %' AND length(note) >= 24)
+    OR (note IS NOT NULL AND note LIKE 'authority: ' || option || ' %' AND note ~ 'sha256 [0-9a-f]{64}')
   );
 
--- Shadow and canary only where the engine has a shadow arm: the seven style options.
+-- Shadow and canary only where the engine has a shadow arm: the seven style options. 'on' never for an off-only
+-- option (an owner hold, a measured harm, a superseded option), from any writer.
 ALTER TABLE public.ca_horse_style_switch
   ADD CONSTRAINT ca_horse_style_switch_state_fits_option CHECK (
-    state IN ('off', 'on')
+    state = 'off'
+    OR (state = 'on' AND option NOT IN (
+    -- registry:off-only-options:begin
+    'v16Hu', 'v17RiverProbe', 'v23ShortDeck', 'v32FacingDefense', 'v33DepthCeiling', 'v46ShortDeck',
+    'v55OmahaRiverTripsFlat', 'v62RiverBettorPolarity', 'readPostflopFoldRate',
+    'omahaNeutralUnknown', 'omahaTightOpponent', 'huBbDefendsToPrice', 'huOpenerDefendsToPrice',
+    'huLimpDefendsToPrice', 'committedStackPricedIn', 'nashPushFoldIcm', 'facingOpenFullRingZone',
+    'vs3BetShortStack', 'commitUnderPot'
+    -- registry:off-only-options:end
+    ))
     OR option IN (
     -- registry:style-options:begin
     'styleValueBettorNotManiac', 'styleBigBetHonesty', 'styleRaiseRespect',
@@ -154,6 +173,16 @@ AS $function$
     -- registry:style-options:end
     )
       THEN ARRAY['off', 'shadow', 'canary', 'on']
+    WHEN p_option IN (
+    -- registry:off-only-options:begin
+    'v16Hu', 'v17RiverProbe', 'v23ShortDeck', 'v32FacingDefense', 'v33DepthCeiling', 'v46ShortDeck',
+    'v55OmahaRiverTripsFlat', 'v62RiverBettorPolarity', 'readPostflopFoldRate',
+    'omahaNeutralUnknown', 'omahaTightOpponent', 'huBbDefendsToPrice', 'huOpenerDefendsToPrice',
+    'huLimpDefendsToPrice', 'committedStackPricedIn', 'nashPushFoldIcm', 'facingOpenFullRingZone',
+    'vs3BetShortStack', 'commitUnderPot'
+    -- registry:off-only-options:end
+    )
+      THEN ARRAY['off']
     WHEN p_option IN (
     -- registry:plain-options:begin
     'streetIQ', 'handReading', 'v7', 'v7Preflop', 'v7Barrels', 'v7SizeReads', 'v7CounterAdapt',
@@ -190,7 +219,7 @@ AS $function$
     'drawOutlookQuality', 'committedRaiseDiscipline', 'callDeductionPricing',
     'flopTurnBluffBaseline', 'riverBluffBaseline', 'riverLeadRange', 'riverBluffHiLo',
     'riverBluffMultiway', 'riverFastCalldown', 'probeAwareAggression', 'riverBluffFixedLimit',
-    'riverBluffShortDeck', 'riverBluffBombPot', 'riverBluffMultiBoard', 'v43Tempo', 'v41Leaks',
+    'riverBluffShortDeck', 'riverBluffBombPot', 'riverBluffMultiBoard', 'v43Tempo',
     'v86UnblockedPreflop', 'v86MultiStreetUnblocked'
     -- registry:plain-options:end
     )
@@ -258,11 +287,12 @@ BEGIN
   IF p_note IS NOT NULL AND length(p_note) > 500 THEN
     RAISE EXCEPTION 'the note is longer than 500 characters';
   END IF;
-  -- 'on' for a non-style option cites its authority; the note is kept in the audit row below
+  -- 'on' for a non-style option carries the option's own citation; the note is kept in the audit row below
   IF p_state = 'on' AND NOT ('shadow' = ANY (v_states))
-     AND NOT (p_note IS NOT NULL AND p_note LIKE 'authority: %' AND length(p_note) >= 24) THEN
-    RAISE EXCEPTION 'option % may be set on only with a note that cites its authority (authority: <file and sha256>)',
-      p_option;
+     AND NOT (p_note IS NOT NULL AND p_note LIKE 'authority: ' || p_option || ' %'
+              AND p_note ~ 'sha256 [0-9a-f]{64}') THEN
+    RAISE EXCEPTION 'option % may be set on only with a note that cites its own authority (authority: % <file> sha256 <64 hex>)',
+      p_option, p_option;
   END IF;
 
   -- the same lock key as fn_ca_horse_style_switch_set, so the two writers of one option never interleave
@@ -342,7 +372,8 @@ BEGIN
      OR (SELECT count(*) FROM jsonb_object_keys(v_wide)) <> 3 THEN
     RAISE EXCEPTION 'the wide switch read is not the documented shape: %', v_wide;
   END IF;
-  IF public.fn_ca_horse_option_switch_states('commitUnderPot') IS DISTINCT FROM ARRAY['off', 'on']
+  IF public.fn_ca_horse_option_switch_states('commitUnderPot') IS DISTINCT FROM ARRAY['off']
+     OR public.fn_ca_horse_option_switch_states('omahaHiLoTournamentFirstIn') IS DISTINCT FROM ARRAY['off', 'on']
      OR public.fn_ca_horse_option_switch_states('styleFoldBluff')
           IS DISTINCT FROM ARRAY['off', 'shadow', 'canary', 'on'] THEN
     RAISE EXCEPTION 'a registered option does not answer with its states';
@@ -355,6 +386,8 @@ BEGIN
      OR public.fn_ca_horse_option_switch_states('v87DeepDiveDiscipline') IS NOT NULL
      OR public.fn_ca_horse_option_switch_states('v31GtoSuitAware') IS NOT NULL
      OR public.fn_ca_horse_option_switch_states('omahaPreflopCallWithActionBehind') IS NOT NULL
+     OR public.fn_ca_horse_option_switch_states('v41Leaks') IS NOT NULL
+     OR public.fn_ca_horse_option_switch_states('telemetry') IS NOT NULL
      OR public.fn_ca_horse_option_switch_states('notAnOption') IS NOT NULL
      OR public.fn_ca_horse_option_switch_states(NULL) IS NOT NULL THEN
     RAISE EXCEPTION 'a refused option is switchable';

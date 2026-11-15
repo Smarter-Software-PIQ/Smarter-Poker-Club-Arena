@@ -25,9 +25,14 @@
  * options of the data ledger minus the refused names; `on` is accepted by the engine for every registered option and
  * by the database when the note cites the authority (proven on a real PostgreSQL 17 by
  * scripts/ci/test-horse-option-switch-evidence-postgres.sh); an option under an owner hold or measured harmful is
- * registered and its hold or verdict is recorded; and a started, restarted or replaced worker resolves the persisted
+ * registered; and a started, restarted or replaced worker resolves the persisted
  * switch state before it serves a decision that reads a switched option. Nothing here enables an option, and nothing
  * here is described as passing promotion evidence (the source-default law HorseDefaultOnNeedsEvidence is untouched).
+ *
+ * THE OWNER RULING OF 2026-11-14 23:10 CHICAGO: "Preserve approved OFF states. No automatic blanket switch-on after
+ * sealing." So holds are ENFORCED: an option in OPTION_SWITCH_OFF_ONLY (owner hold, measured harm, superseded) offers
+ * off only at the registry, the parser, the decision options and the database (states function, table CHECK, setter),
+ * and `on` for every other option needs the option's OWN citation (authority: <option> <file> sha256 <64 hex>).
  *
  * WHEN THIS LAW FAILS ON THE DATABASE LISTS: run `npx tsx scripts/gen-horse-option-switch-sql.ts` in server/ (it
  * rewrites the name lists of the migration from the registry) and update the lists of the PostgreSQL proof script.
@@ -50,7 +55,15 @@ import { HORSE_FEATURE_FLAGS } from '../HorseFeatureAuthority.js';
 import { STYLE_SWITCH_OPTIONS, StyleSwitchHolder } from '../HorseStyleSwitch.js';
 import {
   assertOptionSwitchRegistry,
-  OPTION_SWITCH_HOLDS,
+  OPTION_SWITCH_OFF_ONLY,
+  OPTION_SWITCH_OFF_ONLY_NAMES,
+  OPTION_SWITCH_OFF_ONLY_PENDING,
+  OPTION_SWITCH_ON_AUTHORITY_FILE,
+  OPTION_SWITCH_ON_AUTHORITY_SHA256,
+  OPTION_SWITCH_ON_OFF_NAMES,
+  optionSwitchOffOnly,
+  optionSwitchOnNote,
+  optionSwitchOnNoteCites,
   OPTION_SWITCH_NAMES,
   OPTION_SWITCH_NOT_A_SWITCH,
   OPTION_SWITCH_ON_AUTHORITY,
@@ -139,7 +152,8 @@ const PREFLOP_HOLD_NAMES = [
 ];
 const GENERATOR =
   'the migration lists differ from the registry: run "npx tsx scripts/gen-horse-option-switch-sql.ts" in server/';
-const AUTHORITY_NOTE = `authority: ${OPTION_SWITCH_ON_AUTHORITY}`;
+const noteFor = (option: string) =>
+  optionSwitchOnNote(option, OPTION_SWITCH_ON_AUTHORITY_FILE, OPTION_SWITCH_ON_AUTHORITY_SHA256);
 /** One CHECK constraint of the migration, by name, up to its closing semicolon. */
 const constraint = (name: string) => {
   const found = new RegExp(`ADD CONSTRAINT ${name} CHECK \\(([\\s\\S]*?)\\);`).exec(SQL);
@@ -276,12 +290,15 @@ describe('condition 8: the database whitelist is the engine registry', () => {
     ).toEqual(sorted(OPTION_SWITCH_NAMES));
   });
 
-  it('shadow and canary are accepted only for the seven style options', () => {
+  it('shadow and canary are accepted only for the seven style options, and on never for an off-only option', () => {
     const check = constraint('ca_horse_style_switch_state_fits_option');
-    expect(check).toMatch(/^\s*state IN \('off', 'on'\)\s*OR option IN \(/);
-    expect(sorted(quoted(check).filter((n) => n !== 'off' && n !== 'on'))).toEqual(
-      sorted(STYLE_SWITCH_OPTIONS)
-    );
+    const parts =
+      /^\s*state = 'off'\s*OR \(state = 'on' AND option NOT IN \(([^)]*)\)\)\s*OR option IN \(([^)]*)\)\s*$/.exec(
+        check
+      );
+    expect(parts, GENERATOR).not.toBeNull();
+    expect(sorted(quoted(parts![1]!)), GENERATOR).toEqual(sorted(OPTION_SWITCH_OFF_ONLY_NAMES));
+    expect(sorted(quoted(parts![2]!))).toEqual(sorted(STYLE_SWITCH_OPTIONS));
   });
 
   it('fn_ca_horse_option_switch_states answers each registered option with its states and anything else with NULL', () => {
@@ -289,14 +306,18 @@ describe('condition 8: the database whitelist is the engine registry', () => {
     const arms = [...body.matchAll(/WHEN p_option IN \(([^)]*)\)\s*THEN ARRAY\[([^\]]*)\]/g)].map(
       (m) => ({ names: sorted(quoted(m[1]!)), states: quoted(m[2]!) })
     );
+    // the off-only arm comes before the plain arm, so an off-only option answers off alone
     expect(arms, GENERATOR).toEqual([
       { names: sorted(STYLE_SWITCH_OPTIONS), states: ['off', 'shadow', 'canary', 'on'] },
+      { names: sorted(OPTION_SWITCH_OFF_ONLY_NAMES), states: ['off'] },
       { names: sorted(OPTION_SWITCH_PLAIN_NAMES), states: ['off', 'on'] },
     ]);
     const answer = (name: string) => arms.find((a) => a.names.includes(name))?.states;
     expect(body).toMatch(/ELSE NULL\s*END/);
     for (const entry of OPTION_SWITCH_REGISTRY)
       expect(answer(entry.name), entry.name).toEqual([...entry.states]);
+    // one attempt, no retry: the ALTERs wait at most three seconds for the table
+    expect(SQL).toMatch(/^\s*BEGIN;\s*SET LOCAL lock_timeout = '3s';/);
   });
 
   it('the schema manifest names exactly the functions the migration adds, and the migration adds no table or column', () => {
@@ -404,9 +425,12 @@ describe('the owner order of 2026-11-14 22:01: every ledger option has an on/off
       );
   });
 
-  it('every registered option offers off and on, and its release default is on, off or code from the static lists', () => {
+  it('every registered option offers off, and on unless it is off-only, and its release default is on, off or code from the static lists', () => {
     for (const entry of OPTION_SWITCH_PLAIN_REGISTRY) {
-      expect([...entry.states], entry.name).toEqual(['off', 'on']);
+      expect([...entry.states], entry.name).toEqual(
+        optionSwitchOffOnly(entry.name) ? ['off'] : ['off', 'on']
+      );
+      expect(entry.offOnly ?? null, entry.name).toEqual(optionSwitchOffOnly(entry.name));
       expect(entry.shadowArm, entry.name).toBe(false);
       expect(entry.description.length, entry.name).toBeGreaterThan(0);
       expect(entry.description.length, entry.name).toBeLessThanOrEqual(160);
@@ -426,7 +450,7 @@ describe('the owner order of 2026-11-14 22:01: every ledger option has an on/off
     expect(new Set(listed).size).toBe(listed.length);
     for (const name of listed) expect(OPTION_SWITCH_PLAIN_NAMES, name).toContain(name);
     // a registry entry without on, or a parameter, throws where the registry is declared
-    const first = OPTION_SWITCH_PLAIN_REGISTRY[0]!;
+    const first = OPTION_SWITCH_PLAIN_REGISTRY.find((e) => e.offOnly === undefined)!;
     expect(() => assertOptionSwitchRegistry([{ ...first, states: ['off'] as const }])).toThrow(
       /must support off and on/
     );
@@ -435,42 +459,163 @@ describe('the owner order of 2026-11-14 22:01: every ledger option has an on/off
     );
   });
 
-  it('an option under an owner hold or measured harmful is registered with a switch and carries its hold or verdict', () => {
-    for (const name of PREFLOP_HOLD_NAMES) {
-      expect(ledgerFlags, name).toContain(name);
+  it('owner 23:10: an option under an owner hold, measured harmful or superseded is OFF-ONLY, enforced at the registry, the parser and the decision options', () => {
+    const expectStatus = (name: string, status: string, source: RegExp) => {
+      const entry = optionSwitchOffOnly(name);
+      expect(entry?.status, name).toBe(status);
+      expect(entry?.source ?? '', name).toMatch(source);
+      expect((entry?.reason ?? '').length, name).toBeGreaterThan(5);
+    };
+    for (const name of PREFLOP_HOLD_NAMES) expectStatus(name, 'hold', /^owner preflop range hold$/);
+    for (const name of ['omahaTightOpponent', 'omahaTightOpponentSteal'])
+      expectStatus(
+        name,
+        'hold',
+        /^owner ruling 2026-11-14 21:30 Chicago \(Omaha tight responses stay OFF/
+      );
+    for (const name of [
+      'commitUnderPot',
+      'v16Hu',
+      'v17RiverProbe',
+      'v23ShortDeck',
+      'v32FacingDefense',
+      'v33DepthCeiling',
+      'v62RiverBettorPolarity',
+      'readPostflopFoldRate',
+    ])
+      expectStatus(name, 'harm', /^declared evaluation measured harm/);
+    expectStatus('omahaNeutralUnknown', 'harm', /failed evaluation/);
+    expectStatus('fixedLimitRiverFullBetRead', 'harm', /failed evaluation/);
+    expectStatus('v55OmahaRiverTripsFlat', 'superseded', /made-hand defense repair/);
+    expect(OPTION_SWITCH_OFF_ONLY.commitUnderPot!.reason).toMatch(/RESULTS-HU-NLH-016, FAIL/);
+    // future options are held by name pattern: a steal, All-In-Or-Fold widening
+    for (const name of [
+      'plo6BlindSteal',
+      'omahaTightOpponentSteal',
+      'allInOrFoldWidening',
+      'aofWidening',
+    ])
+      expect(optionSwitchOffOnly(name)?.status, name).toBe('hold');
+    expect(optionSwitchOffOnly('omahaHiLoTournamentFirstIn')).toBeNull();
+    // one source of truth: a named entry is a registered ledger option, or is on the explicit pending list
+    for (const name of Object.keys(OPTION_SWITCH_OFF_ONLY)) {
       expect(optionSwitchRefusal(name), name).toBeNull();
-      const entry = OPTION_SWITCH_PLAIN_REGISTRY.find((e) => e.name === name);
-      expect([...(entry?.states ?? [])], name).toEqual(['off', 'on']);
-      expect(entry?.hold, name).toMatch(/^owner preflop range hold \(recorded/);
+      expect(
+        OPTION_SWITCH_PLAIN_NAMES.includes(name) !== OPTION_SWITCH_OFF_ONLY_PENDING.includes(name),
+        `${name} is off-only by name: it must be a registered ledger option, or be listed in OPTION_SWITCH_OFF_ONLY_PENDING until it lands (and leave that list when it does)`
+      ).toBe(true);
     }
-    const commit = OPTION_SWITCH_PLAIN_REGISTRY.find((e) => e.name === 'commitUnderPot')!;
-    expect(commit.hold).toMatch(/RESULTS-HU-NLH-016, FAIL\): stays off at the cutover/);
-    expect(commit.releaseDefault).toBe('off');
-    expect(sorted(Object.keys(OPTION_SWITCH_HOLDS))).toEqual(
-      sorted([...PREFLOP_HOLD_NAMES, 'commitUnderPot'])
+    for (const name of OPTION_SWITCH_OFF_ONLY_PENDING) {
+      expect(Object.hasOwn(OPTION_SWITCH_OFF_ONLY, name), name).toBe(true);
+      expect(ledgerFlags, name).not.toContain(name);
+    }
+    expect(OPTION_SWITCH_OFF_ONLY_PENDING.length).toBeLessThanOrEqual(4);
+    expect([...OPTION_SWITCH_OFF_ONLY_NAMES]).toEqual(
+      OPTION_SWITCH_PLAIN_NAMES.filter((n) => optionSwitchOffOnly(n) !== null)
     );
-    for (const [name, text] of Object.entries(OPTION_SWITCH_HOLDS)) {
-      expect(OPTION_SWITCH_NAMES, name).toContain(name);
-      expect(text.length, name).toBeGreaterThan(20);
+    expect(sorted([...OPTION_SWITCH_OFF_ONLY_NAMES, ...OPTION_SWITCH_ON_OFF_NAMES])).toEqual(
+      sorted(OPTION_SWITCH_PLAIN_NAMES)
+    );
+    expect(OPTION_SWITCH_OFF_ONLY_NAMES.length).toBeGreaterThanOrEqual(19);
+    // an option whose release default is ON is never off-only by measured harm (that would preserve nothing)
+    for (const entry of OPTION_SWITCH_PLAIN_REGISTRY)
+      if (entry.offOnly?.status === 'harm') expect(entry.releaseDefault, entry.name).toBe('off');
+    // enforced: the registry, the parser (the whole set is invalid), the decision options, module load
+    for (const name of OPTION_SWITCH_OFF_ONLY_NAMES) {
+      const entry = OPTION_SWITCH_PLAIN_REGISTRY.find((e) => e.name === name)!;
+      expect([...entry.states], name).toEqual(['off']);
+      expect(optionSwitchStatesFrom({ [name]: 'on' }), name).toBeNull();
+      expect(parseOptionSwitchConfig(v2({ [name]: 'on', v16Ratio: 'off' })), name).toEqual({
+        ok: false,
+      });
+      expect(optionSwitchDecisionOpts({ [name]: 'on' } as never), name).toEqual({});
+      expect(optionSwitchStatesFrom({ [name]: 'off' }), name).toEqual({ [name]: 'off' });
+      expect(optionSwitchDecisionOpts({ [name]: 'off' }), name).toEqual({ [name]: false });
+      expect(
+        () =>
+          assertOptionSwitchRegistry(
+            OPTION_SWITCH_REGISTRY.map((e) =>
+              e.name === name ? { ...entry, states: ['off', 'on'] as const } : e
+            )
+          ),
+        name
+      ).toThrow(/is off-only/);
+      const notes: string[] = [];
+      let raw: unknown = v2({ v16Ratio: 'off' });
+      const holder = new OptionSwitchHolder(
+        (now) => ({ kind: 'present', raw, receivedAtMs: now }),
+        (f) => notes.push(f)
+      );
+      expect(holder.refresh(0)).toEqual({ v16Ratio: 'off' });
+      raw = v2({ [name]: 'on', v16Ratio: 'off' });
+      expect(holder.refresh(60_000), name).toEqual({});
+      expect(notes, name).toContain('option_switch_config_invalid_seen');
+      expect(notes, name).not.toContain(`option_switch_${name}_on_seen`);
     }
   });
 
-  it('the database: on for a non-style option needs a note that cites the authority, at the set function and at the table', () => {
+  it('a worker that starts while an on row exists for an off-only option never applies it, on its very first read', async () => {
+    for (const held of ['commitUnderPot', 'huBbDefendsToPrice', 'omahaTightOpponent', 'v16Hu']) {
+      const w = opened({ wired: true });
+      expect(w.deliver(v2({ [held]: 'on', v16Ratio: 'off' }))).toBe(true);
+      const look = await w.fast();
+      for (const opts of look.opts) expect(switchedKeys(opts), held).toEqual([]);
+      expect(look.replayState.version, held).toBe(V3);
+      expect(w.features, held).toContain('option_switch_config_invalid_seen');
+      expect(w.features, held).not.toContain(`option_switch_${held}_on_seen`);
+      await closeAll();
+    }
+  });
+
+  it('the database: on for a non-style option needs the option OWN citation, at the set function and at the table', () => {
     expect(OPTION_SWITCH_ON_AUTHORITY).toBe(
       'OWNER-MESSAGE-20261114-2201CT-EVERY-FEATURE-ON-WITH-SWITCH.md sha256 2080c2026d5553e11ac288a74fcef51d20f81b30c0a9da446b5063a9f7196bf1'
     );
-    expect(AUTHORITY_NOTE.length).toBeGreaterThanOrEqual(24);
-    expect(AUTHORITY_NOTE.length).toBeLessThanOrEqual(500);
+    expect(OPTION_SWITCH_ON_AUTHORITY).toBe(
+      `${OPTION_SWITCH_ON_AUTHORITY_FILE} sha256 ${OPTION_SWITCH_ON_AUTHORITY_SHA256}`
+    );
+    const note = noteFor('omahaHiLoTournamentFirstIn');
+    expect(note).toBe(`authority: omahaHiLoTournamentFirstIn ${OPTION_SWITCH_ON_AUTHORITY}`);
+    expect(note.length).toBeLessThanOrEqual(500);
+    for (const name of OPTION_SWITCH_ON_OFF_NAMES) {
+      expect(optionSwitchOnNoteCites(name, noteFor(name)), name).toBe(true);
+      expect(noteFor(name).length, name).toBeLessThanOrEqual(500);
+    }
+    // junk, the generic authority of the previous rule, another option's citation, a missing sha256
+    for (const bad of [
+      'try on',
+      'authority: 0123456789abc',
+      `authority: ${OPTION_SWITCH_ON_AUTHORITY}`,
+      noteFor('readScopedShrink'),
+      noteFor('omahaHiLoTournamentFirstInX'),
+      `authority: omahaHiLoTournamentFirstIn ${OPTION_SWITCH_ON_AUTHORITY_FILE}`,
+      `authority: omahaHiLoTournamentFirstIn file sha256 ${'A'.repeat(64)}`,
+      null,
+      undefined,
+      '',
+    ])
+      expect(optionSwitchOnNoteCites('omahaHiLoTournamentFirstIn', bad), String(bad)).toBe(false);
+    expect(() => optionSwitchOnNote('x y', 'f.md', 'a'.repeat(64))).toThrow();
+    expect(() => optionSwitchOnNote('v16Ratio', 'f.md', 'a'.repeat(63))).toThrow();
+    expect(() => optionSwitchOnNote('v16Ratio', 'two words.md', 'a'.repeat(64))).toThrow();
     const table = constraint('ca_horse_style_switch_on_cites_authority');
     expect(table).toMatch(
-      /^\s*state <> 'on'\s*OR option IN \(([^)]*)\)\s*OR \(note IS NOT NULL AND note LIKE 'authority: %' AND length\(note\) >= 24\)\s*$/
+      /^\s*state <> 'on'\s*OR option IN \(([^)]*)\)\s*OR \(note IS NOT NULL AND note LIKE 'authority: ' \|\| option \|\| ' %' AND note ~ 'sha256 \[0-9a-f\]\{64\}'\)\s*$/
     );
-    expect(sorted(quoted(table).filter((n) => n !== 'on'))).toEqual(sorted(STYLE_SWITCH_OPTIONS));
-    expect(SQL).not.toMatch(/on_needs_evidence|promotion evidence/);
+    expect(sorted(quoted(/OR option IN \(([^)]*)\)/.exec(table)![1]!))).toEqual(
+      sorted(STYLE_SWITCH_OPTIONS)
+    );
+    expect(SQL).not.toMatch(/on_needs_evidence|promotion evidence|length\(note\) >= 24/);
     const body = fn('fn_ca_horse_option_switch_set').body;
     const guard = body.search(
-      /IF p_state = 'on' AND NOT \('shadow' = ANY \(v_states\)\)\s*AND NOT \(p_note IS NOT NULL AND p_note LIKE 'authority: %' AND length\(p_note\) >= 24\) THEN\s*RAISE EXCEPTION 'option % may be set on only with a note that cites its authority \(authority: <file and sha256>\)'/
+      /IF p_state = 'on' AND NOT \('shadow' = ANY \(v_states\)\)\s*AND NOT \(p_note IS NOT NULL AND p_note LIKE 'authority: ' \|\| p_option \|\| ' %'\s*AND p_note ~ 'sha256 \[0-9a-f\]\{64\}'\) THEN\s*RAISE EXCEPTION 'option % may be set on only with a note that cites its own authority \(authority: % <file> sha256 <64 hex>\)'/
     );
+    // an off-only option is refused first, with any note: the states check precedes the note check
+    const statesGuard = body.search(
+      /IF p_state IS NULL OR NOT \(p_state = ANY \(v_states\)\) THEN/
+    );
+    expect(statesGuard).toBeGreaterThan(0);
+    expect(statesGuard).toBeLessThan(guard);
     expect(guard).toBeGreaterThan(0);
     expect(guard).toBeLessThan(body.search(/INSERT INTO/));
     // the audit row keeps the note, the actor and the time
@@ -504,15 +649,21 @@ describe('the owner order of 2026-11-14 22:01: every ledger option has an on/off
       sorted(OPTION_SWITCH_PLAIN_NAMES)
     );
     for (const name of REFUSED_NAMES) expect(list('refused'), name).toContain(name);
-    expect(script).toContain(`authority='${AUTHORITY_NOTE}'`);
+    expect(sorted(list('offonly')), 'update the offonly list of the proof script').toEqual(
+      sorted(OPTION_SWITCH_OFF_ONLY_NAMES)
+    );
+    expect(script).toContain(
+      `authority_tail='${OPTION_SWITCH_ON_AUTHORITY_FILE} sha256 ${OPTION_SWITCH_ON_AUTHORITY_SHA256}'`
+    );
     // a proof that did not run is not a pass
     expect(script).not.toMatch(/SKIPPED/);
     expect(script).toMatch(/^\s*echo "FAIL  no PostgreSQL binaries .*exit 1$/m);
     expect(script).toMatch(/^  echo 'PASS  every option switch evidence assertion held'$/m);
   });
 
-  it('the engine accepts on and off for every registered option: on passes true, off passes false', () => {
-    for (const name of OPTION_SWITCH_PLAIN_NAMES) {
+  it('the engine accepts on and off for every registered option that is not off-only: on passes true, off passes false', () => {
+    expect(OPTION_SWITCH_ON_OFF_NAMES.length).toBeGreaterThan(100);
+    for (const name of OPTION_SWITCH_ON_OFF_NAMES) {
       expect(optionSwitchStatesFrom({ [name]: 'on' }), name).toEqual({ [name]: 'on' });
       expect(optionSwitchStatesFrom({ [name]: 'off' }), name).toEqual({ [name]: 'off' });
       expect(parseOptionSwitchConfig(v2({ [name]: 'on' })), name).toEqual({
@@ -531,11 +682,11 @@ describe('the owner order of 2026-11-14 22:01: every ledger option has an on/off
       (f) => notes.push(f)
     );
     expect(holder.refresh(0)).toEqual({ v16Hu: 'off' });
-    raw = v2({ v16Hu: 'on', commitUnderPot: 'off' });
-    expect(holder.refresh(60_000)).toEqual({ v16Hu: 'on', commitUnderPot: 'off' });
+    raw = v2({ v16Ratio: 'on', commitUnderPot: 'off' });
+    expect(holder.refresh(60_000)).toEqual({ v16Ratio: 'on', commitUnderPot: 'off' });
     expect(notes).toEqual(
       expect.arrayContaining([
-        'option_switch_v16Hu_on_seen',
+        'option_switch_v16Ratio_on_seen',
         'option_switch_commitUnderPot_off_seen',
       ])
     );
@@ -584,17 +735,17 @@ describe('the owner order of 2026-11-14 22:01: every ledger option has an on/off
 
   it('a worker that starts while an on row exists applies it on its very first decision: on passes true', async () => {
     const w = opened({ wired: true });
-    expect(w.deliver(v2({ v62RiverBettorPolarity: 'on', v16Hu: 'off' }))).toBe(true);
+    expect(w.deliver(v2({ v16Ratio: 'on', v16Hu: 'off' }))).toBe(true);
     const look = await w.fast();
     expect(look.opts.length).toBeGreaterThan(0);
     for (const opts of look.opts) {
-      expect(switchedKeys(opts).sort()).toEqual(['v16Hu', 'v62RiverBettorPolarity']);
-      expect(opts.v62RiverBettorPolarity).toBe(true);
+      expect(switchedKeys(opts).sort()).toEqual(['v16Hu', 'v16Ratio']);
+      expect(opts.v16Ratio).toBe(true);
       expect(opts.v16Hu).toBe(false);
     }
     expect(look.replayState.version).toBe(V5);
-    expect(look.replayState.options).toEqual({ v16Hu: 'off', v62RiverBettorPolarity: 'on' });
-    expect(w.features).toContain('option_switch_v62RiverBettorPolarity_on_seen');
+    expect(look.replayState.options).toEqual({ v16Hu: 'off', v16Ratio: 'on' });
+    expect(w.features).toContain('option_switch_v16Ratio_on_seen');
   });
 
   it('a worker that starts while a row names a refused option or decision plumbing never applies it, on its very first read', async () => {
@@ -820,22 +971,19 @@ describe('condition 4: nothing switched is the release default', () => {
   it('a row reaches a real decision as off = false and on = true, the same way for every decision, and is journaled', async () => {
     const before = await baseline();
     const w = opened({ wired: true });
-    w.deliver(v2({ v62RiverBettorPolarity: 'off', v16Hu: 'off' }));
+    w.deliver(v2({ v16Ratio: 'off', v16Hu: 'off' }));
     for (const requestId of [1, 2]) {
       const look = await w.fast(requestId);
       for (const opts of look.opts) {
-        expect(switchedKeys(opts).sort()).toEqual(['v16Hu', 'v62RiverBettorPolarity']);
-        expect(opts.v62RiverBettorPolarity).toBe(false);
+        expect(switchedKeys(opts).sort()).toEqual(['v16Hu', 'v16Ratio']);
+        expect(opts.v16Ratio).toBe(false);
         expect(opts.v16Hu).toBe(false);
       }
       expect(look.replayState.version).toBe(V5);
-      expect(look.replayState.options).toEqual({ v16Hu: 'off', v62RiverBettorPolarity: 'off' });
+      expect(look.replayState.options).toEqual({ v16Hu: 'off', v16Ratio: 'off' });
     }
     expect(w.features).toEqual(
-      expect.arrayContaining([
-        'option_switch_v16Hu_off_seen',
-        'option_switch_v62RiverBettorPolarity_off_seen',
-      ])
+      expect.arrayContaining(['option_switch_v16Hu_off_seen', 'option_switch_v16Ratio_off_seen'])
     );
     // without the wiring the same request carries neither key: the guard above is not vacuous
     for (const opts of before.opts) expect(switchedKeys(opts)).toEqual([]);
@@ -848,7 +996,7 @@ describe('condition 1: a switch never reaches what an authority or the manifest 
     k === 'v53PloTourneyIcm' ||
     /^phase\d/.test(k);
 
-  it('with every registered option switched on, the authority-owned options a real decision is handed do not move', async () => {
+  it('with every registered option switched (on, or off where it is off-only), the authority-owned options a real decision is handed do not move', async () => {
     const manifestBefore = manifestNow();
     const before = await baseline();
     const w = opened({ wired: true });
@@ -1018,14 +1166,14 @@ describe('condition 6: the read falls back only when the database does not have 
 describe('condition 7: a decision replays with the switched set its record carries', () => {
   it('the record carries the set (v5), an older version carrying one is refused, and a refused option is not a valid record', async () => {
     const w = opened({ wired: true });
-    w.deliver(v2({ v62RiverBettorPolarity: 'off', v16Hu: 'off' }));
+    w.deliver(v2({ v16Ratio: 'off', v16Hu: 'off' }));
     const { replayState } = await w.fast();
     expect(isHorseDecisionReplayState(replayState)).toBe(true);
     const record = (state: unknown) => ({ body: JSON.stringify({ replayState: state }) });
     expect(recordedSwitchStates(record(replayState))).toEqual({
       ok: true,
       states: null,
-      options: { v16Hu: 'off', v62RiverBettorPolarity: 'off' },
+      options: { v16Hu: 'off', v16Ratio: 'off' },
     });
     expect(recordedSwitchStates(record({ ...replayState, version: V3 }))).toEqual({ ok: false });
     expect(
@@ -1033,14 +1181,16 @@ describe('condition 7: a decision replays with the switched set its record carri
     ).toEqual({ ok: false });
     expect(recordedSwitchStates(record({ ...replayState, options: {} }))).toEqual({ ok: false });
     // a record carrying on for a registered option is a valid record
-    expect(
-      recordedSwitchStates(record({ ...replayState, options: { v62RiverBettorPolarity: 'on' } }))
-    ).toEqual({ ok: true, states: null, options: { v62RiverBettorPolarity: 'on' } });
+    expect(recordedSwitchStates(record({ ...replayState, options: { v16Ratio: 'on' } }))).toEqual({
+      ok: true,
+      states: null,
+      options: { v16Ratio: 'on' },
+    });
   });
 
   it('the replay wiring hands the brain the recorded set at any later time, with no live read', async () => {
     const live = opened({ wired: true });
-    live.deliver(v2({ v62RiverBettorPolarity: 'off', v16Hu: 'off' }));
+    live.deliver(v2({ v16Ratio: 'off', v16Hu: 'off' }));
     const original = await live.fast();
     await closeAll();
     const recorded = optionSwitchStatesFrom(original.replayState.options);

@@ -17,15 +17,18 @@
  * on/off switch. It replaces the evidence-file rule this switch carried before (HA-10878-1) FOR THE SWITCH ONLY;
  * the source-default law (HorseDefaultOnNeedsEvidence.law.test.ts) is untouched. Registering ENABLES NOTHING.
  *
- * STATES. Every registered option supports `off`, `on` and clear. The engine accepts `on` for any registered
- * option; the database writes an `on` row for a non-style option only when its note cites the authority
- * (`authority: <file and sha256>`), from the set function and from any other writer (table constraint), and the
- * audit row keeps the note, the actor and the time. `shadow` and `canary` exist only for an option that has a
- * shadow arm in the brain (the seven style options, HorseStyleShadow.ts); they keep their own states and controls.
+ * OWNER RULING (2026-11-14 23:10 Chicago): "Preserve approved OFF states. No automatic blanket switch-on after
+ * sealing." So the switch ENFORCES the approved OFF states; it does not merely record them.
  *
- * HOLDS AND VERDICTS (OPTION_SWITCH_HOLDS). An option under an owner hold (the preflop range hold, a blind steal,
- * All-In-Or-Fold widening) or measured harmful is REGISTERED with a switch, and its hold or verdict is recorded on
- * its entry. No name is refused merely for a hold. The record decides nothing here: no row is added.
+ * STATES. Every registered option supports `off` and clear. An option in OPTION_SWITCH_OFF_ONLY (an owner hold, a
+ * measured harm or failed evaluation, a superseded option) supports `off` ONLY: the registry does not offer `on`,
+ * the parser treats an `on` row for it as an invalid configuration (every non-style option then runs at its
+ * release default), optionSwitchDecisionOpts never passes true for it, and the database refuses the row from any
+ * writer. Lifting a hold is a reviewed source change to that map, never a note. Every other registered non-style
+ * option supports `on`: the engine accepts it, and the database writes it only when the note is the option's OWN
+ * citation (`authority: <option> <file> sha256 <64 hex>`, optionSwitchOnNote), at the set function and at the
+ * table; the audit row keeps the note, the actor and the time. `shadow` and `canary` exist only for an option
+ * that has a shadow arm in the brain (the seven style options, HorseStyleShadow.ts); they keep their own controls.
  *
  * RELEASE DEFAULT is informational: 'on' or 'off' where the code's reads say so plainly, 'code' where the code
  * decides (a parent option, a variant, a mixed read; see the ledger note) and for any option not classified yet.
@@ -85,20 +88,51 @@ export interface OptionSwitchEntry {
   /** True only where the brain has a shadow arm for the option (HorseStyleShadow.ts). */
   readonly shadowArm: boolean;
   readonly description: string;
-  /** An owner hold or a measured verdict on the option, recorded and not enforced by this switch. */
-  readonly hold?: string;
+  /** Set when the option is off-only (OPTION_SWITCH_OFF_ONLY): its status, reason and source. Enforced. */
+  readonly offOnly?: OptionSwitchOffOnly;
+}
+
+export type OptionSwitchOffOnlyStatus = 'hold' | 'harm' | 'superseded';
+export interface OptionSwitchOffOnly {
+  readonly status: OptionSwitchOffOnlyStatus;
+  readonly reason: string;
+  readonly source: string;
 }
 
 const ON_OFF = Object.freeze(['off', 'on'] as const);
+const OFF_ONLY = Object.freeze(['off'] as const);
 const HOLDEM = "Hold'em Strategy" as const;
 
 /**
- * THE AUTHORITY AN `on` ROW CITES: the owner's order of 2026-11-14 22:01 Chicago, retained by file name and
- * sha256. The database writes `on` for a non-style option only when the note starts with `authority: ` and names
- * its authority; the operator's note is `authority: ` followed by this text.
+ * THE AUTHORITY AN `on` ROW CITES. The owner's order of 2026-11-14 22:01 Chicago (every option has an on/off
+ * switch) is retained by file name and sha256. It is the authority for the SWITCH existing; it is not a blanket
+ * authority to switch an option on (owner, 23:10). An `on` row for a non-style option carries the option's OWN
+ * citation: `authority: <option> <file> sha256 <64 lowercase hex>`. The database refuses any other note.
  */
-export const OPTION_SWITCH_ON_AUTHORITY =
-  'OWNER-MESSAGE-20261114-2201CT-EVERY-FEATURE-ON-WITH-SWITCH.md sha256 2080c2026d5553e11ac288a74fcef51d20f81b30c0a9da446b5063a9f7196bf1';
+export const OPTION_SWITCH_ON_AUTHORITY_FILE =
+  'OWNER-MESSAGE-20261114-2201CT-EVERY-FEATURE-ON-WITH-SWITCH.md';
+export const OPTION_SWITCH_ON_AUTHORITY_SHA256 =
+  '2080c2026d5553e11ac288a74fcef51d20f81b30c0a9da446b5063a9f7196bf1';
+export const OPTION_SWITCH_ON_AUTHORITY = `${OPTION_SWITCH_ON_AUTHORITY_FILE} sha256 ${OPTION_SWITCH_ON_AUTHORITY_SHA256}`;
+
+/** The note an `on` row for `option` must carry: the option's own name, the authority file and its sha256. */
+export function optionSwitchOnNote(option: string, file: string, sha256: string): string {
+  if (!/^[A-Za-z][A-Za-z0-9]{0,62}$/.test(option))
+    throw new Error(`option switch: ${option} is not a plain option name`);
+  if (!/^[0-9a-f]{64}$/.test(sha256))
+    throw new Error('option switch: the authority sha256 is 64 lowercase hex characters');
+  if (!file.trim() || /\s/.test(file.trim()))
+    throw new Error('option switch: the authority file is one name without spaces');
+  return `authority: ${option} ${file.trim()} sha256 ${sha256}`;
+}
+/** What the database accepts as the note of an `on` row for `option` (the same rule as the SQL). */
+export function optionSwitchOnNoteCites(option: string, note: unknown): boolean {
+  return (
+    typeof note === 'string' &&
+    note.startsWith(`authority: ${option} `) &&
+    /sha256 [0-9a-f]{64}/.test(note)
+  );
+}
 
 /**
  * Ledger options that are never registered: parameters (not on/off options; the law holds this against the types)
@@ -258,7 +292,6 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_ON: readonly string[] = Object.freeze
   'riverBluffBombPot',
   'riverBluffMultiBoard',
   'v43Tempo',
-  'v41Leaks',
   'v86UnblockedPreflop',
   'v86MultiStreetUnblocked',
 ]);
@@ -313,28 +346,106 @@ const releaseDefaultOf = (name: string): OptionSwitchReleaseDefault =>
       ? 'off'
       : 'code';
 
-/** HOLDS AND VERDICTS, recorded per option. The option stays registered; the switch does not enforce the hold. */
-const PREFLOP_RANGE_HOLD = 'owner preflop range hold (recorded; the activation manifest decides)';
-const HOLDS_BY_NAME: Readonly<Record<string, string>> = Object.freeze({
-  v46ShortDeck: PREFLOP_RANGE_HOLD,
-  nashPushFoldIcm: PREFLOP_RANGE_HOLD,
-  huBbDefendsToPrice: PREFLOP_RANGE_HOLD,
-  facingOpenFullRingZone: PREFLOP_RANGE_HOLD,
-  committedStackPricedIn: PREFLOP_RANGE_HOLD,
-  vs3BetShortStack: PREFLOP_RANGE_HOLD,
-  huOpenerDefendsToPrice: PREFLOP_RANGE_HOLD,
-  huLimpDefendsToPrice: PREFLOP_RANGE_HOLD,
-  commitUnderPot:
-    'declared evaluation measured harm (RESULTS-HU-NLH-016, FAIL): stays off at the cutover',
+/**
+ * OFF-ONLY OPTIONS (owner, 2026-11-14 23:10 Chicago: "Preserve approved OFF states. No automatic blanket switch-on
+ * after sealing."). ONE source of truth: an option named here, or matching OFF_ONLY_PATTERNS, is registered with
+ * `off` only. The database lists the same names (registry:off-only-options markers, written by the generator).
+ * Lifting an entry is a reviewed source change to this map.
+ */
+const hold = (source: string, reason: string): OptionSwitchOffOnly =>
+  Object.freeze({ status: 'hold' as const, reason, source });
+const harm = (reason: string): OptionSwitchOffOnly =>
+  Object.freeze({
+    status: 'harm' as const,
+    reason,
+    source: 'declared evaluation measured harm (activation manifest, section 4)',
+  });
+const PREFLOP_HOLD_SOURCE = 'owner preflop range hold';
+const PREFLOP_HOLD_REASON = 'changes a preflop range: held until the owner lifts it by name';
+const OMAHA_TIGHT_SOURCE =
+  'owner ruling 2026-11-14 21:30 Chicago (Omaha tight responses stay OFF until promotion evidence passes)';
+export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly>> = Object.freeze({
+  // owner preflop range hold
+  v46ShortDeck: hold(
+    PREFLOP_HOLD_SOURCE,
+    `${PREFLOP_HOLD_REASON}; also measured harm (-0.51 +/- 0.15, manifest section 4)`
+  ),
+  nashPushFoldIcm: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
+  huBbDefendsToPrice: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
+  facingOpenFullRingZone: hold(
+    PREFLOP_HOLD_SOURCE,
+    `${PREFLOP_HOLD_REASON}; also not significant in its evaluation, stays off (manifest section 4)`
+  ),
+  committedStackPricedIn: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
+  vs3BetShortStack: hold(
+    PREFLOP_HOLD_SOURCE,
+    `${PREFLOP_HOLD_REASON}; also one seed below -2 SE (manifest section 4)`
+  ),
+  huOpenerDefendsToPrice: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
+  huLimpDefendsToPrice: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
+  // owner 21:30: the Omaha tight responses
+  omahaTightOpponent: hold(
+    OMAHA_TIGHT_SOURCE,
+    'Omaha tight response: promotion evidence rows unmet'
+  ),
+  omahaTightOpponentSteal: hold(
+    OMAHA_TIGHT_SOURCE,
+    'Omaha tight steal: promotion evidence rows unmet'
+  ),
+  // measured harm or failed evaluation
+  commitUnderPot: harm('RESULTS-HU-NLH-016, FAIL: 3 of 14 cells below -2 SE'),
+  v16Hu: harm('-0.26 +/- 0.10'),
+  v17RiverProbe: harm('-0.11 +/- 0.04'),
+  v23ShortDeck: harm('-0.36 +/- 0.14'),
+  v32FacingDefense: harm('-0.31 +/- 0.15'),
+  v33DepthCeiling: harm('-2.97 +/- 1.09'),
+  v62RiverBettorPolarity: harm('-3.67 +/- 1.02'),
+  readPostflopFoldRate: harm('its read alone lost the mirror'),
+  omahaNeutralUnknown: Object.freeze({
+    status: 'harm' as const,
+    reason:
+      'failed evaluation; the activation manifest (draft 3) lists it unevaluated or evidence incomplete: OFF',
+    source:
+      'programme coordinator, 2026-11-14 (failed evaluation); activation manifest revision 3 execution list',
+  }),
+  fixedLimitRiverFullBetRead: Object.freeze({
+    status: 'harm' as const,
+    reason: 'failed evaluation: off-only from the moment the option lands in the ledger',
+    source: 'programme coordinator, 2026-11-14 (failed evaluation)',
+  }),
+  // superseded
+  v55OmahaRiverTripsFlat: Object.freeze({
+    status: 'superseded' as const,
+    reason: 'superseded by the made-hand defense repair',
+    source: 'PLO Strategy: made-hand defense repair',
+  }),
 });
-const HOLD_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
-  [/steal/i, 'owner hold: blind steal (recorded; the activation manifest decides)'],
-  [/all[-_]?in[-_]?or[-_]?fold|(^|[^a-z])aof/i, 'owner hold: All-In-Or-Fold widening (recorded)'],
+/**
+ * Off-only names that are not ledger options YET: covered by exact name so they are off-only the moment they land.
+ * The law allows an OPTION_SWITCH_OFF_ONLY name outside the ledger only when it is listed here.
+ */
+export const OPTION_SWITCH_OFF_ONLY_PENDING: readonly string[] = Object.freeze([
+  'omahaTightOpponentSteal',
+  'fixedLimitRiverFullBetRead',
+]);
+/** Future options held by name pattern: a blind steal, All-In-Or-Fold widening. */
+const OFF_ONLY_PATTERNS: ReadonlyArray<readonly [RegExp, OptionSwitchOffOnly]> = [
+  [
+    /steal/i,
+    hold(
+      'owner hold: blind steal; owner ruling 2026-11-14 21:30 Chicago (tight steal responses stay OFF)',
+      'a steal option: held until the owner lifts it by name'
+    ),
+  ],
+  [
+    /all[-_]?in[-_]?or[-_]?fold|(^|[^a-z])aof/i,
+    hold('owner hold: All-In-Or-Fold widening', 'held until the owner lifts it by name'),
+  ],
 ];
-/** The hold or verdict recorded for an option, or null. */
-export function optionSwitchHold(name: string): string | null {
-  if (Object.hasOwn(HOLDS_BY_NAME, name)) return HOLDS_BY_NAME[name]!;
-  for (const [pattern, text] of HOLD_PATTERNS) if (pattern.test(name)) return text;
+/** The enforced off-only status of an option (by name, then by pattern), or null when it may be switched on. */
+export function optionSwitchOffOnly(name: string): OptionSwitchOffOnly | null {
+  if (Object.hasOwn(OPTION_SWITCH_OFF_ONLY, name)) return OPTION_SWITCH_OFF_ONLY[name]!;
+  for (const [pattern, entry] of OFF_ONLY_PATTERNS) if (pattern.test(name)) return entry;
   return null;
 }
 
@@ -441,6 +552,7 @@ export const OPTION_SWITCH_REFUSED: Readonly<Record<string, string>> = Object.fr
   phase14Corrective: 'phase pack: worker-owned phase authority',
   v87DeepDiveDiscipline: 'owner hold: Pillar 2 lives inside the deep-dive discipline',
   v87ShouldSuppressOmahaPositionStab: 'owner hold: Pillar 2',
+  v41Leaks: 'owner hold: leak maps',
   v31GtoSuitAware: 'owner hold: the V31 solver store (R7/R8) is registration-gated',
   vpipFloorDeepStackOff: 'withdrawn by law: HorseWithdrawnRulesStayOff.law.test.ts (#10705)',
   omahaPreflopCallWithActionBehind:
@@ -470,19 +582,19 @@ const oneLine = (text: string): string => {
   return flat.length > 160 ? `${flat.slice(0, 157)}...` : flat;
 };
 
-/** One registered non-style option, from its ledger row: off and on, no shadow arm. */
+/** One registered non-style option, from its ledger row: off (and on unless it is off-only), no shadow arm. */
 function plainEntry(name: string, note: string, tag: string): OptionSwitchEntry {
   const override = (OVERRIDES as Readonly<Record<string, Override | undefined>>)[name];
-  const hold = optionSwitchHold(name);
+  const offOnly = optionSwitchOffOnly(name);
   return Object.freeze({
     name,
     owner: override?.[0] ?? ('Programme' as const),
     scope: override?.[1] ?? tag,
-    states: ON_OFF,
+    states: offOnly ? OFF_ONLY : ON_OFF,
     releaseDefault: releaseDefaultOf(name),
     shadowArm: false,
     description: override?.[2] ?? oneLine(note),
-    ...(hold ? { hold } : {}),
+    ...(offOnly ? { offOnly } : {}),
   });
 }
 
@@ -531,11 +643,13 @@ export const OPTION_SWITCH_PLAIN_NAMES: readonly string[] = Object.freeze(
 const PLAIN_BY_NAME: ReadonlyMap<string, OptionSwitchEntry> = new Map(
   OPTION_SWITCH_PLAIN_REGISTRY.map((e) => [e.name, e])
 );
-/** Every registered option that carries a hold or a verdict, with its text. */
-export const OPTION_SWITCH_HOLDS: Readonly<Record<string, string>> = Object.freeze(
-  Object.fromEntries(
-    OPTION_SWITCH_REGISTRY.filter((e) => e.hold !== undefined).map((e) => [e.name, e.hold!])
-  )
+/** The registered off-only options, in registry order: the names the database answers ARRAY['off'] for. */
+export const OPTION_SWITCH_OFF_ONLY_NAMES: readonly string[] = Object.freeze(
+  OPTION_SWITCH_PLAIN_REGISTRY.filter((e) => e.offOnly !== undefined).map((e) => e.name)
+);
+/** The registered non-style options that may be switched on (with their own citation). */
+export const OPTION_SWITCH_ON_OFF_NAMES: readonly string[] = Object.freeze(
+  OPTION_SWITCH_PLAIN_REGISTRY.filter((e) => e.offOnly === undefined).map((e) => e.name)
 );
 
 /** The registry is checked where it is declared: a refused option, a duplicate or a pretended shadow arm throws. */
@@ -552,9 +666,15 @@ export function assertOptionSwitchRegistry(entries: readonly OptionSwitchEntry[]
     seen.add(e.name);
     if (!PLAIN_NAME.test(e.name))
       throw new Error(`option switch: ${e.name} is not a plain option name`);
-    if (!e.states.includes('off') || !e.states.includes('on'))
-      throw new Error(`option switch: ${e.name} must support off and on`);
     const style = (STYLE_SWITCH_OPTIONS as readonly string[]).includes(e.name);
+    const offOnly = style ? null : optionSwitchOffOnly(e.name);
+    if (!e.states.includes('off')) throw new Error(`option switch: ${e.name} must support off`);
+    if (offOnly && e.states.includes('on'))
+      throw new Error(
+        `option switch: ${e.name} is off-only (${offOnly.status}: ${offOnly.source}), so no on state`
+      );
+    if (!offOnly && !e.states.includes('on'))
+      throw new Error(`option switch: ${e.name} must support off and on`);
     const split = e.states.includes('shadow') || e.states.includes('canary');
     if (split && !e.shadowArm)
       throw new Error(`option switch: ${e.name} has no shadow arm, so no shadow or canary state`);
@@ -588,8 +708,9 @@ export function optionSwitchNothingSwitched(
 }
 
 /**
- * A valid switched set (registered non-style names, each `off` or `on`), in registry order; null when it is not
- * one. A name that is refused, a parameter or unknown makes the whole set invalid: every non-style option then runs
+ * A valid switched set (registered non-style names, each in a state it supports), in registry order; null when it
+ * is not one. A name that is refused, a parameter or unknown, or `on` for an off-only option, makes the whole set
+ * invalid: every non-style option then runs
  * at its release default.
  */
 export function optionSwitchStatesFrom(value: unknown): OptionSwitchStates | null {
@@ -737,7 +858,7 @@ export class OptionSwitchHolder {
 
 /**
  * The decision options a switched set gives EVERY Horse alike (no Horse id is read: only a style canary splits
- * Horses): `<option>: true` for on, `<option>: false` for off, nothing for an option without a row or
+ * Horses): `<option>: true` for on (never for an off-only option), `<option>: false` for off, nothing for an option without a row or
  * for a name that is not registered. Nothing switched gives {}.
  */
 export function optionSwitchDecisionOpts(
@@ -746,7 +867,7 @@ export function optionSwitchDecisionOpts(
   const out: Record<string, boolean> = {};
   if (states)
     for (const name of OPTION_SWITCH_PLAIN_NAMES)
-      if (states[name] === 'on') out[name] = true;
+      if (states[name] === 'on' && PLAIN_BY_NAME.get(name)?.offOnly === undefined) out[name] = true;
       else if (states[name] === 'off') out[name] = false;
   return out;
 }

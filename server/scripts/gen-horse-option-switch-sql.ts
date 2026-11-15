@@ -3,6 +3,7 @@
  * is derived from HORSE_DATA_LEDGER. Every list sits between a pair of marker comments:
  *   -- registry:style-options:begin / -- registry:style-options:end   the seven style options
  *   -- registry:plain-options:begin / -- registry:plain-options:end   every other registered option
+ *   -- registry:off-only-options:begin / -- registry:off-only-options:end   those of them that are off-only
  *
  * Run from server/ after the ledger gains or loses an option, while the migration is not installed anywhere:
  *   npx tsx scripts/gen-horse-option-switch-sql.ts            rewrite the lists
@@ -12,7 +13,10 @@
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { OPTION_SWITCH_PLAIN_NAMES } from '../src/engine/HorseOptionSwitch.js';
+import {
+  OPTION_SWITCH_OFF_ONLY_NAMES,
+  OPTION_SWITCH_PLAIN_NAMES,
+} from '../src/engine/HorseOptionSwitch.js';
 import { STYLE_SWITCH_OPTIONS } from '../src/engine/HorseStyleSwitch.js';
 
 export const OPTION_SWITCH_MIGRATION =
@@ -40,6 +44,7 @@ export function withRegistryLists(sql: string): string {
   for (const [marker, names] of [
     ['style-options', STYLE_SWITCH_OPTIONS as readonly string[]],
     ['plain-options', OPTION_SWITCH_PLAIN_NAMES],
+    ['off-only-options', OPTION_SWITCH_OFF_ONLY_NAMES],
   ] as const) {
     const block = new RegExp(
       `(-- registry:${marker}:begin\\n)[\\s\\S]*?(\\n[ \\t]*-- registry:${marker}:end)`,
@@ -70,7 +75,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     if (after !== before) writeFileSync(path, after);
     console.log(
       after === before ? 'unchanged' : `rewrote ${OPTION_SWITCH_MIGRATION}`,
-      `(${STYLE_SWITCH_OPTIONS.length} style, ${OPTION_SWITCH_PLAIN_NAMES.length} other options)`
+      `(${STYLE_SWITCH_OPTIONS.length} style, ${OPTION_SWITCH_PLAIN_NAMES.length} other options, ${OPTION_SWITCH_OFF_ONLY_NAMES.length} of them off-only)`
     );
   }
 }
