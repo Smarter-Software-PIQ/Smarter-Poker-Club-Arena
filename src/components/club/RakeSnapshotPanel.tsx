@@ -194,6 +194,14 @@ export interface RakeSnapshotPanelProps {
   agentUserId?: string | null;
   /** Bumping this re-reads without changing the period. */
   refreshToken?: number;
+  /**
+   * The headline figure's label. Club Data passes "Agent Rake Production" for
+   * a union club (2026-11-15): this panel is agent / club rake production
+   * (seat club and agent downline, Chicago midnight days), the basis for
+   * agent commissions, and must not read as the union invoice basis Fee tile
+   * beside it. Every other caller keeps "Rake / Fee".
+   */
+  headlineLabel?: string;
 }
 
 export default function RakeSnapshotPanel({
@@ -205,6 +213,7 @@ export default function RakeSnapshotPanel({
   scopes,
   agentUserId = null,
   refreshToken = 0,
+  headlineLabel = 'Rake / Fee',
 }: RakeSnapshotPanelProps) {
   // Memoised: a fresh array identity on every render would re-run the effect
   // below on every render, and that effect can call setScope.
@@ -1101,7 +1110,7 @@ export default function RakeSnapshotPanel({
       ) : null}
       <dl className={styles.rows} aria-busy={loading} aria-label="Rake Snapshot Totals">
         <div className={`${styles.tile} ${styles.headline}`}>
-          <dt className={`sc-label sc-ink--blue ${styles.label}`}>Rake / Fee</dt>
+          <dt className={`sc-label sc-ink--blue ${styles.label}`}>{headlineLabel}</dt>
           <dd
             title={
               summary

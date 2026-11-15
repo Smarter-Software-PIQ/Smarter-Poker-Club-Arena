@@ -382,8 +382,11 @@ describe('Club Data reporting stays inside the authenticated query budget', () =
     const load = sliceCall(page, 'const load = useCallback(');
     expect(load.length).toBeGreaterThan(0);
     expect(load).toContain('spinnerVersion.current = myVersion;');
-    expect(load).toContain(
-      'if (!cancelledRef.current && showSpinner && spinnerVersion.current === myVersion)'
+    // The one exception to "the raiser clears it": an answer that only told
+    // the page its 2:00 AM accounting-day basis hands the skeleton to its own
+    // re-read, which clears it (see the basis handoff test below).
+    expect(load).toMatch(
+      /if \(\s*!cancelledRef\.current &&\s*showSpinner &&\s*spinnerVersion\.current === myVersion &&\s*!basisReread\s*\)\s*\{\s*setLoading\(false\);/
     );
     // A background read must never be the one holding the skeleton up, and a
     // second background read may not stack another full-window scan beside the
@@ -395,6 +398,49 @@ describe('Club Data reporting stays inside the authenticated query budget', () =
     // One clearer, and the assertion above says what guards it. Two would mean
     // some other path can put the skeleton away again.
     expect(load.match(/setLoading\(false\)/g)).toHaveLength(1);
+  });
+
+  /**
+   * A clamped answer (a union club read on the calendar day, answered for the
+   * open 2:00 AM accounting day) is not painted; it leaves the skeleton up for
+   * the single re-read the basis change causes. That re-read must be the same
+   * kind of request as the one it replaces: a foreground read's re-read owns
+   * and clears the skeleton, and a background poll's re-read stays background,
+   * so a poll can never raise the skeleton by way of the basis handoff.
+   */
+  it('hands the skeleton to the one basis re-read, and never lets a poll raise it', () => {
+    const load = sliceCall(page, 'const load = useCallback(');
+    const loadPlayers = sliceCall(page, 'const loadPlayers = useCallback(');
+    expect(load).toContain(
+      "basisRereadRef.current.games = showSpinner ? 'foreground' : 'background';"
+    );
+    expect(loadPlayers).toContain(
+      "basisRereadRef.current.players = showSpinner ? 'foreground' : 'background';"
+    );
+    // basisReread is set only on the clamp branch, once per loader.
+    expect(load.match(/basisReread = true;/g)).toHaveLength(1);
+    expect(loadPlayers.match(/basisReread = true;/g)).toHaveLength(1);
+    const effect = sliceBetween(
+      page,
+      'const pending = basisRereadRef.current;',
+      'playersRef.current = players;'
+    );
+    expect(effect).toContain("if (pending.games === 'foreground') void loadRef.current(true);");
+    expect(effect).toContain(
+      "else if (pending.games === 'background') void loadRef.current(false, true);"
+    );
+    expect(effect).toContain(
+      "if (pending.players === 'foreground') void loadPlayersRef.current();"
+    );
+    expect(effect).toContain(
+      "else if (pending.players === 'background') void loadPlayersRef.current(true);"
+    );
+    expect(page).toContain(
+      'loadRef.current = (showSpinner: boolean, preserveOnError = false) =>\n    load(showSpinner, preserveOnError);'
+    );
+    expect(page).toContain(
+      'loadPlayersRef.current = (preserveOnError = false) => loadPlayers(preserveOnError);'
+    );
   });
 
   /**
@@ -428,8 +474,8 @@ describe('Club Data reporting stays inside the authenticated query budget', () =
   it('lets only a foreground request raise and clear the players skeleton', () => {
     const loadPlayers = sliceCall(page, 'const loadPlayers = useCallback(');
     expect(loadPlayers).toContain('playersSpinnerVersion.current = myVersion;');
-    expect(loadPlayers).toContain(
-      'if (!cancelledRef.current && showSpinner && playersSpinnerVersion.current === myVersion)'
+    expect(loadPlayers).toMatch(
+      /if \(\s*!cancelledRef\.current &&\s*showSpinner &&\s*playersSpinnerVersion\.current === myVersion &&\s*!basisReread\s*\)\s*\{\s*setPlayersLoading\(false\);/
     );
     expect(loadPlayers).toContain(
       'if (preserveOnError && playersReadInFlight.current !== null) return true;'
