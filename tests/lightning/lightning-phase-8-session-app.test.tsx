@@ -665,7 +665,7 @@ describe('the session summary', () => {
       p_limit: 50,
       p_pool_session_id: POOL,
     });
-    expect(screen.getByRole('button', { name: 'Share' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Copy Link' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Game Lobby' }));
     await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/'));
     expect(screen.queryByTestId('lightning-summary-host')).toBeNull();

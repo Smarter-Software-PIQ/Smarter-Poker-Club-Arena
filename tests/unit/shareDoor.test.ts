@@ -113,9 +113,12 @@ describe('shareFile', () => {
 });
 
 describe('tournamentShareUrl', () => {
-  it('is the routed tournament page on the public origin', () => {
-    expect(tournamentShareUrl('a b', 'https://smarter.poker')).toBe(
-      'https://smarter.poker/hub/club-arena/tournaments/a%20b'
+  it('is the tournament share page on the public origin (2026-11-15: /t/<id>)', () => {
+    // The World Hub's /t/<id> draws the event's own preview card and sends a
+    // signed-in player on to /hub/club-arena/tournaments/<id>.
+    expect(tournamentShareUrl('a b', 'https://smarter.poker')).toBe('https://smarter.poker/t/a%20b');
+    expect(tournamentShareUrl('1dcaedb6-f077-4192-9c34-f57b852b3cef', 'https://smarter.poker')).toBe(
+      'https://smarter.poker/t/1dcaedb6-f077-4192-9c34-f57b852b3cef'
     );
   });
 });

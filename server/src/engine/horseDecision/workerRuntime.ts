@@ -281,6 +281,11 @@ import {
   styleSwitchDecisionOpts,
 } from '../HorseStyleSwitch.js';
 import {
+  ABSENT_OPTION_SWITCH_SOURCE,
+  OptionSwitchHolder,
+  optionSwitchDecisionOpts,
+} from '../HorseOptionSwitch.js';
+import {
   clearStyleShadowEngaged,
   STYLE_READ_BUDGET_MS,
   STYLE_SHADOW_REDECIDE_BUDGET_MS,
@@ -321,6 +326,11 @@ export interface HorseDecisionWorkerDependencies {
    * absent source, so every option stays at its source default (off).
    */
   styleSwitch?: StyleSwitchHolder;
+  /**
+   * 2026-11-14 EVERY DECISION UPGRADE HAS A LIVE SWITCH: the switched values of the registered non-style options
+   * (HorseOptionSwitch). Absent: a holder over the absent source, so every option runs at its release default.
+   */
+  optionSwitch?: OptionSwitchHolder;
   admitFeatureAuthority?(): HorseAuthorityAdmission;
   /** v53PloTourneyIcm activation: the shipped tournament-flag selection only. */
   admitTournamentFlagAuthority?(): HorseTournamentFlagAdmission;
@@ -951,6 +961,13 @@ export class HorseDecisionWorkerRuntime {
       new StyleSwitchHolder(ABSENT_STYLE_SWITCH_SOURCE, (f) => this.deps.noteFeature(f)));
   }
   private styleSwitchHolder: StyleSwitchHolder | undefined;
+  /** 2026-11-14 (HorseOptionSwitch): nothing switched (every release default) unless a source is supplied. */
+  private get optionSwitch(): OptionSwitchHolder {
+    return (this.optionSwitchHolder ??=
+      this.deps.optionSwitch ??
+      new OptionSwitchHolder(ABSENT_OPTION_SWITCH_SOURCE, (f) => this.deps.noteFeature(f)));
+  }
+  private optionSwitchHolder: OptionSwitchHolder | undefined;
   private featureAuthorityAdmitted = false;
   private tournamentFlagAdmission: HorseTournamentFlagAdmission | null = null;
   /** v53PloTourneyIcm is worker-owned: on only inside an admitted card's
@@ -2980,6 +2997,11 @@ export class HorseDecisionWorkerRuntime {
     const styleStates = this.styleSwitch.refresh(performance.now());
     const styleOpts = styleSwitchDecisionOpts(styleStates, request.player.user_id, true);
     const styleBrainOpts = styleSwitchBrainOpts(styleOpts);
+    // EVERY DECISION UPGRADE HAS A LIVE SWITCH (2026-11-14): the registered non-style options that have a row, read
+    // once per decision on the same clock and journaled with the replay state. No row gives {}: the option key is
+    // not passed and the code default decides, exactly as before. The same for every Horse (no Horse id is read).
+    const optionStates = this.optionSwitch.refresh(performance.now());
+    const optionBrainOpts = optionSwitchDecisionOpts(optionStates);
     // P15-A step 4: the worker-owned state this decision reads besides its
     // request and read frame, journaled beside it for exact replay. Capture
     // only; the decision below reads the same values it always has.
@@ -2995,7 +3017,8 @@ export class HorseDecisionWorkerRuntime {
       liveHorsePhase8Safety.disabledReason,
       currentHorseDecisionRuntime(),
       horseCorrectiveReplayState(request.gameState, request.opts?.phase14, phase14.evaluator),
-      styleStates
+      styleStates,
+      optionStates
     );
     let phase14ObservationPrepared = false;
     // Evidence only: an admitted domain's decision that the kernel's declared
@@ -3020,6 +3043,7 @@ export class HorseDecisionWorkerRuntime {
             ...styleSwitchBrainOpts(
               styleSwitchDecisionOpts(styleStates, request.player.user_id, false)
             ),
+            ...optionBrainOpts,
             observeMind: true,
             mindObservationHand: horseMindHandFromDecision(request),
           }
@@ -3059,6 +3083,7 @@ export class HorseDecisionWorkerRuntime {
               ...features.flags,
               multiwayRiverBluffCheckRaise: features.flags.multiwayRiverBluffCheckRaise,
               ...styleBrainOpts,
+              ...optionBrainOpts,
               v53PloTourneyIcm: this.tournamentFlagOn(request),
               phase8Postflop: phase8Guard.selected ? phase8Guard.mode : phase8.mode,
               phase8PolicyFamily: phase8Guard.selected ? 'catastrophe_guard_v1' : 'continuation_v2',
@@ -3487,6 +3512,8 @@ export class HorseDecisionWorkerRuntime {
     // state (review 06968005 M1): a second look can run up to 60 s after the fast look that last refreshed, so
     // without this an option could act up to 180 s after deliveries stopped instead of the stated 120 s.
     const deepStyleStates = this.styleSwitch.refresh(performance.now());
+    // the second look refreshes and journals the switched non-style options too (same 120 s bound)
+    const deepOptionStates = this.optionSwitch.refresh(performance.now());
     const replayState = horseDecisionReplayState(
       {
         phase8Postflop: phase8Guard.selected ? phase8Guard.mode : phase8.mode,
@@ -3499,7 +3526,8 @@ export class HorseDecisionWorkerRuntime {
       liveHorsePhase8Safety.disabledReason,
       currentHorseDecisionRuntime(),
       horseCorrectiveReplayState(request.gameState, request.opts?.phase14, phase14.evaluator),
-      deepStyleStates
+      deepStyleStates,
+      deepOptionStates
     );
     // The latest worker stream is canonical. The second look borrows the fast
     // decision's starting point, then restores the canonical stream even if
@@ -3530,6 +3558,7 @@ export class HorseDecisionWorkerRuntime {
                   ...styleSwitchBrainOpts(
                     styleSwitchDecisionOpts(deepStyleStates, request.player.user_id, false)
                   ),
+                  ...optionSwitchDecisionOpts(deepOptionStates),
                   v53PloTourneyIcm: this.tournamentFlagOn(request),
                   phase8Postflop: phase8Guard.selected ? phase8Guard.mode : phase8.mode,
                   phase8PolicyFamily: phase8Guard.selected

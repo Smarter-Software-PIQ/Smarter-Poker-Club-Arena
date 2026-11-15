@@ -1,3 +1,4 @@
+import { useActionControllerSettings } from '../hooks/useActionControllerSettings';
 import { lightningJackpotAward } from '../lightning/lightningJackpotAward';
 import { lightningSeatKey } from '../lightning/lightningSeatKey';
 import { isRetiredTournamentTable } from '../lib/retiredTournamentVisibility';
@@ -1376,6 +1377,7 @@ interface TablePageProps {
      *  its Top Up items at a seat where they would do nothing (B12). */
     canAddFunds?: boolean;
     seatChangeEnabled?: boolean;
+    seatChangeOffInLightning?: boolean;
   }) => void;
   /** Whether this table is part of a multi-table session (hides own header if tab bar is shown) */
   isMultiTable?: boolean;
@@ -3767,6 +3769,7 @@ function LiveTablePage({
     nonce: number;
     open: boolean;
     amount?: number;
+    presetIndex?: number;
   }>({ nonce: 0, open: false });
   const openRaisePanel = useCallback((amount?: number) => {
     setRaiseIntent((prev) => ({ nonce: prev.nonce + 1, open: true, amount }));
@@ -6354,6 +6357,13 @@ function LiveTablePage({
   const [tournamentEventName, setTournamentEventName] = useState('');
   /* Dan 2026-11-05: the line under the event name says what KIND of event it
      is (PKO Event, Mystery Bounty Event, ...). See utils/tournamentTypeLabel. */
+  const [shoveOrFoldTable, setShoveOrFoldTable] = useState<string | null>(null);
+  const shoveOrFold = Boolean(tableId && shoveOrFoldTable === tableId);
+  const explainShoveOrFold = useCallback(() => {
+    setActionErrorData({
+      error: 'This is an All In or Fold tournament. You can only press All In or Fold.',
+    });
+  }, []);
   const [tournamentTypeLine, setTournamentTypeLine] = useState<string | null>(null);
   const headsUpAnnouncedRef = useRef<Set<string>>(new Set());
   const finalTableAnnouncedRef = useRef<Set<string>>(new Set());
@@ -10414,6 +10424,7 @@ function LiveTablePage({
   observePublicEventRef.current = observePublicEvent;
 
   // User settings with persistence
+  const { settings: actionControllerSettings } = useActionControllerSettings();
   const { settings: userSettings, updateSetting } = useTableSettings();
   const userSettingsRef = useRef(userSettings);
   useEffect(() => {
@@ -15392,6 +15403,7 @@ function LiveTablePage({
          same courtesy: up to five attempts, 1s/2s/4s/8s backoff, stopping
          the moment the component unmounts or data lands. */
       type TableBootstrapRow = {
+        all_in_or_fold?: boolean;
         id: string;
         name: string | null;
         game_variant: string | null;
@@ -15457,7 +15469,7 @@ function LiveTablePage({
         const res = await supabase
           .from('tables')
           .select(
-            'id, union_id, arena:clubs!fk_tables_club_id(id, asset, is_platform, union_id), name, game_variant, game_type, tournament_id, stakes, small_blind, big_blind, max_players, club_id, settings, min_buy_in, max_buy_in, straddle_enabled, bomb_pot_enabled, bomb_pot_frequency, bomb_pot_ante_multiplier, bomb_pot_double_board, bomb_pot_board_count, bomb_pot_trigger_mode, bomb_pot_interval_seconds, bomb_pot_variant, bomb_pot_announce_seconds, bomb_pot_ante_fixed, bomb_pot_min_players, bomb_pot_button_policy, cluster_id, nit_game, maintain_percent_min, maintain_hands'
+            'id, union_id, arena:clubs!fk_tables_club_id(id, asset, is_platform, union_id), name, game_variant, game_type, tournament_id, all_in_or_fold, stakes, small_blind, big_blind, max_players, club_id, settings, min_buy_in, max_buy_in, straddle_enabled, bomb_pot_enabled, bomb_pot_frequency, bomb_pot_ante_multiplier, bomb_pot_double_board, bomb_pot_board_count, bomb_pot_trigger_mode, bomb_pot_interval_seconds, bomb_pot_variant, bomb_pot_announce_seconds, bomb_pot_ante_fixed, bomb_pot_min_players, bomb_pot_button_policy, cluster_id, nit_game, maintain_percent_min, maintain_hands'
           )
           .eq('id', tableId)
           .maybeSingle();
@@ -15538,6 +15550,7 @@ function LiveTablePage({
       if (isMounted) setTableLoadFailure(null);
 
       if (table && !error) {
+        setShoveOrFoldTable(table.tournament_id && table.all_in_or_fold ? table.id : null);
         let arenaIdentity;
         try {
           arenaIdentity = parseTableArenaIdentity(table);
@@ -16059,6 +16072,7 @@ function LiveTablePage({
               tournamentId: table.tournament_id,
             });
           }
+          setShoveOrFoldTable(table.all_in_or_fold || tournData?.all_in_or_fold ? table.id : null);
           loadedTournamentStatus = typeof tournData?.status === 'string' ? tournData.status : null;
           const satelliteTarget = tournData?.satellite_target_id ?? tournData?.satellite_target;
           loadedSatelliteTarget =
@@ -26657,6 +26671,7 @@ function LiveTablePage({
      the players, so it is not being done inside a sweep. */
 
   const handleRaise = () => {
+    if (shoveOrFold) return explainShoveOrFold();
     openRaisePanel();
   };
 
@@ -26689,6 +26704,7 @@ function LiveTablePage({
   //Server is authoritative — all actions go through submitAction
   const handleActionPanelAction = useCallback(
     async (action: 'fold' | 'check' | 'call' | 'raise' | 'allin', amount?: number) => {
+      if (shoveOrFold && action !== 'fold' && action !== 'allin') return explainShoveOrFold();
       if (lightningRoomRef.current) {
         const onFelt = lightningDecisionKey(
           tableId,
@@ -26901,6 +26917,8 @@ function LiveTablePage({
       tableId,
       userId,
       submitActionWithToast,
+      shoveOrFold,
+      explainShoveOrFold,
       renderedLightningDecision,
       applyOptimisticHeroAction,
     ]
@@ -26965,7 +26983,7 @@ function LiveTablePage({
        on a table where hero had no hand. That is the identical false-trigger the
        note on isHeroTurnContext documents. */
     isHeroTurn: isHeroTurnContext && heroDecisionReady,
-    isSizingOpen: raiseIntent.open,
+    isSizingOpen: raisePanelOpen,
     isSpectator: !heroAtTable,
     isModalOpen:
       !!tournamentWinner ||
@@ -27020,13 +27038,12 @@ function LiveTablePage({
     onToggleSound: () => setIsSoundEnabled(!isSoundEnabled),
     // FIX 199: onToggleHandStrength REMOVED — not allowed for live online gameplay
     onBetPreset: (preset: number) => {
-      // Bet presets: 0=1/3 pot, 1=1/2 pot, 2=3/4 pot, 3=pot
-      //Use tableState.pot instead of local engine state
-      const pot = tableState.pot || 0;
-      const fractions = [1 / 3, 1 / 2, 3 / 4, 1];
-      const fraction = fractions[preset] ?? 0.5;
-      const betAmount = Math.max(safeBB(tableState.blinds), Math.round(pot * fraction * 100) / 100);
-      openRaisePanel(betAmount);
+      if (shoveOrFold) return explainShoveOrFold();
+      setRaiseIntent((previous) => ({
+        nonce: previous.nonce + 1,
+        open: true,
+        presetIndex: preset,
+      }));
     },
     onClosePanel: () => {
       // Escape key → close ALL open modals/overlays
@@ -27209,14 +27226,29 @@ function LiveTablePage({
 
   // A feeder can still deal ordinary hands while its Lightning switch is on.
   // Wait for a confirmed Classic answer before offering a table change.
+  /* NOT AT A TOURNAMENT (2026-11-15). The switch only shows or hides the
+     must-move Seat Change button, which exists at cash cluster tables alone.
+     At a tournament table it flipped a preference that changed nothing on the
+     screen: the silent button Dan reported. Tournament seats are assigned, so
+     the row is not offered there at all. */
   const seatChangeEnabled =
+    !tableState.isTournament &&
     !lightningRoom &&
     !lightningObserver &&
     (!tableState.clusterId ||
       (tableGameLightningState != null && isClassicLobbyState(tableGameLightningState)));
+  /* Off BECAUSE it is Lightning, as opposed to off while the table's mode is
+     still unknown. The menu names the first and hides the second. */
+  const seatChangeOffInLightning =
+    !seatChangeEnabled &&
+    (lightningRoom !== null ||
+      lightningObserver ||
+      (!!tableState.clusterId &&
+        tableGameLightningState != null &&
+        !isClassicLobbyState(tableGameLightningState)));
   useEffect(() => {
-    onTableInfoUpdate?.({ seatChangeEnabled });
-  }, [onTableInfoUpdate, seatChangeEnabled]);
+    onTableInfoUpdate?.({ seatChangeEnabled, seatChangeOffInLightning });
+  }, [onTableInfoUpdate, seatChangeEnabled, seatChangeOffInLightning]);
 
   const leaveNextHand = useLeaveTableNextHand({
     userId: userId === 'guest' ? '' : (userId ?? ''),
@@ -30771,7 +30803,8 @@ function LiveTablePage({
                       setSelectedPlayerForNotes(
                         displayPlayer ? { id: displayPlayer.id, name: displayPlayer.name } : null
                       );
-                      if (v8Settings.emoji_enabled) setShowThrowableSelector(true);
+                      if (v8Settings.emoji_enabled || !tableState.tournamentId)
+                        setShowThrowableSelector(true);
                       else if (displayPlayer) setShowPlayerNotes(true);
                     }
                   }}
@@ -31709,6 +31742,8 @@ function LiveTablePage({
                           moved on 2026-08-26 and this line was corrected on
                           2026-08-27.) */}
                       <ActionPanel
+                        controllerSettings={actionControllerSettings}
+                        maxPlayers={tableState.maxPlayers}
                         onRaiseModeChange={setRaisePanelOpen}
                         canFold={true}
                         canCheck={callAmount === 0}
@@ -31759,6 +31794,7 @@ function LiveTablePage({
                            clamped to minRaise and 2X/3X/4X/5X produced the
                            same number. See ActionPanel presets. */
                         currentBet={serverCurrentBet}
+                        shoveOrFold={shoveOrFold}
                         onAction={handleActionPanelAction}
                         /* The documented R / E hotkey and the 1/2/3/4 pot-fraction
                            keys arrive here. Before 2026-08-20 they set a
@@ -31920,6 +31956,8 @@ function LiveTablePage({
                         ? lightningOwes <= 0
                         : (tableState.currentBet || 0) <=
                           (tableState.lastBetAmounts?.[tableState.heroSeat - 1] || 0);
+                    if (shoveOrFold && next && (next !== 'fold' || heroOwesNothing))
+                      return explainShoveOrFold();
                     if (lightningRoom && next === 'fold' && !heroOwesNothing) {
                       void handleLightningFold('fast_fold');
                       return;
@@ -32364,6 +32402,7 @@ function LiveTablePage({
         }}
       />
       <TableModalsLayer
+        cashStatsClusterId={lightningRoom?.clusterId}
         isActive={isActive}
         /* THE DIAMONDS-TO-CHIPS DOOR (Dan 2026-09-10). The club the player
            came in through, never the union that hosts the table: membership,

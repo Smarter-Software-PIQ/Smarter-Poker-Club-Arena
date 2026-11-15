@@ -438,6 +438,8 @@ export function SpadeConsole({
   className = '',
   as: Tag = 'section',
   onClose,
+  closeDisabled,
+  closeLabel = 'Close',
   ...rest
 }: {
   eyebrow?: string;
@@ -477,6 +479,8 @@ export function SpadeConsole({
    * and prints nothing.
    */
   onClose?: () => void;
+  closeDisabled?: boolean;
+  closeLabel?: string;
   /**
    * DOM passthrough, NOT an escape hatch (2026-09-11). This was
    * `& Record<string, unknown>`, which accepted any prop at all: on
@@ -545,7 +549,8 @@ export function SpadeConsole({
             type="button"
             className="sc__close sc-ink--silver"
             onClick={onClose}
-            aria-label="Close"
+            disabled={closeDisabled}
+            aria-label={closeLabel}
             data-testid="sc-close"
             style={zonePct(head.close, W, TOP_H)}
           >
