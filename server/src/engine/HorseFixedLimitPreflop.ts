@@ -35,9 +35,11 @@
  *     the old bars made are unchanged (3-bet and cap ranges unchanged).
  *
  * Everything else (3-bets, 4-bets, caps, cold calls, limped pots, the big
- * blind's option) is the old code. A tournament stack of 20 big blinds or
- * less keeps its old answer (the short-stack logic is unchanged). No-limit
- * and pot-limit never reach this module.
+ * blind's option) is the old code. CASH TABLES ONLY (2026-11-15, Fixed-Limit
+ * lane owner): HorseLogic builds neither context at a tournament table
+ * (isTournamentMode), so a fixed-limit tournament decides exactly as with
+ * both options off until a separately evaluated tournament option exists.
+ * No-limit and pot-limit never reach this module.
  *
  * fixedLimitStealVsTightBlinds (read `=== true`): first in from the cutoff,
  * the button or the small blind (at most three players behind, or the

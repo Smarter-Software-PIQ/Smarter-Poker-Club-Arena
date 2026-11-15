@@ -31,3 +31,9 @@ No evaluation: the league deals no fixed limit (refused matchups `flh_priced_pre
 - Both options are registered in the Horse option switch (release default OFF, owner Fixed-Limit), shipped as the follow-up list migration `20261115212312_horse_option_switch_fixed_limit_preflop.sql`. `fixedLimitStealVsTightBlinds` is off-only by the existing steal hold. Registering changes no decision: with no row every Horse decides as before.
 - `docs/horse-default-on.d/fixedLimitPricedPreflop.md` records the eight evidence rows for switching `fixedLimitPricedPreflop` on by a row after review. Value is measured for unfloored cash tables only; floored tables and tournaments are not yet evaluated.
 - `HorseOptionSwitchMigrationLists.test.ts` (a) now compares the newest list migration to the registry (the same edit as the Fixed-Limit F1 live-switch head), so a first follow-up does not fail it.
+
+## Cash tables only (2026-11-15, Fixed-Limit lane owner)
+
+- Both options now act at cash tables only. HorseLogic gates the priced first in, the blind defence, the pack precedence and the steal on `isTournamentMode`, the cash/tournament test the rest of HorseLogic uses. A fixed-limit tournament table decides exactly as before with either option on, until a separately evaluated tournament option exists. Reason: the paired evaluation's fixed-limit hold'em six-seat tournament cell against a maniac was significantly negative, 0.15 big bets per 100 hands inside the harm line.
+- Law (`AFixedLimitPreflopIsPriced.law.test.ts`, "cash tables only"): at flh and flo8 tournament tables every first-in and big-blind decision with the option on equals off and no W5 receipt fires; on the same spots at cash tables the option still acts.
+- Cash decisions are unchanged by the gate (same seeds, both heads, every action identical).

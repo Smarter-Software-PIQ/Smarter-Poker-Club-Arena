@@ -21,6 +21,11 @@
  *    priced reference in fixed limit (FL-PRE-02), and only there.
  * Off (absent or false) is the old answer; no-limit and pot-limit decisions
  * are identical with the option on.
+ *
+ * CASH TABLES ONLY (2026-11-15, Fixed-Limit lane owner, after AB-EVALUATION-2
+ * 3.6): at a fixed-limit tournament table the option, and the steal with it,
+ * is inert (every first-in and big-blind decision equals off, no W5 receipt
+ * fires); at cash tables on the same spots and seeds it still acts.
  */
 import { describe, expect, it } from 'vitest';
 import type { Card } from '../types.js';
@@ -536,5 +541,105 @@ describe('2026-11-15 fix: the pack big blind defended rule is not held for the r
       }
       expect(found).toBeGreaterThan(0);
     });
+  }
+});
+
+// ─── CASH ONLY (2026-11-15, Fixed-Limit lane owner, after AB-EVALUATION-2 3.6) ───
+// "Separate cash and tournament policy": the option was evaluated for cash; a
+// fixed-limit tournament table keeps today's answer until a separately
+// evaluated tournament option exists. HorseLogic gates both W5 contexts and the
+// pack precedence on isTournamentMode (the shared cash/tournament test).
+// Stacks are 100 big blinds, so the short-stack rule (20 big blinds or less)
+// is not what keeps a tournament decision unchanged.
+function fmtTable(variant: string, fmt: 'cash' | 'tournament', n: number, seed: number): Table {
+  return deal({ variant, fmt, stacks: Array(n).fill(200), rnd: lcg(seed) });
+}
+
+/** The P spots: six-max first in UTG to small blind, the heads-up button, the big blind facing one raise. */
+function cashOnlySpots(variant: string, fmt: 'cash' | 'tournament', i: number) {
+  const spots: { label: string; t: Table }[] = [];
+  for (const seat of [4, 5, 6, 1, 2]) {
+    const t = fmtTable(variant, fmt, 6, 13000 + i * 7 + seat);
+    foldTo(t, seat);
+    spots.push({ label: `first in seat ${seat} of 6`, t });
+  }
+  const hu = fmtTable(variant, fmt, 2, 14000 + i);
+  foldTo(hu, 1);
+  spots.push({ label: 'heads-up button first in', t: hu });
+  for (const n of [6, 2]) {
+    const t = fmtTable(variant, fmt, n, 15000 + i * 3 + n);
+    foldTo(t, 1);
+    t.controller.performAction(1, 'raise', menuOf(t).minRaiseTo ?? undefined, 'player');
+    if (n > 2) t.controller.performAction(2, 'fold', undefined, 'player');
+    expect(t.controller.getCurrentPlayer()!.seat).toBe(n > 2 ? 3 : 2);
+    spots.push({ label: n > 2 ? 'big blind vs the button' : 'heads-up big blind', t });
+  }
+  return spots;
+}
+
+const W5_FIRES = /^fixed_limit_(priced|steal)|fixed_limit_priced_retains/;
+const CASH_ONLY_DEALS = 60;
+
+describe('cash tables only: at a fixed-limit tournament table the option is inert', () => {
+  for (const variant of VARIANTS) {
+    it(`${variant} tournament: every first-in and big-blind decision with the option on (and with the steal too) equals off, and no W5 receipt fires`, () => {
+      enableBrainTelemetry();
+      let n = 0;
+      for (let i = 0; i < CASH_ONLY_DEALS; i++) {
+        for (const { label, t } of cashOnlySpots(variant, 'tournament', i)) {
+          const seed = 16000 + i;
+          const off = decide(t, seed, { telemetry: true }).d;
+          drainFires();
+          const on = decide(t, seed, { ...ON, telemetry: true }).d;
+          const fired = drainFires().filter((f) => W5_FIRES.test(f.feature));
+          const both = decide(t, seed, {
+            fixedLimitPricedPreflop: true,
+            fixedLimitStealVsTightBlinds: true,
+            telemetry: true,
+          }).d;
+          const firedBoth = drainFires().filter((f) => W5_FIRES.test(f.feature));
+          expect(pick(on), `${variant} ${label} deal ${i}`).toEqual(pick(off));
+          expect(pick(both), `${variant} ${label} deal ${i} (steal too)`).toEqual(pick(off));
+          expect(
+            fired.map((f) => f.feature),
+            `${variant} ${label} deal ${i}`
+          ).toEqual([]);
+          expect(
+            firedBoth.map((f) => f.feature),
+            `${variant} ${label} deal ${i}`
+          ).toEqual([]);
+          n++;
+        }
+      }
+      expect(n).toBe(CASH_ONLY_DEALS * 8);
+    }, 240_000);
+  }
+
+  for (const variant of VARIANTS) {
+    it(`${variant} cash, the same spots and seeds: the option still acts (first in and the big blind) and its receipts fire`, () => {
+      enableBrainTelemetry();
+      let changedFirstIn = 0;
+      let changedBlind = 0;
+      let firstInFires = 0;
+      let defenceFires = 0;
+      for (let i = 0; i < CASH_ONLY_DEALS; i++) {
+        for (const { label, t } of cashOnlySpots(variant, 'cash', i)) {
+          const seed = 16000 + i;
+          const off = decide(t, seed, { telemetry: true }).d;
+          drainFires();
+          const on = decide(t, seed, { ...ON, telemetry: true }).d;
+          const fired = drainFires().map((f) => f.feature);
+          if (fired.includes('fixed_limit_priced_first_in')) firstInFires++;
+          if (fired.includes('fixed_limit_priced_blind_defence')) defenceFires++;
+          const changed = on.action !== off.action;
+          if (changed && label.includes('big blind')) changedBlind++;
+          else if (changed) changedFirstIn++;
+        }
+      }
+      expect(changedFirstIn, `${variant} first-in decisions changed`).toBeGreaterThan(0);
+      expect(changedBlind, `${variant} big-blind decisions changed`).toBeGreaterThan(0);
+      expect(firstInFires).toBeGreaterThan(0);
+      expect(defenceFires).toBeGreaterThan(0);
+    }, 240_000);
   }
 });

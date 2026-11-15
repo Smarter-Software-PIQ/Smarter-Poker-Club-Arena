@@ -7320,7 +7320,10 @@ export class HorseLogic {
               phase12DecisionEquityCeiling ?? 1,
               true,
               readStation,
-              opts.fixedLimitPricedPreflop === true && vi.isFixedLimit === true
+              // W5 cash only: a fixed-limit tournament table keeps today's pack (isTournamentMode)
+              opts.fixedLimitPricedPreflop === true &&
+                vi.isFixedLimit === true &&
+                !isTournamentMode(gs)
             )
           : null;
       if (phase12) {
@@ -9688,8 +9691,11 @@ export class HorseLogic {
     }
 
     // ═══ FIXED-LIMIT PRICED PREFLOP / STEAL VS TIGHT BLINDS (W5, default off) ═══
-    // HorseFixedLimitPreflop: fixed limit only, never in a bomb pot, a
-    // straddled pot or All-In-Or-Fold. The reads are the players still to act
+    // HorseFixedLimitPreflop: fixed limit only, CASH only (a fixed-limit
+    // tournament table plays exactly as before: no separately evaluated
+    // tournament policy exists; same isTournamentMode test as every other
+    // cash/tournament split here), never in a bomb pot, a straddled pot or
+    // All-In-Or-Fold. The reads are the players still to act
     // (folded and sitting-out players are not), each its own exploit read.
     let fixedLimitPriced: FixedLimitPricedCtx | undefined;
     let fixedLimitStealOpenWiden: number | undefined;
@@ -9704,6 +9710,7 @@ export class HorseLogic {
       : null;
     if (
       flVariant !== null &&
+      !isTournamentMode(gs) &&
       (opts.fixedLimitPricedPreflop === true || opts.fixedLimitStealVsTightBlinds === true) &&
       gs.bombPot !== true &&
       gs.allInOrFold !== true &&
