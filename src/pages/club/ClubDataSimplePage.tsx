@@ -48,6 +48,7 @@ import { reportError } from '../../utils/errorReporter';
 import styles from './ClubDataSimplePage.module.css';
 import { clubDataRangeDays, clubDataRangeError } from '../../lib/clubDataRange';
 import ClubDataTotalsBreakdown from './ClubDataTotalsBreakdown';
+import ClubDataByClub, { isClubRows, type ClubDataClubRow } from './ClubDataByClub';
 import { useClubGameHost } from '../../hooks/useClubGameHost';
 import { usePageTitle } from '../../hooks/usePageTitle';
 import { ClubRosterService, type RosterMember } from '../../services/ClubRosterService';
@@ -142,6 +143,8 @@ interface Snapshot {
   accounting_coverage?: ClubDataCoverage | null;
   /** First day the per-club facts cover. */
   facts_from?: string | null;
+  /** The union's own answer only (20261115205153): each club's and the union account's figures. */
+  clubs?: ClubDataClubRow[];
 }
 
 const PRESETS: Preset[] = [1, 7, 14];
@@ -240,7 +243,8 @@ export function isSnapshot(value: unknown): value is Snapshot {
     ['games', 'total_winnings', 'mtt_winnings', 'fee'].every((k) =>
       Number.isFinite(Number(s[k]))
     ) &&
-    Array.isArray(v.rows)
+    Array.isArray(v.rows) &&
+    (v.clubs === undefined || isClubRows(v.clubs))
   );
 }
 
@@ -829,6 +833,9 @@ export default function ClubDataSimplePage() {
           </dd>
         </div>
       </dl>
+      {visibleSnapshot?.reporting_scope === 'union' && visibleSnapshot.clubs && (
+        <ClubDataByClub clubs={visibleSnapshot.clubs} end={endDate} start={customStart} />
+      )}
       {breakdown && visibleSnapshot && clubUuid && userId && (
         <ClubDataTotalsBreakdown
           key={scopeKey}
