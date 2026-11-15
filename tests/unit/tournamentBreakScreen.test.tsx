@@ -106,14 +106,15 @@ describe('the tournament break card', () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     vi.stubGlobal('navigator', { clipboard: { writeText } });
     render(<TournamentBreakScreen {...props} tournamentId="share-event" />);
+    // No share sheet: the button is worded for what the tap does (2026-11-15).
     await act(async () =>
-      fireEvent.click(screen.getByRole('button', { name: 'Share Tournament' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Copy Tournament Link' }))
     );
     expect(writeText).toHaveBeenCalledWith(expect.stringMatching(/tournaments\/share-event$/));
     expect(screen.getByRole('alert')).toHaveTextContent('Tournament Link Copied');
     writeText.mockRejectedValue(new Error('Denied'));
     await act(async () =>
-      fireEvent.click(screen.getByRole('button', { name: 'Share Tournament' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Copy Tournament Link' }))
     );
     expect(screen.getByRole('alert')).toHaveTextContent('Could Not Share Tournament');
   });
