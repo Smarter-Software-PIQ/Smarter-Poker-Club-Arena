@@ -110,17 +110,19 @@ DO $guard$ BEGIN
 END $guard$;
 
 -- ---------------------------------------------------------------------------
--- 1. The accounting day: 02:00 to 02:00 America/Chicago.
+-- 1. The accounting day: 02:00 to 02:00 America/Chicago. STABLE, not
+--    IMMUTABLE: the answer depends on the server's time zone rules, which a
+--    tzdata update can change, so no index or stored value may freeze it.
 -- ---------------------------------------------------------------------------
 CREATE FUNCTION public.fn_ca_accounting_day(p_at timestamptz)
-RETURNS date LANGUAGE sql IMMUTABLE PARALLEL SAFE SET search_path = public AS $function$
+RETURNS date LANGUAGE sql STABLE PARALLEL SAFE SET search_path = public AS $function$
   SELECT ((p_at AT TIME ZONE 'America/Chicago') - interval '2 hours')::date;
 $function$;
 COMMENT ON FUNCTION public.fn_ca_accounting_day(timestamptz) IS
   'The Club Data accounting day of an instant: 02:00 to 02:00 America/Chicago, daylight saving included. Monday''s day starts at fn_union_week_start, the union weekly invoice boundary.';
 
 CREATE FUNCTION public.fn_ca_accounting_day_start(p_day date)
-RETURNS timestamptz LANGUAGE sql IMMUTABLE PARALLEL SAFE SET search_path = public AS $function$
+RETURNS timestamptz LANGUAGE sql STABLE PARALLEL SAFE SET search_path = public AS $function$
   SELECT (p_day::timestamp + interval '2 hours') AT TIME ZONE 'America/Chicago';
 $function$;
 COMMENT ON FUNCTION public.fn_ca_accounting_day_start(date) IS

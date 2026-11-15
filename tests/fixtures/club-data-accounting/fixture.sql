@@ -2,7 +2,7 @@
 -- Loaded after tests/fixtures/club-data-union-weeks/fixture.sql (clubs, union,
 -- fn_union_week_start) and 20261114235606 (the accounting day).
 --
--- The source tables carry the production columns 20261115004729 reads
+-- The source tables carry the production columns 20261115020010 reads
 -- (information_schema, 2026-11-15). The invoice's own helper functions are
 -- stand-ins with the same signatures and a deterministic, documented effect,
 -- so the scenario can prove the projection calls each one where the invoice
@@ -55,6 +55,33 @@ CREATE TABLE public.accounting_close_certificates (
   kind text, union_id uuid, period_start timestamptz, period_end timestamptz, value jsonb,
   certified_at timestamptz DEFAULT now(), PRIMARY KEY (kind, union_id, period_start, period_end));
 CREATE TABLE public.fixture_launch_cutoffs (club_id uuid PRIMARY KEY, cutoff_at timestamptz);
+-- The receipts that own a tournament flow (production columns, 2026-11-15).
+CREATE TABLE public.tournament_participant_funding_receipts (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), transaction_id xid8 DEFAULT pg_current_xact_id(), tournament_id uuid,
+  user_id uuid, asset text, amount numeric, ledger_id uuid UNIQUE, funding_club_id uuid);
+CREATE TABLE public.tournament_accounting_credit_receipts (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), transaction_id xid8 DEFAULT pg_current_xact_id(), tournament_id uuid,
+  user_id uuid, asset text, amount numeric, ledger_id uuid UNIQUE, credited_club_id uuid);
+CREATE TABLE public.tournament_refund_tranches (
+  tournament_id uuid, user_id uuid, source_wallet_club_id uuid, credit_ledger_id uuid UNIQUE, amount_paid_now numeric,
+  transaction_id xid8 DEFAULT pg_current_xact_id());
+CREATE TABLE public.tournament_refund_entitlements (
+  id uuid PRIMARY KEY, tournament_id uuid, user_id uuid, entitlement_kind text, refund_wallet_club_id uuid, gross numeric,
+  registration_id uuid);
+-- Satellite seat owner: the seat's funding club, from a fixture table.
+CREATE TABLE public.fixture_satellite_seat_owners (registration_id uuid PRIMARY KEY, club_id uuid);
+CREATE FUNCTION public.fn_union_pnl_satellite_seat_owner(p_registration uuid, p_tournament uuid)
+RETURNS uuid LANGUAGE sql STABLE AS
+$$ SELECT o.club_id FROM public.fixture_satellite_seat_owners o WHERE o.registration_id = p_registration $$;
+-- When each issued invoice was created (production's created_at for the two
+-- weeks the base fixture issues: 2026-11-10 16:05 for the week ending at the
+-- 2026-11-02 boundary, 2026-11-11 09:05 for the week starting at it).
+ALTER TABLE public.settlement_invoices ADD COLUMN created_at timestamptz NOT NULL DEFAULT now();
+UPDATE public.settlement_invoices si SET created_at = CASE sp.start_at
+    WHEN '2026-11-02 08:00+00' THEN timestamptz '2026-11-11 09:05:00.200977+00'
+    WHEN '2026-10-26 07:00+00' THEN timestamptz '2026-11-10 16:05:00.183995+00'
+    ELSE timestamptz '2026-10-27 00:00+00' END
+  FROM public.settlement_periods sp WHERE sp.id = si.period_id;
 
 -- Stand-ins (same signatures as production).
 CREATE FUNCTION public.fn_ca_launch_accounting_club_cutoffs()

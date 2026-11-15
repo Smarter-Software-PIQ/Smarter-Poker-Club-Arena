@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
-"""Native qualification of 20261115004729 and 20261115010436. No production access.
+"""Native qualification of 20261115020010 and 20261115020011. No production access.
 
 Club Data's accounting read model carries the union invoice's own records,
 keyed by the 02:00 America/Chicago accounting day: the live projection writes
-every source row inserted after the cutover (src 0), a day load writes the
-whole day minus src 0 in one snapshot (src 1), the pnl_boundary certificates
-the deferred entries (src 2), and nothing is counted twice, whenever a row
-was inserted relative to the cutover or a load.
+every source row inserted after the cutover (src 0, aggregate rows under a
+try-lock or insert-only journal rows), a day load writes the whole day minus
+the src 0 aggregate in one snapshot and folds the day's journal (src 1), the
+kept pnl_boundary certificates the deferred entries in the version each
+week's invoice used (src 2), and nothing is counted twice, whenever a row
+was inserted relative to the cutover or a load. Two sessions prove that a
+live write never waits on another's projection row and that a load beside
+live commits counts each hand once.
 Run as an unprivileged user (initdb refuses root).
 """
 import os
@@ -14,13 +18,15 @@ import shutil
 import socket
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 M = ROOT / "supabase/migrations"
 WEEKS = M / "20261114235606_club_data_reads_the_union_invoice_week.sql"
-MODEL = M / "20261115004729_club_data_accounting_read_model.sql"
-LIVE = M / "20261115010436_club_data_accounting_read_model_goes_live.sql"
+CAPTURE = M / "20261115015159_union_pnl_boundary_certificates_are_kept.sql"
+MODEL = M / "20261115020010_club_data_accounting_read_model.sql"
+LIVE = M / "20261115020011_club_data_accounting_read_model_goes_live.sql"
 BASE = ROOT / "tests/fixtures/club-data-union-weeks/fixture.sql"
 FIX = ROOT / "tests/fixtures/club-data-accounting"
 PG = Path(os.environ.get("PG_BIN") or next((p for p in ("/usr/lib/postgresql/17/bin", "/usr/lib/postgresql/16/bin",
@@ -87,6 +93,7 @@ try:
     run(psql("live"), BASE.read_text())
     run(psql("live"), WEEKS.read_text())
     run(psql("live"), (FIX / "fixture.sql").read_text())
+    run(psql("live"), CAPTURE.read_text())
     model, live = MODEL.read_text(), LIVE.read_text()
 
     run(psql("live"), live, expect_fail="CLUB_ACCT_PREREQUISITE_MISSING")
@@ -96,11 +103,13 @@ try:
     run(psql("live"), model)
     run(psql("live"), model, expect_fail="already installed")
     run(psql("live"), load("2026-11-02"), expect_fail="waits for the live projection")
-    require(q("live", "SELECT count(*) FROM pg_trigger WHERE tgname LIKE 'ca_club_acct_%'") == "0",
-            "the read model alone attaches nothing to a money table")
+    require(q("live", "SELECT string_agg(tgrelid::regclass || '.' || tgname, ',') FROM pg_trigger WHERE tgname LIKE 'ca_club_acct_%'")
+            == "ca_union_pnl_boundary_capture.ca_club_acct_boundary",
+            "the read model alone attaches nothing to a money table (only the boundary loader to the kept certificates)")
 
     run(psql("live"), (FIX / "pre.sql").read_text())
-    require(q("live", "SELECT count(*) FROM ca_club_acct_fact") == "0", "nothing projects before the cutover")
+    require(q("live", "SELECT count(*) FILTER (WHERE src <> 2) || '/' || count(*) FILTER (WHERE src = 2) FROM ca_club_acct_fact") == "0/3",
+            "nothing projects before the cutover except the kept boundaries, which load themselves")
     run(psql("live"), live)
     run(psql("live"), live, expect_fail="CLUB_ACCT_ALREADY_LIVE")
     require(q("live", "SELECT count(*) FROM pg_trigger WHERE tgname LIKE 'ca_club_acct_%' AND NOT tgisinternal") == "9",
@@ -127,6 +136,91 @@ try:
             "loading the day again marks its recorded failure resolved")
     p = run(psql("live"), (FIX / "check.sql").read_text())
     require("PASSED" in p.stdout + p.stderr, "the figures hold after the rebuild")
+
+    # Two sessions. Hands on a fresh accounting day (2026-11-04), each in its
+    # own transaction, K u1 +1 and F u2 -1 at table T1, as production writes them.
+    def hand(n):
+        return ("INSERT INTO union_pnl_cash_outcomes (table_id, hand_number, hand_id, recognized_at, payload_hash, game_scope, evidence) "
+                f"VALUES ('c0000000-0000-0000-0000-000000000001', {n}, gen_random_uuid(), '2026-11-04 12:00+00', 'c{n}', "
+                "'{\"game_union_id\": \"fade0000-0000-0000-0000-000000000001\"}', '{\"status\": \"ready\"}'); "
+                "INSERT INTO union_pnl_cash_outcome_touches VALUES ('c0000000-0000-0000-0000-000000000001', "
+                f"{n}, '2026-11-04 12:00+00', 'fade0000-0000-0000-0000-000000000001', false, '0', "
+                "'[{\"earning_club_id\": \"a41434bb-8d0c-400a-8f0d-e8b3d65afed4\", \"user_id\": \"11111111-0000-0000-0000-000000000001\", \"observed_stack_delta\": 1}, "
+                "{\"earning_club_id\": \"a0000000-0000-0000-0000-000000000001\", \"user_id\": \"11111111-0000-0000-0000-000000000002\", \"observed_stack_delta\": -1}]'); ")
+
+    def background():
+        return subprocess.Popen(psql("live"), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                text=True, env=ENV)
+
+    def finish(proc, sql):
+        out, err = proc.communicate(sql, timeout=120)
+        if proc.returncode:
+            raise RuntimeError(out[-2000:] + err[-2000:])
+        return out
+
+    # (1) Session A commits hand 10 and holds its transaction open; session B
+    # commits hand 11 on the same projection rows meanwhile. B must not wait:
+    # it journals, and A keeps its aggregate rows.
+    a = background()
+    a_sql = ("BEGIN; " + hand(10) +
+             "SELECT 'locks:' || count(*) FILTER (WHERE objsubid = 1) || ':' || count(*) FILTER (WHERE objsubid <> 1) "
+             "FROM pg_locks WHERE locktype = 'advisory' AND pid = pg_backend_pid(); SELECT pg_sleep(4); COMMIT;\n")
+    a.stdin.write(a_sql)
+    a.stdin.flush()
+    time.sleep(1.0)
+    t0 = time.monotonic()
+    run(psql("live"), hand(11))
+    waited = time.monotonic() - t0
+    a_out = finish(a, "")
+    require(waited < 2.0 and a.returncode == 0,
+            f"a live write beside another open projection of the same rows never waits ({waited:.2f} s)")
+    held = [l for l in a_out.splitlines() if l.startswith("locks:")]
+    require(held and held[0].split(":")[2] == "0" and int(held[0].split(":")[1]) > 0,
+            "the projection's row locks are one-key advisory locks only (" + (held[0] if held else "none") + ")")
+    require(q("live", "SELECT count(*) FROM ca_club_acct_fact_journal WHERE acct_day = '2026-11-04'") == "2"
+            and q("live", "SELECT count(*) FROM ca_club_acct_hands_journal WHERE acct_day = '2026-11-04'") == "2",
+            "the second writer appended insert-only journal rows instead")
+
+    # (2) A day load beside a live commit: hand 12 commits after the load's
+    # snapshot and before the load commits.
+    a = background()
+    a.stdin.write("BEGIN; " + hand(12) + "SELECT pg_sleep(3); COMMIT;\n")
+    a.stdin.flush()
+    time.sleep(1.0)
+    b_out = run(psql("live"), "BEGIN ISOLATION LEVEL REPEATABLE READ; SELECT clock_timestamp() AS t0 \\gset\n"
+                "SELECT fn_ca_club_acct_seed_day('2026-11-04') IS NOT NULL; "
+                "SELECT 'load:' || extract(epoch FROM clock_timestamp() - :'t0'::timestamptz); SELECT pg_sleep(4); COMMIT;").stdout
+    finish(a, "")
+    took = float([l for l in b_out.splitlines() if l.startswith("load:")][0][5:])
+    require(took < 2.0, f"a day load never waits on a live commit ({took:.2f} s)")
+    totals = q("live", "SELECT string_agg(club_id || '=' || r || '/' || h, ',' ORDER BY club_id) FROM ("
+                       "SELECT club_id, sum(result) r, sum(hands) h FROM (SELECT club_id, result, hands FROM ca_club_acct_fact "
+                       "WHERE acct_day = '2026-11-04' UNION ALL SELECT club_id, result, hands FROM ca_club_acct_fact_journal "
+                       "WHERE acct_day = '2026-11-04') x GROUP BY 1) y")
+    tables = q("live", "SELECT string_agg(club_id || '=' || h, ',' ORDER BY club_id) FROM (SELECT club_id, sum(hands) h FROM ("
+                       "SELECT club_id, hands FROM ca_club_acct_hands WHERE acct_day = '2026-11-04' UNION ALL "
+                       "SELECT club_id, hands FROM ca_club_acct_hands_journal WHERE acct_day = '2026-11-04') x GROUP BY 1) y")
+    require(totals == "a0000000-0000-0000-0000-000000000001=-3/3,a41434bb-8d0c-400a-8f0d-e8b3d65afed4=3/3"
+            and tables == "a0000000-0000-0000-0000-000000000001=3,a41434bb-8d0c-400a-8f0d-e8b3d65afed4=3",
+            f"three hands, each counted once across the live rows, the journal and the load ({totals}; {tables})")
+    require(q("live", "SELECT count(*) FROM ca_club_acct_fact_journal WHERE acct_day = '2026-11-04'") == "0",
+            "the load folded the day's journal rows it read")
+
+    # (3) The 32-lock budget: one hand with 40 players takes 32 row locks; the
+    # rest of its rows go to the journal, and the figures are whole.
+    parts = ",".join('{"earning_club_id": "2a1132b9-5ba2-42e6-9f01-30a7fcffebe3", '
+                     f'"user_id": "22222222-0000-0000-0000-{i:012d}", "observed_stack_delta": 0.01}}' for i in range(40))
+    run(psql("live"), "INSERT INTO union_pnl_cash_outcomes (table_id, hand_number, hand_id, recognized_at, payload_hash, game_scope, evidence) "
+        "VALUES ('c0000000-0000-0000-0000-000000000002', 40, gen_random_uuid(), '2026-11-05 12:00+00', 'c40', "
+        "'{\"game_union_id\": \"fade0000-0000-0000-0000-000000000001\"}', '{\"status\": \"ready\"}'); "
+        "INSERT INTO union_pnl_cash_outcome_touches VALUES ('c0000000-0000-0000-0000-000000000002', 40, '2026-11-05 12:00+00', "
+        f"'fade0000-0000-0000-0000-000000000001', false, '0', '[{parts}]');")
+    require(q("live", "SELECT (SELECT count(*) FROM ca_club_acct_fact WHERE acct_day = '2026-11-05') || '/' || "
+                      "(SELECT count(*) FROM ca_club_acct_fact_journal WHERE acct_day = '2026-11-05') || '/' || "
+                      "(SELECT count(*) FROM ca_club_acct_hands_journal WHERE acct_day = '2026-11-05') || '/' || "
+                      "(SELECT sum(result) FROM (SELECT result FROM ca_club_acct_fact WHERE acct_day = '2026-11-05' UNION ALL "
+                      "SELECT result FROM ca_club_acct_fact_journal WHERE acct_day = '2026-11-05') x)") == "32/8/1/0.40",
+            "a transaction holds at most 32 projection locks; the rest journal and the figures stay whole")
 
     require(q("live", "SELECT NOT has_table_privilege('authenticated','public.ca_club_acct_fact','select') "
                       "AND NOT has_table_privilege('anon','public.ca_club_acct_fact','select') "

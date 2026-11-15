@@ -135,7 +135,7 @@ describe('the page has one source of figures', () => {
   it('no second block competes with the tiles: the page has one source of figures', () => {
     // The owner rejected a summary block beside tiles that disagree with it
     // (2026-11-14). The tiles themselves move to the invoice's records
-    // (ca_club_acct_fact, 20261115004729).
+    // (ca_club_acct_fact, 20261115020010).
     const page = src('src/pages/club/ClubDataSimplePage.tsx');
     expect(page).not.toContain('ClubDataUnionWeeks');
     expect(existsSync(resolve(__dirname, '..', 'src/pages/club/ClubDataUnionWeeks.tsx'))).toBe(false);
@@ -150,6 +150,14 @@ describe('a renamed club keeps its old slug', () => {
     expect(trigger).toContain(
       'CREATE TRIGGER trg_club_slug_keeps_its_history AFTER UPDATE OF slug ON public.clubs FOR EACH ROW WHEN (OLD.slug IS DISTINCT FROM NEW.slug)'
     );
+    expect(trigger).toContain(
+      'CREATE TRIGGER trg_club_slug_refuses_another_clubs_former_slug BEFORE INSERT OR UPDATE OF slug ON public.clubs FOR EACH ROW EXECUTE FUNCTION public.fn_club_slug_refuses_another_clubs_former_slug();'
+    );
+    const refusal = latest('fn_club_slug_refuses_another_clubs_former_slug');
+    expect(refusal).toContain(
+      'WHERE h.former_slug = NEW.slug AND h.club_id IS DISTINCT FROM NEW.id;'
+    );
+    expect(refusal).toContain("USING ERRCODE = '23505'");
     const fn = latest('fn_club_slug_keeps_its_history');
     expect(fn).toContain('DELETE FROM public.club_slug_history h WHERE h.former_slug = NEW.slug;');
     expect(fn).toContain('VALUES (OLD.slug, NEW.id)');

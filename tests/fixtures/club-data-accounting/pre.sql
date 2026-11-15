@@ -1,4 +1,4 @@
--- Rows written BEFORE the cutover (20261115010436): the seed owns them.
+-- Rows written BEFORE the cutover (20261115020011): the day load owns them.
 -- K = KINGS CLUB, F = The Felt Society, D = Deep Stack Society, union = Midway.
 \set K '''a41434bb-8d0c-400a-8f0d-e8b3d65afed4'''
 \set F '''a0000000-0000-0000-0000-000000000001'''
@@ -82,7 +82,9 @@ SELECT :T2, 1, o.hand_id, o.payload_hash, md5(o.evidence::text), 'lightning_pool
   '{"ok":true}', md5('{"ok": true}')
   FROM union_pnl_cash_outcomes o WHERE o.table_id = :T2 AND o.hand_number = 1;
 
--- Ledger flows.
+-- Ledger flows. A tournament flow counts only when its receipt owns it (the
+-- invoice's classification); cash flows are not projected (the cash result
+-- is the hands).
 INSERT INTO union_pnl_original_flows VALUES
   ('f1000000-0000-0000-0000-000000000001', NULL, '2026-11-02 09:30+00', jsonb_build_object('game_union_id', :U, 'tournament_id', :TT1),
    jsonb_build_object('status', 'posted', 'club_id', :K, 'amount', 10, 'from_type', 'player_wallet', 'from_entity_id', :u1,
@@ -101,19 +103,47 @@ INSERT INTO union_pnl_original_flows VALUES
                       'to_type', 'player_wallet', 'to_entity_id', :u1, 'category', 'tournament_prize')),
   ('f1000000-0000-0000-0000-000000000006', NULL, '2026-11-02 14:00+00', '{}',
    jsonb_build_object('status', 'posted', 'club_id', :K, 'amount', 999, 'from_type', 'prize_liability', 'from_entity_id', :TT1,
+                      'to_type', 'player_wallet', 'to_entity_id', :u1, 'category', 'tournament_prize')),
+  -- A refund paid as a tranche from F's wallet to u2.
+  ('f1000000-0000-0000-0000-000000000008', NULL, '2026-11-02 15:00+00', jsonb_build_object('game_union_id', :U, 'tournament_id', :TT1),
+   jsonb_build_object('status', 'posted', 'club_id', :F, 'amount', 4, 'from_type', 'prize_liability', 'from_entity_id', :TT1,
+                      'to_type', 'player_wallet', 'to_entity_id', :u2, 'category', 'refund')),
+  -- A satellite seat refunded into K's wallet; the seat was funded by D
+  -- (owner ruling 2026-11-11), so the return is D's.
+  ('f1000000-0000-0000-0000-000000000009', NULL, '2026-11-02 15:30+00', jsonb_build_object('game_union_id', :U, 'tournament_id', :TT1),
+   jsonb_build_object('status', 'posted', 'club_id', :K, 'amount', 6, 'from_type', 'prize_liability', 'from_entity_id', :TT1,
+                      'to_type', 'player_wallet', 'to_entity_id', :u3, 'category', 'tournament_refund',
+                      'idempotency_key', 'tourney:d0000000-0000-0000-0000-000000000001:refund-entitlement:e1000000-0000-0000-0000-000000000009')),
+  -- A posted prize no receipt owns is not the invoice's.
+  ('f1000000-0000-0000-0000-00000000000a', NULL, '2026-11-02 16:00+00', jsonb_build_object('game_union_id', :U, 'tournament_id', :TT1),
+   jsonb_build_object('status', 'posted', 'club_id', :K, 'amount', 999, 'from_type', 'prize_liability', 'from_entity_id', :TT1,
                       'to_type', 'player_wallet', 'to_entity_id', :u1, 'category', 'tournament_prize'));
+INSERT INTO tournament_participant_funding_receipts (tournament_id, user_id, asset, amount, ledger_id, funding_club_id)
+VALUES (:TT1, :u1, 'chips', 10, 'f1000000-0000-0000-0000-000000000001', :K);
+INSERT INTO tournament_accounting_credit_receipts (tournament_id, user_id, asset, amount, ledger_id, credited_club_id)
+VALUES (:TT1, :u1, 'chips', 25, 'f1000000-0000-0000-0000-000000000002', :K);
+INSERT INTO tournament_refund_tranches (tournament_id, user_id, source_wallet_club_id, credit_ledger_id, amount_paid_now)
+VALUES (:TT1, :u2, :F, 'f1000000-0000-0000-0000-000000000008', 4);
+INSERT INTO tournament_refund_entitlements (id, tournament_id, user_id, entitlement_kind, refund_wallet_club_id, gross, registration_id)
+VALUES ('e1000000-0000-0000-0000-000000000009', :TT1, :u3, 'satellite_seat', :K, 6, 'e2000000-0000-0000-0000-000000000009');
+INSERT INTO fixture_satellite_seat_owners VALUES ('e2000000-0000-0000-0000-000000000009', :D);
 
 -- A BBJ felt share to u1 from hand T1#1.
 INSERT INTO bbj_payouts VALUES ('b0000000-0000-0000-0000-000000000001', :T1, 1, '2026-11-02 09:01+00');
 INSERT INTO bbj_payout_recipients (payout_id, user_id, amount, created_at)
 VALUES ('b0000000-0000-0000-0000-000000000001', :u1, 8.00, '2026-11-02 09:01+00');
 
--- The two week-boundary certificates (deferred entries carried in and out).
-INSERT INTO accounting_close_certificates (kind, union_id, period_start, period_end, value) VALUES
-  ('pnl_boundary', :U, '2026-11-02 08:00+00', '2026-11-02 08:00+00', jsonb_build_object('holdings', jsonb_build_array(
+-- The two week-boundary certificates (deferred entries carried in and out),
+-- certified when production's were. The 2026-11-02 one was certified after
+-- the invoice of the week ending there (2026-11-10 16:05), so that side has
+-- no invoice-exact version; it was certified before the invoice of the week
+-- starting there (2026-11-11 09:05), so that side is exact.
+INSERT INTO accounting_close_certificates (kind, union_id, period_start, period_end, value, certified_at) VALUES
+  ('pnl_boundary', :U, '2026-11-02 08:00+00', '2026-11-02 08:00+00', jsonb_build_object('status', 'ready', 'holdings', jsonb_build_array(
      jsonb_build_object('kind', 'deferred_tournament_result', 'club_id', :K, 'user_id', :u1, 'amount', 30.00,
                         'source_id', 'f0000000-0000-0000-0000-000000000000'),
-     jsonb_build_object('kind', 'cash_stack', 'club_id', :K, 'user_id', :u1, 'amount', 500.00, 'source_id', gen_random_uuid())))),
-  ('pnl_boundary', :U, '2026-11-09 08:00+00', '2026-11-09 08:00+00', jsonb_build_object('holdings', jsonb_build_array(
+     jsonb_build_object('kind', 'cash_stack', 'club_id', :K, 'user_id', :u1, 'amount', 500.00,
+                        'source_id', 'f0000000-0000-0000-0000-0000000000ff'))), '2026-11-11 01:52:19+00'),
+  ('pnl_boundary', :U, '2026-11-09 08:00+00', '2026-11-09 08:00+00', jsonb_build_object('status', 'ready', 'holdings', jsonb_build_array(
      jsonb_build_object('kind', 'deferred_tournament_result', 'club_id', :F, 'user_id', :u2, 'amount', 12.00,
-                        'source_id', 'f0000000-0000-0000-0000-000000000001'))));
+                        'source_id', 'f0000000-0000-0000-0000-000000000001'))), '2026-11-11 03:43:14+00');
