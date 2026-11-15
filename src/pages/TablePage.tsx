@@ -6216,7 +6216,9 @@ function LiveTablePage({
       if (res?.success) {
         if (
           lightningRoom &&
-          !lightningSitOut.acknowledge(tableId, String(userId), true, requestVersion)
+          !lightningSitOut.acknowledge(tableId, String(userId), true, requestVersion, {
+            blindOff: res.blindOff === true,
+          })
         )
           return;
         setSitOutSince(Date.now());
@@ -31165,7 +31167,10 @@ function LiveTablePage({
               {tableState.isTournament ? 'Sitting Out' : 'Waiting For The Button To Pass'}
             </span>
           </div>
-        ) : lightningRoom && !lightningHeroInRoster && !heroIsSittingOut ? (
+        ) : lightningRoom &&
+          !lightningHeroInRoster &&
+          !heroIsSittingOut &&
+          !lightningSitOut.readError ? (
           /* LIGHTNING BETWEEN HANDS (Dan 2026-10-24). The player is in the pool
              and is dealt the next hand at once: not a spectator, not a reserved
              seat waiting on a deal. The bar stays (it is never removed) and says
@@ -31196,7 +31201,8 @@ function LiveTablePage({
           </div>
         ) : !tableState.players.some((p) => p?.isHero) &&
           tableState.heroSeat <= 0 &&
-          !heroIsSittingOut ? (
+          !heroIsSittingOut &&
+          !(lightningRoom && lightningSitOut.readError) ? (
           /* ── THE FOOTER TELLS THE TRUTH ABOUT *THIS* TABLE (Dan 2026-09-07,
                 item 9) ──────────────────────────────────────────────────────
              "THE 'CHAIR OPEN, TAKE A SEAT' SHOULD BE ON THE BOTTOM, WHERE
@@ -31484,7 +31490,7 @@ function LiveTablePage({
                `heroSitsOutPerRow` is the same fact as state; `heroIsSittingOut`
                was converted to it on 2026-08-29 and this, the surface the
                player actually looks at, was missed. */
-        heroIsSittingOut ? (
+        heroIsSittingOut || (lightningRoom && lightningSitOut.readError) ? (
           /* SIT-OUT VISIBILITY 2026-08-21: whether the hero sat out from the
              settings panel or was force-sat-out after 3 straight timeouts,
              the footer says so plainly and offers the way back. In
@@ -31516,28 +31522,42 @@ function LiveTablePage({
               aria-live="polite"
               aria-atomic="true"
             >
-              {lightningSitOut.blindOff
-                ? 'Posting Blinds Until Your Hand Count Ends'
-                : sitOutBadgeLabel(
-                    sitOutMsRemaining({
-                      sitOutSince,
-                      isTournament: tableState.isTournament,
-                      now: sitOutTick,
-                    }),
-                    /* 2026-09-04 (audit item 3): the engine says whether this
+              {lightningRoom && lightningSitOut.readError && !heroIsSittingOut
+                ? 'Seat Status Unavailable'
+                : lightningSitOut.blindOff
+                  ? 'Posting Blinds Until Your Hand Count Ends'
+                  : sitOutBadgeLabel(
+                      sitOutMsRemaining({
+                        sitOutSince,
+                        isTournament: tableState.isTournament,
+                        now: sitOutTick,
+                      }),
+                      /* 2026-09-04 (audit item 3): the engine says whether this
                    sit-out was forced (two timeouts) or chosen, and the bar
                    says so too. Same I'm Back either way. */
-                    disconnectStates[userId ?? '']?.sitOutReason === 'forced'
-                      ? 'You Timed Out Two Times, So You Are Sitting Out'
-                      : 'You Are Sitting Out'
-                  )}
+                      disconnectStates[userId ?? '']?.sitOutReason === 'forced'
+                        ? 'You Timed Out Two Times, So You Are Sitting Out'
+                        : 'You Are Sitting Out'
+                    )}
             </span>
             <button
               type="button"
               className="spectator-footer-bar__cta"
-              onClick={() => void handleSitBackIn()}
+              disabled={Boolean(
+                lightningRoom &&
+                lightningSitOut.readError &&
+                !heroIsSittingOut &&
+                lightningSitOut.reading
+              )}
+              onClick={() => {
+                if (lightningRoom && lightningSitOut.readError && !heroIsSittingOut)
+                  lightningSitOut.retryRead();
+                else void handleSitBackIn();
+              }}
             >
-              I'm Back
+              {lightningRoom && lightningSitOut.readError && !heroIsSittingOut
+                ? 'Retry Seat Status'
+                : "I'm Back"}
             </button>
           </div>
         ) : !tableState.isHandInProgress &&
@@ -32987,7 +33007,13 @@ function LiveTablePage({
                   if (res?.success) {
                     if (
                       lightningRoom &&
-                      !lightningSitOut.acknowledge(tableId, String(userId), wanted, requestVersion)
+                      !lightningSitOut.acknowledge(
+                        tableId,
+                        String(userId),
+                        wanted,
+                        requestVersion,
+                        { blindOff: res.blindOff === true }
+                      )
                     ) {
                       setSitOutNextHand(false);
                       return;

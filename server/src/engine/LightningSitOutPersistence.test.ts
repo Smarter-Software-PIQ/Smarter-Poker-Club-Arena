@@ -12,6 +12,7 @@ let release: () => void;
 let blocked: Promise<void>;
 let writes: boolean[];
 let fail: boolean;
+let failCode: string | undefined;
 let blind: boolean;
 let patch: Record<string, unknown>;
 let missing: boolean;
@@ -21,6 +22,7 @@ beforeEach(() => {
   });
   writes = [];
   fail = false;
+  failCode = undefined;
   blind = false;
   patch = {};
   missing = false;
@@ -30,7 +32,7 @@ beforeEach(() => {
     const out = args.p_sitting_out;
     writes.push(out);
     await blocked;
-    if (fail) return { data: null, error: { message: 'refused' } };
+    if (fail) return { data: null, error: { message: 'refused', code: failCode } };
     if (missing) return { data: null, error: null };
     return {
       data: {
@@ -141,6 +143,17 @@ describe('the original sit-out transaction publishes its acknowledged occupancy'
       engine.restoreBlindOffFromSessions();
       expect(engine.leaveHeldByClock.get(player)).toBe(occupancy);
       expect(writes).toEqual([]);
+    }
+  );
+  it.each(['P2S01', 'P2S02'])(
+    'retains the declared refusal code %s without publishing success',
+    async (code) => {
+      fail = true;
+      failCode = code;
+      const pending = engine.sitOutAndWait(player, false, { requestedByClient: true });
+      release();
+      await expect(pending).rejects.toMatchObject({ code });
+      expect(events()).toEqual([]);
     }
   );
   it.each(['stale', 'departed', 'pending', 'wrong-status', 'failure', 'missing'])(

@@ -45,7 +45,12 @@ export class SeatSitOutPersistence {
           p_occupancy_id: occupancyId,
           p_sitting_out: sittingOut,
         });
-        if (error) throw new Error(`Persist sit-out failed: ${error.message}`);
+        if (error) {
+          // Only these declared refusals may carry a public response code.
+          if (error.code === 'P2S01' || error.code === 'P2S02')
+            throw Object.assign(new Error(error.message), { code: error.code });
+          throw new Error(`Persist sit-out failed: ${error.message}`);
+        }
         if (data === null) return null;
         const result = data as SitOutReceipt;
         const seat = result.seat;
@@ -94,7 +99,7 @@ export class SeatSitOutPersistence {
     const cleanup = () => {
       if (this.pending.get(key) === current) this.pending.delete(key);
     };
-    void current.then(cleanup, cleanup);
+    void current.then(cleanup).catch(cleanup);
     return current;
   }
 }

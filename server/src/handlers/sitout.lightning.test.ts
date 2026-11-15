@@ -141,3 +141,22 @@ describe('matching follows the original transition ACK', () => {
     expect(lightningSeatReady).not.toHaveBeenCalled();
   });
 });
+
+it.each([
+  ['P2S01', 'Your Play Limits Do Not Allow More Hands Right Now.'],
+  ['P2S02', 'Your Seat Changed. Refresh The Table Before Trying Again.'],
+])('a declared %s refusal reaches the player without a matcher wake', async (code, error) => {
+  const engine = {
+    sitOut,
+    sitOutAndWait: vi.fn(async () => {
+      throw Object.assign(new Error('private diagnostic'), { code });
+    }),
+  };
+  getTableEngine.mockImplementation((id: string) => (id === table ? engine : null));
+  lightningAnchorFor.mockResolvedValue({ anchorTableId: table });
+  expect(await request(room, false)).toMatchObject({
+    status: 400,
+    body: { success: false, code, error },
+  });
+  expect(lightningSeatReady).not.toHaveBeenCalled();
+});

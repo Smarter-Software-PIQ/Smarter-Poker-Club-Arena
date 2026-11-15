@@ -238,10 +238,14 @@ describe('Lightning idle return and recovery', () => {
 it('the actual footer permits idle Lightning return before spectator/reserved branches', () => {
   const source = readFileSync('src/pages/TablePage.tsx', 'utf8');
   expect(source).toMatch(/heroIsSittingOut =[\s\S]*?lightningSitOut\.sittingOut/);
-  expect(source).toMatch(/heroSeat <= 0\s*&&\s*!heroIsSittingOut \? \(/);
-  expect(source).toMatch(/heroIsSittingOut \? \([\s\S]*?data-state="sitting-out"/);
   expect(source).toMatch(
-    /lightningSitOut\.acknowledge\(tableId, String\(userId\), true, requestVersion\)/
+    /heroSeat <= 0\s*&&\s*!heroIsSittingOut\s*&&\s*!\(lightningRoom && lightningSitOut\.readError\) \? \(/
+  );
+  expect(source).toMatch(
+    /heroIsSittingOut \|\| \(lightningRoom && lightningSitOut\.readError\) \? \([\s\S]*?data-state="sitting-out"/
+  );
+  expect(source).toMatch(
+    /lightningSitOut\.acknowledge\(tableId, String\(userId\), true, requestVersion,[\s\S]*?blindOff: res\.blindOff === true/
   );
   expect(source).toMatch(
     /lightningSitOut\.acknowledge\(tableId, String\(userId\), false, requestVersion\)/
@@ -314,4 +318,38 @@ describe('a blind-off anchor remains an eligible chair with a visible way back',
     expect(view.result.current.sittingOut).toBe(false);
     expect(view.result.current.blindOff).toBe(false);
   });
+});
+
+it('a failed first seat read exposes explicit retry and preserves a recovered blind-off', async () => {
+  const read = vi
+    .fn()
+    .mockRejectedValueOnce(new Error('database unavailable'))
+    .mockResolvedValueOnce({ sittingOut: true, since: null, blindOff: true });
+  const { result } = renderHook(() =>
+    useLightningSitOut({ room, userId: user, connectionStatus: 'connected', read })
+  );
+  await waitFor(() => expect(result.current.readError).toBe(true));
+  expect(read).toHaveBeenCalledTimes(1);
+  act(() => result.current.retryRead());
+  await waitFor(() => expect(result.current.blindOff).toBe(true));
+  expect(result.current.readError).toBe(false);
+  expect(read).toHaveBeenCalledTimes(2);
+});
+
+it('the original blind-off HTTP receipt updates the footer even when the socket event is missed', async () => {
+  const read = vi.fn(async () => ({ sittingOut: false, since: null }));
+  const { result } = renderHook(() =>
+    useLightningSitOut({ room, userId: user, connectionStatus: 'connected', read })
+  );
+  await waitFor(() => expect(read).toHaveBeenCalledTimes(1));
+  act(() => {
+    expect(
+      result.current.acknowledge(pool, user, true, result.current.requestVersion(), {
+        blindOff: true,
+      })
+    ).toBe(true);
+  });
+  expect(result.current.blindOff).toBe(true);
+  expect(result.current.since).toBeNull();
+  expect(result.current.readError).toBe(false);
 });

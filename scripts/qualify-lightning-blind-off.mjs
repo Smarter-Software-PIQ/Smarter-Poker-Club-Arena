@@ -209,6 +209,42 @@ try {
     SELECT sim.ok((SELECT is_sitting_out FROM table_seats WHERE user_id=sim.h()),'no obligation is sat out');
     SELECT fn_cash_seat_sitout(sim.t(),sim.h(),(SELECT occupancy_id FROM table_seats WHERE user_id=sim.h()),false);
     SELECT sim.ok(NOT (SELECT is_sitting_out FROM table_seats WHERE user_id=sim.h()),'ordinary return clears persisted sitout');
+    -- The anchor remains Lightning even when an earlier stop closed its pool.
+    SELECT sim.reset(25);
+    SELECT sim.stop();
+    UPDATE table_seats SET stack=40 WHERE user_id=sim.h();
+    UPDATE cash_player_session SET hr_hands_required=10,hr_hands_played=3,hr_reference_stack=40,hr_started_at=now() WHERE player_id=sim.h();
+    SELECT sim.ok(fn_cash_seat_sitout(sim.t(),sim.h(),(SELECT occupancy_id FROM table_seats WHERE user_id=sim.h()),true) @> '{"blind_off":true,"hands_remaining":7}','closed pool cannot suppress owed blind off');
+    SELECT sim.disconnect();
+    SELECT sim.ok(sim.deal_many(12,ARRAY[sim.h()])=7 AND sim.release(),'reentered original anchor completes obligation and releases');
+    SELECT sim.reset(25);
+    SELECT sim.stop();
+    DO $$ BEGIN
+      PERFORM fn_cash_seat_sitout(sim.t(),sim.h(),(SELECT occupancy_id FROM table_seats WHERE user_id=sim.h()),false);
+      RAISE EXCEPTION 'closed room return acknowledged';
+    EXCEPTION WHEN SQLSTATE 'P2S02' THEN NULL; END $$;
+    -- Returning must cancel a queued next-hand stop atomically too.
+    SELECT sim.reset(25);
+    UPDATE table_seats SET is_sitting_out=true WHERE user_id=sim.h();
+    UPDATE lightning_pool_session SET stop_requested_at=clock_timestamp() WHERE player_id=sim.h() AND exited_at IS NULL;
+    SELECT fn_cash_seat_sitout(sim.t(),sim.h(),(SELECT occupancy_id FROM table_seats WHERE user_id=sim.h()),false);
+    SELECT sim.ok(NOT EXISTS(SELECT 1 FROM lightning_pool_session WHERE player_id=sim.h() AND exited_at IS NULL AND stop_requested_at IS NOT NULL),'return withdraws the exact queued stop');
+    SELECT sim.ok((sim.deal()->>'dealt')::boolean,'queued-stop return enters the next available deal');
+    SELECT sim.reset(25);
+    UPDATE table_seats SET leave_pending=true WHERE user_id=sim.h();
+    UPDATE lightning_pool_session SET stop_requested_at=clock_timestamp() WHERE player_id=sim.h() AND exited_at IS NULL;
+    SELECT sim.ok(fn_cash_seat_sitout(sim.t(),sim.h(),(SELECT occupancy_id FROM table_seats WHERE user_id=sim.h()),false) IS NULL,'return cannot resurrect confirmed departure');
+    SELECT sim.ok(EXISTS(SELECT 1 FROM lightning_pool_session WHERE player_id=sim.h() AND exited_at IS NULL AND stop_requested_at IS NOT NULL),'confirmed leave retains its stop');
+    SELECT sim.reset(25);
+    UPDATE table_seats SET is_sitting_out=true WHERE user_id=sim.h();
+    UPDATE lightning_pool_session SET stop_requested_at=clock_timestamp() WHERE player_id=sim.h() AND exited_at IS NULL;
+    INSERT INTO responsible_gaming_limits VALUES(sim.h());
+    DO $$ BEGIN
+      PERFORM fn_cash_seat_sitout(sim.t(),sim.h(),(SELECT occupancy_id FROM table_seats WHERE user_id=sim.h()),false);
+      RAISE EXCEPTION 'excluded return accepted';
+    EXCEPTION WHEN SQLSTATE 'P2S01' THEN NULL; END $$;
+    SELECT sim.ok((SELECT is_sitting_out FROM table_seats WHERE user_id=sim.h()) AND EXISTS(SELECT 1 FROM lightning_pool_session WHERE player_id=sim.h() AND stop_requested_at IS NOT NULL),'refused return preserves chair and queued stop');
+    SELECT sim.reset();
     SELECT set_config('test.engine','false',false);
     DO $$ BEGIN
       PERFORM fn_cash_seat_sitout(sim.t(),sim.h(),(SELECT occupancy_id FROM table_seats WHERE user_id=sim.h()),true);

@@ -94,6 +94,9 @@ export function useLightningSitOut({
   }
   const currentScope = scope.current;
   const mounted = useRef(false);
+  const [readRevision, setReadRevision] = useState(0);
+  const [readFailure, setReadFailure] = useState<{ key: string; scope: number } | null>(null);
+  const [readPending, setReadPending] = useState<{ key: string; scope: number } | null>(null);
   const [state, setState] = useState<{
     key: string;
     scope: number;
@@ -110,19 +113,33 @@ export function useLightningSitOut({
     if (!key || !pool || !cluster || !userId || connectionStatus !== 'connected') return;
     const epoch = ++generation.current;
     let current = true;
+    setReadPending({ key, scope: currentScope });
     void read(cluster, pool, userId)
       .then((value) => {
-        if (current && mounted.current && identity.current === key && generation.current === epoch)
+        if (
+          current &&
+          mounted.current &&
+          identity.current === key &&
+          generation.current === epoch
+        ) {
+          setReadFailure(null);
           setState(value ? { key, scope: currentScope, value } : null);
+        }
       })
       .catch((error) => {
-        if (current && identity.current === key && generation.current === epoch)
+        if (current && identity.current === key && generation.current === epoch) {
+          setReadFailure({ key, scope: currentScope });
           reportError(error, 'TablePage.lightning_sitout_read_failed', { clusterId: cluster });
+        }
+      })
+      .finally(() => {
+        if (current && mounted.current && identity.current === key && generation.current === epoch)
+          setReadPending(null);
       });
     return () => {
       current = false;
     };
-  }, [key, pool, cluster, userId, connectionStatus, read, currentScope]);
+  }, [key, pool, cluster, userId, connectionStatus, read, currentScope, readRevision]);
   // Render the original persisted transition directly from its named event.
   // The existing authenticated pool socket is owner-only. Bootstrap/reconnect
   // remains an exact anchor read, not the trigger for this visible transition.
@@ -154,6 +171,8 @@ export function useLightningSitOut({
     if (!mounted.current || identity.current !== key || scope.current !== currentScope) return;
     generation.current++;
     persistedVersion.current++;
+    setReadFailure(null);
+    setReadPending(null);
     setState({
       key,
       scope: currentScope,
@@ -175,7 +194,8 @@ export function useLightningSitOut({
       targetPool: string,
       targetUser: string,
       sittingOut: boolean,
-      expectedVersion = persistedVersion.current
+      expectedVersion = persistedVersion.current,
+      receipt?: { blindOff?: boolean }
     ) => {
       if (expectedVersion !== persistedVersion.current) return false;
       const current = identity.current;
@@ -189,16 +209,30 @@ export function useLightningSitOut({
         return false;
       // An earlier bootstrap cannot overwrite this newer accepted user request.
       generation.current++;
+      setReadFailure(null);
+      setReadPending(null);
+      const blindOff = sittingOut && receipt?.blindOff === true;
       setState({
         key: current,
         scope: currentScope,
-        value: { sittingOut, since: sittingOut ? Date.now() : null },
+        value: {
+          sittingOut,
+          since: sittingOut && !blindOff ? Date.now() : null,
+          ...(blindOff ? { blindOff: true } : {}),
+        },
       });
       return true;
     },
     [key, cluster, currentScope]
   );
+  const retryRead = useCallback(() => {
+    if (mounted.current && key && identity.current === key && scope.current === currentScope)
+      setReadRevision((revision) => revision + 1);
+  }, [key, currentScope]);
   return {
+    readError: readFailure?.key === key && readFailure?.scope === currentScope,
+    reading: readPending?.key === key && readPending?.scope === currentScope,
+    retryRead,
     blindOff: state?.key === key && state.scope === currentScope && state.value.blindOff === true,
     sittingOut: state?.key === key && state.scope === currentScope ? state.value.sittingOut : false,
     since: state?.key === key && state.scope === currentScope ? state.value.since : null,

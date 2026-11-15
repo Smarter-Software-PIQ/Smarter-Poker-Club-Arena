@@ -114,6 +114,16 @@ export async function handleSitout(
     return sendJSON(res, result.success ? 200 : 400, result);
   } catch (err: unknown) {
     reportError(err, 'HTTP.sitout_error');
+    const code = (err as { code?: string } | null)?.code;
+    if (code === 'P2S01' || code === 'P2S02')
+      return sendJSON(res, 400, {
+        success: false,
+        code,
+        error:
+          code === 'P2S01'
+            ? 'Your Play Limits Do Not Allow More Hands Right Now.'
+            : 'Your Seat Changed. Refresh The Table Before Trying Again.',
+      });
     return sendJSON(res, 500, {
       success: false,
       error: 'Could Not Confirm Your Seat Change. Please Try Again.',

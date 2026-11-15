@@ -1287,7 +1287,7 @@ describe('blind-off treatment is known before a new deal publishes', () => {
     expect(t.host.peekState()).not.toBeNull();
     expect(t.hub.frames.some((f) => f.payload.type === 'hand_started')).toBe(true);
   });
-  it('an unavailable blind-off authority cannot deal the seat on an ordinary timeout clock', async () => {
+  it('a rejecting blind-off provider abandons before dealing; the production adapter owns its bounded fallback', async () => {
     const t = buildHost(formedHand(3, 9430), [100, 100, 100], {
       deps: {
         blindOffPlayers: async () => {
