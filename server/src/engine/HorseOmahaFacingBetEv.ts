@@ -119,34 +119,6 @@ export const OMAHA_EV_CALLER_SHARE: Readonly<Record<'turn' | 'river', number>> =
   turn: 0.45,
 };
 export const OMAHA_EV_ALL_IN_SHARE = 0.5;
-/** A caller's learned showdown results move his share: prior "not the best hand" 0.5, bounds on the move. */
-export const OMAHA_EV_CALLER_NOT_BEST_PRIOR = 0.5;
-export const OMAHA_EV_CALLER_SHARE_BOUNDS: readonly [number, number] = [0.7, 1.5];
-/** The share of holdings a caller is modelled on, moved by what his calls of this size were at showdown. */
-export function omahaEvCallerShare(
-  base: number,
-  shown: { shown: number; best: number; second?: number } | null | undefined
-): number {
-  if (
-    !shown ||
-    !Number.isFinite(shown.shown) ||
-    !Number.isFinite(shown.best) ||
-    shown.shown < OMAHA_EV_SIZE_READ_MIN_SHOWN ||
-    shown.best < 0 ||
-    shown.best > shown.shown
-  )
-    return base;
-  const second = Math.max(0, Math.min(shown.shown - shown.best, Number(shown.second) || 0));
-  const notBest =
-    (OMAHA_EV_CALLER_NOT_BEST_PRIOR * OMAHA_EV_SIZE_READ_PRIOR +
-      (shown.shown - shown.best - 0.5 * second)) /
-    (OMAHA_EV_SIZE_READ_PRIOR + shown.shown);
-  const k = Math.max(
-    OMAHA_EV_CALLER_SHARE_BOUNDS[0],
-    Math.min(OMAHA_EV_CALLER_SHARE_BOUNDS[1], notBest / OMAHA_EV_CALLER_NOT_BEST_PRIOR)
-  );
-  return Math.min(0.95, base * k);
-}
 export const OMAHA_EV_BEHIND_SHARE = 0.25;
 
 /** The population prior for this bet (OMAHA_EV_PRIOR_BLUFF). */
@@ -838,8 +810,6 @@ export interface OmahaFacingBetEvContext {
   riskPremium?: number;
   /** the engine's realization factor for a turn call with chips behind */
   realization?: number;
-  /** per caller (spot.callerSeats order): what his calls of a wager this size were at showdown, when learned */
-  callerShown?: ReadonlyArray<{ shown: number; best: number; second?: number } | null>;
 }
 
 /** The decision: call when EV(call) exceeds the one margin. Null when the hand cannot be counted. */
@@ -870,11 +840,11 @@ export function omahaFacingBetEvVerdict(
     const holds = s.win + s.tie * 0.5;
     return alwaysIn ? holds : 1 - share * (1 - holds);
   };
-  for (let c = 0; c < spot.callers; c++)
-    field *= need(
-      omahaEvCallerShare(OMAHA_EV_CALLER_SHARE[spot.street], ctx.callerShown?.[c]),
-      true
-    );
+  // Every caller is modelled on the population share: the opponent memory
+  // keeps no showdown record of a player's calls by wager size, so there is
+  // no per-caller read to move it (audit 2026-11-15, item 8: the unfed
+  // callerShown input was removed).
+  if (spot.callers > 0) field *= need(OMAHA_EV_CALLER_SHARE[spot.street], true) ** spot.callers;
   if (spot.allIns > 0) field *= need(OMAHA_EV_ALL_IN_SHARE, true) ** spot.allIns;
   if (spot.behind > 0) field *= need(OMAHA_EV_BEHIND_SHARE, false) ** spot.behind;
   pWin *= field;

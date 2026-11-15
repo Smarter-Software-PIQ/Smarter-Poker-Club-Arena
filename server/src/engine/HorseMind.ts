@@ -421,6 +421,9 @@ export interface DecisionReadOptions {
    *  OMAHA_MANIAC_RERAISE_MIN_OPPS decayed opportunities, not at his whole
    *  raising width (see bandFor). Absent = unchanged. */
   omahaManiacReRaiseMeasured?: boolean;
+  /** The decision's telemetry gate for the receipt of the read above
+   *  (omaha_maniac_reraise_width_measured). Absent = no receipt. */
+  omahaManiacReRaiseReceipt?: boolean;
   shrinkResponseReads?: boolean;
   /** Break-even postflop bluffing (see BREAK_EVEN_BLUFF below). */
   breakEvenBluff?: boolean;
@@ -1296,6 +1299,8 @@ export class HorseMind {
   private static decisionVariant: string | null = null;
   /** Read calibration options of the decision in flight (DecisionReadOptions). */
   private static decisionReadOptions: DecisionReadOptions = {};
+  /** omaha_maniac_reraise_width_measured already fired in the decision in progress. */
+  private static maniacReRaiseReceiptFired = false;
   /** dedupe of processed ActionRecords across repeated decide() calls */
   private static seenActions = new Set<string>();
   /** per (handKey|userId) preflop-participation flags already counted */
@@ -2938,6 +2943,7 @@ export class HorseMind {
   /** Set by HorseLogic beside the decision scope; cleared with it. */
   static setDecisionReadOptions(options: DecisionReadOptions): void {
     this.decisionReadOptions = this.decisionScope ? { ...options } : {};
+    this.maniacReRaiseReceiptFired = false;
   }
 
   static currentDecisionReadOptions(): Readonly<DecisionReadOptions> {
@@ -3919,8 +3925,18 @@ export class HorseMind {
         read.stats.threeBet.n >= OMAHA_MANIAC_RERAISE_MIN_OPPS
           ? Math.min(maniacWhole, Math.max(0.02, read.stats.threeBet.mean))
           : null;
-      if (measuredReRaise !== null && measuredReRaise < maniacWhole!)
+      // The receipt obeys the decision's telemetry gate and fires once per
+      // decision, however many range reads the decision makes (audit
+      // 2026-11-15, item 10).
+      if (
+        measuredReRaise !== null &&
+        measuredReRaise < maniacWhole! &&
+        this.decisionReadOptions.omahaManiacReRaiseReceipt === true &&
+        !this.maniacReRaiseReceiptFired
+      ) {
+        this.maniacReRaiseReceiptFired = true;
         noteFire('omaha_maniac_reraise_width_measured');
+      }
       const maniac = measuredReRaise ?? maniacWhole;
       const width =
         line === 'open'

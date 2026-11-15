@@ -309,6 +309,25 @@ const PREFLOP = [
   { variant: 'plo5', hole: 'QsQdJhJcTh', stack: 70 },
 ];
 
+describe('omahaReraisedFoldVsTight outside PLO4/PLO5 high (conflict sweep 2026-11-15, N3)', () => {
+  it.each([
+    { variant: 'nlh', hole: 'KsKd' },
+    { variant: 'plo8', hole: 'KsKdQhJh' },
+    { variant: 'flo8', hole: 'KsKdQhJh' },
+    { variant: 'plo6', hole: 'KsKdQhJhTc9c' },
+  ])('$variant: the option is silent, its withheld receipt too', (p) => {
+    const build = () => fourBetGs(p.variant, p.hole);
+    const ON: HorseDecideOpts = { omahaReraisedFoldVsTight: true };
+    const off = playMany(build, {});
+    for (const reads of [() => null, () => tightRead]) {
+      const on = playMany(build, ON, reads as never);
+      expect(on.bytes).toEqual(off.bytes);
+      expect(hasFire(on, 'omaha_reraised_fold_vs_tight_withheld')).toBe(0);
+      expect(hasFire(on, 'omaha_reraised_fold_vs_tight')).toBe(0);
+    }
+  });
+});
+
 describe.each(PREFLOP)(
   'omahaReraisedFoldVsTight, $variant $hole ($stack behind) facing a 4-bet',
   (p) => {
