@@ -2,6 +2,7 @@ import '../../pages/MemberManagementPage.css';
 
 import { useEffect, useState } from 'react';
 import MemberTransactionReceipt from './MemberTransactionReceipt';
+import { addCalendarDays, CLUB_DATA_TIME_ZONE } from '../../lib/clubDataDay';
 import { supabase } from '../../lib/supabase';
 import { selectTextTwins } from '../../services/ClubRosterService';
 import { formatDateTime, formatWalletChips } from '../../utils/format';
@@ -26,14 +27,35 @@ interface Entry extends ChipTransactionLike {
 
 interface Props {
   clubId: string;
-  memberId: string;
+  memberId: string | null;
   revision: number;
   scope: 'club' | 'downline' | 'mine';
 }
 
+const chicagoReceiptTime = new Intl.DateTimeFormat(undefined, {
+  timeZone: CLUB_DATA_TIME_ZONE,
+  year: 'numeric',
+  month: 'short',
+  day: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit',
+  timeZoneName: 'short',
+});
+
 type Cursor = Pick<Entry, 'created_at' | 'id'>;
 
-function memberTitle(row: Entry, memberId: string): string {
+function memberTitle(row: Entry, memberId: string | null): string {
+  if (memberId === null) {
+    const title = ledgerRowTitle(row, row.from_name, row.to_name, null);
+    if (title) return title;
+    return [
+      toTitleCase((row.transaction_type || 'Chip Transaction').replace(/_/g, ' ')),
+      row.from_name,
+      row.to_name,
+    ]
+      .filter(Boolean)
+      .join(' · ');
+  }
   const incoming = row.to_user_id === memberId;
   const outgoing = row.from_user_id === memberId;
   const from = row.from_name || 'A Member';
@@ -74,15 +96,21 @@ function memberTitle(row: Entry, memberId: string): string {
 }
 
 export default function MemberTransactionHistory({ clubId, memberId, revision, scope }: Props) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(memberId === null);
   const [cursors, setCursors] = useState<Cursor[]>([]);
   const [player, setPlayer] = useState('');
   const [wallet, setWallet] = useState('member_all');
+  const [fromDay, setFromDay] = useState('');
+  const [toDay, setToDay] = useState('');
+  const [dateError, setDateError] = useState('');
   const [attempt, setAttempt] = useState(0);
   const [rows, setRows] = useState<Entry[] | null>(null);
   const [failed, setFailed] = useState(false);
   const limit = expanded ? 25 : 6;
   const cursor = cursors[cursors.length - 1];
+  let kind = 'all';
+  if (expanded && memberId && (player || wallet !== 'member_all')) kind = wallet;
+  if (!memberId && wallet !== 'member_all') kind = wallet.replace('member_', 'funded_');
 
   // An older cursor is a stable page even as fresh receipts arrive.
   const refreshRevision = cursor ? 0 : revision;
@@ -98,7 +126,9 @@ export default function MemberTransactionHistory({ clubId, memberId, revision, s
                 p_club_id: clubId,
                 p_scope: scope,
                 p_person: memberId,
-                p_kind: expanded && (player || wallet !== 'member_all') ? wallet : 'all',
+                p_kind: kind,
+                p_from: fromDay ? `${fromDay} 00:00 ${CLUB_DATA_TIME_ZONE}` : null,
+                p_to: toDay ? `${addCalendarDays(toDay, 1)} 00:00 ${CLUB_DATA_TIME_ZONE}` : null,
                 p_search: expanded && player ? player : null,
                 p_before_at: cursor?.created_at ?? null,
                 p_before_id: cursor?.id ?? null,
@@ -123,7 +153,20 @@ export default function MemberTransactionHistory({ clubId, memberId, revision, s
     }
     void read();
     return () => controller.abort();
-  }, [clubId, memberId, scope, cursor, limit, attempt, refreshRevision, expanded, wallet, player]);
+  }, [
+    clubId,
+    memberId,
+    scope,
+    cursor,
+    limit,
+    attempt,
+    refreshRevision,
+    expanded,
+    kind,
+    player,
+    fromDay,
+    toDay,
+  ]);
 
   function changeView(nextExpanded: boolean, nextCursors: Cursor[]) {
     setRows(null);
@@ -136,8 +179,15 @@ export default function MemberTransactionHistory({ clubId, memberId, revision, s
     setCursors(nextCursors);
   }
 
-  function filter(nextPlayer: string, nextWallet: string) {
-    if (nextPlayer === player && nextWallet === wallet) return;
+  function filter(nextPlayer: string, nextWallet: string, from = '', to = '') {
+    if (from && to && from > to) {
+      setDateError('End Date Must Be On Or After Start Date.');
+      return;
+    }
+    setDateError('');
+    if (nextPlayer === player && nextWallet === wallet && from === fromDay && to === toDay) return;
+    setFromDay(from);
+    setToDay(to);
     setPlayer(nextPlayer);
     setWallet(nextWallet);
     changeView(true, []);
@@ -153,7 +203,12 @@ export default function MemberTransactionHistory({ clubId, memberId, revision, s
           onSubmit={(event) => {
             event.preventDefault();
             const data = new FormData(event.currentTarget);
-            filter(String(data.get('player') ?? '').trim(), String(data.get('wallet')));
+            filter(
+              String(data.get('player') ?? '').trim(),
+              String(data.get('wallet') ?? 'member_all'),
+              String(data.get('from') ?? ''),
+              String(data.get('to') ?? '')
+            );
           }}
           onReset={() => filter('', 'member_all')}
         >
@@ -161,6 +216,19 @@ export default function MemberTransactionHistory({ clubId, memberId, revision, s
             <span className="mm-field__label">Player Search</span>
             <input type="search" name="player" placeholder="Player Name" />
           </label>
+          {!memberId && (
+            <>
+              <label className="mm-field">
+                <span className="mm-field__label">Start Date (Chicago)</span>
+                <input type="date" name="from" max="9999-12-30" />
+              </label>
+              <label className="mm-field">
+                <span className="mm-field__label">End Date (Chicago)</span>
+                <input type="date" name="to" max="9999-12-30" />
+              </label>
+              {dateError && <p role="alert">{dateError}</p>}
+            </>
+          )}
           <label className="mm-field">
             <span className="mm-field__label">Funding Wallet</span>
             <select className="mm-assign__select" name="wallet" defaultValue="member_all">
@@ -200,7 +268,7 @@ export default function MemberTransactionHistory({ clubId, memberId, revision, s
         <p role="status">Loading Transactions…</p>
       ) : rows.length === 0 ? (
         <p>
-          {player || wallet !== 'member_all'
+          {player || fromDay || toDay || wallet !== 'member_all'
             ? 'No Transactions Match These Filters.'
             : 'No Chip Transactions Found.'}
         </p>
@@ -229,7 +297,11 @@ export default function MemberTransactionHistory({ clubId, memberId, revision, s
                     <br />
                   </>
                 )}
-                <time dateTime={row.created_at}>{formatDateTime(row.created_at)}</time>
+                <time dateTime={row.created_at}>
+                  {memberId
+                    ? formatDateTime(row.created_at)
+                    : chicagoReceiptTime.format(new Date(row.created_at))}
+                </time>
               </span>
               <strong className="mm-stat__value">
                 {direction === 'in' ? '+' : direction === 'out' ? '-' : ''}
@@ -269,13 +341,15 @@ export default function MemberTransactionHistory({ clubId, memberId, revision, s
               Next
             </button>
           )}
-          <button
-            type="button"
-            className="mm-downline__show-more"
-            onClick={() => changeView(false, [])}
-          >
-            Show Recent
-          </button>
+          {memberId && (
+            <button
+              type="button"
+              className="mm-downline__show-more"
+              onClick={() => changeView(false, [])}
+            >
+              Show Recent
+            </button>
+          )}
         </>
       )}
     </section>

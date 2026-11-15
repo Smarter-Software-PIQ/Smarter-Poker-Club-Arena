@@ -100,7 +100,10 @@ describe('one question per leave', () => {
   it('every Leave Table door goes through openLeaveConfirm', () => {
     const page = read('src/pages/TablePage.tsx');
     expect(page).toContain('const openLeaveConfirm = () => {');
-    expect((page.match(/openLeaveConfirm\(\)/g) ?? []).length).toBeGreaterThanOrEqual(3);
+    /* Two doors since 2026-11-14: the tab bar's LEAVE_TABLE case and the
+       header control. The third was a row in TablePage's own menu, which no
+       table rendered. */
+    expect((page.match(/openLeaveConfirm\(\)/g) ?? []).length).toBeGreaterThanOrEqual(2);
     // The generic dialog is opened only from inside openLeaveConfirm.
     expect((page.match(/setShowLeaveConfirm\(true\)/g) ?? []).length).toBe(1);
     const body = page.slice(page.indexOf('const openLeaveConfirm = () => {'));

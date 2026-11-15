@@ -59,7 +59,21 @@ BEGIN
   IF found IS DISTINCT FROM ARRAY[cashier_ticket] THEN RAISE EXCEPTION 'Player Wallet missed the issuer debit or included a satellite award: %',found; END IF;
   SELECT array_agg(id) INTO found FROM fn_cashier_history_feed(club,'club','member_union_promo_wallet',p_person=>agent);
   IF found IS DISTINCT FROM ARRAY[union_promo] THEN RAISE EXCEPTION 'Union Promo Wallet misclassified disbursements: %',found; END IF;
+  -- Thirty newer sends from the agent wallet must not hide the two older
+  -- promo sends. Apply dates and wallet before limiting, including on search.
+  SELECT array_agg(id ORDER BY id) INTO found FROM fn_cashier_history_feed(club,'club','funded_promo_wallet',
+    p_from=>stamp,p_to=>stamp+interval '1 day',p_limit=>2);
+  IF found IS DISTINCT FROM ARRAY[first_id,second_id] THEN RAISE EXCEPTION 'Combined wallet/date page mismatch: %',found; END IF;
+  SELECT array_agg(id) INTO found FROM fn_cashier_history_feed(club,'club','funded_promo_wallet',
+    p_from=>stamp,p_to=>stamp+interval '1 day',p_search=>'Slice',p_before_at=>stamp,p_before_id=>second_id);
+  IF found IS DISTINCT FROM ARRAY[first_id] THEN RAISE EXCEPTION 'Combined wallet/search cursor mismatch: %',found; END IF;
+  IF EXISTS (SELECT FROM fn_cashier_history_feed(club,'club','funded_promo_wallet',p_to=>stamp)) THEN
+    RAISE EXCEPTION 'Combined range included the exclusive upper bound';
+  END IF;
   PERFORM set_config('request.jwt.claim.sub',player::text,true);
+  IF EXISTS (SELECT FROM fn_cashier_history_feed(club,'club','funded_promo_wallet')) THEN
+    RAISE EXCEPTION 'Club wallet filter admitted an ordinary member';
+  END IF;
   IF EXISTS (SELECT FROM fn_cashier_history_feed(club,'club','member_all',p_person=>agent,p_search=>'Slice')) THEN
     RAISE EXCEPTION 'Unauthorized viewer could read member history';
   END IF;

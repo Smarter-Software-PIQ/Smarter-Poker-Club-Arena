@@ -18,29 +18,16 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { downloadBlob } from '../../utils/downloadCsv';
+import { shareFile } from '../../lib/share';
 import './StatsShareCard.css';
 import {
   playerStyleFromStats,
   STYLE_MIN_HANDS,
   type StyleSourceStats,
 } from './playerStyleFromStats';
-import { IS_NATIVE_BUILD, isNativePlatform } from '../../lib/appBase';
 import { arenaDisplayText } from '../../lib/arenaDisplay/text';
 import { compactChips } from '../../utils/format';
-
-/**
- * The system share sheet (src/lib/native/share.ts). App build only, and a
- * function of its own on purpose: Rollup keeps everything written inside a
- * `try` block whatever a constant says (its default
- * treeshake.tryCatchDeoptimization), so this import() written inside the share
- * handler's try made the web build emit the share module and its Capacitor
- * plugins for players who can never run them. Here IS_NATIVE_BUILD removes it.
- */
-async function shareOnNative(blob: Blob, filename: string, title: string): Promise<void> {
-  if (!IS_NATIVE_BUILD) return;
-  const { nativeShareBlob } = await import('../../lib/native/share');
-  await nativeShareBlob(blob, filename, title);
-}
 
 interface Props {
   displayName: string;
@@ -344,36 +331,19 @@ export default function StatsShareCard({
         setNote('Could not build the image. Try again.');
         return;
       }
-      const file = new File([blob], 'smarter-poker-stats.png', { type: 'image/png' });
-
-      if (navigator.share && navigator.canShare?.({ files: [file] })) {
-        await navigator.share({ files: [file], title: 'My Smarter Poker Stats' });
-        return;
-      }
-
-      // THE APP (2026-09-08): no navigator.share on Android's webview, no
-      // <a download> on either. The system share sheet on the written file.
-      if (IS_NATIVE_BUILD && isNativePlatform()) {
-        await shareOnNative(blob, 'smarter-poker-stats.png', 'My Smarter Poker Stats');
-        return;
-      }
-
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = 'smarter-poker-stats.png';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      // Revoke on the next frame: revoking synchronously can cancel the
-      // download in some browsers before it has read the blob.
-      setTimeout(() => URL.revokeObjectURL(url), 10_000);
-      setNote('Saved to your downloads.');
-    } catch (err) {
-      // AbortError just means the user dismissed the share sheet.
-      if ((err as Error)?.name !== 'AbortError') {
-        setNote('Could not share the image on this device.');
-      }
+      const outcome = await shareFile({
+        source: 'StatsShareCard.share',
+        blob,
+        filename: 'smarter-poker-stats.png',
+        title: 'My Smarter Poker Stats',
+        download: (filename, file) => {
+          // The estate's one file door (utils/downloadCsv): an anchor on the
+          // web, the system share sheet in the app.
+          downloadBlob(filename, file);
+        },
+      });
+      if (outcome === 'saved') setNote('Saved To Your Downloads.');
+      else if (outcome === 'failed') setNote('Could Not Share The Image On This Device.');
     } finally {
       setBusy(false);
     }
