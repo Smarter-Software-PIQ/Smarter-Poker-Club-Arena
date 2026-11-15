@@ -1212,7 +1212,7 @@ export async function cleanupStaleCertificationClubs({
       await retireCertificationClubWithRetry({
         configuration,
         clubId: club.id,
-        reason: 'stale-cert-club-sweep',
+        reason: 'stale-cert-recovery',
         fetchImpl,
         wait,
         environment,

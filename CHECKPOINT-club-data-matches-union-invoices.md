@@ -134,3 +134,112 @@ client 2 AM presentation, publish, live verification.
   v_union; coverage (missing/failed days, boundary not invoice-exact) shown.
 - Client: basis-aware labels (2:00 AM boundary only for union scopes).
 - Re-reserve the stage-2 version after 20261115020011.
+
+## Stage 2 RPC contract (frozen 2026-11-15 03:50Z, CLUB DATA lead)
+
+Readers keep their names and signatures. Each of the 13 Club Data readers
+(`ca_club_data_snapshot_v2`, `ca_club_data_screen`, `ca_club_game_page_core_20261006`,
+`fn_ca_club_game_recent_rows`, `fn_ca_club_games_searched`, `fn_ca_club_games_unsearched`,
+`fn_ca_club_data_hand_count`, `fn_ca_club_cash_felt`, `ca_club_data_player_totals`,
+`ca_club_game_export_start`, `ca_club_player_page_core_20261006`, `ca_club_player_breakdown`,
+`ca_club_player_export_start`) dispatches on its club argument: a club in a
+union, or a union itself (house club), reads the accounting read model; any
+other club reads exactly what it reads today.
+
+Parameters (both bases): `p_start` = first day, `p_end` = last day, inclusive.
+The client always sends the END BOUNDARY minus one day. Union basis: days are
+02:00-to-02:00 America/Chicago accounting days, so the pair 2026-11-02 / 2026-11-08
+is [Nov 2 02:00, Nov 9 02:00) = the invoice week. Other clubs: Chicago midnight
+days, unchanged.
+
+Response additions on `ca_club_data_snapshot_v2` and `ca_club_data_screen`
+(both answers of the screen):
+- `accounting_basis`: `'union_invoice_accounting'` for the union basis;
+  otherwise the value it has today (`'chicago_net_money_flow'` etc.).
+- `day_basis`: `'America/Chicago 02:00'` (union basis) or today's value.
+- `accounting_coverage` (union basis only; absent otherwise):
+  `{ complete: boolean, missing_days: string[], failed_days: string[],
+     not_invoice_exact_days: string[], provisional: boolean,
+     provisional_from: string | null, window_start: string (ISO instant),
+     window_end: string (ISO instant), day_boundary: '02:00',
+     day_zone: 'America/Chicago', source: 'ca_club_acct_fact' }`
+  `provisional` = the window reaches an accounting day not covered by an
+  issued union weekly invoice (current/open week); `provisional_from` is the
+  first such day. `complete` is false when any day is missing, failed or not
+  invoice-exact.
+- Figure definitions (union basis), same field names as today:
+  fee = accounting rake credit (cash when earned, tournament when recognized);
+  cash result = each hand's stack change by the player's earning club plus
+  Bad Beat Jackpot stack awards; tournament result (tournament_winnings) =
+  receipt-owned returns (prizes, bounties, refunds) minus funding (buy-ins,
+  rebuys, add-ons) of every tournament kind, with entries in tournaments still
+  running at a week boundary carried to the week they settle in, as the
+  invoice does; total winnings = cash result + ALL tournament results
+  (finished MTT winnings, Sit And Go and Spin results, unfinished MTT
+  entries); mtt_winnings = finished MTTs only (running_mtt_entries the rest);
+  chips still on the felt are shown but not added; every player the records
+  attribute to the club is listed (members or not, horses included).
+  (Corrected 2026-11-15 04:40Z: the frozen text said "cash result + MTT
+  winnings"; the readers always summed every tournament result.)
+- Player readers keep their response shapes; their figures follow the same
+  definitions on the union basis.
+
+Contract additions (2026-11-15 04:30Z, CLUB DATA lead; additive, nothing renamed):
+- `member_fees` (downline scope) on the union basis: fees of the viewer's
+  downline from the accounting records on the same 02:00 days (coordinator
+  decision 2026-11-15; equals summary.fee for a downline screen), with
+  `day_basis: 'America/Chicago 02:00'`, `definition: 'downline_accounting_fees'`,
+  `source: 'ca_club_acct_fact'` (was `day_basis: 'UTC'`, the viewer's own
+  earned fees). Same fields cash_fees / tournament_fees / total_fees.
+- `ca_club_data_player_totals` on the union basis also returns
+  `accounting_basis` and `accounting_coverage` and `day_basis:
+  'America/Chicago 02:00'`.
+- Player readers (page, breakdown, export) on the union basis list every
+  player the accounting records attribute to the club (members or not,
+  horses included); response shapes unchanged.
+- Router naming: `<reader>_union_basis` / `<reader>_chicago_basis`; the client
+  calls only the original names.
+
+Disjoint ownership for parallel work:
+- SQL (CLUB DATA lead): `supabase/migrations/*`, `scripts/ci/*club-data*`,
+  `tests/fixtures/club-data-*`, schema manifest fragment.
+- Client (second agent): `src/pages/club/ClubDataSimplePage.tsx`,
+  `src/pages/club/ClubDataPage.tsx`, `src/lib/clubDataDay.ts`, their tests.
+  Labels by `accounting_basis`; window label from coverage window_start /
+  window_end ("Nov 2, 2026 2:00 AM To Nov 9, 2026 2:00 AM Chicago Time");
+  end input = exclusive boundary; incomplete-day and provisional banners;
+  Total Winnings / MTT Winnings definitions; drilldowns and exports carry the
+  same dates and label the window; DST and date-only-parameter tests. Starting
+  point: commit 9d8106383 on this branch.
+
+## Owner override (2026-11-14 21:55 Chicago, via coordinator): "IT CAN GO LIVE AS SOON AS YOU PUSH IT"
+- No step waits for the 04:00 window. 20261115020011 installs at merge: header
+  removed, one transaction, lock_timeout 120ms per lock (8 x 120 = 0.96 s max
+  writer wait, under deadlock_timeout 1 s), hand-path tables last. Measured
+  2026-11-15 04:05Z: 4 of 100 samples saw a row-exclusive holder on the eight
+  tables, oldest 79 ms. Pushed on #10879 as b1712d640 (after merging main incl.
+  #10916 e2896d074 as 284ac28d3). 20261114235607 stays in the window.
+- Stage 2 (b) done: 20261115034142 = md5-guarded routers via a pg_temp helper;
+  copies pinned by md5 from a read-only production probe (all 13 preimages
+  matched). Native test sections 6-7 pass (incl. 01:59:59 / 02:00:00 CST seat
+  boundary through the router, byte-identical renamed original, grants).
+
+## #10921 review rework (2026-11-15 04:50Z)
+- Routing by window (B1): fn_ca_club_data_reads_union_basis(club, start, end);
+  union_clubs.joined_at (DS 2026-10-12, SV 2026-10-21, FS/KC 2026-02-28) and the
+  model's first day (09-17 after the load). Pre-join answers: Chicago basis +
+  basis_reason, union_id kept. Native test caught and fixed a GREATEST(NULL, d)
+  bug that would have routed clubs in no union to the union basis.
+- Clamp in player_totals copy; game_ct mapped to ca_club_acct_fact_ct (grouped
+  view dropped); helpers revoked from authenticated; coverage: provisional =
+  after the last issued invoice, failures scoped by union where named, no NULL
+  days (fail() derives, legacy rows dated); snapshot previous_coverage + null
+  deltas; live proofs for the read-only routers; law test; workflow paths;
+  manifest fragment. New copy md5s from read-only probe (subst md5
+  e53fe443ff0c00e2b09871c0ab1b8467 equal local and prod).
+- Hands (#10879): raked hands where a club player changed stack, table-club
+  fallback; #10879 head fa3c73276 reviewer-confirmed, merging on green.
+- Reconciliation add (coordinator): union-wide Club Data cash total vs hand
+  deltas -772,299.77 + BBJ stack awards (seat 6,604.50 + wallet 8,638.89 =
+  15,243.39) = -757,056.38; count of participant rows with null earning club
+  in the week (expect 0; stop and report otherwise).

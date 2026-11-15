@@ -1,0 +1,43 @@
+{
+  "_owner": "agent/claude/club-data-reads-the-accounting-model-v2 (PR #10921). Migrations 20261115034141 (Club Data readers' views of the accounting read model, coverage, union-basis routing helpers, failure days) and 20261115034142 (the thirteen Club Data readers become routers: <reader>_union_basis copies and <reader>_chicago_basis originals). 20261115034142 installs after the accounting history load.",
+  "tables": [
+    "ca_club_acct_fact_ct",
+    "ca_club_acct_hands_ct"
+  ],
+  "functions": [
+    "fn_ca_club_acct_fact_window",
+    "fn_ca_club_acct_member_fee_totals",
+    "fn_ca_club_data_union_of",
+    "fn_ca_club_data_union_basis",
+    "fn_ca_club_acct_facts_from",
+    "fn_ca_club_data_union_basis_from",
+    "fn_ca_club_data_reads_union_basis",
+    "fn_ca_club_acct_coverage",
+    "ca_club_data_screen_union_basis",
+    "ca_club_data_snapshot_v2_union_basis",
+    "ca_club_game_page_core_20261006_union_basis",
+    "fn_ca_club_game_recent_rows_union_basis",
+    "fn_ca_club_games_searched_union_basis",
+    "fn_ca_club_games_unsearched_union_basis",
+    "fn_ca_club_data_hand_count_union_basis",
+    "fn_ca_club_cash_felt_union_basis",
+    "ca_club_data_player_totals_union_basis",
+    "ca_club_game_export_start_union_basis",
+    "ca_club_player_page_core_20261006_union_basis",
+    "ca_club_player_breakdown_union_basis",
+    "ca_club_player_export_start_union_basis",
+    "ca_club_data_screen_chicago_basis",
+    "ca_club_data_snapshot_v2_chicago_basis",
+    "ca_club_game_page_core_20261006_chicago_basis",
+    "fn_ca_club_game_recent_rows_chicago_basis",
+    "fn_ca_club_games_searched_chicago_basis",
+    "fn_ca_club_games_unsearched_chicago_basis",
+    "fn_ca_club_data_hand_count_chicago_basis",
+    "fn_ca_club_cash_felt_chicago_basis",
+    "ca_club_data_player_totals_chicago_basis",
+    "ca_club_game_export_start_chicago_basis",
+    "ca_club_player_page_core_20261006_chicago_basis",
+    "ca_club_player_breakdown_chicago_basis",
+    "ca_club_player_export_start_chicago_basis"
+  ]
+}
