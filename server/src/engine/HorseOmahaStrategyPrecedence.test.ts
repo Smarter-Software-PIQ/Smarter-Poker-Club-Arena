@@ -875,3 +875,61 @@ describe('audit item 11: a switched-on option reaches the brain through the work
     expect(held).toEqual({});
   });
 });
+
+describe('omahaStrongHandSlowplayMix in the precedence chain (owner 2026-11-15 14:13)', () => {
+  const SLOW: HorseDecideOpts = { omahaStrongHandSlowplayMix: true };
+  /** the nut straight on the unpaired turn 5d 8d 9h 2h: 7-6 for the nine-high straight */
+  const NUT_STRAIGHT = 'AsAh7c6s4h';
+  const OWNER_CHECKS: [string, () => Node][] = [
+    ['59517323 flop', () => nodeAt(ACES, FLOP)],
+    ['59517323 turn', () => nodeAt(ACES, TURN)],
+    ['59517323 river', () => nodeAt(ACES, RIVER)],
+    ['59521326 pairing turn', () => nodeAt(STRAIGHT, TURN)],
+  ];
+  const FACING: [string, () => Node][] = [
+    [
+      'turn, the nut straight facing half pot',
+      () => facingAfterCheck(ACES, TURN, 0.5, NUT_STRAIGHT),
+    ],
+    ['turn, the nut draw facing half pot', () => facingAfterCheck(ACES, TURN, 0.5)],
+    ['river, aces up facing pot', () => facingAfterCheck(ACES, RIVER, 1)],
+  ];
+
+  it.each(OWNER_CHECKS)('%s: it never converts an owner-ruled check', (_n, build) => {
+    for (const opts of [
+      { ...OWNER, ...SLOW },
+      { ...ALL, ...SLOW },
+    ]) {
+      const o = play(build, opts);
+      expect(all(o, 'check')).toBe(true);
+    }
+  });
+
+  it.each([...OWNER_CHECKS, ...FACING])(
+    '%s: it never folds where the chain without it does not',
+    (_n, build) => {
+      const off = play(build, ALL, false);
+      const on = play(build, { ...ALL, ...SLOW }, false);
+      on.actions.forEach((a, i) => {
+        if (a === 'fold') expect(off.actions[i]).toBe('fold');
+      });
+    }
+  );
+
+  it.each(FACING)(
+    '%s: it sits inside omahaTurnRiverRaiseNeedsNuts (adds no raise; a slowplay call stays a call)',
+    (_n, build) => {
+      const RAISE_NUTS: HorseDecideOpts = { omahaTurnRiverRaiseNeedsNuts: true };
+      const alone = play(build, RAISE_NUTS, false);
+      const both = play(build, { ...RAISE_NUTS, ...SLOW }, false);
+      both.actions.forEach((a, i) => {
+        if (a === 'raise' || a === 'all_in')
+          expect(['raise', 'all_in']).toContain(alone.actions[i]);
+        if (both.fires[i].includes('omaha_strong_hand_slowplay_call'))
+          expect(['call', 'all_in']).toContain(a);
+        // the slowplay mix itself never folds
+        if (a === 'fold') expect(alone.actions[i]).toBe('fold');
+      });
+    }
+  );
+});
