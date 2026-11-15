@@ -1,0 +1,3 @@
+# server/src/engine/AShortStackJamPricesThePayJump.law.test.ts
+
+A no-limit hold'em tournament short stack with a pay jump live (in the money, hand for hand or near the bubble), whose trusted context carries the stacks, payouts and its identity, prices its folded-to jam and its call against a lone jam at its own bubble factor, moved toward 1 by prize / (prize + bounty), with a bust valued at the place it finishes (hand 59441335). Sensible 2.1bb jams still jam; the bottom of the chip-EV range tightens; the call is tighter than chip EV on the bubble and in the money. Bounty-only events, early levels, missing or untrusted data, satellites, PKOs, mystery bounties, heads-up and ante cash tables decide exactly as the explicit chip-EV arm.

@@ -45,7 +45,8 @@ const UNDEALT_WHEN_WRITTEN = new Set([
   'styleValueExtraction',
   'styleFoldBluff',
   'readScopedShrink',
-  'nashPushFoldIcm',
+  // nashPushFoldIcm left 2026-11-15: on by default where a pay jump is live
+  // (hand 59441335), evidence in docs/horse-default-on.d/nashPushFoldIcm.md.
   'comboDrawPressure',
   'riverBluffCheckRaise',
   'riverPositionDefense',

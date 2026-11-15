@@ -567,6 +567,52 @@ export function bubbleFactor(
   return Math.max(1, Math.min(5, loss / gain));
 }
 
+/**
+ * bubbleFactor with hero's bust valued at the place hero finishes
+ * (2026-11-15, hand 59441335). icmEquity prices a zero stack at 0, so
+ * bubbleFactor counts a whole-stack loss as losing every payout, including
+ * the place a player who busts now is paid anyway. In the money that is most
+ * of a short stack's equity: nine left with 13 paid, a 2.1bb stack's 4.9
+ * pool points lose 4.9 instead of the 0.6 above ninth's 4.34, and the
+ * factor pins at its cap of 5 whatever the ladder. Here a down state that
+ * busts hero is worth the payout of the last live place (hero finishes
+ * behind every stack still in, which the covering opponent is). Outside the
+ * money that payout is 0 and this is bubbleFactor exactly. bubbleFactor is
+ * left as it is for its legacy reader (icmRisk).
+ */
+export function bustAwareBubbleFactor(
+  stacks: number[],
+  payouts: number[],
+  heroIdx: number,
+  riskChips: number
+): number {
+  if (riskChips <= 0) return 1;
+  const hero = stacks[heroIdx] ?? 0;
+  if (!(hero > 0)) return 1;
+  let opponentIdx = -1;
+  for (let index = 0; index < stacks.length; index++) {
+    if (index === heroIdx) continue;
+    if (opponentIdx === -1 || stacks[index] > stacks[opponentIdx]) opponentIdx = index;
+  }
+  if (opponentIdx === -1) return 1;
+  const risk = Math.min(riskChips, hero, stacks[opponentIdx]);
+  if (risk <= 0) return 1;
+  const now = icmEquity(stacks, payouts, heroIdx);
+  const up = stacks.slice();
+  up[heroIdx] = hero + risk;
+  up[opponentIdx] = stacks[opponentIdx] - risk;
+  const down = stacks.slice();
+  down[heroIdx] = hero - risk;
+  down[opponentIdx] = stacks[opponentIdx] + risk;
+  const live = cleanStacks(stacks).filter((stack) => stack > 0).length;
+  const bustPaid = cleanPayouts(payouts)[live - 1] ?? 0;
+  const downEquity = down[heroIdx] > 0 ? icmEquity(down, payouts, heroIdx) : bustPaid;
+  const gain = icmEquity(up, payouts, heroIdx) - now;
+  const loss = now - downEquity;
+  if (gain <= 1e-12) return 5;
+  return Math.max(1, Math.min(5, loss / gain));
+}
+
 export function premiumFromBubbleFactor(factor: number): number {
   return Math.max(0, Math.min(0.14, (factor - 1) * 0.04));
 }

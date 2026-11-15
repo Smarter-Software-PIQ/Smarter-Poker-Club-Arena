@@ -360,7 +360,9 @@ describe('nashPushFoldIcm through HorseLogic.decide', () => {
       jammer: 1,
       icm: bubble,
     };
-    const chipEv = width(spot, ON, CALLS);
+    // Since 2026-11-15 (hand 59441335) an unset option already reads the bubble
+    // factor on a live pay jump; explicit false is the chip-EV arm.
+    const chipEv = width(spot, { ...ON, nashPushFoldIcm: false }, CALLS);
     const icm = width(spot, { ...ON, nashPushFoldIcm: true }, CALLS);
     expect(icm).toBeLessThan(chipEv - 3);
   });
@@ -377,7 +379,7 @@ describe('nashPushFoldIcm through HorseLogic.decide', () => {
       heroSeat: 4,
       icm: { ...bubble, stacks: [400, 6, 6, 24] },
     };
-    const chipEv = width(spot, {}, ['jam']);
+    const chipEv = width(spot, { nashPushFoldIcm: false }, ['jam']);
     const icm = width(spot, { nashPushFoldIcm: true }, ['jam']);
     expect(icm).toBeLessThan(chipEv - 3);
   });

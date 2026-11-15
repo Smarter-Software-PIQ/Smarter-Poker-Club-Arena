@@ -60,7 +60,7 @@ import {
 import { horseVariantRulesFor } from './VariantRules.js';
 import { jointPlayersBehind } from './multiway/JointActionModel.js';
 import { horsePolicyDealtPlayers } from './multiway/DealtSeatCensus.js';
-import { tournamentSampleEquity } from './HorseTournamentUtility.js';
+import { payoutWeightOfPools, tournamentSampleEquity } from './HorseTournamentUtility.js';
 import { captureHorseTournamentUtilityObservations } from './HorseTournamentUtilityEvidence.js';
 import {
   evaluateRemainingVariantPolicy,
@@ -338,6 +338,7 @@ import {
   asymmetricCoverPressure,
   bountyChipEquivalence,
   bubbleFactor,
+  bustAwareBubbleFactor,
   premiumFromBubbleFactor,
 } from './IcmModel.js';
 // PROOF OF RECEIPT (Dan 2026-08-26): live decisions stamp the layers that
@@ -1999,12 +2000,15 @@ function realIcmInputs(
  * bubbleFactor, 1..5) from the same real-ICM inputs icmRisk prices, for the
  * push/fold tables (HorseNashPushFoldV2). 1 where one place is paid (a
  * one-place spin), null where the context cannot supply stacks, payouts or
- * hero's identity: the caller then plays chip EV.
+ * hero's identity: the caller then plays chip EV. bustPaysItsPlace (the
+ * payout-aware default, payJumpBubbleFactor) values a bust at the place hero
+ * finishes (bustAwareBubbleFactor); the opt-in arm keeps bubbleFactor.
  */
 function heroBubbleFactor(
   gs: HorseGameStateV2,
   stackBB: number,
-  heroUserId?: string
+  heroUserId?: string,
+  bustPaysItsPlace = false
 ): number | null {
   if (!isTournamentMode(gs)) return null;
   const explicit = trustedTournamentContext(gs);
@@ -2022,11 +2026,66 @@ function heroBubbleFactor(
   try {
     const inputs = realIcmInputs(gs, explicit, stackBB, heroUserId);
     if (!inputs) return null;
-    const bf = bubbleFactor(inputs.stacks, inputs.payouts, inputs.heroIdx, inputs.riskChips);
+    const bf = (bustPaysItsPlace ? bustAwareBubbleFactor : bubbleFactor)(
+      inputs.stacks,
+      inputs.payouts,
+      inputs.heroIdx,
+      inputs.riskChips
+    );
     return Number.isFinite(bf) ? bf : null;
   } catch {
     return null;
   }
+}
+
+/**
+ * PAYOUT-AWARE SHORT-STACK PUSH/FOLD (2026-11-15, hand 59441335). A 2.1bb
+ * cutoff at a nine-handed final table, in the money with a pay jump at every
+ * place, open-jammed 85o: the folded-to jam read the chip-EV Nash table
+ * (99.6% of hands at that depth) because the payout-aware read
+ * (nashPushFoldIcm) shipped off for contexts that carry no stack vector.
+ * Where the trusted context does carry stacks, payouts and hero's identity,
+ * and a pay jump is live, hero's own bubble factor is the price of the jam
+ * and of the call against a jam. Returns the bubble factor to read (> 1), or
+ * null where chip EV stands exactly as before:
+ *  - not a tournament (ante cash tables), or no trusted context;
+ *  - no pay jump live: neither in the money, hand for hand, near the bubble,
+ *    nor within the feed's near-bubble line (max(paid + 1, 1.15 x paid));
+ *  - two or fewer left (V23: heads-up of an MTT plays chip EV);
+ *  - a satellite (its own seat-equity handling, V37, stands), a PKO or a
+ *    mystery bounty (head value this table does not price, #10614);
+ *  - a payout weight of zero (bounty-only event, #10614's stand-down);
+ *  - stacks, payouts or hero's identity unavailable (heroBubbleFactor null).
+ * In a bounty event the factor is moved toward 1 by the share of the award
+ * paid by place, prize / (prize + bounty), the weight the Phase 7 arbiter
+ * values payouts by (payoutWeightOfPools).
+ */
+export function payJumpBubbleFactor(
+  gs: HorseGameStateV2,
+  stackBB: number,
+  heroUserId?: string
+): number | null {
+  if (!isTournamentMode(gs)) return null;
+  const t = trustedTournamentContext(gs);
+  if (!t) return null;
+  if (t.satellite === true || t.isPko === true || t.isMysteryBounty === true) return null;
+  const left = t.playersLeft ?? 0;
+  const paid = t.spotsPaid ?? 0;
+  if (!(left > 2 && paid > 0)) return null;
+  const payJumpLive =
+    t.inMoney === true ||
+    left <= paid ||
+    t.handForHand === true ||
+    t.handForHandExpected === true ||
+    t.nearBubble === true ||
+    left <= Math.max(paid + 1, Math.ceil(paid * 1.15));
+  if (!payJumpLive) return null;
+  const weight = Math.min(1, payoutWeightOfPools(t));
+  if (!(weight > 0)) return null;
+  const bf = heroBubbleFactor(gs, stackBB, heroUserId, true);
+  if (bf === null || !(bf > 1)) return null;
+  const effective = 1 + (bf - 1) * weight;
+  return effective > 1 ? effective : null;
 }
 
 function icmRisk(
@@ -2706,7 +2765,13 @@ export interface HorseDecideOpts {
    *  cannot supply it) against the chip-EV equilibrium of everybody else,
    *  and the V71 jam reads ten-handed (nine behind) seats exactly. With a
    *  bubble factor of 1 and at most eight behind it is the V71 answer.
-   *  Default OFF: only explicit true turns it on. */
+   *  Three states since 2026-11-15 (hand 59441335, an in-the-money 2.1bb
+   *  final-table 85o open-jam): true reads the bubble factor wherever the
+   *  context supplies stacks and payouts, as before; unset (the default)
+   *  reads it only where a pay jump is live and the event is not a
+   *  satellite, PKO or mystery bounty, moved toward 1 by the payout weight
+   *  (payJumpBubbleFactor); explicit false is chip EV everywhere, the
+   *  behaviour before. Evidence: docs/horse-default-on.d/nashPushFoldIcm.md. */
   nashPushFoldIcm?: boolean;
   /** V72 (2026-10-31): Hold'em facing one open with nobody in (three or more
    *  dealt in) - the call / 3-bet base is set per (defender seat, opener
@@ -8232,8 +8297,17 @@ export class HorseLogic {
         // spot the sb_push chart was solved for (the same no-ante game):
         // the V27 chart below keeps it.
         if (kind === 'bb' && jammerBehind === 1 && !(anteBB > 0)) return null;
+        // A live pay jump prices the call at hero's bubble factor (hand
+        // 59441335, payJumpBubbleFactor); elsewhere chip EV, as before.
+        const payJumpCall =
+          opts.nashPushFoldIcm === true || opts.nashPushFoldIcm === false
+            ? null
+            : payJumpBubbleFactor(gs, stackBB, player.user_id);
+        if (payJumpCall !== null && telemetryOn(opts)) noteFire('pay_jump_push_fold_seen');
         const bubble =
-          opts.nashPushFoldIcm === true ? (heroBubbleFactor(gs, stackBB, player.user_id) ?? 1) : 1;
+          opts.nashPushFoldIcm === true
+            ? (heroBubbleFactor(gs, stackBB, player.user_id) ?? 1)
+            : (payJumpCall ?? 1);
         return nashV2CallProbability({
           hand: gtoHandClass(player.cards[0], player.cards[1]),
           jammerBehind,
@@ -8360,6 +8434,23 @@ export class HorseLogic {
               depthBB: depth71,
               anteBB: ante71,
               bubble: heroBubbleFactor(gs, stackBB, player.user_id) ?? 1,
+            });
+          }
+          // PAYOUT-AWARE JAM (hand 59441335): with a pay jump live and the
+          // stacks and payouts to price it, the jam reads hero's bubble
+          // factor (payJumpBubbleFactor). Null keeps the chip-EV table.
+          const payJump71 =
+            opts.nashPushFoldIcm === false
+              ? null
+              : payJumpBubbleFactor(gs, stackBB, player.user_id);
+          if (payJump71 !== null) {
+            if (telemetryOn(opts)) noteFire('pay_jump_push_fold_seen');
+            return nashV2JamProbability({
+              hand,
+              behind: behind71,
+              depthBB: depth71,
+              anteBB: ante71,
+              bubble: payJump71,
             });
           }
           return nashJamProbability({
