@@ -263,6 +263,7 @@ export interface ClubDataCoverage {
   missing_days?: string[];
   failed_days?: string[];
   not_invoice_exact_days?: string[];
+  awaiting_boundary_days?: string[];
   provisional?: boolean;
   provisional_from?: string | null;
   window_start?: string;
@@ -325,6 +326,11 @@ export function coverageNotices(coverage: ClubDataCoverage | null | undefined): 
     provisional = from
       ? `Provisional From ${chicagoBoundaryStamp(from)} ${CLUB_DATA_ZONE_LABEL}: No Weekly Invoice Has Been Issued For That Part Of The Window Yet, So These Figures Can Still Change.`
       : 'Provisional: No Weekly Invoice Has Been Issued For Part Of This Window Yet, So These Figures Can Still Change.';
+  }
+  const awaiting = coverage.awaiting_boundary_days ?? [];
+  if (awaiting.length) {
+    const note = `Week Boundary Not Yet Certified: ${dayList(awaiting)}. Tournament Entries Still Running At That Boundary Are Added When It Is Certified.`;
+    provisional = provisional ? `${provisional} ${note}` : `Provisional: ${note}`;
   }
   return { incomplete, provisional };
 }

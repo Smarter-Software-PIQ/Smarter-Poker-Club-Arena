@@ -178,7 +178,9 @@ $function$;
 --   not_invoice_exact_days: a side of a week boundary loaded from no version
 --     its week's invoice could have used, or a week boundary in the window
 --     the model holds no certificate for (the deferred tournament entries
---     carried across it are unknown);
+--     carried across it are unknown), except a side still awaiting its
+--     certificate before its week's invoice exists (awaiting_boundary_days:
+--     provisional, not incomplete);
 --   provisional: the window reaches the open week, after the end of the
 --     union's last issued weekly invoice (a week before the union's first
 --     invoice is not provisional); provisional_from is its first day.
@@ -212,15 +214,22 @@ RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $
      WHERE public.fn_ca_accounting_day_start(d.d) = public.fn_union_week_start(public.fn_ca_accounting_day_start(d.d))
        AND public.fn_ca_accounting_day_start(d.d) <= now()
   ), sides AS (
-    SELECT public.fn_ca_accounting_day(b.b) AS d, COALESCE(g.opening_exact, false) AS exact
-      FROM boundaries b CROSS JOIN k
+    -- awaiting: no certificate of the boundary is kept yet and the side's
+    -- week has no issued invoice (certificates arrive a day or two after
+    -- the boundary): provisional, not incomplete (audit G4).
+    SELECT public.fn_ca_accounting_day(b.b) AS d, COALESCE(g.opening_exact, false) AS exact,
+           (g.union_id IS NULL AND (i.through_at IS NULL OR b.b >= i.through_at)) AS awaiting
+      FROM boundaries b CROSS JOIN k CROSS JOIN invoiced i
       LEFT JOIN public.ca_club_acct_boundary_log g ON g.union_id = k.union_id AND g.boundary = b.b
     UNION ALL
-    SELECT public.fn_ca_accounting_day(b.b - interval '1 microsecond'), COALESCE(g.closing_exact, false)
-      FROM boundaries b CROSS JOIN k
+    SELECT public.fn_ca_accounting_day(b.b - interval '1 microsecond'), COALESCE(g.closing_exact, false),
+           (g.union_id IS NULL AND (i.through_at IS NULL OR b.b > i.through_at))
+      FROM boundaries b CROSS JOIN k CROSS JOIN invoiced i
       LEFT JOIN public.ca_club_acct_boundary_log g ON g.union_id = k.union_id AND g.boundary = b.b
   ), not_exact AS (
-    SELECT DISTINCT s.d FROM sides s JOIN days d ON d.d = s.d WHERE NOT s.exact
+    SELECT DISTINCT s.d FROM sides s JOIN days d ON d.d = s.d WHERE NOT s.exact AND NOT s.awaiting
+  ), awaiting AS (
+    SELECT DISTINCT s.d FROM sides s JOIN days d ON d.d = s.d WHERE NOT s.exact AND s.awaiting
   ), uncovered AS (
     SELECT d.d FROM days d, invoiced i
      WHERE i.through_at IS NULL OR public.fn_ca_accounting_day_start(d.d) >= i.through_at
@@ -231,6 +240,7 @@ RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $
     'missing_days', COALESCE((SELECT jsonb_agg(m.d ORDER BY m.d) FROM missing m), '[]'::jsonb),
     'failed_days', COALESCE((SELECT jsonb_agg(f.d ORDER BY f.d) FROM failed f), '[]'::jsonb),
     'not_invoice_exact_days', COALESCE((SELECT jsonb_agg(n.d ORDER BY n.d) FROM not_exact n), '[]'::jsonb),
+    'awaiting_boundary_days', COALESCE((SELECT jsonb_agg(a.d ORDER BY a.d) FROM awaiting a), '[]'::jsonb),
     'provisional', EXISTS (SELECT 1 FROM uncovered),
     'provisional_from', (SELECT min(u.d) FROM uncovered u),
     'window_start', public.fn_ca_accounting_day_start(p_from),

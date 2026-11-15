@@ -218,6 +218,19 @@ describe('coverage is stated, never folded into a figure that looks final', () =
     );
   });
 
+  it('a week boundary still awaiting its certificate is provisional, not incomplete (audit G4)', () => {
+    const n = coverageNotices({
+      complete: true,
+      provisional: true,
+      provisional_from: '2026-11-16',
+      awaiting_boundary_days: ['2026-11-15', '2026-11-16'],
+    });
+    expect(n.incomplete).toBeNull();
+    expect(n.provisional).toBe(
+      'Provisional From Nov 16, 2026 2:00 AM Chicago Time: No Weekly Invoice Has Been Issued For That Part Of The Window Yet, So These Figures Can Still Change. Week Boundary Not Yet Certified: Nov 15, 2026, Nov 16, 2026. Tournament Entries Still Running At That Boundary Are Added When It Is Certified.'
+    );
+  });
+
   it('prints the reader window instants as the chip label', () => {
     expect(
       coverageWindowLabel({

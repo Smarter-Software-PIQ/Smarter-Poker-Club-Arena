@@ -200,6 +200,12 @@ DECLARE
     ARRAY['public\.ca_club_data_game_ct\M', 'public.ca_club_acct_fact_ct'],
     ARRAY['public\.ca_club_data_hands_ct\M', 'public.ca_club_acct_hands_ct'],
     ARRAY['public\.fn_ca_club_data_facts_from\(\)', 'public.fn_ca_club_acct_facts_from()'],
+    -- A per-game lookup over the window seeks each (club, day, game) key of
+    -- ca_club_acct_fact's primary key instead of scanning every row of the
+    -- window once per game (a running tournament cost 0.5 s each for KINGS
+    -- CLUB over 30 days, measured 2026-11-15).
+    ARRAY['f\.stat_date BETWEEN v_start AND v_end AND f\.game_id = ',
+          'f.stat_date = ANY (ARRAY(SELECT generate_series(v_start, v_end, interval ''1 day'')::date)) AND f.game_id = '],
     -- The player totals clamp a window that runs past the accounting today,
     -- as the snapshot and the screen do, instead of refusing it (between
     -- midnight and 02:00 Chicago the Chicago date is a day ahead).
@@ -393,7 +399,7 @@ DECLARE t record;
 BEGIN
   FOR t IN SELECT * FROM (VALUES
       ('ca_club_data_screen', 'public.ca_club_data_screen(uuid,date,date,text,text,text,integer)',
-       '7578d64c439069aa294b4e24862f6af2', '1914e01e5b71515eccbd59d004bd4862', 'object'),
+       '7578d64c439069aa294b4e24862f6af2', 'ff311fc0e44dc43d2e2bec74e6478360', 'object'),
       ('ca_club_data_snapshot_v2', 'public.ca_club_data_snapshot_v2(uuid,date,date,text,text,text,integer)',
        '9c3d8c1b3f2feb9b779cf27ad8bcc4be', '6481b810f8c4554166356f1c6984d506', 'snapshot'),
       ('ca_club_game_page_core_20261006', 'public.ca_club_game_page_core_20261006(uuid,date,date,text,text,text,text,jsonb,integer)',

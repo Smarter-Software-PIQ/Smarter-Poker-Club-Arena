@@ -377,7 +377,7 @@ try:
     cov = q("live", "SELECT fn_ca_club_acct_coverage('a41434bb-8d0c-400a-8f0d-e8b3d65afed4', '2026-11-02', '2026-11-08') - 'window_start' - 'window_end'")
     require(cov == '{"source": "ca_club_acct_fact", "complete": false, "day_zone": "America/Chicago", "failed_days": ["2026-11-02", '
                    '"2026-11-03", "2026-11-06"], "provisional": false, "day_boundary": "02:00", "missing_days": ["2026-11-05", "2026-11-06", '
-                   '"2026-11-07", "2026-11-08"], "provisional_from": null, "not_invoice_exact_days": []}',
+                   '"2026-11-07", "2026-11-08"], "provisional_from": null, "awaiting_boundary_days": [], "not_invoice_exact_days": []}',
             "coverage of the invoice week names its unloaded and failed days, not another union's boundary failure: " + cov)
     require(q("live", "SELECT fn_ca_club_acct_coverage('a41434bb-8d0c-400a-8f0d-e8b3d65afed4', '2026-10-30', '2026-11-01')->'not_invoice_exact_days'")
             == '["2026-11-01"]'
@@ -389,6 +389,13 @@ try:
                           "->> 'provisional'") == "false",
             "a boundary side no invoice version covers, and the open week after the last invoice (provisional; a week before "
             "the first invoice is not), are reported")
+    g4 = q("live", "BEGIN; DELETE FROM ca_club_acct_boundary_log WHERE boundary = '2026-11-09 08:00+00'; "
+                   "DELETE FROM settlement_invoices si USING settlement_periods sp WHERE sp.id = si.period_id AND sp.start_at = '2026-11-02 08:00+00'; "
+                   "SELECT (c->'awaiting_boundary_days')::text || '|' || (c->'not_invoice_exact_days')::text || '|' || (c->>'complete') "
+                   "|| '|' || (c->>'provisional') FROM (SELECT fn_ca_club_acct_coverage('fade0000-0000-0000-0000-000000000001', "
+                   "'2026-11-08', '2026-11-09') c) x; ROLLBACK;")
+    require(g4.split('|')[0:2] + g4.split('|')[3:] == ['["2026-11-08", "2026-11-09"]', '[]', 'true'],
+            "a week boundary whose certificate has not arrived, before its week is invoiced, is provisional, not incomplete (G4): " + g4)
     require(q("live", "SELECT string_agg(c || ':' || d || '=' || fn_ca_club_data_reads_union_basis(c::uuid, d::date, d::date), ',' ORDER BY c, d) "
                       "FROM (VALUES ('2a1132b9-5ba2-42e6-9f01-30a7fcffebe3'), ('a41434bb-8d0c-400a-8f0d-e8b3d65afed4'), "
                       "('fade0000-0000-0000-0000-000000000001'), ('5ca1ab1e-0000-0000-0000-000000000001')) cc(c), "
