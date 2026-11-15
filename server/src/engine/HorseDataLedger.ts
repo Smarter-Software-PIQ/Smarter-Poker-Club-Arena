@@ -1069,6 +1069,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaStrongHandSlowplayMix',
+    'Owner 2026-11-15 14:13 ("ITS OK FOR HORSES TO JUST CALL WITH THE NUTS, OR JUST CALL WITH TOP FULL HOUSE. THEY SHOULDN\'T ALWAYS RAISE 100% OF THE TIME, AND THEY SHOULD CHECK SOMETIMES WITH A SET ON SUPER DRY BOARDS"): PLO4/PLO5 cash, pot limit, high only, one board (HorseOmahaStrongHandSlowplayMix.ts). Facing a bet on the flop, the turn or the river with a nut-class hand and one or two opponents, the final raise becomes a call at a mixed frequency: higher when few next cards take the nuts away, against a measured aggressive bettor, in position and with stacks behind; lower against a measured station, on the river (priced on the share of his range that calls a raise and loses) and nearly zero when the hand is vulnerable. Nothing to call on a very dry flop (three suits, three ranks, every two at least five apart) with a set and one or two opponents, the final bet becomes a check at a mixed frequency: higher when few turn cards hurt and an opponent is measured to bet when checked to, lower against a passive player or station or with the pot large beside the stacks, in position only when few turn cards hurt. It only turns a raise into a call and a bet into a check, never a fold, never an owner-ruled check; one draw per decision from a stream derived from the strategy stream without advancing it; it stands aside when omahaNutClassValueSize is on. Every constant is a builder\'s choice, none measured. Default OFF (opt-in): only an explicit true switches it on',
+    'V94'
+  ),
+  flag(
     'omahaStrongHandValue',
     "Owner 2026-11-15 12:16 (the earlier all-hands playbook's PLO4/PLO5 cash entries): on the river, one board, high only, with a full house or better or a nut-class hand, three decisions are expected-value comparisons (HorseOmahaStrongHandValue.ts). Nothing to call and today's answer a check: the check and every bet size are priced against each opponent left with HorseOmahaCardImpact's pricing (combined across opponents, the field defending the minimum-defence share together); the value bet of highest expected value is made when it is worth at least the check; with a player still to act the check is kept only when it is worth more than every value bet (the induce) or when no size is a value bet. Facing one bettor with nobody else in the hand and today's answer a call, with a nut-class hand only (owner rulings 2026-11-14 hand 59401453 and 2026-11-15 12:52 hand 59534208: no raise without the nuts): EV(raise to each legal size) on the exact count of the holdings that continue against the raise, beside HorseOmahaFacingBetEv's EV(call); the raise is made at the size of highest EV when it is worth more than the call by 4 percent of the pot; a full house a bigger one beats keeps today's call or fold. In its spots it decides over the half-pot checked-to full-house bet; a hand below a full house that is not nut class is never touched. Default OFF (opt-in); league cards plo4/plo5 _omaha_strong_hand_value",
     'V94'
@@ -4487,6 +4492,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_strong_hand_induce_check',
     'HorseLogic wager_rules (HorseOmahaStrongHandValue, omahaStrongHandValue)',
     'PLO4/PLO5 cash river, nothing to call, a strong hand, a player still to act: the check is worth more than every value bet and is kept (valid no-change)',
+    'V94'
+  ),
+  receipt(
+    'omaha_strong_hand_slowplay_call',
+    'HorseLogic wager_rules (HorseOmahaStrongHandSlowplayMix, omahaStrongHandSlowplayMix)',
+    'PLO4/PLO5 cash flop, turn or river, facing a bet with a nut-class hand and one or two opponents, the final answer a raise: the mixed draw fell under the frequency of the spot and the raise became the exact call',
+    'V94'
+  ),
+  receipt(
+    'omaha_strong_hand_slowplay_check',
+    'HorseLogic wager_rules (HorseOmahaStrongHandSlowplayMix, omahaStrongHandSlowplayMix)',
+    'PLO4/PLO5 cash flop, nothing to call, a set on a very dry flop, one or two opponents, the final answer a bet: the mixed draw fell under the frequency of the spot and the bet became a check',
     'V94'
   ),
   receipt(

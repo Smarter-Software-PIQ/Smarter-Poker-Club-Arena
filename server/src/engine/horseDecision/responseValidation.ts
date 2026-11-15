@@ -62,6 +62,11 @@ import {
   OMAHA_RAISE_NEEDS_NUTS_VARIANTS,
   omahaRaiseNeedsNutsAdmitsCall,
 } from '../HorseOmahaTurnRiverRaiseNeedsNuts.js';
+import {
+  OMAHA_SLOWPLAY_VARIANTS,
+  omahaSlowplayAdmitsCall,
+  omahaSlowplayAdmitsCheck,
+} from '../HorseOmahaStrongHandSlowplayMix.js';
 import { holdemFourBetSpot } from '../HorseHoldemPremiumAggression.js';
 import { tournamentShoveDiscipline } from '../HorseTournamentShoveDiscipline.js';
 
@@ -1342,6 +1347,34 @@ function policyGraphIsValid(
       context !== undefined &&
       String(context.gameState.gameVariant).toLowerCase() === variant &&
       omahaRaiseNeedsNutsAdmitsCall(context.player, context.gameState, transition.after.amount);
+    // Owner 2026-11-15 14:13 (HorseOmahaStrongHandSlowplayMix, option
+    // omahaStrongHandSlowplayMix): in PLO4/PLO5 cash a raise facing a bet
+    // with a nut-class hand becomes a call at a mixed frequency. The draw and
+    // the opponent read are not in the request, so raise -> call is admitted
+    // only with the request, only in the mix's public spot with a hand that
+    // is nut class there, and only for the exact chips of the call.
+    const omahaSlowplayCalled =
+      transition.node === 'wager_rules' &&
+      OMAHA_SLOWPLAY_VARIANTS.has(variant) &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      ['raise', 'all_in'].includes(previous.action) &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      omahaSlowplayAdmitsCall(context.player, context.gameState, transition.after.amount);
+    // The same option, the flop: a bet with a set on a very dry flop becomes
+    // a check at a mixed frequency. A check puts no chip in; when the request
+    // is known, only in the mix's spot (the flop, nothing to call, one or two
+    // opponents, a set, three suits and three ranks at least five apart).
+    const omahaSlowplayBetToCheck =
+      transition.node === 'wager_rules' &&
+      OMAHA_SLOWPLAY_VARIANTS.has(variant) &&
+      transition.after.action === 'check' &&
+      previous !== null &&
+      previous.action === 'bet' &&
+      (context === undefined ||
+        (String(context.gameState.gameVariant).toLowerCase() === variant &&
+          omahaSlowplayAdmitsCheck(context.player, context.gameState)));
     // Owner 2026-11-15 11:43 (HorseOmahaStreetPlan, default-off option): a
     // heads-up turn bet facing no wager becomes a check when the plan prices
     // the check line higher. A check puts no chip in; when the request is
@@ -1398,6 +1431,8 @@ function policyGraphIsValid(
       !omahaCardImpactBetToCheck &&
       !omahaFacingBetEvCalled &&
       !omahaRaiseNeedsNutsCalled &&
+      !omahaSlowplayCalled &&
+      !omahaSlowplayBetToCheck &&
       !pairedBoardRiverCheck &&
       !omahaBeatenBetToCheck &&
       !omahaOopBetToCheck &&

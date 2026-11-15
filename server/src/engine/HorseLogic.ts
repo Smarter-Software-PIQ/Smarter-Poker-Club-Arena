@@ -82,7 +82,21 @@ import {
 } from './HorseOmahaUnderpair.js';
 import { omahaCardImpactDecision, omahaCardImpactScope } from './HorseOmahaCardImpact.js';
 import { omahaFacingBetEvSpot, omahaFacingBetEvVerdict } from './HorseOmahaFacingBetEv.js';
-import { omahaStrongHandValueDecision } from './HorseOmahaStrongHandValue.js';
+import {
+  omahaStrongHandRaiseVerdict,
+  omahaStrongHandValueDecision,
+} from './HorseOmahaStrongHandValue.js';
+import {
+  OMAHA_SLOWPLAY_CALL_SALT,
+  OMAHA_SLOWPLAY_CHECK_SALT,
+  omahaSlowplayCallDecision,
+  omahaSlowplayCheckDecision,
+  omahaSlowplayReadMost,
+  omahaSlowplayReadOf,
+  omahaSlowplaySpotKey,
+  omahaSlowplayUnit,
+  type OmahaSlowplayRead,
+} from './HorseOmahaStrongHandSlowplayMix.js';
 import {
   omahaPlanHeroInPosition,
   omahaPlanLineUncommitted,
@@ -3355,6 +3369,29 @@ export interface HorseDecideOpts {
    * declared evaluation passes; league cards plo4/plo5
    * _omaha_strong_hand_value. */
   omahaStrongHandValue?: boolean;
+  /** Owner 2026-11-15 14:13 ("ITS OK FOR HORSES TO JUST CALL WITH THE NUTS, OR
+   * JUST CALL WITH TOP FULL HOUSE. THEY SHOULDN'T ALWAYS RAISE 100% OF THE
+   * TIME, AND THEY SHOULD CHECK SOMETIMES WITH A SET ON SUPER DRY BOARDS";
+   * HorseOmahaStrongHandSlowplayMix.ts): PLO4/PLO5 cash, pot limit, high
+   * only, one board. (a) Facing a bet on the flop, the turn or the river with
+   * a nut-class hand and one or two opponents, the final raise becomes a call
+   * at a mixed frequency: higher when few next cards take the nuts away, when
+   * the bettor is measured aggressive, in position and with stacks behind;
+   * lower against a measured station, on the river (priced on the share of
+   * his range that calls a raise and loses) and nearly zero when the hand is
+   * vulnerable. (b) Nothing to call on a very dry flop (three suits, three
+   * ranks, every two at least five apart) with a set and one or two
+   * opponents, the final bet becomes a check at a mixed frequency: higher
+   * when few turn cards hurt and an opponent is measured to bet when checked
+   * to; lower against a passive player or station or with the pot already
+   * large beside the stacks; in position only when few turn cards hurt. It
+   * only turns a raise into a call and a bet into a check: never a fold,
+   * never an owner-ruled check. One draw per decision from a stream derived
+   * from the strategy stream without advancing it. It stands aside when
+   * omahaNutClassValueSize is on. Every constant is a builder's choice, none
+   * measured. Default OFF (opt-in, read `=== true`); league cards plo4/plo5
+   * _omaha_strong_hand_slowplay_mix. */
+  omahaStrongHandSlowplayMix?: boolean;
   /** A token-priced committed call is not barred by stack-off premiums
    * (HorseTokenCallPrice.ts, PLO6-AUDIT-010). Default on; false only for
    * the regression's non-vacuity control. */
@@ -8775,6 +8812,113 @@ function omahaStrongHandValueRule(
   }
 }
 
+/**
+ * omahaStrongHandSlowplayMix (owner 2026-11-15 14:13; default OFF, read
+ * `=== true`; HorseOmahaStrongHandSlowplayMix.ts). Inside omahaOwnerRuledFinal
+ * and omahaTurnRiverRaiseNeedsNutsRule on both decision paths, after every
+ * owner that can raise or bet: it reads the final raise or bet and, in its
+ * two spots, turns the raise into a call or the bet into a check at the
+ * spot's mixed frequency. It never touches a check, a call or a fold, so an
+ * owner-ruled check or fold stands, and nothing after it raises or bets
+ * (the owner-ruled final only checks, calls or folds; the nut rule only
+ * calls or folds). It stands aside when omahaNutClassValueSize is on (that
+ * option's answer is the sized wager). The one draw comes from the module's
+ * derived stream: the strategy stream is read (saveFastRandom), not advanced.
+ *
+ * Receipts: omaha_strong_hand_slowplay_call, omaha_strong_hand_slowplay_check.
+ */
+function omahaStrongHandSlowplayMixRule(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
+  if (opts.omahaStrongHandSlowplayMix !== true) return decision;
+  if (opts.omahaNutClassValueSize === true) return decision;
+  if (decision.action !== 'raise' && decision.action !== 'all_in' && decision.action !== 'bet')
+    return decision;
+  try {
+    const userOf = (seat: number): string | null =>
+      opts.mind === false
+        ? null
+        : ((gs.players ?? []).find((p) => p.seat === seat)?.user_id ?? null);
+    const conditional = (seat: number) => {
+      const id = userOf(seat);
+      if (id === null) return null;
+      try {
+        return HorseMind.omahaReadConditionalOf(id);
+      } catch {
+        return null;
+      }
+    };
+    const readOf = (seat: number): OmahaSlowplayRead => omahaSlowplayReadOf(conditional(seat));
+    const stream = saveFastRandom();
+    const spotKey = omahaSlowplaySpotKey(player, gs);
+    const result =
+      decision.action === 'bet'
+        ? omahaSlowplayCheckDecision(decision, player, gs, {
+            unit: omahaSlowplayUnit(stream, spotKey, OMAHA_SLOWPLAY_CHECK_SALT),
+            read: readOf,
+          })
+        : omahaSlowplayCallDecision(decision, player, gs, {
+            unit: omahaSlowplayUnit(stream, spotKey, OMAHA_SLOWPLAY_CALL_SALT),
+            read: omahaSlowplayReadMost(
+              (gs.players ?? [])
+                .filter((p) => p.seat !== player.seat && !p.is_folded && !p.is_sitting_out)
+                .map((p) => readOf(p.seat))
+            ),
+            riverRaise: () => {
+              const spot = omahaFacingBetEvSpot(player, gs);
+              if (!spot) return null;
+              const id = userOf(spot.bettorSeat);
+              let bettorRead: ReturnType<typeof HorseMind.omahaFacingBetEvReadOf> = null;
+              try {
+                bettorRead =
+                  id === null ? null : HorseMind.omahaFacingBetEvReadOf(id, 'river', spot.potFrac);
+              } catch {
+                bettorRead = null;
+              }
+              const best = omahaStrongHandRaiseVerdict(player, gs, {
+                bettorRead,
+                callRead: conditional(spot.bettorSeat),
+                rake: isTournamentMode(gs)
+                  ? 0
+                  : rakeDrag(
+                      gs.pot,
+                      gs.bigBlind,
+                      gs.rakeConfig,
+                      dealtHorseTableSize(gs, player.seat)
+                    ),
+              })?.best;
+              return best ? { continues: best.continues, win: best.win } : null;
+            },
+          });
+    if (telemetryOn(opts)) {
+      if (result.changed === 'slowplay_call') noteFire('omaha_strong_hand_slowplay_call');
+      else if (result.changed === 'slowplay_check') noteFire('omaha_strong_hand_slowplay_check');
+    }
+    return result.decision;
+  } catch {
+    if (telemetryOn(opts)) noteFire('omaha_strategy_rule_failed');
+    return decision;
+  }
+}
+
+/** The draw rules, then the slowplay mix on their final raise or bet (the chain outside the graph). */
+function omahaSlowplayOutside(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
+  return omahaStrongHandSlowplayMixRule(
+    omahaDrawRules(decision, player, gs, opts),
+    player,
+    gs,
+    opts
+  );
+}
+
 /** omahaStrongHandValueRule's decision, for the rule chain outside the graph. */
 function omahaStrongHandValueOutside(
   decision: HorseDecision,
@@ -8810,7 +8954,7 @@ function pairedBoardFoldOutsideGraph(
 ): HorseDecision {
   return decision.policyGraph === undefined
     ? omahaOwnerRuledFinal(
-        omahaDrawRules(
+        omahaSlowplayOutside(
           omahaStrongHandValueOutside(
             omahaFacingBetEvRule(
               omahaRiverMediumBetStrongHandCalls(
@@ -11042,11 +11186,19 @@ export class HorseLogic {
       // omahaNoDrawRaiseFinal included); nothing after it raises. The
       // strong-hand value answer (omahaStrongHandValue) is inside it and
       // inside omahaOwnerRuledFinal, so an owner-ruled check stands over its
-      // value bet and its value raise needs the nuts.
+      // value bet and its value raise needs the nuts. The slowplay mix
+      // (omahaStrongHandSlowplayMix, owner 2026-11-15 14:13) is inside both:
+      // it only turns the final raise into a call or the final flop bet into
+      // a check, so an owner-ruled check or fold is never its to change.
       return {
         decision: omahaTurnRiverRaiseNeedsNutsRule(
           omahaOwnerRuledFinal(
-            omahaDrawRules(onePair(strongHand.decision), player, gs, opts),
+            omahaStrongHandSlowplayMixRule(
+              omahaDrawRules(onePair(strongHand.decision), player, gs, opts),
+              player,
+              gs,
+              opts
+            ),
             player,
             gs,
             opts
