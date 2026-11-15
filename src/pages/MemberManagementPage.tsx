@@ -1279,8 +1279,15 @@ export default function MemberManagementPage() {
                     {d.player_number && (
                       <span className="mm-downline__number">No. {d.player_number}</span>
                     )}
-                    <span className="mm-downline__fees" title="Fees Generated">
-                      {playerRecordMoney(d.total_fees_text ?? d.total_fees)}
+                    <span className="mm-downline__money">
+                      <span className="mm-downline__fees" title="Fees Generated">
+                        <span className="mm-downline__money-label">Fees</span>
+                        {playerRecordMoney(d.total_fees_text ?? d.total_fees)}
+                      </span>
+                      <span className="mm-downline__balance" title="Player Balance">
+                        <span className="mm-downline__money-label">Balance</span>
+                        {playerRecordMoney(d.chip_balance_text ?? d.chip_balance)}
+                      </span>
                     </span>
                     <span className="mm-downline__open" aria-hidden="true">
                       ›

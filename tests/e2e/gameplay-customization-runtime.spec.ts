@@ -1852,7 +1852,8 @@ test.describe('production routed gameplay customization', () => {
       });
 
       const settings = await openTableSettings(writer);
-      await verifyPublishedControllerSettings(settings, async () => {
+      const studio = await openStudio(settings);
+      await verifyPublishedControllerSettings(studio, async () => {
         const result = await account!.client
           .from('user_page_preferences')
           .select('value')
@@ -1862,7 +1863,6 @@ test.describe('production routed gameplay customization', () => {
         if (result.error) throw result.error;
         return result.data?.value ?? null;
       });
-      const studio = await openStudio(settings);
       await expect(
         studio
           .getByRole('region', { name: 'Action Controller', exact: true })

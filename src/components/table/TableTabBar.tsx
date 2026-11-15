@@ -1210,6 +1210,7 @@ export function TableTabBar({
                 aria-label={`${tab.name} Quick Actions`}
               >
                 <div className="table-tab-bar__qmenu-title">{formatGameTitle(tab.name)}</div>
+                {!isLobby && item('Sit Down', () => onTabSelect(tab.id))}
                 {onQuickAction &&
                   !isLobby &&
                   item(tab.sittingOut ? "I'm Back" : 'Sit Out', () =>

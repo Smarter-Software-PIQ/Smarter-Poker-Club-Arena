@@ -71,10 +71,10 @@ describe('the correct hands', () => {
     expect(svc).not.toContain(".order('created_at', { ascending: false })\n      .limit(limit)");
     const page = read('src/pages/TablePage.tsx');
     expect(page).toMatch(
-      /handHistoryService\.getPlayerHands\(userId, HAND_HISTORY_PAGE, \{\s*tableId,\s*gameMode: tableHistoryGameMode,\s*lightningPoolSessionId: lightningRoom\?\.poolSessionId,\s*throwOnError: true,?\s*\}\)/
+      /handHistoryService\.getPlayerHands\(userId, HAND_HISTORY_PAGE, \{\s*tableId,\s*gameMode: tableHistoryGameMode,\s*includeObserved: true,\s*lightningPoolSessionId: lightningRoom\?\.poolSessionId,\s*throwOnError: true,?\s*\}\)/
     );
     expect(page).toMatch(
-      /handHistoryService\.getPlayerHands\(userId, 1, \{\s*tableId,\s*gameMode: tableHistoryGameMode,\s*lightningPoolSessionId: lightningRoom\?\.poolSessionId,\s*throwOnError: true,?\s*\}\)/
+      /handHistoryService\.getPlayerHands\(userId, 1, \{\s*tableId,\s*gameMode: tableHistoryGameMode,\s*includeObserved: true,\s*lightningPoolSessionId: lightningRoom\?\.poolSessionId,\s*throwOnError: true,?\s*\}\)/
     );
     // A Lightning room is a session rather than a physical table. Its existing
     // self-only RPC resolves exact canonical rows through the same RLS reader.
