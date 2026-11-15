@@ -27,13 +27,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { functionBody, latestDeclaring } from './helpers/migrations';
-import {
-  accountingDay,
-  chicagoBoundaryStamp,
-  parseUnionWeeks,
-  unionWeekLabel,
-  unionWeeksBoundaryEnd,
-} from '../src/lib/clubDataUnionWeeks';
+import { accountingDay } from '../src/lib/clubDataDay';
 
 const squash = (s: string) => s.replace(/\s+/g, ' ');
 function latest(fnName: string): string {
@@ -137,94 +131,7 @@ describe('an invoice week on Club Data is the issued invoice', () => {
   });
 });
 
-describe('the page prints the invoice with its real boundaries, exactly', () => {
-  const invoice = (fee: number, loss: number, extra: Record<string, unknown> = {}) => ({
-    invoice_id: 'i',
-    invoice_number: 'MU-1',
-    status: 'generated',
-    club_id: 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4',
-    club_name: 'KINGS CLUB',
-    fee,
-    player_net_loss: loss,
-    ...extra,
-  });
-  const week = (extra: Record<string, unknown> = {}) => ({
-    period_start: '2026-11-02T08:00:00+00:00',
-    period_end: '2026-11-09T08:00:00+00:00',
-    fee: 25854.24,
-    player_net_loss: 37160.83,
-    cash_net_loss: null,
-    tournament_net_loss: null,
-    invoices: [invoice(25854.24, 37160.83)],
-    ...extra,
-  });
-  const answer = (extra: Record<string, unknown> = {}) => ({
-    union_id: 'fade0000-0000-0000-0000-000000000001',
-    day_boundary: '02:00',
-    day_zone: 'America/Chicago',
-    window_start: '2026-11-02T08:00:00+00:00',
-    window_end: '2026-11-09T08:00:00+00:00',
-    covers_window: true,
-    open_from: null,
-    weeks: [week()],
-    ...extra,
-  });
-
-  it('the KINGS CLUB week is its invoice, to the cent', () => {
-    const parsed = parseUnionWeeks(answer());
-    expect(parsed?.weeks[0].fee).toBe(25854.24);
-    expect(parsed?.weeks[0].player_net_loss).toBe(37160.83);
-    expect(parsed?.covers_window).toBe(true);
-  });
-
-  it('the range chip states the real boundaries', () => {
-    expect(unionWeekLabel(week())).toBe('Nov 2 2:00 AM To Nov 9 2:00 AM');
-    // The week before starts on daylight time: still 2:00 AM on the Chicago clock.
-    expect(chicagoBoundaryStamp('2026-10-26T07:00:00Z')).toBe('Oct 26 2:00 AM');
-  });
-
-  it('dates Nov 2 to Nov 9 hold exactly the one invoice week, not eight days of it', () => {
-    // The page's last day is Nov 9, so the server is asked to stop at 02:00 on Nov 10;
-    // the week that ends 02:00 Nov 9 is inside, and the remaining day is open time.
-    expect(unionWeeksBoundaryEnd('2026-11-09')).toBe('2026-11-10');
-    const parsed = parseUnionWeeks(
-      answer({
-        window_end: '2026-11-10T08:00:00+00:00',
-        covers_window: false,
-        open_from: '2026-11-09T08:00:00+00:00',
-      })
-    );
-    expect(parsed?.weeks).toHaveLength(1);
-    expect(parsed?.weeks[0].period_end).toBe('2026-11-09T08:00:00+00:00');
-  });
-
-  it('refuses an answer that is not exact rather than repairing it', () => {
-    // Invoices that do not add up to the week.
-    expect(parseUnionWeeks(answer({ weeks: [week({ fee: 25854.25 })] }))).toBeNull();
-    // A fraction of a cent.
-    expect(
-      parseUnionWeeks(
-        answer({ weeks: [week({ fee: 25854.245, invoices: [invoice(25854.245, 37160.83)] })] })
-      )
-    ).toBeNull();
-    // A split that does not add up to the loss.
-    expect(
-      parseUnionWeeks(answer({ weeks: [week({ cash_net_loss: 1, tournament_net_loss: 2 })] }))
-    ).toBeNull();
-    // A week outside the window, a cancelled document, a different boundary.
-    expect(parseUnionWeeks(answer({ window_end: '2026-11-08T08:00:00+00:00' }))).toBeNull();
-    expect(
-      parseUnionWeeks(
-        answer({
-          weeks: [week({ invoices: [invoice(25854.24, 37160.83, { status: 'cancelled' })] })],
-        })
-      )
-    ).toBeNull();
-    expect(parseUnionWeeks(answer({ day_boundary: '00:00' }))).toBeNull();
-    // Coverage the weeks do not support.
-    expect(parseUnionWeeks(answer({ window_end: '2026-11-10T08:00:00+00:00' }))).toBeNull();
-  });
-
+describe('the page has one source of figures', () => {
   it('no second block competes with the tiles: the page has one source of figures', () => {
     // The owner rejected a summary block beside tiles that disagree with it
     // (2026-11-14). The tiles themselves move to the invoice's records

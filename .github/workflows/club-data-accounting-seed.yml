@@ -27,7 +27,10 @@ concurrency:
   cancel-in-progress: false
 jobs:
   load:
-    if: github.ref == 'refs/heads/main' && github.run_attempt == '1'
+    # A person dispatches it from main; the job token can neither dispatch nor
+    # re-run it (tests/unit/aJobTokenCannotStartTrustedWork.law.test.ts). A
+    # person's re-run is safe: a loaded day is skipped.
+    if: (github.actor != 'github-actions[bot]' && github.triggering_actor != 'github-actions[bot]') && github.ref == 'refs/heads/main' && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
     runs-on: ubuntu-latest
     environment: ci-main
     timeout-minutes: 300
