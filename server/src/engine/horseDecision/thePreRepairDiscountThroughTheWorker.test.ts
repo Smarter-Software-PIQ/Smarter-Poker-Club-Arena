@@ -14,7 +14,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { HorseLogic } from '../HorseLogic.js';
 import { HorseMind } from '../HorseMind.js';
 import { equityGovernor } from '../EquityLoadGovernor.js';
@@ -36,6 +36,7 @@ import {
   type HorseDecisionWorkerDependencies,
 } from './workerRuntime.js';
 import { counters } from '../HorseOpponentStyle.test-support.js';
+import { PINNED_HORSE_MOOD_CLOCK_MS } from '../../testing/theHorseMoodHourIsPinned.js';
 import {
   STYLE_SWITCH_OPTIONS,
   StyleSwitchHolder,
@@ -289,6 +290,12 @@ const sameWorker = (decision: unknown): unknown =>
       key === 'epoch' || key === 'latencyMs' || key === 'elapsedMs' ? undefined : value
     )
   );
+
+// The worker request supplies an explicit decisionTimeMs, which takes precedence
+// over the suite's default mood hour. Pin its learning and decision clocks together.
+beforeEach(() => {
+  vi.spyOn(Date, 'now').mockReturnValue(PINNED_HORSE_MOOD_CLOCK_MS);
+});
 
 afterEach(() => {
   vi.restoreAllMocks();
