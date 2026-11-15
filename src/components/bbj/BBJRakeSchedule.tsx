@@ -53,8 +53,9 @@ async function loadRows({ clubId, unionId, tableId, asset }: Props): Promise<Row
       .from('tables')
       .select('club_id, union_id')
       .eq('id', tableId)
-      .single();
+      .maybeSingle();
     if (error) throw error;
+    if (!data) throw new Error('Cash table unavailable');
     clubId = data.club_id;
     unionId = data.union_id;
   }
@@ -81,7 +82,7 @@ async function loadRows({ clubId, unionId, tableId, asset }: Props): Promise<Row
   if (diamond?.error) throw diamond.error;
   const chip =
     asset === 'chips'
-      ? await supabase.rpc('fn_bbj_chip_rake_brackets').single<ChipBrackets>()
+      ? await supabase.rpc('fn_bbj_chip_rake_brackets').maybeSingle<ChipBrackets>()
       : null;
   if (chip?.error) throw chip.error;
   for (const table of data ?? []) {
