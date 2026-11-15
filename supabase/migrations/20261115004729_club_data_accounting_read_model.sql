@@ -702,8 +702,9 @@ BEGIN
   WHILE w_lo < v_hi LOOP
     w_hi := LEAST(w_lo + interval '2 hours', v_hi);
 
-    -- One club at a time: accounting_cash_rake_sources is read through its
-    -- (club_id, earned_at) index, never by a scan of every club's rows.
+    -- One club (one union for hands and flows) at a time, so each source is
+    -- read through its (club_id | union, time) index, never by a scan of
+    -- every club's rows.
     v := public.fn_ca_club_acct_cash_fee_rows((
       SELECT jsonb_agg(jsonb_build_object('id', s.id, 'rake_record_id', s.rake_record_id, 'player_id', s.player_id,
                'club_id', s.club_id, 'union_id', s.union_id, 'earned_at', s.earned_at, 'rake_credit', s.rake_credit))
@@ -721,8 +722,10 @@ BEGIN
       SELECT jsonb_agg(jsonb_build_object('table_id', t.table_id, 'hand_number', t.hand_number,
                'recognized_at', t.recognized_at, 'union_id', t.game_union_id,
                'participants', public.fn_ca_club_acct_touch_participants(t)))
-        FROM public.union_pnl_cash_outcome_touches t
-       WHERE t.game_union_id IS NOT NULL AND t.recognized_at >= w_lo AND t.recognized_at < w_hi));
+        FROM public.unions u
+        CROSS JOIN LATERAL (SELECT x.* FROM public.union_pnl_cash_outcome_touches x
+                             WHERE x.game_union_id = u.id::text
+                               AND x.recognized_at >= w_lo AND x.recognized_at < w_hi) t));
     PERFORM public.fn_ca_club_acct_put(v->'facts', 1::smallint);
     PERFORM public.fn_ca_club_acct_put_hands(v->'hands', 1::smallint);
     n_f := n_f + jsonb_array_length(v->'facts'); n_h := n_h + jsonb_array_length(v->'hands');
@@ -736,8 +739,10 @@ BEGIN
     n_f := n_f + jsonb_array_length(v->'facts'); n_h := n_h + jsonb_array_length(v->'hands');
 
     v := public.fn_ca_club_acct_flow_rows((
-      SELECT jsonb_agg(to_jsonb(f)) FROM public.union_pnl_original_flows f
-       WHERE f.game_scope->>'game_union_id' IS NOT NULL AND f.recognized_at >= w_lo AND f.recognized_at < w_hi));
+      SELECT jsonb_agg(to_jsonb(f)) FROM public.unions u
+       CROSS JOIN LATERAL (SELECT x.* FROM public.union_pnl_original_flows x
+                            WHERE x.game_scope->>'game_union_id' = u.id::text
+                              AND x.recognized_at >= w_lo AND x.recognized_at < w_hi) f));
     PERFORM public.fn_ca_club_acct_put(v, 1::smallint); n_f := n_f + jsonb_array_length(v);
 
     w_lo := w_hi;
