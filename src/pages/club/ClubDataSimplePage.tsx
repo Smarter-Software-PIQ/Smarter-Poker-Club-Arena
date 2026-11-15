@@ -40,7 +40,6 @@ import { reportError } from '../../utils/errorReporter';
 import styles from './ClubDataSimplePage.module.css';
 import { clubDataRangeDays, clubDataRangeError } from '../../lib/clubDataRange';
 import ClubDataTotalsBreakdown from './ClubDataTotalsBreakdown';
-import ClubDataUnionWeeks from './ClubDataUnionWeeks';
 import { useClubGameHost } from '../../hooks/useClubGameHost';
 import { usePageTitle } from '../../hooks/usePageTitle';
 import { ClubRosterService, type RosterMember } from '../../services/ClubRosterService';
@@ -760,9 +759,6 @@ export default function ClubDataSimplePage() {
           metric={breakdown}
           onClose={() => setBreakdown(null)}
         />
-      )}
-      {visibleSnapshot?.scope === 'club' && clubUuid && userId && (
-        <ClubDataUnionWeeks key={scopeKey} clubId={clubUuid} start={startDate} end={endDate} />
       )}
       {visibleSnapshot?.scope === 'downline' && (
         <p className={styles.liveLine}>

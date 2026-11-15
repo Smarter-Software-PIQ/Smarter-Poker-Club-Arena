@@ -23,7 +23,7 @@
  * Qualified on real Postgres, to the cent, with the production week as the
  * fixture, by scripts/ci/test-club-data-union-invoice-week.py.
  */
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { functionBody, latestDeclaring } from './helpers/migrations';
@@ -225,20 +225,13 @@ describe('the page prints the invoice with its real boundaries, exactly', () => 
     expect(parseUnionWeeks(answer({ window_end: '2026-11-10T08:00:00+00:00' }))).toBeNull();
   });
 
-  it('the owner screen mounts the block for whole-club viewers and labels both bases', () => {
+  it('no second block competes with the tiles: the page has one source of figures', () => {
+    // The owner rejected a summary block beside tiles that disagree with it
+    // (2026-11-14). The tiles themselves move to the invoice's records
+    // (ca_club_acct_fact, 20261115004729).
     const page = src('src/pages/club/ClubDataSimplePage.tsx');
-    expect(page).toContain("visibleSnapshot?.scope === 'club' && clubUuid && userId && (");
-    expect(page).toContain(
-      '<ClubDataUnionWeeks key={scopeKey} clubId={clubUuid} start={startDate} end={endDate} />'
-    );
-    const block = src('src/pages/club/ClubDataUnionWeeks.tsx');
-    expect(block).toContain("supabase.rpc('ca_club_data_union_weeks'");
-    expect(block).toContain('p_end: unionWeeksBoundaryEnd(end)');
-    expect(block).toContain('parseUnionWeeks(data)');
-    expect(block).toContain('Union Invoice Week {unionWeekLabel(week)} {CLUB_DATA_ZONE_LABEL}');
-    expect(block).toContain('Totals Above Count Table Activity By Midnight Days And Can Differ.');
-    // Never a projection, an estimate or a figure of its own.
-    expect(block).not.toMatch(/project|estimat|approx/i);
+    expect(page).not.toContain('ClubDataUnionWeeks');
+    expect(existsSync(resolve(__dirname, '..', 'src/pages/club/ClubDataUnionWeeks.tsx'))).toBe(false);
   });
 });
 
