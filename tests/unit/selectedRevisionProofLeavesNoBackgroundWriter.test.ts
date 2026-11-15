@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync }
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 import { gitFixtureEnvironment } from '../helpers/gitFixtureEnvironment';
 
 // Each case builds a real bare repository and runs the real proof against it.
@@ -59,7 +60,7 @@ const prove = (shas: string[], inherited: NodeJS.ProcessEnv = {}) =>
   spawnSync('bash', [script, ...shas], {
     env: {
       ...gitFixtureEnvironment(),
-      GITHUB_SERVER_URL: `file://${join(fixture, 'srv')}`,
+      GITHUB_SERVER_URL: pathToFileURL(join(fixture, 'srv')).href,
       GITHUB_REPOSITORY: 'owner/repo.git',
       GH_TOKEN: 'fixture-token',
       TMPDIR: scratch,
