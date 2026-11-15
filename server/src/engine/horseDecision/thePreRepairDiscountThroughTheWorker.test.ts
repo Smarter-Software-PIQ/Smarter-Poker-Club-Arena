@@ -14,7 +14,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { HorseLogic } from '../HorseLogic.js';
 import { HorseMind } from '../HorseMind.js';
 import { equityGovernor } from '../EquityLoadGovernor.js';
@@ -289,6 +289,11 @@ const sameWorker = (decision: unknown): unknown =>
       key === 'epoch' || key === 'latencyMs' || key === 'elapsedMs' ? undefined : value
     )
   );
+
+beforeEach(() => {
+  // The decision hour selects the player's mood. Keep observations and both looks on one fixture clock.
+  vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-15T04:00:00Z'));
+});
 
 afterEach(() => {
   vi.restoreAllMocks();
