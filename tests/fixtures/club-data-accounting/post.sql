@@ -37,10 +37,16 @@ SELECT :T2, 2, o.hand_id, o.payload_hash, md5(o.evidence::text), 'manifest', jso
       jsonb_build_object('earning_club_id', :K, 'user_id', :u1, 'observed_stack_delta', -2))),
   '{"ok":true}', md5('{"ok": true}')
   FROM union_pnl_cash_outcomes o WHERE o.table_id = :T2 AND o.hand_number = 2;
+-- A bounty whose receipt the transaction writes AFTER the flow: the flow is
+-- projected at commit, when its receipt exists.
+BEGIN;
 INSERT INTO union_pnl_original_flows VALUES
-  ('f1000000-0000-0000-0000-000000000007', NULL, '2026-11-03 13:00+00', jsonb_build_object('game_union_id', :U, 'tournament_id', :TT1),
+  ('f1000000-0000-0000-0000-000000000007', pg_current_xact_id(), '2026-11-03 13:00+00', jsonb_build_object('game_union_id', :U, 'tournament_id', :TT1),
    jsonb_build_object('status', 'posted', 'club_id', :K, 'amount', 2, 'from_type', 'prize_liability', 'from_entity_id', :TT1,
                       'to_type', 'player_wallet', 'to_entity_id', :u1, 'category', 'bounty'));
+INSERT INTO tournament_accounting_credit_receipts (tournament_id, user_id, asset, amount, ledger_id, credited_club_id)
+VALUES (:TT1, :u1, 'chips', 2, 'f1000000-0000-0000-0000-000000000007', :K);
+COMMIT;
 -- A recognition and its sources in one transaction, recognition first (as
 -- fn_recognize_accounting_tournament_fees writes them).
 BEGIN;
@@ -57,8 +63,10 @@ INSERT INTO bbj_payouts VALUES ('b0000000-0000-0000-0000-000000000002', :T1, 5, 
 INSERT INTO bbj_payout_recipients (payout_id, user_id, amount, created_at)
 VALUES ('b0000000-0000-0000-0000-000000000002', 'bbb00000-0000-0000-0000-0000000000ff', 1.00, '2026-11-03 12:01+00');
 DELETE FROM fixture_bbj_outage;
--- A recertified boundary replaces its predecessor.
-UPDATE accounting_close_certificates SET value = jsonb_build_object('holdings', jsonb_build_array(
+-- The 2026-11-09 boundary recertified after the invoice of the week ending
+-- there (2026-11-11 09:05): that week keeps the version its invoice used
+-- (12.00); the week starting there has no invoice yet and takes the new one.
+UPDATE accounting_close_certificates SET value = jsonb_build_object('status', 'ready', 'holdings', jsonb_build_array(
      jsonb_build_object('kind', 'deferred_tournament_result', 'club_id', :F, 'user_id', :u2, 'amount', 15.00,
-                        'source_id', 'f0000000-0000-0000-0000-000000000001')))
+                        'source_id', 'f0000000-0000-0000-0000-000000000001'))), certified_at = '2026-11-12 00:00+00'
  WHERE kind = 'pnl_boundary' AND period_start = '2026-11-09 08:00+00';

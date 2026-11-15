@@ -33,6 +33,7 @@ import { DiamondJackpotWinners, DiamondJackpotBasic } from './DiamondJackpotPane
 import { titleCase } from '../../utils/titleCase';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { BBJRakeSchedule } from './BBJRakeSchedule';
 import BBJRecentHits from './BBJRecentHits';
 import BBJBasicPanel from './BBJBasicPanel';
 import BBJQualifyingHands from './BBJQualifyingHands';
@@ -57,6 +58,9 @@ import './BBJInfoModal.css';
 
 export interface BBJInfoModalProps {
   isOpen: boolean;
+  clubId?: string;
+  unionId?: string | null;
+  tableId?: string;
   asset?: 'chips' | 'diamonds';
   diamond?: DiamondJackpotSnapshot | null;
   diamondUnavailable?: boolean;
@@ -82,7 +86,7 @@ export interface BBJInfoModalProps {
   mini?: BbjMiniSnapshot | null;
 }
 
-type Tab = 'winner' | 'basic' | 'qualifying';
+type Tab = 'winner' | 'basic' | 'qualifying' | 'rake';
 /** The second row: which jackpot the current page is about. */
 type Tier = 'main' | 'mini';
 
@@ -90,10 +94,14 @@ const TABS: Array<{ key: Tab; label: string }> = [
   { key: 'winner', label: 'Winner' },
   { key: 'basic', label: 'Basic' },
   { key: 'qualifying', label: 'Qualifying Hands' },
+  { key: 'rake', label: 'Rake Schedule' },
 ];
 
 export function BBJInfoModal({
   isOpen,
+  clubId,
+  unionId,
+  tableId,
   asset = 'chips',
   diamond = null,
   diamondUnavailable = false,
@@ -406,24 +414,26 @@ export function BBJInfoModal({
               mini (shouldn't be a main feature)". It sits under the three pages
               and swaps the page in place, so Winner / Basic / Qualifying keep
               their meaning and the mini is one tap away on each. */}
-          <div className="bbj-modal__tiers" role="group" aria-label="Which Jackpot">
-            <button
-              type="button"
-              className={`bbj-modal__tier${!isMini ? ' is-active' : ''}`}
-              aria-pressed={!isMini}
-              onClick={() => switchTier('main')}
-            >
-              Bad Beat Jackpot
-            </button>
-            <button
-              type="button"
-              className={`bbj-modal__tier${isMini ? ' is-active' : ''}`}
-              aria-pressed={isMini}
-              onClick={() => switchTier('mini')}
-            >
-              Mini
-            </button>
-          </div>
+          {tab !== 'rake' && (
+            <div className="bbj-modal__tiers" role="group" aria-label="Which Jackpot">
+              <button
+                type="button"
+                className={`bbj-modal__tier${!isMini ? ' is-active' : ''}`}
+                aria-pressed={!isMini}
+                onClick={() => switchTier('main')}
+              >
+                Bad Beat Jackpot
+              </button>
+              <button
+                type="button"
+                className={`bbj-modal__tier${isMini ? ' is-active' : ''}`}
+                aria-pressed={isMini}
+                onClick={() => switchTier('mini')}
+              >
+                Mini
+              </button>
+            </div>
+          )}
 
           <div
             className="bbj-modal__body"
@@ -568,6 +578,9 @@ export function BBJInfoModal({
               </div>
             )}
 
+            {tab === 'rake' && (
+              <BBJRakeSchedule clubId={clubId} unionId={unionId} tableId={tableId} asset={asset} />
+            )}
             {tab === 'qualifying' && (
               <div className="bbj-modal__rules">
                 {hasTableContext && (

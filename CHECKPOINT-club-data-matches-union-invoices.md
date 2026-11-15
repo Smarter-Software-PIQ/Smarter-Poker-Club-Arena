@@ -60,5 +60,46 @@ client 2 AM presentation, publish, live verification.
 - 20261114235606 NOT installed on production yet (club_slug_history absent,
   checked 01:10Z); Felt Society a0000000-...0001 slug = the-felt-society.
 
+## Review B1 redesign (2026-11-15 02:30Z, accepted by coordinator with conditions)
+- Live aggregate rows (src 0) are written only under a never-waiting one-key
+  try-lock pg_try_advisory_xact_lock(hashtextextended('ca-club-acct:' || key, 0))
+  (coordinator: not the two-key form; home-group functions take blocking
+  two-key locks with a hashed classid). Otherwise an insert-only journal row.
+  At most 32 locks per transaction. Readers sum aggregate + journal once; the
+  day load folds the day's journal rows of its snapshot into src 1.
+- src 1 written only by the day load (one at a time, try-lock); src 2 only by
+  the boundary loader (try-lock per boundary). No shared hot game aggregate
+  (ca_club_acct_game dropped). Every trigger function lock_timeout 50ms.
+- Union scope only (non-union outcomes carry no earning club; measured
+  12,246 per 6 h). Tournament flows classified by receipts, projected at
+  commit one row at a time (deferred constraint trigger): measured 24 h, 15,008
+  union tournament flows, every one owned by a receipt with the flow's own
+  transaction_id. A shaped touch and its escrow certificate take the hand's
+  try-lock (a concurrent pair records a failure instead of silently missing
+  the reshaping); measured 0 shaped touches in 6 h, 9 certificates in 7 days.
+- Boundaries from ca_union_pnl_boundary_capture (#10899) through
+  fn_ca_union_pnl_boundary_for_invoice(union, boundary, invoice created_at):
+  never a later version; a side with no qualifying version loads nothing and
+  is logged not invoice-exact. Production: week 2026-11-02..09 invoices
+  created 2026-11-11 09:05:00Z, after both boundary certificates (01:52, 03:43)
+  -> both sides exact; week 10-26..11-02 invoices created 2026-11-10 16:05Z,
+  before the 11-02 certificate -> that closing side not invoice-exact.
+- Boundaries load through fn_ca_club_acct_load_boundaries (seed script, own
+  transaction), not inside the 12 s install budget.
+- Native proof PG16 (as user claude): 16/16 PASS incl. two sessions: same-row
+  live write 0.02 s (journaled, no wait), locks one-key only, day load beside a
+  live commit 0.08 s with every hand once, journal folded, 32-lock budget.
+
+## Receipts reconciliation, week 2026-11-02..09 (union fade0000-...0001, read-only)
+- Funding/returns by receipt: Deep Stack 2,052,426.50 / 1,880,477.22;
+  The Felt Society 2,029,901.00 / 1,951,998.47; KINGS CLUB 103,757.00 / 116,603.72.
+- Deferred holdings at 2026-11-02: DS 32,112.08, FS 30,942.59, KC 30,858.66;
+  at 2026-11-09: DS 8,507.25, FS 7,218.35, KC 0.
+- Result = returns - funding - opening + closing: DS -195,554.11,
+  FS -101,626.77, KC -18,011.94, each equal to its invoice to the cent.
+
 ## State
-- pushed: e5a534b23 (previous agent). Local: c2b1c59a8 (not pushed yet).
+- #10899 (boundary capture) head 58b622594 pushed: S1 invoice-version function,
+  N2 ENABLE ALWAYS asserted via pg_trigger. Waiting on CI + reviewer delta.
+- #10879: redesign written (20261115020010 / 20261115020011), N4 STABLE,
+  former-slug refusal in 20261114235607, BAND-AIDS entry, seed S8, pg pinned.

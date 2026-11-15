@@ -66,13 +66,14 @@ The invoice basis re-derives to the cent from its own sources:
     recorded.
 - `20261114235607_a_renamed_club_keeps_its_old_slug.sql` (daily maintenance
   window, locks `public.clubs`): every later rename files the old slug in the
-  renaming statement.
-- Club Data (the owner screen, `ClubDataSimplePage`) prints each invoice week
-  inside the selected dates with its real boundaries, for example "Union
-  Invoice Week Nov 2 2:00 AM To Nov 9 2:00 AM Chicago Time", the invoice fee
-  and the invoice player net loss, and says that the totals above are table
-  activity by midnight days. Dates Nov 2 to Nov 9 show exactly the one week.
+  renaming statement, and a slug that is another club's former slug is
+  refused (insert or rename) with an error naming that club; a club may take
+  back its own former slug, which removes that history row.
 - `resolveClubUUID` asks the rename history when no club holds a slug.
+- (Updated 2026-11-15.) The separate "union invoice weeks" block on the owner
+  screen was removed again: the screens themselves move to the invoice's
+  accounting basis through the read model in
+  `2026-11-15-club-data-accounting-read-model.md`.
 
 ## What it does not do, and why
 

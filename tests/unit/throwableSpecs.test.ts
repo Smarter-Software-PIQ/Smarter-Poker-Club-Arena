@@ -199,11 +199,13 @@ describe('the grammar bounds, from the measured reference', () => {
     requires('surrender', 'flag_flap', 2800);
     requires('vomit_rainbow', 'comic_burp', 1300);
     requires('fish', 'fish_slap', 700);
+    for (const beat of [2100, 2420, 2740]) requires('fish', 'sushi_chop', beat);
     requires('blush', 'laugh_short', 1000);
     requires('loser_hand', 'rat_chuckle', 1800);
     requires('thinking', 'thoughtful_hum', 1200);
     requires('pizza_slice', 'cheese_pull', 1800);
-    requires('bear', 'bear_growl', 2500);
+    requires('bear', 'grizzly_warning', 700);
+    requires('bear', 'grizzly_growl', 2500);
     requires('shark', 'shark_chomp', 500);
     requires('crying_emoji', 'stifled_sob', 1200);
     requires('angry_emoji', 'rage_grunt', 1667);

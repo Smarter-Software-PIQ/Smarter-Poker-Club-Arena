@@ -17,17 +17,16 @@ export const spec: ThrowableSpec = {
   beats: [
     { at: 400, marker: 'arrival' },
     { at: 667, marker: 'pop' },
-    { at: 700, marker: 'laugh' },
+    { at: 700, marker: 'warning-growl' },
     { at: 2033, marker: 'anger' },
     { at: 2500, marker: 'roar' },
     { at: 3500, marker: 'tremble' },
     { at: 4500, marker: 'cut' },
   ],
-  // Organic voice recordings are tracked separately from visual coverage.
   audio: [
     { at: 400, sample: 'thump_soft', gain: 0.3 },
-    { at: 700, sample: 'laugh_short', gain: 0.7 },
-    { at: 2500, sample: 'bear_growl', gain: 0.94 },
+    { at: 700, sample: 'grizzly_warning', gain: 0.82 },
+    { at: 2500, sample: 'grizzly_growl', gain: 0.94 },
   ],
 };
 preloadThrowableCues(spec.audio.map((c) => c.sample));

@@ -101,7 +101,8 @@ try:
     run(psql("live"), rename, expect_fail="already exists")
     p = run(psql("live"), after)
     require("CLUB SLUG HISTORY SCENARIO PASSED" in p.stdout + p.stderr,
-            "a rename files the old slug in its own statement; the current holder always wins")
+            "a rename files the old slug in its own statement; another club (or a new one) is refused a former slug "
+            "with an error that names it; a club takes back its own former slug")
     print('{"native_fixture": "passed", "production_installation": false}')
 finally:
     if started:

@@ -11,6 +11,7 @@ import {
   HorseMind,
   type HorseMindSandbox,
   type OpponentStats,
+  type PooledRowProvenance,
   type RaiseResponsePlan,
 } from './HorseMind.js';
 import type { SeatPlayer } from '../types.js';
@@ -19,6 +20,7 @@ import {
   type ExploitCounters,
   type FlopStabCounters,
 } from './HorseOpponentExploit.js';
+import { PRE_REPAIR_STATS } from './HorseOpponentStyle.js';
 import {
   normalizeHorseObservationWindow,
   type HorseObservationWindow,
@@ -41,7 +43,8 @@ export interface HorseDecisionReadFrame {
     | 'horse-decision-reads-v10'
     | 'horse-decision-reads-v11'
     | 'horse-decision-reads-v12'
-    | 'horse-decision-reads-v13';
+    | 'horse-decision-reads-v13'
+    | 'horse-decision-reads-v14';
   readonly bytes: number;
   readonly sha256: string;
   readonly json: string;
@@ -94,7 +97,15 @@ const LIMP_RERAISE_VERSION = 'horse-decision-reads-v12';
  * read as `DECIDE_FAST`. Written only when a flop-stab row is present,
  * preserving exact v1-v12 bytes for snapshots without flop-specific evidence. */
 const FLOP_STAB_VERSION = 'horse-decision-reads-v13';
-const flopStabbed = (version: unknown) => version === FLOP_STAB_VERSION;
+/** 2026-11-14: v13 plus the pre-repair provenance of the pooled public rows the decision read
+ * (`view.pooledProvenance`, HorseMind.pooledRowProvenance): for each pre-repair keyed row, its keying and its
+ * post-release opportunity counts, so a `DECIDE_DEEP` second look and an exact replay apply the same pre-repair
+ * discount `DECIDE_FAST` did. Written only when the view carries such a row (a cash table-speed pooled row, or a cash
+ * pooled row with no public domain on file), so every snapshot without one keeps its exact v1-v13 bytes. A v14 body
+ * always carries the v13 lists; its flop-stab list may be empty (a v13 body's never is). */
+const PRE_REPAIR_VERSION = 'horse-decision-reads-v14';
+const preRepaired = (version: unknown) => version === PRE_REPAIR_VERSION;
+const flopStabbed = (version: unknown) => version === FLOP_STAB_VERSION || preRepaired(version);
 const limpReraised = (version: unknown) => version === LIMP_RERAISE_VERSION || flopStabbed(version);
 const probed = (version: unknown) => version === PROBE_VERSION || limpReraised(version);
 const recencied = (version: unknown) => version === FAST_CALLDOWN_VERSION || probed(version);
@@ -190,6 +201,9 @@ const completeFields: Exclude<
   ? true
   : false = true;
 void completeFields;
+/** One pooledProvenance row on the wire: [keying (1 = cash table speed, 0 = cash with no domain on file), then m of
+ * each PRE_REPAIR_STATS statistic in that order]. */
+const PRE_REPAIR_ROW_LENGTH = 1 + PRE_REPAIR_STATS.length;
 const PAIR_FIELDS = ['n3', 'opp3', 'nR', 'oppR'] as const;
 type Rows<T> = Array<[string, T]>;
 type Body = {
@@ -206,7 +220,9 @@ type Body = {
     | typeof FAST_CALLDOWN_VERSION
     | typeof PROBE_VERSION
     | typeof LIMP_RERAISE_VERSION
-    | typeof FLOP_STAB_VERSION;
+    | typeof FLOP_STAB_VERSION
+    | typeof PRE_REPAIR_VERSION;
+  pooledProvenance?: Rows<number[]>;
   scopedFlopStab?: Rows<number[]>;
   limpReraiseTallies?: Rows<number[]>;
   probeTallies?: Rows<number[]>;
@@ -323,6 +339,7 @@ function validateBody(
       ...(recencied(value.version) ? ['riverRecency', 'scopedRiverRecency'] : []),
       ...(probed(value.version) ? ['probeTallies'] : []),
       ...(limpReraised(value.version) ? ['limpReraiseTallies'] : []),
+      ...(preRepaired(value.version) ? ['pooledProvenance'] : []),
       ...(flopStabbed(value.version) ? ['scopedFlopStab'] : []),
       ...(planContext === undefined ? [] : ['planContext']),
       'actors',
@@ -441,9 +458,24 @@ function validateBody(
     };
     if (
       !Array.isArray(value.scopedFlopStab) ||
-      value.scopedFlopStab.length === 0 ||
+      // A v13 body carries at least one flop-stab row (or it would have been v12); a v14 body may carry none.
+      (value.version === FLOP_STAB_VERSION && value.scopedFlopStab.length === 0) ||
       value.scopedFlopStab.length > b.scoped.size ||
       !validRows(value.scopedFlopStab, b.scoped, flopStabValid)
+    )
+      return fail();
+  }
+  if (preRepaired(value.version)) {
+    // [keying, m...]: keying 1 or 0, each m a non-negative finite count. Every row names a counter row this same
+    // frame carries, and a v14 body carries at least one (or it would have been v13 or older).
+    const carried = new Set((value.exploit as Rows<number[]>).map(([id]) => id));
+    const provenanceValid = (v: unknown) =>
+      numbers(v, PRE_REPAIR_ROW_LENGTH) && ((v as number[])[0] === 0 || (v as number[])[0] === 1);
+    if (
+      !Array.isArray(value.pooledProvenance) ||
+      value.pooledProvenance.length === 0 ||
+      !validRows(value.pooledProvenance, b.exploit, provenanceValid) ||
+      (value.pooledProvenance as Rows<number[]>).some(([id]) => !carried.has(id))
     )
       return fail();
   }
@@ -540,7 +572,25 @@ export function encodeHorseDecisionReads(
       return [id, FLOP_STAB_FIELDS.map((f) => row[f])];
     }
   );
-  const hasFlopStab = flopStabRows.length > 0;
+  const provenanceRows: Rows<number[]> = bounded(
+    view.pooledProvenance ?? new Map(),
+    b.exploit.size
+  ).map(([id, row]: [string, PooledRowProvenance]): [string, number[]] => {
+    if (
+      !object(row) ||
+      !exact(row, ['preRepair', 'postRelease']) ||
+      (row.preRepair !== true && row.preRepair !== null) ||
+      !object(row.postRelease) ||
+      !exact(row.postRelease, PRE_REPAIR_STATS)
+    )
+      return fail();
+    return [
+      id,
+      [row.preRepair === true ? 1 : 0, ...PRE_REPAIR_STATS.map((f) => row.postRelease[f])],
+    ];
+  });
+  const hasPreRepair = provenanceRows.length > 0;
+  const hasFlopStab = flopStabRows.length > 0 || hasPreRepair;
   const hasExploit = exploitRows.length > 0;
   const hasWinner = view.winnerReads !== undefined;
   if (hasWinner && (!(view.winnerReads!.seen instanceof Set) || view.winnerReads!.seen.size !== 0))
@@ -613,6 +663,7 @@ export function encodeHorseDecisionReads(
       .filter(([, row]) => row.lrOpps !== undefined)
       .map(([id, row]) => [id, LIMP_RERAISE_FIELDS.map((f) => row[f] ?? 0)]);
   const body: Body = {
+    ...(hasPreRepair ? { pooledProvenance: provenanceRows } : {}),
     ...(hasFlopStab ? { scopedFlopStab: flopStabRows } : {}),
     ...(hasLimpReraise ? { limpReraiseTallies: limpReraiseRows(view.stats) } : {}),
     ...(hasProbes ? { probeTallies: probeRows(view.stats) } : {}),
@@ -622,31 +673,33 @@ export function encodeHorseDecisionReads(
     ...(hasFastCalldown || hasMultiwayRiver
       ? { riverHu: huRows(view.stats), scopedRiverHu: huRows(view.scoped) }
       : {}),
-    version: hasFlopStab
-      ? FLOP_STAB_VERSION
-      : hasLimpReraise
-        ? LIMP_RERAISE_VERSION
-        : hasProbes
-          ? PROBE_VERSION
-          : hasFastCalldown
-            ? FAST_CALLDOWN_VERSION
-            : hasMultiwayRiver
-              ? MULTIWAY_RIVER_VERSION
-              : hasRiverRaise
-                ? RIVER_RAISE_VERSION
-                : hasRiverPosition
-                  ? RIVER_POSITION_VERSION
-                  : hasRiverCalls
-                    ? RIVER_CALL_VERSION
-                    : hasWinner
-                      ? WINNER_VERSION
-                      : hasExploit
-                        ? EXPLOIT_VERSION
-                        : hasWindows
-                          ? WINDOW_VERSION
-                          : planContext === undefined
-                            ? VERSION
-                            : ALLOCATED_VERSION,
+    version: hasPreRepair
+      ? PRE_REPAIR_VERSION
+      : hasFlopStab
+        ? FLOP_STAB_VERSION
+        : hasLimpReraise
+          ? LIMP_RERAISE_VERSION
+          : hasProbes
+            ? PROBE_VERSION
+            : hasFastCalldown
+              ? FAST_CALLDOWN_VERSION
+              : hasMultiwayRiver
+                ? MULTIWAY_RIVER_VERSION
+                : hasRiverRaise
+                  ? RIVER_RAISE_VERSION
+                  : hasRiverPosition
+                    ? RIVER_POSITION_VERSION
+                    : hasRiverCalls
+                      ? RIVER_CALL_VERSION
+                      : hasWinner
+                        ? WINNER_VERSION
+                        : hasExploit
+                          ? EXPLOIT_VERSION
+                          : hasWindows
+                            ? WINDOW_VERSION
+                            : planContext === undefined
+                              ? VERSION
+                              : ALLOCATED_VERSION,
     ...(hasWindows
       ? { statsWindows: windows(view.stats), scopedWindows: windows(view.scoped) }
       : {}),
@@ -770,7 +823,21 @@ export function decodeHorseDecisionReads(
       stat.lrRaises = lrRaises;
     }
   }
-  if (flopStabbed(body.version)) {
+  if (preRepaired(body.version)) {
+    view.pooledProvenance = new Map(
+      body.pooledProvenance!.map(([id, v]) => [
+        id,
+        {
+          preRepair: v[0] === 1 ? (true as const) : null,
+          postRelease: Object.fromEntries(
+            PRE_REPAIR_STATS.map((f, i) => [f, v[i + 1]])
+          ) as PooledRowProvenance['postRelease'],
+        },
+      ])
+    );
+  }
+  // A v14 body may carry an empty flop-stab list: it decodes like a frame without one.
+  if (flopStabbed(body.version) && body.scopedFlopStab!.length > 0) {
     view.flopStab = new Map(
       body.scopedFlopStab!.map(([id, v]) => [
         id,

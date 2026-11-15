@@ -100,6 +100,7 @@ DO $test$
 DECLARE
   k constant uuid := 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4';
   f constant uuid := 'a0000000-0000-0000-0000-000000000001';
+  msg text;
 BEGIN
   -- A rename files the old slug in the same statement.
   UPDATE public.clubs SET slug = 'kings-club' WHERE id = k;
@@ -108,13 +109,31 @@ BEGIN
   UPDATE public.clubs SET slug = 'kings-club-1' WHERE id = k;
   ASSERT NOT EXISTS (SELECT 1 FROM public.club_slug_history WHERE former_slug = 'kings-club-1'), 'a held slug is not history';
   ASSERT public.ca_club_id_for_slug('kings-club') = k, 'the interim slug still resolves';
-  -- Another club taking a retired slug owns it from that statement on.
-  UPDATE public.clubs SET slug = 'club-jaqk' WHERE id = '5ca1ab1e-0000-0000-0000-000000000001';
-  ASSERT public.ca_club_id_for_slug('club-jaqk') = '5ca1ab1e-0000-0000-0000-000000000001', 'the current holder wins';
-  ASSERT NOT EXISTS (SELECT 1 FROM public.club_slug_history WHERE former_slug = 'club-jaqk'), 'taken slug left history';
-  ASSERT public.ca_club_id_for_slug('standalone') = '5ca1ab1e-0000-0000-0000-000000000001', 'its own old slug resolves';
-  -- An update that does not change the slug records nothing.
+  -- Another club can never take a slug that still opens a renamed club.
+  BEGIN
+    UPDATE public.clubs SET slug = 'club-jaqk' WHERE id = '5ca1ab1e-0000-0000-0000-000000000001';
+    RAISE EXCEPTION 'another club took a former slug';
+  EXCEPTION WHEN unique_violation THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    ASSERT msg LIKE 'club slug "club-jaqk" is a former slug of another club (a0000000-0000-0000-0000-000000000001)%', msg;
+  END;
+  ASSERT public.ca_club_id_for_slug('club-jaqk') = f, 'the old link still opens The Felt Society';
+  ASSERT (SELECT slug FROM public.clubs WHERE id = '5ca1ab1e-0000-0000-0000-000000000001') = 'standalone', 'the refused club keeps its slug';
+  -- Nor can a new club.
+  BEGIN
+    INSERT INTO public.clubs VALUES ('5ca1ab1e-0000-0000-0000-000000000002', 'Newcomer', 'kings-club');
+    RAISE EXCEPTION 'a new club took a former slug';
+  EXCEPTION WHEN unique_violation THEN NULL;
+  END;
+  ASSERT NOT EXISTS (SELECT 1 FROM public.clubs WHERE id = '5ca1ab1e-0000-0000-0000-000000000002'), 'the new club was refused';
+  INSERT INTO public.clubs VALUES ('5ca1ab1e-0000-0000-0000-000000000002', 'Newcomer', 'newcomer');
+  -- A club taking back its own former slug is allowed and drops that history row.
+  UPDATE public.clubs SET slug = 'kings-club' WHERE id = k;
+  ASSERT NOT EXISTS (SELECT 1 FROM public.club_slug_history WHERE former_slug = 'kings-club'), 'a retaken slug is not history';
+  ASSERT public.ca_club_id_for_slug('kings-club') = k AND public.ca_club_id_for_slug('kings-club-1') = k, 'both slugs open the club';
+  -- An update that does not change the slug records nothing and is not refused.
   UPDATE public.clubs SET name = name WHERE id = f;
+  UPDATE public.clubs SET slug = slug WHERE id = f;
   ASSERT (SELECT count(*) FROM public.club_slug_history) = 2, 'only real renames are recorded';
   RAISE NOTICE 'CLUB SLUG HISTORY SCENARIO PASSED';
 END $test$;

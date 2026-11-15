@@ -5835,6 +5835,8 @@ function ClubHomePageContent({
         </header>
 
         <BBJInfoModal
+          clubId={club.id}
+          unionId={unionIdForCreate ?? club.union_id}
           isOpen={showBBJInfo}
           onClose={() => setShowBBJInfo(false)}
           poolId={bbjPoolId}
