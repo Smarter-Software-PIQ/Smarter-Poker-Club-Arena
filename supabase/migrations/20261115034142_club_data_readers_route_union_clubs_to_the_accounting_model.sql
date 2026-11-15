@@ -33,20 +33,28 @@
 -- settlement or accounting row or rule is read for update or written):
 --
 -- Each of the thirteen Club Data readers keeps its name, arguments, defaults,
--- result and grants, and becomes a router on its club argument:
+-- result and grants, and becomes a router on its club and window:
 --
---   <reader>(p_club_id, ...)                    the name the screens call
---     fn_ca_club_data_union_basis(p_club_id)    the club is in a union, or is
---                                               a union (its house club)
---       -> <reader>_union_basis(...)            the accounting-basis copy
---       else <reader>_chicago_basis(...)        the installed reader, renamed
---                                               and otherwise untouched
+--   <reader>(p_club_id, p_start, p_end, ...)        the name the screens call
+--     fn_ca_club_data_reads_union_basis(club, start, end)
+--       the club is a union (its house club) or in one, and the window
+--       starts on or after the later of the accounting day the club joined
+--       its union and the first day the model holds (2026-09-17 once the
+--       history is loaded)
+--       -> <reader>_union_basis(...)                 the accounting-basis copy
+--       else <reader>_chicago_basis(...)             the installed reader,
+--                                                    renamed, untouched
 --
--- So a club in no union reads exactly what it read before (the same function,
--- byte for byte), and a union club or the union reads the accounting read
--- model (20261115020010) through the views of 20261115034141. Inner calls
--- between readers go through the routers by name with the same club, so a
--- screen never mixes the two bases.
+-- So a club in no union, and a union club's window that starts before it
+-- joined (review B1: Deep Stack Society joined 2026-10-12 after 124,169 games
+-- of its own), read exactly what they read before, the same function byte for
+-- byte, with accounting_basis 'chicago_net_money_flow'; such a union club's
+-- answer also says why (basis_reason 'window_starts_before_union_basis').
+-- Inner calls between readers go through the routers by name with the same
+-- club and window, so one answer never mixes the two bases. The snapshot also
+-- states its previous window's coverage (previous_coverage) and gives no
+-- change figures (fee_pct, games_pct, fee_abs, winnings_abs are null) when
+-- either window is not whole on the union basis.
 --
 -- Each copy is the installed reader's exact text (md5 preimage pinned below;
 -- a changed preimage refuses the whole migration) with these substitutions
@@ -59,8 +67,11 @@
 --   * ca_stats_club_data_fact_ct / fn_ca_club_data_fact_window /
 --     ca_club_data_game_ct / ca_club_data_hands_ct ->
 --     ca_club_acct_fact_ct / fn_ca_club_acct_fact_window /
---     ca_club_acct_game_ct / ca_club_acct_hands_ct (every writer's rows once,
---     no horse filter, no re-attribution);
+--     ca_club_acct_fact_ct / ca_club_acct_hands_ct (every writer's rows once,
+--     no horse filter, no re-attribution; the per-game reads are sums, EXISTS
+--     and max over the per-player rows, so no grouped view is read);
+--   * the hand count is raked hands on both the club and the union screens,
+--     as before (20261022103651; 20261115020010 counts raked hands);
 --   * chips still on the felt are shown (on_felt, live, seated) but are not
 --     ADDED to winnings: the hand-by-hand result already holds them;
 --   * the player readers (page, breakdown, export) read each player's cash
@@ -70,26 +81,39 @@
 --   * a downline's fee summary (member_fees) is the downline's accounting
 --     fees on the same day (fn_ca_club_acct_member_fee_totals; coordinator
 --     decision 2026-11-15), labelled with its basis;
+--   * the player totals clamp a window past the accounting today, as the
+--     snapshot and the screen do, instead of refusing it;
 --   * the snapshot, both screen answers and the player totals state their
 --     basis ('union_invoice_accounting', day_basis 'America/Chicago 02:00')
---     and the window's coverage (fn_ca_club_acct_coverage: missing, failed
---     and not invoice-exact days, and provisional = the open week no issued
---     invoice covers yet).
+--     and the window's coverage (fn_ca_club_acct_coverage).
 --
 -- The date parameters keep their meaning: p_start and p_end are the first and
 -- last ACCOUNTING day of the window, inclusive. The client selects boundaries
 -- (Nov 2 02:00 to Nov 9 02:00) and sends the last day (Nov 8).
 --
--- Requires 20261115034141 and the read model live (20261115020011) and loaded
--- from 2026-09-17 (the first accounting cash source) through the day it went
--- live; refused otherwise, so a screen never switches to a model that does
--- not hold its history. Not a hot-table change: it renames and creates
--- functions only.
+-- ROLLOUT: #10879 merges (20261115020011 attaches the live projection; its
+-- @live-proof: nine triggers, one state row) -> the history is loaded from
+-- 2026-09-17 (club-data-accounting-seed.yml) -> this file installs. Until the
+-- history is loaded it is refused (CLUB_ACCT_READERS_HISTORY_NOT_LOADED) with
+-- nothing changed, so a screen never switches to a model that does not hold
+-- its history; after the load it is dispatched once more. Not a hot-table
+-- change: it renames and creates functions only.
 --
 -- @live-proof: to_regprocedure('public.ca_club_data_screen_union_basis(uuid,date,date,text,text,text,integer)') IS NOT NULL
 -- @live-proof: to_regprocedure('public.ca_club_data_screen_chicago_basis(uuid,date,date,text,text,text,integer)') IS NOT NULL
--- @live-proof: position('fn_ca_club_data_union_basis' IN pg_get_functiondef('public.ca_club_data_screen(uuid,date,date,text,text,text,integer)'::regprocedure)) > 0
 -- @live-proof: position('_union_basis' IN pg_get_functiondef('public.ca_club_player_export_start(uuid,date,date,text,uuid)'::regprocedure)) > 0
+-- @live-proof: (public.ca_club_data_screen('fade0000-0000-0000-0000-000000000001', public.fn_ca_accounting_day(now()) - 1, public.fn_ca_accounting_day(now()) - 1, 'ALL', 'ALL', NULL, 5)->>'accounting_basis') = 'union_invoice_accounting'
+-- @live-proof: (public.ca_club_data_screen('a41434bb-8d0c-400a-8f0d-e8b3d65afed4', public.fn_ca_accounting_day(now()) - 1, public.fn_ca_accounting_day(now()) - 1, 'ALL', 'ALL', NULL, 5)->>'accounting_basis') = 'union_invoice_accounting'
+-- @live-proof: (public.ca_club_data_snapshot_v2('fade0000-0000-0000-0000-000000000001', public.fn_ca_accounting_day(now()) - 1, public.fn_ca_accounting_day(now()) - 1, 'ALL', 'ALL', NULL, 5)->>'accounting_basis') = 'union_invoice_accounting'
+-- @live-proof: (public.ca_club_data_player_totals('a41434bb-8d0c-400a-8f0d-e8b3d65afed4', public.fn_ca_accounting_day(now()) - 1, public.fn_ca_accounting_day(now()) - 1, 'ALL', 'ALL', NULL)->>'accounting_basis') = 'union_invoice_accounting'
+-- @live-proof: public.ca_club_player_breakdown('fade0000-0000-0000-0000-000000000001', public.fn_ca_accounting_day(now()) - 1, public.fn_ca_accounting_day(now()) - 1, 5) - 'generated_at' = public.ca_club_player_breakdown_union_basis('fade0000-0000-0000-0000-000000000001', public.fn_ca_accounting_day(now()) - 1, public.fn_ca_accounting_day(now()) - 1, 5) - 'generated_at'
+-- @live-proof: (public.ca_club_player_page_core_20261006('a41434bb-8d0c-400a-8f0d-e8b3d65afed4', public.fn_ca_accounting_day(now()) - 1, public.fn_ca_accounting_day(now()) - 1, 'winners', NULL, NULL, 5)->'rows') = (public.ca_club_player_page_core_20261006_union_basis('a41434bb-8d0c-400a-8f0d-e8b3d65afed4', public.fn_ca_accounting_day(now()) - 1, public.fn_ca_accounting_day(now()) - 1, 'winners', NULL, NULL, 5)->'rows')
+-- @live-proof: (public.ca_club_game_page_core_20261006('fade0000-0000-0000-0000-000000000001', public.fn_ca_accounting_day(now()) - 1, public.fn_ca_accounting_day(now()) - 1, 'ALL', 'ALL', NULL, 'recent', NULL, 5)->'rows') = (public.ca_club_game_page_core_20261006_union_basis('fade0000-0000-0000-0000-000000000001', public.fn_ca_accounting_day(now()) - 1, public.fn_ca_accounting_day(now()) - 1, 'ALL', 'ALL', NULL, 'recent', NULL, 5)->'rows')
+-- @live-proof: public.fn_ca_club_data_hand_count('fade0000-0000-0000-0000-000000000001', public.fn_ca_accounting_day(now()) - 1, public.fn_ca_accounting_day(now()) - 1, 'ALL', 'ALL', NULL) = public.fn_ca_club_data_hand_count_union_basis('fade0000-0000-0000-0000-000000000001', public.fn_ca_accounting_day(now()) - 1, public.fn_ca_accounting_day(now()) - 1, 'ALL', 'ALL', NULL)
+-- @live-proof: (SELECT count(*) FROM public.fn_ca_club_games_unsearched('a41434bb-8d0c-400a-8f0d-e8b3d65afed4', public.fn_ca_accounting_day(now()) - 1, public.fn_ca_accounting_day(now()) - 1, 'ALL', 'ALL')) = (SELECT count(*) FROM public.fn_ca_club_games_unsearched_union_basis('a41434bb-8d0c-400a-8f0d-e8b3d65afed4', public.fn_ca_accounting_day(now()) - 1, public.fn_ca_accounting_day(now()) - 1, 'ALL', 'ALL'))
+-- @live-proof: (SELECT count(*) FROM public.fn_ca_club_games_searched('a41434bb-8d0c-400a-8f0d-e8b3d65afed4', public.fn_ca_accounting_day(now()) - 1, public.fn_ca_accounting_day(now()) - 1, 'ALL', 'ALL', 'x')) = (SELECT count(*) FROM public.fn_ca_club_games_searched_union_basis('a41434bb-8d0c-400a-8f0d-e8b3d65afed4', public.fn_ca_accounting_day(now()) - 1, public.fn_ca_accounting_day(now()) - 1, 'ALL', 'ALL', 'x'))
+-- @live-proof: (SELECT count(*) FROM public.fn_ca_club_cash_felt('fade0000-0000-0000-0000-000000000001', public.fn_ca_accounting_day(now()), public.fn_ca_accounting_day(now()))) = (SELECT count(*) FROM public.fn_ca_club_cash_felt_union_basis('fade0000-0000-0000-0000-000000000001', public.fn_ca_accounting_day(now()), public.fn_ca_accounting_day(now())))
+-- @live-proof: public.fn_ca_club_game_recent_rows('a41434bb-8d0c-400a-8f0d-e8b3d65afed4', public.fn_ca_accounting_day(now()) - 1, public.fn_ca_accounting_day(now()) - 1, 5) IS NOT DISTINCT FROM public.fn_ca_club_game_recent_rows_union_basis('a41434bb-8d0c-400a-8f0d-e8b3d65afed4', public.fn_ca_accounting_day(now()) - 1, public.fn_ca_accounting_day(now()) - 1, 5)
 
 BEGIN;
 SET LOCAL lock_timeout = '1s';
@@ -126,7 +150,7 @@ END $guard$;
 -- the end of this installation; tests/fixtures and the native qualification
 -- (scripts/ci/test-club-data-accounting-read-model.py) run it on a reader.
 -- @route-reader-begin
-CREATE FUNCTION pg_temp.ca_club_data_route_reader(p_name text, p_sig text, p_preimage text, p_copy_md5 text)
+CREATE FUNCTION pg_temp.ca_club_data_route_reader(p_name text, p_sig text, p_preimage text, p_copy_md5 text, p_kind text)
 RETURNS void LANGUAGE plpgsql AS $route$
 DECLARE
   g record;
@@ -155,9 +179,18 @@ DECLARE
     -- The accounting read model in the shapes the readers read.
     ARRAY['public\.ca_stats_club_data_fact_ct\M', 'public.ca_club_acct_fact_ct'],
     ARRAY['public\.fn_ca_club_data_fact_window\(', 'public.fn_ca_club_acct_fact_window('],
-    ARRAY['public\.ca_club_data_game_ct\M', 'public.ca_club_acct_game_ct'],
+    -- The per-game reads (sums, EXISTS, max) read the per-player rows
+    -- directly: no grouped view on a hot path.
+    ARRAY['public\.ca_club_data_game_ct\M', 'public.ca_club_acct_fact_ct'],
     ARRAY['public\.ca_club_data_hands_ct\M', 'public.ca_club_acct_hands_ct'],
     ARRAY['public\.fn_ca_club_data_facts_from\(\)', 'public.fn_ca_club_acct_facts_from()'],
+    -- The player totals clamp a window that runs past the accounting today,
+    -- as the snapshot and the screen do, instead of refusing it (between
+    -- midnight and 02:00 Chicago the Chicago date is a day ahead).
+    ARRAY['  IF p_start IS NULL OR p_end IS NULL OR p_start > p_end OR p_end > public\.fn_ca_accounting_day\(now\(\)\) OR p_end-p_start > 92 THEN',
+          '  IF p_end > public.fn_ca_accounting_day(now()) THEN p_end := public.fn_ca_accounting_day(now()); END IF;
+  IF p_start > p_end THEN p_start := p_end; END IF;
+  IF p_start IS NULL OR p_end IS NULL OR p_start > p_end OR p_end-p_start > 92 THEN'],
     -- Chips on the felt are already in the hand-by-hand result.
     ARRAY['\s*\+\s*coalesce\((f|fe)\.felt,\s*0\)', ''],
     ARRAY[' \+ v_felt_sum', ''],
@@ -217,8 +250,11 @@ BEGIN
   IF cardinality(v_names) IS DISTINCT FROM (SELECT p.pronargs::int FROM pg_proc p WHERE p.oid = v_oid) THEN
     RAISE EXCEPTION 'Club Data reader % has unnamed or variadic arguments', p_sig;
   END IF;
-  IF v_names[1] IS DISTINCT FROM 'p_club_id' THEN
-    RAISE EXCEPTION 'Club Data reader % does not take p_club_id first', p_sig;
+  IF v_names[1:3] IS DISTINCT FROM ARRAY['p_club_id', 'p_start', 'p_end'] THEN
+    RAISE EXCEPTION 'Club Data reader % does not take (p_club_id, p_start, p_end) first', p_sig;
+  END IF;
+  IF p_kind NOT IN ('plain', 'object', 'snapshot') OR (p_kind <> 'plain' AND v_res <> 'jsonb') THEN
+    RAISE EXCEPTION 'Club Data reader % cannot be routed as %', p_sig, p_kind;
   END IF;
 
   -- 1. The accounting-basis copy.
@@ -253,16 +289,48 @@ BEGIN
                  || 'net money flow): read through the router ' || p_name || ' for a club in no union only.');
 
   -- 3. The router, under the reader's own name, arguments, result and grants.
+  --    A window is read on the union basis when it starts on or after the
+  --    day its club reads the union basis from (fn_ca_club_data_reads_union_basis);
+  --    a union club's earlier window reads the Chicago basis as before and
+  --    says why ('object' and 'snapshot' readers). The snapshot also states
+  --    its previous window's coverage and gives no change figures when
+  --    either window is not whole on the union basis.
   v_call := '(' || array_to_string(ARRAY(SELECT quote_ident(a) FROM unnest(v_names) a), ', ') || ')';
   IF v_res LIKE 'TABLE(%' OR v_res LIKE 'SETOF %' THEN
-    v_body := format(E'BEGIN\n  IF public.fn_ca_club_data_union_basis(p_club_id) THEN\n'
+    v_body := format(E'BEGIN\n  IF public.fn_ca_club_data_reads_union_basis(p_club_id, p_start, p_end) THEN\n'
                      || E'    RETURN QUERY SELECT * FROM public.%I%s;\n    RETURN;\n  END IF;\n'
                      || E'  RETURN QUERY SELECT * FROM public.%I%s;\nEND;',
                      p_name || '_union_basis', v_call, p_name || '_chicago_basis', v_call);
-  ELSE
-    v_body := format(E'BEGIN\n  IF public.fn_ca_club_data_union_basis(p_club_id) THEN\n'
+  ELSIF p_kind = 'plain' THEN
+    v_body := format(E'BEGIN\n  IF public.fn_ca_club_data_reads_union_basis(p_club_id, p_start, p_end) THEN\n'
                      || E'    RETURN public.%I%s;\n  END IF;\n  RETURN public.%I%s;\nEND;',
                      p_name || '_union_basis', v_call, p_name || '_chicago_basis', v_call);
+  ELSE
+    v_body := format(E'DECLARE\n  r jsonb;\n  v_ps date;\n  v_pe date;\n  v_pc jsonb;\nBEGIN\n'
+                     || E'  IF NOT public.fn_ca_club_data_reads_union_basis(p_club_id, p_start, p_end) THEN\n'
+                     || E'    r := public.%I%s;\n'
+                     || E'    IF public.fn_ca_club_data_union_basis(p_club_id) THEN\n'
+                     || E'      r := r || jsonb_build_object(''basis_reason'', ''window_starts_before_union_basis'',\n'
+                     || E'        ''union_basis_from'', public.fn_ca_club_data_union_basis_from(p_club_id));\n'
+                     || E'    END IF;\n    RETURN r;\n  END IF;\n'
+                     || E'  r := public.%I%s;\n',
+                     p_name || '_chicago_basis', v_call, p_name || '_union_basis', v_call);
+    IF p_kind = 'snapshot' THEN
+      v_body := v_body
+        || E'  v_ps := (r->''previous_range''->>''start'')::date;\n'
+        || E'  v_pe := (r->''previous_range''->>''end'')::date;\n'
+        || E'  v_pc := CASE WHEN public.fn_ca_club_data_reads_union_basis(p_club_id, v_ps, v_pe)\n'
+        || E'               THEN public.fn_ca_club_acct_coverage(p_club_id, v_ps, v_pe)\n'
+        || E'               ELSE jsonb_build_object(''complete'', false, ''accounting_basis'', ''chicago_net_money_flow'',\n'
+        || E'                      ''basis_reason'', ''window_starts_before_union_basis'') END;\n'
+        || E'  r := r || jsonb_build_object(''previous_coverage'', v_pc);\n'
+        || E'  IF NOT COALESCE((v_pc->>''complete'')::boolean, false)\n'
+        || E'     OR NOT COALESCE((r->''accounting_coverage''->>''complete'')::boolean, false) THEN\n'
+        || E'    r := jsonb_set(r, ''{delta}'', COALESCE(r->''delta'', ''{}''::jsonb) || jsonb_build_object(\n'
+        || E'      ''fee_pct'', NULL, ''games_pct'', NULL, ''winnings_abs'', NULL, ''fee_abs'', NULL));\n'
+        || E'  END IF;\n';
+    END IF;
+    v_body := v_body || E'  RETURN r;\nEND;';
   END IF;
   EXECUTE format(E'CREATE FUNCTION public.%I(%s) RETURNS %s LANGUAGE plpgsql %s SECURITY DEFINER\n'
                  || E' SET search_path TO ''public'' AS %L',
@@ -289,11 +357,13 @@ BEGIN
      OR (SELECT p.proname FROM pg_proc p WHERE p.oid = v_oid) IS DISTINCT FROM p_name || '_chicago_basis'
      OR (SELECT pg_get_function_arguments(p.oid) FROM pg_proc p WHERE p.oid = p_sig::regprocedure) IS DISTINCT FROM v_args
      OR (SELECT pg_get_function_result(p.oid) FROM pg_proc p WHERE p.oid = p_sig::regprocedure) IS DISTINCT FROM v_res
-     OR (SELECT array_agg(x ORDER BY x) FROM (SELECT a.grantee::regrole::text || ':' || a.privilege_type x
-           FROM pg_proc p, aclexplode(p.proacl) a WHERE p.oid = p_sig::regprocedure AND a.grantee <> 0 AND a.grantee <> a.grantor) s)
+     OR (SELECT array_agg(x ORDER BY x) FROM (SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE a.grantee::regrole::text END
+                  || ':' || a.privilege_type x
+           FROM pg_proc p, aclexplode(p.proacl) a WHERE p.oid = p_sig::regprocedure AND a.grantee <> a.grantor) s)
         IS DISTINCT FROM
-        (SELECT array_agg(x ORDER BY x) FROM (SELECT a.grantee::regrole::text || ':' || a.privilege_type x
-           FROM aclexplode(v_acl) a WHERE a.grantee <> 0 AND a.grantee <> a.grantor) s) THEN
+        (SELECT array_agg(x ORDER BY x) FROM (SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE a.grantee::regrole::text END
+                  || ':' || a.privilege_type x
+           FROM aclexplode(v_acl) a WHERE a.grantee <> a.grantor) s) THEN
     RAISE EXCEPTION 'Club Data reader % was not routed exactly', p_sig;
   END IF;
 END $route$;
@@ -307,34 +377,34 @@ DECLARE t record;
 BEGIN
   FOR t IN SELECT * FROM (VALUES
       ('ca_club_data_screen', 'public.ca_club_data_screen(uuid,date,date,text,text,text,integer)',
-       '7578d64c439069aa294b4e24862f6af2', 'da2e6c6db1a536962034254df5d53a07'),
+       '7578d64c439069aa294b4e24862f6af2', '1914e01e5b71515eccbd59d004bd4862', 'object'),
       ('ca_club_data_snapshot_v2', 'public.ca_club_data_snapshot_v2(uuid,date,date,text,text,text,integer)',
-       '9c3d8c1b3f2feb9b779cf27ad8bcc4be', 'e4dea28dfe8b4a49f530a8127a657868'),
+       '9c3d8c1b3f2feb9b779cf27ad8bcc4be', '6481b810f8c4554166356f1c6984d506', 'snapshot'),
       ('ca_club_game_page_core_20261006', 'public.ca_club_game_page_core_20261006(uuid,date,date,text,text,text,text,jsonb,integer)',
-       'ce67150bdba133c4d0de60cd380e2d60', '1dcd3feac8bb4791dfdb3f0cce18189b'),
+       'ce67150bdba133c4d0de60cd380e2d60', 'fa57bcf89df097111c6c61a38cafd83c', 'object'),
       ('fn_ca_club_game_recent_rows', 'public.fn_ca_club_game_recent_rows(uuid,date,date,integer)',
-       '3ae8c77a22d307c482cad8b2d7114f04', '5d22e714b8cd2ad8e16f6cd6c41722b2'),
+       '3ae8c77a22d307c482cad8b2d7114f04', '5d1551ea2671640880eb83b4e2caf205', 'plain'),
       ('fn_ca_club_games_searched', 'public.fn_ca_club_games_searched(uuid,date,date,text,text,text)',
-       'f4cd0a43414d5221d1ce531ae4e9a46c', 'ad801344e7e6f2b7e54720fdb8110af3'),
+       'f4cd0a43414d5221d1ce531ae4e9a46c', 'b434e4b4cc06caf0776ebc80338698f1', 'plain'),
       ('fn_ca_club_games_unsearched', 'public.fn_ca_club_games_unsearched(uuid,date,date,text,text)',
-       'dbf6a3602f84225ef66f1c689ef5453e', 'f0f4ea377ff0b9aedf0133ac361529c8'),
+       'dbf6a3602f84225ef66f1c689ef5453e', '91320a5e272df66707b6e7e53dfac8cb', 'plain'),
       ('fn_ca_club_data_hand_count', 'public.fn_ca_club_data_hand_count(uuid,date,date,text,text,text)',
-       'fd63ab7384a8586e761fb92afe07f8b0', '2fd7d472d9a55a17f938050cb31de49c'),
+       'fd63ab7384a8586e761fb92afe07f8b0', '2fd7d472d9a55a17f938050cb31de49c', 'plain'),
       ('fn_ca_club_cash_felt', 'public.fn_ca_club_cash_felt(uuid,date,date,text,text,text)',
-       'd9f01b07584e5ca17c7912101b62db13', 'b0072819944a706c3b967b7b3a0f0b3e'),
+       'd9f01b07584e5ca17c7912101b62db13', 'b0072819944a706c3b967b7b3a0f0b3e', 'plain'),
       ('ca_club_data_player_totals', 'public.ca_club_data_player_totals(uuid,date,date,text,text,text)',
-       '57977ffed9fe5a14cf2429450d57f494', 'bf0550c0badf56982679f148bbb98ef3'),
+       '57977ffed9fe5a14cf2429450d57f494', '7cea99abd53436faf217ccb77d7c91dc', 'object'),
       ('ca_club_game_export_start', 'public.ca_club_game_export_start(uuid,date,date,text,text,text,text,uuid)',
-       '108bc83b08d1deedf458cc547b92bb7b', 'b39a06e3920ba3031afbe8923c4e4c10'),
+       '108bc83b08d1deedf458cc547b92bb7b', 'b39a06e3920ba3031afbe8923c4e4c10', 'plain'),
       ('ca_club_player_page_core_20261006', 'public.ca_club_player_page_core_20261006(uuid,date,date,text,text,jsonb,integer)',
-       '46a7e273c09b32623a42f2f26ab9338f', '06a2e6e8cb00cc722d52fe26bbffdec9'),
+       '46a7e273c09b32623a42f2f26ab9338f', '06a2e6e8cb00cc722d52fe26bbffdec9', 'object'),
       ('ca_club_player_breakdown', 'public.ca_club_player_breakdown(uuid,date,date,integer)',
-       '848d1a14c39743a83fbea79773c85bfa', 'e48e405b2585c704ef36f5b31f28956c'),
+       '848d1a14c39743a83fbea79773c85bfa', 'e48e405b2585c704ef36f5b31f28956c', 'object'),
       ('ca_club_player_export_start', 'public.ca_club_player_export_start(uuid,date,date,text,uuid)',
-       '8cbff4e575f68382f8aa1eab2d86b513', '1c8fe358efd7ec8331ea3b5463487712')
-    ) v(name, sig, preimage, copy_md5)
+       '8cbff4e575f68382f8aa1eab2d86b513', '1c8fe358efd7ec8331ea3b5463487712', 'plain')
+    ) v(name, sig, preimage, copy_md5, kind)
   LOOP
-    PERFORM pg_temp.ca_club_data_route_reader(t.name, t.sig, t.preimage, t.copy_md5);
+    PERFORM pg_temp.ca_club_data_route_reader(t.name, t.sig, t.preimage, t.copy_md5, t.kind);
   END LOOP;
 END $routes$;
 
