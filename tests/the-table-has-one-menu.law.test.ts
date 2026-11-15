@@ -126,6 +126,10 @@ describe('what the rows show is reported by the table page', () => {
     ['isAutoRebuyEnabled', /onTableInfoUpdate\?\.\(\{ isAutoRebuyEnabled \}\)/],
     ['straddleBusy', /straddleBusy,/],
     ['heroSeated', /heroSeated: tableState\.heroSeat > 0/],
+    [
+      'seatChangeOffInLightning',
+      /onTableInfoUpdate\?\.\(\{ seatChangeEnabled, seatChangeOffInLightning \}\)/,
+    ],
   ])('%s travels page -> tab -> menu', (field, report) => {
     expect(TABLE_PAGE).toMatch(report);
     expect(MULTI).toMatch(new RegExp(`${field}: t\\.${field}`));

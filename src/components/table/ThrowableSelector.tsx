@@ -39,12 +39,16 @@ import { SpadeConsole } from '../console/SpadeConsole';
 import { getThrowableFavorites } from '../../services/ThrowableFavoritesService';
 import { NOTE_COLORS, playerNotesService } from '../../services/PlayerNotesService';
 
+import { PlayerCashStats } from './PlayerCashStats';
+
 interface ThrowableSelectorProps {
   userId: string;
   onSelect: (throwable: Throwable, requestId?: string) => void;
   onClose: () => void;
   onOpenNotes?: () => void;
   targetName?: string;
+  cashTableId?: string;
+  throwsEnabled?: boolean;
   /**
    * The tapped opponent (2026-11-04). With it the menu shows the note door as
    * "Add Note" or "Edit Note", and prints the existing note's colour and tags
@@ -71,6 +75,8 @@ export function ThrowableSelector({
   onClose,
   onOpenNotes,
   targetName,
+  cashTableId,
+  throwsEnabled = true,
   targetUserId,
   hasNote = false,
 }: ThrowableSelectorProps) {
@@ -262,10 +268,22 @@ export function ThrowableSelector({
       className="throwable-selector"
       title="Player Menu"
       eyebrow={targetName || 'Throwables'}
-      pill={CATEGORY_LABELS[activeCategory].label}
+      pill={throwsEnabled ? CATEGORY_LABELS[activeCategory].label : undefined}
+      closeLabel="Close Player Menu"
+      closeDisabled={sending}
+      onClose={() => {
+        if (!sendingRef.current) onClose();
+      }}
       foot="foot"
       onClick={(e) => e.stopPropagation()}
     >
+      {cashTableId && targetUserId && (
+        <PlayerCashStats
+          key={JSON.stringify([userId, cashTableId, targetUserId])}
+          tableId={cashTableId}
+          playerId={targetUserId}
+        />
+      )}
       <div className="throwable-selector__header">
         {/* THE NOTE DOOR (Dan 2026-11-04). Notes had two users in production:
             the way in was a small "Notes" word in this header. It is now the
@@ -304,7 +322,7 @@ export function ThrowableSelector({
             </span>
           </button>
         )}
-        {allowance && allowanceUserId === userId && (
+        {throwsEnabled && allowance && allowanceUserId === userId && (
           <span className="throwable-selector__allowance">
             {allowance.unavailable ? (
               <span className="throwable-selector__cost">Allowance Unavailable</span>
@@ -325,97 +343,91 @@ export function ThrowableSelector({
             )}
           </span>
         )}
-        <button
-          className="throwable-selector__close"
-          aria-label="Close Throwable Selector"
-          onClick={() => {
-            if (!sendingRef.current) onClose();
-          }}
-          disabled={sending}
-        >
-          ×
-        </button>
       </div>
 
-      {/* Category Tabs */}
-      <div className="throwable-selector__tabs">
-        {(Object.keys(CATEGORY_LABELS) as PickerCategory[]).map((cat) => (
-          <button
-            key={cat}
-            className={`throwable-selector__tab ${activeCategory === cat ? 'throwable-selector__tab--active' : ''}`}
-            data-cat={cat}
-            onClick={() => {
-              haptic.light();
-              setActiveCategory(cat);
-            }}
-            title={CATEGORY_LABELS[cat].label}
-          >
-            {CATEGORY_LABELS[cat].label}
-          </button>
-        ))}
-      </div>
+      {throwsEnabled && (
+        <>
+          {/* Category Tabs */}
+          <div className="throwable-selector__tabs">
+            {(Object.keys(CATEGORY_LABELS) as PickerCategory[]).map((cat) => (
+              <button
+                key={cat}
+                className={`throwable-selector__tab ${activeCategory === cat ? 'throwable-selector__tab--active' : ''}`}
+                data-cat={cat}
+                onClick={() => {
+                  haptic.light();
+                  setActiveCategory(cat);
+                }}
+                title={CATEGORY_LABELS[cat].label}
+              >
+                {CATEGORY_LABELS[cat].label}
+              </button>
+            ))}
+          </div>
 
-      {activeCategory === 'favorites' && favoritesOwner !== userId && (
-        <p className="throwable-selector__status" role="status">
-          Loading Favorites...
-        </p>
-      )}
-      {activeCategory === 'favorites' && favoritesOwner === userId && favoritesError && (
-        <div className="throwable-selector__status" role="alert">
-          Favorites Could Not Be Loaded.
-          <button
-            className="throwable-selector__tab"
-            onClick={() => setFavoritesAttempt((n) => n + 1)}
-          >
-            Retry
-          </button>
-        </div>
-      )}
-      {/* Throwable Grid — 3D renders on black, blended transparent */}
-      <div className="throwable-selector__grid" data-cat={activeCategory}>
-        {visibleItems.map((throwable) => (
-          <button
-            key={throwable.id}
-            data-throwable-id={throwable.id}
-            className="throwable-selector__item"
-            onClick={() => {
-              haptic.light();
-              handleSelect(throwable);
-            }}
-            disabled={sending || allowanceLoading}
-            aria-busy={sending}
-            title={throwable.name}
-          >
-            <div className="throwable-selector__icon throwable-selector__icon--img">
-              <ThrowableImage throwableId={throwable.id} size={84} loading="lazy" />
+          {activeCategory === 'favorites' && favoritesOwner !== userId && (
+            <p className="throwable-selector__status" role="status">
+              Loading Favorites...
+            </p>
+          )}
+          {activeCategory === 'favorites' && favoritesOwner === userId && favoritesError && (
+            <div className="throwable-selector__status" role="alert">
+              Favorites Could Not Be Loaded.
+              <button
+                className="throwable-selector__tab"
+                onClick={() => setFavoritesAttempt((n) => n + 1)}
+              >
+                Retry
+              </button>
             </div>
-            <span className="throwable-selector__name">{throwable.name}</span>
-          </button>
-        ))}
-      </div>
+          )}
+          {/* Throwable Grid — 3D renders on black, blended transparent */}
+          <div className="throwable-selector__grid" data-cat={activeCategory}>
+            {visibleItems.map((throwable) => (
+              <button
+                key={throwable.id}
+                data-throwable-id={throwable.id}
+                className="throwable-selector__item"
+                onClick={() => {
+                  haptic.light();
+                  handleSelect(throwable);
+                }}
+                disabled={sending || allowanceLoading}
+                aria-busy={sending}
+                title={throwable.name}
+              >
+                <div className="throwable-selector__icon throwable-selector__icon--img">
+                  <ThrowableImage throwableId={throwable.id} size={84} loading="lazy" />
+                </div>
+                <span className="throwable-selector__name">{throwable.name}</span>
+              </button>
+            ))}
+          </div>
 
-      {/* Dan 2026-08-21: a way to buy more without leaving the table blind.
+          {/* Dan 2026-08-21: a way to buy more without leaving the table blind.
           Deep-links straight to the Diamonds tab rather than the store root,
           so the next tap is the purchase and not another menu. */}
-      {!allowance?.unlimited && (
-        <button
-          className="throwable-selector__buy"
-          disabled={sending}
-          onClick={() => {
-            if (sendingRef.current) return;
-            haptic.light();
-            onClose();
-            navigate('/marketplace?tab=diamonds');
-          }}
-        >
-          <span className="throwable-selector__buy-icon" aria-hidden>
-            ◆
-          </span>
-          <span className="throwable-selector__buy-label">Get More Throwables</span>
-          <span className="throwable-selector__buy-chevron" aria-hidden>
-            ›
-          </span>
-        </button>
+          {!allowance?.unlimited && (
+            <button
+              className="throwable-selector__buy"
+              disabled={sending}
+              onClick={() => {
+                if (sendingRef.current) return;
+                haptic.light();
+                onClose();
+                navigate('/marketplace?tab=diamonds');
+              }}
+            >
+              <span className="throwable-selector__buy-icon" aria-hidden>
+                ◆
+              </span>
+              <span className="throwable-selector__buy-label">Get More Throwables</span>
+              <span className="throwable-selector__buy-chevron" aria-hidden>
+                ›
+              </span>
+            </button>
+          )}
+        </>
       )}
     </SpadeConsole>
   );

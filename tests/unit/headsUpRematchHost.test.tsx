@@ -239,6 +239,6 @@ describe('heads up rematch, from the card', { timeout: 20_000 }, () => {
     await flush(1600);
     expect(rpcCalls('ca_heads_up_rematch_state')).toHaveLength(0);
     expect(screen.queryByRole('status')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Share' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Save Image' })).toBeTruthy();
   });
 });

@@ -320,6 +320,14 @@ test('actual CLI requires a valid on-main public witness and fails closed on unk
     invalid.witnesses[0].activatedAt = invalid.witnesses[0].publicNoticeAt;
     writeFileSync(join(dir, witnessPath), JSON.stringify(invalid));
     assert.equal(cli(base).status, 1, 'a zero-lead witness cannot excuse a violation');
+    for (const field of ['publicNoticeAt', 'activatedAt']) {
+      const unparseable = structuredClone(witness);
+      unparseable.witnesses[0][field] = '2026-99-15T12:06:39Z';
+      writeFileSync(join(dir, witnessPath), JSON.stringify(unparseable));
+      const refused = cli(base);
+      assert.equal(refused.status, 1, `${field} must not bypass lead comparisons through NaN`);
+      assert.match(refused.stderr, /must be an ISO UTC timestamp/);
+    }
     const fresh = structuredClone(witness);
     fresh.witnesses[0].windowId = 'new-window';
     writeFileSync(join(dir, witnessPath), JSON.stringify(fresh));

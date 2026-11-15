@@ -19,7 +19,16 @@
  * A grandfathered option that stops being on by default leaves the list in
  * the same pull request, so turning it back on later needs the evidence.
  *
- * Limits: the scan is textual and covers HorseLogic.ts. It does not see an
+ * Process switches (2026-11-15): HorseMind also has process-level switches
+ * read outside the decide options (counting in observe and the completed-hand
+ * learner), each with a source default `export const <NAME>_DEFAULT = ...`.
+ * A source default of `true` there turns a decision change on in production
+ * as surely as an option read, so it needs the same evidence file, named by
+ * the switch in lower camel case (FIXED_LIMIT_BETS_ARE_NEVER_PROBES_DEFAULT
+ * -> fixedLimitBetsAreNeverProbes.md).
+ *
+ * Limits: the scan is textual and covers HorseLogic.ts (options) and
+ * HorseMind.ts (process-switch defaults). It does not see an
  * option handed to a helper that applies the default (v24PloDefenseOn,
  * v15BoatsOn), behaviour keyed on `=== undefined` or `!== true`, an alias
  * (`const on = opts.x; if (on !== false)`), a destructuring default, or a
@@ -195,6 +204,16 @@ export function defaultOnOptions(source: string): string[] {
   return [...names].sort();
 }
 
+/** Process-switch source defaults set to `true`, as evidence-file names. */
+export function defaultOnProcessSwitches(source: string): string[] {
+  const code = withoutComments(source);
+  const names = new Set<string>();
+  for (const match of code.matchAll(/\bexport\s+const\s+([A-Z0-9_]+)_DEFAULT\s*=\s*true\b/g)) {
+    names.add(match[1].toLowerCase().replace(/_([a-z0-9])/g, (_, c: string) => c.toUpperCase()));
+  }
+  return [...names].sort();
+}
+
 /** Returns what an evidence file is missing; empty means complete. */
 export function evidenceGaps(text: string): string[] {
   const gaps: string[] = [];
@@ -247,6 +266,25 @@ describe('a Horse decision option is on by default only with its evidence', () =
     expect(problems).toEqual([]);
   });
 
+  it('every HorseMind process switch whose source default is on has complete evidence', () => {
+    const mind = readFileSync('src/engine/HorseMind.ts', 'utf8');
+    const problems = defaultOnProcessSwitches(mind).flatMap((name) => {
+      const file = join(EVIDENCE_DIR, `${name}.md`);
+      if (!existsSync(file)) {
+        return [
+          `${name}: HorseMind sets this process switch's source default to true and ` +
+            `docs/horse-default-on.d/${name}.md does not exist. Keep the default false or add that ` +
+            'file with the eight rows of docs/HORSE-DECISION-CHANGE-EVIDENCE.md.',
+        ];
+      }
+      const gaps = evidenceGaps(readFileSync(file, 'utf8'));
+      return gaps.length
+        ? [`${name}: docs/horse-default-on.d/${name}.md lacks ${gaps.join(', ')}`]
+        : [];
+    });
+    expect(problems).toEqual([]);
+  });
+
   it('a grandfathered option that is no longer on by default has left the list', () => {
     const stale = GRANDFATHERED.filter((name) => !current.includes(name));
     expect(
@@ -282,6 +320,16 @@ describe('a Horse decision option is on by default only with its evidence', () =
         'gamma',
         'zeta',
       ]);
+    });
+
+    it('sees a process-switch source default of true and ignores false and comments', () => {
+      const sample = [
+        'export const FIXED_LIMIT_BETS_ARE_NEVER_PROBES_DEFAULT = true;',
+        'export const SOME_OTHER_SWITCH_DEFAULT = false;',
+        '// export const COMMENTED_SWITCH_DEFAULT = true;',
+        'const LOCAL_DEFAULT = true;',
+      ].join('\n');
+      expect(defaultOnProcessSwitches(sample)).toEqual(['fixedLimitBetsAreNeverProbes']);
     });
 
     it('accepts a complete evidence file and names each gap in an incomplete one', () => {
