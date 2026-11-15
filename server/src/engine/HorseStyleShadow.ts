@@ -192,7 +192,7 @@ export function styleShadowStreetCode(street: string): string {
 // no telemetry), so an exact replay re-derives the same receipt.
 // ─────────────────────────────────────────────────────────────────────────
 
-/** The options an action-change receipt covers: the seven style options and the two tight-player responses. */
+/** The options an action-change receipt covers: the seven style options and the tight-player response. */
 export const STYLE_ACTION_RECEIPT_OPTIONS = Object.freeze([
   'styleValueBettorNotManiac',
   'styleBigBetHonesty',
@@ -202,7 +202,6 @@ export const STYLE_ACTION_RECEIPT_OPTIONS = Object.freeze([
   'styleValueExtraction',
   'styleFoldBluff',
   'styleTightPlayerExploit',
-  'styleStealTightBlinds',
 ] as const);
 export type StyleActionReceiptOption = (typeof STYLE_ACTION_RECEIPT_OPTIONS)[number];
 

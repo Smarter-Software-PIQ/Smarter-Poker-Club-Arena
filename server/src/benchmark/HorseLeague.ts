@@ -2468,6 +2468,21 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
   // context where the option can act). The league scores chips, not payouts:
   // the payout-aware arm gives up chips by design, so this card measures what
   // the option costs in chips, not its value.
+  // 2026-11-15 PAID BUST (icmBustPaysPlace, default OFF, Hand Analysis B3):
+  // the same in-the-money final table; a values a bust at the place it pays,
+  // b at 0 as before. Chips, not payouts, are scored, so this card measures
+  // what the corrected bubble factor costs or gains in chips.
+  {
+    name: 'mtt6_ft_icm_bust_pays_place_12bb',
+    seats: 6,
+    stackBB: 12,
+    context: finalTableMttWithStacksContext(6, 12),
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: { icmBustPaysPlace: true },
+    b: {},
+  },
   {
     name: 'mtt6_ft_pay_jump_push_fold_12bb',
     seats: 6,

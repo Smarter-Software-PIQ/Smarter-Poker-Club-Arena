@@ -539,8 +539,27 @@ export function icmEquity(stacks: number[], payouts: number[], heroIdx: number):
  * collects ninth's payout either way); outside the money it pays 0, which is
  * what this returned before.
  */
+let bustPaysPlace = false;
+/**
+ * OPTION icmBustPaysPlace (HorseDecideOpts, default OFF, Hand Analysis B3 2026-11-15): HorseLogic.decide runs each
+ * decision inside withIcmBustPaysPlace(opts.icmBustPaysPlace === true, ...), so the paid-bust valuation is switched
+ * live like every other Horse decision change. Off, a bust is valued at 0 exactly as before.
+ */
+export function withIcmBustPaysPlace<T>(on: boolean, fn: () => T): T {
+  const previous = bustPaysPlace;
+  bustPaysPlace = on;
+  try {
+    return fn();
+  } finally {
+    bustPaysPlace = previous;
+  }
+}
+export function icmBustPaysPlaceOn(): boolean {
+  return bustPaysPlace;
+}
+
 function equityAfterPot(before: number[], after: number[], payouts: number[], idx: number): number {
-  if ((after[idx] ?? 0) > 0) return icmEquity(after, payouts, idx);
+  if (!bustPaysPlace || (after[idx] ?? 0) > 0) return icmEquity(after, payouts, idx);
   const live = cleanStacks(before).filter((stack) => stack > 0).length;
   return cleanPayouts(payouts)[live - 1] ?? 0;
 }
