@@ -1009,11 +1009,20 @@ export default function ClubDataPage() {
   const [endDate, setEndDate] = useState<string>(() => clubDataDayOn('calendar'));
   const endDateRef = useRef(endDate);
   endDateRef.current = endDate;
-  // Which reads a clamped answer is waiting to repeat (see the [dayBasis] effect).
-  const basisRereadRef = useRef({ games: false, players: false });
+  // Which reads a clamped answer is waiting to repeat (see the [dayBasis]
+  // effect), and whether the clamped read was foreground (it raised the
+  // skeleton, so its re-read must own and clear it) or background (it never
+  // raised it, so its re-read must not raise it either).
+  type BasisReread = 'foreground' | 'background' | null;
+  const basisRereadRef = useRef<{ games: BasisReread; players: BasisReread }>({
+    games: null,
+    players: null,
+  });
   // The newest reads, for the [dayBasis] effect declared before them.
-  const loadRef = useRef<(showSpinner: boolean) => Promise<boolean>>(async () => false);
-  const loadPlayersRef = useRef<() => Promise<boolean>>(async () => false);
+  const loadRef = useRef<(showSpinner: boolean, preserveOnError?: boolean) => Promise<boolean>>(
+    async () => false
+  );
+  const loadPlayersRef = useRef<(preserveOnError?: boolean) => Promise<boolean>>(async () => false);
   const [game, setGame] = usePlayerPreference<GameFilter>('club/ClubDataPage:game', 'ALL');
   const [stakes, setStakes] = usePlayerPreference<StakesFilter>('club/ClubDataPage:stakes', 'ALL');
   const [gameSort, setGameSort] = usePlayerPreference<GameSort>(
@@ -1205,10 +1214,14 @@ export default function ClubDataPage() {
     // If 02:00 passed in between, the end does not move: read again here so
     // the skeleton never waits for the next poll.
     const pending = basisRereadRef.current;
-    basisRereadRef.current = { games: false, players: false };
+    basisRereadRef.current = { games: null, players: null };
     if (!moves) {
-      if (pending.games) void loadRef.current(true);
-      if (pending.players) void loadPlayersRef.current();
+      // A background poll's re-read stays a background read: it never raises
+      // the skeleton its own request did not raise.
+      if (pending.games === 'foreground') void loadRef.current(true);
+      else if (pending.games === 'background') void loadRef.current(false, true);
+      if (pending.players === 'foreground') void loadPlayersRef.current();
+      else if (pending.players === 'background') void loadPlayersRef.current(true);
     }
   }, [dayBasis]);
   useEffect(() => {
@@ -1574,7 +1587,7 @@ export default function ClubDataPage() {
           // A union club answered for the open accounting day. Adopt its basis;
           // the [dayBasis] effect moves the pinned end there and reads again.
           basisReread = true;
-          basisRereadRef.current.games = true;
+          basisRereadRef.current.games = showSpinner ? 'foreground' : 'background';
           setDayBasis('accounting');
           return false;
         } else if (
@@ -1965,7 +1978,7 @@ export default function ClubDataPage() {
           // The player readers keep their shape and state no basis; the same
           // clamp tells the page this is a union club. Re-read, never paint.
           basisReread = true;
-          basisRereadRef.current.players = true;
+          basisRereadRef.current.players = showSpinner ? 'foreground' : 'background';
           setDayBasis('accounting');
           return false;
         } else if (
@@ -2122,8 +2135,9 @@ export default function ClubDataPage() {
     playerScopeKey,
   ]);
 
-  loadRef.current = (showSpinner: boolean) => load(showSpinner);
-  loadPlayersRef.current = () => loadPlayers();
+  loadRef.current = (showSpinner: boolean, preserveOnError = false) =>
+    load(showSpinner, preserveOnError);
+  loadPlayersRef.current = (preserveOnError = false) => loadPlayers(preserveOnError);
 
   const loadMoreGames = useCallback(async () => {
     if (
