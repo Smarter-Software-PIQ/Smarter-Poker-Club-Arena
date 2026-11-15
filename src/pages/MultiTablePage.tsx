@@ -1695,7 +1695,6 @@ export default function MultiTablePage() {
                            treated as a cash game by the sit-out toast, the
                            profit chip and the raise slider. */
                         isTournament: true,
-                        tournamentId: tourId ?? undefined,
                         isMyTurn: false,
                         pot: 0,
                         kind: 'table' as const,
@@ -1706,6 +1705,7 @@ export default function MultiTablePage() {
                         tournamentBuyIn: t.tournamentBuyIn,
                         tournamentBuyInLabel: t.tournamentBuyInLabel,
                         tournamentName: t.tournamentName,
+                        tournamentId: tourId ?? undefined,
                       }
                     : t
                 )
