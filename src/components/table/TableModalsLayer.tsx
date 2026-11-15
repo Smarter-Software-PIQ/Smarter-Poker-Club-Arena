@@ -1152,10 +1152,12 @@ function TableModalsLayerImpl(props: TableModalsLayerProps) {
       )}
 
       {/* Throwable Selector */}
-      {showThrowableSelector && userId && v8Settings.emoji_enabled && (
+      {showThrowableSelector && userId && (v8Settings.emoji_enabled || !isTournament) && (
         <div className="throwable-selector-overlay">
           <ThrowableSelector
             userId={userId}
+            throwsEnabled={v8Settings.emoji_enabled}
+            cashTableId={!isTournament && tableId ? tableId : undefined}
             targetName={selectedPlayerForNotes?.name}
             targetUserId={selectedPlayerForNotes?.id}
             hasNote={selectedPlayerHasNote}

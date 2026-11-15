@@ -6357,6 +6357,11 @@ function LiveTablePage({
   const [tournamentEventName, setTournamentEventName] = useState('');
   /* Dan 2026-11-05: the line under the event name says what KIND of event it
      is (PKO Event, Mystery Bounty Event, ...). See utils/tournamentTypeLabel. */
+  const [shoveOrFoldTable, setShoveOrFoldTable] = useState<string | null>(null);
+  const shoveOrFold = Boolean(tableId && shoveOrFoldTable === tableId);
+  const explainShoveOrFold = useCallback(() => {
+    toast.info('This is an All In or Fold tournament. You can only press All In or Fold.');
+  }, [toast]);
   const [tournamentTypeLine, setTournamentTypeLine] = useState<string | null>(null);
   const headsUpAnnouncedRef = useRef<Set<string>>(new Set());
   const finalTableAnnouncedRef = useRef<Set<string>>(new Set());
@@ -16063,6 +16068,7 @@ function LiveTablePage({
               tournamentId: table.tournament_id,
             });
           }
+          setShoveOrFoldTable(tournData?.all_in_or_fold === true ? table.id : null);
           loadedTournamentStatus = typeof tournData?.status === 'string' ? tournData.status : null;
           const satelliteTarget = tournData?.satellite_target_id ?? tournData?.satellite_target;
           loadedSatelliteTarget =
@@ -26661,6 +26667,7 @@ function LiveTablePage({
      the players, so it is not being done inside a sweep. */
 
   const handleRaise = () => {
+    if (shoveOrFold) return explainShoveOrFold();
     openRaisePanel();
   };
 
@@ -26693,6 +26700,7 @@ function LiveTablePage({
   //Server is authoritative — all actions go through submitAction
   const handleActionPanelAction = useCallback(
     async (action: 'fold' | 'check' | 'call' | 'raise' | 'allin', amount?: number) => {
+      if (shoveOrFold && action !== 'fold' && action !== 'allin') return explainShoveOrFold();
       if (lightningRoomRef.current) {
         const onFelt = lightningDecisionKey(
           tableId,
@@ -26905,6 +26913,8 @@ function LiveTablePage({
       tableId,
       userId,
       submitActionWithToast,
+      shoveOrFold,
+      explainShoveOrFold,
       renderedLightningDecision,
       applyOptimisticHeroAction,
     ]
@@ -27024,6 +27034,7 @@ function LiveTablePage({
     onToggleSound: () => setIsSoundEnabled(!isSoundEnabled),
     // FIX 199: onToggleHandStrength REMOVED — not allowed for live online gameplay
     onBetPreset: (preset: number) => {
+      if (shoveOrFold) return explainShoveOrFold();
       setRaiseIntent((previous) => ({
         nonce: previous.nonce + 1,
         open: true,
@@ -30782,7 +30793,8 @@ function LiveTablePage({
                       setSelectedPlayerForNotes(
                         displayPlayer ? { id: displayPlayer.id, name: displayPlayer.name } : null
                       );
-                      if (v8Settings.emoji_enabled) setShowThrowableSelector(true);
+                      if (v8Settings.emoji_enabled || !tableState.tournamentId)
+                        setShowThrowableSelector(true);
                       else if (displayPlayer) setShowPlayerNotes(true);
                     }
                   }}
@@ -31772,6 +31784,7 @@ function LiveTablePage({
                            clamped to minRaise and 2X/3X/4X/5X produced the
                            same number. See ActionPanel presets. */
                         currentBet={serverCurrentBet}
+                        shoveOrFold={shoveOrFold}
                         onAction={handleActionPanelAction}
                         /* The documented R / E hotkey and the 1/2/3/4 pot-fraction
                            keys arrive here. Before 2026-08-20 they set a
@@ -31933,6 +31946,8 @@ function LiveTablePage({
                         ? lightningOwes <= 0
                         : (tableState.currentBet || 0) <=
                           (tableState.lastBetAmounts?.[tableState.heroSeat - 1] || 0);
+                    if (shoveOrFold && next && (next !== 'fold' || heroOwesNothing))
+                      return explainShoveOrFold();
                     if (lightningRoom && next === 'fold' && !heroOwesNothing) {
                       void handleLightningFold('fast_fold');
                       return;
