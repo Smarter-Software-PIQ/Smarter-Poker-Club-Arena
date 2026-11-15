@@ -135,7 +135,8 @@ export default function ClubOpeningWizard({
   onComplete,
 }: Props) {
   const toast = useToast();
-  const cashPolicyReady = useCashRakePolicyVersion() === 1;
+  const cashPolicyVersion = useCashRakePolicyVersion();
+  const cashPolicyReady = cashPolicyVersion === 1 || cashPolicyVersion === 2;
   const [step, setStep] = useState(0);
   const [customizing, setCustomizing] = useState(false);
   const [tagline, setTagline] = useState(() => (initialTagline ?? '').trim().slice(0, 72));

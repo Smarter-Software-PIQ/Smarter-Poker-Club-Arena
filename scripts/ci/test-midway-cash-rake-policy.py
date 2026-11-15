@@ -52,6 +52,10 @@ try:
  sql(MIGRATION)
  result=sql(FIXTURE/'regression.sql')
  if 'midway-cash-rake-postgres-passed' not in result.stdout: raise RuntimeError('regression did not finish')
+ sql(ROOT/'supabase/migrations/20261115034500_midway_cash_rake_chip_ceiling.sql')
+ run(psql+['-c', "UPDATE tables SET small_blind=5,big_blind=10,rake_cap_bb=-1 WHERE id='b0000000-0000-0000-0000-000000000001'"])
+ projected=run(psql+['-c', "SELECT effective_percent=10 AND effective_cap_bb*10=12.5 FROM fn_effective_rake_config('b0000000-0000-0000-0000-000000000001')"])
+ if projected.stdout.strip()!='t': raise RuntimeError('Midway 5/10 projected price exceeded the ceiling')
  # The exact migration must refuse replay, without partially applying anything.
  replay=run(psql+['-f',str(MIGRATION)],check=False)
  if replay.returncode==0: raise RuntimeError('installed migration unexpectedly replayed')

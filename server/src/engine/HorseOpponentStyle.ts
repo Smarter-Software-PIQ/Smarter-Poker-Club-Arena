@@ -56,6 +56,21 @@
  *       river raise, a short stack-to-pot ratio), never a trait of the player.
  *       It is never folded into the axes.
  *
+ * LONG PARTICIPATION WINDOW (2026-11-15). VPIP, PFR and the call share may
+ * read the 120-hand long window (ExploitCounters lHands / lVpip / lPfr,
+ * HorseOpponentExploit.EXPLOIT_LONG_HALF_LIFE_HANDS) instead of the 30-hand
+ * window, so an ordinary tight regular becomes readable: at 30 hands the
+ * evidence saturates at 43.8 decayed hands and full ring calls tight only at
+ * VPIP <= 0.119; at 120 hands it is 173.6 and 0.156 (short-handed 0.231 ->
+ * 0.279, heads-up 0.302 -> 0.354). The long window speaks for one statistic
+ * only when (1) it holds more decayed hands than the 30-hand window, (2) its
+ * posterior mean is at or below the Horse mean and (3) the 30-hand posterior
+ * mean is too: it can strengthen a low (tight) read, never make a loose or
+ * aggressive one, and it stands down the moment the recent 30 hands lean the
+ * other way. Credibility, margins, prior pseudo-hands, the 15-hand unknown
+ * gate (still the 30-hand count) and release (the 8-hand fast window) are
+ * unchanged. receipt.longWindow names the statistics it supplied.
+ *
  * FORMAT-SPECIFIC BY DEFAULT. A player who is tighter in tournaments tells us
  * nothing about everyone else. Cross-format carry-over exists as an option whose
  * weight defaults to ZERO (STYLE_THRESHOLDS.carryWeight); any non-zero weight
@@ -101,6 +116,9 @@
 import {
   EXPLOIT_COUNTER_FIELDS,
   EXPLOIT_FAST_MIN_N,
+  EXPLOIT_LONG_FIELDS,
+  hasLongParticipation,
+  type ExploitCountersWithLong,
   EXPLOIT_PRIOR_STRENGTH,
   OPPONENT_EXPLOIT_ENVELOPE_VERSION,
   betaCdf,
@@ -795,6 +813,9 @@ export interface StyleReceipt {
   };
   /** side:mean:n of every statistic, rounded for telemetry */
   readonly signals: Readonly<Record<string, string>>;
+  /** the statistics read from the 120-hand long participation window (vpip, pfr, callShare), in that order;
+   *  empty when every one read the 30-hand window */
+  readonly longWindow: readonly string[];
   /** features the decision-time counters cannot carry; consumers condition on them at the decision */
   readonly notAvailable: readonly string[];
 }
@@ -894,6 +915,14 @@ interface Posterior {
   pBelow: number;
 }
 
+/** The posterior mean alone (posterior().mean, without the two tail probabilities). */
+function shrunkMean(successes: number, opps: number, horse: number): number {
+  const prior = clamp(horse, 0.01, 0.99);
+  const n = Math.max(0, num(opps));
+  const s = clamp(num(successes), 0, n);
+  return (prior * EXPLOIT_PRIOR_STRENGTH + s) / (EXPLOIT_PRIOR_STRENGTH + n);
+}
+
 /** Beta posterior shrunk toward the Horse mean (EXPLOIT_PRIOR_STRENGTH pseudo-observations). */
 function posterior(successes: number, opps: number, horse: number, margin: number): Posterior {
   const prior = clamp(horse, 0.01, 0.99);
@@ -959,8 +988,12 @@ export function carryOverCounters(
   const taper = Math.max(0, 1 - num(ownRow?.hands) / STYLE_THRESHOLDS.preflopMinHands);
   const w = clamp(weight, 0, 1) * taper;
   if (!(w > 1e-6)) return { counters: ownRow, weight: 0 };
-  const out = {} as ExploitCounters;
+  const out = {} as ExploitCountersWithLong;
   for (const f of EXPLOIT_COUNTER_FIELDS) out[f] = num(ownRow?.[f]) + w * num(other[f]);
+  const ownLong: ExploitCountersWithLong | undefined = ownRow;
+  const otherLong: ExploitCountersWithLong = other;
+  if (hasLongParticipation(ownLong) || hasLongParticipation(otherLong))
+    for (const f of EXPLOIT_LONG_FIELDS) out[f] = num(ownLong?.[f]) + w * num(otherLong[f]);
   return { counters: out, weight: w };
 }
 
@@ -1047,6 +1080,7 @@ function buildRead(
     label: StyleLabel;
     pattern?: StylePattern | null;
     callingRelease?: number;
+    longWindow?: readonly string[];
   }
 ): OpponentStyleRead {
   const prior = populationPriorFor(family, hands);
@@ -1093,6 +1127,7 @@ function buildRead(
       riverCall: brief(sg.riverCall),
       shownStrength: `${sg.shownStrength.side ?? 'none'}:${round4(sg.shownStrength.share)}:${sg.shownStrength.shown}`,
     }),
+    longWindow: Object.freeze([...(parts.longWindow ?? [])]),
     notAvailable: NOT_AVAILABLE,
   });
   return Object.freeze({
@@ -1277,9 +1312,31 @@ export function classifyOpponentStyle(input: OpponentStyleInput): OpponentStyleR
   const pfrCell = envelope.pfr;
   const callHorse = Math.max(0.01, vpipCell.mean - pfrCell.mean);
   const prefMin = T.preflopMinHands;
+  // LONG PARTICIPATION WINDOW (2026-11-15, see the module header). One statistic reads the 120-hand window only
+  // when that window holds more evidence than the 30-hand one and both lean low or even against the Horse mean.
+  const cl: ExploitCountersWithLong | undefined = c;
+  const longHands = Math.max(0, num(cl?.lHands));
+  const lowOrEven = (successes: number, opps: number, horse: number): boolean =>
+    shrunkMean(successes, opps, horse) <= horse;
+  const longSpeaks = (longSuccesses: number, shortSuccesses: number, horse: number): boolean =>
+    longHands > counterHands &&
+    lowOrEven(longSuccesses, longHands, horse) &&
+    lowOrEven(shortSuccesses, counterHands, horse);
+  const longVpip = longSpeaks(num(cl?.lVpip), num(c?.vpip), vpipCell.mean);
+  const longPfr = longSpeaks(num(cl?.lPfr), num(c?.pfr), pfrCell.mean);
+  const longCall = longSpeaks(
+    Math.max(0, num(cl?.lVpip) - num(cl?.lPfr)),
+    Math.max(0, num(c?.vpip) - num(c?.pfr)),
+    callHorse
+  );
+  const longWindow = [
+    ...(longVpip ? ['vpip'] : []),
+    ...(longPfr ? ['pfr'] : []),
+    ...(longCall ? ['callShare'] : []),
+  ];
   const vpip = signal(
-    num(c?.vpip),
-    counterHands,
+    longVpip ? num(cl?.lVpip) : num(c?.vpip),
+    longVpip ? longHands : counterHands,
     vpipCell.mean,
     halfBandOf(vpipCell),
     T.margin.vpip * ms,
@@ -1288,8 +1345,8 @@ export function classifyOpponentStyle(input: OpponentStyleInput): OpponentStyleR
     callable
   );
   const pfr = signal(
-    num(c?.pfr),
-    counterHands,
+    longPfr ? num(cl?.lPfr) : num(c?.pfr),
+    longPfr ? longHands : counterHands,
     pfrCell.mean,
     halfBandOf(pfrCell),
     T.margin.pfr * ms,
@@ -1298,8 +1355,10 @@ export function classifyOpponentStyle(input: OpponentStyleInput): OpponentStyleR
     callable
   );
   const callShare = signal(
-    Math.max(0, num(c?.vpip) - num(c?.pfr)),
-    counterHands,
+    longCall
+      ? Math.max(0, num(cl?.lVpip) - num(cl?.lPfr))
+      : Math.max(0, num(c?.vpip) - num(c?.pfr)),
+    longCall ? longHands : counterHands,
     callHorse,
     (halfBandOf(vpipCell) + halfBandOf(pfrCell)) / 2,
     T.margin.callShare * ms,
@@ -1660,6 +1719,7 @@ export function classifyOpponentStyle(input: OpponentStyleInput): OpponentStyleR
     label,
     pattern,
     callingRelease,
+    longWindow,
   });
 }
 
