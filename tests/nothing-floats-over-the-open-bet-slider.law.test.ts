@@ -81,10 +81,11 @@ describe('the Lightning leave control is in the upper left, not on the top seat'
     expect(leave).toBeGreaterThan(stack);
     expect(leave).toBeLessThan(upperRight);
     // An embedded table is EXACTLY the Lightning case: its hamburger lives in
-    // the tab bar, so the menu column is nulled. Gating the leave control on
-    // the same condition would delete it from the product, so its own
-    // condition is the Lightning room and nothing else.
-    expect(body.slice(stack, leave)).toMatch(/embeddedTableId \? null/);
+    // the tab bar. Gating the leave control on embedding would delete it from
+    // the product, so its own condition is the Lightning room and nothing
+    // else. (2026-11-14: the nulled in-table menu column that stood between
+    // the two is gone; every table is embedded and the tab bar's is the menu.)
+    expect(body.slice(stack, leave)).not.toMatch(/embeddedTableId \? null/);
     const ownGuard = body.slice(body.lastIndexOf('{', leave), leave);
     expect(ownGuard).toMatch(/lightningRoom && !lightningRoomClosed/);
     expect(ownGuard).not.toMatch(/embeddedTableId/);

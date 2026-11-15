@@ -129,6 +129,54 @@ describe('Stand Up Next Big Blind and Auto Top Up', () => {
   });
 });
 
+describe('rows that lived only in a menu no table rendered', () => {
+  it('Straddle is offered only at a seat that may straddle, and is a switch', () => {
+    const view = openMenu([tab()]);
+    expect(row('Straddle')).toBeUndefined();
+    view.rerender(bar([tab({ straddleAvailable: true, straddleEnabled: false })]));
+    expect(badge('Straddle')).toBe('OFF');
+    fireEvent.click(row('Straddle'));
+    expect(emit).toHaveBeenCalledWith('TABLE_MENU_ACTION', {
+      tableId: 'table-1',
+      action: 'TOGGLE_STRADDLE',
+    });
+    expect(screen.queryByRole('menu')).not.toBeNull();
+    view.rerender(bar([tab({ straddleAvailable: true, straddleEnabled: true })]));
+    expect(badge('Straddle')).toBe('ON');
+  });
+
+  it('Club Marketplace asks the table page to open its club shop', () => {
+    openMenu();
+    fireEvent.click(row('Club Marketplace'));
+    expect(emit).toHaveBeenCalledWith('TABLE_MENU_ACTION', {
+      tableId: 'table-1',
+      action: 'CLUB_MARKETPLACE',
+    });
+  });
+
+  it('a tournament seat is offered Rebuy and Add-On, a cash seat Top Up', () => {
+    const view = openMenu([tab({ isTournament: true })]);
+    expect(row('Rebuy')).toBeDefined();
+    expect(row('Top Up')).toBeUndefined();
+    fireEvent.click(row('Add-On'));
+    expect(emit).toHaveBeenCalledWith('TABLE_MENU_ACTION', {
+      tableId: 'table-1',
+      action: 'ADD_ON',
+    });
+    view.unmount();
+    openMenu([tab()]);
+    expect(row('Top Up')).toBeDefined();
+    expect(row('Add-On')).toBeUndefined();
+  });
+
+  it('Leave Table Next Hand shows ON while a leave is queued', () => {
+    const view = openMenu([tab()]);
+    expect(badge('Leave Table Next Hand')).toBeNull();
+    view.rerender(bar([tab({ leaveNextHandQueued: true })]));
+    expect(badge('Leave Table Next Hand')).toBe('ON');
+  });
+});
+
 describe('a row that opens something still closes the menu', () => {
   it.each([
     ['Hand History', 'HAND_HISTORY'],
@@ -146,12 +194,12 @@ describe('a row that opens something still closes the menu', () => {
 describe('every ON/OFF row is marked as a switch', () => {
   it('in the shared sections', () => {
     const actions = createDefaultMenuSections(
-      { onToggleProfitTracking: () => {} },
+      { onToggleProfitTracking: () => {}, onToggleStraddle: () => {} },
       { soundsBadge: 'OFF', vibrationsBadge: 'OFF', profitTrackingBadge: 'OFF' }
     ).flatMap((s) => s.actions);
     const switches = actions.filter((a) => a.keepOpen).map((a) => a.id);
     expect(switches.sort()).toEqual(
-      ['auto-top-up', 'profit-tracking', 'sounds', 'standup-bb', 'vibrations'].sort()
+      ['auto-top-up', 'profit-tracking', 'sounds', 'standup-bb', 'straddle', 'vibrations'].sort()
     );
   });
 });
