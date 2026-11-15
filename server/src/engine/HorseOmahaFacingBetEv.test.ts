@@ -628,17 +628,18 @@ describe('the size read comes from the existing river size-bucket tallies, when 
     }
   }, 600000);
 
-  it('a caller whose calls were shown weak is modelled wider; one always best, narrower (no reader supplies it today)', () => {
+  it('a caller is modelled on the population share; the context takes no per-caller read (audit item 8)', () => {
     const r = rec(59484381, 5);
     const st = at(r);
     const spot = omahaFacingBetEvSpot(st.hero, st.gs as never)!;
     expect(spot.callerSeats).toEqual([4]);
-    const run = (callerShown: Array<{ shown: number; best: number } | null>) =>
-      omahaFacingBetEvVerdict(spot, st.hero.cards, st.gs.communityCards, [], null, { callerShown })!
+    const run = (ctx: Record<string, unknown>) =>
+      omahaFacingBetEvVerdict(spot, st.hero.cards, st.gs.communityCards, [], null, ctx as never)!
         .field;
-    const base = run([null]);
-    expect(run([{ shown: 3, best: 0 }])).toBe(base);
-    expect(run([{ shown: 16, best: 2 }])).toBeGreaterThan(base);
-    expect(run([{ shown: 16, best: 16 }])).toBeLessThan(base);
+    const base = run({});
+    expect(base).toBeLessThan(1);
+    // the removed input is not read: an object that still carries it changes nothing
+    expect(run({ callerShown: [{ shown: 16, best: 2 }] })).toBe(base);
+    expect(run({ callerShown: [{ shown: 16, best: 16 }] })).toBe(base);
   });
 });
