@@ -135,8 +135,25 @@ function snapshotDeal(snapshot: LiveHorseDecisionSnapshot): PresenceDeal | null 
   };
 }
 
+/** The exact reducer counts one hand per accepted update. The preflop
+ * opportunities below occur at most once per hand. Postflop opportunities can
+ * repeat, and the long-window gated counts can outlast the decayed hand count. */
+function possibleExactCounters(row: DurableOpponentProfile): boolean {
+  const c = row.counters;
+  const tolerance = 1e-9;
+  return (
+    c.hands > 0 &&
+    c.fHands > 0 &&
+    c.hands <= row.observed_hands + tolerance &&
+    c.fHands <= c.hands + tolerance &&
+    c.pfr <= c.vpip + tolerance &&
+    Math.max(c.rfiOpp, c.threeBetOpp, c.foldTo3BetOpp) <= row.observed_hands + tolerance &&
+    Math.max(c.fRfiOpp, c.fThreeBetOpp) <= c.fHands + tolerance
+  );
+}
+
 /** A saved row may exist without usable public evidence or event lineage.
- * Never carry unknown fields, donor context, zero-observation or legacy rows. */
+ * Rows predating event lineage may supply counters while participation stays unresolved. */
 function usableProfile(
   raw: unknown,
   id: string,
@@ -149,9 +166,9 @@ function usableProfile(
     raw.mode !== deal.mode ||
     raw.size !== (deal.roster.length <= 2 ? 'hu' : deal.roster.length <= 5 ? 'short' : 'full') ||
     publicMemoryDomainKey(raw.public_memory_domain) !== publicMemoryDomainKey(deal.domain) ||
-    !raw.last_accepted_hand_id ||
+    raw.last_accepted_hand_id === undefined ||
     raw.observed_hands < 1 ||
-    !Object.values(raw.counters).some((value) => value > 0)
+    !possibleExactCounters(raw)
   )
     return null;
   return {
@@ -205,7 +222,7 @@ export class SavedProfilePresenceCache {
           const profile =
             row.presence === 'exact' ? usableProfile(row.exact_profile, ids[i]!, deal) : null;
           if (profile) exactProfiles.push(profile);
-          rows.push(subjectRow(ids[i]!, row.presence, profile !== null));
+          rows.push(subjectRow(ids[i]!, row.presence, !!profile?.last_accepted_hand_id));
         }
         entry.receipt = {
           version: 1,
@@ -292,7 +309,7 @@ export function verifiedSavedPresence(
       subjectRow(
         user_id,
         presence,
-        profiles.some((p) => p.user_id === user_id)
+        profiles.some((p) => p.user_id === user_id && !!p.last_accepted_hand_id)
       )
     ),
     ...(profiles.length ? { exactProfiles: profiles } : {}),

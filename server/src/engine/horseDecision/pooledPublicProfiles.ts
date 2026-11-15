@@ -47,7 +47,7 @@ export interface PooledPublicDonor {
  * older queued snapshot reads the clock as it stood at its own cutoff. */
 interface HandClock {
   count: number;
-  marks: Array<[at: number, count: number]>;
+  marks: Array<[at: number, count: number, learnableRowKey: string | null]>;
 }
 const CLOCK_MARKS = 8;
 /** Owner-authorized herd notes. Public aggregate counters only; no card,
@@ -76,6 +76,7 @@ export class PooledPublicProfiles {
   private readonly clocks = new Map<string, HandClock>();
   private readonly seen = new Set<string>();
   private lastAt = 0;
+  private evictedClockThroughMs = -1;
   private bootstrapped = false;
   constructor(
     private readonly now: () => number = Date.now,
@@ -158,10 +159,10 @@ export class PooledPublicProfiles {
     this.lastAt = at;
     this.seen.add(key);
     while (this.seen.size > this.capacity) this.seen.delete(this.seen.values().next().value!);
-    for (const id of actors) this.tick(id, at);
     const rowKey = (id: string) =>
       opponentMemoryKey(id, context.variant as DurableOpponentProfile['variant'], mode, size) +
       (context.version === 2 ? '|' + publicMemoryDomainKey(context.publicMemoryDomain) : '');
+    for (const id of actors) this.tick(id, at, learningActors.has(id) ? rowKey(id) : null);
     const valid =
       Array.isArray(profiles) &&
       profiles.length <= 10 &&
@@ -257,9 +258,9 @@ export class PooledPublicProfiles {
       )
         continue;
       const variant = context.variant as DurableOpponentProfile['variant'];
-      const found = this.rows.get(
-        opponentMemoryKey(player.user_id, variant, mode, size) + domainSuffix
-      );
+      const baseKey = opponentMemoryKey(player.user_id, variant, mode, size);
+      const exactKey = baseKey + domainSuffix;
+      const found = this.rows.get(exactKey);
       // A newer receipt is unavailable to an older queued snapshot. Never
       // substitute it or relabel its availability with the decision clock.
       const eligible = found && found.at <= request.decisionTimeMs ? found : null;
@@ -270,10 +271,15 @@ export class PooledPublicProfiles {
       const intervening =
         candidate &&
         requestAt != null &&
-        (clock
-          ? clock.marks.some(([at]) => at >= requestAt && at <= request.decisionTimeMs) ||
-            (clock.marks[0]![1] > 1 && clock.marks[0]![0] > request.decisionTimeMs)
-          : this.clocks.size >= this.capacity && this.lastAt >= requestAt);
+        (this.evictedClockThroughMs >= requestAt ||
+          (clock &&
+            ((clock.marks[0]![1] > 1 && clock.marks[0]![0] >= requestAt) ||
+              clock.marks.some(
+                ([at, , updatedKey]) =>
+                  at >= requestAt &&
+                  at <= request.decisionTimeMs &&
+                  (updatedKey === exactKey || updatedKey === baseKey)
+              ))));
       const preferSaved =
         candidate &&
         savedAt != null &&
@@ -343,14 +349,18 @@ export class PooledPublicProfiles {
       },
     };
   }
-  private tick(userId: string, at: number): void {
+  private tick(userId: string, at: number, learnableRowKey: string | null): void {
     const clock = this.clocks.get(userId) ?? { count: 0, marks: [] };
     clock.count++;
-    clock.marks.push([at, clock.count]);
+    clock.marks.push([at, clock.count, learnableRowKey]);
     if (clock.marks.length > CLOCK_MARKS) clock.marks.shift();
     this.clocks.delete(userId);
     this.clocks.set(userId, clock);
-    while (this.clocks.size > this.capacity) this.clocks.delete(this.clocks.keys().next().value!);
+    if (this.clocks.size > this.capacity) {
+      const [id, evicted] = this.clocks.entries().next().value!;
+      this.evictedClockThroughMs = Math.max(this.evictedClockThroughMs, evicted.marks.at(-1)![0]);
+      this.clocks.delete(id);
+    }
   }
   /** The player's hand clock as it stood at `cutoffMs`. A row available at the
    * cutoff was learned at or before it, so the clock is never below its mark. */
@@ -368,6 +378,7 @@ export class PooledPublicProfiles {
     this.rows.clear();
     this.seen.clear();
     this.lastAt = 0;
+    this.evictedClockThroughMs = -1;
     this.bootstrapped = false;
   }
 }
