@@ -27,3 +27,14 @@ ending 2026-11-09 has a credit note, so their figures are unchanged.
 Law: `tests/union-invoice-views-show-the-week-and-who-pays.law.test.ts`.
 Native body regression: `scripts/ci/test-union-invoice-body.py` (now applies
 this migration's body patch to the body 20261115011424 installs).
+
+## Known open item (not changed here)
+
+`ca_union_set_statement_paid` still treats the amount owed as
+`abs(net_amount)` and ignores credit notes. A future part-credited square-up
+paid at its credited-down amount would therefore stay generated/overdue, and
+"Mark Paid" without an amount would record the uncredited figure, so "Paid So
+Far" would overstate what was paid. No current row is affected: no union
+square-up carries a `paid_total`, and every credited square-up is credited in
+full. It is a money path outside this presentation change and needs its own
+owned fix.
