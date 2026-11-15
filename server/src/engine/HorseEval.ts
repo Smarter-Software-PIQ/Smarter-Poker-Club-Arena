@@ -1508,6 +1508,14 @@ export interface OppPostflopRead {
   /** V56 qualification arm: sample the declared made-hand stratum directly
    * instead of treating a bounded rejection miss as a value hand. */
   strictPressureRange?: boolean;
+  /** Fixed limit (SPEC-FL-01, opt-in; HorseFixedLimitWagerRead.ts): this
+   * opponent made a full fixed-limit wager on the river. The size reads
+   * cannot see it (a fixed bet is never 0.7 pot or 20 big blinds), so the
+   * samplers take their largest-bet setting from this mark instead. */
+  fullBet?: boolean;
+  /** Fixed limit (SPEC-FL-01): the pot cannot split on this board (no low is
+   * possible), so the exact pressure stratum may be drawn in a hi-lo game. */
+  highOnlyBoard?: boolean;
   /** V62: the newest postflop street on which this opponent bet or raised. */
   lastStage?: 'flop' | 'turn' | 'river';
   /** V62 (Hold'em, attached by HorseLogic on the river only): this opponent
@@ -1978,7 +1986,7 @@ export function omahaAggressorTier(read: OppPostflopRead): number {
   if (streets <= 0 && !read.raised) return 0;
   const frac = read.lastFrac ?? (read.bigBet ? 1 : 0.5);
   let tier = 1;
-  if (frac >= 0.7 || read.bigBet) tier++;
+  if (frac >= 0.7 || read.bigBet || read.fullBet === true) tier++;
   if (streets >= 2) tier++;
   if (streets >= 3 || read.raised) tier++;
   return Math.min(3, tier);
@@ -3613,7 +3621,7 @@ export function simulateEquity(
         if (tier40 >= 1 && omahaTierShape != null) {
           if (rangeUse) rangeUse.conditionedMask |= 1 << o;
           const req = omahaTierRequirement(tier40, boardCards.length, omahaTierShape);
-          if (read.strictPressureRange === true && !vi.isHiLo) {
+          if (read.strictPressureRange === true && (!vi.isHiLo || read.highOnlyBoard === true)) {
             if (
               fastRandom() < req.pStrong &&
               placeOmahaPressureCombo(
@@ -3712,9 +3720,15 @@ export function simulateEquity(
           }
           // V16: a BIG bet is sampled toward REAL strength (two pair+), not
           // just any contact — an overbettor's range is not middle pair.
-          const wantCat = read.bigBet ? 3 : 2;
-          const pConnect = Math.min(0.9, (read.bigBet ? 0.55 : 0.4) + read.aggrW * 2.2);
-          const tries = read.bigBet ? 4 : 3;
+          // SPEC-FL-01 (opt-in mark): a full fixed-limit river wager takes
+          // the model's own ceiling (0.9 contact, four draws); a fixed-limit
+          // raise is sampled toward two pair or better, as a big bet is.
+          const full = read.fullBet === true;
+          const wantCat = read.bigBet || (full && read.raised === true) ? 3 : 2;
+          const pConnect = full
+            ? 0.9
+            : Math.min(0.9, (read.bigBet ? 0.55 : 0.4) + read.aggrW * 2.2);
+          const tries = read.bigBet || full ? 4 : 3;
           for (let t = 0; t < tries; t++) {
             if (connectsBoard(oppCards, boardCards, vi.isShortDeck) >= wantCat) break;
             if (fastRandom() >= pConnect) break; // some of the range IS air

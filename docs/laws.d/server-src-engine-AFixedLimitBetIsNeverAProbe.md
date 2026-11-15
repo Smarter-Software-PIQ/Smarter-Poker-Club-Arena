@@ -1,0 +1,3 @@
+# server/src/engine/AFixedLimitBetIsNeverAProbe.law.test.ts
+
+A Fixed-Limit Bet Is Never A Probe: With The Process Switch HorseMind.setFixedLimitBetsAreNeverProbes On (Source Default On Since 2026-11-15, Off Reproduces The Old Counting), A Hand Whose Betting Structure Is Fixed Limit Adds No Probe Tally, So A Heads-Up Flh Or Flo8 Maniac Who Bets Every Checked Street Reads As A Postflop Maniac Within 100 Hands, While A No-Limit One-Big-Blind Bet Is Still A Probe And No-Limit Counting Is Unchanged; The Production Completed-Hand Learner And The In-Decision Observation Both Hand The Hand's Variant To The Counter (Fixed-Limit Lane, 2026-11-14).

@@ -170,6 +170,15 @@ try {
     if (!owner.stdin.writableEnded) owner.stdin.end('ROLLBACK;\n');
     await closed;
   }
+  const retirement = migrationText('20261114222043');
+  query('after', retirement);
+  for (const [, predicate] of retirement.matchAll(/^-- @live-proof: (.+)$/gm)) {
+    if (query('after', 'SELECT (' + predicate + ');', ['-At']).trim() !== 't')
+      throw Error('Installed retirement predicate failed: ' + predicate);
+  }
+  const retired = query('after', read('retired-room-leave.sql'));
+  if (!retired.includes('RETIRED_ROOM_LEAVE_POSTGRES_PASS')) throw Error('Legacy retirement proof incomplete');
+  console.log(retired);
   console.log(baseline + scoped);
   console.log('SCOPED_DEPARTURE_SERIALIZES_ADMISSION_PASS');
   console.log('LIGHTNING_BLIND_OFF_QUALIFIED: strand reproduced before, completion proved after');

@@ -21,7 +21,11 @@ import {
   insuranceOfferEquity,
   validAllInEquityEntries,
 } from '../lib/allInEquityDisplay';
-import { fetchStoppedLightningAnchor } from '../lightning/lightningLeaveAnchor';
+import {
+  fetchStoppedLightningAnchor,
+  rememberLightningLeaveAnchor,
+  rememberedLightningLeaveAnchor,
+} from '../lightning/lightningLeaveAnchor';
 import { useLightningFinalDeal } from '../lightning/useLightningFinalDeal';
 import { useLightningLeaveStop } from '../lightning/useLightningLeaveStop';
 import { resumeLightningPlaying } from '../lightning/lightningSessionApi';
@@ -238,7 +242,6 @@ import { FaceDeckContext } from '../components/table/faceDeckContext';
  */
 
 import smarterPokerLetterLogo from '../assets/smarter-poker-letter-logo.png';
-import { useButtonImage } from '../hooks/useButtonImage';
 
 import {
   cashAutoTopUpTarget,
@@ -249,6 +252,7 @@ import {
 import {
   cashBuyInJournal,
   executeCashBuyIn,
+  isCashBuyInStorageFailure,
   sameCashBuyInIntent,
   type CashBuyInAttempt,
 } from '../services/CashBuyInRecovery';
@@ -539,7 +543,6 @@ import { useLightningJoinTiming } from '../lightning/useLightningJoinTiming';
 import type { ShareableHand, ShareableAction } from '../components/table/ShareHand';
 import { shareBoardPrefix, shareExtraBoards, visibleShareCards } from '../lib/liveShareCards';
 import { toShareVariant } from '../lib/shareHandModel';
-import TableMenu from '../components/table/TableMenu';
 
 /**
  * The engine's verb -> the verb a share link carries. ONE TABLE, and a verb
@@ -568,17 +571,6 @@ const LIVE_SHARE_VERB: Record<string, ShareableAction['action']> = {
   uncalled: 'RETURN',
   discard: 'DISCARD',
 };
-import {
-  SitOutIcon,
-  RebuyIcon,
-  AddOnIcon,
-  HandHistoryIcon,
-  LeaderboardIcon,
-  SessionStatsIcon,
-  SettingsIcon,
-  HelpIcon,
-  LeaveTableIcon,
-} from '../components/table/TableMenuIcons';
 import { useToast } from '../components/common/Toast';
 import { isVibrationPreferred, setVibrationAllowed } from '../utils/vibrationGate';
 import SeatKnockoutLayer, {
@@ -1279,6 +1271,12 @@ interface TablePageProps {
     handNumber?: number;
     buttonTheme?: string;
     isAutoRebuyEnabled?: boolean;
+    standUpNextBB?: boolean;
+    straddleAvailable?: boolean;
+    straddleEnabled?: boolean;
+    straddleBusy?: boolean;
+    heroSeated?: boolean;
+    leaveNextHandQueued?: boolean;
     /**
      * PokerBros parity (Dan 2026-08-20, from live multi-table footage): each
      * tab previews the hero's hole cards AT THAT TABLE. Reported as ONE
@@ -1696,7 +1694,6 @@ function LiveTablePage({
 }: TablePageProps = {}) {
   const followingPlayerRef = useRef(followingPlayer);
   followingPlayerRef.current = followingPlayer;
-  const addScreenIcon = useButtonImage('icon-addscreen');
   const { tableId: routeTableId } = useParams<{ tableId: string }>();
   const requestedTableId = embeddedTableId || routeTableId;
   // Every table effect receives a database ID or no scope. A URL segment
@@ -6245,78 +6242,6 @@ function LiveTablePage({
     userId,
   ]);
 
-  // ─── Table Menu Actions ────────────────────────────────────────────────
-  useMasterBusSubscription('TABLE_MENU_ACTION', (event) => {
-    if (event.tableId !== tableId) return;
-
-    switch (event.action) {
-      case 'SHOW_TOURNAMENT_DOCK':
-        setTournamentDockClosed(false);
-        break;
-      case 'SIT_OUT':
-        void handleSitOut();
-        break;
-      case 'REBUY':
-        /* A SPECTATOR HAS NO SEAT TO TOP UP (audit C2-17). The tab bar offers
-           this item to everyone at the table, and for a spectator the sheet
-           opened only for the engine to answer "Player not seated". The seat's
-           own header control already asked; this asks the same question. */
-        if (tableState.heroSeat <= 0) {
-          toast.info('Take A Seat To Top Up.');
-          break;
-        }
-        /* THE TAB BAR'S TOP UP ITEM WAS DEAD AT A DIAMOND SEAT (2026-09-12).
-           This refused every non-chip asset, and `createDefaultMenuSections`
-           renders the item unconditionally because the tab bar does not know
-           the arena - so a Diamond cash player tapped Top Up and nothing
-           happened at all: no sheet, no refusal, no error. The seat's own
-           control had already learned that a Diamond cash seat HAS a funded
-           top-up writer; this had not. Both read the one rule now. */
-        if (!seatCanAddFunds(tableState.arenaAsset, tableState.isTournament)) break;
-        if (tableState.isTournament) {
-          handleTournamentRebuy();
-        } else {
-          setShowCashier(true);
-        }
-        break;
-      case 'LEADERBOARD':
-        setShowLeaderboard(true);
-        break;
-      case 'SESSION_STATS':
-        setShowSessionStats(true);
-        break;
-      case 'SETTINGS':
-        setShowSettings(true);
-        break;
-      case 'HAND_HISTORY':
-        setShowHandHistory(true);
-        break;
-      case 'HELP':
-        setShowGameRules(true);
-        break;
-      case 'ADD_ON':
-        handleTournamentAddOn();
-        break;
-      case 'LEAVE_TABLE':
-        openLeaveConfirm();
-        break;
-      case 'LEAVE_TABLE_NEXT_HAND':
-        void requestLeaveAtNextHand();
-        break;
-      case 'FORCE_LEAVE_TABLE':
-        handleForceLeaveTable();
-        break;
-      case 'CHANGE_AVATAR':
-        // Open the Hub avatar selector in a new window
-        avatarService.openAvatarSelector();
-        break;
-      case 'TOGGLE_ALIAS':
-        // Instead of hard-toggling, open the new Identity Settings Modal
-        setShowIdentityModal(true);
-        break;
-    }
-  });
-
   // Buy-in processing lock to prevent double-click
   const buyInProcessingRef = useRef(false);
   // The durable journal owns an unanswered purchase across cancel/reload.
@@ -8199,6 +8124,9 @@ function LiveTablePage({
          A Diamond tournament seat reports false and loses the two items that
          this page would only have refused. */
       canAddFunds: seatCanAddFunds(tableState.arenaAsset, tableState.isTournament),
+      /* The menu drops its seat-only rows for a spectator (2026-11-14). Asked
+         of this page, which owns the seat, not inferred from the tab. */
+      heroSeated: tableState.heroSeat > 0,
       gameCode: heroTabGameCode,
       decision: heroTabDecision,
       timeBank: heroTabTimeBank,
@@ -9390,6 +9318,16 @@ function LiveTablePage({
    *   2. The effect ran on mount, so simply opening a table POSTed
    *      `straddle=false` to the engine before the player touched anything.
    */
+  /* The tab bar's menu is the only table menu, and it cannot see this seat.
+     It offers Straddle only when told the seat may straddle (2026-11-14). */
+  useEffect(() => {
+    onTableInfoUpdate?.({
+      straddleAvailable: isStraddleAvailable,
+      straddleEnabled: isStraddleEnabled,
+      straddleBusy,
+    });
+  }, [isStraddleAvailable, isStraddleEnabled, straddleBusy, onTableInfoUpdate]);
+
   const handleToggleStraddle = useCallback(
     async (next: boolean) => {
       if (!tableId || straddleBusy) return;
@@ -10339,8 +10277,6 @@ function LiveTablePage({
   const {
     isSoundEnabled,
     setIsSoundEnabled,
-    isVibrationEnabled,
-    setIsVibrationEnabled,
     isAutoRebuyEnabled,
     setIsAutoRebuyEnabled,
     playTurnAlert,
@@ -12194,6 +12130,18 @@ function LiveTablePage({
    *   - `null`: a Lightning room with no open pool session: nothing to cash out.
    *   - 'unreadable': the read failed; the seat may hold chips, so it stays.
    */
+  const [verifiedLightningAnchor, setVerifiedLightningAnchor] = useState<{
+    room: string;
+    tableId: string;
+    occupancyId: string;
+  } | null>(null);
+  const noteLightningAnchor = useCallback(
+    (anchor: { room: string; tableId: string; occupancyId: string }) => {
+      if (userId) rememberLightningLeaveAnchor(userId, anchor.room, anchor);
+      setVerifiedLightningAnchor(anchor);
+    },
+    [userId]
+  );
   const resolveLightningLeave = async (): Promise<
     LightningAnchorSeat | null | undefined | 'unreadable'
   > => {
@@ -12201,11 +12149,26 @@ function LiveTablePage({
     if (!room || !userId || userId === 'guest') return undefined;
     try {
       const session = await fetchMyLightningSession(room.clusterId);
-      if (!hasLightningRoom(session)) return await fetchStoppedLightningAnchor(session, userId);
+      if (!hasLightningRoom(session)) {
+        if (session.poolSessionId && session.poolSessionId !== room.poolSessionId)
+          throw new Error('Lightning Leave Session Changed');
+        const original =
+          verifiedLightningAnchor?.room === room.poolSessionId
+            ? verifiedLightningAnchor
+            : rememberedLightningLeaveAnchor(userId, room.poolSessionId);
+        return await fetchStoppedLightningAnchor(session, userId, room, original);
+      }
       if (session.poolSessionId !== room.poolSessionId)
         throw new Error('Lightning Leave Session Changed');
       const anchor = lightningAnchorSeat(session);
-      if (anchor) return anchor;
+      if (anchor) {
+        noteLightningAnchor({
+          room: room.poolSessionId,
+          tableId: anchor.anchorTableId,
+          occupancyId: anchor.occupancyId,
+        });
+        return anchor;
+      }
       /* An open session whose anchor the answer did not name: the chips are
          somewhere real, so this is never treated as "nothing to cash out". */
       reportError(
@@ -12232,11 +12195,6 @@ function LiveTablePage({
   const stopLightningForLeave = useLightningLeaveStop(lightningRoom, userId);
   const [settledLightningHandId, setSettledLightningHandId] = useState<string | null>(null);
   const [lightningCountReceipt, setLightningCountReceipt] = useState(0);
-  const [verifiedLightningAnchor, setVerifiedLightningAnchor] = useState<{
-    room: string;
-    tableId: string;
-    occupancyId: string;
-  } | null>(null);
   const heroHandCount = useHeroHandCount({
     enabled:
       !!userId &&
@@ -12247,7 +12205,7 @@ function LiveTablePage({
     lightningClusterId: lightningRoom?.clusterId ?? null,
     handNumber: tableState.handNumber ?? 0,
     settledLightningHandId: lightningCountReceipt,
-    onLightningAnchor: setVerifiedLightningAnchor,
+    onLightningAnchor: noteLightningAnchor,
     lightningConnected: engineWsStatus === 'connected',
     engine: heroHandsOwedEngine,
   });
@@ -12301,9 +12259,17 @@ function LiveTablePage({
     }
     return fetchMyHandsOwed(target);
   };
-  const handleLeaveTable = async (afterLightningHand = false) => {
+  const handleLeaveTable = async (
+    afterLightningHand = false,
+    finalChoice?: {
+      confirmed: boolean;
+      current: () => boolean;
+      ask: (hands: number) => void;
+      accepted: () => void;
+    }
+  ) => {
     if (leaveRequestActiveRef.current) return;
-    const confirmedHandCount = hitRunConfirmedRef.current;
+    const confirmedHandCount = finalChoice?.confirmed ?? hitRunConfirmedRef.current;
     hitRunConfirmedRef.current = false;
     if (!confirmedHandCount) {
       leaveRequestActiveRef.current = true;
@@ -12313,7 +12279,12 @@ function LiveTablePage({
       } finally {
         leaveRequestActiveRef.current = false;
       }
+      if (finalChoice && !finalChoice.current()) return;
       if (owed !== null) {
+        if (finalChoice) {
+          finalChoice.ask(owed);
+          return;
+        }
         hitRunConfirmFromTabRef.current = false;
         setHitRunConfirmHands(owed);
         return;
@@ -12372,6 +12343,7 @@ function LiveTablePage({
        there is anything to cash out. */
       const lightningSummaryRoom = lightningRoomRef.current;
       const lightningLeave = await resolveLightningLeave();
+      if (finalChoice && !finalChoice.current()) return;
       if (lightningLeave === 'unreadable') {
         setLeaveAttentionSuppressed(false);
         goToLobbyKeepingSeat(seatCopy(tableState.arenaAsset).couldNotCashOutYet);
@@ -12384,6 +12356,7 @@ function LiveTablePage({
         ? lightningLeave.seatNumber
         : Math.max(tableState.heroSeat, heroSeatRef.current);
       if (!tableId || !userId || liveSeat <= 0 || lightningLeave === null) {
+        finalChoice?.accepted();
         leaveWithoutCashout(liveSeat);
         return;
       }
@@ -12456,8 +12429,9 @@ function LiveTablePage({
       const seatAtLeave = tableState.heroSeat;
       const handStatsAsOf = Date.now();
 
-      // The lobby first (rule above). Everything below completes behind it.
-      showLobbyNow();
+      // A final-hand decision can still require an owed-hands choice at the writer.
+      if (finalChoice && !finalChoice.current()) return;
+      if (!finalChoice) showLobbyNow();
 
       try {
         const leaveTableId = lightningLeave ? lightningLeave.anchorTableId : tableId;
@@ -12469,6 +12443,7 @@ function LiveTablePage({
               {
                 seatNumber: lightningLeave.seatNumber,
                 occupancyId: lightningLeave.occupancyId,
+                poolSessionId: lightningSummaryRoom!.poolSessionId,
               },
               confirmedHandCount
             )
@@ -12479,6 +12454,12 @@ function LiveTablePage({
               undefined,
               confirmedHandCount
             );
+        if (result.success) finalChoice?.accepted();
+        if (finalChoice && result.needsConfirmation && result.handsRemaining) {
+          setLeaveAttentionSuppressed(false);
+          finalChoice.ask(result.handsRemaining);
+          return;
+        }
         if (result.success && result.blindOff) {
           // HIT AND RUN: the seat stays, blinded off for the owed hands; the
           // engine cashes it out when they are played. The tab stays too.
@@ -12719,8 +12700,6 @@ function LiveTablePage({
      mid-hand still leaves at the end of that hand (Dan 2026-11-12). It runs
      only once the engine's own snapshot for this page is applied (or the room
      has closed), never off a half-hydrated felt. */
-  const [resumingLightning, setResumingLightning] = useState(false);
-  const resumeLightningBusy = useRef(false);
   const lightningLeaveAfterHand = useLightningLeaveAfterHand({
     userId,
     poolSessionId: lightningRoom?.poolSessionId ?? null,
@@ -12730,59 +12709,71 @@ function LiveTablePage({
         appliedExitSnapshot?.snapshot === engineSnapshot &&
         appliedExitSnapshot.tableId === tableId &&
         appliedExitSnapshot.userId === userId),
-    resuming: resumingLightning,
+    connected: engineWsStatus === 'connected' || lightningRoomClosed,
     roomClosed: lightningRoomClosed,
     waits: lightningHeroInLiveHand,
     leave: () => handleLeaveTable(true),
+    finish: async (confirmed, current) => {
+      let result: number | 'accepted' | 'unknown' = 'unknown';
+      await handleLeaveTable(true, {
+        confirmed,
+        current,
+        ask: (hands) => {
+          result = hands;
+        },
+        accepted: () => {
+          result = 'accepted';
+        },
+      });
+      return result;
+    },
     alreadyLeaving: () => leaveNavigatedRef.current,
-    onError: (error) => reportError(error, 'TablePage.lightning_leave_after_hand'),
-  });
-  const leaveLightningAfterThisHand = async (stop: { inHand: boolean; exited: boolean }) => {
-    if (stop.exited && !stop.inHand) {
-      await handleLeaveTable(true);
-      return;
-    }
-    lightningLeaveAfterHand.queue(stop.inHand && !lightningHeroInLiveHand);
-    if (stop.inHand || lightningHeroInLiveHand) {
-      toast.info('You Will Leave The Table After This Hand. Tap Again To Keep Playing.');
-    }
-  };
-  /* CANCEL (Dan 2026-11-12): tapping "Leaving After Hand" withdraws the stop
-     so the player keeps being dealt in. If the hand already settled and the
-     session ended, the leave stands and finishes. */
-  const cancelLightningLeave = async (): Promise<boolean> => {
-    const room = lightningRoomRef.current;
-    if (!room || resumeLightningBusy.current) return false;
-    resumeLightningBusy.current = true;
-    setResumingLightning(true);
-    let answer;
-    try {
-      answer = await resumeLightningPlaying(room.clusterId);
-    } catch (error) {
-      reportError(error, 'TablePage.lightning_cancel_leave');
-      toast.warning('Could Not Cancel Your Leave. Please Try Again.');
-      return false;
-    } finally {
-      resumeLightningBusy.current = false;
-      setResumingLightning(false);
-    }
-    if (answer?.ok) {
-      lightningLeaveAfterHand.clear();
-      stopLightningForLeave.reset();
-      toast.info('You Will Keep Playing.');
+    onError: (error) => {
+      reportError(error, 'TablePage.lightning_leave_after_hand');
+      toast.warning('Could Not Confirm Your Request. Tap Again To Keep Playing.');
+    },
+    performCommand: async (command) => {
+      const room = lightningRoomRef.current;
+      if (!room) return 'unknown';
+      if (command === 'stopping') {
+        const stop = await stopLightningForLeave.receipt();
+        if (!stop) {
+          toast.warning('Could Not Confirm Your Leave. Tap Again To Keep Playing.');
+          return 'unknown';
+        }
+        if (!stop.ok) {
+          toast.warning('Could Not Queue Your Leave. Please Try Again.');
+          return false;
+        }
+        if (stop.inHand && !lightningHeroInLiveHand) return 'awaiting-hand';
+        return true;
+      }
+      const answer = await resumeLightningPlaying(room.clusterId, room.poolSessionId);
+      if (!answer) return 'unknown';
+      if (answer.ok) {
+        stopLightningForLeave.reset();
+        toast.info('You Will Keep Playing.');
+        return false;
+      }
+      if (answer.reason === 'LEAVE_CONFIRMED') {
+        toast.info('Your Confirmed Leave Is Being Completed.');
+        return false;
+      }
+      if (answer.reason === 'SESSION_CHANGED' || answer.reason === 'NO_SESSION') return false;
+      if (answer.reason === 'EXITED') {
+        toast.info('This Hand Already Ended. You Are Leaving The Table.');
+      } else {
+        toast.warning(
+          answer.reason === 'RG_LIMIT'
+            ? 'Your Play Limits Do Not Allow More Hands Right Now.'
+            : 'Could Not Cancel Your Leave. Please Try Again.'
+        );
+      }
       return true;
-    }
-    if (answer?.reason === 'EXITED') {
-      toast.info('This Hand Already Ended. You Are Leaving The Table.');
-      return false;
-    }
-    toast.warning(
-      answer?.reason === 'RG_LIMIT'
-        ? 'Your Play Limits Do Not Allow More Hands Right Now.'
-        : 'Could Not Cancel Your Leave. Please Try Again.'
-    );
-    return false;
-  };
+    },
+  });
+  const resumingLightning = lightningLeaveAfterHand.busy;
+  const cancelLightningLeave = () => lightningLeaveAfterHand.request('resuming');
 
   // Presentation is keyed by occupancy, independently of the roster exit latch.
   // A roster read can observe leave_pending before the websocket seat_left.
@@ -15092,7 +15083,6 @@ function LiveTablePage({
 
   const [showSettings, setShowSettings] = useState(false);
   const [showShareHand, setShowShareHand] = useState(false);
-  const [showTableMenu, setShowTableMenu] = useState(false);
   /* True while THIS table's bet/raise sizing overlay is open. The overlay is a
      tall fixed panel and the bottom-left HUD corner stands inside its band, so
      the corner is unmounted for as long as it is up rather than merely hidden
@@ -15168,6 +15158,12 @@ function LiveTablePage({
     setShowTournamentLobby(true);
   });
   const [standUpNextBB, setStandUpNextBB] = useState(false);
+  /* The tab bar's Stand Up Next Big Blind badge reads this off the tab. It was
+     never reported, so the row toggled the real setting and showed nothing
+     (2026-11-14). Same route as isAutoRebuyEnabled. */
+  useEffect(() => {
+    onTableInfoUpdate?.({ standUpNextBB });
+  }, [standUpNextBB, onTableInfoUpdate]);
 
   const [sharedHandData, setSharedHandData] = useState<any>(null);
   /* SHARE AS VIDEO (Phase 9.1): the hand_history id behind sharedHandData
@@ -15183,8 +15179,8 @@ function LiveTablePage({
   const [heroProfile, setHeroProfile] = useState<NameableProfile | null>(null);
 
   // Sync settings when changed from other components (like TableMenu)
-  useMasterBusSubscription('TABLE_MENU_ACTION', (event: any) => {
-    if (event.tableId && event.tableId !== tableId) return;
+  useMasterBusSubscription('TABLE_MENU_ACTION', (event) => {
+    if (event.tableId !== tableId) return;
     if (event.action === 'STAND_UP_BB') {
       // STALE CLOSURE. This bus callback is registered once, so `standUpNextBB`
       // inside it is whatever the value was at registration - `!standUpNextBB`
@@ -15207,6 +15203,16 @@ function LiveTablePage({
       const auto = tableStateRef.current;
       if (!seatCanAddFunds(auto.arenaAsset, auto.isTournament) || auto.isTournament) return;
       setIsAutoRebuyEnabled((prev) => !prev);
+    } else if (event.action === 'TOGGLE_STRADDLE') {
+      /* The same guard the row is offered under: the engine refuses a
+         straddle the host has not enabled, and an empty seat has none. */
+      if (!isStraddleAvailable) return;
+      void handleToggleStraddle(!isStraddleEnabled);
+    } else if (event.action === 'CLUB_MARKETPLACE') {
+      masterBus.emit('OPEN_HUB_TAB', {
+        path: hubMarketplaceDestination('', actualClubIdRef.current),
+        requestedBy: userId,
+      });
     } else if (event.action === 'TOGGLE_SOUNDS') {
       /* Fixed 2026-08-28: this wrote 'table_sound_muted' — a key NOTHING
          reads (soundGate documents it as outside the contract) — and emitted
@@ -15237,6 +15243,76 @@ function LiveTablePage({
          menu item could only ever turn haptics ON: tapping "Vibrations" to mute
          them set them to `!false` = true, every time. */
       updateSetting('isHapticEnabled', !isVibrationPreferred());
+    }
+    /* The rows that open or do something, as opposed to the switches above.
+       ONE subscription answers the menu (2026-11-14): there were two, 9,000
+       lines apart with different guards, and a new row had to guess which.
+       tests/the-table-has-one-menu.law.test.ts counts them. */
+    switch (event.action) {
+      case 'SHOW_TOURNAMENT_DOCK':
+        setTournamentDockClosed(false);
+        break;
+      case 'SIT_OUT':
+        void handleSitOut();
+        break;
+      case 'REBUY':
+        /* A SPECTATOR HAS NO SEAT TO TOP UP (audit C2-17). The tab bar offers
+           this item to everyone at the table, and for a spectator the sheet
+           opened only for the engine to answer "Player not seated". The seat's
+           own header control already asked; this asks the same question. */
+        if (tableState.heroSeat <= 0) {
+          toast.info('Take A Seat To Top Up.');
+          break;
+        }
+        /* THE TAB BAR'S TOP UP ITEM WAS DEAD AT A DIAMOND SEAT (2026-09-12).
+           This refused every non-chip asset, and `createDefaultMenuSections`
+           renders the item unconditionally because the tab bar does not know
+           the arena - so a Diamond cash player tapped Top Up and nothing
+           happened at all: no sheet, no refusal, no error. The seat's own
+           control had already learned that a Diamond cash seat HAS a funded
+           top-up writer; this had not. Both read the one rule now. */
+        if (!seatCanAddFunds(tableState.arenaAsset, tableState.isTournament)) break;
+        if (tableState.isTournament) {
+          handleTournamentRebuy();
+        } else {
+          setShowCashier(true);
+        }
+        break;
+      case 'LEADERBOARD':
+        setShowLeaderboard(true);
+        break;
+      case 'SESSION_STATS':
+        setShowSessionStats(true);
+        break;
+      case 'SETTINGS':
+        setShowSettings(true);
+        break;
+      case 'HAND_HISTORY':
+        setShowHandHistory(true);
+        break;
+      case 'HELP':
+        setShowGameRules(true);
+        break;
+      case 'ADD_ON':
+        handleTournamentAddOn();
+        break;
+      case 'LEAVE_TABLE':
+        openLeaveConfirm();
+        break;
+      case 'LEAVE_TABLE_NEXT_HAND':
+        void requestLeaveAtNextHand();
+        break;
+      case 'FORCE_LEAVE_TABLE':
+        handleForceLeaveTable();
+        break;
+      case 'CHANGE_AVATAR':
+        // Open the Hub avatar selector in a new window
+        avatarService.openAvatarSelector();
+        break;
+      case 'TOGGLE_ALIAS':
+        // Instead of hard-toggling, open the new Identity Settings Modal
+        setShowIdentityModal(true);
+        break;
     }
   });
 
@@ -18545,30 +18621,14 @@ function LiveTablePage({
     if (tableState.arenaAsset === 'diamonds') retryAccountBalance();
   });
 
-  // ── Bus Listener: live settings sync (theme, sound, deck changes) ──
-  useMasterBusSubscription('SETTINGS_UPDATED', (payload: any) => {
-    const s = payload?.settings || payload;
-    if (!s) return;
-    // Apply sound preference if changed
-    // MUTE ONLY (2026-09-27). This payload is the Settings page's cached copy,
-    // re-sent on every tab return and theme change, and it goes stale the
-    // moment the player mutes at the table or in the menu (those write the
-    // sound keys, not this cache). So it may only ever turn sound OFF: a stale
-    // `true` here must never un-mute a player. Sound ON from the Settings page
-    // already arrives through useTableSettings (applyGateChanges -> setEnabled).
-    // Off goes through the engine, which also returns the Safari audio session
-    // to "ambient", so a player's music is not left paused.
-    if (s.soundEnabled === false) {
-      soundService.setEnabled(false);
-    }
-    // 2026-08-18: a `deckStyle` branch used to live here writing
-    // STORAGE_KEYS.DECK_STYLE. Nothing ever sent that key and nothing ever read
-    // that storage entry, and its presence made this listener look like the
-    // route by which the settings page reached the table. It was not — the real
-    // route is useTableSettings' SETTINGS_CHANGED subscription, which the
-    // settings page now feeds via updateSettings(). Deck style, card back, pot
-    // odds, animation speed and the rest all arrive that way.
-  });
+  /* NO SETTINGS_UPDATED LISTENER, DELIBERATELY (2026-11-14). The one here read
+     `soundEnabled` out of the Settings page's cached copy, which the account
+     sync and the theme mirror re-send and which goes stale the moment a player
+     changes sound at the table. It could un-mute (fixed 2026-09-27) and then
+     re-mute (narrowed earlier on 2026-11-14) a player against their own
+     choice. The Settings page reaches the table through useTableSettings
+     (updateSettings -> applyGateChanges), in both directions, so this route
+     carried nothing that one does not. Nothing at the table reads that cache. */
 
   // ── Bus Listeners: Phase 8 — Action Rejection + Timer Events ──
   useMasterBusSubscription('ACTION_REJECTED', (payload: any) => {
@@ -27188,6 +27248,7 @@ function LiveTablePage({
 
   const finalLightningDeal = useLightningFinalDeal({
     userId,
+    poolSessionId: lightningRoom?.poolSessionId,
     anchor: lightningRoom
       ? verifiedLightningAnchor?.room === lightningRoom.poolSessionId
         ? verifiedLightningAnchor
@@ -27216,21 +27277,26 @@ function LiveTablePage({
         if (!(await leaveNextHand.requestLeaveNextHand())) throw new Error('Leave unconfirmed');
         return;
       }
-      const stop = await stopLightningForLeave.receipt();
-      if (!stop?.ok) throw new Error('Lightning stop unconfirmed');
-      await leaveLightningAfterThisHand(stop);
+      lightningLeaveAfterHand.request('stopping');
     },
     onError: () => toast.warning('Could Not Confirm Your Leave. Please Try Again.'),
   });
+  /* The tab bar's Leave Table Next Hand row shows ON while a leave is queued.
+     It could not: nothing told the tab (2026-11-14). */
+  const leaveNextHandQueued =
+    finalLightningDeal.queued || lightningLeaveAfterHand.queued || leaveNextHand.queued;
+  useEffect(() => {
+    onTableInfoUpdate?.({ leaveNextHandQueued });
+  }, [leaveNextHandQueued, onTableInfoUpdate]);
   const requestLeaveAtNextHand = async () => {
     if (lightningRoom || lightningCapableClusterId) {
-      if (finalLightningDeal.pending || leaveNextHand.pending || resumeLightningBusy.current)
+      if (finalLightningDeal.pending || leaveNextHand.pending || lightningLeaveAfterHand.busy)
         return;
-      if (finalLightningDeal.queued) {
+      if (lightningLeaveAfterHand.queued) cancelLightningLeave();
+      else if (finalLightningDeal.queued) {
         finalLightningDeal.cancel();
         toast.info('You Will Keep Playing.');
-      } else if (lightningLeaveAfterHand.queued) await cancelLightningLeave();
-      else if (leaveNextHand.queued && tableId) {
+      } else if (leaveNextHand.queued && tableId) {
         await leaveNextHand.resumeQueuedLeave(handleSitBackIn);
         const error = leaveNextHand.getError();
         if (error) toast.warning(error);
@@ -27845,6 +27911,7 @@ function LiveTablePage({
         ? lightningAnchorFunding.funded
         : undefined,
     follow: (poolSessionId) => {
+      finalLightningDeal.followIntoRoom(poolSessionId);
       if (embeddedTableId) {
         onTableInfoUpdate?.({ movedToTableId: poolSessionId });
         return;
@@ -28732,278 +28799,12 @@ function LiveTablePage({
              child is `pointer-events: auto`, and a wrapper as wide as its
              widest child becomes an invisible slab over the seats below it. */
           <div className="hud-ul-column hud-ul-column--stack">
-            {embeddedTableId ? null : (
-              <div className="hud-ul-column">
-                <TableMenu
-                  isOpen={showTableMenu}
-                  seatChangeEnabled={seatChangeEnabled}
-                  onClose={() => setShowTableMenu(false)}
-                  onToggle={() => setShowTableMenu((prev) => !prev)}
-                  position="top-left"
-                  sections={[
-                    {
-                      title: 'Quick Actions',
-                      actions: [
-                        {
-                          id: 'sitout',
-                          label: 'Sit Out',
-                          icon: <SitOutIcon />,
-                          onClick: () => void handleSitOut(),
-                        },
-                        {
-                          id: 'leave-next-hand',
-                          label:
-                            (lightningRoom || lightningCapableClusterId) &&
-                            (finalLightningDeal.queued ||
-                              lightningLeaveAfterHand.queued ||
-                              leaveNextHand.queued)
-                              ? finalLightningDeal.queued && !finalLightningDeal.pending
-                                ? 'Playing One More Hand'
-                                : 'Leaving After This Hand'
-                              : 'Leave Table Next Hand',
-                          icon: <LeaveTableIcon />,
-                          badge:
-                            finalLightningDeal.queued ||
-                            lightningLeaveAfterHand.queued ||
-                            leaveNextHand.queued
-                              ? 'ON'
-                              : undefined,
-                          disabled:
-                            finalLightningDeal.pending ||
-                            leaveNextHand.pending ||
-                            resumingLightning,
-                          onClick: () => void requestLeaveAtNextHand(),
-                        },
-                        {
-                          id: 'standup-bb',
-                          label: 'Stand Up Next Big Blind',
-                          icon: <SitOutIcon />,
-                          badge: standUpNextBB ? 'ON' : undefined,
-                          onClick: () => setStandUpNextBB(!standUpNextBB),
-                        },
-                        /* STRADDLE LIVES HERE NOW (2026-09-15). `StraddleToggle`
-                         was rendered only inside the old side menu, and that
-                         menu had lost its opener - the only reference to
-                         `toggleSideMenu` was the overlay's own close handler -
-                         so switching straddling on has been unreachable for as
-                         long as that was true. The control is the menu the
-                         player can actually open, on the same shape as Stand Up
-                         beside it, calling the same `handleToggleStraddle`.
-                         Only offered when the host enabled straddles: the
-                         engine refuses the toggle outright otherwise. */
-                        ...(isStraddleAvailable
-                          ? [
-                              {
-                                id: 'straddle',
-                                label: 'Straddle',
-                                icon: <AddOnIcon />,
-                                badge: isStraddleEnabled ? 'ON' : undefined,
-                                disabled: straddleBusy,
-                                onClick: () => void handleToggleStraddle(!isStraddleEnabled),
-                              },
-                            ]
-                          : []),
-                        /* A Diamond cash seat tops up; a Diamond tournament does
-                         not, because tournament funding is a later phase and
-                         the custody door refuses a tournament table outright.
-                         Offering the control there would promise a seat
-                         something no writer can give it. */
-                        /* Never to a spectator (audit C2-17): there is no seat to
-                         top up, and the engine refuses one that is not seated. */
-                        ...(tableState.arenaAsset === 'diamonds'
-                          ? !canTopUpSeat || tableState.heroSeat <= 0
-                            ? []
-                            : [
-                                {
-                                  id: 'rebuy',
-                                  label: 'Top Up',
-                                  icon: <RebuyIcon />,
-                                  onClick: () => setShowCashier(true),
-                                },
-                              ]
-                          : tableState.arenaAsset !== 'chips'
-                            ? []
-                            : tableState.isTournament
-                              ? [
-                                  {
-                                    id: 'rebuy',
-                                    label: 'Rebuy',
-                                    icon: <RebuyIcon />,
-                                    onClick: handleTournamentRebuy,
-                                  },
-                                  {
-                                    id: 'addon',
-                                    label: 'Add-On',
-                                    icon: <AddOnIcon />,
-                                    onClick: handleTournamentAddOn,
-                                  },
-                                ]
-                              : tableState.heroSeat > 0
-                                ? [
-                                    {
-                                      id: 'rebuy',
-                                      label: 'Top Up',
-                                      icon: <RebuyIcon />,
-                                      onClick: () => setShowCashier(true),
-                                    },
-                                  ]
-                                : []),
-                        ...(canTopUpSeat && !tableState.isTournament
-                          ? [
-                              {
-                                id: 'auto-top-up',
-                                label: 'Auto Top Up',
-                                icon: <RebuyIcon />,
-                                badge: isAutoRebuyEnabled ? 'ON' : undefined,
-                                onClick: () => setIsAutoRebuyEnabled(!isAutoRebuyEnabled),
-                              },
-                            ]
-                          : []),
-                        {
-                          id: 'marketplace',
-                          label: 'Club Marketplace',
-                          icon: <SettingsIcon />,
-                          // Dan 2026-09-04: a hub tab beside this table, not a
-                          // separate browser tab the felt cannot see (the
-                          // strip, the swipe and every other table stay put).
-                          //
-                          // 2026-09-21: the exact Hub page, not the alias. The
-                          // menu said '/hub/marketplace', which 308s to
-                          // /hub/diamond-store inside the frame - so the tab's
-                          // own address no longer matched what opened it, and
-                          // pressing the item again opened a SECOND tab (or hit
-                          // the cap) instead of focusing the one already there.
-                          // It also names this table's club, so "Club
-                          // Marketplace" opens that club's shop.
-                          onClick: () =>
-                            masterBus.emit('OPEN_HUB_TAB', {
-                              path: hubMarketplaceDestination('', actualClubIdRef.current),
-                              requestedBy: userId,
-                            }),
-                        },
-                      ],
-                    },
-                    {
-                      title: 'Table Info',
-                      actions: [
-                        {
-                          id: 'history',
-                          label: 'Hand History',
-                          icon: <HandHistoryIcon />,
-                          onClick: () => setShowHandHistory(true),
-                        },
-                        {
-                          id: 'leaderboard',
-                          label: 'Leaderboard',
-                          icon: <LeaderboardIcon />,
-                          onClick: () => setShowLeaderboard(true),
-                        },
-                        ...(!tableState.isTournament
-                          ? [
-                              {
-                                id: 'session-stats',
-                                label: 'Session Stats',
-                                icon: <SessionStatsIcon />,
-                                onClick: () => setShowSessionStats(true),
-                              },
-                            ]
-                          : []),
-                        // Bible V8 §11.1 — Settings accessible from BOTH table HUD menu AND hamburger menu
-                        {
-                          id: 'sounds',
-                          label: 'Sounds',
-                          icon: <SettingsIcon />,
-                          badge: isSoundEnabled ? 'ON' : 'OFF',
-                          onClick: () => setIsSoundEnabled(!isSoundEnabled),
-                        },
-                        {
-                          id: 'vibrations',
-                          label: 'Vibrations',
-                          icon: <SettingsIcon />,
-                          badge: isVibrationEnabled ? 'ON' : 'OFF',
-                          onClick: () => setIsVibrationEnabled(!isVibrationEnabled),
-                        },
-                        {
-                          id: 'settings',
-                          label: 'Table Settings',
-                          icon: <HelpIcon />,
-                          onClick: () => setShowSettings(true),
-                        },
-                      ],
-                    },
-                    {
-                      title: 'Support',
-                      actions: [
-                        {
-                          id: 'help',
-                          label: 'Help & Rules',
-                          icon: <HelpIcon />,
-                          onClick: () => setShowGameRules(true),
-                        },
-                      ],
-                    },
-                    {
-                      actions: [
-                        {
-                          id: 'leave',
-                          label: 'Leave Table',
-                          icon: <LeaveTableIcon />,
-                          onClick: () => openLeaveConfirm(),
-                          danger: true,
-                        },
-                      ],
-                    },
-                  ]}
-                  tableName={tableState.tableName}
-                  handNumber={tableState.handNumber}
-                  // 2026-08-22: the indicator used to mirror the LEGACY Supabase
-                  // channel (presence/chat) while the game rides the engine WS —
-                  // a dead engine socket showed a green dot and a Supabase blip
-                  // showed red on a healthy game. Report the transport that
-                  // actually carries the game.
-                  connectionStatus={
-                    engineWsStatus === 'connected'
-                      ? 'connected'
-                      : engineWsStatus === 'connecting' || engineWsStatus === 'reconnecting'
-                        ? 'reconnecting'
-                        : 'disconnected'
-                  }
-                />
-                {/* Dan 2026-08-15 — this "+" is ADD TABLE, not Add Chips.
-                It used to open CashierModal, which duplicated the wallet entry
-                already on the table menu and left no way to start a second
-                game without abandoning the current one.
-                It now asks MultiTablePage to open a LOBBY tab beside the
-                running table: the current game keeps dealing in its own tab on
-                its own live engine socket, and picking a cash game or
-                tournament from that lobby converts the lobby tab into the new
-                table tab in place. Add Chips lives on in the table menu.
-
-                2026-08-23 — this was labelled "Open another table", which is
-                the tab bar's "+" verbatim: two buttons, one accessible name,
-                two different actions (that one opens the Quick Join sheet,
-                this one opens a lobby tab). A screen reader announced them
-                identically and a getByLabel query matched both, so Playwright
-                resolved two elements and silently drove whichever came first
-                in the DOM. Named for what it does. */}
-                <button
-                  className="add-chips-icon-btn"
-                  onClick={() => {
-                    soundService.playButtonClick();
-                    masterBus.emit('OPEN_LOBBY_TAB', { requestedBy: userId });
-                  }}
-                  title="Open The Lobby In A New Tab"
-                  aria-label="Open The Lobby In A New Tab"
-                >
-                  <img
-                    src={addScreenIcon}
-                    className="add-chips-icon-btn__img"
-                    alt=""
-                    draggable={false}
-                  />
-                </button>
-              </div>
-            )}
+            {/* THE HAMBURGER IS THE TAB BAR'S (2026-11-14). A second TableMenu
+                stood here behind `embeddedTableId ? null :`, and every table
+                is drawn embedded, so it was never on screen. Rows added to it
+                (Straddle on 2026-09-15, Club Marketplace) reached nobody. One
+                menu: TableTabBar's, fed by what this page reports for its tab.
+                tests/the-table-has-one-menu.law.test.ts keeps it that way. */}
             {lightningRoom && !lightningRoomClosed && userId && userId !== 'guest' ? (
               <LightningLeaveControl
                 key={`${lightningRoom.poolSessionId}/${userId}`}
@@ -32542,12 +32343,20 @@ function LiveTablePage({
       />
       {/* HIT AND RUN (owner 2026-11-06): the full-screen leave confirmation. */}
       <HitRunLeaveConfirm
-        handsRemaining={hitRunConfirmHands}
+        handsRemaining={lightningLeaveAfterHand.owed ?? hitRunConfirmHands}
         onStay={() => {
+          if (lightningLeaveAfterHand.owed) {
+            lightningLeaveAfterHand.decide(false);
+            return;
+          }
           setHitRunConfirmHands(null);
           hitRunConfirmFromTabRef.current = false;
         }}
         onLeave={async () => {
+          if (lightningLeaveAfterHand.owed) {
+            lightningLeaveAfterHand.decide(true);
+            return;
+          }
           setHitRunConfirmHands(null);
           hitRunConfirmFromTabRef.current = false;
           hitRunConfirmedRef.current = true;
@@ -32847,6 +32656,8 @@ function LiveTablePage({
           const stillCurrent = () =>
             buyInScopeRef.current === scope && buyInOperationRef.current === operation;
           let buyInCommitted = false;
+          // False until this click has a saved request and is about to send it.
+          let buyInRequestStarted = false;
           try {
             if (!userId || userId === 'guest' || !tableId || !selectedSeat) {
               toast.error('Unable To Verify Your Table And Seat.');
@@ -32894,6 +32705,7 @@ function LiveTablePage({
               toast.warning('Review Your Original Buy-In Before Retrying.');
               return false;
             }
+            buyInRequestStarted = true;
             const outcome = await executeCashBuyIn(attempt, recovered, undefined, stillCurrent);
             if (outcome.kind !== 'unknown') {
               // Cleanup failure leaves a safely replayable receipt, never a new
@@ -32933,7 +32745,8 @@ function LiveTablePage({
               /* No seat was bought: there is no room for this tab to follow. */
               if (anchorLightningClusterId) clearLightningEntryIntent(tableId);
               const message =
-                cashBuyInRefusalText(outcome.error) ?? 'The Server Refused This Buy-In.';
+                cashBuyInRefusalText(outcome.error, { leftWith: cashoutMinBuyIn }) ??
+                'The Server Refused This Buy-In.';
               if (
                 /^SEAT_RESERVED:/.test(
                   String(
@@ -33041,6 +32854,15 @@ function LiveTablePage({
             if (buyInCommitted) {
               toast.warning('Buy-In Confirmed. Your Table Display Is Catching Up.');
               setShowBuyInModal(false);
+            } else if (!buyInRequestStarted && isCashBuyInStorageFailure(error)) {
+              /* The request could not be saved on this device, so this click
+                 sent nothing (2026-11-14). Say that. "Unable To Confirm Your
+                 Buy-In" told a player whose phone was slow to save that a
+                 purchase was in doubt, when no purchase had been attempted. */
+              if (anchorLightningClusterId && tableId) clearLightningEntryIntent(tableId);
+              toast.error(
+                'This Device Could Not Save Your Buy-In Request. Nothing Was Sent. Please Try Again.'
+              );
             } else {
               toast.error(
                 cashBuyInPendingRef.current

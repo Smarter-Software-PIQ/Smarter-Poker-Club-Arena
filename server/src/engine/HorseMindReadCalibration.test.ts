@@ -205,6 +205,7 @@ describe('HorseDecideOpts wiring', () => {
       readScopedShrink: true,
       omahaEvFoldModel: true,
       omahaNeutralUnknown: true,
+      fixedLimitOmahaNoPresumption: true,
       mind: false,
     });
     expect(HorseMind.currentDecisionReadOptions()).toEqual({
@@ -214,6 +215,7 @@ describe('HorseDecideOpts wiring', () => {
       scopedShrink: true,
       omahaEvFoldModel: true,
       omahaNeutralUnknown: true,
+      fixedLimitOmahaNoPresumption: true,
     });
     HorseMind.setDecisionScope(null);
     HorseLogic.prepareOriginalReads(players[0] as never, gameState, {
@@ -229,12 +231,14 @@ describe('HorseDecideOpts wiring', () => {
       scopedShrink: false,
       omahaEvFoldModel: false,
       omahaNeutralUnknown: false,
+      fixedLimitOmahaNoPresumption: false,
     });
     HorseMind.setDecisionScope(null);
     expect(HorseMind.currentDecisionReadOptions()).toEqual({});
     HorseLogic.prepareOriginalReads(players[0] as never, gameState, { mind: false });
     // omahaEvFoldModel is default ON (2026-11-08); the others default off,
-    // omahaNeutralUnknown included (2026-11-13).
+    // omahaNeutralUnknown included (2026-11-13), and fixedLimitOmahaNoPresumption
+    // (2026-11-14, Fixed-Limit lane).
     expect(HorseMind.currentDecisionReadOptions()).toEqual({
       postflopFoldRate: false,
       shrinkResponseReads: false,
@@ -242,6 +246,7 @@ describe('HorseDecideOpts wiring', () => {
       scopedShrink: false,
       omahaEvFoldModel: true,
       omahaNeutralUnknown: false,
+      fixedLimitOmahaNoPresumption: false,
     });
   });
 });

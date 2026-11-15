@@ -1,4 +1,5 @@
 import { useCashRakePolicyVersion } from '../hooks/useCashRakePolicyVersion';
+import { writeClipboard } from '../lib/share';
 /**
  *  CLUB SETTINGS PAGE — Club Configuration
  */
@@ -23,7 +24,8 @@ import { sanitizeInput } from '../utils/sanitizeInput';
 import PageSkeleton from '../components/common/PageSkeleton';
 import AuditLog from '../components/admin/AuditLog';
 import { StatsExport } from '../components/admin/StatsExport';
-import { resolveClubIdFilter, resolveClubUUID } from '../utils/clubIdResolver';
+import { resolveClubUUID } from '../utils/clubIdResolver';
+import { resolveClubLookupFilter } from '../utils/strictClubIdResolver';
 import { useVisibilityRefresh } from '../hooks/useVisibilityRefresh';
 import { useIsMounted } from '../hooks/useIsMounted';
 import '../components/common/ButtonSpinner.css';
@@ -108,7 +110,7 @@ export default function ClubSettingsPage() {
      (Dan 2026-10-16, src/lib/referralId.ts). */
   const [playerNumber, setPlayerNumber] = useState<string | null>(null);
   const cashPolicyVersion = useCashRakePolicyVersion();
-  const cashPolicyReady = cashPolicyVersion === 1;
+  const cashPolicyReady = cashPolicyVersion !== null && cashPolicyVersion !== 0;
   const [inUnion, setInUnion] = useState<boolean>(false);
   const [clubNumericId, setClubNumericId] = useState<number | null>(null);
   const [resolvedClubIdentity, setResolvedClubIdentity] = useState<{
@@ -743,7 +745,7 @@ export default function ClubSettingsPage() {
     // tear the rendered form down to a skeleton.
     if (!opts?.silent && (!getIsMounted || getIsMounted())) setLoading(true);
     try {
-      const { column: clubCol, value: clubVal } = resolveClubIdFilter(clubId!);
+      const { column: clubCol, value: clubVal } = await resolveClubLookupFilter(clubId!);
       const data = await retryFetch(
         () =>
           supabase
@@ -1139,7 +1141,7 @@ export default function ClubSettingsPage() {
   const copyClubCode = async () => {
     if (clubCode == null) return;
     try {
-      await navigator.clipboard.writeText(String(clubCode));
+      await writeClipboard(String(clubCode));
       toast.success('Club code copied');
     } catch {
       toast.error('Could not copy - code is ' + String(clubCode));
@@ -1455,7 +1457,7 @@ export default function ClubSettingsPage() {
                     ? shortInvite.url
                     : `${publicOrigin()}/hub/club-arena/invite/${clubId}?ref=${playerNumber}`;
                 try {
-                  await navigator.clipboard.writeText(url);
+                  await writeClipboard(url);
                   if (activeSettingsScopeRef.current === ownerScope && isMountedRef.current)
                     toast.success('Invite Link Copied To Clipboard!');
                 } catch (error) {

@@ -138,18 +138,37 @@ export async function certifyMobileLiveTableLayout(
     const toggle = page.getByRole('menuitemcheckbox', { name: /Seat Change/ });
     await expect(toggle).toHaveAttribute('aria-checked', 'true');
     await toggle.click();
-    await expect(page.locator('.cch-seat-change-control:visible')).toHaveCount(0);
-    await menu.click();
+    /* A SWITCH LEAVES THE MENU OPEN (2026-11-14, #10924). This used to press
+       the hamburger again after every switch, because every row closed the
+       menu. With the menu still open that second press CLOSED it, and the
+       read of the switch below found nothing. The switch is read where the
+       player now sees it change: in the open menu. */
     await expect(toggle).toHaveAttribute('aria-checked', 'false');
+    await expect(page.locator('.cch-seat-change-control:visible')).toHaveCount(0);
     await toggle.click();
-    await menu.click();
     await expect(toggle).toHaveAttribute('aria-checked', 'true');
+    /* THE SOUNDS SWITCH ANSWERS THE PRESS, AT A REAL TABLE (owner report
+       2026-11-14: "THE SOUNDS BUTTON ... SILENTLY FAIL"). Flipped and flipped
+       back, so the account leaves with the preference it arrived with. */
+    const sounds = page.getByRole('menuitemcheckbox', { name: /^Sounds/ });
+    const soundWas = (await sounds.getAttribute('aria-checked')) === 'true';
+    await sounds.click();
+    await expect(sounds).toHaveAttribute('aria-checked', String(!soundWas));
+    await sounds.click();
+    await expect(sounds).toHaveAttribute('aria-checked', String(soundWas));
     await attachMobileProof(
       testInfo,
       `${proofTag}-seat-change-toggle`,
       await page.screenshot(),
       'image/png'
     );
+    /* And a row that opens something closes the menu and opens it. */
+    await page.getByRole('menuitem', { name: 'Game Rules', exact: true }).click();
+    await expect(page.getByRole('menu')).toHaveCount(0);
+    const closeRules = page.getByRole('button', { name: 'Close Table Rules', exact: true });
+    await expect(closeRules).toBeVisible();
+    await closeRules.click();
+    await expect(closeRules).toHaveCount(0);
     await page.keyboard.press('Escape');
   } catch (error) {
     proofFailure = { error };

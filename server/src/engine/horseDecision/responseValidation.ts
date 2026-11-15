@@ -34,6 +34,12 @@ import {
   ploPairedBoardRiverMustCheck,
 } from '../HorsePloPairedBoardFold.js';
 import { callLargeRiverBoatWager } from '../HorseOmahaBigBetCalls.js';
+import {
+  OMAHA_RIVER_NUT_RAISE_VARIANTS,
+  omahaRiverNutRaiseOnly,
+} from '../HorseOmahaRiverNutRaise.js';
+import { omahaBeatenMustCheck, omahaBeatenNoRaise } from '../HorseOmahaMadeHandDefense.js';
+import { omahaOnePairDiscipline } from '../HorseOmahaOnePair.js';
 import { shortAllInSpot } from '../HorseShortAllInCallFloor.js';
 import { holdemFourBetSpot } from '../HorseHoldemPremiumAggression.js';
 import { tournamentShoveDiscipline } from '../HorseTournamentShoveDiscipline.js';
@@ -972,6 +978,56 @@ function boatRuleProducesCall(
   return result.action === 'call' && result.amount === after.amount;
 }
 
+// Dan 2026-11-14 (HorseOmahaRiverNutRaise): a PLO4/PLO5/PLO6 high river raise
+// or jam over a wager without the nuts becomes a call of that wager.
+// Recompute the rule's exact output from the original worker request.
+function riverNutRuleProducesCall(
+  before: HorsePolicyAction,
+  after: HorsePolicyAction,
+  context: HorseDecisionReceiptContext
+): boolean {
+  const start = { action: before.action, amount: before.amount ?? undefined, thinkTime: 0 };
+  const river = omahaRiverNutRaiseOnly(start, context.player, context.gameState, true);
+  // Dan 2026-11-14 (HorseOmahaMadeHandDefense rule 1): the turn half, a hand
+  // a possible straight or flush beats. The two rules never share a street.
+  const result =
+    river.changed !== null
+      ? river
+      : omahaBeatenNoRaise(start, context.player, context.gameState, true);
+  return (
+    result.changed === 'flatted' &&
+    result.decision.action === 'call' &&
+    result.decision.amount === after.amount
+  );
+}
+
+// Dan 2026-11-14 (HorseOmahaOnePair, option omahaOnePairDiscipline): a
+// PLO4/PLO5 one-pair river value bet becomes a check, and a one-pair raise
+// becomes a call. Re-run the rule on the original worker request; the
+// declared-bluff and over-bluffer exceptions only keep chips in, so the rule
+// is re-run without them (no bluff declared, every bettor read as an
+// over-bluffer, which leaves the river call standing).
+function onePairRuleProduces(
+  before: HorsePolicyAction,
+  after: HorsePolicyAction,
+  context: HorseDecisionReceiptContext
+): boolean {
+  const start = { action: before.action, amount: before.amount ?? undefined, thinkTime: 0 };
+  const result = omahaOnePairDiscipline(start, context.player, context.gameState, true, {
+    declaredBluff: false,
+    bettorOverBluffs: () => true,
+  });
+  if (result.changed === null) return false;
+  if (after.action === 'check')
+    return result.changed === 'river_value_bet_checked' && result.decision.action === 'check';
+  return (
+    (result.changed === 'river_value_raise_flatted' ||
+      result.changed === 'one_pair_raise_flatted') &&
+    result.decision.action === 'call' &&
+    result.decision.amount === after.amount
+  );
+}
+
 function policyGraphIsValid(
   value: RecordValue,
   expectedVariant?: string,
@@ -1100,14 +1156,56 @@ function policyGraphIsValid(
           toCall: context.gameState.toCall,
           actionHistory: context.gameState.actionHistory,
         }));
+    // Like the boat rule below, it is admitted only with the request: the
+    // rule is re-run on it and must make the same call.
+    const omahaRiverNutRaiseToCall =
+      transition.node === 'wager_rules' &&
+      OMAHA_RIVER_NUT_RAISE_VARIANTS.has(variant) &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      ['raise', 'all_in'].includes(previous.action) &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      riverNutRuleProducesCall(previous, transition.after, context);
+    // Dan 2026-11-14 (HorseOmahaMadeHandDefense rule 2): a bet with a hand a
+    // possible straight or flush beats becomes a check on the fresh card out
+    // of position, and on the river into an earlier street's bettor. A check
+    // puts no chip in; when the request is known, only where the rule's own
+    // test, re-run on it, says so (the paired-board river check's form).
+    const omahaBeatenBetToCheck =
+      transition.node === 'wager_rules' &&
+      OMAHA_RIVER_NUT_RAISE_VARIANTS.has(variant) &&
+      transition.after.action === 'check' &&
+      previous !== null &&
+      ['bet', 'raise', 'all_in'].includes(previous.action) &&
+      (context === undefined ||
+        (String(context.gameState.gameVariant).toLowerCase() === variant &&
+          omahaBeatenMustCheck(context.player, context.gameState) !== null));
+    // Dan 2026-11-14 (HorseOmahaOnePair): bet -> check and raise -> call,
+    // admitted only with the request, where the rule re-run on it agrees.
+    const omahaOnePairReduction =
+      transition.node === 'wager_rules' &&
+      (variant === 'plo4' || variant === 'plo5') &&
+      (transition.after.action === 'check' || transition.after.action === 'call') &&
+      previous !== null &&
+      ['bet', 'raise', 'all_in'].includes(previous.action) &&
+      // A check puts no chip in: without the request it is admitted like the
+      // paired-board river check; a call needs the request.
+      (context === undefined
+        ? transition.after.action === 'check'
+        : String(context.gameState.gameVariant).toLowerCase() === variant &&
+          onePairRuleProduces(previous, transition.after, context));
     if (
       transition.node === 'wager_rules' &&
       changed &&
       !pairedBoardFold &&
       !pairedBoardRiverCheck &&
+      !omahaBeatenBetToCheck &&
+      !omahaOnePairReduction &&
       !shortAllInCall &&
       !noFourBetFold &&
       !plo6RiverRaiseToCall &&
+      !omahaRiverNutRaiseToCall &&
       !(
         transition.after.action === 'call' &&
         previous !== null &&

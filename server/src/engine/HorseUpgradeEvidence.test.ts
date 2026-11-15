@@ -167,6 +167,38 @@ describe('the per-Horse upgrade aggregate', () => {
     expect(evidence.drainHorseUpgradeEvidence()).toEqual([]);
   });
 
+  it('counts an opportunity counter as an opportunity, never as the upgrade invoked', async () => {
+    const { HORSE_UPGRADE_LIVE_EVIDENCE } = await import('./HorseUpgradeActivationManifest.js');
+    // every opportunity-only needle is one the manifest lists, and its upgrade keeps an invocation needle
+    for (const needle of evidence.PER_HORSE_OPPORTUNITY_ONLY_NEEDLES) {
+      const owner = Object.entries(HORSE_UPGRADE_LIVE_EVIDENCE).find(([, list]) =>
+        list.includes(needle)
+      );
+      expect(owner, needle).toBeDefined();
+      expect(
+        owner![1].some((n) => !evidence.PER_HORSE_OPPORTUNITY_ONLY_NEEDLES.has(n)),
+        needle
+      ).toBe(true);
+    }
+    expect(evidence.upgradeIdsForFires(['upgrade10_fast_window_ready_seen'])).toEqual([]);
+    // the fast window was ready in both decisions; it engaged in one
+    evidence.noteHorseUpgradeDecision(H1, 'nlh', 'cash', ['upgrade10_fast_window_ready_seen']);
+    evidence.noteHorseUpgradeDecision(H1, 'nlh', 'cash', [
+      'upgrade10_fast_window_ready_seen',
+      'upgrade10_fast_window_engaged',
+    ]);
+    evidence.noteHorseUpgradeDecision(H2, 'nlh', 'tournament', ['upgrade10_gear_shift_engaged']);
+    const rows = evidence.drainHorseUpgradeEvidence();
+    expect(cell(rows, H1, 'upgrade_10_fast_recency_gear_shift')).toMatchObject({
+      decisions: 2,
+      invoked: 1,
+    });
+    expect(cell(rows, H2, 'upgrade_10_fast_recency_gear_shift')).toMatchObject({
+      decisions: 1,
+      invoked: 1,
+    });
+  });
+
   it('keeps Horses, variants, lanes and days apart, and normalises variant and mode like the watchcounters', () => {
     evidence.noteHorseUpgradeDecision(H1, 'PLO_5', 'mtt', ['phase7_tournament_utility']);
     evidence.noteHorseUpgradeDecision(H2.toUpperCase(), undefined, undefined, []);

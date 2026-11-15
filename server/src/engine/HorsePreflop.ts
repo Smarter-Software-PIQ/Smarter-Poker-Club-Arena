@@ -1,4 +1,9 @@
 import { noteHorseDeepDiveRule } from './HorseDeepDiveReceipt.js';
+import {
+  lightningParticipationBbDefend,
+  lightningParticipationFirstIn,
+  type LightningParticipationCtx,
+} from './HorseLightningParticipation.js';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  * HORSE PREFLOP V7 — Position-Pair Preflop Mastery (2026-07-24)
@@ -90,7 +95,9 @@ export interface PreflopAuthorityEvent {
     | 'v87_ep_limp_suited_connector'
     | 'v87_ep_limp_reraise_value'
     | 'v87_ep_limp_reraise_bluff'
-    | 'v87_ep_limp_call_iso';
+    | 'v87_ep_limp_call_iso'
+    | 'lightning_participation_first_in'
+    | 'lightning_participation_bb_defend';
   strength: number;
   threeBetThreshold: number;
   effectiveThreeBetThreshold: number;
@@ -141,6 +148,63 @@ export interface PreflopIntent {
     | 'v86_plo_three_bettor_continues';
 }
 
+/** What a facing-a-raise branch reported through PreflopCtx.noteThresholds. */
+export interface PreflopThresholdsSeen {
+  threeBet: number | null;
+  call: number | null;
+  fourBet: number | null;
+  strength: number;
+}
+
+/**
+ * THE PER-DECISION READ RECEIPT (2026-11-15, accepted from the Human-vs-Horse
+ * lane): one bounded, journal-only record for every preflop decision facing a
+ * raise, so a witness can see that an opponent read moved a bar without
+ * replaying the decision with the switch off. `base*` are the bars of the same
+ * decision with the style and maniac reads taken out (a rewound
+ * counterfactual of the same intent engine, no RNG drawn, no telemetry);
+ * the plain fields are the bars the decision used. `consumer` 'maniac_price'
+ * is the maniac raise-width arithmetic (HorseLogic), which decides before any
+ * bar exists: its call threshold is the required equity and strength is the
+ * equity against the maniac's range. Never changes a decision.
+ */
+export interface PreflopReadReceipt {
+  version: 1;
+  consumer: 'range_play' | 'maniac_price';
+  /** Names passed to noteLayer in this decision, then the maniac reads present (at most 16). */
+  layers: readonly string[];
+  strength: number | null;
+  /** The last facing-open authority branch, when one fired. */
+  branch: string | null;
+  baseThreeBetThreshold: number | null;
+  baseCallThreshold: number | null;
+  baseFourBetThreshold: number | null;
+  threeBetThreshold: number | null;
+  callThreshold: number | null;
+  fourBetThreshold: number | null;
+  /** maniac_price only: the raiser's read width. */
+  maniacWidth?: number;
+}
+
+/**
+ * HU-HILO-002 (default OFF, HorseDecideOpts.omahaHiLoTournamentFirstIn): the
+ * shares the pot-limit Omaha hi-lo heads-up tournament arm passes to
+ * omahaTournamentFirstIn. The heads-up shares and the 20 BB ceiling are the
+ * Omaha high ones; every three-handed branch is zero and the table is capped
+ * at two dealt in.
+ */
+export const OMAHA_HILO_TOURNAMENT_FIRST_IN: OmahaTournamentFirstInParams = Object.freeze({
+  headsUpShare: 1,
+  blindVsBlindShare: 0,
+  maxStackBB: 20,
+  winnerTakeAllMaxStackBB: 0,
+  maxTableSize: 2,
+  bigBlindDefendShare: 0.75,
+  bigBlindMaxPrice: 0.5,
+  bigBlindClosingShare: 0,
+  payJumpBlindVsBlindShare: 0,
+});
+
 /** Layers that report through PreflopCtx.noteLayer (receipt only). */
 export type PreflopLayerReceipt =
   | 'v60_cash_pressure_facing_open'
@@ -149,6 +213,7 @@ export type PreflopLayerReceipt =
   | 'v87_deep_dive_discipline'
   | 'bluff_raise_refused_no_fold_equity_seen'
   | 'omaha_tournament_first_in'
+  | 'omaha_hilo_tournament_first_in'
   | 'style_tight_opener_respect_seen'
   | 'style_tight_reraiser_respect_seen';
 
@@ -332,6 +397,8 @@ export interface PreflopCtx {
   vs3BetShortJam?: boolean;
   /** See HorseDecideOpts.omahaCommitZoneThreeBetPriceRelief. Default off. */
   omahaCommitZoneThreeBetPriceRelief?: boolean;
+  /** See HorseLightningParticipation. Absent = the option is off or the hand is outside its predicate. */
+  lightningParticipation?: LightningParticipationCtx;
   /** V77 (2026-11-02): the V70 open width (percent of 1,326 combos) of the
    *  seat that made the ONLY raise hero faces, dealt-census indexed and
    *  ante-aware. Supplied by HorseLogic for no-limit hold'em facing exactly
@@ -486,10 +553,22 @@ export interface PreflopCtx {
   /** Omaha high tournament: the hand's percentile among Omaha hands and,
    *  for league arms only, replacement shares. Undefined = the rule is off. */
   omahaTournamentFirstIn?: { percentile: number; params?: Partial<OmahaTournamentFirstInParams> };
+  /** Pot-limit Omaha hi-lo tournament, heads-up (HU-HILO-002, default OFF):
+   *  the hand's hi-lo percentile and, for league arms only, replacement
+   *  shares. Undefined = the rule is off. */
+  omahaHiLoTournamentFirstIn?: {
+    percentile: number;
+    params?: Partial<OmahaTournamentFirstInParams>;
+  };
   /** Receipt callback (#8694): the caller fires the V60 cash pressure receipt
    *  named here when that layer moves a bar. This module has no telemetry. */
   noteLayer?: (layer: PreflopLayerReceipt) => void;
   noteAuthority?: (event: PreflopAuthorityEvent) => void;
+  /** Receipt only (2026-11-15, LATER LAYERS KEEP THE STYLE READ): the bars a
+   *  facing-a-raise branch decided with, after every opponent-read move.
+   *  Facing one raise: the 3-bet and call bars; facing a 3-bet or more: the
+   *  4-bet and call bars. Never changes the action. */
+  noteThresholds?: (seen: PreflopThresholdsSeen) => void;
   /** Short deck keeps its own calibration; the cash pressure layer skips it. */
   isShortDeck?: boolean;
   /** League calibration arm (2026-10-30): added to the tournament call bar
@@ -1128,6 +1207,57 @@ export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
     );
     if (widened) {
       ctx.noteLayer?.('omaha_tournament_first_in');
+      return widened;
+    }
+  }
+  // ═══ OMAHA HI-LO HEADS-UP TOURNAMENT FIRST-IN (HU-HILO-002, default OFF) ═══
+  // The same commitment-zone fold in pot-limit Omaha hi-lo: heads-up at 20 BB
+  // or less the small blind folds 83-85 percent first in and the big blind
+  // folds 81-91 percent to one raise. #10687 left hi-lo out for want of its
+  // own evaluation. This block applies the same replacement module with the
+  // hand's HI-LO percentile and its own limits (exactly two dealt in; no
+  // three-handed branch), only when the caller switched the option on.
+  if (
+    out.a === 'fold' &&
+    ctx.omahaHiLoTournamentFirstIn !== undefined &&
+    ctx.isOmaha &&
+    ctx.omahaHiLo === true &&
+    ctx.isFixedLimit !== true &&
+    ctx.mode === 'tournament'
+  ) {
+    const widened = omahaTournamentFirstIn(
+      {
+        percentile: ctx.omahaHiLoTournamentFirstIn.percentile,
+        position: ctx.position,
+        liveOpponents: ctx.oppsLeft,
+        tableSize: ctx.tableSize ?? Number.NaN,
+        playersLeft: ctx.tournamentPlayersLeft ?? Number.NaN,
+        paidPlacesLeft: ctx.tournamentPaidPlacesLeft ?? Number.NaN,
+        effectiveStackBB: ctx.effectiveStackBB ?? ctx.stackBB,
+        raises: ctx.raises,
+        limpers: ctx.limpers,
+        callers: ctx.callers,
+        toCall: ctx.toCall,
+        stack: ctx.stack,
+        pot: ctx.pot,
+        riskPremium: ctx.riskAdd,
+        allInOrFold: ctx.allInOrFold === true,
+        satelliteLocked: ctx.satellite?.locked === true,
+      },
+      {
+        ...OMAHA_HILO_TOURNAMENT_FIRST_IN,
+        ...Object.fromEntries(
+          Object.entries(ctx.omahaHiLoTournamentFirstIn.params ?? {}).filter(
+            ([, v]) => v !== undefined
+          )
+        ),
+        // Heads-up only, whatever a league arm passes: the three-handed
+        // branches were never measured for hi-lo.
+        maxTableSize: 2,
+      }
+    );
+    if (widened) {
+      ctx.noteLayer?.('omaha_hilo_tournament_first_in');
       return widened;
     }
   }
@@ -2083,7 +2213,21 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
         const bluffTarget = raiseIsoTo();
         const bluffTargetCoins =
           bluffTarget.a === 'raiseTo' ? (bluffTarget.to ?? Infinity) : Infinity;
-        if (bluffTargetCoins <= effCoins * 0.34) {
+        // LATER LAYERS KEEP THE STYLE READ (2026-11-15): this branch returns
+        // before the opener bars, so the tight-opener respect read
+        // (styleTightReRaiserRespect, set on exploitOpener with maxBarMove only
+        // while that option is on) was never consulted and a 5-high suited
+        // limp re-raised a credibly tight raiser to 16bb. The bluff is not
+        // taken against a raiser that read respects; the hand calls the
+        // iso-raise below. The premium-pair value limp-reraise is above and
+        // unchanged. With the option off the field is absent: unchanged.
+        const respectedTightRaiser =
+          ctx.exploitOpener !== undefined &&
+          !ctx.exploitOpener.wide &&
+          typeof ctx.exploitOpener.maxBarMove === 'number';
+        if (bluffTargetCoins <= effCoins * 0.34 && respectedTightRaiser) {
+          ctx.noteLayer?.('style_tight_opener_respect_seen');
+        } else if (bluffTargetCoins <= effCoins * 0.34) {
           recordLimpIsoAuthority('v87_ep_limp_reraise_bluff', false);
           return bluffTarget;
         }
@@ -2413,7 +2557,23 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
         ? ctx.maniacOpenBar + (position === 'early' ? 0.08 : 0.04)
         : ctx.maniacOpenBar;
     const maniacBarOk = !v87 || nlhManiacFloor === undefined || strength >= nlhManiacFloor;
-    if (openStrength >= openThresh && maniacBarOk) {
+    // LIGHTNING PARTICIPATION (default off): the Omaha first-in cell of this
+    // seat. Absent the option this is the base test, unchanged.
+    const opens = lightningParticipationFirstIn(ctx.lightningParticipation, {
+      isOmaha: ctx.isOmaha === true,
+      position,
+      limpers,
+      straddled,
+      toCall,
+      strength,
+      openThresh,
+      baseOpens: openStrength >= openThresh && maniacBarOk,
+      depthBB: Math.min(stackBB, ctx.effectiveStackBB ?? stackBB),
+      tightness: ctx.tightness,
+      lagBullyIpBehind: ctx.lagBullyIpBehind,
+      noteAuthority: ctx.noteAuthority,
+    });
+    if (opens) {
       // V20 ORANGE ZONE (M 6-10): there is no raise-fold — a standard open
       // is a third of the stack, and folding it to a reshove afterward is
       // the worst line short-stack poker offers. The opening range OPEN-JAMS
@@ -2875,6 +3035,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     }
     threeBetThresh = phase6CapBar(threeBetThresh);
     callThresh = phase6CapBar(callThresh);
+    ctx.noteThresholds?.({ threeBet: threeBetThresh, call: callThresh, fourBet: null, strength });
     const bbDiscount =
       position === 'bb' || (unblocked86 && ctx.heroPriorAction === 'post_straddle_or_kill')
         ? 0.06
@@ -3297,6 +3458,31 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
         return { a: 'call', receipt: 'hu_limp_defends_to_price' };
       }
     }
+    // LIGHTNING PARTICIPATION (default off): where this branch folds, the big
+    // blind's Lightning continue range at this price is asked. Absent the
+    // option the answer is the fold, unchanged.
+    const foldOrLightningDefend = (): PreflopIntent =>
+      lightningParticipationBbDefend(ctx.lightningParticipation, {
+        isOmaha: ctx.isOmaha === true,
+        position,
+        raiserPosition: vs,
+        callers,
+        toCall,
+        pot: pricePot,
+        priceOK,
+        depthBB: v82HandStartBB,
+        strength: def72 ? def72.strength : strength,
+        tightness: ctx.tightness,
+        holdemContinueBar: def72?.continueBar,
+        opponentRead:
+          tightOpener !== undefined ||
+          styleOpenerBarMove > 0 ||
+          (vsOpener != null && !vsOpener.wide && (vsOpener.callBump ?? 0) > 0) ||
+          (pressure !== undefined && !pressureIp),
+        noteAuthority: ctx.noteAuthority,
+      })
+        ? { a: 'call' }
+        : { a: 'fold' };
     if (def72) {
       // V72: the big blind closes the action at the best price of the orbit,
       // so (as the V34 floor below did for the buckets) its defence is its
@@ -3313,7 +3499,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
         );
         if (def72.strength >= bbBar72) return { a: 'call' };
       }
-      return { a: 'fold' };
+      return foldOrLightningDefend();
     }
     /**
      * ═══ V34 (2026-09-02): THE BIG BLIND DEFENDS ITS BLIND ═══════════════
@@ -3357,7 +3543,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       }
       if (strength >= bbFloor) return { a: 'call' };
     }
-    return { a: 'fold' };
+    return foldOrLightningDefend();
   }
 
   // ── Facing a 3-bet or bigger ──
@@ -3480,6 +3666,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       fourBetThresh = phase6CapBar(fourBetThresh + 0.03);
       callThresh = phase6CapBar(callThresh + 0.05);
     }
+    ctx.noteThresholds?.({ threeBet: null, call: callThresh, fourBet: fourBetThresh, strength });
     // ═══ PLO6-AUDIT-004 THE VPIP FLOOR DOES NOT SET THE STACK-OFF BAR ═══
     // (2026-11-12) vpipFloorMul scales `tightness`, and every bar here is a
     // product of it, so on a 50% floor table a seat in its first hands had its
@@ -3597,16 +3784,22 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       toCall < effectiveStack4Bet * 0.65 &&
       ctx.satellite?.locked !== true
     ) {
+      // LATER LAYERS KEEP THE STYLE READ (2026-11-15): against a credibly tight
+      // 3-bettor (styleTightReRaiserRespect on and its read engaged, the same
+      // field that raised the 4-bet and call bars above) the bluff and blocker
+      // reshoves are dropped; the value reshoves are unchanged, and the
+      // tournament utility still runs after this as it does today.
+      const reshoveBluffAllowed = ctx.maniacNoBluff !== true && vsTightReRaiser === undefined;
       if (v87HoleClass !== null) {
         if (
           V87_FOUR_BET_VALUE_SHOVE_CLASSES.has(v87HoleClass) ||
-          (ctx.maniacNoBluff !== true && V87_FOUR_BET_BLUFF_SHOVE_CLASSES.has(v87HoleClass))
+          (reshoveBluffAllowed && V87_FOUR_BET_BLUFF_SHOVE_CLASSES.has(v87HoleClass))
         ) {
           return { a: 'jam' };
         }
       } else if (
         strength >= t(0.76) ||
-        (ctx.maniacNoBluff !== true && ctx.holdsAce === true && strength >= t(0.58))
+        (reshoveBluffAllowed && ctx.holdsAce === true && strength >= t(0.58))
       ) {
         return { a: 'jam' };
       }

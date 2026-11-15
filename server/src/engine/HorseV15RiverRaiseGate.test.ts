@@ -176,9 +176,17 @@ describe('V15 river raise gate: the river has no near-lock', () => {
     expect(raises(acts)).toBeGreaterThan(0);
   });
 
+  // Owner ruling 2026-11-14 (hand 59401453, HorseOmahaRiverNutRaise.ts): only
+  // the nuts raise an Omaha river bet. That later rule stops the same raise,
+  // so the V15 off arm shows its escape only with that rule held off too.
+  const RULE_OFF = { omahaRiverNutRaiseOnly: false };
   it('the explicit off arm restores the river near-lock escape', () => {
-    const { acts } = decideMany(node3374459('4d7sQdKs', BOARD), 60, { v15RiverNoNearLock: false });
+    const off = { v15RiverNoNearLock: false, ...RULE_OFF };
+    const { acts } = decideMany(node3374459('4d7sQdKs', BOARD), 60, off);
     expect(raises(acts)).toBeGreaterThan(0);
+    // With the river nut-raise rule on, the off arm no longer raises either.
+    const guarded = decideMany(node3374459('4d7sQdKs', BOARD), 60, { v15RiverNoNearLock: false });
+    expect(raises(guarded.acts)).toBe(0);
   });
 
   it('the demonstrated cell never raises a pot-sized river wager in PLO5 or PLO6 either', () => {
@@ -188,7 +196,9 @@ describe('V15 river raise gate: the river has no near-lock', () => {
     ] as const) {
       const s = node3374459(hole, BOARD, 'river', variant, 21.8);
       // The off arm raises, so the gate has something to stop.
-      expect(raises(decideMany(s, 40, { v15RiverNoNearLock: false }).acts)).toBeGreaterThan(0);
+      expect(
+        raises(decideMany(s, 40, { v15RiverNoNearLock: false, ...RULE_OFF }).acts)
+      ).toBeGreaterThan(0);
       const { acts } = decideMany(s, 40);
       expect(raises(acts), variant).toBe(0);
       // The gate never answers with a fold of its own; a fold here is a
@@ -248,10 +258,17 @@ describe('V15 river raise gate: the river has no near-lock', () => {
     const off = decideMany(s, 40, { v15RiverNoNearLock: false }).acts;
     expect(on).toEqual(off);
   });
-  it('the excluded classes still raise where they raised before the river rule', () => {
+  it('the V15 gate leaves the excluded classes raising; the river nut-raise rule then decides', () => {
     for (const [name, hole, board, variant, wager] of [EXCLUDED[0], EXCLUDED[4], EXCLUDED[7]]) {
       const s = node3374459(hole, board, 'river', variant, wager);
-      expect(raises(decideMany(s, 40).acts), name).toBeGreaterThan(0);
+      // The V15 gate itself never stopped these raises.
+      expect(raises(decideMany(s, 40, RULE_OFF).acts), name).toBeGreaterThan(0);
+      // Owner ruling 2026-11-14: in Omaha high a nut flush on a paired board
+      // and a non-nut straight are not the nuts and no longer raise a river
+      // bet. Hi-lo is outside that rule and still raises.
+      const now = raises(decideMany(s, 40).acts);
+      if (variant === 'plo8') expect(now, name).toBeGreaterThan(0);
+      else expect(now, name).toBe(0);
     }
   });
 

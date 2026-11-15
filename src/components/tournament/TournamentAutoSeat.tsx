@@ -150,6 +150,8 @@ export default function TournamentAutoSeat() {
     tableId: string;
     name: string;
     chips: number;
+    /** The seat's tournament, so Take My Seat re-points that tournament's tab. */
+    tournamentId: string;
   } | null>(null);
   const checkEpochRef = useRef(0);
   const pendingRef = useRef<Map<string, string>>(new Map()); // tableId -> tournament name
@@ -224,7 +226,7 @@ export default function TournamentAutoSeat() {
             warnedRef.current.add(tableId);
             writeWarned(warnedRef.current);
             const chips = Number(row.stack) || 0;
-            setBlindingOff({ tableId, name, chips });
+            setBlindingOff({ tableId, name, chips, tournamentId: t.tournament_id });
             // The phone half is NOT sent from here any more (#1498,
             // 2026-08-30). It used to call pushNotificationService, whose
             // transport OneSignal's retirement killed on 2026-08-19, so it had
@@ -285,6 +287,10 @@ export default function TournamentAutoSeat() {
         masterBus.emit('TABLE_SEATED', {
           tableId,
           seat: 0,
+          /* A balance move also lands here as a fresh seat. Naming the
+             tournament lets the multi-table layer re-point the chair's tab
+             instead of opening a second one (owner 2026-11-14). */
+          tournamentId: t.tournament_id,
           ...(origin ? { registrationLobbyTabId: origin } : {}),
         });
         // Registration authorizes entering this game, including a seat that
@@ -366,12 +372,16 @@ export default function TournamentAutoSeat() {
               className="tas-go"
               onClick={() => {
                 const id = blindingOff.tableId;
+                const tournamentId = blindingOff.tournamentId;
                 setBlindingOff(null);
                 // Open it as a table tab as well as navigating, so the
                 // multi-table layer knows about it — same hop the auto-seat
                 // path uses.
                 warmTable(id);
-                masterBus.emit('TABLE_SEATED', { tableId: id, seat: 0 });
+                /* ONE TOURNAMENT, ONE CHAIR, ONE TAB (2026-11-14): naming the
+                   tournament lets a chair that was moved since its tab opened
+                   re-point that tab instead of opening a second one. */
+                masterBus.emit('TABLE_SEATED', { tableId: id, seat: 0, tournamentId });
                 navigate(`/table/${id}`);
               }}
             >

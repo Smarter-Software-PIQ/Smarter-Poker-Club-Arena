@@ -638,6 +638,20 @@ export function BuyInModal({
                   Buy-In.
                 </p>
               )}
+              {/* OWNER INSTRUCTION 2026-11-14 (Dan): the sheet says WHY its minimum
+                  is higher. `cashoutRestriction` is set only when the server
+                  answered that the rejoin floor is what raised it, and that
+                  floor is the stack the player left this game with. */}
+              {!recovery && !confirmError && cappedCashoutRestriction > 0 && (
+                <p
+                  role="note"
+                  className="sc-copy sc-copy--center buy-in-modal__rejoin-floor"
+                  data-testid="buy-in-rejoin-floor"
+                >
+                  You Left This Game With {formatAmount(cappedCashoutRestriction, currency)}. Your
+                  Minimum Buy In Is {formatAmount(effectiveMinBuyIn, currency)}.
+                </p>
+              )}
               {confirmError && !recovery && (
                 <p role="alert" className="sc-copy sc-copy--center sc-ink--red buy-in-modal__error">
                   {confirmError}

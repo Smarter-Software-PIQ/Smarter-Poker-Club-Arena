@@ -874,9 +874,59 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V90'
   ),
   flag(
+    'omahaHiLoTournamentFirstIn',
+    '2026-11-14 default OFF (HU-HILO-002): pot-limit Omaha hi-lo tournaments (engine-declared), exactly two dealt in at the final table, 20 BB or less, not All-In-Or-Fold, not a locked satellite seat, not fixed limit: the small blind first in plays every hand as the pot-limit maximum raise and the big blind calls its top 75 percent against one raise at a price of a half or better, replacing only the engine fold, by the hand percentile among Omaha hi-lo hands, narrowed by the tournament risk premium; the Omaha high rule (omahaTournamentFirstIn) with the hi-lo percentile and no three-handed branch; only explicit true or a league arm switches it on',
+    'V90'
+  ),
+  flag(
     'tokenCallPrice',
     '2026-11-12 cash Omaha high committed-call bar: below a price of 0.15 the additive premiums (margin, commitment bar, scare margin, shades) shrink in proportion to the price, and under 0.01 a made hand calls; unchanged at 0.15 or more (PLO6-AUDIT-010, production hand 58750626)',
     'V89'
+  ),
+  flag(
+    'omahaRiverNutRaiseOnly',
+    'Dan 2026-11-14 (hand 59401453): PLO4/PLO5/PLO6 high on one board, a river raise facing a wager stands only with the nuts or an effective-nut hand, every other raise becomes a call; and the PLO4/PLO5 river call of a 0.9-pot+ wager with a set or trips on a straight- or flush-possible board folds (V81 cell trips_set_drawy). Default on; explicit false is the complaint law control',
+    'V94'
+  ),
+  flag(
+    'omahaTurnSetPound',
+    'Dan 2026-11-14 (hand 59401453): an Omaha high set on a turn board where a straight is possible and no flush is possible bets the geometric monster size instead of the V40 half-pot small ball and is not checked back for a fresh straight card. Default on; explicit false is the complaint law control',
+    'V94'
+  ),
+  flag(
+    'omahaBeatenMadeHandDefense',
+    'Dan 2026-11-14 (hands 59414191, 59416584): PLO4/PLO5/PLO6 high on one board, a two pair, set, non-nut straight or non-nut flush that a possible straight or flush beats never raises a turn wager (it calls), checks the turn or river card that made it possible when a player still acts behind, and does not bet the river into a player who bet or raised a street on which it was already possible (HorseOmahaMadeHandDefense.ts). Default OFF (opt-in): its declared evaluation failed (LAG-value PLO4 -23.73, PLO5 -16.17 bb/100)',
+    'V94'
+  ),
+  flag(
+    'omahaBluffCatcherRaiseFold',
+    'Dan 2026-11-14: the PLO4/PLO5 big-bet call discipline also folds a bluff catcher (two pair, set or trips on a straight- or flush-possible board, non-nut straight, non-nut flush) that is raised 0.9 pot or more on the turn or river, or faces a 0.9-pot+ turn bet from a player who also bet or raised the flop, unless the turn redraw pays the price; a measured postflop over-bluffer keeps the call. Default OFF (opt-in): only an explicit true switches it on',
+    'V94'
+  ),
+  flag(
+    'omahaReraisedPotDiscipline',
+    'Owner ruling 2026-11-14 23:49 (re-raised pots): PLO4/PLO5 cash, facing a 4-bet or more preflop a hand without a pair of aces or a premium structure folds unless the committed call pays the price against aces; the postflop half is the separate opt-in omahaReraisedPotStackOffFold (HorseOmahaReraisedPot.ts). Default OFF (opt-in): its declared evaluation failed (PROTOCOL-2 E1, LAG-value PLO5 -11.95 bb/100, z -2.32)',
+    'V94'
+  ),
+  flag(
+    'omahaReraisedPotStackOffFold',
+    'Owner ruling 2026-11-14 23:49 (re-raised pots), postflop half: in a PLO4/PLO5 cash pot raised three or more times preflop, one pair or two pair below top two does not put its stack in unless its equity against aces or top two or better pays the price (HorseOmahaReraisedPot.ts). Default OFF (opt-in): a development probe found the calls it folds positive against Horse holdings; it goes on only after its declared evaluation passes',
+    'V94'
+  ),
+  flag(
+    'omahaReraisedPotStackOffRealistic',
+    '2026-11-15 correction of omahaReraisedPotStackOffFold: in a PLO4/PLO5 cash pot raised three or more times preflop, one pair or two pair below top two does not put its stack in unless its equity against a realistic range (aces or kings, top pair or better, nut flush draw or 8+ straight outs) pays the price; a measured postflop over-bluffer keeps the call (HorseOmahaReraisedPot.ts). Default OFF (opt-in). League card plo4/plo5 _omaha_reraised_pot_stack_off_realistic',
+    'V94'
+  ),
+  flag(
+    'omahaNutClassValueSize',
+    'Dan 2026-11-14: a PLO4/PLO5 high bet or raise with the nuts or an effective-nut hand for the street is the full pot (the pot-limit maximum, the stack when smaller) on the flop, turn and river. Default on by owner order 2026-11-15 00:32 (value unmeasured); explicit false switches it off',
+    'V94'
+  ),
+  flag(
+    'omahaOnePairDiscipline',
+    'Dan 2026-11-14 (hands 59407629, 59430325, 59431232, 59417700, 59426444): PLO4/PLO5 high on one board, no bomb pot: one pair or less never bets or raises the river for value (a river bluff the reference brain declared keeps its wager); a river call of a 0.66-pot+ wager with two pair or less on a straight- or flush-possible board folds unless the bettor is a measured postflop over-bluffer; on the flop and turn one pair with fewer than four nut-class outs does not raise (call when the call is small, fold when it costs more than half the effective stack) and does not call a wager costing more than half the effective stack (HorseOmahaOnePair.ts). Default OFF (opt-in): its declared evaluation failed (Horse-only PLO4 -0.77 bb/100, z -2.30)',
+    'V94'
   ),
   flag(
     'plo6ManiacPriceRefusalToRangePlay',
@@ -887,6 +937,21 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'plo6TopSetNutRealization',
     'opt-in arm, default off (2026-11-14): PLO6 cash, one board, no bomb pot, flop or turn: in the solverless call menu a top set that is the current nuts (board unpaired, no three of a suit, no three ranks in any five-rank window) is priced at full realization instead of the 0.75 out-of-position non-draw discount (PLO6-AUDIT P6-4: five reconstructed top-set folds at a one-third price multiway). Five cases in two days, Horse-only, reconstructed replay, so production never sets it',
     'V93'
+  ),
+  flag(
+    'fixedLimitRiverFullBetRead',
+    "opt-in arm, default off (2026-11-14): fixed limit, river, facing a wager: the wagerer is read as having made a full bet (a raise as a raise) instead of a small no-limit bet, in the range samplers only (HorseFixedLimitWagerRead.ts; SPEC-FL-01). Hold'em contact sampler at its ceiling; Omaha high and hi-lo on a no-low board step the aggressor tier and draw the made-hand stratum exactly; hi-lo heads-up keeps the low half under the weak-high cap. Fixtures and a mechanism only, so production never sets it",
+    'V94'
+  ),
+  flag(
+    'fixedLimitHiLoNutLowRiverBet',
+    'opt-in arm, default off (2026-11-14): fixed-limit hi-lo cash, heads-up, river unbet or checked to hero: the nut low with no high (the river-bluff freeroll) bets every time instead of 55 percent, except into a station with the bare nut low (SPEC-FL-02). Fixtures and a mechanism only, so production never sets it',
+    'V94'
+  ),
+  flag(
+    'fixedLimitRiverOneBetValueRaise',
+    "opt-in arm, default off (2026-11-14): fixed-limit hold'em, river, facing exactly one wager on an uncapped street: the value raise uses the one-bet break-even (0.60 plus the multiway and domination terms), no stack-to-pot adjustment and no raise-frequency draw (SPEC-FL-03). Fixtures and a mechanism only, so production never sets it",
+    'V94'
   ),
   flag(
     'omahaPreflopCallWithActionBehind',
@@ -1170,9 +1235,21 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   receipt(
     'style_value_bettor_not_maniac_seen',
-    'HorseMind.legacyExploit (STYLE READ #2)',
-    'a postflop aggression factor above 2.5 kept neutral respect because the style read says the bettor is value-weighted; occurrence counter (counts reads, not decisions); named *_seen',
+    'HorseMind.legacyExploit and readExploit, HorseLogic maniacCallDown (STYLE READ #2)',
+    "a value-weighted bettor (style read) was not treated as a maniac: a postflop aggression factor above 2.5 kept neutral respect, the newer exploit read's call-down widening was removed (2026-11-15), or the postflop maniac call-down stood aside on his bet (2026-11-15); fired only where that effect applied; occurrence counter (counts reads, not decisions); named *_seen",
     '2026-11-13'
+  ),
+  receipt(
+    'style_tight_respect_fold_kept_from_floor_seen',
+    'HorseLogic.vpipFloorCallDown (STYLE READ #6, later layers keep the style read)',
+    "a preflop fold the tight opener / re-raiser respect produced (its respect-free twin was not a fold) was kept from the VPIP-floor cheap call-down because the horse's own windowed VPIP was not within one hand of its floor; named *_seen",
+    '2026-11-15'
+  ),
+  receipt(
+    'style_fold_bluff_held_by_big_bet_honesty_seen',
+    'HorseLogic.decide V64 river bluff-raise gate (STYLE READ items 3 and #3)',
+    'a river bluff-raise was rolled against a bet the big-bet honesty read calls credibly value, and the fold-bluff multiplier alone would have opened the gate; the gate stayed closed; named *_seen',
+    '2026-11-15'
   ),
   receipt(
     'style_big_bet_honesty_seen',
@@ -1199,6 +1276,54 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     '2026-11-14'
   ),
   receipt(
+    'lightning_participation_eligible',
+    'HorseLightningParticipation via HorseLogic / HorsePreflop (lightningParticipationHoldem, lightningParticipationOmaha; default off)',
+    'a preflop decision with a Lightning participation option on and the hand inside its predicate (Lightning cash NLH / PLO4 / PLO5, four to six dealt, big-blind ante): the opportunity count; zero in Lightning with the option on is an unwired option',
+    '2026-11-15'
+  ),
+  receipt(
+    'lightning_participation_changed',
+    'HorseLightningParticipation via HorseLogic / HorsePreflop (lightningParticipationHoldem, lightningParticipationOmaha; default off)',
+    'a Lightning participation range cell changed the action against the base answer (first-in raise, or a big-blind call by price); the decision carries the cell reason code on its preflop authority trail',
+    '2026-11-15'
+  ),
+  receipt(
+    'lightning_participation_refused_not_lightning_seen',
+    'HorseLightningParticipation via HorseLogic / HorsePreflop (lightningParticipationHoldem, lightningParticipationOmaha; default off)',
+    'option on, hand not in a Lightning public memory domain (Classic tables): the option stayed out; named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
+    'lightning_participation_refused_format_seen',
+    'HorseLightningParticipation via HorseLogic / HorsePreflop (lightningParticipationHoldem, lightningParticipationOmaha; default off)',
+    'option on, Lightning domain but not cash preflop or an all-in-or-fold table: the option stayed out; named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
+    'lightning_participation_refused_variant_seen',
+    'HorseLightningParticipation via HorseLogic / HorsePreflop (lightningParticipationHoldem, lightningParticipationOmaha; default off)',
+    "option on, a variant that is not no-limit hold'em, PLO4 or PLO5: the option stayed out; named *_seen",
+    '2026-11-15'
+  ),
+  receipt(
+    'lightning_participation_refused_dealt_count_seen',
+    'HorseLightningParticipation via HorseLogic / HorsePreflop (lightningParticipationHoldem, lightningParticipationOmaha; default off)',
+    'option on, fewer than four or more than six dealt: the option stayed out; named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
+    'lightning_participation_refused_not_bb_ante_seen',
+    'HorseLightningParticipation via HorseLogic / HorsePreflop (lightningParticipationHoldem, lightningParticipationOmaha; default off)',
+    'option on, no big-blind ante: the option stayed out; named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
+    'lightning_participation_refused_opponent_read_seen',
+    'HorseLightningParticipation via HorseLogic / HorsePreflop (lightningParticipationHoldem, lightningParticipationOmaha; default off)',
+    'a Lightning participation cell stood aside for an opponent read (an observed maniac, a confirmed aggressive player in position behind, a tight-opener respect or wide-opener pressure read); the base answer stood; named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
     'style_tight_opener_respect_seen',
     'HorsePreflop via HorseLogic (STYLE READ #6)',
     'facing one open from a credibly tight opener the 3-bet bar moved up and the call bar rose, bounded; named *_seen',
@@ -1209,6 +1334,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorsePreflop via HorseLogic (STYLE READ #6)',
     'facing a 3-bet or more from a credibly tight re-raiser the 4-bet and call bars rose, bounded; named *_seen',
     '2026-11-13'
+  ),
+  receipt(
+    'style_long_participation_seen',
+    'HorseMind.styleRead (STYLE READ, long participation window)',
+    'a style read took VPIP, PFR or the call share from the 120-hand long participation window (ExploitCounters lHands / lVpip / lPfr, horse_exact_profiles.long_counters) because it held more evidence than the 30-hand window and both leaned low or even; receipt.longWindow names which; counts reads; named *_seen',
+    '2026-11-15'
   ),
   receipt(
     'style_read_released_seen',
@@ -1266,6 +1397,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omahaTightOpponent',
     '2026-11-13 owner order (tight adjustment mandatory): in pot-limit Omaha high cash and ordinary tournament preflop (no hi-lo, bomb pot, multi-board, All-In-Or-Fold or push/fold depth), against a PROVEN tight opponent (15+ decayed hands, the aggressive presumption disproved, a raiser pfr, or rfi on 15+ first-in opportunities, credibly at most half the Horse mean and VPIP not above the mean; a folder VPIP credibly at most 0.6 of the Horse mean; 90% one-sided on the statRead posterior; no wide read; recent raising not back above the raiser bar): a proven tight raiser faced is respected (3-bet bar toward the top 30% of his raises, at most +0.10; call bar +0.04; no bluff 3-bet or squeeze; facing his re-raise 4-bet bar +0.03 and call bar +0.06), and first in from late position or the small blind with every player left to act a proven tight folder the open bar comes down by half the fold-equity surplus over a pot-sized open break-even, at most 0.10 (HorseOmahaTightOpponent). Default OFF. Its declared league evaluation passed on 2026-11-14 (Omaha development tight field, pooled PLO4+PLO5 six-handed +11.48 +/- 0.47 bb/100, Omaha development control +0.05 +/- 0.05, no cell below zero; development fields only); default-on additionally needs docs/HORSE-DECISION-CHANGE-EVIDENCE.md rows 2-5 (input fidelity, per-node value under three ranges, recorded continuation frequencies, production reach), which need recorded production hands.',
     'Omaha tight opponent'
+  ),
+  flag(
+    'omahaTightOpponentSteal',
+    '2026-11-14 owner ruling 17:42 Chicago (Omaha tight requirement stays; a defensible response must be built and evaluated): Omaha high variants in OMAHA_TIGHT_STEAL_VARIANTS (six-card only), the STEAL half of omahaTightOpponent alone (first in from late position or the small blind, every player left to act a PROVEN tight folder: the open bar comes down by half the fold-equity surplus over a pot-sized open break-even, at most 0.10); the respect half is excluded because, measured alone on six-card, it is undecided with a negative cash point estimate. Default OFF (read === true). Evaluation: plo6-audit-01TLQer9Hdf/phase1-play/tight-plo6-league (development persona fields; production reach against people was 0 of 12 six-card records on 2026-11-14). Default-on needs docs/horse-default-on.d/omahaTightOpponentSteal.md with the eight rows.',
+    'Omaha tight steal'
   ),
   flag(
     'readScopedShrink',
@@ -1336,6 +1472,31 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omahaCommitZoneThreeBetPriceRelief',
     '2026-11-14 default OFF: six-card Omaha high in the V25 PLO commitment zone facing a re-raise takes the facing-3-bet price relief max(0, 0.5 - odds) * 1.6 instead of (0.4 - odds) * 1.2; development human field, chips only, paired 200 x 200 PLO6 MTT 40bb: +6.83 +/- 3.78 (seed 20261120) and +7.62 +/- 3.77 (seed 20261130) bb/100; PLO5 and PLO6 100bb cash byte-identical; payout (ICM) not measured, so it stays off; PLO6 tournament-folds study FINDING.md follow-ups A, D, E',
     'PfLeaks'
+  ),
+  flag(
+    'fixedLimitCallIsNotACommitment',
+    '2026-11-14 default OFF: a fixed-limit call is never priced in the committed branch (no stack-to-pot or invested-share term, so no V20 multiway commit bar or stack-off shade); it is priced on its incremental cost plus the remaining action of the street (HorseFixedLimitCallPrice.ts: the chips to call now plus the expected further wagers if a player left to act raises before the cap, at an ASSUMED per-player raise rate of 0.12; a closing call is the bare raked price), as a shade on the equity the V38 river and flop/turn verdicts are handed; diagnostic harness before (L-ADAPTATION-DIAGNOSIS section 3): flo8 six seats, every river fold took the committed branch, required 3.4 x the price; refused by the league (it deals no fixed limit), see UNMEASURABLE_MATCHUPS',
+    'FixedLimitAdaptation'
+  ),
+  flag(
+    'fixedLimitHiLoLowHalfFloor',
+    '2026-11-14 default OFF: on a fixed-limit hi-lo river the V40 weak-high pressure cap never goes below half of the sampled low share (HorseHiLoLowHalf.ts), heads-up and multiway; the share already carries ties, so a quartered low keeps its quarter; measured before (L-ADAPTATION-DIAGNOSIS section 3): flo8 six seats, pair+low and high+low river hands with a low half of 0.46 and 0.59 were capped to 0.10 and 0.13 at a price of 0.05 and folded 66 of 83; refused by the league (it deals no fixed limit), see UNMEASURABLE_MATCHUPS',
+    'FixedLimitAdaptation'
+  ),
+  flag(
+    'fixedLimitOmahaNoPresumption',
+    '2026-11-14 default OFF: on a fixed-limit Omaha decision (flo8) HorseMind.opponentRead does not apply the shared aggressive raise presumption (presumedAggressorRead, a pot-limit policy that prices a pot-sized raise); the opponent own measured read stands; pot-limit Omaha unchanged; measured before (O-TIGHT-FL-DIAGNOSIS): a 21-27 percent flo8 raiser (tight-value script) stayed presumed at 1,000 hands and the Horse opened 159 of 400 first-in buttons against him versus 202 with memory off; refused by the league (it deals no fixed limit), see UNMEASURABLE_MATCHUPS',
+    'FixedLimitAdaptation'
+  ),
+  flag(
+    'lightningParticipationHoldem',
+    "2026-11-15 default OFF: Lightning cash no-limit hold'em only (public memory domain speed lightning, four to six dealt, big-blind ante, not all-in-or-fold): where the facing-one-open branch folds the big blind, nobody else in, the (defender, opener seat) continue width gains up to 10 share points for the price the ante lays (90 points per unit of price under 0.31, none at 50bb or less, all from 85bb) and a hand inside it calls; hold'em opens are untouched (they already scale with the ante); no own-participation input, no floor, not applied where a tight-opener respect read moved the bars; development evidence only (HorseLightningParticipation.ts, paired Lightning harness, seeds 20261114-20261118), so it stays off",
+    'Lightning participation'
+  ),
+  flag(
+    'lightningParticipationOmaha',
+    '2026-11-15 default OFF: Lightning cash PLO4 / PLO5 only (same predicate): first-in raise cells by players still to act (PLO4 20 / 24 / 34 / 42 button / 34 small blind percent of hands, PLO5 20 / 24 / 34 / 40 / 32, +1 point per seat missing from six, x0.9 at 50bb), raise or fold with no new limp, superseding only the raise width PRESUMED of an unread Omaha opponent (an observed maniac or a confirmed aggressive player in position behind keeps the base answer); and where the facing-one-raise branch folds the big blind, a continue range by price (40 / 44 / 50 / 56 percent against an early / middle / late / small-blind raiser at a pot-sized price of 0.33, 120 points per unit of price, -6 per caller capped at 36 multiway, x0.85 at 50bb); 3-bet, 4-bet, stack-off bars, sizing and postflop untouched; no own-participation input; development evidence only, so it stays off',
+    'Lightning participation'
   ),
   flag(
     'facingClosedAllIn',
@@ -1815,6 +1976,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   state('format', 'cash / mtt / sng / spin / hu_sng'),
   state('ante', 'ante per hand'),
   state('bigBlindAnte', 'BB-ante structure'),
+  state(
+    'publicMemoryDomain',
+    'public rules of the hand being played (speed table / lightning, ante kind); the Lightning participation predicate reads speed and nothing else reads it at decision time',
+    'HorseLightningParticipation.lightningParticipationCtx (called by HorseLogic.decide; options lightningParticipationHoldem / lightningParticipationOmaha, default off)'
+  ),
   state('allInOrFold', 'all-in-or-fold table'),
   state('straddleActive', 'a straddle is posted (V18)'),
   state(
@@ -2544,6 +2710,35 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'a PLO6 cash price refused against an observed maniac raiser was handed to the range play instead of being folded',
     'V92'
   ),
+  // HA-10768-1 (2026-11-15): the outcome of each hand-off above, by table
+  // floor and by the FINAL action. With the option off every one was a fold,
+  // so *_continued counts decisions the option changed; *_folded counts
+  // hand-offs that changed nothing (the range play folds too, as it does on
+  // unfloored tables at the recorded node). Occurrence counters, no floor.
+  receipt(
+    'plo6_maniac_price_refusal_floored_continued',
+    'HorseLogic final decision (plo6ManiacPriceRefusalToRangePlay, HA-10768-1)',
+    'on a table with a VPIP floor, a refused maniac price handed to the range play ended as a call, raise or all-in instead of the fold it was before the option',
+    'V92'
+  ),
+  receipt(
+    'plo6_maniac_price_refusal_floored_folded',
+    'HorseLogic final decision (plo6ManiacPriceRefusalToRangePlay, HA-10768-1)',
+    'on a table with a VPIP floor, a refused maniac price handed to the range play still ended as a fold',
+    'V92'
+  ),
+  receipt(
+    'plo6_maniac_price_refusal_unfloored_continued',
+    'HorseLogic final decision (plo6ManiacPriceRefusalToRangePlay, HA-10768-1)',
+    'on a table without a VPIP floor, a refused maniac price handed to the range play ended as a call, raise or all-in instead of the fold it was before the option',
+    'V92'
+  ),
+  receipt(
+    'plo6_maniac_price_refusal_unfloored_folded',
+    'HorseLogic final decision (plo6ManiacPriceRefusalToRangePlay, HA-10768-1)',
+    'on a table without a VPIP floor, a refused maniac price handed to the range play still ended as a fold',
+    'V92'
+  ),
   // PLO6-AUDIT P6-4 (2026-11-14). An occurrence counter for an opt-in arm
   // production never sets: silence is its ordinary state.
   receipt(
@@ -2551,6 +2746,26 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic V38 flop/turn call menu (plo6TopSetNutRealization, PLO6-AUDIT P6-4)',
     'a PLO6 cash top set that is the current nuts was priced at full realization in the flop/turn call menu',
     'V93'
+  ),
+  // Fixed-Limit lane SPEC-FL-01..03 (2026-11-14). Occurrence counters for
+  // opt-in arms production never sets: silence is their ordinary state.
+  receipt(
+    'fixed_limit_river_full_bet_read_seen',
+    'HorseLogic decidePostflop range reads (fixedLimitRiverFullBetRead, SPEC-FL-01)',
+    'a fixed-limit river wagerer was read as having made a full bet (or a raise) for the range samplers',
+    'V94'
+  ),
+  receipt(
+    'hilo_nut_low_freeroll_bet',
+    'HorseLogic baseline river bluff range (fixedLimitHiLoNutLowRiverBet, SPEC-FL-02)',
+    'a fixed-limit hi-lo nut low with no high was sent to bet the heads-up river every time',
+    'V94'
+  ),
+  receipt(
+    'fixed_limit_river_one_bet_value_raise',
+    'HorseLogic value raise (fixedLimitRiverOneBetValueRaise, SPEC-FL-03)',
+    "a fixed-limit hold'em river value raise over one bet was taken at the one-bet break-even without the frequency draw",
+    'V94'
   ),
   receipt(
     'river_bluff_checkraise_evaluated',
@@ -2754,7 +2969,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   receipt(
     'plo_tight_blinds_steal',
-    'HorseLogic (omahaTightOpponent)',
+    'HorseLogic (omahaTightOpponent, omahaTightOpponentSteal)',
     'first in from late position or the small blind with every player left to act a proven tight Omaha folder, the wider steal changed the preflop intent',
     'Omaha tight opponent'
   ),
@@ -3399,6 +3614,126 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'decide_nlh'
   ),
   receipt(
+    'omaha_river_non_nut_raise_flatted',
+    'HorseLogic wager_rules (HorseOmahaRiverNutRaise)',
+    'PLO4/PLO5/PLO6 high river raise or all-in over a wager without the nuts or an effective-nut hand: became a call (the call-discipline folds then judge it)',
+    'V94'
+  ),
+  receipt(
+    'omaha_river_non_nut_raise_fold_restored',
+    'HorseLogic wager_rules (HorseOmahaRiverNutRaise)',
+    'a later policy owner raised a river hand the reference had folded, without the nuts: the fold came back',
+    'V94'
+  ),
+  receipt(
+    'v81_river_set_big_bet_fold',
+    'HorseLogic (V81, river set cell)',
+    'PLO4/PLO5 river call of a 0.9-pot+ wager with a set or trips on a straight- or flush-possible board: folded (counted inside v81_omaha_big_bet_call_fold as well)',
+    'V94'
+  ),
+  receipt(
+    'omaha_one_pair_river_value_bet_checked',
+    'HorseLogic wager_rules (HorseOmahaOnePair)',
+    'a PLO4/PLO5 river bet with one pair or less that the reference brain did not declare a bluff: became a check',
+    'V94'
+  ),
+  receipt(
+    'omaha_one_pair_river_value_raise_flatted',
+    'HorseLogic wager_rules (HorseOmahaOnePair)',
+    'a PLO4/PLO5 river raise over a wager with one pair or less that the reference brain did not declare a bluff: became a call',
+    'V94'
+  ),
+  receipt(
+    'omaha_one_pair_river_beaten_call_folded',
+    'HorseLogic wager_rules (HorseOmahaOnePair)',
+    'a PLO4/PLO5 river call of a 0.66-pot+ wager with two pair or less on a straight- or flush-possible board, the bettor not a measured postflop over-bluffer: folded',
+    'V94'
+  ),
+  receipt(
+    'omaha_one_pair_raise_flatted',
+    'HorseLogic wager_rules (HorseOmahaOnePair)',
+    'a PLO4/PLO5 flop or turn raise with one pair and fewer than four nut-class outs, the call costing no more than half the effective stack: became a call',
+    'V94'
+  ),
+  receipt(
+    'omaha_one_pair_raise_folded',
+    'HorseLogic wager_rules (HorseOmahaOnePair)',
+    'a PLO4/PLO5 flop or turn raise with one pair and fewer than four nut-class outs, the call costing more than half the effective stack: became a fold',
+    'V94'
+  ),
+  receipt(
+    'omaha_one_pair_stack_off_folded',
+    'HorseLogic wager_rules (HorseOmahaOnePair)',
+    'a PLO4/PLO5 flop or turn call costing more than half the effective stack with one pair and fewer than four nut-class outs: folded',
+    'V94'
+  ),
+  receipt(
+    'omaha_turn_beaten_raise_flatted',
+    'HorseLogic wager_rules (HorseOmahaMadeHandDefense)',
+    'PLO4/PLO5/PLO6 high turn raise or all-in over a wager with a made hand a possible straight or flush beats: became a call',
+    'V94'
+  ),
+  receipt(
+    'omaha_turn_beaten_raise_fold_restored',
+    'HorseLogic wager_rules (HorseOmahaMadeHandDefense)',
+    'a later policy owner raised a turn hand the reference had folded, with a made hand a possible straight or flush beats: the fold came back',
+    'V94'
+  ),
+  receipt(
+    'omaha_beaten_fresh_card_check',
+    'HorseLogic wager_rules (HorseOmahaMadeHandDefense)',
+    'a turn or river bet with a made hand the street card made beatable by a straight or flush, with a player still to act behind: became a check',
+    'V94'
+  ),
+  receipt(
+    'omaha_beaten_river_no_value_bet',
+    'HorseLogic wager_rules (HorseOmahaMadeHandDefense)',
+    'a river bet with a made hand a possible straight or flush beats, into a player who bet or raised a street on which it was already possible: became a check',
+    'V94'
+  ),
+  receipt(
+    'omaha_nut_class_pot_wager',
+    'HorseLogic wager_rules (HorseOmahaMadeHandDefense)',
+    'a PLO4/PLO5 bet or raise with the nuts or an effective-nut hand was sized up to the full pot (or the stack)',
+    'V94'
+  ),
+  receipt(
+    'omaha_reraised_pot_preflop_fold',
+    'HorseLogic call discipline (HorseOmahaReraisedPot)',
+    'PLO4/PLO5 cash continue facing a 4-bet or more preflop with a hand without aces or a premium structure, not paying the committed price against aces: folded',
+    'V94'
+  ),
+  receipt(
+    'omaha_reraised_pot_postflop_fold',
+    'HorseLogic call discipline (HorseOmahaReraisedPot)',
+    'PLO4/PLO5 cash stack-off with one pair or two pair below top two in a pot raised three or more times preflop, equity against aces or top two or better under the price: folded',
+    'V94'
+  ),
+  receipt(
+    'omaha_reraised_pot_realistic_fold',
+    'HorseLogic call discipline (HorseOmahaReraisedPot)',
+    'PLO4/PLO5 cash stack-off with one pair or two pair below top two in a pot raised three or more times preflop, equity against the realistic range under the price, bettor not a measured over-bluffer: folded',
+    'V94'
+  ),
+  receipt(
+    'omaha_reraised_pot_priced_in',
+    'HorseLogic call discipline (HorseOmahaReraisedPot)',
+    'a re-raised-pot continue the rule examined kept, because its equity against the declared range paid the price',
+    'V94'
+  ),
+  receipt(
+    'omaha_bluff_catcher_raise_fold',
+    'HorseLogic (V81, bluff-catcher cells)',
+    'PLO4/PLO5 call of a 0.9-pot+ turn or river raise (or a turn bet from the flop bettor) with a bluff catcher: folded (counted inside v81_omaha_big_bet_call_fold as well)',
+    'V94'
+  ),
+  receipt(
+    'omaha_turn_set_pound',
+    'HorseLogic checked-to value tiers',
+    'an Omaha high set on a straight-possible turn with no flush possible bet the geometric size instead of the half-pot small ball',
+    'V94'
+  ),
+  receipt(
     'v81_omaha_big_bet_call_fold',
     'HorseLogic (V81)',
     'PLO4/PLO5 turn/river call of a 0.9-pot+ wager in a measured losing cell: folded',
@@ -3580,6 +3915,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_tournament_first_in',
     'HorsePreflop (V90)',
     'Omaha high tournament final table: a small blind against the big blind alone, or heads-up big blind, fold was replaced from the hand true Omaha percentile (no rate floor until a live day is measured)',
+    'V90'
+  ),
+  receipt(
+    'omaha_hilo_tournament_first_in',
+    'HorsePreflop (omahaHiLoTournamentFirstIn)',
+    'default-off omahaHiLoTournamentFirstIn: pot-limit Omaha hi-lo heads-up tournament final table, a small blind first-in or big blind facing one raise fold was replaced from the hand hi-lo percentile',
     'V90'
   ),
   receipt(
@@ -5100,6 +5441,48 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic.commitUnderPotCall (commitUnderPot)',
     "a heads-up no-limit hold'em flop or turn fold with less than a pot behind became a call",
     'Commit under the pot'
+  ),
+  // No floor: fixed-limit tables only (process switch, source default on since 2026-11-15).
+  receipt(
+    'fixed_limit_bet_not_a_probe_seen',
+    'HorseMind.observe (FIXED-LIMIT BETS ARE NEVER PROBES, process switch HorseMind.setFixedLimitBetsAreNeverProbes, source default FIXED_LIMIT_BETS_ARE_NEVER_PROBES_DEFAULT = true since 2026-11-15)',
+    'a checked-to postflop bet in a fixed-limit hand was counted without a probe tally (neither ctBets nor ctProbes), so it stays whole in betCheckedTo',
+    'FixedLimitAdaptation'
+  ),
+  // No floor: fixed-limit calls with a player left to act, with the opt-in option on.
+  receipt(
+    'fixed_limit_call_priced_remaining_action_seen',
+    'HorseLogic facing-a-bet call price (fixedLimitCallIsNotACommitment, HorseFixedLimitCallPrice.ts)',
+    'a fixed-limit call with a live player left to act on an uncapped street was priced above the bare call by the expected further wagers of the street',
+    'FixedLimitAdaptation'
+  ),
+  // No floor: fixed-limit calls only, with the opt-in option on.
+  receipt(
+    'fixed_limit_call_not_a_commitment_seen',
+    'HorseLogic facing-a-bet commitment test (fixedLimitCallIsNotACommitment)',
+    'a fixed-limit call the stack-to-pot or invested test would have priced as a commitment was priced as the one bet it is',
+    'FixedLimitAdaptation'
+  ),
+  // No floor: fixed-limit hi-lo rivers only, with the opt-in option on.
+  receipt(
+    'fixed_limit_hilo_low_half_kept_seen',
+    'HorseLogic V40 Omaha pressure cap (fixedLimitHiLoLowHalfFloor)',
+    'the V40 weak-high cap on a fixed-limit hi-lo river would have clipped the hand below half of its low share and was held at that half',
+    'FixedLimitAdaptation'
+  ),
+  // No floor: fixed-limit Omaha decisions only, with the opt-in option on.
+  receipt(
+    'fixed_limit_omaha_presumption_withheld',
+    'HorseMind.opponentRead (fixedLimitOmahaNoPresumption)',
+    'a fixed-limit Omaha opponent read was returned without the shared aggressive raise presumption',
+    'FixedLimitAdaptation'
+  ),
+  // No floor: fixed-limit showdowns only, and only with the process switch on.
+  receipt(
+    'fixed_limit_river_bet_showdown_counted',
+    'HorseMind.observeHandComplete (FIXED-LIMIT RIVER BETS ARE SHOWDOWN VALUE EVIDENCE, process switch HorseMind.setFixedLimitRiverBetsAreValueEvidence, source default FIXED_LIMIT_RIVER_BETS_ARE_VALUE_EVIDENCE_DEFAULT = false)',
+    'a fixed-limit river bet or raise under 20 big blinds that reached showdown was counted in the V83 big-bet showdown tally (bigBetSD)',
+    'FixedLimitAdaptation'
   ),
   // No floor: fires only against an opponent whose checked-to bets include probes.
   receipt(

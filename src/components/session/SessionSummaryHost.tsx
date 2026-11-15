@@ -30,6 +30,8 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { webAppUrl } from '../../lib/appBase';
+import { shareLink } from '../../lib/share';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import HouseAdRotator from '../ads/HouseAdRotator';
@@ -573,17 +575,17 @@ export function SessionSummaryHost() {
       `${payload.tableName || 'Table Session'} - ${money}${payload.arenaAsset === 'diamonds' ? ' Diamonds' : ''} over ` +
       `${displayedHands} hands on Smarter.Poker`;
 
-    try {
-      if (typeof navigator !== 'undefined' && navigator.share) {
-        await navigator.share({ title: 'Session Complete', text });
-        return;
-      }
-      await navigator.clipboard.writeText(text);
-      setShareLabel('Copied');
+    /* src/lib/share.ts: the sentence now travels with a link, and a sheet
+       that refuses falls through to the clipboard instead of ending the tap. */
+    const outcome = await shareLink({
+      source: 'SessionSummaryHost.share',
+      title: 'Session Complete',
+      text,
+      url: webAppUrl(),
+    });
+    if (outcome === 'copied' || outcome === 'failed') {
+      setShareLabel(outcome === 'copied' ? 'Copied' : 'Retry Share');
       window.setTimeout(() => setShareLabel('Share'), 1800);
-    } catch {
-      /* A cancelled share sheet rejects. That is the player changing their
-         mind, not a failure, and it must not raise anything at them. */
     }
   }, [payload, recordedReady, target, recordedRecap, displayedHands]);
 

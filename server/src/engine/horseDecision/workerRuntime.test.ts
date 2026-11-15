@@ -1,3 +1,4 @@
+import { SavedProfilePresenceCache } from './savedProfilePresence.js';
 import { LiveHorseDecisionWorkerClient } from './client.js';
 import {
   StyleSwitchHolder,
@@ -3031,6 +3032,119 @@ describe('HorseDecisionWorkerRuntime', () => {
     await h.runtime.drain();
     expect(reads).toEqual(['before']);
     expect(h.messages.find((m) => m.type === 'FAST_RESULT')).toMatchObject({ governorScale: 0.35 });
+  });
+
+  it('keeps failed, partial and misidentified saved reads unavailable for the bound human', async () => {
+    const table = '10000000-0000-4000-8000-0000000000d1';
+    const lease = '30000000-0000-4000-8000-0000000000d1';
+    const req = independentFastForHand(table, 1_000_031, lease);
+    const human = req.gameState.players.find((p) => p.seat !== req.player.seat)!.user_id;
+    const domain = { version: 1, speed: 'table', ante: 'none' } as const;
+    req.gameState.publicMemoryDomain = domain;
+    req.gameState.humanUserIds = [human];
+    req.savedProfileHumanIds = [human];
+    const deal = {
+      tableId: table,
+      handNumber: 1_000_031,
+      lease,
+      domain,
+      mode: 'cash' as const,
+      variant: req.gameState.gameVariant!,
+      roster: req.gameState.players.map((p) => ({
+        seat: p.seat,
+        id: p.user_id,
+        human: p.user_id === human,
+      })),
+    };
+    const loaders = [
+      async () => {
+        throw Error('timeout');
+      },
+      async () => [],
+      async () => [{ user_id: req.player.user_id, presence: 'no_saved_row' }],
+    ];
+    for (const load of loaders) {
+      const cache = new SavedProfilePresenceCache(load, () => req.decisionTimeMs - 1);
+      cache.prime(deal);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(cache.forSnapshot(req)).toMatchObject({
+        status: 'unavailable',
+        rows: [{ user_id: human, presence: 'unavailable' }],
+      });
+    }
+    for (const exact_profile of [
+      null,
+      { observed_hands: 0, last_accepted_hand_id: null, counters: {} },
+      { observed_hands: 50, last_accepted_hand_id: 'corrupt', counters: { hands: -1 } },
+    ]) {
+      const cache = new SavedProfilePresenceCache(
+        async () => [{ user_id: human, presence: 'exact', exact_profile }],
+        () => req.decisionTimeMs - 1
+      );
+      cache.prime(deal);
+      await new Promise<void>((r) => setImmediate(r));
+      const receipt = cache.forSnapshot(req);
+      expect(receipt).toMatchObject({
+        status: 'available',
+        rows: [{ user_id: human, presence: 'exact', priorParticipation: 'unresolved' }],
+      });
+      expect(receipt?.exactProfiles).toBeUndefined();
+    }
+  });
+
+  it('journals an original saved-context lookup privately and rejects a cross-hand reuse', async () => {
+    const table = '10000000-0000-4000-8000-0000000000d1';
+    const lease = '30000000-0000-4000-8000-0000000000d1';
+    const req = independentFastForHand(table, 1_000_031, lease);
+    const domain = { version: 1, speed: 'table', ante: 'none' } as const;
+    req.gameState.publicMemoryDomain = domain;
+    req.gameState.humanUserIds = req.gameState.players
+      .filter((p) => p.seat !== req.player.seat)
+      .map((p) => p.user_id);
+    req.decisionKey = buildHorseDecisionKey(req);
+    req.savedProfileHumanIds = req.gameState.humanUserIds;
+    const read = vi.fn(async () =>
+      req.gameState.humanUserIds!.sort().map((user_id) => ({ user_id, presence: 'exact' }))
+    );
+    const cache = new SavedProfilePresenceCache(read, () => req.decisionTimeMs - 1);
+    const deal = {
+      tableId: table,
+      handNumber: 1_000_031,
+      lease,
+      variant: req.gameState.gameVariant!,
+      mode: 'cash' as const,
+      domain,
+      roster: req.gameState.players.map((p) => ({
+        seat: p.seat,
+        id: p.user_id,
+        human: p.seat !== req.player.seat,
+      })),
+    };
+    cache.prime(deal);
+    cache.prime(deal);
+    expect(cache.forSnapshot(req)?.status).toBe('unavailable');
+    await new Promise<void>((r) => setImmediate(r));
+    expect(read).toHaveBeenCalledTimes(1);
+    req.savedProfilePresence = cache.forSnapshot(req);
+    expect(req.savedProfilePresence?.status).toBe('available');
+    const run = async (request: FastHorseDecisionRequest) => {
+      const h = harness();
+      const captures: any[] = [];
+      h.deps.journalDecision = (_r, payload) => captures.push(payload);
+      h.runtime.receive(request);
+      await h.runtime.drain();
+      const result = h.messages.find((m) => m.type === 'FAST_RESULT');
+      expect(result).toBeDefined();
+      expect(JSON.stringify(result)).not.toContain('horse_exact_profiles');
+      return captures[0].snapshot.savedProfilePresence;
+    };
+    expect(await run(req)).toMatchObject({ status: 'available', rows: [{ presence: 'exact' }] });
+    const swapped = { ...req, fence: req.fence.replace(':1000031:', ':1000032:') };
+    swapped.decisionKey = buildHorseDecisionKey(swapped);
+    expect(await run(swapped)).toMatchObject({
+      status: 'unavailable',
+      rows: [{ presence: 'unavailable' }],
+    });
   });
 
   it('captures actual fast/deep journal inputs privately and retains decisions when capture fails', async () => {

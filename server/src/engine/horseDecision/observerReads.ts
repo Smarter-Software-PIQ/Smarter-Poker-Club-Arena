@@ -1,11 +1,12 @@
 import { publicMemoryDomainKey } from '../HorsePublicMemoryDomain.js';
+import { bettingStructureFor } from '../BettingStructure.js';
 import { riverPublicNode } from '../HorseMultiwayRiverRead.js';
 import { PooledPublicProfiles, type PooledPublicProfileReceipt } from './pooledPublicProfiles.js';
-import { opponentMemoryKey } from '../HorseOpponentMemory.js';
+import { durableProfileCounters, opponentMemoryKey } from '../HorseOpponentMemory.js';
 import { observerParticipantsBind } from './observerParticipants.js';
 import { ownPublicHistoryIsValid, type HorseOwnPublicHistoryPacket } from './ownPublicHistory.js';
 import { completedHandActionsForMind } from './completedHandActions.js';
-import { HorseMind, type HorseMindSandbox } from '../HorseMind.js';
+import { HorseMind, type HorseMindSandbox, type PooledRowProvenance } from '../HorseMind.js';
 import {
   horseCompletedHandKey,
   anchorHorseDecisionHand,
@@ -310,7 +311,8 @@ export class HorseObserverReads {
             handNumber: Number(parts[1]),
           },
           entry.context.dealtCount,
-          hand.bigBlind
+          hand.bigBlind,
+          bettingStructureFor(entry.context.variant)
         );
       HorseMind.observeHandComplete(
         hand.handKey,
@@ -616,6 +618,21 @@ export class HorseObserverReads {
       this.floorBootstrap !== null &&
       this.floorBootstrap.availableAtMs <= request.decisionTimeMs &&
       (this.floorBootstrap.winnerReads.rows.size > 0 || this.floorBootstrap.flopStab.size > 0);
+    // THE PRE-REPAIR DISCOUNT REACHES THE DECISION (2026-11-14). The pooled rows are the opponent rows a
+    // production decision reads, and their mode and public domain say whether the defective learner built them
+    // (cash, table speed). That keying and the post-release counts supplied at boot travel with this decision's
+    // own detached state, for the exact rows and the donors alike, exactly where their counters go: never a
+    // process-wide map another decision could read. Rows that are not pre-repair keyed add nothing.
+    const pooledProvenance = new Map<string, PooledRowProvenance>();
+    if (pooled)
+      for (const row of [...pooled.rows, ...pooled.donors.map((d) => d.profile)]) {
+        const provenance = HorseMind.pooledRowProvenance(row);
+        if (provenance)
+          pooledProvenance.set(
+            opponentMemoryKey(row.user_id, row.variant, row.mode, row.size),
+            provenance
+          );
+      }
     // Public counters use a detached map. Individual observations, dedupe
     // and private plans retain this horse's original ownership.
     const executionState =
@@ -626,6 +643,7 @@ export class HorseObserverReads {
               ? {
                   exploit: new Map(entry.state.exploit),
                   ...(pooled.donors.length ? { donorStaleness: new Map<string, number>() } : {}),
+                  ...(pooledProvenance.size ? { pooledProvenance } : {}),
                   ...(floorBootEligible ? { flopStab: new Map(entry.state.flopStab ?? []) } : {}),
                 }
               : {}),
@@ -644,15 +662,16 @@ export class HorseObserverReads {
         : entry.state;
     if (pooled) {
       for (const row of pooled.rows)
+        // Its counters and, when the row has one, its long participation window (2026-11-15).
         executionState.exploit!.set(
           opponentMemoryKey(row.user_id, row.variant, row.mode, row.size),
-          { ...row.counters }
+          durableProfileCounters(row)
         );
       // The sibling table size of the same public-memory domain, for a thin
       // or missing exact row to borrow at its hand-clock staleness.
       for (const { profile: row, staleness } of pooled.donors) {
         const key = opponentMemoryKey(row.user_id, row.variant, row.mode, row.size);
-        executionState.exploit!.set(key, { ...row.counters });
+        executionState.exploit!.set(key, durableProfileCounters(row));
         executionState.donorStaleness!.set(key, staleness);
       }
       if (floorBootEligible && entry.context && this.floorBootstrap) {

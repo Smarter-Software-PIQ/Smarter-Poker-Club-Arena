@@ -1,4 +1,4 @@
-import { cleanup, render, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 const m = vi.hoisted(() => ({
   navigate: vi.fn(),
@@ -6,12 +6,14 @@ const m = vi.hoisted(() => ({
   rows: [] as any[],
   gate: 'unavailable',
   stage: vi.fn(),
+  route: null as string | null,
 }));
 vi.mock('react-router-dom', () => ({
   useNavigate: () => m.navigate,
   useLocation: () => ({ pathname: '/clubs/club' }),
-  matchPath: () => null,
+  matchPath: () => (m.route ? { params: { tableId: m.route } } : null),
 }));
+vi.mock('../src/lib/visiblePokerTable', () => ({ useVisiblePokerTable: () => m.route }));
 vi.mock('../src/hooks/useAuthUser', () => ({ useAuthUser: () => ({ user: { id: 'entrant' } }) }));
 vi.mock('../src/hooks/useMasterBusSubscription', () => ({ useMasterBusSubscription: vi.fn() }));
 vi.mock('../src/core/MasterBus', () => ({ masterBus: { emit: m.emit } }));
@@ -45,6 +47,7 @@ beforeEach(() => {
   sessionStorage.clear();
   m.rows = [];
   m.gate = 'unavailable';
+  m.route = null;
 });
 afterEach(cleanup);
 it('opens and enters the fresh assigned tournament once, including after a remount', async () => {
@@ -55,7 +58,11 @@ it('opens and enters the fresh assigned tournament once, including after a remou
       state: { tournamentSeat: { tournamentId: 'event', lobbyTabId: null } },
     })
   );
-  expect(m.emit).toHaveBeenCalledWith('TABLE_SEATED', { tableId: 'assigned', seat: 0 });
+  expect(m.emit).toHaveBeenCalledWith('TABLE_SEATED', {
+    tableId: 'assigned',
+    seat: 0,
+    tournamentId: 'event',
+  });
   view.unmount();
   render(<TournamentAutoSeat />);
   await new Promise((resolve) => setTimeout(resolve, 0));
@@ -81,7 +88,11 @@ it('does not select another table for the same admitted tournament', async () =>
   m.rows = [seat('moved')];
   render(<TournamentAutoSeat />);
   await new Promise((resolve) => setTimeout(resolve, 0));
-  expect(m.emit).toHaveBeenCalledWith('TABLE_SEATED', { tableId: 'moved', seat: 0 });
+  expect(m.emit).toHaveBeenCalledWith('TABLE_SEATED', {
+    tableId: 'moved',
+    seat: 0,
+    tournamentId: 'event',
+  });
   expect(m.navigate).toHaveBeenCalledTimes(1);
 });
 it('keeps later-day resumes in the background', async () => {
@@ -90,7 +101,31 @@ it('keeps later-day resumes in the background', async () => {
   m.rows = [seat('day-two')];
   render(<TournamentAutoSeat />);
   await waitFor(() =>
-    expect(m.emit).toHaveBeenCalledWith('TABLE_SEATED', { tableId: 'day-two', seat: 0 })
+    expect(m.emit).toHaveBeenCalledWith('TABLE_SEATED', {
+      tableId: 'day-two',
+      seat: 0,
+      tournamentId: 'event',
+    })
   );
   expect(m.navigate).not.toHaveBeenCalled();
+});
+
+it('Take My Seat on a blinded-off seat names its tournament, so a moved chair re-points its tab', async () => {
+  // ONE TOURNAMENT, ONE CHAIR, ONE TAB (2026-11-14). Without the tournament the
+  // multi-table layer cannot tell this seat is the chair it already shows.
+  m.route = 'away-table';
+  m.rows = [
+    seat('away-table', {
+      joined_at: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      is_sitting_out: true,
+      stack: 1200,
+    }),
+  ];
+  render(<TournamentAutoSeat />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Take My Seat' }));
+  expect(m.emit).toHaveBeenCalledWith('TABLE_SEATED', {
+    tableId: 'away-table',
+    seat: 0,
+    tournamentId: 'event',
+  });
 });

@@ -161,3 +161,16 @@
   letter-spacing: 0.04em;
   text-shadow: 0 0.2cqw 0.3cqw rgb(0 0 0 / 80%);
 }
+
+/* Use the lobby text face for the rake grid, including the browser's table elements. */
+.bbj-rake,
+.bbj-rake .bbj-basic__table,
+.bbj-rake .bbj-basic__rules {
+  font-family: var(--font-sans, Inter, system-ui, sans-serif);
+}
+
+.bbj-rake th[scope='row'] {
+  color: #e4e7ec;
+  letter-spacing: normal;
+  text-shadow: none;
+}
