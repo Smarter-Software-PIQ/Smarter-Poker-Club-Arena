@@ -129,19 +129,35 @@ describe('the statements certificate reads exact figures', () => {
 
   it('cannot pass on a refusal in the certification run, and compares before it passes', () => {
     const spec = readFileSync('tests/e2e/production-cashier-statements.spec.ts', 'utf8');
-    expect(spec).toMatch(
-      /if \(process\.env\.E2E_REQUIRE_AUTH === '1'\)\s*expect\(authorized, [^)]*\)\.toBe\(\s*true\s*\);/
+    // Whole trimmed lines, exactly: a commented-out check or an inverted
+    // .not.toBe(...) is a different line and fails here (overwatch, review of
+    // e4cb37d2, note 1).
+    const lines = spec.split('\n').map((line) => line.trim());
+    const at = (line: string) => {
+      const index = lines.indexOf(line);
+      expect(index, line).toBeGreaterThan(-1);
+      expect(lines.lastIndexOf(line), `${line} appears once`).toBe(index);
+      return index;
+    };
+    const refusal = at("if (process.env.E2E_REQUIRE_AUTH === '1')");
+    expect(lines[refusal + 1]).toBe(
+      "expect(authorized, 'the certification account was refused its own club statement').toBe(true);"
     );
-    expect(spec.indexOf("process.env.E2E_REQUIRE_AUTH === '1'")).toBeLessThan(
-      spec.indexOf('if (authorized) {')
+    expect(refusal).toBeLessThan(at('if (authorized) {'));
+    const query = at('if (!sameStatementQuery(newest.asked, response.request().postDataJSON()))');
+    const compare = at('const expected = statementTotalsFigures(served, exactChips);');
+    const verdict = at('return figures.length === 4 && differing.length === 0');
+    const message = at(
+      "{ timeout: 30_000, message: 'Statement Totals on the glass differ from the server' }"
     );
-    for (const line of [
-      'sameStatementQuery(newest.asked, response.request().postDataJSON())',
-      'statementTotalsFigures(served, exactChips)',
-      'figures.length === 4 && differing.length === 0',
-      ".toBe('matches the server');",
-    ])
-      expect(spec, line).toContain(line);
+    expect(query).toBeLessThan(compare);
+    expect(compare).toBeLessThan(verdict);
+    expect(verdict).toBeLessThan(message);
+    expect(lines[message + 1]).toBe(')');
+    expect(lines[message + 2]).toBe(".toBe('matches the server');");
+    expect(spec).not.toMatch(/\.not\s*\.toBe\('matches the server'\)/);
+    // No poll prints a club's figures into the run log.
+    expect(spec).not.toContain("figures.join('|')");
     // The step that runs this certificate sets the flag.
     const workflow = readFileSync('.github/workflows/post-deploy-e2e.yml', 'utf8');
     const run = workflow.indexOf(
