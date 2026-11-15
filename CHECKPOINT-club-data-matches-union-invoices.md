@@ -134,3 +134,59 @@ client 2 AM presentation, publish, live verification.
   v_union; coverage (missing/failed days, boundary not invoice-exact) shown.
 - Client: basis-aware labels (2:00 AM boundary only for union scopes).
 - Re-reserve the stage-2 version after 20261115020011.
+
+## Stage 2 RPC contract (frozen 2026-11-15 03:50Z, CLUB DATA lead)
+
+Readers keep their names and signatures. Each of the 13 Club Data readers
+(`ca_club_data_snapshot_v2`, `ca_club_data_screen`, `ca_club_game_page_core_20261006`,
+`fn_ca_club_game_recent_rows`, `fn_ca_club_games_searched`, `fn_ca_club_games_unsearched`,
+`fn_ca_club_data_hand_count`, `fn_ca_club_cash_felt`, `ca_club_data_player_totals`,
+`ca_club_game_export_start`, `ca_club_player_page_core_20261006`, `ca_club_player_breakdown`,
+`ca_club_player_export_start`) dispatches on its club argument: a club in a
+union, or a union itself (house club), reads the accounting read model; any
+other club reads exactly what it reads today.
+
+Parameters (both bases): `p_start` = first day, `p_end` = last day, inclusive.
+The client always sends the END BOUNDARY minus one day. Union basis: days are
+02:00-to-02:00 America/Chicago accounting days, so the pair 2026-11-02 / 2026-11-08
+is [Nov 2 02:00, Nov 9 02:00) = the invoice week. Other clubs: Chicago midnight
+days, unchanged.
+
+Response additions on `ca_club_data_snapshot_v2` and `ca_club_data_screen`
+(both answers of the screen):
+- `accounting_basis`: `'union_invoice_accounting'` for the union basis;
+  otherwise the value it has today (`'chicago_net_money_flow'` etc.).
+- `day_basis`: `'America/Chicago 02:00'` (union basis) or today's value.
+- `accounting_coverage` (union basis only; absent otherwise):
+  `{ complete: boolean, missing_days: string[], failed_days: string[],
+     not_invoice_exact_days: string[], provisional: boolean,
+     provisional_from: string | null, window_start: string (ISO instant),
+     window_end: string (ISO instant), day_boundary: '02:00',
+     day_zone: 'America/Chicago', source: 'ca_club_acct_fact' }`
+  `provisional` = the window reaches an accounting day not covered by an
+  issued union weekly invoice (current/open week); `provisional_from` is the
+  first such day. `complete` is false when any day is missing, failed or not
+  invoice-exact.
+- Figure definitions (union basis), same field names as today:
+  fee = accounting rake credit (cash when earned, tournament when recognized);
+  cash result = each hand's stack change by the player's earning club plus
+  Bad Beat Jackpot stack awards; MTT winnings = receipt-owned returns
+  (prizes, bounties, refunds) minus funding (buy-ins, rebuys, add-ons), with
+  entries in tournaments still running at a week boundary carried to the week
+  they settle in, as the invoice does; total winnings = cash result + MTT
+  winnings; chips still on the felt are shown but not added; every player the
+  records attribute to the club is listed (members or not, horses included).
+- Player readers keep their response shapes; their figures follow the same
+  definitions on the union basis.
+
+Disjoint ownership for parallel work:
+- SQL (CLUB DATA lead): `supabase/migrations/*`, `scripts/ci/*club-data*`,
+  `tests/fixtures/club-data-*`, schema manifest fragment.
+- Client (second agent): `src/pages/club/ClubDataSimplePage.tsx`,
+  `src/pages/club/ClubDataPage.tsx`, `src/lib/clubDataDay.ts`, their tests.
+  Labels by `accounting_basis`; window label from coverage window_start /
+  window_end ("Nov 2, 2026 2:00 AM To Nov 9, 2026 2:00 AM Chicago Time");
+  end input = exclusive boundary; incomplete-day and provisional banners;
+  Total Winnings / MTT Winnings definitions; drilldowns and exports carry the
+  same dates and label the window; DST and date-only-parameter tests. Starting
+  point: commit 9d8106383 on this branch.
