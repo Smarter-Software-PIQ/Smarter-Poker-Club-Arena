@@ -1979,6 +1979,8 @@ describe('the journal says why it stopped and shows itself to /health', () => {
       heldBytes: null,
       holdBudgetBytes: null,
       holdTrimmedSegments: null,
+      minRetentionMs: null,
+      retentionBreaches: null,
       compressedBytes: null,
       maxBytes: null,
       records: null,

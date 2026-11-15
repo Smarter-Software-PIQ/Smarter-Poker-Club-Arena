@@ -220,6 +220,8 @@ const HEALTH_STATS_FIELDS = [
   'heldBytes',
   'holdBudgetBytes',
   'holdTrimmedSegments',
+  'minRetentionMs',
+  'retentionBreaches',
   'compressedBytes',
   'maxBytes',
   'records',
@@ -260,6 +262,11 @@ export interface HorseJournalHealth {
   heldBytes: number | null;
   holdBudgetBytes: number | null;
   holdTrimmedSegments: number | null;
+  /** The writer's time guarantee in force (0: off; 2026-11-15) and the appends
+   * since that writer opened on which the ring retired a segment the guarantee
+   * covers (disk floor, unreadable disk, or a full hard quota). */
+  minRetentionMs: number | null;
+  retentionBreaches: number | null;
   compressedBytes: number | null;
   maxBytes: number | null;
   records: number | null;
@@ -294,6 +301,8 @@ const EMPTY_HEALTH: Pick<HorseJournalHealth, (typeof HEALTH_STATS_FIELDS)[number
     heldBytes: null,
     holdBudgetBytes: null,
     holdTrimmedSegments: null,
+    minRetentionMs: null,
+    retentionBreaches: null,
     compressedBytes: null,
     maxBytes: null,
     records: null,
@@ -974,6 +983,8 @@ export class HorseDecisionJournalPublisher {
       heldBytes: number('heldBytes'),
       holdBudgetBytes: number('holdBudgetBytes'),
       holdTrimmedSegments: number('holdTrimmedSegments'),
+      minRetentionMs: number('minRetentionMs'),
+      retentionBreaches: number('retentionBreaches'),
       compressedBytes: number('compressedBytes'),
       maxBytes: number('maxBytes'),
       records: number('records'),

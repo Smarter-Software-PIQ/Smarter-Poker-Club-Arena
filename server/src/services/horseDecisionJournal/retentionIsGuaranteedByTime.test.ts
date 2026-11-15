@@ -48,6 +48,7 @@ const open = (extra: {
   minRetentionMs?: number;
   diskFloorBytes?: number;
   maxSegments?: number;
+  ringRetireLimit?: number;
 }) => {
   const dir = mkdtempSync(join(tmpdir(), 'horse-journal-retention-'));
   folders.push(dir);
@@ -64,15 +65,16 @@ const open = (extra: {
   probe.append(rec(5));
   const one = probe.storageStats().archive!.compressedBytes;
   probe.close();
-  const make = () =>
+  const make = (o: typeof extra = extra) =>
     new HorseDecisionJournalStore(dir, {
       archive: {
         directory: join(dir, 'archive'),
         maxBytes: one * 3 + Math.floor(one / 2),
-        maxSegments: extra.maxSegments ?? 1_000,
+        maxSegments: o.maxSegments ?? 1_000,
         hold: null,
-        ...(extra.minRetentionMs === undefined ? {} : { minRetentionMs: extra.minRetentionMs }),
-        ...(extra.diskFloorBytes === undefined ? {} : { diskFloorBytes: extra.diskFloorBytes }),
+        ...(o.minRetentionMs === undefined ? {} : { minRetentionMs: o.minRetentionMs }),
+        ...(o.diskFloorBytes === undefined ? {} : { diskFloorBytes: o.diskFloorBytes }),
+        ...(o.ringRetireLimit === undefined ? {} : { ringRetireLimit: o.ringRetireLimit }),
       },
     });
   const s = make();
@@ -85,7 +87,15 @@ const open = (extra: {
     stores.push(t);
     return t;
   };
-  return { s, segments: join(dir, 'archive', 'segments'), reopen };
+  /** The same journal reopened with other retention options (turning the
+   * guarantee off, or a floor the disk is already under). */
+  const reopenWith = (o: typeof extra) => {
+    s.close();
+    const t = make(o);
+    stores.push(t);
+    return t;
+  };
+  return { s, segments: join(dir, 'archive', 'segments'), reopen, reopenWith };
 };
 /** Age every segment file now present by `ageMs`. */
 const age = (segments: string, ageMs: number) => {
@@ -198,5 +208,111 @@ describe('the ring with a time guarantee', () => {
     const { s } = open({ minRetentionMs: 30 * H, diskFloorBytes: 1, maxSegments: 5 });
     for (let i = 1; i <= 8; i++) s.append(rec(i));
     expect(s.storageStats().archive!.segments).toBeLessThanOrEqual(5);
+  });
+});
+
+/* B1 (Hand Analysis review of f38ca7b7, 2026-11-15): with the guarantee on a
+   shard holds far more than its byte allocation. When the guarantee ends (0 h,
+   or the disk floor), the ring retires 1,024 segments per append; it used to
+   refuse the batch after that, dropping capture for the whole drain. Now the
+   batch is accepted while the other quotas fit and the disk has room, and the
+   following appends keep draining until the bytes fit. */
+describe('draining an archive far over its byte allocation', () => {
+  /** An archive `over` segments long built with the guarantee on (so nothing
+   * was retired), then reopened with `next`. */
+  const build = (over: number, next: Parameters<typeof open>[0]) => {
+    const o = open({ minRetentionMs: 30 * H, diskFloorBytes: 1, maxSegments: 5_000 });
+    for (let i = 1; i <= over; i++) o.s.append(rec(i));
+    const a = o.s.storageStats().archive!;
+    expect(a.segments).toBe(over);
+    expect(a.retiredSegments).toBe(0);
+    return o.reopenWith(next);
+  };
+
+  it('more than 1,024 segments over budget, the guarantee turned off (0 h): every batch is accepted while it drains', () => {
+    const OVER = 1_100; // the real per-append bound, RING_RETIRE_LIMIT = 1,024
+    const s = build(OVER, { minRetentionMs: 0, diskFloorBytes: 1, maxSegments: 5_000 });
+    expect(() => s.append(rec(OVER + 1))).not.toThrow();
+    let a = s.storageStats().archive!;
+    expect(a.retiredSegments).toBe(1_024);
+    expect(a.segments).toBe(OVER + 1 - 1_024);
+    for (let i = OVER + 2; i <= OVER + 4; i++) expect(() => s.append(rec(i))).not.toThrow();
+    a = s.storageStats().archive!;
+    expect(a.segments).toBeLessThanOrEqual(4);
+    expect(a.compressedBytes).toBeLessThanOrEqual(a.maxBytes);
+    expect(a.retentionBreaches).toBe(0);
+  }, 240_000);
+
+  it('a disk under the floor drains young segments, accepts the batches and counts one breach per append', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const s = build(40, {
+      minRetentionMs: 30 * H,
+      diskFloorBytes: Number.MAX_SAFE_INTEGER,
+      maxSegments: 5_000,
+      ringRetireLimit: 8,
+    });
+    expect(() => s.append(rec(41))).not.toThrow();
+    let a = s.storageStats().archive!;
+    expect(a.retiredSegments).toBe(8);
+    expect(a.retentionBreaches).toBe(1);
+    for (let i = 42; i <= 46; i++) expect(() => s.append(rec(i))).not.toThrow();
+    a = s.storageStats().archive!;
+    expect(a.segments).toBeLessThanOrEqual(4);
+    expect(a.retentionBreaches).toBe(6);
+    const named = warn.mock.calls.filter((c) =>
+      String(c[0]).includes('journal_retention_guarantee_breached: free disk is at the floor')
+    );
+    expect(named.length).toBe(1); // named at most once a minute
+  });
+
+  it('the drain never accepts a batch a hard quota refuses; it is accepted once the quota fits', () => {
+    // 40 segments, bound 8 per append, segment quota 20: the first two appends
+    // retire 8 each and are refused by name (32 + 1 and 24 + 1 segments exceed 20),
+    // the third retires 8 more (16 + 1 fit) and is accepted.
+    const s = build(40, {
+      minRetentionMs: 0,
+      diskFloorBytes: 1,
+      maxSegments: 20,
+      ringRetireLimit: 8,
+    });
+    expect(() => s.append(rec(41))).toThrow(/horse_archive_(byte|segment)_capacity/);
+    expect(() => s.append(rec(42))).toThrow(/horse_archive_(byte|segment)_capacity/);
+    expect(s.storageStats().archive!.retiredSegments).toBe(16);
+    expect(() => s.append(rec(43))).not.toThrow();
+    expect(s.storageStats().archive!.segments).toBeLessThanOrEqual(17);
+  });
+
+  it('a hard quota retiring a young segment is a named breach (N2)', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const { s } = open({ minRetentionMs: 30 * H, diskFloorBytes: 1, maxSegments: 5 });
+    for (let i = 1; i <= 8; i++) s.append(rec(i));
+    const a = s.storageStats().archive!;
+    expect(a.segments).toBeLessThanOrEqual(5);
+    expect(a.retentionBreaches).toBe(3);
+    expect(
+      warn.mock.calls.some((c) =>
+        String(c[0]).includes('a segment, record or catalog quota is full')
+      )
+    ).toBe(true);
+  });
+
+  it('refuses a retirement bound outside 1 to 1,024', () => {
+    expect(() => open({ ringRetireLimit: 0 })).toThrow('Invalid Horse archive configuration');
+    expect(() => open({ ringRetireLimit: 1_025 })).toThrow('Invalid Horse archive configuration');
+  });
+});
+
+describe('the runtime allocation, edges (N9)', () => {
+  it('accepts 168 h, refuses 169 h, and reads the floor from the environment', () => {
+    const env = (v: Record<string, string>) =>
+      runtimeHorseJournalWriterArchiveOptions('/tmp/x', { ...v });
+    expect(env({ HORSE_DECISION_JOURNAL_ARCHIVE_MIN_RETENTION_HOURS: '168' }).minRetentionMs).toBe(
+      168 * H
+    );
+    expect(() => env({ HORSE_DECISION_JOURNAL_ARCHIVE_MIN_RETENTION_HOURS: '169' })).toThrow();
+    expect(
+      env({ HORSE_DECISION_JOURNAL_ARCHIVE_DISK_FLOOR_BYTES: String(8 * 1024 ** 3) }).diskFloorBytes
+    ).toBe(8 * 1024 ** 3);
+    expect(() => env({ HORSE_DECISION_JOURNAL_ARCHIVE_DISK_FLOOR_BYTES: '0' })).toThrow();
   });
 });
