@@ -121,6 +121,9 @@ export interface V31DemandSpot {
   nodeRole: string;
   facingKind: string;
   facingSizeBucket: string;
+  /** Set only when the consult was keyed by a cell contract v3 cell (FLOP-5 D6, dormant). */
+  cellContract?: 'v3';
+  lineClass?: string;
   hit: boolean;
 }
 
@@ -130,6 +133,7 @@ export const V31_REPLAY_OPTS = Object.freeze([
   'v31GtoSuitAware',
   'gtoV31DatasetChecksum',
   'v33DepthCeiling',
+  'gtoV31CellContractV3Serving',
 ] as const);
 
 function jsonCopy<T>(value: T): T {
@@ -333,13 +337,14 @@ export function decideV31Certified(input: V31CertifiedInput): HorseDecision | nu
     else if (beyond31 && tele15) noteFire('gto_served_beyond_depth_ceiling');
 
     // CELL CONTRACT v3 (FLOP-5 D6, DORMANT). Only when the store this lookup
-    // reads declares cell contract v3 AND the default-OFF switch is on is the
-    // consult keyed by the v3 context (role incl. donk, facing, public line,
-    // 200 bb). In every other case v3Store31 is false and the v2 consult below
-    // runs exactly as before; neither check draws a random number.
+    // reads declares cell contract v3 AND the live switch passed the option
+    // gtoV31CellContractV3Serving true (off-only today) is the consult keyed by
+    // the v3 context (role incl. donk, facing, public line, 200 bb). In every
+    // other case v3Store31 is false and the v2 consult below runs exactly as
+    // before; neither check draws a random number.
     const v3Store31 =
       gtoV31StoreCellContract(opts.gtoV31DatasetChecksum) === 'v3' &&
-      gtoV31CellContractV3ServingOn();
+      gtoV31CellContractV3ServingOn(opts.gtoV31CellContractV3Serving);
     const context31V3 =
       v3Store31 && effective31 !== null
         ? classifyGtoDecisionContextV3({
@@ -415,9 +420,12 @@ export function decideV31Certified(input: V31CertifiedInput): HorseDecision | nu
             datasetChecksum: opts.gtoV31DatasetChecksum,
           })
         : null;
+    // The demand record names the cell the consult asked for: the v3 cell
+    // (role, facing, line) when v3 serves, else the v2 context, exactly as before.
+    const demand31 = v3Store31 ? context31V3 : context31;
     if (
       opts.onV31Demand &&
-      context31 &&
+      demand31 &&
       family31 &&
       objective31 &&
       utility31 &&
@@ -439,9 +447,12 @@ export function decideV31Certified(input: V31CertifiedInput): HorseDecision | nu
         opponentPosition: opponentSeat31.position,
         stackBB: stackBB31,
         board: structuredClone(gs.communityCards),
-        nodeRole: context31.nodeRole,
-        facingKind: context31.facingKind,
-        facingSizeBucket: context31.facingSizeBucket,
+        nodeRole: demand31.nodeRole,
+        facingKind: demand31.facingKind,
+        facingSizeBucket: demand31.facingSizeBucket,
+        ...(v3Store31 && context31V3
+          ? { cellContract: 'v3' as const, lineClass: context31V3.lineClass }
+          : {}),
         hit: direct31?.hit === true,
       });
     }
@@ -494,13 +505,13 @@ export function decideV31Certified(input: V31CertifiedInput): HorseDecision | nu
             finalAmount: finalAmount31,
             bigBlind: gs.bigBlind,
           });
+          // The decision record takes the v3 cell's facing, size and line when
+          // v3 serves (a donk decision is recorded as one); else the v2 context.
+          const record31 = v3Store31 ? context31V3 : context31;
           if (
             opts.onGtoV31Decision &&
-            // The decision record has no v3 'donk' role (only a v3 store
-            // answers one; dormant): such a decision is not recorded.
-            direct31.nodeRole !== 'donk' &&
             hand31 &&
-            context31 &&
+            record31 &&
             family31 &&
             objective31 &&
             utility31 &&
@@ -526,8 +537,11 @@ export function decideV31Certified(input: V31CertifiedInput): HorseDecision | nu
                 depthBucket: direct31.depthBucket,
                 textureClass: direct31.textureClass,
                 nodeRole: direct31.nodeRole,
-                facingKind: context31.facingKind,
-                facingSizeBucket: context31.facingSizeBucket,
+                facingKind: record31.facingKind,
+                facingSizeBucket: record31.facingSizeBucket,
+                ...(v3Store31 && context31V3
+                  ? { cellContract: 'v3' as const, lineClass: context31V3.lineClass }
+                  : {}),
                 hand: hand31,
                 handKey: direct31.handKey,
                 cell: direct31.cell,

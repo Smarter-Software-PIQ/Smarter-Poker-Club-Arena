@@ -751,6 +751,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V32'
   ),
   flag('v33DepthCeiling', 'solver depth ceiling (300bb)', 'V33'),
+  flag(
+    'gtoV31CellContractV3Serving',
+    'V31 cell contract v3 serving (FLOP-5 D6): true reads the v3 cell readers and keys the certified consult by the v3 cell (line class, donk, 200 bb) when the loaded store declares cell contract v3; unset or false is the v2 path exactly. Off-only under the owner R7/R8 hold (V31 serving is registration-gated); a v3 store also needs a sealed, promoted and bound v3 dataset',
+    'V31 cell contract v3',
+    'HorseV31CertifiedPolicy.decideV31Certified, GtoPostflopV31Loader'
+  ),
   flag('v37Satellite', 'satellite survival play', 'V37'),
   flag('v38Ev', 'the EV engine arbiter for solverless games and the MDF river', 'V38'),
   flag(

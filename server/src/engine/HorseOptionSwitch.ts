@@ -339,6 +339,7 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'fixedLimitCallIsNotACommitment',
   'fixedLimitHiLoLowHalfFloor',
   'fixedLimitOmahaNoPresumption',
+  'gtoV31CellContractV3Serving',
 ]);
 /** Decided by code: a parent option, a variant gate or a mixed read (see each ledger note). */
 export const OPTION_SWITCH_RELEASE_DEFAULT_CODE: readonly string[] = Object.freeze([
@@ -389,6 +390,17 @@ const PREFLOP_HOLD_SOURCE = 'owner preflop range hold';
 const PREFLOP_HOLD_REASON = 'changes a preflop range: held until the owner lifts it by name';
 const OMAHA_TIGHT_SOURCE =
   'owner ruling 2026-11-14 21:30 Chicago (Omaha tight responses stay OFF until promotion evidence passes)';
+/**
+ * The R7/R8 hold refuses every V31 name by pattern (OPTION_SWITCH_REFUSED, HELD_PATTERNS). One name is carried, OFF
+ * ONLY, under that same hold: the cell contract v3 serving switch (FLOP-5 D6). It replaced an environment variable so
+ * that the switch sits in the registry and the replay state (Hand Analysis N1, 2026-11-15); being off-only it can only
+ * force the release default, OFF, and the database refuses `on` for it from any writer.
+ */
+const V31_CELL_CONTRACT_V3_SOURCE =
+  'owner hold: the V31 solver store (R7/R8) is registration-gated (carried off-only, FLOP-5 D6)';
+export const OPTION_SWITCH_HELD_PATTERN_OFF_ONLY_NAMES: readonly string[] = Object.freeze([
+  'gtoV31CellContractV3Serving',
+]);
 const OWNING_LANE_SOURCE =
   'owning lane keeps it OFF (PLO6 05:04:38Z / Lightning 05:04:25Z inbox rows)';
 export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly>> = Object.freeze({
@@ -467,6 +479,11 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
   plo6TopSetNutRealization: hold(OWNING_LANE_SOURCE, 'the owning lane keeps it OFF'),
   omahaCommitZoneThreeBetPriceRelief: hold(OWNING_LANE_SOURCE, 'the owning lane keeps it OFF'),
   lightningParticipationOmaha: hold(OWNING_LANE_SOURCE, 'the owning lane keeps it OFF'),
+  // owner R7/R8 hold (FLOP-5 D6): the one V31 option the switch carries, and only `off`
+  gtoV31CellContractV3Serving: hold(
+    V31_CELL_CONTRACT_V3_SOURCE,
+    'V31 cell contract v3 serving: held until the owner lifts it by name; it also needs a sealed, promoted and bound v3 dataset'
+  ),
   // superseded
   v55OmahaRiverTripsFlat: Object.freeze({
     status: 'superseded' as const,
@@ -623,7 +640,9 @@ const HELD_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
 export function optionSwitchRefusal(name: string): string | null {
   const byName = Object.hasOwn(OPTION_SWITCH_REFUSED, name) ? OPTION_SWITCH_REFUSED[name]! : null;
   if (byName) return byName;
-  for (const [pattern, reason] of HELD_PATTERNS) if (pattern.test(name)) return reason;
+  for (const [pattern, reason] of HELD_PATTERNS)
+    if (pattern.test(name) && !OPTION_SWITCH_HELD_PATTERN_OFF_ONLY_NAMES.includes(name))
+      return reason;
   return null;
 }
 

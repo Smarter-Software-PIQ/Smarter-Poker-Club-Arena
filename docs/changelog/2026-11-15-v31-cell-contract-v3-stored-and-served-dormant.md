@@ -4,7 +4,7 @@
 
 - Database (migration 20261115143957): `gto_v31_runtime_cells` gains nullable `cell_contract_version` and `line_class`. A v3 row may use depth 200 and the role `donk` (open node), must carry a line valid for its street, and may not declare `holdem-public-hist215-v1` or `-v2`. The unique key now includes the contract and the line (NULLS NOT DISTINCT, same constraint name), so two lines of one spot are two cells; for every v2 row the key is unchanged. Both new columns are immutable.
 - The v2 readers `fn_gto_v31_active_cells` and `fn_gto_v31_evaluation_cells` never return a v3 cell; for every existing row they answer byte for byte as before. New readers `fn_gto_v31_active_cells_v3` and `fn_gto_v31_evaluation_cells_v3` return the same rows plus the two columns. New `fn_gto_v31_registration_cell_contract(dataset_key)` tells the World Hub solver gateway whether a round registration declares cell contract v3. All service_role only.
-- Engine: new switch `GTO_V31_CELL_CONTRACT_V3_SERVING` (environment, exactly `on`; default OFF; not a fleet option). With it on, the loader reads the v3 readers, and `HorseV31CertifiedPolicy` consults a store that declares cell contract v3 through `classifyGtoDecisionContextV3` and `gtoStreetAdviceV31V3` (line class, donk, 200 bb). With it off, or with any v2 store, nothing changes.
+- Engine: the v3 serving switch is the registered live option `gtoV31CellContractV3Serving` (off-only today; see Switch In The Live Registry below). With it on, the loader reads the v3 readers, and `HorseV31CertifiedPolicy` consults a store that declares cell contract v3 through `classifyGtoDecisionContextV3` and `gtoStreetAdviceV31V3` (line class, donk, 200 bb). With it off or unset, or with any v2 store, nothing changes.
 
 ## Why
 
@@ -33,12 +33,44 @@ The builders above take source nodes that carry their v3 cell, but no such node 
 
 Real 200 bb solver ranges do not exist yet (FLOP-4 C2, an external dependency), so the 200 bb path is proven on fixtures only.
 
+## Switch In The Live Registry (Migration 20261115212414, Same Day)
+
+The v3 serving switch was the environment variable `GTO_V31_CELL_CONTRACT_V3_SERVING`: outside the live switch registry (#10999) and the replay digest, and changed only by an engine restart. It is now the registered option `gtoV31CellContractV3Serving`, built in with no separate cutover. The environment variable is retired and nothing reads it (a test sets it to `on` and sees the v2 path); the comment in migration 20261115143957 that still names it is superseded by this section.
+
+- One `HorseDataLedger` flag and one `HorseDecideOpts` field; the decision reads `opts.gtoV31CellContractV3Serving` and serves v3 only when it is exactly `true`.
+- Off-only. V31 names fall under the owner hold on the R7/R8 solver rounds (`HELD_PATTERNS` in `HorseOptionSwitch.ts`), which refuses them as options. This one exact name is exempt from that refusal only so that it can be registered off-only under the same hold (`OPTION_SWITCH_OFF_ONLY`, source "owner hold: the V31 solver store (R7/R8) is registration-gated"): the registry offers `off` alone, the set function and the table refuse `on` with any note, `off` and clear work, and the worker never passes it `true`. It can be switched on only after the owner lifts the hold by name in a reviewed source change, and v3 also needs a sealed, promoted and bound v3 dataset. Every other V31, R7 and R8 name stays refused.
+- Live: workers pass the option to the decision like every registered option (`optionSwitchDecisionOpts`, read every 30 s, journaled in the replay state), and report it to the V31 loader (`noteGtoV31CellContractV3ServingSwitch`), which reloads at once when the reading changes, so the loader moves between the v2 and v3 readers without a restart.
+- Replay: the option is in `V31_REPLAY_OPTS`, so the V31 replay digest records it.
+- Migration 20261115212414 is a registry follow-up written by `server/scripts/gen-horse-option-switch-sql.ts --follow-up` (the full lists with one new off-only name; 20261114072215 is not edited). It was generated against main at da0c64e3. Per the registry's sequencing rule it is deleted and regenerated, with a version newer than every list migration then on main, after every earlier flag-adding head has merged (Hold'em #11008 has since merged with 20261115185244; PLO's follow-up is pending).
+
+## Decision And Demand Records Follow The v3 Cell (Same Day)
+
+With the option on and a v3 store, the decision record (`onGtoV31Decision`) takes facing kind and size bucket from the v3 context and carries `cellContract: 'v3'` and `lineClass`; a donk decision is recorded as one (it was skipped before). The demand record (`onV31Demand`) names the v3 cell the consult asked for, with the same two fields, and `gtoV31DemandCell` keys it by the v3 cell (line validated for its street, v3 depth bucket up to 200 bb). With a v2 store, or with the option off or unset, both records are exactly as before and carry neither field. Both hooks feed offline tools only (league, replay, density preflight, solver agreement); the live path writes no such record.
+
+## A v3 Dataset Made Active While v3 Serving Is Off Raises An Alarm (Same Day)
+
+The v2 readers never return a v3 cell, so a v3 dataset made active and bound while the option is off would leave V31 serving empty fleet-wide with no error. Now, when a bound live loader with an admitted active dataset reads no v2 cell and serving v3 is off, it reads one row of the v3 reader; if that row is a cell contract v3 cell of the same dataset it raises `V31_V3_DATASET_ACTIVE_WHILE_V3_SERVING_OFF` (console error and the error reporter, `GtoPostflopV31Loader.cellContract`), once per dataset until a load serves rows again. A v2 row, a read error, an empty answer, another dataset, serving on, or no bound dataset raises nothing. It refuses nothing and changes no answer: the decision still finds no V31 cell, exactly as before. `gtoPostflopV31CellContractV3Alarm()` returns the alarmed dataset for health reads.
+
+## Recorded For Review (Hand Analysis 20:08:54Z And 20:46:19Z)
+
+Open items, not fixed, to be weighed before any v3 activation:
+
+- N-C3: the ban on 200 bb sources for a dataset that is not all-v3 is a trigger (`gto_v31_source_artifacts_v3_depth_guard`) because the depth check itself now admits 200. A privileged session that skips ordinary triggers (`session_replication_role = replica`, or the table owner disabling the trigger) can write a 200 bb source row for a v2 dataset directly. The ingest functions still refuse it for such a dataset, because they check the dataset's coverage themselves.
+- D4: the same session can also skip `gto_v31_datasets_cell_contract_immutable` and change a dataset's declared coverage to all-v3; the ingest functions would then accept 200 bb v3 sources for it. So "the ingest functions still refuse" does not hold once coverage itself was changed that way. Read on production at 21:41Z (read only): service_role, authenticated, anon and postgres can not set `session_replication_role` (no SET privilege, not superuser); both tables are owned by postgres, which could disable a trigger.
+- D1: the depth guard's "Failing row contains" detail clips a value when it is over 64 bytes, but then keeps its first 64 characters (`left(v, 64)`), where PostgreSQL clips at 64 bytes on a character boundary; the two differ only for a value with multibyte characters.
+- D2: the guard prints each value with a `::text` cast, where PostgreSQL prints the type's output function; they differ for some types (boolean prints `true`, not `t`). No column of `gto_v31_source_artifacts` is such a type today, and the proof compares the detail with PostgreSQL's own.
+- D3: `fn_gto_v31_cell_contract_of_coverage` says `v3` only when every declared cell is v3, so a dataset whose coverage mixes v2 and v3 cells counts as v2: it gets no 200 bb ingest and its sources are checked by the v2 node rules.
+- D5: migration 20261115183033 takes a brief lock on `gto_v31_datasets` to create its trigger, within the 3 s lock timeout; if the table stays busy for 3 s the install fails rather than waits longer.
+- Depth error first (20:08:54Z minor): the guard runs before the table's checks, so a 200 bb row of a v2 dataset that also breaks another check reports the depth error first.
+- D6 and D7: listed in REVIEW-DELTA-10724d20-e11a7f92.md (sha256 d04a36181894516a), whose text the writer could not read from the Mac; to be added here in the reviewer's words.
+- For the custodian (N5, N7): migrations 20261115143957, 20261115162745 and 20261115183033 change the seal qualification fingerprint, and the TypeScript changes all four Horse phase digests and the V31 execution fingerprint, so this head is treated like any decision-file change for qualification and admission records; the in-migration self-tests hold ACCESS EXCLUSIVE locks for seconds.
+
 ## Not Yet Built
 
 - Real 200 bb solver sources (FLOP-4 C2). The 200 bb ingest and build path is proven on fixtures only.
 - The M2 public215 ingest's blind selection receipt (`fn_gto_v31_public215_selection_receipt`, unchanged) was not exercised with a v3 selection; `fn_gto_v31_public215_ingest_m2` itself was.
 - The public215 v3 build was proven through its routing and refusals only; a full hist215-v3 build needs a real v3 input bundle and physics, which no round has yet.
-- The replay digest does not record the switch; a v3 replay corpus needs it before any v3 certification.
+- No v3 replay corpus exists; the replay digest now records the option, and a v3 certification needs such a corpus first.
 - The v3 depth ceiling is still the v2 one (`beyondGtoDepthCeiling`, V33 default OFF).
 
 ## Proof
@@ -46,4 +78,5 @@ Real 200 bb solver ranges do not exist yet (FLOP-4 C2, an external dependency), 
 - `scripts/ci/test-v31-runtime-cells-v3.py --mutations` (workflow `v31-runtime-cells-v3.yml`, PostgreSQL 17, production shapes): v2 readers identical before and after, v3 storage and refusals, registration answers, preimage pin, 10 of 10 mutations detected.
 - `scripts/ci/test-v31-cell-contract-v3-build-seal.py --mutations` (same workflow, a second step): migration 20261115162745 on top of 20261115143957 on full production shapes (ten relations, 146 live functions byte for byte), every v2 answer compared with a database that has only the first migration, the v3 storage, encoding, build and seal scenarios, and mutation checks.
 - `scripts/ci/test-v31-cell-contract-v3-ingest.py --mutations` (same workflow, a third step): migration 20261115183033 on top of both, on those shapes plus `scripts/ci/fixtures/v31-cell-contract-v3-ingest`: a v1/v2 ingest corpus through both ingest functions answers and writes byte for byte as before; the SQL line functions equal World Hub `pio_upi` on 1,704 nodes (`01-line-vectors.json`, generated by `make-line-vectors.py` from World Hub's own code at a pinned commit); a v3 dataset ingests 200 bb M1 and M2 artifacts (pio-policy v3 and v4) and builds each v3 cell from them; mutation checks.
-- `server/src/engine/GtoV31CellContractV3Serving.test.ts`, `server/src/services/GtoPostflopV31LoaderCellContractV3.test.ts`, `server/src/engine/GtoPublicHist215TemplateCellContractV3.test.ts` (a hist215-v3 template is authored over the 15-key v3 cell; v1 and v2 templates keep the 13-key shape).
+- `server/src/engine/GtoV31CellContractV3Serving.test.ts` (registry entry, off-only hold, retired environment variable, decision opts, replay opts, ledger flag, loader reload, v3 decision and demand records), `server/src/services/GtoPostflopV31LoaderCellContractV3.test.ts` (v3 readers, the alarm and its six silent cases), `server/src/engine/GtoPublicHist215TemplateCellContractV3.test.ts` (a hist215-v3 template is authored over the 15-key v3 cell; v1 and v2 templates keep the 13-key shape).
+- Default path unchanged: 2,880 decisions on main da0c64e3 and on this head, the same sha256; the registry laws (`everyUpgradeHasALiveSwitch.law.test.ts`, `HorseOptionSwitchMigrationLists.test.ts`, `HorseDataLedger.test.ts`, `ADefaultOffFlagHasALeagueCard.law.test.ts`) and `scripts/ci/test-horse-option-switch-evidence-postgres.sh` (the new name is refused `on` at the set function and the table).

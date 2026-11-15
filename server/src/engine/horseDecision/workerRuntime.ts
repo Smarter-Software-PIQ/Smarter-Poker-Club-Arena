@@ -249,6 +249,7 @@ import {
   startGtoPostflopV31Loader,
   stopGtoPostflopV31Loader,
 } from '../../services/GtoPostflopV31Loader.js';
+import { noteGtoV31CellContractV3ServingSwitch } from '../GtoV31CellContractV3Serving.js';
 import {
   solverPolicyArtifactStatus,
   startSolverPolicyArtifactLoader,
@@ -2983,6 +2984,8 @@ export class HorseDecisionWorkerRuntime {
     // not passed and the code default decides, exactly as before. The same for every Horse (no Horse id is read).
     const optionStates = this.optionSwitch.refresh(performance.now());
     const optionBrainOpts = optionSwitchDecisionOpts(optionStates);
+    // The V31 loader has no decision: it follows the value this read gives the v3 serving option (FLOP-5 D6).
+    noteGtoV31CellContractV3ServingSwitch(optionBrainOpts.gtoV31CellContractV3Serving);
     // P15-A step 4: the worker-owned state this decision reads besides its
     // request and read frame, journaled beside it for exact replay. Capture
     // only; the decision below reads the same values it always has.

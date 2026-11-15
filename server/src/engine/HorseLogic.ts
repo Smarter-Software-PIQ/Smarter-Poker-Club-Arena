@@ -423,7 +423,7 @@ import {
   gtoV31PotType,
   gtoV31UtilityContext,
   type GtoV31FacingKind,
-  type GtoV31NodeRole,
+  type GtoV31NodeRoleV3,
   type GtoV31Position,
   type GtoV31PotType,
   type GtoV31SizeBucket,
@@ -2182,9 +2182,13 @@ export interface GtoV31DecisionStateReceipt {
   stackBb: number;
   depthBucket: number;
   textureClass: string;
-  nodeRole: GtoV31NodeRole;
+  /** 'donk' only for a cell contract v3 decision (FLOP-5 D6, dormant). */
+  nodeRole: GtoV31NodeRoleV3;
   facingKind: GtoV31FacingKind;
   facingSizeBucket: GtoV31SizeBucket;
+  /** Set only for a cell contract v3 decision (FLOP-5 D6, dormant): its cell contract and public line. */
+  cellContract?: 'v3';
+  lineClass?: string;
   hand: string;
   handKey: string;
   cell: string;
@@ -2200,7 +2204,7 @@ export interface GtoV31DecisionReceipt {
   datasetId: string;
   datasetChecksum: string;
   decisionState: GtoV31DecisionStateReceipt;
-  nodeRole: GtoV31NodeRole;
+  nodeRole: GtoV31NodeRoleV3;
   cell: string;
   handKey: string;
   actionId: string;
@@ -2535,6 +2539,10 @@ export interface HorseDecideOpts {
    *  bucketed answer. Spots beyond the ceiling still fire
    *  gto_served_beyond_depth_ceiling. Set true to measure it again. */
   v33DepthCeiling?: boolean;
+  /** V31 cell contract v3 serving (FLOP-5 D6, 2026-11-15): passed only by the live option switch (registered,
+   *  off-only under the owner R7/R8 hold). true: the certified consult of a store that declares cell contract v3
+   *  is keyed by the v3 cell (GtoV31CellContractV3Serving.ts). Unset or false: the v2 consult, exactly as before. */
+  gtoV31CellContractV3Serving?: boolean;
   /** V37 (2026-09-02): satellite play — flat prizes are survival, not a
    *  ladder. A locked seat folds everything, a stack below the line jams
    *  wider, a table captain open-jams into stacks that cannot call. Disable

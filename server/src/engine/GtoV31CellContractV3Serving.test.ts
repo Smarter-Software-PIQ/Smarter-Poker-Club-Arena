@@ -1,9 +1,14 @@
 // FLOP-5 D6: the dormant cell contract v3 consult in HorseV31CertifiedPolicy.
-// Default OFF. Proves: the switch reads only GTO_V31_CELL_CONTRACT_V3_SERVING=on;
-// with it off every decision (and the RNG it consumes) is what it was, for a v2
-// store, a v3 store and an empty store; with it on a v2 store still decides
-// exactly as before and a v3 store answers through the v3 key (line class,
-// 200 bb), never through a v2 key.
+// OFF unless the live switch passes gtoV31CellContractV3Serving true (registered,
+// off-only under the owner's R7/R8 hold). Proves: the decision reads only that
+// option (the old environment variable is ignored); with it off every decision
+// (and the RNG it consumes) is what it was, for a v2 store, a v3 store and an
+// empty store; with it on a v2 store still decides exactly as before and a v3
+// store answers through the v3 key (line class, 200 bb), never through a v2
+// key; with v3 serving the decision and demand records carry the v3 cell's
+// facing, size and line (N2) and a v2 store's records are unchanged; the
+// registry carries the option off-only; the loader follows the worker's
+// switch reading and is told of a change once.
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Card, CardRank, CardSuit, HorseDecision } from '../types.js';
 import { HorseLogic } from './HorseLogic.js';
@@ -16,10 +21,27 @@ import {
 } from './GtoPostflopV31.js';
 import { classifyGtoDecisionContextV3 } from './GtoDecisionContext.js';
 import {
-  GTO_V31_CELL_CONTRACT_V3_SERVING_ENV,
+  GTO_V31_CELL_CONTRACT_V3_SERVING_OPTION,
+  _resetGtoV31CellContractV3ServingSwitchForTest,
   _setGtoV31CellContractV3ServingForTest,
+  gtoV31CellContractV3ServingLoaderOn,
   gtoV31CellContractV3ServingOn,
+  noteGtoV31CellContractV3ServingSwitch,
+  onGtoV31CellContractV3ServingChange,
 } from './GtoV31CellContractV3Serving.js';
+import {
+  OPTION_SWITCH_NAMES,
+  OPTION_SWITCH_OFF_ONLY_NAMES,
+  OPTION_SWITCH_REGISTRY,
+  optionSwitchDecisionOpts,
+  optionSwitchRefusal,
+} from './HorseOptionSwitch.js';
+import { V31_REPLAY_OPTS } from './HorseV31CertifiedPolicy.js';
+import { HORSE_DATA_LEDGER } from './HorseDataLedger.js';
+
+/** The environment variable that carried the switch before it was registered: nothing reads it now. */
+const RETIRED_ENV = 'GTO_V31_CELL_CONTRACT_V3_SERVING';
+const ON = { [GTO_V31_CELL_CONTRACT_V3_SERVING_OPTION]: true } as const;
 
 const SUITS: Record<string, CardSuit> = { c: 'clubs', d: 'diamonds', h: 'hearts', s: 'spades' };
 const cards = (v: string): Card[] =>
@@ -153,9 +175,10 @@ interface Run {
   decisions: HorseDecision[];
   rng: number[];
   v31: Array<{ cell: string; depthBucket: number }>;
+  states: Array<Record<string, unknown>>;
 }
-function play(n: number): Run {
-  const out: Run = { decisions: [], rng: [], v31: [] };
+function play(n: number, extra: Record<string, unknown> = {}): Run {
+  const out: Run = { decisions: [], rng: [], v31: [], states: [] };
   for (let i = 0; i < n; i++) {
     const { hero, gs } = spot();
     seedFastRandom(0x2000 + i * 104729);
@@ -164,13 +187,32 @@ function play(n: number): Run {
         mind: false,
         telemetry: false,
         gtoV31DatasetChecksum: CHECKSUM,
-        onGtoV31Decision: (d: { cell: string; decisionState: { depthBucket: number } }) =>
-          out.v31.push({ cell: d.cell, depthBucket: d.decisionState.depthBucket }),
+        onGtoV31Decision: (d: { cell: string; decisionState: { depthBucket: number } }) => {
+          out.v31.push({ cell: d.cell, depthBucket: d.decisionState.depthBucket });
+          out.states.push(d.decisionState as never);
+        },
+        ...extra,
       } as never)
     );
     out.rng.push(saveFastRandom());
   }
   return out;
+}
+/** The demand records of n consults (the offline probe hook; the probe consults even an empty store). */
+function demand(n: number, extra: Record<string, unknown> = {}): Array<Record<string, unknown>> {
+  const spots: Array<Record<string, unknown>> = [];
+  for (let i = 0; i < n; i++) {
+    const { hero, gs } = spot();
+    seedFastRandom(0x3000 + i * 7919);
+    HorseLogic.decide(hero as never, gs as never, 'balanced', {}, {
+      mind: false,
+      telemetry: false,
+      gtoV31DatasetChecksum: CHECKSUM,
+      onV31Demand: (s: Record<string, unknown>) => spots.push(s),
+      ...extra,
+    } as never);
+  }
+  return spots;
 }
 // Wall-clock fields (think time, latency) are not decisions; everything else is compared.
 const CLOCK = new Set(['thinkTime', 'latencyMs', 'elapsedMs']);
@@ -184,30 +226,85 @@ const withoutClock = (value: unknown): unknown =>
             .map(([k, v]) => [k, withoutClock(v)])
         )
       : value;
-const strip = (r: Run) => ({ decisions: withoutClock(r.decisions), rng: r.rng, v31: r.v31 });
+const strip = (r: Run) => ({
+  decisions: withoutClock(r.decisions),
+  rng: r.rng,
+  v31: r.v31,
+  states: withoutClock(r.states),
+});
 
-const ENV_BEFORE = process.env[GTO_V31_CELL_CONTRACT_V3_SERVING_ENV];
+const ENV_BEFORE = process.env[RETIRED_ENV];
 beforeEach(() => {
   _clearGtoPostflopV31();
   _setGtoV31CellContractV3ServingForTest(null);
-  delete process.env[GTO_V31_CELL_CONTRACT_V3_SERVING_ENV];
+  _resetGtoV31CellContractV3ServingSwitchForTest();
+  delete process.env[RETIRED_ENV];
 });
 afterEach(() => {
   _clearGtoPostflopV31();
   _setGtoV31CellContractV3ServingForTest(null);
-  if (ENV_BEFORE === undefined) delete process.env[GTO_V31_CELL_CONTRACT_V3_SERVING_ENV];
-  else process.env[GTO_V31_CELL_CONTRACT_V3_SERVING_ENV] = ENV_BEFORE;
+  _resetGtoV31CellContractV3ServingSwitchForTest();
+  if (ENV_BEFORE === undefined) delete process.env[RETIRED_ENV];
+  else process.env[RETIRED_ENV] = ENV_BEFORE;
 });
 
 describe('V31 cell contract v3 serving switch', () => {
-  it('is OFF unless the environment says exactly "on"', () => {
+  it('is OFF unless the decision was passed the option true; the retired environment variable is ignored', () => {
     expect(gtoV31CellContractV3ServingOn()).toBe(false);
-    for (const value of ['', '1', 'true', 'ON', 'On', ' on', 'on ', 'yes', 'v3']) {
-      process.env[GTO_V31_CELL_CONTRACT_V3_SERVING_ENV] = value;
-      expect(gtoV31CellContractV3ServingOn(), value).toBe(false);
-    }
-    process.env[GTO_V31_CELL_CONTRACT_V3_SERVING_ENV] = 'on';
-    expect(gtoV31CellContractV3ServingOn()).toBe(true);
+    expect(gtoV31CellContractV3ServingOn(undefined)).toBe(false);
+    expect(gtoV31CellContractV3ServingOn(false)).toBe(false);
+    expect(gtoV31CellContractV3ServingOn(true)).toBe(true);
+    process.env[RETIRED_ENV] = 'on';
+    expect(gtoV31CellContractV3ServingOn()).toBe(false);
+    expect(gtoV31CellContractV3ServingLoaderOn()).toBe(false);
+  });
+
+  it('is a registered option of the live switch, off-only under the R7/R8 hold, and in the replay state', () => {
+    const entry = OPTION_SWITCH_REGISTRY.find(
+      (e) => e.name === GTO_V31_CELL_CONTRACT_V3_SERVING_OPTION
+    );
+    expect(entry?.states).toEqual(['off']);
+    expect(entry?.releaseDefault).toBe('off');
+    expect(entry?.offOnly?.status).toBe('hold');
+    expect(entry?.offOnly?.source).toMatch(/R7\/R8/);
+    expect(OPTION_SWITCH_NAMES).toContain(GTO_V31_CELL_CONTRACT_V3_SERVING_OPTION);
+    expect(OPTION_SWITCH_OFF_ONLY_NAMES).toContain(GTO_V31_CELL_CONTRACT_V3_SERVING_OPTION);
+    expect(optionSwitchRefusal(GTO_V31_CELL_CONTRACT_V3_SERVING_OPTION)).toBeNull();
+    // the hold still refuses every other V31 name, existing or future
+    for (const name of ['v31GtoSuitAware', 'v31Anything', 'gtoV31Other', 'solverRound7'])
+      expect(optionSwitchRefusal(name), name).toEqual(expect.any(String));
+    // off-only: an on row never passes true; an off row passes false; no row passes nothing
+    expect(optionSwitchDecisionOpts({ [GTO_V31_CELL_CONTRACT_V3_SERVING_OPTION]: 'on' })).toEqual(
+      {}
+    );
+    expect(optionSwitchDecisionOpts({ [GTO_V31_CELL_CONTRACT_V3_SERVING_OPTION]: 'off' })).toEqual({
+      [GTO_V31_CELL_CONTRACT_V3_SERVING_OPTION]: false,
+    });
+    expect(optionSwitchDecisionOpts({})).toEqual({});
+    expect(V31_REPLAY_OPTS).toContain(GTO_V31_CELL_CONTRACT_V3_SERVING_OPTION);
+    const ledger = HORSE_DATA_LEDGER.filter(
+      (e) => e.key === GTO_V31_CELL_CONTRACT_V3_SERVING_OPTION
+    );
+    expect(ledger.map((e) => e.kind)).toEqual(['flag']);
+  });
+
+  it('the loader follows the switch value the worker reports, and is told of a change once', () => {
+    let reloads = 0;
+    onGtoV31CellContractV3ServingChange(() => reloads++);
+    expect(gtoV31CellContractV3ServingLoaderOn()).toBe(false);
+    noteGtoV31CellContractV3ServingSwitch(undefined);
+    noteGtoV31CellContractV3ServingSwitch(false);
+    expect(reloads).toBe(0);
+    noteGtoV31CellContractV3ServingSwitch(true);
+    noteGtoV31CellContractV3ServingSwitch(true);
+    expect(gtoV31CellContractV3ServingLoaderOn()).toBe(true);
+    expect(reloads).toBe(1);
+    noteGtoV31CellContractV3ServingSwitch(undefined);
+    expect(gtoV31CellContractV3ServingLoaderOn()).toBe(false);
+    expect(reloads).toBe(2);
+    onGtoV31CellContractV3ServingChange(null);
+    noteGtoV31CellContractV3ServingSwitch(true);
+    expect(reloads).toBe(2);
   });
 
   it('names the cell contract of the store a lookup reads', () => {
@@ -233,8 +330,7 @@ describe('V31 certified consult with the switch OFF (default): unchanged', () =>
   it('a v2 store decides identically with the switch off and on, and is served by the v2 key', () => {
     replaceGtoPostflopV31Evaluation([structuredClone(V2_CELL)]);
     const off = play(80);
-    _setGtoV31CellContractV3ServingForTest(true);
-    const on = play(80);
+    const on = play(80, ON);
     expect(strip(on)).toEqual(strip(off));
     expect(off.v31).toHaveLength(80);
     expect(off.v31.every((d) => d.depthBucket === 150 && !d.cell.includes('|v3|'))).toBe(true);
@@ -246,8 +342,7 @@ describe('V31 certified consult with the switch OFF (default): unchanged', () =>
 describe('V31 certified consult with the switch ON and a v3 store', () => {
   it('answers through the v3 key: the line class and the 200 bb bucket', () => {
     replaceGtoPostflopV31Evaluation([structuredClone(V3_CELL)]);
-    _setGtoV31CellContractV3ServingForTest(true);
-    const on = play(20);
+    const on = play(20, ON);
     expect(on.v31).toHaveLength(20);
     for (const d of on.v31) {
       expect(d.depthBucket).toBe(200);
@@ -261,17 +356,65 @@ describe('V31 certified consult with the switch ON and a v3 store', () => {
     const other = { ...structuredClone(V3_CELL), line_class: 'x.x/x.b-big' };
     replaceGtoPostflopV31Evaluation([other]);
     const off = play(30);
-    _setGtoV31CellContractV3ServingForTest(true);
-    const on = play(30);
+    const on = play(30, ON);
     expect(on.v31).toEqual([]);
     expect(strip(on)).toEqual(strip(off));
   });
 
-  it('a v3 store and the switch read from the environment work the same way', () => {
+  it('the option passed false, or the retired environment variable, serves nothing from a v3 store', () => {
     replaceGtoPostflopV31Evaluation([structuredClone(V3_CELL)]);
-    process.env[GTO_V31_CELL_CONTRACT_V3_SERVING_ENV] = 'on';
-    expect(play(5).v31).toHaveLength(5);
-    process.env[GTO_V31_CELL_CONTRACT_V3_SERVING_ENV] = 'off';
+    expect(play(5, ON).v31).toHaveLength(5);
+    expect(play(5, { [GTO_V31_CELL_CONTRACT_V3_SERVING_OPTION]: false }).v31).toHaveLength(0);
+    process.env[RETIRED_ENV] = 'on';
     expect(play(5).v31).toHaveLength(0);
+  });
+});
+
+describe('records under v3 serving (N2): the v3 cell, never the v2 classifier', () => {
+  it('the decision record carries the v3 cell contract, line, facing and size', () => {
+    replaceGtoPostflopV31Evaluation([structuredClone(V3_CELL)]);
+    const on = play(10, ON);
+    expect(on.states).toHaveLength(10);
+    for (const state of on.states) {
+      expect(state.cellContract).toBe('v3');
+      expect(state.lineClass).toBe(LINE.lineClass);
+      expect(state.nodeRole).toBe(LINE.nodeRole);
+      expect(state.facingKind).toBe(LINE.facingKind);
+      expect(state.facingSizeBucket).toBe(LINE.facingSizeBucket);
+    }
+  });
+
+  it('a v2 store records exactly as before, with the switch off or on (no v3 keys)', () => {
+    replaceGtoPostflopV31Evaluation([structuredClone(V2_CELL)]);
+    const off = play(20);
+    const on = play(20, ON);
+    expect(on.states).toEqual(off.states);
+    for (const state of off.states) {
+      expect(Object.hasOwn(state, 'cellContract')).toBe(false);
+      expect(Object.hasOwn(state, 'lineClass')).toBe(false);
+    }
+  });
+
+  it('the demand record names the v3 cell when v3 serves, and is unchanged otherwise', () => {
+    replaceGtoPostflopV31Evaluation([structuredClone(V3_CELL)]);
+    const v3 = demand(5, ON);
+    expect(v3).toHaveLength(5);
+    for (const spot of v3) {
+      expect(spot.cellContract).toBe('v3');
+      expect(spot.lineClass).toBe(LINE.lineClass);
+      expect(spot.nodeRole).toBe(LINE.nodeRole);
+      expect(spot.facingKind).toBe(LINE.facingKind);
+      expect(spot.facingSizeBucket).toBe(LINE.facingSizeBucket);
+      expect(spot.hit).toBe(true);
+    }
+    _clearGtoPostflopV31();
+    replaceGtoPostflopV31Evaluation([structuredClone(V2_CELL)]);
+    const v2Off = demand(5);
+    const v2On = demand(5, ON);
+    expect(withoutClock(v2On)).toEqual(withoutClock(v2Off));
+    for (const spot of v2Off) {
+      expect(Object.hasOwn(spot, 'cellContract')).toBe(false);
+      expect(Object.hasOwn(spot, 'lineClass')).toBe(false);
+    }
   });
 });

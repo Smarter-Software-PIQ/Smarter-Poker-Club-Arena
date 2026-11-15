@@ -1277,11 +1277,23 @@ export function gtoV31DemandCell(input: {
   nodeRole: string;
   facingKind: string;
   facingSizeBucket: string;
+  /** A cell contract v3 demand (FLOP-5 D6, dormant): keyed by its line and the v3 depth buckets. */
+  cellContract?: 'v3';
+  lineClass?: string;
 }): { key: string; depth: number; texture: string } | null {
   const expectedBoardCards = input.street === 'flop' ? 3 : input.street === 'turn' ? 4 : 5;
   if (!Array.isArray(input.board) || input.board.length !== expectedBoardCards) return null;
   const texture = textureClass(input.board);
   if (!texture) return null;
+  if (input.cellContract === 'v3') {
+    if (!gtoV31LineClassValidV3(input.lineClass, input.street)) return null;
+    const depthV3 = gtoV31DepthCandidatesV3(input.stackBB)[0];
+    return {
+      key: keyV3({ ...input, depth: depthV3, texture, lineClass: input.lineClass as string }),
+      depth: depthV3,
+      texture,
+    };
+  }
   const depth = depthCandidates(input.stackBB)[0];
   return { key: key({ ...input, depth, texture }), depth, texture };
 }
