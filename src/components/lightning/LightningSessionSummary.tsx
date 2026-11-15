@@ -14,7 +14,7 @@
  */
 import { useEffect, useState } from 'react';
 import { webAppUrl } from '../../lib/appBase';
-import { shareLink } from '../../lib/share';
+import { shareButtonLabel, shareLink } from '../../lib/share';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -125,7 +125,11 @@ function LightningResult({ summary, name }: { summary: Summary; name?: string | 
 }
 
 function useShareResult(summary: Summary | null, name?: string | null) {
-  const [label, setLabel] = useState('Share');
+  /* The status word ("Copied", "Retry Share") used to stay on the
+     button for good, so a resting button read like a report. It now returns
+     to the resting word, which says what the tap does. */
+  const [status, setStatus] = useState<string | null>(null);
+  const label = status ?? shareButtonLabel();
   const onClick = async () => {
     const text = [
       name || 'Lightning Session',
@@ -139,10 +143,12 @@ function useShareResult(summary: Summary | null, name?: string | null) {
       text,
       url: webAppUrl(),
     });
-    if (outcome === 'copied') setLabel('Copied');
-    else if (outcome === 'failed') setLabel('Retry Share');
+    if (outcome === 'copied' || outcome === 'failed') {
+      setStatus(outcome === 'copied' ? 'Copied' : 'Retry Share');
+      window.setTimeout(() => setStatus(null), 1800);
+    }
   };
-  return { label, onClick };
+  return { label, status, onClick };
 }
 
 function LightningReport({

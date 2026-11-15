@@ -49,6 +49,7 @@ export interface TabInfo {
    *  page only to be refused there in silence. Absent keeps both. */
   canAddFunds?: boolean;
   seatChangeEnabled?: boolean;
+  seatChangeOffInLightning?: boolean;
   /** Reported by the owning table page, like `isAutoRebuyEnabled`. */
   standUpNextBB?: boolean;
   /** The seat may straddle (host enabled it, cash game, hero seated). */
@@ -1293,6 +1294,9 @@ export function TableTabBar({
                 : formatGameTitle(tabs.find((t) => t.id === activeTabId)?.name) || 'Table'
           }
           seatChangeEnabled={tabs.find((t) => t.id === activeTabId)?.seatChangeEnabled}
+          seatChangeOffInLightning={
+            tabs.find((t) => t.id === activeTabId)?.seatChangeOffInLightning
+          }
           handNumber={tabs.find((t) => t.id === activeTabId)?.handNumber}
           onOpenIdentity={activeIsLobby ? undefined : handleOpenIdentity}
         />

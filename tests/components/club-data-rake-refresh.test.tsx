@@ -70,7 +70,9 @@ const snapshot = {
     },
   ],
   row_count: 1,
-  union_id: 'union-1',
+  // A club in no union: it answers on Chicago midnight days and its "today"
+  // is the calendar day (stage 2 readers: a union club states union_id).
+  union_id: null,
   data_updated_at: '2026-08-30T12:05:00Z',
   generated_at: '2026-08-30T12:05:02Z',
 };

@@ -73,7 +73,9 @@ export function readWitnesses(witnessDoc, windowIds) {
     }
     const bad = [];
     for (const f of ['publicNoticeAt', 'activatedAt']) {
-      if (typeof w[f] !== 'string' || !ISO.test(w[f])) bad.push(`${f} must be an ISO UTC timestamp`);
+      if (typeof w[f] !== 'string' || !ISO.test(w[f]) || !Number.isFinite(Date.parse(w[f]))) {
+        bad.push(`${f} must be an ISO UTC timestamp`);
+      }
     }
     for (const f of ['publicNoticeEvidence', 'activationEvidence']) {
       const e = w[f];

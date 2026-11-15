@@ -164,6 +164,7 @@ describe('the result card, finished', () => {
         paintRankingShareImage as unknown as { mock: { results: { value: unknown }[] } }
       ).mock.results.at(-1)?.value;
     });
+    // A sheet exists, so the button says Share (no sheet: Save Image, below).
     fireEvent.click(screen.getByRole('button', { name: 'Share' }));
     await waitFor(() => expect(share).toHaveBeenCalledTimes(1));
     const data = share.mock.calls[0][0] as ShareData;
@@ -187,7 +188,7 @@ describe('the result card, finished', () => {
         paintRankingShareImage as unknown as { mock: { results: { value: unknown }[] } }
       ).mock.results.at(-1)?.value;
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Share' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save Image' }));
     await waitFor(() =>
       expect(door.downloadBlob).toHaveBeenCalledWith(
         `smarter-poker-result.${extension}`,

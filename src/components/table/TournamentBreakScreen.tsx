@@ -33,7 +33,7 @@ import {
   breakMiniState,
   breakWaitingLabel,
 } from './breakScreenCopy';
-import { shareLink, tournamentShareUrl } from '../../lib/share';
+import { hasShareSheet, shareButtonLabel, shareLink, tournamentShareUrl } from '../../lib/share';
 import './TournamentBreakScreen.css';
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -676,14 +676,14 @@ export function TournamentBreakScreen({
         <button
           type="button"
           className="break-screen__share"
-          aria-label="Share Tournament"
+          aria-label={hasShareSheet() ? 'Share Tournament' : 'Copy Tournament Link'}
           onClick={shareTournament}
         />
         <SpadeConsole
           className="break-screen__content"
           title={breakConsoleTitle(!!addOnNotice, extendedForDailyUpdate)}
           onClose={() => setMinimized(true)}
-          pill="Share"
+          pill={shareButtonLabel()}
           foot="foot"
         >
           {shareMessage && (
