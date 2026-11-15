@@ -186,3 +186,153 @@ describe('EngineStateClient — server emit order is client observation order', 
     expect(observed).toEqual(['event:showdown']);
   });
 });
+
+/**
+ * THE QUEUE NEVER SHOWS THE PAST (2026-11-14).
+ *
+ * Whytegold502's tablet rendered an event slower than the engine emitted
+ * them. The FIFO above had an order and no clock, so it grew until his table
+ * was 20 to 30 seconds behind: 24 of 25 turns were folded or checked for
+ * him at the 17 second clock while he pressed Fold on a hand that was already
+ * over. These pin the two bounds, both measured from when a frame arrived.
+ */
+describe('EngineStateClient - the queue never shows the past', () => {
+  let now = 1_000_000;
+  beforeEach(() => {
+    now = 1_000_000;
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+  });
+  const event = (seq: number, payload: Record<string, unknown>) =>
+    live()._frame({ type: 'EVENT', tableId: TABLE, seq, payload });
+
+  it('a device that keeps up still gets one event per macrotask', async () => {
+    const { c, observed } = await connectedClient();
+    event(1, { type: 'player_action' });
+    event(2, { type: 'pot_update' });
+    await flush();
+    expect(observed).toEqual(['event:player_action']);
+    await flush();
+    expect(observed).toEqual(['event:player_action', 'event:pot_update']);
+    c.disconnect();
+  });
+
+  it('behind by more than the catch-up bound, events follow at once, each on its own, in order', async () => {
+    const { c, observed } = await connectedClient();
+    event(1, { type: 'player_action' });
+    event(2, { type: 'pot_update' });
+    live()._frame({ type: 'SNAPSHOT', tableId: TABLE, seq: 20, state: { hand_number: 3 } });
+    event(3, { type: 'turn_change' });
+    now += 900;
+    await flush();
+    expect(observed).toEqual([
+      'event:player_action',
+      'event:pot_update',
+      'snapshot:3',
+      'event:turn_change',
+    ]);
+    c.disconnect();
+  });
+
+  it('a catch-up burst is bounded so input is let in', async () => {
+    const { c, observed } = await connectedClient();
+    for (let seq = 1; seq <= 12; seq++) event(seq, { type: 'player_action' });
+    now += 900;
+    await flush();
+    expect(observed).toHaveLength(8);
+    await flush();
+    expect(observed).toHaveLength(12);
+    c.disconnect();
+  });
+
+  it('past the stale bound the table is brought to the present', async () => {
+    const { c, observed } = await connectedClient();
+    const seen: Record<string, unknown>[] = [];
+    (c as unknown as { opts: { onEvent: (p: Record<string, unknown>) => void } }).opts.onEvent = (
+      p
+    ) => {
+      observed.push(`event:${String(p.type)}`);
+      seen.push(p);
+    };
+    event(1, { type: 'player_action' });
+    event(2, { type: 'turn_change', action_context: 'villain-turn' });
+    live()._frame({ type: 'SNAPSHOT', tableId: TABLE, seq: 30, state: { hand_number: 5 } });
+    event(3, { type: 'player_action' });
+    event(4, { type: 'seat_moved', replay_until: now + 30_000 });
+    event(5, { type: 'pot_update' });
+    live()._frame({
+      type: 'SNAPSHOT',
+      tableId: TABLE,
+      seq: 31,
+      state: { hand_number: 6, action_context: 'hero-turn' },
+    });
+    event(6, { type: 'turn_change', action_context: 'hero-turn' });
+    now += 3_500;
+    await flush();
+    expect(observed).toEqual([
+      // The hole is announced once, before anything later is shown.
+      'event:engine_event_gap',
+      // Every state frame is applied, in order: the table is exactly current.
+      'snapshot:5',
+      // What the engine says is still owed is delivered, as a replay.
+      'event:seat_moved',
+      'snapshot:6',
+      // The decision that is owed NOW is delivered. The one that passed is not.
+      'event:turn_change',
+    ]);
+    expect(seen.find((p) => p.type === 'seat_moved')).toMatchObject({ replayed: true });
+    expect(seen.find((p) => p.type === 'turn_change')).toMatchObject({
+      action_context: 'hero-turn',
+    });
+    // Nothing is left to replay, and a later live event is not mistaken for a gap.
+    event(7, { type: 'player_action' });
+    await flush();
+    await flush();
+    expect(observed.slice(5)).toEqual(['event:player_action']);
+    c.disconnect();
+  });
+
+  it('a newest turn_change that outran its state is held, never shown against old wagers', async () => {
+    const { c, observed } = await connectedClient();
+    live()._frame({
+      type: 'SNAPSHOT',
+      tableId: TABLE,
+      seq: 40,
+      state: { hand_number: 8, action_context: 'old-turn' },
+    });
+    event(1, { type: 'player_action' });
+    event(2, { type: 'turn_change', action_context: 'hero-turn' });
+    now += 3_500;
+    await flush();
+    expect(observed).toEqual(['snapshot:8', 'event:engine_event_gap']);
+    expect(live().sent.some((frame) => frame.includes('RESYNC'))).toBe(true);
+    live()._frame({
+      type: 'SNAPSHOT',
+      tableId: TABLE,
+      seq: 41,
+      state: { hand_number: 8, action_context: 'hero-turn' },
+    });
+    expect(observed).toEqual([
+      'snapshot:8',
+      'event:engine_event_gap',
+      'snapshot:8',
+      'event:turn_change',
+    ]);
+    c.disconnect();
+  });
+
+  it('a hidden tab is late by design and loses nothing while hidden', async () => {
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    const { c, observed } = await connectedClient();
+    event(1, { type: 'player_action' });
+    event(2, { type: 'pot_update' });
+    now += 10_000;
+    await flush();
+    await flush();
+    expect(observed).toEqual(['event:player_action', 'event:pot_update']);
+    c.disconnect();
+  });
+});
