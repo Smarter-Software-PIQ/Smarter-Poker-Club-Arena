@@ -124,7 +124,7 @@
     sans-serif;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  white-space: nowrap;
+  white-space: normal;
   cursor: pointer;
   touch-action: manipulation;
   text-shadow: 0 0.2cqw 0.3cqw rgb(0 0 0 / 80%);

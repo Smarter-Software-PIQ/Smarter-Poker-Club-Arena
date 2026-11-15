@@ -1,0 +1,8 @@
+{
+  "_owner": "fix/mystery-activation-pages-at-once (migration 20261115015453)",
+  "tables": [],
+  "functions": [
+    "fn_ca_tournament_mystery_activation_failed",
+    "fn_ca_tournament_mystery_activation_recovered"
+  ]
+}

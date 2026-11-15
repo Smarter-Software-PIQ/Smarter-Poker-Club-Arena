@@ -9,7 +9,9 @@
 --   horses_with_decisions  of those, Horses with at least one decision that day in a variant and lane
 --                          where the upgrade is declared (the opportunity baseline)
 --   horses_with_invoked    of those, Horses with at least one decision in which an evidence counter
---                          of the upgrade fired
+--                          of the upgrade fired (opportunity-only needles excluded: upgrade 10's
+--                          fast_window_ready; before the release carrying that correction, upgrade 10
+--                          rows count a ready window as invoked)
 --   decisions, invoked     the day's totals over the same Horses
 --
 -- READ IT WITH ITS LIMITS (docs/changelog/2026-11-14-per-horse-upgrade-evidence.md):

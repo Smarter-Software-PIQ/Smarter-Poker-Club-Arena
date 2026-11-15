@@ -874,6 +874,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V90'
   ),
   flag(
+    'omahaHiLoTournamentFirstIn',
+    '2026-11-14 default OFF (HU-HILO-002): pot-limit Omaha hi-lo tournaments (engine-declared), exactly two dealt in at the final table, 20 BB or less, not All-In-Or-Fold, not a locked satellite seat, not fixed limit: the small blind first in plays every hand as the pot-limit maximum raise and the big blind calls its top 75 percent against one raise at a price of a half or better, replacing only the engine fold, by the hand percentile among Omaha hi-lo hands, narrowed by the tournament risk premium; the Omaha high rule (omahaTournamentFirstIn) with the hi-lo percentile and no three-handed branch; only explicit true or a league arm switches it on',
+    'V90'
+  ),
+  flag(
     'tokenCallPrice',
     '2026-11-12 cash Omaha high committed-call bar: below a price of 0.15 the additive premiums (margin, commitment bar, scare margin, shades) shrink in proportion to the price, and under 0.01 a made hand calls; unchanged at 0.15 or more (PLO6-AUDIT-010, production hand 58750626)',
     'V89'
@@ -3586,6 +3591,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_tournament_first_in',
     'HorsePreflop (V90)',
     'Omaha high tournament final table: a small blind against the big blind alone, or heads-up big blind, fold was replaced from the hand true Omaha percentile (no rate floor until a live day is measured)',
+    'V90'
+  ),
+  receipt(
+    'omaha_hilo_tournament_first_in',
+    'HorsePreflop (omahaHiLoTournamentFirstIn)',
+    'default-off omahaHiLoTournamentFirstIn: pot-limit Omaha hi-lo heads-up tournament final table, a small blind first-in or big blind facing one raise fold was replaced from the hand hi-lo percentile',
     'V90'
   ),
   receipt(

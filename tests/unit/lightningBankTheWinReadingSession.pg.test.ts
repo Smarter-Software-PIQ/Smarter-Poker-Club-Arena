@@ -56,6 +56,7 @@ const SEAT = '40000000-0000-4000-8000-000000000001';
 const CPS = '50000000-0000-4000-8000-000000000001';
 const POOL_OLD = '60000000-0000-4000-8000-000000000001';
 const POOL_NOW = '60000000-0000-4000-8000-000000000002';
+const POOL_LATER = '60000000-0000-4000-8000-000000000003';
 const H = (n: number) => `20000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
 let sql: (text: string) => string;
@@ -212,6 +213,20 @@ describe('the Lightning bank-the-win reading', () => {
     hand(4, OTHER_CL, 2, '2026-11-14T12:04Z', 3); // another pool
     hand(5, CL, 1, '2026-11-14T12:05Z', 2); // a stale epoch row
     expect(reading()).toMatchObject({ players_per_hand: 4 });
+  });
+
+  it('counts only hands formed since THIS session entered, even inside the same epoch', () => {
+    // Review note N3 (#10885): an earlier, closed pool session of the SAME
+    // epoch. Without the entered_at bound its hand would answer for a session
+    // that has not been dealt a settled hand yet.
+    sql(`UPDATE lightning_pool_session SET exited_at = '2026-11-14T13:00Z' WHERE id = '${POOL_NOW}';
+         INSERT INTO lightning_pool_session VALUES
+           ('${POOL_LATER}', '${CL}', 2, '${HORSE}', '${CPS}', '${SEAT}', '2026-11-14T14:00Z', NULL);`);
+    expect(reading()).toMatchObject({ found: true, players_per_hand: 0 });
+    hand(6, CL, 2, '2026-11-14T14:01Z', 3);
+    expect(reading()).toMatchObject({ players_per_hand: 3 });
+    sql(`UPDATE lightning_pool_session SET exited_at = '2026-11-14T15:00Z' WHERE id = '${POOL_LATER}';
+         UPDATE lightning_pool_session SET exited_at = NULL WHERE id = '${POOL_NOW}';`);
   });
 
   it('keeps its grants: the engine may read it, no client role may', () => {

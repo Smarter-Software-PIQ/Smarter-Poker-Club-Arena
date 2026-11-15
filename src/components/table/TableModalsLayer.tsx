@@ -1090,6 +1090,7 @@ function TableModalsLayerImpl(props: TableModalsLayerProps) {
 
       {/* Last 5 jackpots + what this table pays */}
       <BBJInfoModal
+        tableId={tableId}
         isOpen={showBBJDetails}
         onClose={() => setShowBBJDetails(false)}
         poolId={bbjPoolId ?? null}
