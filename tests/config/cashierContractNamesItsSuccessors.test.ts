@@ -43,6 +43,7 @@ const READ_ONLY: Readonly<Record<string, string>> = {};
 
 /** Real `WHERE version = '<v>'` lines of the contract; comments do not count. */
 const named = (version: string) =>
+  /^\d{14}$/.test(version) &&
   new RegExp(`^\\s*WHERE version = '${version}'\\s*$`, 'm').test(contract);
 
 const pinned = [
@@ -55,22 +56,26 @@ const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
  * Pinned functions whose definition this SQL creates, replaces, alters or
- * patches. Schema-qualified or not, quoted or not. GRANT, REVOKE and COMMENT ON
- * statements do not change a definition and are removed first.
+ * patches or drops. Schema-qualified or not, quoted or not. GRANT, REVOKE and
+ * COMMENT say "ON FUNCTION" and do not change a definition; they are excluded at
+ * the match. Nothing is cut out of the text first: cutting from a stray "grant"
+ * in a comment to the next semicolon once hid a CREATE header (review B2).
  */
 export function changedPinnedFunctions(sql: string, names: readonly string[]): string[] {
   const code = sql
     .split('\n')
     .filter((line) => !line.trimStart().startsWith('--'))
-    .join('\n')
-    .replace(/\b(?:GRANT|REVOKE)\b[^;]*;/gi, ' ')
-    .replace(/\bCOMMENT\s+ON\b[^;]*;/gi, ' ');
+    .join('\n');
   return names.filter((name) => {
     const n = escape(name);
     const fn = `(?:"?public"?\\s*\\.\\s*)?"?${n}"?\\s*\\(`;
     const qualified = `'(?:"?public"?\\.)"?${n}"?\\(`;
     return (
-      new RegExp(`FUNCTION\\s+${fn}`, 'i').test(code) ||
+      new RegExp(`(?<!\\bON\\s+)FUNCTION\\s+${fn}`, 'i').test(code) ||
+      new RegExp(
+        `(?:ALTER|DROP)\\s+FUNCTION\\s+(?:IF\\s+EXISTS\\s+)?(?:"?public"?\\s*\\.\\s*)?"?${n}"?(?![a-z0-9_])`,
+        'i'
+      ).test(code) ||
       new RegExp(`pg_get_functiondef\\(\\s*${qualified}`, 'i').test(code) ||
       new RegExp(`${qualified}[^']*\\)'\\s*::\\s*regprocedure`, 'i').test(code) ||
       // a signature handed to a patch loop (ARRAY['public.fn(...)', ...] LOOP);
@@ -155,6 +160,11 @@ describe('the cashier release contract names every migration that changed a pinn
       'CREATE OR REPLACE FUNCTION "public"."fn_cashier_history_feed"(p uuid)',
       'ALTER FUNCTION public.fn_cashier_history_feed(uuid) SET search_path = public',
       'd := pg_get_functiondef(\'"public"."fn_cashier_history_feed"(uuid)\'::regprocedure);',
+      // review B2: a stray grant or revoke before the header must not hide it
+      '/* Replace the feed, then re-grant it below. */\nCREATE OR REPLACE FUNCTION public.fn_cashier_history_feed(p uuid)\n RETURNS int LANGUAGE sql AS $$ SELECT 1; $$;',
+      'REVOKE ALL ON FUNCTION public.fn_other(uuid) FROM PUBLIC; -- revoke first, then replace\nCREATE OR REPLACE FUNCTION public.fn_cashier_history_feed(p uuid)\n RETURNS int LANGUAGE sql AS $$ SELECT 1; $$;',
+      'ALTER FUNCTION public.fn_cashier_history_feed SECURITY INVOKER;',
+      'DROP FUNCTION IF EXISTS public.fn_cashier_history_feed;',
     ])
       expect(changedPinnedFunctions(sql, names), sql).toEqual(names);
     for (const sql of [
@@ -168,6 +178,7 @@ describe('the cashier release contract names every migration that changed a pinn
   it('a version is named only by a real WHERE line, never by a comment', () => {
     expect(named('20261114171135')).toBe(true);
     expect(named('20261114')).toBe(false);
+    expect(named('.*')).toBe(false);
     const commentOnly = contract.replace(
       /^(\s*)WHERE version = '20261114171135'$/m,
       "$1-- WHERE version = '20261114171135'"
