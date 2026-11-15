@@ -1,10 +1,12 @@
 # omahaNutClassValueSize (owner ruling 2026-11-14)
 
-Off by default (opt-in, read `=== true`): owner instruction 2026-11-14 23:40 America/Chicago keeps an option off unless both the owner's verbatim authorization and the governing evidence are there; rows 3 to 5 below are not measured. It goes on only after a declared paired evaluation passes and an exact-head review. Evidence for the eight rows of [HORSE-DECISION-CHANGE-EVIDENCE.md](../HORSE-DECISION-CHANGE-EVIDENCE.md). The pull request that carries this file is the one titled "Omaha turn and river: a made hand a straight or flush beats plays defense"; the size rule it overrides for nut hands, V40, was last touched for the river in #10642.
+On by default on the owner's order of 2026-11-15 00:32 America/Chicago, given after he was told the option was unmeasured and would ship off (his words are at the end of this file). Rows marked NOT MET are unmeasured and rest on that authority alone; the declared paired evaluation is running and a failing result switches the option off again. Evidence for the eight rows of [HORSE-DECISION-CHANGE-EVIDENCE.md](../HORSE-DECISION-CHANGE-EVIDENCE.md). The pull request that carries this file is the one titled "Omaha turn and river: a made hand a straight or flush beats plays defense"; the size rule it overrides for nut hands, V40, was last touched for the river in #10642.
 
 This option is turned on by the owner's direct ruling (when a Horse holds the nuts it stops betting fractions of the pot). No value row was computed; that is stated under Value and Limits.
 
 ## Mechanism
+
+Status: MET
 
 The engine sizes a value bet or raise from an equity tier, board wetness and several caps (V40, the five- and six-card damp). A hand that cannot be beaten on the street was sized by the same arithmetic and often bet half the pot or less.
 
@@ -12,29 +14,49 @@ The engine sizes a value bet or raise from an equity tier, board wetness and sev
 
 ## Input fidelity
 
+Status: MET
+
 The rule reads the Horse's cards, the board, the legal wager bounds of the authoritative state (schema version 1, wagers not capped) and the opponents' stacks. It reads no opponent model. Its decision-level cases are built states; the nut straight cases use the boards of the reported hands with a nut holding in place of the recorded one.
 
 ## Value
+
+Status: NOT MET
+
+Owner authority: plo-handoff-review-01a1cbbd/river-raise-59401453/OWNER-TEXT-20261114-PLO-CHAT-VERBATIM.md sha256 5cc031277caf3508f48bd859c52361441823a0825aaa8d89a5e09ec89d0f7cc6
 
 Not measured. With the nuts on the river a larger called bet wins more and a larger bet is called less often; which effect is larger depends on the callers' ranges and was not simulated. On the flop and turn a pot-sized bet with the current nuts also charges draws the most. No figure is offered. The sign is unsupported by a value row and rests on the owner's ruling.
 
 ## Continuation
 
+Status: NOT MET
+
+Owner authority: plo-handoff-review-01a1cbbd/river-raise-59401453/OWNER-TEXT-20261114-PLO-CHAT-VERBATIM.md sha256 5cc031277caf3508f48bd859c52361441823a0825aaa8d89a5e09ec89d0f7cc6
+
 Not measured. How much less often a pot-sized bet is called than the engine's earlier size, by street and by caller, was not counted.
 
 ## Reach
+
+Status: NOT MET
+
+Owner authority: plo-handoff-review-01a1cbbd/river-raise-59401453/OWNER-TEXT-20261114-PLO-CHAT-VERBATIM.md sha256 5cc031277caf3508f48bd859c52361441823a0825aaa8d89a5e09ec89d0f7cc6
 
 Not counted from recorded hands. In the first fix's three-day count of human-facing PLO4, PLO5 and PLO6 cash, 32 of 57 Horse river raises facing a wager were nut or effective-nut hands; how many of those were below the pot, and all bets with no wager faced, were not counted.
 
 ## Scope
 
+Status: MET
+
 Gated in code to all of: PLO4 or PLO5, not Hi-Lo, not fixed limit, one board, not an all-in-or-fold table, the flop, turn or river, an existing bet or raise decision, the authoritative wager bounds present, a nut-class hand, at least one opponent the current amount does not already cover. PLO6 is outside. Decision-level cases in `HorseOmahaMadeHandDefense.test.ts`: the flop, turn and river pot bets; the nut straight raising the pot; a hand that is not nut class keeping its size; a check and a call never becoming a wager. `HorseHeadsUpCommitment.test.ts` pins that a heads-up raise that already covers the opponent keeps its amount.
 
 ## Visibility
 
+Status: MET
+
 `omaha_nut_class_pot_wager` fires each time the size is raised (registered in `HorseDataLedger.ts`).
 
 ## Limits
+
+Status: MET
 
 - No value or continuation measurement. A fixed pot size with the nuts and smaller sizes with other hands makes the size informative to an observant opponent.
 - The current nuts on the flop or turn can be outdrawn; the rule sizes for the street, not for the runout.
@@ -49,4 +71,6 @@ The owner's own text, exactly as typed; "[...]" marks words left out, nothing is
 - 20:43: "[...] WINNING THE MINIMUM WITH VALUE HANDS BECAUSE THEY ARE BETTING FRACTIONS OF POTS, AND NOT RE RAISING BIG ENOUGH PRE TO BUILD POTS... YOU NEED TO FIX THIS NOW!!"
 - 21:33 (hand 59431232): "[...] CHECKS FLOP, BETS 33% POT ON TURN [...]"
 
-This option is OFF by default; the owner's words above name the misplay it answers and are not a measurement. Its value against a calling range is not measured (stated in the rows above); it changes a size only when the Horse holds the nuts or an effective-nut hand for the street.
+This option is ON by default on the owner's order below; his words name the misplay it answers and are not a measurement. Its value against a calling range is not measured (stated in the rows above); it changes a size only when the Horse holds the nuts or an effective-nut hand for the street.
+
+2026-11-15 00:32 America/Chicago, after the lane told him this rule would ship switched off because it is unmeasured: "BRO MAKE IT YOURS! WHY THE FUCK WOULD YOU LEAVE THE MOST IMPRORTANT FEATURE AND THING WE NEEDED TO BE TURNED ON LEFT THE FUCK OUT!?!?!?" and "IT BETTER BE IN THIS NEXT CUT OVER!"

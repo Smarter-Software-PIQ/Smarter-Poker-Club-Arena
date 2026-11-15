@@ -59,3 +59,7 @@ Hand Analysis reviewed the pull request at 1921fa54 and asked for the three unme
 Open PLO Strategy findings, not addressed here: one-pair river bets (hands 59407629, 59430325); one-pair-aces stack-offs (59426444, 59417700); 59431232 and 59435912 have no decision node in this change; the turn and river hands 59414191 and 59416584 are answered only with the opt-in rule switched on.
 
 PLO6 pressure evidence (`HorseV53PressureBehavior`): at 110 hands the PLO6 3-bet counts tied 16 to 16 after this change; at 220 hands the counts are 38 against 33 (PLO6), 38 against 15 (PLO4) and 37 against 31 (PLO5), so the test plays 220 hands. No engine change was made for it; development evidence only.
+
+## Owner's order, 2026-11-15 00:32 America/Chicago
+
+Told that the turn made-hand rule and the nut-class pot size would ship switched off as unmeasured, the owner ordered them into this release switched on. `omahaBeatenMadeHandDefense` and `omahaNutClassValueSize` are therefore read `!== false` (on); their evidence files mark Value and Continuation (and Reach for the size rule) NOT MET with the owner's authority, and say so. `omahaBluffCatcherRaiseFold` stays off (owner 2026-11-14 23:10: no blanket fold). Their league cards are removed with the default; the declared paired evaluation runs outside the league and a failing result switches the option off again. Where this section and an earlier one disagree about on and off, this section is the head's state.

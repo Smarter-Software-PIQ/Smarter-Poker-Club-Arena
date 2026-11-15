@@ -1,10 +1,12 @@
 # omahaBeatenMadeHandDefense (owner rulings 2026-11-14, hands 59414191 and 59416584)
 
-Off by default (opt-in, read `=== true`): owner instruction 2026-11-14 23:40 America/Chicago keeps an option off unless both the owner's verbatim authorization and the governing evidence are there; rows 3 to 5 below are not measured. It goes on only after a declared paired evaluation passes and an exact-head review. Evidence for the eight rows of [HORSE-DECISION-CHANGE-EVIDENCE.md](../HORSE-DECISION-CHANGE-EVIDENCE.md). The pull request that carries this file is the one titled "Omaha turn and river: a made hand a straight or flush beats plays defense"; it sits on the first fix for hand 59401453 (only the nuts raise an Omaha river bet), and the made-hand class it reads beside, V40, was last touched for the river in #10642. Chip amounts are table chips.
+On by default on the owner's order of 2026-11-15 00:32 America/Chicago, given after he was told the option was unmeasured and would ship off (his words are at the end of this file). Rows marked NOT MET are unmeasured and rest on that authority alone; the declared paired evaluation is running and a failing result switches the option off again. Evidence for the eight rows of [HORSE-DECISION-CHANGE-EVIDENCE.md](../HORSE-DECISION-CHANGE-EVIDENCE.md). The pull request that carries this file is the one titled "Omaha turn and river: a made hand a straight or flush beats plays defense"; it sits on the first fix for hand 59401453 (only the nuts raise an Omaha river bet), and the made-hand class it reads beside, V40, was last touched for the river in #10642. Chip amounts are table chips.
 
 This option is turned on by the owner's direct rulings on two reported hands, as a defect repair. No value comparison of the old and new action was computed; that is stated under Value and Limits.
 
 ## Mechanism
+
+Status: MET
 
 Two PLO5 cash hands on one evening. In 59414191 a Horse with a set faced a pot-sized lead on the turn card that made straights possible and raised it, then bet the river when the player who had led checked. In 59416584 a Horse with a set bet first to act into the turn card that made a straight possible, and a second Horse with top two pair moved all in over that bet.
 
@@ -19,9 +21,15 @@ In position and checked to on the fresh card, the hand may still bet (hand 59401
 
 ## Input fidelity
 
+Status: MET
+
 The nodes are the recorded public snapshots of the two hands (the complaint fixtures). They carry the public state and the table's VPIP floor; they do not carry the seat's judged VPIP, the opponent read or the second look. With the opponent memory on and empty the replay reproduces the recorded turn raise of 59414191 on 51 of 60 seeds; with it off the same node calls on 60 of 60, so that raise depended on the memory path being present, not on a read of the bettor. The other three nodes reproduce the recorded action class on 60 of 60 seeds with the memory off. The rule itself reads only the Horse's cards, the board and the public actions.
 
 ## Value
+
+Status: NOT MET
+
+Owner authority: plo-handoff-review-01a1cbbd/river-raise-59401453/OWNER-TEXT-20261114-PLO-CHAT-VERBATIM.md sha256 5cc031277caf3508f48bd859c52361441823a0825aaa8d89a5e09ec89d0f7cc6
 
 Not measured as a comparison of actions. What was computed (sampled opponent holdings against the Horse's hand at the recorded turn boards, exact river enumeration, 1,000 holdings per class):
 
@@ -35,21 +43,33 @@ These are the Horse's equities, not the value of raising against calling. A rais
 
 ## Continuation
 
+Status: NOT MET
+
+Owner authority: plo-handoff-review-01a1cbbd/river-raise-59401453/OWNER-TEXT-20261114-PLO-CHAT-VERBATIM.md sha256 5cc031277caf3508f48bd859c52361441823a0825aaa8d89a5e09ec89d0f7cc6
+
 Not measured. How often a player who leads or raises the card that completes a straight holds it, and how often worse hands call a turn raise or a river bet in these lines, were not counted.
 
 ## Reach
+
+Status: MET
 
 Recorded Horse turn raises facing a wager in human-facing PLO4, PLO5 and PLO6 cash hands, classified with the rule's own `omahaBeatenByBoard` (a read-only extract; its time window was not written down with the count): 38 raises, 9 of them with a beaten hand (5 PLO4, 3 PLO5, 1 PLO6: 5 sets or trips, 2 two pair, 2 second-nut flushes). Those 9 become calls, 24% of the recorded turn raises. The 29 others (9 nut straights, 8 full houses or better, 5 sets on a board with no straight or flush possible, 6 one pair, 1 no pair) are untouched. The two checking rules were not counted in production. At the four reported nodes the action changes on 60 of 60 seeds.
 
 ## Scope
 
+Status: MET
+
 Gated in code to all of: PLO4, PLO5 or PLO6, not Hi-Lo, not fixed limit, one board, not an all-in-or-fold table, the turn or the river, a straight or flush possible on the board, a hand of two pair up to a non-nut flush. Cash and tournaments, heads-up and multiway are inside. Decision-level cases in `HorseOmahaMadeHandDefense.test.ts`: the four reported nodes; PLO4, PLO5 and PLO6 top two pair facing a turn bet; the nut straight still raising and betting; a board with no straight or flush possible unchanged; Hi-Lo unchanged; the flop unchanged; an all-in that is the call unchanged; the set checked to in position still betting. Tournaments and multiway turn pots have no decision-level case of their own.
 
 ## Visibility
 
+Status: MET
+
 Receipts registered in `HorseDataLedger.ts`: `omaha_turn_beaten_raise_flatted`, `omaha_turn_beaten_raise_fold_restored`, `omaha_beaten_fresh_card_check`, `omaha_beaten_river_no_value_bet`.
 
 ## Limits
+
+Status: MET
 
 - Two reported hands, four nodes. No value comparison and no continuation measurement supports the sign; the owner's ruling does.
 - The rule removes semi-bluff and protection raises with a set or two pair on a straight- or flush-possible turn in every line, including against a small bet and against a player who bluffs often. No opponent read is consulted.
@@ -66,4 +86,6 @@ The owner's own text, exactly as typed; "[...]" marks words left out, nothing is
 - 20:40 (hand 59414191): "[...] THE HORSE AGAIN RAISES WHEN CLEARLY THERE IS A STRAIGHT OUT THERE. [...] WHY AREN'T THE HORSES AWARD THAT STRAIGHTS BE TWO PAIRS AND SETS?!?!?!?"
 - 22:02: "NO RAISING THE TURN AS WELL WITHOUT THE NUTS OR CLOSE TO THE NUTS! HOW MANY TIMES HAVE I SHOWN YOU A RAISE WITH TOP SET ON THE TURN WITH 2-3 DIFFERENT STRAIGHTS AND OR FLUSHES OUT THERE... STOP THE MADNESS AND THE BLEEDING! [...] FIX THIS NOW"
 
-This option is OFF by default; the owner's words above name the misplay it answers and are not a measurement. Its value, continuation and reach rows are not measured (stated in the rows above); its actions are a call or a check, never a fold.
+This option is ON by default on the owner's order below; his words name the misplay it answers and are not a measurement. Its value, continuation and reach rows are not measured (stated in the rows above); its actions are a call or a check, never a fold.
+
+2026-11-15 00:32 America/Chicago, after the lane told him this rule would ship switched off because it is unmeasured: "BRO MAKE IT YOURS! WHY THE FUCK WOULD YOU LEAVE THE MOST IMPRORTANT FEATURE AND THING WE NEEDED TO BE TURNED ON LEFT THE FUCK OUT!?!?!?" and "IT BETTER BE IN THIS NEXT CUT OVER!"
