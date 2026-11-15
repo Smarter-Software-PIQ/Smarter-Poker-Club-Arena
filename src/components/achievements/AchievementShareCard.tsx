@@ -13,27 +13,13 @@
  */
 
 import React, { useRef, useCallback, useState, useEffect } from 'react';
+import { shareFile } from '../../lib/share';
 import { haptic } from '../../services/HapticService';
 import './AchievementShareCard.css';
 import { reportError } from '../../utils/errorReporter';
-import { IS_NATIVE_BUILD, isNativePlatform } from '../../lib/appBase';
 import { SpadeConsole, type ConsoleInk } from '../console/SpadeConsole';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { titleCase } from '../../utils/titleCase';
-
-/**
- * The system share sheet (src/lib/native/share.ts). App build only, and a
- * function of its own on purpose: Rollup keeps everything written inside a
- * `try` block whatever a constant says (its default
- * treeshake.tryCatchDeoptimization), so this import() written inside the share
- * handler's try made the web build emit the share module and its Capacitor
- * plugins for players who can never run them. Here IS_NATIVE_BUILD removes it.
- */
-async function shareOnNative(blob: Blob, filename: string, title: string): Promise<void> {
-  if (!IS_NATIVE_BUILD) return;
-  const { nativeShareBlob } = await import('../../lib/native/share');
-  await nativeShareBlob(blob, filename, title);
-}
 
 interface AchievementShareCardProps {
   icon: string;
@@ -211,68 +197,30 @@ export const AchievementShareCard: React.FC<AchievementShareCardProps> = ({
       return;
     }
 
-    try {
-      // Try Web Share API first (mobile)
-      if (navigator.share && navigator.canShare) {
-        const blob = await new Promise<Blob | null>((resolve) => {
-          canvas.toBlob(resolve, 'image/png');
-        });
-
-        if (blob) {
-          const file = new File(
-            [blob],
-            `achievement-${name.toLowerCase().replace(/\s+/g, '-')}.png`,
-            {
-              type: 'image/png',
-            }
-          );
-
-          const shareData = {
-            title: `${name}`,
-            text: `I just unlocked "${name}" on Club Arena! ${description}`,
-            files: [file],
-          };
-
-          if (navigator.canShare(shareData)) {
-            await navigator.share(shareData);
-            setSharing(false);
-            onClose();
-            return;
-          }
-        }
-      }
-
-      // THE APP (2026-09-08): Android's webview has no navigator.share and
-      // neither webview honours <a download>. The system share sheet, via
-      // Filesystem + Share (src/lib/native/share.ts).
-      if (IS_NATIVE_BUILD && isNativePlatform()) {
-        const png = await new Promise<Blob | null>((resolve) =>
-          canvas.toBlob(resolve, 'image/png')
-        );
-        if (png) {
-          await shareOnNative(
-            png,
-            `achievement-${name.toLowerCase().replace(/\s+/g, '-')}.png`,
-            name
-          );
-          setSharing(false);
-          onClose();
-          return;
-        }
-      }
-
-      // Fallback: download the image
-      const link = document.createElement('a');
-      link.download = `achievement-${name.toLowerCase().replace(/\s+/g, '-')}.png`;
-      link.href = canvas.toDataURL('image/png');
-      link.click();
-    } catch (err) {
-      if ((err as Error).name !== 'AbortError') {
-        reportError(err, 'AchievementShareCard.Share_failed');
-      }
+    const filename = `achievement-${name.toLowerCase().replace(/\s+/g, '-')}.png`;
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+    if (!blob) {
+      reportError(new Error('Canvas produced no image'), 'AchievementShareCard.Share_failed');
+      setSharing(false);
+      return;
     }
-
+    const outcome = await shareFile({
+      source: 'AchievementShareCard.share',
+      blob,
+      filename,
+      title: `${name}`,
+      text: `I just unlocked "${name}" on Club Arena! ${description}`,
+      download: (file, png) => {
+        const href = URL.createObjectURL(png);
+        const link = document.createElement('a');
+        link.download = file;
+        link.href = href;
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(href), 10_000);
+      },
+    });
     setSharing(false);
+    if (outcome === 'shared') onClose();
   };
 
   const unlockedLabel = unlockedAt

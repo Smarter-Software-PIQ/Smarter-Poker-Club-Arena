@@ -11,6 +11,7 @@
  */
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { copyText } from '../../lib/share';
 import { useNavigate } from 'react-router-dom';
 import { useToast } from '../../components/common/Toast';
 import styles from '../../pages/HomePage.module.css';
@@ -51,8 +52,11 @@ export default function ClubContextMenu({
   const handleShareCode = useCallback(() => {
     onClose();
     const code = club.club_id || '';
-    navigator.clipboard?.writeText(String(code));
-    toast.success(`Club code ${code} copied!`);
+    void copyText(String(code), 'ClubContextMenu.copy').then((ok) =>
+      ok
+        ? toast.success(`Club Code ${code} Copied`)
+        : toast.error(`Could Not Copy. Club Code Is ${code}`)
+    );
   }, [club.club_id, onClose, toast]);
 
   // BUG FIX #2: Only delegate to parent — do NOT call ClubsService.leave() here

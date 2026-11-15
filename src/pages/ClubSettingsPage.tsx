@@ -1,4 +1,5 @@
 import { useCashRakePolicyVersion } from '../hooks/useCashRakePolicyVersion';
+import { writeClipboard } from '../lib/share';
 /**
  *  CLUB SETTINGS PAGE — Club Configuration
  */
@@ -1139,7 +1140,7 @@ export default function ClubSettingsPage() {
   const copyClubCode = async () => {
     if (clubCode == null) return;
     try {
-      await navigator.clipboard.writeText(String(clubCode));
+      await writeClipboard(String(clubCode));
       toast.success('Club code copied');
     } catch {
       toast.error('Could not copy - code is ' + String(clubCode));
@@ -1455,7 +1456,7 @@ export default function ClubSettingsPage() {
                     ? shortInvite.url
                     : `${publicOrigin()}/hub/club-arena/invite/${clubId}?ref=${playerNumber}`;
                 try {
-                  await navigator.clipboard.writeText(url);
+                  await writeClipboard(url);
                   if (activeSettingsScopeRef.current === ownerScope && isMountedRef.current)
                     toast.success('Invite Link Copied To Clipboard!');
                 } catch (error) {

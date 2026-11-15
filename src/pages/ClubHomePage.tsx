@@ -1,4 +1,5 @@
 import { isRetiredTournament, isRetiredTournamentTable } from '../lib/retiredTournamentVisibility';
+import { copyText } from '../lib/share';
 import { useEntryFreeze, withFreezeTime } from '../hooks/useEntryFreeze';
 import LobbyFilterLabel from '../components/lobby/LobbyFilterLabel';
 import LobbyGameSections from '../components/lobby/LobbyGameSections';
@@ -5744,16 +5745,19 @@ function ClubHomePageContent({
                   : null
               }
               onCopyClubId={() => {
-                navigator.clipboard.writeText(club.club_id.toString());
-                toast.success('Club ID Copied');
+                void copyText(club.club_id.toString(), 'ClubHomePage.copyClubId').then((ok) =>
+                  ok ? toast.success('Club ID Copied') : toast.error('Could Not Copy Club ID')
+                );
               }}
               onCopyPlayerId={
                 currentUser?.player_number
                   ? () => {
                       const referralId = referralIdFor(currentUser.player_number) ?? '';
-                      navigator.clipboard.writeText(referralId);
-                      if (isNamedReferralId(referralId)) toast.success('Referral ID Copied');
-                      else toast.success('Player Number Copied');
+                      void copyText(referralId, 'ClubHomePage.copyPlayerId').then((ok) => {
+                        if (!ok) toast.error('Could Not Copy');
+                        else if (isNamedReferralId(referralId)) toast.success('Referral ID Copied');
+                        else toast.success('Player Number Copied');
+                      });
                     }
                   : undefined
               }

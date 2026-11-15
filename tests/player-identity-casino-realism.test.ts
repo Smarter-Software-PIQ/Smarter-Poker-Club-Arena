@@ -136,7 +136,8 @@ describe('the public credential is the felt view of a player', () => {
   it('renders the QR locally and reports a refused clipboard', () => {
     expect(PUBLIC).toContain("from 'qrcode.react'");
     expect(PUBLIC_CODE).not.toContain('qrserver');
-    expect(PUBLIC).toContain('await navigator.clipboard.writeText(link)');
+    expect(PUBLIC).toContain("source: 'PublicProfilePage.share'");
+    expect(PUBLIC).toContain("if (outcome === 'failed') toast.error(");
     expect(PUBLIC_CODE).not.toContain('(profile as any).achievements');
     expect(read('src/services/MessagingService.ts')).not.toContain('generateProfileQRData(');
   });
