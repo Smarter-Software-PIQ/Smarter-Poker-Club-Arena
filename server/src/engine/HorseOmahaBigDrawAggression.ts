@@ -80,6 +80,7 @@ import type { Card, SeatPlayer } from '../types.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
 import { RANKS, SUITS } from './PokerEngine.js';
 import { omahaNutStatus, scoreOmahaHi, scoreOmahaHiPartial, variantInfo } from './HorseEval.js';
+import { omahaCashOnlyExcludes, omahaIcmPremiumOf } from './HorseOmahaTournamentScope.js';
 
 export const OMAHA_BIG_DRAW_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
 /** Fold to a bet when no read exists. The sweep's humans, heads-up, folded to
@@ -292,10 +293,9 @@ export function omahaDrawRaiseBarOf(
         : variantInfo(gs.gameVariant).isHiLo,
       multiBoard: !!(gs.communityCards2?.length || gs.communityCards3?.length),
       bombPot: gs.bombPot === true,
-      // HorseLogic.isTournamentMode: the engine's explicit mode wins.
-      tournament: gs.gameMode
-        ? gs.gameMode === 'tournament'
-        : gs.tournament != null || (gs.bigBlind ?? 0) >= 10,
+      // HorseLogic.isTournamentMode: the engine's explicit mode wins;
+      // omahaStrategyInTournaments opens its public tournament scope.
+      tournament: omahaCashOnlyExcludes(player, gs),
       allInOrFold: gs.allInOrFold === true,
     });
   } catch {
@@ -501,6 +501,13 @@ export interface OmahaBigDrawInput {
   tournament: boolean;
   allInOrFold: boolean;
   wagersCapped: boolean;
+  /**
+   * omahaStrategyInTournaments: the engine's tournament survival premium
+   * (icmRisk, HorseOmahaTournamentScope.omahaTournamentIcmRisk); 0 or absent
+   * in cash. Each line is charged premium x sqrt(stack share risked) on the
+   * money at stake when it goes to showdown.
+   */
+  icmRisk?: number;
 }
 
 export type OmahaBigDrawWithheld =
@@ -597,10 +604,16 @@ export function omahaBigDrawVerdict(i: OmahaBigDrawInput): OmahaBigDrawVerdict |
     foldEquity *= facing ? f * OMAHA_BIG_DRAW_RAISE_FOLD_SCALE : f;
   }
   const called = facing ? equities.raise : equities.bet;
-  const evAggressive = foldEquity * pot + (1 - foldEquity) * (called * (pot + cost + x) - cost);
+  const risk = Number.isFinite(i.icmRisk) && (i.icmRisk as number) > 0 ? (i.icmRisk as number) : 0;
+  const stackNow = fin(i.stack);
+  const charge = (chips: number, atStake: number): number =>
+    risk > 0 ? omahaIcmPremiumOf(risk, chips, stackNow) * atStake : 0;
+  const evAggressive =
+    foldEquity * pot +
+    (1 - foldEquity) * (called * (pot + cost + x) - cost - charge(cost, pot + cost + x));
   const realised = i.inPosition ? 1 : OMAHA_BIG_DRAW_OOP_REALISATION;
   const evPassive = facing
-    ? realised * equities.bet * (pot + toCall) - toCall
+    ? realised * equities.bet * (pot + toCall) - toCall - charge(toCall, pot + toCall)
     : realised * equities.all * pot;
   const numbers = { foldEquity, equities, evAggressive, evPassive };
   if (!(evAggressive > evPassive + OMAHA_BIG_DRAW_MARGIN * pot) || !(evAggressive > 0))

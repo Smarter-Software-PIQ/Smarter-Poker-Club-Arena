@@ -66,6 +66,7 @@ import {
 } from './HorsePloPairedBoardFold.js';
 import { v81Cell, v86OmahaUnderboatOrDominatedFold } from './HorseOmahaBigBetCalls.js';
 import { horsePolicyDealtPlayers } from './multiway/DealtSeatCensus.js';
+import { omahaCashOnlyExcludes, omahaTournamentIcmPremium } from './HorseOmahaTournamentScope.js';
 
 export const OMAHA_OOP_CHECK_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
 
@@ -98,11 +99,9 @@ function scopeStreet(hero: SeatPlayer, gs: HorseGameStateV2, facing: boolean): S
   )
     return null;
   if (gs.allInOrFold === true) return null;
-  // Cash only (HorseLogic.isTournamentMode's own reading).
-  if (
-    gs.gameMode ? gs.gameMode === 'tournament' : gs.tournament != null || (gs.bigBlind ?? 0) >= 10
-  )
-    return null;
+  // Cash only (HorseLogic.isTournamentMode's own reading); omahaStrategyInTournaments
+  // opens its public tournament scope (HorseOmahaTournamentScope).
+  if (omahaCashOnlyExcludes(hero, gs)) return null;
   if ((gs.communityCards ?? []).length !== STREET_BOARD[stage]) return null;
   if (!Array.isArray(hero.cards) || hero.cards.length !== vi.holeCount) return null;
   const toCall = Number.isFinite(gs.toCall)
@@ -695,7 +694,9 @@ export function omahaOopTurnFacingBetVerdict(
     const price = call / (livePot + call);
     if (
       outs >= OMAHA_OOP_TURN_MIN_NUT_OUTS &&
-      price <= share + OMAHA_OOP_TURN_SHOWDOWN_CREDIT + 1e-9
+      // a tournament call also pays the survival premium (0 in cash)
+      price + omahaTournamentIcmPremium(hero, gs, call) <=
+        share + OMAHA_OOP_TURN_SHOWDOWN_CREDIT + 1e-9
     )
       return 'call_nut_draw';
     if (

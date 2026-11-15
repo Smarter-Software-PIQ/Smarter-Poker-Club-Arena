@@ -22,6 +22,7 @@ import type { HorseGameStateV2 } from './HorseLogic.js';
 import { variantInfo } from './HorseEval.js';
 import { omahaNutClassNow } from './HorseOmahaMadeHandDefense.js';
 import { omahaComboDrawForRaise } from './HorseOmahaBigDrawAggression.js';
+import { omahaCashOnlyExcludes } from './HorseOmahaTournamentScope.js';
 
 export const OMAHA_RAISE_NEEDS_NUTS_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
 
@@ -73,11 +74,9 @@ export function omahaRaiseNeedsNutsScope(
     const vi = variantInfo(variant);
     if (!vi.isOmaha || vi.isFixedLimit || gs.bettingStructure === 'fixed_limit') return null;
     if (gs.variantRules ? gs.variantRules.splitLow8OrBetter : vi.isHiLo) return null;
-    // Cash only (HorseLogic.isTournamentMode's own reading).
-    if (
-      gs.gameMode ? gs.gameMode === 'tournament' : gs.tournament != null || (gs.bigBlind ?? 0) >= 10
-    )
-      return null;
+    // Cash only (HorseLogic.isTournamentMode's own reading); omahaStrategyInTournaments
+    // opens its public tournament scope (HorseOmahaTournamentScope).
+    if (omahaCashOnlyExcludes(player, gs)) return null;
     if (
       (gs.boardCount ?? 1) !== 1 ||
       (gs.communityCards2?.length ?? 0) > 0 ||

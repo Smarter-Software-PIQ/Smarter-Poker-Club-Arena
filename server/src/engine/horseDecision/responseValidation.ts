@@ -64,6 +64,10 @@ import {
 } from '../HorseOmahaTurnRiverRaiseNeedsNuts.js';
 import { holdemFourBetSpot } from '../HorseHoldemPremiumAggression.js';
 import { tournamentShoveDiscipline } from '../HorseTournamentShoveDiscipline.js';
+import {
+  OMAHA_TOURNAMENT_SCOPE_ADMISSION,
+  withOmahaTournamentScope,
+} from '../HorseOmahaTournamentScope.js';
 
 const ACTIONS = ['fold', 'check', 'call', 'bet', 'raise', 'all_in'] as const;
 type RecordValue = Record<string, unknown>;
@@ -1072,7 +1076,25 @@ function onePairRuleProduces(
   );
 }
 
+/**
+ * omahaStrategyInTournaments: the request carries neither the options nor the
+ * ICM inputs, so the admissions below re-run the day's Omaha spots with their
+ * public tournament scope admitted and no survival premium
+ * (OMAHA_TOURNAMENT_SCOPE_ADMISSION). The premium only removes chip-adding
+ * answers, so this admits every answer the rules can produce; in cash and
+ * outside the public scope every spot reads exactly as before.
+ */
 function policyGraphIsValid(
+  value: RecordValue,
+  expectedVariant?: string,
+  context?: HorseDecisionReceiptContext
+): boolean {
+  return withOmahaTournamentScope(OMAHA_TOURNAMENT_SCOPE_ADMISSION, () =>
+    policyGraphIsValidInScope(value, expectedVariant, context)
+  );
+}
+
+function policyGraphIsValidInScope(
   value: RecordValue,
   expectedVariant?: string,
   context?: HorseDecisionReceiptContext

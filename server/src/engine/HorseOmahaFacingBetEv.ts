@@ -51,6 +51,7 @@ import type { Card, SeatPlayer } from '../types.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
 import { scoreOmahaHiPartial } from './HorseEval.js';
 import { v81StreetWager } from './HorseOmahaBigBetCalls.js';
+import { omahaCashOnlyExcludes } from './HorseOmahaTournamentScope.js';
 
 export const OMAHA_FACING_BET_EV_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
 
@@ -634,11 +635,9 @@ export function omahaFacingBetEvSpot(
   try {
     const variant = String(gs.gameVariant ?? '').toLowerCase();
     if (!OMAHA_FACING_BET_EV_VARIANTS.has(variant)) return null;
-    // Cash only, read as HorseLogic.isTournamentMode reads it.
-    const tournament = gs.gameMode
-      ? gs.gameMode === 'tournament'
-      : gs.tournament != null || (gs.bigBlind ?? 0) >= 10;
-    if (tournament) return null;
+    // Cash only, read as HorseLogic.isTournamentMode reads it;
+    // omahaStrategyInTournaments (HorseOmahaTournamentScope) opens its public tournament scope.
+    if (omahaCashOnlyExcludes(player, gs)) return null;
     const street = gs.stage === 'turn' ? 'turn' : gs.stage === 'river' ? 'river' : null;
     if (
       street === null ||
@@ -828,6 +827,14 @@ export interface OmahaFacingBetEvVerdict {
 export interface OmahaFacingBetEvContext {
   /** the marginal rake on the pot, as a fraction (0 when capped or none) */
   rake?: number;
+  /**
+   * omahaStrategyInTournaments: the tournament survival premium on this call
+   * (HorseOmahaTournamentScope.omahaTournamentIcmPremium), in equity. It is
+   * added to the one margin: EV(call) must exceed (margin + premium) x the
+   * final pot, which is the engine's tournament call bar (equity above the
+   * price plus the premium). 0 or absent: the cash arithmetic exactly.
+   */
+  riskPremium?: number;
   /** the engine's realization factor for a turn call with chips behind */
   realization?: number;
   /** per caller (spot.callerSeats order): what his calls of a wager this size were at showdown, when learned */
@@ -880,7 +887,11 @@ export function omahaFacingBetEvVerdict(
   const win = spot.winnable * (1 - rake);
   const pLose = Math.max(0, 1 - pWin - pTie);
   const ev = pWin * win + pTie * ((win - spot.paid) / 2) - pLose * spot.paid;
-  const margin = OMAHA_FACING_BET_EV_MARGIN * (spot.winnable + spot.paid);
+  const premium =
+    Number.isFinite(ctx.riskPremium) && (ctx.riskPremium as number) > 0
+      ? Math.min(0.5, ctx.riskPremium as number)
+      : 0;
+  const margin = (OMAHA_FACING_BET_EV_MARGIN + premium) * (spot.winnable + spot.paid);
   return {
     call: ev > margin,
     ev,

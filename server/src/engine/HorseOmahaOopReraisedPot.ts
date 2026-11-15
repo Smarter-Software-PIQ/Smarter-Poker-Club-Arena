@@ -129,6 +129,7 @@ import {
 } from './HorseEval.js';
 import { omahaNutClassOuts } from './HorseOmahaOnePair.js';
 import { handClassRead, omahaEliteClassRead } from './HorseHandClasses.js';
+import { omahaCashOnlyExcludes } from './HorseOmahaTournamentScope.js';
 import {
   RERAISED_POT_VARIANTS,
   omahaReraisedEquity,
@@ -517,9 +518,8 @@ export function omahaReraiseByPositionSpot(
   const stillToAct = live.some(
     (p) => !p.is_all_in && Number.isFinite(p.bet) && (p.bet ?? 0) < price - 0.005
   );
-  const tournament = gs.gameMode
-    ? gs.gameMode === 'tournament'
-    : gs.tournament != null || (gs.bigBlind ?? 0) >= 10;
+  // Cash only; omahaStrategyInTournaments opens its public tournament scope.
+  const tournament = omahaCashOnlyExcludes(player, gs);
   return {
     raiserSeat,
     toCall,

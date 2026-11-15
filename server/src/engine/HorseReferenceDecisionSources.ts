@@ -87,6 +87,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the default-off Omaha street plan (owner 2026-11-15 11:43, omahaStreetPlan), first layer: a heads-up PLO4/PLO5 cash turn bet is priced against the check as a whole line with the opponent responses and every river card planned, and the river after that bet follows the recomputed plan where the paired-board fold would otherwise fold',
     'src/engine/horsePublicActionTime.ts':
       'the default-off public-only action time (owner 2026-11-15 12:16, horseActionTimeIsPublicOnly): the think time of every game is produced from the street, board, pot, price, stacks, players in, the action and amount shown, the seat tempo and its own random stream, never from the private hand',
+    'src/engine/HorseOmahaTournamentScope.ts':
+      'the default-off Omaha tournament scope (owner 2026-11-15 13:16, omahaStrategyInTournaments): where the cash-scoped PLO4/PLO5 rules of 2026-11-15 also run in a tournament hand (high only, one board, not All-In-Or-Fold, not Lightning, deeper than the 14 big blind push/fold line), and the tournament survival premium (icmRisk x sqrt(stack share)) a chip-adding conversion adds to its price',
     'src/engine/HorseOmahaBigDrawAggression.ts':
       'the default-off Omaha big-draw aggression (owner 2026-11-15 11:55): on a PLO4/PLO5 cash flop or turn a check or call with a declared big draw becomes a pot-sized bet or raise only when its expected value (measured fold equity, equity against the continuing range) is above the passive line; the outermost wager rule',
     'src/engine/HorseOmahaMadeHandDefense.ts':

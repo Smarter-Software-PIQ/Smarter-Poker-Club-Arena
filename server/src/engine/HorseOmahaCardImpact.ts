@@ -61,6 +61,11 @@ import type { OmahaReadConditional } from './HorseOmahaReadConditional.js';
 import { scoreOmahaHiPartial, variantInfo } from './HorseEval.js';
 import { omahaNutClassNow } from './HorseOmahaMadeHandDefense.js';
 import { RANKS, RANK_VALUES, SUITS } from './PokerEngine.js';
+import {
+  omahaCashOnlyExcludes,
+  omahaIcmPremiumOf,
+  omahaTournamentIcmRisk,
+} from './HorseOmahaTournamentScope.js';
 
 export const OMAHA_CARD_IMPACT_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
 /** Opponent hands sampled per decision. */
@@ -172,10 +177,8 @@ export function omahaCardImpactScope(
     )
       return null;
     if (gs.allInOrFold === true || gs.wagersCapped === true) return null;
-    if (
-      gs.gameMode ? gs.gameMode === 'tournament' : gs.tournament != null || (gs.bigBlind ?? 0) >= 10
-    )
-      return null;
+    // Cash only; omahaStrategyInTournaments opens its public tournament scope.
+    if (omahaCashOnlyExcludes(hero, gs)) return null;
     if ((gs.communityCards ?? []).length !== STREET_BOARD[stage]) return null;
     if (!Array.isArray(hero.cards) || hero.cards.length !== vi.holeCount) return null;
     if (hero.is_folded || hero.is_all_in || !(hero.stack > 0)) return null;
@@ -929,19 +932,33 @@ export function omahaCardImpactDecision(
   // is priced). A bet that is not a value bet and is larger than the chosen
   // action is a bluff or a semi-bluff: the bluff and barrel paths decide those.
   const river = impact.street === 'river';
+  // omahaStrategyInTournaments: in a tournament every bet is charged the
+  // survival premium on the chips it risks, over the money at stake when it
+  // is called or raised (premium x (pot + 2 x bet) x continue share). The
+  // check is never charged, so the premium only ever moves the choice toward
+  // fewer chips. 0 in cash: the options are compared exactly as before.
+  const icmRisk = omahaTournamentIcmRisk(hero, gs);
+  const worth = (o: OmahaCardImpactOption): number =>
+    icmRisk > 0 && o.action !== 'check'
+      ? o.ev -
+        omahaIcmPremiumOf(icmRisk, o.amount, hero.stack) *
+          (gs.pot + 2 * o.amount) *
+          Math.max(0, Math.min(1, o.call + o.raise))
+      : o.ev;
   const admissible = (o: OmahaCardImpactOption): boolean =>
     o.action === 'check' ||
     o.value ||
     (!river && legacy.action !== 'check' && o.amount <= legacy.amount + 0.005);
   let chosen: OmahaCardImpactOption = admissible(legacy) ? legacy : impact.options[0];
-  for (const o of impact.options) if (admissible(o) && o.ev > chosen.ev) chosen = o;
+  for (const o of impact.options) if (admissible(o) && worth(o) > worth(chosen)) chosen = o;
   const same: OmahaCardImpactDecision = { decision, changed: null, impact, legacy, chosen: legacy };
   // A river bet that better hands call more than worse ones is replaced
   // whatever its modelled fold equity; every other replacement must be worth
   // more than the margin.
   const riverNotValue = river && legacy.action !== 'check' && !legacy.value;
   if (chosen === legacy) return same;
-  if (!riverNotValue && !(chosen.ev - legacy.ev > OMAHA_CARD_IMPACT_MARGIN * gs.pot)) return same;
+  if (!riverNotValue && !(worth(chosen) - worth(legacy) > OMAHA_CARD_IMPACT_MARGIN * gs.pot))
+    return same;
   if (chosen.action === 'check') {
     const checked: HorseDecision = { ...decision, action: 'check' };
     delete checked.amount;
