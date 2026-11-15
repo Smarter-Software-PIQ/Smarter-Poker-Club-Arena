@@ -529,12 +529,12 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
               } else if (!this.returningFromSitout.has(p.user_id) && !this.isTournamentTable()) {
                 this.registerWaitForBB(p.user_id);
                 if (entryHold === 'waiting' && entryAgreed) {
-                  // A SEAT CHANGE ARRIVES (Dan 2026-09-05): "SEAT CHANGE ALWAYS
-                  // RE POSTS THE BB WHEN GETTING TO A NEW TABLE." The executor
-                  // wrote the agreement on the chair; the same replay that
-                  // honours a tapped POST honours it - the live big blind on
-                  // the next deal, held until clear if they landed between the
-                  // button and the blind.
+                  // An arrival already carrying a standing agreement to post.
+                  // Since 2026-11-15 no seat move writes one (every move lands
+                  // 'moved', docs/LAWS.md "A moved player never posts to
+                  // enter"); a row written before then is honoured once - the
+                  // live big blind on the next deal, held until clear if it
+                  // landed between the button and the blind.
                   this.postBBWhenClear.add(p.user_id);
                   this.persistEntryHold(p.user_id, { hold: 'waiting', agreed: true });
                 }
