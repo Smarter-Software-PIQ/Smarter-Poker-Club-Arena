@@ -5,8 +5,8 @@
 #   preserve-host.sh status RELEASE8
 #   preserve-host.sh stop   RELEASE8                    (STOP file; the job exits before the next part)
 # Needs HVH_OPERATOR. Host folders: /root/hvh-work-<R> (scripts, logs, state), /var/lib/club-arena/hvh-preserve-<R> (byte copies + manifests).
-# Repository port: HVH_ENGINE_HOST (ssh alias, default ca-engine) and HVH_JOURNAL_DIR (journal on the host, default /var/lib/club-arena/horse-decisions; passed to the host job).
-set -u; M=${1:?mode}; R=${2:?release8}; T=$(cd "$(dirname "$0")" && pwd); SSH="ssh -o ConnectTimeout=10 ${HVH_ENGINE_HOST:-ca-engine}"; JDIR=${HVH_JOURNAL_DIR:-/var/lib/club-arena/horse-decisions}
+# Repository port: the engine host is always the Mac's sanctioned alias (its fail-closed settings live in ~/.ssh/config); HVH_JOURNAL_DIR (journal on the host, default /var/lib/club-arena/horse-decisions; passed to the host job).
+set -u; M=${1:?mode}; R=${2:?release8}; T=$(cd "$(dirname "$0")" && pwd); SSH="ssh -o BatchMode=yes -o ConnectTimeout=10 ca-engine"; JDIR=${HVH_JOURNAL_DIR:-/var/lib/club-arena/horse-decisions}
 case "$R" in *[!0-9a-z-]*|"") echo "refused: release"; exit 2;; esac; H=/root/hvh-work-$R
 [ "$M" = status ] || [ -n "${HVH_OPERATOR:-}" ] || { echo "refused: HVH_OPERATOR"; exit 7; }
 case $M in

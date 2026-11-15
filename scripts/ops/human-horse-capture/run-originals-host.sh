@@ -5,7 +5,7 @@
 #        run-originals-host.sh collect CAPTURE_DIR HOST_DIR   (copies finished outputs back, verifies sha256 against the host, chmod 400; never overwrites)
 #        run-originals-host.sh status  CAPTURE_DIR HOST_DIR
 # Same container limits as run-originals.sh: 1 CPU, 1 GB, no network, read-only journal mount, one attempt per batch. Outputs: originals-witness-N.jsonl, originals-N.jsonl, rollup-rows-N.jsonl.
-set -u; MODE=${1:?mode}; C=${2:?capture dir}; H=${3:?host dir}; umask 077; . "$(dirname "$0")/operator-lock.sh"; [ "$MODE" = status ] || hvh_operator_lock "$C" || exit $?; SSH="ssh -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 ${HVH_ENGINE_HOST:-ca-engine}"; JDIR=${HVH_JOURNAL_DIR:-/var/lib/club-arena/horse-decisions}
+set -u; MODE=${1:?mode}; C=${2:?capture dir}; H=${3:?host dir}; umask 077; . "$(dirname "$0")/operator-lock.sh"; [ "$MODE" = status ] || hvh_operator_lock "$C" || exit $?; SSH="ssh -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 ca-engine"; JDIR=${HVH_JOURNAL_DIR:-/var/lib/club-arena/horse-decisions}
 case "$H" in /root/hvh-*|/var/lib/club-arena/hvh-*) ;; *) echo "refused: host dir must be an hvh- work folder"; exit 2;; esac
 jobs(){ for b in "$C"/witness-batch-*.mjs; do [ -e "$b" ] && echo "$(basename $b) originals-witness-$(basename $b .mjs | sed 's/witness-batch-//').jsonl 1300"; done
         for n in 1 2; do [ -e "$C/batches/export-batch-$n.mjs" ] && echo "export-batch-$n.mjs originals-$n.jsonl 120"; done
@@ -26,6 +26,6 @@ elif [ "$MODE" = collect ]; then n=0
   for out in $($SSH "sudo sh -c 'cd $H && ls *.jsonl 2>/dev/null'"); do case "$out" in originals-*.jsonl|rollup-rows-*.jsonl) ;; *) continue;; esac; [ -e "$C/$out" ] && continue
     hs=$($SSH "sudo sha256sum $H/$out" | cut -c1-64); $SSH "sudo cat $H/$out" > "$C/$out.partial" || { echo "copy failed $out"; continue; }
     if [ "$(shasum -a 256 "$C/$out.partial" | cut -c1-64)" = "$hs" ] && [ -n "$hs" ]; then mv "$C/$out.partial" "$C/$out"; chmod 400 "$C/$out"; echo $hs > "$C/$out.sha256"; $SSH "sudo cat $H/$out.err 2>/dev/null || sudo cat $H/$(echo $out | sed 's/rows-//; s/.jsonl/.err/') 2>/dev/null" > "$C/$out.err"
-      echo "$(date -u +%FT%TZ) $out collected from ${HVH_ENGINE_HOST:-ca-engine}:$H rows=$(wc -l < "$C/$out" | tr -d ' ') sha=$hs (host-side read; sha verified against the host file)" | tee -a "$C/originals.log"; n=$((n+1))
+      echo "$(date -u +%FT%TZ) $out collected from ca-engine:$H rows=$(wc -l < "$C/$out" | tr -d ' ') sha=$hs (host-side read; sha verified against the host file)" | tee -a "$C/originals.log"; n=$((n+1))
     else echo "sha mismatch $out (kept .partial)"; fi; done; echo "collected $n"
 else echo "unknown mode"; exit 2; fi
