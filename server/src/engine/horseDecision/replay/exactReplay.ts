@@ -469,6 +469,7 @@ export async function exactReplayHorseDecisionRecord(
         phase8SafetyDisabledReason: state.phase8SafetyDisabledReason,
         captureV56PressureWitness: options.captureV56PressureWitness,
         styleStates: options.styleStatesOverride ?? state.style ?? null,
+        optionStates: state.options ?? null,
       })
     );
   } catch (error) {

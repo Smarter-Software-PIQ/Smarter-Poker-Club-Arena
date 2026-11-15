@@ -662,7 +662,10 @@ it('a union club reads the 02:00 accounting window and says what it counts', asy
         'Incomplete: Load Failed: Nov 4, 2026. These Totals Can Differ From The Union Invoice Until Those Days Are Whole.'
       )
     ).toBeInTheDocument();
-    expect(screen.getByText('On The Felt Now 640.50 (Not Added)')).toBeInTheDocument();
+    expect(screen.getByText('On The Felt Now 640.50')).toBeInTheDocument();
+    // Explanations sit behind a closed "?" (Dan, 2026-11-15), never on the page.
+    expect(screen.getByText(/^Union Invoice Basis\. Fee Is/).closest('details')?.open).toBe(false);
+    expect(screen.getByTestId('rake-snapshot-basis').closest('details')).not.toBeNull();
     // The rake snapshot keeps its own basis and never reads as the Fee tile.
     expect(screen.getByTestId('rake-snapshot-basis')).toHaveTextContent(
       'Agent Rake Production: Seat Club And Agent Downline, Chicago Midnight Days. Not The Union Invoice Basis.'

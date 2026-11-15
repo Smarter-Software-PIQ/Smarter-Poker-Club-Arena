@@ -2,67 +2,58 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ServerTableEngine } from './ServerTableEngine.js';
 import { supabase } from '../services/supabase/client.js';
 import { deadlineScheduler } from './DeadlineScheduler.js';
-
 const table = '11111111-1111-4111-8111-111111111111';
 const player = '22222222-2222-4222-8222-222222222222';
 const occupancy = '33333333-3333-4333-8333-333333333333';
-const seat = '44444444-4444-4444-8444-444444444444';
 const pool = '55555555-5555-4555-8555-555555555555';
 const stamp = '2026-10-20T19:30:00.000Z';
 let engine: any;
-let writes: boolean[];
-let release: (() => void) | null;
+let release: () => void;
 let blocked: Promise<void>;
-let seatRow: Record<string, unknown> | null;
-let poolRow: Record<string, unknown> | null;
-let failWrite: boolean;
-let filters: Array<[string, string, unknown]>;
-
+let writes: boolean[];
+let fail: boolean;
+let failCode: string | undefined;
+let blind: boolean;
+let patch: Record<string, unknown>;
+let missing: boolean;
 beforeEach(() => {
-  writes = [];
-  filters = [];
-  release = null;
   blocked = new Promise<void>((r) => {
     release = r;
   });
-  seatRow = { id: seat, table_id: table, user_id: player, occupancy_id: occupancy, left_at: null };
-  poolRow = { id: pool, player_id: player, anchor_seat_id: seat, exited_at: null, state: 'active' };
-  failWrite = false;
-  vi.spyOn(supabase, 'from').mockImplementation(((name: string) => {
-    let wanted = false;
-    const builder: any = {
-      update(patch: { is_sitting_out: boolean }) {
-        wanted = patch.is_sitting_out;
-        writes.push(wanted);
-        return builder;
+  writes = [];
+  fail = false;
+  failCode = undefined;
+  blind = false;
+  patch = {};
+  missing = false;
+  vi.spyOn(supabase, 'rpc').mockImplementation((async (name: string, args: any) => {
+    expect(name).toBe('fn_cash_seat_sitout');
+    expect(args).toMatchObject({ p_table_id: table, p_user_id: player, p_occupancy_id: occupancy });
+    const out = args.p_sitting_out;
+    writes.push(out);
+    await blocked;
+    if (fail) return { data: null, error: { message: 'refused', code: failCode } };
+    if (missing) return { data: null, error: null };
+    return {
+      data: {
+        seat: {
+          table_id: table,
+          user_id: player,
+          occupancy_id: occupancy,
+          left_at: null,
+          leave_pending: false,
+          is_sitting_out: out && !blind,
+          sit_out_at: out && !blind ? stamp : null,
+          ...patch,
+        },
+        pool_session_id: pool,
+        cluster_id: table,
+        sitting_out: out,
+        blind_off: out && blind,
+        hands_remaining: out && blind ? 7 : 0,
       },
-      select: () => builder,
-      eq(column: string, value: unknown) {
-        filters.push([name, column, value]);
-        return builder;
-      },
-      is(column: string, value: unknown) {
-        filters.push([name, column, value]);
-        return builder;
-      },
-      async maybeSingle() {
-        if (name === 'lightning_pool_session') return { data: poolRow, error: null };
-        await blocked;
-        if (failWrite) return { data: null, error: { message: 'refused' } };
-        return {
-          data: seatRow && {
-            ...seatRow,
-            is_sitting_out: wanted,
-            sit_out_at: wanted ? stamp : null,
-          },
-          error: null,
-        };
-      },
-      then(resolve: any, reject: any) {
-        return builder.maybeSingle().then(resolve, reject);
-      },
+      error: null,
     };
-    return builder;
   }) as any);
   engine = new ServerTableEngine(table) as any;
   engine.tableInfo = {
@@ -73,101 +64,215 @@ beforeEach(() => {
     max_players: 6,
   };
   engine.handController = null;
-  engine.seatedPlayers = [{ user_id: player, occupancy_id: occupancy, stack: 2, seat_number: 1 }];
+  engine.seatedPlayers = [{ user_id: player, occupancy_id: occupancy, stack: 40, seat_number: 1 }];
   engine.dealtInUserIds.add(player);
   engine.hub = { emitEvent: vi.fn(), publish: vi.fn() };
   vi.spyOn(engine.chipContinuity, 'evaluate').mockResolvedValue([]);
   engine.broadcastCurrentState = vi.fn();
 });
 afterEach(() => {
-  release?.();
+  release();
   deadlineScheduler.cancelAll(table);
   vi.restoreAllMocks();
 });
 const events = () =>
   engine.hub.emitEvent.mock.calls.filter(([, e]: any) => e.type === 'lightning_sitout_changed');
-
-describe('the original engine sit-out persistence publishes its own Lightning transition', () => {
-  it('emits the database stamp only after its exact seat write completes', async () => {
-    expect(engine.sitOut(player, true).success).toBe(true);
+it('a newer forced sit-out on the same occupancy supersedes an earlier return ACK', async () => {
+  blind = true;
+  engine.tableInfo.cluster_id = table;
+  engine.dealingHaltLock = true;
+  engine.dealingHaltReason = 'lightning';
+  engine.disconnectEngine.registerPlayer(table, player);
+  Object.assign(engine.disconnectEngine.getState(table, player), {
+    isSittingOut: true,
+    sitOutByClient: true,
+    sitOutReason: 'voluntary',
+  });
+  engine.leaveHeldByClock.set(player, occupancy);
+  const back = engine.sitOutAndWait(player, false, { requestedByClient: true });
+  await vi.waitFor(() => expect(writes).toEqual([false]));
+  engine.disconnectEngine.sitOut(table, player, 'forced');
+  release();
+  expect(await back).toMatchObject({ success: false, code: 'SITOUT_SUPERSEDED' });
+  await vi.waitFor(() => expect(events()).toHaveLength(1));
+  expect(writes).toEqual([false, true]);
+  expect(events()[0][1]).toMatchObject({ sitting_out: true, blind_off: true });
+  expect(engine.disconnectEngine.isSittingOut(table, player)).toBe(true);
+  expect(engine.disconnectEngine.getState(table, player).sitOutReason).toBe('voluntary');
+  expect(engine.leaveHeldByClock.get(player)).toBe(occupancy);
+  expect(engine.returnedFromSitOutAtMs.has(player)).toBe(false);
+});
+it('a current hand started during the sit-out write is allowed to finish normally', async () => {
+  const request = engine.sitOutAndWait(player, true, { requestedByClient: true });
+  await vi.waitFor(() => expect(writes).toEqual([true]));
+  const hand = { performAction: vi.fn() };
+  engine.handController = hand;
+  release();
+  expect(await request).toMatchObject({ success: true, willFoldNextHand: true });
+  expect(engine.handController).toBe(hand);
+  expect(hand.performAction).not.toHaveBeenCalled();
+  expect(engine.pendingSitOut.has(player)).toBe(true);
+  expect(engine.disconnectEngine.isSittingOut(table, player)).toBe(false);
+  expect(writes).toEqual([true]);
+});
+it('an old occupancy ACK cannot clear the replacement seat intention', async () => {
+  engine.disconnectEngine.registerPlayer(table, player);
+  Object.assign(engine.disconnectEngine.getState(table, player), {
+    isSittingOut: true,
+    sitOutByClient: true,
+  });
+  const back = engine.sitOutAndWait(player, false, { requestedByClient: true });
+  await vi.waitFor(() => expect(writes).toEqual([false]));
+  engine.seatedPlayers[0] = { ...engine.seatedPlayers[0], occupancy_id: pool };
+  engine.leaveHeldByClock.set(player, pool);
+  release();
+  expect(await back).toMatchObject({ success: false });
+  expect(engine.disconnectEngine.isSittingOut(table, player)).toBe(true);
+  expect(engine.leaveHeldByClock.get(player)).toBe(pool);
+  expect(engine.returnedFromSitOutAtMs.has(player)).toBe(false);
+  expect(events()).toEqual([]);
+});
+describe('a rejected return preserves the original local sit-out', () => {
+  it.each(['P2S01', 'P2S02', '55006', 'missing'])(
+    'retains all local intentions on %s and permits retry',
+    async (code) => {
+      engine.tableInfo.cluster_id = table;
+      engine.dealingHaltLock = true;
+      engine.dealingHaltReason = 'lightning';
+      engine.seatedPlayers[0].is_sitting_out = true;
+      engine.seatedPlayers[0].sit_out_at = stamp;
+      engine.disconnectEngine.registerPlayer(table, player);
+      Object.assign(engine.disconnectEngine.getState(table, player), {
+        isSittingOut: true,
+        sitOutByClient: true,
+        sitOutSince: Date.parse(stamp),
+        sitOutReason: 'voluntary',
+      });
+      engine.leaveHeldByClock.set(player, occupancy);
+      engine.chipContinuity.markBlindOff(player, true);
+      engine.pendingSitOut.add(player);
+      missing = code === 'missing';
+      fail = !missing;
+      failCode = code;
+      const request = engine.sitOutAndWait(player, false, { requestedByClient: true });
+      await vi.waitFor(() => expect(writes).toEqual([false]));
+      release();
+      if (missing) expect(await request).toMatchObject({ success: false });
+      else await expect(request).rejects.toThrow();
+      engine.restoreSitOutsFromSeats();
+      expect(engine.disconnectEngine.isSittingOut(table, player)).toBe(true);
+      expect(engine.isClientSitOut(player)).toBe(true);
+      expect(engine.leaveHeldByClock.get(player)).toBe(occupancy);
+      expect(engine.pendingSitOut.has(player)).toBe(true);
+      expect(engine.returnedFromSitOutAtMs.has(player)).toBe(false);
+      expect(engine.returningFromSitout.has(player)).toBe(false);
+      expect(events()).toEqual([]);
+      missing = false;
+      fail = false;
+      expect(await engine.sitOutAndWait(player, false, { requestedByClient: true })).toMatchObject({
+        success: true,
+      });
+      expect(engine.disconnectEngine.isSittingOut(table, player)).toBe(false);
+      expect(engine.isClientSitOut(player)).toBe(false);
+      expect(engine.leaveHeldByClock.has(player)).toBe(false);
+      expect(engine.pendingSitOut.has(player)).toBe(false);
+      expect(writes).toEqual([false, false]);
+    }
+  );
+});
+describe('the original sit-out transaction publishes its acknowledged occupancy', () => {
+  it('keeps the HTTP response and published stamp behind the database ACK', async () => {
+    let answered = false;
+    const request = engine
+      .sitOutAndWait(player, true, { requestedByClient: true })
+      .then((r: any) => {
+        answered = true;
+        return r;
+      });
     await vi.waitFor(() => expect(writes).toEqual([true]));
+    expect(answered).toBe(false);
     expect(events()).toEqual([]);
-    release?.();
-    await vi.waitFor(() =>
-      expect(events()).toEqual([
-        [
-          pool,
-          {
-            type: 'lightning_sitout_changed',
-            pool_session_id: pool,
-            player_id: player,
-            occupancy_id: occupancy,
-            sitting_out: true,
-            sit_out_at: stamp,
-          },
-        ],
-      ])
-    );
-    expect(filters).toEqual([
-      ['table_seats', 'table_id', table],
-      ['table_seats', 'user_id', player],
-      ['table_seats', 'occupancy_id', occupancy],
-      ['table_seats', 'left_at', null],
-      ['lightning_pool_session', 'anchor_seat_id', seat],
-      ['lightning_pool_session', 'player_id', player],
-      ['lightning_pool_session', 'exited_at', null],
+    release();
+    expect(await request).toMatchObject({ success: true, blindOff: false });
+    expect(events()[0]).toEqual([
+      pool,
+      {
+        type: 'lightning_sitout_changed',
+        pool_session_id: pool,
+        player_id: player,
+        occupancy_id: occupancy,
+        sitting_out: true,
+        sit_out_at: stamp,
+      },
     ]);
   });
-  it('keeps concurrent out/back persistence and events in original transition order', async () => {
-    engine.sitOut(player, true);
-    engine.sitOut(player, false);
+  it('preserves out/back database and event order across devices', async () => {
+    const out = engine.sitOutAndWait(player, true, { requestedByClient: true });
+    const back = engine.sitOutAndWait(player, false, { requestedByClient: true });
     await vi.waitFor(() => expect(writes).toEqual([true]));
-    release?.();
-    await vi.waitFor(() =>
-      expect(events().map(([, e]: any) => [e.sitting_out, e.sit_out_at])).toEqual([
-        [true, stamp],
-        [false, null],
-      ])
-    );
+    release();
+    await Promise.all([out, back]);
     expect(writes).toEqual([true, false]);
+    expect(events().map(([, e]: any) => [e.sitting_out, e.sit_out_at])).toEqual([
+      [true, stamp],
+      [false, null],
+    ]);
   });
-  it('does not let an earlier refused write block a later explicit return', async () => {
-    failWrite = true;
-    engine.sitOut(player, true);
-    release?.();
-    await new Promise((r) => setImmediate(r));
-    await new Promise((r) => setImmediate(r));
-    expect(events()).toEqual([]);
-    failWrite = false;
-    engine.sitOut(player, false);
-    await vi.waitFor(() =>
-      expect(events().map(([, e]: any) => [e.sitting_out, e.sit_out_at])).toEqual([[false, null]])
-    );
-    expect(writes).toEqual([true, false]);
+  it('a confirmed blind-off preserves the logical sit-out while its anchor stays eligible', async () => {
+    blind = true;
+    engine.tableInfo.cluster_id = table;
+    engine.dealingHaltLock = true;
+    engine.dealingHaltReason = 'lightning';
+    const pending = engine.sitOutAndWait(player, true, { requestedByClient: true });
+    release();
+    expect(await pending).toMatchObject({ success: true, blindOff: true, hands_remaining: 7 });
+    expect(events()[0][1]).toMatchObject({ sitting_out: true, sit_out_at: null, blind_off: true });
+    expect(engine.leaveHeldByClock.get(player)).toBe(occupancy);
+    const back = engine.sitOutAndWait(player, false, { requestedByClient: true });
+    expect(await back).toMatchObject({ success: true, blindOff: false });
+    expect(engine.leaveHeldByClock.has(player)).toBe(false);
   });
-  it.each([
-    'no_row',
-    'replaced_occupancy',
-    'foreign_owner',
-    'closed_pool',
-    'ordinary_cash',
-    'write_refused',
-    'pending_exit',
-    'inactive_pool',
-  ])('does not publish an unproven transition: %s', async (why) => {
-    if (why === 'no_row') seatRow = null;
-    if (why === 'replaced_occupancy') seatRow!.occupancy_id = pool;
-    if (why === 'foreign_owner') poolRow!.player_id = pool;
-    if (why === 'closed_pool') poolRow!.exited_at = stamp;
-    if (why === 'ordinary_cash') poolRow = null;
-    if (why === 'write_refused') failWrite = true;
-    if (why === 'pending_exit') seatRow!.leave_pending = true;
-    if (why === 'inactive_pool') poolRow!.state = 'leaving';
-    engine.sitOut(player, true);
-    await vi.waitFor(() => expect(writes).toEqual([true]));
-    release?.();
-    await new Promise((r) => setImmediate(r));
-    await new Promise((r) => setImmediate(r));
-    expect(events()).toEqual([]);
-  });
+  it.each([0, 7])(
+    'restores the persisted Lightning departure after restart with %i owed',
+    (owed) => {
+      engine.tableInfo.cluster_id = table;
+      engine.dealingHaltLock = true;
+      engine.dealingHaltReason = 'lightning';
+      vi.spyOn(engine.chipContinuity, 'row').mockReturnValue({ blind_off: true });
+      vi.spyOn(engine.chipContinuity, 'leaveLock').mockReturnValue({
+        locked: owed > 0,
+        handsRemaining: owed,
+      });
+      engine.restoreBlindOffFromSessions();
+      expect(engine.leaveHeldByClock.get(player)).toBe(occupancy);
+      expect(writes).toEqual([]);
+    }
+  );
+  it.each(['P2S01', 'P2S02'])(
+    'retains the declared refusal code %s without publishing success',
+    async (code) => {
+      fail = true;
+      failCode = code;
+      const pending = engine.sitOutAndWait(player, false, { requestedByClient: true });
+      release();
+      await expect(pending).rejects.toMatchObject({ code });
+      expect(events()).toEqual([]);
+    }
+  );
+  it.each(['stale', 'departed', 'pending', 'wrong-status', 'failure', 'missing'])(
+    'never acknowledges an unproven write: %s',
+    async (why) => {
+      if (why === 'stale') patch.occupancy_id = pool;
+      if (why === 'departed') patch.left_at = stamp;
+      if (why === 'pending') patch.leave_pending = true;
+      if (why === 'wrong-status') patch.is_sitting_out = false;
+      if (why === 'failure') fail = true;
+      if (why === 'missing') missing = true;
+      const request = engine.sitOutAndWait(player, true, { requestedByClient: true });
+      release();
+      if (missing) expect(await request).toMatchObject({ success: false });
+      else await expect(request).rejects.toThrow();
+      expect(events()).toEqual([]);
+    }
+  );
 });

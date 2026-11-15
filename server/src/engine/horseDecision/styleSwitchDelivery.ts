@@ -23,8 +23,18 @@
  * 72615f60 L1): each message carries the main thread's wall-clock read time, the worker subtracts the age the
  * message already has, and stamps the result on its own monotonic clock (performance.now()), the clock it passes
  * to StyleSwitchHolder.refresh. A worker that was busy for minutes therefore receives an already-stale reading.
+ *
+ * EVERY DECISION UPGRADE HAS A LIVE SWITCH (2026-11-14): the SAME read, message and inbox now also carry the
+ * registered non-style options (HorseOptionSwitch.ts). The database answer is version 2,
+ *   { version: 2, style: { version: 1, options }, options: { <option>: 'off' | 'on' } },
+ * from fn_ca_horse_option_switch_effective. The inbox serves its `style` half to StyleSwitchHolder exactly as the
+ * version 1 answer was served (so the seven style options behave as before, failing safe to OFF) and the whole
+ * answer to OptionSwitchHolder (which fails safe to each option's RELEASE DEFAULT). A database that does not have
+ * the wider function yet is read through fn_ca_horse_style_switch_effective as before: the style options keep
+ * working and no other option is switched.
  */
 import { STYLE_SWITCH_POLL_MS, type StyleSwitchSource } from '../HorseStyleSwitch.js';
+import { styleConfigOf, type OptionSwitchSource } from '../HorseOptionSwitch.js';
 
 export interface StyleSwitchStateMessage {
   type: 'STYLE_SWITCH_STATE';
@@ -64,6 +74,8 @@ export function createStyleSwitchWorkerInbox(
 ): {
   receive(input: unknown): boolean;
   source: StyleSwitchSource;
+  /** The same delivery, whole, for OptionSwitchHolder (the registered non-style options). */
+  optionSource: OptionSwitchSource;
 } {
   let last: Delivered | null = null;
   /** the highest sequence ever accepted; an invalid envelope does not reset it */
@@ -92,6 +104,14 @@ export function createStyleSwitchWorkerInbox(
       if (last.kind === 'unreadable') throw new Error('style_switch_unreadable');
       // an invalid envelope is served as a present reading that cannot parse: the holder turns everything off
       if (last.kind === 'invalid') return { kind: 'present', raw: null, receivedAtMs: clock() };
+      // a version 2 answer carries the style configuration under `style`; a version 1 answer is it
+      return { kind: 'present', raw: styleConfigOf(last.raw), receivedAtMs: last.receivedAtMs };
+    },
+    optionSource: () => {
+      if (!last) return { kind: 'absent' };
+      if (last.kind === 'unreadable') throw new Error('option_switch_unreadable');
+      // an invalid envelope cannot parse: the holder leaves nothing switched (every option at its release default)
+      if (last.kind === 'invalid') return { kind: 'present', raw: null, receivedAtMs: clock() };
       return { kind: 'present', raw: last.raw, receivedAtMs: last.receivedAtMs };
     },
   };
@@ -117,9 +137,14 @@ export interface StyleSwitchDeliveryDeps {
   warn?: (message: string) => void;
 }
 
-/** The main-thread side. start() reads at once and then every intervalMs; the timer never holds the process. */
+/**
+ * The main-thread side. start() reads at once and then every intervalMs; the timer never holds the process. The
+ * promise start() returns settles when that first read has been posted to the workers or has failed (a read that
+ * does not answer fails after readTimeoutMs), so the lane can resolve the persisted state before it serves.
+ */
 export function createStyleSwitchDelivery(deps: StyleSwitchDeliveryDeps): {
-  start(): void;
+  /** Resolves once the first read has been delivered or has failed (HA-10878-1 lifecycle, lane.ts). */
+  start(): Promise<void>;
   stop(): void;
   tick(): Promise<void>;
 } {
@@ -194,11 +219,12 @@ export function createStyleSwitchDelivery(deps: StyleSwitchDeliveryDeps): {
   };
 
   return {
-    start(): void {
-      if (timer || stopped) return;
-      void tick();
+    start(): Promise<void> {
+      if (timer || stopped) return Promise.resolve();
+      const first = tick();
       timer = setInterval(() => void tick(), intervalMs);
       timer.unref?.();
+      return first;
     },
     stop(): void {
       stopped = true;
@@ -209,10 +235,33 @@ export function createStyleSwitchDelivery(deps: StyleSwitchDeliveryDeps): {
   };
 }
 
+type SwitchRpc = (
+  fn: 'fn_ca_horse_option_switch_effective' | 'fn_ca_horse_style_switch_effective'
+) => PromiseLike<{ data: unknown; error: { message?: string; code?: string } | null }>;
+
+/** PostgREST (PGRST202) and Postgres (42883) both say "no such function" when the migration is not installed. */
+const functionMissing = (error: { message?: string; code?: string }): boolean =>
+  error.code === 'PGRST202' ||
+  error.code === '42883' ||
+  /could not find the function|function .* does not exist/i.test(error.message ?? '');
+
+/**
+ * The read, over any RPC caller: the wider function (every registered option); ONLY when the database does not
+ * have that function yet, the style function it had before (the seven style options keep working, nothing else is
+ * switched). Any other failure rejects: the delivery's own failure rule applies and nothing falls back silently.
+ */
+export async function readSwitchThrough(rpc: SwitchRpc): Promise<unknown> {
+  const wide = await rpc('fn_ca_horse_option_switch_effective');
+  if (!wide.error) return wide.data;
+  if (!functionMissing(wide.error))
+    throw new Error(wide.error.message || 'fn_ca_horse_option_switch_effective failed');
+  const { data, error } = await rpc('fn_ca_horse_style_switch_effective');
+  if (error) throw new Error(error.message || 'fn_ca_horse_style_switch_effective failed');
+  return data;
+}
+
 /** The production read: the service-role RPC. Imported lazily so the engine module graph does not change. */
 export async function readStyleSwitchFromDatabase(): Promise<unknown> {
   const { supabase } = await import('../../services/supabase/client.js');
-  const { data, error } = await supabase.rpc('fn_ca_horse_style_switch_effective');
-  if (error) throw new Error(error.message || 'fn_ca_horse_style_switch_effective failed');
-  return data;
+  return readSwitchThrough((fn) => supabase.rpc(fn));
 }

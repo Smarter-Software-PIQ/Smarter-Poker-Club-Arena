@@ -524,8 +524,8 @@
       "sha256": "d9fbc730e56bbb5811585045dcc1e0b501c48cdd405e32276ec6165d22835014"
     },
     "scripts/qualification/ci-accounting-inputs.json": {
-      "bytes": 145774,
-      "sha256": "ddf0e982f660cfe8be74899b9439422a7e38899b982d05aec67abe1706c79a75"
+      "bytes": 146079,
+      "sha256": "9114887e38f889c588699df1fd9747f74d724d3abd184af5e6af6c9262680003"
     },
     "scripts/qualification/ci-admission-inputs.json": {
       "bytes": 77121,
@@ -7267,5 +7267,24 @@
   ],
   "financialRecertification": false,
   "executionPerformed": false
-}
+},
+  "horseOptionSwitchProofAccountingShard7_20261114": {
+    "reason": "Required accounting shard 7 gains one additive step that runs the existing throwaway PostgreSQL 17 proof of the Horse option switch (scripts/ci/test-horse-option-switch-evidence-postgres.sh, PR #10878 and its registry-driven follow-up). No existing command, assertion, financial input, timeout or historical qualification outcome changes. Regenerated with qualification-input-projections.py --write. Current input identity only.",
+    "changes": [
+      {
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "kind": "bytes",
+        "previous": 145774,
+        "current": 146079
+      },
+      {
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "kind": "sha256",
+        "previous": "ddf0e982f660cfe8be74899b9439422a7e38899b982d05aec67abe1706c79a75",
+        "current": "9114887e38f889c588699df1fd9747f74d724d3abd184af5e6af6c9262680003"
+      }
+    ],
+    "financialRecertification": false,
+    "executionPerformed": false
+  }
 }

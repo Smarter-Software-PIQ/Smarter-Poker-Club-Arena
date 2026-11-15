@@ -86,11 +86,21 @@ export function shareClipboardText(text: string | undefined, url: string): strin
   return t ? `${t} ${url}` : url;
 }
 
-/** Copy only. False when neither the Clipboard API nor a selection copy worked. */
-export async function copyText(text: string, source: string): Promise<boolean> {
+async function copyTextOnce(text: string, source: string): Promise<boolean> {
   const ok = await copyToClipboard(text);
   if (!ok)
     reportError(new Error('Clipboard refused and selection copy failed'), `${source}.copy_failed`);
+  return ok;
+}
+
+/**
+ * Copy only. False when neither the Clipboard API nor a selection copy worked.
+ * Counted like a share (copied / failed): a copy button is how most desktop
+ * players share.
+ */
+export async function copyText(text: string, source: string): Promise<boolean> {
+  const ok = await copyTextOnce(text, source);
+  recordOutcome(source, ok ? 'copied' : 'failed');
   return ok;
 }
 
@@ -100,7 +110,56 @@ export function hasShareSheet(): boolean {
   return typeof nav()?.share === 'function';
 }
 
+/*
+ * THE BUTTON SAYS WHAT THE TAP WILL DO (2026-11-15).
+ *
+ * A desktop browser has no share sheet, so "Share" there copies the link (or
+ * saves the picture) and nothing visible opens. Players read that as "the
+ * button did nothing". Where there is no sheet the button is worded for what
+ * actually happens: Copy Link for a link, Save Image for a picture.
+ */
+export type ShareKind = 'link' | 'image';
+
+export function shareButtonLabel(kind: ShareKind = 'link', sheet: boolean = hasShareSheet()): string {
+  if (sheet) return 'Share';
+  return kind === 'image' ? 'Save Image' : 'Copy Link';
+}
+
+/*
+ * WHICH SHARE BUTTONS GET USED (2026-11-15).
+ *
+ * Every outcome, success included, is one SHARE_OUTCOME row in the existing
+ * bus_event_log: the button (source) and what happened (outcome). Never the
+ * link, the text or the file. The row goes through this tab's own logger
+ * batch, not the MasterBus, because the bus repeats events to every other open
+ * tab and each tab's logger would write the same tap again.
+ *
+ * The logger REGISTERS itself here when the app starts it
+ * (BusEventLogger.start). This file imports nothing from it: every surface
+ * that shares imports this door, and the logger's stores have no business in
+ * their bundles (a fixture-built e2e bundle refused the import on 2026-11-15).
+ */
+export type ShareOutcomeSink = (source: string, outcome: ShareOutcome) => void;
+let outcomeSink: ShareOutcomeSink | null = null;
+
+export function setShareOutcomeSink(sink: ShareOutcomeSink | null): void {
+  outcomeSink = sink;
+}
+
+function recordOutcome(source: string, outcome: ShareOutcome): ShareOutcome {
+  try {
+    outcomeSink?.(source, outcome);
+  } catch {
+    /* counting is a measurement; it never changes what the player was told */
+  }
+  return outcome;
+}
+
 export async function shareLink(input: ShareLinkInput): Promise<ShareOutcome> {
+  return recordOutcome(input.source, await shareLinkOnce(input));
+}
+
+async function shareLinkOnce(input: ShareLinkInput): Promise<ShareOutcome> {
   const { source } = input;
   const url = input.url || '';
   const title = input.title || 'Smarter.Poker';
@@ -136,7 +195,7 @@ export async function shareLink(input: ShareLinkInput): Promise<ShareOutcome> {
 
   const clip = input.clipboardText || (url ? shareClipboardText(text, url) : text);
   if (!clip) return 'failed';
-  return (await copyText(clip, source)) ? 'copied' : 'failed';
+  return (await copyTextOnce(clip, source)) ? 'copied' : 'failed';
 }
 
 export interface ShareFileInput extends Omit<ShareLinkInput, 'url'> {
@@ -154,6 +213,10 @@ export interface ShareFileInput extends Omit<ShareLinkInput, 'url'> {
  * beside it. A sheet that refuses the file falls through like any other.
  */
 export async function shareFile(input: ShareFileInput): Promise<ShareOutcome> {
+  return recordOutcome(input.source, await shareFileOnce(input));
+}
+
+async function shareFileOnce(input: ShareFileInput): Promise<ShareOutcome> {
   const { source, blob, filename } = input;
   const title = input.title || 'Smarter.Poker';
   const text = (input.text || '').trim();
@@ -190,16 +253,32 @@ export async function shareFile(input: ShareFileInput): Promise<ShareOutcome> {
     await input.download(filename, blob);
   } catch (error) {
     reportError(error, `${source}.download_failed`);
-    if (input.url) return shareLink({ source, url: input.url, title, text });
+    if (input.url) return shareLinkOnce({ source, url: input.url, title, text });
     return 'failed';
   }
   if (sentence) await copyToClipboard(sentence);
   return 'saved';
 }
 
-/** The address a tournament is shared as. One builder, so every surface sends the same link. */
+/** A player's public profile, the address the stats card carries. */
+export function profileShareUrl(userId: string, origin?: string): string {
+  return `${origin ?? publicOrigin()}/hub/club-arena/profile/${encodeURIComponent(userId)}`;
+}
+
+/**
+ * The address a tournament is shared as. One builder, so every surface sends
+ * the same link.
+ *
+ * smarter.poker/t/<id> (2026-11-15), not the Club Arena page itself: the World
+ * Hub serves it with the event's own preview card (name, buy-in, guarantee,
+ * start time) through fn_ca_tournament_share_preview, sends a signed-in
+ * player straight on to /hub/club-arena/tournaments/<id>, and shows a
+ * signed-out friend what they were invited to with one Register button
+ * instead of a bare sign-in page. Private, VIP-only and non-public-club events
+ * get the plain card there, exactly like a missing one.
+ */
 export function tournamentShareUrl(tournamentId: string, origin?: string): string {
-  return `${origin ?? publicOrigin()}/hub/club-arena/tournaments/${encodeURIComponent(tournamentId)}`;
+  return `${origin ?? publicOrigin()}/t/${encodeURIComponent(tournamentId)}`;
 }
 
 /**

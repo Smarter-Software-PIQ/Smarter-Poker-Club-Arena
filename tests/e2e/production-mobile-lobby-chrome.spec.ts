@@ -1,4 +1,5 @@
 import { sameUnchangedLobbyOrder } from './support/lobbyFavoriteOrderProof';
+import { isOwnedLiveSeatRead } from './support/ownedSeatRefreshRead';
 import {
   closedBoardEvidence,
   isLobbyCatalogResponse,
@@ -709,15 +710,11 @@ test.describe('the mobile lobby chrome on production', () => {
       );
       await expect(lobbyTab).toHaveAttribute('aria-current', 'true');
       const ownerId = await readLobbyPreferenceOwner(page);
-      const seatRefresh = page.waitForResponse((response) => {
-        const url = new URL(response.url());
-        return (
-          response.request().method() === 'GET' &&
-          url.pathname.endsWith('/table_seats') &&
-          url.searchParams.get('select') === 'table_id' &&
-          url.searchParams.get('user_id') === `eq.${ownerId}`
-        );
-      });
+      // The account's live-seat read, matched by role rather than a frozen
+      // column list (#10887 added joined_at; the unit pin holds the two together).
+      const seatRefresh = page.waitForResponse((response) =>
+        isOwnedLiveSeatRead(response.request().method(), new URL(response.url()), ownerId)
+      );
       // Exercise the real visibility recovery read, without a seat or purchase.
       await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
       const refreshed = await seatRefresh;
@@ -1194,9 +1191,13 @@ test.describe('the mobile lobby chrome on production', () => {
     // board reads in the same order as the unstarred one under the same sort,
     // with the chosen run marked. Live player-count changes may legitimately
     // move other rows; compare peers whose rendered sort inputs stayed unchanged.
+    // Only tournaments not yet started are compared: a running event reorders
+    // on current_players, which its rendered Entries cell does not show. The
+    // clock is read right after the DOM read, so an event that started during
+    // the read is left out rather than compared.
     type Snapshot = Awaited<ReturnType<typeof snapshot>>;
     const sameOrder = (current: Snapshot, reference: Snapshot) =>
-      sameUnchangedLobbyOrder(current, reference, chosen);
+      sameUnchangedLobbyOrder(current, reference, chosen, Date.now());
     const assertStarredInPlace = async (phase: string, reference?: Snapshot) => {
       await expect
         .poll(async () => {

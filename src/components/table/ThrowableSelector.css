@@ -1210,3 +1210,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+.throwable-selector.sc .sc__close {
+  font-size: max(24px, 5.2cqw);
+}

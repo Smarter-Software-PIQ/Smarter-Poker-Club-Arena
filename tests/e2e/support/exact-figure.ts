@@ -25,6 +25,9 @@ export const inexactFigures = (texts: readonly string[]): string[] =>
  * The four totals the Statements page must print for a totals answer from the
  * server: In, Out, Managed, Entries, as CashierStatementsPage writes them (a
  * plus on a non-zero In, a minus on a non-zero Out, the count with separators).
+ * Both sides go through Number(), as the page does, so the comparison is exact
+ * only to double precision (about 15 significant digits); a figure beyond that
+ * is outside what the page can show exactly anyway.
  * `format` is the page's own chip formatter, handed in so this file stays free
  * of application imports. The certificate compares the glass with this, so a
  * page that shows well-formed but wrong totals fails (post-merge review of

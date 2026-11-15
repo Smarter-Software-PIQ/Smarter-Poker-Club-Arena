@@ -1,6 +1,7 @@
 import { createV31WorkerControl } from './v31ReloadControl.js';
 import { createStyleSwitchWorkerInbox } from './styleSwitchDelivery.js';
 import { StyleSwitchHolder } from '../HorseStyleSwitch.js';
+import { OptionSwitchHolder } from '../HorseOptionSwitch.js';
 import {
   loadGtoPostflopV31Once,
   requireGtoV31ServingBinding,
@@ -88,6 +89,11 @@ if (!isMainThread && parentPort) {
   const runtime = new HorseDecisionWorkerRuntime((message) => port.postMessage(message), {
     ...deps,
     styleSwitch: new StyleSwitchHolder(styleSwitchInbox.source, (feature) =>
+      deps.noteFeature(feature)
+    ),
+    // 2026-11-14 EVERY DECISION UPGRADE HAS A LIVE SWITCH: the same inbox serves the registered non-style options.
+    // Nothing delivered, unreadable, invalid or stale all leave every one of them at its release default.
+    optionSwitch: new OptionSwitchHolder(styleSwitchInbox.optionSource, (feature) =>
       deps.noteFeature(feature)
     ),
     isolateMemory: () => sampleIsolateMemory(shard?.index ?? 0),

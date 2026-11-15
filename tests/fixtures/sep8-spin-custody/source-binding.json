@@ -129,7 +129,7 @@
     "supabase/migrations/20260918225150_original_spin_closure_ignores_only_elapsed_clock_metadata.sql": "f4a3660b311d3270e9d0dbec17c33a0d35488dfccc43dc97836dbcd54491a18d",
     "scripts/qualification/ci-admission-inputs.json": "8275cc6a48e74b21dc56c8d4ed5a143cb9dae6ffabba8dca65366d4920007887",
     "scripts/ci/qualification-input-projections.py": "0e1a3b603b4b8adee23b915beb2e3b427c32aa31fb79186e77427293c6f50b86",
-    "scripts/qualification/ci-accounting-inputs.json": "ddf0e982f660cfe8be74899b9439422a7e38899b982d05aec67abe1706c79a75"
+    "scripts/qualification/ci-accounting-inputs.json": "9114887e38f889c588699df1fd9747f74d724d3abd184af5e6af6c9262680003"
   },
   "chainedBrowserAdmissionSourceAudit20261030": {
     "scope": "Current classifier source binding only. Chained browser scripts and supported config/fixture inputs now admit their existing browser checks; every financial/server/native classification flag is unchanged.",
@@ -2228,5 +2228,18 @@
   ],
   "financialRecertification": false,
   "executionPerformed": false
-}
+},
+  "horseOptionSwitchProofAccountingShard7_20261114": {
+    "reason": "Required accounting shard 7 gains one additive step that runs the existing throwaway PostgreSQL 17 proof of the Horse option switch (scripts/ci/test-horse-option-switch-evidence-postgres.sh, PR #10878 and its registry-driven follow-up). No existing command, assertion, financial input, timeout or historical qualification outcome changes. Regenerated with qualification-input-projections.py --write. Current input identity only.",
+    "changes": [
+      {
+        "path": "scripts/qualification/ci-accounting-inputs.json",
+        "kind": "sha256",
+        "previous": "ddf0e982f660cfe8be74899b9439422a7e38899b982d05aec67abe1706c79a75",
+        "current": "9114887e38f889c588699df1fd9747f74d724d3abd184af5e6af6c9262680003"
+      }
+    ],
+    "financialRecertification": false,
+    "executionPerformed": false
+  }
 }

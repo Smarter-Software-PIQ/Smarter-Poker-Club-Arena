@@ -11,7 +11,10 @@
  * immutable history and are never re-judged.
  */
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, unlinkSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import {
   bookedRecords,
@@ -273,4 +276,71 @@ test('the after-merge backstop is untouched and still judges merged windows', as
   assert.equal(failures.length, 1);
   assert.match(failures[0], /is before the booking merged/);
   assert.equal(backstop.FILE, FILE);
+});
+
+test('actual CLI requires a valid on-main public witness and fails closed on unknown history', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'booking-witness-cli-'));
+  const script = 'scripts/ci/check-owner-window-notice-after-merge.mjs';
+  const witnessPath = 'scripts/ci/owner-window-notice-witnesses.json';
+  try {
+    mkdirSync(join(dir, 'scripts/ci'), { recursive: true });
+    mkdirSync(join(dir, 'server/release'), { recursive: true });
+    writeFileSync(join(dir, script), readFileSync(new URL(`../../${script}`, import.meta.url)));
+    const windows = JSON.parse(readFileSync(new URL(`../../${FILE}`, import.meta.url), 'utf8'));
+    const record = windows.windows.find(w => w.id === '2026-11-15-owner-offcycle-engine-1206z');
+    const witness = JSON.parse(readFileSync(new URL(`../../${witnessPath}`, import.meta.url), 'utf8'));
+    assert.ok(record);
+    const source = JSON.stringify(doc([record]));
+    const file = join(dir, FILE);
+    writeFileSync(file, source);
+    const git = (...args) => {
+      const result = spawnSync('git', args, { cwd: dir, encoding: 'utf8', env: {
+        ...process.env, GIT_AUTHOR_DATE: '2026-11-15T11:59:42Z', GIT_COMMITTER_DATE: '2026-11-15T11:59:42Z',
+      } });
+      assert.equal(result.status, 0, result.stderr);
+      return result.stdout.trim();
+    };
+    git('init', '-q'); git('add', '.');
+    git('-c', 'user.name=fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'original consumed booking');
+    const base = git('rev-parse', 'HEAD');
+    git('update-ref', 'refs/remotes/origin/main', base);
+    const cli = explicitBase => {
+      const env = { ...process.env };
+      delete env.CI_BASE_SHA;
+      if (explicitBase !== undefined) env.CI_BASE_SHA = explicitBase;
+      return spawnSync(process.execPath, [script], { cwd: dir, env, encoding: 'utf8' });
+    };
+    assert.equal(cli(base).status, 1, 'a consumed record alone is never proof');
+    writeFileSync(join(dir, witnessPath), JSON.stringify(witness));
+    const accepted = cli(base);
+    assert.equal(accepted.status, 0, accepted.stderr);
+    assert.equal(cli().status, 0, 'full audit accepts the independently evidenced lead');
+    assert.equal(readFileSync(file, 'utf8'), source, 'no original record is rewritten');
+    const invalid = structuredClone(witness);
+    invalid.witnesses[0].activatedAt = invalid.witnesses[0].publicNoticeAt;
+    writeFileSync(join(dir, witnessPath), JSON.stringify(invalid));
+    assert.equal(cli(base).status, 1, 'a zero-lead witness cannot excuse a violation');
+    for (const field of ['publicNoticeAt', 'activatedAt']) {
+      const unparseable = structuredClone(witness);
+      unparseable.witnesses[0][field] = '2026-99-15T12:06:39Z';
+      writeFileSync(join(dir, witnessPath), JSON.stringify(unparseable));
+      const refused = cli(base);
+      assert.equal(refused.status, 1, `${field} must not bypass lead comparisons through NaN`);
+      assert.match(refused.stderr, /must be an ISO UTC timestamp/);
+    }
+    const fresh = structuredClone(witness);
+    fresh.witnesses[0].windowId = 'new-window';
+    writeFileSync(join(dir, witnessPath), JSON.stringify(fresh));
+    writeFileSync(file, JSON.stringify(doc([{ ...record, id: 'new-window' }])));
+    const newWindow = cli(base);
+    assert.equal(newWindow.status, 1);
+    assert.match(newWindow.stderr, /cannot excuse a window this change is booking/);
+    writeFileSync(file, source);
+    writeFileSync(join(dir, witnessPath), JSON.stringify(witness));
+    assert.notEqual(cli('missing-base').status, 0, 'unreadable provenance refuses admission');
+    unlinkSync(join(dir, witnessPath));
+    assert.equal(cli().status, 1, 'removing the proof restores the full audit refusal');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

@@ -832,7 +832,7 @@ const HandHistoryPanel = memo(function HandHistoryPanel({
                       ? 'No Hands Here Match That Search'
                       : viewerSeated
                         ? 'No Completed Hands For You At This Table Yet'
-                        : 'You Are Watching. Hands Are Recorded For The Players Dealt Into Them. Take A Seat And Yours Will Appear Here.'}
+                        : 'No Completed Observed Hands Yet. Watch A Hand From Start To Finish To Review It Here.'}
               </div>
             ) : (
               shown.map((hand) => (
