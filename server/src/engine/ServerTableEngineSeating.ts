@@ -1769,6 +1769,24 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
     }
   }
 
+  /**
+   * Settlement asks this for every leave_pending seat it is about to cash out.
+   * True keeps the seat until the completion hold ends: a player whose leave
+   * was deferred here, a pot recipient, or a player whose hand is tabled at
+   * showdown. A player who folded out of the hand on a mid-hand leave has
+   * already left the felt (seat_left) and is cashed out at settlement as
+   * before. Decided from the engine's own hand record, never a client ack.
+   */
+  protected holdsSeatForPresentation(userId: string): boolean {
+    const presentation = this.completionPresentation;
+    if (!presentation || !this.running || !presentation.players.has(userId)) return false;
+    if (presentation.deferred.has(userId)) return true;
+    return (
+      this.currentHandPerPotAwards.some((a) => a.userId === userId && a.amount > 0) ||
+      this.currentHandShowdownResults.some((r) => r.userId === userId)
+    );
+  }
+
   /** True while this player's last hand is still being presented on the felt. */
   protected inCompletionPresentation(userId: string): boolean {
     return (
@@ -2423,7 +2441,11 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
         ) {
           // A SEAT STAYS UNTIL ITS POT HAS BEEN PUSHED (2026-11-15): see
           // completionPresentation. The leave is accepted and durable now; the
-          // chair, and the pot flying to it, stay until the hold ends.
+          // chair, and the pot flying to it, stay until the hold ends. The hold
+          // is recorded BEFORE the durable write, so a settlement sweep that
+          // reads the new leave_pending row can never cash this seat out early.
+          const presentation = this.completionPresentation;
+          presentation?.deferred.set(userId, player.occupancy_id);
           try {
             await requestSeatDeparture(
               userId,
@@ -2433,6 +2455,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
               'voluntary'
             );
           } catch {
+            presentation?.deferred.delete(userId);
             return {
               success: false,
               immediate: false,
@@ -2446,9 +2469,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
           )
             return stale();
           player.leave_pending = true;
-          if (this.completionPresentation) {
-            this.completionPresentation.deferred.set(userId, player.occupancy_id);
-          } else {
+          if (this.completionPresentation !== presentation || !presentation) {
             // The hold ended while the request was being written.
             this.disconnectEngine.sitOut(this.tableId, userId, 'voluntary');
           }

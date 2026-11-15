@@ -132,6 +132,72 @@ for (const [who, id, seat] of [
   });
 }
 
+describe('settlement keeps a presented seat until the push has landed', () => {
+  it('holds pot winners (main or side pot) and showdown hands; releases a folded leaver', () => {
+    const e = makeEngineInCompletionHold();
+    // Multiway: HUMAN wins the main pot, HORSE wins a side pot, LATE was never dealt.
+    e.currentHandPerPotAwards = [
+      { userId: HUMAN, potIndex: 0, low: false, amount: 120 },
+      { userId: HORSE, potIndex: 1, low: false, amount: 40 },
+    ];
+    e.currentHandShowdownResults = [];
+    expect(e.holdsSeatForPresentation(HUMAN)).toBe(true);
+    expect(e.holdsSeatForPresentation(HORSE)).toBe(true);
+    expect(e.holdsSeatForPresentation(LATE)).toBe(false);
+  });
+
+  it('holds a tabled losing hand, not a seat that folded out', () => {
+    const e = makeEngineInCompletionHold();
+    e.currentHandPerPotAwards = [{ userId: HORSE, potIndex: 0, low: false, amount: 80 }];
+    e.currentHandShowdownResults = [{ userId: HUMAN }, { userId: HORSE }];
+    expect(e.holdsSeatForPresentation(HUMAN)).toBe(true);
+    e.currentHandShowdownResults = [{ userId: HORSE }];
+    expect(e.holdsSeatForPresentation(HUMAN)).toBe(false);
+  });
+
+  it('holds a leave deferred in the hold before its request is even written', async () => {
+    const e = makeEngineInCompletionHold();
+    e.currentHandPerPotAwards = [];
+    e.currentHandShowdownResults = [];
+    let heldDuringWrite: boolean | null = null;
+    departure.mockImplementationOnce(async () => {
+      heldDuringWrite = e.holdsSeatForPresentation(HUMAN);
+    });
+    await e.leaveTable(HUMAN);
+    expect(heldDuringWrite).toBe(true);
+  });
+
+  it('releases everything once the completion hold ends', () => {
+    const e = makeEngineInCompletionHold();
+    e.currentHandPerPotAwards = [{ userId: HUMAN, potIndex: 0, low: false, amount: 50 }];
+    e.endCompletionPresentation();
+    expect(e.holdsSeatForPresentation(HUMAN)).toBe(false);
+  });
+
+  it('a failed departure write leaves no hold behind', async () => {
+    const e = makeEngineInCompletionHold();
+    e.currentHandPerPotAwards = [];
+    e.currentHandShowdownResults = [];
+    departure.mockRejectedValueOnce(new Error('db down'));
+    const res = await e.leaveTable(HUMAN);
+    expect(res.success).toBe(false);
+    expect(e.holdsSeatForPresentation(HUMAN)).toBe(false);
+  });
+
+  it('the settlement sweep asks before every cash-out, and only settlement asks', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const seats = readFileSync(join(here, '../services/supabase/seats.ts'), 'utf8');
+    const settlement = readFileSync(join(here, 'ServerTableEngineSettlement.ts'), 'utf8');
+    const loop = seats.indexOf('for (const seat of pendingSeats) {');
+    const ask = seats.indexOf('if (holdSeat?.(seat.user_id, seat.occupancy_id)) continue;', loop);
+    const pay = seats.indexOf('await atomicCashout(seat.user_id', loop);
+    expect(loop).toBeGreaterThan(0);
+    expect(ask).toBeGreaterThan(loop);
+    expect(pay).toBeGreaterThan(ask);
+    expect(settlement).toContain('(userId) => this.holdsSeatForPresentation(userId)');
+  });
+});
+
 describe('a player who was not dealt into the presented hand', () => {
   it('still leaves immediately', async () => {
     const e = makeEngineInCompletionHold();

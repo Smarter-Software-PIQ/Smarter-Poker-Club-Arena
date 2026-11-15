@@ -43,6 +43,27 @@ next-hand `leave_pending` sweep in `prepareNextHand` then cashes it out
 through the usual occupancy-keyed door. A player who was not dealt into that
 hand still leaves at once. Horses and humans take the same door.
 
+Settlement (`processLeavePending` gains an optional `holdSeat`, passed only
+by `readCashHandDepartures`): end-of-hand settlement runs while the hand is
+still being presented, and it used to cash out every `leave_pending` seat at
+once. That included a mid-hand (for example all-in) leaver who then won, and
+it could race a deferral made in the hold. It now leaves alone, untouched and
+still pending, any seat that belongs to the presentation: a pot recipient
+(main or side pot, high or low), a hand tabled at showdown, or a leave
+deferred in the hold. The deferral is recorded before its durable write, so
+there is no window in which settlement could see the new row first. A leaver
+who folded out has already left the felt (`seat_left`) and is cashed out at
+settlement as before. The held seats are cashed out by the next-hand sweep,
+through the same occupancy-keyed cash-out with its durable receipt.
+`fn_request_seat_departure` is idempotent per occupancy (ON CONFLICT), so a
+repeated leave cannot queue twice.
+
+Completion is the engine's own `awaitHandCompletionDisplay` timer. A client
+acknowledgement never holds a seat, so a disconnected client cannot keep a
+chair. The window is opened synchronously beside the deal (nothing is awaited
+between the lease-authority check and `dealHand`), and the dealing loop's
+error handler closes it if a hand dies.
+
 Client (`TablePage`): `POT_WIN` resolves winners through `winnerSeatIdx`,
 which is the live seat or else the last seat this client saw the player in.
 The pot pill no longer returns silently. This covers clients while the old
