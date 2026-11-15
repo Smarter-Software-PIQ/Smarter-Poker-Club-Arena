@@ -5485,7 +5485,8 @@ export abstract class ServerTableEngineBase {
         // A restart after the final owed deal must still restore the original
         // departure intention. The normal release door checks the count and
         // live hand before cashing out; zero owed must not lose that intention.
-        this.adoptLightningBlindOff(p.user_id, p.occupancy_id);
+        this.leaveHeldByClock.set(p.user_id, p.occupancy_id);
+        this.chipContinuity.markBlindOff(p.user_id, true);
         continue;
       }
       const lock = this.chipContinuity.leaveLock(
