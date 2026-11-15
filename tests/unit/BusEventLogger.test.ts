@@ -36,6 +36,33 @@ vi.mock('../../src/stores/useUserStore', () => ({
 // ─── Import AFTER mocks ──────────────────────────────────────────────────
 
 import { busEventLogger } from '../../src/services/BusEventLogger';
+import { masterBus } from '../../src/core/MasterBus';
+
+import { shareLink } from '../../src/lib/share';
+
+describe('BusEventLogger.record (share outcomes, 2026-11-15)', () => {
+  afterEach(() => busEventLogger.stop());
+
+  it('batches the event in this tab only: nothing is emitted on the cross-tab bus', () => {
+    const before = busEventLogger.getBatchSize();
+    busEventLogger.record('SHARE_OUTCOME', { source: 'TournamentDetails.share', outcome: 'copied' });
+    expect(busEventLogger.getBatchSize()).toBe(before + 1);
+    expect(masterBus.emit).not.toHaveBeenCalled();
+  });
+
+  it('once started, a real share tap lands in the batch; once stopped, it does not', async () => {
+    busEventLogger.start();
+    vi.stubGlobal('navigator', { share: vi.fn().mockResolvedValue(undefined) });
+    const before = busEventLogger.getBatchSize();
+    await shareLink({ source: 'TournamentBreakScreen.share', url: 'https://smarter.poker/t/x' });
+    expect(busEventLogger.getBatchSize()).toBe(before + 1);
+    busEventLogger.stop();
+    const afterStop = busEventLogger.getBatchSize();
+    await shareLink({ source: 'TournamentBreakScreen.share', url: 'https://smarter.poker/t/x' });
+    expect(busEventLogger.getBatchSize()).toBe(afterStop);
+    vi.unstubAllGlobals();
+  });
+});
 
 describe('BusEventLogger', () => {
   beforeEach(() => {
