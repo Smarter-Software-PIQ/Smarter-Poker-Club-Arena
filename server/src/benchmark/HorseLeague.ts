@@ -2577,6 +2577,19 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaNoDrawRaiseOutOfPosition: true },
     b: {},
   })),
+  // 2026-11-15 OMAHA STRONG HAND VALUE (HorseOmahaStrongHandValue, default
+  // OFF): the PLO4/PLO5 cash river check with a full house or better (or a
+  // nut-class hand) priced against every value bet, and the river call facing
+  // one bettor priced against every value raise; a switches it on, b is
+  // today's brain. The mirror's memory learning is on (the league default).
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_strong_hand_value`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaStrongHandValue: true },
+    b: {},
+  })),
   // V15 BOATS (2026-09-28): default OFF. a turns it on, b is today's brain.
   // Ship it default ON only after this resolves significant positive.
   // 2026-11-06: V15 boats is default ON in PLO5 cash (v15BoatsOn), so the

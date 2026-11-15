@@ -82,6 +82,7 @@ import {
 } from './HorseOmahaUnderpair.js';
 import { omahaCardImpactDecision, omahaCardImpactScope } from './HorseOmahaCardImpact.js';
 import { omahaFacingBetEvSpot, omahaFacingBetEvVerdict } from './HorseOmahaFacingBetEv.js';
+import { omahaStrongHandValueDecision } from './HorseOmahaStrongHandValue.js';
 import {
   omahaPlanHeroInPosition,
   omahaPlanLineUncommitted,
@@ -3333,6 +3334,26 @@ export interface HorseDecideOpts {
    * and untouched. Default OFF (opt-in, read `=== true`); league cards
    * plo4/plo5 _omaha_no_draw_raise_out_of_position. */
   omahaNoDrawRaiseOutOfPosition?: boolean;
+  /** Owner 2026-11-15 12:16 (the earlier all-hands playbook's PLO4/PLO5 cash
+   * entries, HorseOmahaStrongHandValue.ts): on the river, one board, high
+   * only, with a full house or better or a nut-class hand, three decisions
+   * become expected-value comparisons. (a) Nothing to call and today's answer
+   * a check: the check and every bet size are priced against each opponent
+   * left (HorseOmahaCardImpact's pricing, combined across opponents); the
+   * value bet of highest expected value is made when it is worth at least the
+   * check. (c) With a player still to act the check is kept only when it is
+   * worth more than every value bet (the induce), or when no size is a value
+   * bet. (b) Facing one bettor with nobody else in the hand and today's
+   * answer a call: EV(raise to each legal size), on the exact count of the
+   * holdings that continue against the raise, beside HorseOmahaFacingBetEv's
+   * EV(call); the raise is made when it is a value raise worth more than the
+   * call by 4 percent of the pot. In its spots it decides over the half-pot
+   * checked-to full-house bet and over the river nut-raise rule's call for a
+   * full house a bigger one beats. A hand below a full house that is not nut
+   * class is never touched. Default OFF (opt-in, read `=== true`) until its
+   * declared evaluation passes; league cards plo4/plo5
+   * _omaha_strong_hand_value. */
+  omahaStrongHandValue?: boolean;
   /** A token-priced committed call is not barred by stack-off premiums
    * (HorseTokenCallPrice.ts, PLO6-AUDIT-010). Default on; false only for
    * the regression's non-vacuity control. */
@@ -8691,6 +8712,79 @@ function omahaStreetPlanCallsThisRiver(
 }
 
 /**
+ * omahaStrongHandValue (owner 2026-11-15 12:16; default OFF, read `=== true`):
+ * HorseOmahaStrongHandValue.ts. The last rule of the wager_rules node (and the
+ * outermost outside the graph): it reads the node's final check or call. A
+ * river check with a full house or better, or a nut-class hand, is priced
+ * against every value bet; a river call facing one bettor is priced against
+ * every value raise. `priced` tells the node that the option answered the
+ * spot, so the half-pot checked-to full-house bet does not replace a check
+ * the comparison kept. Draws no random number. Unset or false it returns the
+ * decision it was given.
+ *
+ * Receipts: omaha_strong_hand_value_bet, omaha_strong_hand_value_raise,
+ * omaha_strong_hand_induce_check (the check kept because it is worth more
+ * than every value bet with a player still to act).
+ */
+function omahaStrongHandValueRule(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): { decision: HorseDecision; priced: boolean } {
+  const same = { decision, priced: false };
+  if (opts.omahaStrongHandValue !== true) return same;
+  if (decision.action !== 'check' && decision.action !== 'call') return same;
+  try {
+    const userOf = (seat: number): string | null =>
+      opts.mind === false
+        ? null
+        : ((gs.players ?? []).find((p) => p.seat === seat)?.user_id ?? null);
+    const result = omahaStrongHandValueDecision(decision, player, gs, {
+      conditional: (seat) => {
+        const id = userOf(seat);
+        if (id === null) return null;
+        try {
+          return HorseMind.omahaReadConditionalOf(id);
+        } catch {
+          return null;
+        }
+      },
+      facingBet: (seat, potFrac) => {
+        const id = userOf(seat);
+        if (id === null) return null;
+        try {
+          return HorseMind.omahaFacingBetEvReadOf(id, 'river', potFrac);
+        } catch {
+          return null;
+        }
+      },
+      rake: isTournamentMode(gs)
+        ? 0
+        : rakeDrag(gs.pot, gs.bigBlind, gs.rakeConfig, dealtHorseTableSize(gs, player.seat)),
+    });
+    if (telemetryOn(opts)) {
+      if (result.changed === 'value_bet') noteFire('omaha_strong_hand_value_bet');
+      else if (result.changed === 'value_raise') noteFire('omaha_strong_hand_value_raise');
+      else if (result.changed === 'induce_check') noteFire('omaha_strong_hand_induce_check');
+    }
+    return { decision: result.decision, priced: result.priced };
+  } catch {
+    return same;
+  }
+}
+
+/** omahaStrongHandValueRule's decision, for the rule chain outside the graph. */
+function omahaStrongHandValueOutside(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
+  return omahaStrongHandValueRule(decision, player, gs, opts).decision;
+}
+
+/**
  * omahaTurnRiverRaiseNeedsNuts outside the policy graph: the outermost
  * conversion of HorseLogic.decide for a decision the graph did not make (the
  * graph's own decision is ruled inside its wager_rules node, so its recorded
@@ -8716,30 +8810,35 @@ function pairedBoardFoldOutsideGraph(
   return decision.policyGraph === undefined
     ? omahaOwnerRuledFinal(
         omahaDrawRules(
-          omahaFacingBetEvRule(
-            omahaRiverMediumBetStrongHandCalls(
-              omahaOopReraisedPotStrongRange(
-                omahaOutermostCallDiscipline(
-                  omahaReraisedPotFold(
-                    omahaBigBetCallFold(
-                      omahaOwnBetRules(
-                        pairedBoardRiverCheck(
-                          pairedBoardFold(
-                            omahaMadeHandDefenseRules(
-                              omahaRiverNutRaiseOnly(
-                                decision,
+          omahaStrongHandValueOutside(
+            omahaFacingBetEvRule(
+              omahaRiverMediumBetStrongHandCalls(
+                omahaOopReraisedPotStrongRange(
+                  omahaOutermostCallDiscipline(
+                    omahaReraisedPotFold(
+                      omahaBigBetCallFold(
+                        omahaOwnBetRules(
+                          pairedBoardRiverCheck(
+                            pairedBoardFold(
+                              omahaMadeHandDefenseRules(
+                                omahaRiverNutRaiseOnly(
+                                  decision,
+                                  player,
+                                  gs,
+                                  // The default-off near-nut value candidate keeps its own raise
+                                  // when a league arm switches it on; production never does.
+                                  opts.omahaRiverNutRaiseOnly !== false &&
+                                    !nearNutChosenRaises.has(decision)
+                                ).decision,
                                 player,
                                 gs,
-                                // The default-off near-nut value candidate keeps its own raise
-                                // when a league arm switches it on; production never does.
-                                opts.omahaRiverNutRaiseOnly !== false &&
-                                  !nearNutChosenRaises.has(decision)
-                              ).decision,
+                                opts,
+                                null,
+                                nearNutChosenRaises.has(decision)
+                              ),
                               player,
                               gs,
-                              opts,
-                              null,
-                              nearNutChosenRaises.has(decision)
+                              opts
                             ),
                             player,
                             gs,
@@ -10855,6 +10954,11 @@ export class HorseLogic {
         gs,
         opts.v86MultiStreetUnblocked !== false
       );
+      // Owner 2026-11-15 (omahaStrongHandValue, default off): the node's
+      // final river check or call with a strong hand, priced against the
+      // value bets and the value raises. Where it answered the spot, its
+      // answer stands over the half-pot checked-to bet below.
+      const strongHand = omahaStrongHandValueRule(finalWager, player, gs, opts);
       // Dan 2026-11-14 (HorseOmahaOnePair.ts): the one-pair rules judge the
       // node's final answer, after every owner that can bet, raise or call
       // (the checked-to pricing below included); a declared river bluff, or
@@ -10884,6 +10988,7 @@ export class HorseLogic {
       };
       // Price missed checked-to turn boat and river value against the controller's menu.
       if (
+        !strongHand.priced &&
         finalWager.action === 'check' &&
         (gs.stage === 'turn' || gs.stage === 'river') &&
         gs.stateSchemaVersion === 1 &&
@@ -10933,11 +11038,14 @@ export class HorseLogic {
       // Owner 2026-11-15 12:52 / 12:53 (omahaTurnRiverRaiseNeedsNuts): the
       // outermost conversion of this node on the turn and river facing-bet
       // path, after every owner that can raise (omahaOwnerRuledFinal and
-      // omahaNoDrawRaiseFinal included); nothing after it raises.
+      // omahaNoDrawRaiseFinal included); nothing after it raises. The
+      // strong-hand value answer (omahaStrongHandValue) is inside it and
+      // inside omahaOwnerRuledFinal, so an owner-ruled check stands over its
+      // value bet and its value raise needs the nuts.
       return {
         decision: omahaTurnRiverRaiseNeedsNutsRule(
           omahaOwnerRuledFinal(
-            omahaDrawRules(onePair(finalWager), player, gs, opts),
+            omahaDrawRules(onePair(strongHand.decision), player, gs, opts),
             player,
             gs,
             opts

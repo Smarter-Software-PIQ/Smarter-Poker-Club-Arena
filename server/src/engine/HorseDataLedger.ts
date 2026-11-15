@@ -1069,6 +1069,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaStrongHandValue',
+    "Owner 2026-11-15 12:16 (the earlier all-hands playbook's PLO4/PLO5 cash entries): on the river, one board, high only, with a full house or better or a nut-class hand, three decisions are expected-value comparisons (HorseOmahaStrongHandValue.ts). Nothing to call and today's answer a check: the check and every bet size are priced against each opponent left with HorseOmahaCardImpact's pricing (combined across opponents, the field defending the minimum-defence share together); the value bet of highest expected value is made when it is worth at least the check; with a player still to act the check is kept only when it is worth more than every value bet (the induce) or when no size is a value bet. Facing one bettor with nobody else in the hand and today's answer a call: EV(raise to each legal size) on the exact count of the holdings that continue against the raise, beside HorseOmahaFacingBetEv's EV(call); the raise is made when it is a value raise worth more than the call by 4 percent of the pot. In its spots it decides over the half-pot checked-to full-house bet and over the river nut-raise rule's call for a full house a bigger one beats; a hand below a full house that is not nut class is never touched. Default OFF (opt-in); league cards plo4/plo5 _omaha_strong_hand_value",
+    'V94'
+  ),
+  flag(
     'omahaNutClassValueSize',
     'Dan 2026-11-14: a PLO4/PLO5 high bet or raise with the nuts or an effective-nut hand for the street is the full pot (the pot-limit maximum, the stack when smaller) on the flop, turn and river. Default OFF (opt-in): its declared evaluation failed on the Horse-only cells (PLO4 -1.19, PLO5 -1.31 bb/100; human field +2.29)',
     'V94'
@@ -4464,6 +4469,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_no_draw_raise_final_call',
     'HorseLogic (HorseOmahaBigDrawAggression.omahaDrawRaiseBar, omahaNoDrawRaiseOutOfPosition)',
     'PLO4/PLO5 cash flop or turn, a raise from any other owner that reached the final answer with a draw out of position, or in position with a bare flush draw: not made, it became a call',
+    'V94'
+  ),
+  receipt(
+    'omaha_strong_hand_value_bet',
+    'HorseLogic wager_rules (HorseOmahaStrongHandValue, omahaStrongHandValue)',
+    'PLO4/PLO5 cash river, nothing to call, a full house or better or a nut-class hand, the answer a check: the value bet of highest expected value (the hands that call and lose outweigh those that call or raise and win) is worth at least the check and replaces it',
+    'V94'
+  ),
+  receipt(
+    'omaha_strong_hand_value_raise',
+    'HorseLogic wager_rules (HorseOmahaStrongHandValue, omahaStrongHandValue)',
+    'PLO4/PLO5 cash river, one bettor and nobody else in the hand, a full house or better or a nut-class hand, the answer a call: a raise the continuing holdings it beats outnumber those that beat it (exact count) is worth more than the call by 4 percent of the pot and replaces it',
+    'V94'
+  ),
+  receipt(
+    'omaha_strong_hand_induce_check',
+    'HorseLogic wager_rules (HorseOmahaStrongHandValue, omahaStrongHandValue)',
+    'PLO4/PLO5 cash river, nothing to call, a strong hand, a player still to act: the check is worth more than every value bet and is kept (valid no-change)',
     'V94'
   ),
   receipt(
