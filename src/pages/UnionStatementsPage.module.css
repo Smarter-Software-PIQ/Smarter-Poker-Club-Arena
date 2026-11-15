@@ -373,3 +373,68 @@
     padding-inline: 16px;
   }
 }
+
+/* The stored document's identity, week and parties (owner specification
+   2026-11-14, item 8). Plain text on the glass: no frame is drawn. */
+.periodLabel {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  text-wrap: balance;
+}
+
+.document {
+  display: grid;
+  margin: 0;
+  padding: 0 0 2cqw;
+}
+
+.documentLine {
+  display: grid;
+  grid-template-columns: 22cqw minmax(0, 1fr);
+  gap: 3cqw;
+  padding: 1.6cqw 0;
+  color: #e4e7ec;
+  font-size: 3.2cqw;
+}
+
+.documentLine dt {
+  color: #45adff;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.documentLine dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+
+.documentHint {
+  color: #9aa5b3;
+}
+
+.documentDue {
+  font-weight: 900;
+}
+
+.houseSection {
+  display: grid;
+  padding-top: 3cqw;
+  border-top: 1px solid #000;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 8%);
+}
+
+.sectionLabel {
+  font-size: 3.4cqw;
+  text-align: center;
+}
+
+.sectionNote {
+  margin: 1.5cqw 0 2cqw;
+  color: #9aa5b3;
+  font-size: 3cqw;
+  line-height: 1.45;
+  text-align: center;
+}

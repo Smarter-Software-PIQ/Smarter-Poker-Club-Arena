@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   lockCashBuyInJournal,
+  lockCashBuyInJournalInBrowser,
+  isCashBuyInStorageFailure,
   createCashBuyInJournal,
   executeCashBuyIn,
   cashBuyInReceiptMatches,
@@ -222,28 +224,52 @@ describe('receipt recovery never silently creates another purchase', () => {
 });
 
 describe('the browser reservation lock', () => {
-  it('runs the critical section inside a read/write transaction and waits for commit', async () => {
+  it('runs the critical section inside a read/write transaction and answers with its result', async () => {
     const request: any = {};
     const gate: any = {};
     const transaction: any = { objectStore: vi.fn(() => ({ get: vi.fn(() => gate) })) };
     const db: any = { transaction: vi.fn(() => transaction), close: vi.fn() };
     request.result = db;
     const work = vi.fn(() => 'saved');
-    let complete = false;
-    const pending = lockCashBuyInJournal(work, { open: () => request } as any).then((value) => {
-      complete = true;
-      return value;
-    });
+    const pending = lockCashBuyInJournal(work, { open: () => request } as any);
     request.onsuccess();
     expect(db.transaction).toHaveBeenCalledWith('journal', 'readwrite');
     expect(work).not.toHaveBeenCalled();
     gate.onsuccess();
-    await Promise.resolve();
     expect(work).toHaveBeenCalledOnce();
-    expect(complete).toBe(false);
-    transaction.oncomplete();
+    // The transaction is a gate, not the store: the answer does not wait for
+    // its commit, and the commit arriving later changes nothing.
     expect(await pending).toBe('saved');
+    transaction.oncomplete();
     expect(db.close).toHaveBeenCalledOnce();
+  });
+
+  /* WHYTEGOLD502, 2026-11-14. His phone took longer than two seconds to commit
+     the gate transaction. The journal was already written, the deadline fired,
+     and he was told the buy-in was never saved while a saved request for seat
+     5 sat in storage and was shown back to him as one needing confirmation. */
+  it('never reports failure for a reservation that was already saved', async () => {
+    vi.useFakeTimers();
+    const request: any = {};
+    const gate: any = {};
+    const transaction: any = {
+      objectStore: vi.fn(() => ({ get: vi.fn(() => gate) })),
+      abort: vi.fn(),
+    };
+    const db: any = { transaction: vi.fn(() => transaction), close: vi.fn() };
+    request.result = db;
+    const work = vi.fn(() => 'saved');
+    const pending = lockCashBuyInJournal(work, { open: () => request } as any);
+    request.onsuccess();
+    await vi.advanceTimersByTimeAsync(1_900);
+    gate.onsuccess();
+    // The commit never arrives and the old deadline passes.
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(await pending).toBe('saved');
+    expect(transaction.abort).not.toHaveBeenCalled();
+    // A late abort of the gate cannot unsave web storage either.
+    transaction.onabort();
+    expect(work).toHaveBeenCalledOnce();
   });
 
   it('does not run a timed-out reservation when a blocked database opens late', async () => {
@@ -260,5 +286,95 @@ describe('the browser reservation lock', () => {
     expect(work).not.toHaveBeenCalled();
     expect(db.transaction).not.toHaveBeenCalled();
     expect(db.close).toHaveBeenCalledOnce();
+  });
+
+  it('takes the in-memory Web Lock and never opens IndexedDB when it is available', async () => {
+    const fallback = vi.fn();
+    const request = vi.fn(async (_name: string, _options: unknown, run: () => unknown) => run());
+    const work = vi.fn(() => 'saved');
+    expect(await lockCashBuyInJournalInBrowser(work, { request } as any, fallback as any)).toBe(
+      'saved'
+    );
+    expect(request.mock.calls[0][0]).toBe('ca-cash-buyin-journal-lock');
+    expect(request.mock.calls[0][1]).toMatchObject({ mode: 'exclusive' });
+    expect(work).toHaveBeenCalledOnce();
+    expect(fallback).not.toHaveBeenCalled();
+  });
+
+  it('gives up on a Web Lock held too long without running or re-running the work', async () => {
+    vi.useFakeTimers();
+    const fallback = vi.fn();
+    const request = vi.fn(
+      (_name: string, options: { signal: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          options.signal.addEventListener('abort', () => reject(new Error('aborted')));
+        })
+    );
+    const work = vi.fn();
+    const pending = lockCashBuyInJournalInBrowser(work, { request } as any, fallback as any);
+    const assertion = expect(pending).rejects.toThrow('Safely Saved In Time');
+    await vi.advanceTimersByTimeAsync(2_001);
+    await assertion;
+    expect(work).not.toHaveBeenCalled();
+    expect(fallback).not.toHaveBeenCalled();
+  });
+
+  it('the deadline stops the moment the work starts', async () => {
+    vi.useFakeTimers();
+    let grant: () => void = () => {};
+    const signals: AbortSignal[] = [];
+    const request = vi.fn(
+      (_name: string, options: { signal: AbortSignal }, run: () => unknown) =>
+        new Promise((resolve) => {
+          signals.push(options.signal);
+          grant = () => resolve(run());
+        })
+    );
+    const work = vi.fn(() => 'saved');
+    const pending = lockCashBuyInJournalInBrowser(work, { request } as any);
+    await vi.advanceTimersByTimeAsync(1_999);
+    grant();
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(await pending).toBe('saved');
+    expect(signals[0].aborted).toBe(false);
+  });
+
+  it('falls back to IndexedDB once when Web Locks is missing or refuses before granting', async () => {
+    const work = vi.fn(() => 'saved');
+    const fallback = vi.fn(async (run: () => string) => run());
+    expect(await lockCashBuyInJournalInBrowser(work, {} as any, fallback)).toBe('saved');
+    const refused = vi.fn(async () => {
+      throw new Error('SecurityError');
+    });
+    expect(await lockCashBuyInJournalInBrowser(work, { request: refused } as any, fallback)).toBe(
+      'saved'
+    );
+    expect(fallback).toHaveBeenCalledTimes(2);
+    expect(work).toHaveBeenCalledTimes(2);
+  });
+
+  it('an error thrown by the work is the answer and is never retried through the fallback', async () => {
+    const fallback = vi.fn();
+    const request = vi.fn(async (_name: string, _options: unknown, run: () => unknown) => run());
+    const work = vi.fn(() => {
+      throw new Error('The Buy-In Could Not Be Saved');
+    });
+    await expect(
+      lockCashBuyInJournalInBrowser(work, { request } as any, fallback as any)
+    ).rejects.toThrow('The Buy-In Could Not Be Saved');
+    expect(work).toHaveBeenCalledOnce();
+    expect(fallback).not.toHaveBeenCalled();
+  });
+
+  it('names a device save failure apart from a buy-in whose details are wrong', () => {
+    expect(
+      isCashBuyInStorageFailure(new Error('The Buy-In Could Not Be Safely Saved In Time'))
+    ).toBe(true);
+    expect(isCashBuyInStorageFailure(new Error('Buy-In Storage Is Unavailable'))).toBe(true);
+    expect(isCashBuyInStorageFailure(new Error('The Buy-In Could Not Be Saved'))).toBe(true);
+    expect(isCashBuyInStorageFailure(new Error('The Buy-In Details Could Not Be Verified'))).toBe(
+      false
+    );
+    expect(isCashBuyInStorageFailure(null)).toBe(false);
   });
 });

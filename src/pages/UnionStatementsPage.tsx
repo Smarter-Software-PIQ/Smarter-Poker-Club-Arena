@@ -38,9 +38,15 @@ import CasinoSurfaceHeader from '../components/rewards/RewardsSurfaceHeader';
 import { SpadeConsole } from '../components/console/SpadeConsole';
 import { useIsMounted } from '../hooks/useIsMounted';
 import { titleCase } from '../utils/titleCase';
-import { compactChips } from '../utils/format';
+import { figureDigits, formatWalletChips } from '../utils/format';
 import {
+  chicagoDayLabel,
+  chicagoInstantLabel,
   parseUnionStatementBoard,
+  statementClubName,
+  unionStatementAmountDue,
+  unionStatementPayLine,
+  unionStatementWeekLabel,
   type UnionStatementBoard as Board,
   type UnionStatementClub as BoardClub,
 } from '../utils/unionStatementBoard';
@@ -121,22 +127,50 @@ function parseStatementIssueReceipt(
   return { issued: Number(hasIssued ? issued : invoices) };
 }
 
+/* Every statement figure is printed exactly as stored: separators, at least
+   two places, never a K/M suffix and never "Under 1" (owner specification
+   2026-11-14, item 8). The board parser has already refused any figure that
+   is not an exact chip-cent amount. */
 function money(n: number | null | undefined): string {
   if (n === null || n === undefined) return 'Unavailable';
-  const value = Number(n);
-  if (Number.isFinite(value) && value !== 0 && Math.abs(value) < 1) {
-    return value < 0 ? 'Under 1 Owed' : 'Under 1';
-  }
-  return compactChips(value);
+  return formatWalletChips(n);
 }
 
 function compactInt(n: number | null | undefined): string {
   return Number(n || 0).toLocaleString('en-US');
 }
 
-function boardToCsv(rows: BoardClub[]): string {
-  const esc = csvEscape;
+/** A money cell: the stored figure's exact digits with at least two places. */
+class CsvFigure {
+  constructor(readonly text: string) {}
+}
+
+function csvMoney(n: number | null | undefined): CsvFigure | null {
+  if (n === null || n === undefined) return null;
+  const digits = figureDigits(n);
+  if (!digits) return null;
+  return new CsvFigure(
+    `${digits.negative ? '-' : ''}${digits.whole}.${digits.fraction.padEnd(2, '0')}`
+  );
+}
+
+function boardToCsv(rows: BoardClub[], unionName: string | null): string {
+  // Money cells are digits, a sign and a point only, so they are written
+  // as-is: the spreadsheet guard would turn a negative figure into text.
+  const cell = (value: unknown) => (value instanceof CsvFigure ? value.text : csvEscape(value));
   const head = [
+    'statement_kind',
+    'invoice_number',
+    'week_start_inclusive_chicago',
+    'week_end_exclusive_chicago',
+    'week_start_inclusive_instant',
+    'week_end_exclusive_instant',
+    'issued_by',
+    'issued_to',
+    'payer_pays_payee',
+    'amount_due',
+    'credited_by',
+    'amount_due_after_credits',
     'club_name',
     'club_code',
     'status',
@@ -169,43 +203,95 @@ function boardToCsv(rows: BoardClub[]): string {
     'tournament_eco_terms_id',
     'tournament_eco_record_id',
     'presettled',
+    'settled_in_chips',
+    'player_result_excluding_fees',
+    'rakeback_paid_to_club',
+    'signed_amount_due_positive_union_pays',
   ];
-  const lines = rows.map((r) =>
+  const union = unionName ?? 'Union';
+  // Member clubs first; the union's own house club statement last.
+  const ordered = [...rows.filter((r) => !r.union_house), ...rows.filter((r) => r.union_house)];
+  const lines = ordered.map((r) =>
     [
+      r.union_house ? 'union house club statement' : 'member club statement',
+      r.invoice_number ?? null,
+      r.period_start_at ? `${chicagoInstantLabel(r.period_start_at)} Chicago Time` : null,
+      r.period_end_at ? `${chicagoInstantLabel(r.period_end_at)} Chicago Time` : null,
+      r.period_start_at ?? null,
+      r.period_end_at ?? null,
+      r.status === 'missing' ? null : union,
+      r.status === 'missing' ? null : statementClubName(r, r.club_name),
+      unionStatementPayLine(r, r.club_name, union),
+      unionStatementAmountDue(r, r.club_name, union),
+      (r.credit_notes || []).map((note) => note.invoice_number).join(' ') || null,
+      csvMoney(
+        r.status === 'missing'
+          ? null
+          : r.credit_notes?.length
+            ? (r.remaining_after_credits ?? null)
+            : Math.abs(r.amount)
+      ),
       r.club_name,
       r.club_code,
       r.status,
-      r.amount,
+      csvMoney(r.amount),
       r.direction,
       r.message_sent,
       r.due_at,
       r.payment_details_available,
-      r.paid_total,
-      r.outstanding,
-      r.rake_generated,
-      r.rakeback_due,
-      r.union_fee_kept,
-      r.players_won,
-      r.weekly_player_results?.cash_net_loss ?? null,
-      r.weekly_player_results?.tournament_net_loss ?? null,
-      r.weekly_player_results?.total_net_loss ?? null,
-      r.weekly_player_results?.rakeback_credit ?? null,
-      r.weekly_player_results?.eco_charge ?? null,
-      r.weekly_player_results?.weekly_net_due_to_union ?? null,
-      r.eco_amount,
-      ...unionEcoRows(r).map(([, value]) => (value === null ? 'Unavailable' : value)),
+      csvMoney(r.paid_total),
+      csvMoney(r.outstanding),
+      csvMoney(r.rake_generated),
+      csvMoney(r.rakeback_due),
+      csvMoney(r.union_fee_kept),
+      csvMoney(r.players_won),
+      csvMoney(r.weekly_player_results?.cash_net_loss),
+      csvMoney(r.weekly_player_results?.tournament_net_loss),
+      csvMoney(r.weekly_player_results?.total_net_loss),
+      csvMoney(r.weekly_player_results?.rakeback_credit),
+      csvMoney(r.weekly_player_results?.eco_charge),
+      csvMoney(r.weekly_player_results?.weekly_net_due_to_union),
+      csvMoney(r.eco_amount),
+      ...unionEcoRows(r).map(([, value]) => (value === null ? 'Unavailable' : csvMoney(value))),
       ...(['cash', 'tournament'] as const).flatMap((activity) => {
         const c = r.eco_components?.find((component) => component.activity === activity);
         return c
-          ? [c.base, c.rate, c.terms_id, c.record_id]
+          ? [csvMoney(c.base), c.rate, c.terms_id, c.record_id]
           : ['Unavailable', 'Unavailable', 'Unavailable', 'Unavailable'];
       }),
-      r.presettled,
+      csvMoney(r.presettled),
+      csvMoney(r.settled_in_chips),
+      csvMoney(r.player_pnl_net),
+      csvMoney(r.status === 'missing' ? null : r.rakeback_due),
+      csvMoney(r.stored_outstanding),
     ]
-      .map(esc)
+      .map(cell)
       .join(',')
   );
   return [head.join(','), ...lines].join('\n');
+}
+
+/* What "settled in chips" is, from its producer (fn_union_club_invoice:
+   settled_in_chips = player_pnl_net + rakeback_due) and the read-only
+   evidence for the week ending 2026-11-09: the only union-to-club transfer
+   in it is the Monday rakeback; the player result excluding fees was settled
+   at the tables during the week. Neither part is billed again: the amount
+   due is what remains, the recorded ECO plus recorded presettlements. */
+function settledInChipsNote(
+  c: Pick<BoardClub, 'settled_in_chips' | 'rakeback_due' | 'player_pnl_net'>,
+  union: string,
+  club: string
+): string {
+  const rakeback =
+    c.rakeback_due === 0
+      ? `No Rakeback Was Paid To ${club} For This Week`
+      : `${money(c.rakeback_due)} Is The Rakeback ${union} Paid To ${club} With The Monday Rakeback, The Only Union To Club Transfer In It`;
+  return (
+    `Settled In Chips Is ${money(c.settled_in_chips)} And Has Already Moved. ${rakeback}. ` +
+    `${money(c.player_pnl_net)} Is The Player Result Excluding Fees, Already Settled At The ` +
+    `Tables During The Week (Pots, Bad Beat Jackpot Drops And Awards, Tournament Entries And ` +
+    `Prizes); It Is Not A Union Or Club Transfer. Neither Part Is Billed Again.`
+  );
 }
 
 export default function UnionStatementsPage() {
@@ -666,18 +752,301 @@ export default function UnionStatementsPage() {
 
   const exportCsv = useCallback(() => {
     if (!board?.clubs?.length) return;
-    downloadCsv(`union_statements_${board.period_end || 'latest'}.csv`, boardToCsv(board.clubs));
+    downloadCsv(
+      `union_statements_${board.period_end || 'latest'}.csv`,
+      boardToCsv(board.clubs, board.union_name)
+    );
   }, [board]);
 
   const totals = board?.totals;
 
+  // The selected accounting week, printed from the stored instants. A board
+  // from before 20261115011424 has dates only and says so rather than
+  // implying a midnight-to-midnight week.
   const periodLabel = useMemo(() => {
     if (!board) return '';
+    const week = unionStatementWeekLabel(board.period_start_at, board.period_end_at);
+    if (week) return `Week: ${week}`;
     if (board.period_start && board.period_end) {
-      return `${board.period_start} To ${board.period_end}`;
+      return `Week Ending ${board.period_end} 2:00 AM Chicago Time`;
     }
     return board.period_end || 'No Statements Issued Yet';
   }, [board]);
+
+  const unionLabel = board?.union_name ? titleCase(board.union_name) : 'The Union';
+  const memberStatements = (board?.clubs || []).filter((c) => !c.union_house);
+  const houseStatements = (board?.clubs || []).filter((c) => c.union_house);
+
+  const renderStatement = (c: BoardClub) => {
+    const open = expanded === c.club_id;
+    const clubLabel = titleCase(c.club_name);
+    const square = c.status !== 'missing' && (c.direction === 'square' || c.amount === 0);
+    const amountDue = unionStatementAmountDue(c, clubLabel, unionLabel);
+    const credited = (c.credit_notes?.length ?? 0) > 0;
+    const remaining = credited ? (c.remaining_after_credits ?? 0) : Math.abs(c.amount);
+    const nothingDue = square || remaining === 0;
+    const week = unionStatementWeekLabel(c.period_start_at, c.period_end_at);
+    const pillClass =
+      c.status === 'missing'
+        ? styles.pillMissing
+        : c.status === 'paid'
+          ? styles.pillPaid
+          : c.overdue
+            ? styles.pillOverdue
+            : styles.pillOpen;
+    const lines: Array<[string, number | null]> = [
+      ['Rake Generated', c.rake_generated],
+      ['Union Fee Kept', c.union_fee_kept],
+      ['Rakeback Paid To The Club', c.rakeback_due],
+      ['Player Win/Loss, Fees Paid Included', c.players_won],
+      ['Player Result Excluding Fees', c.player_pnl_net ?? null],
+      // Invoices issued before 2026-11-12 carry no cash / tournament split.
+      ...(c.weekly_player_results
+        ? ([
+            ['Cash Player Net Loss', c.weekly_player_results.cash_net_loss],
+            ['Tournament Player Net Loss', c.weekly_player_results.tournament_net_loss],
+            ['Total Player Net Loss', c.weekly_player_results.total_net_loss],
+            ['Less Club Rakeback Credit', c.weekly_player_results.rakeback_credit],
+            [
+              'ECO Charge Or Credit (Positive Means The Club Pays)',
+              c.weekly_player_results.eco_charge,
+            ],
+            [
+              'Full Weekly Net (Positive Club Owes)',
+              c.weekly_player_results.weekly_net_due_to_union,
+            ],
+          ] as Array<[string, number]>)
+        : []),
+      ...unionEcoRows(c),
+      ...(c.eco_components || []).map((eco): [string, number] => [
+        `${eco.activity === 'cash' ? 'Cash' : 'Tournament'} ECO Base (${(eco.rate * 100).toFixed(1)}%)`,
+        eco.base,
+      ]),
+      ['Combined ECO Adjustment (Negative Means The Club Pays)', c.eco_amount],
+      ['Recorded Presettlements', c.presettled],
+      ['Settled In Chips', c.settled_in_chips ?? null],
+      ['Remaining Unpaid Balance', c.outstanding],
+    ];
+    return (
+      <div className={styles.clubRow} key={c.club_id}>
+        <button
+          type="button"
+          className={styles.clubMain}
+          onClick={() => setExpanded(open ? null : c.club_id)}
+          aria-expanded={open}
+          aria-label={`${titleCase(c.club_name)} Statement Details`}
+        >
+          <div className={styles.clubText}>
+            <div className={styles.clubName}>{titleCase(c.club_name)}</div>
+            <div className={styles.clubMeta}>
+              <span className={`${styles.pill} ${pillClass}`}>
+                {c.payment_details_available === false
+                  ? 'Paid Record Only'
+                  : c.status === 'missing'
+                    ? 'No Statement'
+                    : c.overdue
+                      ? 'Overdue'
+                      : titleCase(c.status)}
+              </span>
+              {c.status !== 'missing' && (
+                <span className={c.message_sent ? styles.deliveredYes : styles.deliveredNo}>
+                  {c.message_sent ? 'Delivered' : 'Not Delivered'}
+                </span>
+              )}
+              {c.due_at && !nothingDue && <span>Due {chicagoDayLabel(c.due_at)}</span>}
+            </div>
+          </div>
+          <div className={styles.clubAmount}>
+            <div className={`${styles.amountValue} ${c.amount < 0 ? styles.neg : styles.pos}`}>
+              {c.status === 'missing' ? '--' : money(remaining)}
+            </div>
+            <div className={styles.amountLabel}>
+              {c.status === 'missing'
+                ? 'Not Billed'
+                : square
+                  ? 'Square'
+                  : credited && remaining === 0
+                    ? 'Credited In Full'
+                    : c.direction === 'union owes club'
+                      ? c.union_house
+                        ? 'Union Pays House Club'
+                        : 'Union Pays Club'
+                      : 'Club Pays Union'}
+            </div>
+          </div>
+        </button>
+
+        {open && (
+          <div className={styles.breakdown}>
+            {c.status === 'missing' ? (
+              <div className={styles.state}>
+                This Club Has No Statement For The Period. Issuing Will Create One.
+              </div>
+            ) : (
+              <>
+                <dl className={styles.document} aria-label={`${clubLabel} Statement Document`}>
+                  {c.invoice_number && (
+                    <div className={styles.documentLine}>
+                      <dt>Invoice</dt>
+                      <dd>{c.invoice_number}</dd>
+                    </div>
+                  )}
+                  <div className={styles.documentLine}>
+                    <dt>Week</dt>
+                    <dd>
+                      {week ?? periodLabel}
+                      {week && (
+                        <span className={styles.documentHint}> Start Included, End Excluded.</span>
+                      )}
+                    </dd>
+                  </div>
+                  <div className={styles.documentLine}>
+                    <dt>Issued By</dt>
+                    <dd>{unionLabel}</dd>
+                  </div>
+                  <div className={styles.documentLine}>
+                    <dt>Issued To</dt>
+                    <dd>
+                      {c.union_house ? `${clubLabel} (The Union's Own House Club)` : clubLabel}
+                    </dd>
+                  </div>
+                  <div className={styles.documentLine}>
+                    <dt>Amount Due</dt>
+                    <dd className={styles.documentDue}>{amountDue}</dd>
+                  </div>
+                  {credited && (
+                    <div className={styles.documentLine}>
+                      <dt>Credited By</dt>
+                      <dd>
+                        {(c.credit_notes || [])
+                          .map((note) => `${note.invoice_number} (${money(note.amount)})`)
+                          .join(', ')}{' '}
+                        Against An Original {money(Math.abs(c.amount))}
+                      </dd>
+                    </div>
+                  )}
+                  {c.due_at && !nothingDue && (
+                    <div className={styles.documentLine}>
+                      <dt>Due</dt>
+                      <dd>{chicagoInstantLabel(c.due_at)} Chicago Time</dd>
+                    </div>
+                  )}
+                </dl>
+                {lines.map(([label, value]) => (
+                  <div className={styles.breakdownLine} key={label}>
+                    <span>{label}</span>
+                    <span>{money(value)}</span>
+                  </div>
+                ))}
+              </>
+            )}
+            {c.status !== 'missing' &&
+              c.settled_in_chips !== null &&
+              c.settled_in_chips !== undefined &&
+              c.player_pnl_net !== null &&
+              c.player_pnl_net !== undefined && (
+                <div className={styles.state}>{settledInChipsNote(c, unionLabel, clubLabel)}</div>
+              )}
+            {c.status !== 'missing' &&
+              c.stored_outstanding !== null &&
+              c.stored_outstanding !== undefined && (
+                <div className={styles.state}>
+                  Amount Due Is What Remains: Combined ECO {money(c.eco_amount)} Plus Recorded
+                  Presettlements {money(c.presettled)} Equals {money(c.stored_outstanding)}.{' '}
+                  {square ? 'Nothing Is Owed Either Way.' : `${amountDue}.`}
+                </div>
+              )}
+            {c.status !== 'missing' && (
+              <div className={styles.state}>
+                Signs: Player Win/Loss, Player Result Excluding Fees, Settled In Chips And Combined
+                ECO Are Counted Toward The Club, So Negative Means Players Lost Or The Club Pays.
+                The Two Player Figures Differ By Exactly The Rake Generated; Neither Is An Amount
+                Due.
+                {c.weekly_player_results
+                  ? ' The Net Loss Lines, Less Club Rakeback Credit, ECO Charge Or Credit And Full Weekly Net Are Counted From The Club Side, So Positive Means Players Lost Or The Club Pays. Full Weekly Net Includes The Fees Players Paid And Recorded ECO; It Is A Summary, Not An Additional Payment Request.'
+                  : ' The Cash And Tournament Player Split Was Not Recorded On This Invoice.'}{' '}
+                The Unpaid Balance Follows The Amount Due Above.
+              </div>
+            )}
+            {c.payment_details_available === false && (
+              <div className={styles.state}>
+                Historical Payment Details Are Unavailable. The Recorded Paid Status Does Not Verify
+                A Payment Amount Or Remaining Balance.
+              </div>
+            )}
+            {c.paid_total !== null && c.paid_total > 0 && c.status !== 'paid' && (
+              <div className={styles.breakdownLine}>
+                <span>Part Paid</span>
+                <span>
+                  {money(c.paid_total)} Of {money(Math.abs(c.amount))}
+                </span>
+              </div>
+            )}
+
+            {payingClub === c.club_id && (
+              <div className={styles.payRow}>
+                <input
+                  className={styles.payInput}
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="0.01"
+                  value={payAmount}
+                  disabled={payBusy || payPending}
+                  onChange={(e) => setPayAmount(e.target.value)}
+                  placeholder="Amount Received"
+                  aria-label={`Payment Received From ${titleCase(c.club_name)}`}
+                />
+                <button
+                  type="button"
+                  className={styles.payBtn}
+                  onClick={() => {
+                    void recordPayment(c.club_id);
+                  }}
+                  disabled={payBusy}
+                >
+                  {payBusy ? 'Saving...' : payPending ? 'Retry Payment Check' : 'Record'}
+                </button>
+              </div>
+            )}
+
+            <div className={styles.rowActions}>
+              <button
+                type="button"
+                className={styles.linkBtn}
+                onClick={() => navigate(`/clubs/${c.club_id}/data`)}
+              >
+                Open Club Data
+              </button>
+              <button
+                type="button"
+                className={styles.linkBtn}
+                onClick={() => openPayment(c.club_id)}
+              >
+                {payingClub === c.club_id ? 'Cancel Payment' : 'Record A Payment'}
+              </button>
+              {c.invoice_id && c.status !== 'cancelled' && (
+                <button
+                  type="button"
+                  className={c.status === 'paid' ? styles.linkBtnMuted : styles.linkBtn}
+                  onClick={() => {
+                    void setPaid(c.invoice_id as string, c.status !== 'paid');
+                  }}
+                  disabled={settlingId === c.invoice_id || c.payment_details_available === false}
+                >
+                  {settlingId === c.invoice_id
+                    ? 'Saving...'
+                    : c.status === 'paid'
+                      ? 'Reopen'
+                      : 'Mark Paid'}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   if (isHydrating) {
     return (
@@ -832,7 +1201,9 @@ export default function UnionStatementsPage() {
                     setPeriodSelection({ owner: routeIdentity, value: h.period_end });
                   }}
                 >
-                  {h.period_end}
+                  {h.period_end_at
+                    ? `Week Ending ${chicagoDayLabel(h.period_end_at)}`
+                    : h.period_end}
                 </button>
               ))}
             </div>
@@ -927,206 +1298,22 @@ export default function UnionStatementsPage() {
               <div className={styles.state}>No Clubs In This Union.</div>
             )}
 
-            {!error &&
-              (board?.clubs || []).map((c) => {
-                const open = expanded === c.club_id;
-                const pillClass =
-                  c.status === 'missing'
-                    ? styles.pillMissing
-                    : c.status === 'paid'
-                      ? styles.pillPaid
-                      : c.overdue
-                        ? styles.pillOverdue
-                        : styles.pillOpen;
-                return (
-                  <div className={styles.clubRow} key={c.club_id}>
-                    <button
-                      type="button"
-                      className={styles.clubMain}
-                      onClick={() => setExpanded(open ? null : c.club_id)}
-                      aria-expanded={open}
-                      aria-label={`${titleCase(c.club_name)} Statement Details`}
-                    >
-                      <div className={styles.clubText}>
-                        <div className={styles.clubName}>{titleCase(c.club_name)}</div>
-                        <div className={styles.clubMeta}>
-                          <span className={`${styles.pill} ${pillClass}`}>
-                            {c.payment_details_available === false
-                              ? 'Paid Record Only'
-                              : c.status === 'missing'
-                                ? 'No Statement'
-                                : c.overdue
-                                  ? 'Overdue'
-                                  : titleCase(c.status)}
-                          </span>
-                          {c.status !== 'missing' && (
-                            <span
-                              className={c.message_sent ? styles.deliveredYes : styles.deliveredNo}
-                            >
-                              {c.message_sent ? 'Delivered' : 'Not Delivered'}
-                            </span>
-                          )}
-                          {c.due_at && <span>Due {String(c.due_at).slice(0, 10)}</span>}
-                        </div>
-                      </div>
-                      <div className={styles.clubAmount}>
-                        <div
-                          className={`${styles.amountValue} ${c.amount < 0 ? styles.neg : styles.pos}`}
-                        >
-                          {c.status === 'missing' ? '--' : money(c.amount)}
-                        </div>
-                        <div className={styles.amountLabel}>
-                          {c.status === 'missing'
-                            ? 'Not Billed'
-                            : c.direction === 'union owes club'
-                              ? 'Union Owes'
-                              : 'Club Owes'}
-                        </div>
-                      </div>
-                    </button>
-
-                    {open && (
-                      <div className={styles.breakdown}>
-                        {c.status === 'missing' ? (
-                          <div className={styles.state}>
-                            This Club Has No Statement For The Period. Issuing Will Create One.
-                          </div>
-                        ) : (
-                          [
-                            ['Rake Generated', c.rake_generated],
-                            ['Club Rakeback', c.rakeback_due],
-                            ['Union Fee Kept', c.union_fee_kept],
-                            ['Player Win/Loss', c.players_won],
-                            [
-                              'Cash Player Net Loss',
-                              c.weekly_player_results?.cash_net_loss ?? null,
-                            ],
-                            [
-                              'Tournament Player Net Loss',
-                              c.weekly_player_results?.tournament_net_loss ?? null,
-                            ],
-                            [
-                              'Total Player Net Loss',
-                              c.weekly_player_results?.total_net_loss ?? null,
-                            ],
-                            [
-                              'Less Club Rakeback Credit',
-                              c.weekly_player_results?.rakeback_credit ?? null,
-                            ],
-                            ['ECO Charge Or Credit', c.weekly_player_results?.eco_charge ?? null],
-                            [
-                              'Full Weekly Net (Positive Club Owes)',
-                              c.weekly_player_results?.weekly_net_due_to_union ?? null,
-                            ],
-                            ['Remaining Unpaid Balance', c.outstanding],
-                            ['Combined ECO Adjustment', c.eco_amount],
-                            ...unionEcoRows(c),
-                            ...(c.eco_components || []).map((eco) => [
-                              `${eco.activity === 'cash' ? 'Cash' : 'Tournament'} ECO Base (${(eco.rate * 100).toFixed(1)}%)`,
-                              eco.base,
-                            ]),
-                            ['Recorded Presettlements', c.presettled],
-                          ].map(([label, value]) => (
-                            <div className={styles.breakdownLine} key={String(label)}>
-                              <span>{String(label)}</span>
-                              <span>{value === null ? 'Unavailable' : money(Number(value))}</span>
-                            </div>
-                          ))
-                        )}
-                        {c.status !== 'missing' && (
-                          <div className={styles.state}>
-                            Player Net Loss Is Signed: Negative Means Players Won. Full Weekly Net
-                            Deducts The Club Rakeback Credit And Includes Recorded ECO. It Is A
-                            Summary, Not An Additional Payment Request. The Unpaid Balance Follows
-                            The Statement Direction Above.
-                          </div>
-                        )}
-                        {c.payment_details_available === false && (
-                          <div className={styles.state}>
-                            Historical Payment Details Are Unavailable. The Recorded Paid Status
-                            Does Not Verify A Payment Amount Or Remaining Balance.
-                          </div>
-                        )}
-                        {c.paid_total !== null && c.paid_total > 0 && c.status !== 'paid' && (
-                          <div className={styles.breakdownLine}>
-                            <span>Part Paid</span>
-                            <span>
-                              {money(c.paid_total)} Of {money(Math.abs(c.amount))}
-                            </span>
-                          </div>
-                        )}
-
-                        {payingClub === c.club_id && (
-                          <div className={styles.payRow}>
-                            <input
-                              className={styles.payInput}
-                              type="number"
-                              inputMode="decimal"
-                              min="0"
-                              step="0.01"
-                              value={payAmount}
-                              disabled={payBusy || payPending}
-                              onChange={(e) => setPayAmount(e.target.value)}
-                              placeholder="Amount Received"
-                              aria-label={`Payment Received From ${titleCase(c.club_name)}`}
-                            />
-                            <button
-                              type="button"
-                              className={styles.payBtn}
-                              onClick={() => {
-                                void recordPayment(c.club_id);
-                              }}
-                              disabled={payBusy}
-                            >
-                              {payBusy
-                                ? 'Saving...'
-                                : payPending
-                                  ? 'Retry Payment Check'
-                                  : 'Record'}
-                            </button>
-                          </div>
-                        )}
-
-                        <div className={styles.rowActions}>
-                          <button
-                            type="button"
-                            className={styles.linkBtn}
-                            onClick={() => navigate(`/clubs/${c.club_id}/data`)}
-                          >
-                            Open Club Data
-                          </button>
-                          <button
-                            type="button"
-                            className={styles.linkBtn}
-                            onClick={() => openPayment(c.club_id)}
-                          >
-                            {payingClub === c.club_id ? 'Cancel Payment' : 'Record A Payment'}
-                          </button>
-                          {c.invoice_id && c.status !== 'cancelled' && (
-                            <button
-                              type="button"
-                              className={c.status === 'paid' ? styles.linkBtnMuted : styles.linkBtn}
-                              onClick={() => {
-                                void setPaid(c.invoice_id as string, c.status !== 'paid');
-                              }}
-                              disabled={
-                                settlingId === c.invoice_id || c.payment_details_available === false
-                              }
-                            >
-                              {settlingId === c.invoice_id
-                                ? 'Saving...'
-                                : c.status === 'paid'
-                                  ? 'Reopen'
-                                  : 'Mark Paid'}
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+            {!error && memberStatements.map(renderStatement)}
           </div>
+
+          {!error && houseStatements.length > 0 && (
+            <section className={styles.houseSection} aria-label="Union House Club Statement">
+              <div className={`sc-label sc-ink--blue ${styles.sectionLabel}`}>
+                Union House Club Statement
+              </div>
+              <p className={styles.sectionNote}>
+                {unionLabel} Billed Its Own House Club. Issuer And Recipient Are The Same Union, So
+                This Is An Internal Entry With No Outside Club, Listed Apart From The Member Clubs
+                Above.
+              </p>
+              <div className={styles.list}>{houseStatements.map(renderStatement)}</div>
+            </section>
+          )}
 
           {board && (
             <div className={styles.footNote}>
@@ -1136,6 +1323,9 @@ export default function UnionStatementsPage() {
                 : ''}
               {totals && totals.missing > 0
                 ? ' A Club Shown As "No Statement" Was Never Billed For This Period.'
+                : ''}
+              {houseStatements.length > 0
+                ? ' The Totals Above Include The Union House Club Statement.'
                 : ''}
             </div>
           )}

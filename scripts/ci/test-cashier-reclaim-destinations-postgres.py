@@ -164,7 +164,8 @@ try:
  migrations = ROOT / 'supabase/migrations'
  for name in ['20261114171135_cashier_history_club_book_reads_by_index_per_type_group.sql',
               '20261115001816_member_history_promo_allowance_as_of_send.sql',
-              '20261115011401_member_history_player_and_funding_filters.sql']:
+              '20261115011401_member_history_player_and_funding_filters.sql',
+              '20261115020001_member_history_classifies_cashier_tickets_and_union_promo_fu.sql']:
   q((migrations / name).read_text())
  q((history_fixture / 'member-history-search-and-funding.sql').read_text())
  print('PASS: member player and funding filters precede pagination and preserve visible-party authority')

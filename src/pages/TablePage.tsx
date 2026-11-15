@@ -249,6 +249,7 @@ import {
 import {
   cashBuyInJournal,
   executeCashBuyIn,
+  isCashBuyInStorageFailure,
   sameCashBuyInIntent,
   type CashBuyInAttempt,
 } from '../services/CashBuyInRecovery';
@@ -32847,6 +32848,8 @@ function LiveTablePage({
           const stillCurrent = () =>
             buyInScopeRef.current === scope && buyInOperationRef.current === operation;
           let buyInCommitted = false;
+          // False until this click has a saved request and is about to send it.
+          let buyInRequestStarted = false;
           try {
             if (!userId || userId === 'guest' || !tableId || !selectedSeat) {
               toast.error('Unable To Verify Your Table And Seat.');
@@ -32894,6 +32897,7 @@ function LiveTablePage({
               toast.warning('Review Your Original Buy-In Before Retrying.');
               return false;
             }
+            buyInRequestStarted = true;
             const outcome = await executeCashBuyIn(attempt, recovered, undefined, stillCurrent);
             if (outcome.kind !== 'unknown') {
               // Cleanup failure leaves a safely replayable receipt, never a new
@@ -33041,6 +33045,15 @@ function LiveTablePage({
             if (buyInCommitted) {
               toast.warning('Buy-In Confirmed. Your Table Display Is Catching Up.');
               setShowBuyInModal(false);
+            } else if (!buyInRequestStarted && isCashBuyInStorageFailure(error)) {
+              /* The request could not be saved on this device, so this click
+                 sent nothing (2026-11-14). Say that. "Unable To Confirm Your
+                 Buy-In" told a player whose phone was slow to save that a
+                 purchase was in doubt, when no purchase had been attempted. */
+              if (anchorLightningClusterId && tableId) clearLightningEntryIntent(tableId);
+              toast.error(
+                'This Device Could Not Save Your Buy-In Request. Nothing Was Sent. Please Try Again.'
+              );
             } else {
               toast.error(
                 cashBuyInPendingRef.current
