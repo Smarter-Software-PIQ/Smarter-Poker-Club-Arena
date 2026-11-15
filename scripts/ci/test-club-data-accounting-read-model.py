@@ -247,6 +247,25 @@ try:
             and q("live", "SELECT sum(result) FROM ca_club_acct_fact WHERE src = 2 AND acct_day = '2026-11-09'") == "-16.00",
             "the next load of the boundary takes the new version and resolves both days")
 
+    # (5) A projection fails at commit AND its failure cannot be recorded: the
+    # money writes still commit (the record becomes a WARNING).
+    run(psql("live"), "ALTER TABLE ca_club_acct_projection_failures ADD CONSTRAINT fixture_refuses CHECK (false) NOT VALID; "
+                      "INSERT INTO fixture_bbj_outage VALUES (true);")
+    p5 = run(psql("live"),
+        "INSERT INTO bbj_payouts VALUES ('b0000000-0000-0000-0000-000000000003', 'c0000000-0000-0000-0000-000000000001', 5, "
+        "'2026-11-06 12:01+00'); INSERT INTO bbj_payout_recipients (payout_id, user_id, amount, created_at) VALUES "
+        "('b0000000-0000-0000-0000-000000000003', 'bbb00000-0000-0000-0000-0000000000fe', 1.00, '2026-11-06 12:01+00'); "
+        "INSERT INTO union_pnl_original_flows VALUES ('f1000000-0000-0000-0000-00000000000c', NULL, '2026-11-06 13:00+00', "
+        "'{\"game_union_id\": \"fade0000-0000-0000-0000-000000000001\", \"tournament_id\": \"d0000000-0000-0000-0000-000000000001\"}', "
+        "'{\"status\": \"posted\", \"club_id\": \"a41434bb-8d0c-400a-8f0d-e8b3d65afed4\", \"amount\": 3, \"from_type\": \"prize_liability\", "
+        "\"to_type\": \"player_wallet\", \"category\": \"tournament_prize\"}');")
+    require(q("live", "SELECT (SELECT count(*) FROM bbj_payout_recipients WHERE user_id = 'bbb00000-0000-0000-0000-0000000000fe') || '/' || "
+                      "(SELECT count(*) FROM union_pnl_original_flows WHERE ledger_id = 'f1000000-0000-0000-0000-00000000000c') || '/' || "
+                      "(SELECT count(*) FROM ca_club_acct_projection_failures WHERE acct_day = '2026-11-06')") == "1/1/0"
+            and "could not be recorded" in p5.stderr,
+            "a projection whose failure cannot be recorded still never refuses the money write")
+    run(psql("live"), "DELETE FROM fixture_bbj_outage; ALTER TABLE ca_club_acct_projection_failures DROP CONSTRAINT fixture_refuses;")
+
     require(q("live", "SELECT NOT has_table_privilege('authenticated','public.ca_club_acct_fact','select') "
                       "AND NOT has_table_privilege('anon','public.ca_club_acct_fact','select') "
                       "AND NOT has_function_privilege('authenticated','public.fn_ca_club_acct_seed_day(date,boolean)','execute')") == "t",
