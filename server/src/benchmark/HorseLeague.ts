@@ -2345,6 +2345,19 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaFacingBetEv: true },
     b: {},
   })),
+  // 2026-11-15 OMAHA STREET PLAN (HorseOmahaStreetPlan, owner 11:43, default
+  // OFF), first layer: the heads-up turn bet priced against the check with
+  // the river planned, and the river following the plan. a switches it on,
+  // b is today's brain. The mirror's memory learning is on (the league
+  // default), so measured tendencies move the plan's shares.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_street_plan`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaStreetPlan: true },
+    b: {},
+  })),
   // V15 BOATS (2026-09-28): default OFF. a turns it on, b is today's brain.
   // Ship it default ON only after this resolves significant positive.
   // 2026-11-06: V15 boats is default ON in PLO5 cash (v15BoatsOn), so the

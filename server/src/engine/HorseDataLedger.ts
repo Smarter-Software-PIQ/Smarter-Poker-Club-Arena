@@ -1029,6 +1029,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaStreetPlan',
+    'Owner 2026-11-15 11:43 (Horses must plan the next street and protect the stack): PLO4/PLO5 cash, heads-up, one board, high only. A turn bet facing no wager is priced against the check as a whole line: the opponent fold / call / raise shares (range by his line, measured tendencies, a population prior otherwise), every unseen river card exactly and the Horse own planned river action on each; the bet becomes a check when the check line is worth more by 2% of the pot. On the river, facing a bet after that turn bet was called, the plan is recomputed from the public history and the paired-board fold stands aside where the plan calls. No engine random number (HorseOmahaStreetPlan.ts). First layer: the flop and the preflop stack-to-pot check are not built. Default OFF (read === true) until its declared evaluation passes; league cards plo4/plo5 _omaha_street_plan',
+    'V94'
+  ),
+  flag(
     'omahaNutClassValueSize',
     'Dan 2026-11-14: a PLO4/PLO5 high bet or raise with the nuts or an effective-nut hand for the street is the full pot (the pot-limit maximum, the stack when smaller) on the flop, turn and river. Default OFF (opt-in): its declared evaluation failed on the Horse-only cells (PLO4 -1.19, PLO5 -1.31 bb/100; human field +2.29)',
     'V94'
@@ -4116,6 +4121,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_facing_bet_ev_changed',
     'HorseLogic wager_rules (HorseOmahaFacingBetEv, omahaFacingBetEv)',
     "the expected-value verdict differs from the answer today's rules gave (a fold became a call or a call became a fold); the legacy rule is the legacy receipt fired in the same decision",
+    'V94'
+  ),
+  receipt(
+    'omaha_street_plan_line_changed',
+    'HorseLogic wager_rules (HorseOmahaStreetPlan, omahaStreetPlan)',
+    'PLO4/PLO5 cash heads-up turn bet facing no wager whose whole line (opponent responses and every river card planned) was worth less than the check line by more than 2% of the pot: turned into a check',
+    'V94'
+  ),
+  receipt(
+    'omaha_street_plan_commit_avoided',
+    'HorseLogic wager_rules (HorseOmahaStreetPlan, omahaStreetPlan)',
+    'the same turn bet turned into a check where the bet would have put half or more of the hand starting stack in with a plan that continues on under 65% of river cards',
+    'V94'
+  ),
+  receipt(
+    'omaha_street_plan_followed',
+    'HorseLogic.decide (HorseOmahaStreetPlan, omahaStreetPlan; inside the paired-board fold)',
+    'PLO4/PLO5 cash heads-up river call after the Horse turn bet was called: the turn plan, recomputed from the public history, calls this river card for this bet or less, so the paired-board fold stood aside and the reference decision stood',
     'V94'
   ),
   receipt(

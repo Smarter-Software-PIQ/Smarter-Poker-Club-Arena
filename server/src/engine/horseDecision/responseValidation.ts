@@ -39,6 +39,7 @@ import {
   omahaRiverNutRaiseOnly,
 } from '../HorseOmahaRiverNutRaise.js';
 import { omahaBeatenMustCheck, omahaBeatenNoRaise } from '../HorseOmahaMadeHandDefense.js';
+import { OMAHA_STREET_PLAN_VARIANTS, omahaStreetPlanAdmitsCheck } from '../HorseOmahaStreetPlan.js';
 import { omahaOnePairDiscipline } from '../HorseOmahaOnePair.js';
 import {
   OMAHA_RIVER_MEDIUM_BET_VARIANTS,
@@ -1317,6 +1318,27 @@ function policyGraphIsValid(
         const spot = omahaFacingBetEvSpot(context.player, context.gameState);
         return spot !== null && !spot.allIn && spot.paid === transition.after.amount;
       })();
+    // Owner 2026-11-15 11:43 (HorseOmahaStreetPlan, default-off option): a
+    // heads-up turn bet facing no wager becomes a check when the plan prices
+    // the check line higher. A check puts no chip in; when the request is
+    // known, only where the plan, re-run on it with the tendency multipliers
+    // the decision records and the facing-bet veto at its strongest, prices
+    // the check above the bet (the receipt context carries neither the
+    // option nor the opponent read).
+    const omahaStreetPlanBetToCheck =
+      transition.node === 'wager_rules' &&
+      OMAHA_STREET_PLAN_VARIANTS.has(variant) &&
+      transition.after.action === 'check' &&
+      previous !== null &&
+      ['bet', 'all_in'].includes(previous.action) &&
+      (context === undefined ||
+        (String(context.gameState.gameVariant).toLowerCase() === variant &&
+          omahaStreetPlanAdmitsCheck(
+            context.player,
+            context.gameState,
+            previous.action === 'all_in' ? context.player.stack : (previous.amount ?? undefined),
+            value.streetPlan
+          )));
     if (
       transition.node === 'wager_rules' &&
       changed &&
@@ -1328,6 +1350,7 @@ function policyGraphIsValid(
       !omahaBeatenBetToCheck &&
       !omahaOopBetToCheck &&
       !omahaOopTurnToCall &&
+      !omahaStreetPlanBetToCheck &&
       !omahaOnePairReduction &&
       !shortAllInCall &&
       !noFourBetFold &&
