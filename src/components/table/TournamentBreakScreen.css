@@ -42,6 +42,7 @@
   scrollbar-width: thin;
   scrollbar-color: #45adff #0a0b0d;
   gap: 0;
+  text-align: center;
   padding-bottom: calc(2cqw + 1px);
 }
 
@@ -55,6 +56,10 @@
   text-align: center;
   overflow-wrap: anywhere;
   text-wrap: balance;
+}
+
+.break-screen__content .sc__title {
+  justify-items: center;
 }
 
 /* The master owns the close glyph and its touch target. */
@@ -190,7 +195,7 @@
 .break-screen__my-position,
 .break-screen__vpip {
   display: grid;
-  grid-template-columns: 1fr auto auto;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   align-items: center;
   gap: 3cqw;
   padding-block: 2.5cqw;
@@ -199,11 +204,11 @@
 }
 
 .break-screen__vpip {
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .break-screen__vpip .break-screen__my-stack {
-  text-align: right;
+  text-align: center;
   white-space: normal;
 }
 
@@ -231,8 +236,8 @@
 }
 
 .break-screen__leader-heading {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
   align-items: center;
   padding-bottom: 1.5cqw;
 }
@@ -244,8 +249,8 @@
 }
 
 .break-screen__leader {
-  display: flex;
-  gap: 2cqw;
+  display: grid;
+  grid-template-columns: 4cqw minmax(0, 1fr) minmax(0, 33.333%);
   min-height: 9cqw;
   align-items: center;
   border-top: 1px solid #000;
@@ -256,9 +261,16 @@
 }
 
 .break-screen__leader-rank {
-  flex: 0 0 4cqw;
   color: #9aa5b3;
   font-variant-numeric: tabular-nums;
+}
+
+.break-screen__leader-player {
+  display: flex;
+  min-width: 0;
+  justify-content: center;
+  align-items: center;
+  gap: 1cqw;
 }
 
 .break-screen__leader-avatar {
@@ -269,7 +281,6 @@
 }
 
 .break-screen__leader-name {
-  flex: 1;
   min-width: 0;
   overflow-wrap: anywhere;
   color: #e4e7ec;
@@ -346,7 +357,7 @@
   height: 24.7%;
   display: flex;
   align-items: center;
-  color: #ffd700;
+  color: #45adff;
   font:
     600 8cqw/1 'Roboto Condensed',
     Inter,
@@ -390,12 +401,14 @@
 .break-screen__minimized--notice::after {
   content: none;
 }
+.break-screen__minimized--addon .break-screen__mini-face,
 .break-screen__minimized--notice .break-screen__mini-face {
-  aspect-ratio: auto;
-  background: rgba(10, 12, 18, 0.88);
-  border: 1px solid rgba(69, 173, 255, 0.35);
-  border-radius: 12px;
-  padding: 10px 14px;
+  aspect-ratio: 3 / 1;
+  background: transparent url('/assets/club-buttons/tournament-register-v1.webp') center / contain
+    no-repeat;
+  padding: 5% 10%;
+  box-sizing: border-box;
+  justify-content: center;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -427,13 +440,14 @@
    60-second period is running; before that it names when it opens. */
 .break-screen__addon-btn {
   display: block;
-  width: 88%;
-  margin: 2cqw auto 1cqw;
-  padding: 11px 12px;
-  border: 1px solid rgba(255, 232, 128, 0.9);
-  border-radius: 10px;
-  background: linear-gradient(180deg, #ffe066 0%, #ffd700 45%, #d4a017 100%);
-  color: #211a02;
+  width: min(72%, 220px);
+  aspect-ratio: 3 / 1;
+  margin: 1cqw auto;
+  padding: 0 min(4cqw, 18px);
+  border: 0;
+  background: transparent url('/assets/club-buttons/tournament-register-v1.webp') center / contain
+    no-repeat;
+  color: #e4e7ec;
   font:
     800 16px/1.2 'Roboto Condensed',
     Inter,
@@ -441,22 +455,17 @@
   letter-spacing: 0.05em;
   cursor: pointer;
   touch-action: manipulation;
-  box-shadow:
-    0 2px 12px rgba(255, 215, 0, 0.35),
-    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  text-align: center;
 }
 .break-screen__addon-btn:active:enabled {
   transform: translateY(1px);
-  box-shadow:
-    0 1px 6px rgba(255, 215, 0, 0.3),
-    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  filter: brightness(1.12);
 }
 .break-screen__addon-btn:disabled {
-  border-color: rgba(154, 165, 179, 0.4);
-  background: rgba(154, 165, 179, 0.1);
-  color: #9aa5b3;
+  filter: grayscale(1);
+  color: #c3cbd5;
   cursor: default;
-  box-shadow: none;
+  font-size: clamp(12px, 2.8cqw, 15px);
 }
 .break-screen__addon-btn:focus-visible {
   outline: 2px solid #45adff;
@@ -522,29 +531,26 @@
   min-height: 44px;
 }
 
-/* THE ADD-ON PANEL IS THE CARD'S HEADLINE (Dan 2026-11-11: "THIS ADD ON BREAK
-   NEEDS TO LOOK BETTER"). Its three figures sit in a gold-trimmed panel
-   instead of a bare hairline row, with the tally values in the window's own
-   gold, so the purchase facts read first. */
+/* Engraved rules separate the purchase figures on the spade console's black glass. */
 .break-screen__stats--addon {
-  margin-bottom: 1cqw;
-  padding: 3cqw 2cqw;
-  border: 1px solid rgba(255, 215, 0, 0.35);
-  border-radius: 12px;
-  background: linear-gradient(180deg, rgba(255, 215, 0, 0.1), rgba(255, 215, 0, 0.02));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid #000;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 12%),
+    0 1px 0 rgb(255 255 255 / 8%);
 }
 .break-screen__stats--addon .break-screen__stat-value {
-  color: #ffd700;
+  color: #45adff;
 }
-
+.break-screen__stat + .break-screen__stat {
+  border-left: 1px solid rgb(154 165 179 / 18%);
+}
 /* THE LIVE TALLY RIDES THE SMALL PRESENTATIONS TOO (Dan 2026-11-11): the
    closed popup keeps showing the real-time add-on count on the table. */
 .break-screen__mini-tally {
   display: block;
   margin-top: 2px;
   padding-top: 5px;
-  border-top: 1px solid rgba(255, 215, 0, 0.25);
+  border-top: 1px solid rgba(69, 173, 255, 0.25);
   color: #9aa5b3;
   font:
     600 12px/1.3 'Roboto Condensed',
@@ -555,31 +561,15 @@
 }
 .break-screen__mini-tally strong {
   margin-left: 2px;
-  color: #ffd700;
+  color: #45adff;
   font-weight: 700;
 }
 
-/* The minimized add-on clock: the same compact chip family as the waiting
-   notice, gold-trimmed because it is the add-on window's own clock. The
-   painted pill has no zone for a countdown label plus a live tally. */
 .break-screen__minimized--addon {
   width: min(300px, 76%);
 }
 .break-screen__minimized--addon::after {
   content: none;
-}
-.break-screen__minimized--addon .break-screen__mini-face {
-  aspect-ratio: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: 10px 14px;
-  border: 1px solid rgba(255, 215, 0, 0.45);
-  border-radius: 12px;
-  background: linear-gradient(180deg, rgba(22, 19, 8, 0.94), rgba(10, 12, 18, 0.94));
-  box-shadow:
-    0 6px 18px rgba(0, 0, 0, 0.45),
-    inset 0 1px 0 rgba(255, 255, 255, 0.07);
 }
 .break-screen__minimized--addon .break-screen__mini-badge,
 .break-screen__minimized--addon .break-screen__mini-state {
@@ -591,7 +581,7 @@
   text-align: center;
 }
 .break-screen__minimized--addon .break-screen__mini-badge {
-  color: #ffd700;
+  color: #45adff;
   font:
     700 15px/1.2 'Roboto Condensed',
     Inter,
@@ -607,6 +597,6 @@
   letter-spacing: 0.04em;
 }
 .break-screen__minimized--addon:focus-visible {
-  outline: 2px solid #ffd700;
+  outline: 2px solid #45adff;
   outline-offset: 2px;
 }
