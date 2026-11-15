@@ -44,6 +44,7 @@
  */
 import type { SeatPlayer } from '../types.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
+import { omahaStrategyGameInScope, omahaStrategyConstant } from './HorseOmahaStrategyGame.js';
 
 /** The variants the extension covers. Hi-lo, PLO6 and Hold'em are unchanged. */
 export const OMAHA_TOURNAMENT_EXTENSION_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
@@ -102,8 +103,7 @@ export function omahaIsTournamentMode(gs: HorseGameStateV2): boolean {
 export function omahaTournamentExtensionSpot(hero: SeatPlayer, gs: HorseGameStateV2): boolean {
   try {
     if (!omahaIsTournamentMode(gs)) return false;
-    if (!OMAHA_TOURNAMENT_EXTENSION_VARIANTS.has(String(gs.gameVariant ?? '').toLowerCase()))
-      return false;
+    if (!omahaStrategyGameInScope(OMAHA_TOURNAMENT_EXTENSION_VARIANTS, gs)) return false;
     if (gs.variantRules?.splitLow8OrBetter === true) return false;
     if (
       (gs.boardCount ?? 1) > 1 ||
@@ -119,7 +119,7 @@ export function omahaTournamentExtensionSpot(hero: SeatPlayer, gs: HorseGameStat
     if (!(bb > 0)) return false;
     const stack = Number.isFinite(hero.stack) ? Math.max(0, hero.stack) : 0;
     const bet = Number.isFinite(hero.bet) ? Math.max(0, hero.bet ?? 0) : 0;
-    return (stack + bet) / bb > OMAHA_TOURNAMENT_PUSH_FOLD_MAX_BB;
+    return (stack + bet) / bb > omahaStrategyConstant('tournamentPushFoldMaxBB', gs);
   } catch {
     return false;
   }

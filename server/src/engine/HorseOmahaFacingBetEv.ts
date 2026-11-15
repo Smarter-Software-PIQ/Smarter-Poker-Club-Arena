@@ -52,6 +52,7 @@ import type { HorseGameStateV2 } from './HorseLogic.js';
 import { scoreOmahaHiPartial } from './HorseEval.js';
 import { v81StreetWager } from './HorseOmahaBigBetCalls.js';
 import { omahaCashOnlyExcludes } from './HorseOmahaTournamentScope.js';
+import { omahaStrategyGameInScope, omahaStrategyConstant } from './HorseOmahaStrategyGame.js';
 
 export const OMAHA_FACING_BET_EV_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
 
@@ -634,7 +635,7 @@ export function omahaFacingBetEvSpot(
 ): OmahaFacingBetEvSpot | null {
   try {
     const variant = String(gs.gameVariant ?? '').toLowerCase();
-    if (!OMAHA_FACING_BET_EV_VARIANTS.has(variant)) return null;
+    if (!omahaStrategyGameInScope(OMAHA_FACING_BET_EV_VARIANTS, gs)) return null;
     // Cash only, read as HorseLogic.isTournamentMode reads it;
     // omahaStrategyInTournaments (HorseOmahaTournamentScope) opens its public tournament scope.
     if (omahaCashOnlyExcludes(player, gs)) return null;
@@ -891,7 +892,9 @@ export function omahaFacingBetEvVerdict(
     Number.isFinite(ctx.riskPremium) && (ctx.riskPremium as number) > 0
       ? Math.min(0.5, ctx.riskPremium as number)
       : 0;
-  const margin = (OMAHA_FACING_BET_EV_MARGIN + premium) * (spot.winnable + spot.paid);
+  const margin =
+    (omahaStrategyConstant('facingBetEvMargin', { gameVariant: `plo${hole.length}` }) + premium) *
+    (spot.winnable + spot.paid);
   return {
     call: ev > margin,
     ev,

@@ -68,6 +68,11 @@ import {
   OMAHA_TOURNAMENT_SCOPE_ADMISSION,
   withOmahaTournamentScope,
 } from '../HorseOmahaTournamentScope.js';
+import {
+  OMAHA_STRATEGY_GAME_SCOPE_ADMISSION,
+  omahaStrategyGameInScope,
+  withOmahaStrategyGameScope,
+} from '../HorseOmahaStrategyGame.js';
 
 const ACTIONS = ['fold', 'check', 'call', 'bet', 'raise', 'all_in'] as const;
 type RecordValue = Record<string, unknown>;
@@ -1089,8 +1094,10 @@ function policyGraphIsValid(
   expectedVariant?: string,
   context?: HorseDecisionReceiptContext
 ): boolean {
-  return withOmahaTournamentScope(OMAHA_TOURNAMENT_SCOPE_ADMISSION, () =>
-    policyGraphIsValidInScope(value, expectedVariant, context)
+  return withOmahaStrategyGameScope(OMAHA_STRATEGY_GAME_SCOPE_ADMISSION, () =>
+    withOmahaTournamentScope(OMAHA_TOURNAMENT_SCOPE_ADMISSION, () =>
+      policyGraphIsValidInScope(value, expectedVariant, context)
+    )
   );
 }
 
@@ -1266,7 +1273,7 @@ function policyGraphIsValidInScope(
     // the same call. Its whole-stack form is an all-in, a wager action.
     const omahaRiverMediumBetCalled =
       transition.node === 'wager_rules' &&
-      OMAHA_RIVER_MEDIUM_BET_VARIANTS.has(variant) &&
+      omahaStrategyGameInScope(OMAHA_RIVER_MEDIUM_BET_VARIANTS, { gameVariant: variant }) &&
       transition.after.action === 'call' &&
       previous !== null &&
       previous.action === 'fold' &&
@@ -1281,7 +1288,7 @@ function policyGraphIsValidInScope(
     // context carries neither the options nor the opponent read).
     const omahaOopBetToCheck =
       transition.node === 'wager_rules' &&
-      OMAHA_OOP_CHECK_VARIANTS.has(variant) &&
+      omahaStrategyGameInScope(OMAHA_OOP_CHECK_VARIANTS, { gameVariant: variant }) &&
       transition.after.action === 'check' &&
       previous !== null &&
       ['bet', 'raise', 'all_in'].includes(previous.action) &&
@@ -1300,7 +1307,7 @@ function policyGraphIsValidInScope(
     // is admitted by the paired-board fold's form above.)
     const oopTurnVerdict =
       transition.node === 'wager_rules' &&
-      OMAHA_OOP_CHECK_VARIANTS.has(variant) &&
+      omahaStrategyGameInScope(OMAHA_OOP_CHECK_VARIANTS, { gameVariant: variant }) &&
       transition.after.action === 'call' &&
       previous !== null &&
       ['fold', 'raise', 'all_in'].includes(previous.action) &&
@@ -1319,7 +1326,7 @@ function policyGraphIsValidInScope(
     // neither the options nor the opponent read).
     const omahaCardImpactBetToCheck =
       transition.node === 'wager_rules' &&
-      OMAHA_CARD_IMPACT_VARIANTS.has(variant) &&
+      omahaStrategyGameInScope(OMAHA_CARD_IMPACT_VARIANTS, { gameVariant: variant }) &&
       transition.after.action === 'check' &&
       previous !== null &&
       ['bet', 'all_in'].includes(previous.action) &&
@@ -1336,7 +1343,7 @@ function policyGraphIsValidInScope(
     // all-in, a wager action.
     const omahaFacingBetEvCalled =
       transition.node === 'wager_rules' &&
-      OMAHA_FACING_BET_EV_VARIANTS.has(variant) &&
+      omahaStrategyGameInScope(OMAHA_FACING_BET_EV_VARIANTS, { gameVariant: variant }) &&
       transition.after.action === 'call' &&
       previous !== null &&
       previous.action === 'fold' &&
@@ -1356,7 +1363,7 @@ function policyGraphIsValidInScope(
     // exact chips the call puts in (the whole-stack call is an all-in).
     const omahaRaiseNeedsNutsCalled =
       transition.node === 'wager_rules' &&
-      OMAHA_RAISE_NEEDS_NUTS_VARIANTS.has(variant) &&
+      omahaStrategyGameInScope(OMAHA_RAISE_NEEDS_NUTS_VARIANTS, { gameVariant: variant }) &&
       transition.after.action === 'call' &&
       previous !== null &&
       // the node entered as a fold when an owner inside it raised from a fold
@@ -1373,7 +1380,7 @@ function policyGraphIsValidInScope(
     // option nor the opponent read).
     const omahaStreetPlanBetToCheck =
       transition.node === 'wager_rules' &&
-      OMAHA_STREET_PLAN_VARIANTS.has(variant) &&
+      omahaStrategyGameInScope(OMAHA_STREET_PLAN_VARIANTS, { gameVariant: variant }) &&
       transition.after.action === 'check' &&
       previous !== null &&
       ['bet', 'all_in'].includes(previous.action) &&

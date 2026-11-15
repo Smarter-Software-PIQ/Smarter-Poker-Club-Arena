@@ -66,6 +66,7 @@ import {
   omahaIcmPremiumOf,
   omahaTournamentIcmRisk,
 } from './HorseOmahaTournamentScope.js';
+import { omahaStrategyGameInScope, omahaStrategyConstant } from './HorseOmahaStrategyGame.js';
 
 export const OMAHA_CARD_IMPACT_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
 /** Opponent hands sampled per decision. */
@@ -164,7 +165,7 @@ export function omahaCardImpactScope(
 ): OmahaCardImpactScope | null {
   try {
     const variant = String(gs.gameVariant ?? '').toLowerCase();
-    if (!OMAHA_CARD_IMPACT_VARIANTS.has(variant)) return null;
+    if (!omahaStrategyGameInScope(OMAHA_CARD_IMPACT_VARIANTS, gs)) return null;
     const stage = String(gs.stage ?? '');
     if (stage !== 'turn' && stage !== 'river') return null;
     const vi = variantInfo(variant);
@@ -957,7 +958,10 @@ export function omahaCardImpactDecision(
   // more than the margin.
   const riverNotValue = river && legacy.action !== 'check' && !legacy.value;
   if (chosen === legacy) return same;
-  if (!riverNotValue && !(worth(chosen) - worth(legacy) > OMAHA_CARD_IMPACT_MARGIN * gs.pot))
+  if (
+    !riverNotValue &&
+    !(worth(chosen) - worth(legacy) > omahaStrategyConstant('cardImpactMargin', gs) * gs.pot)
+  )
     return same;
   if (chosen.action === 'check') {
     const checked: HorseDecision = { ...decision, action: 'check' };

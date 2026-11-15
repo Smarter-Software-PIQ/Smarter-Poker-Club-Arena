@@ -53,6 +53,7 @@ import type { SeatPlayer } from '../types.js';
 import { omahaBoardShape, scoreOmahaHi, variantInfo } from './HorseEval.js';
 import { RANKS, SUITS } from './PokerEngine.js';
 import { omahaCashOnlyExcludes } from './HorseOmahaTournamentScope.js';
+import { omahaStrategyGameInScope, omahaStrategyConstant } from './HorseOmahaStrategyGame.js';
 
 export const OMAHA_STREET_PLAN_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
 
@@ -657,7 +658,7 @@ const live = (hero: SeatPlayer, gs: HorseGameStateV2): SeatPlayer[] =>
 export function omahaStreetPlanDomain(hero: SeatPlayer, gs: HorseGameStateV2): SeatPlayer | null {
   try {
     const variant = String(gs.gameVariant ?? '').toLowerCase();
-    if (!OMAHA_STREET_PLAN_VARIANTS.has(variant)) return null;
+    if (!omahaStrategyGameInScope(OMAHA_STREET_PLAN_VARIANTS, gs)) return null;
     // Cash only; omahaStrategyInTournaments opens its public tournament scope.
     if (
       gs.gameMode !== undefined &&
@@ -741,7 +742,10 @@ export function omahaStreetPlanAdmitsCheck(
       callVeto: () => true,
     });
     if (!plan || !plan.lines[1]) return false;
-    return plan.lines[0].ev > plan.lines[1].ev + OMAHA_STREET_PLAN_MARGIN_POT_SHARE * gs.pot;
+    return (
+      plan.lines[0].ev >
+      plan.lines[1].ev + omahaStrategyConstant('streetPlanMarginPotShare', gs) * gs.pot
+    );
   } catch {
     return false;
   }

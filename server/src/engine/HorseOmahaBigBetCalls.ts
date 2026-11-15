@@ -58,6 +58,7 @@ import type { Card, HorseDecision, SeatPlayer } from '../types.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
 import { hasRiverNuts } from './HorseRiverNuts.js';
 import { omahaBoatPosition, omahaNutStatus, scoreOmahaHi } from './HorseEval.js';
+import { omahaStrategyGameInScope } from './HorseOmahaStrategyGame.js';
 
 export const V81_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
 export const V81_MIN_POT_FRAC = 0.9;
@@ -322,7 +323,7 @@ export interface BluffCatcherInput extends V81Input {
 /** The bluff-catcher cell this call falls in (`bc_<class>`), or null. */
 export function omahaBluffCatcherCell(i: BluffCatcherInput): string | null {
   const variant = String(i.variant).toLowerCase();
-  if (!BLUFF_CATCHER_VARIANTS.has(variant)) return null;
+  if (!omahaStrategyGameInScope(BLUFF_CATCHER_VARIANTS, { gameVariant: variant })) return null;
   if (i.hiLo || i.multiBoard || i.bombPot || i.headsUpTable || i.bountyEvent) return null;
   if (i.allInOrFold === true) return null;
   if (i.bettorOverBluffs || !i.chipsBehindCall) return null;

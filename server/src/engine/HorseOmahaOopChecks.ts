@@ -67,6 +67,7 @@ import {
 import { v81Cell, v86OmahaUnderboatOrDominatedFold } from './HorseOmahaBigBetCalls.js';
 import { horsePolicyDealtPlayers } from './multiway/DealtSeatCensus.js';
 import { omahaCashOnlyExcludes, omahaTournamentIcmPremium } from './HorseOmahaTournamentScope.js';
+import { omahaStrategyGameInScope, omahaStrategyConstant } from './HorseOmahaStrategyGame.js';
 
 export const OMAHA_OOP_CHECK_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
 
@@ -86,7 +87,7 @@ export function omahaOopCheckStreet(hero: SeatPlayer, gs: HorseGameStateV2): Str
 /** The common scope; `facing` asks for a wager to call (fold and call legal) instead of none. */
 function scopeStreet(hero: SeatPlayer, gs: HorseGameStateV2, facing: boolean): Street | null {
   const variant = String(gs.gameVariant ?? '').toLowerCase();
-  if (!OMAHA_OOP_CHECK_VARIANTS.has(variant)) return null;
+  if (!omahaStrategyGameInScope(OMAHA_OOP_CHECK_VARIANTS, gs)) return null;
   const stage = String(gs.stage ?? '');
   if (stage !== 'flop' && stage !== 'turn' && stage !== 'river') return null;
   const vi = variantInfo(variant);
@@ -693,15 +694,15 @@ export function omahaOopTurnFacingBetVerdict(
     const livePot = Math.max(0, pot - (owed - call));
     const price = call / (livePot + call);
     if (
-      outs >= OMAHA_OOP_TURN_MIN_NUT_OUTS &&
+      outs >= omahaStrategyConstant('oopTurnMinNutOuts', gs) &&
       // a tournament call also pays the survival premium (0 in cash)
       price + omahaTournamentIcmPremium(hero, gs, call) <=
-        share + OMAHA_OOP_TURN_SHOWDOWN_CREDIT + 1e-9
+        share + omahaStrategyConstant('oopTurnShowdownCredit', gs) + 1e-9
     )
       return 'call_nut_draw';
     if (
       outs === 0 &&
-      price >= OMAHA_OOP_TURN_TOKEN_PRICE &&
+      price >= omahaStrategyConstant('oopTurnTokenPrice', gs) &&
       (category(hero.cards, board) <= ONE_PAIR || omahaBeatenByBoard(hero.cards, board))
     )
       return 'fold_no_outs';

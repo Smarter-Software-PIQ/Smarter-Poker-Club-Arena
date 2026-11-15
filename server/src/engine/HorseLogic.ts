@@ -661,6 +661,13 @@ import { analyzePreflopOrbit, analyzeV38CommittedPopulation } from './HorsePrefl
 import { computeSideGamePotOverlay } from './HorseSideGameOverlay.js';
 import { computeActionLinePosterior } from './HorseActionLinePosterior.js';
 import { scoreCardRemoval } from './HorseCardRemovalScorer.js';
+import {
+  OMAHA_STRATEGY_PLO45,
+  omahaStrategyConstant,
+  omahaStrategyGameInScope,
+  omahaStrategyGameScopeOf,
+  withOmahaStrategyGameScope,
+} from './HorseOmahaStrategyGame.js';
 
 /** Omaha flush blockers use two hole cards, including on four-suited boards.
  * A high-only blocker cannot establish scoop pressure when a low can qualify.
@@ -4382,7 +4389,7 @@ function omahaVpipLimpTarget(
 ): number | undefined {
   if (
     opts.omahaVpipFloorByLimp !== true ||
-    (gs.gameVariant !== 'plo4' && gs.gameVariant !== 'plo5') ||
+    !omahaStrategyGameInScope(OMAHA_STRATEGY_PLO45, gs, opts) ||
     tournament ||
     gs.allInOrFold === true ||
     gs.bombPot === true ||
@@ -6837,8 +6844,7 @@ function omahaPostflopPressureWithheld(
 ): boolean {
   if (opts.omahaPressureNeedsPostflopAggression !== true || opts.mind === false) return false;
   try {
-    if (!OMAHA_PRESSURE_OPTION_VARIANTS.has(String(gs.gameVariant ?? '').toLowerCase()))
-      return false;
+    if (!omahaStrategyGameInScope(OMAHA_PRESSURE_OPTION_VARIANTS, gs, opts)) return false;
     if (player ? omahaCashOnlyExcludes(player, gs) : isTournamentMode(gs)) return false;
     const stage = String(gs.stage ?? '');
     if (stage !== 'flop' && stage !== 'turn' && stage !== 'river') return false;
@@ -8454,7 +8460,7 @@ export function omahaTurnRiverRaiseNeedsNutsRule(
       }
     }
     if (call === null) {
-      call = !omahaRaiseNeedsNutsPriceFolds(scope);
+      call = !omahaRaiseNeedsNutsPriceFolds(scope, gs);
       path = 'price';
     }
     if (tele) {
@@ -8479,7 +8485,7 @@ export function omahaTurnRiverRaiseNeedsNutsRule(
     try {
       if (!omahaDecisionRaises(decision, player, scope)) return decision;
       if (omahaRaiseNeedsNutsKeeps(player, gs, scope) !== null) return decision;
-      if (omahaRaiseNeedsNutsPriceFolds(scope)) {
+      if (omahaRaiseNeedsNutsPriceFolds(scope, gs)) {
         const folded: HorseDecision = { ...decision, action: 'fold' };
         delete folded.amount;
         return folded;
@@ -8699,7 +8705,7 @@ function omahaStreetPlanRules(
     const bet = plan?.lines[1];
     if (!plan || !check || !bet) return decision;
     const tele = telemetryOn(opts);
-    if (check.ev > bet.ev + OMAHA_STREET_PLAN_MARGIN_POT_SHARE * gs.pot) {
+    if (check.ev > bet.ev + omahaStrategyConstant('streetPlanMarginPotShare', gs) * gs.pot) {
       if (tele)
         noteFire(
           omahaPlanLineUncommitted(bet)
@@ -9536,7 +9542,7 @@ export class HorseLogic {
       omahaEvFoldModel: (opts.omahaEvFoldModel ?? true) !== false,
       omahaNeutralUnknown: opts.omahaNeutralUnknown === true,
       ...(opts.omahaManiacReRaiseWidthMeasured === true &&
-      (gameState.gameVariant === 'plo4' || gameState.gameVariant === 'plo5') &&
+      omahaStrategyGameInScope(OMAHA_STRATEGY_PLO45, gameState, opts) &&
       (!(gameState.gameMode === 'tournament' || gameState.tournament) ||
         (opts.omahaStrategyInTournaments === true &&
           omahaTournamentExtensionSpot(player, gameState)))
@@ -9616,8 +9622,13 @@ export class HorseLogic {
     // omahaStrategyInTournaments (default OFF): the scope the day's PLO4/PLO5
     // rules read in a tournament hand, with the Horse's survival premium.
     // Unset or false, or in cash, the scope is OFF: every rule reads as before.
+    // omahaStrategyGameInScope: PLO6 joins the day's PLO4/PLO5 scopes only
+    // with the PLO6 lane's own option (omahaStrategyInPlo6 === true).
+    const gameScope = omahaStrategyGameScopeOf(opts);
     if (opts.omahaStrategyInTournaments !== true || !isTournamentMode(gameState))
-      return withOmahaTournamentScope(OMAHA_TOURNAMENT_SCOPE_OFF, decideIt);
+      return withOmahaStrategyGameScope(gameScope, () =>
+        withOmahaTournamentScope(OMAHA_TOURNAMENT_SCOPE_OFF, decideIt)
+      );
     let risk = 0;
     try {
       const bb = gameState.bigBlind > 0 ? gameState.bigBlind : 0;
@@ -9635,7 +9646,9 @@ export class HorseLogic {
     } catch {
       risk = 0;
     }
-    return withOmahaTournamentScope({ extension: true, icmRisk: risk }, decideIt);
+    return withOmahaStrategyGameScope(gameScope, () =>
+      withOmahaTournamentScope({ extension: true, icmRisk: risk }, decideIt)
+    );
   }
 
   private static decideCaptured(
@@ -12430,7 +12443,9 @@ export class HorseLogic {
             opts.omahaEliteContinuesVsMeasuredWideThreeBettor === true &&
             opts.mind !== false &&
             vi.isOmaha &&
-            (vi.holeCount === 4 || vi.holeCount === 5) &&
+            (vi.holeCount === 4 ||
+              vi.holeCount === 5 ||
+              (vi.holeCount === 6 && omahaStrategyGameInScope(OMAHA_STRATEGY_PLO45, gs, opts))) &&
             !(gs.variantRules ? gs.variantRules.splitLow8OrBetter : vi.isHiLo) &&
             !omahaCashOnlyExcludes(player, gs) &&
             gs.bombPot !== true &&
@@ -12460,7 +12475,7 @@ export class HorseLogic {
                   HorseMind.omahaReadConditionalOf(raiser38.user_id)?.wideReRaiser === true &&
                   effCall38 / (pot38 + effCall38) +
                     omahaTournamentIcmPremium(player, gs, effCall38) <=
-                    OMAHA_ELITE_CONTINUE_MAX_POT_ODDS;
+                    omahaStrategyConstant('eliteContinueMaxPotOdds', gs);
               }
             } catch {
               continues = false;
@@ -14785,7 +14800,7 @@ export class HorseLogic {
         if (
           opts.omahaBigBetIsPotShare === true &&
           oppReads &&
-          (gs.gameVariant === 'plo4' || gs.gameVariant === 'plo5') &&
+          omahaStrategyGameInScope(OMAHA_STRATEGY_PLO45, gs, opts) &&
           !omahaCashOnlyExcludes(player, gs) &&
           !vi.isHiLo &&
           (gs.stage === 'turn' || gs.stage === 'river')
@@ -14797,7 +14812,7 @@ export class HorseLogic {
               r.bigBet !== true ||
               r.lastStage !== gs.stage ||
               typeof r.lastFrac !== 'number' ||
-              !(r.lastFrac < OMAHA_BIG_BET_POT_SHARE)
+              !(r.lastFrac < omahaStrategyConstant('bigBetPotShare', gs))
             )
               continue;
             const legacy = omahaAggressorTier(r);
@@ -17883,7 +17898,9 @@ export class HorseLogic {
         // PLO4/PLO5 cash only (audit 2026-11-15).
         cat <=
           (opts.omahaRiverNutBlockerBluffReachable === true &&
-          (vi.holeCount === 4 || vi.holeCount === 5) &&
+          (vi.holeCount === 4 ||
+            vi.holeCount === 5 ||
+            (vi.holeCount === 6 && omahaStrategyGameInScope(OMAHA_STRATEGY_PLO45, gs, opts))) &&
           !omahaCashOnlyExcludes(player, gs)
             ? 2
             : 1) &&
@@ -20980,7 +20997,7 @@ export class HorseLogic {
         // per raise size); the call is the answer.
         if (
           opts.omahaPressureNeedsPostflopAggression === true &&
-          OMAHA_PRESSURE_OPTION_VARIANTS.has(String(gs.gameVariant ?? '').toLowerCase()) &&
+          omahaStrategyGameInScope(OMAHA_PRESSURE_OPTION_VARIANTS, gs, opts) &&
           !omahaCashOnlyExcludes(player, gs) &&
           !vi.isHiLo &&
           !multiBoard36 &&

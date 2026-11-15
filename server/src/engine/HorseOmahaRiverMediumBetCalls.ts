@@ -50,6 +50,7 @@ import type { HorseGameStateV2 } from './HorseLogic.js';
 import { omahaMadeClass, scoreOmahaHiPartial } from './HorseEval.js';
 import { v81StreetWager } from './HorseOmahaBigBetCalls.js';
 import { omahaCashOnlyExcludes, omahaTournamentIcmPremium } from './HorseOmahaTournamentScope.js';
+import { omahaStrategyGameInScope, omahaStrategyConstant } from './HorseOmahaStrategyGame.js';
 
 export const OMAHA_RIVER_MEDIUM_BET_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
 /** The bet's share of the pot before it: the measured band, both ends included. */
@@ -189,7 +190,7 @@ export function omahaRiverMediumBetSpot(
 ): OmahaRiverMediumBetSpot | null {
   try {
     const variant = String(gs.gameVariant ?? '').toLowerCase();
-    if (!OMAHA_RIVER_MEDIUM_BET_VARIANTS.has(variant)) return null;
+    if (!omahaStrategyGameInScope(OMAHA_RIVER_MEDIUM_BET_VARIANTS, gs)) return null;
     // Cash only, read as HorseLogic.isTournamentMode reads it;
     // omahaStrategyInTournaments (HorseOmahaTournamentScope) opens its public tournament scope.
     if (omahaCashOnlyExcludes(player, gs)) return null;
@@ -281,7 +282,8 @@ export function omahaRiverMediumBetSpot(
       // omahaStrategyInTournaments: a tournament call also pays the survival premium.
       priced:
         holds + 1e-12 >=
-        OMAHA_RIVER_MEDIUM_BET_RANGE_FACTOR * price + omahaTournamentIcmPremium(player, gs, paid),
+        omahaStrategyConstant('riverMediumBetRangeFactor', gs) * price +
+          omahaTournamentIcmPremium(player, gs, paid),
       allIn,
     };
   } catch {

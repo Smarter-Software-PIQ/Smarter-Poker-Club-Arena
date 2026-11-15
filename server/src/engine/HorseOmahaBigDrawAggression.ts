@@ -81,6 +81,7 @@ import type { HorseGameStateV2 } from './HorseLogic.js';
 import { RANKS, SUITS } from './PokerEngine.js';
 import { omahaNutStatus, scoreOmahaHi, scoreOmahaHiPartial, variantInfo } from './HorseEval.js';
 import { omahaCashOnlyExcludes, omahaIcmPremiumOf } from './HorseOmahaTournamentScope.js';
+import { omahaStrategyGameInScope, omahaStrategyConstant } from './HorseOmahaStrategyGame.js';
 
 export const OMAHA_BIG_DRAW_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
 /** Fold to a bet when no read exists. The sweep's humans, heads-up, folded to
@@ -247,7 +248,7 @@ export function omahaDrawRaiseBar(i: {
   allInOrFold: boolean;
 }): OmahaDrawRaiseBar | null {
   try {
-    if (!OMAHA_BIG_DRAW_VARIANTS.has(String(i.variant).toLowerCase())) return null;
+    if (!omahaStrategyGameInScope(OMAHA_BIG_DRAW_VARIANTS, { gameVariant: i.variant })) return null;
     if (i.street !== 'flop' && i.street !== 'turn') return null;
     if (i.hiLo || i.multiBoard || i.bombPot || i.tournament || i.allInOrFold) return null;
     if (i.hole.length !== 4 && i.hole.length !== 5) return null;
@@ -539,7 +540,7 @@ const fin = (v: unknown): number => (Number.isFinite(v) ? Math.max(0, v as numbe
  * names why the passive decision stands.
  */
 export function omahaBigDrawVerdict(i: OmahaBigDrawInput): OmahaBigDrawVerdict | null {
-  if (!OMAHA_BIG_DRAW_VARIANTS.has(String(i.variant).toLowerCase())) return null;
+  if (!omahaStrategyGameInScope(OMAHA_BIG_DRAW_VARIANTS, { gameVariant: i.variant })) return null;
   if (i.street !== 'flop' && i.street !== 'turn') return null;
   if (i.hiLo || i.multiBoard || i.bombPot || i.tournament || i.allInOrFold || i.wagersCapped)
     return null;
@@ -616,7 +617,13 @@ export function omahaBigDrawVerdict(i: OmahaBigDrawInput): OmahaBigDrawVerdict |
     ? realised * equities.bet * (pot + toCall) - toCall - charge(toCall, pot + toCall)
     : realised * equities.all * pot;
   const numbers = { foldEquity, equities, evAggressive, evPassive };
-  if (!(evAggressive > evPassive + OMAHA_BIG_DRAW_MARGIN * pot) || !(evAggressive > 0))
+  if (
+    !(
+      evAggressive >
+      evPassive + omahaStrategyConstant('bigDrawMargin', { gameVariant: i.variant }) * pot
+    ) ||
+    !(evAggressive > 0)
+  )
     return held('passive_ev', numbers);
   const allIn = jam && legal('all_in') && to >= total - 0.005;
   return {
