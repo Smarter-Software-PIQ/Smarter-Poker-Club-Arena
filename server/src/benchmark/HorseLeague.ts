@@ -1999,8 +1999,7 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaTightOpponent: true },
     b: {},
   })),
-  // 2026-11-14 OMAHA TIGHT STEAL (omahaTightOpponentSteal, default ON since
-  // 2026-11-15 by owner order; arm b is the explicit off arm): the
+  // 2026-11-14 OMAHA TIGHT STEAL (omahaTightOpponentSteal, default OFF): the
   // steal half of omahaTightOpponent alone, in OMAHA_TIGHT_STEAL_VARIANTS
   // (six-card only). Against a Horse field the evidence standard is rarely
   // met, so this card is expected to be near inert; the declared evaluation
@@ -2010,8 +2009,8 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     variant: 'plo6',
     pairs: 6000,
     productionStyles: true,
-    a: {},
-    b: { omahaTightOpponentSteal: false },
+    a: { omahaTightOpponentSteal: true },
+    b: {},
   },
   // V15 BOATS (2026-09-28): default OFF. a turns it on, b is today's brain.
   // Ship it default ON only after this resolves significant positive.

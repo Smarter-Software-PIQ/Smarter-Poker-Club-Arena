@@ -1,8 +1,13 @@
 # omahaTightOpponentSteal (#10775, and the pull request that adds this file)
 
-On by default in the variants of `OMAHA_TIGHT_STEAL_VARIANTS` (six-card Omaha only). Evidence for the eight rows of [HORSE-DECISION-CHANGE-EVIDENCE.md](../HORSE-DECISION-CHANGE-EVIDENCE.md). #10775 added the tight read and both halves (respect and steal) as `omahaTightOpponent`, which stays off; this option is its steal half alone.
+OFF. An opt-in arm (read as `=== true`), acting only in the variants of `OMAHA_TIGHT_STEAL_VARIANTS` (six-card Omaha only). This file is the record of where the option stands against the eight rows of [HORSE-DECISION-CHANGE-EVIDENCE.md](../HORSE-DECISION-CHANGE-EVIDENCE.md), kept for a later promotion. #10775 added the tight read and both halves (respect and steal) as `omahaTightOpponent`, which also stays off; this option is its steal half alone.
 
-**Why it is on although rows 2 to 5 are not met.** The owner ordered it: 2026-11-14, 17:42 Chicago, the Omaha tight-opponent requirement stays mandatory and a defensible response must be built and evaluated; 19:25 to 19:34 Chicago, activate the tight-opponent adjustments and make them live. This file states each row as it is. The reviewer should read "NOT MET" below as the owner accepting that gap for this option, not as the row being answered.
+**Owner ruling, 2026-11-14 21:30 America/Chicago (given in the Hand Analysis chat), verbatim:**
+
+> Do not treat an unretained paraphrase as an activation order. My ruling now is: build and deliver the Omaha tight responses, but keep them OFF until the required promotion evidence passes. I am not waiving unmet evidence rows. Preserve this exact instruction in both evidence records. The Omaha tight gate stays open.
+> Keep the supported opt-in strategy and maniac receipts moving independently of the default-ON dispute. Review the roughly 10% VPIP recognition threshold as a separate calibration issue; don't loosen it merely to produce witnesses.
+
+Retained copy: Hand Analysis verifier archive, `OWNER-RULING-20261114-2130CT-OMAHA-TIGHT-STAYS-OFF.md`. An earlier head of this pull request (4cc51dc5) read the option as on by default on a paraphrased order; that was wrong and is reverted. The option goes on only when rows 2 to 5 below are met and reviewed.
 
 ## Mechanism
 
@@ -43,12 +48,12 @@ Zero against people on 2026-11-14: of the 12 six-card records of non-Horse playe
 
 ## Visibility
 
-`plo_tight_blinds_steal` (the steal changed the preflop intent) and `plo_tight_opponent_considered` (read and applied, same intent) are registered in `HorseDataLedger.ts`. While `omahaTightOpponent` stays off, every fire of either comes from this option. Explicit `false` is the off arm; the league card `plo6_omaha_tight_opponent_steal` deals it.
+`plo_tight_blinds_steal` (the steal changed the preflop intent) and `plo_tight_opponent_considered` (read and applied, same intent) are registered in `HorseDataLedger.ts`. While `omahaTightOpponent` stays off, every fire of either comes from this option. Absent or `false` is off; the league card `plo6_omaha_tight_opponent_steal` deals the on arm.
 
 ## Limits
 
 - Development personas, not calibrated people; their postflop play is the calibrated Omaha development profile.
-- No production node, no recorded continuation frequency, no person in reach: rows 2 to 5 rest on the owner's order, not on evidence.
+- No production node, no recorded continuation frequency, no person in reach: rows 2 to 5 are not met, so the option is off.
 - The gate uses `1 - VPIP` as the fold probability, which overstates folding to a steal for players who defend their blinds.
 - The evidence standard itself is reachable only by very tight players (about 10% VPIP at six dealt), so ordinary tight regulars are not read as tight. That is a calibration question for the shared read (owner: PLO Strategy), not answered here.
 - A natural committed witness against a tight person does not exist yet.
