@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ rpc: vi.fn() }));
-vi.mock('../../src/lib/supabase', () => ({ supabase: { rpc: mocks.rpc } }));
+const mocks = vi.hoisted(() => ({ rpc: vi.fn(), from: vi.fn() }));
+vi.mock('../../src/lib/supabase', () => ({ supabase: { rpc: mocks.rpc, from: mocks.from } }));
 import { getArenaContext } from '../../src/services/ArenaContextService';
 
 beforeEach(() => {
@@ -42,7 +42,17 @@ it('settles an access read that never answers without granting access', async ()
 it('preserves a verified absent arena and clears the request deadline', async () => {
   const response = Promise.resolve({ data: null, error: null });
   mocks.rpc.mockReturnValue({ abortSignal: () => response, then: response.then.bind(response) });
+  // A slug the server does not know is asked of the club resolver once (a
+  // renamed club's former slug); no club and no rename answers it here.
+  const absent = {
+    select: () => absent,
+    eq: () => absent,
+    abortSignal: () => absent,
+    maybeSingle: async () => response,
+  };
+  mocks.from.mockReturnValue(absent);
   await expect(getArenaContext('missing')).resolves.toBeNull();
+  expect(mocks.rpc).toHaveBeenCalledTimes(1);
   expect(vi.getTimerCount()).toBe(0);
 });
 
