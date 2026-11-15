@@ -132,8 +132,10 @@ try:
     run(psql("live"), BOUNDARIES)
     after = q("live", "SELECT md5(string_agg(f::text, ',' ORDER BY club_id, acct_day, game_id, user_id, src)) FROM ca_club_acct_fact f")
     require(before == after, "loading a day again and reloading a boundary changes nothing")
-    require(q("live", "SELECT count(*) FROM ca_club_acct_projection_failures WHERE resolved_at IS NOT NULL") == "1",
-            "loading the day again marks its recorded failure resolved")
+    require(q("live", "SELECT string_agg(source || ':' || acct_day, ',' ORDER BY id) FROM ca_club_acct_projection_failures "
+                      "WHERE resolved_at IS NOT NULL") == "tournament_flow_unclassified:2026-11-02,bbj_award:2026-11-03,"
+                                                    "tournament_flow_unclassified:2026-11-03,tournament_flow_unclassified:2026-11-03",
+            "loading a day again resolves its recorded failures; an unclassified flow is recorded again")
     p = run(psql("live"), (FIX / "check.sql").read_text())
     require("PASSED" in p.stdout + p.stderr, "the figures hold after the rebuild")
 
@@ -144,7 +146,7 @@ try:
                 f"VALUES ('c0000000-0000-0000-0000-000000000001', {n}, gen_random_uuid(), '2026-11-04 12:00+00', 'c{n}', "
                 "'{\"game_union_id\": \"fade0000-0000-0000-0000-000000000001\"}', '{\"status\": \"ready\"}'); "
                 "INSERT INTO union_pnl_cash_outcome_touches VALUES ('c0000000-0000-0000-0000-000000000001', "
-                f"{n}, '2026-11-04 12:00+00', 'fade0000-0000-0000-0000-000000000001', false, '0', "
+                f"{n}, '2026-11-04 12:00+00', 'fade0000-0000-0000-0000-000000000001', false, '1', "
                 "'[{\"earning_club_id\": \"a41434bb-8d0c-400a-8f0d-e8b3d65afed4\", \"user_id\": \"11111111-0000-0000-0000-000000000001\", \"observed_stack_delta\": 1}, "
                 "{\"earning_club_id\": \"a0000000-0000-0000-0000-000000000001\", \"user_id\": \"11111111-0000-0000-0000-000000000002\", \"observed_stack_delta\": -1}]'); ")
 
@@ -214,13 +216,61 @@ try:
         "VALUES ('c0000000-0000-0000-0000-000000000002', 40, gen_random_uuid(), '2026-11-05 12:00+00', 'c40', "
         "'{\"game_union_id\": \"fade0000-0000-0000-0000-000000000001\"}', '{\"status\": \"ready\"}'); "
         "INSERT INTO union_pnl_cash_outcome_touches VALUES ('c0000000-0000-0000-0000-000000000002', 40, '2026-11-05 12:00+00', "
-        f"'fade0000-0000-0000-0000-000000000001', false, '0', '[{parts}]');")
+        f"'fade0000-0000-0000-0000-000000000001', false, '1', '[{parts}]');")
     require(q("live", "SELECT (SELECT count(*) FROM ca_club_acct_fact WHERE acct_day = '2026-11-05') || '/' || "
                       "(SELECT count(*) FROM ca_club_acct_fact_journal WHERE acct_day = '2026-11-05') || '/' || "
                       "(SELECT count(*) FROM ca_club_acct_hands_journal WHERE acct_day = '2026-11-05') || '/' || "
                       "(SELECT sum(result) FROM (SELECT result FROM ca_club_acct_fact WHERE acct_day = '2026-11-05' UNION ALL "
                       "SELECT result FROM ca_club_acct_fact_journal WHERE acct_day = '2026-11-05') x)") == "32/8/1/0.40",
             "a transaction holds at most 32 projection locks; the rest journal and the figures stay whole")
+
+    # (4) A boundary version arriving while another transaction loads that
+    # boundary: the capture never waits, both boundary days are recorded as
+    # failures, and the next load of the boundary resolves them.
+    a = background()
+    a.stdin.write("BEGIN; SELECT fn_ca_club_acct_load_boundary('fade0000-0000-0000-0000-000000000001', "
+                  "'2026-11-09 08:00+00') IS NOT NULL; SELECT pg_sleep(3); COMMIT;\n")
+    a.stdin.flush()
+    time.sleep(1.0)
+    t0 = time.monotonic()
+    run(psql("live"), "UPDATE accounting_close_certificates SET value = jsonb_build_object('status', 'ready', 'holdings', "
+        "jsonb_build_array(jsonb_build_object('kind', 'deferred_tournament_result', 'club_id', 'a0000000-0000-0000-0000-000000000001', "
+        "'user_id', '11111111-0000-0000-0000-000000000002', 'amount', 16.00, 'source_id', 'f0000000-0000-0000-0000-000000000001'))), "
+        "certified_at = '2026-11-13 00:00+00' WHERE kind = 'pnl_boundary' AND period_start = '2026-11-09 08:00+00';")
+    waited = time.monotonic() - t0
+    finish(a, "")
+    require(waited < 2.0 and q("live", "SELECT string_agg(acct_day::text, ',' ORDER BY acct_day) FROM ca_club_acct_projection_failures "
+                                       "WHERE source = 'pnl_boundary_busy' AND resolved_at IS NULL") == "2026-11-08,2026-11-09",
+            f"a boundary version arriving during another load of it never waits and records both its days ({waited:.2f} s)")
+    run(psql("live"), BOUNDARIES)
+    require(q("live", "SELECT count(*) FROM ca_club_acct_projection_failures WHERE source = 'pnl_boundary_busy' AND resolved_at IS NULL") == "0"
+            and q("live", "SELECT sum(result) FROM ca_club_acct_fact WHERE src = 2 AND acct_day = '2026-11-09'") == "-16.00",
+            "the next load of the boundary takes the new version and resolves both days")
+
+    # (5) A projection fails at commit AND its failure cannot be recorded: the
+    # money writes still commit (the record becomes a WARNING).
+    run(psql("live"), "ALTER TABLE ca_club_acct_projection_failures ADD CONSTRAINT fixture_refuses CHECK (false) NOT VALID; "
+                      "INSERT INTO fixture_bbj_outage VALUES (true);")
+    p5 = run(psql("live"),
+        "INSERT INTO bbj_payouts VALUES ('b0000000-0000-0000-0000-000000000003', 'c0000000-0000-0000-0000-000000000001', 5, "
+        "'2026-11-06 12:01+00'); INSERT INTO bbj_payout_recipients (payout_id, user_id, amount, created_at) VALUES "
+        "('b0000000-0000-0000-0000-000000000003', 'bbb00000-0000-0000-0000-0000000000fe', 1.00, '2026-11-06 12:01+00'); "
+        "INSERT INTO union_pnl_original_flows VALUES ('f1000000-0000-0000-0000-00000000000c', NULL, '2026-11-06 13:00+00', "
+        "'{\"game_union_id\": \"fade0000-0000-0000-0000-000000000001\", \"tournament_id\": \"d0000000-0000-0000-0000-000000000001\"}', "
+        "'{\"status\": \"posted\", \"club_id\": \"a41434bb-8d0c-400a-8f0d-e8b3d65afed4\", \"amount\": 3, \"from_type\": \"prize_liability\", "
+        "\"to_type\": \"player_wallet\", \"category\": \"tournament_prize\"}');")
+    require(q("live", "SELECT (SELECT count(*) FROM bbj_payout_recipients WHERE user_id = 'bbb00000-0000-0000-0000-0000000000fe') || '/' || "
+                      "(SELECT count(*) FROM union_pnl_original_flows WHERE ledger_id = 'f1000000-0000-0000-0000-00000000000c') || '/' || "
+                      "(SELECT count(*) FROM ca_club_acct_projection_failures WHERE acct_day = '2026-11-06')") == "1/1/0"
+            and "could not be recorded" in p5.stderr,
+            "a projection whose failure cannot be recorded still never refuses the money write")
+    # A day load never swallows its own failure record: it aborts instead.
+    run(psql("live"), "DELETE FROM fixture_bbj_outage;")
+    before_log = q("live", "SELECT seeded_at FROM ca_club_acct_seed_log WHERE acct_day = '2026-11-02'")
+    run(psql("live"), load("2026-11-02", True), expect_fail="fixture_refuses")
+    require(q("live", "SELECT seeded_at FROM ca_club_acct_seed_log WHERE acct_day = '2026-11-02'") == before_log,
+            "a day load whose failure record cannot be written aborts and leaves the day as it was")
+    run(psql("live"), "ALTER TABLE ca_club_acct_projection_failures DROP CONSTRAINT fixture_refuses;")
 
     require(q("live", "SELECT NOT has_table_privilege('authenticated','public.ca_club_acct_fact','select') "
                       "AND NOT has_table_privilege('anon','public.ca_club_acct_fact','select') "

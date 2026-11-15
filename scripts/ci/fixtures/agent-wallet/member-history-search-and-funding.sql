@@ -11,6 +11,8 @@ DECLARE
   stamp timestamptz := '2026-11-14 18:26Z';
   first_id uuid := '50000000-0000-0000-0000-000000000001';
   second_id uuid := '50000000-0000-0000-0000-000000000002';
+  cashier_ticket uuid := gen_random_uuid();
+  union_promo uuid := gen_random_uuid();
   found uuid[];
 BEGIN
   INSERT INTO clubs(id,owner_id) VALUES (club,manager);
@@ -43,6 +45,20 @@ BEGIN
     OR EXISTS (SELECT FROM fn_cashier_history_feed(club,'club','member_all',p_person=>agent,p_search=>'the agent')) THEN
     RAISE EXCEPTION 'Search matched a redacted operator or the selected member on a non-self transfer';
   END IF;
+  -- The cashier debited the issuer's Player Wallet; a satellite awarded its seat
+  -- from a payout. Both receipts deliberately have the same transaction type.
+  INSERT INTO chip_transactions(id,club_id,from_user_id,to_user_id,created_at,transaction_type,amount,metadata) VALUES
+    (cashier_ticket,club,agent,player,stamp,'tournament_ticket_issue',10,
+      jsonb_build_object('issuer_id',agent,'issuer_balance_after',0)),
+    (gen_random_uuid(),club,NULL,agent,stamp,'tournament_ticket_issue',10,
+      jsonb_build_object('payout_id',gen_random_uuid(),'source_satellite_id',gen_random_uuid())),
+    (union_promo,club,NULL,agent,stamp,'promo_disbursement',10,'{"source_kind":"union","target_kind":"player"}'),
+    (gen_random_uuid(),club,NULL,agent,stamp,'promo_disbursement',10,'{"source_kind":"club","target_kind":"player"}');
+  SELECT array_agg(id) INTO found FROM fn_cashier_history_feed(club,'club','member_player_wallet',p_person=>agent)
+    WHERE transaction_type='tournament_ticket_issue';
+  IF found IS DISTINCT FROM ARRAY[cashier_ticket] THEN RAISE EXCEPTION 'Player Wallet missed the issuer debit or included a satellite award: %',found; END IF;
+  SELECT array_agg(id) INTO found FROM fn_cashier_history_feed(club,'club','member_union_promo_wallet',p_person=>agent);
+  IF found IS DISTINCT FROM ARRAY[union_promo] THEN RAISE EXCEPTION 'Union Promo Wallet misclassified disbursements: %',found; END IF;
   PERFORM set_config('request.jwt.claim.sub',player::text,true);
   IF EXISTS (SELECT FROM fn_cashier_history_feed(club,'club','member_all',p_person=>agent,p_search=>'Slice')) THEN
     RAISE EXCEPTION 'Unauthorized viewer could read member history';
@@ -61,6 +77,11 @@ BEGIN
       ('club_promo_send','{"destination":"tournament_ticket"}','club_promo_wallet'),
       ('cashout_approved','{}','held_cashout'),
       ('horse_treasury_funding','{}','club_bank'),
+      ('union_promo_send','{"destination":"promo_float"}','union_promo_wallet'),
+      ('union_promo_to_club','{"destination":"club_promo_wallet"}','union_promo_wallet'),
+      ('tournament_ticket_issue','{"issuer_id":"issuer","issuer_balance_after":0,"payout_id":"payout"}',NULL),
+      ('tournament_ticket_issue','{"issuer_balance_after":0}',NULL),
+      ('tournament_ticket_issue','{"issuer_id":"issuer","issuer_balance_after":"unknown"}',NULL),
       ('peer_transfer','{}',NULL)
     ) r(kind,metadata,wallet) WHERE fn_cashier_history_funding_wallet(kind,metadata) IS DISTINCT FROM wallet
   ) THEN RAISE EXCEPTION 'Source-wallet classification mismatch'; END IF;

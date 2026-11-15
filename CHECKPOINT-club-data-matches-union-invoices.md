@@ -99,7 +99,38 @@ client 2 AM presentation, publish, live verification.
   FS -101,626.77, KC -18,011.94, each equal to its invoice to the cent.
 
 ## State
-- #10899 (boundary capture) head 58b622594 pushed: S1 invoice-version function,
-  N2 ENABLE ALWAYS asserted via pg_trigger. Waiting on CI + reviewer delta.
-- #10879: redesign written (20261115020010 / 20261115020011), N4 STABLE,
-  former-slug refusal in 20261114235607, BAND-AIDS entry, seed S8, pg pinned.
+- #10899 (boundary capture) MERGED 2026-11-15 03:14Z as 9c616a05b (reviewer:
+  ready at 58b622594), Apply Merged Migration run 43671515040 success;
+  production: 20261115015159 in schema_migrations, 6 of 6 ready pnl_boundary
+  certificates copied (09-21, 09-28, 10-19, 10-26, 11-02, 11-09), capture
+  trigger tgenabled A, fn_ca_union_pnl_boundary_for_invoice present, 0 failures.
+- #10879 head 6f191f60b (merge of main incl. #10899): review fixes b80201ad1
+  (unclassified flow and busy boundary recorded as failures, union check on
+  live fee projections), 517f38e17 (file-URL law). CI: Accounting shard 6
+  fails in scripts/ci/test-promo-downline-limit-postgres.py, a main regression
+  from #10888 that #10916 fixes; merge main after #10916, then merge #10879.
+- #10879: redesign pushed d7b4cfc5f (20261115020010 / 20261115020011), N4
+  STABLE, former-slug refusal in 20261114235607 (BEFORE INSERT OR UPDATE OF
+  slug, 23505, own former slug allowed), BAND-AIDS entry, seed S8, pg pinned;
+  517f38e17 fixes the file-URL law (seed main-module check). Carries #10899's
+  commits until #10899 merges.
+- Production timing (read-only probe, pg_temp functions, 2026-11-03 08-14Z):
+  cash fees 10.3 s, tournament fees 0.02 s, touches 3.8 s, link resolutions
+  24.0 s (12,608 per 2 h, one per transaction from engine_lightning_lane,
+  proof ~3.7 kB; now projected without the proof), flows 1.5 s, BBJ 0.1 s ->
+  a day load is about 2.5 min. Functions compile against production.
+- Live verification: the SLUG agent reports daniel@smarter.poker is not a
+  member of The Felt Society and no probe credentials are available to
+  agents; the coordinator handles signed-in verification at the end.
+
+## Stage 2 plan (readers), after #10879 is installed and loaded
+- Union scope only: a club in union_clubs or a union id (house club) reads
+  the accounting basis; any other club keeps the old basis unchanged.
+  ca_stats_club_data_fact_ct := old rows for non-union clubs UNION ALL
+  ca_club_acct_fact + ca_club_acct_fact_journal (stat_date = acct_day) for
+  union-scope clubs; game/hands views likewise from fact/hands + journals.
+- In each edited reader: v_union := scope test on $1; v_today and seat day
+  = accounting day only when v_union; felt not added to winnings only when
+  v_union; coverage (missing/failed days, boundary not invoice-exact) shown.
+- Client: basis-aware labels (2:00 AM boundary only for union scopes).
+- Re-reserve the stage-2 version after 20261115020011.

@@ -2,7 +2,12 @@
 
 Migrations `20261115020010_club_data_accounting_read_model.sql` (installed at
 merge) and `20261115020011_club_data_accounting_read_model_goes_live.sql`
-(daily maintenance window: attaches the live projection).
+(installed at merge too, owner instruction 2026-11-14 21:55 Chicago "IT CAN GO
+LIVE AS SOON AS YOU PUSH IT": attaches the live projection in one transaction
+that first takes all eight table locks at once with LOCK TABLE ... NOWAIT, so
+no writer waits on a lock request of this migration; the eight locks are held
+only for the trigger creation and commit. A busy table refuses the file at once
+and it is dispatched once more, never in a loop).
 
 Club Data must match the union weekly invoices 1:1 on the same 02:00
 America/Chicago boundaries. The invoice reads accounting records Club Data
@@ -15,7 +20,12 @@ accounting day, game and player, for every union game:
 - cash result and hands: each hand's stack change by the participant's
   earning club (touches with their treasury gift and post-hand escrow
   readings, and link resolutions with the lightning funding owner), plus BBJ
-  stack awards from the invoice's own reader;
+  stack awards from the invoice's own reader; a player's hands are the cash
+  hands they took part in, and the club hand count (per table) is the one
+  definition Club Data used before (20261022103651), on both the club and
+  union screens: raked hands (accepted rake above zero) in which at least one
+  of the club's players changed stack, and a raked hand in which no
+  participant with an earning club changed stack counts for the table's club;
 - tournament result: funding and returns owned by their receipts, as the
   invoice classifies them, plus the entries still deferred at each week
   boundary, in the version of the kept boundary certificate the week's

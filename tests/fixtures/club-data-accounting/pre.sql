@@ -13,7 +13,7 @@
 \set u2 '''11111111-0000-0000-0000-000000000002'''
 \set u3 '''11111111-0000-0000-0000-000000000003'''
 
-INSERT INTO tables VALUES (:T1, :U), (:T2, :U);
+INSERT INTO tables VALUES (:T1, :U, :U), (:T2, :U, NULL);
 INSERT INTO rake_records VALUES ('e0000000-0000-0000-0000-000000000001', :T1), ('e0000000-0000-0000-0000-000000000002', :T1),
   ('e0000000-0000-0000-0000-000000000003', :T1), ('e0000000-0000-0000-0000-000000000004', :T1), ('e0000000-0000-0000-0000-000000000005', :T1);
 INSERT INTO tournament_players VALUES ('f0000000-0000-0000-0000-000000000000', :TT0), ('f0000000-0000-0000-0000-000000000001', :TT1);
@@ -40,7 +40,8 @@ INSERT INTO accounting_tournament_recognized_sources VALUES
 
 -- Hands. #1 plain; #2 shaped (its escrow certificate arrives after the
 -- cutover); #3 a blocked original whose treasury gift re-attributes it;
--- #4 has no union scope and is not the invoice's.
+-- #4 has no union scope and is not the invoice's. #3 is unraked (accepted
+-- rake 0): its players' results count, the club hand count does not.
 INSERT INTO union_pnl_cash_outcomes (table_id, hand_number, hand_id, recognized_at, payload_hash, game_scope, evidence) VALUES
   (:T1, 1, gen_random_uuid(), '2026-11-02 09:00+00', 'h1', jsonb_build_object('game_union_id', :U),
    jsonb_build_object('status', 'ready', 'participants', jsonb_build_array(
@@ -56,7 +57,7 @@ INSERT INTO union_pnl_cash_outcomes (table_id, hand_number, hand_id, recognized_
        jsonb_build_object('earning_club_id', :D, 'user_id', :u3, 'observed_stack_delta', -7),
        jsonb_build_object('earning_club_id', :F, 'user_id', :u2, 'observed_stack_delta', 7)))),
   (:T1, 4, gen_random_uuid(), '2026-11-02 09:20+00', 'h4', '{}', '{"status":"ready"}'),
-  (:T2, 1, 'aaaa0000-0000-0000-0000-000000000001', '2026-11-02 10:00+00', 'l1', '{}', '{"status":"ready"}');
+  (:T2, 1, 'aaaa0000-0000-0000-0000-000000000001', '2026-11-02 10:00+00', 'l1', '{}', '{"status":"ready","accepted_rake":"0.5"}');
 INSERT INTO union_pnl_cash_outcome_touches VALUES
   (:T1, 1, '2026-11-02 09:00+00', :U, false, '2.5', jsonb_build_array(
      jsonb_build_object('earning_club_id', :K, 'user_id', :u1, 'observed_stack_delta', 10.00),

@@ -71,19 +71,20 @@ BEGIN
     RAISE EXCEPTION 'boundary versions: %', (SELECT string_agg(g::text, ' | ') FROM ca_club_acct_boundary_log g);
   END IF;
 
-  -- Hands each club took part in, per table.
+  -- The club hand count per table: raked hands in which a player of the
+  -- club changed stack (T1#3 and T2#2 are unraked; The Felt Society's
+  -- zero-delta seat in T1#5 does not count it; T1#6 names no earning club
+  -- with a stack change, so it is the table club's).
   IF (SELECT string_agg(club_id || ':' || acct_day || ':' || table_id || '=' || h, ',' ORDER BY club_id, acct_day, table_id)
         FROM (SELECT club_id, acct_day, table_id, sum(hands) h FROM all_hands GROUP BY 1, 2, 3) x)
      IS DISTINCT FROM
-     '2a1132b9-5ba2-42e6-9f01-30a7fcffebe3:2026-11-02:c0000000-0000-0000-0000-000000000001=1,'
      '2a1132b9-5ba2-42e6-9f01-30a7fcffebe3:2026-11-02:c0000000-0000-0000-0000-000000000002=1,'
      '2a1132b9-5ba2-42e6-9f01-30a7fcffebe3:2026-11-03:c0000000-0000-0000-0000-000000000001=1,'
-     'a0000000-0000-0000-0000-000000000001:2026-11-02:c0000000-0000-0000-0000-000000000001=3,'
-     'a0000000-0000-0000-0000-000000000001:2026-11-03:c0000000-0000-0000-0000-000000000002=1,'
+     'a0000000-0000-0000-0000-000000000001:2026-11-02:c0000000-0000-0000-0000-000000000001=2,'
      'a41434bb-8d0c-400a-8f0d-e8b3d65afed4:2026-11-02:c0000000-0000-0000-0000-000000000001=2,'
      'a41434bb-8d0c-400a-8f0d-e8b3d65afed4:2026-11-02:c0000000-0000-0000-0000-000000000002=1,'
      'a41434bb-8d0c-400a-8f0d-e8b3d65afed4:2026-11-03:c0000000-0000-0000-0000-000000000001=1,'
-     'a41434bb-8d0c-400a-8f0d-e8b3d65afed4:2026-11-03:c0000000-0000-0000-0000-000000000002=1' THEN
+     'fade0000-0000-0000-0000-000000000001:2026-11-03:c0000000-0000-0000-0000-000000000001=1' THEN
     RAISE EXCEPTION 'hand counts differ: %', (SELECT string_agg(club_id || ':' || acct_day || ':' || table_id || '=' || hands, ',') FROM ca_club_acct_hands);
   END IF;
 
@@ -96,6 +97,7 @@ BEGIN
      '2a1132b9-5ba2-42e6-9f01-30a7fcffebe3:2026-11-02:c0000000-0000-0000-0000-000000000002:11111111-0000-0000-0000-000000000003=1,'
      '2a1132b9-5ba2-42e6-9f01-30a7fcffebe3:2026-11-03:c0000000-0000-0000-0000-000000000001:11111111-0000-0000-0000-000000000003=1,'
      'a0000000-0000-0000-0000-000000000001:2026-11-02:c0000000-0000-0000-0000-000000000001:11111111-0000-0000-0000-000000000002=3,'
+     'a0000000-0000-0000-0000-000000000001:2026-11-03:c0000000-0000-0000-0000-000000000001:11111111-0000-0000-0000-000000000002=1,'
      'a0000000-0000-0000-0000-000000000001:2026-11-03:c0000000-0000-0000-0000-000000000002:11111111-0000-0000-0000-000000000003=1,'
      'a41434bb-8d0c-400a-8f0d-e8b3d65afed4:2026-11-02:c0000000-0000-0000-0000-000000000001:11111111-0000-0000-0000-000000000001=2,'
      'a41434bb-8d0c-400a-8f0d-e8b3d65afed4:2026-11-02:c0000000-0000-0000-0000-000000000002:11111111-0000-0000-0000-000000000001=1,'
@@ -105,11 +107,17 @@ BEGIN
         FROM (SELECT club_id, acct_day, game_id, user_id, sum(hands) h FROM all_facts GROUP BY 1, 2, 3, 4 HAVING sum(hands) <> 0) x);
   END IF;
 
-  -- The failed projection is recorded, and the share it followed committed.
+  -- The failed projection is recorded, and the share it followed committed;
+  -- the posted prize no receipt owns (pre.sql) is a failure of its day,
+  -- never a silent drop, and a day load does not resolve it.
   IF (SELECT count(*) FROM ca_club_acct_projection_failures WHERE source = 'bbj_award' AND acct_day = '2026-11-03') <> 1
-     OR (SELECT count(*) FROM ca_club_acct_projection_failures) <> 1
-     OR NOT EXISTS (SELECT 1 FROM bbj_payout_recipients WHERE user_id = 'bbb00000-0000-0000-0000-0000000000ff') THEN
-    RAISE EXCEPTION 'failure record: %', (SELECT string_agg(source || ' ' || detail, ' | ') FROM ca_club_acct_projection_failures);
+     OR NOT EXISTS (SELECT 1 FROM bbj_payout_recipients WHERE user_id = 'bbb00000-0000-0000-0000-0000000000ff')
+     OR NOT EXISTS (SELECT 1 FROM ca_club_acct_projection_failures WHERE source = 'tournament_flow_unclassified'
+                     AND source_key = 'f1000000-0000-0000-0000-00000000000b' AND acct_day = '2026-11-03')
+     OR (SELECT string_agg(source || ':' || acct_day, ',' ORDER BY acct_day) FROM ca_club_acct_projection_failures WHERE resolved_at IS NULL)
+        IS DISTINCT FROM 'tournament_flow_unclassified:2026-11-02,tournament_flow_unclassified:2026-11-03' THEN
+    RAISE EXCEPTION 'failure record: %', (SELECT string_agg(source || ' ' || acct_day || ' ' || detail || ' ' || (resolved_at IS NULL), ' | ')
+                                            FROM ca_club_acct_projection_failures);
   END IF;
 
   -- The tournament game of a carried entry is its tournament.

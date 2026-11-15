@@ -24,11 +24,18 @@ INSERT INTO smarter_private.posthand_escrow_certificates (table_id, hand_number,
      jsonb_build_object('earning_club_id', :F, 'user_id', :u2, 'observed_stack_delta', 5))));
 INSERT INTO union_pnl_cash_outcomes (table_id, hand_number, hand_id, recognized_at, payload_hash, game_scope, evidence) VALUES
   (:T1, 5, gen_random_uuid(), '2026-11-03 12:00+00', 'h5', jsonb_build_object('game_union_id', :U), '{"status":"ready"}'),
-  (:T2, 2, 'aaaa0000-0000-0000-0000-000000000002', '2026-11-03 12:30+00', 'l2', '{}', '{"status":"ready"}');
+  (:T1, 6, gen_random_uuid(), '2026-11-03 13:30+00', 'h6', jsonb_build_object('game_union_id', :U), '{"status":"ready"}'),
+  (:T2, 2, 'aaaa0000-0000-0000-0000-000000000002', '2026-11-03 12:30+00', 'l2', '{}', '{"status":"ready","accepted_rake":"0"}');
 INSERT INTO union_pnl_cash_outcome_touches VALUES
   (:T1, 5, '2026-11-03 12:00+00', :U, false, '0.2', jsonb_build_array(
      jsonb_build_object('earning_club_id', :K, 'user_id', :u1, 'observed_stack_delta', 1),
-     jsonb_build_object('earning_club_id', :D, 'user_id', :u3, 'observed_stack_delta', -1.20)));
+     jsonb_build_object('earning_club_id', :D, 'user_id', :u3, 'observed_stack_delta', -1.20),
+     -- Dealt in, no chips in and none won: the hand is not The Felt Society's.
+     jsonb_build_object('earning_club_id', :F, 'user_id', :u2, 'observed_stack_delta', 0))),
+  -- Raked, and no participant with an earning club changed stack: the
+  -- hand is the table club's (T1's club is the union's house club).
+  (:T1, 6, '2026-11-03 13:30+00', :U, false, '0.3', jsonb_build_array(
+     jsonb_build_object('user_id', :u3, 'observed_stack_delta', -0.30)));
 INSERT INTO union_pnl_cash_outcome_link_resolutions (table_id, hand_number, hand_id, outcome_payload_hash, outcome_evidence_md5,
   roster_source, game_scope, evidence, proof, proof_md5)
 SELECT :T2, 2, o.hand_id, o.payload_hash, md5(o.evidence::text), 'manifest', jsonb_build_object('game_union_id', :U),
@@ -63,6 +70,12 @@ INSERT INTO bbj_payouts VALUES ('b0000000-0000-0000-0000-000000000002', :T1, 5, 
 INSERT INTO bbj_payout_recipients (payout_id, user_id, amount, created_at)
 VALUES ('b0000000-0000-0000-0000-000000000002', 'bbb00000-0000-0000-0000-0000000000ff', 1.00, '2026-11-03 12:01+00');
 DELETE FROM fixture_bbj_outage;
+-- A posted prize no receipt owns, after the cutover: recorded as a failure
+-- of its day by the live projection, never dropped silently.
+INSERT INTO union_pnl_original_flows VALUES
+  ('f1000000-0000-0000-0000-00000000000b', NULL, '2026-11-03 16:00+00', jsonb_build_object('game_union_id', :U, 'tournament_id', :TT1),
+   jsonb_build_object('status', 'posted', 'club_id', :K, 'amount', 7, 'from_type', 'prize_liability', 'from_entity_id', :TT1,
+                      'to_type', 'player_wallet', 'to_entity_id', :u1, 'category', 'tournament_prize'));
 -- The 2026-11-09 boundary recertified after the invoice of the week ending
 -- there (2026-11-11 09:05): that week keeps the version its invoice used
 -- (12.00); the week starting there has no invoice yet and takes the new one.

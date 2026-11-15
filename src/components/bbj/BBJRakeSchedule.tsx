@@ -5,7 +5,6 @@ import { getRakeConfig } from '../../config/RakeConfig';
 import { resolveRakeOverride } from '../../lib/rakeOverride';
 import { readCashRakePolicyVersion } from '../../services/cashRakePolicyVersion';
 import { applyClubScope } from '../../utils/clubScope';
-import { gameTypeLabel } from '../../utils/handFormat';
 
 interface Props {
   clubId?: string;
@@ -15,13 +14,12 @@ interface Props {
 }
 
 interface Row {
-  game: string;
   sb: number | null;
   bb: number;
   rate: number;
   cap: number;
-  name: string;
-  dealt?: string;
+  seats?: number;
+  dealt: string;
 }
 
 interface ChipBrackets {
@@ -63,14 +61,13 @@ async function loadRows({ clubId, unionId, tableId, asset }: Props): Promise<Row
   const query = supabase
     .from('tables')
     .select(
-      'id,name,small_blind,big_blind,max_players,game_variant,union_id,rake_percent,rake_cap_bb,club:clubs!fk_tables_club_id(asset,union_id,default_rake_percent,rake_cap)'
+      'small_blind,big_blind,max_players,game_variant,union_id,rake_percent,rake_cap_bb,club:clubs!fk_tables_club_id(asset,union_id,default_rake_percent,rake_cap)'
     )
     .eq('is_deleted', false)
     .is('tournament_id', null)
     .not('status', 'in', '("closed","deleted")')
     .order('big_blind')
     .order('small_blind')
-    .order('game_variant')
     .order('id');
   const { data, error } = await applyClubScope(query, { clubId, unionId: unionId ?? null });
   if (error) throw error;
@@ -92,19 +89,21 @@ async function loadRows({ clubId, unionId, tableId, asset }: Props): Promise<Row
     const sb = Number(table.small_blind),
       bb = Number(table.big_blind);
     if (!(bb > 0) || table.small_blind == null) throw new Error('Unknown cash stakes');
-    const game = gameTypeLabel(table.game_variant) || table.game_variant;
-    const base = { game, sb, bb, name: table.name };
+    const base = { sb, bb, seats: table.max_players };
     if (diamond) {
       const prices = diamond.data.filter((p: { big_blind: number }) => p.big_blind === bb);
       if (!prices.length) throw new Error('Missing Diamond stake');
       for (const p of prices) rows.push({ ...base, dealt: p.players, rate: p.percent, cap: p.cap });
     } else {
       const override = resolveRakeOverride(table, club);
+      if (override?.scope === 'midway' && sb === 5 && bb === 10) continue;
       const config = getRakeConfig(
         bb,
         table.game_variant,
         sb,
-        version === 1 ? override : { ...override, scope: undefined }
+        version === 1 || version === 2
+          ? { ...override, policyVersion: version }
+          : { ...override, scope: undefined }
       );
       if (!chip?.data) throw new Error('Missing chip rake rules');
       for (const price of chipPrices(
@@ -120,8 +119,6 @@ async function loadRows({ clubId, unionId, tableId, asset }: Props): Promise<Row
   if (diamond && !rows.length) {
     for (const p of diamond.data)
       rows.push({
-        game: 'All Cash Games',
-        name: '',
         sb: null,
         bb: p.big_blind,
         dealt: p.players,
@@ -130,6 +127,37 @@ async function loadRows({ clubId, unionId, tableId, asset }: Props): Promise<Row
       });
   }
   return rows;
+}
+
+type Prices = Map<string, Set<number>>;
+interface Stake {
+  sb: number | null;
+  bb: number;
+  prices: Map<string, Prices>;
+}
+
+const chips = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
+const blind = (value: number) => (value > 0 && value < 1 ? value.toFixed(2) : chips.format(value));
+
+export function groupByStakes(rows: Row[]) {
+  const stakes = new Map<string, Stake>();
+  const brackets = new Set<string>();
+  for (const { sb, bb, dealt, rate, cap, seats } of rows) {
+    const key = sb + '/' + bb;
+    const stake = stakes.get(key) ?? { sb, bb, prices: new Map<string, Prices>() };
+    const prices = stake.prices.get(dealt) ?? new Map<string, Set<number>>();
+    const label = rate + '% / ' + chips.format(cap);
+    const sizes = prices.get(label) ?? new Set<number>();
+    if (seats) sizes.add(seats);
+    prices.set(label, sizes);
+    stake.prices.set(dealt, prices);
+    stakes.set(key, stake);
+    brackets.add(dealt);
+  }
+  return {
+    stakes: Array.from(stakes.values()).sort((a, b) => a.bb - b.bb || (a.sb ?? 0) - (b.sb ?? 0)),
+    brackets: Array.from(brackets).sort((a, b) => parseInt(a, 10) - parseInt(b, 10)),
+  };
 }
 
 export function BBJRakeSchedule(props: Props) {
@@ -162,35 +190,50 @@ export function BBJRakeSchedule(props: Props) {
             : 'Loading Rake Schedule…'}
       </p>
     );
+  const { stakes, brackets } = groupByStakes(rows);
   return (
-    <div className="bbj-basic__scroll">
-      <table className="bbj-basic__table" aria-label="Cash Game Rake By Stakes">
-        <thead>
-          <tr>
-            <th>Cash Game</th>
-            <th>Stakes</th>
-            <th>Rake</th>
-            <th>
-              Cap{' '}
-              <span className="bbj-basic__subhead">{asset === 'chips' ? 'Chips' : 'Diamonds'}</span>
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r, i) => (
-            <tr key={i}>
-              <td>
-                {r.game}
-                <small className="bbj-basic__subhead">{r.name}</small>
-                {r.dealt && <small className="bbj-basic__subhead">{r.dealt} Dealt</small>}
-              </td>
-              <td>{r.sb === null ? 'BB ' + r.bb : r.sb + '/' + r.bb}</td>
-              <td>{r.rate}%</td>
-              <td>{r.cap}</td>
+    <div className="bbj-basic bbj-rake">
+      <p className="bbj-basic__rules">Rake % / Cap In {asset === 'chips' ? 'Chips' : 'Diamonds'}</p>
+      <div className="bbj-basic__scroll">
+        <table className="bbj-basic__table" aria-label="Rake Schedule By Stakes">
+          <thead>
+            <tr>
+              <th scope="col">Stakes</th>
+              {brackets.map((dealt) => (
+                <th key={dealt} scope="col">
+                  {dealt} Dealt
+                </th>
+              ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {stakes.map(({ sb, bb, prices }) => (
+              <tr key={sb + '/' + bb}>
+                <th scope="row">{sb === null ? 'BB ' + bb : blind(sb) + '/' + blind(bb)}</th>
+                {brackets.map((dealt) => {
+                  const terms = prices.get(dealt);
+                  return (
+                    <td key={dealt}>
+                      {terms
+                        ? Array.from(terms, ([price, sizes]) => (
+                            <div key={price}>
+                              {price}
+                              {terms.size > 1 && sizes.size > 0 && (
+                                <small className="bbj-basic__subhead">
+                                  {[...sizes].sort((a, b) => a - b).join('/')} Seats
+                                </small>
+                              )}
+                            </div>
+                          ))
+                        : '-'}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

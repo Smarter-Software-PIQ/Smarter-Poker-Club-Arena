@@ -249,6 +249,7 @@ import {
 import {
   cashBuyInJournal,
   executeCashBuyIn,
+  isCashBuyInStorageFailure,
   sameCashBuyInIntent,
   type CashBuyInAttempt,
 } from '../services/CashBuyInRecovery';
@@ -1279,6 +1280,7 @@ interface TablePageProps {
     handNumber?: number;
     buttonTheme?: string;
     isAutoRebuyEnabled?: boolean;
+    standUpNextBB?: boolean;
     /**
      * PokerBros parity (Dan 2026-08-20, from live multi-table footage): each
      * tab previews the hero's hole cards AT THAT TABLE. Reported as ONE
@@ -15168,6 +15170,12 @@ function LiveTablePage({
     setShowTournamentLobby(true);
   });
   const [standUpNextBB, setStandUpNextBB] = useState(false);
+  /* The tab bar's Stand Up Next Big Blind badge reads this off the tab. It was
+     never reported, so the row toggled the real setting and showed nothing
+     (2026-11-14). Same route as isAutoRebuyEnabled. */
+  useEffect(() => {
+    onTableInfoUpdate?.({ standUpNextBB });
+  }, [standUpNextBB, onTableInfoUpdate]);
 
   const [sharedHandData, setSharedHandData] = useState<any>(null);
   /* SHARE AS VIDEO (Phase 9.1): the hand_history id behind sharedHandData
@@ -18558,7 +18566,13 @@ function LiveTablePage({
     // already arrives through useTableSettings (applyGateChanges -> setEnabled).
     // Off goes through the engine, which also returns the Safari audio session
     // to "ambient", so a player's music is not left paused.
-    if (s.soundEnabled === false) {
+    /* AND ONLY FROM THE SETTINGS PAGE'S OWN SAVE (2026-11-14). The same event
+       is also sent by the account sync and by the theme mirror, each carrying
+       the cached copy described above. A player who had once muted in Settings
+       and then turned Sounds ON at the table was muted again by the next of
+       those, with every switch still reading ON. A cached copy is not a
+       choice; the page's save is. */
+    if (payload?.source === 'settings-page' && s.soundEnabled === false) {
       soundService.setEnabled(false);
     }
     // 2026-08-18: a `deckStyle` branch used to live here writing
@@ -32847,6 +32861,8 @@ function LiveTablePage({
           const stillCurrent = () =>
             buyInScopeRef.current === scope && buyInOperationRef.current === operation;
           let buyInCommitted = false;
+          // False until this click has a saved request and is about to send it.
+          let buyInRequestStarted = false;
           try {
             if (!userId || userId === 'guest' || !tableId || !selectedSeat) {
               toast.error('Unable To Verify Your Table And Seat.');
@@ -32894,6 +32910,7 @@ function LiveTablePage({
               toast.warning('Review Your Original Buy-In Before Retrying.');
               return false;
             }
+            buyInRequestStarted = true;
             const outcome = await executeCashBuyIn(attempt, recovered, undefined, stillCurrent);
             if (outcome.kind !== 'unknown') {
               // Cleanup failure leaves a safely replayable receipt, never a new
@@ -32933,7 +32950,8 @@ function LiveTablePage({
               /* No seat was bought: there is no room for this tab to follow. */
               if (anchorLightningClusterId) clearLightningEntryIntent(tableId);
               const message =
-                cashBuyInRefusalText(outcome.error) ?? 'The Server Refused This Buy-In.';
+                cashBuyInRefusalText(outcome.error, { leftWith: cashoutMinBuyIn }) ??
+                'The Server Refused This Buy-In.';
               if (
                 /^SEAT_RESERVED:/.test(
                   String(
@@ -33041,6 +33059,15 @@ function LiveTablePage({
             if (buyInCommitted) {
               toast.warning('Buy-In Confirmed. Your Table Display Is Catching Up.');
               setShowBuyInModal(false);
+            } else if (!buyInRequestStarted && isCashBuyInStorageFailure(error)) {
+              /* The request could not be saved on this device, so this click
+                 sent nothing (2026-11-14). Say that. "Unable To Confirm Your
+                 Buy-In" told a player whose phone was slow to save that a
+                 purchase was in doubt, when no purchase had been attempted. */
+              if (anchorLightningClusterId && tableId) clearLightningEntryIntent(tableId);
+              toast.error(
+                'This Device Could Not Save Your Buy-In Request. Nothing Was Sent. Please Try Again.'
+              );
             } else {
               toast.error(
                 cashBuyInPendingRef.current

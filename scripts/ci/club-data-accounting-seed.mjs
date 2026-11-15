@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Explicit, finite load of Club Data's accounting read model history
-// (20261115020010): first every kept week boundary
-// (fn_ca_club_acct_load_boundaries, its own transaction), then every
+// (20261115020010): first every kept week boundary (each in its own
+// transaction), then every
 // accounting day in [from, through] that the load log does not hold yet
 // (every day in the range when rebuild is "true"), oldest first, one
 // REPEATABLE READ transaction per day through fn_ca_club_acct_seed_day (the
@@ -9,6 +9,7 @@
 // Resumable: a loaded day is skipped, never re-sent, unless a rebuild is
 // asked for. The first error stops the run (no retry); the next dispatch
 // resumes after the last committed day. Never runs on a schedule.
+import { pathToFileURL } from 'node:url';
 import pg from 'pg';
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -51,10 +52,23 @@ async function main() {
     );
     if (live.rowCount !== 1) throw new Error('the live projection (20261115020011) is not installed yet');
     console.log(`[seed] live projection since ${live.rows[0].live_from.toISOString()}`);
-    const b = await inTransaction(client, 'READ COMMITTED', '300s', () =>
-      client.query('SELECT public.fn_ca_club_acct_load_boundaries() AS receipt')
+    // Every kept week boundary, each in its own short transaction, so a
+    // certificate version arriving meanwhile waits at most one boundary.
+    const kept = await client.query(
+      'SELECT DISTINCT k.union_id, k.boundary FROM public.ca_union_pnl_boundary_capture k ORDER BY 1, 2'
     );
-    console.log(`[seed] boundaries ${JSON.stringify(b.rows[0].receipt)}`);
+    for (const row of kept.rows) {
+      const b = await inTransaction(client, 'READ COMMITTED', '120s', () =>
+        client.query('SELECT public.fn_ca_club_acct_load_boundary($1, $2) AS n', [row.union_id, row.boundary])
+      );
+      if (b.rows[0].n === null) throw new Error(`boundary ${row.boundary.toISOString()} is being loaded by another transaction`);
+      console.log(`[seed] boundary ${row.boundary.toISOString()} union ${row.union_id}: ${b.rows[0].n} rows`);
+    }
+    const exact = await client.query(
+      'SELECT boundary, opening_exact, closing_exact FROM public.ca_club_acct_boundary_log WHERE NOT (opening_exact AND closing_exact) ORDER BY boundary'
+    );
+    for (const r of exact.rows)
+      console.log(`[seed] boundary ${r.boundary.toISOString()} not invoice-exact: opening ${r.opening_exact}, closing ${r.closing_exact}`);
     for (const day of days) {
       const seeded = await client.query('SELECT 1 FROM public.ca_club_acct_seed_log WHERE acct_day = $1', [day]);
       if (seeded.rowCount && !rebuild) {
@@ -72,7 +86,7 @@ async function main() {
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((e) => {
     console.error('[seed] STOPPED: ' + e.message + ' (no retry; the next dispatch resumes after the last seeded day)');
     process.exit(1);
