@@ -2549,6 +2549,35 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'a PLO6 cash price refused against an observed maniac raiser was handed to the range play instead of being folded',
     'V92'
   ),
+  // HA-10768-1 (2026-11-15): the outcome of each hand-off above, by table
+  // floor and by the FINAL action. With the option off every one was a fold,
+  // so *_continued counts decisions the option changed; *_folded counts
+  // hand-offs that changed nothing (the range play folds too, as it does on
+  // unfloored tables at the recorded node). Occurrence counters, no floor.
+  receipt(
+    'plo6_maniac_price_refusal_floored_continued',
+    'HorseLogic final decision (plo6ManiacPriceRefusalToRangePlay, HA-10768-1)',
+    'on a table with a VPIP floor, a refused maniac price handed to the range play ended as a call, raise or all-in instead of the fold it was before the option',
+    'V92'
+  ),
+  receipt(
+    'plo6_maniac_price_refusal_floored_folded',
+    'HorseLogic final decision (plo6ManiacPriceRefusalToRangePlay, HA-10768-1)',
+    'on a table with a VPIP floor, a refused maniac price handed to the range play still ended as a fold',
+    'V92'
+  ),
+  receipt(
+    'plo6_maniac_price_refusal_unfloored_continued',
+    'HorseLogic final decision (plo6ManiacPriceRefusalToRangePlay, HA-10768-1)',
+    'on a table without a VPIP floor, a refused maniac price handed to the range play ended as a call, raise or all-in instead of the fold it was before the option',
+    'V92'
+  ),
+  receipt(
+    'plo6_maniac_price_refusal_unfloored_folded',
+    'HorseLogic final decision (plo6ManiacPriceRefusalToRangePlay, HA-10768-1)',
+    'on a table without a VPIP floor, a refused maniac price handed to the range play still ended as a fold',
+    'V92'
+  ),
   // PLO6-AUDIT P6-4 (2026-11-14). An occurrence counter for an opt-in arm
   // production never sets: silence is its ordinary state.
   receipt(

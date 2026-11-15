@@ -320,6 +320,58 @@ describe('PLO6 response: the same node against each class of raiser', () => {
     expect(four.receipts.plo_opponent_presumption_disproved).toBeUndefined();
   });
 
+  // HA-10768-1: the hand-off receipt counts refusals; the outcome receipts
+  // count what the decision finally was, by table floor.
+  const FLOORED_CONTINUED = 'plo6_maniac_price_refusal_floored_continued';
+  const FLOORED_FOLDED = 'plo6_maniac_price_refusal_floored_folded';
+  const UNFLOORED_CONTINUED = 'plo6_maniac_price_refusal_unfloored_continued';
+  const UNFLOORED_FOLDED = 'plo6_maniac_price_refusal_unfloored_folded';
+  const noFloor = (gs: Record<string, unknown>) => {
+    gs.vpipFloor = 0;
+    delete gs.ownVpip;
+  };
+
+  it.each(OBSERVED_RAISERS)(
+    '%s: floored, every hand-off is counted as continued, and its final action is the shove',
+    (cls) => {
+      const refused = REFUSED[cls as keyof typeof REFUSED];
+      const four = decideAt(FOUR_BET_NODE, cls, FOUR_BETTOR);
+      expect(four.receipts[FLOORED_CONTINUED]).toBe(refused);
+      expect(four.receipts[FLOORED_CONTINUED]).toBe(four.actions.all_in);
+      expect(four.receipts[FLOORED_FOLDED]).toBeUndefined();
+      expect(four.receipts[UNFLOORED_CONTINUED]).toBeUndefined();
+      expect(four.receipts[UNFLOORED_FOLDED]).toBeUndefined();
+    }
+  );
+
+  it.each(OBSERVED_RAISERS)(
+    '%s: unfloored, the hand-off still fires but every one ends as a fold, counted as folded',
+    (cls) => {
+      const refused = REFUSED[cls as keyof typeof REFUSED];
+      const four = decideAt(FOUR_BET_NODE, cls, FOUR_BETTOR, noFloor);
+      const handOffs = four.receipts[REFUSAL] ?? 0;
+      expect(handOffs).toBeGreaterThan(0);
+      expect(four.receipts[UNFLOORED_FOLDED]).toBe(handOffs);
+      expect(four.receipts[UNFLOORED_FOLDED]).toBe(four.actions.fold);
+      expect(four.receipts[UNFLOORED_CONTINUED]).toBeUndefined();
+      expect(four.receipts[FLOORED_CONTINUED]).toBeUndefined();
+      expect(four.receipts[FLOORED_FOLDED]).toBeUndefined();
+      // the same seeds refuse whether or not the table is floored
+      expect(handOffs).toBe(refused);
+    }
+  );
+
+  it('no outcome receipt without a hand-off: unknown raiser, and the option off', () => {
+    const outcome = (c: Cell) =>
+      [FLOORED_CONTINUED, FLOORED_FOLDED, UNFLOORED_CONTINUED, UNFLOORED_FOLDED].reduce(
+        (n, k) => n + (c.receipts[k] ?? 0),
+        0
+      );
+    expect(outcome(baseline13)).toBe(0);
+    expect(outcome(decideAt(FOUR_BET_NODE, 'sustained', FOUR_BETTOR, undefined, OFF))).toBe(0);
+    expect(outcome(decideAt(FOUR_BET_NODE, 'sustained', FOUR_BETTOR, noFloor, OFF))).toBe(0);
+  });
+
   it.each(OBSERVED_RAISERS)('%s: with the option off the refused seeds fold, as before', (cls) => {
     const refused = REFUSED[cls as keyof typeof REFUSED];
     const four = decideAt(FOUR_BET_NODE, cls, FOUR_BETTOR, undefined, OFF);

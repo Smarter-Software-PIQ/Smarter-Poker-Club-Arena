@@ -4799,6 +4799,10 @@ let v53IcmAppliedPending = false;
 let huDefendToPricePending: 'hu_opener_defends_to_price' | 'hu_limp_defends_to_price' | null = null;
 // The near-nut candidate kept a raise the PLO6 flat rule would have flatted.
 let nearNutFlatExceptionUsed = false;
+// plo6ManiacPriceRefusalToRangePlay outcome receipt state (HA-10768-1): the
+// refusal was handed to the range play at a table with or without a VPIP
+// floor; judged against the FINAL action at the end of the decision.
+let plo6RefusalHandOffPending: 'floored' | 'unfloored' | null = null;
 // barrelContinuationOutlook changed the reference choice; judged at the end.
 let barrelOutlookAppliedPending = false;
 
@@ -6390,6 +6394,7 @@ export class HorseLogic {
     } finally {
       barrelOutlookRiverPending = false;
       v53IcmAppliedPending = false;
+      plo6RefusalHandOffPending = null;
       huDefendToPricePending = null;
       nearNutFlatExceptionUsed = false;
       barrelOutlookAppliedPending = false;
@@ -6417,6 +6422,7 @@ export class HorseLogic {
     phase12DecisionEquityCeiling = null;
     barrelOutlookRiverPending = false;
     v53IcmAppliedPending = false;
+    plo6RefusalHandOffPending = null;
     huDefendToPricePending = null;
     nearNutFlatExceptionUsed = false;
     barrelOutlookAppliedPending = false;
@@ -6657,6 +6663,8 @@ export class HorseLogic {
     const nearNutChosen = nearNutChosenRaises.delete(decision) && nearNutReference !== null;
     const v53IcmApplied = v53IcmAppliedPending;
     v53IcmAppliedPending = false;
+    const plo6RefusalHandOff = plo6RefusalHandOffPending;
+    plo6RefusalHandOffPending = null;
     const huDefendToPrice = huDefendToPricePending;
     huDefendToPricePending = null;
     const barrelOutlookApplied = barrelOutlookAppliedPending;
@@ -7578,6 +7586,26 @@ export class HorseLogic {
           ? 'hu_opener_defends_to_price'
           : 'hu_limp_defends_to_price'
       );
+    // plo6ManiacPriceRefusalToRangePlay (HA-10768-1): the hand-off receipt
+    // above counts refusals sent to the range play; these count what the
+    // decision finally was, by table floor. Off, every one of them was a fold,
+    // so "continued" is the action the option changed; "folded" changed nothing.
+    if (plo6RefusalHandOff && tele) {
+      const continued = decision.action !== 'fold';
+      // Literal keys: the ledger contract finds each receipt by its noteFire call.
+      if (plo6RefusalHandOff === 'floored')
+        noteFire(
+          continued
+            ? 'plo6_maniac_price_refusal_floored_continued'
+            : 'plo6_maniac_price_refusal_floored_folded'
+        );
+      else
+        noteFire(
+          continued
+            ? 'plo6_maniac_price_refusal_unfloored_continued'
+            : 'plo6_maniac_price_refusal_unfloored_folded'
+        );
+    }
     // The reference choice a skill changed must survive every later owner to
     // count as applied; a later owner that replaced it superseded it.
     const referenceKept =
@@ -8779,6 +8807,7 @@ export class HorseLogic {
             };
           }
           if (telemetryOn(opts)) noteFire('plo6_maniac_price_refusal_range_play_seen');
+          plo6RefusalHandOffPending = Number(gs.vpipFloor ?? 0) > 0 ? 'floored' : 'unfloored';
         } catch {
           if (telemetryOn(opts)) noteFire('v38_preflop_price_unavailable');
           /* No invented opponent/equity: the explicit range fallback decides. */
