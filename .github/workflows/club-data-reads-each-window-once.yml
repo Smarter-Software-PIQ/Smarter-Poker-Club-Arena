@@ -23,6 +23,8 @@ on:
       - tests/fixtures/club-data-union-weeks/**
       - supabase/migrations/20261115020010_club_data_accounting_read_model.sql
       - supabase/migrations/20261115020011_club_data_accounting_read_model_goes_live.sql
+      - supabase/migrations/20261115034141_club_data_accounting_reader_views.sql
+      - supabase/migrations/20261115034142_club_data_readers_route_union_clubs_to_the_accounting_model.sql
       - supabase/migrations/20261115063000_club_data_history_loads_a_day_in_bounded_parts.sql
       - supabase/migrations/20261115080136_club_data_boundary_side_reconciled_to_its_invoice.sql
       - supabase/migrations/20261115075440_club_data_history_load_reads_each_row_once.sql
