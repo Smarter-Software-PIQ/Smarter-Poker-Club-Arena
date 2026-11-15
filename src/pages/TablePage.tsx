@@ -1376,6 +1376,7 @@ interface TablePageProps {
      *  its Top Up items at a seat where they would do nothing (B12). */
     canAddFunds?: boolean;
     seatChangeEnabled?: boolean;
+    seatChangeOffInLightning?: boolean;
   }) => void;
   /** Whether this table is part of a multi-table session (hides own header if tab bar is shown) */
   isMultiTable?: boolean;
@@ -27214,9 +27215,18 @@ function LiveTablePage({
     !lightningObserver &&
     (!tableState.clusterId ||
       (tableGameLightningState != null && isClassicLobbyState(tableGameLightningState)));
+  /* Off BECAUSE it is Lightning, as opposed to off while the table's mode is
+     still unknown. The menu names the first and hides the second. */
+  const seatChangeOffInLightning =
+    !seatChangeEnabled &&
+    (lightningRoom !== null ||
+      lightningObserver ||
+      (!!tableState.clusterId &&
+        tableGameLightningState != null &&
+        !isClassicLobbyState(tableGameLightningState)));
   useEffect(() => {
-    onTableInfoUpdate?.({ seatChangeEnabled });
-  }, [onTableInfoUpdate, seatChangeEnabled]);
+    onTableInfoUpdate?.({ seatChangeEnabled, seatChangeOffInLightning });
+  }, [onTableInfoUpdate, seatChangeEnabled, seatChangeOffInLightning]);
 
   const leaveNextHand = useLeaveTableNextHand({
     userId: userId === 'guest' ? '' : (userId ?? ''),
