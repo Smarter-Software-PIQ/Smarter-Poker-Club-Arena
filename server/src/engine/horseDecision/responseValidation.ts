@@ -54,6 +54,7 @@ import {
   OMAHA_CARD_IMPACT_VARIANTS,
   omahaCardImpactCheckAdmissible,
 } from '../HorseOmahaCardImpact.js';
+import { omahaReraiseRuleProducesCall } from '../HorseOmahaOopReraisedPot.js';
 import { shortAllInSpot } from '../HorseShortAllInCallFloor.js';
 import { OMAHA_FACING_BET_EV_VARIANTS, omahaFacingBetEvSpot } from '../HorseOmahaFacingBetEv.js';
 import { holdemFourBetSpot } from '../HorseHoldemPremiumAggression.js';
@@ -1339,6 +1340,20 @@ function policyGraphIsValid(
             previous.action === 'all_in' ? context.player.stack : (previous.amount ?? undefined),
             value.streetPlan
           )));
+    // Owner 2026-11-15 12:18 (HorseOmahaOopReraisedPot, option
+    // omahaReraiseRangeByPosition): a PLO4/PLO5 preflop 3-bet or 4-bet out of
+    // position or from early position with a hand outside the capped range
+    // becomes a call. Admitted only with the request, where the rule re-run
+    // on it turns the raise into a call of the same amount.
+    const omahaReraiseToCall =
+      transition.node === 'wager_rules' &&
+      (variant === 'plo4' || variant === 'plo5') &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      ['raise', 'all_in'].includes(previous.action) &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      omahaReraiseRuleProducesCall(context.player, context.gameState, transition.after.amount);
     if (
       transition.node === 'wager_rules' &&
       changed &&
@@ -1356,6 +1371,7 @@ function policyGraphIsValid(
       !noFourBetFold &&
       !plo6RiverRaiseToCall &&
       !omahaRiverNutRaiseToCall &&
+      !omahaReraiseToCall &&
       !(
         transition.after.action === 'call' &&
         previous !== null &&

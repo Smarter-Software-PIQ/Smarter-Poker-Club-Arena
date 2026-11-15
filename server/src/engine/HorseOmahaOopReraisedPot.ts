@@ -82,14 +82,45 @@
  * pot. Otherwise the continue becomes a fold. Its own bets when checked to
  * are untouched.
  *
+ * RE-RAISE RULE (omahaReraiseRangeByPosition; owner 2026-11-15 12:18: the
+ * Horses' 3-bet and 4-bet ranges out of position and under the gun must be
+ * capped). Same games, preflop. The Horse's decision is a RAISE that would
+ * be the 3-bet or the 4-bet (one or two raises before it), and the spot is
+ * RESTRICTED:
+ *   - out of position after the flop against the player it re-raises, or
+ *     against a player already in the pot for that raise (a caller who acts
+ *     again) who acts after the Horse on later streets; or
+ *   - early position: a table of six or more dealt in, the Horse in one of
+ *     the first two seats left of the big blind (under the gun, under the
+ *     gun plus one), with a live player still to act on the raise.
+ * Blind against blind (only the two blinds live) is never restricted; in
+ * position from the middle seats, the cutoff and the button nothing changes.
+ * In a restricted spot the re-raise stands only with
+ *   - aces with a suit (class `aa_ds`), or
+ *   - the engine's declared premium structures without a pair of aces
+ *     (omahaReraisedPremium: kings double-suited; a double-suited rundown,
+ *     four ranks inside a span of four, the lowest seven or higher).
+ * Every other hand, bare aces (class `aa_dry`) included, does not re-raise:
+ * it CALLS. A call that then faces a 3-bet (the Horse would have 4-bet) is
+ * judged by the preflop calling rule above and folds when that rule folds
+ * it (bare aces are excused coordination there and priced). A call of a
+ * single raise (the Horse would have 3-bet) stands when the hand is
+ * coordinated or holds a pair of aces, or when its equity against the
+ * opener's range clears the price plus the realization margin (0.10 out of
+ * position, 0.05 in position); otherwise it folds, so a 3-bet made as
+ * pressure with a weak hand does not become a weak call. No hand is banned
+ * by name: the test is the class.
+ *
  * Pure: no state, no telemetry, no draw from the brain's random stream.
  */
-import type { Card } from '../types.js';
+import type { Card, SeatPlayer } from '../types.js';
+import type { HorseGameStateV2 } from './HorseLogic.js';
 import {
   omahaDrawQuality,
   omahaMadeClass,
   omahaNutStatus,
   omahaPreflopPercentile,
+  variantInfo,
 } from './HorseEval.js';
 import { omahaNutClassOuts } from './HorseOmahaOnePair.js';
 import { handClassRead, omahaEliteClassRead } from './HorseHandClasses.js';
@@ -97,6 +128,7 @@ import {
   RERAISED_POT_VARIANTS,
   omahaReraisedEquity,
   omahaReraisedPremium,
+  preflopRaiseCount,
 } from './HorseOmahaReraisedPot.js';
 
 /** Stack-to-pot ratio after the call under which the call is a commitment. */
@@ -338,4 +370,190 @@ export function omahaReraisedFlopContinueCell(
   )
     return { fold: false, reason: 'strong_draw' };
   return { fold: true, reason: 'no_equity_shape' };
+}
+
+export interface OmahaReraiseByPositionInput {
+  variant: string;
+  hole: readonly Card[];
+  /** preflop raises before the Horse's raise: 1 = it would 3-bet, 2 = it would 4-bet */
+  preflopRaises: number;
+  /** out of position against the player re-raised, or against a caller in the pot who acts again */
+  outOfPosition: boolean;
+  /** under the gun or under the gun plus one at a table of six or more, a live player still to act */
+  earlyPosition: boolean;
+  /** only the two blinds are live */
+  blindVersusBlind: boolean;
+  hiLo: boolean;
+  multiBoard: boolean;
+  bombPot: boolean;
+  tournament: boolean;
+  allInOrFold: boolean;
+}
+
+export type OmahaReraiseByPositionVerdict =
+  | { reraise: true; reason: 'aces_suited' | 'premium_structure' }
+  | { reraise: false; reason: 'bare_aces' | 'not_premium' };
+
+/**
+ * The re-raise rule's verdict on a 3-bet or 4-bet in a restricted spot; null
+ * outside the rule's scope (the raise is today's).
+ */
+export function omahaReraiseByPositionCell(
+  i: OmahaReraiseByPositionInput
+): OmahaReraiseByPositionVerdict | null {
+  if (!RERAISED_POT_VARIANTS.has(i.variant)) return null;
+  if (i.hiLo || i.multiBoard || i.bombPot || i.tournament || i.allInOrFold) return null;
+  if (i.hole.length !== 4 && i.hole.length !== 5) return null;
+  if (i.preflopRaises !== 1 && i.preflopRaises !== 2) return null;
+  if (i.blindVersusBlind) return null;
+  if (!i.outOfPosition && !i.earlyPosition) return null;
+  const cls = omahaEliteClassRead([...i.hole], false).cls;
+  if (cls === 'aa_ds') return { reraise: true, reason: 'aces_suited' };
+  const aces = i.hole.filter((c) => c.rank === 'A').length >= 2;
+  if (aces) return { reraise: false, reason: 'bare_aces' };
+  return omahaReraisedPremium(i.hole)
+    ? { reraise: true, reason: 'premium_structure' }
+    : { reraise: false, reason: 'not_premium' };
+}
+
+/** The line-implied prior band for an opener (HorseMind.bandFor's own value). */
+export const OOP_PRIOR_BAND_OPEN: readonly [number, number] = [0.4, 1];
+
+/**
+ * A 3-bet the re-raise rule turned into a call of a single raise: does the
+ * call stand? Coordinated hands and aces call; any other hand needs equity
+ * against the opener's band of the raw price plus the realization margin.
+ * No estimate keeps the call.
+ */
+export function omahaDowngradedThreeBetCalls(i: {
+  hole: readonly Card[];
+  dead: readonly Card[];
+  outOfPosition: boolean;
+  toCall: number;
+  stack: number;
+  pot: number;
+  band: readonly [number, number] | null;
+}): boolean {
+  if (i.hole.filter((c) => c.rank === 'A').length >= 2) return true;
+  if (omahaOopCoordinated(i.hole) !== null) return true;
+  if (!(i.toCall > 0.005) || !(i.pot > 0) || !(i.stack > 0)) return true;
+  const call = Math.min(i.toCall, i.stack);
+  const [lo, hi] = i.band ?? OOP_PRIOR_BAND_OPEN;
+  const equity = omahaReraisedEquity(
+    i.hole,
+    [],
+    i.dead,
+    (h) => {
+      const p = omahaPreflopPercentile([...h], false);
+      return p >= lo && p <= hi;
+    },
+    OOP_EQUITY_SAMPLES
+  );
+  if (equity === null) return true;
+  return (
+    equity >=
+    call / (i.pot + call) + (i.outOfPosition ? OOP_REALIZATION_MARGIN : IP_REALIZATION_MARGIN)
+  );
+}
+
+/** Order to act on a postflop street: the small blind first, the dealer last. */
+export function omahaPostflopOrder(seat: number, dealerSeat: number | undefined): number {
+  const d = seat - (dealerSeat ?? 0);
+  return d <= 0 ? d + 1024 : d;
+}
+
+/** The re-raise rule's spot at a preflop node where hero faces a raise, or null. */
+export interface OmahaReraiseSpot {
+  input: OmahaReraiseByPositionInput;
+  /** the last preflop raiser other than hero */
+  raiserSeat: number;
+  toCall: number;
+  stack: number;
+}
+export function omahaReraiseByPositionSpot(
+  player: SeatPlayer,
+  gs: HorseGameStateV2
+): OmahaReraiseSpot | null {
+  if (String(gs.stage ?? '') !== 'preflop') return null;
+  const stack = Number.isFinite(player.stack) ? Math.max(0, player.stack) : 0;
+  const heroBet = Number.isFinite(player.bet) ? Math.max(0, player.bet ?? 0) : 0;
+  const toCall = Number.isFinite(gs.toCall)
+    ? Math.max(0, gs.toCall as number)
+    : Math.max(0, (gs.currentBet || 0) - heroBet);
+  if (toCall <= 0.005) return null;
+  const history = gs.actionHistory ?? [];
+  let raiserSeat = -1;
+  for (let k = history.length - 1; k >= 0; k--) {
+    const a = history[k]!;
+    if (a.stage !== 'preflop' || a.seat === player.seat) continue;
+    if (a.action !== 'raise' && a.action !== 'all_in' && a.action !== 'bet') continue;
+    raiserSeat = a.seat;
+    break;
+  }
+  if (raiserSeat < 0) return null;
+  const order = (seat: number) => omahaPostflopOrder(seat, gs.dealerSeat);
+  const dealt = (gs.players ?? []).filter((p) => !p.is_sitting_out || p.is_all_in);
+  const live = dealt.filter((p) => p.seat !== player.seat && !p.is_folded);
+  const mine = order(player.seat);
+  const price = gs.currentBet || 0;
+  // The player re-raised, and every caller already in the pot for his raise.
+  const inPot = live.filter(
+    (p) =>
+      p.seat === raiserSeat ||
+      (Number.isFinite(p.bet) && (p.bet ?? 0) >= price - 0.005 && !p.is_all_in)
+  );
+  const ring = [...dealt].sort((a, b) => order(a.seat) - order(b.seat));
+  const index = ring.findIndex((p) => p.seat === player.seat);
+  const stillToAct = live.some(
+    (p) => !p.is_all_in && Number.isFinite(p.bet) && (p.bet ?? 0) < price - 0.005
+  );
+  const tournament = gs.gameMode
+    ? gs.gameMode === 'tournament'
+    : gs.tournament != null || (gs.bigBlind ?? 0) >= 10;
+  return {
+    raiserSeat,
+    toCall,
+    stack,
+    input: {
+      variant: String(gs.gameVariant ?? '').toLowerCase(),
+      hole: player.cards ?? [],
+      preflopRaises: preflopRaiseCount(history),
+      outOfPosition: inPot.some((p) => order(p.seat) > mine),
+      earlyPosition: ring.length >= 6 && (index === 2 || index === 3) && stillToAct,
+      blindVersusBlind:
+        ring.length >= 3 &&
+        index >= 0 &&
+        index <= 1 &&
+        live.length > 0 &&
+        live.every((p) => ring.findIndex((q) => q.seat === p.seat) <= 1),
+      hiLo: gs.variantRules
+        ? gs.variantRules.splitLow8OrBetter
+        : variantInfo(gs.gameVariant).isHiLo,
+      multiBoard: !!(gs.communityCards2?.length || gs.communityCards3?.length),
+      bombPot: gs.bombPot === true,
+      tournament,
+      allInOrFold: gs.allInOrFold === true,
+    },
+  };
+}
+
+/**
+ * Receipt validation: at this request the re-raise rule turns a raise into a
+ * call of exactly `amount` (the rule re-run on the request; the hand is
+ * outside the capped range in a restricted spot).
+ */
+export function omahaReraiseRuleProducesCall(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  amount: number | null | undefined
+): boolean {
+  try {
+    const spot = omahaReraiseByPositionSpot(player, gs);
+    if (spot === null) return false;
+    const verdict = omahaReraiseByPositionCell(spot.input);
+    if (verdict === null || verdict.reraise) return false;
+    return amount === Math.round(Math.min(spot.toCall, spot.stack) * 100) / 100;
+  } catch {
+    return false;
+  }
 }

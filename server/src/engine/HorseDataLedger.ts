@@ -934,6 +934,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaReraiseRangeByPosition',
+    'Owner 2026-11-15 12:18 (the 3-bet and 4-bet ranges out of position and under the gun must be capped): a PLO4/PLO5 cash preflop raise that would be the 3-bet or the 4-bet stands, when the Horse will be out of position against the player it re-raises or against a caller in the pot who acts again, or sits under the gun or under the gun plus one at a table of six or more with a live player still to act, only with suited aces or the declared premium structures (kings double-suited, double-suited rundowns seven-high or better). Every other hand calls instead; the call of a 3-bet is judged by the calling rule of omahaOopReraisedPotStrongRange, the call of a single raise stands for a coordinated hand, aces, or equity clearing the price plus the realization margin, and otherwise folds. In position, the cutoff, the button and blind against blind keep the ranges of today. Applied outermost, after the VPIP floor and the maniac-pressure paths. Default off (opt-in) until its declared evaluation passes.',
+    'V94'
+  ),
+  flag(
     'omahaReraisedPotFlopContinueNeedsEquityShape',
     'Owner 2026-11-15 11:55 (the caller of a 3-bet or 4-bet continues on the flop only with a pair plus a straight or flush draw, or better): PLO4/PLO5 cash, on the flop of a pot raised twice or more preflop that the Horse called, a call or raise facing a wager stands only with two pair or better of its own, one pair with a nut-leaning draw (nut flush draw, or 8+ straight outs with 4+ to the nut straight), a strong draw (8+ outs to a nut-class hand, or a flush draw with 8+ straight outs), or when the call costs under 10% of the resulting pot. Otherwise it folds. Default off (opt-in) until its declared evaluation passes.',
     'V94'
@@ -3917,6 +3922,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_elite_continues_vs_measured_wide_three_bettor_withheld',
     'HorseLogic V38 preflop price (HorseOmahaReadConditional, omahaEliteContinuesVsMeasuredWideThreeBettor)',
     "an elite-class hand the maniac-price arithmetic refused facing one re-raise of the Horse's open, where the re-raiser is not a measured wide re-raiser or the price is above the bound: today's fold kept",
+    'V94'
+  ),
+  receipt(
+    'omaha_reraise_by_position_kept',
+    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaReraiseRangeByPosition)',
+    'a PLO4/PLO5 cash 3-bet or 4-bet out of position or from early position that the re-raise cell examined and kept: suited aces or a declared premium structure',
+    'V94'
+  ),
+  receipt(
+    'omaha_reraise_by_position_called',
+    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaReraiseRangeByPosition)',
+    'a 3-bet or 4-bet out of position or from early position with a hand outside the capped re-raise range: called instead, the call passing the calling rule',
+    'V94'
+  ),
+  receipt(
+    'omaha_reraise_by_position_folded',
+    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaReraiseRangeByPosition)',
+    'a 3-bet or 4-bet out of position or from early position with a hand outside the capped re-raise range whose call the calling rule folds: folded',
     'V94'
   ),
   receipt(

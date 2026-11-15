@@ -2358,6 +2358,17 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaStreetPlan: true },
     b: {},
   })),
+  // 2026-11-15 (default OFF): a 3-bet or 4-bet out of position or from early
+  // position needs suited aces or a declared premium structure; every other
+  // hand calls or folds by the calling rule. a switches it on, b is today's brain.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_reraise_range_by_position`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaReraiseRangeByPosition: true },
+    b: {},
+  })),
   // V15 BOATS (2026-09-28): default OFF. a turns it on, b is today's brain.
   // Ship it default ON only after this resolves significant positive.
   // 2026-11-06: V15 boats is default ON in PLO5 cash (v15BoatsOn), so the

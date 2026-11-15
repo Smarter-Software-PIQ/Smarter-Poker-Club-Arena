@@ -18,6 +18,10 @@ Horse's last preflop action, whole-hand result. Calling a 3-bet: in position 231
 
 Ledger flags and receipts, reference-decision source, league cards plo4/plo5 for each, evidence files in `docs/horse-default-on.d/`. With the options unset or false the brain decides exactly as before.
 
+## Added the same day: the re-raise range by position
+
+Owner 12:18: the Horses' 3-bet and 4-bet ranges out of position and under the gun must be capped. `omahaReraiseRangeByPosition` (default off): a 3-bet or 4-bet out of position against the player re-raised (or a caller in the pot), or from under the gun or under the gun plus one at a table of six or more, stands only with suited aces or the declared premium structures (kings double-suited, double-suited rundowns seven-high or better); every other hand calls, and the call answers to the calling rule above (a downgraded 3-bet needs a coordinated hand, aces, or equity clearing the price plus the realization margin). The button, the cutoff, the middle seats in position and blind against blind keep today's ranges. It is the decision's last step, so the VPIP floor and the maniac-pressure paths cannot re-raise around it. Receipts `omaha_reraise_by_position_kept`, `_called`, `_folded`. The sweep does not show re-raising out of position or from early position losing: 3-bets won 6.6 bb a raise out of position (279) against 1.3 in position (319), 4-bets 32.1 (47) against 10.4 (72); early-position 3-bets without aces lost 9.4 a raise (38).
+
 ## Evaluation
 
 Not yet declared or run. The options stay off until it is.

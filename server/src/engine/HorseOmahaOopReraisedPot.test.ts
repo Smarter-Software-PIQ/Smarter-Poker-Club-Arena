@@ -24,12 +24,16 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { fastRandom, seedFastRandom } from './HorseEval.js';
 import { HorseLogic, type HorseDecideOpts, type HorseGameStateV2 } from './HorseLogic.js';
-import { HorseMind } from './HorseMind.js';
+import { HorseMind, readScopeOf } from './HorseMind.js';
+import { freshExploitCounters, type ExploitCounters } from './HorseOpponentExploit.js';
+import { omahaEliteClassRead } from './HorseHandClasses.js';
+import { omahaReraisedPremium } from './HorseOmahaReraisedPot.js';
 import {
   COORDINATED_MAX_GAPS,
   FLOP_CHEAP_CALL_PRICE,
   omahaOopCoordinated,
   omahaOopReraisedCallCell,
+  omahaReraiseByPositionCell,
   omahaReraisedFlopContinueCell,
   type OmahaOopReraisedInput,
 } from './HorseOmahaOopReraisedPot.js';
@@ -803,5 +807,278 @@ describe('omahaReraisedPotFlopContinueNeedsEquityShape in the decision', () => {
     const on = playMany(kept, ON);
     expect(on.bytes).toEqual(unset.bytes);
     expect(count(on, 'omaha_reraised_flop_continue_folded')).toBe(0);
+  });
+});
+
+// ─── the re-raise rule ──────────────────────────────────────────────────────
+
+/** A pair of aces with a suited ace and two or three other cards. */
+function suitedAces(rnd: Rnd, n: number): Card[] {
+  for (;;) {
+    const side = shuffled(rnd, [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]).slice(0, n - 2);
+    const s = shuffled(rnd, SUITS);
+    const suits = n === 4 ? [s[0], s[1], s[0], s[1]] : [s[0], s[1], s[0], s[1], s[2]];
+    const hand = [14, 14, ...side].map((r, k) => ({ rank: RANK[r], suit: suits[k] }));
+    if (omahaEliteClassRead(hand, false).cls === 'aa_ds') return hand;
+  }
+}
+/** A pair of aces of four (five) different suits as far as the deck allows, low unconnected side cards. */
+function bareAces(rnd: Rnd, n: number): Card[] {
+  for (;;) {
+    const side = shuffled(rnd, [2, 4, 7, 9]).slice(0, n - 2);
+    const s = shuffled(rnd, SUITS);
+    const suits = n === 4 ? [s[0], s[1], s[2], s[3]] : [s[0], s[1], s[2], s[3], s[2]];
+    const hand = [14, 14, ...side].map((r, k) => ({ rank: RANK[r], suit: suits[k] }));
+    if (omahaEliteClassRead(hand, false).cls === 'aa_dry') return hand;
+  }
+}
+/** The declared premium structures without aces: a double-suited rundown seven-high or better. */
+function premiumRundown(rnd: Rnd, n: number): Card[] {
+  for (;;) {
+    const low = pickInt(rnd, 7, 14 - (n - 1) - 1);
+    const hand = deal(
+      rnd,
+      Array.from({ length: n }, (_, k) => low + k),
+      true
+    );
+    if (omahaReraisedPremium(hand) && hand.every((c) => c.rank !== 'A')) return hand;
+  }
+}
+const reraise = (hole: Card[], over: object = {}) =>
+  omahaReraiseByPositionCell({
+    variant: variantOf(hole.length),
+    hole,
+    preflopRaises: 1,
+    outOfPosition: true,
+    earlyPosition: false,
+    blindVersusBlind: false,
+    hiLo: false,
+    multiBoard: false,
+    bombPot: false,
+    tournament: false,
+    allInOrFold: false,
+    ...over,
+  });
+
+describe('the re-raise cell, by class (seeded census, 500 hands a class)', () => {
+  const classes = (n: number) => {
+    const rnd = mulberry32(8100 + n);
+    const gen = (make: (r: Rnd, k: number) => Card[]) =>
+      Array.from({ length: CLASS_N }, () => make(rnd, n));
+    return {
+      suitedAces: gen(suitedAces),
+      premium: gen(premiumRundown),
+      bareAces: gen(bareAces),
+      groupLeastSuited: census(oneGroup, n, false, 8200 + n),
+      split: census(splitHighLow, n, true, 8300 + n),
+      dangler: census(bigCardsWithDanglers, n, true, 8400 + n),
+    };
+  };
+  for (const n of [4, 5])
+    for (const raises of [1, 2])
+      for (const spot of [
+        { name: 'out of position', over: { outOfPosition: true } },
+        { name: 'early position', over: { outOfPosition: false, earlyPosition: true } },
+      ])
+        it(`${variantOf(n)} ${raises === 1 ? '3-bet' : '4-bet'} ${spot.name}: only suited aces and the premium structures re-raise`, () => {
+          const c = classes(n);
+          const kept = (hands: Card[][]) =>
+            share(hands.map((h) => reraise(h, { ...spot.over, preflopRaises: raises })!.reraise));
+          expect(kept(c.suitedAces)).toBe(1);
+          expect(kept(c.premium)).toBe(1);
+          expect(kept(c.bareAces)).toBe(0);
+          expect(kept(c.groupLeastSuited)).toBe(0);
+          expect(kept(c.split)).toBe(0);
+          expect(kept(c.dangler)).toBe(0);
+        });
+  it('in position outside early position, blind against blind, a 5-bet, Hi-Lo and tournaments are outside', () => {
+    const h = cards('Ks9d6h2c');
+    expect(reraise(h, { outOfPosition: false })).toBeNull();
+    expect(reraise(h, { blindVersusBlind: true })).toBeNull();
+    expect(reraise(h, { preflopRaises: 3 })).toBeNull();
+    expect(reraise(h, { preflopRaises: 0 })).toBeNull();
+    expect(reraise(h, { hiLo: true })).toBeNull();
+    expect(reraise(h, { tournament: true })).toBeNull();
+    expect(reraise(h)).toEqual({ reraise: false, reason: 'not_premium' });
+    expect(reraise(cards('AsAd7h2c'))).toEqual({ reraise: false, reason: 'bare_aces' });
+  });
+});
+
+describe('omahaReraiseRangeByPosition in the decision', () => {
+  const ON: HorseDecideOpts = { omahaReraiseRangeByPosition: true };
+  const STACKS = '1:199,2:198,3:200,4:200,5:200,6:200';
+  // six-handed, dealer seat 6: the button opens to 7, the small blind folds, the big blind acts
+  const blind = (variant: string, hole: string): Recorded => ({
+    hand: 0,
+    variant,
+    bb: 2,
+    dealer: 6,
+    seat: 2,
+    hole,
+    stacks: STACKS,
+    actions: '1ps1,2pb2,3pF,4pF,5pF,6pR7,1pF,2pC5',
+  });
+  // the cutoff opens to 7, the button acts (in position, late)
+  const button = (variant: string, hole: string): Recorded => ({
+    hand: 0,
+    variant,
+    bb: 2,
+    dealer: 6,
+    seat: 6,
+    hole,
+    stacks: STACKS,
+    actions: '1ps1,2pb2,3pF,4pF,5pR7,6pC7',
+  });
+  // under the gun opens to 7, under the gun plus one acts (early position, in position against the opener)
+  const early = (variant: string, hole: string): Recorded => ({
+    hand: 0,
+    variant,
+    bb: 2,
+    dealer: 6,
+    seat: 4,
+    hole,
+    stacks: STACKS,
+    actions: '1ps1,2pb2,3pR7,4pC7',
+  });
+  // the small blind opens to 6, the big blind acts (blind against blind)
+  const bvb = (variant: string, hole: string): Recorded => ({
+    hand: 0,
+    variant,
+    bb: 2,
+    dealer: 6,
+    seat: 2,
+    hole,
+    stacks: STACKS,
+    actions: '1ps1,2pb2,3pF,4pF,5pF,6pF,1pR6,2pC4',
+  });
+  const show = (h: Card[]) => h.map((c) => c.rank + c.suit[0]).join('');
+  /** The opener measured as the production winner: the pressure and maniac paths re-raise wide. */
+  function wideOpener(variant: string, seat: number) {
+    const c: ExploitCounters = freshExploitCounters();
+    c.hands = 40;
+    c.vpip = 0.88 * 40;
+    c.pfr = 0.55 * 40;
+    c.rfiOpp = 20;
+    c.rfi = 0.82 * 20;
+    c.threeBetOpp = 15;
+    c.threeBet = 0.33 * 15;
+    (HorseMind as unknown as { exploitCounters: Map<string, ExploitCounters> }).exploitCounters.set(
+      `${readScopeOf(variant, 6)}|${uidOf(seat)}`,
+      c
+    );
+  }
+  function play(rec: Recorded, opts: HorseDecideOpts, openerSeat: number, vpipFloor = 0) {
+    enableBrainTelemetry();
+    HorseMind.reset();
+    wideOpener(rec.variant, openerSeat);
+    const { hero, gs } = stateAt(rec, 1);
+    if (vpipFloor > 0) (gs as unknown as { vpipFloor: number }).vpipFloor = vpipFloor;
+    drainFires();
+    seedFastRandom(9000 + rec.hole.length);
+    const d = HorseLogic.decide(hero, gs, 'balanced', {}, { telemetry: true, ...opts });
+    return {
+      action: d.action,
+      bytes: bytesOf(d),
+      next: fastRandom(),
+      fires: drainFires().map((f) => f.feature),
+    };
+  }
+  const isRaise = (a: string) => a === 'raise' || a === 'all_in';
+  const HANDS = 60;
+  for (const variant of ['plo4', 'plo5']) {
+    const n = variant === 'plo4' ? 4 : 5;
+    const rnd = mulberry32(9100 + n);
+    const random = Array.from({ length: HANDS }, () => {
+      const deck = SUITS.flatMap((suit) => RANK.filter(Boolean).map((rank) => ({ rank, suit })));
+      return shuffled(rnd, deck).slice(0, n);
+    });
+    it(`${variant} big blind against a measured wide button open: unset identical; on, only suited aces and premium structures 3-bet, with or without the VPIP floor`, () => {
+      let raisedOff = 0;
+      let downgraded = 0;
+      for (const floor of [0, 45])
+        for (const h of random) {
+          const rec = blind(variant, show(h));
+          const unset = play(rec, {}, 6, floor);
+          const off = play(rec, { omahaReraiseRangeByPosition: false }, 6, floor);
+          expect(off.bytes).toEqual(unset.bytes);
+          const on = play(rec, ON, 6, floor);
+          expect(on.next).toEqual(unset.next);
+          if (!isRaise(unset.action)) {
+            expect(on.bytes).toEqual(unset.bytes);
+            continue;
+          }
+          raisedOff++;
+          const strong =
+            omahaEliteClassRead(h, false).cls === 'aa_ds' ||
+            (omahaReraisedPremium(h) && h.filter((c) => c.rank === 'A').length < 2);
+          if (strong) expect(on.bytes).toEqual(unset.bytes);
+          else {
+            downgraded++;
+            expect(['call', 'fold']).toContain(on.action);
+            expect(
+              on.fires.includes('omaha_reraise_by_position_called') ||
+                on.fires.includes('omaha_reraise_by_position_folded')
+            ).toBe(true);
+          }
+        }
+      // the spot is live: today the big blind 3-bets this opener, and most of it is not premium
+      expect(raisedOff).toBeGreaterThan(10);
+      expect(downgraded).toBeGreaterThan(5);
+    });
+    it(`${variant} early position (under the gun plus one against an under-the-gun open): on, no 3-bet outside the capped range`, () => {
+      for (const h of random.slice(0, 40)) {
+        const rec = early(variant, show(h));
+        const unset = play(rec, {}, 3);
+        const on = play(rec, ON, 3);
+        const strong =
+          omahaEliteClassRead(h, false).cls === 'aa_ds' ||
+          (omahaReraisedPremium(h) && h.filter((c) => c.rank === 'A').length < 2);
+        if (isRaise(unset.action) && !strong) expect(['call', 'fold']).toContain(on.action);
+        else expect(on.bytes).toEqual(unset.bytes);
+      }
+    });
+    it(`${variant} on the button against a cutoff open, and blind against blind: on decides exactly as off`, () => {
+      let raised = 0;
+      for (const h of random.slice(0, 40))
+        for (const [rec, seat] of [
+          [button(variant, show(h)), 5],
+          [bvb(variant, show(h)), 1],
+        ] as const) {
+          const unset = play(rec, {}, seat);
+          const on = play(rec, ON, seat);
+          expect(on.bytes).toEqual(unset.bytes);
+          if (isRaise(unset.action)) raised++;
+        }
+      expect(raised).toBeGreaterThan(0);
+    });
+  }
+  it('a downgraded 3-bet passes the worker receipt validator', () => {
+    const rnd = mulberry32(9300);
+    let checked = 0;
+    for (let k = 0; k < 60 && checked < 8; k++) {
+      const deck = SUITS.flatMap((suit) => RANK.filter(Boolean).map((rank) => ({ rank, suit })));
+      const h = shuffled(rnd, deck).slice(0, 5);
+      const rec = blind('plo5', show(h));
+      HorseMind.reset();
+      wideOpener('plo5', 6);
+      const { hero, gs } = stateAt(rec, 1);
+      seedFastRandom(9005);
+      const off = HorseLogic.decide(hero, gs, 'balanced', {}, {});
+      if (!isRaise(off.action)) continue;
+      HorseMind.reset();
+      wideOpener('plo5', 6);
+      const st = stateAt(rec, 1);
+      seedFastRandom(9005);
+      const d = structuredClone(HorseLogic.decide(st.hero, st.gs, 'balanced', {}, ON));
+      if (isRaise(d.action)) continue;
+      checked++;
+      expect(
+        horseDecisionReceiptRefusal(structuredClone(d), 'plo5', {
+          player: st.hero,
+          gameState: st.gs,
+        })
+      ).toBeNull();
+    }
+    expect(checked).toBeGreaterThan(0);
   });
 });
