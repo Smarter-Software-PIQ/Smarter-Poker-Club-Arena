@@ -52,6 +52,7 @@ import type { HorseGameStateV2 } from './HorseLogic.js';
 import type { SeatPlayer } from '../types.js';
 import { omahaBoardShape, scoreOmahaHi, variantInfo } from './HorseEval.js';
 import { RANKS, SUITS } from './PokerEngine.js';
+import { omahaCashOnlyExcludes } from './HorseOmahaTournamentScope.js';
 
 export const OMAHA_STREET_PLAN_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
 
@@ -657,7 +658,13 @@ export function omahaStreetPlanDomain(hero: SeatPlayer, gs: HorseGameStateV2): S
   try {
     const variant = String(gs.gameVariant ?? '').toLowerCase();
     if (!OMAHA_STREET_PLAN_VARIANTS.has(variant)) return null;
-    if (gs.gameMode !== undefined && gs.gameMode !== 'cash') return null;
+    // Cash only; omahaStrategyInTournaments opens its public tournament scope.
+    if (
+      gs.gameMode !== undefined &&
+      gs.gameMode !== 'cash' &&
+      !(gs.gameMode === 'tournament' && !omahaCashOnlyExcludes(hero, gs))
+    )
+      return null;
     if (gs.bettingStructure !== undefined && gs.bettingStructure !== 'pot_limit') return null;
     if ((gs.boardCount ?? 1) !== 1 || gs.communityCards2?.length || gs.communityCards3?.length)
       return null;
