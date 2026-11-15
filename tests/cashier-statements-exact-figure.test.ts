@@ -184,6 +184,11 @@ describe('the statements certificate reads exact figures', () => {
     const poll = lines.lastIndexOf('.poll(', query);
     expect(poll).toBeGreaterThan(-1);
     expect(lines[poll - 1]).toBe('await expect');
+    // The figures compared are read from the glass inside this poll (review of
+    // 778f8a8f, note A: replacing that read with an alias kept the count).
+    expect(lines[poll + 2]).toBe(
+      "const figures = (await totals.locator('strong').allTextContents()).map(asText);"
+    );
     // The comparison runs only in the authorized branch, which the refusal
     // check above guards; it closes after the comparison.
     const branch = at('if (authorized) {');
