@@ -3038,6 +3038,11 @@ export interface HorseDecideOpts {
    *  the hand's sampled low share, heads-up and multiway
    *  (HorseHiLoLowHalf.ts). Read only as === true: default OFF. */
   fixedLimitHiLoLowHalfFloor?: boolean;
+  /** FIXED-LIMIT OMAHA HAS NO PRESUMPTION (2026-11-14, Fixed-Limit lane): on
+   *  a fixed-limit Omaha decision the shared aggressive raise presumption
+   *  (presumedAggressorRead) is not applied; the opponent's own measured read
+   *  stands (HorseMind.opponentRead). Read only as === true: default OFF. */
+  fixedLimitOmahaNoPresumption?: boolean;
   /** Hi-lo river bluffs with a low possible (2026-11-07,
    *  HorseRiverBluffRange.ts): the nut low with no high bets the freeroll;
    *  air bluffs the whole pot only when the opponent is unlikely to hold a
@@ -6279,6 +6284,7 @@ export class HorseLogic {
       scopedShrink: opts.readScopedShrink === true,
       omahaEvFoldModel: (opts.omahaEvFoldModel ?? true) !== false,
       omahaNeutralUnknown: opts.omahaNeutralUnknown === true,
+      fixedLimitOmahaNoPresumption: opts.fixedLimitOmahaNoPresumption === true,
       ...(typeof opts.styleCarryOverWeight === 'number' && opts.styleCarryOverWeight > 0
         ? { styleCarryWeight: Math.min(1, opts.styleCarryOverWeight) }
         : {}),

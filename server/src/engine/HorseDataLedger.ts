@@ -1363,6 +1363,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'FixedLimitAdaptation'
   ),
   flag(
+    'fixedLimitOmahaNoPresumption',
+    '2026-11-14 default OFF: on a fixed-limit Omaha decision (flo8) HorseMind.opponentRead does not apply the shared aggressive raise presumption (presumedAggressorRead, a pot-limit policy that prices a pot-sized raise); the opponent own measured read stands; pot-limit Omaha unchanged; measured before (O-TIGHT-FL-DIAGNOSIS): a 21-27 percent flo8 raiser (tight-value script) stayed presumed at 1,000 hands and the Horse opened 159 of 400 first-in buttons against him versus 202 with memory off; refused by the league (it deals no fixed limit), see UNMEASURABLE_MATCHUPS',
+    'FixedLimitAdaptation'
+  ),
+  flag(
     'facingClosedAllIn',
     "2026-11-08 default ON: no-limit hold'em (not fixed limit, not short deck) at an effective stack of 40bb or less (CLOSED_ALL_IN_MAX_EFFECTIVE_BB; deeper, the cap keeps a style from stacking off light), hero facing a 3-bet or 4-bet that was made all in with every other player still in the hand all in, folded or sitting out (the call closes the betting and risks exactly the price): the 3-bet node's 35%-of-stack cap and the 4-bet node's 30% cap no longer veto a call the price-aware strength bar makes (the companion 4-bet-node change, the no-limit hold'em call/jam bars no longer multiplying a style tightness above 1, is unconditional source and not under this flag); measured before on 391f7bc0 (2026-11-07 21:20 to 2026-11-08 20:30 UTC, hand_history publicNode): tournament NLH heads-up openers facing a 12-25bb all-in 3-bet folded 205 of 212, six-handed 165 of 173, and replayed through HorseLogic.decide QQ (22bb jam, 43% to call), JJ, TT, AKo, AQo, 99, 88 all folded at the cap, and in cash the Grinder hybrid folded KK at 121bb, QQ, AKo to a sized 4-bet because 0.95 x 1.0976 and 0.88 x 1.0976 both hit BAR_CAP 0.965; opponent identity is never read; Omaha unchanged; explicit off arm restores both caps; docs/changelog/2026-11-08-horse-opener-facing-an-all-in-3-bet.md",
     'F3B'
@@ -5172,6 +5177,20 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'fixed_limit_hilo_low_half_kept_seen',
     'HorseLogic V40 Omaha pressure cap (fixedLimitHiLoLowHalfFloor)',
     'the V40 weak-high cap on a fixed-limit hi-lo river would have clipped the hand below half of its low share and was held at that half',
+    'FixedLimitAdaptation'
+  ),
+  // No floor: fixed-limit Omaha decisions only, with the opt-in option on.
+  receipt(
+    'fixed_limit_omaha_presumption_withheld',
+    'HorseMind.opponentRead (fixedLimitOmahaNoPresumption)',
+    'a fixed-limit Omaha opponent read was returned without the shared aggressive raise presumption',
+    'FixedLimitAdaptation'
+  ),
+  // No floor: fixed-limit showdowns only, and only with the process switch on.
+  receipt(
+    'fixed_limit_river_bet_showdown_counted',
+    'HorseMind.observeHandComplete (FIXED-LIMIT RIVER BETS ARE SHOWDOWN VALUE EVIDENCE, process switch HorseMind.setFixedLimitRiverBetsAreValueEvidence, source default FIXED_LIMIT_RIVER_BETS_ARE_VALUE_EVIDENCE_DEFAULT = false)',
+    'a fixed-limit river bet or raise under 20 big blinds that reached showdown was counted in the V83 big-bet showdown tally (bigBetSD)',
     'FixedLimitAdaptation'
   ),
   // No floor: fires only against an opponent whose checked-to bets include probes.

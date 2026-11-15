@@ -3012,6 +3012,23 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
         'AFixedLimitHiLoLowHalfIsKept.law.test.ts and the Fixed-Limit lane diagnostic-harness measurements are the only evidence.',
     })
   ),
+  // 2026-11-14 (Fixed-Limit lane, tight fix T1, the Omaha presumption): a
+  // default-off fixed-limit arm. Refused, not dealt: this league cannot ask the question.
+  {
+    name: 'flo8_no_omaha_presumption',
+    variant: 'flo8',
+    seats: 2,
+    a: { fixedLimitOmahaNoPresumption: true },
+    b: {},
+    reason:
+      'Unanswerable by this league: playHand deals no-limit and pot-limit betting and has no ' +
+      'fixed-limit street unit, wager cap or controller menu, and the option acts only on a ' +
+      'fixed-limit Omaha decision (HorseMind.opponentRead: bettingStructureFor(variant) === ' +
+      "'fixed_limit'). The option is DEFAULT OFF (read as === true). What would change this: a " +
+      'fixed-limit duplicate league (real HandController, flo8, heads-up and three seats, tight ' +
+      'and maniac fields); until it is built, the fixtures in ' +
+      'AFixedLimitOmahaHasNoPresumption.law.test.ts and the Fixed-Limit lane diagnostic-harness measurements are the only evidence.',
+  },
   {
     name: 'hu_break_even_bluff',
     seats: 2,

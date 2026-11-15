@@ -35,7 +35,7 @@ import {
   type HorseWinnerReadState,
 } from './HorseWinnerRead.js';
 import { noteFire } from './BrainTelemetry.js';
-import type { BettingStructure } from './BettingStructure.js';
+import { bettingStructureFor, type BettingStructure } from './BettingStructure.js';
 import {
   riverCallCategoryIsUsable,
   riverCallConfidenceAboveBaseline,
@@ -427,6 +427,11 @@ export interface DecisionReadOptions {
    *  explicitly uncertain read instead of the shared aggressive raise
    *  presumption. Default off until its league comparison is accepted. */
   omahaNeutralUnknown?: boolean;
+  /** FIXED-LIMIT OMAHA HAS NO PRESUMPTION (2026-11-14, Fixed-Limit lane,
+   *  HorseDecideOpts.fixedLimitOmahaNoPresumption): on a fixed-limit Omaha
+   *  decision (flo8) the shared aggressive raise presumption is not applied;
+   *  the opponent's own measured read stands. Only an explicit true engages. */
+  fixedLimitOmahaNoPresumption?: boolean;
 }
 /** Decayed postflop facing-bet opportunities before the postflop fold rate reads. */
 export const FOLD_READ_MIN_OPPS = 8;
@@ -1095,6 +1100,14 @@ function importedWindow(
  * hand's bets are probe-counted exactly as before. See the switch's note.
  */
 export const FIXED_LIMIT_BETS_ARE_NEVER_PROBES_DEFAULT = false;
+
+/**
+ * FIXED-LIMIT RIVER BETS ARE SHOWDOWN VALUE EVIDENCE (2026-11-14): the
+ * process-level source default of
+ * HorseMind.setFixedLimitRiverBetsAreValueEvidence. OFF: the V83 big-bet
+ * showdown tally counts only river bets of at least 20 big blinds, as before.
+ */
+export const FIXED_LIMIT_RIVER_BETS_ARE_VALUE_EVIDENCE_DEFAULT = false;
 
 export class HorseMind {
   private static stats = new Map<string, OpponentStats>();
@@ -2242,6 +2255,31 @@ export class HorseMind {
     return this.fixedLimitBetsAreNeverProbes;
   }
 
+  /**
+   * FIXED-LIMIT RIVER BETS ARE SHOWDOWN VALUE EVIDENCE (2026-11-14,
+   * Fixed-Limit lane). V83 (aggressionShownAsValue) keeps neutral respect for
+   * a bettor whose big river bets that reached showdown were mostly strong,
+   * but counts only river bets of at least 20 big blinds. A fixed-limit river
+   * bet is one big bet (two big blinds), so the tally stayed 0 and a
+   * tight-value fixed-limit bettor was read as a maniac (callDownMod 1.2) on
+   * his aggression factor alone. While this switch is on, observeHandComplete
+   * counts every river bet or raise that reached showdown in a hand whose
+   * variant (riverCallContext.variant) is fixed limit: one big bet is the
+   * whole river unit. No-limit and pot-limit hands keep the 20-big-blind bar.
+   * PROCESS-LEVEL like the probe switch above (counting runs outside a
+   * decision), SOURCE DEFAULT OFF; future counting only, nothing already
+   * counted is reset or replayed. Turning it on in production is a default
+   * change under docs/HORSE-DECISION-CHANGE-EVIDENCE.md.
+   */
+  private static fixedLimitRiverBetsAreValueEvidence =
+    FIXED_LIMIT_RIVER_BETS_ARE_VALUE_EVIDENCE_DEFAULT;
+  static setFixedLimitRiverBetsAreValueEvidence(on: boolean): void {
+    this.fixedLimitRiverBetsAreValueEvidence = on === true;
+  }
+  static fixedLimitRiverBetsAreValueEvidenceOn(): boolean {
+    return this.fixedLimitRiverBetsAreValueEvidence;
+  }
+
   private static probeAdjusted<T extends Partial<ExploitCounters>>(
     userId: string,
     counters: T | undefined
@@ -2308,6 +2346,17 @@ export class HorseMind {
       if (neutral.outcome === 'presumed') noteFire('plo_opponent_neutral_unknown');
       else if (neutral.outcome === 'disproved') noteFire('plo_opponent_presumption_disproved');
       return neutral.read;
+    }
+    // FIXED-LIMIT OMAHA HAS NO PRESUMPTION (2026-11-14, opt-in): the
+    // presumption prices a pot-sized raise; a fixed-limit raise costs one
+    // bet, and a normal-to-tight flo8 raiser never disproves it.
+    if (
+      family === 'omaha' &&
+      this.decisionReadOptions.fixedLimitOmahaNoPresumption === true &&
+      bettingStructureFor(this.decisionVariant) === 'fixed_limit'
+    ) {
+      noteFire('fixed_limit_omaha_presumption_withheld');
+      return read;
     }
     if (family === 'omaha') {
       const presumed = presumedAggressorRead(
@@ -4613,6 +4662,10 @@ export class HorseMind {
       evictOldest(this.handFlags, MAX_HAND_FLAGS);
 
       const bb = bigBlind > 0 ? bigBlind : 1;
+      // FIXED-LIMIT RIVER BETS ARE SHOWDOWN VALUE EVIDENCE (switch above).
+      const fixedLimitRiverUnit =
+        this.fixedLimitRiverBetsAreValueEvidence &&
+        bettingStructureFor(riverCallContext?.variant) === 'fixed_limit';
       // V45: every increment on a touched player is mirrored into the
       // scoped bucket at the end (delta of the snapshot taken on first
       // touch), so the deep reads are scoped like the action counters.
@@ -4774,10 +4827,12 @@ export class HorseMind {
           prevTs = ts;
           if (a.stage !== 'river' || !a.userId || counted.has(a.userId)) continue;
           if (!isMindAggression(a)) continue;
-          if ((a.amount ?? 0) < 20 * bb) continue;
+          const belowBigBet = (a.amount ?? 0) < 20 * bb;
+          if (belowBigBet && !fixedLimitRiverUnit) continue;
           const sd = shown.get(a.userId);
           if (!sd) continue; // bet took it down — no showdown information
           counted.add(a.userId);
+          if (belowBigBet) noteFire('fixed_limit_river_bet_showdown_counted');
           const s = touch(a.userId);
           s.bigBetSD++;
           // A mucked hand after betting big and being called LOST — that is
