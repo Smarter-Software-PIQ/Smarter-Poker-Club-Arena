@@ -106,9 +106,11 @@ it.each([
     }
     // Native PG and cashier-authority-exact-intent derive the capped successor
     // from this unchanged baseline and the exact installed patch.
+    // The promo core's later successors (20261112050118, then World Hub
+    // 20261114174204) are derived in tests/cashier-authority-exact-intent.test.ts.
     const expected =
       name === 'fn_promo_wallet_send_core_20261004'
-        ? '7087a67e16f6d7990c28fbb549464bef'
+        ? 'be708b91a9ce7080e2826d2f53513cc5'
         : name === 'fn_cashier_batch_transfer'
           ? definitionHash
           : bodyHash;
@@ -138,12 +140,26 @@ it.each([
     .split('\n')
     .find((line) => line.startsWith('-- @live-proof:') && line.includes(`public.${name}(`));
   expect(proof).toContain(`= '${hash}'`);
+  // The feed was later patched in place (World Hub 20261114174518, then
+  // 20261114171135, then 20261115001816, 20261115011401 and 20261115020001); the contract pins only that
+  // installed successor.
+  const pinned = name === 'fn_cashier_history_feed' ? '6c73793fccbdd5f4c2790f1ea0376e0c' : hash;
+  if (pinned !== hash) {
+    expect(contract).toContain("version = '20261114174518'");
+    expect(contract).toContain("version = '20261114171135'");
+    expect(contract).toContain("version = '20261115001816'");
+    expect(contract).toContain("version = '20261115011401'");
+    expect(contract).toContain("version = '20261115020001'");
+    expect(contract).not.toContain("'hash', '553be2e8b21cd6404a32add126a8b7d0'");
+    expect(contract).not.toContain("'hash', '5fb4cd6ebe8ed1005a38db1de36efab0'");
+    expect(contract).not.toContain("'hash', 'a26c9b5097203fdc0b3109bd649ddec1'");
+  }
   const start = contract.indexOf(`'signature', 'public.${name}(`);
   expect(start).toBeGreaterThanOrEqual(0);
   const entry = contract.slice(start, contract.indexOf('\n    )', start));
   expect(
     [...entry.matchAll(/'(?:replacement_)?hash', '([a-f0-9]{32})'/g)].map((match) => match[1])
-  ).toEqual([hash]);
+  ).toEqual([pinned]);
   expect(entry).toContain("'owner', 'postgres'");
   expect(contract).toContain("version = '20261027160320'");
   expect(contract).toContain("version = '20261027164937'");

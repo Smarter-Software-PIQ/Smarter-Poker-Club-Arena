@@ -116,6 +116,7 @@ export default function MemberTransactionHistory({ clubId, memberId, revision, s
       } catch (error) {
         if (!controller.signal.aborted) {
           reportError(error, 'MemberTransactionHistory.read');
+          setRows(null);
           setFailed(true);
         }
       }
@@ -169,6 +170,7 @@ export default function MemberTransactionHistory({ clubId, memberId, revision, s
               <option value="member_promo_wallet">Promo Wallet</option>
               <option value="member_club_bank">Club Bank</option>
               <option value="member_club_promo_wallet">Club Promo Wallet</option>
+              <option value="member_union_promo_wallet">Union Promo Wallet</option>
               <option value="member_held_cashout">Held Cash-Out</option>
             </select>
           </label>

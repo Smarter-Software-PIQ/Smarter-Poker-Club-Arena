@@ -2590,6 +2590,15 @@ export interface HorseDecideOpts {
   omahaTournamentFirstIn?:
     | boolean
     | Partial<import('./HorseOmahaTournamentFirstIn.js').OmahaTournamentFirstInParams>;
+  /** Pot-limit Omaha hi-lo tournaments, exactly two dealt in at the final
+   *  table, 20 BB or less (HU-HILO-002): the omahaTournamentFirstIn fold
+   *  replacement by the hand's hi-lo percentile (small blind first in; big
+   *  blind facing one raise). Default OFF: only explicit true, or a league
+   *  arm's parameters, switches it on. Fixed-limit hi-lo and every table of
+   *  three or more are outside it. */
+  omahaHiLoTournamentFirstIn?:
+    | boolean
+    | Partial<import('./HorseOmahaTournamentFirstIn.js').OmahaTournamentFirstInParams>;
   /** League-only override of the V67 extra raise shade; production never
    * sets it. */
   v67RiverRaiseShadeOverride?: number;
@@ -9553,6 +9562,24 @@ export class HorseLogic {
             },
           }
         : {}),
+      // HU-HILO-002, default OFF: the hi-lo percentile is computed only when
+      // the option is on, so the off arm does no extra work and draws nothing.
+      ...(vi.isOmaha &&
+      vi.isHiLo &&
+      !vi.isFixedLimit &&
+      gs.gameMode === 'tournament' &&
+      (opts.omahaHiLoTournamentFirstIn === true ||
+        (typeof opts.omahaHiLoTournamentFirstIn === 'object' &&
+          opts.omahaHiLoTournamentFirstIn !== null))
+        ? {
+            omahaHiLoTournamentFirstIn: {
+              percentile: omahaPreflopPercentile(player.cards, true),
+              ...(typeof opts.omahaHiLoTournamentFirstIn === 'object'
+                ? { params: opts.omahaHiLoTournamentFirstIn }
+                : {}),
+            },
+          }
+        : {}),
       ...(huBbPrice ? { huBbPrice } : {}),
       ...(huOpenerPrice ? { huOpenerPrice } : {}),
       ...(huLimpPrice ? { huLimpPrice } : {}),
@@ -9815,6 +9842,8 @@ export class HorseLogic {
               noteFire('v60_cash_pressure_opener_vs_three_bet');
             else if (layer === 'v87_deep_dive_discipline') noteFire('v87_deep_dive_discipline');
             else if (layer === 'omaha_tournament_first_in') noteFire('omaha_tournament_first_in');
+            else if (layer === 'omaha_hilo_tournament_first_in')
+              noteFire('omaha_hilo_tournament_first_in');
             else if (layer === 'bluff_raise_refused_no_fold_equity_seen')
               noteFire('bluff_raise_refused_no_fold_equity_seen');
             else if (layer === 'style_tight_opener_respect_seen')
