@@ -187,6 +187,7 @@ import { hubMarketplaceDestination } from '../utils/hubMarketplace';
 import { cachedAuthUserId, hydrateIdentity, persistIdentity } from '../lib/cachedIdentity';
 import { formatGameTitle, formatTournamentTitle } from '../utils/formatGameTitle';
 import { customCashGameName } from '../utils/customCashGameName';
+import { totalBuyIn } from '../utils/buyIn';
 import { tournamentTabBuyInLabel } from '../lib/tournamentTabLabel';
 import {
   accessRefusalFromClose,
@@ -15972,7 +15973,7 @@ function LiveTablePage({
           const { data: tournData, error: tournError } = await supabase
             .from('tournaments')
             .select(
-              'name, format_contract, is_bounty, is_pko, is_mystery_bounty, mystery_bounty_stage, mystery_bounty_regular_pool_percent, bounty_amount, spin_multiplier, spin_locked_tiers, spin_reveal_at, prize_pool, buy_in_amount, buy_in_fee, max_players, starting_chips, status, blind_structure, current_level, level_started_at, started_at, variant, tournament_type, satellite_target_id, satellite_target, final_table_triggered, add_on_available, addon_cost, addon_chips, addon_period_triggered, addon_period_started_at, addon_period_ends_at, late_reg_levels, rebuy_levels, late_reg_mins, addon_from_start, prize_pool_finalized, start_time, is_rebuy, is_reentry'
+              'name, format_contract, is_bounty, is_pko, is_mystery_bounty, mystery_bounty_stage, mystery_bounty_regular_pool_percent, bounty_amount, spin_multiplier, spin_locked_tiers, spin_reveal_at, prize_pool, buy_in_amount, buy_in_fee, max_players, starting_chips, status, blind_structure, current_level, level_started_at, started_at, variant, tournament_type, satellite_target_id, satellite_target, final_table_triggered, add_on_available, addon_cost, addon_chips, addon_period_triggered, addon_period_started_at, addon_period_ends_at, late_reg_levels, rebuy_levels, late_reg_mins, addon_from_start, prize_pool_finalized, start_time, is_rebuy, is_reentry, all_in_or_fold, blind_speed, club_id, union_id'
             )
             .eq('id', table.tournament_id)
             .maybeSingle();
@@ -16108,17 +16109,16 @@ function LiveTablePage({
             const fmt = formatKind === 'unknown' ? null : formatKind;
             setTournamentFormat(fmt);
             setTournamentBuyInTotal(
-              Math.round(Number(tournData.buy_in_amount ?? 0) + Number(tournData.buy_in_fee ?? 0))
+              totalBuyIn(
+                Number(tournData.buy_in_amount ?? 0),
+                Number(tournData.buy_in_fee ?? 0),
+                tournData
+              )
             );
             setTournamentEventName(
               formatTournamentTitle(String((tournData as { name?: unknown }).name ?? '').trim())
             );
-            setTournamentTypeLine(
-              fmt === 'mtt' ? tournamentTypeLabel(tournData as Record<string, unknown>) : null
-            );
-            setTournamentTypeLine(
-              fmt === 'mtt' ? tournamentTypeLabel(tournData as Record<string, unknown>) : null
-            );
+            setTournamentTypeLine(tournamentTypeLabel(tournData));
             // Seat-first = a Spin (3 seats) or a Heads-Up (2 seats) that has
             // not started. Once it is RUNNING the seats are no longer for
             // sale and the normal tournament table rules apply.
@@ -29439,14 +29439,28 @@ function LiveTablePage({
                             : tournamentFormat === 'sng'
                               ? 'Poker Heads Up'
                               : 'Poker Tournament';
-                        /* Dan 2026-08-24: "THE DESCRIPTION ON THE TABLE IS
-                           BLEEDING OVER THE TABLE AND NEEDS TO BE TWO LINES.
-                           FIRST LINE, DATE, CLUB + UNION, SECOND LINE, GAME
-                           AND STAKES AND HAND NUMBER." Level + clock ride the
-                           stakes on line 2; each line ellipsizes instead of
-                           bleeding past the rail. */
+                        const price = tournamentTabBuyInLabel(tournamentBuyInTotal);
+                        const entryLine = [
+                          price && tournamentBuyInTotal ? `${price} Buy-In` : price,
+                          tournamentTypeLine,
+                        ]
+                          .filter(Boolean)
+                          .join(' · ');
                         return (
                           <>
+                            <span className="table-brand__line table-brand__line--level">
+                              <span className="table-brand__game">
+                                {tournamentEventName || `${gameShort} ${formatWord}`}
+                              </span>
+                            </span>
+                            {entryLine && (
+                              <span
+                                className="table-brand__line"
+                                data-testid="tournament-type-line"
+                              >
+                                {entryLine}
+                              </span>
+                            )}
                             <span className="table-brand__line table-brand__line--identity">
                               <span className="table-brand__club">
                                 <span className="table-brand__club-name">
@@ -29485,35 +29499,7 @@ function LiveTablePage({
                               </>
                             ) : (
                               <>
-                                {/* Dan 2026-10-21: "UNDER KINGS CLUB - MIDWAY UNION IT
-                                    SHOULD SAY THE TOURNAMENT NAME AND BUY IN, NOT JUST
-                                    NLH POKER TOURNAMENT ... REMOVE LEVEL... AND UNDER
-                                    THAT." Line 2 is the event name and its buy-in, then
-                                    the hand number. The level, blinds and the Next
-                                    Blinds / Break line beneath it are gone from the
-                                    felt (the tournament lobby's Blinds tab carries
-                                    the structure). */}
                                 <span className="table-brand__line table-brand__line--level">
-                                  <span className="table-brand__game">
-                                    {tournamentEventName || `${gameShort} ${formatWord}`}
-                                    {tournamentBuyInTotal !== undefined &&
-                                      tournamentTabBuyInLabel(tournamentBuyInTotal) !== '' && (
-                                        <>
-                                          {' · '}
-                                          {tournamentBuyInTotal > 0
-                                            ? `${tournamentTabBuyInLabel(tournamentBuyInTotal)} Buy-In`
-                                            : tournamentTabBuyInLabel(tournamentBuyInTotal)}
-                                        </>
-                                      )}
-                                  </span>
-                                  {tournamentTypeLine && (
-                                    <span
-                                      className="table-brand__line"
-                                      data-testid="tournament-type-line"
-                                    >
-                                      {tournamentTypeLine}
-                                    </span>
-                                  )}
                                   {tournamentTableLabel(tableState.tableName) && (
                                     <span
                                       className="table-brand__line"
