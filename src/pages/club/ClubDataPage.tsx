@@ -104,6 +104,7 @@ import { useMasterBusSubscriptions } from '../../hooks/useMasterBusSubscription'
 import type { BusEventType } from '../../core/MasterBus';
 import { useVirtualScroll } from '../../hooks/useVirtualScroll';
 import RakeSnapshotPanel from '../../components/club/RakeSnapshotPanel';
+import DataHelpTip from '../../components/club/DataHelpTip';
 import ClubRakebackVerifiedSoFar from '../../components/club/ClubRakebackVerifiedSoFar';
 import type { RakeScope } from '../../services/ClubRakeSnapshotService';
 import type { ConsoleInk } from '../../components/console/SpadeConsole';
@@ -3417,9 +3418,9 @@ export default function ClubDataPage() {
           sits beside invoice-basis figures, so it says so and its headline is
           never called "Fee". Other clubs are unchanged. */}
         {clubUuid && unionBasis && (
-          <p className={`sc-copy ${styles.note}`} data-testid="rake-snapshot-basis">
-            {AGENT_RAKE_PRODUCTION_NOTE}
-          </p>
+          <DataHelpTip label="About Agent Rake Production">
+            <p data-testid="rake-snapshot-basis">{AGENT_RAKE_PRODUCTION_NOTE}</p>
+          </DataHelpTip>
         )}
         {clubUuid && (
           <RakeSnapshotPanel
@@ -3572,20 +3573,22 @@ export default function ClubDataPage() {
               }}
             />
           </label>
-          <p className={`sc-copy ${styles.note}`}>{clubDataDayRule(answerBasis)}.</p>
-          {snapshot && answerBasis === 'accounting' && (
-            <p className={`sc-copy ${styles.note}`}>{UNION_BASIS_DEFINITIONS}</p>
-          )}
-          {notices.provisional && (
-            <p className={`sc-copy sc-ink--gold ${styles.note}`} role="status">
-              {notices.provisional}
-            </p>
-          )}
-          {notices.incomplete && (
-            <p className={`sc-copy sc-ink--red ${styles.note}`} role="alert">
-              {notices.incomplete}
-            </p>
-          )}
+          <DataHelpTip alert={Boolean(notices.incomplete)}>
+            <p>{clubDataDayRule(answerBasis)}.</p>
+            {snapshot && answerBasis === 'accounting' && <p>{UNION_BASIS_DEFINITIONS}</p>}
+            {unionBasis && (
+              <p>
+                Unfinished MTT Entries Are Buy-Ins For MTTs Not Yet Finished, Included In Total
+                Winnings. On The Felt Now Is Not Added To Total Winnings.
+              </p>
+            )}
+            {notices.provisional && <p role="status">{notices.provisional}</p>}
+            {notices.incomplete && (
+              <p className="sc-ink--red" role="alert">
+                {notices.incomplete}
+              </p>
+            )}
+          </DataHelpTip>
           {/* role="group" + aria-pressed, not a tablist. These control no tabpanel,
           and the stakes row is a TOGGLE - tapping the active chip clears it,
           which is impossible for a tab and leaves a tablist with nothing
@@ -3629,7 +3632,7 @@ export default function ClubDataPage() {
             {summary && <dd className={styles.figureMeta}>{absNote(delta?.winnings_abs)}</dd>}
             {summary && unionBasis && typeof summary.on_felt === 'number' && (
               <dd className={`sc-ink--muted ${styles.figureMeta}`}>
-                On The Felt Now {money(summary.on_felt)} (Not Added)
+                On The Felt Now {money(summary.on_felt)}
               </dd>
             )}
           </div>
@@ -3644,10 +3647,7 @@ export default function ClubDataPage() {
               summary.running_mtt_entries !== undefined &&
               Number.isFinite(Number(summary.running_mtt_entries)) && (
                 <dd className={`sc-ink--muted ${styles.figureMeta}`}>
-                  {unionBasis
-                    ? 'Unfinished MTT Entries (Buy-Ins For MTTs Not Yet Finished, In Total Winnings)'
-                    : 'Unfinished MTT Entries'}{' '}
-                  {money(summary.running_mtt_entries)}
+                  Unfinished MTT Entries {money(summary.running_mtt_entries)}
                 </dd>
               )}
           </div>
@@ -4444,25 +4444,27 @@ export default function ClubDataPage() {
             )}
 
             {players && !playersError && (
-              <p className={`sc-copy ${styles.note}`}>
-                A Positive Net Means The Player Is Up.
-                {unionBasis
-                  ? " Union Invoice Basis: Net Is The Player's Total Winnings And Fee Is The Rake Credited For The Player, In This Window."
-                  : ''}
-                {(() => {
-                  // Sliced, not compared raw: this is typed `string` and a
-                  // timestamp would both fail the comparison - silently
-                  // suppressing the caveat exactly when it matters - and print
-                  // its time component into the sentence.
-                  const through = String(players.rake_complete_through || '').slice(0, 10);
-                  return through && through < endDate
-                    ? ` Per-Player Rake Is Complete Through ${through}. Today's Rake Lands In Tomorrow's Rollup.`
-                    : '';
-                })()}
-                {players.player_count > sortedPlayers.length
-                  ? ` Loaded ${compactInt(sortedPlayers.length)} Of ${compactInt(players.player_count)} Players, Ordered By ${PLAYER_SORTS.find((option) => option.id === playerSort)?.label || 'Server Rank'}.`
-                  : ''}
-              </p>
+              <DataHelpTip label="About These Player Figures">
+                <p>
+                  A Positive Net Means The Player Is Up.
+                  {unionBasis
+                    ? " Union Invoice Basis: Net Is The Player's Total Winnings And Fee Is The Rake Credited For The Player, In This Window."
+                    : ''}
+                  {(() => {
+                    // Sliced, not compared raw: this is typed `string` and a
+                    // timestamp would both fail the comparison - silently
+                    // suppressing the caveat exactly when it matters - and print
+                    // its time component into the sentence.
+                    const through = String(players.rake_complete_through || '').slice(0, 10);
+                    return through && through < endDate
+                      ? ` Per-Player Rake Is Complete Through ${through}. Today's Rake Lands In Tomorrow's Rollup.`
+                      : '';
+                  })()}
+                  {players.player_count > sortedPlayers.length
+                    ? ` Loaded ${compactInt(sortedPlayers.length)} Of ${compactInt(players.player_count)} Players, Ordered By ${PLAYER_SORTS.find((option) => option.id === playerSort)?.label || 'Server Rank'}.`
+                    : ''}
+                </p>
+              </DataHelpTip>
             )}
           </div>
         )}

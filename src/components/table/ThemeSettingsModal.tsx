@@ -2275,7 +2275,7 @@ export function ThemeSettingsModal({
             </aside>
 
             <section className="tsc__catalog" data-theme-tab={activeTab}>
-              <ActionControllerSettings colorsOnly />
+              <ActionControllerSettings />
               {/* Tab Bar */}
               <div
                 className="theme-modal__tabs"
