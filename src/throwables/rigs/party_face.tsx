@@ -1,3 +1,4 @@
+import { PerformancePose } from '../PerformancePose';
 import { AtlasSprite } from '../AtlasSprite';
 import { RIG_VIEWBOX, type RigProps, type ThrowableRig } from '../rig';
 import type { ThrowableSpec } from '../spec';
@@ -24,8 +25,9 @@ export const spec: ThrowableSpec = {
     { at: 4000, marker: 'cut' },
   ],
   audio: [
-    { at: 500, sample: 'fanfare_short', gain: 0.4 },
-    { at: 1167, sample: 'cheer_ooh', gain: 0.75 },
+    { at: 633, sample: 'paper_horn', gain: 0.92 },
+    { at: 1167, sample: 'cheer_ooh', gain: 0.4 },
+    { at: 1567, sample: 'flag_flap', gain: 0.36 },
   ],
 };
 preloadThrowableCues(spec.audio.map((c) => c.sample));
@@ -74,7 +76,18 @@ function Payload({ uid }: RigProps) {
           </g>
         </g>
         <g className="thr-party_face__neutral">
-          <Tile tile={0} />
+          <PerformancePose
+            src="party_face-acting"
+            row={0}
+            rows={2}
+            x={-61.817}
+            y={-85.0}
+            width={123.634}
+            height={140.0}
+            duration={290}
+            delay={0}
+            repeats={2}
+          />
         </g>
         <g className="thr-party_face__mouth">
           <g className="thr-party_face__mouth-open" clipPath={`url(#${uid}mouth)`}>
@@ -85,7 +98,18 @@ function Payload({ uid }: RigProps) {
           <Tile tile={1} />
         </g>
         <g className="thr-party_face__horn">
-          <Tile tile={2} x={-7} y={-24} width={80} height={80} />
+          <PerformancePose
+            src="party_face-acting"
+            row={1}
+            rows={2}
+            x={-7.0}
+            y={-16.478}
+            width={80.0}
+            height={64.955}
+            duration={560}
+            delay={240}
+            repeats={2}
+          />
         </g>
       </g>
     </svg>

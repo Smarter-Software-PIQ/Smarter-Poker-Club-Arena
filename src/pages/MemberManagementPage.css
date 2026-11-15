@@ -1675,3 +1675,20 @@
     flex-direction: column;
   }
 }
+
+.mm-history .mm-stat {
+  flex-wrap: wrap;
+  row-gap: 0.25rem;
+}
+
+.mm-history .mm-stat__label {
+  flex: 1 1 10rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.mm-history .mm-stat__value {
+  margin-inline-start: auto;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}

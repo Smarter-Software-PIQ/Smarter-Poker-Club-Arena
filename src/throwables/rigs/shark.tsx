@@ -1,3 +1,4 @@
+import { PerformancePose } from '../PerformancePose';
 import { preloadThrowableCues } from '../cues';
 import { AtlasSprite } from '../AtlasSprite';
 import { RIG_VIEWBOX, type RigProps, type ThrowableRig } from '../rig';
@@ -23,7 +24,12 @@ export const spec: ThrowableSpec = {
     { at: 4300, marker: 'cut' },
   ],
   // Organic voice recordings are tracked separately from visual coverage.
-  audio: [{ at: 267, sample: 'thump_soft' }],
+  audio: [
+    { at: 267, sample: 'thump_soft', gain: 0.3 },
+    { at: 500, sample: 'shark_chomp', gain: 0.73 },
+    { at: 1700, sample: 'flute_clink_soft', gain: 0.6 },
+    { at: 3000, sample: 'shark_chomp', gain: 0.58 },
+  ],
 };
 preloadThrowableCues(spec.audio.map((c) => c.sample));
 function Projectile(_props: RigProps) {
@@ -49,23 +55,31 @@ function Payload(_props: RigProps) {
             />
           </g>
           <g className="thr-shark__pose1">
-            <AtlasSprite
-              src="shark"
-              rect={[653, 20, 601, 590]}
-              x={-60}
-              y={-60}
-              width={120}
-              height={120}
+            <PerformancePose
+              src="shark-acting"
+              row={0}
+              rows={2}
+              x={-60.0}
+              y={-58.902}
+              width={120.0}
+              height={117.804}
+              duration={380}
+              delay={180}
+              repeats={8}
             />
           </g>
           <g className="thr-shark__pose2">
-            <AtlasSprite
-              src="shark"
-              rect={[8, 620, 638, 620]}
-              x={-60}
-              y={-60}
-              width={120}
-              height={120}
+            <PerformancePose
+              src="shark-acting"
+              row={1}
+              rows={2}
+              x={-60.0}
+              y={-58.307}
+              width={120.0}
+              height={116.614}
+              duration={380}
+              delay={180}
+              repeats={8}
             />
           </g>
           <g className="thr-shark__pose3">

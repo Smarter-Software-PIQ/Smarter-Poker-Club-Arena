@@ -95,7 +95,11 @@ export const snowmanSpec: ThrowableSpec = {
     { at: 1734, marker: 'fade' },
     { at: 2000, marker: 'cut' },
   ],
-  audio: [{ at: 567, sample: 'poof_soft' }],
+  audio: [
+    { at: 400, sample: 'poof_soft', gain: 0.45 },
+    { at: 534, sample: 'snow_crunch', gain: 0.88 },
+    { at: 767, sample: 'thump_soft', gain: 0.35 },
+  ],
   reference: { video: 1, launchFrame: 2187, throw: 'THROW 10' },
 };
 
@@ -191,6 +195,16 @@ function Payload(_props: RigProps) {
             />
           </g>
         ))}
+      </g>
+      <g className="thr-snowman__hat">
+        <AtlasSprite
+          src="snowman"
+          rect={[495, 185, 388, 296]}
+          x={-17}
+          y={-45}
+          width={34}
+          height={26}
+        />
       </g>
     </svg>
   );

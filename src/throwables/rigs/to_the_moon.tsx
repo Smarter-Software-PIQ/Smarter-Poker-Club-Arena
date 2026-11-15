@@ -22,8 +22,9 @@ export const spec: ThrowableSpec = {
     { at: 4000, marker: 'cut' },
   ],
   audio: [
-    { at: 1200, sample: 'tick_land', gain: 0.35 },
-    { at: 1550, sample: 'lock_confirm', gain: 0.3 },
+    { at: 800, sample: 'steam_hiss', gain: 0.48 },
+    { at: 1200, sample: 'thump_soft', gain: 0.52 },
+    { at: 1550, sample: 'flag_flap', gain: 0.72 },
   ],
 };
 preloadThrowableCues(spec.audio.map((cue) => cue.sample));
@@ -72,10 +73,19 @@ function Payload(_props: RigProps) {
         <Tile tile={0} x={-75} y={-90} width={150} height={150} />
       </g>
       <g className="thr-to_the_moon__rocket">
+        <g className="thr-to_the_moon__thrust">
+          <Tile tile={3} x={-7} y={-14} width={20} height={33} />
+        </g>
         <Tile tile={1} x={-15} y={-80} width={55} height={85} />
       </g>
       <g className="thr-to_the_moon__flag">
         <Tile tile={2} x={-48} y={-105} width={55} height={70} />
+      </g>
+      <g className="thr-to_the_moon__dust">
+        <path
+          d="M-6 -9 Q-16 -21 -33 -12 Q-36 -7 -45 -9 Q-34 -4 -15 -7 M7 -8 Q18 -25 33 -12 Q44 -14 46 -7 Q24 -12 14 -5"
+          fill="#c6bdab"
+        />
       </g>
     </svg>
   );
