@@ -17,6 +17,7 @@ import {
   bookedRecords,
   bookingRecordViolations,
   FILE,
+  NOTICE_HEADROOM_MS,
   TOLERANCE_MS,
 } from '../../scripts/ci/check-owner-window-booking.mjs';
 
@@ -55,10 +56,10 @@ test('a good future-dated booking passes', () => {
   const now = at('2026-11-10T04:43:28Z');
   const good = {
     ...TONIGHTS_BAD_RECORD,
-    id: '2026-11-10-owner-good-engine-0530z',
-    playerNoticeAt: '2026-11-10T05:10:00Z',
-    notBefore: '2026-11-10T05:30:00Z',
-    notAfter: '2026-11-10T07:30:00Z',
+    id: '2026-11-10-owner-good-engine-0535z',
+    playerNoticeAt: '2026-11-10T05:15:00Z',
+    notBefore: '2026-11-10T05:35:00Z',
+    notAfter: '2026-11-10T07:35:00Z',
   };
   assert.deepEqual(bookingRecordViolations(doc(), doc([good]), now), []);
 });
@@ -112,10 +113,13 @@ test('boundary: the tolerance window holds exactly', () => {
     notBefore,
     notAfter: '2026-11-10T07:40:00Z',
   });
-  // Exactly TOLERANCE_MS in the past still passes: an in-flight PR must not flake.
+  // Exactly TOLERANCE_MS in the past is not yet "in the past"; since
+  // 2026-11-15 such a notice is still refused, for lacking headroom.
   assert.equal(TOLERANCE_MS, 5 * 60 * 1000);
-  assert.deepEqual(bookingRecordViolations(doc(), doc([w('2026-11-10T04:55:00.000Z')]), now), []);
-  // One millisecond beyond the tolerance fails.
+  const edge = bookingRecordViolations(doc(), doc([w('2026-11-10T04:55:00.000Z')]), now);
+  assert.equal(edge.length, 1);
+  assert.match(edge[0], /less than 30 minutes ahead of validation time/);
+  // One millisecond beyond the tolerance is in the past (one finding, not two).
   const late = bookingRecordViolations(doc(), doc([w('2026-11-10T04:54:59.999Z')]), now);
   assert.equal(late.length, 1);
   assert.match(late[0], /playerNoticeAt .* is in the past at validation time/);
@@ -133,6 +137,36 @@ test('boundary: the tolerance window holds exactly', () => {
     now
   );
   assert.match(pastStart.join('\n'), /notBefore 2026-11-10T04:54:00Z is in the past/);
+});
+
+test('the notice must still be thirty minutes ahead when the booking is checked (2026-11-15)', () => {
+  // #10959: checks passed with the 11:40Z notice inside the old tolerance,
+  // then the pull request merged at 11:59:43Z, after its own notice.
+  assert.equal(NOTICE_HEADROOM_MS, 30 * 60 * 1000);
+  const record = (playerNoticeAt) => ({
+    id: '2026-11-15-owner-offcycle-engine-1206z',
+    playerNoticeAt,
+    notBefore: '2026-11-15T12:06:00Z',
+    notAfter: '2026-11-15T15:00:00Z',
+  });
+  const checkedAt = at('2026-11-15T11:40:00Z');
+  const exact = bookingRecordViolations(doc(), doc([record('2026-11-15T11:40:00Z')]), checkedAt);
+  assert.deepEqual(exact.length, 1);
+  assert.match(exact[0], /less than 30 minutes ahead/);
+  const now = at('2026-11-10T05:00:00Z');
+  const w = (playerNoticeAt) => ({
+    id: 'h',
+    playerNoticeAt,
+    notBefore: '2026-11-10T05:50:00Z',
+    notAfter: '2026-11-10T07:50:00Z',
+  });
+  assert.deepEqual(bookingRecordViolations(doc(), doc([w('2026-11-10T05:30:00.000Z')]), now), []);
+  const short = bookingRecordViolations(doc(), doc([w('2026-11-10T05:29:59.999Z')]), now);
+  assert.equal(short.length, 1);
+  assert.match(short[0], /h \(windows\): playerNoticeAt .* is less than 30 minutes ahead/);
+  // An unchanged record is never re-judged, so consumed history is unaffected.
+  const old = record('2026-11-15T11:40:00Z');
+  assert.deepEqual(bookingRecordViolations(doc([old]), doc([{ ...old }]), now), []);
 });
 
 test('ordering: notBefore >= playerNoticeAt, notAfter > notBefore', () => {
