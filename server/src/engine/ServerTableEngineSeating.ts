@@ -1715,6 +1715,67 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
   }
 
   /**
+   * ═══════════════════════════════════════════════════════════════════════
+   *  A SEAT STAYS UNTIL ITS POT HAS BEEN PUSHED (Dan 2026-11-15, binding)
+   * ═══════════════════════════════════════════════════════════════════════
+   *
+   * Dan: "THE PREVIOUS HAND PLAYED, DID NOT AWARD THE POT, OR SHIP IT TO THE
+   * WINNING PLAYER ANIMATION... GET TO THE ROOT CAUSE."
+   *
+   * Hand 59517030 (Kings Club, Madness PLO5 1/2, 2026-11-15 16:57 UTC): the
+   * seat-4 winner's leave arrived 1.26 s after HAND_COMPLETE, while the
+   * four-way showdown was still being read. The hand controller is nulled at
+   * HAND_COMPLETE, so leaveTable took the between-hands branch and cashed the
+   * seat out at once (ca_seat_stack_exits 16:57:06.55). Every client then
+   * lost the winner's chair before pot_win, and the pot had nowhere to go.
+   *
+   * Dan's hand-completion law (2026-08-21) says the hand is NOT complete
+   * until the pot has been pushed to the winner, and his leave ruling
+   * (2026-10-25) says an avatar does not leave until its part is finished.
+   * So from the deal until the completion hold ends, everybody who was dealt
+   * into the hand is a participant of a hand still being presented. A leave
+   * from one of them is handled exactly like a mid-hand leave of a folded
+   * seat: the PLAYER leaves now (the durable departure request is written and
+   * the reply is a success), the SEAT stays on the felt until the push has
+   * landed, and the next-hand sweep cashes it out through the same
+   * occupancy-keyed door. Horses and humans take the same door (CLAUDE.md
+   * 10.5); nothing here reads a horse marker.
+   */
+  protected completionPresentation: {
+    players: Set<string>;
+    deferred: Map<string, string>;
+  } | null = null;
+
+  /** Called by the dealing loop as a hand is dealt. */
+  protected beginCompletionPresentation(userIds: string[]): void {
+    this.completionPresentation = { players: new Set(userIds), deferred: new Map() };
+  }
+
+  /**
+   * Called when the completion hold ends (or the hand is abandoned). The
+   * deferred leavers are taken out of the next deal now; their seats are
+   * cashed out by the next-hand leave_pending sweep.
+   */
+  protected endCompletionPresentation(): void {
+    const presentation = this.completionPresentation;
+    this.completionPresentation = null;
+    if (!presentation) return;
+    for (const [userId, occupancyId] of presentation.deferred) {
+      if (this.seatedPlayers.some((p) => p.user_id === userId && p.occupancy_id === occupancyId))
+        this.disconnectEngine.sitOut(this.tableId, userId, 'voluntary');
+    }
+  }
+
+  /** True while this player's last hand is still being presented on the felt. */
+  protected inCompletionPresentation(userId: string): boolean {
+    return (
+      this.running === true &&
+      this.handController === null &&
+      this.completionPresentation?.players.has(userId) === true
+    );
+  }
+
+  /**
    * Takes a leaver out of the next deal. While their seat is still live in
    * the hand (`stillLive`), the sit-out waits for settlement (pendingSitOut,
    * drained there), so the seat keeps its cards and its status on every
@@ -2350,6 +2411,47 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
          mid-hand, and it was the silent one. */
           this.broadcastCurrentState();
 
+          return { success: true, immediate: false };
+        } else if (
+          this.inCompletionPresentation(userId) &&
+          player.occupancy_id &&
+          !opts.forced &&
+          !opts.admin
+        ) {
+          // A SEAT STAYS UNTIL ITS POT HAS BEEN PUSHED (2026-11-15): see
+          // completionPresentation. The leave is accepted and durable now; the
+          // chair, and the pot flying to it, stay until the hold ends.
+          try {
+            await requestSeatDeparture(
+              userId,
+              this.tableId,
+              player.seat_number,
+              player.occupancy_id,
+              'voluntary'
+            );
+          } catch {
+            return {
+              success: false,
+              immediate: false,
+              error: 'Could Not Confirm Your Leave Request. Please Try Again.',
+            };
+          }
+          if (
+            this.seatedPlayers.some(
+              (p) => p.user_id === userId && p.occupancy_id !== player.occupancy_id
+            )
+          )
+            return stale();
+          player.leave_pending = true;
+          if (this.completionPresentation) {
+            this.completionPresentation.deferred.set(userId, player.occupancy_id);
+          } else {
+            // The hold ended while the request was being written.
+            this.disconnectEngine.sitOut(this.tableId, userId, 'voluntary');
+          }
+          console.log(
+            `[ServerTableEngine:${this.tableId}] ${userId} leaving while the hand they played is still being presented - the seat stays until the pot is pushed, then cashes out`
+          );
           return { success: true, immediate: false };
         } else {
           // Between hands: remove immediately via atomic cashout.

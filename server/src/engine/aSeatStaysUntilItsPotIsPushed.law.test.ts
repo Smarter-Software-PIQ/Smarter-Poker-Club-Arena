@@ -1,0 +1,159 @@
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════
+ *  A SEAT STAYS UNTIL ITS POT HAS BEEN PUSHED (Dan 2026-11-15, binding)
+ * ═══════════════════════════════════════════════════════════════════════════════
+ *
+ * Dan: "THE PREVIOUS HAND PLAYED, DID NOT AWARD THE POT, OR SHIP IT TO THE
+ * WINNING PLAYER ANIMATION... GET TO THE ROOT CAUSE AND FIX WHAT EVER
+ * PREVENTED THE ANIMATIONS FROM AWARDING THE POT."
+ *
+ * Hand 59517030 (Kings Club, Madness PLO5 1/2, 2026-11-15): the seat-4 winner
+ * stood up 1.26 s after HAND_COMPLETE. The hand controller is already null
+ * then, so leaveTable cashed the seat out on the spot, every client lost the
+ * winner's chair, and the pot had nowhere to fly.
+ *
+ * The pins:
+ *   - a participant of the hand still being presented gets the leave accepted
+ *     and recorded (durable departure request), but the seat is NOT cashed out
+ *     and stays on the felt;
+ *   - when the completion hold ends, the seat is taken out of the next deal
+ *     (the next-hand leave_pending sweep cashes it out);
+ *   - someone who was NOT dealt into that hand still leaves immediately;
+ *   - the dealing loop opens the window at the deal and closes it right after
+ *     the completion hold.
+ * Every behavioural spec has a human and a horse twin (CLAUDE.md 10.5).
+ */
+
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+
+const departure = vi.fn();
+const cashout = vi.fn();
+
+vi.mock('../services/supabase/seats.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../services/supabase/seats.js')>();
+  return {
+    ...actual,
+    requestSeatDeparture: (...args: unknown[]) => departure(...args),
+    atomicCashout: (...args: unknown[]) => cashout(...args),
+  };
+});
+vi.mock('../services/supabase.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../services/supabase.js')>();
+  return {
+    ...actual,
+    atomicCashout: (...args: unknown[]) => cashout(...args),
+    markSeatAsLeft: vi.fn(async () => {
+      throw new Error('markSeatAsLeft must never be a leave fallback');
+    }),
+  };
+});
+
+const { ServerTableEngine } = await import('./ServerTableEngine.js');
+const { deadlineScheduler } = await import('./DeadlineScheduler.js');
+
+const TABLE = 'dddddddd-dddd-4ddd-8ddd-ddddddddddd5';
+const HUMAN = 'bbbbbbbb-0000-4000-8000-000000000011';
+const HORSE = 'bbbbbbbb-0000-4000-8000-000000000012';
+const LATE = 'bbbbbbbb-0000-4000-8000-000000000013';
+const OCC: Record<string, string> = {
+  [HUMAN]: 'eeeeeeee-0000-4000-8000-000000000011',
+  [HORSE]: 'eeeeeeee-0000-4000-8000-000000000012',
+  [LATE]: 'eeeeeeee-0000-4000-8000-000000000013',
+};
+
+function makeEngineInCompletionHold() {
+  const e = new ServerTableEngine(TABLE) as any;
+  e.tableInfo = {
+    id: TABLE,
+    club_id: 'club',
+    small_blind: 1,
+    big_blind: 2,
+    game_variant: 'plo5',
+    max_players: 6,
+    game_type: 'cash',
+    min_buy_in: 100,
+    max_buy_in: 400,
+  };
+  e.running = true;
+  e.seatedPlayers = [HUMAN, HORSE, LATE].map((user_id, i) => ({
+    user_id,
+    username: `p${i + 1}`,
+    stack: 500,
+    seat_number: i + 1,
+    is_horse: user_id === HORSE,
+    occupancy_id: OCC[user_id],
+  }));
+  // HAND_COMPLETE has fired: the controller is gone, the pot is not yet pushed.
+  e.handController = null;
+  e.beginCompletionPresentation([HUMAN, HORSE]);
+  e.hub = { emitEvent: vi.fn(), publish: vi.fn(), sendToUser: vi.fn() };
+  e.broadcastCurrentState = vi.fn(async () => undefined);
+  e.inLiveLightningHand = vi.fn(async () => false);
+  return e;
+}
+
+beforeEach(() => {
+  departure.mockReset().mockResolvedValue(undefined);
+  cashout.mockReset().mockResolvedValue(500);
+});
+afterEach(() => {
+  deadlineScheduler.cancelAll(TABLE);
+});
+
+for (const [who, id, seat] of [
+  ['human', HUMAN, 1],
+  ['horse', HORSE, 2],
+] as const) {
+  describe(`${who}: leaves while the hand they played is still being presented`, () => {
+    it('accepts the leave, keeps the chair, and cashes nothing out yet', async () => {
+      const e = makeEngineInCompletionHold();
+      const res = await e.leaveTable(id);
+
+      expect(res).toMatchObject({ success: true, immediate: false });
+      expect(departure).toHaveBeenCalledWith(id, TABLE, seat, OCC[id], 'voluntary');
+      expect(cashout).not.toHaveBeenCalled();
+      expect(e.seatedPlayers.some((p: any) => p.user_id === id)).toBe(true);
+      const emitted = e.hub.emitEvent.mock.calls.map((c: any[]) => c[1]?.type);
+      expect(emitted).not.toContain('seat_left');
+      // Not greyed out while the pot is still flying to them.
+      expect(e.disconnectEngine.isSittingOut(TABLE, id)).toBe(false);
+    });
+
+    it('when the hold ends, the seat is out of the next deal', async () => {
+      const e = makeEngineInCompletionHold();
+      await e.leaveTable(id);
+      e.endCompletionPresentation();
+      expect(e.disconnectEngine.isSittingOut(TABLE, id)).toBe(true);
+      expect(e.seatedPlayers.find((p: any) => p.user_id === id)?.leave_pending).toBe(true);
+    });
+  });
+}
+
+describe('a player who was not dealt into the presented hand', () => {
+  it('still leaves immediately', async () => {
+    const e = makeEngineInCompletionHold();
+    const res = await e.leaveTable(LATE);
+    expect(res).toMatchObject({ success: true, immediate: true });
+    expect(cashout).toHaveBeenCalled();
+  });
+});
+
+describe('the dealing loop owns the window', () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const dealing = readFileSync(join(here, 'ServerTableEngineDealing.ts'), 'utf8');
+
+  it('opens it at the deal and closes it right after the completion hold', () => {
+    const open = dealing.indexOf('this.beginCompletionPresentation(activePlayers');
+    const deal = dealing.indexOf('await this.dealHand(activePlayers)');
+    const hold = dealing.indexOf('await this.awaitHandCompletionDisplay(resultDisplayMs)');
+    const close = dealing.indexOf('this.endCompletionPresentation()', hold);
+    expect(open).toBeGreaterThan(0);
+    expect(deal).toBeGreaterThan(open);
+    expect(hold).toBeGreaterThan(deal);
+    expect(close).toBeGreaterThan(hold);
+    expect(close - hold).toBeLessThan(200);
+  });
+});

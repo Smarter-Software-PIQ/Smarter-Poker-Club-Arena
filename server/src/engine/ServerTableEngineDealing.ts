@@ -1280,7 +1280,17 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
 
         // Deal hand (self-transition: running → running for next hand)
         this.setLoopPhase('dealing');
-        await this.dealHand(activePlayers);
+        // A SEAT STAYS UNTIL ITS POT HAS BEEN PUSHED (2026-11-15): from the
+        // deal until the completion hold ends, a participant's leave keeps
+        // the chair on the felt (ServerTableEngineSeating.completionPresentation).
+        this.beginCompletionPresentation(activePlayers.map((p) => p.user_id));
+        try {
+          await this.dealHand(activePlayers);
+        } catch (err) {
+          this.endCompletionPresentation();
+          throw err;
+        }
+        if (!this.running) this.endCompletionPresentation();
         this.consecutiveErrors = 0;
 
         // Bible V8 §4.23: Formal cleanup timing between hands.
@@ -1371,6 +1381,8 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           // mucked.
           this.setLoopPhase('post_hand_hold');
           await this.awaitHandCompletionDisplay(resultDisplayMs);
+          // The pot has been pushed: deferred leavers' chairs may go now.
+          this.endCompletionPresentation();
           // Phase 2: the hand-free broadcast. Clients animate the board clear
           // from it, and it is what makes the Rabbit Hunt button visible.
           this.broadcastCurrentState(); // Sends clean state (no hand in progress)
