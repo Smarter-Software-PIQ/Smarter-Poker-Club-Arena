@@ -475,3 +475,51 @@ describe('(c) a pricing rule that throws leaves the decision it was given', () =
     expect(fired(thrown, 'omaha_strategy_rule_failed')).toBeGreaterThan(0);
   });
 });
+
+describe('audit 2026-11-15 item 2: omahaOopTurnCheckAfterFlopCall multiway, the Horse first to act', () => {
+  /** A third player, seat 6 (acts after the Horse, before seat 1), called preflop and the flop bet. */
+  function threeWay(node: Node, flopCall = true): Node {
+    const p6 = node.gs.players.find((p) => p.seat === 6)!;
+    p6.is_folded = false;
+    p6.user_id = p6.user_id ?? 'third-player';
+    const history = node.gs.actionHistory ?? [];
+    const flopCallAt = history.findIndex((a) => String(a.stage) === 'flop' && a.seat === CALLER);
+    if (flopCall) history.splice(flopCallAt + 1, 0, { ...history[flopCallAt], seat: 6 });
+    node.gs.pot += flopCall ? 218 : 119;
+    return node;
+  }
+  const ON: HorseDecideOpts = { omahaOopTurnCheckAfterFlopCall: true };
+
+  it('the spots hold three-way when both opponents called the flop bet, and not when one did not', () => {
+    const t = threeWay(nodeAt(ACES, TURN));
+    expect(t.gs.players.filter((p) => p.seat !== HERO && !p.is_folded).length).toBe(2);
+    expect(omahaOopTurnCheckAfterFlopCallSpot(t.hero, t.gs)).toBe(true);
+    const f = threeWay(facingAfterCheck(ACES, TURN, 0.5));
+    expect(omahaOopTurnFacingBetVerdict(f.hero, f.gs)).toBe('call_nut_draw');
+    const d = threeWay(facingAfterCheck(ACES, TURN, 0.5, NO_OUT));
+    expect(omahaOopTurnFacingBetVerdict(d.hero, d.gs)).toBe('fold_no_outs');
+    const notCalled = threeWay(nodeAt(ACES, TURN), false);
+    expect(omahaOopTurnCheckAfterFlopCallSpot(notCalled.hero, notCalled.gs)).toBe(false);
+  });
+
+  it.each([
+    ['the option alone', ON],
+    ['every option on', ALL],
+  ] as [string, HorseDecideOpts][])(
+    '%s: three-way the turn is a check, the nut draw calls a bet, no out folds',
+    (_n, opts) => {
+      expect(
+        all(
+          play(() => threeWay(nodeAt(ACES, TURN)), opts, false),
+          'check'
+        )
+      ).toBe(true);
+      expect(play(() => threeWay(facingAfterCheck(ACES, TURN, 0.5)), opts, false).actions).toEqual(
+        SEEDS.map(() => 'call')
+      );
+      expect(
+        play(() => threeWay(facingAfterCheck(ACES, TURN, 0.5, NO_OUT)), opts, false).actions
+      ).toEqual(SEEDS.map(() => 'fold'));
+    }
+  );
+});

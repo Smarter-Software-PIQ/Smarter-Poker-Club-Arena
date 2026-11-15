@@ -556,13 +556,15 @@ export function omahaTurnBetLacksRiverPlan(
  * IMPROVE WITH ANY TURN CARDS", meaning the Horse is out of position and the
  * flop bet was called). No opponent read. Two halves:
  *
- * THE CHECK (omahaOopTurnCheckAfterFlopCallSpot): turn, heads-up, the
- * opponent acts behind and called the Horse's flop bet or raise, and the
+ * THE CHECK (omahaOopTurnCheckAfterFlopCallSpot): turn, heads-up (the
+ * opponent acts behind) or multiway (the Horse first to act), every live
+ * opponent called the Horse's flop bet or raise, and the
  * Horse does not hold a nut-class hand for the street (omahaNutClassNow): a
  * bet becomes a check. Nut-class hands keep betting.
  *
- * FACING THE TURN BET (omahaOopTurnFacingBetVerdict): turn, heads-up, the
- * Horse checked and the opponent bet, chips went in from both on the flop
+ * FACING THE TURN BET (omahaOopTurnFacingBetVerdict): turn, the Horse
+ * checked first and an opponent bet (multiway: every live opponent called
+ * the Horse's flop bet or raise), chips went in from both on the flop
  * (the Horse's bet or raise was called, or the Horse called his), not nut
  * class. With `outs` the unseen river cards that make the nut flush or nut
  * straight on the board that card makes, or a full house or better
@@ -604,7 +606,26 @@ function flopWagerCalled(hero: SeatPlayer, gs: HorseGameStateV2, opp: SeatPlayer
   );
 }
 
-/** The check half: see above. */
+/**
+ * Multiway (audit 2026-11-15, the lane owner's reading of the 12:09 ruling):
+ * true when every live opponent acts after hero on this street and none has
+ * acted on it yet, so the Horse is first to act.
+ */
+function heroActsFirst(hero: SeatPlayer, gs: HorseGameStateV2, live: SeatPlayer[]): boolean {
+  const street = String(gs.stage ?? '');
+  const history = Array.isArray(gs.actionHistory) ? gs.actionHistory : [];
+  const dealer = Number.isFinite(gs.dealerSeat) ? (gs.dealerSeat as number) : null;
+  if (dealer === null) return false;
+  const span = Math.max(hero.seat, dealer, ...live.map((p) => p.seat)) + 1;
+  const order = (seat: number) => (seat - dealer - 1 + 2 * span) % span;
+  const actedBeforeHero = history.some(
+    (a) => String(a.stage) === street && live.some((p) => p.seat === a.seat)
+  );
+  return !actedBeforeHero && live.every((p) => order(p.seat) > order(hero.seat));
+}
+
+/** The check half: see above. Heads-up, or multiway with the Horse first to
+ *  act and every live opponent a caller of its flop bet or raise. */
 export function omahaOopTurnCheckAfterFlopCallSpot(
   hero: SeatPlayer,
   gs: HorseGameStateV2
@@ -612,9 +633,12 @@ export function omahaOopTurnCheckAfterFlopCallSpot(
   try {
     if (omahaOopCheckStreet(hero, gs) !== 'turn') return false;
     const live = liveOpponents(hero, gs);
-    if (live.length !== 1) return false;
-    if (!omahaCallersOfHeroBet(hero, gs, 'flop').has(live[0].seat)) return false;
-    if (!omahaOpponentActsBehind(hero, gs)) return false;
+    if (live.length === 0) return false;
+    const callers = omahaCallersOfHeroBet(hero, gs, 'flop');
+    if (!live.every((p) => callers.has(p.seat))) return false;
+    if (live.length === 1) {
+      if (!omahaOpponentActsBehind(hero, gs)) return false;
+    } else if (!heroActsFirst(hero, gs, live)) return false;
     return !omahaNutClassNow(hero, gs);
   } catch {
     return false;
@@ -631,20 +655,28 @@ export function omahaOopTurnFacingBetVerdict(
   try {
     if (scopeStreet(hero, gs, true) !== 'turn') return null;
     const live = liveOpponents(hero, gs);
-    if (live.length !== 1) return null;
-    const opp = live[0];
-    // The Horse checked this street, has no chips in on it, and the opponent bet.
+    if (live.length === 0) return null;
+    // The Horse checked this street first, has no chips in on it, and an
+    // opponent bet. Multiway (audit 2026-11-15): every live opponent called
+    // the Horse's flop bet or raise.
     if ((Number.isFinite(hero.bet) ? hero.bet : 0) > 0.005) return null;
     const turn = (gs.actionHistory ?? []).filter((a) => String(a.stage) === 'turn');
-    const first = turn.find((a) => a.seat === hero.seat || a.seat === opp.seat);
+    const first = turn.find((a) => a.seat === hero.seat || live.some((p) => p.seat === a.seat));
     if (!first || first.seat !== hero.seat || String(first.action) !== 'check') return null;
     if (
       !turn.some(
-        (a) => a.seat === opp.seat && ['bet', 'raise', 'all_in'].includes(String(a.action))
+        (a) =>
+          live.some((p) => p.seat === a.seat) &&
+          ['bet', 'raise', 'all_in'].includes(String(a.action))
       )
     )
       return null;
-    if (!flopWagerCalled(hero, gs, opp)) return null;
+    if (live.length === 1) {
+      if (!flopWagerCalled(hero, gs, live[0])) return null;
+    } else {
+      const callers = omahaCallersOfHeroBet(hero, gs, 'flop');
+      if (!live.every((p) => callers.has(p.seat))) return null;
+    }
     if (omahaNutClassNow(hero, gs)) return null;
     const board: Card[] = gs.communityCards ?? [];
     const unseen = omahaUnseenRiverCards(hero, board).length;
