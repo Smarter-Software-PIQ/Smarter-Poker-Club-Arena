@@ -2483,6 +2483,8 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
           const presentation = this.completionPresentation;
           presentation?.deferred.set(userId, { occupancyId: player.occupancy_id, written: false });
           // And no seat move may carry it away while the request is in flight.
+          // Undone below only if THIS call added it: settlement may hold it too.
+          const addedHold = !this.heldDepartures.has(player.occupancy_id);
           this.noteHeldDeparture(userId, player.occupancy_id);
           try {
             await requestSeatDeparture(
@@ -2494,7 +2496,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
             );
           } catch {
             presentation?.deferred.delete(userId);
-            this.heldDepartures.delete(player.occupancy_id);
+            if (addedHold) this.heldDepartures.delete(player.occupancy_id);
             return {
               success: false,
               immediate: false,
@@ -2507,7 +2509,7 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
             )
           ) {
             presentation?.deferred.delete(userId);
-            this.heldDepartures.delete(player.occupancy_id);
+            if (addedHold) this.heldDepartures.delete(player.occupancy_id);
             return stale();
           }
           player.leave_pending = true;

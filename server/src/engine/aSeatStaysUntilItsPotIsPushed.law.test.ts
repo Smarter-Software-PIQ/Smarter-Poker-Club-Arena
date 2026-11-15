@@ -238,6 +238,14 @@ describe('review fixes (2026-11-15)', () => {
     expect(blockedDuringWrite).toBe(true);
   });
 
+  it('a failed repeat leave never lifts a hold settlement already placed', async () => {
+    const e = makeEngineInCompletionHold();
+    e.noteHeldDeparture(HUMAN, OCC[HUMAN]); // settlement held this seat
+    departure.mockRejectedValueOnce(new Error('db down'));
+    await e.leaveTable(HUMAN);
+    expect(e.heldDepartures.has(OCC[HUMAN])).toBe(true);
+  });
+
   it('when the held seat is cashed out, every client is told it left', async () => {
     const e = makeEngineInCompletionHold();
     e.wakeClusterGame = vi.fn();
