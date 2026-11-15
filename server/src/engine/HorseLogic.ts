@@ -14209,6 +14209,10 @@ export class HorseLogic {
         })
       : null;
     const intent = byLimp ? byLimp.intent : intentToday;
+    // The events, layers and thresholds above were recorded for intentToday;
+    // the swap is its own layer and travels on the authority receipt
+    // (audit 2026-11-15, item 4).
+    if (byLimp) layers15.push('omaha_vpip_floor_by_limp');
     if (byLimp?.receipt) {
       if (byLimp.receipt === 'omaha_vpip_floor_limp_fold') vpipFloorLimpFoldPending = true;
       if (telemetryOn(opts)) {
@@ -14316,6 +14320,11 @@ export class HorseLogic {
           classNeverThreeBet: intentCtx7.classNeverThreeBet === true,
         },
         intent: { ...intent },
+        ...(byLimp
+          ? {
+              intentSwap: { by: 'omaha_vpip_floor_by_limp' as const, replaced: { ...intentToday } },
+            }
+          : {}),
         referenceAction: decision.action,
         ...(decision.amount !== undefined ? { referenceAmount: decision.amount } : {}),
       },
