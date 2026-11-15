@@ -1572,6 +1572,37 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
     }
   }
 
+  /** HTTP success follows the original exact-occupancy database write. */
+  public async sitOutAndWait(
+    userId: string,
+    sittingOut: boolean,
+    proof?: { completedLightningOccupancyId?: string; requestedByClient?: boolean }
+  ): Promise<{ success: boolean; [k: string]: unknown }> {
+    const player = this.seatedPlayers.find((p) => p.user_id === userId);
+    if (!player?.occupancy_id) return { success: false, error: 'Original Seat Required' };
+    // I'm Back must also work before a restarted feeder's presence sweep.
+    if (!sittingOut && !this.disconnectEngine.getState(this.tableId, userId))
+      this.disconnectEngine.registerPlayer(this.tableId, userId);
+    const result = this.sitOut(userId, sittingOut, proof);
+    if (!result.success || result.willFoldNextHand) return result;
+    const receipt = await this.seatSitOutPersistence.wait(
+      this.tableId,
+      userId,
+      player.occupancy_id
+    );
+    if (!receipt)
+      return {
+        success: false,
+        error: 'Could Not Confirm Your Seat. Refresh The Table Before Trying Again.',
+      };
+    return {
+      ...result,
+      blindOff: receipt.blind_off,
+      hands_remaining: receipt.hands_remaining,
+      lightningClusterId: receipt.cluster_id,
+    };
+  }
+
   /**
    * POST /sitout — Bible V8 §7.12: Player sits out or back in
    */
@@ -1818,7 +1849,10 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
   protected withdrawBlindOff(userId: string): void {
     const had = this.leaveHeldByClock.delete(userId);
     this.chipContinuity.markBlindOff(userId, false);
-    if (had) void setCashSessionBlindOff(this.tableId, userId, false);
+    // Lightning's same original sit-back transaction clears the durable flag.
+    // A separate unawaited write could arrive after a later Sit Out.
+    if (had && !this.isLightningAnchorNow())
+      void setCashSessionBlindOff(this.tableId, userId, false);
   }
 
   public isClientSitOut(userId: string): boolean {

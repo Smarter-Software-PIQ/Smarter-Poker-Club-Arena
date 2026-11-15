@@ -6,6 +6,7 @@ import { fetchLightningAnchorSeat, type LightningPoolEntry } from './lightningSe
 export interface LightningSitOutState {
   sittingOut: boolean;
   since: number | null;
+  blindOff?: boolean;
 }
 
 /** Bootstrap the caller's real chair, never a hand snapshot or the pool as a table. */
@@ -42,6 +43,22 @@ export async function readLightningSitOut(
   const since = data.is_sitting_out ? Date.parse(data.sit_out_at ?? '') : null;
   if (since !== null && !Number.isFinite(since))
     throw new Error('Lightning Sit Out Clock Unverified');
+  // A blinded-off Lightning anchor is deliberately physically eligible.
+  // The caller-only hand-count RPC preserves its logical sit-out on reload.
+  if (!data.is_sitting_out) {
+    const status = await supabase.rpc('fn_my_hit_run_status', { p_table_id: anchor.anchorTableId });
+    if (status.error) throw status.error;
+    if (
+      Array.isArray(status.data) &&
+      status.data.some(
+        (row: Record<string, unknown>) =>
+          row.table_id === anchor.anchorTableId &&
+          row.blind_off === true &&
+          Number(row.hands_remaining) > 0
+      )
+    )
+      return { sittingOut: true, since: null, blindOff: true };
+  }
   return { sittingOut: data.is_sitting_out, since };
 }
 
@@ -124,19 +141,24 @@ export function useLightningSitOut({
       typeof event.sitting_out !== 'boolean'
     )
       return;
+    const blindOff = event.sitting_out && event.blind_off === true;
     const since =
-      event.sitting_out && typeof event.sit_out_at === 'string'
+      !blindOff && event.sitting_out && typeof event.sit_out_at === 'string'
         ? Date.parse(event.sit_out_at)
         : null;
     if (
-      (event.sitting_out && (since === null || !Number.isFinite(since))) ||
+      (event.sitting_out && !blindOff && (since === null || !Number.isFinite(since))) ||
       (!event.sitting_out && event.sit_out_at !== null)
     )
       return;
     if (!mounted.current || identity.current !== key || scope.current !== currentScope) return;
     generation.current++;
     persistedVersion.current++;
-    setState({ key, scope: currentScope, value: { sittingOut: event.sitting_out, since } });
+    setState({
+      key,
+      scope: currentScope,
+      value: { sittingOut: event.sitting_out, since, ...(blindOff ? { blindOff: true } : {}) },
+    });
     onPersisted?.(event.sitting_out);
   }, [event, key, pool, userId, currentScope, onPersisted]);
   const isCurrent = useCallback(
@@ -177,6 +199,7 @@ export function useLightningSitOut({
     [key, cluster, currentScope]
   );
   return {
+    blindOff: state?.key === key && state.scope === currentScope && state.value.blindOff === true,
     sittingOut: state?.key === key && state.scope === currentScope ? state.value.sittingOut : false,
     since: state?.key === key && state.scope === currentScope ? state.value.since : null,
     acknowledge,

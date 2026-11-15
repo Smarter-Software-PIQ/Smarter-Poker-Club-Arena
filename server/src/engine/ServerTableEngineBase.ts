@@ -682,7 +682,16 @@ export abstract class ServerTableEngineBase {
    * at engine construction. null in unit tests / until PR-2 wiring lands.
    */
   protected hub: TableStateHub | null = null;
-  private readonly seatSitOutPersistence = new SeatSitOutPersistence((room, event) => {
+  protected readonly seatSitOutPersistence = new SeatSitOutPersistence((room, event) => {
+    // The committed original transition, including forced sit-outs, owns the
+    // held departure. The anchor remains dealable; the hand host folds it.
+    if (event.blind_off === true) {
+      this.leaveHeldByClock.set(event.player_id, event.occupancy_id);
+      this.chipContinuity.markBlindOff(event.player_id, true);
+    } else if (!event.sitting_out) {
+      this.leaveHeldByClock.delete(event.player_id);
+      this.chipContinuity.markBlindOff(event.player_id, false);
+    }
     this.hub?.emitEvent(room, { ...event });
   });
   protected tableInfo: TableInfo | null = null;

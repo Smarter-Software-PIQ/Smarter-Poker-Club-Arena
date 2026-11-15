@@ -1,0 +1,5 @@
+# Lightning sit-out and return
+
+The original exact-occupancy sit-out transaction keeps a Lightning player who owes hands eligible for deals and sets durable blind-out intention atomically. Sitting back in clears both before acknowledging the request and waking the existing matcher. Normal sit-outs, responsible-gaming decisions, one-hand eligibility, freeze and pending departure checks remain authoritative. The host awaits blind-out status before the first turn. Refresh recovers the logical blind-out state through the existing caller-only hand-count RPC.
+
+Focused qualification: native PostgreSQL reproduces the old excluded-seat/count stall, then deals all seven owed hands and permits normal release. It covers duplicate intentions, stale occupancy, rollback on flag failure, freeze and responsible gaming. Server/client compilation, 83 server tests and 20 client hook tests pass. Protected integration, migration installation, client publication and certified engine activation remain separate delivery steps.

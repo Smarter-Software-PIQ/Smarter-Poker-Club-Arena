@@ -260,3 +260,58 @@ it('settings and footer cannot submit competing opposite sit-out requests', () =
   expect(block).toMatch(/lightningSitOut.isCurrent\(tableId, String\(userId\)\)/);
   expect(block).toMatch(/setSitOutNextHand\(!wanted\)/);
 });
+
+describe('a blind-off anchor remains an eligible chair with a visible way back', () => {
+  it('restores the logical sit-out from the caller-only hand-count authority after reload', async () => {
+    database({ is_sitting_out: false, sit_out_at: null });
+    fixture.rpc.mockImplementation(async (name: string) => ({
+      data:
+        name === 'fn_my_hit_run_status'
+          ? [{ table_id: anchor, blind_off: true, hands_remaining: 7 }]
+          : {
+              pool_session_id: pool,
+              anchor_table_id: anchor,
+              seat_number: 2,
+              occupancy_id: occupancy,
+            },
+      error: null,
+    }));
+    expect(await readLightningSitOut(cluster, pool, user)).toEqual({
+      sittingOut: true,
+      since: null,
+      blindOff: true,
+    });
+    expect(fixture.rpc).toHaveBeenCalledWith('fn_my_hit_run_status', { p_table_id: anchor });
+  });
+  it('renders a committed blind-off without inventing a sit-out eviction clock, and clears it on return', async () => {
+    const event = {
+      type: 'lightning_sitout_changed',
+      pool_session_id: pool,
+      player_id: user,
+      occupancy_id: occupancy,
+      sitting_out: true,
+      sit_out_at: null,
+      blind_off: true,
+    };
+    const read = vi.fn(async () => ({ sittingOut: false, since: null }));
+    const view = renderHook(
+      ({ event: next }) =>
+        useLightningSitOut({
+          room,
+          userId: user,
+          connectionStatus: 'connected',
+          read,
+          event: next,
+        }),
+      { initialProps: { event: undefined as Record<string, unknown> | undefined } }
+    );
+    await act(async () => {});
+    view.rerender({ event });
+    expect(view.result.current.sittingOut).toBe(true);
+    expect(view.result.current.blindOff).toBe(true);
+    expect(view.result.current.since).toBeNull();
+    view.rerender({ event: { ...event, sitting_out: false, blind_off: false } });
+    expect(view.result.current.sittingOut).toBe(false);
+    expect(view.result.current.blindOff).toBe(false);
+  });
+});

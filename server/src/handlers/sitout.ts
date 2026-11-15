@@ -15,6 +15,11 @@ export interface SitoutDeps {
   gameServer: {
     getTableEngine(tableId: string):
       | {
+          sitOutAndWait?(
+            userId: string,
+            sitOut: boolean,
+            proof?: { completedLightningOccupancyId?: string; requestedByClient?: boolean }
+          ): Promise<{ success: boolean; [k: string]: unknown }>;
           sitOut(
             userId: string,
             sitOut: boolean,
@@ -23,6 +28,7 @@ export interface SitoutDeps {
         }
       | null
       | undefined;
+    lightningSeatReady?(clusterId: string): void | Promise<void>;
     /** Resolve only an open Lightning room owned by the authenticated caller. */
     lightningAnchorFor?(
       roomId: string,
@@ -73,7 +79,14 @@ export async function handleSitout(
 
     // This door is the account's own authenticated client. Its Sit Out is the
     // player's, and no horse controller may sit it back in (2026-10-22).
-    let result = engine.sitOut(userId, sitOut, { requestedByClient: true });
+    const apply = (proof: {
+      completedLightningOccupancyId?: string;
+      requestedByClient?: boolean;
+    }) =>
+      engine!.sitOutAndWait
+        ? engine!.sitOutAndWait(userId, sitOut, proof)
+        : engine!.sitOut(userId, sitOut, proof);
+    let result = await apply({ requestedByClient: true });
     if (sitOut && anchorTableId && result.code === 'SITOUT_HAND_REQUIRED') {
       // The first refusal made no state change. Only a settled hand of this
       // exact open pool can supplement a restarted feeder's empty local set.
@@ -86,15 +99,24 @@ export async function handleSitout(
         proof.anchorTableId === anchorTableId &&
         deps.gameServer.getTableEngine(anchorTableId) === engine
       ) {
-        result = engine.sitOut(userId, sitOut, {
+        result = await apply({
           completedLightningOccupancyId: proof.completedHandOccupancyId,
           requestedByClient: true,
         });
       }
     }
+    if (
+      result.success &&
+      (!sitOut || result.blindOff === true) &&
+      typeof result.lightningClusterId === 'string'
+    )
+      await deps.gameServer.lightningSeatReady?.(result.lightningClusterId);
     return sendJSON(res, result.success ? 200 : 400, result);
   } catch (err: unknown) {
     reportError(err, 'HTTP.sitout_error');
-    return sendJSON(res, 500, { success: false, error: 'Invalid request body' });
+    return sendJSON(res, 500, {
+      success: false,
+      error: 'Could Not Confirm Your Seat Change. Please Try Again.',
+    });
   }
 }

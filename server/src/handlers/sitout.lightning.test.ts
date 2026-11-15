@@ -12,6 +12,7 @@ const table = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
 const sitOut = vi.fn();
 const getTableEngine = vi.fn();
 const lightningAnchorFor = vi.fn();
+const lightningSeatReady = vi.fn();
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -25,7 +26,9 @@ async function request(tableId: string, wanted: boolean) {
     JSON.stringify({ tableId, sitOut: wanted, userId: 'forged' })
   );
   const { res, captured } = mockRes();
-  await handleSitout(mockReq(), res, { gameServer: { getTableEngine, lightningAnchorFor } });
+  await handleSitout(mockReq(), res, {
+    gameServer: { getTableEngine, lightningAnchorFor, lightningSeatReady },
+  });
   return { status: captured.statusCode, body: parseJson(captured) };
 }
 
@@ -104,5 +107,37 @@ describe('restarted Lightning feeder eligibility continuation', () => {
     sitOut.mockReturnValue({ success: false, code: 'SITOUT_HAND_REQUIRED' });
     expect((await request(room, true)).status).toBe(400);
     expect(sitOut).toHaveBeenCalledOnce();
+  });
+});
+
+describe('matching follows the original transition ACK', () => {
+  it.each([false, true])(
+    'waits for persistence before returning a seat to matching (sitOut=%s)',
+    async (wanted) => {
+      let resolve!: (v: any) => void;
+      const committed = new Promise<any>((r) => {
+        resolve = r;
+      });
+      const sitOutAndWait = vi.fn(() => committed);
+      const engine = { sitOut, sitOutAndWait };
+      getTableEngine.mockImplementation((id: string) => (id === table ? engine : null));
+      lightningAnchorFor.mockResolvedValue({ anchorTableId: table });
+      const pending = request(room, wanted);
+      await vi.waitFor(() =>
+        expect(sitOutAndWait).toHaveBeenCalledWith('owner', wanted, { requestedByClient: true })
+      );
+      expect(lightningSeatReady).not.toHaveBeenCalled();
+      resolve({ success: true, blindOff: wanted, lightningClusterId: table });
+      expect((await pending).status).toBe(200);
+      expect(lightningSeatReady).toHaveBeenCalledWith(table);
+      expect(sitOut).not.toHaveBeenCalled();
+    }
+  );
+  it('a refused original write never announces a ready seat', async () => {
+    const engine = { sitOut, sitOutAndWait: vi.fn(async () => ({ success: false })) };
+    getTableEngine.mockImplementation((id: string) => (id === table ? engine : null));
+    lightningAnchorFor.mockResolvedValue({ anchorTableId: table });
+    expect((await request(room, false)).status).toBe(400);
+    expect(lightningSeatReady).not.toHaveBeenCalled();
   });
 });

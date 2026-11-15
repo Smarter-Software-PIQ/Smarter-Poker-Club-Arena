@@ -31516,19 +31516,21 @@ function LiveTablePage({
               aria-live="polite"
               aria-atomic="true"
             >
-              {sitOutBadgeLabel(
-                sitOutMsRemaining({
-                  sitOutSince,
-                  isTournament: tableState.isTournament,
-                  now: sitOutTick,
-                }),
-                /* 2026-09-04 (audit item 3): the engine says whether this
+              {lightningSitOut.blindOff
+                ? 'Posting Blinds Until Your Hand Count Ends'
+                : sitOutBadgeLabel(
+                    sitOutMsRemaining({
+                      sitOutSince,
+                      isTournament: tableState.isTournament,
+                      now: sitOutTick,
+                    }),
+                    /* 2026-09-04 (audit item 3): the engine says whether this
                    sit-out was forced (two timeouts) or chosen, and the bar
                    says so too. Same I'm Back either way. */
-                disconnectStates[userId ?? '']?.sitOutReason === 'forced'
-                  ? 'You Timed Out Two Times, So You Are Sitting Out'
-                  : 'You Are Sitting Out'
-              )}
+                    disconnectStates[userId ?? '']?.sitOutReason === 'forced'
+                      ? 'You Timed Out Two Times, So You Are Sitting Out'
+                      : 'You Are Sitting Out'
+                  )}
             </span>
             <button
               type="button"
