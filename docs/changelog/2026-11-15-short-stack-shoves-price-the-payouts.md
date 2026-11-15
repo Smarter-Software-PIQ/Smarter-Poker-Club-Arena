@@ -2,7 +2,7 @@
 
 2026-11-15. Hold'em Strategy lane. Owner-ordered repair of production hand 59441335. Engine source: `server/src/engine/HorseLogic.ts`
 (`payJumpBubbleFactor`), `server/src/engine/IcmModel.ts`
-(`bustAwareBubbleFactor`), `server/src/engine/HorseTournamentUtility.ts`
+(`bubbleFactor` values a bust at its place), `server/src/engine/HorseTournamentUtility.ts`
 (`payoutWeightOfPools` exported, no behaviour change). No migration.
 
 ## What players saw

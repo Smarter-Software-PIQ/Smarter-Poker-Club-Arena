@@ -372,7 +372,6 @@ import {
   asymmetricCoverPressure,
   bountyChipEquivalence,
   bubbleFactor,
-  bustAwareBubbleFactor,
   premiumFromBubbleFactor,
 } from './IcmModel.js';
 // PROOF OF RECEIPT (Dan 2026-08-26): live decisions stamp the layers that
@@ -2036,15 +2035,13 @@ function realIcmInputs(
  * bubbleFactor, 1..5) from the same real-ICM inputs icmRisk prices, for the
  * push/fold tables (HorseNashPushFoldV2). 1 where one place is paid (a
  * one-place spin), null where the context cannot supply stacks, payouts or
- * hero's identity: the caller then plays chip EV. bustPaysItsPlace (the
- * payout-aware default, payJumpBubbleFactor) values a bust at the place hero
- * finishes (bustAwareBubbleFactor); the opt-in arm keeps bubbleFactor.
+ * hero's identity: the caller then plays chip EV. A bust is valued at the
+ * place hero finishes (IcmModel bubbleFactor since 2026-11-15).
  */
 function heroBubbleFactor(
   gs: HorseGameStateV2,
   stackBB: number,
-  heroUserId?: string,
-  bustPaysItsPlace = false
+  heroUserId?: string
 ): number | null {
   if (!isTournamentMode(gs)) return null;
   const explicit = trustedTournamentContext(gs);
@@ -2062,12 +2059,7 @@ function heroBubbleFactor(
   try {
     const inputs = realIcmInputs(gs, explicit, stackBB, heroUserId);
     if (!inputs) return null;
-    const bf = (bustPaysItsPlace ? bustAwareBubbleFactor : bubbleFactor)(
-      inputs.stacks,
-      inputs.payouts,
-      inputs.heroIdx,
-      inputs.riskChips
-    );
+    const bf = bubbleFactor(inputs.stacks, inputs.payouts, inputs.heroIdx, inputs.riskChips);
     return Number.isFinite(bf) ? bf : null;
   } catch {
     return null;
@@ -2118,7 +2110,7 @@ export function payJumpBubbleFactor(
   if (!payJumpLive) return null;
   const weight = Math.min(1, payoutWeightOfPools(t));
   if (!(weight > 0)) return null;
-  const bf = heroBubbleFactor(gs, stackBB, heroUserId, true);
+  const bf = heroBubbleFactor(gs, stackBB, heroUserId);
   if (bf === null || !(bf > 1)) return null;
   const effective = 1 + (bf - 1) * weight;
   return effective > 1 ? effective : null;

@@ -531,9 +531,28 @@ export function icmEquity(stacks: number[], payouts: number[], heroIdx: number):
 }
 
 /**
- * Bubble factor retained for legacy layers. Phase 7's final action arbiter no
- * longer uses this single global multiplier; it evaluates each action's stack
- * vectors directly.
+ * Hero's prize equity after a pot in which hero may have lost every chip
+ * (2026-11-15, hand 59441335). icmEquity prices a zero stack at 0, but a
+ * player who busts in this hand still finishes in a place: behind every stack
+ * that was live before it, at place `live` of the vector before the risk. In
+ * the money that place is paid (nine left with 13 paid, the bust is ninth and
+ * collects ninth's payout either way); outside the money it pays 0, which is
+ * what this returned before.
+ */
+function equityAfterPot(before: number[], after: number[], payouts: number[], idx: number): number {
+  if ((after[idx] ?? 0) > 0) return icmEquity(after, payouts, idx);
+  const live = cleanStacks(before).filter((stack) => stack > 0).length;
+  return cleanPayouts(payouts)[live - 1] ?? 0;
+}
+
+/**
+ * Bubble factor retained for legacy layers (icmRisk's V16 premium, the
+ * payout-aware push/fold tables). Phase 7's final action arbiter no longer
+ * uses this single global multiplier; it evaluates each action's stack
+ * vectors directly. A bust is valued at the place hero finishes
+ * (equityAfterPot): until 2026-11-15 it was valued at 0, so in the money a
+ * whole-stack risk was charged every payout, including the one a bust
+ * collects anyway, and a final-table short stack read the cap of 5.
  */
 export function bubbleFactor(
   stacks: number[],
@@ -562,53 +581,7 @@ export function bubbleFactor(
   down[heroIdx] = hero - risk;
   down[opponentIdx] = stacks[opponentIdx] + risk;
   const gain = icmEquity(up, payouts, heroIdx) - now;
-  const loss = now - icmEquity(down, payouts, heroIdx);
-  if (gain <= 1e-12) return 5;
-  return Math.max(1, Math.min(5, loss / gain));
-}
-
-/**
- * bubbleFactor with hero's bust valued at the place hero finishes
- * (2026-11-15, hand 59441335). icmEquity prices a zero stack at 0, so
- * bubbleFactor counts a whole-stack loss as losing every payout, including
- * the place a player who busts now is paid anyway. In the money that is most
- * of a short stack's equity: nine left with 13 paid, a 2.1bb stack's 4.9
- * pool points lose 4.9 instead of the 0.6 above ninth's 4.34, and the
- * factor pins at its cap of 5 whatever the ladder. Here a down state that
- * busts hero is worth the payout of the last live place (hero finishes
- * behind every stack still in, which the covering opponent is). Outside the
- * money that payout is 0 and this is bubbleFactor exactly. bubbleFactor is
- * left as it is for its legacy reader (icmRisk).
- */
-export function bustAwareBubbleFactor(
-  stacks: number[],
-  payouts: number[],
-  heroIdx: number,
-  riskChips: number
-): number {
-  if (riskChips <= 0) return 1;
-  const hero = stacks[heroIdx] ?? 0;
-  if (!(hero > 0)) return 1;
-  let opponentIdx = -1;
-  for (let index = 0; index < stacks.length; index++) {
-    if (index === heroIdx) continue;
-    if (opponentIdx === -1 || stacks[index] > stacks[opponentIdx]) opponentIdx = index;
-  }
-  if (opponentIdx === -1) return 1;
-  const risk = Math.min(riskChips, hero, stacks[opponentIdx]);
-  if (risk <= 0) return 1;
-  const now = icmEquity(stacks, payouts, heroIdx);
-  const up = stacks.slice();
-  up[heroIdx] = hero + risk;
-  up[opponentIdx] = stacks[opponentIdx] - risk;
-  const down = stacks.slice();
-  down[heroIdx] = hero - risk;
-  down[opponentIdx] = stacks[opponentIdx] + risk;
-  const live = cleanStacks(stacks).filter((stack) => stack > 0).length;
-  const bustPaid = cleanPayouts(payouts)[live - 1] ?? 0;
-  const downEquity = down[heroIdx] > 0 ? icmEquity(down, payouts, heroIdx) : bustPaid;
-  const gain = icmEquity(up, payouts, heroIdx) - now;
-  const loss = now - downEquity;
+  const loss = now - equityAfterPot(stacks, down, payouts, heroIdx);
   if (gain <= 1e-12) return 5;
   return Math.max(1, Math.min(5, loss / gain));
 }
@@ -619,7 +592,9 @@ export function premiumFromBubbleFactor(factor: number): number {
 
 /**
  * Pairwise Malmuth-Harville / Plackett-Luce bubble factor for `actorIdx` in a
- * direct pot collision against `counterpartyIdx` risking `riskChips`.
+ * direct pot collision against `counterpartyIdx` risking `riskChips`. A bust
+ * is valued at the place the actor finishes (equityAfterPot), as in
+ * bubbleFactor.
  * Pure & deterministic; consumes zero global PRNG draws.
  */
 export function pairwiseBubbleFactor(
@@ -653,7 +628,7 @@ export function pairwiseBubbleFactor(
   down[actorIdx] = actorStack - risk;
   down[counterpartyIdx] = counterStack + risk;
   const gain = icmEquity(up, payouts, actorIdx) - now;
-  const loss = now - icmEquity(down, payouts, actorIdx);
+  const loss = now - equityAfterPot(stacks, down, payouts, actorIdx);
   if (gain <= 1e-12) return 5;
   return Math.max(1, Math.min(5, loss / gain));
 }

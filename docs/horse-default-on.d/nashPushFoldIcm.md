@@ -13,7 +13,7 @@ or within max(paid + 1, 1.15 x paid)), more than two left, not a satellite,
 PKO or mystery bounty and with a payout weight above zero, reads the V71
 folded-to jam and the nashCallVsJam call at its own bubble factor
 (`payJumpBubbleFactor`), moved toward 1 by prize / (prize + bounty), with a
-bust valued at the place it finishes (`bustAwareBubbleFactor`). Explicit
+bust valued at the place it finishes (`bubbleFactor`, corrected 2026-11-15). Explicit
 false is chip EV everywhere (the behaviour before); explicit true is the
 2026-11-07 arm.
 
@@ -24,9 +24,9 @@ option unset it read `nashJamProbability` (chip-EV Nash, first caller only).
 At hand 59441335 (cutoff, 12,609 chips, 2.1bb, three behind, 1bb ante) that
 table jams 99.6% of hands; 85o up to 3.5bb, so p(jam) = 1.0. Now
 `payJumpBubbleFactor` returns 1 + (B - 1) x w with B =
-`bustAwareBubbleFactor` = 1.174 (hero's ICM equity 5.10 pool points, 5.74 if
-doubled through the covering stack, 4.34 if busted ninth; the legacy
-`bubbleFactor` prices the bust at 0 and returns its cap, 5) and w = 0.966
+`bubbleFactor` = 1.174 (hero's ICM equity 5.10 pool points, 5.74 if
+doubled through the covering stack, 4.34 if busted ninth; before
+2026-11-15 `bubbleFactor` priced the bust at 0 and returned its cap, 5) and w = 0.966
 (assumed 645.00 prize, 22.50 live bounty), so 1.168, and the jam reads
 `nashV2JamProbability` at that factor. The call path (nashCallVsJam) reads
 the same factor.
@@ -96,7 +96,7 @@ in `_seen` because days with no in-the-money short stack are normal.
 The reported 85o still jams at the reported node: with ninth place paid
 whatever happens the honest bubble factor is about 1.17, and at that factor
 the table jams 85o up to about 3bb. The audit's "folds 200/200 with
-nashPushFoldIcm" came from the legacy bubbleFactor pricing a bust at zero,
+nashPushFoldIcm" came from bubbleFactor pricing a bust at zero (corrected 2026-11-15),
 which would also fold 22, 44, A2o and T9s at 2.1bb. The tables are first
 caller only and ignore the free hands before the blind. The Phase 7 band
 units were not changed (they would overrule bubble folds that
