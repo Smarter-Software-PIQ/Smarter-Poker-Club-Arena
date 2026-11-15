@@ -64,6 +64,60 @@ export function accountingDay(at: Date | string | number = new Date()): string {
   return Number(p.hour) < 2 ? addCalendarDays(day, -1) : day;
 }
 
+/**
+ * The instant an accounting day starts: 02:00 America/Chicago of that date
+ * (03:00 CDT on the spring-forward Sunday, when 02:00 does not exist).
+ * Mirrors public.fn_ca_accounting_day_start. Found by asking which of the two
+ * possible UTC hours the zone database maps onto that date's accounting day,
+ * never by adding a fixed offset.
+ */
+export function accountingDayStart(day: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  const [y, m, d] = day.split('-').map(Number);
+  const before = addCalendarDays(day, -1);
+  for (const hour of [7, 8]) {
+    const at = new Date(Date.UTC(y, m - 1, d, hour));
+    if (accountingDay(at) === day && accountingDay(new Date(at.getTime() - 1)) === before) {
+      return at;
+    }
+  }
+  return null;
+}
+
+const boundaryFormat = new Intl.DateTimeFormat('en-US', {
+  timeZone: CLUB_DATA_TIME_ZONE,
+  month: 'short',
+  day: 'numeric',
+  year: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit',
+  hour12: true,
+});
+
+/** "Nov 2, 2026 2:00 AM": an instant on the Chicago clock, for a boundary. */
+export function chicagoBoundaryStamp(at: Date | string | number): string {
+  const d = at instanceof Date ? at : new Date(at);
+  if (Number.isNaN(d.getTime())) return '';
+  const p = Object.fromEntries(boundaryFormat.formatToParts(d).map((x) => [x.type, x.value]));
+  return `${p.month} ${p.day}, ${p.year} ${p.hour}:${p.minute} ${p.dayPeriod}`;
+}
+
+/**
+ * The window a Club Data screen shows, by its real boundaries. The screens
+ * carry the first and last ACCOUNTING day (inclusive, what the readers take);
+ * the window is [02:00 of the first day, 02:00 of the day after the last), so
+ * "Nov 2 2:00 AM To Nov 9 2:00 AM" is exactly the invoice week.
+ */
+export function accountingWindowLabel(firstDay: string, lastDay: string): string {
+  const from = accountingDayStart(firstDay);
+  const to = accountingDayStart(addCalendarDays(lastDay, 1));
+  if (!from || !to) return '';
+  return `${chicagoBoundaryStamp(from)} To ${chicagoBoundaryStamp(to)}`;
+}
+
+/** The short statement of the day the screens count. */
+export const CLUB_DATA_DAY_RULE = 'Days Run 2:00 AM To 2:00 AM Chicago Time';
+
 /** HH:MM of an instant on the Chicago clock. */
 export function chicagoClock(at: Date | string | number): string {
   const d = at instanceof Date ? at : new Date(at);

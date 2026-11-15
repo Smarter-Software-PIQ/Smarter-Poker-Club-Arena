@@ -29,18 +29,25 @@ import { usePlayerPreference } from '../../hooks/usePlayerPreference';
  *
  * The client gate below is cosmetic. The RPCs raise 42501 on their own.
  *
- * Dates are America/Chicago calendar days end to end, daylight saving
- * included (Dan, 2026-10-22), because the facts every figure comes from are
- * keyed on Chicago days (20261022103651, 20261022120121). The range chip says
- * Chicago Time rather than showing a bare date. MTT Winnings are finished MTTs
+ * Days are ACCOUNTING days: 02:00 to 02:00 America/Chicago, daylight saving
+ * included, the boundary the union weekly invoice uses (owner, 2026-11-14).
+ * Every figure comes from the invoice's own accounting records
+ * (20261115004729, 20261115013008). The page carries the first and last
+ * accounting day and shows the window by its boundaries: the range chip
+ * reads "Nov 2, 2026 2:00 AM To Nov 9, 2026 2:00 AM", and the end the owner
+ * picks is the 02:00 the window stops at. MTT Winnings are finished MTTs
  * only; a running MTT's entries are shown as Unfinished MTT Entries.
  */
 
 import {
+  CLUB_DATA_DAY_RULE,
   CLUB_DATA_TIME_ZONE,
   CLUB_DATA_ZONE_LABEL,
+  accountingDay,
+  accountingWindowLabel,
+  addCalendarDays,
+  chicagoBoundaryStamp,
   chicagoClock,
-  chicagoDay,
 } from '../../lib/clubDataDay';
 import {
   useCallback,
@@ -169,6 +176,13 @@ interface Snapshot {
   union_id: string | null;
   data_updated_at: string | null;
   generated_at: string;
+  accounting_basis?: string;
+  /** fn_ca_club_acct_coverage: whether the read model holds every day shown. */
+  accounting_coverage?: {
+    complete?: boolean;
+    missing_days?: string[];
+    failed_days?: string[];
+  } | null;
 }
 
 interface PlayerRow {
@@ -921,7 +935,7 @@ export default function ClubDataPage() {
   const [clubName, setClubName] = useState<string>('');
   const gameHost = useClubGameHost(clubUuid, !!userId && !isHydrating);
   const [preset, setPreset] = usePlayerPreference<PresetId>('club/ClubDataPage:preset', 14);
-  const [endDate, setEndDate] = useState<string>(() => chicagoDay());
+  const [endDate, setEndDate] = useState<string>(() => accountingDay());
   const [game, setGame] = usePlayerPreference<GameFilter>('club/ClubDataPage:game', 'ALL');
   const [stakes, setStakes] = usePlayerPreference<StakesFilter>('club/ClubDataPage:stakes', 'ALL');
   const [gameSort, setGameSort] = usePlayerPreference<GameSort>(
@@ -1073,7 +1087,7 @@ export default function ClubDataPage() {
   const mountedRef = useRef(false);
   const manualRefreshingRef = useRef(false);
   const manualRefreshVersion = useRef(0);
-  const observedUtcDayRef = useRef(chicagoDay());
+  const observedUtcDayRef = useRef(accountingDay());
   const gamesTabRef = useRef<HTMLButtonElement>(null);
   const playersTabRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -1124,7 +1138,7 @@ export default function ClubDataPage() {
     [startDate, endDate]
   );
 
-  const isToday = endDate >= chicagoDay();
+  const isToday = endDate >= accountingDay();
 
   const gameCacheKey = useMemo(
     () =>
@@ -2298,7 +2312,7 @@ export default function ClubDataPage() {
     // watched live rake stop growing and the forward arrow silently arm itself.
     // Only for someone still pinned to today - a deliberate step back stays.
     const pinToToday = () => {
-      const today = chicagoDay();
+      const today = accountingDay();
       const previousToday = observedUtcDayRef.current;
       observedUtcDayRef.current = today;
       setEndDate((cur) => (cur === previousToday || cur > today ? today : cur));
@@ -2621,7 +2635,7 @@ export default function ClubDataPage() {
       const d = new Date(`${endDate}T00:00:00Z`);
       d.setUTCDate(d.getUTCDate() + direction * preset);
       const next = toISODate(d);
-      const today = chicagoDay();
+      const today = accountingDay();
       observedUtcDayRef.current = today;
       setEndDate(next > today ? today : next);
     },
@@ -3316,9 +3330,7 @@ export default function ClubDataPage() {
               Prev
             </button>
             <span className={`sc-ink--silver ${styles.rangeChip}`}>
-              <span>{startDate}</span>
-              <span className={`sc-ink--muted ${styles.rangeDivider}`}>-</span>
-              <span>{endDate}</span>
+              <span>{accountingWindowLabel(startDate, endDate)}</span>
               <span className={`sc-label sc-ink--blue ${styles.rangeTz}`}>
                 {CLUB_DATA_ZONE_LABEL}
               </span>
@@ -3335,22 +3347,40 @@ export default function ClubDataPage() {
           </div>
 
           <label className={styles.calendarField}>
-            <span>Period Ending ({CLUB_DATA_ZONE_LABEL})</span>
+            {/* The end the owner picks is the 02:00 boundary the window stops
+              at; the readers take the last accounting day it closes. */}
+            <span>Window Ends At 2:00 AM ({CLUB_DATA_ZONE_LABEL})</span>
             <input
               type="date"
-              aria-label={`Period Ending (${CLUB_DATA_ZONE_LABEL})`}
-              value={endDate}
-              max={chicagoDay()}
+              aria-label={`Window Ends At 2:00 AM (${CLUB_DATA_ZONE_LABEL})`}
+              value={addCalendarDays(endDate, 1)}
+              max={addCalendarDays(accountingDay(), 1)}
               onChange={(event) => {
                 const value = event.target.value;
-                const today = chicagoDay();
-                if (/^\d{4}-\d{2}-\d{2}$/.test(value) && value <= today) {
+                const today = accountingDay();
+                if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return;
+                const lastDay = addCalendarDays(value, -1);
+                if (lastDay <= today) {
                   observedUtcDayRef.current = today;
-                  setEndDate(value);
+                  setEndDate(lastDay);
                 }
               }}
             />
           </label>
+          <p className={`sc-copy ${styles.note}`}>
+            {CLUB_DATA_DAY_RULE}. Union Invoice Basis: Fees Are The Rake Credited To The Club;
+            Total Winnings Are The Players' Results, Hand By Hand For Cash (Bad Beat Jackpot
+            Contributions And Awards Included) And Prizes Less Entries For Tournaments. A Window
+            That Has Not Closed Is Provisional Until Its Weekly Invoice Is Issued.
+          </p>
+          {snapshot?.accounting_coverage?.complete === false && (
+            <p className={`sc-copy sc-ink--red ${styles.note}`} role="alert">
+              Not Every Accounting Day In This Window Is Loaded Yet (
+              {(snapshot.accounting_coverage.missing_days?.length ?? 0) +
+                (snapshot.accounting_coverage.failed_days?.length ?? 0)}{' '}
+              Day(s)). These Totals Are Incomplete.
+            </p>
+          )}
           {/* role="group" + aria-pressed, not a tablist. These control no tabpanel,
           and the stakes row is a TOGGLE - tapping the active chip clears it,
           which is impossible for a tab and leaves a tablist with nothing
@@ -3506,15 +3536,16 @@ export default function ClubDataPage() {
                   <div className={styles.dataRow}>
                     <span className={`sc-label sc-ink--blue ${styles.dataLabel}`}>Period</span>
                     <span className={`sc-ink--silver ${styles.dataValue}`}>
-                      {String(latestInvoice.period_start || '').slice(0, 10)} To{' '}
-                      {String(latestInvoice.period_end || '').slice(0, 10)}
+                      {latestInvoice.period_start && latestInvoice.period_end
+                        ? `${chicagoBoundaryStamp(latestInvoice.period_start)} To ${chicagoBoundaryStamp(latestInvoice.period_end)} ${CLUB_DATA_ZONE_LABEL}`
+                        : 'Unknown'}
                     </span>
                   </div>
                   {latestInvoice.due_at && (
                     <div className={styles.dataRow}>
                       <span className={`sc-label sc-ink--blue ${styles.dataLabel}`}>Due</span>
                       <span className={`sc-ink--silver ${styles.dataValue}`}>
-                        {String(latestInvoice.due_at).slice(0, 10)}
+                        {chicagoBoundaryStamp(latestInvoice.due_at)} {CLUB_DATA_ZONE_LABEL}
                       </span>
                     </div>
                   )}
@@ -3631,8 +3662,9 @@ export default function ClubDataPage() {
                     {olderInvoices.map((inv) => (
                       <div className={styles.dataRow} key={inv.invoice_id}>
                         <span className={`sc-copy ${styles.lineLabel}`}>
-                          {String(inv.period_start || '').slice(0, 10)} To{' '}
-                          {String(inv.period_end || '').slice(0, 10)}
+                          {inv.period_start && inv.period_end
+                            ? `${chicagoBoundaryStamp(inv.period_start)} To ${chicagoBoundaryStamp(inv.period_end)}`
+                            : 'Unknown'}
                         </span>
                         <span
                           className={`${inv.direction === 'union owes club' ? 'sc-ink--green' : 'sc-ink--silver'} ${styles.dataValue}`}

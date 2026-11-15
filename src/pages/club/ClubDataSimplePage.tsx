@@ -21,9 +21,14 @@ import { usePlayerPreference } from '../../hooks/usePlayerPreference';
  * tab comes back into view. A read that fails keeps the last good figures on
  * screen and says so; it never paints zeros.
  *
- * Days are America/Chicago calendar days, daylight saving included (Dan,
- * 2026-10-22), because the server buckets every figure by the Chicago day
- * (20261022103651, 20261022120121). Times on the page are Chicago time too.
+ * Days are ACCOUNTING days: 02:00 to 02:00 America/Chicago, daylight saving
+ * included, the boundary the union weekly invoice uses (owner, 2026-11-14;
+ * 20261114235606). Every figure is read from the invoice's own accounting
+ * records (20261115004729, 20261115013008): fees are accounting rake credit,
+ * Total Winnings the players' accounting result. The page carries the first
+ * and last accounting day; it SHOWS and SELECTS the window by its boundaries,
+ * so choosing Nov 2 to Nov 9 is [Nov 2 02:00, Nov 9 02:00): seven days, the
+ * invoice week. Times on the page are Chicago time.
  * MTT Winnings are finished MTTs only; a running MTT's entries are shown as
  * Unfinished MTT Entries, and both are inside Total Winnings.
  * The full operator report (union statement, per-player breakdown, export)
@@ -47,10 +52,12 @@ import { titleCase } from '../../utils/titleCase';
 import { playerDisplayName } from '../../utils/playerDisplayName';
 import { useFitText } from '../../components/lobby/game-cards/useFitText';
 import {
+  CLUB_DATA_DAY_RULE,
   CLUB_DATA_ZONE_LABEL,
+  accountingDay,
+  accountingWindowLabel,
   addCalendarDays,
   chicagoClock,
-  chicagoDay,
   chicagoStamp,
 } from '../../lib/clubDataDay';
 
@@ -109,7 +116,13 @@ interface Snapshot {
   scope?: 'club' | 'downline';
   club_name?: string | null;
   reporting_scope?: 'club' | 'union';
-  accounting_basis?: 'utc_net_money_flow' | 'chicago_net_money_flow';
+  accounting_basis?: 'utc_net_money_flow' | 'chicago_net_money_flow' | 'union_invoice_accounting';
+  /** fn_ca_club_acct_coverage: whether the read model holds every day shown. */
+  accounting_coverage?: {
+    complete?: boolean;
+    missing_days?: string[];
+    failed_days?: string[];
+  } | null;
   /** First day the per-club facts cover. */
   facts_from?: string | null;
 }
@@ -136,9 +149,9 @@ export function refreshIntervalMs(preset: Preset): number {
   return preset === 1 ? 15_000 : 60_000;
 }
 
-/** Today on the Club Data clock: the America/Chicago calendar day. */
+/** Today on the Club Data clock: the current accounting day (02:00 Chicago). */
 export function clubDataToday(now: Date = new Date()): string {
-  return chicagoDay(now);
+  return accountingDay(now);
 }
 
 export function addDays(iso: string, days: number): string {
@@ -575,14 +588,14 @@ export default function ClubDataSimplePage() {
           aria-controls="club-data-date-range"
           onClick={() => {
             setDraftStart(startDate);
-            setDraftEnd(endDate);
+            // The end the owner picks is the 02:00 boundary the window stops
+            // at, the day after the last accounting day it holds.
+            setDraftEnd(addDays(endDate, 1));
             setRangeError(null);
             setEditingDates((open) => !open);
           }}
         >
-          <span>{startDate}</span>
-          <span className={styles.rangeDash}>-</span>
-          <span>{endDate}</span>
+          <span>{accountingWindowLabel(startDate, endDate)}</span>
           <span className={styles.rangeTz}>{CLUB_DATA_ZONE_LABEL}</span>
         </button>
         <button
@@ -604,10 +617,15 @@ export default function ClubDataSimplePage() {
           className={styles.dateEditor}
           onSubmit={(event) => {
             event.preventDefault();
-            const problem = clubDataRangeError(draftStart, draftEnd, today);
+            // draftEnd is the boundary; the readers take the last day it closes.
+            const lastDay = /^\d{4}-\d{2}-\d{2}$/.test(draftEnd) ? addDays(draftEnd, -1) : draftEnd;
+            const problem =
+              draftEnd && draftStart && draftEnd <= draftStart
+                ? 'The End Must Be After The Start.'
+                : clubDataRangeError(draftStart, lastDay, today);
             setRangeError(problem);
             if (problem) return;
-            selectDates(draftStart, draftEnd);
+            selectDates(draftStart, lastDay);
             setEditingDates(false);
           }}
         >
@@ -617,24 +635,27 @@ export default function ClubDataSimplePage() {
               type="date"
               aria-label="Start Date"
               value={draftStart}
-              max={draftEnd || today}
+              max={draftEnd ? addDays(draftEnd, -1) : today}
               onChange={(event) => setDraftStart(event.target.value)}
               required
             />
           </label>
           <label>
-            End Date
+            End Date (Stops At 2:00 AM)
             <input
               type="date"
-              aria-label="End Date"
+              aria-label="End Date (Stops At 2:00 AM)"
               value={draftEnd}
-              min={draftStart}
-              max={today}
+              min={draftStart ? addDays(draftStart, 1) : undefined}
+              max={addDays(today, 1)}
               onChange={(event) => setDraftEnd(event.target.value)}
               required
             />
           </label>
-          <p>Chicago Time. Up To 93 Days.</p>
+          <p>
+            {CLUB_DATA_DAY_RULE}. The Window Starts At 2:00 AM On The Start Date And Stops At 2:00
+            AM On The End Date. Up To 93 Days.
+          </p>
           {rangeError && <p role="alert">{rangeError}</p>}
           <button type="button" className={styles.retry} onClick={() => setEditingDates(false)}>
             Cancel
@@ -795,10 +816,20 @@ export default function ClubDataSimplePage() {
           </>
         )}
       </div>
-      {visibleSnapshot?.accounting_basis === 'chicago_net_money_flow' && (
+      {visibleSnapshot?.accounting_basis === 'union_invoice_accounting' && (
         <p className={styles.liveLine}>
-          Net Entries And Payouts In Chicago Time. MTT Winnings Count Finished MTTs Only. Unfinished
-          MTT Entries Are Buy-Ins For MTTs Still Running Or Not Yet Started.
+          Union Invoice Basis. {CLUB_DATA_DAY_RULE}. Fees Are The Rake Credited To The Club. Total
+          Winnings Are The Players' Results: Hand By Hand, Including Bad Beat Jackpot Contributions
+          And Awards, For Cash, And Prizes Less Entries For Tournaments. MTT Winnings Count Finished
+          MTTs Only. A Window That Has Not Closed Is Provisional Until Its Weekly Invoice Is Issued.
+        </p>
+      )}
+      {visibleSnapshot?.accounting_coverage?.complete === false && (
+        <p className={`${styles.liveLine} ${styles.inkLoss}`} role="alert">
+          Not Every Accounting Day In This Window Is Loaded Yet (
+          {(visibleSnapshot.accounting_coverage.missing_days?.length ?? 0) +
+            (visibleSnapshot.accounting_coverage.failed_days?.length ?? 0)}{' '}
+          Day(s)). These Totals Are Incomplete.
         </p>
       )}
       {visibleSnapshot?.accounting_basis === 'utc_net_money_flow' && (
