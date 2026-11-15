@@ -2147,6 +2147,22 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: {},
     b: { omahaTournamentFirstIn: false },
   })),
+  // 2026-11-14 OMAHA HI-LO HEADS-UP TOURNAMENT FIRST-IN (HU-HILO-002),
+  // default OFF: a is the option on, b today's brain. PLO8 heads-up final
+  // table at 12 BB, where the small blind folds 83-85 percent first in and
+  // the big blind 81-91 percent to one raise. The card only measures.
+  {
+    name: 'plo8_mtt_hu_omaha_hilo_tournament_first_in_12bb',
+    variant: 'plo8',
+    seats: 2,
+    stackBB: 12,
+    context: finalTableMttContext(2, 12),
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: { omahaHiLoTournamentFirstIn: true },
+    b: {},
+  },
   {
     name: 'plo4_spin_3max_omaha_tournament_first_in_12bb',
     variant: 'plo4',
@@ -2208,6 +2224,26 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     hybridBaseline: true,
     moodClock: 'deal_seed',
     a: { committedStackPricedIn: true },
+    b: {},
+  },
+  // 2026-11-14 PLO6 COMMITMENT-ZONE RE-RAISE PRICE RELIEF
+  // (omahaCommitZoneThreeBetPriceRelief, default OFF; PLO6 tournament-folds
+  // study, docs/changelog/2026-11-14-plo6-commit-zone-price-relief.md). Six-
+  // card Omaha high in the commitment zone facing a re-raise: arm A takes the
+  // wider price relief. A 40bb six-handed big-blind-ante MTT with the live M
+  // state, the depth the study measured (development human field, chips only:
+  // +6.83 +/- 3.78 and +7.62 +/- 3.77 bb/100 on two seeds). Payout is not
+  // measured. The default is unchanged.
+  {
+    name: 'plo6_mtt6_commit_zone_three_bet_price_relief_40bb',
+    variant: 'plo6',
+    seats: 6,
+    stackBB: 40,
+    context: bigBlindAnteMttWithMContext(6, 40),
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: { omahaCommitZoneThreeBetPriceRelief: true },
     b: {},
   },
   // 2026-11-07 PREFLOP DEFENCE LEAKS, both default OFF, so arm A turns each

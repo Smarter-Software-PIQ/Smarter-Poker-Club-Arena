@@ -156,6 +156,24 @@
       "url": "https://opengameart.org/content/202-more-sound-effects",
       "zip": "https://opengameart.org/sites/default/files/MoreSounds.zip",
       "dir": "oga-more-sounds"
+    },
+    "freesound-hen": {
+      "kind": "local",
+      "title": "Chicken Single Alarm Call",
+      "author": "Rudmer_Rotteveel",
+      "license": "CC0-1.0",
+      "url": "https://freesound.org/people/Rudmer_Rotteveel/sounds/316920/",
+      "dir": "freesound-hen",
+      "download": "https://cdn.freesound.org/previews/316/316920_4921277-hq.mp3"
+    },
+    "yellowstone-grizzly": {
+      "kind": "local",
+      "title": "Yellowstone grizzly bear vocalizations",
+      "author": "Dan Bergum / National Park Service; CC0 distribution by Nivatius",
+      "license": "CC0-1.0",
+      "url": "https://freesound.org/people/Nivatius/sounds/519518/",
+      "dir": "grizzly",
+      "download": "https://cdn.freesound.org/previews/519/519518_7143328-hq.mp3"
     }
   },
   "cues": {
@@ -1527,6 +1545,450 @@
         }
       ],
       "trimEnd": 0.396
+    },
+    "chicken_bawk": {
+      "source": "freesound-hen",
+      "levelDb": -4,
+      "trimEnd": 1.15,
+      "layers": [
+        {
+          "file": "hen.mp3",
+          "filter": "highpass=f=160,afade=t=out:st=1.04:d=0.10",
+          "at": 0,
+          "gain": 1
+        }
+      ]
+    },
+    "donkey_hee_haw": {
+      "source": "freesound-donkey",
+      "levelDb": -4,
+      "trimEnd": 3.1,
+      "layers": [
+        {
+          "file": "donkey-bray.mp3",
+          "filter": "atrim=start=0.14:end=0.96,asetpts=PTS-STARTPTS,atempo=0.6,highpass=f=100,afade=t=in:d=0.012,afade=t=out:st=1.31:d=0.05",
+          "at": 0,
+          "gain": 1
+        },
+        {
+          "file": "donkey-bray.mp3",
+          "filter": "atrim=start=1.01:end=1.63,asetpts=PTS-STARTPTS,atempo=1.28,highpass=f=100,afade=t=in:d=0.012,afade=t=out:st=0.43:d=0.05",
+          "at": 1.48,
+          "gain": 1
+        },
+        {
+          "file": "donkey-bray.mp3",
+          "filter": "atrim=start=1.74:end=2.22,asetpts=PTS-STARTPTS,atempo=1,highpass=f=100,afade=t=in:d=0.012,afade=t=out:st=0.43:d=0.05",
+          "at": 2.03,
+          "gain": 1
+        },
+        {
+          "file": "donkey-bray.mp3",
+          "filter": "atrim=start=2.29:end=2.76,asetpts=PTS-STARTPTS,atempo=1,highpass=f=100,afade=t=in:d=0.012,afade=t=out:st=0.42:d=0.05",
+          "at": 2.6,
+          "gain": 1
+        }
+      ]
+    },
+    "bear_growl": {
+      "source": "oga-creature-sfx",
+      "levelDb": -5,
+      "layers": [
+        {
+          "file": "roar_02.ogg",
+          "at": 0,
+          "gain": 1,
+          "filter": "asetrate=41500,aresample=48000"
+        }
+      ],
+      "trimEnd": 1.4
+    },
+    "shark_chomp": {
+      "source": "oga-creature-sfx",
+      "levelDb": -5,
+      "layers": [
+        {
+          "file": "eat_02.ogg",
+          "at": 0,
+          "gain": 1
+        },
+        {
+          "source": "oga-water-splash-slime",
+          "file": "slime_02.ogg",
+          "at": 0.05,
+          "gain": 0.3
+        }
+      ],
+      "trimEnd": 0.42
+    },
+    "rat_chuckle": {
+      "source": "oga-creature-sfx",
+      "levelDb": -5,
+      "layers": [
+        {
+          "file": "cute_03.ogg",
+          "at": 0,
+          "gain": 1,
+          "filter": "asetrate=57000,aresample=48000"
+        }
+      ],
+      "trimEnd": 0.72
+    },
+    "stifled_sob": {
+      "source": "oga-creature-sfx",
+      "levelDb": -5,
+      "layers": [
+        {
+          "file": "hurt_03.ogg",
+          "at": 0,
+          "gain": 1,
+          "filter": "lowpass=f=2500"
+        },
+        {
+          "source": "oga-creature-sfx",
+          "file": "breath.ogg",
+          "at": 0.38,
+          "gain": 0.4
+        }
+      ],
+      "trimEnd": 0.9
+    },
+    "rage_grunt": {
+      "source": "oga-creature-sfx",
+      "levelDb": -5,
+      "layers": [
+        {
+          "file": "grunt_04.ogg",
+          "at": 0,
+          "gain": 1
+        }
+      ],
+      "trimEnd": 0.72
+    },
+    "bone_chatter": {
+      "source": "oga-rpg",
+      "levelDb": -5,
+      "layers": [
+        {
+          "file": "item_stone_02.ogg",
+          "at": 0,
+          "gain": 1,
+          "filter": "highpass=f=1000"
+        },
+        {
+          "source": "oga-rpg",
+          "file": "item_stone_04.ogg",
+          "at": 0.09,
+          "gain": 0.8
+        },
+        {
+          "source": "oga-rpg",
+          "file": "item_stone_02.ogg",
+          "at": 0.21,
+          "gain": 0.55
+        }
+      ],
+      "trimEnd": 0.43
+    },
+    "stone_drop": {
+      "source": "oga-rpg",
+      "levelDb": -5,
+      "layers": [
+        {
+          "file": "item_stone_03.ogg",
+          "at": 0,
+          "gain": 1
+        }
+      ],
+      "trimEnd": 0.55
+    },
+    "fish_slap": {
+      "source": "oga-water-splash-slime",
+      "levelDb": -5,
+      "layers": [
+        {
+          "file": "splash_04.ogg",
+          "at": 0,
+          "gain": 1
+        },
+        {
+          "source": "oga-mud",
+          "file": "mud_01.ogg",
+          "at": 0.01,
+          "gain": 0.85
+        }
+      ],
+      "trimEnd": 0.58
+    },
+    "ghost_wail": {
+      "source": "oga-creature-sfx",
+      "levelDb": -5,
+      "layers": [
+        {
+          "file": "howl.ogg",
+          "at": 0,
+          "gain": 1,
+          "filter": "aecho=.8:.5:90:.22"
+        }
+      ],
+      "trimEnd": 1.42
+    },
+    "dog_huff": {
+      "source": "oga-creature-sfx",
+      "levelDb": -5,
+      "layers": [
+        {
+          "file": "barking_01.ogg",
+          "at": 0,
+          "gain": 1
+        }
+      ],
+      "trimEnd": 0.5
+    },
+    "thoughtful_hum": {
+      "source": "oga-creature-sfx",
+      "levelDb": -5,
+      "layers": [
+        {
+          "file": "ooh.ogg",
+          "at": 0,
+          "gain": 1,
+          "filter": "asetrate=41900,aresample=48000,lowpass=f=750"
+        }
+      ],
+      "trimEnd": 0.82
+    },
+    "paper_horn": {
+      "source": "own-synthesis",
+      "levelDb": -5,
+      "layers": [
+        {
+          "lavfi": "aevalsrc=atan(4*sin(2*PI*(340*t+23*t*t)+2*sin(2*PI*680*t))):s=48000:d=0.42",
+          "at": 0,
+          "gain": 1,
+          "filter": "highpass=f=200,lowpass=f=2600,afade=t=in:d=0.035,afade=t=out:st=0.26:d=0.16"
+        }
+      ],
+      "trimEnd": 0.42
+    },
+    "finger_snap": {
+      "source": "own-synthesis",
+      "levelDb": -5,
+      "layers": [
+        {
+          "lavfi": "anoisesrc=color=pink:seed=17:d=0.09",
+          "at": 0,
+          "gain": 1,
+          "filter": "highpass=f=800,lowpass=f=5500,afade=t=out:st=0:d=0.055"
+        }
+      ],
+      "trimEnd": 0.09
+    },
+    "palm_contact": {
+      "source": "oga-more-sounds",
+      "levelDb": -5,
+      "layers": [
+        {
+          "file": "Cloth_03.wav",
+          "at": 0,
+          "gain": 1
+        },
+        {
+          "source": "oga-mud",
+          "file": "mud_03.ogg",
+          "at": 0,
+          "gain": 0.25
+        }
+      ],
+      "trimEnd": 0.24
+    },
+    "comic_gulp": {
+      "source": "oga-more-sounds",
+      "levelDb": -5,
+      "layers": [
+        {
+          "file": "Drink_03.wav",
+          "at": 0,
+          "gain": 1
+        }
+      ],
+      "trimEnd": 0.55
+    },
+    "thunder_crack": {
+      "source": "oga-wood-metal",
+      "levelDb": -5,
+      "layers": [
+        {
+          "file": "metal_sheet_03.ogg",
+          "at": 0,
+          "gain": 1,
+          "filter": "lowpass=f=2400"
+        },
+        {
+          "source": "oga-rpg",
+          "file": "item_stone_01.ogg",
+          "at": 0.04,
+          "gain": 0.7
+        }
+      ],
+      "trimEnd": 1.12
+    },
+    "peel_skid": {
+      "source": "oga-wood-metal",
+      "levelDb": -5,
+      "layers": [
+        {
+          "file": "metal_spring_02.ogg",
+          "at": 0,
+          "gain": 1,
+          "filter": "lowpass=f=1700"
+        }
+      ],
+      "trimEnd": 0.46
+    },
+    "snow_crunch": {
+      "source": "oga-more-sounds",
+      "levelDb": -5,
+      "layers": [
+        {
+          "file": "Cloth_04.wav",
+          "at": 0,
+          "gain": 1,
+          "filter": "highpass=f=400"
+        },
+        {
+          "source": "oga-mud",
+          "file": "mud_05.ogg",
+          "at": 0.02,
+          "gain": 0.32
+        }
+      ],
+      "trimEnd": 0.43
+    },
+    "brass_hook": {
+      "source": "oga-wood-metal",
+      "levelDb": -5,
+      "layers": [
+        {
+          "file": "keys_03.ogg",
+          "at": 0,
+          "gain": 1,
+          "filter": "highpass=f=700"
+        }
+      ],
+      "trimEnd": 0.28
+    },
+    "gem_tick": {
+      "source": "oga-rpg",
+      "levelDb": -5,
+      "layers": [
+        {
+          "file": "item_gem_02.ogg",
+          "at": 0,
+          "gain": 1
+        }
+      ],
+      "trimEnd": 0.33
+    },
+    "leather_kick": {
+      "source": "oga-more-sounds",
+      "levelDb": -5,
+      "layers": [
+        {
+          "file": "Cloth_05.wav",
+          "at": 0,
+          "gain": 1
+        },
+        {
+          "source": "oga-rpg",
+          "file": "item_wood_02.ogg",
+          "at": 0.008,
+          "gain": 0.75
+        }
+      ],
+      "trimEnd": 0.28
+    },
+    "cheese_pull": {
+      "source": "oga-water-splash-slime",
+      "levelDb": -5,
+      "layers": [
+        {
+          "file": "slime_07.ogg",
+          "at": 0,
+          "gain": 1
+        }
+      ],
+      "trimEnd": 0.87
+    },
+    "bubble_pop": {
+      "source": "oga-water-splash-slime",
+      "levelDb": -5,
+      "layers": [
+        {
+          "file": "bubble_03.ogg",
+          "at": 0,
+          "gain": 1
+        }
+      ],
+      "trimEnd": 0.39
+    },
+    "rose_kiss": {
+      "source": "oga-creature-sfx",
+      "levelDb": -5,
+      "layers": [
+        {
+          "file": "spit_01.ogg",
+          "at": 0,
+          "gain": 1,
+          "filter": "highpass=f=600,lowpass=f=3200"
+        }
+      ],
+      "trimEnd": 0.21
+    },
+    "grizzly_warning": {
+      "source": "yellowstone-grizzly",
+      "levelDb": -3,
+      "layers": [
+        {
+          "file": "field.mp3",
+          "at": 0,
+          "gain": 1,
+          "filter": "atrim=start=32.96:duration=1.38,asetpts=PTS-STARTPTS,highpass=f=50,afade=t=in:d=0.025,afade=t=out:st=1.26:d=0.12"
+        }
+      ],
+      "trimEnd": 1.38
+    },
+    "grizzly_growl": {
+      "source": "yellowstone-grizzly",
+      "levelDb": -3,
+      "layers": [
+        {
+          "file": "field.mp3",
+          "at": 0,
+          "gain": 1,
+          "filter": "atrim=start=69.85:duration=1.83,asetpts=PTS-STARTPTS,highpass=f=50,afade=t=in:d=0.025,afade=t=out:st=1.71:d=0.12"
+        }
+      ],
+      "trimEnd": 1.83
+    },
+    "sushi_chop": {
+      "source": "own-synthesis",
+      "levelDb": -5,
+      "layers": [
+        {
+          "lavfi": "anoisesrc=color=brown:seed=31:d=0.11",
+          "at": 0,
+          "gain": 1,
+          "filter": "highpass=f=200,lowpass=f=2400,afade=t=out:st=0.003:d=0.084"
+        },
+        {
+          "lavfi": "sine=frequency=470:duration=0.07",
+          "at": 0.005,
+          "gain": 0.45,
+          "filter": "afade=t=out:st=0:d=0.06"
+        }
+      ],
+      "trimEnd": 0.13
     }
   }
 }

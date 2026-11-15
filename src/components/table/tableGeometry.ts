@@ -1382,15 +1382,11 @@ function feltTextRectSq(size: Size): RectSq {
   const metaPx =
     FELT_TEXT_BAND.lines * FELT_TEXT_BAND.lineHeightPx +
     (FELT_TEXT_BAND.lines - 1) * FELT_TEXT_BAND.lineGapPx;
-  // Phone CSS: 3px logo gap, single identity line at 7px/1.15,
-  // game clamp(7px, 6.5cqw, 10px), hand/bomb 6px, three 1px row gaps.
-  const phoneGamePx = Math.max(7, Math.min(10, brandPx * 0.065));
+  // Mirror the phone caption and cash stakes clamps in TablePage.css.
+  const captionPx = 0.67 * Math.max(11, Math.min(13, brandPx * 0.06));
+  const stakesPx = 0.67 * Math.max(13, Math.min(16, brandPx * 0.105));
   const heightPx = size.railBets
-    ? brandPx / FELT_TEXT_BAND.logoAspect +
-      3 +
-      (size.w <= 340 * 0.82 ? 6 : 7) * 1.15 +
-      (phoneGamePx + 6 + 6) * 1.6 +
-      3
+    ? brandPx / FELT_TEXT_BAND.logoAspect + 3 + (captionPx * 3 + stakesPx) * 1.3 + 3
     : brandPx / FELT_TEXT_BAND.logoAspect + FELT_TEXT_BAND.logoToMetaGapPx + metaPx;
   const u = unitPx(size);
   const topYPct = FELT_WINDOW.top + (FELT_TEXT_BAND.topOfFeltYPct / 100) * FELT_WINDOW.height;

@@ -69,7 +69,10 @@ export const roseSpec: ThrowableSpec = {
     { at: 2633, marker: 'kiss-drift' },
     { at: 3500, marker: 'cut' },
   ],
-  audio: [{ at: 767, sample: 'harp_sparkle' }],
+  audio: [
+    { at: 567, sample: 'harp_sparkle', gain: 0.46 },
+    { at: 1467, sample: 'rose_kiss', gain: 0.78 },
+  ],
   reference: { video: 2, launchFrame: 2511, throw: 'THROW 13' },
 };
 
@@ -81,10 +84,10 @@ function Rose() {
     <AtlasSprite
       src="rose-bloom"
       rect={[0, 0, 1254, 1254]}
-      x={-19}
-      y={-25}
-      width={38}
-      height={46}
+      x={-31}
+      y={-37}
+      width={62}
+      height={68}
     />
   );
 }

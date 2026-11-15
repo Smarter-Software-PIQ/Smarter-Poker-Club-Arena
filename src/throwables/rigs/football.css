@@ -85,3 +85,21 @@
     opacity: 0 !important;
   }
 }
+
+.thr-football__spin {
+  transform-origin: 0 0;
+  animation: thr-football-spin calc(0.65s * var(--animation-speed, 1)) ease-out both;
+}
+@keyframes thr-football-spin {
+  from {
+    transform: rotate(-48deg);
+  }
+  to {
+    transform: rotate(485deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .thr-football__spin {
+    animation: none !important;
+  }
+}

@@ -2588,6 +2588,15 @@ export interface HorseDecideOpts {
   omahaTournamentFirstIn?:
     | boolean
     | Partial<import('./HorseOmahaTournamentFirstIn.js').OmahaTournamentFirstInParams>;
+  /** Pot-limit Omaha hi-lo tournaments, exactly two dealt in at the final
+   *  table, 20 BB or less (HU-HILO-002): the omahaTournamentFirstIn fold
+   *  replacement by the hand's hi-lo percentile (small blind first in; big
+   *  blind facing one raise). Default OFF: only explicit true, or a league
+   *  arm's parameters, switches it on. Fixed-limit hi-lo and every table of
+   *  three or more are outside it. */
+  omahaHiLoTournamentFirstIn?:
+    | boolean
+    | Partial<import('./HorseOmahaTournamentFirstIn.js').OmahaTournamentFirstInParams>;
   /** League-only override of the V67 extra raise shade; production never
    * sets it. */
   v67RiverRaiseShadeOverride?: number;
@@ -2826,6 +2835,12 @@ export interface HorseDecideOpts {
    *  hand whose call is the stack jams instead of folding: a 20bb opener
    *  facing a 3-bet to 11bb folded 97-98% of its open. Default OFF. */
   vs3BetShortStack?: boolean;
+  /** PLO6 COMMITMENT-ZONE 3-BET PRICE RELIEF (PLO6 tournament-folds study,
+   *  2026-11-14): in the V25 PLO commitment zone facing a re-raise, six-card
+   *  Omaha high takes the facing-3-bet price relief max(0, 0.5 - odds) * 1.6
+   *  instead of (0.4 - odds) * 1.2. Default OFF: only explicit true turns it
+   *  on. Chip-scored development-field evidence only; payout not measured. */
+  omahaCommitZoneThreeBetPriceRelief?: boolean;
   /** FACING A CLOSED ALL-IN RE-RAISE (2026-11-08, default ON): facing a
    *  3-bet or 4-bet made all in with every other live opponent all in or
    *  folded, the 3-bet node's 35% and the 4-bet node's 30% stack caps no
@@ -9410,6 +9425,24 @@ export class HorseLogic {
             },
           }
         : {}),
+      // HU-HILO-002, default OFF: the hi-lo percentile is computed only when
+      // the option is on, so the off arm does no extra work and draws nothing.
+      ...(vi.isOmaha &&
+      vi.isHiLo &&
+      !vi.isFixedLimit &&
+      gs.gameMode === 'tournament' &&
+      (opts.omahaHiLoTournamentFirstIn === true ||
+        (typeof opts.omahaHiLoTournamentFirstIn === 'object' &&
+          opts.omahaHiLoTournamentFirstIn !== null))
+        ? {
+            omahaHiLoTournamentFirstIn: {
+              percentile: omahaPreflopPercentile(player.cards, true),
+              ...(typeof opts.omahaHiLoTournamentFirstIn === 'object'
+                ? { params: opts.omahaHiLoTournamentFirstIn }
+                : {}),
+            },
+          }
+        : {}),
       ...(huBbPrice ? { huBbPrice } : {}),
       ...(huOpenerPrice ? { huOpenerPrice } : {}),
       ...(huLimpPrice ? { huLimpPrice } : {}),
@@ -9612,6 +9645,8 @@ export class HorseLogic {
       facingOpenShortHandedZone: opts.v70FacingOpenZone === false ? undefined : true,
       facingOpenFullRingZone: opts.facingOpenFullRingZone === true ? true : undefined,
       vs3BetShortJam: opts.vs3BetShortStack === true ? true : undefined,
+      omahaCommitZoneThreeBetPriceRelief:
+        opts.omahaCommitZoneThreeBetPriceRelief === true ? true : undefined,
       // V18 STRADDLE: the shape the fallback above detected - hand the
       // truth to the preflop engine so its unopened branch owns the pot.
       // V28: the single source of truth computed above — unopened for EVERY
@@ -9670,6 +9705,8 @@ export class HorseLogic {
               noteFire('v60_cash_pressure_opener_vs_three_bet');
             else if (layer === 'v87_deep_dive_discipline') noteFire('v87_deep_dive_discipline');
             else if (layer === 'omaha_tournament_first_in') noteFire('omaha_tournament_first_in');
+            else if (layer === 'omaha_hilo_tournament_first_in')
+              noteFire('omaha_hilo_tournament_first_in');
             else if (layer === 'bluff_raise_refused_no_fold_equity_seen')
               noteFire('bluff_raise_refused_no_fold_equity_seen');
             else if (layer === 'style_tight_opener_respect_seen')

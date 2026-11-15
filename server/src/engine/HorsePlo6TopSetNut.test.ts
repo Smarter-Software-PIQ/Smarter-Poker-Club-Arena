@@ -20,6 +20,7 @@ import {
 } from './HorseComplaintReplay.js';
 import { HorseMind } from './HorseMind.js';
 import { plo6TopSetIsCurrentNuts } from './HorsePlo6TopSetNut.js';
+import { KNOWN_VARIANTS, holeCardCount, isHiLoVariant } from './VariantRules.js';
 
 const SUIT: Record<string, CardSuit> = { c: 'clubs', d: 'diamonds', h: 'hearts', s: 'spades' };
 const cards = (s: string): Card[] =>
@@ -76,7 +77,14 @@ const NODE_ORD = 12;
 
 /** One-third price flop: seat 1 bets the pot (5.75 into 5.75), seat 2 folds, seats 5 and 6 behind. */
 function fixture(
-  o: { hole?: string; board?: string; variant?: string; tournament?: boolean } = {}
+  o: {
+    hole?: string;
+    board?: string;
+    variant?: string;
+    tournament?: boolean;
+    bombPot?: boolean;
+    secondBoard?: string;
+  } = {}
 ): ComplaintFixture {
   const variant = o.variant ?? 'plo6';
   const mode = o.tournament ? 'tournament' : 'cash';
@@ -122,7 +130,7 @@ function fixture(
             [5, 216.74, 0, 1.1, 0, 0, 0],
             [6, 47.54, 0, 1.1, 0, 0, 0],
           ],
-          boards: [o.board ?? '3d7d9h'],
+          boards: o.secondBoard ? [o.board ?? '3d7d9h', o.secondBoard] : [o.board ?? '3d7d9h'],
           street: 'flop',
           toCall: 5.75,
           currentBet: 5.75,
@@ -136,8 +144,8 @@ function fixture(
           variant,
           structure: 'pot_limit',
           actorSeat: HERO_SEAT,
-          bombPot: false,
-          boardCount: 1,
+          bombPot: o.bombPot === true,
+          boardCount: o.secondBoard ? 2 : 1,
           allInOrFold: false,
           fixedBetSize: null,
           wagersCapped: false,
@@ -205,6 +213,9 @@ describe('plo6TopSetNutRealization through decide (PLO6-AUDIT P6-4)', () => {
     ['a tournament', { tournament: true }],
     ['a paired board', { board: '7d7c9h' }],
     ['three of a suit on the board', { board: '3d7d9d' }],
+    // HA-10861-1: the bomb-pot and two-board guards each get a control.
+    ['a bomb pot', { bombPot: true }],
+    ['two boards', { secondBoard: '2c4sJh' }],
   ];
   for (const [name, o] of controls) {
     it(`control: ${name} is unchanged with the option on`, () => {
@@ -215,4 +226,13 @@ describe('plo6TopSetNutRealization through decide (PLO6-AUDIT P6-4)', () => {
       expect(on.receipts[RECEIPT] ?? 0).toBe(0);
     }, 120_000);
   }
+
+  // HA-10861-1, the hi-lo guard. No registered variant deals six hole cards
+  // and splits hi-lo, so that guard cannot be reached through decide today
+  // and has no decision-level control. If such a variant is registered this
+  // fails, and a control for it belongs in the list above.
+  it('no registered variant is six-card hi-lo, so the hi-lo guard is unreachable today', () => {
+    expect(KNOWN_VARIANTS.filter((v) => holeCardCount(v) === 6 && isHiLoVariant(v))).toEqual([]);
+    expect(KNOWN_VARIANTS).toContain('plo6');
+  });
 });

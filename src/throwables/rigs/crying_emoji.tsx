@@ -1,3 +1,4 @@
+import { PerformancePose } from '../PerformancePose';
 import { AtlasSprite } from '../AtlasSprite';
 import { RIG_VIEWBOX, type RigProps, type ThrowableRig } from '../rig';
 import type { ThrowableSpec } from '../spec';
@@ -23,8 +24,10 @@ export const spec: ThrowableSpec = {
     { at: 4200, marker: 'cut' },
   ],
   audio: [
-    { at: 1200, sample: 'water_lap' },
-    { at: 1600, sample: 'drip' },
+    { at: 1200, sample: 'stifled_sob', gain: 0.74 },
+    { at: 1600, sample: 'water_lap', gain: 0.25 },
+    { at: 2300, sample: 'drip', gain: 0.5 },
+    { at: 3300, sample: 'stifled_sob', gain: 0.92 },
   ],
 };
 preloadThrowableCues(spec.audio.map((c) => c.sample));
@@ -56,13 +59,17 @@ function Payload(_props: RigProps) {
         />
       </g>
       <g className="thr-crying_emoji__tremble">
-        <AtlasSprite
-          src="crying_emoji"
-          rect={[650, 45, 570, 565]}
-          x={-60}
-          y={-60}
-          width={120}
-          height={120}
+        <PerformancePose
+          src="crying_emoji-acting"
+          row={0}
+          rows={2}
+          x={-60.0}
+          y={-59.474}
+          width={120.0}
+          height={118.947}
+          duration={250}
+          delay={570}
+          repeats={3}
         />
       </g>
       <g className="thr-crying_emoji__puddle">
@@ -76,13 +83,17 @@ function Payload(_props: RigProps) {
         />
       </g>
       <g className="thr-crying_emoji__sob">
-        <AtlasSprite
-          src="crying_emoji"
-          rect={[40, 645, 565, 545]}
-          x={-60}
-          y={-60}
-          width={120}
-          height={120}
+        <PerformancePose
+          src="crying_emoji-acting"
+          row={1}
+          rows={2}
+          x={-60.0}
+          y={-57.876}
+          width={120.0}
+          height={115.752}
+          duration={660}
+          delay={875}
+          repeats={4}
         />
       </g>
       <g className="thr-crying_emoji__left">

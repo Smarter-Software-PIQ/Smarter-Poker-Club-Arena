@@ -1,3 +1,4 @@
+import { PerformancePose } from '../PerformancePose';
 import { AtlasSprite } from '../AtlasSprite';
 import { preloadThrowableCues } from '../cues';
 import { RIG_VIEWBOX, type RigProps, type ThrowableRig } from '../rig';
@@ -26,9 +27,10 @@ export const spec: ThrowableSpec = {
   ],
   // Dedicated bone and stone recordings still need final sound acceptance.
   audio: [
-    { at: 600, sample: 'dice_rattle', gain: 0.45 },
-    { at: 1600, sample: 'swell_low', gain: 0.3 },
-    { at: 2400, sample: 'egg_crack' },
+    { at: 600, sample: 'bone_chatter', gain: 0.8 },
+    { at: 1040, sample: 'bone_chatter', gain: 0.58 },
+    { at: 1600, sample: 'swell_low', gain: 0.33 },
+    { at: 2400, sample: 'stone_drop', gain: 0.93 },
   ],
 };
 preloadThrowableCues(spec.audio.map((cue) => cue.sample));
@@ -75,13 +77,17 @@ function Payload({ uid }: RigProps) {
           <Closed />
         </g>
         <g className="thr-skull__open">
-          <AtlasSprite
-            src="skull"
-            rect={[627, 0, 627, 627]}
-            x={-55}
-            y={-58}
-            width={110}
-            height={116}
+          <PerformancePose
+            src="skull-acting"
+            row={0}
+            rows={1}
+            x={-55.0}
+            y={-55.0}
+            width={110.0}
+            height={110.0}
+            duration={190}
+            delay={290}
+            repeats={5}
           />
         </g>
         <g className="thr-skull__red">

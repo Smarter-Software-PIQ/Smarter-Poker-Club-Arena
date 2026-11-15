@@ -1,3 +1,4 @@
+import { PerformancePose } from '../PerformancePose';
 import { AtlasSprite } from '../AtlasSprite';
 import { RIG_VIEWBOX, type RigProps, type ThrowableRig } from '../rig';
 import type { ThrowableSpec } from '../spec';
@@ -22,7 +23,10 @@ export const spec: ThrowableSpec = {
     { at: 3000, marker: 'sway' },
     { at: 4000, marker: 'cut' },
   ],
-  audio: [{ at: 1500, sample: 'laugh_short', gain: 0.55 }],
+  audio: [
+    { at: 600, sample: 'sigh_soft', gain: 0.22 },
+    { at: 1000, sample: 'laugh_short', gain: 0.48 },
+  ],
 };
 preloadThrowableCues(spec.audio.map((cue) => cue.sample));
 const RECTS: [number, number, number, number][] = [
@@ -69,10 +73,32 @@ function Payload(_props: RigProps) {
       <g className="thr-blush__pop">
         <g className="thr-blush__sway">
           <g className="thr-blush__base">
-            <Tile tile={0} x={-65} y={-65} width={130} height={130} />
+            <PerformancePose
+              src="blush-acting"
+              row={0}
+              rows={2}
+              x={-65.0}
+              y={-65.0}
+              width={130.0}
+              height={130.0}
+              duration={240}
+              delay={80}
+              repeats={1}
+            />
           </g>
           <g className="thr-blush__pink">
-            <Tile tile={1} x={-65} y={-65} width={130} height={130} />
+            <PerformancePose
+              src="blush-acting"
+              row={1}
+              rows={2}
+              x={-65.0}
+              y={-65.0}
+              width={130.0}
+              height={130.0}
+              duration={640}
+              delay={345}
+              repeats={2}
+            />
           </g>
         </g>
         <g className="thr-blush__heart">

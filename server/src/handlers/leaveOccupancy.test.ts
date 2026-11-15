@@ -2,10 +2,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../http/auth.js', () => ({ authenticateRequest: vi.fn() }));
 vi.mock('../http/body.js', () => ({ readBody: vi.fn() }));
 vi.mock('../services/errorReporter.js', () => ({ reportError: vi.fn() }));
-vi.mock('../services/supabase/seats.js', () => ({ getSeatCashoutReceipt: vi.fn() }));
+vi.mock('../services/supabase/seats.js', () => ({
+  getSeatCashoutReceipt: vi.fn(),
+  legacyLightningLeaveRequiresReload: vi.fn(),
+  requestLightningRoomDeparture: vi.fn(),
+}));
 import { authenticateRequest } from '../http/auth.js';
 import { readBody } from '../http/body.js';
-import { getSeatCashoutReceipt } from '../services/supabase/seats.js';
+import {
+  getSeatCashoutReceipt,
+  legacyLightningLeaveRequiresReload,
+  requestLightningRoomDeparture,
+} from '../services/supabase/seats.js';
 import { handleLeaveOccupancy } from './leaveOccupancy.js';
 import { mockReq, mockRes, parseJson } from './_testHelpers.js';
 const tableId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
@@ -32,9 +40,9 @@ beforeEach(() => {
   leaveTable.mockResolvedValue({ success: true, immediate: false });
   getTableEngine.mockReturnValue({ leaveTable });
 });
-async function request() {
+async function request(scoped = false) {
   const { res, captured } = mockRes();
-  await handleLeaveOccupancy(mockReq(), res, { gameServer: { getTableEngine } });
+  await handleLeaveOccupancy(mockReq(), res, { gameServer: { getTableEngine } }, scoped);
   return { status: captured.statusCode, body: parseJson(captured) };
 }
 describe('occupancy leave protocol', () => {
@@ -148,5 +156,72 @@ describe('a leave from a Lightning room (pool_session_id) is the anchor seat’s
     lightningAnchorFor.mockResolvedValue(null);
     expect((await roomRequest({ tableId: room })).status).toBe(400);
     expect(leaveTable).not.toHaveBeenCalled();
+  });
+});
+
+describe('Lightning room-bound cashout', () => {
+  const poolSessionId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+  const adoptLightningBlindOff = vi.fn();
+  beforeEach(() => {
+    vi.mocked(readBody).mockResolvedValue(JSON.stringify({ ...input, poolSessionId }));
+    getTableEngine.mockReturnValue({ leaveTable, adoptLightningBlindOff });
+  });
+  it('refuses an old room on the mutation owner before invoking physical leave', async () => {
+    vi.mocked(requestLightningRoomDeparture).mockResolvedValue({
+      ok: false,
+      reason: 'STALE_OCCUPANCY',
+    });
+    expect(await request(true)).toMatchObject({
+      status: 409,
+      body: { poolSessionId, code: 'STALE_OCCUPANCY' },
+    });
+    expect(getSeatCashoutReceipt).toHaveBeenCalledWith(
+      'owner',
+      tableId,
+      2,
+      occupancyId,
+      poolSessionId
+    );
+    expect(leaveTable).not.toHaveBeenCalled();
+  });
+  it('requires confirmation for owed hands, then adopts the committed blind-off', async () => {
+    vi.mocked(requestLightningRoomDeparture)
+      .mockResolvedValueOnce({ ok: false, reason: 'LEAVE_LOCKED', hands_remaining: 4 })
+      .mockResolvedValueOnce({ ok: true, blind_off: true, hands_remaining: 4 });
+    expect(await request(true)).toMatchObject({
+      body: { needs_confirmation: true, hands_remaining: 4 },
+    });
+    expect(adoptLightningBlindOff).not.toHaveBeenCalled();
+    vi.mocked(readBody).mockResolvedValue(
+      JSON.stringify({ ...input, poolSessionId, confirmHandCount: true })
+    );
+    expect(await request(true)).toMatchObject({
+      body: { held: true, blindOff: true, hands_remaining: 4 },
+    });
+    expect(adoptLightningBlindOff).toHaveBeenCalledWith('owner', occupancyId);
+    expect(leaveTable).not.toHaveBeenCalled();
+  });
+  it('requires an original room on the scoped endpoint and a durable accepted decision to dispatch', async () => {
+    vi.mocked(readBody).mockResolvedValueOnce(JSON.stringify(input));
+    expect((await request(true)).status).toBe(400);
+    vi.mocked(requestLightningRoomDeparture).mockResolvedValue({ ok: true, blind_off: false });
+    expect((await request(true)).body).toMatchObject({ success: true, poolSessionId });
+    expect(requestLightningRoomDeparture).toHaveBeenCalledOnce();
+    expect(requestLightningRoomDeparture).toHaveBeenCalledWith(
+      poolSessionId,
+      'owner',
+      tableId,
+      2,
+      occupancyId,
+      false
+    );
+    expect(leaveTable).toHaveBeenCalledOnce();
+  });
+  it('asks a cached generic tab targeting a Lightning anchor to refresh', async () => {
+    vi.mocked(legacyLightningLeaveRequiresReload).mockResolvedValue(true);
+    expect(await request()).toMatchObject({ status: 409, body: { reloadRequired: true } });
+    expect(leaveTable).not.toHaveBeenCalled();
+    vi.mocked(readBody).mockResolvedValue(JSON.stringify({ ...input, origin: 'physical-table' }));
+    expect((await request()).body).toMatchObject({ success: true });
   });
 });
