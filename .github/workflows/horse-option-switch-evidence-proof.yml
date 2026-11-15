@@ -1,0 +1,50 @@
+name: Horse option switch evidence proof
+# HA-10878-1: the Horse option switch refuses 'on' for a non-style option without
+# its promotion evidence file (docs/horse-default-on.d/<option>.md), at the set
+# function and at the table, while 'off', clear, the audit row and every refusal
+# stay. scripts/ci/test-horse-option-switch-evidence-postgres.sh proves it by
+# execution on a throwaway PostgreSQL 17. This runs it on every pull request that
+# touches the switch migrations, the evidence directory or the script.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/ci/test-horse-option-switch-evidence-postgres.sh'
+      - 'supabase/migrations/20261113201841_the_horse_style_read_has_a_live_switch.sql'
+      - 'supabase/migrations/20261114072215_every_horse_upgrade_has_a_live_switch.sql'
+      - 'docs/horse-default-on.d/**'
+      - '.github/actions/install-postgres-17/**'
+      - '.github/workflows/horse-option-switch-evidence-proof.yml'
+concurrency:
+  group: horse-option-switch-evidence-proof-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  prove:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL 17 from the signed PGDG source only
+        uses: ./.github/actions/install-postgres-17
+      - name: Prove the option switch evidence guard by execution
+        run: |
+          set -euo pipefail
+          export PATH="/usr/lib/postgresql/17/bin:$PATH"
+          export PG_BIN=/usr/lib/postgresql/17/bin
+          mkdir -p artifacts/horse-option-switch-evidence
+          bash scripts/ci/test-horse-option-switch-evidence-postgres.sh | tee artifacts/horse-option-switch-evidence/proof.log
+          # The script exits 0 with SKIPPED when it finds no postgres. Here that
+          # is a failure: a proof that did not run is not a pass.
+          if grep -q '^SKIPPED' artifacts/horse-option-switch-evidence/proof.log; then
+            echo '::error::The option switch evidence proof did not run.'; exit 1
+          fi
+          grep -q '^PASS  every option switch evidence assertion held$' artifacts/horse-option-switch-evidence/proof.log
+      - name: Retain the proof log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: horse-option-switch-evidence-proof
+          path: artifacts/horse-option-switch-evidence/
+          if-no-files-found: error

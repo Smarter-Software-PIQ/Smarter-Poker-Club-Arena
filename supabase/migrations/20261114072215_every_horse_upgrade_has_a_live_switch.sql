@@ -12,6 +12,13 @@
 -- The seven style options also take 'shadow' and 'canary'. No other option does: it has no shadow arm in the
 -- engine, and the set function refuses those states for it by name.
 --
+-- 'on' NEEDS PROMOTION EVIDENCE (HA-10878-1). A fleet-wide 'on' row for a non-style option is the same behaviour as
+-- turning it on by default, so it needs the same evidence file, docs/horse-default-on.d/<option>.md, that
+-- HorseDefaultOnNeedsEvidence.law.test.ts requires for a source default. Only the options between the
+-- registry:evidenced-on-options markers (today: none) are offered 'on'; every other non-style option is offered
+-- 'off' only, fn_ca_horse_option_switch_set raises on 'on' for it, and the table refuses such a row from any writer.
+-- 'off' and clear stay available for every registered option. The style options keep their own states, unchanged.
+--
 -- IT CHANGES NOTHING UNTIL A ROW IS SET. This migration adds NO rows. No row = the release default: the engine
 -- does not pass the option at all and the code default decides. `on` passes true, `off` passes false.
 --
@@ -34,7 +41,7 @@
 -- THE WHITELIST IS THE ENGINE REGISTRY. everyUpgradeHasALiveSwitch.law.test.ts fails when the names between the
 -- registry markers below differ from OPTION_SWITCH_REGISTRY.
 --
--- COST: two ALTERs on a table of at most 21 rows, read once per 30 seconds; no live table is touched.
+-- COST: three ALTERs on a table of at most 21 rows, read once per 30 seconds; no live table is touched.
 BEGIN;
 
 -- The option whitelist of the table: replace the seven-name check with the registry.
@@ -68,6 +75,19 @@ ALTER TABLE public.ca_horse_style_switch
 -- registry:plain-options:end
 -- registry:style-options:end
 
+-- 'on' only for a style option or an option with promotion evidence, from any writer (HA-10878-1).
+ALTER TABLE public.ca_horse_style_switch
+  ADD CONSTRAINT ca_horse_style_switch_on_needs_evidence CHECK (
+    state <> 'on'
+    OR option IN (
+    'styleValueBettorNotManiac', 'styleBigBetHonesty', 'styleRaiseRespect',
+    'styleTightReRaiserRespect', 'styleFoldRatePreRepair', 'styleValueExtraction',
+    'styleFoldBluff')
+    -- registry:evidenced-on-options:begin
+    OR option = ANY (ARRAY[]::text[])
+    -- registry:evidenced-on-options:end
+  );
+
 -- Shadow and canary only where the engine has a shadow arm: the seven style options.
 ALTER TABLE public.ca_horse_style_switch
   ADD CONSTRAINT ca_horse_style_switch_state_fits_option CHECK (
@@ -92,6 +112,10 @@ AS $function$
     'styleFoldBluff')
     -- registry:style-options:end
       THEN ARRAY['off', 'shadow', 'canary', 'on']
+    -- registry:evidenced-on-options:begin
+    WHEN p_option = ANY (ARRAY[]::text[])
+    -- registry:evidenced-on-options:end
+      THEN ARRAY['off', 'on']
     -- registry:plain-options:begin
     WHEN p_option IN (
     'v16Hu', 'v16Ratio', 'v17RiverProbe', 'v23ShortDeck', 'v32FacingDefense',
@@ -99,7 +123,7 @@ AS $function$
     'readPostflopFoldRate', 'readShrinkResponse', 'readBreakEvenBluff', 'readScopedShrink',
     'omahaNeutralUnknown')
     -- registry:plain-options:end
-      THEN ARRAY['off', 'on']
+      THEN ARRAY['off']
     ELSE NULL
   END;
 $function$;
@@ -152,6 +176,10 @@ DECLARE
 BEGIN
   IF v_states IS NULL THEN
     RAISE EXCEPTION 'not a switchable option: %', coalesce(p_option, '(null)');
+  END IF;
+  IF p_state = 'on' AND NOT ('on' = ANY (v_states)) THEN
+    RAISE EXCEPTION 'option % has no promotion evidence (docs/horse-default-on.d/%.md): it may be set off or cleared, not on',
+      p_option, p_option;
   END IF;
   IF p_state IS NULL OR NOT (p_state = ANY (v_states)) THEN
     RAISE EXCEPTION 'option % does not support state % (it supports %)',
@@ -241,7 +269,7 @@ BEGIN
      OR (SELECT count(*) FROM jsonb_object_keys(v_wide)) <> 3 THEN
     RAISE EXCEPTION 'the wide switch read is not the documented shape: %', v_wide;
   END IF;
-  IF public.fn_ca_horse_option_switch_states('commitUnderPot') IS DISTINCT FROM ARRAY['off', 'on']
+  IF public.fn_ca_horse_option_switch_states('commitUnderPot') IS DISTINCT FROM ARRAY['off']
      OR public.fn_ca_horse_option_switch_states('styleFoldBluff')
           IS DISTINCT FROM ARRAY['off', 'shadow', 'canary', 'on'] THEN
     RAISE EXCEPTION 'a registered option does not answer with its states';

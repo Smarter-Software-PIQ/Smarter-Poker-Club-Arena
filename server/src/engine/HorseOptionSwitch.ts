@@ -11,9 +11,15 @@
  * be set; the database whitelist (migration 20261114072215) is the same list, and
  * everyUpgradeHasALiveSwitch.law.test.ts fails when the two differ.
  *
- * STATES. Every option supports `off` and `on`. `shadow` and `canary` exist only for an option that has a shadow
- * arm in the brain (today the seven style options, HorseStyleShadow.ts). An option without a shadow arm cannot be
- * put in shadow or canary: the registry does not offer it, the parser rejects it and the database refuses it.
+ * STATES. Every option supports `off` (and clear). `on` is offered to a non-style option ONLY when its promotion
+ * evidence exists (OPTION_SWITCH_EVIDENCED_ON below, HA-10878-1): a fleet-wide `on` row is the same behaviour as
+ * default-on, so it needs the same evidence file, docs/horse-default-on.d/<option>.md, that
+ * HorseDefaultOnNeedsEvidence.law.test.ts requires before a source default is on. Without it the option is
+ * registered `off` only: the registry does not offer `on`, the parser refuses a configuration that carries it (so
+ * every non-style option runs at its release default) and the database refuses to write it. `shadow` and `canary`
+ * exist only for an option that has a shadow arm in the brain (today the seven style options, HorseStyleShadow.ts).
+ * An option without a shadow arm cannot be put in shadow or canary: the registry does not offer it, the parser
+ * rejects it and the database refuses it. The seven style options keep their own states and controls, unchanged.
  *
  * SEMANTICS. No row = the release default: the option key is NOT passed to the brain at all, so the code default
  * decides exactly as before this file existed. A row `on` passes `<option>: true`; a row `off` passes
@@ -65,9 +71,23 @@ export interface OptionSwitchEntry {
 }
 
 const ON_OFF = Object.freeze(['off', 'on'] as const);
+const OFF_ONLY = Object.freeze(['off'] as const);
 const HOLDEM = "Hold'em Strategy" as const;
 
-/** Options without a shadow arm: off and on only. Names are checked against HorseDecideOpts at compile time. */
+/**
+ * HA-10878-1: the non-style options that may be switched `on`, each by exact name. An option is listed here only
+ * when docs/horse-default-on.d/<option>.md exists, with the eight evidence rows, the option's name, its pull
+ * request, the scope it was measured for and the head it was reviewed at. The migration lists the same names
+ * (registry:evidenced-on-options markers) and everyUpgradeHasALiveSwitch.law.test.ts fails when the list, the
+ * migration and the evidence directory diverge. Evidence for one option cannot unlock another. Today: none.
+ */
+export const OPTION_SWITCH_EVIDENCED_ON: readonly string[] = Object.freeze([]);
+const evidencedOn = (name: string): boolean => OPTION_SWITCH_EVIDENCED_ON.includes(name);
+
+/**
+ * Options without a shadow arm: `off`, and `on` only with evidence. Names are checked against HorseDecideOpts at
+ * compile time.
+ */
 const plain = <K extends keyof HorseDecideOpts & string>(
   name: K,
   owner: OptionSwitchOwner,
@@ -78,7 +98,7 @@ const plain = <K extends keyof HorseDecideOpts & string>(
     name,
     owner,
     scope,
-    states: ON_OFF,
+    states: evidencedOn(name) ? ON_OFF : OFF_ONLY,
     releaseDefault: 'off' as const,
     shadowArm: false,
     description,
@@ -274,12 +294,16 @@ export function assertOptionSwitchRegistry(entries: readonly OptionSwitchEntry[]
     seen.add(e.name);
     if (!/^[A-Za-z][A-Za-z0-9]{0,62}$/.test(e.name))
       throw new Error(`option switch: ${e.name} is not a plain option name`);
-    if (!e.states.includes('off') || !e.states.includes('on'))
-      throw new Error(`option switch: ${e.name} must support off and on`);
+    if (!e.states.includes('off')) throw new Error(`option switch: ${e.name} must support off`);
+    const style = (STYLE_SWITCH_OPTIONS as readonly string[]).includes(e.name);
+    if (e.states.includes('on') && !style && !evidencedOn(e.name))
+      throw new Error(
+        `option switch: ${e.name} has no promotion evidence (docs/horse-default-on.d/${e.name}.md), so no on state`
+      );
     const split = e.states.includes('shadow') || e.states.includes('canary');
     if (split && !e.shadowArm)
       throw new Error(`option switch: ${e.name} has no shadow arm, so no shadow or canary state`);
-    if (split !== (STYLE_SWITCH_OPTIONS as readonly string[]).includes(e.name))
+    if (split !== style)
       throw new Error(`option switch: only the style options carry shadow and canary (${e.name})`);
   }
 }
@@ -308,7 +332,12 @@ export function optionSwitchNothingSwitched(
   return !states || Object.keys(states).length === 0;
 }
 
-/** A valid switched set (registered non-style names, off/on only), in registry order; null when it is not one. */
+/**
+ * A valid switched set (registered non-style names, each in a state it supports), in registry order; null when it is
+ * not one. `on` for an option without promotion evidence (HA-10878-1) makes the whole set invalid, so a row written
+ * before the guard, or by a role that bypassed the set function, never acts: every non-style option then runs at its
+ * release default.
+ */
 export function optionSwitchStatesFrom(value: unknown): OptionSwitchStates | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const v = value as Record<string, unknown>;
@@ -316,6 +345,7 @@ export function optionSwitchStatesFrom(value: unknown): OptionSwitchStates | nul
     const entry = PLAIN_BY_NAME.get(k);
     if (!entry || typeof s !== 'string' || !(entry.states as readonly string[]).includes(s))
       return null;
+    if (s === 'on' && !evidencedOn(k)) return null;
   }
   const out: Record<string, OptionSwitchValue> = {};
   for (const name of OPTION_SWITCH_PLAIN_NAMES)
@@ -454,8 +484,8 @@ export class OptionSwitchHolder {
 
 /**
  * The decision options a switched set gives EVERY Horse alike (no Horse id is read: only a style canary splits
- * Horses): `<option>: true` for on, `<option>: false` for off, nothing for an option without a row. Nothing
- * switched gives {}.
+ * Horses): `<option>: true` for on (only for an option with promotion evidence, OPTION_SWITCH_EVIDENCED_ON),
+ * `<option>: false` for off, nothing for an option without a row. Nothing switched gives {}.
  */
 export function optionSwitchDecisionOpts(
   states: OptionSwitchStates | null | undefined
@@ -463,7 +493,7 @@ export function optionSwitchDecisionOpts(
   const out: Record<string, boolean> = {};
   if (states)
     for (const name of OPTION_SWITCH_PLAIN_NAMES)
-      if (states[name] === 'on') out[name] = true;
+      if (states[name] === 'on' && evidencedOn(name)) out[name] = true;
       else if (states[name] === 'off') out[name] = false;
   return out;
 }
