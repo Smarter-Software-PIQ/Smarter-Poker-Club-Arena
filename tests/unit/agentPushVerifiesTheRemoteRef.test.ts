@@ -196,6 +196,43 @@ describe('scripts/agent-push.sh stops its own process tree', () => {
     return stat.status === 0 && stat.stdout.trim() !== '' && !stat.stdout.trim().startsWith('Z');
   };
   const workerPid = () => Number(readFileSync(join(fixture, 'worker.pid'), 'utf8').trim());
+  const pidFrom = (name: string) =>
+    existsSync(join(fixture, name)) ? Number(readFileSync(join(fixture, name), 'utf8').trim()) : 0;
+  const recorded = () =>
+    ['worker.pid', 'shim.pid', 'step.pid', 'helper.pid'].map(pidFrom).filter((p) => p > 1);
+  // Any live (non-zombie) member of process group `pgid`.
+  const groupAlive = (pgid: number) =>
+    spawnSync('ps', ['-A', '-o', 'pgid=', '-o', 'stat='], { encoding: 'utf8' })
+      .stdout.split('\n')
+      .map((line) => line.trim().split(/\s+/))
+      .some(([g, stat]) => Number(g) === pgid && stat !== undefined && !stat.startsWith('Z'));
+  // A failed case must not leave a 300-second worker behind on the shared Mac.
+  afterEach(() => {
+    for (const pid of recorded()) {
+      try {
+        process.kill(pid, 'SIGKILL');
+      } catch {
+        // already gone
+      }
+    }
+  });
+  // A `git` whose push takes four seconds and then really pushes: long enough
+  // for a launcher that exits after two seconds to be gone mid-push.
+  const slowPushPath = () => {
+    writeFileSync(
+      join(shimDir, 'git'),
+      [
+        '#!/usr/bin/env bash',
+        'for a in "$@"; do',
+        '  if [ "$a" = push ]; then sleep 4; break; fi',
+        'done',
+        `exec "${realGit}" "$@"`,
+        '',
+      ].join('\n')
+    );
+    chmodSync(join(shimDir, 'git'), 0o755);
+    return { ...env(), AGENT_PUSH_LOAD_WAIT_SECONDS: '0', PATH: `${shimDir}:${process.env.PATH}` };
+  };
 
   // A `git` whose push stands in for the hook: it starts a worker that ignores
   // SIGHUP and SIGINT (as the hook's vitest effectively did), then sits there.
@@ -207,6 +244,9 @@ describe('scripts/agent-push.sh stops its own process tree', () => {
         '#!/usr/bin/env bash',
         'for a in "$@"; do',
         '  if [ "$a" = push ]; then',
+        `    echo $$ > "${join(fixture, 'shim.pid')}"`,
+        `    echo $PPID > "${join(fixture, 'step.pid')}"`,
+        `    ps -o ppid= -p $PPID | tr -d ' ' > "${join(fixture, 'helper.pid')}"`,
         `    ( trap '' HUP INT; exec sleep 300 ) &`,
         `    echo $! > "${join(fixture, 'worker.pid')}"`,
         '    sleep 300',
@@ -224,6 +264,7 @@ describe('scripts/agent-push.sh stops its own process tree', () => {
 
   for (const [signal, code] of [
     ['SIGHUP', 129],
+    ['SIGINT', 130],
     ['SIGTERM', 143],
   ] as const) {
     it(`on ${signal} terminates git push, the hook and its workers, and pushes nothing`, async () => {
@@ -272,5 +313,111 @@ describe('scripts/agent-push.sh stops its own process tree', () => {
     );
     expect(existsSync(join(fixture, 'pushed'))).toBe(false);
     expect(remoteRef('agent/feature')).toBe('');
+  });
+
+  // Review of 6016f5d6, B1: a SIGKILL of the helper's whole process group
+  // cannot be trapped; the steps must be in that group so the kernel takes them.
+  it('a SIGKILL of its whole process group leaves no worker and pushes nothing', async () => {
+    const run = spawn('bash', [helper], {
+      cwd: tree,
+      env: hangingPushPath(),
+      detached: true,
+      stdio: 'ignore',
+    });
+    expect(await until(() => existsSync(join(fixture, 'worker.pid')), 30_000)).toBe(true);
+    const pids = [run.pid as number, ...recorded()];
+    expect(pids.length).toBeGreaterThanOrEqual(4);
+    process.kill(-(run.pid as number), 'SIGKILL');
+    expect(await until(() => pids.every((p) => !running(p)), 3_000), String(pids)).toBe(true);
+    await sleep(3_000);
+    expect(pids.filter((p) => running(p))).toEqual([]);
+    expect(groupAlive(run.pid as number)).toBe(false);
+    expect(existsSync(join(fixture, 'pushed'))).toBe(false);
+    expect(remoteRef('agent/feature')).toBe('');
+  });
+
+  // B1, the other half: the helper alone is killed outright; its watcher,
+  // which outlives it, stops the step it was running.
+  it('a SIGKILL of the helper alone still stops the step it was running', async () => {
+    const run = spawn('bash', [helper], { cwd: tree, env: hangingPushPath(), detached: true });
+    let stderr = '';
+    run.stderr.on('data', (chunk) => (stderr += chunk));
+    expect(await until(() => existsSync(join(fixture, 'worker.pid')), 30_000), stderr).toBe(true);
+    const step = recorded();
+    process.kill(run.pid as number, 'SIGKILL');
+    expect(await until(() => step.every((p) => !running(p)), 10_000), stderr).toBe(true);
+    expect(
+      await until(() => /STOPPED: the helper itself was killed/.test(stderr), 5_000),
+      stderr
+    ).toBe(true);
+    expect(existsSync(join(fixture, 'pushed'))).toBe(false);
+    expect(remoteRef('agent/feature')).toBe('');
+  });
+
+  // The host_terminal teardown pattern: the launcher returns at once and the
+  // helper, started with `&` and no nohup, would run on as an orphan. Under the
+  // detached-launch rule it stops (before it starts, or within a second).
+  it('a launcher that exits while it runs in the background without nohup leaves nothing running', async () => {
+    const log = join(fixture, 'push.log');
+    spawn('bash', ['-c', `bash "${helper}" 2> "${log}" &`], {
+      cwd: tree,
+      env: hangingPushPath(),
+      stdio: 'ignore',
+    });
+    const stopped = () =>
+      existsSync(log) && /STOPPED: its parent process went away/.test(readFileSync(log, 'utf8'));
+    expect(
+      await until(stopped, 15_000),
+      existsSync(log) ? readFileSync(log, 'utf8') : 'no log'
+    ).toBe(true);
+    expect(await until(() => recorded().every((p) => !running(p)), 8_000)).toBe(true);
+    expect(existsSync(join(fixture, 'pushed'))).toBe(false);
+    expect(remoteRef('agent/feature')).toBe('');
+  });
+
+  // Review of 6016f5d6, B2: one rule, not a race. nohup (SIGHUP ignored on
+  // entry) or AGENT_PUSH_DETACHED=1 disarms the lost-parent stop; the outcome
+  // is the same whether the launcher lingers or exits at once.
+  for (const [name, launch] of [
+    [
+      'nohup, disown, launcher exits after 2 s',
+      (h: string, l: string) => `nohup bash "${h}" > "${l}" 2>&1 & disown; sleep 2`,
+    ],
+    [
+      'nohup, launcher exits at once',
+      (h: string, l: string) => `nohup bash "${h}" > "${l}" 2>&1 &`,
+    ],
+    [
+      'AGENT_PUSH_DETACHED=1, launcher exits at once',
+      (h: string, l: string) => `AGENT_PUSH_DETACHED=1 bash "${h}" > "${l}" 2>&1 &`,
+    ],
+  ] as const) {
+    it(`a detached launch (${name}) runs to a verified push`, async () => {
+      const log = join(fixture, 'push.log');
+      spawn('bash', ['-c', launch(helper, log)], {
+        cwd: tree,
+        env: slowPushPath(),
+        stdio: 'ignore',
+      });
+      const done = () =>
+        existsSync(log) && /VERIFIED|STOPPED|FAILED|REFUSED/.test(readFileSync(log, 'utf8'));
+      expect(await until(done, 90_000)).toBe(true);
+      const text = readFileSync(log, 'utf8');
+      expect(text).not.toMatch(/STOPPED/);
+      expect(text, text).toContain('VERIFIED');
+      expect(remoteRef('agent/feature')).toBe(git(tree, 'rev-parse', 'HEAD'));
+    });
+  }
+
+  // Review of 6016f5d6, N1 and N3, pinned at the source: the delayed SIGKILL
+  // re-checks that each pid is still the process it was, a stop that lands
+  // while a step is being started is held until the step is recorded, and the
+  // steps stay in the helper's own process group (no `set -m`).
+  it('re-checks a pid before SIGKILL, holds a stop during a step start and never moves steps to a group of their own', () => {
+    const src = readFileSync(helper, 'utf8');
+    expect(src).toMatch(/\[ "\$\(pid_start "\$pid"\)" = "\$line" \] && kill -KILL "\$pid"/);
+    expect(src).toMatch(/STARTING=1\n\s+"\$@" &\n\s+STEP_PID=\$!/);
+    expect(src).toMatch(/if \[ -n "\$STARTING" \]; then\n\s+PENDING_REASON=\$1/);
+    expect(src).not.toMatch(/^\s*set -m/m);
   });
 });

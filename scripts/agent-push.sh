@@ -24,9 +24,11 @@
 # Exit codes: git's own code when fetch or push fail (141 included);
 #             2 refused before pushing (shared clone, main, detached HEAD);
 #             3 push reported success but the remote ref is not HEAD;
-#             129/130/143 stopped by SIGHUP (or its parent shell going away),
-#             SIGINT or SIGTERM: the whole tree it started is terminated and
-#             nothing further is pushed.
+#             129/130/143 stopped by SIGHUP (or its parent going away; see
+#             the detached-launch rule below), SIGINT or SIGTERM: the tree it
+#             started is terminated and nothing further is pushed. A stop
+#             during the push or verify phase cannot prove the remote ref did
+#             not move: read it (git ls-remote) before reporting.
 set -uo pipefail
 
 REMOTE=${AGENT_PUSH_REMOTE:-origin}
@@ -36,7 +38,7 @@ say() { printf '[agent-push] %s\n' "$*" >&2; }
 
 # IT OWNS THE PROCESS TREE IT STARTS (2026-11-15). Agents launch this helper
 # detached (`screen -dmS name bash -c 'bash scripts/agent-push.sh > log 2>&1'`)
-# and "stop" it with `screen -S name -X quit`. That killed the screen and the
+# and "stopped" it with `screen -S name -X quit`. That killed the screen and the
 # outer shell, but this script, git push, the pre-push hook and its vitest
 # workers ran on for up to 40 minutes on the shared Mac, and a run that went
 # green would still have PUSHED a branch its agent believed it had stopped.
@@ -44,20 +46,59 @@ say() { printf '[agent-push] %s\n' "$*" >&2; }
 # returns, and the hook's own HUP trap waits on vitest the same way, so a
 # hangup reached nothing that could act on it.
 #
-# So every step that can take time runs as a background job in a process
-# group of its own (`set -m` around the launch; bash 3.2 and 5, with or
-# without a terminal), and this shell waits on it with `wait`, which a trapped
-# signal interrupts at once. On SIGHUP, SIGINT or SIGTERM, or when a watcher
-# sees that this script's parent is gone (it was reparented), the handler
-# terminates that group and every process descended from it, escalates to
-# SIGKILL after five seconds, prints one STOPPED line and exits non-zero
-# without starting or finishing a push. Nothing here forces, skips a hook or
-# changes what the gate runs.
-STEP_PGID=
+# So every step that can take time runs as a background job, and this shell
+# waits on it with `wait`, which a trapped signal interrupts at once. The job
+# stays in THIS shell's process group (no `set -m`): whoever kills the group
+# with SIGKILL, which no trap can see, takes git push, the hook and its workers
+# with it, exactly as before this helper owned anything (review of 6016f5d6,
+# B1: a separate step group survived such a kill and pushed later).
+#
+# Stops, and what each does:
+#   SIGHUP, SIGINT, SIGTERM: the trap terminates the step and every process
+#     descended from it (SIGKILL after five seconds, re-checking each pid's
+#     start time first so a reused pid is never hit), prints one STOPPED line
+#     and exits 129, 130 or 143.
+#   The parent went away (see the rule below): a one-second watcher signals
+#     this shell, which stops the same way (exit 129).
+#   This shell itself is killed outright (SIGKILL of its pid alone): the
+#     watcher, which outlives it, terminates the step it was running.
+#   SIGKILL of the whole process group: the kernel takes everything at once.
+#
+# THE DETACHED-LAUNCH RULE (deterministic, never by timing): the helper stops
+# when its parent process goes away, from its first instant (started with
+# parent pid 1 counts as gone), UNLESS SIGHUP was ignored on entry (it was
+# launched with `nohup`) or AGENT_PUSH_DETACHED=1 is set. Those two launches
+# run to completion on their own. The supported detached launch is the
+# `screen -dmS` line above (PUBLISHING.md, "Push and protected merge").
+STEP_PID=
+STEP_START=
 PHASE=before
 MAIN_PID=$$
 ORIG_PPID=$PPID
 WATCHER=
+STATE_FILE=
+STARTING=
+PENDING_REASON=
+PENDING_CODE=
+
+# Was SIGHUP ignored on entry? Signals ignored on entry cannot be trapped in a
+# non-interactive shell, and `trap -p` shows them in bash 5 but not in bash
+# 3.2, so ask directly: trap it and send it to this shell alone.
+HUP_LIVE=
+trap 'HUP_LIVE=1' HUP
+kill -HUP "$MAIN_PID"
+:
+trap - HUP
+WATCH_PARENT=1
+if [ "${AGENT_PUSH_DETACHED:-}" = 1 ] || [ -z "$HUP_LIVE" ]; then
+  WATCH_PARENT=0
+fi
+
+# The start time of pid $1 (empty when it is gone): tells a process from a
+# later one that reused its pid.
+pid_start() {
+  ps -o lstart= -p "$1" 2>/dev/null
+}
 
 # Every pid descended from $1, read from one process table (pid and ppid only).
 # shellcheck disable=SC2329 # reached from the signal traps below
@@ -77,37 +118,58 @@ descendants_of() {
     }'
 }
 
-# True while any process of group $1, or any pid in the list $2, is still
-# running (a zombie awaiting its parent does not count).
+# True while any pid in the list $1 is still running (a zombie awaiting its
+# parent does not count).
 # shellcheck disable=SC2329 # reached from the signal traps below
 tree_running() {
-  ps -A -o pid= -o pgid= -o stat= 2>/dev/null | awk -v g="$1" -v list=" $2 " '
-    $3 !~ /^Z/ && ($2 == g || index(list, " " $1 " ")) { found = 1 }
+  ps -A -o pid= -o stat= 2>/dev/null | awk -v list=" $1 " '
+    $2 !~ /^Z/ && index(list, " " $1 " ") { found = 1 }
     END { exit !found }'
 }
 
-# shellcheck disable=SC2329 # reached from the signal traps below
-stop_step_tree() {
-  [ -n "$STEP_PGID" ] || return 0
-  local tree pid tries=0
-  tree=$(descendants_of "$STEP_PGID" | tr '\n' ' ')
-  kill -TERM -- "-$STEP_PGID" 2>/dev/null
-  for pid in $STEP_PGID $tree; do kill -TERM "$pid" 2>/dev/null; done
-  while tree_running "$STEP_PGID" "$tree"; do
+# Terminate pid $1 and every process descended from it: SIGTERM to all, then
+# after five seconds SIGKILL to each that is still the same process. $2, when
+# given, is $1's start time at launch: if $1 is now a different process (its
+# pid was reused), nothing is signalled. When
+# this shell leads its own process group, members of that group that were
+# orphaned (parent pid 1) are ours too and are included.
+# shellcheck disable=SC2329 # reached from the signal traps and the watcher
+stop_tree() {
+  local root=$1 tree pid snap line tries=0 leader
+  [ -n "$root" ] || return 0
+  if [ -n "${2:-}" ] && [ "$(pid_start "$root")" != "$2" ]; then
+    return 0
+  fi
+  tree="$root $(descendants_of "$root" | tr '\n' ' ')"
+  leader=$(ps -o pgid= -p "$MAIN_PID" 2>/dev/null | tr -d ' ')
+  if [ "$leader" = "$MAIN_PID" ]; then
+    tree="$tree $(ps -A -o pid= -o ppid= -o pgid= 2>/dev/null |
+      awk -v g="$MAIN_PID" '$2 == 1 && $3 == g { print $1 }' | tr '\n' ' ')"
+  fi
+  snap=
+  for pid in $tree; do
+    snap="$snap$pid|$(pid_start "$pid")
+"
+  done
+  for pid in $tree; do kill -TERM "$pid" 2>/dev/null; done
+  while tree_running "$tree"; do
     if [ "$tries" -ge 20 ]; then
-      kill -KILL -- "-$STEP_PGID" 2>/dev/null
-      for pid in $STEP_PGID $tree; do kill -KILL "$pid" 2>/dev/null; done
+      while IFS='|' read -r pid line; do
+        [ -n "$pid" ] && [ -n "$line" ] || continue
+        [ "$(pid_start "$pid")" = "$line" ] && kill -KILL "$pid" 2>/dev/null
+      done <<SNAP
+$snap
+SNAP
       break
     fi
     sleep 0.25
     tries=$((tries + 1))
   done
-  STEP_PGID=
 }
 
 # shellcheck disable=SC2329 # reached from the signal traps below
 stop_watcher() {
-  [ -n "$WATCHER" ] && kill "$WATCHER" 2>/dev/null
+  [ -n "$WATCHER" ] && kill -TERM "$WATCHER" 2>/dev/null
   WATCHER=
 }
 
@@ -117,46 +179,82 @@ on_stop() {
   local outcome='nothing was pushed'
   [ "$PHASE" = push ] && outcome='git push was stopped before it completed'
   [ "$PHASE" = verify ] && outcome='git push had already returned; the remote ref was not verified'
-  stop_step_tree
+  stop_tree "$STEP_PID" "$STEP_START"
+  STEP_PID=
   stop_watcher
   say "STOPPED: $1; terminated the process tree this run started; $outcome."
+  say "Before reporting this run stopped, read the remote ref: git ls-remote $REMOTE refs/heads/<branch>."
   exit "$2"
 }
-trap 'on_stop "received SIGHUP" 129' HUP
-trap 'on_stop "received SIGINT" 130' INT
-trap 'on_stop "received SIGTERM" 143' TERM
-trap 'on_stop "its parent process went away" 129' USR1
-trap 'stop_watcher' EXIT
 
-# Run "$@" as a job with its own process group and wait for it. Returns its
-# exit code; a stop signal interrupts the wait and on_stop takes the group down.
+# A stop that lands while a step is being started and recorded is held until
+# the record exists, then acted on (review of 6016f5d6, N3).
+# shellcheck disable=SC2329 # reached from the signal traps below
+request_stop() {
+  if [ -n "$STARTING" ]; then
+    PENDING_REASON=$1
+    PENDING_CODE=$2
+    return 0
+  fi
+  on_stop "$1" "$2"
+}
+trap 'request_stop "received SIGHUP" 129' HUP
+trap 'request_stop "received SIGINT" 130' INT
+trap 'request_stop "received SIGTERM" 143' TERM
+trap 'request_stop "its parent process went away" 129' USR1
+trap 'stop_watcher; [ -n "$STATE_FILE" ] && rm -f "$STATE_FILE"' EXIT
+
+if [ "$WATCH_PARENT" = 1 ] && [ "$ORIG_PPID" -le 1 ]; then
+  say "STOPPED: its parent process went away before it started (launched in the background without nohup or AGENT_PUSH_DETACHED=1); nothing was pushed."
+  exit 129
+fi
+
+# Run "$@" as a job of this shell and wait for it. Returns its exit code; a
+# stop signal interrupts the wait and on_stop takes the job's tree down.
 owned() {
-  set -m
+  STARTING=1
   "$@" &
-  STEP_PGID=$!
-  set +m
-  wait "$STEP_PGID"
+  STEP_PID=$!
+  STEP_START=$(pid_start "$STEP_PID")
+  [ -n "$STATE_FILE" ] && printf '%s|%s\n' "$STEP_PID" "$STEP_START" > "$STATE_FILE"
+  STARTING=
+  if [ -n "$PENDING_REASON" ]; then on_stop "$PENDING_REASON" "$PENDING_CODE"; fi
+  wait "$STEP_PID"
   local rc=$?
-  STEP_PGID=
+  STEP_PID=
+  STEP_START=
+  [ -n "$STATE_FILE" ] && : > "$STATE_FILE"
   return "$rc"
 }
 
-# A launcher that exits (the screen session or its shell is killed) leaves
-# this script reparented; nothing then signals it. Watch for that. A run
-# started directly under pid 1 has no launcher to lose and is not watched.
-if [ "$ORIG_PPID" -gt 1 ]; then
-  (
-    while kill -0 "$MAIN_PID" 2>/dev/null; do
+# The watcher outlives this shell. It stops the running step when this shell
+# is gone (killed outright), and, under the detached-launch rule above, tells
+# this shell to stop when its parent goes away.
+STATE_FILE=$(mktemp "${TMPDIR:-/tmp}/agent-push-step.XXXXXX" 2>/dev/null) || STATE_FILE=
+MAIN_START=$(pid_start "$MAIN_PID")
+(
+  trap '' HUP INT
+  while :; do
+    if [ "$(pid_start "$MAIN_PID")" != "$MAIN_START" ]; then
+      step=$(cat "$STATE_FILE" 2>/dev/null)
+      if [ -n "$step" ]; then
+        stop_tree "${step%%|*}" "${step#*|}"
+        say "STOPPED: the helper itself was killed; its watcher terminated the step it was running. Read the remote ref before reporting."
+      fi
+      [ -n "$STATE_FILE" ] && rm -f "$STATE_FILE"
+      exit 0
+    fi
+    if [ "$WATCH_PARENT" = 1 ]; then
       now=$(ps -o ppid= -p "$MAIN_PID" 2>/dev/null | tr -d ' ')
       if [ -n "$now" ] && [ "$now" != "$ORIG_PPID" ]; then
-        kill -USR1 "$MAIN_PID" 2>/dev/null
+        [ "$(pid_start "$MAIN_PID")" = "$MAIN_START" ] && kill -USR1 "$MAIN_PID" 2>/dev/null
         exit 0
       fi
-      sleep 1
-    done
-  ) </dev/null &
-  WATCHER=$!
-fi
+    fi
+    sleep 1
+  done
+) </dev/null &
+WATCHER=$!
 
 # HTTPS instead of SSH for github.com, credentials from `gh`, and no ambient
 # GH_TOKEN/GITHUB_TOKEN (they override gh's own login with whatever a parent
