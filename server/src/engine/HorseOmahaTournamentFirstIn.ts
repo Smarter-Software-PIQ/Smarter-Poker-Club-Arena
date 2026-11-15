@@ -157,7 +157,7 @@ export interface OmahaTournamentFirstInInput {
 
 /** True when the full-table small blind rule, and not the short-handed rule,
  *  owns this table: four to eight players dealt with its share on. */
-export function omahaFullTableSbStealTable(
+export function omahaSmallBlindStealTable(
   i: Pick<OmahaTournamentFirstInInput, 'tableSize'>,
   p: OmahaTournamentFirstInParams = OMAHA_TOURNAMENT_FIRST_IN
 ): boolean {
@@ -178,7 +178,7 @@ export function omahaTournamentFirstIn(
 ): PreflopIntent | null {
   if (!(i.toCall > 0) || !Number.isFinite(i.percentile)) return null;
   if (i.allInOrFold || i.satelliteLocked) return null;
-  if (omahaFullTableSbStealTable(i, p)) {
+  if (omahaSmallBlindStealTable(i, p)) {
     // PLO4 and PLO5 only: PLO6 was not evaluated at these tables.
     if (i.holeCount !== 4 && i.holeCount !== 5) return null;
     // Never on the bubble, hand-for-hand or in a satellite.

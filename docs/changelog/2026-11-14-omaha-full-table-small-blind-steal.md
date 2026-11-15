@@ -26,3 +26,7 @@ Controls: in the money with pay jumps (6 left, all paid) +0.012205 (PLO4) and +0
 ## Limits
 
 At 18 BB the candidate never acted against the old and adaptive fields (0 of 4,000 groups in all eight cells) and once in each 6-handed callwide50 cell, so the value comes from 10 and 14 BB; the 14-20 BB band is effectively untested. The harness carries no hand-for-hand, near-bubble or satellite flag: those gates are tested here as code but were not in the evaluation. Opponents are Horse fields only (no human-like opponent). Stacks were reset every hand; one payout ladder (50/30/20) in the main grid. Simulated prize-equity gains are not production gains.
+
+## 2026-11-15: opt-in in source
+
+In the PLO strategy head the full-table small blind rule has its own option, `omahaSmallBlindSteal`, read `=== true`: off in source, so unset the full-table share is zero and the tournament first-in rule is the short-handed one only. It is switched on live by the option switch, not by a source default. Unmeasured; no evaluation was run.

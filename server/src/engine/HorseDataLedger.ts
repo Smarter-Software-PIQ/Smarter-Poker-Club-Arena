@@ -869,6 +869,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V88'
   ),
   flag(
+    'omahaSmallBlindSteal',
+    '2026-11-14 (V90 item 4, HorseOmahaTournamentFirstIn): PLO4/PLO5 tournaments, four to eight dealt, the small blind folded to at 20 BB or less raises the pot with its top 40 percent of Omaha hands instead of the engine fold; never on the bubble, hand-for-hand or in a satellite; needs omahaTournamentFirstIn. Default OFF (opt-in, read === true) in source since the 2026-11-15 PLO strategy head: unset, the full-table share is zero and the small blind plays as on main before the rule. Unmeasured; receipt omaha_full_table_sb_steal',
+    'V90'
+  ),
+  flag(
     'omahaTournamentFirstIn',
     '2026-11-13 Omaha high tournaments (engine-declared), at the final table (trusted players left no more than the players dealt; unknown stands aside), heads-up at 20 BB or less or a three-handed table paying one place at 30 BB or less (2026-11-14), not All-In-Or-Fold, not a locked satellite seat: the small blind against the big blind alone plays every hand as the pot-limit maximum raise, and the heads-up big blind (or the three-handed winner-take-all big blind closing the action) calls its top 75 percent against one raise at a price of a half or better, replacing only the engine fold; at a three-handed final table with pay jumps where every player left is paid (2026-11-14), only the small blind against the big blind alone, on its top 60 percent at 20 BB or less; percentile among Omaha hands, narrowed by the tournament risk premium. Four to eight dealt (2026-11-15, item 4), PLO4 and PLO5 only, the small blind folded to with the big blind alone pot-raises its top 40 percent (flat) at 20 BB or less instead of the engine fold, never on the money bubble (near-bubble line or flag), hand-for-hand, in a satellite or with the field or payout unknown; the big blind is untouched.',
     'V90'

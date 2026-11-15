@@ -62,7 +62,7 @@ import { limpReraiseIsoBar } from './HorseLimpReraiseRead.js';
 import { fixedLimitHasNoJamOrFold } from './HorseFixedLimitStructure.js';
 import {
   OMAHA_TOURNAMENT_FIRST_IN,
-  omahaFullTableSbStealTable,
+  omahaSmallBlindStealTable,
   omahaTournamentFirstIn,
   type OmahaTournamentFirstInParams,
 } from './HorseOmahaTournamentFirstIn.js';
@@ -1229,7 +1229,7 @@ export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
       // Four to eight dealt only the full-table small blind rule acts, so it
       // has its own receipt.
       ctx.noteLayer?.(
-        omahaFullTableSbStealTable({ tableSize: firstInTableSize }, firstInParams)
+        omahaSmallBlindStealTable({ tableSize: firstInTableSize }, firstInParams)
           ? 'omaha_full_table_sb_steal'
           : 'omaha_tournament_first_in'
       );

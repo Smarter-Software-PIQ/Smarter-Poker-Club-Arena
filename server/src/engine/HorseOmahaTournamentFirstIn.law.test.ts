@@ -16,7 +16,7 @@ import { fastRandom, omahaPreflopPercentile, seedFastRandom } from './HorseEval.
 import { horseVariantRulesFor } from './VariantRules.js';
 import {
   OMAHA_TOURNAMENT_FIRST_IN,
-  omahaFullTableSbStealTable,
+  omahaSmallBlindStealTable,
   omahaTournamentFirstIn,
   type OmahaTournamentFirstInInput,
 } from './HorseOmahaTournamentFirstIn.js';
@@ -326,10 +326,10 @@ describe('omahaTournamentFirstIn: the full-table small blind (four to eight deal
     ).toEqual({ a: 'jam' });
     for (const tableSize of [9, 10])
       expect(omahaTournamentFirstIn({ ...full, tableSize, percentile: 0.99 })).toBeNull();
-    expect(omahaFullTableSbStealTable({ tableSize: 3 })).toBe(false);
-    expect(omahaFullTableSbStealTable({ tableSize: 4 })).toBe(true);
-    expect(omahaFullTableSbStealTable({ tableSize: 8 })).toBe(true);
-    expect(omahaFullTableSbStealTable({ tableSize: 9 })).toBe(false);
+    expect(omahaSmallBlindStealTable({ tableSize: 3 })).toBe(false);
+    expect(omahaSmallBlindStealTable({ tableSize: 4 })).toBe(true);
+    expect(omahaSmallBlindStealTable({ tableSize: 8 })).toBe(true);
+    expect(omahaSmallBlindStealTable({ tableSize: 9 })).toBe(false);
   });
 
   it('PLO4 and PLO5 only: PLO6 or an unknown hole-card count keeps the fold', () => {
@@ -380,7 +380,7 @@ describe('omahaTournamentFirstIn: the full-table small blind (four to eight deal
   it('share 0 is the previous rule: four to eight dealt stand aside', () => {
     const off = { ...OMAHA_TOURNAMENT_FIRST_IN, fullTableSbStealShare: 0 };
     expect(omahaTournamentFirstIn({ ...full, percentile: 0.99 }, off)).toBeNull();
-    expect(omahaFullTableSbStealTable({ tableSize: 6 }, off)).toBe(false);
+    expect(omahaSmallBlindStealTable({ tableSize: 6 }, off)).toBe(false);
   });
 });
 
@@ -1074,7 +1074,7 @@ describe(
       '%s, %i dealt, %i BB: only engine folds change, each to a raise of a top-40-percent hand, with its own receipt',
       (variant, dealt, stackBB) => {
         const c = { variant, dealt, stackBB };
-        const on = fullTableRun({}, c);
+        const on = fullTableRun({ omahaSmallBlindSteal: true }, c);
         const off = fullTableRun({ omahaTournamentFirstIn: false }, c);
         expect(foldCount(on.actions)).toBeLessThan(foldCount(off.actions));
         let changed = 0;
@@ -1124,7 +1124,7 @@ describe(
       ['an unknown field', (s) => void delete s.tournament!.playersLeft],
       ['All-In-Or-Fold', (s) => void ((s as { allInOrFold?: boolean }).allInOrFold = true)],
     ])('stands aside: %s', (_name, tweak) => {
-      const on = fullTableRun({}, { tweak });
+      const on = fullTableRun({ omahaSmallBlindSteal: true }, { tweak });
       expect(on.actions).toEqual(
         fullTableRun({ omahaTournamentFirstIn: false }, { tweak }).actions
       );
@@ -1140,9 +1140,16 @@ describe(
       ['cash', { mode: 'cash' }],
       ['deeper than 20 BB', { stackBB: 25 }],
     ])('untouched: %s', (_name, c) => {
-      const on = fullTableRun({}, c);
+      const on = fullTableRun({ omahaSmallBlindSteal: true }, c);
       expect(on.actions).toEqual(fullTableRun({ omahaTournamentFirstIn: false }, c).actions);
       expect(on.receipts.some(Boolean)).toBe(false);
+    });
+
+    it('the option unset (the source default) leaves the full-table small blind folding as before', () => {
+      const unset = fullTableRun({});
+      expect(unset.actions).toEqual(fullTableRun({ omahaTournamentFirstIn: false }).actions);
+      expect(unset.receipts.some(Boolean)).toBe(false);
+      expect(fullTableRun({ omahaSmallBlindSteal: true }).receipts.some(Boolean)).toBe(true);
     });
 
     it('the big blind facing the small blind raise keeps the engine decision', () => {
@@ -1156,7 +1163,7 @@ describe(
         }
         return actions;
       };
-      const on = bb({});
+      const on = bb({ omahaSmallBlindSteal: true });
       expect(on).toEqual(bb({ omahaTournamentFirstIn: false }));
       expect(on.some((a) => a.startsWith('fold'))).toBe(true);
     });

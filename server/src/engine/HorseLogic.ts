@@ -2694,7 +2694,8 @@ export interface HorseDecideOpts {
    *  fewer players dealt and 20 BB or less (30 BB three-handed winner-take-all; with pay jumps the small blind alone, top 60 percent).
    *  Four to eight dealt, PLO4/PLO5 only, the small blind folded to plays its
    *  top 40 percent at 20 BB or less, never on the bubble, hand-for-hand or in
-   *  a satellite. Default on; false is the old
+   *  a satellite, and only with omahaSmallBlindSteal on (default OFF).
+   *  Default on; false is the old
    *  engine; an object is a league arm's parameters. */
   omahaTournamentFirstIn?:
     | boolean
@@ -3167,6 +3168,15 @@ export interface HorseDecideOpts {
    * Default OFF (opt-in, read `=== true`) until its declared evaluation
    * passes; league cards plo4/plo5 _omaha_reraise_range_by_position. */
   omahaReraiseRangeByPosition?: boolean;
+  /** 2026-11-14 (HorseOmahaTournamentFirstIn, V90 item 4): PLO4/PLO5
+   * tournaments, four to eight dealt, the small blind folded to at 20 BB or
+   * less raises the pot with its top 40 percent of Omaha hands instead of the
+   * engine fold; never on the bubble, hand-for-hand or in a satellite. Needs
+   * omahaTournamentFirstIn (not false). Default OFF (opt-in, read
+   * `=== true`): unset, the full-table share is zero and only the
+   * short-handed first-in rule acts, as on main before this rule. Receipt
+   * omaha_full_table_sb_steal. */
+  omahaSmallBlindSteal?: boolean;
   /** A token-priced committed call is not barred by stack-off premiums
    * (HorseTokenCallPrice.ts, PLO6-AUDIT-010). Default on; false only for
    * the regression's non-vacuity control. */
@@ -11983,8 +11993,19 @@ export class HorseLogic {
               // the bubble, hand-for-hand or in a satellite.
               holeCount: vi.holeCount,
               ...omahaFirstInStage(gs),
-              ...(typeof opts.omahaTournamentFirstIn === 'object'
-                ? { params: opts.omahaTournamentFirstIn }
+              // omahaSmallBlindSteal (default OFF, read `=== true`): unless it
+              // is on, the full-table small blind share is zero and only the
+              // short-handed rule acts, as before 2026-11-14.
+              ...(typeof opts.omahaTournamentFirstIn === 'object' ||
+              opts.omahaSmallBlindSteal !== true
+                ? {
+                    params: {
+                      ...(typeof opts.omahaTournamentFirstIn === 'object'
+                        ? opts.omahaTournamentFirstIn
+                        : {}),
+                      ...(opts.omahaSmallBlindSteal !== true ? { fullTableSbStealShare: 0 } : {}),
+                    },
+                  }
                 : {}),
             },
           }
