@@ -47,6 +47,7 @@ import {
 } from '../HorseOmahaRiverMediumBetCalls.js';
 import {
   OMAHA_OOP_CHECK_VARIANTS,
+  omahaBareOverpairContAdmitsCall,
   omahaOopCheckSpot,
   omahaOopTurnFacingBetVerdict,
 } from '../HorseOmahaOopChecks.js';
@@ -1318,6 +1319,23 @@ function policyGraphIsValidInScope(
     const omahaOopTurnToCall =
       oopTurnVerdict === 'call_nut_draw' ||
       (oopTurnVerdict === 'no_raise' && previous !== null && previous.action !== 'fold');
+    // omahaBareOverpairOopFlopCheck, the continuation (2026-11-15, default
+    // off): heads-up on the flop, having checked the bare pair out of
+    // position and facing a bet, a fold or a raise becomes a call when the
+    // expected value of the call clears its margin. The verdict reads the
+    // opponent memory, which the request does not carry, so the call is
+    // admitted only with the request, only in the spot the rule covers and
+    // only for the exact chips of the call (the whole-stack call is outside
+    // the rule). Its fold is the paired-board fold's form above.
+    const omahaBareOverpairContToCall =
+      transition.node === 'wager_rules' &&
+      omahaStrategyGameInScope(OMAHA_OOP_CHECK_VARIANTS, { gameVariant: variant }) &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      ['fold', 'raise', 'all_in'].includes(previous.action) &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      omahaBareOverpairContAdmitsCall(context.player, context.gameState, transition.after.amount);
     // Owner 2026-11-15 11:41 (HorseOmahaCardImpact, default-off option): a
     // heads-up turn or river bet facing no wager becomes a check when the
     // check is worth more against the opponent's range. A check puts no chip
@@ -1431,6 +1449,7 @@ function policyGraphIsValidInScope(
       !omahaBeatenBetToCheck &&
       !omahaOopBetToCheck &&
       !omahaOopTurnToCall &&
+      !omahaBareOverpairContToCall &&
       !omahaStreetPlanBetToCheck &&
       !omahaOnePairReduction &&
       !shortAllInCall &&

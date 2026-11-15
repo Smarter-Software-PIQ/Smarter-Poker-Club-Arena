@@ -47,7 +47,7 @@ import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
 import { payJumpBubbleFactor } from './HorseLogic.js';
 import { nashJamProbability } from './HorseAnteAwarePushFold.js';
 import { nashV2JamProbability } from './HorseNashPushFoldV2.js';
-import { bubbleFactor, icmEquity } from './IcmModel.js';
+import { bubbleFactor, icmEquity, withIcmBustPaysPlace } from './IcmModel.js';
 import {
   BOUNTY_FREEZEOUT,
   HAND_STACKS,
@@ -67,10 +67,15 @@ const WEIGHT =
   BOUNTY_FREEZEOUT.prizePoolCents /
   (BOUNTY_FREEZEOUT.prizePoolCents + BOUNTY_FREEZEOUT.bountyPoolCents);
 /** The option-on arm (default OFF, owner preflop range hold). */
-const ON = { nashPushFoldIcm: true } as const;
+const ON = { nashPushFoldIcm: true, icmBustPaysPlace: true } as const;
+/** The paid-bust valuation alone (icmBustPaysPlace): the baseline the payout-aware read is compared with. */
+const BUST_ONLY = { icmBustPaysPlace: true } as const;
 const factorAt = (spec: SpotSpec) => {
   const { gs, hero } = buildSpot(spec);
-  return payJumpBubbleFactor(gs, hero.stack / gs.bigBlind, hero.user_id);
+  // with icmBustPaysPlace on, as HorseLogic.decide scopes it for the ON arm
+  return withIcmBustPaysPlace(true, () =>
+    payJumpBubbleFactor(gs, hero.stack / gs.bigBlind, hero.user_id)
+  );
 };
 
 describe('nashPushFoldIcm is default OFF: unset is the chip-EV decision', () => {
@@ -104,7 +109,9 @@ describe('hand 59441335: with the option on, the jam reads the payouts', () => {
 
   it('a bust in the money is worth its place, so the factor is not pinned at the cap', () => {
     // Until 2026-11-15 bubbleFactor priced this bust at zero and read 5.
-    const factor = bubbleFactor(HAND_STACK_VECTOR, PAYOUT_86, HERO_INDEX, 12_609);
+    const factor = withIcmBustPaysPlace(true, () =>
+      bubbleFactor(HAND_STACK_VECTOR, PAYOUT_86, HERO_INDEX, 12_609)
+    );
     expect(factor).toBeGreaterThan(1.1);
     expect(factor).toBeLessThan(1.3);
     expect(factorAt({ hand: '85o' })).toBeCloseTo(1 + (factor - 1) * WEIGHT, 9);
@@ -230,7 +237,9 @@ describe('where no payout-aware read applies the decision is the chip-EV one', (
     it(`${name}: no factor, and with the option on every seed equals the default`, () => {
       expect(factorAt({ ...spec, hand: '85o' })).toBeNull();
       for (const hand of ['85o', '72o', 'A5o']) {
-        expect(decideSeeds({ ...spec, hand }, 15, ON)).toEqual(decideSeeds({ ...spec, hand }, 15));
+        expect(decideSeeds({ ...spec, hand }, 15, ON)).toEqual(
+          decideSeeds({ ...spec, hand }, 15, BUST_ONLY)
+        );
       }
     });
   }
@@ -257,7 +266,9 @@ describe('where no payout-aware read applies the decision is the chip-EV one', (
   for (const [name, spec] of Object.entries(variants)) {
     it(`${name}: with the option on every seed equals the default`, () => {
       for (const hand of ['85o', 'A5o']) {
-        expect(decideSeeds({ ...spec, hand }, 10, ON)).toEqual(decideSeeds({ ...spec, hand }, 10));
+        expect(decideSeeds({ ...spec, hand }, 10, ON)).toEqual(
+          decideSeeds({ ...spec, hand }, 10, BUST_ONLY)
+        );
       }
     });
   }

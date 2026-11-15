@@ -4,7 +4,9 @@ Owner order of 2026-11-15 12:10 America/Chicago. Evidence NOT MET; a live read i
 
 ## What it does
 
-The bare overpair out of position checks the flop (any opponent).
+The bare big pair with the betting lead, out of position, checks the flop (any opponent). The spot, for the check and for the continuation: PLO4/PLO5 cash flop, the Horse was the last preflop aggressor (it has the betting lead: its raise, 3-bet or 4-bet was called), an opponent still acts behind, and its hand is a bare big pair: a pocket pair that is an overpair to the flop, or pocket queens or better (AA, KK, QQ) with at most one overcard on the flop; exactly one pair made, no flush draw and fewer than eight straight outs (backdoor draws only). Any flop texture. Heads-up and multiway for the check. Without the betting lead, with top pair made by a board card, a small pair, a real draw or a set, the option does nothing.
+
+The continuation (same option, heads-up only): having checked and facing the flop bet, the Horse never raises; it calls when the expected value of the call clears 2 percent of the final pot, and folds otherwise. The expected value uses the Horse's exact cards against the bettor's range (the engine's tiered Omaha aggressor ranges, stronger as the bet grows from a third of the pot to 70 percent of it), moved by the bettor's measured read (toward any hand for a measured postflop over-bettor, one tier stronger for a measured value leader, unmoved for an unknown or presumed one), at the price, with a realisation discount of 0.75 for being out of position. The 0.75 is the engine's flop out-of-position realisation factor: a stated constant, not measured. The facing-bet expected-value model (`HorseOmahaFacingBetEv.ts`) has no flop form, so the flop uses the equity helper (`simulateEquity`) on a private seeded stream. Multiway, a whole-stack call and a hand outside the check rule's class keep today's decision.
 
 Default OFF in source (read `=== true`). On live only by an option-switch row whose note cites this file and its sha256 (`authority: omahaBareOverpairOopFlopCheck docs/horse-option-authority.d/omahaBareOverpairOopFlopCheck.md sha256 <digest>`). The maintained rollback (switch row off, about 30 s) applies if harm is established.
 
@@ -17,9 +19,13 @@ Default OFF in source (read `=== true`). On live only by an option-switch row wh
 
 59517323
 
+- 2026-11-15 14:19: "SHOULDN'T \"JUST BE ACES\" IT SHOULD BE ALL BIG PAIRS, KK AND QQ AS WELL WHEN THE HORSE HAS THE BETTING LEAD AND CONTROL OF THE HAND."
+- 2026-11-15 14:23: "YOU NEED TO FIX AND UPDATE THIS RULE TO WORK AS IT SHOULD..."
+- Coordinator decision 2026-11-15 on the continuation: the priced call or fold stands as built; no never-fold floor.
+
 ## Receipts
 
-omaha_bare_overpair_oop_flop_checked
+omaha_bare_overpair_oop_flop_checked, omaha_bare_overpair_oop_flop_check_called, omaha_bare_overpair_oop_flop_check_folded, omaha_bare_overpair_oop_flop_check_raise_flatted
 
 ## Tests
 
@@ -29,8 +35,13 @@ HorseOmahaOopChecks.test.ts, HorseOmahaStrategyPrecedence.test.ts (all pass on t
 
 - Mechanism, scope, visibility (receipts in HorseDataLedger.ts), tests: MET.
 - Option unset or false: decisions identical to the base (decision digest pin, plo4/plo5 x dev/horse, 150 pairs, seed 5560001: every option false at 55260db1f62 equals a5935a1a61e unset on all four cells).
-- Value, continuation, reach: NOT MET. No evaluation was run (evaluation NOT RUN); a live read is owed after the release.
+- Continuation, mechanism: MET (built 2026-11-15; nine hand classes in PLO4 and PLO5, four bet sizes, three reads, 16 seeds in `HorseOmahaOopChecks.test.ts`; before and after tables in the evidence archive `plo-handoff-review-01a1cbbd/overpaircont-20261115/MEASURE.md`).
+- Value, continuation as value, reach: NOT MET. No evaluation was run (evaluation NOT RUN); a live read is owed after the release.
 
 ## Limits
 
-The coordinator's required follow-up (after the check, facing a flop bet of pot or less heads-up the overpair never folds) was NOT added in this head; the builder measured today's brain folding bare aces to half pot or more at 6-11 of 16 seeds after the check. Do not switch it on until that follow-up is in.
+- The continuation replaces the coordinator's earlier follow-up wording (never fold to a bet of pot or less heads-up) with a priced decision, on the owner's 11:39 principle (no blanket rule; hand, player, price and pot dependent) and 12:09 ruling (no check-raise without the nuts). Before it, today's brain folded the checked bare pair to two thirds of the pot at 100 of 100 seeds and to the pot at 23 to 100 of 100, the same against every read (MEASURE.md).
+- With it the bare pair still folds: to a pot-sized bet in every PLO5 class measured, and to half the pot or more against a measured value leader in most. That is the expected value at the stated 0.75 discount, which is not measured; nor are the size line (a third to 70 percent of the pot) and the 0.5 any-hand share of the aggressive lean.
+- The spot was redefined after the 14:19 and 14:23 rulings: before, any single pair on a two-tone or connected flop with no lead test; now only a bare big pair held by the last preflop aggressor, on any flop. The MEASURE.md tables were taken before the redefinition; all nine of their classes are pocket aces or kings overpairs with the lead, so they are in the new spot.
+- The continuation is heads-up only. Multiway, the whole-stack call, a raise war on the flop and a Horse in position keep today's decision.
+- Under load the equity governor may shrink the sample the equity helper is given.

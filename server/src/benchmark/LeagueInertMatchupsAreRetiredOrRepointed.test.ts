@@ -63,6 +63,9 @@ describe('UNMEASURABLE_MATCHUPS', () => {
         'nlh_long_shown_river_memory',
         // Hold'em Strategy (2026-11-15): no All-In-Or-Fold table.
         'aof_closing_seat_nash_call',
+        // PLO Strategy (2026-11-15): the public-only action time changes no action or amount,
+        // and the league has no clock.
+        'nlh_horse_action_time_is_public_only',
       ].sort()
     );
     const card = new Set(LEAGUE_MATCHUPS.map((m) => m.name));

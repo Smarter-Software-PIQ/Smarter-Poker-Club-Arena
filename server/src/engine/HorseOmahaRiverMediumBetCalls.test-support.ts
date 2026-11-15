@@ -427,7 +427,7 @@ export function expand(r: RecordedRiverFold): { fx: ComplaintFixture; node: Comp
   const fx: ComplaintFixture = {
     version: 1,
     slug: `plo5-river-fold-${r.n}`,
-    title: `PLO5 river fold, hand ${r.n}`,
+    title: `PLO5 River Fold, Hand ${r.n}`,
     complaint: 'A Horse folded a strong made hand on the river to a bet of about half the pot',
     handId: String(r.n),
     fmt: 'cash',

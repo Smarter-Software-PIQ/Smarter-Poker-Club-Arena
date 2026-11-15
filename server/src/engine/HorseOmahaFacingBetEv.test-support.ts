@@ -682,7 +682,7 @@ export function expand(r: RecordedFacingBet): { fx: ComplaintFixture; node: Comp
   const fx: ComplaintFixture = {
     version: 1,
     slug: `omaha-facing-bet-${r.n}-seat-${r.seat}`,
-    title: `Omaha ${street} decision facing a bet, hand ${r.n}`,
+    title: `Omaha ${street} Decision Facing A Bet, Hand ${r.n}`,
     complaint:
       'A Horse answered a turn or river bet without counting its hand against the bettor and the price',
     handId: String(r.n),

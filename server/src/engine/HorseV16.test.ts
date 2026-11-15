@@ -7,7 +7,7 @@ import { HorseLogic, type HorseGameStateV2 } from './HorseLogic.js';
 import { decidePreflopV7 } from './HorsePreflop.js';
 import { HorseMind } from './HorseMind.js';
 import { seedFastRandom, omahaDrawQuality } from './HorseEval.js';
-import { bubbleFactor, premiumFromBubbleFactor } from './IcmModel.js';
+import { bubbleFactor, premiumFromBubbleFactor, withIcmBustPaysPlace } from './IcmModel.js';
 import type { Card, SeatPlayer, ActionRecord } from '../types.js';
 
 const c = (rank: string, suit: string): Card => ({ rank, suit }) as Card;
@@ -91,8 +91,11 @@ describe('V16 real ICM', () => {
     const stacks = [342_381, 310_173, 191_640, 126_232, 124_308, 74_332, 69_856, 38_469, 12_609];
     const pays = [25.14, 14.44, 10.44, 8.3, 6.94, 6.0, 5.31, 4.77, 4.34, 3.99, 3.69, 3.44, 3.2];
     const gs = baseGs(stacks, pays);
-    const prem = icmRisk(gs, 126.09, true);
-    const bf = bubbleFactor(stacks, pays, 8, 12_609);
+    // option icmBustPaysPlace on (HorseLogic.decide scopes it per decision)
+    const [prem, bf] = withIcmBustPaysPlace(true, () => [
+      icmRisk(gs, 126.09, true),
+      bubbleFactor(stacks, pays, 8, 12_609),
+    ]);
     expect(bf).toBeLessThan(1.3);
     expect(prem).toBeCloseTo(premiumFromBubbleFactor(bf), 12);
     expect(prem).toBeLessThan(0.02);

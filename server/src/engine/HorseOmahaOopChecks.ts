@@ -23,9 +23,16 @@
  * (omahaOopCheckRules, wager_rules node, after the paired-board river check)
  * turns a bet in such a spot into a check:
  *
- *  - omahaBareOverpairOopFlopCheck: flop, an opponent still acts behind, one
- *    pair only, no flush draw and under eight straight outs, the flop two-tone
- *    or connected. No opponent read: heads-up and multiway.
+ *  - omahaBareOverpairOopFlopCheck (owner 2026-11-15 11:05, widened 14:19
+ *    and 14:23: "IT SHOULD BE ALL BIG PAIRS, KK AND QQ AS WELL WHEN THE HORSE
+ *    HAS THE BETTING LEAD AND CONTROL OF THE HAND"): flop, the Horse was the
+ *    last preflop aggressor (its raise, 3-bet or 4-bet was called), an
+ *    opponent still acts behind, and its hand is a bare big pair: a pocket
+ *    pair that is an overpair to the board, or pocket queens or better with
+ *    at most one overcard on the board; exactly one pair made, no flush draw
+ *    and under eight straight outs. Any flop texture. No opponent read:
+ *    heads-up and multiway. Without the betting lead, with top pair made by
+ *    a board card, a small pair, a real draw or a set, it does nothing.
  *  - omahaOverpairNoOopBarrelVsValueLeader: turn, heads-up, the opponent acts
  *    behind and called the Horse's flop bet, one pair only (a draw picked up,
  *    the nut flush draw included, is not an improved made hand), a straight
@@ -46,14 +53,29 @@
  *    bet; only when every live opponent is a MEASURED postflop value leader.
  *
  * Scope of all three: PLO4 and PLO5 cash, pot limit, one board, high only,
- * nothing to call, check legal. A call or fold facing a bet is never touched.
+ * nothing to call, check legal. A call or fold facing a bet is touched in two
+ * places only: the turn after the check (omahaOopTurnCheckAfterFlopCall) and
+ * the flop after the bare-pair check (omahaBareOverpairOopFlopCheck, THE
+ * CONTINUATION below).
  * The spots read hero's cards, the board and the public actions; the value
  * leader read (HorseOmahaReadConditional, never a presumed read) is applied by
  * HorseLogic.
  */
 import type { Card, SeatPlayer } from '../types.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
-import { omahaBoardShape, omahaDrawQuality, omahaMadeClass, variantInfo } from './HorseEval.js';
+import {
+  omahaAggressorTier,
+  omahaBoardShape,
+  omahaDrawQuality,
+  omahaMadeClass,
+  restoreFastRandom,
+  saveFastRandom,
+  seedFastRandom,
+  simulateEquity,
+  variantInfo,
+  type OppPostflopRead,
+} from './HorseEval.js';
+import { OMAHA_FACING_BET_EV_TRIVIAL_BEHIND, omahaEvBluffShare } from './HorseOmahaFacingBetEv.js';
 import { RANKS, SUITS } from './PokerEngine.js';
 import {
   omahaBeatenByBoard,
@@ -174,26 +196,60 @@ export function omahaCallersOfHeroBet(
 const category = (hole: Card[], board: Card[]): number => omahaMadeClass(hole, board).category;
 
 /**
- * omahaBareOverpairOopFlopCheck: flop, an opponent acts behind, exactly one
- * pair, no flush draw, fewer than eight straight outs, and the flop is
- * two-tone (two or more of a suit) or allows a straight.
+ * omahaBareOverpairOopFlopCheck: flop, the Horse has the betting lead (the
+ * last preflop aggressor), an opponent acts behind, and the hand is a bare
+ * big pair (omahaBareBigPairOnFlop).
  */
 export function omahaBareOverpairOopFlopSpot(hero: SeatPlayer, gs: HorseGameStateV2): boolean {
   try {
     if (omahaOopCheckStreet(hero, gs) !== 'flop') return false;
-    const board: Card[] = gs.communityCards ?? [];
-    if (category(hero.cards, board) !== ONE_PAIR) return false;
-    const suits = new Map<string, number>();
-    for (const c of board) suits.set(c.suit, (suits.get(c.suit) ?? 0) + 1);
-    const twoTone = Array.from(suits.values()).some((n) => n >= 2);
-    if (!twoTone && !omahaBoardShape(board).straightPossible) return false;
-    const draw = omahaDrawQuality(hero.cards, board, false);
-    if (draw.nutFlushDraw || draw.dominatedFlushDraw) return false;
-    if (draw.straightOuts >= OMAHA_OOP_CHECK_STRAIGHT_DRAW_OUTS) return false;
+    if (!omahaBareBigPairOnFlop(hero.cards, gs.communityCards ?? [])) return false;
+    if (!omahaHeroHasPreflopLead(hero, gs)) return false;
     return omahaOpponentActsBehind(hero, gs);
   } catch {
     return false;
   }
+}
+
+/**
+ * The betting lead: the last bet or raise before the flop was the Horse's
+ * (an all-in that did not raise is a call). A limped pot has no lead.
+ */
+export function omahaHeroHasPreflopLead(hero: SeatPlayer, gs: HorseGameStateV2): boolean {
+  let last: number | null = null;
+  for (const a of gs.actionHistory ?? []) {
+    if (String(a.stage) !== 'preflop') continue;
+    const act = String(a.action);
+    if (act === 'bet' || act === 'raise') last = a.seat;
+    else if (act === 'all_in' && (last === null || a.isFullRaise === true)) last = a.seat;
+  }
+  return last === hero.seat;
+}
+
+/** The smallest pocket pair that counts with one overcard on the board: queens. */
+export const OMAHA_BIG_PAIR_MIN_RANK = 'Q';
+
+/**
+ * The hand of omahaBareOverpairOopFlopCheck: a pocket pair in the hand that
+ * is an overpair to the flop, or pocket queens or better with at most one
+ * higher card on the flop; exactly one pair made; no flush draw and fewer
+ * than eight straight outs (backdoor draws only).
+ */
+export function omahaBareBigPairOnFlop(hole: Card[], board: Card[]): boolean {
+  if (board.length !== 3) return false;
+  const count = new Map<string, number>();
+  for (const c of hole) count.set(c.rank, (count.get(c.rank) ?? 0) + 1);
+  let pocket = -1;
+  for (const [rank, n] of count)
+    if (n >= 2) pocket = Math.max(pocket, RANKS.indexOf(rank as never));
+  if (pocket < 0) return false;
+  const over = board.filter((c) => RANKS.indexOf(c.rank) > pocket).length;
+  const big = pocket >= RANKS.indexOf(OMAHA_BIG_PAIR_MIN_RANK as never);
+  if (!(over === 0 || (big && over === 1))) return false;
+  if (category(hole, board) !== ONE_PAIR) return false;
+  const draw = omahaDrawQuality(hole, board, false);
+  if (draw.nutFlushDraw || draw.dominatedFlushDraw) return false;
+  return draw.straightOuts < OMAHA_OOP_CHECK_STRAIGHT_DRAW_OUTS;
 }
 
 /**
@@ -710,6 +766,314 @@ export function omahaOopTurnFacingBetVerdict(
   } catch {
     return null;
   }
+}
+
+/**
+ * omahaBareOverpairOopFlopCheck, THE CONTINUATION (2026-11-15; the same
+ * option, no option of its own): the flop was checked out of position with
+ * the bare big pair and the one opponent bet. Owner 11:39: no blanket rule, the
+ * call or fold is "hand and player dependant and pot size to value
+ * dependant"; owner 12:09: no check-raise without the nuts. So, heads-up:
+ * never a raise; a call when the expected value of the call clears its
+ * margin, else a fold.
+ *
+ * The exact-hand facing-bet model (HorseOmahaFacingBetEv) counts holdings on a
+ * turn or river board only: it has no flop form (two cards to come, and its
+ * value and bluff shares are turn and river measurements). The flop therefore
+ * uses the engine's own equity helper, simulateEquity, on the Horse's exact
+ * cards against the bettor's range:
+ *
+ *  HAND    Equity against the tiered Omaha aggressor ranges the engine
+ *          already samples for a bettor (omahaAggressorTier /
+ *          omahaTierRequirement: tier 1, one pair or better or a strong draw
+ *          with a share of bluffs; tier 2, two pair or better or a pair with
+ *          a strong draw; tier 3, the same with two pair under the draw), and
+ *          against any hand (eqAny).
+ *  SIZE    The engine puts a bet under 70 percent of the pot on tier 1 and a
+ *          larger one on tier 2, a step. Here the range strengthens with the
+ *          bet's share of the pot without the step: eqRange is tier 1 at a
+ *          third of the pot or less, tier 2 at 70 percent or more, and the
+ *          straight line between them in between (sizeWeight). eqStrong is
+ *          the same one tier up. The two ends are the engine's; the line
+ *          between them is stated, not measured.
+ *  PLAYER  The measured read moves the range, never a presumed one: `lean`
+ *          in [-1, 1] from the facing-bet model's own read multiplier
+ *          (omahaEvBluffShare: his bet-when-checked-to rate over the Horse
+ *          mean, a postflop over-bettor at least 1.3, bounds 0.7 to 1.5); a
+ *          measured value leader is the full value lean. lean > 0 mixes
+ *          eqRange toward eqAny by lean x OMAHA_BARE_OVERPAIR_CONT_AIR_SHARE
+ *          (stated, not measured); lean < 0 mixes it toward eqStrong by
+ *          -lean. Unknown: eqRange.
+ *  PRICE   EV(call) = R x equity x the pot the call can win (less the
+ *          marginal rake) - (1 - R x equity) x the call, called when it
+ *          exceeds the facing-bet model's one margin (2 percent of the final
+ *          pot). R is the realisation discount for being out of position with
+ *          two streets to come: OMAHA_BARE_OVERPAIR_CONT_REALIZATION (0.75,
+ *          the engine's flop out-of-position realizationFactor). It is a
+ *          stated constant, NOT MEASURED. A call that leaves a trivial amount
+ *          behind is final and takes no discount.
+ *
+ * Deterministic: the three samples are drawn from the equity helper on a
+ * stream seeded by the cards and the seats, and the brain's random stream is
+ * put back exactly as it was. Under load the equity governor may shrink the
+ * sample.
+ *
+ * Scope: PLO4 / PLO5 cash, pot limit, one board, high only, the flop, exactly
+ * one live opponent, the Horse checked first with no chips in on the street
+ * and he bet, the betting lead and the bare big pair of the check rule, and
+ * the call is not for the whole stack. Multiway, a raise war and the whole-stack call keep
+ * today's decision.
+ */
+export const OMAHA_BARE_OVERPAIR_CONT_REALIZATION = 0.75;
+/** At the full aggressive lean, this share of his flop bets is modelled as any hand. Stated, not measured. */
+export const OMAHA_BARE_OVERPAIR_CONT_AIR_SHARE = 0.5;
+/** Iterations asked of the equity helper for each of the three ranges. */
+export const OMAHA_BARE_OVERPAIR_CONT_SAMPLES = 400;
+/** The bet's share of the pot at or under which the bettor's range is tier 1, and at or over which it is one tier up (the engine's own 0.7). */
+export const OMAHA_BARE_OVERPAIR_CONT_SMALL_BET = 1 / 3;
+export const OMAHA_BARE_OVERPAIR_CONT_BIG_BET = 0.7;
+/** The neutral share the read multiplier is taken on (omahaEvBluffShare's bounds do not bind on it). */
+const CONT_LEAN_ANCHOR = 0.3;
+
+export interface OmahaBareOverpairContSpot {
+  opponent: SeatPlayer;
+  /** chips the call puts in, and the pot it can win (his bet included) */
+  call: number;
+  pot: number;
+  /** his bet as a share of the pot before it */
+  potFrac: number;
+  /** call / (pot + call) */
+  price: number;
+  /** the call leaves a trivial amount behind: no later decision */
+  final: boolean;
+}
+
+/** The public spot of the continuation (with the Horse's own cards), or null. */
+export function omahaBareOverpairFlopFacingBetSpot(
+  hero: SeatPlayer,
+  gs: HorseGameStateV2
+): OmahaBareOverpairContSpot | null {
+  try {
+    if (scopeStreet(hero, gs, true) !== 'flop') return null;
+    if (gs.bombPot === true) return null;
+    const live = liveOpponents(hero, gs);
+    if (live.length !== 1) return null;
+    const opponent = live[0];
+    if ((Number.isFinite(hero.bet) ? hero.bet : 0) > 0.005) return null;
+    const flop = (gs.actionHistory ?? []).filter((a) => String(a.stage) === 'flop');
+    const mine = flop.filter((a) => a.seat === hero.seat);
+    const his = flop.filter((a) => a.seat === opponent.seat);
+    // The Horse checked first, once; he then bet, once (no raise war).
+    if (mine.length !== 1 || String(mine[0].action) !== 'check') return null;
+    if (his.length !== 1 || !['bet', 'all_in'].includes(String(his[0].action))) return null;
+    if (flop.indexOf(mine[0]) > flop.indexOf(his[0])) return null;
+    if (!omahaBareBigPairOnFlop(hero.cards, gs.communityCards ?? [])) return null;
+    if (!omahaHeroHasPreflopLead(hero, gs)) return null;
+    const stack = Number.isFinite(hero.stack) ? Math.max(0, hero.stack) : 0;
+    const owed = Number.isFinite(gs.toCall)
+      ? Math.max(0, gs.toCall as number)
+      : Math.max(0, (gs.currentBet || 0) - (Number.isFinite(hero.bet) ? hero.bet : 0));
+    // The whole-stack call is an all-in, a wager action: today's decision.
+    if (!(owed > 0.005) || stack <= owed + 0.005) return null;
+    const pot = Number.isFinite(gs.pot) ? Math.max(0, gs.pot) : 0;
+    const before = pot - owed;
+    if (!(before > 0.005)) return null;
+    const call = Math.round(owed * 100) / 100;
+    return {
+      opponent,
+      call,
+      pot,
+      potFrac: owed / before,
+      price: call / (pot + call),
+      final: stack - call <= OMAHA_FACING_BET_EV_TRIVIAL_BEHIND * (pot + call),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** What the caller knows of the bettor from public play. Null or unmeasured: no lean. */
+export interface OmahaBareOverpairContRead {
+  /** HorseMind.omahaReadConditionalOf(...).measured */
+  measured: boolean;
+  /** measured value-heavy after the flop */
+  valueLeader: boolean;
+  /** his own postflop betting is measured high (the read-conditional postflopAggressor, or a postflop maniac) */
+  postflopAggressor: boolean;
+  /** his bet-when-checked-to posterior mean over the Horse mean; null when not measured */
+  betCheckedToRatio: number | null;
+}
+
+/** The read as a lean in [-1, 1]: -1 the full value lean, 0 unknown, 1 the full aggressive lean. */
+export function omahaBareOverpairContLean(read: OmahaBareOverpairContRead | null): number {
+  if (!read || read.measured !== true) return 0;
+  let k =
+    omahaEvBluffShare(CONT_LEAN_ANCHOR, {
+      measured: true,
+      betCheckedToRatio: read.betCheckedToRatio,
+      postflopManiac: read.postflopAggressor === true,
+      sizeShown: null,
+    }) / CONT_LEAN_ANCHOR;
+  if (read.valueLeader === true) k = Math.min(k, 0.7);
+  const lean = k >= 1 ? (k - 1) / 0.5 : (k - 1) / 0.3;
+  return Math.max(-1, Math.min(1, lean));
+}
+
+export interface OmahaBareOverpairContVerdict {
+  call: boolean;
+  /** EV of the call in chips, and the margin it had to exceed */
+  ev: number;
+  margin: number;
+  /** the equity used, and its three parts */
+  equity: number;
+  eqRange: number;
+  eqAny: number;
+  eqStrong: number;
+  lean: number;
+  /** 0 at a third of the pot or less (tier 1), 1 at 70 percent or more (tier 2) */
+  sizeWeight: number;
+  realization: number;
+  price: number;
+}
+
+/** A read that puts the engine's Omaha sampler on aggressor tier `tier` (1..3). */
+function tierRead(tier: number): OppPostflopRead {
+  const read = tierReadOf(tier);
+  if (omahaAggressorTier(read) !== tier) throw new Error('omaha aggressor tier moved');
+  return read;
+}
+function tierReadOf(tier: number): OppPostflopRead {
+  return {
+    aggrW: 1,
+    checked: 0,
+    streets: tier >= 3 ? 2 : 1,
+    lastFrac: tier >= 2 ? 1 : 0.5,
+    lastStage: 'flop',
+  };
+}
+
+function contSeed(hero: SeatPlayer, board: Card[], opponent: SeatPlayer): number {
+  let h = 0x811c9dc5;
+  const mix = (t: string) => {
+    for (let i = 0; i < t.length; i++) {
+      h ^= t.charCodeAt(i);
+      h = Math.imul(h, 0x01000193);
+    }
+  };
+  for (const c of [...hero.cards, ...board]) mix(`${c.rank}${c.suit}`);
+  mix(`|${hero.seat}|${opponent.seat}`);
+  return h >>> 0 || 1;
+}
+
+/** The decision of the continuation: call when EV(call) exceeds the margin. Null when it cannot be computed. */
+export function omahaBareOverpairFlopFacingBetVerdict(
+  spot: OmahaBareOverpairContSpot,
+  hero: SeatPlayer,
+  gs: HorseGameStateV2,
+  read: OmahaBareOverpairContRead | null,
+  ctx: { rake?: number; realization?: number } = {}
+): OmahaBareOverpairContVerdict | null {
+  const saved = saveFastRandom();
+  try {
+    const vi = variantInfo(String(gs.gameVariant ?? '').toLowerCase());
+    const board: Card[] = gs.communityCards ?? [];
+    const dead = hero.knownDeadCards ?? [];
+    const seed = contSeed(hero, board, spot.opponent);
+    const sizeWeight = Math.max(
+      0,
+      Math.min(
+        1,
+        (spot.potFrac - OMAHA_BARE_OVERPAIR_CONT_SMALL_BET) /
+          (OMAHA_BARE_OVERPAIR_CONT_BIG_BET - OMAHA_BARE_OVERPAIR_CONT_SMALL_BET)
+      )
+    );
+    const lean = omahaBareOverpairContLean(read);
+    const cache = new Map<number, number>();
+    /** Equity against aggressor tier 1..3, or any hand (0); the same stream for each. */
+    const equityVs = (tier: number): number => {
+      const hit = cache.get(tier);
+      if (hit !== undefined) return hit;
+      seedFastRandom(seed);
+      const e = simulateEquity(
+        hero.cards,
+        board,
+        1,
+        vi,
+        OMAHA_BARE_OVERPAIR_CONT_SAMPLES,
+        undefined,
+        false,
+        undefined,
+        tier > 0 ? [tierRead(tier)] : undefined,
+        undefined,
+        dead
+      );
+      cache.set(tier, e);
+      return e;
+    };
+    // A stronger tier is never a weaker range, any hand never a stronger one.
+    const e1 = equityVs(1);
+    const e2 = sizeWeight > 0 || lean < 0 ? Math.min(e1, equityVs(2)) : e1;
+    const e3 = lean < 0 && sizeWeight > 0 ? Math.min(e2, equityVs(3)) : e2;
+    const eqRange = e1 + sizeWeight * (e2 - e1);
+    const eqStrong = lean < 0 ? e2 + sizeWeight * (e3 - e2) : eqRange;
+    const eqAny = lean > 0 ? Math.max(e1, equityVs(0)) : eqRange;
+    if (![eqRange, eqAny, eqStrong].every((e) => Number.isFinite(e) && e >= 0 && e <= 1))
+      return null;
+    const equity =
+      lean > 0
+        ? eqRange + lean * OMAHA_BARE_OVERPAIR_CONT_AIR_SHARE * (eqAny - eqRange)
+        : eqRange + -lean * (eqStrong - eqRange);
+    const realization = spot.final
+      ? 1
+      : Math.max(
+          0.5,
+          Math.min(
+            1,
+            Number.isFinite(ctx.realization)
+              ? (ctx.realization as number)
+              : OMAHA_BARE_OVERPAIR_CONT_REALIZATION
+          )
+        );
+    const rake = Math.max(0, Math.min(0.2, Number.isFinite(ctx.rake) ? (ctx.rake as number) : 0));
+    const p = equity * realization;
+    const ev = p * spot.pot * (1 - rake) - (1 - p) * spot.call;
+    // omahaStrategyInTournaments: a tournament call also pays the survival premium (0 in cash).
+    const margin =
+      (omahaStrategyConstant('facingBetEvMargin', gs) +
+        omahaTournamentIcmPremium(hero, gs, spot.call)) *
+      (spot.pot + spot.call);
+    return {
+      call: ev > margin,
+      ev,
+      margin,
+      equity,
+      eqRange,
+      eqAny,
+      eqStrong,
+      lean,
+      sizeWeight,
+      realization,
+      price: spot.price,
+    };
+  } catch {
+    return null;
+  } finally {
+    restoreFastRandom(saved);
+  }
+}
+
+/**
+ * Receipt validation (no options, no opponent memory in the request): a fold
+ * or a raise that became a call is admitted only in the continuation's spot
+ * and only for the exact chips of the call.
+ */
+export function omahaBareOverpairContAdmitsCall(
+  hero: SeatPlayer,
+  gs: HorseGameStateV2,
+  amount: number | null | undefined
+): boolean {
+  const spot = omahaBareOverpairFlopFacingBetSpot(hero, gs);
+  return spot !== null && typeof amount === 'number' && Math.abs(spot.call - amount) <= 0.005;
 }
 
 /** Any of the spots: what the worker receipt validator admits as a bet turned into a check. */

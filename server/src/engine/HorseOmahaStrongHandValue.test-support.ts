@@ -950,7 +950,7 @@ export function expandStrongHand(r: RecordedStrongHand): {
   const fx: ComplaintFixture = {
     version: 1,
     slug: `omaha-strong-hand-${r.h}-seat-${r.seat}`,
-    title: `Omaha river decision with a full house, study hand ${r.h}`,
+    title: `Omaha River Decision With A Full House, Study Hand ${r.h}`,
     complaint: 'A Horse with a full house on the river checked, only called, raised or folded',
     handId: r.h,
     fmt: 'cash',
