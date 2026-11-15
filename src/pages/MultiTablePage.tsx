@@ -265,6 +265,7 @@ interface TableInstance {
    *  on `false`. Reported, never derived here: this page cannot see the arena. */
   canAddFunds?: boolean;
   seatChangeEnabled?: boolean;
+  seatChangeOffInLightning?: boolean;
   buttonTheme?: string;
   isAutoRebuyEnabled?: boolean;
   standUpNextBB?: boolean;
@@ -2400,6 +2401,7 @@ export default function MultiTablePage() {
           seated: t.seated,
           canAddFunds: t.canAddFunds,
           seatChangeEnabled: t.seatChangeEnabled,
+          seatChangeOffInLightning: t.seatChangeOffInLightning,
           buttonTheme: t.buttonTheme,
           isAutoRebuyEnabled: t.isAutoRebuyEnabled,
           standUpNextBB: t.standUpNextBB,

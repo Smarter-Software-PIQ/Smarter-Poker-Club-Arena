@@ -56,7 +56,13 @@ async function attachMobileProof(
 export async function certifyMobileLiveTableLayout(
   page: Page,
   testInfo: TestInfo,
-  options: { widths?: number[]; seatChangeToggle?: boolean; requireAvatarGrowth?: boolean } = {}
+  options: {
+    widths?: number[];
+    seatChangeToggle?: boolean;
+    requireAvatarGrowth?: boolean;
+    /** The page holds no seat here: the menu must offer no seat-only row. */
+    spectator?: boolean;
+  } = {}
 ) {
   const capacity = await page.locator('.table-page:visible').first().getAttribute('data-seats');
   const proofTag = `mobile-live-table-${capacity || 'unknown'}max`;
@@ -135,18 +141,42 @@ export async function certifyMobileLiveTableLayout(
     if (options.seatChangeToggle === false) return;
     const menu = page.getByRole('button', { name: 'Table Menu', exact: true });
     await menu.click();
-    const toggle = page.getByRole('menuitemcheckbox', { name: /Seat Change/ });
-    await expect(toggle).toHaveAttribute('aria-checked', 'true');
-    await toggle.click();
-    /* A SWITCH LEAVES THE MENU OPEN (2026-11-14, #10924). This used to press
-       the hamburger again after every switch, because every row closed the
-       menu. With the menu still open that second press CLOSED it, and the
-       read of the switch below found nothing. The switch is read where the
-       player now sees it change: in the open menu. */
-    await expect(toggle).toHaveAttribute('aria-checked', 'false');
-    await expect(page.locator('.cch-seat-change-control:visible')).toHaveCount(0);
-    await toggle.click();
-    await expect(toggle).toHaveAttribute('aria-checked', 'true');
+    /* SEAT CHANGE IS EITHER A SWITCH OR SAYS WHY IT IS NOT (2026-11-15). A
+       Lightning game withholds seat change on purpose (#10818), and this proof
+       used to demand the switch at whatever occupied table production was
+       running, so it failed whenever that table was a Lightning game. The row
+       is now there either way: a switch at a Classic table, a disabled row
+       naming Lightning at a Lightning table. Both are proved. */
+    const toggle = page.getByRole('menuitemcheckbox', { name: /^Seat Change/ });
+    const offInLightning = page.getByRole('menuitem', {
+      name: 'Seat Change Off In Lightning',
+      exact: true,
+    });
+    await expect(toggle.or(offInLightning)).toBeVisible();
+    if (await toggle.count()) {
+      await expect(toggle).toHaveAttribute('aria-checked', 'true');
+      await toggle.click();
+      /* A SWITCH LEAVES THE MENU OPEN (2026-11-14, #10924). This used to press
+         the hamburger again after every switch, because every row closed the
+         menu. With the menu still open that second press CLOSED it, and the
+         read of the switch below found nothing. The switch is read where the
+         player now sees it change: in the open menu. */
+      await expect(toggle).toHaveAttribute('aria-checked', 'false');
+      await expect(page.locator('.cch-seat-change-control:visible')).toHaveCount(0);
+      await toggle.click();
+      await expect(toggle).toHaveAttribute('aria-checked', 'true');
+    } else {
+      await expect(offInLightning).toBeDisabled();
+    }
+    if (options.spectator) {
+      /* A spectator holds no seat, so the menu offers nothing that acts on
+         one (#10947). Leave Table stays: it is how a spectator closes it. */
+      for (const label of ['Sit Out', 'Stand Up Next Big Blind', 'Leave Table Next Hand']) {
+        await expect(page.getByRole('menuitem', { name: label, exact: true })).toHaveCount(0);
+      }
+      await expect(page.getByRole('menuitemcheckbox', { name: /^Stand Up Next/ })).toHaveCount(0);
+      await expect(page.getByRole('menuitem', { name: 'Leave Table', exact: true })).toBeVisible();
+    }
     /* THE SOUNDS SWITCH ANSWERS THE PRESS, AT A REAL TABLE (owner report
        2026-11-14: "THE SOUNDS BUTTON ... SILENTLY FAIL"). Flipped and flipped
        back, so the account leaves with the preference it arrived with. */
