@@ -326,8 +326,10 @@ describe('the Phase 1 seal is owed exactly when its own condition holds', () => 
 
   it('runs the gameplay journey alone: its grep selects the contracted case and no other', () => {
     // Post-Deploy E2E 43635213490, 43643304336 and 43652573106: the file ran
-    // whole, both of its cases passed, and the coverage contract (exactly one)
-    // answered NON-VERDICT. The celebration case has its own job and report.
+    // whole, so its report held two specs and the coverage contract (exactly
+    // one) answered NON-VERDICT. In 43643304336 both cases passed; in the
+    // other two the celebration case failed on a release-identity mismatch.
+    // The celebration case now runs as its own suite in the same sweep.
     const sweep = workflowStep('Run the specs that need a deployed page');
     const line = sweep
       .split('\n')
