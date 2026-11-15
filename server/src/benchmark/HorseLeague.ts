@@ -4038,6 +4038,22 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'speed; the paired Lightning harness (lightning/LightningPairedEval.test.ts) is the place to measure it.',
   },
   {
+    name: 'nlh_lightning_early_fold_needs_fold_through',
+    a: { lightningEarlyFoldNeedsFoldThrough: true },
+    b: {},
+    reason:
+      'No Lightning domain and no early look in the league table. lightningEarlyFoldNeedsFoldThrough is ' +
+      'DEFAULT OFF (HorseLogic.decide: opts.lightningEarlyFoldNeedsFoldThrough === true) and acts only on a ' +
+      'Lightning cash decision (gs.publicMemoryDomain.speed === "lightning") asked while live seats before the ' +
+      'Horse still have to act, which only the Lightning host asks (its early look, off the turn). The league ' +
+      'asks every decision on its own turn with no public memory domain, so both arms would play identical ' +
+      'poker and the card would report 0.00 +/- 0.00 every night. Measured 2026-11-15 on this matchup as ' +
+      'written: 0 of 2,000 pairs diverged (run seed 20261114). It is measured where the early look exists: ' +
+      'the beyond-big-blind Lightning probe (all-Horse LightningHandHost tables, development seeds, ' +
+      'counterfactual re-asks of the real turn, and a hero-scope paired arm). What would change this: a league ' +
+      'context that runs the Lightning host (early looks off the turn) and sets the domain.',
+  },
+  {
     name: 'nlh_lightning_participation_holdem',
     a: { lightningParticipationHoldem: true },
     b: {},

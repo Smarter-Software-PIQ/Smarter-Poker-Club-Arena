@@ -415,6 +415,10 @@ import {
   omahaRaiseNeedsNutsScope,
 } from './HorseOmahaTurnRiverRaiseNeedsNuts.js';
 import {
+  lightningFoldThroughFrame,
+  lightningFoldThroughSeats,
+} from './HorseLightningFoldThrough.js';
+import {
   huBbEquityVsOpener,
   huDefenceWidthPct,
   HU_BB_MAX_OPEN_BB,
@@ -3765,6 +3769,14 @@ export interface HorseDecideOpts {
    *  cells by seat, players dealt and depth, and the big blind's continue
    *  range by price against one raise (HorseLightningParticipation). */
   lightningParticipationOmaha?: boolean;
+  /** LIGHTNING EARLY FOLD NEEDS THE FOLD-THROUGH (2026-11-15, default OFF;
+   *  true enables it). Lightning cash only, before the river: a fold to a
+   *  priced decision asked while live seats before the Horse still have to
+   *  act (an early look) stands only if the same policy also folds on the
+   *  frame where those seats fold; otherwise the frame's answer is returned
+   *  and the host lets the Horse decide afresh on its turn
+   *  (HorseLightningFoldThrough.ts). No effect at the Horse's own turn. */
+  lightningEarlyFoldNeedsFoldThrough?: boolean;
   /** FACING A CLOSED ALL-IN RE-RAISE (2026-11-08, default ON): facing a
    *  3-bet or 4-bet made all in with every other live opponent all in or
    *  folded, the 3-bet node's 35% and the 4-bet node's 30% stack caps no
@@ -10314,6 +10326,39 @@ export class HorseLogic {
     planReadCapture?: HorsePlanReadCapture,
     deepDiveCapture?: HorseDeepDiveCapture
   ): HorseDecision {
+    // LIGHTNING EARLY FOLD NEEDS THE FOLD-THROUGH (2026-11-15, default OFF;
+    // HorseLightningFoldThrough.ts): the decision is asked as before; only a
+    // fold with live seats still to act before the Horse is asked once more,
+    // on the frame where those seats fold (never learned: observeMind false).
+    if (opts.lightningEarlyFoldNeedsFoldThrough === true) {
+      const inner: HorseDecideOpts = { ...opts, lightningEarlyFoldNeedsFoldThrough: false };
+      const first = HorseLogic.decide(
+        player,
+        gameState,
+        style,
+        mods,
+        inner,
+        rangeCapture,
+        planReadCapture,
+        deepDiveCapture
+      );
+      if (String(first.action) !== 'fold') return first;
+      const seats = lightningFoldThroughSeats(gameState, player.seat);
+      const frame = seats.length
+        ? lightningFoldThroughFrame(gameState, seats, opts.decisionTimeMs ?? 0)
+        : null;
+      if (!frame) return first;
+      const through = HorseLogic.decide(player, frame, style, mods, {
+        ...inner,
+        observeMind: false,
+      });
+      if (String(through.action) === 'fold') {
+        if (telemetryOn(opts)) noteFire('lightning_fold_through_kept');
+        return first;
+      }
+      if (telemetryOn(opts)) noteFire('lightning_fold_through_released');
+      return through;
+    }
     // icmBustPaysPlace (2026-11-15, default OFF): the paid-bust ICM valuation for
     // this decision only. It also covers the survival premium read below.
     // nashPushFoldIcm implies it (Hand Analysis D1): its payout read prices through the same bubble factor.

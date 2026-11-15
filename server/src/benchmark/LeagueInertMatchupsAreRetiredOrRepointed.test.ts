@@ -40,6 +40,8 @@ describe('UNMEASURABLE_MATCHUPS', () => {
         'human_hu_opener_defends_vs_threebet_40bb',
         // 2026-11-15: the league deals no Lightning domain (HorseLightningParticipation).
         'nlh_lightning_participation_holdem',
+        // 2026-11-15: the league asks no early look (HorseLightningFoldThrough).
+        'nlh_lightning_early_fold_needs_fold_through',
         'plo4_lightning_participation_omaha',
         // 2026-11-15 (L-016): the league deals no Lightning domain (lightningStyleReadSeparate).
         'nlh_style_lightning_separate',

@@ -1629,6 +1629,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     '2026-11-15'
   ),
   receipt(
+    'lightning_fold_through_kept',
+    'HorseLogic.decide via HorseLightningFoldThrough (lightningEarlyFoldNeedsFoldThrough; default off)',
+    'a Lightning fold asked while live seats before the Horse still had to act (an early look) also folded on the fold-through frame (those seats folded), so the early fold stood and lands right away',
+    '2026-11-15'
+  ),
+  receipt(
+    'lightning_fold_through_released',
+    'HorseLogic.decide via HorseLightningFoldThrough (lightningEarlyFoldNeedsFoldThrough; default off)',
+    'a Lightning fold asked while live seats before the Horse still had to act (an early look) did NOT fold on the fold-through frame, so the frame answer was returned and the host left the Horse to decide afresh on its own turn',
+    '2026-11-15'
+  ),
+  receipt(
     'style_tight_opener_respect_seen',
     'HorsePreflop via HorseLogic (STYLE READ #6)',
     'facing one open from a credibly tight opener the 3-bet bar moved up and the call bar rose, bounded; named *_seen',
@@ -1943,6 +1955,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'lightningParticipationOmaha',
     '2026-11-15 default OFF: Lightning cash PLO4 / PLO5 only (same predicate): first-in raise cells by players still to act (PLO4 20 / 24 / 34 / 42 button / 34 small blind percent of hands, PLO5 20 / 24 / 34 / 40 / 32, +1 point per seat missing from six, x0.9 at 50bb), raise or fold with no new limp, superseding only the raise width PRESUMED of an unread Omaha opponent (an observed maniac or a confirmed aggressive player in position behind keeps the base answer); and where the facing-one-raise branch folds the big blind, a continue range by price (40 / 44 / 50 / 56 percent against an early / middle / late / small-blind raiser at a pot-sized price of 0.33, 120 points per unit of price, -6 per caller capped at 36 multiway, x0.85 at 50bb); 3-bet, 4-bet, stack-off bars, sizing and postflop untouched; no own-participation input; development evidence only, so it stays off',
     'Lightning participation'
+  ),
+  flag(
+    'lightningEarlyFoldNeedsFoldThrough',
+    "2026-11-15 default OFF: Lightning cash only (public memory domain speed lightning), preflop, flop and turn: a fold to a priced decision asked while live seats before the Horse still have to act (the Lightning host's early look, which a fold makes final) stands only if the same policy also folds on the fold-through frame (those seats folded; built from public state only, never learned by the opponent model); otherwise the frame answer is returned and the host drops the early fold so the Horse decides afresh on its own turn; no effect at the Horse's own turn, on the river or outside Lightning; measured by the beyond-big-blind probe (development seeds, all-Horse tables), so it stays off; live switch registration via the option switch follow-up migration",
+    'Lightning early fold'
   ),
   flag(
     'facingClosedAllIn',

@@ -148,6 +148,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the Omaha high tournament short-handed first-in and heads-up big blind reply read on the true Omaha percentile, replacing the preflop engine fold only (Dan 2026-11-12)',
     'src/engine/HorseLightningParticipation.ts':
       'the default-off Lightning participation range cells (seat, depth and price) the reference preflop decision reads with lightningParticipationHoldem or lightningParticipationOmaha on; no own-participation input',
+    'src/engine/HorseLightningFoldThrough.ts':
+      'the default-off Lightning fold-through: the public seats still to act before the Horse and the frame where they fold, which HorseLogic.decide asks a fold on again with lightningEarlyFoldNeedsFoldThrough on',
     'src/engine/HorseOmahaTightOpponent.ts':
       'the pot-limit Omaha high preflop read of a PROVEN tight raiser or folder and the bounded respect and steal bar shifts the reference preflop decision applies with omahaTightOpponent on (owner order 2026-11-13, default off)',
     'src/engine/HorseOmahaBigBetCalls.ts':
