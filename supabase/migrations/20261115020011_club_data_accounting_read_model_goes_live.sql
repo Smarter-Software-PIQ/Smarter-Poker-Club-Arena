@@ -14,26 +14,21 @@
 -- INSTALLED AT MERGE, NOT IN THE 04:00 WINDOW (owner instruction 2026-11-14
 -- 21:55 America/Chicago, verbatim: "IT CAN GO LIVE AS SOON AS YOU PUSH IT").
 -- CREATE TRIGGER takes SHARE ROW EXCLUSIVE on each of the eight source
--- tables, which waits for the writers in flight on that table and holds new
--- ones until COMMIT. So this transaction is kept from stalling play:
---   * every lock is asked for once, with lock_timeout 120ms and no retry; a
---     busy table fails the whole file cleanly (nothing attached, nothing
---     recorded) and it is dispatched once more later, never in a loop;
---   * the triggers are created back to back with nothing between them, the
---     coldest tables first and the hand path last (posthand escrow
---     certificates, BBJ recipients, tournament recognized fees, cash funding
---     admissions, original flows, cash rake sources, lightning link
---     resolutions, hand touches), so the tables written by every hand are
---     held the shortest;
---   * the longest any writer can wait is the eight bounded asks in a row,
---     8 x 120 ms = 0.96 s, under the 1 s deadlock_timeout (so a hand commit
---     is never chosen as a deadlock victim: this transaction times out first)
---     and under the owner's one-second stall bound, in ONE transaction (one
---     PostgREST schema reload; CLAUDE.md production DDL policy rule 1).
+-- tables, held until COMMIT. So the transaction asks for all eight at once,
+-- before any trigger, with LOCK TABLE ... NOWAIT: it never waits, so no
+-- writer ever queues behind a lock request of this migration and it is in no
+-- deadlock cycle with a hand or settlement transaction; no writer waits on a
+-- lock request of this migration, and the eight locks are held only for the
+-- trigger creation and commit (tens of milliseconds). If any table has a
+-- writer in flight the LOCK is refused at once and the whole file commits
+-- nothing; it is dispatched once more later (outside :50-:03 UTC), never in a
+-- loop. lock_timeout 120ms stays as a backstop for catalog locks. One
+-- transaction, one PostgREST schema reload (CLAUDE.md production DDL policy
+-- rule 1).
 -- Measured read-only on production 2026-11-15 04:05Z (100 samples, 100 ms
 -- apart): a row-exclusive holder on any of the eight tables was seen in 4
--- samples, the oldest 79 ms old, so each ask expects to be granted inside
--- its 120 ms.
+-- samples, the oldest 79 ms old, so a refusal is expected in a few percent of
+-- attempts.
 --
 -- DDL plus the one state row of this feature's own table; no money row is
 -- read for update or written.
@@ -55,6 +50,12 @@ DO $prerequisite$ BEGIN
     RAISE EXCEPTION 'CLUB_ACCT_ALREADY_LIVE';
   END IF;
 END $prerequisite$;
+
+LOCK TABLE smarter_private.posthand_escrow_certificates, public.bbj_payout_recipients,
+  public.accounting_tournament_recognized_sources, public.accounting_cash_funding_contract_admissions,
+  public.union_pnl_original_flows, public.accounting_cash_rake_sources,
+  public.union_pnl_cash_outcome_link_resolutions, public.union_pnl_cash_outcome_touches
+  IN SHARE ROW EXCLUSIVE MODE NOWAIT;
 
 CREATE TRIGGER ca_club_acct_escrow_certificate
   AFTER INSERT ON smarter_private.posthand_escrow_certificates
