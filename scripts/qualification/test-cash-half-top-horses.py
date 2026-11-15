@@ -316,6 +316,20 @@ ALTER TABLE cash_games ADD COLUMN IF NOT EXISTS bb numeric;
 ALTER TABLE cash_games ADD COLUMN IF NOT EXISTS variant text;
 INSERT INTO cash_games(id,bb,variant) SELECT md5(i::text)::uuid,0.5,'nlh' FROM generate_series(1,100) i;
 """ + (classic_fixture / "cluster-before.sql").read_text() + (classic_fixture / "second-table-before.sql").read_text() + (ROOT / "supabase/migrations/20261110223419_classic_games_can_grow_to_three_tables.sql").read_text() + (classic_fixture / "capacity-proof.sql").read_text()
+# November 14 owner direction: short deck, pineapple and PLO8 cash admit Horses
+# again inside the .50/1 ceiling (20261115032204). Its guard requires
+# production's exact pre-image, the 20261103121552 helper, read read-only from
+# production as md5 f77febff99f314bdf878f5acc9b18dee on 2026-11-15.
+RESTORE_PREIMAGE_MD5 = "f77febff99f314bdf878f5acc9b18dee"
+restore_preimage_sql = (ROOT / "supabase/migrations/20261103121552_fixed_limit_stakes_and_unlimited_buyins.sql").read_text()
+restore_preimage = re.search(r"CREATE OR REPLACE FUNCTION public\.fn_horse_cash_game_allowed\([\s\S]*?\$function\$;", restore_preimage_sql).group(0) + """
+REVOKE ALL ON FUNCTION public.fn_horse_cash_game_allowed(text,numeric,numeric,uuid,timestamptz) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_horse_cash_game_allowed(text,numeric,numeric,uuid,timestamptz) TO service_role;
+"""
+restore_sql = (ROOT / "supabase/migrations/20261115032204_horse_cash_admits_short_deck_pineapple_and_plo8_again.sql").read_text()
+assert restore_sql.count("\nCOMMIT;") == 1
+restore_rolled_back = restore_sql.replace("\nCOMMIT;", "\nDO $$BEGIN RAISE EXCEPTION 'forced_rollback'; END$$;\nCOMMIT;")
+restore_proof = (ROOT / "scripts/qualification/fixtures/horse-cash-november/cash-variants-restored-proof.sql").read_text()
 work = Path(os.environ.get("RUNNER_TEMP", str(ROOT / "work")))
 work.mkdir(exist_ok=True)
 with tempfile.TemporaryDirectory(prefix="cash-half-pg-", dir=work) as directory:
@@ -326,6 +340,28 @@ with tempfile.TemporaryDirectory(prefix="cash-half-pg-", dir=work) as directory:
     subprocess.run([str(bindir/"pg_ctl"), "-D", str(d/"data"), "-l", str(d/"postgres.log"), "-o", f"-k {d} -p 55439 -c listen_addresses='' -c fsync=off", "start"], check=True, stdout=subprocess.DEVNULL)
     try:
         subprocess.run([str(bindir/"psql"), "-X", "-v", "ON_ERROR_STOP=1"], input=bootstrap+definition("fn_ca_horse_roster_refresh")+definition("fn_ca_horse_roster_seat_guard")+scope_sql+definition("fn_cash_cluster_tick")+capacity_proof+assertions+november_setup+cluster_before+november_sql+november_assertions+future_helper+november_guard_proof+november_capacity_proof+all_cash_qualification+guarantee_setup+guarantee_before+guarantee_sql+guarantee_after+guarantee_proof+guarantee_sql+guarantee_after+guarantee_proof+transition_setup+transition_before+transition_sql+transition_after+transition_proof+transition_sql+transition_after+transition_proof+transition_protected+transition_sql+transition_protected_proof+transition_after+guarantee_proof+cutover_qualification+delayed_qualification+final_census_qualification+pre_adoption_qualification+classic_qualification, text=True, env=env, check=True, stdout=subprocess.DEVNULL)
-        print("PASS: Classic one/two/three-table capacity, Lightning exclusion, PLO startup floor, larger configured capacity, role grants and freeze; Delayed-engine exact-instance closure, labels, repeat, registered/locked/finalized/running/cutoff/schedule mismatch and unchanged-board preservation; Final nightly 10K and 1.5K owner terms with unchanged-row proof, repeated installation; transition guarantees and repeat application with entered/locked/running preservation; guarantee reduction and repeat application, entered/running/locked/finalized preservation, accurate labels; November midnight policy, every prohibited variant, all-cash horse ceiling and unchanged human tables, tournament/human/owned-move/settlement preservation, both dated capacity branches; native ranking/sample/disabled/retired, idempotency, bench/restore, truthful PLO metrics, Club cash denial, Diamond off-roster admission, malformed Diamond/disabled/retired refusal, tournament admission, existing-seat update/exit")
+        psql = [str(bindir/"psql"), "-X", "-v", "ON_ERROR_STOP=1", "-At"]
+        def sql_result(script):
+            return subprocess.run(psql, input=script, text=True, env=env, capture_output=True)
+        def helper_md5():
+            r = sql_result("SELECT md5(pg_get_functiondef('public.fn_horse_cash_game_allowed(text,numeric,numeric,uuid,timestamptz)'::regprocedure));")
+            assert r.returncode == 0, r.stderr
+            return r.stdout.strip()
+        r = sql_result(restore_preimage)
+        assert r.returncode == 0, r.stderr
+        assert helper_md5() == RESTORE_PREIMAGE_MD5, "isolated pre-image differs from production's"
+        r = sql_result(restore_rolled_back)
+        assert r.returncode != 0 and "forced_rollback" in r.stderr, r.stderr
+        assert helper_md5() == RESTORE_PREIMAGE_MD5, "a failed restore changed the helper"
+        r = sql_result(restore_sql)
+        assert r.returncode == 0, r.stderr
+        restored_md5 = helper_md5()
+        assert restored_md5 != RESTORE_PREIMAGE_MD5, "restore installed nothing"
+        r = sql_result(restore_proof)
+        assert r.returncode == 0, r.stderr
+        r = sql_result(restore_sql)
+        assert r.returncode != 0 and "HORSE_CASH_GAME_ALLOWED_PREIMAGE_CHANGED" in r.stderr, r.stderr
+        assert helper_md5() == restored_md5, "a refused re-run changed the helper"
+        print("PASS: Classic one/two/three-table capacity, Lightning exclusion, PLO startup floor, larger configured capacity, role grants and freeze; Delayed-engine exact-instance closure, labels, repeat, registered/locked/finalized/running/cutoff/schedule mismatch and unchanged-board preservation; Final nightly 10K and 1.5K owner terms with unchanged-row proof, repeated installation; transition guarantees and repeat application with entered/locked/running preservation; guarantee reduction and repeat application, entered/running/locked/finalized preservation, accurate labels; November midnight policy, every prohibited variant, all-cash horse ceiling and unchanged human tables, tournament/human/owned-move/settlement preservation, both dated capacity branches; native ranking/sample/disabled/retired, idempotency, bench/restore, truthful PLO metrics, Club cash denial, Diamond off-roster admission, malformed Diamond/disabled/retired refusal, tournament admission, existing-seat update/exit; November 14 restore of short deck/pineapple/PLO8 Horse cash at .50/1 or below from production's exact pre-image, forced rollback, Club and Diamond seat trigger, ceiling refusals, human/tournament preservation, refused re-run")
     finally:
         subprocess.run([str(bindir/"pg_ctl"), "-D", str(d/"data"), "stop", "-m", "fast"], check=True, stdout=subprocess.DEVNULL)
