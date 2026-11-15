@@ -40,6 +40,13 @@ import {
 } from './HorseOmahaOopChecks.js';
 import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
 import { horseDecisionReceiptRefusal } from './horseDecision/responseValidation.js';
+import { readFileSync } from 'node:fs';
+import {
+  OptionSwitchHolder,
+  optionSwitchDecisionOpts,
+  type OptionSwitchReading,
+} from './HorseOptionSwitch.js';
+import { STYLE_SWITCH_POLL_MS, STYLE_SWITCH_STALE_MS } from './HorseStyleSwitch.js';
 import {
   replayProfiles,
   stateAt,
@@ -784,5 +791,87 @@ describe('conflict sweep 2026-11-15, the open findings', () => {
       ).toBeNull();
     }
     expect(carried).toBeGreaterThan(0);
+  });
+});
+
+describe('audit item 11: a switched-on option reaches the brain through the worker spread', () => {
+  const OPTION = 'omahaBareOverpairOopFlopCheck';
+  const v2 = (options: Record<string, unknown>) => ({
+    version: 2,
+    style: { version: 1, options: {} },
+    options,
+  });
+  const present = (raw: unknown, receivedAtMs: number): OptionSwitchReading => ({
+    kind: 'present',
+    raw,
+    receivedAtMs,
+  });
+  /** What workerRuntime spreads into the decision options after each reading, in order. */
+  function spread(readings: Array<OptionSwitchReading | 'throw'>): Record<string, boolean>[] {
+    let i = 0;
+    const h = new OptionSwitchHolder(
+      () => {
+        const r = readings[Math.min(i++, readings.length - 1)]!;
+        if (r === 'throw') throw new Error('unreadable');
+        return r;
+      },
+      () => undefined
+    );
+    return readings.map((_r, k) => ({
+      ...optionSwitchDecisionOpts(h.refresh(k * STYLE_SWITCH_POLL_MS)),
+    }));
+  }
+
+  it('the worker spreads the switched set into both looks, after the request options', () => {
+    const runtime = readFileSync(
+      new URL('./horseDecision/workerRuntime.ts', import.meta.url),
+      'utf8'
+    );
+    expect(runtime).toContain('const optionBrainOpts = optionSwitchDecisionOpts(optionStates);');
+    // the fast look, its mind observation, and the deep look
+    expect(runtime.match(/\.\.\.request\.opts,[\s\S]{0,600}?\.\.\.optionBrainOpts,/g)?.length).toBe(
+      2
+    );
+    expect(runtime).toMatch(
+      /\.\.\.request\.opts,[\s\S]{0,700}?\.\.\.optionSwitchDecisionOpts\(deepOptionStates\),/
+    );
+  });
+
+  it('on in the switch: the option decides; stale, unreadable, invalid or unknown: it stays off', () => {
+    const off = play(() => nodeAt(ACES, FLOP), {}, false);
+    expect(off.actions.some((a) => a !== 'check')).toBe(true);
+
+    const [on] = spread([present(v2({ [OPTION]: 'on' }), 0)]);
+    expect(on).toEqual({ [OPTION]: true });
+    // request.opts first, the switched set after it, as workerRuntime builds the options
+    const requestOpts: HorseDecideOpts = {};
+    const live = play(() => nodeAt(ACES, FLOP), { ...requestOpts, ...on }, false);
+    expect(live.actions).toEqual(SEEDS.map(() => 'check'));
+    expect(fired(live, 'omaha_bare_overpair_oop_flop_checked')).toBe(
+      off.actions.filter((a) => a !== 'check').length
+    );
+
+    const good = present(v2({ [OPTION]: 'on' }), 0);
+    for (const bad of [
+      present(v2({ [OPTION]: 'on' }), -STYLE_SWITCH_STALE_MS),
+      'throw' as const,
+      present({ nonsense: true }, STYLE_SWITCH_POLL_MS),
+      { kind: 'present', raw: v2({ [OPTION]: 'on' }) } as never,
+    ]) {
+      const [first, after] = spread([good, bad]);
+      expect(first).toEqual({ [OPTION]: true });
+      // nothing switched: the key is not passed and the code default (off) decides
+      expect(after).toEqual({});
+      const stale = play(() => nodeAt(ACES, FLOP), { ...requestOpts, ...after }, false);
+      expect(stale.bytes).toEqual(off.bytes);
+    }
+    // a name the registry does not know never becomes a decision option
+    const [unknown] = spread([present(v2({ omahaNoSuchOption: 'on' }), 0)]);
+    expect(unknown).toEqual({});
+    const [mixed] = spread([present(v2({ omahaNoSuchOption: 'on', [OPTION]: 'on' }), 0)]);
+    expect(Object.keys(mixed)).not.toContain('omahaNoSuchOption');
+    // an off-only option (an owner hold) cannot be switched on
+    const [held] = spread([present(v2({ omahaSmallBlindSteal: 'on' }), 0)]);
+    expect(held).toEqual({});
   });
 });
