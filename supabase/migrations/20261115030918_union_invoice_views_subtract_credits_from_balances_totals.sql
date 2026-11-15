@@ -1,4 +1,4 @@
--- 20261115030918_union_invoice_views_subtract_credits_from_balances_and_totals
+-- 20261115030918_union_invoice_views_subtract_credits_from_balances_totals
 --
 -- Reserved by scripts/reserve-migration-version.sh on 2026-11-15 03:09:18 UTC.
 --

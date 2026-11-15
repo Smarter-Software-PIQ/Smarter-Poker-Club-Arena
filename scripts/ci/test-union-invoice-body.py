@@ -20,7 +20,7 @@ import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 MIGRATION = ROOT / 'supabase/migrations/20261115011424_union_invoice_views_show_the_week_and_who_pays.sql'
-FOLLOW_UP = ROOT / 'supabase/migrations/20261115030918_union_invoice_views_subtract_credits_from_balances_and_totals.sql'
+FOLLOW_UP = ROOT / 'supabase/migrations/20261115030918_union_invoice_views_subtract_credits_from_balances_totals.sql'
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--output', type=pathlib.Path, required=True)
 out = parser.parse_args().output.resolve()

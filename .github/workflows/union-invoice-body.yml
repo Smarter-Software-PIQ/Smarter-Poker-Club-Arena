@@ -13,7 +13,7 @@ on:
     branches: [main]
     paths:
       - supabase/migrations/20261115011424_union_invoice_views_show_the_week_and_who_pays.sql
-      - supabase/migrations/20261115030918_union_invoice_views_subtract_credits_from_balances_and_totals.sql
+      - supabase/migrations/20261115030918_union_invoice_views_subtract_credits_from_balances_totals.sql
       - scripts/ci/test-union-invoice-body.py
       - .github/workflows/union-invoice-body.yml
 

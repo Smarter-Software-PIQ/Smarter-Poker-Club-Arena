@@ -152,7 +152,7 @@ describe('a union invoice view shows its week and who pays whom', () => {
 
 describe('a union invoice view subtracts credit notes from what is unpaid and from its totals', () => {
   const followUps = readdirSync(dir).filter((file) =>
-    file.endsWith('_union_invoice_views_subtract_credits_from_balances_and_totals.sql')
+    file.endsWith('_union_invoice_views_subtract_credits_from_balances_totals.sql')
   );
   if (followUps.length !== 1) throw new Error('Expected One Union Invoice Balances Migration');
   const followUp = readFileSync(`${dir}/${followUps[0]}`, 'utf8').replace(/^--[^\n]*$/gm, '');
