@@ -304,7 +304,7 @@ class TableService {
     seatNumber: number,
     userId: string,
     /** LIGHTNING PHASE 6: the anchor seat a Lightning room leaves through. */
-    target?: { seatNumber: number; occupancyId: string },
+    target?: { seatNumber: number; occupancyId: string; poolSessionId?: string },
     /** HIT AND RUN: the player confirmed leaving with hands still owed. */
     confirmHandCount = false
   ): Promise<{
