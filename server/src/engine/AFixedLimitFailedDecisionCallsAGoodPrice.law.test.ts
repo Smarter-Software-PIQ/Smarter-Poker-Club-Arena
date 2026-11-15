@@ -161,6 +161,15 @@ describe('the failure fallback action', () => {
     ['no_limit', 2, 1000, menu, 'fold'],
     ['no_limit', 0, 3, menu, 'check'],
     ['pot_limit', 2, 1000, menu, 'fold'],
+    // N4 (2026-11-15): owing a remainder under half a cent is owing, on every
+    // structure. No-limit and pot-limit fold exactly as the old worker rule
+    // (toCall > 0 ? fold : check) did; fixed limit prices it (a tiny price
+    // calls when the menu offers call).
+    ['no_limit', 0.004, 3, menu, 'fold'],
+    ['pot_limit', 0.004, 3, menu, 'fold'],
+    ['fixed_limit', 0.004, 3, menu, 'call'],
+    ['no_limit', -1, 3, menu, 'check'],
+    ['no_limit', Number.NaN, 3, menu, 'check'],
   ] as const)('%s, %s to call into %s (%j) -> %s', (structure, toCall, pot, legal, want) => {
     expect(
       failureFallbackAction({
@@ -171,6 +180,38 @@ describe('the failure fallback action', () => {
       })
     ).toBe(want);
   });
+});
+
+it('no-limit and pot-limit are the old worker rule for every amount owed (toCall > 0 ? fold : check)', () => {
+  for (const structure of ['no_limit', 'pot_limit'] as const) {
+    for (const toCall of [
+      0,
+      1e-9,
+      0.001,
+      0.004,
+      0.005,
+      0.006,
+      0.01,
+      0.5,
+      1,
+      2,
+      100,
+      -0.5,
+      Number.NaN,
+    ]) {
+      for (const pot of [0, 1, 3, 1000]) {
+        const old = toCall > 0 ? 'fold' : 'check';
+        expect(
+          failureFallbackAction({
+            structure,
+            toCall,
+            pot,
+            legalActions: ['fold', 'call', 'raise', 'all_in'],
+          })
+        ).toBe(old);
+      }
+    }
+  }
 });
 
 describe('a failed decision worker', () => {

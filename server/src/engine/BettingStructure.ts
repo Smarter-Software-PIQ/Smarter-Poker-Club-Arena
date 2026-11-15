@@ -242,11 +242,13 @@ export const FIXED_LIMIT_FAILURE_FALLBACK_CALL_PRICE = 0.2;
 
 /**
  * The liveness action for a seat whose decision could not be computed. Free
- * means check. Owing chips means fold, except on fixed limit, where a call is
- * taken when the price is at or below FIXED_LIMIT_FAILURE_FALLBACK_CALL_PRICE
- * and the seat's menu offers `call`. `pot` is every chip already in the
- * middle, the bet being faced included. No-limit and pot-limit fold at any
- * price, as before.
+ * (nothing owed: toCall <= 0, or not a number) means check. Owing anything
+ * means fold, except on fixed limit, where a call is taken when the price is
+ * at or below FIXED_LIMIT_FAILURE_FALLBACK_CALL_PRICE and the seat's menu
+ * offers `call`. `pot` is every chip already in the middle, the bet being
+ * faced included. No-limit and pot-limit are exactly the old worker rule
+ * (`toCall > 0 ? 'fold' : 'check'`), any remainder included: no dust
+ * tolerance on any structure (Hand Analysis W3 review N4, 2026-11-15).
  */
 export function failureFallbackAction(input: {
   structure: BettingStructure;
@@ -255,7 +257,7 @@ export function failureFallbackAction(input: {
   legalActions?: readonly ActionType[] | null;
 }): 'fold' | 'check' | 'call' {
   const toCall = Number(input.toCall);
-  if (!(toCall > 0.005)) return 'check';
+  if (!(toCall > 0)) return 'check';
   if (input.structure !== 'fixed_limit') return 'fold';
   if (!Array.isArray(input.legalActions) || !input.legalActions.includes('call')) return 'fold';
   const pot = Number(input.pot);
