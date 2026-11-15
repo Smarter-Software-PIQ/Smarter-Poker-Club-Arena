@@ -80,6 +80,7 @@ import {
   omahaStreetPlanDomain,
   omahaStreetPlanRecord,
   omahaPlanMultiplier,
+  omahaPlanToCall,
   omahaStreetPlanTurnSpot,
   OMAHA_STREET_PLAN_MARGIN_POT_SHARE,
   type OmahaPlanTendency,
@@ -5799,7 +5800,7 @@ function pairedBoardFold(
     opts.omahaStreetPlan === true &&
     (decision.action === 'call' ||
       // a call for the whole stack is recorded as an all-in
-      (decision.action === 'all_in' && Number(gs.toCall ?? 0) >= player.stack - 0.005)) &&
+      (decision.action === 'all_in' && omahaPlanToCall(player, gs) >= player.stack - 0.005)) &&
     omahaStreetPlanCallsThisRiver(player, gs, opts)
   ) {
     if (telemetryOn(opts)) noteFire('omaha_street_plan_followed');

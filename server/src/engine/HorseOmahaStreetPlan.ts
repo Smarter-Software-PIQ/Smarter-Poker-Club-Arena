@@ -740,6 +740,18 @@ export function omahaStreetPlanAdmitsCheck(
   }
 }
 
+/**
+ * What the Horse owes. The league's game state carries no toCall field, so it
+ * is derived from the current bet when absent (the sibling facing-bet layer
+ * found the same gap).
+ */
+export function omahaPlanToCall(hero: SeatPlayer, gs: HorseGameStateV2): number {
+  const stated = Number(gs.toCall);
+  if (gs.toCall != null && Number.isFinite(stated)) return Math.max(0, stated);
+  const owed = Number(gs.currentBet ?? 0) - Number(hero.bet ?? 0);
+  return Number.isFinite(owed) ? Math.max(0, owed) : 0;
+}
+
 interface Act {
   stage?: string;
   seat?: number;
@@ -803,7 +815,7 @@ export function omahaPlanTurnStateFromRiver(
     const opp = omahaStreetPlanDomainRiver(hero, gs);
     if (!opp) return null;
     // an all-in for more than the Horse has is faced for the Horse's stack
-    const faced = Math.min(Number(gs.toCall ?? 0), hero.stack);
+    const faced = Math.min(omahaPlanToCall(hero, gs), hero.stack);
     if (!(faced > 0) || (hero.bet ?? 0) > 0) return null;
     if (acts(gs, 'river').some((a) => a.seat === hero.seat && AGGR.has(String(a.action))))
       return null;

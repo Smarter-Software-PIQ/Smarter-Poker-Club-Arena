@@ -371,6 +371,19 @@ describe('omahaStreetPlan: the river follows the turn plan', () => {
     ).toBeNull();
   });
 
+  it('the league game state carries no toCall field: the river still follows the plan', () => {
+    const build = () => {
+      const st = nodeAt(FX.straight, RIVER);
+      delete (st.gs as { toCall?: number }).toCall;
+      return st;
+    };
+    const st = build();
+    expect(omahaPlanTurnStateFromRiver(st.hero, st.gs)!.faced).toBeCloseTo(524.02, 6);
+    const on = play(build, ON);
+    expect(hasFire(on, 'omaha_street_plan_followed')).toBe(SEEDS.length);
+    expect(on.actions.filter((a) => a === 'fold')).toEqual([]);
+  });
+
   it('a river the plan folds keeps the paired-board fold: two pair that paired the board on the river', () => {
     // the same line with a hand the plan does not call the river with
     const build = () =>
