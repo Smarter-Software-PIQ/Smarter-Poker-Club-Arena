@@ -29,7 +29,9 @@ rewritten, regenerated, renumbered or resent, and no amount changes.
   arithmetic), issued by / issued to, "<payer> Pays <payee> <amount> Chips" or
   "Square, Nothing Due", every stored component digit for digit, the
   settled-in-chips split and "Amount Due Is What Remains: Combined ECO plus
-  Recorded Presettlements". `fn_deliver_accounting_invoice` calls it for those
+  Recorded Presettlements". A square-up later reduced by credit notes names
+  them and states only what remains ("Credited In Full, Nothing Due" for the
+  eight fully credited historical invoices), never its original amount. `fn_deliver_accounting_invoice` calls it for those
   two document types only. It runs at delivery time, so it reaches only
   deliveries made after installation; the five rows for the week ending
   2026-11-09 (message_sent, zero deliveries) are not sent by this change.
@@ -41,9 +43,12 @@ rewritten, regenerated, renumbered or resent, and no amount changes.
   stored components, the settled-in-chips explanation and the amount-due
   reconciliation; the house row is listed in its own "Union House Club
   Statement" section; every figure is exact (`formatWalletChips`, two places,
-  no K/M, no "Under 1"); the CSV export carries the kind, invoice number, both
-  week boundaries (Chicago label and instant), issuer, recipient, payer/payee
-  line and the settled split. The parser refuses a payer that contradicts the
+  no K/M, no "Under 1"); each sign rule names the lines it covers (stored
+  breakdown lines count toward the club; the 2026-11-12 cash/tournament split
+  lines count from the club side); the CSV export carries the kind, invoice
+  number, the inclusive start and exclusive end (Chicago label and instant),
+  issuer, recipient, payer/payee line, amount due after credits and the
+  settled split, money cells as exact two-place decimals, house row last. The parser refuses a payer that contradicts the
   direction, a settled figure that is not rakeback plus player result, an
   amount due that is not ECO plus presettlements (or has the wrong sign), and
   a house flag that is not club_id = union id. All 32 stored square-ups
@@ -68,3 +73,9 @@ ECO.
   breakdown's dates; its "View Invoice Details" text is the body above.
 
 Law: `tests/union-invoice-views-show-the-week-and-who-pays.law.test.ts`.
+Native PostgreSQL regression of the Messenger body (club pays, square, house,
+credited, credit note, daylight-saving week, split, grants):
+`scripts/ci/test-union-invoice-body.py`, run by
+`.github/workflows/union-invoice-body.yml`. The signed-in read-only board
+proof (`verify-cashier-ui`, eco profile, canonical service identity) now also
+reads each invoice's week, parties and amount due.

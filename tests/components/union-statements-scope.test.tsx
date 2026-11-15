@@ -845,9 +845,8 @@ describe('the five stored invoices for the week ending 2026-11-09', () => {
   it('shows every stored document exactly as the signed-in live check reads it', async () => {
     const { default: fixture } =
       await import('../fixtures/union-invoice-week-2026-11-02/board.json');
-    const { parseUnionStatementBoard, unionStatementPayLine, unionStatementWeekLabel } =
+    const { parseUnionStatementBoard, unionStatementAmountDue, unionStatementWeekLabel } =
       await import('../../src/utils/unionStatementBoard');
-    const { formatWalletChips } = await import('../../src/utils/format');
     await load();
     const parsed = parseUnionStatementBoard(structuredClone(fixture), UNION, null);
     const house = screen.getByRole('region', { name: 'Union House Club Statement' });
@@ -866,8 +865,6 @@ describe('the five stored invoices for the week ending 2026-11-09', () => {
           row.querySelector('dd')?.textContent ?? '',
         ])
       );
-      const square = statement.direction === 'square' || statement.amount === 0;
-      const payLine = unionStatementPayLine(statement, label, 'Midway Union');
       expect(lines.Invoice).toBe(statement.invoice_number);
       expect(
         lines.Week.startsWith(
@@ -876,9 +873,7 @@ describe('the five stored invoices for the week ending 2026-11-09', () => {
       ).toBe(true);
       expect(lines['Issued By']).toBe('Midway Union');
       expect(lines['Issued To'].startsWith(label)).toBe(true);
-      expect(lines['Amount Due']).toBe(
-        square ? payLine : `${payLine} ${formatWalletChips(Math.abs(statement.amount))}`
-      );
+      expect(lines['Amount Due']).toBe(unionStatementAmountDue(statement, label, 'Midway Union'));
     }
   });
 
@@ -889,17 +884,27 @@ describe('the five stored invoices for the week ending 2026-11-09', () => {
     expect(name).toBe('union_statements_2026-11-09.csv');
     const rows = csv.split('\n');
     expect(rows).toHaveLength(6);
-    expect(rows[0].split(',').slice(0, 9)).toEqual([
+    expect(rows[0].split(',').slice(0, 12)).toEqual([
       'statement_kind',
       'invoice_number',
-      'week_start_chicago',
-      'week_end_chicago',
-      'week_start_instant',
-      'week_end_instant',
+      'week_start_inclusive_chicago',
+      'week_end_exclusive_chicago',
+      'week_start_inclusive_instant',
+      'week_end_exclusive_instant',
       'issued_by',
       'issued_to',
       'payer_pays_payee',
+      'amount_due',
+      'credited_by',
+      'amount_due_after_credits',
     ]);
+    // The union's own house club statement is last; money cells keep two places.
+    expect(rows[5]).toContain('MIDWAY-2026-000040');
+    const felt = rows.find((r) => r.includes('MIDWAY-2026-000041'))!;
+    expect(felt).toContain(',-65196.80,');
+    expect(felt).toContain(',-473091.31,');
+    expect(felt).not.toContain("'-");
+    expect(rows.find((r) => r.includes('MIDWAY-2026-000037'))).toContain(',0.00,');
     const deep = rows.find((r) => r.includes('MIDWAY-2026-000038'))!;
     expect(deep).toContain('member club statement,MIDWAY-2026-000038');
     expect(deep).toContain('Mon Nov 2, 2026 2:00 AM Chicago Time');
@@ -910,5 +915,79 @@ describe('the five stored invoices for the week ending 2026-11-09', () => {
     expect(house).toContain('union house club statement');
     expect(house).toContain('Midway Union Pays Midway Union (House Club)');
     expect(rows.find((r) => r.includes('MIDWAY-2026-000037'))).toContain('Square, Nothing Due');
+  });
+});
+
+describe('a credited invoice and an invoice with the cash and tournament split', () => {
+  const UNION = 'fade0000-0000-0000-0000-000000000001';
+  const render1 = async (mutate: (value: any) => void) => {
+    const { default: fixture } =
+      await import('../fixtures/union-invoice-week-2026-11-02/board.json');
+    const value: any = structuredClone(fixture);
+    mutate(value);
+    testState.route.unionId = UNION;
+    testState.route.unionRef = UNION;
+    testState.rpc.mockImplementation((name: string) =>
+      Promise.resolve(
+        name === 'ca_union_insurance_pnl' ? insurance(UNION) : { data: value, error: null }
+      )
+    );
+    render(<UnionStatementsPage />);
+    await screen.findByText('Deep Stack Society');
+  };
+  const amountDue = (club: string) =>
+    [...document.querySelectorAll(`dl[aria-label="${club} Statement Document"] > div`)]
+      .find((row) => row.querySelector('dt')?.textContent === 'Amount Due')
+      ?.querySelector('dd')?.textContent;
+
+  it('names the credit note and states only what remains, never the full original', async () => {
+    await render1((value) => {
+      const deep = value.clubs.find((c: any) => c.invoice_number === 'MIDWAY-2026-000038');
+      deep.credit_notes = [{ invoice_number: 'MIDWAY-2026-000099', amount: 96919.54 }];
+      deep.remaining_after_credits = 0;
+      const kings = value.clubs.find((c: any) => c.invoice_number === 'MIDWAY-2026-000039');
+      kings.credit_notes = [{ invoice_number: 'MIDWAY-2026-000098', amount: 42.96 }];
+      kings.remaining_after_credits = 6000;
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Deep Stack Society Statement Details' }));
+    expect(amountDue('Deep Stack Society')).toBe('Credited In Full, Nothing Due');
+    expect(
+      screen.getByText(/MIDWAY-2026-000099 \(96,919.54\) Against An Original 96,919.54/)
+    ).toBeVisible();
+    expect(screen.queryByText('Deep Stack Society Pays Midway Union 96,919.54')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'KINGS CLUB Statement Details' }));
+    expect(amountDue('KINGS CLUB')).toBe('KINGS CLUB Pays Midway Union 6,000.00 After Credit');
+    fireEvent.click(screen.getByRole('button', { name: 'Export CSV' }));
+    const csv = testState.downloadCsv.mock.calls[0][1] as string;
+    const deepRow = csv.split('\n').find((r) => r.includes('MIDWAY-2026-000038'))!;
+    expect(deepRow).toContain('Credited In Full, Nothing Due,MIDWAY-2026-000099,0.00,');
+  });
+
+  it('states which lines count toward the club and which from the club side', async () => {
+    await render1((value) => {
+      const deep = value.clubs.find((c: any) => c.invoice_number === 'MIDWAY-2026-000038');
+      deep.weekly_player_results = {
+        version: 1,
+        cash_net_loss: 366655.46,
+        tournament_net_loss: 195554.11,
+        total_net_loss: 562209.57,
+        rakeback_credit: 406985.78,
+        eco_charge: 96919.54,
+        weekly_net_due_to_union: 252143.33,
+        sign_convention: 'positive_club_owes_union',
+      };
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Deep Stack Society Statement Details' }));
+    expect(screen.getByText('ECO Charge Or Credit (Positive Means The Club Pays)')).toBeVisible();
+    expect(
+      screen.getByText('Combined ECO Adjustment (Negative Means The Club Pays)')
+    ).toBeVisible();
+    expect(screen.getByText('252,143.33')).toBeVisible();
+    const note = screen.getByText(/^Signs: Player Win\/Loss, Player Result Excluding Fees/);
+    expect(note).toHaveTextContent('Negative Means Players Lost Or The Club Pays');
+    expect(note).toHaveTextContent(
+      'The Net Loss Lines, Less Club Rakeback Credit, ECO Charge Or Credit And Full Weekly Net Are Counted From The Club Side, So Positive Means Players Lost Or The Club Pays.'
+    );
+    expect(screen.queryByText(/Cash And Tournament Player Split Was Not Recorded/)).toBeNull();
   });
 });

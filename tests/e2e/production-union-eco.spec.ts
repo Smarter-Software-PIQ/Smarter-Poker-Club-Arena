@@ -5,7 +5,7 @@ import { formatWalletChips } from '../../src/utils/format';
 import { titleCase } from '../../src/utils/titleCase';
 import {
   parseUnionStatementBoard,
-  unionStatementPayLine,
+  unionStatementAmountDue,
   unionStatementWeekLabel,
 } from '../../src/utils/unionStatementBoard';
 
@@ -138,8 +138,7 @@ test(ECO_CASE, async ({ page }) => {
           ])
         )
       );
-    const square = statement.direction === 'square' || statement.amount === 0;
-    const payLine = unionStatementPayLine(statement, clubLabel, unionLabel);
+    const amountDue = unionStatementAmountDue(statement, clubLabel, unionLabel);
     const week = unionStatementWeekLabel(statement.period_start_at, statement.period_end_at);
     expect(
       Boolean(week) &&
@@ -147,8 +146,7 @@ test(ECO_CASE, async ({ page }) => {
         lines.Invoice === statement.invoice_number &&
         lines['Issued By'] === unionLabel &&
         String(lines['Issued To'] ?? '').startsWith(clubLabel) &&
-        lines['Amount Due'] ===
-          (square ? payLine : `${payLine} ${displayedMoney(Math.abs(statement.amount))}`),
+        lines['Amount Due'] === amountDue,
       'Each stored invoice must show its week, number, parties and who pays whom exactly'
     ).toBe(true);
   }

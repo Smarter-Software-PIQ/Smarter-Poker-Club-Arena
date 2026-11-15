@@ -38,12 +38,13 @@ import CasinoSurfaceHeader from '../components/rewards/RewardsSurfaceHeader';
 import { SpadeConsole } from '../components/console/SpadeConsole';
 import { useIsMounted } from '../hooks/useIsMounted';
 import { titleCase } from '../utils/titleCase';
-import { formatWalletChips } from '../utils/format';
+import { figureDigits, formatWalletChips } from '../utils/format';
 import {
   chicagoDayLabel,
   chicagoInstantLabel,
   parseUnionStatementBoard,
   statementClubName,
+  unionStatementAmountDue,
   unionStatementPayLine,
   unionStatementWeekLabel,
   type UnionStatementBoard as Board,
@@ -139,18 +140,37 @@ function compactInt(n: number | null | undefined): string {
   return Number(n || 0).toLocaleString('en-US');
 }
 
+/** A money cell: the stored figure's exact digits with at least two places. */
+class CsvFigure {
+  constructor(readonly text: string) {}
+}
+
+function csvMoney(n: number | null | undefined): CsvFigure | null {
+  if (n === null || n === undefined) return null;
+  const digits = figureDigits(n);
+  if (!digits) return null;
+  return new CsvFigure(
+    `${digits.negative ? '-' : ''}${digits.whole}.${digits.fraction.padEnd(2, '0')}`
+  );
+}
+
 function boardToCsv(rows: BoardClub[], unionName: string | null): string {
-  const esc = csvEscape;
+  // Money cells are digits, a sign and a point only, so they are written
+  // as-is: the spreadsheet guard would turn a negative figure into text.
+  const cell = (value: unknown) => (value instanceof CsvFigure ? value.text : csvEscape(value));
   const head = [
     'statement_kind',
     'invoice_number',
-    'week_start_chicago',
-    'week_end_chicago',
-    'week_start_instant',
-    'week_end_instant',
+    'week_start_inclusive_chicago',
+    'week_end_exclusive_chicago',
+    'week_start_inclusive_instant',
+    'week_end_exclusive_instant',
     'issued_by',
     'issued_to',
     'payer_pays_payee',
+    'amount_due',
+    'credited_by',
+    'amount_due_after_credits',
     'club_name',
     'club_code',
     'status',
@@ -184,12 +204,14 @@ function boardToCsv(rows: BoardClub[], unionName: string | null): string {
     'tournament_eco_record_id',
     'presettled',
     'settled_in_chips',
-    'player_result_before_rake',
+    'player_result_excluding_fees',
     'rakeback_paid_to_club',
     'signed_amount_due_positive_union_pays',
   ];
   const union = unionName ?? 'Union';
-  const lines = rows.map((r) =>
+  // Member clubs first; the union's own house club statement last.
+  const ordered = [...rows.filter((r) => !r.union_house), ...rows.filter((r) => r.union_house)];
+  const lines = ordered.map((r) =>
     [
       r.union_house ? 'union house club statement' : 'member club statement',
       r.invoice_number ?? null,
@@ -200,41 +222,50 @@ function boardToCsv(rows: BoardClub[], unionName: string | null): string {
       r.status === 'missing' ? null : union,
       r.status === 'missing' ? null : statementClubName(r, r.club_name),
       unionStatementPayLine(r, r.club_name, union),
+      unionStatementAmountDue(r, r.club_name, union),
+      (r.credit_notes || []).map((note) => note.invoice_number).join(' ') || null,
+      csvMoney(
+        r.status === 'missing'
+          ? null
+          : r.credit_notes?.length
+            ? (r.remaining_after_credits ?? null)
+            : Math.abs(r.amount)
+      ),
       r.club_name,
       r.club_code,
       r.status,
-      r.amount,
+      csvMoney(r.amount),
       r.direction,
       r.message_sent,
       r.due_at,
       r.payment_details_available,
-      r.paid_total,
-      r.outstanding,
-      r.rake_generated,
-      r.rakeback_due,
-      r.union_fee_kept,
-      r.players_won,
-      r.weekly_player_results?.cash_net_loss ?? null,
-      r.weekly_player_results?.tournament_net_loss ?? null,
-      r.weekly_player_results?.total_net_loss ?? null,
-      r.weekly_player_results?.rakeback_credit ?? null,
-      r.weekly_player_results?.eco_charge ?? null,
-      r.weekly_player_results?.weekly_net_due_to_union ?? null,
-      r.eco_amount,
-      ...unionEcoRows(r).map(([, value]) => (value === null ? 'Unavailable' : value)),
+      csvMoney(r.paid_total),
+      csvMoney(r.outstanding),
+      csvMoney(r.rake_generated),
+      csvMoney(r.rakeback_due),
+      csvMoney(r.union_fee_kept),
+      csvMoney(r.players_won),
+      csvMoney(r.weekly_player_results?.cash_net_loss),
+      csvMoney(r.weekly_player_results?.tournament_net_loss),
+      csvMoney(r.weekly_player_results?.total_net_loss),
+      csvMoney(r.weekly_player_results?.rakeback_credit),
+      csvMoney(r.weekly_player_results?.eco_charge),
+      csvMoney(r.weekly_player_results?.weekly_net_due_to_union),
+      csvMoney(r.eco_amount),
+      ...unionEcoRows(r).map(([, value]) => (value === null ? 'Unavailable' : csvMoney(value))),
       ...(['cash', 'tournament'] as const).flatMap((activity) => {
         const c = r.eco_components?.find((component) => component.activity === activity);
         return c
-          ? [c.base, c.rate, c.terms_id, c.record_id]
+          ? [csvMoney(c.base), c.rate, c.terms_id, c.record_id]
           : ['Unavailable', 'Unavailable', 'Unavailable', 'Unavailable'];
       }),
-      r.presettled,
-      r.settled_in_chips ?? null,
-      r.player_pnl_net ?? null,
-      r.status === 'missing' ? null : r.rakeback_due,
-      r.stored_outstanding ?? null,
+      csvMoney(r.presettled),
+      csvMoney(r.settled_in_chips),
+      csvMoney(r.player_pnl_net),
+      csvMoney(r.status === 'missing' ? null : r.rakeback_due),
+      csvMoney(r.stored_outstanding),
     ]
-      .map(esc)
+      .map(cell)
       .join(',')
   );
   return [head.join(','), ...lines].join('\n');
@@ -750,7 +781,10 @@ export default function UnionStatementsPage() {
     const open = expanded === c.club_id;
     const clubLabel = titleCase(c.club_name);
     const square = c.status !== 'missing' && (c.direction === 'square' || c.amount === 0);
-    const payLine = unionStatementPayLine(c, clubLabel, unionLabel);
+    const amountDue = unionStatementAmountDue(c, clubLabel, unionLabel);
+    const credited = (c.credit_notes?.length ?? 0) > 0;
+    const remaining = credited ? (c.remaining_after_credits ?? 0) : Math.abs(c.amount);
+    const nothingDue = square || remaining === 0;
     const week = unionStatementWeekLabel(c.period_start_at, c.period_end_at);
     const pillClass =
       c.status === 'missing'
@@ -773,7 +807,10 @@ export default function UnionStatementsPage() {
             ['Tournament Player Net Loss', c.weekly_player_results.tournament_net_loss],
             ['Total Player Net Loss', c.weekly_player_results.total_net_loss],
             ['Less Club Rakeback Credit', c.weekly_player_results.rakeback_credit],
-            ['ECO Charge Or Credit', c.weekly_player_results.eco_charge],
+            [
+              'ECO Charge Or Credit (Positive Means The Club Pays)',
+              c.weekly_player_results.eco_charge,
+            ],
             [
               'Full Weekly Net (Positive Club Owes)',
               c.weekly_player_results.weekly_net_due_to_union,
@@ -785,7 +822,7 @@ export default function UnionStatementsPage() {
         `${eco.activity === 'cash' ? 'Cash' : 'Tournament'} ECO Base (${(eco.rate * 100).toFixed(1)}%)`,
         eco.base,
       ]),
-      ['Combined ECO Adjustment', c.eco_amount],
+      ['Combined ECO Adjustment (Negative Means The Club Pays)', c.eco_amount],
       ['Recorded Presettlements', c.presettled],
       ['Settled In Chips', c.settled_in_chips ?? null],
       ['Remaining Unpaid Balance', c.outstanding],
@@ -816,23 +853,25 @@ export default function UnionStatementsPage() {
                   {c.message_sent ? 'Delivered' : 'Not Delivered'}
                 </span>
               )}
-              {c.due_at && !square && <span>Due {chicagoDayLabel(c.due_at)}</span>}
+              {c.due_at && !nothingDue && <span>Due {chicagoDayLabel(c.due_at)}</span>}
             </div>
           </div>
           <div className={styles.clubAmount}>
             <div className={`${styles.amountValue} ${c.amount < 0 ? styles.neg : styles.pos}`}>
-              {c.status === 'missing' ? '--' : money(Math.abs(c.amount))}
+              {c.status === 'missing' ? '--' : money(remaining)}
             </div>
             <div className={styles.amountLabel}>
               {c.status === 'missing'
                 ? 'Not Billed'
                 : square
                   ? 'Square'
-                  : c.direction === 'union owes club'
-                    ? c.union_house
-                      ? 'Union Pays House Club'
-                      : 'Union Pays Club'
-                    : 'Club Pays Union'}
+                  : credited && remaining === 0
+                    ? 'Credited In Full'
+                    : c.direction === 'union owes club'
+                      ? c.union_house
+                        ? 'Union Pays House Club'
+                        : 'Union Pays Club'
+                      : 'Club Pays Union'}
             </div>
           </div>
         </button>
@@ -873,11 +912,20 @@ export default function UnionStatementsPage() {
                   </div>
                   <div className={styles.documentLine}>
                     <dt>Amount Due</dt>
-                    <dd className={styles.documentDue}>
-                      {square ? payLine : `${payLine} ${money(Math.abs(c.amount))}`}
-                    </dd>
+                    <dd className={styles.documentDue}>{amountDue}</dd>
                   </div>
-                  {c.due_at && !square && (
+                  {credited && (
+                    <div className={styles.documentLine}>
+                      <dt>Credited By</dt>
+                      <dd>
+                        {(c.credit_notes || [])
+                          .map((note) => `${note.invoice_number} (${money(note.amount)})`)
+                          .join(', ')}{' '}
+                        Against An Original {money(Math.abs(c.amount))}
+                      </dd>
+                    </div>
+                  )}
+                  {c.due_at && !nothingDue && (
                     <div className={styles.documentLine}>
                       <dt>Due</dt>
                       <dd>{chicagoInstantLabel(c.due_at)} Chicago Time</dd>
@@ -905,17 +953,17 @@ export default function UnionStatementsPage() {
                 <div className={styles.state}>
                   Amount Due Is What Remains: Combined ECO {money(c.eco_amount)} Plus Recorded
                   Presettlements {money(c.presettled)} Equals {money(c.stored_outstanding)}.{' '}
-                  {square
-                    ? 'Nothing Is Owed Either Way.'
-                    : `${payLine} ${money(Math.abs(c.amount))}.`}
+                  {square ? 'Nothing Is Owed Either Way.' : `${amountDue}.`}
                 </div>
               )}
             {c.status !== 'missing' && (
               <div className={styles.state}>
-                Player Figures Are Signed: Negative Means Players Lost. The Two Player Figures
-                Differ By Exactly The Rake Generated; Neither Is An Amount Due.
+                Signs: Player Win/Loss, Player Result Excluding Fees, Settled In Chips And Combined
+                ECO Are Counted Toward The Club, So Negative Means Players Lost Or The Club Pays.
+                The Two Player Figures Differ By Exactly The Rake Generated; Neither Is An Amount
+                Due.
                 {c.weekly_player_results
-                  ? ' Full Weekly Net Is Counted From The Club Side, Deducts The Club Rakeback Credit, Includes The Fees Players Paid And Recorded ECO. It Is A Summary, Not An Additional Payment Request.'
+                  ? ' The Net Loss Lines, Less Club Rakeback Credit, ECO Charge Or Credit And Full Weekly Net Are Counted From The Club Side, So Positive Means Players Lost Or The Club Pays. Full Weekly Net Includes The Fees Players Paid And Recorded ECO; It Is A Summary, Not An Additional Payment Request.'
                   : ' The Cash And Tournament Player Split Was Not Recorded On This Invoice.'}{' '}
                 The Unpaid Balance Follows The Amount Due Above.
               </div>

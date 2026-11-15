@@ -41,9 +41,11 @@
 --   1. ca_union_statement_board adds, per issued row, invoice_number, the
 --      exact period_start_at / period_end_at instants from the stored
 --      breakdown, payer/payee type and name (from/to entity), union_house
---      (club_id = union id), settled_in_chips, player_pnl_net and the stored
---      signed outstanding; and period_start_at / period_end_at for the board
---      and each history period. Every existing key and figure is unchanged.
+--      (club_id = union id), settled_in_chips, player_pnl_net, the stored
+--      signed outstanding, the credit notes recorded against the invoice and
+--      what remains after them (fn_union_invoice_outstanding); and
+--      period_start_at / period_end_at for the board and each history
+--      period. Every existing key and figure is unchanged.
 --   2. smarter_private.union_weekly_invoice_body(invoice) writes the Messenger
 --      text for union square-ups and credit notes: the Chicago week line
 --      ("Mon Nov 2, 2026 2:00 AM to Mon Nov 9, 2026 2:00 AM Chicago Time",
@@ -51,7 +53,8 @@
 --      by adding 24 hours), issuer, recipient, "<payer> Pays <payee> <amount>
 --      Chips" or "Square, Nothing Due", every stored component digit for
 --      digit (no to_char rounding), the settled-in-chips split and the
---      amount-due reconciliation. fn_deliver_accounting_invoice calls it for
+--      amount-due reconciliation; a square-up later reduced by credit notes
+--      names them and states only what remains. fn_deliver_accounting_invoice calls it for
 --      those two types only; every other document's body is unchanged. The
 --      body is computed at delivery time, so this reaches only deliveries
 --      made after it is installed. The five rows for the week ending
@@ -153,6 +156,9 @@ DECLARE
   v_square boolean;
   v_body text;
   v_original text;
+  v_credits text;
+  v_credited numeric;
+  v_remaining numeric;
 BEGIN
   SELECT * INTO inv FROM public.settlement_invoices s WHERE s.id = p_invoice_id;
   IF NOT FOUND OR inv.invoice_type NOT IN ('union_weekly_squareup', 'union_weekly_credit_note') THEN
@@ -204,6 +210,15 @@ BEGIN
       || CASE WHEN b ? 'reason' THEN E'\nReason: ' || (b->>'reason') ELSE '' END;
   END IF;
 
+  -- A square-up later reduced by credit notes owes only what is left
+  -- (fn_union_invoice_outstanding's rule): it never reads as the full amount.
+  SELECT string_agg(cn.invoice_number || ' (' || smarter_private.union_statement_figure(cn.net_amount) || ')',
+                    ', ' ORDER BY cn.created_at, cn.invoice_number),
+         sum(cn.net_amount)
+    INTO v_credits, v_credited
+    FROM public.settlement_invoices cn
+   WHERE cn.adjusts_invoice_id = inv.id AND cn.invoice_type = 'union_weekly_credit_note';
+  v_remaining := round(abs(inv.net_amount) - COALESCE(v_credited, 0), 2);
   v_square := COALESCE(round(inv.net_amount, 2) = 0, false) OR COALESCE(b->>'direction', '') = 'square';
   v_body := v_union_name
       || CASE WHEN v_house THEN ' House Club Statement ' ELSE ' Weekly Statement ' END
@@ -215,10 +230,19 @@ BEGIN
     || CASE WHEN v_house THEN ' (The Union''s Own House Club)' ELSE '' END
     || E'\nAmount Due: '
     || CASE WHEN v_square THEN 'Square, Nothing Due'
+            WHEN v_credits IS NOT NULL AND v_remaining <= 0
+              THEN 'Credited In Full, Nothing Due'
+            WHEN v_credits IS NOT NULL
+              THEN v_payer || ' Pays ' || v_payee || ' '
+                || smarter_private.union_statement_figure(v_remaining) || ' Chips After Credit'
             ELSE v_payer || ' Pays ' || v_payee || ' '
               || smarter_private.union_statement_figure(abs(inv.net_amount)) || ' Chips' END
+    || CASE WHEN v_credits IS NOT NULL
+            THEN E'\nOriginal Amount: ' || smarter_private.union_statement_figure(abs(inv.net_amount))
+              || E'\nCredited By: ' || v_credits
+            ELSE '' END
     || E'\nStatus: ' || initcap(inv.status)
-    || CASE WHEN inv.due_at IS NOT NULL AND NOT v_square
+    || CASE WHEN inv.due_at IS NOT NULL AND NOT v_square AND v_remaining > 0
             THEN E'\nDue: ' || smarter_private.union_statement_instant(inv.due_at) || ' Chicago Time'
             ELSE '' END
     || E'\n'
@@ -236,11 +260,12 @@ BEGIN
   w := b->'weekly_player_results';
   IF jsonb_typeof(w) = 'object' THEN
     v_body := v_body
+      || E'\nThe Lines Below Are Counted From The Club''s Side: Positive Means Players Lost Or The Club Pays.'
       || E'\nCash Player Net Loss: ' || smarter_private.union_statement_amount(w->'cash_net_loss')
       || E'\nTournament Player Net Loss: ' || smarter_private.union_statement_amount(w->'tournament_net_loss')
       || E'\nTotal Player Net Loss: ' || smarter_private.union_statement_amount(w->'total_net_loss')
       || E'\nLess Club Rakeback Credit: ' || smarter_private.union_statement_amount(w->'rakeback_credit')
-      || E'\nECO Charge Or Credit: ' || smarter_private.union_statement_amount(w->'eco_charge')
+      || E'\nECO Charge Or Credit (Positive Means The Club Pays): ' || smarter_private.union_statement_amount(w->'eco_charge')
       || E'\nFull Weekly Net (Positive Club Owes Union): '
         || smarter_private.union_statement_amount(w->'weekly_net_due_to_union')
       || E'\nThe Full Weekly Net Is Counted From The Club''s Side And Includes The Fees Players Paid. '
@@ -288,6 +313,10 @@ BEGIN
            || smarter_private.union_statement_amount(b->'presettled')
            || ' Equals ' || smarter_private.union_statement_amount(b->'outstanding')
            || ' (Negative: The Club Pays The Union; Positive: The Union Pays The Club)'
+           || CASE WHEN v_credits IS NOT NULL
+                   THEN E'\nLess Credit Notes ' || smarter_private.union_statement_figure(COALESCE(v_credited, 0))
+                     || ' Leaves ' || smarter_private.union_statement_figure(greatest(v_remaining, 0)) || ' Due'
+                   ELSE '' END
        ELSE '' END;
   RETURN v_body;
 END
@@ -355,6 +384,13 @@ $a$,
                 THEN (i.breakdown->>'player_pnl_net')::numeric END AS player_pnl_net,
            CASE WHEN jsonb_typeof(i.breakdown->'outstanding') = 'number'
                 THEN (i.breakdown->>'outstanding')::numeric END AS stored_outstanding,
+           (SELECT jsonb_agg(jsonb_build_object('invoice_number', cn.invoice_number,
+                                                'amount', round(cn.net_amount, 2))
+                             ORDER BY cn.created_at, cn.invoice_number)
+              FROM settlement_invoices cn
+             WHERE cn.adjusts_invoice_id = i.id
+               AND cn.invoice_type = 'union_weekly_credit_note') AS credit_notes,
+           CASE WHEN i.id IS NOT NULL THEN public.fn_union_invoice_outstanding(i.id) END AS remaining_after_credits,
 $a$,
     $a$'weekly_player_results',b.weekly_player_results,$a$,
     $a$'weekly_player_results',b.weekly_player_results,
@@ -365,7 +401,9 @@ $a$,
                'union_house', b.union_house,
                'settled_in_chips', round(b.settled_in_chips, 2),
                'player_pnl_net', round(b.player_pnl_net, 2),
-               'stored_outstanding', round(b.stored_outstanding, 2),$a$,
+               'stored_outstanding', round(b.stored_outstanding, 2),
+               'credit_notes', b.credit_notes,
+               'remaining_after_credits', round(b.remaining_after_credits, 2),$a$,
     $a$    'period_start', (SELECT MIN((i.breakdown->>'period_start')::date) FROM period_invoices i),
 $a$,
     $a$    'period_start', (SELECT MIN((i.breakdown->>'period_start')::date) FROM period_invoices i),

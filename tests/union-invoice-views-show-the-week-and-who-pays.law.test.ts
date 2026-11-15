@@ -94,6 +94,12 @@ describe('a union invoice view shows its week and who pays whom', () => {
     expect(code).toContain("'Square, Nothing Due'");
     expect(code).toContain("v_payer || ' Pays ' || v_payee");
     expect(code).toContain("' House Club Statement '");
+    expect(code).toContain("'Credited In Full, Nothing Due'");
+    expect(code).toContain(
+      "WHERE cn.adjusts_invoice_id = inv.id AND cn.invoice_type = 'union_weekly_credit_note'"
+    );
+    expect(code).toContain('ECO Charge Or Credit (Positive Means The Club Pays): ');
+    expect(code).toContain("'remaining_after_credits', round(b.remaining_after_credits, 2)");
     expect(code).toContain('Amount Due Is What Remains: Combined ECO ');
     expect(code).toContain('Not A Union Or Club Transfer');
     expect(code).toContain('(The Only Union To Club Transfer In It)');
@@ -129,13 +135,17 @@ describe('a union invoice view shows its week and who pays whom', () => {
     expect(page).not.toContain("'Under 1");
     expect(page).toContain('formatWalletChips(n)');
     expect(page).toContain('unionStatementWeekLabel(board.period_start_at, board.period_end_at)');
-    expect(page).toContain('unionStatementPayLine(c, clubLabel, unionLabel)');
+    expect(page).toContain('unionStatementAmountDue(c, clubLabel, unionLabel)');
     expect(page).toContain('(board?.clubs || []).filter((c) => !c.union_house)');
     expect(page).toContain('aria-label="Union House Club Statement"');
     expect(page).toContain("'payer_pays_payee'");
+    expect(page).toContain("'week_end_exclusive_chicago'");
+    expect(page).toContain("'credited_by'");
+    expect(page).toContain('...rows.filter((r) => r.union_house)');
     expect(board).toContain("timeZone: 'America/Chicago'");
     expect(board).not.toMatch(/24\s*\*\s*60\s*\*\s*60/);
     expect(board).toContain("throw new Error('Statement amount due does not reconcile')");
     expect(board).toContain("throw new Error('Statement house row is misidentified')");
+    expect(board).toContain("throw new Error('Statement credit notes do not reconcile')");
   });
 });

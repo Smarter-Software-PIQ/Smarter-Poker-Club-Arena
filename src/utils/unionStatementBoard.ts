@@ -1,4 +1,5 @@
 import { unionEcoComponents, unionEcoSummary, type UnionEcoComponent } from './unionEco';
+import { formatWalletChips } from './format';
 export interface WeeklyPlayerResults {
   version: 1;
   cash_net_loss: number;
@@ -53,6 +54,16 @@ export interface UnionStatementClub {
   settled_in_chips?: number | null;
   player_pnl_net?: number | null;
   stored_outstanding?: number | null;
+  /* Credit notes recorded against this invoice, and what remains after them
+     (fn_union_invoice_outstanding). A credited invoice never reads as owing
+     its full original amount. */
+  credit_notes?: StatementCredit[] | null;
+  remaining_after_credits?: number | null;
+}
+
+export interface StatementCredit {
+  invoice_number: string;
+  amount: number;
 }
 
 export type StatementParty = 'club' | 'union';
@@ -191,6 +202,21 @@ function optionalMoney(value: unknown, label: string): number | null {
   return value === undefined || value === null ? null : moneyValue(value, label);
 }
 
+function optionalCredits(value: unknown): StatementCredit[] | null {
+  if (value === undefined || value === null) return null;
+  if (!Array.isArray(value) || value.length === 0)
+    throw new Error('Statement credit notes are invalid');
+  return value.map((entry) => {
+    const credit = objectValue(entry, 'Statement credit note');
+    const amount = moneyValue(credit.amount, 'Statement credit note amount', true);
+    if (cents(amount) === 0) throw new Error('Statement credit note amount is invalid');
+    return {
+      invoice_number: textValue(credit.invoice_number, 'Statement credit note number'),
+      amount,
+    };
+  });
+}
+
 function optionalParty(value: unknown, label: string): StatementParty | null {
   if (value === undefined || value === null) return null;
   if (value !== 'club' && value !== 'union') throw new Error(`${label} is invalid`);
@@ -307,6 +333,11 @@ function parseClub(value: unknown, unionId: string): ParsedClub {
   parsed.settled_in_chips = optionalMoney(row.settled_in_chips, 'Statement settled in chips');
   parsed.player_pnl_net = optionalMoney(row.player_pnl_net, 'Statement player result');
   parsed.stored_outstanding = optionalMoney(row.stored_outstanding, 'Statement amount due');
+  parsed.credit_notes = optionalCredits(row.credit_notes);
+  parsed.remaining_after_credits = optionalMoney(
+    row.remaining_after_credits,
+    'Statement amount after credit notes'
+  );
   // The union's own house club row (club_id = union id) is not a member club.
   const house = parsed.club_id === unionId;
   if (
@@ -337,6 +368,8 @@ function parseClub(value: unknown, unionId: string): ParsedClub {
       parsed.settled_in_chips !== null ||
       parsed.player_pnl_net !== null ||
       parsed.stored_outstanding !== null ||
+      parsed.credit_notes !== null ||
+      parsed.remaining_after_credits !== null ||
       [
         parsed.amount,
         parsed.paid_total,
@@ -420,6 +453,16 @@ function parseClub(value: unknown, unionId: string): ParsedClub {
             : 0)
     )
       throw new Error('Statement amount due does not reconcile');
+  }
+  // What remains is the document amount less every credit note against it.
+  if (parsed.remaining_after_credits !== null || parsed.credit_notes !== null) {
+    const credited = (parsed.credit_notes ?? []).reduce((sum, c) => sum + cents(c.amount), 0);
+    if (
+      parsed.remaining_after_credits === null ||
+      cents(parsed.remaining_after_credits) < 0 ||
+      cents(parsed.remaining_after_credits) !== Math.abs(cents(parsed.amount)) - credited
+    )
+      throw new Error('Statement credit notes do not reconcile');
   }
   if (available && status === 'paid' && cents(parsed.outstanding as number) !== 0) {
     throw new Error('Paid statement still has an outstanding balance');
@@ -680,6 +723,36 @@ export function unionStatementWeekLabel(
 ): string | null {
   if (!start || !end) return null;
   return `${chicagoInstantLabel(start)} to ${chicagoInstantLabel(end)} Chicago Time`;
+}
+
+/**
+ * The whole "Amount Due" sentence: who pays whom and how much is still due,
+ * after any credit note recorded against the invoice.
+ */
+export function unionStatementAmountDue(
+  club: Pick<
+    UnionStatementClub,
+    | 'status'
+    | 'direction'
+    | 'amount'
+    | 'union_house'
+    | 'club_name'
+    | 'credit_notes'
+    | 'remaining_after_credits'
+  >,
+  clubName: string,
+  unionName: string
+): string {
+  const payLine = unionStatementPayLine(club, clubName, unionName);
+  if (club.status === 'missing' || club.direction === 'square' || cents(club.amount) === 0)
+    return payLine;
+  if (club.credit_notes?.length) {
+    const remaining = club.remaining_after_credits ?? 0;
+    return cents(remaining) <= 0
+      ? 'Credited In Full, Nothing Due'
+      : `${payLine} ${formatWalletChips(remaining)} After Credit`;
+  }
+  return `${payLine} ${formatWalletChips(Math.abs(club.amount))}`;
 }
 
 /** The club side of a statement; the union's own house club says so. */

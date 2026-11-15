@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   chicagoInstantLabel,
   parseUnionStatementBoard,
+  unionStatementAmountDue,
   unionStatementPayLine,
   unionStatementWeekLabel,
 } from '../../src/utils/unionStatementBoard';
@@ -425,6 +426,24 @@ describe('the stored week, the parties and the amount due (week ending 2026-11-0
     );
   });
 
+  it('a credited invoice states only what remains, and the credits must reconcile', () => {
+    const value = fresh();
+    value.clubs[0].credit_notes = [{ invoice_number: 'MIDWAY-2026-000099', amount: 96919.54 }];
+    value.clubs[0].remaining_after_credits = 0;
+    const deep = parseUnionStatementBoard(value, UNION, '2026-11-09').clubs[0];
+    expect(unionStatementAmountDue(deep, deep.club_name, 'Midway Union')).toBe(
+      'Credited In Full, Nothing Due'
+    );
+    value.clubs[0].remaining_after_credits = 0.01;
+    expect(() => parseUnionStatementBoard(value, UNION, '2026-11-09')).toThrow(
+      'Statement credit notes do not reconcile'
+    );
+    const uncredited = byInvoice('MIDWAY-2026-000038');
+    expect(unionStatementAmountDue(uncredited, uncredited.club_name, 'Midway Union')).toBe(
+      'Deep Stack Society Pays Midway Union 96,919.54'
+    );
+  });
+
   it('refuses a house flag that is not the club_id = union id identity', () => {
     const value = fresh();
     value.clubs[0].union_house = true;
@@ -456,6 +475,8 @@ describe('the stored week, the parties and the amount due (week ending 2026-11-0
         'settled_in_chips',
         'player_pnl_net',
         'stored_outstanding',
+        'credit_notes',
+        'remaining_after_credits',
       ])
         delete club[key];
     delete value.period_start_at;

@@ -85,7 +85,9 @@
       "stored_outstanding": -96919.54,
       "weekly_player_results": null,
       "eco_components_complete": true,
-      "payment_details_available": true
+      "payment_details_available": true,
+      "credit_notes": null,
+      "remaining_after_credits": 96919.54
     },
     {
       "amount": 88305.04,
@@ -147,7 +149,9 @@
       "stored_outstanding": -88305.04,
       "weekly_player_results": null,
       "eco_components_complete": true,
-      "payment_details_available": true
+      "payment_details_available": true,
+      "credit_notes": null,
+      "remaining_after_credits": 88305.04
     },
     {
       "amount": 6042.96,
@@ -209,7 +213,9 @@
       "stored_outstanding": -6042.96,
       "weekly_player_results": null,
       "eco_components_complete": true,
-      "payment_details_available": true
+      "payment_details_available": true,
+      "credit_notes": null,
+      "remaining_after_credits": 6042.96
     },
     {
       "amount": 21.25,
@@ -271,7 +277,9 @@
       "stored_outstanding": 21.25,
       "weekly_player_results": null,
       "eco_components_complete": true,
-      "payment_details_available": true
+      "payment_details_available": true,
+      "credit_notes": null,
+      "remaining_after_credits": 21.25
     },
     {
       "amount": 0.0,
@@ -333,7 +341,9 @@
       "stored_outstanding": 0.0,
       "weekly_player_results": null,
       "eco_components_complete": true,
-      "payment_details_available": true
+      "payment_details_available": true,
+      "credit_notes": null,
+      "remaining_after_credits": 0.0
     }
   ],
   "history": [
