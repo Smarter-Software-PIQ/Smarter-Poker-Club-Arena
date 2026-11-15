@@ -139,6 +139,9 @@ export function stableReceipt(value: unknown): unknown {
     for (const key of Object.keys(value as Record<string, unknown>).sort()) {
       const item = (value as Record<string, unknown>)[key];
       if (VOLATILE_KEY.test(key) || key === 'executionWitness') continue;
+      // R1 style action receipt (Hand Analysis B1): skipped under backlog, budget or a moved scale, like the shadow,
+      // so it is a work-budget observation the frozen replay cannot reproduce; the decision itself is compared.
+      if (key === 'styleActionReceipt') continue;
       if (
         key === 'policyMs' &&
         (value as Record<string, unknown>).policyFamily === 'catastrophe_guard_v1' &&

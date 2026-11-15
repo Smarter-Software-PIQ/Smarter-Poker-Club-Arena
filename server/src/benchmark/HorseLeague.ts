@@ -261,6 +261,20 @@ export interface LeagueMatchup {
    */
   moodClock?: 'deal_seed';
   /**
+   * HAND IDENTITY (2026-11-14). The live worker gives every decision the
+   * hand it belongs to (opts.mindPlanContext.hand: table id and allocated
+   * hand number); the league gave none, so an option that keys on the hand
+   * had only its offline fallback to run. 'deal_seed' stamps every decision
+   * of a pair, in both passes and both arms, with one hand derived from the
+   * pair's deal seed. Both arms, although only an arm with such an option
+   * reads it for its units: the brain's existing plan reader also keys on
+   * this context, so stamping one arm alone would make the arms differ by
+   * more than the option under test. A card that sets this therefore has no
+   * arm on the plain league baseline. Unset keeps the old behaviour for every
+   * existing card.
+   */
+  handIdentity?: 'deal_seed';
+  /**
    * HUMAN FIELD (2026-10-24). Absent: the MIRROR card every matchup has
    * always been - every seat a horse, half the seats on config A and half on
    * B, swapped between the two passes of a duplicate pair. A mirror measures
@@ -588,6 +602,31 @@ function finalTableMttContext(seats: number, stackBB: number): LeagueGameContext
       nearBubble: false,
       inMoney: true,
       payoutPct,
+    },
+  };
+}
+
+/**
+ * 2026-11-15: the final-table MTT with the stack list and the seat identities
+ * the live feed sends (TournamentBrainContext stacks / stackByUser), for the
+ * payout-aware push/fold card (nashPushFoldIcm, hand 59441335; default OFF).
+ * Without them heroBubbleFactor has nothing to price and both arms play chip
+ * EV. Every seat
+ * starts each hand with stackBB big blinds, so the start-of-hand list is the
+ * same every hand; the deciding seat's own slot is replaced by its live stack
+ * (HorseLogic realIcmInputs).
+ */
+export function finalTableMttWithStacksContext(seats: number, stackBB: number): LeagueGameContext {
+  const ctx = finalTableMttContext(seats, stackBB);
+  const start = stackBB * BB;
+  return {
+    ...ctx,
+    tournament: {
+      ...ctx.tournament!,
+      stacks: Array.from({ length: seats }, () => start),
+      stackByUser: Object.fromEntries(
+        Array.from({ length: seats }, (_, s) => [`league-${s + 1}`, start])
+      ),
     },
   };
 }
@@ -1453,6 +1492,26 @@ function withDealMood(opts: HorseDecideOpts, moodClockMs: number | null): HorseD
   return moodClockMs === null ? opts : { ...opts, decisionTimeMs: moodClockMs };
 }
 
+/** The league's table for a 'deal_seed' hand identity (a fixed synthetic id). */
+const LEAGUE_HAND_TABLE_ID = '1ea90e00-0000-4000-8000-000000000001';
+
+/** The hand a 'deal_seed' matchup stamps on every decision of one pair. */
+function withDealHand(opts: HorseDecideOpts, handSeed: number | null): HorseDecideOpts {
+  return handSeed === null
+    ? opts
+    : {
+        ...opts,
+        mindPlanContext: {
+          version: 1,
+          hand: {
+            version: 1,
+            tableId: LEAGUE_HAND_TABLE_ID,
+            handNumber: 1_000_000 + (handSeed >>> 0),
+          },
+        },
+      };
+}
+
 /** LeagueMatchup.memoryLearning 'off': the decision observes nothing. */
 function withLearning(opts: HorseDecideOpts, learn: boolean): HorseDecideOpts {
   return learn ? opts : { ...opts, observeMind: false };
@@ -1537,10 +1596,23 @@ export async function runMatchup(
       };
     };
     const moodMs = matchup.moodClock === 'deal_seed' ? dealMoodClockMs(handSeed) : null;
+    const handId = matchup.handIdentity === 'deal_seed' ? handSeed : null;
     const evenIsA = (s: number) =>
-      withLearning(withDealMood(withEvidence(s % 2 === 0 ? matchup.a : matchup.b), moodMs), learn);
+      withLearning(
+        withDealHand(
+          withDealMood(withEvidence(s % 2 === 0 ? matchup.a : matchup.b), moodMs),
+          handId
+        ),
+        learn
+      );
     const evenIsB = (s: number) =>
-      withLearning(withDealMood(withEvidence(s % 2 === 0 ? matchup.b : matchup.a), moodMs), learn);
+      withLearning(
+        withDealHand(
+          withDealMood(withEvidence(s % 2 === 0 ? matchup.b : matchup.a), moodMs),
+          handId
+        ),
+        learn
+      );
     const hasMods =
       matchup.modsA !== undefined || matchup.modsB !== undefined || hybrid !== undefined;
     // Same persona at the same seat in both passes; only the arm swaps.
@@ -1869,7 +1941,11 @@ async function runHumanFieldMatchup(
         playHand(
           handSeed,
           dealerSeat,
-          () => withDealMood(opts, moodMs),
+          () =>
+            withDealHand(
+              withDealMood(opts, moodMs),
+              matchup.handIdentity === 'deal_seed' ? handSeed : null
+            ),
           counters,
           sb,
           variant,
@@ -2014,6 +2090,89 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaBluffCatcherRaiseFold: true },
     b: {},
   })),
+  // 2026-11-15 RESPONSES TO TIGHT PLAYERS (styleTightPlayerExploit, default
+  // OFF): a bluffs more when a credibly tight-passive player checks to it on
+  // the turn or river and isolates tight limpers wider; b is today's brain.
+  // League seats decide with mind off, so no style read engages and this card
+  // is expected to be inert; the declared evaluation is the paired synthetic
+  // measurement in docs/horse-default-on.d/styleTightPlayerExploit.md.
+  {
+    name: 'nlh_style_tight_player_exploit',
+    variant: 'nlh',
+    pairs: 6000,
+    productionStyles: true,
+    a: { styleTightPlayerExploit: true },
+    b: {},
+  },
+  // 2026-11-15 C7 F1 (holdemCallDownExcludesCurrentHand, default OFF): a takes
+  // the hand being decided out of the legacy aggression ratio; b is today's.
+  // Production observes the hand before the read; a run without learning does
+  // not, and there the subtraction is clamped at zero.
+  {
+    name: 'nlh_call_down_excludes_current_hand',
+    pairs: 6000,
+    a: { holdemCallDownExcludesCurrentHand: true },
+    b: {},
+  },
+  // 2026-11-15 C7 F2 (holdemCallDownNeedsStyleEvidence, default OFF): a keeps
+  // the legacy maniac multiplier neutral when the pooled tallies answer and the
+  // style read has no evidence; b is today's. Expected near inert Horse vs Horse.
+  {
+    name: 'nlh_call_down_needs_style_evidence',
+    pairs: 6000,
+    a: { holdemCallDownNeedsStyleEvidence: true },
+    b: {},
+  },
+  // 2026-11-15 A GEAR SHIFT IS REACHABLE (holdemGearShiftReach, default OFF): a
+  // reads a confirmed regime break on the fast window at the ordinary
+  // credibility; b is today's read. Horses do not change gear, so the card is
+  // expected to be near inert; its value question is against humans.
+  {
+    name: 'nlh_gear_shift_reach',
+    pairs: 6000,
+    a: { holdemGearShiftReach: true },
+    b: {},
+  },
+  // 2026-11-15 A REGULAR IS NOT A MANIAC (holdemManiacSampleGate, default OFF):
+  // a gates the preflop maniac width (15 decayed hands, PFR credibly beyond the
+  // size's regular line, 8 decayed 3-bet opportunities); b is today's read.
+  // Against a Horse field the maniac width rarely engages, so the card is
+  // expected to be near inert; its value question is against humans.
+  {
+    name: 'nlh_maniac_sample_gate',
+    pairs: 6000,
+    a: { holdemManiacSampleGate: true },
+    b: {},
+  },
+  // 2026-11-15 TIGHT BEYOND VPIP (styleTightMultiSignal, default OFF): a reads
+  // a neutral player tight when VPIP is credibly below the Horse mean and fold
+  // to 3-bet or raise share corroborates; b is today's read. The style read is
+  // taken only by a style consumer, so both arms switch on the two consumers
+  // that see the tight side (#2 and #6); the card measures the read alone.
+  // Against a Horse field the route is expected to be near inert.
+  {
+    name: 'nlh_style_tight_multi_signal',
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      styleTightMultiSignal: true,
+      styleValueBettorNotManiac: true,
+      styleTightReRaiserRespect: true,
+    },
+    b: { styleValueBettorNotManiac: true, styleTightReRaiserRespect: true },
+  },
+  // 2026-11-15 HOLD'EM RIVER FULL HOUSE VALUE (holdemRiverFullHouseValue,
+  // default OFF): a leads a qualifying river full house out of position into
+  // the prior aggressor (70%); b checks it, as today. Full houses in that seat
+  // are rare, so the card is expected to move little; its evidence is the
+  // replay of the audited hands in docs/horse-default-on.d.
+  {
+    name: 'nlh_river_full_house_value',
+    variant: 'nlh',
+    pairs: 6000,
+    a: { holdemRiverFullHouseValue: true },
+    b: {},
+  },
   // 2026-11-14 OMAHA TIGHT STEAL (omahaTightOpponentSteal, default OFF): the
   // steal half of omahaTightOpponent alone, in OMAHA_TIGHT_STEAL_VARIANTS
   // (six-card only). Against a Horse field the evidence standard is rarely
@@ -2300,6 +2459,41 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: {},
     b: { nashCallVsJam: false },
   },
+  // 2026-11-15 PAYOUT-AWARE SHORT-STACK PUSH/FOLD (nashPushFoldIcm, hand
+  // 59441335; default OFF, owner preflop range hold). With the option on, a
+  // short stack with a pay jump live and the stacks, payouts and its identity
+  // in the context prices the V71 jam and the nashCallVsJam call at its own
+  // bubble factor; unset is chip EV. A six-handed in-the-money final table at
+  // 12bb with a 1bb big-blind ante and the stack list (the only league
+  // context where the option can act). The league scores chips, not payouts:
+  // the payout-aware arm gives up chips by design, so this card measures what
+  // the option costs in chips, not its value.
+  // 2026-11-15 PAID BUST (icmBustPaysPlace, default OFF, Hand Analysis B3):
+  // the same in-the-money final table; a values a bust at the place it pays,
+  // b at 0 as before. Chips, not payouts, are scored, so this card measures
+  // what the corrected bubble factor costs or gains in chips.
+  {
+    name: 'mtt6_ft_icm_bust_pays_place_12bb',
+    seats: 6,
+    stackBB: 12,
+    context: finalTableMttWithStacksContext(6, 12),
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: { icmBustPaysPlace: true },
+    b: {},
+  },
+  {
+    name: 'mtt6_ft_pay_jump_push_fold_12bb',
+    seats: 6,
+    stackBB: 12,
+    context: finalTableMttWithStacksContext(6, 12),
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: { nashPushFoldIcm: true },
+    b: {},
+  },
   // 2026-11-13 A COMMITTED STACK IS NOT FOLDED AT A PRICE
   // (committedStackPricedIn, default OFF; study HVH2D-NLH-M-COMMIT and
   // HVH2D-NLH-007a). Tournament multiway all-in only: arm A lets the priced-in
@@ -2359,6 +2553,37 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     hybridBaseline: true,
     moodClock: 'deal_seed',
     a: { facingOpenFullRingZone: true },
+    b: {},
+  },
+  // 2026-11-14 PERSONA RE-RAISE MIX (D3 option C), default OFF, so arm A
+  // turns it on: six-handed 100bb no-limit hold'em cash, where the 3-bet
+  // bluff and the squeeze bluff are met every orbit. The card's seats are the
+  // league's own ids, not the fleet's 25/20/40/15 archetype mix (the
+  // opportunity-weighted harness HoldemPersonaReRaiseProbe measures that).
+  // Not yet run.
+  {
+    name: 'cash6_holdem_persona_reraise_mix',
+    seats: 6,
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { holdemPersonaReRaiseMix: true },
+    b: {},
+  },
+  // 2026-11-15 HOLD'EM PERSONA PREFLOP (plan lines 85 and 152), default OFF,
+  // so arm A turns it on: nine-handed 100bb no-limit hold'em cash, where the
+  // archetype range shifts and the persona re-raise mix all act. The card's
+  // seats are the league's own ids, not the fleet's 25/20/40/15 mix (the
+  // opportunity-weighted HoldemPersonaPreflopProbe measures that). Not yet run.
+  {
+    name: 'cash9_holdem_persona_preflop',
+    seats: 9,
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    handIdentity: 'deal_seed',
+    a: { holdemPersonaPreflop: true },
     b: {},
   },
   {
@@ -3062,6 +3287,26 @@ export interface UnmeasurableMatchup extends Pick<
 }
 
 export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.freeze([
+  // 2026-11-15 (Hold'em Strategy lane): the long shown river memory. Refused, not
+  // dealt: the evidence it reads does not exist in a league hand.
+  {
+    name: 'nlh_long_shown_river_memory',
+    variant: 'nlh',
+    seats: 6,
+    a: { styleLongShownMemory: true },
+    b: {},
+    reason:
+      'Unanswerable by this league: the option reads one thing, the durable shown river record ' +
+      '(horse_exact_profiles.shown_river) that a pooled public row carries into a live worker decision ' +
+      '(horseDecision/observerReads -> HorseMindSandbox.pooledShownRiver). playHand calls HorseLogic.decide ' +
+      'directly, with no pooled public rows, no accepted-hand database learner and no worker, so the record is ' +
+      'never present and both arms read the same in-process size buckets. The option is DEFAULT OFF (read as === true). ' +
+      'Measured 2026-11-15 by running this refused matchup through runMatchup (seed 20261115, 300 pairs): ' +
+      '0 of 300 pairs diverged (inert, as the structure says). ' +
+      'What would change this: a league that replays accepted hands into the pooled public profiles across a ' +
+      'simulated restart; until it exists, aShownRiverBettorIsRememberedAcrossARestart.law.test.ts and its worker ' +
+      'test (FAST, DEEP and exact replay) are the evidence.',
+  },
   // 2026-11-14 (Fixed-Limit lane, SPEC-FL-01..03): three default-off
   // fixed-limit arms. Refused, not dealt: this league cannot ask the question.
   ...(
@@ -3194,6 +3439,25 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'protocol (development, selection and final seed classes). What would change this: a ' +
       'league context that deals the Lightning contract (fast-fold pool, big-blind ante of one ' +
       'big blind, a new table every hand) and sets the domain.',
+  },
+  // 2026-11-15 (Hold'em Strategy, parked item built default off): a
+  // tournament-table option this league cannot deal.
+  {
+    name: 'aof_closing_seat_nash_call',
+    seats: 6,
+    a: { aofClosingSeatNashCall: true },
+    b: {},
+    reason:
+      'No All-In-Or-Fold table in the league. aofClosingSeatNashCall is DEFAULT OFF (HorseLogic: ' +
+      'opts.aofClosingSeatNashCall === true) and acts only when gs.allInOrFold is true, the hero ' +
+      'faces a lone all-in at 12 big blinds or less and every other player still in the hand is ' +
+      'all in. The league deals open no-limit betting and never sets the All-In-Or-Fold flag, so ' +
+      'both arms would play identical poker and the card would report 0.00 +/- 0.00 every night. ' +
+      'Measured 2026-11-15 on this matchup as written: 0 of 2,000 pairs diverged (run seed ' +
+      '20261115). It is measured where the spot exists: the fixed-input replay of ten anonymised ' +
+      'production All-In-Or-Fold tournament requests in AnAofClosingSeatCallsFromTheNashTable.test.ts ' +
+      'and the HVH2D-NLH-005 equity rows. What would change this: a league context that deals ' +
+      'All-In-Or-Fold tables (legal actions fold or all in, tournament stacks of 12 big blinds or less).',
   },
   {
     name: 'hu_break_even_bluff',

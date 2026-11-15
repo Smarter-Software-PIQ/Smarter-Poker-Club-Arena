@@ -3,7 +3,7 @@
  * (HorseOptionSwitchMigrationLists.ts, server/scripts/gen-horse-option-switch-sql.ts): the newest marker-bearing
  * migration is the whitelist, a change ships as a generated follow-up, and an installed file is never rewritten.
  */
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -36,10 +36,16 @@ describe('a Horse option added after the switch is installed ships as a follow-u
   it('(a) a ledger option missing from the newest list fails with a message naming the --follow-up command', () => {
     const sql = optionSwitchFollowUpSql(NAME);
     expect(optionSwitchListDrift(FOLLOW_UP, sql)).toBeNull();
-    // the base migration as it stands equals the registry today
-    expect(
-      optionSwitchListDrift(OPTION_SWITCH_BASE_MIGRATION, read(OPTION_SWITCH_BASE_MIGRATION))
-    ).toBeNull();
+    // the newest list migration on disk (the base, or the latest follow-up) equals the registry today
+    const onDisk = newestOptionSwitchListMigration(
+      readdirSync(join(REPO, 'supabase/migrations'))
+        .filter((name) => name.endsWith('.sql'))
+        .map((name) => ({
+          name,
+          text: read(`supabase/migrations/${name}`),
+        }))
+    );
+    expect(optionSwitchListDrift(onDisk, read(onDisk))).toBeNull();
     // drop the last plain (switchable on/off) option from every plain list: the registry now has an option the
     // database whitelist does not
     const missing = OPTION_SWITCH_PLAIN_NAMES.filter(

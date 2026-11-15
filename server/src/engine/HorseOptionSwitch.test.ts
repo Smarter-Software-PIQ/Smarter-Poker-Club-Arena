@@ -177,7 +177,10 @@ describe('the decision options', () => {
     const all = Object.fromEntries(OPTION_SWITCH_PLAIN_NAMES.map((n) => [n, 'off' as const]));
     const opts = optionSwitchDecisionOpts(all);
     expect(Object.keys(opts)).toEqual([...OPTION_SWITCH_PLAIN_NAMES]);
-    expect(Object.keys(opts).filter((k) => k.startsWith('style'))).toEqual([]);
+    // the seven style options have their own switch (HorseStyleSwitch); a plain option may still be named style*
+    expect(
+      Object.keys(opts).filter((k) => (STYLE_SWITCH_OPTIONS as readonly string[]).includes(k))
+    ).toEqual([]);
     // an unvalidated set cannot smuggle a key through
     expect(optionSwitchDecisionOpts({ v54RiverBluff: 'on' } as never)).toEqual({});
   });
