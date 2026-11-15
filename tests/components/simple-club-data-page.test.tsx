@@ -243,6 +243,7 @@ const authState = vi.hoisted(() => ({
 }));
 
 const routeState = vi.hoisted(() => ({ clubId: 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4' }));
+const rakePanelProps = vi.hoisted(() => ({ current: null as Record<string, unknown> | null }));
 const rpcMock = vi.hoisted(() => vi.fn());
 const fromMock = vi.hoisted(() => vi.fn());
 const downloadMock = vi.hoisted(() => vi.fn(() => true));
@@ -305,7 +306,10 @@ vi.mock('../../src/hooks/useMasterBusSubscription', () => ({
  * stderr of every test in the file.
  */
 vi.mock('../../src/components/club/RakeSnapshotPanel', () => ({
-  default: () => null,
+  default: (props: Record<string, unknown>) => {
+    rakePanelProps.current = props;
+    return null;
+  },
 }));
 
 import ClubDataPage from '../../src/pages/club/ClubDataPage';
@@ -657,8 +661,22 @@ it('a union club reads the 02:00 accounting window and says what it counts', asy
       )
     ).toBeInTheDocument();
     expect(screen.getByText('On The Felt Now 640.50 (Not Added)')).toBeInTheDocument();
+    // The rake snapshot keeps its own basis and never reads as the Fee tile.
+    expect(screen.getByTestId('rake-snapshot-basis')).toHaveTextContent(
+      'Agent Rake Production: Seat Club And Agent Downline, Chicago Midnight Days. Not The Union Invoice Basis.'
+    );
+    expect(rakePanelProps.current?.headlineLabel).toBe('Agent Rake Production');
   } finally {
     cleanup();
     vi.useRealTimers();
   }
+});
+
+it('a club in no union keeps the rake snapshot exactly as it was', async () => {
+  rakePanelProps.current = null;
+  render(<ClubDataPage />);
+  await screen.findByText('Shark Table One');
+  await waitFor(() => expect(rakePanelProps.current).not.toBeNull());
+  expect(rakePanelProps.current?.headlineLabel).toBeUndefined();
+  expect(screen.queryByTestId('rake-snapshot-basis')).toBeNull();
 });
