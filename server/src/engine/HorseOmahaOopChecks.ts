@@ -38,8 +38,9 @@
  *    against a MEASURED postflop value leader.
  *  - omahaTurnBetNeedsRiverPlan (hand 59521326, no opponent read): a
  *    heads-up turn bet that leaves less than half the resulting pot behind
- *    is checked when the Horse's own paired-board fold would fold more than
- *    35% of the rivers to an all-in for what is left.
+ *    is checked when the Horse's own river fold rules (omahaRiverShoveFoldVerdict:
+ *    the paired-board fold and the big-bet tier) would fold more than 35% of
+ *    the rivers to an all-in for what is left.
  *  - omahaPairedRiverNoThinLeadVsValueLeader: river, the final board paired,
  *    less than a full house, a live opponent called the Horse's flop or turn
  *    bet; only when every live opponent is a MEASURED postflop value leader.
@@ -58,6 +59,8 @@ import {
   ploPairedBoardFoldRespectsPrice,
   ploPairedBoardMustFold,
 } from './HorsePloPairedBoardFold.js';
+import { v81Cell, v86OmahaUnderboatOrDominatedFold } from './HorseOmahaBigBetCalls.js';
+import { horsePolicyDealtPlayers } from './multiway/DealtSeatCensus.js';
 
 export const OMAHA_OOP_CHECK_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
 
@@ -246,8 +249,8 @@ export function omahaPairedTurnBarrelSpot(hero: SeatPlayer, gs: HorseGameStateV2
  * geometry: turn, heads-up, a bet (not an all-in) of `bet`, after which the
  * smaller of the two stacks is under OMAHA_TURN_PLAN_BEHIND_SHARE of the pot
  * the called bet makes. Returns the opponent, the chips left behind and that
- * pot, or null. omahaTurnBetLacksRiverPlan then asks the paired-board fold on
- * every river card.
+ * pot, or null. omahaTurnBetLacksRiverPlan then asks omahaRiverShoveFoldVerdict
+ * on every river card.
  */
 export const OMAHA_TURN_PLAN_BEHIND_SHARE = 0.5;
 export const OMAHA_TURN_PLAN_FOLD_SHARE = 0.35;
@@ -299,80 +302,227 @@ export function omahaUnseenRiverCards(hero: SeatPlayer, board: Card[]): Card[] {
 }
 
 /**
+ * What the river look-ahead is told beyond the public state: the option
+ * state of the Horse's river fold rules and the two opponent-memory values
+ * the big-bet tier reads. Every field defaults to the widest form (every rule
+ * on, the bettor not an over-bluffer), which is what the receipt validator
+ * replays.
+ */
+export interface OmahaRiverShoveEnv {
+  /** ploPairedBoardFold is on (default true). */
+  pairedBoardFold?: boolean;
+  /** omahaPairedBoardFoldRespectsPrice is on (default false). */
+  respectPrice?: boolean;
+  /** v86MultiStreetUnblocked, read by the paired-board fold (default false: no exemption). */
+  v86MultiStreetUnblocked?: boolean;
+  /** v81OmahaBigBetCalls is on (default true). */
+  v81?: boolean;
+  /** v86PloOverhaul and v40Omaha are on (default true). */
+  v86?: boolean;
+  /** The V81 river set / trips cell is admitted (omahaRiverNutRaiseOnly on; default true). */
+  riverSetCell?: boolean;
+  /** isPostflopManiac(read of the bettor): a measured postflop over-bluffer (default false). */
+  bettorOverBluffs?: boolean;
+  /** bettorOverBluffs, or a measured maniac raise width of 0.62 or more (default false). */
+  bettorManiac?: boolean;
+}
+
+export type OmahaRiverShoveFold = 'paired_board' | 'big_bet_v81' | 'big_bet_v86';
+
+/**
+ * THE ONE QUESTION of the river look-ahead, and its single seam: after the
+ * turn bet of `bet` is called and the Horse checks this river, would the
+ * Horse's own rules fold its hand to an all-in for what is left? It consults
+ * the rules the real river decision runs, in their order: the paired-board
+ * fold (ploPairedBoardMustFold, with its price exception when that option is
+ * on), then the big-bet tier (v81Cell and v86OmahaUnderboatOrDominatedFold,
+ * the cells omahaBigBetCallFold asks for a river call with no chips in on the
+ * street). Returns the rule that folds, or null.
+ *
+ * It does not ask the reference decision's own equity fold (a Monte Carlo
+ * estimate against a range): that is not a rule, costs a full decision per
+ * river and cannot be replayed without the brain. omahaFacingBetEv is to
+ * replace this function when it exists.
+ *
+ * Pure: hero's cards, the public state, the bet, the river card and `env`.
+ */
+export function omahaRiverShoveFoldVerdict(
+  hero: SeatPlayer,
+  gs: HorseGameStateV2,
+  bet: number,
+  geo: OmahaTurnBetGeometry,
+  riverCard: Card,
+  env: OmahaRiverShoveEnv = {}
+): OmahaRiverShoveFold | null {
+  const board: Card[] = [...(gs.communityCards ?? []), riverCard];
+  const shove = geo.behind;
+  const pot = geo.potAfter + shove;
+  const heroAfter: SeatPlayer = {
+    ...hero,
+    stack: Math.max(0, hero.stack - bet),
+    bet: 0,
+    totalInvested: (Number.isFinite(hero.totalInvested) ? (hero.totalInvested ?? 0) : 0) + bet,
+  };
+  const oppStack = Math.max(0, geo.opponent.stack - bet - shove);
+  const oppAfter: SeatPlayer = {
+    ...geo.opponent,
+    stack: oppStack,
+    bet: shove,
+    totalInvested:
+      (Number.isFinite(geo.opponent.totalInvested) ? (geo.opponent.totalInvested ?? 0) : 0) +
+      bet +
+      shove,
+    is_all_in: oppStack <= 0.005,
+  };
+  const players = (gs.players ?? []).map((p) =>
+    p.seat === hero.seat ? heroAfter : p.seat === oppAfter.seat ? oppAfter : p
+  );
+  // 1. The paired-board fold, with its price exception.
+  if (
+    env.pairedBoardFold !== false &&
+    ploPairedBoardMustFold({
+      gameVariant: gs.gameVariant,
+      hiLo: false,
+      multiBoard: false,
+      board,
+      hero: heroAfter,
+      players,
+      currentBet: shove,
+      toCall: shove,
+      pot,
+      v86MultiStreetUnblocked: env.v86MultiStreetUnblocked === true,
+    }) &&
+    !(
+      env.respectPrice === true &&
+      ploPairedBoardFoldRespectsPrice({
+        gameVariant: gs.gameVariant,
+        board,
+        hero: heroAfter,
+        players,
+        currentBet: shove,
+        toCall: shove,
+        pot,
+      })
+    )
+  )
+    return 'paired_board';
+  // 2. The big-bet tier, as omahaBigBetCallFold asks it for this river call.
+  const bb = gs.bigBlind > 0 ? gs.bigBlind : 1;
+  const callable = Math.min(shove, heroAfter.stack);
+  const callPrice = callable / (pot + callable);
+  const overBluffs = env.bettorOverBluffs === true;
+  if (
+    env.v81 !== false &&
+    v81Cell({
+      variant: String(gs.gameVariant ?? ''),
+      street: 'river',
+      hole: hero.cards ?? [],
+      board,
+      potFrac: shove / geo.potAfter,
+      effectiveBB: Math.min(heroAfter.stack, oppAfter.stack + shove) / bb,
+      tournament: false,
+      headsUpTable:
+        (gs.dealtSeatIds === undefined
+          ? gs.players.length
+          : horsePolicyDealtPlayers(gs.players, hero.seat, gs.dealtSeatIds).length) <= 2,
+      bountyEvent: false,
+      hiLo: false,
+      multiBoard: false,
+      bombPot: gs.bombPot === true,
+      heroHasStreetChips: false,
+      bettorOverBluffs: overBluffs,
+      callPrice,
+      riverSetCell: env.riverSetCell !== false && heroAfter.stack > shove + 0.005,
+    }) !== null
+  )
+    return 'big_bet_v81';
+  if (env.v86 !== false) {
+    const t = 0;
+    const riverGs = {
+      ...gs,
+      players,
+      communityCards: board,
+      stage: 'river',
+      pot,
+      currentBet: shove,
+      toCall: shove,
+      minRaiseTo: null,
+      maxRaiseTo: null,
+      legalActions: ['fold', 'call'],
+      actionHistory: [
+        ...(gs.actionHistory ?? []),
+        {
+          stage: 'turn',
+          seat: hero.seat,
+          userId: hero.user_id,
+          action: 'bet',
+          amount: bet,
+          timestamp: t,
+        },
+        {
+          stage: 'turn',
+          seat: oppAfter.seat,
+          userId: oppAfter.user_id,
+          action: 'call',
+          amount: bet,
+          timestamp: t,
+        },
+        {
+          stage: 'river',
+          seat: hero.seat,
+          userId: hero.user_id,
+          action: 'check',
+          amount: 0,
+          timestamp: t,
+        },
+        {
+          stage: 'river',
+          seat: oppAfter.seat,
+          userId: oppAfter.user_id,
+          action: oppAfter.is_all_in ? 'all_in' : 'bet',
+          amount: shove,
+          isFullRaise: true,
+          timestamp: t,
+        },
+      ],
+    } as unknown as HorseGameStateV2;
+    const v86 = v86OmahaUnderboatOrDominatedFold(
+      { action: 'call', amount: shove, thinkTime: 0 },
+      heroAfter,
+      riverGs,
+      true,
+      overBluffs || env.bettorManiac === true
+    );
+    if (v86.reason !== null) return 'big_bet_v86';
+  }
+  return null;
+}
+
+/**
  * True when the turn bet of `bet` leaves under half the resulting pot behind
- * (omahaTurnBetShortBehind) and, on more than OMAHA_TURN_PLAN_FOLD_SHARE of
- * the unseen river cards, the Horse's own paired-board fold would fold to an
- * all-in for what is left after a river check. `respectPrice` applies that
- * fold's price exception (omahaPairedBoardFoldRespectsPrice). Exact
- * enumeration of at most 47 cards: no Monte Carlo, no opponent read, no
- * random number. The big-bet call folds are not asked (they read the
- * opponent memory, which the receipt validator cannot re-run).
+ * (omahaTurnBetShortBehind) and omahaRiverShoveFoldVerdict folds on more than
+ * OMAHA_TURN_PLAN_FOLD_SHARE of the unseen river cards. Exact enumeration of
+ * at most 47 cards: no Monte Carlo, no random number.
+ *
+ * In this geometry the all-in is under half the pot, below every big-bet
+ * cell's smallest wager (0.58 pot), so today the verdict does not depend on
+ * the two opponent-memory values in `env` and the receipt validator's replay
+ * (the widest `env`) is exact up to the option state.
  */
 export function omahaTurnBetLacksRiverPlan(
   hero: SeatPlayer,
   gs: HorseGameStateV2,
   bet: number | undefined,
-  o: { respectPrice?: boolean; v86MultiStreetUnblocked?: boolean } = {}
+  env: OmahaRiverShoveEnv = {}
 ): boolean {
   try {
     const geo = omahaTurnBetShortBehind(hero, gs, bet);
     if (geo === null) return false;
-    const board: Card[] = gs.communityCards ?? [];
-    const rivers = omahaUnseenRiverCards(hero, board);
+    const rivers = omahaUnseenRiverCards(hero, gs.communityCards ?? []);
     if (rivers.length === 0) return false;
-    const wager = bet as number;
-    const shove = geo.behind;
-    const after = {
-      cards: hero.cards,
-      user_id: hero.user_id,
-      stack: Math.max(0, hero.stack - wager),
-      bet: 0,
-      totalInvested: (Number.isFinite(hero.totalInvested) ? (hero.totalInvested ?? 0) : 0) + wager,
-    };
-    const players = [
-      { user_id: hero.user_id, is_folded: false, is_all_in: false, stack: after.stack, bet: 0 },
-      {
-        user_id: geo.opponent.user_id,
-        is_folded: false,
-        is_all_in: geo.opponent.stack - wager - shove <= 0.005,
-        stack: Math.max(0, geo.opponent.stack - wager - shove),
-        bet: shove,
-      },
-    ];
-    const pot = geo.potAfter + shove;
     let folds = 0;
-    for (const card of rivers) {
-      const river = [...board, card];
-      if (
-        !ploPairedBoardMustFold({
-          gameVariant: gs.gameVariant,
-          hiLo: false,
-          multiBoard: false,
-          board: river,
-          hero: after,
-          players,
-          currentBet: shove,
-          toCall: shove,
-          pot,
-          v86MultiStreetUnblocked: o.v86MultiStreetUnblocked !== false,
-        })
-      )
-        continue;
-      if (
-        o.respectPrice === true &&
-        ploPairedBoardFoldRespectsPrice({
-          gameVariant: gs.gameVariant,
-          board: river,
-          hero: after,
-          players,
-          currentBet: shove,
-          toCall: shove,
-          pot,
-        })
-      )
-        continue;
-      folds++;
-    }
+    for (const card of rivers)
+      if (omahaRiverShoveFoldVerdict(hero, gs, bet as number, geo, card, env) !== null) folds++;
     return folds / rivers.length > OMAHA_TURN_PLAN_FOLD_SHARE;
   } catch {
     return false;
@@ -383,7 +533,7 @@ export function omahaTurnBetLacksRiverPlan(
 export function omahaOopCheckSpot(hero: SeatPlayer, gs: HorseGameStateV2, bet?: number): boolean {
   return (
     // the widest form of the river plan test (no price exception, no fold exemption)
-    omahaTurnBetLacksRiverPlan(hero, gs, bet, { v86MultiStreetUnblocked: false }) ||
+    omahaTurnBetLacksRiverPlan(hero, gs, bet) ||
     omahaBareOverpairOopFlopSpot(hero, gs) ||
     omahaOverpairOopTurnBarrelSpot(hero, gs) ||
     omahaPairedTurnBarrelSpot(hero, gs) ||

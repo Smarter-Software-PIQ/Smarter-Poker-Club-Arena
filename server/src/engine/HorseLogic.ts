@@ -56,6 +56,7 @@ import {
   omahaPairedRiverThinLeadSpot,
   omahaPairedTurnBarrelSpot,
   omahaTurnBetLacksRiverPlan,
+  type OmahaRiverShoveEnv,
 } from './HorseOmahaOopChecks.js';
 import {
   omahaReraisedPostflopCell,
@@ -2871,12 +2872,12 @@ export interface HorseDecideOpts {
   omahaPairedBoardFoldRespectsPrice?: boolean;
   /** Lane owner 2026-11-15 (hand 59521326): PLO4/PLO5 cash, heads-up. A turn
    * bet that would leave less than half of the resulting pot behind becomes
-   * a check when, on more than 35% of the river cards, the Horse's own
-   * paired-board fold (with its price exception when that option is on)
-   * would fold to an all-in for what is left
-   * (HorseOmahaOopChecks.omahaTurnBetLacksRiverPlan). The big-bet call folds
-   * are not asked: they read the opponent memory, which the receipt validator
-   * cannot re-run. No opponent read, no Monte Carlo. Default
+   * a check when, on more than 35% of the river cards, the Horse's own river
+   * fold rules would fold to an all-in for what is left: one function,
+   * HorseOmahaOopChecks.omahaRiverShoveFoldVerdict, asks the paired-board
+   * fold (with its price exception when that option is on) and the big-bet
+   * tier (V81, V86). The reference decision's equity fold is not asked
+   * (omahaFacingBetEv is to replace that function). No Monte Carlo. Default
    * OFF (opt-in, read `=== true`); league cards plo4/plo5
    * _omaha_turn_bet_needs_river_plan. */
   omahaTurnBetNeedsRiverPlan?: boolean;
@@ -6395,15 +6396,32 @@ function omahaOopCheckRules(
     const pairedTurnSpot =
       !turnSpot && stage === 'turn' && pairedTurnOn && omahaPairedTurnBarrelSpot(player, gs);
     const riverSpot = stage === 'river' && riverOn && omahaPairedRiverThinLeadSpot(player, gs);
+    // The look-ahead's inputs beyond the public state: the option state of
+    // the river fold rules and the bettor's two memory values, read exactly as
+    // omahaBigBetCallFold reads them (in the worker, from the decision's read
+    // frame).
+    const riverShoveEnv = (): OmahaRiverShoveEnv => {
+      const opp = (gs.players ?? []).find(
+        (p) => p.seat !== player.seat && !p.is_folded && !p.is_sitting_out
+      );
+      const read = opp ? HorseMind.opponentRead(opp.user_id) : null;
+      const overBluffs = isPostflopManiac(read);
+      return {
+        pairedBoardFold: opts.ploPairedBoardFold !== false,
+        respectPrice: opts.omahaPairedBoardFoldRespectsPrice === true,
+        v86MultiStreetUnblocked: opts.v86MultiStreetUnblocked !== false,
+        v81: opts.v81OmahaBigBetCalls !== false,
+        v86: opts.v86PloOverhaul !== false && opts.v40Omaha !== false,
+        riverSetCell: opts.omahaRiverNutRaiseOnly !== false,
+        bettorOverBluffs: overBluffs,
+        bettorManiac:
+          overBluffs ||
+          (read !== null && read.presumed !== true && (maniacRaiseWidth(read) ?? 0) >= 0.62),
+      };
+    };
     const riverPlan = (): HorseDecision => {
       if (!planOn || stage !== 'turn' || decision.action !== 'bet') return decision;
-      if (
-        opts.ploPairedBoardFold === false ||
-        !omahaTurnBetLacksRiverPlan(player, gs, decision.amount, {
-          respectPrice: opts.omahaPairedBoardFoldRespectsPrice === true,
-          v86MultiStreetUnblocked: opts.v86MultiStreetUnblocked !== false,
-        })
-      )
+      if (!omahaTurnBetLacksRiverPlan(player, gs, decision.amount, riverShoveEnv()))
         return decision;
       if (tele) noteFire('omaha_turn_bet_without_river_plan_checked');
       return checked();

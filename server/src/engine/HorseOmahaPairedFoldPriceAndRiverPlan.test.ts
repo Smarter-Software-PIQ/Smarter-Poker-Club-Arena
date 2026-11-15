@@ -20,7 +20,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fastRandom, seedFastRandom } from './HorseEval.js';
 import { HorseLogic, type HorseDecideOpts } from './HorseLogic.js';
 import { HorseMind } from './HorseMind.js';
-import { omahaTurnBetShortBehind } from './HorseOmahaOopChecks.js';
+import {
+  omahaRiverShoveFoldVerdict,
+  omahaTurnBetLacksRiverPlan,
+  omahaTurnBetShortBehind,
+  omahaUnseenRiverCards,
+} from './HorseOmahaOopChecks.js';
 import {
   ploPairedBoardCallPrice,
   ploPairedBoardFoldRespectsPrice,
@@ -62,6 +67,8 @@ type Node = ReturnType<typeof stateAt>;
 const clone = (): ComplaintFixture => JSON.parse(JSON.stringify(FX)) as ComplaintFixture;
 interface Edit {
   hole?: string;
+  /** the board at the node instead of the recorded one */
+  board?: string;
   /** chips behind for hero and for the caller at the node */
   stacks?: { hero?: number; caller?: number };
 }
@@ -69,6 +76,7 @@ function nodeAt(ord: number, edit: Edit = {}): Node {
   const f = clone();
   if (edit.hole) f.hole[String(HERO)] = cards(edit.hole);
   const node = f.actions.find((a) => a.ord === ord)!;
+  if (edit.board) node.publicNode!.boards = [edit.board];
   for (const [seat, v] of [
     [HERO, edit.stacks?.hero],
     [CALLER, edit.stacks?.caller],
@@ -353,5 +361,90 @@ describe('omahaTurnBetNeedsRiverPlan', () => {
   it('facing a bet nothing changes', () => {
     const build = () => nodeAt(RIVER_FOLD);
     expect(play(build, PLAN_ON).bytes).toEqual(play(build, {}).bytes);
+  });
+});
+
+describe('the river look-ahead: one question, the rules the river decision runs', () => {
+  const code = (c: Card) => `${c.rank}${c.suit[0]}`;
+  const FLUSH = { board: '2d7dKdJs', hole: 'QdTd9s8h3c' }; // the third-nut flush, unpaired board
+
+  it('a river the look-ahead counts as a fold is folded by the real river decision (hand 59521326, every river card)', () => {
+    const st = nodeAt(TURN);
+    const geo = omahaTurnBetShortBehind(st.hero, st.gs, 373)!;
+    let folds = 0;
+    for (const card of omahaUnseenRiverCards(st.hero, st.gs.communityCards ?? [])) {
+      const verdict = omahaRiverShoveFoldVerdict(st.hero, st.gs, 373, geo, card);
+      if (verdict === null) continue;
+      folds++;
+      HorseMind.reset();
+      seedFastRandom(7);
+      const river = nodeAt(RIVER_FOLD, { board: `2d4h5s4d${code(card)}` });
+      const d = HorseLogic.decide(river.hero, river.gs, LIVE.style, LIVE.mods, {});
+      expect([code(card), d.action]).toEqual([code(card), 'fold']);
+    }
+    expect(folds).toBeGreaterThan(30);
+  });
+
+  it('in the committing geometry the verdict does not depend on the opponent-memory values, so the validator replays it exactly', () => {
+    for (const edit of [{}, FLUSH, { hole: '5c5hAs3hQs' }, { board: '2d4h5s9d' }]) {
+      const st = nodeAt(TURN, edit);
+      const geo = omahaTurnBetShortBehind(st.hero, st.gs, 373)!;
+      for (const card of omahaUnseenRiverCards(st.hero, st.gs.communityCards ?? []))
+        expect(
+          omahaRiverShoveFoldVerdict(st.hero, st.gs, 373, geo, card, {
+            bettorOverBluffs: true,
+            bettorManiac: true,
+          })
+        ).toBe(omahaRiverShoveFoldVerdict(st.hero, st.gs, 373, geo, card));
+    }
+  });
+
+  it('the big-bet tier is asked: at a pot-sized all-in it folds a non-nut flush on an unpaired river, and not for a measured over-bluffer', () => {
+    const st = nodeAt(TURN, FLUSH);
+    // a synthetic geometry (the all-in is the pot): not reachable through the option today
+    const geo = { ...omahaTurnBetShortBehind(st.hero, st.gs, 373)!, behind: 1415 };
+    const deep = { ...st.hero, stack: 5000 };
+    const river = cards('4c')[0];
+    expect(omahaRiverShoveFoldVerdict(deep, st.gs, 373, geo, river)).toBe('big_bet_v81');
+    expect(
+      omahaRiverShoveFoldVerdict(deep, st.gs, 373, geo, river, { bettorOverBluffs: true })
+    ).toBeNull();
+    expect(omahaRiverShoveFoldVerdict(deep, st.gs, 373, geo, river, { v81: false })).toBeNull();
+  });
+
+  it('a non-nut flush on an unpaired board: the Horse’s rules fold only the rivers that pair the board, so the committing bet stands', () => {
+    const build = () => nodeAt(TURN, FLUSH);
+    const st = build();
+    const geo = omahaTurnBetShortBehind(st.hero, st.gs, 373)!;
+    const rivers = omahaUnseenRiverCards(st.hero, st.gs.communityCards ?? []);
+    const folded = rivers.filter(
+      (c) => omahaRiverShoveFoldVerdict(st.hero, st.gs, 373, geo, c) !== null
+    );
+    // twelve cards pair the 2-7-K-J board; every one is the paired-board fold
+    expect(
+      folded
+        .map((c) => c.rank)
+        .sort()
+        .join('')
+    ).toBe('222777JJJKKK');
+    expect(folded.length / rivers.length).toBeLessThan(0.35);
+    expect(omahaTurnBetLacksRiverPlan(st.hero, st.gs, 373)).toBe(false);
+    const off = play(build, {});
+    expect(play(build, PLAN_ON).bytes).toEqual(off.bytes);
+    // For the record (not a law): what the real river decision does with that
+    // flush facing the all-in on the rivers that do not pair the board.
+    let n = 0;
+    let realFolds = 0;
+    for (const card of rivers.filter((c) => !folded.includes(c))) {
+      HorseMind.reset();
+      seedFastRandom(7);
+      const river = nodeAt(RIVER_FOLD, { ...FLUSH, board: `${FLUSH.board}${code(card)}` });
+      n++;
+      if (HorseLogic.decide(river.hero, river.gs, LIVE.style, LIVE.mods, {}).action === 'fold')
+        realFolds++;
+    }
+    console.log(
+      `non-nut flush, unpaired rivers: the real river decision folds ${realFolds} of ${n}`
+    );
   });
 });
