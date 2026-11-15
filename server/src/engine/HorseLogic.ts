@@ -7480,8 +7480,18 @@ export function omahaBigDrawAggression(
       return decision;
     }
     const raised = decision.action === 'call';
-    if (tele && raised) noteFire('omaha_big_draw_aggression_raise');
-    if (tele && !raised) noteFire('omaha_big_draw_aggression_bet');
+    if (tele && raised)
+      omahaProposeReceipt(
+        omahaIsWager,
+        () => noteFire('omaha_big_draw_aggression_raise'),
+        () => noteFire('omaha_big_draw_aggression_raise_vetoed')
+      );
+    if (tele && !raised)
+      omahaProposeReceipt(
+        omahaIsWager,
+        () => noteFire('omaha_big_draw_aggression_bet'),
+        () => noteFire('omaha_big_draw_aggression_bet_vetoed')
+      );
     // The decision's ownership receipts travel with it, as the other final rules keep them.
     const wagered: HorseDecision = { ...decision, action: verdict.wager.action };
     if (verdict.wager.amount === undefined) delete wagered.amount;
@@ -7831,19 +7841,37 @@ function omahaOopTurnFacingBetRule(
       : Math.max(0, (gs.currentBet || 0) - heroBet);
     const isRaise =
       decision.action === 'raise' || (decision.action === 'all_in' && stack > toCall + 0.005);
+    // A call, or an all-in that only calls.
+    const finalCalls = (f: HorseDecision): boolean =>
+      f.action === 'call' || (f.action === 'all_in' && stack <= toCall + 0.005);
     if (verdict === 'fold_no_outs') {
       if (decision.action === 'fold') return decision;
-      if (tele) noteFire('omaha_oop_turn_check_fold_no_outs');
+      if (tele)
+        omahaProposeReceipt(
+          (f) => f.action === 'fold',
+          () => noteFire('omaha_oop_turn_check_fold_no_outs'),
+          () => noteFire('omaha_oop_turn_check_fold_no_outs_vetoed')
+        );
       const folded: HorseDecision = { ...decision, action: 'fold' };
       delete folded.amount;
       return folded;
     }
     if (isRaise || (verdict === 'call_nut_draw' && decision.action === 'fold')) {
       const nutDraw = verdict === 'call_nut_draw';
-      if (tele)
-        noteFire(
-          nutDraw ? 'omaha_oop_turn_check_call_nut_draw' : 'omaha_oop_turn_check_raise_flatted'
-        );
+      if (tele) {
+        if (nutDraw)
+          omahaProposeReceipt(
+            finalCalls,
+            () => noteFire('omaha_oop_turn_check_call_nut_draw'),
+            () => noteFire('omaha_oop_turn_check_call_nut_draw_vetoed')
+          );
+        else
+          omahaProposeReceipt(
+            finalCalls,
+            () => noteFire('omaha_oop_turn_check_raise_flatted'),
+            () => noteFire('omaha_oop_turn_check_raise_flatted_vetoed')
+          );
+      }
       return {
         ...decision,
         action: 'call',
@@ -7855,6 +7883,52 @@ function omahaOopTurnFacingBetRule(
     if (telemetryOn(opts)) noteFire('omaha_strategy_rule_failed');
     return decision;
   }
+}
+
+/**
+ * A RECEIPT DESCRIBES THE FINAL ACTION (conflict sweep 2026-11-15: 116 press
+ * bets, 12 avoided commitments, 4 big-draw bets and 2 flatted raises were
+ * recorded on decisions that ended as something else). A rule whose verdict
+ * a later rule can still overturn does not fire its receipt where it stands:
+ * it proposes it. When HorseLogic.decide has its final decision the receipt
+ * fires if that decision is the verdict, and its `_vetoed` receipt fires if
+ * a later rule replaced it. Proposed only with telemetry on; emptied at the
+ * start and the end of every decision.
+ */
+interface OmahaProposedReceipt {
+  holds: (final: HorseDecision) => boolean;
+  made: () => void;
+  vetoed: () => void;
+}
+let omahaProposedReceipts: OmahaProposedReceipt[] = [];
+function omahaProposeReceipt(
+  holds: (final: HorseDecision) => boolean,
+  made: () => void,
+  vetoed: () => void
+): void {
+  omahaProposedReceipts.push({ holds, made, vetoed });
+}
+function omahaSettleReceipts(final: HorseDecision): HorseDecision {
+  if (omahaProposedReceipts.length === 0) return final;
+  const proposed = omahaProposedReceipts;
+  omahaProposedReceipts = [];
+  for (const p of proposed) {
+    let held = false;
+    try {
+      held = p.holds(final);
+    } catch {
+      held = false;
+    }
+    if (held) p.made();
+    else p.vetoed();
+  }
+  return final;
+}
+/** The final decision is this wager: the same action, and for a bet or a raise the same chips. */
+function omahaSameWager(final: HorseDecision, wager: HorseDecision): boolean {
+  if (final.action !== wager.action) return false;
+  if (wager.action !== 'bet' && wager.action !== 'raise') return true;
+  return Math.abs((final.amount ?? 0) - (wager.amount ?? 0)) < 0.006;
 }
 
 /** A wager: a bet, a raise or an all-in. */
@@ -8619,10 +8693,38 @@ function omahaCardImpactRule(
       return decision;
     }
     if (telemetryOn(opts)) {
-      noteFire('omaha_card_impact_changed');
-      if (result.changed === 'defence_check') noteFire('omaha_card_impact_defence_check');
-      else if (result.changed === 'press_bet') noteFire('omaha_card_impact_press_bet');
-      else if (result.changed === 'freeroll_pot') noteFire('omaha_card_impact_freeroll_pot');
+      const to = result.decision;
+      const stands = (f: HorseDecision): boolean =>
+        to.action === 'check' ? f.action === 'check' : omahaSameWager(f, to);
+      const changed = (): void => noteFire('omaha_card_impact_changed');
+      if (result.changed === 'defence_check')
+        omahaProposeReceipt(
+          stands,
+          () => {
+            changed();
+            noteFire('omaha_card_impact_defence_check');
+          },
+          () => noteFire('omaha_card_impact_defence_check_vetoed')
+        );
+      else if (result.changed === 'press_bet')
+        omahaProposeReceipt(
+          stands,
+          () => {
+            changed();
+            noteFire('omaha_card_impact_press_bet');
+          },
+          () => noteFire('omaha_card_impact_press_bet_vetoed')
+        );
+      else if (result.changed === 'freeroll_pot')
+        omahaProposeReceipt(
+          stands,
+          () => {
+            changed();
+            noteFire('omaha_card_impact_freeroll_pot');
+          },
+          () => noteFire('omaha_card_impact_freeroll_pot_vetoed')
+        );
+      else omahaProposeReceipt(stands, changed, () => noteFire('omaha_card_impact_resized_vetoed'));
     }
     return result.decision;
   } catch {
@@ -8822,12 +8924,21 @@ function omahaStreetPlanRules(
     if (!plan || !check || !bet) return decision;
     const tele = telemetryOn(opts);
     if (check.ev > bet.ev + OMAHA_STREET_PLAN_MARGIN_POT_SHARE * gs.pot) {
-      if (tele)
-        noteFire(
-          omahaPlanLineUncommitted(bet)
-            ? 'omaha_street_plan_commit_avoided'
-            : 'omaha_street_plan_line_changed'
-        );
+      if (tele) {
+        const finalChecks = (f: HorseDecision): boolean => f.action === 'check';
+        if (omahaPlanLineUncommitted(bet))
+          omahaProposeReceipt(
+            finalChecks,
+            () => noteFire('omaha_street_plan_commit_avoided'),
+            () => noteFire('omaha_street_plan_commit_avoided_vetoed')
+          );
+        else
+          omahaProposeReceipt(
+            finalChecks,
+            () => noteFire('omaha_street_plan_line_changed'),
+            () => noteFire('omaha_street_plan_line_changed_vetoed')
+          );
+      }
       const checked: HorseDecision = {
         ...decision,
         action: 'check',
@@ -9761,65 +9872,69 @@ export class HorseLogic {
       if (opts.deepEquity !== undefined && opts.deepEquity > 1) {
         setEquityDepth(opts.deepEquity);
         try {
-          return omahaRaiseNeedsNutsOutsideGraph(
-            shortAllInCallFloorOutsideGraph(
-              holdemPremiumAggressionOutsideGraph(
-                pairedBoardFoldOutsideGraph(
-                  this.decideInternal(
+          return omahaSettleReceipts(
+            omahaRaiseNeedsNutsOutsideGraph(
+              shortAllInCallFloorOutsideGraph(
+                holdemPremiumAggressionOutsideGraph(
+                  pairedBoardFoldOutsideGraph(
+                    this.decideInternal(
+                      player,
+                      gameState,
+                      style,
+                      mods,
+                      opts,
+                      rangeCapture,
+                      planReadCapture
+                    ),
                     player,
                     gameState,
-                    style,
-                    mods,
-                    opts,
-                    rangeCapture,
-                    planReadCapture
+                    opts
                   ),
                   player,
                   gameState,
                   opts
                 ),
                 player,
-                gameState,
-                opts
+                gameState
               ),
               player,
-              gameState
-            ),
-            player,
-            gameState,
-            opts
+              gameState,
+              opts
+            )
           );
         } finally {
           setEquityDepth(1);
         }
       }
-      return omahaRaiseNeedsNutsOutsideGraph(
-        shortAllInCallFloorOutsideGraph(
-          holdemPremiumAggressionOutsideGraph(
-            pairedBoardFoldOutsideGraph(
-              this.decideInternal(
+      return omahaSettleReceipts(
+        omahaRaiseNeedsNutsOutsideGraph(
+          shortAllInCallFloorOutsideGraph(
+            holdemPremiumAggressionOutsideGraph(
+              pairedBoardFoldOutsideGraph(
+                this.decideInternal(
+                  player,
+                  gameState,
+                  style,
+                  mods,
+                  opts,
+                  rangeCapture,
+                  planReadCapture
+                ),
                 player,
                 gameState,
-                style,
-                mods,
-                opts,
-                rangeCapture,
-                planReadCapture
+                opts
               ),
               player,
               gameState,
               opts
             ),
             player,
-            gameState,
-            opts
+            gameState
           ),
           player,
-          gameState
-        ),
-        player,
-        gameState,
-        opts
+          gameState,
+          opts
+        )
       );
     } catch (err) {
       planReadCapture?.refuse();
@@ -9872,6 +9987,7 @@ export class HorseLogic {
         ? { action: 'check', thinkTime: netThinkTime, policyFallback: 'brain_exception' }
         : { action: 'fold', thinkTime: netThinkTime, policyFallback: 'brain_exception' };
     } finally {
+      omahaProposedReceipts = [];
       barrelOutlookRiverPending = false;
       riverBluffDeclaredPending = false;
       v53IcmAppliedPending = false;
@@ -9901,6 +10017,7 @@ export class HorseLogic {
     omahaFacingBetEvCountMemo = null;
     omahaStreetPlanMemo = null;
     omahaStreetPlanRiverMemo = null;
+    omahaProposedReceipts = [];
     // omahaVpipFloorByLimp's pending fold is per decision: a decision that
     // threw between setting and reading it must not hand it to the next one.
     vpipFloorLimpFoldPending = false;

@@ -4322,6 +4322,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
+    'omaha_oop_turn_check_raise_flatted_vetoed',
+    'HorseLogic.decide, settled at the final decision (HorseOmahaOopChecks, omahaOopTurnCheckAfterFlopCall)',
+    'the owner-ruled turn verdict turned a raise into a call and the final decision of HorseLogic.decide was not that verdict (a later rule replaced it); fired in place of the proposing receipt, which fires only when its verdict is the final action: the facing-bet expected value or a fold rule folded it',
+    'V94'
+  ),
+  receipt(
+    'omaha_oop_turn_check_call_nut_draw_vetoed',
+    'HorseLogic.decide, settled at the final decision (HorseOmahaOopChecks, omahaOopTurnCheckAfterFlopCall)',
+    'the owner-ruled turn verdict called the nut draw at its price and the final decision of HorseLogic.decide was not that verdict (a later rule replaced it); fired in place of the proposing receipt, which fires only when its verdict is the final action',
+    'V94'
+  ),
+  receipt(
+    'omaha_oop_turn_check_fold_no_outs_vetoed',
+    'HorseLogic.decide, settled at the final decision (HorseOmahaOopChecks, omahaOopTurnCheckAfterFlopCall)',
+    'the owner-ruled turn verdict folded a hand with no out and the final decision of HorseLogic.decide was not that verdict (a later rule replaced it); fired in place of the proposing receipt, which fires only when its verdict is the final action',
+    'V94'
+  ),
+  receipt(
     'omaha_bare_overpair_oop_flop_checked',
     'HorseLogic wager_rules (HorseOmahaOopChecks, omahaBareOverpairOopFlopCheck)',
     'PLO4/PLO5 cash flop bet out of position with one pair, no flush draw and under eight straight outs, on a two-tone or connected flop: turned into a check',
@@ -4355,6 +4373,30 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_card_impact_changed',
     'HorseLogic wager_rules (HorseOmahaCardImpact, omahaCardImpact)',
     'any decision the card-impact comparison replaced: a check, a larger bet, the freeroll pot or a smaller bet (the smaller bet has no receipt of its own)',
+    'V94'
+  ),
+  receipt(
+    'omaha_card_impact_defence_check_vetoed',
+    'HorseLogic.decide, settled at the final decision (HorseOmahaCardImpact, omahaCardImpact)',
+    'the card-impact comparison turned a bet into a check and the final decision of HorseLogic.decide was not that verdict (a later rule replaced it); fired in place of the proposing receipt, which fires only when its verdict is the final action',
+    'V94'
+  ),
+  receipt(
+    'omaha_card_impact_press_bet_vetoed',
+    'HorseLogic.decide, settled at the final decision (HorseOmahaCardImpact, omahaCardImpact)',
+    'the card-impact comparison proposed a bet where the brain checked, or a larger bet, and the final decision of HorseLogic.decide was not that verdict (a later rule replaced it); fired in place of the proposing receipt, which fires only when its verdict is the final action: an owner-ruled check, the made-hand defence or the street plan kept the check or the smaller bet',
+    'V94'
+  ),
+  receipt(
+    'omaha_card_impact_freeroll_pot_vetoed',
+    'HorseLogic.decide, settled at the final decision (HorseOmahaCardImpact, omahaCardImpact)',
+    'the card-impact comparison proposed the full pot on a freeroll and the final decision of HorseLogic.decide was not that verdict (a later rule replaced it); fired in place of the proposing receipt, which fires only when its verdict is the final action',
+    'V94'
+  ),
+  receipt(
+    'omaha_card_impact_resized_vetoed',
+    'HorseLogic.decide, settled at the final decision (HorseOmahaCardImpact, omahaCardImpact)',
+    'the card-impact comparison proposed a smaller bet and the final decision of HorseLogic.decide was not that verdict (a later rule replaced it); fired in place of the proposing receipt, which fires only when its verdict is the final action',
     'V94'
   ),
   receipt(
@@ -4448,6 +4490,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
+    'omaha_street_plan_commit_avoided_vetoed',
+    'HorseLogic.decide, settled at the final decision (HorseOmahaStreetPlan, omahaStreetPlan)',
+    'the street plan turned a committing turn bet into a check and the final decision of HorseLogic.decide was not that verdict (a later rule replaced it); fired in place of the proposing receipt, which fires only when its verdict is the final action: the final action is a wager (a nut-class bet a pricing rule may not check, or a size the plan itself prices above the check)',
+    'V94'
+  ),
+  receipt(
+    'omaha_street_plan_line_changed_vetoed',
+    'HorseLogic.decide, settled at the final decision (HorseOmahaStreetPlan, omahaStreetPlan)',
+    'the street plan turned a turn bet into a check and the final decision of HorseLogic.decide was not that verdict (a later rule replaced it); fired in place of the proposing receipt, which fires only when its verdict is the final action: the final action is a wager',
+    'V94'
+  ),
+  receipt(
     'omaha_street_plan_followed',
     'HorseLogic.decide (HorseOmahaStreetPlan, omahaStreetPlan; inside the paired-board fold)',
     'PLO4/PLO5 cash heads-up river call after the Horse turn bet was called: the turn plan, recomputed from the public history, calls this river card for this bet or less, so the paired-board fold stood aside and the reference decision stood',
@@ -4463,6 +4517,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_big_draw_aggression_bet',
     'HorseLogic wager_rules (HorseOmahaBigDrawAggression, omahaBigDrawAggression)',
     'PLO4/PLO5 cash flop or turn check with a declared big draw whose pot-sized bet (or stack) was priced above the check: bet',
+    'V94'
+  ),
+  receipt(
+    'omaha_big_draw_aggression_bet_vetoed',
+    'HorseLogic.decide, settled at the final decision (HorseOmahaBigDrawAggression, omahaBigDrawAggression)',
+    'the big-draw rule priced a bet above the check and the final decision of HorseLogic.decide was not that verdict (a later rule replaced it); fired in place of the proposing receipt, which fires only when its verdict is the final action: an owner-ruled check, the made-hand defence or the street plan kept the check',
+    'V94'
+  ),
+  receipt(
+    'omaha_big_draw_aggression_raise_vetoed',
+    'HorseLogic.decide, settled at the final decision (HorseOmahaBigDrawAggression, omahaBigDrawAggression)',
+    'the big-draw rule priced a raise above the call and the final decision of HorseLogic.decide was not that verdict (a later rule replaced it); fired in place of the proposing receipt, which fires only when its verdict is the final action',
     'V94'
   ),
   receipt(

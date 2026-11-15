@@ -81,7 +81,21 @@ const forced = vi.hoisted(() => ({
   planRuns: 0,
   /** the turn plan, re-read on the river, calls this river */
   planCallsRiver: false,
+  /** the big-draw rule prices a half-pot bet above the check */
+  drawBet: false,
 }));
+
+vi.mock('./HorseOmahaBigDrawAggression.js', async (original) => {
+  const real = await original<typeof import('./HorseOmahaBigDrawAggression.js')>();
+  return {
+    ...real,
+    omahaBigDrawVerdict: (input: { action: string; pot: number }, ...rest: unknown[]) => {
+      if (forced.drawBet && input.action === 'check')
+        return { wager: { action: 'bet', amount: Math.round(input.pot * 0.5) } };
+      return (real.omahaBigDrawVerdict as (...a: unknown[]) => unknown)(input, ...rest);
+    },
+  };
+});
 
 vi.mock('./HorseOmahaCardImpact.js', async (original) => {
   const real = await original<typeof import('./HorseOmahaCardImpact.js')>();
@@ -225,6 +239,7 @@ afterEach(() => {
     planChecks: false,
     planRuns: 0,
     planCallsRiver: false,
+    drawBet: false,
   });
   HorseMind.setDecisionScope(null);
   HorseMind.reset();
@@ -883,5 +898,117 @@ describe('audit item 11: a switched-on option reaches the brain through the work
     // an off-only option (an owner hold) cannot be switched on
     const [held] = spread([present(v2({ omahaSmallBlindSteal: 'on' }), 0)]);
     expect(held).toEqual({});
+  });
+});
+
+/**
+ * Conflict sweep 2026-11-15: a receipt must describe the final action. A
+ * verdict a later rule can overturn is proposed and settled when the decision
+ * is final: the receipt fires when its verdict is the final action, and its
+ * `_vetoed` receipt fires when a later rule replaced it.
+ */
+describe('a receipt describes the final action', () => {
+  const NUTS = 'AsAh7c6s4h';
+
+  it('a card-impact bet the made-hand defence checks is recorded as vetoed, not as a press bet; a bet that is made is recorded as made', () => {
+    forced.impactBet = true;
+    forced.defenceChecks = true;
+    const vetoed = play(
+      () => nodeAt(ACES, RIVER),
+      { omahaBeatenMadeHandDefense: true, omahaCardImpact: true },
+      false
+    );
+    expect(all(vetoed, 'check')).toBe(true);
+    expect(fired(vetoed, 'omaha_card_impact_press_bet_vetoed')).toBeGreaterThan(0);
+    expect(fired(vetoed, 'omaha_card_impact_press_bet_vetoed')).toBe(
+      fired(vetoed, 'omaha_owner_ruled_check_kept')
+    );
+    expect(vetoed.fires.flat()).not.toContain('omaha_card_impact_press_bet');
+    expect(vetoed.fires.flat()).not.toContain('omaha_card_impact_changed');
+
+    forced.defenceChecks = false;
+    const made = play(() => nodeAt(ACES, RIVER), { omahaCardImpact: true }, false);
+    made.actions.forEach((a, i) => {
+      const press = made.fires[i].includes('omaha_card_impact_press_bet');
+      if (!press) return;
+      expect(a).toBe('bet');
+      expect(made.fires[i]).toContain('omaha_card_impact_changed');
+    });
+    expect(fired(made, 'omaha_card_impact_press_bet')).toBeGreaterThan(0);
+    expect(made.fires.flat().some((f) => f.endsWith('_vetoed'))).toBe(false);
+  });
+
+  it('a card-impact check a nut-class hand does not take is not recorded at all; one that is taken is', () => {
+    forced.impactCheck = true;
+    const taken = play(() => nodeAt(STRAIGHT, TURN), { omahaCardImpact: true }, false);
+    taken.actions.forEach((a, i) => {
+      if (taken.fires[i].includes('omaha_card_impact_defence_check')) expect(a).toBe('check');
+    });
+    expect(fired(taken, 'omaha_card_impact_defence_check')).toBeGreaterThan(0);
+    const nuts = play(() => nodeAt(ACES, TURN, NUTS), { omahaCardImpact: true }, false);
+    expect(nuts.fires.flat().filter((f) => f.startsWith('omaha_card_impact'))).toEqual([]);
+  });
+
+  it('a street-plan check a nut-class bet overrules is recorded as vetoed; a check that stands is recorded as the plan’s', () => {
+    forced.planChecks = true;
+    const kept = play(() => nodeAt(ACES, TURN, NUTS), { omahaStreetPlan: true }, false);
+    expect(kept.actions.every((a) => a === 'bet' || a === 'all_in')).toBe(true);
+    const plan = (o: Outcome, suffix = '') =>
+      fired(o, `omaha_street_plan_line_changed${suffix}`) +
+      fired(o, `omaha_street_plan_commit_avoided${suffix}`);
+    expect(plan(kept)).toBe(0);
+    expect(plan(kept, '_vetoed')).toBe(SEEDS.length);
+    expect(fired(kept, 'omaha_nut_class_wager_kept')).toBe(SEEDS.length);
+
+    const stands = play(() => nodeAt(STRAIGHT, TURN), { omahaStreetPlan: true }, false);
+    expect(all(stands, 'check')).toBe(true);
+    expect(plan(stands)).toBeGreaterThan(0);
+    expect(plan(stands, '_vetoed')).toBe(0);
+  });
+
+  it('a big-draw bet an owner-ruled check overrules is recorded as vetoed; one that is made is recorded as made', () => {
+    forced.drawBet = true;
+    const vetoed = play(() => nodeAt(ACES, TURN), { ...OWNER, omahaBigDrawAggression: true });
+    expect(all(vetoed, 'check')).toBe(true);
+    expect(fired(vetoed, 'omaha_big_draw_aggression_bet_vetoed')).toBeGreaterThan(0);
+    expect(vetoed.fires.flat()).not.toContain('omaha_big_draw_aggression_bet');
+
+    const made = play(() => nodeAt(ACES, TURN), { omahaBigDrawAggression: true }, false);
+    made.actions.forEach((a, i) => {
+      if (made.fires[i].includes('omaha_big_draw_aggression_bet'))
+        expect(['bet', 'all_in']).toContain(a);
+    });
+    expect(made.fires.flat()).not.toContain('omaha_big_draw_aggression_bet_vetoed');
+  });
+
+  it('a turn raise flatted and then folded by the facing-bet expected value is recorded as vetoed; a flat that stands is recorded as flatted', () => {
+    const opts: HorseDecideOpts = { omahaOopTurnCheckAfterFlopCall: true, omahaFacingBetEv: true };
+    const build = () => facingAfterCheck(STRAIGHT, TURN, 0.33);
+    expect(omahaOopTurnFacingBetVerdict(build().hero, build().gs)).toBe('no_raise');
+    const raises = play(build, {}, false).actions.filter((a) => a === 'raise' || a === 'all_in');
+    expect(raises.length).toBeGreaterThan(0);
+
+    forced.evCall = false;
+    const folded = play(build, opts, false);
+    expect(all(folded, 'fold')).toBe(true);
+    expect(fired(folded, 'omaha_oop_turn_check_raise_flatted_vetoed')).toBe(raises.length);
+    expect(folded.fires.flat()).not.toContain('omaha_oop_turn_check_raise_flatted');
+
+    forced.evCall = true;
+    const called = play(build, opts, false);
+    expect(all(called, 'call')).toBe(true);
+    expect(fired(called, 'omaha_oop_turn_check_raise_flatted')).toBe(raises.length);
+    expect(called.fires.flat()).not.toContain('omaha_oop_turn_check_raise_flatted_vetoed');
+  });
+
+  it('every option off: nothing is proposed and no _vetoed receipt exists', () => {
+    for (const build of [
+      () => nodeAt(ACES, TURN),
+      () => nodeAt(ACES, RIVER),
+      () => nodeAt(STRAIGHT, TURN),
+    ]) {
+      const off = play(build, {});
+      expect(off.fires.flat().some((f) => f.endsWith('_vetoed'))).toBe(false);
+    }
   });
 });
