@@ -42,11 +42,19 @@ function body(head: string): string {
 describe('every club reads its own records, horses included', () => {
   it('replaces every club-split statistics view with its base rows by their own club', () => {
     for (const v of VIEWS) {
-      const b = body(`CREATE OR REPLACE VIEW public.${v} AS`);
+      const b = body(`CREATE OR REPLACE VIEW public.${v} WITH (security_invoker = true) AS`);
       expect(b).not.toMatch(/ca_horse_club_assignments|is_horse|ca_horse_fleet_register|retired_at|UNION/i);
       expect(b).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/);
       expect(b).toMatch(/r\.club_id/);
     }
+  });
+
+  it('keeps every replaced view security invoker, read by service_role only', () => {
+    for (const v of VIEWS) {
+      expect(code).toContain(`REVOKE ALL ON public.${v} FROM PUBLIC, anon, authenticated, service_role;`);
+      expect(code).toContain(`GRANT SELECT ON public.${v} TO service_role;`);
+    }
+    expect(code).not.toMatch(/CREATE OR REPLACE VIEW public\.\w+ AS/);
   });
 
   it('the Club Data fact window and the stats helpers neither move nor drop anyone', () => {

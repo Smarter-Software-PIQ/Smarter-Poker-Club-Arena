@@ -59,29 +59,29 @@ BEGIN
   END LOOP;
 END $preimage$;
 
-CREATE OR REPLACE VIEW public.ca_stats_club_data_fact_ct AS
+CREATE OR REPLACE VIEW public.ca_stats_club_data_fact_ct WITH (security_invoker = true) AS
   SELECT r.club_id, r.stat_date, r.kind, r.game_id, r.user_id, r.fee, r.buyins, r.cashouts, r.winnings, r.last_at, r.src
     FROM public.ca_club_data_fact_ct r;
 
-CREATE OR REPLACE VIEW public.ca_stats_club_member_daily_stats AS
+CREATE OR REPLACE VIEW public.ca_stats_club_member_daily_stats WITH (security_invoker = true) AS
   SELECT r.club_id, r.table_id, r.user_id, r.stat_date, r.hands_played, r.hands_won, r.total_won, r.profit,
          r.biggest_pot_won, r.biggest_pot, r.topup_total, r.updated_at, r.hands_attributed
     FROM public.club_member_daily_stats r;
 
-CREATE OR REPLACE VIEW public.ca_stats_club_player_daily AS
+CREATE OR REPLACE VIEW public.ca_stats_club_player_daily WITH (security_invoker = true) AS
   SELECT r.club_id, r.user_id, r.stat_date, r.cash_net, r.tournament_net, r.updated_at
     FROM public.ca_club_player_daily r;
 
-CREATE OR REPLACE VIEW public.ca_stats_club_tournament_player_daily AS
+CREATE OR REPLACE VIEW public.ca_stats_club_tournament_player_daily WITH (security_invoker = true) AS
   SELECT r.club_id, r.tournament_id, r.user_id, r.stat_date, r.updated_at
     FROM public.ca_club_tournament_player_daily r;
 
-CREATE OR REPLACE VIEW public.ca_stats_member_record_daily_facts AS
+CREATE OR REPLACE VIEW public.ca_stats_member_record_daily_facts WITH (security_invoker = true) AS
   SELECT r.club_id, r.user_id, r.played_on, r.game_variant, r.is_mtt, r.hands, r.wins, r.vpip_hands, r.pfr_hands,
          r.tb_hands, r.faced_tb, r.folded_tb, r.cb_hands, r.cb_opps, r.fees, r.net, r.accounting_cutoff
     FROM public.member_record_daily_facts r;
 
-CREATE OR REPLACE VIEW public.ca_stats_player_stats_lifetime AS
+CREATE OR REPLACE VIEW public.ca_stats_player_stats_lifetime WITH (security_invoker = true) AS
   SELECT g.user_id, g.club_id, sum(g.hands_played) AS hands_played, sum(g.total_winnings) AS total_winnings,
          sum(g.total_losses) AS total_losses, sum(g.total_rake) AS total_rake, sum(g.tournaments_played) AS tournaments_played,
          sum(g.tournaments_won) AS tournaments_won, (sum(g.hands_dealt))::bigint AS hands_dealt, sum(g.sum_big_blind) AS sum_big_blind
@@ -90,12 +90,12 @@ CREATE OR REPLACE VIEW public.ca_stats_player_stats_lifetime AS
             FROM public.player_stats r) g
    GROUP BY g.user_id, g.club_id;
 
-CREATE OR REPLACE VIEW public.ca_stats_player_stats_real AS
+CREATE OR REPLACE VIEW public.ca_stats_player_stats_real WITH (security_invoker = true) AS
   SELECT r.id, r.user_id, r.club_id, r.hands_played, r.total_winnings, r.total_losses, r.total_rake, r.vpip, r.pfr,
          r.updated_at, r.tournaments_played, r.tournaments_won, r.hands_dealt, r.sum_big_blind
     FROM public.player_stats r;
 
-CREATE OR REPLACE VIEW public.ca_stats_player_stats_snapshots_lifetime AS
+CREATE OR REPLACE VIEW public.ca_stats_player_stats_snapshots_lifetime WITH (security_invoker = true) AS
   SELECT g.user_id, g.club_id, g.snapshot_date, (sum(g.hands_played))::bigint AS hands_played,
          sum(g.total_winnings) AS total_winnings, sum(g.total_losses) AS total_losses, sum(g.total_rake) AS total_rake,
          (sum(g.tournaments_played))::bigint AS tournaments_played, (sum(g.tournaments_won))::bigint AS tournaments_won,
@@ -105,10 +105,33 @@ CREATE OR REPLACE VIEW public.ca_stats_player_stats_snapshots_lifetime AS
             FROM public.player_stats_snapshots r) g
    GROUP BY g.user_id, g.club_id, g.snapshot_date;
 
-CREATE OR REPLACE VIEW public.ca_stats_player_stats_snapshots_real AS
+CREATE OR REPLACE VIEW public.ca_stats_player_stats_snapshots_real WITH (security_invoker = true) AS
   SELECT r.user_id, r.club_id, r.snapshot_date, r.hands_played, r.total_winnings, r.total_losses, r.total_rake,
          r.tournaments_played, r.tournaments_won, r.hands_dealt, r.sum_big_blind
     FROM public.player_stats_snapshots r;
+
+-- CREATE OR REPLACE VIEW replaces the view's options with the ones it names, so
+-- each view above names security_invoker again. Access stays exactly as installed:
+-- service_role reads, nobody else.
+REVOKE ALL ON public.ca_stats_club_data_fact_ct FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT ON public.ca_stats_club_data_fact_ct TO service_role;
+REVOKE ALL ON public.ca_stats_club_member_daily_stats FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT ON public.ca_stats_club_member_daily_stats TO service_role;
+REVOKE ALL ON public.ca_stats_club_player_daily FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT ON public.ca_stats_club_player_daily TO service_role;
+REVOKE ALL ON public.ca_stats_club_tournament_player_daily FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT ON public.ca_stats_club_tournament_player_daily TO service_role;
+REVOKE ALL ON public.ca_stats_member_record_daily_facts FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT ON public.ca_stats_member_record_daily_facts TO service_role;
+REVOKE ALL ON public.ca_stats_player_stats_lifetime FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT ON public.ca_stats_player_stats_lifetime TO service_role;
+REVOKE ALL ON public.ca_stats_player_stats_real FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT ON public.ca_stats_player_stats_real TO service_role;
+REVOKE ALL ON public.ca_stats_player_stats_snapshots_lifetime FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT ON public.ca_stats_player_stats_snapshots_lifetime TO service_role;
+REVOKE ALL ON public.ca_stats_player_stats_snapshots_real FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT ON public.ca_stats_player_stats_snapshots_real TO service_role;
+
 
 CREATE OR REPLACE FUNCTION public.fn_ca_club_data_fact_window(p_clubs uuid[], p_from date, p_through date)
 RETURNS SETOF public.ca_stats_club_data_fact_ct LANGUAGE sql STABLE SET search_path TO 'public' AS $function$
