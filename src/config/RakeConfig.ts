@@ -709,7 +709,7 @@ export function getTierForBB(bigBlind: number | string): StakesTier {
 export interface RakeOverride {
   /** Present for live cash tables; omitted only for legacy spec replay. */
   scope?: CashRakeScope;
-  policyVersion?: 1 | 2;
+  policyVersion?: 1 | 2 | 3;
   rakePercent?: number | null;
   rakeCapBB?: number | null;
 }
@@ -795,7 +795,8 @@ export function getRakeConfig(
       override.scope,
       override.rakePercent,
       override.rakeCapBB,
-      override.policyVersion
+      override.policyVersion,
+      variant
     ));
   }
 

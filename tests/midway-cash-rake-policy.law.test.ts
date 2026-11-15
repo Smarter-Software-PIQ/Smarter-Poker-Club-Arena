@@ -44,7 +44,11 @@ describe('owner rule: Midway cash caps are 2.5 BB and standalone clubs choose th
     for (const [policyVersion, expected] of [
       [1, 25],
       [2, 12.5],
+      [3, 12.5],
     ] as const) {
+      expect(getRakeConfig(10, 'flh', 5, { scope: 'midway', policyVersion }).rakeCap).toBe(
+        policyVersion === 3 ? 5 : expected
+      );
       expect(getRakeConfig(10, 'nlh', 5, { scope: 'midway', policyVersion }).rakeCap).toBe(
         expected
       );
@@ -75,7 +79,7 @@ describe('owner rule: Midway cash caps are 2.5 BB and standalone clubs choose th
       'default_rake_percent, rake_cap, union_id'
     );
     expect(read('src/hooks/useEffectiveRake.ts')).toMatch(/policyVersion: version/);
-    expect(read('server/src/GameServer.ts')).toContain('cashRakePolicyVersion: 2');
+    expect(read('server/src/GameServer.ts')).toContain('cashRakePolicyVersion: 3');
   });
   it('runs native migration, future-write and history qualification in CI', () => {
     expect(read('.github/workflows/midway-cash-rake-policy.yml')).toContain(
