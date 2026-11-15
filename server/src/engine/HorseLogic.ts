@@ -549,6 +549,7 @@ import {
 import {
   inSecondLookCapture,
   noteDecisionMs,
+  noteDecisionRuleReceipt,
   noteFire,
   noteHorseActionClamped,
   noteHorsePlanReevaluated,
@@ -8494,6 +8495,9 @@ function omahaBigBetCallFoldCells(
     }
     const folded: HorseDecision = { ...decision, action: 'fold' };
     delete folded.amount;
+    // Rule receipt (2026-11-15): the call the V81 river set cell folded, journaled with the decision.
+    if (v81 === 'trips_set_drawy' && telemetryOn(opts))
+      noteDecisionRuleReceipt('v81_river_set_big_bet_fold', decision, folded);
     return folded;
   } catch {
     return decision;
@@ -9348,7 +9352,10 @@ function omahaMadeHandDefenseRules(
     gs,
     opts.omahaNutClassValueSize === true
   );
-  if (tele && sized.changed === 'pot_sized') noteFire('omaha_nut_class_pot_wager');
+  if (tele && sized.changed === 'pot_sized') {
+    noteFire('omaha_nut_class_pot_wager');
+    noteDecisionRuleReceipt('omaha_nut_class_pot_wager', noBet.decision, sized.decision);
+  }
   return sized.decision;
 }
 
@@ -12785,9 +12792,18 @@ export class HorseLogic {
           !omahaPricedOwnsTurnRiverRaise(player, gs, opts),
         beforePhase10
       );
-      if (tele && nutRaise.changed === 'flatted') noteFire('omaha_river_non_nut_raise_flatted');
-      if (tele && nutRaise.changed === 'fold_restored')
+      if (tele && nutRaise.changed === 'flatted') {
+        noteFire('omaha_river_non_nut_raise_flatted');
+        noteDecisionRuleReceipt('omaha_river_non_nut_raise_flatted', wagered, nutRaise.decision);
+      }
+      if (tele && nutRaise.changed === 'fold_restored') {
         noteFire('omaha_river_non_nut_raise_fold_restored');
+        noteDecisionRuleReceipt(
+          'omaha_river_non_nut_raise_fold_restored',
+          wagered,
+          nutRaise.decision
+        );
+      }
       const prePremium = omahaOwnerRuledFinal(
         omahaDrawRules(
           omahaFacingBetEvRule(
@@ -20848,7 +20864,7 @@ export class HorseLogic {
         // as a monster by MC sizes down instead of bombing — the calling side
         // already knew this; the betting side did not.
         if (useV21 && dominated21) monsterFrac = Math.min(monsterFrac, 0.5);
-        return this.betSize(
+        const monster = this.betSize(
           planHandKey,
           pot,
           monsterFrac * exploitValueSize,
@@ -20858,13 +20874,16 @@ export class HorseLogic {
           params,
           useSizing
         );
+        // Rule receipt (2026-11-15): the turn bet the set pound sized (no prior action: it is the reference's own).
+        if (turnSetPound && tele15) noteDecisionRuleReceipt('omaha_turn_set_pound', null, monster);
+        return monster;
       }
       // Strong value. V4: a vulnerable made hand sizes UP and never checks
       // back; a dangered hand slows down instead of firing into the new nuts.
       if (equity >= multiwayValueBar(0.62, oppCount) + mw + sprValShift86) {
         if (turnSetPound) {
           if (tele15) noteFire('omaha_turn_set_pound');
-          return this.betSize(
+          const pound = this.betSize(
             planHandKey,
             pot,
             poundFrac() * exploitValueSize,
@@ -20874,6 +20893,8 @@ export class HorseLogic {
             params,
             useSizing
           );
+          if (tele15) noteDecisionRuleReceipt('omaha_turn_set_pound', null, pound);
+          return pound;
         }
         if (dangered && fastRandom() < (stationValue ? 0.3 : 0.55)) {
           return { action: 'check', thinkTime: 0 };

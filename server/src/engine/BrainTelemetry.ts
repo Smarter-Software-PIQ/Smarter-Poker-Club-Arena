@@ -30,6 +30,8 @@ let enabled = false;
 let decisionScope: Set<string> | null = null;
 /** The open second-look capture, or null (withSecondLookFireCapture below). */
 let secondLookCapture: Set<string> | null = null;
+/** The open per-decision rule receipts, or null (noteDecisionRuleReceipt below). */
+let decisionRuleReceipts: DecisionRuleReceipt[] | null = null;
 
 /** Armed once by the flush service at engine boot. */
 export function enableBrainTelemetry(): void {
@@ -156,15 +158,26 @@ export function withOncePerDecisionReceiptsSuppressed<T>(fn: () => T): T {
  * - Re-entrant: a nested call collects into its own set, restores the outer
  *   one in a finally (also on a throw) and hands its keys to the outer scope.
  */
-export function withDecisionFireScope<T>(fn: () => T): { value: T; fired: ReadonlySet<string> } {
+export function withDecisionFireScope<T>(fn: () => T): {
+  value: T;
+  fired: ReadonlySet<string>;
+  ruleReceipts: readonly DecisionRuleReceipt[];
+} {
   const outer = decisionScope;
+  const outerReceipts = decisionRuleReceipts;
   const fired = new Set<string>();
+  const ruleReceipts: DecisionRuleReceipt[] = [];
   decisionScope = fired;
+  decisionRuleReceipts = ruleReceipts;
   try {
-    return { value: fn(), fired };
+    return { value: fn(), fired, ruleReceipts };
   } finally {
     decisionScope = outer;
+    decisionRuleReceipts = outerReceipts;
     if (outer) for (const feature of fired) outer.add(feature);
+    if (outerReceipts)
+      for (const receipt of ruleReceipts)
+        if (outerReceipts.length < DECISION_RULE_RECEIPTS_MAX) outerReceipts.push(receipt);
   }
 }
 
@@ -250,6 +263,75 @@ export function noteSecondLookFires(fired: ReadonlySet<string>): void {
     else noteFire(key);
   }
   if (tooLong) noteFire(SECOND_LOOK_KEY_TOO_LONG_RECEIPT);
+}
+
+/** An action as a rule receipt records it: the action and its chip amount (null when it has none). */
+export interface DecisionRuleAction {
+  action: string;
+  amount: number | null;
+}
+/** One rule that changed one decision: its receipt key (the same key it fires), the action it was given
+ * (null when the rule produced the action itself, as a reference sizing rule does) and the action it left. */
+export interface DecisionRuleReceipt {
+  receipt: string;
+  before: DecisionRuleAction | null;
+  after: DecisionRuleAction;
+}
+/** Bounds one decision's list: a receipted rule acts at most a few times in one decision. */
+export const DECISION_RULE_RECEIPTS_MAX = 16;
+
+const ruleAction = (d: { action: string; amount?: number | null }): DecisionRuleAction => ({
+  action: d.action,
+  amount: typeof d.amount === 'number' && Number.isFinite(d.amount) ? d.amount : null,
+});
+
+/**
+ * PER-DECISION RULE RECEIPTS (2026-11-15, PLO rule traceability).
+ *
+ * A fire says that a rule acted somewhere in the fleet today, and the scope
+ * above says in which Horse's decision; neither names the hand or what the
+ * rule changed. A rule whose firing a reviewer must be able to judge at the
+ * table records here, beside its noteFire and under the same gate, the action
+ * it was given and the action it left. The worker's FAST execution journals
+ * the list with the decision (workerRuntime executeFast -> journalHorseDecision),
+ * so the record that already carries the hand's fence (table:hand:seat:...),
+ * the build and the seated humans also names each rule that changed it, in
+ * the order the rules acted.
+ *
+ * - Measurement only: nothing reads the list before the decision is made, and
+ *   recording copies the action and amount; it never touches the decision.
+ * - Recorded only inside an open scope and while telemetry is enabled: a
+ *   league, benchmark or test decision, a suspended shadow re-decision and a
+ *   DEEP second look (all outside the scope or paused) record nothing, exactly
+ *   as they count no fire. A DEEP second look now runs with telemetry on inside
+ *   withSecondLookFireCapture (2026-11-16); it is refused by name below.
+ * - Bounded at DECISION_RULE_RECEIPTS_MAX per decision.
+ */
+export function noteDecisionRuleReceipt(
+  receipt: string,
+  before: { action: string; amount?: number | null } | null,
+  after: { action: string; amount?: number | null }
+): void {
+  // A DEEP second look (withSecondLookFireCapture) re-decides a turn the FAST look already answered: it
+  // records nothing here, exactly as its fires are collected and never counted under their own names.
+  if (!enabled || !decisionRuleReceipts || secondLookCapture) return;
+  if (decisionRuleReceipts.length >= DECISION_RULE_RECEIPTS_MAX) return;
+  decisionRuleReceipts.push({
+    receipt,
+    before: before === null ? null : ruleAction(before),
+    after: ruleAction(after),
+  });
+}
+
+/** The rule receipts the open decision has recorded so far, as a copy, or undefined when no scope is
+ * open or no receipted rule changed this decision (the journal then omits the field). */
+export function decisionRuleReceiptsSoFar(): DecisionRuleReceipt[] | undefined {
+  if (!decisionRuleReceipts || decisionRuleReceipts.length === 0) return undefined;
+  return decisionRuleReceipts.map((r) => ({
+    receipt: r.receipt,
+    before: r.before === null ? null : { ...r.before },
+    after: { ...r.after },
+  }));
 }
 
 /** True when the caller opted this decision into telemetry. */
