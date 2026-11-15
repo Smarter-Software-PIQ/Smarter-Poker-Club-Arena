@@ -2,7 +2,11 @@
 
 Migrations `20261115020010_club_data_accounting_read_model.sql` (installed at
 merge) and `20261115020011_club_data_accounting_read_model_goes_live.sql`
-(daily maintenance window: attaches the live projection).
+(installed at merge too, owner instruction 2026-11-14 21:55 Chicago "IT CAN GO
+LIVE AS SOON AS YOU PUSH IT": attaches the live projection in one transaction,
+each of its eight table locks asked for once with a 120 ms lock timeout, the
+hand-path tables last, so no writer waits more than 0.96 s; a busy table fails
+the file cleanly and it is dispatched once more, never in a loop).
 
 Club Data must match the union weekly invoices 1:1 on the same 02:00
 America/Chicago boundaries. The invoice reads accounting records Club Data
