@@ -3181,6 +3181,25 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'league context that deals the Lightning contract (fast-fold pool, big-blind ante of one ' +
       'big blind, a new table every hand) and sets the domain.',
   },
+  // 2026-11-15 (Hold'em Strategy, parked item built default off): a
+  // tournament-table option this league cannot deal.
+  {
+    name: 'aof_closing_seat_nash_call',
+    seats: 6,
+    a: { aofClosingSeatNashCall: true },
+    b: {},
+    reason:
+      'No All-In-Or-Fold table in the league. aofClosingSeatNashCall is DEFAULT OFF (HorseLogic: ' +
+      'opts.aofClosingSeatNashCall === true) and acts only when gs.allInOrFold is true, the hero ' +
+      'faces a lone all-in at 12 big blinds or less and every other player still in the hand is ' +
+      'all in. The league deals open no-limit betting and never sets the All-In-Or-Fold flag, so ' +
+      'both arms would play identical poker and the card would report 0.00 +/- 0.00 every night. ' +
+      'Measured 2026-11-15 on this matchup as written: 0 of 2,000 pairs diverged (run seed ' +
+      '20261115). It is measured where the spot exists: the fixed-input replay of ten anonymised ' +
+      'production All-In-Or-Fold tournament requests in AnAofClosingSeatCallsFromTheNashTable.test.ts ' +
+      'and the HVH2D-NLH-005 equity rows. What would change this: a league context that deals ' +
+      'All-In-Or-Fold tables (legal actions fold or all in, tournament stacks of 12 big blinds or less).',
+  },
   {
     name: 'hu_break_even_bluff',
     seats: 2,
