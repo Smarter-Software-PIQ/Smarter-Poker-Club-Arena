@@ -2612,6 +2612,18 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaStrongHandValue: true },
     b: {},
   })),
+  // 2026-11-15 OMAHA STRONG HAND SLOWPLAY MIX (HorseOmahaStrongHandSlowplayMix,
+  // default OFF; owner 14:13): a nut-class raise facing a bet becomes a call,
+  // and a flop bet with a set on a very dry flop becomes a check, each at the
+  // mixed frequency of the spot; a switches it on, b is today's brain.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_strong_hand_slowplay_mix`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaStrongHandSlowplayMix: true },
+    b: {},
+  })),
   // V15 BOATS (2026-09-28): default OFF. a turns it on, b is today's brain.
   // Ship it default ON only after this resolves significant positive.
   // 2026-11-06: V15 boats is default ON in PLO5 cash (v15BoatsOn), so the
@@ -2776,6 +2788,40 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaSmallBlindSteal: true },
     b: {},
   })),
+  // 2026-11-15 OMAHA STRATEGY IN TOURNAMENTS (omahaStrategyInTournaments,
+  // owner 13:16, default OFF): the day's PLO4/PLO5 options also run in a
+  // tournament hand, chip-adding conversions paying the survival premium.
+  // Both arms switch the day's options on; a also switches the extension on,
+  // so the card measures the tournament extension alone. 6-max MTT, 40 BB
+  // (deeper than the 14 BB push/fold line the extension stands aside at).
+  ...(['plo4', 'plo5'] as const).map((variant) => {
+    const day = {
+      omahaBareOverpairOopFlopCheck: true,
+      omahaOopTurnCheckAfterFlopCall: true,
+      omahaTurnRiverRaiseNeedsNuts: true,
+      omahaNoDrawRaiseOutOfPosition: true,
+      omahaFacingBetEv: true,
+      omahaCardImpact: true,
+      omahaStreetPlan: true,
+      omahaReraiseRangeOutOfPosition: true,
+      omahaReraiseRangeEarlyPosition: true,
+      omahaOopReraisedPotStrongRange: true,
+      omahaNoCallColdFourBetWithoutPremium: true,
+      omahaUnderpairNoMultiwayFlopContinue: true,
+    };
+    return {
+      name: `${variant}_mtt_6max_omaha_strategy_in_tournaments_40bb`,
+      variant,
+      seats: 6,
+      stackBB: 40,
+      context: bigBlindAnteMttContext(6, 40),
+      pairs: 6000,
+      hybridBaseline: true,
+      moodClock: 'deal_seed' as const,
+      a: { ...day, omahaStrategyInTournaments: true },
+      b: day,
+    };
+  }),
   // 2026-11-14 OMAHA HI-LO HEADS-UP TOURNAMENT FIRST-IN (HU-HILO-002),
   // default OFF: a is the option on, b today's brain. PLO8 heads-up final
   // table at 12 BB, where the small blind folds 83-85 percent first in and

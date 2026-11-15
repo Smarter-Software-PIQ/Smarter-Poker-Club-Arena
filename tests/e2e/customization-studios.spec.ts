@@ -198,13 +198,13 @@ test.describe('real Table Studio browser flows', () => {
     await page.setViewportSize({ width: 375, height: 844 });
     let studio = await openStudio(page);
     const controller = studio.getByRole('region', { name: 'Action Controller', exact: true });
-    const editTab = controller.getByRole('button', { name: 'Change Default Button Amounts' });
-    await expect(editTab).toHaveAttribute('aria-expanded', 'false');
+    const editTab = controller.getByRole('tab', { name: 'Change Default Button Amounts' });
+    await expect(editTab).toHaveAttribute('aria-selected', 'false');
     await expect(controller.getByRole('textbox')).toHaveCount(0);
     const colors = await controller.locator('.action-controller-colors').boundingBox();
     const tab = await editTab.boundingBox();
     const heading = await controller
-      .getByRole('heading', { name: 'Action Controller', exact: true })
+      .getByRole('tab', { name: 'Action Controller', exact: true })
       .boundingBox();
     expect(tab!.x).toBeGreaterThanOrEqual(heading!.x + heading!.width);
     expect(tab!.y + tab!.height).toBeLessThanOrEqual(colors!.y);
@@ -214,8 +214,13 @@ test.describe('real Table Studio browser flows', () => {
     await controller.screenshot({
       path: test.info().outputPath('action-controller-heading-button.png'),
     });
-    await editTab.click();
+    await controller
+      .getByRole('tab', { name: 'Action Controller', exact: true })
+      .press('ArrowRight');
+    await expect(editTab).toHaveAttribute('aria-selected', 'true');
+    await expect(editTab).toBeFocused();
     await expect(controller.getByRole('textbox')).toHaveCount(8);
+    await expect(controller.getByRole('button', { name: 'Arena Blue', exact: true })).toBeHidden();
     const groups = [
       ['Preflop Multipliers', [2.25, 2.8, 3.3, 4.5]],
       ['Postflop Pot Percentages', [25, 33.33, 66.67, 125]],
@@ -232,7 +237,7 @@ test.describe('real Table Studio browser flows', () => {
       path: test.info().outputPath('action-controller-preset-editor.png'),
     });
     studio = await openStudio(page);
-    await studio.getByRole('button', { name: 'Change Default Button Amounts' }).click();
+    await studio.getByRole('tab', { name: 'Change Default Button Amounts' }).click();
     for (const [group, values] of groups) {
       for (let index = 0; index < values.length; index++) {
         await expect(
@@ -240,17 +245,17 @@ test.describe('real Table Studio browser flows', () => {
         ).toHaveValue(String(values[index]));
       }
     }
-    await studio.getByRole('button', { name: 'Change Default Button Amounts' }).click();
+    await studio.getByRole('tab', { name: 'Action Controller', exact: true }).click();
     await page.setViewportSize({ width: 1040, height: 950 });
     const desktopController = studio.getByRole('region', {
       name: 'Action Controller',
       exact: true,
     });
     const desktopButton = await desktopController
-      .getByRole('button', { name: 'Change Default Button Amounts' })
+      .getByRole('tab', { name: 'Change Default Button Amounts' })
       .boundingBox();
     const desktopHeading = await desktopController
-      .getByRole('heading', { name: 'Action Controller', exact: true })
+      .getByRole('tab', { name: 'Action Controller', exact: true })
       .boundingBox();
     const desktopColors = await desktopController
       .locator('.action-controller-colors')

@@ -21,6 +21,12 @@ Default OFF in source (read `=== true`). On live only by an option-switch row wh
 
 omaha_card_impact_changed, \_defence_check, \_press_bet, \_freeroll_pot
 
+A receipt describes the final action (2026-11-15 follow-up): a verdict a later rule can still overturn is proposed and settled when the decision is final; its receipt fires when the final action is the verdict, and its `_vetoed` twin fires when a later rule replaced it. Vetoed twins: omaha_card_impact_defence_check_vetoed, omaha_card_impact_press_bet_vetoed, omaha_card_impact_freeroll_pot_vetoed, omaha_card_impact_resized_vetoed (omaha_card_impact_changed fires only with a verdict that stood).
+
+omaha_card_impact_paired_board_press_withheld: on a paired turn or river board, with less than a full house, against measured postflop value leaders, the comparison creates no bet and makes none bigger.
+
+omaha_owner_approved_bet_kept: the comparison proposed another size for a bet the owner rules had let through, and an owner-ruled check rule, the made-hand defence or the street plan refuses that size; the bet stands at the size it had (beside omaha_owner_ruled_check_kept and omaha_nut_class_wager_kept).
+
 ## Tests
 
 HorseOmahaCardImpact.test.ts, HorseOmahaStrategyPrecedence.test.ts (all pass on the PLO strategy head; server tsc 0).

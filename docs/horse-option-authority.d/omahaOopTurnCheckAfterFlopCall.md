@@ -22,6 +22,8 @@ Default OFF in source (read `=== true`). On live only by an option-switch row wh
 
 omaha_oop_turn_check_after_flop_call, omaha_oop_turn_check_call_nut_draw, omaha_oop_turn_check_fold_no_outs, omaha_oop_turn_check_raise_flatted
 
+A receipt describes the final action (2026-11-15 follow-up): a verdict a later rule can still overturn is proposed and settled when the decision is final; its receipt fires when the final action is the verdict, and its `_vetoed` twin fires when a later rule replaced it. Vetoed twins: omaha_oop_turn_check_call_nut_draw_vetoed, omaha_oop_turn_check_fold_no_outs_vetoed, omaha_oop_turn_check_raise_flatted_vetoed.
+
 ## Tests
 
 HorseOmahaOopTurnCheckAfterFlopCall.test.ts, HorseOmahaStrategyPrecedence.test.ts (all pass on the PLO strategy head; server tsc 0).

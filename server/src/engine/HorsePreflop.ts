@@ -120,6 +120,10 @@ export interface PreflopAuthorityReceipt {
     classNeverThreeBet: boolean;
   };
   intent: PreflopIntent;
+  /** omahaVpipFloorByLimp replaced the intent the events above were recorded
+   *  for (a raise made on the VPIP floor's account became a limp, a call or
+   *  the unfloored answer): the intent it replaced. Absent = no swap. */
+  intentSwap?: { by: 'omaha_vpip_floor_by_limp'; replaced: PreflopIntent };
   /** Direct V7 glue return, before later reference wrappers or policy owners. */
   referenceAction: string;
   referenceAmount?: number;

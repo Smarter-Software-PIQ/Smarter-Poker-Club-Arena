@@ -22,6 +22,8 @@ import type { HorseGameStateV2 } from './HorseLogic.js';
 import { variantInfo } from './HorseEval.js';
 import { omahaNutClassNow } from './HorseOmahaMadeHandDefense.js';
 import { omahaComboDrawForRaise } from './HorseOmahaBigDrawAggression.js';
+import { omahaCashOnlyExcludes } from './HorseOmahaTournamentScope.js';
+import { omahaStrategyGameInScope, omahaStrategyConstant } from './HorseOmahaStrategyGame.js';
 
 export const OMAHA_RAISE_NEEDS_NUTS_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
 
@@ -69,15 +71,13 @@ export function omahaRaiseNeedsNutsScope(
 ): OmahaRaiseNeedsNutsScope | null {
   try {
     const variant = String(gs.gameVariant ?? '').toLowerCase();
-    if (!OMAHA_RAISE_NEEDS_NUTS_VARIANTS.has(variant)) return null;
+    if (!omahaStrategyGameInScope(OMAHA_RAISE_NEEDS_NUTS_VARIANTS, gs)) return null;
     const vi = variantInfo(variant);
     if (!vi.isOmaha || vi.isFixedLimit || gs.bettingStructure === 'fixed_limit') return null;
     if (gs.variantRules ? gs.variantRules.splitLow8OrBetter : vi.isHiLo) return null;
-    // Cash only (HorseLogic.isTournamentMode's own reading).
-    if (
-      gs.gameMode ? gs.gameMode === 'tournament' : gs.tournament != null || (gs.bigBlind ?? 0) >= 10
-    )
-      return null;
+    // Cash only (HorseLogic.isTournamentMode's own reading); omahaStrategyInTournaments
+    // opens its public tournament scope (HorseOmahaTournamentScope).
+    if (omahaCashOnlyExcludes(player, gs)) return null;
     if (
       (gs.boardCount ?? 1) !== 1 ||
       (gs.communityCards2?.length ?? 0) > 0 ||
@@ -164,9 +164,14 @@ export function omahaRaiseNeedsNutsKeeps(
 }
 
 /** Fallback price verdict: fold when the call is at least a third of the pot after it. */
-export function omahaRaiseNeedsNutsPriceFolds(scope: OmahaRaiseNeedsNutsScope): boolean {
+export function omahaRaiseNeedsNutsPriceFolds(
+  scope: OmahaRaiseNeedsNutsScope,
+  gs?: { gameVariant?: unknown }
+): boolean {
   if (!(scope.potAfterCall > 0)) return true;
-  return scope.paid / scope.potAfterCall >= OMAHA_RAISE_NEEDS_NUTS_FOLD_PRICE - 1e-9;
+  return (
+    scope.paid / scope.potAfterCall >= omahaStrategyConstant('raiseNeedsNutsFoldPrice', gs) - 1e-9
+  );
 }
 
 /** The exact legal call for the scope: a call of what is owed, or the all-in when it is the stack. */

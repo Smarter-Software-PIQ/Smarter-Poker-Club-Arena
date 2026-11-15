@@ -95,26 +95,49 @@ export function ActionControllerSettings() {
   const [editPresets, setEditPresets] = useState(false);
   const panelId = useId();
   const buttonId = useId();
+  const colorsId = useId();
+  const colorsTabId = useId();
   return (
     <section className="action-controller-settings" aria-label="Action Controller">
-      <div className="action-controller-settings-header">
-        <h3>Action Controller</h3>
+      <div
+        className="action-controller-tabs"
+        role="tablist"
+        aria-label="Action Controller Settings"
+        onKeyDown={(event) => {
+          if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+          event.preventDefault();
+          const next = event.key === 'Home' ? false : event.key === 'End' ? true : !editPresets;
+          setEditPresets(next);
+          const tabs = event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]');
+          tabs[next ? 1 : 0]?.focus();
+        }}
+      >
         <button
-          className="action-controller-edit-button"
+          className="action-controller-tab"
           type="button"
-          id={buttonId}
-          aria-label="Change Default Button Amounts"
-          aria-expanded={editPresets}
-          aria-controls={panelId}
-          onClick={() => setEditPresets((open) => !open)}
+          role="tab"
+          id={colorsTabId}
+          aria-selected={!editPresets}
+          aria-controls={colorsId}
+          tabIndex={editPresets ? -1 : 0}
+          onClick={() => setEditPresets(false)}
         >
-          <span aria-hidden="true">
-            <span>Change Default</span>
-            <span>Button Amounts</span>
-          </span>
+          Action Controller
+        </button>
+        <button
+          className="action-controller-tab"
+          type="button"
+          role="tab"
+          id={buttonId}
+          aria-selected={editPresets}
+          aria-controls={panelId}
+          tabIndex={editPresets ? 0 : -1}
+          onClick={() => setEditPresets(true)}
+        >
+          Change Default Button Amounts
         </button>
       </div>
-      <div role="region" id={panelId} aria-labelledby={buttonId} hidden={!editPresets}>
+      <div role="tabpanel" id={panelId} aria-labelledby={buttonId} hidden={!editPresets}>
         <PresetEditor
           label="Preflop Multipliers"
           values={settings.preflop}
@@ -136,28 +159,30 @@ export function ActionControllerSettings() {
           Legal Minimums, Stack And Pot-Limit Caps Still Apply.
         </p>
       </div>
-      <div className="action-controller-colors" aria-label="Action Controller Colors">
-        {ACTION_CONTROLLER_COLORS.map((color) => (
-          <button
-            className="action-controller-choice"
-            type="button"
-            key={color.id}
-            aria-pressed={settings.color === color.id}
-            onClick={() => update({ color: color.id })}
-          >
-            <span
-              className="action-controller-mini"
-              data-controller-color={color.id}
-              style={{ '--controller-filter': color.filter } as React.CSSProperties}
-              aria-hidden="true"
+      <div role="tabpanel" id={colorsId} aria-labelledby={colorsTabId} hidden={editPresets}>
+        <div className="action-controller-colors" aria-label="Action Controller Colors">
+          {ACTION_CONTROLLER_COLORS.map((color) => (
+            <button
+              className="action-controller-choice"
+              type="button"
+              key={color.id}
+              aria-pressed={settings.color === color.id}
+              onClick={() => update({ color: color.id })}
             >
-              <span className="action-controller-paint" />
-              <span className="action-controller-allin-paint" />
-              <strong>Raise 9</strong>
-            </span>
-            <span className="action-controller-choice-name">{color.name}</span>
-          </button>
-        ))}
+              <span
+                className="action-controller-mini"
+                data-controller-color={color.id}
+                style={{ '--controller-filter': color.filter } as React.CSSProperties}
+                aria-hidden="true"
+              >
+                <span className="action-controller-paint" />
+                <span className="action-controller-allin-paint" />
+                <strong>Raise 9</strong>
+              </span>
+              <span className="action-controller-choice-name">{color.name}</span>
+            </button>
+          ))}
+        </div>
       </div>
       <p>Applies To All Your Tables. Tap Outside The Open Controller To Close It.</p>
     </section>

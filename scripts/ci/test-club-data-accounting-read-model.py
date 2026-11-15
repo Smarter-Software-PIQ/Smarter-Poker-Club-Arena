@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Native qualification of 20261115020010, 20261115020011, 20261115063000 and 20261115075440. No production access.
+"""Native qualification of 20261115020010, 20261115020011, 20261115063000, 20261115075440 and 20261115205153. No production access.
 
 Club Data's accounting read model carries the union invoice's own records,
 keyed by the 02:00 America/Chicago accounting day: the live projection writes
@@ -592,6 +592,84 @@ try:
             and q("live", "SELECT sum(result) FROM ca_club_acct_fact WHERE src = 2 AND acct_day = '2026-11-08' "
                           "AND last_at = '2026-11-09 08:00+00'") == "12.00",
             "reloading the boundary loads the earliest kept version once the week reconciles to its invoice to the cent")
+
+    # 20261115205153: the union's own Club Data screen gives each club. The
+    # union-basis screen as installed (20261115164547) is installed here from
+    # its own file behind a stand-in router; the new file then replaces it
+    # through its own md5 guard. Every club's answer is unchanged, the union's
+    # answer gains only `clubs`, and its rows add up to the page totals and
+    # equal each club's own answer for the same window and filters.
+    run(psql("live"), """
+      CREATE SCHEMA IF NOT EXISTS auth;
+      CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $f$ SELECT NULL::uuid $f$;
+      ALTER TABLE public.tables ADD COLUMN IF NOT EXISTS status text, ADD COLUMN IF NOT EXISTS created_at timestamptz,
+        ADD COLUMN IF NOT EXISTS small_blind numeric;
+      CREATE TABLE IF NOT EXISTS public.club_members (club_id uuid, user_id uuid, role text);
+      CREATE OR REPLACE FUNCTION public.fn_club_role_rank(p_role text) RETURNS int LANGUAGE sql IMMUTABLE AS $f$ SELECT 0 $f$;
+      CREATE TABLE IF NOT EXISTS public.tournaments (id uuid PRIMARY KEY, name text, tournament_type text, status text,
+        variant text, game_type text, start_time timestamptz);
+      CREATE OR REPLACE FUNCTION public.fn_ca_club_data_scope(p_club_id uuid) RETURNS text LANGUAGE sql STABLE AS $f$ SELECT 'club' $f$;""")
+    run(psql("live"), "INSERT INTO public.tournaments (id, name, tournament_type, status) SELECT DISTINCT game_id, 'T', 'MTT', "
+                      "'COMPLETED' FROM ca_club_acct_fact_ct WHERE kind = 'TOURNAMENT' ON CONFLICT DO NOTHING;")
+    LONG = M / "20261115164547_club_data_union_screen_reads_the_window_twice_not_six_times.sql"
+    BYCLUB = M / "20261115205153_club_data_union_screen_shows_each_club.sql"
+    long_sql = LONG.read_text()
+    fn = long_sql[long_sql.index("CREATE OR REPLACE FUNCTION public.ca_club_data_screen_union_basis"):long_sql.index("REVOKE ALL ON FUNCTION public.ca_club_data_screen_union_basis")]
+    run(psql("live"), fn + "\nREVOKE ALL ON FUNCTION public.ca_club_data_screen_union_basis(uuid,date,date,text,text,text,integer) "
+        "FROM PUBLIC, anon, authenticated, service_role;\n"
+        "CREATE OR REPLACE FUNCTION public.ca_club_data_screen(p_club_id uuid, p_start date DEFAULT NULL, p_end date DEFAULT NULL, "
+        "p_game text DEFAULT 'ALL', p_stakes text DEFAULT 'ALL', p_search text DEFAULT NULL, p_limit integer DEFAULT 200) "
+        "RETURNS jsonb LANGUAGE sql STABLE AS $f$ SELECT public.ca_club_data_screen_union_basis(p_club_id, p_start, p_end, "
+        "p_game, p_stakes, p_search, p_limit) $f$;")
+    UNION = "fade0000-0000-0000-0000-000000000001"
+    MEMBERS = ["a41434bb-8d0c-400a-8f0d-e8b3d65afed4", "a0000000-0000-0000-0000-000000000001",
+               "2a1132b9-5ba2-42e6-9f01-30a7fcffebe3", "946747c6-b991-4220-b0cb-effbea46ecd2"]
+    SCREENS = [("ALL", "ALL", "NULL"), ("HOLDEM", "ALL", "NULL"), ("MTT", "ALL", "NULL"), ("ALL", "MICRO", "NULL")]
+
+    def screen(club, g, s, qq):
+        # A seated table with no fact in the window is dated now() (its
+        # activity_at); that one clock reading is set aside with generated_at.
+        return q("live", f"SELECT (jsonb_set(a, '{{rows}}', COALESCE((SELECT jsonb_agg(CASE WHEN r->>'on_felt' IS NOT NULL "
+                         "AND (r->>'fee')::numeric = 0 AND (r->>'winnings')::numeric = 0 THEN r - 'activity_at' ELSE r END ORDER BY o) "
+                         "FROM jsonb_array_elements(a->'rows') WITH ORDINALITY x(r, o)), '[]'::jsonb)) - 'generated_at')::text "
+                         f"FROM (SELECT ca_club_data_screen_union_basis('{club}', '2026-11-02', '2026-11-08', '{g}', '{s}', {qq}, 200) a) y")
+
+    before = {(c, sc): screen(c, *sc) for c in [UNION] + MEMBERS + ["5ca1ab1e-0000-0000-0000-000000000001"] for sc in SCREENS}
+    require(q("live", "SELECT md5(pg_get_functiondef('public.ca_club_data_screen_union_basis(uuid,date,date,text,text,text,integer)'::regprocedure))")
+            == "5e488a363b5555fa4bee8c20d8b5f67a",
+            "the union-basis screen installed from 20261115164547 has production's md5 (the new file's preimage)")
+    by_club = BYCLUB.read_text()
+    run(psql("live"), "SET ROLE authenticated;\n" + by_club, expect_fail="maintained installer")
+    run(psql("live"), by_club)
+    run(psql("live"), by_club, expect_fail="already shows each club")
+    after = {k: screen(k[0], *k[1]) for k in before}
+    require(all(after[k] == before[k] for k in before if k[0] != UNION),
+            "every club's answer is the same jsonb, screen for screen (plain, Hold'em, MTT, micro stakes)"
+            + "".join(f"\nDIFF {k}:\n{before[k]}\n{after[k]}" for k in before if k[0] != UNION and after[k] != before[k])[:4000])
+    for sc in SCREENS:
+        k = (UNION, sc)
+        require(q("live", f"SELECT ($${after[k]}$$::jsonb - 'clubs')::text") == before[k]
+                and q("live", f"SELECT jsonb_typeof($${after[k]}$$::jsonb -> 'clubs')") == "array",
+                f"the union's {sc[0]}/{sc[1]} answer gains only its clubs; every other key is unchanged")
+        rows = q("live", f"SELECT string_agg((r->>'union_account') || ':' || (r->>'club_id') || '=' || (r->>'fee') || '/' || (r->>'total_winnings'), ',' "
+                         f"ORDER BY o) FROM jsonb_array_elements($${after[k]}$$::jsonb -> 'clubs') WITH ORDINALITY x(r, o)")
+        sums = q("live", f"SELECT (SELECT sum((r->>'fee')::numeric) FROM jsonb_array_elements(a->'clubs') r) = (a->'summary'->>'fee')::numeric "
+                         f"AND (SELECT sum((r->>'total_winnings')::numeric) FROM jsonb_array_elements(a->'clubs') r) = (a->'summary'->>'total_winnings')::numeric "
+                         f"AND jsonb_array_length(a->'clubs') = 5 FROM (SELECT $${after[k]}$$::jsonb a) x")
+        own = ",".join(f"false:{c}=" + q("live", f"SELECT (a->'summary'->>'fee') || '/' || (a->'summary'->>'total_winnings') "
+                                               f"FROM (SELECT $${after[(c, sc)]}$$::jsonb a) x") for c in MEMBERS)
+        mine = ",".join(r for r in rows.split(",") if r.startswith("false:"))
+        require(sums == "t" and sorted(mine.split(",")) == sorted(own.split(","))
+                and rows.split(",")[-1].startswith(f"true:{UNION}="),
+                f"the union's {sc[0]}/{sc[1]} clubs add up to its totals, each member club's row is that club's own answer, "
+                f"and the union account is last: {rows}")
+    nonzero = q("live", f"SELECT count(*) FROM jsonb_array_elements($${after[(UNION, SCREENS[0])]}$$::jsonb -> 'clubs') r "
+                        "WHERE (r->>'fee')::numeric <> 0 OR (r->>'total_winnings')::numeric <> 0")
+    require(int(nonzero) >= 2, f"the fixture's union week has figures in more than one club ({nonzero})")
+    require(q("live", "SELECT p.provolatile::text || CASE WHEN p.prosecdef THEN 's' ELSE 'i' END || "
+                      "(NOT has_function_privilege('authenticated', p.oid, 'execute'))::text FROM pg_proc p "
+                      "WHERE p.oid = 'public.ca_club_data_screen_union_basis(uuid,date,date,text,text,text,integer)'::regprocedure") == "sstrue",
+            "the replaced screen stays STABLE SECURITY DEFINER and is not callable around its router")
 
     require(q("live", "SELECT NOT has_table_privilege('authenticated','public.ca_club_acct_fact','select') "
                       "AND NOT has_table_privilege('anon','public.ca_club_acct_fact','select') "
