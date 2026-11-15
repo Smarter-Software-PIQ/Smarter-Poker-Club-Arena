@@ -1,5 +1,9 @@
 /**
- * CLUB DATA COUNTS CHICAGO DAYS (Dan, 2026-10-22).
+ * CLUB DATA COUNTS CHICAGO DAYS (Dan, 2026-10-22), AND A UNION CLUB COUNTS
+ * THE 02:00 ACCOUNTING DAY (owner, 2026-11-14; stage 2 reader contract).
+ * A Midway Union member club, or the union itself, counts the invoice's
+ * 02:00 to 02:00 Chicago day; every other club counts Chicago midnight days
+ * as below. See ClubDataDayBasis.
  *
  * Club Data and Union Data count the America/Chicago calendar day, daylight
  * saving included, because the server buckets every figure that way
@@ -29,6 +33,17 @@ export function chicagoDay(at: Date | string | number = new Date()): string {
   if (Number.isNaN(d.getTime())) return '';
   const parts = Object.fromEntries(dayFormat.formatToParts(d).map((p) => [p.type, p.value]));
   return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+/**
+ * A real YYYY-MM-DD calendar date. The browser rolls 2026-02-30 over to
+ * March 2 and refuses 2026-13-01 outright, so both are checked here, at noon
+ * UTC (a date-only string is never read as an instant on these screens).
+ */
+export function isCalendarDate(day: unknown): day is string {
+  if (typeof day !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(day)) return false;
+  const t = Date.parse(`${day}T12:00:00Z`);
+  return Number.isFinite(t) && new Date(t).toISOString().slice(0, 10) === day;
 }
 
 /** A calendar date moved by whole days. Zone free: the date is a label. */
@@ -72,7 +87,7 @@ export function accountingDay(at: Date | string | number = new Date()): string {
  * never by adding a fixed offset.
  */
 export function accountingDayStart(day: string): Date | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  if (!isCalendarDate(day)) return null;
   const [y, m, d] = day.split('-').map(Number);
   const before = addCalendarDays(day, -1);
   for (const hour of [7, 8]) {
@@ -103,20 +118,181 @@ export function chicagoBoundaryStamp(at: Date | string | number): string {
 }
 
 /**
- * The window a Club Data screen shows, by its real boundaries. The screens
- * carry the first and last ACCOUNTING day (inclusive, what the readers take);
- * the window is [02:00 of the first day, 02:00 of the day after the last), so
- * "Nov 2 2:00 AM To Nov 9 2:00 AM" is exactly the invoice week.
+ * The instant a Chicago calendar day starts: its midnight, daylight saving
+ * included (the clocks change at 02:00, so midnight always exists once).
+ * Found from the zone database, never by adding a fixed offset.
+ */
+export function chicagoDayStart(day: string): Date | null {
+  if (!isCalendarDate(day)) return null;
+  const [y, m, d] = day.split('-').map(Number);
+  const before = addCalendarDays(day, -1);
+  for (const hour of [5, 6]) {
+    const at = new Date(Date.UTC(y, m - 1, d, hour));
+    if (chicagoDay(at) === day && chicagoDay(new Date(at.getTime() - 1)) === before) return at;
+  }
+  return null;
+}
+
+/**
+ * WHICH DAY A CLUB DATA ANSWER COUNTS (stage 2 reader contract, 2026-11-15).
+ *
+ * Every Club Data reader dispatches on its club: a club in a union, or a
+ * union itself, reads the union invoice's accounting records on the 02:00 to
+ * 02:00 Chicago ACCOUNTING day ('accounting'); any other club keeps Chicago
+ * midnight days ('calendar'). Both take the same parameters: the first and
+ * the last day of the window, inclusive. The reader states which basis it
+ * answered on (accounting_basis / day_basis), and the screens take the basis
+ * from that answer. Until one arrives they assume 'calendar', the basis every
+ * reader had before stage 2.
+ */
+export type ClubDataDayBasis = 'accounting' | 'calendar';
+/** accounting_basis of an answer on the union invoice basis. */
+export const UNION_INVOICE_BASIS = 'union_invoice_accounting';
+/** day_basis of an answer on the union invoice basis. */
+export const ACCOUNTING_DAY_BASIS = 'America/Chicago 02:00';
+
+export function clubDataDayBasis(answer: unknown): ClubDataDayBasis {
+  if (answer && typeof answer === 'object') {
+    const a = answer as { accounting_basis?: unknown; day_basis?: unknown };
+    if (a.accounting_basis === UNION_INVOICE_BASIS || a.day_basis === ACCOUNTING_DAY_BASIS) {
+      return 'accounting';
+    }
+  }
+  return 'calendar';
+}
+
+/** Today (or the day of `at`) on a basis. */
+export function clubDataDayOn(basis: ClubDataDayBasis, at: Date | string | number = new Date()) {
+  return basis === 'accounting' ? accountingDay(at) : chicagoDay(at);
+}
+
+/** The instant a day starts on a basis: 02:00 Chicago, or Chicago midnight. */
+export function clubDataDayStart(day: string, basis: ClubDataDayBasis): Date | null {
+  return basis === 'accounting' ? accountingDayStart(day) : chicagoDayStart(day);
+}
+
+/**
+ * The window [start, end) of the first through the last day, inclusive: from
+ * the start of the first day to the start of the day after the last. So the
+ * pair 2026-11-02 / 2026-11-08 on the accounting basis is exactly
+ * [Nov 2 02:00, Nov 9 02:00) Chicago, the invoice week, and two adjacent
+ * windows share one boundary instant: nothing is counted twice or dropped.
+ */
+export function clubDataWindow(
+  firstDay: string,
+  lastDay: string,
+  basis: ClubDataDayBasis
+): { start: Date; end: Date } | null {
+  const start = clubDataDayStart(firstDay, basis);
+  const end = clubDataDayStart(addCalendarDays(lastDay, 1), basis);
+  if (!start || !end || end.getTime() <= start.getTime()) return null;
+  return { start, end };
+}
+
+/** "Nov 2, 2026 2:00 AM To Nov 9, 2026 2:00 AM": a window by its real boundaries. */
+export function clubDataWindowLabel(
+  firstDay: string,
+  lastDay: string,
+  basis: ClubDataDayBasis
+): string {
+  const w = clubDataWindow(firstDay, lastDay, basis);
+  return w ? `${chicagoBoundaryStamp(w.start)} To ${chicagoBoundaryStamp(w.end)}` : '';
+}
+
+/**
+ * The accounting window label, kept for callers that only ever read the
+ * union basis. "Nov 2 2:00 AM To Nov 9 2:00 AM" is exactly the invoice week.
  */
 export function accountingWindowLabel(firstDay: string, lastDay: string): string {
-  const from = accountingDayStart(firstDay);
-  const to = accountingDayStart(addCalendarDays(lastDay, 1));
-  if (!from || !to) return '';
-  return `${chicagoBoundaryStamp(from)} To ${chicagoBoundaryStamp(to)}`;
+  return clubDataWindowLabel(firstDay, lastDay, 'accounting');
+}
+
+/** The clock time a day starts at on a basis, as the date pickers say it. */
+export function clubDataBoundaryClock(basis: ClubDataDayBasis): string {
+  return basis === 'accounting' ? '2:00 AM' : '12:00 AM';
 }
 
 /** The short statement of the day the screens count. */
 export const CLUB_DATA_DAY_RULE = 'Days Run 2:00 AM To 2:00 AM Chicago Time';
+export function clubDataDayRule(basis: ClubDataDayBasis): string {
+  return basis === 'accounting' ? CLUB_DATA_DAY_RULE : 'Days Run Midnight To Midnight Chicago Time';
+}
+
+/**
+ * fn_ca_club_acct_coverage: whether the accounting read model holds the
+ * window whole, and whether an issued union weekly invoice covers it yet.
+ * Present on the union basis only.
+ */
+export interface ClubDataCoverage {
+  complete?: boolean;
+  missing_days?: string[];
+  failed_days?: string[];
+  not_invoice_exact_days?: string[];
+  provisional?: boolean;
+  provisional_from?: string | null;
+  window_start?: string;
+  window_end?: string;
+}
+
+/** "Nov 3, 2026" for a calendar date. Zone free: the date is a label. */
+function dayName(day: string): string {
+  if (!isCalendarDate(day)) return day;
+  return new Date(`${day}T12:00:00Z`).toLocaleDateString('en-US', {
+    timeZone: 'UTC',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
+function dayList(days: unknown): string {
+  const list = Array.isArray(days) ? days.filter((d): d is string => typeof d === 'string') : [];
+  const shown = list.slice(0, 4).map(dayName).join(', ');
+  return list.length > 4 ? `${shown} And ${list.length - 4} More` : shown;
+}
+
+/**
+ * The window a covered answer states, by the reader's own boundary instants
+ * ("Nov 2, 2026 2:00 AM To Nov 9, 2026 2:00 AM"); null when it states none.
+ */
+export function coverageWindowLabel(coverage: ClubDataCoverage | null | undefined): string | null {
+  if (!coverage?.window_start || !coverage.window_end) return null;
+  const from = chicagoBoundaryStamp(coverage.window_start);
+  const to = chicagoBoundaryStamp(coverage.window_end);
+  return from && to ? `${from} To ${to}` : null;
+}
+
+/**
+ * What the screens say about a window the model does not hold whole, and
+ * about a window no issued invoice covers yet. Null when there is nothing to
+ * say. A missing, failed or not-invoice-exact day is named, never folded into
+ * a total that looks final.
+ */
+export function coverageNotices(coverage: ClubDataCoverage | null | undefined): {
+  incomplete: string | null;
+  provisional: string | null;
+} {
+  if (!coverage) return { incomplete: null, provisional: null };
+  const parts: string[] = [];
+  const missing = coverage.missing_days ?? [];
+  const failed = coverage.failed_days ?? [];
+  const inexact = coverage.not_invoice_exact_days ?? [];
+  if (missing.length) parts.push(`Not Yet Loaded: ${dayList(missing)}`);
+  if (failed.length) parts.push(`Load Failed: ${dayList(failed)}`);
+  if (inexact.length) parts.push(`Week Boundary Not Invoice-Exact: ${dayList(inexact)}`);
+  const incomplete =
+    coverage.complete === false || parts.length
+      ? `Incomplete: ${parts.length ? parts.join('. ') : 'Not Every Accounting Day Is Held'}. These Totals Can Differ From The Union Invoice Until Those Days Are Whole.`
+      : null;
+  let provisional: string | null = null;
+  if (coverage.provisional) {
+    const from = coverage.provisional_from ? accountingDayStart(coverage.provisional_from) : null;
+    provisional = from
+      ? `Provisional From ${chicagoBoundaryStamp(from)} ${CLUB_DATA_ZONE_LABEL}: No Weekly Invoice Has Been Issued For That Part Of The Window Yet, So These Figures Can Still Change.`
+      : 'Provisional: No Weekly Invoice Has Been Issued For Part Of This Window Yet, So These Figures Can Still Change.';
+  }
+  return { incomplete, provisional };
+}
 
 /** HH:MM of an instant on the Chicago clock. */
 export function chicagoClock(at: Date | string | number): string {
