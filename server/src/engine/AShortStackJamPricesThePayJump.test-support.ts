@@ -14,10 +14,18 @@
  * fee with a 2.50 bounty taken from the net entry, so the prize pool is
  * 86 x 7.50 = 645.00 and the nine live heads hold 22.50 of bounty.
  */
-import FIXTURE from './ABountyOnlyEventKeepsTheReferenceAction.fixture.json';
+import { readFileSync } from 'node:fs';
 import { HorseLogic, type HorseGameStateV2 } from './HorseLogic.js';
 import { HorseMind } from './HorseMind.js';
 import { seedFastRandom } from './HorseEval.js';
+
+// Read, not imported: the engine build's JSON census treats a .test-support.ts import as runtime (tests/operations/engine-build-resource-proof.test.py).
+const FIXTURE = JSON.parse(
+  readFileSync(
+    new URL('./ABountyOnlyEventKeepsTheReferenceAction.fixture.json', import.meta.url),
+    'utf8'
+  )
+);
 
 export const uid = (s: number) => `00000000-0000-4000-8256-0000000000${String(s).padStart(2, '0')}`;
 

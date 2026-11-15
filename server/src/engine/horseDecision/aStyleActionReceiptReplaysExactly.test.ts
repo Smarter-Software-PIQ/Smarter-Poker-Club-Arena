@@ -198,7 +198,8 @@ async function decideFast(
     observeCompletedHand: () => {},
     noteDecision: () => {},
     noteFeature: () => {},
-    now: () => performance.now(),
+    // A frozen clock: the receipt's budget skip (Hand Analysis B1) cannot bind in this test.
+    now: () => 0,
     styleSwitch: new StyleSwitchHolder(styleSwitchSourceFromStates(states(on)), () => {}),
   };
   enableBrainTelemetry();

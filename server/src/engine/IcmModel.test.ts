@@ -8,6 +8,8 @@ import {
   icmEquity,
   pairwiseBubbleFactor,
   premiumFromBubbleFactor,
+  icmBustPaysPlaceOn,
+  withIcmBustPaysPlace,
 } from './IcmModel.js';
 
 describe('icmEquity', () => {
@@ -197,7 +199,9 @@ describe('bubbleFactor', () => {
  * priced at the payout of the place the player finishes (behind every stack
  * that was live before the hand), and at 0 only where that place is unpaid.
  */
-describe('bubbleFactor values a bust at the place it finishes', () => {
+describe('bubbleFactor values a bust at the place it finishes (option icmBustPaysPlace)', () => {
+  // The option is on for these cases (HorseLogic.decide scopes it per decision).
+  const itOn = (name: string, fn: () => void) => it(name, () => withIcmBustPaysPlace(true, fn));
   // Hand 59441335: nine left of 86, 13 paid (the repository ladder at 15%).
   const FINAL_TABLE = [342_381, 310_173, 191_640, 126_232, 124_308, 74_332, 69_856, 38_469, 12_609];
   const SHORT = 8;
@@ -221,7 +225,7 @@ describe('bubbleFactor values a bust at the place it finishes', () => {
     return (now - downEq) / (icmEquity(up, pays, hero) - now);
   };
 
-  it('the in-the-money short stack reads about 1.17, not the cap of 5', () => {
+  itOn('the in-the-money short stack reads about 1.17, not the cap of 5', () => {
     const bf = bubbleFactor(FINAL_TABLE, LADDER_13, SHORT, 12_609);
     expect(bf).toBeCloseTo(bustAtPlace(FINAL_TABLE, LADDER_13, SHORT, 12_609), 9);
     expect(bf).toBeGreaterThan(1.1);
@@ -231,14 +235,14 @@ describe('bubbleFactor values a bust at the place it finishes', () => {
     expect(icmEquity(FINAL_TABLE, LADDER_13, SHORT)).toBeGreaterThan(LADDER_13[8]);
   });
 
-  it('the pairwise factor prices the same bust the same way', () => {
+  itOn('the pairwise factor prices the same bust the same way', () => {
     const covering = 0; // the 342k stack covers hero
     const bf = pairwiseBubbleFactor(FINAL_TABLE, LADDER_13, SHORT, covering, 12_609);
     expect(bf).toBeCloseTo(bustAtPlace(FINAL_TABLE, LADDER_13, SHORT, 12_609), 9);
     expect(bf).toBeLessThan(1.3);
   });
 
-  it('every stack at the final table that can bust reads a factor below the cap', () => {
+  itOn('every stack at the final table that can bust reads a factor below the cap', () => {
     for (let hero = 1; hero < FINAL_TABLE.length; hero++) {
       const bf = bubbleFactor(FINAL_TABLE, LADDER_13, hero, FINAL_TABLE[hero]);
       expect(bf).toBeCloseTo(bustAtPlace(FINAL_TABLE, LADDER_13, hero, FINAL_TABLE[hero]), 9);
@@ -246,7 +250,7 @@ describe('bubbleFactor values a bust at the place it finishes', () => {
     }
   });
 
-  it('outside the money a bust is worth 0, exactly as before', () => {
+  itOn('outside the money a bust is worth 0, exactly as before', () => {
     // Five left, three paid: fifth is unpaid, so the bust prices at zero.
     const stacks = [9_000, 6_000, 3_000, 1_500, 500];
     for (let hero = 1; hero < stacks.length; hero++) {
@@ -259,8 +263,16 @@ describe('bubbleFactor values a bust at the place it finishes', () => {
     }
   });
 
-  it('a partial risk that leaves chips behind is unchanged', () => {
+  itOn('a partial risk that leaves chips behind is unchanged', () => {
     const covered = bubbleFactor(FINAL_TABLE, LADDER_13, 2, 38_469);
     expect(covered).toBeCloseTo(bustAtPlace(FINAL_TABLE, LADDER_13, 2, 38_469), 12);
+  });
+
+  it('with the option off a bust is valued at 0, exactly as before (the cap for the short stack)', () => {
+    expect(bubbleFactor(FINAL_TABLE, LADDER_13, SHORT, 12_609)).toBe(5);
+    expect(
+      withIcmBustPaysPlace(true, () => bubbleFactor(FINAL_TABLE, LADDER_13, SHORT, 12_609))
+    ).toBeLessThan(5);
+    expect(icmBustPaysPlaceOn()).toBe(false);
   });
 });

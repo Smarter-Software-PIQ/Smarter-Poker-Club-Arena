@@ -1,11 +1,11 @@
 /**
  * RESPONSES TO TIGHT PLAYERS (2026-11-15): fixed hold'em spots and synthetic opponents for the regressions of
- * styleTightPlayerExploit and styleStealTightBlinds. Synthetic inputs only; no real player data. Counters are
+ * styleTightPlayerExploit (the blind steal is not built). Synthetic inputs only; no real player data. Counters are
  * stated at a SATURATED decayed sample (43 hands: the 30-hand half-life caps decayed hands at 43.78), so every
  * read here is one a live player can actually reach (audit F, section 5).
  *
- * Opponents: tightPassive (the target), tightAggressive (a tight player who raises and attacks: the steal and iso
- * rules stand aside), and the controls loose (a calling station), maniac, valueHeavy (tight, his big bets showed
+ * Opponents: tightPassive (the target), tightAggressive (a tight player who raises and attacks: the iso
+ * rule stands aside), and the controls loose (a calling station), maniac, valueHeavy (tight, his big bets showed
  * down strong) and unknown (no read). Spots go through HorseLogic.decide exactly as the shared style contexts do.
  */
 import { createHash } from 'node:crypto';

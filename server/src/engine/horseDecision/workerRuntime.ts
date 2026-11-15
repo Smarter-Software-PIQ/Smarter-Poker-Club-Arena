@@ -3138,8 +3138,34 @@ export class HorseDecisionWorkerRuntime {
     this.bindPhase12Authority(captured.value, phase12.receipt);
     this.bindPhase13Authority(captured.value, phase13.receipt);
     this.bindPhase14Authority(captured.value, phase14.receipt);
-    // R1 ACTION-CHANGE RECEIPT (2026-11-15): before the decision is journaled and sent.
-    if (styleApplied.length > 0 && fastOpts && captured.value.policyFallback !== 'brain_exception')
+    // R1 ACTION-CHANGE RECEIPT (2026-11-15): before the decision is journaled and sent. Hand Analysis B1: the same
+    // three skip rules as the shadow re-decision (never with work queued behind this one, never once this decision
+    // has spent the shadow budget, only at the committed governor scale); every skip is receipted. Like the shadow,
+    // the receipt is a work-budget observation, so exact replay does not compare it (HorseDecisionReplay.stableReceipt).
+    let receiptScaleMoved = true;
+    if (
+      styleApplied.length > 0 &&
+      fastOpts &&
+      captured.value.policyFallback !== 'brain_exception'
+    ) {
+      try {
+        receiptScaleMoved = this.deps.governorScale() !== governorScale;
+      } catch {
+        /* an unreadable scale is a moved scale: skip */
+      }
+    }
+    if (
+      styleApplied.length === 0 ||
+      !fastOpts ||
+      captured.value.policyFallback === 'brain_exception'
+    ) {
+      /* nothing applied: no receipt */
+    } else if (this.pendingRequestIds.size > 1)
+      this.deps.noteFeature('style_action_receipt_skipped_backlog_seen');
+    else if (!(Math.max(0, this.deps.now() - startedAt) <= STYLE_SHADOW_REDECIDE_BUDGET_MS))
+      this.deps.noteFeature('style_action_receipt_skipped_budget_seen');
+    else if (receiptScaleMoved) this.deps.noteFeature('style_action_receipt_skipped_scale_seen');
+    else
       this.styleActionReceipt(
         request,
         player,
@@ -3433,9 +3459,6 @@ export class HorseDecisionWorkerRuntime {
         break;
       case 'styleTightPlayerExploit':
         this.deps.noteFeature('style_tight_player_exploit_changed_action_seen');
-        break;
-      case 'styleStealTightBlinds':
-        this.deps.noteFeature('style_steal_tight_blinds_changed_action_seen');
         break;
     }
   }

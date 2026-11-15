@@ -439,6 +439,7 @@ import {
   bountyChipEquivalence,
   bubbleFactor,
   premiumFromBubbleFactor,
+  withIcmBustPaysPlace,
 } from './IcmModel.js';
 // PROOF OF RECEIPT (Dan 2026-08-26): live decisions stamp the layers that
 // actually executed. Gated on opts.telemetry — league/benchmark/tests never
@@ -4169,6 +4170,10 @@ export interface HorseDecideOpts {
    *  under-full, not a trips-board boat, not the board playing) leads 70% of the time through the existing
    *  monster sizing; the rest keeps the check. Receipt holdem_river_full_house_lead_seen. Read only as === true:
    *  default OFF. */
+  /** PAID BUST (2026-11-15, Hand Analysis B3): IcmModel bubbleFactor / pairwiseBubbleFactor value a bust at the place
+   *  the player finishes (paid in the money) instead of 0, for this decision (withIcmBustPaysPlace). Tournaments in
+   *  the money only change. Read only as === true: default OFF. */
+  icmBustPaysPlace?: boolean;
   holdemRiverFullHouseValue?: boolean;
   v87RiverBlockBetTrap?: boolean;
   v87HollywoodTank?: boolean;
@@ -9676,8 +9681,19 @@ export class HorseLogic {
     planReadCapture?: HorsePlanReadCapture,
     deepDiveCapture?: HorseDeepDiveCapture
   ): HorseDecision {
-    return withHorseDeepDiveCapture(deepDiveCapture, opts.v87DeepDiveDiscipline !== false, () =>
-      HorseLogic.decideCaptured(player, gameState, style, mods, opts, rangeCapture, planReadCapture)
+    // icmBustPaysPlace (2026-11-15, default OFF): the paid-bust ICM valuation for this decision only.
+    return withIcmBustPaysPlace(opts.icmBustPaysPlace === true, () =>
+      withHorseDeepDiveCapture(deepDiveCapture, opts.v87DeepDiveDiscipline !== false, () =>
+        HorseLogic.decideCaptured(
+          player,
+          gameState,
+          style,
+          mods,
+          opts,
+          rangeCapture,
+          planReadCapture
+        )
+      )
     );
   }
 
