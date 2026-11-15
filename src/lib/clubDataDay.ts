@@ -161,6 +161,25 @@ export function clubDataDayBasis(answer: unknown): ClubDataDayBasis {
   return 'calendar';
 }
 
+/**
+ * THE DAY "TODAY" IS COUNTED ON FOLLOWS THE CLUB, NOT THE ANSWER (review,
+ * 2026-11-15). Labels, windows and definitions follow each answer, but a
+ * union club's window that starts before it joined its union is answered on
+ * its pre-union Chicago basis, so letting "today" follow answers can flip it
+ * between the two days for ever (a 14-day window starting on the join day
+ * under midnight days starts one day earlier under the 2:00 AM day). A club
+ * the readers place in a union (a club-level union_id, which both screens'
+ * readers return), or any answer on the union basis, makes today the 2:00 AM
+ * day; nothing moves it back for that club and account.
+ */
+export function isUnionClubAnswer(answer: unknown): boolean {
+  if (!answer || typeof answer !== 'object') return false;
+  const unionId = (answer as { union_id?: unknown }).union_id;
+  return (
+    (typeof unionId === 'string' && unionId.length > 0) || clubDataDayBasis(answer) === 'accounting'
+  );
+}
+
 /** Today (or the day of `at`) on a basis. */
 export function clubDataDayOn(basis: ClubDataDayBasis, at: Date | string | number = new Date()) {
   return basis === 'accounting' ? accountingDay(at) : chicagoDay(at);

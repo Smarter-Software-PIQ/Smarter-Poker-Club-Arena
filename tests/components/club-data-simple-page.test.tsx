@@ -800,6 +800,47 @@ describe('the union invoice basis', () => {
     expect(screen.getByText('-3,570.00')).toBeTruthy();
   });
 
+  it('settles in two reads at 01:30 CST when the day crosses the join day', async () => {
+    // "Today" follows the club, not the answer (review, 2026-11-15). The club
+    // joined on Nov 16: its 2 AM day Nov 15 is answered on the Chicago basis.
+    // No search, game or stakes choice left over from another test.
+    localStorage.clear();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-16T07:30:00Z')); // Mon 01:30 CST
+    rpcMock.mockImplementation(async (_fn: string, args: Record<string, string>) => {
+      const union = args.p_start >= '2026-11-16';
+      const end = union && args.p_end > '2026-11-15' ? '2026-11-15' : args.p_end;
+      return {
+        data: union
+          ? { ...unionLive, union_id: 'u-1', range: { start: args.p_start, end, days: 1 } }
+          : {
+              ...live,
+              union_id: 'u-1',
+              range: { start: args.p_start, end, days: 1 },
+              accounting_basis: 'chicago_net_money_flow',
+              day_basis: 'America/Chicago',
+            },
+        error: null,
+      };
+    });
+    await act(async () => {
+      render(<ClubDataSimplePage />);
+    });
+    for (let i = 0; i < 10; i++) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1_000);
+      });
+    }
+    const asked = rpcMock.mock.calls.map(([, a]) => a as Record<string, string>);
+    expect(asked.length, JSON.stringify(asked.map((x) => [x.p_start, x.p_end]))).toBeLessThanOrEqual(
+      2
+    );
+    expect(asked[0]).toMatchObject({ p_start: '2026-11-16', p_end: '2026-11-16' });
+    expect(asked.at(-1)).toMatchObject({ p_start: '2026-11-15', p_end: '2026-11-15' });
+    expect(screen.getByText('Nov 15, 2026 12:00 AM To Nov 16, 2026 12:00 AM')).toBeTruthy();
+    expect(screen.getByText(/Net Entries And Payouts In Chicago Time/)).toBeTruthy();
+  });
+
   it('an agent of a union club sees downline fees on the same basis', async () => {
     rpcMock.mockResolvedValue({
       data: {

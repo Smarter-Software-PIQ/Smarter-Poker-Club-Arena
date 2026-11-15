@@ -57,8 +57,18 @@ keeps Chicago midnight days. This is the client half.
 - Labels follow each answer, never the club: a union club's window that
   starts before it joined its union is answered on its pre-union Chicago
   basis, and both screens then show midnight boundaries and the Chicago-basis
-  text. "Today" follows only an answer whose window reaches the present
-  (#10921 review, 2026-11-15).
+  text (#10921 review, 2026-11-15).
+- "Today" (the picker clock, the pinned end) follows the club, never the
+  answer: a club the readers place in a union (club-level `union_id`) or any
+  union-basis answer makes today the 2:00 AM day, and nothing moves it back
+  for that club and account. Letting today follow answers looped re-reads
+  between 00:00 and 02:00 when a window crossed the join day (review blocker,
+  2026-11-15); tests on both screens settle in two reads at 01:30 CST.
+- A clamped answer that lands just before 02:00 with its re-read decided just
+  after now reads once more instead of leaving the skeleton up until the next
+  poll. The full report's exports require a verified answer for the window
+  (the Players export is disabled without one); no basis is guessed into a
+  file.
 - On the union basis tournament fees are recognized when the tournament
   settles, so there is no running MTT fee; the definitions say so and no
   screen shows one.

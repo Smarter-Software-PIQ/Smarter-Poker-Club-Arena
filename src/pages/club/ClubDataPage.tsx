@@ -57,6 +57,7 @@ import {
   coverageNotices,
   coverageWindowLabel,
   isCalendarDate,
+  isUnionClubAnswer,
   UNION_BASIS_DEFINITIONS,
   type ClubDataCoverage,
   type ClubDataDayBasis,
@@ -1006,6 +1007,13 @@ export default function ClubDataPage() {
   const dayBasisRef = useRef<ClubDataDayBasis>('calendar');
   dayBasisRef.current = dayBasis;
   const [endDate, setEndDate] = useState<string>(() => clubDataDayOn('calendar'));
+  const endDateRef = useRef(endDate);
+  endDateRef.current = endDate;
+  // Which reads a clamped answer is waiting to repeat (see the [dayBasis] effect).
+  const basisRereadRef = useRef({ games: false, players: false });
+  // The newest reads, for the [dayBasis] effect declared before them.
+  const loadRef = useRef<(showSpinner: boolean) => Promise<boolean>>(async () => false);
+  const loadPlayersRef = useRef<() => Promise<boolean>>(async () => false);
   const [game, setGame] = usePlayerPreference<GameFilter>('club/ClubDataPage:game', 'ALL');
   const [stakes, setStakes] = usePlayerPreference<StakesFilter>('club/ClubDataPage:stakes', 'ALL');
   const [gameSort, setGameSort] = usePlayerPreference<GameSort>(
@@ -1176,12 +1184,9 @@ export default function ClubDataPage() {
   }, []);
   useEffect(() => {
     snapshotRef.current = snapshot;
-    // "Today" follows an answer whose window reaches the present. A window
-    // that starts before a union club joined its union is answered on the
-    // club's pre-union Chicago basis; that labels the window, not today.
-    if (snapshot && snapshot.range.end >= clubDataDayOn('accounting')) {
-      setDayBasis(clubDataDayBasis(snapshot));
-    }
+    // "Today" follows the club (isUnionClubAnswer): once a union club is
+    // known its today is the 2:00 AM day, and nothing moves it back.
+    if (isUnionClubAnswer(snapshot)) setDayBasis('accounting');
   }, [snapshot]);
   // Another club or account starts from the calendar day until it answers.
   useEffect(() => {
@@ -1193,7 +1198,18 @@ export default function ClubDataPage() {
     const today = clubDataDayOn(dayBasis);
     const previousToday = observedUtcDayRef.current;
     observedUtcDayRef.current = today;
-    setEndDate((cur) => (cur === previousToday || cur > today ? today : cur));
+    const cur = endDateRef.current;
+    const moves = cur === previousToday || cur > today;
+    setEndDate((current) => (current === previousToday || current > today ? today : current));
+    // A clamped answer kept the skeleton up for the re-read the move causes.
+    // If 02:00 passed in between, the end does not move: read again here so
+    // the skeleton never waits for the next poll.
+    const pending = basisRereadRef.current;
+    basisRereadRef.current = { games: false, players: false };
+    if (!moves) {
+      if (pending.games) void loadRef.current(true);
+      if (pending.players) void loadPlayersRef.current();
+    }
   }, [dayBasis]);
   useEffect(() => {
     playersRef.current = players;
@@ -1558,6 +1574,7 @@ export default function ClubDataPage() {
           // A union club answered for the open accounting day. Adopt its basis;
           // the [dayBasis] effect moves the pinned end there and reads again.
           basisReread = true;
+          basisRereadRef.current.games = true;
           setDayBasis('accounting');
           return false;
         } else if (
@@ -1948,6 +1965,7 @@ export default function ClubDataPage() {
           // The player readers keep their shape and state no basis; the same
           // clamp tells the page this is a union club. Re-read, never paint.
           basisReread = true;
+          basisRereadRef.current.players = true;
           setDayBasis('accounting');
           return false;
         } else if (
@@ -2103,6 +2121,9 @@ export default function ClubDataPage() {
     playerCacheKey,
     playerScopeKey,
   ]);
+
+  loadRef.current = (showSpinner: boolean) => load(showSpinner);
+  loadPlayersRef.current = () => loadPlayers();
 
   const loadMoreGames = useCallback(async () => {
     if (
@@ -2819,7 +2840,17 @@ export default function ClubDataPage() {
   }, [clubUuid, isHydrating, userId, load, loadInvoices, loadPlayers, tab, realtimeFeeds]);
 
   const exportCsv = useCallback(async () => {
-    if (!clubUuid || exporting) return;
+    // The window comes from the verified answer this export belongs to: the
+    // reader's own boundary instants when it states them (union basis),
+    // otherwise the selection on the basis that answer was given on. With no
+    // verified answer for this window there is no export (the control is
+    // disabled too): a basis is never guessed into a file.
+    const answered = snapshotRef.current;
+    if (!clubUuid || exporting || !answered) return;
+    const coverage = answered.accounting_coverage;
+    const instant = (at: string | undefined) =>
+      at && Number.isFinite(Date.parse(at)) ? new Date(at).toISOString() : null;
+    const computed = clubDataWindow(startDate, endDate, clubDataDayBasis(answered));
     const controller = new AbortController();
     const generation = ++exportGenerationRef.current;
     const viewKey = exportViewKey;
@@ -2827,19 +2858,6 @@ export default function ClubDataPage() {
     setExporting(true);
     setExportNote(null);
     setExportProgress({ stage: 'preparing', loaded: 0, total: null });
-    // The window comes from the verified answer this export belongs to: the
-    // reader's own boundary instants when it states them (union basis),
-    // otherwise the selection on the basis that answer was given on. Never
-    // from a basis the page has not confirmed yet.
-    const answered = snapshotRef.current;
-    const coverage = answered?.accounting_coverage;
-    const instant = (at: string | undefined) =>
-      at && Number.isFinite(Date.parse(at)) ? new Date(at).toISOString() : null;
-    const computed = clubDataWindow(
-      startDate,
-      endDate,
-      answered ? clubDataDayBasis(answered) : dayBasis
-    );
     const csvWindow: ExportWindow = {
       start: instant(coverage?.window_start) ?? computed?.start.toISOString() ?? '',
       end: instant(coverage?.window_end) ?? computed?.end.toISOString() ?? '',
@@ -2965,7 +2983,6 @@ export default function ClubDataPage() {
     search,
     gameSort,
     exportViewKey,
-    dayBasis,
   ]);
 
   const cancelExport = useCallback(() => {
@@ -3326,7 +3343,8 @@ export default function ClubDataPage() {
                 else void exportCsv();
               },
               disabled:
-                !exporting && (tab === 'players' ? !sortedPlayers.length : !snapshot?.rows?.length),
+                !exporting &&
+                (tab === 'players' ? !sortedPlayers.length || !snapshot : !snapshot?.rows?.length),
               'aria-label': exporting ? 'Cancel CSV Export' : 'Export As CSV',
               title: exporting ? 'Cancel CSV Export' : 'Export As CSV',
             },

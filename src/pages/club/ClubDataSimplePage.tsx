@@ -68,6 +68,7 @@ import {
   coverageNotices,
   coverageWindowLabel,
   isCalendarDate,
+  isUnionClubAnswer,
   UNION_BASIS_DEFINITIONS,
   type ClubDataCoverage,
   type ClubDataDayBasis,
@@ -133,6 +134,8 @@ interface Snapshot {
   scope?: 'club' | 'downline';
   club_name?: string | null;
   reporting_scope?: 'club' | 'union';
+  /** The club's union, when it is in one (or is one). Decides "today". */
+  union_id?: string | null;
   accounting_basis?: 'utc_net_money_flow' | 'chicago_net_money_flow' | 'union_invoice_accounting';
   day_basis?: string;
   /** fn_ca_club_acct_coverage (union basis only). */
@@ -455,12 +458,9 @@ export default function ClubDataSimplePage() {
         return;
       }
       setSnapshot(data);
-      // "Today" follows an answer whose window reaches the present; a window
-      // before a union club joined its union is answered on its Chicago basis,
-      // which labels that window, not today.
-      if ((data.range?.end ?? endDate) >= clubDataDayOn('accounting')) {
-        setDayBasis(clubDataDayBasis(data));
-      }
+      // "Today" follows the club (isUnionClubAnswer): once a union club is
+      // known its today is the 2:00 AM day, and nothing moves it back.
+      if (isUnionClubAnswer(data)) setDayBasis('accounting');
       setPlayerSearchAccess(identityKey);
       setSnapshotScope(requestScope);
       if (data.club_name) setClubName(data.club_name);
