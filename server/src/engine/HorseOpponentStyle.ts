@@ -667,6 +667,9 @@ export interface OpponentStyleInput {
   /** #4 (M2): the Horse population's counts in the same variant, format and table size (its reference) */
   horseStreetReference?: StreetAggression | null;
   provenance?: StyleProvenance | null;
+  /** TIGHT BEYOND VPIP (2026-11-15, HorseDecideOpts.styleTightMultiSignal, default off): only an explicit true
+   *  admits the multi-signal tight route (tightMultiSignalRead). Absent, the read is byte for byte what it was. */
+  tightMultiSignal?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -817,6 +820,9 @@ export interface StyleReceipt {
   /** the statistics read from the 120-hand long participation window (vpip, pfr, callShare), in that order;
    *  empty when every one read the 30-hand window */
   readonly longWindow: readonly string[];
+  /** TIGHT BEYOND VPIP (2026-11-15): present only when styleTightMultiSignal asked for the route. route:vpipBelow:
+   *  raiseShare:foldTo3Bet, each the posterior probability that decided it (see tightMultiSignalRead). */
+  readonly tightMultiSignal?: string;
   /** features the decision-time counters cannot carry; consumers condition on them at the decision */
   readonly notAvailable: readonly string[];
 }
@@ -1082,6 +1088,7 @@ function buildRead(
     pattern?: StylePattern | null;
     callingRelease?: number;
     longWindow?: readonly string[];
+    tightMultiSignal?: string;
   }
 ): OpponentStyleRead {
   const prior = populationPriorFor(family, hands);
@@ -1129,6 +1136,7 @@ function buildRead(
       shownStrength: `${sg.shownStrength.side ?? 'none'}:${round4(sg.shownStrength.share)}:${sg.shownStrength.shown}`,
     }),
     longWindow: Object.freeze([...(parts.longWindow ?? [])]),
+    ...(parts.tightMultiSignal !== undefined ? { tightMultiSignal: parts.tightMultiSignal } : {}),
     notAvailable: NOT_AVAILABLE,
   });
   return Object.freeze({
@@ -1264,6 +1272,78 @@ export function unknownStyle(
  * returns null; a player nothing reliable is known about is the neutral,
  * explicitly uncertain unknownStyle.
  */
+/**
+ * TIGHT BEYOND VPIP (2026-11-15, Hold'em Strategy lane, builder C item C2; option styleTightMultiSignal, read === true,
+ * default off). CLASS DEFINITION, declared before measurement (docs/changelog/2026-11-15-tight-beyond-vpip.md, section
+ * CLASS-DEFINITIONS): TIGHT by this route iff all of
+ *  1. VPIP credibly below the Horse VPIP mean of the cell: P(rate < mean) >= 0.90 on at least 15 decayed hands (the
+ *     window the VPIP signal reads);
+ *  2. corroborated, at 0.90 on at least 8 decayed opportunities, by raise share (PFR / VPIP over the VPIP hands of the
+ *     same window) credibly above the Horse share (PFR mean / VPIP mean) plus 0.02, OR fold to 3-bet credibly above
+ *     the Horse mean plus 0.04;
+ *  3. no contrary evidence: VPIP and call share not high, raise share not credibly below the Horse share minus 0.02
+ *     (a caller-heavy player is never tight here).
+ * Confidence: the smaller of the VPIP confidence (n / (n + 15)) and the deciding corroborator's (n / (n + 8)).
+ * Pure.
+ */
+export const TIGHT_MULTI_SIGNAL = Object.freeze({
+  minHands: 15,
+  credibility: 0.9,
+  /** VPIP is judged against the Horse mean itself: the 0.18 observation line at 90% would need VPIP <= ~0.145 */
+  vpipMargin: 0,
+  minOpps: 8,
+  raiseShareMargin: 0.02,
+  foldTo3BetMargin: 0.04,
+});
+export interface TightMultiSignalInput {
+  vpipSuccesses: number;
+  pfrSuccesses: number;
+  hands: number;
+  foldTo3Bet: number;
+  foldTo3BetOpp: number;
+  vpipMean: number;
+  pfrMean: number;
+  foldTo3BetMean: number;
+  contrary: boolean;
+}
+export interface TightMultiSignal {
+  tight: boolean;
+  confidence: number;
+  /** compact receipt: vpipBelow:raiseShareAbove:raiseShareBelow:foldTo3BetAbove (posterior probabilities) */
+  receipt: string;
+}
+export function tightMultiSignalRead(i: TightMultiSignalInput): TightMultiSignal {
+  const M = TIGHT_MULTI_SIGNAL;
+  const hands = Math.max(0, num(i.hands));
+  const vp = clamp(num(i.vpipSuccesses), 0, hands);
+  const pf = clamp(num(i.pfrSuccesses), 0, vp);
+  const vpipBelow = posterior(vp, hands, i.vpipMean, M.vpipMargin).pBelow;
+  const share = clamp(i.pfrMean / Math.max(1e-9, i.vpipMean), 0.01, 0.99);
+  const rs = posterior(pf, vp, share, M.raiseShareMargin);
+  const f3Opp = Math.max(0, num(i.foldTo3BetOpp));
+  const f3 = posterior(
+    clamp(num(i.foldTo3Bet), 0, f3Opp),
+    f3Opp,
+    i.foldTo3BetMean,
+    M.foldTo3BetMargin
+  );
+  const vpipOk = hands >= M.minHands && vpipBelow >= M.credibility;
+  const raiseOk = vp >= M.minOpps && rs.pAbove >= M.credibility;
+  const foldOk = f3Opp >= M.minOpps && f3.pAbove >= M.credibility;
+  const callerHeavy = vp >= M.minOpps && rs.pBelow >= M.credibility;
+  const tight = vpipOk && (raiseOk || foldOk) && !callerHeavy && !i.contrary;
+  const conf = (n: number, min: number): number => (n > 0 ? n / (n + min) : 0);
+  const corroboration = Math.max(
+    raiseOk ? conf(vp, M.minOpps) : 0,
+    foldOk ? conf(f3Opp, M.minOpps) : 0
+  );
+  return {
+    tight,
+    confidence: tight ? Math.min(conf(hands, M.minHands), corroboration) : 0,
+    receipt: [vpipBelow, rs.pAbove, rs.pBelow, f3.pAbove].map(round4).join(':'),
+  };
+}
+
 export function classifyOpponentStyle(input: OpponentStyleInput): OpponentStyleRead {
   const T = STYLE_THRESHOLDS;
   const scope = input.scope;
@@ -1555,6 +1635,30 @@ export function classifyOpponentStyle(input: OpponentStyleInput): OpponentStyleR
     (vpip.side === 'low' || callShare.side === 'low')
   )
     participationSide = 'tight';
+  // TIGHT BEYOND VPIP (2026-11-15, styleTightMultiSignal, default off): a player the VPIP-only route leaves neutral
+  // is tight when VPIP is credibly below the Horse mean AND an independent signal (raise share or fold to 3-bet) is
+  // credibly on the selective side, with no contrary evidence. Never overrides a loose read; never reached with the
+  // option off (the read is then exactly what it was).
+  const multi =
+    input.tightMultiSignal === true
+      ? tightMultiSignalRead({
+          vpipSuccesses: longVpip ? num(cl?.lVpip) : num(c?.vpip),
+          pfrSuccesses: longVpip ? num(cl?.lPfr) : num(c?.pfr),
+          hands: longVpip ? longHands : counterHands,
+          foldTo3Bet: repairOf('foldTo3Bet').excluded
+            ? 0
+            : num(c?.foldTo3Bet) * repairOf('foldTo3Bet').weight,
+          foldTo3BetOpp: repairOf('foldTo3Bet').excluded
+            ? 0
+            : num(c?.foldTo3BetOpp) * repairOf('foldTo3Bet').weight,
+          vpipMean: vpipCell.mean,
+          pfrMean: pfrCell.mean,
+          foldTo3BetMean: envelope.foldTo3Bet.mean,
+          contrary: vpip.side === 'high' || callShare.side === 'high',
+        })
+      : null;
+  const multiTight = participationSide === 'neutral' && multi !== null && multi.tight;
+  if (multiTight) participationSide = 'tight';
   const participation: StyleAxis<'tight' | 'loose'> = {
     score: participationScore,
     side: participationSide,
@@ -1562,8 +1666,10 @@ export function classifyOpponentStyle(input: OpponentStyleInput): OpponentStyleR
     confidence:
       participationSide === 'neutral'
         ? 0
-        : Math.max(vpip.confidence, callShare.confidence) *
-          (participationSide === 'tight' ? capLow : capHigh),
+        : multiTight
+          ? multi!.confidence * capLow
+          : Math.max(vpip.confidence, callShare.confidence) *
+            (participationSide === 'tight' ? capLow : capHigh),
   };
 
   // ── AGGRESSION ───────────────────────────────────────────────────────
@@ -1721,6 +1827,9 @@ export function classifyOpponentStyle(input: OpponentStyleInput): OpponentStyleR
     pattern,
     callingRelease,
     longWindow,
+    ...(multi !== null
+      ? { tightMultiSignal: `${multiTight ? 'tight' : 'none'}:${multi.receipt}` }
+      : {}),
   });
 }
 

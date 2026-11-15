@@ -2014,6 +2014,23 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaBluffCatcherRaiseFold: true },
     b: {},
   })),
+  // 2026-11-15 TIGHT BEYOND VPIP (styleTightMultiSignal, default OFF): a reads
+  // a neutral player tight when VPIP is credibly below the Horse mean and fold
+  // to 3-bet or raise share corroborates; b is today's read. The style read is
+  // taken only by a style consumer, so both arms switch on the two consumers
+  // that see the tight side (#2 and #6); the card measures the read alone.
+  // Against a Horse field the route is expected to be near inert.
+  {
+    name: 'nlh_style_tight_multi_signal',
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      styleTightMultiSignal: true,
+      styleValueBettorNotManiac: true,
+      styleTightReRaiserRespect: true,
+    },
+    b: { styleValueBettorNotManiac: true, styleTightReRaiserRespect: true },
+  },
   // 2026-11-14 OMAHA TIGHT STEAL (omahaTightOpponentSteal, default OFF): the
   // steal half of omahaTightOpponent alone, in OMAHA_TIGHT_STEAL_VARIANTS
   // (six-card only). Against a Horse field the evidence standard is rarely

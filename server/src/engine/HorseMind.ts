@@ -438,6 +438,10 @@ export interface DecisionReadOptions {
    *  the scope so the style read itself applies the pre-repair discount to the pooled rows it reads. Only an
    *  explicit true engages; absent, the style read is what it was. */
   styleFoldRatePreRepair?: boolean;
+  /** TIGHT BEYOND VPIP (2026-11-15, HorseDecideOpts.styleTightMultiSignal): the style read admits the multi-signal
+   *  tight route (HorseOpponentStyle.tightMultiSignalRead). Only an explicit true engages; absent, the read is what
+   *  it was. */
+  styleTightMultiSignal?: boolean;
 }
 /** Decayed postflop facing-bet opportunities before the postflop fold rate reads. */
 export const FOLD_READ_MIN_OPPS = 8;
@@ -2566,6 +2570,9 @@ export class HorseMind {
       carry,
       carryWeight,
       provenance,
+      ...(this.decisionReadOptions.styleTightMultiSignal === true
+        ? { tightMultiSignal: true }
+        : {}),
       sizeBuckets,
       streetAggression: agg ?? null,
       horseStreetReference: variant
@@ -2589,6 +2596,9 @@ export class HorseMind {
     if (style.release.standDown) noteFire('style_read_released_seen');
     // 2026-11-15: VPIP, PFR or the call share was read from the 120-hand long participation window.
     if (style.receipt.longWindow.length > 0) noteFire('style_long_participation_seen');
+    // 2026-11-15: the multi-signal route (styleTightMultiSignal) read this opponent tight.
+    if (style.receipt.tightMultiSignal?.startsWith('tight:'))
+      noteFire('style_tight_multi_signal_seen');
     return style;
   }
 

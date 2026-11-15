@@ -1335,6 +1335,17 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'facing a 3-bet or more from a credibly tight re-raiser the 4-bet and call bars rose, bounded; named *_seen',
     '2026-11-13'
   ),
+  flag(
+    'styleTightMultiSignal',
+    "2026-11-15 TIGHT BEYOND VPIP (opponent classifier C2): the style read's participation axis, when the VPIP-only and call-share routes leave it neutral, is tight if VPIP is credibly (90%) below the Horse VPIP mean of the cell and raise share (PFR / VPIP) is credibly above the Horse share plus 0.02 or fold to 3-bet credibly above the Horse mean plus 0.04 (8 or more decayed opportunities each), with VPIP and call share not high and raise share not credibly low (a caller-heavy player never qualifies); never overrides a loose read; consumers unchanged (#6a / #6b still need PFR credibly low; #2's tight route and the labels see the side); hold'em style read; default OFF, read === true only; evidence docs/horse-default-on.d/styleTightMultiSignal.md",
+    '2026-11-15'
+  ),
+  receipt(
+    'style_tight_multi_signal_seen',
+    'HorseMind.styleRead (styleTightMultiSignal)',
+    'a style read was made tight by the multi-signal route (VPIP credibly below the Horse mean, corroborated by raise share or fold to 3-bet); receipt.tightMultiSignal carries the posterior probabilities; counts reads; named *_seen',
+    '2026-11-15'
+  ),
   receipt(
     'style_long_participation_seen',
     'HorseMind.styleRead (STYLE READ, long participation window)',

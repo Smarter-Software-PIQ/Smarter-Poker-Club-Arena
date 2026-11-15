@@ -3280,6 +3280,11 @@ export interface HorseDecideOpts {
   /** STYLE READ item 3 (2026-11-13): bluff frequency by this street's fold-to-bet
    *  (HorseOpponentStyle.postflopFoldBluffScale). Receipt style_fold_bluff_seen. Default off; explicit true only. */
   styleFoldBluff?: boolean;
+  /** TIGHT BEYOND VPIP (2026-11-15, opponent classifier C2): the style read's participation axis is also tight
+   *  when VPIP is credibly below the Horse mean and raise share or fold to 3-bet credibly corroborates, with no
+   *  contrary evidence (HorseOpponentStyle.tightMultiSignalRead). Receipt style_tight_multi_signal_seen. Read only
+   *  as === true: default OFF. */
+  styleTightMultiSignal?: boolean;
   /** STYLE READ #3 (2026-11-13): a large turn bet, a large river bet or ANY
    *  river raise from a credibly value-heavy bettor earns extra respect,
    *  capped at the existing callDownRespectShift ceiling (+0.15), never on a
@@ -6754,6 +6759,8 @@ export class HorseLogic {
       ...(opts.styleFoldRatePreRepair === true && opts.mind !== false
         ? { styleFoldRatePreRepair: true }
         : {}),
+      // TIGHT BEYOND VPIP (2026-11-15, opponent classifier): plumbing only, key added only when true.
+      ...(opts.styleTightMultiSignal === true ? { styleTightMultiSignal: true } : {}),
     });
     // V3: ingest the action stream into the opponent-intelligence layer.
     // Wrapped so observation can never take down a decision.
