@@ -1,3 +1,4 @@
+import { PerformancePose } from '../PerformancePose';
 import { AtlasSprite } from '../AtlasSprite';
 import { RIG_VIEWBOX, type RigProps, type ThrowableRig } from '../rig';
 import type { ThrowableSpec } from '../spec';
@@ -22,10 +23,9 @@ export const spec: ThrowableSpec = {
     { at: 4200, marker: 'cut' },
   ],
   audio: [
-    { at: 867, sample: 'laugh_short' },
-    { at: 1667, sample: 'drip' },
-    { at: 2467, sample: 'drip' },
-    { at: 2867, sample: 'laugh_swell' },
+    { at: 867, sample: 'laugh_short', gain: 0.75 },
+    { at: 1667, sample: 'drip', gain: 0.35 },
+    { at: 2867, sample: 'laugh_swell', gain: 0.9 },
   ],
 };
 preloadThrowableCues(spec.audio.map((c) => c.sample));
@@ -58,23 +58,31 @@ function Payload(_props: RigProps) {
           />
         </g>
         <g className="thr-laughing_emoji__laugh">
-          <AtlasSprite
-            src="laughing_emoji"
-            rect={[650, 70, 560, 550]}
-            x={-60}
-            y={-60}
-            width={120}
-            height={120}
+          <PerformancePose
+            src="laughing_emoji-acting"
+            row={0}
+            rows={2}
+            x={-60.0}
+            y={-58.929}
+            width={120.0}
+            height={117.857}
+            duration={410}
+            delay={530}
+            repeats={6}
           />
         </g>
         <g className="thr-laughing_emoji__tears">
-          <AtlasSprite
-            src="laughing_emoji"
-            rect={[610, 635, 635, 550]}
-            x={-69}
-            y={-60}
-            width={138}
-            height={120}
+          <PerformancePose
+            src="laughing_emoji-acting"
+            row={1}
+            rows={2}
+            x={-69.0}
+            y={-59.764}
+            width={138.0}
+            height={119.528}
+            duration={360}
+            delay={2500}
+            repeats={4}
           />
         </g>
       </g>

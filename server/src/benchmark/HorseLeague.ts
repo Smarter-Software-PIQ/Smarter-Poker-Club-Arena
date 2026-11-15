@@ -2210,6 +2210,26 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { committedStackPricedIn: true },
     b: {},
   },
+  // 2026-11-14 PLO6 COMMITMENT-ZONE RE-RAISE PRICE RELIEF
+  // (omahaCommitZoneThreeBetPriceRelief, default OFF; PLO6 tournament-folds
+  // study, docs/changelog/2026-11-14-plo6-commit-zone-price-relief.md). Six-
+  // card Omaha high in the commitment zone facing a re-raise: arm A takes the
+  // wider price relief. A 40bb six-handed big-blind-ante MTT with the live M
+  // state, the depth the study measured (development human field, chips only:
+  // +6.83 +/- 3.78 and +7.62 +/- 3.77 bb/100 on two seeds). Payout is not
+  // measured. The default is unchanged.
+  {
+    name: 'plo6_mtt6_commit_zone_three_bet_price_relief_40bb',
+    variant: 'plo6',
+    seats: 6,
+    stackBB: 40,
+    context: bigBlindAnteMttWithMContext(6, 40),
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: { omahaCommitZoneThreeBetPriceRelief: true },
+    b: {},
+  },
   // 2026-11-07 PREFLOP DEFENCE LEAKS, both default OFF, so arm A turns each
   // on (docs/changelog/2026-11-07-horse-preflop-defence-leaks.md). A 20bb
   // four-handed big-blind-ante big blind facing a min-raise (jam-or-fold

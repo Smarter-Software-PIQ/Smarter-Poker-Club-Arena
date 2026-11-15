@@ -1,3 +1,4 @@
+import { PerformancePose } from '../PerformancePose';
 import { AtlasSprite } from '../AtlasSprite';
 import { RIG_VIEWBOX, type RigProps, type ThrowableRig } from '../rig';
 import type { ThrowableSpec } from '../spec';
@@ -24,11 +25,11 @@ export const spec: ThrowableSpec = {
     { at: 4300, marker: 'cut' },
   ],
   audio: [
-    { at: 433, sample: 'pop_soft', gain: 0.35 },
-    { at: 600, sample: 'cheer_ooh', gain: 0.65 },
-    { at: 1800, sample: 'sad_trombone' },
-    { at: 2600, sample: 'cheer_ooh', gain: 0.55 },
-    { at: 3400, sample: 'cheer_ooh', gain: 0.5 },
+    { at: 433, sample: 'pop_soft', gain: 0.25 },
+    { at: 600, sample: 'cheer_ooh', gain: 0.4 },
+    { at: 1800, sample: 'rat_chuckle', gain: 0.48 },
+    { at: 2600, sample: 'rage_grunt', gain: 0.4 },
+    { at: 3400, sample: 'raspberry_short', gain: 0.52 },
   ],
 };
 preloadThrowableCues(spec.audio.map((cue) => cue.sample));
@@ -86,7 +87,18 @@ function Payload(_props: RigProps) {
           <g className="thr-loser_hand__talk">
             <Tile tile={1} x={-60} y={-60} width={120} height={120} />
             <g className="thr-loser_hand__mouth">
-              <Tile tile={2} x={-60} y={-60} width={120} height={120} />
+              <PerformancePose
+                src="loser_hand-acting"
+                row={0}
+                rows={1}
+                x={-60.0}
+                y={-60.0}
+                width={120.0}
+                height={120.0}
+                duration={440}
+                delay={1470}
+                repeats={5}
+              />
             </g>
           </g>
           <g className="thr-loser_hand__hand">

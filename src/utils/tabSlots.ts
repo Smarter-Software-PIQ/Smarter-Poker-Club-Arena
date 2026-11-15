@@ -46,6 +46,8 @@ export interface SlotTab {
   seated?: boolean;
   /** A player-watch remains an observer even when our own seat leaves this table. */
   followPlayer?: unknown;
+  /** The tournament this table belongs to, when known. See `findTournamentSeatTab`. */
+  tournamentId?: string;
 }
 
 /** Lobby tabs carry a prefixed synthetic id as well as the flag; either proves it. */
@@ -166,4 +168,108 @@ export function pruneStaleSeatedTabs<T extends SlotTab>(
       ];
     return [];
   });
+}
+
+/**
+ * ═══ ONE TOURNAMENT, ONE CHAIR, ONE TAB ═════════════════════════════════════
+ *
+ * Owner report 2026-11-14: in an MTT on desktop, a balance / table-break move
+ * SOMETIMES opened the destination as a NEW tab, as if "+" had been pressed,
+ * and left the old table open to watch. The move must re-point the tab the
+ * player is sitting in.
+ *
+ * The move is learned from several independent sources: the engine socket
+ * (TablePage -> movedToTableId), the own-seat INSERT on table_seats, the
+ * tournament seat poll (TABLE_SEATED) and the server-truth seat rebuild. Only
+ * the first two knew it was a move. The other two saw "a live seat with no
+ * tab" and appended one, and whichever source landed first decided the
+ * outcome - hence "sometimes". During the move the server also briefly holds
+ * BOTH chairs (the destination is written before the source is closed), so a
+ * rebuild that read in that window kept the old tab as well.
+ *
+ * The rule every path now asks: a player holds exactly one chair per
+ * tournament. A new own seat in tournament T re-points the tab that holds the
+ * player's chair in T - in place, same slot - and never adds one.
+ */
+
+/**
+ * The tab holding the player's own chair in `tournamentId`, other than the
+ * destination itself; -1 when there is none. A player-watch is never the
+ * chair (it follows somebody else), and neither is a page or an unseated
+ * observer. `tournamentOf` lets a caller that has read the table rows supply
+ * the tournament for a tab that has not been told its own yet.
+ */
+export function findTournamentSeatTab<T extends SlotTab>(
+  tabs: readonly T[],
+  destinationId: string,
+  tournamentId: string | null | undefined,
+  tournamentOf: (tab: T) => string | null | undefined = (tab) => tab.tournamentId
+): number {
+  if (!tournamentId) return -1;
+  return tabs.findIndex(
+    (t) =>
+      t.id !== destinationId &&
+      !isPageTab(t) &&
+      t.seated === true &&
+      !t.followPlayer &&
+      (t.tournamentId || tournamentOf(t)) === tournamentId
+  );
+}
+
+export interface LiveSeatRow {
+  tableId: string;
+  tournamentId?: string | null;
+  /** table_seats.joined_at; the newest live seat in a tournament is the chair. */
+  joinedAt?: string | null;
+}
+
+/**
+ * Live seats that are NOT the player's chair: an older live seat in a
+ * tournament where a newer one exists is the source of a move the server has
+ * not finished closing. Unknown join times supersede nothing.
+ */
+export function supersededTournamentSeats(seats: readonly LiveSeatRow[]): Set<string> {
+  const newest = new Map<string, { tableId: string; at: number }>();
+  const unknown = new Set<string>();
+  for (const seat of seats) {
+    if (!seat.tournamentId) continue;
+    const at = seat.joinedAt ? Date.parse(seat.joinedAt) : NaN;
+    if (!Number.isFinite(at)) {
+      unknown.add(seat.tournamentId);
+      continue;
+    }
+    const best = newest.get(seat.tournamentId);
+    if (!best || at > best.at) newest.set(seat.tournamentId, { tableId: seat.tableId, at });
+  }
+  const superseded = new Set<string>();
+  for (const seat of seats) {
+    if (!seat.tournamentId || unknown.has(seat.tournamentId)) continue;
+    const best = newest.get(seat.tournamentId);
+    if (best && best.tableId !== seat.tableId) superseded.add(seat.tableId);
+  }
+  return superseded;
+}
+
+/**
+ * Re-point, in place, each tab whose tournament chair moved to a live seat
+ * that has no tab yet. Returns the tabs and the ids that were moved away from
+ * (so a caller does not report them as closed or re-open them).
+ */
+export function followTournamentMoves<T extends SlotTab>(
+  tabs: readonly T[],
+  chairs: readonly { tableId: string; tournamentId?: string | null }[],
+  repoint: (tab: T, destinationId: string) => T,
+  tournamentOf?: (tab: T) => string | null | undefined
+): { tabs: T[]; movedFrom: string[] } {
+  const chairIds = new Set(chairs.map((c) => c.tableId));
+  let next = tabs.slice();
+  const movedFrom: string[] = [];
+  for (const chair of chairs) {
+    if (!chair.tournamentId || next.some((t) => t.id === chair.tableId)) continue;
+    const index = findTournamentSeatTab(next, chair.tableId, chair.tournamentId, tournamentOf);
+    if (index < 0 || chairIds.has(next[index].id)) continue;
+    movedFrom.push(next[index].id);
+    next = next.map((t, i) => (i === index ? repoint(t, chair.tableId) : t));
+  }
+  return { tabs: next, movedFrom };
 }

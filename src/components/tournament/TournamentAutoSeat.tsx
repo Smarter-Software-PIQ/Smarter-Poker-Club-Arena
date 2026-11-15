@@ -285,6 +285,10 @@ export default function TournamentAutoSeat() {
         masterBus.emit('TABLE_SEATED', {
           tableId,
           seat: 0,
+          /* A balance move also lands here as a fresh seat. Naming the
+             tournament lets the multi-table layer re-point the chair's tab
+             instead of opening a second one (owner 2026-11-14). */
+          tournamentId: t.tournament_id,
           ...(origin ? { registrationLobbyTabId: origin } : {}),
         });
         // Registration authorizes entering this game, including a seat that

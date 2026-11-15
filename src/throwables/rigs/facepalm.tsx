@@ -1,3 +1,4 @@
+import { PerformancePose } from '../PerformancePose';
 import { AtlasSprite } from '../AtlasSprite';
 import { RIG_VIEWBOX, type RigProps, type ThrowableRig } from '../rig';
 import type { ThrowableSpec } from '../spec';
@@ -23,8 +24,8 @@ export const spec: ThrowableSpec = {
     { at: 4000, marker: 'cut' },
   ],
   audio: [
-    { at: 900, sample: 'card_slap', gain: 0.3 },
-    { at: 1400, sample: 'sigh_soft' },
+    { at: 900, sample: 'palm_contact', gain: 0.95 },
+    { at: 1400, sample: 'sigh_soft', gain: 0.62 },
   ],
 };
 preloadThrowableCues(spec.audio.map((cue) => cue.sample));
@@ -82,7 +83,18 @@ function Payload(_props: RigProps) {
           </g>
           <g className="thr-facepalm__hand">
             <g className="thr-facepalm__peek-hand">
-              <Tile tile={2} x={-48} y={-60} width={110} height={140} />
+              <PerformancePose
+                src="facepalm-acting"
+                row={0}
+                rows={1}
+                x={-48.0}
+                y={-45.0}
+                width={110.0}
+                height={110.0}
+                duration={510}
+                delay={535}
+                repeats={1}
+              />
             </g>
           </g>
         </g>

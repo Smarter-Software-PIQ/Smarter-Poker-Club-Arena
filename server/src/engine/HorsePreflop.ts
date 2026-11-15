@@ -368,6 +368,8 @@ export interface PreflopCtx {
    *  but whose call would commit more than the stack cap allows jams instead
    *  of folding (at 12-25bb effective the call is the stack). */
   vs3BetShortJam?: boolean;
+  /** See HorseDecideOpts.omahaCommitZoneThreeBetPriceRelief. Default off. */
+  omahaCommitZoneThreeBetPriceRelief?: boolean;
   /** V77 (2026-11-02): the V70 open width (percent of 1,326 combos) of the
    *  seat that made the ONLY raise hero faces, dealt-census indexed and
    *  ante-aware. Supplied by HorseLogic for no-limit hold'em facing exactly
@@ -1822,7 +1824,16 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     // the best, where the worst two hold ~12%), so being "crushed" is rare
     // and the pot odds carry most of the decision.
     let callOff = raises >= 2 ? 0.8 : 0.66;
-    if (guardOdds <= 0.4) callOff -= (0.4 - guardOdds) * 1.2; // 3:1 -> -0.18
+    if (
+      ctx.omahaCommitZoneThreeBetPriceRelief === true &&
+      ctx.isOmaha &&
+      ctx.omahaHiLo !== true &&
+      ctx.holeCards?.length === 6 &&
+      raises >= 2
+    ) {
+      // PLO6 tournament-folds study: the facing-3-bet priced branch's relief.
+      callOff -= Math.max(0, 0.5 - guardOdds) * 1.6;
+    } else if (guardOdds <= 0.4) callOff -= (0.4 - guardOdds) * 1.2; // 3:1 -> -0.18
     if (callers >= 1) callOff += Math.min(0.08, callers * 0.04);
     // V53 prices this call-off's survival cost itself (commitCall below).
     if (mzOn && effM >= 5 && !ploIcm) callOff += ctx.riskAdd * 0.5;

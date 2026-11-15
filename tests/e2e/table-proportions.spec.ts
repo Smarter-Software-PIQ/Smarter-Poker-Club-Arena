@@ -2628,6 +2628,7 @@ test.describe('embedded mobile action-row geometry', () => {
                 const identity = rect('.table-brand__line--identity');
                 const club = rect('.table-brand__club-name');
                 const union = rect('.table-brand__union');
+                const brand = rect('.table-brand');
                 const overlaps = (a: DOMRect, b: DOMRect) =>
                   a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
                 return {
@@ -2651,12 +2652,14 @@ test.describe('embedded mobile action-row geometry', () => {
                     getComputedStyle(document.querySelector('.table-brand__line--identity')!)
                       .fontSize
                   ),
-                  identityOneLine: Math.abs(club.top - union.top) <= 1,
+                  identityFits: [club, union].every(
+                    (part) => part.left >= brand.left - 1 && part.right <= brand.right + 1
+                  ),
                 };
               });
               expect(measured.vpipOverlaps, 'VPIP clears the previous hand and hero').toBe(false);
-              expect(measured.identityFont).toBeLessThanOrEqual(7);
-              expect(measured.identityOneLine).toBe(true);
+              expect(measured.identityFont).toBeCloseTo(11 * 0.67, 2);
+              expect(measured.identityFits).toBe(true);
               stableHeight ??= measured.scalerHeight;
               expect(
                 measured.scalerHeight,

@@ -198,6 +198,37 @@ it('installs the qualified retirement and refuses a changed protected unwind', (
       one(`SELECT array_agg((${countSQL}) ORDER BY scope.n)
       FROM (SELECT * FROM scope_ids UNION ALL SELECT 8,NULL::uuid) scope`)
     ).toBe('{1,2,0,0,1,2,0,0}');
+    // Exercise the actual impact wrapper against the terminal receipt written above.
+    // The reset walk throws if called. A matching receipt skips that walk while
+    // an unrelated, missing or malformed receipt still takes the pre-reset path.
+    const originalImpact = source('20261002152925_club_retirement_safe_unwind.sql');
+    const beginImpact = originalImpact.indexOf('CREATE FUNCTION public.fn_club_retirement_impact(');
+    const endImpact = originalImpact.indexOf('$function$;', beginImpact) + '$function$;'.length;
+    sql(`DROP FUNCTION public.fn_club_retirement_impact(uuid);
+      ALTER TABLE public.wheel_configs ADD COLUMN host_kind text;
+      ALTER TABLE public.diamond_game_configs ADD COLUMN host_kind text;
+      CREATE FUNCTION public.fn_club_retirement_impact_core_20260906(uuid) RETURNS jsonb
+      LANGUAGE sql AS $$ SELECT '{"open_obligations":2,"wallet_chips":11}'::jsonb $$;
+      DROP FUNCTION public.fn_get_club_welcome_package_reset_impact(uuid);
+      CREATE FUNCTION public.fn_get_club_welcome_package_reset_impact(uuid) RETURNS jsonb
+      LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'package history inspected'; END $$;
+      INSERT INTO public.tournament_schedules(id,club_id,active) VALUES(gen_random_uuid(),'${club}',true);`);
+    sql(originalImpact.slice(beginImpact, endImpact));
+    const inspect = (id: string) =>
+      JSON.parse(one(`SELECT public.fn_club_retirement_impact('${id}')`));
+    expect(() => inspect(club)).toThrow(/package history inspected/);
+    sql(source('20261114231625_skip_settled_welcome_history_in_retirement_impact.sql'));
+    expect(inspect(club)).toMatchObject({
+      open_obligations: 3,
+      active_tournament_schedules: 1,
+      wallet_chips: 11,
+      pristine_welcome_retire_available: false,
+    });
+    expect(() => inspect('11111111-1111-1111-1111-111111111111')).toThrow(
+      /package history inspected/
+    );
+    sql("UPDATE public.club_welcome_reset_receipts SET result = result - 'operation_id'");
+    expect(() => inspect(club)).toThrow(/package history inspected/);
   } finally {
     if (started) run('pg_ctl', ['-D', data, '-m', 'immediate', 'stop']);
     rmSync(scratch, { recursive: true, force: true });
