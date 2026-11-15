@@ -14964,6 +14964,11 @@ export class GameServer {
     }
   }
 
+  /** Wake the existing matcher from the original acknowledged seat transition. */
+  lightningSeatReady(clusterId: string): void {
+    this.lightningSupervisor.admit(clusterId);
+  }
+
   /** Is this id a table engine here, or a Lightning room this process serves? */
   hasTableOrLightningRoom(tableId: string): boolean {
     return this.tableEngines.has(tableId) || this.lightningRooms.isRoom(tableId);

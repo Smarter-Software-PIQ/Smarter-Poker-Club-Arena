@@ -1214,9 +1214,3 @@
 .throwable-selector.sc .sc__close {
   font-size: max(24px, 5.2cqw);
 }
-
-.player-cash-stats__game {
-  padding: 4px 10px;
-  font-size: 14px;
-  line-height: 1.45;
-}

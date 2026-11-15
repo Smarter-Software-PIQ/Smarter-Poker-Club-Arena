@@ -93,7 +93,7 @@ Get an independent fresh-context review of the exact head, then protected squash
 
 ### 5. Lock The Inputs At The Booking Merge
 
-- Disable the applier: `env -u GH_TOKEN -u GITHUB_TOKEN gh workflow disable apply-merged-migration.yml` (owner-authorized pause; record start, end condition and expiry in COORDINATION-INBOX).
+- Disable the applier: `env -u GH_TOKEN -u GITHUB_TOKEN gh workflow disable apply-merged-migration.yml` (owner-authorized pause; record start, end condition and expiry in COORDINATION-INBOX), and record the main SHA at which the pause began: the resume step in 10 needs it). A switched-off workflow drops what it misses instead of queuing it, so every ordinary migration merged during the pause stays uninstalled until step 10 sends it.
 - Post a hold on release-control paths in COORDINATION-INBOX, naming the paths and the end condition (SEALED, abandonment or expiry). Do not freeze ordinary merges.
 - Any other lane with a database window in the same span: get its written acknowledgement in the inbox that it will not dispatch before your SEALED. Posting is not acknowledgement. If you cannot reach that chat, ask the owner to paste the stand-down into it.
 - Check `git diff --name-only <target> origin/main -- supabase/migrations`: any ordinary migration in the target that production lacks must be installed BEFORE the Backup copy (the selector requires every migration the candidate adds). Dispatch it through Apply Merged Migration, then disable again.
@@ -138,7 +138,8 @@ Never retry. If the result is uncertain, read the Stage run, receiver run and ho
 - Receipt `/var/lib/club-arena/engine-release-results/<run>-1.json`: sha, image, container and instance equal public `/health` and `docker inspect`.
 - After the break end: `/health` maintenance idle, `resumeWaves` done, 0 stalled, settlement ok, all decision workers on the target revision; `engine_maintenance_break_log` newest row `thaw_ok` true; `hand_history` rows since the thaw for cash and tournaments; `fn_platform_frozen()` false.
 - Exclusions on the live manifest: held-out packs `enabled: false`, V31 store empty, no Pillar 2 entry.
-- Re-enable the applier, post SEALED with exact identities in COORDINATION-INBOX, tell waiting lanes they are clear, archive evidence, remove your worktrees.
+- Resume installs with ONE command, never a bare re-enable: `env -u GH_TOKEN -u GITHUB_TOKEN bash scripts/release/resume-migration-installs.sh <pause-start-sha>` (run `--dry-run` first). It switches BOTH the applier and Dispatch Merged Migrations back on, then sends every ordinary migration added or modified on main since the pause, once each, oldest first; window files stay for 04:00. Read each Apply Merged Migration run's result. Do the same on abandonment or expiry.
+- Post SEALED with exact identities in COORDINATION-INBOX, tell waiting lanes they are clear, archive evidence, remove your worktrees.
 
 ## Failure Modes Seen On November 12 To 13
 
@@ -147,6 +148,7 @@ Never retry. If the result is uncertain, read the Stage run, receiver run and ho
 | Backup restore missed a new production role                                  | Every commit failed `database_refresh_failed` for hours | Fix the restore role list first (#10665)                                                                                                     |
 | Another lane's ordinary migration installed 20 minutes after the Backup copy | Certificate unusable, window lapsed                     | Disable the applier from the booking merge to SEALED                                                                                         |
 | Another lane merged a database booking 4 minutes before dispatch             | Target lost main's release controls, window lapsed      | Hold release-control paths and get acknowledgement from any lane with an open booking PR                                                     |
+| November 15: applier and dispatcher switched off at the 1806z booking, only re-enabling planned | Five ordinary migrations merged during the pause were dropped, never installed; MergedMigrationNotInstalled paged (4th recurrence) | Resume with `scripts/release/resume-migration-installs.sh <pause-start-sha>`, which re-sends what merged during the pause |
 | A merged migration was defective (stale function pin) and refused            | Target required a migration that cannot install         | Install required migrations before the Backup copy; if refused, revert the never-installed file (precedent #10430) and let its owner re-land |
 | Own useless Backup run queued ahead of the real candidate                    | About 55 minutes lost                                   | Cancel your own unusable queued run                                                                                                          |
 | Window booked for an announcement after :49                                  | Refused or deferred to :05:30                           | Plan the announcement between :05:30 and :48:00                                                                                              |

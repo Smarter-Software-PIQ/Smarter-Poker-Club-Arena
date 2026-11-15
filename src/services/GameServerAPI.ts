@@ -1263,7 +1263,7 @@ export async function addChips(
 export async function setSitOut(
   tableId: string,
   sitOut: boolean
-): Promise<ActionResult & { willFoldNextHand?: boolean }> {
+): Promise<ActionResult & { willFoldNextHand?: boolean; blindOff?: boolean }> {
   try {
     const headers = await getAuthHeaders();
     const response = await engineFetch(`${GAME_SERVER_URL}/sitout`, {
@@ -1285,7 +1285,7 @@ export async function setSitOut(
      * The status code is still the fallback for a response with no usable body
      * — a proxy error page, a 502, an empty 500. */
     const body = (await response.json().catch(() => null)) as
-      | (ActionResult & { willFoldNextHand?: boolean })
+      | (ActionResult & { willFoldNextHand?: boolean; blindOff?: boolean })
       | null;
     if (body && typeof body.success === 'boolean') return body;
     if (!response.ok) return { success: false, error: `Server error (${response.status})` };

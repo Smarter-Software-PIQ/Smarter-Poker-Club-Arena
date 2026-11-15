@@ -1,4 +1,7 @@
-import { runtimeHorseJournalArchiveOptions } from './horseDecisionJournal/config.js';
+import {
+  runtimeHorseJournalArchiveOptions,
+  runtimeHorseJournalWriterArchiveOptions,
+} from './horseDecisionJournal/config.js';
 import { Worker } from 'node:worker_threads';
 import { randomUUID } from 'node:crypto';
 import { resolveReleaseIdentity } from '../releaseIdentity.js';
@@ -217,6 +220,8 @@ const HEALTH_STATS_FIELDS = [
   'heldBytes',
   'holdBudgetBytes',
   'holdTrimmedSegments',
+  'minRetentionMs',
+  'retentionBreaches',
   'compressedBytes',
   'maxBytes',
   'records',
@@ -257,6 +262,11 @@ export interface HorseJournalHealth {
   heldBytes: number | null;
   holdBudgetBytes: number | null;
   holdTrimmedSegments: number | null;
+  /** The writer's time guarantee in force (0: off; 2026-11-15) and the appends
+   * since that writer opened on which the ring retired a segment the guarantee
+   * covers (disk floor, unreadable disk, or a full hard quota). */
+  minRetentionMs: number | null;
+  retentionBreaches: number | null;
   compressedBytes: number | null;
   maxBytes: number | null;
   records: number | null;
@@ -291,6 +301,8 @@ const EMPTY_HEALTH: Pick<HorseJournalHealth, (typeof HEALTH_STATS_FIELDS)[number
     heldBytes: null,
     holdBudgetBytes: null,
     holdTrimmedSegments: null,
+    minRetentionMs: null,
+    retentionBreaches: null,
     compressedBytes: null,
     maxBytes: null,
     records: null,
@@ -971,6 +983,8 @@ export class HorseDecisionJournalPublisher {
       heldBytes: number('heldBytes'),
       holdBudgetBytes: number('holdBudgetBytes'),
       holdTrimmedSegments: number('holdTrimmedSegments'),
+      minRetentionMs: number('minRetentionMs'),
+      retentionBreaches: number('retentionBreaches'),
       compressedBytes: number('compressedBytes'),
       maxBytes: number('maxBytes'),
       records: number('records'),
@@ -1219,7 +1233,7 @@ export function prespawnHorseDecisionJournalWriter(shard?: { index: number }): v
   const directory = process.env.HORSE_DECISION_JOURNAL_DIR;
   if (!directory) return;
   try {
-    const archive = runtimeHorseJournalArchiveOptions(directory, process.env, shard);
+    const archive = runtimeHorseJournalWriterArchiveOptions(directory, process.env, shard);
     // Until the publisher adopts it nothing listens for this thread's failure,
     // and an unhandled 'error' event would take the decision worker down. A
     // writer that failed before adoption is replaced by the publisher's own
@@ -1261,7 +1275,7 @@ export function startHorseDecisionJournal(shard?: { index: number }): void {
     return;
   }
   try {
-    const archive = runtimeHorseJournalArchiveOptions(directory, process.env, shard);
+    const archive = runtimeHorseJournalWriterArchiveOptions(directory, process.env, shard);
     const createWriter = () => spawnJournalWriter(directory, archive);
     // `lifecycle` says only that construction did not throw. A writer module
     // that cannot load fails later, as an event; the publisher reports that as

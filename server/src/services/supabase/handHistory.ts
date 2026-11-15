@@ -11,7 +11,11 @@ import {
 } from '../../engine/HorsePublicMemoryDomain.js';
 import { readExactHorseOpponentProfiles } from '../HorseExactOpponentMemory.js';
 import { publicHandStatsFrame } from '../../engine/presentation/publicHandStats.js';
-import { horseOpponentMemorySchema, readHorseOpponentProfiles } from '../HorseOpponentMemory.js';
+import {
+  admitCompletedHandExactRead,
+  horseOpponentMemorySchema,
+  readHorseOpponentProfiles,
+} from '../HorseOpponentMemory.js';
 import { memoryVariant, type DurableOpponentProfile } from '../../engine/HorseOpponentMemory.js';
 /**
  * Supabase helpers — the 4-tier hand history writer (Bible V8 §2.18).
@@ -500,6 +504,7 @@ export function tournamentStackProofIsExact(
 export async function logHandHistory(params: {
   publicMemoryDomain?: HorsePublicMemoryDomain | null;
   tableId: string;
+  observedHands?: import('../../transport/ObservedHands.js').ObservedHandReceipt[];
   /**
    * `tables.nit_game`. Passed through to writeHandFacts so a horse at a NIT
    * table produces the VPIP evidence the rule is judged on. See the note over
@@ -807,6 +812,7 @@ export async function logHandHistory(params: {
 
   const opponentDealtCount = params.holeCardsAll?.size;
   const row = {
+    ...(params.observedHands?.length ? { _observed_hands: params.observedHands } : {}),
     // The RLS roster can include non-dealt chairs. Only the authoritative
     // dealt-card map can state the population the opponent read belongs to.
     ...(opponentDealtCount !== undefined && opponentDealtCount >= 2 && opponentDealtCount <= 10
@@ -1058,6 +1064,8 @@ export async function logHandHistory(params: {
     const variant = memoryVariant(params.gameVariant);
     const dealt = params.holeCardsAll?.size ?? params.roster?.length ?? params.players?.length ?? 0;
     let durableOpponentProfiles: DurableOpponentProfile[] | undefined;
+    // A failed read is named, so the worker can tell it from a read that found no saved row.
+    let durableOpponentProfilesReadFailed = false;
     if (variant && (await horseOpponentMemorySchema()) === 'installed') {
       durableOpponentProfiles = [];
       try {
@@ -1071,7 +1079,14 @@ export async function logHandHistory(params: {
         if (actors.length)
           durableOpponentProfiles = await (
             params.publicMemoryDomain === undefined
-              ? readHorseOpponentProfiles
+              ? // Legacy completed-hand read: its own admission gate, never the decision gate (M1).
+                (
+                  ids: string[],
+                  v: string,
+                  mode: 'cash' | 'tournament',
+                  size: 'hu' | 'short' | 'full'
+                ) =>
+                  readHorseOpponentProfiles(ids, v, mode, size, undefined, admitCompletedHandExactRead)
               : (
                   ids: string[],
                   v: string,
@@ -1085,6 +1100,7 @@ export async function logHandHistory(params: {
             dealt <= 2 ? 'hu' : dealt <= 5 ? 'short' : 'full'
           );
       } catch (error) {
+        durableOpponentProfilesReadFailed = true;
         if (isOpponentMemoryBusyRefusal(error))
           reportThrottled(
             'HandHistory.durable_opponent_read',
@@ -1104,6 +1120,9 @@ export async function logHandHistory(params: {
       // F2: the persisted has_human value (absent when the roster is unknown, as the row omits it)
       ...(rosterHasHuman === undefined ? {} : { styleHasHuman: rosterHasHuman }),
       durableOpponentProfiles,
+      ...(durableOpponentProfilesReadFailed
+        ? { durableOpponentProfilesRead: 'failed' as const }
+        : {}),
       generation: params.handNumber,
       fence: [
         params.tableId,
