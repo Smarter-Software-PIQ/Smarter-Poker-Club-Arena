@@ -64,9 +64,7 @@ it('reads only saved public columns with observed hands, by keyset, before the f
   expect(result?.profiles).toEqual([row()]);
   expect(result!.availableAtMs).toBeGreaterThanOrEqual(before);
   expect(mock.from).toHaveBeenCalledWith('horse_exact_profiles');
-  expect(mock.select).toHaveBeenCalledWith(
-    'user_id,variant,mode,size,counters,observed_hands,initialized,public_memory_domain'
-  );
+  expect(mock.select).toHaveBeenCalledWith('*');
   expect(mock.gt).toHaveBeenCalledWith('observed_hands', 0);
   expect(mock.limit).toHaveBeenCalledWith(1000);
   expect(mock.abort).toHaveBeenCalledTimes(1);

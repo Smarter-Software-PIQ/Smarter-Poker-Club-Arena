@@ -263,11 +263,17 @@ test.describe('Cashier Statements - authenticated production route', () => {
       surface.locator(
         'section[aria-labelledby="statement-entries-title"] button[aria-expanded] > span:last-child'
       ),
-      'Full Statement entries'
+      'Full Statement entries',
+      // one amount for every entry row on the glass (none when refused or empty)
+      await surface
+        .locator('section[aria-labelledby="statement-entries-title"] button[aria-expanded]')
+        .count()
     );
     await expectExactCashierFigures(
       surface.locator('[aria-label="Statement Totals"] strong'),
-      'Full Statement totals'
+      'Full Statement totals',
+      // the four totals, or none when the statement is refused
+      [0, 4]
     );
     await expectCashierAxeClean(
       page,

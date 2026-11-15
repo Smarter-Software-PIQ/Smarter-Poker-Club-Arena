@@ -15,8 +15,10 @@
  *   - one arm is a set of decide options (and, until a producer exists, an
  *     optional snapshot patch) applied to the SUBJECT seats only; every other
  *     Horse plays the baseline options. Two arms of one cell are played on the
- *     same deals, seats, opponents and per-hand random streams, so the
- *     per-hand difference is the paired sample;
+ *     same deals, seats, opponent definitions and random streams (one stream
+ *     per hand, Horse seat and decision index), so the per-hand difference is
+ *     the paired sample. Each arm is its own playthrough: the Horses' reads
+ *     accumulate per arm (part of the treatment);
  *   - participation is reported with its quality: opportunities, voluntary
  *     entries, first-in raise / limp / fold, the big blind's answer by price,
  *     and the strength of the range that enters and that sees a flop.
@@ -45,9 +47,14 @@ import { horsePreflopStrength } from './LightningHorseEarlyFold.js';
 import { buildLightningHorseSnapshot } from './LightningHorse.js';
 import {
   LIGHTNING_EVAL_BIG_BLIND,
+  LIGHTNING_EVAL_CONSERVATION_TOLERANCE,
   LIGHTNING_EVAL_SMALL_BLIND,
   bbPriceBucket,
+  classifyLightningEntry,
+  createLightningDryStreakTracker,
   emptyPositionStats,
+  lightningEvalConservationGap,
+  lightningEvalIsPreflopRaise,
   lightningEvalMix,
   lightningEvalPosition,
   strengthBin,
@@ -171,16 +178,27 @@ export async function playLightningEvalArm(input: {
     subjectDecisions: 0,
     illegalActions: 0,
     illegalAmounts: 0,
+    subjectIllegalActions: 0,
+    subjectIllegalAmounts: 0,
+    conservationViolations: 0,
     policyFallbacks: 0,
     decideThrows: 0,
     villainRejected: 0,
     unsettledHands: 0,
     buttonMismatch: 0,
     armOptionKeysSeen: [] as string[],
+    subjectDecideOptionKeys: [] as string[],
+    nonSubjectDecideOptionKeys: [] as string[],
   };
+  const subjectKeysSeen = new Set<string>();
+  const nonSubjectKeysSeen = new Set<string>();
+  const dryStreak = createLightningDryStreakTracker();
   let rakeConfig: unknown = null;
   let tableRake = 0;
+  let tableFee = 0;
   let subjectRake = 0;
+  let subjectRakeShare = 0;
+  let subjectFeeShare = 0;
   try {
     vi.setSystemTime(Date.UTC(2026, 9, 24));
     HorseMind.reset();
@@ -196,9 +214,13 @@ export async function playLightningEvalArm(input: {
     for (let h = 0; h < input.hands; h++) {
       // Every random stream of the hand is a function of (seed, cell, hand)
       // alone, so a divergence in one hand never shifts the cards, the brain's
-      // jitter or the opponents' dice of a later hand.
+      // jitter or the opponents' dice of a later hand. Within the hand every
+      // Horse decision draws from its own stream (seat, decision index): a
+      // subject that draws more or fewer numbers does not re-roll another seat.
       input.setDeckState(lightningEvalMix(cellKey, h, 1));
-      seedFastRandom(lightningEvalMix(cellKey, h, 2));
+      const horseStream = lightningEvalMix(cellKey, h, 2);
+      seedFastRandom(horseStream);
+      const horseStep = new Map<string, number>();
       const hostRandom = xorshift(lightningEvalMix(cellKey, h, 3));
       const pick = xorshift(lightningEvalMix(cellKey, h, 4));
       // A new table every hand: the hero rotates through every seat, the
@@ -265,6 +287,13 @@ export async function playLightningEvalArm(input: {
           const gs = used.gameState;
           if (rakeConfig === null) rakeConfig = structuredClone(gs.rakeConfig ?? null);
           if (gs.dealerSeat !== n) counters.buttonMismatch++;
+          const decideOpts = isSubject ? armOpts : baseOpts;
+          const keysSeen = isSubject ? subjectKeysSeen : nonSubjectKeysSeen;
+          for (const key of Object.keys(decideOpts)) keysSeen.add(key);
+          const step = horseStep.get(uid) ?? 0;
+          horseStep.set(uid, step + 1);
+          const ambient = saveFastRandom();
+          seedFastRandom(lightningEvalMix(horseStream, Number(gs.heroSeat) || 0, step));
           const t0 = performance.now();
           let decision: any;
           try {
@@ -273,11 +302,13 @@ export async function playLightningEvalArm(input: {
               gs,
               used.style,
               used.mods ?? {},
-              (isSubject ? armOpts : baseOpts) as never
+              decideOpts as never
             );
           } catch (err) {
             counters.decideThrows++;
             throw err;
+          } finally {
+            restoreFastRandom(ambient);
           }
           const ms = performance.now() - t0;
           counters.decisions++;
@@ -285,18 +316,23 @@ export async function playLightningEvalArm(input: {
           // cannot tell: asIfToAct reports the hero as the seat to act.
           const early = String(snap.fence ?? '').endsWith(':early');
           const legal: string[] = gs.legalActions ?? [];
+          // Legality is counted for EVERY Horse seat; the subject's part apart.
+          if (!legal.includes(decision.action)) {
+            counters.illegalActions++;
+            if (isSubject) counters.subjectIllegalActions++;
+          } else if (
+            (decision.action === 'bet' || decision.action === 'raise') &&
+            gs.minRaiseTo != null &&
+            gs.maxRaiseTo != null &&
+            (Number(decision.amount) < gs.minRaiseTo - 0.011 ||
+              Number(decision.amount) > gs.maxRaiseTo + 0.011)
+          ) {
+            counters.illegalAmounts++;
+            if (isSubject) counters.subjectIllegalAmounts++;
+          }
           if (isSubject) {
             counters.subjectDecisions++;
             latency.push(ms);
-            if (!legal.includes(decision.action)) counters.illegalActions++;
-            else if (
-              (decision.action === 'bet' || decision.action === 'raise') &&
-              gs.minRaiseTo != null &&
-              gs.maxRaiseTo != null &&
-              (Number(decision.amount) < gs.minRaiseTo - 0.011 ||
-                Number(decision.amount) > gs.maxRaiseTo + 0.011)
-            )
-              counters.illegalAmounts++;
             if (decision.policyFallback) counters.policyFallbacks++;
             if (
               gs.stage === 'preflop' &&
@@ -311,7 +347,7 @@ export async function playLightningEvalArm(input: {
               });
           }
           decisionLog.push(
-            `${uid.slice(-6)}|${gs.stage}|${early ? 'e' : 't'}|${decision.action}|${
+            `${uid.slice(-6)}|${isSubject ? 'S' : 'H'}|${gs.stage}|${early ? 'e' : 't'}|${decision.action}|${
               decision.amount === undefined ? '' : Math.round(Number(decision.amount) * 100)
             }`
           );
@@ -424,8 +460,21 @@ export async function playLightningEvalArm(input: {
         const subjects: LightningEvalSubjectHand[] = [];
         if (!settled) counters.unsettledHands++;
         else {
-          tableRake += Number(settled.rake) || 0;
+          const handRake = Number(settled.rake) || 0;
+          // The bad-beat-jackpot fee: the settlement's `bbj`, taken beside the rake.
+          const handFee = Number(settled.bbj) || 0;
+          tableRake += handRake;
+          tableFee += handFee;
+          if (
+            Math.abs(lightningEvalConservationGap(settled.results, handRake, handFee)) >
+            LIGHTNING_EVAL_CONSERVATION_TOLERANCE
+          )
+            counters.conservationViolations++;
           const wonTotal = settled.results.reduce((s: number, r: any) => s + (r.won || 0), 0);
+          const contributedTotal = settled.results.reduce(
+            (s: number, r: any) => s + (r.contributed || 0),
+            0
+          );
           for (const id of subjectIds) {
             const res = settled.results.find((r: any) => r.playerId === id);
             if (!res) continue;
@@ -437,12 +486,9 @@ export async function playLightningEvalArm(input: {
             const unopened = before.every((a) => a.action === 'fold');
             const first = mine[0]?.action as string | undefined;
             const vpip = mine.some((a) => ['call', 'bet', 'raise', 'all_in'].includes(a.action));
-            const pfr = mine.some(
-              (a) =>
-                a.action === 'bet' ||
-                a.action === 'raise' ||
-                (a.action === 'all_in' && a.isFullRaise !== false)
-            );
+            // An all-in is a raise only when the engine marked it a full raise.
+            const pfr = mine.some((a) => lightningEvalIsPreflopRaise(a as never));
+            const entryKind = classifyLightningEntry(pre as never, id, seat);
             // A WALK: the big blind was never asked anything (everyone folded).
             const walk = seat === 2 && mine.length === 0 && preFolds.size === n - 1;
             const firstIn =
@@ -456,8 +502,12 @@ export async function playLightningEvalArm(input: {
             const cards = (t.host as any).holeCards.get(id)?.cards ?? [];
             const strength = horsePreflopStrength(cards, cell.variant);
             const net = (res.won - res.contributed) / bb;
-            if (res.won > 0 && wonTotal > 0)
-              subjectRake += ((Number(settled.rake) || 0) * res.won) / wonTotal;
+            if (res.won > 0 && wonTotal > 0) subjectRake += (handRake * res.won) / wonTotal;
+            if (contributedTotal > 0) {
+              subjectRakeShare += (handRake * (res.contributed || 0)) / contributedTotal;
+              subjectFeeShare += (handFee * (res.contributed || 0)) / contributedTotal;
+            }
+            dryStreak.record(id, vpip, walk);
             const bbAns = bbFirstPriced.get(id) ?? null;
             const row: LightningEvalSubjectHand = {
               id: id.slice(-6),
@@ -468,6 +518,7 @@ export async function playLightningEvalArm(input: {
               pfr,
               walk,
               firstIn,
+              entryKind,
               sawFlop: reachedFlop && !preFolds.has(id),
               fastFold: res.foldType === 'fast',
               strength: Number.isFinite(strength) ? Math.round(strength * 10000) / 10000 : -1,
@@ -481,6 +532,7 @@ export async function playLightningEvalArm(input: {
               s.netBB += row.netBB;
               if (walk) s.walks++;
               if (vpip) s.vpip++;
+              if (entryKind) s.entryKinds[entryKind]++;
               if (pfr) s.pfr++;
               if (row.fastFold) s.fastFolds++;
               if (firstIn) {
@@ -521,6 +573,7 @@ export async function playLightningEvalArm(input: {
           h,
           settled: Boolean(settled),
           rakeBB: settled ? Math.round(((Number(settled.rake) || 0) / bb) * 1000) / 1000 : 0,
+          jackpotFeeBB: settled ? Math.round(((Number(settled.bbj) || 0) / bb) * 1000) / 1000 : 0,
           subjects,
           decisions: decisionLog,
           accepted: accepted.map(
@@ -533,6 +586,8 @@ export async function playLightningEvalArm(input: {
       }
     }
     const sorted = [...latency].sort((a, b) => a - b);
+    counters.subjectDecideOptionKeys = [...subjectKeysSeen].sort();
+    counters.nonSubjectDecideOptionKeys = [...nonSubjectKeysSeen].sort();
     return {
       arm: arm.name,
       scope,
@@ -541,7 +596,11 @@ export async function playLightningEvalArm(input: {
       byPosition,
       rakeConfig,
       tableRakeBBPer100: hands.length ? (tableRake / bb / hands.length) * 100 : 0,
+      tableJackpotFeeBBPer100: hands.length ? (tableFee / bb / hands.length) * 100 : 0,
       subjectRakeBBPer100: total.hands ? (subjectRake / bb / total.hands) * 100 : 0,
+      subjectRakeShareBBPer100: total.hands ? (subjectRakeShare / bb / total.hands) * 100 : 0,
+      subjectJackpotFeeShareBBPer100: total.hands ? (subjectFeeShare / bb / total.hands) * 100 : 0,
+      dryStreak: dryStreak.counts,
       counters,
       latencyMs: {
         n: sorted.length,

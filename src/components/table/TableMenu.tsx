@@ -68,6 +68,14 @@ export interface MenuAction {
   danger?: boolean;
   disabled?: boolean;
   badge?: string | number;
+  /**
+   * An ON/OFF switch, not a destination. Pressing it leaves the menu open so
+   * the badge is seen to change. Until 2026-11-14 every row closed the menu,
+   * so a switch dropped the player back on the felt with nothing to show
+   * whether the press had registered (Dan: "IT JUST BRINGS YOU BACK TO THE
+   * PLAYING PAGE").
+   */
+  keepOpen?: boolean;
 }
 
 export interface MenuSection {
@@ -180,6 +188,7 @@ export function createDefaultMenuSections(
           label: 'Stand Up Next Big Blind',
           icon: <SitOutIcon />,
           badge: state?.standUpBBBadge,
+          keepOpen: true,
           onClick: handlers.onStandUpBB || (() => {}),
         },
         ...(state?.canAddFunds === false
@@ -208,6 +217,7 @@ export function createDefaultMenuSections(
                       label: 'Auto Top Up',
                       icon: <RebuyIcon />,
                       badge: state?.autoTopUpBadge,
+                      keepOpen: true,
                       onClick: handlers.onAutoTopUp || (() => {}),
                     },
                   ]),
@@ -260,6 +270,7 @@ export function createDefaultMenuSections(
           label: 'Sounds',
           icon: <SettingsIcon />,
           badge: state?.soundsBadge,
+          keepOpen: true,
           onClick: handlers.onToggleSounds || (() => {}),
         },
         {
@@ -267,6 +278,7 @@ export function createDefaultMenuSections(
           label: 'Vibrations',
           icon: <SettingsIcon />,
           badge: state?.vibrationsBadge,
+          keepOpen: true,
           onClick: handlers.onToggleVibrations || (() => {}),
         },
         /* Dan 2026-08-30: "IT SHOULD ALSO BE AN ON OFF SWITCH IN THE
@@ -280,6 +292,7 @@ export function createDefaultMenuSections(
                 label: 'Multi Table Profit Tracking',
                 icon: <SettingsIcon />,
                 badge: state?.profitTrackingBadge,
+                keepOpen: true,
                 onClick: handlers.onToggleProfitTracking,
               },
             ]
@@ -462,6 +475,7 @@ export function TableMenu({
           label: 'Social Name',
           icon: <NameTagIcon />,
           badge: useRealName ? 'Real Name' : 'Username',
+          keepOpen: true,
           onClick: handleUseRealNameToggle,
         },
         ...(onOpenIdentity
@@ -485,6 +499,7 @@ export function TableMenu({
           label: 'Auto Time Bank',
           icon: <SettingsIcon />,
           badge: playerSettings.auto_time_bank ? 'ON' : 'OFF',
+          keepOpen: true,
           onClick: () => void togglePlayerSetting('auto_time_bank'),
         },
         ...(seatChangeEnabled
@@ -494,6 +509,7 @@ export function TableMenu({
                 label: 'Seat Change',
                 icon: <SettingsIcon />,
                 badge: seatChangeVisible ? 'ON' : 'OFF',
+                keepOpen: true,
                 onClick: () => setSeatChangeVisible(!seatChangeVisible),
               },
             ]
@@ -582,7 +598,7 @@ export function TableMenu({
       // FIX 198: Bible V8 §5.4 — use haptic service, not raw navigator.vibrate
       haptic.light();
       action.onClick();
-      onClose();
+      if (!action.keepOpen) onClose();
     },
     [onClose]
   );
