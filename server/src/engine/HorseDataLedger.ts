@@ -1190,9 +1190,21 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   receipt(
     'style_value_bettor_not_maniac_seen',
-    'HorseMind.legacyExploit (STYLE READ #2)',
-    'a postflop aggression factor above 2.5 kept neutral respect because the style read says the bettor is value-weighted; occurrence counter (counts reads, not decisions); named *_seen',
+    'HorseMind.legacyExploit and readExploit, HorseLogic maniacCallDown (STYLE READ #2)',
+    "a value-weighted bettor (style read) was not treated as a maniac: a postflop aggression factor above 2.5 kept neutral respect, the newer exploit read's call-down widening was removed (2026-11-15), or the postflop maniac call-down stood aside on his bet (2026-11-15); fired only where that effect applied; occurrence counter (counts reads, not decisions); named *_seen",
     '2026-11-13'
+  ),
+  receipt(
+    'style_tight_respect_fold_kept_from_floor_seen',
+    'HorseLogic.vpipFloorCallDown (STYLE READ #6, later layers keep the style read)',
+    "a preflop fold the tight opener / re-raiser respect produced (its respect-free twin was not a fold) was kept from the VPIP-floor cheap call-down because the horse's own windowed VPIP was not within one hand of its floor; named *_seen",
+    '2026-11-15'
+  ),
+  receipt(
+    'style_fold_bluff_held_by_big_bet_honesty_seen',
+    'HorseLogic.decide V64 river bluff-raise gate (STYLE READ items 3 and #3)',
+    'a river bluff-raise was rolled against a bet the big-bet honesty read calls credibly value, and the fold-bluff multiplier alone would have opened the gate; the gate stayed closed; named *_seen',
+    '2026-11-15'
   ),
   receipt(
     'style_big_bet_honesty_seen',

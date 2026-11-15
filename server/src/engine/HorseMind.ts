@@ -3876,18 +3876,38 @@ export class HorseMind {
     const thin = withheld && thinRead !== null && thinRead < 1 ? null : thinRead;
     const shift = callDownRespectShift(read);
     if (bluff === null && thin === null && shift === 0) return legacy;
+    let callDownMod = shift !== 0 ? 1 - shift : legacy.callDownMod;
+    // LATER LAYERS KEEP THE STYLE READ (2026-11-15, rule 4): STYLE READ #2 must
+    // hold on the read that decides. A frequent bet-when-checked-to engages
+    // this newer read and its maniac widening replaced the legacy branch's
+    // stand-down, so the receipt fired and a value bettor was still called
+    // down as a maniac. With the option on, a value bettor is never widened
+    // here either; the receipt fires once per read, where the effect applies.
+    if (
+      callDownMod > 1 &&
+      options.styleValueBettor === true &&
+      isValueBettor(this.styleRead(userId))
+    ) {
+      if (!this.legacyValueBettorHeld) noteFire('style_value_bettor_not_maniac_seen');
+      callDownMod = Math.min(1, legacy.callDownMod);
+    }
     return {
       bluffMod: bluff ?? legacy.bluffMod,
-      callDownMod: shift !== 0 ? 1 - shift : legacy.callDownMod,
+      callDownMod,
       valueThinMod: thin ?? legacy.valueThinMod,
     };
   }
+
+  /** The legacy read's value-bettor stand-down fired on its last call
+   *  (synchronous; read by readExploit right after legacyExploit). */
+  private static legacyValueBettorHeld = false;
 
   private static legacyExploit(
     userId: string,
     recencyBlend: boolean,
     options: ExploitReadOptions = {}
   ): ExploitProfile {
+    this.legacyValueBettorHeld = false;
     const s = this.readStats(userId);
     if (!s || s.hands < 10) return NEUTRAL_EXPLOIT;
     // V45: the recency window is pooled (gears are not per-scope).
@@ -3983,6 +4003,7 @@ export class HorseMind {
           // STYLE READ #2: a credibly low-raise-frequency or high
           // shown-strength bettor is not a maniac on the ratio alone.
           noteFire('style_value_bettor_not_maniac_seen');
+          this.legacyValueBettorHeld = true;
         } else {
           if (options.styleValueBettorShadow === true) {
             const vbStyle = this.styleRead(userId);

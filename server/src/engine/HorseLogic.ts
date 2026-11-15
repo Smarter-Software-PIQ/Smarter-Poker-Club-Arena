@@ -224,6 +224,8 @@ import {
   valueRaiseWeight,
   tightOpenerRespect,
   tightReRaiserRespect,
+  isValueBettor,
+  type OpponentStyleRead,
   type TightReRaiser,
 } from './HorseOpponentStyle.js';
 import { noteStyleShadowEngaged, styleShadowArm } from './HorseStyleShadow.js';
@@ -3561,36 +3563,39 @@ export const VPIP_CALLDOWN_MAX_BB = 6;
 export const VPIP_CALLDOWN_MAX_STACK_SHARE = 0.15;
 export const VPIP_CALLDOWN_GAIN = 10;
 
-export function vpipFloorCallDown(
+type VpipFloorCallDownState = {
+  stage: string;
+  currentBet: number;
+  bigBlind: number;
+  vpipFloor?: number;
+  vpipWindowHands?: number;
+  gameVariant?: string;
+  ownVpip?: { hands: number; vpip: number | null };
+  allInOrFold?: boolean;
+};
+
+/** The spot the call-down would act on (a cheap preflop fold under target on a
+ *  floored table), or null where it returns the decision untouched. */
+function vpipFloorCallDownSpot(
   decision: HorseDecision,
   player: { bet: number; stack: number },
-  gs: {
-    stage: string;
-    currentBet: number;
-    bigBlind: number;
-    vpipFloor?: number;
-    vpipWindowHands?: number;
-    gameVariant?: string;
-    ownVpip?: { hands: number; vpip: number | null };
-    allInOrFold?: boolean;
-  },
-  rand: () => number
-): HorseDecision {
+  gs: VpipFloorCallDownState
+): { toCall: number; floor: number; rate: number; gap: number; windowHands: number } | null {
   if (
     gs.stage !== 'preflop' ||
     decision.action !== 'fold' ||
     gs.allInOrFold === true ||
     decision.continuationGuard === 'preflop_priced_refusal'
   )
-    return decision;
+    return null;
   const floor = Number(gs.vpipFloor ?? 0);
-  if (!(floor > 0)) return decision;
+  if (!(floor > 0)) return null;
   const toCall = Math.max(0, Number(gs.currentBet) - Number(player.bet));
   const bb = Number(gs.bigBlind);
   const stack = Number(player.stack);
-  if (!(toCall > 0) || !(bb > 0) || !(stack > toCall)) return decision;
+  if (!(toCall > 0) || !(bb > 0) || !(stack > toCall)) return null;
   if (toCall > VPIP_CALLDOWN_MAX_BB * bb || toCall > VPIP_CALLDOWN_MAX_STACK_SHARE * stack)
-    return decision;
+    return null;
   const own = gs.ownVpip;
   const windowHands = vpipStrategyWindow(gs);
   // A missing/immature Classic sample is unknown, not 0% VPIP. The range
@@ -3603,11 +3608,44 @@ export function vpipFloorCallDown(
       own.vpip === null ||
       !Number.isFinite(own.vpip))
   )
-    return decision;
+    return null;
   const rate =
     own && own.hands > 0 && own.vpip !== null && Number.isFinite(own.vpip) ? own.vpip / 100 : 0;
   const gap = vpipTargetFor(floor, windowHands) - rate;
-  if (!(gap > 0)) return decision;
+  if (!(gap > 0)) return null;
+  return { toCall, floor, rate, gap, windowHands };
+}
+
+/**
+ * LATER LAYERS KEEP THE STYLE READ (2026-11-15, rule 1). The caller asks this
+ * only for a fold the tight opener / re-raiser respect produced
+ * (styleTightReRaiserRespect on, and the same intent without that read is not
+ * a fold: decidePreflopV7Glue). True when the call-down would buy that fold
+ * and the horse's own windowed VPIP is NOT within one hand of its floor
+ * (rate >= floor + 1/window): the fold is then kept and no draw is consumed.
+ * Within one hand of the floor the call-down still acts. The decision is given
+ * no warning or grace state (ServerTableEngineBase.horseVpipDecisionInputs), so
+ * the floor plus one hand is the line. Lightning hold'em never gets here: its
+ * snapshot carries no vpipFloor (LightningHorse.buildLightningHorseSnapshot).
+ */
+export function vpipFloorKeepsRespectFold(
+  decision: HorseDecision,
+  player: { bet: number; stack: number },
+  gs: VpipFloorCallDownState
+): boolean {
+  const spot = vpipFloorCallDownSpot(decision, player, gs);
+  return spot !== null && !(spot.rate < spot.floor / 100 + 1 / spot.windowHands);
+}
+
+export function vpipFloorCallDown(
+  decision: HorseDecision,
+  player: { bet: number; stack: number },
+  gs: VpipFloorCallDownState,
+  rand: () => number
+): HorseDecision {
+  const spot = vpipFloorCallDownSpot(decision, player, gs);
+  if (!spot) return decision;
+  const { toCall, gap } = spot;
   const q = Math.min(1, VPIP_CALLDOWN_GAIN * gap);
   if (!(rand() < q)) return decision;
   return { ...decision, action: 'call', amount: Math.round(toCall * 100) / 100 };
@@ -3743,6 +3781,24 @@ function maniacCallDown(
     // A shared starting prior is not observed evidence for undoing a fold.
     const width = postflopOnly ? 1 : read?.presumed ? null : maniacRaiseWidth(read);
     if (width === null) return decision;
+    // LATER LAYERS KEEP THE STYLE READ (2026-11-15, rule 4): a bettor the
+    // style read classes a value bettor (styleValueBettorNotManiac on, the
+    // same gates as the HorseMind option it sets: mind on, checked above,
+    // and not a bounty event) gets no maniac call-down on his postflop bets, as the legacy and
+    // newer exploit reads now give him no maniac widening (HorseMind
+    // readExploit). Reachable: a value-weighted player can bet when checked to
+    // often enough to read as a postflop maniac (isPostflopManiac). Hold'em
+    // family only; preflop and Omaha are unchanged.
+    if (
+      street !== 'preflop' &&
+      opts.styleValueBettorNotManiac === true &&
+      !vi.isOmaha &&
+      !styleBountyContext(trustedTournamentContext(gs)) &&
+      isValueBettor(HorseMind.styleRead(aggressorId))
+    ) {
+      if (telemetryOn(opts)) noteFire('style_value_bettor_not_maniac_seen');
+      return decision;
+    }
     const rawBetRate =
       street === 'preflop'
         ? 1
@@ -4107,6 +4163,58 @@ function maniacShortStackJam(
  */
 let difficultyHint = 0;
 let v87HollywoodEligible = false;
+/** LATER LAYERS KEEP THE STYLE READ (2026-11-15): set by decidePreflopV7Glue
+ *  when this preflop fold was produced by the tight opener / re-raiser respect
+ *  (the same intent without that read is not a fold); read once by the VPIP
+ *  floor call-down in decideInternal. */
+let styleRespectFoldPending = false;
+/** The maniac raise-width price arithmetic decided this preflop decision; its
+ *  journal-only read receipt, attached in decideInternal (PreflopReadReceipt). */
+let maniacPriceReceiptPending: import('./HorsePreflop.js').PreflopReadReceipt | null = null;
+/** Read receipts keep four decimals and at most this many layer names. */
+const READ_RECEIPT_MAX_LAYERS = 16;
+const receipt4 = (x: number | null | undefined): number | null =>
+  typeof x === 'number' && Number.isFinite(x) ? Math.round(x * 1e4) / 1e4 : null;
+function maniacPriceReadReceipt(
+  width: number,
+  equity: number,
+  required: number
+): import('./HorsePreflop.js').PreflopReadReceipt {
+  return {
+    version: 1,
+    consumer: 'maniac_price',
+    layers: ['maniac_raise_width'],
+    strength: receipt4(equity),
+    branch: null,
+    baseThreeBetThreshold: null,
+    baseCallThreshold: null,
+    baseFourBetThreshold: null,
+    threeBetThreshold: null,
+    callThreshold: receipt4(required),
+    fourBetThreshold: null,
+    maniacWidth: receipt4(width) ?? 0,
+  };
+}
+function rangePlayReadReceipt(
+  layers: readonly string[],
+  base: import('./HorsePreflop.js').PreflopThresholdsSeen | null,
+  final: import('./HorsePreflop.js').PreflopThresholdsSeen | null,
+  branch: string | null
+): import('./HorsePreflop.js').PreflopReadReceipt {
+  return {
+    version: 1,
+    consumer: 'range_play',
+    layers: layers.slice(0, READ_RECEIPT_MAX_LAYERS),
+    strength: receipt4(final?.strength ?? base?.strength),
+    branch,
+    baseThreeBetThreshold: receipt4(base?.threeBet),
+    baseCallThreshold: receipt4(base?.call),
+    baseFourBetThreshold: receipt4(base?.fourBet),
+    threeBetThreshold: receipt4(final?.threeBet),
+    callThreshold: receipt4(final?.call),
+    fourBetThreshold: receipt4(final?.fourBet),
+  };
+}
 /** V87 Ecosystem #1: the reference chose an OOP river 28-33% nut-trap block
  *  bet. The river nuts sizer leaves that size alone so the trap can be
  *  raised and then re-raised (bet-3-bet); every raise behind it is met by
@@ -6670,6 +6778,8 @@ export class HorseLogic {
     let phase6Reference: Phase6ReferenceObservation = { route: 'legacy_preflop', lookup: null };
     v87HollywoodEligible = false;
     v87RiverBlockTrapPending = false;
+    styleRespectFoldPending = false;
+    maniacPriceReceiptPending = null;
     const graph = new HorsePolicyGraph(undefined, tele);
     let decision = graph.run('reference', null, () => {
       let decision: HorseDecision;
@@ -6705,8 +6815,19 @@ export class HorseLogic {
         }
         // The floor call-down, inside the reference so every later owner
         // sees it as the reference's own choice (see vpipFloorCallDown).
+        const maniacPriceReceipt = maniacPriceReceiptPending;
+        maniacPriceReceiptPending = null;
+        if (maniacPriceReceipt && decision.preflopReadReceipt === undefined)
+          decision = { ...decision, preflopReadReceipt: maniacPriceReceipt };
+        const styleRespectFold = styleRespectFoldPending;
+        styleRespectFoldPending = false;
         const beforeCallDown = decision;
-        decision = vpipFloorCallDown(decision, player, gs, fastRandom);
+        if (styleRespectFold && vpipFloorKeepsRespectFold(decision, player, gs)) {
+          // LATER LAYERS KEEP THE STYLE READ: the fold the respect produced stands.
+          if (tele) noteFire('style_tight_respect_fold_kept_from_floor_seen');
+        } else {
+          decision = vpipFloorCallDown(decision, player, gs, fastRandom);
+        }
         if (tele && Number(gs.vpipFloor ?? 0) > 0 && decision !== beforeCallDown)
           noteFire('vpip_floor_call_down');
       } else {
@@ -6757,6 +6878,7 @@ export class HorseLogic {
     barrelOutlookAppliedPending = false;
     const v54StationCheck = v54StationChecks.has(decision);
     const preflopAuthority = decision.preflopAuthority;
+    const preflopReadReceipt = decision.preflopReadReceipt;
     const phase6Attribution =
       gs.stage === 'preflop'
         ? createPhase6Attribution(phase6Reference, gs, isTournamentMode(gs), decision)
@@ -7546,6 +7668,7 @@ export class HorseLogic {
         ? nearNutReference.amount
         : null;
     if (preflopAuthority) decision.preflopAuthority = preflopAuthority;
+    if (preflopReadReceipt) decision.preflopReadReceipt = preflopReadReceipt;
     decision = graph.run('wager_rules', decision, () => {
       const shoveDisciplined = tournamentShoveDiscipline(decision, player, gs);
       const blockTrap87 =
@@ -7791,6 +7914,7 @@ export class HorseLogic {
     // Preserve reference attribution through later policy owners without claiming
     // that this lookup caused the final action or survived their arbitration.
     if (preflopAuthority) decision.preflopAuthority = preflopAuthority;
+    if (preflopReadReceipt) decision.preflopReadReceipt = preflopReadReceipt;
     if (phase6Attribution) decision.tournamentPreflopAttribution = phase6Attribution;
     if (phase7Refusal !== null && decision.tournamentUtility === undefined)
       decision.tournamentUtilityRefusal = phase7Refusal;
@@ -8801,6 +8925,11 @@ export class HorseLogic {
             (pop38?.uncappedBehindMargin ?? 0);
           const required38 = exactRake38 === null ? Math.min(0.99, rawRequired38) : rawRequired38;
           if (telemetryOn(opts)) noteFire('v38_preflop_allin_price');
+          // Journal-only receipt for the maniac raise-width consumer: every
+          // return below is this arithmetic's; a hand-off to the range play
+          // clears it (that path writes its own receipt).
+          if (maniacPrice38 && maniacRaiserWidth !== null)
+            maniacPriceReceiptPending = maniacPriceReadReceipt(maniacRaiserWidth, eq38, required38);
           const gap38 = eq38 - required38;
           if (
             v53ThreeBet &&
@@ -8892,9 +9021,11 @@ export class HorseLogic {
               ...(vi.isOmaha ? { continuationGuard: 'preflop_priced_refusal' as const } : {}),
             };
           }
+          maniacPriceReceiptPending = null;
           if (telemetryOn(opts)) noteFire('plo6_maniac_price_refusal_range_play_seen');
           plo6RefusalHandOffPending = Number(gs.vpipFloor ?? 0) > 0 ? 'floored' : 'unfloored';
         } catch {
+          maniacPriceReceiptPending = null;
           if (telemetryOn(opts)) noteFire('v38_preflop_price_unavailable');
           /* No invented opponent/equity: the explicit range fallback decides. */
         }
@@ -8946,6 +9077,10 @@ export class HorseLogic {
     let exploitPressure: AggressiveOpenerPressure | undefined;
     let exploitReRaiser: { fourBetBar: number; callBar: number } | undefined;
     let styleTightReRaiser: TightReRaiser | undefined;
+    // The opener read as it was before the style read #6 replaced it (receipt
+    // counterfactual and the VPIP floor keep-rule; equal when no style read).
+    let exploitOpenerBeforeStyle: typeof exploitOpener;
+    let styleOpenerApplied = false;
     let evidencedWideRaiser87 = false;
     let exploitIso = 0;
     // LIMP-RERAISE READ (flag limpReraiseIsoRead, HorseLimpReraiseRead): the
@@ -9031,6 +9166,8 @@ export class HorseLogic {
                 tight &&
                 (!exploitOpener || (!exploitOpener.wide && exploitOpener.threeBetBar === null))
               ) {
+                exploitOpenerBeforeStyle = exploitOpener;
+                styleOpenerApplied = true;
                 exploitOpener = {
                   wide: false,
                   threeBetBar: strengthBarForTopShare(0.4 * tight.rangeWidth),
@@ -10264,11 +10401,96 @@ export class HorseLogic {
       }
     }
     const authorityEvents: import('./HorsePreflop.js').PreflopAuthorityEvent[] = [];
+    // ═══ LATER LAYERS KEEP THE STYLE READ (2026-11-15) ═══════════════════
+    // The same intent with the style and maniac reads taken out, on the same
+    // RNG position (rewound), telemetry suspended and the deep-dive collector
+    // detached, exactly like the Omaha receipts above. It is computed only
+    // when such a read is present facing a raise, and it decides nothing:
+    //  - its bars are the receipt's base bars (PreflopReadReceipt);
+    //  - with styleTightReRaiserRespect on, on a table with a VPIP floor, a
+    //    real fold whose respect-free twin is not a fold is a fold the respect
+    //    produced, which the floor call-down then keeps (vpipFloorCallDown).
+    const facingRaise15 = raises >= 1 && toCall > 0;
+    const styleRead15 = styleOpenerApplied || styleTightReRaiser !== undefined;
+    const maniacRead15 =
+      intentCtx7.maniacNoBluff === true || intentCtx7.maniacOpenBar !== undefined;
+    const openerWithoutStyle15 = styleOpenerApplied ? exploitOpenerBeforeStyle : exploitOpener;
+    const seen15: {
+      base: import('./HorsePreflop.js').PreflopThresholdsSeen | null;
+      final: import('./HorsePreflop.js').PreflopThresholdsSeen | null;
+    } = { base: null, final: null };
+    const rewound15 = (
+      ctx: Parameters<typeof decidePreflopV7>[0]
+    ): ReturnType<typeof decidePreflopV7> | null => {
+      const rng15 = saveFastRandom();
+      try {
+        return withHorseDeepDiveCapture(undefined, false, () =>
+          withBrainTelemetrySuspended(() => decidePreflopV7(ctx))
+        );
+      } catch {
+        return null;
+      } finally {
+        restoreFastRandom(rng15);
+      }
+    };
+    const readsOff15 =
+      facingRaise15 && (styleRead15 || maniacRead15)
+        ? rewound15({
+            ...intentCtx7,
+            exploitOpener: openerWithoutStyle15,
+            styleTightReRaiser: undefined,
+            maniacNoBluff: undefined,
+            maniacOpenBar: undefined,
+            noteLayer: undefined,
+            noteAuthority: undefined,
+            noteThresholds: (seen) => {
+              seen15.base = seen;
+            },
+          })
+        : null;
+    const respectOff15 =
+      opts.styleTightReRaiserRespect === true &&
+      styleRead15 &&
+      facingRaise15 &&
+      Number(gs.vpipFloor ?? 0) > 0
+        ? maniacRead15
+          ? rewound15({
+              ...intentCtx7,
+              exploitOpener: openerWithoutStyle15,
+              styleTightReRaiser: undefined,
+              noteLayer: undefined,
+              noteAuthority: undefined,
+              noteThresholds: undefined,
+            })
+          : readsOff15
+        : null;
+    const layers15: string[] = [];
     // Attach only to the real decision, never the rewound ICM counterfactual.
     const intent = decidePreflopV7({
       ...intentCtx7,
       noteAuthority: (event) => authorityEvents.push(event),
+      noteLayer: (layer) => {
+        if (!layers15.includes(layer)) layers15.push(layer);
+        intentCtx7.noteLayer?.(layer);
+      },
+      noteThresholds: (seen) => {
+        seen15.final = seen;
+      },
     });
+    if (respectOff15 && intent.a === 'fold' && respectOff15.a !== 'fold')
+      styleRespectFoldPending = true;
+    if (maniacRaiserWidth !== null) layers15.push('maniac_raise_width');
+    if (maniacBehindWidth !== null) layers15.push('maniac_behind_width');
+    const readReceipt15 = facingRaise15
+      ? rangePlayReadReceipt(
+          layers15,
+          readsOff15 ? seen15.base : seen15.final,
+          seen15.final,
+          authorityEvents.at(-1)?.branch ?? null
+        )
+      : null;
+    // The range play decided: a maniac-price receipt does not belong to it.
+    maniacPriceReceiptPending = null;
     if (tightOff) {
       const sameT = tightOff.a === intent.a && tightOff.to === intent.to;
       noteFire(
@@ -10356,6 +10578,7 @@ export class HorseLogic {
         referenceAction: decision.action,
         ...(decision.amount !== undefined ? { referenceAmount: decision.amount } : {}),
       },
+      ...(readReceipt15 ? { preflopReadReceipt: readReceipt15 } : {}),
     });
     switch (intent.a) {
       case 'jam':
@@ -10761,6 +10984,10 @@ export class HorseLogic {
     let bands: Array<[number, number] | null> | undefined;
     let oppReads: Array<OppPostflopRead | null> | undefined;
     let exploit: ExploitProfile = { bluffMod: 1, callDownMod: 1, valueThinMod: 1 };
+    // STYLE READ item 3 as applied below (1 = not applied), and the read it
+    // came from, so the river bluff-raise gate can tell its part apart.
+    let styleFoldBluffMul = 1;
+    let styleFoldBluffRead: { userId: string; style: OpponentStyleRead } | null = null;
     let wetness = 0.35;
     let blocker = false;
     if (useMind) {
@@ -10862,6 +11089,8 @@ export class HorseLogic {
                   ? { breakEvenBluff: exploit.breakEvenBluff * mul }
                   : {}),
               };
+              styleFoldBluffMul = mul;
+              styleFoldBluffRead = { userId: live[0].user_id, style: fbStyle };
               noteFire('style_fold_bluff_seen');
             }
           }
@@ -16628,8 +16857,48 @@ export class HorseLogic {
     // measured fold-to-aggression rate is high enough that HorseMind already
     // scales bluffs up into them (bluffMod > 1 needs 8+ observed spots at a
     // 62%+ fold rate). It is a read of public play, never of a label.
+    // LATER LAYERS KEEP THE STYLE READ (2026-11-15, rule 3): the fold-bluff
+    // multiplier (styleFoldBluff) cannot open this gate against a river bet
+    // that the big-bet honesty read (styleBigBetHonesty, both options on)
+    // calls credibly value. The predicate is the honesty layer's own:
+    // HorseOpponentStyle.bigBetRespect(read of the current bettor, this spot)
+    // > 0, under the same gates that layer reads below (mind and V12 on, not
+    // Omaha, not a bounty event). The multiplier still scales this bettor's
+    // bluffs elsewhere and the Horse's own bets when checked to.
+    const foldBluffHeldByHonesty64 = (() => {
+      if (
+        !isRiver ||
+        styleFoldBluffMul <= 1 ||
+        !styleFoldBluffRead ||
+        opts.styleBigBetHonesty !== true ||
+        !useMind ||
+        opts.v12 === false ||
+        vi.isOmaha ||
+        styleBountyContext(trustedTournament)
+      )
+        return false;
+      try {
+        const wager = currentOpponentWager(gs.actionHistory || [], player.user_id, street);
+        const bettor = wager?.record.userId;
+        if (!wager || !bettor) return false;
+        const read =
+          bettor === styleFoldBluffRead.userId
+            ? styleFoldBluffRead.style
+            : HorseMind.styleRead(bettor);
+        return (
+          bigBetRespect(read, {
+            street: 'river',
+            potFraction: potFrac,
+            isRaise: wager.record.action === 'raise',
+            heroHasBlocker: blocker,
+          }) > 0
+        );
+      } catch {
+        return false;
+      }
+    })();
     const overFolder64 =
-      exploit.bluffMod > 1.05 ||
+      (foldBluffHeldByHonesty64 ? exploit.bluffMod / styleFoldBluffMul : exploit.bluffMod) > 1.05 ||
       (useV86Postflop &&
         (opts.riverBluffBaseline ?? true) !== false &&
         cardRemoval86?.certifiedNutBluffBlocker === true &&
@@ -17169,6 +17438,8 @@ export class HorseLogic {
       // is consumed either way so the seeds of every other street agree.
       if (bluffCatch64 && !overFolder64) {
         if (tele15) noteFire('v64_river_raise_needs_two_pair');
+        if (tele15 && foldBluffHeldByHonesty64 && exploit.bluffMod > 1.05)
+          noteFire('style_fold_bluff_held_by_big_bet_honesty_seen');
       } else {
         // V13: same as above — a check-raise bluff is the start of a story.
         planBarrel(equity);
@@ -17209,6 +17480,8 @@ export class HorseLogic {
       // folded to by the call verdict below.
       if (bluffCatch64 && !overFolder64) {
         if (tele15) noteFire('v64_river_raise_needs_two_pair');
+        if (tele15 && foldBluffHeldByHonesty64 && exploit.bluffMod > 1.05)
+          noteFire('style_fold_bluff_held_by_big_bet_honesty_seen');
       } else {
         const raiseToAmt = currentBet + (pot + toCall) * (1.0 + fastRandom() * 0.3);
         // V78: the river blocker bluff-raise is air; one that commits 40%+
