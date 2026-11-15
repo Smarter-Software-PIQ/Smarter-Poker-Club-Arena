@@ -57,6 +57,7 @@ interface ActionPanelProps {
    * structure is not half (2/5, 3/6) so the grid is exact rather than close.
    */
   smallBlind?: number;
+  shoveOrFold?: boolean;
   onAction: (action: 'fold' | 'check' | 'call' | 'raise' | 'allin', amount?: number) => void;
   isMyTurn?: boolean;
   /**
@@ -540,6 +541,7 @@ export default function ActionPanel({
   pot,
   bigBlind,
   smallBlind,
+  shoveOrFold = false,
   onAction,
   isMyTurn = true,
   connectionStale = false,
@@ -1589,7 +1591,7 @@ export default function ActionPanel({
             {isDesktop && <span className="action-btn__shortcut">C</span>}
             <TapHaptic radius="10px" />
           </button>
-        ) : canCall ? (
+        ) : canCall || shoveOrFold ? (
           <button
             className="action-btn action-btn--call"
             onClick={() => {
@@ -1623,7 +1625,7 @@ export default function ActionPanel({
         {/* RAISE — Amber/Orange, Right. Dan 2026-10-22: when no wager is
             legal (a short all-in that did not reopen the betting, a capped
             round) the bar is Fold and Call only - no disabled Raise. */}
-        {noWager ? null : canAllIn && !canRaise ? (
+        {noWager && !shoveOrFold ? null : shoveOrFold || (canAllIn && !canRaise) ? (
           <button
             className="action-btn action-btn--allin"
             onClick={handleAllIn}
