@@ -27,6 +27,7 @@ WEEKS = M / "20261114235606_club_data_reads_the_union_invoice_week.sql"
 CAPTURE = M / "20261115015159_union_pnl_boundary_certificates_are_kept.sql"
 MODEL = M / "20261115020010_club_data_accounting_read_model.sql"
 LIVE = M / "20261115020011_club_data_accounting_read_model_goes_live.sql"
+RECONCILE = M / "20261115080136_club_data_boundary_side_reconciled_to_its_invoice.sql"
 PARTS = M / "20261115063000_club_data_history_loads_a_day_in_bounded_parts.sql"
 ONCE = M / "20261115075440_club_data_history_load_reads_each_row_once.sql"
 BASE = ROOT / "tests/fixtures/club-data-union-weeks/fixture.sql"
@@ -355,6 +356,68 @@ try:
     require(q("live", "SELECT seeded_at FROM ca_club_acct_seed_log WHERE acct_day = '2026-11-02'") == before_log,
             "a day load whose failure record cannot be written aborts and leaves the day as it was")
     run(psql("live"), "ALTER TABLE ca_club_acct_projection_failures DROP CONSTRAINT fixture_refuses;")
+
+    # 20261115080136 (audit D1): a boundary side certified only after its
+    # week's invoice is loaded when it reconciles the week to the invoice per
+    # club to the cent, and never otherwise.
+    run(psql("live"), RECONCILE.read_text())
+    for d in ("2026-11-05", "2026-11-06", "2026-11-07", "2026-11-08"):
+        if q("live", f"SELECT count(*) FROM ca_club_acct_seed_log WHERE acct_day = '{d}'") == "0":
+            run(psql("live"), load(d))
+    # The week's invoices now predate both kept versions of its closing side.
+    run(psql("live"), "UPDATE settlement_invoices si SET created_at = '2026-11-10 00:00+00' FROM settlement_periods sp "
+                      "WHERE sp.id = si.period_id AND sp.start_at = '2026-11-02 08:00+00';")
+    run(psql("live"), BOUNDARIES)
+    require(q("live", "SELECT closing_exact::text || '/' || coalesce(closing_basis, '-') FROM ca_club_acct_boundary_log "
+                      "WHERE boundary = '2026-11-09 08:00+00'") == "false/-"
+            and '"days_not_whole"' in q("live", "SELECT fn_ca_club_acct_verify_week('fade0000-0000-0000-0000-000000000001', '2026-11-02 08:00+00')"),
+            "a side whose kept versions all follow its week's invoice loads nothing, and a week with an open projection failure is never reconciled")
+    # The fixture's deliberate failures of that week are set aside.
+    run(psql("live"), "UPDATE ca_club_acct_projection_failures SET resolved_at = now() WHERE resolved_at IS NULL "
+                      "AND acct_day BETWEEN '2026-11-02' AND '2026-11-08';")
+    model = ("SELECT club_id, round(sum(result), 2) r FROM (SELECT club_id, result FROM ca_club_acct_fact WHERE union_id = "
+             "'fade0000-0000-0000-0000-000000000001' AND acct_day BETWEEN '2026-11-02' AND '2026-11-08' UNION ALL "
+             "SELECT club_id, result FROM ca_club_acct_fact_journal WHERE union_id = 'fade0000-0000-0000-0000-000000000001' "
+             "AND acct_day BETWEEN '2026-11-02' AND '2026-11-08' UNION ALL "
+             "SELECT (h->>'club_id')::uuid, (h->>'amount')::numeric FROM ca_union_pnl_boundary_capture k, "
+             "jsonb_array_elements(k.value->'holdings') h WHERE k.boundary = '2026-11-09 08:00+00' AND h->>'kind' = "
+             "'deferred_tournament_result' AND k.certified_at = (SELECT min(certified_at) FROM ca_union_pnl_boundary_capture "
+             "WHERE boundary = '2026-11-09 08:00+00') UNION ALL "
+             "SELECT (h->>'club_id')::uuid, -(h->>'amount')::numeric FROM ca_union_pnl_boundary_capture k, "
+             "jsonb_array_elements(k.value->'holdings') h WHERE k.boundary = '2026-11-02 08:00+00' AND h->>'kind' = "
+             "'deferred_tournament_result' AND k.certified_at = (SELECT min(certified_at) FROM ca_union_pnl_boundary_capture "
+             "WHERE boundary = '2026-11-02 08:00+00')) x GROUP BY 1")
+    # Every club of the model gets an invoice holding its total; one is a cent off.
+    run(psql("live"), f"""
+      INSERT INTO settlement_periods (club_id, union_id, start_at, end_at, status)
+        SELECT m.club_id, 'fade0000-0000-0000-0000-000000000001', '2026-11-02 08:00+00', '2026-11-09 08:00+00', 'processing'
+          FROM ({model}) m WHERE NOT EXISTS (SELECT 1 FROM settlement_invoices si JOIN settlement_periods sp ON sp.id = si.period_id
+            WHERE si.club_id = m.club_id AND sp.start_at = '2026-11-02 08:00+00');
+      INSERT INTO settlement_invoices (club_id, period_id, invoice_type, invoice_number, status, breakdown, created_at)
+        SELECT sp.club_id, sp.id, 'union_weekly_squareup', 'FX-' || left(sp.club_id::text, 4), 'generated', '{{}}'::jsonb,
+               '2026-11-10 00:00+00'
+          FROM settlement_periods sp WHERE sp.start_at = '2026-11-02 08:00+00'
+           AND NOT EXISTS (SELECT 1 FROM settlement_invoices si WHERE si.period_id = sp.id);
+      UPDATE settlement_invoices si SET breakdown = si.breakdown || jsonb_build_object('players_won',
+             COALESCE((SELECT m.r FROM ({model}) m WHERE m.club_id = si.club_id), 0)
+             + CASE WHEN si.club_id = 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4' THEN 0.01 ELSE 0 END)
+        FROM settlement_periods sp WHERE sp.id = si.period_id AND sp.start_at = '2026-11-02 08:00+00';""")
+    v = q("live", "SELECT fn_ca_club_acct_verify_week('fade0000-0000-0000-0000-000000000001', '2026-11-02 08:00+00')")
+    require('"verified": false' in v and '"does_not_reconcile"' in v
+            and q("live", "SELECT closing_exact::text FROM ca_club_acct_boundary_log WHERE boundary = '2026-11-09 08:00+00'") == "false",
+            "a kept version that leaves any club a cent away from its invoice is not loaded: " + v[:300])
+    run(psql("live"), "UPDATE settlement_invoices si SET breakdown = si.breakdown || jsonb_build_object('players_won', "
+                      "(si.breakdown->>'players_won')::numeric - 0.01) FROM settlement_periods sp WHERE sp.id = si.period_id "
+                      "AND sp.start_at = '2026-11-02 08:00+00' AND si.club_id = 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4';")
+    run(psql("live"), BOUNDARIES)
+    require(q("live", "SELECT closing_exact::text || '/' || closing_basis || '/' || (closing_md5 = (SELECT value_md5 FROM "
+                      "ca_union_pnl_boundary_capture WHERE boundary = '2026-11-09 08:00+00' ORDER BY certified_at LIMIT 1))::text "
+                      "FROM ca_club_acct_boundary_log WHERE boundary = '2026-11-09 08:00+00'") == "true/reconciled_to_invoice/true"
+            and q("live", "SELECT opening_exact::text || '/' || opening_basis FROM ca_club_acct_boundary_log "
+                          "WHERE boundary = '2026-11-02 08:00+00'") == "true/reconciled_to_invoice"
+            and q("live", "SELECT sum(result) FROM ca_club_acct_fact WHERE src = 2 AND acct_day = '2026-11-08' "
+                          "AND last_at = '2026-11-09 08:00+00'") == "12.00",
+            "reloading the boundary loads the earliest kept version once the week reconciles to its invoice to the cent")
 
     require(q("live", "SELECT NOT has_table_privilege('authenticated','public.ca_club_acct_fact','select') "
                       "AND NOT has_table_privilege('anon','public.ca_club_acct_fact','select') "

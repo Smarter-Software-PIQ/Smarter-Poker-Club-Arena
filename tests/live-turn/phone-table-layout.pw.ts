@@ -23,6 +23,7 @@
  * measurement is in the 600px layout's own CSS px unless it says device px.
  */
 import { expect, test, type Page, type WebSocketRoute } from '@playwright/test';
+import { verifyLightningStaleCashout } from '../e2e/support/lightningStaleCashout';
 import { verifyLightningPreviousHandReview } from '../e2e/support/lightningPreviousHandReview';
 import { mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -1122,7 +1123,7 @@ test('Lightning leave requested before the dealt snapshot waits for the hand', a
   const engine = await openTable(page, scenario, true);
   try {
     let stops = 0;
-    await page.route('**/rpc/fn_lightning_stop_playing', (route) => {
+    await page.route('**/rpc/fn_lightning_stop_room_playing', (route) => {
       stops++;
       return route.fulfill({ json: { ok: true, in_hand: true, exited: false } });
     });
@@ -1311,6 +1312,123 @@ test('Lightning previous hand stays pinned and recovers a missed archive receipt
       advance: () => engine.nextLightningDeal(),
       disconnect: () => engine.disconnect(),
     });
+  } finally {
+    engine.dispose();
+  }
+});
+
+test('Lightning confirms a leave only against the original pool session when its occupancy is reused', async ({
+  page,
+}) => {
+  const scenario = SCENARIOS.find((s) => s.lightning && !s.feeder)!;
+  const engine = await openTable(page, scenario);
+  try {
+    await verifyLightningStaleCashout(page, {
+      tableId: TABLE,
+      seatNumber: 1,
+      occupancyId: '66666666-1111-4444-8888-555555555555',
+      poolSessionId: ROOM,
+    });
+  } finally {
+    engine.dispose();
+  }
+});
+
+test('Lightning restores an unanswered Keep Playing request after a reload', async ({ page }) => {
+  const scenario = SCENARIOS.find((s) => s.lightning && !s.feeder)!;
+  const engine = await openTable(page, scenario, true);
+  let stops = 0;
+  let resumes = 0;
+  const queueKey = 'ca:lightning-leave-after-hand:v1:' + PLAYER + ':' + ROOM;
+  try {
+    await page.route('**/rpc/fn_lightning_stop_room_playing', (route) => {
+      expect(route.request().postDataJSON()).toEqual({
+        p_cluster_id: CLUSTER,
+        p_pool_session_id: ROOM,
+      });
+      stops++;
+      return route.fulfill({ json: { ok: true, in_hand: true, exited: false } });
+    });
+    await page.route('**/rpc/fn_lightning_resume_room_playing', (route) => {
+      expect(route.request().postDataJSON()).toEqual({
+        p_cluster_id: CLUSTER,
+        p_pool_session_id: ROOM,
+      });
+      resumes++;
+      return resumes === 1
+        ? route.fulfill({ status: 400, json: { code: 'PGRST202', message: 'No receipt' } })
+        : route.fulfill({ json: { ok: true, withdrawn: true } });
+    });
+    await page.getByRole('button', { name: 'Leave Next Hand', exact: true }).click();
+    engine.deliverDealtHand();
+    await page.getByRole('button', { name: 'Leaving After This Hand', exact: true }).click();
+    await expect.poll(() => resumes).toBe(1);
+    await expect
+      .poll(() => page.evaluate((key) => localStorage.getItem(key), queueKey))
+      .toBe('resuming');
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect.poll(() => resumes).toBe(2);
+    await expect(page.getByRole('button', { name: 'Leave Next Hand', exact: true })).toBeVisible();
+    await expect.poll(() => page.evaluate((key) => localStorage.getItem(key), queueKey)).toBeNull();
+    expect(stops).toBe(1);
+  } finally {
+    engine.dispose();
+  }
+});
+
+test('Lightning restores the newly owed final-hand choice after reload and Stay keeps the seat', async ({
+  page,
+}) => {
+  const scenario = SCENARIOS.find((s) => s.lightning && !s.feeder)!;
+  const engine = await openTable(page, scenario, true);
+  let remaining = 0;
+  let resumes = 0;
+  let cashouts = 0;
+  try {
+    await page.route('**/rpc/fn_my_hit_run_status', (route) =>
+      route.fulfill({
+        json: [
+          {
+            table_id: TABLE,
+            hands_remaining: remaining,
+            hands_required: 10,
+            hands_played: 10 - remaining,
+          },
+        ],
+      })
+    );
+    await page.route('**/rpc/fn_lightning_stop_room_playing', (route) =>
+      route.fulfill({ json: { ok: true, in_hand: true, exited: false } })
+    );
+    await page.route('**/rpc/fn_lightning_resume_room_playing', (route) => {
+      expect(route.request().postDataJSON()).toEqual({
+        p_cluster_id: CLUSTER,
+        p_pool_session_id: ROOM,
+      });
+      resumes++;
+      return route.fulfill({ json: { ok: true, withdrawn: false } });
+    });
+    await page.route('**/leave*-occupancy', (route) => {
+      cashouts++;
+      return route.abort();
+    });
+    await page.getByRole('button', { name: 'Leave Next Hand', exact: true }).click();
+    engine.deliverDealtHand();
+    await expect(
+      page.getByRole('button', { name: 'Leaving After This Hand', exact: true })
+    ).toBeVisible();
+    remaining = 3;
+    engine.releaseSettledRoom();
+    const stay = page.getByRole('button', { name: 'Stay And Play', exact: true });
+    await expect(stay).toBeVisible();
+    await expect(page.getByTestId('hit-run-confirm-count')).toContainText('3');
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(page.getByTestId('hit-run-confirm-count')).toContainText('3');
+    await stay.click();
+    await expect.poll(() => resumes).toBe(1);
+    await expect(stay).toHaveCount(0);
+    await expect(page).toHaveURL(new RegExp('/table/' + ROOM));
+    expect(cashouts).toBe(0);
   } finally {
     engine.dispose();
   }
