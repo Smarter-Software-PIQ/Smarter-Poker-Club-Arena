@@ -2972,7 +2972,9 @@ export interface HorseDecideOpts {
    * the average Horse; preflop width is not part of it; a presumed read never
    * counts). Against an over-bluffer, a station or an unknown player the
    * Horse plays as today. Needs the mind on. Has no effect while
-   * omahaBeatenMadeHandDefense is on. Default OFF (opt-in, read `=== true`)
+   * omahaBeatenMadeHandDefense is on. Scope: PLO4/PLO5 cash, one board, no
+   * bomb pot (a tournament only with omahaStrategyInTournaments, PLO6 only
+   * with the PLO6 lane's gate). Default OFF (opt-in, read `=== true`)
    * until its declared evaluation passes; league cards plo4/plo5
    * _omaha_made_hand_defense_vs_value_leader. */
   omahaMadeHandDefenseVsValueLeader?: boolean;
@@ -8057,6 +8059,28 @@ function omahaPricingOptionOn(opts: HorseDecideOpts): boolean {
 }
 
 /**
+ * The game scope of omahaMadeHandDefenseVsValueLeader (PLO6 lane
+ * 2026-11-15T20:47:48Z, accepted): the read-conditional option acts in
+ * PLO4/PLO5 cash only (PLO6 with the PLO6 lane's own gate,
+ * omahaStrategyGameInScope; a tournament hand only inside
+ * omahaStrategyInTournaments's public scope), never in a bomb pot. One
+ * board, high only and no all-in-or-fold are the module's own gate
+ * (omahaMadeHandDefenseStreet). The unconditional option
+ * (omahaBeatenMadeHandDefense) keeps the module's own scope, unchanged.
+ */
+function omahaValueLeaderDefenseInScope(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): boolean {
+  return (
+    omahaStrategyGameInScope(OMAHA_STRATEGY_PLO45, gs, opts) &&
+    gs.bombPot !== true &&
+    !omahaCashOnlyExcludes(player, gs)
+  );
+}
+
+/**
  * Would a rule that outranks the pricing rules check this wager? Quiet (no
  * receipt, no random number). True when (i) an owner-ruled check rule
  * (omahaOopCheckRules) checks it, (ii) the made-hand defence checks it
@@ -8078,7 +8102,9 @@ function omahaWagerIsChecked(
   if (omahaOopCheckRules(wagered, player, gs, quiet).action === 'check') return true;
   const defenseOn = opts.omahaBeatenMadeHandDefense === true;
   if (
-    (defenseOn || opts.omahaMadeHandDefenseVsValueLeader === true) &&
+    (defenseOn ||
+      (opts.omahaMadeHandDefenseVsValueLeader === true &&
+        omahaValueLeaderDefenseInScope(player, gs, opts))) &&
     omahaBeatenNoBet(wagered, player, gs, true).changed !== null &&
     (defenseOn || omahaEveryLiveOpponentIs(player, gs, quiet, (r) => r.valueLeader))
   )
@@ -8328,7 +8354,11 @@ function omahaMadeHandDefenseRules(
   // omahaMadeHandDefenseVsValueLeader (default off): the same two rules, kept
   // only when every live opponent is a measured value leader; otherwise the
   // decision is today's. With both options off nothing below changes.
-  const vsValueLeader = !defenseOn && opts.omahaMadeHandDefenseVsValueLeader === true;
+  // It is scoped to PLO4/PLO5 cash (omahaValueLeaderDefenseInScope).
+  const vsValueLeader =
+    !defenseOn &&
+    opts.omahaMadeHandDefenseVsValueLeader === true &&
+    omahaValueLeaderDefenseInScope(player, gs, opts);
   let leaderGate: boolean | null = null;
   const leaders = (): boolean => {
     if (leaderGate === null) {

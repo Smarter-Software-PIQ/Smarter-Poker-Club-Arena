@@ -16,7 +16,7 @@
  *    changed decision is admitted by the worker receipt validator.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fastRandom, seedFastRandom } from './HorseEval.js';
+import { fastRandom, omahaNutStatus, seedFastRandom } from './HorseEval.js';
 import { HorseLogic, type HorseDecideOpts, type HorseGameStateV2 } from './HorseLogic.js';
 import { HorseMind, readScopeOf } from './HorseMind.js';
 import { freshExploitCounters, type ExploitCounters } from './HorseOpponentExploit.js';
@@ -26,6 +26,7 @@ import {
   type OmahaReadConditional,
 } from './HorseOmahaReadConditional.js';
 import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
+import { omahaBeatenByBoard } from './HorseOmahaMadeHandDefense.js';
 import { horseDecisionReceiptRefusal } from './horseDecision/responseValidation.js';
 import { replayProfiles, stateAt, type ComplaintFixture } from './HorseComplaintReplay.js';
 import { runMatchup } from '../benchmark/HorseLeague.js';
@@ -602,6 +603,146 @@ describe('omahaMadeHandDefenseVsValueLeader', () => {
           gameState: st.gs,
         })
       ).toBeNull();
+    }
+  });
+});
+
+// ─── the game scope of omahaMadeHandDefenseVsValueLeader ────────────────────
+// PLO6 lane 2026-11-15T20:47:48Z: switched on, the option also acted in PLO6,
+// in Omaha tournaments and in bomb pots (the module's own scope, which the
+// unconditional 2026-11-14 rules keep). The read-conditional option is
+// PLO4/PLO5 cash, one board, no bomb pot; a tournament only with
+// omahaStrategyInTournaments, PLO6 only with the PLO6 lane's gate.
+
+type NodeState = ReturnType<typeof node>;
+/** A sixth hole card that leaves the hand the same beaten made hand. */
+function asPlo6(st: NodeState): void {
+  const board = st.gs.communityCards ?? [];
+  const taken = new Set([...st.hero.cards, ...board].map((c) => `${c.rank}${c.suit}`));
+  const before = omahaNutStatus(st.hero.cards, board).category;
+  for (const rank of ['2', '3', '4', '5', '6', '7', '8', '9'] as CardRank[])
+    for (const suit of Object.values(SUIT)) {
+      if (taken.has(`${rank}${suit}`)) continue;
+      const six = [...st.hero.cards, { rank, suit } as Card];
+      if (!omahaBeatenByBoard(six, board) || omahaNutStatus(six, board).category !== before)
+        continue;
+      st.hero.cards = six;
+      const me = st.gs.players.find((p) => p.seat === st.hero.seat);
+      if (me) me.cards = six;
+      st.gs.gameVariant = 'plo6';
+      return;
+    }
+  throw new Error('no neutral sixth card');
+}
+const asTournament = (st: NodeState): void => {
+  st.gs.gameMode = 'tournament';
+};
+const asBombPot = (st: NodeState): void => {
+  st.gs.bombPot = true;
+};
+/** The decision without its clock readings (a tournament decision carries simulationMs, policyMs). */
+const scopedBytes = (d: unknown): string =>
+  JSON.stringify(d, (k, v) => (/Ms$/.test(k) ? undefined : v));
+function playScoped(
+  fx: ComplaintFixture,
+  ord: number,
+  shape: (st: NodeState) => void,
+  opts: HorseDecideOpts,
+  reads?: (userId: string) => OmahaReadConditional | null
+): Outcome {
+  enableBrainTelemetry();
+  const out: Outcome = { bytes: [], actions: [], fires: [], next: [] };
+  for (const s of SEEDS) {
+    HorseMind.reset();
+    if (reads) vi.spyOn(HorseMind, 'omahaReadConditionalOf').mockImplementation(reads as never);
+    drainFires();
+    seedFastRandom(s);
+    const st = node(fx, ord);
+    shape(st);
+    const d = HorseLogic.decide(st.hero, st.gs, LIVE.style, LIVE.mods, {
+      telemetry: true,
+      ...opts,
+    } as never);
+    out.next.push(fastRandom());
+    out.bytes.push(scopedBytes(d));
+    out.actions.push(d.action);
+    out.fires.push(drainFires().map((f) => f.feature));
+    vi.restoreAllMocks();
+  }
+  return out;
+}
+const DEFENCE_FIRES = [
+  'omaha_turn_beaten_raise_flatted',
+  'omaha_turn_beaten_raise_fold_restored',
+  'omaha_beaten_fresh_card_check',
+  'omaha_beaten_river_no_value_bet',
+];
+const defenceFires = (o: Outcome) => DEFENCE_FIRES.reduce((n, f) => n + hasFire(o, f), 0);
+
+describe('omahaMadeHandDefenseVsValueLeader acts in PLO4/PLO5 cash only', () => {
+  const SPOTS = [
+    { name: 'the turn raise (PLO5)', fx: FB5, ord: 19 },
+    { name: 'the fresh-card bet (PLO4)', fx: FB4, ord: 18 },
+  ];
+  const OUTSIDE = [
+    { game: 'PLO6', shape: asPlo6 },
+    { game: 'a tournament (the extension off)', shape: asTournament },
+    { game: 'a bomb pot', shape: asBombPot },
+  ];
+  for (const spot of SPOTS)
+    for (const g of OUTSIDE)
+      it(`${spot.name} in ${g.game}: on changes nothing, no receipt; the 2026-11-14 rules still act`, () => {
+        const off = playScoped(spot.fx, spot.ord, g.shape, {});
+        for (const reads of [() => leader, () => notLeader, () => null]) {
+          const on = playScoped(spot.fx, spot.ord, g.shape, VL, reads as never);
+          expect(on.bytes).toEqual(off.bytes);
+          expect(on.next).toEqual(off.next);
+          expect(hasFire(on, 'omaha_value_leader_defense')).toBe(0);
+        }
+        // the spot is live there: the unconditional rules (not scoped here) change it
+        const defence = playScoped(spot.fx, spot.ord, g.shape, {
+          omahaBeatenMadeHandDefense: true,
+        });
+        expect(defenceFires(defence)).toBeGreaterThan(0);
+        expect(defence.bytes).not.toEqual(off.bytes);
+      });
+
+  it('PLO4/PLO5 cash is unchanged by the scope: the option still acts', () => {
+    for (const spot of SPOTS) {
+      const on = playScoped(
+        spot.fx,
+        spot.ord,
+        () => undefined,
+        VL,
+        () => leader
+      );
+      const same = playNode(spot.fx, spot.ord, VL, () => leader);
+      expect(on.actions).toEqual(same.actions);
+      expect(on.fires).toEqual(same.fires);
+      expect(on.next).toEqual(same.next);
+      expect(hasFire(on, 'omaha_value_leader_defense_applied')).toBeGreaterThan(0);
+      expect(defenceFires(on)).toBeGreaterThan(0);
+    }
+  });
+
+  it('a tournament with omahaStrategyInTournaments on, and PLO6 with the PLO6 gate on: it acts', () => {
+    for (const spot of SPOTS) {
+      const mtt = playScoped(
+        spot.fx,
+        spot.ord,
+        asTournament,
+        { ...VL, omahaStrategyInTournaments: true },
+        () => leader
+      );
+      expect(hasFire(mtt, 'omaha_value_leader_defense_applied')).toBeGreaterThan(0);
+      const six = playScoped(
+        spot.fx,
+        spot.ord,
+        asPlo6,
+        { ...VL, omahaStrategyInPlo6: true } as HorseDecideOpts,
+        () => leader
+      );
+      expect(hasFire(six, 'omaha_value_leader_defense_applied')).toBeGreaterThan(0);
     }
   });
 });
