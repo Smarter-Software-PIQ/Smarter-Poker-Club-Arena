@@ -26,6 +26,12 @@ New `server/src/engine/HorseOmahaUnderpair.ts`, wired outermost on both decision
 
 PLO4 and PLO5 cash, high only. With both unset or false the brain decides exactly as before. League cards plo4/plo5 for each; evidence files `docs/horse-default-on.d/omahaNoCallColdFourBetWithoutPremium.md` and `omahaUnderpairNoMultiwayFlopContinue.md`.
 
-## Not changed, and open
+## The VPIP floor (added the same day)
 
-The VPIP floor lowering the 3-bet bar (cause 1) and, for a call above 30% of the stack, the jam bar (cause 2's shove) is the defect this trace found; it has no option here. Neither new option is shown to gain: the recorded calls were at or near their price. Both wait for a declared evaluation.
+Owner, 11:35: "ADD IN A LIMP FOLD TO GET THE VPIP UP IF THEY ARE NOT PLAYING ENOUGH HANDS. THEY SHOULDN'T BE PUTTING IN TON'S OF CHIPS AND RAISING JUST TO MEET THE 50% VPIP. LIMP FOLD IS VPIP."
+
+Cause 1 above is the floor: `vpipFloorMul` multiplies the style tightness and with it every preflop bar, raises included, until the Horse's judged VPIP reaches the steering target (70.6% on a 50% table). A third option, `omahaVpipFloorByLimp` (off by default, PLO4/PLO5 cash), takes the preflop decision a second time without the floor and lets the floor buy only the cheapest voluntary action: the limp first in, a call facing a raise (never a re-raise or a shove), and a fold to a raise after a limp unless the hand clears the ordinary bar. A limp counts as VPIP (`handFacts.ts`, `deriveFlowFlags`). With it on, the recorded re-raise to 50 is a call of 9 and the shove facing the 4-bet is a call. It reverses, for this case only, the owner's rule of 2026-08-30 that a Horse never open-limps. Receipts `omaha_vpip_floor_limp`, `omaha_vpip_floor_limp_fold`, `omaha_vpip_floor_three_bet_bar_kept`; evidence file `docs/horse-default-on.d/omahaVpipFloorByLimp.md`. The league seats no floored table, so the option is a refused matchup there and is unmeasured.
+
+## Open
+
+None of the three options is shown to gain: the recorded calls were at or near their price, and the floor option cannot be dealt by the league. All wait for a declared evaluation.

@@ -989,6 +989,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaVpipFloorByLimp',
+    "Owner 2026-11-15 11:35 (hand 59518335, PLO5 cash, a 50% VPIP floor table; a limp and a fold is VPIP, the Horses are not to put in a lot of chips and raise just to meet the floor): the table's VPIP floor multiplies the style tightness and with it every preflop bar, so hands that fold on an unfloored table open-raised, 3-bet and shoved. With this on (PLO4/PLO5 cash, the floor unmet) the decision is also taken without the floor: a raise only the floor makes becomes the limp (or the small blind's completion) unopened, and facing a raise the unfloored call, a call at the call-down's cheap price, or the fold; having limped, the hand folds to a raise unless it clears the ordinary calling bar. A raise the unfloored brain makes is unchanged. Default off (opt-in) until its declared evaluation passes.",
+    'V94'
+  ),
+  flag(
     'omahaNutClassValueSize',
     'Dan 2026-11-14: a PLO4/PLO5 high bet or raise with the nuts or an effective-nut hand for the street is the full pot (the pot-limit maximum, the stack when smaller) on the flop, turn and river. Default OFF (opt-in): its declared evaluation failed on the Horse-only cells (PLO4 -1.19, PLO5 -1.31 bb/100; human field +2.29)',
     'V94'
@@ -3831,6 +3836,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_underpair_no_multiway_flop_continue_priced_in',
     'HorseLogic call discipline (HorseOmahaUnderpair, omahaUnderpairNoMultiwayFlopContinue)',
     'the same multiway underpair flop continue kept, because the call costs less than a tenth of the resulting pot',
+    'V94'
+  ),
+  receipt(
+    'omaha_vpip_floor_limp',
+    'HorseLogic reference preflop (omahaVpipFloorByLimp)',
+    'PLO4/PLO5 cash, unopened or limped pot, the VPIP floor unmet: an open-raise the unfloored brain does not make became the limp (or the small blind completion)',
+    'V94'
+  ),
+  receipt(
+    'omaha_vpip_floor_limp_fold',
+    'HorseLogic reference preflop (omahaVpipFloorByLimp)',
+    'PLO4/PLO5 cash, the Horse limped and faces a raise, the VPIP floor unmet: the hand does not clear the ordinary (unfloored) continue, so it folds and the floor call-down does not buy the call back',
+    'V94'
+  ),
+  receipt(
+    'omaha_vpip_floor_three_bet_bar_kept',
+    'HorseLogic reference preflop (omahaVpipFloorByLimp)',
+    'PLO4/PLO5 cash, facing a raise, the VPIP floor unmet: a re-raise or shove the unfloored brain does not make was withheld (its call, a call at the call-down price, or the fold instead)',
     'V94'
   ),
   receipt(

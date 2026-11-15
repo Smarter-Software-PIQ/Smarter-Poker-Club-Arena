@@ -3214,6 +3214,24 @@ export interface UnmeasurableMatchup extends Pick<
 }
 
 export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.freeze([
+  // 2026-11-15 (PLO Strategy, hand 59518335): omahaVpipFloorByLimp,
+  // default off. Refused, not dealt: this league seats no VPIP-floor table.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_vpip_floor_by_limp`,
+    variant,
+    a: { omahaVpipFloorByLimp: true },
+    b: {},
+    reason:
+      'Unanswerable by this league: the option only acts while a table VPIP floor is lowering the ' +
+      'preflop bars (HorseLogic.vpipFloorMul below 1), and playHand builds its decision state with ' +
+      'no vpipFloor, vpipWindowHands or ownVpip, so the multiplier is 1 at every decision and the ' +
+      'two arms play identical poker. The option is DEFAULT OFF (read as === true). ' +
+      'Measured 2026-11-15 by running this refused matchup through runMatchup (seed 20261115, 300 pairs): ' +
+      '0 of 300 pairs diverged. ' +
+      "What would change this: a league table that carries a VPIP floor and each seat's judged " +
+      'VPIP window (as the live Madness tables do); until it is built, the recorded-hand cases in ' +
+      'HorseOmahaVpipFloorByLimp.test.ts are the only evidence.',
+  })),
   // 2026-11-14 (Fixed-Limit lane, SPEC-FL-01..03): three default-off
   // fixed-limit arms. Refused, not dealt: this league cannot ask the question.
   ...(

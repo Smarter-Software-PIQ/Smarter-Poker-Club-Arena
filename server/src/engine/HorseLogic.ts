@@ -2923,6 +2923,29 @@ export interface HorseDecideOpts {
    * (opt-in, read `=== true`) until its declared evaluation passes; league
    * cards plo4/plo5 _omaha_underpair_no_multiway_flop_continue. */
   omahaUnderpairNoMultiwayFlopContinue?: boolean;
+  /** Owner 2026-11-15 11:35 (hand 59518335, PLO5 cash, a 50% VPIP floor
+   * table): "ADD IN A LIMP FOLD TO GET THE VPIP UP ... THEY SHOULDN'T BE
+   * PUTTING IN TON'S OF CHIPS AND RAISING JUST TO MEET THE 50% VPIP. LIMP
+   * FOLD IS VPIP." The table's VPIP floor multiplies the style tightness
+   * (vpipFloorMul) and with it every preflop bar, so a hand that folds on an
+   * unfloored table open-raised, 3-bet (the recorded hand) or shoved. With
+   * this on (PLO4/PLO5 cash, the floor still unmet) the same decision is also
+   * taken without the floor, on the same random position (rewound), and:
+   *  - unopened, a raise the unfloored brain does not make becomes the limp
+   *    (or the small blind's completion): the cheapest voluntary action;
+   *  - facing a raise, a re-raise or shove the unfloored brain does not make
+   *    becomes its call, or, when it would fold, a call only at the floor
+   *    call-down's own cheap price (6 big blinds and 15% of the stack),
+   *    otherwise the fold: the floor never turns a call into an all-in;
+   *  - having limped, facing a raise, the unfloored decision stands: the hand
+   *    folds unless it clears the ordinary calling bar, and the floor
+   *    call-down does not buy the call back.
+   * A hand the unfloored brain raises still raises; calls and limps the floor
+   * buys today are unchanged; a floor already met changes nothing, on or off.
+   * Default OFF (opt-in, read `=== true`) until its declared evaluation
+   * passes; the league seats no floored table (refused matchups plo4/plo5
+   * _omaha_vpip_floor_by_limp). */
+  omahaVpipFloorByLimp?: boolean;
   /** A token-priced committed call is not barred by stack-off premiums
    * (HorseTokenCallPrice.ts, PLO6-AUDIT-010). Default on; false only for
    * the regression's non-vacuity control. */
@@ -3909,6 +3932,79 @@ export function vpipFloorKeepsRespectFold(
 ): boolean {
   const spot = vpipFloorCallDownSpot(decision, player, gs);
   return spot !== null && !(spot.rate < spot.floor / 100 + 1 / spot.windowHands);
+}
+
+/** omahaVpipFloorByLimp: the preflop fold after a limp is not bought back by the call-down. */
+let vpipFloorLimpFoldPending = false;
+
+/** True when hero's last voluntary preflop action was a call made before any raise (a limp or a completion). */
+function heroLimpedPreflop(
+  history:
+    | readonly { stage: string; seat: number; action: string; isFullRaise?: boolean }[]
+    | undefined,
+  heroSeat: number
+): boolean {
+  let raised = false;
+  let limped = false;
+  for (const a of history ?? []) {
+    if (a.stage !== 'preflop') continue;
+    const raise =
+      a.action === 'raise' ||
+      a.action === 'bet' ||
+      (a.action === 'all_in' && a.isFullRaise === true);
+    if (a.seat === heroSeat) {
+      if (a.action === 'call') limped = !raised;
+      else if (raise || a.action === 'all_in') limped = false;
+    }
+    if (raise) raised = true;
+  }
+  return limped;
+}
+
+type PreflopIntentV7 = ReturnType<typeof decidePreflopV7>;
+export type VpipFloorByLimpReceipt =
+  | 'omaha_vpip_floor_limp'
+  | 'omaha_vpip_floor_limp_fold'
+  | 'omaha_vpip_floor_three_bet_bar_kept';
+
+/**
+ * omahaVpipFloorByLimp (owner 2026-11-15 11:35): `today` is the intent with
+ * the VPIP floor in the bars, `noFloor` the same intent without it. Returns
+ * the intent to play and the receipt of a change, or null when nothing
+ * changes. Exported for its test.
+ */
+export function omahaVpipFloorByLimpIntent(
+  today: PreflopIntentV7,
+  noFloor: PreflopIntentV7,
+  spot: { raises: number; toCall: number; stack: number; bigBlind: number; heroLimped: boolean }
+): { intent: PreflopIntentV7; receipt: VpipFloorByLimpReceipt | null } | null {
+  const raising = (i: PreflopIntentV7) => i.a === 'raiseTo' || i.a === 'jam';
+  const facingRaise = spot.raises >= 1 && spot.toCall > 0;
+  // Having limped, facing a raise: the limp already counted, the floor has no
+  // further claim on the hand, and the unfloored decision stands.
+  if (spot.heroLimped && facingRaise) {
+    if (noFloor.a === 'fold') return { intent: noFloor, receipt: 'omaha_vpip_floor_limp_fold' };
+    return noFloor.a === today.a && noFloor.to === today.to
+      ? null
+      : { intent: noFloor, receipt: null };
+  }
+  if (!raising(today) || raising(noFloor)) return null;
+  // Unopened or limped pot: the raise is on the floor's account; limp instead.
+  if (spot.raises === 0) {
+    if (spot.toCall > 0) return { intent: { a: 'call' }, receipt: 'omaha_vpip_floor_limp' };
+    return { intent: { a: 'check' }, receipt: null };
+  }
+  // Facing a raise: no re-raise or shove on the floor's account.
+  if (noFloor.a === 'call')
+    return { intent: { a: 'call' }, receipt: 'omaha_vpip_floor_three_bet_bar_kept' };
+  const cheap =
+    spot.toCall > 0 &&
+    spot.toCall <= VPIP_CALLDOWN_MAX_BB * spot.bigBlind &&
+    spot.toCall <= VPIP_CALLDOWN_MAX_STACK_SHARE * spot.stack;
+  return {
+    intent: cheap ? { a: 'call' } : noFloor,
+    receipt: 'omaha_vpip_floor_three_bet_bar_kept',
+  };
 }
 
 export function vpipFloorCallDown(
@@ -7857,7 +7953,11 @@ export class HorseLogic {
         const styleRespectFold = styleRespectFoldPending;
         styleRespectFoldPending = false;
         const beforeCallDown = decision;
-        if (styleRespectFold && vpipFloorKeepsRespectFold(decision, player, gs)) {
+        const limpFold = vpipFloorLimpFoldPending;
+        vpipFloorLimpFoldPending = false;
+        if (limpFold && decision.action === 'fold') {
+          // omahaVpipFloorByLimp: the limp already counted; the fold stands.
+        } else if (styleRespectFold && vpipFloorKeepsRespectFold(decision, player, gs)) {
           // LATER LAYERS KEEP THE STYLE READ: the fold the respect produced stands.
           if (tele) noteFire('style_tight_respect_fold_kept_from_floor_seen');
         } else {
@@ -11583,8 +11683,41 @@ export class HorseLogic {
           : readsOff15
         : null;
     const layers15: string[] = [];
+    // omahaVpipFloorByLimp: the same intent as if the table had no VPIP floor,
+    // on the same RNG position (rewound), telemetry suspended and the
+    // deep-dive collector detached, like the counterfactuals above.
+    const floorMulByLimp =
+      opts.omahaVpipFloorByLimp === true &&
+      (gs.gameVariant === 'plo4' || gs.gameVariant === 'plo5') &&
+      !isTournamentMode(gs) &&
+      gs.allInOrFold !== true &&
+      gs.bombPot !== true
+        ? vpipFloorMul(gs)
+        : 1;
+    let noFloorIntent: ReturnType<typeof decidePreflopV7> | null = null;
+    if (floorMulByLimp > 0 && floorMulByLimp < 1) {
+      const rngF = saveFastRandom();
+      try {
+        noFloorIntent = withHorseDeepDiveCapture(undefined, false, () =>
+          withBrainTelemetrySuspended(() =>
+            decidePreflopV7({
+              ...intentCtx7,
+              tightness: intentCtx7.tightness / floorMulByLimp,
+              vpipFloorMul: undefined,
+              noteLayer: undefined,
+              noteAuthority: undefined,
+              noteThresholds: undefined,
+            })
+          )
+        );
+      } catch {
+        noFloorIntent = null;
+      } finally {
+        restoreFastRandom(rngF);
+      }
+    }
     // Attach only to the real decision, never the rewound ICM counterfactual.
-    const intent = decidePreflopV7({
+    const intentToday = decidePreflopV7({
       ...intentCtx7,
       noteAuthority: (event) => authorityEvents.push(event),
       noteLayer: (layer) => {
@@ -11595,6 +11728,25 @@ export class HorseLogic {
         seen15.final = seen;
       },
     });
+    const byLimp = noFloorIntent
+      ? omahaVpipFloorByLimpIntent(intentToday, noFloorIntent, {
+          raises,
+          toCall,
+          stack: player.stack,
+          bigBlind: bb,
+          heroLimped: heroLimpedPreflop(gs.actionHistory, player.seat),
+        })
+      : null;
+    const intent = byLimp ? byLimp.intent : intentToday;
+    if (byLimp?.receipt) {
+      if (byLimp.receipt === 'omaha_vpip_floor_limp_fold') vpipFloorLimpFoldPending = true;
+      if (telemetryOn(opts)) {
+        if (byLimp.receipt === 'omaha_vpip_floor_limp') noteFire('omaha_vpip_floor_limp');
+        else if (byLimp.receipt === 'omaha_vpip_floor_limp_fold')
+          noteFire('omaha_vpip_floor_limp_fold');
+        else noteFire('omaha_vpip_floor_three_bet_bar_kept');
+      }
+    }
     if (respectOff15 && intent.a === 'fold' && respectOff15.a !== 'fold')
       styleRespectFoldPending = true;
     if (maniacRaiserWidth !== null) layers15.push('maniac_raise_width');
