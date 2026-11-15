@@ -106,13 +106,35 @@ CREATE TABLE public.ca_club_acct_fact (
   result   numeric     NOT NULL DEFAULT 0,
   buyins   numeric     NOT NULL DEFAULT 0,
   cashouts numeric     NOT NULL DEFAULT 0,
+  hands    bigint      NOT NULL DEFAULT 0,
   last_at  timestamptz NOT NULL,
   src      smallint    NOT NULL CHECK (src IN (0, 1, 2)),
   PRIMARY KEY (club_id, acct_day, game_id, user_id, src)
 );
 CREATE INDEX ca_club_acct_fact_day_idx ON public.ca_club_acct_fact (acct_day, club_id);
 COMMENT ON TABLE public.ca_club_acct_fact IS
-  'Club Data on the union invoice''s accounting records, keyed by the 02:00 America/Chicago accounting day. fee = accounting rake_credit; result = player result (CASH: hand stack deltas by earning club plus BBJ stack awards; TOURNAMENT: returns minus funding, plus src 2 deferred-entry holdings at week boundaries). src 0 live projection; src 1 the day load (whole day minus src 0, one snapshot; may hold offsetting rows); src 2 pnl_boundary certificate. Readers sum all three.';
+  'Club Data on the union invoice''s accounting records, keyed by the 02:00 America/Chicago accounting day. fee = accounting rake_credit; result = player result (CASH: hand stack deltas by earning club plus BBJ stack awards; TOURNAMENT: returns minus funding, plus src 2 deferred-entry holdings at week boundaries); hands = cash hands the player took part in for the club. src 0 live projection; src 1 the day load (whole day minus src 0, one snapshot; may hold offsetting rows); src 2 pnl_boundary certificate. Readers sum all three.';
+
+-- The same rows summed over players, written by the same statement: what a
+-- window's totals and its game list read (a third of the fact rows).
+CREATE TABLE public.ca_club_acct_game (
+  club_id  uuid        NOT NULL,
+  acct_day date        NOT NULL,
+  kind     text        NOT NULL CHECK (kind IN ('CASH', 'TOURNAMENT')),
+  game_id  uuid        NOT NULL,
+  union_id uuid,
+  fee      numeric     NOT NULL DEFAULT 0,
+  result   numeric     NOT NULL DEFAULT 0,
+  buyins   numeric     NOT NULL DEFAULT 0,
+  cashouts numeric     NOT NULL DEFAULT 0,
+  hands    bigint      NOT NULL DEFAULT 0,
+  last_at  timestamptz NOT NULL,
+  src      smallint    NOT NULL CHECK (src IN (0, 1, 2)),
+  PRIMARY KEY (club_id, acct_day, game_id, src)
+);
+CREATE INDEX ca_club_acct_game_day_idx ON public.ca_club_acct_game (acct_day, club_id);
+COMMENT ON TABLE public.ca_club_acct_game IS
+  'ca_club_acct_fact summed over players per (club, accounting day, game, src), written in the same statement as the fact rows.';
 
 CREATE TABLE public.ca_club_acct_hands (
   club_id  uuid     NOT NULL,
@@ -151,14 +173,17 @@ COMMENT ON TABLE public.ca_club_acct_projection_failures IS
   'A live projection that raised. The money write it followed committed; the Club Data reader reports the day (every day, when acct_day is NULL) as incomplete until the cause is fixed and the day is loaded again through fn_ca_club_acct_seed_day, which sets resolved_at.';
 
 ALTER TABLE public.ca_club_acct_fact ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ca_club_acct_game ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ca_club_acct_hands ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ca_club_acct_state ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ca_club_acct_seed_log ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ca_club_acct_projection_failures ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON public.ca_club_acct_fact, public.ca_club_acct_hands, public.ca_club_acct_state,
+-- Read and written only through this migration's owner-rights functions; no
+-- API role touches these tables directly.
+REVOKE ALL ON public.ca_club_acct_fact, public.ca_club_acct_game, public.ca_club_acct_hands, public.ca_club_acct_state,
               public.ca_club_acct_seed_log, public.ca_club_acct_projection_failures
-  FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON SEQUENCE public.ca_club_acct_projection_failures_id_seq FROM PUBLIC, anon, authenticated;
+  FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON SEQUENCE public.ca_club_acct_projection_failures_id_seq FROM PUBLIC, anon, authenticated, service_role;
 
 -- ---------------------------------------------------------------------------
 -- 2. The day of a failure that cannot name its own: never raises, so the
@@ -180,13 +205,13 @@ $function$;
 CREATE FUNCTION public.fn_ca_club_acct_put(p_rows jsonb, p_src smallint)
 RETURNS void LANGUAGE sql SECURITY DEFINER SET search_path = public AS $function$
   INSERT INTO public.ca_club_acct_fact AS f
-    (club_id, acct_day, kind, game_id, user_id, union_id, fee, result, buyins, cashouts, last_at, src)
+    (club_id, acct_day, kind, game_id, user_id, union_id, fee, result, buyins, cashouts, hands, last_at, src)
   SELECT x.club_id, x.acct_day, min(x.kind), x.game_id, x.user_id, min(x.union_id::text)::uuid,
          sum(COALESCE(x.fee, 0)), sum(COALESCE(x.result, 0)), sum(COALESCE(x.buyins, 0)),
-         sum(COALESCE(x.cashouts, 0)), max(x.at), p_src
+         sum(COALESCE(x.cashouts, 0)), sum(COALESCE(x.hands, 0)), max(x.at), p_src
     FROM jsonb_to_recordset(p_rows) AS x(club_id uuid, acct_day date, kind text, game_id uuid, user_id uuid,
                                          union_id uuid, fee numeric, result numeric, buyins numeric,
-                                         cashouts numeric, at timestamptz)
+                                         cashouts numeric, hands bigint, at timestamptz)
    WHERE x.club_id IS NOT NULL AND x.acct_day IS NOT NULL AND x.game_id IS NOT NULL AND x.user_id IS NOT NULL
    GROUP BY x.club_id, x.acct_day, x.game_id, x.user_id
    ORDER BY x.club_id, x.acct_day, x.game_id, x.user_id
@@ -195,8 +220,28 @@ RETURNS void LANGUAGE sql SECURITY DEFINER SET search_path = public AS $function
          result = f.result + EXCLUDED.result,
          buyins = f.buyins + EXCLUDED.buyins,
          cashouts = f.cashouts + EXCLUDED.cashouts,
+         hands = f.hands + EXCLUDED.hands,
          union_id = COALESCE(f.union_id, EXCLUDED.union_id),
          last_at = GREATEST(f.last_at, EXCLUDED.last_at);
+  INSERT INTO public.ca_club_acct_game AS g
+    (club_id, acct_day, kind, game_id, union_id, fee, result, buyins, cashouts, hands, last_at, src)
+  SELECT x.club_id, x.acct_day, min(x.kind), x.game_id, min(x.union_id::text)::uuid,
+         sum(COALESCE(x.fee, 0)), sum(COALESCE(x.result, 0)), sum(COALESCE(x.buyins, 0)),
+         sum(COALESCE(x.cashouts, 0)), sum(COALESCE(x.hands, 0)), max(x.at), p_src
+    FROM jsonb_to_recordset(p_rows) AS x(club_id uuid, acct_day date, kind text, game_id uuid, user_id uuid,
+                                         union_id uuid, fee numeric, result numeric, buyins numeric,
+                                         cashouts numeric, hands bigint, at timestamptz)
+   WHERE x.club_id IS NOT NULL AND x.acct_day IS NOT NULL AND x.game_id IS NOT NULL AND x.user_id IS NOT NULL
+   GROUP BY x.club_id, x.acct_day, x.game_id
+   ORDER BY x.club_id, x.acct_day, x.game_id
+  ON CONFLICT (club_id, acct_day, game_id, src) DO UPDATE
+     SET fee = g.fee + EXCLUDED.fee,
+         result = g.result + EXCLUDED.result,
+         buyins = g.buyins + EXCLUDED.buyins,
+         cashouts = g.cashouts + EXCLUDED.cashouts,
+         hands = g.hands + EXCLUDED.hands,
+         union_id = COALESCE(g.union_id, EXCLUDED.union_id),
+         last_at = GREATEST(g.last_at, EXCLUDED.last_at);
 $function$;
 
 CREATE FUNCTION public.fn_ca_club_acct_put_hands(p_rows jsonb, p_src smallint)
@@ -311,7 +356,7 @@ RETURNS jsonb LANGUAGE sql STABLE SET search_path = public AS $function$
     'facts', COALESCE((SELECT jsonb_agg(jsonb_build_object(
                'club_id', p.club_id, 'acct_day', p.acct_day, 'kind', 'CASH',
                'game_id', p.table_id, 'user_id', p.user_id, 'union_id', p.union_id,
-               'result', p.delta, 'at', p.recognized_at)) FROM p), '[]'::jsonb),
+               'result', p.delta, 'hands', 1, 'at', p.recognized_at)) FROM p), '[]'::jsonb),
     'hands', COALESCE((SELECT jsonb_agg(jsonb_build_object(
                'club_id', c.club_id, 'acct_day', c.acct_day, 'table_id', c.table_id, 'hands', c.n))
                FROM (SELECT p.club_id, p.acct_day, p.table_id, count(DISTINCT p.hand_number) n
@@ -437,6 +482,9 @@ BEGIN
   DELETE FROM public.ca_club_acct_fact f
    WHERE f.src = 2 AND f.union_id = p_union
      AND f.acct_day IN (public.fn_ca_accounting_day(p_boundary), public.fn_ca_accounting_day(p_boundary - interval '1 microsecond'));
+  DELETE FROM public.ca_club_acct_game g
+   WHERE g.src = 2 AND g.union_id = p_union
+     AND g.acct_day IN (public.fn_ca_accounting_day(p_boundary), public.fn_ca_accounting_day(p_boundary - interval '1 microsecond'));
   v := public.fn_ca_club_acct_boundary_rows(p_union, p_boundary, v);
   PERFORM public.fn_ca_club_acct_put(v, 2::smallint);
   n := jsonb_array_length(v);
@@ -547,7 +595,8 @@ BEGIN
     PERFORM public.fn_ca_club_acct_put((public.fn_ca_club_acct_hand_rows(jsonb_build_array(jsonb_build_object(
       'table_id', h.table_id, 'hand_number', h.hand_number, 'recognized_at', h.recognized_at,
       'union_id', h.game_union_id, 'participants', v_new))))->'facts', 0::smallint);
-    PERFORM public.fn_ca_club_acct_put((SELECT jsonb_agg(x || jsonb_build_object('result', -(x->>'result')::numeric))
+    PERFORM public.fn_ca_club_acct_put((SELECT jsonb_agg(x || jsonb_build_object('result', -(x->>'result')::numeric,
+                                                                                 'hands', -(x->>'hands')::bigint))
       FROM jsonb_array_elements((public.fn_ca_club_acct_hand_rows(jsonb_build_array(jsonb_build_object(
         'table_id', h.table_id, 'hand_number', h.hand_number, 'recognized_at', h.recognized_at,
         'union_id', h.game_union_id, 'participants', v_old))))->'facts') x), 0::smallint);
@@ -645,6 +694,7 @@ BEGIN
     DELETE FROM public.ca_club_acct_seed_log WHERE acct_day = p_day;
   END IF;
   DELETE FROM public.ca_club_acct_fact WHERE acct_day = p_day AND src = 1;
+  DELETE FROM public.ca_club_acct_game WHERE acct_day = p_day AND src = 1;
   DELETE FROM public.ca_club_acct_hands WHERE acct_day = p_day AND src = 1;
 
   -- The whole day, in two-hour slices; the day is one transaction.
@@ -702,17 +752,30 @@ BEGIN
 
   -- Minus what the live projection already holds for the day (same snapshot).
   INSERT INTO public.ca_club_acct_fact AS f
-    (club_id, acct_day, kind, game_id, user_id, union_id, fee, result, buyins, cashouts, last_at, src)
+    (club_id, acct_day, kind, game_id, user_id, union_id, fee, result, buyins, cashouts, hands, last_at, src)
   SELECT l.club_id, l.acct_day, l.kind, l.game_id, l.user_id, l.union_id,
-         -l.fee, -l.result, -l.buyins, -l.cashouts, l.last_at, 1::smallint
+         -l.fee, -l.result, -l.buyins, -l.cashouts, -l.hands, l.last_at, 1::smallint
     FROM public.ca_club_acct_fact l
    WHERE l.acct_day = p_day AND l.src = 0
    ORDER BY l.club_id, l.acct_day, l.game_id, l.user_id
   ON CONFLICT (club_id, acct_day, game_id, user_id, src) DO UPDATE
      SET fee = f.fee + EXCLUDED.fee, result = f.result + EXCLUDED.result,
          buyins = f.buyins + EXCLUDED.buyins, cashouts = f.cashouts + EXCLUDED.cashouts,
+         hands = f.hands + EXCLUDED.hands,
          union_id = COALESCE(f.union_id, EXCLUDED.union_id), last_at = GREATEST(f.last_at, EXCLUDED.last_at);
   GET DIAGNOSTICS n_live = ROW_COUNT;
+  INSERT INTO public.ca_club_acct_game AS g
+    (club_id, acct_day, kind, game_id, union_id, fee, result, buyins, cashouts, hands, last_at, src)
+  SELECT l.club_id, l.acct_day, l.kind, l.game_id, l.union_id,
+         -l.fee, -l.result, -l.buyins, -l.cashouts, -l.hands, l.last_at, 1::smallint
+    FROM public.ca_club_acct_game l
+   WHERE l.acct_day = p_day AND l.src = 0
+   ORDER BY l.club_id, l.acct_day, l.game_id
+  ON CONFLICT (club_id, acct_day, game_id, src) DO UPDATE
+     SET fee = g.fee + EXCLUDED.fee, result = g.result + EXCLUDED.result,
+         buyins = g.buyins + EXCLUDED.buyins, cashouts = g.cashouts + EXCLUDED.cashouts,
+         hands = g.hands + EXCLUDED.hands,
+         union_id = COALESCE(g.union_id, EXCLUDED.union_id), last_at = GREATEST(g.last_at, EXCLUDED.last_at);
   INSERT INTO public.ca_club_acct_hands AS h (club_id, acct_day, table_id, hands, src)
   SELECT l.club_id, l.acct_day, l.table_id, -l.hands, 1::smallint
     FROM public.ca_club_acct_hands l
@@ -723,9 +786,14 @@ BEGIN
   -- does not; a src 1 row alone is kept (the player took part).
   DELETE FROM public.ca_club_acct_fact z
    WHERE z.acct_day = p_day AND z.src = 1
-     AND z.fee = 0 AND z.result = 0 AND z.buyins = 0 AND z.cashouts = 0
+     AND z.fee = 0 AND z.result = 0 AND z.buyins = 0 AND z.cashouts = 0 AND z.hands = 0
      AND EXISTS (SELECT 1 FROM public.ca_club_acct_fact l
                   WHERE (l.club_id, l.acct_day, l.game_id, l.user_id, l.src) = (z.club_id, z.acct_day, z.game_id, z.user_id, 0));
+  DELETE FROM public.ca_club_acct_game z
+   WHERE z.acct_day = p_day AND z.src = 1
+     AND z.fee = 0 AND z.result = 0 AND z.buyins = 0 AND z.cashouts = 0 AND z.hands = 0
+     AND EXISTS (SELECT 1 FROM public.ca_club_acct_game l
+                  WHERE (l.club_id, l.acct_day, l.game_id, l.src) = (z.club_id, z.acct_day, z.game_id, 0));
   DELETE FROM public.ca_club_acct_hands z WHERE z.acct_day = p_day AND z.src = 1 AND z.hands = 0;
 
   UPDATE public.ca_club_acct_projection_failures pf SET resolved_at = clock_timestamp()

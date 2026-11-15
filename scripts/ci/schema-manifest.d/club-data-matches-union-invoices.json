@@ -3,6 +3,7 @@
   "tables": [
     "club_slug_history",
     "ca_club_acct_fact",
+    "ca_club_acct_game",
     "ca_club_acct_hands",
     "ca_club_acct_state",
     "ca_club_acct_seed_log",

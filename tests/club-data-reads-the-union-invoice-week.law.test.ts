@@ -269,7 +269,12 @@ describe('a renamed club keeps its old slug', () => {
     expect(sql).toContain(
       'GRANT SELECT ON public.club_slug_history TO authenticated, service_role;'
     );
-    expect(sql).toContain('FOR SELECT TO authenticated USING (true);');
+    // A real predicate (the club the row names is one the caller can read),
+    // never a permissive USING (true) (tests/anon-is-not-a-public-table-reader).
+    expect(sql).toContain(
+      'FOR SELECT TO authenticated USING (EXISTS (SELECT 1 FROM public.clubs c WHERE c.id = club_slug_history.club_id));'
+    );
+    expect(sql).not.toContain('USING (true)');
     expect(sql).not.toMatch(/GRANT (INSERT|UPDATE|DELETE|ALL)[^;]*club_slug_history/i);
   });
 });

@@ -60,6 +60,35 @@ BEGIN
     RAISE EXCEPTION 'hand counts differ: %', (SELECT string_agg(club_id || ':' || acct_day || ':' || table_id || '=' || hands, ',') FROM ca_club_acct_hands);
   END IF;
 
+  -- Cash hands each player took part in, per club, table and day (escrow
+  -- reshaping and loads net to one per hand).
+  IF (SELECT string_agg(club_id || ':' || acct_day || ':' || game_id || ':' || user_id || '=' || h, ',' ORDER BY club_id, acct_day, game_id, user_id)
+        FROM (SELECT club_id, acct_day, game_id, user_id, sum(hands) h FROM ca_club_acct_fact GROUP BY 1, 2, 3, 4 HAVING sum(hands) <> 0) x)
+     IS DISTINCT FROM
+     '2a1132b9-5ba2-42e6-9f01-30a7fcffebe3:2026-11-02:c0000000-0000-0000-0000-000000000001:11111111-0000-0000-0000-000000000003=1,'
+     '2a1132b9-5ba2-42e6-9f01-30a7fcffebe3:2026-11-02:c0000000-0000-0000-0000-000000000002:11111111-0000-0000-0000-000000000003=1,'
+     '2a1132b9-5ba2-42e6-9f01-30a7fcffebe3:2026-11-03:c0000000-0000-0000-0000-000000000001:11111111-0000-0000-0000-000000000003=1,'
+     'a0000000-0000-0000-0000-000000000001:2026-11-02:c0000000-0000-0000-0000-000000000001:11111111-0000-0000-0000-000000000002=3,'
+     'a0000000-0000-0000-0000-000000000001:2026-11-03:c0000000-0000-0000-0000-000000000002:11111111-0000-0000-0000-000000000003=1,'
+     'a41434bb-8d0c-400a-8f0d-e8b3d65afed4:2026-11-02:c0000000-0000-0000-0000-000000000001:11111111-0000-0000-0000-000000000001=2,'
+     'a41434bb-8d0c-400a-8f0d-e8b3d65afed4:2026-11-02:c0000000-0000-0000-0000-000000000002:11111111-0000-0000-0000-000000000001=1,'
+     'a41434bb-8d0c-400a-8f0d-e8b3d65afed4:2026-11-03:c0000000-0000-0000-0000-000000000001:11111111-0000-0000-0000-000000000001=1,'
+     'a41434bb-8d0c-400a-8f0d-e8b3d65afed4:2026-11-03:c0000000-0000-0000-0000-000000000002:11111111-0000-0000-0000-000000000001=1' THEN
+    RAISE EXCEPTION 'player hand counts differ: %', (SELECT string_agg(club_id || ':' || acct_day || ':' || game_id || ':' || user_id || '=' || h, ',' ORDER BY club_id, acct_day, game_id, user_id)
+        FROM (SELECT club_id, acct_day, game_id, user_id, sum(hands) h FROM ca_club_acct_fact GROUP BY 1, 2, 3, 4 HAVING sum(hands) <> 0) x);
+  END IF;
+
+  -- The per-game rows are the fact rows summed over players, every src.
+  IF EXISTS (
+    SELECT 1 FROM (SELECT club_id, acct_day, game_id, src, sum(fee) fee, sum(result) result, sum(buyins) b,
+                          sum(cashouts) c, sum(hands) h FROM ca_club_acct_fact GROUP BY 1, 2, 3, 4) f
+    FULL JOIN (SELECT club_id, acct_day, game_id, src, sum(fee) fee, sum(result) result, sum(buyins) b,
+                      sum(cashouts) c, sum(hands) h FROM ca_club_acct_game GROUP BY 1, 2, 3, 4) g
+      USING (club_id, acct_day, game_id, src)
+     WHERE (f.fee, f.result, f.b, f.c, f.h) IS DISTINCT FROM (g.fee, g.result, g.b, g.c, g.h)) THEN
+    RAISE EXCEPTION 'game rows differ from the fact rows';
+  END IF;
+
   -- The failed projection is recorded, and the share it followed committed.
   IF (SELECT count(*) FROM ca_club_acct_projection_failures WHERE source = 'bbj_award' AND acct_day = '2026-11-03') <> 1
      OR (SELECT count(*) FROM ca_club_acct_projection_failures) <> 1

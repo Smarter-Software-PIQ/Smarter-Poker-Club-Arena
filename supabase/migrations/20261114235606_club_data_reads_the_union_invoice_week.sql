@@ -271,13 +271,17 @@ CREATE INDEX club_slug_history_club_idx ON public.club_slug_history (club_id);
 ALTER TABLE public.club_slug_history ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.club_slug_history FROM PUBLIC, anon, authenticated, service_role;
 -- A former slug names a club exactly as its current slug does, so a signed-in
--- caller may read the row the same way it reads clubs.slug. The client
--- resolver reads it as a table: an RPC there would add a function call to
--- every route that resolves a club and shift every caller's own RPC sequence.
--- Nobody but the rename trigger (owner rights) writes it.
+-- caller may read the row of a club it can read (clubs' own policy decides,
+-- through the EXISTS below; a deleted club's former slug resolves to nothing,
+-- as in ca_club_id_for_slug). The row holds a slug and a club id, nothing a
+-- clubs row does not already show. The client resolver reads it as a table:
+-- an RPC there would add a function call to every route that resolves a club
+-- and shift every caller's own RPC sequence. Nobody but the rename trigger
+-- (owner rights) writes it.
 GRANT SELECT ON public.club_slug_history TO authenticated, service_role;
 CREATE POLICY club_slug_history_signed_in_read ON public.club_slug_history
-  FOR SELECT TO authenticated USING (true);
+  FOR SELECT TO authenticated
+  USING (EXISTS (SELECT 1 FROM public.clubs c WHERE c.id = club_slug_history.club_id));
 COMMENT ON TABLE public.club_slug_history IS
   'Former clubs.slug values and the club that held them, written by trg_club_slug_keeps_its_history in the statement that renames the club. Read-only to signed-in callers; ca_club_id_for_slug answers current-or-former in one call. A slug a club currently holds is never listed here.';
 
@@ -295,7 +299,9 @@ COMMENT ON FUNCTION public.ca_club_id_for_slug(text) IS
 REVOKE ALL ON FUNCTION public.ca_club_id_for_slug(text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.ca_club_id_for_slug(text) TO authenticated, service_role;
 
--- The 2026-11-14 production rename, recorded only where it happened.
+-- The 2026-11-14 production rename (a direct UPDATE from chat at about 23:30
+-- UTC; production keeps no audit row of it, so the day is recorded, not a
+-- guessed minute), recorded only where it happened.
 INSERT INTO public.club_slug_history (former_slug, club_id, renamed_at)
 SELECT 'club-jaqk', c.id, timestamptz '2026-11-14 00:00:00+00'
   FROM public.clubs c
