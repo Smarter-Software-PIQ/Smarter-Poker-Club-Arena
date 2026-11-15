@@ -14,7 +14,7 @@ With the option on, `omahaFacingBetEvRule` (`HorseLogic.ts`, outermost call-disc
 
 Status: MET
 
-Public state, the Horse's own cards, known dead cards and the opponent memory's decayed counters of the bettor (`HorseMind.omahaFacingBetEvReadOf`). The count is exact and draws no random number: it agrees with listing every holding one by one (tests). The size-bucketed shown-down read is NOT learned today (the learner is not told who won a hand); it is read only when supplied (`HorseMind.importOmahaBetSizeShown`).
+Public state, the Horse's own cards, known dead cards and the opponent memory's decayed counters of the bettor (`HorseMind.omahaFacingBetEvReadOf`). The count is exact and draws no random number: it agrees with listing every holding one by one (tests). The shown-down read by bet size has no store of its own: it is an optional field (`best`, optionally `second`) on the existing river size-bucket tallies of the opponent memory (`styleSizeShown`), read by `HorseMind.omahaFacingBetEvReadOf`. No learner writes that field today, so the population prior decides; adding it is the opponent-memory owner's change (first-hand opponent learning: one learner, one profile).
 
 ## Value
 
@@ -51,7 +51,7 @@ Receipts in `HorseDataLedger.ts`: `omaha_facing_bet_ev_call`, `omaha_facing_bet_
 Status: MET
 
 - The value shares, the line factors, the field shares and the bluff share of a raise are stated constants, not fitted; the bluff-share prior is measured on one population over five days (4,573 hands).
-- Against an unmeasured bettor a hand that beats none of his value region folds to a river bet at every size, because that population bets the best hand 80 to 87 percent of the time; the calls of the recorded best-hand folds need the shown-down read by bet size, which the memory does not learn yet.
+- Against an unmeasured bettor a hand that beats none of his value region folds to a river bet at every size, because that population bets the best hand 80 to 87 percent of the time; the calls of the recorded best-hand folds need the shown-down read by bet size, a field the opponent memory does not write yet.
 - With the option on it reopens the owner's binding paired-board fold (2026-10-25) and the big-bet cells in this spot: turning it on needs the owner's word as well as a passed evaluation.
 - The PLO5 turn count costs about 180 ms per decision on the development machine under load (every river card); the river about 10 to 15 ms.
 - The opt-in one-pair discipline runs after it and can still fold its call.

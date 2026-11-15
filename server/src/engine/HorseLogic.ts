@@ -7400,7 +7400,12 @@ function omahaFacingBetEvRule(
       try {
         const bettor = (gs.players ?? []).find((p) => p.seat === spot.bettorSeat);
         read = bettor
-          ? HorseMind.omahaFacingBetEvReadOf(bettor.user_id, spot.street, spot.potFrac)
+          ? HorseMind.omahaFacingBetEvReadOf(
+              bettor.user_id,
+              spot.street,
+              spot.potFrac,
+              spot.isRaise
+            )
           : null;
       } catch {
         read = null;

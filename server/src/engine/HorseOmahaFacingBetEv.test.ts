@@ -77,12 +77,14 @@ function play(
   r: RecordedFacingBet,
   opts: HorseDecideOpts,
   read: OmahaFacingBetEvRead | null | undefined = undefined,
-  change?: (r: RecordedFacingBet) => void
+  change?: (r: RecordedFacingBet) => void,
+  prepare?: () => void
 ): Outcome {
   enableBrainTelemetry();
   const out: Outcome = { bytes: [], actions: [], fires: [] };
   for (const seed of SEEDS) {
     HorseMind.reset();
+    prepare?.();
     if (read !== undefined)
       vi.spyOn(HorseMind, 'omahaFacingBetEvReadOf').mockImplementation(() => read);
     drainFires();
@@ -322,32 +324,6 @@ describe('the range and the price', () => {
     ).toBe(0.15);
   });
 
-  it('the memory supplies the size-bucketed shown-down read only when it was given one', () => {
-    HorseMind.reset();
-    HorseMind.setDecisionScope('omaha:full' as never, 'plo5');
-    expect(HorseMind.omahaFacingBetEvReadOf('nobody', 'river', 0.5)).toEqual({
-      measured: false,
-      betCheckedToRatio: null,
-      postflopManiac: false,
-      sizeShown: null,
-    });
-    HorseMind.importOmahaBetSizeShown('omaha:full' as never, 'someone', {
-      river: { mid: { shown: 16, best: 9 }, big: { shown: 24, best: 19 } },
-    });
-    expect(HorseMind.omahaFacingBetEvReadOf('someone', 'river', 0.5)!.sizeShown).toEqual({
-      shown: 16,
-      best: 9,
-    });
-    expect(HorseMind.omahaFacingBetEvReadOf('someone', 'river', 0.85)!.sizeShown).toEqual({
-      shown: 24,
-      best: 19,
-    });
-    expect(HorseMind.omahaFacingBetEvReadOf('someone', 'river', 0.2)!.sizeShown).toBeNull();
-    expect(HorseMind.omahaFacingBetEvReadOf('someone', 'turn', 0.5)!.sizeShown).toBeNull();
-    HorseMind.setDecisionScope(null);
-    expect(HorseMind.omahaFacingBetEvReadOf('someone', 'river', 0.5)).toBeNull();
-  });
-
   it('the spot reads the bet as a share of the pot, the line and the field', () => {
     const a = verdictOf(rec(59458558), null).spot;
     expect(a.street).toBe('river');
@@ -570,5 +546,99 @@ describe('the recorded decisions', () => {
       ).toBeNull();
     }
     expect(checked).toBeGreaterThan(0);
+  });
+});
+
+// ───────────── the optional shown-down read on the existing size buckets ─────────────
+
+describe('the size read comes from the existing river size-bucket tallies, when they carry `best`', () => {
+  const BEST_FOLDS = [59402247, 59407493, 59446815];
+  const bettorOf = (r: RecordedFacingBet) => `p${r.pl.split(' ').find((x) => x[1] === 'P')![0]}`;
+  /** The existing import writer of the existing structure; `best` is the optional field. */
+  const give = (who: string, buckets: Record<string, object>) =>
+    HorseMind.importSizeBuckets(
+      (['hu', 'short', 'full'] as const).map((size) => ({
+        user_id: who,
+        variant: 'plo5',
+        mode: 'cash' as const,
+        size,
+        buckets: buckets as never,
+      }))
+    );
+
+  it('absent today: the tallies as the learner writes them give no size read', () => {
+    HorseMind.reset();
+    give('p1', { medium: { bets: 30, shown: 16, strong: 14 } });
+    HorseMind.setDecisionScope('omaha:full' as never, 'plo5');
+    expect(HorseMind.omahaFacingBetEvReadOf('p1', 'river', 0.55)!.sizeShown).toBeNull();
+    const r = rec(59407493);
+    expect(
+      play(r, ON, undefined, undefined, () =>
+        give(bettorOf(r), { medium: { bets: 30, shown: 16, strong: 14 } })
+      ).bytes
+    ).toEqual(play(r, ON).bytes);
+  });
+
+  it('present: read for a river bet of that bucket only, never for a raise or the turn', () => {
+    HorseMind.reset();
+    give('p1', { medium: { bets: 30, shown: 16, strong: 14, best: 7, second: 2 } });
+    HorseMind.setDecisionScope('omaha:full' as never, 'plo5');
+    expect(HorseMind.omahaFacingBetEvReadOf('p1', 'river', 0.55)!.sizeShown).toEqual({
+      shown: 16,
+      best: 7,
+      second: 2,
+    });
+    expect(HorseMind.omahaFacingBetEvReadOf('p1', 'river', 0.8)!.sizeShown).toBeNull();
+    expect(HorseMind.omahaFacingBetEvReadOf('p1', 'river', 0.55, true)!.sizeShown).toBeNull();
+    expect(HorseMind.omahaFacingBetEvReadOf('p1', 'turn', 0.55)!.sizeShown).toBeNull();
+    // a strong hand that lost counts half: (0.15 x 8 + 16 - 7 - 1) / 24
+    expect(
+      omahaEvBluffShare(0.15, HorseMind.omahaFacingBetEvReadOf('p1', 'river', 0.55))
+    ).toBeCloseTo(9.2 / 24, 10);
+  });
+
+  it('through HorseMind, not a mock: river bets of that size behind 9 times in 16 turn the three best-hand folds into calls', () => {
+    for (const n of BEST_FOLDS) {
+      const r = rec(n);
+      expect(all(play(r, ON), 'fold')).toBe(true);
+      // the recorded bets are 50 to 58 percent of the pot: the existing "medium" bucket (0.5 to 0.66)
+      const on = play(r, ON, undefined, undefined, () =>
+        give(bettorOf(r), { medium: { bets: 30, shown: 16, strong: 14, best: 7 } })
+      );
+      expect([n, on.actions]).toEqual([n, SEEDS.map(() => 'call')]);
+      // option off: the same tallies change nothing
+      expect(
+        play(r, {}, undefined, undefined, () =>
+          give(bettorOf(r), { medium: { bets: 30, shown: 16, strong: 14, best: 7 } })
+        ).bytes
+      ).toEqual(play(r, {}).bytes);
+    }
+  }, 600000);
+
+  it('through HorseMind: bets of two thirds of the pot and over always the best hand keep those folds', () => {
+    for (const n of BEST_FOLDS) {
+      const r = rec(n);
+      const on = play(r, ON, undefined, undefined, () =>
+        give(bettorOf(r), {
+          large: { bets: 30, shown: 16, strong: 16, best: 16 },
+          medium: { bets: 30, shown: 16, strong: 16, best: 16 },
+        })
+      );
+      expect([n, all(on, 'fold')]).toEqual([n, true]);
+    }
+  }, 600000);
+
+  it('a caller whose calls were shown weak is modelled wider; one always best, narrower (no reader supplies it today)', () => {
+    const r = rec(59484381, 5);
+    const st = at(r);
+    const spot = omahaFacingBetEvSpot(st.hero, st.gs as never)!;
+    expect(spot.callerSeats).toEqual([4]);
+    const run = (callerShown: Array<{ shown: number; best: number } | null>) =>
+      omahaFacingBetEvVerdict(spot, st.hero.cards, st.gs.communityCards, [], null, { callerShown })!
+        .field;
+    const base = run([null]);
+    expect(run([{ shown: 3, best: 0 }])).toBe(base);
+    expect(run([{ shown: 16, best: 2 }])).toBeGreaterThan(base);
+    expect(run([{ shown: 16, best: 16 }])).toBeLessThan(base);
   });
 });

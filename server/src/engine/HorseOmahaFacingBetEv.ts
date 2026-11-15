@@ -117,6 +117,34 @@ export const OMAHA_EV_CALLER_SHARE: Readonly<Record<'turn' | 'river', number>> =
   turn: 0.45,
 };
 export const OMAHA_EV_ALL_IN_SHARE = 0.5;
+/** A caller's learned showdown results move his share: prior "not the best hand" 0.5, bounds on the move. */
+export const OMAHA_EV_CALLER_NOT_BEST_PRIOR = 0.5;
+export const OMAHA_EV_CALLER_SHARE_BOUNDS: readonly [number, number] = [0.7, 1.5];
+/** The share of holdings a caller is modelled on, moved by what his calls of this size were at showdown. */
+export function omahaEvCallerShare(
+  base: number,
+  shown: { shown: number; best: number; second?: number } | null | undefined
+): number {
+  if (
+    !shown ||
+    !Number.isFinite(shown.shown) ||
+    !Number.isFinite(shown.best) ||
+    shown.shown < OMAHA_EV_SIZE_READ_MIN_SHOWN ||
+    shown.best < 0 ||
+    shown.best > shown.shown
+  )
+    return base;
+  const second = Math.max(0, Math.min(shown.shown - shown.best, Number(shown.second) || 0));
+  const notBest =
+    (OMAHA_EV_CALLER_NOT_BEST_PRIOR * OMAHA_EV_SIZE_READ_PRIOR +
+      (shown.shown - shown.best - 0.5 * second)) /
+    (OMAHA_EV_SIZE_READ_PRIOR + shown.shown);
+  const k = Math.max(
+    OMAHA_EV_CALLER_SHARE_BOUNDS[0],
+    Math.min(OMAHA_EV_CALLER_SHARE_BOUNDS[1], notBest / OMAHA_EV_CALLER_NOT_BEST_PRIOR)
+  );
+  return Math.min(0.95, base * k);
+}
 export const OMAHA_EV_BEHIND_SHARE = 0.25;
 
 /** The population prior for this bet (OMAHA_EV_PRIOR_BLUFF). */
@@ -136,8 +164,10 @@ export interface OmahaFacingBetEvRead {
   betCheckedToRatio: number | null;
   /** isPostflopManiac on his measured read */
   postflopManiac: boolean;
-  /** this street and size bucket: bets that reached showdown, and those that were the best hand */
-  sizeShown: { shown: number; best: number } | null;
+  /** his river bets of this size that reached showdown, those that were the best hand and, when known, those
+   *  that showed a strong hand and did not win (thin value: half a bluff). Null: the memory has no such read
+   *  (today always: see HorseMind.omahaFacingBetEvReadOf) */
+  sizeShown: { shown: number; best: number; second?: number } | null;
 }
 export const OMAHA_EV_UNKNOWN_READ: OmahaFacingBetEvRead = Object.freeze({
   measured: false,
@@ -164,8 +194,12 @@ export function omahaEvBluffShare(prior: number, read: OmahaFacingBetEvRead | nu
     s.shown >= OMAHA_EV_SIZE_READ_MIN_SHOWN &&
     s.best >= 0 &&
     s.best <= s.shown
-  )
-    q = (q * OMAHA_EV_SIZE_READ_PRIOR + (s.shown - s.best)) / (OMAHA_EV_SIZE_READ_PRIOR + s.shown);
+  ) {
+    const second = Math.max(0, Math.min(s.shown - s.best, Number(s.second) || 0));
+    q =
+      (q * OMAHA_EV_SIZE_READ_PRIOR + (s.shown - s.best - 0.5 * second)) /
+      (OMAHA_EV_SIZE_READ_PRIOR + s.shown);
+  }
   return Math.max(0.02, Math.min(0.65, q));
 }
 
@@ -574,6 +608,8 @@ export interface OmahaFacingBetEvSpot {
   callers: number;
   allIns: number;
   behind: number;
+  /** The seats of the players who called this wager (for their learned call read). */
+  callerSeats: number[];
   /** Chips the call puts in, and the chips it can win. */
   paid: number;
   winnable: number;
@@ -710,6 +746,7 @@ export function omahaFacingBetEvSpot(
 
     // The field.
     let callers = 0;
+    const callerSeats: number[] = [];
     let allIns = 0;
     let behind = 0;
     let uncovered = 0;
@@ -721,8 +758,10 @@ export function omahaFacingBetEvSpot(
       uncovered += Math.max(0, Math.min(bet, gs.currentBet) - heroTotal);
       if (p.seat === faced.bettorSeat) continue;
       if (p.is_all_in && bet <= 0.005) allIns++;
-      else if (p.is_all_in || bet + 0.011 >= gs.currentBet) callers++;
-      else behind++;
+      else if (p.is_all_in || bet + 0.011 >= gs.currentBet) {
+        callers++;
+        callerSeats.push(p.seat);
+      } else behind++;
     }
     const winnable = gs.pot - uncovered;
     if (!(winnable > 0)) return null;
@@ -747,6 +786,7 @@ export function omahaFacingBetEvSpot(
       callers,
       allIns,
       behind,
+      callerSeats,
       paid,
       winnable,
       allIn,
@@ -790,6 +830,8 @@ export interface OmahaFacingBetEvContext {
   rake?: number;
   /** the engine's realization factor for a turn call with chips behind */
   realization?: number;
+  /** per caller (spot.callerSeats order): what his calls of a wager this size were at showdown, when learned */
+  callerShown?: ReadonlyArray<{ shown: number; best: number; second?: number } | null>;
 }
 
 /** The decision: call when EV(call) exceeds the one margin. Null when the hand cannot be counted. */
@@ -820,7 +862,11 @@ export function omahaFacingBetEvVerdict(
     const holds = s.win + s.tie * 0.5;
     return alwaysIn ? holds : 1 - share * (1 - holds);
   };
-  if (spot.callers > 0) field *= need(OMAHA_EV_CALLER_SHARE[spot.street], true) ** spot.callers;
+  for (let c = 0; c < spot.callers; c++)
+    field *= need(
+      omahaEvCallerShare(OMAHA_EV_CALLER_SHARE[spot.street], ctx.callerShown?.[c]),
+      true
+    );
   if (spot.allIns > 0) field *= need(OMAHA_EV_ALL_IN_SHARE, true) ** spot.allIns;
   if (spot.behind > 0) field *= need(OMAHA_EV_BEHIND_SHARE, false) ** spot.behind;
   pWin *= field;
