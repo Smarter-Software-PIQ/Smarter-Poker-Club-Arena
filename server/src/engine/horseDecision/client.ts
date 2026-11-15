@@ -1,3 +1,4 @@
+import { horseSavedProfilePresence } from '../../services/HorseSavedProfilePresence.js';
 import { HorseRequestRetentionBudget, horseRequestAllowance } from './requestRetentionBudget.js';
 import { markHorseDecisionRejection } from './fallbackReason.js';
 import type { HorseOwnPublicHistoryLoader } from './ownPublicHistoryProvenance.js';
@@ -911,6 +912,8 @@ export class LiveHorseDecisionWorkerClient {
       ...captured,
       type: 'DECIDE_FAST',
       requestId: this.nextRequestId++,
+      // The original host owns this private saving-store diagnostic.
+      savedProfilePresence: horseSavedProfilePresence.forSnapshot(captured),
       // Never accept a caller-authored history packet through the snapshot.
       ownPublicHistory: context
         ? this.ownPublicHistory?.forSnapshot(context, captured.decisionTimeMs)

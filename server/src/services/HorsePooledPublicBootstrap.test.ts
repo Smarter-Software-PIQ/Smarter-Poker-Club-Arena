@@ -59,9 +59,20 @@ beforeEach(() => {
 
 it('reads only saved public columns with observed hands, by keyset, before the first decision', async () => {
   const before = Date.now();
-  mock.abort.mockResolvedValueOnce({ data: [row()], error: null });
+  const accepted = {
+    ...row(2),
+    public_memory_domain: { version: 1, speed: 'table', ante: 'none' },
+    last_accepted_hand_id: uid(90),
+    long_counters: { lHands: 1, lVpip: 1, lPfr: 0 },
+  };
+  const unknown = { ...row(3), last_accepted_hand_id: null, long_counters: null };
+  const expected = [row(), accepted, unknown];
+  mock.abort.mockResolvedValueOnce({
+    data: expected.map((r) => ({ ...r, unrelated_column: 'private' })),
+    error: null,
+  });
   const result = await readHorsePooledPublicBootstrap();
-  expect(result?.profiles).toEqual([row()]);
+  expect(result?.profiles).toStrictEqual(expected);
   expect(result!.availableAtMs).toBeGreaterThanOrEqual(before);
   expect(mock.from).toHaveBeenCalledWith('horse_exact_profiles');
   expect(mock.select).toHaveBeenCalledWith('*');

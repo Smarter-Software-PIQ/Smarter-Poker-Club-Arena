@@ -1,3 +1,4 @@
+import { confirmedHuman } from './HorseConfirmedSeatRole.js';
 import { publicMemoryDomainFromRules } from './HorsePublicMemoryDomain.js';
 import { horseFeatureAcceptanceUsable } from './HorseFeatureAuthority.js';
 import { recheckHorsePhase8GuardBeforeAcceptance } from './HorsePhase8GuardAcceptance.js';
@@ -4450,6 +4451,7 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
     // at the worker boundary. Worker timing and boot entropy never enter it;
     // private opponent cards were removed before gameState was constructed.
     const decisionSnapshot: LiveHorseDecisionSnapshot = {
+      savedProfileHumanIds: this.seatedPlayers.filter(confirmedHuman).map((p) => p.user_id),
       handJournalContext: captureHorseHandJournalContext(this.currentHandActions),
       generation: turnToken,
       fence,

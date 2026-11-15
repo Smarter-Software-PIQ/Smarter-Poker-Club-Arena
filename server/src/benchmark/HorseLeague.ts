@@ -1999,6 +1999,21 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaTightOpponent: true },
     b: {},
   })),
+  // 2026-11-15 OMAHA BLUFF-CATCHER FOLD (omahaBluffCatcherRaiseFold, default
+  // OFF): a folds two pair, sets and non-nut straights and flushes to a raise
+  // or a flop-bettor's turn bet of 0.9 pot or more with chips behind; b is
+  // today's brain. It ships off because it folds on bet size alone and has no
+  // value or continuation measurement (owner 2026-11-14 23:10: no blanket
+  // fold); it goes on only after a declared paired evaluation that includes a
+  // field raising for value only and a field that bluff-raises.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_bluff_catcher_raise_fold`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaBluffCatcherRaiseFold: true },
+    b: {},
+  })),
   // 2026-11-14 OMAHA TIGHT STEAL (omahaTightOpponentSteal, default OFF): the
   // steal half of omahaTightOpponent alone, in OMAHA_TIGHT_STEAL_VARIANTS
   // (six-card only). Against a Horse field the evidence standard is rarely
@@ -2012,6 +2027,61 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaTightOpponentSteal: true },
     b: {},
   },
+  // 2026-11-15 OMAHA RE-RAISED POT STACK-OFF, REALISTIC RANGE
+  // (omahaReraisedPotStackOffRealistic, default OFF): a prices the re-raised-
+  // pot one-pair / low two-pair stack-off against a realistic range and lets a
+  // measured over-bluffer keep the call; b is today's brain.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_reraised_pot_stack_off_realistic`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaReraisedPotStackOffRealistic: true },
+    b: {},
+  })),
+  // 2026-11-15 OMAHA MADE-HAND DEFENCE (omahaBeatenMadeHandDefense) and
+  // ONE-PAIR DISCIPLINE (omahaOnePairDiscipline), default OFF after their
+  // declared evaluations failed: a switches the rule on, b is today's brain.
+  ...(['plo4', 'plo5'] as const).flatMap((variant) => [
+    {
+      name: `${variant}_omaha_beaten_made_hand_defense`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { omahaBeatenMadeHandDefense: true },
+      b: {},
+    },
+    {
+      name: `${variant}_omaha_one_pair_discipline`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { omahaOnePairDiscipline: true },
+      b: {},
+    },
+  ]),
+  // 2026-11-15 OMAHA RE-RAISED POT DISCIPLINE, preflop cell
+  // (omahaReraisedPotDiscipline, default OFF after its evaluation failed):
+  // a switches it on, b is today's brain.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_reraised_pot_discipline`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaReraisedPotDiscipline: true },
+    b: {},
+  })),
+  // 2026-11-15 OMAHA RE-RAISED POT STACK-OFF FOLD (omahaReraisedPotStackOffFold,
+  // default OFF): the postflop half of omahaReraisedPotDiscipline; a turns it
+  // on, b is today's brain (the preflop half on in both).
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_reraised_pot_stack_off_fold`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaReraisedPotStackOffFold: true },
+    b: {},
+  })),
   // V15 BOATS (2026-09-28): default OFF. a turns it on, b is today's brain.
   // Ship it default ON only after this resolves significant positive.
   // 2026-11-06: V15 boats is default ON in PLO5 cash (v15BoatsOn), so the

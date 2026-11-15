@@ -1,4 +1,5 @@
 /** Bounded read-only journal inspection. Only selected counters and receipts leave the host. */
+import { isDeepStrictEqual } from 'node:util';
 import { pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
@@ -124,7 +125,10 @@ function observedTournamentIssues(tournament) {
 }
 export function summarizeDecision(record, capture, view, opponentId, independent, execution) {
   const s = capture.snapshot;
-  if (s?.type !== 'DECIDE_FAST' || !s.gameState?.players?.some((p) => p.user_id === opponentId))
+  if (
+    !['DECIDE_FAST', 'DECIDE_DEEP'].includes(s?.type) ||
+    !s.gameState?.players?.some((p) => p.user_id === opponentId)
+  )
     return null;
   const read = view.stats.get(opponentId);
   const word = (v) => (typeof v === 'string' && /^[a-z0-9_:-]{1,100}$/.test(v) ? v : null);
@@ -168,17 +172,41 @@ export function summarizeDecision(record, capture, view, opponentId, independent
       : null,
   };
 }
+function selectedExecution(capture, execution) {
+  const s = capture.snapshot;
+  return (
+    Number.isSafeInteger(s?.requestId) &&
+    s.requestId > 0 &&
+    execution?.identity?.requestId === s.requestId &&
+    ((s.type === 'DECIDE_FAST' && execution.identity.lane === 'fast') ||
+      (s.type === 'DECIDE_DEEP' && execution.identity.lane === 'deep')) &&
+    execution.executionStatus === 'intended'
+  );
+}
 // A reconciled hand can contain both independent and shared reads. Attribute
 // the shared read only to the original decision whose selected wager landed.
-export function acceptedSharedRead(capture, execution, hand, review, usedPublicPool, bind) {
+export function acceptedSharedRead(
+  capture,
+  execution,
+  hand,
+  review,
+  usedPublicPool,
+  bind,
+  opponentId,
+  originalFast
+) {
   const context = capture.observerReads?.context;
+  const deep = capture.snapshot?.type === 'DECIDE_DEEP';
   if (
     !hand ||
     review.status !== 'reconciled' ||
     context?.version !== 2 ||
     typeof usedPublicPool !== 'function' ||
-    !usedPublicPool(capture.observerReads, capture.snapshot) ||
-    execution?.executionStatus !== 'intended' ||
+    !selectedExecution(capture, execution) ||
+    (deep &&
+      (originalFast?.snapshot?.type !== 'DECIDE_FAST' ||
+        !isDeepStrictEqual(originalFast.observerReads, capture.observerReads))) ||
+    !usedPublicPool(capture.observerReads, deep ? originalFast.snapshot : capture.snapshot) ||
     execution.handAnchor?.earlyLook === true ||
     execution.executedAction !== execution.selected?.action ||
     execution.selected?.action !== capture.decision.action ||
@@ -187,10 +215,29 @@ export function acceptedSharedRead(capture, execution, hand, review, usedPublicP
     return null;
   const binding = bind(execution, hand);
   if (binding.status !== 'bound') return null;
+  const pool = capture.observerReads.pooledPublicProfiles;
+  const rows = pool.rowSources?.rows;
   return {
     actionOrdinal: binding.actionOrdinal,
-    profileDigest: capture.observerReads.pooledPublicProfiles.digest,
-    profileSource: capture.observerReads.pooledPublicProfiles.source,
+    lane: execution.identity.lane,
+    requestId: execution.identity.requestId,
+    profileDigest: pool.digest,
+    profileSource: pool.source,
+    ...(rows
+      ? {
+          profileReadRows: {
+            savedAtDeal: rows.filter((r) => r.source === 'saved_at_deal').length,
+            inProcess: rows.filter((r) => r.source === 'in_process').length,
+            ...(opponentId
+              ? {
+                  forRequestedOpponent: rows
+                    .filter((r) => r.userId === opponentId)
+                    .map(({ size, source }) => ({ size, source })),
+                }
+              : {}),
+          },
+        }
+      : {}),
     variant: context.variant,
     format: context.format,
     dealtCount: context.dealtCount,
@@ -322,7 +369,7 @@ export async function inspect(p) {
     stage = 'journal_configuration_missing';
     const directory = process.env.HORSE_DECISION_JOURNAL_DIR;
     if (!directory) throw Error('journal_unavailable');
-    let bind;
+    let bind, resolveOriginalFast;
     const hands = [];
     let bytes = 0;
     const started = Date.now();
@@ -373,21 +420,35 @@ export async function inspect(p) {
           ? JSON.parse(committed[0].body)
           : null;
       const turnKey = (r) => JSON.stringify([r.producerId, r.turnKey]);
-      const executions = new Map(
-        records
-          .filter((r) => r.kind === 'execution' && r.sourceRelease === p.sourceSha)
-          .map((r) => [turnKey(r), JSON.parse(r.body)])
+      const sourceDecisions = records.filter(
+        (r) => r.kind === 'decision' && r.sourceRelease === p.sourceSha
       );
+      const executions = new Map();
       for (const r of records) {
-        if (r.kind !== 'decision' || r.sourceRelease !== p.sourceSha) continue;
+        if (r.kind !== 'execution' || r.sourceRelease !== p.sourceSha) continue;
+        const key = turnKey(r);
+        executions.set(key, executions.has(key) ? null : JSON.parse(r.body));
+      }
+      for (const r of sourceDecisions) {
         stage = 'record_decode_failed';
         const c = JSON.parse(r.body),
           s = c.snapshot;
         if (
-          s?.type !== 'DECIDE_FAST' ||
+          !['DECIDE_FAST', 'DECIDE_DEEP'].includes(s?.type) ||
           !s.gameState?.players?.some((a) => a.user_id === opponentId)
         )
           continue;
+        const execution = executions.get(turnKey(r));
+        let originalFast;
+        if (s.type === 'DECIDE_DEEP') {
+          if (!hand || review.status !== 'reconciled' || !selectedExecution(c, execution)) continue;
+          resolveOriginalFast ??= (
+            await moduleAt('services/horseCorrectiveReview/kernelOriginalInput.js')
+          ).resolveKernelRetainedFastInput;
+          const bound = resolveOriginalFast(sourceDecisions, r);
+          if (bound.status !== 'resolved') continue;
+          originalFast = JSON.parse(bound.originalFastRecord.body);
+        }
         stage = 'retained_plan_refused';
         const plan = horseRetainedPlanContext(c, s);
         if (plan.kind === 'invalid') throw Error('plan_invalid');
@@ -415,7 +476,6 @@ export async function inspect(p) {
           continue handLoop;
         }
         stage = 'decision_summary_failed';
-        const execution = executions.get(turnKey(r));
         const row = summarizeDecision(
           r,
           c,
@@ -434,11 +494,24 @@ export async function inspect(p) {
               hand,
               review,
               horseObserverReadsUsedPublicPool,
-              bind
+              bind,
+              opponentId,
+              originalFast
             );
           }
           decisions.push(row);
         }
+      }
+      // Two records claiming the same committed action cannot prove which one was selected.
+      const byOrdinal = new Map();
+      for (const row of decisions) {
+        if (!row.acceptedSharedRead) continue;
+        const ordinal = row.acceptedSharedRead.actionOrdinal;
+        const prior = byOrdinal.get(ordinal);
+        if (prior) {
+          prior.acceptedSharedRead = null;
+          row.acceptedSharedRead = null;
+        } else byOrdinal.set(ordinal, row);
       }
       if (p.targets) {
         const witnesses = decisions

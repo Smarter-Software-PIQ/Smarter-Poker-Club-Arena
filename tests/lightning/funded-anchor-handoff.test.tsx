@@ -67,7 +67,9 @@ function consumer(
   const funding = fundingSource
     ? evaluate(fundingSource, { table: { id: ANCHOR }, userId: fundingOwner, existingSeats: rows })
     : undefined;
+  const followIntoRoom = vi.fn();
   const input = evaluate(inputSource, {
+    finalLightningDeal: { followIntoRoom },
     tableId: ANCHOR,
     userId: USER,
     tableState: { clusterId: CLUSTER, heroSeat: 3, players: Array(6).fill(null) },
@@ -82,7 +84,7 @@ function consumer(
     navigate,
     onTableInfoUpdate,
   });
-  return { input, navigate, onTableInfoUpdate };
+  return { input, navigate, onTableInfoUpdate, followIntoRoom };
 }
 beforeEach(() => {
   sessionStorage.clear();
@@ -112,6 +114,7 @@ it.each([false, true])(
     expect(c.navigate).not.toHaveBeenCalled();
     expect(c.onTableInfoUpdate).not.toHaveBeenCalled();
     act(() => result.current.viewReady());
+    expect(c.followIntoRoom).toHaveBeenCalledExactlyOnceWith(POOL);
     if (embedded) {
       expect(c.onTableInfoUpdate).toHaveBeenCalledWith({ movedToTableId: POOL });
       expect(c.navigate).not.toHaveBeenCalled();
@@ -157,7 +160,9 @@ it('known empty anchor truth refuses conversion even if a stale public roster st
 
 it('a locally confirmed departure overrides an earlier funded anchor lookup', async () => {
   const c = consumer([{ user_id: USER, stack: 200, leave_pending: false }]);
+  const followIntoRoom = vi.fn();
   const input = evaluate(inputSource, {
+    finalLightningDeal: { followIntoRoom },
     tableId: ANCHOR,
     userId: USER,
     tableState: { clusterId: CLUSTER, heroSeat: 0 },
