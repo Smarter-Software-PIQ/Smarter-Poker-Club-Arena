@@ -9,6 +9,7 @@
 // Resumable: a loaded day is skipped, never re-sent, unless a rebuild is
 // asked for. The first error stops the run (no retry); the next dispatch
 // resumes after the last committed day. Never runs on a schedule.
+import { pathToFileURL } from 'node:url';
 import pg from 'pg';
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -72,7 +73,7 @@ async function main() {
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((e) => {
     console.error('[seed] STOPPED: ' + e.message + ' (no retry; the next dispatch resumes after the last seeded day)');
     process.exit(1);
