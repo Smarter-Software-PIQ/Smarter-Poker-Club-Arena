@@ -53,7 +53,12 @@ import type { SeatPlayer } from '../types.js';
 import { omahaBoardShape, scoreOmahaHi, variantInfo } from './HorseEval.js';
 import { RANKS, SUITS } from './PokerEngine.js';
 import { omahaCashOnlyExcludes } from './HorseOmahaTournamentScope.js';
-import { omahaStrategyGameInScope, omahaStrategyConstant } from './HorseOmahaStrategyGame.js';
+import {
+  omahaStrategyGameInScope,
+  omahaStrategyConstant,
+  omahaStrategyHoleCount,
+  omahaStrategyHoleCountServed,
+} from './HorseOmahaStrategyGame.js';
 
 export const OMAHA_STREET_PLAN_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
 
@@ -271,7 +276,7 @@ const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.m
  */
 export function omahaStreetPlan(input: OmahaPlanInput): OmahaStreetPlan | null {
   const { hole, board } = input;
-  if (board.length !== 4 || (hole.length !== 4 && hole.length !== 5)) return null;
+  if (board.length !== 4 || !omahaStrategyHoleCountServed(hole.length)) return null;
   const pot = input.pot;
   const eff = Math.min(input.heroStack, input.oppStack);
   if (!(pot > 0) || !(eff > 0)) return null;
@@ -674,8 +679,7 @@ export function omahaStreetPlanDomain(hero: SeatPlayer, gs: HorseGameStateV2): S
     if (hiLo) return null;
     const opp = live(hero, gs);
     if (opp.length !== 1 || opp[0].is_all_in || !(opp[0].stack > 0)) return null;
-    if (!Array.isArray(hero.cards) || (hero.cards.length !== 4 && hero.cards.length !== 5))
-      return null;
+    if (!Array.isArray(hero.cards) || hero.cards.length !== omahaStrategyHoleCount(gs)) return null;
     return opp[0];
   } catch {
     return null;

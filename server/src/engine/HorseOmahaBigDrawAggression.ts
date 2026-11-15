@@ -81,7 +81,12 @@ import type { HorseGameStateV2 } from './HorseLogic.js';
 import { RANKS, SUITS } from './PokerEngine.js';
 import { omahaNutStatus, scoreOmahaHi, scoreOmahaHiPartial, variantInfo } from './HorseEval.js';
 import { omahaCashOnlyExcludes, omahaIcmPremiumOf } from './HorseOmahaTournamentScope.js';
-import { omahaStrategyGameInScope, omahaStrategyConstant } from './HorseOmahaStrategyGame.js';
+import {
+  omahaStrategyGameInScope,
+  omahaStrategyConstant,
+  omahaStrategyHoleCount,
+  omahaStrategyHoleCountServed,
+} from './HorseOmahaStrategyGame.js';
 
 export const OMAHA_BIG_DRAW_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
 /** Fold to a bet when no read exists. The sweep's humans, heads-up, folded to
@@ -251,7 +256,7 @@ export function omahaDrawRaiseBar(i: {
     if (!omahaStrategyGameInScope(OMAHA_BIG_DRAW_VARIANTS, { gameVariant: i.variant })) return null;
     if (i.street !== 'flop' && i.street !== 'turn') return null;
     if (i.hiLo || i.multiBoard || i.bombPot || i.tournament || i.allInOrFold) return null;
-    if (i.hole.length !== 4 && i.hole.length !== 5) return null;
+    if (i.hole.length !== omahaStrategyHoleCount({ gameVariant: i.variant })) return null;
     if (i.board.length !== 3 && i.board.length !== 4) return null;
     const h = [...i.hole];
     const b = [...i.board];
@@ -314,7 +319,7 @@ export function omahaBigDraw(
   dead: readonly Card[] = []
 ): OmahaBigDraw | null {
   try {
-    if (!Array.isArray(hole) || (hole.length !== 4 && hole.length !== 5)) return null;
+    if (!Array.isArray(hole) || !omahaStrategyHoleCountServed(hole.length)) return null;
     if (!Array.isArray(board) || (board.length !== 3 && board.length !== 4)) return null;
     if (!unpaired(board)) return null;
     const h = [...hole];

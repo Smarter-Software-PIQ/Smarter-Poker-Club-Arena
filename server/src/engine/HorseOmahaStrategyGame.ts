@@ -20,6 +20,8 @@
  *    the PLO6 lane's calibration (HorsePlo6StrategyCalibration.ts registers
  *    it with registerOmahaPlo6StrategyCalibration); a key it does not set,
  *    or no calibration at all, reads the same default.
+ *  - omahaStrategyHoleCount(gs) / omahaStrategyHoleCountServed(count): the
+ *    size of a hand, for every hole-count check of the day's rules.
  *
  * Decisions are synchronous, so the scope is module-level, restored on every
  * exit (as HorseOmahaTournamentScope).
@@ -72,6 +74,33 @@ export function registerOmahaPlo6StrategyCalibration(values: OmahaPlo6StrategyCa
 
 const variantOf = (gs: { gameVariant?: unknown } | null | undefined): string =>
   String(gs?.gameVariant ?? '').toLowerCase();
+
+/**
+ * The hole cards each pot-limit Omaha high game deals. A rule of the day
+ * that checks the size of a hand reads it here, never as a literal 4 or 5
+ * (PLO6 lane 2026-11-15, H20/H26: a literal check silently switches a rule
+ * off for six cards once its variant gate admits PLO6).
+ */
+export const OMAHA_STRATEGY_HOLE_COUNTS: Readonly<Record<string, number>> = Object.freeze({
+  plo4: 4,
+  plo5: 5,
+  plo6: 6,
+});
+
+/** The hole cards this game deals; 0 when it is not PLO4, PLO5 or PLO6. */
+export function omahaStrategyHoleCount(gs: { gameVariant?: unknown } | null | undefined): number {
+  return OMAHA_STRATEGY_HOLE_COUNTS[variantOf(gs)] ?? 0;
+}
+
+/**
+ * Whether `count` hole cards is a hand the day's computations serve (four,
+ * five or six). For a computation that is handed cards and no game: which
+ * games reach it is its caller's game-scope gate (omahaStrategyGameInScope),
+ * so six cards arrive only with the PLO6 lane's option on.
+ */
+export function omahaStrategyHoleCountServed(count: number): boolean {
+  return Object.values(OMAHA_STRATEGY_HOLE_COUNTS).includes(count);
+}
 
 /** The constant for this game: PLO6 from its calibration when set, every other game the default. */
 export function omahaStrategyConstant(

@@ -66,7 +66,11 @@ import {
   omahaIcmPremiumOf,
   omahaTournamentIcmRisk,
 } from './HorseOmahaTournamentScope.js';
-import { omahaStrategyGameInScope, omahaStrategyConstant } from './HorseOmahaStrategyGame.js';
+import {
+  omahaStrategyGameInScope,
+  omahaStrategyConstant,
+  omahaStrategyHoleCountServed,
+} from './HorseOmahaStrategyGame.js';
 
 export const OMAHA_CARD_IMPACT_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
 /** Opponent hands sampled per decision. */
@@ -397,7 +401,7 @@ export function omahaCardImpact(input: OmahaCardImpactInput): OmahaCardImpact | 
   const { hole, board, pot, heroStack, oppStack, heroCloses, line, read } = input;
   const dead = input.dead ?? [];
   if (board.length !== 4 && board.length !== 5) return null;
-  if (hole.length !== 4 && hole.length !== 5) return null;
+  if (!omahaStrategyHoleCountServed(hole.length)) return null;
   if (!(pot > 0) || !(heroStack > 0) || !(oppStack > 0)) return null;
   const known = [...hole, ...board, ...dead];
   if (new Set([...hole, ...board].map(key)).size !== hole.length + board.length) return null;
