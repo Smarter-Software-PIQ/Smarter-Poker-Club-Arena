@@ -41,6 +41,7 @@ vi.mock('../services/errorReporter.js', () => ({
 vi.mock('../services/supabase.js', () => ({ supabase: { from: mocks.from } }));
 vi.mock('../services/supabase/seats.js', () => ({
   getSeatCashoutReceipt: vi.fn(),
+  legacyLightningLeaveRequiresReload: vi.fn(async () => false),
   getAdminSeatCashoutReceipt: vi.fn(),
 }));
 

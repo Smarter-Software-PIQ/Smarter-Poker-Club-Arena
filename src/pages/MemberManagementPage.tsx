@@ -1316,7 +1316,7 @@ export default function MemberManagementPage() {
               key={`${resolvedClubId}:${memberUuid}:${user.id}:${myRole}`}
               clubId={resolvedClubId}
               memberId={memberUuid}
-              viewerId={user.id}
+              revision={recordRevision}
               scope={memberUuid === user.id ? 'mine' : isClubStaff(myRole) ? 'club' : 'downline'}
             />
           )}

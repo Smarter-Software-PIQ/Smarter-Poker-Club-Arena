@@ -589,6 +589,8 @@ export function createRouter(
         },
       });
     if (method === 'POST' && url === '/addchips') return handleAddchips(req, res, { gameServer });
+    if (method === 'POST' && url === '/leave-lightning-occupancy')
+      return handleLeaveOccupancy(req, res, { gameServer }, true);
     if (method === 'POST' && url === '/leave-occupancy')
       return handleLeaveOccupancy(req, res, { gameServer });
     if (method === 'POST' && url === '/leave') return handleLeave(req, res, { gameServer });

@@ -1749,6 +1749,14 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
    * The reply is a SUCCESS: the player asked to go and may go. Their seat
    * finishes the obligation without them.
    */
+  /** Adopt a blind-off already committed by the occupancy-scoped room door. */
+  adoptLightningBlindOff(userId: string, occupancyId: string): void {
+    if (!this.seatedPlayers.some((p) => p.user_id === userId && p.occupancy_id === occupancyId))
+      return;
+    this.leaveHeldByClock.set(userId, occupancyId);
+    this.chipContinuity.markBlindOff(userId, true);
+  }
+
   protected holdLockedLeave(userId: string, handsRemaining: number) {
     const seat = this.seatedPlayers.find((p) => p.user_id === userId);
     if (seat?.occupancy_id) this.leaveHeldByClock.set(userId, seat.occupancy_id);

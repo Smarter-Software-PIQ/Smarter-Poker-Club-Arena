@@ -20,7 +20,9 @@ it('previews six entries and pages the selected agent’s full club history usin
     }));
     return { abortSignal: async () => ({ data }) };
   });
-  render(<MemberTransactionHistory clubId="club" memberId="agent" viewerId="staff" scope="club" />);
+  const { rerender } = render(
+    <MemberTransactionHistory clubId="club" memberId="agent" revision={0} scope="club" />
+  );
   fireEvent.click(
     await screen.findByRole('button', { name: 'See All' }).then((button) => {
       expect(screen.getAllByText('-9,007,199,254,740,993.12')).toHaveLength(6);
@@ -28,7 +30,7 @@ it('previews six entries and pages the selected agent’s full club history usin
     })
   );
   fireEvent.click(await screen.findByRole('button', { name: 'Next' }));
-  await screen.findByText('Agent Sent To Player 26');
+  await screen.findByText('Sent To Player 26');
   expect(rpc).toHaveBeenLastCalledWith(
     'fn_cashier_history_feed',
     expect.objectContaining({
@@ -40,6 +42,10 @@ it('previews six entries and pages the selected agent’s full club history usin
       p_limit: 26,
     })
   );
+  const callsOnOlderPage = rpc.mock.calls.length;
+  rerender(<MemberTransactionHistory clubId="club" memberId="agent" revision={1} scope="club" />);
+  expect(screen.getByText('Sent To Player 26')).toBeVisible();
+  expect(rpc.mock.calls.length).toBe(callsOnOlderPage);
   fireEvent.click(screen.getByRole('button', { name: 'Show Recent' }));
   await waitFor(() => expect(screen.getAllByText('-9,007,199,254,740,993.12')).toHaveLength(6));
 });
@@ -61,16 +67,58 @@ it('identifies the funding wallet for otherwise identical sends in the preview a
     metadata: { source, destination: 'player_wallet' },
   }));
   rpc.mockReturnValue({ abortSignal: async () => ({ data }) });
-  render(<MemberTransactionHistory clubId="club" memberId="agent" viewerId="staff" scope="club" />);
+  render(<MemberTransactionHistory clubId="club" memberId="agent" revision={0} scope="club" />);
   async function expectRoutes() {
     for (const wallet of ['Player', 'Promo', 'Agent']) {
       const label = await screen.findByText('From ' + wallet + ' Wallet To Player Wallet');
       const row = label.closest('.mm-stat');
-      expect(row?.textContent).toContain('Sender Sent To Recipient');
+      expect(row?.textContent).toContain('Sent To Recipient');
       expect(row?.textContent).toContain('-50.00');
     }
   }
   await expectRoutes();
   fireEvent.click(screen.getByRole('button', { name: 'See All' }));
   await expectRoutes();
+});
+
+it('refreshes recent sends and claims from the member perspective and shows only recorded promo usage', async () => {
+  const tx = {
+    id: 'p',
+    created_at: '2026-11-14T18:26:42Z',
+    from_user_id: 'agent',
+    to_user_id: 'other',
+    from_name: 'Agent',
+    to_name: 'Recipient',
+    amount_text: '30.00',
+    transaction_type: 'promo_wallet_send',
+    metadata: { promo_used_after_send: '50.00', destination: 'player_wallet' },
+  };
+  const reply = (data: object[]) => ({ abortSignal: async () => ({ data }) });
+  rpc.mockReturnValueOnce(reply([tx])).mockReturnValueOnce(
+    reply([
+      {
+        ...tx,
+        id: 'in',
+        transaction_type: 'peer_transfer',
+        from_user_id: 'other',
+        from_name: 'Sender',
+        to_user_id: 'agent',
+      },
+      { ...tx, id: 'claim', transaction_type: 'agent_wallet_claim_back', to_name: 'Manager' },
+      tx,
+    ])
+  );
+  const renderRecord = (revision: number) => (
+    <MemberTransactionHistory clubId="club" memberId="agent" revision={revision} scope="club" />
+  );
+  const { rerender } = render(renderRecord(1));
+  await screen.findByText(/50.00 Of 50 Used/);
+  rerender(renderRecord(2));
+  expect((await screen.findByText('Received From Sender')).closest('.mm-stat')).toHaveTextContent(
+    '+30.00'
+  );
+  expect(screen.getByText('Chips Claimed Back By Manager').closest('.mm-stat')).toHaveTextContent(
+    '-30.00'
+  );
+  expect(screen.getAllByText(/50.00 Of 50 Used/)).toHaveLength(1);
 });
