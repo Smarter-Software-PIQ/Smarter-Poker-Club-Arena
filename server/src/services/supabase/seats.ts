@@ -108,14 +108,19 @@ export async function getSeatCashoutReceipt(
   userId: string,
   tableId: string,
   seatNumber: number,
-  occupancyId: string
+  occupancyId: string,
+  poolSessionId?: string
 ): Promise<SeatCashoutReceipt | null> {
-  const { data, error } = await supabase.rpc('fn_get_seat_cashout_receipt', {
-    p_user_id: userId,
-    p_table_id: tableId,
-    p_seat_number: seatNumber,
-    p_occupancy_id: occupancyId,
-  });
+  const { data, error } = await supabase.rpc(
+    poolSessionId ? 'fn_get_lightning_room_cashout_receipt' : 'fn_get_seat_cashout_receipt',
+    {
+      ...(poolSessionId ? { p_pool_session_id: poolSessionId } : {}),
+      p_user_id: userId,
+      p_table_id: tableId,
+      p_seat_number: seatNumber,
+      p_occupancy_id: occupancyId,
+    }
+  );
   if (error) throw new Error(String(error.message || 'Cashout outcome lookup failed'));
   return data === null
     ? null
@@ -147,6 +152,48 @@ export interface AdminDepartureAuthority {
   actorId: string;
   clubId: string;
   reason: string;
+}
+
+export async function legacyLightningLeaveRequiresReload(
+  userId: string,
+  tableId: string,
+  occupancyId: string
+): Promise<boolean> {
+  const { data, error } = await supabase.rpc('fn_lightning_legacy_leave_requires_reload', {
+    p_user_id: userId,
+    p_table_id: tableId,
+    p_occupancy_id: occupancyId,
+  });
+  if (error || typeof data !== 'boolean')
+    throw new Error(error?.message ?? 'Could not verify original seat');
+  return data;
+}
+
+/** Commit a human's Lightning-room decision before dispatching the anchor's leave. */
+export async function requestLightningRoomDeparture(
+  poolSessionId: string,
+  userId: string,
+  tableId: string,
+  seatNumber: number,
+  occupancyId: string,
+  confirmed: boolean
+): Promise<{ ok: boolean; reason?: string; blind_off?: boolean; hands_remaining?: number }> {
+  const { data, error } = await supabase.rpc('fn_lightning_request_room_departure', {
+    p_pool_session_id: poolSessionId,
+    p_user_id: userId,
+    p_table_id: tableId,
+    p_seat_number: seatNumber,
+    p_occupancy_id: occupancyId,
+    p_confirm_hand_count: confirmed,
+  });
+  if (
+    error ||
+    !data ||
+    typeof data.ok !== 'boolean' ||
+    (data.ok ? typeof data.blind_off !== 'boolean' : typeof data.reason !== 'string')
+  )
+    throw new Error(error?.message ?? 'Lightning departure unconfirmed');
+  return data;
 }
 
 export async function requestSeatDeparture(
