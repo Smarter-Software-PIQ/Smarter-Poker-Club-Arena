@@ -1118,9 +1118,13 @@ export class EngineStateClient {
     return this.inbox.shift()!;
   }
 
+  /** Counts every emptying of the queue, so a walk over old frames can tell. */
+  private inboxEpoch = 0;
+
   private clearInboxFrames(): void {
     this.inbox = [];
     this.inboxArrivedAt = [];
+    this.inboxEpoch++;
   }
 
   /**
@@ -1151,7 +1155,11 @@ export class EngineStateClient {
     let skipped = 0;
     this.eventGapReportedForSeq = 0;
     this.pendingTurnChange = null;
+    const epoch = this.inboxEpoch;
     for (let i = 0; i < frames.length; i++) {
+      // A listener closed or replaced the socket: these frames are a dead
+      // connection's now, and must not reach the next one.
+      if (this.inboxEpoch !== epoch) return;
       const msg = frames[i];
       if (msg.type === 'SNAPSHOT' || msg.type === 'DELTA') {
         this.applyStateFrame(msg);

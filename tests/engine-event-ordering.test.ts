@@ -324,6 +324,23 @@ describe('EngineStateClient - the queue never shows the past', () => {
     c.disconnect();
   });
 
+  it('a teardown in the middle of a skip stops it: nothing from the dead socket follows', async () => {
+    const { c, observed } = await connectedClient();
+    (c as unknown as { opts: { onEvent: (p: Record<string, unknown>) => void } }).opts.onEvent = (
+      p
+    ) => {
+      observed.push(`event:${String(p.type)}`);
+      if (p.type === 'seat_moved') c.disconnect();
+    };
+    event(1, { type: 'seat_moved', replay_until: now + 30_000 });
+    live()._frame({ type: 'SNAPSHOT', tableId: TABLE, seq: 50, state: { hand_number: 9 } });
+    event(2, { type: 'bbj_hit', replay_until: now + 30_000 });
+    now += 3_500;
+    await flush();
+    await flush();
+    expect(observed).toEqual(['event:seat_moved']);
+  });
+
   it('a hidden tab is late by design and loses nothing while hidden', async () => {
     Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
     const { c, observed } = await connectedClient();
