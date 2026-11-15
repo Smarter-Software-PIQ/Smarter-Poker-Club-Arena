@@ -87,6 +87,10 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the default-off Omaha street plan (owner 2026-11-15 11:43, omahaStreetPlan), first layer: a heads-up PLO4/PLO5 cash turn bet is priced against the check as a whole line with the opponent responses and every river card planned, and the river after that bet follows the recomputed plan where the paired-board fold would otherwise fold',
     'src/engine/horsePublicActionTime.ts':
       'the default-off public-only action time (owner 2026-11-15 12:16, horseActionTimeIsPublicOnly): the think time of every game is produced from the street, board, pot, price, stacks, players in, the action and amount shown, the seat tempo and its own random stream, never from the private hand',
+    'src/engine/HorsePlayStyle.ts':
+      "the default-off Horse playing styles (owner 2026-11-15 16:40 / 16:42, horsePlayStyles), shared by every game: which of tight, current and pressure a Horse plays for life (a hash of its id, or the authored persona.playStyle) and the table rule that sends a style to current (tournaments, Lightning, 50 bb or less, unmapped games, a VPIP floor above the tight style's expected VPIP)",
+    'src/engine/HorseOmahaPlayStyle.ts':
+      'the default-off Omaha mapping of the Horse playing styles (owner 2026-11-15 16:40 / 16:42, horsePlayStyles): the bounded scales (0.75 to 1.25) on the preflop bars, the bluff volume and the aggression, and the existing archetype band the persona gears are read from, for the tight style and for the pressure style in position in PLO4/PLO5 cash',
     'src/engine/HorseOmahaBigDrawAggression.ts':
       'the default-off Omaha big-draw aggression (owner 2026-11-15 11:55): on a PLO4/PLO5 cash flop or turn a check or call with a declared big draw becomes a pot-sized bet or raise only when its expected value (measured fold equity, equity against the continuing range) is above the passive line; the outermost wager rule',
     'src/engine/HorseOmahaMadeHandDefense.ts':
