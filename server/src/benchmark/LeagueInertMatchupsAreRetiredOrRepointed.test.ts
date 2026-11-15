@@ -55,6 +55,8 @@ describe('UNMEASURABLE_MATCHUPS', () => {
         'flh_call_is_not_a_commitment',
         'flo8_hilo_low_half_floor',
         'flo8_no_omaha_presumption',
+        'flh_maniac_cap_needs_value',
+        'flo8_maniac_cap_needs_value',
       ].sort()
     );
     const card = new Set(LEAGUE_MATCHUPS.map((m) => m.name));

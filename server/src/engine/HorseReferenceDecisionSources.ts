@@ -182,6 +182,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       "the default-off heads-up big blind price defence: each Hold'em class's equity against the heads-up open range by width, and the realisation the price is read with",
     'src/engine/HorseFixedLimitCallPrice.ts':
       'the default-off fixed-limit call price (2026-11-14, Fixed-Limit lane): a fixed-limit call is never a stack commitment; its price is the chips to call plus the expected further wagers of the street while a player left to act can still raise',
+    'src/engine/HorseFixedLimitManiacCap.ts':
+      'the default-off fixed-limit cap bar (2026-11-15, Fixed-Limit lane): a V53 pressure raise that would be the fixed-limit preflop cap needs equity of at least 0.5 plus two standard errors of its estimate (1/sqrt(n)), else the call',
     'src/engine/HorseHiLoLowHalf.ts':
       'the floor the low half puts under the Omaha pressure cap heads-up on a pot-limit hi-lo river, so a nut low is not folded to one bet (HU-HILO-001, 2026-11-13)',
     'src/engine/HorseFixedLimitStructure.ts':

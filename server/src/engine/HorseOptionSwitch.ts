@@ -339,6 +339,7 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'fixedLimitCallIsNotACommitment',
   'fixedLimitHiLoLowHalfFloor',
   'fixedLimitOmahaNoPresumption',
+  'fixedLimitManiacCapNeedsValue',
 ]);
 /** Decided by code: a parent option, a variant gate or a mixed read (see each ledger note). */
 export const OPTION_SWITCH_RELEASE_DEFAULT_CODE: readonly string[] = Object.freeze([

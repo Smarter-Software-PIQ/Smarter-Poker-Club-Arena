@@ -1495,6 +1495,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'FixedLimitAdaptation'
   ),
   flag(
+    'fixedLimitManiacCapNeedsValue',
+    "2026-11-15 default OFF: in a fixed-limit game (betting structure), a V53 pressure raise that would be the preflop cap (after the Horse opens and an aggressive raiser 3-bets) fires only when the V38 equity against the raiser's read range is at least 0.5 + m, the break-even of the one-small-bet capping increment plus two standard errors of that estimate at the sample count the decision drew (m = 1/sqrt(n): n = 360, m = 0.0527 for flh and n = 176, m = 0.0754 for flo8 at full scale; HorseFixedLimitManiacCap.ts); otherwise the hand calls; measured before (AH-V38-FIXED-LIMIT.md, flh 6-max, observed maniac 3-bet, 20 seeds a hand): Q9o, J8o, 76s, 54s, 83o and 72o capped 112 of 120 times with 0.30-0.46 equity, each of which calls against an unknown 3-bettor; refused by the league (it deals no fixed limit), see UNMEASURABLE_MATCHUPS",
+    'FixedLimitAdaptation'
+  ),
+  flag(
     'lightningParticipationHoldem',
     "2026-11-15 default OFF: Lightning cash no-limit hold'em only (public memory domain speed lightning, four to six dealt, big-blind ante, not all-in-or-fold): where the facing-one-open branch folds the big blind, nobody else in, the (defender, opener seat) continue width gains up to 10 share points for the price the ante lays (90 points per unit of price under 0.31, none at 50bb or less, all from 85bb) and a hand inside it calls; hold'em opens are untouched (they already scale with the ante); no own-participation input, no floor, not applied where a tight-opener respect read moved the bars; development evidence only (HorseLightningParticipation.ts, paired Lightning harness, seeds 20261114-20261118), so it stays off",
     'Lightning participation'
@@ -5481,6 +5486,13 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'fixed_limit_omaha_presumption_withheld',
     'HorseMind.opponentRead (fixedLimitOmahaNoPresumption)',
     'a fixed-limit Omaha opponent read was returned without the shared aggressive raise presumption',
+    'FixedLimitAdaptation'
+  ),
+  // No floor: fixed-limit preflop caps only, with the opt-in option on.
+  receipt(
+    'fixed_limit_maniac_cap_value_call_seen',
+    'HorseLogic V38/V53 preflop price, the pressure four-bet (fixedLimitManiacCapNeedsValue, HorseFixedLimitManiacCap.ts)',
+    'a fixed-limit V53 pressure raise that would have been the preflop cap, with equity under 0.5 plus two standard errors, became the call',
     'FixedLimitAdaptation'
   ),
   // No floor: fixed-limit showdowns only, and only with the process switch on.
