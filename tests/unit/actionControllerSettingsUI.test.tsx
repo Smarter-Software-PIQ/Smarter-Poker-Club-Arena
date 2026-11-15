@@ -1,3 +1,4 @@
+import ActionPanel from '../../src/components/table/ActionPanel';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { ActionControllerSettings } from '../../src/components/table/ActionControllerSettings';
@@ -56,4 +57,64 @@ describe('Action Controller settings gestures', () => {
     expect(live().preflop).toEqual([2.5, 3, 3.5, 4]);
     expect(live().postflop).toEqual([33, 50, 75, 125]);
   });
+});
+
+it('edits all eight defaults and uses each saved value through the live controller submission path', () => {
+  const onAction = vi.fn();
+  function TableController({ isPreflop }: { isPreflop: boolean }) {
+    const { settings } = useActionControllerSettings();
+    return (
+      <ActionPanel
+        controllerSettings={settings}
+        isPreflop={isPreflop}
+        canFold
+        canCall
+        canRaise
+        canAllIn
+        canCheck={false}
+        isMyTurn
+        currentBet={10}
+        callAmount={8}
+        pot={42}
+        minRaise={20}
+        maxRaise={500}
+        bigBlind={2}
+        smallestChip={1}
+        onAction={onAction}
+      />
+    );
+  }
+  const view = (isPreflop: boolean) => (
+    <>
+      <ActionControllerSettings />
+      <TableController isPreflop={isPreflop} />
+    </>
+  );
+  const { rerender } = render(view(true));
+  for (const [group, values] of [
+    ['Preflop Multipliers', [2.2, 2.8, 3.3, 4.5]],
+    ['Postflop Pot Percentages', [25, 40, 65, 125]],
+  ] as const) {
+    values.forEach((value, index) =>
+      fireEvent.change(screen.getByLabelText(`${group} Option ${index + 1}`), {
+        target: { value: String(value) },
+      })
+    );
+    fireEvent.click(screen.getByRole('button', { name: `Apply ${group}` }));
+  }
+  for (const [preflop, labels, amounts] of [
+    [true, ['2.2X', '2.8X', '3.3X', '4.5X'], [22, 28, 33, 45]],
+    [false, ['25%', '40%', '65%', '125%'], [23, 30, 43, 73]],
+  ] as const) {
+    rerender(view(preflop));
+    labels.forEach((label, index) => {
+      const prior = onAction.mock.calls.length;
+      fireEvent.click(screen.getByRole('button', { name: 'Open Raise Panel' }));
+      fireEvent.click(screen.getByRole('button', { name: `${label} - Raise ${amounts[index]}` }));
+      expect(onAction).toHaveBeenCalledTimes(prior);
+      fireEvent.click(screen.getByRole('button', { name: `Raise ${amounts[index]}`, exact: true }));
+      expect(onAction).toHaveBeenCalledTimes(prior + 1);
+      expect(onAction).toHaveBeenLastCalledWith('raise', amounts[index]);
+    });
+  }
 });
