@@ -170,12 +170,17 @@ Response additions on `ca_club_data_snapshot_v2` and `ca_club_data_screen`
 - Figure definitions (union basis), same field names as today:
   fee = accounting rake credit (cash when earned, tournament when recognized);
   cash result = each hand's stack change by the player's earning club plus
-  Bad Beat Jackpot stack awards; MTT winnings = receipt-owned returns
-  (prizes, bounties, refunds) minus funding (buy-ins, rebuys, add-ons), with
-  entries in tournaments still running at a week boundary carried to the week
-  they settle in, as the invoice does; total winnings = cash result + MTT
-  winnings; chips still on the felt are shown but not added; every player the
-  records attribute to the club is listed (members or not, horses included).
+  Bad Beat Jackpot stack awards; tournament result (tournament_winnings) =
+  receipt-owned returns (prizes, bounties, refunds) minus funding (buy-ins,
+  rebuys, add-ons) of every tournament kind, with entries in tournaments still
+  running at a week boundary carried to the week they settle in, as the
+  invoice does; total winnings = cash result + ALL tournament results
+  (finished MTT winnings, Sit And Go and Spin results, unfinished MTT
+  entries); mtt_winnings = finished MTTs only (running_mtt_entries the rest);
+  chips still on the felt are shown but not added; every player the records
+  attribute to the club is listed (members or not, horses included).
+  (Corrected 2026-11-15 04:40Z: the frozen text said "cash result + MTT
+  winnings"; the readers always summed every tournament result.)
 - Player readers keep their response shapes; their figures follow the same
   definitions on the union basis.
 
