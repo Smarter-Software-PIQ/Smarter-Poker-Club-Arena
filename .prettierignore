@@ -275,6 +275,3 @@ operations/release/native/original-web-artifact-api.json
 
 # Immutable old-engine client bytes are SHA-pinned by native bootstrap qualification.
 scripts/ci/fixtures/maintenance-promise/old-eed-maintenanceThawV3.ts
-
-# Human vs Horse capture toolkit docs: RUNBOOK.md and TESTS.md are carried byte-for-byte from the evidence archive (Prettier would merge the runbook's numbered command lines).
-scripts/ops/human-horse-capture/**/*.md
