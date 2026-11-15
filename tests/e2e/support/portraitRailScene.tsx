@@ -315,6 +315,8 @@ export function Review() {
                         }
                         position={i === 1 ? 'SB' : null}
                         isActive={i === activeSeat}
+                        isWinner={document.documentElement.dataset.winnerSeat === String(i + 1)}
+                        winningHandName="Two Pair"
                         lastAction={
                           document.documentElement.dataset.actionPills === 'none'
                             ? null

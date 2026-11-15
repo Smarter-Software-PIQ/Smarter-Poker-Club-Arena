@@ -3,10 +3,11 @@
  * runs, and the recorder of the OFF control.
  *
  * The control in fixtures/horse-holdem-persona-reraise-off-control.json was
- * recorded by `recordOffControl()` from main at 0aca5e03c7f, the commit this
+ * recorded by `recordOffControl()` from main at b262fd3e0e2, the commit this
  * branch was last merged with (main does not have the option; first recorded
- * from 8a8656b17b5, the branch's parent, and re-recorded at the merge: the two
- * recordings are the same, line for line): this file and
+ * from 8a8656b17b5, the branch's parent, re-recorded from main at 0aca5e03c7f
+ * and again from main at b262fd3e0e2 at each merge: the three recordings are
+ * the same, line for line): this file and
  * benchmark/HoldemPreflopProbe.ts were copied into a `git archive` of that
  * commit and run under its own vitest setup. The file's `recordedFrom` names it. Each line is one decision:
  * action, amount and the shared random stream's state after it. Not

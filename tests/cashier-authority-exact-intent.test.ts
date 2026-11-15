@@ -127,7 +127,9 @@ describe('cashier authority and exact intent', () => {
         'fn_promo_wallet_send_core_20261004',
         'fn_promo_wallet_send_core_20261004',
         '20261016024912_cashier_sends_use_the_selected_source_and_destination_wallet.sql',
-        '7087a67e16f6d7990c28fbb549464bef',
+        // 20261112050118's shared recipient cap, then World Hub 20261114174204's
+        // one-agent 24-hour ceiling (PR #2841), both derived below.
+        'be708b91a9ce7080e2826d2f53513cc5',
       ],
       [
         'fn_club_promo_send_core_20261004',
@@ -185,6 +187,32 @@ describe('cashier authority and exact intent', () => {
           expect(installedBody.split(before)).toHaveLength(2);
           installedBody = installedBody.replace(before, after);
         }
+        // The 20261112050118 body is the earlier pin; it is no longer accepted.
+        expect(createHash('md5').update(installedBody).digest('hex')).toBe(
+          '7087a67e16f6d7990c28fbb549464bef'
+        );
+        expect(releaseContract).not.toContain(`'hash', '7087a67e16f6d7990c28fbb549464bef'`);
+        // World Hub 20261114174204 (PR #2841) patched the installed source at the
+        // downline-limit anchor. Its SQL is kept byte for byte in the fixture.
+        const sibling = JSON.parse(
+          readFileSync(
+            resolve(
+              import.meta.dirname,
+              '../scripts/ci/fixtures/world-hub-cashier-migrations-20261114.json'
+            ),
+            'utf8'
+          )
+        ).find((item: { version: string }) => item.version === '20261114174204');
+        expect(sibling).toBeTruthy();
+        expect(createHash('sha256').update(sibling.sql).digest('hex')).toBe(sibling.sha256);
+        const door = sibling.sql.slice(sibling.sql.indexOf('-- Promo wallet door.'));
+        const anchor = sibling.sql.match(/anchor := \$a\$([\s\S]*?)\$a\$;/)![1];
+        const added = door.match(
+          /updated := replace\(original, anchor, \$n\$([\s\S]*?)\$n\$\);/
+        )![1];
+        expect(installedBody.split(anchor)).toHaveLength(2);
+        installedBody = installedBody.replace(anchor, () => added);
+        expect(releaseContract).toContain("version = '20261114174204'");
       }
       if (name === 'fn_club_bank_claim_core_20261004') {
         expect(createHash('md5').update(installedBody).digest('hex')).toBe(

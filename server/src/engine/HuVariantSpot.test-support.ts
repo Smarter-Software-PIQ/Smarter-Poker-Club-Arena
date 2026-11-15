@@ -6,7 +6,7 @@
 import type { Card, SeatPlayer } from '../types.js';
 import { HandController } from './HandController.js';
 import { Deck, calculateContestablePot } from './PokerEngine.js';
-import { HorseLogic, type HorseGameStateV2 } from './HorseLogic.js';
+import { HorseLogic, type HorseDecideOpts, type HorseGameStateV2 } from './HorseLogic.js';
 import { HorseMind } from './HorseMind.js';
 import { seedFastRandom } from './HorseEval.js';
 import { horseVariantRulesFor } from './VariantRules.js';
@@ -96,7 +96,7 @@ export function menuOf(t: Table) {
   const actor = t.controller.getCurrentPlayer()!;
   return t.controller.getAuthoritativeActionState(actor.user_id)!;
 }
-export function decide(t: Table, seed: number) {
+export function decide(t: Table, seed: number, extraOpts: Partial<HorseDecideOpts> = {}) {
   const { controller, variant, fmt } = t;
   const state = controller.getState();
   const actor = controller.getCurrentPlayer()!;
@@ -189,7 +189,7 @@ export function decide(t: Table, seed: number) {
     gs,
     prof.style,
     { ...prof.mods },
-    { mind: false, decisionTimeMs: Date.UTC(2026, 10, 13, 18, 0, 0) }
+    { mind: false, decisionTimeMs: Date.UTC(2026, 10, 13, 18, 0, 0), ...extraOpts }
   );
   return { d, hero, gs, menu };
 }

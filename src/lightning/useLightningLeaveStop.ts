@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { reportError } from '../utils/errorReporter';
-import { stopLightningPlaying } from './lightningSessionApi';
+import { stopLightningPlaying, type LightningStopPlayingResult } from './lightningSessionApi';
 import type { LightningPoolEntry } from './lightningSession';
 
 /** Every Lightning leave door shares one durable stop before awaiting the anchor. */
@@ -11,31 +11,35 @@ export function useLightningLeaveStop(
   const key = room && userId && userId !== 'guest' ? `${room.poolSessionId}/${userId}` : null;
   const current = useRef(key);
   current.current = key;
-  const request = useRef<{ key: string; result: Promise<boolean> } | null>(null);
+  const request = useRef<{
+    key: string;
+    result: Promise<LightningStopPlayingResult | null>;
+  } | null>(null);
   useEffect(() => {
     current.current = key;
     return () => {
       current.current = null;
     };
   }, [key]);
-  const stop = async (): Promise<boolean> => {
-    if (!room || !userId || userId === 'guest') return true;
-    if (!key || current.current !== key) return false;
+  const receipt = async (): Promise<LightningStopPlayingResult | null> => {
+    if (!room || !key || current.current !== key) return null;
     if (request.current?.key === key) return request.current.result;
-    const result = stopLightningPlaying(room.clusterId).then(
-      (out) => out?.ok === true && current.current === key,
+    const result = stopLightningPlaying(room.clusterId, room.poolSessionId).then(
+      (out) => (current.current === key ? out : null),
       (error) => {
         reportError(error, 'LightningLeaveStop.stop');
-        return false;
+        return null;
       }
     );
     request.current = { key, result };
     const ok = await result;
-    if (!ok && request.current?.result === result) request.current = null;
+    if (!ok?.ok && request.current?.result === result) request.current = null;
     return ok;
   };
   /** A withdrawn stop (cancelled Leave Next Hand) must be sent again next time. */
+  const stop = async () => !key || (await receipt())?.ok === true;
   return Object.assign(stop, {
+    receipt,
     reset: () => {
       request.current = null;
     },

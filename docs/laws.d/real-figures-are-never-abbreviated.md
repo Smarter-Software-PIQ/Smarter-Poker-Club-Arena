@@ -1,0 +1,3 @@
+# tests/real-figures-are-never-abbreviated.law.test.ts
+
+Dan, 2026-11-13: "IN THE PLAYER MANAGEMENT OR ANYWHERE REAL DATA IS STORED. I DON'T WANT ROUNDED UP NUMBERS LIKE 393 OR 1.5K OR 1K USE WHOLE NUMBERS AND DECIMALS ALWAYS ... FIX THIS LOGIC GLOBALLY FOR THE POKER ARENA." Pins that every shared figure formatter (`compactChips`, `exactChips`, `fmtChips`, `winLossChips`, `formatWalletDiamonds`, the weekly statement figure and the tournament tab buy-in) prints separators and keeps the cents, and that no source file builds its own K/M/B suffix. Supersedes the 2026-09-09 compact forward-facing money rule and the 2026-10-16 compact win / loss rule.

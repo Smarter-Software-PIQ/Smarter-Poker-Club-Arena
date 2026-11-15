@@ -126,12 +126,18 @@ describe('native feel is gated, and the plugins stay behind src/lib/native/', ()
     );
   });
   it('share cards go to the share sheet on native, and <a download> on the web', () => {
-    expect(read('src/components/achievements/AchievementShareCard.tsx')).toContain(
-      "import('../../lib/native/share')"
-    );
-    expect(read('src/components/stats/StatsShareCard.tsx')).toContain(
-      "import('../../lib/native/share')"
-    );
+    /* 2026-11-14: both cards share through src/lib/share.ts (shareFile), which
+       owns the one gated import of the native sheet. */
+    const door = read('src/lib/share.ts');
+    expect(door).toContain("import('./native/share')");
+    expect(door).toContain('if (!IS_NATIVE_BUILD) return;');
+    for (const card of [
+      'src/components/achievements/AchievementShareCard.tsx',
+      'src/components/stats/StatsShareCard.tsx',
+    ]) {
+      expect(read(card)).toContain('await shareFile({');
+      expect(read(card)).toContain('download: (');
+    }
   });
   it('overscroll, touch-callout and felt selection are keyed on html.ca-native only', () => {
     const css = read('src/styles/club-engine.css');

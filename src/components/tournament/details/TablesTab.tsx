@@ -59,7 +59,7 @@ import { warmTable, observeLobbyTableWarmups } from '../../../services/tableWarm
 import { useToast } from '../../common/Toast';
 import {
   chips,
-  chipsCompact,
+  stackChips,
   isPlayerLive,
   shortTableName,
   type TournamentTabProps,
@@ -262,17 +262,17 @@ const TableRow = React.memo(function TableRow({
       <span className="tt-figures">
         <span className="tt-fig">
           <span className="tl-stat__label">Smallest</span>
-          <span className="tl-num tt-figvalue">{hasStacks ? chipsCompact(minStack) : '-'}</span>
+          <span className="tl-num tt-figvalue">{hasStacks ? stackChips(minStack) : '-'}</span>
         </span>
         <span className="tt-fig">
           <span className="tl-stat__label">Average</span>
           <span className="tl-num tt-figvalue tl-num--accent">
-            {hasStacks ? chipsCompact(avgStack) : '-'}
+            {hasStacks ? stackChips(avgStack) : '-'}
           </span>
         </span>
         <span className="tt-fig">
           <span className="tl-stat__label">Biggest</span>
-          <span className="tl-num tt-figvalue">{hasStacks ? chipsCompact(maxStack) : '-'}</span>
+          <span className="tl-num tt-figvalue">{hasStacks ? stackChips(maxStack) : '-'}</span>
         </span>
       </span>
 
@@ -387,7 +387,8 @@ export default function TablesTab({
     () => livingEntries.reduce((sum, e) => sum + (Number(e.chips) || 0), 0),
     [livingEntries]
   );
-  const fieldAvg = livingEntries.length > 0 ? fieldTotal / livingEntries.length : 0;
+  // Whole chips, the house average-stack rule.
+  const fieldAvg = livingEntries.length > 0 ? Math.trunc(fieldTotal / livingEntries.length) : 0;
 
   const scaleMax = useMemo(() => {
     let top = 0;
@@ -436,7 +437,8 @@ export default function TablesTab({
         seated: seatCountIsFallback ? rowSeated : derivedSeated,
         seatCountIsFallback,
         minStack,
-        avgStack: hasStacks ? total / stacks.length : 0,
+        // Whole chips, the house average-stack rule (Dan 2026-11-14).
+        avgStack: hasStacks ? Math.trunc(total / stacks.length) : 0,
         maxStack,
         hasStacks,
         isHeroTable: !!heroTableId && table.id === heroTableId,
@@ -546,7 +548,7 @@ export default function TablesTab({
         </div>
         <div className="tl-stat">
           <span className="tl-stat__label">Average Stack</span>
-          <span className="tl-stat__value">{chipsCompact(fieldAvg)}</span>
+          <span className="tl-stat__value">{stackChips(fieldAvg)}</span>
           <span className="tl-stat__sub">Across The Field</span>
         </div>
       </div>

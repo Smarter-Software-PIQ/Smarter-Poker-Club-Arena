@@ -223,7 +223,7 @@ describe('financial admin reading identity and health truth', () => {
     });
     mount();
 
-    expect(await screen.findByText('6K Chips')).toBeInTheDocument();
+    expect(await screen.findByText('6,001 Chips')).toBeInTheDocument();
     expect(screen.getByText('Incident Status Unavailable')).toBeInTheDocument();
     expect(screen.queryByText('Loaded Drift Incidents')).toBeNull();
     expect(screen.queryByRole('link', { name: /Drift Incidents/i })).toBeNull();
@@ -236,7 +236,7 @@ describe('financial admin reading identity and health truth', () => {
   it('does not query or advertise drift incidents when the exact capability is denied', async () => {
     mount();
 
-    expect(await screen.findByText('6K Chips')).toBeInTheDocument();
+    expect(await screen.findByText('6,001 Chips')).toBeInTheDocument();
     expect(screen.queryByText('Loaded Drift Incidents')).toBeNull();
     expect(screen.queryByRole('link', { name: /Drift Incidents/i })).toBeNull();
     expect(m.response).not.toHaveBeenCalledWith(
@@ -304,7 +304,7 @@ describe('financial admin reading identity and health truth', () => {
   it('reads the complete bounded revenue RPC and never downloads raw rake rows', async () => {
     mount();
 
-    expect(await screen.findByText('6K Chips')).toBeInTheDocument();
+    expect(await screen.findByText('6,001 Chips')).toBeInTheDocument();
     expect(screen.getByLabelText('Seven Complete Days Revenue')).toBeInTheDocument();
     expect(
       screen.getByRole('group', { name: 'Seven Complete Days Revenue Chart' })

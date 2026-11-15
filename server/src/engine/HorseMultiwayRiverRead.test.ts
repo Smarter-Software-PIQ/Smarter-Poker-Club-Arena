@@ -303,7 +303,7 @@ it.each(['binding', 'source', 'foreign', 'extra', 'duplicate', 'oversize'] as co
     );
   }
 );
-it('transports canonical reader sidecars into the actual worker independent read view and v13 journal', async () => {
+it('transports canonical reader sidecars into the actual worker independent read view and v15 journal', async () => {
   const { window, data, captured, at } = enrichedHistory();
   const attached = attachRiverNodeSidecar(window, data, at);
   expect(attached.status).toBe('captured');
@@ -335,7 +335,8 @@ it('transports canonical reader sidecars into the actual worker independent read
     const capture = h.captures.at(-1)!;
     expect(horseRetainedPlanContext(capture, request).kind).toBe('current');
     expect(capture.observerReads).toMatchObject({ history: 'own_public_window', historyHands: 10 });
-    expect(JSON.stringify(capture)).toContain('horse-decision-reads-v13');
+    // v15 since 2026-11-15: the learned rows carry the long participation window, and v15 carries every v13 list.
+    expect(JSON.stringify(capture)).toContain('horse-decision-reads-v15');
   } finally {
     await h.close();
   }

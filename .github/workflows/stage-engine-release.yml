@@ -315,6 +315,9 @@ jobs:
         env:
           CUTOFF_EPOCH: ${{ steps.admission.outputs.cutoff_epoch }}
           OWNER_WINDOW_ID: ${{ steps.admission.outputs.owner_window_id }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          THIS_RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
           # Admission already validated the exact finite owner dispatch. It
@@ -335,13 +338,40 @@ jobs:
           control=$(git rev-list --first-parent -1 --before="@$CUTOFF_EPOCH" refs/remotes/origin/main)
           [[ "$control" =~ ^[0-9a-f]{40}$ ]]
           # Never execute new release authority under an old reservation owner.
-          CONTROL="$control" python3 - <<'PYTHON'
+          if ! CONTROL="$control" python3 - <<'PYTHON'
           import importlib.util, os
           spec = importlib.util.spec_from_file_location("qualification", "scripts/ci/read-engine-prequalification.py")
           module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
           if module.projection(os.environ["GITHUB_SHA"], release_authority=True) != module.projection(os.environ["CONTROL"], release_authority=True):
               raise SystemExit("Release controls changed during reservation; keep serving.")
           PYTHON
+          then
+            # A REFUSED RESERVATION DEFERS ITS WINDOW MIGRATIONS TO THE RUN
+            # THAT OWNS THE DATE (owner instruction, 2026-11-14). The controls
+            # changed because a later protected-main push carried them, and
+            # that push's own run now owns this date (#10765). When that
+            # successor is visible, this run names no window-migration source,
+            # so the installer is launched once, by the owner, instead of by
+            # every refused reservation at the same instant (three runs on
+            # 2026-11-14, two cancelled with zero steps by the concurrency
+            # group). When no successor is visible, or the list cannot be
+            # read, the fallback below still names protected main, because a
+            # refusal must never again cost the migrations their break
+            # (2026-11-10 and 2026-11-11). UNKNOWN is said as unknown.
+            successor=unknown
+            if runs=$(gh api "repos/$REPO/actions/workflows/stage-engine-release.yml/runs?event=push&branch=main&per_page=100" 2>/dev/null); then
+              successor=$(printf '%s' "$runs" | jq -r --argjson me "${THIS_RUN_ID:-0}" \
+                '[.workflow_runs[] | select(.id > $me and (.status == "in_progress" or .status == "queued" or .status == "waiting")) | .id] | min // empty')
+              [ -n "$successor" ] || successor=none
+            fi
+            echo "successor=$successor" >> "$GITHUB_OUTPUT"
+            case "$successor" in
+              unknown) echo '::notice::The successor run list could not be read; window migrations fall back to protected main.' ;;
+              none) echo '::notice::No later run of this workflow is active; window migrations fall back to protected main.' ;;
+              *) echo "Later run $successor owns this date and installs the window migrations; this refused reservation names no window-migration source." ;;
+            esac
+            exit 1
+          fi
           echo "sha=$control" >> "$GITHUB_OUTPUT"
 
       - name: Compare the complete server tree
@@ -493,11 +523,16 @@ jobs:
         env:
           CUTOFF_EPOCH: ${{ steps.admission.outputs.cutoff_epoch }}
           BOUND_SHA: ${{ steps.cutoff.outputs.sha }}
+          SUCCESSOR_RUN: ${{ steps.cutoff.outputs.successor }}
         run: |
           set -euo pipefail
           if [ -n "${BOUND_SHA:-}" ]; then
             [[ "$BOUND_SHA" =~ ^[0-9a-f]{40}$ ]]
             echo "sha=$BOUND_SHA" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ "${SUCCESSOR_RUN:-}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Refused reservation: later run $SUCCESSOR_RUN owns this date; no window-migration source from this run."
             exit 0
           fi
           [[ "$CUTOFF_EPOCH" =~ ^[1-9][0-9]*$ ]]

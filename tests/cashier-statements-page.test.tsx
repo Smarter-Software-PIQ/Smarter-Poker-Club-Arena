@@ -185,7 +185,7 @@ describe('CashierStatementsPage', () => {
     expect(writeText.mock.calls[0][0]).toContain('Entry: Buy-In');
   });
 
-  it('prints the statement in Title Case with compact no-decimal figures and server totals', async () => {
+  it('prints the statement in Title Case with exact figures and server totals', async () => {
     rpc.mockImplementation(byName as never);
     const { container } = renderPage();
 
@@ -193,10 +193,10 @@ describe('CashierStatementsPage', () => {
     expect(screen.getByText('To Donk Bettor')).toBeInTheDocument();
     expect(screen.getByText('From Prize Liability')).toBeInTheDocument();
     // Each figure prints once on its row and once in the server's totals.
-    expect(screen.getAllByText('-2.5K')).toHaveLength(2);
-    expect(screen.getAllByText('+1.2M')).toHaveLength(2);
+    expect(screen.getAllByText('-2,500')).toHaveLength(2);
+    expect(screen.getAllByText('+1,234,567')).toHaveLength(2);
     const totals = screen.getByLabelText('Statement Totals');
-    expect(await within(totals).findByText('+1.2M')).toBeInTheDocument();
+    expect(await within(totals).findByText('+1,234,567')).toBeInTheDocument();
     expect(within(totals).getByText('1,432')).toBeInTheDocument();
     expect(screen.getByText('Load More')).toBeInTheDocument();
     expect(screen.getByText('Ref BBBBBBBB')).toBeInTheDocument();
@@ -208,11 +208,11 @@ describe('CashierStatementsPage', () => {
     expect(screen.getByText('Cashier Send Out')).toBeInTheDocument();
     // A receipt never prints a balance, even if one arrives; a movement does.
     expect(screen.queryByText('Balance After')).not.toBeInTheDocument();
-    expect(screen.queryByText('9.9K')).not.toBeInTheDocument();
+    expect(screen.queryByText('9,999.50')).not.toBeInTheDocument();
     fireEvent.click(screen.getByText('From Prize Liability'));
     expect(screen.getByText('Balance After')).toBeInTheDocument();
-    expect(screen.getByText('510K')).toBeInTheDocument();
-    expect(container.textContent).not.toMatch(/\d\.\d{2}\b/);
+    expect(screen.getByText('510,000.58')).toBeInTheDocument();
+    expect(container.textContent).not.toMatch(/\d[KMB]\b/);
 
     const lower = visibleWords(container).filter((w) => /^[a-z]/.test(w));
     expect(lower).toEqual([]);
@@ -340,7 +340,7 @@ describe('CashierStatementsPage', () => {
     const receipt = writeText.mock.calls[0][0];
     expect(receipt).toContain('Amount: +1,234,567 Chips');
     expect(receipt).toContain('Balance After: 510,000.58');
-    expect(screen.getAllByText('+1.2M')).toHaveLength(2);
+    expect(screen.getAllByText('+1,234,567')).toHaveLength(2);
   });
 
   it('drops a late clipboard completion after the statement unmounts', async () => {

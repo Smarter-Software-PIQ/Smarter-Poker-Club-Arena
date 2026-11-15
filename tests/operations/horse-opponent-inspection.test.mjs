@@ -136,10 +136,12 @@ test('attributes an exact pooled read only to its reconciled original selected a
     source: 'accepted_hand_public_profiles',
   };
   const capture = {
+    snapshot: { type: 'DECIDE_FAST', requestId: 7 },
     observerReads: { context, pooledPublicProfiles },
     decision: { action: 'raise', amount: 10 },
   };
   const execution = {
+    identity: { lane: 'fast', requestId: 7 },
     executionStatus: 'intended',
     executedAction: 'raise',
     selected: { action: 'raise', amount: 10 },
@@ -153,10 +155,13 @@ test('attributes an exact pooled read only to its reconciled original selected a
       hand,
       { status },
       () => used,
-      () => (bound ? { status: 'bound', actionOrdinal: 5 } : { status: 'unavailable' })
+      () => (bound ? { status: 'bound', actionOrdinal: 5 } : { status: 'unavailable' }),
+      'private-subject-2'
     );
   assert.deepEqual(check(capture, execution, 'reconciled'), {
     actionOrdinal: 5,
+    lane: 'fast',
+    requestId: 7,
     profileDigest: pooledPublicProfiles.digest,
     profileSource: pooledPublicProfiles.source,
     variant: 'plo4',
@@ -165,6 +170,21 @@ test('attributes an exact pooled read only to its reconciled original selected a
     speed: 'lightning',
     ante: 'big_blind',
   });
+  const mixed = structuredClone(capture);
+  mixed.observerReads.pooledPublicProfiles.rowSources = {
+    version: 1,
+    rows: [
+      { userId: 'private-subject-1', size: 'full', observedHands: 7, source: 'saved_at_deal' },
+      { userId: 'private-subject-2', size: 'full', observedHands: 3, source: 'in_process' },
+    ],
+  };
+  const traced = check(mixed, execution, 'reconciled');
+  assert.deepEqual(traced.profileReadRows, {
+    savedAtDeal: 1,
+    inProcess: 1,
+    forRequestedOpponent: [{ size: 'full', source: 'in_process' }],
+  });
+  assert.ok(!JSON.stringify(traced).includes('private-subject'));
   for (const args of [
     [capture, execution, 'incomplete'],
     [capture, execution, 'reconciled', false],
@@ -366,13 +386,22 @@ test('actual CLI reports the failing bounded stage and preserves successful outp
     writeFileSync(
       join(cwd, 'dist/services/horseDecisionJournal/review.js'),
       `export function readHorseJournalHandRecords(_,handKey) {
-        const snapshot={type:'DECIDE_FAST',player:{user_id:'${id}'},decisionTimeMs:123,
+        const snapshot={type:'DECIDE_FAST',requestId:7,player:{user_id:'${id}'},decisionTimeMs:123,
           gameState:{players:[{user_id:'${id}'}],actionHistory:[]}};
         const capture={snapshot,decision:{action:'check'},readFrame:'ok',observerReads:{
           context:{version:2,format:'cash',variant:'plo4',dealtCount:2,publicMemoryDomain:{speed:'table',ante:'none'}},
           pooledPublicProfiles:{digest:'profile',source:'public'}}};
         const r=(kind,body,turnKey='1')=>({kind,body:JSON.stringify(body),sourceRelease:'${selection.sourceSha}',bytes:1,producerId:'p',turnKey});
-        const records=[r('accepted_hand',{}),r('execution',{executionStatus:'intended',executedAction:'check',selected:{action:'check',amount:null}}),r('decision',capture)];
+        const records=[r('accepted_hand',{}),r('execution',{identity:{lane:'fast',requestId:7},executionStatus:'intended',executedAction:'check',selected:{action:'check',amount:null}}),r('decision',capture)];
+        const scenario=process.env.FIXTURE_FAILURE;
+        if(scenario.startsWith('selected_deep')){
+          const deep={...capture,snapshot:{...snapshot,type:'DECIDE_DEEP',requestId:8},decision:scenario==='selected_deep_different'?{action:'raise',amount:12}:{action:'check'}};
+          const selected={identity:{lane:'deep',requestId:8},executionStatus:'intended',executedAction:deep.decision.action,selected:{action:deep.decision.action,amount:deep.decision.amount??null}};
+          records[1]=r('execution',{identity:{lane:'fast',requestId:7},executionStatus:'not_executed'});
+          records.push(r('decision',deep,'deep'),r('execution',selected,'deep'));
+          if(scenario==='selected_deep_duplicate')records.push(r('execution',selected,'deep'));
+          if(scenario==='selected_deep_conflicting')records.push(r('decision',deep,'deep'));
+        }
         if(handKey==='${other}') records.push(r('decision',{...capture,readFrame:'PRIVATE_CARDS_AND_RAW_RECORD'},'2'));
         return records;
       }
@@ -390,6 +419,11 @@ test('actual CLI reports the failing bounded stage and preserves successful outp
       join(cwd, 'dist/engine/HorseDecisionHandBinding.js'),
       "export const bindHorseDecisionToCommittedHand=()=>({status:'bound',actionOrdinal:7});"
     );
+    mkdirSync(join(cwd, 'dist/services/horseCorrectiveReview'), { recursive: true });
+    writeFileSync(
+      join(cwd, 'dist/services/horseCorrectiveReview/kernelOriginalInput.js'),
+      "export function resolveKernelRetainedFastInput(records,selected){ const fast=records.filter(r=>JSON.parse(r.body).snapshot.type==='DECIDE_FAST'); return selected.turnKey==='deep' && fast.length===1 ? {status:'resolved',originalFastRecord:fast[0]} : {status:'unavailable'}; }"
+    );
     const goodKey = selection.handKeys[0];
     const singleton = run('', undefined, {
       sourceSha: selection.sourceSha,
@@ -399,6 +433,26 @@ test('actual CLI reports the failing bounded stage and preserves successful outp
     const [good] = JSON.parse(singleton.stdout).hands;
     assert.equal(good.witnesses.length, 1);
     assert.equal(good.witnesses[0].acceptedSharedRead.actionOrdinal, 7);
+    for (const scenario of [
+      'selected_deep_different',
+      'selected_deep_equal',
+      'selected_deep_duplicate',
+      'selected_deep_conflicting',
+    ]) {
+      const res = run(scenario, undefined, {
+        sourceSha: selection.sourceSha,
+        targets: [{ handKey: goodKey, opponentId: id }],
+      });
+      assert.equal(res.status, 0, res.stderr);
+      const witnesses = JSON.parse(res.stdout).hands[0].witnesses;
+      if (scenario === 'selected_deep_duplicate' || scenario === 'selected_deep_conflicting')
+        assert.deepEqual(witnesses, []);
+      else {
+        assert.equal(witnesses.length, 1);
+        assert.equal(witnesses[0].acceptedSharedRead.lane, 'deep');
+        assert.equal(witnesses[0].acceptedSharedRead.requestId, 8);
+      }
+    }
     const rejected = {
       handKey: other,
       reconciled: true,

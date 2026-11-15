@@ -13,16 +13,11 @@
 export const fmt = (n: number | null | undefined): string => Number(n || 0).toLocaleString();
 
 /**
- * Format a chip amount with K/M abbreviation.
- * @example fmtChips(1500) → "1.5K"
- * @example fmtChips(2500000) → "2.5M"
+ * A chip amount, exact. NEVER ABBREVIATED (Dan 2026-11-13, see exactChips).
+ * @example fmtChips(1500)    -> "1,500"
+ * @example fmtChips(1512.34) -> "1,512.34"
  */
-export const fmtChips = (n: number | null | undefined): string => {
-  const v = Number(n || 0);
-  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
-  if (v >= 1_000) return `${(v / 1_000).toFixed(1)}K`;
-  return fmt(v);
-};
+export const fmtChips = (n: FigureInput): string => exactChips(n);
 
 /**
  * CHIPS ON THE FELT ARE NEVER ABBREVIATED (Dan 2026-08-28, binding).
@@ -407,28 +402,17 @@ export const formatSignedPct = (value: unknown, digits = 1): string => {
   return value > 0 ? `+${fixed}%` : `${fixed}%`;
 };
 
-/** "+1,711.50" / "-2,183.70" / "0.00" - chips, signed, thousands separators. */
-export const formatSignedChips = (value: unknown, digits = 2): string => {
-  if (!finite(value)) return '0.00';
-  const factor = 10 ** digits;
-  const fixed = (Math.trunc(nudge(Math.abs(value)) * factor) / factor).toLocaleString('en-US', {
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits,
-  });
-  if (value > 0) return `+${fixed}`;
-  if (value < 0) return `-${fixed}`;
-  return fixed;
-};
+/**
+ * "+1,711.50" / "-2,183.70" / "0.00" - chips, signed, thousands separators.
+ * `digits` is the MINIMUM number of places; every real decimal beyond it is
+ * kept, never truncated away (Dan 2026-11-13: exact figures always).
+ */
+export const formatSignedChips = (value: unknown, digits = 2): string =>
+  chipFigure(value, digits, 'signed', (0).toFixed(digits));
 
-/** "1,711.50" - chips, unsigned, truncated. */
-export const formatChips = (value: unknown, digits = 2): string => {
-  if (!finite(value)) return '0.00';
-  const factor = 10 ** digits;
-  return (Math.trunc(nudge(value) * factor) / factor).toLocaleString('en-US', {
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits,
-  });
-};
+/** "1,711.50" - chips, unsigned; `digits` is the minimum, extra stored precision kept. */
+export const formatChips = (value: unknown, digits = 2): string =>
+  chipFigure(value, digits, 'unsigned', (0).toFixed(digits));
 
 /** "1,412" - whole counts (truncated, never rounded up). */
 export const formatCount = (value: unknown): string =>
@@ -490,52 +474,140 @@ export const ordinal = (n: unknown): string => {
 };
 
 /**
- * #ClubArenaConsole money, forward-facing (Dan 2026-09-09): "NEVER USE DECIMAL
- * POINTS ON ANY FORWARD FACING PAGE ... ONCE SOMETHING HITS OVER 1,000 USE 1K,
- * IF ITS 1200 USE 1.2K, IF ITS 10,000 USE 10K." Whole numbers under 1,000; one
- * decimal above, always rounded DOWN so a figure is never overstated, and a
- * trailing .0 is dropped. Chips on the felt are never abbreviated: that is
- * formatTableChips' law, and this helper is for everything outside the felt.
- * @example compactChips(950) -> "950", compactChips(1200) -> "1.2K",
- *          compactChips(1290) -> "1.2K", compactChips(10000) -> "10K"
+ * EXACT FIGURES, NEVER ROUNDED OR ABBREVIATED (Dan 2026-11-13, binding,
+ * supersedes the 2026-09-09 "1.2K / no decimals" forward-facing rule and the
+ * 2026-10-16 compact win / loss rule): "IN THE PLAYER MANAGEMENT OR ANYWHERE
+ * REAL DATA IS STORED. I DON'T WANT ROUNDED UP NUMBERS LIKE 393 OR 1.5K OR 1K
+ * USE WHOLE NUMBERS AND DECIMALS ALWAYS ... FIX THIS LOGIC GLOBALLY FOR THE
+ * POKER ARENA."
+ *
+ * Thousands separators, never a K/M/B suffix, and every real decimal the
+ * stored value has is kept (at least two once there are any). A whole value
+ * (a count, a tournament stack, a blind) reads whole.
+ *
+ * @example exactChips(1512.34) -> "1,512.34"
+ * @example exactChips(1000)    -> "1,000"
+ * @example exactChips(-136.5)  -> "-136.50"
+ * @example exactChips(0.07)    -> "0.07"
+ * @example exactChips(1.234)   -> "1.234"
  */
-export const compactChips = (n: number | null | undefined): string => {
-  const v = Math.floor(Math.abs(Number(n) || 0));
-  const sign = v > 0 && Number(n) < 0 ? '-' : '';
-  const units: Array<[number, string]> = [
-    [1_000_000_000, 'B'],
-    [1_000_000, 'M'],
-    [1_000, 'K'],
-  ];
-  for (const [unit, suffix] of units) {
-    if (v >= unit) {
-      const tenths = Math.floor((v / unit) * 10) / 10;
-      const text = Number.isInteger(tenths) ? String(tenths) : tenths.toFixed(1);
-      return `${sign}${text}${suffix}`;
-    }
-  }
-  return `${sign}${v}`;
+/**
+ * A figure as the platform stores it: a JSON number, an exact decimal string
+ * (what an RPC returns from `round(x, 2)::text` or `numeric::text`), or a
+ * bigint. Declared columns reach numeric(20,2) and 792 columns are
+ * unconstrained numeric, so a stored figure can carry more digits than a
+ * JavaScript number holds.
+ */
+export type FigureInput = number | string | bigint | null | undefined;
+
+/**
+ * A STRING or BIGINT figure is formatted digit for digit with no limit, because
+ * it never passes through a double: decimal text from the database is the
+ * authority and is preserved exactly. A NUMBER figure prints the exact decimal
+ * that number denotes (its shortest round-trip form, exponent expanded). The
+ * formatter never decides that a trailing digit is noise; a caller that did
+ * arithmetic applies its own explicit precision rule (for chips, cents via
+ * sumChips) before formatting.
+ */
+const plainNumberText = (value: number): string => {
+  const text = String(value);
+  const match = /^(-?)(\d+)(?:\.(\d+))?e([+-]\d+)$/.exec(text);
+  if (!match) return text;
+  const [, sign, int, frac = '', expText] = match;
+  const exp = Number(expText);
+  const digits = int + frac;
+  const point = int.length + exp;
+  if (point <= 0) return `${sign}0.${'0'.repeat(-point)}${digits}`;
+  if (point >= digits.length) return `${sign}${digits}${'0'.repeat(point - digits.length)}`;
+  return `${sign}${digits.slice(0, point)}.${digits.slice(point)}`;
 };
+
+const DECIMAL_TEXT = /^[-+]?(\d+(\.\d*)?|\.\d+)$/;
+
+/** The exact sign and digits of a supported figure, or null when it is not a figure. */
+export function figureDigits(
+  value: FigureInput
+): { negative: boolean; whole: string; fraction: string } | null {
+  let text: string;
+  if (typeof value === 'bigint') text = value.toString();
+  else if (typeof value === 'string') {
+    text = value.trim();
+    if (!DECIMAL_TEXT.test(text)) return null;
+  } else if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return null;
+    text = plainNumberText(value);
+  } else return null;
+  const negative = text.startsWith('-');
+  const [rawWhole = '', rawFraction = ''] = text.replace(/^[-+]/, '').split('.');
+  const whole = rawWhole.replace(/^0+(?=\d)/, '') || '0';
+  const fraction = rawFraction.replace(/0+$/, '');
+  return { negative: negative && /[1-9]/.test(whole + fraction), whole, fraction };
+}
+
+/**
+ * The magnitude of a figure, grouped, with every real decimal it carries and at
+ * least `minFraction` places. Nothing is rounded: digits are copied, so
+ * "123456789012345678.91" stays exactly that.
+ */
+export function figureMagnitude(
+  digits: { whole: string; fraction: string },
+  minFraction: number
+): string {
+  const grouped = digits.whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  const fraction = digits.fraction.padEnd(minFraction, '0');
+  return fraction ? `${grouped}.${fraction}` : grouped;
+}
+
+/** True when the figure is exactly zero (or not a figure). */
+const isZeroFigure = (d: { whole: string; fraction: string }) =>
+  !/[1-9]/.test(d.whole + d.fraction);
+
+/**
+ * THE ONE CHIP FIGURE (2026-11-14 consolidation). Every chip formatter in this
+ * file is this function with its own minimum places, sign style and fallback
+ * for something that is not a figure, so one value can never print two ways
+ * because two copies of the logic drifted. `minFraction` null means "two
+ * places only when the figure holds a fraction", the exactChips style.
+ *   'unsigned' prints a minus for a negative figure and nothing for a positive;
+ *   'signed' prints + or - (zero gets neither).
+ */
+function chipFigure(
+  value: unknown,
+  minFraction: number | null,
+  sign: 'unsigned' | 'signed',
+  notAFigure: string,
+  zero?: string
+): string {
+  const d = figureDigits(value as FigureInput);
+  if (!d) return notAFigure;
+  const places = minFraction ?? (d.fraction ? 2 : 0);
+  const magnitude = figureMagnitude(d, places);
+  if (isZeroFigure(d)) return zero ?? magnitude;
+  if (d.negative) return `-${magnitude}`;
+  return sign === 'signed' ? `+${magnitude}` : magnitude;
+}
+
+export const exactChips = (n: FigureInput): string => chipFigure(n, null, 'unsigned', '0', '0');
+
+/**
+ * Historical name kept so its ~490 call sites need no churn. It no longer
+ * compacts anything: it is exactChips (Dan 2026-11-13).
+ */
+export const compactChips = (n: FigureInput): string => exactChips(n);
 
 /**
  * Fees stay exact to cents with separators, including large totals
  * (owner, 2026-10-27). Null means the viewer may not see it.
  */
-export const feeFigure = (value: number | null | undefined): string => {
-  if (value == null) return 'Restricted';
-  if (!Number.isFinite(Number(value))) return '-';
-  return Number(value).toLocaleString('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-};
+export const feeFigure = (value: FigureInput): string =>
+  value == null ? 'Restricted' : chipFigure(value, 2, 'unsigned', '-');
 
 /**
  * PLAYER MANAGEMENT FIGURES: one formatter per kind, on the Players list, the
  * Player Record and Player Statistics alike, so one number never reads two
  * ways between screens. The latest dated ruling for each kind wins:
  *   fees and other unsigned ledger amounts  feeFigure       (Dan, 2026-10-14)
- *   signed results: win / loss, net, winnings winLossChips  (Dan 2026-10-16)
+ *   signed results: win / loss, net, winnings winLossChips  (Dan 2026-11-13, exact)
  *   wallet balances                          formatWalletChips (Dan, 2026-10-18)
  *   counts                                    countFigure
  *   rates                                     one decimal    (Dan 2026-09-13)
@@ -546,29 +618,21 @@ export const feeFigure = (value: number | null | undefined): string => {
 export const countFigure = (value: number | null | undefined): string =>
   value == null ? 'Restricted' : (Number(value) || 0).toLocaleString();
 
-/** Wallet balances always show separators and exactly two decimals (Dan, 2026-10-18). */
-export const formatWalletChips = (amount: number | null | undefined): string => {
-  if (amount == null || !Number.isFinite(Number(amount))) return '-';
-  const value = Number(amount);
-  return value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-};
+/** Wallet balances always show separators and at least two decimals; every stored decimal is kept (Dan 2026-10-18, 2026-11-13). */
+export const formatWalletChips = (amount: FigureInput): string =>
+  chipFigure(amount, 2, 'unsigned', '-');
 
-/** Whole Diamond wallet counts stay exact below one million. */
+/** Whole Diamond wallet counts are always exact (Dan 2026-11-13: never abbreviated). */
 export const formatWalletDiamonds = (amount: number | null | undefined): string => {
   if (amount == null || !Number.isFinite(Number(amount))) return '-';
   const value = Math.trunc(Number(amount));
-  if (Math.abs(value) >= 1_000_000) return compactChips(value);
   return value.toLocaleString('en-US', { maximumFractionDigits: 0 });
 };
 
 /**
- * A signed win / loss figure for Player Management (Dan 2026-10-16): "+1.2K"
- * for a win, "-450" for a loss, "0" for even. compactChips floors the
- * magnitude, so neither a win nor a loss is ever overstated.
+ * A signed win / loss figure for Player Management (Dan 2026-11-13): exact to
+ * the stored precision with separators, at least two decimals so it lines up
+ * with the fee and wallet figures beside it. "+392.57", "-1,512.34", "0.00",
+ * and "+0.125" when the stored value carries three places.
  */
-export const winLossChips = (n: number | null | undefined): string => {
-  const value = Number(n) || 0;
-  const text = compactChips(value);
-  if (text === '0' || text === '-0') return '0';
-  return value > 0 ? `+${text}` : text;
-};
+export const winLossChips = (n: FigureInput): string => chipFigure(n, 2, 'signed', '0.00', '0.00');

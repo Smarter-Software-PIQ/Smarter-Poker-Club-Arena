@@ -20,8 +20,15 @@ import { cashierStatementRouteMatches } from './support/cashierStatementRouteObs
 import {
   attachCashierScreenshot,
   expectCashierAxeClean,
-  expectNoRawCashierCents,
+  expectExactCashierFigures,
 } from './support/cashierProductionCertification';
+import { exactChips } from '../../src/utils/format';
+import {
+  ENTRY_PILL,
+  EXACT_FIGURE,
+  sameStatementQuery,
+  statementTotalsFigures,
+} from './support/exact-figure';
 
 const CLUB_ID = process.env.E2E_CLUB_ID || 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4';
 const HAS_AUTH = Boolean(process.env.SP_EMAIL && process.env.SP_PASS);
@@ -31,11 +38,11 @@ const TOTALS_RPC = '/rest/v1/rpc/fn_cashier_statement_totals';
 const EXPORT_RPC = /^\/rest\/v1\/rpc\/fn_cashier_statement_export_(?:start|page|cancel)$/;
 
 /**
- * A figure on the glass, as compactChips() prints it: no fractional chip count,
- * with a rounded-down one-decimal K/M/B magnitude when needed. The Entries
- * cell is a plain en-US integer, which the same shape also accepts.
+ * A figure on the glass, as exactChips() prints it (owner ruling 2026-11-13):
+ * en-US separators, cents kept, never K/M/B. The grammar lives in one place and
+ * is checked against the formatter by tests/cashier-statements-exact-figure.test.ts.
  */
-const FIGURE = /^[+-]?(?:\d{1,3}(?:,\d{3})*|\d+(?:\.\d)?[KMB])$/;
+const FIGURE = EXACT_FIGURE;
 
 test.describe('Cashier Statements - authenticated production route', () => {
   test.describe.configure({ timeout: 90_000 });
@@ -71,6 +78,22 @@ test.describe('Cashier Statements - authenticated production route', () => {
         timeout: 60_000,
       })
       .catch(() => null);
+    // Every totals answer with the request that asked for it, in the order the
+    // answers arrived. The slot is taken when the answer arrives and filled
+    // when its body is read, so "newest" is the last answer received, never
+    // the last body parsed, and a newest answer still being read is waited for.
+    const totalsAnswers: ({ asked: unknown; answer: unknown } | null)[] = [];
+    page.on('response', (response) => {
+      if (new URL(response.url()).pathname !== TOTALS_RPC || response.status() !== 200) return;
+      const slot = totalsAnswers.push(null) - 1;
+      const asked: unknown = response.request().postDataJSON();
+      void response
+        .json()
+        .then((answer: unknown) => {
+          totalsAnswers[slot] = { asked, answer };
+        })
+        .catch(() => undefined);
+    });
 
     // (a) The signed-in visit lands on the route itself, not on auth.
     const statementURL = new URL(
@@ -116,6 +139,12 @@ test.describe('Cashier Statements - authenticated production route', () => {
       'boolean'
     );
     const authorized = body.authorized === true && body.scope !== 'none';
+    // The certification run signs in as an administrator of this club, so a
+    // refusal there is a defect, and the refusal branch below must not turn
+    // the certificate green with no totals compared (overwatch, review of
+    // 41b4bda8, B1).
+    if (process.env.E2E_REQUIRE_AUTH === '1')
+      expect(authorized, 'the certification account was refused its own club statement').toBe(true);
     await testInfo.attach('cashier-statement-page-verdict.json', {
       body: JSON.stringify({
         httpStatus: response.status(),
@@ -202,10 +231,41 @@ test.describe('Cashier Statements - authenticated production route', () => {
         )
         .toBe('figures');
       await expect(totals).not.toContainText('Calculating');
+      // The four figures on the glass are the server's totals, exactly: the
+      // newest totals answer, written the way the page writes it. Polled
+      // because a live ledger may answer again while this runs.
+      await expect
+        .poll(
+          async () => {
+            const figures = (await totals.locator('strong').allTextContents()).map(asText);
+            if (totalsAnswers.length === 0) return 'no totals answer';
+            const newest = totalsAnswers.at(-1);
+            if (!newest) return 'newest totals answer still being read';
+            // Same club, period and filters as the entries on the glass: the
+            // totals request must carry the page request's own arguments.
+            if (!sameStatementQuery(newest.asked, response.request().postDataJSON()))
+              return 'totals were asked for a different club, period or filter than the page';
+            const served = (newest.answer as { totals?: unknown } | null)?.totals as
+              | Parameters<typeof statementTotalsFigures>[0]
+              | undefined;
+            if (!served) return 'newest totals answer carries no totals';
+            const expected = statementTotalsFigures(served, exactChips);
+            // The verdict names which figure differs and never prints a club's
+            // totals into the run log.
+            const differing = ['In', 'Out', 'Managed', 'Entries'].filter(
+              (_, index) => figures[index] !== expected[index]
+            );
+            return figures.length === 4 && differing.length === 0
+              ? 'matches the server'
+              : `differs: ${differing.join(', ') || 'figure count'}`;
+          },
+          { timeout: 30_000, message: 'Statement Totals on the glass differ from the server' }
+        )
+        .toBe('matches the server');
       // The pill zone's textContent ends on a deliberate word-boundary space
       // (SpadeConsole ZoneText, 2026-09-23); a regex toHaveText does not
       // normalise it, so the anchor tolerates trailing whitespace.
-      await expect(pill).toHaveText(/^(?:\d+(?:\.\d)?[KMB]? (?:Entry|Entries)|Live Ledger)\s*$/);
+      await expect(pill).toHaveText(ENTRY_PILL);
 
       // (e) The Export word is present. It is enabled exactly when the range
       // holds entries (the page disables it on an empty range), and it is
@@ -256,7 +316,24 @@ test.describe('Cashier Statements - authenticated production route', () => {
         !entry.url.includes('favicon')
     );
     expect(critical, critical.map((entry) => `${entry.url}: ${entry.text}`).join('\n')).toEqual([]);
-    await expectNoRawCashierCents(surface, 'Full Statement');
+    // Every row amount on the glass (the last span of each entry button) and
+    // every total is an exact figure. Reference codes and names are not figures.
+    await expectExactCashierFigures(
+      surface.locator(
+        'section[aria-labelledby="statement-entries-title"] button[aria-expanded] > span:last-child'
+      ),
+      'Full Statement entries',
+      // one amount for every entry row on the glass (none when refused or empty)
+      await surface
+        .locator('section[aria-labelledby="statement-entries-title"] button[aria-expanded]')
+        .count()
+    );
+    await expectExactCashierFigures(
+      surface.locator('[aria-label="Statement Totals"] strong'),
+      'Full Statement totals',
+      // the four totals, or none when the statement is refused
+      [0, 4]
+    );
     await expectCashierAxeClean(
       page,
       testInfo,

@@ -190,8 +190,8 @@ describe('Union Games complete tournament board', () => {
     const event = await screen.findByText('Tomorrow Bounty', {}, { timeout: 5000 });
     const card = event.parentElement!.parentElement!.parentElement!;
     expect(card).toHaveTextContent('40');
-    expect(card).toHaveTextContent('5.0K GTD');
-    expect(card).toHaveTextContent('20.0K Starting Stack');
+    expect(card).toHaveTextContent('5,000 GTD');
+    expect(card).toHaveTextContent('20,000 Starting Stack');
     expect(card).toHaveTextContent('10 Bounty');
     expect(card).toHaveTextContent('Freezeout');
     expect(screen.getByText('Future Event 1000')).toBeInTheDocument();

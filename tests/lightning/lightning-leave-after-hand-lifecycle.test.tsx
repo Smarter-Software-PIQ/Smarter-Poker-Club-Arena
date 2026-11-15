@@ -4,7 +4,15 @@
  * and can be cancelled. The harness plays the page's part (the hand's state
  * and the leave owner) exactly as TablePage wires it.
  */
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  renderHook,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useState } from 'react';
 
@@ -43,36 +51,38 @@ function Page(props: {
 }) {
   const [hand, set] = useState(props.initial);
   setHand = set;
-  const waits = lightningLeaveWaitsForHand({
-    inLightningRoom: true,
-    roomClosed: false,
-    handInProgress: hand.handInProgress,
-    handSettling: hand.handSettling,
-    heroStatus: hand.heroStatus,
-  });
+  const waits = lightningLeaveWaitsForHand(
+    hand.ready
+      ? {
+          stage: hand.handInProgress ? 'flop' : 'waiting',
+          hand_id: 'current',
+          players: [{ user_id: 'u1', is_folded: hand.heroStatus === 'folded' }],
+        }
+      : null,
+    hand.handSettling ? 'current' : null,
+    'u1'
+  );
   const queue = useLightningLeaveAfterHand({
     userId: 'u1',
     poolSessionId: 'pool-1',
     ready: hand.ready,
     waits,
     leave: props.leave,
+    performCommand: async (command) => {
+      if (command === 'resuming') return !(await props.resume()).ok;
+      const stop = await mocks.stop();
+      return stop.inHand && !waits ? 'awaiting-hand' : true;
+    },
     storage: props.storage,
   });
   return (
     <>
       <span data-testid="acting">{waits ? 'acting' : 'idle'}</span>
       <LightningLeaveControl
-        clusterId="cluster"
-        onLeave={async () => {
-          if (waits) queue.queue();
-          else await props.leave();
-        }}
+        pending={false}
+        onLeave={() => queue.request('stopping')}
         queued={queue.queued}
-        onCancel={async () => {
-          const answer = await props.resume();
-          if (answer.ok) queue.clear();
-          return answer.ok;
-        }}
+        onCancel={() => queue.request('resuming')}
       />
     </>
   );
@@ -105,7 +115,7 @@ describe('Lightning Leave Next Hand, the whole lifecycle', () => {
     });
     expect(mocks.stop).toHaveBeenCalledOnce();
     expect(leave).not.toHaveBeenCalled();
-    expect(screen.getByRole('button').textContent).toBe('Leaving After Hand');
+    expect(screen.getByRole('button').textContent).toBe('Leaving After This Hand');
     expect(screen.getByTestId('acting').textContent).toBe('acting');
     expect(storage.map.get(KEY)).toBe('1');
     // The player keeps acting: turns pass, the hand is still live.
@@ -119,6 +129,7 @@ describe('Lightning Leave Next Hand, the whole lifecycle', () => {
   });
 
   it('between hands it leaves at once, nothing queued', async () => {
+    mocks.stop.mockResolvedValue({ ok: true, exited: true, inHand: false });
     const storage = memoryStorage();
     const leave = vi.fn(async () => {});
     render(
@@ -134,6 +145,23 @@ describe('Lightning Leave Next Hand, the whole lifecycle', () => {
     });
     expect(leave).toHaveBeenCalledOnce();
     expect(storage.map.has(KEY)).toBe(false);
+  });
+
+  it('retains an in-hand stop across stale idle snapshots and reload until the reserved deal completes', async () => {
+    const storage = memoryStorage();
+    const leave = vi.fn(async () => {});
+    const props = { storage, leave, resume: vi.fn(), initial: { ...live, handInProgress: false } };
+    const before = render(<Page {...props} />);
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Leave Next Hand' })));
+    expect(storage.map.get(KEY)).toBe('awaiting-hand');
+    before.unmount();
+    render(<Page {...props} />);
+    await act(async () => setHand({ ...props.initial }));
+    expect(leave).not.toHaveBeenCalled();
+    await act(async () => setHand(live));
+    expect(leave).not.toHaveBeenCalled();
+    await act(async () => setHand({ ...live, handSettling: true }));
+    expect(leave).toHaveBeenCalledOnce();
   });
 
   it('a reload mid-hand keeps the queued leave and still leaves when that hand ends', async () => {
@@ -153,7 +181,7 @@ describe('Lightning Leave Next Hand, the whole lifecycle', () => {
         initial={{ ...live, handInProgress: false, ready: false }}
       />
     );
-    expect(screen.getByRole('button').textContent).toBe('Leaving After Hand');
+    expect(screen.getByRole('button').textContent).toBe('Leaving After This Hand');
     expect(leave).not.toHaveBeenCalled();
     await act(async () => setHand(live));
     expect(leave).not.toHaveBeenCalled();
@@ -161,7 +189,7 @@ describe('Lightning Leave Next Hand, the whole lifecycle', () => {
     expect(leave).toHaveBeenCalledOnce();
   });
 
-  it('tapping Leaving After Hand cancels: play resumes, no leave, and the next press stops again', async () => {
+  it('tapping Leaving After This Hand cancels: play resumes, no leave, and the next press stops again', async () => {
     const storage = memoryStorage();
     const leave = vi.fn(async () => {});
     const resume = vi.fn(async () => ({ ok: true }));
@@ -170,7 +198,7 @@ describe('Lightning Leave Next Hand, the whole lifecycle', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Leave Next Hand' }));
     });
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Leaving After Hand' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Leaving After This Hand' }));
     });
     expect(resume).toHaveBeenCalledOnce();
     expect(storage.map.has(KEY)).toBe(false);
@@ -182,7 +210,7 @@ describe('Lightning Leave Next Hand, the whole lifecycle', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Leave Next Hand' }));
     });
     expect(mocks.stop).toHaveBeenCalledTimes(2);
-    expect(screen.getByRole('button').textContent).toBe('Leaving After Hand');
+    expect(screen.getByRole('button').textContent).toBe('Leaving After This Hand');
   });
 
   it('a refused cancel (the hand already ended) keeps the leave', async () => {
@@ -194,10 +222,195 @@ describe('Lightning Leave Next Hand, the whole lifecycle', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Leave Next Hand' }));
     });
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Leaving After Hand' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Leaving After This Hand' }));
     });
     expect(storage.map.get(KEY)).toBe('1');
     await act(async () => setHand({ ...live, handInProgress: false }));
     expect(leave).toHaveBeenCalledOnce();
   });
 });
+
+it.each(['stopping', 'resuming'] as const)(
+  'recovers an unknown %s receipt after reload',
+  async (command) => {
+    const storage = memoryStorage();
+    const leave = vi.fn();
+    const perform = vi
+      .fn()
+      .mockResolvedValueOnce('unknown')
+      .mockResolvedValueOnce(command === 'stopping');
+    const mount = () =>
+      renderHook(() =>
+        useLightningLeaveAfterHand({
+          userId: 'u1',
+          poolSessionId: 'pool-1',
+          ready: true,
+          waits: false,
+          leave,
+          storage,
+          performCommand: perform,
+        })
+      );
+    const first = mount();
+    act(() => first.result.current.request(command));
+    await waitFor(() => expect(perform).toHaveBeenCalledTimes(1));
+    expect(storage.getItem(KEY)).toBe(command);
+    expect(leave).not.toHaveBeenCalled();
+    first.unmount();
+    mount();
+    await waitFor(() => expect(storage.getItem(KEY)).toBeNull());
+    expect(perform).toHaveBeenNthCalledWith(2, command);
+    expect(leave).toHaveBeenCalledTimes(command === 'stopping' ? 1 : 0);
+  }
+);
+
+it('a delayed Stop reply in tab A cannot resurrect a leave cancelled in tab B', async () => {
+  const storage = memoryStorage();
+  const leave = vi.fn();
+  let accept!: (value: boolean) => void;
+  const perform = vi.fn(
+    () =>
+      new Promise<boolean>((resolve) => {
+        accept = resolve;
+      })
+  );
+  const view = renderHook(() =>
+    useLightningLeaveAfterHand({
+      userId: 'u1',
+      poolSessionId: 'pool-1',
+      ready: true,
+      waits: false,
+      leave,
+      storage,
+      performCommand: perform,
+    })
+  );
+  act(() => view.result.current.request('stopping'));
+  await waitFor(() => expect(perform).toHaveBeenCalledOnce());
+  storage.removeItem(KEY);
+  // A suspended tab can receive the HTTP reply before its storage event.
+  await act(async () => accept(true));
+  expect(storage.getItem(KEY)).toBeNull();
+  expect(view.result.current.queued).toBe(false);
+  expect(leave).not.toHaveBeenCalled();
+});
+it('a second tab observes Stay before it reaches its hand boundary', async () => {
+  const storage = memoryStorage();
+  storage.setItem(KEY, '1');
+  const leave = vi.fn();
+  const props = { userId: 'u1', poolSessionId: 'pool-1', ready: true, waits: true, leave, storage };
+  const view = renderHook(useLightningLeaveAfterHand, { initialProps: props });
+  expect(view.result.current.queued).toBe(true);
+  storage.removeItem(KEY);
+  act(() => window.dispatchEvent(new StorageEvent('storage', { key: KEY })));
+  await act(async () => view.rerender({ ...props, waits: false }));
+  expect(view.result.current.queued).toBe(false);
+  expect(leave).not.toHaveBeenCalled();
+});
+
+it.each([false, true])(
+  'a reloaded final-hand choice persists until the player chooses Leave=%s',
+  async (confirm) => {
+    const storage = memoryStorage();
+    storage.setItem(KEY, '1');
+    let firstRead!: (value: number) => void;
+    const finish = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<number>((resolve) => {
+            firstRead = resolve;
+          })
+      )
+      .mockResolvedValueOnce(4)
+      .mockResolvedValueOnce('accepted');
+    const resume = vi.fn().mockResolvedValue(false);
+    const directLeave = vi.fn();
+    const mount = () =>
+      renderHook(() =>
+        useLightningLeaveAfterHand({
+          userId: 'u1',
+          poolSessionId: 'pool-1',
+          ready: true,
+          waits: false,
+          storage,
+          leave: directLeave,
+          finish,
+          performCommand: resume,
+        })
+      );
+    const first = mount();
+    await waitFor(() => expect(finish).toHaveBeenCalledTimes(1));
+    expect(storage.getItem(KEY)).toBe('finishing');
+    first.unmount();
+    const reloaded = mount();
+    await act(async () => firstRead(8));
+    await waitFor(() => expect(reloaded.result.current.owed).toBe(4));
+    expect(storage.getItem(KEY)).toBe('owed:4');
+    reloaded.unmount();
+    const atPrompt = mount();
+    expect(atPrompt.result.current.owed).toBe(4);
+    expect(finish).toHaveBeenCalledTimes(2);
+    act(() => atPrompt.result.current.decide(confirm));
+    await waitFor(() => expect(storage.getItem(KEY)).toBeNull());
+    if (confirm) {
+      expect(finish).toHaveBeenLastCalledWith(true, expect.any(Function));
+      expect(resume).not.toHaveBeenCalled();
+    } else {
+      expect(resume).toHaveBeenCalledExactlyOnceWith('resuming');
+      expect(finish).toHaveBeenCalledTimes(2);
+    }
+    expect(directLeave).not.toHaveBeenCalled();
+  }
+);
+
+it('a stale modal cannot overwrite a choice from another window', () => {
+  const storage = memoryStorage();
+  storage.setItem(KEY, 'owed:3');
+  const view = renderHook(() =>
+    useLightningLeaveAfterHand({
+      userId: 'u1',
+      poolSessionId: 'pool-1',
+      ready: true,
+      waits: false,
+      connected: false,
+      storage,
+      leave: vi.fn(),
+    })
+  );
+  storage.setItem(KEY, 'confirmed');
+  act(() => view.result.current.decide(false));
+  expect(storage.getItem(KEY)).toBe('confirmed');
+  expect(view.result.current.owed).toBeNull();
+});
+
+it.each(['confirmed', 'resuming'])(
+  'an accepted leave after the lobby opens only clears its own pending stage (%s)',
+  async (latest) => {
+    const storage = memoryStorage();
+    storage.setItem(KEY, 'confirmed');
+    let accept!: () => void;
+    const finish = vi.fn(
+      () =>
+        new Promise<'accepted'>((resolve) => {
+          accept = () => resolve('accepted');
+        })
+    );
+    const view = renderHook(() =>
+      useLightningLeaveAfterHand({
+        userId: 'u1',
+        poolSessionId: 'pool-1',
+        ready: true,
+        waits: false,
+        storage,
+        leave: vi.fn(),
+        finish,
+      })
+    );
+    await waitFor(() => expect(finish).toHaveBeenCalledOnce());
+    view.unmount();
+    storage.setItem(KEY, latest);
+    await act(async () => accept());
+    expect(storage.getItem(KEY)).toBe(latest === 'confirmed' ? null : latest);
+  }
+);

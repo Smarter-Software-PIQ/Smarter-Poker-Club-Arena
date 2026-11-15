@@ -26,9 +26,9 @@ export const spec: ThrowableSpec = {
   ],
   // Thunder/strike recordings remain in the final sound review.
   audio: [
-    { at: 0, sample: 'swell_low', gain: 0.4 },
-    { at: 700, sample: 'zap_short' },
-    { at: 800, sample: 'fuse_sizzle', loopUntil: 2400, gain: 0.3 },
+    { at: 600, sample: 'swell_low', gain: 0.35 },
+    { at: 700, sample: 'zap_short', gain: 0.67 },
+    { at: 800, sample: 'thunder_crack', gain: 0.9 },
   ],
 };
 preloadThrowableCues(spec.audio.map((cue) => cue.sample));
@@ -99,6 +99,15 @@ function Payload({ targetAvatar }: RigProps) {
           y={-90}
           width={180}
           height={180}
+        />
+      </g>
+      <g className="thr-lightning_bolt__fork">
+        <path
+          d="M-7 -62 L-15 -36 -8 -38 -32 -8 -24 -28 -35 -24 -18 -44 M-7 -38 L12 -30 9 -18 31 -7 17 -24 22 -25"
+          fill="none"
+          stroke="#a9eaff"
+          strokeWidth="2.4"
+          strokeLinejoin="round"
         />
       </g>
     </svg>

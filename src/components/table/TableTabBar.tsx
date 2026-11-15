@@ -17,8 +17,10 @@ import React, { useCallback, useMemo, useState, useEffect, useRef } from 'react'
 import TableMenu, { createDefaultMenuSections, type MenuSection } from './TableMenu';
 import { TileViewIcon } from './TableMenuIcons';
 import { masterBus } from '../../core/MasterBus';
+import { HUB_SOCIAL_FEED_PATH } from '../../utils/hubTab';
 import { formatGameTitle } from '../../utils/formatGameTitle';
 import { useButtonImage } from '../../hooks/useButtonImage';
+import { useSoundSwitch, useVibrationSwitch } from '../../hooks/useSoundSwitches';
 import { isTournamentGameCode } from '../../utils/gameCode';
 import { tournamentTabEventName } from '../../lib/tournamentTabLabel';
 import './TableTabBar.css';
@@ -46,9 +48,17 @@ export interface TabInfo {
    *  Diamond tournament seat has no top-up writer, and both items reached the
    *  page only to be refused there in silence. Absent keeps both. */
   canAddFunds?: boolean;
+  seatChangeEnabled?: boolean;
+  /** Reported by the owning table page, like `isAutoRebuyEnabled`. */
   standUpNextBB?: boolean;
-  soundEnabled?: boolean;
-  vibrationsEnabled?: boolean;
+  /** The seat may straddle (host enabled it, cash game, hero seated). */
+  straddleAvailable?: boolean;
+  straddleEnabled?: boolean;
+  straddleBusy?: boolean;
+  /** The owning table page's answer; `false` drops the seat-only rows. */
+  heroSeated?: boolean;
+  /** A leave is queued for the end of the current hand. */
+  leaveNextHandQueued?: boolean;
   /**
    * PokerBros parity: the hero's hole cards at this table, comma-joined
    * ("Ah,Qc" / "Td,9h"; "" or undefined when not in a hand or folded).
@@ -540,6 +550,17 @@ export function TableTabBar({
      menu's Leave Table / Close Lobby emits the same FORCE_LEAVE_TABLE. */
 
   const handleMenuClose = useCallback(() => setIsMenuOpen(false), []);
+  /**
+   * THE SOUNDS AND VIBRATIONS BADGES READ THE GATES (2026-11-14).
+   *
+   * Both badges used to read `soundEnabled` / `vibrationsEnabled` off the
+   * active tab, and no table page ever reported either field, so both read
+   * OFF forever. Sound and haptics are one setting per account, not one per
+   * table, so there is nothing for a tab to report. These are the same two
+   * readings every table's own switch shows and the engine plays by.
+   */
+  const soundOn = useSoundSwitch();
+  const vibrationOn = useVibrationSwitch();
   const handleMenuToggle = useCallback(() => setIsMenuOpen((prev) => !prev), []);
 
   /**
@@ -614,6 +635,18 @@ export function TableTabBar({
                   tableId: activeTabId,
                   action: 'STAND_UP_BB',
                 }),
+              onToggleStraddle: tabs.find((t) => t.id === activeTabId)?.straddleAvailable
+                ? () =>
+                    masterBus.emit('TABLE_MENU_ACTION', {
+                      tableId: activeTabId,
+                      action: 'TOGGLE_STRADDLE',
+                    })
+                : undefined,
+              onOpenMarketplace: () =>
+                masterBus.emit('TABLE_MENU_ACTION', {
+                  tableId: activeTabId,
+                  action: 'CLUB_MARKETPLACE',
+                }),
               onRebuy: () =>
                 masterBus.emit('TABLE_MENU_ACTION', { tableId: activeTabId, action: 'REBUY' }),
               onAutoTopUp: () =>
@@ -670,26 +703,38 @@ export function TableTabBar({
              picker is TableMenu's own in-app gallery. */
             },
             {
-              standUpBBBadge: tabs.find((t) => t.id === activeTabId)?.standUpNextBB
+              /* Every switch says ON or OFF. A switch with no badge when off
+                 reads as a row that does nothing. */
+              standUpBBBadge: tabs.find((t) => t.id === activeTabId)?.standUpNextBB ? 'ON' : 'OFF',
+              straddleBadge: tabs.find((t) => t.id === activeTabId)?.straddleEnabled ? 'ON' : 'OFF',
+              leaveNextHandBadge: tabs.find((t) => t.id === activeTabId)?.leaveNextHandQueued
                 ? 'ON'
                 : undefined,
               autoTopUpBadge: tabs.find((t) => t.id === activeTabId)?.isAutoRebuyEnabled
                 ? 'ON'
-                : undefined,
-              soundsBadge: tabs.find((t) => t.id === activeTabId)?.soundEnabled ? 'ON' : 'OFF',
-              vibrationsBadge: tabs.find((t) => t.id === activeTabId)?.vibrationsEnabled
-                ? 'ON'
                 : 'OFF',
+              soundsBadge: soundOn ? 'ON' : 'OFF',
+              vibrationsBadge: vibrationOn ? 'ON' : 'OFF',
               profitTrackingBadge: onToggleProfitTracking
                 ? profitTrackingEnabled
                   ? 'ON'
                   : 'OFF'
                 : undefined,
               canAddFunds: tabs.find((t) => t.id === activeTabId)?.canAddFunds,
+              heroSeated: tabs.find((t) => t.id === activeTabId)?.heroSeated,
+              straddleBusy: tabs.find((t) => t.id === activeTabId)?.straddleBusy,
               isTournament: tabs.find((t) => t.id === activeTabId)?.isTournament,
             }
           ),
-    [activeTabId, tabs, activeIsLobby, profitTrackingEnabled, onToggleProfitTracking]
+    [
+      activeTabId,
+      tabs,
+      activeIsLobby,
+      profitTrackingEnabled,
+      onToggleProfitTracking,
+      soundOn,
+      vibrationOn,
+    ]
   );
 
   const menuSections = useMemo(
@@ -1107,7 +1152,7 @@ export function TableTabBar({
               [
                 ['Open Lobby', onOpenLobby ? () => onOpenLobby() : null],
                 ['Open Hub', onOpenHub ? () => onOpenHub('/hub') : null],
-                ['Social', onOpenHub ? () => onOpenHub('/hub/social') : null],
+                ['Social', onOpenHub ? () => onOpenHub(HUB_SOCIAL_FEED_PATH) : null],
                 ['Messages', onOpenHub ? () => onOpenHub('/hub/messenger') : null],
               ] as const
             ).map(([label, fn]) =>
@@ -1216,7 +1261,7 @@ export function TableTabBar({
                   !isHubId(tab.id) &&
                   item('Leave Table Next Hand', () => onQuickAction(tab.id, 'leave-next-hand'))}
                 {onQuickAction &&
-                  (!isLobby || tabs.length > 1) &&
+                  (!isLobby || isHubId(tab.id) || tabs.length > 1) &&
                   item(
                     isHubId(tab.id) ? 'Close Tab' : isLobby ? 'Close Lobby' : 'Leave Table',
                     () => onQuickAction(tab.id, 'leave'),
@@ -1247,6 +1292,7 @@ export function TableTabBar({
                 ? 'Lobby'
                 : formatGameTitle(tabs.find((t) => t.id === activeTabId)?.name) || 'Table'
           }
+          seatChangeEnabled={tabs.find((t) => t.id === activeTabId)?.seatChangeEnabled}
           handNumber={tabs.find((t) => t.id === activeTabId)?.handNumber}
           onOpenIdentity={activeIsLobby ? undefined : handleOpenIdentity}
         />

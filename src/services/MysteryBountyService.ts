@@ -60,6 +60,12 @@ export interface MysteryBountyInventory {
    * terms.
    */
   regularPoolPercent: number | null;
+  /**
+   * When the ladder was sealed from the finalized pool, while the phase has
+   * not opened yet (Dan 2026-11-13: prizes are shown once the prize pool is
+   * finalized). Null once the phase is open, and before entry closes.
+   */
+  sealedAt: string | null;
   tiers: MysteryBountyTierRow[];
 }
 
@@ -132,6 +138,7 @@ export function parseInventory(raw: unknown): MysteryBountyInventory {
     activatedPlayers: o.activated_players == null ? null : Math.round(num(o.activated_players)),
     activatedAt: typeof o.activated_at === 'string' ? o.activated_at : null,
     regularPoolPercent: o.regular_pool_percent == null ? null : num(o.regular_pool_percent),
+    sealedAt: typeof o.sealed_at === 'string' ? o.sealed_at : null,
     tiers: tiers
       .map((t) => {
         const r = (t ?? {}) as Record<string, unknown>;

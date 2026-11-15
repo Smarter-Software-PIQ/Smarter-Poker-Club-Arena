@@ -178,9 +178,8 @@ function publicDescription(description: string | null): string | null {
 }
 
 function publicLedgerAmount(amount: number): string {
-  // Forward-facing Console values never print decimals, but a real positive
-  // cent-scale movement must not be rounded down to a false zero.
-  return amount < 1 ? 'Under 1 Chip' : compactChips(amount);
+  // Exact to the cent, never abbreviated (Dan 2026-11-13).
+  return compactChips(amount);
 }
 
 function visibleLedgerCopy(entry: LedgerEntry) {

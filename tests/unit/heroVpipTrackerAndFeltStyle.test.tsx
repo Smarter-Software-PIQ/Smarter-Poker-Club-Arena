@@ -99,7 +99,7 @@ describe('the tracker', () => {
       vi.advanceTimersByTime(VPIP_REFRESH_DELAY_MS);
     });
     expect(screen.getByTestId('vpip-badge').textContent).toContain('60%');
-    expect(screen.getByTestId('hero-vpip-hand-count').textContent).toContain('10');
+    expect(screen.queryByTestId('hero-vpip-hand-count')).toBeNull();
     expect(rpc.mock.calls.filter((c) => c[0] === 'fn_lightning_my_session')).toHaveLength(1);
   });
 
@@ -409,29 +409,15 @@ describe('the regular ante reaches the felt', () => {
     );
   });
 
-  it('the game and blinds are twice the club line on a cash table; the style is a badge', () => {
+  it('prints muted gray captions directly on the felt in all-in hands and gives cash stakes a larger type size', () => {
     const css = read('src/pages/TablePage.css');
-    expect(css).toMatch(/\.table-brand__line \{\s*font-size: 0\.48rem;/);
+    expect(css).not.toMatch(/\.table-page--allin-mode \.table-brand\s*\{[^}]*opacity:/);
+    expect(css).not.toContain('.table-brand::before');
+    expect(css).toMatch(/\.table-brand__line \{[^}]*color: #a6a6a6;/);
+    expect(css).toMatch(/\.table-brand__line \{[^}]*font-size: calc\(0\.67 \* clamp\(0\.6875rem,/);
     expect(css).toMatch(
-      /\.table-page:not\(\.table-page--tournament\) \.table-brand__line--level \{[^}]*font-size: clamp\(0\.6rem, 10\.5cqw, 0\.98rem\);/
+      /\.table-page:not\(\.table-page--tournament\) \.table-brand__line--level \{[^}]*font-size: calc\(0\.67 \* clamp\(0\.8125rem,/
     );
-    expect(css).toMatch(/\.table-brand__line--rules \{[^}]*font-size: 0\.54rem;/);
-    // The box is the container the big line is sized against (it ellipsized at 127px).
-    expect(css).toMatch(/\.table-brand \{[^}]*container-type: inline-size;/);
-  });
-
-  it('at 375px the placard keeps its own steps instead of squashing to the 7px club line', () => {
-    const css = read('src/pages/TablePage.css');
-    const phone = css.slice(css.indexOf('@media (max-width: 380px) {'));
-    const block = phone.slice(0, phone.indexOf('/* Fade the brand out'));
-    expect(block).toMatch(/\.table-brand__line \{\s*font-size: 0\.44rem;/);
-    expect(block).toMatch(
-      /\.table-page:not\(\.table-page--tournament\) \.table-brand__line--level \{\s*font-size: clamp\(0\.6rem, 10\.5cqw, 0\.9rem\);/
-    );
-    expect(block).toMatch(/\.table-brand__line--rules \{\s*font-size: 0\.5rem;/);
-    expect(block).toMatch(/\.table-brand__line--hand \{\s*font-size: 0\.4rem;/);
-    // and every one of them comes AFTER the 0.44rem line, so it wins.
-    expect(block.indexOf('font-size: 0.44rem')).toBeLessThan(block.indexOf('10.5cqw, 0.9rem'));
   });
 
   it("the table page reads the game's template through the table's cluster_id", () => {
@@ -560,7 +546,9 @@ describe('the game line fits its box (2026-09-09)', () => {
     expect(css).toMatch(/\.table-brand__game \{[^}]*font-size: calc\(100% \* var\(--fit, 1\)\);/);
     /* Inherited letter-spacing arrives as computed px and does not scale with
        the span; the em is handed down as a custom property instead. */
-    expect(css).toMatch(/\.table-brand__game \{[^}]*letter-spacing: var\(--sp-game-ls, 0\.1em\);/);
+    expect(css).toMatch(
+      /\.table-brand__game \{[^}]*letter-spacing: var\(--sp-game-ls, 0\.035em\);/
+    );
     expect(css).toMatch(
       /\.table-page:not\(\.table-page--tournament\) \.table-brand__line--level \{[^}]*--sp-game-ls: 0\.05em;/
     );

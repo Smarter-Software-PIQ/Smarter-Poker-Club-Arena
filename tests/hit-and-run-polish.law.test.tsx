@@ -100,7 +100,10 @@ describe('one question per leave', () => {
   it('every Leave Table door goes through openLeaveConfirm', () => {
     const page = read('src/pages/TablePage.tsx');
     expect(page).toContain('const openLeaveConfirm = () => {');
-    expect((page.match(/openLeaveConfirm\(\)/g) ?? []).length).toBeGreaterThanOrEqual(3);
+    /* Two doors since 2026-11-14: the tab bar's LEAVE_TABLE case and the
+       header control. The third was a row in TablePage's own menu, which no
+       table rendered. */
+    expect((page.match(/openLeaveConfirm\(\)/g) ?? []).length).toBeGreaterThanOrEqual(2);
     // The generic dialog is opened only from inside openLeaveConfirm.
     expect((page.match(/setShowLeaveConfirm\(true\)/g) ?? []).length).toBe(1);
     const body = page.slice(page.indexOf('const openLeaveConfirm = () => {'));
@@ -145,10 +148,10 @@ describe('the count between Lightning hands', () => {
     rerender(<HitRunCountPill hands={null} />);
     expect(screen.queryByTestId('hit-run-count-pill')).toBeNull();
   });
-  it('TablePage renders it only for a seatless Lightning hero at a cash table', () => {
+  it('TablePage wires the Lightning countdown and its retry below the hand number', () => {
     const page = flat('src/pages/TablePage.tsx');
     expect(page).toMatch(
-      /<HitRunCountPill hands=\{heroHandsOwed\} reason=\{heroHandCount\.reason \?\? null\} \/>/
+      /\(lightningRoom \|\| lightningCapableClusterId\) && \( <HitRunCountPill retryRead=\{heroHandCount\.retryRead\} hands=\{heroHandsOwed\} reason=\{heroHandCount\.reason \?\? null\} paused=\{heroHandCount\.paused \?\? null\} \/>/
     );
     const css = read('src/components/table/HitRunCountPill.css')
       .replace(/\/\*[\s\S]*?\*\//g, '')

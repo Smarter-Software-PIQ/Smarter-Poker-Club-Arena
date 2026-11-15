@@ -20,6 +20,7 @@ function card({
   width = 44,
   compact = false,
   capacity = 0,
+  tableCapacity = 0,
 } = {}) {
   const wrapper = document.createElement('div');
   wrapper.className = 'club-home__games';
@@ -30,7 +31,8 @@ function card({
   entry.dataset.target = target;
   entry.dataset.live = String(live);
   entry.dataset.players = String(players);
-  if (capacity) entry.dataset.capacity = String(capacity);
+  entry.dataset.capacity = String(capacity);
+  if (tableCapacity) entry.dataset.tableCapacity = String(tableCapacity);
   const button = document.createElement('button');
   button.setAttribute('aria-label', label);
   if (compact) button.className = 'compact-lobby__open';
@@ -64,6 +66,7 @@ describe('production cash spectator candidate selection', () => {
     (compact) => {
       expect(card({ compact, capacity: 9 })[0].capacityHint).toBe('9');
       expect(card({ compact, capacity: 18 })[1].capacityHint).toBeUndefined();
+      expect(card({ compact, capacity: 0, tableCapacity: 6 })[2].capacityHint).toBe('6');
     }
   );
   it('prefers an unverified capacity and keeps unknown and mismatched hints eligible', () => {

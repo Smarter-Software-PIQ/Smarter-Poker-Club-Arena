@@ -26,6 +26,28 @@ export type OpponentAvatarState = {
   captionPreimages?: WeakMap<HTMLElement, { value: string; priority: string }>;
   idleReservedKey?: string;
 };
+/** Largest common bust multiplier that leaves the side portrait between its
+ * screen edge and the reserved board. Image transforms use their bottom centre. */
+export function fixedRailBustLimit(
+  paint: Box,
+  pivotX: number,
+  viewport: Box,
+  board: Box,
+  air: number
+) {
+  let left = viewport.left + air,
+    right = viewport.left + viewport.width - air;
+  if (paint.top < board.top + board.height && paint.top + paint.height > board.top) {
+    if (pivotX < board.left) right = Math.min(right, board.left - air);
+    if (pivotX > board.left + board.width) left = Math.max(left, board.left + board.width + air);
+  }
+  return Math.min(
+    1,
+    paint.left < pivotX ? (pivotX - left) / (pivotX - paint.left) : 1,
+    paint.left + paint.width > pivotX ? (right - pivotX) / (paint.left + paint.width - pivotX) : 1
+  );
+}
+
 /** Original inline facts belong to their DOM node, never to a render revision. */
 export function syncOpponentCaptionBoundary(
   state: OpponentAvatarState,
@@ -1163,6 +1185,9 @@ export function createOpponentAvatarLayout(
     images().find((image) => image.closest('.seat--hero')) ??
     images().find((image) => image.closest('.seat-wrapper--hero'));
   const anchorSeat = () => anchorImage()?.closest<HTMLElement>('.seat');
+  const fixedPhoneRail = () =>
+    page.dataset.seats === '9' &&
+    matchMedia('(min-width: 481px) and (max-width: 640px) and (orientation: portrait)').matches;
   const movableSeats = (includeEmpty = false) => {
     const anchor = anchorSeat();
     return Array.from(scaler.querySelectorAll<HTMLElement>('.seat')).filter(
@@ -1528,6 +1553,32 @@ export function createOpponentAvatarLayout(
       );
       scales.push(`${seat.dataset.playerId}:${image.currentSrc || image.src}:${baseValue}`);
     }
+    // Set the baseline before cards, captions or wagers are allocated. The
+    // later paint fitter only enlarges, so it cannot repair a wide native bust.
+    if (fixedPhoneRail()) {
+      const board = scaler.querySelector('.community-area')?.getBoundingClientRect();
+      if (board && board.width) {
+        const viewport = page.getBoundingClientRect(),
+          ratio = tableRenderScale(scaler);
+        const current = parseFloat(scaler.style.getPropertyValue('--sp-nine-rail-bust')) || 1.7;
+        let limit = 1;
+        for (const image of all) {
+          const own = resolved.get(source(image));
+          if (!own || !image.closest('.seat__avatar--bust')) continue;
+          const rect = restingAvatarBox(image, ratio);
+          const paint = subject(image, own, true, rect);
+          limit = Math.min(
+            limit,
+            fixedRailBustLimit(paint, rect.left + rect.width / 2, viewport, board, 2 * ratio)
+          );
+        }
+        if (limit > 0 && limit < 0.9999)
+          scaler.style.setProperty(
+            '--sp-nine-rail-bust',
+            String(Math.floor(current * limit * 1000) / 1000)
+          );
+      }
+    }
     if (state.lowerLaneKey && !state.locked) {
       const limits = lowerLaneLimits();
       const signature = limits ? `${limits.top}:${limits.bottom}` : '';
@@ -1597,7 +1648,14 @@ export function createOpponentAvatarLayout(
   };
   const tryShiftOwnerForWager = (seat: HTMLElement, deltaY: number, accept: () => boolean) => {
     const old = state.shifts.get(seat);
-    if (state.locked || !old || !Number.isFinite(deltaY) || seat === anchorSeat()) return false;
+    if (
+      fixedPhoneRail() ||
+      state.locked ||
+      !old ||
+      !Number.isFinite(deltaY) ||
+      seat === anchorSeat()
+    )
+      return false;
     const ratio = tableRenderScale(scaler);
     const parts = (owner: HTMLElement): Box[] => {
       const image = owner.querySelector<HTMLImageElement>('.seat__avatar-img');
@@ -1913,6 +1971,16 @@ export function createOpponentAvatarLayout(
           changed = true;
         }
       }
+    }
+    // The nine phone chairs belong to the mirrored rail. A player joining,
+    // an action caption or a wager must not send a chair across the felt.
+    if (fixedPhoneRail()) {
+      for (const seat of movableSeats()) {
+        seat.style.setProperty('--sp-opponent-x', '0px');
+        seat.style.setProperty('--sp-opponent-y', '0px');
+        state.shifts.set(seat, [0, 0]);
+      }
+      return changed;
     }
     const pageBox = box(page);
     const header = page

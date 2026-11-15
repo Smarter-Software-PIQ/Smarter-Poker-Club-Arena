@@ -157,6 +157,58 @@ export async function checkFixedMobileArtwork(
     await waitForMobileAvatarGrowth(page);
     await expect(page.locator('.seat > .seat__action')).toHaveCount(0);
     const withoutCaptions = await read();
+    if (settings.seats === '9' && settings.spectator === 'true' && shortPhone) {
+      // Keep the wagers mounted while the main-pot artwork arrives later.
+      const points = () =>
+        page.evaluate(readMobileTableLayout, {}).then((r) => r.restingCollectionEndpoints);
+      const directions = () =>
+        page
+          .locator('.seat__bet-chips:has(.cp-stacks)')
+          .evaluateAll((elements) =>
+            elements.map((e) => getComputedStyle(e).getPropertyValue('--collect-dy'))
+          );
+      const original = await directions();
+      expect(original.length).toBeGreaterThan(0);
+      await page.evaluate(() => {
+        const pile = document.querySelector('.pot-display__pile--pot')!;
+        const parent = pile.parentElement!;
+        pile.remove();
+        document.addEventListener('fixture-restore-pile', () => parent.appendChild(pile), {
+          once: true,
+        });
+      });
+      await expect.poll(directions).not.toEqual(original);
+      await page.evaluate(() => document.dispatchEvent(new Event('fixture-restore-pile')));
+      await expect
+        .poll(async () => {
+          const endpoints = await points();
+          return (
+            endpoints.length > 0 &&
+            endpoints.every((p) => p.target === 'pot-pile' && p.distance <= 2)
+          );
+        })
+        .toBe(true);
+    }
+    if (settings.seats === '9' && settings.spectator === 'true' && !shortPhone) {
+      const plate = page.locator('.seat[data-seat-num="6"] > .seat__info');
+      const resting = (await plate.boundingBox())!;
+      await page.evaluate(() => {
+        document.documentElement.dataset.winnerSeat = '6';
+        document.dispatchEvent(new Event('fixture-runout'));
+      });
+      const result = page.locator('.seat[data-seat-num="6"] > .seat__hand-name--winner');
+      await expect(result).toBeVisible();
+      await settle();
+      expect((await plate.boundingBox())!.y).toBeCloseTo(resting.y, 0);
+      expect((await result.boundingBox())!.y).toBeGreaterThanOrEqual(resting.y + resting.height);
+      await page.evaluate(() => {
+        delete document.documentElement.dataset.winnerSeat;
+        document.dispatchEvent(new Event('fixture-next-hand'));
+      });
+      await expect(result).toHaveCount(0);
+      await settle();
+      expect((await plate.boundingBox())!.y).toBeCloseTo(resting.y, 0);
+    }
     for (const actionCaption of ['check', 'fold', 'raise']) {
       await page.evaluate((caption) => {
         document.documentElement.dataset.actionPills = 'true';
@@ -170,6 +222,11 @@ export async function checkFixedMobileArtwork(
         `${actionCaption} cannot move the locked chair anchors`
       ).toEqual(withoutCaptions.anchors);
       const violations = await page.evaluate(readMobileTableLayout, {});
+      if (settings.seats === '9')
+        expect(
+          violations.violations.filter((v: string) => v.includes('Nine-Max')),
+          'nine-seat rail positions and both top portraits stay clear of the felt'
+        ).toEqual([]);
       expect(
         violations.violations.filter((v: string) => v.startsWith('Action Caption')),
         `${actionCaption} appearing after allocation clears header, cards and peer plates`

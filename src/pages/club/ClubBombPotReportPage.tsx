@@ -42,6 +42,7 @@ import { useIsMounted } from '../../hooks/useIsMounted';
 import { useAuthUser } from '../../hooks/useAuthUser';
 import { useToast } from '../../components/common/Toast';
 import styles from './ClubBombPotReportPage.module.css';
+import { chipCents } from '../../utils/cashierAmount';
 
 interface ReportRow {
   table_id: string;
@@ -334,9 +335,9 @@ export default function ClubBombPotReportPage() {
     const hands = r.reduce((s, x) => s + Number(x.hands ?? 0), 0);
     const scoops = r.reduce((s, x) => s + Number(x.scoops ?? 0), 0);
     const splits = r.reduce((s, x) => s + Number(x.splits ?? 0), 0);
-    const antes = r.reduce((s, x) => s + Number(x.total_antes ?? 0), 0);
-    const rake = r.reduce((s, x) => s + Number(x.total_rake ?? 0), 0);
-    const pot = r.reduce((s, x) => s + Number(x.total_pot ?? 0), 0);
+    const antes = chipCents(r.reduce((s, x) => s + Number(x.total_antes ?? 0), 0));
+    const rake = chipCents(r.reduce((s, x) => s + Number(x.total_rake ?? 0), 0));
+    const pot = chipCents(r.reduce((s, x) => s + Number(x.total_pot ?? 0), 0));
     const unrecorded = r.reduce((s, x) => s + Number(x.unrecorded_hands ?? 0), 0);
     // Weighted by hands, so a table that ran three bombs does not count as
     // much as one that ran three hundred.

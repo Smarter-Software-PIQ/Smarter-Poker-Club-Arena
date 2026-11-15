@@ -86,6 +86,9 @@ export async function readServerCashSessionProfit(
   return { startedAt: session.startedAt, hands: seen.size, net: totalCents / 100 };
 }
 
+const COVERAGE_RETRIES = 2;
+const COVERAGE_RETRY_MS = 1000;
+
 /** Initial/reconnect reconciliation plus discrete settled-hand updates. No
  * polling, browser-lifetime baseline, storage expiry or historical write. */
 export function useServerCashSessionProfit(
@@ -109,7 +112,24 @@ export function useServerCashSessionProfit(
       reads.set(id, version);
       const current = () => active && reads.get(id) === version;
       try {
-        const row = await readServerCashSessionProfit(id, userId);
+        let row: ServerCashSessionProfit | null = null;
+        for (let attempt = 0; ; attempt++) {
+          try {
+            row = await readServerCashSessionProfit(id, userId);
+            break;
+          } catch (error) {
+            // The hand_history row lands about 0.3-0.4 s before the hand's
+            // ca_hand_facts row (measured 2026-11-14), so a read on
+            // HAND_COMPLETED can count one hand it cannot yet price. Wait for
+            // the facts a bounded number of times before reporting; a partial
+            // total is still never shown.
+            const coverage =
+              error instanceof Error && error.message === 'Cash Session Hand Coverage Incomplete';
+            if (!coverage || attempt >= COVERAGE_RETRIES || !current()) throw error;
+            await new Promise((resolve) => setTimeout(resolve, COVERAGE_RETRY_MS));
+            if (!current()) return;
+          }
+        }
         if (!current()) return;
         setSnapshot((old) => ({
           scope,

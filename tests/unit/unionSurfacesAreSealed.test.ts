@@ -215,8 +215,8 @@ describe('the tab quick menu always offers Leave Table', () => {
     TAB_BAR.indexOf("isLobby ? 'Close Lobby' : 'Leave Table'") + 120
   );
 
-  it('does not hide the item when only one table is open', () => {
-    expect(LEAVE_ITEM).toContain('(!isLobby || tabs.length > 1)');
+  it('offers the close action for a lone table or Hub page, including Notifications', () => {
+    expect(LEAVE_ITEM).toContain('(!isLobby || isHubId(tab.id) || tabs.length > 1)');
     // The regression: a bare count gate in front of the item.
     expect(LEAVE_ITEM).not.toMatch(/onQuickAction &&\s*\n\s*tabs\.length > 1 &&\s*\n\s*item\(/);
   });

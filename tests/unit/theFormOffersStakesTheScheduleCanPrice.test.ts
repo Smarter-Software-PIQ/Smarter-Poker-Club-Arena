@@ -19,34 +19,35 @@ import {
   UNSCHEDULED_CAP_BB,
 } from '../../src/config/RakeConfig';
 
-describe('a fixed-limit table is only offered blinds its bet ladder can describe', () => {
+describe('a fixed-limit table is offered exactly the owner ladder', () => {
   /**
-   * fixedLimitBetSize() derives the whole ladder from the BIG BLIND — small
-   * bet 1x BB, big bet 2x BB — and stakesLabel() names the table by those bet
-   * sizes. The small blind is not a term in either. So on a preset where the
-   * big blind is not twice the small blind, an FLO8 table stored as
-   * small_blind 0.1 / big_blind 0.25 was labelled "0.25/0.50" in
-   * tables.stakes, on its lobby row and in its header, and the 0.10 a player
-   * actually posts appeared NOWHERE. The DB guard accepts it — it only
-   * requires bb > sb > 0 — so nothing downstream would have caught it.
+   * Owner ruling, November 14, 2026: "GAME LIMITS SHOULD BE .25/.50 .50/1.00
+   * 1/2 2/5 AND 5/10". Limit games read by their blinds now (stakesLabel), so
+   * the 2026-08-31 rule that dropped every preset whose big blind was not twice
+   * the small blind (it printed the bets and lost the small blind) no longer
+   * applies; 2/5 is on the ladder and bets 5 and 10.
    */
-  it('offers only presets where the big blind is twice the small blind', () => {
-    for (const preset of LIMIT_BLINDS_PRESETS) {
-      expect(preset.bb).toBeCloseTo(preset.sb * 2, 10);
-    }
+  it('offers the five rungs, in order, and nothing else', () => {
+    expect(LIMIT_BLINDS_PRESETS.map((p) => p.label)).toEqual([
+      '0.25/0.50',
+      '0.50/1',
+      '1/2',
+      '2/5',
+      '5/10',
+    ]);
   });
 
-  it('names the four presets a limit table can no longer be built on', () => {
-    const excluded = BLINDS_PRESETS.filter((p) => !LIMIT_BLINDS_PRESETS.includes(p)).map(
-      (p) => p.label
-    );
-    expect(excluded).toEqual(['0.02/0.05', '0.10/0.25', '2/5', '10/25']);
+  it('never goes above 5/10 blinds', () => {
+    for (const preset of LIMIT_BLINDS_PRESETS) {
+      expect(preset.bb).toBeLessThanOrEqual(10);
+      expect(preset.sb).toBeLessThanOrEqual(5);
+    }
   });
 
   it('leaves the no-limit ladder untouched', () => {
     expect(presetsFor(false)).toBe(BLINDS_PRESETS);
     expect(presetsFor(false)).toHaveLength(12);
-    expect(presetsFor(true)).toHaveLength(8);
+    expect(presetsFor(true)).toHaveLength(5);
   });
 
   it('every offered limit preset is still reachable by the slider', () => {

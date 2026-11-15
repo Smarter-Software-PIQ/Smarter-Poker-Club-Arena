@@ -57,7 +57,7 @@ import {
   type LobbyTable,
 } from '../../services/cashGameLobby';
 import { formatChips } from '../../lib/utils';
-import { formatPrizeAtUnit } from '../../utils/format';
+import { exactChips, formatPrizeAtUnit } from '../../utils/format';
 import { CASH_TEMPLATES, cashTemplateKey } from '../../config/cashGames';
 import { useToast } from '../common/Toast';
 import { lobbyReadErrorText } from './mustMoveLobbyCopy';
@@ -71,6 +71,7 @@ export interface MustMoveLobbyModalProps {
   isOpen: boolean;
   asset?: 'chips' | 'diamonds';
   lightning?: boolean;
+  seatChangeEnabled?: boolean;
   gameId: string | null | undefined;
   /** The table the viewer is looking at (highlighted in the list). */
   currentTableId: string | null | undefined;
@@ -96,6 +97,7 @@ export function MustMoveLobbyModal({
   isOpen,
   asset = 'chips',
   lightning = false,
+  seatChangeEnabled = true,
   gameId,
   currentTableId,
   onClose,
@@ -103,6 +105,11 @@ export function MustMoveLobbyModal({
 }: MustMoveLobbyModalProps) {
   const formatAmount = (amount: number) =>
     asset === 'diamonds' ? formatPrizeAtUnit(amount, 100) : formatChips(amount);
+  /** An average stack is whole chips, never decimals (Dan 2026-11-14). */
+  const formatAverageStack = (amount: number) =>
+    asset === 'diamonds'
+      ? formatPrizeAtUnit(Math.trunc(amount), 100)
+      : exactChips(Math.trunc(amount));
   const dialogRef = useFocusTrap<HTMLDivElement>(isOpen, '.tlm-close');
   const toast = useToast();
   const {
@@ -253,8 +260,9 @@ export function MustMoveLobbyModal({
      all - and this mirrors fn_cash_seat_change_request's own refusal, so the
      button and the door cannot disagree about what they forbid. */
   const frontTableId = lobby?.front_table_id ?? null;
+  const showSeatChange = !lightning && seatChangeEnabled;
   const canRequestTo = (t: LobbyTable): boolean =>
-    !lightning &&
+    showSeatChange &&
     Boolean(me?.seat_change.available) &&
     !isMainOne(t, frontTableId) &&
     t.id !== myTableId &&
@@ -365,7 +373,7 @@ export function MustMoveLobbyModal({
                   )}
 
                   {/* The seat change: once per stay, never from or to Main 1. */}
-                  {!lightning && !me.on_main_one && (
+                  {showSeatChange && !me.on_main_one && (
                     <div className="mml-seat-change">
                       <div className="mml-section-title">Seat Change</div>
                       {me.seat_change.request ? (
@@ -460,7 +468,7 @@ export function MustMoveLobbyModal({
                       <span className="mml-table-stat" data-stat="average-stack">
                         <span className="mml-table-stat-label">Avg Stack</span>
                         <span className="mml-table-stat-value">
-                          {formatAmount(lobbyTableChips(t).average)}
+                          {formatAverageStack(lobbyTableChips(t).average)}
                         </span>
                       </span>
                       <span className="mml-table-stat" data-stat="total-chips">

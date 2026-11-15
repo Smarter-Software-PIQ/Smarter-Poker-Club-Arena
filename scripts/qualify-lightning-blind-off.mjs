@@ -5,7 +5,8 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { createInterface } from 'node:readline';
 import { original, root } from './qualification/stable-admin-floor/fixture.mjs';
 
 const here = path.join(root, 'scripts/qualification/lightning-blind-off');
@@ -96,6 +97,90 @@ try {
     if (!after.includes(`${s} COMPLETES`)) throw Error(`${s} did not complete after the migration`);
   if (!before.includes('LIGHTNING_BLIND_OFF_POSTGRES_PASS before') || !after.includes('LIGHTNING_BLIND_OFF_POSTGRES_PASS after'))
     throw Error('Behavior did not run to its end');
+  // The function images above exclude ACLs. Reapply the originating grants
+  // before testing which legacy and scoped RPCs PostgREST roles can execute.
+  const migrationText = (version) => {
+    const file = migrations.find((name) => name.startsWith(version));
+    if (!file) throw Error(`Migration ${version} absent`);
+    return fs.readFileSync(path.join(root, 'supabase/migrations', file), 'utf8');
+  };
+  const stopAcl = migrationText('20261008111425').split('\n').filter((line) =>
+    /^(REVOKE|GRANT).* ON FUNCTION public\.fn_lightning_stop_playing\(uuid\)/.test(line)
+  );
+  if (stopAcl.length !== 2) throw Error('Unrecognized original stop grants');
+  query('after', stopAcl.join('\n'));
+  query('after', migrationText('20261112203847'));
+  const sessionSource = migrations.find((name) => name.startsWith('20261001154813'));
+  query('after', original(`supabase/migrations/${sessionSource}`, 'fn_lightning_my_session'));
+  for (const version of ['20261001201216', '20261001222856']) {
+    const block = /DO \$sub_session\$[\s\S]*?END\s+\$sub_session\$;/.exec(migrationText(version));
+    if (!block) throw Error(`Session-owner patch absent in ${version}`);
+    query('after', block[0]);
+  }
+  // Additional columns/constraint used by the canonical occupancy-bound
+  // departure writer; the blind-off fixture never had to queue this request.
+  query('after', `
+    ALTER TABLE table_seats ADD COLUMN status text DEFAULT 'active';
+    ALTER TABLE seat_departure_requests ADD PRIMARY KEY(occupancy_id);
+  `);
+  const departureMigration = migrations.find((name) => name.startsWith('20260908220604'));
+  query('after', original(`supabase/migrations/${departureMigration}`, 'fn_request_seat_departure'));
+  const receiptTable = /CREATE TABLE IF NOT EXISTS public\.seat_cashout_receipts \([\s\S]*?\n\);/.exec(migrationText('20260908220604'));
+  if (!receiptTable) throw Error('Canonical occupancy receipt table missing');
+  query('after', receiptTable[0]);
+  query('after', original(`supabase/migrations/${departureMigration}`, 'fn_get_seat_cashout_receipt'));
+  const baseline = query('after', read('scoped-room-leave.sql'), ['-v', 'before=true']);
+  if (!baseline.includes('LEGACY_STALE_ROOM_CLOSED_SUCCESSOR')) throw Error('Legacy stale-tab defect not reproduced');
+  query('after', migrationText('20261114220925'));
+  const scoped = query('after', read('scoped-room-leave.sql'), ['-v', 'before=false']);
+  if (!scoped.includes('SCOPED_LIGHTNING_LEAVE_POSTGRES_PASS')) throw Error('Scoped leave proof incomplete');
+  // Hold A's successful departure open on one real connection. An admission on
+  // another must wait for the same anchor and recheck eligibility after commit.
+  const owner = spawn(path.join(pg, 'psql'), psql('after', ['-At']), { ...identity });
+  const lines = createInterface({ input: owner.stdout });
+  let ownerError = '';
+  owner.stderr.on('data', (data) => { ownerError += data; });
+  const closed = new Promise((resolve) => owner.on('close', resolve));
+  owner.stdin.write(`BEGIN; SELECT set_config('test.engine','true',true);
+    SELECT sim.ok(sim.prepare_held_departure() @> '{"ok":true,"blind_off":false}', 'A owns the pending leave');
+    \\echo DEPARTURE_HELD
+`);
+  try {
+    let held = false;
+    for await (const line of lines) {
+      if (line === 'DEPARTURE_HELD') { held = true; break; }
+    }
+    if (!held) throw Error('Departure owner did not retain its transaction: ' + ownerError);
+    query('after', `
+      SET lock_timeout = '350ms';
+      DO $$ BEGIN
+        PERFORM sim.readmit_held_seat();
+        RAISE EXCEPTION 'Admission did not serialize with pending physical departure';
+      EXCEPTION WHEN lock_not_available THEN NULL; END $$;
+    `);
+    owner.stdin.end('COMMIT;\n');
+    if (await closed !== 0) throw Error('Departure commit failed: ' + ownerError);
+    query('after', `
+      SELECT sim.ok(sim.readmit_held_seat() IS NULL AND
+        EXISTS (SELECT 1 FROM seat_departure_requests WHERE user_id = sim.h()) AND
+        NOT EXISTS (SELECT 1 FROM lightning_pool_session WHERE player_id = sim.h() AND exited_at IS NULL),
+        'pending physical departure bars a successor after the shared lock releases');
+    `);
+  } finally {
+    if (!owner.stdin.writableEnded) owner.stdin.end('ROLLBACK;\n');
+    await closed;
+  }
+  const retirement = migrationText('20261114222043');
+  query('after', retirement);
+  for (const [, predicate] of retirement.matchAll(/^-- @live-proof: (.+)$/gm)) {
+    if (query('after', 'SELECT (' + predicate + ');', ['-At']).trim() !== 't')
+      throw Error('Installed retirement predicate failed: ' + predicate);
+  }
+  const retired = query('after', read('retired-room-leave.sql'));
+  if (!retired.includes('RETIRED_ROOM_LEAVE_POSTGRES_PASS')) throw Error('Legacy retirement proof incomplete');
+  console.log(retired);
+  console.log(baseline + scoped);
+  console.log('SCOPED_DEPARTURE_SERIALIZES_ADMISSION_PASS');
   console.log('LIGHTNING_BLIND_OFF_QUALIFIED: strand reproduced before, completion proved after');
 } finally {
   if (started) run('pg_ctl', ['-D', path.join(dir, 'data'), '-m', 'immediate', '-w', 'stop']);

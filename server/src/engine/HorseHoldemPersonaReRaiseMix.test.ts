@@ -181,7 +181,7 @@ describe('persona re-raise mix: OFF is main', () => {
     })
   );
   it('covers a few thousand decisions recorded from the parent commit', () => {
-    expect(recorded.recordedFrom).toBe('0aca5e03c7f');
+    expect(recorded.recordedFrom).toBe('b262fd3e0e2');
     expect(total).toBeGreaterThan(5000);
   });
 });

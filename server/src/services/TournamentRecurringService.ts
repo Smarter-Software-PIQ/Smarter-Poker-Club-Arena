@@ -416,7 +416,11 @@ import { HorseEntryRefusalBackoff, databaseDidNotAnswer } from './horseEntryRefu
 import { horseEntryCapRefusalContext } from './horseEntryCapRefusalContext.js';
 import { withLockedLevelClock } from '../tournament/lockedLevelClock.js';
 import { isRestDayFor, tagBook } from './StableHandTags.js';
-import { callHorsesFromCash, overlayCashCallList } from './horseOverlayCover.js';
+import {
+  callHorsesFromCash,
+  overlayCashCallList,
+  recordOverlayCoverPool,
+} from './horseOverlayCover.js';
 import { chicagoNow } from './StableHandController.js';
 import { controllerEnabled } from './StableHand.js';
 
@@ -7383,6 +7387,41 @@ export class TournamentRecurringService {
     };
   }
 
+  /**
+   * How many horses this event's club can draw on right now, for the hourly
+   * supply check (HorseOverlayGuard.checkGuaranteeSupplyOnce). Null when any
+   * read is incomplete: unknown supply is never reported as zero.
+   */
+  async horseSupplyFor(tournamentId: string): Promise<{ fleet: number; free: number } | null> {
+    try {
+      const load = await this.horseLoadMap();
+      if (!load) return null;
+      const page = await fetchAllRows<{ id: string }>(
+        (cursor, want) => {
+          let q = supabase
+            .from('profiles')
+            .select('id')
+            .eq('is_horse', true)
+            .eq('horse_status', 'available')
+            .order('id', { ascending: true })
+            .limit(want);
+          if (cursor) q = q.gt('id', cursor);
+          return q;
+        },
+        { label: 'TournamentRecurring.horseSupplyFor', maxRows: 50_000 }
+      );
+      if (!page.complete) return null;
+      const members = await this.clubMemberIdsForTournament(tournamentId);
+      if (!members) return null;
+      const fleet = page.rows.filter((h) => members.has(h.id));
+      const free = fleet.filter((h) => !TournamentRecurringService.atCapacity(load, h.id)).length;
+      return { fleet: fleet.length, free };
+    } catch (err) {
+      reportError(err, 'TournamentRecurring.horse_supply_read_failed');
+      return null;
+    }
+  }
+
   private async registerHorses(
     tournamentId: string,
     count: number,
@@ -7750,6 +7789,7 @@ export class TournamentRecurringService {
        * floor on 2026-08-31.
        */
       const freerollRecoveryPriority = new Set<string>();
+      let cannotPay = 0;
       let pool = eligible;
       try {
         const { data: t } = await supabase
@@ -7816,7 +7856,10 @@ export class TournamentRecurringService {
                 const roll = rolls.get(h.id);
                 if (roll === undefined) return true; // unread -> fail open
                 // Overlay cover asks only that the wallet can pay this entry.
-                if (overlayCover) return roll >= cost;
+                if (overlayCover) {
+                  if (roll < cost) cannotPay++;
+                  return roll >= cost;
+                }
                 return canEnterTournament(roll, cost, bankrollPolicyFor(h.id));
               });
               if (pool.length < before) {
@@ -7868,6 +7911,13 @@ export class TournamentRecurringService {
       /* Not enough free horses to cover the guarantee: horses at the game
          limit are asked to give up one cash seat (horseOverlayCover), so the
          next cycle finds them free. Nobody is unseated here. */
+      if (overlayCover)
+        recordOverlayCoverPool(tournamentId, {
+          asked: count,
+          free: pool.length,
+          atLimit: atLimitNotEntered.length,
+          cannotPay,
+        });
       if (overlayCover && pool.length < count && atLimitNotEntered.length > 0) {
         const called = callHorsesFromCash(
           overlayCashCallList(atLimitNotEntered, count - pool.length)

@@ -15,6 +15,19 @@ import { resolve } from 'node:path';
 const MIGRATION =
   'supabase/migrations/20261111174148_charles_rule_big_win_and_durable_bank_the_win_state.sql';
 
+/**
+ * THE COUNTDOWN RESUMES (owner 2026-11-13): installed on top, exactly as
+ * written. Its guard names the image production held when it was written,
+ * which is the image the migration above installs.
+ */
+const RESUME_MIGRATION =
+  'supabase/migrations/20261114050737_charles_rule_countdown_resumes_where_it_left_off.sql';
+const RESUME_GUARD = 'ede6dbf160aeba5e1feef8667e1c14e3';
+/** CLUB DATA SHOWS PAUSED COUNTS (owner 2026-11-14), installed last, as written. */
+const CLUB_PAUSED_MIGRATION =
+  'supabase/migrations/20261114072737_club_data_shows_paused_hand_counts.sql';
+const CLUB_PAUSED_GUARD = '1b119337c2c2ac187a7c3f1cbbb74993';
+
 const GUARDED: Record<string, string> = {
   'public.fn_cash_session_evaluate(uuid,jsonb)': 'cb8ac1ad4079d6d6bae21952043e15ae',
   'public.fn_cash_leave_check(uuid,uuid)': '504476448db50af394275027c1ff426c',
@@ -201,6 +214,20 @@ beforeAll(() => {
     migration = migration.replace(md5, stub);
   }
   sql(migration);
+  const resume = readFileSync(resolve(root, RESUME_MIGRATION), 'utf8');
+  const installed = one(
+    `SELECT md5(pg_get_functiondef('public.fn_cash_session_evaluate(uuid,jsonb)'::regprocedure))`
+  );
+  expect(resume).toContain(RESUME_GUARD);
+  sql(resume.replace(RESUME_GUARD, installed));
+  const clubPaused = readFileSync(resolve(root, CLUB_PAUSED_MIGRATION), 'utf8');
+  expect(clubPaused).toContain(CLUB_PAUSED_GUARD);
+  sql(
+    clubPaused.replace(
+      CLUB_PAUSED_GUARD,
+      one(`SELECT md5(pg_get_functiondef('public.ca_club_hit_run_status(uuid)'::regprocedure))`)
+    )
+  );
   sql(`INSERT INTO clubs VALUES ('${CLUB}', true, 10);
     INSERT INTO tables VALUES
       ('${T}', NULL, '${CLUB}', 100, 'nlh', 0.25, 0.5, NULL, 'NLH Classic', '0.25/0.50'),
@@ -526,5 +553,139 @@ describe('safety and coexisting obligations', () => {
     ).toEqual({
       found: false,
     });
+  });
+});
+
+describe('the countdown resumes where it left off (owner 2026-11-13)', () => {
+  const count = (player: string) => {
+    const s = session(player);
+    return {
+      required: Number(s.hr_hands_required),
+      played: Number(s.hr_hands_played),
+      doubles: Number(s.hr_doubles),
+      completed: String(s.hr_completed) === 'true',
+    };
+  };
+
+  it('falls out of profit with seven left, is free to leave, and comes back to seven left', () => {
+    seat(P(60), T, 100);
+    classicHand(T, { [P(60)]: 20 }); // in profit: ten hands, this one not counted
+    quietHands(T, P(60), 3);
+    expect(owed(P(60), T)).toMatchObject({ allowed: false, hands: 7 });
+    classicHand(T, { [P(60)]: -30 }); // 90: profit gone
+    expect(count(P(60))).toMatchObject({ required: 10, played: 3, completed: false });
+    expect(owed(P(60), T)).toMatchObject({ allowed: true, hands: 0 });
+    quietHands(T, P(60), 5); // hands out of profit never count
+    expect(count(P(60)).played).toBe(3);
+    classicHand(T, { [P(60)]: 25 }); // 115: back in profit, the returning hand not counted
+    expect(owed(P(60), T)).toMatchObject({ allowed: false, hands: 7 });
+    quietHands(T, P(60), 6);
+    expect(owed(P(60), T)).toMatchObject({ allowed: false, hands: 1 });
+    quietHands(T, P(60), 1);
+    expect(count(P(60))).toMatchObject({ required: 10, played: 10, completed: true });
+    expect(owed(P(60), T)).toMatchObject({ allowed: true, hands: 0 });
+  });
+
+  it('keeps the hands a double added and the doubling reference from before the pause', () => {
+    seat(P(61), T, 100);
+    classicHand(T, { [P(61)]: 10 }); // 110: countdown of ten
+    classicHand(T, { [P(61)]: 60 }); // 170: one played
+    classicHand(T, { [P(61)]: 60 }); // 230 >= 2 x 110: Charles double, twenty owed, two played
+    expect(count(P(61))).toMatchObject({ required: 20, played: 2, doubles: 1 });
+    classicHand(T, { [P(61)]: -140 }); // 90: paused at eighteen left
+    expect(owed(P(61), T)).toMatchObject({ allowed: true, hands: 0 });
+    classicHand(T, { [P(61)]: 20 }); // 110: back, eighteen left
+    expect(owed(P(61), T)).toMatchObject({ allowed: false, hands: 18 });
+    expect(Number(session(P(61)).hr_reference_stack)).toBe(230); // untouched by the pause
+    classicHand(T, { [P(61)]: 110 }); // 220: twice the return stack, not twice 230, so no double
+    expect(count(P(61))).toMatchObject({ required: 20, played: 3, doubles: 1 });
+    classicHand(T, { [P(61)]: 240 }); // 460 >= 2 x 230 (the reference before the pause): ten more
+    expect(count(P(61))).toMatchObject({ required: 30, played: 4, doubles: 2 });
+    expect(owed(P(61), T)).toMatchObject({ allowed: false, hands: 26 });
+  });
+
+  it('pauses and resumes more than once without losing a hand', () => {
+    seat(P(62), T, 100);
+    classicHand(T, { [P(62)]: 5 });
+    quietHands(T, P(62), 2);
+    classicHand(T, { [P(62)]: -5 }); // exactly the baseline is not profit
+    expect(owed(P(62), T)).toMatchObject({ allowed: true, hands: 0 });
+    classicHand(T, { [P(62)]: 5 });
+    expect(owed(P(62), T).hands).toBe(8);
+    quietHands(T, P(62), 4);
+    classicHand(T, { [P(62)]: -50 });
+    classicHand(T, { [P(62)]: 60 });
+    expect(owed(P(62), T).hands).toBe(4);
+  });
+
+  it('honours a leave asked for while out of profit, even if the next hand returns the profit', () => {
+    seat(P(63), T, 100);
+    classicHand(T, { [P(63)]: 20 });
+    quietHands(T, P(63), 2);
+    classicHand(T, { [P(63)]: -40 }); // paused
+    sql(`UPDATE table_seats SET leave_pending = true WHERE user_id = '${P(63)}' AND left_at IS NULL;
+         INSERT INTO seat_departure_requests (occupancy_id, user_id, table_id, seat_number, leave_mode, created_at)
+         SELECT occupancy_id, user_id, table_id, seat_number, 'voluntary', clock_timestamp()
+           FROM table_seats WHERE user_id = '${P(63)}' AND left_at IS NULL;`);
+    classicHand(T, { [P(63)]: 60 }); // back in profit after the request
+    expect(count(P(63))).toMatchObject({ required: 10, played: 2 });
+    expect(owed(P(63), T).allowed).toBe(true);
+  });
+
+  it('pauses and resumes a Lightning pool session the same way, from its own settlements', () => {
+    sql(`INSERT INTO table_seats (table_id, user_id, stack) VALUES ('${LT}', '${P(64)}', 100);
+         SELECT fn_cash_session_open('${P(64)}', '${LT}', 100);
+         UPDATE cash_player_session SET hr_engine_ack = true WHERE player_id = '${P(64)}';
+         INSERT INTO lightning_pool_session (cluster_id, player_id, cash_player_session_id, anchor_seat_id)
+           SELECT '${CL}', '${P(64)}', s.id, ts.id FROM cash_player_session s, table_seats ts
+            WHERE s.player_id = '${P(64)}' AND ts.user_id = '${P(64)}';`);
+    let stack = 100;
+    const poolHand = (net: number) => {
+      const id = H(++hand);
+      const after = stack + net;
+      sql(`INSERT INTO hand_history VALUES ('${id}', 0.5);
+           INSERT INTO lightning_hand VALUES ('${id}', '${CL}', clock_timestamp(), 6);
+           INSERT INTO lightning_hand_player VALUES ('${id}', '${P(64)}', ${net}, ${stack}, ${after});
+           UPDATE table_seats SET stack = ${after} WHERE user_id = '${P(64)}';`);
+      stack = after;
+      evaluate(LT, [P(64)], id, 'lightning');
+    };
+    poolHand(20); // in profit: ten
+    for (let i = 0; i < 3; i++) poolHand(0);
+    expect(owed(P(64), LT)).toMatchObject({ allowed: false, hands: 7 });
+    poolHand(-30); // paused
+    expect(owed(P(64), LT)).toMatchObject({ allowed: true, hands: 0 });
+    for (let i = 0; i < 4; i++) poolHand(0);
+    poolHand(40); // back in profit
+    expect(count(P(64))).toMatchObject({ required: 10, played: 3 });
+    expect(owed(P(64), LT)).toMatchObject({ allowed: false, hands: 7 });
+  });
+
+  it('shows the club a paused player apart from the players who owe hands, and the player their paused count', () => {
+    seat(P(65), T, 100);
+    sql(`INSERT INTO profiles (id, username) VALUES ('${P(65)}', 'sixtyfive');
+         INSERT INTO club_members VALUES ('${CLUB}', '${P(65)}');`);
+    classicHand(T, { [P(65)]: 20 });
+    quietHands(T, P(65), 3);
+    const clubRows = () => JSON.parse(one(`SELECT ca_club_hit_run_status('${CLUB}')`));
+    const mine = (rows: Array<{ user_id: string }>) => rows.filter((r) => r.user_id === P(65));
+    expect(mine(clubRows().rows)).toEqual([
+      expect.objectContaining({ hands_remaining: 7, hands_required: 10 }),
+    ]);
+    expect(mine(clubRows().paused_rows)).toEqual([]);
+    classicHand(T, { [P(65)]: -30 }); // paused at seven
+    expect(mine(clubRows().rows)).toEqual([]);
+    expect(mine(clubRows().paused_rows)).toEqual([
+      expect.objectContaining({ hands_remaining: 7, hands_required: 10, paused: true }),
+    ]);
+    sql(`DELETE FROM whoami; INSERT INTO whoami VALUES ('${P(65)}')`);
+    expect(
+      JSON.parse(one(`SELECT row_to_json(x) FROM fn_my_hit_run_status('${T}') x`))
+    ).toMatchObject({ hands_remaining: 0, hands_required: 10, hands_played: 3, completed: false });
+    classicHand(T, { [P(65)]: 40 }); // back in profit
+    expect(mine(clubRows().paused_rows)).toEqual([]);
+    expect(mine(clubRows().rows)).toEqual([
+      expect.objectContaining({ hands_remaining: 7, hands_required: 10 }),
+    ]);
   });
 });

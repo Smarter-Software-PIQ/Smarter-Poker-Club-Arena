@@ -469,15 +469,15 @@ describe('9. the rebuy window is read, not assumed', () => {
 
   it('prints no level when the event configured none', () => {
     const shown = rebuyRow({});
-    expect(shown.Rebuy).toBe('10K');
+    expect(shown.Rebuy).toBe('10,000');
     expect(shown['Add-On']).toBe('Yes');
-    expect(shown['Add-On Stack']).toBe('10K Chips');
+    expect(shown['Add-On Stack']).toBe('10,000 Chips');
   });
 
   it('reads the columns in the order the rebuy rule does', () => {
     // TournamentService.canRebuy: rebuy_levels ?? late_reg_levels.
-    expect(rebuyRow({ rebuy_levels: 4, late_reg_levels: 9 }).Rebuy).toBe('10K thru Lv 4');
-    expect(rebuyRow({ late_reg_levels: 6 }).Rebuy).toBe('10K thru Lv 6');
+    expect(rebuyRow({ rebuy_levels: 4, late_reg_levels: 9 }).Rebuy).toBe('10,000 thru Lv 4');
+    expect(rebuyRow({ late_reg_levels: 6 }).Rebuy).toBe('10,000 thru Lv 6');
   });
 });
 

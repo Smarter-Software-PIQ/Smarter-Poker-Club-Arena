@@ -1,3 +1,6 @@
+import { loadSeatedPlayers as loadOriginalRoster } from '../services/supabase/tables.js';
+import { supabase } from '../services/supabase/client.js';
+import { horseSavedProfilePresence } from '../services/HorseSavedProfilePresence.js';
 /**
  * KILL POTS, rule manifest kill-v1: the engine glue.
  *
@@ -125,6 +128,62 @@ function fixture(opts: { count?: number; table?: Record<string, unknown> } = {})
   }
   return { engine, seats, deal };
 }
+it('prepares a saved-presence lookup for the original fixed-limit table roster before the deal', async () => {
+  const { engine, seats, deal } = fixture({ count: 4 });
+  const raw = seats.map((seat, i) => ({
+    ...seat,
+    id: seat.seat_id,
+    joined_at: seat.seat_joined_at,
+    profile: {
+      id: seat.user_id,
+      username: seat.username,
+      ...(i === 2 ? {} : { is_horse: [false, null, null, true][i] }),
+    },
+  }));
+  const chain = {
+    select: () => chain,
+    eq: () => chain,
+    is: () => chain,
+    order: async () => ({ data: raw, error: null }),
+  };
+  vi.spyOn(supabase, 'from').mockImplementationOnce((() => chain) as never);
+  const loaded = await loadOriginalRoster(engine.tableId);
+  engine.seatedPlayers = loaded;
+  loadSeatedPlayers.mockResolvedValue(loaded);
+  const lease = '30000000-0000-4000-8000-0000000000d1';
+  vi.spyOn(engine, 'getEngineLeaseAuthority').mockReturnValue({
+    verified: true,
+    generation: lease,
+  });
+  const prime = vi.spyOn(horseSavedProfilePresence, 'prime').mockImplementation(() => {});
+  const hc = await deal(loaded as typeof seats);
+  const state = hc.getState();
+  const actor = state.players.find((p) => p.seat === state.currentPlayerSeat)!;
+  engine.scheduleHorseAction(
+    loaded.find((p) => p.user_id === actor.user_id),
+    actor.seat,
+    actor,
+    state
+  );
+  expect(decideFast).toHaveBeenCalledOnce();
+  expect(decideFast.mock.calls[0]![0]).toMatchObject({ savedProfileHumanIds: ['u1'] });
+  expect(prime).toHaveBeenCalledOnce();
+  expect(prime).toHaveBeenCalledWith(
+    expect.objectContaining({
+      tableId: engine.tableId,
+      handNumber: 5000,
+      variant: 'flh',
+      mode: 'cash',
+      lease,
+      domain: { version: 1, speed: 'table', ante: 'none' },
+      roster: seats.map((p) => ({
+        id: p.user_id,
+        seat: p.seat_number,
+        human: p.seat_number === 1,
+      })),
+    })
+  );
+});
 
 const pending = (over: Partial<PendingKill> = {}): PendingKill => ({
   ruleVersion: KILL_RULE_VERSION,

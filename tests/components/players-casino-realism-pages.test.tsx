@@ -433,9 +433,8 @@ describe('Players detail surfaces', () => {
     expect(document.querySelector('.ps-hero__art')).toBeNull();
     // Each figure prints once, on its card.
     // Net is a signed result (winLossChips), Fees a fee figure (feeFigure).
-    expect(screen.getAllByText('+120')).toHaveLength(1);
+    expect(screen.getAllByText('+120.00')).toHaveLength(1);
     expect(screen.getByText('18.00')).toBeVisible();
-    expect(screen.queryByText('120.00')).not.toBeInTheDocument();
     expect(screen.queryByText('18')).not.toBeInTheDocument();
   });
 
@@ -622,8 +621,10 @@ describe('the member record survives a failed background refresh', () => {
     await waitFor(() => expect(state.getMemberDetail).toHaveBeenCalledTimes(2));
     expect(state.getMemberDetail.mock.calls[1][2]).toEqual(state.getMemberDetail.mock.calls[0][2]);
     await act(async () => failAuthority(new Error('offline')));
-    const banner = await screen.findByRole('alert');
-    expect(banner).toHaveTextContent('Member Connection Interrupted');
+    const banner = (await screen.findByText('Member Connection Interrupted')).closest(
+      '[role="alert"]'
+    );
+    expect(banner).toBeVisible();
     expect(banner).toHaveTextContent('The Record Below Is From The Previous Successful Read.');
     expect(screen.getByRole('heading', { name: 'River Shark' })).toBeVisible();
     expect(screen.getByText('Cash Hands')).toBeVisible();

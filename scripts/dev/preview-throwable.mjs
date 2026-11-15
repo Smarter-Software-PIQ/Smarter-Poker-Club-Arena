@@ -168,7 +168,9 @@ if (!ids.length) {
 }
 
 /* ── 2. The stylesheets, inlined so the harness needs no stylesheet server ──────────────── */
-const css = [readFileSync(join(repo, 'src/components/table/ThrowablePlayer.css'), 'utf8')];
+const css = ['src/components/table/ThrowablePlayer.css', 'src/throwables/performancePose.css'].map(
+  (file) => readFileSync(join(repo, file), 'utf8')
+);
 for (const id of ids) {
   const p = join(repo, `src/throwables/rigs/${id}.css`);
   if (existsSync(p)) css.push(readFileSync(p, 'utf8'));

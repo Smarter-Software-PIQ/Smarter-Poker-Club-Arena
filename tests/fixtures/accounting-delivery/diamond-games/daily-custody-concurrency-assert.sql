@@ -7,7 +7,7 @@ DO $$
 DECLARE d public.diamond_spin_days;
 BEGIN
  SELECT * INTO d FROM public.diamond_spin_days WHERE owner_id='d1000000-0000-4000-8000-000000000002'
-  AND day=(clock_timestamp() AT TIME ZONE 'America/Chicago')::date-1;
+  AND day=current_setting('test.race_day')::date;
  IF d.status IS DISTINCT FROM 'settled' OR d.settled_net<>100 OR d.pending_diamonds<>0
   OR d.profit_burn_bps<>public.fn_diamond_spin_profit_burn_bps() OR d.profit_burn<>20 OR d.credited_net<>80
   OR (SELECT diamonds FROM public.profiles WHERE id=d.owner_id)<>100080

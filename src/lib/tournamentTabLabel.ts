@@ -15,11 +15,11 @@
  * the line was ellipsised mid-number ("51115/..."). Neither figure identifies
  * the tournament. Its buy-in does, and it never changes.
  *
- * THE LABEL CANNOT OVERFLOW, BY CONSTRUCTION. `compactChips` is the house
- * forward-facing figure (whole numbers under 1,000, then 1.2K / 10K / 3.4M,
- * rounded down), so the longest string this can return for any buy-in is six
- * glyphs ("999.9K"), and the freeroll word is eight. The pill's sub-line fits
- * ten at its smallest size (see .table-tab-bar__tab-sub, <=480px).
+ * THE LABEL IS EXACT (Dan 2026-11-13: never "1.1K", never rounded). The
+ * pill's sub-line fits ten glyphs at its smallest size (see
+ * .table-tab-bar__tab-sub, <=480px), which holds every exact buy-in up to
+ * "9,999,999" and every cents figure up to "999,999.99"; the freeroll word is
+ * eight.
  *
  * Pure except for `readTournamentBuyIns`, which is one bounded read.
  */
@@ -32,7 +32,10 @@ import { totalBuyIn, moneyExact } from '../utils/buyIn';
 import { formatTournamentTitle } from '../utils/formatGameTitle';
 
 /** The longest sub-line a tournament pill can ever print, in glyphs. */
-export const TOURNAMENT_TAB_LABEL_MAX_GLYPHS = 8;
+export const TOURNAMENT_TAB_LABEL_MAX_GLYPHS = 10;
+
+/** The largest whole buy-in whose exact figure fits that budget ("9,999,999"). */
+export const TOURNAMENT_TAB_EXACT_BUY_IN_CEILING = 9_999_999;
 
 /**
  * The sub-line for a tournament tab: the total a player pays to enter (buy-in
@@ -50,9 +53,9 @@ export function tournamentTabBuyInLabel(
   const n = Number(total);
   if (!Number.isFinite(n) || n < 0) return '';
   if (n === 5.5 && exactLabel === '5.50') return exactLabel;
-  const whole = Math.round(n);
-  if (whole <= 0) return FREE_BUY_LABEL;
-  return compactChips(whole);
+  // Exact, never "1.1K" (Dan 2026-11-13): the cents are kept when they exist.
+  if (Math.round(n * 100) <= 0) return FREE_BUY_LABEL;
+  return compactChips(n);
 }
 
 /**

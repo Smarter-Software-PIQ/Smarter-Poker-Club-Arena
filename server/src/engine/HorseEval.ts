@@ -1508,6 +1508,14 @@ export interface OppPostflopRead {
   /** V56 qualification arm: sample the declared made-hand stratum directly
    * instead of treating a bounded rejection miss as a value hand. */
   strictPressureRange?: boolean;
+  /** Fixed limit (SPEC-FL-01, opt-in; HorseFixedLimitWagerRead.ts): this
+   * opponent made a full fixed-limit wager on the river. The size reads
+   * cannot see it (a fixed bet is never 0.7 pot or 20 big blinds), so the
+   * samplers take their largest-bet setting from this mark instead. */
+  fullBet?: boolean;
+  /** Fixed limit (SPEC-FL-01): the pot cannot split on this board (no low is
+   * possible), so the exact pressure stratum may be drawn in a hi-lo game. */
+  highOnlyBoard?: boolean;
   /** V62: the newest postflop street on which this opponent bet or raised. */
   lastStage?: 'flop' | 'turn' | 'river';
   /** V62 (Hold'em, attached by HorseLogic on the river only): this opponent
@@ -1525,6 +1533,11 @@ export interface OppPostflopRead {
    * from the river raise stratum (V67_RIVER_RAISE_BLUFF_SHARE /
    * V67_RIVER_RAISE_VALUE_MIX) instead of the any-contact read. */
   raisePolar67?: boolean;
+  /** STYLE READ #4b (2026-11-14): this turn or river raiser is sampled from
+   * the value-raise stratum (STYLE_VALUE_RAISE_*). Set only on the second,
+   * blended estimate of HorseLogic's value-raise arm, together with
+   * raisePolar66 (turn) or raisePolar67 (river). Absent: V66 / V67 exactly. */
+  raiseValueHeavy?: boolean;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1579,6 +1592,27 @@ export function v66RaiseTargetClass(street: 0 | 1, r1: number, r2: number): 0 | 
   const mix = V66_RAISE_VALUE_MIX[street];
   if (r2 < mix[0]) return 3;
   if (r2 < mix[0] + mix[1]) return 2;
+  return 1;
+}
+
+/** STYLE READ #4b (2026-11-14): the raise stratum of a credibly passive
+ * raiser, by street (turn, river): the bluff share and the two-pair-or-better
+ * share of value. A passive player who raises over a bet on the turn or river
+ * holds two pair or better nearly always. The flop has no such stratum.
+ * CALIBRATE: chosen from one reviewed hand and its enumeration, not yet
+ * validated in a league. */
+export const STYLE_VALUE_RAISE_BLUFF_SHARE = [0.03, 0.03] as const;
+export const STYLE_VALUE_RAISE_STRONG_SHARE = [0.92, 0.95] as const;
+
+/** STYLE READ #4b: the target stratum of one value-raise sample (0 = bluff,
+ * else the value class 1..3). `street` 0 = turn, 1 = river. Same two uniform
+ * draws as the strata it stands in for. Exported for the test. */
+export function styleValueRaiseTargetClass(street: 0 | 1, r1: number, r2: number): 0 | 1 | 2 | 3 {
+  if (r1 < STYLE_VALUE_RAISE_BLUFF_SHARE[street]) return 0;
+  const strong = STYLE_VALUE_RAISE_STRONG_SHARE[street];
+  if (r2 < strong) return 3;
+  const base = street === 1 ? V67_RIVER_RAISE_VALUE_MIX : V66_RAISE_VALUE_MIX[1];
+  if (r2 < strong + (1 - strong) * (base[1] / (base[1] + base[2]))) return 2;
   return 1;
 }
 
@@ -1952,7 +1986,7 @@ export function omahaAggressorTier(read: OppPostflopRead): number {
   if (streets <= 0 && !read.raised) return 0;
   const frac = read.lastFrac ?? (read.bigBet ? 1 : 0.5);
   let tier = 1;
-  if (frac >= 0.7 || read.bigBet) tier++;
+  if (frac >= 0.7 || read.bigBet || read.fullBet === true) tier++;
   if (streets >= 2) tier++;
   if (streets >= 3 || read.raised) tier++;
   return Math.min(3, tier);
@@ -3587,7 +3621,7 @@ export function simulateEquity(
         if (tier40 >= 1 && omahaTierShape != null) {
           if (rangeUse) rangeUse.conditionedMask |= 1 << o;
           const req = omahaTierRequirement(tier40, boardCards.length, omahaTierShape);
-          if (read.strictPressureRange === true && !vi.isHiLo) {
+          if (read.strictPressureRange === true && (!vi.isHiLo || read.highOnlyBoard === true)) {
             if (
               fastRandom() < req.pStrong &&
               placeOmahaPressureCombo(
@@ -3686,9 +3720,15 @@ export function simulateEquity(
           }
           // V16: a BIG bet is sampled toward REAL strength (two pair+), not
           // just any contact — an overbettor's range is not middle pair.
-          const wantCat = read.bigBet ? 3 : 2;
-          const pConnect = Math.min(0.9, (read.bigBet ? 0.55 : 0.4) + read.aggrW * 2.2);
-          const tries = read.bigBet ? 4 : 3;
+          // SPEC-FL-01 (opt-in mark): a full fixed-limit river wager takes
+          // the model's own ceiling (0.9 contact, four draws); a fixed-limit
+          // raise is sampled toward two pair or better, as a big bet is.
+          const full = read.fullBet === true;
+          const wantCat = read.bigBet || (full && read.raised === true) ? 3 : 2;
+          const pConnect = full
+            ? 0.9
+            : Math.min(0.9, (read.bigBet ? 0.55 : 0.4) + read.aggrW * 2.2);
+          const tries = read.bigBet || full ? 4 : 3;
           for (let t = 0; t < tries; t++) {
             if (connectsBoard(oppCards, boardCards, vi.isShortDeck) >= wantCat) break;
             if (fastRandom() >= pConnect) break; // some of the range IS air
@@ -3721,11 +3761,11 @@ export function simulateEquity(
         if (read.raisePolar66 === true && raisePolar66Board && oppHole === 2) {
           const index66 = v62Indexes ? v62Indexes[o] : null;
           if (index66) {
-            const target66 = v66RaiseTargetClass(
-              boardCards.length === 4 ? 1 : 0,
-              fastRandom(),
-              fastRandom()
-            );
+            const street66 = boardCards.length === 4 ? 1 : 0;
+            const target66 =
+              read.raiseValueHeavy === true && street66 === 1
+                ? styleValueRaiseTargetClass(0, fastRandom(), fastRandom())
+                : v66RaiseTargetClass(street66, fastRandom(), fastRandom());
             if (placeV62Combo(deck, windowStart, n, index66, target66, vi.isShortDeck)) {
               oppCards[0] = deck[windowStart];
               oppCards[1] = deck[windowStart + 1];
@@ -3737,7 +3777,10 @@ export function simulateEquity(
         if (read.raisePolar67 === true && boardCards.length === 5 && oppHole === 2) {
           const index67 = v62Indexes ? v62Indexes[o] : null;
           if (index67) {
-            const target67 = v67RiverRaiseTargetClass(fastRandom(), fastRandom());
+            const target67 =
+              read.raiseValueHeavy === true
+                ? styleValueRaiseTargetClass(1, fastRandom(), fastRandom())
+                : v67RiverRaiseTargetClass(fastRandom(), fastRandom());
             if (placeV62Combo(deck, windowStart, n, index67, target67, vi.isShortDeck)) {
               oppCards[0] = deck[windowStart];
               oppCards[1] = deck[windowStart + 1];

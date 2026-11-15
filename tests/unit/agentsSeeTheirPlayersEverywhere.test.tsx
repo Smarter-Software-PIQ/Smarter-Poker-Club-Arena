@@ -178,11 +178,11 @@ describe('MyPlayersCard', () => {
   it('keeps the two running lines exactly, with the list collapsed behind Show Players', () => {
     render(<MyPlayersCard summary={deriveMyPlayers(T, FIELD, TABLES, new Set(['danimal']))} />);
     expect(screen.getByText('1 Of 1 Of Your Players Is Still In')).toBeTruthy();
-    expect(screen.getByText('Best 2nd - 5K Chips Between Them')).toBeTruthy();
+    expect(screen.getByText('Best 2nd - 5,000 Chips Between Them')).toBeTruthy();
     expect(screen.queryByText('danimal')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Show Players' }));
     expect(screen.getByText('danimal')).toBeTruthy();
-    expect(screen.getByText('2nd - 5K Chips - Table 1')).toBeTruthy();
+    expect(screen.getByText('2nd - 5,000 Chips - Table 1')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Hide Players' })).toBeTruthy();
   });
 

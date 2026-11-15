@@ -67,7 +67,7 @@ Play poker against AI opponents with:
 
 ### 🎰 Poker Engine
 
-- Game variants: NLH, PLO4, PLO5, PLO6, PLO8, FLO8, FLH, Short Deck, Crazy Pineapple
+- Game variants: NLH, PLO4, PLO5, PLO6, PLO8, Omaha 8o Fixed Limit, Fixed Limit Holdem, Short Deck, Crazy Pineapple
 - Tournaments offer the same games except Crazy Pineapple, which is cash only; Spins offer NLH, PLO4, PLO5 and PLO6
 - Open-Face Chinese (OFC) is excluded by owner decision (2026-09-22) and is not offered
 - Complete hand evaluation

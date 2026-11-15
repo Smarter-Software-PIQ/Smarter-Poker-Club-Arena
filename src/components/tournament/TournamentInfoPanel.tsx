@@ -275,7 +275,8 @@ export default function TournamentInfoPanel({ tournamentId, heroUserId, onClose 
       entriesTotal: fieldSize ?? rows.length,
       prizePool: pool,
       bountyPool: num(t?.bounty_pool),
-      avg: stacks.length ? Math.round(stacks.reduce((a, b) => a + b, 0) / stacks.length) : 0,
+      // Whole chips, truncated, never rounded up (Dan 2026-11-14).
+      avg: stacks.length ? Math.trunc(stacks.reduce((a, b) => a + b, 0) / stacks.length) : 0,
       largest: stacks.length ? Math.max(...stacks) : 0,
       smallest: stacks.length ? Math.min(...stacks) : 0,
       rebuys: rows.reduce((n, r) => n + num(r.rebuys), 0),

@@ -1,4 +1,5 @@
 import { isFixedLimitVariant } from '../../lib/bettingStructure';
+import { FIXED_LIMIT_GAME_NAMES } from '../../lib/fixedLimitNames';
 import { AtlasSprite } from '../../throwables/AtlasSprite';
 import { useMttLobbyEntryCounts } from '../../hooks/useMttLobbyEntryCounts';
 import { isRecordedSatelliteTournament } from '../../utils/tournamentFilters';
@@ -991,6 +992,7 @@ function TournamentHeadingRow({
       }
       data-tournament-heading={entry.kind === 'cash' ? undefined : entry.id}
       data-lightning-format={isLightningCashRow(entry) ? 'true' : undefined}
+      data-limit-format={isFixedLimitCashRow(entry) ? 'true' : undefined}
       data-kind={entry.kind}
       role="row"
       onClick={() => onSelect(entry)}
@@ -1011,6 +1013,20 @@ function TournamentHeadingRow({
                 title="Lightning Games"
               >
                 <SignalIcon kind="turbo" />
+              </span>
+            ) : isFixedLimitCashRow(entry) ? (
+              /* Owner ruling, November 14, 2026: "ALL LIMIT GAMES SHOULD HAVE
+                 THERE 'OWN ICON' THEY SHOULDN'T BE USING THE SPADE ICON". The
+                 painted chip is fixed-limit-chip-v1 (PremiumMttRows.css). */
+              <span
+                className="lt-tournament-icon"
+                data-tournament-icon="limit"
+                data-lobby-symbol="limit"
+                role="img"
+                aria-label="Fixed Limit Game"
+                title="Fixed Limit Game"
+              >
+                <SignalIcon kind="standard" />
               </span>
             ) : (
               <span
@@ -1093,7 +1109,9 @@ function CashStyleCopy({ entry }: { entry: LobbyEntry }) {
      SPACE." A single word takes the bay's full size; the fitter still shrinks
      it to the glass width. */
   return (
-    <span className={`premium-cash-style${lines.length === 1 ? ' premium-cash-style--single' : ''}`}>
+    <span
+      className={`premium-cash-style${lines.length === 1 ? ' premium-cash-style--single' : ''}`}
+    >
       {lines.map((line, index) => (
         <CashStyleLine key={index} text={line.text} title={line.title} />
       ))}
@@ -1191,9 +1209,19 @@ export const VARIANT_MENU_LABELS: Readonly<Record<string, string>> = {
   plo5: 'PLO5',
   plo6: 'PLO6',
   plo8: 'PLO8o',
-  flh: 'FLH',
-  flo8: 'FLO8',
+  /* Owner ruling, November 14, 2026: limit games are called by name. */
+  flh: FIXED_LIMIT_GAME_NAMES.flh,
+  flo4: FIXED_LIMIT_GAME_NAMES.flo4,
+  flo5: FIXED_LIMIT_GAME_NAMES.flo5,
+  flo6: FIXED_LIMIT_GAME_NAMES.flo6,
+  flo8: FIXED_LIMIT_GAME_NAMES.flo8,
 };
+
+/** A cash row whose game is fixed limit (Hold'em or any Omaha). Owner ruling,
+ *  November 14, 2026: every limit game wears its OWN icon, never the spade. */
+export function isFixedLimitCashRow(entry: LobbyEntry): boolean {
+  return entry.kind === 'cash' && isFixedLimitVariant((entry.raw as LobbyTableRow).game_variant);
+}
 
 const COL_VARIANT: ColumnDef = {
   key: 'variant',
@@ -2620,6 +2648,7 @@ export default function LobbyTable({
                   data-live={entry.live ? 'true' : 'false'}
                   data-players={entry.players}
                   data-capacity={entry.capacity}
+                  data-table-capacity={entry.kind === 'cash' ? entry.raw.max_players : undefined}
                   data-target={entry.game ? 'game' : 'table'}
                   data-warm-table={entry.kind === 'cash' ? entry.id : undefined}
                   className={compactRowClass(entry)}

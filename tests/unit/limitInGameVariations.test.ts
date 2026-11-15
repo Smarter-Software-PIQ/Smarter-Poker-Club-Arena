@@ -46,16 +46,18 @@ describe("Dan's ask: limit is offered as a game variation", () => {
     expect(keys('MTT')).toContain('flo8');
   });
 
-  it('keeps them on the Limit tab, where the cash games already lived', () => {
-    expect(keys('LIMIT')).toEqual(['flh', 'flo8']);
+  it('keeps them on the Limit tab, with every limit Omaha (owner November 14, 2026)', () => {
+    expect(keys('LIMIT')).toEqual(['flh', 'flo4', 'flo5', 'flo6', 'flo8']);
   });
 
   it('labels them as the games they are, not as a raw enum', () => {
-    expect(variantDisplay('FLH').long).toBe("Fixed Limit Hold'em");
-    expect(variantDisplay('FLO8').long).toBe('Fixed Limit Omaha Hi-Lo');
+    expect(variantDisplay('FLH').long).toBe('Fixed Limit Holdem');
+    expect(variantDisplay('FLO8').long).toBe('Omaha 8o Fixed Limit');
     // The lower-case cash spelling has always worked; the tournament enum is
     // what was missing from TOURNEY_VARIANT_KEYS.
-    expect(variantDisplay('flh').short).toBe('FLH');
+    // Owner ruling, November 14, 2026: the title word is the name, not FLH.
+    expect(variantDisplay('flh').short).toBe('Fixed Limit Holdem');
+    expect(variantDisplay('flo8').short).toBe('Omaha 8o Fixed Limit');
   });
 
   it('actually narrows: ticking FLH on Heads Up keeps FLH and drops NLH', () => {

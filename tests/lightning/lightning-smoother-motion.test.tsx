@@ -172,12 +172,15 @@ describe('3. LIGHTNING FOLD answers the press', () => {
     expect(cue).toBeGreaterThan(0);
     expect(optimistic).toBeGreaterThan(cue);
     expect(send).toBeGreaterThan(optimistic);
-    // A press still says so and still throws; only the release the room sends
-    // for an armed Check/Fold (`quiet`) keeps a crossed refusal to itself.
-    expect(handler).toMatch(
-      /if \(!result\.success\) \{\s*revert\(\);[\s\S]{0,400}?if \(!quiet\) toast\.warning/
+    const refusal = handler.slice(
+      handler.indexOf('if (!result.success && !uncertain)'),
+      handler.indexOf('} else if (uncertain)')
     );
-    expect(handler).toMatch(/catch \(err\) \{\s*revert\(\);\s*if \(!quiet\) throw err;/);
+    expect(refusal).toContain('revert();');
+    expect(refusal).toContain('if (!quiet) toast.warning');
+    const unknown = handler.slice(handler.indexOf('} else if (uncertain)'));
+    expect(unknown).toContain('requestEngineSnapshot();');
+    expect(unknown).not.toContain('revert();');
   });
 
   it('a press on no live hand plays nothing and changes nothing', () => {
@@ -188,7 +191,10 @@ describe('3. LIGHTNING FOLD answers the press', () => {
   });
 
   it('the queued off-turn preflop fold still arms the pre-action and sends nothing', () => {
-    const queued = handler.slice(0, handler.indexOf('lightningFoldBusyRef.current = true;'));
+    const queued = handler.slice(
+      0,
+      handler.indexOf('lightningFoldBusyRef.current = lightningFoldHandId;')
+    );
     expect(queued).toContain("setPreAction('fold');");
     expect(queued).not.toContain('playFold');
   });
@@ -216,12 +222,14 @@ describe('4. cards arrive with the deal, and the slide cue follows it', () => {
     expect(settle).toContain('soundService.playDeal()');
   });
 
-  it('the seats hide their cards for the button beat only, with a ceiling', () => {
-    expect(PAGE).toContain('dealPending={!!lightningRoom && lightningDealPending}');
-    expect(PAGE).toMatch(
-      /if \(lightningRoomRef\.current\) \{\s*setLightningDealPending\(true\);[\s\S]{0,400}\}, beatMs \+ 400\);/
-    );
-    expect(PAGE).toMatch(/setIsSeatDealing\(true\);\s*setLightningDealPending\(false\);/);
+  it('one Lightning flight owns the cards and controls until it lands or the ceiling releases it', () => {
+    expect(PAGE).toContain('const lightningDealPending = Boolean(lightningRoom) && dealInFlight;');
+    expect(PAGE).toContain('dealPending={lightningDealPending}');
+    expect(PAGE).toContain('setIsSeatDealing(!lightningRoomRef.current)');
+    expect(PAGE).toContain('Number(engineSnapshot.turn_deadline_ms) > serverNow()');
+    expect(PAGE).toMatch(/handStillTakingAction &&\s*!lightningDealPending &&/);
+    expect(PAGE).toMatch(/if \(lightningRoomRef\.current\) setDealAnimationKey\(0\);/);
+    expect(PAGE).toMatch(/setDealInFlight\(false\);[\s\S]{0,180}\}, 2600\);/);
     expect(read('src/components/table/SeatSlot.css')).toMatch(
       /\.seat__cards--deal-pending \.seat__card \{\s*opacity: 0;\s*\}/
     );

@@ -522,3 +522,9 @@ body[data-toast-theme='daily-missions-casino'] .toast-container {
   overflow-y: auto;
   overscroll-behavior: contain;
 }
+
+body:has(.table-page[data-lightning-hud='true']) .toast-container {
+  top: max(8px, env(safe-area-inset-top));
+  bottom: auto;
+  max-height: 30dvh;
+}

@@ -5,7 +5,8 @@ import {
   horseCashPlanSecondTables,
   horseUnionCashTableAllowed,
   lightningGamesWithPlayingHumans,
-  lightningStarterTables,
+  compareLightningStarters,
+  lightningStarterGameSeats,
   playingHumansAtCashTable,
   withinHumanDepartureDwellFor,
 } from './HorseUnionCashPlan.js';
@@ -2497,14 +2498,21 @@ export class HorseFleetManager {
           if (bodies > 0) eligibleByHost.set(hostId, bodies);
         }
       }
-      const stableHandCaps = stableHandHostCaps(eligibleByHost, chicagoNow());
+      // ONE clock for the body cap and the seat ceiling: two reads straddling a
+      // minute (03:00 above all) would pair one hour's cap with another's ceiling.
+      const ceilingClock = chicagoNow();
+      const stableHandCaps = stableHandHostCaps(eligibleByHost, ceilingClock);
       const bodiesOnHost = bodiesOnHostFrom(allActiveSeats, hostOfTable);
       /* THE CURVE GOVERNS SEATS TOO (Dan 2026-11-13): the lobby counts
          chairs, so a host also stops at its body cap times the band's
          seats-per-horse ceiling (StableHand.hostSeatCeiling). Updated as
          this cycle seats, exactly like bodiesOnHost. */
       const seatsOnHost = seatsOnHostFrom(allActiveSeats, hostOfTable);
-      const seatCeilings = stableHandHostSeatCeilings(stableHandCaps, chicagoNow().hour);
+      const seatCeilings = stableHandHostSeatCeilings(
+        stableHandCaps,
+        ceilingClock.hour,
+        ceilingClock.minute
+      );
       /* WHERE EACH HORSE ALREADY IS. One body plays one club and one host at a
          time (section 11), and both are read from the live seat map rather
          than from stable_hand_horse_state: the seat rows are what actually
@@ -2671,15 +2679,14 @@ export class HorseFleetManager {
          horse-seeded Lightning game that does not yet hold a full ring is
          seated straight after a short-handed person and before the ordinary
          order. See lightningStarterTables (HorseUnionCashPlan.ts). */
-      const lightningStarters = lightningStarterTables(
+      const lightningStarters = lightningStarterGameSeats(
         tables,
         (tableId) => (seatsByTable.get(tableId) ?? []).length
       );
       const orderedTables = [...tables, ...diamondTables].sort(
         (a, b) =>
           Number(humanShort(b)) - Number(humanShort(a)) ||
-          Number(lightningStarters.has(String(b.id))) -
-            Number(lightningStarters.has(String(a.id))) ||
+          compareLightningStarters(a, b, lightningStarters) ||
           Number(!!b.cluster_id) - Number(!!a.cluster_id) ||
           clusterRank(a) - clusterRank(b) ||
           compareCashPopulation(

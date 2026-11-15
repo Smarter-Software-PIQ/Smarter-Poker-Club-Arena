@@ -2051,6 +2051,28 @@ for (const [width, heightOverride] of occupiedViewports)
             const source = getComputedStyle(wager.parentElement!);
             const number = (style: CSSStyleDeclaration, name: string) =>
               parseFloat(style.getPropertyValue(name)) || 0;
+            const stack = wager.querySelector('.cp-stacks');
+            const pot =
+              document.querySelector('.pot-display__pile--pot') ??
+              document.querySelector('.pot-area');
+            if (
+              innerWidth > 480 &&
+              innerWidth <= 640 &&
+              innerHeight > innerWidth &&
+              wager.closest('.table-page')?.getAttribute('data-seats') === '9' &&
+              stack &&
+              pot
+            ) {
+              const from = box(stack),
+                to = box(pot);
+              const ring = wager.closest<HTMLElement>('.table-scaler')!;
+              const scale = box(ring).width / ring.offsetWidth;
+              const x = from.left + from.width / 2 + number(moved, '--collect-dx') * scale;
+              const y = from.top + from.height / 2 + number(moved, '--collect-dy') * scale;
+              if (Math.hypot(x - to.left - to.width / 2, y - to.top - to.height / 2) > 2)
+                violations.push(`Collection Missed Pot: ${x},${y} vs ${JSON.stringify(to)}`);
+              continue;
+            }
             for (const axis of ['x', 'y']) {
               const restDelta =
                 number(moved, `--bet-offset-${axis}`) - number(source, `--bet-offset-${axis}`);
@@ -2606,6 +2628,7 @@ test.describe('embedded mobile action-row geometry', () => {
                 const identity = rect('.table-brand__line--identity');
                 const club = rect('.table-brand__club-name');
                 const union = rect('.table-brand__union');
+                const brand = rect('.table-brand');
                 const overlaps = (a: DOMRect, b: DOMRect) =>
                   a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
                 return {
@@ -2629,12 +2652,14 @@ test.describe('embedded mobile action-row geometry', () => {
                     getComputedStyle(document.querySelector('.table-brand__line--identity')!)
                       .fontSize
                   ),
-                  identityOneLine: Math.abs(club.top - union.top) <= 1,
+                  identityFits: [club, union].every(
+                    (part) => part.left >= brand.left - 1 && part.right <= brand.right + 1
+                  ),
                 };
               });
               expect(measured.vpipOverlaps, 'VPIP clears the previous hand and hero').toBe(false);
-              expect(measured.identityFont).toBeLessThanOrEqual(7);
-              expect(measured.identityOneLine).toBe(true);
+              expect(measured.identityFont).toBeCloseTo(11 * 0.67, 2);
+              expect(measured.identityFits).toBe(true);
               stableHeight ??= measured.scalerHeight;
               expect(
                 measured.scalerHeight,

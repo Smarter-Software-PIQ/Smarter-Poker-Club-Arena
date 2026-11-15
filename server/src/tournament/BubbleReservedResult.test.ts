@@ -17,10 +17,24 @@ const manager = ast.statements.find(
 // unit they price in, and the real method is the thing worth running here - a
 // stub would make this harness agree with itself about a number the engine
 // actually gets from somewhere else.
-const methods = ['eliminatePlayer', 'recalculateEliminatedPrizes', 'placeLadderUnitCents'].map(
+// 2026-11-14: eliminatePlayer reads its replay guard through readBustGuard,
+// takes prefetched guard/evidence through two lazy getters, and announces
+// through presentBust. They are extracted too, so this still runs the real
+// path rather than a stub of it.
+const methods = [
+  'eliminatePlayer',
+  'recalculateEliminatedPrizes',
+  'placeLadderUnitCents',
+  'readBustGuard',
+  'presentBust',
+  'bustEvidencePrefetch',
+  'bustGuardPrefetch',
+].map(
   (name) => {
     const method = manager?.members.find(
-      (n) => ts.isMethodDeclaration(n) && n.name.getText(ast) === name
+      (n) =>
+        (ts.isMethodDeclaration(n) || ts.isGetAccessorDeclaration(n)) &&
+        n.name.getText(ast) === name
     );
     if (!method) throw new Error(`Actual method ${name} is missing`);
     return method.getText(ast);

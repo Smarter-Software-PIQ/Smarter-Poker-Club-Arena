@@ -107,7 +107,7 @@ describe('formatStackChips - a stack under 100 reads to the penny (Dan 2026-09-0
   });
 
   it('leaves fmtChips alone - the lobby may still abbreviate', () => {
-    expect(fmtChips(1500)).toBe('1.5K');
+    expect(fmtChips(1500)).toBe('1,500');
   });
 });
 

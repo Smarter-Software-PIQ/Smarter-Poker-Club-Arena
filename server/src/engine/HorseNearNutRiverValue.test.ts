@@ -116,12 +116,32 @@ function fixture() {
   };
   return { hero: players[0] as SeatPlayer, gs: gs as HorseGameStateV2 };
 }
-function decision(seed: number, flag?: boolean, mutate?: (gs: HorseGameStateV2) => void) {
+// Owner ruling 2026-11-14 (hand 59401453, HorseOmahaRiverNutRaise.ts): only the
+// nuts raise an Omaha river bet. By default that later rule turns this
+// candidate's near-nut raise facing a bet back into a call, so the candidate
+// is measured here with the rule held off (RULE_OFF) and the default is pinned
+// beside it.
+const RULE_OFF = { omahaRiverNutRaiseOnly: false };
+function decision(
+  seed: number,
+  flag?: boolean,
+  mutate?: (gs: HorseGameStateV2) => void,
+  extra: Record<string, unknown> = {}
+) {
   const { hero, gs } = fixture();
   mutate?.(gs);
   HorseMind.reset();
   seedFastRandom(seed);
-  const d = HorseLogic.decide(hero, gs, 'balanced', {}, { smallPotNearNutRiverValue: flag });
+  const d = HorseLogic.decide(
+    hero,
+    gs,
+    'balanced',
+    {},
+    {
+      smallPotNearNutRiverValue: flag,
+      ...extra,
+    }
+  );
   return { action: d.action, amount: d.amount, next: fastRandom() };
 }
 describe('default-off small-pot near-nut river value', () => {
@@ -363,7 +383,13 @@ describe('default-off small-pot near-nut river value', () => {
   it('only removes random calls in the declared public Liv fixture', () => {
     for (let seed = 1; seed <= 8; seed++) {
       expect(decision(seed)).toEqual(decision(seed, false));
-      expect(decision(seed, true).action).toBe('raise');
+      expect(decision(seed, true, undefined, RULE_OFF).action).toBe('raise');
+      // With the river nut-raise rule on (the default) only the raise this
+      // candidate chose itself stands: where the baseline had called at
+      // random, the candidate's raise is kept; where the baseline raised on
+      // its own, that raise is a call, as it is in production.
+      const baselineRaised = decision(seed, false, undefined, RULE_OFF).action === 'raise';
+      expect(decision(seed, true).action).toBe(baselineRaised ? 'call' : 'raise');
     }
     expect(decision(1, false).action).toBe('call');
     expect(decision(2, false).action).toBe('call');
@@ -570,7 +596,9 @@ describe('default-off small-pot near-nut river value', () => {
             gameState: structuredClone(gs),
             style: 'balanced',
             mods: {},
-            opts: { smallPotNearNutRiverValue: flag },
+            // The candidate's raise is measured with the 2026-11-14 river
+            // nut-raise rule held off (see RULE_OFF above).
+            opts: { smallPotNearNutRiverValue: flag, ...(flag ? RULE_OFF : {}) },
           };
           request.gameState.stateSchemaVersion = 1;
           request.gameState.fixedBetSize = null;

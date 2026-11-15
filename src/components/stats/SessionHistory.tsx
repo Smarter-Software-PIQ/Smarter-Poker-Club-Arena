@@ -16,6 +16,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { compactChips } from '../../utils/format';
 import './SessionHistory.css';
+import { chipCents } from '../../utils/cashierAmount';
 
 interface SessionRecord {
   id: string;
@@ -114,14 +115,14 @@ const SessionHistory: React.FC<SessionHistoryProps> = ({ initialSessions, rangeL
     return { count, type: isWin ? ('winning' as const) : ('losing' as const) };
   }, [sessions]);
 
-  const totalProfit = sessions.reduce((sum, s) => sum + s.profitLoss, 0);
+  const totalProfit = chipCents(sessions.reduce((sum, s) => sum + s.profitLoss, 0));
   const winningSessions = sessions.filter((s) => s.profitLoss > 0).length;
   const winRate =
     sessions.length > 0 ? ((winningSessions / sessions.length) * 100).toFixed(1) : '0';
   // Time-weighted, not a mean of per-session rates: a 5-minute +50 heater used
   // to count as much as an 8-hour grind and dominated the average.
   const totalMinutes = sessions.reduce((sum, s) => sum + s.duration, 0);
-  const avgHourly = totalMinutes > 0 ? (totalProfit / totalMinutes) * 60 : 0;
+  const avgHourly = totalMinutes > 0 ? chipCents((totalProfit / totalMinutes) * 60) : 0;
 
   const formatDuration = (minutes: number): string => {
     if (minutes < 60) return `${minutes}m`;
@@ -272,7 +273,7 @@ const SessionHistory: React.FC<SessionHistoryProps> = ({ initialSessions, rangeL
                       <span className="detail-label">P/L Per Hand</span>
                       <span className="detail-value">
                         {session.handsPlayed > 0
-                          ? compactChips(session.profitLoss / session.handsPlayed)
+                          ? compactChips(chipCents(session.profitLoss / session.handsPlayed))
                           : '0'}
                       </span>
                     </div>

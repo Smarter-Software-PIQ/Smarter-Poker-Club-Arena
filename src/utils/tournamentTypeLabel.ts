@@ -6,6 +6,7 @@ import {
   sellsAddOn,
   sellsRebuys,
   sellsReentry,
+  tournamentClockSpeed,
   type TournamentTraitRow,
 } from './tournamentFilters';
 
@@ -29,11 +30,10 @@ import {
  */
 export function tournamentPrizeStyleLabel(row: TournamentTraitRow): string | null {
   if (isSatelliteTournament(row) === true) return 'Satellite Event';
-  if (isPkoTournament(row) === true) return 'PKO Event';
-  if (isMysteryBountyTournament(row) === true) return 'Mystery Bounty Event';
+  if (isPkoTournament(row) === true) return 'Progressive Knockout';
+  if (isMysteryBountyTournament(row) === true) return 'Mystery Bounty';
   const ordinary = isOrdinaryBountyTournament(row);
-  if (ordinary === true) return 'Bounty Event';
-  if (ordinary === false) return 'Regular Event';
+  if (ordinary === true) return 'Bounty';
   return null;
 }
 
@@ -53,8 +53,12 @@ export function tournamentEntryTermsLabel(row: TournamentTraitRow): string | nul
 /** "PKO Event · Rebuy + Add-On", or null when the row says nothing. */
 export function tournamentTypeLabel(row: TournamentTraitRow | null | undefined): string | null {
   if (!row) return null;
-  const parts = [tournamentPrizeStyleLabel(row), tournamentEntryTermsLabel(row)].filter(
-    (p): p is string => Boolean(p)
-  );
+  const speed = tournamentClockSpeed(row);
+  const parts = [
+    tournamentPrizeStyleLabel(row),
+    row.all_in_or_fold === true ? 'All-In or Fold' : null,
+    speed === 'turbo' ? 'Turbo' : speed === 'hyper_turbo' ? 'Hyper Turbo' : null,
+    tournamentEntryTermsLabel(row),
+  ].filter((p): p is string => Boolean(p));
   return parts.length > 0 ? parts.join(' · ') : null;
 }

@@ -29,7 +29,7 @@ const row = (over: Record<string, unknown> = {}) =>
 describe('tournament Details entry terms', () => {
   it('shows the actual paid add-on price, stack and timed break instead of an invented level window', () => {
     const result = tournamentEntryTerms(row(), now, CHIP_UNIT_CENTS);
-    expect(result).toMatchObject({ addon: 'Yes', cost: '30 Chips', stack: '50K Chips' });
+    expect(result).toMatchObject({ addon: 'Yes', cost: '30 Chips', stack: '50,000 Chips' });
     expect(result.timing).toBe('After The Last Entry Level And Current Hands Finish · 1 Min Break');
     expect(result.lateRegistration).toBe('Through The End Of The 60-Second Add-On Period');
     expect(tournamentEntryTerms(row(), now, CHIP_UNIT_CENTS, true).lateRegistration).not.toContain(
@@ -74,7 +74,7 @@ describe('tournament Details entry terms', () => {
     );
     expect(result.timing).toBe('After The Last Entry Level And Current Hands Finish · 1 Min Break');
     expect(result.cost).toBe('100 Diamonds');
-    expect(result.stack).toBe('50K Chips');
+    expect(result.stack).toBe('50,000 Chips');
   });
   it('preserves purchase fallback and marks finished or finalized windows closed', () => {
     expect(

@@ -1,3 +1,4 @@
+import { PerformancePose } from '../PerformancePose';
 import { AtlasSprite } from '../AtlasSprite';
 import { RIG_VIEWBOX, type RigProps, type ThrowableRig } from '../rig';
 import type { ThrowableSpec } from '../spec';
@@ -24,11 +25,12 @@ export const spec: ThrowableSpec = {
     { at: 4200, marker: 'cut' },
   ],
   audio: [
-    { at: 700, sample: 'swell_low' },
-    { at: 1933, sample: 'whoosh_low' },
-    { at: 2067, sample: 'fw_crackle' },
-    { at: 2767, sample: 'fw_crackle' },
-    { at: 3467, sample: 'fw_crackle' },
+    { at: 300, sample: 'swell_low', gain: 0.28 },
+    { at: 1667, sample: 'rage_grunt', gain: 0.95 },
+    { at: 1933, sample: 'whoosh_low', gain: 0.36 },
+    { at: 2067, sample: 'fw_crackle', gain: 0.26 },
+    { at: 2767, sample: 'fw_crackle', gain: 0.28 },
+    { at: 3467, sample: 'fw_crackle', gain: 0.22 },
   ],
 };
 preloadThrowableCues(spec.audio.map((c) => c.sample));
@@ -61,23 +63,31 @@ function Payload(_props: RigProps) {
           />
         </g>
         <g className="thr-angry_emoji__red">
-          <AtlasSprite
-            src="angry_emoji"
-            rect={[650, 30, 570, 560]}
-            x={-60}
-            y={-60}
-            width={120}
-            height={120}
+          <PerformancePose
+            src="angry_emoji-acting"
+            row={0}
+            rows={2}
+            x={-60.0}
+            y={-58.947}
+            width={120.0}
+            height={117.895}
+            duration={450}
+            delay={870}
+            repeats={1}
           />
         </g>
         <g className="thr-angry_emoji__shout">
-          <AtlasSprite
-            src="angry_emoji"
-            rect={[35, 650, 575, 575]}
-            x={-60}
-            y={-60}
-            width={120}
-            height={120}
+          <PerformancePose
+            src="angry_emoji-acting"
+            row={1}
+            rows={2}
+            x={-60.0}
+            y={-60.0}
+            width={120.0}
+            height={120.0}
+            duration={540}
+            delay={1330}
+            repeats={3}
           />
         </g>
         <g className="thr-angry_emoji__fire">

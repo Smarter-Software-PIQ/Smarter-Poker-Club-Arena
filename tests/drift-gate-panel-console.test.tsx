@@ -119,7 +119,7 @@ describe('Drift Gate painted console', () => {
     expect(screen.getByRole('textbox', { name: 'Entity ID' })).toBeInTheDocument();
     expect(screen.getByLabelText('Balance As Of Time')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Reconstruct' })).toBeDisabled();
-    expect(screen.getByText('Latest 1.2K Chips')).toBeInTheDocument();
+    expect(screen.getByText('Latest 1,250 Chips')).toBeInTheDocument();
   });
 
   it('keeps the last verified gate but removes Green after a contradictory refresh rejects', async () => {
@@ -188,9 +188,9 @@ describe('Drift Gate painted console', () => {
     const readout = await screen.findByRole('status', { name: '' });
     expect(readout).toHaveTextContent('Verified Balance');
     expect(readout).toHaveTextContent('Account TypeClub');
-    expect(readout).toHaveTextContent('Balance1.2K Chips');
+    expect(readout).toHaveTextContent('Balance1,234.56 Chips');
     expect(readout).toHaveTextContent('Ledger DirectionIncoming');
-    expect(readout).not.toHaveTextContent('1234.56');
+    expect(readout).not.toHaveTextContent('1234.56'); // ungrouped raw value
     expect(readout).not.toHaveTextContent('22222222-2222-4222-8222-222222222222');
     expect(readout).not.toHaveTextContent('entity_id');
     expect(readout).not.toHaveTextContent('ledger_row');

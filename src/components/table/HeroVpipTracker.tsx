@@ -27,6 +27,9 @@ import { fetchMyLightningSession } from '../../lightning/lightningSession';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   HIT_RUN_COUNT_LABEL,
+  HIT_RUN_PAUSED_LABEL,
+  countdownPausedText,
+  pausedHandsLeftText,
   handsOwedReasonText,
   type HandsOwedReason,
 } from '../../lib/hitAndRun';
@@ -210,6 +213,7 @@ export function useHeroVpipStatus(
 }
 
 interface Props {
+  lightningLayout?: boolean;
   tableId: string | null | undefined;
   lightningClusterId?: string | null;
   /** The hero holds a seat at this table. Nothing renders otherwise. */
@@ -226,17 +230,24 @@ interface Props {
   handsOwed?: number | null;
   /** Why they are owed (owner 2026-11-11): the countdown in profit, a +250 BB win, or both. */
   handsReason?: HandsOwedReason | null;
+  /**
+   * THE COUNTDOWN RESUMES (owner 2026-11-13): hands left on a countdown that
+   * is paused while the hero is out of profit. Shown only when none are owed.
+   */
+  handsPaused?: number | null;
 }
 
 export default function HeroVpipTracker({
   tableId,
   lightningClusterId,
+  lightningLayout = Boolean(lightningClusterId),
   heroSeated,
   isTournament,
   handNumber,
   heroPos,
   handsOwed = null,
   handsReason = null,
+  handsPaused = null,
 }: Props) {
   const enabled = Boolean(tableId) && heroSeated && !isTournament;
   const { status, freshness } = useHeroVpipStatus(tableId, enabled, handNumber, lightningClusterId);
@@ -244,15 +255,9 @@ export default function HeroVpipTracker({
   const vpip = status?.vpip == null ? null : Number(status.vpip);
   const floor = Number(status?.required ?? 0);
   const showVpip = Boolean(status?.ok && status.seated && floor > 0);
-  const showHands = typeof handsOwed === 'number' && handsOwed > 0;
-  const completedHands =
-    lightningClusterId &&
-    status?.ok &&
-    status.seated &&
-    Number.isSafeInteger(status.hands) &&
-    Number(status.hands) >= 0
-      ? status.hands
-      : null;
+  const showHands = !lightningLayout && typeof handsOwed === 'number' && handsOwed > 0;
+  const showPaused =
+    !lightningLayout && !showHands && typeof handsPaused === 'number' && handsPaused > 0;
   // The grace only means anything while a warning is actually open, so it is
   // read from `warned` rather than from a number that could linger.
   const graceLeft =
@@ -262,6 +267,7 @@ export default function HeroVpipTracker({
   const showGrace = showVpip && graceLeft !== null && Number.isFinite(graceLeft);
 
   useLayoutEffect(() => {
+    if (lightningLayout) return;
     const node = anchor.current;
     const plane = node?.parentElement;
     const info = plane?.querySelector<HTMLElement>('.seat-wrapper--hero .seat__info');
@@ -316,14 +322,24 @@ export default function HeroVpipTracker({
       observer?.disconnect();
       mounts?.disconnect();
     };
-  }, [tableId, enabled, heroPos?.x, heroPos?.y, showVpip, showHands, showGrace]);
+  }, [
+    lightningLayout,
+    tableId,
+    enabled,
+    heroPos?.x,
+    heroPos?.y,
+    showVpip,
+    showHands,
+    showPaused,
+    showGrace,
+  ]);
 
-  if (!enabled || !heroPos || (!showVpip && !showHands && !showGrace)) return null;
+  if (!enabled || !heroPos || (!showVpip && !showHands && !showPaused && !showGrace)) return null;
 
   return (
     <div
       ref={anchor}
-      className="hero-vpip"
+      className={lightningLayout ? 'hero-vpip hero-vpip--lightning' : 'hero-vpip'}
       style={{ left: `${heroPos.x}%`, top: `${heroPos.y}%` }}
       data-testid="hero-vpip"
     >
@@ -347,12 +363,6 @@ export default function HeroVpipTracker({
           <time aria-label={`${VPIP_GRACE_COUNT_LABEL} ${graceLeft}`}>{graceLeft}</time>
         </div>
       )}
-      {completedHands != null && (
-        <div className="hero-vpip__clock" data-testid="hero-vpip-hand-count">
-          <span>Hands</span>
-          <span aria-label={`Hands Played ${completedHands}`}>{completedHands}</span>
-        </div>
-      )}
       {showHands && (
         <div className="hero-vpip__clock" data-testid="hero-hand-count">
           <span>{HIT_RUN_COUNT_LABEL}</span>
@@ -360,6 +370,18 @@ export default function HeroVpipTracker({
           {handsOwedReasonText(handsReason) ? (
             <small data-testid="hero-hand-count-reason">{handsOwedReasonText(handsReason)}</small>
           ) : null}
+        </div>
+      )}
+      {showPaused && (
+        <div
+          className="hero-vpip__clock"
+          role="status"
+          aria-label={countdownPausedText(handsPaused as number)}
+          data-testid="hero-hand-count-paused"
+        >
+          <span>{HIT_RUN_PAUSED_LABEL}</span>
+          <time>{handsPaused}</time>
+          <small>{pausedHandsLeftText(handsPaused as number)}</small>
         </div>
       )}
     </div>

@@ -18,6 +18,9 @@ Level: each cue's assembled mix is measured and peak-normalised to -1 dBFS, offs
 | `horseshoe_clank` | `metal_hit_02.ogg`, `metal_hit_04.ogg`                                             |
 | `lid_clank`       | `metal_close_01.ogg`                                                               |
 | `pins_crash`      | `wood_hit_03.ogg`, `wood_hit_04.ogg`, `wood_falling_05.ogg`, `wood_falling_04.ogg` |
+| `thunder_crack`   | `metal_sheet_03.ogg`                                                               |
+| `peel_skid`       | `metal_spring_02.ogg`                                                              |
+| `brass_hook`      | `keys_03.ogg`                                                                      |
 
 ## OpenGameArt - 25 CC0 mud SFX (rubberduck)
 
@@ -32,6 +35,9 @@ Level: each cue's assembled mix is measured and peak-normalised to -1 dBFS, offs
 | `splat_heavy`     | `mud_04.ogg`, `mud_03.ogg`, `mud_02.ogg` |
 | `splat_wet`       | `mud_05.ogg`, `mud_12.ogg`               |
 | `splat_wet_small` | `mud_06.ogg`                             |
+| `fish_slap`       | `mud_01.ogg`                             |
+| `palm_contact`    | `mud_03.ogg`                             |
+| `snow_crunch`     | `mud_05.ogg`                             |
 
 ## Kenney - Impact Sounds (1.0)
 
@@ -96,6 +102,9 @@ Level: each cue's assembled mix is measured and peak-normalised to -1 dBFS, offs
 | `ambulance_siren_small` | `aevalsrc=0.3*sin(2*PI*(650*t+60*sin(2*PI*2*t))):s=48000:d=1`                                              |
 | `pressure_rise`         | `aevalsrc=0.3*sin(2*PI*(180*t+420*t*t)):s=48000:d=1.3`                                                     |
 | `reel_spin_loop`        | `anoisesrc=color=white:seed=419:sample_rate=48000:duration=1.45`                                           |
+| `paper_horn`            | `aevalsrc=atan(4*sin(2*PI*(340*t+23*t*t)+2*sin(2*PI*680*t))):s=48000:d=0.42`                               |
+| `finger_snap`           | `anoisesrc=color=pink:seed=17:d=0.09`                                                                      |
+| `sushi_chop`            | `anoisesrc=color=brown:seed=31:d=0.11`, `sine=frequency=470:duration=0.07`                                 |
 
 ## Kenney - Interface Sounds (1.0)
 
@@ -141,6 +150,11 @@ Level: each cue's assembled mix is measured and peak-normalised to -1 dBFS, offs
 | `chime_shimmer`         | `item_gem_02.ogg`                                                          |
 | `fanfare_short`         | `item_coins_02.ogg`                                                        |
 | `sparkle_bed`           | `item_gem_01.ogg`, `item_gem_03.ogg`, `item_gem_02.ogg`, `item_gem_04.ogg` |
+| `bone_chatter`          | `item_stone_02.ogg`, `item_stone_04.ogg`                                   |
+| `stone_drop`            | `item_stone_03.ogg`                                                        |
+| `thunder_crack`         | `item_stone_01.ogg`                                                        |
+| `gem_tick`              | `item_gem_02.ogg`                                                          |
+| `leather_kick`          | `item_wood_02.ogg`                                                         |
 
 ## OpenGameArt - 40 CC0 water / splash / slime SFX (rubberduck)
 
@@ -152,6 +166,10 @@ Level: each cue's assembled mix is measured and peak-normalised to -1 dBFS, offs
 | -------------- | ------------------------------- |
 | `squirt_loop`  | `loop_water_01.ogg`             |
 | `squirt_start` | `splash_09.ogg`, `slime_01.ogg` |
+| `shark_chomp`  | `slime_02.ogg`                  |
+| `fish_slap`    | `splash_04.ogg`                 |
+| `cheese_pull`  | `slime_07.ogg`                  |
+| `bubble_pop`   | `bubble_03.ogg`                 |
 
 ## OpenGameArt - 30 CC0 SFX loops (rubberduck)
 
@@ -169,9 +187,10 @@ Level: each cue's assembled mix is measured and peak-normalised to -1 dBFS, offs
 - Licence: CC0-1.0
 - URL: https://freesound.org/people/TheKingOfGeeks360/sounds/787564/
 
-| Cue           | Source file(s)    |
-| ------------- | ----------------- |
-| `donkey_bray` | `donkey-bray.mp3` |
+| Cue              | Source file(s)    |
+| ---------------- | ----------------- |
+| `donkey_bray`    | `donkey-bray.mp3` |
+| `donkey_hee_haw` | `donkey-bray.mp3` |
 
 ## Applause in a large hall or church
 
@@ -200,14 +219,23 @@ Level: each cue's assembled mix is measured and peak-normalised to -1 dBFS, offs
 - Licence: CC0-1.0
 - URL: https://opengameart.org/content/80-cc0-creature-sfx
 
-| Cue            | Source file(s)  |
-| -------------- | --------------- |
-| `snore_soft`   | `snore.ogg`     |
-| `scream_short` | `scream_01.ogg` |
-| `yawn_breath`  | `breath.ogg`    |
-| `cheer_ooh`    | `ooh.ogg`       |
-| `sigh_soft`    | `breath.ogg`    |
-| `comic_burp`   | `burp_01.ogg`   |
+| Cue              | Source file(s)              |
+| ---------------- | --------------------------- |
+| `snore_soft`     | `snore.ogg`                 |
+| `scream_short`   | `scream_01.ogg`             |
+| `yawn_breath`    | `breath.ogg`                |
+| `cheer_ooh`      | `ooh.ogg`                   |
+| `sigh_soft`      | `breath.ogg`                |
+| `comic_burp`     | `burp_01.ogg`               |
+| `bear_growl`     | `roar_02.ogg`               |
+| `shark_chomp`    | `eat_02.ogg`                |
+| `rat_chuckle`    | `cute_03.ogg`               |
+| `stifled_sob`    | `hurt_03.ogg`, `breath.ogg` |
+| `rage_grunt`     | `grunt_04.ogg`              |
+| `ghost_wail`     | `howl.ogg`                  |
+| `dog_huff`       | `barking_01.ogg`            |
+| `thoughtful_hum` | `ooh.ogg`                   |
+| `rose_kiss`      | `spit_01.ogg`               |
 
 ## OpenGameArt - Game Over Trumpet SFX
 
@@ -225,6 +253,31 @@ Level: each cue's assembled mix is measured and peak-normalised to -1 dBFS, offs
 - Licence: CC0-1.0
 - URL: https://opengameart.org/content/202-more-sound-effects
 
-| Cue         | Source file(s)       |
-| ----------- | -------------------- |
-| `flag_flap` | `Cloth/Cloth_05.wav` |
+| Cue            | Source file(s)       |
+| -------------- | -------------------- |
+| `flag_flap`    | `Cloth/Cloth_05.wav` |
+| `palm_contact` | `Cloth_03.wav`       |
+| `comic_gulp`   | `Drink_03.wav`       |
+| `snow_crunch`  | `Cloth_04.wav`       |
+| `leather_kick` | `Cloth_05.wav`       |
+
+## Chicken Single Alarm Call
+
+- Author: Rudmer_Rotteveel
+- Licence: CC0-1.0
+- URL: https://freesound.org/people/Rudmer_Rotteveel/sounds/316920/
+
+| Cue            | Source file(s) |
+| -------------- | -------------- |
+| `chicken_bawk` | `hen.mp3`      |
+
+## Yellowstone grizzly bear vocalizations
+
+- Author: Dan Bergum / National Park Service; CC0 distribution by Nivatius
+- Licence: CC0-1.0
+- URL: https://freesound.org/people/Nivatius/sounds/519518/
+
+| Cue               | Source file(s) |
+| ----------------- | -------------- |
+| `grizzly_warning` | `field.mp3`    |
+| `grizzly_growl`   | `field.mp3`    |

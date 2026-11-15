@@ -178,6 +178,7 @@ import {
 import CashierTradePage from '../../src/pages/CashierTradePage';
 import { exactChipFigure, parseTradeAmount, sumChips } from '../../src/utils/cashierAmount';
 import { WalletPlate } from '../../src/pages/PlayerWalletPage';
+import { figureDigits } from '../../src/utils/format';
 
 const read = (path: string) => readFileSync(path, 'utf8');
 const TRADE = read('src/pages/CashierTradePage.tsx');
@@ -773,7 +774,7 @@ describe('P-10: the figure a user confirms is the figure that moves', () => {
     expect(exactChipFigure(0.1 + 0.2)).toBe('0.30');
     expect(exactChipFigure(-42.1)).toBe('-42.10');
     expect(exactChipFigure(Number.NaN)).toBe('0');
-    expect(TRADE).toContain('{exactChipFigure(receipt.amount)}');
+    expect(TRADE).toContain('{exactChipFigure(receipt.amountText ?? receipt.amount)}');
     // Head zones and list rows keep the console reading.
     expect(TRADE).toContain('const fmt = compactChips;');
   });
@@ -933,7 +934,12 @@ describe('P-16: money on the page is summed in cents', () => {
   it('computes the ledger net in cents so cancelling legs read +0, never -0', () => {
     expect(TRADE).toContain("supabase.rpc('fn_cashier_history_summary'");
     expect(TRADE).not.toContain("sumChips(amountsIn('in'))");
-    expect(TRADE).toContain("wallet.net >= 0 ? '+' : '-'");
+    // The net is the RPC's exact text since 2026-11-14; its sign is read from
+    // the digits, and historyTotalAmount drops the sign of any zero, so a
+    // cancelled pair still reads +0.00, never -0.00.
+    expect(TRADE).toContain("!totalIsNegative(wallet.net) ? '+' : '-'");
+    expect(TRADE).toContain("`${digits.negative ? '-' : ''}${digits.whole}");
+    expect(figureDigits('-0.00')).toEqual({ negative: false, whole: '0', fraction: '' });
     const incoming = sumChips([100.1, 200.2]);
     const outgoing = sumChips([300.3]);
     const net = (Math.round(incoming * 100) - Math.round(outgoing * 100)) / 100;

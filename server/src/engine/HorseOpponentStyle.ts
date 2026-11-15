@@ -56,6 +56,21 @@
  *       river raise, a short stack-to-pot ratio), never a trait of the player.
  *       It is never folded into the axes.
  *
+ * LONG PARTICIPATION WINDOW (2026-11-15). VPIP, PFR and the call share may
+ * read the 120-hand long window (ExploitCounters lHands / lVpip / lPfr,
+ * HorseOpponentExploit.EXPLOIT_LONG_HALF_LIFE_HANDS) instead of the 30-hand
+ * window, so an ordinary tight regular becomes readable: at 30 hands the
+ * evidence saturates at 43.8 decayed hands and full ring calls tight only at
+ * VPIP <= 0.119; at 120 hands it is 173.6 and 0.156 (short-handed 0.231 ->
+ * 0.279, heads-up 0.302 -> 0.354). The long window speaks for one statistic
+ * only when (1) it holds more decayed hands than the 30-hand window, (2) its
+ * posterior mean is at or below the Horse mean and (3) the 30-hand posterior
+ * mean is too: it can strengthen a low (tight) read, never make a loose or
+ * aggressive one, and it stands down the moment the recent 30 hands lean the
+ * other way. Credibility, margins, prior pseudo-hands, the 15-hand unknown
+ * gate (still the 30-hand count) and release (the 8-hand fast window) are
+ * unchanged. receipt.longWindow names the statistics it supplied.
+ *
  * FORMAT-SPECIFIC BY DEFAULT. A player who is tighter in tournaments tells us
  * nothing about everyone else. Cross-format carry-over exists as an option whose
  * weight defaults to ZERO (STYLE_THRESHOLDS.carryWeight); any non-zero weight
@@ -101,6 +116,9 @@
 import {
   EXPLOIT_COUNTER_FIELDS,
   EXPLOIT_FAST_MIN_N,
+  EXPLOIT_LONG_FIELDS,
+  hasLongParticipation,
+  type ExploitCountersWithLong,
   EXPLOIT_PRIOR_STRENGTH,
   OPPONENT_EXPLOIT_ENVELOPE_VERSION,
   betaCdf,
@@ -398,6 +416,26 @@ export const STYLE_THRESHOLDS = Object.freeze({
    *  pot including his bet). Stands down at or below, full at or above. DEVELOPMENT-derived. */
   raiseSprStandDown: 2,
   raiseSprFull: 6,
+  /** #4: the evidence (magnitude times confidence) at which raise respect reaches full weight; also the least
+   *  confidence the passive read needs before the value-raise arm (#4b) acts at all. */
+  raiseRespectFullEvidence: 0.5,
+  /**
+   * #4b VALUE RAISE (2026-11-14): a turn or river raise over the Horse's own wager from a credibly passive player
+   * is read through a value-heavier raise stratum. Evidence bar: at least this many of his own raise opportunities
+   * on the turn and river together (streets with a Horse reference), on top of the per-street minimum. Weight: 1
+   * while his raise rate on the street is at or below the Horse rate, falling linearly to 0 at twice that rate; and
+   * by raise size, full from valueRaiseFullSize times the bet, half at valueRaiseHalfSize, linear between and below.
+   * CALIBRATE: no league or expected-value validation yet.
+   */
+  valueRaiseMinStreetOpps: 20,
+  valueRaiseFullSize: 3,
+  valueRaiseHalfSize: 2,
+  /**
+   * #4b COMMITMENT PRICE: when a call would leave the raiser at most this share of the pot after the call, the river
+   * wager is already priced in, so the continue decision is taken at the whole-commitment price and a continue puts
+   * the rest in at once.
+   */
+  raiseCommitRemainderMaxPot: 0.25,
   /** #6: tight opener / re-raiser, bounded bar moves. CALIBRATE. */
   tightOpenerMaxBarMove: 0.1,
   tightOpenerCallBump: 0.04,
@@ -424,6 +462,11 @@ export const STYLE_CONSUMER_BOUNDS = Object.freeze({
     unit: 'equity shaded off a one-pair-or-worse call',
     max: STYLE_THRESHOLDS.raiseShadeCap,
     note: 'ramps with decision-time SPR; zero at or below raiseSprStandDown',
+  }),
+  valueRaise: Object.freeze({
+    unit: 'weight of the value-heavy raise stratum in the blended equity (0 to 1)',
+    max: 1,
+    note: 'turn and river, cash, two pair or worse facing a raise over its own wager; scaled by his street raise rate and by the raise size; decides only when the blended equity is under the price laid; never against an unknown, neutral or aggressive read',
   }),
   valueExtraction: Object.freeze({
     unit: 'value size multiplier / value equity bar / slow-play multiplier',
@@ -770,6 +813,9 @@ export interface StyleReceipt {
   };
   /** side:mean:n of every statistic, rounded for telemetry */
   readonly signals: Readonly<Record<string, string>>;
+  /** the statistics read from the 120-hand long participation window (vpip, pfr, callShare), in that order;
+   *  empty when every one read the 30-hand window */
+  readonly longWindow: readonly string[];
   /** features the decision-time counters cannot carry; consumers condition on them at the decision */
   readonly notAvailable: readonly string[];
 }
@@ -869,6 +915,14 @@ interface Posterior {
   pBelow: number;
 }
 
+/** The posterior mean alone (posterior().mean, without the two tail probabilities). */
+function shrunkMean(successes: number, opps: number, horse: number): number {
+  const prior = clamp(horse, 0.01, 0.99);
+  const n = Math.max(0, num(opps));
+  const s = clamp(num(successes), 0, n);
+  return (prior * EXPLOIT_PRIOR_STRENGTH + s) / (EXPLOIT_PRIOR_STRENGTH + n);
+}
+
 /** Beta posterior shrunk toward the Horse mean (EXPLOIT_PRIOR_STRENGTH pseudo-observations). */
 function posterior(successes: number, opps: number, horse: number, margin: number): Posterior {
   const prior = clamp(horse, 0.01, 0.99);
@@ -934,8 +988,12 @@ export function carryOverCounters(
   const taper = Math.max(0, 1 - num(ownRow?.hands) / STYLE_THRESHOLDS.preflopMinHands);
   const w = clamp(weight, 0, 1) * taper;
   if (!(w > 1e-6)) return { counters: ownRow, weight: 0 };
-  const out = {} as ExploitCounters;
+  const out = {} as ExploitCountersWithLong;
   for (const f of EXPLOIT_COUNTER_FIELDS) out[f] = num(ownRow?.[f]) + w * num(other[f]);
+  const ownLong: ExploitCountersWithLong | undefined = ownRow;
+  const otherLong: ExploitCountersWithLong = other;
+  if (hasLongParticipation(ownLong) || hasLongParticipation(otherLong))
+    for (const f of EXPLOIT_LONG_FIELDS) out[f] = num(ownLong?.[f]) + w * num(otherLong[f]);
   return { counters: out, weight: w };
 }
 
@@ -1022,6 +1080,7 @@ function buildRead(
     label: StyleLabel;
     pattern?: StylePattern | null;
     callingRelease?: number;
+    longWindow?: readonly string[];
   }
 ): OpponentStyleRead {
   const prior = populationPriorFor(family, hands);
@@ -1068,6 +1127,7 @@ function buildRead(
       riverCall: brief(sg.riverCall),
       shownStrength: `${sg.shownStrength.side ?? 'none'}:${round4(sg.shownStrength.share)}:${sg.shownStrength.shown}`,
     }),
+    longWindow: Object.freeze([...(parts.longWindow ?? [])]),
     notAvailable: NOT_AVAILABLE,
   });
   return Object.freeze({
@@ -1252,9 +1312,31 @@ export function classifyOpponentStyle(input: OpponentStyleInput): OpponentStyleR
   const pfrCell = envelope.pfr;
   const callHorse = Math.max(0.01, vpipCell.mean - pfrCell.mean);
   const prefMin = T.preflopMinHands;
+  // LONG PARTICIPATION WINDOW (2026-11-15, see the module header). One statistic reads the 120-hand window only
+  // when that window holds more evidence than the 30-hand one and both lean low or even against the Horse mean.
+  const cl: ExploitCountersWithLong | undefined = c;
+  const longHands = Math.max(0, num(cl?.lHands));
+  const lowOrEven = (successes: number, opps: number, horse: number): boolean =>
+    shrunkMean(successes, opps, horse) <= horse;
+  const longSpeaks = (longSuccesses: number, shortSuccesses: number, horse: number): boolean =>
+    longHands > counterHands &&
+    lowOrEven(longSuccesses, longHands, horse) &&
+    lowOrEven(shortSuccesses, counterHands, horse);
+  const longVpip = longSpeaks(num(cl?.lVpip), num(c?.vpip), vpipCell.mean);
+  const longPfr = longSpeaks(num(cl?.lPfr), num(c?.pfr), pfrCell.mean);
+  const longCall = longSpeaks(
+    Math.max(0, num(cl?.lVpip) - num(cl?.lPfr)),
+    Math.max(0, num(c?.vpip) - num(c?.pfr)),
+    callHorse
+  );
+  const longWindow = [
+    ...(longVpip ? ['vpip'] : []),
+    ...(longPfr ? ['pfr'] : []),
+    ...(longCall ? ['callShare'] : []),
+  ];
   const vpip = signal(
-    num(c?.vpip),
-    counterHands,
+    longVpip ? num(cl?.lVpip) : num(c?.vpip),
+    longVpip ? longHands : counterHands,
     vpipCell.mean,
     halfBandOf(vpipCell),
     T.margin.vpip * ms,
@@ -1263,8 +1345,8 @@ export function classifyOpponentStyle(input: OpponentStyleInput): OpponentStyleR
     callable
   );
   const pfr = signal(
-    num(c?.pfr),
-    counterHands,
+    longPfr ? num(cl?.lPfr) : num(c?.pfr),
+    longPfr ? longHands : counterHands,
     pfrCell.mean,
     halfBandOf(pfrCell),
     T.margin.pfr * ms,
@@ -1273,8 +1355,10 @@ export function classifyOpponentStyle(input: OpponentStyleInput): OpponentStyleR
     callable
   );
   const callShare = signal(
-    Math.max(0, num(c?.vpip) - num(c?.pfr)),
-    counterHands,
+    longCall
+      ? Math.max(0, num(cl?.lVpip) - num(cl?.lPfr))
+      : Math.max(0, num(c?.vpip) - num(c?.pfr)),
+    longCall ? longHands : counterHands,
     callHorse,
     (halfBandOf(vpipCell) + halfBandOf(pfrCell)) / 2,
     T.margin.callShare * ms,
@@ -1635,6 +1719,7 @@ export function classifyOpponentStyle(input: OpponentStyleInput): OpponentStyleR
     label,
     pattern,
     callingRelease,
+    longWindow,
   });
 }
 
@@ -1865,10 +1950,66 @@ export function raiseRespectShade(
   );
   return (
     T.raiseShadeCap *
-    clamp((s.magnitude * s.confidence) / 0.5, 0, 1) *
+    clamp((s.magnitude * s.confidence) / T.raiseRespectFullEvidence, 0, 1) *
     depth *
     (1 - style.release.fraction) *
     style.confidenceCap
+  );
+}
+
+/**
+ * OPTION #4b - VALUE RAISE (same switch as #4, styleRaiseRespect).
+ *  mechanism   the weight (0 to 1) with which a raise over the Horse's own wager is read as value: the caller blends
+ *              the equity against a value-heavy raise stratum with the plain equity by this weight (times its own
+ *              raise-size weight) and, in a cash pot where the call leaves him almost nothing behind, prices the
+ *              continue at the whole commitment
+ *  applies     hold'em family, cash, heads-up, TURN and RIVER only (never the flop); hero holds two pair or worse
+ *  evidence    all of: (a) the aggression axis credibly passive at confidence >= raiseRespectFullEvidence. That axis
+ *              mixes preflop raising with postflop betting, so (b) its postflop half must carry the read on its own:
+ *              the postflop bet-and-raise share credibly low; (c) the street-raise axis itself: at least
+ *              conditionedMinOpps of his raise opportunities on this street against an in-format Horse reference
+ *              (no reference, no engagement) and at least valueRaiseMinStreetOpps on turn and river together.
+ *              None of it needs showdown memory or a pre-repair statistic.
+ *  magnitude   1 while his raise rate on this street is at or below the Horse rate, linear to 0 at twice the Horse
+ *              rate; times (1 - release) and the confidence cap
+ *  stand-down  unknown, unsupported, neutral or aggressive read (unknown is not tight); a bluff-weighted betting
+ *              range; a high street-raise signal; release >= 0.5 (shrinks proportionally before that)
+ */
+export function valueRaiseWeight(
+  style: OpponentStyleRead | null | undefined,
+  street: 'turn' | 'river'
+): number {
+  if (!actionable(style)) return 0;
+  const T = STYLE_THRESHOLDS;
+  const a = style.aggression;
+  if (a.side !== 'passive' || !a.credible || !(a.confidence >= T.raiseRespectFullEvidence))
+    return 0;
+  if (style.signals.aggressionShare.side !== 'low') return 0;
+  if (style.bettingRange.side === 'bluff-weighted') return 0;
+  const raise = style.signals.streetRaise;
+  const sr = raise?.[street];
+  if (
+    !raise ||
+    !sr ||
+    !(num(sr.n) >= T.conditionedMinOpps) ||
+    !(num(sr.horse) > 0) ||
+    sr.side === 'high'
+  )
+    return 0;
+  if (!(num(raise.turn?.n) + num(raise.river?.n) >= T.valueRaiseMinStreetOpps)) return 0;
+  const ramp = 1 - clamp((num(sr.mean) - num(sr.horse)) / num(sr.horse), 0, 1);
+  return ramp * (1 - style.release.fraction) * style.confidenceCap;
+}
+
+/** #4b: the raise-size weight. `sizeRatio` is the raise-to amount over the wager it raised. */
+export function valueRaiseSizeWeight(sizeRatio: number): number {
+  const T = STYLE_THRESHOLDS;
+  return clamp(
+    0.5 +
+      (0.5 * (num(sizeRatio) - T.valueRaiseHalfSize)) /
+        (T.valueRaiseFullSize - T.valueRaiseHalfSize),
+    0,
+    1
   );
 }
 

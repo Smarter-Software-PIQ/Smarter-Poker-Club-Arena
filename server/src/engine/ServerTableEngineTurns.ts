@@ -1,3 +1,4 @@
+import { confirmedHuman } from './HorseConfirmedSeatRole.js';
 import { publicMemoryDomainFromRules } from './HorsePublicMemoryDomain.js';
 import { horseFeatureAcceptanceUsable } from './HorseFeatureAuthority.js';
 import { recheckHorsePhase8GuardBeforeAcceptance } from './HorsePhase8GuardAcceptance.js';
@@ -79,6 +80,7 @@ import {
   noteHorseLegalizerDegraded,
   noteHorseTelemetryOpportunity,
 } from './BrainTelemetry.js';
+import { horseUpgradeEvidenceArmed, noteHorseUpgradeEvent } from './HorseUpgradeEvidence.js';
 import { DECISION_QUEUE_AGE_DISTRESS_MS } from '../decisionPipelinePressure.js';
 import { isHorseDecisionShardBusy } from './horseDecision/client.js';
 import {
@@ -3365,7 +3367,19 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
       const stalePreAction = this.preActionEngine.getPreAction?.(this.tableId, player.user_id);
       this.preActionEngine.clearPreAction?.(this.tableId, player.user_id);
       // Evidence only: counted when there was something to purge.
-      if (stalePreAction) noteFire('upgrade09_preaction_purge_table_seen');
+      if (stalePreAction) {
+        noteFire('upgrade09_preaction_purge_table_seen');
+        // Per-Horse evidence only: this branch is a server-owned Horse seat
+        // (never a person's client). The tournament branch below is a Horse
+        // seat a person's own client pilots, so it records no Horse event.
+        if (horseUpgradeEvidenceArmed())
+          noteHorseUpgradeEvent(
+            player.user_id,
+            this.activeHandVariant(),
+            this.isTournamentTable() ? 'tournament' : 'cash',
+            'upgrade_09_preaction_purge'
+          );
+      }
     } else if (
       player.is_horse &&
       this.isTournamentTable() &&
@@ -4437,6 +4451,7 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
     // at the worker boundary. Worker timing and boot entropy never enter it;
     // private opponent cards were removed before gameState was constructed.
     const decisionSnapshot: LiveHorseDecisionSnapshot = {
+      savedProfileHumanIds: this.seatedPlayers.filter(confirmedHuman).map((p) => p.user_id),
       handJournalContext: captureHorseHandJournalContext(this.currentHandActions),
       generation: turnToken,
       fence,
@@ -4468,6 +4483,9 @@ export abstract class ServerTableEngineTurns extends ServerTableEngineSeating {
         'decision_started'
       );
       // Side-game context that reached this decision's request (evidence only).
+      // No per-Horse event here: this is the decision the worker is about to
+      // make and fold once (the brain's own upgrade08_* reads fire inside its
+      // scope). A host event beside these would count the same decision twice.
       if (gameState.killPot != null) noteFire('upgrade08_kill_pot_seen');
       if (gameState.sevenDeuceEnabled === true) noteFire('upgrade08_seven_deuce_seen');
       // THE DECISION DEADLINE IS THE TURN CLOCK (2026-09-17). The job may
