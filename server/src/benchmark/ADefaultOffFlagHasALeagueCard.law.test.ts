@@ -45,8 +45,8 @@ const UNDEALT_WHEN_WRITTEN = new Set([
   'styleValueExtraction',
   'styleFoldBluff',
   'readScopedShrink',
-  // nashPushFoldIcm left 2026-11-15: on by default where a pay jump is live
-  // (hand 59441335), evidence in docs/horse-default-on.d/nashPushFoldIcm.md.
+  // nashPushFoldIcm left 2026-11-15: still default OFF, now dealt by
+  // mtt6_ft_pay_jump_push_fold_12bb (hand 59441335).
   'comboDrawPressure',
   'riverBluffCheckRaise',
   'riverPositionDefense',

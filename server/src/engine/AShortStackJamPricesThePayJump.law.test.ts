@@ -7,20 +7,32 @@
  * which jams 99.6% of hands at that depth: nothing priced the payouts. The
  * payout-aware read (nashPushFoldIcm) shipped opt-in.
  *
+ * nashPushFoldIcm STAYS DEFAULT OFF. It changes a preflop range, so it is
+ * held by the owner's preflop range hold until he lifts it by name (the
+ * option switch registers it off-only). What ships live is the plain repair
+ * underneath it: a bust in the money is worth its place (IcmModel
+ * bubbleFactor), which every live bubble-factor reader now prices.
+ *
  * What this law holds:
- *  1. With a pay jump live and the stacks, payouts and hero's identity in
- *     the trusted context, the jam and the call against a jam read hero's
- *     bubble factor (payJumpBubbleFactor), moved toward 1 by the payout
- *     weight prize / (prize + bounty), and a bust is worth the place it
- *     finishes (IcmModel bubbleFactor), not zero.
+ *  0. Unset is the chip-EV decision, seed for seed, and the receipt does
+ *     not fire: nothing here changes live play until the option is lifted.
+ *  1. With the option on, a pay jump live and the stacks, payouts and
+ *     hero's identity in the trusted context, the jam and the call against
+ *     a jam read hero's bubble factor (payJumpBubbleFactor), moved toward 1
+ *     by the payout weight prize / (prize + bounty), and a bust is worth the
+ *     place it finishes, not zero.
  *  2. Sensible jams at 2.1bb still jam; the bottom of the chip-EV range
- *     tightens.
+ *     tightens (option on).
  *  3. Where no pay jump is live, the data is missing or untrusted, and in
- *     satellites, PKOs, mystery bounties, bounty-only events, heads-up and
- *     cash, the decision is exactly the chip-EV one (the explicit
- *     nashPushFoldIcm: false arm, the behaviour before).
- *  4. The call against a jam is tighter than chip EV on the bubble and in
- *     the money, and unchanged where no pay jump is live.
+ *     satellites, PKOs, mystery bounties, bounty-only events, heads-up,
+ *     cash, Omaha and fixed limit, the option-on decision is exactly the
+ *     default (chip-EV) one.
+ *  4. With the option on, the call against a jam is tighter than chip EV on
+ *     the bubble and in the money, unchanged where no pay jump is live, and
+ *     priced on the chips contested: a deep stack still calls a crumbs jam.
+ *  5. Owner rulings, in both arms: a 20bb+ stack calls a jam of under 3bb
+ *     with almost anything; no open-shove from under the gun at 20bb or
+ *     from 35bb.
  *
  * What it does not hold: the reported hand's 85o. With ninth place paid
  * whatever happens, hero's bubble factor is about 1.17 (bubbleFactor said 5
@@ -54,12 +66,36 @@ const HERO_INDEX = HAND_STACK_VECTOR.indexOf(12_609);
 const WEIGHT =
   BOUNTY_FREEZEOUT.prizePoolCents /
   (BOUNTY_FREEZEOUT.prizePoolCents + BOUNTY_FREEZEOUT.bountyPoolCents);
+/** The option-on arm (default OFF, owner preflop range hold). */
+const ON = { nashPushFoldIcm: true } as const;
 const factorAt = (spec: SpotSpec) => {
   const { gs, hero } = buildSpot(spec);
   return payJumpBubbleFactor(gs, hero.stack / gs.bigBlind, hero.user_id);
 };
 
-describe('hand 59441335: the jam reads the payouts', () => {
+describe('nashPushFoldIcm is default OFF: unset is the chip-EV decision', () => {
+  it('at the reported node and the bubble call, unset equals explicit false seed for seed', () => {
+    for (const hand of ['85o', '72o', '32o', 'A5o', 'KQo']) {
+      expect(decideSeeds({ hand }, 15), hand).toEqual(
+        decideSeeds({ hand }, 15, { nashPushFoldIcm: false })
+      );
+    }
+    for (const hand of ['A8o', 'KTo', 'JTs', '66']) {
+      expect(decideSeeds(callSpot(hand), 10), hand).toEqual(
+        decideSeeds(callSpot(hand), 10, { nashPushFoldIcm: false })
+      );
+    }
+  });
+
+  it('unset, the receipt does not fire', () => {
+    enableBrainTelemetry();
+    drainFires();
+    decideSeeds({ hand: '72o' }, 1, { telemetry: true });
+    expect(drainFires().find((row) => row.feature === 'pay_jump_push_fold_seen')).toBeUndefined();
+  });
+});
+
+describe('hand 59441335: with the option on, the jam reads the payouts', () => {
   it('builds the repository ladder for 86 entrants: 13 places summing to 100', () => {
     expect(PAYOUT_86).toHaveLength(13);
     expect(PAYOUT_86.reduce((a, b) => a + b, 0)).toBeCloseTo(100, 6);
@@ -104,16 +140,23 @@ describe('hand 59441335: the jam reads the payouts', () => {
     }
     enableBrainTelemetry();
     drainFires();
-    decideSeeds({ hand: '72o' }, 1, { telemetry: true });
+    decideSeeds({ hand: '72o' }, 1, { telemetry: true, ...ON });
     const fired = drainFires().find((row) => row.feature === 'pay_jump_push_fold_seen');
     expect(fired?.fires).toBe(1);
   });
 
+  it('the verdict: 85o at the reported node still jams, in both arms', () => {
+    // 2.1bb, 15,000 already in the pot, ninth paid either way: the honest
+    // factor is about 1.17 and the payout-aware table jams 85o to about 3bb.
+    expect(share(decideSeeds({ hand: '85o' }, 40), 'all_in')).toBe(1);
+    expect(share(decideSeeds({ hand: '85o' }, 40, ON), 'all_in')).toBe(1);
+  });
+
   it('the bottom of the chip-EV range tightens: 72o and 32o mostly fold', () => {
-    expect(share(decideSeeds({ hand: '72o' }, 40), 'all_in')).toBeLessThan(0.25);
-    expect(share(decideSeeds({ hand: '32o' }, 40), 'all_in')).toBe(0);
-    // The same seeds jammed both at chip EV.
-    expect(share(decideSeeds({ hand: '72o' }, 40, { nashPushFoldIcm: false }), 'all_in')).toBe(1);
+    expect(share(decideSeeds({ hand: '72o' }, 40, ON), 'all_in')).toBeLessThan(0.25);
+    expect(share(decideSeeds({ hand: '32o' }, 40, ON), 'all_in')).toBe(0);
+    // The same seeds jammed both at chip EV, the default.
+    expect(share(decideSeeds({ hand: '72o' }, 40), 'all_in')).toBe(1);
   });
 
   it('sensible jams at 2.1bb still jam every time', () => {
@@ -144,8 +187,9 @@ describe('hand 59441335: the jam reads the payouts', () => {
       '54s',
     ];
     for (const hand of hands) {
-      expect(share(decideSeeds({ hand }, 20), 'all_in'), hand).toBe(1);
-      expect(share(decideSeeds({ hand, tournament: NO_BOUNTY }, 10), 'all_in'), hand).toBe(1);
+      expect(share(decideSeeds({ hand }, 20, ON), 'all_in'), hand).toBe(1);
+      expect(share(decideSeeds({ hand, tournament: NO_BOUNTY }, 10, ON), 'all_in'), hand).toBe(1);
+      expect(share(decideSeeds({ hand }, 10), 'all_in'), hand).toBe(1);
     }
   });
 });
@@ -183,12 +227,37 @@ describe('where no payout-aware read applies the decision is the chip-EV one', (
     'ante cash table': { tournament: null, gs: { gameMode: 'cash', format: undefined } },
   };
   for (const [name, spec] of Object.entries(contexts)) {
-    it(`${name}: no factor, and every seed equals the explicit chip-EV arm`, () => {
+    it(`${name}: no factor, and with the option on every seed equals the default`, () => {
       expect(factorAt({ ...spec, hand: '85o' })).toBeNull();
       for (const hand of ['85o', '72o', 'A5o']) {
-        expect(decideSeeds({ ...spec, hand }, 15)).toEqual(
-          decideSeeds({ ...spec, hand }, 15, { nashPushFoldIcm: false })
-        );
+        expect(decideSeeds({ ...spec, hand }, 15, ON)).toEqual(decideSeeds({ ...spec, hand }, 15));
+      }
+    });
+  }
+  const omaha = [
+    { rank: 'A', suit: 'hearts' },
+    { rank: '8', suit: 'clubs' },
+    { rank: '5', suit: 'hearts' },
+    { rank: '2', suit: 'diamonds' },
+  ];
+  const variants: Record<string, SpotSpec> = {
+    'pot-limit Omaha (plo4)': {
+      holeCards: omaha,
+      gs: { gameVariant: 'plo4', bettingStructure: 'pot_limit' },
+    },
+    "fixed-limit hold'em (flh)": {
+      gs: {
+        gameVariant: 'flh',
+        bettingStructure: 'fixed_limit',
+        fixedLimitSmallBet: 6000,
+        fixedBetSize: 6000,
+      },
+    },
+  };
+  for (const [name, spec] of Object.entries(variants)) {
+    it(`${name}: with the option on every seed equals the default`, () => {
+      for (const hand of ['85o', 'A5o']) {
+        expect(decideSeeds({ ...spec, hand }, 10, ON)).toEqual(decideSeeds({ ...spec, hand }, 10));
       }
     });
   }
@@ -228,20 +297,68 @@ describe('the call against a lone jam reads the pay jump too', () => {
       0
     );
 
-  it('on the bubble and in the money the big blind calls tighter than chip EV', () => {
+  it('on the bubble and in the money the big blind calls tighter than chip EV (option on)', () => {
     expect(factorAt(callSpot('A8o', { tournament: bubble }))).toBeGreaterThan(2);
-    expect(calls({ tournament: bubble })).toBeLessThan(
-      calls({ tournament: bubble }, { nashPushFoldIcm: false }) - 3
-    );
-    expect(calls({})).toBeLessThan(calls({}, { nashPushFoldIcm: false }) - 3);
+    expect(calls({ tournament: bubble }, ON)).toBeLessThan(calls({ tournament: bubble }) - 3);
+    expect(calls({}, ON)).toBeLessThan(calls({}) - 3);
   });
 
-  it('control: with no pay jump live the call is the chip-EV call, seed for seed', () => {
+  it('control: with no pay jump live the option-on call is the chip-EV call, seed for seed', () => {
     const early = { playersLeft: 70, inMoney: false, finalTable: false, nearBubble: false };
     for (const hand of ['66', 'A4o', 'KTo', 'JTs']) {
-      expect(decideSeeds(callSpot(hand, { tournament: early }), 10)).toEqual(
-        decideSeeds(callSpot(hand, { tournament: early }), 10, { nashPushFoldIcm: false })
+      expect(decideSeeds(callSpot(hand, { tournament: early }), 10, ON)).toEqual(
+        decideSeeds(callSpot(hand, { tournament: early }), 10)
       );
     }
   });
+});
+
+describe('owner rulings hold in both arms', () => {
+  const ARMS: Array<[string, Record<string, unknown>]> = [
+    ['default', {}],
+    ['option on', ON],
+  ];
+  // 2026-10-26: "when a player shoves all in with less than 3 BB, a stack of
+  // 20+ BB SHOULD BE CALLING WITH ALMOST ANYTHING IN A TOURNAMENT". The
+  // cutoff jams 2.5bb, the button and small blind fold, the 25bb big blind
+  // decides; in the money at the final table.
+  const crumbs = (hand: string): SpotSpec => ({
+    stacks: { ...HAND_STACKS, 6: 15_000, 9: 150_000 },
+    hero: 9,
+    hand,
+    jammer: 6,
+    foldedAfterJam: [7, 8],
+  });
+  const WEAK = ['72o', '32o', '83o', '94o', 'T2o', 'J3o', 'Q4o', '85o', '62o', 'K2o'];
+  for (const [arm, opts] of ARMS) {
+    it(`${arm}: a 25bb big blind calls a 2.5bb jam with almost anything`, () => {
+      const rate =
+        WEAK.reduce((sum, hand) => sum + share(decideSeeds(crumbs(hand), 8, opts), 'call'), 0) /
+        WEAK.length;
+      expect(rate).toBeGreaterThanOrEqual(0.9);
+    });
+  }
+  // 2026-10-25: "SINCE WHEN IS IT GTO TO OPEN RIP 20BB FROM UTG?!" and
+  // "BIGGER STACKS SHOULD NOT BE OPEN RIPPING 35+ BIGS". Under the gun
+  // (seat 1, folded to nobody) at 20bb and 35bb.
+  const utg = (hand: string, chips: number): SpotSpec => ({
+    stacks: { ...HAND_STACKS, 1: chips },
+    hero: 1,
+    hand,
+    foldedBefore: [],
+  });
+  // Deep decisions are slow (the tournament utility runs): few seeds, a
+  // spread of hands, so the pre-push gate stays inside its budget.
+  const OPENS = ['AA', 'KK', '77', 'AKo', 'AQs', 'KQo', 'T9s'];
+  for (const [arm, opts] of ARMS) {
+    it(`${arm}: no open-shove from under the gun at 20bb or 35bb`, () => {
+      for (const chips of [120_000, 210_000]) {
+        for (const hand of OPENS) {
+          expect(share(decideSeeds(utg(hand, chips), 3, opts), 'all_in'), `${hand} ${chips}`).toBe(
+            0
+          );
+        }
+      }
+    });
+  }
 });

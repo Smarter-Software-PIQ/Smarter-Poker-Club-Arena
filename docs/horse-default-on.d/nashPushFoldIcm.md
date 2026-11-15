@@ -1,21 +1,27 @@
-# nashPushFoldIcm (pull request: NOT YET OPENED)
+# nashPushFoldIcm (pull request: NOT YET OPENED) - NOT ON BY DEFAULT
 
-Owner-ordered repair of production hand 59441335. The pull request number is
-not known when this file is written; the lane lead replaces the heading's
-"NOT YET OPENED" with the pull request reference when the pull request is
-opened. Until then `HorseDefaultOnNeedsEvidence.law.test.ts` fails on "a pull
-request reference", and on nothing else.
+**Status 2026-11-15: default OFF.** This file is the evidence prepared for
+the owner's decision, not a default-on record. `nashPushFoldIcm` changes a
+preflop range, so the owner's preflop range hold keeps it off until he lifts
+it by name, and the option switch registers it off-only. HorseLogic reads it
+only as `=== true`, so `HorseDefaultOnNeedsEvidence.law.test.ts` does not
+require this file today. If the owner lifts the hold, flipping the default
+needs this file with its pull request reference and the NOT MET rows below
+answered. What ships live from the same change is the plain repair
+underneath: a bust in the money is worth its place (`IcmModel.bubbleFactor`),
+which every live bubble-factor reader now prices.
 
-What is on by default: with the option unset, a no-limit hold'em tournament
-short stack whose trusted context carries the stacks, the payouts and its
+What the option does when switched on: a no-limit hold'em tournament short
+stack whose trusted context carries the stacks, the payouts and its
 identity, with a pay jump live (in the money, hand for hand, near the bubble
 or within max(paid + 1, 1.15 x paid)), more than two left, not a satellite,
 PKO or mystery bounty and with a payout weight above zero, reads the V71
 folded-to jam and the nashCallVsJam call at its own bubble factor
 (`payJumpBubbleFactor`), moved toward 1 by prize / (prize + bounty), with a
-bust valued at the place it finishes (`bubbleFactor`, corrected 2026-11-15). Explicit
-false is chip EV everywhere (the behaviour before); explicit true is the
-2026-11-07 arm.
+bust valued at the place it finishes; the call prices the chips contested
+(the effective depth), not hero's whole stack. Every other spot reads the V2
+table at a bubble factor of 1 (the V71 answer with at most eight behind).
+Unset or false is chip EV, the behaviour on main.
 
 ## Mechanism
 
@@ -88,7 +94,7 @@ the before/after table). A no-ante tournament keeps the V27 charts.
 ## Visibility
 
 Receipt `pay_jump_push_fold_seen` (HorseDataLedger, family NashV2) fires
-whenever the default reads a bubble factor above 1, on either path; it ends
+whenever the option reads a bubble factor above 1, on either path; it ends
 in `_seen` because days with no in-the-money short stack are normal.
 
 ## Limits
@@ -100,6 +106,9 @@ nashPushFoldIcm" came from bubbleFactor pricing a bust at zero (corrected 2026-1
 which would also fold 22, 44, A2o and T9s at 2.1bb. The tables are first
 caller only and ignore the free hands before the blind. The Phase 7 band
 units were not changed (they would overrule bubble folds that
-ACommittedStackIsNotFoldedAtAPrice holds). No league card: the league's
-tournament contexts carry no stack vector, so the default is unreachable in
-self-play and a card would deal two identical arms. Pools are assumed.
+ACommittedStackIsNotFoldedAtAPrice holds). League card
+`mtt6_ft_pay_jump_push_fold_12bb` deals the option on against the default at
+a six-handed in-the-money final table that carries a stack list (the other
+league tournament contexts carry none, so the option cannot act there); the
+league scores chips, so the card measures the option's chip cost, not its
+value, and it has not been run. Pools are assumed.

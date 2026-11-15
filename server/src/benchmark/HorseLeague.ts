@@ -592,6 +592,31 @@ function finalTableMttContext(seats: number, stackBB: number): LeagueGameContext
   };
 }
 
+/**
+ * 2026-11-15: the final-table MTT with the stack list and the seat identities
+ * the live feed sends (TournamentBrainContext stacks / stackByUser), for the
+ * payout-aware push/fold card (nashPushFoldIcm, hand 59441335; default OFF).
+ * Without them heroBubbleFactor has nothing to price and both arms play chip
+ * EV. Every seat
+ * starts each hand with stackBB big blinds, so the start-of-hand list is the
+ * same every hand; the deciding seat's own slot is replaced by its live stack
+ * (HorseLogic realIcmInputs).
+ */
+export function finalTableMttWithStacksContext(seats: number, stackBB: number): LeagueGameContext {
+  const ctx = finalTableMttContext(seats, stackBB);
+  const start = stackBB * BB;
+  return {
+    ...ctx,
+    tournament: {
+      ...ctx.tournament!,
+      stacks: Array.from({ length: seats }, () => start),
+      stackByUser: Object.fromEntries(
+        Array.from({ length: seats }, (_, s) => [`league-${s + 1}`, start])
+      ),
+    },
+  };
+}
+
 const DEFAULT_SEATS = 6;
 const BB = 2;
 const SB = 1;
@@ -2285,6 +2310,26 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     moodClock: 'deal_seed',
     a: {},
     b: { nashCallVsJam: false },
+  },
+  // 2026-11-15 PAYOUT-AWARE SHORT-STACK PUSH/FOLD (nashPushFoldIcm, hand
+  // 59441335; default OFF, owner preflop range hold). With the option on, a
+  // short stack with a pay jump live and the stacks, payouts and its identity
+  // in the context prices the V71 jam and the nashCallVsJam call at its own
+  // bubble factor; unset is chip EV. A six-handed in-the-money final table at
+  // 12bb with a 1bb big-blind ante and the stack list (the only league
+  // context where the option can act). The league scores chips, not payouts:
+  // the payout-aware arm gives up chips by design, so this card measures what
+  // the option costs in chips, not its value.
+  {
+    name: 'mtt6_ft_pay_jump_push_fold_12bb',
+    seats: 6,
+    stackBB: 12,
+    context: finalTableMttWithStacksContext(6, 12),
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: { nashPushFoldIcm: true },
+    b: {},
   },
   // 2026-11-13 A COMMITTED STACK IS NOT FOLDED AT A PRICE
   // (committedStackPricedIn, default OFF; study HVH2D-NLH-M-COMMIT and
