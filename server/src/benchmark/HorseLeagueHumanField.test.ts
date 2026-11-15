@@ -97,6 +97,8 @@ const EXPECTED_PERSONA_CARDS: Array<[string, string]> = [
   // 3-bettor it was inert and is retired (UNMEASURABLE_MATCHUPS).
   ['human_hu_opener_defends_vs_wide_40bb', 'hu_wide_sb_aggressor_v1'],
   ['human_hu_limp_defends_vs_minraise_40bb', 'hu_minraise_every_button_v1'],
+  // 2026-11-15 (HU-NLH-001d): the unread big blind option, memory learning off.
+  ['human_hu_bb_defends_unread_vs_minraise_40bb', 'hu_minraise_every_button_v1'],
 ];
 
 /** Persona cards whose arms must be seen to diverge here (2026-11-15). The
@@ -105,6 +107,7 @@ const EXPECTED_PERSONA_CARDS: Array<[string, string]> = [
 const PERSONA_CARDS_THAT_MUST_DIVERGE = [
   'human_hu_opener_defends_vs_wide_40bb',
   'human_hu_limp_defends_vs_minraise_40bb',
+  'human_hu_bb_defends_unread_vs_minraise_40bb',
 ];
 
 afterEach(() => {
