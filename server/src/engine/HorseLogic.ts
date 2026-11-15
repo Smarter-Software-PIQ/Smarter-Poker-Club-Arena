@@ -2657,19 +2657,19 @@ export interface HorseDecideOpts {
    * turn or river card that made the straight or flush possible when a
    * player still acts behind, and does not bet the river into a player who
    * bet or raised a street on which it was already possible
-   * (HorseOmahaMadeHandDefense.ts). Default on; false only for the complaint
-   * laws' non-vacuity control. */
+   * (HorseOmahaMadeHandDefense.ts). Default OFF (opt-in) until its paired
+   * evaluation passes; only an explicit true switches it on. */
   omahaBeatenMadeHandDefense?: boolean;
   /** Dan 2026-11-14: the PLO4/PLO5 big-bet call discipline also folds a
    * bluff catcher that is raised on the turn or river, or that faces a
    * 0.9-pot+ turn bet from a player who also bet the flop, unless the turn
    * redraw pays the price (HorseOmahaBigBetCalls.ts, omahaBluffCatcherCell).
-   * Default on; false only for the regression's non-vacuity control. */
+   * Default OFF (opt-in); only an explicit true switches it on. */
   omahaBluffCatcherRaiseFold?: boolean;
   /** Dan 2026-11-14: a PLO4/PLO5 bet or raise with the nuts or an
    * effective-nut hand for the street is the full pot on the flop, turn and
    * river (HorseOmahaMadeHandDefense.ts, omahaNutClassValueSize). Default
-   * on; false only for the regression's non-vacuity control. */
+   * OFF (opt-in); only an explicit true switches it on. */
   omahaNutClassValueSize?: boolean;
   /** A token-priced committed call is not barred by stack-off premiums
    * (HorseTokenCallPrice.ts, PLO6-AUDIT-010). Default on; false only for
@@ -5710,7 +5710,7 @@ function omahaMadeHandDefenseRules(
   // never does. Every other decision in that spot follows the rules.
   if (nearNutChosenRaise && decision.action === 'raise') return decision;
   const tele = telemetryOn(opts);
-  const defenseOn = opts.omahaBeatenMadeHandDefense !== false;
+  const defenseOn = opts.omahaBeatenMadeHandDefense === true;
   const flat = omahaBeatenNoRaise(decision, player, gs, defenseOn, reference);
   if (tele && flat.changed === 'flatted') noteFire('omaha_turn_beaten_raise_flatted');
   if (tele && flat.changed === 'fold_restored') noteFire('omaha_turn_beaten_raise_fold_restored');
@@ -5721,7 +5721,7 @@ function omahaMadeHandDefenseRules(
     noBet.decision,
     player,
     gs,
-    opts.omahaNutClassValueSize !== false
+    opts.omahaNutClassValueSize === true
   );
   if (tele && sized.changed === 'pot_sized') noteFire('omaha_nut_class_pot_wager');
   return sized.decision;

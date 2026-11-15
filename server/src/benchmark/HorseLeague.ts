@@ -2014,6 +2014,28 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaBluffCatcherRaiseFold: true },
     b: {},
   })),
+  // 2026-11-15 OMAHA MADE-HAND DEFENCE (omahaBeatenMadeHandDefense, default
+  // OFF) and NUT-CLASS VALUE SIZE (omahaNutClassValueSize, default OFF): a
+  // switches the rule on, b is today's brain. Both ship off until a declared
+  // paired evaluation passes (owner 2026-11-14 23:40).
+  ...(['plo4', 'plo5'] as const).flatMap((variant) => [
+    {
+      name: `${variant}_omaha_beaten_made_hand_defense`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { omahaBeatenMadeHandDefense: true },
+      b: {},
+    },
+    {
+      name: `${variant}_omaha_nut_class_value_size`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { omahaNutClassValueSize: true },
+      b: {},
+    },
+  ]),
   // V15 BOATS (2026-09-28): default OFF. a turns it on, b is today's brain.
   // Ship it default ON only after this resolves significant positive.
   // 2026-11-06: V15 boats is default ON in PLO5 cash (v15BoatsOn), so the

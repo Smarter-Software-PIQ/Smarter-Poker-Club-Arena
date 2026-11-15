@@ -28,6 +28,10 @@ import {
 import FIXTURE from './plo5-top-two-pair-jams-over-a-turn-bet-on-the-straight-card.fixture.json';
 
 const FX = FIXTURE as unknown as ComplaintFixture;
+// The governing rule ships OFF (opt-in) until its paired evaluation passes
+// (owner 2026-11-14 23:40: no default without the evidence), so this law
+// replays the brain with the rule switched on; the control is the default.
+const RULE_ON = { omahaBeatenMadeHandDefense: true };
 
 describe('complaint law: PLO5 top two pair does not raise a turn bet on the card that made a straight possible', () => {
   afterEach(() => HorseMind.reset());
@@ -37,8 +41,8 @@ describe('complaint law: PLO5 top two pair does not raise a turn bet on the card
     expect(recordedPathMatches(FX)).toBe(true);
   });
 
-  it("today's brain never takes the forbidden path at the real nodes, for any profile or seed", () => {
-    expect(complaintPathHits(FX)).toEqual([]);
+  it('with the rule switched on the brain never takes the forbidden path at the real nodes, for any profile or seed', () => {
+    expect(complaintPathHits(FX, RULE_ON)).toEqual([]);
   });
 
   it.skipIf(!FX.control)(

@@ -1,6 +1,6 @@
 # omahaBeatenMadeHandDefense (owner rulings 2026-11-14, hands 59414191 and 59416584)
 
-On by default. Evidence for the eight rows of [HORSE-DECISION-CHANGE-EVIDENCE.md](../HORSE-DECISION-CHANGE-EVIDENCE.md). The pull request that carries this file is the one titled "Omaha turn and river: a made hand a straight or flush beats plays defense"; it sits on the first fix for hand 59401453 (only the nuts raise an Omaha river bet), and the made-hand class it reads beside, V40, was last touched for the river in #10642. Chip amounts are table chips.
+Off by default (opt-in, read `=== true`): owner instruction 2026-11-14 23:40 America/Chicago keeps an option off unless both the owner's verbatim authorization and the governing evidence are there; rows 3 to 5 below are not measured. It goes on only after a declared paired evaluation passes and an exact-head review. Evidence for the eight rows of [HORSE-DECISION-CHANGE-EVIDENCE.md](../HORSE-DECISION-CHANGE-EVIDENCE.md). The pull request that carries this file is the one titled "Omaha turn and river: a made hand a straight or flush beats plays defense"; it sits on the first fix for hand 59401453 (only the nuts raise an Omaha river bet), and the made-hand class it reads beside, V40, was last touched for the river in #10642. Chip amounts are table chips.
 
 This option is turned on by the owner's direct rulings on two reported hands, as a defect repair. No value comparison of the old and new action was computed; that is stated under Value and Limits.
 
@@ -66,4 +66,4 @@ The owner's own text, exactly as typed; "[...]" marks words left out, nothing is
 - 20:40 (hand 59414191): "[...] THE HORSE AGAIN RAISES WHEN CLEARLY THERE IS A STRAIGHT OUT THERE. [...] WHY AREN'T THE HORSES AWARD THAT STRAIGHTS BE TWO PAIRS AND SETS?!?!?!?"
 - 22:02: "NO RAISING THE TURN AS WELL WITHOUT THE NUTS OR CLOSE TO THE NUTS! HOW MANY TIMES HAVE I SHOWN YOU A RAISE WITH TOP SET ON THE TURN WITH 2-3 DIFFERENT STRAIGHTS AND OR FLUSHES OUT THERE... STOP THE MADNESS AND THE BLEEDING! [...] FIX THIS NOW"
 
-This option is ON by default on that instruction. Its value, continuation and reach rows are not measured (stated in the rows above); its actions are a call or a check, never a fold.
+This option is OFF by default; the owner's words above name the misplay it answers and are not a measurement. Its value, continuation and reach rows are not measured (stated in the rows above); its actions are a call or a check, never a fold.

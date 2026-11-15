@@ -101,6 +101,10 @@ function decideMany(s: Built, opts: Record<string, unknown> = {}, seeds = SEEDS)
     const d = HorseLogic.decide(s.hero, s.gs, LIVE.style, LIVE.mods, {
       mind: false,
       telemetry: true,
+      // Both options ship OFF (opt-in) until their paired evaluation passes;
+      // this file measures them switched on unless a test says otherwise.
+      omahaBeatenMadeHandDefense: true,
+      omahaNutClassValueSize: true,
       ...opts,
     } as never);
     return {
@@ -386,7 +390,11 @@ describe('the worker receipt', () => {
     seedFastRandom(7);
     HorseMind.reset();
     return structuredClone(
-      HorseLogic.decide(s.hero, s.gs, LIVE.style, LIVE.mods, { mind: false, telemetry: false })
+      HorseLogic.decide(s.hero, s.gs, LIVE.style, LIVE.mods, {
+        mind: false,
+        telemetry: false,
+        omahaBeatenMadeHandDefense: true,
+      })
     );
   };
 

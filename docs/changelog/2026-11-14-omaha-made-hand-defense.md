@@ -15,7 +15,7 @@ The same as hand 59401453. The raise, bet and commitment branches of `HorseLogic
 
 ## What changed
 
-All on by default as a defect repair on the owner's rulings, each with an evidence file. PLO high, one board; Hi-Lo, fixed limit and all-in-or-fold tables are outside.
+On by default: the river nut-raise rule with its price-conditioned set fold cell, and the turn set sizing (both from the earlier change in this branch). OFF by default (opt-in) until a declared paired evaluation passes: `omahaBeatenMadeHandDefense`, `omahaBluffCatcherRaiseFold`, `omahaNutClassValueSize`; each has an evidence file, a league card, receipts and tests. PLO high, one board; Hi-Lo, fixed limit and all-in-or-fold tables are outside.
 
 1. New `server/src/engine/HorseOmahaMadeHandDefense.ts`, in the `wager_rules` node after the river nut-raise rule (option `omahaBeatenMadeHandDefense`; PLO4, PLO5, PLO6). A hand is beaten when a straight or flush is possible on the board and the Horse holds two pair, a set or trips, a non-nut straight (or one under a possible flush) or a non-nut flush. Facing a turn wager a beaten hand never raises: it calls, or folds when the decision was a fold before the later owners ran. The nuts may raise. The river half is the earlier `omahaRiverNutRaiseOnly`.
 2. Facing no wager, a beaten hand checks when this street's card made the straight or flush possible and a player still acts behind it, and checks the river when a live player bet or raised an earlier street on which it was already possible. In position and checked to on the fresh card it may still bet large.
@@ -54,4 +54,8 @@ No pinned expectation was changed in `HorseHeadsUpCommitment.test.ts` or `HorseP
 
 ## After the exact-head review (2026-11-15)
 
-`omahaBluffCatcherRaiseFold` ships OFF by default (opt-in): it folds on bet size alone and has no value or continuation measurement, which the owner's 23:10 instruction rules out as a default. Code, receipts and tests stay; the tests switch it on explicitly. `omahaBeatenMadeHandDefense` and `omahaNutClassValueSize` stay ON on the owner's verbatim instruction, now quoted in their evidence files. `omahaRiverNutRaiseOnly` and `omahaTurnSetPound` are unchanged.
+Hand Analysis reviewed the pull request at 1921fa54 and asked for the three unmeasured options to ship off. They do: `omahaBeatenMadeHandDefense`, `omahaBluffCatcherRaiseFold` and `omahaNutClassValueSize` are read `=== true`. Code, receipts, league cards and tests stay; the tests and the four turn and river complaint laws switch the rule on explicitly, and their control is the default brain. `omahaRiverNutRaiseOnly` (river non-nut raise becomes a call; the price-conditioned set fold) and `omahaTurnSetPound` are unchanged and on.
+
+Open PLO Strategy findings, not addressed here: one-pair river bets (hands 59407629, 59430325); one-pair-aces stack-offs (59426444, 59417700); 59431232 and 59435912 have no decision node in this change; the turn and river hands 59414191 and 59416584 are answered only with the opt-in rule switched on.
+
+PLO6 pressure evidence (`HorseV53PressureBehavior`): at 110 hands the PLO6 3-bet counts tied 16 to 16 after this change; at 220 hands the counts are 38 against 33 (PLO6), 38 against 15 (PLO4) and 37 against 31 (PLO5), so the test plays 220 hands. No engine change was made for it; development evidence only.

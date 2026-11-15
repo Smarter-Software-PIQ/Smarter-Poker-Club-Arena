@@ -1,6 +1,6 @@
 # omahaNutClassValueSize (owner ruling 2026-11-14)
 
-On by default. Evidence for the eight rows of [HORSE-DECISION-CHANGE-EVIDENCE.md](../HORSE-DECISION-CHANGE-EVIDENCE.md). The pull request that carries this file is the one titled "Omaha turn and river: a made hand a straight or flush beats plays defense"; the size rule it overrides for nut hands, V40, was last touched for the river in #10642.
+Off by default (opt-in, read `=== true`): owner instruction 2026-11-14 23:40 America/Chicago keeps an option off unless both the owner's verbatim authorization and the governing evidence are there; rows 3 to 5 below are not measured. It goes on only after a declared paired evaluation passes and an exact-head review. Evidence for the eight rows of [HORSE-DECISION-CHANGE-EVIDENCE.md](../HORSE-DECISION-CHANGE-EVIDENCE.md). The pull request that carries this file is the one titled "Omaha turn and river: a made hand a straight or flush beats plays defense"; the size rule it overrides for nut hands, V40, was last touched for the river in #10642.
 
 This option is turned on by the owner's direct ruling (when a Horse holds the nuts it stops betting fractions of the pot). No value row was computed; that is stated under Value and Limits.
 
@@ -49,4 +49,4 @@ The owner's own text, exactly as typed; "[...]" marks words left out, nothing is
 - 20:43: "[...] WINNING THE MINIMUM WITH VALUE HANDS BECAUSE THEY ARE BETTING FRACTIONS OF POTS, AND NOT RE RAISING BIG ENOUGH PRE TO BUILD POTS... YOU NEED TO FIX THIS NOW!!"
 - 21:33 (hand 59431232): "[...] CHECKS FLOP, BETS 33% POT ON TURN [...]"
 
-This option is ON by default on that instruction. Its value against a calling range is not measured (stated in the rows above); it changes a size only when the Horse holds the nuts or an effective-nut hand for the street.
+This option is OFF by default; the owner's words above name the misplay it answers and are not a measurement. Its value against a calling range is not measured (stated in the rows above); it changes a size only when the Horse holds the nuts or an effective-nut hand for the street.

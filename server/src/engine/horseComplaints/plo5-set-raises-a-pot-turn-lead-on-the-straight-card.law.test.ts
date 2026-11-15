@@ -28,6 +28,10 @@ import {
 import FIXTURE from './plo5-set-raises-a-pot-turn-lead-on-the-straight-card.fixture.json';
 
 const FX = FIXTURE as unknown as ComplaintFixture;
+// The governing rule ships OFF (opt-in) until its paired evaluation passes
+// (owner 2026-11-14 23:40: no default without the evidence), so this law
+// replays the brain with the rule switched on; the control is the default.
+const RULE_ON = { omahaBeatenMadeHandDefense: true };
 
 describe('complaint law: PLO5 set does not raise a pot-sized turn lead on the card that made straights possible', () => {
   afterEach(() => HorseMind.reset());
@@ -37,8 +41,8 @@ describe('complaint law: PLO5 set does not raise a pot-sized turn lead on the ca
     expect(recordedPathMatches(FX)).toBe(true);
   });
 
-  it("today's brain never takes the forbidden path at the real nodes, for any profile or seed", () => {
-    expect(complaintPathHits(FX)).toEqual([]);
+  it('with the rule switched on the brain never takes the forbidden path at the real nodes, for any profile or seed', () => {
+    expect(complaintPathHits(FX, RULE_ON)).toEqual([]);
   });
 
   // Added by hand to the generated law: the recorded raise needs the opponent
@@ -47,7 +51,7 @@ describe('complaint law: PLO5 set does not raise a pot-sized turn lead on the ca
   // empty, where the raise came from, no profile raises either. This is the
   // assertion that fails on the source before the rule.
   it('with the opponent memory on, where the recorded raise came from, no profile raises either', () => {
-    expect(complaintPathHits(FX, { mind: true })).toEqual([]);
+    expect(complaintPathHits(FX, { ...RULE_ON, mind: true })).toEqual([]);
   });
 
   it.skipIf(!FX.control)(
