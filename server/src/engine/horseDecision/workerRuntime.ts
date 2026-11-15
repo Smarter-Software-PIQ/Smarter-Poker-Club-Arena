@@ -964,7 +964,9 @@ export class HorseDecisionWorkerRuntime {
     const carried = ['styleLongShownMemory', 'holdemProfileCompletenessCap'] as const;
     let switched: Partial<Record<(typeof carried)[number], boolean | undefined>>;
     try {
-      switched = optionSwitchDecisionOpts(this.optionSwitch.refresh(performance.now()));
+      // fleet-wide, like the decision's own read of the switched set
+      const readViewStates = this.optionSwitch.refresh(performance.now());
+      switched = optionSwitchDecisionOpts(readViewStates);
     } catch {
       return request;
     }
