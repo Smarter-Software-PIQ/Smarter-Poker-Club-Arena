@@ -1279,6 +1279,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'Omaha tight opponent'
   ),
   flag(
+    'omahaTightOpponentSteal',
+    '2026-11-14 owner ruling 17:42 Chicago (Omaha tight requirement stays; a defensible response must be built and evaluated): Omaha high variants in OMAHA_TIGHT_STEAL_VARIANTS (six-card only), the STEAL half of omahaTightOpponent alone (first in from late position or the small blind, every player left to act a PROVEN tight folder: the open bar comes down by half the fold-equity surplus over a pot-sized open break-even, at most 0.10); the respect half is excluded because, measured alone on six-card, it is undecided with a negative cash point estimate. Default OFF (read === true). Evaluation: plo6-audit-01TLQer9Hdf/phase1-play/tight-plo6-league (development persona fields; production reach against people was 0 of 12 six-card records on 2026-11-14). Default-on needs docs/horse-default-on.d/omahaTightOpponentSteal.md with the eight rows.',
+    'Omaha tight steal'
+  ),
+  flag(
     'readScopedShrink',
     '2026-11-08 (read calibration follow-up) below 40 scoped hands a read no longer falls back to the pooled bucket (every game mixed: about 8% of read spots, river-fold Brier 0.262 against 0.217 scoped); the scoped bucket answers with each rate shrunk toward the same scope population (every tracked player summed, no labels) with 16 pseudo-observations and its own opportunity counts, so sample gates still measure this game; default off, measured by the calibration replay (a league table deals one game, so the flag is inert there by construction)',
     'Read calibration'
@@ -2555,6 +2560,35 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'a PLO6 cash price refused against an observed maniac raiser was handed to the range play instead of being folded',
     'V92'
   ),
+  // HA-10768-1 (2026-11-15): the outcome of each hand-off above, by table
+  // floor and by the FINAL action. With the option off every one was a fold,
+  // so *_continued counts decisions the option changed; *_folded counts
+  // hand-offs that changed nothing (the range play folds too, as it does on
+  // unfloored tables at the recorded node). Occurrence counters, no floor.
+  receipt(
+    'plo6_maniac_price_refusal_floored_continued',
+    'HorseLogic final decision (plo6ManiacPriceRefusalToRangePlay, HA-10768-1)',
+    'on a table with a VPIP floor, a refused maniac price handed to the range play ended as a call, raise or all-in instead of the fold it was before the option',
+    'V92'
+  ),
+  receipt(
+    'plo6_maniac_price_refusal_floored_folded',
+    'HorseLogic final decision (plo6ManiacPriceRefusalToRangePlay, HA-10768-1)',
+    'on a table with a VPIP floor, a refused maniac price handed to the range play still ended as a fold',
+    'V92'
+  ),
+  receipt(
+    'plo6_maniac_price_refusal_unfloored_continued',
+    'HorseLogic final decision (plo6ManiacPriceRefusalToRangePlay, HA-10768-1)',
+    'on a table without a VPIP floor, a refused maniac price handed to the range play ended as a call, raise or all-in instead of the fold it was before the option',
+    'V92'
+  ),
+  receipt(
+    'plo6_maniac_price_refusal_unfloored_folded',
+    'HorseLogic final decision (plo6ManiacPriceRefusalToRangePlay, HA-10768-1)',
+    'on a table without a VPIP floor, a refused maniac price handed to the range play still ended as a fold',
+    'V92'
+  ),
   // PLO6-AUDIT P6-4 (2026-11-14). An occurrence counter for an opt-in arm
   // production never sets: silence is its ordinary state.
   receipt(
@@ -2765,7 +2799,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   receipt(
     'plo_tight_blinds_steal',
-    'HorseLogic (omahaTightOpponent)',
+    'HorseLogic (omahaTightOpponent, omahaTightOpponentSteal)',
     'first in from late position or the small blind with every player left to act a proven tight Omaha folder, the wider steal changed the preflop intent',
     'Omaha tight opponent'
   ),
