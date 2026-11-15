@@ -1,0 +1,3 @@
+# server/src/engine/horseDecision/AFixedLimitProbeSwitchIsLive.law.test.ts
+
+The Fixed-Limit Probe Switch Is Live: The Process Switch HorseMind.setFixedLimitBetsAreNeverProbes Is Registered In The Option Switch Registry As fixedLimitBetsAreNeverProbes (Release Default On, Owner Fixed-Limit), And The Decision Worker Applies The Registry State Before Every Job: An Off Row Makes The Next Observed Fixed-Limit Hand Count Its Checked-To Bets As Probes Again, An On Row, No Row, A Stale And An Unreadable Read Count Them Whole, No-Limit And Pot-Limit Counting Is Identical In Every State, And Every Production Caller Of HorseMind.observe Runs In The Decision Worker Behind That Apply (Fixed-Limit Lane, 2026-11-15, Owner Rule 11:26).

@@ -3155,6 +3155,12 @@ export interface HorseDecideOpts {
    *  (presumedAggressorRead) is not applied; the opponent's own measured read
    *  stands (HorseMind.opponentRead). Read only as === true: default OFF. */
   fixedLimitOmahaNoPresumption?: boolean;
+  /** FIXED-LIMIT BETS ARE NEVER PROBES, live switch (2026-11-15, Fixed-Limit lane, owner rule
+   *  11:26): the registry's on/off for the PROCESS switch HorseMind.setFixedLimitBetsAreNeverProbes.
+   *  The decision never reads it: counting also happens outside a decision, so the decision worker
+   *  applies it to the process switch before every job (HorseMind.applyFixedLimitBetsAreNeverProbesOption)
+   *  and the whole thread counts with one value. Absent: the source default (on). */
+  fixedLimitBetsAreNeverProbes?: boolean;
   /** Hi-lo river bluffs with a low possible (2026-11-07,
    *  HorseRiverBluffRange.ts): the nut low with no high bets the freeroll;
    *  air bluffs the whole pot only when the opponent is unlikely to hold a

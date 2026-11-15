@@ -949,6 +949,17 @@ export class HorseDecisionWorkerRuntime {
       new OptionSwitchHolder(ABSENT_OPTION_SWITCH_SOURCE, (f) => this.deps.noteFeature(f)));
   }
   private optionSwitchHolder: OptionSwitchHolder | undefined;
+  /**
+   * 2026-11-15 (owner rule 11:26, every option switchable live): the registered options that are PROCESS switches
+   * rather than decision options. One today: fixedLimitBetsAreNeverProbes, read by HorseMind.observe wherever it
+   * counts, inside a decision or not. The read is the decision's own holder on the same clock (it re-reads only
+   * when the poll window has passed), so an off row reaches the counts at the next job, and no row, an unreadable,
+   * invalid or stale read put back the source default, never the last value.
+   */
+  private applyProcessSwitches(): void {
+    const states = this.optionSwitch.refresh(performance.now());
+    HorseMind.applyFixedLimitBetsAreNeverProbesOption(optionSwitchDecisionOpts(states));
+  }
   private featureAuthorityAdmitted = false;
   private tournamentFlagAdmission: HorseTournamentFlagAdmission | null = null;
   /** v53PloTourneyIcm is worker-owned: on only inside an admitted card's
@@ -1370,6 +1381,10 @@ export class HorseDecisionWorkerRuntime {
         return;
       }
 
+      // FIXED-LIMIT BETS ARE NEVER PROBES, live switch (2026-11-15): set this thread's process switch from the
+      // registry before the job runs, so everything it counts (the read view's history, the in-decision
+      // observation, the completed-hand learner and the persisted memory) counts with one value.
+      this.applyProcessSwitches();
       let outcome: HorseLifecycleOutcome = 'success';
       if (request.type === 'DECIDE_FAST')
         outcome = (
@@ -2983,6 +2998,8 @@ export class HorseDecisionWorkerRuntime {
     // not passed and the code default decides, exactly as before. The same for every Horse (no Horse id is read).
     const optionStates = this.optionSwitch.refresh(performance.now());
     const optionBrainOpts = optionSwitchDecisionOpts(optionStates);
+    // the decision's own observation counts with the state this decision journals (process switch, see above)
+    HorseMind.applyFixedLimitBetsAreNeverProbesOption(optionBrainOpts);
     // P15-A step 4: the worker-owned state this decision reads besides its
     // request and read frame, journaled beside it for exact replay. Capture
     // only; the decision below reads the same values it always has.
