@@ -90,6 +90,16 @@ removed; and the "nothing left" wording says what was found, not more. In
 the tests, the clean-up kills only a pid that still has the start time the
 stub recorded, and the stop cases keep their state files in the fixture.
 
+The review of that commit (`reviews/REVIEW-HU-R2-TOOL-73cdaaa9-delta-independent.md`)
+found that waiting for the watcher could hang the helper for ever when it was
+launched with SIGTERM ignored (the watcher inherits the ignore and outlives a
+SIGTERM). The watcher is now stopped with SIGKILL, after the check that it is
+still the helper's child, and the helper says in one line when SIGTERM was
+ignored at launch, since then neither its TERM trap nor its steps can be
+stopped by a SIGTERM. A test launches it that way, under both bashes, and
+expects a verified push and that line; with SIGTERM in place of SIGKILL it
+hangs (measured: both cases fail at the 60-second limit).
+
 ## The detached-launch rule (review B2)
 
 One rule, independent of timing: the helper stops when its parent process

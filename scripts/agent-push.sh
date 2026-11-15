@@ -109,6 +109,17 @@ trap 'HUP_LIVE=1' HUP
 kill -HUP "$MAIN_PID"
 :
 trap - HUP
+# The same question for SIGTERM. Ignored on entry, the TERM trap below cannot
+# be set and every step inherits the ignore, so a SIGTERM, or a SIGTERM to the
+# whole group, cannot stop this run: say so (review of 73cdaaa9, note 2).
+TERM_LIVE=
+trap 'TERM_LIVE=1' TERM
+kill -TERM "$MAIN_PID"
+:
+trap - TERM
+if [ -z "$TERM_LIVE" ]; then
+  say "SIGTERM was ignored when this helper started: a SIGTERM cannot stop this run or its steps. Stop it with SIGHUP or SIGINT where those are live, or SIGKILL its process group, and read the remote ref before reporting."
+fi
 WATCH_PARENT=1
 if [ "${AGENT_PUSH_DETACHED:-}" = 1 ]; then
   WATCH_PARENT=0
@@ -237,7 +248,9 @@ SNAP
 stop_watcher() {
   if [ -n "$WATCHER" ] &&
     [ "$(ps -o ppid= -p "$WATCHER" 2>/dev/null | tr -d ' ')" = "$MAIN_PID" ]; then
-    kill -TERM "$WATCHER" 2>/dev/null
+    # SIGKILL, not SIGTERM: a watcher that inherited an ignored SIGTERM would
+    # outlive a SIGTERM and the wait would never return (review of 73cdaaa9).
+    kill -KILL "$WATCHER" 2>/dev/null
     wait "$WATCHER" 2>/dev/null
   fi
   WATCHER=

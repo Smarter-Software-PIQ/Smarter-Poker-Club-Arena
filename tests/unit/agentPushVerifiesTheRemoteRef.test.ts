@@ -537,6 +537,27 @@ describe('scripts/agent-push.sh stops its own process tree', () => {
     });
   }
 
+  for (const shell of shells) {
+    // Review of 73cdaaa9: launched with SIGTERM ignored (inherited by its
+    // watcher), the helper still exits after its push, because the watcher is
+    // stopped with SIGKILL, and it says that a SIGTERM cannot stop it.
+    it(`launched with SIGTERM ignored, it still finishes and says so (${shell})`, async () => {
+      const run = spawn('bash', ['-c', `trap '' TERM; exec ${shell} "${helper}"`], {
+        cwd: tree,
+        env: { ...env(), AGENT_PUSH_LOAD_WAIT_SECONDS: '0', TMPDIR: fixture },
+      });
+      let stderr = '';
+      run.stderr.on('data', (chunk) => (stderr += chunk));
+      const exited = new Promise<number | null>((done) => run.on('exit', (c) => done(c)));
+      const code = await Promise.race([exited, sleep(60_000).then(() => 'hung' as const)]);
+      if (code === 'hung') run.kill('SIGKILL');
+      expect(code, stderr).toBe(0);
+      expect(stderr).toContain('VERIFIED');
+      expect(stderr).toMatch(/SIGTERM was ignored when this helper started/);
+      expect(remoteRef('agent/feature')).toBe(git(tree, 'rev-parse', 'HEAD'));
+    });
+  }
+
   // Review of 6016f5d6, N1 and N3, pinned at the source: the delayed SIGKILL
   // re-checks that each pid is still the process it was, a stop that lands
   // while a step is being started is held until the step is recorded, and the
