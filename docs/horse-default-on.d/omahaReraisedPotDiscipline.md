@@ -2,7 +2,7 @@
 
 Carried by the release pull request that supersedes #10937 (branch agent/plo-madehandon-01Gw7aDt/fix/omaha-made-hand-defense-on), built on #10937.
 
-On by default (read `!== false`) on the owner's order of 2026-11-15 00:55 America/Chicago, given after the lane told him the rule was built but unmeasured and would not be in the 4 AM release (his words are at the end of this file). Rows marked NOT MET are unmeasured and rest on that authority alone. A paired evaluation was declared before any graded run (Horse mirror, development human field, one loose-aggressive value seat, one light 4-bettor seat; PLO4 and PLO5); it runs after this head's gate, its verdict is recorded in the changelog, and a failing result switches the option off again. Evidence for the eight rows of [HORSE-DECISION-CHANGE-EVIDENCE.md](../HORSE-DECISION-CHANGE-EVIDENCE.md). Chip amounts are big blinds.
+Off by default (read `=== true`) since 2026-11-15. It was on by the owner's order of 2026-11-15 00:55 America/Chicago in #10957; its declared evaluation (PROTOCOL-2, E1, 150 sessions x 300 pairs per cell, source 9d9ad486) then FAILED: against one loose-aggressive value seat in PLO5 the Horses lost 11.95 bb/100 (SE 5.14, z -2.32), and against the development human field the pooled change was -6.34 bb/100 (SE 4.96). It gained against a seat that 4-bets light (PLO4 +14.94, SE 7.83) and was flat in the Horse mirror. The owner's instruction was to fix the problem, not to order particular folds (2026-11-15 01:03), so a rule that loses chips goes off. Evidence for the eight rows follows; the opt-in arm is kept with its league cards.
 
 ## Split at the release head (2026-11-15)
 

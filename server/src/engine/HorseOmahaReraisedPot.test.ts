@@ -1,6 +1,6 @@
 /**
  * OMAHA RE-RAISED POT DISCIPLINE (owner ruling 2026-11-14 23:49 Chicago,
- * option omahaReraisedPotDiscipline, default on by owner order 2026-11-15 00:55): the cells, and the option
+ * option omahaReraisedPotDiscipline, default OFF after its evaluation failed, 2026-11-15): the cells, and the option
  * in the league (anonymised seats only).
  */
 import { describe, expect, it } from 'vitest';
@@ -174,7 +174,7 @@ describe('the postflop cell', () => {
 });
 
 describe('in the league (anonymised seats)', () => {
-  it('on by default: unset and true play the same poker', async () => {
+  it('off by default: unset and false play the same poker', async () => {
     for (const variant of ['plo4', 'plo5']) {
       const r = await runMatchup(
         {
@@ -183,7 +183,7 @@ describe('in the league (anonymised seats)', () => {
           pairs: 120,
           productionStyles: true,
           a: {},
-          b: { omahaReraisedPotDiscipline: true },
+          b: { omahaReraisedPotDiscipline: false },
         },
         120,
         4410001
@@ -302,9 +302,9 @@ describe('in the decision (turn of a 4-bet pot, call for the rest of the stack)'
     ).toEqual(strip(decideMany(twice, { omahaReraisedPotDiscipline: false })));
   });
 
-  it('on by default: unset and true decide the same and leave the stream where it was', () => {
+  it('off by default: unset and false decide the same and leave the stream where it was', () => {
     const s = fourBetTurn('Td3d9c8h7s');
-    expect(strip(decideMany(s, { omahaReraisedPotDiscipline: true }))).toEqual(
+    expect(strip(decideMany(s, { omahaReraisedPotDiscipline: false }))).toEqual(
       strip(decideMany(s, {}))
     );
   });

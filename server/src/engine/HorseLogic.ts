@@ -2683,8 +2683,10 @@ export interface HorseDecideOpts {
    * unless the committed call pays the price against aces; in a pot 4-bet or
    * more preflop, one pair or two pair below top two does not put the stack
    * in unless its equity against aces or top two or better pays the price
-   * (HorseOmahaReraisedPot.ts). Default on by the owner's order of
-   * 2026-11-15 00:55 (unmeasured, declared); false switches it off. */
+   * (HorseOmahaReraisedPot.ts). Default OFF (opt-in): on by the owner's
+   * order of 2026-11-15 00:55 until its declared evaluation (PROTOCOL-2, E1)
+   * FAILED: -11.95 bb/100 (z -2.32) against a loose-aggressive value seat in
+   * PLO5 and -6.34 pooled against the development human field. */
   omahaReraisedPotDiscipline?: boolean;
   /** The postflop half of omahaReraisedPotDiscipline: in a pot raised three
    * or more times preflop, one pair or two pair below top two does not put
@@ -5557,7 +5559,7 @@ function shortAllInCallFloorOutsideGraph(
  * call-discipline fold for pots raised three or more times preflop. A
  * continue (call, raise or all-in) facing a wager becomes a fold when the
  * preflop or postflop cell says so; every other decision is returned as is.
- * On unless opts.omahaReraisedPotDiscipline === false; draws no random number.
+ * Off unless opts.omahaReraisedPotDiscipline === true; draws no random number.
  */
 function omahaReraisedPotFold(
   decision: HorseDecision,
@@ -5565,7 +5567,7 @@ function omahaReraisedPotFold(
   gs: HorseGameStateV2,
   opts: HorseDecideOpts
 ): HorseDecision {
-  const reraisedOn = opts.omahaReraisedPotDiscipline !== false;
+  const reraisedOn = opts.omahaReraisedPotDiscipline === true;
   if (!reraisedOn) return decision;
   if (decision.action !== 'call' && decision.action !== 'raise' && decision.action !== 'all_in')
     return decision;

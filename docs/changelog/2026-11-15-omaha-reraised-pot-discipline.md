@@ -1,6 +1,6 @@
 # Omaha re-raised pots: no dominated continue against a 4-bet, no one-pair stack-off after it
 
-Date: 2026-11-15. Lane: PLO Strategy. Owner ruling 2026-11-14 23:49 America/Chicago on PLO hand 59455160. Option `omahaReraisedPotDiscipline`, on by default by the owner's order of 2026-11-15 00:55 (last section).
+Date: 2026-11-15. Lane: PLO Strategy. Owner ruling 2026-11-14 23:49 America/Chicago on PLO hand 59455160. Option `omahaReraisedPotDiscipline`, off by default after its evaluation failed (last section).
 
 ## What happened
 
@@ -42,3 +42,7 @@ Only the preflop cell ships on. The postflop cell is the separate opt-in `omahaR
 A development probe (Horse mirror, 10 sessions of 300 hand pairs per variant) found that the postflop calls the declared-range cell (`omahaReraisedPotStackOffFold`) folds were winning calls on average against the hands actually shown: PLO4 38 calls, mean equity 0.317 against a mean price of 0.227; PLO5 22 calls, 0.264 against 0.225. The aces-or-top-two range is stronger than what players put their stacks in with in these pots.
 
 The new opt-in option prices the same cell (same pot, hands, commitment test and price) against a realistic range: a pair of aces or kings in the hand, a made hand at top-pair level or better, or, before the river, a nut flush draw or eight or more straight outs. A bettor measured as a postflop over-bluffer keeps the call. Receipt `omaha_reraised_pot_realistic_fold`; league cards `plo4_omaha_reraised_pot_stack_off_realistic` and `plo5_omaha_reraised_pot_stack_off_realistic`. It was declared before any graded run, with its own paired evaluation. It stays off until that evaluation passes.
+
+## Off after its evaluation (2026-11-15)
+
+The declared evaluation (PROTOCOL-2, E1; source 9d9ad486; 150 sessions x 300 pairs per cell; 0 illegal actions, 0 fallbacks) failed by its frozen rule: loose-aggressive value seat PLO5 -11.95 bb/100 (SE 5.14, z -2.32); development human field pooled -6.34 (SE 4.96); light 4-bettor PLO4 +14.94 (SE 7.83), PLO5 +4.17 (SE 4.02); Horse mirror PLO4 +0.94 (SE 0.69), PLO5 +0.09 (SE 0.47). `omahaReraisedPotDiscipline` is read `=== true` again, with plo4/plo5 league cards. Where this section and an earlier one disagree about on and off, this section is the head's state.

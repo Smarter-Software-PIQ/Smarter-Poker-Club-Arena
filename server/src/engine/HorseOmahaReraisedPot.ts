@@ -1,6 +1,6 @@
 /**
  * OMAHA RE-RAISED POT DISCIPLINE (owner ruling 2026-11-14 23:49 Chicago,
- * option omahaReraisedPotDiscipline, default on by owner order 2026-11-15 00:55).
+ * option omahaReraisedPotDiscipline, default OFF after its evaluation failed, 2026-11-15).
  *
  * The ruling, in substance: when a pot is 4-bet and 5-bet before the flop,
  * ace-high broadway hands without a pair of aces or a strong suited connected

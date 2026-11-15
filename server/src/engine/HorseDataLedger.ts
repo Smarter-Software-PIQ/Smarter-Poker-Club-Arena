@@ -905,7 +905,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'omahaReraisedPotDiscipline',
-    'Owner ruling 2026-11-14 23:49 (re-raised pots): PLO4/PLO5 cash, facing a 4-bet or more preflop a hand without a pair of aces or a premium structure folds unless the committed call pays the price against aces; the postflop half is the separate opt-in omahaReraisedPotStackOffFold (HorseOmahaReraisedPot.ts). Default on by owner order 2026-11-15 00:55 (value unmeasured); explicit false switches it off',
+    'Owner ruling 2026-11-14 23:49 (re-raised pots): PLO4/PLO5 cash, facing a 4-bet or more preflop a hand without a pair of aces or a premium structure folds unless the committed call pays the price against aces; the postflop half is the separate opt-in omahaReraisedPotStackOffFold (HorseOmahaReraisedPot.ts). Default OFF (opt-in): its declared evaluation failed (PROTOCOL-2 E1, LAG-value PLO5 -11.95 bb/100, z -2.32)',
     'V94'
   ),
   flag(

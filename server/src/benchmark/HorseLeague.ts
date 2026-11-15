@@ -2039,6 +2039,17 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaReraisedPotStackOffRealistic: true },
     b: {},
   })),
+  // 2026-11-15 OMAHA RE-RAISED POT DISCIPLINE, preflop cell
+  // (omahaReraisedPotDiscipline, default OFF after its evaluation failed):
+  // a switches it on, b is today's brain.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_reraised_pot_discipline`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaReraisedPotDiscipline: true },
+    b: {},
+  })),
   // 2026-11-15 OMAHA RE-RAISED POT STACK-OFF FOLD (omahaReraisedPotStackOffFold,
   // default OFF): the postflop half of omahaReraisedPotDiscipline; a turns it
   // on, b is today's brain (the preflop half on in both).
