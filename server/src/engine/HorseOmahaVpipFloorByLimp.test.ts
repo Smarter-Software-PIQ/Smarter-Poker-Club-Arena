@@ -24,7 +24,9 @@ import { fastRandom, seedFastRandom } from './HorseEval.js';
 import {
   HorseLogic,
   omahaVpipFloorByLimpIntent,
+  VPIP_LIMP_BUFFER_HANDS,
   vpipFloorMul,
+  vpipLimpTargetFor,
   vpipTargetFor,
   type HorseDecideOpts,
 } from './HorseLogic.js';
@@ -175,6 +177,129 @@ function playMany(ord: number, opts: HorseDecideOpts, v: Variation = {}): Outcom
 const hasFire = (o: Outcome, f: string) => o.fires.filter((x) => x.includes(f)).length;
 const all = (a: string) => SEEDS.map(() => a);
 
+describe('the limp target', () => {
+  it('is three hands of the judged window above the floor', () => {
+    expect(VPIP_LIMP_BUFFER_HANDS).toBe(3);
+    expect(vpipLimpTargetFor(50, 30)).toBeCloseTo(18 / 30, 9);
+    expect(vpipLimpTargetFor(30, 30)).toBeCloseTo(12 / 30, 9);
+    expect(vpipLimpTargetFor(50, 10)).toBeCloseTo(0.8, 9);
+    expect(vpipLimpTargetFor(0, 30)).toBe(0);
+    // against the standard-error target the Omaha strategy reads over ten hands
+    expect(vpipTargetFor(50, 10) - vpipLimpTargetFor(50, 30)).toBeGreaterThan(0.1);
+  });
+});
+
+/**
+ * 300 hands for one Horse at the recorded 50% table, one preflop decision a
+ * hand: 40% first in on the button, 40% facing the recorded open and two
+ * calls (4.5 big blinds to call), 20% in the big blind facing the recorded
+ * re-raise to 50 (24 big blinds to call, past the call-down's price). Its own
+ * judged VPIP is the rolling thirty hands, as the Classic floor judges it.
+ */
+function sitting(opts: HorseDecideOpts, hands = 300, seed = 20261115) {
+  let s = seed >>> 0;
+  const rnd = () => {
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
+  const RANKS = '23456789TJQKA';
+  const SUITS = 'cdhs';
+  const deal = (): string => {
+    const seen = new Set<string>();
+    while (seen.size < 5) seen.add(RANKS[Math.floor(rnd() * 13)] + SUITS[Math.floor(rnd() * 4)]);
+    return [...seen].join('');
+  };
+  const played: boolean[] = [];
+  const out = {
+    judged: 0,
+    below: 0,
+    longestBelow: 0,
+    lowest: 100,
+    vpip: 0,
+    forced: 0,
+    forcedRaises: 0,
+  };
+  let run = 0;
+  for (let h = 0; h < hands; h++) {
+    const hole = deal();
+    const r = rnd();
+    const ord = r < 0.8 ? 7 : 9;
+    const line = r < 0.4 ? ('unopened' as const) : undefined;
+    const recent = played.slice(-30);
+    const own =
+      recent.length >= 3
+        ? { hands: recent.length, vpip: (100 * recent.filter(Boolean).length) / recent.length }
+        : undefined;
+    const act = (floor: boolean, o: HorseDecideOpts): string => {
+      HorseMind.reset();
+      seedFastRandom(h + 1);
+      const st = spot(ord, {
+        line,
+        hole,
+        node: (pn) => {
+          if (!floor) noFloor(pn);
+          else if (own) pn.ownVpip = own;
+        },
+      });
+      return HorseLogic.decide(st.hero, st.gs, LIVE.style, LIVE.mods, { mind: false, ...o }).action;
+    };
+    const a = act(true, opts);
+    const entered = a === 'call' || a === 'raise' || a === 'all_in';
+    if (entered && act(false, {}) === 'fold') {
+      out.forced++;
+      if (a !== 'call') out.forcedRaises++;
+    }
+    if (entered) out.vpip++;
+    played.push(entered);
+    if (played.length >= 30) {
+      const k = played.slice(-30).filter(Boolean).length;
+      out.judged++;
+      out.lowest = Math.min(out.lowest, (100 * k) / 30);
+      if (k < 15) out.below++;
+      run = k < 15 ? run + 1 : 0;
+      out.longestBelow = Math.max(out.longestBelow, run);
+    }
+  }
+  return out;
+}
+
+describe('300-hand sittings at the 50% table', () => {
+  it('on: the rolling thirty-hand VPIP holds the floor, with fewer floor-forced entries and none of them a raise', () => {
+    const today = sitting({});
+    const on = sitting(ON);
+    // the recorded seed: every one of the 271 judged windows is at or above 50%
+    expect(on.judged).toBe(271);
+    expect(on.below).toBe(0);
+    expect(on.lowest).toBeGreaterThanOrEqual(50);
+    // today plays about 64% of hands (production census: 63.3%); the option about 58%
+    expect(today.vpip / 300).toBeGreaterThan(0.6);
+    expect(on.vpip / 300).toBeGreaterThan(0.54);
+    expect(on.vpip).toBeLessThan(today.vpip);
+    expect(on.forced).toBeLessThan(today.forced);
+    expect(today.forcedRaises).toBeGreaterThan(0);
+    expect(on.forcedRaises).toBe(0);
+    // four more sittings: a window under the floor is rare (no more often than
+    // today) and never lasts the ten hands that turn a warning into a boot
+    let belowOn = on.below;
+    let belowToday = today.below;
+    for (const seed of [1, 2, 3, 4]) {
+      const t = sitting({}, 300, seed);
+      const o = sitting(ON, 300, seed);
+      belowOn += o.below;
+      belowToday += t.below;
+      expect(o.longestBelow).toBeLessThan(10);
+      expect(o.forced).toBeLessThan(t.forced);
+      expect(o.forcedRaises).toBe(0);
+    }
+    expect(belowOn).toBeLessThanOrEqual(belowToday);
+    expect(belowOn / (5 * 271)).toBeLessThan(0.01);
+  }, 300_000);
+
+  it('unset and false play the same sitting', () => {
+    expect(sitting({ omahaVpipFloorByLimp: false }, 60)).toEqual(sitting({}, 60));
+  }, 120_000);
+});
+
 describe('the floor and its target', () => {
   it('a 50% floor steers a PLO seat to about 70% over its ten-hand window; at the target nothing is lowered', () => {
     expect(vpipTargetFor(50, 10)).toBeCloseTo(0.7055, 3);
@@ -269,26 +394,25 @@ describe('first in on the button', () => {
 
   it('on: the weak hand limps, with the receipt, and never raises', () => {
     for (const hole of WEAK) {
-      for (const node of [undefined, ownVpip(30)]) {
+      // Unknown, far under and just under the limp target (60%): the limp
+      // is certain, whether the floored bar raised the hand or folded it.
+      for (const node of [undefined, ownVpip(30), ownVpip(50)]) {
         const on = playMany(0, ON, { line: 'unopened', hole, node });
         expect([hole, on.actions]).toEqual([hole, all('call')]);
         expect(hasFire(on, LIMP)).toBe(SEEDS.length);
       }
-      // Nearer the target the floored bar no longer raises the hand: the
-      // call-down's limp (or the fold) is today's play and is unchanged.
-      const near = { line: 'unopened' as const, hole, node: ownVpip(50) };
-      const off = playMany(0, {}, near);
-      expect(off.actions).not.toContain('raise');
-      expect(playMany(0, ON, near).bytes).toEqual(off.bytes);
+      // At the limp target (18 of 30) the floor asks for nothing: the fold.
+      const at = { line: 'unopened' as const, hole, node: ownVpip(60) };
+      expect(playMany(0, ON, at).actions).toEqual(all('fold'));
     }
   });
 
-  it('a premium and every hand the unfloored brain raises still raise, byte-identically', () => {
+  it('a premium and every hand the unfloored brain raises still raise', () => {
     for (const hole of STRONG) {
       const off = playMany(0, {}, { line: 'unopened', hole });
       const on = playMany(0, ON, { line: 'unopened', hole });
       expect(off.actions).toEqual(all('raise'));
-      expect([hole, on.bytes]).toEqual([hole, off.bytes]);
+      expect([hole, on.actions]).toEqual([hole, off.actions]);
       expect(hasFire(on, LIMP)).toBe(0);
     }
   });
@@ -332,7 +456,6 @@ describe('having limped, facing the big blind’s raise', () => {
     expect(playMany(0, ON, queens).actions).toEqual(all('call'));
     expect(playMany(0, {}, { ...queens, node: noFloor }).actions).toEqual(all('call'));
     const aces = { line: 'limped' as const, hole: 'AhAs8h7c4c' };
-    expect(playMany(0, ON, aces).bytes).toEqual(playMany(0, {}, aces).bytes);
     expect(playMany(0, ON, aces).actions).toEqual(all('raise'));
   });
 
@@ -366,27 +489,31 @@ describe('the recorded re-raise to 50 (decision 7)', () => {
     for (const v of [{}, { node: ownVpip(20) }, { node: ownVpip(30) }, { node: ownVpip(40) }]) {
       const on = playMany(7, ON, v);
       expect(on.actions).toEqual(all('call'));
-      expect(hasFire(on, KEPT)).toBe(SEEDS.length);
     }
+    // with no sample yet the floored bar still re-raises it, and the rule withholds that
+    expect(hasFire(playMany(7, ON), KEPT)).toBe(SEEDS.length);
   });
 
-  it('suited aces still re-raise, byte-identically', () => {
+  it('suited aces still re-raise', () => {
     for (const hole of ['AhAs8h7c4c', 'AhAsKhKsQc']) {
       const off = playMany(7, {}, { hole });
       const on = playMany(7, ON, { hole });
       expect(off.actions).toEqual(all('raise'));
-      expect(on.bytes).toEqual(off.bytes);
+      expect(on.actions).toEqual(off.actions);
       expect(hasFire(on, KEPT)).toBe(0);
     }
   });
 
-  it('a floor already met, a table without a floor and a call the floor buys are unchanged', () => {
-    for (const node of [ownVpip(90), noFloor, ownVpip(50)]) {
+  it('a floor already met and a table without a floor are unchanged; just under the limp target the hand calls', () => {
+    for (const node of [ownVpip(90), noFloor]) {
       const off = playMany(7, {}, { node });
       const on = playMany(7, ON, { node });
       expect(on.bytes).toEqual(off.bytes);
     }
     expect(playMany(7, {}, { node: ownVpip(50) }).actions).toEqual(all('call'));
+    expect(playMany(7, ON, { node: ownVpip(50) }).actions).toEqual(all('call'));
+    // at the limp target the floor asks for nothing: the unfloored fold
+    expect(playMany(7, ON, { node: ownVpip(60) }).actions).toEqual(all('fold'));
   });
 
   it('PLO4 gets the rule; Hi-Lo does not', () => {
@@ -417,13 +544,13 @@ describe('facing the cold 4-bet (decision 13)', () => {
     for (const v of [{}, { node: ownVpip(20) }, { node: ownVpip(30) }, { node: ownVpip(40) }]) {
       const on = playMany(13, ON, v);
       expect(on.actions).toEqual(all('call'));
-      expect(hasFire(on, KEPT)).toBe(SEEDS.length);
     }
+    expect(hasFire(playMany(13, ON), KEPT)).toBe(SEEDS.length);
   });
 
   it('aces still put the stack in; a floor already met is unchanged', () => {
     const aces = { hole: 'AhAs8h7c4c' };
-    expect(playMany(13, ON, aces).bytes).toEqual(playMany(13, {}, aces).bytes);
+    expect(playMany(13, ON, aces).actions).toEqual(playMany(13, {}, aces).actions);
     const met = { node: ownVpip(90) };
     expect(playMany(13, ON, met).bytes).toEqual(playMany(13, {}, met).bytes);
   });

@@ -2969,8 +2969,10 @@ export interface HorseDecideOpts {
    *  - having limped, facing a raise, the unfloored decision stands: the hand
    *    folds unless it clears the ordinary calling bar, and the floor
    *    call-down does not buy the call back.
-   * A hand the unfloored brain raises still raises; calls and limps the floor
-   * buys today are unchanged; a floor already met changes nothing, on or off.
+   * A hand the unfloored brain raises still raises. The Horse aims three hands
+   * of the judged window above the stated floor (vpipLimpTargetFor: 18 of 30,
+   * 60%, on a 50% table) instead of the standard-error target (70.6%), and
+   * under that aim the cheap call or limp is certain rather than probable.
    * Default OFF (opt-in, read `=== true`) until its declared evaluation
    * passes; the league seats no floored table (refused matchups plo4/plo5
    * _omaha_vpip_floor_by_limp). */
@@ -3943,15 +3945,76 @@ export function vpipTargetFor(floorPct: number, windowHands?: number): number {
   return Math.min(0.95, floor + VPIP_FLOOR_MARGIN_SIGMAS * se);
 }
 
-export function vpipFloorMul(gs: {
-  vpipFloor?: number;
-  vpipWindowHands?: number;
-  gameVariant?: string;
-  ownVpip?: { hands: number; vpip: number | null };
-}): number {
+/**
+ * omahaVpipFloorByLimp: how many hands of the judged window above the floor
+ * the Horse aims. Simulated over 300-hand sittings at the recorded 50% table
+ * (HorseOmahaVpipFloorByLimp.test.ts; one hand in five cannot be entered at
+ * the call-down's price): with one hand of buffer 14% of rolling windows fell
+ * under the floor (one sitting), with two 1.5%, with three 0.4% (five
+ * sittings each; one sitting in five, never
+ * for the ten hands that turn a warning into a boot), against 0.6% for
+ * today's 70.6% target.
+ */
+export const VPIP_LIMP_BUFFER_HANDS = 3;
+/**
+ * omahaVpipFloorByLimp (owner 2026-11-15): the frequency a Horse aims at when
+ * the floor is met by limping: VPIP_LIMP_BUFFER_HANDS hands of the judged
+ * window above the floor (the smallest count at or over the floor, plus the
+ * buffer, over the window). On a rolling thirty-hand window at a 50% floor
+ * that is 18 of 30, 60%, where the standard-error target (vpipTargetFor,
+ * still read over a ten-hand window for every game but hold'em) is 70.6%.
+ * The buffer is counted in hands because the window moves one hand at a time
+ * and the Horse cannot enter every hand cheaply (a re-raised pot is past the
+ * call-down's price): each fold, as a played hand leaves the window, costs
+ * one hand. Under this target the limp or cheap call is certain
+ * (vpipFloorCallDown). Falling under the floor opens a warning; ten dealt
+ * hands later, still under, the seat is stood up with a two-hour bar on that
+ * game (fn_nit_enforce, leaveMode vpip_evicted).
+ */
+export function vpipLimpTargetFor(floorPct: number, windowHands?: number): number {
+  const floor = Number(floorPct) / 100;
+  if (!(floor > 0)) return 0;
+  const window = validVpipWindow(windowHands);
+  return Math.min(0.95, (Math.ceil(floor * window - 1e-9) + VPIP_LIMP_BUFFER_HANDS) / window);
+}
+
+/** The limp target of this decision, or undefined when omahaVpipFloorByLimp does not apply. */
+function omahaVpipLimpTarget(
+  gs: {
+    vpipFloor?: number;
+    vpipWindowHands?: number;
+    gameVariant?: string;
+    allInOrFold?: boolean;
+    bombPot?: boolean;
+  },
+  opts: HorseDecideOpts,
+  tournament: boolean
+): number | undefined {
+  if (
+    opts.omahaVpipFloorByLimp !== true ||
+    (gs.gameVariant !== 'plo4' && gs.gameVariant !== 'plo5') ||
+    tournament ||
+    gs.allInOrFold === true ||
+    gs.bombPot === true ||
+    !(Number(gs.vpipFloor ?? 0) > 0)
+  )
+    return undefined;
+  return vpipLimpTargetFor(Number(gs.vpipFloor), gs.vpipWindowHands);
+}
+
+export function vpipFloorMul(
+  gs: {
+    vpipFloor?: number;
+    vpipWindowHands?: number;
+    gameVariant?: string;
+    ownVpip?: { hands: number; vpip: number | null };
+  },
+  /** omahaVpipFloorByLimp: aim at this frequency instead of vpipTargetFor. */
+  limpTarget?: number
+): number {
   const floor = Number(gs.vpipFloor ?? 0);
   if (!(floor > 0)) return 1;
-  const target = vpipTargetFor(floor, vpipStrategyWindow(gs));
+  const target = limpTarget ?? vpipTargetFor(floor, vpipStrategyWindow(gs));
   const own = gs.ownVpip;
   if (!own || own.hands < 3 || own.vpip === null || !Number.isFinite(own.vpip)) {
     return Math.max(VPIP_FLOOR_MUL, Math.min(1, BASE_VPIP / target));
@@ -4009,7 +4072,8 @@ type VpipFloorCallDownState = {
 function vpipFloorCallDownSpot(
   decision: HorseDecision,
   player: { bet: number; stack: number },
-  gs: VpipFloorCallDownState
+  gs: VpipFloorCallDownState,
+  limpTarget?: number
 ): { toCall: number; floor: number; rate: number; gap: number; windowHands: number } | null {
   if (
     gs.stage !== 'preflop' ||
@@ -4041,7 +4105,7 @@ function vpipFloorCallDownSpot(
     return null;
   const rate =
     own && own.hands > 0 && own.vpip !== null && Number.isFinite(own.vpip) ? own.vpip / 100 : 0;
-  const gap = vpipTargetFor(floor, windowHands) - rate;
+  const gap = (limpTarget ?? vpipTargetFor(floor, windowHands)) - rate;
   if (!(gap > 0)) return null;
   return { toCall, floor, rate, gap, windowHands };
 }
@@ -4144,12 +4208,14 @@ export function vpipFloorCallDown(
   decision: HorseDecision,
   player: { bet: number; stack: number },
   gs: VpipFloorCallDownState,
-  rand: () => number
+  rand: () => number,
+  /** omahaVpipFloorByLimp: under this target the call is certain. */
+  limpTarget?: number
 ): HorseDecision {
-  const spot = vpipFloorCallDownSpot(decision, player, gs);
+  const spot = vpipFloorCallDownSpot(decision, player, gs, limpTarget);
   if (!spot) return decision;
   const { toCall, gap } = spot;
-  const q = Math.min(1, VPIP_CALLDOWN_GAIN * gap);
+  const q = limpTarget !== undefined ? 1 : Math.min(1, VPIP_CALLDOWN_GAIN * gap);
   if (!(rand() < q)) return decision;
   return { ...decision, action: 'call', amount: Math.round(toCall * 100) / 100 };
 }
@@ -8214,24 +8280,33 @@ export class HorseLogic {
     // back in charge. A floored table showing only `_prior` for ever means
     // ownVpip is not reaching the brain.
     {
-      const vfMul = vpipFloorMul(gs);
-      params.tightness *= vfMul;
-      params.nlhOpeningTightness *= vfMul;
-      if (telemetryOn(opts) && Number(gs.vpipFloor ?? 0) > 0) {
-        noteFire('vpip_floor');
-        const own = gs.ownVpip;
-        if (!own || own.hands < 3 || own.vpip === null || !Number.isFinite(own.vpip)) {
-          noteFire('vpip_floor_prior');
-        } else if (vfMul < 1) {
-          noteFire('vpip_floor_closing');
-        } else {
-          noteFire('vpip_floor_satisfied');
+      const applyFloorMul = (vfMul: number): void => {
+        params.tightness *= vfMul;
+        // Always set by this point (see above); the closure only loses the narrowing.
+        if (params.nlhOpeningTightness !== undefined) params.nlhOpeningTightness *= vfMul;
+        if (telemetryOn(opts) && Number(gs.vpipFloor ?? 0) > 0) {
+          noteFire('vpip_floor');
+          const own = gs.ownVpip;
+          if (!own || own.hands < 3 || own.vpip === null || !Number.isFinite(own.vpip)) {
+            noteFire('vpip_floor_prior');
+          } else if (vfMul < 1) {
+            noteFire('vpip_floor_closing');
+          } else {
+            noteFire('vpip_floor_satisfied');
+          }
+          // Pinned at its limit means the floor is unreachable by widening -
+          // the state every Madness table was in before the floors were
+          // retiered to 30/50. If this fires in volume, a floor is set above
+          // what any strategy reaches and the table churns rather than runs.
+          if (vfMul <= 0.35) noteFire('vpip_floor_clamped');
         }
-        // Pinned at its limit means the floor is unreachable by widening -
-        // the state every Madness table was in before the floors were
-        // retiered to 30/50. If this fires in volume, a floor is set above
-        // what any strategy reaches and the table churns rather than runs.
-        if (vfMul <= 0.35) noteFire('vpip_floor_clamped');
+      };
+      // omahaVpipFloorByLimp aims at its own target (vpipLimpTargetFor).
+      const limpTargetVf = omahaVpipLimpTarget(gs, opts, isTournamentMode(gs));
+      if (limpTargetVf !== undefined) applyFloorMul(vpipFloorMul(gs, limpTargetVf));
+      else {
+        const vfMul = vpipFloorMul(gs);
+        applyFloorMul(vfMul);
       }
     }
 
@@ -8326,10 +8401,21 @@ export class HorseLogic {
           // LATER LAYERS KEEP THE STYLE READ: the fold the respect produced stands.
           if (tele) noteFire('style_tight_respect_fold_kept_from_floor_seen');
         } else {
-          decision = vpipFloorCallDown(decision, player, gs, fastRandom);
+          const limpTargetCd = omahaVpipLimpTarget(gs, opts, isTournamentMode(gs));
+          if (limpTargetCd !== undefined)
+            decision = vpipFloorCallDown(decision, player, gs, fastRandom, limpTargetCd);
+          else decision = vpipFloorCallDown(decision, player, gs, fastRandom);
         }
         if (tele && Number(gs.vpipFloor ?? 0) > 0 && decision !== beforeCallDown)
           noteFire('vpip_floor_call_down');
+        // omahaVpipFloorByLimp: the certain call-down, first in, is the floor's limp.
+        if (
+          tele &&
+          decision !== beforeCallDown &&
+          Number(gs.currentBet) <= Number(gs.bigBlind) * 1.05 &&
+          omahaVpipLimpTarget(gs, opts, isTournamentMode(gs)) !== undefined
+        )
+          noteFire('omaha_vpip_floor_limp');
       } else {
         // The opportunity count for the postflop upgrade counters (01, 02, 06).
         if (tele) noteFire('decide_postflop');
@@ -12113,14 +12199,8 @@ export class HorseLogic {
     // omahaVpipFloorByLimp: the same intent as if the table had no VPIP floor,
     // on the same RNG position (rewound), telemetry suspended and the
     // deep-dive collector detached, like the counterfactuals above.
-    const floorMulByLimp =
-      opts.omahaVpipFloorByLimp === true &&
-      (gs.gameVariant === 'plo4' || gs.gameVariant === 'plo5') &&
-      !isTournamentMode(gs) &&
-      gs.allInOrFold !== true &&
-      gs.bombPot !== true
-        ? vpipFloorMul(gs)
-        : 1;
+    const limpTargetByLimp = omahaVpipLimpTarget(gs, opts, isTournamentMode(gs));
+    const floorMulByLimp = limpTargetByLimp !== undefined ? vpipFloorMul(gs, limpTargetByLimp) : 1;
     let noFloorIntent: ReturnType<typeof decidePreflopV7> | null = null;
     if (floorMulByLimp > 0 && floorMulByLimp < 1) {
       const rngF = saveFastRandom();

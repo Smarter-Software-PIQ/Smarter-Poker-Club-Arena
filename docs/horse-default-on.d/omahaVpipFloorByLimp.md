@@ -25,6 +25,12 @@ The option (PLO4/PLO5 cash, the multiplier below 1; `omahaVpipFloorByLimpIntent`
 
 A raise the unfloored brain makes is unchanged, and so are the calls and limps the floor buys today.
 
+The target (added 2026-11-15, owner: aim just above the stated floor with a buffer sized to the window, not 20 points above it). Today's 70.6% is `vpipTargetFor`: the floor plus 1.3 standard errors of a proportion at the floor (`VPIP_FLOOR_MARGIN_SIGMAS`, derived 2026-09-09 for the cumulative ten-hand rule of Action and Madness). It is deliberate, not a bug, but for every game except hold'em the standard error is still taken over ten hands (`vpipStrategyWindow`: "other variant strategy keeps its existing target until independently qualified"), although the Classic floor has judged a rolling thirty since 2026-11-11; over thirty hands the same formula gives 61.9%. Production census, human-seated tables since 2026-11-12: Horses at 50%-floor PLO5 tables played 63.3% of 3,299 seat-hands (42.3% at unfloored PLO5 tables); at 30%-floor PLO4 tables 46.5% (29.1% unfloored).
+
+With the option on the Horse aims `vpipLimpTargetFor`: the smallest hand count at or over the floor plus `VPIP_LIMP_BUFFER_HANDS` (3) over the judged window, 18 of 30 = 60% on a 50% table, and under that aim the floor call-down is certain instead of probable. The buffer is in hands because the window moves one hand at a time and about one hand in five cannot be entered at the call-down's price. What happens under the floor (`fn_nit_enforce`, migration 20261111003710): a warning; ten dealt hands later, still under, the seat is stood up with a two-hour bar on that game.
+
+Simulated 300-hand sittings at the recorded 50% table (five seeds, 1,355 rolling windows, one preflop decision a hand; a model, not a table): today 63.6% VPIP, 118 floor-forced entries per sitting of which 10 are raises, 0.6% of windows under the floor; with the option 58% VPIP, 101 forced entries, none a raise, 0.4% of windows under the floor (one sitting, one hand under, never for ten hands). A buffer of one hand (53.3%, about the "floor plus 4 points" suggested) left 14% of windows under the floor in the one sitting tried, two hands 1.5%.
+
 ## Input fidelity
 
 Status: MET
@@ -53,7 +59,7 @@ Not counted in production. The receipts count it once the option is on.
 
 Status: MET
 
-PLO4 and PLO5 cash with a VPIP floor still unmet. Hi-Lo, PLO6, hold'em, tournaments, bomb pots and all-in-or-fold tables are outside. `HorseOmahaVpipFloorByLimp.test.ts` (26 cases): unset, false and a truthy non-boolean decide byte-identically; first in, hands the unfloored brain folds limp and never raise; having limped they fold to a raise and the call-down does not call; the recorded queens call the raise after a limp; hand 59518335's re-raise to 50 becomes a call of 9 and its shove facing the 4-bet becomes a call; suited aces and every hand the unfloored brain raises are byte-identical; a floor already met, a table without a floor, Hi-Lo and the postflop decisions are unchanged.
+PLO4 and PLO5 cash with a VPIP floor still unmet. Hi-Lo, PLO6, hold'em, tournaments, bomb pots and all-in-or-fold tables are outside. `HorseOmahaVpipFloorByLimp.test.ts` (29 cases): unset, false and a truthy non-boolean decide byte-identically; first in, hands the unfloored brain folds limp and never raise; having limped they fold to a raise and the call-down does not call; the recorded queens call the raise after a limp; hand 59518335's re-raise to 50 becomes a call of 9 and its shove facing the 4-bet becomes a call; suited aces and every hand the unfloored brain raises are byte-identical; a floor already met, a table without a floor, Hi-Lo and the postflop decisions are unchanged.
 
 ## Visibility
 
