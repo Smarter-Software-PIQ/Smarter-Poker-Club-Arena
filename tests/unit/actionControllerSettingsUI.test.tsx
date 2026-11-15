@@ -92,8 +92,8 @@ it('edits all eight defaults and uses each saved value through the live controll
   );
   const { rerender } = render(view(true));
   for (const [group, values] of [
-    ['Preflop Multipliers', [2.2, 2.8, 3.3, 4.5]],
-    ['Postflop Pot Percentages', [25, 40, 65, 125]],
+    ['Preflop Multipliers', [2.25, 2.8, 3.3, 4.5]],
+    ['Postflop Pot Percentages', [25, 33.33, 66.67, 125]],
   ] as const) {
     values.forEach((value, index) =>
       fireEvent.change(screen.getByLabelText(`${group} Option ${index + 1}`), {
@@ -103,8 +103,8 @@ it('edits all eight defaults and uses each saved value through the live controll
     fireEvent.click(screen.getByRole('button', { name: `Apply ${group}` }));
   }
   for (const [preflop, labels, amounts] of [
-    [true, ['2.2X', '2.8X', '3.3X', '4.5X'], [22, 28, 33, 45]],
-    [false, ['25%', '40%', '65%', '125%'], [23, 30, 43, 73]],
+    [true, ['2.25X', '2.8X', '3.3X', '4.5X'], [22.5, 28, 33, 45]],
+    [false, ['25%', '33.33%', '66.67%', '125%'], [23, 27, 44, 73]],
   ] as const) {
     rerender(view(preflop));
     labels.forEach((label, index) => {
