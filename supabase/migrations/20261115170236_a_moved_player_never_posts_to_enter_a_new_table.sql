@@ -1,5 +1,7 @@
 -- 20261115170236_a_moved_player_never_posts_to_enter_a_new_table.sql
 --
+-- @live-proof: position('A MOVED PLAYER NEVER POSTS TO ENTER' IN pg_get_functiondef('public.fn_cash_seat_move_execute_before_maintenance_gate(uuid)'::regprocedure)) > 0 AND position('A MOVED PLAYER NEVER POSTS TO ENTER' IN pg_get_functiondef('public.fn_cash_seat_swap_execute_before_maintenance_gate(uuid)'::regprocedure)) > 0 AND position('entry_hold = ''waiting''' IN pg_get_functiondef('public.fn_cash_seat_swap_execute_before_maintenance_gate(uuid)'::regprocedure)) = 0
+--
 -- Version reserved by scripts/new-migration.mjs against origin/main and every
 -- remote branch, so it cannot collide with another agent's in-flight work.
 --
