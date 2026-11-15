@@ -1,154 +1,152 @@
-.thr-fish__drop,
-.thr-fish__rest,
-.thr-fish__flash,
-.thr-fish__slash {
-  transform-box: fill-box;
-  transform-origin: center;
-}
-.thr-fish__rest {
-  animation: thr-fish-flop calc(0.133s * var(--animation-speed, 1)) linear
-    calc(0.067s * var(--animation-speed, 1)) 10 forwards;
+.thr-fish__flop {
+  transform-origin: 0 12px;
+  animation: thr-fish-flop calc(1.8s * var(--animation-speed, 1)) linear forwards;
 }
 @keyframes thr-fish-flop {
-  0%,
+  0% {
+    transform: translate(-5px, 9px) rotate(-16deg);
+  }
+  8% {
+    transform: translate(-18px, -25px) rotate(-56deg) scaleY(1.08);
+  }
+  15% {
+    transform: translate(-24px, -37px) rotate(-94deg);
+  }
+  22.22% {
+    transform: translate(-23px, 10px) rotate(-168deg) scaleY(0.78);
+  }
+  29% {
+    transform: translate(-18px, 1px) rotate(-187deg);
+  }
+  40% {
+    transform: translate(4px, -48px) rotate(-243deg) scaleY(1.1);
+  }
+  52.22% {
+    transform: translate(24px, 9px) rotate(-342deg) scaleY(0.8);
+  }
+  58% {
+    transform: translate(26px, 1px) rotate(-373deg);
+  }
+  70% {
+    transform: translate(4px, -32px) rotate(-418deg);
+  }
+  82.22% {
+    transform: translate(-5px, 6px) rotate(-368deg) scaleY(0.83);
+  }
+  90%,
+  99.9% {
+    transform: rotate(-360deg);
+    opacity: 1;
+  }
   100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(1px);
+    transform: rotate(-360deg);
+    opacity: 0;
   }
 }
-.thr-fish__closed {
-  animation: thr-fish-closed calc(0.266s * var(--animation-speed, 1)) steps(1, end)
-    calc(0.067s * var(--animation-speed, 1)) 5 forwards;
-}
-.thr-fish__open {
+.thr-fish__middle,
+.thr-fish__tail {
   opacity: 0;
-  animation: thr-fish-open calc(0.266s * var(--animation-speed, 1)) steps(1, end)
-    calc(0.067s * var(--animation-speed, 1)) 5 forwards;
+  animation: thr-fish-section calc(0.32s * var(--animation-speed, 1)) steps(1, end) forwards;
 }
-@keyframes thr-fish-closed {
-  0%,
-  100% {
+.thr-fish__middle {
+  animation-delay: calc(1.8s * var(--animation-speed, 1));
+}
+.thr-fish__tail {
+  animation-delay: calc(2.12s * var(--animation-speed, 1));
+}
+@keyframes thr-fish-section {
+  from {
     opacity: 1;
   }
-  50% {
+  to {
     opacity: 0;
   }
 }
-@keyframes thr-fish-open {
-  0%,
-  100% {
-    opacity: 0;
-  }
-  50% {
-    opacity: 1;
-  }
+.thr-fish__first,
+.thr-fish__second,
+.thr-fish__third {
+  opacity: 0;
+  transform-origin: 0 14px;
+  animation: thr-fish-serve calc(0.36s * var(--animation-speed, 1)) ease-out forwards;
 }
-.thr-fish__flash {
-  animation: thr-fish-flash calc(0.133s * var(--animation-speed, 1)) linear 1 forwards;
+.thr-fish__first {
+  animation-delay: calc(1.8s * var(--animation-speed, 1));
 }
-@keyframes thr-fish-flash {
+.thr-fish__second {
+  animation-delay: calc(2.12s * var(--animation-speed, 1));
+}
+.thr-fish__third {
+  animation-delay: calc(2.44s * var(--animation-speed, 1));
+}
+@keyframes thr-fish-serve {
   0% {
     opacity: 1;
-    transform: scale(0.8);
+    transform: scale(0.63, 0.78);
   }
-  50% {
+  40% {
     opacity: 1;
-    transform: scale(1.2);
-  }
-  100% {
-    opacity: 0;
-    transform: scale(1.25);
-  }
-}
-.thr-fish__slash {
-  opacity: 0;
-  animation: thr-fish-slash calc(0.1s * var(--animation-speed, 1)) linear 1 forwards;
-}
-.thr-fish__slash--one {
-  animation-delay: calc(1.4s * var(--animation-speed, 1));
-}
-.thr-fish__slash--two {
-  animation-delay: calc(1.667s * var(--animation-speed, 1));
-}
-@keyframes thr-fish-slash {
-  0% {
-    opacity: 1;
-    transform: translate(-20px, -25px) rotate(-55deg) scale(0.7);
+    transform: translateY(-11px) rotate(-8deg) scale(1.07);
   }
   75% {
     opacity: 1;
-    transform: translate(10px, 15px) rotate(35deg) scale(1);
+    transform: scale(1.04, 0.94);
   }
-  100% {
-    opacity: 0;
-    transform: translate(25px, 35px) rotate(65deg) scale(0.7);
-  }
-}
-.thr-fish__gash {
-  opacity: 0;
-  animation: thr-fish-gash calc(0.1s * var(--animation-speed, 1)) linear
-    calc(1.867s * var(--animation-speed, 1)) 1 forwards;
-}
-@keyframes thr-fish-gash {
-  0%,
   100% {
     opacity: 1;
+    transform: none;
   }
 }
-.thr-fish__face-mark {
+.thr-fish__knife {
   opacity: 0;
-  animation: thr-fish-mark calc(1.233s * var(--animation-speed, 1)) linear
-    calc(1.867s * var(--animation-speed, 1)) 1 forwards;
+  animation: thr-fish-chop calc(1.2s * var(--animation-speed, 1)) linear
+    calc(1.56s * var(--animation-speed, 1)) forwards;
 }
-@keyframes thr-fish-mark {
-  0%,
-  30% {
-    opacity: 0.65;
-  }
-  100% {
-    opacity: 0;
-  }
-}
-.thr-fish__drop {
-  animation: thr-fish-drop calc(0.533s * var(--animation-speed, 1)) ease-in
-    calc(2.267s * var(--animation-speed, 1)) 1 forwards;
-}
-@keyframes thr-fish-drop {
+@keyframes thr-fish-chop {
   0% {
-    opacity: 1;
-    transform: translateY(0) rotate(0);
+    opacity: 0.5;
+    transform: translate(-22px, -79px) rotate(-42deg);
   }
-  81% {
+  14% {
     opacity: 1;
-    transform: translateY(65px) rotate(30deg);
+    transform: translate(-22px, -65px) rotate(-30deg);
+  }
+  20% {
+    opacity: 1;
+    transform: translate(-22px, 3px) rotate(-8deg);
+  }
+  34% {
+    opacity: 1;
+    transform: translate(4px, -71px) rotate(-31deg);
+  }
+  46.67% {
+    opacity: 1;
+    transform: translate(13px, 2px) rotate(-6deg);
+  }
+  62% {
+    opacity: 1;
+    transform: translate(48px, -68px) rotate(-29deg);
+  }
+  73.33% {
+    opacity: 1;
+    transform: translate(50px, 4px) rotate(-5deg);
   }
   100% {
     opacity: 0;
-    transform: translateY(90px) rotate(42deg);
+    transform: translate(80px, -87px) rotate(18deg);
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .thr-fish__drop,
-  .thr-fish__rest,
-  .thr-fish__closed,
-  .thr-fish__open,
-  .thr-fish__flash,
-  .thr-fish__slash,
-  .thr-fish__gash,
-  .thr-fish__face-mark {
+  .thr-fish__flop,
+  .thr-fish__middle,
+  .thr-fish__tail,
+  .thr-fish__knife {
     animation: none !important;
-    transform: none !important;
-  }
-  .thr-fish__open,
-  .thr-fish__flash,
-  .thr-fish__slash,
-  .thr-fish__gash,
-  .thr-fish__face-mark {
     opacity: 0 !important;
   }
-  .thr-fish__closed {
+  .thr-fish__first,
+  .thr-fish__second,
+  .thr-fish__third {
+    animation: none !important;
     opacity: 1 !important;
   }
 }
