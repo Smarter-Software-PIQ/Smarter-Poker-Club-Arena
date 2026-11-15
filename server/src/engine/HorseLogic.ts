@@ -325,7 +325,11 @@ import {
   type TournamentMState,
   type TournamentPreflopPolicyInput,
 } from './HorseTournamentPreflop.js';
-import { fixedLimitStreetBounds, potLimitRaiseTo } from './BettingStructure.js';
+import {
+  bettingStructureFor,
+  fixedLimitStreetBounds,
+  potLimitRaiseTo,
+} from './BettingStructure.js';
 import { omahaTournamentPressure } from './HorseOmahaTournamentPressure.js';
 import { reportError } from '../services/errorReporter.js';
 import {
@@ -6243,7 +6247,9 @@ export class HorseLogic {
           gameState.players,
           opts.mindObservationHand,
           undefined,
-          gameState.bigBlind
+          gameState.bigBlind,
+          // FIXED-LIMIT BETS ARE NEVER PROBES: the hand's structure (HorseMind).
+          gameState.bettingStructure ?? bettingStructureFor(gameState.gameVariant)
         );
       } catch {
         /* observation is best-effort */

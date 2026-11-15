@@ -1,4 +1,5 @@
 import { publicMemoryDomainKey } from '../HorsePublicMemoryDomain.js';
+import { bettingStructureFor } from '../BettingStructure.js';
 import { riverPublicNode } from '../HorseMultiwayRiverRead.js';
 import { PooledPublicProfiles, type PooledPublicProfileReceipt } from './pooledPublicProfiles.js';
 import { opponentMemoryKey } from '../HorseOpponentMemory.js';
@@ -310,7 +311,8 @@ export class HorseObserverReads {
             handNumber: Number(parts[1]),
           },
           entry.context.dealtCount,
-          hand.bigBlind
+          hand.bigBlind,
+          bettingStructureFor(entry.context.variant)
         );
       HorseMind.observeHandComplete(
         hand.handKey,
