@@ -18,6 +18,13 @@ export interface HorseJournalArchiveOptions {
   /** Absent or null: nothing is held and every published segment is a ring
    * candidate. */
   hold?: HorseJournalArchiveHold | null;
+  /** RETENTION BY TIME (2026-11-15). Published segments younger than this are
+   * not retired for the byte allocation while the filesystem keeps more than
+   * diskFloorBytes free. Absent or 0: the byte allocation binds as before. */
+  minRetentionMs?: number;
+  /** Free filesystem bytes below which the time guarantee yields and the byte
+   * allocation binds again (journal_retention_guarantee_breached). */
+  diskFloorBytes?: number;
 }
 
 // Separate durable archive allocation; the original 64 MiB journal remains
@@ -120,6 +127,55 @@ export const horseJournalHoldBudget = (
 // sizing, not a guarantee every record mix fits. Keep a finite allocation,
 // shared by writer enforcement and reader diagnostics; SQLite grows on demand.
 export const HORSE_JOURNAL_ARCHIVE_CATALOG_BYTES = 6 * 1024 * 1024 * 1024;
+
+/* RETENTION IS GUARANTEED BY TIME, NOT ONLY BY BYTES (2026-11-15). The byte
+   allocation above was sized when one writer captured the fleet. With eight
+   decision-worker shards (shards 2-7 at 4 GiB each) the ring kept what its
+   bytes held, and as records grew that fell to 15-23 hours per shard (14.8 h
+   on the busiest, measured read-only 2026-11-15 14:10Z; about 10 h on
+   2026-11-14), shorter than one daily-break cycle. A capture window between
+   two releases (up to about 24 hours) aged out before it could be read, and
+   the capture owner byte-copied the journal hourly to keep it: a watcher in
+   place of a fix. Now a published segment younger than the minimum retention
+   (default 30 h: one daily-break cycle plus six hours to read it) is not
+   retired for the byte allocation; the ring retires it only for a hard quota
+   (segments, records, catalog pages), or when the filesystem's free space
+   would fall below the disk floor (default 32 GiB), and then says so by name
+   (journal_retention_guarantee_breached) in its log and its status, oldest
+   first as before. Measured need at 30 h: about 2 GiB/h for the fleet, about
+   60 GiB of segments against about 40 GiB allocated today and 170 GiB free on
+   the engine host's 338 GB disk. HORSE_DECISION_JOURNAL_ARCHIVE_MIN_RETENTION_HOURS
+   (0 to 168; 0 turns the guarantee off) and
+   HORSE_DECISION_JOURNAL_ARCHIVE_DISK_FLOOR_BYTES override both. */
+export const HORSE_JOURNAL_MIN_RETENTION_HOURS = 30;
+export const HORSE_JOURNAL_MAX_MIN_RETENTION_HOURS = 168;
+export const HORSE_JOURNAL_RETENTION_DISK_FLOOR_BYTES = 32 * 1024 * 1024 * 1024;
+export type HorseJournalByteQuotaVerdict = 'retire' | 'keep' | 'breach';
+/** Pure. Whether the oldest retirable segment may be retired for the byte
+ * allocation. 'keep': it is younger than the guarantee and the disk has room,
+ * so the byte allocation yields. 'breach': it is younger, but the disk floor
+ * would be crossed, so it is retired anyway and the breach is named.
+ * 'retire': no guarantee applies (off, no candidate age, or old enough). */
+export function horseJournalByteQuotaVerdict(input: {
+  minRetentionMs: number;
+  oldestAgeMs: number | null;
+  freeBytes: number | null;
+  incomingBytes: number;
+  diskFloorBytes: number;
+}): HorseJournalByteQuotaVerdict {
+  const { minRetentionMs, oldestAgeMs, freeBytes, incomingBytes, diskFloorBytes } = input;
+  if (!(minRetentionMs > 0) || oldestAgeMs === null || !Number.isFinite(oldestAgeMs))
+    return 'retire';
+  if (oldestAgeMs >= minRetentionMs) return 'retire';
+  if (freeBytes === null || !Number.isFinite(freeBytes)) return 'breach';
+  return freeBytes - Math.max(0, incomingBytes) > diskFloorBytes ? 'keep' : 'breach';
+}
+function retentionHours(value: string | undefined): number {
+  if (value === undefined) return HORSE_JOURNAL_MIN_RETENTION_HOURS;
+  if (!/^(0|[1-9][0-9]*)$/.test(value) || Number(value) > HORSE_JOURNAL_MAX_MIN_RETENTION_HOURS)
+    throw Error('Invalid Horse archive resource allocation');
+  return Number(value);
+}
 
 function positiveInteger(value: string | undefined, fallback: number, ceiling: number): number {
   if (value === undefined) return fallback;
@@ -312,6 +368,28 @@ export function runtimeHorseJournalArchiveOptions(
       HORSE_JOURNAL_ARCHIVE_SEGMENTS
     ),
     hold: evidenceHold(environment.HORSE_DECISION_JOURNAL_ARCHIVE_HOLD),
+  };
+}
+
+/** The live writer's archive options: the allocation above plus the time
+ * guarantee (default 30 h, 32 GiB disk floor). Only the engine's own writer
+ * (startHorseDecisionJournal / prespawnHorseDecisionJournalWriter) opens with
+ * these; every reader, tool and test that builds runtimeHorseJournalArchiveOptions
+ * keeps byte-bound retirement exactly as before. */
+export function runtimeHorseJournalWriterArchiveOptions(
+  directory: string,
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+  shard: HorseJournalArchiveShard = { index: 0 }
+): HorseJournalArchiveOptions {
+  return {
+    ...runtimeHorseJournalArchiveOptions(directory, environment, shard),
+    minRetentionMs:
+      retentionHours(environment.HORSE_DECISION_JOURNAL_ARCHIVE_MIN_RETENTION_HOURS) * 3_600_000,
+    diskFloorBytes: positiveInteger(
+      environment.HORSE_DECISION_JOURNAL_ARCHIVE_DISK_FLOOR_BYTES,
+      HORSE_JOURNAL_RETENTION_DISK_FLOOR_BYTES,
+      Number.MAX_SAFE_INTEGER
+    ),
   };
 }
 
