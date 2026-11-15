@@ -219,11 +219,12 @@ describe('the cashier release contract names every migration that changed a pinn
         expect(createHash('md5').update(code(item.sql)).digest('hex'), item.version).toBe(
           item.recordedCodeMd5
         );
-        // And the contract pins exactly that recorded statement for the version.
-        const block = contract.slice(
-          contract.search(new RegExp(`WHERE version = '${item.version}'`))
-        );
-        expect(block.slice(0, 400), item.version).toContain(
+        // And the contract pins exactly that recorded statement for the version:
+        // the same EXISTS subquery, from its WHERE line to the THEN or OR after it.
+        const check = new RegExp(
+          `WHERE version = '${item.version}'(?:(?!\\bTHEN\\b|\\bOR NOT EXISTS\\b)[\\s\\S])*`
+        ).exec(contract);
+        expect(check?.[0], item.version).toContain(
           `md5(statements[1]) = '${item.recordedStatementMd5}'`
         );
       }
