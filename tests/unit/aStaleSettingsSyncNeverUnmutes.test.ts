@@ -6,6 +6,9 @@
  * moment a player mutes at the table or in the menu, so the listener may only
  * ever turn sound OFF (through the engine, which also releases the Safari audio
  * session). A stale `true` turning sound back on was the regression this pins.
+ *
+ * 2026-11-14: and a stale `false` may not mute a player who has since turned
+ * sound on at the table. Only the Settings page's own save mutes through here.
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -22,7 +25,11 @@ describe('the table settings sync', () => {
   });
 
   it('only ever mutes, and mutes through the engine', () => {
-    expect(handler).toContain('if (s.soundEnabled === false) {');
+    /* Narrowed 2026-11-14: the stale copy must not MUTE either. Only the
+       Settings page's own save is a choice; see tableMenuSwitchesAnswer. */
+    expect(handler).toContain(
+      "if (payload?.source === 'settings-page' && s.soundEnabled === false) {"
+    );
     expect(handler).toContain('soundService.setEnabled(false);');
     expect(handler).not.toMatch(/setEnabled\(s\.soundEnabled\)/);
     expect(handler).not.toMatch(/setEnabled\(true\)/);
