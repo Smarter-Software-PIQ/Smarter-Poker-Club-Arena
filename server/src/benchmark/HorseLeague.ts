@@ -2738,6 +2738,22 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: {},
     b: { omahaTournamentFirstIn: false },
   })),
+  // 2026-11-15 OMAHA SMALL BLIND STEAL (omahaSmallBlindSteal, default OFF,
+  // off-only in the live switch while the blind-steal hold stands): four to
+  // eight dealt, PLO4/PLO5, the small blind folded to plays its top 40 percent
+  // at 20 BB or less. a switches it on, b is today's brain. The card only measures.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_mtt_6max_omaha_small_blind_steal_12bb`,
+    variant,
+    seats: 6,
+    stackBB: 12,
+    context: bigBlindAnteMttContext(6, 12),
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed' as const,
+    a: { omahaSmallBlindSteal: true },
+    b: {},
+  })),
   // 2026-11-14 OMAHA HI-LO HEADS-UP TOURNAMENT FIRST-IN (HU-HILO-002),
   // default OFF: a is the option on, b today's brain. PLO8 heads-up final
   // table at 12 BB, where the small blind folds 83-85 percent first in and
@@ -3607,6 +3623,23 @@ export interface UnmeasurableMatchup extends Pick<
 }
 
 export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.freeze([
+  // 2026-11-15 (PLO Strategy, owner 12:16): horseActionTimeIsPublicOnly,
+  // default off. Refused, not dealt: this league has no clock.
+  {
+    name: 'nlh_horse_action_time_is_public_only',
+    variant: 'nlh',
+    seats: 6,
+    a: { horseActionTimeIsPublicOnly: true },
+    b: {},
+    reason:
+      'Unanswerable by this league: the option changes only the think time attached to a decision ' +
+      '(horsePublicActionTime), never the action or the amount, and playHand has no clock and no opponent ' +
+      'that reads a delay, so the two arms win and lose the same chips. The option is DEFAULT OFF (read as === true). ' +
+      'Measured 2026-11-15 by running this refused matchup through runMatchup (seed 20261115, 300 pairs): ' +
+      '0 of 300 pairs diverged (inert, as the structure says). The think-time claim itself rests on the source ' +
+      'law and the property test (200 private hands on three public states give one think-time distribution). ' +
+      'What would change this: a league opponent that conditions its play on the recorded think time.',
+  },
   // 2026-11-15 (PLO Strategy, hand 59518335): omahaVpipFloorByLimp,
   // default off. Refused, not dealt: this league seats no VPIP-floor table.
   ...(['plo4', 'plo5'] as const).map((variant) => ({

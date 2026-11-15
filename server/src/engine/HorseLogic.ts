@@ -7067,7 +7067,7 @@ function omahaReraisedPotFlopContinue(
     if (String(gs.stage ?? '') !== 'flop') return decision;
     if (Array.isArray(gs.legalActions) && !gs.legalActions.includes('fold')) return decision;
     const history = gs.actionHistory ?? [];
-    let lastRaiserSeat = -1;
+    let preflopAggressorSeat = -1;
     for (const a of history) {
       if (a.stage !== 'preflop') continue;
       if (
@@ -7075,7 +7075,7 @@ function omahaReraisedPotFlopContinue(
         a.action === 'bet' ||
         (a.action === 'all_in' && a.isFullRaise !== undefined)
       )
-        lastRaiserSeat = a.seat;
+        preflopAggressorSeat = a.seat;
     }
     const heroBet = Number.isFinite(player.bet) ? Math.max(0, player.bet ?? 0) : 0;
     const toCall = Number.isFinite(gs.toCall)
@@ -7087,7 +7087,7 @@ function omahaReraisedPotFlopContinue(
       board: gs.communityCards ?? [],
       dead: player.knownDeadCards ?? [],
       preflopRaises: preflopRaiseCount(history),
-      heroLastPreflopRaiser: lastRaiserSeat === player.seat,
+      heroLastPreflopRaiser: preflopAggressorSeat === player.seat,
       toCall,
       stack: Number.isFinite(player.stack) ? Math.max(0, player.stack) : 0,
       pot: Number.isFinite(gs.pot) ? Math.max(0, gs.pot) : 0,
