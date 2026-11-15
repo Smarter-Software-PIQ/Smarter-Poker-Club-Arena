@@ -59,31 +59,28 @@ function isolatedSitOutSeats(engine: any) {
     { ...current, left_at: '2026-10-09T12:00:00Z' },
   ];
   const writes: Array<{ value: boolean; filters: Array<[string, unknown]> }> = [];
-  const from = vi.spyOn(supabase, 'from').mockImplementation(((relation: string) => {
-    expect(relation).toBe('table_seats');
+  const from = vi.spyOn(supabase, 'rpc').mockImplementation((async (name: string, args: any) => {
+    expect(name).toBe('fn_cash_seat_sitout');
+    const filters: Array<[string, unknown]> = [
+      ['table_id', args.p_table_id],
+      ['user_id', args.p_user_id],
+      ['occupancy_id', args.p_occupancy_id],
+      ['left_at', null],
+    ];
+    writes.push({ value: args.p_sitting_out, filters });
+    for (const row of [current, ...others])
+      if (filters.every(([key, value]) => row[key as keyof typeof row] === value))
+        row.is_sitting_out = args.p_sitting_out;
     return {
-      update: (patch: { is_sitting_out: boolean }) => {
-        expect(Object.keys(patch)).toEqual(['is_sitting_out']);
-        const filters: Array<[string, unknown]> = [];
-        const query = {
-          eq: (column: string, value: unknown) => {
-            filters.push([column, value]);
-            return query;
-          },
-          is: (column: string, value: null) => {
-            filters.push([column, value]);
-            writes.push({ value: patch.is_sitting_out, filters });
-            for (const row of [current, ...others]) {
-              if (filters.every(([key, value]) => row[key as keyof typeof row] === value))
-                row.is_sitting_out = patch.is_sitting_out;
-            }
-            return query;
-          },
-          select: () => query,
-          maybeSingle: () => Promise.resolve({ data: null, error: null }),
-        };
-        return query;
+      data: {
+        seat: { ...current, leave_pending: false },
+        pool_session_id: null,
+        cluster_id: null,
+        sitting_out: args.p_sitting_out,
+        blind_off: false,
+        hands_remaining: 0,
       },
+      error: null,
     };
   }) as any);
   return { current, others, writes, from, occupancyId };

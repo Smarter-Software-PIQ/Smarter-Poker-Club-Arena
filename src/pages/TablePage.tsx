@@ -706,7 +706,6 @@ import { useActorGapBridge } from '../hooks/useActorGapBridge';
 import HitRunCountPill from '../components/table/HitRunCountPill';
 import {
   useBigWinRestarted,
-  useCountdownPaused,
   useCountdownResumed,
   useCountdownStarted,
   useHandsAddedByDouble,
@@ -714,7 +713,6 @@ import {
 import {
   blindOffLeaveText,
   bigWinStartedText,
-  countdownPausedToastText,
   countdownResumedText,
   charlesRuleText,
   countdownStartedText,
@@ -6221,7 +6219,9 @@ function LiveTablePage({
       if (res?.success) {
         if (
           lightningRoom &&
-          !lightningSitOut.acknowledge(tableId, String(userId), true, requestVersion)
+          !lightningSitOut.acknowledge(tableId, String(userId), true, requestVersion, {
+            blindOff: res.blindOff === true,
+          })
         )
           return;
         setSitOutSince(Date.now());
@@ -10866,6 +10866,7 @@ function LiveTablePage({
         handHistoryService.getPlayerHands(userId, HAND_HISTORY_PAGE, {
           tableId,
           gameMode: tableHistoryGameMode,
+          includeObserved: true,
           lightningPoolSessionId: lightningRoom?.poolSessionId,
           throwOnError: true,
         }),
@@ -10936,6 +10937,7 @@ function LiveTablePage({
       const rows = await handHistoryService.getPlayerHands(userId, HAND_HISTORY_PAGE, {
         tableId,
         gameMode: tableHistoryGameMode,
+        includeObserved: true,
         beforeHandNumber: oldest.handNumber,
         throwOnError: true,
       });
@@ -10984,7 +10986,7 @@ function LiveTablePage({
         return;
       try {
         const savedScope = `${userId}:${tableId}:${lightningRoom?.poolSessionId ?? ''}:${tableHistoryGameMode}`;
-        const row = await handHistoryService.getHand(savedId);
+        const row = await handHistoryService.getHand(savedId, { includeObserved: true });
         if (
           handHistoryScopeRef.current !== savedScope ||
           handHistoryViewerRef.current !== userId ||
@@ -11001,7 +11003,13 @@ function LiveTablePage({
         if (stateAfterAwait !== 'ready') return;
         // Lightning's authenticated room announces a physical hand, whereas
         // this page's tableId is the player's pool session, not a tables row.
-        if (!row || (!lightningRoom?.poolSessionId && row.table_id !== tableId)) return;
+        if (
+          !row ||
+          (!lightningRoom?.poolSessionId &&
+            engineSnapshotRef.current?.lightning_observer !== true &&
+            row.table_id !== tableId)
+        )
+          return;
         if (Boolean(row.tournament_id) !== (tableHistoryGameMode === 'tournament')) return;
         const record = adaptServiceHandToPanel(row, userId);
         setHandHistory((prev) => {
@@ -11029,6 +11037,7 @@ function LiveTablePage({
         const hands = await handHistoryService.getPlayerHands(userId, 1, {
           tableId,
           gameMode: tableHistoryGameMode,
+          includeObserved: true,
           lightningPoolSessionId: lightningRoom?.poolSessionId,
           throwOnError: true,
         });
@@ -12242,10 +12251,6 @@ function LiveTablePage({
   /* THE COUNTDOWN RESUMES (owner 2026-11-13): back in profit, the paused
      count picks up where it stopped; said with the resumed number. */
   useCountdownResumed(heroHandCount, (hands) => toast.info(countdownResumedText(hands)));
-  /* THE COUNTDOWN PAUSES: out of profit with hands left, said once. */
-  useCountdownPaused(heroHandCount, tableState.handNumber ?? 0, (hands) =>
-    toast.info(countdownPausedToastText(hands))
-  );
   /* THE CHARLES RULE AFTER A LARGE WIN (owner 2026-11-11): another +250 BB
      win while hands are owed resets the count to ten; said when it happens. */
   useBigWinRestarted(heroHandCount, (hands, bigWinBb) =>
@@ -13963,7 +13968,7 @@ function LiveTablePage({
       // seen a hand finish yet, but it races the insert — tapping Replay
       // straight after a hand could return the PREVIOUS hand. This event is
       // authoritative and arrives before the player can realistically tap.
-      if (eventType === 'hand_history_saved') {
+      if (eventType === 'hand_history_saved' || eventType === 'observed_hand_saved') {
         const receiptRoom = handState.pool_session_id;
         if (
           receiptRoom &&
@@ -31189,7 +31194,24 @@ function LiveTablePage({
       <div className="action-panel-wrapper">
         {/* POKERBROS-spec: persistent footer bar — NEVER empty. Dan rule
             2026-04-17: action bar fixed to footer at all times, every state. */}
-        {heroWaitingForButton ? (
+        {lightningRoom &&
+        !lightningHeroInRoster &&
+        lightningSitOut.readError &&
+        !heroIsSittingOut ? (
+          <div className="spectator-footer-bar" data-state="seat-status-unavailable">
+            <span className="spectator-footer-bar__label" role="status" aria-live="polite">
+              Seat Status Unavailable
+            </span>
+            <button
+              type="button"
+              className="spectator-footer-bar__cta"
+              disabled={lightningSitOut.reading}
+              onClick={lightningSitOut.retryRead}
+            >
+              Retry Seat Status
+            </button>
+          </div>
+        ) : heroWaitingForButton ? (
           <div className="spectator-footer-bar" data-state="waiting-for-button" role="status">
             <span className="spectator-footer-bar__label">
               {tableState.isTournament ? 'Sitting Out' : 'Waiting For The Button To Pass'}
@@ -31546,19 +31568,21 @@ function LiveTablePage({
               aria-live="polite"
               aria-atomic="true"
             >
-              {sitOutBadgeLabel(
-                sitOutMsRemaining({
-                  sitOutSince,
-                  isTournament: tableState.isTournament,
-                  now: sitOutTick,
-                }),
-                /* 2026-09-04 (audit item 3): the engine says whether this
+              {lightningSitOut.blindOff
+                ? 'Posting Blinds Until Your Hand Count Ends'
+                : sitOutBadgeLabel(
+                    sitOutMsRemaining({
+                      sitOutSince,
+                      isTournament: tableState.isTournament,
+                      now: sitOutTick,
+                    }),
+                    /* 2026-09-04 (audit item 3): the engine says whether this
                    sit-out was forced (two timeouts) or chosen, and the bar
                    says so too. Same I'm Back either way. */
-                disconnectStates[userId ?? '']?.sitOutReason === 'forced'
-                  ? 'You Timed Out Two Times, So You Are Sitting Out'
-                  : 'You Are Sitting Out'
-              )}
+                    disconnectStates[userId ?? '']?.sitOutReason === 'forced'
+                      ? 'You Timed Out Two Times, So You Are Sitting Out'
+                      : 'You Are Sitting Out'
+                  )}
             </span>
             <button
               type="button"

@@ -500,6 +500,7 @@ export function tournamentStackProofIsExact(
 export async function logHandHistory(params: {
   publicMemoryDomain?: HorsePublicMemoryDomain | null;
   tableId: string;
+  observedHands?: import('../../transport/ObservedHands.js').ObservedHandReceipt[];
   /**
    * `tables.nit_game`. Passed through to writeHandFacts so a horse at a NIT
    * table produces the VPIP evidence the rule is judged on. See the note over
@@ -807,6 +808,7 @@ export async function logHandHistory(params: {
 
   const opponentDealtCount = params.holeCardsAll?.size;
   const row = {
+    ...(params.observedHands?.length ? { _observed_hands: params.observedHands } : {}),
     // The RLS roster can include non-dealt chairs. Only the authoritative
     // dealt-card map can state the population the opponent read belongs to.
     ...(opponentDealtCount !== undefined && opponentDealtCount >= 2 && opponentDealtCount <= 10

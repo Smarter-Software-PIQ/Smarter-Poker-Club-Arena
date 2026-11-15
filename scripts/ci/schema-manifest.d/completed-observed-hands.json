@@ -1,0 +1,5 @@
+{
+  "_owner": "Codex UI/Lightning 01a1dfa2; migration 20261115144452. Completed-observer receipts and public-only review RPC are implemented and native-qualified, not an unbuilt-feature allowance.",
+  "tables": ["ca_observed_hands"],
+  "functions": ["ca_table_review_hands"]
+}

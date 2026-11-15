@@ -524,7 +524,8 @@ body[data-toast-theme='daily-missions-casino'] .toast-container {
 }
 
 body:has(.table-page[data-lightning-hud='true']) .toast-container {
-  top: max(8px, env(safe-area-inset-top));
+  /* The toast component measures the messenger's actual viewport bottom. */
+  top: calc(env(safe-area-inset-top, 0px) + 120px);
   bottom: auto;
   max-height: 30dvh;
 }
