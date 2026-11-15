@@ -3460,6 +3460,9 @@ export class HorseDecisionWorkerRuntime {
       case 'styleTightPlayerExploit':
         this.deps.noteFeature('style_tight_player_exploit_changed_action_seen');
         break;
+      case 'styleStealTightBlinds':
+        this.deps.noteFeature('style_steal_tight_blinds_changed_action_seen');
+        break;
     }
   }
 

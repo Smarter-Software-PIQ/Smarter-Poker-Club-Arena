@@ -50,13 +50,7 @@ export type LedgerKind =
   | 'tag';
 
 export type LedgerCadence =
-  | 'per_action'
-  | 'per_hand'
-  | 'per_sit'
-  | 'minute'
-  | 'boot'
-  | 'nightly'
-  | 'legacy_unused';
+  'per_action' | 'per_hand' | 'per_sit' | 'minute' | 'boot' | 'nightly' | 'legacy_unused';
 
 export interface LedgerEntry {
   key: string;
@@ -1115,6 +1109,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     '2026-11-13'
   ),
   flag(
+    'styleStealTightBlinds',
+    "2026-11-15 STEAL FROM TIGHT BLINDS (HorseTightPlayerExploit.tightBlindsSteal; OFF-ONLY in the live switch under the owner's blind-steal hold): no-limit hold'em, first in from the cutoff, button or small blind with every player left to act credibly tight and not aggressive by the style read (never presumed): the open bar comes down by half of the fold-equity surplus over the open's break-even, at most 0.06. Declared assumptions: a blind folds with probability 1 - min(1, 2 x his VPIP posterior mean); the open priced is 2.5 big blinds. Never at push/fold depths, in All-In-Or-Fold, bomb pots, bounty events or Omaha; loose, maniac, value-heavy, attacking and unknown reads stand it down. Read only as === true: default OFF.",
+    '2026-11-15'
+  ),
+  flag(
     'styleTightPlayerExploit',
     "2026-11-15 RESPONSES TO TIGHT PLAYERS (owner order 08:05 Chicago; HorseTightPlayerExploit): against a CREDIBLY tight player's folding, measured from the existing style read and never presumed (supported read, tight participation, not released; excluded: shown big bets strong, bet-when-checked-to high, fold-to-bet low, river call high, bluff-weighted): (a) heads-up on the turn or river, checked to by a credibly tight-passive player, the pure-bluff frequency (equity under 0.3) rises by up to x1.35 net of styleFoldBluff, sized by the existing sizing; (b) preflop no-limit hold'em, every limper credibly tight and not aggressive, the isolation bar from middle or late position comes down by up to 0.04, not at push/fold depths (25 bb) and never beside a limp-reraise read. Hold'em, not Omaha, not bounty events. Default OFF (read === true); evidence file docs/horse-default-on.d/styleTightPlayerExploit.md.",
     '2026-11-15'
@@ -1224,6 +1223,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'style_tight_player_checked_to_bluff_seen',
     'HorseLogic (styleTightPlayerExploit, postflop)',
     'heads-up on the turn or river, checked to by a credibly tight-passive player, the pure-bluff frequency was raised (net of styleFoldBluff); occurrence counter; named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
+    'style_steal_tight_blinds_seen',
+    'HorseLogic (styleStealTightBlinds, preflop)',
+    'first in from late position or the small blind with every player left to act credibly tight and not aggressive: the open bar move was handed to the preflop engine; occurrence counter.',
+    '2026-11-15'
+  ),
+  receipt(
+    'style_steal_tight_blinds_changed_action_seen',
+    'workerRuntime (R1 style action-change receipt, styleStealTightBlinds)',
+    'the FAST decision applied styleStealTightBlinds and, decided again from the same RNG position with that one option off (one applied option per decision, picked by the decision key), its final action or amount differed.',
     '2026-11-15'
   ),
   receipt(
@@ -1938,17 +1949,15 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
       ['callRespect', 'variant call respect offset (HorseVariantProfile)'],
       ['familyBias', 'V18 sizing family hashed from the horse id'],
     ] as const
-  ).map(
-    ([key, note]): LedgerEntry => ({
-      key,
-      kind: 'param',
-      source: 'STYLE_PARAMS[style] resolved with HorseProfileMods in HorseLogic.decide',
-      cadence: 'per_action',
-      consumer: 'HorseLogic.decide / HorsePreflop.decidePreflopV7',
-      note,
-      since: key === 'familyBias' ? 'V18' : 'V2',
-    })
-  ),
+  ).map(([key, note]): LedgerEntry => ({
+    key,
+    kind: 'param',
+    source: 'STYLE_PARAMS[style] resolved with HorseProfileMods in HorseLogic.decide',
+    cadence: 'per_action',
+    consumer: 'HorseLogic.decide / HorsePreflop.decidePreflopV7',
+    note,
+    since: key === 'familyBias' ? 'V18' : 'V2',
+  })),
 
   // ─────────────────────────────────────────────────────────────────────────
   // PROFILE KEYS. profiles.horse_profile (jsonb). Read at sit-down today
@@ -1984,22 +1993,20 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
         'V48',
       ],
     ] as const
-  ).map(
-    ([key, note, since]): LedgerEntry => ({
-      key,
-      kind: 'profile',
-      source: 'profiles.horse_profile (jsonb) via resolveHorseStyle',
-      cadence: 'per_sit',
-      consumer:
-        key === 'persona'
-          ? 'HorsePersona.resolvePersona (ServerTableEngineDealing straddle round); HorseLogic.followsSolver (the GTO consult)'
-          : key.startsWith('leaks')
-            ? 'HorseLogic.leakLoad (diagnostic only); HorseLogic.decide (ignored-evidence receipt)'
-            : 'HorseLogic.decide',
-      note,
-      since,
-    })
-  ),
+  ).map(([key, note, since]): LedgerEntry => ({
+    key,
+    kind: 'profile',
+    source: 'profiles.horse_profile (jsonb) via resolveHorseStyle',
+    cadence: 'per_sit',
+    consumer:
+      key === 'persona'
+        ? 'HorsePersona.resolvePersona (ServerTableEngineDealing straddle round); HorseLogic.followsSolver (the GTO consult)'
+        : key.startsWith('leaks')
+          ? 'HorseLogic.leakLoad (diagnostic only); HorseLogic.decide (ignored-evidence receipt)'
+          : 'HorseLogic.decide',
+    note,
+    since,
+  })),
 
   // ─────────────────────────────────────────────────────────────────────────
   // HORSEMIND COUNTERS. One OpponentStats per observed player, shared by the
