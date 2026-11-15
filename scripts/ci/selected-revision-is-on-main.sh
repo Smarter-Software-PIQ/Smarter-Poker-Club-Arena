@@ -26,10 +26,25 @@ fi
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 git init -q "$work"
+# NOTHING MAY STILL BE WRITING THIS REPOSITORY WHEN THE TRAP REMOVES IT
+# (2026-11-15). After a fetch, git runs `git maintenance run --auto`, and since
+# Git 2.47 (maintenance.autoDetach, default true) that runs DETACHED: the fetch
+# returns while a background `git commit-graph write --split --reachable` is
+# still creating files under .git/objects. The runner's git 2.56.1 does this on
+# every call (measured: objects/maintenance.lock still held at cleanup in 20 of
+# 20 runs), so `rm -rf` raced it and failed with "Directory not empty" AFTER the
+# proof had passed, turning "Confirm The Hetzner Web Publish Reached Production"
+# red (post-deploy-e2e runs 43555229653, 43667942070, 43678854398). A throwaway
+# repository needs no maintenance: refuse it in this repository's config (every
+# command below, including any promisor lazy fetch) and on the fetch itself,
+# which no inherited config can turn back on. Pinned by
+# tests/unit/selectedRevisionProofLeavesNoBackgroundWriter.test.ts.
+git -C "$work" config maintenance.auto false
+git -C "$work" config gc.auto 0
 auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
 # Commits only (tree:0): ancestry needs no trees or blobs, and nothing from the
 # selected revision is ever checked out or executed here.
-git -C "$work" -c "http.extraheader=$auth" fetch -q --no-tags --filter=tree:0 \
+git -C "$work" -c "http.extraheader=$auth" fetch -q --no-tags --no-auto-maintenance --filter=tree:0 \
   "${GITHUB_SERVER_URL:-https://github.com}/$GITHUB_REPOSITORY" \
   '+refs/heads/main:refs/remotes/protected/main' "${shas[@]}"
 for sha in "${shas[@]}"; do

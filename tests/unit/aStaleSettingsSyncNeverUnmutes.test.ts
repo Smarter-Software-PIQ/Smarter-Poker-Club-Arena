@@ -1,38 +1,43 @@
 /**
- * A STALE SETTINGS SYNC NEVER UN-MUTES A PLAYER (2026-09-27).
+ * A STALE SETTINGS SYNC NEVER CHANGES A PLAYER'S SOUND (2026-09-27, 2026-11-14).
  *
- * TablePage's SETTINGS_UPDATED listener receives the Settings page's cached
- * copy, re-sent on every tab return and theme change. That copy goes stale the
- * moment a player mutes at the table or in the menu, so the listener may only
- * ever turn sound OFF (through the engine, which also releases the Safari audio
- * session). A stale `true` turning sound back on was the regression this pins.
+ * TablePage had a SETTINGS_UPDATED listener that read `soundEnabled` out of the
+ * Settings page's cached copy. The account sync and the theme mirror re-send
+ * that copy, and it goes stale the moment a player changes sound at the table.
  *
- * 2026-11-14: and a stale `false` may not mute a player who has since turned
- * sound on at the table. Only the Settings page's own save mutes through here.
+ *   2026-09-27: a stale `true` un-muted a muted player. The listener was made
+ *               mute-only.
+ *   2026-11-14: a stale `false` then re-muted a player who had turned sound on
+ *               at the table. Narrowed to the Settings page's own save, and
+ *               later the same day removed: the Settings page already reaches
+ *               the table through useTableSettings in both directions, so the
+ *               listener carried nothing that route does not.
+ *
+ * Nothing at the table reads that cache now. This keeps it that way.
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-const TABLE = readFileSync(resolve(__dirname, '../../src/pages/TablePage.tsx'), 'utf8');
+const strip = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+const read = (p: string) => strip(readFileSync(resolve(__dirname, '../..', p), 'utf8'));
+const TABLE = read('src/pages/TablePage.tsx');
 
-describe('the table settings sync', () => {
-  const at = TABLE.indexOf("useMasterBusSubscription('SETTINGS_UPDATED'");
-  const handler = TABLE.slice(at, TABLE.indexOf('});', at));
-
-  it('exists', () => {
-    expect(at).toBeGreaterThan(0);
+describe('the table and the Settings page cache', () => {
+  it('the table page does not listen for SETTINGS_UPDATED', () => {
+    expect(TABLE).not.toContain("'SETTINGS_UPDATED'");
   });
 
-  it('only ever mutes, and mutes through the engine', () => {
-    /* Narrowed 2026-11-14: the stale copy must not MUTE either. Only the
-       Settings page's own save is a choice; see tableMenuSwitchesAnswer. */
-    expect(handler).toContain(
-      "if (payload?.source === 'settings-page' && s.soundEnabled === false) {"
-    );
-    expect(handler).toContain('soundService.setEnabled(false);');
-    expect(handler).not.toMatch(/setEnabled\(s\.soundEnabled\)/);
-    expect(handler).not.toMatch(/setEnabled\(true\)/);
-    expect(handler).not.toMatch(/localStorage\.setItem\([^)]*SOUNDS/);
+  it('nothing in the table page sets sound from a payload', () => {
+    expect(TABLE).not.toMatch(/\.soundEnabled === false/);
+    expect(TABLE).not.toMatch(/setEnabled\(s\.soundEnabled\)/);
+    expect(TABLE).not.toMatch(/soundService\.setEnabled\((true|false)\)/);
+  });
+
+  it('the Settings page reaches the table through the table settings store', () => {
+    const SETTINGS = read('src/pages/SettingsPage.tsx');
+    expect(SETTINGS).toMatch(/updateSettings: updateTableSettings \} = useTableSettings\(\)/);
+    expect(SETTINGS).toMatch(/updateTableSettings\(patch\)/);
+    expect(read('src/lib/settingsBridge.ts')).toMatch(/isSoundEnabled: s\.soundEnabled/);
   });
 });

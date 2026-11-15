@@ -1108,6 +1108,20 @@ for base in $CONTRACT_BASENAMES; do
     fi
   done
 done
+# CENSUSES OF THE TEST TREE (2026-11-14). Two contracts read every file under
+# tests/ rather than naming one: the law registry (a new *.law.test.* needs its
+# docs/laws.d entry) and the source-window rule (no test may bound a source pin
+# by a byte count). A push that ADDS or edits a test names neither, so the
+# basename search above never selected them and both failed first in hosted CI,
+# a fifteen-minute round trip each (#10924, #10933). Same reasoning as the
+# workflow-directory case above. Seconds to run.
+if printf '%s\n' $FILES | grep -qE '^(tests/.*\.test\.(ts|tsx)|docs/laws\.d/.*\.md)$'; then
+  for t in tests/law-registry.law.test.ts tests/unit/noFixedSizeSourceWindows.test.ts; do
+    if [ -f "$t" ]; then
+      case " $CHANGED_TESTS " in *" $t "*) ;; *) CHANGED_TESTS="$CHANGED_TESTS $t" ;; esac
+    fi
+  done
+fi
 # A changed test can also be found as a source contract; execute it once.
 CHANGED_TESTS=$(printf '%s\n' $CHANGED_TESTS | sort -u)
 NODE_TESTS=$(printf '%s\n' $NODE_TESTS | sort -u)

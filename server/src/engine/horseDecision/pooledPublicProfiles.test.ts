@@ -1,8 +1,14 @@
+import type { DurableOpponentProfile } from '../HorseOpponentMemory.js';
+import { SavedProfilePresenceCache, verifiedSavedPresence } from './savedProfilePresence.js';
 import { describe, it, expect, afterEach } from 'vitest';
 import { PooledPublicProfiles } from './pooledPublicProfiles.js';
 import { horseDecisionReceiptRefusal } from './responseValidation.js';
 import { HorseObserverReads } from './observerReads.js';
-import { freshExploitCounters } from '../HorseOpponentExploit.js';
+import {
+  freshExploitCounters,
+  decayAndAddOpportunityScoped,
+  exploitHandIncrements,
+} from '../HorseOpponentExploit.js';
 import { HorseMind } from '../HorseMind.js';
 import { horseObserverReadContextFromRequest } from '../HorseObserverReadContext.js';
 import { captureHorseHandJournalContext } from '../HorseDecisionHandBinding.js';
@@ -218,6 +224,280 @@ describe('owner-authorized public herd profiles', () => {
   });
 });
 
+it.each(['77777777-7777-4777-8777-777777777777', null])(
+  'reads one accepted exact saved row through a cold worker and HorseLogic, last event %s',
+  async (lastHand) => {
+    const { workerHarness, requestAt, heroId, opponentId, tableId, otherTableId, lease } =
+      await import('../../testing/horseRegression/plan/fixture.js');
+    const { HorseLogic } = await import('../HorseLogic.js');
+    const { buildHorseDecisionKey } = await import('./protocol.js');
+    const domain = { version: 1, speed: 'table', ante: 'none' } as const;
+    const counters = freshExploitCounters();
+    const increments = exploitHandIncrements([
+      { userId: opponentId, action: 'raise', amount: 8, stage: 'preflop' },
+    ]).get(opponentId)!;
+    for (let i = 0; i < 60; i++) decayAndAddOpportunityScoped(counters, increments);
+    const profile: DurableOpponentProfile = {
+      user_id: opponentId,
+      variant: 'nlh',
+      mode: 'cash',
+      size: 'hu',
+      public_memory_domain: domain,
+      observed_hands: 60,
+      initialized: true,
+      last_accepted_hand_id: lastHand,
+      // The long window can be installed before event lineage.
+      long_counters: lastHand ? null : { lHands: 48, lVpip: 48, lPfr: 48 },
+      counters,
+    };
+    const req = requestAt();
+    req.gameState.publicMemoryDomain = domain;
+    req.gameState.humanUserIds = [opponentId];
+    req.savedProfileHumanIds = [opponentId];
+    const at = req.decisionTimeMs - 5;
+    const cache = new SavedProfilePresenceCache(
+      async () => [{ user_id: opponentId, presence: 'exact', exact_profile: profile }],
+      () => at
+    );
+    cache.prime({
+      tableId,
+      handNumber: 1000100,
+      lease,
+      variant: 'nlh',
+      mode: 'cash',
+      domain,
+      roster: [
+        { id: heroId, seat: 1, human: false },
+        { id: opponentId, seat: 2, human: true },
+      ],
+    });
+    await new Promise<void>((r) => setImmediate(r));
+    req.savedProfilePresence = cache.forSnapshot(req);
+    expect(req.savedProfilePresence?.rows).toMatchObject([
+      {
+        presence: 'exact',
+        priorParticipation: lastHand ? 'accepted_profile_present' : 'unresolved',
+      },
+    ]);
+    expect(req.savedProfilePresence?.exactProfiles?.[0]?.long_counters).toEqual(
+      profile.long_counters
+    );
+    for (const invalid of [
+      { ...profile, long_counters: { lHands: 1, lPfr: -1, lVpip: 1 } },
+      { ...profile, long_counters: null, counters: { ...counters, lHands: 1, lPfr: 0, lVpip: 1 } },
+      { ...profile, observed_hands: 1 },
+      { ...profile, counters: { ...counters, hands: 0 } },
+      { ...profile, counters: { ...counters, fHands: 61 } },
+      { ...profile, counters: { ...counters, threeBetOpp: 61 } },
+    ]) {
+      const packet = structuredClone(req.savedProfilePresence!);
+      packet.exactProfiles = [invalid];
+      const v = verifiedSavedPresence(req, packet);
+      expect(v?.rows).toMatchObject([{ presence: 'exact', priorParticipation: 'unresolved' }]);
+      expect(v?.exactProfiles).toBeUndefined();
+    }
+    let consumed = false;
+    let decisionCounters: unknown;
+    const h = workerHarness({
+      snapshotDecisionReads: (...args) => {
+        const view = HorseMind.snapshotDecisionReads(...args);
+        decisionCounters = view.exploit?.get('nlh:cash:hu|' + opponentId);
+        return view;
+      },
+      decide: (...args) => {
+        const decision = HorseLogic.decide(...args);
+        HorseMind.setDecisionScope('holdem:hu', 'nlh', 'cash');
+        consumed = HorseMind.opponentRead(opponentId)?.stats.pfr !== undefined;
+        return decision;
+      },
+    });
+    try {
+      req.decisionKey = buildHorseDecisionKey(req);
+      expect((await h.fast(req)).type).toBe('FAST_RESULT');
+      expect(consumed).toBe(true);
+      expect(decisionCounters).toEqual({ ...counters, ...profile.long_counters });
+      const evidence = h.captures.at(-1)!.observerReads;
+      expect(evidence).toMatchObject({
+        pooledPublicProfiles: {
+          source: 'saved_and_accepted_public_profiles',
+          rowSources: {
+            version: 1,
+            rows: [{ userId: opponentId, size: 'hu', observedHands: 60, source: 'saved_at_deal' }],
+          },
+          ...(lastHand
+            ? { version: 3, lineage: [{ userId: opponentId, handId: lastHand, observedHands: 60 }] }
+            : { version: 1 }),
+        },
+      });
+      if (!lastHand) {
+        expect(evidence).not.toHaveProperty('pooledPublicProfiles.lineage');
+        expect(h.captures.at(-1)).toMatchObject({
+          snapshot: {
+            savedProfilePresence: {
+              rows: [{ presence: 'exact', priorParticipation: 'unresolved' }],
+            },
+          },
+        });
+      }
+      // Same worker, next original hand with no saved packet: request-local only.
+      const next = requestAt(20, tableId, 1000101);
+      next.gameState.publicMemoryDomain = domain;
+      next.savedProfileHumanIds = [opponentId];
+      next.decisionKey = buildHorseDecisionKey(next);
+      await h.fast(next);
+      expect(consumed).toBe(false);
+      // A snapshot from the same millisecond as receipt cannot see that row.
+      expect(new PooledPublicProfiles().read({ ...req, decisionTimeMs: at })).toBeNull();
+      const pool = new PooledPublicProfiles(() => at - 1);
+      const newer = {
+        ...profile,
+        counters: { ...counters },
+        observed_hands: 62,
+        last_accepted_hand_id: '88888888-8888-4888-8888-888888888888',
+      } as const;
+      for (let i = 0; i < 2; i++) decayAndAddOpportunityScoped(newer.counters, increments);
+      expect(pool.bootstrap({ availableAtMs: at - 1, profiles: [newer] })).toBe(true);
+      expect(pool.read(req)?.rows[0]?.observed_hands).toBe(62);
+      expect(pool.read(req)?.receipt.rowSources?.rows).toEqual([
+        { userId: opponentId, size: 'hu', observedHands: 62, source: 'in_process' },
+      ]);
+      expect(horseObserverReadsUsedPublicPool(evidence, req)).toBe(true);
+      const raced = new PooledPublicProfiles(() => at + 1);
+      const completed: ObserveCompletedHandRequest = {
+        type: 'OBSERVE_COMPLETED_HAND',
+        requestId: 42,
+        generation: 1000101,
+        fence: `${otherTableId}:1000101:${lease}:observe`,
+        handKey: `${otherTableId}:1000101`,
+        committedHandId: committed,
+        bigBlind: 2,
+        publicMemoryDomain: domain,
+        actions: [
+          {
+            userId: opponentId,
+            seat: 2,
+            action: 'raise',
+            amount: 8,
+            stage: 'preflop',
+            timestamp: 1,
+          },
+        ],
+        observerParticipants: {
+          version: 1,
+          handKey: `${otherTableId}:1000101:${lease}`,
+          status: 'bound',
+          contexts: [horseObserverReadContextFromRequest(req)!],
+        },
+      };
+      expect(raced.read(req)?.rows[0]?.last_accepted_hand_id).toBe(lastHand);
+      const forced = structuredClone(completed);
+      forced.actions = [{ ...completed.actions![0]!, action: 'fold', origin: 'forced' }];
+      const unrelated = structuredClone(completed);
+      unrelated.publicMemoryDomain = { ...domain, speed: 'lightning' };
+      unrelated.observerParticipants!.contexts = [
+        horseObserverReadContextFromRequest({
+          ...req,
+          gameState: { ...req.gameState, publicMemoryDomain: unrelated.publicMemoryDomain },
+        })!,
+      ];
+      for (const hand of [forced, unrelated]) {
+        const concurrent = new PooledPublicProfiles(() => at + 1);
+        expect(
+          concurrent.bootstrap({
+            availableAtMs: at - 1,
+            profiles: [
+              { ...profile, observed_hands: 1, counters: increments, last_accepted_hand_id: null },
+            ],
+          })
+        ).toBe(true);
+        concurrent.observe(hand);
+        expect(concurrent.read(req)?.rows[0]?.observed_hands).toBe(60);
+      }
+      raced.observe(completed);
+      expect(raced.read(req)).toBeNull();
+    } finally {
+      await h.close();
+    }
+  }
+);
+it('journals each selected saved or in-process row of a mixed original FAST read', async () => {
+  const { workerHarness, requestAt, heroId, opponentId, tableId, lease } =
+    await import('../../testing/horseRegression/plan/fixture.js');
+  const { buildHorseDecisionKey } = await import('./protocol.js');
+  const req = requestAt();
+  const third = '55555555-5555-4555-8555-555555555555';
+  req.gameState.players.push({
+    ...req.gameState.players[1]!,
+    seat: 3,
+    user_id: third,
+    totalInvested: 0,
+    is_folded: true,
+  });
+  req.gameState.dealtSeatIds = [1, 2, 3];
+  req.savedProfileHumanIds = [opponentId];
+  const domain = { version: 1, speed: 'table', ante: 'none' } as const;
+  req.gameState.publicMemoryDomain = domain;
+  const at = req.decisionTimeMs - 5;
+  const profile: DurableOpponentProfile = {
+    user_id: opponentId,
+    mode: 'cash',
+    variant: 'nlh',
+    size: 'short',
+    public_memory_domain: domain,
+    observed_hands: 1,
+    initialized: true,
+    last_accepted_hand_id: null,
+    counters: { ...freshExploitCounters(), hands: 1, fHands: 1 },
+  };
+  const cache = new SavedProfilePresenceCache(
+    async () => [{ user_id: opponentId, presence: 'exact', exact_profile: profile }],
+    () => at
+  );
+  cache.prime({
+    tableId,
+    handNumber: 1000100,
+    lease,
+    variant: 'nlh',
+    mode: 'cash',
+    domain,
+    roster: [
+      { id: heroId, seat: 1, human: false },
+      { id: opponentId, seat: 2, human: true },
+      { id: third, seat: 3, human: false },
+    ],
+  });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  req.savedProfilePresence = cache.forSnapshot(req);
+  req.decisionKey = buildHorseDecisionKey(req);
+  const h = workerHarness({
+    publicProfileBootstrap: () => ({
+      availableAtMs: at - 1,
+      profiles: [{ ...profile, user_id: third }],
+    }),
+  });
+  try {
+    expect((await h.fast(req)).type).toBe('FAST_RESULT');
+    const evidence = h.captures.at(-1)!.observerReads as NonNullable<
+      ReturnType<HorseObserverReads['receipt']>
+    >;
+    expect(evidence.pooledPublicProfiles?.rowSources).toEqual({
+      version: 1,
+      rows: [
+        { userId: opponentId, size: 'short', observedHands: 1, source: 'saved_at_deal' },
+        { userId: third, size: 'short', observedHands: 1, source: 'in_process' },
+      ],
+    });
+    expect(horseObserverReadsUsedPublicPool(evidence, req)).toBe(true);
+    const legacy = structuredClone(evidence);
+    delete legacy.pooledPublicProfiles!.rowSources;
+    expect(horseObserverReadsUsedPublicPool(legacy, req)).toBe(true);
+    const invalid = structuredClone(evidence);
+    invalid.pooledPublicProfiles!.rowSources!.rows[1]!.userId = opponentId;
+    expect(horseObserverReadsUsedPublicPool(invalid, req)).toBe(false);
+  } finally {
+    await h.close();
+  }
+});
 it('carries accepted public notes through the actual worker and HorseLogic read frame', async () => {
   const { workerHarness, requestAt, heroId, opponentId, tableId, otherTableId, lease } =
     await import('../../testing/horseRegression/plan/fixture.js');
@@ -424,6 +704,73 @@ describe('exact public rule domains', () => {
     h.durableOpponentProfiles![0]!.public_memory_domain = tableDomain;
     return h;
   }
+  it('binds the private worker read to the saved version and its actual accepted hand', () => {
+    const bank = new HorseObserverReads(20, 20, () => 100);
+    const observation = exactCompletion();
+    // A postcommit RPC can already include another table's later accepted hand.
+    const savedHandId = '40000000-0000-4000-8000-000000000099';
+    Object.assign(observation.durableOpponentProfiles![0]!, {
+      last_accepted_hand_id: savedHandId,
+    });
+    bank.complete(observation, () => {});
+    const next = request(other);
+    next.gameState.publicMemoryDomain = tableDomain;
+    bank.run(next, () => {});
+    const evidence = bank.receipt(next);
+    expect(evidence?.pooledPublicProfiles).toMatchObject({
+      version: 3,
+      lineage: [{ userId: opponent, size: 'hu', observedHands: 60, handId: savedHandId }],
+    });
+    expect(horseObserverReadsUsedPublicPool(evidence, next)).toBe(true);
+    expect(
+      horseObserverReadsUsedPublicPool(
+        {
+          ...evidence,
+          pooledPublicProfiles: {
+            ...evidence!.pooledPublicProfiles,
+            lineage: [{ userId: other, size: 'hu', observedHands: 60, handId: savedHandId }],
+          },
+        },
+        next
+      )
+    ).toBe(false);
+  });
+  it('retains the original cutoff when the accepted hand whose row was already read arrives', () => {
+    let now = 100;
+    const pool = new PooledPublicProfiles(() => now);
+    const earlier = exactCompletion();
+    const later = structuredClone(earlier);
+    later.generation++;
+    later.handKey = table + ':1000002';
+    later.fence = table + ':1000002:' + lease + ':observe';
+    later.observerParticipants!.handKey = table + ':1000002:' + lease;
+    later.committedHandId = '40000000-0000-4000-8000-000000000099';
+    earlier.durableOpponentProfiles![0]!.last_accepted_hand_id = later.committedHandId;
+    later.durableOpponentProfiles![0]!.last_accepted_hand_id = later.committedHandId;
+    expect(pool.observe(earlier)).toBe(1);
+    now = 200;
+    expect(pool.observe(later)).toBe(0);
+    const r = exactRequest(tableDomain);
+    r.decisionTimeMs = 100;
+    expect(pool.read(r)?.receipt.availableAtMs).toBe(100);
+    r.decisionTimeMs = 99;
+    expect(pool.read(r)).toBeNull();
+
+    // An equal version and accepted ID cannot carry a different long window
+    // under the earlier timestamp, even when the original 27 counters match.
+    const long = { lHands: 8, lVpip: 2, lPfr: 1 };
+    for (const previous of [null, long]) {
+      now = 100;
+      const changed = new PooledPublicProfiles(() => now);
+      earlier.durableOpponentProfiles![0]!.long_counters = previous;
+      later.durableOpponentProfiles![0]!.long_counters = { ...long, lVpip: 3 };
+      expect(changed.observe(earlier)).toBe(1);
+      now = 200;
+      expect(changed.observe(later)).toBe(0);
+      r.decisionTimeMs = now;
+      expect(changed.read(r)).toBeNull();
+    }
+  });
   it('isolates speed and ante, preserving the original decision cutoff', () => {
     const pool = new PooledPublicProfiles(() => 100);
     expect(pool.observe(exactCompletion())).toBe(1);
@@ -456,3 +803,86 @@ describe('exact public rule domains', () => {
     expect(new PooledPublicProfiles(() => 100).observe(h)).toBe(0);
   });
 });
+
+it.each(['missing', 'conflicting'] as const)(
+  'keeps a %s accepted update from restoring the rejected version after a later lookup or eviction',
+  async (failure) => {
+    const domain = { version: 1, speed: 'table', ante: 'none' } as const;
+    const req = request();
+    req.gameState.publicMemoryDomain = domain;
+    req.savedProfileHumanIds = [opponent];
+    const counters = { ...freshExploitCounters(), hands: 1, fHands: 1, vpip: 1, pfr: 1 };
+    const original = {
+      ...shared().durableOpponentProfiles![0]!,
+      counters,
+      observed_hands: 2,
+      last_accepted_hand_id: committed,
+      public_memory_domain: domain,
+    };
+    let at = 100;
+    const pool = new PooledPublicProfiles(() => at, 1);
+    expect(pool.bootstrap({ availableAtMs: at, profiles: [original] })).toBe(true);
+    const alternate = { ...original, counters: { ...counters, pfr: 0 } };
+    async function lookup(profile: typeof original) {
+      const cache = new SavedProfilePresenceCache(
+        async () => [{ user_id: opponent, presence: 'exact', exact_profile: profile }],
+        () => at
+      );
+      cache.prime({
+        tableId: table,
+        handNumber: 1000001,
+        lease,
+        variant: 'nlh',
+        mode: 'cash',
+        domain,
+        roster: [
+          { seat: 1, id: actor, human: false },
+          { seat: 2, id: opponent, human: true },
+        ],
+      });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      req.savedProfilePresence = cache.forSnapshot(req);
+      expect(req.savedProfilePresence?.exactProfiles).toHaveLength(1);
+      return pool.read(req);
+    }
+    function update(n: number, playerId: string, profile?: typeof original) {
+      at++;
+      const h = completion(n);
+      const view = request(actor, 'cash', 'nlh', n);
+      view.gameState.publicMemoryDomain = domain;
+      view.gameState.players[1]!.user_id = playerId;
+      h.publicMemoryDomain = domain;
+      h.actions = [
+        { userId: playerId, seat: 2, action: 'raise', amount: 8, stage: 'preflop', timestamp: 1 },
+      ];
+      h.observerParticipants = {
+        version: 1,
+        handKey: `${table}:${n}:${lease}`,
+        status: 'bound',
+        contexts: [horseObserverReadContextFromRequest(view)!],
+      };
+      h.durableOpponentProfiles = profile ? [{ ...profile, user_id: playerId }] : undefined;
+      return pool.observe(h);
+    }
+
+    // At equal version, even a different saved counter cannot replace the eligible local one.
+    expect((await lookup(alternate))?.rows[0]?.counters.pfr).toBe(1);
+    expect(update(1000002, opponent, failure === 'conflicting' ? alternate : undefined)).toBe(0);
+    at++;
+    expect(await lookup(original)).toBeNull();
+    expect(await lookup({ ...alternate, initialized: false })).toBeNull();
+    expect(update(1000003, opponent, alternate)).toBe(0);
+
+    // A second invalidated key exhausts the capacity-one invalidation history.
+    expect(update(1000004, other, original)).toBe(1);
+    expect(update(1000005, other, alternate)).toBe(0);
+    at++;
+    expect(await lookup(alternate)).toBeNull();
+    expect(update(1000006, opponent, original)).toBe(0);
+    const newer = { ...alternate, observed_hands: 3 };
+    at++;
+    expect((await lookup(newer))?.rows[0]?.observed_hands).toBe(3);
+    expect(update(1000007, opponent, newer)).toBe(1);
+    expect(pool.read(req)?.rows[0]?.observed_hands).toBe(3);
+  }
+);

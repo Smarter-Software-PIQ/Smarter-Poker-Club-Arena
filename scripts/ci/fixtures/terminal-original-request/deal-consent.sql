@@ -1,9 +1,11 @@
 -- Private funded two-player fixture: actual review, proposal and both participant votes.
+-- The manager context is exactly what production's Stage-A request hook sets
+-- (actor, tournament, generation); it never sets app.smarter_manager_request_fenced.
 BEGIN;
 INSERT INTO public.ca_settle_sources(source,note) VALUES('final_table_deal','fn_final_table_deal') ON CONFLICT DO NOTHING;
 
 SELECT * FROM public.claim_tournament_lease_v2('92010000-0000-0000-0000-000000000001','deal','native','92090000-0000-4000-8000-000000000002',30);
-SELECT set_config('request.jwt.claims','{"role":"service_role"}',true),set_config('request.jwt.claim.role','service_role',true),set_config('app.smarter_data_actor','tournament-manager',true),set_config('app.smarter_tournament_id','92010000-0000-0000-0000-000000000001',true),set_config('app.smarter_tournament_lease_generation','92090000-0000-4000-8000-000000000002',true),set_config('app.smarter_manager_request_fenced','protocol-2',true);
+SELECT set_config('request.jwt.claims','{"role":"service_role"}',true),set_config('request.jwt.claim.role','service_role',true),set_config('app.smarter_data_actor','tournament-manager',true),set_config('app.smarter_tournament_id','92010000-0000-0000-0000-000000000001',true),set_config('app.smarter_tournament_lease_generation','92090000-0000-4000-8000-000000000002',true);
 DO $consent$
 DECLARE tid uuid:='92010000-0000-0000-0000-000000000001'; review jsonb; p jsonb; r jsonb; u uuid;
 BEGIN

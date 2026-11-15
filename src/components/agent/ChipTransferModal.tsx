@@ -57,7 +57,8 @@ import {
   runAgentWalletOperation,
   confirmedAgentWalletReceipt,
 } from '../../services/AgentWalletIntent';
-import { resolveClubIdFilter, resolveClubUUID } from '../../utils/clubIdResolver';
+import { resolveClubUUID } from '../../utils/clubIdResolver';
+import { resolveClubLookupFilter } from '../../utils/strictClubIdResolver';
 import { SEND_DESTINATION_LABELS } from '../../utils/cashierSendWallets';
 import {
   useRecipientWalletBalances,
@@ -291,7 +292,7 @@ export default function ChipTransferModal({
       }
 
       // Get the club name for the audit description.
-      const { column: clubCol, value: clubVal } = resolveClubIdFilter(clubId);
+      const { column: clubCol, value: clubVal } = await resolveClubLookupFilter(clubId);
       const { data: club } = await supabase
         .from('clubs')
         .select('name')

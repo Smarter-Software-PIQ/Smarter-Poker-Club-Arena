@@ -189,7 +189,7 @@ try{
   // Two entry points open the lobby tab: the in-table HUD control, and the
   // tab bar's empty-slot buttons (which only exist once a second table is
   // mounted). Both now carry the same accessible name; accept either.
-  const plus=page.locator('button[aria-label="Open another table"], button.add-chips-icon-btn, button.table-tab-bar__add').first();
+  const plus=page.locator('button[aria-label="Open another table"], button.table-tab-bar__add').first();
   const plusVisible=await plus.waitFor({state:'visible',timeout:20000}).then(()=>true).catch(()=>false);
   check('+ add-table button visible (upper-left HUD)', plusVisible);
   if(plusVisible){

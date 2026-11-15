@@ -177,6 +177,67 @@ describe('rows that lived only in a menu no table rendered', () => {
   });
 });
 
+describe('a spectator is offered no seat-only row', () => {
+  const SEAT_ROWS = [
+    'Sit Out',
+    'Stand Up Next Big Blind',
+    'Top Up',
+    'Auto Top Up',
+    'Leave Table Next Hand',
+  ];
+
+  it('keeps every row for a seated hero and for a table that has not reported', () => {
+    for (const over of [{ heroSeated: true }, {}]) {
+      const view = openMenu([tab(over)]);
+      for (const label of SEAT_ROWS) expect(row(label), label).toBeDefined();
+      view.unmount();
+      document.body.innerHTML = '';
+    }
+  });
+
+  it('drops them, and only them, when the table page reports no seat', () => {
+    openMenu([tab({ heroSeated: false, straddleAvailable: true })]);
+    for (const label of [...SEAT_ROWS, 'Straddle']) expect(row(label), label).toBeUndefined();
+    for (const label of ['Hand History', 'Leaderboard', 'Sounds', 'Game Rules', 'Leave Table']) {
+      expect(row(label), label).toBeDefined();
+    }
+  });
+});
+
+describe('Session Stats is the cash ledger', () => {
+  it('is offered at a cash table and not at a tournament', () => {
+    const view = openMenu([tab()]);
+    expect(row('Session Stats')).toBeDefined();
+    view.unmount();
+    document.body.innerHTML = '';
+    openMenu([tab({ isTournament: true })]);
+    expect(row('Session Stats')).toBeUndefined();
+  });
+});
+
+describe('a switch says what it is', () => {
+  it('is announced as a checkbox with its state; a destination is a plain item', () => {
+    act(() => setTableSetting('isSoundEnabled', true));
+    openMenu([tab({ standUpNextBB: true, straddleAvailable: true })]);
+    expect(row('Sounds').getAttribute('role')).toBe('menuitemcheckbox');
+    expect(row('Sounds').getAttribute('aria-checked')).toBe('true');
+    expect(row('Stand Up Next Big Blind').getAttribute('aria-checked')).toBe('true');
+    expect(row('Straddle').getAttribute('aria-checked')).toBe('false');
+    expect(row('Hand History').getAttribute('role')).toBe('menuitem');
+    expect(row('Hand History').hasAttribute('aria-checked')).toBe(false);
+  });
+
+  it('Straddle waits while a change is in flight', () => {
+    openMenu([tab({ straddleAvailable: true, straddleBusy: true })]);
+    expect(row('Straddle').disabled).toBe(true);
+    fireEvent.click(row('Straddle'));
+    expect(emit).not.toHaveBeenCalledWith('TABLE_MENU_ACTION', {
+      tableId: 'table-1',
+      action: 'TOGGLE_STRADDLE',
+    });
+  });
+});
+
 describe('a row that opens something still closes the menu', () => {
   it.each([
     ['Hand History', 'HAND_HISTORY'],
@@ -215,21 +276,12 @@ describe('the reports the badges depend on', () => {
     expect(MULTI).toMatch(/standUpNextBB: t\.standUpNextBB/);
   });
 
-  it('the bar reads sound and haptics from the settings store, never from a tab', () => {
-    expect(BAR).toMatch(/soundsBadge: tableSettings\.isSoundEnabled \? 'ON' : 'OFF'/);
-    expect(BAR).toMatch(/vibrationsBadge: tableSettings\.isHapticEnabled \? 'ON' : 'OFF'/);
+  it('the bar reads sound and haptics from the gates, never from a tab', () => {
+    expect(BAR).toMatch(/const soundOn = useSoundSwitch\(\);/);
+    expect(BAR).toMatch(/const vibrationOn = useVibrationSwitch\(\);/);
+    expect(BAR).toMatch(/soundsBadge: soundOn \? 'ON' : 'OFF'/);
+    expect(BAR).toMatch(/vibrationsBadge: vibrationOn \? 'ON' : 'OFF'/);
     expect(BAR).not.toMatch(/\?\.soundEnabled|\?\.vibrationsEnabled/);
-  });
-
-  it('only the Settings page save may mute a table through SETTINGS_UPDATED', () => {
-    const listener = sliceCall(
-      read('src/pages/TablePage.tsx'),
-      "useMasterBusSubscription('SETTINGS_UPDATED'"
-    );
-    expect(listener).toMatch(
-      /if \(payload\?\.source === 'settings-page' && s\.soundEnabled === false\) \{\s*soundService\.setEnabled\(false\);/
-    );
-    expect(listener.match(/soundService\.setEnabled\(/g)).toHaveLength(1);
   });
 
   it('a menu press is never deduplicated and never replayed in another window', () => {

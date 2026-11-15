@@ -97,6 +97,8 @@ LIGHTNING_EVAL_CONFIG=full LIGHTNING_EVAL_CELLS=0:10 \
   npx vitest run src/lightning/LightningPairedEval.test.ts -t "runs the declared"
 ```
 
+Staged runs (protocol section 7): `LIGHTNING_EVAL_CONFIG=selection` and `LIGHTNING_EVAL_CONFIG=final` deal the declared 270-cell matrix on their own seed class only (five seeds, 2,200 hands per cell and seed; the arithmetic is beside `LIGHTNING_EVAL_STAGE_HANDS_PER_CELL`). Slice with `LIGHTNING_EVAL_CELLS` and pool the slices with `LIGHTNING_EVAL_MERGE`. Selection seeds are dealt only by a frozen candidate; final seeds once.
+
 `LIGHTNING_EVAL_OUT` receives `lightning-paired-eval-<config>-<candidate>[-cells-a-b].json`, `.md` and `.pairs.jsonl`. Without `LIGHTNING_EVAL_CANDIDATE` the runner plays the null candidate and requires zero divergent decisions. The runner fails on any illegal action or amount (any Horse seat) and on any chip-conservation violation.
 
 ```

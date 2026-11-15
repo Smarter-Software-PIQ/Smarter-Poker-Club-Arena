@@ -77,9 +77,28 @@ try:
  assert run('untrusted-read-denied',"SELECT has_table_privilege('service_role','horse_memory_before_fold_provenance','SELECT');")=='f'
  accept(31,domain)
  assert run('forced-only-skipped',"SELECT count(*) FROM horse_exact_profiles WHERE user_id='"+human+"';")=='0'
+ # The ordinary read RPC may precede either daily-maintenance column.
+ run('install-saved-presence',(ROOT/'supabase/migrations/20261115011318_horse_saved_profile_presence_at_original_deal.sql').read_text())
+ presence_fixture=(ROOT/'scripts/ci/fixtures/horse-saved-profile-presence.sql').read_text()
+ run('saved-presence-no-columns',presence_fixture)
+ # Clone the actual pre-lineage state for the independently scheduled reverse install.
+ run('reverse-install-fixture','CREATE DATABASE long_first TEMPLATE postgres;')
+ lineage=(ROOT/'supabase/migrations/20261115010037_bind_horse_exact_profiles_to_their_accepted_hand.sql').read_text()
+ lineage_proof=next(line.removeprefix('-- @live-proof: ') for line in lineage.splitlines() if line.startswith('-- @live-proof: '))
+ assert run('lineage-proof-before-install','SELECT '+lineage_proof)=='f'
+ run('install-accepted-lineage',lineage)
+ assert run('lineage-live-proof','SELECT '+lineage_proof)=='t'
+ run('saved-presence-lineage-only',presence_fixture)
+ assert run('legacy-lineage-unknown',"SELECT count(*) FROM horse_exact_profiles WHERE last_accepted_hand_id IS NOT NULL;")=='0'
+ legacy_projection="SELECT presence,exact_profile FROM fn_horse_saved_profile_presence(ARRAY['"+horse+"'],'plo4','cash','full','"+json.dumps(domain)+"')"
+ assert run('saved-legacy-exact',"SET ROLE service_role; SELECT presence='exact' AND (exact_profile->>'observed_hands')::int>0 AND (exact_profile->'counters'->>'hands')::float>0 AND exact_profile->'last_accepted_hand_id'='null'::jsonb FROM ("+legacy_projection+") p;")=='t'
  actions.insert(0,{'userId':human,'action':'raise','stage':'preflop','origin':'player'})
  accept(32,domain)
  assert run('mixed-hand',"SELECT observed_hands||':'||(counters->>'pfr')||':'||(counters->>'foldTo3BetOpp') FROM horse_exact_profiles WHERE user_id='"+human+"';")=='1:1:0'
+ assert run('first-lineage',"SELECT p.observed_hands||':'||(p.last_accepted_hand_id=h.id)::text FROM fn_horse_exact_profiles_read(ARRAY['"+human+"'],'plo4','cash','full','table','none') p CROSS JOIN hand_history h WHERE h.hand_number=1000032;")=='1:true'
+ accepted_id=run('accepted-lineage-id',"SELECT id FROM hand_history WHERE hand_number=1000032;")
+ projection="SELECT presence||':'||(exact_profile->>'observed_hands')||':'||(exact_profile->>'last_accepted_hand_id')||':'||(exact_profile->'counters'->>'pfr') FROM fn_horse_saved_profile_presence(ARRAY['"+human+"'],'plo4','cash','full','"+json.dumps(domain)+"');"
+ assert run('saved-original-lineage',"SET ROLE service_role; "+projection)=='exact:1:'+accepted_id+':1'
  run('repeat-cutoff',corrective)
  assert run('repeat-preserves-clean',"SELECT observed_hands FROM horse_exact_profiles WHERE user_id='"+human+"';")=='1'
  for origin,expected in [(None,False),('unknown',False),('horse_fallback',False),('forced',False),('pre_action',True),('player',True),('horse_policy',True)]:
@@ -105,6 +124,7 @@ try:
  snapshot="SELECT string_agg(user_id||':'||variant||':'||mode||':'||size||':'||public_memory_domain::text||':'||observed_hands||':'||counters::text,'|' ORDER BY user_id,variant,mode,size,public_memory_domain::text) FROM horse_exact_profiles;"
  before=run('long-before',snapshot)
  run('install-long',longmig)
+ run('saved-presence-both-columns',presence_fixture)
  assert run('long-no-backfill',"SELECT count(*) FROM horse_exact_profiles WHERE long_counters IS NOT NULL;")=='0'
  assert run('long-rows-untouched',snapshot)==before
  assert run('long-add-private',"SELECT has_function_privilege('service_role','fn_horse_long_participation_add(jsonb,jsonb)','EXECUTE') OR has_function_privilege('anon','fn_horse_long_participation_add(jsonb,jsonb)','EXECUTE');")=='f'
@@ -131,7 +151,37 @@ try:
  run('repeat-long',longmig)
  assert run('long-repeat-unchanged',long_of)==got
  assert run('long-read',"SET ROLE service_role; SELECT (long_counters->>'lHands')::text FROM fn_horse_exact_profiles_read(ARRAY['"+human+"'],'plo4','cash','full','table','none');")==got.split(',')[0]
- (a.output/'result.json').write_text(json.dumps({'passed':True,'scope':'isolated original history insert, protected accepted receipt, legacy compatibility, manual-insert refusal, receipt identity/duplicate/update/rollback, saved read, permissions and private-card invariance, fold provenance and archived human epoch, mixed hands, filtered cold history and rerun idempotence; long participation window forward-only learning, no back-fill, unattributed and forced folds excluded, new row, rerun idempotence and saved read; no production installation'},indent=2))
+ # Compare both installed trigger definitions, then exercise a preexisting
+ # long-window row and a new row through the protected receipt in reverse order.
+ trigger_def="SELECT pg_get_functiondef('public.fn_horse_exact_accept_hand()'::regprocedure);"
+ forward=run('lineage-then-long-definition',trigger_def)
+ psql[-1]='long_first'
+ run('reverse-install-long',longmig)
+ run('saved-presence-long-only',presence_fixture)
+ actions=[{'userId':human,'stage':'preflop','action':'raise','origin':'player'}]
+ accept(130,domain)
+ prior=run('reverse-prior-long',long_of)
+ run('reverse-install-lineage',lineage)
+ assert run('reverse-lineage-live-proof','SELECT '+lineage_proof)=='t'
+ assert run('long-then-lineage-definition',trigger_def)==forward
+ assert run('reverse-preserves-long',long_of)==prior
+ assert run('reverse-no-lineage-backfill',"SELECT count(*) FROM horse_exact_profiles WHERE last_accepted_hand_id IS NOT NULL;")=='0'
+ actions.append({'userId':newcomer,'stage':'preflop','action':'call','origin':'player'})
+ accept(131,domain)
+ state_sql="SELECT user_id,observed_hands,last_accepted_hand_id,long_counters FROM horse_exact_profiles WHERE user_id IN ('"+human+"','"+newcomer+"') ORDER BY user_id;"
+ learned=run('reverse-accepted-state',state_sql)
+ assert run('reverse-binds-insert-and-update',f"""
+   SELECT count(*) FROM horse_exact_profiles p JOIN hand_history h ON h.id=p.last_accepted_hand_id
+    WHERE h.hand_number=1000131 AND (
+      (p.user_id='{human}' AND observed_hands=2
+       AND abs((long_counters->>'lHands')::float8-(1+power(0.5::float8,1.0/120)))<1e-12)
+      OR (p.user_id='{newcomer}' AND observed_hands=1
+          AND long_counters=jsonb_build_object('lHands',1,'lVpip',1,'lPfr',0)));
+ """)=='2'
+ actions=[{'userId':human,'stage':'preflop','action':'fold','origin':'forced'}]
+ accept(132,domain)
+ assert run('reverse-forced-preserves-lineage-and-long',state_sql)==learned
+ (a.output/'result.json').write_text(json.dumps({'passed':True,'scope':'isolated original history insert, protected accepted receipt, legacy compatibility, manual-insert refusal, receipt identity/duplicate/update/rollback, saved read, permissions and private-card invariance, fold provenance and archived human epoch, mixed hands, filtered cold history and rerun idempotence; long participation window forward-only learning, no back-fill, unattributed and forced folds excluded, new row, rerun idempotence and saved read; both lineage/long install orders preserve the same learner and original accepted receipt; no production installation'},indent=2))
  print('PASS isolated exact public memory compatibility')
 finally:
  if started:command([pg/'pg_ctl','-D',cluster/'data','-m','immediate','-w','stop'])

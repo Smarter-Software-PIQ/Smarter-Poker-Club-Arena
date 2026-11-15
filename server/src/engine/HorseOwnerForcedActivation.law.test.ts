@@ -403,7 +403,17 @@ async function playHands(variant: string, hands: number, mode: 'cash' | 'tournam
       if (!result) throw new Error('The production worker returned no decision');
       seen.decisions++;
       const decision = result.decision;
-      if (!horseDecisionReceiptIsValid(decision, variant)) {
+      // Validated as production does (client.ts passes the request): a rule
+      // that turns a raise into a call (the Omaha river nut-raise rule) is
+      // admitted only where re-running it on the request agrees. Without the
+      // request this law refused such decisions whenever the random deal
+      // reached one (hosted CI, PR #10963, 2026-11-15).
+      if (
+        !horseDecisionReceiptIsValid(decision, variant, {
+          player: spot.hero,
+          gameState: spot.state,
+        })
+      ) {
         seen.invalid++;
         // Retain the first synthetic rejection for diagnosis. The secure deal
         // is intentionally unchanged; the fast RNG seed alone cannot replay it.

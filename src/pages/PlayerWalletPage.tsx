@@ -81,6 +81,7 @@ import { DiamondLedgerMore } from '../components/wallet/DiamondLedgerMore';
 import { uuid } from '../utils/uuid';
 import './PlayerWalletPage.css';
 import { publicOrigin } from '../lib/appBase';
+import { copyText as copyTextShared } from '../lib/share';
 
 type WalletTab = 'overview' | 'send' | 'receive' | 'earn' | 'history';
 type WalletType = 'BUSINESS' | 'PLAYER' | 'PROMO';
@@ -1056,8 +1057,7 @@ function PlayerWalletAccount({
 
   const copyText = async (text: string, which: 'id' | 'link') => {
     try {
-      if (typeof navigator === 'undefined' || !navigator.clipboard) throw new Error('no clipboard');
-      await navigator.clipboard.writeText(text);
+      if (!(await copyTextShared(text, 'PlayerWalletPage.copy'))) throw new Error('no clipboard');
       if (!ownsAccount()) return;
       setCopied(which);
       toast.success(which === 'id' ? 'Player ID Copied' : 'Profile Link Copied');

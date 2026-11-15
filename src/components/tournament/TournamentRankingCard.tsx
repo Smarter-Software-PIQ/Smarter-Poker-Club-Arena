@@ -32,6 +32,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { shareFile, shareLink, tournamentShareUrl } from '../../lib/share';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
@@ -560,57 +561,40 @@ export default function TournamentRankingCard({
             ? ` for ${moneyAtUnit(totalWon, unitCents)}${moneySuffixAtUnit(unitCents)}.`
             : '.')
         : `I just played ${eventName} on Smarter.Poker.`;
-    const url = `${publicOrigin()}/hub/club-arena`;
+    /* The link opens THIS tournament (it was the bare lobby until
+       2026-11-14, so a shared result pointed at nothing in particular). */
+    const url = result.tournamentId
+      ? tournamentShareUrl(String(result.tournamentId))
+      : `${publicOrigin()}/hub/club-arena`;
     const flash = (what: 'copied' | 'saved') => {
       setShared(what);
       window.setTimeout(() => setShared(null), 2000);
     };
     const image = shareImage.current;
-    // Canvas may fall back to PNG on an encoder-limited browser. Keep the
-    // extension and the File MIME type bound to the actual returned bytes.
-    const filename = `smarter-poker-result.${image?.type === 'image/jpeg' ? 'jpg' : 'png'}`;
-    try {
-      const nav = navigator as Navigator & {
-        share?: (d: ShareData) => Promise<void>;
-        canShare?: (d: ShareData) => boolean;
-      };
-      /* 1. The picture and the sentence, through the system sheet. The link
-         rides in the text: most targets drop `url` once files are attached. */
-      if (image && typeof nav.share === 'function' && typeof nav.canShare === 'function') {
-        const file = new File([image], filename, { type: image.type });
-        const withImage: ShareData = {
-          files: [file],
+    /* src/lib/share.ts owns the ladder: the picture and the sentence through
+       the system sheet, a sheet that refuses falls through, then the estate's
+       one file door with the sentence copied beside it, then the link alone. */
+    const outcome = image
+      ? await shareFile({
+          source: 'TournamentRankingCard.share',
+          blob: image,
+          // Canvas may fall back to PNG on an encoder-limited browser. Keep the
+          // extension bound to the actual returned bytes.
+          filename: `smarter-poker-result.${image.type === 'image/jpeg' ? 'jpg' : 'png'}`,
           title: 'Smarter.Poker',
-          text: `${text} ${url}`,
-        };
-        if (nav.canShare(withImage)) {
-          await nav.share(withImage);
-          return;
-        }
-      }
-      /* 2. A sheet that cannot carry files still carries the sentence. */
-      if (typeof nav.share === 'function') {
-        await nav.share({ title: 'Smarter.Poker', text, url });
-        return;
-      }
-      /* 3. No sheet (desktop, Android's webview): the picture goes through the
-         estate's one file door - an anchor on the web, the system share sheet
-         in the app - and the sentence goes to the clipboard beside it. */
-      if (image) {
-        downloadBlob(filename, image);
-        try {
-          await navigator.clipboard.writeText(`${text} ${url}`);
-        } catch {
-          /* The image is the share; a refused clipboard costs only the link. */
-        }
-        flash('saved');
-        return;
-      }
-      await navigator.clipboard.writeText(`${text} ${url}`);
-      flash('copied');
-    } catch {
-      /* A cancelled share sheet throws. Nothing to report — the player closed it. */
-    }
+          text,
+          url,
+          download: (filename, blob) => {
+            downloadBlob(filename, blob);
+          },
+        })
+      : await shareLink({
+          source: 'TournamentRankingCard.share',
+          title: 'Smarter.Poker',
+          text,
+          url,
+        });
+    if (outcome === 'saved' || outcome === 'copied') flash(outcome);
   };
 
   const handlePlayAgain = () => {
