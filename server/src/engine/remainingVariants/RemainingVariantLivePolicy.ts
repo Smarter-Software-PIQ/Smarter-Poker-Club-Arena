@@ -1078,7 +1078,16 @@ export function evaluateRemainingVariantPolicy(
   /** 2026-10-16: a live opponent's read is a credible station
    * (HorseOpponentExploit.isStation); the round-3 entry deviations stay out
    * and the reference (which carries the exploit read) is retained. */
-  opponentStation = false
+  opponentStation = false,
+  /** FIXED-LIMIT PRICED PREFLOP (Fixed-Limit lane W5, 2026-11-15; HorseLogic
+   *  passes HorseDecideOpts.fixedLimitPricedPreflop === true on a fixed-limit
+   *  table, default false). The round-3 preflop entry rules over the reference
+   *  (open tightened, heads-up open, small blind steal, big blind defended)
+   *  retain the reference instead: that reference IS the priced first-in and
+   *  defence of the option, so the pack's bars (which fold a quarter to a
+   *  third of a standard late-position opening range, FL-PRE-02) give way to
+   *  it. Fixed limit only; every other variant and the default are unchanged. */
+  fixedLimitPricedPrecedence = false
 ) {
   const start = now(),
     variant = isRemainingPolicyVariant(s.gameVariant) ? s.gameVariant : null;
@@ -1612,6 +1621,12 @@ export function evaluateRemainingVariantPolicy(
     const rules = pack.round3;
     const baselineWagers = ['bet', 'raise', 'all_in'].includes(baseline.action);
     if (opponentStation) return finish('round3_reference_retained', retained());
+    // W5: under fixedLimitPricedPreflop a fixed-limit entry rule that would
+    // fire retains the priced reference; the receipt names the rule it held.
+    const precedence = (rule: string) =>
+      fixedLimitPricedPrecedence && limit
+        ? finish(`fixed_limit_priced_retains_${rule}`, retained())
+        : null;
     if (
       receipt.role === 'rfi' &&
       baselineWagers &&
@@ -1619,7 +1634,7 @@ export function evaluateRemainingVariantPolicy(
       (rules.openTighten as readonly string[]).includes(receipt.position) &&
       shape.quality < bars.open
     )
-      return finish('round3_open_tightened', passive());
+      return precedence('round3_open_tightened') ?? finish('round3_open_tightened', passive());
     if (
       rules.headsUpOpenBelowBar !== null &&
       seats.length === 2 &&
@@ -1628,7 +1643,7 @@ export function evaluateRemainingVariantPolicy(
       !baselineWagers &&
       shape.quality >= bars.open - rules.headsUpOpenBelowBar
     )
-      return finish('round3_heads_up_open', wager(0.75));
+      return precedence('round3_heads_up_open') ?? finish('round3_heads_up_open', wager(0.75));
     if (
       rules.smallBlindStealBelowBar !== null &&
       seats.length >= 3 &&
@@ -1637,7 +1652,9 @@ export function evaluateRemainingVariantPolicy(
       !baselineWagers &&
       shape.quality >= bars.open - rules.smallBlindStealBelowBar
     )
-      return finish('round3_small_blind_steal', wager(0.75));
+      return (
+        precedence('round3_small_blind_steal') ?? finish('round3_small_blind_steal', wager(0.75))
+      );
     if (
       rules.bigBlindDefendBelowCallBar !== null &&
       (rules.bigBlindDefendMaxDealt === null || seats.length <= rules.bigBlindDefendMaxDealt) &&
@@ -1646,7 +1663,7 @@ export function evaluateRemainingVariantPolicy(
       baseline.action === 'fold' &&
       shape.quality >= bars.call - rules.bigBlindDefendBelowCallBar
     )
-      return finish('round3_big_blind_defended', call());
+      return precedence('round3_big_blind_defended') ?? finish('round3_big_blind_defended', call());
     return finish('round3_reference_retained', retained());
   }
   // The exact FLO8 card facts, computed before sampling (the order the

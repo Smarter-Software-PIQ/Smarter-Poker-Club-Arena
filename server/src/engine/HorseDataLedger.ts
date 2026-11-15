@@ -1484,6 +1484,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'FixedLimitAdaptation'
   ),
   flag(
+    'fixedLimitPricedPreflop',
+    "2026-11-15 default OFF (Fixed-Limit lane W5): fixed limit only, first in the seat raises the stated reference share by players behind (HorseFixedLimitPreflop.ts; the small blind folded to also completes a band, the heads-up button raises flh 85% / flo8 70%), and a blind's fold facing exactly one raise (no limper, no caller) becomes a call when its realized equity against the opener's reference range covers the rake-aware price; 3-bet/cap ranges and tournament stacks of 20bb or less unchanged; the phase12 round-3 entry rules retain this reference in fixed limit",
+    'FixedLimitAdaptation'
+  ),
+  flag(
+    'fixedLimitStealVsTightBlinds',
+    '2026-11-15 default OFF (Fixed-Limit lane W5): fixed limit only, first in from the cutoff, button or small blind (or the heads-up button), when every player still to act has an own adequate over-folder read (foldToBet engaged high on at least 15 decayed opportunities, not presumed, nothing preflop engaged wide) the open share widens by up to 15 points (HorseFixedLimitPreflop.fixedLimitStealWiden)',
+    'FixedLimitAdaptation'
+  ),
+  flag(
     'fixedLimitOmahaNoPresumption',
     '2026-11-14 default OFF: on a fixed-limit Omaha decision (flo8) HorseMind.opponentRead does not apply the shared aggressive raise presumption (presumedAggressorRead, a pot-limit policy that prices a pot-sized raise); the opponent own measured read stands; pot-limit Omaha unchanged; measured before (O-TIGHT-FL-DIAGNOSIS): a 21-27 percent flo8 raiser (tight-value script) stayed presumed at 1,000 hands and the Horse opened 159 of 400 first-in buttons against him versus 202 with memory off; refused by the league (it deals no fixed limit), see UNMEASURABLE_MATCHUPS',
     'FixedLimitAdaptation'
@@ -5468,6 +5478,25 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'fixed_limit_hilo_low_half_kept_seen',
     'HorseLogic V40 Omaha pressure cap (fixedLimitHiLoLowHalfFloor)',
     'the V40 weak-high cap on a fixed-limit hi-lo river would have clipped the hand below half of its low share and was held at that half',
+    'FixedLimitAdaptation'
+  ),
+  // No floor: fixed-limit preflop only, with the opt-in options on.
+  receipt(
+    'fixed_limit_priced_first_in',
+    'HorsePreflop decidePreflopV7 (fixedLimitPricedPreflop, HorseFixedLimitPreflop.ts)',
+    'a fixed-limit first-in decision was taken on the seat reference share (raise, small blind complete, or fold)',
+    'FixedLimitAdaptation'
+  ),
+  receipt(
+    'fixed_limit_priced_blind_defence',
+    'HorsePreflop decidePreflopV7 (fixedLimitPricedPreflop, HorseFixedLimitPreflop.ts)',
+    "a fixed-limit blind's fold facing one raise became a call because its realized equity against the opener's reference range covered the price",
+    'FixedLimitAdaptation'
+  ),
+  receipt(
+    'fixed_limit_steal_vs_tight_blinds',
+    'HorsePreflop first-in open (fixedLimitStealVsTightBlinds, HorseFixedLimitPreflop.ts)',
+    'a fixed-limit first-in open was widened because every player still to act is a read over-folder',
     'FixedLimitAdaptation'
   ),
   // No floor: fixed-limit Omaha decisions only, with the opt-in option on.

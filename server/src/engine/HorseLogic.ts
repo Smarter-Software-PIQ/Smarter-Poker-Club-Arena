@@ -224,6 +224,13 @@ import {
   type OmahaTightReRaiser,
   type OmahaTightSteal,
 } from './HorseOmahaTightOpponent.js';
+import {
+  fixedLimitOpenShare,
+  fixedLimitPersonaShareMul,
+  fixedLimitStealStrengthWiden,
+  fixedLimitStealWiden,
+  type FixedLimitPricedCtx,
+} from './HorseFixedLimitPreflop.js';
 // STYLE READ (2026-11-13): the opponent's style on two axes, and the small
 // pure helpers each default-off consumer below asks. See HorseOpponentStyle.ts.
 import {
@@ -3153,6 +3160,25 @@ export interface HorseDecideOpts {
    *  (presumedAggressorRead) is not applied; the opponent's own measured read
    *  stands (HorseMind.opponentRead). Read only as === true: default OFF. */
   fixedLimitOmahaNoPresumption?: boolean;
+  /** FIXED-LIMIT PRICED PREFLOP (Fixed-Limit lane W5, 2026-11-15): in fixed
+   *  limit only, first in the seat raises the stated reference share by
+   *  players behind (the small blind folded to also completes a band; the
+   *  heads-up button raises flh 85% / flo8 70%), and a blind's fold facing
+   *  exactly one raise becomes a call when its realized equity against the
+   *  opener's reference range covers the rake-aware price
+   *  (HorseFixedLimitPreflop.ts). 3-bet/cap ranges and tournament stacks of
+   *  20 big blinds or less are unchanged. With it on, the phase12 pack's
+   *  round-3 preflop entry rules retain this reference in fixed limit.
+   *  Read only as === true: default OFF. */
+  fixedLimitPricedPreflop?: boolean;
+  /** FIXED-LIMIT STEAL VS TIGHT BLINDS (Fixed-Limit lane W5, 2026-11-15): in
+   *  fixed limit, first in from the cutoff, button or small blind (or the
+   *  heads-up button), when every player still to act is a read over-folder
+   *  (own exploit read, foldToBet engaged high on adequate decayed
+   *  opportunities, not presumed, nothing preflop engaged wide), the open
+   *  widens by up to 15 points of hands (HorseFixedLimitPreflop.ts). Read
+   *  only as === true: default OFF. */
+  fixedLimitStealVsTightBlinds?: boolean;
   /** Hi-lo river bluffs with a low possible (2026-11-07,
    *  HorseRiverBluffRange.ts): the nut low with no high bets the freeroll;
    *  air bluffs the whole pot only when the opponent is unlikely to hold a
@@ -7291,7 +7317,8 @@ export class HorseLogic {
               opts.phase12EvidenceMode && !tele ? () => 0 : undefined,
               phase12DecisionEquityCeiling ?? 1,
               true,
-              readStation
+              readStation,
+              opts.fixedLimitPricedPreflop === true && vi.isFixedLimit === true
             )
           : null;
       if (phase12) {
@@ -9658,6 +9685,80 @@ export class HorseLogic {
       }
     }
 
+    // ═══ FIXED-LIMIT PRICED PREFLOP / STEAL VS TIGHT BLINDS (W5, default off) ═══
+    // HorseFixedLimitPreflop: fixed limit only, never in a bomb pot, a
+    // straddled pot or All-In-Or-Fold. The reads are the players still to act
+    // (folded and sitting-out players are not), each its own exploit read.
+    let fixedLimitPriced: FixedLimitPricedCtx | undefined;
+    let fixedLimitStealOpenWiden: number | undefined;
+    const flVariant: 'flh' | 'flo8' | null = vi.isFixedLimit
+      ? vi.isOmaha
+        ? vi.isHiLo
+          ? 'flo8'
+          : null
+        : player.cards.length === 2 && !vi.isShortDeck
+          ? 'flh'
+          : null
+      : null;
+    if (
+      flVariant !== null &&
+      (opts.fixedLimitPricedPreflop === true || opts.fixedLimitStealVsTightBlinds === true) &&
+      gs.bombPot !== true &&
+      gs.allInOrFold !== true &&
+      gs.straddleActive !== true
+    ) {
+      try {
+        const dealtFl = dealtHorseTableSize(gs, player.seat);
+        const behindFl = preflopPlayersBehind(player.seat, gs, opts.v13 !== false);
+        let stealWidenShare = 0;
+        const stealSeat = behindFl !== null && (dealtFl <= 2 ? behindFl === 1 : behindFl <= 3);
+        if (
+          opts.fixedLimitStealVsTightBlinds === true &&
+          opts.mind !== false &&
+          raises === 0 &&
+          limpers === 0 &&
+          stealSeat
+        ) {
+          const leftFl = gs.players.filter(
+            (p) => p.seat !== player.seat && !p.is_folded && !p.is_sitting_out
+          );
+          if (leftFl.length > 0 && !leftFl.some((p) => p.is_all_in)) {
+            const w = fixedLimitStealWiden(leftFl.map((p) => HorseMind.opponentRead(p.user_id)));
+            if (w) stealWidenShare = w.widenShare;
+          }
+        }
+        if (opts.fixedLimitPricedPreflop === true) {
+          const raiserFl =
+            raises === 1 && lastRaiserSeat >= 0
+              ? gs.players.find((p) => p.seat === lastRaiserSeat)
+              : undefined;
+          fixedLimitPriced = {
+            variant: flVariant,
+            dealt: dealtFl,
+            behind: behindFl,
+            openerBehind: raiserFl
+              ? preflopPlayersBehind(raiserFl.seat, gs, opts.v13 !== false)
+              : null,
+            openerAllIn: raiserFl?.is_all_in === true,
+            stealWidenShare,
+          };
+        } else if (stealWidenShare > 0) {
+          const refFl = fixedLimitOpenShare(flVariant, dealtFl, behindFl);
+          if (refFl) {
+            const widenFl = fixedLimitStealStrengthWiden(
+              flVariant,
+              refFl.raise * fixedLimitPersonaShareMul(params.tightness),
+              stealWidenShare,
+              dealtFl
+            );
+            if (widenFl > 0) fixedLimitStealOpenWiden = widenFl;
+          }
+        }
+      } catch {
+        /* reads are best-effort */
+      }
+    }
+
     const preflopRisk = icmRisk(
       gs,
       stackBB,
@@ -10277,6 +10378,8 @@ export class HorseLogic {
       ...(omahaTightOpener ? { omahaTightOpener } : {}),
       ...(omahaTightReRaiser ? { omahaTightReRaiser } : {}),
       ...(omahaTightSteal ? { omahaTightSteal: { openWiden: omahaTightSteal.openWiden } } : {}),
+      ...(fixedLimitPriced ? { fixedLimitPriced } : {}),
+      ...(fixedLimitStealOpenWiden !== undefined ? { fixedLimitStealOpenWiden } : {}),
       maniacOpenBar:
         maniacBehindWidth !== null ? maniacBehindOpenBar(maniacBehindWidth, vi.isOmaha) : undefined,
       maniacNoBluff: maniacRaiserWidth !== null || maniacBehindWidth !== null ? true : undefined,
@@ -10371,6 +10474,12 @@ export class HorseLogic {
               noteFire('style_tight_opener_respect_seen');
             else if (layer === 'style_tight_reraiser_respect_seen')
               noteFire('style_tight_reraiser_respect_seen');
+            else if (layer === 'fixed_limit_priced_first_in')
+              noteFire('fixed_limit_priced_first_in');
+            else if (layer === 'fixed_limit_priced_blind_defence')
+              noteFire('fixed_limit_priced_blind_defence');
+            else if (layer === 'fixed_limit_steal_vs_tight_blinds')
+              noteFire('fixed_limit_steal_vs_tight_blinds');
           }
         : undefined,
       isShortDeck: vi.isShortDeck === true,

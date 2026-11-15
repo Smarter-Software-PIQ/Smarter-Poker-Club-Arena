@@ -61,6 +61,10 @@ import {
 import { limpReraiseIsoBar } from './HorseLimpReraiseRead.js';
 import { fixedLimitHasNoJamOrFold } from './HorseFixedLimitStructure.js';
 import {
+  fixedLimitPricedPreflopIntent,
+  type FixedLimitPricedCtx,
+} from './HorseFixedLimitPreflop.js';
+import {
   OMAHA_TOURNAMENT_FIRST_IN,
   omahaTournamentFirstIn,
   type OmahaTournamentFirstInParams,
@@ -215,7 +219,10 @@ export type PreflopLayerReceipt =
   | 'omaha_tournament_first_in'
   | 'omaha_hilo_tournament_first_in'
   | 'style_tight_opener_respect_seen'
-  | 'style_tight_reraiser_respect_seen';
+  | 'style_tight_reraiser_respect_seen'
+  | 'fixed_limit_priced_first_in'
+  | 'fixed_limit_priced_blind_defence'
+  | 'fixed_limit_steal_vs_tight_blinds';
 
 /**
  * Dan 2026-11-06 (PLO5 1/2 Madness, hand 55704472): "I JUST WATCHED NOODLE NOT
@@ -350,6 +357,25 @@ export interface PreflopCtx {
   omahaTightOpener?: { threeBetBar: number; maxBarMove: number; callBump: number };
   omahaTightReRaiser?: { fourBetBump: number; callBump: number };
   omahaTightSteal?: { openWiden: number };
+  /**
+   * FIXED-LIMIT PRICED PREFLOP (Fixed-Limit lane W5, 2026-11-15, option
+   * fixedLimitPricedPreflop, default off; HorseFixedLimitPreflop): present
+   * only in fixed limit with the option on. First in, the seat raises its
+   * reference share (the small blind also completes a band), and a blind's
+   * fold facing exactly one raise becomes a call when the realized equity
+   * against the opener's reference range covers the price. Absent =
+   * unchanged.
+   */
+  fixedLimitPriced?: FixedLimitPricedCtx;
+  /**
+   * FIXED-LIMIT STEAL VS TIGHT BLINDS with the priced option OFF (option
+   * fixedLimitStealVsTightBlinds, default off): every player left to act is a
+   * read over-folder, so the first-in open bar of the cutoff, button or small
+   * blind comes down by this (strength units). With the priced option on the
+   * widen travels in fixedLimitPriced.stealWidenShare instead. Absent =
+   * unchanged.
+   */
+  fixedLimitStealOpenWiden?: number;
   /**
    * 2026-10-24 V53 PRESSURE (HorseOpponentExploit.aggressiveOpenerPressure):
    * the single raiser is a credibly WIDE opener. Heads-up against them the
@@ -1158,7 +1184,47 @@ export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
   if (ctx.classFoldAlways === true && ctx.toCall > 0) {
     return { a: 'fold' };
   }
-  const out = completePreflopCommitment(decidePreflopV7Core(ctx), ctx);
+  let out = completePreflopCommitment(decidePreflopV7Core(ctx), ctx);
+  // ═══ FIXED-LIMIT PRICED PREFLOP (W5, default off) ═══ HorseFixedLimitPreflop:
+  // first in, the reference share by seat; a blind facing one raise defends
+  // to its price. Any other spot, and a defence the price does not carry,
+  // keeps the answer above. A priced fold still meets the guard below.
+  if (ctx.fixedLimitPriced !== undefined && ctx.isFixedLimit === true) {
+    const pricePotFl = Number.isFinite(ctx.contestablePot)
+      ? Math.max(0, ctx.contestablePot as number)
+      : ctx.pot;
+    const effCallFl = Math.min(ctx.toCall, ctx.stack);
+    const priced = fixedLimitPricedPreflopIntent(
+      {
+        priced: ctx.fixedLimitPriced,
+        strength: ctx.strength,
+        tightness: ctx.tightness,
+        riskAdd: ctx.riskAdd,
+        mode: ctx.mode,
+        stackBB: ctx.stackBB,
+        raises: ctx.raises,
+        limpers: ctx.limpers,
+        callers: ctx.callers,
+        toCall: ctx.toCall,
+        bigBlind: ctx.bigBlind,
+        currentBet: ctx.currentBet,
+        blind: ctx.position === 'sb' || ctx.position === 'bb' ? ctx.position : null,
+        odds: effCallFl > 0 ? preflopCallOdds(ctx, pricePotFl, effCallFl) : 1,
+        maniacOpenBar: ctx.maniacOpenBar,
+      },
+      out
+    );
+    if (priced) {
+      ctx.noteLayer?.(priced.receipt);
+      if (
+        ctx.fixedLimitPriced.stealWidenShare > 0 &&
+        priced.receipt === 'fixed_limit_priced_first_in'
+      )
+        ctx.noteLayer?.('fixed_limit_steal_vs_tight_blinds');
+      if (priced.intent.a !== 'fold') return priced.intent;
+      out = priced.intent;
+    }
+  }
   // ═══ OMAHA TOURNAMENT SHORT-HANDED FIRST-IN (Dan 2026-11-12) ═══
   // The commitment zone's unopened stack-off bar has no heads-up or
   // blind-versus-blind case, so short-handed the table walks the big blind.
@@ -2456,6 +2522,17 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       (position === 'late' || position === 'sb')
     ) {
       openThresh -= Math.max(0, ctx.omahaTightSteal.openWiden);
+    }
+    // FIXED-LIMIT STEAL VS TIGHT BLINDS (priced option off): every player
+    // left to act is a read over-folder.
+    if (
+      ctx.fixedLimitStealOpenWiden !== undefined &&
+      ctx.isFixedLimit === true &&
+      limpers === 0 &&
+      (position === 'late' || position === 'sb')
+    ) {
+      openThresh -= Math.max(0, ctx.fixedLimitStealOpenWiden);
+      ctx.noteLayer?.('fixed_limit_steal_vs_tight_blinds');
     }
     openThresh = phase6CapBar(openThresh);
     // MANIAC PRESSURE: never open a hand that has to fold to the maniac's

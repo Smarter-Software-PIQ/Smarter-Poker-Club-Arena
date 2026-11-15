@@ -55,6 +55,11 @@ describe('UNMEASURABLE_MATCHUPS', () => {
         'flh_call_is_not_a_commitment',
         'flo8_hilo_low_half_floor',
         'flo8_no_omaha_presumption',
+        // Fixed-Limit lane W5 (2026-11-15): priced preflop and the steal.
+        'flh_priced_preflop',
+        'flo8_priced_preflop',
+        'flh_steal_vs_tight_blinds',
+        'flo8_steal_vs_tight_blinds',
       ].sort()
     );
     const card = new Set(LEAGUE_MATCHUPS.map((m) => m.name));
