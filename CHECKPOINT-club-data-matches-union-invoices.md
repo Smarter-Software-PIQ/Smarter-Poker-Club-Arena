@@ -99,8 +99,16 @@ client 2 AM presentation, publish, live verification.
   FS -101,626.77, KC -18,011.94, each equal to its invoice to the cent.
 
 ## State
-- #10899 (boundary capture) head 58b622594 pushed: S1 invoice-version function,
-  N2 ENABLE ALWAYS asserted via pg_trigger. Waiting on CI + reviewer delta.
+- #10899 (boundary capture) MERGED 2026-11-15 03:14Z as 9c616a05b (reviewer:
+  ready at 58b622594), Apply Merged Migration run 43671515040 success;
+  production: 20261115015159 in schema_migrations, 6 of 6 ready pnl_boundary
+  certificates copied (09-21, 09-28, 10-19, 10-26, 11-02, 11-09), capture
+  trigger tgenabled A, fn_ca_union_pnl_boundary_for_invoice present, 0 failures.
+- #10879 head 6f191f60b (merge of main incl. #10899): review fixes b80201ad1
+  (unclassified flow and busy boundary recorded as failures, union check on
+  live fee projections), 517f38e17 (file-URL law). CI: Accounting shard 6
+  fails in scripts/ci/test-promo-downline-limit-postgres.py, a main regression
+  from #10888 that #10916 fixes; merge main after #10916, then merge #10879.
 - #10879: redesign pushed d7b4cfc5f (20261115020010 / 20261115020011), N4
   STABLE, former-slug refusal in 20261114235607 (BEFORE INSERT OR UPDATE OF
   slug, 23505, own former slug allowed), BAND-AIDS entry, seed S8, pg pinned;
