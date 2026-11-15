@@ -1836,6 +1836,21 @@ export class LightningHandHost {
       if (!this.foldAvailable(userId, st)) continue;
       const auth = hc.getAuthoritativeActionState(userId, { asIfToAct: true });
       if (!auth?.canAct || !(auth.toCall > 0.005) || auth.legalActions.includes('check')) continue;
+      // THE BIG BLIND WAITS FOR ITS PRICE (2026-11-15, L-017). Preflop, the big
+      // blind closes the action: while a live seat still owes chips to the
+      // current bet, callers can still come in and improve its price, and an
+      // early fold priced "as if to act now" is final (the held fold is
+      // published at its turn without asking again). It decides once, on its
+      // own turn. Every other early look is unchanged.
+      if (
+        st.stage === 'preflop' &&
+        userId === this.formed.bb &&
+        st.players.some(
+          (o) =>
+            o.user_id !== userId && !o.is_folded && !o.is_all_in && o.bet < st.currentBet - 0.005
+        )
+      )
+        continue;
       this.startHorseEarlyLook(userId, st.stage);
     }
   }

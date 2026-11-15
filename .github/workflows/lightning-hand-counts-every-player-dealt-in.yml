@@ -64,6 +64,7 @@ on:
       - supabase/migrations/20261008111425_lightning_phase_10_responsible_gaming_stop_playing_auto_rebu.sql
       - supabase/migrations/20261112203847_lightning_a_player_can_withdraw_their_own_leave_next_hand.sql
       - supabase/migrations/20261114220925_lightning_leave_mutations_require_the_requested_pool_session.sql
+      - supabase/migrations/20261114222043_retire_unscoped_lightning_room_leave_after_client_cutover.sql
       - supabase/migrations/20261001222856_lightning_phase_7_the_pool_reverts_to_must_move_and_the_tick.sql
       - supabase/migrations/20260908220604_bind_cashout_requests_to_seat_occupancy.sql
       - scripts/qualify-lightning-blind-off.mjs
