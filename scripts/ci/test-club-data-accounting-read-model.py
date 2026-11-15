@@ -132,8 +132,10 @@ try:
     run(psql("live"), BOUNDARIES)
     after = q("live", "SELECT md5(string_agg(f::text, ',' ORDER BY club_id, acct_day, game_id, user_id, src)) FROM ca_club_acct_fact f")
     require(before == after, "loading a day again and reloading a boundary changes nothing")
-    require(q("live", "SELECT count(*) FROM ca_club_acct_projection_failures WHERE resolved_at IS NOT NULL") == "1",
-            "loading the day again marks its recorded failure resolved")
+    require(q("live", "SELECT string_agg(source || ':' || acct_day, ',' ORDER BY id) FROM ca_club_acct_projection_failures "
+                      "WHERE resolved_at IS NOT NULL") == "tournament_flow_unclassified:2026-11-02,bbj_award:2026-11-03,"
+                                                    "tournament_flow_unclassified:2026-11-03,tournament_flow_unclassified:2026-11-03",
+            "loading a day again resolves its recorded failures; an unclassified flow is recorded again")
     p = run(psql("live"), (FIX / "check.sql").read_text())
     require("PASSED" in p.stdout + p.stderr, "the figures hold after the rebuild")
 
@@ -221,6 +223,29 @@ try:
                       "(SELECT sum(result) FROM (SELECT result FROM ca_club_acct_fact WHERE acct_day = '2026-11-05' UNION ALL "
                       "SELECT result FROM ca_club_acct_fact_journal WHERE acct_day = '2026-11-05') x)") == "32/8/1/0.40",
             "a transaction holds at most 32 projection locks; the rest journal and the figures stay whole")
+
+    # (4) A boundary version arriving while another transaction loads that
+    # boundary: the capture never waits, both boundary days are recorded as
+    # failures, and the next load of the boundary resolves them.
+    a = background()
+    a.stdin.write("BEGIN; SELECT fn_ca_club_acct_load_boundary('fade0000-0000-0000-0000-000000000001', "
+                  "'2026-11-09 08:00+00') IS NOT NULL; SELECT pg_sleep(3); COMMIT;\n")
+    a.stdin.flush()
+    time.sleep(1.0)
+    t0 = time.monotonic()
+    run(psql("live"), "UPDATE accounting_close_certificates SET value = jsonb_build_object('status', 'ready', 'holdings', "
+        "jsonb_build_array(jsonb_build_object('kind', 'deferred_tournament_result', 'club_id', 'a0000000-0000-0000-0000-000000000001', "
+        "'user_id', '11111111-0000-0000-0000-000000000002', 'amount', 16.00, 'source_id', 'f0000000-0000-0000-0000-000000000001'))), "
+        "certified_at = '2026-11-13 00:00+00' WHERE kind = 'pnl_boundary' AND period_start = '2026-11-09 08:00+00';")
+    waited = time.monotonic() - t0
+    finish(a, "")
+    require(waited < 2.0 and q("live", "SELECT string_agg(acct_day::text, ',' ORDER BY acct_day) FROM ca_club_acct_projection_failures "
+                                       "WHERE source = 'pnl_boundary_busy' AND resolved_at IS NULL") == "2026-11-08,2026-11-09",
+            f"a boundary version arriving during another load of it never waits and records both its days ({waited:.2f} s)")
+    run(psql("live"), BOUNDARIES)
+    require(q("live", "SELECT count(*) FROM ca_club_acct_projection_failures WHERE source = 'pnl_boundary_busy' AND resolved_at IS NULL") == "0"
+            and q("live", "SELECT sum(result) FROM ca_club_acct_fact WHERE src = 2 AND acct_day = '2026-11-09'") == "-16.00",
+            "the next load of the boundary takes the new version and resolves both days")
 
     require(q("live", "SELECT NOT has_table_privilege('authenticated','public.ca_club_acct_fact','select') "
                       "AND NOT has_table_privilege('anon','public.ca_club_acct_fact','select') "

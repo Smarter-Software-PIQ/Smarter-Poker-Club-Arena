@@ -105,11 +105,17 @@ BEGIN
         FROM (SELECT club_id, acct_day, game_id, user_id, sum(hands) h FROM all_facts GROUP BY 1, 2, 3, 4 HAVING sum(hands) <> 0) x);
   END IF;
 
-  -- The failed projection is recorded, and the share it followed committed.
+  -- The failed projection is recorded, and the share it followed committed;
+  -- the posted prize no receipt owns (pre.sql) is a failure of its day,
+  -- never a silent drop, and a day load does not resolve it.
   IF (SELECT count(*) FROM ca_club_acct_projection_failures WHERE source = 'bbj_award' AND acct_day = '2026-11-03') <> 1
-     OR (SELECT count(*) FROM ca_club_acct_projection_failures) <> 1
-     OR NOT EXISTS (SELECT 1 FROM bbj_payout_recipients WHERE user_id = 'bbb00000-0000-0000-0000-0000000000ff') THEN
-    RAISE EXCEPTION 'failure record: %', (SELECT string_agg(source || ' ' || detail, ' | ') FROM ca_club_acct_projection_failures);
+     OR NOT EXISTS (SELECT 1 FROM bbj_payout_recipients WHERE user_id = 'bbb00000-0000-0000-0000-0000000000ff')
+     OR NOT EXISTS (SELECT 1 FROM ca_club_acct_projection_failures WHERE source = 'tournament_flow_unclassified'
+                     AND source_key = 'f1000000-0000-0000-0000-00000000000b' AND acct_day = '2026-11-03')
+     OR (SELECT string_agg(source || ':' || acct_day, ',' ORDER BY acct_day) FROM ca_club_acct_projection_failures WHERE resolved_at IS NULL)
+        IS DISTINCT FROM 'tournament_flow_unclassified:2026-11-02,tournament_flow_unclassified:2026-11-03' THEN
+    RAISE EXCEPTION 'failure record: %', (SELECT string_agg(source || ' ' || acct_day || ' ' || detail || ' ' || (resolved_at IS NULL), ' | ')
+                                            FROM ca_club_acct_projection_failures);
   END IF;
 
   -- The tournament game of a carried entry is its tournament.

@@ -212,13 +212,14 @@ COMMENT ON TABLE public.ca_club_acct_boundary_log IS
 CREATE TABLE public.ca_club_acct_projection_failures (
   id          bigserial   PRIMARY KEY,
   source      text        NOT NULL,
+  source_key  text,
   acct_day    date,
   detail      text        NOT NULL,
   failed_at   timestamptz NOT NULL DEFAULT clock_timestamp(),
   resolved_at timestamptz
 );
 COMMENT ON TABLE public.ca_club_acct_projection_failures IS
-  'A live projection that raised. The money write it followed committed. A row here is a P0 defect: the reader reports its day (every day, when acct_day is NULL) as incomplete until the cause is fixed and the day is loaded again (fn_ca_club_acct_seed_day sets resolved_at).';
+  'A live projection that raised, a posted union tournament flow no receipt rule classifies (tournament_flow_unclassified), or a boundary that could not be loaded (pnl_boundary*, source_key = union:epoch). The money write it followed committed. A row here is a P0 defect: the reader reports its day (every day, when acct_day is NULL) as incomplete until the cause is fixed and the day is loaded again (fn_ca_club_acct_seed_day sets resolved_at; a boundary failure is resolved by fn_ca_club_acct_load_boundary).';
 
 ALTER TABLE public.ca_club_acct_fact ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ca_club_acct_fact_journal ENABLE ROW LEVEL SECURITY;
@@ -291,9 +292,27 @@ BEGIN
 END;
 $function$;
 
-CREATE FUNCTION public.fn_ca_club_acct_fail(p_source text, p_day date, p_detail text)
+CREATE FUNCTION public.fn_ca_club_acct_fail(p_source text, p_day date, p_detail text, p_key text DEFAULT NULL)
 RETURNS void LANGUAGE sql SECURITY DEFINER SET search_path = public AS $function$
-  INSERT INTO public.ca_club_acct_projection_failures (source, acct_day, detail) VALUES (p_source, p_day, p_detail);
+  INSERT INTO public.ca_club_acct_projection_failures (source, source_key, acct_day, detail)
+  VALUES (p_source, p_key, p_day, p_detail);
+$function$;
+
+-- A boundary's key, independent of the session's time zone.
+CREATE FUNCTION public.fn_ca_club_acct_boundary_key(p_union uuid, p_boundary timestamptz)
+RETURNS text LANGUAGE sql IMMUTABLE SET search_path = public AS $function$
+  SELECT p_union::text || ':' || extract(epoch FROM p_boundary)::text;
+$function$;
+
+-- The posted union tournament flows of a set that the invoice would have to
+-- classify; fn_ca_club_acct_flow_rows returns one row for each it classifies.
+CREATE FUNCTION public.fn_ca_club_acct_flow_eligible(p_flows jsonb)
+RETURNS bigint LANGUAGE sql STABLE SET search_path = public AS $function$
+  SELECT count(*) FROM jsonb_to_recordset(COALESCE(p_flows, '[]'::jsonb)) AS x(recognized_at timestamptz,
+           game_scope jsonb, ledger_snapshot jsonb)
+    JOIN public.unions u ON u.id::text = x.game_scope->>'game_union_id'
+   WHERE NULLIF(x.game_scope->>'tournament_id', '') IS NOT NULL AND x.ledger_snapshot->>'status' = 'posted'
+     AND x.recognized_at IS NOT NULL AND (x.ledger_snapshot->>'amount')::numeric > 0;
 $function$;
 
 -- ---------------------------------------------------------------------------
@@ -388,6 +407,7 @@ RETURNS jsonb LANGUAGE sql STABLE SET search_path = public AS $function$
     LEFT JOIN public.fn_ca_launch_accounting_club_cutoffs() bd(club_id, cutoff_at)
       ON bd.club_id = COALESCE(a.funding_club_id, s.club_id)
    WHERE s.union_id IS NOT NULL AND s.earned_at IS NOT NULL AND isfinite(s.earned_at)
+     AND EXISTS (SELECT 1 FROM public.unions u WHERE u.id = s.union_id)
      AND (bd.cutoff_at IS NULL OR s.earned_at >= bd.cutoff_at);
 $function$;
 
@@ -401,6 +421,7 @@ RETURNS jsonb LANGUAGE sql STABLE SET search_path = public AS $function$
       JOIN public.accounting_cash_rake_sources s ON s.id = x.source_id
       LEFT JOIN public.rake_records rr ON rr.id = s.rake_record_id
      WHERE x.funding_club_id IS DISTINCT FROM s.club_id AND s.union_id IS NOT NULL
+       AND EXISTS (SELECT 1 FROM public.unions u WHERE u.id = s.union_id)
        AND s.earned_at IS NOT NULL AND isfinite(s.earned_at)
   ), sides AS (
     SELECT a.club_id AS club, -1 AS sign, a.* FROM a
@@ -435,6 +456,7 @@ RETURNS jsonb LANGUAGE sql STABLE SET search_path = public AS $function$
      AND NOT (s.union_id IS DISTINCT FROM r.union_id)
     LEFT JOIN public.fn_ca_launch_accounting_club_cutoffs() bd(club_id, cutoff_at) ON bd.club_id = s.club_id
    WHERE rs.disposition = 'earned' AND s.club_id IS NOT NULL AND s.union_id IS NOT NULL
+     AND EXISTS (SELECT 1 FROM public.unions u WHERE u.id = s.union_id)
      AND (bd.cutoff_at IS NULL OR (s.charged_at IS NOT NULL AND isfinite(s.charged_at) AND s.charged_at >= bd.cutoff_at
                                    AND rs.recognized_at IS NOT NULL AND isfinite(rs.recognized_at)
                                    AND rs.recognized_at >= bd.cutoff_at));
@@ -667,7 +689,7 @@ DECLARE
   v_open public.ca_union_pnl_boundary_capture; v_close public.ca_union_pnl_boundary_capture;
   v_rows jsonb := '[]'::jsonb;
 BEGIN
-  IF NOT pg_try_advisory_xact_lock(hashtextextended('ca-club-acct:b:' || p_union || ':' || p_boundary, 0)) THEN
+  IF NOT pg_try_advisory_xact_lock(hashtextextended('ca-club-acct:b:' || public.fn_ca_club_acct_boundary_key(p_union, p_boundary), 0)) THEN
     RETURN NULL;
   END IF;
   SELECT min(si.created_at) INTO v_open_issued
@@ -699,6 +721,9 @@ BEGIN
      SET opening_md5 = EXCLUDED.opening_md5, opening_exact = EXCLUDED.opening_exact,
          closing_md5 = EXCLUDED.closing_md5, closing_exact = EXCLUDED.closing_exact,
          fact_rows = EXCLUDED.fact_rows, loaded_at = EXCLUDED.loaded_at;
+  UPDATE public.ca_club_acct_projection_failures pf SET resolved_at = clock_timestamp()
+   WHERE pf.source LIKE 'pnl_boundary%' AND pf.resolved_at IS NULL
+     AND pf.source_key = public.fn_ca_club_acct_boundary_key(p_union, p_boundary);
   RETURN jsonb_array_length(v_rows);
 END;
 $function$;
@@ -818,11 +843,21 @@ $function$;
 -- tournament flows, every one owned by a funding receipt, an accounting
 -- credit receipt or a refund tranche carrying the flow's own transaction_id),
 -- so it exists when the deferred trigger runs.
+-- A posted union tournament flow no receipt rule classifies is never
+-- dropped silently: it is recorded as a failure of its day (the invoice
+-- refuses to certify such a week too). Measured 2026-11-15 over 7 days:
+-- 186,945 posted union tournament flows, every one classified.
 CREATE FUNCTION public.trg_ca_club_acct_flow()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public SET lock_timeout = '50ms' AS $function$
+DECLARE f jsonb := jsonb_build_array(to_jsonb(NEW)); v jsonb;
 BEGIN
   IF NULLIF(NEW.game_scope->>'tournament_id', '') IS NOT NULL THEN
-    PERFORM public.fn_ca_club_acct_put(public.fn_ca_club_acct_flow_rows(jsonb_build_array(to_jsonb(NEW))), 0::smallint);
+    v := public.fn_ca_club_acct_flow_rows(f);
+    IF jsonb_array_length(v) < public.fn_ca_club_acct_flow_eligible(f) THEN
+      PERFORM public.fn_ca_club_acct_fail('tournament_flow_unclassified', public.fn_ca_club_acct_safe_day(NEW.recognized_at),
+        'no receipt rule classifies ledger=' || NEW.ledger_id, NEW.ledger_id::text);
+    END IF;
+    PERFORM public.fn_ca_club_acct_put(v, 0::smallint);
   END IF;
   RETURN NULL;
 EXCEPTION WHEN OTHERS THEN
@@ -847,14 +882,24 @@ END;
 $function$;
 
 -- A kept boundary certificate (20261115015159) loads its boundary.
+-- A kept boundary certificate (20261115015159) loads its boundary. When
+-- another transaction is loading the same boundary (its try-lock is taken),
+-- or the load raises, both days of the boundary are recorded as failures;
+-- the next successful load of the boundary resolves them.
 CREATE FUNCTION public.trg_ca_club_acct_boundary()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public SET lock_timeout = '50ms' AS $function$
+DECLARE v_key text := public.fn_ca_club_acct_boundary_key(NEW.union_id, NEW.boundary);
 BEGIN
-  PERFORM public.fn_ca_club_acct_load_boundary(NEW.union_id, NEW.boundary);
+  IF public.fn_ca_club_acct_load_boundary(NEW.union_id, NEW.boundary) IS NULL THEN
+    PERFORM public.fn_ca_club_acct_fail('pnl_boundary_busy', d, 'boundary ' || v_key || ' was being loaded by another transaction', v_key)
+       FROM unnest(ARRAY[public.fn_ca_club_acct_safe_day(NEW.boundary),
+                         public.fn_ca_club_acct_safe_day(NEW.boundary - interval '1 microsecond')]) d;
+  END IF;
   RETURN NULL;
 EXCEPTION WHEN OTHERS THEN
-  PERFORM public.fn_ca_club_acct_fail('pnl_boundary', public.fn_ca_club_acct_safe_day(NEW.boundary),
-    SQLSTATE || ' ' || SQLERRM || ' boundary=' || NEW.union_id || ':' || NEW.boundary);
+  PERFORM public.fn_ca_club_acct_fail('pnl_boundary', d, SQLSTATE || ' ' || SQLERRM || ' boundary=' || v_key, v_key)
+     FROM unnest(ARRAY[public.fn_ca_club_acct_safe_day(NEW.boundary),
+                       public.fn_ca_club_acct_safe_day(NEW.boundary - interval '1 microsecond')]) d;
   RETURN NULL;
 END;
 $function$;
@@ -889,7 +934,8 @@ SET search_path = public, smarter_private SET statement_timeout = '600s' SET wor
 DECLARE
   v_lo timestamptz := public.fn_ca_accounting_day_start(p_day);
   v_hi timestamptz := public.fn_ca_accounting_day_start(p_day + 1);
-  w_lo timestamptz; w_hi timestamptz; v jsonb; n_f bigint := 0; n_h bigint := 0; n_live bigint; n_fix bigint;
+  w_lo timestamptz; w_hi timestamptz; v jsonb; f jsonb; n_f bigint := 0; n_h bigint := 0; n_live bigint; n_fix bigint;
+  n_unclassified bigint := 0;
 BEGIN
   IF p_day IS NULL THEN
     RAISE EXCEPTION 'club data accounting load needs a day' USING ERRCODE = '22023';
@@ -949,12 +995,13 @@ BEGIN
     PERFORM public.fn_ca_club_acct_put_hands(v->'hands', 1::smallint);
     n_f := n_f + jsonb_array_length(v->'facts'); n_h := n_h + jsonb_array_length(v->'hands');
 
-    v := public.fn_ca_club_acct_flow_rows((
-      SELECT jsonb_agg(to_jsonb(f)) FROM public.unions u
-       CROSS JOIN LATERAL (SELECT x.* FROM public.union_pnl_original_flows x
-                            WHERE x.game_scope->>'game_union_id' = u.id::text
-                              AND x.recognized_at >= w_lo AND x.recognized_at < w_hi
-                              AND NULLIF(x.game_scope->>'tournament_id', '') IS NOT NULL) f));
+    f := (SELECT jsonb_agg(to_jsonb(fl)) FROM public.unions u
+           CROSS JOIN LATERAL (SELECT x.* FROM public.union_pnl_original_flows x
+                                WHERE x.game_scope->>'game_union_id' = u.id::text
+                                  AND x.recognized_at >= w_lo AND x.recognized_at < w_hi
+                                  AND NULLIF(x.game_scope->>'tournament_id', '') IS NOT NULL) fl);
+    v := public.fn_ca_club_acct_flow_rows(f);
+    n_unclassified := n_unclassified + public.fn_ca_club_acct_flow_eligible(f) - jsonb_array_length(v);
     PERFORM public.fn_ca_club_acct_put(v, 1::smallint); n_f := n_f + jsonb_array_length(v);
 
     w_lo := w_hi;
@@ -987,20 +1034,28 @@ BEGIN
      AND z.fee = 0 AND z.result = 0 AND z.buyins = 0 AND z.cashouts = 0 AND z.hands = 0;
   DELETE FROM public.ca_club_acct_hands z WHERE z.acct_day = p_day AND z.src = 1 AND z.hands = 0;
 
+  -- The day is whole again for every live projection of it; a boundary's
+  -- failures are resolved only by loading that boundary.
   UPDATE public.ca_club_acct_projection_failures pf SET resolved_at = clock_timestamp()
-   WHERE pf.acct_day = p_day AND pf.resolved_at IS NULL;
+   WHERE pf.acct_day = p_day AND pf.resolved_at IS NULL AND pf.source NOT LIKE 'pnl_boundary%';
   GET DIAGNOSTICS n_fix = ROW_COUNT;
+  IF n_unclassified > 0 THEN
+    PERFORM public.fn_ca_club_acct_fail('tournament_flow_unclassified', p_day,
+      n_unclassified || ' posted union tournament flow(s) no receipt rule classifies (day load)');
+  END IF;
 
   INSERT INTO public.ca_club_acct_seed_log (acct_day, fact_rows, hand_rows) VALUES (p_day, n_f, n_h);
   RETURN jsonb_build_object('acct_day', p_day, 'from', v_lo, 'to', v_hi, 'fact_inputs', n_f, 'hand_inputs', n_h,
-                            'journal_rows_folded', n_live, 'failures_resolved', n_fix);
+                            'journal_rows_folded', n_live, 'failures_resolved', n_fix,
+                            'unclassified_flows', n_unclassified);
 END;
 $function$;
 
 REVOKE ALL ON FUNCTION
   public.fn_ca_club_acct_safe_day(timestamptz), public.fn_ca_club_acct_day_of_sources(uuid[]),
   public.fn_ca_club_acct_day_of_hands(uuid[], bigint[]), public.fn_ca_club_acct_own(text),
-  public.fn_ca_club_acct_fail(text, date, text),
+  public.fn_ca_club_acct_fail(text, date, text, text), public.fn_ca_club_acct_boundary_key(uuid, timestamptz),
+  public.fn_ca_club_acct_flow_eligible(jsonb),
   public.fn_ca_club_acct_put(jsonb, smallint), public.fn_ca_club_acct_put_hands(jsonb, smallint),
   public.fn_ca_club_acct_cash_fee_rows(jsonb), public.fn_ca_club_acct_admission_rows(jsonb),
   public.fn_ca_club_acct_tournament_fee_rows(jsonb), public.fn_ca_club_acct_hand_rows(jsonb),

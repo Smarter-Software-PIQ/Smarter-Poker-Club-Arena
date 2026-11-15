@@ -63,6 +63,12 @@ INSERT INTO bbj_payouts VALUES ('b0000000-0000-0000-0000-000000000002', :T1, 5, 
 INSERT INTO bbj_payout_recipients (payout_id, user_id, amount, created_at)
 VALUES ('b0000000-0000-0000-0000-000000000002', 'bbb00000-0000-0000-0000-0000000000ff', 1.00, '2026-11-03 12:01+00');
 DELETE FROM fixture_bbj_outage;
+-- A posted prize no receipt owns, after the cutover: recorded as a failure
+-- of its day by the live projection, never dropped silently.
+INSERT INTO union_pnl_original_flows VALUES
+  ('f1000000-0000-0000-0000-00000000000b', NULL, '2026-11-03 16:00+00', jsonb_build_object('game_union_id', :U, 'tournament_id', :TT1),
+   jsonb_build_object('status', 'posted', 'club_id', :K, 'amount', 7, 'from_type', 'prize_liability', 'from_entity_id', :TT1,
+                      'to_type', 'player_wallet', 'to_entity_id', :u1, 'category', 'tournament_prize'));
 -- The 2026-11-09 boundary recertified after the invoice of the week ending
 -- there (2026-11-11 09:05): that week keeps the version its invoice used
 -- (12.00); the week starting there has no invoice yet and takes the new one.

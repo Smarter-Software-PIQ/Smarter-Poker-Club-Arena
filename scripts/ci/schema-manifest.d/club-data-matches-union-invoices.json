@@ -23,6 +23,8 @@
     "fn_ca_club_acct_day_of_hands",
     "fn_ca_club_acct_own",
     "fn_ca_club_acct_fail",
+    "fn_ca_club_acct_boundary_key",
+    "fn_ca_club_acct_flow_eligible",
     "fn_ca_club_acct_put",
     "fn_ca_club_acct_put_hands",
     "fn_ca_club_acct_cash_fee_rows",
