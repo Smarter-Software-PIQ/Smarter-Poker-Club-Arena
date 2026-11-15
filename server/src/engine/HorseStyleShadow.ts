@@ -202,6 +202,7 @@ export const STYLE_ACTION_RECEIPT_OPTIONS = Object.freeze([
   'styleValueExtraction',
   'styleFoldBluff',
   'styleTightPlayerExploit',
+  'styleStealTightBlinds',
 ] as const);
 export type StyleActionReceiptOption = (typeof STYLE_ACTION_RECEIPT_OPTIONS)[number];
 

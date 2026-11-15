@@ -246,7 +246,12 @@ import {
   type OpponentStyleRead,
   type TightReRaiser,
 } from './HorseOpponentStyle.js';
-import { checkedToBluffScale, tightLimperIsoWiden } from './HorseTightPlayerExploit.js';
+import {
+  checkedToBluffScale,
+  TIGHT_PLAYER_RESPONSE,
+  tightBlindsSteal,
+  tightLimperIsoWiden,
+} from './HorseTightPlayerExploit.js';
 import {
   noteStyleOptionApplied,
   noteStyleShadowEngaged,
@@ -3417,6 +3422,12 @@ export interface HorseDecideOpts {
    *  position comes down by up to 0.04, never at push/fold depths. Hold'em, not Omaha, not bounty events.
    *  Receipts style_tight_player_checked_to_bluff_seen, style_tight_limper_isolation_seen. Default off; explicit true only. */
   styleTightPlayerExploit?: boolean;
+  /** STEAL FROM TIGHT BLINDS (2026-11-15, HorseTightPlayerExploit.tightBlindsSteal): no-limit hold'em, first in from
+   *  the cutoff, button or small blind, every player left to act credibly tight and not aggressive by the style
+   *  read: the open bar comes down by half the fold-equity surplus over break-even, at most 0.06. Never at push/fold
+   *  depths, in All-In-Or-Fold, bomb pots, bounty events or Omaha. Receipt style_steal_tight_blinds_seen. Default
+   *  off; explicit true only; OFF-ONLY in the live switch under the owner's blind-steal hold. */
+  styleStealTightBlinds?: boolean;
   /** TIGHT BEYOND VPIP (2026-11-15, opponent classifier C2): the style read's participation axis is also tight
    *  when VPIP is credibly below the Horse mean and raise share or fold to 3-bet credibly corroborates, with no
    *  contrary evidence (HorseOpponentStyle.tightMultiSignalRead). Receipt style_tight_multi_signal_seen. Read only
@@ -9776,6 +9787,8 @@ export class HorseLogic {
     let exploitIso = 0;
     // RESPONSES TO TIGHT PLAYERS (styleTightPlayerExploit): the isolation bar move against tight limpers.
     let styleTightIsoWiden: number | undefined;
+    // STEAL FROM TIGHT BLINDS (styleStealTightBlinds): the first-in open bar move.
+    let styleTightStealWiden: number | undefined;
     // LIMP-RERAISE READ (flag limpReraiseIsoRead, HorseLimpReraiseRead): the
     // strongest shrunk limp-reraise rate among the limpers in front.
     let limpReraiseRate69: number | undefined;
@@ -9958,6 +9971,37 @@ export class HorseLogic {
                 noteStyleOptionApplied('styleTightPlayerExploit');
                 if (telemetryOn(opts)) noteFire('style_tight_limper_isolation_seen');
               }
+            }
+          }
+        }
+        // STEAL FROM TIGHT BLINDS (styleStealTightBlinds, default off, off-only in the switch): first in, no limper,
+        // late position or the small blind, every player left to act credibly tight and not aggressive.
+        if (
+          opts.styleStealTightBlinds === true &&
+          String(gs.gameVariant ?? 'nlh').toLowerCase() === 'nlh' &&
+          !vi.isOmaha &&
+          raises === 0 &&
+          limpers === 0 &&
+          (position === 'late' || position === 'sb') &&
+          gs.allInOrFold !== true &&
+          gs.bombPot !== true &&
+          !styleBountyContext(trustedTournament)
+        ) {
+          const leftS = gs.players.filter(
+            (p) => p.seat !== player.seat && !p.is_folded && !p.is_all_in && !p.is_sitting_out
+          );
+          const deepestS = Math.max(0, ...leftS.map((p) => p.stack + p.bet));
+          const effS = Math.min(player.stack + player.bet, deepestS) / Math.max(1e-9, bb);
+          if (leftS.length > 0 && effS > STYLE_THRESHOLDS.pushFoldStandDownBB) {
+            const stealS = tightBlindsSteal(
+              leftS.map((p) => HorseMind.styleRead(p.user_id)),
+              TIGHT_PLAYER_RESPONSE.stealOpenBB * bb - player.bet,
+              gs.pot
+            );
+            if (stealS) {
+              styleTightStealWiden = stealS.openWiden;
+              noteStyleOptionApplied('styleStealTightBlinds');
+              if (telemetryOn(opts)) noteFire('style_steal_tight_blinds_seen');
             }
           }
         }
@@ -10745,6 +10789,7 @@ export class HorseLogic {
       ...(omahaTightReRaiser ? { omahaTightReRaiser } : {}),
       ...(omahaTightSteal ? { omahaTightSteal: { openWiden: omahaTightSteal.openWiden } } : {}),
       ...(styleTightIsoWiden !== undefined ? { styleTightIsoWiden } : {}),
+      ...(styleTightStealWiden !== undefined ? { styleTightStealWiden } : {}),
       maniacOpenBar:
         maniacBehindWidth !== null ? maniacBehindOpenBar(maniacBehindWidth, vi.isOmaha) : undefined,
       maniacNoBluff: maniacRaiserWidth !== null || maniacBehindWidth !== null ? true : undefined,

@@ -2096,6 +2096,18 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
   // League seats decide with mind off, so no style read engages and this card
   // is expected to be inert; the declared evaluation is the paired synthetic
   // measurement in docs/horse-default-on.d/styleTightPlayerExploit.md.
+  // 2026-11-15 STEAL FROM TIGHT BLINDS (styleStealTightBlinds, default OFF and
+  // off-only in the switch): a opens wider first in when everyone left to act
+  // is credibly tight; b is today's brain. League seats decide with mind off,
+  // so no style read engages and this card is expected to be inert.
+  {
+    name: 'nlh_style_steal_tight_blinds',
+    variant: 'nlh',
+    pairs: 6000,
+    productionStyles: true,
+    a: { styleStealTightBlinds: true },
+    b: {},
+  },
   {
     name: 'nlh_style_tight_player_exploit',
     variant: 'nlh',
