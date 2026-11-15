@@ -75,11 +75,25 @@ function decode(raw: string, userId: string, tableId: string): CashBuyInAttempt 
   return row;
 }
 
+const JOURNAL_LOCK = 'ca-cash-buyin-journal-lock';
+const LOCK_TIMEOUT_MS = 2_000;
+const LOCK_TIMEOUT_MESSAGE = 'The Buy-In Could Not Be Safely Saved In Time';
+
 /**
- * IndexedDB read/write transactions serialize overlapping object stores across
- * tabs. The critical section is synchronous storage work, never network I/O.
- * This also works in browsers without Web Locks or crypto.randomUUID.
+ * FALLBACK ONLY, for a browser without Web Locks. IndexedDB read/write
+ * transactions serialize overlapping object stores across tabs. The critical
+ * section is synchronous storage work, never network I/O.
  * https://w3c.github.io/IndexedDB/#transaction-scheduling
+ *
+ * THE RESULT IS THE WORK, NOT THE COMMIT (2026-11-14). The transaction is only
+ * a gate: `work` writes localStorage, which the transaction can neither commit
+ * nor roll back. This used to resolve on `oncomplete`, with the two second
+ * deadline still running, so a slow disk let the deadline fire AFTER the
+ * journal had been written. The caller was told the buy-in was never saved
+ * while a saved request sat in storage, and the next open of the sheet
+ * presented that request, which no server had ever seen, as an original
+ * buy-in needing confirmation for a seat somebody else could since have taken.
+ * Once `work` has returned, the answer is its answer.
  */
 export function lockCashBuyInJournal<T>(
   work: () => T,
@@ -99,15 +113,15 @@ export function lockCashBuyInJournal<T>(
       else resolve(result!);
     };
     const timer = setTimeout(() => {
-      finish(new Error('The Buy-In Could Not Be Safely Saved In Time'));
+      finish(new Error(LOCK_TIMEOUT_MESSAGE));
       try {
         transaction?.abort();
       } catch {
         /* already completed */
       }
-    }, 2_000);
+    }, LOCK_TIMEOUT_MS);
     try {
-      const request = factory.open('ca-cash-buyin-journal-lock', 1);
+      const request = factory.open(JOURNAL_LOCK, 1);
       request.onupgradeneeded = () => {
         if (settled) {
           request.transaction?.abort();
@@ -141,7 +155,11 @@ export function lockCashBuyInJournal<T>(
               } catch {
                 /* already completed */
               }
+              return;
             }
+            // The gate was held for the whole of `work`. Its commit decides
+            // nothing about what `work` stored, so it cannot fail the caller.
+            finish();
           };
         } catch (error) {
           finish(error);
@@ -153,12 +171,74 @@ export function lockCashBuyInJournal<T>(
   });
 }
 
+/**
+ * True when a reservation failed because this device could not save it: the
+ * lock deadline, an IndexedDB failure, or web storage refusing the write. In
+ * every one of these no request was sent. A buy-in whose details could not be
+ * verified is a different failure and keeps its own message.
+ */
+export function isCashBuyInStorageFailure(error: unknown): boolean {
+  if (typeof DOMException !== 'undefined' && error instanceof DOMException) return true;
+  const message = String((error as { message?: unknown } | null)?.message ?? '');
+  return /Safely Saved In Time|Buy-In Storage|The Buy-In Could Not Be Saved/.test(message);
+}
+
+type WebLocksLike = Pick<LockManager, 'request'>;
+
+/**
+ * THE BUY-IN NEVER WAITS ON THE DISK (2026-11-14). Web Locks is the mutex every
+ * other money intent in this app already uses: it lives in memory, so taking it
+ * costs no storage I/O. The cash buy-in alone gated on opening an IndexedDB
+ * database and a read/write transaction inside two seconds. On one player's
+ * Android phone that took longer fifteen times in an evening, and each time
+ * the buy-in was refused on his own device before any request was sent.
+ *
+ * The deadline covers only the wait for the lock. It is cancelled the moment
+ * `work` starts, so it can never report a failure for work that has run.
+ * IndexedDB remains the fallback where Web Locks is missing or refuses.
+ */
+export async function lockCashBuyInJournalInBrowser<T>(
+  work: () => T,
+  locks: WebLocksLike | undefined = globalThis.navigator?.locks,
+  fallback: (work: () => T) => Promise<T> = (w) => lockCashBuyInJournal(w)
+): Promise<T> {
+  if (typeof locks?.request !== 'function') return fallback(work);
+  const controller = new AbortController();
+  let started = false;
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    if (started) return;
+    timedOut = true;
+    controller.abort();
+  }, LOCK_TIMEOUT_MS);
+  try {
+    return (await locks.request(
+      JOURNAL_LOCK,
+      { mode: 'exclusive', signal: controller.signal },
+      () => {
+        started = true;
+        clearTimeout(timer);
+        return work();
+      }
+    )) as T;
+  } catch (error) {
+    // `work` ran: its own error is the answer and nothing may run it again.
+    if (started) throw error;
+    if (timedOut) throw new Error(LOCK_TIMEOUT_MESSAGE);
+    // Web Locks refused before granting anything (an insecure or opaque
+    // context). `work` has not run, so the fallback may run it once.
+    return fallback(work);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function browserEnvironment(): CashBuyInJournalEnvironment {
   return {
     local: window.localStorage,
     session: window.sessionStorage,
     createId: uuid,
-    lock: (_key, work) => lockCashBuyInJournal(work),
+    lock: (_key, work) => lockCashBuyInJournalInBrowser(work),
   };
 }
 

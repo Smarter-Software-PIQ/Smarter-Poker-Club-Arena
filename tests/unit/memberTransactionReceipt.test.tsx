@@ -75,3 +75,62 @@ it.each([
   fireEvent.click(screen.getByRole('button', { name: 'View Receipt' }));
   expect(screen.getByText(source + ' To Tournament Ticket')).toBeVisible();
 });
+
+it.each([
+  ['union_promo_send', { destination: 'promo_float' }, 'Union Promo Wallet To Promo Wallet'],
+  ['union_promo_send', { destination: 'player_wallet' }, 'Union Promo Wallet To Player Wallet'],
+  [
+    'union_promo_to_club',
+    { destination: 'club_promo_wallet' },
+    'Union Promo Wallet To Club Promo Wallet',
+  ],
+  [
+    'tournament_ticket_issue',
+    { issuer_id: 'issuer', issuer_balance_after: 0 },
+    'Player Wallet To Tournament Ticket',
+  ],
+  [
+    'tournament_ticket_issue',
+    { source_satellite_id: 'satellite', payout_id: 'award' },
+    'Wallet Route Unavailable',
+  ],
+  [
+    'tournament_ticket_issue',
+    { issuer_id: 'issuer', issuer_balance_after: 0, payout_id: 'award' },
+    'Wallet Route Unavailable',
+  ],
+  [
+    'promo_disbursement',
+    { source_kind: 'union', target_kind: 'player', lands_as: 'ordinary_chips' },
+    'Union Promo Wallet To Player Wallet',
+  ],
+  [
+    'promo_disbursement',
+    { source_kind: 'union', target_kind: 'club', lands_as: 'club_promo_wallet' },
+    'Union Promo Wallet To Club Promo Wallet',
+  ],
+  [
+    'promo_disbursement',
+    { source_kind: 'union', target_kind: 'club', lands_as: 'ordinary_chips' },
+    'Union Promo Wallet To Club Bank',
+  ],
+] as const)(
+  'shows the recorded %s funding route for %o',
+  (transaction_type, metadata, expected) => {
+    render(
+      <MemberTransactionReceipt
+        row={{
+          id: 'receipt',
+          created_at: '2026-11-14T18:26:42Z',
+          amount_text: '5.00',
+          from_name: 'Sender',
+          to_name: 'Recipient',
+          transaction_type,
+          metadata,
+        }}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'View Receipt' }));
+    expect(screen.getByText(expected)).toBeVisible();
+  }
+);

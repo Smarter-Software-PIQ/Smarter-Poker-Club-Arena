@@ -7,6 +7,7 @@ import { isDeadSessionRefusal } from '../../src/lib/deadSessionRefusal';
 import {
   createCashBuyInJournal,
   executeCashBuyIn,
+  isCashBuyInStorageFailure,
   sameCashBuyInIntent,
 } from '../../src/services/CashBuyInRecovery';
 
@@ -97,6 +98,8 @@ function fixture() {
     cashBuyInRefusalText,
     cashBuyInSeatConflictText,
     isDeadSessionRefusal,
+    isCashBuyInStorageFailure,
+    clearLightningEntryIntent: vi.fn(),
     askToSignInAgain: vi.fn(),
     applyBalanceDelta: vi.fn(),
     totalBuyInRef: ref(0),
@@ -182,6 +185,24 @@ describe('cash buy-in callback recovery', () => {
     expect(f.d.supabase.rpc).not.toHaveBeenCalled();
     await f.handler(100, false);
     expect(f.d.supabase.rpc).toHaveBeenCalledTimes(1);
+  });
+
+  /* WHYTEGOLD502, 2026-11-14: fifteen refusals in one evening, every one of
+     them his own phone failing to save the request, every one worded as a
+     purchase in doubt. */
+  it('says the device could not save the request, and that nothing was sent', async () => {
+    const f = fixture();
+    f.d.cashBuyInJournal = {
+      reserve: vi.fn().mockRejectedValue(new Error('The Buy-In Could Not Be Safely Saved In Time')),
+    };
+    // An older unresolved request does not turn a save failure into "unable to confirm".
+    f.d.cashBuyInPendingRef.current = { payload: {} };
+    expect(await f.handler(100, false)).toBe(false);
+    expect(f.d.supabase.rpc).not.toHaveBeenCalled();
+    expect(f.d.toast.error).toHaveBeenCalledWith(
+      'This Device Could Not Save Your Buy-In Request. Nothing Was Sent. Please Try Again.'
+    );
+    expect(f.d.buyInProcessingRef.current).toBe(false);
   });
 
   it('keeps the confirmed seat when the engine notification throws', async () => {

@@ -1,6 +1,13 @@
 import { unionEcoSettingsPatch } from '../../src/utils/unionEco';
 import { describe, expect, it } from 'vitest';
-import { parseUnionStatementBoard } from '../../src/utils/unionStatementBoard';
+import {
+  chicagoInstantLabel,
+  parseUnionStatementBoard,
+  unionStatementAmountDue,
+  unionStatementPayLine,
+  unionStatementWeekLabel,
+} from '../../src/utils/unionStatementBoard';
+import weekEndingNov9 from '../fixtures/union-invoice-week-2026-11-02/board.json';
 
 const board = () => ({
   union_id: 'union-a',
@@ -320,4 +327,180 @@ it('requires an explicit complete two-lane settings patch and leaves legacy gene
   };
   expect(unionEcoSettingsPatch(settings, true)).toEqual(settings);
   expect(() => unionEcoSettingsPatch({ ...settings, eco_cash_rate: NaN }, true)).toThrow();
+});
+
+describe('the stored week, the parties and the amount due (week ending 2026-11-09)', () => {
+  const UNION = 'fade0000-0000-0000-0000-000000000001';
+  const fresh = (): any => structuredClone(weekEndingNov9);
+  const parsed = () => parseUnionStatementBoard(fresh(), UNION, '2026-11-09');
+  const byInvoice = (n: string) => parsed().clubs.find((c) => c.invoice_number === n)!;
+
+  it('reads all five stored invoices and separates the union house row by identity', () => {
+    const board = parsed();
+    expect(board.clubs.map((c) => c.invoice_number).sort()).toEqual([
+      'MIDWAY-2026-000037',
+      'MIDWAY-2026-000038',
+      'MIDWAY-2026-000039',
+      'MIDWAY-2026-000040',
+      'MIDWAY-2026-000041',
+    ]);
+    expect(board.clubs.filter((c) => c.union_house).map((c) => c.invoice_number)).toEqual([
+      'MIDWAY-2026-000040',
+    ]);
+    // The house row is the union owing its own house club, not "clubs owe".
+    expect(board.totals).toMatchObject({ clubs_owe: 191267.54, union_owes: 21.25, net: 191246.29 });
+  });
+
+  it('prints the week from the stored instants as [2:00 AM, 2:00 AM) Chicago', () => {
+    const board = parsed();
+    expect(unionStatementWeekLabel(board.period_start_at, board.period_end_at)).toBe(
+      'Mon Nov 2, 2026 2:00 AM to Mon Nov 9, 2026 2:00 AM Chicago Time'
+    );
+    for (const club of board.clubs)
+      expect(unionStatementWeekLabel(club.period_start_at, club.period_end_at)).toBe(
+        'Mon Nov 2, 2026 2:00 AM to Mon Nov 9, 2026 2:00 AM Chicago Time'
+      );
+  });
+
+  it('keeps 2:00 AM at both ends across the daylight-saving change, and the boundary instant itself', () => {
+    // CDT start (07:00Z) to CST end (08:00Z): 169 hours, still 2:00 AM to 2:00 AM.
+    expect(unionStatementWeekLabel('2026-10-26T07:00:00+00:00', '2026-11-02T08:00:00+00:00')).toBe(
+      'Mon Oct 26, 2026 2:00 AM to Mon Nov 2, 2026 2:00 AM Chicago Time'
+    );
+    expect(chicagoInstantLabel('2026-11-09T08:00:00Z')).toBe('Mon Nov 9, 2026 2:00 AM');
+    expect(chicagoInstantLabel('2026-11-09T07:59:59Z')).toBe('Mon Nov 9, 2026 1:59 AM');
+    expect(chicagoInstantLabel('2026-11-09T08:00:59Z')).toBe('Mon Nov 9, 2026 2:00 AM');
+    // Spring forward: the 2026-03-09 boundary is 07:00Z, still 2:00 AM local.
+    expect(chicagoInstantLabel('2026-03-09T07:00:00Z')).toBe('Mon Mar 9, 2026 2:00 AM');
+    // Adding 24 h to a date would read 1:00 AM here; the zone rules do not.
+    expect(chicagoInstantLabel('2026-11-02T08:00:00Z')).toBe('Mon Nov 2, 2026 2:00 AM');
+  });
+
+  it('says who pays whom for each of the five invoices', () => {
+    const line = (n: string) => {
+      const club = byInvoice(n);
+      return unionStatementPayLine(club, club.club_name, 'Midway Union');
+    };
+    expect(line('MIDWAY-2026-000038')).toBe('Deep Stack Society Pays Midway Union');
+    expect(line('MIDWAY-2026-000041')).toBe('The Felt Society Pays Midway Union');
+    expect(line('MIDWAY-2026-000039')).toBe('KINGS CLUB Pays Midway Union');
+    expect(line('MIDWAY-2026-000040')).toBe('Midway Union Pays Midway Union (House Club)');
+    expect(line('MIDWAY-2026-000037')).toBe('Square, Nothing Due');
+  });
+
+  it('reconciles each amount due from its stored components to the cent', () => {
+    const deep = byInvoice('MIDWAY-2026-000038');
+    expect(deep).toMatchObject({
+      amount: 96919.54,
+      stored_outstanding: -96919.54,
+      settled_in_chips: 296982.64,
+      player_pnl_net: -110003.14,
+      rakeback_due: 406985.78,
+    });
+    const house = byInvoice('MIDWAY-2026-000040');
+    expect(house).toMatchObject({ amount: -21.25, stored_outstanding: 21.25, union_house: true });
+  });
+
+  it('refuses a payer that contradicts the stored direction', () => {
+    const value = fresh();
+    value.clubs[0].payer_type = 'union';
+    value.clubs[0].payee_type = 'club';
+    expect(() => parseUnionStatementBoard(value, UNION, '2026-11-09')).toThrow(
+      'Statement payer and payee contradict its direction'
+    );
+  });
+
+  it('refuses a settled-in-chips figure that is not rakeback plus the player result', () => {
+    const value = fresh();
+    value.clubs[0].settled_in_chips = 296982.65;
+    expect(() => parseUnionStatementBoard(value, UNION, '2026-11-09')).toThrow(
+      'Statement settled-in-chips split does not reconcile'
+    );
+  });
+
+  it('refuses an amount due that is not ECO plus presettlements, or has the wrong sign', () => {
+    const value = fresh();
+    value.clubs[0].stored_outstanding = 96919.54;
+    expect(() => parseUnionStatementBoard(value, UNION, '2026-11-09')).toThrow(
+      'Statement amount due does not reconcile'
+    );
+  });
+
+  it('a credited invoice states only what remains, and the credits must reconcile', () => {
+    const value = fresh();
+    value.clubs[0].credit_notes = [{ invoice_number: 'MIDWAY-2026-000099', amount: 96919.54 }];
+    value.clubs[0].remaining_after_credits = 0;
+    const deep = parseUnionStatementBoard(value, UNION, '2026-11-09').clubs[0];
+    expect(unionStatementAmountDue(deep, deep.club_name, 'Midway Union')).toBe(
+      'Credited In Full, Nothing Due'
+    );
+    value.clubs[0].remaining_after_credits = 0.01;
+    expect(() => parseUnionStatementBoard(value, UNION, '2026-11-09')).toThrow(
+      'Statement credit notes do not reconcile'
+    );
+    const uncredited = byInvoice('MIDWAY-2026-000038');
+    expect(unionStatementAmountDue(uncredited, uncredited.club_name, 'Midway Union')).toBe(
+      'Deep Stack Society Pays Midway Union 96,919.54'
+    );
+  });
+
+  it('the unpaid balance and the tiles are after credit notes and payments', () => {
+    const value = fresh();
+    value.clubs[0].credit_notes = [{ invoice_number: 'MIDWAY-2026-000099', amount: 96919.54 }];
+    value.clubs[0].remaining_after_credits = 0;
+    const board = parseUnionStatementBoard(value, UNION, '2026-11-09');
+    expect(board.clubs[0].remaining_unpaid).toBe(0);
+    expect(board.totals).toMatchObject({
+      clubs_owe: 94348,
+      union_owes: 21.25,
+      net: 94326.75,
+      outstanding: 94369.25,
+    });
+    // A server that already subtracts credits from the row's outstanding is read the same.
+    value.clubs[0].outstanding = 0;
+    value.totals.outstanding = 94369.25;
+    expect(parseUnionStatementBoard(value, UNION, '2026-11-09').clubs[0].remaining_unpaid).toBe(0);
+  });
+
+  it('refuses a house flag that is not the club_id = union id identity', () => {
+    const value = fresh();
+    value.clubs[0].union_house = true;
+    expect(() => parseUnionStatementBoard(value, UNION, '2026-11-09')).toThrow(
+      'Statement house row is misidentified'
+    );
+  });
+
+  it('refuses a week whose end is not after its start', () => {
+    const value = fresh();
+    value.clubs[0].period_end_at = value.clubs[0].period_start_at;
+    expect(() => parseUnionStatementBoard(value, UNION, '2026-11-09')).toThrow(
+      'Statement week is invalid'
+    );
+  });
+
+  it('still reads a board from before the stored instants, deriving the house row', () => {
+    const value = fresh();
+    for (const club of value.clubs)
+      for (const key of [
+        'invoice_number',
+        'period_start_at',
+        'period_end_at',
+        'payer_type',
+        'payer_name',
+        'payee_type',
+        'payee_name',
+        'union_house',
+        'settled_in_chips',
+        'player_pnl_net',
+        'stored_outstanding',
+        'credit_notes',
+        'remaining_after_credits',
+      ])
+        delete club[key];
+    delete value.period_start_at;
+    delete value.period_end_at;
+    const board = parseUnionStatementBoard(value, UNION, '2026-11-09');
+    expect(board.period_start_at).toBeNull();
+    expect(board.clubs.filter((c) => c.union_house)).toHaveLength(1);
+  });
 });

@@ -2147,6 +2147,22 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: {},
     b: { omahaTournamentFirstIn: false },
   })),
+  // 2026-11-14 OMAHA HI-LO HEADS-UP TOURNAMENT FIRST-IN (HU-HILO-002),
+  // default OFF: a is the option on, b today's brain. PLO8 heads-up final
+  // table at 12 BB, where the small blind folds 83-85 percent first in and
+  // the big blind 81-91 percent to one raise. The card only measures.
+  {
+    name: 'plo8_mtt_hu_omaha_hilo_tournament_first_in_12bb',
+    variant: 'plo8',
+    seats: 2,
+    stackBB: 12,
+    context: finalTableMttContext(2, 12),
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: { omahaHiLoTournamentFirstIn: true },
+    b: {},
+  },
   {
     name: 'plo4_spin_3max_omaha_tournament_first_in_12bb',
     variant: 'plo4',
