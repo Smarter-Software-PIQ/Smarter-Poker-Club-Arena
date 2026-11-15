@@ -20,8 +20,9 @@ import { cashierStatementRouteMatches } from './support/cashierStatementRouteObs
 import {
   attachCashierScreenshot,
   expectCashierAxeClean,
-  expectNoRawCashierCents,
+  expectExactCashierFigures,
 } from './support/cashierProductionCertification';
+import { ENTRY_PILL, EXACT_FIGURE } from './support/exact-figure';
 
 const CLUB_ID = process.env.E2E_CLUB_ID || 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4';
 const HAS_AUTH = Boolean(process.env.SP_EMAIL && process.env.SP_PASS);
@@ -31,11 +32,11 @@ const TOTALS_RPC = '/rest/v1/rpc/fn_cashier_statement_totals';
 const EXPORT_RPC = /^\/rest\/v1\/rpc\/fn_cashier_statement_export_(?:start|page|cancel)$/;
 
 /**
- * A figure on the glass, as compactChips() prints it: no fractional chip count,
- * with a rounded-down one-decimal K/M/B magnitude when needed. The Entries
- * cell is a plain en-US integer, which the same shape also accepts.
+ * A figure on the glass, as exactChips() prints it (owner ruling 2026-11-13):
+ * en-US separators, cents kept, never K/M/B. The grammar lives in one place and
+ * is checked against the formatter by tests/cashier-statements-exact-figure.test.ts.
  */
-const FIGURE = /^[+-]?(?:\d{1,3}(?:,\d{3})*|\d+(?:\.\d)?[KMB])$/;
+const FIGURE = EXACT_FIGURE;
 
 test.describe('Cashier Statements - authenticated production route', () => {
   test.describe.configure({ timeout: 90_000 });
@@ -205,7 +206,7 @@ test.describe('Cashier Statements - authenticated production route', () => {
       // The pill zone's textContent ends on a deliberate word-boundary space
       // (SpadeConsole ZoneText, 2026-09-23); a regex toHaveText does not
       // normalise it, so the anchor tolerates trailing whitespace.
-      await expect(pill).toHaveText(/^(?:\d+(?:\.\d)?[KMB]? (?:Entry|Entries)|Live Ledger)\s*$/);
+      await expect(pill).toHaveText(ENTRY_PILL);
 
       // (e) The Export word is present. It is enabled exactly when the range
       // holds entries (the page disables it on an empty range), and it is
@@ -256,7 +257,18 @@ test.describe('Cashier Statements - authenticated production route', () => {
         !entry.url.includes('favicon')
     );
     expect(critical, critical.map((entry) => `${entry.url}: ${entry.text}`).join('\n')).toEqual([]);
-    await expectNoRawCashierCents(surface, 'Full Statement');
+    // Every row amount on the glass (the last span of each entry button) and
+    // every total is an exact figure. Reference codes and names are not figures.
+    await expectExactCashierFigures(
+      surface.locator(
+        'section[aria-labelledby="statement-entries-title"] button[aria-expanded] > span:last-child'
+      ),
+      'Full Statement entries'
+    );
+    await expectExactCashierFigures(
+      surface.locator('[aria-label="Statement Totals"] strong'),
+      'Full Statement totals'
+    );
     await expectCashierAxeClean(
       page,
       testInfo,
