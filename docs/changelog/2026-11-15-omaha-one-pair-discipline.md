@@ -15,3 +15,7 @@ With the option off, decisions are unchanged (a 112-decision sample is pinned ag
 ## Owner's order, 2026-11-15 00:37 to 00:56 America/Chicago
 
 Ordered into the 4 AM release switched on. Read `!== false`; the league card is removed with the default. The evidence file marks Value, Continuation and Reach NOT MET with the owner's authority. The declared paired evaluation runs after the gate (on against explicit false); a failing result switches it off again. Where this section and an earlier one disagree about on and off, this section is the head's state.
+
+## Dry boards exempt (owner, 2026-11-15 01:32 America/Chicago)
+
+"THIS NEEDS TO BE THE CASE ON BOARDS THAT ALREADY HAVE STRAIGHTS WHERE ONE PAIR HANDS ARE DRAWING DEAD, OR ON VERY WET COORDINATED BOARDS. SOME DRY BOARDS ARE THE EXCEPTION THOUGH..." The river value-bet cell and the flop/turn stack-off cell now apply only where a straight or a flush is possible on the board (`omahaBoardThreat`); the river call cell already required it. On a dry board the Horse's line is unchanged.

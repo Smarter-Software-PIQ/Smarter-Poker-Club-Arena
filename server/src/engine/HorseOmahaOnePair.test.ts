@@ -215,11 +215,27 @@ describe('rule 1: the river is not bet for value with one pair (hands 59407629, 
     }
   });
 
-  it('a one-pair river raise becomes a call', () => {
+  it('on a dry board (no straight or flush possible) a one-pair river raise is kept', () => {
+    // Owner 2026-11-15 01:32: dry boards are the exception.
     const { hero, gs } = built({
       stage: 'river',
       board: 'KsJd2d8c4h',
       hole: 'KhAh9s7h3s',
+      pot: 300,
+      toCall: 50,
+      heroStack: 800,
+      oppStack: 800,
+      oppBet: 50,
+      history: [{ seat: 2, stage: 'river', action: 'bet', amount: 50 }],
+    });
+    expect(omahaOnePairDiscipline(d('raise', 300), hero, gs, true, NO_BLUFF).changed).toBeNull();
+  });
+
+  it('a one-pair river raise becomes a call', () => {
+    const { hero, gs } = built({
+      stage: 'river',
+      board: 'KsJd9d8c4h',
+      hole: 'KhAh6s3h2s',
       pot: 300,
       toCall: 50,
       heroStack: 800,

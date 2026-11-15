@@ -50,6 +50,8 @@ Not counted from recorded hands. Reported in the paired evaluation as receipt co
 
 ## Scope
 
+Since 2026-11-15 01:32 (owner): every cell requires a board on which a straight or a flush is possible; dry boards are exempt.
+
 Status: MET
 
 Gated in code as above. With the option off, decisions on a 112-decision sample equal those of the base commit (digest pinned in the test).

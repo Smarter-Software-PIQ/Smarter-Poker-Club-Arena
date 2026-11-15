@@ -176,11 +176,17 @@ export function omahaOnePairDiscipline(
     const pay = Math.min(toCall, stack);
     const callPrice = pay > 0 ? pay / (pot + pay) : 0;
 
+    // Owner 2026-11-15 01:32: the value-bet and stack-off cells apply where
+    // one pair is drawing thin or dead, on a board where a straight or a
+    // flush is already possible; a dry board (neither possible) is exempt.
+    const boardThreat = omahaBoardThreat(board);
+    const wetBoard = boardThreat.straight || boardThreat.flush;
+
     if (street === 'river') {
       let current = decision;
       let changed: OmahaOnePairChange | null = null;
       // Rule 1.
-      if ((isBet || isRaise) && !ctx.declaredBluff && omahaOnePairOrLess(hole, board)) {
+      if (wetBoard && (isBet || isRaise) && !ctx.declaredBluff && omahaOnePairOrLess(hole, board)) {
         if (isBet && can('check')) {
           current = asCheck(decision);
           changed = 'river_value_bet_checked';
@@ -213,6 +219,7 @@ export function omahaOnePairDiscipline(
 
     // Rule 3, flop and turn, facing a wager.
     if (!facing || (!isCall && !isRaise)) return same;
+    if (!wetBoard) return same;
     if (!omahaOnePairOrLess(hole, board)) return same;
     const heroTotal = stack + heroBet;
     const oppTotals = (gs.players ?? [])
