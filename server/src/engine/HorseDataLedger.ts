@@ -50,13 +50,7 @@ export type LedgerKind =
   | 'tag';
 
 export type LedgerCadence =
-  | 'per_action'
-  | 'per_hand'
-  | 'per_sit'
-  | 'minute'
-  | 'boot'
-  | 'nightly'
-  | 'legacy_unused';
+  'per_action' | 'per_hand' | 'per_sit' | 'minute' | 'boot' | 'nightly' | 'legacy_unused';
 
 export interface LedgerEntry {
   key: string;
@@ -1453,6 +1447,17 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     '2026-11-15'
   ),
   flag(
+    'holdemManiacShortHandedReach',
+    "2026-11-15 SHORT-HANDED MANIAC REACH: at short-handed and heads-up no-limit hold'em tables the regular PFR line is so high that only extreme raisers have a preflop maniac width. With the option on, an opponent there whose bet-when-checked-to is credibly beyond every Horse at the postflop-maniac rate and who does not fold to bets (the existing sticky leg: fold-to-bet at most 0.36), on at least 15 decayed hands, takes the maniac width max(0.35, PFR mean) (HorseOpponentExploit.withManiacShortHandedReach, attached in HorseMind.opponentRead). Full ring, Omaha and presumed reads unchanged. Read only as === true: default OFF.",
+    '2026-11-15'
+  ),
+  receipt(
+    'holdem_maniac_short_handed_reach_seen',
+    'HorseMind.opponentRead (holdemManiacShortHandedReach)',
+    "a short-handed or heads-up no-limit hold'em read with no preflop maniac width took one from its postflop evidence (bet-when-checked-to engaged high at 0.55 or more, fold-to-bet at most 0.36, 15+ decayed hands)",
+    '2026-11-15'
+  ),
+  flag(
     'holdemGearShiftReach',
     "2026-11-15 A GEAR SHIFT IS REACHABLE (opponent classifier C5, audit I): no-limit hold'em reads from HorseMind.opponentRead judge a confirmed regime break (styleShiftReleased, long read not engaged, 8+ fast opportunities) on the 8-hand window at the ordinary credibility (EXPLOIT_CREDIBILITY 0.90) instead of 0.95 in the gear-shift branch, and also try it where the long mean has crossed the envelope edge but the fast window missed the 0.97 fast-engage line; aggressive statistics only (pfr, rfi, threeBet, betCheckedTo), high side only; the calm direction (the fast-window OFF switch) is untouched; Omaha and fixed-limit untouched; default OFF, read === true only; evidence docs/horse-default-on.d/holdemGearShiftReach.md",
     '2026-11-15'
@@ -1938,17 +1943,15 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
       ['callRespect', 'variant call respect offset (HorseVariantProfile)'],
       ['familyBias', 'V18 sizing family hashed from the horse id'],
     ] as const
-  ).map(
-    ([key, note]): LedgerEntry => ({
-      key,
-      kind: 'param',
-      source: 'STYLE_PARAMS[style] resolved with HorseProfileMods in HorseLogic.decide',
-      cadence: 'per_action',
-      consumer: 'HorseLogic.decide / HorsePreflop.decidePreflopV7',
-      note,
-      since: key === 'familyBias' ? 'V18' : 'V2',
-    })
-  ),
+  ).map(([key, note]): LedgerEntry => ({
+    key,
+    kind: 'param',
+    source: 'STYLE_PARAMS[style] resolved with HorseProfileMods in HorseLogic.decide',
+    cadence: 'per_action',
+    consumer: 'HorseLogic.decide / HorsePreflop.decidePreflopV7',
+    note,
+    since: key === 'familyBias' ? 'V18' : 'V2',
+  })),
 
   // ─────────────────────────────────────────────────────────────────────────
   // PROFILE KEYS. profiles.horse_profile (jsonb). Read at sit-down today
@@ -1984,22 +1987,20 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
         'V48',
       ],
     ] as const
-  ).map(
-    ([key, note, since]): LedgerEntry => ({
-      key,
-      kind: 'profile',
-      source: 'profiles.horse_profile (jsonb) via resolveHorseStyle',
-      cadence: 'per_sit',
-      consumer:
-        key === 'persona'
-          ? 'HorsePersona.resolvePersona (ServerTableEngineDealing straddle round); HorseLogic.followsSolver (the GTO consult)'
-          : key.startsWith('leaks')
-            ? 'HorseLogic.leakLoad (diagnostic only); HorseLogic.decide (ignored-evidence receipt)'
-            : 'HorseLogic.decide',
-      note,
-      since,
-    })
-  ),
+  ).map(([key, note, since]): LedgerEntry => ({
+    key,
+    kind: 'profile',
+    source: 'profiles.horse_profile (jsonb) via resolveHorseStyle',
+    cadence: 'per_sit',
+    consumer:
+      key === 'persona'
+        ? 'HorsePersona.resolvePersona (ServerTableEngineDealing straddle round); HorseLogic.followsSolver (the GTO consult)'
+        : key.startsWith('leaks')
+          ? 'HorseLogic.leakLoad (diagnostic only); HorseLogic.decide (ignored-evidence receipt)'
+          : 'HorseLogic.decide',
+    note,
+    since,
+  })),
 
   // ─────────────────────────────────────────────────────────────────────────
   // HORSEMIND COUNTERS. One OpponentStats per observed player, shared by the

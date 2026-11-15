@@ -111,6 +111,7 @@ import {
   looseCallerWidth,
   maniacRaiseWidth,
   withManiacSampleGate,
+  withManiacShortHandedReach,
   mergeExploitRows,
   mergeFlopStabRows,
   observeExploitRow,
@@ -452,6 +453,10 @@ export interface DecisionReadOptions {
    *  evidence (HorseOpponentExploit.withManiacSampleGate), so maniacRaiseWidth needs 15 decayed hands and PFR credibly
    *  above the size's regular line. Only an explicit true engages; absent, every read is what it was. */
   holdemManiacSampleGate?: boolean;
+  /** SHORT-HANDED MANIAC REACH (2026-11-15, HorseDecideOpts.holdemManiacShortHandedReach): short-handed and heads-up
+   *  no-limit hold'em reads may take the maniac width from postflop evidence
+   *  (HorseOpponentExploit.withManiacShortHandedReach). Only an explicit true engages. */
+  holdemManiacShortHandedReach?: boolean;
   /** GEAR SHIFT REACH (2026-11-15, HorseDecideOpts.holdemGearShiftReach): no-limit hold'em reads from opponentRead
    *  judge a confirmed regime break on the fast window at the ordinary credibility (HorseOpponentExploit.
    *  GEAR_SHIFT_REACH). Only an explicit true engages; absent, every read is what it was. */
@@ -951,8 +956,7 @@ const SCOPED_SHRINK_SHARES = [
   ['postAggr', 'postPassive'],
 ] as const satisfies ReadonlyArray<readonly [keyof OpponentStats, keyof OpponentStats]>;
 type ScopedShrinkKey =
-  | (typeof SCOPED_SHRINK_RATES)[number][0]
-  | (typeof SCOPED_SHRINK_SHARES)[number][0];
+  (typeof SCOPED_SHRINK_RATES)[number][0] | (typeof SCOPED_SHRINK_SHARES)[number][0];
 
 /**
  * Each scope's population rate: every player's scoped bucket summed (no
@@ -2475,14 +2479,23 @@ export class HorseMind {
         : undefined
     );
     // MANIAC SAMPLE GATE (2026-11-15, option holdemManiacSampleGate, default off): no-limit hold'em only.
-    const read =
+    const gated =
       this.decisionReadOptions.holdemManiacSampleGate === true &&
       family === 'holdem' &&
       memoryVariant(this.decisionVariant) === 'nlh'
         ? withManiacSampleGate(ungated, readCounters, scope, this.decisionVariant)
         : ungated;
-    if (read !== ungated && maniacRaiseWidth(ungated) !== null && maniacRaiseWidth(read) === null)
+    if (gated !== ungated && maniacRaiseWidth(ungated) !== null && maniacRaiseWidth(gated) === null)
       noteFire('maniac_sample_gate_withheld_seen');
+    // SHORT-HANDED MANIAC REACH (2026-11-15, option holdemManiacShortHandedReach, default off): no-limit hold'em,
+    // short-handed and heads-up scopes only; absent, the read is what it was.
+    const read =
+      this.decisionReadOptions.holdemManiacShortHandedReach === true &&
+      family === 'holdem' &&
+      memoryVariant(this.decisionVariant) === 'nlh'
+        ? withManiacShortHandedReach(gated, readCounters, scope)
+        : gated;
+    if (read !== gated) noteFire('holdem_maniac_short_handed_reach_seen');
     if (read?.corroborated) noteFire('opponent_exploit_corroborated');
     // Owner update 2026-10-27: the same public-information policy applies
     // against people and horses. Every unknown Omaha opponent receives the
