@@ -1,0 +1,273 @@
+/**
+ * ===========================================================================
+ *  LAW - CLUB DATA READS THE UNION INVOICE WEEK FROM THE INVOICE
+ * ===========================================================================
+ *
+ * Owner, 2026-11-14: "The data page display data starts and stops at the same
+ * 2AM time that the invoices are appearing as; the data on this page should
+ * match the invoices 1:1."
+ *
+ * Measured that day for the week 2026-11-02 08:00Z to 2026-11-09 08:00Z: the
+ * KINGS CLUB invoice said rake 25,854.24 and player net loss 37,160.83 while
+ * Club Data, asked for Nov 2 to Nov 9, said fee 1,568.03 and winnings
+ * -5,502.27. The page counted eight midnight days, moved horses to their
+ * current club at display time and used its own definitions.
+ *
+ * The fix is not a second calculation that is compared with the invoice
+ * afterwards. An invoice week on Club Data IS the issued invoice
+ * (ca_club_data_union_weeks reads settlement_invoices), on the invoice's own
+ * boundary (fn_ca_accounting_day_start = fn_union_week_start on a Monday).
+ * Every pin below fails silently if it regresses: the page keeps rendering
+ * and a week quietly becomes eight days or somebody's recomputation again.
+ *
+ * Qualified on real Postgres, to the cent, with the production week as the
+ * fixture, by scripts/ci/test-club-data-union-invoice-week.py.
+ */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { describe, expect, it } from 'vitest';
+import { functionBody, latestDeclaring } from './helpers/migrations';
+import {
+  accountingDay,
+  chicagoBoundaryStamp,
+  parseUnionWeeks,
+  unionWeekLabel,
+  unionWeeksBoundaryEnd,
+} from '../src/lib/clubDataUnionWeeks';
+
+const squash = (s: string) => s.replace(/\s+/g, ' ');
+function latest(fnName: string): string {
+  return squash(
+    functionBody(latestDeclaring(fnName).sql, fnName)
+      .split('\n')
+      .filter((l) => !l.trimStart().startsWith('--'))
+      .join('\n')
+  );
+}
+const src = (p: string) => readFileSync(resolve(__dirname, '..', p), 'utf8');
+
+describe('the accounting day is 02:00 to 02:00 Chicago, the invoice boundary', () => {
+  it('takes the two hours off the Chicago wall clock, so daylight saving is the zone database', () => {
+    expect(latest('fn_ca_accounting_day')).toContain(
+      "SELECT ((p_at AT TIME ZONE 'America/Chicago') - interval '2 hours')::date;"
+    );
+    expect(latest('fn_ca_accounting_day_start')).toContain(
+      "SELECT (p_day::timestamp + interval '2 hours') AT TIME ZONE 'America/Chicago';"
+    );
+  });
+
+  it('the migration proves every Monday starts on fn_union_week_start before it commits', () => {
+    const sql = squash(latestDeclaring('fn_ca_accounting_day_start').sql);
+    expect(sql).toContain(
+      'public.fn_ca_accounting_day_start(d) IS DISTINCT FROM public.fn_union_week_start(public.fn_ca_accounting_day_start(d))'
+    );
+    expect(sql).toContain(
+      "generate_series(date '2025-01-06', date '2028-12-25', interval '7 days')"
+    );
+  });
+
+  it('the client mirror agrees across both clock changes', () => {
+    // Winter: the invoice week 2026-11-02 08:00Z to 2026-11-09 08:00Z.
+    expect(accountingDay('2026-11-02T08:00:00Z')).toBe('2026-11-02');
+    expect(accountingDay('2026-11-09T07:59:59Z')).toBe('2026-11-08');
+    expect(accountingDay('2026-11-09T08:00:00Z')).toBe('2026-11-09');
+    // Fall back, Sunday 2026-11-01: 01:30 happens twice, both are Oct 31.
+    expect(accountingDay('2026-11-01T06:30:00Z')).toBe('2026-10-31');
+    expect(accountingDay('2026-11-01T07:30:00Z')).toBe('2026-10-31');
+    expect(accountingDay('2026-11-01T08:00:00Z')).toBe('2026-11-01');
+    // Spring forward, Sunday 2026-03-08: 02:00 does not exist; 03:00 CDT starts the day.
+    expect(accountingDay('2026-03-08T07:59:59Z')).toBe('2026-03-07');
+    expect(accountingDay('2026-03-08T08:00:00Z')).toBe('2026-03-08');
+    // Summer: 02:00 CDT is 07:00Z.
+    expect(accountingDay('2026-07-15T06:59:59Z')).toBe('2026-07-14');
+    expect(accountingDay('2026-07-15T07:00:00Z')).toBe('2026-07-15');
+  });
+});
+
+describe('an invoice week on Club Data is the issued invoice', () => {
+  const body = latest('ca_club_data_union_weeks');
+
+  it('reads the issued document and nothing that recomputes or re-attributes it', () => {
+    expect(body).toContain('FROM public.settlement_invoices si');
+    expect(body).toContain("si.invoice_type = 'union_weekly_squareup'");
+    expect(body).toContain("si.status <> 'cancelled'");
+    expect(body).toContain("sum((si.breakdown->>'rake_generated')::numeric) AS fee");
+    expect(body).toContain("sum(-(si.breakdown->>'players_won')::numeric) AS loss");
+    // Time-of-play attribution is the document's. Never the current horse
+    // assignment, never the Club Data facts, never a live recomputation.
+    for (const banned of [
+      'ca_horse_club_assignments',
+      'ca_horse_fleet_register',
+      'is_horse',
+      'ca_club_data_fact',
+      'ca_stats_club_data_fact_ct',
+      'fn_ca_club_data_fact_window',
+      'fn_union_club_invoice',
+      'fn_union_eco_adjustment',
+      'fn_union_pnl_evidence_report',
+    ]) {
+      expect(body).not.toContain(banned);
+    }
+  });
+
+  it('the end date is the 02:00 boundary the window stops at, never a last day', () => {
+    expect(body).toContain('v_from := public.fn_ca_accounting_day_start(p_start);');
+    expect(body).toContain('v_to := public.fn_ca_accounting_day_start(p_end);');
+    expect(body).toContain('p_end <= p_start');
+    expect(body).toContain('sp.start_at >= v_from AND sp.end_at <= v_to');
+    expect(body).not.toMatch(/p_end\s*\+\s*1/);
+  });
+
+  it('only whole issued weeks count, and coverage is stated, not implied', () => {
+    expect(body).toContain(
+      'IF r.start_at = v_cover THEN v_cover := r.end_at; ELSE v_gap := true; END IF;'
+    );
+    expect(body).toContain("'covers_window', (v_n > 0 AND NOT v_gap AND v_cover = v_to)");
+    expect(body).toContain("(si.breakdown->>'period_start')::timestamptz = sp.start_at");
+  });
+
+  it('whole-club viewers only, and it writes nothing', () => {
+    expect(body).toContain('IF NOT public.ca_can_view_whole_club_report(p_club_id) THEN');
+    expect(body).not.toMatch(/\b(INSERT|UPDATE|DELETE)\b/);
+    const sql = squash(latestDeclaring('ca_club_data_union_weeks').sql);
+    expect(sql).toContain('RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER');
+    expect(sql).toContain(
+      'REVOKE ALL ON FUNCTION public.ca_club_data_union_weeks(uuid, date, date) FROM PUBLIC, anon;'
+    );
+  });
+});
+
+describe('the page prints the invoice with its real boundaries, exactly', () => {
+  const invoice = (fee: number, loss: number, extra: Record<string, unknown> = {}) => ({
+    invoice_id: 'i',
+    invoice_number: 'MU-1',
+    status: 'generated',
+    club_id: 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4',
+    club_name: 'KINGS CLUB',
+    fee,
+    player_net_loss: loss,
+    ...extra,
+  });
+  const week = (extra: Record<string, unknown> = {}) => ({
+    period_start: '2026-11-02T08:00:00+00:00',
+    period_end: '2026-11-09T08:00:00+00:00',
+    fee: 25854.24,
+    player_net_loss: 37160.83,
+    cash_net_loss: null,
+    tournament_net_loss: null,
+    invoices: [invoice(25854.24, 37160.83)],
+    ...extra,
+  });
+  const answer = (extra: Record<string, unknown> = {}) => ({
+    union_id: 'fade0000-0000-0000-0000-000000000001',
+    day_boundary: '02:00',
+    day_zone: 'America/Chicago',
+    window_start: '2026-11-02T08:00:00+00:00',
+    window_end: '2026-11-09T08:00:00+00:00',
+    covers_window: true,
+    open_from: null,
+    weeks: [week()],
+    ...extra,
+  });
+
+  it('the KINGS CLUB week is its invoice, to the cent', () => {
+    const parsed = parseUnionWeeks(answer());
+    expect(parsed?.weeks[0].fee).toBe(25854.24);
+    expect(parsed?.weeks[0].player_net_loss).toBe(37160.83);
+    expect(parsed?.covers_window).toBe(true);
+  });
+
+  it('the range chip states the real boundaries', () => {
+    expect(unionWeekLabel(week())).toBe('Nov 2 2:00 AM To Nov 9 2:00 AM');
+    // The week before starts on daylight time: still 2:00 AM on the Chicago clock.
+    expect(chicagoBoundaryStamp('2026-10-26T07:00:00Z')).toBe('Oct 26 2:00 AM');
+  });
+
+  it('dates Nov 2 to Nov 9 hold exactly the one invoice week, not eight days of it', () => {
+    // The page's last day is Nov 9, so the server is asked to stop at 02:00 on Nov 10;
+    // the week that ends 02:00 Nov 9 is inside, and the remaining day is open time.
+    expect(unionWeeksBoundaryEnd('2026-11-09')).toBe('2026-11-10');
+    const parsed = parseUnionWeeks(
+      answer({
+        window_end: '2026-11-10T08:00:00+00:00',
+        covers_window: false,
+        open_from: '2026-11-09T08:00:00+00:00',
+      })
+    );
+    expect(parsed?.weeks).toHaveLength(1);
+    expect(parsed?.weeks[0].period_end).toBe('2026-11-09T08:00:00+00:00');
+  });
+
+  it('refuses an answer that is not exact rather than repairing it', () => {
+    // Invoices that do not add up to the week.
+    expect(parseUnionWeeks(answer({ weeks: [week({ fee: 25854.25 })] }))).toBeNull();
+    // A fraction of a cent.
+    expect(
+      parseUnionWeeks(
+        answer({ weeks: [week({ fee: 25854.245, invoices: [invoice(25854.245, 37160.83)] })] })
+      )
+    ).toBeNull();
+    // A split that does not add up to the loss.
+    expect(
+      parseUnionWeeks(answer({ weeks: [week({ cash_net_loss: 1, tournament_net_loss: 2 })] }))
+    ).toBeNull();
+    // A week outside the window, a cancelled document, a different boundary.
+    expect(parseUnionWeeks(answer({ window_end: '2026-11-08T08:00:00+00:00' }))).toBeNull();
+    expect(
+      parseUnionWeeks(
+        answer({
+          weeks: [week({ invoices: [invoice(25854.24, 37160.83, { status: 'cancelled' })] })],
+        })
+      )
+    ).toBeNull();
+    expect(parseUnionWeeks(answer({ day_boundary: '00:00' }))).toBeNull();
+    // Coverage the weeks do not support.
+    expect(parseUnionWeeks(answer({ window_end: '2026-11-10T08:00:00+00:00' }))).toBeNull();
+  });
+
+  it('the owner screen mounts the block for whole-club viewers and labels both bases', () => {
+    const page = src('src/pages/club/ClubDataSimplePage.tsx');
+    expect(page).toContain("visibleSnapshot?.scope === 'club' && clubUuid && userId && (");
+    expect(page).toContain(
+      '<ClubDataUnionWeeks key={scopeKey} clubId={clubUuid} start={startDate} end={endDate} />'
+    );
+    const block = src('src/pages/club/ClubDataUnionWeeks.tsx');
+    expect(block).toContain("supabase.rpc('ca_club_data_union_weeks'");
+    expect(block).toContain('p_end: unionWeeksBoundaryEnd(end)');
+    expect(block).toContain('parseUnionWeeks(data)');
+    expect(block).toContain('Union Invoice Week {unionWeekLabel(week)} {CLUB_DATA_ZONE_LABEL}');
+    expect(block).toContain('Totals Above Count Table Activity By Midnight Days And Can Differ.');
+    // Never a projection, an estimate or a figure of its own.
+    expect(block).not.toMatch(/project|estimat|approx/i);
+  });
+});
+
+describe('a renamed club keeps its old slug', () => {
+  it('the rename is recorded by the statement that makes it, and the live slug wins', () => {
+    const trigger = squash(latestDeclaring('fn_club_slug_keeps_its_history').sql);
+    expect(trigger).toContain('-- @install-window: daily-maintenance');
+    expect(trigger).toContain('-- @locks: public.clubs');
+    expect(trigger).toContain(
+      'CREATE TRIGGER trg_club_slug_keeps_its_history AFTER UPDATE OF slug ON public.clubs FOR EACH ROW WHEN (OLD.slug IS DISTINCT FROM NEW.slug)'
+    );
+    const fn = latest('fn_club_slug_keeps_its_history');
+    expect(fn).toContain('DELETE FROM public.club_slug_history h WHERE h.former_slug = NEW.slug;');
+    expect(fn).toContain('VALUES (OLD.slug, NEW.id)');
+    expect(latest('ca_club_id_for_slug')).toContain(
+      '(SELECT c.id FROM public.clubs c WHERE c.slug = p_slug LIMIT 1)'
+    );
+  });
+
+  it('the 2026-11-14 production rename is recorded, with no foreign key to clubs', () => {
+    const sql = squash(latestDeclaring('ca_club_id_for_slug').sql);
+    expect(sql).toContain("SELECT 'club-jaqk', c.id, timestamptz '2026-11-14 00:00:00+00'");
+    expect(sql).toContain("AND c.slug = 'the-felt-society'");
+    expect(sql).not.toMatch(/REFERENCES\s+public\.clubs/i);
+  });
+
+  it('the one client resolver asks the history when no club holds the slug', () => {
+    const resolver = src('src/utils/clubIdResolver.ts');
+    expect(resolver).toContain("if (!error && filter.column === 'slug') {");
+    expect(resolver).toContain("supabase.rpc('ca_club_id_for_slug', { p_slug: clubIdParam })");
+  });
+});

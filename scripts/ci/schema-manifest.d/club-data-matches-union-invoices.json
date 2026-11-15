@@ -1,0 +1,11 @@
+{
+  "_owner": "agent/claude/club-data-matches-union-invoices. Migrations 20261114235606 (Club Data accounting day, union invoice weeks reader, club slug history) and 20261114235607 (daily-maintenance window: clubs slug rename trigger). Installed through apply-merged-migration after merge and the daily window installer.",
+  "tables": ["club_slug_history"],
+  "functions": [
+    "fn_ca_accounting_day",
+    "fn_ca_accounting_day_start",
+    "ca_club_data_union_weeks",
+    "ca_club_id_for_slug",
+    "fn_club_slug_keeps_its_history"
+  ]
+}

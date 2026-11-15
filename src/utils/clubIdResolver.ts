@@ -155,6 +155,24 @@ export async function resolveClubUUID(clubIdParam: string, signal?: AbortSignal)
     return data.id;
   }
 
+  // A RENAMED CLUB KEEPS ITS OLD SLUG (2026-11-14). club-jaqk became
+  // the-felt-society and every /clubs/club-jaqk link stopped resolving. A slug
+  // no club holds now is asked of the rename history (ca_club_id_for_slug,
+  // 20261114235606); the answer is cached under the old slug like any other.
+  if (!error && filter.column === 'slug') {
+    const former = supabase.rpc('ca_club_id_for_slug', { p_slug: clubIdParam });
+    const { data: formerId, error: formerError } = await (signal
+      ? former.abortSignal(signal)
+      : former);
+    if (formerError) {
+      reportError(formerError, 'clubIdResolver.formerSlug', { clubIdParam });
+    } else if (typeof formerId === 'string' && isUUID(formerId)) {
+      uuidCache.set(clubIdParam, formerId);
+      persistMap();
+      return formerId;
+    }
+  }
+
   // Fallback: return as-is (will fail downstream, but that's the existing behavior)
   console.warn(`[clubIdResolver] Could not resolve club UUID for: ${clubIdParam}`);
   return clubIdParam;
