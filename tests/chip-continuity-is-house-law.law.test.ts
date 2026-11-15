@@ -14,8 +14,10 @@
  *   6.1    the ten-minute stay clock is retired (minimum stay removed
  *          2026-10-26; the client plumbing removed 2026-11-06, when the
  *          hit-and-run hand count became the one rule that keeps a player
- *          in profit seated), and the buy-in modal says nothing about WHY
- *          its minimum is higher;
+ *          in profit seated). The buy-in modal said nothing about WHY its
+ *          minimum is higher until 2026-11-14, when Dan ruled that a player
+ *          held to what he left with is told so; it still never uses the
+ *          forbidden words;
  *   6.3    an older engine's stay_remaining_ms is ignored, never displayed.
  *
  * The forbidden-word scan is over STRING LITERALS AND JSX TEXT, not
@@ -70,7 +72,19 @@ describe('A0.14 - no player-visible string carries the forbidden words', () => {
     expect(hits).toEqual([]);
   });
 
-  it('the refusal copy for the floor is a number, not a reason', () => {
+  /* OWNER INSTRUCTION 2026-11-14 (Dan) replaces "a number, not a reason" for
+     the one case where the client knows the reason: the server answered that
+     the rejoin floor raised the minimum. Then the player is told what he left
+     with. Without that knowledge it is still a number, and the forbidden
+     words stay forbidden in both. */
+  it('the refusal copy names what the player left with only when that is known', () => {
+    const raw = { message: 'BUYIN_BELOW_FLOOR: minimum buy-in for this game right now is 250.00' };
+    const named = cashBuyInRefusalText(raw, { leftWith: 250 });
+    expect(named).toBe('You Left This Game With 250.00. Your Buy In Must Be At Least 250.00.');
+    expect(named).not.toMatch(FORBIDDEN);
+  });
+
+  it('the refusal copy for the floor is a number when no reason is known', () => {
     expect(
       cashBuyInRefusalText({
         message: 'BUYIN_BELOW_FLOOR: minimum buy-in for this game right now is 250.00',

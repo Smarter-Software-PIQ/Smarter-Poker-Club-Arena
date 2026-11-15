@@ -59,6 +59,10 @@ export interface UnionStatementClub {
      its full original amount. */
   credit_notes?: StatementCredit[] | null;
   remaining_after_credits?: number | null;
+  /* What is still unpaid: the amount after credit notes less payments
+     (null when historical payment details are unavailable and no credit
+     note settles it). Derived here so every view reads one definition. */
+  remaining_unpaid?: number | null;
 }
 
 export interface StatementCredit {
@@ -404,11 +408,19 @@ function parseClub(value: unknown, unionId: string): ParsedClub {
   if (parsed.paid_total !== null && parsed.paid_total > Math.abs(parsed.amount)) {
     throw new Error('Statement paid total exceeds its amount');
   }
-  const expectedOutstanding = Math.max(
-    Math.abs(cents(parsed.amount)) - cents(parsed.paid_total ?? 0),
-    0
-  );
-  if (available && cents(parsed.outstanding as number) !== expectedOutstanding) {
+  // The server's unpaid balance is the amount after credit notes less
+  // payments (20261115030918); before it, the amount less payments. They
+  // differ only for a credited invoice with payment details.
+  const paidCents = cents(parsed.paid_total ?? 0);
+  const afterCredits =
+    parsed.remaining_after_credits === null || parsed.remaining_after_credits === undefined
+      ? Math.abs(cents(parsed.amount))
+      : cents(parsed.remaining_after_credits);
+  if (
+    available &&
+    cents(parsed.outstanding as number) !== Math.max(afterCredits - paidCents, 0) &&
+    cents(parsed.outstanding as number) !== Math.max(Math.abs(cents(parsed.amount)) - paidCents, 0)
+  ) {
     throw new Error('Statement outstanding total does not reconcile');
   }
   if (cents(parsed.rake_generated) !== cents(parsed.rakeback_due) + cents(parsed.union_fee_kept)) {
@@ -467,6 +479,15 @@ function parseClub(value: unknown, unionId: string): ParsedClub {
   if (available && status === 'paid' && cents(parsed.outstanding as number) !== 0) {
     throw new Error('Paid statement still has an outstanding balance');
   }
+  const remainingAfterCredits = parsed.credit_notes?.length
+    ? cents(parsed.remaining_after_credits as number)
+    : Math.abs(cents(parsed.amount));
+  parsed.remaining_unpaid =
+    parsed.direction === 'square' || remainingAfterCredits === 0
+      ? 0
+      : available
+        ? Math.max(remainingAfterCredits - cents(parsed.paid_total ?? 0), 0) / 100
+        : null;
   return { club: parsed, rawAmount };
 }
 
@@ -655,6 +676,24 @@ export function parseUnionStatementBoard(
       throw new Error(`Statement ${label} total does not reconcile`);
   }
 
+  const afterCredit = (row: UnionStatementClub): number =>
+    Math.sign(row.amount) *
+    (row.credit_notes?.length
+      ? cents(row.remaining_after_credits as number)
+      : Math.abs(cents(row.amount)));
+  const afterCreditTotals = {
+    clubs_owe: clubs
+      .map(afterCredit)
+      .filter((c) => c > 0)
+      .reduce((a, b) => a + b, 0),
+    union_owes: -clubs
+      .map(afterCredit)
+      .filter((c) => c < 0)
+      .reduce((a, b) => a + b, 0),
+    net: clubs.map(afterCredit).reduce((a, b) => a + b, 0),
+  };
+  const unpaidRows = clubs.filter((row) => row.status !== 'missing' && row.status !== 'cancelled');
+
   return {
     union_id: unionId,
     union_name: nullableText(board.union_name, 'Statement union name'),
@@ -662,11 +701,16 @@ export function parseUnionStatementBoard(
     period_start: periodStart,
     period_start_at: boardWeekStart,
     period_end_at: boardWeekEnd,
+    // The tiles state what is owed after credit notes, and the unpaid
+    // balance after credit notes and payments when every row can say it.
     totals: {
       ...totals,
-      clubs_owe: normalizedSignedTotals.clubs_owe / 100,
-      union_owes: normalizedSignedTotals.union_owes / 100,
-      net: normalizedSignedTotals.net / 100,
+      clubs_owe: afterCreditTotals.clubs_owe / 100,
+      union_owes: afterCreditTotals.union_owes / 100,
+      net: afterCreditTotals.net / 100,
+      outstanding: unpaidRows.every((row) => row.remaining_unpaid !== null)
+        ? sumCents(unpaidRows.map((row) => row.remaining_unpaid as number)) / 100
+        : totals.outstanding,
     },
     clubs,
     history: parseHistory(board.history),

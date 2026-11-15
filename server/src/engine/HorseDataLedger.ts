@@ -1204,6 +1204,54 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     '2026-11-14'
   ),
   receipt(
+    'lightning_participation_eligible',
+    'HorseLightningParticipation via HorseLogic / HorsePreflop (lightningParticipationHoldem, lightningParticipationOmaha; default off)',
+    'a preflop decision with a Lightning participation option on and the hand inside its predicate (Lightning cash NLH / PLO4 / PLO5, four to six dealt, big-blind ante): the opportunity count; zero in Lightning with the option on is an unwired option',
+    '2026-11-15'
+  ),
+  receipt(
+    'lightning_participation_changed',
+    'HorseLightningParticipation via HorseLogic / HorsePreflop (lightningParticipationHoldem, lightningParticipationOmaha; default off)',
+    'a Lightning participation range cell changed the action against the base answer (first-in raise, or a big-blind call by price); the decision carries the cell reason code on its preflop authority trail',
+    '2026-11-15'
+  ),
+  receipt(
+    'lightning_participation_refused_not_lightning_seen',
+    'HorseLightningParticipation via HorseLogic / HorsePreflop (lightningParticipationHoldem, lightningParticipationOmaha; default off)',
+    'option on, hand not in a Lightning public memory domain (Classic tables): the option stayed out; named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
+    'lightning_participation_refused_format_seen',
+    'HorseLightningParticipation via HorseLogic / HorsePreflop (lightningParticipationHoldem, lightningParticipationOmaha; default off)',
+    'option on, Lightning domain but not cash preflop or an all-in-or-fold table: the option stayed out; named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
+    'lightning_participation_refused_variant_seen',
+    'HorseLightningParticipation via HorseLogic / HorsePreflop (lightningParticipationHoldem, lightningParticipationOmaha; default off)',
+    "option on, a variant that is not no-limit hold'em, PLO4 or PLO5: the option stayed out; named *_seen",
+    '2026-11-15'
+  ),
+  receipt(
+    'lightning_participation_refused_dealt_count_seen',
+    'HorseLightningParticipation via HorseLogic / HorsePreflop (lightningParticipationHoldem, lightningParticipationOmaha; default off)',
+    'option on, fewer than four or more than six dealt: the option stayed out; named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
+    'lightning_participation_refused_not_bb_ante_seen',
+    'HorseLightningParticipation via HorseLogic / HorsePreflop (lightningParticipationHoldem, lightningParticipationOmaha; default off)',
+    'option on, no big-blind ante: the option stayed out; named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
+    'lightning_participation_refused_opponent_read_seen',
+    'HorseLightningParticipation via HorseLogic / HorsePreflop (lightningParticipationHoldem, lightningParticipationOmaha; default off)',
+    'a Lightning participation cell stood aside for an opponent read (an observed maniac, a confirmed aggressive player in position behind, a tight-opener respect or wide-opener pressure read); the base answer stood; named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
     'style_tight_opener_respect_seen',
     'HorsePreflop via HorseLogic (STYLE READ #6)',
     'facing one open from a credibly tight opener the 3-bet bar moved up and the call bar rose, bounded; named *_seen',
@@ -1214,6 +1262,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorsePreflop via HorseLogic (STYLE READ #6)',
     'facing a 3-bet or more from a credibly tight re-raiser the 4-bet and call bars rose, bounded; named *_seen',
     '2026-11-13'
+  ),
+  receipt(
+    'style_long_participation_seen',
+    'HorseMind.styleRead (STYLE READ, long participation window)',
+    'a style read took VPIP, PFR or the call share from the 120-hand long participation window (ExploitCounters lHands / lVpip / lPfr, horse_exact_profiles.long_counters) because it held more evidence than the 30-hand window and both leaned low or even; receipt.longWindow names which; counts reads; named *_seen',
+    '2026-11-15'
   ),
   receipt(
     'style_read_released_seen',
@@ -1271,6 +1325,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omahaTightOpponent',
     '2026-11-13 owner order (tight adjustment mandatory): in pot-limit Omaha high cash and ordinary tournament preflop (no hi-lo, bomb pot, multi-board, All-In-Or-Fold or push/fold depth), against a PROVEN tight opponent (15+ decayed hands, the aggressive presumption disproved, a raiser pfr, or rfi on 15+ first-in opportunities, credibly at most half the Horse mean and VPIP not above the mean; a folder VPIP credibly at most 0.6 of the Horse mean; 90% one-sided on the statRead posterior; no wide read; recent raising not back above the raiser bar): a proven tight raiser faced is respected (3-bet bar toward the top 30% of his raises, at most +0.10; call bar +0.04; no bluff 3-bet or squeeze; facing his re-raise 4-bet bar +0.03 and call bar +0.06), and first in from late position or the small blind with every player left to act a proven tight folder the open bar comes down by half the fold-equity surplus over a pot-sized open break-even, at most 0.10 (HorseOmahaTightOpponent). Default OFF. Its declared league evaluation passed on 2026-11-14 (Omaha development tight field, pooled PLO4+PLO5 six-handed +11.48 +/- 0.47 bb/100, Omaha development control +0.05 +/- 0.05, no cell below zero; development fields only); default-on additionally needs docs/HORSE-DECISION-CHANGE-EVIDENCE.md rows 2-5 (input fidelity, per-node value under three ranges, recorded continuation frequencies, production reach), which need recorded production hands.',
     'Omaha tight opponent'
+  ),
+  flag(
+    'omahaTightOpponentSteal',
+    '2026-11-14 owner ruling 17:42 Chicago (Omaha tight requirement stays; a defensible response must be built and evaluated): Omaha high variants in OMAHA_TIGHT_STEAL_VARIANTS (six-card only), the STEAL half of omahaTightOpponent alone (first in from late position or the small blind, every player left to act a PROVEN tight folder: the open bar comes down by half the fold-equity surplus over a pot-sized open break-even, at most 0.10); the respect half is excluded because, measured alone on six-card, it is undecided with a negative cash point estimate. Default OFF (read === true). Evaluation: plo6-audit-01TLQer9Hdf/phase1-play/tight-plo6-league (development persona fields; production reach against people was 0 of 12 six-card records on 2026-11-14). Default-on needs docs/horse-default-on.d/omahaTightOpponentSteal.md with the eight rows.',
+    'Omaha tight steal'
   ),
   flag(
     'readScopedShrink',
@@ -1341,6 +1400,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omahaCommitZoneThreeBetPriceRelief',
     '2026-11-14 default OFF: six-card Omaha high in the V25 PLO commitment zone facing a re-raise takes the facing-3-bet price relief max(0, 0.5 - odds) * 1.6 instead of (0.4 - odds) * 1.2; development human field, chips only, paired 200 x 200 PLO6 MTT 40bb: +6.83 +/- 3.78 (seed 20261120) and +7.62 +/- 3.77 (seed 20261130) bb/100; PLO5 and PLO6 100bb cash byte-identical; payout (ICM) not measured, so it stays off; PLO6 tournament-folds study FINDING.md follow-ups A, D, E',
     'PfLeaks'
+  ),
+  flag(
+    'lightningParticipationHoldem',
+    "2026-11-15 default OFF: Lightning cash no-limit hold'em only (public memory domain speed lightning, four to six dealt, big-blind ante, not all-in-or-fold): where the facing-one-open branch folds the big blind, nobody else in, the (defender, opener seat) continue width gains up to 10 share points for the price the ante lays (90 points per unit of price under 0.31, none at 50bb or less, all from 85bb) and a hand inside it calls; hold'em opens are untouched (they already scale with the ante); no own-participation input, no floor, not applied where a tight-opener respect read moved the bars; development evidence only (HorseLightningParticipation.ts, paired Lightning harness, seeds 20261114-20261118), so it stays off",
+    'Lightning participation'
+  ),
+  flag(
+    'lightningParticipationOmaha',
+    '2026-11-15 default OFF: Lightning cash PLO4 / PLO5 only (same predicate): first-in raise cells by players still to act (PLO4 20 / 24 / 34 / 42 button / 34 small blind percent of hands, PLO5 20 / 24 / 34 / 40 / 32, +1 point per seat missing from six, x0.9 at 50bb), raise or fold with no new limp, superseding only the raise width PRESUMED of an unread Omaha opponent (an observed maniac or a confirmed aggressive player in position behind keeps the base answer); and where the facing-one-raise branch folds the big blind, a continue range by price (40 / 44 / 50 / 56 percent against an early / middle / late / small-blind raiser at a pot-sized price of 0.33, 120 points per unit of price, -6 per caller capped at 36 multiway, x0.85 at 50bb); 3-bet, 4-bet, stack-off bars, sizing and postflop untouched; no own-participation input; development evidence only, so it stays off',
+    'Lightning participation'
   ),
   flag(
     'facingClosedAllIn',
@@ -1820,6 +1889,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   state('format', 'cash / mtt / sng / spin / hu_sng'),
   state('ante', 'ante per hand'),
   state('bigBlindAnte', 'BB-ante structure'),
+  state(
+    'publicMemoryDomain',
+    'public rules of the hand being played (speed table / lightning, ante kind); the Lightning participation predicate reads speed and nothing else reads it at decision time',
+    'HorseLightningParticipation.lightningParticipationCtx (called by HorseLogic.decide; options lightningParticipationHoldem / lightningParticipationOmaha, default off)'
+  ),
   state('allInOrFold', 'all-in-or-fold table'),
   state('straddleActive', 'a straddle is posted (V18)'),
   state(
@@ -2549,6 +2623,35 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'a PLO6 cash price refused against an observed maniac raiser was handed to the range play instead of being folded',
     'V92'
   ),
+  // HA-10768-1 (2026-11-15): the outcome of each hand-off above, by table
+  // floor and by the FINAL action. With the option off every one was a fold,
+  // so *_continued counts decisions the option changed; *_folded counts
+  // hand-offs that changed nothing (the range play folds too, as it does on
+  // unfloored tables at the recorded node). Occurrence counters, no floor.
+  receipt(
+    'plo6_maniac_price_refusal_floored_continued',
+    'HorseLogic final decision (plo6ManiacPriceRefusalToRangePlay, HA-10768-1)',
+    'on a table with a VPIP floor, a refused maniac price handed to the range play ended as a call, raise or all-in instead of the fold it was before the option',
+    'V92'
+  ),
+  receipt(
+    'plo6_maniac_price_refusal_floored_folded',
+    'HorseLogic final decision (plo6ManiacPriceRefusalToRangePlay, HA-10768-1)',
+    'on a table with a VPIP floor, a refused maniac price handed to the range play still ended as a fold',
+    'V92'
+  ),
+  receipt(
+    'plo6_maniac_price_refusal_unfloored_continued',
+    'HorseLogic final decision (plo6ManiacPriceRefusalToRangePlay, HA-10768-1)',
+    'on a table without a VPIP floor, a refused maniac price handed to the range play ended as a call, raise or all-in instead of the fold it was before the option',
+    'V92'
+  ),
+  receipt(
+    'plo6_maniac_price_refusal_unfloored_folded',
+    'HorseLogic final decision (plo6ManiacPriceRefusalToRangePlay, HA-10768-1)',
+    'on a table without a VPIP floor, a refused maniac price handed to the range play still ended as a fold',
+    'V92'
+  ),
   // PLO6-AUDIT P6-4 (2026-11-14). An occurrence counter for an opt-in arm
   // production never sets: silence is its ordinary state.
   receipt(
@@ -2759,7 +2862,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   receipt(
     'plo_tight_blinds_steal',
-    'HorseLogic (omahaTightOpponent)',
+    'HorseLogic (omahaTightOpponent, omahaTightOpponentSteal)',
     'first in from late position or the small blind with every player left to act a proven tight Omaha folder, the wider steal changed the preflop intent',
     'Omaha tight opponent'
   ),

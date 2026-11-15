@@ -151,6 +151,7 @@
 }
 
 .buy-in-modal__recovery,
+.buy-in-modal__rejoin-floor,
 .buy-in-modal__error {
   font-size: 3.2cqw;
 }

@@ -51,6 +51,9 @@ describe('the statements certificate reads exact figures', () => {
     expect(spec).not.toMatch(/expectExactCashierFigures\(\s*surface\s*,/);
     expect(support).not.toContain('ABBREVIATED_FIGURE');
     expect(spec).toContain('button[aria-expanded] > span:last-child');
+    // And it counts them: an empty locator must not pass (post-merge review note 1).
+    expect(support).toMatch(/toContain\(texts\.length\)/);
+    expect(spec).toContain('[0, 4]');
     // Were such text ever handed in as a figure, it is refused, not skipped.
     expect(
       inexactFigures(['Ref 262B2E2F', 'Ref 6B6424ED', 'Ref 1234567B', 'To 100K'])

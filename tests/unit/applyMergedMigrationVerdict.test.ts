@@ -23,6 +23,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
+import { sliceStatement } from '../helpers/sourceWindow';
 
 const workflow = readFileSync(
   resolve(__dirname, '../../.github/workflows/apply-merged-migration.yml'),
@@ -147,6 +148,80 @@ describe('qualified migrations use the actual transaction envelope', () => {
       }
     }
   );
+});
+
+describe('a verified recording answers from the history, not its shape', () => {
+  // 2026-11-15: 20261115001336 is the byte-exact SQL production ran (no
+  // BEGIN/COMMIT), recorded in scripts/ci/recorded-migrations.manifest.json.
+  // PR #10913 modified the file, the dispatcher sent it on the stated contract
+  // that an installed version answers ALREADY-APPLIED, and the applier refused
+  // it for its shape before it ever read schema_migrations.
+  const recording = '20261115001336_the_mystery_seed_hands_the_sealed_ladder_a_whole_cent_pool.sql';
+  const applier = resolve('scripts/ci/apply-recorded-migration.mjs');
+  const entry = `const OriginalDate = Date; globalThis.Date = class extends OriginalDate { constructor(...args) { if (args.length) super(...args); else super('2026-11-15T04:20:00Z'); } }; process.argv = [process.execPath, ${JSON.stringify(applier)}, '--migration', ${JSON.stringify(recording)}, '--dry-run']; await import(${JSON.stringify('file://' + applier)});`;
+  const run = (bytes: string, manifest: boolean) => {
+    const directory = mkdtempSync(
+      resolve(process.env.RUNNER_TEMP || process.cwd(), 'recording-shape-')
+    );
+    try {
+      mkdirSync(resolve(directory, 'supabase/migrations'), { recursive: true });
+      mkdirSync(resolve(directory, 'scripts/ci'), { recursive: true });
+      writeFileSync(resolve(directory, 'supabase/migrations', recording), bytes);
+      if (manifest)
+        writeFileSync(
+          resolve(directory, 'scripts/ci/recorded-migrations.manifest.json'),
+          readFileSync(resolve('scripts/ci/recorded-migrations.manifest.json'))
+        );
+      const env = { ...process.env };
+      delete env.DATABASE_URL;
+      // No connection exists, so nothing can be sent; the verdict before the
+      // connection is what is under test.
+      return spawnSync(process.execPath, ['--input-type=module', '--eval', entry], {
+        cwd: directory,
+        env,
+        encoding: 'utf8',
+        timeout: 5000,
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  };
+  const exact = readFileSync(resolve('supabase/migrations', recording), 'utf8');
+
+  it('the recording carries no transaction of its own', () => {
+    expect(exact).not.toMatch(/^\s*BEGIN\s*;/im);
+  });
+
+  it('a byte-exact recording goes on to read the history instead of being refused', () => {
+    const result = run(exact, true);
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(3);
+    expect(result.stderr).toContain('UNKNOWN: DATABASE_URL is not set');
+    expect(result.stderr).not.toContain('REFUSED');
+  });
+
+  it('the same bytes without their manifest row are refused for their shape', () => {
+    const result = run(exact, false);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('does not open with BEGIN; and close with COMMIT;');
+  });
+
+  it('an edited recording is new work and is refused for its shape', () => {
+    const result = run(exact + '\n-- edited\n', true);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('does not open with BEGIN; and close with COMMIT;');
+  });
+
+  it('a recording production does not hold is refused after the history read', () => {
+    const src = readFileSync(applier, 'utf8');
+    const read = src.indexOf('already = rows;');
+    const deferred = src.indexOf('if (deferredShapeRefusal && already.length === 0)');
+    expect(read).toBeGreaterThan(-1);
+    expect(deferred).toBeGreaterThan(read);
+    expect(
+      sliceStatement(src, 'if (deferredShapeRefusal && already.length === 0)')
+    ).toContain('refused(deferredShapeRefusal)');
+  });
 });
 
 describe('the repository_dispatch door carries only a file name and dry_run', () => {
