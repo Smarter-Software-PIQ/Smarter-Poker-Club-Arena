@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { useActionControllerSettings } from '../../hooks/useActionControllerSettings';
 import {
   ACTION_CONTROLLER_COLORS,
@@ -90,8 +90,11 @@ function PresetEditor({
   );
 }
 
-export function ActionControllerSettings({ colorsOnly = false }: { colorsOnly?: boolean }) {
+export function ActionControllerSettings() {
   const { settings, update } = useActionControllerSettings();
+  const [editPresets, setEditPresets] = useState(false);
+  const panelId = useId();
+  const tabId = useId();
   return (
     <section className="action-controller-settings" aria-label="Action Controller">
       <h3>Action Controller</h3>
@@ -118,31 +121,43 @@ export function ActionControllerSettings({ colorsOnly = false }: { colorsOnly?: 
           </button>
         ))}
       </div>
+      <div role="tablist" aria-label="Action Controller Settings">
+        <button
+          className="action-controller-edit-tab"
+          type="button"
+          role="tab"
+          id={tabId}
+          aria-selected={editPresets}
+          aria-expanded={editPresets}
+          aria-controls={panelId}
+          onClick={() => setEditPresets((open) => !open)}
+        >
+          Change Default Button Amounts
+        </button>
+      </div>
+      <div role="tabpanel" id={panelId} aria-labelledby={tabId} hidden={!editPresets}>
+        <PresetEditor
+          label="Preflop Multipliers"
+          values={settings.preflop}
+          defaults={DEFAULT_ACTION_CONTROLLER.preflop}
+          max={100}
+          suffix="X"
+          onApply={(preflop) => update({ preflop })}
+        />
+        <PresetEditor
+          label="Postflop Pot Percentages"
+          values={settings.postflop}
+          defaults={DEFAULT_ACTION_CONTROLLER.postflop}
+          max={1000}
+          suffix="%"
+          onApply={(postflop) => update({ postflop })}
+        />
+        <p>
+          Preflop Uses The Bet You Face, Or The Big Blind. Postflop Uses The Pot After Calling.
+          Legal Minimums, Stack And Pot-Limit Caps Still Apply.
+        </p>
+      </div>
       <p>Applies To All Your Tables. Tap Outside The Open Controller To Close It.</p>
-      {!colorsOnly && (
-        <>
-          <PresetEditor
-            label="Preflop Multipliers"
-            values={settings.preflop}
-            defaults={DEFAULT_ACTION_CONTROLLER.preflop}
-            max={100}
-            suffix="X"
-            onApply={(preflop) => update({ preflop })}
-          />
-          <PresetEditor
-            label="Postflop Pot Percentages"
-            values={settings.postflop}
-            defaults={DEFAULT_ACTION_CONTROLLER.postflop}
-            max={1000}
-            suffix="%"
-            onApply={(postflop) => update({ postflop })}
-          />
-          <p>
-            Preflop Uses The Bet You Face, Or The Big Blind. Postflop Uses The Pot After Calling.
-            Legal Minimums, Stack And Pot-Limit Caps Still Apply.
-          </p>
-        </>
-      )}
     </section>
   );
 }
