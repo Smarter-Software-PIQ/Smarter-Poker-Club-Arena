@@ -31,7 +31,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { webAppUrl } from '../../lib/appBase';
-import { shareLink } from '../../lib/share';
+import { shareButtonLabel, shareLink } from '../../lib/share';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import HouseAdRotator from '../ads/HouseAdRotator';
@@ -560,7 +560,10 @@ export function SessionSummaryHost() {
      The split is on the data, not a flag: a tournament cannot fall through to
      the cash summary and report a chip profit on a seat where chips are not
      money. */
-  const [shareLabel, setShareLabel] = useState('Share');
+  /* null = resting, worded for what the tap does (Share or Copy Link). A
+     status word ("Copied") shows for a moment and the resting word returns. */
+  const [shareStatus, setShareStatus] = useState<string | null>(null);
+  const shareLabel = shareStatus ?? shareButtonLabel();
 
   const share = useCallback(async () => {
     if (
@@ -584,8 +587,8 @@ export function SessionSummaryHost() {
       url: webAppUrl(),
     });
     if (outcome === 'copied' || outcome === 'failed') {
-      setShareLabel(outcome === 'copied' ? 'Copied' : 'Retry Share');
-      window.setTimeout(() => setShareLabel('Share'), 1800);
+      setShareStatus(outcome === 'copied' ? 'Copied' : 'Retry Share');
+      window.setTimeout(() => setShareStatus(null), 1800);
     }
   }, [payload, recordedReady, target, recordedRecap, displayedHands]);
 
@@ -646,6 +649,7 @@ export function SessionSummaryHost() {
             onView={() => setDetailOpen(true)}
             share={{
               label: shareLabel,
+              status: shareStatus,
               onClick: share,
               disabled: displayedHands === null || (!!target && recordedRecap?.handsPlayed == null),
             }}

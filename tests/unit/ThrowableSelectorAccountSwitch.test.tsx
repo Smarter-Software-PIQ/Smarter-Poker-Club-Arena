@@ -203,8 +203,9 @@ describe('Throwable Selector Account Isolation', () => {
 
     render(<ThrowableSelector userId="account-a" onSelect={vi.fn()} onClose={onClose} />);
     fireEvent.click(await screen.findByTitle('Tomato'));
-    const close = screen.getByRole('button', { name: 'Close Throwable Selector' });
+    const close = screen.getByRole('button', { name: 'Close Player Menu' });
     const topUp = screen.getByRole('button', { name: 'Get More Throwables' });
+    expect(close.closest('.sc__head')).toBeTruthy();
     expect(close).toBeDisabled();
     expect(topUp).toBeDisabled();
     fireEvent.click(close);

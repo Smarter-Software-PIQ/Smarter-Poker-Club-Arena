@@ -27,6 +27,8 @@ WEEKS = M / "20261114235606_club_data_reads_the_union_invoice_week.sql"
 CAPTURE = M / "20261115015159_union_pnl_boundary_certificates_are_kept.sql"
 MODEL = M / "20261115020010_club_data_accounting_read_model.sql"
 LIVE = M / "20261115020011_club_data_accounting_read_model_goes_live.sql"
+VIEWS = M / "20261115034141_club_data_accounting_reader_views.sql"
+ROUTE = M / "20261115034142_club_data_readers_route_union_clubs_to_the_accounting_model.sql"
 RECONCILE = M / "20261115080136_club_data_boundary_side_reconciled_to_its_invoice.sql"
 PARTS = M / "20261115063000_club_data_history_loads_a_day_in_bounded_parts.sql"
 ONCE = M / "20261115075440_club_data_history_load_reads_each_row_once.sql"
@@ -334,8 +336,10 @@ try:
 
     # (5) A projection fails at commit AND its failure cannot be recorded: the
     # money writes still commit (the record becomes a WARNING).
-    run(psql("live"), "ALTER TABLE ca_club_acct_projection_failures ADD CONSTRAINT fixture_refuses CHECK (false) NOT VALID; "
-                      "INSERT INTO fixture_bbj_outage VALUES (true);")
+    run(psql("live"), "CREATE FUNCTION fixture_refuses() RETURNS trigger LANGUAGE plpgsql AS $f$ BEGIN "
+                      "RAISE EXCEPTION 'fixture_refuses a new failure row'; END $f$; "
+                      "CREATE TRIGGER fixture_refuses BEFORE INSERT ON ca_club_acct_projection_failures "
+                      "FOR EACH ROW EXECUTE FUNCTION fixture_refuses(); INSERT INTO fixture_bbj_outage VALUES (true);")
     p5 = run(psql("live"),
         "INSERT INTO bbj_payouts VALUES ('b0000000-0000-0000-0000-000000000003', 'c0000000-0000-0000-0000-000000000001', 5, "
         "'2026-11-06 12:01+00'); INSERT INTO bbj_payout_recipients (payout_id, user_id, amount, created_at) VALUES "
@@ -355,7 +359,177 @@ try:
     run(psql("live"), load("2026-11-02", True), expect_fail="fixture_refuses")
     require(q("live", "SELECT seeded_at FROM ca_club_acct_seed_log WHERE acct_day = '2026-11-02'") == before_log,
             "a day load whose failure record cannot be written aborts and leaves the day as it was")
-    run(psql("live"), "ALTER TABLE ca_club_acct_projection_failures DROP CONSTRAINT fixture_refuses;")
+    run(psql("live"), "DROP TRIGGER fixture_refuses ON ca_club_acct_projection_failures;")
+
+    # (6) Stage 2 (a): the readers' views add every writer's rows exactly
+    # once (live aggregate src 0, journal src 0, day load src 1, boundaries
+    # src 2), and the coverage report names what the model does not hold.
+    run(psql("live"), """
+      CREATE TABLE public.club_members (club_id uuid, user_id uuid, agent_id uuid, role text, status text);
+      CREATE FUNCTION public.fn_ca_club_data_downline(p_club_id uuid, p_user uuid)
+      RETURNS uuid[] LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $f$
+        WITH RECURSIVE edges AS MATERIALIZED (
+          SELECT cm.user_id AS child, cm.agent_id AS parent FROM public.club_members cm
+           WHERE cm.club_id = p_club_id AND cm.agent_id IS NOT NULL AND cm.agent_id <> cm.user_id
+        ), tree(uid) AS (SELECT p_user WHERE p_user IS NOT NULL UNION SELECT e.child FROM tree t JOIN edges e ON e.parent = t.uid)
+        SELECT COALESCE(array_agg(DISTINCT uid), ARRAY[]::uuid[]) FROM tree; $f$;
+      INSERT INTO public.club_members VALUES
+        ('a41434bb-8d0c-400a-8f0d-e8b3d65afed4', '11111111-0000-0000-0000-000000000001', NULL, 'agent', 'active'),
+        ('a41434bb-8d0c-400a-8f0d-e8b3d65afed4', '11111111-0000-0000-0000-000000000002', '11111111-0000-0000-0000-000000000001', 'member', 'active');
+      -- Deep Stack Society joins its union on accounting day 2026-11-03.
+      ALTER TABLE public.union_clubs ADD COLUMN joined_at timestamptz NOT NULL DEFAULT '2026-01-01 00:00+00';
+      UPDATE public.union_clubs SET joined_at = '2026-11-03 14:00+00' WHERE club_id = '2a1132b9-5ba2-42e6-9f01-30a7fcffebe3';
+      -- A failure 20261115020010 recorded with no day, and another union's
+      -- boundary failure.
+      INSERT INTO public.ca_club_acct_projection_failures (source, acct_day, detail, failed_at)
+        VALUES ('cash_hand', NULL, 'legacy', '2026-11-06 12:00+00');
+      INSERT INTO public.ca_club_acct_projection_failures (source, source_key, acct_day, detail)
+        VALUES ('pnl_boundary', 'bbbb0000-0000-0000-0000-000000000001:1762761600', '2026-11-04', 'another union');""")
+    run(psql("live"), "SET ROLE authenticated;\n" + VIEWS.read_text(), expect_fail="maintained installer")
+    run(psql("live"), VIEWS.read_text())
+    run(psql("live"), VIEWS.read_text(), expect_fail="already installed")
+    expected = ("2a1132b9-5ba2-42e6-9f01-30a7fcffebe3:2026-11-02=3.25/2.00,2a1132b9-5ba2-42e6-9f01-30a7fcffebe3:2026-11-03=2.00/-1.20,"
+                "2a1132b9-5ba2-42e6-9f01-30a7fcffebe3:2026-11-05=0.00/0.40,"
+                "a0000000-0000-0000-0000-000000000001:2026-11-02=0.00/3.50,a0000000-0000-0000-0000-000000000001:2026-11-03=4.00/2.00,"
+                "a0000000-0000-0000-0000-000000000001:2026-11-04=0.00/-4.00,a0000000-0000-0000-0000-000000000001:2026-11-07=0.00/-1.00,"
+                "a0000000-0000-0000-0000-000000000001:2026-11-08=0.00/12.00,"
+                "a0000000-0000-0000-0000-000000000001:2026-11-09=0.00/-16.00,"
+                "a41434bb-8d0c-400a-8f0d-e8b3d65afed4:2026-11-01=1.00/0.00,a41434bb-8d0c-400a-8f0d-e8b3d65afed4:2026-11-02=7.50/-6.40,"
+                "a41434bb-8d0c-400a-8f0d-e8b3d65afed4:2026-11-03=6.00/1.00,a41434bb-8d0c-400a-8f0d-e8b3d65afed4:2026-11-04=0.00/4.00,"
+                "a41434bb-8d0c-400a-8f0d-e8b3d65afed4:2026-11-07=0.00/1.00")
+    got = q("live", "SELECT string_agg(club_id || ':' || stat_date || '=' || f || '/' || r, ',' ORDER BY club_id, stat_date) FROM ("
+                    "SELECT club_id, stat_date, sum(fee)::numeric(20,2) f, sum(winnings)::numeric(20,2) r FROM ca_club_acct_fact_ct GROUP BY 1, 2 "
+                    "HAVING sum(fee) <> 0 OR sum(winnings) <> 0) x")
+    srcs = q("live", "SELECT string_agg(DISTINCT s, ',' ORDER BY s) FROM (SELECT 'fact' || src s FROM ca_club_acct_fact UNION ALL "
+                     "SELECT 'journal' FROM ca_club_acct_fact_journal) x")
+    require(got == expected and srcs == "fact0,fact1,fact2,journal",
+            f"the readers' per-player view is live rows + journal + day load + boundary rows, each once ({srcs}): {got}")
+    require(q("live", "SELECT to_regclass('public.ca_club_acct_game_ct') IS NULL") == "t"
+            and q("live", "SELECT (SELECT sum(hands) FROM ca_club_acct_hands_ct) = (SELECT sum(hands) FROM ca_club_acct_hands) + "
+                          "(SELECT sum(hands) FROM ca_club_acct_hands_journal)") == "t"
+            and q("live", "SELECT sum(hands) FROM ca_club_acct_hands_ct WHERE stat_date = '2026-11-05'") == "1",
+            "no grouped per-game view; the per-table view counts every hand row once, journal included")
+    require(q("live", "SELECT count(*) FROM ca_club_acct_projection_failures WHERE acct_day IS NULL") == "0"
+            and q("live", "SELECT acct_day FROM ca_club_acct_projection_failures WHERE detail LIKE 'legacy%'") == "2026-11-06"
+            and q("live", "SELECT fn_ca_club_acct_fail('cash_fee', NULL, 'no day'); SELECT acct_day = fn_ca_accounting_day(now()) "
+                          "FROM ca_club_acct_projection_failures WHERE detail LIKE 'no day%'") == "t",
+            "a failure always carries a day: a legacy row gets the day it failed on, a new one the day it fails")
+    require(q("live", "SELECT string_agg(user_id || '=' || cash_fees || '/' || tournament_fees || '/' || total_fees, ',') FROM "
+                      "fn_ca_club_acct_member_fee_totals('a41434bb-8d0c-400a-8f0d-e8b3d65afed4', '2026-11-02', '2026-11-03', "
+                      "'11111111-0000-0000-0000-000000000001')") == "11111111-0000-0000-0000-000000000001=8.50/5.00/13.50",
+            "a downline's fees come from the same records on the same accounting day")
+    cov = q("live", "SELECT fn_ca_club_acct_coverage('a41434bb-8d0c-400a-8f0d-e8b3d65afed4', '2026-11-02', '2026-11-08') - 'window_start' - 'window_end'")
+    require(cov == '{"source": "ca_club_acct_fact", "complete": false, "day_zone": "America/Chicago", "failed_days": ["2026-11-02", '
+                   '"2026-11-03", "2026-11-06"], "provisional": false, "day_boundary": "02:00", "missing_days": ["2026-11-05", "2026-11-06", '
+                   '"2026-11-08"], "provisional_from": null, "awaiting_boundary_days": [], "not_invoice_exact_days": []}',
+            "coverage of the invoice week names its unloaded and failed days, not another union's boundary failure: " + cov)
+    require(q("live", "SELECT fn_ca_club_acct_coverage('a41434bb-8d0c-400a-8f0d-e8b3d65afed4', '2026-10-30', '2026-11-01')->'not_invoice_exact_days'")
+            == '["2026-11-01"]'
+            and q("live", "SELECT (fn_ca_club_acct_coverage('fade0000-0000-0000-0000-000000000001', '2026-11-09', '2026-11-10') "
+                          "->> 'provisional_from')") == "2026-11-09"
+            and q("live", "SELECT fn_ca_club_acct_coverage('a41434bb-8d0c-400a-8f0d-e8b3d65afed4', '2026-11-02', '2026-11-02') "
+                          "->> 'window_start'") == "2026-11-02T08:00:00+00:00"
+            and q("live", "SELECT fn_ca_club_acct_coverage('a41434bb-8d0c-400a-8f0d-e8b3d65afed4', '2026-10-12', '2026-10-13') "
+                          "->> 'provisional'") == "false",
+            "a boundary side no invoice version covers, and the open week after the last invoice (provisional; a week before "
+            "the first invoice is not), are reported")
+    g4 = q("live", "BEGIN; DELETE FROM ca_club_acct_boundary_log WHERE boundary = '2026-11-09 08:00+00'; "
+                   "DELETE FROM settlement_invoices si USING settlement_periods sp WHERE sp.id = si.period_id AND sp.start_at = '2026-11-02 08:00+00'; "
+                   "SELECT (c->'awaiting_boundary_days')::text || '|' || (c->'not_invoice_exact_days')::text || '|' || (c->>'complete') "
+                   "|| '|' || (c->>'provisional') FROM (SELECT fn_ca_club_acct_coverage('fade0000-0000-0000-0000-000000000001', "
+                   "'2026-11-08', '2026-11-09') c) x; ROLLBACK;")
+    require(g4.split('|')[0:2] + g4.split('|')[3:] == ['["2026-11-08", "2026-11-09"]', '[]', 'true'],
+            "a week boundary whose certificate has not arrived, before its week is invoiced, is provisional, not incomplete (G4): " + g4)
+    require(q("live", "SELECT string_agg(c || ':' || d || '=' || fn_ca_club_data_reads_union_basis(c::uuid, d::date, d::date), ',' ORDER BY c, d) "
+                      "FROM (VALUES ('2a1132b9-5ba2-42e6-9f01-30a7fcffebe3'), ('a41434bb-8d0c-400a-8f0d-e8b3d65afed4'), "
+                      "('fade0000-0000-0000-0000-000000000001'), ('5ca1ab1e-0000-0000-0000-000000000001')) cc(c), "
+                      "(VALUES ('2026-10-31'), ('2026-11-02'), ('2026-11-03')) dd(d)")
+            == "2a1132b9-5ba2-42e6-9f01-30a7fcffebe3:2026-10-31=false,2a1132b9-5ba2-42e6-9f01-30a7fcffebe3:2026-11-02=false,"
+               "2a1132b9-5ba2-42e6-9f01-30a7fcffebe3:2026-11-03=true,5ca1ab1e-0000-0000-0000-000000000001:2026-10-31=false,"
+               "5ca1ab1e-0000-0000-0000-000000000001:2026-11-02=false,5ca1ab1e-0000-0000-0000-000000000001:2026-11-03=false,"
+               "a41434bb-8d0c-400a-8f0d-e8b3d65afed4:2026-10-31=false,a41434bb-8d0c-400a-8f0d-e8b3d65afed4:2026-11-02=true,"
+               "a41434bb-8d0c-400a-8f0d-e8b3d65afed4:2026-11-03=true,fade0000-0000-0000-0000-000000000001:2026-10-31=false,"
+               "fade0000-0000-0000-0000-000000000001:2026-11-02=true,fade0000-0000-0000-0000-000000000001:2026-11-03=true",
+            "a window reads the union basis only from the later of the day its club joined and the model's first day (2026-11-01 here): "
+            + q("live", "SELECT string_agg(c || ':' || d || '=' || fn_ca_club_data_reads_union_basis(c::uuid, d::date, d::date), ',' ORDER BY c, d) "
+                        "FROM (VALUES ('2a1132b9-5ba2-42e6-9f01-30a7fcffebe3'), ('a41434bb-8d0c-400a-8f0d-e8b3d65afed4'), "
+                        "('fade0000-0000-0000-0000-000000000001'), ('5ca1ab1e-0000-0000-0000-000000000001')) cc(c), "
+                        "(VALUES ('2026-10-31'), ('2026-11-02'), ('2026-11-03')) dd(d)") + " facts_from=" + q("live", "SELECT fn_ca_club_acct_facts_from()"))
+    require(q("live", "SELECT fn_ca_club_data_union_basis('a41434bb-8d0c-400a-8f0d-e8b3d65afed4') AND "
+                      "fn_ca_club_data_union_basis('fade0000-0000-0000-0000-000000000001') AND "
+                      "NOT fn_ca_club_data_union_basis('5ca1ab1e-0000-0000-0000-000000000001')") == "t"
+            and q("live", "SELECT NOT has_table_privilege('authenticated', 'public.ca_club_acct_fact_ct', 'select') AND "
+                          "NOT has_function_privilege('authenticated', 'public.fn_ca_club_acct_coverage(uuid,date,date)', 'execute') AND "
+                          "NOT has_function_privilege('authenticated', 'public.fn_ca_club_data_reads_union_basis(uuid,date,date)', 'execute') AND "
+                          "NOT has_function_privilege('authenticated', 'public.fn_ca_club_data_union_basis(uuid)', 'execute') AND "
+                          "NOT has_function_privilege('anon', 'public.fn_ca_club_acct_coverage(uuid,date,date)', 'execute')") == "t",
+            "union clubs and the union read the model, other clubs do not; no signed-in caller runs the helpers around the readers")
+
+    # (7) Stage 2 (b): a reader becomes a router on its club argument. The
+    # whole file refuses while the history is not loaded; its own per-reader
+    # helper, run on fn_ca_club_cash_felt exactly as installed on production,
+    # produces the copy whose md5 the file pins, keeps the installed reader
+    # byte for byte under its new name, and gives the router the reader's own
+    # arguments and grants. A union club reads 02:00 accounting days, any
+    # other club the Chicago midnight day it read before.
+    route = ROUTE.read_text()
+    run(psql("live"), route, expect_fail="CLUB_ACCT_READERS_HISTORY_NOT_LOADED")
+    helper = route[route.index("-- @route-reader-begin"):route.index("-- @route-reader-end")]
+    run(psql("live"), """
+      ALTER TABLE public.tables ADD COLUMN tournament_id uuid, ADD COLUMN created_by uuid,
+        ADD COLUMN game_variant text, ADD COLUMN game_mode text, ADD COLUMN big_blind numeric, ADD COLUMN name text;
+      CREATE TABLE public.profiles (id uuid PRIMARY KEY, username text);
+      CREATE TABLE public.table_seats (table_id uuid, user_id uuid, stack numeric, left_at timestamptz, status text,
+        joined_at timestamptz, club_id uuid);
+      CREATE FUNCTION public.fn_ca_cash_reporting_club(p_union uuid, p_club uuid, p_user uuid) RETURNS uuid
+        LANGUAGE sql STABLE AS $f$ SELECT p_club $f$;
+      CREATE FUNCTION public.fn_ca_launch_accounting_accepts(p_club uuid, p_at timestamptz) RETURNS boolean
+        LANGUAGE sql STABLE AS $f$ SELECT true $f$;
+      INSERT INTO public.tables (id, union_id, club_id, name) VALUES
+        ('7ab1e000-0000-0000-0000-000000000001', NULL, '5ca1ab1e-0000-0000-0000-000000000001', 'plain'),
+        ('7ab1e000-0000-0000-0000-000000000002', 'fade0000-0000-0000-0000-000000000001', 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4', 'union');
+      -- 07:59:59 UTC is 01:59:59 CST (Chicago day Nov 2, accounting day Nov 1);
+      -- 08:00:00 UTC is exactly 02:00 CST (accounting day Nov 2).
+      INSERT INTO public.table_seats VALUES
+        ('7ab1e000-0000-0000-0000-000000000001', '11111111-0000-0000-0000-000000000003', 10, NULL, 'active', '2026-11-02 07:59:59+00', NULL),
+        ('7ab1e000-0000-0000-0000-000000000002', '11111111-0000-0000-0000-000000000004', 20, NULL, 'active', '2026-11-02 07:59:59+00', NULL),
+        ('7ab1e000-0000-0000-0000-000000000002', '11111111-0000-0000-0000-000000000005', 40, NULL, 'active', '2026-11-02 08:00:00+00', NULL),
+        -- Deep Stack Society's seat before it joined (accounting day 2026-11-03).
+        ('7ab1e000-0000-0000-0000-000000000002', '11111111-0000-0000-0000-000000000006', 30, NULL, 'active', '2026-11-02 07:59:59+00',
+         '2a1132b9-5ba2-42e6-9f01-30a7fcffebe3');""")
+    run(psql("live"), (FIX / "reader-cash-felt.sql").read_text())
+    felt = ("SELECT string_agg(c || ':' || d || '=' || coalesce((SELECT sum(x.felt)::text FROM public.fn_ca_club_cash_felt(c::uuid, d::date, d::date) x), '-'), ',' "
+            "ORDER BY c, d) FROM (VALUES ('5ca1ab1e-0000-0000-0000-000000000001'), ('a41434bb-8d0c-400a-8f0d-e8b3d65afed4'), "
+            "('2a1132b9-5ba2-42e6-9f01-30a7fcffebe3')) cc(c), "
+            "(VALUES ('2026-11-01'), ('2026-11-02')) dd(d)")
+    before = q("live", felt)
+    src_before = q("live", "SELECT md5(prosrc) FROM pg_proc WHERE oid = 'public.fn_ca_club_cash_felt(uuid,date,date,text,text,text)'::regprocedure")
+    run(psql("live"), helper + "\nSELECT pg_temp.ca_club_data_route_reader('fn_ca_club_cash_felt', "
+        "'public.fn_ca_club_cash_felt(uuid,date,date,text,text,text)', 'd9f01b07584e5ca17c7912101b62db13', 'not-the-copy', 'plain');",
+        expect_fail="is not the qualified text")
+    run(psql("live"), helper + "\nSELECT pg_temp.ca_club_data_route_reader('fn_ca_club_cash_felt', "
+        "'public.fn_ca_club_cash_felt(uuid,date,date,text,text,text)', '00000000000000000000000000000000', 'x', 'plain');",
+        expect_fail="preimage changed")
+    pinned = route.split("'public.fn_ca_club_cash_felt(uuid,date,date,text,text,text)',")[1].split("'")[3]
+    run(psql("live"), helper + "\nSELECT pg_temp.ca_club_data_route_reader('fn_ca_club_cash_felt', "
+        f"'public.fn_ca_club_cash_felt(uuid,date,date,text,text,text)', 'd9f01b07584e5ca17c7912101b62db13', '{pinned}', 'plain');")
+    after = q("live", felt)
+    require(before == "2a1132b9-5ba2-42e6-9f01-30a7fcffebe3:2026-11-01=-,2a1132b9-5ba2-42e6-9f01-30a7fcffebe3:2026-11-02=30,"
+                      "5ca1ab1e-0000-0000-0000-000000000001:2026-11-01=-,5ca1ab1e-0000-0000-0000-000000000001:2026-11-02=10,"
+                      "a41434bb-8d0c-400a-8f0d-e8b3d65afed4:2026-11-01=-,a41434bb-8d0c-400a-8f0d-e8b3d65afed4:2026-11-02=60"
+            and after == "2a1132b9-5ba2-42e6-9f01-30a7fcffebe3:2026-11-01=-,2a1132b9-5ba2-42e6-9f01-30a7fcffebe3:2026-11-02=30,"
+                         "5ca1ab1e-0000-0000-0000-000000000001:2026-11-01=-,5ca1ab1e-0000-0000-0000-000000000001:2026-11-02=10,"
+                         "a41434bb-8d0c-400a-8f0d-e8b3d65afed4:2026-11-01=20,a41434bb-8d0c-400a-8f0d-e8b3d65afed4:2026-11-02=40",
+            f"a union club's seats fall on 02:00 accounting days (01:59:59 CST on the day before, 02:00:00 on the day); "
+            f"a club in no union, and a union club's window before it joined, keep the Chicago day: before {before} / after {after}")
+    require(q("live", "SELECT md5(prosrc) FROM pg_proc WHERE oid = 'public.fn_ca_club_cash_felt_chicago_basis(uuid,date,date,text,text,text)'::regprocedure") == src_before
+            and q("live", "SELECT pg_get_function_arguments('public.fn_ca_club_cash_felt(uuid,date,date,text,text,text)'::regprocedure)")
+            == "p_club_id uuid, p_start date, p_end date, p_game text DEFAULT 'ALL'::text, p_stakes text DEFAULT 'ALL'::text, p_search text DEFAULT NULL::text"
+            and q("live", "SELECT has_function_privilege('service_role', 'public.fn_ca_club_cash_felt(uuid,date,date,text,text,text)', 'execute') "
+                          "AND NOT has_function_privilege('authenticated', 'public.fn_ca_club_cash_felt(uuid,date,date,text,text,text)', 'execute') "
+                          "AND NOT has_function_privilege('service_role', 'public.fn_ca_club_cash_felt_union_basis(uuid,date,date,text,text,text)', 'execute') "
+                          "AND NOT has_function_privilege('service_role', 'public.fn_ca_club_cash_felt_chicago_basis(uuid,date,date,text,text,text)', 'execute')") == "t",
+            "the installed reader is kept byte for byte; the router has its arguments, defaults and grants; neither basis is callable around it")
 
     # 20261115080136 (audit D1): a boundary side certified only after its
     # week's invoice is loaded when it reconciles the week to the invoice per

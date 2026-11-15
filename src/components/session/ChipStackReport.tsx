@@ -4,6 +4,13 @@ import './ChipStackReport.css';
 
 type Stat = { label: string; value: string };
 type Action = { label: string; onClick: () => void; disabled?: boolean };
+/*
+ * The share icon is painted, so its word is only its accessible name. What
+ * the tap just did ("Copied", "Image Saved") is a separate status, shown for
+ * a moment. Until 2026-11-15 any label other than "Share" was printed as a
+ * status, so a resting "Copy Link" would have sat there reading like a report.
+ */
+type ShareAction = Action & { status?: string | null };
 
 function Fitted({ text, className }: { text: string; className: string }) {
   const ref = useFitText<HTMLSpanElement>(text, 1, 0.28);
@@ -32,7 +39,7 @@ export function ChipStackReport({
   stats: Stat[];
   onClose: () => void;
   onView: () => void;
-  share: Action;
+  share: ShareAction;
   primary: Action;
 }) {
   const id = useId();
@@ -76,11 +83,11 @@ export function ChipStackReport({
         className="chip-report__share"
         onClick={share.onClick}
         disabled={share.disabled}
-        aria-label="Share"
+        aria-label={share.label}
       />
-      {share.label.toLowerCase() !== 'share' && (
+      {share.status && (
         <span className="chip-report__feedback" role="status">
-          {share.label}
+          {share.status}
         </span>
       )}
       <button

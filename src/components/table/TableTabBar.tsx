@@ -49,6 +49,7 @@ export interface TabInfo {
    *  page only to be refused there in silence. Absent keeps both. */
   canAddFunds?: boolean;
   seatChangeEnabled?: boolean;
+  seatChangeOffInLightning?: boolean;
   /** Reported by the owning table page, like `isAutoRebuyEnabled`. */
   standUpNextBB?: boolean;
   /** The seat may straddle (host enabled it, cash game, hero seated). */
@@ -1209,6 +1210,7 @@ export function TableTabBar({
                 aria-label={`${tab.name} Quick Actions`}
               >
                 <div className="table-tab-bar__qmenu-title">{formatGameTitle(tab.name)}</div>
+                {!isLobby && item('Sit Down', () => onTabSelect(tab.id))}
                 {onQuickAction &&
                   !isLobby &&
                   item(tab.sittingOut ? "I'm Back" : 'Sit Out', () =>
@@ -1293,6 +1295,9 @@ export function TableTabBar({
                 : formatGameTitle(tabs.find((t) => t.id === activeTabId)?.name) || 'Table'
           }
           seatChangeEnabled={tabs.find((t) => t.id === activeTabId)?.seatChangeEnabled}
+          seatChangeOffInLightning={
+            tabs.find((t) => t.id === activeTabId)?.seatChangeOffInLightning
+          }
           handNumber={tabs.find((t) => t.id === activeTabId)?.handNumber}
           onOpenIdentity={activeIsLobby ? undefined : handleOpenIdentity}
         />

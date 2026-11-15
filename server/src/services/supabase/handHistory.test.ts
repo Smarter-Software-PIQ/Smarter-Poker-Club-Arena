@@ -2059,10 +2059,18 @@ describe('retained original accepted terminal transport', () => {
           error: null,
         },
       ];
-      await logHandHistory(input);
+      const observedHands = [
+        {
+          table_id: input.tableId,
+          hand_number: input.handNumber,
+          viewer_id: '11111111-1111-4111-8111-111111111111',
+        },
+      ];
+      await logHandHistory({ ...input, observedHands });
       const ordinaryRoster = mockObserveCompletedHand.mock.calls[0]![0].acceptedActorRoster;
       expect(ordinaryRoster).toBeDefined();
       const retained = retentionCalls[0] as any;
+      expect(retained.p_hand_row._observed_hands).toEqual(observedHands);
       const packet = retained.p_hand_row._accepted_post_commit_facts.horse_accepted_terminal;
       expect(packet.sourceRelease).toBe('a'.repeat(40));
       expect(packet.originalLease).toBe(leaseGeneration);
