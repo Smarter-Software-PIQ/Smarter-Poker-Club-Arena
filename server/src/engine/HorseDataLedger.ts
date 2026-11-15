@@ -1049,6 +1049,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaTurnRiverRaiseNeedsNuts',
+    'Owner 2026-11-15 12:52 / 12:53 (hand 59534208: top two pair, no redraw, raised a pot bet on the PLO5 turn into the nut straight; "NEVER A RAISE"), with 12:09 (no check-raise without the nuts), 11:39 (hand, player, price and pot dependent) and 12:30 (draws). PLO4/PLO5 cash, high only, one board, no bomb pot, not Lightning: on the turn and the river, facing a bet or a raise, any final raise, re-raise, check-raise or all-in raise stands only when the hand is nut class now (omahaNutClassNow); on the turn an in-position combo-draw raise the 12:30 rule permits stands too. Every other raise becomes a call or a fold: the exact-hand facing-bet EV verdict against the bettor read (population prior unmeasured), else the OOP turn facing-bet verdict, else fold at a price of a third of the pot after the call or more. The outermost conversion on the facing-bet path (HorseOmahaTurnRiverRaiseNeedsNuts.ts). Default OFF (read === true); league cards plo4/plo5 _omaha_turn_river_raise_needs_nuts',
+    'V94'
+  ),
+  flag(
     'omahaStreetPlan',
     'Owner 2026-11-15 11:43 (Horses must plan the next street and protect the stack): PLO4/PLO5 cash, heads-up, one board, high only. A turn bet facing no wager is priced against the check as a whole line: the opponent fold / call / raise shares (range by his line, measured tendencies, a population prior otherwise), every unseen river card exactly and the Horse own planned river action on each; the bet becomes a check when the check line is worth more by 2% of the pot. On the river, facing a bet after that turn bet was called, the plan is recomputed from the public history and the paired-board fold stands aside where the plan calls. No engine random number (HorseOmahaStreetPlan.ts). First layer: the flop and the preflop stack-to-pot check are not built. Default OFF (read === true) until its declared evaluation passes; league cards plo4/plo5 _omaha_street_plan',
     'V94'
@@ -4327,6 +4332,42 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_card_impact_changed',
     'HorseLogic wager_rules (HorseOmahaCardImpact, omahaCardImpact)',
     'any decision the card-impact comparison replaced: a check, a larger bet, the freeroll pot or a smaller bet (the smaller bet has no receipt of its own)',
+    'V94'
+  ),
+  receipt(
+    'omaha_turn_river_raise_needs_nuts_called',
+    'HorseLogic wager_rules and HorseLogic.decide outside the graph (HorseOmahaTurnRiverRaiseNeedsNuts, omahaTurnRiverRaiseNeedsNuts)',
+    'PLO4/PLO5 cash turn or river, facing a bet or a raise, the final answer a raise with a hand that is not nut class (and not the in-position turn combo draw): the raise became the exact legal call (the whole-stack call is the all-in)',
+    'V94'
+  ),
+  receipt(
+    'omaha_turn_river_raise_needs_nuts_folded',
+    'HorseLogic wager_rules and HorseLogic.decide outside the graph (HorseOmahaTurnRiverRaiseNeedsNuts, omahaTurnRiverRaiseNeedsNuts)',
+    'the same decision, the raise became a fold',
+    'V94'
+  ),
+  receipt(
+    'omaha_turn_river_raise_needs_nuts_kept_nuts',
+    'HorseLogic wager_rules and HorseLogic.decide outside the graph (HorseOmahaTurnRiverRaiseNeedsNuts, omahaTurnRiverRaiseNeedsNuts)',
+    'the same spot, the final answer a raise with a nut-class hand: the raise stands',
+    'V94'
+  ),
+  receipt(
+    'omaha_turn_river_raise_needs_nuts_by_ev',
+    'HorseLogic wager_rules and HorseLogic.decide outside the graph (HorseOmahaTurnRiverRaiseNeedsNuts, omahaTurnRiverRaiseNeedsNuts)',
+    'a raise the rule replaced was decided by the exact-hand facing-bet EV verdict',
+    'V94'
+  ),
+  receipt(
+    'omaha_turn_river_raise_needs_nuts_by_oop_turn_verdict',
+    'HorseLogic wager_rules and HorseLogic.decide outside the graph (HorseOmahaTurnRiverRaiseNeedsNuts, omahaTurnRiverRaiseNeedsNuts)',
+    'a raise the rule replaced was decided by the out-of-position turn facing-bet verdict (the EV verdict had no answer)',
+    'V94'
+  ),
+  receipt(
+    'omaha_turn_river_raise_needs_nuts_by_price',
+    'HorseLogic wager_rules and HorseLogic.decide outside the graph (HorseOmahaTurnRiverRaiseNeedsNuts, omahaTurnRiverRaiseNeedsNuts)',
+    'a raise the rule replaced was decided by the fallback price: fold at a third of the pot after the call or more, call under it',
     'V94'
   ),
   receipt(

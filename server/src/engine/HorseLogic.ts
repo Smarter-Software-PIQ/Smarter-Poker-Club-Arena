@@ -366,6 +366,13 @@ import {
 } from './HorseGtoOpeningRanges.js';
 import { lightningParticipationCtx } from './HorseLightningParticipation.js';
 import {
+  omahaDecisionRaises,
+  omahaRaiseNeedsNutsCall,
+  omahaRaiseNeedsNutsKeeps,
+  omahaRaiseNeedsNutsPriceFolds,
+  omahaRaiseNeedsNutsScope,
+} from './HorseOmahaTurnRiverRaiseNeedsNuts.js';
+import {
   huBbEquityVsOpener,
   huDefenceWidthPct,
   HU_BB_MAX_OPEN_BB,
@@ -3233,6 +3240,23 @@ export interface HorseDecideOpts {
    * (opt-in, read `=== true`) until its declared evaluation passes; league
    * cards plo4/plo5 _omaha_facing_bet_ev. */
   omahaFacingBetEv?: boolean;
+  /** Owner 2026-11-15 12:52 / 12:53 (hand 59534208: top two pair with no
+   * redraw raised a pot bet on the turn into the nut straight; "NEVER A
+   * RAISE"), with 12:09 (no check-raise without the nuts), 11:39 (hand,
+   * player, price and pot dependent) and 12:30 (draws: in position only combo
+   * draws raise). PLO4/PLO5 cash, high only, one board, not bomb pot, not
+   * Lightning: on the turn and the river, facing a bet or a raise, any final
+   * raise (re-raise, check-raise, all-in raise) stands only when the hand is
+   * nut class now (omahaNutClassNow); on the turn an in-position combo-draw
+   * raise the 12:30 rule permits stands too. Every other raise becomes a call
+   * or a fold: the exact-hand facing-bet EV verdict (HorseOmahaFacingBetEv,
+   * run as a function whatever omahaFacingBetEv says), else the OOP turn
+   * facing-bet verdict, else fold at a price of a third of the pot or more.
+   * The outermost conversion on the facing-bet path (in the wager_rules node
+   * and outside the graph). Default OFF (read `=== true`)
+   * (HorseOmahaTurnRiverRaiseNeedsNuts.ts); league cards plo4/plo5
+   * _omaha_turn_river_raise_needs_nuts. */
+  omahaTurnRiverRaiseNeedsNuts?: boolean;
   /** Owner 2026-11-15 11:43 (HorseOmahaStreetPlan.ts, first layer): PLO4/PLO5
    * cash, heads-up, one board, high only. Before a TURN bet facing no wager
    * the Horse prices the bet and the check as whole lines: the opponent's
@@ -8282,6 +8306,134 @@ function omahaFacingBetEvOf(
   return answer;
 }
 
+/** Which path decided a raise the nut rule replaced (receipt _by_ev / _by_oop_turn_verdict / _by_price). */
+type OmahaRaiseNeedsNutsPath = 'facing_bet_ev' | 'oop_turn_verdict' | 'price';
+
+/**
+ * omahaTurnRiverRaiseNeedsNuts (owner 2026-11-15 12:52 / 12:53; default OFF,
+ * read `=== true`; HorseOmahaTurnRiverRaiseNeedsNuts.ts): the OUTERMOST
+ * conversion on the PLO4/PLO5 cash turn and river facing-bet path. A raise
+ * stands only nut class now (or, turn only, an in-position combo draw the
+ * 12:30 rule permits). Otherwise the raise becomes the exact-hand facing-bet
+ * EV call or fold (omahaFacingBetEvVerdict against the bettor's measured
+ * read, the population prior when unmeasured), else the OOP turn facing-bet
+ * verdict, else fold at a price of a third of the pot after the call or more.
+ * Receipts: omaha_turn_river_raise_needs_nuts_called / _folded / _kept_nuts.
+ */
+export function omahaTurnRiverRaiseNeedsNutsRule(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
+  if (opts.omahaTurnRiverRaiseNeedsNuts !== true) return decision;
+  let scope: ReturnType<typeof omahaRaiseNeedsNutsScope> = null;
+  try {
+    scope = omahaRaiseNeedsNutsScope(player, gs);
+    if (!scope || !omahaDecisionRaises(decision, player, scope)) return decision;
+    const tele = telemetryOn(opts);
+    const keep = omahaRaiseNeedsNutsKeeps(player, gs, scope);
+    if (keep !== null) {
+      if (keep === 'nuts' && tele) noteFire('omaha_turn_river_raise_needs_nuts_kept_nuts');
+      return decision;
+    }
+    let call: boolean | null = null;
+    let path: OmahaRaiseNeedsNutsPath = 'price';
+    try {
+      const spot = omahaFacingBetEvSpot(player, gs);
+      if (spot) {
+        let read: ReturnType<typeof HorseMind.omahaFacingBetEvReadOf> = null;
+        if (opts.mind !== false) {
+          try {
+            const bettor = (gs.players ?? []).find((p) => p.seat === spot.bettorSeat);
+            read = bettor
+              ? HorseMind.omahaFacingBetEvReadOf(
+                  bettor.user_id,
+                  spot.street,
+                  spot.potFrac,
+                  spot.isRaise
+                )
+              : null;
+          } catch {
+            read = null;
+          }
+        }
+        const verdict = omahaFacingBetEvVerdict(
+          spot,
+          player.cards ?? [],
+          gs.communityCards ?? [],
+          player.knownDeadCards ?? [],
+          read,
+          {
+            rake: isTournamentMode(gs)
+              ? 0
+              : rakeDrag(gs.pot, gs.bigBlind, gs.rakeConfig, dealtHorseTableSize(gs, player.seat)),
+            realization: realizationFactor({
+              street: 'turn',
+              inPosition: actsLastPostflop(player.seat, gs.dealerSeat, gs.players ?? []),
+            }),
+          }
+        );
+        if (verdict) {
+          call = verdict.call;
+          path = 'facing_bet_ev';
+        }
+      }
+    } catch {
+      call = null;
+    }
+    if (call === null) {
+      try {
+        const oop = omahaOopTurnFacingBetVerdict(player, {
+          ...gs,
+          toCall: Number.isFinite(gs.toCall) ? gs.toCall : scope.toCall,
+        });
+        if (oop === 'call_nut_draw' || oop === 'fold_no_outs') {
+          call = oop === 'call_nut_draw';
+          path = 'oop_turn_verdict';
+        }
+      } catch {
+        call = null;
+      }
+    }
+    if (call === null) {
+      call = !omahaRaiseNeedsNutsPriceFolds(scope);
+      path = 'price';
+    }
+    if (tele) {
+      // Literal keys: the ledger contract finds each receipt by its noteFire call.
+      if (path === 'facing_bet_ev') noteFire('omaha_turn_river_raise_needs_nuts_by_ev');
+      else if (path === 'oop_turn_verdict')
+        noteFire('omaha_turn_river_raise_needs_nuts_by_oop_turn_verdict');
+      else noteFire('omaha_turn_river_raise_needs_nuts_by_price');
+    }
+    if (call) {
+      if (tele) noteFire('omaha_turn_river_raise_needs_nuts_called');
+      return omahaRaiseNeedsNutsCall(decision, scope);
+    }
+    if (tele) noteFire('omaha_turn_river_raise_needs_nuts_folded');
+    const folded: HorseDecision = { ...decision, action: 'fold' };
+    delete folded.amount;
+    delete folded.continuationGuard;
+    return folded;
+  } catch {
+    // Never leave a non-nut raise standing on a failure inside scope: price it.
+    if (!scope) return decision;
+    try {
+      if (!omahaDecisionRaises(decision, player, scope)) return decision;
+      if (omahaRaiseNeedsNutsKeeps(player, gs, scope) !== null) return decision;
+      if (omahaRaiseNeedsNutsPriceFolds(scope)) {
+        const folded: HorseDecision = { ...decision, action: 'fold' };
+        delete folded.amount;
+        return folded;
+      }
+      return omahaRaiseNeedsNutsCall(decision, scope);
+    } catch {
+      return decision;
+    }
+  }
+}
+
 /**
  * Owner 2026-11-15 11:41, HorseOmahaCardImpact.ts (omahaCardImpact, default
  * OFF): at a PLO4/PLO5 cash heads-up turn or river decision with nothing to
@@ -8536,6 +8688,23 @@ function omahaStreetPlanCallsThisRiver(
   } catch {
     return false;
   }
+}
+
+/**
+ * omahaTurnRiverRaiseNeedsNuts outside the policy graph: the outermost
+ * conversion of HorseLogic.decide for a decision the graph did not make (the
+ * graph's own decision is ruled inside its wager_rules node, so its recorded
+ * final action stays the returned one).
+ */
+function omahaRaiseNeedsNutsOutsideGraph(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
+  return decision.policyGraph === undefined
+    ? omahaTurnRiverRaiseNeedsNutsRule(decision, player, gs, opts)
+    : decision;
 }
 
 function pairedBoardFoldOutsideGraph(
@@ -9330,55 +9499,65 @@ export class HorseLogic {
       if (opts.deepEquity !== undefined && opts.deepEquity > 1) {
         setEquityDepth(opts.deepEquity);
         try {
-          return shortAllInCallFloorOutsideGraph(
-            holdemPremiumAggressionOutsideGraph(
-              pairedBoardFoldOutsideGraph(
-                this.decideInternal(
+          return omahaRaiseNeedsNutsOutsideGraph(
+            shortAllInCallFloorOutsideGraph(
+              holdemPremiumAggressionOutsideGraph(
+                pairedBoardFoldOutsideGraph(
+                  this.decideInternal(
+                    player,
+                    gameState,
+                    style,
+                    mods,
+                    opts,
+                    rangeCapture,
+                    planReadCapture
+                  ),
                   player,
                   gameState,
-                  style,
-                  mods,
-                  opts,
-                  rangeCapture,
-                  planReadCapture
+                  opts
                 ),
                 player,
                 gameState,
                 opts
               ),
               player,
-              gameState,
-              opts
+              gameState
             ),
             player,
-            gameState
+            gameState,
+            opts
           );
         } finally {
           setEquityDepth(1);
         }
       }
-      return shortAllInCallFloorOutsideGraph(
-        holdemPremiumAggressionOutsideGraph(
-          pairedBoardFoldOutsideGraph(
-            this.decideInternal(
+      return omahaRaiseNeedsNutsOutsideGraph(
+        shortAllInCallFloorOutsideGraph(
+          holdemPremiumAggressionOutsideGraph(
+            pairedBoardFoldOutsideGraph(
+              this.decideInternal(
+                player,
+                gameState,
+                style,
+                mods,
+                opts,
+                rangeCapture,
+                planReadCapture
+              ),
               player,
               gameState,
-              style,
-              mods,
-              opts,
-              rangeCapture,
-              planReadCapture
+              opts
             ),
             player,
             gameState,
             opts
           ),
           player,
-          gameState,
-          opts
+          gameState
         ),
         player,
-        gameState
+        gameState,
+        opts
       );
     } catch (err) {
       planReadCapture?.refuse();
@@ -10751,9 +10930,18 @@ export class HorseLogic {
           ),
         };
       }
+      // Owner 2026-11-15 12:52 / 12:53 (omahaTurnRiverRaiseNeedsNuts): the
+      // outermost conversion of this node on the turn and river facing-bet
+      // path, after every owner that can raise (omahaOwnerRuledFinal and
+      // omahaNoDrawRaiseFinal included); nothing after it raises.
       return {
-        decision: omahaOwnerRuledFinal(
-          omahaDrawRules(onePair(finalWager), player, gs, opts),
+        decision: omahaTurnRiverRaiseNeedsNutsRule(
+          omahaOwnerRuledFinal(
+            omahaDrawRules(onePair(finalWager), player, gs, opts),
+            player,
+            gs,
+            opts
+          ),
           player,
           gs,
           opts

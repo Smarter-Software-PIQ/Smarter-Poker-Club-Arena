@@ -2504,6 +2504,19 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaFacingBetEv: true },
     b: {},
   })),
+  // 2026-11-15 OMAHA TURN/RIVER RAISE NEEDS NUTS (owner 12:52 / 12:53, hand
+  // 59534208, default OFF): facing a bet or a raise on the turn or the river a
+  // raise stands only nut class (or the in-position turn combo draw of 12:30);
+  // every other raise is the priced call or fold. a switches it on, b is
+  // today's brain.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_turn_river_raise_needs_nuts`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaTurnRiverRaiseNeedsNuts: true },
+    b: {},
+  })),
   // 2026-11-15 OMAHA STREET PLAN (HorseOmahaStreetPlan, owner 11:43, default
   // OFF), first layer: the heads-up turn bet priced against the check with
   // the river planned, and the river following the plan. a switches it on,

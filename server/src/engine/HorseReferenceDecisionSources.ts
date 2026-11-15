@@ -79,6 +79,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the default-off Omaha card impact (owner 2026-11-15 11:41, omahaCardImpact): what the last turn or river card did to the hand and to the opponent range, and the check-or-bet-size comparison priced against that range, heads-up with nothing to call',
     'src/engine/HorseOmahaFacingBetEv.ts':
       "the default-off Omaha facing-bet expected-value decision (owner 2026-11-15 11:39, omahaFacingBetEv): in PLO4/PLO5 cash on the turn and the river, a fold or a call facing a bet or a raise is replaced by one EV verdict on the exact count of holdings that beat the hand, the bettor's range from his bet size, line and measured tendencies, and the actual price; the outermost call-discipline rule, it never raises",
+    'src/engine/HorseOmahaTurnRiverRaiseNeedsNuts.ts':
+      'the default-off Omaha turn and river raise rule (owner 2026-11-15 12:52 / 12:53, hand 59534208, omahaTurnRiverRaiseNeedsNuts): in PLO4/PLO5 cash facing a bet or a raise on the turn or the river, a raise stands only with a nut-class hand (on the turn also an in-position combo draw the 12:30 rule permits); every other raise becomes the exact-hand facing-bet EV call or fold, the outermost conversion on that path',
     'src/engine/HorseOmahaStreetPlan.ts':
       'the default-off Omaha street plan (owner 2026-11-15 11:43, omahaStreetPlan), first layer: a heads-up PLO4/PLO5 cash turn bet is priced against the check as a whole line with the opponent responses and every river card planned, and the river after that bet follows the recomputed plan where the paired-board fold would otherwise fold',
     'src/engine/HorseOmahaBigDrawAggression.ts':

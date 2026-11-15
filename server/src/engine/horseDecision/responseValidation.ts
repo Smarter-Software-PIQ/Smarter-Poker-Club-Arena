@@ -58,6 +58,10 @@ import { omahaReraiseRuleProducesCall } from '../HorseOmahaOopReraisedPot.js';
 import { omahaDrawRaiseBarOf } from '../HorseOmahaBigDrawAggression.js';
 import { shortAllInSpot } from '../HorseShortAllInCallFloor.js';
 import { OMAHA_FACING_BET_EV_VARIANTS, omahaFacingBetEvSpot } from '../HorseOmahaFacingBetEv.js';
+import {
+  OMAHA_RAISE_NEEDS_NUTS_VARIANTS,
+  omahaRaiseNeedsNutsAdmitsCall,
+} from '../HorseOmahaTurnRiverRaiseNeedsNuts.js';
 import { holdemFourBetSpot } from '../HorseHoldemPremiumAggression.js';
 import { tournamentShoveDiscipline } from '../HorseTournamentShoveDiscipline.js';
 
@@ -1320,6 +1324,24 @@ function policyGraphIsValid(
         const spot = omahaFacingBetEvSpot(context.player, context.gameState);
         return spot !== null && !spot.allIn && spot.paid === transition.after.amount;
       })();
+    // Owner 2026-11-15 12:52 / 12:53 (HorseOmahaTurnRiverRaiseNeedsNuts,
+    // option omahaTurnRiverRaiseNeedsNuts): on the PLO4/PLO5 cash turn and
+    // river a raise facing a wager with a hand that is not nut class becomes
+    // a call or a fold (the fold is the paired-board fold's form above). The
+    // call is priced on the opponent memory, which the request does not
+    // carry, so raise -> call is admitted only with the request, only where
+    // the rule, re-run on it, would not keep the raise, and only for the
+    // exact chips the call puts in (the whole-stack call is an all-in).
+    const omahaRaiseNeedsNutsCalled =
+      transition.node === 'wager_rules' &&
+      OMAHA_RAISE_NEEDS_NUTS_VARIANTS.has(variant) &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      // the node entered as a fold when an owner inside it raised from a fold
+      ['raise', 'bet', 'all_in', 'fold'].includes(previous.action) &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      omahaRaiseNeedsNutsAdmitsCall(context.player, context.gameState, transition.after.amount);
     // Owner 2026-11-15 11:43 (HorseOmahaStreetPlan, default-off option): a
     // heads-up turn bet facing no wager becomes a check when the plan prices
     // the check line higher. A check puts no chip in; when the request is
@@ -1375,6 +1397,7 @@ function policyGraphIsValid(
       !omahaRiverMediumBetCalled &&
       !omahaCardImpactBetToCheck &&
       !omahaFacingBetEvCalled &&
+      !omahaRaiseNeedsNutsCalled &&
       !pairedBoardRiverCheck &&
       !omahaBeatenBetToCheck &&
       !omahaOopBetToCheck &&
