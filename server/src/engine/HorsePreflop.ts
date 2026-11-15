@@ -2479,7 +2479,8 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     }
     // HU SMALL BLIND STEALS VS A TIGHT BIG BLIND (D6, default off): the big
     // blind's estimated fold share pays the open on folds alone, so every
-    // hand opens. No limp, no size change; nothing facing action is touched.
+    // hand opens: a would-be limp or fold becomes an open. No size change;
+    // nothing facing action is touched.
     if (
       ctx.huTightBigBlindSteal !== undefined &&
       !ctx.isOmaha &&

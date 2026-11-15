@@ -3431,8 +3431,8 @@ export interface HorseDecideOpts {
    *  share (1 - 2 x VPIP) clears the largest heads-up open's break-even on
    *  folds alone: every hand opens. Cash, and a tournament only when its
    *  trusted context says exactly two players are left and it is not a
-   *  satellite. Widen-only; no size, jam or limp changes, nothing facing a
-   *  raise. Default OFF: only explicit true turns it on (league
+   *  satellite. Widen-only: a hand that would have limped or folded opens
+   *  instead; no size or jam change, nothing facing a raise. Default OFF: only explicit true turns it on (league
    *  human_hu_sb_steals_vs_nit_40bb). */
   huSmallBlindStealsVsTightBigBlind?: boolean;
   /** Items 21 and 23 (2026-11-05): a planned barrel records the next-street

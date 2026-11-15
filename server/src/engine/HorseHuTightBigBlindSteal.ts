@@ -27,8 +27,9 @@
  * is therefore estimated as 1 - 2 x VPIP. When that estimate clears the
  * break-even of the largest heads-up open on folds alone (the open loses its
  * whole risk every time it is called), every hand is a profitable open and
- * every hand opens. Otherwise nothing changes. Widen-only: no size changes, no
- * jam, no limp, nothing facing a raise.
+ * every hand opens. Otherwise nothing changes. Widen-only: a hand that would
+ * have limped or folded opens instead; no size change, no jam, nothing facing
+ * a raise.
  * It is an estimate, not a strict bound: it uses the posterior mean VPIP
  * (not an upper bound), assumes exactly half of his counted hands were big
  * blinds, and does not separate walks and limped pots in the hand count;
