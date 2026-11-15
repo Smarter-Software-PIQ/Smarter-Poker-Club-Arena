@@ -796,9 +796,12 @@ export function omahaPlanHeroInPosition(
  * THE PLAN PERSISTS BY RECOMPUTATION. On the river, facing a bet after the
  * Horse's own turn bet was called, this rebuilds the turn decision from the
  * public action history (pot, stacks, position, the opponent's flop line) so
- * the caller can recompute the plan the turn bet was made under. Null when
- * the hand did not go: Horse bets the turn, opponent calls, Horse has put
- * nothing in on the river, opponent bets.
+ * the caller can recompute the plan the turn bet was made under. `turn` is
+ * the turn decision node itself as the Horse saw it (its own seat, the
+ * opponent's and the game state before the bet), which the caller needs to
+ * rebuild the plan's facing-bet seam (callVeto) exactly as the turn built it.
+ * Null when the hand did not go: Horse bets the turn, opponent calls, Horse
+ * has put nothing in on the river, opponent bets.
  */
 export function omahaPlanTurnStateFromRiver(
   hero: SeatPlayer,
@@ -808,6 +811,7 @@ export function omahaPlanTurnStateFromRiver(
   input: Omit<OmahaPlanInput, 'tendency' | 'callVeto'>;
   river: Card;
   faced: number;
+  turn: { hero: SeatPlayer; opp: SeatPlayer; gs: HorseGameStateV2 };
 } | null {
   try {
     const board = gs.communityCards ?? [];
@@ -834,10 +838,38 @@ export function omahaPlanTurnStateFromRiver(
       ...gs,
       actionHistory: (gs.actionHistory ?? []).filter((a) => String((a as Act).stage) !== 'river'),
     } as HorseGameStateV2;
+    // The turn node before the bet: chips back in the stacks, the bet and the
+    // call taken out of the history, four board cards, nothing to call.
+    const heroAtTurn: SeatPlayer = {
+      ...hero,
+      stack: cent(hero.stack + bet),
+      bet: 0,
+      totalInvested: cent(Math.max(0, Number(hero.totalInvested ?? 0) - bet)),
+    };
+    const oppAtTurn: SeatPlayer = {
+      ...opp,
+      stack: cent(opp.stack + oppIn + bet),
+      bet: 0,
+      totalInvested: cent(Math.max(0, Number(opp.totalInvested ?? 0) - oppIn - bet)),
+      is_all_in: false,
+    };
+    const gsAtTurn = {
+      ...gs,
+      stage: 'turn',
+      communityCards: board.slice(0, 4),
+      pot,
+      currentBet: 0,
+      toCall: 0,
+      players: (gs.players ?? []).map((p) =>
+        p.seat === hero.seat ? heroAtTurn : p.seat === opp.seat ? oppAtTurn : p
+      ),
+      actionHistory: (turnGs.actionHistory ?? []).filter((a) => a !== mine && a !== his),
+    } as unknown as HorseGameStateV2;
     return {
       opp,
       river: board[4],
       faced,
+      turn: { hero: heroAtTurn, opp: oppAtTurn, gs: gsAtTurn },
       input: {
         hole: hero.cards,
         board: board.slice(0, 4),

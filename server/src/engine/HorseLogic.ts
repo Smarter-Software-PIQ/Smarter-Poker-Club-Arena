@@ -8872,6 +8872,62 @@ function omahaStreetPlanCallVeto(
 }
 
 /**
+ * The turn plan for a bet of `amount`: the one place it is built, with the
+ * opponent's measured tendency and the facing-bet seam (the Horse's own
+ * big-bet call folds on every river). The river follows this plan, so the
+ * river rebuilds it through this same function.
+ */
+export function omahaStreetPlanAtTurn(
+  player: SeatPlayer,
+  opp: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts,
+  amount: number
+): { tendency: OmahaPlanTendency | null; plan: ReturnType<typeof omahaStreetPlan> } {
+  const tendency = omahaStreetPlanTendency(opp, opts);
+  const plan = omahaStreetPlan({
+    hole: player.cards,
+    board: gs.communityCards ?? [],
+    dead: player.knownDeadCards ?? [],
+    pot: gs.pot,
+    heroStack: player.stack,
+    oppStack: opp.stack,
+    heroInvested: Number.isFinite(player.totalInvested) ? (player.totalInvested ?? 0) : 0,
+    heroInPosition: omahaPlanHeroInPosition(opp, gs, 'turn'),
+    bets: [amount],
+    oppLine: omahaPlanOppLine(player, opp, gs, 'flop'),
+    tendency,
+    callVeto: omahaStreetPlanCallVeto(player, opp, gs, opts),
+  });
+  return { tendency, plan };
+}
+
+/**
+ * The turn plan as the river sees it: the turn node is rebuilt from the
+ * public history and the plan is built by omahaStreetPlanAtTurn, facing-bet
+ * seam included, so it is the plan the turn bet was made under and not a
+ * plan without the seam (which called rivers the turn's plan folds). The
+ * opponent's measured tendency is read again at the river. Null when the
+ * hand did not go bet, call, check, bet, or in a tournament.
+ */
+export function omahaStreetPlanFromRiver(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): { plan: ReturnType<typeof omahaStreetPlan>; river: Card; faced: number } | null {
+  const back = isTournamentMode(gs) ? null : omahaPlanTurnStateFromRiver(player, gs);
+  if (!back) return null;
+  const { plan } = omahaStreetPlanAtTurn(
+    back.turn.hero,
+    back.turn.opp,
+    back.turn.gs,
+    opts,
+    back.input.bets[0]
+  );
+  return { plan, river: back.river, faced: back.faced };
+}
+
+/**
  * omahaStreetPlan, the turn (HorseOmahaStreetPlan.ts): the engine's turn bet
  * facing no wager is priced against the check as a whole line with the river
  * planned. The bet becomes a check when the check line is worth more by
@@ -8900,25 +8956,11 @@ function omahaStreetPlanRules(
       omahaStreetPlanMemo.gs !== gs
     )
       omahaStreetPlanMemo = { player, gs, bySize: new Map() };
-    const hit = omahaStreetPlanMemo.bySize.get(amount);
-    const tendency = hit ? hit.tendency : omahaStreetPlanTendency(opp, opts);
-    const plan = hit
-      ? hit.plan
-      : omahaStreetPlan({
-          hole: player.cards,
-          board: gs.communityCards ?? [],
-          dead: player.knownDeadCards ?? [],
-          pot: gs.pot,
-          heroStack: player.stack,
-          oppStack: opp.stack,
-          heroInvested: Number.isFinite(player.totalInvested) ? (player.totalInvested ?? 0) : 0,
-          heroInPosition: omahaPlanHeroInPosition(opp, gs, 'turn'),
-          bets: [amount],
-          oppLine: omahaPlanOppLine(player, opp, gs, 'flop'),
-          tendency,
-          callVeto: omahaStreetPlanCallVeto(player, opp, gs, opts),
-        });
-    if (!hit) omahaStreetPlanMemo.bySize.set(amount, { tendency, plan });
+    const hit =
+      omahaStreetPlanMemo.bySize.get(amount) ??
+      omahaStreetPlanAtTurn(player, opp, gs, opts, amount);
+    omahaStreetPlanMemo.bySize.set(amount, hit);
+    const { tendency, plan } = hit;
     const check = plan?.lines[0];
     const bet = plan?.lines[1];
     if (!plan || !check || !bet) return decision;
@@ -8957,9 +8999,11 @@ function omahaStreetPlanRules(
 
 /**
  * omahaStreetPlan, the river: the Horse bet the turn, was called, has put
- * nothing in on the river and faces a bet. The turn plan is recomputed from
- * the public history (same cards, same fixed sample, so the same plan); true
- * when it calls this river card for a bet no larger than the one it priced.
+ * nothing in on the river and faces a bet. The turn plan is rebuilt from the
+ * public history by the function the turn used (omahaStreetPlanFromRiver:
+ * same cards, same fixed sample, same facing-bet seam, so the same plan);
+ * true when it calls this river card for a bet no larger than the one it
+ * priced.
  */
 function omahaStreetPlanCallsThisRiver(
   player: SeatPlayer,
@@ -8970,14 +9014,10 @@ function omahaStreetPlanCallsThisRiver(
   if (memo !== null && memo.player === player && memo.gs === gs) return memo.calls;
   let calls = false;
   try {
-    const back = isTournamentMode(gs) ? null : omahaPlanTurnStateFromRiver(player, gs);
-    if (back) {
-      const plan = omahaStreetPlan({
-        ...back.input,
-        tendency: omahaStreetPlanTendency(back.opp, opts),
-      });
-      calls = plan !== null && omahaPlanRiverVerdict(plan, back.river, back.faced) === 'call';
-    }
+    const back = omahaStreetPlanFromRiver(player, gs, opts);
+    if (back)
+      calls =
+        back.plan !== null && omahaPlanRiverVerdict(back.plan, back.river, back.faced) === 'call';
   } catch {
     calls = false;
   }
