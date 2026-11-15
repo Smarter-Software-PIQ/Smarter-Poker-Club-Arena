@@ -68,6 +68,7 @@ import {
   coverageNotices,
   coverageWindowLabel,
   isCalendarDate,
+  UNION_BASIS_DEFINITIONS,
   type ClubDataCoverage,
   type ClubDataDayBasis,
 } from '../../lib/clubDataDay';
@@ -849,7 +850,11 @@ export default function ClubDataSimplePage() {
         summary.running_mtt_entries !== undefined &&
         summary.running_mtt_entries !== null && (
           <dl className={styles.runningLine} aria-label="Unfinished MTT Entries">
-            <dt>Unfinished MTT Entries</dt>
+            <dt>
+              {unionBasis
+                ? 'Unfinished MTT Entries (Buy-Ins For MTTs Not Yet Finished, In Total Winnings)'
+                : 'Unfinished MTT Entries'}
+            </dt>
             <dd
               className={inkFor(summary.running_mtt_entries)}
               title={formatMoney(summary.running_mtt_entries)}
@@ -882,14 +887,7 @@ export default function ClubDataSimplePage() {
       </div>
       {visibleSnapshot && unionBasis && (
         <p className={styles.liveLine}>
-          Union Invoice Basis. {clubDataDayRule('accounting')}. Fee Is The Rake Credited To The
-          Club, The Invoice&apos;s Rake Generated. Total Winnings Is The Players&apos; Result: Each
-          Cash Hand&apos;s Stack Change, Bad Beat Jackpot Awards Included, Plus MTT Winnings. MTT
-          Winnings Are Prizes, Bounties And Refunds Less Buy-Ins, Rebuys And Add-Ons; An Entry In A
-          Tournament Still Running At A Week Boundary Counts In The Week It Settles, As On The
-          Invoice. For A Whole Invoice Week With No Filters, Fee Equals The Invoice&apos;s Rake
-          Generated And Total Winnings Equals Its Player Win/Loss (Its Player Net Loss With The Sign
-          Reversed). Chips Still On The Felt Are Not Added.
+          {clubDataDayRule('accounting')}. {UNION_BASIS_DEFINITIONS}
         </p>
       )}
       {notices.provisional && (

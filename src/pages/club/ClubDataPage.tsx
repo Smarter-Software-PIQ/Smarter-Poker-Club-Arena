@@ -57,6 +57,7 @@ import {
   coverageNotices,
   coverageWindowLabel,
   isCalendarDate,
+  UNION_BASIS_DEFINITIONS,
   type ClubDataCoverage,
   type ClubDataDayBasis,
 } from '../../lib/clubDataDay';
@@ -619,6 +620,20 @@ function isInvoiceRow(value: unknown): value is InvoiceRow {
   const amountCents = Math.abs(Math.round(value.amount * 100));
   const paidCents = Math.round(value.paid_total * 100);
   return Math.round(value.outstanding * 100) === Math.max(amountCents - paidCents, 0);
+}
+
+/**
+ * A UNION CLUB'S READER CLAMPS THE LAST DAY TO THE ACCOUNTING DAY STILL OPEN
+ * (stage 2). Until an answer states the basis, this page asks for the
+ * calendar day; between midnight and 02:00 Chicago that is one day past the
+ * open accounting day, so a union club answers for the day before. True when
+ * `answeredEnd` is exactly that clamp of `requestedEnd`: the answer is not
+ * an error, it tells the page its basis, and the page re-reads the window it
+ * actually holds instead of painting or caching one it did not ask for.
+ */
+function isAccountingDayClamp(answeredEnd: unknown, requestedEnd: string): boolean {
+  const open = clubDataDayOn('accounting');
+  return answeredEnd === open && requestedEnd > open;
 }
 
 function isValidDate(value: unknown): value is string {
@@ -1448,6 +1463,9 @@ export default function ClubDataPage() {
           ? heldSummary.snapshot
           : null;
       if (!sortOnlySummary) verifiedGameSummaryRef.current = null;
+      // Set when the answer only told the page its day basis; the re-read it
+      // causes owns the skeleton, so this one does not take it down.
+      let basisReread = false;
       try {
         // The snapshot already owns the optimized recent-row query. Running a
         // second 42k-row page sort beside it doubled cold database pressure and
@@ -1524,6 +1542,18 @@ export default function ClubDataPage() {
             if (outcome.clearData) setSnapshot(null);
           }
           if (isAuthzError(rpcError)) setSnapshot(null);
+          return false;
+        } else if (
+          dayBasisRef.current !== 'accounting' &&
+          isRecord(data) &&
+          clubDataDayBasis(data) === 'accounting' &&
+          isRecord(data.range) &&
+          isAccountingDayClamp(data.range.end, endDate)
+        ) {
+          // A union club answered for the open accounting day. Adopt its basis;
+          // the [dayBasis] effect moves the pinned end there and reads again.
+          basisReread = true;
+          setDayBasis('accounting');
           return false;
         } else if (
           !isVerifiedSnapshot(data, expectedGameSnapshot) ||
@@ -1719,7 +1749,12 @@ export default function ClubDataPage() {
         // when a newer foreground load has taken it over - never on the
         // ordering of background polls, which is what left it up for ever.
         // See the note beside `spinnerVersion`.
-        if (!cancelledRef.current && showSpinner && spinnerVersion.current === myVersion) {
+        if (
+          !cancelledRef.current &&
+          showSpinner &&
+          spinnerVersion.current === myVersion &&
+          !basisReread
+        ) {
           setLoading(false);
         }
       }
@@ -1838,6 +1873,7 @@ export default function ClubDataPage() {
       const showSpinner = !preserveOnError || !playersRef.current;
       let settleColdRead: ((success: boolean) => void) | undefined;
       let readSucceeded = false;
+      let basisReread = false;
       if (showSpinner) {
         playersSpinnerVersion.current = myVersion;
         setPlayersLoading(true);
@@ -1897,6 +1933,17 @@ export default function ClubDataPage() {
             if (outcome.clearData) setPlayers(null);
           }
           if (isAuthzError(rpcError)) setPlayers(null);
+          return false;
+        } else if (
+          dayBasisRef.current !== 'accounting' &&
+          isRecord(data) &&
+          isRecord(data.range) &&
+          isAccountingDayClamp(data.range.end, endDate)
+        ) {
+          // The player readers keep their shape and state no basis; the same
+          // clamp tells the page this is a union club. Re-read, never paint.
+          basisReread = true;
+          setDayBasis('accounting');
           return false;
         } else if (
           !isVerifiedPlayerBreakdown(data, expectedPlayerRange) ||
@@ -1980,7 +2027,12 @@ export default function ClubDataPage() {
         // The skeleton comes down when the request that RAISED it settles, or
         // when a newer foreground load has taken it over. Never on the
         // ordering of background polls. See `spinnerVersion`.
-        if (!cancelledRef.current && showSpinner && playersSpinnerVersion.current === myVersion) {
+        if (
+          !cancelledRef.current &&
+          showSpinner &&
+          playersSpinnerVersion.current === myVersion &&
+          !basisReread
+        ) {
           setPlayersLoading(false);
         }
       }
@@ -2770,10 +2822,22 @@ export default function ClubDataPage() {
     setExporting(true);
     setExportNote(null);
     setExportProgress({ stage: 'preparing', loaded: 0, total: null });
-    const exportWindow = clubDataWindow(startDate, endDate, dayBasis);
+    // The window comes from the verified answer this export belongs to: the
+    // reader's own boundary instants when it states them (union basis),
+    // otherwise the selection on the basis that answer was given on. Never
+    // from a basis the page has not confirmed yet.
+    const answered = snapshotRef.current;
+    const coverage = answered?.accounting_coverage;
+    const instant = (at: string | undefined) =>
+      at && Number.isFinite(Date.parse(at)) ? new Date(at).toISOString() : null;
+    const computed = clubDataWindow(
+      startDate,
+      endDate,
+      answered ? clubDataDayBasis(answered) : dayBasis
+    );
     const csvWindow: ExportWindow = {
-      start: exportWindow ? exportWindow.start.toISOString() : '',
-      end: exportWindow ? exportWindow.end.toISOString() : '',
+      start: instant(coverage?.window_start) ?? computed?.start.toISOString() ?? '',
+      end: instant(coverage?.window_end) ?? computed?.end.toISOString() ?? '',
     };
     // The file name carries the pair the owner picked: first day, and the
     // boundary the window stops at.
@@ -3469,16 +3533,7 @@ export default function ClubDataPage() {
           </label>
           <p className={`sc-copy ${styles.note}`}>{clubDataDayRule(dayBasis)}.</p>
           {snapshot && dayBasis === 'accounting' && (
-            <p className={`sc-copy ${styles.note}`}>
-              Union Invoice Basis. Fee Is The Rake Credited To The Club, The Invoice&apos;s Rake
-              Generated. Total Winnings Is The Players&apos; Result: Each Cash Hand&apos;s Stack
-              Change, Bad Beat Jackpot Awards Included, Plus MTT Winnings. MTT Winnings Are Prizes,
-              Bounties And Refunds Less Buy-Ins, Rebuys And Add-Ons; An Entry In A Tournament Still
-              Running At A Week Boundary Counts In The Week It Settles, As On The Invoice. For A
-              Whole Invoice Week With No Filters, Fee Equals The Invoice&apos;s Rake Generated And
-              Total Winnings Equals Its Player Win/Loss (Its Player Net Loss With The Sign
-              Reversed). Chips Still On The Felt Are Not Added.
-            </p>
+            <p className={`sc-copy ${styles.note}`}>{UNION_BASIS_DEFINITIONS}</p>
           )}
           {notices.provisional && (
             <p className={`sc-copy sc-ink--gold ${styles.note}`} role="status">
@@ -3531,7 +3586,7 @@ export default function ClubDataPage() {
               {summary ? money(summary.total_winnings) : NO_VALUE}
             </dd>
             {summary && <dd className={styles.figureMeta}>{absNote(delta?.winnings_abs)}</dd>}
-            {summary && unionBasis && Number.isFinite(Number(summary.on_felt)) && (
+            {summary && unionBasis && typeof summary.on_felt === 'number' && (
               <dd className={`sc-ink--muted ${styles.figureMeta}`}>
                 On The Felt Now {money(summary.on_felt)} (Not Added)
               </dd>
@@ -3548,7 +3603,10 @@ export default function ClubDataPage() {
               summary.running_mtt_entries !== undefined &&
               Number.isFinite(Number(summary.running_mtt_entries)) && (
                 <dd className={`sc-ink--muted ${styles.figureMeta}`}>
-                  Unfinished MTT Entries {money(summary.running_mtt_entries)}
+                  {unionBasis
+                    ? 'Unfinished MTT Entries (Buy-Ins For MTTs Not Yet Finished, In Total Winnings)'
+                    : 'Unfinished MTT Entries'}{' '}
+                  {money(summary.running_mtt_entries)}
                 </dd>
               )}
           </div>

@@ -679,8 +679,17 @@ describe('the union invoice basis', () => {
     });
     expect(screen.getByText('Nov 2, 2026 2:00 AM To Nov 9, 2026 2:00 AM')).toBeTruthy();
     expect(screen.getAllByText('Chicago Time').length).toBeGreaterThan(0);
-    expect(screen.getByText(/^Union Invoice Basis\. Days Run 2:00 AM To 2:00 AM/)).toBeTruthy();
+    expect(
+      screen.getByText(/^Days Run 2:00 AM To 2:00 AM Chicago Time\. Union Invoice Basis\./)
+    ).toBeTruthy();
     expect(screen.getByText(/Total Winnings Equals Its Player Win\/Loss/)).toBeTruthy();
+    // Total Winnings is cash plus every tournament result; MTT Winnings is
+    // finished MTTs only (review, 2026-11-15).
+    expect(
+      screen.getByText(
+        /Plus Tournament Results \(MTT Winnings, Sit And Go Results And Unfinished MTT Entries\)\. MTT Winnings Are Finished MTTs Only/
+      )
+    ).toBeTruthy();
     expect(
       screen.getByText(
         'Provisional From Nov 9, 2026 2:00 AM Chicago Time: No Weekly Invoice Has Been Issued For That Part Of The Window Yet, So These Figures Can Still Change.'
@@ -714,7 +723,13 @@ describe('the union invoice basis', () => {
   it('between midnight and 02:00 Chicago it reads the accounting day still open', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-11-16T07:30:00Z')); // Mon 01:30 CST
-    rpcMock.mockResolvedValue({ data: unionLive, error: null });
+    // Like the server: a union club's reader clamps the last day to the
+    // accounting day still open (LEAST(p_end, fn_ca_accounting_day(now()))).
+    rpcMock.mockImplementation(async (_fn: string, args: Record<string, string>) => {
+      const end = args.p_end > '2026-11-15' ? '2026-11-15' : args.p_end;
+      const start = args.p_start > end ? end : args.p_start;
+      return { data: { ...unionLive, range: { start, end, days: 1 } }, error: null };
+    });
     await act(async () => {
       render(<ClubDataSimplePage />);
     });
@@ -729,6 +744,20 @@ describe('the union invoice basis', () => {
       p_start: '2026-11-15',
       p_end: '2026-11-15',
     });
+  });
+
+  it('says unfinished MTT entries are inside Total Winnings on the union basis', async () => {
+    rpcMock.mockResolvedValue({
+      data: { ...unionLive, summary: { ...unionLive.summary, running_mtt_entries: -3_570 } },
+      error: null,
+    });
+    render(<ClubDataSimplePage />);
+    expect(
+      await screen.findByText(
+        'Unfinished MTT Entries (Buy-Ins For MTTs Not Yet Finished, In Total Winnings)'
+      )
+    ).toBeTruthy();
+    expect(screen.getByText('-3,570.00')).toBeTruthy();
   });
 
   it('an agent of a union club sees downline fees on the same basis', async () => {
@@ -795,7 +824,7 @@ describe('the union invoice basis', () => {
       screen.getByText('Nov 2, 2026 2:00 AM To Nov 9, 2026 2:00 AM Chicago Time')
     ).toBeTruthy();
     expect(
-      screen.getByText(/^Union Invoice Basis: Each Cash Hand's Stack Change, Bad Beat Jackpot/)
+      screen.getByText(/^Union Invoice Basis: Cash Winnings \(Each Cash Hand's Stack Change/)
     ).toBeTruthy();
     expect(screen.getByText('0.30')).toBeTruthy(); // 0.1 + 0.2, exactly
     expect(screen.getByText('-1,951,998.17')).toBeTruthy(); // the net, exactly

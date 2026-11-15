@@ -219,6 +219,21 @@ export function clubDataDayRule(basis: ClubDataDayBasis): string {
 }
 
 /**
+ * What the union basis figures are, and which of them equal the invoice
+ * (stage 2 contract, corrected 2026-11-15 by review): Total Winnings is cash
+ * plus every tournament result, MTT Winnings is finished MTTs only.
+ */
+export const UNION_BASIS_DEFINITIONS =
+  "Union Invoice Basis. Fee Is The Rake Credited To The Club, The Invoice's Rake Generated. " +
+  "Total Winnings Is The Players' Result: Cash Winnings (Each Cash Hand's Stack Change, Bad Beat " +
+  'Jackpot Awards Included) Plus Tournament Results (MTT Winnings, Sit And Go Results And ' +
+  'Unfinished MTT Entries). MTT Winnings Are Finished MTTs Only: Prizes, Bounties And Refunds ' +
+  'Less Buy-Ins, Rebuys And Add-Ons; An Entry In A Tournament Still Running At A Week Boundary ' +
+  'Counts In The Week It Settles, As On The Invoice. For A Whole Invoice Week With No Filters, ' +
+  "Fee Equals The Invoice's Rake Generated And Total Winnings Equals Its Player Win/Loss (Its " +
+  'Player Net Loss With The Sign Reversed). Chips Still On The Felt Are Not Added.';
+
+/**
  * fn_ca_club_acct_coverage: whether the accounting read model holds the
  * window whole, and whether an issued union weekly invoice covers it yet.
  * Present on the union basis only.

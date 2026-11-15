@@ -680,3 +680,90 @@ it('a club in no union keeps the rake snapshot exactly as it was', async () => {
   expect(rakePanelProps.current?.headlineLabel).toBeUndefined();
   expect(screen.queryByTestId('rake-snapshot-basis')).toBeNull();
 });
+
+/* REVIEW BLOCKER (2026-11-15): between midnight and 02:00 Chicago a union
+   club's reader clamps the last day to the accounting day still open. The
+   page asks for the calendar day before it knows the basis; the clamped
+   answer must teach it the basis and lead to a re-read, never to "Could Not
+   Load Club Data". */
+describe('a union club opened between midnight and 02:00 Chicago', () => {
+  const OPEN_DAY = '2026-11-15'; // fn_ca_accounting_day at Mon 2026-11-16 01:30 CST
+  function unionAnswer(args: Record<string, unknown>) {
+    const requestedEnd = String(args.p_end);
+    const end = requestedEnd > OPEN_DAY ? OPEN_DAY : requestedEnd;
+    const start = String(args.p_start);
+    const days =
+      Math.round((Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86_400_000) +
+      1;
+    return {
+      ...snapshot,
+      range: { start, end, days },
+      previous_range: { start: shiftDay(start, -days), end: shiftDay(start, -1), days },
+      accounting_basis: 'union_invoice_accounting',
+      day_basis: 'America/Chicago 02:00',
+      accounting_coverage: {
+        complete: true,
+        missing_days: [],
+        failed_days: [],
+        not_invoice_exact_days: [],
+        provisional: true,
+        provisional_from: '2026-11-09',
+        window_start: `${start}T08:00:00+00:00`,
+        window_end: `${shiftDay(end, 1)}T08:00:00+00:00`,
+      },
+    };
+  }
+
+  it('re-reads the open accounting day and paints the ledger, with a union CSV window', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date('2026-11-16T07:30:00Z'));
+    try {
+      rpcMock.mockImplementation(async (fn: string, args?: Record<string, unknown>) => {
+        if (fn === 'ca_club_data_snapshot_v2') return { data: unionAnswer(args!), error: null };
+        if (fn === 'ca_club_union_invoices') return { data: [], error: null };
+        if (fn === 'ca_club_game_export_start') {
+          return { data: { export_id: 'export-u', total_rows: 1, status: 'ready' }, error: null };
+        }
+        if (fn === 'ca_club_data_export_page') {
+          return {
+            data: { rows: [snapshot.rows[0]], total_rows: 1, next_offset: 1, has_more: false },
+            error: null,
+          };
+        }
+        if (fn === 'ca_club_data_export_cancel') return { data: true, error: null };
+        return { data: null, error: null };
+      });
+      render(<ClubDataPage />);
+      expect(await screen.findByText('Shark Table One')).toBeInTheDocument();
+      const asked = rpcMock.mock.calls
+        .filter(([fn]) => fn === 'ca_club_data_snapshot_v2')
+        .map(([, a]) => a as Record<string, string>);
+      expect(asked[0]).toMatchObject({ p_start: '2026-11-03', p_end: '2026-11-16' });
+      expect(asked.at(-1)).toMatchObject({ p_start: '2026-11-02', p_end: OPEN_DAY });
+      expect(await screen.findByLabelText('Window Ends At 2:00 AM (Chicago Time)')).toHaveValue(
+        '2026-11-16'
+      );
+      expect(screen.getByText('Nov 2, 2026 2:00 AM To Nov 16, 2026 2:00 AM')).toBeInTheDocument();
+      expect(screen.queryByText('Ledger Unavailable')).toBeNull();
+      expect(screen.queryByText(/Could Not Load/i)).toBeNull();
+
+      // The export states the same window, from the answer it belongs to.
+      fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
+      const exportButton = await screen.findByRole('button', { name: 'Export As CSV' });
+      await waitFor(() => expect(exportButton).toBeEnabled());
+      fireEvent.click(exportButton);
+      await waitFor(() => expect(downloadMock).toHaveBeenCalledOnce(), { timeout: 10_000 });
+      const [name, csv] = downloadMock.mock.calls[0] as unknown as [string, string];
+      expect(name).toBe('club_data_2026-11-02_to_2026-11-16.csv');
+      const [head, row] = csv.split('\n');
+      expect(head.endsWith(',window_start,window_end')).toBe(true);
+      expect(row.split(',').slice(-2)).toEqual([
+        '2026-11-02T08:00:00.000Z',
+        '2026-11-16T08:00:00.000Z',
+      ]);
+    } finally {
+      cleanup();
+      vi.useRealTimers();
+    }
+  }, 20_000);
+});
