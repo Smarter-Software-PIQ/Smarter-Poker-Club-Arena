@@ -1,4 +1,5 @@
 import { statsGameMode } from '../services/statsGameMode';
+import { hasShareSheet, shareLink, writeClipboard } from '../lib/share';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -888,16 +889,15 @@ export default function HandHistoryPage() {
     const text = SHARE_LINK_REQUEST;
     const phone =
       typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
-    if (phone && typeof navigator.share === 'function') {
-      try {
-        await navigator.share({ text });
-        return;
-      } catch (error) {
-        if ((error as { name?: string } | null)?.name === 'AbortError') return;
-      }
+    if (phone && hasShareSheet()) {
+      const outcome = await shareLink({ source: 'HandHistoryPage.askForShareLink', text });
+      if (outcome === 'copied')
+        toast.success('Request Copied, Paste It Back To Whoever Sent The Link');
+      if (outcome === 'failed') toast.error('Could Not Copy The Request');
+      return;
     }
     try {
-      await navigator.clipboard.writeText(text);
+      await writeClipboard(text);
       toast.success('Request Copied, Paste It Back To Whoever Sent The Link');
     } catch {
       toast.error('Could Not Copy The Request');

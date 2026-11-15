@@ -26,6 +26,11 @@ describe('tournament break console', () => {
     expect(SCREEN).toContain('topPlayers.slice(0, 5).map');
   });
 
+  it('uses cold console inks and a painted action plate across the add-on states', () => {
+    expect(SCREEN + CSS).not.toMatch(/pillInk="gold"|#ffd700|255, 215, 0/i);
+    expect(CSS).toContain('tournament-register-v1.webp');
+  });
+
   it('uses one approved console instead of slicing multiple unrelated frames', () => {
     expect(SCREEN).toContain('<SpadeConsole');
     expect(SCREEN).toContain('foot="foot"');

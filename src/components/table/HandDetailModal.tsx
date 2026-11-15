@@ -53,6 +53,7 @@
  */
 
 import { copyToClipboard } from '../../lib/copyToClipboard';
+import { hasShareSheet, shareLink } from '../../lib/share';
 import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import type { HandRecord, HandHistoryLoadState } from './HandHistoryPanel';
 import HandDetailView from '../handdetail/HandDetailView';
@@ -810,19 +811,21 @@ export function HandDetailModal({
         typeof window !== 'undefined' &&
         typeof window.matchMedia === 'function' &&
         window.matchMedia('(pointer: coarse)').matches;
-      if (phone && typeof navigator.share === 'function') {
-        try {
-          await navigator.share({
-            title: h.handNumber ? `Hand #${h.handNumber}` : 'Poker Hand',
-            url: link,
-          });
-          setCopied('sent');
-          if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
-          copiedTimerRef.current = setTimeout(() => setCopied(null), 1600);
-          return true;
-        } catch (error) {
-          if ((error as { name?: string } | null)?.name === 'AbortError') return false;
+      if (phone && hasShareSheet()) {
+        const outcome = await shareLink({
+          source: 'HandDetailModal.sendLink',
+          title: h.handNumber ? `Hand #${h.handNumber}` : 'Poker Hand',
+          url: link,
+        });
+        if (outcome === 'cancelled') return false;
+        if (outcome === 'failed') {
+          setCopied(null);
+          return false;
         }
+        setCopied(outcome === 'shared' ? 'sent' : 'link');
+        if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+        copiedTimerRef.current = setTimeout(() => setCopied(null), 1600);
+        return true;
       }
       return copyText('link', link);
     },

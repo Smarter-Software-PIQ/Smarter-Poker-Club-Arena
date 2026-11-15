@@ -54,7 +54,20 @@ describe('sound and haptics have one owner: the gates', () => {
        for a player muted in Settings, and the mount effects then fought each
        other so the FIRST press muted something already muted. Two presses to
        get sound back, with the switch lying throughout. */
-    expect(TABLE_SOUND).toMatch(/useState<boolean>\(\(\) => isSoundAllowed\(\)\)/);
+    /* 2026-11-14: stronger than seeding. A seeded copy was right at mount and
+       stale afterwards (a second table, the settings panel, the header menu),
+       so there is no copy: the switches ARE the gates, through
+       `useSoundSwitch` / `useVibrationSwitch`, which subscribe to them. */
+    expect(TABLE_SOUND).toMatch(/const isSoundEnabled = useSoundSwitch\(\);/);
+    expect(TABLE_SOUND).toMatch(/const isVibrationEnabled = useVibrationSwitch\(\);/);
+    expect(TABLE_SOUND).not.toMatch(/useState/);
+    const SWITCHES = strip(readRaw('src/hooks/useSoundSwitches.ts'));
+    expect(SWITCHES).toMatch(
+      /useSyncExternalStore\(subscribeSound, isSoundAllowed, isSoundAllowed\)/
+    );
+    expect(SWITCHES).toMatch(
+      /useSyncExternalStore\(subscribeVibration, isVibrationPreferred, isVibrationPreferred\)/
+    );
     /* Haptics must consider BOTH keys for the same reason. UPDATED 2026-08-29
        (second pass): this used to pin the two hand-rolled `readBool` calls that
        did it here. They were a third copy of the gate's own rule and are gone —
@@ -68,7 +81,9 @@ describe('sound and haptics have one owner: the gates', () => {
        and it survived the sweep that fixed the sound side: turning vibration ON
        at the table could not clear a mute set in Settings, because the gate
        fails closed on either key. */
-    expect(TABLE_SOUND).toMatch(/setVibrationAllowed\(isVibrationEnabled\)/);
+    /* 2026-11-14: the setter writes the gate itself now. It used to be an
+       effect keyed on a local copy of the switch, which is gone. */
+    expect(TABLE_SOUND).toMatch(/setVibrationAllowed\(v\)/);
     expect(TABLE_SOUND).not.toMatch(/setItem\(STORAGE_VIBRATION/);
   });
 
