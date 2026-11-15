@@ -249,7 +249,7 @@ export function huBbEquityVsOpener(cls: string, widthPct: number): number | null
  * ════════════════════════════════════════════════════════════════════════
  * THE OPENER AND THE LIMPER DEFEND TO THEIR PRICE (2026-11-14, HU-NLH-010 and
  * HU-NLH-011; flags huOpenerDefendsToPrice and huLimpDefendsToPrice, both
- * default OFF)
+ * on by default since 2026-11-15, explicit false the off arm)
  * ════════════════════════════════════════════════════════════════════════
  *
  * MEASURED (heads-up audit, real HorseLogic.decide). The heads-up button that

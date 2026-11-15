@@ -1,9 +1,11 @@
 /**
  * THE HEADS-UP OPENER AND LIMPER DEFEND TO THEIR PRICE (2026-11-14, heads-up
  * lane, HU-NLH-010 and HU-NLH-011; options huOpenerDefendsToPrice and
- * huLimpDefendsToPrice, both default OFF).
+ * huLimpDefendsToPrice, shipped opt-in in #10792 and ON BY DEFAULT since
+ * 2026-11-15: an absent option is on, and only an explicit false is off).
  *
- * Measured by the heads-up audit through the real HorseLogic.decide: the
+ * Measured by the heads-up audit through the real HorseLogic.decide before
+ * the options existed, and still the decision of the explicit off arm: the
  * button that opened folds 81-92% of its opens to a 3-bet whose break-even is
  * 62.5-67% (22-66 and A2s-A9s among them), and the small blind that limped
  * folds 99-100% of its limps to any raise, a min-raise included.
@@ -22,8 +24,13 @@
  *  - its receipt counts only a call that is still the final decision (review
  *    R1, 2026-11-14): above 20bb effective the dominated-offsuit 3-bet fold
  *    turns some of the opener's calls back into folds, and those do not count;
- *  - off, or unset, every decision is the one made today, and each option
- *    leaves the other's spot alone.
+ *  - unset, each option is on: the decision is the one explicit true makes;
+ *  - set explicitly false, every decision is the one made before the options
+ *    existed, and each option leaves the other's spot alone.
+ *
+ * Because absent now means on, every comparison here names both options in
+ * both arms: OFF is both false, and an "on" arm is one option true with the
+ * other false, so a difference is that option's alone.
  *
  * Every decision here is the real HorseLogic.decide with the live Hybrid
  * persona, over all 169 hand classes.
@@ -166,8 +173,13 @@ function sweep(spot: Spot, opts: Record<string, unknown>, mind = false) {
   }
   return out;
 }
-const OPENER = { huOpenerDefendsToPrice: true };
-const LIMPER = { huLimpDefendsToPrice: true };
+/** The off arm: both options explicitly false, the decisions made before they existed. */
+const OFF = { huOpenerDefendsToPrice: false, huLimpDefendsToPrice: false };
+/** One option on, the other held off, so a change is that option's alone. */
+const OPENER = { huOpenerDefendsToPrice: true, huLimpDefendsToPrice: false };
+const LIMPER = { huOpenerDefendsToPrice: false, huLimpDefendsToPrice: true };
+/** Both explicitly on: what the default (both absent) must equal. */
+const BOTH_ON = { huOpenerDefendsToPrice: true, huLimpDefendsToPrice: true };
 const opener = (over: Partial<Spot> = {}): Spot => ({
   kind: 'opener',
   stackBB: 40,
@@ -185,7 +197,7 @@ const limper = (over: Partial<Spot> = {}): Spot => ({
 /** What the option changes in a spot: the classes, and each change as off>on. */
 function changes(spot: Spot, on: Record<string, unknown>, mind = false) {
   const withOn = sweep(spot, on, mind);
-  const withOff = sweep(spot, {}, mind);
+  const withOff = sweep(spot, OFF, mind);
   const classes = Object.keys(withOn).filter((k) => withOn[k] !== withOff[k]);
   return {
     classes,
@@ -215,8 +227,8 @@ const OUT_OF_SCOPE: readonly [string, Partial<Spot>][] = [
 ];
 
 describe('huOpenerDefendsToPrice: the heads-up opener facing a 3-bet', () => {
-  it('today the opener folds pairs and suited aces to a 3-bet of 2.5bb to 8bb', () => {
-    const off = sweep(opener(), {});
+  it('off, the opener folds pairs and suited aces to a 3-bet of 2.5bb to 8bb', () => {
+    const off = sweep(opener(), OFF);
     for (const cls of ['22', '55', '66', 'A2s', 'A5s', 'A9s']) expect(off[cls], cls).toBe('fold');
     const folds = Object.values(off).filter((a) => a === 'fold').length;
     expect(folds).toBeGreaterThanOrEqual(140);
@@ -265,8 +277,8 @@ describe('huOpenerDefendsToPrice: the heads-up opener facing a 3-bet', () => {
 });
 
 describe('huLimpDefendsToPrice: the heads-up small blind that limped and was raised', () => {
-  it('today almost nothing that would limp calls a min-raise laying three to one', () => {
-    const off = sweep(limper(), {});
+  it('off, almost nothing that would limp calls a min-raise laying three to one', () => {
+    const off = sweep(limper(), OFF);
     for (const cls of ['T7s', '96s', '98o', 'J7o', 'Q6o']) expect(off[cls], cls).toBe('fold');
   });
 
@@ -307,7 +319,7 @@ describe('huLimpDefendsToPrice: the heads-up small blind that limped and was rai
   });
 });
 
-describe('off, both options change nothing, and each leaves the other spot alone', () => {
+describe('absent is on, explicit false is off, and each option leaves the other spot alone', () => {
   const spots: readonly Spot[] = [
     opener(),
     opener({ stackBB: 25, openBB: 2, raiseBB: 6 }),
@@ -315,12 +327,45 @@ describe('off, both options change nothing, and each leaves the other spot alone
     limper({ raiseBB: 3 }),
   ];
 
-  it('explicit false is the same decision as unset, for every class in every spot', () => {
+  it('absent is on: unset is the same decision as explicit true, for every class in every spot', () => {
     for (const spot of spots) {
-      expect(sweep(spot, { huOpenerDefendsToPrice: false, huLimpDefendsToPrice: false })).toEqual(
-        sweep(spot, {})
-      );
+      const unset = sweep(spot, {});
+      expect(unset).toEqual(sweep(spot, BOTH_ON));
+      // Each option alone: unset equals true whatever the other option is.
+      expect(sweep(spot, { huLimpDefendsToPrice: false })).toEqual(sweep(spot, OPENER));
+      expect(sweep(spot, { huOpenerDefendsToPrice: false })).toEqual(sweep(spot, LIMPER));
+      expect(
+        sweep(spot, { huOpenerDefendsToPrice: undefined, huLimpDefendsToPrice: undefined })
+      ).toEqual(unset);
     }
+  });
+
+  it('absent is on, explicit false is the old behaviour: the default calls what the off arm folds', () => {
+    for (const spot of spots) {
+      const unset = sweep(spot, {});
+      const off = sweep(spot, OFF);
+      const changed = Object.keys(unset).filter((k) => unset[k] !== off[k]);
+      // The default differs from the off arm in every one of these spots,
+      // and only ever by a fold that became a call.
+      expect(changed.length, JSON.stringify(spot)).toBeGreaterThan(0);
+      for (const k of changed) expect(`${off[k]}>${unset[k]}`, k).toBe('fold>call');
+    }
+    // The off arm is the behaviour measured before the options existed.
+    const offOpener = sweep(opener(), OFF);
+    for (const cls of ['22', '55', '66', 'A2s', 'A5s', 'A9s']) {
+      expect(offOpener[cls], cls).toBe('fold');
+      expect(sweep(opener(), {})[cls], cls).toBe('call');
+    }
+    const offLimper = sweep(limper(), OFF);
+    for (const cls of ['T7s', '96s', '98o', 'J7o', 'Q6o']) {
+      expect(offLimper[cls], cls).toBe('fold');
+      expect(sweep(limper(), {})[cls], cls).toBe('call');
+    }
+  });
+
+  it.each(OUT_OF_SCOPE)('the default changes nothing in %s', (_name, over) => {
+    expect(sweep(opener(over), {})).toEqual(sweep(opener(over), OFF));
+    expect(sweep(limper(over), {})).toEqual(sweep(limper(over), OFF));
   });
 
   it('the opener option does nothing to a raised limp, the limper option nothing to a 3-bet open', () => {
@@ -330,12 +375,12 @@ describe('off, both options change nothing, and each leaves the other spot alone
     expect(changes(opener({ stackBB: 25, openBB: 2, raiseBB: 6 }), LIMPER).classes).toEqual([]);
   });
 
-  it('the brain reads each option in one place, and only an explicit true passes', () => {
+  it('the brain reads each option in one place, and only an explicit false turns it off', () => {
     const src = readFileSync(fileURLToPath(new URL('./HorseLogic.ts', import.meta.url)), 'utf8');
     for (const key of ['huOpenerDefendsToPrice', 'huLimpDefendsToPrice']) {
       const reads = src.match(new RegExp(`opts\\.${key}\\b[^\\n]*`, 'g')) ?? [];
       expect(reads.length, key).toBe(1);
-      expect(reads[0], key).toContain(`opts.${key} === true`);
+      expect(reads[0], key).toContain(`opts.${key} !== false`);
     }
   });
 });
@@ -414,10 +459,14 @@ describe('each receipt is a call that reached the final decision', () => {
   it.each(cases)('%s: receipts equal the changed final decisions', (_name, spot, on, key) => {
     enableBrainTelemetry();
     const withOn = sweepWithReceipts(spot, on, key);
-    const withOff = sweepWithReceipts(spot, {}, key);
+    const withOff = sweepWithReceipts(spot, OFF, key);
+    // Absent is on: the default fires the receipt on exactly the same hands.
+    const withDefault = sweepWithReceipts(spot, {}, key);
+    expect(withDefault.action).toEqual(sweep(spot, BOTH_ON));
+    expect([...withDefault.fired].sort()).toEqual([...withOn.fired].sort());
     // Telemetry is a receipt only: the decisions are the ones made without it.
     expect(withOn.action).toEqual(sweep(spot, on));
-    expect(withOff.action).toEqual(sweep(spot, {}));
+    expect(withOff.action).toEqual(sweep(spot, OFF));
     const changed = Object.keys(withOn.action).filter(
       (k) => withOn.action[k] !== withOff.action[k]
     );

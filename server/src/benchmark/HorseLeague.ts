@@ -2897,9 +2897,10 @@ LEAGUE_MATCHUPS.push(...HU_READS_OFF_CARDS);
 
 /**
  * THE HEADS-UP DEFENCE CARDS (2026-11-14, HU-NLH-010 and HU-NLH-011). Two
- * default-OFF options, one card each, heads-up 40bb with the live cash Hybrid
- * persona and the deal-seeded mood clock, arm A the option on and arm B the
- * live default:
+ * options, on by default since 2026-11-15, one card each, heads-up 40bb with
+ * the live cash Hybrid persona and the deal-seeded mood clock. Arm A is the
+ * live default (the option on) and arm B sets the option explicitly false, so
+ * each card still reports option on minus option off:
  *  - huOpenerDefendsToPrice against hu_three_bet_every_hand_v1, the persona
  *    that re-raises every open, which is the line the opener's fold to a
  *    3-bet pays.
@@ -2908,8 +2909,11 @@ LEAGUE_MATCHUPS.push(...HU_READS_OFF_CARDS);
  *    top 35%, and this is the one whose raise is the minimum (to 2bb), the
  *    raise a limp-folder gives the most to. The others raise to 3.75bb and
  *    the horses to 3.5-4.5bb, where the price leaves almost nothing to call.
- * The cards only measure. Both options stay default OFF and neither is
- * proposed for activation: the owner's preflop range hold governs.
+ * The cards only measure. Before 2026-11-15 arm A set the option true and
+ * arm B was the then-default (off); the arms were restated, not swapped, when
+ * the default changed, so a card's sign means the same thing on both sides of
+ * that date. Each card names one option only: the other option is at its
+ * default (on) in both arms.
  */
 export const HUMAN_HU_OPENER_DEFENDS_VS_THREEBET_40BB = `${HUMAN_FIELD_NAME_PREFIX}hu_opener_defends_vs_threebet_40bb`;
 export const HUMAN_HU_LIMP_DEFENDS_VS_MINRAISE_40BB = `${HUMAN_FIELD_NAME_PREFIX}hu_limp_defends_vs_minraise_40bb`;
@@ -2921,8 +2925,8 @@ export const HU_DEFENCE_CARDS: readonly LeagueMatchup[] = Object.freeze([
     pairs: HUMAN_FIELD_PAIRS,
     hybridBaseline: true,
     moodClock: 'deal_seed',
-    a: { huOpenerDefendsToPrice: true },
-    b: {},
+    a: {},
+    b: { huOpenerDefendsToPrice: false },
     opponentPopulation: HUMAN_CALIBRATED_POPULATION_ID,
     humanPersona: HU_THREE_BET_EVERY_HAND_PERSONA,
   },
@@ -2933,8 +2937,8 @@ export const HU_DEFENCE_CARDS: readonly LeagueMatchup[] = Object.freeze([
     pairs: HUMAN_FIELD_PAIRS,
     hybridBaseline: true,
     moodClock: 'deal_seed',
-    a: { huLimpDefendsToPrice: true },
-    b: {},
+    a: {},
+    b: { huLimpDefendsToPrice: false },
     opponentPopulation: HUMAN_CALIBRATED_POPULATION_ID,
     humanPersona: HU_MINRAISE_EVERY_BUTTON_PERSONA,
   },

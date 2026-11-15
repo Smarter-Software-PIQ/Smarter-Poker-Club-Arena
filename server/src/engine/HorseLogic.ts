@@ -2800,8 +2800,10 @@ export interface HorseDecideOpts {
    *  engaged and 20% or wider, else the 20% reference; a narrower read stands
    *  the rule aside), times the 0.85 realisation, covers the rake-aware pot
    *  odds. Widen-only and call-only; 4-bets, jams, three or more dealt and
-   *  tournaments unchanged. Default OFF: only explicit true turns it on
-   *  (league human_hu_opener_defends_vs_threebet_40bb). */
+   *  tournaments unchanged. On by default since 2026-11-15 (evidence
+   *  docs/horse-default-on.d/huOpenerDefendsToPrice.md); explicit false is
+   *  the off arm and keeps the fold (league
+   *  human_hu_opener_defends_vs_threebet_40bb). */
   huOpenerDefendsToPrice?: boolean;
   /** HU LIMPER DEFENDS TO ITS PRICE (2026-11-14, HU-NLH-011,
    *  HorseHuBbDefence): heads-up no-limit hold'em cash, hero limped the small
@@ -2811,8 +2813,10 @@ export interface HorseDecideOpts {
    *  an engaged raise read narrower than 20% stands the rule aside), times
    *  the 0.8 realisation, covers the rake-aware pot odds.
    *  Widen-only and call-only; the limp itself, limp-raises, three or more
-   *  dealt and tournaments unchanged. Default OFF: only explicit true turns
-   *  it on (league human_hu_limp_defends_vs_minraise_40bb). */
+   *  dealt and tournaments unchanged. On by default since 2026-11-15
+   *  (evidence docs/horse-default-on.d/huLimpDefendsToPrice.md); explicit
+   *  false is the off arm and keeps the fold (league
+   *  human_hu_limp_defends_vs_minraise_40bb). */
   huLimpDefendsToPrice?: boolean;
   /** FULL-RING FACING-ACTION ZONE (2026-11-07): four or more dealt,
    *  no-limit hold'em facing action reads the <= 15bb jam-or-fold zone V82
@@ -9401,11 +9405,11 @@ export class HorseLogic {
       return equity === null ? undefined : { equity };
     };
     const huOpenerPrice =
-      opts.huOpenerDefendsToPrice === true && raises === 2 && limpers === 0 && heroWasInitialRaiser
+      opts.huOpenerDefendsToPrice !== false && raises === 2 && limpers === 0 && heroWasInitialRaiser
         ? huRaiserPrice('opener')
         : undefined;
     const huLimpPrice =
-      opts.huLimpDefendsToPrice === true && raises === 1 && limpers === 1 && !heroWasInitialRaiser
+      opts.huLimpDefendsToPrice !== false && raises === 1 && limpers === 1 && !heroWasInitialRaiser
         ? huRaiserPrice('limper')
         : undefined;
     const intentCtx7: Parameters<typeof decidePreflopV7>[0] = {

@@ -366,19 +366,20 @@ export interface PreflopCtx {
    *  the realised equity covers the price. Absent = unchanged. */
   huBbPrice?: { equity: number };
   /** HU OPENER DEFENDS TO ITS PRICE (HU-NLH-010, flag huOpenerDefendsToPrice,
-   *  default off; HorseHuBbDefence): heads-up no-limit hold'em cash, hero made
+   *  on by default since 2026-11-15; HorseHuBbDefence): heads-up no-limit hold'em cash, hero made
    *  the only open and faces exactly one 3-bet that is not all in. `equity`
    *  is this class's all-in equity against the 3-bettor's range (the read's
-   *  width, else the 20% reference). Present only with the flag on and the
-   *  spot in scope; a fold of the opener's bars becomes a call when the
+   *  width, else the 20% reference). Present only with the flag not set
+   *  false and the spot in scope; a fold of the opener's bars becomes a call when the
    *  realised equity covers the price. Absent = unchanged. */
   huOpenerPrice?: { equity: number };
   /** HU LIMPER DEFENDS TO ITS PRICE (HU-NLH-011, flag huLimpDefendsToPrice,
-   *  default off; HorseHuBbDefence): heads-up no-limit hold'em cash, hero
+   *  on by default since 2026-11-15; HorseHuBbDefence): heads-up no-limit hold'em cash, hero
    *  limped the small blind and faces exactly one raise that is not all in.
    *  `equity` is this class's all-in equity against the raiser's range.
-   *  Present only with the flag on and the spot in scope; the fold becomes a
-   *  call when the realised equity covers the price. Absent = unchanged. */
+   *  Present only with the flag not set false and the spot in scope; the
+   *  fold becomes a call when the realised equity covers the price. Absent =
+   *  unchanged. */
   huLimpPrice?: { equity: number };
   /** A COMMITTED STACK IS NOT FOLDED AT A PRICE (2026-11-13, flag
    *  committedStackPricedIn, default OFF; HVH2D-NLH-M-COMMIT, NLH-007a).
@@ -3364,7 +3365,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       }
     }
     // HU LIMPER DEFENDS TO ITS PRICE (HU-NLH-011, flag huLimpDefendsToPrice,
-    // default off): the small blind's limp band sits below every call bar
+    // on by default since 2026-11-15): the small blind's limp band sits below every call bar
     // above, so it folded 99-100% of its limps to any raise, a min-raise
     // laying 3:1 included. A limped hand whose equity against the raiser's
     // range, after the realisation discount, covers the price calls.
@@ -3918,7 +3919,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     }
     if (toCall > 0 && toCall <= pricePot * 0.15 && strength >= 0.45) return v76Done({ a: 'call' });
     // HU OPENER DEFENDS TO ITS PRICE (HU-NLH-010, flag huOpenerDefendsToPrice,
-    // default off): the bars above continue about the top tenth of ALL hands,
+    // on by default since 2026-11-15): the bars above continue about the top tenth of ALL hands,
     // which heads-up is roughly a seventh of a 70% open, so the opener folded
     // 81-92% to a 3-bet whose break-even is 62.5-67%. A hand whose equity
     // against the 3-bettor's range, after the realisation discount, covers

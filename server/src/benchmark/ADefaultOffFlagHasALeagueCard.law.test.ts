@@ -203,13 +203,36 @@ describe('a default-off Horse flag has a league card', () => {
     const cards = dealt();
     expect(cards.has('huBbDefendsToPrice')).toBe(true);
     expect(cards.has('commitUnderPot')).toBe(true);
-    // 2026-11-14 (HU-NLH-010, HU-NLH-011): each shipped with its card.
-    expect(defaultOff()).toContain('huOpenerDefendsToPrice');
-    expect(defaultOff()).toContain('huLimpDefendsToPrice');
-    expect(cards.has('huOpenerDefendsToPrice')).toBe(true);
-    expect(cards.has('huLimpDefendsToPrice')).toBe(true);
     // 2026-11-14 (HU-HILO-002): shipped with its card.
     expect(defaultOff()).toContain('omahaHiLoTournamentFirstIn');
     expect(cards.has('omahaHiLoTournamentFirstIn')).toBe(true);
+  });
+
+  it('the heads-up defence options left this law when they went on by default, cards kept', () => {
+    // 2026-11-14 (HU-NLH-010, HU-NLH-011): each shipped default off with its
+    // card (#10792). 2026-11-15: both are on by default, so their notes no
+    // longer say default off and this law no longer guards them. Their cards
+    // stay, restated for a default-on option: the live default in one arm,
+    // the option explicitly false in the other, which still reports option
+    // on minus option off. That shape is not "switched on in one arm", so
+    // dealt() does not list them; it is asserted here directly instead.
+    const off = defaultOff();
+    for (const key of ['huOpenerDefendsToPrice', 'huLimpDefendsToPrice']) {
+      expect(off, key).not.toContain(key);
+      const note = HORSE_DATA_LEDGER.find((e) => e.kind === 'flag' && e.key === key)?.note ?? '';
+      expect(note, key).toMatch(/default ON since 2026-11-15/);
+      const measuring = LEAGUE_MATCHUPS.filter((m) => {
+        const a = (m.a ?? {}) as Record<string, unknown>;
+        const b = (m.b ?? {}) as Record<string, unknown>;
+        return (
+          (a[key] === undefined && b[key] === false) || (b[key] === undefined && a[key] === false)
+        );
+      });
+      expect(
+        measuring.map((m) => m.name),
+        key
+      ).toHaveLength(1);
+      expect(measuring[0].seats, key).toBe(2);
+    }
   });
 });
