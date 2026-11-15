@@ -16,8 +16,10 @@ with all three. Proves:
       artifact row; a replay is idempotent; artifacts at 200, 175, 250 or 80.5
       bb or "80", a node off its artifact's depth, a v3 node, a donk node and
       a reused id are refused with the same error
-    * a 200 bb source-artifact row of a v2 dataset is refused with the same
-      SQLSTATE, message and constraint; 10..150 rows are admitted as before
+    * a 200 bb source-artifact row of a v2 dataset, inserted or updated (its
+      depth, or its dataset), is refused with the same SQLSTATE, message,
+      constraint and Failing row detail; 10..150 rows and a v2 coverage
+      update are admitted as before
     * every function and constraint that existed is unchanged except the two
       ingest functions and the depth check
   v3 line (the SQL port of World Hub pio_upi)
@@ -34,6 +36,9 @@ with all three. Proves:
     * pio-policy v4 v3 nodes at 200 bb ingest through both ingest functions
     * refused for a v3 dataset: a v2 node, a wrong line, a donk labelled
       open, another cell contract, a node off the artifact's depth, 250 bb
+    * a 200 bb row cannot move to a v2 dataset by UPDATE; a v3 dataset's
+      declared coverage cannot change, and a v2 dataset cannot become v3 by
+      UPDATE (before the migration it could)
   safety
     * a changed preimage refuses the whole migration; it refuses to run
       without 20261115162745; every sibling keeps its source's ACL
@@ -105,12 +110,19 @@ def run_sql(db, text, refused=None):
     return r.stdout.strip()
 
 
+def failure(stderr):
+    """The ERROR line (with its SQLSTATE) and any DETAIL line; CONTEXT and LOCATION name source lines a patch may move."""
+    lines = [l.split('ERROR:', 1)[1].strip() for l in stderr.splitlines() if 'ERROR:' in l][:1]
+    lines += [l.strip() for l in stderr.splitlines() if l.startswith('DETAIL:')]
+    return ' | '.join(lines) or stderr.strip()[:200]
+
+
 def outcome(db, text):
-    """The answer or the ERROR line (with its SQLSTATE), so two databases can be compared."""
+    """The answer, or the error with its SQLSTATE and detail, so two databases can be compared."""
     path = db.cluster.scratch / f'q{next(_counter)}.sql'
     path.write_text('\\set VERBOSITY verbose\n' + text + '\n')
     r = db.cluster.psql(db.name, ['-f', str(path)])
-    return ('ok', r.stdout.strip()) if r.returncode == 0 else ('error', bs.error_line(r.stderr))
+    return ('ok', r.stdout.strip()) if r.returncode == 0 else ('error', failure(r.stderr))
 
 
 # ------------------------------------------------------------------ nodes
@@ -215,8 +227,8 @@ def direct_row(ds, row, depth, tag):
             "pipeline_commit,manifest_version,manifest_checksum,source_artifact_checksum,quality_status,audited_at,pipeline_bundle_checksum) "
             f"VALUES ({q(row)},{q(tag)},'{{}}','pio-3',repeat('1',64),'M1',repeat('2',40),'m1',{q(rp.TREE)},repeat('a',64),'validated',now(),repeat('3',64)); COMMIT; "
             "INSERT INTO gto_v31_source_artifacts(dataset_id,source_row_id,machine_id,scenario_hash,game_family,stack_depth,"
-            f"street,source_artifact_checksum,node_count,solved_at) VALUES ({q(ds)},{q(row)},'M1',{q(tag)},'cash',{depth},"
-            f"'flop',repeat('a',64),1,{q(SOLVED_AT)}) RETURNING stack_depth")
+            f"street,source_artifact_checksum,node_count,solved_at,ingested_at) VALUES ({q(ds)},{q(row)},'M1',{q(tag)},'cash',{depth},"
+            f"'flop',repeat('a',64),1,{q(SOLVED_AT)},{q(SOLVED_AT)}) RETURNING stack_depth")
 
 
 # ------------------------------------------------------------------ v2 unchanged
@@ -262,6 +274,13 @@ def v2_corpus(db, v4_state='fn_gto_v31_complete_public_state'):
     for d in (10, 150, 200, 300):
         row = f'{d:08d}-0000-4000-8000-000000000000'
         out.append((f'direct {d} bb row', direct_row(ds, row, d, f'direct-{d}-row')))
+    # updates: the depth check (and the guard on an UPDATE of the depth or the dataset), and a v2 coverage
+    row150 = q(f'{150:08d}-0000-4000-8000-000000000000')
+    out.append(('update a v2 row to 200 bb', f"UPDATE gto_v31_source_artifacts SET stack_depth=200 WHERE source_row_id={row150} RETURNING stack_depth"))
+    out.append(('move a v2 row to the v4 dataset at 200 bb', f"UPDATE gto_v31_source_artifacts SET dataset_id={q(ds4)}, stack_depth=200 WHERE source_row_id={row150} RETURNING stack_depth"))
+    out.append(('update a v2 row to 80 bb', f"UPDATE gto_v31_source_artifacts SET stack_depth=80 WHERE source_row_id={row150} RETURNING stack_depth"))
+    out.append(('update a v2 coverage to another v2 coverage', f"UPDATE gto_v31_datasets SET declared_coverage={qj([cells[80], facing])} "
+                f"WHERE dataset_id={q(ds)} RETURNING jsonb_array_length(declared_coverage)"))
     return out, ds, ds4
 
 
@@ -275,7 +294,7 @@ def unchanged(old, new):
     changed = sorted(k for k in fo if fo[k] != fn.get(k))
     assert changed == ['fn_gto_v31_ingest_source_artifact_matrix_v2(uuid,text,jsonb)', 'fn_gto_v31_public215_ingest_m2(uuid,text,jsonb)'], changed
     added = sorted(set(fn) - set(fo))
-    assert len(added) == 11, added
+    assert len(added) == 12, added
     co, cn = json.loads(old.sql(csql)), json.loads(new.sql(csql))
     assert sorted(k for k in co if co[k] != cn.get(k)) == ['gto_v31_source_artifacts.gto_v31_source_artifacts_stack_depth_check'], 'constraints changed'
     assert set(cn) == set(co)
@@ -294,13 +313,17 @@ def v2_unchanged(old, new):
         assert ra == rb, f'{label}: old {ra} new {rb}'
         results.append((label, ra))
     expect_ok = {'valid 10 bb M1', 'valid 10 bb M2', 'valid 80 bb M1', 'valid 80 bb M2', 'valid 150 bb M1', 'valid 150 bb M2',
-                 'valid turn probe', 'replay is idempotent', 'v4 valid', 'v4 M1 valid', 'direct 10 bb row', 'direct 150 bb row'}
+                 'valid turn probe', 'replay is idempotent', 'v4 valid', 'v4 M1 valid', 'direct 10 bb row', 'direct 150 bb row',
+                 'update a v2 row to 80 bb', 'update a v2 coverage to another v2 coverage'}
     for label, (kind, text) in results:
         assert (kind == 'ok') == (label in expect_ok), f'{label}: {kind} {text[:200]}'
     detail = dict(results)
     assert '"idempotent": true' in detail['replay is idempotent'][1], detail['replay is idempotent']
     assert 'source artifact envelope is invalid' in detail['200 bb'][1], detail['200 bb']
-    assert '23514' in detail['direct 200 bb row'][1] and 'gto_v31_source_artifacts_stack_depth_check' in detail['direct 200 bb row'][1]
+    for label in ('direct 200 bb row', 'update a v2 row to 200 bb', 'move a v2 row to the v4 dataset at 200 bb'):
+        text = detail[label][1]
+        assert text.startswith('23514: new row for relation "gto_v31_source_artifacts" violates check constraint "gto_v31_source_artifacts_stack_depth_check"') \
+            and '| DETAIL:  Failing row contains (' in text, (label, text)
     assert rows(old, ds_o).replace(ds_o, '<ds>') == rows(new, ds_n).replace(ds_n, '<ds>'), 'v2 rows differ'
     assert rows(old, ds4_o).replace(ds4_o, '<ds4>') == rows(new, ds4_n).replace(ds4_n, '<ds4>'), 'v2 v4 rows differ'
     return len(results)
@@ -387,10 +410,32 @@ def v3_ingest(db):
         ('a turn donk without its line', artifact('r-tline', 'turn', 200, [node({**c1['turn_donk'], 'line_class': 'x.x/'}, turn, 'r:0:c:b650:c:Kh', aggressor=None)]), bad),
     ]:
         run_sql(db, ingest(db, ds, 'M1', art), refused=why)
-    # direct rows: 200 bb is admitted for the v3 dataset only
+    # direct rows: 200 bb is admitted for the v3 dataset only, also when a row moves in or out by UPDATE
     row = '00000200-0000-4000-8000-000000000003'
     assert run_sql(db, direct_row(ds, row, 200, 'direct-v3-row')) == '200'
+    ds2 = dataset(db, 'v3-ingest-other-v2', [ctx(db, 'flop', flop, 'cbet', depth=80, line=None)])
+    run_sql(db, f"UPDATE gto_v31_source_artifacts SET dataset_id={q(ds2)} WHERE source_row_id={q(row)}", refused='23514: new row for relation "gto_v31_source_artifacts" violates check constraint')
+    row80 = '00000080-0000-4000-8000-000000000003'
+    assert run_sql(db, direct_row(ds2, row80, 80, 'direct-v2-row')) == '80'
+    run_sql(db, f"UPDATE gto_v31_source_artifacts SET stack_depth=200 WHERE source_row_id={q(row80)}", refused='23514: new row for relation "gto_v31_source_artifacts" violates check constraint')
+    assert run_sql(db, f"UPDATE gto_v31_source_artifacts SET dataset_id={q(ds)}, stack_depth=200 WHERE source_row_id={q(row80)} RETURNING stack_depth") == '200'
+    # declared coverage of a v3 dataset is immutable; an unchanged write is not a change
+    v3cov = list(c1.values())
+    for label, cov in (('drop a v3 cell', v3cov[:3]), ('to a v2 coverage', [ctx(db, 'flop', flop, 'cbet', depth=80, line=None)])):
+        run_sql(db, f"UPDATE gto_v31_datasets SET declared_coverage={qj(cov)} WHERE dataset_id={q(ds)}", refused='declared coverage is immutable once it declares cell contract v3')
+    assert run_sql(db, f"UPDATE gto_v31_datasets SET declared_coverage=declared_coverage WHERE dataset_id={q(ds)} RETURNING dataset_key") == 'v3-ingest'
     return built
+
+
+def coverage_flip(old, new):
+    """A v2 dataset cannot become a v3 dataset by UPDATE; before this migration it could."""
+    answers = []
+    for db in (old, new):
+        ds = dataset(db, 'v2-flip', [ctx(db, 'flop', '2c5d9h', 'cbet', depth=80, line=None)])
+        answers.append(outcome(db, f"UPDATE gto_v31_datasets SET declared_coverage={qj([ctx(db, 'flop', '2c5d9h', 'donk', line='')])} "
+                                   f"WHERE dataset_id={q(ds)} RETURNING jsonb_array_length(declared_coverage)"))
+    assert answers[0] == ('ok', '1'), f'before the migration the flip was possible: {answers[0]}'
+    assert answers[1][0] == 'error' and 'declared coverage is immutable once it declares cell contract v3' in answers[1][1], answers[1]
 
 
 # ------------------------------------------------------------------ run
@@ -404,6 +449,7 @@ def scenario(cluster, text):
     corpus = v2_unchanged(old, new)
     vectors, commit = line_vectors(old, new)
     built = v3_ingest(new)
+    coverage_flip(old, new)
     return functions, corpus, vectors, commit, built
 
 
@@ -446,6 +492,10 @@ MUTATIONS = [
     ('any coverage reads v3', "OR c->>'cell_contract' IS DISTINCT FROM 'v3') THEN 'v2'", ") THEN 'v2'"),
     ('the v4 state proves v2 lines', "derived:=public.fn_gto_v31_node_line_proof_v3(", "derived:=public.fn_gto_v31_node_line_proof("),
     ('the v3 contract check uses the v2 v4 validator', "NOT public.fn_gto_v31_source_node_v4_valid_cell_v3(p_node)", "NOT public.fn_gto_v31_source_node_v4_valid(p_node)"),
+    ('the depth guard ignores UPDATE', "BEFORE INSERT OR UPDATE OF stack_depth, dataset_id", "BEFORE INSERT"),
+    ('declared coverage stays mutable', "     AND (public.fn_gto_v31_cell_contract_of_coverage(OLD.declared_coverage) = 'v3'", "     AND false AND (public.fn_gto_v31_cell_contract_of_coverage(OLD.declared_coverage) = 'v3'"),
+    ('only the new coverage is checked', "(public.fn_gto_v31_cell_contract_of_coverage(OLD.declared_coverage) = 'v3'\n          OR ", "("),
+    ('no Failing row detail', "            DETAIL = 'Failing row contains (' || array_to_string(v_values, ', ') || ').';", "            DETAIL = 'Failing row';"),
     ('the depth check stays 150', "  ADD CONSTRAINT gto_v31_source_artifacts_stack_depth_check CHECK ((stack_depth = ANY (ARRAY[10, 20, 40, 80, 150, 200])));",
      "  ADD CONSTRAINT gto_v31_source_artifacts_stack_depth_check CHECK ((stack_depth = ANY (ARRAY[10, 20, 40, 80, 150])));"),
 ]

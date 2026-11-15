@@ -31,9 +31,14 @@
 --     may be 200 bb and every node is checked by the v3 chain; for every other
 --     dataset the same calls as before, in the same order
 --   gto_v31_source_artifacts_stack_depth_check admits 200, and the new trigger
---     gto_v31_source_artifacts_v3_depth_guard refuses a 200 bb row of any other
---     dataset with that check's own error (SQLSTATE 23514, same message and
---     constraint name)
+--     gto_v31_source_artifacts_v3_depth_guard (INSERT, and UPDATE of the depth or
+--     the dataset) refuses a 200 bb row of any other dataset with that check's
+--     own error (SQLSTATE 23514, same message, constraint name and Failing row
+--     detail)
+--   + gto_v31_datasets_cell_contract_immutable: declared coverage decides v3
+--     ingest, so it cannot change once either side of an UPDATE reads v3 (no
+--     dataset becomes, stops being or changes as a v3 dataset after insert);
+--     an UPDATE between two v2 coverages is answered as before
 --
 -- DORMANT AND V2-IDENTICAL. No dataset declares cell contract v3 (none can be
 -- registered before 20261115143957 and 20261115162745), so every ingest in
@@ -43,7 +48,8 @@
 -- path is proven on fixtures only. Nothing is registered, ingested or built here.
 --
 -- Additive and safe with existing rows: no row is changed; the replaced depth
--- check is a superset (19,828 rows on 2026-11-15, validated in milliseconds).
+-- check is a superset (19,828 rows on 2026-11-15, validated in milliseconds);
+-- the two triggers take brief locks under the 3 s lock timeout.
 -- Not a hot table; no install-window header needed. Requires 20261115162745.
 --
 -- @live-proof: to_regprocedure('public.fn_gto_v31_source_node_valid_cell_v3(jsonb)') IS NOT NULL AND md5(pg_get_functiondef('public.fn_gto_v31_ingest_source_artifact_matrix_v2(uuid,text,jsonb)'::regprocedure))='9aa96e0347e70c0f2c7dfa1022c224f6' AND md5(pg_get_functiondef('public.fn_gto_v31_public215_ingest_m2(uuid,text,jsonb)'::regprocedure))='5f5ccbd81eff5003bdcc2f783f9a930c'
@@ -62,8 +68,10 @@ BEGIN
   END IF;
   IF EXISTS (SELECT 1 FROM pg_proc WHERE pronamespace='public'::regnamespace AND proname IN
      ('fn_gto_v31_cell_contract_of_coverage','fn_gto_v31_node_line_class_v3','fn_gto_v31_source_artifact_depth_guard',
-      'fn_gto_v31_node_line_proof_v3','fn_gto_v31_source_node_valid_cell_v3','fn_gto_v31_assert_source_contract_v3'))
-     OR EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.gto_v31_source_artifacts'::regclass AND tgname='gto_v31_source_artifacts_v3_depth_guard') THEN
+      'fn_gto_v31_node_line_proof_v3','fn_gto_v31_source_node_valid_cell_v3','fn_gto_v31_assert_source_contract_v3',
+      'fn_gto_v31_dataset_cell_contract_immutable'))
+     OR EXISTS (SELECT 1 FROM pg_trigger WHERE (tgrelid='public.gto_v31_source_artifacts'::regclass AND tgname='gto_v31_source_artifacts_v3_depth_guard')
+                OR (tgrelid='public.gto_v31_datasets'::regclass AND tgname='gto_v31_datasets_cell_contract_immutable')) THEN
     RAISE EXCEPTION 'the cell contract v3 source layer already exists';
   END IF;
 END
@@ -180,21 +188,48 @@ REVOKE ALL ON FUNCTION public.fn_gto_v31_node_line_class_v3(text,numeric,numeric
 GRANT EXECUTE ON FUNCTION public.fn_gto_v31_node_line_class_v3(text,numeric,numeric) TO service_role;
 
 -- The depth check below admits 200; this guard keeps 200 to a dataset whose declared coverage is all
--- cell contract v3 and refuses it for any other dataset with the depth check's own error (SQLSTATE
--- 23514, the same message and constraint name), exactly as before.
+-- cell contract v3 and refuses it for any other dataset with the depth check's own error: SQLSTATE
+-- 23514, the same message, constraint name and "Failing row contains" detail (each column in table
+-- order through its output function, NULL as null, a value over 64 bytes clipped with "...").
 CREATE FUNCTION public.fn_gto_v31_source_artifact_depth_guard()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public' AS $fn$
+DECLARE v_column name; v_value text; v_values text[] := ARRAY[]::text[];
 BEGIN
   IF NEW.stack_depth = 200 AND public.fn_gto_v31_cell_contract_of_coverage(
        (SELECT d.declared_coverage FROM public.gto_v31_datasets d WHERE d.dataset_id = NEW.dataset_id)) IS DISTINCT FROM 'v3' THEN
+    FOR v_column IN SELECT a.attname FROM pg_catalog.pg_attribute a
+                     WHERE a.attrelid = TG_RELID AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum LOOP
+      EXECUTE format('SELECT ($1).%I::text', v_column) INTO v_value USING NEW;
+      v_values := array_append(v_values, CASE WHEN v_value IS NULL THEN 'null'
+        WHEN octet_length(v_value) > 64 THEN left(v_value, 64) || '...' ELSE v_value END);
+    END LOOP;
     RAISE EXCEPTION 'new row for relation "gto_v31_source_artifacts" violates check constraint "gto_v31_source_artifacts_stack_depth_check"'
       USING ERRCODE = 'check_violation', CONSTRAINT = 'gto_v31_source_artifacts_stack_depth_check',
-            TABLE = 'gto_v31_source_artifacts', SCHEMA = 'public';
+            TABLE = 'gto_v31_source_artifacts', SCHEMA = 'public',
+            DETAIL = 'Failing row contains (' || array_to_string(v_values, ', ') || ').';
   END IF;
   RETURN NEW;
 END
 $fn$;
 REVOKE ALL ON FUNCTION public.fn_gto_v31_source_artifact_depth_guard() FROM PUBLIC, anon, authenticated, service_role;
+
+-- Declared coverage decides whether a dataset ingests as cell contract v3, so it may not change
+-- once either side of an UPDATE reads v3: no dataset can become, stop being, or change as a v3
+-- dataset after insert (the registration match runs at INSERT only). An UPDATE between two v2
+-- coverages is answered exactly as before (every existing dataset reads v2).
+CREATE FUNCTION public.fn_gto_v31_dataset_cell_contract_immutable()
+RETURNS trigger LANGUAGE plpgsql SET search_path TO 'public' AS $fn$
+BEGIN
+  IF NEW.declared_coverage IS DISTINCT FROM OLD.declared_coverage
+     AND (public.fn_gto_v31_cell_contract_of_coverage(OLD.declared_coverage) = 'v3'
+          OR public.fn_gto_v31_cell_contract_of_coverage(NEW.declared_coverage) = 'v3') THEN
+    RAISE EXCEPTION 'V31 dataset % declared coverage is immutable once it declares cell contract v3', OLD.dataset_key
+      USING ERRCODE = 'object_not_in_prerequisite_state';
+  END IF;
+  RETURN NEW;
+END
+$fn$;
+REVOKE ALL ON FUNCTION public.fn_gto_v31_dataset_cell_contract_immutable() FROM PUBLIC, anon, authenticated, service_role;
 
 -- 3. Generated v3 siblings of the installed v2 source-node chain: each is the installed text of its
 -- source with exact-count anchors replaced, so a source that differs from the reviewed one refuses
@@ -269,7 +304,9 @@ $patch$;
 SET LOCAL check_function_bodies=on;
 
 -- 5. The depth check admits the v3 bucket (the live text with 200 added, a superset for every
--- existing row); the guard keeps 200 to a v3 dataset and fires before the check.
+-- existing row); the guard keeps 200 to a v3 dataset and fires before the check, on INSERT and on
+-- an UPDATE of the depth or the dataset; a dataset's declared coverage cannot change once either
+-- side reads v3 (fires first of the dataset's BEFORE UPDATE triggers, by name).
 DO $conpre$
 BEGIN
   IF (SELECT md5(pg_get_constraintdef(c.oid)) FROM pg_constraint c
@@ -281,6 +318,8 @@ END
 $conpre$;
 CREATE TRIGGER gto_v31_source_artifacts_v3_depth_guard BEFORE INSERT OR UPDATE OF stack_depth, dataset_id
   ON public.gto_v31_source_artifacts FOR EACH ROW EXECUTE FUNCTION public.fn_gto_v31_source_artifact_depth_guard();
+CREATE TRIGGER gto_v31_datasets_cell_contract_immutable BEFORE UPDATE OF declared_coverage
+  ON public.gto_v31_datasets FOR EACH ROW EXECUTE FUNCTION public.fn_gto_v31_dataset_cell_contract_immutable();
 ALTER TABLE public.gto_v31_source_artifacts
   DROP CONSTRAINT gto_v31_source_artifacts_stack_depth_check,
   ADD CONSTRAINT gto_v31_source_artifacts_stack_depth_check CHECK ((stack_depth = ANY (ARRAY[10, 20, 40, 80, 150, 200])));
@@ -302,7 +341,8 @@ BEGIN
     ('public.fn_gto_v31_source_node_valid_cell_v3(jsonb)', '110251f40bd95971e55b1c0a636b46f4'),
     ('public.fn_gto_v31_cell_contract_of_coverage(jsonb)', '92e5764fcc5f5baae5d2265fe2f2882f'),
     ('public.fn_gto_v31_node_line_class_v3(text,numeric,numeric)', '2b2ce8ed019bc08eea87d09c6f2466ea'),
-    ('public.fn_gto_v31_source_artifact_depth_guard()', '114683db9484bc892a520ad62b3ffeef')
+    ('public.fn_gto_v31_source_artifact_depth_guard()', 'f71524bcf10360af6179f6e7e00e8a92'),
+    ('public.fn_gto_v31_dataset_cell_contract_immutable()', '9bc4e7826b0ccfccb33b08bd031fd9fb')
   ) AS p(fn, post_md5) LOOP
     IF md5(pg_get_functiondef(to_regprocedure(r.fn))) IS DISTINCT FROM r.post_md5 THEN
       RAISE EXCEPTION '% postimage md5 % is not the reviewed postimage', r.fn, md5(pg_get_functiondef(to_regprocedure(r.fn)));
@@ -359,7 +399,8 @@ BEGIN
     'public.fn_gto_v31_source_node_valid_cell_v3(jsonb)',
     'public.fn_gto_v31_cell_contract_of_coverage(jsonb)',
     'public.fn_gto_v31_node_line_class_v3(text,numeric,numeric)',
-    'public.fn_gto_v31_source_artifact_depth_guard()'
+    'public.fn_gto_v31_source_artifact_depth_guard()',
+    'public.fn_gto_v31_dataset_cell_contract_immutable()'
   ]::regprocedure[] LOOP
     SELECT l.lanname, (SELECT substr(c, 13) FROM unnest(p.proconfig) c WHERE c LIKE 'search_path=%') INTO lang, sp
       FROM pg_proc p JOIN pg_language l ON l.oid = p.prolang WHERE p.oid = f;
