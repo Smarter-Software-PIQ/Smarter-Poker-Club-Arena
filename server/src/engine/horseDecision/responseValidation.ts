@@ -49,6 +49,10 @@ import {
   omahaOopCheckSpot,
   omahaOopTurnFacingBetVerdict,
 } from '../HorseOmahaOopChecks.js';
+import {
+  OMAHA_CARD_IMPACT_VARIANTS,
+  omahaCardImpactCheckAdmissible,
+} from '../HorseOmahaCardImpact.js';
 import { shortAllInSpot } from '../HorseShortAllInCallFloor.js';
 import { holdemFourBetSpot } from '../HorseHoldemPremiumAggression.js';
 import { tournamentShoveDiscipline } from '../HorseTournamentShoveDiscipline.js';
@@ -1277,11 +1281,27 @@ function policyGraphIsValid(
     const omahaOopTurnToCall =
       oopTurnVerdict === 'call_nut_draw' ||
       (oopTurnVerdict === 'no_raise' && previous !== null && previous.action !== 'fold');
+    // Owner 2026-11-15 11:41 (HorseOmahaCardImpact, default-off option): a
+    // heads-up turn or river bet facing no wager becomes a check when the
+    // check is worth more against the opponent's range. A check puts no chip
+    // in; when the request is known, only inside the option's public scope
+    // and with a hand that is not nut class (the receipt context carries
+    // neither the options nor the opponent read).
+    const omahaCardImpactBetToCheck =
+      transition.node === 'wager_rules' &&
+      OMAHA_CARD_IMPACT_VARIANTS.has(variant) &&
+      transition.after.action === 'check' &&
+      previous !== null &&
+      ['bet', 'all_in'].includes(previous.action) &&
+      (context === undefined ||
+        (String(context.gameState.gameVariant).toLowerCase() === variant &&
+          omahaCardImpactCheckAdmissible(context.player, context.gameState)));
     if (
       transition.node === 'wager_rules' &&
       changed &&
       !pairedBoardFold &&
       !omahaRiverMediumBetCalled &&
+      !omahaCardImpactBetToCheck &&
       !pairedBoardRiverCheck &&
       !omahaBeatenBetToCheck &&
       !omahaOopBetToCheck &&

@@ -1019,6 +1019,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaCardImpact',
+    'Owner 2026-11-15 11:41: PLO4/PLO5 cash, one board, high only, heads-up, turn and river, nothing to call: the Horse measures what the last card did to its own hand (holdings that beat it before and after, the nuts, nut outs, the freeroll) and to the opponent range his line and measured tendencies describe (the share improved past the Horse, left behind, or missed), prices a check and every bet size against that range and takes the best when it beats the chosen action by more than 4% of the pot (HorseOmahaCardImpact.ts). No veto in either direction; a bluff candidate stays with the bluff paths; a nut-class bet is never made smaller; a decision facing a bet is unchanged. Default OFF (read === true) until its declared evaluation passes',
+    'V94'
+  ),
+  flag(
     'omahaNutClassValueSize',
     'Dan 2026-11-14: a PLO4/PLO5 high bet or raise with the nuts or an effective-nut hand for the street is the full pot (the pot-limit maximum, the stack when smaller) on the flop, turn and river. Default OFF (opt-in): its declared evaluation failed on the Horse-only cells (PLO4 -1.19, PLO5 -1.31 bb/100; human field +2.29)',
     'V94'
@@ -4064,6 +4069,30 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_bare_overpair_oop_flop_checked',
     'HorseLogic wager_rules (HorseOmahaOopChecks, omahaBareOverpairOopFlopCheck)',
     'PLO4/PLO5 cash flop bet out of position with one pair, no flush draw and under eight straight outs, on a two-tone or connected flop: turned into a check',
+    'V94'
+  ),
+  receipt(
+    'omaha_card_impact_defence_check',
+    'HorseLogic wager_rules (HorseOmahaCardImpact, omahaCardImpact)',
+    'PLO4/PLO5 cash heads-up turn or river bet turned into a check: against the opponent range as the last card left it, the check is worth more than the bet and every other size by over 4% of the pot',
+    'V94'
+  ),
+  receipt(
+    'omaha_card_impact_press_bet',
+    'HorseLogic wager_rules (HorseOmahaCardImpact, omahaCardImpact)',
+    'PLO4/PLO5 cash heads-up turn or river check turned into a bet, or a bet made larger: that size is worth more than the chosen action by over 4% of the pot against the opponent range as the last card left it',
+    'V94'
+  ),
+  receipt(
+    'omaha_card_impact_freeroll_pot',
+    'HorseLogic wager_rules (HorseOmahaCardImpact, omahaCardImpact)',
+    'PLO4/PLO5 cash heads-up turn: the Horse holds the nuts, other holdings tie it and four or more river cards lift it over them; the full pot is the best size and replaces the chosen action',
+    'V94'
+  ),
+  receipt(
+    'omaha_card_impact_changed',
+    'HorseLogic wager_rules (HorseOmahaCardImpact, omahaCardImpact)',
+    'any decision the card-impact comparison replaced: a check, a larger bet, the freeroll pot or a smaller bet (the smaller bet has no receipt of its own)',
     'V94'
   ),
   receipt(

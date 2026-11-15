@@ -46,6 +46,7 @@ import {
   omahaBeatenNoBet,
   omahaBeatenNoRaise,
   omahaNutClassValueSize,
+  omahaNutClassNow,
   omahaTurnRedrawShare,
 } from './HorseOmahaMadeHandDefense.js';
 import { omahaOnePairDiscipline } from './HorseOmahaOnePair.js';
@@ -67,6 +68,7 @@ import {
   omahaFlopBetAndCallFaced,
   omahaUnderpairFlopCell,
 } from './HorseOmahaUnderpair.js';
+import { omahaCardImpactDecision, omahaCardImpactScope } from './HorseOmahaCardImpact.js';
 import {
   omahaReraisedPostflopCell,
   omahaReraisedPreflopCell,
@@ -3081,6 +3083,20 @@ export interface HorseDecideOpts {
    * read `=== true`); league cards plo4/plo5
    * _omaha_oop_turn_check_after_flop_call. */
   omahaOopTurnCheckAfterFlopCall?: boolean;
+  /** Owner 2026-11-15 11:41 (HorseOmahaCardImpact.ts): PLO4/PLO5 cash, one
+   * board, high only, heads-up, turn and river, nothing to call. The Horse
+   * measures what the last card did to its own hand (holdings that beat it
+   * before and after, the nuts, nut outs, the freeroll) and to the opponent's
+   * range as his line this hand and his measured tendencies describe it (the
+   * share the card improved past the Horse, left behind, or missed), prices a
+   * check and every bet size against that range and takes the best when it
+   * beats the chosen action by more than 4% of the pot: a check or a smaller
+   * bet on a bad card, a bet up to the full pot on a good one. No veto in
+   * either direction. A bluff candidate stays with the bluff paths; a
+   * decision facing a bet is never touched; a nut-class bet is never made
+   * smaller. Default OFF (opt-in, read `=== true`) until its declared
+   * evaluation passes; league cards plo4/plo5 _omaha_card_impact. */
+  omahaCardImpact?: boolean;
   /** A token-priced committed call is not barred by stack-off premiums
    * (HorseTokenCallPrice.ts, PLO6-AUDIT-010). Default on; false only for
    * the regression's non-vacuity control. */
@@ -7318,6 +7334,58 @@ function omahaRiverMediumBetStrongHandCalls(
   }
 }
 
+/**
+ * Owner 2026-11-15 11:41, HorseOmahaCardImpact.ts (omahaCardImpact, default
+ * OFF): at a PLO4/PLO5 cash heads-up turn or river decision with nothing to
+ * call, the chosen check or bet is priced beside a check and every bet size
+ * against the opponent's range as the last card left it, and the best one
+ * replaces it when it is worth more than the margin. Runs in the wager_rules
+ * node, outside the paired-board river check, so in its spots it decides
+ * over the generic value, block-bet and barrel branches and the bet-to-check
+ * rules. Draws no random number. Unset or false it returns the decision it
+ * was given.
+ */
+function omahaCardImpactRule(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
+  if (opts.omahaCardImpact !== true) return decision;
+  if (decision.action !== 'check' && decision.action !== 'bet' && decision.action !== 'all_in')
+    return decision;
+  try {
+    const scope = omahaCardImpactScope(player, gs);
+    if (!scope) return decision;
+    let read: OmahaReadConditional | null = null;
+    if (opts.mind !== false) {
+      try {
+        read = HorseMind.omahaReadConditionalOf(scope.opponent.user_id);
+      } catch {
+        read = null;
+      }
+    }
+    const result = omahaCardImpactDecision(decision, player, gs, read);
+    if (!result || result.changed === null) return decision;
+    // Owner order 2026-11-15 00:32: a nut-class bet is the full pot; it is
+    // never checked or made smaller here.
+    if (
+      (result.changed === 'defence_check' || result.changed === 'resized') &&
+      omahaNutClassNow(player, gs)
+    )
+      return decision;
+    if (telemetryOn(opts)) {
+      noteFire('omaha_card_impact_changed');
+      if (result.changed === 'defence_check') noteFire('omaha_card_impact_defence_check');
+      else if (result.changed === 'press_bet') noteFire('omaha_card_impact_press_bet');
+      else if (result.changed === 'freeroll_pot') noteFire('omaha_card_impact_freeroll_pot');
+    }
+    return result.decision;
+  } catch {
+    return decision;
+  }
+}
+
 function pairedBoardFoldOutsideGraph(
   decision: HorseDecision,
   player: SeatPlayer,
@@ -7330,24 +7398,29 @@ function pairedBoardFoldOutsideGraph(
           omahaOutermostCallDiscipline(
             omahaReraisedPotFold(
               omahaBigBetCallFold(
-                omahaOopCheckRules(
-                  pairedBoardRiverCheck(
-                    pairedBoardFold(
-                      omahaMadeHandDefenseRules(
-                        omahaRiverNutRaiseOnly(
-                          decision,
+                omahaCardImpactRule(
+                  omahaOopCheckRules(
+                    pairedBoardRiverCheck(
+                      pairedBoardFold(
+                        omahaMadeHandDefenseRules(
+                          omahaRiverNutRaiseOnly(
+                            decision,
+                            player,
+                            gs,
+                            // The default-off near-nut value candidate keeps its own raise
+                            // when a league arm switches it on; production never does.
+                            opts.omahaRiverNutRaiseOnly !== false &&
+                              !nearNutChosenRaises.has(decision)
+                          ).decision,
                           player,
                           gs,
-                          // The default-off near-nut value candidate keeps its own raise
-                          // when a league arm switches it on; production never does.
-                          opts.omahaRiverNutRaiseOnly !== false &&
-                            !nearNutChosenRaises.has(decision)
-                        ).decision,
+                          opts,
+                          null,
+                          nearNutChosenRaises.has(decision)
+                        ),
                         player,
                         gs,
-                        opts,
-                        null,
-                        nearNutChosenRaises.has(decision)
+                        opts
                       ),
                       player,
                       gs,
@@ -9316,16 +9389,21 @@ export class HorseLogic {
           omahaOutermostCallDiscipline(
             omahaReraisedPotFold(
               omahaBigBetCallFold(
-                omahaOopCheckRules(
-                  pairedBoardRiverCheck(
-                    pairedBoardFold(
-                      omahaMadeHandDefenseRules(
-                        nutRaise.decision,
+                omahaCardImpactRule(
+                  omahaOopCheckRules(
+                    pairedBoardRiverCheck(
+                      pairedBoardFold(
+                        omahaMadeHandDefenseRules(
+                          nutRaise.decision,
+                          player,
+                          gs,
+                          opts,
+                          beforePhase10,
+                          nearNutChosen
+                        ),
                         player,
                         gs,
-                        opts,
-                        beforePhase10,
-                        nearNutChosen
+                        opts
                       ),
                       player,
                       gs,
