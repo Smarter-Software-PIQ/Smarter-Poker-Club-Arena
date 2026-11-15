@@ -47,6 +47,12 @@ export interface HorsePersonaV2 {
    * where its own read disagrees. Read by HorseLogic at the solver consult.
    */
   gtoAdherence: number;
+  /**
+   * The Horse's own playing style (HorsePlayStyle.ts), when an author named
+   * one: it wins over the id hash. Present only when the stored value is one
+   * of the three names; nothing writes it yet (owner 2026-11-15 16:40).
+   */
+  playStyle?: 'tight' | 'current' | 'pressure';
 }
 
 /*
@@ -159,9 +165,14 @@ export function personaFromValue(raw: unknown, horseId: string): HorsePersonaV2 
     typeof v === 'number' && Number.isFinite(v) ? v : undefined;
   const straddle = num(p.straddleRate);
   const adherence = num(p.gtoAdherence);
+  const playStyle =
+    p.playStyle === 'tight' || p.playStyle === 'current' || p.playStyle === 'pressure'
+      ? p.playStyle
+      : undefined;
   return {
     straddleRate: straddle === undefined ? base.straddleRate : clamp(straddle, 0, 0.6),
     gtoAdherence: adherence === undefined ? base.gtoAdherence : clamp(adherence, 0.5, 1),
+    ...(playStyle ? { playStyle } : {}),
   };
 }
 
@@ -335,16 +346,39 @@ export interface HorsePloPersona {
   riverBluffGear: number;
 }
 
-export function ploPersonaFor(horseId: string): HorsePloPersona {
+/** The archetype this Horse's id deals it (LAG 28%, Tricky 24%, TAG 30%, Nit 18%). */
+export function ploArchetypeFor(horseId: string): HorsePloArchetype {
   const id = horseId || 'default-horse';
   const hArch = personaHash(`${id}|plo_arch`) % 100;
+  if (hArch < 28) return 'lag_shark';
+  if (hArch < 52) return 'tricky_trap';
+  if (hArch < 82) return 'tag_crusher';
+  return 'nit_hunter';
+}
+
+export function ploPersonaFor(horseId: string): HorsePloPersona {
+  return ploPersonaOfArchetype(horseId, ploArchetypeFor(horseId));
+}
+
+/**
+ * The gears of a NAMED archetype for this Horse: the archetype's own bands,
+ * the Horse's own five unit draws inside them. `ploPersonaFor` is this with
+ * the archetype the id deals. HorseOmahaPlayStyle names the archetype by the
+ * Horse's playing style, so a Horse is never tight by style and LAG by
+ * archetype.
+ */
+export function ploPersonaOfArchetype(
+  horseId: string,
+  archetype: HorsePloArchetype
+): HorsePloPersona {
+  const id = horseId || 'default-horse';
   const h1 = (personaHash(`${id}|plo_3bet`) % 1000) / 1000;
   const h2 = (personaHash(`${id}|plo_combo`) % 1000) / 1000;
   const h3 = (personaHash(`${id}|plo_trap`) % 1000) / 1000;
   const h4 = (personaHash(`${id}|plo_probe`) % 1000) / 1000;
   const h5 = (personaHash(`${id}|plo_river`) % 1000) / 1000;
 
-  if (hArch < 28) {
+  if (archetype === 'lag_shark') {
     // LAG Shark: relentless 3-bettor, combo-draw pumper, high turn probe pressure
     return {
       archetype: 'lag_shark',
@@ -355,7 +389,7 @@ export function ploPersonaFor(horseId: string): HorsePloPersona {
       riverBluffGear: Math.round((0.42 + h5 * 0.22) * 100) / 100,
     };
   }
-  if (hArch < 52) {
+  if (archetype === 'tricky_trap') {
     // Tricky Trap: deceptive check-raiser, slowplays dry sets IP, mixes nut river block-bets
     return {
       archetype: 'tricky_trap',
@@ -366,7 +400,7 @@ export function ploPersonaFor(horseId: string): HorsePloPersona {
       riverBluffGear: Math.round((0.36 + h5 * 0.18) * 100) / 100,
     };
   }
-  if (hArch < 82) {
+  if (archetype === 'tag_crusher') {
     // TAG Crusher: balanced nut-suit 3-bets, disciplined SPR commitment, clinical thin value
     return {
       archetype: 'tag_crusher',
