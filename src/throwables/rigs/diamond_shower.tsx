@@ -22,10 +22,11 @@ export const spec: ThrowableSpec = {
     { at: 4000, marker: 'cut' },
   ],
   audio: [
-    { at: 650, sample: 'chime_shimmer', gain: 0.25 },
-    { at: 1300, sample: 'chime_shimmer', gain: 0.25 },
-    { at: 1950, sample: 'chime_shimmer', gain: 0.25 },
-    { at: 2600, sample: 'chime_shimmer', gain: 0.25 },
+    { at: 500, sample: 'chime_shimmer', gain: 0.34 },
+    { at: 1400, sample: 'gem_tick', gain: 0.75 },
+    { at: 1730, sample: 'flute_clink_soft', gain: 0.35 },
+    { at: 2100, sample: 'gem_tick', gain: 0.48 },
+    { at: 2400, sample: 'gem_tick', gain: 0.8 },
   ],
 };
 preloadThrowableCues(spec.audio.map((cue) => cue.sample));
@@ -71,64 +72,64 @@ function Payload(_props: RigProps) {
   return (
     <svg viewBox={RIG_VIEWBOX} aria-hidden="true" focusable="false">
       <g className="thr-diamond_shower__fall0">
-        <Tile tile={0} x={-65} y={-130} width={30} height={30} />
+        <Tile tile={0} x={-65} y={-130} width={23} height={23} />
       </g>
       <g className="thr-diamond_shower__fall1">
-        <Tile tile={1} x={-28} y={-130} width={30} height={30} />
+        <Tile tile={1} x={-28} y={-130} width={34} height={34} />
       </g>
       <g className="thr-diamond_shower__fall2">
-        <Tile tile={0} x={9} y={-130} width={30} height={30} />
+        <Tile tile={0} x={9} y={-130} width={28} height={28} />
       </g>
       <g className="thr-diamond_shower__fall3">
-        <Tile tile={1} x={46} y={-130} width={30} height={30} />
+        <Tile tile={1} x={46} y={-130} width={38} height={38} />
       </g>
       <g className="thr-diamond_shower__fall4">
-        <Tile tile={0} x={-47} y={-130} width={30} height={30} />
+        <Tile tile={0} x={-47} y={-130} width={21} height={21} />
       </g>
       <g className="thr-diamond_shower__fall5">
-        <Tile tile={1} x={-10} y={-130} width={30} height={30} />
+        <Tile tile={1} x={-10} y={-130} width={31} height={31} />
       </g>
       <g className="thr-diamond_shower__fall6">
-        <Tile tile={0} x={27} y={-130} width={30} height={30} />
+        <Tile tile={0} x={27} y={-130} width={26} height={26} />
       </g>
       <g className="thr-diamond_shower__fall7">
-        <Tile tile={1} x={64} y={-130} width={30} height={30} />
+        <Tile tile={1} x={64} y={-130} width={23} height={23} />
       </g>
       <g className="thr-diamond_shower__fall8">
-        <Tile tile={0} x={-29} y={-130} width={30} height={30} />
+        <Tile tile={0} x={-29} y={-130} width={34} height={34} />
       </g>
       <g className="thr-diamond_shower__fall9">
-        <Tile tile={1} x={8} y={-130} width={30} height={30} />
+        <Tile tile={1} x={8} y={-130} width={28} height={28} />
       </g>
       <g className="thr-diamond_shower__fall10">
-        <Tile tile={0} x={45} y={-130} width={30} height={30} />
+        <Tile tile={0} x={45} y={-130} width={38} height={38} />
       </g>
       <g className="thr-diamond_shower__fall11">
-        <Tile tile={1} x={-48} y={-130} width={30} height={30} />
+        <Tile tile={1} x={-48} y={-130} width={21} height={21} />
       </g>
       <g className="thr-diamond_shower__fall12">
-        <Tile tile={0} x={-11} y={-130} width={30} height={30} />
+        <Tile tile={0} x={-11} y={-130} width={31} height={31} />
       </g>
       <g className="thr-diamond_shower__fall13">
-        <Tile tile={1} x={26} y={-130} width={30} height={30} />
+        <Tile tile={1} x={26} y={-130} width={26} height={26} />
       </g>
       <g className="thr-diamond_shower__fall14">
-        <Tile tile={0} x={63} y={-130} width={30} height={30} />
+        <Tile tile={0} x={63} y={-130} width={23} height={23} />
       </g>
       <g className="thr-diamond_shower__fall15">
-        <Tile tile={1} x={-30} y={-130} width={30} height={30} />
+        <Tile tile={1} x={-30} y={-130} width={34} height={34} />
       </g>
       <g className="thr-diamond_shower__fall16">
-        <Tile tile={0} x={7} y={-130} width={30} height={30} />
+        <Tile tile={0} x={7} y={-130} width={28} height={28} />
       </g>
       <g className="thr-diamond_shower__fall17">
-        <Tile tile={1} x={44} y={-130} width={30} height={30} />
+        <Tile tile={1} x={44} y={-130} width={38} height={38} />
       </g>
       <g className="thr-diamond_shower__fall18">
-        <Tile tile={0} x={-49} y={-130} width={30} height={30} />
+        <Tile tile={0} x={-49} y={-130} width={21} height={21} />
       </g>
       <g className="thr-diamond_shower__fall19">
-        <Tile tile={1} x={-12} y={-130} width={30} height={30} />
+        <Tile tile={1} x={-12} y={-130} width={31} height={31} />
       </g>
       <g className="thr-diamond_shower__pile0">
         <Tile tile={2} x={-65} y={36} width={65} height={55} />

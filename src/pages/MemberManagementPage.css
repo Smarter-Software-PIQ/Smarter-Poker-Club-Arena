@@ -1675,3 +1675,32 @@
     flex-direction: column;
   }
 }
+
+.mm-history .mm-stat {
+  flex-wrap: wrap;
+  row-gap: 0.25rem;
+}
+
+.mm-history .mm-stat__label {
+  flex: 1 1 10rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.mm-history .mm-stat__value {
+  margin-inline-start: auto;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.mm-history__filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr));
+  align-items: end;
+  gap: 0.5rem;
+}
+
+.mm-history__filters select {
+  min-height: 44px;
+  font-size: 16px;
+}

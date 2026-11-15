@@ -16,69 +16,65 @@ export const spec: ThrowableSpec = {
   beats: [
     { at: 333, marker: 'arrival' },
     { at: 433, marker: 'pop' },
-    { at: 1534, marker: 'inhale' },
-    { at: 2001, marker: 'bray' },
-    { at: 3134, marker: 'relax' },
+    { at: 1150, marker: 'inhale' },
+    { at: 1550, marker: 'bray' },
+    { at: 2630, marker: 'reply-one' },
+    { at: 3180, marker: 'reply-two' },
+    { at: 3750, marker: 'reply-three' },
     { at: 4367, marker: 'cut' },
   ],
   audio: [
     { at: 433, sample: 'thump_soft', gain: 0.3 },
-    { at: 1533, sample: 'donkey_bray', gain: 0.65 },
+    { at: 1150, sample: 'donkey_hee_haw', gain: 1 },
   ],
 };
 preloadThrowableCues(spec.audio.map((cue) => cue.sample));
-const RECTS: [number, number, number, number][] = [
-  [182, 10, 264, 459],
-  [809, 10, 264, 470],
-  [182, 637, 264, 501],
-  [813, 636, 256, 462],
-];
-function Tile({
-  tile,
-  x,
-  y,
-  width,
-  height,
-}: {
-  tile: number;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}) {
+const sheetSize = [4032, 448] as const;
+
+function Grin({ size }: { size: number }) {
   return (
     <AtlasSprite
       src="donkey"
-      rect={RECTS[tile]}
-      sheetSize={[1254, 1254]}
-      x={x}
-      y={y}
-      width={width}
-      height={height}
+      sheetSize={sheetSize}
+      rect={[0, 0, 448, 448]}
+      x={-size / 2}
+      y={-size / 2}
+      width={size}
+      height={size}
     />
   );
 }
+
 function Projectile(_props: RigProps) {
   return (
     <svg viewBox={RIG_VIEWBOX} aria-hidden="true" focusable="false">
-      <Tile tile={0} x={-55} y={-55} width={110} height={110} />
+      <Grin size={92} />
     </svg>
   );
 }
+
 function Payload(_props: RigProps) {
   return (
     <svg viewBox={RIG_VIEWBOX} aria-hidden="true" focusable="false">
-      <g className="thr-donkey__idle">
-        <Tile tile={0} x={-75} y={-100} width={150} height={200} />
-      </g>
-      <g className="thr-donkey__inhale">
-        <Tile tile={1} x={-75} y={-100} width={150} height={200} />
-      </g>
-      <g className="thr-donkey__bray">
-        <Tile tile={2} x={-75} y={-100} width={150} height={200} />
-      </g>
-      <g className="thr-donkey__relax">
-        <Tile tile={3} x={-75} y={-100} width={150} height={200} />
+      <g className="thr-donkey__head">
+        <g className="thr-donkey__grin">
+          <Grin size={160} />
+        </g>
+        <g className="thr-donkey__call">
+          <svg x={-80} y={-80} width={160} height={160} viewBox="0 0 160 160" overflow="hidden">
+            <g className="thr-donkey__poses">
+              <AtlasSprite
+                src="donkey"
+                sheetSize={sheetSize}
+                rect={[448, 0, 3584, 448]}
+                x={0}
+                y={0}
+                width={1280}
+                height={160}
+              />
+            </g>
+          </svg>
+        </g>
       </g>
     </svg>
   );

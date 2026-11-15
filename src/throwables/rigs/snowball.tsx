@@ -22,8 +22,8 @@ export const spec: ThrowableSpec = {
     { at: 3200, marker: 'cut' },
   ],
   audio: [
-    { at: 500, sample: 'splat_wet_small', gain: 0.35 },
-    { at: 1000, sample: 'chime_shimmer', gain: 0.2 },
+    { at: 500, sample: 'snow_crunch', gain: 0.93 },
+    { at: 900, sample: 'snow_crunch', gain: 0.37 },
   ],
 };
 preloadThrowableCues(spec.audio.map((cue) => cue.sample));
@@ -94,6 +94,18 @@ function Payload(_props: RigProps) {
       </g>
       <g className="thr-snowball__scarf">
         <Tile tile={2} x={-65} y={15} width={130} height={100} />
+      </g>
+      <g className="thr-snowball__clump0">
+        <Tile tile={0} x={-6.0} y={-6.0} width={12} height={12} />
+      </g>
+      <g className="thr-snowball__clump1">
+        <Tile tile={0} x={-8.0} y={-8.0} width={16} height={16} />
+      </g>
+      <g className="thr-snowball__clump2">
+        <Tile tile={0} x={-4.5} y={-4.5} width={9} height={9} />
+      </g>
+      <g className="thr-snowball__clump3">
+        <Tile tile={0} x={-4.0} y={-4.0} width={8} height={8} />
       </g>
     </svg>
   );

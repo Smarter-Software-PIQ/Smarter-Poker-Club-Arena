@@ -1413,12 +1413,8 @@
 .table-brand__logo {
   width: 100%;
   height: auto;
-  /* Dan's metallic Smarter.Poker lettermark, matted to transparency so the
-     chrome bevels sit on the felt instead of on a black plate. Chrome reads
-     far more subtly than the old blue mark, so it carries more opacity while
-     still staying behind the cards. */
-  opacity: 0.55;
-  filter: drop-shadow(0 2px 7px rgba(0, 0, 0, 0.7));
+  opacity: 0.78;
+  filter: grayscale(1) drop-shadow(0 1px 1px rgba(0, 0, 0, 0.65));
 }
 
 /* Keep every felt caption inside the masthead width and let its height grow.
@@ -1433,30 +1429,12 @@
   min-width: 0;
 }
 
-/* Dan 2026-08-25, item 10: "the display on the table (date, club, union) needs
-   to scale down, and the 2nd line under it (PLO5 1/2 - Hand #2338126) too.
-   They are too large for the table."
-
-   0.58rem is 9.3px, which is UI type, and it was printed on a felt only 277px
-   wide at 393 — line 1 carries a date, a club, a union and a game code, so it
-   was running the full width of the masthead and ellipsizing. 0.48rem is
-   7.7px: still ~23 device pixels on a 3x phone, and at the 0.42 alpha this
-   colour already carries it reads as printing ON the felt rather than as a
-   label sitting over it, which is the whole point of the masthead.
-
-   One declaration covers BOTH of Dan's lines: --hand (the hand number) and
-   --level (the tournament clock row) are modifiers of this class and inherit
-   the size, so they cannot drift apart from line 1.
-
-   It also buys item 9 some room. Two lines at 0.58rem are ~27px of the brand
-   block; at 0.48rem they are ~22px, and because .table-brand is centred on its
-   `top`, losing 5px of height drops its top edge ~2.5px away from the board. */
 .table-brand__line {
-  font-size: 0.48rem;
+  font-size: calc(0.67 * clamp(0.6875rem, 6cqw, 0.8125rem));
   font-weight: 600;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.035em;
   text-transform: uppercase;
-  color: rgba(198, 210, 228, 0.42);
+  color: #a6a6a6;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
   white-space: normal;
   max-width: 100%;
@@ -1466,42 +1444,13 @@
   line-height: 1.3;
 }
 
-/* Dan 2026-08-15 — felt masthead, two centered lines.
-   Line 1 (date · club · game) is now a single .table-brand__line; the club
-   name keeps its gold inside that row via this span instead of owning a line
-   of its own. Line 2 is the hand number, moved here from the upper-right
-   corner. .table-brand__meta is already flex-column + align-items:center, so
-   both rows centre under the wordmark with no extra work. */
-/* Dan 2026-09-07, item 8: "WE DON'T USE YELLOW." This was rgba(255,215,0,.5),
-   gold. The club and union line now prints in the masthead's own cool slate at
-   full strength, which separates it from the dimmer rows around it by
-   BRIGHTNESS rather than by hue — the same way the level row earns its
-   emphasis. */
-.table-brand__club {
-  color: rgba(214, 226, 244, 0.72);
-}
-
-/* Tournament masthead line 2 (Dan 2026-08-20): Level # · blinds · clock.
-   Slightly brighter than line 1 — it is the one row that changes while you
-   play, so it earns a touch more presence without shouting over the felt. */
 .table-brand__line--level {
-  color: rgba(198, 210, 228, 0.55);
+  color: #b1b1b1;
   font-weight: 700;
 }
 
-/* Dan 2026-09-05: "THE GAME NAME AND BLINDS ARE WAY TOO SMALL FONT. WE NEED
-   TO MAKE THAT LARGER." On a CASH table line 2 is the game and the blinds
-   alone (the hand number has its own row below), at twice the club line and
-   brighter: it is the one fact a player glances at to know where they are.
-   Still under the wordmark's opacity so it sits on the felt, not over the
-   cards; the masthead is centred on --sp-brand-top, so the extra height
-   spreads evenly above and below. Tournament tables keep the level row as it
-   was: their line 2 carries level + blinds + clock and has no room to grow. */
 .table-page:not(.table-page--tournament) .table-brand__line--level {
-  /* 0.98rem when the box allows it; on a narrow box the row scales with the
-     box (10.5cqw fits "NLH 0.10/0.25" with its spacing in ~95% of the width)
-     and never below 0.6rem, which is still 25% over the club line. */
-  font-size: clamp(0.6rem, 10.5cqw, 0.98rem);
+  font-size: calc(0.67 * clamp(0.8125rem, 10.5cqw, 1rem));
   font-weight: 800;
   letter-spacing: 0.05em;
   /* The same tracking, handed to the game span as an em it resolves at ITS
@@ -1509,7 +1458,6 @@
      scales down (--fit below) the 25 gaps stayed 0.72px each and the line was
      still 12px too wide at the ratio that should have fit it exactly. */
   --sp-game-ls: 0.05em;
-  color: rgba(232, 238, 250, 0.72);
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
 }
 
@@ -1539,7 +1487,7 @@
      never above, never below MASTHEAD_GAME_MIN_RATIO); the percentage keeps
      the clamp as the base, so a wide desktop box is untouched. */
   font-size: calc(100% * var(--fit, 1));
-  letter-spacing: var(--sp-game-ls, 0.1em);
+  letter-spacing: var(--sp-game-ls, 0.035em);
 }
 
 /* Even the floor could not hold it: wrap at the floor size rather than cut
@@ -1590,8 +1538,6 @@
   align-items: baseline;
   justify-content: center;
   gap: 5px;
-  font-size: 0.54rem;
-  color: rgba(214, 224, 240, 0.6);
   font-weight: 700;
 }
 
@@ -1613,14 +1559,13 @@
   align-items: center;
   justify-content: center;
   gap: 4px;
-  font-size: 0.5rem;
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.035em;
   white-space: normal;
 }
 
 .table-brand__bomb {
-  color: color-mix(in srgb, var(--sp-warn) 72%, transparent);
+  color: inherit;
   font-weight: 800;
 }
 
@@ -1659,14 +1604,13 @@
 /* The hand number, its own row at the foot of the masthead (2026-08-26 item
    5: never cut off - a row of its own cannot be). */
 .table-brand__line--hand {
-  font-size: 0.44rem;
-  color: rgba(198, 210, 228, 0.38);
+  color: #a6a6a6;
 }
 
 .table-brand__clock {
   font-family: 'JetBrains Mono', 'SF Mono', monospace;
   font-variant-numeric: tabular-nums;
-  color: rgba(77, 198, 96, 0.6);
+  color: inherit;
 }
 
 /* Masthead line 3 — time left in the round (Dan 2026-08-28). Its own line on
@@ -1681,21 +1625,14 @@
   display: block;
   text-align: center;
   font-variant-numeric: tabular-nums;
-  color: rgba(198, 210, 228, 0.4);
   font-weight: 600;
   letter-spacing: 0.02em;
   white-space: normal;
 }
 
-/* Union name after the club on masthead line 1. Dan 2026-09-07, item 8: the
-   club half is no longer gold, so this no longer needs to be "the cool one
-   next to the warm one" — it is now a dimmer weight of the SAME slate, which
-   reads as club-then-union rather than as two unrelated labels. */
-.table-brand__union {
-  color: rgba(214, 226, 244, 0.5);
-}
-
 /* Prefer normal word boundaries; an unusually long name may use more lines. */
+.table-brand__club,
+.table-brand__union,
 .table-brand__club-name {
   white-space: normal;
 }
@@ -1705,72 +1642,6 @@
     width: 56%;
     gap: 4px;
   }
-
-  /* 375px is the narrowest phone this ships to and the masthead is only 56% of
-     an already-narrower felt here, so line 1 has the least room of anywhere:
-     0.44rem (7.0px) keeps the date + club + union + game on ONE row instead of
-     ellipsizing it. It holds the same ~8% step down from the base size that
-     0.52 held from 0.58, so the two breakpoints still read as one type scale. */
-  .table-brand__line {
-    font-size: 0.44rem;
-  }
-
-  /* THE PLACARD DOES NOT SQUASH (2026-09-05). The rule above is written
-     after the masthead rows' own sizes at the same specificity, so on a
-     phone it took the game + blinds, the style badge and the rules row down
-     to 7 px with the club line - the one screen Dan reads the felt on. Each
-     row keeps its own step here, ~8% under its base size. */
-  .table-page:not(.table-page--tournament) .table-brand__line--level {
-    font-size: clamp(0.6rem, 10.5cqw, 0.9rem);
-  }
-
-  /* Dan 2026-09-07, 7B: the style badge merged INTO the level row above
-     ("ACTION PLO4 2/5" on one line), so there is no --style row to size any
-     more. Line 1 is the row that gained: it may now wrap rather than
-     ellipsize, and on the narrowest phone a two-line club + union is exactly
-     the case that rule exists for. */
-  .table-brand__line--rules {
-    font-size: 0.5rem;
-  }
-
-  .table-brand__line--bomb {
-    font-size: 0.46rem;
-  }
-
-  .table-brand__line--hand {
-    font-size: 0.4rem;
-  }
-}
-
-/* THE CLUB LINE AND THE HAND NUMBER READ AT A GLANCE (Dan 2026-10-12,
-   with the Diamond Arena felt: "'DIAMOND ARENA' AND HAND NUMBER SHOULD BE
-   LARGER AS WELL"). Every table prints the same masthead, so both rooms get
-   it. Declared after the 375px ladder above with one more class of
-   specificity, so the phone steps cannot quietly take them back down. The
-   short-viewport identity size further down still wins on a squashed
-   landscape table, where the room genuinely is not there. FELT_TEXT_BAND's
-   lineHeightPx in tableGeometry.ts grew with these rows so the dealer button
-   keeps clear of the taller printing. */
-.table-page .table-brand__line--identity {
-  font-size: 0.66rem;
-}
-.table-page .table-brand__line--hand {
-  font-size: 0.58rem;
-  color: rgba(198, 210, 228, 0.55);
-}
-@media (max-width: 380px) {
-  .table-page .table-brand__line--identity {
-    font-size: 0.6rem;
-  }
-  .table-page .table-brand__line--hand {
-    font-size: 0.54rem;
-  }
-}
-
-/* Fade the brand out while the drama is on the pot, not the felt. */
-.table-page--allin-mode .table-brand {
-  opacity: 0.35;
-  transition: opacity 0.5s ease;
 }
 
 /* Center spotlight — premium light pooling effect like overhead casino light */
@@ -4238,15 +4109,6 @@ button.post-bb-overlay-button {
   transition: opacity 0.15s ease;
 }
 
-/* Union name beside the club on the felt masthead (Dan 2026-08-18).
-   Slightly dimmer than the club so the hierarchy reads club-then-union at a
-   glance, and it never wraps the line on a 375px felt. */
-.table-brand__union {
-  opacity: 0.72;
-  font-weight: 500;
-  white-space: normal;
-}
-
 /* ═══════════════════════════════════════════════════════════════════════════
    POT-WIN FLOAT (Dan 2026-08-21, PokerBros reference: the "+1" above the
    winner's avatar). Phase 1 (0-30%): the number rides from the pot to the
@@ -5084,7 +4946,7 @@ button.post-bb-overlay-button {
   max-width: min(100%, 760px);
 }
 .table-brand__prize {
-  color: #e4e7ec;
+  color: #b1b1b1;
   font-weight: 800;
 }
 @media (max-width: 768px) {
@@ -5098,9 +4960,6 @@ button.post-bb-overlay-button {
   }
   .table-page--short-match .table-brand__meta {
     width: 100%;
-  }
-  .table-page--short-match .table-brand__line--identity {
-    font-size: 10px;
   }
 }
 
@@ -5196,27 +5055,9 @@ button.post-bb-overlay-button {
   }
 }
 
-/* Mobile felt printing stays secondary to the cards. The two room names
-   share one line; the hero tracker carries the personal VPIP requirement. */
 @media (max-width: 480px) and (orientation: portrait) {
   .table-page .table-brand {
     gap: 3px;
-  }
-  .table-page .table-brand__line--identity {
-    font-size: 7px;
-    white-space: normal;
-    line-height: 1.15;
-    letter-spacing: 0.04em;
-  }
-  .table-page:not(.table-page--tournament) .table-brand__line--level {
-    font-size: clamp(7px, 6.5cqw, 10px);
-    letter-spacing: 0.02em;
-  }
-  .table-page .table-brand__line--hand {
-    font-size: 6px;
-  }
-  .table-page .table-brand__line--bomb {
-    font-size: 6px;
   }
 }
 
@@ -5224,9 +5065,6 @@ button.post-bb-overlay-button {
 @media (max-width: 340px) and (orientation: portrait) {
   .table-page .table-brand {
     width: 50%;
-  }
-  .table-page .table-brand__line--identity {
-    font-size: 6px;
   }
 }
 

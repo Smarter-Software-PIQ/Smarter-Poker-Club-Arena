@@ -1,3 +1,4 @@
+import { PerformancePose } from '../PerformancePose';
 import { AtlasSprite } from '../AtlasSprite';
 import { RIG_VIEWBOX, type RigProps, type ThrowableRig } from '../rig';
 import type { ThrowableSpec } from '../spec';
@@ -24,8 +25,10 @@ export const spec: ThrowableSpec = {
     { at: 4000, marker: 'cut' },
   ],
   audio: [
-    { at: 333, sample: 'splat_wet_small' },
-    { at: 1800, sample: 'squirt_loop', gain: 0.18, loopUntil: 2900 },
+    { at: 333, sample: 'splat_wet_small', gain: 0.6 },
+    { at: 1800, sample: 'cheese_pull', gain: 0.75 },
+    { at: 2200, sample: 'cheese_pull', gain: 0.54 },
+    { at: 2900, sample: 'pop_soft', gain: 0.35 },
   ],
 };
 preloadThrowableCues(spec.audio.map((c) => c.sample));
@@ -67,13 +70,17 @@ function Payload(_props: RigProps) {
         />
       </g>
       <g className="thr-pizza_slice__tether">
-        <AtlasSprite
-          src="pizza_slice"
-          rect={[978, 0, 276, 807]}
-          x={-17}
-          y={-16}
-          width={34}
-          height={95}
+        <PerformancePose
+          src="pizza_slice-acting"
+          row={0}
+          rows={1}
+          x={-16.245}
+          y={-16.0}
+          width={32.491}
+          height={95.0}
+          duration={700}
+          delay={1420}
+          repeats={2}
         />
       </g>
       <g className="thr-pizza_slice__slice">
@@ -94,6 +101,24 @@ function Payload(_props: RigProps) {
           y={12}
           width={16}
           height={27}
+        />
+      </g>
+      <g className="thr-pizza_slice__strand0">
+        <path
+          d="M-14 2 q7 19 3 36 t8 35"
+          fill="none"
+          stroke="#ffcf72"
+          strokeWidth="2.7"
+          strokeLinecap="round"
+        />
+      </g>
+      <g className="thr-pizza_slice__strand1">
+        <path
+          d="M4 2 q7 19 3 36 t8 35"
+          fill="none"
+          stroke="#ffcf72"
+          strokeWidth="2.0"
+          strokeLinecap="round"
         />
       </g>
     </svg>

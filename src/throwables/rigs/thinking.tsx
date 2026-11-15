@@ -1,3 +1,4 @@
+import { PerformancePose } from '../PerformancePose';
 import { AtlasSprite } from '../AtlasSprite';
 import { RIG_VIEWBOX, type RigProps, type ThrowableRig } from '../rig';
 import type { ThrowableSpec } from '../spec';
@@ -25,8 +26,8 @@ export const spec: ThrowableSpec = {
     { at: 4000, marker: 'cut' },
   ],
   audio: [
-    { at: 433, sample: 'pop_soft', gain: 0.4 },
-    { at: 2400, sample: 'cheer_ooh', gain: 0.45 },
+    { at: 433, sample: 'pop_soft', gain: 0.25 },
+    { at: 1200, sample: 'thoughtful_hum', gain: 0.8 },
   ],
 };
 preloadThrowableCues(spec.audio.map((cue) => cue.sample));
@@ -53,10 +54,32 @@ function Payload(_props: RigProps) {
           <Face tile={0} />
         </g>
         <g className="thr-thinking__frown">
-          <Face tile={1} />
+          <PerformancePose
+            src="thinking-acting"
+            row={0}
+            rows={2}
+            x={-65.0}
+            y={-65.0}
+            width={130.0}
+            height={130.0}
+            duration={520}
+            delay={810}
+            repeats={1}
+          />
         </g>
         <g className="thr-thinking__raised">
-          <Face tile={2} />
+          <PerformancePose
+            src="thinking-acting"
+            row={1}
+            rows={2}
+            x={-65.0}
+            y={-65.0}
+            width={130.0}
+            height={130.0}
+            duration={620}
+            delay={1430}
+            repeats={2}
+          />
         </g>
         <g className="thr-thinking__hand">
           <AtlasSprite

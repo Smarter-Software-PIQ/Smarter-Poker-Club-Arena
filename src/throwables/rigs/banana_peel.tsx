@@ -1,3 +1,4 @@
+import { PerformancePose } from '../PerformancePose';
 import { AtlasSprite } from '../AtlasSprite';
 /**
  * ===============================================================================
@@ -74,7 +75,10 @@ export const bananaPeelSpec: ThrowableSpec = {
     { at: 200, marker: 'residue' },
     { at: 3500, marker: 'cut' },
   ],
-  audio: [{ at: 63, sample: 'boing_splat' }],
+  audio: [
+    { at: 167, sample: 'peel_skid', gain: 0.85 },
+    { at: 420, sample: 'thump_soft', gain: 0.42 },
+  ],
   reference: { video: 2, launchFrame: 675, throw: 'THROW 4' },
 };
 
@@ -125,18 +129,6 @@ function Flash(_: { uid: string }) {
  * down from a bunched crown, covering roughly 40% of the face. Yellow
  * outside, the pale inner skin showing where each strip has folded back.
  */
-function Peel(_: { uid: string }) {
-  return (
-    <AtlasSprite
-      src="banana_peel"
-      rect={[654, 75, 590, 515]}
-      x={-50}
-      y={-40}
-      width={100}
-      height={87}
-    />
-  );
-}
 
 function Projectile({ uid }: RigProps) {
   return (
@@ -165,7 +157,18 @@ function Payload({ uid }: RigProps) {
       {/* 200 (+67): the peel, draped like a hat. Static to the cut. */}
       <g transform="translate(0 -28)">
         <g className="thr-banana_peel__peel">
-          <Peel uid={uid} />
+          <PerformancePose
+            src="banana_peel-acting"
+            row={0}
+            rows={1}
+            x={-49.835}
+            y={-40.0}
+            width={99.67}
+            height={87.0}
+            duration={490}
+            delay={45}
+            repeats={1}
+          />
         </g>
       </g>
     </svg>
