@@ -166,7 +166,7 @@ CREATE TABLE public.ca_club_acct_hands (
 );
 CREATE INDEX ca_club_acct_hands_day_idx ON public.ca_club_acct_hands (acct_day, club_id);
 COMMENT ON TABLE public.ca_club_acct_hands IS
-  'Hands a club had at least one participant in, per table and accounting day, from the same hand records as ca_club_acct_fact. Readers add ca_club_acct_hands_journal.';
+  'The Club Data hand count of 20261022103651 on accounting records, per club, table and accounting day: raked hands (accepted rake > 0) in which at least one of the club''s players changed stack (observed stack delta not zero); a raked hand in which no participant with an earning club changed stack counts for the table''s club. Readers add ca_club_acct_hands_journal.';
 
 CREATE TABLE public.ca_club_acct_hands_journal (
   id           bigint      GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -470,18 +470,28 @@ $function$;
 
 -- 4d. Cash hands. p_hands rows: table_id, hand_number, recognized_at,
 --     union_id, participants (resolved the way the invoice reader resolves
---     them). A participant the record names no player for is the club's
---     unattributed player. Returns {"facts": [...], "hands": [...]}.
+--     them), raked (the hand's accepted rake > 0). A participant the record
+--     names no player for is the club's unattributed player. Returns
+--     {"facts": [...], "hands": [...]}: a fact's hands are the cash hands the
+--     player took part in; a hands row is the Club Data hand count of
+--     20261022103651, on accounting records: per table, the RAKED hands
+--     (accepted rake above zero) in which at least one of the club's players
+--     changed stack (observed stack delta not zero; a player dealt in who
+--     neither put chips in nor won any does not count the hand for the club),
+--     and a raked hand in which no participant with an earning club changed
+--     stack is the table club's. Live and history paths count the same way,
+--     so an escrow correction's +1 and -1 rows still net.
 CREATE FUNCTION public.fn_ca_club_acct_hand_rows(p_hands jsonb)
 RETURNS jsonb LANGUAGE sql STABLE SET search_path = public AS $function$
   WITH h AS (
-    SELECT x.table_id, x.hand_number, x.recognized_at, x.union_id, x.participants, COALESCE(x.sign, 1) AS sign
+    SELECT x.table_id, x.hand_number, x.recognized_at, x.union_id, x.participants, COALESCE(x.sign, 1) AS sign,
+           COALESCE(x.raked, false) AS raked
       FROM jsonb_to_recordset(COALESCE(p_hands, '[]'::jsonb)) AS x(table_id uuid, hand_number bigint,
-             recognized_at timestamptz, union_id uuid, participants jsonb, sign int)
+             recognized_at timestamptz, union_id uuid, participants jsonb, sign int, raked boolean)
      WHERE x.table_id IS NOT NULL AND x.recognized_at IS NOT NULL AND x.union_id IS NOT NULL
   ), p AS (
     SELECT h.table_id, h.hand_number, h.recognized_at, public.fn_ca_accounting_day(h.recognized_at) AS acct_day,
-           h.union_id, h.sign, (q->>'earning_club_id')::uuid AS club_id,
+           h.union_id, h.sign, h.raked, (q->>'earning_club_id')::uuid AS club_id,
            COALESCE((q->>'user_id')::uuid, '00000000-0000-0000-0000-000000000000'::uuid) AS user_id,
            COALESCE((q->>'observed_stack_delta')::numeric, 0) AS delta
       FROM h CROSS JOIN LATERAL jsonb_array_elements(
@@ -494,9 +504,17 @@ RETURNS jsonb LANGUAGE sql STABLE SET search_path = public AS $function$
                'result', p.sign * p.delta, 'hands', p.sign, 'at', p.recognized_at)) FROM p), '[]'::jsonb),
     'hands', COALESCE((SELECT jsonb_agg(jsonb_build_object(
                'club_id', c.club_id, 'acct_day', c.acct_day, 'table_id', c.table_id, 'hands', c.n))
-               FROM (SELECT p.club_id, p.acct_day, p.table_id, sum(p.sign) AS n
+               FROM (SELECT x.club_id, x.acct_day, x.table_id, sum(x.sign) AS n
                        FROM (SELECT DISTINCT p.club_id, p.acct_day, p.table_id, p.hand_number, p.sign FROM p
-                              WHERE p.club_id IS NOT NULL) p
+                              WHERE p.club_id IS NOT NULL AND p.raked AND p.delta <> 0
+                             UNION
+                             -- A raked hand in which no participant with an
+                             -- earning club changed stack is the table club's.
+                             SELECT t.club_id, public.fn_ca_accounting_day(h.recognized_at), h.table_id, h.hand_number, h.sign
+                               FROM h JOIN public.tables t ON t.id = h.table_id
+                              WHERE h.raked AND t.club_id IS NOT NULL
+                                AND NOT EXISTS (SELECT 1 FROM p WHERE p.table_id = h.table_id AND p.hand_number = h.hand_number
+                                                 AND p.sign = h.sign AND p.club_id IS NOT NULL AND p.delta <> 0)) x
                       GROUP BY 1, 2, 3) c), '[]'::jsonb));
 $function$;
 
@@ -547,7 +565,8 @@ CREATE FUNCTION public.fn_ca_club_acct_touch_hands(p_touches jsonb)
 RETURNS jsonb LANGUAGE sql STABLE SET search_path = public AS $function$
   SELECT COALESCE(jsonb_agg(jsonb_build_object(
            'table_id', t.table_id, 'hand_number', t.hand_number, 'recognized_at', t.recognized_at,
-           'union_id', u.id, 'participants', public.fn_ca_club_acct_touch_participants(t))), '[]'::jsonb)
+           'union_id', u.id, 'raked', COALESCE(NULLIF(t.accepted_rake, '')::numeric, 0) > 0,
+           'participants', public.fn_ca_club_acct_touch_participants(t))), '[]'::jsonb)
     FROM jsonb_populate_recordset(NULL::public.union_pnl_cash_outcome_touches, COALESCE(p_touches, '[]'::jsonb)) t
     JOIN public.unions u ON u.id::text = t.game_union_id;
 $function$;
@@ -560,7 +579,7 @@ CREATE FUNCTION public.fn_ca_club_acct_link_hands(p_links jsonb)
 RETURNS jsonb LANGUAGE sql STABLE SET search_path = public, smarter_private AS $function$
   SELECT COALESCE(jsonb_agg(jsonb_build_object(
            'table_id', r.table_id, 'hand_number', r.hand_number, 'recognized_at', o.recognized_at,
-           'union_id', u.id,
+           'union_id', u.id, 'raked', COALESCE(NULLIF(o.evidence->>'accepted_rake', '')::numeric, 0) > 0,
            'participants', (CASE WHEN r.roster_source = 'lightning_pool'
                                  THEN smarter_private.original_lightning_funding_owner_evidence(r.table_id, r.hand_number, r.game_scope, r.evidence)
                                  ELSE r.evidence END)->'participants')), '[]'::jsonb)
@@ -849,9 +868,11 @@ BEGIN
       JOIN public.unions u ON u.id::text = t.game_union_id
      CROSS JOIN LATERAL (VALUES
        (jsonb_build_object('table_id', t.table_id, 'hand_number', t.hand_number, 'recognized_at', t.recognized_at,
-          'union_id', u.id, 'sign', 1, 'participants', public.fn_union_pnl_posthand_escrow_touch(t))),
+          'union_id', u.id, 'sign', 1, 'raked', COALESCE(NULLIF(t.accepted_rake, '')::numeric, 0) > 0,
+          'participants', public.fn_union_pnl_posthand_escrow_touch(t))),
        (jsonb_build_object('table_id', t.table_id, 'hand_number', t.hand_number, 'recognized_at', t.recognized_at,
-          'union_id', u.id, 'sign', -1, 'participants', public.fn_ca_club_acct_unshaped_participants(t)))) s(x)
+          'union_id', u.id, 'sign', -1, 'raked', COALESCE(NULLIF(t.accepted_rake, '')::numeric, 0) > 0,
+          'participants', public.fn_ca_club_acct_unshaped_participants(t)))) s(x)
      WHERE t.shaped));
   PERFORM public.fn_ca_club_acct_put(v->'facts', 0::smallint);
   PERFORM public.fn_ca_club_acct_put_hands(v->'hands', 0::smallint);
