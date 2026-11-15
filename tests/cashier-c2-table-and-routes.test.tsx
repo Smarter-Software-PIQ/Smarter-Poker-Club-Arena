@@ -81,17 +81,13 @@ describe('C2-17: a spectator cannot open Top Up', () => {
     expect(seated).toBeLessThan(branch.indexOf('handleTournamentRebuy()'));
   });
 
-  it('the table menu offers its Top Up items to a seated hero only', () => {
-    const items = sliceBetween(
-      TABLE_PAGE,
-      "...(tableState.arenaAsset === 'diamonds'",
-      "id: 'auto-top-up'"
-    );
-    // The Diamond cash item and the chip cash item.
-    expect(items).toContain('!canTopUpSeat || tableState.heroSeat <= 0');
-    expect(items).toMatch(
-      /: tableState\.heroSeat > 0\s*\?\s*\[\s*\{\s*id: 'rebuy',\s*label: 'Top Up'/
-    );
+  /* 2026-11-14: a second case here read the Top Up rows of TablePage's own
+     TableMenu. Every table is drawn embedded, where that menu was never
+     rendered, so it pinned rows no player could reach. The menu is deleted
+     (tests/the-table-has-one-menu.law.test.ts); the tab bar case above is the
+     only Top Up row there is. */
+  it('the table page keeps no second menu to offer Top Up from', () => {
+    expect(TABLE_PAGE).not.toContain('<TableMenu');
   });
 });
 

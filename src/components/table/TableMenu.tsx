@@ -24,6 +24,7 @@ import {
   SettingsIcon,
   HelpIcon,
   LeaveTableIcon,
+  AddOnIcon,
 } from './TableMenuIcons';
 import { reportError } from '../../utils/errorReporter';
 import { isSoundAllowed } from '../../utils/soundGate';
@@ -134,6 +135,9 @@ export function createDefaultMenuSections(
     onSitOut?: () => void;
     onShowTournamentDock?: () => void;
     onStandUpBB?: () => void;
+    /** Present only at a seat the table page reports can straddle. */
+    onToggleStraddle?: () => void;
+    onOpenMarketplace?: () => void;
     onRebuy?: () => void;
     onAutoTopUp?: () => void;
     onAddOn?: () => void;
@@ -157,6 +161,9 @@ export function createDefaultMenuSections(
   },
   state?: {
     standUpBBBadge?: string;
+    straddleBadge?: string;
+    /** 'ON' while a leave is queued for the end of the hand. */
+    leaveNextHandBadge?: string;
     autoTopUpBadge?: string;
     isTournament?: boolean;
     soundsBadge?: string;
@@ -191,6 +198,22 @@ export function createDefaultMenuSections(
           keepOpen: true,
           onClick: handlers.onStandUpBB || (() => {}),
         },
+        /* STRADDLE, IN THE MENU PLAYERS ACTUALLY HAVE (2026-11-14). The 09-15
+           fix put this row in TablePage's own TableMenu. Every table is drawn
+           embedded in MultiTablePage, where that menu was never rendered, so
+           straddling stayed unreachable. This is the only table menu now. */
+        ...(handlers.onToggleStraddle
+          ? [
+              {
+                id: 'straddle',
+                label: 'Straddle',
+                icon: <AddOnIcon />,
+                badge: state?.straddleBadge,
+                keepOpen: true,
+                onClick: handlers.onToggleStraddle,
+              },
+            ]
+          : []),
         ...(state?.canAddFunds === false
           ? []
           : [
@@ -205,12 +228,27 @@ export function createDefaultMenuSections(
                    seat's own menu still says "Rebuy": that one knows what kind
                    of table it is on. */
                 id: 'rebuy',
-                label: 'Top Up',
+                /* A tournament seat rebuys; it does not top up. The row said
+                   "Top Up" there because the wording lived in TablePage's own
+                   menu, which no table rendered (2026-11-14). */
+                label: state?.isTournament ? 'Rebuy' : 'Top Up',
                 icon: <RebuyIcon />,
                 onClick: handlers.onRebuy || (() => {}),
               },
+              /* `onAddOn` was passed by the tab bar and placed on no row, the
+                 same dropped handler as `onToggleAlias` above. The page
+                 answers ADD_ON and says why when an add-on is not open. */
               ...(state?.isTournament
-                ? []
+                ? handlers.onAddOn
+                  ? [
+                      {
+                        id: 'addon',
+                        label: 'Add-On',
+                        icon: <AddOnIcon />,
+                        onClick: handlers.onAddOn,
+                      },
+                    ]
+                  : []
                 : [
                     {
                       id: 'auto-top-up',
@@ -222,6 +260,16 @@ export function createDefaultMenuSections(
                     },
                   ]),
             ]),
+        ...(handlers.onOpenMarketplace
+          ? [
+              {
+                id: 'marketplace',
+                label: 'Club Marketplace',
+                icon: <SettingsIcon />,
+                onClick: handlers.onOpenMarketplace,
+              },
+            ]
+          : []),
       ],
     },
     {
@@ -316,6 +364,7 @@ export function createDefaultMenuSections(
           id: 'leave-next-hand',
           label: 'Leave Table Next Hand',
           icon: <LeaveTableIcon />,
+          badge: state?.leaveNextHandBadge,
           onClick: handlers.onLeaveTableNextHand || (() => {}),
           disabled: !handlers.onLeaveTableNextHand,
         },

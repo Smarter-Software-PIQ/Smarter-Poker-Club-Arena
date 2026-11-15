@@ -1218,6 +1218,8 @@ export interface BusPayloadMap {
       | 'AUTO_TOP_UP'
       | 'TOGGLE_SOUNDS'
       | 'TOGGLE_VIBRATIONS'
+      | 'TOGGLE_STRADDLE'
+      | 'CLUB_MARKETPLACE'
       | 'REBUY'
       | 'ADD_ON'
       | 'SESSION_STATS'

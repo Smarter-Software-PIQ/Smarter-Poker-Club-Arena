@@ -187,7 +187,11 @@ describe('6.1 / 6.3 - the ten-minute stay clock is retired', () => {
     const CONFIRM = read('src/components/table/LeaveTableConfirm.tsx');
     expect(CONFIRM).toContain('disabled={leaving}');
     const TABLE_PAGE = read('src/pages/TablePage.tsx');
-    expect(TABLE_PAGE).toContain("label: 'Leave Table',");
+    /* The row is the tab bar menu's since 2026-11-14: TablePage's own menu was
+       never rendered (tests/the-table-has-one-menu.law.test.ts). It is still
+       unconditional, and the page still answers it. */
+    expect(read('src/components/table/TableMenu.tsx')).toContain("label: 'Leave Table',");
+    expect(TABLE_PAGE).toContain("case 'LEAVE_TABLE':");
     // The floor is read from the server at mount AND every time the buy-in
     // sheet opens (whitespace-tolerant: Prettier owns the layout).
     expect((TABLE_PAGE.match(/supabase\.rpc\(\s*'fn_cash_effective_buyin'/g) ?? []).length).toBe(2);

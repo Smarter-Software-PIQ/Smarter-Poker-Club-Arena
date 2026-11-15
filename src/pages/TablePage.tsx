@@ -238,7 +238,6 @@ import { FaceDeckContext } from '../components/table/faceDeckContext';
  */
 
 import smarterPokerLetterLogo from '../assets/smarter-poker-letter-logo.png';
-import { useButtonImage } from '../hooks/useButtonImage';
 
 import {
   cashAutoTopUpTarget,
@@ -540,7 +539,6 @@ import { useLightningJoinTiming } from '../lightning/useLightningJoinTiming';
 import type { ShareableHand, ShareableAction } from '../components/table/ShareHand';
 import { shareBoardPrefix, shareExtraBoards, visibleShareCards } from '../lib/liveShareCards';
 import { toShareVariant } from '../lib/shareHandModel';
-import TableMenu from '../components/table/TableMenu';
 
 /**
  * The engine's verb -> the verb a share link carries. ONE TABLE, and a verb
@@ -569,17 +567,6 @@ const LIVE_SHARE_VERB: Record<string, ShareableAction['action']> = {
   uncalled: 'RETURN',
   discard: 'DISCARD',
 };
-import {
-  SitOutIcon,
-  RebuyIcon,
-  AddOnIcon,
-  HandHistoryIcon,
-  LeaderboardIcon,
-  SessionStatsIcon,
-  SettingsIcon,
-  HelpIcon,
-  LeaveTableIcon,
-} from '../components/table/TableMenuIcons';
 import { useToast } from '../components/common/Toast';
 import { isVibrationPreferred, setVibrationAllowed } from '../utils/vibrationGate';
 import SeatKnockoutLayer, {
@@ -1281,6 +1268,9 @@ interface TablePageProps {
     buttonTheme?: string;
     isAutoRebuyEnabled?: boolean;
     standUpNextBB?: boolean;
+    straddleAvailable?: boolean;
+    straddleEnabled?: boolean;
+    leaveNextHandQueued?: boolean;
     /**
      * PokerBros parity (Dan 2026-08-20, from live multi-table footage): each
      * tab previews the hero's hole cards AT THAT TABLE. Reported as ONE
@@ -1698,7 +1688,6 @@ function LiveTablePage({
 }: TablePageProps = {}) {
   const followingPlayerRef = useRef(followingPlayer);
   followingPlayerRef.current = followingPlayer;
-  const addScreenIcon = useButtonImage('icon-addscreen');
   const { tableId: routeTableId } = useParams<{ tableId: string }>();
   const requestedTableId = embeddedTableId || routeTableId;
   // Every table effect receives a database ID or no scope. A URL segment
@@ -9392,6 +9381,15 @@ function LiveTablePage({
    *   2. The effect ran on mount, so simply opening a table POSTed
    *      `straddle=false` to the engine before the player touched anything.
    */
+  /* The tab bar's menu is the only table menu, and it cannot see this seat.
+     It offers Straddle only when told the seat may straddle (2026-11-14). */
+  useEffect(() => {
+    onTableInfoUpdate?.({
+      straddleAvailable: isStraddleAvailable,
+      straddleEnabled: isStraddleEnabled,
+    });
+  }, [isStraddleAvailable, isStraddleEnabled, onTableInfoUpdate]);
+
   const handleToggleStraddle = useCallback(
     async (next: boolean) => {
       if (!tableId || straddleBusy) return;
@@ -10341,8 +10339,6 @@ function LiveTablePage({
   const {
     isSoundEnabled,
     setIsSoundEnabled,
-    isVibrationEnabled,
-    setIsVibrationEnabled,
     isAutoRebuyEnabled,
     setIsAutoRebuyEnabled,
     playTurnAlert,
@@ -15094,7 +15090,6 @@ function LiveTablePage({
 
   const [showSettings, setShowSettings] = useState(false);
   const [showShareHand, setShowShareHand] = useState(false);
-  const [showTableMenu, setShowTableMenu] = useState(false);
   /* True while THIS table's bet/raise sizing overlay is open. The overlay is a
      tall fixed panel and the bottom-left HUD corner stands inside its band, so
      the corner is unmounted for as long as it is up rather than merely hidden
@@ -15215,6 +15210,16 @@ function LiveTablePage({
       const auto = tableStateRef.current;
       if (!seatCanAddFunds(auto.arenaAsset, auto.isTournament) || auto.isTournament) return;
       setIsAutoRebuyEnabled((prev) => !prev);
+    } else if (event.action === 'TOGGLE_STRADDLE') {
+      /* The same guard the row is offered under: the engine refuses a
+         straddle the host has not enabled, and an empty seat has none. */
+      if (!isStraddleAvailable) return;
+      void handleToggleStraddle(!isStraddleEnabled);
+    } else if (event.action === 'CLUB_MARKETPLACE') {
+      masterBus.emit('OPEN_HUB_TAB', {
+        path: hubMarketplaceDestination('', actualClubIdRef.current),
+        requestedBy: userId,
+      });
     } else if (event.action === 'TOGGLE_SOUNDS') {
       /* Fixed 2026-08-28: this wrote 'table_sound_muted' — a key NOTHING
          reads (soundGate documents it as outside the contract) — and emitted
@@ -27236,6 +27241,13 @@ function LiveTablePage({
     },
     onError: () => toast.warning('Could Not Confirm Your Leave. Please Try Again.'),
   });
+  /* The tab bar's Leave Table Next Hand row shows ON while a leave is queued.
+     It could not: nothing told the tab (2026-11-14). */
+  const leaveNextHandQueued =
+    finalLightningDeal.queued || lightningLeaveAfterHand.queued || leaveNextHand.queued;
+  useEffect(() => {
+    onTableInfoUpdate?.({ leaveNextHandQueued });
+  }, [leaveNextHandQueued, onTableInfoUpdate]);
   const requestLeaveAtNextHand = async () => {
     if (lightningRoom || lightningCapableClusterId) {
       if (finalLightningDeal.pending || leaveNextHand.pending || resumeLightningBusy.current)
@@ -28746,278 +28758,12 @@ function LiveTablePage({
              child is `pointer-events: auto`, and a wrapper as wide as its
              widest child becomes an invisible slab over the seats below it. */
           <div className="hud-ul-column hud-ul-column--stack">
-            {embeddedTableId ? null : (
-              <div className="hud-ul-column">
-                <TableMenu
-                  isOpen={showTableMenu}
-                  seatChangeEnabled={seatChangeEnabled}
-                  onClose={() => setShowTableMenu(false)}
-                  onToggle={() => setShowTableMenu((prev) => !prev)}
-                  position="top-left"
-                  sections={[
-                    {
-                      title: 'Quick Actions',
-                      actions: [
-                        {
-                          id: 'sitout',
-                          label: 'Sit Out',
-                          icon: <SitOutIcon />,
-                          onClick: () => void handleSitOut(),
-                        },
-                        {
-                          id: 'leave-next-hand',
-                          label:
-                            (lightningRoom || lightningCapableClusterId) &&
-                            (finalLightningDeal.queued ||
-                              lightningLeaveAfterHand.queued ||
-                              leaveNextHand.queued)
-                              ? finalLightningDeal.queued && !finalLightningDeal.pending
-                                ? 'Playing One More Hand'
-                                : 'Leaving After This Hand'
-                              : 'Leave Table Next Hand',
-                          icon: <LeaveTableIcon />,
-                          badge:
-                            finalLightningDeal.queued ||
-                            lightningLeaveAfterHand.queued ||
-                            leaveNextHand.queued
-                              ? 'ON'
-                              : undefined,
-                          disabled:
-                            finalLightningDeal.pending ||
-                            leaveNextHand.pending ||
-                            resumingLightning,
-                          onClick: () => void requestLeaveAtNextHand(),
-                        },
-                        {
-                          id: 'standup-bb',
-                          label: 'Stand Up Next Big Blind',
-                          icon: <SitOutIcon />,
-                          badge: standUpNextBB ? 'ON' : undefined,
-                          onClick: () => setStandUpNextBB(!standUpNextBB),
-                        },
-                        /* STRADDLE LIVES HERE NOW (2026-09-15). `StraddleToggle`
-                         was rendered only inside the old side menu, and that
-                         menu had lost its opener - the only reference to
-                         `toggleSideMenu` was the overlay's own close handler -
-                         so switching straddling on has been unreachable for as
-                         long as that was true. The control is the menu the
-                         player can actually open, on the same shape as Stand Up
-                         beside it, calling the same `handleToggleStraddle`.
-                         Only offered when the host enabled straddles: the
-                         engine refuses the toggle outright otherwise. */
-                        ...(isStraddleAvailable
-                          ? [
-                              {
-                                id: 'straddle',
-                                label: 'Straddle',
-                                icon: <AddOnIcon />,
-                                badge: isStraddleEnabled ? 'ON' : undefined,
-                                disabled: straddleBusy,
-                                onClick: () => void handleToggleStraddle(!isStraddleEnabled),
-                              },
-                            ]
-                          : []),
-                        /* A Diamond cash seat tops up; a Diamond tournament does
-                         not, because tournament funding is a later phase and
-                         the custody door refuses a tournament table outright.
-                         Offering the control there would promise a seat
-                         something no writer can give it. */
-                        /* Never to a spectator (audit C2-17): there is no seat to
-                         top up, and the engine refuses one that is not seated. */
-                        ...(tableState.arenaAsset === 'diamonds'
-                          ? !canTopUpSeat || tableState.heroSeat <= 0
-                            ? []
-                            : [
-                                {
-                                  id: 'rebuy',
-                                  label: 'Top Up',
-                                  icon: <RebuyIcon />,
-                                  onClick: () => setShowCashier(true),
-                                },
-                              ]
-                          : tableState.arenaAsset !== 'chips'
-                            ? []
-                            : tableState.isTournament
-                              ? [
-                                  {
-                                    id: 'rebuy',
-                                    label: 'Rebuy',
-                                    icon: <RebuyIcon />,
-                                    onClick: handleTournamentRebuy,
-                                  },
-                                  {
-                                    id: 'addon',
-                                    label: 'Add-On',
-                                    icon: <AddOnIcon />,
-                                    onClick: handleTournamentAddOn,
-                                  },
-                                ]
-                              : tableState.heroSeat > 0
-                                ? [
-                                    {
-                                      id: 'rebuy',
-                                      label: 'Top Up',
-                                      icon: <RebuyIcon />,
-                                      onClick: () => setShowCashier(true),
-                                    },
-                                  ]
-                                : []),
-                        ...(canTopUpSeat && !tableState.isTournament
-                          ? [
-                              {
-                                id: 'auto-top-up',
-                                label: 'Auto Top Up',
-                                icon: <RebuyIcon />,
-                                badge: isAutoRebuyEnabled ? 'ON' : undefined,
-                                onClick: () => setIsAutoRebuyEnabled(!isAutoRebuyEnabled),
-                              },
-                            ]
-                          : []),
-                        {
-                          id: 'marketplace',
-                          label: 'Club Marketplace',
-                          icon: <SettingsIcon />,
-                          // Dan 2026-09-04: a hub tab beside this table, not a
-                          // separate browser tab the felt cannot see (the
-                          // strip, the swipe and every other table stay put).
-                          //
-                          // 2026-09-21: the exact Hub page, not the alias. The
-                          // menu said '/hub/marketplace', which 308s to
-                          // /hub/diamond-store inside the frame - so the tab's
-                          // own address no longer matched what opened it, and
-                          // pressing the item again opened a SECOND tab (or hit
-                          // the cap) instead of focusing the one already there.
-                          // It also names this table's club, so "Club
-                          // Marketplace" opens that club's shop.
-                          onClick: () =>
-                            masterBus.emit('OPEN_HUB_TAB', {
-                              path: hubMarketplaceDestination('', actualClubIdRef.current),
-                              requestedBy: userId,
-                            }),
-                        },
-                      ],
-                    },
-                    {
-                      title: 'Table Info',
-                      actions: [
-                        {
-                          id: 'history',
-                          label: 'Hand History',
-                          icon: <HandHistoryIcon />,
-                          onClick: () => setShowHandHistory(true),
-                        },
-                        {
-                          id: 'leaderboard',
-                          label: 'Leaderboard',
-                          icon: <LeaderboardIcon />,
-                          onClick: () => setShowLeaderboard(true),
-                        },
-                        ...(!tableState.isTournament
-                          ? [
-                              {
-                                id: 'session-stats',
-                                label: 'Session Stats',
-                                icon: <SessionStatsIcon />,
-                                onClick: () => setShowSessionStats(true),
-                              },
-                            ]
-                          : []),
-                        // Bible V8 §11.1 — Settings accessible from BOTH table HUD menu AND hamburger menu
-                        {
-                          id: 'sounds',
-                          label: 'Sounds',
-                          icon: <SettingsIcon />,
-                          badge: isSoundEnabled ? 'ON' : 'OFF',
-                          onClick: () => setIsSoundEnabled(!isSoundEnabled),
-                        },
-                        {
-                          id: 'vibrations',
-                          label: 'Vibrations',
-                          icon: <SettingsIcon />,
-                          badge: isVibrationEnabled ? 'ON' : 'OFF',
-                          onClick: () => setIsVibrationEnabled(!isVibrationEnabled),
-                        },
-                        {
-                          id: 'settings',
-                          label: 'Table Settings',
-                          icon: <HelpIcon />,
-                          onClick: () => setShowSettings(true),
-                        },
-                      ],
-                    },
-                    {
-                      title: 'Support',
-                      actions: [
-                        {
-                          id: 'help',
-                          label: 'Help & Rules',
-                          icon: <HelpIcon />,
-                          onClick: () => setShowGameRules(true),
-                        },
-                      ],
-                    },
-                    {
-                      actions: [
-                        {
-                          id: 'leave',
-                          label: 'Leave Table',
-                          icon: <LeaveTableIcon />,
-                          onClick: () => openLeaveConfirm(),
-                          danger: true,
-                        },
-                      ],
-                    },
-                  ]}
-                  tableName={tableState.tableName}
-                  handNumber={tableState.handNumber}
-                  // 2026-08-22: the indicator used to mirror the LEGACY Supabase
-                  // channel (presence/chat) while the game rides the engine WS —
-                  // a dead engine socket showed a green dot and a Supabase blip
-                  // showed red on a healthy game. Report the transport that
-                  // actually carries the game.
-                  connectionStatus={
-                    engineWsStatus === 'connected'
-                      ? 'connected'
-                      : engineWsStatus === 'connecting' || engineWsStatus === 'reconnecting'
-                        ? 'reconnecting'
-                        : 'disconnected'
-                  }
-                />
-                {/* Dan 2026-08-15 — this "+" is ADD TABLE, not Add Chips.
-                It used to open CashierModal, which duplicated the wallet entry
-                already on the table menu and left no way to start a second
-                game without abandoning the current one.
-                It now asks MultiTablePage to open a LOBBY tab beside the
-                running table: the current game keeps dealing in its own tab on
-                its own live engine socket, and picking a cash game or
-                tournament from that lobby converts the lobby tab into the new
-                table tab in place. Add Chips lives on in the table menu.
-
-                2026-08-23 — this was labelled "Open another table", which is
-                the tab bar's "+" verbatim: two buttons, one accessible name,
-                two different actions (that one opens the Quick Join sheet,
-                this one opens a lobby tab). A screen reader announced them
-                identically and a getByLabel query matched both, so Playwright
-                resolved two elements and silently drove whichever came first
-                in the DOM. Named for what it does. */}
-                <button
-                  className="add-chips-icon-btn"
-                  onClick={() => {
-                    soundService.playButtonClick();
-                    masterBus.emit('OPEN_LOBBY_TAB', { requestedBy: userId });
-                  }}
-                  title="Open The Lobby In A New Tab"
-                  aria-label="Open The Lobby In A New Tab"
-                >
-                  <img
-                    src={addScreenIcon}
-                    className="add-chips-icon-btn__img"
-                    alt=""
-                    draggable={false}
-                  />
-                </button>
-              </div>
-            )}
+            {/* THE HAMBURGER IS THE TAB BAR'S (2026-11-14). A second TableMenu
+                stood here behind `embeddedTableId ? null :`, and every table
+                is drawn embedded, so it was never on screen. Rows added to it
+                (Straddle on 2026-09-15, Club Marketplace) reached nobody. One
+                menu: TableTabBar's, fed by what this page reports for its tab.
+                tests/the-table-has-one-menu.law.test.ts keeps it that way. */}
             {lightningRoom && !lightningRoomClosed && userId && userId !== 'guest' ? (
               <LightningLeaveControl
                 key={`${lightningRoom.poolSessionId}/${userId}`}
