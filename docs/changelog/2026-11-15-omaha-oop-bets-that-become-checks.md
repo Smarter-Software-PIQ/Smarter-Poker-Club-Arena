@@ -33,6 +33,10 @@ Two more options from the same hand, both off by default:
 
 `omahaPressureNeedsPostflopAggression` (off by default): in PLO4/PLO5 cash after the flop the V53 pressure play facing a bet and the preflop-width maniac call-down apply only when the bettor's own postflop betting is measured high; a preflop-wide or presumed-aggressive bettor who is a value leader or unmeasured after the flop gets none (receipt `omaha_pressure_withheld_value_leader`). With it, a turn or river value raise with a hand a possible straight or flush already beats becomes a call without a fresh scare card (receipt `omaha_value_raise_beaten_by_board_flatted`).
 
+## Addition: owner ruling 12:09
+
+`omahaOopTurnCheckAfterFlopCall` (off by default, no opponent read): heads-up and out of position on the turn after the flop bet or raise was called, a Horse without a nut-class hand checks. Having checked and facing the turn bet (also after calling a flop raise) it never raises, calls with four or more nut outs at a price within their share plus 0.15, folds with no nut out and one pair or a hand the board already beats at a price of 0.15 or more, and otherwise keeps today's call or fold. Receipts `omaha_oop_turn_check_after_flop_call`, `omaha_oop_turn_check_call_nut_draw`, `omaha_oop_turn_check_fold_no_outs`, `omaha_oop_turn_check_raise_flatted`.
+
 ## Evaluation
 
 Not run. To be declared in the evidence archive (`plo-handoff-review-01a1cbbd/pairedriver-20261115/`) before any graded run; the verdicts are added here when they are read.

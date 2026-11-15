@@ -2215,6 +2215,14 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
       b: {},
     },
     {
+      name: `${variant}_omaha_oop_turn_check_after_flop_call`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { omahaOopTurnCheckAfterFlopCall: true },
+      b: {},
+    },
+    {
       name: `${variant}_omaha_bare_overpair_oop_flop_check`,
       variant,
       pairs: 6000,

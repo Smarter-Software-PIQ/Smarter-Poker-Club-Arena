@@ -44,7 +44,11 @@ import {
   OMAHA_RIVER_MEDIUM_BET_VARIANTS,
   omahaRiverMediumBetCall,
 } from '../HorseOmahaRiverMediumBetCalls.js';
-import { OMAHA_OOP_CHECK_VARIANTS, omahaOopCheckSpot } from '../HorseOmahaOopChecks.js';
+import {
+  OMAHA_OOP_CHECK_VARIANTS,
+  omahaOopCheckSpot,
+  omahaOopTurnFacingBetVerdict,
+} from '../HorseOmahaOopChecks.js';
 import { shortAllInSpot } from '../HorseShortAllInCallFloor.js';
 import { holdemFourBetSpot } from '../HorseHoldemPremiumAggression.js';
 import { tournamentShoveDiscipline } from '../HorseTournamentShoveDiscipline.js';
@@ -1254,6 +1258,25 @@ function policyGraphIsValid(
             context.gameState,
             previous.action === 'bet' ? (previous.amount ?? undefined) : undefined
           )));
+    // Owner 2026-11-15 12:09 (omahaOopTurnCheckAfterFlopCall, default off): out
+    // of position on the turn, having checked and facing a bet, a raise or a
+    // fold becomes a call. Admitted only with the request, where the rule's
+    // own verdict, re-run on it, allows that call: a fold becomes a call only
+    // on the nut-draw verdict, a raise on either non-fold verdict. (Its fold
+    // is admitted by the paired-board fold's form above.)
+    const oopTurnVerdict =
+      transition.node === 'wager_rules' &&
+      OMAHA_OOP_CHECK_VARIANTS.has(variant) &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      ['fold', 'raise', 'all_in'].includes(previous.action) &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant
+        ? omahaOopTurnFacingBetVerdict(context.player, context.gameState)
+        : null;
+    const omahaOopTurnToCall =
+      oopTurnVerdict === 'call_nut_draw' ||
+      (oopTurnVerdict === 'no_raise' && previous !== null && previous.action !== 'fold');
     if (
       transition.node === 'wager_rules' &&
       changed &&
@@ -1262,6 +1285,7 @@ function policyGraphIsValid(
       !pairedBoardRiverCheck &&
       !omahaBeatenBetToCheck &&
       !omahaOopBetToCheck &&
+      !omahaOopTurnToCall &&
       !omahaOnePairReduction &&
       !shortAllInCall &&
       !noFourBetFold &&

@@ -989,6 +989,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaOopTurnCheckAfterFlopCall',
+    'Owner 2026-11-15 12:09 (hands 59517323, 59521326, 59526261; check-call when drawing to the nuts, check-fold when the hand cannot improve): PLO4/PLO5 cash, heads-up, one board, high only, turn, out of position, no opponent read. The flop bet or raise called and no nut-class hand: a turn bet becomes a check. Having checked and facing the turn bet (also after calling a flop raise): never a raise; a call with four or more nut outs when the price is within their share plus 0.15; a fold with no nut out and one pair or a hand the board already beats at a price of 0.15 or more; otherwise today call or fold (HorseOmahaOopChecks.ts). Runs before omahaOverpairNoOopBarrelVsValueLeader and omahaPairedTurnNoBarrelWithoutBoatVsValueLeader. Default OFF (read === true) until its declared evaluation passes',
+    'V94'
+  ),
+  flag(
     'omahaBareOverpairOopFlopCheck',
     'Owner 2026-11-15 11:05 (hand 59517323): PLO4/PLO5 cash, flop, out of position (an opponent still acts behind), one pair only, no flush draw and under eight straight outs, the flop two-tone or connected: a bet becomes a check, heads-up and multiway, with no opponent read and no stack-to-pot exception (HorseOmahaOopChecks.ts). Default OFF (read === true) until its declared evaluation passes',
     'V94'
@@ -4029,6 +4034,30 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_value_raise_beaten_by_board_flatted',
     'HorseLogic postflop facing a bet, value-raise branch (omahaPressureNeedsPostflopAggression)',
     'PLO4/PLO5 cash turn or river value raise facing a bet with a hand a possible straight or flush on the board already beats, not nut class: called instead, with no fresh scare card needed',
+    'V94'
+  ),
+  receipt(
+    'omaha_oop_turn_check_after_flop_call',
+    'HorseLogic wager_rules (HorseOmahaOopChecks, omahaOopTurnCheckAfterFlopCall)',
+    'PLO4/PLO5 cash heads-up turn bet out of position without a nut-class hand, after the flop bet or raise was called: turned into a check',
+    'V94'
+  ),
+  receipt(
+    'omaha_oop_turn_check_call_nut_draw',
+    'HorseLogic wager_rules (HorseOmahaOopChecks, omahaOopTurnCheckAfterFlopCall)',
+    'out of position on the turn, having checked and facing a bet, with four or more nut outs at a price within their share plus 0.15: a raise or a fold turned into a call',
+    'V94'
+  ),
+  receipt(
+    'omaha_oop_turn_check_fold_no_outs',
+    'HorseLogic wager_rules (HorseOmahaOopChecks, omahaOopTurnCheckAfterFlopCall)',
+    'out of position on the turn, having checked and facing a bet at a price of 0.15 or more, with no nut out and one pair or a hand the board already beats: folded',
+    'V94'
+  ),
+  receipt(
+    'omaha_oop_turn_check_raise_flatted',
+    'HorseLogic wager_rules (HorseOmahaOopChecks, omahaOopTurnCheckAfterFlopCall)',
+    'out of position on the turn, having checked and facing a bet, without a nut-class hand and outside the nut-draw and no-outs verdicts: a raise turned into a call',
     'V94'
   ),
   receipt(

@@ -56,6 +56,8 @@ import {
   omahaOverpairOopTurnBarrelSpot,
   omahaPairedRiverThinLeadSpot,
   omahaPairedTurnBarrelSpot,
+  omahaOopTurnCheckAfterFlopCallSpot,
+  omahaOopTurnFacingBetVerdict,
   omahaTurnBetLacksRiverPlan,
   type OmahaRiverShoveEnv,
 } from './HorseOmahaOopChecks.js';
@@ -3060,6 +3062,23 @@ export interface HorseDecideOpts {
    * OPT-IN, default off, read as `=== true`: it changes live decisions and
    * its declared evaluation has not been run. */
   omahaRiverNutBlockerBluffReachable?: boolean;
+  /** Owner 2026-11-15 12:09 (hands 59517323, 59521326, 59526261: "THIS SHOULD
+   * BE A CHECK CALL 100% OF THE TIME ... CHECK CALL WHEN DRAWING TO THE NUTS,
+   * CHECK FOLD WHEN YOU CAN'T IMPROVE"): PLO4/PLO5 cash, heads-up, one board,
+   * high only, the turn, the Horse out of position, no opponent read. Its
+   * flop bet or raise called and no nut-class hand: a turn bet becomes a
+   * check. Then, having checked and facing the turn bet (also after it called
+   * a flop raise): it never raises; it calls with four or more nut outs when
+   * the price is within the outs' share plus 0.15; it folds with no nut out
+   * and one pair or a hand the board already beats at a price of 0.15 or
+   * more; otherwise today's call or fold stands
+   * (HorseOmahaOopChecks.omahaOopTurnCheckAfterFlopCallSpot,
+   * omahaOopTurnFacingBetVerdict). Runs before
+   * omahaOverpairNoOopBarrelVsValueLeader and
+   * omahaPairedTurnNoBarrelWithoutBoatVsValueLeader. Default OFF (opt-in,
+   * read `=== true`); league cards plo4/plo5
+   * _omaha_oop_turn_check_after_flop_call. */
+  omahaOopTurnCheckAfterFlopCall?: boolean;
   /** A token-priced committed call is not barred by stack-off premiums
    * (HorseTokenCallPrice.ts, PLO6-AUDIT-010). Default on; false only for
    * the regression's non-vacuity control. */
@@ -6999,7 +7018,44 @@ function omahaOopCheckRules(
   const riverOn = opts.omahaPairedRiverNoThinLeadVsValueLeader === true;
   const pairedTurnOn = opts.omahaPairedTurnNoBarrelWithoutBoatVsValueLeader === true;
   const planOn = opts.omahaTurnBetNeedsRiverPlan === true;
-  if (!flopOn && !turnOn && !riverOn && !pairedTurnOn && !planOn) return decision;
+  const oopTurnOn = opts.omahaOopTurnCheckAfterFlopCall === true;
+  if (!flopOn && !turnOn && !riverOn && !pairedTurnOn && !planOn && !oopTurnOn) return decision;
+  // omahaOopTurnCheckAfterFlopCall, facing the turn bet after the check: the
+  // one place these rules touch a decision facing a wager.
+  if (oopTurnOn && String(gs.stage ?? '') === 'turn') {
+    try {
+      const verdict = omahaOopTurnFacingBetVerdict(player, gs);
+      if (verdict !== null) {
+        const tele = telemetryOn(opts);
+        const stack = Number.isFinite(player.stack) ? Math.max(0, player.stack) : 0;
+        const toCall = Math.max(0, gs.toCall as number);
+        const isRaise =
+          decision.action === 'raise' || (decision.action === 'all_in' && stack > toCall + 0.005);
+        if (verdict === 'fold_no_outs') {
+          if (decision.action === 'fold') return decision;
+          if (tele) noteFire('omaha_oop_turn_check_fold_no_outs');
+          const folded: HorseDecision = { ...decision, action: 'fold' };
+          delete folded.amount;
+          return folded;
+        }
+        if (isRaise || (verdict === 'call_nut_draw' && decision.action === 'fold')) {
+          const nutDraw = verdict === 'call_nut_draw';
+          if (tele)
+            noteFire(
+              nutDraw ? 'omaha_oop_turn_check_call_nut_draw' : 'omaha_oop_turn_check_raise_flatted'
+            );
+          return {
+            ...decision,
+            action: 'call',
+            amount: Math.round(Math.min(toCall, stack) * 100) / 100,
+          };
+        }
+        return decision;
+      }
+    } catch {
+      return decision;
+    }
+  }
   if (decision.action !== 'bet' && decision.action !== 'raise' && decision.action !== 'all_in')
     return decision;
   try {
@@ -7013,6 +7069,11 @@ function omahaOopCheckRules(
     if (stage === 'flop') {
       if (!flopOn || !omahaBareOverpairOopFlopSpot(player, gs)) return decision;
       if (tele) noteFire('omaha_bare_overpair_oop_flop_checked');
+      return checked();
+    }
+    // omahaOopTurnCheckAfterFlopCall comes before the two narrower turn rules.
+    if (stage === 'turn' && oopTurnOn && omahaOopTurnCheckAfterFlopCallSpot(player, gs)) {
+      if (tele) noteFire('omaha_oop_turn_check_after_flop_call');
       return checked();
     }
     const turnSpot = stage === 'turn' && turnOn && omahaOverpairOopTurnBarrelSpot(player, gs);

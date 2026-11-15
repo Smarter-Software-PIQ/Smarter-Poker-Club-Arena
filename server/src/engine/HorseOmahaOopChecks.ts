@@ -56,6 +56,11 @@ import type { HorseGameStateV2 } from './HorseLogic.js';
 import { omahaBoardShape, omahaDrawQuality, omahaMadeClass, variantInfo } from './HorseEval.js';
 import { RANKS, SUITS } from './PokerEngine.js';
 import {
+  omahaBeatenByBoard,
+  omahaNutClassNow,
+  omahaTurnRedrawShare,
+} from './HorseOmahaMadeHandDefense.js';
+import {
   ploPairedBoardFoldRespectsPrice,
   ploPairedBoardMustFold,
 } from './HorsePloPairedBoardFold.js';
@@ -74,6 +79,11 @@ type Street = 'flop' | 'turn' | 'river';
 
 /** The street at this node when all three options' common scope holds, else null. */
 export function omahaOopCheckStreet(hero: SeatPlayer, gs: HorseGameStateV2): Street | null {
+  return scopeStreet(hero, gs, false);
+}
+
+/** The common scope; `facing` asks for a wager to call (fold and call legal) instead of none. */
+function scopeStreet(hero: SeatPlayer, gs: HorseGameStateV2, facing: boolean): Street | null {
   const variant = String(gs.gameVariant ?? '').toLowerCase();
   if (!OMAHA_OOP_CHECK_VARIANTS.has(variant)) return null;
   const stage = String(gs.stage ?? '');
@@ -98,6 +108,15 @@ export function omahaOopCheckStreet(hero: SeatPlayer, gs: HorseGameStateV2): Str
   const toCall = Number.isFinite(gs.toCall)
     ? Math.max(0, gs.toCall as number)
     : Math.max(0, (gs.currentBet || 0) - (Number.isFinite(hero.bet) ? hero.bet : 0));
+  if (facing) {
+    if (!(toCall > 0.005)) return null;
+    if (
+      Array.isArray(gs.legalActions) &&
+      !(gs.legalActions.includes('call') && gs.legalActions.includes('fold'))
+    )
+      return null;
+    return stage;
+  }
   if (toCall > 0.005) return null;
   if (Array.isArray(gs.legalActions) && !gs.legalActions.includes('check')) return null;
   return stage;
@@ -529,11 +548,138 @@ export function omahaTurnBetLacksRiverPlan(
   }
 }
 
+/**
+ * omahaOopTurnCheckAfterFlopCall (owner 2026-11-15 12:09, hands 59517323,
+ * 59521326 and 59526261: "THIS SHOULD BE A CHECK CALL 100% OF THE TIME WHEN
+ * THE OPPONENT IS ONE OUT OF POSITION, AND TWO THEY OPPONENT ALREADY CALLED A
+ * FLOP BET. CHECK CALL WHEN DRAWING TO THE NUTS, CHECK FOLD WHEN YOU CAN'T
+ * IMPROVE WITH ANY TURN CARDS", meaning the Horse is out of position and the
+ * flop bet was called). No opponent read. Two halves:
+ *
+ * THE CHECK (omahaOopTurnCheckAfterFlopCallSpot): turn, heads-up, the
+ * opponent acts behind and called the Horse's flop bet or raise, and the
+ * Horse does not hold a nut-class hand for the street (omahaNutClassNow): a
+ * bet becomes a check. Nut-class hands keep betting.
+ *
+ * FACING THE TURN BET (omahaOopTurnFacingBetVerdict): turn, heads-up, the
+ * Horse checked and the opponent bet, chips went in from both on the flop
+ * (the Horse's bet or raise was called, or the Horse called his), not nut
+ * class. With `outs` the unseen river cards that make the nut flush or nut
+ * straight on the board that card makes, or a full house or better
+ * (omahaTurnRedrawShare, Omaha's two-card rule), and `price` the call over
+ * the pot after it:
+ *  - 'call_nut_draw': outs >= OMAHA_OOP_TURN_MIN_NUT_OUTS (4) and
+ *    price <= outs / unseen + OMAHA_OOP_TURN_SHOWDOWN_CREDIT (0.15, a stated
+ *    allowance for the made hand's showdown equity, not a measurement): the
+ *    Horse calls, whatever the decision was;
+ *  - 'fold_no_outs': no such river card, the made hand is one pair or less
+ *    or a possible straight or flush already beats it (omahaBeatenByBoard),
+ *    and price >= OMAHA_OOP_TURN_TOKEN_PRICE (0.15): the Horse folds;
+ *  - 'no_raise': everything between: today's call or fold stands, and a
+ *    raise becomes a call (the Horse never check-raises here).
+ */
+export const OMAHA_OOP_TURN_MIN_NUT_OUTS = 4;
+export const OMAHA_OOP_TURN_SHOWDOWN_CREDIT = 0.15;
+export const OMAHA_OOP_TURN_TOKEN_PRICE = 0.15;
+
+/** On the flop, chips went in from both: hero's bet or raise was called by `opp`, or hero called his. */
+function flopWagerCalled(hero: SeatPlayer, gs: HorseGameStateV2, opp: SeatPlayer): boolean {
+  let lastAggressor: number | null = null;
+  let callers = new Set<number>();
+  for (const a of gs.actionHistory ?? []) {
+    if (String(a.stage) !== 'flop') continue;
+    const act = String(a.action);
+    if (act === 'bet' || act === 'raise' || act === 'all_in') {
+      if (act === 'all_in' && lastAggressor !== null && a.isFullRaise !== true) {
+        callers.add(a.seat);
+        continue;
+      }
+      lastAggressor = a.seat;
+      callers = new Set<number>();
+    } else if (act === 'call' && a.seat !== lastAggressor) callers.add(a.seat);
+  }
+  return (
+    (lastAggressor === hero.seat && callers.has(opp.seat)) ||
+    (lastAggressor === opp.seat && callers.has(hero.seat))
+  );
+}
+
+/** The check half: see above. */
+export function omahaOopTurnCheckAfterFlopCallSpot(
+  hero: SeatPlayer,
+  gs: HorseGameStateV2
+): boolean {
+  try {
+    if (omahaOopCheckStreet(hero, gs) !== 'turn') return false;
+    const live = liveOpponents(hero, gs);
+    if (live.length !== 1) return false;
+    if (!omahaCallersOfHeroBet(hero, gs, 'flop').has(live[0].seat)) return false;
+    if (!omahaOpponentActsBehind(hero, gs)) return false;
+    return !omahaNutClassNow(hero, gs);
+  } catch {
+    return false;
+  }
+}
+
+export type OmahaOopTurnFacingBet = 'call_nut_draw' | 'fold_no_outs' | 'no_raise';
+
+/** The facing-bet half: see above. Null outside the spot. */
+export function omahaOopTurnFacingBetVerdict(
+  hero: SeatPlayer,
+  gs: HorseGameStateV2
+): OmahaOopTurnFacingBet | null {
+  try {
+    if (scopeStreet(hero, gs, true) !== 'turn') return null;
+    const live = liveOpponents(hero, gs);
+    if (live.length !== 1) return null;
+    const opp = live[0];
+    // The Horse checked this street, has no chips in on it, and the opponent bet.
+    if ((Number.isFinite(hero.bet) ? hero.bet : 0) > 0.005) return null;
+    const turn = (gs.actionHistory ?? []).filter((a) => String(a.stage) === 'turn');
+    const first = turn.find((a) => a.seat === hero.seat || a.seat === opp.seat);
+    if (!first || first.seat !== hero.seat || String(first.action) !== 'check') return null;
+    if (
+      !turn.some(
+        (a) => a.seat === opp.seat && ['bet', 'raise', 'all_in'].includes(String(a.action))
+      )
+    )
+      return null;
+    if (!flopWagerCalled(hero, gs, opp)) return null;
+    if (omahaNutClassNow(hero, gs)) return null;
+    const board: Card[] = gs.communityCards ?? [];
+    const unseen = omahaUnseenRiverCards(hero, board).length;
+    if (unseen === 0) return null;
+    const share = omahaTurnRedrawShare(hero.cards, board, hero.knownDeadCards ?? []);
+    const outs = Math.round(share * unseen);
+    const stack = Number.isFinite(hero.stack) ? Math.max(0, hero.stack) : 0;
+    const call = Math.min(Math.max(0, gs.toCall as number), stack);
+    if (!(call > 0.005)) return null;
+    const pot = Number.isFinite(gs.pot) ? Math.max(0, gs.pot) : 0;
+    const livePot = Math.max(0, pot - ((gs.toCall as number) - call));
+    const price = call / (livePot + call);
+    if (
+      outs >= OMAHA_OOP_TURN_MIN_NUT_OUTS &&
+      price <= share + OMAHA_OOP_TURN_SHOWDOWN_CREDIT + 1e-9
+    )
+      return 'call_nut_draw';
+    if (
+      outs === 0 &&
+      price >= OMAHA_OOP_TURN_TOKEN_PRICE &&
+      (category(hero.cards, board) <= ONE_PAIR || omahaBeatenByBoard(hero.cards, board))
+    )
+      return 'fold_no_outs';
+    return 'no_raise';
+  } catch {
+    return null;
+  }
+}
+
 /** Any of the spots: what the worker receipt validator admits as a bet turned into a check. */
 export function omahaOopCheckSpot(hero: SeatPlayer, gs: HorseGameStateV2, bet?: number): boolean {
   return (
     // the widest form of the river plan test (no price exception, no fold exemption)
     omahaTurnBetLacksRiverPlan(hero, gs, bet) ||
+    omahaOopTurnCheckAfterFlopCallSpot(hero, gs) ||
     omahaBareOverpairOopFlopSpot(hero, gs) ||
     omahaOverpairOopTurnBarrelSpot(hero, gs) ||
     omahaPairedTurnBarrelSpot(hero, gs) ||
