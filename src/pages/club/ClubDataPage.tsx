@@ -29,25 +29,36 @@ import { usePlayerPreference } from '../../hooks/usePlayerPreference';
  *
  * The client gate below is cosmetic. The RPCs raise 42501 on their own.
  *
- * Days are ACCOUNTING days: 02:00 to 02:00 America/Chicago, daylight saving
- * included, the boundary the union weekly invoice uses (owner, 2026-11-14).
- * Every figure comes from the invoice's own accounting records
- * (20261115004729, 20261115013008). The page carries the first and last
- * accounting day and shows the window by its boundaries: the range chip
- * reads "Nov 2, 2026 2:00 AM To Nov 9, 2026 2:00 AM", and the end the owner
- * picks is the 02:00 the window stops at. MTT Winnings are finished MTTs
- * only; a running MTT's entries are shown as Unfinished MTT Entries.
+ * THE DAY (stage 2 reader contract, 2026-11-15). For a Midway Union member
+ * club, or the union itself, every reader answers on the union invoice's
+ * ACCOUNTING day, 02:00 to 02:00 America/Chicago, daylight saving included
+ * (owner, 2026-11-14), from the invoice's own accounting records. Any other
+ * club keeps Chicago midnight days. The answer states its basis
+ * (accounting_basis / day_basis) and the page counts "today", labels and
+ * windows by it. The page carries the first and last day (what the readers
+ * take) and shows the window by its boundaries: the range chip reads
+ * "Nov 2, 2026 2:00 AM To Nov 9, 2026 2:00 AM", and the end the owner picks
+ * is the boundary the window stops at, so that pair is the seven-day
+ * invoice week. Exports carry the same window in every row.
  */
 
 import {
-  CLUB_DATA_DAY_RULE,
   CLUB_DATA_TIME_ZONE,
   CLUB_DATA_ZONE_LABEL,
-  accountingDay,
-  accountingWindowLabel,
   addCalendarDays,
   chicagoBoundaryStamp,
   chicagoClock,
+  clubDataBoundaryClock,
+  clubDataDayBasis,
+  clubDataDayOn,
+  clubDataDayRule,
+  clubDataWindow,
+  clubDataWindowLabel,
+  coverageNotices,
+  coverageWindowLabel,
+  isCalendarDate,
+  type ClubDataCoverage,
+  type ClubDataDayBasis,
 } from '../../lib/clubDataDay';
 import {
   useCallback,
@@ -154,6 +165,8 @@ interface SnapshotSummary {
   cash_fee?: number;
   mtt_fee?: number;
   hands: number;
+  /** Chips seated players hold now (union basis: shown, not in winnings). */
+  on_felt?: number;
 }
 
 interface Snapshot {
@@ -177,12 +190,9 @@ interface Snapshot {
   data_updated_at: string | null;
   generated_at: string;
   accounting_basis?: string;
-  /** fn_ca_club_acct_coverage: whether the read model holds every day shown. */
-  accounting_coverage?: {
-    complete?: boolean;
-    missing_days?: string[];
-    failed_days?: string[];
-  } | null;
+  day_basis?: string;
+  /** fn_ca_club_acct_coverage (union basis only). */
+  accounting_coverage?: ClubDataCoverage | null;
 }
 
 interface PlayerRow {
@@ -876,7 +886,16 @@ function isVerifiedCachedPlayerLedger(
   );
 }
 
-function rowsToCsv(rows: SnapshotRow[]): string {
+/**
+ * The window every exported row belongs to, as two exact instants, so a file
+ * read on its own says which accounting period it is ([start, end), UTC ISO).
+ */
+interface ExportWindow {
+  start: string;
+  end: string;
+}
+
+function rowsToCsv(rows: SnapshotRow[], window: ExportWindow): string {
   const esc = csvEscape;
   const head = [
     'started_at',
@@ -889,6 +908,8 @@ function rowsToCsv(rows: SnapshotRow[]): string {
     'players',
     'fee',
     'winnings',
+    'window_start',
+    'window_end',
   ];
   const lines = rows.map((r) =>
     [
@@ -902,6 +923,8 @@ function rowsToCsv(rows: SnapshotRow[]): string {
       r.players,
       r.fee_exact ?? r.fee,
       r.winnings,
+      window.start,
+      window.end,
     ]
       .map(esc)
       .join(',')
@@ -909,11 +932,33 @@ function rowsToCsv(rows: SnapshotRow[]): string {
   return [head.join(','), ...lines].join('\n');
 }
 
-function playersToCsv(rows: PlayerRow[]): string {
+function playersToCsv(rows: PlayerRow[], window: ExportWindow): string {
   const esc = csvEscape;
-  const head = ['user_id', 'username', 'hands', 'rake', 'net', 'cash_net', 'tournament_net'];
+  const head = [
+    'user_id',
+    'username',
+    'hands',
+    'rake',
+    'net',
+    'cash_net',
+    'tournament_net',
+    'window_start',
+    'window_end',
+  ];
   const lines = rows.map((r) =>
-    [r.user_id, r.username, r.hands, r.rake, r.net, r.cash_net, r.tournament_net].map(esc).join(',')
+    [
+      r.user_id,
+      r.username,
+      r.hands,
+      r.rake,
+      r.net,
+      r.cash_net,
+      r.tournament_net,
+      window.start,
+      window.end,
+    ]
+      .map(esc)
+      .join(',')
   );
   return [head.join(','), ...lines].join('\n');
 }
@@ -935,7 +980,13 @@ export default function ClubDataPage() {
   const [clubName, setClubName] = useState<string>('');
   const gameHost = useClubGameHost(clubUuid, !!userId && !isHydrating);
   const [preset, setPreset] = usePlayerPreference<PresetId>('club/ClubDataPage:preset', 14);
-  const [endDate, setEndDate] = useState<string>(() => accountingDay());
+  // The day this club counts, as its last verified answer stated it: the
+  // 02:00 Chicago accounting day for a union club, Chicago midnight days for
+  // any other. Calendar until an answer says otherwise.
+  const [dayBasis, setDayBasis] = useState<ClubDataDayBasis>('calendar');
+  const dayBasisRef = useRef<ClubDataDayBasis>('calendar');
+  dayBasisRef.current = dayBasis;
+  const [endDate, setEndDate] = useState<string>(() => clubDataDayOn('calendar'));
   const [game, setGame] = usePlayerPreference<GameFilter>('club/ClubDataPage:game', 'ALL');
   const [stakes, setStakes] = usePlayerPreference<StakesFilter>('club/ClubDataPage:stakes', 'ALL');
   const [gameSort, setGameSort] = usePlayerPreference<GameSort>(
@@ -1087,7 +1138,7 @@ export default function ClubDataPage() {
   const mountedRef = useRef(false);
   const manualRefreshingRef = useRef(false);
   const manualRefreshVersion = useRef(0);
-  const observedUtcDayRef = useRef(accountingDay());
+  const observedUtcDayRef = useRef(clubDataDayOn('calendar'));
   const gamesTabRef = useRef<HTMLButtonElement>(null);
   const playersTabRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -1106,7 +1157,20 @@ export default function ClubDataPage() {
   }, []);
   useEffect(() => {
     snapshotRef.current = snapshot;
+    if (snapshot) setDayBasis(clubDataDayBasis(snapshot));
   }, [snapshot]);
+  // Another club or account starts from the calendar day until it answers.
+  useEffect(() => {
+    setDayBasis('calendar');
+  }, [clubUuid, userId]);
+  // When the answer moves the day (a union club between midnight and 02:00
+  // Chicago), an owner pinned to "today" follows; a chosen past day stays.
+  useEffect(() => {
+    const today = clubDataDayOn(dayBasis);
+    const previousToday = observedUtcDayRef.current;
+    observedUtcDayRef.current = today;
+    setEndDate((cur) => (cur === previousToday || cur > today ? today : cur));
+  }, [dayBasis]);
   useEffect(() => {
     playersRef.current = players;
   }, [players]);
@@ -1138,7 +1202,7 @@ export default function ClubDataPage() {
     [startDate, endDate]
   );
 
-  const isToday = endDate >= accountingDay();
+  const isToday = endDate >= clubDataDayOn(dayBasis);
 
   const gameCacheKey = useMemo(
     () =>
@@ -2312,7 +2376,7 @@ export default function ClubDataPage() {
     // watched live rake stop growing and the forward arrow silently arm itself.
     // Only for someone still pinned to today - a deliberate step back stays.
     const pinToToday = () => {
-      const today = accountingDay();
+      const today = clubDataDayOn(dayBasisRef.current);
       const previousToday = observedUtcDayRef.current;
       observedUtcDayRef.current = today;
       setEndDate((cur) => (cur === previousToday || cur > today ? today : cur));
@@ -2635,7 +2699,7 @@ export default function ClubDataPage() {
       const d = new Date(`${endDate}T00:00:00Z`);
       d.setUTCDate(d.getUTCDate() + direction * preset);
       const next = toISODate(d);
-      const today = accountingDay();
+      const today = clubDataDayOn(dayBasisRef.current);
       observedUtcDayRef.current = today;
       setEndDate(next > today ? today : next);
     },
@@ -2702,6 +2766,14 @@ export default function ClubDataPage() {
     setExporting(true);
     setExportNote(null);
     setExportProgress({ stage: 'preparing', loaded: 0, total: null });
+    const exportWindow = clubDataWindow(startDate, endDate, dayBasis);
+    const csvWindow: ExportWindow = {
+      start: exportWindow ? exportWindow.start.toISOString() : '',
+      end: exportWindow ? exportWindow.end.toISOString() : '',
+    };
+    // The file name carries the pair the owner picked: first day, and the
+    // boundary the window stops at.
+    const fileWindow = `${startDate}_to_${addCalendarDays(endDate, 1)}`;
     const ownsExport = () =>
       !cancelledRef.current &&
       exportControllerRef.current === controller &&
@@ -2730,8 +2802,8 @@ export default function ClubDataPage() {
         });
         if (!ownsExport()) return;
         const downloaded = await downloadCsv(
-          `club_players_${startDate}_${endDate}.csv`,
-          playersToCsv(rows),
+          `club_players_${fileWindow}.csv`,
+          playersToCsv(rows, csvWindow),
           ownsExport
         );
         if (!ownsExport()) return;
@@ -2765,8 +2837,8 @@ export default function ClubDataPage() {
       });
       if (!ownsExport()) return;
       const downloaded = await downloadCsv(
-        `club_data_${startDate}_${endDate}.csv`,
-        rowsToCsv(rows),
+        `club_data_${fileWindow}.csv`,
+        rowsToCsv(rows, csvWindow),
         ownsExport
       );
       if (!ownsExport()) return;
@@ -2820,6 +2892,7 @@ export default function ClubDataPage() {
     search,
     gameSort,
     exportViewKey,
+    dayBasis,
   ]);
 
   const cancelExport = useCallback(() => {
@@ -2861,6 +2934,14 @@ export default function ClubDataPage() {
   );
 
   const summary = snapshot?.summary;
+  // The window by its real boundaries: the reader's own instants when it
+  // stated them, otherwise the selection on this club's basis.
+  const windowLabel =
+    (snapshot && coverageWindowLabel(snapshot.accounting_coverage)) ||
+    clubDataWindowLabel(startDate, endDate, dayBasis);
+  const windowEndLabel = `Window Ends At ${clubDataBoundaryClock(dayBasis)} (${CLUB_DATA_ZONE_LABEL})`;
+  const notices = coverageNotices(snapshot?.accounting_coverage);
+  const unionBasis = dayBasis === 'accounting';
   const filtersActive = game !== 'ALL' || stakes !== 'ALL' || search.trim() !== '';
   const weeklyPlayerResults = useMemo(() => {
     if (!latestInvoice?.breakdown) return null;
@@ -2892,6 +2973,10 @@ export default function ClubDataPage() {
   // "Vs Prev 14 Days" under a headline number. Null pct means the prior window was
   // zero, and nothing is a percentage of nothing - so nothing is shown.
   const prevDaysCount = prevRange?.days ?? preset;
+  const prevWindowLabel = prevRange
+    ? clubDataWindowLabel(prevRange.start, prevRange.end, dayBasis) ||
+      `${prevRange.start} To ${prevRange.end}`
+    : '';
   const prevDays = `${prevDaysCount} Day${prevDaysCount === 1 ? '' : 's'}`;
   const pctNote = (pct: number | null | undefined) => {
     if (pct === null || pct === undefined || !Number.isFinite(Number(pct))) return null;
@@ -2902,7 +2987,7 @@ export default function ClubDataPage() {
     return (
       <span
         className={`${styles.delta} ${cls}`}
-        title={prevRange ? `Previous Period ${prevRange.start} To ${prevRange.end}` : undefined}
+        title={prevRange ? `Previous Period ${prevWindowLabel}` : undefined}
       >
         {v > 0 ? '+' : ''}
         {/* prevRange, not `preset`: the preset flips the instant the button is
@@ -2920,7 +3005,7 @@ export default function ClubDataPage() {
     return (
       <span
         className={`${styles.delta} ${cls}`}
-        title={prevRange ? `Previous Period ${prevRange.start} To ${prevRange.end}` : undefined}
+        title={prevRange ? `Previous Period ${prevWindowLabel}` : undefined}
       >
         {v > 0 ? '+' : ''}
         {`${money(v)} Vs Prev ${prevDays}`}
@@ -3217,6 +3302,12 @@ export default function ClubDataPage() {
           )}
         </SpadeConsole>
 
+        {clubUuid && unionBasis && (
+          <p className={`sc-copy ${styles.note}`}>
+            The Rake Snapshot Below Has Its Own Periods And Reads The Daily Rake Rollup On Chicago
+            Calendar Days. It Is Not The Union Invoice Basis; The Club Pulse And Ledger Are.
+          </p>
+        )}
         {clubUuid && (
           <RakeSnapshotPanel
             unframed
@@ -3330,7 +3421,7 @@ export default function ClubDataPage() {
               Prev
             </button>
             <span className={`sc-ink--silver ${styles.rangeChip}`}>
-              <span>{accountingWindowLabel(startDate, endDate)}</span>
+              <span>{windowLabel}</span>
               <span className={`sc-label sc-ink--blue ${styles.rangeTz}`}>
                 {CLUB_DATA_ZONE_LABEL}
               </span>
@@ -3347,18 +3438,18 @@ export default function ClubDataPage() {
           </div>
 
           <label className={styles.calendarField}>
-            {/* The end the owner picks is the 02:00 boundary the window stops
-              at; the readers take the last accounting day it closes. */}
-            <span>Window Ends At 2:00 AM ({CLUB_DATA_ZONE_LABEL})</span>
+            {/* The end the owner picks is the boundary the window stops at
+              (02:00 for a union club); the readers take the last day it closes. */}
+            <span>{windowEndLabel}</span>
             <input
               type="date"
-              aria-label={`Window Ends At 2:00 AM (${CLUB_DATA_ZONE_LABEL})`}
+              aria-label={windowEndLabel}
               value={addCalendarDays(endDate, 1)}
-              max={addCalendarDays(accountingDay(), 1)}
+              max={addCalendarDays(clubDataDayOn(dayBasis), 1)}
               onChange={(event) => {
                 const value = event.target.value;
-                const today = accountingDay();
-                if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return;
+                const today = clubDataDayOn(dayBasisRef.current);
+                if (!isCalendarDate(value)) return;
                 const lastDay = addCalendarDays(value, -1);
                 if (lastDay <= today) {
                   observedUtcDayRef.current = today;
@@ -3367,18 +3458,27 @@ export default function ClubDataPage() {
               }}
             />
           </label>
-          <p className={`sc-copy ${styles.note}`}>
-            {CLUB_DATA_DAY_RULE}. Union Invoice Basis: Fees Are The Rake Credited To The Club;
-            Total Winnings Are The Players' Results, Hand By Hand For Cash (Bad Beat Jackpot
-            Contributions And Awards Included) And Prizes Less Entries For Tournaments. A Window
-            That Has Not Closed Is Provisional Until Its Weekly Invoice Is Issued.
-          </p>
-          {snapshot?.accounting_coverage?.complete === false && (
+          <p className={`sc-copy ${styles.note}`}>{clubDataDayRule(dayBasis)}.</p>
+          {snapshot && dayBasis === 'accounting' && (
+            <p className={`sc-copy ${styles.note}`}>
+              Union Invoice Basis. Fee Is The Rake Credited To The Club, The Invoice&apos;s Rake
+              Generated. Total Winnings Is The Players&apos; Result: Each Cash Hand&apos;s Stack
+              Change, Bad Beat Jackpot Awards Included, Plus MTT Winnings. MTT Winnings Are Prizes,
+              Bounties And Refunds Less Buy-Ins, Rebuys And Add-Ons; An Entry In A Tournament Still
+              Running At A Week Boundary Counts In The Week It Settles, As On The Invoice. For A
+              Whole Invoice Week With No Filters, Fee Equals The Invoice&apos;s Rake Generated And
+              Total Winnings Equals Its Player Win/Loss (Its Player Net Loss With The Sign
+              Reversed). Chips Still On The Felt Are Not Added.
+            </p>
+          )}
+          {notices.provisional && (
+            <p className={`sc-copy sc-ink--gold ${styles.note}`} role="status">
+              {notices.provisional}
+            </p>
+          )}
+          {notices.incomplete && (
             <p className={`sc-copy sc-ink--red ${styles.note}`} role="alert">
-              Not Every Accounting Day In This Window Is Loaded Yet (
-              {(snapshot.accounting_coverage.missing_days?.length ?? 0) +
-                (snapshot.accounting_coverage.failed_days?.length ?? 0)}{' '}
-              Day(s)). These Totals Are Incomplete.
+              {notices.incomplete}
             </p>
           )}
           {/* role="group" + aria-pressed, not a tablist. These control no tabpanel,
@@ -3422,6 +3522,11 @@ export default function ClubDataPage() {
               {summary ? money(summary.total_winnings) : NO_VALUE}
             </dd>
             {summary && <dd className={styles.figureMeta}>{absNote(delta?.winnings_abs)}</dd>}
+            {summary && unionBasis && Number.isFinite(Number(summary.on_felt)) && (
+              <dd className={`sc-ink--muted ${styles.figureMeta}`}>
+                On The Felt Now {money(summary.on_felt)} (Not Added)
+              </dd>
+            )}
           </div>
           <div className={`${styles.dataRow} ${styles.figureRow}`}>
             <dt className={`sc-label sc-ink--blue ${styles.dataLabel}`}>MTT Winnings</dt>
@@ -4077,7 +4182,7 @@ export default function ClubDataPage() {
                   {money(playerTotals.net)} Net
                 </span>
                 <span className={`sc-ink--silver ${styles.totalsItem}`}>
-                  {money(playerTotals.rake)} Rake
+                  {money(playerTotals.rake)} {unionBasis ? 'Fee' : 'Rake'}
                 </span>
               </div>
             )}
@@ -4173,7 +4278,8 @@ export default function ClubDataPage() {
                           {playerName}
                         </span>
                         <span className={`sc-ink--muted ${styles.rowSub}`}>
-                          {compactInt(pl.hands)} Hands &middot; {money(pl.rake)} Rake
+                          {compactInt(pl.hands)} Hands &middot; {money(pl.rake)}{' '}
+                          {unionBasis ? 'Fee' : 'Rake'}
                         </span>
                       </div>
 
@@ -4232,6 +4338,9 @@ export default function ClubDataPage() {
             {players && !playersError && (
               <p className={`sc-copy ${styles.note}`}>
                 A Positive Net Means The Player Is Up.
+                {unionBasis
+                  ? " Union Invoice Basis: Net Is The Player's Total Winnings And Fee Is The Rake Credited For The Player, In This Window."
+                  : ''}
                 {(() => {
                   // Sliced, not compared raw: this is typed `string` and a
                   // timestamp would both fail the comparison - silently

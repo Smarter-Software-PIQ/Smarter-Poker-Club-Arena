@@ -759,6 +759,20 @@ describe('ClubDataPage', () => {
     ).toHaveLength(2);
     expect(downloadMock.mock.calls[0][1].split('\n')).toHaveLength(3);
     expect(downloadMock.mock.calls[0][1].split('\n')[2].split(',')[8]).toBe('0.0049');
+    // Every row names its window by its two exact instants (this club counts
+    // Chicago midnight days), and the file name carries the picked pair.
+    const [head, row] = downloadMock.mock.calls[0][1].split('\n');
+    expect(head.endsWith(',window_start,window_end')).toBe(true);
+    const [windowStart, windowEnd] = row.split(',').slice(-2);
+    expect(Date.parse(windowEnd) - Date.parse(windowStart)).toBeGreaterThanOrEqual(
+      14 * 24 * 3_600_000 - 3_600_000
+    );
+    expect(new Date(windowStart).toLocaleString('en-US', { timeZone: 'America/Chicago' })).toMatch(
+      /12:00:00 AM$/
+    );
+    expect(downloadMock.mock.calls[0][0]).toMatch(
+      /^club_data_\d{4}-\d{2}-\d{2}_to_\d{4}-\d{2}-\d{2}\.csv$/
+    );
     expect(downloadMock.mock.calls[0][2]).toEqual(expect.any(Function));
     expect(rpcMock).toHaveBeenCalledWith(
       'ca_club_game_export_start',
