@@ -1265,3 +1265,58 @@ describe('the idle room carries its own player’s balance (Dan 2026-10-24)', ()
     expect(balancesNameOnlyTheirOwner(t)).toBe(3);
   });
 });
+
+describe('blind-off treatment is known before a new deal publishes', () => {
+  it('waits for the authoritative blind-off read alongside the existing deal reads', async () => {
+    let resolve!: (v: ReadonlySet<string>) => void;
+    const answer = new Promise<ReadonlySet<string>>((r) => {
+      resolve = r;
+    });
+    const formed = formedHand(3, 9420);
+    const t = buildHost(formed, [100, 100, 100], { deps: { blindOffPlayers: () => answer } });
+    let started = false;
+    const starting = t.host.start().then(() => {
+      started = true;
+    });
+    await flush();
+    expect(started).toBe(false);
+    expect(t.hub.frames.some((f) => f.payload.type === 'hand_started')).toBe(false);
+    resolve(new Set([formed.players.find((id) => id !== formed.sb && id !== formed.bb)!]));
+    await starting;
+    await flush();
+    expect(t.host.peekState()).not.toBeNull();
+    expect(t.hub.frames.some((f) => f.payload.type === 'hand_started')).toBe(true);
+  });
+  it('a rejecting blind-off provider abandons before dealing; the production adapter owns its bounded fallback', async () => {
+    const t = buildHost(formedHand(3, 9430), [100, 100, 100], {
+      deps: {
+        blindOffPlayers: async () => {
+          throw new Error('read refused');
+        },
+      },
+    });
+    await t.host.start();
+    await flush();
+    expect(t.hub.frames.some((f) => f.payload.type === 'hand_started')).toBe(false);
+    expect(t.calls.abandon).toHaveLength(1);
+  });
+});
+
+it('freezes completed observer receipts into the original settlement retry', async () => {
+  const observedHands = vi.fn(() => [
+    { table_id: uid(9990), hand_number: 0, viewer_id: uid(9991) },
+  ]);
+  const t = buildHost(formedHand(6, 7991), Array(6).fill(200), { deps: { observedHands } });
+  try {
+    await t.host.start();
+    await playOut(t.host, mulberry32(7991), (_u, legal) =>
+      legal.includes('check') ? 'check' : 'call'
+    );
+    await flush();
+    expect(observedHands).toHaveBeenCalledWith(t.host, expect.any(Number));
+    expect(t.calls.settle[0].handRow._observed_hands).toEqual(observedHands.mock.results[0].value);
+    expect(observedHands).toHaveBeenCalledTimes(1);
+  } finally {
+    await t.host.abort('test_complete');
+  }
+});

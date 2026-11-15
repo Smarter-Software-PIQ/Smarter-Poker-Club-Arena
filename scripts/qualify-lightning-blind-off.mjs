@@ -13,7 +13,7 @@ const here = path.join(root, 'scripts/qualification/lightning-blind-off');
 const migration = 'supabase/migrations/20261109224717_a_lightning_blind_off_always_completes.sql';
 const pg = process.env.PG_BIN || '/usr/lib/postgresql/17/bin';
 const base = process.env.TMPDIR || os.tmpdir();
-const dir = fs.mkdtempSync(path.join(base, 'lightning-blind-off-'));
+const dir = fs.mkdtempSync(path.join(base, 'lg-'));
 const port = String(45000 + Math.floor(Math.random() * 15000));
 // initdb refuses root: a root container runs the cluster as the postgres user.
 let identity = {};
@@ -182,6 +182,107 @@ try {
   console.log(baseline + scoped);
   console.log('SCOPED_DEPARTURE_SERIALIZES_ADMISSION_PASS');
   console.log('LIGHTNING_BLIND_OFF_QUALIFIED: strand reproduced before, completion proved after');
+  query('after', migrationText('20261115151713'));
+  const sitout = query(
+    'after',
+    `
+    SELECT sim.reset();
+    UPDATE table_seats SET is_sitting_out=true WHERE user_id=sim.h();
+    SELECT sim.ok(sim.deal_many(2)=0 AND NOT (sim.state()->>'blind_off')::boolean,'plain sit-out reproduces owed-hand exclusion');
+    SELECT sim.reset();
+    SELECT set_config('test.engine','true',false);
+    SELECT sim.ok(fn_cash_seat_sitout(sim.t(),sim.h(),(SELECT occupancy_id FROM table_seats WHERE user_id=sim.h()),true) @> '{"blind_off":true,"sitting_out":true,"hands_remaining":7}','owed sitout becomes blind off');
+    SELECT sim.ok(NOT (SELECT is_sitting_out FROM table_seats WHERE user_id=sim.h()),'physical anchor stays eligible');
+    SELECT sim.disconnect();
+    SELECT sim.ok(sim.deal_many(12,ARRAY[sim.h()])=7,'remaining seven dealt to absent player');
+    SELECT sim.ok(sim.release(),'completed blind off leaves through normal owner');
+    SELECT sim.reset();
+    SELECT set_config('test.engine','true',false);
+    SELECT fn_cash_seat_sitout(sim.t(),sim.h(),(SELECT occupancy_id FROM table_seats WHERE user_id=sim.h()),true);
+    SELECT fn_cash_seat_sitout(sim.t(),sim.h(),(SELECT occupancy_id FROM table_seats WHERE user_id=sim.h()),false);
+    SELECT sim.ok(NOT (sim.state()->>'blind_off')::boolean AND (sim.state()->>'pool_open')::boolean,'return clears blind off without closing pool');
+    SELECT sim.ok((sim.deal()->>'dealt')::boolean,'return is legal for the next available hand');
+    SELECT sim.ok(fn_cash_seat_sitout(sim.t(),sim.h(),gen_random_uuid(),true) IS NULL,'stale occupancy cannot change successor');
+    SELECT sim.reset(25);
+    SELECT set_config('test.engine','true',false);
+    SELECT sim.ok(fn_cash_seat_sitout(sim.t(),sim.h(),(SELECT occupancy_id FROM table_seats WHERE user_id=sim.h()),true) @> '{"blind_off":false,"hands_remaining":0}','no obligation retains ordinary sitout');
+    SELECT sim.ok((SELECT is_sitting_out FROM table_seats WHERE user_id=sim.h()),'no obligation is sat out');
+    SELECT fn_cash_seat_sitout(sim.t(),sim.h(),(SELECT occupancy_id FROM table_seats WHERE user_id=sim.h()),false);
+    SELECT sim.ok(NOT (SELECT is_sitting_out FROM table_seats WHERE user_id=sim.h()),'ordinary return clears persisted sitout');
+    -- The anchor remains Lightning even when an earlier stop closed its pool.
+    SELECT sim.reset(25);
+    SELECT sim.stop();
+    UPDATE table_seats SET stack=40 WHERE user_id=sim.h();
+    UPDATE cash_player_session SET hr_hands_required=10,hr_hands_played=3,hr_reference_stack=40,hr_started_at=now() WHERE player_id=sim.h();
+    SELECT sim.ok(fn_cash_seat_sitout(sim.t(),sim.h(),(SELECT occupancy_id FROM table_seats WHERE user_id=sim.h()),true) @> '{"blind_off":true,"hands_remaining":7}','closed pool cannot suppress owed blind off');
+    SELECT sim.disconnect();
+    SELECT sim.ok(sim.deal_many(12,ARRAY[sim.h()])=7 AND sim.release(),'reentered original anchor completes obligation and releases');
+    SELECT sim.reset(25);
+    SELECT sim.stop();
+    DO $$ BEGIN
+      PERFORM fn_cash_seat_sitout(sim.t(),sim.h(),(SELECT occupancy_id FROM table_seats WHERE user_id=sim.h()),false);
+      RAISE EXCEPTION 'closed room return acknowledged';
+    EXCEPTION WHEN SQLSTATE 'P2S02' THEN NULL; END $$;
+    -- Returning must cancel a queued next-hand stop atomically too.
+    SELECT sim.reset(25);
+    UPDATE table_seats SET is_sitting_out=true WHERE user_id=sim.h();
+    UPDATE lightning_pool_session SET stop_requested_at=clock_timestamp() WHERE player_id=sim.h() AND exited_at IS NULL;
+    SELECT fn_cash_seat_sitout(sim.t(),sim.h(),(SELECT occupancy_id FROM table_seats WHERE user_id=sim.h()),false);
+    SELECT sim.ok(NOT EXISTS(SELECT 1 FROM lightning_pool_session WHERE player_id=sim.h() AND exited_at IS NULL AND stop_requested_at IS NOT NULL),'return withdraws the exact queued stop');
+    SELECT sim.ok((sim.deal()->>'dealt')::boolean,'queued-stop return enters the next available deal');
+    SELECT sim.reset(25);
+    UPDATE table_seats SET leave_pending=true WHERE user_id=sim.h();
+    UPDATE lightning_pool_session SET stop_requested_at=clock_timestamp() WHERE player_id=sim.h() AND exited_at IS NULL;
+    SELECT sim.ok(fn_cash_seat_sitout(sim.t(),sim.h(),(SELECT occupancy_id FROM table_seats WHERE user_id=sim.h()),false) IS NULL,'return cannot resurrect confirmed departure');
+    SELECT sim.ok(EXISTS(SELECT 1 FROM lightning_pool_session WHERE player_id=sim.h() AND exited_at IS NULL AND stop_requested_at IS NOT NULL),'confirmed leave retains its stop');
+    SELECT sim.reset(25);
+    UPDATE table_seats SET is_sitting_out=true WHERE user_id=sim.h();
+    UPDATE lightning_pool_session SET stop_requested_at=clock_timestamp() WHERE player_id=sim.h() AND exited_at IS NULL;
+    INSERT INTO responsible_gaming_limits VALUES(sim.h());
+    DO $$ BEGIN
+      PERFORM fn_cash_seat_sitout(sim.t(),sim.h(),(SELECT occupancy_id FROM table_seats WHERE user_id=sim.h()),false);
+      RAISE EXCEPTION 'excluded return accepted';
+    EXCEPTION WHEN SQLSTATE 'P2S01' THEN NULL; END $$;
+    SELECT sim.ok((SELECT is_sitting_out FROM table_seats WHERE user_id=sim.h()) AND EXISTS(SELECT 1 FROM lightning_pool_session WHERE player_id=sim.h() AND stop_requested_at IS NOT NULL),'refused return preserves chair and queued stop');
+    SELECT sim.reset();
+    SELECT set_config('test.engine','false',false);
+    DO $$ BEGIN
+      PERFORM fn_cash_seat_sitout(sim.t(),sim.h(),(SELECT occupancy_id FROM table_seats WHERE user_id=sim.h()),true);
+      RAISE EXCEPTION 'unauthorized transition accepted';
+    EXCEPTION WHEN insufficient_privilege THEN NULL; END $$;
+    SELECT sim.reset();
+    SELECT set_config('test.engine','true',false);
+    SELECT fn_cash_seat_sitout(sim.t(),sim.h(),(SELECT occupancy_id FROM table_seats WHERE user_id=sim.h()),true);
+    SELECT fn_cash_seat_sitout(sim.t(),sim.h(),(SELECT occupancy_id FROM table_seats WHERE user_id=sim.h()),true);
+    SELECT sim.ok((sim.state()->>'played')::int=3 AND (SELECT count(*) FROM lightning_pool_session WHERE player_id=sim.h() AND exited_at IS NULL)=1,'duplicate sitout preserves count and unique session');
+    SELECT sim.reset();
+    UPDATE table_seats SET is_sitting_out=true WHERE user_id=sim.h();
+    CREATE FUNCTION sim.refuse_flag() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'TEST_FLAG_REFUSED'; END $$;
+    CREATE TRIGGER test_flag_refused AFTER UPDATE OF hr_blind_off ON cash_player_session FOR EACH ROW EXECUTE FUNCTION sim.refuse_flag();
+    DO $$ BEGIN
+      PERFORM fn_cash_seat_sitout(sim.t(),sim.h(),(SELECT occupancy_id FROM table_seats WHERE user_id=sim.h()),true);
+      RAISE EXCEPTION 'fault not exercised';
+    EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'TEST_FLAG_REFUSED' THEN RAISE; END IF; END $$;
+    SELECT sim.ok((SELECT is_sitting_out FROM table_seats WHERE user_id=sim.h()) AND NOT (sim.state()->>'blind_off')::boolean,'failed transaction rolls back eligibility and flag together');
+    DROP TRIGGER test_flag_refused ON cash_player_session;
+    CREATE OR REPLACE FUNCTION fn_platform_frozen() RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT coalesce(current_setting('test.frozen',true),'false')::boolean $$;
+    SELECT set_config('test.frozen','true',false);
+    DO $$ BEGIN
+      PERFORM fn_cash_seat_sitout(sim.t(),sim.h(),(SELECT occupancy_id FROM table_seats WHERE user_id=sim.h()),false);
+      RAISE EXCEPTION 'frozen transition accepted';
+    EXCEPTION WHEN object_in_use THEN NULL; END $$;
+    SELECT sim.ok((SELECT is_sitting_out FROM table_seats WHERE user_id=sim.h()),'freeze preserves original seat');
+    SELECT set_config('test.frozen','false',false);
+    SELECT sim.reset();
+    INSERT INTO responsible_gaming_limits VALUES(sim.h());
+    SELECT sim.ok(fn_cash_seat_sitout(sim.t(),sim.h(),(SELECT occupancy_id FROM table_seats WHERE user_id=sim.h()),true) @> '{"blind_off":true,"hands_remaining":0}','existing responsible-gaming owner waives blind-off obligation');
+    SELECT sim.ok(sim.deal_many(2)=0 AND sim.release(),'excluded player is not dealt and can leave');
+    SELECT 'LIGHTNING_SITOUT_BLINDOFF_RETURN_POSTGRES_PASS';
+  `
+  );
+  if (!sitout.includes('LIGHTNING_SITOUT_BLINDOFF_RETURN_POSTGRES_PASS'))
+    throw Error('Sit-out proof incomplete');
+  console.log(sitout);
 } finally {
   if (started) run('pg_ctl', ['-D', path.join(dir, 'data'), '-m', 'immediate', '-w', 'stop']);
   fs.rmSync(dir, { recursive: true, force: true });
