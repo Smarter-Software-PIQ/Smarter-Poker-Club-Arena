@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Real PostgreSQL permissions and public-only observed replay, no production writes."""
-import os, socket, subprocess, tempfile, shutil
+import os, socket, subprocess, tempfile, shutil, json
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[2]
 candidates=[os.environ.get('PG_BIN',''),'/opt/homebrew/opt/postgresql@17/bin','/usr/lib/postgresql/17/bin','/usr/lib/postgresql/16/bin']
@@ -44,5 +44,36 @@ CREATE POLICY own_hand ON hand_history TO authenticated USING(players @> jsonb_b
   assert as_user(observer,'SELECT count(*) FROM ca_table_review_hands();')=='0'
   assert as_user(observer,f"SELECT count(*) FROM ca_table_review_hands(p_table_id=>'{table}',p_before=>2);")=='0'
   assert q("SELECT has_table_privilege('authenticated','ca_observed_hands','INSERT') OR has_table_privilege('authenticated','ca_observed_hands','UPDATE') OR has_function_privilege('anon','ca_table_review_hands(uuid,uuid[],bigint,integer,text,integer)','EXECUTE');")=='f'
+  # The original archive transaction owns its observer receipt, preserving
+  # its existing defaults, award insertion and private authority.
+  pre=json.loads((ROOT/'tests/fixtures/observed-hand-inserter-preimage.json').read_text())
+  q("CREATE TABLE bomb_pot_award_units(hand_history_id uuid,table_id uuid,hand_number bigint,pot_index int,board int,side text,user_id uuid,amount numeric,hand_name text, UNIQUE(hand_history_id,pot_index,board,side,user_id));")
+  q(pre['definition'])
+  q("REVOKE ALL ON FUNCTION fn_ca_insert_hand_with_awards(jsonb,jsonb) FROM PUBLIC,anon,authenticated,service_role;")
+  archive='77777777-7777-4777-8777-777777777777'
+  row={'id':archive,'table_id':table,'hand_number':3,'players':[], 'hole_cards':{},'community_cards':[], 'actions':[], '_observed_hands':[{'table_id':projection,'hand_number':3,'viewer_id':observer}]*2}
+  def literal(v):return "'"+json.dumps(v).replace("'","''")+"'::jsonb"
+  # Before the fix the exact immutable submission silently discards receipts.
+  q(f"SELECT fn_ca_insert_hand_with_awards({literal(row)});")
+  assert q(f"SELECT count(*) FROM ca_observed_hands WHERE hand_id='{archive}';")=='0'
+  q(f"DELETE FROM hand_history WHERE id='{archive}';")
+  q((ROOT/'supabase/migrations/20261115154641_observer_replay_receipts_commit_with_the_original_hand.sql').read_text())
+  units=[{'table_id':table,'hand_number':3,'pot_index':0,'board':1,'side':'high','user_id':outsider,'amount':6}]
+  q(f"SELECT fn_ca_insert_hand_with_awards({literal(row)},{literal(units)});")
+  assert as_user(observer,f"SELECT count(*) FROM ca_table_review_hands(p_table_id=>'{projection}');")=='2'
+  assert q(f"SELECT count(*) FROM ca_observed_hands WHERE hand_id='{archive}';")=='1'
+  assert q(f"SELECT sum(amount) FROM bomb_pot_award_units WHERE hand_history_id='{archive}';")=='6'
+  assert q("SELECT has_function_privilege('authenticated','fn_ca_insert_hand_with_awards(jsonb,jsonb)','EXECUTE') OR has_function_privilege('service_role','fn_ca_insert_hand_with_awards(jsonb,jsonb)','EXECUTE');")=='f'
+  bad='88888888-8888-4888-8888-888888888888'
+  row['id']=bad;row['hand_number']=4
+  # Invalid receipt rejects the original transaction, including archive/awards.
+  q(f"DO $test$ BEGIN BEGIN PERFORM fn_ca_insert_hand_with_awards({literal(row)},{literal(units)}); RAISE EXCEPTION 'expected rejection'; EXCEPTION WHEN invalid_parameter_value THEN NULL; END; END $test$;")
+  assert q(f"SELECT count(*) FROM hand_history WHERE id='{bad}';")=='0'
+  assert q(f"SELECT count(*) FROM bomb_pot_award_units WHERE hand_history_id='{bad}';")=='0'
+  row['_observed_hands'][0]['viewer_id']='invalid-uuid';row['_observed_hands'][0]['hand_number']=4
+  q(f"DO $test$ BEGIN BEGIN PERFORM fn_ca_insert_hand_with_awards({literal(row)}); RAISE EXCEPTION 'expected rejection'; EXCEPTION WHEN invalid_text_representation THEN NULL; END; END $test$;")
+  assert q(f"SELECT count(*) FROM hand_history WHERE id='{bad}';")=='0'
+  row.pop('_observed_hands');q(f"SELECT fn_ca_insert_hand_with_awards({literal(row)});")
+  assert q(f"SELECT count(*) FROM hand_history WHERE id='{bad}';")=='1'
   print('Observed replay: real RLS, entitlement, keyset paging and public cards PASS')
  finally:run([PG/'pg_ctl','-D',folder/'db','-m','fast','-w','stop'])

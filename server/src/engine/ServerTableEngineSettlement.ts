@@ -2794,9 +2794,11 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
                   ? 'itm'
                   : 'early'
             : undefined;
+        const observedHands = this.hub?.completedObserverReceipts?.(this.tableId, snap.handNumber);
         const commitAuthoritativeHand = () =>
           logHandHistory({
             tableId: this.tableId,
+            observedHands,
             publicMemoryDomain: snap.publicMemoryDomain,
             handId: v_handId,
             seatGenerations: snap.seatGenerations,

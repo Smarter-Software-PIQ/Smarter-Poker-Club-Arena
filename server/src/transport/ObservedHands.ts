@@ -1,3 +1,9 @@
+export interface ObservedHandReceipt {
+  table_id: string;
+  hand_number: number;
+  viewer_id: string;
+}
+
 /** A replay entitlement requires one authenticated connection for the entire deal. */
 export class ObservedHands<T extends { userId?: string }> {
   private active = new Map<string, { number: number; peers: Set<T> }>();
@@ -26,6 +32,13 @@ export class ObservedHands<T extends { userId?: string }> {
     // an arbitrary hand-count cap would silently discard watched hands.
     this.finished.set(table, hands);
     this.active.delete(table);
+  }
+  receipts(table: string, number: number): ObservedHandReceipt[] {
+    return (this.finished.get(table)?.get(number) ?? []).map((viewer_id) => ({
+      table_id: table,
+      hand_number: number,
+      viewer_id,
+    }));
   }
   take(table: string, number: number): string[] {
     const hands = this.finished.get(table);

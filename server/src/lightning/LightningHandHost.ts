@@ -412,6 +412,10 @@ export interface LightningHandHostDeps {
   /** Shared presentation only; never personal Lightning blocks or hole cards. */
   onPublicState?(host: LightningHandHost, state: Record<string, unknown>): void;
   onPublicEvent?(host: LightningHandHost, event: Record<string, unknown>): void;
+  observedHands?(
+    host: LightningHandHost,
+    handNumber: number
+  ): import('../transport/ObservedHands.js').ObservedHandReceipt[];
   /**
    * LIGHTNING PHASE 12: the hand's first frame was sent to this player's room
    * at `atMs` (engine clock). The registry closes it on that room's RENDER_ACK
@@ -3433,6 +3437,8 @@ export class LightningHandHost {
     }
     const requestId = lightningRequestId(this.handId, 'settle');
     const handRow = this.handRow(state, rake, bbj);
+    const observedHands = this.deps.observedHands?.(this, this.handNumber);
+    if (observedHands?.length) handRow._observed_hands = observedHands;
     // A LIGHTNING HAND IS A HAND IN THE STATS (2026-10-24): the physical
     // hand's private per-hand facts, built once so every retry sends the same
     // request. Without them the hand settles exactly as before.

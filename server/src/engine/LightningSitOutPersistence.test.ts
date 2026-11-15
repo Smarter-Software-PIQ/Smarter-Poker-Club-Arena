@@ -127,6 +127,22 @@ describe('the original sit-out transaction publishes its acknowledged occupancy'
     expect(await back).toMatchObject({ success: true, blindOff: false });
     expect(engine.leaveHeldByClock.has(player)).toBe(false);
   });
+  it.each([0, 7])(
+    'restores the persisted Lightning departure after restart with %i owed',
+    (owed) => {
+      engine.tableInfo.cluster_id = table;
+      engine.dealingHaltLock = true;
+      engine.dealingHaltReason = 'lightning';
+      vi.spyOn(engine.chipContinuity, 'row').mockReturnValue({ blind_off: true });
+      vi.spyOn(engine.chipContinuity, 'leaveLock').mockReturnValue({
+        locked: owed > 0,
+        handsRemaining: owed,
+      });
+      engine.restoreBlindOffFromSessions();
+      expect(engine.leaveHeldByClock.get(player)).toBe(occupancy);
+      expect(writes).toEqual([]);
+    }
+  );
   it.each(['stale', 'departed', 'pending', 'wrong-status', 'failure', 'missing'])(
     'never acknowledges an unproven write: %s',
     async (why) => {

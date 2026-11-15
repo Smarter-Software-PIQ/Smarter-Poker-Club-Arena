@@ -38,7 +38,7 @@
 // default import, so destructure `compare` from the default export.
 import jsonPatch from 'fast-json-patch';
 import { ObservedHands } from './ObservedHands.js';
-import { recordObservedHands } from '../services/supabase/observedHands.js';
+import type { ObservedHandReceipt } from './ObservedHands.js';
 import { WEBSOCKET_HARD_BACKPRESSURE_BYTES as HUB_HARD_BACKPRESSURE_BYTES } from './webSocketBackpressure.js';
 import type { Operation as JsonPatchOperation } from 'fast-json-patch';
 import { captureAllInEquity, captureRitEvent } from '../services/supabase/handFacts.js';
@@ -275,6 +275,11 @@ export class TableStateHub {
   }
   /** B12: messages skipped because a socket was backed up past the soft limit. */
   private observedHands = new ObservedHands<HubSubscriber>();
+
+  /** Snapshot into the original immutable hand submission, without consuming. */
+  completedObserverReceipts(table: string, number: number): ObservedHandReceipt[] {
+    return this.observedHands.receipts(table, number);
+  }
   private softDropped = 0;
   /** B12: subscribers evicted because a socket blew past the hard limit. */
   private hardDropped = 0;
@@ -410,10 +415,10 @@ export class TableStateHub {
       this.observedHands.start(tableId, handNumber, room.subscribers);
     if (payload.type === 'hand_history_saved' && typeof payload.hand_id === 'string') {
       const viewers = this.observedHands.take(tableId, handNumber);
+      // The archive ACK also proves the entitlement insert in that same
+      // transaction. No fallible second write can lose a completed viewing.
       if (viewers.length)
-        void recordObservedHands(tableId, payload.hand_id, handNumber, viewers).then((saved) => {
-          if (saved) this.emitEvent(tableId, { ...payload, type: 'observed_hand_saved' }, owner);
-        });
+        this.emitEvent(tableId, { ...payload, type: 'observed_hand_saved' }, owner);
     }
     // SHOWDOWN POLISH 2026-08-25: stamp the per-table event sequence.
     const seq = (this.eventSeqs.get(tableId) ?? 0) + 1;

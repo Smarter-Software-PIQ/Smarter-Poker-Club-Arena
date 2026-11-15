@@ -5481,6 +5481,13 @@ export abstract class ServerTableEngineBase {
       if (this.leaveHeldByClock.has(p.user_id) || !p.occupancy_id) continue;
       const row = this.chipContinuity.row(p.user_id);
       if (!row?.blind_off) continue;
+      if (this.isLightningAnchorNow()) {
+        // A restart after the final owed deal must still restore the original
+        // departure intention. The normal release door checks the count and
+        // live hand before cashing out; zero owed must not lose that intention.
+        this.adoptLightningBlindOff(p.user_id, p.occupancy_id);
+        continue;
+      }
       const lock = this.chipContinuity.leaveLock(
         p.user_id,
         this.handCountStack(p.user_id, p.stack)

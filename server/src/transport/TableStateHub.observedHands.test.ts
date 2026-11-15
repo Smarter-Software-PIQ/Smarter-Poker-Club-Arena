@@ -1,6 +1,4 @@
 import { expect, it, vi } from 'vitest';
-const write = vi.hoisted(() => vi.fn(async () => true));
-vi.mock('../services/supabase/observedHands.js', () => ({ recordObservedHands: write }));
 import { TableStateHub, type HubSubscriber } from './TableStateHub.js';
 it('only live complete observers receive a durable entitlement from the transport', async () => {
   const hub = new TableStateHub();
@@ -20,8 +18,11 @@ it('only live complete observers receive a durable entitlement from the transpor
   hub.unsubscribe('table', disconnected);
   hub.publish('table', { hand_number: 10, pot: 5 });
   hub.emitEvent('table', { type: 'hand_complete', hand_number: 10 });
+  const receipts = [{ table_id: 'table', hand_number: 10, viewer_id: 'full' }];
+  expect(hub.completedObserverReceipts('table', 10)).toEqual(receipts);
+  // An interrupted archive request can reuse exactly these immutable facts.
+  expect(hub.completedObserverReceipts('table', 10)).toEqual(receipts);
   hub.emitEvent('table', { type: 'hand_history_saved', hand_number: 10, hand_id: 'archive' });
-  await vi.waitFor(() => expect(write).toHaveBeenCalledWith('table', 'archive', 10, ['full']));
-  expect(write).toHaveBeenCalledTimes(1);
+  expect(hub.completedObserverReceipts('table', 10)).toEqual([]);
   expect(full.send).toHaveBeenCalledWith(expect.stringContaining('observed_hand_saved'));
 });
