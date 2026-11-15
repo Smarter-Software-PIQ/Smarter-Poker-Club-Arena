@@ -174,6 +174,12 @@ BEGIN
        AND name = 'member_history_promo_allowance_as_of_send'
        AND cardinality(statements) = 1
        AND md5(statements[1]) = 'b4330bff195e8470d5a0a80e773d7e1c'
+  ) OR NOT EXISTS (
+    SELECT 1 FROM supabase_migrations.schema_migrations
+     WHERE version = '20261115011401'
+       AND name = 'member_history_player_and_funding_filters'
+       AND cardinality(statements) = 1
+       AND md5(statements[1]) = 'de44c8ff76be374c742965f07c77d7cc'
   ) THEN
     RAISE EXCEPTION 'cashier 2026-11-14 successor migration history drift';
   END IF;
@@ -195,10 +201,12 @@ BEGIN
       -- (#10834/#10849, club book reads each type group by its own index),
       -- which made a26c9b5097203fdc0b3109bd649ddec1; then by 20261115001816
       -- (#10883, a member's promo allowance as of each send; its guard requires
-      -- a26c9b50 and its two anchors added to a26c9b50 give this body exactly).
+      -- a26c9b50 and its two anchors added to a26c9b50 gave 5fb4cd6e exactly);
+      -- then by 20261115011401 (member history player and funding filters;
+      -- its guard requires 5fb4cd6ebe8ed1005a38db1de36efab0).
       -- Re-pinned 2026-11-15 to the installed definition; 160320's own proof
       -- line keeps the earlier hash dad4d92ef739f520d0c512c9950d5c62.
-      'hash', '5fb4cd6ebe8ed1005a38db1de36efab0',
+      'hash', '553be2e8b21cd6404a32add126a8b7d0',
       'owner', 'postgres'
     ),
     jsonb_build_object(
