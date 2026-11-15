@@ -20,8 +20,9 @@ Migration `20261115235049_promo_play_through_refuses_locked_chips_at_the_exits.s
     grants give up exactly the amount taken.
   - Never touched: table buy-ins, tournament entries, ticket purchases, and
     chips coming off a table.
-- `fn_ca_promo_play_through_settle` takes the member's wallet row before its
-  advisory lock, so every path locks in one order.
+- `fn_ca_promo_play_through_settle` serialises on the member's own wallet
+  row, which every promo send and exit already holds, so every path locks in
+  one order.
 - `fn_ca_promo_play_through_override(club, member, reason)`: club owner,
   co-owner or admin unlocks a member's promo for a support case; who and why
   are recorded on each grant.

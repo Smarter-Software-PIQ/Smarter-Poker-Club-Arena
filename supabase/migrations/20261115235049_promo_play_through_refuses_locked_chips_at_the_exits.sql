@@ -43,10 +43,11 @@
 -- is recorded, so nothing is refused, and installing this changes no
 -- behaviour.
 --
--- Also here: fn_ca_promo_play_through_settle now takes the member's wallet
--- row before its advisory lock, so a promo send and a cash-out for the same
--- member always lock in one order; and the owner override, for support cases,
--- with who and why recorded on the grant.
+-- Also here: fn_ca_promo_play_through_settle now serialises on the member's
+-- own wallet row, the row every promo send and every exit already holds, so
+-- the two always lock in one order and nothing waits on a second lock; and
+-- the owner override, for support cases, with who and why recorded on the
+-- grant.
 --
 -- CREATE CONSTRAINT TRIGGER takes SHARE ROW EXCLUSIVE on chip_ledger, so this
 -- file waits for the daily 04:00 America/Chicago break (rule 10). DDL only.
@@ -63,8 +64,8 @@ BEGIN
 END
 $guard$;
 
--- One lock order for every path: the wallet row, then the member's advisory
--- lock. Otherwise unchanged from 20261115210559.
+-- One lock for every path: the member's wallet row. Otherwise unchanged from
+-- 20261115210559.
 CREATE OR REPLACE FUNCTION public.fn_ca_promo_play_through_settle(
   p_club_id uuid,
   p_user_id uuid
@@ -84,9 +85,6 @@ BEGIN
    WHERE m.club_id = p_club_id AND m.user_id = p_user_id
      FOR NO KEY UPDATE;
 
-  PERFORM pg_advisory_xact_lock(
-    hashtextextended('ca_promo_play_through:' || p_club_id::text || ':' || p_user_id::text, 0));
-
   UPDATE public.ca_promo_play_through_grants g
      SET closed_at = clock_timestamp(),
          close_reason = 'met',
@@ -100,6 +98,9 @@ BEGIN
   RETURN v_closed;
 END;
 $function$;
+
+REVOKE ALL ON FUNCTION public.fn_ca_promo_play_through_settle(uuid, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_ca_promo_play_through_settle(uuid, uuid) TO service_role;
 
 CREATE FUNCTION public.fn_ca_promo_play_through_on_exit()
 RETURNS trigger
