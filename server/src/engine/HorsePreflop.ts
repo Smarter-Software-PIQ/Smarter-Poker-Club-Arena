@@ -350,6 +350,9 @@ export interface PreflopCtx {
   omahaTightOpener?: { threeBetBar: number; maxBarMove: number; callBump: number };
   omahaTightReRaiser?: { fourBetBump: number; callBump: number };
   omahaTightSteal?: { openWiden: number };
+  /** RESPONSES TO TIGHT PLAYERS (2026-11-15, styleTightPlayerExploit): every limper is credibly tight and not
+   *  aggressive; the no-limit hold'em isolation bar from middle or late position comes down by this much. */
+  styleTightIsoWiden?: number;
   /**
    * 2026-10-24 V53 PRESSURE (HorseOpponentExploit.aggressiveOpenerPressure):
    * the single raiser is a credibly WIDE opener. Heads-up against them the
@@ -2426,6 +2429,18 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
         (v86 && ctx.isOmaha && ctx.omahaElite?.canThreeBet === true))
     ) {
       openThresh -= isoW + Math.min(limpers - 1, 2) * 0.01;
+    }
+    // RESPONSES TO TIGHT PLAYERS (styleTightPlayerExploit): tight limpers fold to an isolation raise more
+    // often than the population, so the next-best hands below the bar isolate too. Never beside a limp-reraise
+    // read (that read raises the bar just below).
+    if (
+      ctx.styleTightIsoWiden !== undefined &&
+      noLimitHoldem &&
+      limpers >= 1 &&
+      !limpReraiser &&
+      (position === 'late' || position === 'middle')
+    ) {
+      openThresh -= Math.max(0, Math.min(0.04, ctx.styleTightIsoWiden));
     }
     // LIMP-RERAISE READ: a limper seen to limp-reraise is isolated only with
     // hands that stand his re-raise (HorseLimpReraiseRead).

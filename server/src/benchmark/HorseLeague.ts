@@ -2014,6 +2014,20 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaBluffCatcherRaiseFold: true },
     b: {},
   })),
+  // 2026-11-15 RESPONSES TO TIGHT PLAYERS (styleTightPlayerExploit, default
+  // OFF): a bluffs more when a credibly tight-passive player checks to it on
+  // the turn or river and isolates tight limpers wider; b is today's brain.
+  // League seats decide with mind off, so no style read engages and this card
+  // is expected to be inert; the declared evaluation is the paired synthetic
+  // measurement in docs/horse-default-on.d/styleTightPlayerExploit.md.
+  {
+    name: 'nlh_style_tight_player_exploit',
+    variant: 'nlh',
+    pairs: 6000,
+    productionStyles: true,
+    a: { styleTightPlayerExploit: true },
+    b: {},
+  },
   // 2026-11-14 OMAHA TIGHT STEAL (omahaTightOpponentSteal, default OFF): the
   // steal half of omahaTightOpponent alone, in OMAHA_TIGHT_STEAL_VARIANTS
   // (six-card only). Against a Horse field the evidence standard is rarely

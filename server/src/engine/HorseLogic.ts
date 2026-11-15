@@ -241,6 +241,7 @@ import {
   type OpponentStyleRead,
   type TightReRaiser,
 } from './HorseOpponentStyle.js';
+import { checkedToBluffScale, tightLimperIsoWiden } from './HorseTightPlayerExploit.js';
 import {
   noteStyleOptionApplied,
   noteStyleShadowEngaged,
@@ -3284,6 +3285,13 @@ export interface HorseDecideOpts {
   /** STYLE READ item 3 (2026-11-13): bluff frequency by this street's fold-to-bet
    *  (HorseOpponentStyle.postflopFoldBluffScale). Receipt style_fold_bluff_seen. Default off; explicit true only. */
   styleFoldBluff?: boolean;
+  /** RESPONSES TO TIGHT PLAYERS (2026-11-15, HorseTightPlayerExploit): against a CREDIBLY tight player's folding,
+   *  (a) heads-up on the turn or river, checked to by a credibly tight-passive player, the pure-bluff frequency
+   *  (equity under 0.3, little showdown value) is multiplied by up to 1.35, net of styleFoldBluff, sized as before;
+   *  (b) preflop, every limper credibly tight and not aggressive, the isolation raise bar from middle or late
+   *  position comes down by up to 0.04, never at push/fold depths. Hold'em, not Omaha, not bounty events.
+   *  Receipts style_tight_player_checked_to_bluff_seen, style_tight_limper_isolation_seen. Default off; explicit true only. */
+  styleTightPlayerExploit?: boolean;
   /** STYLE READ #3 (2026-11-13): a large turn bet, a large river bet or ANY
    *  river raise from a credibly value-heavy bettor earns extra respect,
    *  capped at the existing callDownRespectShift ceiling (+0.15), never on a
@@ -9466,6 +9474,8 @@ export class HorseLogic {
     let styleOpenerApplied = false;
     let evidencedWideRaiser87 = false;
     let exploitIso = 0;
+    // RESPONSES TO TIGHT PLAYERS (styleTightPlayerExploit): the isolation bar move against tight limpers.
+    let styleTightIsoWiden: number | undefined;
     // LIMP-RERAISE READ (flag limpReraiseIsoRead, HorseLimpReraiseRead): the
     // strongest shrunk limp-reraise rate among the limpers in front.
     let limpReraiseRate69: number | undefined;
@@ -9593,6 +9603,37 @@ export class HorseLogic {
             telemetryOn(opts)
           )
             noteFire('limp_reraise_iso_read');
+          // RESPONSES TO TIGHT PLAYERS (styleTightPlayerExploit, default off): every limper credibly tight and
+          // not aggressive (measured, never presumed); hold'em, not bounty events, deeper than push/fold depths.
+          if (
+            opts.styleTightPlayerExploit === true &&
+            !vi.isOmaha &&
+            !styleBountyContext(trustedTournament)
+          ) {
+            const limperIds: string[] = [];
+            for (const a of gs.actionHistory ?? []) {
+              if (a.stage !== 'preflop' || a.action !== 'call' || a.userId === player.user_id)
+                continue;
+              if (!limperIds.includes(a.userId)) limperIds.push(a.userId);
+            }
+            const limpersLive = gs.players.filter(
+              (p) => limperIds.includes(p.user_id) && !p.is_folded && !p.is_sitting_out
+            );
+            const deepestLimper = Math.max(0, ...limpersLive.map((p) => p.stack + p.bet));
+            const effIso = Math.min(player.stack + player.bet, deepestLimper) / Math.max(1e-9, bb);
+            if (
+              limpersLive.length === limperIds.length &&
+              limpersLive.length > 0 &&
+              effIso > STYLE_THRESHOLDS.pushFoldStandDownBB
+            ) {
+              const w = tightLimperIsoWiden(limpersLive.map((p) => HorseMind.styleRead(p.user_id)));
+              if (w !== null) {
+                styleTightIsoWiden = w;
+                noteStyleOptionApplied('styleTightPlayerExploit');
+                if (telemetryOn(opts)) noteFire('style_tight_limper_isolation_seen');
+              }
+            }
+          }
         }
         if (telemetryOn(opts) && (exploitOpener || exploitReRaiser || exploitIso > 0))
           noteFire('opponent_exploit_preflop');
@@ -10285,6 +10326,7 @@ export class HorseLogic {
       ...(omahaTightOpener ? { omahaTightOpener } : {}),
       ...(omahaTightReRaiser ? { omahaTightReRaiser } : {}),
       ...(omahaTightSteal ? { omahaTightSteal: { openWiden: omahaTightSteal.openWiden } } : {}),
+      ...(styleTightIsoWiden !== undefined ? { styleTightIsoWiden } : {}),
       maniacOpenBar:
         maniacBehindWidth !== null ? maniacBehindOpenBar(maniacBehindWidth, vi.isOmaha) : undefined,
       maniacNoBluff: maniacRaiserWidth !== null || maniacBehindWidth !== null ? true : undefined,
@@ -13619,6 +13661,47 @@ export class HorseLogic {
       heroTotalChips87 / bb87 <= 45 &&
       opponents.some((o) => (o.stack ?? 0) + (o.bet ?? 0) > heroTotalChips87);
 
+    // ═══ RESPONSES TO TIGHT PLAYERS (2026-11-15, styleTightPlayerExploit, default off) ═══ heads-up on the turn or
+    // river, checked to by a credibly tight-passive player (measured, HorseTightPlayerExploit) while holding little
+    // showdown value (equity under 0.3): the pure-bluff frequency rises by up to x1.35, net of the fold-to-bet
+    // multiplier already in bluffScale (one read, counted once). Read where a bluff is decided (the river bluff
+    // baseline and the turn pure bluff), at most once per decision; no random draw, so with the option off the stream
+    // and the decision are what they were.
+    let tightCheckedToMemo: number | null = null;
+    const tightCheckedToMul = (): number => {
+      if (tightCheckedToMemo !== null) return tightCheckedToMemo;
+      tightCheckedToMemo = 1;
+      if (
+        opts.styleTightPlayerExploit !== true ||
+        !useMind ||
+        vi.isOmaha ||
+        facingBet ||
+        !(equity < 0.3) ||
+        (street !== 'turn' && street !== 'river') ||
+        styleBountyContext(trustedTournament)
+      )
+        return tightCheckedToMemo;
+      const liveT = opponents.filter((o) => !o.is_all_in && !o.is_sitting_out);
+      if (opponents.length !== 1 || liveT.length !== 1) return tightCheckedToMemo;
+      const villainT = liveT[0].user_id;
+      let checkedT = false;
+      for (const a of gs.actionHistory ?? [])
+        if (a.stage === street && a.userId === villainT) checkedT = a.action === 'check';
+      if (!checkedT) return tightCheckedToMemo;
+      try {
+        const mulT = checkedToBluffScale(HorseMind.styleRead(villainT));
+        if (mulT === null) return tightCheckedToMemo;
+        const netT = styleFoldBluffMul > 1 ? mulT / styleFoldBluffMul : mulT;
+        if (!(netT > 1)) return tightCheckedToMemo;
+        tightCheckedToMemo = netT;
+        noteStyleOptionApplied('styleTightPlayerExploit');
+        if (tele15) noteFire('style_tight_player_checked_to_bluff_seen');
+      } catch {
+        tightCheckedToMemo = 1;
+      }
+      return tightCheckedToMemo;
+    };
+
     // ═══ Not facing a bet ═══
     if (!facingBet) {
       if (isV87Nlh && !multiBoard36 && !sat37.active && opponents.length >= 1) {
@@ -14383,6 +14466,10 @@ export class HorseLogic {
               rangeChange?.improves !== true &&
               rangeChange?.nutAdvantage !== true,
           });
+          // RESPONSES TO TIGHT PLAYERS: a credibly tight-passive player checked to the Horse (styleTightPlayerExploit).
+          // Bounded: never above 0.9 unless the baseline already was; the size is the baseline's own.
+          const tightRb = leadRb ? 1 : tightCheckedToMul();
+          const pRbT = tightRb > 1 ? Math.max(pRb, Math.min(0.9, pRb * tightRb)) : pRb;
           const rollRb = fastRandom();
           // SPEC-FL-02 (opt-in): the fixed-limit hi-lo nut-low freeroll bets
           // every time; the draw above is still taken, so off is unchanged.
@@ -14399,7 +14486,7 @@ export class HorseLogic {
               nutLowBlockers: nutLowBlockersHeld(player.cards, board),
             });
           if (nutLowBet92 && tele15) noteFire('hilo_nut_low_freeroll_bet');
-          if (sizeRb.sizeFrac > 0 && ((!stationLowFold86 && rollRb < pRb) || nutLowBet92)) {
+          if (sizeRb.sizeFrac > 0 && ((!stationLowFold86 && rollRb < pRbT) || nutLowBet92)) {
             const betRb = this.betSize(
               planHandKey,
               pot,
@@ -15798,6 +15885,7 @@ export class HorseLogic {
       // its RELATIVE effect (clamping the product collapsed the V16
       // unblocker distinction — both sides hit the ceiling). The product is
       // still bounded: bluffFreq <= ~0.3 x 1.3 x 1.725 x 0.55 < 0.86.
+      const tightCheckedTo = equity < 0.3 && oppCount === 1 ? tightCheckedToMul() : 1;
       if (
         equity < 0.3 &&
         oppCount === 1 &&
@@ -15805,7 +15893,8 @@ export class HorseLogic {
           params.bluffFreq *
             Math.min(1.3, bluffScaleAt(sizeBase + 0.25)) *
             scareBluffBoost *
-            (isRiver ? 0.55 : 0.8)
+            (isRiver ? 0.55 : 0.8) *
+            tightCheckedTo
       ) {
         planBarrel(equity);
         // V12 (G): river bluffs holding a nut blocker occasionally use the

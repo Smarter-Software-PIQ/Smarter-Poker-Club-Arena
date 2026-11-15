@@ -1115,6 +1115,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     '2026-11-13'
   ),
   flag(
+    'styleTightPlayerExploit',
+    "2026-11-15 RESPONSES TO TIGHT PLAYERS (owner order 08:05 Chicago; HorseTightPlayerExploit): against a CREDIBLY tight player's folding, measured from the existing style read and never presumed (supported read, tight participation, not released; excluded: shown big bets strong, bet-when-checked-to high, fold-to-bet low, river call high, bluff-weighted): (a) heads-up on the turn or river, checked to by a credibly tight-passive player, the pure-bluff frequency (equity under 0.3) rises by up to x1.35 net of styleFoldBluff, sized by the existing sizing; (b) preflop no-limit hold'em, every limper credibly tight and not aggressive, the isolation bar from middle or late position comes down by up to 0.04, not at push/fold depths (25 bb) and never beside a limp-reraise read. Hold'em, not Omaha, not bounty events. Default OFF (read === true); evidence file docs/horse-default-on.d/styleTightPlayerExploit.md.",
+    '2026-11-15'
+  ),
+  flag(
     'styleCarryOverWeight',
     "2026-11-13 STYLE READ cross-format transfer: weight (0 to 1) of the same player's other-format counters in the style read; default 0 = format-specific evidence only; one player being tighter in tournaments does not establish that everyone is, so a non-zero weight needs validation first",
     '2026-11-13'
@@ -1195,6 +1200,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'style_steal_tight_blinds_changed_action_seen',
     'workerRuntime (R1 style action-change receipt, styleStealTightBlinds)',
     'the FAST decision applied styleStealTightBlinds and, decided again from the same RNG position with that one option off (one applied option per decision, picked by the decision key), its final action or amount differed; journal field HorseDecision.styleActionReceipt; occurrence counter; named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
+    'style_tight_player_checked_to_bluff_seen',
+    'HorseLogic (styleTightPlayerExploit, postflop)',
+    'heads-up on the turn or river, checked to by a credibly tight-passive player, the pure-bluff frequency was raised (net of styleFoldBluff); occurrence counter; named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
+    'style_tight_limper_isolation_seen',
+    'HorseLogic (styleTightPlayerExploit, preflop)',
+    'every limper credibly tight and not aggressive: the isolation bar move was handed to the preflop engine; occurrence counter; named *_seen',
     '2026-11-15'
   ),
   receipt(
