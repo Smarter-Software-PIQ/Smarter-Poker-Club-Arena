@@ -1265,6 +1265,17 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     '2026-11-13'
   ),
   flag(
+    'styleTightPlayerExploit',
+    "2026-11-15 RESPONSES TO TIGHT PLAYERS (owner order 08:05 Chicago; HorseTightPlayerExploit): against a CREDIBLY tight player's folding, measured from the existing style read and never presumed (supported read, tight participation, not released; excluded: shown big bets strong, bet-when-checked-to high, fold-to-bet low, river call high, bluff-weighted): (a) heads-up on the turn or river, checked to by a credibly tight-passive player, the pure-bluff frequency (equity under 0.3) rises by up to x1.35 net of styleFoldBluff, sized by the existing sizing; (b) preflop no-limit hold'em, every limper credibly tight and not aggressive, the isolation bar from middle or late position comes down by up to 0.04, not at push/fold depths (25 bb) and never beside a limp-reraise read. Hold'em, not Omaha, not bounty events. Default OFF (read === true); evidence file docs/horse-default-on.d/styleTightPlayerExploit.md.",
+    '2026-11-15'
+  ),
+  flag(
+    'styleLongShownMemory',
+    "2026-11-15 STYLE READ long shown river memory (HorseLongShownMemory): the style read's river size buckets (river first bets by size, shown, shown strong) may take a bucket from the opponent's durable shown river record (horse_exact_profiles.shown_river, migration 20261115144258, written by the accepted-hand learner, a half-life of 40 shown river bets, forward only with no back-fill) when that bucket holds more shown bets than the in-process 72-hour bucket, never their sum; the record reaches the decision on its pooled public row (accepted before the decision's own time) and read frame v16; cash and tournament, table sizes, variants and public domains apart; Horses and humans alike; receipts style_long_shown_memory_seen and style_long_shown_memory_older_seen; default off, explicit true only",
+    '2026-11-15',
+    'HorseMind.styleRead via HorseLogic.decide and horseDecision/observerReads'
+  ),
+  flag(
     'styleCarryOverWeight',
     "2026-11-13 STYLE READ cross-format transfer: weight (0 to 1) of the same player's other-format counters in the style read; default 0 = format-specific evidence only; one player being tighter in tournaments does not establish that everyone is, so a non-zero weight needs validation first",
     '2026-11-13'
@@ -1292,6 +1303,72 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic (STYLE READ A4)',
     'value sizing, value bar or slow-play frequency moved by the value-extraction read; occurrence counter; named *_seen',
     '2026-11-13'
+  ),
+  receipt(
+    'style_value_bettor_not_maniac_changed_action_seen',
+    'workerRuntime (R1 style action-change receipt, styleValueBettorNotManiac)',
+    'the FAST decision applied styleValueBettorNotManiac and, decided again from the same RNG position with that one option off (one applied option per decision, picked by the decision key), its final action or amount differed; journal field HorseDecision.styleActionReceipt; occurrence counter; named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
+    'style_big_bet_honesty_changed_action_seen',
+    'workerRuntime (R1 style action-change receipt, styleBigBetHonesty)',
+    'the FAST decision applied styleBigBetHonesty and, decided again from the same RNG position with that one option off (one applied option per decision, picked by the decision key), its final action or amount differed; journal field HorseDecision.styleActionReceipt; occurrence counter; named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
+    'style_raise_respect_changed_action_seen',
+    'workerRuntime (R1 style action-change receipt, styleRaiseRespect)',
+    'the FAST decision applied styleRaiseRespect and, decided again from the same RNG position with that one option off (one applied option per decision, picked by the decision key), its final action or amount differed; journal field HorseDecision.styleActionReceipt; occurrence counter; named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
+    'style_tight_reraiser_respect_changed_action_seen',
+    'workerRuntime (R1 style action-change receipt, styleTightReRaiserRespect)',
+    'the FAST decision applied styleTightReRaiserRespect and, decided again from the same RNG position with that one option off (one applied option per decision, picked by the decision key), its final action or amount differed; journal field HorseDecision.styleActionReceipt; occurrence counter; named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
+    'style_fold_rate_pre_repair_changed_action_seen',
+    'workerRuntime (R1 style action-change receipt, styleFoldRatePreRepair)',
+    'the FAST decision applied styleFoldRatePreRepair and, decided again from the same RNG position with that one option off (one applied option per decision, picked by the decision key), its final action or amount differed; journal field HorseDecision.styleActionReceipt; occurrence counter; named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
+    'style_value_extraction_changed_action_seen',
+    'workerRuntime (R1 style action-change receipt, styleValueExtraction)',
+    'the FAST decision applied styleValueExtraction and, decided again from the same RNG position with that one option off (one applied option per decision, picked by the decision key), its final action or amount differed; journal field HorseDecision.styleActionReceipt; occurrence counter; named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
+    'style_fold_bluff_changed_action_seen',
+    'workerRuntime (R1 style action-change receipt, styleFoldBluff)',
+    'the FAST decision applied styleFoldBluff and, decided again from the same RNG position with that one option off (one applied option per decision, picked by the decision key), its final action or amount differed; journal field HorseDecision.styleActionReceipt; occurrence counter; named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
+    'style_tight_player_exploit_changed_action_seen',
+    'workerRuntime (R1 style action-change receipt, styleTightPlayerExploit)',
+    'the FAST decision applied styleTightPlayerExploit and, decided again from the same RNG position with that one option off (one applied option per decision, picked by the decision key), its final action or amount differed; journal field HorseDecision.styleActionReceipt; occurrence counter; named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
+    'style_steal_tight_blinds_changed_action_seen',
+    'workerRuntime (R1 style action-change receipt, styleStealTightBlinds)',
+    'the FAST decision applied styleStealTightBlinds and, decided again from the same RNG position with that one option off (one applied option per decision, picked by the decision key), its final action or amount differed; journal field HorseDecision.styleActionReceipt; occurrence counter; named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
+    'style_tight_player_checked_to_bluff_seen',
+    'HorseLogic (styleTightPlayerExploit, postflop)',
+    'heads-up on the turn or river, checked to by a credibly tight-passive player, the pure-bluff frequency was raised (net of styleFoldBluff); occurrence counter; named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
+    'style_tight_limper_isolation_seen',
+    'HorseLogic (styleTightPlayerExploit, preflop)',
+    'every limper credibly tight and not aggressive: the isolation bar move was handed to the preflop engine; occurrence counter; named *_seen',
+    '2026-11-15'
   ),
   receipt(
     'style_fold_bluff_seen',
@@ -1352,6 +1429,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseStyleSwitch (STYLE READ live switch)',
     'style_switch_<option>_<state>_seen: an option of the style read changed runtime state (off, shadow, canary, on) at a configuration read, the option and the new state in the name; style_switch_config_invalid_seen / style_switch_config_unreadable_seen / style_switch_config_stale_seen: the configuration was not the documented shape, could not be read, or was delivered more than two poll intervals ago, and every option failed safe to off; occurrence counters; named *_seen',
     '2026-11-13'
+  ),
+  receipt(
+    'option_switch_*',
+    'HorseOptionSwitch (every decision upgrade has a live switch)',
+    'option_switch_<option>_<on|off|default>_seen: a registered non-style decision option changed its switched value at a configuration read in this worker (on: passed true; off: passed false; default: its row went away or the configuration failed, so the code default decides), the option and the new value in the name; option_switch_config_invalid_seen / option_switch_config_unreadable_seen / option_switch_config_stale_seen: the configuration was not the documented shape, could not be read, or was delivered more than two poll intervals ago, and every non-style option went back to its RELEASE DEFAULT (not to off; the seven style options keep their own rule, style_switch_*: off); occurrence counters; named *_seen',
+    '2026-11-14'
   ),
   receipt(
     'style_shadow*',
@@ -1485,6 +1568,73 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'facing a 3-bet or more from a credibly tight re-raiser the 4-bet and call bars rose, bounded; named *_seen',
     '2026-11-13'
   ),
+  flag(
+    'styleTightMultiSignal',
+    "2026-11-15 TIGHT BEYOND VPIP (opponent classifier C2): the style read's participation axis, when the VPIP-only and call-share routes leave it neutral, is tight if VPIP is credibly (90%) below the Horse VPIP mean of the cell and raise share (PFR / VPIP) is credibly above the Horse share plus 0.02 or fold to 3-bet credibly above the Horse mean plus 0.04 (8 or more decayed opportunities each), with VPIP and call share not high and raise share not credibly low (a caller-heavy player never qualifies); never overrides a loose read; consumers unchanged (#6a / #6b still need PFR credibly low; #2's tight route and the labels see the side); hold'em style read; default OFF, read === true only; evidence docs/horse-default-on.d/styleTightMultiSignal.md",
+    '2026-11-15'
+  ),
+  receipt(
+    'style_tight_multi_signal_seen',
+    'HorseMind.styleRead (styleTightMultiSignal)',
+    'a style read was made tight by the multi-signal route (VPIP credibly below the Horse mean, corroborated by raise share or fold to 3-bet); receipt.tightMultiSignal carries the posterior probabilities; counts reads; named *_seen',
+    '2026-11-15'
+  ),
+  flag(
+    'holdemManiacSampleGate',
+    "2026-11-15 A REGULAR IS NOT A MANIAC (opponent classifier C3): no-limit hold'em reads from HorseMind.opponentRead carry the maniac sample gate (HorseOpponentExploit.withManiacSampleGate) and maniacRaiseWidth then needs at least 15 decayed hands; its opener route needs PFR credibly (90%) above the size's regular line (Horse PFR P99 of the cell plus 0.10: full 0.2985, short 0.4566, heads-up 0.5326), first-in raising alone no longer qualifies; its re-raise route needs at least 8 decayed 3-bet opportunities; every maniac response keyed on maniacRaiseWidth sees the gated read; Omaha and fixed-limit untouched; default OFF, read === true only; evidence docs/horse-default-on.d/holdemManiacSampleGate.md",
+    '2026-11-15'
+  ),
+  receipt(
+    'maniac_sample_gate_withheld_seen',
+    'HorseMind.opponentRead (holdemManiacSampleGate)',
+    'the ungated read had a preflop maniac width and the gated read has none (thin sample, PFR not credibly beyond the regular line, or too few 3-bet opportunities); counts reads; named *_seen',
+    '2026-11-15'
+  ),
+  flag(
+    'holdemGearShiftReach',
+    "2026-11-15 A GEAR SHIFT IS REACHABLE (opponent classifier C5, audit I): no-limit hold'em reads from HorseMind.opponentRead judge a confirmed regime break (styleShiftReleased, long read not engaged, 8+ fast opportunities) on the 8-hand window at the ordinary credibility (EXPLOIT_CREDIBILITY 0.90) instead of 0.95 in the gear-shift branch, and also try it where the long mean has crossed the envelope edge but the fast window missed the 0.97 fast-engage line; aggressive statistics only (pfr, rfi, threeBet, betCheckedTo), high side only; the calm direction (the fast-window OFF switch) is untouched; Omaha and fixed-limit untouched; default OFF, read === true only; evidence docs/horse-default-on.d/holdemGearShiftReach.md",
+    '2026-11-15'
+  ),
+  receipt(
+    'holdem_gear_shift_reach_seen',
+    'HorseOpponentExploit.opponentExploitRead (holdemGearShiftReach)',
+    'a statistic the long window and the stricter fast lines left unengaged was engaged high from the fast window at the ordinary credibility after a confirmed regime break; counts read computations; named *_seen',
+    '2026-11-15'
+  ),
+  flag(
+    'holdemCallDownExcludesCurrentHand',
+    "2026-11-15 IN-HAND WAGERS ARE NOT HISTORY (opponent classifier C7 F1, HU-MEM-013 V6): in a hold'em decision the legacy aggression ratio behind the lifetime call-down multiplier (HorseMind.legacyExploit, ratio above 2.5 on 12+ actions sets 1.2) subtracts the opponent's own wagers in the hand being decided (HorseMind.currentHandWagers of the decision's action history, carried in the decision read options), never below zero, so the bets the Horse faces are not evidence that the same bettor bluffs; Omaha and every other read unchanged; default OFF, read === true only; evidence docs/horse-default-on.d/holdemCallDownExcludesCurrentHand.md",
+    '2026-11-15'
+  ),
+  receipt(
+    'holdem_call_down_excludes_current_hand_seen',
+    'HorseMind.legacyExploit (holdemCallDownExcludesCurrentHand)',
+    'the read with the current hand would have entered the maniac branch and the read without it does not; counts reads; named *_seen',
+    '2026-11-15'
+  ),
+  flag(
+    'holdemCallDownNeedsStyleEvidence',
+    "2026-11-15 ONE READ ANSWERS THE CALL-DOWN (opponent classifier C7 F2, HU-MEM-013 V6): in a hold'em decision whose scope bucket is under SCOPE_MIN_HANDS (the pooled tallies answer the lifetime read) and whose style read has no supported individual read, the legacy maniac call-down multiplier (1.2) stays neutral, so a multiplier the style layer cannot see never widens a call; reduced-to-two tables are the case found; default OFF, read === true only; evidence docs/horse-default-on.d/holdemCallDownNeedsStyleEvidence.md",
+    '2026-11-15'
+  ),
+  receipt(
+    'holdem_call_down_needs_style_evidence_seen',
+    'HorseMind.legacyExploit (holdemCallDownNeedsStyleEvidence)',
+    'the legacy maniac multiplier was held neutral because the pooled tallies answered and the style read had no supported individual read; counts reads; named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
+    'style_long_shown_memory_seen',
+    'HorseMind.styleRead (STYLE READ, long shown river memory)',
+    "behind styleLongShownMemory, a style read took at least one river size bucket from the opponent's durable shown river record (horse_exact_profiles.shown_river, carried by the decision's pooled public row) because it held more shown bets than the in-process 72-hour bucket; counts reads; named *_seen",
+    '2026-11-15'
+  ),
+  receipt(
+    'style_long_shown_memory_older_seen',
+    'HorseMind.styleRead (STYLE READ, long shown river memory)',
+    "as style_long_shown_memory_seen, and the record began more than 72 hours before the decision's own time: the read used shown river evidence the 72-hour boot rebuild cannot hold; counts reads; named *_seen",
+    '2026-11-15'
+  ),
   receipt(
     'style_long_participation_seen',
     'HorseMind.styleRead (STYLE READ, long participation window)',
@@ -1549,6 +1699,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'Omaha tight opponent'
   ),
   flag(
+    'holdemRiverFullHouseValue',
+    "2026-11-15 HOLD'EM RIVER FULL HOUSE VALUE (HorseHoldemRiverFullHouseValue; owner order 11:20 Chicago, the shared audit of Hold'em hands against people): in no-limit hold'em on the river, out of position without the betting lead, a full house or better that uses a hole card (not an under-full, not a trips-board boat, not the board playing) leads 70% of the time through the existing monster sizing instead of checking to the prior aggressor at the V11 initiative gate; the rest keeps the check. Replay of the 131 flagged decisions on main: 48 still checked at that gate, 19 of them qualifying hands. Read === true, default OFF.",
+    '2026-11-15'
+  ),
+  flag(
     'omahaTightOpponentSteal',
     '2026-11-14 owner ruling 17:42 Chicago (Omaha tight requirement stays; a defensible response must be built and evaluated): Omaha high variants in OMAHA_TIGHT_STEAL_VARIANTS (six-card only), the STEAL half of omahaTightOpponent alone (first in from late position or the small blind, every player left to act a PROVEN tight folder: the open bar comes down by half the fold-equity surplus over a pot-sized open break-even, at most 0.10); the respect half is excluded because, measured alone on six-card, it is undecided with a negative cash point estimate. Default OFF (read === true). Evaluation: plo6-audit-01TLQer9Hdf/phase1-play/tight-plo6-league (development persona fields; production reach against people was 0 of 12 six-card records on 2026-11-14). Default-on needs docs/horse-default-on.d/omahaTightOpponentSteal.md with the eight rows.',
     'Omaha tight steal'
@@ -1599,13 +1754,28 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'CommitPrice'
   ),
   flag(
+    'holdemPersonaReRaiseMix',
+    "2026-11-14 default OFF (D3 option C, owner ruling 2026-11-13: persona-specific 3-bets and squeezes, rollout gated; shallow four-bet reshoves are NOT persona-specific: that part of the plan line was not delivered, by the owner's decision R3-B of 2026-11-13, and every reshove is exactly what it is without the option): two-card no-limit hold'em only, cash and tournament, a Horse with an id; the 3-bet bluff (facing one open) and the squeeze bluff (the V7 squeeze site, and on hold'em cash the chart 3-bet-bluff block when there are callers) still consume their random draw at the same place and discard it, and fire when the Horse's zero-draw unit (hash of Horse id, hand identity, exact hole cards, a salt per behaviour) is below min(1, p * scale), scale = the Hold'em persona's nlh3BetMix / 0.42143 (the id-hash model mean; 0.52 to 1.52); value 3-bets, value squeezes, every four-bet reshove, Omaha, short deck, pot limit, fixed limit, hi-lo, pineapple and All-In-Or-Fold do not read it; the unit is deterministic per hand: Horse id, the hand (table id and hand number from opts.mindPlanContext.hand), exact hole cards and the behaviour's salt, with no seat, stack or pot; the live worker derives the hand from the decision snapshot's fence for the fast decision and the deep second look alike, a retry carries the same table and hand, and exact replay feeds the journaled snapshot through the same worker runtime, so it derives the same value (opts.mindObservationHand is not used: the deep look is not given it); the league card and the probe supply a hand; a caller that supplies none gets a named FALLBACK keyed on mutable public state (seat, dealer, stack, pot), which is not per hand and is counted by holdem_persona_hand_identity_fallback_seen; against a raiser the opponent-style read classifies as tight the scale is held at min(1, scale), so the persona never raises a bluff against a tight player: HorseLogic asks the read itself (HorseMind.styleReadUncounted, then the same tightOpenerRespect / tightReRaiserRespect classifiers the option styleTightReRaiserRespect uses) whatever that option's state (off, shadow, on) and at every depth, applying nothing of the style option and firing none of its receipts; the cap DEPENDS ON THE READ BEING AVAILABLE: with opponent memory off, no profile, a presumed read or too little data to be actionable the opener is unknown, not tight, and the scale is not held; the 3-bet and squeeze bluffs lose frequency where min(1, p * scale) binds AND wherever p is above 1 / 1.519 (about 0.66), where a Horse above the average cannot go past 1 while one below still goes down; All-In-Or-Fold hold'em receives the context field but no site reads it; a preflop range change, not to be enabled while the range hold stands; no league evidence yet; enabling it is a separate owner decision; docs/changelog/2026-11-14-holdem-persona-reaches-re-raise-bluffs.md",
+    'PersonaReRaise'
+  ),
+  flag(
+    'holdemPersonaPreflop',
+    "2026-11-15 default OFF (plan lines 85 and 152; owner order 2026-11-15 08:05 Chicago to build the missing persona promises; range-width part needs the owner's decision under the preflop range hold, packet PACKET-PERSONA-PREFLOP-20261115.md): one option for the Hold'em persona's preflop layer (HorseHoldemPersonaPreflop), two-card no-limit hold'em only. (1) It turns on the persona re-raise mix (everything holdemPersonaReRaiseMix does: 3-bet and squeeze bluffs on the Horse's zero-draw per-hand unit, scaled by nlh3BetMix / 0.42143, held at min(1, scale) against a raiser the style read classifies as tight; four-bet reshoves are not persona-specific, owner decision R3-B). (2) On V87, V85 cash action tables deeper than 50bb, not All-In-Or-Fold, the seat's opening share (gtoOpen70, the iso bar over 1-2 limpers included) and the defender's continue share facing one open (gtoDefend72, before the V87 multiway widening) move by the archetype's fixed points: LAG Shark +4 / +1.5, Tricky Trap 0 / 0, TAG Crusher -1 / -2, Nit Hunter -3 / -3, times the V85 depth weight (0 at 50bb or less, full from 85bb); the continue share never goes below the value 3-bet share or above 88 percent; the value bar, the bluff probability, nlhOpeningTightness and referenceNlhOpenings (the Hybrid protection of calibrated opening widths) are not read or written; on a table with a VPIP floor a negative shift is withheld (counted by holdem_persona_floor_held_seen). (3) The Nit Hunter's described behaviour, preflop half: facing a raiser the existing exploit read holds credibly wide (one raise) or a limper it holds credibly loose (never a presumed read; needs opponent memory), a Nit Hunter's shift becomes +2 open (isolation) / 0 continue instead of -3 / -3 (the existing exploit layer's own wider value 3-bets and isolation against such players are unchanged and apply to every Horse); the postflop half ('stabs capped checked ranges') is not built. Tournaments, Omaha, short deck, pot limit, fixed limit, hi-lo and All-In-Or-Fold get no range shift; tournaments still get the re-raise mix. No draw is added, removed or moved; nothing reads a realised frequency. Measured, Horses against Horses, synthetic ids, preflop only: see docs/changelog/2026-11-15-holdem-persona-preflop.md; enabling it is a separate owner decision",
+    'PersonaPreflop'
+  ),
+  flag(
     'nashCallVsJam',
     "2026-11-07 default ON (league nash_call_vs_jam, mirror, two seeds x 20,000 pairs: MTT six-max 10bb +4.72 +/- 0.64 / +3.41 +/- 0.63, 15bb +2.40 +/- 0.68 / +2.17 +/- 0.68, nine-max 12bb +1.82 +/- 0.42 / +2.23 +/- 0.44, heads-up 12bb +4.86 +/- 1.17 / +3.89 +/- 1.16, cash six-max 12bb +0.80 +/- 0.38 / +0.78 +/- 0.39, 20bb cards neutral or inert, none below; the human-calibrated field never open-jams so its cards are inert): no-limit hold'em, hero folded to a lone open-jam (the first and only raise, all in, nobody has called) at <= 20bb effective calls or folds from the chip-EV Nash jam-or-fold table's CALLER side (HorseNashPushFoldV2.data.ts, server/scripts/nash-push-fold/solve.py --v2: first caller only, exact card removal) by the jammer's dealt-in players behind (1..9), hero's caller kind (unposted seat, small blind, big blind), effective depth and dead ante, cash and tournament; measured before (HorseLogic.decide, live Hybrid personas, production memory_charts_gold hydrated, 24 samples per class): a big blind facing a button jam called 5.2% at 10bb and 9.8% at 20bb in cash and 6.3% at 10bb and 20bb in a big-blind-ante tournament, against Nash 23.1% / 11.5% and 38.2% / 19.6%, and only the big blind against a small-blind jam had a chart (sb_push, the no-ante game, which keeps that spot when there is no dead ante); a maniac's jam keeps the maniac pricing; explicit off arm retained; deeper jams, called jams, Omaha, short deck, pot and fixed limit unchanged; league nash_call_vs_jam; docs/changelog/2026-11-07-nash-push-fold-v2.md",
     'NashV2'
   ),
   flag(
+    'aofClosingSeatNashCall',
+    "2026-11-15 default OFF (HVH2D-NLH-005, draft #10653, owner hold): All-In-Or-Fold no-limit hold'em table, cash or tournament (the flag is set on All-In-Or-Fold tournament tables too), hero facing a lone all-in (one raise, the raiser all in, no caller, no limper, hero has not acted, no straddle) answers from the nashCallVsJam caller table (nashV2CallProbability) only when the effective stack is 12 big blinds or less (NASH_AOF_CLOSING_CALL_MAX_BB) and hero closes the action (everyLiveOpponentIsAllIn: every other player still in the hand is all in; a sitting-out seat is not a player behind); the call is returned as all_in; otherwise, and with the option off, the fixed All-In-Or-Fold strength bar decides as before; measured before (development data, HVH2D-NLH-005 equity rows, closing seat at 12 big blinds or less): 17 of 41 folds against Horse all-ins gave up a profitable call against the table's range, 11 against half width, 0 against a top 10 percent range; 3 folds against human all-ins, none profitable; fixed-input replay: six real closing-seat requests from the production journal (Q9s small blind with the big blind sitting out, five big blinds at 4.4 to 12 big blinds) fold on main and with the option off and go all in with it on, on 12 seeds and from the recorded generator state; seats with a player behind, depth above 12 big blinds and every table that is not All-In-Or-Fold unchanged; tournament utility arbiter still runs after it; no league card (refused matchup aof_closing_seat_nash_call: the league deals no All-In-Or-Fold table); docs/changelog/2026-11-12-an-all-in-or-fold-closing-seat-calls-from-the-nash-table.md",
+    'AofClosingSeat'
+  ),
+  flag(
     'nashPushFoldIcm',
-    "2026-11-07 default OFF: in a tournament the V71 folded-to jam and the nashCallVsJam call read hero's best response at hero's own bubble factor (IcmModel bubbleFactor from the live stacks and payouts, the V16 real-ICM inputs; 1 when the context cannot supply them) against the chip-EV equilibrium of everybody else (HorseNashPushFoldV2, bubble factors 1/1.5/2/3 interpolated), and a ten-handed seat reads nine behind exactly instead of the eight-behind table; with a bubble factor of 1 and at most eight behind it is the V71 answer exactly; docs/changelog/2026-11-07-nash-push-fold-v2.md",
+    "default OFF (owner preflop range hold; the option switch registers it off-only). 2026-11-15 (hand 59441335: a 2.1bb in-the-money final-table cutoff open-jammed 85o from the chip-EV table): with explicit true, a no-limit hold'em tournament short stack in the money, hand for hand or near the bubble, with stacks, payouts and its identity in the trusted context, not in a satellite, PKO or mystery bounty and with a payout weight above zero, prices the V71 folded-to jam and the nashCallVsJam call at its own bubble factor (a bust valued at the place it finishes, IcmModel bubbleFactor since 2026-11-15; the call priced on the chips contested) moved toward 1 by prize / (prize + bounty) (HorseLogic payJumpBubbleFactor; receipt pay_jump_push_fold_seen), and every other spot reads the V2 table at a bubble factor of 1; unset or false is chip EV, as before; league card mtt6_ft_pay_jump_push_fold_12bb; prepared evidence for lifting the hold docs/horse-default-on.d/nashPushFoldIcm.md; docs/changelog/2026-11-15-short-stack-shoves-price-the-payouts.md. 2026-11-07 shipped as an opt-in: in a tournament the V71 folded-to jam and the nashCallVsJam call read hero's best response at hero's own bubble factor (IcmModel bubbleFactor from the live stacks and payouts, the V16 real-ICM inputs; 1 when the context cannot supply them) against the chip-EV equilibrium of everybody else (HorseNashPushFoldV2, bubble factors 1/1.5/2/3 interpolated), and a ten-handed seat reads nine behind exactly instead of the eight-behind table; with a bubble factor of 1 and at most eight behind it is the V71 answer exactly; docs/changelog/2026-11-07-nash-push-fold-v2.md",
     'NashV2'
   ),
   flag(
@@ -5816,6 +5986,78 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'CommitPrice'
   ),
   receipt(
+    'holdem_persona_3bet_bluff_eligible_seen',
+    'HorsePreflop via HorseLogic (holdemPersonaReRaiseMix)',
+    "default-off holdemPersonaReRaiseMix: a no-limit hold'em 3-bet bluff decision (facing one open, no caller) reached its mix comparison with the persona present; an occurrence counter with no floor, named *_seen",
+    'PersonaReRaise'
+  ),
+  receipt(
+    'holdem_persona_3bet_bluff_changed_seen',
+    'HorsePreflop via HorseLogic (holdemPersonaReRaiseMix)',
+    'default-off holdemPersonaReRaiseMix: the persona-scaled 3-bet bluff comparison gave a different answer from the unscaled draw it replaced (either direction; the fold-equity test still follows); named *_seen',
+    'PersonaReRaise'
+  ),
+  receipt(
+    'holdem_persona_squeeze_bluff_eligible_seen',
+    'HorsePreflop via HorseLogic (holdemPersonaReRaiseMix)',
+    "default-off holdemPersonaReRaiseMix: a no-limit hold'em squeeze bluff decision (a raise and one or more callers; the V7 squeeze site or the cash chart block) reached its mix comparison with the persona present; named *_seen",
+    'PersonaReRaise'
+  ),
+  receipt(
+    'holdem_persona_squeeze_bluff_changed_seen',
+    'HorsePreflop via HorseLogic (holdemPersonaReRaiseMix)',
+    'default-off holdemPersonaReRaiseMix: the persona-scaled squeeze bluff comparison gave a different answer from the unscaled draw it replaced (either direction); named *_seen',
+    'PersonaReRaise'
+  ),
+  receipt(
+    'holdem_persona_3bet_bluff_capped_seen',
+    'HorsePreflop via HorseLogic (holdemPersonaReRaiseMix)',
+    'default-off holdemPersonaReRaiseMix: a 3-bet bluff comparison whose probability times the Horse scale passed 1 and was held at 1; this counts the capped Horse only, not the frequency a below-average Horse loses at the same high probability (the probe measures that); named *_seen',
+    'PersonaReRaise'
+  ),
+  receipt(
+    'holdem_persona_squeeze_bluff_capped_seen',
+    'HorsePreflop via HorseLogic (holdemPersonaReRaiseMix)',
+    'default-off holdemPersonaReRaiseMix: a squeeze bluff comparison whose probability times the Horse scale passed 1 and was held at 1; named *_seen',
+    'PersonaReRaise'
+  ),
+  receipt(
+    'holdem_persona_scale_held_by_style_seen',
+    'HorsePreflop via HorseLogic (holdemPersonaReRaiseMix)',
+    'default-off holdemPersonaReRaiseMix: a Horse with a scale above 1 met a persona comparison against a raiser the opponent-style read classifies as tight, and its scale was held at 1 (the persona may lower a bluff there, never raise it), whatever the state of the style options; needs the read to be available; named *_seen',
+    'PersonaReRaise'
+  ),
+  receipt(
+    'holdem_persona_hand_identity_fallback_seen',
+    'HorseLogic (holdemPersonaReRaiseMix)',
+    'default-off holdemPersonaReRaiseMix: the persona field was built for a decision whose caller supplied no hand (no opts.mindPlanContext.hand: table id and allocated hand number), so its units came from the public-state fallback, which is not deterministic per hand; expected to be zero on the live worker path and in the league card and the probe; named *_seen',
+    'PersonaReRaise'
+  ),
+  receipt(
+    'holdem_persona_open_shift_seen',
+    'HorseLogic (holdemPersonaPreflop)',
+    "default-off holdemPersonaPreflop: a no-limit hold'em cash open (or isolation over limpers) decision deeper than 50bb had its seat's opening share moved by the Hold'em archetype's points; an occurrence counter with no floor, named *_seen",
+    'PersonaPreflop'
+  ),
+  receipt(
+    'holdem_persona_continue_shift_seen',
+    'HorseLogic (holdemPersonaPreflop)',
+    "default-off holdemPersonaPreflop: a no-limit hold'em cash decision facing one open deeper than 50bb had its continue share moved by the Hold'em archetype's points; named *_seen",
+    'PersonaPreflop'
+  ),
+  receipt(
+    'holdem_persona_floor_held_seen',
+    'HorseLogic (holdemPersonaPreflop)',
+    'default-off holdemPersonaPreflop: the table has a VPIP floor and the archetype shift was negative, so the narrowing was withheld (the persona never pushes a Horse toward the floor); named *_seen',
+    'PersonaPreflop'
+  ),
+  receipt(
+    'holdem_persona_nit_punish_seen',
+    'HorseLogic (holdemPersonaPreflop)',
+    'default-off holdemPersonaPreflop: a Nit Hunter faced a raiser read credibly wide or a limper read credibly loose, and its range shift became +2 open / 0 continue; named *_seen',
+    'PersonaPreflop'
+  ),
+  receipt(
     'hu_bb_defends_to_price',
     'HorsePreflop via HorseLogic (huBbDefendsToPrice)',
     'default-off huBbDefendsToPrice: heads-up big blind facing the only open called a hand the V11 heads-up bars folded, because its realised equity against the opener range covered the price',
@@ -5834,9 +6076,21 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HuDefence'
   ),
   receipt(
+    'aof_closing_seat_nash_call_seen',
+    'HorseLogic (aofClosingSeatNashCall)',
+    'default-off aofClosingSeatNashCall: an All-In-Or-Fold closing seat facing a lone all-in at 12 big blinds or less was answered by the Nash caller table; occurrence counter, named *_seen',
+    'AofClosingSeat'
+  ),
+  receipt(
     'nash_call_vs_jam',
     'HorseLogic (nashCallVsJam)',
     "nashCallVsJam: a no-limit hold'em seat facing a lone open-jam at <= 20bb called or folded from the Nash push/fold V2 caller table",
+    'NashV2'
+  ),
+  receipt(
+    'pay_jump_push_fold_seen',
+    'HorseLogic (payJumpBubbleFactor)',
+    "nashPushFoldIcm on (default OFF): a no-limit hold'em tournament short stack with a pay jump live (in the money, hand for hand or near the bubble; not a satellite, PKO or mystery bounty; payout weight above zero) priced its folded-to jam or its call against a lone jam at its own bubble factor (moved toward 1 by prize / (prize + bounty)) instead of chip EV; hand 59441335; docs/changelog/2026-11-15-short-stack-shoves-price-the-payouts.md",
     'NashV2'
   ),
   receipt(
@@ -6236,6 +6490,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic preflop all-in arithmetic (omahaPreflopCallWithActionBehind, PLO6-AUDIT-005)',
     'an Omaha preflop call of 40% of the stack with chips and action behind was sent to the range play, not priced as a final all-in',
     'V90'
+  ),
+  receipt(
+    'holdem_river_full_house_lead_seen',
+    'HorseLogic not-facing-a-bet river (holdemRiverFullHouseValue)',
+    "a qualifying no-limit hold'em river full house led into the prior aggressor instead of checking at the V11 initiative gate",
+    '2026-11-15'
   ),
   receipt(
     'v87_turn_takeaway',

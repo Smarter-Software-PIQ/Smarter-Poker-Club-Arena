@@ -58,6 +58,11 @@ describe('UNMEASURABLE_MATCHUPS', () => {
         // PLO Strategy (2026-11-15): the league seats no VPIP-floor table.
         'plo4_omaha_vpip_floor_by_limp',
         'plo5_omaha_vpip_floor_by_limp',
+        // Hold'em Strategy lane (2026-11-15): the long shown river memory reads a durable
+        // record no league hand has (no pooled public rows, no worker); its reason states it.
+        'nlh_long_shown_river_memory',
+        // Hold'em Strategy (2026-11-15): no All-In-Or-Fold table.
+        'aof_closing_seat_nash_call',
       ].sort()
     );
     const card = new Set(LEAGUE_MATCHUPS.map((m) => m.name));

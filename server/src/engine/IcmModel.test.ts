@@ -6,6 +6,7 @@ import {
   bubbleFactor,
   createIcmEquityEstimator,
   icmEquity,
+  pairwiseBubbleFactor,
   premiumFromBubbleFactor,
 } from './IcmModel.js';
 
@@ -184,5 +185,82 @@ describe('bubbleFactor', () => {
     expect(premiumFromBubbleFactor(1.5)).toBeCloseTo(0.02, 6);
     expect(premiumFromBubbleFactor(2)).toBeCloseTo(0.04, 6);
     expect(premiumFromBubbleFactor(9)).toBe(0.14);
+  });
+});
+
+/**
+ * A BUST IN THE MONEY IS WORTH ITS PLACE (2026-11-15, hand 59441335).
+ * icmEquity prices a zero stack at 0, and bubbleFactor read the down state of
+ * a whole-stack risk through it, so a player who busts ninth with nine places
+ * paid was charged every payout including ninth's: the 2.1bb final-table
+ * short stack below read 5 (the cap) instead of about 1.17. The bust is
+ * priced at the payout of the place the player finishes (behind every stack
+ * that was live before the hand), and at 0 only where that place is unpaid.
+ */
+describe('bubbleFactor values a bust at the place it finishes', () => {
+  // Hand 59441335: nine left of 86, 13 paid (the repository ladder at 15%).
+  const FINAL_TABLE = [342_381, 310_173, 191_640, 126_232, 124_308, 74_332, 69_856, 38_469, 12_609];
+  const SHORT = 8;
+  const LADDER_13 = [25.14, 14.44, 10.44, 8.3, 6.94, 6.0, 5.31, 4.77, 4.34, 3.99, 3.69, 3.44, 3.2];
+  const bustAtPlace = (stacks: number[], pays: number[], hero: number, risk: number) => {
+    // Independent arithmetic: risk against the largest other stack.
+    let opp = -1;
+    stacks.forEach((s, i) => {
+      if (i !== hero && (opp < 0 || s > stacks[opp])) opp = i;
+    });
+    const r = Math.min(risk, stacks[hero], stacks[opp]);
+    const now = icmEquity(stacks, pays, hero);
+    const up = stacks.slice();
+    up[hero] += r;
+    up[opp] -= r;
+    const down = stacks.slice();
+    down[hero] -= r;
+    down[opp] += r;
+    const live = stacks.filter((s) => s > 0).length;
+    const downEq = down[hero] > 0 ? icmEquity(down, pays, hero) : (pays[live - 1] ?? 0);
+    return (now - downEq) / (icmEquity(up, pays, hero) - now);
+  };
+
+  it('the in-the-money short stack reads about 1.17, not the cap of 5', () => {
+    const bf = bubbleFactor(FINAL_TABLE, LADDER_13, SHORT, 12_609);
+    expect(bf).toBeCloseTo(bustAtPlace(FINAL_TABLE, LADDER_13, SHORT, 12_609), 9);
+    expect(bf).toBeGreaterThan(1.1);
+    expect(bf).toBeLessThan(1.3);
+    // Its equity never falls below ninth's payout, so what a bust loses is
+    // the part above 4.34, not all of it.
+    expect(icmEquity(FINAL_TABLE, LADDER_13, SHORT)).toBeGreaterThan(LADDER_13[8]);
+  });
+
+  it('the pairwise factor prices the same bust the same way', () => {
+    const covering = 0; // the 342k stack covers hero
+    const bf = pairwiseBubbleFactor(FINAL_TABLE, LADDER_13, SHORT, covering, 12_609);
+    expect(bf).toBeCloseTo(bustAtPlace(FINAL_TABLE, LADDER_13, SHORT, 12_609), 9);
+    expect(bf).toBeLessThan(1.3);
+  });
+
+  it('every stack at the final table that can bust reads a factor below the cap', () => {
+    for (let hero = 1; hero < FINAL_TABLE.length; hero++) {
+      const bf = bubbleFactor(FINAL_TABLE, LADDER_13, hero, FINAL_TABLE[hero]);
+      expect(bf).toBeCloseTo(bustAtPlace(FINAL_TABLE, LADDER_13, hero, FINAL_TABLE[hero]), 9);
+      expect(bf).toBeLessThan(5);
+    }
+  });
+
+  it('outside the money a bust is worth 0, exactly as before', () => {
+    // Five left, three paid: fifth is unpaid, so the bust prices at zero.
+    const stacks = [9_000, 6_000, 3_000, 1_500, 500];
+    for (let hero = 1; hero < stacks.length; hero++) {
+      const now = icmEquity(stacks, [50, 30, 20], hero);
+      const up = stacks.slice();
+      up[hero] += stacks[hero];
+      up[0] -= stacks[hero];
+      const legacy = Math.min(5, Math.max(1, now / (icmEquity(up, [50, 30, 20], hero) - now)));
+      expect(bubbleFactor(stacks, [50, 30, 20], hero, stacks[hero])).toBeCloseTo(legacy, 12);
+    }
+  });
+
+  it('a partial risk that leaves chips behind is unchanged', () => {
+    const covered = bubbleFactor(FINAL_TABLE, LADDER_13, 2, 38_469);
+    expect(covered).toBeCloseTo(bustAtPlace(FINAL_TABLE, LADDER_13, 2, 38_469), 12);
   });
 });

@@ -824,11 +824,25 @@ function currencyToPoolPct(input: TournamentUtilityInput, amountCents: number): 
   return 0;
 }
 
-function payoutPoolWeight(input: TournamentUtilityInput): number {
-  const prize = Math.max(0, input.context.prizePoolCents);
-  const bounty = Math.max(0, input.context.bountyPoolCents);
+/**
+ * The share of what the event awards that is paid by finishing place:
+ * prize / (prize + bounty), or 1 - bountyFactor when neither pool is known.
+ * Exported so the short-stack push/fold tables (HorseLogic payJumpBubbleFactor)
+ * weight a bubble factor by the same number this arbiter weights payouts by.
+ */
+export function payoutWeightOfPools(pools: {
+  prizePoolCents?: number | null;
+  bountyPoolCents?: number | null;
+  bountyFactor?: number | null;
+}): number {
+  const prize = Math.max(0, Number(pools.prizePoolCents) || 0);
+  const bounty = Math.max(0, Number(pools.bountyPoolCents) || 0);
   if (prize + bounty > 0) return prize / (prize + bounty);
-  return 1 - clamp(input.context.bountyFactor, 0, 1);
+  return 1 - clamp(Number(pools.bountyFactor) || 0, 0, 1);
+}
+
+function payoutPoolWeight(input: TournamentUtilityInput): number {
+  return payoutWeightOfPools(input.context);
 }
 
 function targetBountyCents(input: TournamentUtilityInput, userId: string): number {
