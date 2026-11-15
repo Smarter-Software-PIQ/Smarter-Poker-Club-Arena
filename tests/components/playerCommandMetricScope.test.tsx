@@ -488,3 +488,34 @@ it('opens each ledger visit on today in Chicago, ignoring saved dates and confir
   expect(state.getMemberDetail.mock.calls[0][2]).toEqual({ from: '2026-11-12', to: '2026-11-12' });
   view.unmount();
 });
+
+it('refreshes the newest agent receipt through the private member-record broadcast', async () => {
+  state.getMemberDetail.mockImplementation(async (_club, _member, range) => ({
+    ...memberDetail,
+    identity: { ...memberDetail.identity, role: 'agent' },
+    range: { ...range },
+  }));
+  let received = false;
+  state.rpc.mockImplementation(async (name: string) => ({
+    data:
+      name === 'fn_cashier_history_feed' && received
+        ? [
+            {
+              id: 'posted',
+              transaction_type: 'agent_wallet_send',
+              from_user_id: state.params.userId,
+              to_user_id: 'recipient',
+              to_name: 'River',
+              amount_text: '20.00',
+              created_at: '2026-11-14T18:00:00Z',
+            },
+          ]
+        : [],
+    error: null,
+  }));
+  render(<MemberManagementPage />);
+  await screen.findByText('No Chip Transactions Found.');
+  received = true;
+  act(() => state.broadcasts.get(statisticsTopic)!.onPayload({ user_id: state.params.userId }));
+  await screen.findByText('Sent To River');
+});

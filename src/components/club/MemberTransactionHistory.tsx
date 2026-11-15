@@ -8,7 +8,7 @@ import { toTitleCase } from '../../utils/titleCase';
 import { runWithRequestDeadline } from '../../utils/requestDeadline';
 import { reportError } from '../../utils/errorReporter';
 import {
-  ledgerDisplaySign,
+  ledgerDirection,
   ledgerRowTitle,
   walletRoute,
   presentChipTransaction,
@@ -26,13 +26,53 @@ interface Entry extends ChipTransactionLike {
 interface Props {
   clubId: string;
   memberId: string;
-  viewerId: string;
+  revision: number;
   scope: 'club' | 'downline' | 'mine';
 }
 
 type Cursor = Pick<Entry, 'created_at' | 'id'>;
 
-export default function MemberTransactionHistory({ clubId, memberId, viewerId, scope }: Props) {
+function memberTitle(row: Entry, memberId: string): string {
+  const incoming = row.to_user_id === memberId;
+  const outgoing = row.from_user_id === memberId;
+  const from = row.from_name || 'A Member';
+  const to = row.to_name || 'A Member';
+  switch (row.transaction_type) {
+    case 'agent_wallet_self_stake':
+      return 'Moved Chips To Player Wallet';
+    case 'peer_transfer':
+    case 'agent_wallet_send':
+    case 'promo_wallet_send':
+    case 'club_promo_send':
+      if (incoming && outgoing) return 'Moved Chips Between Wallets';
+      break;
+    case 'club_bank_send':
+      return incoming ? 'Received From Club Bank' : `Sent From Club Bank To ${to}`;
+    case 'agent_wallet_claim_back':
+    case 'club_bank_claim':
+      return incoming ? `Claimed Back From ${from}` : `Chips Claimed Back By ${to}`;
+    case 'club_bank_reversal':
+      return incoming ? `Reversed Send To ${from}` : `Send Reversed By ${to}`;
+    case 'admin_removal':
+      return incoming ? `Removed Chips From ${from}` : `Chips Removed By ${to}`;
+    case 'cashout_request_escrow':
+      return outgoing ? `Requested Cash-Out From ${to}` : `Cash-Out Requested By ${from}`;
+    case 'cashout_approved':
+      return incoming ? `Accepted Cash-Out From ${from}` : `Cash-Out Accepted By ${to}`;
+    case 'cashout_denied':
+      return incoming ? `Cash-Out Cancelled By ${from}` : `Cancelled Cash-Out From ${to}`;
+    case 'cashout_cancelled':
+      return 'Withdrew Cash-Out';
+    case 'cashout_expired_refund':
+      return 'Expired Cash-Out Refunded';
+  }
+  return (
+    ledgerRowTitle(row, from, to, memberId) ??
+    toTitleCase((row.transaction_type ?? 'Chip Transaction').replace(/_/g, ' '))
+  );
+}
+
+export default function MemberTransactionHistory({ clubId, memberId, revision, scope }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [cursors, setCursors] = useState<Cursor[]>([]);
   const [attempt, setAttempt] = useState(0);
@@ -40,6 +80,9 @@ export default function MemberTransactionHistory({ clubId, memberId, viewerId, s
   const [failed, setFailed] = useState(false);
   const limit = expanded ? 25 : 6;
   const cursor = cursors[cursors.length - 1];
+
+  // An older cursor is a stable page even as fresh receipts arrive.
+  const refreshRevision = cursor ? 0 : revision;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -62,7 +105,10 @@ export default function MemberTransactionHistory({ clubId, memberId, viewerId, s
           { signal: controller.signal }
         );
         if (error) throw error;
-        if (!controller.signal.aborted) setRows((data ?? []).map(presentChipTransaction));
+        if (!controller.signal.aborted) {
+          setFailed(false);
+          setRows((data ?? []).map(presentChipTransaction));
+        }
       } catch (error) {
         if (!controller.signal.aborted) {
           reportError(error, 'MemberTransactionHistory.read');
@@ -72,7 +118,7 @@ export default function MemberTransactionHistory({ clubId, memberId, viewerId, s
     }
     void read();
     return () => controller.abort();
-  }, [clubId, memberId, scope, cursor, limit, attempt]);
+  }, [clubId, memberId, scope, cursor, limit, attempt, refreshRevision]);
 
   function changeView(nextExpanded: boolean, nextCursors: Cursor[]) {
     setRows(null);
@@ -82,7 +128,7 @@ export default function MemberTransactionHistory({ clubId, memberId, viewerId, s
   }
 
   return (
-    <section className="mm-card mm-stats" aria-label="Transaction History">
+    <section className="mm-card mm-stats mm-history" aria-label="Transaction History">
       <h2 className="mm-card__title">Transaction History</h2>
       {failed ? (
         <p role="alert">
@@ -105,11 +151,13 @@ export default function MemberTransactionHistory({ clubId, memberId, viewerId, s
       ) : (
         rows.slice(0, limit).map((row) => {
           const route = walletRoute(row);
+          const used =
+            row.transaction_type === 'promo_wallet_send' && row.metadata?.promo_used_after_send;
+          const direction = ledgerDirection(row, memberId);
           return (
             <div className="mm-stat" key={row.id}>
               <span className="mm-stat__label">
-                {ledgerRowTitle(row, row.from_name, row.to_name, viewerId) ??
-                  toTitleCase((row.transaction_type ?? 'Chip Transaction').replace(/_/g, ' '))}
+                {memberTitle(row, memberId)}
                 <br />
                 {route && (
                   <>
@@ -117,10 +165,18 @@ export default function MemberTransactionHistory({ clubId, memberId, viewerId, s
                     <br />
                   </>
                 )}
+                {typeof used === 'string' && (
+                  <>
+                    <span>
+                      Weekly Promo Allowance After This Send: {formatWalletChips(used)} Of 50 Used
+                    </span>
+                    <br />
+                  </>
+                )}
                 <time dateTime={row.created_at}>{formatDateTime(row.created_at)}</time>
               </span>
               <strong className="mm-stat__value">
-                {ledgerDisplaySign(row, memberId)}
+                {direction === 'in' ? '+' : direction === 'out' ? '-' : ''}
                 {formatWalletChips(row.amount_text ?? row.amount)}
               </strong>
             </div>
