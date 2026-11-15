@@ -10,9 +10,9 @@ CREATE TABLE public.ca_observed_hands (
 );
 CREATE INDEX ca_observed_hands_table_page ON public.ca_observed_hands(viewer_id,table_id,hand_number DESC);
 ALTER TABLE public.ca_observed_hands ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON public.ca_observed_hands FROM PUBLIC,anon,authenticated;
+REVOKE ALL ON public.ca_observed_hands FROM PUBLIC,anon,authenticated,service_role;
 GRANT SELECT ON public.ca_observed_hands TO authenticated;
-GRANT ALL ON public.ca_observed_hands TO service_role;
+GRANT SELECT,INSERT ON public.ca_observed_hands TO service_role;
 CREATE POLICY observed_hand_read_own ON public.ca_observed_hands FOR SELECT TO authenticated USING(viewer_id=(SELECT auth.uid()));
 -- table_id records the room watched; a Lightning projection may archive on a different physical host.
 -- Canonical hole_cards contains public reveals only. Private ca_hand_facts and
