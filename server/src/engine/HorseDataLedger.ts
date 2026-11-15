@@ -1357,6 +1357,28 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'the ungated read had a preflop maniac width and the gated read has none (thin sample, PFR not credibly beyond the regular line, or too few 3-bet opportunities); counts reads; named *_seen',
     '2026-11-15'
   ),
+  flag(
+    'holdemCallDownExcludesCurrentHand',
+    "2026-11-15 IN-HAND WAGERS ARE NOT HISTORY (opponent classifier C7 F1, HU-MEM-013 V6): in a hold'em decision the legacy aggression ratio behind the lifetime call-down multiplier (HorseMind.legacyExploit, ratio above 2.5 on 12+ actions sets 1.2) subtracts the opponent's own wagers in the hand being decided (HorseMind.currentHandWagers of the decision's action history, carried in the decision read options), never below zero, so the bets the Horse faces are not evidence that the same bettor bluffs; Omaha and every other read unchanged; default OFF, read === true only; evidence docs/horse-default-on.d/holdemCallDownExcludesCurrentHand.md",
+    '2026-11-15'
+  ),
+  receipt(
+    'holdem_call_down_excludes_current_hand_seen',
+    'HorseMind.legacyExploit (holdemCallDownExcludesCurrentHand)',
+    'the read with the current hand would have entered the maniac branch and the read without it does not; counts reads; named *_seen',
+    '2026-11-15'
+  ),
+  flag(
+    'holdemCallDownNeedsStyleEvidence',
+    "2026-11-15 ONE READ ANSWERS THE CALL-DOWN (opponent classifier C7 F2, HU-MEM-013 V6): in a hold'em decision whose scope bucket is under SCOPE_MIN_HANDS (the pooled tallies answer the lifetime read) and whose style read has no supported individual read, the legacy maniac call-down multiplier (1.2) stays neutral, so a multiplier the style layer cannot see never widens a call; reduced-to-two tables are the case found; default OFF, read === true only; evidence docs/horse-default-on.d/holdemCallDownNeedsStyleEvidence.md",
+    '2026-11-15'
+  ),
+  receipt(
+    'holdem_call_down_needs_style_evidence_seen',
+    'HorseMind.legacyExploit (holdemCallDownNeedsStyleEvidence)',
+    'the legacy maniac multiplier was held neutral because the pooled tallies answered and the style read had no supported individual read; counts reads; named *_seen',
+    '2026-11-15'
+  ),
   receipt(
     'style_long_participation_seen',
     'HorseMind.styleRead (STYLE READ, long participation window)',

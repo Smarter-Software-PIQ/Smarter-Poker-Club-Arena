@@ -447,6 +447,24 @@ export interface DecisionReadOptions {
    *  evidence (HorseOpponentExploit.withManiacSampleGate), so maniacRaiseWidth needs 15 decayed hands and PFR credibly
    *  above the size's regular line. Only an explicit true engages; absent, every read is what it was. */
   holdemManiacSampleGate?: boolean;
+  /** IN-HAND WAGERS ARE NOT HISTORY (2026-11-15, opponent classifier C7 F1, HorseDecideOpts.
+   *  holdemCallDownExcludesCurrentHand): each opponent's wagers in the hand being decided (HorseMind.currentHandWagers
+   *  of the decision's own action history). The legacy aggression ratio that sets the lifetime call-down multiplier
+   *  subtracts them, so the bets the Horse is facing are not evidence that the same bettor bluffs. Present only with
+   *  the option on in a hold'em decision. */
+  currentHandWagers?: Readonly<Record<string, HandWagers>>;
+  /** ONE READ ANSWERS THE CALL-DOWN (2026-11-15, opponent classifier C7 F2, HorseDecideOpts.
+   *  holdemCallDownNeedsStyleEvidence): when the decision scope's own bucket is too thin (the pooled tallies answer the
+   *  lifetime read) and the style read used for the decision has no supported individual read, the lifetime maniac
+   *  multiplier stays neutral. Only an explicit true engages. */
+  holdemCallDownNeedsStyleEvidence?: boolean;
+}
+/** One opponent's wagers in one hand, counted as HorseMind.observe counts them (forced actions excluded). */
+export interface HandWagers {
+  readonly aggr: number;
+  readonly passive: number;
+  readonly postAggr: number;
+  readonly postPassive: number;
 }
 /** Decayed postflop facing-bet opportunities before the postflop fold rate reads. */
 export const FOLD_READ_MIN_OPPS = 8;
@@ -3918,6 +3936,36 @@ export class HorseMind {
     };
   }
 
+  /**
+   * IN-HAND WAGERS ARE NOT HISTORY (2026-11-15, opponent classifier C7 F1): each player's aggressive and passive
+   * actions in one hand's action history, counted exactly as observe() adds them to OpponentStats (aggr / passive
+   * on every street, postAggr / postPassive after the flop; forced actions skipped; an all-in is aggression only as a
+   * full raise). Pure: reads the history, touches no memory.
+   */
+  static currentHandWagers(
+    history: readonly ActionRecord[] | undefined
+  ): Record<string, HandWagers> {
+    const out: Record<
+      string,
+      { aggr: number; passive: number; postAggr: number; postPassive: number }
+    > = {};
+    for (const a of history ?? []) {
+      if (!a || a.origin === 'forced' || !a.userId) continue;
+      const aggr = isMindAggression(a);
+      if (!aggr && a.action !== 'call') continue;
+      const t = (out[a.userId] ??= { aggr: 0, passive: 0, postAggr: 0, postPassive: 0 });
+      const post = a.stage !== 'preflop';
+      if (aggr) {
+        t.aggr++;
+        if (post) t.postAggr++;
+      } else {
+        t.passive++;
+        if (post) t.postPassive++;
+      }
+    }
+    return out;
+  }
+
   /** The legacy read's value-bettor stand-down fired on its last call
    *  (synchronous; read by readExploit right after legacyExploit). */
   private static legacyValueBettorHeld = false;
@@ -3989,22 +4037,51 @@ export class HorseMind {
     // an opponent's BETS get, so it must be measured where the bets are.
     // Falls back to the all-streets ratio until the postflop sample exists,
     // so a fresh opponent is never read from three hands of noise.
-    const hasPostflopSample = s.postPassive + s.postAggr >= 10;
-    const afLifetime = hasPostflopSample
-      ? s.postAggr / Math.max(1, s.postPassive)
-      : s.aggr / Math.max(1, s.passive);
-    let af = afLifetime;
-    const rN = rec.rAggr + rec.rPassive;
-    // Recent counters include preflop actions. Blend them only with the
-    // all-street fallback; otherwise preflop style can invert a postflop read.
-    if (recencyBlend && !hasPostflopSample && rN >= 8) {
-      const recentAf = rec.rAggr / Math.max(1, rec.rPassive);
-      if (Math.abs(recentAf - afLifetime) > Math.max(0.6, 0.5 * afLifetime)) {
-        const wa = Math.min(0.5, rN / 40);
-        af = (1 - wa) * afLifetime + wa * recentAf;
+    // IN-HAND WAGERS ARE NOT HISTORY (2026-11-15, C7 F1, holdemCallDownExcludesCurrentHand, default off): the
+    // hand being decided was observed into these counters before the read, so the bets the Horse is facing pushed
+    // the ratio toward the maniac line. With the option on they are taken back out (never below zero).
+    const inHand = this.decisionReadOptions.currentHandWagers?.[userId];
+    const raw = {
+      aggr: s.aggr,
+      passive: s.passive,
+      postAggr: s.postAggr,
+      postPassive: s.postPassive,
+      rAggr: rec.rAggr,
+      rPassive: rec.rPassive,
+    };
+    const cnt = inHand
+      ? {
+          aggr: Math.max(0, s.aggr - inHand.aggr),
+          passive: Math.max(0, s.passive - inHand.passive),
+          postAggr: Math.max(0, s.postAggr - inHand.postAggr),
+          postPassive: Math.max(0, s.postPassive - inHand.postPassive),
+          rAggr: Math.max(0, rec.rAggr - inHand.aggr),
+          rPassive: Math.max(0, rec.rPassive - inHand.passive),
+        }
+      : raw;
+    const aggressionFactor = (c: typeof raw): number => {
+      const hasPostflopSample = c.postPassive + c.postAggr >= 10;
+      const afLifetime = hasPostflopSample
+        ? c.postAggr / Math.max(1, c.postPassive)
+        : c.aggr / Math.max(1, c.passive);
+      let af = afLifetime;
+      const rN = c.rAggr + c.rPassive;
+      // Recent counters include preflop actions. Blend them only with the
+      // all-street fallback; otherwise preflop style can invert a postflop read.
+      if (recencyBlend && !hasPostflopSample && rN >= 8) {
+        const recentAf = c.rAggr / Math.max(1, c.rPassive);
+        if (Math.abs(recentAf - afLifetime) > Math.max(0.6, 0.5 * afLifetime)) {
+          const wa = Math.min(0.5, rN / 40);
+          af = (1 - wa) * afLifetime + wa * recentAf;
+        }
       }
-    }
-    if (s.aggr + s.passive >= 12) {
+      return af;
+    };
+    const af = aggressionFactor(cnt);
+    if (cnt.aggr + cnt.passive >= 12) {
+      // receipt: the exclusion took this read off the maniac branch it would have entered
+      if (inHand && af <= 2.5 && raw.aggr + raw.passive >= 12 && aggressionFactor(raw) > 2.5)
+        noteFire('holdem_call_down_excludes_current_hand_seen');
       if (af > 2.5) {
         noteFire('legacy_aggression_factor_branch_seen');
         // V83 (2026-11-06): the ratio alone is not a maniac. Horse-vs-horse
@@ -4030,12 +4107,33 @@ export class HorseMind {
             if (isValueBettor(vbStyle))
               noteStyleShadowEngaged('styleValueBettorNotManiac', vbStyle.confidenceCap);
           }
-          callDownMod = blend(1.2);
+          if (this.callDownLacksStyleEvidence(userId)) {
+            // ONE READ ANSWERS THE CALL-DOWN (2026-11-15, C7 F2, holdemCallDownNeedsStyleEvidence, default off).
+            noteFire('holdem_call_down_needs_style_evidence_seen');
+          } else callDownMod = blend(1.2);
         }
       } else if (af < 0.7) callDownMod = blend(0.85);
     }
 
     return { bluffMod, callDownMod, valueThinMod };
+  }
+
+  /**
+   * ONE READ ANSWERS THE CALL-DOWN (2026-11-15, opponent classifier C7 F2; option holdemCallDownNeedsStyleEvidence,
+   * read === true, default off). Reduced to two at a short or full table, the decision scope's own bucket is under
+   * SCOPE_MIN_HANDS, so the lifetime read answers from the pooled tallies while the style read used for the decision
+   * reads the scope's own counters and has no evidence; the maniac multiplier then rose on a read the style layer
+   * could not see, and its value-bettor exemption could not act. With the option on, in a hold'em decision, that
+   * multiplier stays neutral exactly when the pooled tallies answer and the style read has no supported read.
+   */
+  private static callDownLacksStyleEvidence(userId: string): boolean {
+    if (this.decisionReadOptions.holdemCallDownNeedsStyleEvidence !== true) return false;
+    const scope = this.decisionScope;
+    if (!scope || scope.split(':')[0] !== 'holdem') return false;
+    const sc = this.scoped.get(`${scope}|${userId}`);
+    if (sc && sc.hands >= SCOPE_MIN_HANDS) return false;
+    if (sc && this.decisionReadOptions.scopedShrink) return false;
+    return this.styleRead(userId).evidence.state !== 'supported_individual_read';
   }
 
   // ───────────────────────────────────────────────────────────────────────

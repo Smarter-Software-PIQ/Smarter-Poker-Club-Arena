@@ -2014,6 +2014,25 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaBluffCatcherRaiseFold: true },
     b: {},
   })),
+  // 2026-11-15 C7 F1 (holdemCallDownExcludesCurrentHand, default OFF): a takes
+  // the hand being decided out of the legacy aggression ratio; b is today's.
+  // Production observes the hand before the read; a run without learning does
+  // not, and there the subtraction is clamped at zero.
+  {
+    name: 'nlh_call_down_excludes_current_hand',
+    pairs: 6000,
+    a: { holdemCallDownExcludesCurrentHand: true },
+    b: {},
+  },
+  // 2026-11-15 C7 F2 (holdemCallDownNeedsStyleEvidence, default OFF): a keeps
+  // the legacy maniac multiplier neutral when the pooled tallies answer and the
+  // style read has no evidence; b is today's. Expected near inert Horse vs Horse.
+  {
+    name: 'nlh_call_down_needs_style_evidence',
+    pairs: 6000,
+    a: { holdemCallDownNeedsStyleEvidence: true },
+    b: {},
+  },
   // 2026-11-15 A REGULAR IS NOT A MANIAC (holdemManiacSampleGate, default OFF):
   // a gates the preflop maniac width (15 decayed hands, PFR credibly beyond the
   // size's regular line, 8 decayed 3-bet opportunities); b is today's read.

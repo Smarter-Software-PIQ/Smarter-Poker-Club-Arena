@@ -3290,6 +3290,16 @@ export interface HorseDecideOpts {
    *  0.10) or 8+ decayed 3-bet opportunities for the re-raise route (HorseOpponentExploit.withManiacSampleGate).
    *  Receipt maniac_sample_gate_withheld_seen. Read only as === true: default OFF. */
   holdemManiacSampleGate?: boolean;
+  /** IN-HAND WAGERS ARE NOT HISTORY (2026-11-15, opponent classifier C7 F1): in a hold'em decision the legacy
+   *  aggression ratio behind the lifetime call-down multiplier no longer counts the opponent's wagers in the hand
+   *  being decided (HorseMind.currentHandWagers), so the bets the Horse faces are not evidence that the same bettor
+   *  bluffs. Receipt holdem_call_down_excludes_current_hand_seen. Read only as === true: default OFF. */
+  holdemCallDownExcludesCurrentHand?: boolean;
+  /** ONE READ ANSWERS THE CALL-DOWN (2026-11-15, opponent classifier C7 F2): in a hold'em decision whose scope bucket
+   *  is too thin (the pooled tallies answer the lifetime read) and whose style read has no supported individual read,
+   *  the lifetime maniac call-down multiplier stays neutral. Receipt holdem_call_down_needs_style_evidence_seen. Read
+   *  only as === true: default OFF. */
+  holdemCallDownNeedsStyleEvidence?: boolean;
   /** STYLE READ #3 (2026-11-13): a large turn bet, a large river bet or ANY
    *  river raise from a credibly value-heavy bettor earns extra respect,
    *  capped at the existing callDownRespectShift ceiling (+0.15), never on a
@@ -6768,6 +6778,14 @@ export class HorseLogic {
       ...(opts.styleTightMultiSignal === true ? { styleTightMultiSignal: true } : {}),
       // MANIAC SAMPLE GATE (2026-11-15, opponent classifier): plumbing only, key added only when true.
       ...(opts.holdemManiacSampleGate === true ? { holdemManiacSampleGate: true } : {}),
+      // C7 F1 / F2 (2026-11-15, opponent classifier): keys added only when the option is true.
+      ...(opts.holdemCallDownExcludesCurrentHand === true &&
+      (HorseMind.currentScope() ?? '').startsWith('holdem:')
+        ? { currentHandWagers: HorseMind.currentHandWagers(gameState.actionHistory) }
+        : {}),
+      ...(opts.holdemCallDownNeedsStyleEvidence === true
+        ? { holdemCallDownNeedsStyleEvidence: true }
+        : {}),
     });
     // V3: ingest the action stream into the opponent-intelligence layer.
     // Wrapped so observation can never take down a decision.
