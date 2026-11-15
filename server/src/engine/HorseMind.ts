@@ -5,6 +5,7 @@ import {
   type MultiwayRiverReadState,
 } from './HorseMultiwayRiverRead.js';
 import { omahaTightRead, type OmahaTightRead } from './HorseOmahaTightOpponent.js';
+import { omahaReadConditional, type OmahaReadConditional } from './HorseOmahaReadConditional.js';
 import {
   riverPositionIncrements,
   riverTripleCheckRaiseIncrements,
@@ -2482,6 +2483,41 @@ export class HorseMind {
         ? probeAdjustedCounters(raw, pooled?.ctBets, pooled?.ctProbes)
         : raw;
     return omahaTightRead(
+      counters,
+      scope,
+      this.decisionVariant,
+      opponentExploitRead(counters, scope, this.decisionVariant)
+    );
+  }
+
+  /**
+   * OMAHA READ-CONDITIONAL DEFENCE (2026-11-15, HorseOmahaReadConditional,
+   * default off): whether this opponent is a measured tight re-raiser and a
+   * measured postflop value leader for the decision in flight, from the same
+   * decayed counters omahaTightReadOf reads (the exact context's row,
+   * probe-adjusted) and their high-side exploit read. A presumed read is never
+   * measured. Null outside an Omaha decision. Pure: no fires, no writes. Only
+   * HorseLogic calls it, and only with omahaReraisedFoldVsTight or
+   * omahaMadeHandDefenseVsValueLeader on.
+   */
+  static omahaReadConditionalOf(userId: string): OmahaReadConditional | null {
+    const scope = this.decisionScope;
+    if (!scope || !scope.startsWith('omaha:')) return null;
+    const variant = memoryVariant(this.decisionVariant);
+    const size = scope.split(':')[1] as MemorySize;
+    const durable = variant ? this.blendDurableRead(userId, variant, size, false) : undefined;
+    const raw =
+      durable ??
+      (this.durableOpponentMemory && variant
+        ? undefined
+        : this.exploitCounters.get(`${scope}|${userId}`));
+    // probeAdjusted without its receipt: the same counters, no fire.
+    const pooled = this.stats.get(userId);
+    const counters =
+      raw && this.probeAwareAggression
+        ? probeAdjustedCounters(raw, pooled?.ctBets, pooled?.ctProbes)
+        : raw;
+    return omahaReadConditional(
       counters,
       scope,
       this.decisionVariant,

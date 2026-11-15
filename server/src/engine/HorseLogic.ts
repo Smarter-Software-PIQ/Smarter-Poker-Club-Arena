@@ -48,6 +48,7 @@ import {
   omahaTurnRedrawShare,
 } from './HorseOmahaMadeHandDefense.js';
 import { omahaOnePairDiscipline } from './HorseOmahaOnePair.js';
+import type { OmahaReadConditional } from './HorseOmahaReadConditional.js';
 import {
   omahaReraisedPostflopCell,
   omahaReraisedPreflopCell,
@@ -2738,6 +2739,31 @@ export interface HorseDecideOpts {
    * FAILED (2026-11-15): Horse-only PLO4 -0.77 bb/100 (z -2.30); the
    * development human field leaned positive (+0.79, z +1.89). */
   omahaOnePairDiscipline?: boolean;
+  /** Owner 2026-11-15 01:03 (play a maniac and a tight player differently;
+   * fix the problem, not particular folds): the preflop 4-bet fold of
+   * omahaReraisedPotDiscipline (omahaReraisedPreflopCell, unchanged) applies
+   * only when the last preflop raiser is a MEASURED tight re-raiser
+   * (HorseOmahaReadConditional.ts: his own re-raise rate credibly at or below
+   * the Horse mean on 12+ decayed opportunities, not a maniac; a presumed
+   * read never counts). Against a wide re-raiser, a maniac or an unknown
+   * player the Horse plays as today. Needs the mind on. Has no effect while
+   * omahaReraisedPotDiscipline is on (that option folds unconditionally).
+   * Default OFF (opt-in, read `=== true`) until its declared evaluation
+   * passes; league cards plo4/plo5 _omaha_reraised_fold_vs_tight. */
+  omahaReraisedFoldVsTight?: boolean;
+  /** Owner 2026-11-15 01:03, as above: the turn no-raise and the scare-card
+   * checks of omahaBeatenMadeHandDefense (omahaBeatenNoRaise and
+   * omahaBeatenNoBet, unchanged) apply only when every live opponent is a
+   * MEASURED postflop value leader (HorseOmahaReadConditional.ts: not
+   * betting credibly more than the Horse mean when checked to, not a postflop
+   * maniac, folding to bets at least and calling rivers at most as often as
+   * the average Horse; preflop width is not part of it; a presumed read never
+   * counts). Against an over-bluffer, a station or an unknown player the
+   * Horse plays as today. Needs the mind on. Has no effect while
+   * omahaBeatenMadeHandDefense is on. Default OFF (opt-in, read `=== true`)
+   * until its declared evaluation passes; league cards plo4/plo5
+   * _omaha_made_hand_defense_vs_value_leader. */
+  omahaMadeHandDefenseVsValueLeader?: boolean;
   /** A token-priced committed call is not barred by stack-off premiums
    * (HorseTokenCallPrice.ts, PLO6-AUDIT-010). Default on; false only for
    * the regression's non-vacuity control. */
@@ -5841,6 +5867,117 @@ function omahaReraisedPotFold(
   }
 }
 
+/**
+ * HorseOmahaReadConditional: true when the mind is on and every live
+ * opponent's read-conditional read (HorseMind.omahaReadConditionalOf) passes
+ * `test`. No live opponent, a missing read, the mind off or any failure is
+ * false (today's play).
+ */
+function omahaEveryLiveOpponentIs(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts,
+  test: (read: OmahaReadConditional) => boolean
+): boolean {
+  if (opts.mind === false) return false;
+  try {
+    const live = (gs.players ?? []).filter(
+      (p) => p.seat !== player.seat && !p.is_folded && !p.is_sitting_out
+    );
+    if (live.length === 0) return false;
+    return live.every((p) => {
+      const read = HorseMind.omahaReadConditionalOf(p.user_id);
+      return read !== null && test(read);
+    });
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * omahaReraisedFoldVsTight (owner 2026-11-15 01:03; default OFF, read
+ * `=== true`): the preflop cell of the re-raised-pot discipline
+ * (omahaReraisedPreflopCell, unchanged), applied only when the last preflop
+ * raiser is a measured tight re-raiser (HorseOmahaReadConditional). A
+ * continue (call, raise or all-in) facing a 4-bet or more becomes a fold when
+ * the cell says so; every other decision is returned as is. It stands aside
+ * while omahaReraisedPotDiscipline is on (that option already folds there,
+ * read or no read). Runs outermost, after omahaReraisedPotFold. Draws no
+ * random number.
+ */
+function omahaReraisedFoldVsTight(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
+  if (opts.omahaReraisedFoldVsTight !== true || opts.omahaReraisedPotDiscipline === true)
+    return decision;
+  if (opts.mind === false) return decision;
+  if (decision.action !== 'call' && decision.action !== 'raise' && decision.action !== 'all_in')
+    return decision;
+  try {
+    if (String(gs.stage ?? '') !== 'preflop') return decision;
+    if (Array.isArray(gs.legalActions) && !gs.legalActions.includes('fold')) return decision;
+    const preflopRaises = preflopRaiseCount(gs.actionHistory);
+    if (preflopRaises < 3) return decision;
+    const stack = Number.isFinite(player.stack) ? Math.max(0, player.stack) : 0;
+    const heroBet = Number.isFinite(player.bet) ? Math.max(0, player.bet ?? 0) : 0;
+    const toCall = Number.isFinite(gs.toCall)
+      ? Math.max(0, gs.toCall as number)
+      : Math.max(0, (gs.currentBet || 0) - heroBet);
+    if (toCall <= 0.005) return decision;
+    // The last preflop raiser other than hero is the re-raiser faced.
+    const history = gs.actionHistory ?? [];
+    let raiserId: string | null = null;
+    for (let k = history.length - 1; k >= 0; k--) {
+      const a = history[k]!;
+      if (a.stage !== 'preflop' || a.seat === player.seat) continue;
+      if (a.action !== 'raise' && a.action !== 'all_in' && a.action !== 'bet') continue;
+      raiserId = gs.players.find((p) => p.seat === a.seat)?.user_id ?? null;
+      break;
+    }
+    if (raiserId === null) return decision;
+    const tele = telemetryOn(opts);
+    const read = HorseMind.omahaReadConditionalOf(raiserId);
+    if (!read?.tightReRaiser) {
+      if (tele) noteFire('omaha_reraised_fold_vs_tight_withheld');
+      return decision;
+    }
+    const verdict = omahaReraisedPreflopCell({
+      variant: String(gs.gameVariant ?? ''),
+      street: 'preflop',
+      hole: player.cards ?? [],
+      board: gs.communityCards ?? [],
+      dead: player.knownDeadCards ?? [],
+      preflopRaises,
+      action: decision.action,
+      toCall,
+      stack,
+      pot: Number.isFinite(gs.pot) ? Math.max(0, gs.pot) : 0,
+      hiLo: gs.variantRules
+        ? gs.variantRules.splitLow8OrBetter
+        : variantInfo(gs.gameVariant).isHiLo,
+      multiBoard: !!(gs.communityCards2?.length || gs.communityCards3?.length),
+      bombPot: gs.bombPot === true,
+      tournament: isTournamentMode(gs),
+      allInOrFold: gs.allInOrFold === true,
+    });
+    if (verdict === null) return decision;
+    if (!verdict.fold) {
+      if (tele) noteFire('omaha_reraised_fold_vs_tight_priced_in');
+      return decision;
+    }
+    if (tele) noteFire('omaha_reraised_fold_vs_tight');
+    // The decision's ownership receipts travel with it, as the discipline's fold keeps them.
+    const folded: HorseDecision = { ...decision, action: 'fold' };
+    delete folded.amount;
+    return folded;
+  } catch {
+    return decision;
+  }
+}
+
 function omahaBigBetCallFold(
   decision: HorseDecision,
   player: SeatPlayer,
@@ -6078,10 +6215,31 @@ function omahaMadeHandDefenseRules(
   if (nearNutChosenRaise && decision.action === 'raise') return decision;
   const tele = telemetryOn(opts);
   const defenseOn = opts.omahaBeatenMadeHandDefense === true;
-  const flat = omahaBeatenNoRaise(decision, player, gs, defenseOn, reference);
+  // omahaMadeHandDefenseVsValueLeader (default off): the same two rules, kept
+  // only when every live opponent is a measured value leader; otherwise the
+  // decision is today's. With both options off nothing below changes.
+  const vsValueLeader = !defenseOn && opts.omahaMadeHandDefenseVsValueLeader === true;
+  let leaderGate: boolean | null = null;
+  const leaders = (): boolean => {
+    if (leaderGate === null) {
+      leaderGate = omahaEveryLiveOpponentIs(player, gs, opts, (r) => r.valueLeader);
+      if (tele)
+        noteFire(
+          leaderGate ? 'omaha_value_leader_defense_applied' : 'omaha_value_leader_defense_withheld'
+        );
+    }
+    return leaderGate;
+  };
+  const flatRaw = omahaBeatenNoRaise(decision, player, gs, defenseOn || vsValueLeader, reference);
+  const flat =
+    vsValueLeader && flatRaw.changed !== null && !leaders() ? { decision, changed: null } : flatRaw;
   if (tele && flat.changed === 'flatted') noteFire('omaha_turn_beaten_raise_flatted');
   if (tele && flat.changed === 'fold_restored') noteFire('omaha_turn_beaten_raise_fold_restored');
-  const noBet = omahaBeatenNoBet(flat.decision, player, gs, defenseOn);
+  const noBetRaw = omahaBeatenNoBet(flat.decision, player, gs, defenseOn || vsValueLeader);
+  const noBet =
+    vsValueLeader && noBetRaw.changed !== null && !leaders()
+      ? { decision: flat.decision, changed: null }
+      : noBetRaw;
   if (tele && noBet.changed === 'fresh_card_check') noteFire('omaha_beaten_fresh_card_check');
   if (tele && noBet.changed === 'river_check') noteFire('omaha_beaten_river_no_value_bet');
   const sized = omahaNutClassValueSize(
@@ -6101,24 +6259,29 @@ function pairedBoardFoldOutsideGraph(
   opts: HorseDecideOpts
 ): HorseDecision {
   return decision.policyGraph === undefined
-    ? omahaReraisedPotFold(
-        omahaBigBetCallFold(
-          pairedBoardRiverCheck(
-            pairedBoardFold(
-              omahaMadeHandDefenseRules(
-                omahaRiverNutRaiseOnly(
-                  decision,
+    ? omahaReraisedFoldVsTight(
+        omahaReraisedPotFold(
+          omahaBigBetCallFold(
+            pairedBoardRiverCheck(
+              pairedBoardFold(
+                omahaMadeHandDefenseRules(
+                  omahaRiverNutRaiseOnly(
+                    decision,
+                    player,
+                    gs,
+                    // The default-off near-nut value candidate keeps its own raise
+                    // when a league arm switches it on; production never does.
+                    opts.omahaRiverNutRaiseOnly !== false && !nearNutChosenRaises.has(decision)
+                  ).decision,
                   player,
                   gs,
-                  // The default-off near-nut value candidate keeps its own raise
-                  // when a league arm switches it on; production never does.
-                  opts.omahaRiverNutRaiseOnly !== false && !nearNutChosenRaises.has(decision)
-                ).decision,
+                  opts,
+                  null,
+                  nearNutChosenRaises.has(decision)
+                ),
                 player,
                 gs,
-                opts,
-                null,
-                nearNutChosenRaises.has(decision)
+                opts
               ),
               player,
               gs,
@@ -8037,17 +8200,22 @@ export class HorseLogic {
       if (tele && nutRaise.changed === 'flatted') noteFire('omaha_river_non_nut_raise_flatted');
       if (tele && nutRaise.changed === 'fold_restored')
         noteFire('omaha_river_non_nut_raise_fold_restored');
-      const prePremium = omahaReraisedPotFold(
-        omahaBigBetCallFold(
-          pairedBoardRiverCheck(
-            pairedBoardFold(
-              omahaMadeHandDefenseRules(
-                nutRaise.decision,
+      const prePremium = omahaReraisedFoldVsTight(
+        omahaReraisedPotFold(
+          omahaBigBetCallFold(
+            pairedBoardRiverCheck(
+              pairedBoardFold(
+                omahaMadeHandDefenseRules(
+                  nutRaise.decision,
+                  player,
+                  gs,
+                  opts,
+                  beforePhase10,
+                  nearNutChosen
+                ),
                 player,
                 gs,
-                opts,
-                beforePhase10,
-                nearNutChosen
+                opts
               ),
               player,
               gs,

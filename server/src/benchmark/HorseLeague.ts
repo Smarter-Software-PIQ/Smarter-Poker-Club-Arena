@@ -2096,6 +2096,31 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaReraisedPotStackOffFold: true },
     b: {},
   })),
+  // 2026-11-15 OMAHA READ-CONDITIONAL DEFENCE (HorseOmahaReadConditional,
+  // default OFF): the re-raised-pot preflop fold only against a measured tight
+  // re-raiser (omahaReraisedFoldVsTight) and the made-hand turn no-raise and
+  // scare-card checks only against measured postflop value leaders
+  // (omahaMadeHandDefenseVsValueLeader); a switches one on, b is today's brain.
+  // The mirror's memory learning is on (the league default), so the reads
+  // engage on the Horses' own measured play.
+  ...(['plo4', 'plo5'] as const).flatMap((variant) => [
+    {
+      name: `${variant}_omaha_reraised_fold_vs_tight`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { omahaReraisedFoldVsTight: true },
+      b: {},
+    },
+    {
+      name: `${variant}_omaha_made_hand_defense_vs_value_leader`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { omahaMadeHandDefenseVsValueLeader: true },
+      b: {},
+    },
+  ]),
   // V15 BOATS (2026-09-28): default OFF. a turns it on, b is today's brain.
   // Ship it default ON only after this resolves significant positive.
   // 2026-11-06: V15 boats is default ON in PLO5 cash (v15BoatsOn), so the

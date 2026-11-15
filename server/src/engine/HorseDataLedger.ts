@@ -919,6 +919,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaReraisedFoldVsTight',
+    'Owner 2026-11-15 01:03 (a maniac and a tight player are played differently): the PLO4/PLO5 cash preflop fold of omahaReraisedPotDiscipline (facing a 4-bet or more, no aces or premium structure, not priced against aces) applies only when the last preflop raiser is a measured tight re-raiser: his own re-raise rate credibly (0.9) at or below the Horse mean on 12+ decayed opportunities, not a maniac; a presumed read never counts (HorseOmahaReadConditional.ts). Against a wide re-raiser, a maniac or an unknown player the Horse plays as today. Default OFF (opt-in); league cards plo4/plo5 _omaha_reraised_fold_vs_tight',
+    'V94'
+  ),
+  flag(
+    'omahaMadeHandDefenseVsValueLeader',
+    'Owner 2026-11-15 01:03: the PLO4/PLO5/PLO6 turn no-raise and scare-card checks of omahaBeatenMadeHandDefense apply only when every live opponent is a measured postflop value leader: bet when checked to not credibly above the Horse mean, not a postflop maniac, fold to a bet at least and river call at most the Horse mean, on 8+ decayed postflop opportunities; preflop width is not part of it; a presumed read never counts (HorseOmahaReadConditional.ts). Against an over-bluffer, a station or an unknown player the Horse plays as today. Default OFF (opt-in); league cards plo4/plo5 _omaha_made_hand_defense_vs_value_leader',
+    'V94'
+  ),
+  flag(
     'omahaNutClassValueSize',
     'Dan 2026-11-14: a PLO4/PLO5 high bet or raise with the nuts or an effective-nut hand for the street is the full pot (the pot-limit maximum, the stack when smaller) on the flop, turn and river. Default OFF (opt-in): its declared evaluation failed on the Horse-only cells (PLO4 -1.19, PLO5 -1.31 bb/100; human field +2.29)',
     'V94'
@@ -3719,6 +3729,36 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_reraised_pot_priced_in',
     'HorseLogic call discipline (HorseOmahaReraisedPot)',
     'a re-raised-pot continue the rule examined kept, because its equity against the declared range paid the price',
+    'V94'
+  ),
+  receipt(
+    'omaha_reraised_fold_vs_tight',
+    'HorseLogic call discipline (HorseOmahaReadConditional, omahaReraisedFoldVsTight)',
+    'PLO4/PLO5 cash continue facing a 4-bet or more preflop from a measured tight re-raiser, with a hand without aces or a premium structure, not paying the committed price against aces: folded',
+    'V94'
+  ),
+  receipt(
+    'omaha_reraised_fold_vs_tight_priced_in',
+    'HorseLogic call discipline (HorseOmahaReadConditional, omahaReraisedFoldVsTight)',
+    'a continue facing a measured tight re-raiser that the preflop cell examined and kept, because its equity against aces paid the committed price',
+    'V94'
+  ),
+  receipt(
+    'omaha_reraised_fold_vs_tight_withheld',
+    'HorseLogic call discipline (HorseOmahaReadConditional, omahaReraisedFoldVsTight)',
+    "a continue facing a 4-bet or more whose last raiser is not a measured tight re-raiser (wide, maniac, unknown or presumed): the cell was not asked, today's play",
+    'V94'
+  ),
+  receipt(
+    'omaha_value_leader_defense_applied',
+    'HorseLogic wager_rules (HorseOmahaReadConditional, omahaMadeHandDefenseVsValueLeader)',
+    'a turn raise or a turn/river bet the made-hand defence would change, every live opponent a measured postflop value leader: the defence applied (the cell receipt names the change)',
+    'V94'
+  ),
+  receipt(
+    'omaha_value_leader_defense_withheld',
+    'HorseLogic wager_rules (HorseOmahaReadConditional, omahaMadeHandDefenseVsValueLeader)',
+    "a turn raise or a turn/river bet the made-hand defence would change, some live opponent not a measured value leader (over-bluffer, station, unknown or presumed): today's play kept",
     'V94'
   ),
   receipt(
