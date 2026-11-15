@@ -7,7 +7,12 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { exactChips } from '../src/utils/format';
-import { ENTRY_PILL, EXACT_FIGURE, inexactFigures } from './e2e/support/exact-figure';
+import {
+  ENTRY_PILL,
+  EXACT_FIGURE,
+  inexactFigures,
+  statementTotalsFigures,
+} from './e2e/support/exact-figure';
 
 describe('the statements certificate reads exact figures', () => {
   const values = [0, 7, 2111, 177488.28, 1234567.5, 0.01, 1e9, -12.5, -177488.28];
@@ -58,5 +63,30 @@ describe('the statements certificate reads exact figures', () => {
     expect(
       inexactFigures(['Ref 262B2E2F', 'Ref 6B6424ED', 'Ref 1234567B', 'To 100K'])
     ).toHaveLength(4);
+  });
+
+  it('writes the server totals the way the Statements page writes them', () => {
+    // The failed run's page: 0 | 0 | 177,488.28 | 2,111.
+    expect(
+      statementTotalsFigures(
+        { in: '0', out: '0.00', managed: '177488.28', count: 2111 },
+        exactChips
+      )
+    ).toEqual(['0', '0', '177,488.28', '2,111']);
+    expect(
+      statementTotalsFigures({ in: 1500.5, out: '76.26', managed: 0, count: '3' }, exactChips)
+    ).toEqual(['+1,500.50', '-76.26', '0', '3']);
+    // And the page really writes them so: the same expressions, in source.
+    const page = readFileSync('src/pages/CashierStatementsPage.tsx', 'utf8');
+    for (const line of [
+      "`${isZero(list.totals.in) ? '' : '+'}${chips(list.totals.in)}`",
+      "`${isZero(list.totals.out) ? '' : '-'}${chips(list.totals.out)}`",
+      'list.totals ? chips(list.totals.managed)',
+      "list.totals.count.toLocaleString('en-US')",
+    ])
+      expect(page, line).toContain(line);
+    expect(page).toContain('const isZero = (value: string) => !/[1-9]/.test(value);');
+    const spec = readFileSync('tests/e2e/production-cashier-statements.spec.ts', 'utf8');
+    expect(spec).toContain("'Statement Totals on the glass differ from the server'");
   });
 });

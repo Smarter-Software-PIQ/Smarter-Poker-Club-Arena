@@ -22,7 +22,8 @@ import {
   expectCashierAxeClean,
   expectExactCashierFigures,
 } from './support/cashierProductionCertification';
-import { ENTRY_PILL, EXACT_FIGURE } from './support/exact-figure';
+import { exactChips } from '../../src/utils/format';
+import { ENTRY_PILL, EXACT_FIGURE, statementTotalsFigures } from './support/exact-figure';
 
 const CLUB_ID = process.env.E2E_CLUB_ID || 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4';
 const HAS_AUTH = Boolean(process.env.SP_EMAIL && process.env.SP_PASS);
@@ -72,6 +73,16 @@ test.describe('Cashier Statements - authenticated production route', () => {
         timeout: 60_000,
       })
       .catch(() => null);
+    // Every totals answer, newest last: the ledger is live, so the page may
+    // ask again, and the glass is compared with the answer it last received.
+    const totalsAnswers: unknown[] = [];
+    page.on('response', (response) => {
+      if (new URL(response.url()).pathname !== TOTALS_RPC || response.status() !== 200) return;
+      void response
+        .json()
+        .then((answer: unknown) => totalsAnswers.push(answer))
+        .catch(() => undefined);
+    });
 
     // (a) The signed-in visit lands on the route itself, not on auth.
     const statementURL = new URL(
@@ -203,6 +214,26 @@ test.describe('Cashier Statements - authenticated production route', () => {
         )
         .toBe('figures');
       await expect(totals).not.toContainText('Calculating');
+      // The four figures on the glass are the server's totals, exactly: the
+      // newest totals answer, written the way the page writes it. Polled
+      // because a live ledger may answer again while this runs.
+      await expect
+        .poll(
+          async () => {
+            const figures = (await totals.locator('strong').allTextContents()).map(asText);
+            const newest = totalsAnswers.at(-1) as { totals?: unknown } | undefined;
+            const served = newest?.totals as
+              | Parameters<typeof statementTotalsFigures>[0]
+              | undefined;
+            if (!served) return `no totals answer|${figures.join('|')}`;
+            const expected = statementTotalsFigures(served, exactChips);
+            return figures.join('|') === expected.join('|')
+              ? 'matches the server'
+              : `glass ${figures.join('|')} server ${expected.join('|')}`;
+          },
+          { timeout: 30_000, message: 'Statement Totals on the glass differ from the server' }
+        )
+        .toBe('matches the server');
       // The pill zone's textContent ends on a deliberate word-boundary space
       // (SpadeConsole ZoneText, 2026-09-23); a regex toHaveText does not
       // normalise it, so the anchor tolerates trailing whitespace.
