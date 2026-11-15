@@ -23,7 +23,7 @@ start) [ -z "${HVH_SHA:-}" ] || case "$HVH_SHA" in $R*) ;; *) echo "refused: HVH
   else echo "WARNING: HVH_SHA not set: reader image not retained"; fi;;
 close) F=$($SSH "sudo cat $H/FROM" < /dev/null); [ -n "$F" ] || { echo "refused: not started"; exit 2; }
   read FE EE < <(python3 $T/window.py epochs "$(python3 $T/window.py iso $F)" "$3") || exit 2
-  $SSH "echo $EE | sudo tee $H/END >/dev/null; echo 'closed END $3 at '\$(date -u +%FT%TZ) | sudo tee -a $H/WINDOW.iso >/dev/null; echo \"\$(date -u +%FT%TZ) CLOSE: END set to $3 ($EE)\" | sudo tee -a $H/window.log >/dev/null" < /dev/null && echo "closed $R at $3 ($EE)";;
+  $SSH "echo $EE | sudo tee $H/END.new >/dev/null && sudo mv -f $H/END.new $H/END; echo 'closed END $3 at '\$(date -u +%FT%TZ) | sudo tee -a $H/WINDOW.iso >/dev/null; echo \"\$(date -u +%FT%TZ) CLOSE: END set to $3 ($EE)\" | sudo tee -a $H/window.log >/dev/null" < /dev/null && echo "closed $R at $3 ($EE)";;
 stop) $SSH "sudo touch $H/STOP" < /dev/null && echo "stop requested";;
 status) $SSH "sudo cat $H/WINDOW.iso; sudo tail -4 $H/window.log; ls $H/DONE 2>/dev/null; pgrep -fa '^bash $H/preserve-window.sh' || echo 'not running'" < /dev/null;;
 *) echo "unknown mode"; exit 2;;

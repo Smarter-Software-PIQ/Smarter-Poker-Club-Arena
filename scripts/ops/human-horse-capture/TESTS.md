@@ -60,3 +60,6 @@ Run on the owner's Mac (macOS, niced, one at a time; no production read, no psql
   release refused 2; case 6 also checks the RING-GAP line): SKIP on macOS by its own guard. Not run on GNU/Linux in this session (engine host out of bounds for this task);
   CI (ubuntu) runs it on the next pull request. Extra macOS run with GNU coreutils shims (uname, date, touch, ionice pass-through): cases 2, 3, 4, 5, 7, 8, 9 PASS; cases 1
   and 6 FAIL there only because macOS find has no -printf (no files listed), openrsync and padded wc output; they need GNU/Linux and are unverified until CI runs them.
+
+## Atomic close (2026-11-15T16:40Z, session 01BbZPDhhqSDALp7kec7EfDM)
+`preserve-host.sh close` writes END.new and renames it over END, so the running job (which re-reads END every loop) never reads a half-written END. Same change as the archive copy (its TESTS.md 16:38Z: tested on the engine host with a scratch work folder; END correct, no END.new left).
