@@ -186,6 +186,12 @@ BEGIN
        AND name = 'member_history_classifies_cashier_tickets_and_union_promo_fu'
        AND cardinality(statements) = 1
        AND md5(statements[1]) = '341fe86fea8a945b820c036ea62135ea'
+  ) OR NOT EXISTS (
+    SELECT 1 FROM supabase_migrations.schema_migrations
+     WHERE version = '20261115062830'
+       AND name = 'filter_club_transaction_history_by_funding_wallet'
+       AND cardinality(statements) = 1
+       AND md5(statements[1]) = '488ab5c5df115126e38c8f46abb2cca9'
   ) THEN
     RAISE EXCEPTION 'cashier 2026-11-14 successor migration history drift';
   END IF;
@@ -211,9 +217,9 @@ BEGIN
       -- then by 20261115011401 (member history player and funding filters;
       -- its guard requires 5fb4cd6ebe8ed1005a38db1de36efab0).
       -- 20261115020001 added the union promo member filter to that feed.
-      -- Re-pinned 2026-11-15 to the installed definition; 160320's own proof
+      -- 20261115062830 adds the qualified club-wide funding filter; 160320's proof
       -- line keeps the earlier hash dad4d92ef739f520d0c512c9950d5c62.
-      'hash', '6c73793fccbdd5f4c2790f1ea0376e0c',
+      'hash', '926853d2cd2082737ab82c8a562b8534',
       'owner', 'postgres'
     ),
     jsonb_build_object(

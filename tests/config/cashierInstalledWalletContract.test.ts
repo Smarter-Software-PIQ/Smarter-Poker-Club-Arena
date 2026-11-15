@@ -143,13 +143,14 @@ it.each([
   // The feed was later patched in place (World Hub 20261114174518, then
   // 20261114171135, then 20261115001816, 20261115011401 and 20261115020001); the contract pins only that
   // installed successor.
-  const pinned = name === 'fn_cashier_history_feed' ? '6c73793fccbdd5f4c2790f1ea0376e0c' : hash;
+  const pinned = name === 'fn_cashier_history_feed' ? '926853d2cd2082737ab82c8a562b8534' : hash;
   if (pinned !== hash) {
     expect(contract).toContain("version = '20261114174518'");
     expect(contract).toContain("version = '20261114171135'");
     expect(contract).toContain("version = '20261115001816'");
     expect(contract).toContain("version = '20261115011401'");
     expect(contract).toContain("version = '20261115020001'");
+    expect(contract).toContain("version = '20261115062830'");
     expect(contract).not.toContain("'hash', '553be2e8b21cd6404a32add126a8b7d0'");
     expect(contract).not.toContain("'hash', '5fb4cd6ebe8ed1005a38db1de36efab0'");
     expect(contract).not.toContain("'hash', 'a26c9b5097203fdc0b3109bd649ddec1'");

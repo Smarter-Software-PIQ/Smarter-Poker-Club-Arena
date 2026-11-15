@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Native qualification of 20261115020010 and 20261115020011. No production access.
+"""Native qualification of 20261115020010, 20261115020011 and 20261115063000. No production access.
 
 Club Data's accounting read model carries the union invoice's own records,
 keyed by the 02:00 America/Chicago accounting day: the live projection writes
@@ -29,6 +29,7 @@ MODEL = M / "20261115020010_club_data_accounting_read_model.sql"
 LIVE = M / "20261115020011_club_data_accounting_read_model_goes_live.sql"
 VIEWS = M / "20261115034141_club_data_accounting_reader_views.sql"
 ROUTE = M / "20261115034142_club_data_readers_route_union_clubs_to_the_accounting_model.sql"
+PARTS = M / "20261115063000_club_data_history_loads_a_day_in_bounded_parts.sql"
 BASE = ROOT / "tests/fixtures/club-data-union-weeks/fixture.sql"
 FIX = ROOT / "tests/fixtures/club-data-accounting"
 PG = Path(os.environ.get("PG_BIN") or next((p for p in ("/usr/lib/postgresql/17/bin", "/usr/lib/postgresql/16/bin",
@@ -72,6 +73,19 @@ def require(cond, label):
 def load(day, rebuild=False):
     return (f"BEGIN ISOLATION LEVEL REPEATABLE READ; SELECT fn_ca_club_acct_seed_day('{day}'"
             + (", true" if rebuild else "") + "); COMMIT;")
+
+
+def parts(day, rebuild=False, between=""):
+    """A day loaded the way the history load does it: begin (REPEATABLE READ),
+    then two-hour slices and finish in their own transactions."""
+    return (f"BEGIN ISOLATION LEVEL REPEATABLE READ; SELECT fn_ca_club_acct_seed_begin('{day}', {'true' if rebuild else 'false'})->>'snapshot' AS snap \\gset\nCOMMIT;\n"
+            + between +
+            "CREATE TEMP TABLE seed_parts AS SELECT fn_ca_club_acct_seed_slice("
+            f"'{day}', g, LEAST(g + interval '2 hours', fn_ca_accounting_day_start('{day}'::date + 1)), :'snap') r "
+            f"FROM generate_series(fn_ca_accounting_day_start('{day}'), fn_ca_accounting_day_start('{day}'::date + 1) - interval '1 microsecond', interval '2 hours') g;\n"
+            f"SELECT fn_ca_club_acct_seed_finish('{day}', :'snap', (SELECT sum((r->>'unclassified_flows')::bigint)::bigint FROM seed_parts), "
+            "(SELECT sum((r->>'fact_inputs')::bigint)::bigint FROM seed_parts), (SELECT sum((r->>'hand_inputs')::bigint)::bigint FROM seed_parts)) IS NOT NULL;\n"
+            "DROP TABLE seed_parts;\n")
 
 
 # Nov 1 and Nov 2 load before the live rows arrive (a later escrow
@@ -141,6 +155,19 @@ try:
     p = run(psql("live"), (FIX / "check.sql").read_text())
     require("PASSED" in p.stdout + p.stderr, "the figures hold after the rebuild")
 
+    # 20261115063000: the same days loaded in bounded parts give the same rows.
+    run(psql("live"), PARTS.read_text())
+    run(psql("live"), parts("2026-11-02", True) + parts("2026-11-03", True))
+    parted = q("live", "SELECT md5(string_agg(f::text, ',' ORDER BY club_id, acct_day, game_id, user_id, src)) FROM ca_club_acct_fact f")
+    require(parted == after, "a day loaded in bounded parts holds exactly the rows of the one-transaction load")
+    run(psql("live"), "SELECT fn_ca_club_acct_seed_begin('2026-11-02');", expect_fail="REPEATABLE READ")
+    run(psql("live"), "SELECT fn_ca_club_acct_seed_slice('2026-11-02', '2026-11-02 07:00+00', '2026-11-02 09:00+00', pg_current_snapshot());",
+        expect_fail="not inside accounting day")
+    run(psql("live"), "SELECT fn_ca_club_acct_seed_slice('2026-11-02', '2026-11-02 08:00+00', '2026-11-02 10:00+00', pg_current_snapshot());",
+        expect_fail="already loaded")
+    p = run(psql("live"), (FIX / "check.sql").read_text())
+    require("PASSED" in p.stdout + p.stderr, "the figures hold after the parted load")
+
     # Two sessions. Hands on a fresh accounting day (2026-11-04), each in its
     # own transaction, K u1 +1 and F u2 -1 at table T1, as production writes them.
     def hand(n):
@@ -209,6 +236,22 @@ try:
             f"three hands, each counted once across the live rows, the journal and the load ({totals}; {tables})")
     require(q("live", "SELECT count(*) FROM ca_club_acct_fact_journal WHERE acct_day = '2026-11-04'") == "0",
             "the load folded the day's journal rows it read")
+
+    # (2b) The same day loaded again in parts, with hand 13 committed after the
+    # parts' snapshot and before their slices: every hand still counted once,
+    # and the rows equal a one-transaction rebuild of the day.
+    run(psql("live"), parts("2026-11-04", True, between=hand(13)))
+    totals = q("live", "SELECT string_agg(club_id || '=' || r || '/' || h, ',' ORDER BY club_id) FROM ("
+                       "SELECT club_id, sum(result) r, sum(hands) h FROM (SELECT club_id, result, hands FROM ca_club_acct_fact "
+                       "WHERE acct_day = '2026-11-04' UNION ALL SELECT club_id, result, hands FROM ca_club_acct_fact_journal "
+                       "WHERE acct_day = '2026-11-04') x GROUP BY 1) y")
+    require(totals == "a0000000-0000-0000-0000-000000000001=-4/4,a41434bb-8d0c-400a-8f0d-e8b3d65afed4=4/4",
+            f"a hand committed between a parted load's snapshot and its slices is counted once ({totals})")
+    sums = ("SELECT string_agg(club_id || '=' || r || '/' || h, ',' ORDER BY club_id) FROM (SELECT club_id, sum(result) r, sum(hands) h "
+            "FROM (SELECT club_id, result, hands FROM ca_club_acct_fact WHERE acct_day = '2026-11-04' UNION ALL "
+            "SELECT club_id, result, hands FROM ca_club_acct_fact_journal WHERE acct_day = '2026-11-04') x GROUP BY 1) y")
+    run(psql("live"), load("2026-11-04", True))
+    require(q("live", sums) == totals, "a one-transaction rebuild of that day gives the same figures")
 
     # (3) The 32-lock budget: one hand with 40 players takes 32 row locks; the
     # rest of its rows go to the journal, and the figures are whole.
@@ -306,10 +349,10 @@ try:
     expected = ("2a1132b9-5ba2-42e6-9f01-30a7fcffebe3:2026-11-02=3.25/2.00,2a1132b9-5ba2-42e6-9f01-30a7fcffebe3:2026-11-03=2.00/-1.20,"
                 "2a1132b9-5ba2-42e6-9f01-30a7fcffebe3:2026-11-05=0.00/0.40,"
                 "a0000000-0000-0000-0000-000000000001:2026-11-02=0.00/3.50,a0000000-0000-0000-0000-000000000001:2026-11-03=4.00/2.00,"
-                "a0000000-0000-0000-0000-000000000001:2026-11-04=0.00/-3.00,a0000000-0000-0000-0000-000000000001:2026-11-08=0.00/12.00,"
+                "a0000000-0000-0000-0000-000000000001:2026-11-04=0.00/-4.00,a0000000-0000-0000-0000-000000000001:2026-11-08=0.00/12.00,"
                 "a0000000-0000-0000-0000-000000000001:2026-11-09=0.00/-16.00,"
                 "a41434bb-8d0c-400a-8f0d-e8b3d65afed4:2026-11-01=1.00/0.00,a41434bb-8d0c-400a-8f0d-e8b3d65afed4:2026-11-02=7.50/-6.40,"
-                "a41434bb-8d0c-400a-8f0d-e8b3d65afed4:2026-11-03=6.00/1.00,a41434bb-8d0c-400a-8f0d-e8b3d65afed4:2026-11-04=0.00/3.00")
+                "a41434bb-8d0c-400a-8f0d-e8b3d65afed4:2026-11-03=6.00/1.00,a41434bb-8d0c-400a-8f0d-e8b3d65afed4:2026-11-04=0.00/4.00")
     got = q("live", "SELECT string_agg(club_id || ':' || stat_date || '=' || f || '/' || r, ',' ORDER BY club_id, stat_date) FROM ("
                     "SELECT club_id, stat_date, sum(fee)::numeric(20,2) f, sum(winnings)::numeric(20,2) r FROM ca_club_acct_fact_ct GROUP BY 1, 2 "
                     "HAVING sum(fee) <> 0 OR sum(winnings) <> 0) x")

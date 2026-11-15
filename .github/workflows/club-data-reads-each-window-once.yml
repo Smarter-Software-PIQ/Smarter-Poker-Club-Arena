@@ -25,6 +25,8 @@ on:
       - supabase/migrations/20261115020011_club_data_accounting_read_model_goes_live.sql
       - supabase/migrations/20261115034141_club_data_accounting_reader_views.sql
       - supabase/migrations/20261115034142_club_data_readers_route_union_clubs_to_the_accounting_model.sql
+      - supabase/migrations/20261115063000_club_data_history_loads_a_day_in_bounded_parts.sql
+      - scripts/ci/club-data-accounting-seed.mjs
       - supabase/migrations/20261115015159_union_pnl_boundary_certificates_are_kept.sql
       - tests/fixtures/club-data-accounting/**
       - scripts/ci/test-club-data-accounting-read-model.py

@@ -14,8 +14,6 @@
  * precision down to the cent. No abbreviations (K, M) allowed.
  */
 
-import { reportError } from '../utils/errorReporter';
-
 export function formatCurrency(amount: number, currency = 'USD'): string {
   return new Intl.NumberFormat('en-US', {
     minimumFractionDigits: 2,
@@ -237,15 +235,7 @@ export function throttle<T extends (...args: unknown[]) => void>(
 /**
  * Copy text to clipboard
  */
-export async function copyToClipboard(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch (e) {
-    reportError(e, 'utils.copyToClipboard');
-    return false;
-  }
-}
+export { copyToClipboard } from './copyToClipboard';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // RANDOM

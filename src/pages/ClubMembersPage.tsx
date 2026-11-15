@@ -37,6 +37,7 @@ import { useVirtualScroll } from '../hooks/useVirtualScroll';
 import PageSkeleton from '../components/common/PageSkeleton';
 import PageBar from '../components/help/PageBar';
 import type { TutorialStep } from '../components/help/PageHelp';
+import MemberTransactionHistory from '../components/club/MemberTransactionHistory';
 import RoleBadge, { roleColor } from '../components/club/RoleBadge';
 import RosterConnectionStatus from '../components/club/RosterConnectionStatus';
 import PlayerChangeHistory from '../components/club/PlayerChangeHistory';
@@ -359,6 +360,7 @@ export default function ClubMembersPage() {
     'connecting'
   );
   const [realtimeRetries, setRealtimeRetries] = useState({ members: 0, wallet: 0, audit: 0 });
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [recordRevision, setRecordRevision] = useState(0);
   const [recordRetry, setRecordRetry] = useState(0);
   const recordDegradedRef = useRef(false);
@@ -534,6 +536,7 @@ export default function ClubMembersPage() {
     if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
     refreshTimerRef.current = null;
     requestEpochRef.current += 1;
+    setHistoryOpen(false);
     setResolvedClubId(null);
     membersRef.current = [];
     setMembers([]);
@@ -1689,6 +1692,31 @@ export default function ClubMembersPage() {
           </button>
         </div>
       </PageBar>
+      {workspaceReady &&
+        !accessDenied &&
+        auditEnabled &&
+        canUseFinancialViews &&
+        resolvedClubId && (
+          <div>
+            <button
+              type="button"
+              className="members-export"
+              aria-expanded={historyOpen}
+              onClick={() => setHistoryOpen(!historyOpen)}
+            >
+              Club Transaction History
+            </button>
+            {historyOpen && (
+              <MemberTransactionHistory
+                key={exportScopeKey}
+                clubId={resolvedClubId}
+                memberId={null}
+                scope="club"
+                revision={recordRevision}
+              />
+            )}
+          </div>
+        )}
 
       <section
         className="members-console"

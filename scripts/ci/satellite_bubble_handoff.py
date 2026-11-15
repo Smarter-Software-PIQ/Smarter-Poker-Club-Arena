@@ -6,12 +6,20 @@ from breakfast_fixture import function
 MIGRATION = 'supabase/migrations/20261103115836_terminal_original_request_is_durable_before_settlement.sql'
 
 
-def transport(e, root, output, database, kind, event, winner):
+def install_original_request(e, root, database, kind):
+    """Install the custody preimage and the durable original-request migration."""
     custody = root / "scripts/ci/fixtures/terminal-original-request/custody-preimage.sql"
-    candidate = root / MIGRATION
-    transport_script = root / "server/scripts/qualify-terminal-intent-transport.ts"
     e.sql(database, file=custody, label='durable-' + kind + '-custody')
-    e.sql(database, file=candidate, label='durable-' + kind + '-migration')
+    e.sql(database, file=root / MIGRATION, label='durable-' + kind + '-migration')
+
+
+def transport(e, root, output, database, kind, event, winner, installed=False):
+    # A deal case installs the original request first: the final-deal manager
+    # scope check delegates to its smarter_private.assert_terminal_request_generation
+    # exactly as production does, and the deal consent runs through that scope.
+    transport_script = root / "server/scripts/qualify-terminal-intent-transport.ts"
+    if not installed:
+        install_original_request(e, root, database, kind)
     if kind == 'QUALIFIERS':
         # Exercise the successor entrypoint against the existing real original
         # request/custody fixture; financial cap cases own the full migration.
