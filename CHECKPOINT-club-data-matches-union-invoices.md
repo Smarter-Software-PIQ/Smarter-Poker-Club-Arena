@@ -179,6 +179,22 @@ Response additions on `ca_club_data_snapshot_v2` and `ca_club_data_screen`
 - Player readers keep their response shapes; their figures follow the same
   definitions on the union basis.
 
+Contract additions (2026-11-15 04:30Z, CLUB DATA lead; additive, nothing renamed):
+- `member_fees` (downline scope) on the union basis: fees of the viewer's
+  downline from the accounting records on the same 02:00 days (coordinator
+  decision 2026-11-15; equals summary.fee for a downline screen), with
+  `day_basis: 'America/Chicago 02:00'`, `definition: 'downline_accounting_fees'`,
+  `source: 'ca_club_acct_fact'` (was `day_basis: 'UTC'`, the viewer's own
+  earned fees). Same fields cash_fees / tournament_fees / total_fees.
+- `ca_club_data_player_totals` on the union basis also returns
+  `accounting_basis` and `accounting_coverage` and `day_basis:
+  'America/Chicago 02:00'`.
+- Player readers (page, breakdown, export) on the union basis list every
+  player the accounting records attribute to the club (members or not,
+  horses included); response shapes unchanged.
+- Router naming: `<reader>_union_basis` / `<reader>_chicago_basis`; the client
+  calls only the original names.
+
 Disjoint ownership for parallel work:
 - SQL (CLUB DATA lead): `supabase/migrations/*`, `scripts/ci/*club-data*`,
   `tests/fixtures/club-data-*`, schema manifest fragment.
@@ -190,3 +206,15 @@ Disjoint ownership for parallel work:
   Total Winnings / MTT Winnings definitions; drilldowns and exports carry the
   same dates and label the window; DST and date-only-parameter tests. Starting
   point: commit 9d8106383 on this branch.
+
+## Owner override (2026-11-14 21:55 Chicago, via coordinator): "IT CAN GO LIVE AS SOON AS YOU PUSH IT"
+- No step waits for the 04:00 window. 20261115020011 installs at merge: header
+  removed, one transaction, lock_timeout 120ms per lock (8 x 120 = 0.96 s max
+  writer wait, under deadlock_timeout 1 s), hand-path tables last. Measured
+  2026-11-15 04:05Z: 4 of 100 samples saw a row-exclusive holder on the eight
+  tables, oldest 79 ms. Pushed on #10879 as b1712d640 (after merging main incl.
+  #10916 e2896d074 as 284ac28d3). 20261114235607 stays in the window.
+- Stage 2 (b) done: 20261115034142 = md5-guarded routers via a pg_temp helper;
+  copies pinned by md5 from a read-only production probe (all 13 preimages
+  matched). Native test sections 6-7 pass (incl. 01:59:59 / 02:00:00 CST seat
+  boundary through the router, byte-identical renamed original, grants).
