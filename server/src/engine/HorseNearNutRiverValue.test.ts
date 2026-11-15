@@ -384,8 +384,9 @@ describe('default-off small-pot near-nut river value', () => {
     for (let seed = 1; seed <= 8; seed++) {
       expect(decision(seed)).toEqual(decision(seed, false));
       expect(decision(seed, true, undefined, RULE_OFF).action).toBe('raise');
-      // With the river nut-raise rule on (the default) the candidate's raise is a call.
-      expect(decision(seed, true).action).toBe('call');
+      // The river nut-raise rule yields to this candidate's own raise when a
+      // league arm switches the candidate on; production never does.
+      expect(decision(seed, true).action).toBe('raise');
     }
     expect(decision(1, false).action).toBe('call');
     expect(decision(2, false).action).toBe('call');
