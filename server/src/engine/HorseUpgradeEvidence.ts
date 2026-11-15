@@ -26,6 +26,16 @@
  * beyond that is dropped and counted (per_horse_evidence_cell_dropped_seen),
  * never queued.
  *
+ * AN OPPORTUNITY COUNTER IS NOT AN INVOCATION (2026-11-15). The manifest's
+ * live-evidence list proves a path executed for the fleet; some of its
+ * counters fire when a spot merely qualifies. upgrade10_fast_window_ready_seen
+ * is upgrade 10's own opportunity count (HorseOpponentExploit fastWindowReady:
+ * "always returns true, so it never changes which branch runs"), fired about
+ * twenty times per decision, so on a7965514 it marked 99.6 % of decisions as
+ * upgrade 10 invoked while the window engaged 42 times in the day. Needles in
+ * PER_HORSE_OPPORTUNITY_ONLY_NEEDLES are therefore not invocation evidence
+ * here; the fleet list is unchanged.
+ *
  * WHAT A NEEDLE IS. The manifest lists each upgrade's counters as source text:
  * a quoted needle is one exact counter name, a needle that opens with a
  * backtick is the fixed prefix of a templated name. That is the manifest's own
@@ -43,6 +53,16 @@ import {
 } from './HorseUpgradeActivationManifest.js';
 
 export const HORSE_UPGRADE_EVIDENCE_MAX_CELLS = 8192;
+
+/**
+ * Manifest evidence needles that count an OPPORTUNITY (the spot qualified),
+ * not that the upgrade ran: they never mark a decision invoked. Each must be a
+ * needle the manifest lists (a law test holds that), and its upgrade must keep
+ * at least one invocation needle.
+ */
+export const PER_HORSE_OPPORTUNITY_ONLY_NEEDLES: ReadonlySet<string> = new Set([
+  "'upgrade10_fast_window_ready_seen'",
+]);
 
 export type HorseUpgradeEvidenceLane = 'cash' | 'tournament';
 
@@ -81,6 +101,7 @@ function needles(): NeedleTable {
   for (const [id, list] of Object.entries(HORSE_UPGRADE_LIVE_EVIDENCE)) {
     const at = index.get(id)!;
     for (const needle of list) {
+      if (PER_HORSE_OPPORTUNITY_ONLY_NEEDLES.has(needle)) continue;
       if (needle.startsWith('`')) prefixes.push({ prefix: needle.slice(1), index: at });
       else {
         const key = needle.slice(1, -1);
