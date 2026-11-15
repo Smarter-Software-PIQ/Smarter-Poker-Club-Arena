@@ -61,6 +61,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the committed-call bar on a token price (PLO6-AUDIT-010, 2026-11-12): Omaha high cash premiums shrink with a price under 0.15 and a made hand calls under 0.01',
     'src/engine/HorsePlo6TopSetNut.ts':
       'the default-off PLO6 top-set current-nuts test (PLO6-AUDIT P6-4, 2026-11-14) that sets full realization in the V38 flop/turn call menu',
+    'src/engine/HorseOmahaRiverNutRaise.ts':
+      'the final Omaha high river rule (Dan 2026-11-14, hand 59401453): a raise facing a wager stands only with the nuts or an effective-nut hand, every other raise becomes a call, before the call-discipline folds',
     'src/engine/HorseOmahaCurrentNuts.ts':
       'the final Omaha flop/turn current-nuts raise (exact public nuts with a redraw or untieable; Dan 2026-11-06), right after the river-nuts raise',
     'src/engine/HorseTournamentShoveDiscipline.ts':

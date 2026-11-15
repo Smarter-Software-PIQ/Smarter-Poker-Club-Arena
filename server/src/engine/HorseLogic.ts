@@ -40,6 +40,7 @@ import { decisionGravity } from './horseDecisionGravity.js';
 import { riverNutsRaise, fullPotNearPotWager, hasRiverNuts } from './HorseRiverNuts.js';
 import { hiLoRiverLowHalfFloor } from './HorseHiLoLowHalf.js';
 import { omahaCurrentNutsRaise } from './HorseOmahaCurrentNuts.js';
+import { omahaRiverNutRaiseOnly } from './HorseOmahaRiverNutRaise.js';
 import {
   TOKEN_CALL_COUNTED_PRICE,
   TOKEN_CALL_PRICE,
@@ -2628,6 +2629,20 @@ export interface HorseDecideOpts {
    * (HorseOmahaCurrentNuts.ts). Default on; false only for the complaint
    * law's non-vacuity control. */
   omahaCurrentNutsRaise?: boolean;
+  /** Dan 2026-11-14 (hand 59401453): in PLO4/PLO5/PLO6 high on one board a
+   * river raise facing a wager stands only with the nuts or an effective-nut
+   * hand (HorseOmahaRiverNutRaise.ts); every other raise becomes a call, and
+   * a PLO4/PLO5 river call of a 0.9-pot+ wager with a set or trips on a
+   * board where a straight or flush is possible folds (the V81 cell
+   * trips_set_drawy). Default on; false only for the complaint law's
+   * non-vacuity control. */
+  omahaRiverNutRaiseOnly?: boolean;
+  /** Dan 2026-11-14 (hand 59401453): an Omaha high set on a turn board where
+   * a straight is possible and no flush is possible yet bets the geometric
+   * (monster) size instead of the V40 half-pot small ball, and does not
+   * check it back for a fresh straight card. Default on; false only for the
+   * complaint law's non-vacuity control. */
+  omahaTurnSetPound?: boolean;
   /** A token-priced committed call is not barred by stack-off premiums
    * (HorseTokenCallPrice.ts, PLO6-AUDIT-010). Default on; false only for
    * the regression's non-vacuity control. */
@@ -5498,6 +5513,10 @@ function omahaBigBetCallFold(
       // PRESUMED a preflop maniac (HorseOpponentExploit, Dan 2026-10-27),
       // and a presumption is not evidence about who over-bets the river.
       bettorOverBluffs: isPostflopManiac(HorseMind.opponentRead(bettor.user_id)),
+      // Dan 2026-11-14 (hand 59401453): the river set / trips cell. A call
+      // that is itself all in keeps today's answer: that is the commitment
+      // V88 honors, and the hand in question had chips behind the call.
+      riverSetCell: opts.omahaRiverNutRaiseOnly !== false && stack > toCall + 0.005,
     };
     const callPrice = Math.min(toCall, stack) / (pot + Math.min(toCall, stack));
     const v81 =
@@ -5552,6 +5571,7 @@ function omahaBigBetCallFold(
       if (v87Plo6 === null) return decision;
     }
     if (telemetryOn(opts)) {
+      if (v81 === 'trips_set_drawy') noteFire('v81_river_set_big_bet_fold');
       noteFire(
         v81 !== null
           ? 'v81_omaha_big_bet_call_fold'
@@ -5622,7 +5642,18 @@ function pairedBoardFoldOutsideGraph(
 ): HorseDecision {
   return decision.policyGraph === undefined
     ? omahaBigBetCallFold(
-        pairedBoardRiverCheck(pairedBoardFold(decision, player, gs, opts), player, gs, opts),
+        pairedBoardRiverCheck(
+          pairedBoardFold(
+            omahaRiverNutRaiseOnly(decision, player, gs, opts.omahaRiverNutRaiseOnly !== false)
+              .decision,
+            player,
+            gs,
+            opts
+          ),
+          player,
+          gs,
+          opts
+        ),
         player,
         gs,
         opts
@@ -7488,8 +7519,27 @@ export class HorseLogic {
       // Receipt (#7780, #7788), precedence: a later owner replaced the nut wager.
       if (tele && nutsRaised !== shoveDisciplined && nutDisciplined !== nutsRaised)
         noteFire('river_nuts_wager_superseded');
+      // Dan 2026-11-14 (hand 59401453): an Omaha high river raise facing a
+      // wager stands only with the nuts or an effective-nut hand. It runs
+      // after every owner that can raise and before the call-discipline
+      // folds below, so they judge the call it leaves.
+      const nutRaise = omahaRiverNutRaiseOnly(
+        wagered,
+        player,
+        gs,
+        opts.omahaRiverNutRaiseOnly !== false,
+        beforePhase10
+      );
+      if (tele && nutRaise.changed === 'flatted') noteFire('omaha_river_non_nut_raise_flatted');
+      if (tele && nutRaise.changed === 'fold_restored')
+        noteFire('omaha_river_non_nut_raise_fold_restored');
       const prePremium = omahaBigBetCallFold(
-        pairedBoardRiverCheck(pairedBoardFold(wagered, player, gs, opts), player, gs, opts),
+        pairedBoardRiverCheck(
+          pairedBoardFold(nutRaise.decision, player, gs, opts),
+          player,
+          gs,
+          opts
+        ),
         player,
         gs,
         opts
@@ -11914,6 +11964,34 @@ export class HorseLogic {
 
     // V3 texture-driven sizing: small on dry boards, big on wet ones.
     const sizeBase = 0.3 + wetness * 0.35; // 0.30 (dry) .. 0.65 (soaked)
+    // ═══ TURN SET POUND (Dan 2026-11-14, hand 59401453) ═══ top set on
+    // A-6-T two clubs bet 42 into 100 when the 8 came (9-7 makes a straight,
+    // the club draw is live) and was called. The size was the V40 small ball:
+    // omahaMadeClass marks a set weak wherever a straight or flush is
+    // possible, and a weak class is capped at half the pot from the turn on.
+    // That cap is right for pairs, two pair and trips and for a set on the
+    // river (nothing is left to charge). On the turn a set is ahead of every
+    // draw and every two pair, has ten outs against a made straight, and the
+    // hands that call it are the ones the river makes: it bets the monster
+    // tier's geometric size (stacks in by the river) instead, is not sized
+    // down by the five- and six-card damp, and is not checked back for the
+    // fresh straight card. A board with three of a suit (a made flush is
+    // possible) keeps the small ball. Omaha high, one board, no fixed limit.
+    const turnSetPound =
+      opts.omahaTurnSetPound !== false &&
+      street === 'turn' &&
+      vi.isOmaha &&
+      !vi.isHiLo &&
+      !vi.isFixedLimit &&
+      !multiBoard36 &&
+      made40?.cls === 'set' &&
+      made40.straightPossible &&
+      !made40.flushPossible;
+    /** The monster tier's own size: geometric when it is known. */
+    const poundFrac = (): number =>
+      geomFrac > 0
+        ? Math.max(sizeBase + 0.2, geomFrac) + fastRandom() * 0.1
+        : sizeBase + 0.3 + fastRandom() * 0.2;
 
     // V10 RANGE-ADVANTAGE c-bet read: a high-card, dry, unpaired board smashes
     // the preflop/betting aggressor's range (AK, AQ, big pairs) far harder than
@@ -14221,6 +14299,7 @@ export class HorseLogic {
           wetness < 0.5 &&
           !scare.any &&
           !vulnerable &&
+          !turnSetPound &&
           fastRandom() < params.slowplayFreq &&
           oppCount <= 2
         ) {
@@ -14286,14 +14365,16 @@ export class HorseLogic {
         // V15: a "monster" by MC equity that is NOT nut-class (a dominated
         // flush multiway reads over 0.8 more often than it should) sizes
         // down in plo5/plo6 — small ball until the hand really is the nuts.
-        if (!nutClass15 && vi.isOmaha) monsterFrac *= ploDamp;
+        if (!nutClass15 && vi.isOmaha && !turnSetPound) monsterFrac *= ploDamp;
         // V40: a pair / two pair / trips hand that reads as a "monster" by
         // MC is reading against the wrong range once its bets get called.
         // Small ball: never pot it on the turn or river, and with two
         // barrels already called the river is a check (the hands still in
         // are the ones that beat it). Sets and top two on a brick keep
         // their sizing (made40.weak is false there).
-        if (useV40 && made40 != null && made40.weak) {
+        if (turnSetPound) {
+          if (tele15) noteFire('omaha_turn_set_pound');
+        } else if (useV40 && made40 != null && made40.weak) {
           if (isRiver && calledBarrels40 >= 2 && fastRandom() < 0.8) {
             if (tele15) noteFire('v40_no_third_barrel');
             return { action: 'check', thinkTime: 0 };
@@ -14321,6 +14402,19 @@ export class HorseLogic {
       // Strong value. V4: a vulnerable made hand sizes UP and never checks
       // back; a dangered hand slows down instead of firing into the new nuts.
       if (equity >= multiwayValueBar(0.62, oppCount) + mw + sprValShift86) {
+        if (turnSetPound) {
+          if (tele15) noteFire('omaha_turn_set_pound');
+          return this.betSize(
+            planHandKey,
+            pot,
+            poundFrac() * exploitValueSize,
+            player,
+            gs,
+            vi,
+            params,
+            useSizing
+          );
+        }
         if (dangered && fastRandom() < (stationValue ? 0.3 : 0.55)) {
           return { action: 'check', thinkTime: 0 };
         }

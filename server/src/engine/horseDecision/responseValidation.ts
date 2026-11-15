@@ -34,6 +34,10 @@ import {
   ploPairedBoardRiverMustCheck,
 } from '../HorsePloPairedBoardFold.js';
 import { callLargeRiverBoatWager } from '../HorseOmahaBigBetCalls.js';
+import {
+  OMAHA_RIVER_NUT_RAISE_VARIANTS,
+  omahaRiverNutRaiseOnly,
+} from '../HorseOmahaRiverNutRaise.js';
 import { shortAllInSpot } from '../HorseShortAllInCallFloor.js';
 import { holdemFourBetSpot } from '../HorseHoldemPremiumAggression.js';
 import { tournamentShoveDiscipline } from '../HorseTournamentShoveDiscipline.js';
@@ -972,6 +976,27 @@ function boatRuleProducesCall(
   return result.action === 'call' && result.amount === after.amount;
 }
 
+// Dan 2026-11-14 (HorseOmahaRiverNutRaise): a PLO4/PLO5/PLO6 high river raise
+// or jam over a wager without the nuts becomes a call of that wager.
+// Recompute the rule's exact output from the original worker request.
+function riverNutRuleProducesCall(
+  before: HorsePolicyAction,
+  after: HorsePolicyAction,
+  context: HorseDecisionReceiptContext
+): boolean {
+  const result = omahaRiverNutRaiseOnly(
+    { action: before.action, amount: before.amount ?? undefined, thinkTime: 0 },
+    context.player,
+    context.gameState,
+    true
+  );
+  return (
+    result.changed === 'flatted' &&
+    result.decision.action === 'call' &&
+    result.decision.amount === after.amount
+  );
+}
+
 function policyGraphIsValid(
   value: RecordValue,
   expectedVariant?: string,
@@ -1100,6 +1125,17 @@ function policyGraphIsValid(
           toCall: context.gameState.toCall,
           actionHistory: context.gameState.actionHistory,
         }));
+    // Like the boat rule below, it is admitted only with the request: the
+    // rule is re-run on it and must make the same call.
+    const omahaRiverNutRaiseToCall =
+      transition.node === 'wager_rules' &&
+      OMAHA_RIVER_NUT_RAISE_VARIANTS.has(variant) &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      ['raise', 'all_in'].includes(previous.action) &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      riverNutRuleProducesCall(previous, transition.after, context);
     if (
       transition.node === 'wager_rules' &&
       changed &&
@@ -1108,6 +1144,7 @@ function policyGraphIsValid(
       !shortAllInCall &&
       !noFourBetFold &&
       !plo6RiverRaiseToCall &&
+      !omahaRiverNutRaiseToCall &&
       !(
         transition.after.action === 'call' &&
         previous !== null &&

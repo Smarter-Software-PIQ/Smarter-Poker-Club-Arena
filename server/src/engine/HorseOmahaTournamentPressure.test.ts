@@ -475,6 +475,12 @@ describe(
       // Omaha tournament first-in (Dan 2026-11-12) replaces short-handed folds
       // independently of V53; HorseOmahaTournamentFirstIn.law.test.ts pins it.
       omahaTournamentFirstIn: false,
+      // Dan 2026-11-14 (hand 59401453): the Omaha river nut-raise rule and
+      // the turn set size change play independently of V53; their explicit
+      // off arms keep this baseline byte-identical
+      // (HorseOmahaRiverNutRaise.test.ts pins both).
+      omahaRiverNutRaiseOnly: false,
+      omahaTurnSetPound: false,
     };
 
     it.each(CORPUS_VARIANTS)(

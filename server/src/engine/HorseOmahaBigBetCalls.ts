@@ -33,7 +33,9 @@
  * only (PLO4 day B +6.2, n 26) and the turn dominated flush is cash only
  * (tournament day B +14.9, n 16). NOT admitted: turn straights on a flush
  * board (day A straddles), turn non-nut straights and two pair, turn paired-
- * board flushes, the 0.5-0.9 pot band, sets and trips, full houses (the
+ * board flushes, the 0.5-0.9 pot band, sets and trips (2026-11-14: the river
+ * half of sets and trips on a straight- or flush-possible board was admitted
+ * separately, see V81_RIVER_SET_CELL below), full houses (the
  * evaluator cannot tell a nut boat from an underboat here), nut straights and
  * unpaired nut flushes (both win), one pair (wins). Per-slice outputs:
  * docs/horse-measure/2026-11-02/v81-omaha-call-cells.txt.
@@ -212,7 +214,28 @@ export interface V81Input {
   /** What the horse can actually pay, as a share of the pot after paying it:
    *  min(toCall, stack) / (pot + min(toCall, stack)). */
   callPrice: number;
+  /** The river set / trips cell (V81_RIVER_SET_CELL) is admitted. */
+  riverSetCell?: boolean;
 }
+
+/**
+ * The river cell added on 2026-11-14 (Dan, hand 59401453: three aces facing a
+ * full-pot river lead on a board with three possible straights "should lean
+ * toward folding"). It is the class omahaCallClass already names: a set or
+ * trips on a river board where a straight or a flush is possible. The V81
+ * measurement recorded it and did not admit it, because the family was judged
+ * over both streets and its turn calls straddle zero. Its river rows, facing
+ * 0.9 pot or more (docs/horse-measure/2026-11-02/v81-omaha-call-cells.txt,
+ * rows `trips_set_drawy|pf>=0.9|river`): day A -42.85 [-50.10, -35.60] n 96,
+ * day B -41.05 [-46.77, -35.32] n 75. The river-only variant and format
+ * slices were not tabulated, so the second half of the V81 admission rule
+ * (no slice with n >= 10 positive on either day) is not shown for this cell;
+ * it is admitted on the owner's ruling and the two river rows. Turn calls
+ * with the class are not folded (+6.85 [-3.79, 17.48] n 177 on day A), and
+ * neither is a river call that is itself all in (the caller passes
+ * riverSetCell false there: V88 owns the committed call).
+ */
+export const V81_RIVER_SET_CELL = 'trips_set_drawy';
 
 /** The measured cell this call falls in, or null when V81 does not apply. */
 export function v81Cell(i: V81Input): string | null {
@@ -227,6 +250,7 @@ export function v81Cell(i: V81Input): string | null {
     const cls = omahaCallClass(i.hole, i.board);
     if (RIVER_CELLS.has(cls)) return cls;
     if (cls === 'flush_second' && variant === 'plo5') return cls;
+    if (cls === V81_RIVER_SET_CELL && i.riverSetCell === true) return cls;
     return null;
   }
   if (i.street === 'turn' && i.board.length === 4) {

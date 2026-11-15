@@ -884,6 +884,16 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V89'
   ),
   flag(
+    'omahaRiverNutRaiseOnly',
+    'Dan 2026-11-14 (hand 59401453): PLO4/PLO5/PLO6 high on one board, a river raise facing a wager stands only with the nuts or an effective-nut hand, every other raise becomes a call; and the PLO4/PLO5 river call of a 0.9-pot+ wager with a set or trips on a straight- or flush-possible board folds (V81 cell trips_set_drawy). Default on; explicit false is the complaint law control',
+    'V94'
+  ),
+  flag(
+    'omahaTurnSetPound',
+    'Dan 2026-11-14 (hand 59401453): an Omaha high set on a turn board where a straight is possible and no flush is possible bets the geometric monster size instead of the V40 half-pot small ball and is not checked back for a fresh straight card. Default on; explicit false is the complaint law control',
+    'V94'
+  ),
+  flag(
     'plo6ManiacPriceRefusalToRangePlay',
     '2026-11-14 PLO6 cash preflop: when the raiser faced is an observed maniac and not all in and the call is under 40% of the stack, a refusal by the price arithmetic is decided by the range play, the play made against every other opponent, instead of an outright fold (PLO6-AUDIT-013, production hand 58751512; evidence docs/horse-default-on.d/plo6ManiacPriceRefusalToRangePlay.md)',
     'V92'
@@ -3402,6 +3412,30 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     "Hold'em facing one 3-bet: the V7 4-bet-bluff band rolled and was retired; the hand took the call / fold read instead",
     'V76',
     'decide_nlh'
+  ),
+  receipt(
+    'omaha_river_non_nut_raise_flatted',
+    'HorseLogic wager_rules (HorseOmahaRiverNutRaise)',
+    'PLO4/PLO5/PLO6 high river raise or all-in over a wager without the nuts or an effective-nut hand: became a call (the call-discipline folds then judge it)',
+    'V94'
+  ),
+  receipt(
+    'omaha_river_non_nut_raise_fold_restored',
+    'HorseLogic wager_rules (HorseOmahaRiverNutRaise)',
+    'a later policy owner raised a river hand the reference had folded, without the nuts: the fold came back',
+    'V94'
+  ),
+  receipt(
+    'v81_river_set_big_bet_fold',
+    'HorseLogic (V81, river set cell)',
+    'PLO4/PLO5 river call of a 0.9-pot+ wager with a set or trips on a straight- or flush-possible board: folded (counted inside v81_omaha_big_bet_call_fold as well)',
+    'V94'
+  ),
+  receipt(
+    'omaha_turn_set_pound',
+    'HorseLogic checked-to value tiers',
+    'an Omaha high set on a straight-possible turn with no flush possible bet the geometric size instead of the half-pot small ball',
+    'V94'
   ),
   receipt(
     'v81_omaha_big_bet_call_fold',
