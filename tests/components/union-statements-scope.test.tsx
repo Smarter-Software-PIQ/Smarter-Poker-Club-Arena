@@ -752,3 +752,123 @@ it('renders legacy separate ECO as unavailable and exports that uncertainty', as
   expect(JSON.stringify(args)).toContain('tournament_eco_amount');
   expect(JSON.stringify(args)).toContain('Unavailable');
 });
+
+describe('the five stored invoices for the week ending 2026-11-09', () => {
+  const UNION = 'fade0000-0000-0000-0000-000000000001';
+  const load = async () => {
+    const { default: fixture } =
+      await import('../fixtures/union-invoice-week-2026-11-02/board.json');
+    testState.route.unionId = UNION;
+    testState.route.unionRef = UNION;
+    testState.rpc.mockImplementation((name: string) =>
+      Promise.resolve(
+        name === 'ca_union_insurance_pnl'
+          ? insurance(UNION)
+          : { data: structuredClone(fixture), error: null }
+      )
+    );
+    render(<UnionStatementsPage />);
+    await screen.findByText('Deep Stack Society');
+  };
+  const open = (club: string) =>
+    fireEvent.click(screen.getByRole('button', { name: `${club} Statement Details` }));
+
+  it('shows the selected accounting week as its 2 AM Chicago boundaries', async () => {
+    await load();
+    expect(
+      screen.getByText('Week: Mon Nov 2, 2026 2:00 AM to Mon Nov 9, 2026 2:00 AM Chicago Time')
+    ).toBeVisible();
+    expect(screen.getByRole('tab', { name: 'Week Ending Mon Nov 9' })).toBeVisible();
+    expect(screen.queryByText(/2026-11-02 To 2026-11-09/)).toBeNull();
+  });
+
+  it('lists the union house row apart from the member clubs', async () => {
+    await load();
+    const house = screen.getByRole('region', { name: 'Union House Club Statement' });
+    expect(house).toHaveTextContent('Midway Union');
+    expect(house).toHaveTextContent('21.25');
+    expect(house).toHaveTextContent('Union Pays House Club');
+    expect(house).not.toHaveTextContent('Deep Stack Society');
+    expect(screen.getByText(/Totals Above Include The Union House Club Statement/)).toBeVisible();
+  });
+
+  it('prints each document: invoice, week, issuer, recipient, who pays whom and exact figures', async () => {
+    await load();
+    open('Deep Stack Society');
+    const doc = screen.getByRole('definition', {
+      name: (_, el) => el.textContent?.startsWith('Deep Stack Society Pays') ?? false,
+    });
+    expect(doc).toHaveTextContent('Deep Stack Society Pays Midway Union 96,919.54');
+    expect(screen.getByText('MIDWAY-2026-000038')).toBeVisible();
+    expect(
+      screen.getByText(/Mon Nov 2, 2026 2:00 AM to Mon Nov 9, 2026 2:00 AM Chicago Time/, {
+        selector: 'dd',
+      })
+    ).toBeVisible();
+    expect(screen.getByText('Thu Nov 12, 2026 2:00 AM Chicago Time')).toBeVisible();
+    for (const figure of [
+      '452,206.43',
+      '45,220.65',
+      '406,985.78',
+      '-562,209.57',
+      '-110,003.14',
+      '296,982.64',
+      '-96,919.54',
+    ])
+      expect(screen.getAllByText(figure).length).toBeGreaterThan(0);
+    const settled = screen.getByText(/^Settled In Chips Is 296,982.64 And Has Already Moved/);
+    expect(settled).toHaveTextContent(
+      '406,985.78 Is The Rakeback Midway Union Paid To Deep Stack Society With The Monday Rakeback, The Only Union To Club Transfer In It.'
+    );
+    expect(settled).toHaveTextContent(
+      '-110,003.14 Is The Player Result Excluding Fees, Already Settled At The Tables'
+    );
+    expect(settled).toHaveTextContent(
+      'It Is Not A Union Or Club Transfer. Neither Part Is Billed Again.'
+    );
+    expect(
+      screen.getByText(/Amount Due Is What Remains: Combined ECO -96,919.54 Plus Recorded/)
+    ).toHaveTextContent('Equals -96,919.54. Deep Stack Society Pays Midway Union 96,919.54.');
+    expect(screen.getByText(/Cash And Tournament Player Split Was Not Recorded/)).toBeVisible();
+  });
+
+  it('says square when nothing is due, and names the house club as the payee', async () => {
+    await load();
+    open('Club Savage');
+    expect(screen.getAllByText('Square, Nothing Due').length).toBeGreaterThan(0);
+    open('Midway Union');
+    expect(screen.getByText('Midway Union Pays Midway Union (House Club) 21.25')).toBeVisible();
+    expect(screen.getByText("Midway Union (The Union's Own House Club)")).toBeVisible();
+    expect(screen.getByText(/No Rakeback Was Paid To Midway Union For This Week/)).toBeVisible();
+  });
+
+  it('exports every document with its week, parties, direction and exact figures', async () => {
+    await load();
+    fireEvent.click(screen.getByRole('button', { name: 'Export CSV' }));
+    const [name, csv] = testState.downloadCsv.mock.calls[0] as [string, string];
+    expect(name).toBe('union_statements_2026-11-09.csv');
+    const rows = csv.split('\n');
+    expect(rows).toHaveLength(6);
+    expect(rows[0].split(',').slice(0, 9)).toEqual([
+      'statement_kind',
+      'invoice_number',
+      'week_start_chicago',
+      'week_end_chicago',
+      'week_start_instant',
+      'week_end_instant',
+      'issued_by',
+      'issued_to',
+      'payer_pays_payee',
+    ]);
+    const deep = rows.find((r) => r.includes('MIDWAY-2026-000038'))!;
+    expect(deep).toContain('member club statement,MIDWAY-2026-000038');
+    expect(deep).toContain('Mon Nov 2, 2026 2:00 AM Chicago Time');
+    expect(deep).toContain('Mon Nov 9, 2026 2:00 AM Chicago Time');
+    expect(deep).toContain('Deep Stack Society Pays Midway Union');
+    expect(deep).toContain('296982.64');
+    const house = rows.find((r) => r.includes('MIDWAY-2026-000040'))!;
+    expect(house).toContain('union house club statement');
+    expect(house).toContain('Midway Union Pays Midway Union (House Club)');
+    expect(rows.find((r) => r.includes('MIDWAY-2026-000037'))).toContain('Square, Nothing Due');
+  });
+});

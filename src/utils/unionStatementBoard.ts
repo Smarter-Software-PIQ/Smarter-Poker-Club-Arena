@@ -39,7 +39,23 @@ export interface UnionStatementClub {
   cash_eco_amount?: number | null;
   tournament_eco_amount?: number | null;
   presettled: number;
+  /* The stored document's own identity, week and parties (20261115011424).
+     Optional so a board from before that migration still reads; the house
+     flag is derived from club_id = union_id when the server omits it. */
+  invoice_number?: string | null;
+  period_start_at?: string | null;
+  period_end_at?: string | null;
+  payer_type?: StatementParty | null;
+  payer_name?: string | null;
+  payee_type?: StatementParty | null;
+  payee_name?: string | null;
+  union_house?: boolean;
+  settled_in_chips?: number | null;
+  player_pnl_net?: number | null;
+  stored_outstanding?: number | null;
 }
+
+export type StatementParty = 'club' | 'union';
 
 export interface UnionStatementPeriod {
   period_start: string | null;
@@ -53,6 +69,8 @@ export interface UnionStatementPeriod {
   tournament_eco_amount?: number | null;
   paid: number;
   delivered: number;
+  period_start_at?: string | null;
+  period_end_at?: string | null;
 }
 
 export interface UnionStatementTotals {
@@ -79,6 +97,8 @@ export interface UnionStatementBoard {
   union_name: string | null;
   period_end: string | null;
   period_start: string | null;
+  period_start_at?: string | null;
+  period_end_at?: string | null;
   totals: UnionStatementTotals;
   clubs: UnionStatementClub[];
   history: UnionStatementPeriod[];
@@ -159,6 +179,33 @@ function nullableTimestamp(value: unknown, label: string): string | null {
   return value === null ? null : timestamp(value, label);
 }
 
+function optionalTimestamp(value: unknown, label: string): string | null {
+  return value === undefined ? null : nullableTimestamp(value, label);
+}
+
+function optionalText(value: unknown, label: string): string | null {
+  return value === undefined ? null : nullableText(value, label);
+}
+
+function optionalMoney(value: unknown, label: string): number | null {
+  return value === undefined || value === null ? null : moneyValue(value, label);
+}
+
+function optionalParty(value: unknown, label: string): StatementParty | null {
+  if (value === undefined || value === null) return null;
+  if (value !== 'club' && value !== 'union') throw new Error(`${label} is invalid`);
+  return value;
+}
+
+/** An accounting week is [start, end): the start instant is in it, the end is not. */
+function weekInstants(start: unknown, end: unknown, label: string): [string | null, string | null] {
+  const from = optionalTimestamp(start, `${label} start`);
+  const to = optionalTimestamp(end, `${label} end`);
+  if ((from === null) !== (to === null) || (from && to && Date.parse(from) >= Date.parse(to)))
+    throw new Error(`${label} is invalid`);
+  return [from, to];
+}
+
 const cents = (value: number): number => Math.round(value * 100);
 const sumCents = (values: number[]): number => values.reduce((sum, value) => sum + cents(value), 0);
 
@@ -199,7 +246,7 @@ interface ParsedClub {
   rawAmount: number;
 }
 
-function parseClub(value: unknown): ParsedClub {
+function parseClub(value: unknown, unionId: string): ParsedClub {
   const row = objectValue(value, 'Statement club');
   const status = textValue(row.status, 'Statement status');
   if (!STATUSES.has(status)) throw new Error('Statement status is invalid');
@@ -245,6 +292,29 @@ function parseClub(value: unknown): ParsedClub {
     eco_components: unionEcoComponents(row),
     presettled: moneyValue(row.presettled, 'Statement presettled amount'),
   };
+  const [weekStart, weekEnd] = weekInstants(
+    row.period_start_at,
+    row.period_end_at,
+    'Statement week'
+  );
+  parsed.invoice_number = optionalText(row.invoice_number, 'Statement invoice number');
+  parsed.period_start_at = weekStart;
+  parsed.period_end_at = weekEnd;
+  parsed.payer_type = optionalParty(row.payer_type, 'Statement payer');
+  parsed.payer_name = optionalText(row.payer_name, 'Statement payer name');
+  parsed.payee_type = optionalParty(row.payee_type, 'Statement payee');
+  parsed.payee_name = optionalText(row.payee_name, 'Statement payee name');
+  parsed.settled_in_chips = optionalMoney(row.settled_in_chips, 'Statement settled in chips');
+  parsed.player_pnl_net = optionalMoney(row.player_pnl_net, 'Statement player result');
+  parsed.stored_outstanding = optionalMoney(row.stored_outstanding, 'Statement amount due');
+  // The union's own house club row (club_id = union id) is not a member club.
+  const house = parsed.club_id === unionId;
+  if (
+    row.union_house !== undefined &&
+    booleanValue(row.union_house, 'Statement house row') !== house
+  )
+    throw new Error('Statement house row is misidentified');
+  parsed.union_house = house;
 
   parsed.weekly_player_results = parseWeeklyPlayerResults(row);
 
@@ -260,6 +330,13 @@ function parseClub(value: unknown): ParsedClub {
       parsed.direction !== null ||
       parsed.message_sent ||
       parsed.overdue ||
+      parsed.invoice_number !== null ||
+      parsed.period_start_at !== null ||
+      parsed.payer_type !== null ||
+      parsed.payee_type !== null ||
+      parsed.settled_in_chips !== null ||
+      parsed.player_pnl_net !== null ||
+      parsed.stored_outstanding !== null ||
       [
         parsed.amount,
         parsed.paid_total,
@@ -303,6 +380,46 @@ function parseClub(value: unknown): ParsedClub {
   }
   if (cents(parsed.rake_generated) !== cents(parsed.rakeback_due) + cents(parsed.union_fee_kept)) {
     throw new Error('Statement rake split does not reconcile');
+  }
+  // Who pays whom is the stored document's from/to party, and it must say
+  // the same thing as the stored direction.
+  if (parsed.payer_type !== null || parsed.payee_type !== null) {
+    const expected =
+      parsed.direction === 'club owes union'
+        ? ['club', 'union']
+        : parsed.direction === 'union owes club'
+          ? ['union', 'club']
+          : null;
+    if (
+      parsed.payer_type === null ||
+      parsed.payee_type === null ||
+      (expected !== null &&
+        (parsed.payer_type !== expected[0] || parsed.payee_type !== expected[1]))
+    )
+      throw new Error('Statement payer and payee contradict its direction');
+  }
+  // settled_in_chips is the producer's player_pnl_net + rakeback_due.
+  if (
+    parsed.settled_in_chips !== null &&
+    parsed.player_pnl_net !== null &&
+    cents(parsed.settled_in_chips) !== cents(parsed.player_pnl_net) + cents(parsed.rakeback_due)
+  )
+    throw new Error('Statement settled-in-chips split does not reconcile');
+  // The amount due is the recorded ECO plus recorded presettlements, signed
+  // positive when the union pays, and its magnitude is the document amount.
+  if (parsed.stored_outstanding !== null) {
+    const due = cents(parsed.stored_outstanding);
+    if (
+      due !== cents(parsed.eco_amount) + cents(parsed.presettled) ||
+      Math.abs(due) !== Math.abs(cents(parsed.amount)) ||
+      Math.sign(due) !==
+        (parsed.direction === 'union owes club'
+          ? 1
+          : parsed.direction === 'club owes union'
+            ? -1
+            : 0)
+    )
+      throw new Error('Statement amount due does not reconcile');
   }
   if (available && status === 'paid' && cents(parsed.outstanding as number) !== 0) {
     throw new Error('Paid statement still has an outstanding balance');
@@ -355,7 +472,14 @@ function parseHistory(value: unknown): UnionStatementPeriod[] {
     const paid = countValue(row.paid, 'Statement history paid count');
     const delivered = countValue(row.delivered, 'Statement history delivered count');
     if (paid > clubs || delivered > clubs) throw new Error('Statement history counts are invalid');
+    const [weekStart, weekEnd] = weekInstants(
+      row.period_start_at,
+      row.period_end_at,
+      'Statement history week'
+    );
     return {
+      period_start_at: weekStart,
+      period_end_at: weekEnd,
       period_start: periodStart,
       period_end: periodEnd,
       clubs,
@@ -385,8 +509,13 @@ export function parseUnionStatementBoard(
   if (periodStart && periodEnd && periodStart > periodEnd) {
     throw new Error('Statement board period is invalid');
   }
+  const [boardWeekStart, boardWeekEnd] = weekInstants(
+    board.period_start_at,
+    board.period_end_at,
+    'Statement board week'
+  );
   if (!Array.isArray(board.clubs)) throw new Error('Statement clubs are invalid');
-  const parsedClubs = board.clubs.map(parseClub);
+  const parsedClubs = board.clubs.map((club) => parseClub(club, unionId));
   const clubs = parsedClubs.map(({ club }) => club);
   const clubIds = new Set<string>();
   const invoiceIds = new Set<string>();
@@ -488,6 +617,8 @@ export function parseUnionStatementBoard(
     union_name: nullableText(board.union_name, 'Statement union name'),
     period_end: periodEnd,
     period_start: periodStart,
+    period_start_at: boardWeekStart,
+    period_end_at: boardWeekEnd,
     totals: {
       ...totals,
       clubs_owe: normalizedSignedTotals.clubs_owe / 100,
@@ -498,4 +629,81 @@ export function parseUnionStatementBoard(
     history: parseHistory(board.history),
     generated_at: timestamp(board.generated_at, 'Statement generation time'),
   };
+}
+
+/* ---------------------------------------------------------------------------
+ * PRESENTATION OF A STORED STATEMENT (owner specification item 8, 2026-11-14)
+ *
+ * The accounting week is [start, end) in America/Chicago, bounded at 2:00 AM.
+ * Both ends are formatted from the stored instants with the IANA zone, never
+ * by adding 24 hours to a date, so a week that crosses a daylight-saving
+ * change still reads 2:00 AM at both ends.
+ * ------------------------------------------------------------------------- */
+
+const CHICAGO_INSTANT = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/Chicago',
+  weekday: 'short',
+  month: 'short',
+  day: 'numeric',
+  year: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit',
+  hour12: true,
+});
+
+const CHICAGO_DAY = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/Chicago',
+  weekday: 'short',
+  month: 'short',
+  day: 'numeric',
+});
+
+/** "Mon Nov 2, 2026 2:00 AM" for a stored instant, in Chicago. */
+export function chicagoInstantLabel(iso: string): string {
+  const parts: Record<string, string> = {};
+  for (const part of CHICAGO_INSTANT.formatToParts(new Date(iso))) parts[part.type] = part.value;
+  return `${parts.weekday} ${parts.month} ${parts.day}, ${parts.year} ${parts.hour}:${parts.minute} ${parts.dayPeriod}`;
+}
+
+/** "Thu Nov 12" for a stored instant, in Chicago. */
+export function chicagoDayLabel(iso: string): string {
+  return CHICAGO_DAY.format(new Date(iso)).replace(',', '');
+}
+
+/**
+ * "Mon Nov 2, 2026 2:00 AM to Mon Nov 9, 2026 2:00 AM Chicago Time", or null
+ * when the statement predates stored week instants.
+ */
+export function unionStatementWeekLabel(
+  start: string | null | undefined,
+  end: string | null | undefined
+): string | null {
+  if (!start || !end) return null;
+  return `${chicagoInstantLabel(start)} to ${chicagoInstantLabel(end)} Chicago Time`;
+}
+
+/** The club side of a statement; the union's own house club says so. */
+export function statementClubName(
+  club: Pick<UnionStatementClub, 'club_name' | 'union_house'>,
+  name: string
+): string {
+  return club.union_house ? `${name} (House Club)` : name;
+}
+
+/**
+ * Who pays whom, in words: "Deep Stack Society Pays Midway Union",
+ * "Midway Union Pays Club Savage" or "Square, Nothing Due". Names are passed
+ * in already formatted for print.
+ */
+export function unionStatementPayLine(
+  club: Pick<UnionStatementClub, 'status' | 'direction' | 'amount' | 'union_house' | 'club_name'>,
+  clubName: string,
+  unionName: string
+): string {
+  if (club.status === 'missing') return 'Not Billed';
+  if (club.direction === 'square' || cents(club.amount) === 0) return 'Square, Nothing Due';
+  const clubSide = statementClubName(club, clubName);
+  return club.direction === 'club owes union'
+    ? `${clubSide} Pays ${unionName}`
+    : `${unionName} Pays ${clubSide}`;
 }
