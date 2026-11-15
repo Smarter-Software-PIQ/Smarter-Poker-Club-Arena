@@ -1,0 +1,89 @@
+.player-cash-stats {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding-block: 4px 8px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.player-cash-stats .player-cash-stats__toggle {
+  min-height: 44px;
+  width: min(100%, 170px);
+  border: 7px solid transparent;
+  border-image: url('/assets/results/session-button.webp') 20 22 stretch;
+  background: #14191d;
+  font: inherit;
+  font-size: 16px;
+  font-weight: 750;
+  color: #e0f1ff;
+  text-transform: none;
+  cursor: pointer;
+}
+.player-cash-stats__toggle:focus-visible {
+  outline: 2px solid #6adfff;
+  outline-offset: 1px;
+}
+
+.player-cash-stats__game {
+  box-sizing: border-box;
+  width: min(100%, 360px);
+  min-width: 0;
+  margin: 0;
+  border: 8px solid transparent;
+  border-image: url('/assets/results/session-frame.webp') 25 27 / 8px stretch;
+  background: #101417;
+  color: #f0f3f5;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+.player-cash-stats__game h3 {
+  margin: 0;
+  padding: 7px 10px;
+  background: #101214 url('/assets/results/session-quilt.webp') repeat center / 62px auto;
+  font: inherit;
+  font-weight: 750;
+  font-size: 16px;
+  text-transform: capitalize;
+}
+.player-cash-stats__result {
+  display: grid;
+  justify-items: center;
+  padding: 7px 5px;
+  gap: 2px;
+}
+.player-cash-stats__result span,
+.player-cash-stats__metrics dt {
+  font-size: 13px;
+  font-weight: 600;
+  color: #bdc9d2;
+}
+.player-cash-stats__result strong {
+  font:
+    800 clamp(20px, 5.8cqw, 26px)/1.1 system-ui,
+    sans-serif;
+}
+.player-cash-stats__result [data-direction='up'] {
+  color: #3fb950;
+}
+.player-cash-stats__result [data-direction='down'] {
+  color: #ff697b;
+}
+.player-cash-stats__metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0;
+  background: #36404a;
+}
+.player-cash-stats__metrics > div {
+  padding: 6px 3px;
+  background: #161c21;
+}
+.player-cash-stats__metrics dd {
+  margin: 2px 0 0;
+  font-size: 17px;
+  font-weight: 750;
+}
