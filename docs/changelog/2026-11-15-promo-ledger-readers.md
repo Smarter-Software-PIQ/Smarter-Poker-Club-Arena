@@ -29,3 +29,10 @@ security metadata. The existing unit-test workflow runs this regression.
 Delivery requires protected merge, Apply Merged Migration and actual installed
 function hashes, corrected replay and incident readback. Local qualification
 alone is not production completion.
+
+Qualification also exposed a test-clock defect in the existing pre-repair
+worker regression. Its explicit `Date.now() + 60_000` request overrode the
+suite mood-hour pin, passing at 06 UTC and failing at 07 UTC with identical
+engine source. The fixture now pins observation and decision clocks to the
+existing suite constant. All three real worker cases pass, and every existing
+assertion remains. This changes test determinism only, not production strategy.
