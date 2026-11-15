@@ -4,8 +4,9 @@
 Every ready pnl_boundary certificate is copied at install, each later one in
 the statement that writes it, a recertified boundary keeps its earlier value,
 the copy survives the certificate's eight-day retirement, nothing else is
-copied, the copy never refuses the certificate, and nobody but the owner can
-read or change the copy. Run as an unprivileged user (initdb refuses root).
+copied, the copy never refuses the certificate, every guard is ENABLE ALWAYS,
+fn_ca_union_pnl_boundary_for_invoice returns the version an invoice used (or
+NULL), and nobody but the owner can read or change the copy. Run as an unprivileged user (initdb refuses root).
 """
 import os
 import shutil
@@ -116,7 +117,33 @@ try:
                   "AND value = '{\"status\":\"ready\"}' AND certified_at IS NOT NULL") == "1",
             "a copy that raises is recorded with its value and the certificate still commits")
     run("DELETE FROM ca_union_pnl_boundary_capture_failures;", expect_fail="append-only")
-    run("SET session_replication_role = replica; DELETE FROM ca_union_pnl_boundary_capture;", expect_fail="permission denied")
+    # The installer cannot switch session_replication_role here, so the
+    # replica case is asserted on the catalogue: every guard and the copy fire
+    # in every replication role ('A' = ENABLE ALWAYS).
+    require(q("SELECT string_agg(tgname || '=' || tgenabled::text, ',' ORDER BY tgname) FROM pg_trigger "
+              "WHERE NOT tgisinternal AND tgrelid IN ('public.ca_union_pnl_boundary_capture'::regclass, "
+              "'public.ca_union_pnl_boundary_capture_failures'::regclass, 'public.accounting_close_certificates'::regclass)")
+            == "ca_union_pnl_boundary_capture_failures_immutable=A,ca_union_pnl_boundary_capture_failures_no_truncate=A,"
+               "ca_union_pnl_boundary_capture_immutable=A,ca_union_pnl_boundary_capture_no_truncate=A,"
+               "trg_ca_union_pnl_boundary_capture=A",
+            "the four append-only guards and the copy are ENABLE ALWAYS (they hold under session_replication_role = replica)")
+
+    # Which version an invoice used: fn_ca_union_pnl_boundary_for_invoice.
+    U, B = "'fade0000-0000-0000-0000-000000000001'", "'2026-12-07 08:00+00'"
+    def version(issued):
+        return q(f"SELECT COALESCE((SELECT v->>'v' FROM (SELECT (fn_ca_union_pnl_boundary_for_invoice({U}, {B}, {issued})).value AS v) x), 'NULL')")
+    run(f"INSERT INTO accounting_close_certificates (kind, union_id, period_start, period_end, value, certified_at) VALUES "
+        f"('pnl_boundary', {U}, {B}, {B}, '{{\"status\":\"ready\",\"v\":\"A\"}}', '2026-12-08 01:00+00');")
+    require(version("'2026-12-08 00:59+00'") == "NULL", "an invoice issued before every kept version is not invoice-exact (NULL)")
+    run(f"UPDATE accounting_close_certificates SET value = '{{\"status\":\"ready\",\"v\":\"B\"}}', "
+        f"certified_at = '2026-12-09 01:00+00' WHERE kind = 'pnl_boundary' AND period_start = {B};")
+    require(version("'2026-12-08 12:00+00'") == "A", "one version before and one after the invoice: the earlier one is used")
+    run(f"UPDATE accounting_close_certificates SET value = '{{\"status\":\"ready\",\"v\":\"A\"}}', "
+        f"certified_at = '2026-12-10 01:00+00' WHERE kind = 'pnl_boundary' AND period_start = {B};")
+    require(q(f"SELECT count(*) FROM ca_union_pnl_boundary_capture WHERE boundary = {B}") == "3"
+            and version("'2026-12-09 12:00+00'") == "B" and version("'2026-12-10 01:00+00'") == "A"
+            and version("'infinity'") == "A" and version("NULL") == "NULL",
+            "a value that goes A -> B -> A is three versions, each invoice gets the one certified at or before it")
 
     for role in ("authenticated", "service_role"):
         run(f"SET ROLE {role}; SELECT count(*) FROM public.ca_union_pnl_boundary_capture;", expect_fail="permission denied")
