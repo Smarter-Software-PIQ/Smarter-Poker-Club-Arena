@@ -30,8 +30,10 @@ import {
   omahaStreetPlanDomain,
   omahaStreetPlanTurnSpot,
   type OmahaPlanInput,
+  omahaStreetPlanAdmitsCheck,
 } from './HorseOmahaStreetPlan.js';
 import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
+import { omahaOopCheckSpot } from './HorseOmahaOopChecks.js';
 import { horseDecisionReceiptRefusal } from './horseDecision/responseValidation.js';
 import { replayProfiles, stateAt, type ComplaintFixture } from './HorseComplaintReplay.js';
 import type { Card, CardRank, CardSuit } from '../types.js';
@@ -284,20 +286,28 @@ describe('omahaStreetPlan: the turn decision', () => {
           gameState: st.gs,
         })
       ).toBeNull();
-      // against a request in which the plan prices the bet higher (the aces hand's turn) it is refused
+      // Against a request in which the plan prices the bet higher (the aces
+      // hand's turn) the street plan's own admission refuses it. In the
+      // integrated 2026-11-15 head both requests are also owner-ruled check
+      // spots (omahaOopCheckSpot: the turn after the called flop bet, the
+      // pairing turn), whose admission admits a check there; the refusal is
+      // asserted only where no other admission covers the request.
       const other = nodeAt(FX.aces, TURN);
-      expect(
-        horseDecisionReceiptRefusal(structuredClone(d), 'plo5', {
-          player: other.hero,
-          gameState: other.gs,
-        })
-      ).toBe('policy_graph');
+      expect(omahaStreetPlanAdmitsCheck(other.hero, other.gs, undefined, d.streetPlan)).toBe(false);
+      if (!omahaOopCheckSpot(other.hero, other.gs))
+        expect(
+          horseDecisionReceiptRefusal(structuredClone(d), 'plo5', {
+            player: other.hero,
+            gameState: other.gs,
+          })
+        ).toBe('policy_graph');
       // and with a forged tendency record
       const forged = structuredClone(d);
       forged.streetPlan!.tendency = [9, 1, 1, 0];
-      expect(
-        horseDecisionReceiptRefusal(forged, 'plo5', { player: st.hero, gameState: st.gs })
-      ).toBe('policy_graph');
+      if (!omahaOopCheckSpot(st.hero, st.gs))
+        expect(
+          horseDecisionReceiptRefusal(forged, 'plo5', { player: st.hero, gameState: st.gs })
+        ).toBe('policy_graph');
     }
   });
 

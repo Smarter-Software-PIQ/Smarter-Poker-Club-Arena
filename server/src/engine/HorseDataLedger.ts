@@ -4146,6 +4146,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
+    'omaha_owner_ruled_check_kept',
+    'HorseLogic wager_rules (omahaOwnBetRules, precedence 2026-11-15)',
+    'a pricing rule (omahaStreetPlan or omahaCardImpact) proposed a bet in a spot an owner-ruled check rule checks (omahaOopCheckRules): the bet was not made',
+    'V94'
+  ),
+  receipt(
+    'omaha_nut_class_wager_kept',
+    'HorseLogic wager_rules (omahaOwnBetRules, precedence 2026-11-15)',
+    'a pricing rule (omahaStreetPlan or omahaCardImpact) would have checked or made smaller a nut-class wager: the wager was kept',
+    'V94'
+  ),
+  receipt(
+    'omaha_strategy_rule_failed',
+    'HorseLogic wager_rules (omahaFacingBetEv, omahaCardImpact, omahaStreetPlan, omahaOwnBetRules, omahaOopTurnFacingBetRule)',
+    'one of the 2026-11-15 Omaha strategy rules threw inside its own boundary: the decision it was given stands (for the facing-bet expected value, the rules that yield to it act as with it off)',
+    'V94'
+  ),
+  receipt(
     'omaha_facing_bet_ev_changed',
     'HorseLogic wager_rules (HorseOmahaFacingBetEv, omahaFacingBetEv)',
     "the expected-value verdict differs from the answer today's rules gave (a fold became a call or a call became a fold); the legacy rule is the legacy receipt fired in the same decision",

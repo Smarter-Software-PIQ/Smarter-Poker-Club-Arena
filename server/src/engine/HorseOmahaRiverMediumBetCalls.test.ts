@@ -19,6 +19,7 @@ import { HorseMind } from './HorseMind.js';
 import { scoreOmahaHiPartial, seedFastRandom } from './HorseEval.js';
 import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
 import { replayProfiles, stateAt } from './HorseComplaintReplay.js';
+import { omahaFacingBetEvSpot } from './HorseOmahaFacingBetEv.js';
 import { horseDecisionReceiptRefusal } from './horseDecision/responseValidation.js';
 import type { OmahaReadConditional } from './HorseOmahaReadConditional.js';
 import {
@@ -435,12 +436,17 @@ describe('omahaRiverMediumBetStrongHandCalls in the decision', () => {
         x.hole = weaker[n];
       });
       expect(omahaRiverMediumBetSpot(pair.hero, pair.gs)).toBeNull();
-      expect(
-        horseDecisionReceiptRefusal(structuredClone(d), 'plo5', {
-          player: pair.hero,
-          gameState: pair.gs,
-        })
-      ).toBe('policy_graph');
+      // In the integrated 2026-11-15 head the facing-bet EV admission
+      // (omahaFacingBetEv) admits a fold -> call of the exact chips in its
+      // spot whatever the hand (its verdict reads the opponent memory, which
+      // the request does not carry); the refusal is asserted only outside it.
+      if (omahaFacingBetEvSpot(pair.hero, pair.gs) === null)
+        expect(
+          horseDecisionReceiptRefusal(structuredClone(d), 'plo5', {
+            player: pair.hero,
+            gameState: pair.gs,
+          })
+        ).toBe('policy_graph');
     }
     expect(checked).toBeGreaterThan(0);
   });
