@@ -42,8 +42,8 @@ describe('computeRaisePresets - rule 7: multiples of the bet being faced', () =>
       minRaise: 4,
       maxRaise: BIG,
     });
-    expect(p.map((x) => x.label)).toEqual(['2.5X', '3X', '3.5X', '4X']);
-    expect(p.map((x) => x.value)).toEqual([5, 6, 7, 8]);
+    expect(p.map((x) => x.label)).toEqual(['2.5X', '3X', '3.5X', '4X', 'POT']);
+    expect(p.slice(0, 4).map((x) => x.value)).toEqual([5, 6, 7, 8]);
   });
 
   it('uses the live bet as the baseline when hero is facing an open', () => {
@@ -56,7 +56,7 @@ describe('computeRaisePresets - rule 7: multiples of the bet being faced', () =>
       minRaise: 30,
       maxRaise: BIG,
     });
-    expect(p.map((x) => x.value)).toEqual([37.5, 45, 52.5, 60]);
+    expect(p.slice(0, 4).map((x) => x.value)).toEqual([37.5, 45, 52.5, 60]);
   });
 
   it('gives a DIFFERENT number for every multiple faced (the original symptom)', () => {
@@ -70,7 +70,7 @@ describe('computeRaisePresets - rule 7: multiples of the bet being faced', () =>
       maxRaise: BIG,
     });
     // Four multiples since 2026-08-28 (Dan: remove 2X and 5X, add 3.5X).
-    expect(new Set(p.map((x) => x.value)).size).toBe(4);
+    expect(new Set(p.slice(0, 4).map((x) => x.value)).size).toBe(4);
   });
 
   it('does NOT collapse preflop opens onto the pot in no-limit', () => {
@@ -85,7 +85,7 @@ describe('computeRaisePresets - rule 7: multiples of the bet being faced', () =>
       minRaise: 4,
       maxRaise: BIG,
     });
-    expect(new Set(p.map((x) => x.value)).size).toBe(4);
+    expect(new Set(p.slice(0, 4).map((x) => x.value)).size).toBe(4);
   });
 });
 
@@ -130,7 +130,7 @@ describe('computeRaisePresets - 2.5X', () => {
     expect(p.find((x) => x.label === '2.5X')!.value).toBe(37.5);
   });
 
-  it('sits between 2X and 3X, and the row stays ascending', () => {
+  it('uses percentages after the flop even when facing a bet', () => {
     const p = computeRaisePresets({
       isPreflop: false,
       bigBlind: 2,
@@ -140,11 +140,8 @@ describe('computeRaisePresets - 2.5X', () => {
       minRaise: 20,
       maxRaise: BIG,
     });
-    const labels = p.map((x) => x.label);
-    expect(labels.indexOf('2.5X')).toBe(labels.indexOf('2X') + 1);
-    expect(labels.indexOf('2.5X')).toBe(labels.indexOf('3X') - 1);
-    const vals = p.map((x) => x.value);
-    expect(vals).toEqual([...vals].sort((a, b) => a - b));
+    expect(p.map((x) => x.label)).toEqual(['33%', '50%', '75%', '100%', 'POT']);
+    expect(p.map((x) => x.value)).toEqual([27, 35, 48, 60, 60]);
   });
 
   it('is NOT offered on an unopened postflop street, which has no bet to multiply', () => {
@@ -157,7 +154,7 @@ describe('computeRaisePresets - 2.5X', () => {
       minRaise: 2,
       maxRaise: BIG,
     });
-    expect(p.map((x) => x.label)).toEqual(['33%', '50%', '75%', 'POT']);
+    expect(p.map((x) => x.label)).toEqual(['33%', '50%', '75%', '100%', 'POT']);
   });
 
   it('never puts more than six buttons in the row, including ALL IN', () => {
@@ -212,7 +209,7 @@ describe('computeRaisePresets - item 9: NX is the exact multiple', () => {
       minRaise: 5,
       maxRaise: BIG,
     });
-    expect(p.map((x) => x.value)).toEqual([6.25, 7.5, 8.75, 10]);
+    expect(p.slice(0, 4).map((x) => x.value)).toEqual([6.25, 7.5, 8.75, 10]);
   });
 
   it('3X of a 2.5 bet is 7.5, not 8', () => {
@@ -319,7 +316,7 @@ describe('computeRaisePresets - postflop sizing', () => {
       minRaise: 2,
       maxRaise: BIG,
     });
-    expect(p.map((x) => x.value)).toEqual([33, 50, 75, 100]);
+    expect(p.map((x) => x.value)).toEqual([33, 50, 75, 100, 100]);
   });
 
   it('fractions stay ordered and whole', () => {
@@ -417,7 +414,7 @@ describe('computeRaisePresets - rule 4b: PLO always offers RAISE POT', () => {
     expect(p[4].value).toBe(21);
   });
 
-  it('offers NO POT preflop in no-limit, where it would undercut every multiple', () => {
+  it('offers the approved dedicated POT key preflop in no-limit', () => {
     const p = computeRaisePresets({
       isPreflop: true,
       bigBlind: 2,
@@ -428,7 +425,7 @@ describe('computeRaisePresets - rule 4b: PLO always offers RAISE POT', () => {
       maxRaise: BIG,
       isPotLimit: false,
     });
-    expect(p.map((x) => x.label)).toEqual(['2.5X', '3X', '3.5X', '4X']);
+    expect(p.map((x) => x.label)).toEqual(['2.5X', '3X', '3.5X', '4X', 'POT']);
   });
 
   it('replaces a button that was already a silent POT', () => {
@@ -452,7 +449,7 @@ describe('computeRaisePresets - rule 4b: PLO always offers RAISE POT', () => {
   // Postflop facing a bet now uses bet-multiples (2X/3X[/4X]) + POT; the
   // fraction row is reserved for unopened streets. In pot-limit 4X is dropped
   // (it would clamp onto POT — the dead-button rule).
-  it('postflop FACING A BET offers bet multiples plus POT (pot-limit)', () => {
+  it('postflop facing a bet offers percentages plus POT (pot-limit)', () => {
     const p = computeRaisePresets({
       isPreflop: false,
       bigBlind: 2,
@@ -465,14 +462,14 @@ describe('computeRaisePresets - rule 4b: PLO always offers RAISE POT', () => {
     });
     // Pot-limit stops at 3X: with maxRaise pinned to the pot cap, 3.5X and 4X
     // would both clamp onto that same number and draw two dead buttons.
-    expect(p.map((x) => x.label)).toEqual(['2.5X', '3X', 'POT']);
-    expect(p[2].value).toBe(60); // POT = 10 + (40 + 10)
+    expect(p.map((x) => x.label)).toEqual(['33%', '50%', '75%', '100%', 'POT']);
+    expect(p[4].value).toBe(60); // POT = 10 + (40 + 10)
   });
 
   // THE ROW DAN ASKED FOR, 2026-08-28: "2.5X 3X 3.5X 4X POT AND ALL IN ARE
   // FINE. (REMOVE 2X AND 5X)". This is the exact row in his screenshot, and
   // ALL IN is appended by the renderer, so the felt shows six buttons.
-  it('postflop FACING A BET offers 2.5X/3X/3.5X/4X of the bet plus POT (no-limit)', () => {
+  it('postflop facing a bet offers percentages in no-limit too', () => {
     const p = computeRaisePresets({
       isPreflop: false,
       bigBlind: 2,
@@ -482,9 +479,9 @@ describe('computeRaisePresets - rule 4b: PLO always offers RAISE POT', () => {
       minRaise: 20,
       maxRaise: BIG,
     });
-    expect(p.map((x) => x.label)).toEqual(['2.5X', '3X', '3.5X', '4X', 'POT']);
+    expect(p.map((x) => x.label)).toEqual(['33%', '50%', '75%', '100%', 'POT']);
     // Exactly N x the bet faced (10), then the pot-sized raise.
-    expect(p.map((x) => x.value)).toEqual([25, 30, 35, 40, 60]);
+    expect(p.map((x) => x.value)).toEqual([27, 35, 48, 60, 60]);
   });
 });
 

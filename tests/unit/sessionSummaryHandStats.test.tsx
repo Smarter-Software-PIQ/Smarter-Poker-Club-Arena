@@ -94,7 +94,11 @@ it('keeps new-target hand metrics unknown and re-reads at the existing settlemen
   expect(within(tile('Hands Played')).getByText('-')).toBeTruthy();
   expect(within(tile('VPIP')).getByText('-')).toBeTruthy();
   expect(within(tile('Win Rate')).getByText('-')).toBeTruthy();
-  expect((screen.getByRole('button', { name: 'Share' }) as HTMLButtonElement).disabled).toBe(true);
+  // No share sheet in this environment, so the painted share button is named
+  // for what its tap does (2026-11-15).
+  expect((screen.getByRole('button', { name: 'Copy Link' }) as HTMLButtonElement).disabled).toBe(
+    true
+  );
   expect(mocked.refresh).not.toHaveBeenCalled();
   act(() => settlePendingSummary(172));
   await waitFor(() => expect(mocked.refresh).toHaveBeenCalledTimes(1));

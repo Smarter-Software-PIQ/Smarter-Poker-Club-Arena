@@ -37,6 +37,12 @@ function browser(container: HTMLElement, clickOverride?: () => Promise<void>) {
       isEnabled: async () => !!find() && !(find() as HTMLButtonElement).disabled,
       getAttribute: async (name: string) => find()?.getAttribute(name) ?? null,
       press: async (key: string) => {
+        if (key === 'Escape') {
+          await act(async () => {
+            fireEvent.keyDown(find()!, { key: 'Escape' });
+          });
+          return;
+        }
         expect(key).toBe('Home');
         await act(async () =>
           fireEvent.change(find()!, { target: { value: find()!.getAttribute('min') } })

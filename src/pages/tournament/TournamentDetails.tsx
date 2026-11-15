@@ -112,7 +112,7 @@ import { useTournamentStageView } from '../../hooks/useTournamentStageView';
 import { subscribeTournamentStandings } from '../../services/tournamentStandingsUpdates';
 import { openTableAsObserver } from '../../utils/observeTable';
 import { titleCase } from '../../utils/titleCase';
-import { shareLink, tournamentShareUrl } from '../../lib/share';
+import { shareButtonLabel, shareLink, tournamentShareUrl } from '../../lib/share';
 import { DAY_COMPLETE_LABEL, isBaggedStatus } from '../../utils/multiDaySchedule';
 
 interface TournamentSnapshotOwner {
@@ -2275,7 +2275,7 @@ export default function TournamentDetails({
             wrong. */}
         <div className="details-footer">
           <button className="btn btn-share" type="button" onClick={() => void shareTournament()}>
-            Share
+            {shareButtonLabel()}
           </button>
           {tournamentAction('footer')}
         </div>
