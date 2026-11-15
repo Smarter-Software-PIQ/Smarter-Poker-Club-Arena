@@ -47,6 +47,7 @@ import {
   omahaNutClassValueSize,
   omahaTurnRedrawShare,
 } from './HorseOmahaMadeHandDefense.js';
+import { omahaOnePairDiscipline } from './HorseOmahaOnePair.js';
 import {
   omahaReraisedPostflopCell,
   omahaReraisedPreflopCell,
@@ -2685,6 +2686,16 @@ export interface HorseDecideOpts {
    * (HorseOmahaReraisedPot.ts). Default on by the owner's order of
    * 2026-11-15 00:55 (unmeasured, declared); false switches it off. */
   omahaReraisedPotDiscipline?: boolean;
+  /** Dan 2026-11-14 (hands 59407629, 59430325, 59431232, 59417700,
+   * 59426444): PLO4/PLO5 high on one board, one pair or less never bets or
+   * raises the river for value (a declared river bluff excepted); a river
+   * call of a 0.66-pot+ wager with two pair or less on a straight- or
+   * flush-possible board folds unless the bettor is a measured postflop
+   * over-bluffer; on the flop and turn one pair with fewer than four
+   * nut-class outs does not raise or call a stack-sized wager
+   * (HorseOmahaOnePair.ts). Default on by the owner's order of 2026-11-15
+   * 00:37 to 00:56 (unmeasured, declared); false switches it off. */
+  omahaOnePairDiscipline?: boolean;
   /** A token-priced committed call is not barred by stack-off premiums
    * (HorseTokenCallPrice.ts, PLO6-AUDIT-010). Default on; false only for
    * the regression's non-vacuity control. */
@@ -4864,6 +4875,9 @@ const nearNutValueReferenceRaises = new WeakSet<HorseDecision>();
 // Raises the near-nut candidate itself chose (the original value gate had
 // already declined). Private one-use provenance for the receipt below.
 const nearNutChosenRaises = new WeakSet<HorseDecision>();
+// omahaOnePairDiscipline: the reference brain chose a river bluff wager in
+// this decision (private provenance; reset at every decision).
+let riverBluffDeclaredPending = false;
 // barrelContinuationOutlook receipt state: a river decision that read a turn
 // outlook while the flag is on, not yet consumed by the V7 continuation.
 let barrelOutlookRiverPending = false;
@@ -6643,6 +6657,7 @@ export class HorseLogic {
         : { action: 'fold', thinkTime: 1500, policyFallback: 'brain_exception' };
     } finally {
       barrelOutlookRiverPending = false;
+      riverBluffDeclaredPending = false;
       v53IcmAppliedPending = false;
       plo6RefusalHandOffPending = null;
       huDefendToPricePending = null;
@@ -6671,6 +6686,7 @@ export class HorseLogic {
     phase11DecisionEquityCeiling = null;
     phase12DecisionEquityCeiling = null;
     barrelOutlookRiverPending = false;
+    riverBluffDeclaredPending = false;
     v53IcmAppliedPending = false;
     plo6RefusalHandOffPending = null;
     huDefendToPricePending = null;
@@ -6911,6 +6927,8 @@ export class HorseLogic {
         : null;
 
     const nearNutChosen = nearNutChosenRaises.delete(decision) && nearNutReference !== null;
+    const riverBluffDeclared = riverBluffDeclaredPending;
+    riverBluffDeclaredPending = false;
     const v53IcmApplied = v53IcmAppliedPending;
     v53IcmAppliedPending = false;
     const plo6RefusalHandOff = plo6RefusalHandOffPending;
@@ -7798,12 +7816,40 @@ export class HorseLogic {
         shortAllInDeadCheckEquity(player, gs, vi)
       );
       if (floored !== ruled && tele) noteFire('short_all_in_call_floor');
+      const checkRaised = riverBluffCheckRaise(floored, player, gs, opts);
       const finalWager = callLargeRiverBoatWager(
-        riverBluffCheckRaise(floored, player, gs, opts),
+        checkRaised,
         player,
         gs,
         opts.v86MultiStreetUnblocked !== false
       );
+      // Dan 2026-11-14 (HorseOmahaOnePair.ts): the one-pair rules judge the
+      // node's final answer, after every owner that can bet, raise or call
+      // (the checked-to pricing below included); a declared river bluff, or
+      // the river bluff check-raise, keeps its wager.
+      const onePair = (d: HorseDecision): HorseDecision => {
+        const r = omahaOnePairDiscipline(d, player, gs, opts.omahaOnePairDiscipline !== false, {
+          declaredBluff: riverBluffDeclared || checkRaised !== floored,
+          bettorOverBluffs: (seat) => {
+            const bettor = gs.players.find((p) => p.seat === seat);
+            if (!bettor || opts.mind === false) return false;
+            const read = HorseMind.opponentRead(bettor.user_id);
+            return read !== null && read.presumed !== true && isPostflopManiac(read);
+          },
+        });
+        if (tele && r.changed === 'river_value_bet_checked')
+          noteFire('omaha_one_pair_river_value_bet_checked');
+        if (tele && r.changed === 'river_value_raise_flatted')
+          noteFire('omaha_one_pair_river_value_raise_flatted');
+        if (tele && r.changed === 'river_beaten_call_folded')
+          noteFire('omaha_one_pair_river_beaten_call_folded');
+        if (tele && r.changed === 'one_pair_raise_flatted')
+          noteFire('omaha_one_pair_raise_flatted');
+        if (tele && r.changed === 'one_pair_raise_folded') noteFire('omaha_one_pair_raise_folded');
+        if (tele && r.changed === 'one_pair_stack_off_folded')
+          noteFire('omaha_one_pair_stack_off_folded');
+        return r.decision;
+      };
       // Price missed checked-to turn boat and river value against the controller's menu.
       if (
         finalWager.action === 'check' &&
@@ -7838,9 +7884,11 @@ export class HorseLogic {
           gs,
           vi
         );
-        return { decision: { ...finalWager, action: legal.action, amount: legal.amount } };
+        return {
+          decision: onePair({ ...finalWager, action: legal.action, amount: legal.amount }),
+        };
       }
-      return { decision: finalWager };
+      return { decision: onePair(finalWager) };
     }).decision;
     // Forced-phase authority (2026-11-07): an owner wager rule above may replace
     // an authorised Phase 10-13 candidate; its receipt must say so
@@ -13403,6 +13451,7 @@ export class HorseLogic {
             unit87('riverblockbluff') < 0.08 + (persona87?.riverBluffGear ?? 0.3) * 0.08
           ) {
             if (tele15) noteFire('v87_river_block_blocker_bluff');
+            riverBluffDeclaredPending = true;
             pendingRaisePlan = 'foldToRaise';
             return blockBet87('riverblockbluff');
           }
@@ -13762,6 +13811,7 @@ export class HorseLogic {
               );
               if (bluff54.action === 'bet' || bluff54.action === 'all_in') {
                 if (tele15) noteFire('v54_river_bluff');
+                riverBluffDeclaredPending = true;
               } else if (tele15) noteFire('v54_river_bluff_skip_illegal');
               return bluff54;
             }
@@ -13949,6 +13999,7 @@ export class HorseLogic {
               false
             );
             const placedRb = betRb.action === 'bet' || betRb.action === 'all_in';
+            if (placedRb) riverBluffDeclaredPending = true;
             if (tele15 && placedRb) {
               noteFire(`river_bluff_baseline_${eligRb.selection}`);
               for (const t of eligRb.gameTypes) noteFire(`river_bluff_baseline_bet_${t}`);
@@ -14069,6 +14120,7 @@ export class HorseLogic {
               );
               if (bet86Rb.action === 'bet' || bet86Rb.action === 'all_in') {
                 if (tele15) noteFire('v86_river_nut_blocker_bluff');
+                riverBluffDeclaredPending = true;
                 return bet86Rb;
               }
             }
@@ -14181,6 +14233,7 @@ export class HorseLogic {
               false
             );
             const placedMw = betMw.action === 'bet' || betMw.action === 'all_in';
+            if (placedMw) riverBluffDeclaredPending = true;
             if (tele15 && placedMw)
               noteFire(`river_bluff_multiway_selected_${eligMw.opponents + 1}way`);
             else if (tele15) noteFire('river_bluff_multiway_illegal');
@@ -14931,6 +14984,7 @@ export class HorseLogic {
         }
         if (freq53 > 0 && fastRandom() < freq53) {
           if (tele15) noteFire(scare.any ? 'v53_river_scare_bluff' : 'v53_river_bluff');
+          riverBluffDeclaredPending = true;
           return this.betSize(
             planHandKey,
             pot,
@@ -17381,6 +17435,7 @@ export class HorseLogic {
         const raiseTo87 = currentBet + (pot + toCall) * 0.75;
         if (!this.v78CommitsWithoutJam(raiseTo87 * params.sizingMultiplier, player, gs, vi, opts)) {
           if (tele15) noteFire('v87_river_blocker_bluff_raise');
+          riverBluffDeclaredPending = true;
           return this.raiseTo(planHandKey, raiseTo87 * params.sizingMultiplier, player, gs, vi);
         }
       }

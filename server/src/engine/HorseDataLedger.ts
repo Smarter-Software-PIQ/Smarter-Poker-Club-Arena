@@ -914,6 +914,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaOnePairDiscipline',
+    'Dan 2026-11-14 (hands 59407629, 59430325, 59431232, 59417700, 59426444): PLO4/PLO5 high on one board, no bomb pot: one pair or less never bets or raises the river for value (a river bluff the reference brain declared keeps its wager); a river call of a 0.66-pot+ wager with two pair or less on a straight- or flush-possible board folds unless the bettor is a measured postflop over-bluffer; on the flop and turn one pair with fewer than four nut-class outs does not raise (call when the call is small, fold when it costs more than half the effective stack) and does not call a wager costing more than half the effective stack (HorseOmahaOnePair.ts). Default on by owner order 2026-11-15 00:56 (value unmeasured); explicit false switches it off',
+    'V94'
+  ),
+  flag(
     'plo6ManiacPriceRefusalToRangePlay',
     '2026-11-14 PLO6 cash preflop: when the raiser faced is an observed maniac and not all in and the call is under 40% of the stack, a refusal by the price arithmetic is decided by the range play, the play made against every other opponent, instead of an outright fold (PLO6-AUDIT-013, production hand 58751512; evidence docs/horse-default-on.d/plo6ManiacPriceRefusalToRangePlay.md)',
     'V92'
@@ -3552,6 +3557,42 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'v81_river_set_big_bet_fold',
     'HorseLogic (V81, river set cell)',
     'PLO4/PLO5 river call of a 0.9-pot+ wager with a set or trips on a straight- or flush-possible board: folded (counted inside v81_omaha_big_bet_call_fold as well)',
+    'V94'
+  ),
+  receipt(
+    'omaha_one_pair_river_value_bet_checked',
+    'HorseLogic wager_rules (HorseOmahaOnePair)',
+    'a PLO4/PLO5 river bet with one pair or less that the reference brain did not declare a bluff: became a check',
+    'V94'
+  ),
+  receipt(
+    'omaha_one_pair_river_value_raise_flatted',
+    'HorseLogic wager_rules (HorseOmahaOnePair)',
+    'a PLO4/PLO5 river raise over a wager with one pair or less that the reference brain did not declare a bluff: became a call',
+    'V94'
+  ),
+  receipt(
+    'omaha_one_pair_river_beaten_call_folded',
+    'HorseLogic wager_rules (HorseOmahaOnePair)',
+    'a PLO4/PLO5 river call of a 0.66-pot+ wager with two pair or less on a straight- or flush-possible board, the bettor not a measured postflop over-bluffer: folded',
+    'V94'
+  ),
+  receipt(
+    'omaha_one_pair_raise_flatted',
+    'HorseLogic wager_rules (HorseOmahaOnePair)',
+    'a PLO4/PLO5 flop or turn raise with one pair and fewer than four nut-class outs, the call costing no more than half the effective stack: became a call',
+    'V94'
+  ),
+  receipt(
+    'omaha_one_pair_raise_folded',
+    'HorseLogic wager_rules (HorseOmahaOnePair)',
+    'a PLO4/PLO5 flop or turn raise with one pair and fewer than four nut-class outs, the call costing more than half the effective stack: became a fold',
+    'V94'
+  ),
+  receipt(
+    'omaha_one_pair_stack_off_folded',
+    'HorseLogic wager_rules (HorseOmahaOnePair)',
+    'a PLO4/PLO5 flop or turn call costing more than half the effective stack with one pair and fewer than four nut-class outs: folded',
     'V94'
   ),
   receipt(

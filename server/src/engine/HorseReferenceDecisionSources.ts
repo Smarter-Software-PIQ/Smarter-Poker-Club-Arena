@@ -67,6 +67,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the default-off Omaha re-raised-pot discipline (owner ruling 2026-11-14 23:49): facing a 4-bet or more preflop a hand without aces or a premium structure folds, and in such a pot one pair or two pair below top two does not stack off unless priced against a declared strong range; the outermost call-discipline fold',
     'src/engine/HorseOmahaMadeHandDefense.ts':
       'the final Omaha made-hand rules (Dan 2026-11-14, hands 59414191 and 59416584): a hand a possible straight or flush beats does not raise a turn wager or bet into the fresh card out of position, and a nut-class wager is the full pot, right after the river nut-raise rule',
+    'src/engine/HorseOmahaOnePair.ts':
+      'the default-off Omaha one-pair rules (Dan 2026-11-14, hands 59407629, 59430325, 59431232, 59417700, 59426444) on the final answer of the wager rules: no one-pair river value wager, no beaten river call of a 0.66-pot wager, no one-pair flop or turn stack-off',
     'src/engine/HorseOmahaCurrentNuts.ts':
       'the final Omaha flop/turn current-nuts raise (exact public nuts with a redraw or untieable; Dan 2026-11-06), right after the river-nuts raise',
     'src/engine/HorseTournamentShoveDiscipline.ts':

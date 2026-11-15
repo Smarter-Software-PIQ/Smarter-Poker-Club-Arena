@@ -39,6 +39,7 @@ import {
   omahaRiverNutRaiseOnly,
 } from '../HorseOmahaRiverNutRaise.js';
 import { omahaBeatenMustCheck, omahaBeatenNoRaise } from '../HorseOmahaMadeHandDefense.js';
+import { omahaOnePairDiscipline } from '../HorseOmahaOnePair.js';
 import { shortAllInSpot } from '../HorseShortAllInCallFloor.js';
 import { holdemFourBetSpot } from '../HorseHoldemPremiumAggression.js';
 import { tournamentShoveDiscipline } from '../HorseTournamentShoveDiscipline.js';
@@ -1000,6 +1001,33 @@ function riverNutRuleProducesCall(
   );
 }
 
+// Dan 2026-11-14 (HorseOmahaOnePair, option omahaOnePairDiscipline): a
+// PLO4/PLO5 one-pair river value bet becomes a check, and a one-pair raise
+// becomes a call. Re-run the rule on the original worker request; the
+// declared-bluff and over-bluffer exceptions only keep chips in, so the rule
+// is re-run without them (no bluff declared, every bettor read as an
+// over-bluffer, which leaves the river call standing).
+function onePairRuleProduces(
+  before: HorsePolicyAction,
+  after: HorsePolicyAction,
+  context: HorseDecisionReceiptContext
+): boolean {
+  const start = { action: before.action, amount: before.amount ?? undefined, thinkTime: 0 };
+  const result = omahaOnePairDiscipline(start, context.player, context.gameState, true, {
+    declaredBluff: false,
+    bettorOverBluffs: () => true,
+  });
+  if (result.changed === null) return false;
+  if (after.action === 'check')
+    return result.changed === 'river_value_bet_checked' && result.decision.action === 'check';
+  return (
+    (result.changed === 'river_value_raise_flatted' ||
+      result.changed === 'one_pair_raise_flatted') &&
+    result.decision.action === 'call' &&
+    result.decision.amount === after.amount
+  );
+}
+
 function policyGraphIsValid(
   value: RecordValue,
   expectedVariant?: string,
@@ -1153,12 +1181,27 @@ function policyGraphIsValid(
       (context === undefined ||
         (String(context.gameState.gameVariant).toLowerCase() === variant &&
           omahaBeatenMustCheck(context.player, context.gameState) !== null));
+    // Dan 2026-11-14 (HorseOmahaOnePair): bet -> check and raise -> call,
+    // admitted only with the request, where the rule re-run on it agrees.
+    const omahaOnePairReduction =
+      transition.node === 'wager_rules' &&
+      (variant === 'plo4' || variant === 'plo5') &&
+      (transition.after.action === 'check' || transition.after.action === 'call') &&
+      previous !== null &&
+      ['bet', 'raise', 'all_in'].includes(previous.action) &&
+      // A check puts no chip in: without the request it is admitted like the
+      // paired-board river check; a call needs the request.
+      (context === undefined
+        ? transition.after.action === 'check'
+        : String(context.gameState.gameVariant).toLowerCase() === variant &&
+          onePairRuleProduces(previous, transition.after, context));
     if (
       transition.node === 'wager_rules' &&
       changed &&
       !pairedBoardFold &&
       !pairedBoardRiverCheck &&
       !omahaBeatenBetToCheck &&
+      !omahaOnePairReduction &&
       !shortAllInCall &&
       !noFourBetFold &&
       !plo6RiverRaiseToCall &&
