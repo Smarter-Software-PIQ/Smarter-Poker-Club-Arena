@@ -2358,17 +2358,29 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaStreetPlan: true },
     b: {},
   })),
-  // 2026-11-15 (default OFF): a 3-bet or 4-bet out of position or from early
-  // position needs suited aces or a declared premium structure; every other
-  // hand calls or folds by the calling rule. a switches it on, b is today's brain.
-  ...(['plo4', 'plo5'] as const).map((variant) => ({
-    name: `${variant}_omaha_reraise_range_by_position`,
-    variant,
-    pairs: 6000,
-    productionStyles: true,
-    a: { omahaReraiseRangeByPosition: true },
-    b: {},
-  })),
+  // 2026-11-15 (default OFF, switched separately): a 3-bet or 4-bet out of
+  // position (omahaReraiseRangeOutOfPosition) or from early position
+  // (omahaReraiseRangeEarlyPosition) needs suited aces, committed aces or a
+  // declared premium structure; every other hand calls or folds by the calling
+  // rule. a switches one on, b is today's brain.
+  ...(['plo4', 'plo5'] as const).flatMap((variant) => [
+    {
+      name: `${variant}_omaha_reraise_range_out_of_position`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { omahaReraiseRangeOutOfPosition: true },
+      b: {},
+    },
+    {
+      name: `${variant}_omaha_reraise_range_early_position`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { omahaReraiseRangeEarlyPosition: true },
+      b: {},
+    },
+  ]),
   // 2026-11-15 OMAHA BIG-DRAW AGGRESSION (HorseOmahaBigDrawAggression, default
   // OFF): a check or call with a declared big draw on a PLO4/PLO5 flop or turn
   // becomes a pot-sized bet or raise when its expected value is the higher

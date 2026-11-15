@@ -1341,8 +1341,8 @@ function policyGraphIsValid(
             previous.action === 'all_in' ? context.player.stack : (previous.amount ?? undefined),
             value.streetPlan
           )));
-    // Owner 2026-11-15 12:18 (HorseOmahaOopReraisedPot, option
-    // omahaReraiseRangeByPosition): a PLO4/PLO5 preflop 3-bet or 4-bet out of
+    // Owner 2026-11-15 12:18 (HorseOmahaOopReraisedPot, options
+    // omahaReraiseRangeOutOfPosition and omahaReraiseRangeEarlyPosition): a PLO4/PLO5 preflop 3-bet or 4-bet out of
     // position or from early position with a hand outside the capped range
     // becomes a call. Admitted only with the request, where the rule re-run
     // on it turns the raise into a call of the same amount.

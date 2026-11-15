@@ -3160,20 +3160,29 @@ export interface HorseDecideOpts {
   /** Owner 2026-11-15 12:18 (the Horses' 3-bet and 4-bet ranges out of
    * position and under the gun must be capped): PLO4/PLO5 cash, a preflop
    * raise that would be the 3-bet or the 4-bet stands, when the Horse will be
-   * out of position against the player it re-raises (or against a caller in
-   * the pot who acts again), or sits under the gun or under the gun plus one
-   * at a table of six or more with a live player still to act, only with
-   * suited aces (class aa_ds) or the engine's declared premium structures
+   * OUT OF POSITION against the player it re-raises (or against a caller in
+   * the pot who acts again), only with suited aces (class aa_ds), any aces
+   * when the re-raise commits (stack-to-pot ratio once it is called at or
+   * under 1), or the engine's declared premium structures
    * (omahaReraisedPremium: kings double-suited, double-suited rundowns
    * seven-high or better). Every other hand, bare aces included, calls
    * instead; a call that faces a 3-bet is then judged by the calling rule of
-   * omahaOopReraisedPotStrongRange and folds when that rule folds it. In
-   * position, the cutoff, the button and blind against blind keep today's
-   * ranges. Applied outermost, after the VPIP floor and the maniac-pressure
-   * paths, so neither can re-raise around it (HorseOmahaOopReraisedPot.ts).
-   * Default OFF (opt-in, read `=== true`) until its declared evaluation
-   * passes; league cards plo4/plo5 _omaha_reraise_range_by_position. */
-  omahaReraiseRangeByPosition?: boolean;
+   * omahaOopReraisedPotStrongRange and folds when that rule folds it. Blind
+   * against blind keeps today's ranges. Applied outermost, after the VPIP
+   * floor and the maniac-pressure paths, so neither can re-raise around it
+   * (HorseOmahaOopReraisedPot.ts). Switched separately from
+   * omahaReraiseRangeEarlyPosition: the production sweep has out-of-position
+   * 3-bets from the blinds winning and early-position 3-bets without aces
+   * losing. Default OFF (opt-in, read `=== true`) until its declared
+   * evaluation passes; league cards plo4/plo5
+   * _omaha_reraise_range_out_of_position. */
+  omahaReraiseRangeOutOfPosition?: boolean;
+  /** As omahaReraiseRangeOutOfPosition, for the EARLY-POSITION spots: the
+   * Horse sits under the gun or under the gun plus one (the first two seats
+   * left of the big blind) at a table of six or more dealt in, with a live
+   * player still to act. Default OFF (opt-in, read `=== true`); league cards
+   * plo4/plo5 _omaha_reraise_range_early_position. */
+  omahaReraiseRangeEarlyPosition?: boolean;
   /** 2026-11-14 (HorseOmahaTournamentFirstIn, V90 item 4): PLO4/PLO5
    * tournaments, four to eight dealt, the small blind folded to at 20 BB or
    * less raises the pot with its top 40 percent of Omaha hands instead of the
@@ -6552,7 +6561,7 @@ function omahaOopReraisedPotStrongRange(
   // judged inside it. Then the flop rule (its own option); the three never
   // meet on one decision otherwise.
   const decision = omahaReraisedPotFlopContinue(
-    omahaReraiseRangeByPosition(decision0, player, gs, opts),
+    omahaReraiseRangeRules(decision0, player, gs, opts),
     player,
     gs,
     opts
@@ -6636,21 +6645,24 @@ function omahaOopReraisedPotStrongRange(
 }
 
 /**
- * omahaReraiseRangeByPosition (owner 2026-11-15 12:18; default OFF, read
- * `=== true`): a preflop raise that would be the 3-bet or the 4-bet, out of
+ * omahaReraiseRangeOutOfPosition and omahaReraiseRangeEarlyPosition (owner
+ * 2026-11-15 12:18; each default OFF, read `=== true`, switched separately;
+ * each restricts its own kind of spot): a preflop raise that would be the 3-bet or the 4-bet, out of
  * position or from early position, stands only when HorseOmahaOopReraisedPot's
  * re-raise cell keeps it; otherwise it becomes a call, and that call is
  * handed to the calling rule (forced on) when it faces a 3-bet. Runs
  * outermost, after the VPIP floor and the maniac-pressure paths. Draws no
  * number from the brain's random stream.
  */
-function omahaReraiseRangeByPosition(
+function omahaReraiseRangeRules(
   decision: HorseDecision,
   player: SeatPlayer,
   gs: HorseGameStateV2,
   opts: HorseDecideOpts
 ): HorseDecision {
-  if (opts.omahaReraiseRangeByPosition !== true) return decision;
+  const oopOn = opts.omahaReraiseRangeOutOfPosition === true;
+  const earlyOn = opts.omahaReraiseRangeEarlyPosition === true;
+  if (!oopOn && !earlyOn) return decision;
   if (decision.action !== 'raise' && decision.action !== 'all_in') return decision;
   try {
     if (Array.isArray(gs.legalActions) && !gs.legalActions.includes('call')) return decision;
@@ -6662,11 +6674,33 @@ function omahaReraiseRangeByPosition(
     const preflopRaises = spot.input.preflopRaises;
     const order = (seat: number) => postflopOrder(seat, gs.dealerSeat);
     const mine = order(player.seat);
-    const verdict = omahaReraiseByPositionCell(spot.input);
+    // The stack-to-pot ratio once this re-raise is called by the player re-raised.
+    const raiser = gs.players.find((p) => p.seat === raiserSeat);
+    const heroBet = Number.isFinite(player.bet) ? Math.max(0, player.bet ?? 0) : 0;
+    const raiseTo =
+      decision.action === 'all_in' || !Number.isFinite(decision.amount)
+        ? heroBet + stack
+        : Math.min(heroBet + stack, Math.max(0, decision.amount as number));
+    const raiserBet = raiser && Number.isFinite(raiser.bet) ? Math.max(0, raiser.bet ?? 0) : 0;
+    const raiserStack = raiser && Number.isFinite(raiser.stack) ? Math.max(0, raiser.stack) : 0;
+    const raiserPays = Math.min(raiserStack, Math.max(0, raiseTo - raiserBet));
+    const potCalled =
+      (Number.isFinite(gs.pot) ? Math.max(0, gs.pot) : 0) + (raiseTo - heroBet) + raiserPays;
+    const behind = Math.min(stack - (raiseTo - heroBet), raiserStack - raiserPays);
+    const reraiseCommits = potCalled > 0 && behind / potCalled <= 1 + 1e-9;
+    const verdict = omahaReraiseByPositionCell({
+      ...spot.input,
+      // each option restricts only its own kind of spot
+      outOfPosition: oopOn && spot.input.outOfPosition,
+      earlyPosition: earlyOn && spot.input.earlyPosition,
+      reraiseCommits,
+    });
     if (verdict === null) return decision;
     const tele = telemetryOn(opts);
     if (verdict.reraise) {
-      if (tele) noteFire('omaha_reraise_by_position_kept');
+      if (tele && verdict.reason === 'aces_commitment')
+        noteFire('omaha_reraise_by_position_aces_committed');
+      else if (tele) noteFire('omaha_reraise_by_position_kept');
       return decision;
     }
     const called: HorseDecision = {
@@ -6682,7 +6716,8 @@ function omahaReraiseRangeByPosition(
           ...opts,
           omahaOopReraisedPotStrongRange: true,
           omahaReraisedPotFlopContinueNeedsEquityShape: false,
-          omahaReraiseRangeByPosition: false,
+          omahaReraiseRangeOutOfPosition: false,
+          omahaReraiseRangeEarlyPosition: false,
           telemetry: false,
         }).action !== 'fold';
     } else {

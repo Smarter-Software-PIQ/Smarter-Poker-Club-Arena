@@ -82,7 +82,9 @@
  * pot. Otherwise the continue becomes a fold. Its own bets when checked to
  * are untouched.
  *
- * RE-RAISE RULE (omahaReraiseRangeByPosition; owner 2026-11-15 12:18: the
+ * RE-RAISE RULE (two options, switched separately: omahaReraiseRangeOutOfPosition
+ * restricts the out-of-position spots, omahaReraiseRangeEarlyPosition the
+ * early-position spots; owner 2026-11-15 12:18: the
  * Horses' 3-bet and 4-bet ranges out of position and under the gun must be
  * capped). Same games, preflop. The Horse's decision is a RAISE that would
  * be the 3-bet or the 4-bet (one or two raises before it), and the spot is
@@ -97,10 +99,13 @@
  * position from the middle seats, the cutoff and the button nothing changes.
  * In a restricted spot the re-raise stands only with
  *   - aces with a suit (class `aa_ds`), or
+ *   - any pair of aces when the re-raise commits: the stack-to-pot ratio once
+ *     the re-raise is called is at or under OOP_COMMIT_MAX_SPR (1), or
  *   - the engine's declared premium structures without a pair of aces
  *     (omahaReraisedPremium: kings double-suited; a double-suited rundown,
  *     four ranks inside a span of four, the lowest seven or higher).
- * Every other hand, bare aces (class `aa_dry`) included, does not re-raise:
+ * Every other hand, bare aces (class `aa_dry`) short of that commitment
+ * included, does not re-raise:
  * it CALLS. A call that then faces a 3-bet (the Horse would have 4-bet) is
  * judged by the preflop calling rule above and folds when that rule folds
  * it (bare aces are excused coordination there and priced). A call of a
@@ -383,6 +388,8 @@ export interface OmahaReraiseByPositionInput {
   earlyPosition: boolean;
   /** only the two blinds are live */
   blindVersusBlind: boolean;
+  /** the stack-to-pot ratio once this re-raise is called is at or under 1 (the caller knows the raise size) */
+  reraiseCommits?: boolean;
   hiLo: boolean;
   multiBoard: boolean;
   bombPot: boolean;
@@ -391,7 +398,7 @@ export interface OmahaReraiseByPositionInput {
 }
 
 export type OmahaReraiseByPositionVerdict =
-  | { reraise: true; reason: 'aces_suited' | 'premium_structure' }
+  | { reraise: true; reason: 'aces_suited' | 'aces_commitment' | 'premium_structure' }
   | { reraise: false; reason: 'bare_aces' | 'not_premium' };
 
 /**
@@ -410,7 +417,10 @@ export function omahaReraiseByPositionCell(
   const cls = omahaEliteClassRead([...i.hole], false).cls;
   if (cls === 'aa_ds') return { reraise: true, reason: 'aces_suited' };
   const aces = i.hole.filter((c) => c.rank === 'A').length >= 2;
-  if (aces) return { reraise: false, reason: 'bare_aces' };
+  if (aces)
+    return i.reraiseCommits === true
+      ? { reraise: true, reason: 'aces_commitment' }
+      : { reraise: false, reason: 'bare_aces' };
   return omahaReraisedPremium(i.hole)
     ? { reraise: true, reason: 'premium_structure' }
     : { reraise: false, reason: 'not_premium' };

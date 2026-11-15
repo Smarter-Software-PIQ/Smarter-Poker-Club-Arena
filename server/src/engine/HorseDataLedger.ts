@@ -939,8 +939,13 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
-    'omahaReraiseRangeByPosition',
-    'Owner 2026-11-15 12:18 (the 3-bet and 4-bet ranges out of position and under the gun must be capped): a PLO4/PLO5 cash preflop raise that would be the 3-bet or the 4-bet stands, when the Horse will be out of position against the player it re-raises or against a caller in the pot who acts again, or sits under the gun or under the gun plus one at a table of six or more with a live player still to act, only with suited aces or the declared premium structures (kings double-suited, double-suited rundowns seven-high or better). Every other hand calls instead; the call of a 3-bet is judged by the calling rule of omahaOopReraisedPotStrongRange, the call of a single raise stands for a coordinated hand, aces, or equity clearing the price plus the realization margin, and otherwise folds. In position, the cutoff, the button and blind against blind keep the ranges of today. Applied outermost, after the VPIP floor and the maniac-pressure paths. Default off (opt-in) until its declared evaluation passes.',
+    'omahaReraiseRangeOutOfPosition',
+    'Owner 2026-11-15 12:18 (the 3-bet and 4-bet ranges out of position must be capped): a PLO4/PLO5 cash preflop raise that would be the 3-bet or the 4-bet stands, when the Horse will be out of position against the player it re-raises or against a caller in the pot who acts again, only with suited aces, any aces when the re-raise commits (stack-to-pot ratio once it is called at or under 1), or the declared premium structures (kings double-suited, double-suited rundowns seven-high or better). Every other hand calls instead; the call of a 3-bet is judged by the calling rule of omahaOopReraisedPotStrongRange, the call of a single raise stands for a coordinated hand, aces, or equity clearing the price plus the realization margin, and otherwise folds. Blind against blind keeps the ranges of today. Applied outermost, after the VPIP floor and the maniac-pressure paths. Switched separately from omahaReraiseRangeEarlyPosition. Default off (opt-in) until its declared evaluation passes.',
+    'V94'
+  ),
+  flag(
+    'omahaReraiseRangeEarlyPosition',
+    'Owner 2026-11-15 12:18 (the 3-bet and 4-bet ranges under the gun must be capped): the rule of omahaReraiseRangeOutOfPosition for the early-position spots, the Horse under the gun or under the gun plus one at a table of six or more dealt in with a live player still to act: the 3-bet or 4-bet stands only with suited aces, any aces when the re-raise commits, or the declared premium structures; every other hand calls or folds by the calling rule. Switched separately. Default off (opt-in) until its declared evaluation passes.',
     'V94'
   ),
   flag(
@@ -3941,19 +3946,25 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   receipt(
     'omaha_reraise_by_position_kept',
-    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaReraiseRangeByPosition)',
+    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaReraiseRangeOutOfPosition / omahaReraiseRangeEarlyPosition)',
     'a PLO4/PLO5 cash 3-bet or 4-bet out of position or from early position that the re-raise cell examined and kept: suited aces or a declared premium structure',
     'V94'
   ),
   receipt(
+    'omaha_reraise_by_position_aces_committed',
+    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaReraiseRangeOutOfPosition / omahaReraiseRangeEarlyPosition)',
+    'a 3-bet or 4-bet out of position or from early position with a pair of aces outside the suited class, kept because the stack-to-pot ratio once the re-raise is called is at or under 1',
+    'V94'
+  ),
+  receipt(
     'omaha_reraise_by_position_called',
-    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaReraiseRangeByPosition)',
+    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaReraiseRangeOutOfPosition / omahaReraiseRangeEarlyPosition)',
     'a 3-bet or 4-bet out of position or from early position with a hand outside the capped re-raise range: called instead, the call passing the calling rule',
     'V94'
   ),
   receipt(
     'omaha_reraise_by_position_folded',
-    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaReraiseRangeByPosition)',
+    'HorseLogic call discipline (HorseOmahaOopReraisedPot, omahaReraiseRangeOutOfPosition / omahaReraiseRangeEarlyPosition)',
     'a 3-bet or 4-bet out of position or from early position with a hand outside the capped re-raise range whose call the calling rule folds: folded',
     'V94'
   ),

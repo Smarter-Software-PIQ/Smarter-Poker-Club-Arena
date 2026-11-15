@@ -901,11 +901,19 @@ describe('the re-raise cell, by class (seeded census, 500 hands a class)', () =>
     expect(reraise(h, { tournament: true })).toBeNull();
     expect(reraise(h)).toEqual({ reraise: false, reason: 'not_premium' });
     expect(reraise(cards('AsAd7h2c'))).toEqual({ reraise: false, reason: 'bare_aces' });
+    // any aces re-raise when the re-raise commits; nothing else gains from it
+    expect(reraise(cards('AsAd7h2c'), { reraiseCommits: true })).toEqual({
+      reraise: true,
+      reason: 'aces_commitment',
+    });
+    expect(reraise(h, { reraiseCommits: true })).toEqual({ reraise: false, reason: 'not_premium' });
   });
 });
 
-describe('omahaReraiseRangeByPosition in the decision', () => {
-  const ON: HorseDecideOpts = { omahaReraiseRangeByPosition: true };
+describe('omahaReraiseRangeOutOfPosition and omahaReraiseRangeEarlyPosition in the decision', () => {
+  const OOP_ON: HorseDecideOpts = { omahaReraiseRangeOutOfPosition: true };
+  const EARLY_ON: HorseDecideOpts = { omahaReraiseRangeEarlyPosition: true };
+  const ON: HorseDecideOpts = { ...OOP_ON, ...EARLY_ON };
   const STACKS = '1:199,2:198,3:200,4:200,5:200,6:200';
   // six-handed, dealer seat 6: the button opens to 7, the small blind folds, the big blind acts
   const blind = (variant: string, hole: string): Recorded => ({
@@ -999,9 +1007,16 @@ describe('omahaReraiseRangeByPosition in the decision', () => {
         for (const h of random) {
           const rec = blind(variant, show(h));
           const unset = play(rec, {}, 6, floor);
-          const off = play(rec, { omahaReraiseRangeByPosition: false }, 6, floor);
+          const off = play(
+            rec,
+            { omahaReraiseRangeOutOfPosition: false, omahaReraiseRangeEarlyPosition: false },
+            6,
+            floor
+          );
           expect(off.bytes).toEqual(unset.bytes);
-          const on = play(rec, ON, 6, floor);
+          // the early-position option alone does not touch the blinds
+          expect(play(rec, EARLY_ON, 6, floor).bytes).toEqual(unset.bytes);
+          const on = play(rec, OOP_ON, 6, floor);
           expect(on.next).toEqual(unset.next);
           if (!isRaise(unset.action)) {
             expect(on.bytes).toEqual(unset.bytes);
@@ -1029,7 +1044,9 @@ describe('omahaReraiseRangeByPosition in the decision', () => {
       for (const h of random.slice(0, 40)) {
         const rec = early(variant, show(h));
         const unset = play(rec, {}, 3);
-        const on = play(rec, ON, 3);
+        // the out-of-position option alone does not touch this in-position spot
+        expect(play(rec, OOP_ON, 3).bytes).toEqual(unset.bytes);
+        const on = play(rec, EARLY_ON, 3);
         const strong =
           omahaEliteClassRead(h, false).cls === 'aa_ds' ||
           (omahaReraisedPremium(h) && h.filter((c) => c.rank === 'A').length < 2);
@@ -1052,6 +1069,26 @@ describe('omahaReraiseRangeByPosition in the decision', () => {
       expect(raised).toBeGreaterThan(0);
     });
   }
+  it('bare aces whose 3-bet commits (20bb deep) keep the re-raise, with the receipt', () => {
+    const SHORT = '1:39,2:38,3:40,4:40,5:40,6:40';
+    let committed = 0;
+    for (const hole of ['AsAd7h2c', 'AsAd9h4c', 'AhAc8d3s', 'AsAd7h2c4d', 'AhAc9d6s2c']) {
+      const variant = hole.length === 10 ? 'plo5' : 'plo4';
+      expect(omahaEliteClassRead(cards(hole), false).cls).toBe('aa_dry');
+      const rec = { ...blind(variant, hole), stacks: SHORT };
+      const unset = play(rec, {}, 6);
+      const on = play(rec, ON, 6);
+      if (!isRaise(unset.action)) {
+        expect(on.bytes).toEqual(unset.bytes);
+        continue;
+      }
+      committed++;
+      expect(on.bytes).toEqual(unset.bytes);
+      expect(on.fires).toContain('omaha_reraise_by_position_aces_committed');
+    }
+    expect(committed).toBeGreaterThan(0);
+  });
+
   it('a downgraded 3-bet passes the worker receipt validator', () => {
     const rnd = mulberry32(9300);
     let checked = 0;
