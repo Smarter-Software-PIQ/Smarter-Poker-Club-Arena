@@ -422,6 +422,8 @@ export class LiveHorseDecisionWorkerPool implements LiveHorseDecisionLane {
   private stopping = false;
   private readonly replacements: HorseDecisionShardReplacement[] = [];
   private replacementCount = 0;
+  /** HA-10878-1 lifecycle: the last switch delivery broadcast, handed to every shard spawned after it. */
+  private lastStyleSwitch: StyleSwitchStateMessage | null = null;
   /** The journal shards the disk can hold, read once at construction. */
   readonly journalShardCapacity: number | undefined;
   /** Why the capacity reading was refused, read once with it. */
@@ -464,6 +466,10 @@ export class LiveHorseDecisionWorkerPool implements LiveHorseDecisionLane {
       shard: { index, count },
       onFatal: (error) => this.shardFailed(index, client, error),
     });
+    // HA-10878-1 LIFECYCLE: a shard spawned after a delivery (a replacement) is handed the delivery the running
+    // shards hold, as its first message, before any request can reach it. Its age is measured from the database
+    // read, so a reading the running shards would refuse as stale or unreadable is refused by it too.
+    if (this.lastStyleSwitch) client.postStyleSwitch(this.lastStyleSwitch);
     return client;
   }
 
@@ -553,6 +559,7 @@ export class LiveHorseDecisionWorkerPool implements LiveHorseDecisionLane {
   }
   /** 2026-11-13 STYLE READ LIVE SWITCH: one configuration to every shard; a shard that misses it goes stale to off. */
   broadcastStyleSwitch(message: StyleSwitchStateMessage): void {
+    this.lastStyleSwitch = message;
     for (const client of this.clients) client.postStyleSwitch(message);
   }
   private shard(fence: string): LiveHorseDecisionWorkerClient {
@@ -807,6 +814,20 @@ export class LiveHorseDecisionWorkerPool implements LiveHorseDecisionLane {
 
 let singleton: LiveHorseDecisionWorkerPool | null = null;
 let styleSwitchDelivery: ReturnType<typeof createStyleSwitchDelivery> | null = null;
+/**
+ * HA-10878-1 LIFECYCLE, THE RULE: a decision worker resolves the persisted, authorised switch state before it serves
+ * a decision that reads a switched option.
+ * - Process start or restart: startLiveHorseDecisionWorker does not resolve (and GameServer does not open its dealer
+ *   gate) until the first database read has been posted to every shard, or has failed. The read is bounded by
+ *   STYLE_SWITCH_READ_TIMEOUT_MS; a failed first read leaves every shard as a running shard is left by an unreadable
+ *   one: every non-style option at its release default, every style option off.
+ * - Shard replacement: the replacement is handed the pool's last delivery as its first message (spawnShardClient).
+ * - Reconnect: the delivery holds no connection of its own; a database reconnect is the next read, and a worker
+ *   keeps one port for its life.
+ * In every case the worker's parser applies on its first read exactly as on later ones, so a row the engine refuses
+ * (an un-evidenced on, a held option) is never revived by a restart.
+ */
+let styleSwitchFirstDelivery: Promise<void> | null = null;
 
 export async function startLiveHorseDecisionWorker(
   options: LiveHorseDecisionLaneOptions = {}
@@ -838,8 +859,9 @@ export async function startLiveHorseDecisionWorker(
       // whichever pool is live now, never one captured at start (review 72615f60 L2)
       broadcast: (message) => singleton?.broadcastStyleSwitch(message),
     });
-    styleSwitchDelivery.start();
+    styleSwitchFirstDelivery = styleSwitchDelivery.start().catch(() => undefined);
   }
+  if (styleSwitchFirstDelivery) await styleSwitchFirstDelivery;
   return singleton;
 }
 
@@ -890,6 +912,7 @@ export async function stopLiveHorseDecisionWorker(): Promise<void> {
   const owned = singleton;
   styleSwitchDelivery?.stop();
   styleSwitchDelivery = null;
+  styleSwitchFirstDelivery = null;
   if (!owned) return;
   try {
     await owned.stop();

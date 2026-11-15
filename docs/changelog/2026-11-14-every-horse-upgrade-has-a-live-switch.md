@@ -46,9 +46,17 @@ that option on by default, with no review between the row and the decision. So
 the switch offers `on` only for an option whose evidence file
 `docs/horse-default-on.d/<option>.md` exists: the same directory and naming rule
 as `HorseDefaultOnNeedsEvidence.law.test.ts`, and the file must also name the
-option, its pull request, its switch scope (equal to the registry scope) and the
-head it was reviewed at. **Today none of the fourteen has one, so none can be
-set `on`.** `off` and clear stay available for every registered option.
+option (its title), its pull request, the scope it was measured for
+(`Switch scope:` equal to the registry scope, `Variants:` and `Formats:`), the
+head it was reviewed at (`Reviewed head:`) and the digest of the option's code
+path (`Code digest:`). The code path is every runtime file under `server/src`
+that reads the option, outside the switch registry itself; the digest covers
+the option name and each file's path and exact content, so any change to that
+path makes the evidence stale and the law fails until the file carries the new
+digest, re-affirmed in the same pull request. A file that measured another scope
+leaves the law failing, so the option cannot be enabled where its evidence does
+not reach. **Today none of the fourteen has one, so none can be set `on`.**
+`off` and clear stay available for every registered option.
 
 The refusal is enforced at every boundary:
 
@@ -63,7 +71,9 @@ The refusal is enforced at every boundary:
   table check (`ca_horse_style_switch_on_needs_evidence`) refuses an `on` row
   from any writer, the owner role included.
 - Law: `everyUpgradeHasALiveSwitch.law.test.ts` fails when the evidenced list,
-  the two migration lists and the evidence directory diverge.
+  the two migration lists and the evidence directory diverge, or when an
+  evidence file does not bind (name, pull request, scope, variants, formats,
+  reviewed head, current code digest).
 
 The seven style options keep their own states and their shadow and canary
 controls, unchanged. None of the seven has a file in `docs/horse-default-on.d/`.
@@ -84,7 +94,30 @@ migration whitelist, reviewed like any other.
 
 ## Failure and restart
 
-A worker that has just started, a read that fails twice in a row, an answer
+The lifecycle rule (HA-10878-1): a started, restarted or replaced decision
+worker resolves the persisted, authorised switch state before it serves a
+decision that reads a switched option.
+
+- Process start or restart: the decision lane is not handed out, so the dealer
+  gate does not open, until the first database read has been posted to every
+  worker or has failed. That read is bounded by its 10 second timeout; a failed
+  first read leaves every worker exactly as an unreadable read leaves a running
+  one.
+- A replaced worker (one shard lost and replaced alone) is handed the last
+  delivery its siblings hold as its first message, before any request. Its age
+  is still measured from the database read, so what the siblings would refuse
+  as stale or unreadable it refuses too.
+- There is no separate reconnect: a database reconnect is simply the next read,
+  and a worker keeps one message port for its life.
+
+In every case the engine refuses on the first read exactly what it refuses
+later (an un-evidenced `on`, a held option), so a restart never revives a row
+the engine would not apply. The same rule carries the seven style options,
+whose states and fail-safe are otherwise unchanged: a replaced worker no longer
+runs them off for up to one delivery interval.
+
+A worker delivered nothing (no reading yet, or the first read failed), a read
+that fails twice in a row, an answer
 that is not the documented shape, an answer naming an option the engine does
 not know, and an answer older than 120 seconds all leave every one of the
 fourteen options at its release default (not at its last value, and not forced
@@ -105,21 +138,27 @@ switched keeps the version it had (v3, or v4 with a style state), byte for byte.
 
 ## Proof
 
-`scripts/ci/test-horse-option-switch-evidence-postgres.sh` (workflow
-`horse-option-switch-evidence-proof.yml`) installs both switch migrations on a
-throwaway PostgreSQL 17 and proves by execution: the options offered `on` equal
+`scripts/ci/test-horse-option-switch-evidence-postgres.sh` (a step of the
+required `accounting_postgres` job in `.github/workflows/ci.yml`, shard 7, where
+the repository's other `scripts/ci/test-*-postgres` proofs run; the law fails if
+it leaves that job) installs both switch migrations on a throwaway PostgreSQL 17
+and proves by execution (295 assertions): the options offered `on` equal
 the style options plus those with an evidence file; for each of the fourteen
 the set function and the table refuse `on`, and the old style setter refuses
 the name; `off` and clear work and each writes one audit row with its actor;
 the refused options are refused by states, set and clear; the style options
 still take shadow, canary, on and off; a style row written before the migration
 survives it. Run against the migration as it was at 0260f14b, 60 of its
-assertions fail.
+assertions fail; with only the states function offering `on`, 30 fail; with only
+the table check removed, 29; with only the set function's evidence guard
+removed, 15; with a held option whitelisted, 5.
 
 `server/src/engine/horseDecision/everyUpgradeHasALiveSwitch.law.test.ts` (real
 worker decisions, the migration whitelist against the registry, the refusals on
 both sides, grants, audit, failure and replay) and
-`server/src/engine/HorseOptionSwitch.test.ts` (registry, parser, holder).
+`server/src/engine/HorseOptionSwitch.test.ts` (registry, parser, holder);
+the lifecycle rule in `server/src/engine/horseDecision/lane.test.ts` (start) and
+`oneShardsLossIsOneShardsLoss.law.test.ts` (replacement).
 `HorseUpgradeManifestRuntimeParity.law.test.ts` and the manifest digest test
 are unchanged.
 

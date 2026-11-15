@@ -137,9 +137,14 @@ export interface StyleSwitchDeliveryDeps {
   warn?: (message: string) => void;
 }
 
-/** The main-thread side. start() reads at once and then every intervalMs; the timer never holds the process. */
+/**
+ * The main-thread side. start() reads at once and then every intervalMs; the timer never holds the process. The
+ * promise start() returns settles when that first read has been posted to the workers or has failed (a read that
+ * does not answer fails after readTimeoutMs), so the lane can resolve the persisted state before it serves.
+ */
 export function createStyleSwitchDelivery(deps: StyleSwitchDeliveryDeps): {
-  start(): void;
+  /** Resolves once the first read has been delivered or has failed (HA-10878-1 lifecycle, lane.ts). */
+  start(): Promise<void>;
   stop(): void;
   tick(): Promise<void>;
 } {
@@ -214,11 +219,12 @@ export function createStyleSwitchDelivery(deps: StyleSwitchDeliveryDeps): {
   };
 
   return {
-    start(): void {
-      if (timer || stopped) return;
-      void tick();
+    start(): Promise<void> {
+      if (timer || stopped) return Promise.resolve();
+      const first = tick();
       timer = setInterval(() => void tick(), intervalMs);
       timer.unref?.();
+      return first;
     },
     stop(): void {
       stopped = true;

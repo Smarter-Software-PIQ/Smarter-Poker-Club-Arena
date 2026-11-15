@@ -20,10 +20,16 @@
  *   7. REPLAY. A decision replays with the switched set its own record carries, never the live one.
  *   8. THE DATABASE WHITELIST IS THE ENGINE REGISTRY, and the schema manifest names the functions the migration adds.
  *
+ * And HA-10878-1: `on` for a non-style option needs promotion evidence that binds to the option by name, scope and
+ * the digest of its code path, at the registry, the parser, both SQL functions and the table (proven on a real
+ * PostgreSQL 17 by scripts/ci/test-horse-option-switch-evidence-postgres.sh); and a started, restarted or replaced
+ * worker resolves the persisted switch state before it serves a decision that reads a switched option.
+ *
  * The decisions are real: HorseDecisionWorkerRuntime DECIDE_FAST through runtime.receive with the real
  * HorseLogic.decide underneath (the harness of styleSwitchRuntime.law.test.ts). The database half is read from the
  * migration source; the migration's own read-back block runs the same refusals where it is installed.
  */
+import { createHash } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -63,10 +69,9 @@ const MIGRATION_PATH =
 /** The migration without its comments: what the database executes. */
 const SQL = read(MIGRATION_PATH).replace(/--[^\n]*/g, '');
 /** TypeScript without comments: what runs. */
-const code = (path: string) =>
-  read(path)
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/(^|[\s;{}(),])\/\/[^\n]*/g, '$1');
+const strip = (text: string) =>
+  text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[\s;{}(),])\/\/[^\n]*/g, '$1');
+const code = (path: string) => strip(read(path));
 const quoted = (text: string) => [...text.matchAll(/'([A-Za-z0-9]+)'/g)].map((m) => m[1]!);
 const sorted = (names: readonly string[]) => [...names].sort();
 
@@ -316,14 +321,76 @@ const EVIDENCE_ROWS = [
 const hasEvidenceFile = (name: string) => existsSync(join(REPO, EVIDENCE_DIR, `${name}.md`));
 const escapeRe = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-/** What an evidence file lacks before it may unlock `on` for this option; empty means it binds. */
-function switchEvidenceGaps(name: string, scope: string, text: string): string[] {
+/**
+ * THE OPTION'S CODE PATH (HA-10878-1, the evidence binds to the implementation it measured): every runtime source
+ * file under server/src whose code (comments aside) names the option, except this switch's own registry
+ * (HorseOptionSwitch.ts names every option; this law holds it). Tests, test support, the benchmark league, scripts
+ * and test harnesses are not runtime and are left out. The digest covers each file's path and exact content, so a
+ * change to any file the option's decisions run through makes its evidence stale, and this law fails until the
+ * evidence file carries the new digest, re-affirmed in the same pull request.
+ */
+const SOURCE_ROOT = 'server/src';
+const SWITCH_REGISTRY_FILE = 'server/src/engine/HorseOptionSwitch.ts';
+const NOT_RUNTIME = /(^|\/)(benchmark|scripts|testing)\/|\.test\.ts$|\.test-support\.ts$|\.d\.ts$/;
+type SourceFile = { path: string; text: string; code: string };
+let runtimeSources: readonly SourceFile[] | null = null;
+function runtimeSourceFiles(): readonly SourceFile[] {
+  if (runtimeSources) return runtimeSources;
+  const found: SourceFile[] = [];
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(join(REPO, dir), { withFileTypes: true })) {
+      const path = `${dir}/${entry.name}`;
+      if (entry.isDirectory()) walk(path);
+      else if (/\.m?ts$/.test(entry.name) && !NOT_RUNTIME.test(path)) {
+        const text = read(path);
+        found.push({ path, text, code: strip(text) });
+      }
+    }
+  };
+  walk(SOURCE_ROOT);
+  runtimeSources = found.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  return runtimeSources;
+}
+/** The runtime files that read the option, as path and exact content, sorted by path. */
+function optionCodePath(name: string): Array<readonly [string, string]> {
+  const word = new RegExp(`\\b${escapeRe(name)}\\b`);
+  return runtimeSourceFiles()
+    .filter((f) => f.path !== SWITCH_REGISTRY_FILE && word.test(f.code))
+    .map((f) => [f.path, f.text] as const);
+}
+/** The option's name, then each file's path and exact content: two options never share a digest. */
+function codePathDigest(name: string, files: ReadonlyArray<readonly [string, string]>): string {
+  const hash = createHash('sha256').update(`option:${name}\0`);
+  for (const [path, text] of files) hash.update(path).update('\0').update(text).update('\0');
+  return `sha256:${hash.digest('hex')}`;
+}
+const optionCodeDigest = (name: string) => codePathDigest(name, optionCodePath(name));
+
+/**
+ * What an evidence file lacks before it may unlock `on` for this option; empty means it binds. It binds by exact
+ * option name, names its pull request and the scope it was measured for (variants and formats; the switch scope
+ * must equal the registry scope, or the option stays off-only because this law fails), and carries the head it was
+ * reviewed at and the digest of the option's code path now (`codeDigest`).
+ */
+function switchEvidenceGaps(
+  name: string,
+  scope: string,
+  text: string,
+  codeDigest: string
+): string[] {
   const gaps: string[] = [];
   if (!new RegExp(`^#\\s+${escapeRe(name)}\\b`, 'm').test(text)) gaps.push(`a "# ${name}" title`);
   if (!/#[1-9]\d{3,}|\/pull\/[1-9]\d*/.test(text)) gaps.push('a pull request reference');
   const measured = /^Switch scope:\s*(.+?)\s*$/m.exec(text)?.[1];
   if (measured !== scope) gaps.push(`"Switch scope: ${scope}" (the registry scope)`);
+  if (!/^Variants:\s*\S/m.test(text)) gaps.push('"Variants: <the variants measured>"');
+  if (!/^Formats:\s*\S/m.test(text)) gaps.push('"Formats: <the formats measured>"');
   if (!/^Reviewed head:\s*[0-9a-f]{40}\s*$/m.test(text)) gaps.push('"Reviewed head: <40-hex sha>"');
+  const digest = /^Code digest:\s*(\S+)\s*$/m.exec(text)?.[1];
+  if (digest !== codeDigest)
+    gaps.push(
+      `"Code digest: ${codeDigest}" (the option's code path is not the one the evidence measured: re-review and re-affirm)`
+    );
   const lines = text.split('\n');
   for (const row of EVIDENCE_ROWS) {
     const at = lines.findIndex((l) =>
@@ -368,45 +435,115 @@ describe('HA-10878-1: on needs promotion evidence, at the registry, the database
     expect(readdirSync(join(REPO, EVIDENCE_DIR)).length).toBeGreaterThan(1);
   });
 
-  it('every evidence file that unlocks on names its option, its pull request, its scope and its reviewed head', () => {
+  it('every evidence file that unlocks on names its option, pull request, measured scope, reviewed head and the digest of its code path now', () => {
     for (const entry of OPTION_SWITCH_PLAIN_REGISTRY.filter((e) => e.states.includes('on')))
       expect(
-        switchEvidenceGaps(entry.name, entry.scope, read(join(EVIDENCE_DIR, `${entry.name}.md`))),
+        switchEvidenceGaps(
+          entry.name,
+          entry.scope,
+          read(join(EVIDENCE_DIR, `${entry.name}.md`)),
+          optionCodeDigest(entry.name)
+        ),
         entry.name
       ).toEqual([]);
     // the reader is not vacuous
+    const digest = optionCodeDigest('v16Hu');
     const complete = (name: string, scope: string) =>
-      `# ${name} (#12345)\n\nSwitch scope: ${scope}\nReviewed head: ${'a'.repeat(40)}\n\n` +
+      `# ${name} (#12345)\n\nSwitch scope: ${scope}\nVariants: NLH\nFormats: cash, tournament\n` +
+      `Reviewed head: ${'a'.repeat(40)}\nCode digest: ${digest}\n\n` +
       EVIDENCE_ROWS.map((row) => `## ${row}\nA real answer of useful length for this row.\n`).join(
         '\n'
       );
-    expect(
-      switchEvidenceGaps('v16Hu', 'Heads-up postflop', complete('v16Hu', 'Heads-up postflop'))
-    ).toEqual([]);
+    const file = complete('v16Hu', 'Heads-up postflop');
+    expect(switchEvidenceGaps('v16Hu', 'Heads-up postflop', file, digest)).toEqual([]);
     // evidence for one option does not unlock another
     expect(
-      switchEvidenceGaps('v16Ratio', 'Heads-up postflop', complete('v16Hu', 'Heads-up postflop'))
-    ).toContain('a "# v16Ratio" title');
-    expect(switchEvidenceGaps('v16Hu', 'All', complete('v16Hu', 'Heads-up postflop'))).toEqual([
+      switchEvidenceGaps('v16Ratio', 'Heads-up postflop', file, optionCodeDigest('v16Ratio'))
+    ).toEqual(
+      expect.arrayContaining([
+        'a "# v16Ratio" title',
+        expect.stringMatching(/^"Code digest: sha256:[0-9a-f]{64}" \(the option's code path/),
+      ])
+    );
+    // a scope the evidence does not cover: the option stays off-only (this law fails) until the scopes match
+    expect(switchEvidenceGaps('v16Hu', 'All', file, digest)).toEqual([
       '"Switch scope: All" (the registry scope)',
+    ]);
+    expect(
+      switchEvidenceGaps('v16Hu', 'Heads-up postflop', file.replace(/^Variants:.*\n/m, ''), digest)
+    ).toEqual(['"Variants: <the variants measured>"']);
+    expect(
+      switchEvidenceGaps('v16Hu', 'Heads-up postflop', file.replace(/^Formats:.*\n/m, ''), digest)
+    ).toEqual(['"Formats: <the formats measured>"']);
+    expect(
+      switchEvidenceGaps(
+        'v16Hu',
+        'Heads-up postflop',
+        file.replace(/Reviewed head.*\n/, ''),
+        digest
+      )
+    ).toEqual(['"Reviewed head: <40-hex sha>"']);
+    // a source change to the option's code path makes the evidence stale until it is re-affirmed
+    const [first, ...rest] = optionCodePath('v16Hu');
+    const changed = codePathDigest('v16Hu', [[first![0], `${first![1]}\n`], ...rest]);
+    expect(changed).not.toBe(digest);
+    expect(switchEvidenceGaps('v16Hu', 'Heads-up postflop', file, changed)).toEqual([
+      `"Code digest: ${changed}" (the option's code path is not the one the evidence measured: re-review and re-affirm)`,
     ]);
     expect(
       switchEvidenceGaps(
         'v16Hu',
         'Heads-up postflop',
-        complete('v16Hu', 'Heads-up postflop').replace(/Reviewed head.*\n/, '')
+        file.replace(`Code digest: ${digest}`, `Code digest: ${changed}`),
+        changed
       )
-    ).toEqual(['"Reviewed head: <40-hex sha>"']);
+    ).toEqual([]);
     expect(
       switchEvidenceGaps(
         'v16Hu',
         'Heads-up postflop',
-        complete('v16Hu', 'Heads-up postflop').replace(
-          '## Value\nA real answer of useful length for this row.',
-          '## Value\nTBD'
-        )
+        file.replace('## Value\nA real answer of useful length for this row.', '## Value\nTBD'),
+        digest
       )
     ).toEqual(['content under "## Value"']);
+  });
+
+  it("an option's code path is the runtime source that reads it, and its digest moves with any change to that source", () => {
+    for (const name of OPTION_SWITCH_PLAIN_NAMES) {
+      const path = optionCodePath(name).map(([p]) => p);
+      // the brain reads every registered option, so its code path is never empty
+      expect(path, name).toContain('server/src/engine/HorseLogic.ts');
+      expect(
+        path.filter((p) => NOT_RUNTIME.test(p) || p === SWITCH_REGISTRY_FILE),
+        name
+      ).toEqual([]);
+    }
+    const files = optionCodePath('v16Hu');
+    const digest = codePathDigest('v16Hu', files);
+    expect(digest).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(optionCodeDigest('v16Hu')).toBe(digest);
+    // bound to the option: another option over the same files has another digest
+    expect(codePathDigest('v16Ratio', files)).not.toBe(digest);
+    // one byte in any file of the path, a renamed file, a file gone or a file added: each is a new digest
+    files.forEach((_, i) =>
+      expect(
+        codePathDigest(
+          'v16Hu',
+          files.map(([p, t], j) => [p, j === i ? `${t} ` : t] as const)
+        ),
+        files[i]![0]
+      ).not.toBe(digest)
+    );
+    expect(
+      codePathDigest(
+        'v16Hu',
+        files.map(([p, t], j) => [j === 0 ? `${p}x` : p, t] as const)
+      )
+    ).not.toBe(digest);
+    expect(codePathDigest('v16Hu', files.slice(1))).not.toBe(digest);
+    expect(
+      codePathDigest('v16Hu', [...files, ['server/src/engine/Added.ts', 'x'] as const])
+    ).not.toBe(digest);
   });
 
   it('a registry that offers on without evidence throws where it is declared', () => {
@@ -445,10 +582,32 @@ describe('HA-10878-1: on needs promotion evidence, at the registry, the database
       'supabase/migrations/20261113201841_the_horse_style_read_has_a_live_switch.sql'
     );
     expect(oldSetter).toMatch(/p_option NOT IN \('styleValueBettorNotManiac'/);
-    // proven by execution on a throwaway PostgreSQL 17
-    expect(existsSync(join(REPO, 'scripts/ci/test-horse-option-switch-evidence-postgres.sh'))).toBe(
-      true
+  });
+
+  it('the database half is proven by execution on a throwaway PostgreSQL 17 in the required accounting_postgres job, over exactly these option lists', () => {
+    const ci = read('.github/workflows/ci.yml');
+    const job = ci.slice(ci.search(/^  accounting_postgres:\s*$/m));
+    const block = job.slice(0, job.slice(1).search(/^  [A-Za-z0-9_-]+:\s*$/m) + 1);
+    expect(block).toMatch(
+      /- name: The Horse option switch refuses on without promotion evidence \(HA-10878-1\)\n\s+if: matrix\.shard == \d\n\s+env:\n\s+PG_BIN: \/usr\/lib\/postgresql\/17\/bin\n\s+TMPDIR: \$\{\{ runner\.temp \}\}\n\s+run: bash scripts\/ci\/test-horse-option-switch-evidence-postgres\.sh\n/
     );
+    // no second workflow of its own: the repository's real-PostgreSQL proofs run in that job
+    expect(existsSync(join(REPO, '.github/workflows/horse-option-switch-evidence-proof.yml'))).toBe(
+      false
+    );
+    const script = read('scripts/ci/test-horse-option-switch-evidence-postgres.sh');
+    const list = (name: string) => {
+      const found = new RegExp(`^${name}='([^']*)'$`, 'm').exec(script);
+      expect(found, name).not.toBeNull();
+      return found![1]!.split(/\s+/);
+    };
+    expect(sorted(list('style'))).toEqual(sorted(STYLE_SWITCH_OPTIONS));
+    expect(sorted(list('plain'))).toEqual(sorted(OPTION_SWITCH_PLAIN_NAMES));
+    for (const name of REFUSED_NAMES) expect(list('refused'), name).toContain(name);
+    // a proof that did not run is not a pass
+    expect(script).not.toMatch(/SKIPPED/);
+    expect(script).toMatch(/^\s*echo "FAIL  no PostgreSQL binaries .*exit 1$/m);
+    expect(script).toMatch(/^  echo 'PASS  every option switch evidence assertion held'$/m);
   });
 
   it('the engine refuses a configuration carrying on for an option without evidence: every non-style option runs at its release default', () => {
@@ -475,6 +634,42 @@ describe('HA-10878-1: on needs promotion evidence, at the registry, the database
       // off and clear stay available
       expect(optionSwitchStatesFrom({ [name]: 'off' }), name).toEqual({ [name]: 'off' });
     }
+  });
+
+  /**
+   * THE LIFECYCLE RULE (lane.ts, styleSwitchFirstDelivery and spawnShardClient): a started, restarted or replaced
+   * worker resolves the persisted switch state before it serves a decision that reads a switched option. The lane
+   * is not handed out until the first read has reached every shard (or has failed), and a replacement shard is
+   * handed the last delivery as its first message: lane.test.ts and oneShardsLossIsOneShardsLoss.law.test.ts prove
+   * both with the pool. So the delivery is in a new worker's inbox before its first decision, and these two tests
+   * prove what that first decision does with it.
+   */
+  it('a worker that starts while a valid row exists (style on, plain off) decides its very first decision with it', async () => {
+    const w = opened({ wired: true });
+    expect(w.deliver(v2({ v16Hu: 'off' }, { styleFoldBluff: 'on' }))).toBe(true);
+    const look = await w.fast();
+    expect(look.opts.length).toBeGreaterThan(0);
+    for (const opts of look.opts) {
+      expect(switchedKeys(opts)).toEqual(['v16Hu']);
+      expect(opts.v16Hu).toBe(false);
+      expect(opts.styleFoldBluff).toBe(true);
+    }
+    expect(look.replayState.options).toEqual({ v16Hu: 'off' });
+    expect(look.replayState.style).toEqual(expect.objectContaining({ styleFoldBluff: 'on' }));
+    expect(w.features).toContain('option_switch_v16Hu_off_seen');
+  });
+
+  it('the lane resolves the switch state before it serves: the first read is awaited, and a replacement is handed the last delivery', () => {
+    const lane = code('server/src/engine/horseDecision/lane.ts');
+    expect(lane).toMatch(
+      /styleSwitchFirstDelivery = styleSwitchDelivery\.start\(\)\.catch\(\(\) => undefined\);\s*\}\s*if \(styleSwitchFirstDelivery\) await styleSwitchFirstDelivery;\s*return singleton;/
+    );
+    expect(lane).toMatch(
+      /onFatal: \(error\) => this\.shardFailed\(index, client, error\),\s*\}\);\s*if \(this\.lastStyleSwitch\) client\.postStyleSwitch\(this\.lastStyleSwitch\);\s*return client;/
+    );
+    expect(lane).toMatch(
+      /broadcastStyleSwitch\(message: StyleSwitchStateMessage\): void \{\s*this\.lastStyleSwitch = message;/
+    );
   });
 
   it('a worker that starts while an un-evidenced on row exists never applies it, on its very first read', async () => {
@@ -837,7 +1032,7 @@ describe('condition 6: a failed or malformed read leaves the release default and
     expect(stopped.features).toContain('option_switch_config_stale_seen');
   });
 
-  it('a worker that has just started has nothing switched', async () => {
+  it('a worker delivered nothing (no reading yet, or the first read failed) has nothing switched', async () => {
     const w = opened({ wired: true });
     const look = await w.fast();
     for (const opts of look.opts) expect(switchedKeys(opts)).toEqual([]);

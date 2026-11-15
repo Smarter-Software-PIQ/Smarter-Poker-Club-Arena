@@ -368,6 +368,28 @@ const normalizeStallProgressAddition = (job: { steps: Array<Record<string, unkno
   job.steps.splice(index, 1);
 };
 
+// HA-10878-1 (#10878): the Horse option switch evidence guard, proven on a throwaway PostgreSQL 17 beside the stall
+// proof on shard 7.
+const horseOptionSwitchEvidenceStep = {
+  name: 'The Horse option switch refuses on without promotion evidence (HA-10878-1)',
+  if: 'matrix.shard == 7',
+  env: { PG_BIN: '/usr/lib/postgresql/17/bin', TMPDIR: '${{ runner.temp }}' },
+  run: 'bash scripts/ci/test-horse-option-switch-evidence-postgres.sh',
+};
+const normalizeHorseOptionSwitchEvidenceAddition = (job: {
+  steps: Array<Record<string, unknown>>;
+}) => {
+  const index = job.steps.findIndex((step) => step.name === horseOptionSwitchEvidenceStep.name);
+  expect(job.steps.filter((step) => step.name === horseOptionSwitchEvidenceStep.name)).toHaveLength(
+    1
+  );
+  expect(job.steps[index - 1]?.name).toBe('Stall closure requires an exact recorded hand');
+  expect(job.steps[index]).toStrictEqual(horseOptionSwitchEvidenceStep);
+  expect(job.steps[index + 1]?.name).toBe('Certified V31 PostgreSQL 17 behavior gate');
+  // Enforce the exact additional gate, preserving every historical job fingerprint.
+  job.steps.splice(index, 1);
+};
+
 const undrawnSpinSteps = [
   {
     name: 'Undrawn Spin cancellation returns exact gross entries atomically',
@@ -806,6 +828,7 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     );
     // Require the exact new native gate before preserving every historical job hash.
     entrySteps.splice(entryIndex, 1);
+    normalizeHorseOptionSwitchEvidenceAddition(normalized.jobs.accounting_postgres);
     normalizeStallProgressAddition(normalized.jobs.accounting_postgres);
     // Enforce the exact new reporting regression before retaining all prior job hashes.
     const chicagoStep = {
@@ -1290,6 +1313,41 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       );
       mutate(job.steps, index);
       expect(() => normalizeStallProgressAddition(job)).toThrow();
+    }
+  });
+
+  it('rejects a missing, duplicate, displaced or weakened Horse option switch evidence proof', () => {
+    const mutations = [
+      (steps: Array<Record<string, unknown>>, index: number) => steps.splice(index, 1),
+      (steps: Array<Record<string, unknown>>, index: number) =>
+        steps.push(structuredClone(steps[index])),
+      (steps: Array<Record<string, unknown>>, index: number) => {
+        [steps[index], steps[index + 1]] = [steps[index + 1], steps[index]];
+      },
+      (steps: Array<Record<string, unknown>>, index: number) => {
+        steps[index].if = 'false';
+      },
+      (steps: Array<Record<string, unknown>>, index: number) => {
+        steps[index].run = String(steps[index].run) + ' || true';
+      },
+      (steps: Array<Record<string, unknown>>, index: number) => {
+        steps[index]['continue-on-error'] = true;
+      },
+      (steps: Array<Record<string, unknown>>, index: number) => {
+        steps[index].env = { PG_BIN: '/usr/lib/postgresql/17/bin' };
+      },
+    ];
+    const pristine = structuredClone(ci.jobs.accounting_postgres);
+    expect(() =>
+      normalizeHorseOptionSwitchEvidenceAddition(structuredClone(pristine))
+    ).not.toThrow();
+    for (const mutate of mutations) {
+      const job = structuredClone(pristine);
+      const index = job.steps.findIndex(
+        (step: Record<string, unknown>) => step.name === horseOptionSwitchEvidenceStep.name
+      );
+      mutate(job.steps, index);
+      expect(() => normalizeHorseOptionSwitchEvidenceAddition(job)).toThrow();
     }
   });
 

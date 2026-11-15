@@ -77,9 +77,12 @@ const HOLDEM = "Hold'em Strategy" as const;
 /**
  * HA-10878-1: the non-style options that may be switched `on`, each by exact name. An option is listed here only
  * when docs/horse-default-on.d/<option>.md exists, with the eight evidence rows, the option's name, its pull
- * request, the scope it was measured for and the head it was reviewed at. The migration lists the same names
- * (registry:evidenced-on-options markers) and everyUpgradeHasALiveSwitch.law.test.ts fails when the list, the
- * migration and the evidence directory diverge. Evidence for one option cannot unlock another. Today: none.
+ * request, the scope it was measured for (`Switch scope:` equal to the registry scope below, `Variants:`,
+ * `Formats:`), the head it was reviewed at and the digest of the option's code path (`Code digest:`, every runtime
+ * file that reads the option). The migration lists the same names (registry:evidenced-on-options markers) and
+ * everyUpgradeHasALiveSwitch.law.test.ts fails when the list, the migration and the evidence directory diverge, when
+ * the scopes differ, or when the code path changed after the evidence (stale until re-affirmed in the same pull
+ * request). Evidence for one option cannot unlock another. Today: none.
  */
 export const OPTION_SWITCH_EVIDENCED_ON: readonly string[] = Object.freeze([]);
 const evidencedOn = (name: string): boolean => OPTION_SWITCH_EVIDENCED_ON.includes(name);

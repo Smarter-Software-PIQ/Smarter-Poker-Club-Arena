@@ -10,27 +10,31 @@
 # It installs the style switch migration (20261113201841) and then the option
 # switch migration (20261114072215, or OPTION_SWITCH_MIGRATION to prove the
 # test fails without the guard) on a local cluster in a temp directory that is
-# removed on exit. It never touches a real database.
+# removed on exit. It never touches a real database. CI runs it in the required
+# accounting_postgres job (.github/workflows/ci.yml), like every other
+# scripts/ci/test-*-postgres proof; everyUpgradeHasALiveSwitch.law.test.ts fails
+# when it is not wired there or its option lists drift from the engine registry.
+#
+# A proof that did not run is not a pass: no PostgreSQL binaries is a failure.
 set -euo pipefail
 # macOS: a postmaster without a valid locale in the environment refuses to start
 export LC_ALL="${LC_ALL:-C}"
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 pgbin="${PG_BIN:-${PG17_BINDIR:-/opt/homebrew/opt/postgresql@17/bin}}"
 if [ ! -x "$pgbin/initdb" ]; then
-  if command -v initdb >/dev/null 2>&1; then pgbin="$(dirname "$(command -v initdb)")"; else
-    echo 'SKIPPED: no PostgreSQL binaries found'; exit 0; fi
+  echo "FAIL  no PostgreSQL binaries at $pgbin (set PG_BIN): the proof did not run"; exit 1
 fi
 parent="${RUNNER_TEMP:-${TMPDIR:-}}"
 [ -n "$parent" ] && [ -d "$parent" ] || { echo 'Owned scratch parent required'; exit 1; }
 work="$(mktemp -d "$parent/h.XXXXXX")"
 cleanup() { "$pgbin/pg_ctl" -D "$work/data" -m immediate stop >/dev/null 2>&1 || true; rm -rf "$work"; }
 trap cleanup EXIT
-# the socket lives in the scratch directory itself: a Unix socket path is limited to about 103 bytes
-sock="$work"
-port="${OPTION_SWITCH_PG_PORT:-57691}"
-"$pgbin/initdb" -D "$work/data" -U fixture_admin --auth-local=trust --auth-host=reject --no-locale -E UTF8 >/dev/null
-"$pgbin/pg_ctl" -D "$work/data" -l "$work/postgres.log" -o "-h '' -k '$sock' -p $port" -w start >/dev/null || { tail -20 "$work/postgres.log"; exit 1; }
-psql=("$pgbin/psql" -X -q -v ON_ERROR_STOP=1 -h "$sock" -p "$port" -U fixture_admin -d postgres)
+# Loopback TCP on a free port and no Unix socket (as scripts/ci/test-stall-progress-proof.py): a socket path in a
+# deep scratch directory passes the 103-byte limit, and a fixed port collides with a parallel run.
+port="${OPTION_SWITCH_PG_PORT:-$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')}"
+"$pgbin/initdb" -D "$work/data" -U fixture_admin -A trust --no-locale -E UTF8 >/dev/null
+"$pgbin/pg_ctl" -D "$work/data" -l "$work/postgres.log" -o "-h 127.0.0.1 -p $port -c unix_socket_directories=" -w start >/dev/null || { tail -20 "$work/postgres.log"; exit 1; }
+psql=("$pgbin/psql" -X -q -v ON_ERROR_STOP=1 -h 127.0.0.1 -p "$port" -U fixture_admin -d postgres)
 
 style_migration="$repo/supabase/migrations/20261113201841_the_horse_style_read_has_a_live_switch.sql"
 option_migration="${OPTION_SWITCH_MIGRATION:-$repo/supabase/migrations/20261114072215_every_horse_upgrade_has_a_live_switch.sql}"
@@ -43,7 +47,7 @@ option_migration="${OPTION_SWITCH_MIGRATION:-$repo/supabase/migrations/202611140
 
 style='styleValueBettorNotManiac styleBigBetHonesty styleRaiseRespect styleTightReRaiserRespect styleFoldRatePreRepair styleValueExtraction styleFoldBluff'
 plain='v16Hu v16Ratio v17RiverProbe v23ShortDeck v32FacingDefense v33DepthCeiling v55OmahaRiverTripsFlat commitUnderPot v62RiverBettorPolarity readPostflopFoldRate readShrinkResponse readBreakEvenBluff readScopedShrink omahaNeutralUnknown'
-refused='v54RiverBluff v53PloTourneyIcm phase8Postflop phase13Joint v87DeepDiveDiscipline v31GtoSuitAware vpipFloorDeepStackOff omahaPreflopCallWithActionBehind committedStackPricedIn huBbDefendsToPrice facingOpenFullRingZone vs3BetShortStack nashPushFoldIcm v46ShortDeck holdemPersonaReRaiseMix notAnOption'
+refused='comboDrawPressure v54RiverBluff riverPositionDefense riverBluffCheckRaise barrelContinuationOutlook smallPotNearNutRiverValue multiwayRiverBluffCheckRaise v53PloTourneyIcm phase8Postflop phase8PolicyFamily phase8CatastropheGuard phase10Plo4 phase11Omaha phase12Remaining phase13Joint phase14 phase14Corrective phase15Anything v87DeepDiveDiscipline v87ShouldSuppressOmahaPositionStab pillar2PositionStab v31GtoSuitAware solverRound7 heldOutPack allInOrFoldWidening aofWidening blindSteal vpipFloorDeepStackOff omahaPreflopCallWithActionBehind v46ShortDeck nashPushFoldIcm huBbDefendsToPrice huOpenerDefendsToPrice huLimpDefendsToPrice facingOpenFullRingZone committedStackPricedIn vs3BetShortStack holdemPersonaReRaiseMix notAnOption'
 
 fail=0
 check() { # name, expected, actual
