@@ -1,6 +1,6 @@
 # plo6ManiacPriceRefusalToRangePlay (PLO6-AUDIT-013)
 
-On by default. Evidence for the eight rows of [HORSE-DECISION-CHANGE-EVIDENCE.md](../HORSE-DECISION-CHANGE-EVIDENCE.md). The matched cases this rests on were merged as #10744; the receipt that counts an observed maniac raiser as #10750. The numbers below are in big blinds.
+Opt-in (default OFF) since 2026-11-16: its reach row was not met by the deadline Hand Analysis set (see Reach). Kept as the evidence for the opt-in arm. Evidence for the eight rows of [HORSE-DECISION-CHANGE-EVIDENCE.md](../HORSE-DECISION-CHANGE-EVIDENCE.md). The matched cases this rests on were merged as #10744; the receipt that counts an observed maniac raiser as #10750. The numbers below are in big blinds.
 
 ## Mechanism
 
@@ -56,7 +56,11 @@ What is measured, with live inputs, from `horse_brain_telemetry` (read 2026-11-1
 
 Why the hand record cannot supply the count: a recorded hand carries the action and the public node, and it does not carry the opponent read, the guard or a receipt marker. Six-card cash preflop Horse decisions at the price gate alone (a raise before, the call under 40% of the stack, and two raises or a call of 25% or more) numbered 8,190 from 2026-11-14T12:00Z to 2026-11-15T05:50Z; only the maniac read picks the 5 out of a set like that. Whether any of the 5 faced a person is not known: 41 six-card cash hands had a person on 2026-11-14 and 1 on 2026-11-15.
 
-How the row gets written: the four receipts `plo6_maniac_price_refusal_{floored,unfloored}_{continued,folded}` (#10914) count the final action after each hand-off from the first hour a release containing 4982d504 serves. Fixed time, set by the reviewer: 24 hours after that release is sealed. If by then the changed count is zero, unreadable or shows harm, this option is switched to opt-in in its own pull request with no further ruling.
+How the row was written: the four receipts `plo6_maniac_price_refusal_{floored,unfloored}_{continued,folded}` (#10914) count what the first pass chose after each hand-off, from the first release containing 4982d504 (54c9aac8, sealed 2026-11-15T10:00:17Z). Fixed time, set by the reviewer: 24 hours after that seal (2026-11-16T10:00:17Z). Zero hand-offs and hand-offs with no changed action are both NOT MET (Hand Analysis 2026-11-15T14:59:59Z); a changed count also needs the committed action from the decision journal, not the counters.
+
+Result: NOT MET (Hand Analysis rulings 2026-11-15T06:00:45Z, 14:59:59Z and 16:08:40Z). Only a changed accepted decision measured from the decision journal by the decision read keeps the option on; none was measured, so the option went opt-in in the pull request that made this change. Which case applied is recorded with that pull request and in the PLO6 archive (`phase1-play/maniac-row5/DECISION.md`): no eligible opportunity (the evidence was unavailable), eligible decisions with no changed action, unreadable evidence, or a harmful decision. In the first three cases this is a promotion-evidence disposition: the production reach the row requires was not shown. It is not a finding that the decision is wrong.
+
+What the measurement could and could not see: the hand-off receipt and the four outcome receipts count the first pass only. The deep second look runs the same decision with this option on and telemetry off (`horseDecision/workerRuntime.ts`), and its action can be the one the table executes, so a zero receipt count does not exclude a hand-off; the decision journal is read for both passes. The journal of the first release in the window (54c9aac8, 2026-11-15T10:00:17Z to 13:15:53Z) was not retained, so its second-look decisions are unreadable; its first-pass receipt count stands.
 
 Earlier ceiling, kept for the record: in the frozen two-day interval (2026-11-10T15:50Z to 2026-11-12T15:50Z), human-facing PLO6 cash, 596 hands, 648 Horse preflop decisions faced a human's raise; 71 were re-raise sized (20 big blinds or more to call, under 40% of the stack) and 51 of those were folds. The rule reads the public record and not who the raiser is, so a Horse whose record reads as a maniac is treated the same way.
 
