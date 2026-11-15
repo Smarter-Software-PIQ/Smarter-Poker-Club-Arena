@@ -87,11 +87,23 @@ export async function searchClubs(query: string): Promise<Club[]> {
 
 /**
  * Get a single club by ID, club code or slug (current or former, through the
- * one club resolver). An identifier no club answers is null, as before.
+ * one club resolver). An identifier no club answers is null, as before; a
+ * lookup that failed is an error, never "no such club". The strict resolver
+ * is loaded on demand so this module (imported almost everywhere) does not
+ * pull its chunk into every page that reads a club.
  */
 export async function getClub(identifier: string): Promise<Club | null> {
-  const clubUUID = isUUID(identifier) ? identifier : await resolveClubUUID(identifier);
-  if (!isUUID(clubUUID)) return null;
+  let clubUUID = identifier;
+  if (!isUUID(identifier)) {
+    const { ClubNotFoundError, resolveClubUUIDStrict } =
+      await import('../utils/strictClubIdResolver');
+    try {
+      clubUUID = await resolveClubUUIDStrict(identifier);
+    } catch (lookupError) {
+      if (lookupError instanceof ClubNotFoundError) return null;
+      throw new Error('Failed to get club');
+    }
+  }
 
   const { data, error } = await supabase
     .from('clubs')

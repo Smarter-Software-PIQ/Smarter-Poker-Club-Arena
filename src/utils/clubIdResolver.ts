@@ -182,7 +182,8 @@ async function hasSignedInSession(): Promise<boolean | null> {
   const auth = (supabase as { auth?: { getSession?: unknown } }).auth;
   if (typeof auth?.getSession !== 'function') return null;
   try {
-    const { data } = await supabase.auth.getSession();
+    const { data, error } = await supabase.auth.getSession();
+    if (error) return null;
     return Boolean(data?.session);
   } catch {
     return null;

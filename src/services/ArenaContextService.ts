@@ -37,7 +37,11 @@ async function resolveRenamedArenaKey(key: string): Promise<string | null> {
   } catch (error) {
     if (error instanceof ClubNotFoundError) return null;
     if (controller.signal.aborted) throw new Error('Arena Access Read Timed Out');
-    throw error;
+    // The read's own failure (a PostgREST code, a dropped connection, a
+    // timeout) decides how the boundary classifies it and whether it reads
+    // again, exactly as a failed entitlement read does.
+    const cause = (error as { cause?: unknown } | null)?.cause;
+    throw cause ?? error;
   } finally {
     clearTimeout(timer);
   }

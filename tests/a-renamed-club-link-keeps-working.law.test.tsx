@@ -103,6 +103,7 @@ import {
   resolveClubUUIDStrict,
 } from '../src/utils/strictClubIdResolver';
 import { getArenaContext } from '../src/services/ArenaContextService';
+import { arenaAccessFailure } from '../src/services/arenaAccessFailure';
 import SlugEnforcer from '../src/components/common/SlugEnforcer';
 
 const ROOT = resolve(__dirname, '..');
@@ -280,8 +281,12 @@ describe('the arena entitlement for an old link is the club it names, read by th
 
   it('a failed lookup is a failure the boundary reads again, never "Arena Not Found"', async () => {
     renamed();
-    db.historyError = { message: 'permission denied for function', code: '42883' };
-    await expect(getArenaContext('club-jaqk')).rejects.toThrow(/could not be resolved/i);
+    // A dropped connection on the history read: the read's own failure, not a
+    // wrapper, reaches the boundary, which classifies it as transient.
+    db.historyError = { message: 'TypeError: Failed to fetch', code: '' };
+    const failure = await getArenaContext('club-jaqk').catch((error: unknown) => error);
+    expect(failure).toMatchObject({ message: 'TypeError: Failed to fetch' });
+    expect(arenaAccessFailure(failure)).toBe('connection');
     expect(db.rpcs).toHaveLength(1);
   });
 
@@ -415,10 +420,11 @@ describe('every consumer that turns a club param into a club uses the resolver',
     ]) {
       expect(src(path), path).toMatch(/await resolveClubLookupFilter\(/);
     }
-    // getClub: an id is used as is; anything else goes through the resolver.
-    expect(src('src/services/ClubsService.ts')).toContain(
-      'const clubUUID = isUUID(identifier) ? identifier : await resolveClubUUID(identifier);'
-    );
+    // getClub: an id is used as is; anything else goes through the strict
+    // resolver, so a failed lookup is an error and only "no club" is null.
+    const clubsService = src('src/services/ClubsService.ts');
+    expect(clubsService).toContain('clubUUID = await resolveClubUUIDStrict(identifier);');
+    expect(clubsService).toContain('if (lookupError instanceof ClubNotFoundError) return null;');
   });
 
   it('the strict resolver, the arena check and the redirect read the same history', () => {
