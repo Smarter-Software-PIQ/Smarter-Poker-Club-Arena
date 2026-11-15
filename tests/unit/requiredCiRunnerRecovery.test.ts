@@ -371,7 +371,7 @@ const normalizeStallProgressAddition = (job: { steps: Array<Record<string, unkno
 // HA-10878-1 (#10878): the Horse option switch evidence guard, proven on a throwaway PostgreSQL 17 beside the stall
 // proof on shard 7.
 const horseOptionSwitchEvidenceStep = {
-  name: 'The Horse option switch refuses on without promotion evidence (HA-10878-1)',
+  name: 'The Horse option switch writes on only with its authority, and keeps off and clear',
   if: 'matrix.shard == 7',
   env: { PG_BIN: '/usr/lib/postgresql/17/bin', TMPDIR: '${{ runner.temp }}' },
   run: 'bash scripts/ci/test-horse-option-switch-evidence-postgres.sh',
