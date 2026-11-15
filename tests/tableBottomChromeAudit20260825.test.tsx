@@ -73,7 +73,7 @@ describe('the three action buttons keep their DOM contract while the overlay is 
    * mechanisms read it. That is still true and still pinned below — the fix
    * collapses a box, it does not unmount a component. What is dropped is the
    * one assertion that stopped being true a day after it was written, and it is
-   * replaced by the behaviour that took its place: Back is the way out, and the
+   * replaced by the behaviour that took its place: Outside dismissal is the way out, and the
    * row is live again the moment the overlay closes.
    */
   it('keeps Fold and Call mounted once the sizing overlay is open', () => {
@@ -114,13 +114,14 @@ describe('the three action buttons keep their DOM contract while the overlay is 
 
   it('lets a player fold the moment they step back out of the overlay', () => {
     // The successor to "fold straight out of the sizing overlay". Folding from
-    // UNDER the overlay has not been possible since 2026-08-26; Back is the
+    // UNDER the overlay has not been possible since 2026-08-26; Outside dismissal is the
     // documented way out, and the row has to be live again on the other side
     // of it or the player is trapped in the sizing panel on a shot clock.
     const onAction = vi.fn();
     render(<ActionPanel {...panelBase} onAction={onAction} />);
     fireEvent.click(screen.getByLabelText('Open Raise Panel'));
-    fireEvent.click(screen.getByLabelText('Back'));
+    expect(screen.queryByLabelText('Back')).toBeNull();
+    fireEvent.pointerDown(document.body);
     fireEvent.click(screen.getByLabelText('Fold'));
     expect(onAction).toHaveBeenCalledWith('fold');
   });

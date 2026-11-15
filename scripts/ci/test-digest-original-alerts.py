@@ -342,5 +342,42 @@ INSERT INTO operational_alert_events(id,alertname,severity,received_at,investiga
         assert 'ORIGINAL_SLOT_DIGEST_PREIMAGE_CHANGED' in sql(slot_migration.read_text().replace('CREATE FUNCTION public.fn_sp_original_alert_proof','CREATE OR REPLACE FUNCTION public.fn_sp_original_alert_proof'),check=False).stderr
         print(sql("SELECT jsonb_object_agg(proname,md5(pg_get_functiondef(oid))) FROM pg_proc WHERE pronamespace='public'::regnamespace AND proname IN ('fn_sp_original_alert_proof','fn_sp_daily_digest')").stdout.strip())
         print('PASS: exact current digest preimage, original two completed Midway slots including zero-cash bounty PKO, aggregate/per-type shared original-ID proof, historical is reviewed not verified, missing/foreign/wrong-slot/cancelled/open-escrow/bad-receipt/malformed negatives, source rows and digest metadata unchanged, replay refusal')
+        # Local runtime resolution deliveries are not another failure. Exercise
+        # the actual current producer subqueries and full attention function.
+        sql("ALTER TABLE operational_alert_events ADD COLUMN IF NOT EXISTS source text, ADD COLUMN IF NOT EXISTS status text;")
+        current=json.loads((root/'tests/fixtures/local-runtime-digest-preimages.json').read_text())
+        for row in current:
+            sql(row['definition'])
+        sql("CREATE OR REPLACE FUNCTION fn_sp_midway_free_buy_watch() RETURNS jsonb LANGUAGE sql AS $$ SELECT '[]'::jsonb $$;")
+        sql("TRUNCATE operational_alert_events; TRUNCATE sp_daily_metrics;")
+        sql("INSERT INTO operational_alert_events(id,source,alertname,status,severity,received_at,payload) SELECT n,'local.tours-runtime','LocalScraperRuntimeFailure','firing','critical', '2026-11-13 12:00Z','{}'::jsonb FROM generate_series(1,2)n;")
+        sql("INSERT INTO operational_alert_events(id,source,alertname,status,severity,received_at,payload) SELECT n,'local.tours-runtime','LocalScraperRuntimeFailure','firing','critical', '2026-11-14 12:00Z','{}'::jsonb FROM generate_series(3,4)n;")
+        sql("INSERT INTO operational_alert_events(id,source,alertname,status,severity,received_at,payload) SELECT n,'local.tours-runtime','LocalScraperRuntimeFailure','resolved','critical', '2026-11-14 12:10Z',jsonb_build_object('resolves','old-key-'||n) FROM generate_series(5,13)n;")
+        def runtime_counts():
+            body=sql("SELECT pg_get_functiondef('fn_sp_daily_metrics_compute(date)'::regprocedure);").stdout
+            piece=body[body.index("    'alerts_new'"):body.index("    'alerts_fixed'")].rstrip().rstrip(',')
+            return json.loads(sql("SELECT jsonb_build_object("+piece+") FROM (SELECT '2026-11-14 06:00Z'::timestamptz s,'2026-11-15 06:00Z'::timestamptz e) observed_window;").stdout)
+        def rising(count):
+            data=json.dumps({'health':{'alert_names':{'LocalScraperRuntimeFailure':count}}})
+            return [x for x in json.loads(sql("SELECT fn_sp_digest_attention('2026-11-14','"+data+"'::jsonb)").stdout) if x['rule']=='critical_alert_rising']
+        assert runtime_counts()['alert_names']['LocalScraperRuntimeFailure']==11
+        assert rising(11), 'reproduce nine resolution deliveries becoming a false spike'
+        original_rows=sql('SELECT jsonb_agg(to_jsonb(e) ORDER BY id) FROM operational_alert_events e;').stdout
+        migration=root/'supabase/migrations/20261115140604_local_runtime_resolution_deliveries_are_not_new_failures.sql'
+        sql(migration.read_text())
+        counts=runtime_counts()
+        assert counts['alert_names']['LocalScraperRuntimeFailure']==2
+        assert counts['alerts_new']['critical']==2
+        assert not rising(2), 'same two failures as yesterday, not eleven'
+        legacy=rising(11)
+        assert len(legacy[0]['detail']['source_events'][0]['event_ids'])==11, 'immutable old metrics retain their original11-member proof cohort'
+        assert legacy[0]['detail']['source_events'][0]['expected_count']==11
+        assert original_rows==sql('SELECT jsonb_agg(to_jsonb(e) ORDER BY id) FROM operational_alert_events e;').stdout
+        assert 'LOCAL_RUNTIME_DIGEST_PREIMAGE_CHANGED' in sql(migration.read_text(),check=False).stderr
+        # Resolved-in-place originals, unknown sources/payloads and unrelated
+        # producers stay counted. Only the explicit typed local delivery drops.
+        sql("INSERT INTO operational_alert_events(id,source,alertname,status,severity,received_at,payload) VALUES (20,'local.series-runtime','LocalScraperRuntimeFailure','resolved','critical','2026-11-14 12:20Z','{}'),(21,'other','Other','resolved','critical','2026-11-14 12:20Z','{\"resolves\":\"key\"}'),(22,NULL,'Unknown','firing','critical','2026-11-14 12:20Z',NULL);")
+        assert runtime_counts()['alerts_new']['critical']==5
+        print('PASS: local runtime failures11->2, resolution-only deliveries excluded, in-place original/other producer/NULL evidence retained, history untouched, exact preimage/replay refusal')
     finally:
         run('pg_ctl', '-D', str(scratch/'data'), '-m', 'immediate', 'stop')

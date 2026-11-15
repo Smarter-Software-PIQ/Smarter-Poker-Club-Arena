@@ -1,5 +1,5 @@
 {
-  "_owner": "agent/claude/club-data-matches-union-invoices. Migrations 20261114235606 (Club Data accounting day, union invoice weeks reader, club slug history), 20261114235607 (daily-maintenance window: clubs slug rename trigger and former-slug refusal), 20261115020010 (Club Data accounting read model) and 20261115020011 (daily-maintenance window: its live projection). Installed through apply-merged-migration after merge and the daily window installer.",
+  "_owner": "agent/claude/club-data-matches-union-invoices. Migrations 20261114235606 (Club Data accounting day, union invoice weeks reader, club slug history), 20261114235607 (daily-maintenance window: clubs slug rename trigger and former-slug refusal), 20261115020010 (Club Data accounting read model) and 20261115020011 (its live projection, installed at merge by owner instruction 2026-11-14 21:55 Chicago). Installed through apply-merged-migration after merge; only 20261114235607 waits for the daily window installer.",
   "tables": [
     "club_slug_history",
     "ca_club_acct_fact",
