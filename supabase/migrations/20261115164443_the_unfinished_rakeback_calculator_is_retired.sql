@@ -1,0 +1,84 @@
+-- 20261115164443_the_unfinished_rakeback_calculator_is_retired.sql
+--
+-- Version reserved by scripts/reserve-migration-version.sh against origin/main,
+-- every remote branch and every worktree on this machine.
+--
+-- WHAT THIS CHANGES, AND WHY:
+--
+-- The 2026-11-15 union-invoice audit checkpoint left one clean-up behind: a
+-- leftover unfinished rakeback function. This retires it.
+--
+-- 1. public.fn_calculate_rakeback(uuid, timestamptz, timestamptz)
+--
+--    Installed by 20260126300_rakeback_system as the first per-player rakeback
+--    calculator, then hollowed out by 20260424001857 (BUG-26) when the columns
+--    it read (profiles.vip_level, rakeback_periods.updated_at) were gone. Its
+--    whole body on production today is:
+--
+--        -- STUB: profiles.vip_level column dropped + rakeback_periods.updated_at
+--        -- column drift.
+--        RETURN json_build_object('success', false, 'error', 'not_implemented',
+--          'rakeback', 0);
+--
+--    It is the only rakeback-named function on production whose body is a
+--    placeholder. It was never finished because the weekly accounting
+--    coordinator (fn_process_weekly_accounting, 20261003 and later) is the
+--    rakeback calculator: fn_rakeback_recompute_periods / _split do the work
+--    and every legacy entry point (fn_rakeback_recompute_all_clubs,
+--    fn_run_pending_rakeback_settlement, fn_union_weekly_rakeback_close_all)
+--    delegates to it. A caller of this stub would be told rakeback is 0 and
+--    'not_implemented' - a wrong figure with a false status - and it still
+--    carried EXECUTE for authenticated, so any signed-in browser could ask.
+--
+--    Proof it is dead (read-only probes on production, 2026-11-15):
+--      * no other function in public or smarter_private names it
+--        (position('fn_calculate_rakeback' in prosrc) = 0 for every pg_proc row
+--        but its own);
+--      * no cron.job command names it; no trigger uses it; no view depends on it;
+--      * no file under src/, server/, api/, lib/, engine/, scripts/ (outside
+--        a historical pg_dump fixture) or .github/ on origin/main names it.
+--        Its only repo mentions are the two migrations that created and
+--        stubbed it, a 2026-10-01 privacy evidence note that already calls it
+--        "a stub", a 2026-09-10 audit inventory, the schema manifest, and the
+--        2026-09 replay fixture's historical schema dump.
+--
+-- NOT retired here, on purpose:
+--
+--    * public.fn_player_home_club(uuid, uuid): the club look-up that picks the
+--      club holding the player's largest balance. The audit's two uses of it in
+--      the Bad Beat Jackpot credit path (tables.club_id then
+--      fn_player_home_club, in bbj_credit_one_recipient) were already removed
+--      by 20261115150131; bbj_credit_one_recipient no longer names it. The
+--      function itself still has nine callers on production, every one a live
+--      money door (log_wallet_transaction, atomic_deduct_wallet_and_log,
+--      atomic_credit_wallet_and_log, fn_bbj_promo_payout_atomic,
+--      fn_seat_club_for_user, fn_pay_player_chips, fn_credit_player_wallet_once,
+--      fn_union_send_to_member_zd3core,
+--      fn_settle_tournament_obligation_before_atomic_batch_gate), so it stays.
+--    * public.fn_ca_stats_home_club(uuid, uuid) and
+--      fn_ca_stats_counts_in_club(uuid, uuid): the Club Data look-ups that moved
+--      a horse's rows to another club. 20261115145150 already reduced the first
+--      to `SELECT p_club_id` and made the second count everyone; both are still
+--      called by the statistics readers and are not touched.
+--    * The other 17 rakeback-named functions with no in-database caller
+--      (fn_agent_set_player_rakeback, fn_claim_rakeback, fn_my_rakeback_week_so_far,
+--      fn_member_rakeback_terms, fn_rakeback_recompute_day, ...). None of them
+--      is unfinished: each has a complete body (or is a finished retirement
+--      guard raising a named error, fn_apply_rakeback_player_stats_batch and
+--      fn_rakeback_periods_bulk_upsert), and each is either called by RPC from
+--      the client or server code on origin/main or pinned by the repo's tests
+--      and CI scripts. Whether any of them is dead is a separate question this
+--      change does not answer; it retires only the stub.
+--
+-- Guarded by IF EXISTS so a schema replay that never created the stub installs
+-- this file as a no-op.
+--
+-- @live-proof: to_regprocedure('public.fn_calculate_rakeback(uuid,timestamptz,timestamptz)') IS NULL
+
+BEGIN;
+
+SET LOCAL lock_timeout = '5s';
+
+DROP FUNCTION IF EXISTS public.fn_calculate_rakeback(uuid, timestamp with time zone, timestamp with time zone);
+
+COMMIT;
