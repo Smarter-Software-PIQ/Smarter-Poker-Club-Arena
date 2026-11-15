@@ -20,6 +20,7 @@ import { masterBus } from '../../core/MasterBus';
 import { HUB_SOCIAL_FEED_PATH } from '../../utils/hubTab';
 import { formatGameTitle } from '../../utils/formatGameTitle';
 import { useButtonImage } from '../../hooks/useButtonImage';
+import { useTableSettings } from '../../hooks/useTableSettings';
 import { isTournamentGameCode } from '../../utils/gameCode';
 import { tournamentTabEventName } from '../../lib/tournamentTabLabel';
 import './TableTabBar.css';
@@ -48,9 +49,8 @@ export interface TabInfo {
    *  page only to be refused there in silence. Absent keeps both. */
   canAddFunds?: boolean;
   seatChangeEnabled?: boolean;
+  /** Reported by the owning table page, like `isAutoRebuyEnabled`. */
   standUpNextBB?: boolean;
-  soundEnabled?: boolean;
-  vibrationsEnabled?: boolean;
   /**
    * PokerBros parity: the hero's hole cards at this table, comma-joined
    * ("Ah,Qc" / "Td,9h"; "" or undefined when not in a hand or folded).
@@ -542,6 +542,20 @@ export function TableTabBar({
      menu's Leave Table / Close Lobby emits the same FORCE_LEAVE_TABLE. */
 
   const handleMenuClose = useCallback(() => setIsMenuOpen(false), []);
+  /**
+   * THE SOUNDS AND VIBRATIONS BADGES READ THE STORE THE SWITCHES WRITE
+   * (Dan 2026-11-14: "THE SOUNDS BUTTON ... SILENTLY FAIL").
+   *
+   * Both badges used to read `soundEnabled` / `vibrationsEnabled` off the
+   * active tab, and no table page has ever reported either field, so both
+   * read OFF forever. The press did reach the table and did change the
+   * setting; the menu then closed and reopened still saying OFF.
+   *
+   * Sound and haptics are one account setting, not one per table, so there is
+   * nothing for a tab to report. This is the store TOGGLE_SOUNDS and
+   * TOGGLE_VIBRATIONS commit to, so the badge moves in the same render.
+   */
+  const { settings: tableSettings } = useTableSettings();
   const handleMenuToggle = useCallback(() => setIsMenuOpen((prev) => !prev), []);
 
   /**
@@ -672,16 +686,14 @@ export function TableTabBar({
              picker is TableMenu's own in-app gallery. */
             },
             {
-              standUpBBBadge: tabs.find((t) => t.id === activeTabId)?.standUpNextBB
-                ? 'ON'
-                : undefined,
+              /* Every switch says ON or OFF. A switch with no badge when off
+                 reads as a row that does nothing. */
+              standUpBBBadge: tabs.find((t) => t.id === activeTabId)?.standUpNextBB ? 'ON' : 'OFF',
               autoTopUpBadge: tabs.find((t) => t.id === activeTabId)?.isAutoRebuyEnabled
                 ? 'ON'
-                : undefined,
-              soundsBadge: tabs.find((t) => t.id === activeTabId)?.soundEnabled ? 'ON' : 'OFF',
-              vibrationsBadge: tabs.find((t) => t.id === activeTabId)?.vibrationsEnabled
-                ? 'ON'
                 : 'OFF',
+              soundsBadge: tableSettings.isSoundEnabled ? 'ON' : 'OFF',
+              vibrationsBadge: tableSettings.isHapticEnabled ? 'ON' : 'OFF',
               profitTrackingBadge: onToggleProfitTracking
                 ? profitTrackingEnabled
                   ? 'ON'
@@ -691,7 +703,15 @@ export function TableTabBar({
               isTournament: tabs.find((t) => t.id === activeTabId)?.isTournament,
             }
           ),
-    [activeTabId, tabs, activeIsLobby, profitTrackingEnabled, onToggleProfitTracking]
+    [
+      activeTabId,
+      tabs,
+      activeIsLobby,
+      profitTrackingEnabled,
+      onToggleProfitTracking,
+      tableSettings.isSoundEnabled,
+      tableSettings.isHapticEnabled,
+    ]
   );
 
   const menuSections = useMemo(
