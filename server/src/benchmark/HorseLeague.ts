@@ -2135,6 +2135,20 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaBluffCatcherFoldVsValueLeader: true },
     b: {},
   })),
+  // 2026-11-15 OMAHA RIVER MEDIUM-BET CALL (HorseOmahaRiverMediumBetCalls,
+  // default OFF): a river fold of two pair or better facing the opening bet
+  // of 40 to 70 percent of the pot, heads-up or closing the action, becomes a
+  // call when the price-based requirement is met; a switches it on, b is
+  // today's brain. The mirror's memory learning is on (the league default),
+  // so the value-leader read withholds on the Horses' own measured play.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_river_medium_bet_strong_hand_calls`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaRiverMediumBetStrongHandCalls: true },
+    b: {},
+  })),
   // V15 BOATS (2026-09-28): default OFF. a turns it on, b is today's brain.
   // Ship it default ON only after this resolves significant positive.
   // 2026-11-06: V15 boats is default ON in PLO5 cash (v15BoatsOn), so the

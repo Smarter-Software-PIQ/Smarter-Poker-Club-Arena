@@ -67,6 +67,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the default-off Omaha re-raised-pot discipline (owner ruling 2026-11-14 23:49): facing a 4-bet or more preflop a hand without aces or a premium structure folds, and in such a pot one pair or two pair below top two does not stack off unless priced against a declared strong range; the outermost call-discipline fold',
     'src/engine/HorseOmahaReadConditional.ts':
       'the default-off Omaha read-conditional defence (owner 2026-11-15 01:03): the measured tight re-raiser read that lets the re-raised-pot preflop fold apply (omahaReraisedFoldVsTight) and the measured postflop value-leader read that lets the turn no-raise and scare-card checks apply (omahaMadeHandDefenseVsValueLeader) and the bluff-catcher folds apply against the player faced (omahaBluffCatcherFoldVsValueLeader); a presumed read never counts',
+    'src/engine/HorseOmahaRiverMediumBetCalls.ts':
+      'the default-off Omaha river medium-bet call (PLO Strategy lane 2026-11-15, omahaRiverMediumBetStrongHandCalls): a PLO4/PLO5 cash river fold of two pair or better facing the opening bet of 40 to 70 percent of the pot, heads-up or closing the action, becomes a call when the hand holds up against the bettor’s possible holdings 1.5 times as often as the price asks; the outermost call-discipline rule, withheld against a measured value leader',
     'src/engine/HorseOmahaMadeHandDefense.ts':
       'the final Omaha made-hand rules (Dan 2026-11-14, hands 59414191 and 59416584): a hand a possible straight or flush beats does not raise a turn wager or bet into the fresh card out of position, and a nut-class wager is the full pot, right after the river nut-raise rule',
     'src/engine/HorseOmahaOnePair.ts':

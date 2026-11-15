@@ -49,6 +49,7 @@ import {
 } from './HorseOmahaMadeHandDefense.js';
 import { omahaOnePairDiscipline } from './HorseOmahaOnePair.js';
 import type { OmahaReadConditional } from './HorseOmahaReadConditional.js';
+import { omahaRiverMediumBetCall } from './HorseOmahaRiverMediumBetCalls.js';
 import {
   omahaReraisedPostflopCell,
   omahaReraisedPreflopCell,
@@ -2779,6 +2780,22 @@ export interface HorseDecideOpts {
    * (opt-in, read `=== true`), unmeasured; league cards plo4/plo5
    * _omaha_bluff_catcher_fold_vs_value_leader. */
   omahaBluffCatcherFoldVsValueLeader?: boolean;
+  /** PLO Strategy lane 2026-11-15 (one PLO5 cash player's river bets of 40 to
+   * 70 percent of the pot made Horses fold two pair or better 11 times in 15,
+   * five of them the best hand): in PLO4/PLO5 cash, high only, one board, on
+   * the river, facing the street's opening bet (no raise) of 40 to 70 percent
+   * of the pot, heads-up or closing the action, a FOLD of two pair or better
+   * (the engine's classes; two pair on a paired board is its one-pair class)
+   * becomes a CALL when the hand holds up against the exact share of the
+   * bettor's possible holdings at least 1.5 times as often as the price of
+   * the call asks (HorseOmahaRiverMediumBetCalls.ts). It also reopens the
+   * paired-board fold and the equity folds in that spot only. Withheld
+   * against a measured postflop value leader (HorseOmahaReadConditional) and
+   * for a fold that carries a continuation guard; never a raise, never
+   * against a bet above 70 percent of the pot. Default OFF (opt-in, read
+   * `=== true`) until its declared evaluation passes; league cards
+   * plo4/plo5 _omaha_river_medium_bet_strong_hand_calls. */
+  omahaRiverMediumBetStrongHandCalls?: boolean;
   /** A token-priced committed call is not barred by stack-off premiums
    * (HorseTokenCallPrice.ts, PLO6-AUDIT-010). Default on; false only for
    * the regression's non-vacuity control. */
@@ -6293,6 +6310,62 @@ function omahaMadeHandDefenseRules(
   return sized.decision;
 }
 
+/**
+ * omahaRiverMediumBetStrongHandCalls (PLO Strategy lane 2026-11-15; default
+ * OFF, read `=== true`): a PLO4/PLO5 cash river FOLD of two pair or better
+ * facing the street's opening bet of 40 to 70 percent of the pot, heads-up or
+ * closing the action, becomes a CALL when the price-based requirement is met
+ * (HorseOmahaRiverMediumBetCalls.ts). Runs outermost of the call-discipline
+ * rules on both decision paths, so it judges their final fold (the equity
+ * folds of the reference and the paired-board fold alike) and nothing after
+ * it folds the call again.
+ *
+ * The read gate: the call is withheld when the river bettor is a MEASURED
+ * postflop value leader (HorseMind.omahaReadConditionalOf(...).valueLeader:
+ * 15+ decayed hands of his own, the presumption evidenced or disproved, 8+
+ * postflop opportunities, bets when checked to no more than the average
+ * Horse, folds to bets at least and calls rivers at most as often). The
+ * opponent memory keeps no river-bluff rate by bet size, so that read is the
+ * only measured "does not over-bluff" there is; an unknown, presumed or
+ * unmeasured bettor, an over-bluffer and a station get the call, and with the
+ * mind off there is no read to withhold on.
+ */
+function omahaRiverMediumBetStrongHandCalls(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
+  if (opts.omahaRiverMediumBetStrongHandCalls !== true || decision.action !== 'fold')
+    return decision;
+  try {
+    const r = omahaRiverMediumBetCall(decision, player, gs, true);
+    if (r.changed === null || r.spot === null) return decision;
+    const tele = telemetryOn(opts);
+    if (r.changed === 'unpriced') {
+      if (tele) noteFire('omaha_river_medium_bet_strong_hand_call_unpriced');
+      return decision;
+    }
+    if (opts.mind !== false) {
+      const bettor = (gs.players ?? []).find((p) => p.seat === r.spot!.bettorSeat);
+      let leader = false;
+      try {
+        leader = !!bettor && HorseMind.omahaReadConditionalOf(bettor.user_id)?.valueLeader === true;
+      } catch {
+        leader = false;
+      }
+      if (leader) {
+        if (tele) noteFire('omaha_river_medium_bet_strong_hand_call_withheld');
+        return decision;
+      }
+    }
+    if (tele) noteFire('omaha_river_medium_bet_strong_hand_call');
+    return r.decision;
+  } catch {
+    return decision;
+  }
+}
+
 function pairedBoardFoldOutsideGraph(
   decision: HorseDecision,
   player: SeatPlayer,
@@ -6300,25 +6373,30 @@ function pairedBoardFoldOutsideGraph(
   opts: HorseDecideOpts
 ): HorseDecision {
   return decision.policyGraph === undefined
-    ? omahaReraisedFoldVsTight(
-        omahaReraisedPotFold(
-          omahaBigBetCallFold(
-            pairedBoardRiverCheck(
-              pairedBoardFold(
-                omahaMadeHandDefenseRules(
-                  omahaRiverNutRaiseOnly(
-                    decision,
+    ? omahaRiverMediumBetStrongHandCalls(
+        omahaReraisedFoldVsTight(
+          omahaReraisedPotFold(
+            omahaBigBetCallFold(
+              pairedBoardRiverCheck(
+                pairedBoardFold(
+                  omahaMadeHandDefenseRules(
+                    omahaRiverNutRaiseOnly(
+                      decision,
+                      player,
+                      gs,
+                      // The default-off near-nut value candidate keeps its own raise
+                      // when a league arm switches it on; production never does.
+                      opts.omahaRiverNutRaiseOnly !== false && !nearNutChosenRaises.has(decision)
+                    ).decision,
                     player,
                     gs,
-                    // The default-off near-nut value candidate keeps its own raise
-                    // when a league arm switches it on; production never does.
-                    opts.omahaRiverNutRaiseOnly !== false && !nearNutChosenRaises.has(decision)
-                  ).decision,
+                    opts,
+                    null,
+                    nearNutChosenRaises.has(decision)
+                  ),
                   player,
                   gs,
-                  opts,
-                  null,
-                  nearNutChosenRaises.has(decision)
+                  opts
                 ),
                 player,
                 gs,
@@ -8241,18 +8319,23 @@ export class HorseLogic {
       if (tele && nutRaise.changed === 'flatted') noteFire('omaha_river_non_nut_raise_flatted');
       if (tele && nutRaise.changed === 'fold_restored')
         noteFire('omaha_river_non_nut_raise_fold_restored');
-      const prePremium = omahaReraisedFoldVsTight(
-        omahaReraisedPotFold(
-          omahaBigBetCallFold(
-            pairedBoardRiverCheck(
-              pairedBoardFold(
-                omahaMadeHandDefenseRules(
-                  nutRaise.decision,
+      const prePremium = omahaRiverMediumBetStrongHandCalls(
+        omahaReraisedFoldVsTight(
+          omahaReraisedPotFold(
+            omahaBigBetCallFold(
+              pairedBoardRiverCheck(
+                pairedBoardFold(
+                  omahaMadeHandDefenseRules(
+                    nutRaise.decision,
+                    player,
+                    gs,
+                    opts,
+                    beforePhase10,
+                    nearNutChosen
+                  ),
                   player,
                   gs,
-                  opts,
-                  beforePhase10,
-                  nearNutChosen
+                  opts
                 ),
                 player,
                 gs,

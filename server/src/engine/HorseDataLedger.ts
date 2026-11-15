@@ -934,6 +934,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaRiverMediumBetStrongHandCalls',
+    'PLO Strategy lane 2026-11-15 (one PLO5 cash player: Horses folded two pair or better 11 times in 15 to his river bets of 40 to 70 percent of the pot, five of them the best hand): in PLO4/PLO5 cash, high only, one board, on the river, facing the opening bet (no raise) of 40 to 70 percent of the pot, heads-up or closing the action, a fold of two pair or better (two pair on a paired board is the one-pair class) becomes a call when the hand holds up against the exact share of the holdings the bettor could have at least 1.5 times as often as the price of the call asks; it reopens the equity folds and the paired-board fold in that spot only; withheld against a measured postflop value leader and for a guarded fold (HorseOmahaRiverMediumBetCalls.ts). Default OFF (opt-in); league cards plo4/plo5 _omaha_river_medium_bet_strong_hand_calls',
+    'V94'
+  ),
+  flag(
     'omahaNutClassValueSize',
     'Dan 2026-11-14: a PLO4/PLO5 high bet or raise with the nuts or an effective-nut hand for the street is the full pot (the pot-limit maximum, the stack when smaller) on the flop, turn and river. Default OFF (opt-in): its declared evaluation failed on the Horse-only cells (PLO4 -1.19, PLO5 -1.31 bb/100; human field +2.29)',
     'V94'
@@ -3776,6 +3781,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_bluff_catcher_fold_vs_value_leader_withheld',
     'HorseLogic (V81, bluff-catcher cells; HorseOmahaReadConditional, omahaBluffCatcherFoldVsValueLeader)',
     "a bluff-catcher call the cells would fold, the player faced not a measured value leader (over-bluffer, station, unknown or presumed): today's play kept",
+    'V94'
+  ),
+  receipt(
+    'omaha_river_medium_bet_strong_hand_call',
+    'HorseLogic wager_rules (HorseOmahaRiverMediumBetCalls, omahaRiverMediumBetStrongHandCalls)',
+    'PLO4/PLO5 cash river fold of two pair or better facing the opening bet of 40 to 70 percent of the pot, heads-up or closing the action, the price-based requirement met and the bettor not a measured value leader: called (the whole-stack call is the all-in)',
+    'V94'
+  ),
+  receipt(
+    'omaha_river_medium_bet_strong_hand_call_withheld',
+    'HorseLogic wager_rules (HorseOmahaRiverMediumBetCalls, omahaRiverMediumBetStrongHandCalls)',
+    'a river fold the rule would have called, the bettor a measured postflop value leader (HorseOmahaReadConditional): the fold kept',
+    'V94'
+  ),
+  receipt(
+    'omaha_river_medium_bet_strong_hand_call_unpriced',
+    'HorseLogic wager_rules (HorseOmahaRiverMediumBetCalls, omahaRiverMediumBetStrongHandCalls)',
+    'a river fold of two pair or better in the spot whose hand does not hold up against the bettor’s possible holdings 1.5 times as often as the price asks: the fold kept',
     'V94'
   ),
   receipt(

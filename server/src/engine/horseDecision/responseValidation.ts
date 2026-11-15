@@ -40,6 +40,10 @@ import {
 } from '../HorseOmahaRiverNutRaise.js';
 import { omahaBeatenMustCheck, omahaBeatenNoRaise } from '../HorseOmahaMadeHandDefense.js';
 import { omahaOnePairDiscipline } from '../HorseOmahaOnePair.js';
+import {
+  OMAHA_RIVER_MEDIUM_BET_VARIANTS,
+  omahaRiverMediumBetCall,
+} from '../HorseOmahaRiverMediumBetCalls.js';
 import { shortAllInSpot } from '../HorseShortAllInCallFloor.js';
 import { holdemFourBetSpot } from '../HorseHoldemPremiumAggression.js';
 import { tournamentShoveDiscipline } from '../HorseTournamentShoveDiscipline.js';
@@ -978,6 +982,29 @@ function boatRuleProducesCall(
   return result.action === 'call' && result.amount === after.amount;
 }
 
+// PLO Strategy lane 2026-11-15 (HorseOmahaRiverMediumBetCalls, option
+// omahaRiverMediumBetStrongHandCalls): a PLO4/PLO5 cash river fold of two pair
+// or better facing a 40 to 70 percent pot opening bet becomes the call when
+// the price-based requirement is met. Re-run the pure rule on the original
+// worker request; the value-leader read only withholds the call (keeps chips
+// out), so the rule is re-run without it.
+function mediumBetRuleProducesCall(
+  after: HorsePolicyAction,
+  context: HorseDecisionReceiptContext
+): boolean {
+  const result = omahaRiverMediumBetCall(
+    { action: 'fold', thinkTime: 0 },
+    context.player,
+    context.gameState,
+    true
+  );
+  return (
+    result.changed === 'called' &&
+    result.decision.action === 'call' &&
+    result.decision.amount === after.amount
+  );
+}
+
 // Dan 2026-11-14 (HorseOmahaRiverNutRaise): a PLO4/PLO5/PLO6 high river raise
 // or jam over a wager without the nuts becomes a call of that wager.
 // Recompute the rule's exact output from the original worker request.
@@ -1195,10 +1222,23 @@ function policyGraphIsValid(
         ? transition.after.action === 'check'
         : String(context.gameState.gameVariant).toLowerCase() === variant &&
           onePairRuleProduces(previous, transition.after, context));
+    // PLO Strategy lane 2026-11-15 (HorseOmahaRiverMediumBetCalls): fold ->
+    // call, admitted only with the request, where the rule re-run on it makes
+    // the same call. Its whole-stack form is an all-in, a wager action.
+    const omahaRiverMediumBetCalled =
+      transition.node === 'wager_rules' &&
+      OMAHA_RIVER_MEDIUM_BET_VARIANTS.has(variant) &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      previous.action === 'fold' &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      mediumBetRuleProducesCall(transition.after, context);
     if (
       transition.node === 'wager_rules' &&
       changed &&
       !pairedBoardFold &&
+      !omahaRiverMediumBetCalled &&
       !pairedBoardRiverCheck &&
       !omahaBeatenBetToCheck &&
       !omahaOnePairReduction &&
