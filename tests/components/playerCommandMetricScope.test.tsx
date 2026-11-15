@@ -180,6 +180,7 @@ beforeEach(() => {
     ...memberDetail,
     range: { ...range, is_overall: range.from === null && range.to === null },
   }));
+  state.rpc.mockResolvedValue({ data: [], error: null });
   state.getDownline.mockResolvedValue([]);
   state.getGrantableRoles.mockResolvedValue([]);
   state.getMemberStatistics.mockImplementation(async (_club, _user, variant, range) => ({
@@ -279,6 +280,8 @@ it('hides private metric definitions together with financial activity after auth
   await screen.findByRole('heading', { name: 'River Shark' });
   expect(screen.queryByLabelText('Activity Metric Definitions')).not.toBeInTheDocument();
   expect(screen.queryByText('Total Winnings')).not.toBeInTheDocument();
+  expect(screen.queryByRole('region', { name: 'Transaction History' })).not.toBeInTheDocument();
+  expect(state.rpc).not.toHaveBeenCalledWith('fn_cashier_history_feed', expect.anything());
 });
 
 it('keeps definitions available for an authorized empty range without showing fabricated metrics', async () => {
@@ -489,33 +492,44 @@ it('opens each ledger visit on today in Chicago, ignoring saved dates and confir
   view.unmount();
 });
 
-it('refreshes the newest agent receipt through the private member-record broadcast', async () => {
-  state.getMemberDetail.mockImplementation(async (_club, _member, range) => ({
-    ...memberDetail,
-    identity: { ...memberDetail.identity, role: 'agent' },
-    range: { ...range },
-  }));
-  let received = false;
-  state.rpc.mockImplementation(async (name: string) => ({
-    data:
-      name === 'fn_cashier_history_feed' && received
-        ? [
-            {
-              id: 'posted',
-              transaction_type: 'agent_wallet_send',
-              from_user_id: state.params.userId,
-              to_user_id: 'recipient',
-              to_name: 'River',
-              amount_text: '20.00',
-              created_at: '2026-11-14T18:00:00Z',
-            },
-          ]
-        : [],
-    error: null,
-  }));
-  render(<MemberManagementPage />);
-  await screen.findByText('No Chip Transactions Found.');
-  received = true;
-  act(() => state.broadcasts.get(statisticsTopic)!.onPayload({ user_id: state.params.userId }));
-  await screen.findByText('Sent To River');
-});
+it.each(['player', 'agent'])(
+  'refreshes the selected %s receipt through the private member-record broadcast',
+  async (role) => {
+    state.getMemberDetail.mockImplementation(async (_club, _member, range) => ({
+      ...memberDetail,
+      identity: { ...memberDetail.identity, role },
+      range: { ...range },
+    }));
+    let received = false;
+    state.rpc.mockImplementation(async (name: string) => ({
+      data:
+        name === 'fn_cashier_history_feed' && received
+          ? [
+              {
+                id: 'posted',
+                transaction_type: 'peer_transfer',
+                from_user_id: state.params.userId,
+                to_user_id: 'recipient',
+                to_name: 'River',
+                amount_text: '20.00',
+                created_at: '2026-11-14T18:00:00Z',
+              },
+            ]
+          : [],
+      error: null,
+    }));
+    render(<MemberManagementPage />);
+    await screen.findByText('No Chip Transactions Found.');
+    expect(state.rpc).toHaveBeenCalledWith(
+      'fn_cashier_history_feed',
+      expect.objectContaining({
+        p_person: state.params.userId,
+        p_club_id: memberDetail.identity.home_club_id,
+        p_scope: 'club',
+      })
+    );
+    received = true;
+    act(() => state.broadcasts.get(statisticsTopic)!.onPayload({ user_id: state.params.userId }));
+    await screen.findByText('Sent To River');
+  }
+);
