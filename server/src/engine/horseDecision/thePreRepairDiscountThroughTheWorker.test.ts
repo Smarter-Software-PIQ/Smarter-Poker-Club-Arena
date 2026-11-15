@@ -59,6 +59,15 @@ const LIGHTNING: HorsePublicMemoryDomain = { version: 1, speed: 'lightning', ant
 const WATCHER = '20000000-0000-4000-8000-0000000000b1';
 const M = 30;
 const SEED = 20261114;
+/**
+ * The decision's own time, fixed. The decision key binds its hour (protocol.ts buildHorseDecisionKey, decisionHour),
+ * and the worker seeds the decision's random stream from that key, so the hour chooses the mixed-strategy draw. With
+ * decisionTimeMs read from the wall clock, this river spot drew a different hand of cards each hour, and in about one
+ * hour in eight (2026-11-15T07Z, 14Z, 17Z, ...) the deep second look, with its deeper equity, landed on the other
+ * side of the draw from the fast look. Fixed far after any wall clock the test runs at, because an observation is
+ * stamped when it is made and a decision reads only observations made before its own time.
+ */
+const DECISION_TIME_MS = Date.UTC(2099, 0, 1, 0, 0, 30);
 
 const readiness = () => {
   const { identity, charts, postflop, postflopV31, postflopV31Dataset } =
@@ -84,7 +93,7 @@ function riverRequest(domain: HorsePublicMemoryDomain): FastHorseDecisionRequest
   const request = {
     ...base,
     // The pooled row is learned now; a decision fenced before it could not read it.
-    decisionTimeMs: Date.now() + 60_000,
+    decisionTimeMs: DECISION_TIME_MS,
     gameState: { ...base.gameState, publicMemoryDomain: domain },
   } as unknown as FastHorseDecisionRequest;
   return { ...request, decisionKey: buildHorseDecisionKey(request) };
@@ -365,6 +374,27 @@ describe('the pre-repair discount through the decision worker', () => {
     const verdict = await exactReplayHorseDecisionRecord(off.record, { runningSource: SOURCE });
     expect(verdict.outcome, verdict.firstDifference ?? '').toBe('replayed_exact');
     expect(verdict.replayed?.action).toBe(off.fast.decision.action);
+  });
+
+  it('the outcome does not depend on the wall clock the test runs at', async () => {
+    const log = watchExcluded();
+    const at = async (wall: string | null) => {
+      if (wall) {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(new Date(wall));
+      }
+      try {
+        const o = await throughTheWorker(TABLE, 'on', log);
+        return [o.fast.decision.action, o.fast.decision.amount ?? null, o.deepAction, o.deepAmount];
+      } finally {
+        vi.useRealTimers();
+      }
+    };
+    const real = await at(null);
+    // the hours the wall-clock decision time failed in (07Z measured by the verifier, 14Z and 17Z by the sweep)
+    for (const wall of ['2026-11-15T07:05:00Z', '2026-11-15T14:30:00Z', '2026-11-15T17:30:00Z'])
+      expect(await at(wall), wall).toEqual(real);
+    expect(real[2]).toBe(real[0]);
   });
 
   it('a lightning table is not affected with the option on: nothing is excluded', async () => {
