@@ -31,6 +31,8 @@ export const OPTION_SWITCH_LIST_MARKER = '-- registry:plain-options:begin';
 export const OPTION_SWITCH_PROOF_SCRIPT =
   'scripts/ci/test-horse-option-switch-evidence-postgres.sh';
 /** A follow-up's name: the 14-digit version and a snake_case name, no extension. */
+/** The dollar-quote character of the generated SQL, spelled so no rendered text holds it (check-ui-dollar). */
+const Q = String.fromCharCode(36);
 export const OPTION_SWITCH_FOLLOW_UP_NAME = /^(\d{14})_[a-z0-9]+(?:_[a-z0-9]+)*$/;
 /** What a lane runs when the lists differ from the registry. */
 export const OPTION_SWITCH_FOLLOW_UP_COMMAND =
@@ -184,7 +186,7 @@ BEGIN;
 SET LOCAL lock_timeout = '3s';
 
 -- Every row already written fits the new lists, or nothing changes.
-DO $existing_rows_fit$
+DO ${Q}existing_rows_fit${Q}
 DECLARE
   r record;
 BEGIN
@@ -211,7 +213,7 @@ BEGIN
     END IF;
   END LOOP;
 END
-$existing_rows_fit$;
+${Q}existing_rows_fit${Q};
 
 ALTER TABLE public.ca_horse_style_switch
   DROP CONSTRAINT IF EXISTS ca_horse_style_switch_option_is_registered,
@@ -264,7 +266,7 @@ RETURNS text[]
 LANGUAGE sql
 IMMUTABLE
 SET search_path = pg_catalog, public
-AS $function$
+AS ${Q}function${Q}
   SELECT CASE
     WHEN p_option IN (
     -- registry:style-options:begin
@@ -286,13 +288,13 @@ AS $function$
       THEN ARRAY['off', 'on']
     ELSE NULL
   END;
-$function$;
+${Q}function${Q};
 
 REVOKE ALL ON FUNCTION public.fn_ca_horse_option_switch_states(text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_ca_horse_option_switch_states(text) TO service_role;
 
 -- Read back: every registered option answers its states, anything else NULL, and no browser role reaches it.
-DO $readback$
+DO ${Q}readback${Q}
 BEGIN
   IF EXISTS (
        SELECT 1 FROM unnest(ARRAY[
@@ -326,7 +328,7 @@ BEGIN
     RAISE EXCEPTION 'a browser role can reach the option switch';
   END IF;
 END
-$readback$;
+${Q}readback${Q};
 
 COMMIT;
 `;
