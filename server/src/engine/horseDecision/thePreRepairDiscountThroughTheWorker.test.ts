@@ -36,6 +36,7 @@ import {
   type HorseDecisionWorkerDependencies,
 } from './workerRuntime.js';
 import { counters } from '../HorseOpponentStyle.test-support.js';
+import { PINNED_HORSE_MOOD_CLOCK_MS } from '../../testing/theHorseMoodHourIsPinned.js';
 import {
   STYLE_SWITCH_OPTIONS,
   StyleSwitchHolder,
@@ -290,17 +291,10 @@ const sameWorker = (decision: unknown): unknown =>
     )
   );
 
-// CLOCK PIN (2026-11-15, PLO Strategy, to unblock every pre-push gate): this
-// file's outcome depended on the wall clock. On an unchanged tree (origin/main
-// 54c9aac8) it passed with Date.now before 2026-11-15T07:00Z and failed after
-// (FAST bet, DEEP check), shown by shifting Date.now alone. The test is about
-// the pre-repair discount, not the clock, so Date.now runs from a fixed
-// instant at real speed. The owning lane replaces this with the root cause.
-const CLOCK_PIN_MS = Date.parse('2026-11-15T06:30:00Z');
+// The worker request supplies an explicit decisionTimeMs, which takes precedence
+// over the suite's default mood hour. Pin its learning and decision clocks together.
 beforeEach(() => {
-  const realNow = Date.now.bind(Date);
-  const started = realNow();
-  vi.spyOn(Date, 'now').mockImplementation(() => CLOCK_PIN_MS + (realNow() - started));
+  vi.spyOn(Date, 'now').mockReturnValue(PINNED_HORSE_MOOD_CLOCK_MS);
 });
 
 afterEach(() => {
