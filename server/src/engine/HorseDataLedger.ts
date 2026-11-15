@@ -944,6 +944,21 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaPairedRiverNoThinLeadVsValueLeader',
+    'Owner 2026-11-15 (hand 59517323): PLO4/PLO5 cash, one board, high only, river, nothing to call: on a paired final board a Horse with less than a full house does not bet into opponents of whom one called its flop or turn bet, when every live opponent is a measured postflop value leader (HorseOmahaReadConditional; a presumed read never counts); the bet becomes a check (HorseOmahaOopChecks.ts). A decision facing a bet is unchanged. Default OFF (read === true) until its declared evaluation passes; the unconditional form (ploPairedRiverCheckAfterCalled) failed against a field that calls rivers whatever the board',
+    'V94'
+  ),
+  flag(
+    'omahaOverpairNoOopBarrelVsValueLeader',
+    'Owner 2026-11-15 11:04 (hand 59517323): PLO4/PLO5 cash, heads-up, turn, out of position, the flop bet called, the made hand still one pair (a draw picked up, the nut flush draw included, does not count), a straight possible on the board: the turn bet becomes a check, only against a measured postflop value leader (HorseOmahaOopChecks.ts). Two pair or better still bets. Default OFF (read === true) until its declared evaluation passes',
+    'V94'
+  ),
+  flag(
+    'omahaBareOverpairOopFlopCheck',
+    'Owner 2026-11-15 11:05 (hand 59517323): PLO4/PLO5 cash, flop, out of position (an opponent still acts behind), one pair only, no flush draw and under eight straight outs, the flop two-tone or connected: a bet becomes a check, heads-up and multiway, with no opponent read and no stack-to-pot exception (HorseOmahaOopChecks.ts). Default OFF (read === true) until its declared evaluation passes',
+    'V94'
+  ),
+  flag(
     'omahaNutClassValueSize',
     'Dan 2026-11-14: a PLO4/PLO5 high bet or raise with the nuts or an effective-nut hand for the street is the full pot (the pot-limit maximum, the stack when smaller) on the flop, turn and river. Default OFF (opt-in): its declared evaluation failed on the Horse-only cells (PLO4 -1.19, PLO5 -1.31 bb/100; human field +2.29)',
     'V94'
@@ -3810,6 +3825,36 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_big_bet_by_pot_share',
     'HorseLogic decidePostflop range reads (omahaBigBetIsPotShare; HorseEval.omahaAggressorTier)',
     'a PLO4/PLO5 cash turn or river decision in which some opponent wager of 20 big blinds or more but under 70 percent of the pot was tiered lower than the legacy tier (the 20 big blind mark not counted)',
+    'V94'
+  ),
+  receipt(
+    'omaha_paired_river_thin_lead_checked',
+    'HorseLogic wager_rules (HorseOmahaOopChecks, omahaPairedRiverNoThinLeadVsValueLeader)',
+    'PLO4/PLO5 cash river bet with less than a full house on a paired final board, into opponents of whom one called the Horse flop or turn bet and who are all measured postflop value leaders: turned into a check',
+    'V94'
+  ),
+  receipt(
+    'omaha_paired_river_thin_lead_withheld',
+    'HorseLogic wager_rules (HorseOmahaOopChecks, omahaPairedRiverNoThinLeadVsValueLeader)',
+    "the same river bet where some live opponent is not a measured value leader (unknown, presumed, over-bluffer or station): today's play kept",
+    'V94'
+  ),
+  receipt(
+    'omaha_overpair_oop_turn_barrel_checked',
+    'HorseLogic wager_rules (HorseOmahaOopChecks, omahaOverpairNoOopBarrelVsValueLeader)',
+    'PLO4/PLO5 cash heads-up turn bet out of position with one pair, after the flop bet was called, on a board where a straight is possible, against a measured postflop value leader: turned into a check',
+    'V94'
+  ),
+  receipt(
+    'omaha_overpair_oop_turn_barrel_withheld',
+    'HorseLogic wager_rules (HorseOmahaOopChecks, omahaOverpairNoOopBarrelVsValueLeader)',
+    "the same turn bet where the opponent is not a measured value leader: today's play kept",
+    'V94'
+  ),
+  receipt(
+    'omaha_bare_overpair_oop_flop_checked',
+    'HorseLogic wager_rules (HorseOmahaOopChecks, omahaBareOverpairOopFlopCheck)',
+    'PLO4/PLO5 cash flop bet out of position with one pair, no flush draw and under eight straight outs, on a two-tone or connected flop: turned into a check',
     'V94'
   ),
   receipt(

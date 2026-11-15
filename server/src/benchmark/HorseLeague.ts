@@ -2160,6 +2160,37 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaBigBetIsPotShare: true },
     b: {},
   })),
+  // 2026-11-15 OMAHA BETS THAT BECOME CHECKS (HorseOmahaOopChecks, hand
+  // 59517323, default OFF): the paired-river lead and the unimproved turn
+  // barrel only against measured postflop value leaders, and the bare overpair
+  // out of position on the flop against anyone; a switches one on, b is
+  // today's brain. The mirror's memory learning is on (the league default).
+  ...(['plo4', 'plo5'] as const).flatMap((variant) => [
+    {
+      name: `${variant}_omaha_paired_river_no_thin_lead_vs_value_leader`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { omahaPairedRiverNoThinLeadVsValueLeader: true },
+      b: {},
+    },
+    {
+      name: `${variant}_omaha_overpair_no_oop_barrel_vs_value_leader`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { omahaOverpairNoOopBarrelVsValueLeader: true },
+      b: {},
+    },
+    {
+      name: `${variant}_omaha_bare_overpair_oop_flop_check`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { omahaBareOverpairOopFlopCheck: true },
+      b: {},
+    },
+  ]),
   // V15 BOATS (2026-09-28): default OFF. a turns it on, b is today's brain.
   // Ship it default ON only after this resolves significant positive.
   // 2026-11-06: V15 boats is default ON in PLO5 cash (v15BoatsOn), so the

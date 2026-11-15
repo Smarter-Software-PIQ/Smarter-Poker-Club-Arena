@@ -44,6 +44,7 @@ import {
   OMAHA_RIVER_MEDIUM_BET_VARIANTS,
   omahaRiverMediumBetCall,
 } from '../HorseOmahaRiverMediumBetCalls.js';
+import { OMAHA_OOP_CHECK_VARIANTS, omahaOopCheckSpot } from '../HorseOmahaOopChecks.js';
 import { shortAllInSpot } from '../HorseShortAllInCallFloor.js';
 import { holdemFourBetSpot } from '../HorseHoldemPremiumAggression.js';
 import { tournamentShoveDiscipline } from '../HorseTournamentShoveDiscipline.js';
@@ -1234,6 +1235,21 @@ function policyGraphIsValid(
       context !== undefined &&
       String(context.gameState.gameVariant).toLowerCase() === variant &&
       mediumBetRuleProducesCall(transition.after, context);
+    // Owner 2026-11-15 (HorseOmahaOopChecks, three default-off options): a bet
+    // facing no wager becomes a check on the flop out of position with a bare
+    // pair, on the turn after the flop bet was called, and on a paired river
+    // into a caller. A check puts no chip in; when the request is known, only
+    // where one of the three public spots, re-run on it, holds (the receipt
+    // context carries neither the options nor the opponent read).
+    const omahaOopBetToCheck =
+      transition.node === 'wager_rules' &&
+      OMAHA_OOP_CHECK_VARIANTS.has(variant) &&
+      transition.after.action === 'check' &&
+      previous !== null &&
+      ['bet', 'raise', 'all_in'].includes(previous.action) &&
+      (context === undefined ||
+        (String(context.gameState.gameVariant).toLowerCase() === variant &&
+          omahaOopCheckSpot(context.player, context.gameState)));
     if (
       transition.node === 'wager_rules' &&
       changed &&
@@ -1241,6 +1257,7 @@ function policyGraphIsValid(
       !omahaRiverMediumBetCalled &&
       !pairedBoardRiverCheck &&
       !omahaBeatenBetToCheck &&
+      !omahaOopBetToCheck &&
       !omahaOnePairReduction &&
       !shortAllInCall &&
       !noFourBetFold &&

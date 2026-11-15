@@ -51,6 +51,11 @@ import { omahaOnePairDiscipline } from './HorseOmahaOnePair.js';
 import type { OmahaReadConditional } from './HorseOmahaReadConditional.js';
 import { omahaRiverMediumBetCall } from './HorseOmahaRiverMediumBetCalls.js';
 import {
+  omahaBareOverpairOopFlopSpot,
+  omahaOverpairOopTurnBarrelSpot,
+  omahaPairedRiverThinLeadSpot,
+} from './HorseOmahaOopChecks.js';
+import {
   omahaReraisedPostflopCell,
   omahaReraisedPreflopCell,
   preflopRaiseCount,
@@ -2811,6 +2816,34 @@ export interface HorseDecideOpts {
    * (opt-in, read `=== true`) until its declared evaluation passes; league
    * cards plo4/plo5 _omaha_big_bet_is_pot_share. */
   omahaBigBetIsPotShare?: boolean;
+  /** Owner 2026-11-15 (hand 59517323, HorseOmahaOopChecks.ts): PLO4/PLO5 cash,
+   * one board, high only, river, nothing to call: on a final board that is
+   * paired a Horse with less than a full house does not bet into opponents of
+   * whom one called its flop or turn bet, when every live opponent is a
+   * MEASURED postflop value leader (HorseOmahaReadConditional.ts; a presumed
+   * read never counts): the bet becomes a check. Against an unknown, presumed,
+   * over-bluffing or station opponent the Horse plays as today. A call or fold
+   * facing a bet is never changed. Needs the mind on. Default OFF (opt-in,
+   * read `=== true`) until its declared evaluation passes; league cards
+   * plo4/plo5 _omaha_paired_river_no_thin_lead_vs_value_leader. The
+   * unconditional form (ploPairedRiverCheckAfterCalled, 2026-11-14) failed
+   * its evaluation against a field that calls rivers whatever the board. */
+  omahaPairedRiverNoThinLeadVsValueLeader?: boolean;
+  /** Owner 2026-11-15 11:04 (hand 59517323): PLO4/PLO5 cash, heads-up, turn,
+   * the Horse out of position, its flop bet called, its made hand still one
+   * pair (a draw picked up, the nut flush draw included, is not an improved
+   * made hand), a straight possible on the board: the turn bet becomes a
+   * check, only against a MEASURED postflop value leader. Two pair or better
+   * still bets. Needs the mind on. Default OFF (opt-in, read `=== true`);
+   * league cards plo4/plo5 _omaha_overpair_no_oop_barrel_vs_value_leader. */
+  omahaOverpairNoOopBarrelVsValueLeader?: boolean;
+  /** Owner 2026-11-15 11:05 (hand 59517323): PLO4/PLO5 cash, flop, the Horse
+   * out of position (an opponent still acts behind), one pair only, no flush
+   * draw and under eight straight outs (backdoor draws only), the flop
+   * two-tone or connected: a bet becomes a check. No opponent read; heads-up
+   * and multiway; no stack-to-pot exception. Default OFF (opt-in, read
+   * `=== true`); league cards plo4/plo5 _omaha_bare_overpair_oop_flop_check. */
+  omahaBareOverpairOopFlopCheck?: boolean;
   /** A token-priced committed call is not barred by stack-off premiums
    * (HorseTokenCallPrice.ts, PLO6-AUDIT-010). Default on; false only for
    * the regression's non-vacuity control. */
@@ -6265,6 +6298,64 @@ function pairedBoardRiverCheck(
   return checked;
 }
 
+/**
+ * Owner 2026-11-15 (hand 59517323), HorseOmahaOopChecks.ts: three default-off
+ * options that turn a bet facing no wager into a check. The flop rule
+ * (omahaBareOverpairOopFlopCheck) reads no opponent; the turn and river rules
+ * (omahaOverpairNoOopBarrelVsValueLeader,
+ * omahaPairedRiverNoThinLeadVsValueLeader) apply only when every live
+ * opponent is a measured postflop value leader. Runs in the wager_rules node
+ * right after the paired-board river check. Never touches a decision facing a
+ * bet; draws no random number. With all three unset or false it returns the
+ * decision it was given.
+ */
+function omahaOopCheckRules(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
+  const flopOn = opts.omahaBareOverpairOopFlopCheck === true;
+  const turnOn = opts.omahaOverpairNoOopBarrelVsValueLeader === true;
+  const riverOn = opts.omahaPairedRiverNoThinLeadVsValueLeader === true;
+  if (!flopOn && !turnOn && !riverOn) return decision;
+  if (decision.action !== 'bet' && decision.action !== 'raise' && decision.action !== 'all_in')
+    return decision;
+  try {
+    const stage = String(gs.stage ?? '');
+    const tele = telemetryOn(opts);
+    const checked = (): HorseDecision => {
+      const c: HorseDecision = { ...decision, action: 'check' };
+      delete c.amount;
+      return c;
+    };
+    if (stage === 'flop') {
+      if (!flopOn || !omahaBareOverpairOopFlopSpot(player, gs)) return decision;
+      if (tele) noteFire('omaha_bare_overpair_oop_flop_checked');
+      return checked();
+    }
+    const turnSpot = stage === 'turn' && turnOn && omahaOverpairOopTurnBarrelSpot(player, gs);
+    const riverSpot = stage === 'river' && riverOn && omahaPairedRiverThinLeadSpot(player, gs);
+    if (!turnSpot && !riverSpot) return decision;
+    if (!omahaEveryLiveOpponentIs(player, gs, opts, (r) => r.valueLeader)) {
+      if (tele)
+        noteFire(
+          turnSpot
+            ? 'omaha_overpair_oop_turn_barrel_withheld'
+            : 'omaha_paired_river_thin_lead_withheld'
+        );
+      return decision;
+    }
+    if (tele)
+      noteFire(
+        turnSpot ? 'omaha_overpair_oop_turn_barrel_checked' : 'omaha_paired_river_thin_lead_checked'
+      );
+    return checked();
+  } catch {
+    return decision;
+  }
+}
+
 /** The outer safety net: only a decision the policy graph never signed. */
 /**
  * Dan 2026-11-14 (hands 59414191, 59416584), HorseOmahaMadeHandDefense.ts: the
@@ -6392,22 +6483,27 @@ function pairedBoardFoldOutsideGraph(
         omahaReraisedFoldVsTight(
           omahaReraisedPotFold(
             omahaBigBetCallFold(
-              pairedBoardRiverCheck(
-                pairedBoardFold(
-                  omahaMadeHandDefenseRules(
-                    omahaRiverNutRaiseOnly(
-                      decision,
+              omahaOopCheckRules(
+                pairedBoardRiverCheck(
+                  pairedBoardFold(
+                    omahaMadeHandDefenseRules(
+                      omahaRiverNutRaiseOnly(
+                        decision,
+                        player,
+                        gs,
+                        // The default-off near-nut value candidate keeps its own raise
+                        // when a league arm switches it on; production never does.
+                        opts.omahaRiverNutRaiseOnly !== false && !nearNutChosenRaises.has(decision)
+                      ).decision,
                       player,
                       gs,
-                      // The default-off near-nut value candidate keeps its own raise
-                      // when a league arm switches it on; production never does.
-                      opts.omahaRiverNutRaiseOnly !== false && !nearNutChosenRaises.has(decision)
-                    ).decision,
+                      opts,
+                      null,
+                      nearNutChosenRaises.has(decision)
+                    ),
                     player,
                     gs,
-                    opts,
-                    null,
-                    nearNutChosenRaises.has(decision)
+                    opts
                   ),
                   player,
                   gs,
@@ -8338,15 +8434,20 @@ export class HorseLogic {
         omahaReraisedFoldVsTight(
           omahaReraisedPotFold(
             omahaBigBetCallFold(
-              pairedBoardRiverCheck(
-                pairedBoardFold(
-                  omahaMadeHandDefenseRules(
-                    nutRaise.decision,
+              omahaOopCheckRules(
+                pairedBoardRiverCheck(
+                  pairedBoardFold(
+                    omahaMadeHandDefenseRules(
+                      nutRaise.decision,
+                      player,
+                      gs,
+                      opts,
+                      beforePhase10,
+                      nearNutChosen
+                    ),
                     player,
                     gs,
-                    opts,
-                    beforePhase10,
-                    nearNutChosen
+                    opts
                   ),
                   player,
                   gs,
