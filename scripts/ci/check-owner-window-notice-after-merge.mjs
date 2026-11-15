@@ -23,10 +23,14 @@
  * its own and ships through exact control-generation packaging; adding a
  * refusal there would put a new failure mode into every cutover. A booking
  * that never merges cannot be activated, so the PR is the right door.
+ * PR admission with an explicit protected base preserves expired, identical
+ * historical findings as diagnostics. Active/changed violations still refuse
+ * admission; the default full-history audit continues to refuse every finding.
  */
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { bookedRecords } from './check-owner-window-booking.mjs';
 
 export const FILE = 'server/release/owner-maintenance-windows.json';
 /** Windows main held before this instant are not judged by this rule. */
@@ -71,16 +75,74 @@ function gitBookedAt(base) {
   };
 }
 
+/** PR admission is about this change. An identical, expired record cannot
+ * authorize a release and must not prevent unrelated repairs forever. Keep its
+ * full audit finding visible; active or changed violations remain refusals.
+ * With no explicit PR base the CLI still performs the strict full audit.
+ */
+export function bookingAdmission(baseDoc, headDoc, bookedAt, now) {
+  const collections = ['windows', 'databaseWindows'];
+  const keys = (doc) => {
+    const seen = new Set();
+    for (const collection of collections) {
+      if (doc[collection] !== undefined && !Array.isArray(doc[collection])) {
+        throw new Error(`Invalid booking collection: ${collection}`);
+      }
+      for (const record of doc[collection] ?? []) {
+        if (!record || typeof record.id !== 'string' || !record.id) {
+          throw new Error(`Invalid booking record: ${collection}`);
+        }
+        const key = `${collection}:${record.id}`;
+        if (seen.has(key)) throw new Error(`Duplicate booking: ${key}`);
+        seen.add(key);
+      }
+    }
+    return seen;
+  };
+  keys(baseDoc);
+  const headKeys = keys(headDoc);
+  const changed = new Set(bookedRecords(baseDoc, headDoc).map(
+    ({ collection, record }) => `${collection}:${record.id}`
+  ));
+  const failures = [], historical = [];
+  for (const collection of collections) {
+    for (const record of headDoc[collection] ?? []) {
+      const findings = bookingViolations({ [collection]: [record] }, bookedAt, now);
+      const expiry = typeof record.notAfter === 'string' ? Date.parse(record.notAfter) : NaN;
+      const immutableExpired = !changed.has(`${collection}:${record.id}`)
+        && Number.isFinite(expiry) && expiry <= now;
+      (immutableExpired ? historical : failures).push(...findings);
+    }
+    // Removing bad history must not manufacture a clean audit.
+    for (const record of baseDoc[collection] ?? []) {
+      if (!headKeys.has(`${collection}:${record.id}`)
+          && bookingViolations({ [collection]: [record] }, bookedAt, now).length) {
+        failures.push(`${record.id}: retain the original historical booking record`);
+      }
+    }
+  }
+  return { failures, historical };
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const base = process.env.CI_BASE_SHA || 'origin/main';
   const doc = JSON.parse(readFileSync(FILE, 'utf8'));
-  const failures = bookingViolations(doc, gitBookedAt(base), Date.now());
+  const bookedAt = gitBookedAt(base);
+  const now = Date.now();
+  const result = process.env.CI_BASE_SHA
+    ? bookingAdmission(JSON.parse(execFileSync('git', ['show', `${base}:${FILE}`],
+      { encoding: 'utf8' })), doc, bookedAt, now)
+    : { failures: bookingViolations(doc, bookedAt, now), historical: [] };
+  for (const finding of result.historical) {
+    console.warn(`[owner-window-notice] HISTORICAL VIOLATION (unchanged and expired): ${finding}`);
+  }
+  const { failures } = result;
   if (failures.length) {
     console.error('A booked owner window cannot give notice in the past:');
     for (const f of failures) console.error(`  - ${f}`);
     process.exit(1);
   }
   console.log(
-    `[owner-window-notice] every booked window gives notice after it merges (base ${base})`
+    `[owner-window-notice] ${process.env.CI_BASE_SHA ? 'changed and active bookings pass; expired historical findings retained' : 'every booked window gives notice after it merges'} (base ${base})`
   );
 }

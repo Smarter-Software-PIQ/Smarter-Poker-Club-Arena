@@ -16,7 +16,8 @@
  * moment it is validated. Unchanged records are immutable history and are
  * never re-judged, so a bad record that already reached main cannot turn this
  * check red on unrelated pull requests - that failure mode belongs to the
- * after-merge backstop alone, and the backstop stays.
+ * after-merge full audit. PR admission in that backstop retains unchanged,
+ * expired findings as diagnostics; active/changed violations still refuse.
  *
  * Rules for each added or changed record (certifiedRecoveryProfile, the
  * certified emergency path, stays exempt as in both existing booking laws):
