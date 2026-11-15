@@ -914,6 +914,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaReraisedPotStackOffRealistic',
+    '2026-11-15 correction of omahaReraisedPotStackOffFold: in a PLO4/PLO5 cash pot raised three or more times preflop, one pair or two pair below top two does not put its stack in unless its equity against a realistic range (aces or kings, top pair or better, nut flush draw or 8+ straight outs) pays the price; a measured postflop over-bluffer keeps the call (HorseOmahaReraisedPot.ts). Default OFF (opt-in). League card plo4/plo5 _omaha_reraised_pot_stack_off_realistic',
+    'V94'
+  ),
+  flag(
     'omahaNutClassValueSize',
     'Dan 2026-11-14: a PLO4/PLO5 high bet or raise with the nuts or an effective-nut hand for the street is the full pot (the pot-limit maximum, the stack when smaller) on the flop, turn and river. Default on by owner order 2026-11-15 00:32 (value unmeasured); explicit false switches it off',
     'V94'
@@ -3640,6 +3645,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_reraised_pot_postflop_fold',
     'HorseLogic call discipline (HorseOmahaReraisedPot)',
     'PLO4/PLO5 cash stack-off with one pair or two pair below top two in a pot raised three or more times preflop, equity against aces or top two or better under the price: folded',
+    'V94'
+  ),
+  receipt(
+    'omaha_reraised_pot_realistic_fold',
+    'HorseLogic call discipline (HorseOmahaReraisedPot)',
+    'PLO4/PLO5 cash stack-off with one pair or two pair below top two in a pot raised three or more times preflop, equity against the realistic range under the price, bettor not a measured over-bluffer: folded',
     'V94'
   ),
   receipt(

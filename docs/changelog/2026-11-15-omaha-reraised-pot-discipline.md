@@ -36,3 +36,9 @@ Ordered into the 4 AM release switched on. `omahaReraisedPotDiscipline` is read 
 ## Split at the release head
 
 Only the preflop cell ships on. The postflop cell is the separate opt-in `omahaReraisedPotStackOffFold` (default OFF, league cards plo4/plo5 `_omaha_reraised_pot_stack_off_fold`): the development probe found the calls it folds positive against Horse holdings, so it waits for its evaluation. Figures in the evidence file.
+
+## Correction candidate: the stack-off cell against a realistic range (option `omahaReraisedPotStackOffRealistic`, default OFF)
+
+A development probe (Horse mirror, 10 sessions of 300 hand pairs per variant) found that the postflop calls the declared-range cell (`omahaReraisedPotStackOffFold`) folds were winning calls on average against the hands actually shown: PLO4 38 calls, mean equity 0.317 against a mean price of 0.227; PLO5 22 calls, 0.264 against 0.225. The aces-or-top-two range is stronger than what players put their stacks in with in these pots.
+
+The new opt-in option prices the same cell (same pot, hands, commitment test and price) against a realistic range: a pair of aces or kings in the hand, a made hand at top-pair level or better, or, before the river, a nut flush draw or eight or more straight outs. A bettor measured as a postflop over-bluffer keeps the call. Receipt `omaha_reraised_pot_realistic_fold`; league cards `plo4_omaha_reraised_pot_stack_off_realistic` and `plo5_omaha_reraised_pot_stack_off_realistic`. It was declared before any graded run, with its own paired evaluation. It stays off until that evaluation passes.

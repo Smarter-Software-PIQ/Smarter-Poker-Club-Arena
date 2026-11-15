@@ -39,7 +39,7 @@
  * never drawn. A sample that cannot be filled keeps today's decision.
  */
 import type { Card } from '../types.js';
-import { omahaMadeClass, scoreOmahaHi } from './HorseEval.js';
+import { omahaDrawQuality, omahaMadeClass, scoreOmahaHi } from './HorseEval.js';
 
 export const RERAISED_POT_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
 /** Preflop raises (open = 1) that make a pot "4-bet or more". */
@@ -256,13 +256,49 @@ export function omahaReraisedPreflopCell(i: OmahaReraisedInput): OmahaReraisedVe
     : { fold: true, cell: 'preflop', equity: eq, price };
 }
 
-export function omahaReraisedPostflopCell(i: OmahaReraisedInput): OmahaReraisedVerdict | null {
+/**
+ * The REALISTIC stack-off range in a re-raised pot (option
+ * omahaReraisedPotStackOffRealistic, 2026-11-15): a development probe found
+ * the aces-or-top-two range far stronger than what players actually put
+ * their stacks in with here, so the calls the declared range folded were
+ * winning ones. This range is every holding that would plausibly bet or
+ * call off: a pair of aces or kings in the hand; any made hand at top-pair
+ * level or better (a pair of the top board rank, a pocket overpair, two
+ * pair of its own, a set, trips, a straight or better); and, before the
+ * river, a nut flush draw or eight or more straight outs.
+ */
+export function omahaReraisedRealisticHand(h: readonly Card[], board: readonly Card[]): boolean {
+  const ranks = h.map((c) => RANK_VALUE[c.rank] ?? 0);
+  const pairOf = (r: number) => ranks.filter((x) => x === r).length >= 2;
+  if (pairOf(14) || pairOf(13)) return true;
+  const made = omahaMadeClass([...h], [...board]);
+  if (made.category >= 4 || made.cls === 'top2p' || made.cls === 'low2p') return true;
+  const top = Math.max(...board.map((c) => RANK_VALUE[c.rank] ?? 0));
+  if (ranks.includes(top) && made.category >= 2) return true;
+  if (ranks.some((r) => r > top && pairOf(r))) return true;
+  if (board.length <= 4) {
+    const dq = omahaDrawQuality([...h], [...board]);
+    if (dq.nutFlushDraw || dq.straightOuts >= 8) return true;
+  }
+  return false;
+}
+
+export function omahaReraisedPostflopCell(
+  i: OmahaReraisedInput & { bettorOverBluffs?: boolean },
+  range: 'declared' | 'realistic' = 'declared'
+): OmahaReraisedVerdict | null {
   const n = i.street === 'flop' ? 3 : i.street === 'turn' ? 4 : i.street === 'river' ? 5 : 0;
   if (n === 0 || i.board.length !== n || !inScope(i)) return null;
+  if (range === 'realistic' && i.bettorOverBluffs === true) return null;
   if (!omahaReraisedWeakMade(i.hole, i.board)) return null;
   const { committed, price } = commits(i);
   if (!committed && i.action === 'call') return null;
-  const eq = omahaReraisedEquity(i.hole, i.board, i.dead ?? [], omahaReraisedStrongHand);
+  const eq = omahaReraisedEquity(
+    i.hole,
+    i.board,
+    i.dead ?? [],
+    range === 'realistic' ? omahaReraisedRealisticHand : omahaReraisedStrongHand
+  );
   if (eq === null) return null;
   return eq >= price
     ? { fold: false, cell: 'postflop', equity: eq, price }

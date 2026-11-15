@@ -12,6 +12,7 @@ import {
   omahaReraisedPreflopCell,
   omahaReraisedPremium,
   omahaReraisedStrongHand,
+  omahaReraisedRealisticHand,
   omahaReraisedWeakMade,
   preflopRaiseCount,
   type OmahaReraisedInput,
@@ -306,5 +307,54 @@ describe('in the decision (turn of a 4-bet pot, call for the rest of the stack)'
     expect(strip(decideMany(s, { omahaReraisedPotDiscipline: true }))).toEqual(
       strip(decideMany(s, {}))
     );
+  });
+});
+
+describe('the realistic stack-off range (omahaReraisedPotStackOffRealistic)', () => {
+  it('holds aces or kings, top pair or better, and strong draws; not a low pair or air', () => {
+    const board = cards('Kh8s4d');
+    expect(omahaReraisedRealisticHand(cards('AhAd7c2s'), board)).toBe(true);
+    expect(omahaReraisedRealisticHand(cards('QcQd7c2s'), cards('Jh8s4d'))).toBe(true); // overpair
+    expect(omahaReraisedRealisticHand(cards('Ks9h7c2s'), board)).toBe(true); // top pair
+    expect(omahaReraisedRealisticHand(cards('8h4c9h2c'), board)).toBe(true); // two pair
+    expect(omahaReraisedRealisticHand(cards('AsJs7h2c'), cards('Kh8s4s'))).toBe(true); // nut flush draw
+    expect(omahaReraisedRealisticHand(cards('9h3c7h2c'), board)).toBe(false); // nothing
+    expect(omahaReraisedRealisticHand(cards('4h5c9h2c'), board)).toBe(false); // bottom pair
+  });
+
+  it('is wider than the declared range, so the same hand has more equity and folds less', () => {
+    const declared = omahaReraisedPostflopCell(post());
+    const realistic = omahaReraisedPostflopCell(post(), 'realistic');
+    expect(declared?.fold).toBe(true);
+    expect(realistic).not.toBeNull();
+    expect(realistic!.equity!).toBeGreaterThan(declared!.equity ?? 0);
+  });
+
+  it('a measured over-bluffer keeps the call; the declared cell ignores the read', () => {
+    expect(
+      omahaReraisedPostflopCell({ ...post(), bettorOverBluffs: true }, 'realistic')
+    ).toBeNull();
+    expect(omahaReraisedPostflopCell({ ...post(), bettorOverBluffs: true })?.fold).toBe(true);
+  });
+
+  it('in the decision: off by default, and on it judges the same node with its own receipt', () => {
+    const s = fourBetTurn('Td3d9c8h7s');
+    const base = { omahaReraisedPotDiscipline: true };
+    expect(strip(decideMany(s, { ...base, omahaReraisedPotStackOffRealistic: false }))).toEqual(
+      strip(decideMany(s, base))
+    );
+    enableBrainTelemetry();
+    seedFastRandom(1);
+    HorseMind.reset();
+    drainFires();
+    const d = HorseLogic.decide(s.hero, s.gs, LIVE.style, LIVE.mods, {
+      mind: false,
+      telemetry: true,
+      ...base,
+      omahaReraisedPotStackOffRealistic: true,
+    } as never);
+    const fires = drainFires().map((f) => f.feature);
+    if (d.action === 'fold') expect(fires).toContain('omaha_reraised_pot_realistic_fold');
+    else expect(fires).toContain('omaha_reraised_pot_priced_in');
   });
 });

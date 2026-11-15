@@ -2694,6 +2694,14 @@ export interface HorseDecideOpts {
    * found the calls it folds positive against Horse holdings. Needs
    * omahaReraisedPotDiscipline on as well. */
   omahaReraisedPotStackOffFold?: boolean;
+  /** 2026-11-15 correction of omahaReraisedPotStackOffFold: the same
+   * re-raised-pot stack-off cell priced against a REALISTIC range (aces or
+   * kings, top pair or better, nut flush draw or 8+ straight outs) instead of
+   * aces-or-top-two, and a bettor measured as a postflop over-bluffer keeps
+   * the call (HorseOmahaReraisedPot.ts, omahaReraisedRealisticHand). Default
+   * OFF (opt-in); league card plo4/plo5 _omaha_reraised_pot_stack_off_realistic.
+   * Takes precedence over omahaReraisedPotStackOffFold when both are on. */
+  omahaReraisedPotStackOffRealistic?: boolean;
   /** Dan 2026-11-14 (hands 59407629, 59430325, 59431232, 59417700,
    * 59426444): PLO4/PLO5 high on one board, one pair or less never bets or
    * raises the river for value (a declared river bluff excepted); a river
@@ -5610,12 +5618,36 @@ function omahaReraisedPotFold(
         break;
       }
     }
+    let realisticBettorOverBluffs = false;
+    if (
+      street !== 'preflop' &&
+      opts.omahaReraisedPotStackOffRealistic === true &&
+      opts.mind !== false
+    ) {
+      const history = gs.actionHistory ?? [];
+      for (let k = history.length - 1; k >= 0; k--) {
+        const a = history[k]!;
+        if (a.stage !== street || a.seat === player.seat) continue;
+        if (a.action !== 'raise' && a.action !== 'all_in' && a.action !== 'bet') continue;
+        const bettor = gs.players.find((p) => p.seat === a.seat);
+        const bettorRead = bettor ? HorseMind.opponentRead(bettor.user_id) : null;
+        // Measured only: a presumed read never keeps the call.
+        realisticBettorOverBluffs =
+          bettorRead !== null && bettorRead.presumed !== true && isPostflopManiac(bettorRead);
+        break;
+      }
+    }
     const verdict =
       street === 'preflop'
         ? omahaReraisedPreflopCell(input)
-        : opts.omahaReraisedPotStackOffFold === true
-          ? omahaReraisedPostflopCell(input)
-          : null;
+        : opts.omahaReraisedPotStackOffRealistic === true
+          ? omahaReraisedPostflopCell(
+              { ...input, bettorOverBluffs: realisticBettorOverBluffs },
+              'realistic'
+            )
+          : opts.omahaReraisedPotStackOffFold === true
+            ? omahaReraisedPostflopCell(input)
+            : null;
     if (verdict === null) return decision;
     const tele = telemetryOn(opts);
     if (!verdict.fold) {
@@ -5626,7 +5658,9 @@ function omahaReraisedPotFold(
       noteFire(
         verdict.cell === 'preflop'
           ? 'omaha_reraised_pot_preflop_fold'
-          : 'omaha_reraised_pot_postflop_fold'
+          : opts.omahaReraisedPotStackOffRealistic === true
+            ? 'omaha_reraised_pot_realistic_fold'
+            : 'omaha_reraised_pot_postflop_fold'
       );
     // The decision's ownership receipts travel with it, as V81's fold keeps them.
     const folded: HorseDecision = { ...decision, action: 'fold' };

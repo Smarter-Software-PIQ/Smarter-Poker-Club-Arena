@@ -2027,6 +2027,18 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaTightOpponentSteal: true },
     b: {},
   },
+  // 2026-11-15 OMAHA RE-RAISED POT STACK-OFF, REALISTIC RANGE
+  // (omahaReraisedPotStackOffRealistic, default OFF): a prices the re-raised-
+  // pot one-pair / low two-pair stack-off against a realistic range and lets a
+  // measured over-bluffer keep the call; b is today's brain.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_reraised_pot_stack_off_realistic`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaReraisedPotStackOffRealistic: true },
+    b: {},
+  })),
   // 2026-11-15 OMAHA RE-RAISED POT STACK-OFF FOLD (omahaReraisedPotStackOffFold,
   // default OFF): the postflop half of omahaReraisedPotDiscipline; a turns it
   // on, b is today's brain (the preflop half on in both).
