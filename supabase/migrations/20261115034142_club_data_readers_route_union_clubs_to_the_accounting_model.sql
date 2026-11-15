@@ -39,7 +39,7 @@
 --     fn_ca_club_data_reads_union_basis(club, start, end)
 --       the club is a union (its house club) or in one, and the window
 --       starts on or after the later of the accounting day the club joined
---       its union and the first day the model holds (2026-09-17 once the
+--       its union and the first day the model holds (2026-09-18 once the
 --       history is loaded)
 --       -> <reader>_union_basis(...)                 the accounting-basis copy
 --       else <reader>_chicago_basis(...)             the installed reader,
@@ -93,7 +93,21 @@
 --
 -- ROLLOUT: #10879 merges (20261115020011 attaches the live projection; its
 -- @live-proof: nine triggers, one state row) -> the history is loaded from
--- 2026-09-17 (club-data-accounting-seed.yml) -> this file installs. Until the
+-- 2026-09-18 (club-data-accounting-seed.yml) -> this file installs.
+--
+-- WHY THE HISTORY STARTS ON 2026-09-18, NOT 2026-09-17 (measured on
+-- production 2026-11-15 05:17Z, read-only): accounting day 2026-09-17 holds
+-- 59,560 union cash touches whose outcome evidence is 'blocked', each of which
+-- the invoice reader (and so fn_ca_club_acct_touch_participants) re-derives
+-- from the original treasury evidence at about 4 ms. Its one-snapshot day load
+-- ran 5 min 12 s and was cancelled by fn_ca_bound_outside_snapshots (the
+-- 5-minute snapshot bound that keeps the tables dealing; 20261006170925),
+-- with nothing written. 2026-09-18 holds 11,574 such touches (under a
+-- minute); no later day sampled holds more than 15. The union's first weekly
+-- invoice week starts 2026-09-21 (first boundary certificate), so no invoice
+-- covers 2026-09-17 and starting the union basis a day later changes no
+-- invoice comparison; a window that starts on 2026-09-17 reads the Chicago
+-- basis and says so (basis_reason), exactly as a window before a club joined. Until the
 -- history is loaded it is refused (CLUB_ACCT_READERS_HISTORY_NOT_LOADED) with
 -- nothing changed, so a screen never switches to a model that does not hold
 -- its history; after the load it is dispatched once more. Not a hot-table
@@ -139,10 +153,10 @@ BEGIN
     RAISE EXCEPTION 'CLUB_ACCT_READERS_PREREQUISITE_MISSING: the live projection (20261115020011) is not attached';
   END IF;
   SELECT count(*) INTO v_missing
-    FROM generate_series(date '2026-09-17', v_live, interval '1 day') g(d)
+    FROM generate_series(date '2026-09-18', v_live, interval '1 day') g(d)
    WHERE NOT EXISTS (SELECT 1 FROM public.ca_club_acct_seed_log l WHERE l.acct_day = g.d::date);
   IF v_missing > 0 THEN
-    RAISE EXCEPTION 'CLUB_ACCT_READERS_HISTORY_NOT_LOADED: % accounting day(s) from 2026-09-17 to % are not loaded', v_missing, v_live;
+    RAISE EXCEPTION 'CLUB_ACCT_READERS_HISTORY_NOT_LOADED: % accounting day(s) from 2026-09-18 to % are not loaded', v_missing, v_live;
   END IF;
 END $guard$;
 
