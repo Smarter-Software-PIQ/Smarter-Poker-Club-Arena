@@ -36,6 +36,7 @@ import {
   type HorseDecisionWorkerDependencies,
 } from './workerRuntime.js';
 import { counters } from '../HorseOpponentStyle.test-support.js';
+import { PINNED_HORSE_MOOD_CLOCK_MS } from '../../testing/theHorseMoodHourIsPinned.js';
 import {
   STYLE_SWITCH_OPTIONS,
   StyleSwitchHolder,
@@ -290,9 +291,10 @@ const sameWorker = (decision: unknown): unknown =>
     )
   );
 
+// The worker request supplies an explicit decisionTimeMs, which takes precedence
+// over the suite's default mood hour. Pin its learning and decision clocks together.
 beforeEach(() => {
-  // The decision hour selects the player's mood. Keep observations and both looks on one fixture clock.
-  vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-15T04:00:00Z'));
+  vi.spyOn(Date, 'now').mockReturnValue(PINNED_HORSE_MOOD_CLOCK_MS);
 });
 
 afterEach(() => {
