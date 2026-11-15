@@ -1058,6 +1058,8 @@ export async function logHandHistory(params: {
     const variant = memoryVariant(params.gameVariant);
     const dealt = params.holeCardsAll?.size ?? params.roster?.length ?? params.players?.length ?? 0;
     let durableOpponentProfiles: DurableOpponentProfile[] | undefined;
+    // A failed read is named, so the worker can tell it from a read that found no saved row.
+    let durableOpponentProfilesReadFailed = false;
     if (variant && (await horseOpponentMemorySchema()) === 'installed') {
       durableOpponentProfiles = [];
       try {
@@ -1085,6 +1087,7 @@ export async function logHandHistory(params: {
             dealt <= 2 ? 'hu' : dealt <= 5 ? 'short' : 'full'
           );
       } catch (error) {
+        durableOpponentProfilesReadFailed = true;
         if (isOpponentMemoryBusyRefusal(error))
           reportThrottled(
             'HandHistory.durable_opponent_read',
@@ -1104,6 +1107,9 @@ export async function logHandHistory(params: {
       // F2: the persisted has_human value (absent when the roster is unknown, as the row omits it)
       ...(rosterHasHuman === undefined ? {} : { styleHasHuman: rosterHasHuman }),
       durableOpponentProfiles,
+      ...(durableOpponentProfilesReadFailed
+        ? { durableOpponentProfilesRead: 'failed' as const }
+        : {}),
       generation: params.handNumber,
       fence: [
         params.tableId,

@@ -234,6 +234,11 @@ export interface CompletedHandObservation extends HorseDecisionFence {
    * (HorseOpponentMemory.opponentProfileVersion).
    * Empty means unavailable; presence suppresses non-durable family pooling. */
   durableOpponentProfiles?: import('../HorseOpponentMemory.js').DurableOpponentProfile[];
+  /** 'failed' only when the completed-hand profile read itself failed (busy, timeout, query error or
+   * an invalid receipt). An empty durableOpponentProfiles is then not a successful read that found no
+   * saved row, and pooledPublicProfiles keeps a briefly stale shared row instead of dropping it.
+   * Absent: the read succeeded or was not attempted. */
+  durableOpponentProfilesRead?: 'failed';
   /** UUID returned by the accepted hand transaction; absent on legacy replay. */
   committedHandId?: string;
   handKey: string;
