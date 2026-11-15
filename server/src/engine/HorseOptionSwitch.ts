@@ -8,8 +8,8 @@
  *
  * THE REGISTRY (OPTION_SWITCH_REGISTRY) is DERIVED at module load from HORSE_DATA_LEDGER: every ledger option
  * (kind 'flag') that is an on/off option, minus the refused names below. A ledger option that is a parameter and
- * not an on/off option (a number, a clock, a hand identity) is listed in OPTION_SWITCH_NOT_A_SWITCH and is not
- * registered. So a new ledger option registers itself; the database whitelist (migration 20261114072215) is the
+ * not an on/off option (a number, a clock, a hand identity), or decision plumbing (telemetry, the mind), is listed
+ * in OPTION_SWITCH_NOT_A_SWITCH and is not registered. So a new ledger option registers itself; the database whitelist (migration 20261114072215) is the
  * same list, written by server/scripts/gen-horse-option-switch-sql.ts, and everyUpgradeHasALiveSwitch.law.test.ts
  * fails when the two differ.
  *
@@ -100,10 +100,21 @@ const HOLDEM = "Hold'em Strategy" as const;
 export const OPTION_SWITCH_ON_AUTHORITY =
   'OWNER-MESSAGE-20261114-2201CT-EVERY-FEATURE-ON-WITH-SWITCH.md sha256 2080c2026d5553e11ac288a74fcef51d20f81b30c0a9da446b5063a9f7196bf1';
 
-/** Ledger options that are parameters, not on/off options: never registered. The law holds this against the types. */
+/**
+ * Ledger options that are never registered: parameters (not on/off options; the law holds this against the types)
+ * and DECISION PLUMBING. Plumbing is on/off by type but is not a strategy option: a switch must never turn the
+ * receipts (telemetry) or the mind off.
+ */
 const PARAMETER = 'a parameter, not an on/off option';
-export const OPTION_SWITCH_NOT_A_SWITCH: Readonly<Record<string, string>> = Object.freeze(
-  Object.fromEntries(
+const PLUMBING = 'decision plumbing (telemetry / mind), not a strategy option';
+export const OPTION_SWITCH_PLUMBING: readonly string[] = Object.freeze([
+  'telemetry',
+  'observeMind',
+  'mind',
+] satisfies ReadonlyArray<keyof HorseDecideOpts>);
+export const OPTION_SWITCH_NOT_A_SWITCH: Readonly<Record<string, string>> = Object.freeze({
+  ...Object.fromEntries(OPTION_SWITCH_PLUMBING.map((name) => [name, PLUMBING])),
+  ...Object.fromEntries(
     (
       [
         'decisionTimeMs',
@@ -120,8 +131,8 @@ export const OPTION_SWITCH_NOT_A_SWITCH: Readonly<Record<string, string>> = Obje
         'styleCarryOverWeight',
       ] satisfies ReadonlyArray<keyof HorseDecideOpts>
     ).map((name) => [name, PARAMETER])
-  )
-);
+  ),
+});
 
 /**
  * RELEASE DEFAULTS, read from the code's own reads of each option (server/src/engine, tests aside): ON when every
@@ -129,8 +140,6 @@ export const OPTION_SWITCH_NOT_A_SWITCH: Readonly<Record<string, string>> = Obje
  * else, and any option not listed, is 'code'. Informational only: no row = the option is not passed.
  */
 export const OPTION_SWITCH_RELEASE_DEFAULT_ON: readonly string[] = Object.freeze([
-  'observeMind',
-  'mind',
   'streetIQ',
   'handReading',
   'v7',
@@ -254,7 +263,6 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_ON: readonly string[] = Object.freeze
   'v86MultiStreetUnblocked',
 ]);
 export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freeze([
-  'telemetry',
   'v16Hu',
   'v16Ratio',
   'v17RiverProbe',
@@ -537,7 +545,9 @@ export function assertOptionSwitchRegistry(entries: readonly OptionSwitchEntry[]
     const refusal = optionSwitchRefusal(e.name);
     if (refusal) throw new Error(`option switch: ${e.name} may not be registered (${refusal})`);
     if (Object.hasOwn(OPTION_SWITCH_NOT_A_SWITCH, e.name))
-      throw new Error(`option switch: ${e.name} is a parameter, not an on/off option`);
+      throw new Error(
+        `option switch: ${e.name} is not a switch (${OPTION_SWITCH_NOT_A_SWITCH[e.name]})`
+      );
     if (seen.has(e.name)) throw new Error(`option switch: ${e.name} is registered twice`);
     seen.add(e.name);
     if (!PLAIN_NAME.test(e.name))

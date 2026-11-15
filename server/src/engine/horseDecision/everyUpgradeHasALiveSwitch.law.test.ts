@@ -54,6 +54,7 @@ import {
   OPTION_SWITCH_NAMES,
   OPTION_SWITCH_NOT_A_SWITCH,
   OPTION_SWITCH_ON_AUTHORITY,
+  OPTION_SWITCH_PLUMBING,
   OPTION_SWITCH_PLAIN_NAMES,
   OPTION_SWITCH_PLAIN_REGISTRY,
   OPTION_SWITCH_REFUSED,
@@ -242,16 +243,8 @@ async function closeAll() {
 }
 afterEach(closeAll);
 
-/**
- * Registered options the worker hands every decision itself, switch or no switch (the baseline proves the list in
- * condition 1). They are registered because they are on/off ledger options; they are left out when a test asks
- * which keys the SWITCH added.
- */
-const WORKER_HANDS: readonly string[] = ['telemetry', 'observeMind'];
 const switchedKeys = (opts: Record<string, unknown>) =>
-  Object.keys(opts).filter(
-    (k) => OPTION_SWITCH_PLAIN_NAMES.includes(k) && !WORKER_HANDS.includes(k)
-  );
+  Object.keys(opts).filter((k) => OPTION_SWITCH_PLAIN_NAMES.includes(k));
 /** What a decision was handed, in a form two runs can be compared by (functions and undefined drop out alike). */
 /** The wager itself; the rest of a decision carries the worker's own authority epoch, which is random per worker. */
 const wagerOf = (decision: { action: string; amount?: number | null; thinkTime?: number }) => ({
@@ -363,6 +356,7 @@ describe('the owner order of 2026-11-14 22:01: every ledger option has an on/off
     const expected = ledgerFlags.filter(
       (name) =>
         !style.includes(name) &&
+        !OPTION_SWITCH_PLUMBING.includes(name) &&
         acceptsBoolean(types.get(name) ?? '') &&
         optionSwitchRefusal(name) === null
     );
@@ -380,10 +374,24 @@ describe('the owner order of 2026-11-14 22:01: every ledger option has an on/off
         where,
         `${name} (${type}) must be registered, refused or listed in OPTION_SWITCH_NOT_A_SWITCH`
       ).toHaveLength(1);
+      // not a switch = a non-boolean parameter, or the explicit decision plumbing list (telemetry and the mind)
       if (where[0] === 'parameter')
-        expect(acceptsBoolean(type!), `${name} is listed as a parameter`).toBe(false);
+        expect(
+          acceptsBoolean(type!),
+          `${name} is listed as not a switch: a parameter is not boolean, plumbing is`
+        ).toBe(OPTION_SWITCH_PLUMBING.includes(name));
     }
     for (const name of Object.keys(OPTION_SWITCH_NOT_A_SWITCH)) expect(ledgerFlags).toContain(name);
+    // a switch never turns the receipts or the mind off: the plumbing is exactly these, never registered
+    expect([...OPTION_SWITCH_PLUMBING]).toEqual(['telemetry', 'observeMind', 'mind']);
+    for (const name of OPTION_SWITCH_PLUMBING) {
+      expect(OPTION_SWITCH_NAMES, name).not.toContain(name);
+      expect(OPTION_SWITCH_NOT_A_SWITCH[name], name).toBe(
+        'decision plumbing (telemetry / mind), not a strategy option'
+      );
+      expect(optionSwitchStatesFrom({ [name]: 'off' }), name).toBeNull();
+      expect(optionSwitchDecisionOpts({ [name]: 'off' } as never), name).toEqual({});
+    }
     for (const name of style) expect(ledgerFlags).toContain(name);
     for (const name of [
       'omahaHiLoTournamentFirstIn',
@@ -422,9 +430,9 @@ describe('the owner order of 2026-11-14 22:01: every ledger option has an on/off
     expect(() => assertOptionSwitchRegistry([{ ...first, states: ['off'] as const }])).toThrow(
       /must support off and on/
     );
-    expect(() =>
-      assertOptionSwitchRegistry([{ ...first, name: Object.keys(OPTION_SWITCH_NOT_A_SWITCH)[0]! }])
-    ).toThrow(/a parameter, not an on\/off option/);
+    expect(() => assertOptionSwitchRegistry([{ ...first, name: 'decisionTimeMs' }])).toThrow(
+      /a parameter, not an on\/off option/
+    );
   });
 
   it('an option under an owner hold or measured harmful is registered with a switch and carries its hold or verdict', () => {
@@ -836,13 +844,9 @@ describe('condition 1: a switch never reaches what an authority or the manifest 
       HORSE_FEATURE_FLAGS.length
     );
     expect(pick(look.opts.at(-1)!)).toEqual(pick(before.opts.at(-1)!));
-    expect(switchedKeys(look.opts.at(-1)!).sort()).toEqual(
-      sorted(OPTION_SWITCH_PLAIN_NAMES.filter((n) => !WORKER_HANDS.includes(n)))
-    );
-    // the registered keys a decision carries with no switch at all are exactly the worker's own
-    expect(
-      sorted(Object.keys(before.opts.at(-1)!).filter((k) => OPTION_SWITCH_PLAIN_NAMES.includes(k)))
-    ).toEqual(sorted(WORKER_HANDS));
+    expect(switchedKeys(look.opts.at(-1)!).sort()).toEqual(sorted(OPTION_SWITCH_PLAIN_NAMES));
+    // with no switch at all a decision carries no registered key: the worker hands none of them itself
+    expect(switchedKeys(before.opts.at(-1)!)).toEqual([]);
     // the published manifest does not depend on the switch
     expect(manifestNow()).toBe(manifestBefore);
     for (const name of OPTION_SWITCH_NAMES) expect(AUTHORITY_KEY(name), name).toBe(false);
