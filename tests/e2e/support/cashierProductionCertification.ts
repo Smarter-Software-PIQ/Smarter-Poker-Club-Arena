@@ -1,11 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, type Locator, type Page, type TestInfo } from '@playwright/test';
+import { inexactFigures } from './exact-figure';
 
-// Real figures are never rounded or abbreviated (owner ruling 2026-11-13,
-// #10797): exactChips keeps separators and cents and never prints K/M/B. The
-// earlier rule here refused any decimal, which a correct exact total now has.
-// Refuse an abbreviated figure such as 1.5K, 393K or 2B instead.
-export const ABBREVIATED_FIGURE = /(?:^|[^\w.,])[-+]?\d+(?:\.\d+)?[KMB](?![A-Za-z])/;
 // Chip wallets retain US grouping and exactly two decimals at every magnitude.
 // Diamonds retain their separate whole-count and large-count contract.
 const EXACT_WALLET = /^-?(?:0|[1-9]\d{0,2}(?:,\d{3})*)\.\d{2}$/;
@@ -69,12 +65,13 @@ export async function expectCashierAxeClean(
   expect(violations, `${name} has serious or critical Axe violations`).toEqual([]);
 }
 
-export async function expectNoAbbreviatedCashierFigures(
-  surface: Locator,
-  name: string
-): Promise<void> {
-  const text = (await surface.innerText()).replace(/\s+/g, ' ').trim();
-  expect(text, `${name} shows an abbreviated figure`).not.toMatch(ABBREVIATED_FIGURE);
+// Real figures are never rounded or abbreviated (owner ruling 2026-11-13,
+// #10797). Every node that carries a figure must print an exact one: separators,
+// cents kept, never K/M/B. The earlier rule here refused any decimal, which a
+// correct exact figure now has. Only figure nodes are read, never the page text.
+export async function expectExactCashierFigures(figures: Locator, name: string): Promise<void> {
+  const texts = await figures.allInnerTexts();
+  expect(inexactFigures(texts), `${name} shows a figure that is not exact`).toEqual([]);
 }
 
 export function expectCashierWalletFigure(

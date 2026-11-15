@@ -20,7 +20,7 @@ import { cashierStatementRouteMatches } from './support/cashierStatementRouteObs
 import {
   attachCashierScreenshot,
   expectCashierAxeClean,
-  expectNoAbbreviatedCashierFigures,
+  expectExactCashierFigures,
 } from './support/cashierProductionCertification';
 import { ENTRY_PILL, EXACT_FIGURE } from './support/exact-figure';
 
@@ -257,7 +257,18 @@ test.describe('Cashier Statements - authenticated production route', () => {
         !entry.url.includes('favicon')
     );
     expect(critical, critical.map((entry) => `${entry.url}: ${entry.text}`).join('\n')).toEqual([]);
-    await expectNoAbbreviatedCashierFigures(surface, 'Full Statement');
+    // Every row amount on the glass (the last span of each entry button) and
+    // every total is an exact figure. Reference codes and names are not figures.
+    await expectExactCashierFigures(
+      surface.locator(
+        'section[aria-labelledby="statement-entries-title"] button[aria-expanded] > span:last-child'
+      ),
+      'Full Statement entries'
+    );
+    await expectExactCashierFigures(
+      surface.locator('[aria-label="Statement Totals"] strong'),
+      'Full Statement totals'
+    );
     await expectCashierAxeClean(
       page,
       testInfo,

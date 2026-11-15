@@ -4,10 +4,10 @@
  * prints and refuse an abbreviated figure, which would now be a regression of
  * the owner's 2026-11-13 ruling (real figures are never rounded or abbreviated).
  */
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { exactChips } from '../src/utils/format';
-import { ENTRY_PILL, EXACT_FIGURE } from './e2e/support/exact-figure';
-import { ABBREVIATED_FIGURE } from './e2e/support/cashierProductionCertification';
+import { ENTRY_PILL, EXACT_FIGURE, inexactFigures } from './e2e/support/exact-figure';
 
 describe('the statements certificate reads exact figures', () => {
   const values = [0, 7, 2111, 177488.28, 1234567.5, 0.01, 1e9, -12.5, -177488.28];
@@ -32,16 +32,28 @@ describe('the statements certificate reads exact figures', () => {
     expect('2.1K Entries').not.toMatch(ENTRY_PILL);
   });
 
-  it('the page-wide guard refuses abbreviations and accepts exact figures with cents', () => {
-    for (const text of ['Net 1.5K Chips', 'Total 393K', 'In: 2B', '(12.5M)'])
-      expect(text, text).toMatch(ABBREVIATED_FIGURE);
-    for (const text of [
-      `Net ${exactChips(177488.28)} Chips`,
-      `In: ${exactChips(2111)}`,
-      'KINGS CLUB',
-      'Week 46 Statement',
-      'Balance After: 1,234.50',
-    ])
-      expect(text, text).not.toMatch(ABBREVIATED_FIGURE);
+  it("the figure guard names inexact figures and passes the failed run's row amounts", () => {
+    expect(inexactFigures(['+1.50', '-76.26', ' 1,145.65 ', '0', exactChips(177488.28)])).toEqual(
+      []
+    );
+    expect(inexactFigures(['+1.5K', '393K', '2B', '12.5M', '1,145.65'])).toEqual([
+      '+1.5K',
+      '393K',
+      '2B',
+      '12.5M',
+    ]);
+  });
+
+  it('the certificate reads figure nodes only, so references and names never trip it', () => {
+    // Review B1: these are on the Statements page beside the figures.
+    const spec = readFileSync('tests/e2e/production-cashier-statements.spec.ts', 'utf8');
+    const support = readFileSync('tests/e2e/support/cashierProductionCertification.ts', 'utf8');
+    expect(spec).not.toMatch(/expectExactCashierFigures\(\s*surface\s*,/);
+    expect(support).not.toContain('ABBREVIATED_FIGURE');
+    expect(spec).toContain('button[aria-expanded] > span:last-child');
+    // Were such text ever handed in as a figure, it is refused, not skipped.
+    expect(
+      inexactFigures(['Ref 262B2E2F', 'Ref 6B6424ED', 'Ref 1234567B', 'To 100K'])
+    ).toHaveLength(4);
   });
 });

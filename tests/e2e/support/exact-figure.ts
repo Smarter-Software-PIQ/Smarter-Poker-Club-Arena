@@ -12,5 +12,14 @@
  */
 export const EXACT_FIGURE = /^[+-]?\d{1,3}(?:,\d{3})*(?:\.\d+)?$/;
 
+/**
+ * The texts that are not exact figures. The certificate hands this the text of
+ * the nodes that carry figures (totals, row amounts), never the whole page: a
+ * page-wide scan for K/M/B also matched reference codes such as "Ref 262B2E2F"
+ * and names such as "100K" (independent review of aa6040f7, B1).
+ */
+export const inexactFigures = (texts: readonly string[]): string[] =>
+  texts.map((text) => text.replace(/\s+/g, ' ').trim()).filter((text) => !EXACT_FIGURE.test(text));
+
 /** The entry-count pill: "1 Entry", "2,111 Entries", or "Live Ledger". */
 export const ENTRY_PILL = /^(?:\d{1,3}(?:,\d{3})* (?:Entry|Entries)|Live Ledger)\s*$/;
