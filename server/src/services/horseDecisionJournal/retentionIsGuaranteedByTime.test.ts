@@ -305,7 +305,7 @@ describe('draining an archive far over its byte allocation', () => {
 describe('the runtime allocation, edges (N9)', () => {
   it('accepts 168 h, refuses 169 h, and reads the floor from the environment', () => {
     const env = (v: Record<string, string>) =>
-      runtimeHorseJournalWriterArchiveOptions('/tmp/x', { ...v });
+      runtimeHorseJournalWriterArchiveOptions(join(tmpdir(), 'x'), { ...v });
     expect(env({ HORSE_DECISION_JOURNAL_ARCHIVE_MIN_RETENTION_HOURS: '168' }).minRetentionMs).toBe(
       168 * H
     );
