@@ -24,6 +24,7 @@ import {
 } from '../services/horseCorrectiveReview/liveKernel.js';
 import { hasPhysicalImpliedDraw } from './HorseOmahaImpliedDraw.js';
 import { horsePlanHandKey } from './HorseDecisionEffects.js';
+import { horsePlanContextKey } from './HorsePlanHandIdentity.js';
 import { headsUpCashCommitment } from './HorseHeadsUpCommitment.js';
 import { limpReraiseEngagement, limpReraiseRate } from './HorseLimpReraiseRead.js';
 import {
@@ -539,10 +540,17 @@ import {
   personaFromValue,
   followsSolver,
   holdemPersonaFor,
+  holdemPersonaReRaiseScale,
   personaHash,
   ploPersonaFor,
   type HorsePersonaV2,
 } from './HorsePersona.js';
+import {
+  holdemPersonaContinueBar,
+  holdemPersonaOpenSharePct,
+  holdemPersonaRange,
+  type HoldemPersonaRange,
+} from './HorseHoldemPersonaPreflop.js';
 // V38 (2026-09-03): the EV engine — the arithmetic behind every choice, the
 // arbiter for the games with no solver export and for every river fold/call
 // the hold'em solver range did not answer. See HorseEvEngine.ts.
@@ -3048,6 +3056,34 @@ export interface HorseDecideOpts {
    *  node are unchanged; the tournament arbiter still runs after it. Default
    *  OFF: only explicit true turns it on. */
   committedStackPricedIn?: boolean;
+  /** PERSONA RE-RAISE MIX (2026-11-14, D3 option C; owner ruling 2026-11-13:
+   *  persona-specific 3-bets and squeezes, rollout gated). Two-card no-limit
+   *  hold'em only, cash and tournament. The 3-bet bluff and the squeeze bluff
+   *  keep consuming their random draw at the same place but decide on the
+   *  Horse's own zero-draw unit against the bluff probability scaled by its
+   *  Hold'em persona (nlh3BetMix over the model mean 0.42143, so 0.52 to
+   *  1.52, capped at a probability of 1). Shallow four-bet reshoves are not
+   *  persona-specific (that part of the plan line was not delivered, owner
+   *  decision R3-B, 2026-11-13). Value 3-bets, value squeezes, every reshove,
+   *  Omaha, short deck, pot limit, fixed limit, hi-lo and All-In-Or-Fold are
+   *  unchanged. A preflop range change. Default OFF: only explicit true turns
+   *  it on. */
+  holdemPersonaReRaiseMix?: boolean;
+  /** HOLD'EM PERSONA PREFLOP (2026-11-15, plan lines 85 and 152; module
+   *  HorseHoldemPersonaPreflop). One option for the Hold'em persona's preflop
+   *  layer, two-card no-limit hold'em only: (1) turns on the persona re-raise
+   *  mix above (3-bet and squeeze bluffs per hand + persona; reshoves stay
+   *  not persona-specific, R3-B); (2) on V85 cash tables deeper than 50bb,
+   *  shifts the seat's opening share and the defender's continue share by the
+   *  archetype's fixed points (LAG +4 / +1.5, Tricky 0 / 0, TAG -1 / -2, Nit
+   *  Hunter -3 / -3), tapering with the V85 depth weight, never narrowing on
+   *  a table with a VPIP floor, never moving a value bar or a tightness
+   *  multiplier; (3) a Nit Hunter facing a credibly wide opener or a
+   *  credibly loose limper (existing reads, never presumed) opens / isolates
+   *  +2 points and does not tighten its continue range. A preflop range
+   *  change. Default OFF: only
+   *  explicit true turns it on. */
+  holdemPersonaPreflop?: boolean;
   /** SHORT-STACK 3-BET DEFENCE (2026-11-07): the V73 read reaches 12bb
    *  effective (V73_SHORT_MIN_EFFECTIVE_BB) instead of 25bb, and a continuing
    *  hand whose call is the stack jams instead of folding: a 20bb opener
@@ -4451,6 +4487,65 @@ function v87CardSig(cards: readonly Card[] | undefined): string {
     out += `${cards[i].rank}${cards[i].suit}`;
   }
   return out;
+}
+
+/** PERSONA RE-RAISE MIX salts, one per behaviour (v86Hash01 salt). */
+const HOLDEM_PERSONA_RERAISE_SALT = { threeBet: 9101, squeeze: 9102 } as const;
+
+/**
+ * PERSONA RE-RAISE MIX (D3 option C): the Horse's zero-draw unit in [0,1) for
+ * one behaviour, DETERMINISTIC PER HAND. The key is the Horse id, the hand
+ * (table id and hand number), its exact hole cards (order-free) and the
+ * behaviour's salt, and nothing else: no seat, stack or pot, so every
+ * decision the Horse makes in the hand, at any pot, reads the same unit for
+ * the same behaviour.
+ *
+ * The hand is `opts.mindPlanContext.hand`. The live worker derives it from
+ * the decision snapshot (fence table:hand:seat..., generation, seat, journal
+ * coordinate) with horsePlanContextFromDecision, for the fast decision
+ * (workerRuntime executeFast) and for the deep second look (executeDeep)
+ * alike; a retry of the turn carries the same table and hand; and an exact
+ * replay feeds the journaled snapshot through the same worker runtime
+ * (horseDecision/replay/runtimeReplay), so it derives the same value.
+ * `opts.mindObservationHand` holds the same pair but is NOT used: the deep
+ * second look is not given it. The request id, decision key, generation and
+ * decision time are per turn or per request, not per hand.
+ */
+function holdemPersonaReRaiseUnit(
+  salt: number,
+  userId: string,
+  hole: readonly Card[],
+  handKey: string
+): number {
+  const cards = hole.map((c) => `${c.rank}${c.suit}`).sort();
+  return v86Hash01(`hprr2|${userId}|${handKey}|${cards.join(',')}`, salt);
+}
+
+/**
+ * THE FALLBACK, for a caller that supplies no hand (a direct or offline
+ * caller that predates the plan context; a live snapshot whose fence does not
+ * name a table and an allocated hand). NOT deterministic per hand: the key is
+ * the public state the V87 preflop mixes hash (seat, dealer seat, stack and
+ * pot in quarter big blinds, dealt seats), which moves within a hand, and a
+ * Horse whose seat, stack and pot repeat gets the same answer for the same
+ * cards. Counted by holdem_persona_hand_identity_fallback_seen. The league
+ * card and the measuring probe supply a hand and never come here.
+ */
+function holdemPersonaReRaiseFallbackUnit(
+  salt: number,
+  userId: string,
+  hole: readonly Card[],
+  seat: number,
+  dealerSeat: number | undefined,
+  stackBB: number,
+  potBB: number,
+  tableSize: number
+): number {
+  const cards = hole.map((c) => `${c.rank}${c.suit}`).sort();
+  return v86Hash01(
+    `hprr|${userId}|${cards.join(',')}|${seat | 0}|${(dealerSeat ?? 0) | 0}|${Math.round(stackBB * 4)}|${Math.round(potBB * 4)}|${tableSize | 0}`,
+    salt
+  );
 }
 
 function v87SpotUnit(
@@ -9649,6 +9744,9 @@ export class HorseLogic {
     let exploitPressure: AggressiveOpenerPressure | undefined;
     let exploitReRaiser: { fourBetBar: number; callBar: number } | undefined;
     let styleTightReRaiser: TightReRaiser | undefined;
+    // PERSONA RE-RAISE MIX: the opener / re-raiser is one the style read
+    // classifies as tight (set only inside the persona option's gate, below).
+    let personaHeldByTightRead = false;
     // The opener read as it was before the style read #6 replaced it (receipt
     // counterfactual and the VPIP floor keep-rule; equal when no style read).
     let exploitOpenerBeforeStyle: typeof exploitOpener;
@@ -9761,6 +9859,32 @@ export class HorseLogic {
               } else if (tightRe)
                 noteStyleShadowEngaged('styleTightReRaiserRespect', style.confidenceCap);
             }
+          }
+          // ═══ PERSONA RE-RAISE MIX: NEVER BLUFF A TIGHT PLAYER MORE ═══
+          // (2026-11-14, default off.) Only with the persona option on: is
+          // this opener / re-raiser one the style read classifies as tight?
+          // The SAME read and the SAME two classifiers the option
+          // styleTightReRaiserRespect uses just above (tightOpenerRespect,
+          // tightReRaiserRespect), asked whatever that option's state is
+          // (off, shadow, on) and whatever the depth: this is about who he
+          // is, not about whether the style bars move. It applies nothing of
+          // the style option: no bar, no style receipt, no shadow record, no
+          // style latency (styleReadUncounted). Its one effect is the persona
+          // cap in HorsePreflop: scale = min(1, scale). No read (mind off, no
+          // profile, a presumed read, too little data to be actionable) is
+          // not a tight read: unknown is not capped.
+          if (
+            (opts.holdemPersonaReRaiseMix === true || opts.holdemPersonaPreflop === true) &&
+            !vi.isOmaha &&
+            read?.presumed !== true
+          ) {
+            const personaStyle = HorseMind.styleReadUncounted(raiser.user_id);
+            personaHeldByTightRead =
+              (raises === 1
+                ? tightOpenerRespect(personaStyle)
+                : raises >= 2
+                  ? tightReRaiserRespect(personaStyle)
+                  : null) !== null;
           }
         }
         const allowOmahaIso86 =
@@ -10005,6 +10129,36 @@ export class HorseLogic {
     })();
     // At 50bb or less V85's ranges are the prior ranges, exactly.
     const defend85 = cashAction85 && depth85 > V85_DEPTH_NONE_BB;
+    // ═══ HOLD'EM PERSONA PREFLOP: RANGE WIDTH (2026-11-15, default OFF) ═══
+    // HorseHoldemPersonaPreflop. Two-card no-limit hold'em, V87 on, V85 cash
+    // action table, a Horse with an id. The archetype's fixed points move the
+    // opening share (gtoOpen70) and the continue share (gtoDefend72) in share
+    // space; the V85 depth weight makes them zero at 50bb or less. No draw,
+    // no tightness multiplier, no value bar. Undefined without the option.
+    const personaRange87: HoldemPersonaRange | undefined =
+      opts.holdemPersonaPreflop === true &&
+      v87On &&
+      cashAction85 &&
+      vi.holeCount === 2 &&
+      !vi.isOmaha &&
+      !vi.isShortDeck &&
+      !vi.isFixedLimit &&
+      !vi.isPotLimit &&
+      gs.allInOrFold !== true &&
+      player.cards.length === 2 &&
+      typeof player.user_id === 'string' &&
+      player.user_id.length > 0
+        ? holdemPersonaRange(
+            player.user_id,
+            Number(gs.vpipFloor ?? 0) > 0,
+            (raises === 1 && evidencedWideRaiser87) ||
+              (raises === 0 && limpers > 0 && exploitIso > 0)
+          )
+        : undefined;
+    if (personaRange87 && telemetryOn(opts)) {
+      if (personaRange87.floorHeld) noteFire('holdem_persona_floor_held_seen');
+      if (personaRange87.punishing) noteFire('holdem_persona_nit_punish_seen');
+    }
     const gtoOpen70 = (() => {
       if (opts.v70GtoOpeningRanges === false) return undefined;
       if (
@@ -10034,8 +10188,15 @@ export class HorseLogic {
       if (mapped === null) return undefined;
       const ante70 = (gs.ante ?? 0) > 0;
       if (telemetryOn(opts)) noteFire('v70_gto_open');
+      const target70 = cashAction85 ? v85OpenTargetShare(behind, ante70, dealt70, depth85) : 0;
+      const personaTarget70 =
+        cashAction85 && personaRange87 && personaRange87.shift.openPts !== 0
+          ? holdemPersonaOpenSharePct(target70, personaRange87.shift.openPts, depth85)
+          : target70;
+      if (personaTarget70 !== target70 && telemetryOn(opts))
+        noteFire('holdem_persona_open_shift_seen');
       const baseBar70 = cashAction85
-        ? scoreAtShare(v85OpenTargetShare(behind, ante70, dealt70, depth85) / 100)
+        ? scoreAtShare(personaTarget70 / 100)
         : gtoOpenBar(behind, ante70, dealt70, cashProfile85);
       return {
         strength: clamp01(mapped + strengthJitter),
@@ -10083,9 +10244,22 @@ export class HorseLogic {
       });
       if (!d72) return undefined;
       if (telemetryOn(opts)) noteFire('v72_defend_vs_opener');
+      // HOLD'EM PERSONA PREFLOP: the continue share moves by the archetype's
+      // points (cash action tables deeper than 50bb only; value bar fixed).
+      const continueBar72 =
+        defend85 && personaRange87 && personaRange87.shift.continuePts !== 0
+          ? holdemPersonaContinueBar(
+              d72.continueBar,
+              d72.valueBar,
+              personaRange87.shift.continuePts,
+              depth85
+            )
+          : d72.continueBar;
+      if (continueBar72 !== d72.continueBar && telemetryOn(opts))
+        noteFire('holdem_persona_continue_shift_seen');
       return {
         strength: clamp01(d72.continueStrength + strengthJitter),
-        continueBar: d72.continueBar,
+        continueBar: continueBar72,
         valueBar: d72.valueBar,
         bluffProb: d72.bluffProb,
         defender,
@@ -10319,6 +10493,48 @@ export class HorseLogic {
       ...(huLimpPrice ? { huLimpPrice } : {}),
       ...(opts.committedStackPricedIn === true
         ? { committedStackPricedIn: true, committedPayJumpLive: committedPayJumpLive(gs) }
+        : {}),
+      // PERSONA RE-RAISE MIX (D3 option C, default OFF). Two-card no-limit
+      // hold'em by a Horse with an id, and nothing else: no field is added
+      // for any other decision, so those run the code they ran before.
+      ...(opts.holdemPersonaReRaiseMix === true || opts.holdemPersonaPreflop === true
+        ? !vi.isOmaha &&
+          !vi.isShortDeck &&
+          !vi.isFixedLimit &&
+          !vi.isPotLimit &&
+          !vi.isHiLo &&
+          vi.holeCount === 2 &&
+          player.cards.length === 2 &&
+          typeof player.user_id === 'string' &&
+          player.user_id.length > 0
+          ? (() => {
+              const handKey = horsePlanContextKey(opts.mindPlanContext);
+              if (handKey === null && telemetryOn(opts))
+                noteFire('holdem_persona_hand_identity_fallback_seen');
+              const unitBB = bb > 0 ? bb : 1;
+              const unit = (salt: number) =>
+                handKey !== null
+                  ? holdemPersonaReRaiseUnit(salt, player.user_id, player.cards, handKey)
+                  : holdemPersonaReRaiseFallbackUnit(
+                      salt,
+                      player.user_id,
+                      player.cards,
+                      player.seat,
+                      gs.dealerSeat,
+                      player.stack / unitBB,
+                      gs.pot / unitBB,
+                      dealtHorseTableSize(gs, player.seat)
+                    );
+              return {
+                holdemPersonaReRaise: {
+                  scale: holdemPersonaReRaiseScale(player.user_id),
+                  u3bet: unit(HOLDEM_PERSONA_RERAISE_SALT.threeBet),
+                  uSqueeze: unit(HOLDEM_PERSONA_RERAISE_SALT.squeeze),
+                  ...(personaHeldByTightRead ? { heldByTightRead: true } : {}),
+                },
+              };
+            })()
+          : {}
         : {}),
       ...(gtoOpen70 ? { gtoOpen: gtoOpen70 } : {}),
       ...(gtoDefend72 ? { gtoDefend: gtoDefend72 } : {}),
@@ -10602,6 +10818,20 @@ export class HorseLogic {
               noteFire('style_tight_opener_respect_seen');
             else if (layer === 'style_tight_reraiser_respect_seen')
               noteFire('style_tight_reraiser_respect_seen');
+            else if (layer === 'holdem_persona_3bet_bluff_eligible_seen')
+              noteFire('holdem_persona_3bet_bluff_eligible_seen');
+            else if (layer === 'holdem_persona_3bet_bluff_changed_seen')
+              noteFire('holdem_persona_3bet_bluff_changed_seen');
+            else if (layer === 'holdem_persona_3bet_bluff_capped_seen')
+              noteFire('holdem_persona_3bet_bluff_capped_seen');
+            else if (layer === 'holdem_persona_squeeze_bluff_capped_seen')
+              noteFire('holdem_persona_squeeze_bluff_capped_seen');
+            else if (layer === 'holdem_persona_squeeze_bluff_eligible_seen')
+              noteFire('holdem_persona_squeeze_bluff_eligible_seen');
+            else if (layer === 'holdem_persona_squeeze_bluff_changed_seen')
+              noteFire('holdem_persona_squeeze_bluff_changed_seen');
+            else if (layer === 'holdem_persona_scale_held_by_style_seen')
+              noteFire('holdem_persona_scale_held_by_style_seen');
           }
         : undefined,
       isShortDeck: vi.isShortDeck === true,
