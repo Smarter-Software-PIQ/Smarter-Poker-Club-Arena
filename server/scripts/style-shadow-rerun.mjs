@@ -54,6 +54,8 @@ const serverRoot = resolve(here, '..');
 const repoRoot = resolve(serverRoot, '..');
 const SHA = /^[0-9a-f]{40}$/;
 const V4 = 'horse-decision-replay-state-v4';
+/** v5 also carries the switched non-style options; it is selected when it carries a style state (the re-run reads it). */
+const V5 = 'horse-decision-replay-state-v5';
 
 /** Review finding B6: a count that is not a positive whole number is an error, never zero work. */
 function positiveWholeNumber(name, raw) {
@@ -316,7 +318,7 @@ export async function readJournalCopy(
     decisionsInWindow++;
     const version = replayStateVersion(record) ?? 'unreadable';
     versions[version] = (versions[version] ?? 0) + 1;
-    if (version !== V4) return;
+    if (version !== V4 && version !== V5) return;
     const lane = laneOf(record);
     candidates.push({
       offset,

@@ -225,3 +225,55 @@ it('refuses a held acknowledgement that does not confirm sitting out', async () 
   });
   expect((await leaveSeatWithIntent(table, user)).success).toBe(false);
 });
+
+describe('room identity across a reused physical occupancy', () => {
+  const a = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const b = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  const target = (poolSessionId: string) => ({
+    seatNumber: 2,
+    occupancyId: occupancy,
+    poolSessionId,
+  });
+  it('concurrent A and B calls carry different identities and receive only their own answer', async () => {
+    let finishA!: (out: unknown) => void;
+    mocks.leave.mockImplementation((_table, _seat, _occupancy, _confirm, room) =>
+      room === a
+        ? new Promise((resolve) => {
+            finishA = resolve;
+          })
+        : Promise.resolve({ ...response(), poolSessionId: room })
+    );
+    const fromA = leaveSeatWithIntent(table, user, target(a));
+    const fromB = leaveSeatWithIntent(table, user, target(b));
+    expect((await fromB).success).toBe(true);
+    finishA({
+      ...response(),
+      poolSessionId: a,
+      success: false,
+      code: 'STALE_OCCUPANCY',
+      error: 'Stale room',
+    });
+    expect(await fromA).toMatchObject({ success: false, error: 'Stale room' });
+    expect(mocks.leave).toHaveBeenCalledTimes(2);
+  });
+  it('keeps a lost A and legacy physical request out of a later B and its retry', async () => {
+    const legacy = {
+      version: 1,
+      userId: user,
+      tableId: table,
+      seatNumber: 2,
+      occupancyId: occupancy,
+      state: 'pending',
+    };
+    localStorage.setItem(key, JSON.stringify(legacy));
+    localStorage.setItem(key + ':' + a, JSON.stringify({ ...legacy, poolSessionId: a }));
+    mocks.leave.mockResolvedValueOnce({ ...response(), poolSessionId: a });
+    expect((await leaveSeatWithIntent(table, user, target(b))).success).toBe(false);
+    expect(JSON.parse(localStorage.getItem(key + ':' + b)!).state).toBe('pending');
+    mocks.leave.mockResolvedValueOnce({ ...response(), poolSessionId: b });
+    expect((await leaveSeatWithIntent(table, user, target(b))).success).toBe(true);
+    expect(JSON.parse(localStorage.getItem(key + ':' + a)!).state).toBe('pending');
+    expect(JSON.parse(localStorage.getItem(key)!)).toEqual(legacy);
+    expect(mocks.leave.mock.calls.every((call) => call[4] === b)).toBe(true);
+  });
+});

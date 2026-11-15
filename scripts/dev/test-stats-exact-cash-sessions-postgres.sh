@@ -15,3 +15,5 @@ sed -n '/-- Close events must never manufacture/,/-- A session evidence URL is a
   -f "$repo/supabase/migrations/20261003142109_stats_exact_cash_sessions.sql" \
   -f "$work/session-repair.sql" \
   -f "$repo/tests/fixtures/stats-exact-cash-sessions/assertions.sql"
+"${psql[@]}" -f "$repo/supabase/migrations/20261115164243_player_menu_cash_session_stats.sql" \
+  -f "$repo/tests/fixtures/stats-exact-cash-sessions/player-menu.sql"

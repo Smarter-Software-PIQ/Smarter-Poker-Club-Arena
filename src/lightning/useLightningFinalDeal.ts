@@ -22,6 +22,7 @@ const visible = () => document.visibilityState !== 'hidden';
 export function useLightningFinalDeal(input: {
   userId: string | null | undefined;
   anchor: { tableId: string; occupancyId: string } | null;
+  poolSessionId?: string | null;
   currentHand: number;
   presentedHand: number | null;
   roomClosed: boolean;
@@ -34,11 +35,21 @@ export function useLightningFinalDeal(input: {
       ? lightningLeaveQueueKey(
           input.userId,
           input.anchor.tableId + '/' + input.anchor.occupancyId
-        ) + ':next-deal'
+        ) +
+        ':next-deal:v2:' +
+        (input.poolSessionId ?? 'feeder')
       : null;
   const [saved, setSaved] = useState(() => ({ key, after: restore(key) }));
   if (saved.key !== key) setSaved({ key, after: restore(key) });
   const after = saved.key === key ? saved.after : null;
+  const persistent = useRef(true);
+  useEffect(() => {
+    const sync = (event: StorageEvent) => {
+      if (key && (event.key === key || event.key === null)) setSaved({ key, after: restore(key) });
+    };
+    window.addEventListener('storage', sync);
+    return () => window.removeEventListener('storage', sync);
+  }, [key]);
   const [pendingKey, setPendingKey] = useState<string | null>(null);
   const flight = useRef<string | null>(null);
   const latest = useRef(input);
@@ -50,8 +61,9 @@ export function useLightningFinalDeal(input: {
     try {
       if (hand !== null) window.localStorage.setItem(key, String(hand));
       else window.localStorage.removeItem(key);
+      persistent.current = true;
     } catch {
-      // The intent still applies for this mounted seat.
+      persistent.current = false;
     }
     setSaved({ key, after: hand });
     return true;
@@ -63,13 +75,17 @@ export function useLightningFinalDeal(input: {
       return;
     }
     if (!pageVisible || !input.presentedHand || input.presentedHand <= after) return;
+    if (persistent.current && restore(key) !== after) {
+      setSaved({ key, after: restore(key) });
+      return;
+    }
     flight.current = key;
     setPendingKey(key);
     void latest.current
       .onPresented()
       .catch(input.onError)
       .finally(() => {
-        write(null);
+        if (!persistent.current || restore(key) === after) write(null);
         if (flight.current === key) {
           setPendingKey(null);
           flight.current = null;
@@ -80,6 +96,18 @@ export function useLightningFinalDeal(input: {
   }, [key, after, input.presentedHand, input.roomClosed, pageVisible]);
   return {
     queued: after !== null,
+    followIntoRoom: (room: string) => {
+      if (!key || input.poolSessionId || !room || !key.endsWith(':feeder')) return;
+      const hand = persistent.current ? restore(key) : after;
+      if (hand === null) return;
+      try {
+        const nextKey = key.slice(0, -'feeder'.length) + room;
+        window.localStorage.setItem(nextKey, String(hand));
+        write(null);
+      } catch {
+        input.onError();
+      }
+    },
     pending: key !== null && pendingKey === key,
     queue: () => write(input.currentHand),
     cancel: () => {

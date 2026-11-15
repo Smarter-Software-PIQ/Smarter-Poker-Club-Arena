@@ -836,7 +836,16 @@ async function runSpot(
       key === 'phase15_policy_unregistered'
   );
   owe(fallbacks.length === 0, `fallback counters ${fallbacks}`);
-  owe(horseDecisionReceiptIsValid(decision, variant), `invalid receipt, ${got}`);
+  // Validated as production does (client.ts passes the request): rules that
+  // turn a raise into a call are admitted only where re-running them on the
+  // request agrees.
+  owe(
+    horseDecisionReceiptIsValid(decision, variant, {
+      player: request.player,
+      gameState: request.gameState,
+    }),
+    `invalid receipt, ${got}`
+  );
   owe(
     counted.phase5_canonical_state === 1,
     `phase5_canonical_state=${counted.phase5_canonical_state}`

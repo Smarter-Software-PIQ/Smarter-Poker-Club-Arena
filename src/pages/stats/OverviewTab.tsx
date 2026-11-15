@@ -281,6 +281,7 @@ export default function OverviewTab({
             rangeLabel={rangeLabel === 'All' ? 'All Time' : `Last ${rangeLabel}`}
             scopeLabel={clubLabel}
             privacyPresentationMode={privacyPresentationMode}
+            profileUserId={targetUserId}
           />
         </PanelBoundary>
       )}

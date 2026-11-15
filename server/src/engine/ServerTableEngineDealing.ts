@@ -1,3 +1,6 @@
+import { confirmedHuman } from './HorseConfirmedSeatRole.js';
+import { horseSavedProfilePresence } from '../services/HorseSavedProfilePresence.js';
+import { publicMemoryDomainFromRules } from './HorsePublicMemoryDomain.js';
 /**
  * ServerTableEngine, layer 5/8 — the dealing loop, blinds refresh, hand deal, hole-card delivery.
  *
@@ -526,12 +529,12 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
               } else if (!this.returningFromSitout.has(p.user_id) && !this.isTournamentTable()) {
                 this.registerWaitForBB(p.user_id);
                 if (entryHold === 'waiting' && entryAgreed) {
-                  // A SEAT CHANGE ARRIVES (Dan 2026-09-05): "SEAT CHANGE ALWAYS
-                  // RE POSTS THE BB WHEN GETTING TO A NEW TABLE." The executor
-                  // wrote the agreement on the chair; the same replay that
-                  // honours a tapped POST honours it - the live big blind on
-                  // the next deal, held until clear if they landed between the
-                  // button and the blind.
+                  // An arrival already carrying a standing agreement to post.
+                  // Since 2026-11-15 no seat move writes one (every move lands
+                  // 'moved', docs/LAWS.md "A moved player never posts to
+                  // enter"); a row written before then is honoured once - the
+                  // live big blind on the next deal, held until clear if it
+                  // landed between the button and the blind.
                   this.postBBWhenClear.add(p.user_id);
                   this.persistEntryHold(p.user_id, { hold: 'waiting', agreed: true });
                 }
@@ -4066,6 +4069,34 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           : undefined
       );
       const preparedController = this.handController;
+      // The upcoming roster can start a read. Only a later FAST with the same
+      // actual dealt seats, original hand, lease and rules can use its result.
+      if (
+        players.some(confirmedHuman) &&
+        players.some((p) => p.is_horse === true) &&
+        players.every((p) => typeof p.is_horse === 'boolean')
+      ) {
+        const lease = this.getEngineLeaseAuthority();
+        const blinds = preparedController.getBlindSnapshot();
+        const domain =
+          blinds && publicMemoryDomainFromRules('table', blinds.ante, blinds.bigBlindAnte);
+        if (lease?.verified && lease.generation && domain) {
+          horseSavedProfilePresence.prime({
+            tableId: this.tableId,
+            handNumber,
+            lease: lease.generation,
+            variant: config.gameVariant,
+            mode: this.isTournamentTable() ? 'tournament' : 'cash',
+            domain,
+            roster: players.map((p) => ({
+              seat: p.seat_number,
+              id: p.user_id,
+              human: confirmedHuman(p),
+            })),
+          });
+        }
+      }
+
       this.currentHandCashRakePolicy =
         !config.isTournament && config.asset !== 'diamonds'
           ? preparedController.getRakeConfigSnapshot()

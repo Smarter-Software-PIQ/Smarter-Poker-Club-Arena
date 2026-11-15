@@ -1,3 +1,4 @@
+import { useFitText } from '../lobby/game-cards/useFitText';
 /**
  * CLUB ARENA — Action Panel Component (Premium PokerBros-Style)
  * Large action buttons: Fold (red), Check/Call (green), Raise (amber/gold)
@@ -11,8 +12,16 @@ import { TapHaptic } from '../haptics/TapHaptic';
 import '../../styles/table-design-tokens.css';
 import './ActionPanel.css';
 import { formatBigBlinds, formatTableChips } from '../../utils/format';
+import {
+  ACTION_CONTROLLER_COLORS,
+  normalizeActionController,
+  type ActionControllerSettings,
+} from '../../lib/actionController';
+import './ActionController.css';
 
 interface ActionPanelProps {
+  controllerSettings?: ActionControllerSettings;
+  maxPlayers?: number;
   canFold: boolean;
   canCheck: boolean;
   canCall: boolean;
@@ -48,6 +57,7 @@ interface ActionPanelProps {
    * structure is not half (2/5, 3/6) so the grid is exact rather than close.
    */
   smallBlind?: number;
+  shoveOrFold?: boolean;
   onAction: (action: 'fold' | 'check' | 'call' | 'raise' | 'allin', amount?: number) => void;
   isMyTurn?: boolean;
   /**
@@ -123,7 +133,7 @@ interface ActionPanelProps {
    * on Escape. A nonce rather than a plain boolean so pressing the same preset
    * twice re-opens the panel.
    */
-  raiseIntent?: { nonce: number; open: boolean; amount?: number };
+  raiseIntent?: { nonce: number; open: boolean; amount?: number; presetIndex?: number };
   /**
    * @deprecated Dan 2026-08-27: "there should be a slider located on the right,
    * that slides up and down (NEVER SIDE TO SIDE)."
@@ -180,6 +190,15 @@ interface ActionPanelProps {
    * reference.
    */
   onRaiseModeChange?: (open: boolean) => void;
+}
+
+function ControllerLabel({ text }: { text: string }) {
+  const ref = useFitText<HTMLSpanElement>(text, 1, 0.2);
+  return (
+    <span ref={ref} className="action-controller-label">
+      {text}
+    </span>
+  );
 }
 
 // Dan 2026-08-28: bet/raise amounts are never abbreviated — see
@@ -299,6 +318,8 @@ export interface RaisePreset {
 }
 
 export interface RaisePresetInput {
+  preflopPresets?: number[];
+  postflopPresets?: number[];
   isPreflop: boolean;
   bigBlind: number;
   /** Highest bet on the current street, as a raise-TO absolute. */
@@ -435,7 +456,7 @@ export function computeRaisePresets(input: RaisePresetInput): RaisePreset[] {
 
   /** POT is exact; fractions keep their existing slider-grid sizing. */
   const finalize = (label: string, raw: number): RaisePreset => {
-    if (label === 'POT') {
+    if (label === 'POT' || label === '100%') {
       // The engine accepts wager units between blind-sized slider steps.
       // 300/600 with a 7,205 pot must bet 7,205, not ceil to 7,500.
       const ceiling = Math.floor(maxRaise / unit + 1e-9) * unit;
@@ -482,82 +503,32 @@ export function computeRaisePresets(input: RaisePresetInput): RaisePreset[] {
     return { label, raw, value: exact, cappedByMax: false };
   };
 
-  /**
-   * ── THE MULTIPLIER ROW (Dan 2026-08-28, mobile pass item 1) ───────────────
-   *
-   * Verbatim: "WE DON'T NEED ALL OF THOSE MULTIPLIERS. 2.5X 3X 3.5X 4X POT AND
-   * ALL IN ARE FINE. (REMOVE 2X AND 5X)"
-   *
-   * So the row is `MULTIPLES` + POT, and ALL IN is appended by the renderer.
-   * Seven buttons became six, and on a 375px phone that is the difference
-   * between a comfortable hit area and a row of slivers — the previous set had
-   * ALL IN clipped at the right edge in Dan's screenshot.
-   *
-   * WHY THESE FOUR. 2X was never a raise anyone makes: preflop it is a min-open
-   * and postflop it is a min-raise, both of which the slider already reaches and
-   * neither of which wants a dedicated button. 5X is past the point where a
-   * player sizes by multiple rather than by pot. What is left is the band people
-   * actually open and 3-bet into, and 3.5X — which the row never had — is the
-   * gap between the 3X and 4X it sat between.
-   *
-   * NO POT BUTTON PREFLOP IN NO-LIMIT, and this is deliberate rather than an
-   * omission — I added one while making the row uniform and had to take it back
-   * out. Preflop unopened the pot is just the blinds, so a pot-sized raise at
-   * 1/2 is a raise TO 4: SMALLER than the 2.5X button sitting to its left. The
-   * row is read left to right as ascending sizes, and a POT that undercuts every
-   * multiple beside it breaks that reading. Pot-limit keeps its preflop POT
-   * because that sizing is the game.
-   */
-  const MULTIPLES = [2.5, 3, 3.5, 4];
-
-  /**
-   * Pot-limit truncates the row, and this is not a style choice: `maxRaise` is
-   * pinned to the pot cap, so every multiple above it clamps onto that same
-   * number. Left alone, PLO would draw three or four buttons that all bet the
-   * identical amount. Preflop the cap is far enough out that all four are
-   * distinct; facing a bet postflop it bites at 3X.
-   */
-  const potLimited = (all: number[], cap: number) => all.filter((n) => n <= cap);
-
+  // Four configurable preflop multipliers become four configurable pot
+  // percentages on every postflop street (owner direction 2026-11-15).
+  const configured = normalizeActionController({
+    preflop: input.preflopPresets,
+    postflop: input.postflopPresets,
+  });
   if (isPreflop) {
-    // The bet being faced. Unopened pot -> the big blind.
-    const base = Math.max(currentBet, bigBlind) || bigBlind || 1;
-    const multiples = isPotLimit ? potLimited(MULTIPLES, 4) : MULTIPLES;
-    const presets = multiples.map((n) => finalizeExact(`${n}X`, base * n));
-    if (isPotLimit) {
-      // The ceiling includes full nominal blinds when a blind is short.
-      presets.push(finalize('POT', maxRaise));
-    }
-    return presets;
+    const base = Math.max(currentBet, bigBlind) || 1;
+    return [
+      ...configured.preflop.map((n) => finalizeExact(`${n}X`, base * n)),
+      finalize('POT', isPotLimit ? maxRaise : potSizedRaiseTo(currentBet, pot, callAmount)),
+    ];
   }
-
-  // ── Dan 2026-08-21: "when you are facing a bet, 3X and 4X must be
-  // clickable options." Postflop FACING A BET mirrors the preflop grammar —
-  // exact multiples of the bet being faced (rule 7: base = the last bet) —
-  // plus POT. Fractions only make sense when nobody has bet yet.
-  if (currentBet > 0) {
-    const multiples = isPotLimit ? potLimited(MULTIPLES, 3) : MULTIPLES;
-    const presets = multiples.map((n) => finalizeExact(`${n}X`, currentBet * n));
-    presets.push(finalize('POT', potSizedRaiseTo(currentBet, pot, callAmount)));
-    return presets;
-  }
-
-  // Postflop fractions are "bet f x the pot I'd be raising into", as raise-TO
-  // absolutes: currentBet + f * (pot + callAmount). At f = 1 this is exactly
-  // potSizedRaiseTo. The previous formula added `callAmount` a second time, so
-  // facing a bet the POT button offered MORE than a pot-sized raise - invisible
-  // in PLO because maxRaise clamped it back, but real money in no-limit.
-  const potToRaiseInto = pot + callAmount;
-  const fractions: Array<[string, number]> = [
-    ['33%', 0.33],
-    ['50%', 0.5],
-    ['75%', 0.75],
-    ['POT', 1],
+  // A postflop percentage is a fraction of the pot AFTER calling, raised
+  // above the current street bet. 100% is exactly the existing POT formula.
+  return [
+    ...configured.postflop.map((n) =>
+      finalize(`${n}%`, currentBet + ((pot + callAmount) * n) / 100)
+    ),
+    finalize('POT', potSizedRaiseTo(currentBet, pot, callAmount)),
   ];
-  return fractions.map(([label, f]) => finalize(label, currentBet + potToRaiseInto * f));
 }
 
 export default function ActionPanel({
+  controllerSettings,
+  maxPlayers = 6,
   canFold,
   canCheck,
   canCall,
@@ -570,6 +541,7 @@ export default function ActionPanel({
   pot,
   bigBlind,
   smallBlind,
+  shoveOrFold = false,
   onAction,
   isMyTurn = true,
   connectionStale = false,
@@ -902,6 +874,7 @@ export default function ActionPanel({
   const raiseIntentNonce = raiseIntent?.nonce;
   const raiseIntentOpen = raiseIntent?.open;
   const raiseIntentAmount = raiseIntent?.amount;
+  const raiseIntentPreset = raiseIntent?.presetIndex;
   const firstIntentRef = useRef(true);
   useEffect(() => {
     if (raiseIntentNonce === undefined) return;
@@ -915,13 +888,31 @@ export default function ActionPanel({
       return;
     }
     if (!isMyTurn || (!canRaise && !canAllIn)) return;
+    const selectedPreset =
+      raiseIntentPreset === undefined
+        ? undefined
+        : computeRaisePresets({
+            isPreflop,
+            bigBlind,
+            currentBet,
+            callAmount,
+            pot,
+            minRaise,
+            maxRaise,
+            isPotLimit,
+            smallestChip,
+            unit,
+            preflopPresets: controllerSettings?.preflop,
+            postflopPresets: controllerSettings?.postflop,
+          })[raiseIntentPreset]?.value;
+    const intendedAmount = selectedPreset ?? raiseIntentAmount;
     const target =
-      raiseIntentAmount === undefined
+      intendedAmount === undefined
         ? minRaise
-        : Math.min(Math.max(raiseIntentAmount, minRaise), maxRaise);
+        : Math.min(Math.max(intendedAmount, minRaise), maxRaise);
     haptic.light();
     setIsRaiseMode(true);
-    setRaiseAmount(snapToSliderGrid(target));
+    setRaiseAmount(clampAmount(target));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [raiseIntentNonce]);
 
@@ -956,9 +947,14 @@ export default function ActionPanel({
   // Preset sizing lives in `computeRaisePresets` above - a pure function so the
   // rules Dan set (multiples of the bet being faced; whole numbers; never past
   // the legal ceiling) are unit-testable instead of trapped inside a render.
+  const controller = normalizeActionController(controllerSettings);
+  const preflopPresetKey = controller.preflop.join(',');
+  const postflopPresetKey = controller.postflop.join(',');
   const presets = useMemo(
     () =>
       computeRaisePresets({
+        preflopPresets: preflopPresetKey.split(',').map(Number),
+        postflopPresets: postflopPresetKey.split(',').map(Number),
         isPreflop,
         bigBlind,
         currentBet,
@@ -974,6 +970,8 @@ export default function ActionPanel({
         unit,
       }),
     [
+      preflopPresetKey,
+      postflopPresetKey,
       isPreflop,
       bigBlind,
       currentBet,
@@ -1286,6 +1284,9 @@ export default function ActionPanel({
         step={sliderStep}
         value={raiseAmount}
         onChange={handleSliderChange}
+        onPointerDown={(event) => event.stopPropagation()}
+        onTouchStart={(event) => event.stopPropagation()}
+        onTouchMove={(event) => event.stopPropagation()}
         style={{ '--slider-progress': `${sliderProgress}%` } as React.CSSProperties}
         aria-label={`${wagerVerb} Amount`}
         aria-valuemin={minRaise}
@@ -1299,7 +1300,12 @@ export default function ActionPanel({
        sits in the reserved right-hand gutter (spec §5.2). */
     return (
       <div className="raise-layout">
-        <div className="raise-main">
+        <div className={`raise-main${showBetSizePresets ? '' : ' raise-main--no-presets'}`}>
+          <div className="action-controller-paint" aria-hidden="true" />
+          {!showBetSizePresets && (
+            <div className="action-controller-bottom-paint" aria-hidden="true" />
+          )}
+          <div className="action-controller-allin-paint" aria-hidden="true" />
           {/* Amount Display with +/- */}
           <div className="raise-header">
             <button
@@ -1348,7 +1354,7 @@ export default function ActionPanel({
                   aria-label={`Edit Bet Amount ${formatChips(raiseAmount)} - Opens Numeric Keyboard`}
                   title="Tap To Type Exact Amount"
                 >
-                  {formatChips(raiseAmount)}
+                  <ControllerLabel text={formatChips(raiseAmount)} />
                 </button>
               )}
               {/* Big blinds only when the player asked for them — chips are
@@ -1377,9 +1383,9 @@ export default function ActionPanel({
           {/* Preset Row */}
           {showBetSizePresets && (
             <div className="raise-presets">
-              {presets.map((p) => (
+              {presets.map((p, index) => (
                 <button
-                  key={p.label}
+                  key={`${p.label}-${index}`}
                   className={`raise-preset${raiseAmount === p.value ? ' raise-preset--on' : ''}`}
                   onClick={() => setPreset(p.value)}
                   /* Only dead when there is no legal raise at all. The old
@@ -1412,13 +1418,6 @@ export default function ActionPanel({
           )}
           {/* Confirm / Cancel Row */}
           <div className="raise-actions">
-            <button
-              className="raise-cancel"
-              onClick={() => setIsRaiseMode(false)}
-              aria-label="Back"
-            >
-              Back
-            </button>
             {/* 2026-08-20: the confirm button said "Raise N" even when N was
                   hero's whole stack and handleConfirmRaise was about to
                   dispatch `allin`. Now that the slider can actually reach the
@@ -1436,7 +1435,9 @@ export default function ActionPanel({
                   : `${wagerVerb} ${wagerAmount(raiseAmount)}`
               }
             >
-              {raiseAmount >= allInThreshold ? 'All In' : wagerVerb} {wagerAmount(raiseAmount)}
+              <ControllerLabel
+                text={`${raiseAmount >= allInThreshold ? 'All In' : wagerVerb} ${wagerAmount(raiseAmount)}`}
+              />
               <TapHaptic radius="14px" />
             </button>
           </div>
@@ -1476,7 +1477,11 @@ export default function ActionPanel({
                     style={{ bottom: `${pct}%` }}
                   >
                     <span className="raise-slider-vertical__tick-label">
-                      {isTop ? 'ALL IN' : (asBB(val)?.replace(' BB', 'BB') ?? formatChips(val))}
+                      {isTop
+                        ? maxRaise >= allInThreshold
+                          ? 'ALL IN'
+                          : 'POT'
+                        : (asBB(val)?.replace(' BB', 'BB') ?? formatChips(val))}
                     </span>
                   </div>
                 );
@@ -1513,6 +1518,15 @@ export default function ActionPanel({
       }${isRaiseMode ? ' action-panel--raise action-panel--raise-vertical' : ''}${
         connectionStale ? ' action-panel--stale' : ''
       }`}
+      data-controller-color={controller.color}
+      style={
+        {
+          '--controller-filter': ACTION_CONTROLLER_COLORS.find(
+            (color) => color.id === controller.color
+          )?.filter,
+        } as React.CSSProperties
+      }
+      data-table-capacity={maxPlayers >= 9 ? '9' : '6'}
       data-connection={connectionStale ? 'stale' : 'live'}
     >
       {raiseOverlay}
@@ -1577,7 +1591,7 @@ export default function ActionPanel({
             {isDesktop && <span className="action-btn__shortcut">C</span>}
             <TapHaptic radius="10px" />
           </button>
-        ) : canCall ? (
+        ) : canCall || shoveOrFold ? (
           <button
             className="action-btn action-btn--call"
             onClick={() => {
@@ -1611,7 +1625,7 @@ export default function ActionPanel({
         {/* RAISE — Amber/Orange, Right. Dan 2026-10-22: when no wager is
             legal (a short all-in that did not reopen the betting, a capped
             round) the bar is Fold and Call only - no disabled Raise. */}
-        {noWager ? null : canAllIn && !canRaise ? (
+        {noWager && !shoveOrFold ? null : shoveOrFold || (canAllIn && !canRaise) ? (
           <button
             className="action-btn action-btn--allin"
             onClick={handleAllIn}

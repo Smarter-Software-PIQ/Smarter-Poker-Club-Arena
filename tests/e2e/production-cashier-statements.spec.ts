@@ -225,7 +225,8 @@ test.describe('Cashier Statements - authenticated production route', () => {
             const figures = (await totals.locator('strong').allTextContents()).map(asText);
             return figures.length === 4 && figures.every((figure) => FIGURE.test(figure))
               ? 'figures'
-              : `pending:${figures.join('|')}`;
+              : // The count only: a club's totals never go into the run log.
+                `pending:${figures.length} figures`;
           },
           { timeout: 30_000, message: 'Statement Totals never reached a terminal state' }
         )

@@ -1,0 +1,421 @@
+/* Approved painted chassis. Palette treatments are owned by actionController.ts. */
+.action-controller-paint,
+.action-controller-allin-paint {
+  position: absolute;
+  inset: 0;
+  background: url('/assets/club-buttons/action-controller-v1/chassis.webp') center / 100% 100%
+    no-repeat;
+  pointer-events: none;
+}
+.action-controller-paint {
+  filter: var(--controller-filter, none);
+}
+/* All In remains red, independent of the player's decorative palette. */
+.action-controller-allin-paint {
+  clip-path: inset(37% 3% 38% 81%);
+}
+.action-panel[data-controller-color].action-panel--raise {
+  padding: 0 0 env(safe-area-inset-bottom);
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+}
+.action-panel[data-controller-color] .raise-layout {
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto;
+  gap: 0;
+  container-type: inline-size;
+}
+.action-panel[data-controller-color] .raise-main {
+  position: relative;
+  width: 100%;
+  flex: none;
+  height: clamp(176px, 46.91cqw, 298px);
+  padding: 0;
+  gap: 0;
+  background: none;
+  border: 0;
+  box-shadow: none;
+}
+.action-panel[data-controller-color] .raise-header {
+  position: absolute;
+  inset: 10% 13.8% 64%;
+  display: grid;
+  grid-template-columns: 23% 54% 23%;
+  gap: 0;
+  padding: 0;
+  margin: 0;
+}
+.action-panel[data-controller-color] .raise-adjust,
+.action-panel[data-controller-color] .raise-value,
+.action-panel[data-controller-color] .raise-value__amount,
+.action-panel[data-controller-color] .raise-value__input,
+.action-panel[data-controller-color] .raise-preset,
+.action-panel[data-controller-color] .raise-confirm {
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: #f4f7fb;
+  font-family: 'Roboto Condensed', sans-serif;
+  font-weight: 800;
+  text-shadow: 0 1px 2px #050607;
+  text-transform: uppercase;
+  transition:
+    transform 100ms ease,
+    opacity 100ms ease;
+}
+.action-panel[data-controller-color] .raise-adjust {
+  font-size: 7cqw;
+}
+.action-panel[data-controller-color] .raise-value {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+.action-panel[data-controller-color] .raise-value__amount,
+.action-panel[data-controller-color] .raise-value__input {
+  font-size: clamp(22px, 7cqw, 44px);
+  text-align: center;
+  max-width: 90%;
+}
+.action-panel[data-controller-color] .raise-value__bb {
+  position: absolute;
+  bottom: 0;
+  font-size: 2.4cqw;
+}
+.action-panel[data-controller-color] .raise-presets {
+  position: absolute;
+  inset: 37% 3.2% 38%;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.5%;
+  padding: 0;
+  margin: 0;
+}
+.action-panel[data-controller-color] .raise-preset {
+  font-size: clamp(10px, 3.5cqw, 22px);
+  letter-spacing: -0.03em;
+}
+.action-panel[data-controller-color] .raise-preset--on {
+  outline: 2px solid #f4f7fb;
+  outline-offset: -7px;
+}
+.action-panel[data-controller-color] .raise-actions {
+  position: absolute;
+  inset: 64% 3.2% 8%;
+  display: block;
+  margin: 0;
+  padding: 0;
+}
+.action-panel[data-controller-color] .raise-confirm {
+  font-size: clamp(20px, 6cqw, 38px);
+}
+.action-panel[data-controller-color] button:active:not(:disabled) {
+  transform: translateY(2px) scale(0.98);
+}
+.action-panel[data-controller-color] button:disabled {
+  opacity: 0.35;
+}
+.action-panel[data-controller-color] button:focus-visible {
+  outline: 2px solid #f4f7fb;
+  outline-offset: -6px;
+}
+/* The pod is above the controller, never in its frame. Seat overlap is allowed. */
+.action-panel[data-controller-color] .raise-slider-vertical {
+  top: auto;
+  bottom: calc(100% + 4px);
+  right: 6px;
+  width: 58px;
+  height: clamp(116px, 14vh, 160px);
+  display: block;
+  pointer-events: auto;
+  background: url('/assets/club-buttons/action-controller-v1/slider.webp') center / 100% 100%
+    no-repeat;
+  filter: var(--controller-filter, none);
+}
+.action-panel[data-controller-color] .raise-slider-vertical__rail {
+  position: absolute;
+  inset: 16% 12px 17%;
+  width: auto;
+  margin: 0;
+}
+.action-panel[data-controller-color] .raise-slider-vertical__rail .raise-slider {
+  height: 44px;
+  min-height: 0;
+  touch-action: none;
+}
+.action-panel[data-controller-color] .raise-slider-vertical__ticks {
+  display: none;
+}
+.action-panel[data-controller-color] .raise-slider-vertical__caps {
+  position: absolute;
+  bottom: 4%;
+  left: 0;
+  width: 100%;
+  height: auto;
+  justify-content: center;
+}
+.action-panel[data-controller-color] .raise-slider-vertical__cap {
+  color: #f4f7fb;
+  font-size: 11px;
+}
+.action-panel[data-controller-color] .raise-slider-vertical::after {
+  content: 'MAX';
+  position: absolute;
+  top: 5%;
+  left: 0;
+  width: 100%;
+  text-align: center;
+  font:
+    800 11px 'Roboto Condensed',
+    sans-serif;
+  color: #f4f7fb;
+  pointer-events: none;
+}
+/* Hide the optional preset row without leaving painted, nonfunctional keys. */
+.action-panel[data-controller-color] .raise-main--no-presets {
+  height: clamp(120px, 32cqw, 180px);
+}
+.action-panel[data-controller-color] .raise-main--no-presets .action-controller-paint {
+  clip-path: inset(0 0 64%);
+}
+.action-panel[data-controller-color] .raise-main--no-presets .action-controller-allin-paint {
+  clip-path: inset(64% 0 0);
+  top: -45%;
+}
+.action-panel[data-controller-color] .raise-main--no-presets .raise-actions {
+  top: 48%;
+}
+
+.action-controller-settings {
+  padding: 12px 0;
+  color: #f4f7fb;
+}
+.action-controller-settings h3 {
+  margin: 0 0 10px;
+  font:
+    700 18px 'Roboto Condensed',
+    sans-serif;
+  color: #45adff;
+}
+.action-controller-settings p {
+  font-size: 13px;
+  color: #9aa5b3;
+}
+.action-controller-colors {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(125px, 1fr));
+  gap: 10px;
+}
+.action-controller-choice {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: #f4f7fb;
+  cursor: pointer;
+}
+.action-controller-choice[aria-pressed='true'] {
+  outline: 2px solid #45adff;
+  outline-offset: 2px;
+}
+.action-controller-mini {
+  display: block;
+  position: relative;
+  aspect-ratio: 1831 / 859;
+  width: 100%;
+}
+.action-controller-mini strong {
+  position: absolute;
+  top: 66%;
+  left: 5%;
+  width: 90%;
+  text-align: center;
+  font:
+    800 12px 'Roboto Condensed',
+    sans-serif;
+}
+.action-controller-choice-name {
+  display: block;
+  padding: 5px;
+  font-size: 13px;
+}
+.action-controller-presets {
+  margin: 12px 0;
+  padding: 0;
+  border: 0;
+}
+.action-controller-presets legend {
+  font-size: 15px;
+  color: #45adff;
+}
+.action-controller-preset-fields {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.action-controller-preset-fields label {
+  display: flex;
+  flex-direction: column;
+  font-size: 12px;
+  gap: 4px;
+}
+.action-controller-preset-fields input {
+  min-width: 0;
+  width: 100%;
+  min-height: 44px;
+  background: #050607;
+  color: #f4f7fb;
+  border: 1px solid #9aa5b3;
+  font-size: 16px;
+  text-align: center;
+}
+.action-controller-presets button {
+  min-height: 44px;
+  padding: 6px 12px;
+  border: 0;
+  background: transparent;
+  color: #45adff;
+  font-size: 14px;
+}
+.action-controller-preset-error {
+  color: #ff5b6e;
+  font-size: 13px;
+}
+.action-controller-bottom-paint {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  filter: var(--controller-filter, none);
+}
+.action-controller-bottom-paint::before {
+  content: '';
+  position: absolute;
+  inset: -45% 0 0;
+  background: url('/assets/club-buttons/action-controller-v1/chassis.webp') center / 100% 100%
+    no-repeat;
+  clip-path: inset(64% 0 0);
+}
+.action-panel[data-controller-color] .raise-main--no-presets .action-controller-allin-paint {
+  display: none;
+}
+.action-panel[data-controller-color] .raise-main--no-presets .raise-header {
+  bottom: 55%;
+}
+.action-panel[data-controller-color] .action-btn {
+  position: relative;
+  isolation: isolate;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+.action-panel[data-controller-color] .action-btn::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: url('/assets/club-buttons/action-controller-v1/chassis.webp') 5% 50.5% / 663% 394%
+    no-repeat;
+  filter: var(--controller-filter, none);
+}
+.action-panel[data-controller-color] .action-btn--allin::before {
+  filter: hue-rotate(130deg);
+}
+.action-panel[data-controller-color] .action-btn--check::before,
+.action-panel[data-controller-color] .action-btn--call::before {
+  filter: hue-rotate(265deg);
+}
+.action-panel[data-controller-color] .raise-preset,
+.action-panel[data-controller-color] .raise-adjust {
+  position: relative;
+}
+.action-panel[data-controller-color] .raise-preset:disabled,
+.action-panel[data-controller-color] .raise-adjust:disabled {
+  background: rgb(0 0 0 / 55%);
+  opacity: 1;
+  color: #9aa5b3;
+}
+.action-panel[data-controller-color] .raise-preset:active:not(:disabled),
+.action-panel[data-controller-color] .raise-adjust:active:not(:disabled),
+.action-panel[data-controller-color] .raise-confirm:active:not(:disabled) {
+  backdrop-filter: brightness(0.75);
+}
+.action-controller-label {
+  display: block;
+  width: 88%;
+  margin: auto;
+  white-space: nowrap;
+  font-size: calc(1em * var(--fit, 1));
+  line-height: 1.1;
+}
+.action-panel[data-controller-color] .raise-slider::-webkit-slider-thumb {
+  width: 38px;
+  height: 38px;
+  border: 0;
+  background: url('/assets/club-buttons/action-controller-v1/thumb.webp') center / contain no-repeat;
+  box-shadow: none;
+}
+.action-panel[data-controller-color] .raise-slider::-moz-range-thumb {
+  width: 38px;
+  height: 38px;
+  border: 0;
+  background: url('/assets/club-buttons/action-controller-v1/thumb.webp') center / contain no-repeat;
+  box-shadow: none;
+}
+
+.action-panel[data-controller-color][data-table-capacity='9'] .raise-slider-vertical {
+  height: clamp(180px, 27vh, 290px);
+}
+
+.action-panel[data-controller-color] .raise-layout {
+  animation-duration: calc(180ms / var(--animation-speed, 1));
+}
+@keyframes controllerRevealReduced {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .action-panel[data-controller-color] .raise-layout {
+    animation: controllerRevealReduced calc(180ms / var(--animation-speed, 1)) ease both;
+  }
+}
+/* Studio and Settings dialogs must not repaint the approved artwork. */
+.action-controller-settings .action-controller-choice.action-controller-choice {
+  background: transparent !important;
+  background-image: none !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  transform: none !important;
+}
+
+/* Red is reserved for All In. Fold uses neutral machined steel. */
+.action-panel[data-controller-color] .action-btn--fold::before {
+  filter: grayscale(1) brightness(0.8);
+}
+.action-panel[data-controller-color] .raise-confirm--allin {
+  position: relative;
+  isolation: isolate;
+}
+.action-panel[data-controller-color] .raise-confirm--allin::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: url('/assets/club-buttons/action-controller-v1/chassis.webp') center 90% / 106% 357%
+    no-repeat;
+  filter: hue-rotate(130deg);
+}

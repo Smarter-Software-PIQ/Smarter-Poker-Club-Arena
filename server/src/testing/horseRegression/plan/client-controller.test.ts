@@ -26,9 +26,22 @@ import {
 } from '../../../engine/horseDecision/protocol.js';
 import { horsePlanHandKey } from '../../../engine/HorseDecisionEffects.js';
 import { captureHorseHandJournalContext } from '../../../engine/HorseDecisionHandBinding.js';
+import { reconstructHorseReplayInput } from '../../../engine/horseDecision/replay/reconstruct.js';
+import {
+  makeHorseJournalRecord,
+  journalHash,
+} from '../../../services/horseDecisionJournal/record.js';
 import { seedFastRandom } from '../../../engine/HorseEval.js';
 import type { ActionRecord } from '../../../types.js';
-import { workerHarness, requestAt, tableId, heroId, wager, acceptanceOf } from './fixture.js';
+import {
+  workerHarness,
+  requestAt,
+  tableId,
+  heroId,
+  lease,
+  wager,
+  acceptanceOf,
+} from './fixture.js';
 
 class LocalTransport extends EventEmitter implements WorkerLike {
   readonly sent: HorseDecisionWorkerRequest[] = [];
@@ -133,6 +146,158 @@ afterEach(() => {
   HorseMind.reset();
 });
 describe('actual local client/worker and controller acceptance composition', () => {
+  it('keeps FAST, its DEEP second look and journal replay equivalent for warm and request-local exact reads', async () => {
+    const { Deck } = await import('../../../engine/PokerEngine.js');
+    const { SavedProfilePresenceCache } =
+      await import('../../../engine/horseDecision/savedProfilePresence.js');
+    const { replayThroughWorkerRuntime } =
+      await import('../../../engine/horseDecision/replay/runtimeReplay.js');
+    const { freshExploitCounters } = await import('../../../engine/HorseOpponentExploit.js');
+    const { HorseLogic } = await import('../../../engine/HorseLogic.js');
+    vi.spyOn(Deck.prototype, 'shuffle').mockImplementation(() => {});
+    vi.spyOn(Date, 'now').mockReturnValue(requestAt().decisionTimeMs);
+    const request: FastHorseDecisionRequest = dealtFlop().request;
+    const opponentId = request.gameState.players.find((p) => p.user_id !== heroId)!.user_id;
+    const domain = { version: 1, speed: 'table', ante: 'none' } as const;
+    request.gameState.publicMemoryDomain = domain;
+    request.savedProfileHumanIds = [opponentId];
+    const availableAtMs = request.decisionTimeMs - 1;
+    const profile = {
+      user_id: opponentId,
+      variant: 'nlh',
+      mode: 'cash',
+      size: 'hu',
+      observed_hands: 1,
+      initialized: true,
+      public_memory_domain: domain,
+      last_accepted_hand_id: '77777777-7777-4777-8777-777777777777',
+      counters: { ...freshExploitCounters(), hands: 1, fHands: 1, vpip: 1 },
+      long_counters: { lHands: 1, lPfr: 0, lVpip: 1 },
+    } as const;
+    const cache = new SavedProfilePresenceCache(
+      async () => [{ user_id: opponentId, presence: 'exact', exact_profile: profile }],
+      () => availableAtMs
+    );
+    cache.prime({
+      tableId,
+      handNumber: 1000100,
+      lease,
+      variant: 'nlh',
+      mode: 'cash',
+      domain,
+      roster: request.gameState.players.map((p) => ({
+        seat: p.seat,
+        id: p.user_id,
+        human: p.user_id === opponentId,
+      })),
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const run = async (warm: boolean) => {
+      const req = structuredClone(request);
+      if (!warm) req.savedProfilePresence = cache.forSnapshot(req);
+      req.decisionKey = buildHorseDecisionKey(req);
+      const h = workerHarness({
+        publicProfileBootstrap: () => (warm ? { availableAtMs, profiles: [profile] } : null),
+        decide: HorseLogic.decide.bind(HorseLogic),
+      });
+      try {
+        await h.runtime.start();
+        seedFastRandom(112233);
+        const fast = await h.fast(req);
+        const captured = h.captures.at(-1)!;
+        const input = reconstructHorseReplayInput(
+          makeHorseJournalRecord(
+            {
+              producerId: lease,
+              sequence: 1,
+              sourceRelease: null,
+              atMs: req.decisionTimeMs,
+              kind: 'decision',
+              handKey: journalHash(req.fence),
+              turnKey: journalHash(req.decisionKey),
+            },
+            captured
+          )
+        );
+        const frame = input.readFrame;
+        const { decodeHorseDecisionReads } =
+          await import('../../../engine/HorseDecisionReadFrame.js');
+        const context = fast.planBinding.planContext;
+        const view = decodeHorseDecisionReads(
+          frame,
+          req.gameState.players,
+          horsePlanHandKey(req.gameState.actionHistory, context),
+          context
+        );
+        expect(view.exploit?.get('nlh:cash:hu|' + opponentId)).toEqual({
+          ...profile.counters,
+          ...profile.long_counters,
+        });
+        const privateReads = h.captures.at(-1)?.observerReads;
+        expect(privateReads).toMatchObject({
+          pooledPublicProfiles: {
+            lineage: [
+              { userId: opponentId, observedHands: 1, handId: profile.last_accepted_hand_id },
+            ],
+          },
+        });
+        const deepReq = {
+          ...req,
+          type: 'DECIDE_DEEP' as const,
+          requestId: 2,
+          rngBefore: fast.rngBefore,
+          deepEquity: 2,
+        };
+        h.runtime.receive(deepReq);
+        await h.runtime.drain();
+        const deep = h.messages.find((m) => m.type === 'DEEP_RESULT' && m.requestId === 2);
+        if (deep?.type !== 'DEEP_RESULT')
+          throw Error('Missing DEEP result: ' + JSON.stringify(h.messages.at(-1)));
+        seedFastRandom(112233);
+        const replay = await replayThroughWorkerRuntime(input);
+        if (!replay.result) throw Error('Replay refused: ' + JSON.stringify(replay.error));
+        const action = (d: typeof fast.decision) => {
+          expect(d.policyFallback).not.toBe('brain_exception');
+          expect(req.gameState.legalActions).toContain(d.action);
+          return { action: d.action, amount: d.amount ?? null };
+        };
+        expect(action(replay.result.decision)).toEqual(action(fast.decision));
+        return {
+          frame: frame.sha256,
+          rng: fast.rngBefore,
+          fast: action(fast.decision),
+          deep: action(deep.decision),
+          replay: action(replay.result.decision),
+        };
+      } finally {
+        await h.close();
+      }
+    };
+    const warm = await run(true);
+    const cold = await run(false);
+    expect(cold).toEqual(warm);
+    // Submit each final action to a separate copy of the same actual deal.
+    for (const chosen of [cold.fast, cold.deep, cold.replay]) {
+      const { hc } = dealtFlop();
+      let accepted: Readonly<ActionRecord> | undefined;
+      expect(
+        hc.performAction(
+          request.player.seat,
+          chosen.action,
+          chosen.amount ?? undefined,
+          'horse_policy',
+          (record) => {
+            accepted = record;
+          }
+        )
+      ).toBe(true);
+      expect(accepted).toMatchObject({
+        userId: heroId,
+        action: chosen.action,
+        amount: chosen.amount ?? 0,
+      });
+    }
+  });
   it.each([false, true])(
     'retires unused finalized ownership with journal enabled=%s',
     async (journal) => {

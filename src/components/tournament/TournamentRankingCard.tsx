@@ -32,7 +32,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { shareFile, shareLink, tournamentShareUrl } from '../../lib/share';
+import { shareButtonLabel, shareFile, shareLink, tournamentShareUrl } from '../../lib/share';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
@@ -360,7 +360,18 @@ export default function TournamentRankingCard({
   useEffect(() => {
     setDetailOpen(false);
   }, [result.tournamentId, result.finishSequence]);
-  const [shared, setShared] = useState<null | 'copied' | 'saved'>(null);
+  const [shared, setShared] = useState<null | 'copied' | 'saved' | 'failed'>(null);
+  /* The resting word says what the tap does: Share where a sheet opens, Save
+     Image on a desktop browser, which downloads the card (src/lib/share.ts). */
+  const shareStatus =
+    shared === 'saved'
+      ? 'Image Saved'
+      : shared === 'copied'
+        ? 'Link Copied'
+        : shared === 'failed'
+          ? 'Could Not Share'
+          : null;
+  const shareWord = shareStatus ?? shareButtonLabel('image');
   const [profile, setProfile] = useState<{
     username: string;
     avatarUrl: string;
@@ -566,7 +577,7 @@ export default function TournamentRankingCard({
     const url = result.tournamentId
       ? tournamentShareUrl(String(result.tournamentId))
       : `${publicOrigin()}/hub/club-arena`;
-    const flash = (what: 'copied' | 'saved') => {
+    const flash = (what: 'copied' | 'saved' | 'failed') => {
       setShared(what);
       window.setTimeout(() => setShared(null), 2000);
     };
@@ -594,7 +605,7 @@ export default function TournamentRankingCard({
           text,
           url,
         });
-    if (outcome === 'saved' || outcome === 'copied') flash(outcome);
+    if (outcome === 'saved' || outcome === 'copied' || outcome === 'failed') flash(outcome);
   };
 
   const handlePlayAgain = () => {
@@ -677,8 +688,8 @@ export default function TournamentRankingCard({
             onClose={onDismiss}
             onView={() => setDetailOpen(true)}
             share={{
-              label:
-                shared === 'saved' ? 'Image Saved' : shared === 'copied' ? 'Link Copied' : 'Share',
+              label: shareWord,
+              status: shareStatus,
               onClick: handleShare,
             }}
             primary={{
@@ -739,16 +750,11 @@ export default function TournamentRankingCard({
             secondary: rematch?.secondaryLabel
               ? { label: rematch.secondaryLabel, ink: 'silver', onClick: rematch.onSecondary }
               : {
-                  label:
-                    shared === 'saved'
-                      ? 'Image Saved'
-                      : shared === 'copied'
-                        ? 'Link Copied'
-                        : 'Share',
+                  label: shareWord,
                   ink: 'silver',
                   onClick: () => void handleShare(),
                 },
-            middle: rematch?.secondaryLabel ? { label: 'Share', onClick: handleShare } : undefined,
+            middle: rematch?.secondaryLabel ? { label: shareWord, onClick: handleShare } : undefined,
             primary: {
               label:
                 rematch?.primaryLabel ?? (offersResultReplay(result) ? 'Play Again' : 'Game Lobby'),

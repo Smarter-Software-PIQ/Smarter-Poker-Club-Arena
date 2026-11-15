@@ -320,6 +320,7 @@
   ],
   "seeds": [1, 7, 42, 99, 2026, 3, 11, 17, 23, 31],
   "control": {
-    "v40Omaha": false
+    "v40Omaha": false,
+    "omahaBeatenMadeHandDefense": false
   }
 }

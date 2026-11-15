@@ -3206,12 +3206,16 @@ describe('V86 6. Round-2 Hardening, Boundary Safety, & End-to-End Live Worker ->
           },
         ],
       };
+      // Owner ruling 2026-11-14 (hand 59401453, HorseOmahaRiverNutRaise.ts):
+      // only the nuts raise an Omaha river bet, so by default this near-nut
+      // raise facing a bet now leaves as a call. The V86 branch itself is
+      // pinned here with that later rule held off.
       const spRaiseDec = HorseLogic.decide(
         spHero,
         spFacingBetGs,
         'balanced',
         { aggression: 0.4 },
-        { telemetry: true }
+        { telemetry: true, omahaRiverNutRaiseOnly: false }
       );
       if (drainFires().some((f) => f.feature === 'v86_small_pot_near_nut_raise')) {
         sawSmallPotNearNutRaise = true;

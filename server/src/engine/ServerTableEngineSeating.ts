@@ -1572,6 +1572,88 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
     }
   }
 
+  private readonly explicitSitOutRequests = new Map<
+    string,
+    Promise<{ success: boolean; [key: string]: unknown }>
+  >();
+
+  /** The original database transaction commits before local eligibility changes. */
+  public async sitOutAndWait(
+    userId: string,
+    sittingOut: boolean,
+    proof?: { completedLightningOccupancyId?: string; requestedByClient?: boolean }
+  ): Promise<{ success: boolean; [k: string]: unknown }> {
+    const occupancy = this.seatedPlayers.find((p) => p.user_id === userId)?.occupancy_id;
+    if (!occupancy) return { success: false, error: 'Original Seat Required' };
+    const key = `${this.tableId}:${userId}:${occupancy}`;
+    const prior = this.explicitSitOutRequests.get(key) ?? Promise.resolve();
+    const current = prior
+      .catch(() => undefined)
+      .then(async () => {
+        const ownsSeat = () =>
+          this.seatedPlayers.some((p) => p.user_id === userId && p.occupancy_id === occupancy);
+        if (!ownsSeat())
+          return {
+            success: false,
+            error: 'Your Seat Changed. Refresh The Table Before Trying Again.',
+          };
+        const refusal = this.sitOutRefusal(userId, sittingOut, proof);
+        if (refusal) return refusal;
+        // Existing live-hand outbound requests remain deferred until settlement.
+        if (sittingOut && this.handController !== null)
+          return this.applySitOut(userId, sittingOut, proof);
+        const state = this.disconnectEngine.getState(this.tableId, userId);
+        const version = state ? (this.seatSitOutVersions.get(state) ?? 0) : 0;
+        const currentIntent = () => {
+          const currentState = this.disconnectEngine.getState(this.tableId, userId);
+          return (
+            currentState === state &&
+            (!state || (this.seatSitOutVersions.get(state) ?? 0) === version)
+          );
+        };
+        const receipt = await this.seatSitOutPersistence.persist(
+          this.tableId,
+          userId,
+          occupancy,
+          sittingOut,
+          () => ownsSeat() && currentIntent()
+        );
+        if (!receipt || !ownsSeat())
+          return {
+            success: false,
+            error: 'Could Not Confirm Your Seat. Refresh The Table Before Trying Again.',
+          };
+        if (!currentIntent())
+          return {
+            success: false,
+            code: 'SITOUT_SUPERSEDED',
+            error: 'Your Seat State Changed. Please Try Again.',
+          };
+        // A newer forced transition on this same chair must not be undone by
+        // an earlier explicit ACK. Missing restart presence registers only now.
+        if (!state) this.disconnectEngine.registerPlayer(this.tableId, userId);
+        const committedState = this.disconnectEngine.getState(this.tableId, userId);
+        if (committedState) this.seatSitOutVersions.set(committedState, version + 1);
+        this.committedSeatSitOut.add(key);
+        try {
+          return {
+            ...this.applySitOut(userId, sittingOut, proof),
+            blindOff: receipt.blind_off,
+            hands_remaining: receipt.hands_remaining,
+            lightningClusterId: receipt.cluster_id,
+          };
+        } finally {
+          this.committedSeatSitOut.delete(key);
+        }
+      });
+    this.explicitSitOutRequests.set(key, current);
+    const cleanup = () => {
+      if (this.explicitSitOutRequests.get(key) === current) this.explicitSitOutRequests.delete(key);
+    };
+    void current.then(cleanup).catch(cleanup);
+    return current;
+  }
+
   /**
    * POST /sitout — Bible V8 §7.12: Player sits out or back in
    */
@@ -1580,6 +1662,16 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
     sitOut: boolean,
     proof?: { completedLightningOccupancyId?: string; requestedByClient?: boolean }
   ): { success: boolean; error?: string; code?: string; willFoldNextHand: boolean } {
+    const refusal = this.sitOutRefusal(userId, sitOut, proof);
+    if (refusal) return refusal;
+    return this.applySitOut(userId, sitOut, proof);
+  }
+
+  private sitOutRefusal(
+    userId: string,
+    sitOut: boolean,
+    proof?: { completedLightningOccupancyId?: string; requestedByClient?: boolean }
+  ): { success: false; error: string; code?: string; willFoldNextHand: false } | null {
     if (this.weeklyHandPause.held())
       return { success: false, error: 'Weekly Accounting Pause', willFoldNextHand: false };
     const player = this.seatedPlayers.find((p) => p.user_id === userId);
@@ -1629,6 +1721,14 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
       };
     }
 
+    return null;
+  }
+
+  private applySitOut(
+    userId: string,
+    sitOut: boolean,
+    proof?: { completedLightningOccupancyId?: string; requestedByClient?: boolean }
+  ): { success: boolean; willFoldNextHand: boolean } {
     if (sitOut) {
       // FIX 143: Bible V8 §7.12 — Can't fold mid-hand.
       // If a hand is in progress, defer the sit-out until after the hand completes.
@@ -1818,7 +1918,10 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
   protected withdrawBlindOff(userId: string): void {
     const had = this.leaveHeldByClock.delete(userId);
     this.chipContinuity.markBlindOff(userId, false);
-    if (had) void setCashSessionBlindOff(this.tableId, userId, false);
+    // Lightning's same original sit-back transaction clears the durable flag.
+    // A separate unawaited write could arrive after a later Sit Out.
+    if (had && !this.isLightningAnchorNow())
+      void setCashSessionBlindOff(this.tableId, userId, false);
   }
 
   public isClientSitOut(userId: string): boolean {

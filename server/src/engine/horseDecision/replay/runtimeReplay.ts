@@ -17,6 +17,7 @@
  * runtime's own code path.
  */
 import { StyleSwitchHolder, styleSwitchSourceFromStates } from '../../HorseStyleSwitch.js';
+import { OptionSwitchHolder, optionSwitchSourceFromStates } from '../../HorseOptionSwitch.js';
 import { performance } from 'node:perf_hooks';
 import { HorseLogic } from '../../HorseLogic.js';
 import { HorseMind } from '../../HorseMind.js';
@@ -84,6 +85,8 @@ export interface HorseRuntimeReplayBindings {
   captureV56PressureWitness?: boolean;
   /** M3: the style read switch states the original decision ran with (absent: every option off). */
   styleStates?: import('../../HorseStyleSwitch.js').StyleSwitchStates | null;
+  /** The switched non-style options the original decision ran with (absent: none, every release default). */
+  optionStates?: import('../../HorseOptionSwitch.js').OptionSwitchStates | null;
 }
 
 const readiness = (): HorseDecisionWorkerReadiness => {
@@ -181,6 +184,11 @@ export async function replayThroughWorkerRuntime(
     now: () => performance.now(),
     // M3: the switch state is restored from the record, never read live
     styleSwitch: new StyleSwitchHolder(styleSwitchSourceFromStates(bindings.styleStates), () => {}),
+    // likewise the switched non-style options: restored from the record, never read live
+    optionSwitch: new OptionSwitchHolder(
+      optionSwitchSourceFromStates(bindings.optionStates),
+      () => {}
+    ),
   };
   const runtime = new HorseDecisionWorkerRuntime(
     (message) => messages.push(message),

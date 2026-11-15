@@ -11,7 +11,10 @@
  * in flh or flo8. With HorseMind.setFixedLimitBetsAreNeverProbes on, a hand
  * whose betting structure is fixed limit adds no probe tally at all, so its
  * bets count whole. A no-limit probe bet is still a probe. The switch is
- * process-level and SOURCE DEFAULT OFF (FIXED_LIMIT_BETS_ARE_NEVER_PROBES_DEFAULT).
+ * process-level; its SOURCE DEFAULT is ON since 2026-11-15
+ * (FIXED_LIMIT_BETS_ARE_NEVER_PROBES_DEFAULT, a defect repair with its
+ * evidence in docs/horse-default-on.d/fixedLimitBetsAreNeverProbes.md).
+ * Switched off it reproduces the counting of main before this law exactly.
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import {
@@ -123,9 +126,14 @@ afterEach(() => {
 });
 
 describe('a fixed-limit bet is never a probe', () => {
-  it('is a process switch whose source default is off', () => {
-    expect(FIXED_LIMIT_BETS_ARE_NEVER_PROBES_DEFAULT).toBe(false);
-    expect(HorseMind.fixedLimitBetsAreNeverProbesOn()).toBe(false);
+  it('is a process switch whose source default is on, so production counts fixed-limit bets whole', () => {
+    expect(FIXED_LIMIT_BETS_ARE_NEVER_PROBES_DEFAULT).toBe(true);
+    expect(HorseMind.fixedLimitBetsAreNeverProbesOn()).toBe(true);
+    // A fresh process, with nothing set: the default alone stops the tally.
+    feed(10, fixedLimitManiacHand, 'holdem:hu', 'flh', 'fixed_limit');
+    const s = HorseMind.getStats(OPP)!;
+    expect(s.ctBets ?? 0).toBe(0);
+    expect(s.ctProbes ?? 0).toBe(0);
   });
 
   for (const [variant, scope] of [
@@ -147,6 +155,7 @@ describe('a fixed-limit bet is never a probe', () => {
     });
 
     it(`${variant} heads-up, switch off (main before this law): two of every three fixed bets are probes and no maniac class engages`, () => {
+      HorseMind.setFixedLimitBetsAreNeverProbes(false);
       feed(100, fixedLimitManiacHand, scope, variant, 'fixed_limit');
       const s = HorseMind.getStats(OPP)!;
       expect(s.ctBets).toBe(300);

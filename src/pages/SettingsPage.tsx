@@ -1,3 +1,4 @@
+import { ActionControllerSettings } from '../components/table/ActionControllerSettings';
 import {
   beginTableSettingIntent,
   confirmTableSettingIntent,
@@ -1297,6 +1298,7 @@ export default function SettingsPage() {
           style={settingsSectionAnimationStyle(1)}
         >
           <h2>Table &amp; Display</h2>
+          <ActionControllerSettings />
 
           <div className={styles.settingRow}>
             <div className={styles.settingInfo}>

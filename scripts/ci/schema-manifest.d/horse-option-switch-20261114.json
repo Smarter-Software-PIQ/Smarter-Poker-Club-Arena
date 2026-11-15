@@ -1,0 +1,9 @@
+{
+  "_owner": "Hold'em Strategy, migration 20261114072215_every_horse_upgrade_has_a_live_switch.sql: every Horse decision upgrade has a live switch (the style switch tables, widened; no new table).",
+  "functions": [
+    "fn_ca_horse_option_switch_clear",
+    "fn_ca_horse_option_switch_effective",
+    "fn_ca_horse_option_switch_set",
+    "fn_ca_horse_option_switch_states"
+  ]
+}
