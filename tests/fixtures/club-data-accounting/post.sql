@@ -24,7 +24,7 @@ INSERT INTO smarter_private.posthand_escrow_certificates (table_id, hand_number,
      jsonb_build_object('earning_club_id', :F, 'user_id', :u2, 'observed_stack_delta', 5))));
 INSERT INTO union_pnl_cash_outcomes (table_id, hand_number, hand_id, recognized_at, payload_hash, game_scope, evidence) VALUES
   (:T1, 5, gen_random_uuid(), '2026-11-03 12:00+00', 'h5', jsonb_build_object('game_union_id', :U), '{"status":"ready"}'),
-  (:T2, 2, 'aaaa0000-0000-0000-0000-000000000002', '2026-11-03 12:30+00', 'l2', '{}', '{"status":"ready"}');
+  (:T2, 2, 'aaaa0000-0000-0000-0000-000000000002', '2026-11-03 12:30+00', 'l2', '{}', '{"status":"ready","accepted_rake":"0"}');
 INSERT INTO union_pnl_cash_outcome_touches VALUES
   (:T1, 5, '2026-11-03 12:00+00', :U, false, '0.2', jsonb_build_array(
      jsonb_build_object('earning_club_id', :K, 'user_id', :u1, 'observed_stack_delta', 1),

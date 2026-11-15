@@ -146,7 +146,7 @@ try:
                 f"VALUES ('c0000000-0000-0000-0000-000000000001', {n}, gen_random_uuid(), '2026-11-04 12:00+00', 'c{n}', "
                 "'{\"game_union_id\": \"fade0000-0000-0000-0000-000000000001\"}', '{\"status\": \"ready\"}'); "
                 "INSERT INTO union_pnl_cash_outcome_touches VALUES ('c0000000-0000-0000-0000-000000000001', "
-                f"{n}, '2026-11-04 12:00+00', 'fade0000-0000-0000-0000-000000000001', false, '0', "
+                f"{n}, '2026-11-04 12:00+00', 'fade0000-0000-0000-0000-000000000001', false, '1', "
                 "'[{\"earning_club_id\": \"a41434bb-8d0c-400a-8f0d-e8b3d65afed4\", \"user_id\": \"11111111-0000-0000-0000-000000000001\", \"observed_stack_delta\": 1}, "
                 "{\"earning_club_id\": \"a0000000-0000-0000-0000-000000000001\", \"user_id\": \"11111111-0000-0000-0000-000000000002\", \"observed_stack_delta\": -1}]'); ")
 
@@ -216,7 +216,7 @@ try:
         "VALUES ('c0000000-0000-0000-0000-000000000002', 40, gen_random_uuid(), '2026-11-05 12:00+00', 'c40', "
         "'{\"game_union_id\": \"fade0000-0000-0000-0000-000000000001\"}', '{\"status\": \"ready\"}'); "
         "INSERT INTO union_pnl_cash_outcome_touches VALUES ('c0000000-0000-0000-0000-000000000002', 40, '2026-11-05 12:00+00', "
-        f"'fade0000-0000-0000-0000-000000000001', false, '0', '[{parts}]');")
+        f"'fade0000-0000-0000-0000-000000000001', false, '1', '[{parts}]');")
     require(q("live", "SELECT (SELECT count(*) FROM ca_club_acct_fact WHERE acct_day = '2026-11-05') || '/' || "
                       "(SELECT count(*) FROM ca_club_acct_fact_journal WHERE acct_day = '2026-11-05') || '/' || "
                       "(SELECT count(*) FROM ca_club_acct_hands_journal WHERE acct_day = '2026-11-05') || '/' || "

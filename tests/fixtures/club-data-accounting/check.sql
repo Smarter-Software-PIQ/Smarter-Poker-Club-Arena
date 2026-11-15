@@ -71,19 +71,17 @@ BEGIN
     RAISE EXCEPTION 'boundary versions: %', (SELECT string_agg(g::text, ' | ') FROM ca_club_acct_boundary_log g);
   END IF;
 
-  -- Hands each club took part in, per table.
+  -- Raked hands each club took part in, per table (T1#3 and T2#2 are
+  -- unraked: their results count, the hand count does not).
   IF (SELECT string_agg(club_id || ':' || acct_day || ':' || table_id || '=' || h, ',' ORDER BY club_id, acct_day, table_id)
         FROM (SELECT club_id, acct_day, table_id, sum(hands) h FROM all_hands GROUP BY 1, 2, 3) x)
      IS DISTINCT FROM
-     '2a1132b9-5ba2-42e6-9f01-30a7fcffebe3:2026-11-02:c0000000-0000-0000-0000-000000000001=1,'
      '2a1132b9-5ba2-42e6-9f01-30a7fcffebe3:2026-11-02:c0000000-0000-0000-0000-000000000002=1,'
      '2a1132b9-5ba2-42e6-9f01-30a7fcffebe3:2026-11-03:c0000000-0000-0000-0000-000000000001=1,'
-     'a0000000-0000-0000-0000-000000000001:2026-11-02:c0000000-0000-0000-0000-000000000001=3,'
-     'a0000000-0000-0000-0000-000000000001:2026-11-03:c0000000-0000-0000-0000-000000000002=1,'
+     'a0000000-0000-0000-0000-000000000001:2026-11-02:c0000000-0000-0000-0000-000000000001=2,'
      'a41434bb-8d0c-400a-8f0d-e8b3d65afed4:2026-11-02:c0000000-0000-0000-0000-000000000001=2,'
      'a41434bb-8d0c-400a-8f0d-e8b3d65afed4:2026-11-02:c0000000-0000-0000-0000-000000000002=1,'
-     'a41434bb-8d0c-400a-8f0d-e8b3d65afed4:2026-11-03:c0000000-0000-0000-0000-000000000001=1,'
-     'a41434bb-8d0c-400a-8f0d-e8b3d65afed4:2026-11-03:c0000000-0000-0000-0000-000000000002=1' THEN
+     'a41434bb-8d0c-400a-8f0d-e8b3d65afed4:2026-11-03:c0000000-0000-0000-0000-000000000001=1' THEN
     RAISE EXCEPTION 'hand counts differ: %', (SELECT string_agg(club_id || ':' || acct_day || ':' || table_id || '=' || hands, ',') FROM ca_club_acct_hands);
   END IF;
 

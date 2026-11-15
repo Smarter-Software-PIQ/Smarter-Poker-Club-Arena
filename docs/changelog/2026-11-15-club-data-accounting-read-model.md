@@ -20,7 +20,10 @@ accounting day, game and player, for every union game:
 - cash result and hands: each hand's stack change by the participant's
   earning club (touches with their treasury gift and post-hand escrow
   readings, and link resolutions with the lightning funding owner), plus BBJ
-  stack awards from the invoice's own reader;
+  stack awards from the invoice's own reader; a player's hands are the cash
+  hands they took part in, and the club hand count (per table) is the RAKED
+  hands (accepted rake above zero) the club took part in, the one definition
+  Club Data used before (20261022103651) on both the club and union screens;
 - tournament result: funding and returns owned by their receipts, as the
   invoice classifies them, plus the entries still deferred at each week
   boundary, in the version of the kept boundary certificate the week's
