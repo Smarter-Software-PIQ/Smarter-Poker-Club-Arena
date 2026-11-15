@@ -95,6 +95,7 @@ describe('custom action-controller sizing', () => {
     [2, 3, 4, Infinity],
     [0, 3, 4, 5],
     [2, 3, 4, 101],
+    [2.001, 3, 4, 5],
     ['2', 3, 4, 5],
   ])('rejects malformed multiplier settings: %j', (value) => {
     expect(validBetPresets(value, 100)).toBe(false);
