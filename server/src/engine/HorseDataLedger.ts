@@ -1144,6 +1144,60 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     '2026-11-13'
   ),
   receipt(
+    'style_value_bettor_not_maniac_changed_action_seen',
+    'workerRuntime (R1 style action-change receipt, styleValueBettorNotManiac)',
+    'the FAST decision applied styleValueBettorNotManiac and, decided again from the same RNG position with that one option off (one applied option per decision, picked by the decision key), its final action or amount differed; journal field HorseDecision.styleActionReceipt; occurrence counter; named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
+    'style_big_bet_honesty_changed_action_seen',
+    'workerRuntime (R1 style action-change receipt, styleBigBetHonesty)',
+    'the FAST decision applied styleBigBetHonesty and, decided again from the same RNG position with that one option off (one applied option per decision, picked by the decision key), its final action or amount differed; journal field HorseDecision.styleActionReceipt; occurrence counter; named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
+    'style_raise_respect_changed_action_seen',
+    'workerRuntime (R1 style action-change receipt, styleRaiseRespect)',
+    'the FAST decision applied styleRaiseRespect and, decided again from the same RNG position with that one option off (one applied option per decision, picked by the decision key), its final action or amount differed; journal field HorseDecision.styleActionReceipt; occurrence counter; named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
+    'style_tight_reraiser_respect_changed_action_seen',
+    'workerRuntime (R1 style action-change receipt, styleTightReRaiserRespect)',
+    'the FAST decision applied styleTightReRaiserRespect and, decided again from the same RNG position with that one option off (one applied option per decision, picked by the decision key), its final action or amount differed; journal field HorseDecision.styleActionReceipt; occurrence counter; named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
+    'style_fold_rate_pre_repair_changed_action_seen',
+    'workerRuntime (R1 style action-change receipt, styleFoldRatePreRepair)',
+    'the FAST decision applied styleFoldRatePreRepair and, decided again from the same RNG position with that one option off (one applied option per decision, picked by the decision key), its final action or amount differed; journal field HorseDecision.styleActionReceipt; occurrence counter; named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
+    'style_value_extraction_changed_action_seen',
+    'workerRuntime (R1 style action-change receipt, styleValueExtraction)',
+    'the FAST decision applied styleValueExtraction and, decided again from the same RNG position with that one option off (one applied option per decision, picked by the decision key), its final action or amount differed; journal field HorseDecision.styleActionReceipt; occurrence counter; named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
+    'style_fold_bluff_changed_action_seen',
+    'workerRuntime (R1 style action-change receipt, styleFoldBluff)',
+    'the FAST decision applied styleFoldBluff and, decided again from the same RNG position with that one option off (one applied option per decision, picked by the decision key), its final action or amount differed; journal field HorseDecision.styleActionReceipt; occurrence counter; named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
+    'style_tight_player_exploit_changed_action_seen',
+    'workerRuntime (R1 style action-change receipt, styleTightPlayerExploit)',
+    'the FAST decision applied styleTightPlayerExploit and, decided again from the same RNG position with that one option off (one applied option per decision, picked by the decision key), its final action or amount differed; journal field HorseDecision.styleActionReceipt; occurrence counter; named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
+    'style_steal_tight_blinds_changed_action_seen',
+    'workerRuntime (R1 style action-change receipt, styleStealTightBlinds)',
+    'the FAST decision applied styleStealTightBlinds and, decided again from the same RNG position with that one option off (one applied option per decision, picked by the decision key), its final action or amount differed; journal field HorseDecision.styleActionReceipt; occurrence counter; named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
     'style_fold_bluff_seen',
     'HorseLogic (STYLE READ postflop-fold bluffing)',
     "the bluff multiplier moved by this street's fold-to-bet read; occurrence counter; named *_seen",

@@ -241,7 +241,11 @@ import {
   type OpponentStyleRead,
   type TightReRaiser,
 } from './HorseOpponentStyle.js';
-import { noteStyleShadowEngaged, styleShadowArm } from './HorseStyleShadow.js';
+import {
+  noteStyleOptionApplied,
+  noteStyleShadowEngaged,
+  styleShadowArm,
+} from './HorseStyleShadow.js';
 
 /**
  * STYLE READ: a bounty event prices a call with the bounty, which the style
@@ -3883,6 +3887,7 @@ function maniacCallDown(
       !styleBountyContext(trustedTournamentContext(gs)) &&
       isValueBettor(HorseMind.styleRead(aggressorId))
     ) {
+      noteStyleOptionApplied('styleValueBettorNotManiac');
       if (telemetryOn(opts)) noteFire('style_value_bettor_not_maniac_seen');
       return decision;
     }
@@ -9546,6 +9551,7 @@ export class HorseLogic {
               ) {
                 exploitOpenerBeforeStyle = exploitOpener;
                 styleOpenerApplied = true;
+                noteStyleOptionApplied('styleTightReRaiserRespect');
                 exploitOpener = {
                   wide: false,
                   threeBetBar: strengthBarForTopShare(0.4 * tight.rangeWidth),
@@ -9558,8 +9564,10 @@ export class HorseLogic {
               }
             } else if (raises >= 2 && !exploitReRaiser) {
               const tightRe = tightReRaiserRespect(style) ?? undefined;
-              if (armTr === 'on') styleTightReRaiser = tightRe;
-              else if (tightRe)
+              if (armTr === 'on') {
+                styleTightReRaiser = tightRe;
+                if (tightRe) noteStyleOptionApplied('styleTightReRaiserRespect');
+              } else if (tightRe)
                 noteStyleShadowEngaged('styleTightReRaiserRespect', style.confidenceCap);
             }
           }
@@ -11469,6 +11477,7 @@ export class HorseLogic {
               };
               styleFoldBluffMul = mul;
               styleFoldBluffRead = { userId: live[0].user_id, style: fbStyle };
+              noteStyleOptionApplied('styleFoldBluff');
               noteFire('style_fold_bluff_seen');
             }
           }
@@ -11572,6 +11581,7 @@ export class HorseLogic {
           else if (ve) {
             exploitValueSize *= ve.sizeMul;
             styleThinShift = ve.thinShift;
+            noteStyleOptionApplied('styleValueExtraction');
             if (ve.slowplayMul !== 1)
               params = { ...params, slowplayFreq: params.slowplayFreq * ve.slowplayMul };
             noteFire('style_value_extraction_seen');
@@ -11850,6 +11860,7 @@ export class HorseLogic {
               noteStyleShadowEngaged('styleRaiseRespect', vhStyle.confidenceCap);
             else {
               styleRaiseWeight = weightVh;
+              noteStyleOptionApplied('styleRaiseRespect');
               styleRaiseReads = oppReads.map((read) =>
                 read && read.raised === true && read.lastStage === street
                   ? isRiver
@@ -16730,7 +16741,10 @@ export class HorseLogic {
             if (styleRaiseShade > 0)
               noteStyleShadowEngaged('styleRaiseRespect', rrStyle.confidenceCap);
             styleRaiseShade = 0;
-          } else if (styleRaiseShade > 0 && tele15) noteFire('style_raise_respect_seen');
+          } else if (styleRaiseShade > 0) {
+            noteStyleOptionApplied('styleRaiseRespect');
+            if (tele15) noteFire('style_raise_respect_seen');
+          }
         }
       } catch {
         /* the style read is best-effort */
@@ -18100,6 +18114,7 @@ export class HorseLogic {
               noteStyleShadowEngaged('styleBigBetHonesty', bbStyle.confidenceCap);
             else if (styleAdd > 0) {
               respect += styleAdd;
+              noteStyleOptionApplied('styleBigBetHonesty');
               if (telemetryOn(opts)) noteFire('style_big_bet_honesty_seen');
             }
           }
@@ -18119,6 +18134,7 @@ export class HorseLogic {
                 ? styleKnockoutCredit(gs, player, bettorId, opts)
                 : 0;
               styleBluffCatchCap = Math.min(1, cap + ko);
+              noteStyleOptionApplied('styleBigBetHonesty');
               if (ko > 0 && telemetryOn(opts)) noteFire('style_bluff_catch_cap_bounty_priced_seen');
             }
           }
