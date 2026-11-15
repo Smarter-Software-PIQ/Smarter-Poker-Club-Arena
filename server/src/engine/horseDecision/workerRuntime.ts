@@ -118,6 +118,7 @@ import {
 
 import { HorseLogic } from '../HorseLogic.js';
 import { HorseMind } from '../HorseMind.js';
+import { publicMemoryDomainIsValid } from '../HorsePublicMemoryDomain.js';
 import { completedHandActionsForMind } from './completedHandActions.js';
 import { HorseMindMirror, type HorseMindMirrorOutcome } from './mindMirror.js';
 import { readReturnedRosterTransport } from '../../services/horseAcceptedRoster/schema.js';
@@ -656,8 +657,22 @@ function observeCompletedHandInMind(request: ObserveCompletedHandRequest): void 
     request.riverCallContext,
     request.retainedRiverCalls,
     styleMemoryModeOf(request),
-    request.styleHasHuman === true
+    request.styleHasHuman === true,
+    styleSpeedOf(request)
   );
+}
+
+/**
+ * L-016 (2026-11-15): the hand's public memory domain speed for the style learner, from the accepted hand's own
+ * public rules (the Lightning host sends {speed:'lightning'}, a Classic table {speed:'table'}). Absent or invalid:
+ * undefined, and the learner files the hand into the pooled maps only, as before. Exported for the wiring test.
+ */
+export function styleSpeedOf(request: {
+  publicMemoryDomain?: unknown;
+}): 'table' | 'lightning' | undefined {
+  return publicMemoryDomainIsValid(request.publicMemoryDomain)
+    ? request.publicMemoryDomain.speed
+    : undefined;
 }
 
 /**

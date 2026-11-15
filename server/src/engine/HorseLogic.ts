@@ -3321,6 +3321,13 @@ export interface HorseDecideOpts {
    *  Receipts style_tight_opener_respect_seen and
    *  style_tight_reraiser_respect_seen. Default off; explicit true only. */
   styleTightReRaiserRespect?: boolean;
+  /** L-016 (2026-11-15): on a Lightning decision (gs.publicMemoryDomain.speed 'lightning') the style read takes
+   *  postflop street aggression, river size buckets and the Horse reference from Lightning-only maps (filled from
+   *  Lightning hands only), instead of the maps that pool Lightning and Classic (table-speed) cash. Classic and
+   *  tournament decisions are untouched. Receipts style_lightning_separate_read_seen and
+   *  style_lightning_separate_empty_seen. Changes nothing unless a style consumer option reads the style.
+   *  Default off; explicit true only. */
+  styleLightningSeparate?: boolean;
   /**
    * 2026-11-13 STYLE READ SHADOW: the style options in shadow for this decision (HorseStyleShadow). Each computes
    * its adjustment and applies nothing; one that would have changed its input records that it engaged. Set by the
@@ -6753,6 +6760,12 @@ export class HorseLogic {
       // options (and every read they reach) are exactly what they were.
       ...(opts.styleFoldRatePreRepair === true && opts.mind !== false
         ? { styleFoldRatePreRepair: true }
+        : {}),
+      // L-016 (2026-11-15): Lightning style evidence apart. Only an explicit true on a Lightning decision adds the
+      // key, so with it off (or on a Classic or tournament decision) the options are exactly what they were.
+      ...(opts.styleLightningSeparate === true &&
+      gameState.publicMemoryDomain?.speed === 'lightning'
+        ? { styleLightningSeparate: true }
         : {}),
     });
     // V3: ingest the action stream into the opponent-intelligence layer.

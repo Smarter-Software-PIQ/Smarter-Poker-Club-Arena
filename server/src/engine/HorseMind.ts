@@ -410,6 +410,8 @@ export function aggressionShownAsValue(
  *
  * Both default off; each is a HorseDecideOpts flag measured in the league.
  */
+/** L-016 (2026-11-15): which style map an import fills; 'lightning' = the Lightning-only maps. */
+export type StyleMapTarget = 'pooled' | 'lightning';
 export interface DecisionReadOptions {
   postflopFoldRate?: boolean;
   shrinkResponseReads?: boolean;
@@ -438,6 +440,10 @@ export interface DecisionReadOptions {
    *  the scope so the style read itself applies the pre-repair discount to the pooled rows it reads. Only an
    *  explicit true engages; absent, the style read is what it was. */
   styleFoldRatePreRepair?: boolean;
+  /** L-016 (2026-11-15): HorseDecideOpts.styleLightningSeparate, carried with the scope ONLY for a decision whose
+   *  public memory domain is Lightning. The style read then takes postflop aggression, river size buckets and the
+   *  Horse reference from the Lightning-only maps. Absent, the style read is what it was. */
+  styleLightningSeparate?: boolean;
 }
 /** Decayed postflop facing-bet opportunities before the postflop fold rate reads. */
 export const FOLD_READ_MIN_OPPS = 8;
@@ -1212,6 +1218,14 @@ export class HorseMind {
   private static styleAggression = new Map<string, StreetAggression>();
   /** #4 (M2): the Horse population's postflop aggression and raise opportunities per (variant, format, table size). */
   private static styleHorseReference = new Map<string, StreetAggression>();
+  /** L-016 (2026-11-15): the same three style maps, same keys, filled ONLY from hands whose public memory domain is
+   *  Lightning, in ADDITION to the pooled maps above (whose contents and eviction order do not change). Each has its
+   *  own cap (STYLE_LIGHTNING_MAX_ROWS), so a Lightning row never evicts a pooled one. Read only behind the
+   *  default-off decide option styleLightningSeparate, on a Lightning decision. */
+  private static styleSizeShownLightning = new Map<string, SizeBucketTallies>();
+  private static styleAggressionLightning = new Map<string, StreetAggression>();
+  private static styleHorseReferenceLightning = new Map<string, StreetAggression>();
+  static readonly STYLE_LIGHTNING_MAX_ROWS = MAX_TRACKED_PLAYERS;
   /** TEST-HARNESS ONLY (league and tournament simulations): let the style learner record inside a sandbox, into the
    *  process maps. Never set by a production path; a live engine keeps the default false. */
   private static harnessStyleLearning = false;
@@ -1225,6 +1239,9 @@ export class HorseMind {
     this.styleSizeShown.clear();
     this.styleAggression.clear();
     this.styleHorseReference.clear();
+    this.styleSizeShownLightning.clear();
+    this.styleAggressionLightning.clear();
+    this.styleHorseReferenceLightning.clear();
     this.styleBootHandKeys.clear();
   }
   /** Item 12 (2026-11-05): the player's pooled hand clock (OpponentStats.hands
@@ -1929,7 +1946,9 @@ export class HorseMind {
       mode: MemoryMode;
       size: MemorySize;
       hands: readonly PersistedHandForStyle[];
-    }>
+    }>,
+    /** L-016: 'lightning' fills the Lightning-only map (rows of Lightning-domain hands only); default the pooled map */
+    target: StyleMapTarget = 'pooled'
   ): number {
     return this.importSizeBuckets(
       rows.map((r) => ({
@@ -1938,7 +1957,8 @@ export class HorseMind {
         mode: r.mode,
         size: r.size,
         buckets: sizeBucketsFromHistory(r.hands, r.user_id),
-      }))
+      })),
+      target
     );
   }
 
@@ -1950,10 +1970,14 @@ export class HorseMind {
       mode: MemoryMode;
       size: MemorySize;
       aggression: StreetAggression;
-    }>
+    }>,
+    /** L-016: 'lightning' fills the Lightning-only map (rows of Lightning-domain hands only); default the pooled map */
+    target: StyleMapTarget = 'pooled'
   ): number {
     if ((this.sandboxDepth > 0 || this.decisionEffectSink) && !this.harnessStyleLearning)
       throw new Error('style aggression import outside live boundary');
+    const map = target === 'lightning' ? this.styleAggressionLightning : this.styleAggression;
+    const cap = target === 'lightning' ? HorseMind.STYLE_LIGHTNING_MAX_ROWS : MAX_TRACKED_PLAYERS;
     let applied = 0;
     for (const r of rows) {
       const v = memoryVariant(r?.variant);
@@ -1967,12 +1991,11 @@ export class HorseMind {
       )
         continue;
       const key = styleSizeKey(r.user_id, v, r.mode, r.size);
-      this.styleAggression.delete(key);
-      this.styleAggression.set(key, addStreetAggression(undefined, r.aggression));
+      map.delete(key);
+      map.set(key, addStreetAggression(undefined, r.aggression));
       applied++;
     }
-    while (this.styleAggression.size > MAX_TRACKED_PLAYERS)
-      this.styleAggression.delete(this.styleAggression.keys().next().value!);
+    while (map.size > cap) map.delete(map.keys().next().value!);
     return applied;
   }
 
@@ -1980,10 +2003,13 @@ export class HorseMind {
   static styleHorseReferenceOf(
     variant: string,
     mode: MemoryMode,
-    size: MemorySize
+    size: MemorySize,
+    target: StyleMapTarget = 'pooled'
   ): StreetAggression | null {
     const v = memoryVariant(variant);
-    const row = v ? this.styleHorseReference.get(`${v}|${mode}|${size}`) : undefined;
+    const map =
+      target === 'lightning' ? this.styleHorseReferenceLightning : this.styleHorseReference;
+    const row = v ? map.get(`${v}|${mode}|${size}`) : undefined;
     return row ? addStreetAggression(undefined, row) : null;
   }
 
@@ -1994,10 +2020,15 @@ export class HorseMind {
       mode: MemoryMode;
       size: MemorySize;
       reference: StreetAggression;
-    }>
+    }>,
+    /** L-016: 'lightning' fills the Lightning-only map (Lightning-domain hands only); default the pooled map */
+    target: StyleMapTarget = 'pooled'
   ): number {
     if ((this.sandboxDepth > 0 || this.decisionEffectSink) && !this.harnessStyleLearning)
       throw new Error('style reference import outside live boundary');
+    const map =
+      target === 'lightning' ? this.styleHorseReferenceLightning : this.styleHorseReference;
+    const cap = target === 'lightning' ? HorseMind.STYLE_LIGHTNING_MAX_ROWS : MAX_TRACKED_PLAYERS;
     let applied = 0;
     for (const r of rows) {
       const v = memoryVariant(r?.variant);
@@ -2017,12 +2048,11 @@ export class HorseMind {
       );
       if (!ok) continue;
       const key = `${v}|${r.mode}|${r.size}`;
-      this.styleHorseReference.delete(key);
-      this.styleHorseReference.set(key, addStreetAggression(undefined, r.reference));
+      map.delete(key);
+      map.set(key, addStreetAggression(undefined, r.reference));
       applied++;
     }
-    while (this.styleHorseReference.size > MAX_TRACKED_PLAYERS)
-      this.styleHorseReference.delete(this.styleHorseReference.keys().next().value!);
+    while (map.size > cap) map.delete(map.keys().next().value!);
     return applied;
   }
 
@@ -2034,11 +2064,15 @@ export class HorseMind {
       mode: MemoryMode;
       size: MemorySize;
       buckets: SizeBucketTallies;
-    }>
+    }>,
+    /** L-016: 'lightning' fills the Lightning-only map (Lightning-domain hands only); default the pooled map */
+    target: StyleMapTarget = 'pooled'
   ): number {
     // L8: the same boundary rule as the other style imports (live, or a harness that switched learning on)
     if ((this.sandboxDepth > 0 || this.decisionEffectSink) && !this.harnessStyleLearning)
       throw new Error('size bucket import outside live boundary');
+    const map = target === 'lightning' ? this.styleSizeShownLightning : this.styleSizeShown;
+    const cap = target === 'lightning' ? HorseMind.STYLE_LIGHTNING_MAX_ROWS : MAX_TRACKED_PLAYERS;
     let applied = 0;
     for (const r of rows) {
       const v = memoryVariant(r?.variant);
@@ -2052,12 +2086,11 @@ export class HorseMind {
         continue;
       if (!r.buckets || Object.keys(r.buckets).length === 0) continue;
       const key = styleSizeKey(r.user_id, v, r.mode, r.size);
-      this.styleSizeShown.delete(key);
-      this.styleSizeShown.set(key, { ...r.buckets });
+      map.delete(key);
+      map.set(key, { ...r.buckets });
       applied++;
     }
-    while (this.styleSizeShown.size > MAX_TRACKED_PLAYERS)
-      this.styleSizeShown.delete(this.styleSizeShown.keys().next().value!);
+    while (map.size > cap) map.delete(map.keys().next().value!);
     return applied;
   }
 
@@ -2547,14 +2580,33 @@ export class HorseMind {
     // H1 (review 2026-11-13): evidence of THIS format and variant only. Shown strength comes from this context's
     // river size buckets. The scoped lifetime tallies (variant and table size, but cash and tournament mixed) enter
     // only as an explicit carry-over at styleCarryWeight (default 0); the all-variant pooled fallback never does.
+    // L-016 (2026-11-15): on a Lightning decision with styleLightningSeparate on (the option reaches this read only
+    // then), the three style maps are the Lightning-only ones; otherwise the pooled maps, exactly as before.
+    const lightningSeparate = this.decisionReadOptions.styleLightningSeparate === true;
+    const sizeShownMap = lightningSeparate ? this.styleSizeShownLightning : this.styleSizeShown;
+    const aggressionMap = lightningSeparate ? this.styleAggressionLightning : this.styleAggression;
+    const horseReferenceMap = lightningSeparate
+      ? this.styleHorseReferenceLightning
+      : this.styleHorseReference;
+    if (lightningSeparate) {
+      noteFire('style_lightning_separate_read_seen');
+      if (variant) {
+        const k = styleSizeKey(userId, variant, mode, size);
+        const rk = `${variant}|${mode}|${size}`;
+        if (
+          (!this.styleAggressionLightning.has(k) && this.styleAggression.has(k)) ||
+          (!this.styleSizeShownLightning.has(k) && this.styleSizeShown.has(k)) ||
+          (!this.styleHorseReferenceLightning.has(rk) && this.styleHorseReference.has(rk))
+        )
+          noteFire('style_lightning_separate_empty_seen');
+      }
+    }
     const sizeBuckets = variant
-      ? (this.styleSizeShown.get(styleSizeKey(userId, variant, mode, size)) ?? null)
+      ? (sizeShownMap.get(styleSizeKey(userId, variant, mode, size)) ?? null)
       : null;
     const s = carryWeight > 0 ? this.scoped.get(`${scope}|${userId}`) : undefined;
     const w = carryWeight;
-    const agg = variant
-      ? this.styleAggression.get(styleSizeKey(userId, variant, mode, size))
-      : undefined;
+    const agg = variant ? aggressionMap.get(styleSizeKey(userId, variant, mode, size)) : undefined;
     // Notes (review 15961b66): with carry 0 the recent-aggression window (rAggr/rPassive) is 0, so release comes from the
     // in-format fast-window counters only (L/M2). At carry > 0 the scoped tallies include this format too, so in-format
     // evidence is counted again at weight w (L4; default 0). The probe-aware adjustment of the counters still uses the
@@ -2574,7 +2626,7 @@ export class HorseMind {
       sizeBuckets,
       streetAggression: agg ?? null,
       horseStreetReference: variant
-        ? (this.styleHorseReference.get(`${variant}|${mode}|${size}`) ?? null)
+        ? (horseReferenceMap.get(`${variant}|${mode}|${size}`) ?? null)
         : null,
       tallies: s
         ? {
@@ -2804,6 +2856,9 @@ export class HorseMind {
     this.styleSizeShown.clear();
     this.styleAggression.clear();
     this.styleHorseReference.clear();
+    this.styleSizeShownLightning.clear();
+    this.styleAggressionLightning.clear();
+    this.styleHorseReferenceLightning.clear();
     this.durableOpponentImportClock.clear();
     this.planFingerprints.clear();
     this.durableOpponentMemory = false;
@@ -4779,7 +4834,10 @@ export class HorseMind {
     styleMode?: MemoryMode,
     /** STYLE READ F2: a human was dealt in (the row's has_human); only such hands build the Horse reference, the
      *  same population the boot rebuild reads */
-    styleHasHuman = false
+    styleHasHuman = false,
+    /** L-016 (2026-11-15): the hand's public memory domain speed. 'lightning' ALSO files the style evidence into the
+     *  Lightning-only maps; the pooled maps are filled exactly as before whatever this is. Absent: pooled only. */
+    styleSpeed?: 'table' | 'lightning'
   ): void {
     // V45: settlement runs outside any decision; the scope travels with the
     // hand and is cleared on the way out.
@@ -4906,6 +4964,7 @@ export class HorseMind {
         const styleSize = styleScope.split(':')[1] as MemorySize;
         const horses = horseSeatsOf(actions);
         const refKey = `${styleVariant}|${styleMode}|${styleSize}`;
+        const lightning = styleSpeed === 'lightning';
         for (const [uid, inc] of postflopAggressionIncrements(actions)) {
           if (styleHasHuman && horses.has(uid)) {
             const ref = addStreetAggression(this.styleHorseReference.get(refKey), inc);
@@ -4918,6 +4977,25 @@ export class HorseMind {
           this.styleAggression.set(key, next);
           while (this.styleAggression.size > MAX_TRACKED_PLAYERS)
             this.styleAggression.delete(this.styleAggression.keys().next().value!);
+          if (lightning) {
+            // L-016: the same increment, into the Lightning-only maps (own cap); the pooled maps above are unchanged
+            if (styleHasHuman && horses.has(uid)) {
+              const lref = addStreetAggression(this.styleHorseReferenceLightning.get(refKey), inc);
+              this.styleHorseReferenceLightning.delete(refKey);
+              this.styleHorseReferenceLightning.set(refKey, lref);
+              while (this.styleHorseReferenceLightning.size > HorseMind.STYLE_LIGHTNING_MAX_ROWS)
+                this.styleHorseReferenceLightning.delete(
+                  this.styleHorseReferenceLightning.keys().next().value!
+                );
+            }
+            const lnext = addStreetAggression(this.styleAggressionLightning.get(key), inc);
+            this.styleAggressionLightning.delete(key);
+            this.styleAggressionLightning.set(key, lnext);
+            while (this.styleAggressionLightning.size > HorseMind.STYLE_LIGHTNING_MAX_ROWS)
+              this.styleAggressionLightning.delete(
+                this.styleAggressionLightning.keys().next().value!
+              );
+          }
         }
         const shownBy = new Map<string, { mucked: boolean; hand_name?: string }>();
         for (const sd of showdown ?? []) if (sd?.user_id) shownBy.set(sd.user_id, sd);
@@ -4937,6 +5015,23 @@ export class HorseMind {
           this.styleSizeShown.set(key, { ...row, [b]: cell });
           while (this.styleSizeShown.size > MAX_TRACKED_PLAYERS)
             this.styleSizeShown.delete(this.styleSizeShown.keys().next().value!);
+          if (lightning) {
+            // L-016: the same river bet, into the Lightning-only size buckets (own cap)
+            const lrow = this.styleSizeShownLightning.get(key) ?? {};
+            const lcell = { ...(lrow[b] ?? { bets: 0, shown: 0, strong: 0 }) };
+            lcell.bets++;
+            if (sd) {
+              lcell.shown++;
+              if (!sd.mucked && STRONG_HAND_NAMES.has((sd.hand_name ?? '').toLowerCase()))
+                lcell.strong++;
+            }
+            this.styleSizeShownLightning.delete(key);
+            this.styleSizeShownLightning.set(key, { ...lrow, [b]: lcell });
+            while (this.styleSizeShownLightning.size > HorseMind.STYLE_LIGHTNING_MAX_ROWS)
+              this.styleSizeShownLightning.delete(
+                this.styleSizeShownLightning.keys().next().value!
+              );
+          }
         }
       }
 

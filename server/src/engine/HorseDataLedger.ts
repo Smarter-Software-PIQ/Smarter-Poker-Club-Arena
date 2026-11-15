@@ -1090,6 +1090,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     '2026-11-13'
   ),
   flag(
+    'styleLightningSeparate',
+    "2026-11-15 default OFF (L-016): on a Lightning decision (public memory domain speed lightning) the style read takes postflop street aggression, river size buckets and the Horse population reference from Lightning-only maps, which the learner fills from Lightning hands IN ADDITION to the pooled maps (same keys, own caps; the pooled maps and their eviction are unchanged) and the boot rebuild fills from Lightning-domain hand_history rows; without it a Lightning style read pools Lightning and Classic (table-speed) cash evidence while the exploit and profile counters it reads beside them are per domain. Classic and tournament decisions are untouched; it changes a decision only through a style consumer option. Constructed evidence (aLightningStyleReadKeepsItsOwnEvidence.law.test.ts): a Lightning 4x turn check-raise folded 24/24 on the Lightning record alone is called 24/24 once the same player's Classic raises pool in; with this on it folds 24/24. Receipts style_lightning_separate_read_seen and style_lightning_separate_empty_seen. Refused league matchup (no Lightning domain in the league)",
+    '2026-11-15'
+  ),
+  flag(
     'styleTightReRaiserRespect',
     "2026-11-13 STYLE READ #6: against a credibly tight opener the exploit read's narrow facing-an-open branch becomes reachable (bounded 3-bet bar move up to 0.1, call bar +0.04) and against a credibly tight 3-bettor (3-bets per opportunity credibly low) the 4-bet bar rises 0.03 and the call bar 0.06; hold'em only; stands down at 25bb effective and below (push/fold depths: the existing tables decide), in bounty events and when the read is released; a preflop range change, default off, explicit true only, and not to be enabled while a range-change hold stands",
     '2026-11-13'
@@ -1190,6 +1195,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseExploitHydrator (STYLE READ boot inputs)',
     'the boot rebuild of the Horse population reference threw; the size bucket and aggression rebuilds still ran; occurrence counter; named *_seen',
     '2026-11-13'
+  ),
+  receipt(
+    'style_boot_lightning_failed_seen',
+    'HorseExploitHydrator (STYLE READ boot inputs, L-016)',
+    'the boot rebuild of the Lightning-only style maps (size buckets, aggression, Horse reference from Lightning-domain rows) threw; the pooled rebuilds had already run; occurrence counter; named *_seen',
+    '2026-11-15'
   ),
   receipt(
     'style_boot_size_from_players_seen',
@@ -1339,6 +1350,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'style_long_participation_seen',
     'HorseMind.styleRead (STYLE READ, long participation window)',
     'a style read took VPIP, PFR or the call share from the 120-hand long participation window (ExploitCounters lHands / lVpip / lPfr, horse_exact_profiles.long_counters) because it held more evidence than the 30-hand window and both leaned low or even; receipt.longWindow names which; counts reads; named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
+    'style_lightning_separate_read_seen',
+    'HorseMind.styleRead (STYLE READ, L-016; styleLightningSeparate, default off)',
+    'a style read on a Lightning decision with styleLightningSeparate on took postflop aggression, river size buckets and the Horse reference from the Lightning-only maps; counts reads (expected 0 until switched on; then never 0 in Lightning while a style consumer option is on); named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
+    'style_lightning_separate_empty_seen',
+    'HorseMind.styleRead (STYLE READ, L-016; styleLightningSeparate, default off)',
+    'a Lightning-separate style read found no Lightning row for the player (aggression or size buckets) or for the Horse reference where the pooled map held one: the read saw less evidence than the pooled read would have; counts reads; named *_seen',
     '2026-11-15'
   ),
   receipt(
@@ -1978,8 +2001,8 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   state('bigBlindAnte', 'BB-ante structure'),
   state(
     'publicMemoryDomain',
-    'public rules of the hand being played (speed table / lightning, ante kind); the Lightning participation predicate reads speed and nothing else reads it at decision time',
-    'HorseLightningParticipation.lightningParticipationCtx (called by HorseLogic.decide; options lightningParticipationHoldem / lightningParticipationOmaha, default off)'
+    'public rules of the hand being played (speed table / lightning, ante kind); the Lightning participation predicate and the Lightning-separate style read (L-016) read speed and nothing else reads it at decision time',
+    'HorseLightningParticipation.lightningParticipationCtx (called by HorseLogic.decide; options lightningParticipationHoldem / lightningParticipationOmaha, default off); HorseLogic.prepareOriginalReads -> HorseMind.styleRead (option styleLightningSeparate, default off)'
   ),
   state('allInOrFold', 'all-in-or-fold table'),
   state('straddleActive', 'a straddle is posted (V18)'),

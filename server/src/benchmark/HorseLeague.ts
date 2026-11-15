@@ -3164,6 +3164,33 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'big blind, a new table every hand) and sets the domain.',
   },
   {
+    // L-016 (2026-11-15, Lightning lane): the style consumers are on in BOTH arms, so the one-arm question is the
+    // Lightning-separate style read itself.
+    name: 'nlh_style_lightning_separate',
+    a: {
+      styleLightningSeparate: true,
+      styleRaiseRespect: true,
+      styleBigBetHonesty: true,
+      styleValueBettorNotManiac: true,
+    },
+    b: { styleRaiseRespect: true, styleBigBetHonesty: true, styleValueBettorNotManiac: true },
+    reason:
+      'No Lightning domain in the league table. styleLightningSeparate is DEFAULT OFF (HorseLogic: ' +
+      'opts.styleLightningSeparate === true) and it reaches the style read only on a decision whose ' +
+      'gs.publicMemoryDomain.speed is "lightning" (HorseLogic.prepareOriginalReads); the style read then takes ' +
+      'postflop aggression, river size buckets and the Horse reference from the Lightning-only maps, which the ' +
+      'learner fills only from hands it is given with speed "lightning". The league deals its own tables, sets ' +
+      'no public memory domain and learns its hands without a speed, so both arms read the pooled maps and play ' +
+      'identical poker (style_lightning_separate_read_seen never fires) and the card would report 0.00 +/- 0.00 ' +
+      'every night. Measured 2026-11-15 on this matchup as written (style consumers on in both arms): 0 of ' +
+      '2,000 pairs diverged six-handed and 0 of 2,000 pairs diverged heads-up (run seed 20261115). It is ' +
+      'pinned where the domain exists: lightning/aLightningStyleReadKeepsItsOwnEvidence.law.test.ts (constructed ' +
+      'Lightning and Classic evidence of one player: the Lightning 4x turn check-raise is called 24/24 pooled, ' +
+      'folded 24/24 with the option). What would change this: a league context that deals the Lightning ' +
+      'contract and sets the domain, with a field whose Lightning and Classic play differ, learned with the ' +
+      'speed; the paired Lightning harness (lightning/LightningPairedEval.test.ts) is the place to measure it.',
+  },
+  {
     name: 'nlh_lightning_participation_holdem',
     a: { lightningParticipationHoldem: true },
     b: {},
