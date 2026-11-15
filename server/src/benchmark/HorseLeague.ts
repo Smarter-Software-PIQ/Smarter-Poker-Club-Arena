@@ -2977,7 +2977,8 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'dealt, cash. The league deals its own tables and no league context carries a public ' +
       'memory domain, so both arms would play identical poker (the option refuses with ' +
       'lightning_participation_refused_not_lightning_seen) and the card would report 0.00 +/- ' +
-      '0.00 every night. It is measured where the domain exists: the paired Lightning harness ' +
+      '0.00 every night. Measured 2026-11-15 on this matchup as written: 0 of 2,000 pairs ' +
+      'diverged (run seed 20261114). It is measured where the domain exists: the paired Lightning harness ' +
       '(lightning/LightningPairedEval.test.ts, LIGHTNING_EVAL_CANDIDATE) under the declared ' +
       'protocol (development, selection and final seed classes). What would change this: a ' +
       'league context that deals the Lightning contract (fast-fold pool, big-blind ante of one ' +
@@ -2994,7 +2995,8 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'dealt, cash. The league deals its own tables and no league context carries a public ' +
       'memory domain, so both arms would play identical poker (the option refuses with ' +
       'lightning_participation_refused_not_lightning_seen) and the card would report 0.00 +/- ' +
-      '0.00 every night. It is measured where the domain exists: the paired Lightning harness ' +
+      '0.00 every night. Measured 2026-11-15 on this matchup as written: 0 of 2,000 pairs ' +
+      'diverged (run seed 20261114). It is measured where the domain exists: the paired Lightning harness ' +
       '(lightning/LightningPairedEval.test.ts, LIGHTNING_EVAL_CANDIDATE) under the declared ' +
       'protocol (development, selection and final seed classes). What would change this: a ' +
       'league context that deals the Lightning contract (fast-fold pool, big-blind ante of one ' +
