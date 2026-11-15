@@ -17,7 +17,10 @@ import {
 import type { SeatPlayer } from '../types.js';
 import {
   EXPLOIT_COUNTER_FIELDS,
+  EXPLOIT_LONG_FIELDS,
+  hasLongParticipation,
   type ExploitCounters,
+  type ExploitCountersWithLong,
   type FlopStabCounters,
 } from './HorseOpponentExploit.js';
 import { PRE_REPAIR_STATS } from './HorseOpponentStyle.js';
@@ -44,7 +47,8 @@ export interface HorseDecisionReadFrame {
     | 'horse-decision-reads-v11'
     | 'horse-decision-reads-v12'
     | 'horse-decision-reads-v13'
-    | 'horse-decision-reads-v14';
+    | 'horse-decision-reads-v14'
+    | 'horse-decision-reads-v15';
   readonly bytes: number;
   readonly sha256: string;
   readonly json: string;
@@ -104,7 +108,15 @@ const FLOP_STAB_VERSION = 'horse-decision-reads-v13';
  * pooled row with no public domain on file), so every snapshot without one keeps its exact v1-v13 bytes. A v14 body
  * always carries the v13 lists; its flop-stab list may be empty (a v13 body's never is). */
 const PRE_REPAIR_VERSION = 'horse-decision-reads-v14';
-const preRepaired = (version: unknown) => version === PRE_REPAIR_VERSION;
+/** 2026-11-15: v14 plus the long participation window of the exploit rows the decision read (`exploitLong`:
+ * [lHands, lVpip, lPfr] per exploit row that carries one, HorseOpponentExploit.EXPLOIT_LONG_FIELDS), so a
+ * `DECIDE_DEEP` second look and an exact replay read VPIP and PFR from the same 120-hand evidence `DECIDE_FAST`
+ * did. Written only when a row carries the window, so every snapshot without one keeps its exact v1-v14 bytes. A
+ * v15 body always carries the v14 lists; its provenance and flop-stab lists may be empty. */
+const LONG_PARTICIPATION_VERSION = 'horse-decision-reads-v15';
+const longParticipated = (version: unknown) => version === LONG_PARTICIPATION_VERSION;
+const preRepaired = (version: unknown) =>
+  version === PRE_REPAIR_VERSION || longParticipated(version);
 const flopStabbed = (version: unknown) => version === FLOP_STAB_VERSION || preRepaired(version);
 const limpReraised = (version: unknown) => version === LIMP_RERAISE_VERSION || flopStabbed(version);
 const probed = (version: unknown) => version === PROBE_VERSION || limpReraised(version);
@@ -221,8 +233,10 @@ type Body = {
     | typeof PROBE_VERSION
     | typeof LIMP_RERAISE_VERSION
     | typeof FLOP_STAB_VERSION
-    | typeof PRE_REPAIR_VERSION;
+    | typeof PRE_REPAIR_VERSION
+    | typeof LONG_PARTICIPATION_VERSION;
   pooledProvenance?: Rows<number[]>;
+  exploitLong?: Rows<number[]>;
   scopedFlopStab?: Rows<number[]>;
   limpReraiseTallies?: Rows<number[]>;
   probeTallies?: Rows<number[]>;
@@ -340,6 +354,7 @@ function validateBody(
       ...(probed(value.version) ? ['probeTallies'] : []),
       ...(limpReraised(value.version) ? ['limpReraiseTallies'] : []),
       ...(preRepaired(value.version) ? ['pooledProvenance'] : []),
+      ...(longParticipated(value.version) ? ['exploitLong'] : []),
       ...(flopStabbed(value.version) ? ['scopedFlopStab'] : []),
       ...(planContext === undefined ? [] : ['planContext']),
       'actors',
@@ -473,9 +488,26 @@ function validateBody(
       numbers(v, PRE_REPAIR_ROW_LENGTH) && ((v as number[])[0] === 0 || (v as number[])[0] === 1);
     if (
       !Array.isArray(value.pooledProvenance) ||
-      value.pooledProvenance.length === 0 ||
+      // A v15 body may carry an empty provenance list (it exists for its long rows).
+      (value.version === PRE_REPAIR_VERSION && value.pooledProvenance.length === 0) ||
       !validRows(value.pooledProvenance, b.exploit, provenanceValid) ||
       (value.pooledProvenance as Rows<number[]>).some(([id]) => !carried.has(id))
+    )
+      return fail();
+  }
+  if (longParticipated(value.version)) {
+    // [lHands, lVpip, lPfr]: decayed, non-negative, VPIP and PFR never above hands. Every row names an exploit row
+    // this same frame carries, and a v15 body carries at least one (or it would have been v14 or older).
+    const carried = new Set((value.exploit as Rows<number[]>).map(([id]) => id));
+    const longValid = (v: unknown) =>
+      numbers(v, EXPLOIT_LONG_FIELDS.length) &&
+      (v as number[])[1] <= (v as number[])[0] + 1e-9 &&
+      (v as number[])[2] <= (v as number[])[0] + 1e-9;
+    if (
+      !Array.isArray(value.exploitLong) ||
+      value.exploitLong.length === 0 ||
+      !validRows(value.exploitLong, b.exploit, longValid) ||
+      (value.exploitLong as Rows<number[]>).some(([id]) => !carried.has(id))
     )
       return fail();
   }
@@ -562,10 +594,25 @@ export function encodeHorseDecisionReads(
   const boundedScoped = bounded(view.scoped, b.scoped.size);
   const exploitRows: Rows<number[]> = bounded(view.exploit ?? new Map(), b.exploit.size).map(
     ([id, row]: [string, ExploitCounters]): [string, number[]] => {
-      if (!object(row) || !exact(row, EXPLOIT_COUNTER_FIELDS)) return fail();
+      // The long participation window travels as a triple or not at all (exploitLong, v15).
+      if (
+        !object(row) ||
+        !exact(row, [
+          ...EXPLOIT_COUNTER_FIELDS,
+          ...(hasLongParticipation(row) ? EXPLOIT_LONG_FIELDS : []),
+        ])
+      )
+        return fail();
       return [id, EXPLOIT_COUNTER_FIELDS.map((f) => row[f])];
     }
   );
+  const longRows: Rows<number[]> = [...(view.exploit ?? new Map<string, ExploitCounters>())]
+    .filter(([, row]) => hasLongParticipation(row))
+    .map(([id, row]): [string, number[]] => [
+      id,
+      EXPLOIT_LONG_FIELDS.map((f) => (row as ExploitCountersWithLong)[f]!),
+    ]);
+  const hasLong = longRows.length > 0;
   const flopStabRows: Rows<number[]> = bounded(view.flopStab ?? new Map(), b.scoped.size).map(
     ([id, row]: [string, FlopStabCounters]): [string, number[]] => {
       if (!object(row) || !exact(row, FLOP_STAB_FIELDS)) return fail();
@@ -589,7 +636,7 @@ export function encodeHorseDecisionReads(
       [row.preRepair === true ? 1 : 0, ...PRE_REPAIR_STATS.map((f) => row.postRelease[f])],
     ];
   });
-  const hasPreRepair = provenanceRows.length > 0;
+  const hasPreRepair = provenanceRows.length > 0 || hasLong;
   const hasFlopStab = flopStabRows.length > 0 || hasPreRepair;
   const hasExploit = exploitRows.length > 0;
   const hasWinner = view.winnerReads !== undefined;
@@ -664,6 +711,7 @@ export function encodeHorseDecisionReads(
       .map(([id, row]) => [id, LIMP_RERAISE_FIELDS.map((f) => row[f] ?? 0)]);
   const body: Body = {
     ...(hasPreRepair ? { pooledProvenance: provenanceRows } : {}),
+    ...(hasLong ? { exploitLong: longRows } : {}),
     ...(hasFlopStab ? { scopedFlopStab: flopStabRows } : {}),
     ...(hasLimpReraise ? { limpReraiseTallies: limpReraiseRows(view.stats) } : {}),
     ...(hasProbes ? { probeTallies: probeRows(view.stats) } : {}),
@@ -673,33 +721,35 @@ export function encodeHorseDecisionReads(
     ...(hasFastCalldown || hasMultiwayRiver
       ? { riverHu: huRows(view.stats), scopedRiverHu: huRows(view.scoped) }
       : {}),
-    version: hasPreRepair
-      ? PRE_REPAIR_VERSION
-      : hasFlopStab
-        ? FLOP_STAB_VERSION
-        : hasLimpReraise
-          ? LIMP_RERAISE_VERSION
-          : hasProbes
-            ? PROBE_VERSION
-            : hasFastCalldown
-              ? FAST_CALLDOWN_VERSION
-              : hasMultiwayRiver
-                ? MULTIWAY_RIVER_VERSION
-                : hasRiverRaise
-                  ? RIVER_RAISE_VERSION
-                  : hasRiverPosition
-                    ? RIVER_POSITION_VERSION
-                    : hasRiverCalls
-                      ? RIVER_CALL_VERSION
-                      : hasWinner
-                        ? WINNER_VERSION
-                        : hasExploit
-                          ? EXPLOIT_VERSION
-                          : hasWindows
-                            ? WINDOW_VERSION
-                            : planContext === undefined
-                              ? VERSION
-                              : ALLOCATED_VERSION,
+    version: hasLong
+      ? LONG_PARTICIPATION_VERSION
+      : hasPreRepair
+        ? PRE_REPAIR_VERSION
+        : hasFlopStab
+          ? FLOP_STAB_VERSION
+          : hasLimpReraise
+            ? LIMP_RERAISE_VERSION
+            : hasProbes
+              ? PROBE_VERSION
+              : hasFastCalldown
+                ? FAST_CALLDOWN_VERSION
+                : hasMultiwayRiver
+                  ? MULTIWAY_RIVER_VERSION
+                  : hasRiverRaise
+                    ? RIVER_RAISE_VERSION
+                    : hasRiverPosition
+                      ? RIVER_POSITION_VERSION
+                      : hasRiverCalls
+                        ? RIVER_CALL_VERSION
+                        : hasWinner
+                          ? WINNER_VERSION
+                          : hasExploit
+                            ? EXPLOIT_VERSION
+                            : hasWindows
+                              ? WINDOW_VERSION
+                              : planContext === undefined
+                                ? VERSION
+                                : ALLOCATED_VERSION,
     ...(hasWindows
       ? { statsWindows: windows(view.stats), scopedWindows: windows(view.scoped) }
       : {}),
@@ -888,6 +938,13 @@ export function decodeHorseDecisionReads(
       ) as unknown as ExploitCounters,
     ])
   );
+  if (longParticipated(body.version)) {
+    for (const [id, v] of body.exploitLong!) {
+      const row: ExploitCountersWithLong | undefined = view.exploit.get(id);
+      if (!row) return fail();
+      EXPLOIT_LONG_FIELDS.forEach((f, i) => (row[f] = v[i]));
+    }
+  }
   if (winnered(body.version))
     view.winnerReads = { rows: new Map(body.winnerReads), seen: new Set() };
   return view;

@@ -100,7 +100,38 @@ try:
   seed+="INSERT INTO hand_history(created_at,players,actions,game_variant) VALUES ('"+stamp+"','"+roster+"','"+actions_json+"','nlh');"
  run('cold-fixture',seed+"ALTER TABLE hand_history ENABLE TRIGGER USER;")
  assert run('cold-no-phantom-decay',"SELECT legacy_hands||':'||(counters->>'hands')::numeric FROM fn_horse_exploit_profiles_read(ARRAY['"+cold+"'],'nlh','cash','hu');")=='1:1'
- (a.output/'result.json').write_text(json.dumps({'passed':True,'scope':'isolated original history insert, protected accepted receipt, legacy compatibility, manual-insert refusal, receipt identity/duplicate/update/rollback, saved read, permissions and private-card invariance, fold provenance and archived human epoch, mixed hands, filtered cold history and rerun idempotence; no production installation'},indent=2))
+ # 2026-11-15 the long participation window: same learner, forward only, no back-fill.
+ longmig=(ROOT/'supabase/migrations/20261115015341_the_exact_opponent_profile_keeps_a_long_participation_window.sql').read_text()
+ snapshot="SELECT string_agg(user_id||':'||variant||':'||mode||':'||size||':'||public_memory_domain::text||':'||observed_hands||':'||counters::text,'|' ORDER BY user_id,variant,mode,size,public_memory_domain::text) FROM horse_exact_profiles;"
+ before=run('long-before',snapshot)
+ run('install-long',longmig)
+ assert run('long-no-backfill',"SELECT count(*) FROM horse_exact_profiles WHERE long_counters IS NOT NULL;")=='0'
+ assert run('long-rows-untouched',snapshot)==before
+ assert run('long-add-private',"SELECT has_function_privilege('service_role','fn_horse_long_participation_add(jsonb,jsonb)','EXECUTE') OR has_function_privilege('anon','fn_horse_long_participation_add(jsonb,jsonb)','EXECUTE');")=='f'
+ decay=0.5**(1/120); expected=[0.0,0.0,0.0]
+ for i in range(12):
+  act=['raise','call','fold'][i%3]
+  actions=[{'userId':horse,'stage':'preflop','action':'raise','origin':'horse_policy'},{'userId':human,'stage':'preflop','action':act,'origin':'player'}]
+  accept(40+i,domain)
+  inc=[1,0 if act=='fold' else 1,1 if act=='raise' else 0]
+  expected=[expected[k]*decay+inc[k] for k in range(3)]
+ long_of="SELECT (long_counters->>'lHands')||','||(long_counters->>'lVpip')||','||(long_counters->>'lPfr')||','||(SELECT count(*) FROM jsonb_object_keys(counters)) FROM horse_exact_profiles WHERE user_id='"+human+"';"
+ got=run('long-learned',long_of); vals=[float(x) for x in got.split(',')]
+ assert all(abs(vals[k]-expected[k])<1e-12 for k in range(3)) and vals[3]==27, (got,expected)
+ actions=[{'userId':horse,'stage':'preflop','action':'raise','origin':'horse_policy'},{'userId':human,'stage':'preflop','action':'fold','origin':'unknown'}]
+ accept(60,domain)
+ assert run('long-unattributed-fold-not-learned',long_of)==got
+ actions=[{'userId':horse,'stage':'preflop','action':'raise','origin':'horse_policy'},{'userId':human,'stage':'preflop','action':'fold','origin':'forced'}]
+ accept(61,domain)
+ assert run('long-forced-fold-not-learned',long_of)==got
+ newcomer='00000000-0000-4000-8000-000000000005'
+ actions=[{'userId':newcomer,'stage':'preflop','action':'raise','origin':'player'}]
+ accept(62,domain)
+ assert run('long-new-row',"SELECT long_counters::text FROM horse_exact_profiles WHERE user_id='"+newcomer+"';")=='{"lPfr": 1, "lVpip": 1, "lHands": 1}'
+ run('repeat-long',longmig)
+ assert run('long-repeat-unchanged',long_of)==got
+ assert run('long-read',"SET ROLE service_role; SELECT (long_counters->>'lHands')::text FROM fn_horse_exact_profiles_read(ARRAY['"+human+"'],'plo4','cash','full','table','none');")==got.split(',')[0]
+ (a.output/'result.json').write_text(json.dumps({'passed':True,'scope':'isolated original history insert, protected accepted receipt, legacy compatibility, manual-insert refusal, receipt identity/duplicate/update/rollback, saved read, permissions and private-card invariance, fold provenance and archived human epoch, mixed hands, filtered cold history and rerun idempotence; long participation window forward-only learning, no back-fill, unattributed and forced folds excluded, new row, rerun idempotence and saved read; no production installation'},indent=2))
  print('PASS isolated exact public memory compatibility')
 finally:
  if started:command([pg/'pg_ctl','-D',cluster/'data','-m','immediate','-w','stop'])
