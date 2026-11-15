@@ -29,7 +29,6 @@ import {
 } from './HorseOmahaCardImpact.js';
 import type { OmahaReadConditional } from './HorseOmahaReadConditional.js';
 import {
-  OMAHA_STRONG_HAND_RAISE_MARGIN,
   omahaStrongHandCheckScope,
   omahaStrongHandCheckedTo,
   omahaStrongHandNow,
@@ -222,98 +221,44 @@ describe('a full house first to act on the river (P4: checked with players behin
   });
 });
 
-describe('a full house facing a river bet and only called (P3)', () => {
-  // Today's brain wants to raise all three and the river nut-raise rule turns
-  // the raise into a call (a bigger full house is possible). The count says
-  // the raise is a value raise worth more than the call.
+// Owner rulings 2026-11-14 (hand 59401453) and 2026-11-15 12:52/12:53 (hand
+// 59534208): facing a bet, a raise only with the nuts. Clause (b) applies only
+// to a hand that is nut class right now (omahaNutClassNow).
+const NUT_KINGS_FULL = (x: RecordedStrongHand) => {
+  // kings full of sevens on 7-7-5-Q-K: no bigger full house, no quads, no
+  // straight flush is possible
+  x.hole = 'KdKs7hQd2c';
+};
+
+describe('a full house facing a river bet (P2 raised, P3 only called): a raise only with the nuts', () => {
   it.each([
-    // queens full on 7-7-5-Q-K facing 34 into 68: 3.3% of holdings beat it
-    ['0be91f45', 'raise:170'],
-    // kings full of sixes on 2-K-6-J-6 facing a pot bet of 186: the minimum raise
-    ['941f1dbf', 'raise:372'],
-    // jacks full of queens on J-4-8-J-Q facing a pot bet with 52.46 behind
-    ['8e51c875', 'all_in'],
-  ] as const)('study hand %s: the call becomes %s', (h, raise) => {
-    const r = rec('P3', h);
-    const off = play(r, {});
-    expect(off.plays.every((p) => p.startsWith('call:'))).toBe(true);
-    // on at least one seed today's raise is the one the river nut-raise rule flats
-    expect(fired(off, 'omaha_river_non_nut_raise_flatted')).toBeGreaterThan(0);
-    const on = play(r, ON);
-    expect(every(on, raise)).toBe(true);
-    expect(fired(on, RAISE)).toBe(SEEDS.length);
-    const v = raiseOf(r)!;
-    expect(v.raise).toBe(true);
-    // a value raise: the continuing holdings it beats outnumber those that beat it
-    expect(v.best!.win).toBeGreaterThan(v.best!.lose);
-    expect(v.best!.ev - v.evCall).toBeGreaterThan(v.margin);
-    expect(v.margin).toBeCloseTo(OMAHA_STRONG_HAND_RAISE_MARGIN * r.pot, 2);
-  });
-
-  it('the numbers of one: queens full, the pot raise is worth 122.72 against 89.26 for the call', () => {
-    const v = raiseOf(rec('P3', '0be91f45'))!;
-    expect(v).toMatchObject({ evCall: 89.26, margin: 4.08, beaten: 0.0331, amount: 170 });
-    // against the 13.9% of holdings that continue, it beats 76.8% and loses to 23.2%
-    expect(v.best).toMatchObject({ to: 170, ev: 122.72, region: 0.139, win: 0.7683, lose: 0.2317 });
-    expect(v.rows.map((x) => [x.to, x.ev])).toEqual([
-      [68, 103.43],
-      [119, 117.52],
-      [170, 122.72],
-    ]);
-  });
-
-  it('a value raise that is not worth the margin stays a call (sixes full of queens facing 26 into 98)', () => {
-    const r = rec('P3', '09948c66');
-    const on = play(r, ON);
-    expect(on.bytes).toEqual(play(r, {}).bytes);
-    const v = raiseOf(r)!;
-    expect(v.raise).toBe(false);
-    expect(v.best!.value).toBe(true);
-    expect(v.best!.ev - v.evCall).toBeLessThan(v.margin);
-  });
-
-  it('eights full of fours facing a pot bet: the holdings that continue against a raise beat it nine times in ten, so it calls', () => {
-    const r = rec('P3', 'b428e415');
-    expect(play(r, ON).bytes).toEqual(play(r, {}).bytes);
-    const v = raiseOf(r)!;
-    expect(v.raise).toBe(false);
-    expect(v.best).toBeNull();
-    expect(v.rows[0][`lose` as never] as unknown as number).toBeGreaterThan(0.85);
-  });
-});
-
-describe('a full house facing a river bet and raised in the study (P2)', () => {
-  // Today the river nut-raise rule turns these raises into calls. The count
-  // says which of them are value raises.
-  it.each([
-    ['0a77c620', 'raise:648'],
-    ['6686469e', 'raise:186'],
-    ['e37723f1', 'all_in'],
-  ] as const)('study hand %s: the count says raise (%s)', (h, raise) => {
-    const r = rec('P2', h);
-    const off = play(r, {});
-    expect(off.plays.every((p) => p.startsWith('call:'))).toBe(true);
-    const on = play(r, ON);
-    expect(every(on, raise)).toBe(true);
-    expect(fired(on, RAISE)).toBe(SEEDS.length);
-    const v = raiseOf(r)!;
-    expect(v.best!.win).toBeGreaterThan(v.best!.lose);
-    expect(v.best!.ev - v.evCall).toBeGreaterThan(v.margin);
-  });
-
-  it.each([
-    // sixes full of queens on Q-7-Q-K-5 facing a pot bet: the all-in raise is worth 80.33, the call 100.25
-    ['19fcf4d3', 80.33, 100.25],
-    // aces full of deuces on A-J-A-7-2 facing a pot bet: 109.39 against 126.68
-    ['48ac6c89', 109.39, 126.68],
-  ] as const)('study hand %s: the count says call (raise %d, call %d)', (h, evRaise, evCall) => {
-    const r = rec('P2', h);
-    expect(play(r, ON).bytes).toEqual(play(r, {}).bytes);
-    const v = raiseOf(r)!;
-    expect(v.raise).toBe(false);
-    expect(v.best!.ev).toBe(evRaise);
-    expect(v.evCall).toBe(evCall);
-  });
+    // queens full on 7-7-5-Q-K facing 34 into 68: kings full beats it
+    ['P3', '0be91f45'],
+    // kings full of sixes on 2-K-6-J-6: sixes full of kings and quads beat it
+    ['P3', '941f1dbf'],
+    // jacks full of queens on J-4-8-J-Q: queens full beats it
+    ['P3', '8e51c875'],
+    ['P3', '09948c66'],
+    ['P3', 'b428e415'],
+    ['P2', '0a77c620'],
+    ['P2', '6686469e'],
+    ['P2', 'e37723f1'],
+    ['P2', '19fcf4d3'],
+    ['P2', '48ac6c89'],
+  ] as const)(
+    'GUARD %s study hand %s: a full house a bigger one beats keeps today`s answer',
+    (p, h) => {
+      const r = rec(p, h);
+      const st = at(r);
+      expect(omahaStrongHandNow(st.hero, st.gs as never)).toBe(true);
+      expect(omahaStrongHandRaiseVerdict(st.hero, st.gs as never, {})).toBeNull();
+      const off = play(r, {});
+      expect(off.plays.every((x) => x.startsWith('call:'))).toBe(true);
+      const on = play(r, ON);
+      expect(on.bytes).toEqual(off.bytes);
+      expect(fired(on, RAISE)).toBe(0);
+    }
+  );
 
   it('GUARD: sevens full of kings on 7-7-K-8-5 (kings and eights make bigger full houses) facing a raise of nearly twice the pot does not raise', () => {
     const r = rec('P2', '7c7c4ace');
@@ -321,11 +266,22 @@ describe('a full house facing a river bet and raised in the study (P2)', () => {
     expect(on.plays.every((p) => p === 'call:173')).toBe(true);
     expect(mine(on)).toBe(0);
     expect(on.bytes).toEqual(play(r, {}).bytes);
-    const v = raiseOf(r)!;
-    expect(v.raise).toBe(false);
-    expect(v.best).toBeNull();
-    // the holdings that would continue against a re-raise: it beats none of them
-    expect(v.rows.every((x) => x.win === 0 && !x.value)).toBe(true);
+    expect(raiseOf(r)).toBeNull();
+  });
+
+  it('a nut full house (kings full of sevens on 7-7-5-Q-K) facing 34 into 68 is priced at every raise size and raises at the best one', () => {
+    const r = rec('P3', '0be91f45');
+    const st = at(r, NUT_KINGS_FULL);
+    const v = omahaStrongHandRaiseVerdict(st.hero, st.gs as never, {})!;
+    expect(v).not.toBeNull();
+    expect(v.beaten).toBe(0);
+    expect(v.raise).toBe(true);
+    // against the holdings that continue it never loses
+    for (const row of v.rows) expect(row.lose).toBe(0);
+    expect(v.best!.ev).toBe(Math.max(...v.rows.map((x) => x.ev)));
+    expect(v.best!.ev - v.evCall).toBeGreaterThan(v.margin);
+    const on = play(r, ON, NUT_KINGS_FULL);
+    expect(on.plays.every((p) => p.startsWith('raise:') || p === 'all_in')).toBe(true);
   });
 });
 
@@ -412,8 +368,8 @@ describe('a full house folded to a river bet in the study (P6)', () => {
       expect(on.bytes).toEqual(off.bytes);
       expect(mine(on)).toBe(0);
     }
-    // sevens full on a three-eight board facing 231 into 306: 37% of holdings beat it
-    expect(raiseOf(rec('P6', 'c9b18923'))).toMatchObject({ raise: false, beaten: 0.3726 });
+    // not nut class: no raise is priced
+    expect(raiseOf(rec('P6', 'c9b18923'))).toBeNull();
   });
 });
 
@@ -452,7 +408,7 @@ describe('scope and guards', () => {
     expect(not({ bombPot: true })).toBeNull();
     expect(not({ boardCount: 2 })).toBeNull();
     expect(not({ variantRules: { splitLow8OrBetter: true } })).toBeNull();
-    const facing = at(rec('P3', '0be91f45'));
+    const facing = at(rec('P3', '0be91f45'), NUT_KINGS_FULL);
     expect(omahaStrongHandRaiseVerdict(facing.hero, facing.gs as never, {})).not.toBeNull();
     expect(
       omahaStrongHandRaiseVerdict(
@@ -464,7 +420,8 @@ describe('scope and guards', () => {
   });
 
   it('a raise needs a bettor who can match it and nobody else in the hand', () => {
-    const st = at(rec('P3', '0be91f45'));
+    const st = at(rec('P3', '0be91f45'), NUT_KINGS_FULL);
+    expect(omahaStrongHandRaiseVerdict(st.hero, st.gs as never, {})).not.toBeNull();
     const bettorSeat = 6;
     const allIn = {
       ...st.gs,

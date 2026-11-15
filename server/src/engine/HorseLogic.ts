@@ -3344,13 +3344,14 @@ export interface HorseDecideOpts {
    * check. (c) With a player still to act the check is kept only when it is
    * worth more than every value bet (the induce), or when no size is a value
    * bet. (b) Facing one bettor with nobody else in the hand and today's
-   * answer a call: EV(raise to each legal size), on the exact count of the
-   * holdings that continue against the raise, beside HorseOmahaFacingBetEv's
-   * EV(call); the raise is made when it is a value raise worth more than the
-   * call by 4 percent of the pot. In its spots it decides over the half-pot
-   * checked-to full-house bet and over the river nut-raise rule's call for a
-   * full house a bigger one beats. A hand below a full house that is not nut
-   * class is never touched. Default OFF (opt-in, read `=== true`) until its
+   * answer a call, with a nut-class hand only (owner rulings 2026-11-14 and
+   * 2026-11-15 12:52: no raise without the nuts): EV(raise to each legal
+   * size), on the exact count of the holdings that continue against the
+   * raise, beside HorseOmahaFacingBetEv's EV(call); the raise is made at the
+   * size of highest EV when it is worth more than the call by 4 percent of
+   * the pot. A full house a bigger one beats keeps today's call or fold. In
+   * its spots it decides over the half-pot checked-to full-house bet. A hand
+   * below a full house that is not nut class is never touched. Default OFF (opt-in, read `=== true`) until its
    * declared evaluation passes; league cards plo4/plo5
    * _omaha_strong_hand_value. */
   omahaStrongHandValue?: boolean;

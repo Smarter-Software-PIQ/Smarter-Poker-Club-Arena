@@ -6,7 +6,7 @@ New option `omahaStrongHandValue` (read `=== true`, default OFF), module `server
 
 - a check with nothing to call is priced against every value bet against each opponent left; the value bet of highest expected value is made when it is worth at least the check;
 - with a player still to act the check is kept only when it is worth more than every value bet (the induce);
-- a call facing one bettor with nobody else in the hand is priced against every value raise on the exact count of the holdings that continue; the raise is made when it is worth more than the call by 4 percent of the pot.
+- with a nut-class hand only (the owner's rulings: no raise without the nuts), a call facing one bettor with nobody else in the hand is priced against every raise size on the exact count of the holdings that continue; the raise is made at the best size when it is worth more than the call by 4 percent of the pot. A full house a bigger one beats keeps today's call or fold.
 
 Receipts `omaha_strong_hand_value_bet`, `_value_raise`, `_induce_check`. League cards `plo4_omaha_strong_hand_value`, `plo5_omaha_strong_hand_value`. Evidence: `docs/horse-default-on.d/omahaStrongHandValue.md`.
 

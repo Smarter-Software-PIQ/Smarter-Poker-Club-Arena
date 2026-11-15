@@ -46,8 +46,14 @@
  *      behind: the check is kept only when it is worth more than every value
  *      bet (he bets worse hands and bluffs at his measured rate and is
  *      called), or when no size is a value bet.
- *  (b) VALUE RAISE. The Horse faces one bettor, nobody else is in the hand,
- *      and today's answer is a call. EV(call) is HorseOmahaFacingBetEv's
+ *  (b) VALUE RAISE SIZE, NUT-CLASS HANDS ONLY. The owner's rulings stand:
+ *      no river raise without the nuts (2026-11-14, hand 59401453) and, on
+ *      the turn and the river facing a bet, "never a raise" without the nuts
+ *      (2026-11-15 12:52 / 12:53, hand 59534208). So (b) applies only when
+ *      the hand is nut class right now (omahaNutClassNow, the helper
+ *      HorseOmahaOopChecks uses); a full house a bigger one beats keeps
+ *      today's call or fold. The Horse faces one bettor, nobody else is in
+ *      the hand, and today's answer is a call. EV(call) is HorseOmahaFacingBetEv's
  *      (exact count of the holdings that beat, tie and lose to the hand,
  *      against his value region and bluff share). EV(raise to each legal
  *      size): his bluffs fold; of his value region the strongest part
@@ -56,10 +62,8 @@
  *      holdings it beats in that part (exact count) and loses its raise to
  *      those that beat it. The raise is made when it is a value raise (the
  *      continuing holdings it beats outnumber those that beat it) and worth
- *      more than the call by OMAHA_STRONG_HAND_RAISE_MARGIN of the pot. This
- *      is the decision the river nut-raise rule answers with "never" for a
- *      full house a bigger one beats: with the option on, such a full house
- *      raises only when the count says so.
+ *      more than the call by OMAHA_STRONG_HAND_RAISE_MARGIN of the pot, at
+ *      the size of highest expected value.
  *
  * MULTIWAY (the minimal extension of the heads-up pricing; 115 of the 193
  * flagged checks had two or more opponents). Each opponent j is priced alone,
@@ -418,7 +422,7 @@ export interface OmahaStrongHandRaiseContext {
 
 /**
  * (b): EV(raise to each legal size) beside EV(call), one bettor and nobody
- * else in the hand, a strong hand, the river. Null outside the spot or when
+ * else in the hand, a nut-class hand (omahaNutClassNow), the river. Null outside the spot or when
  * the hand cannot be counted. It does not look at today's decision.
  */
 export function omahaStrongHandRaiseVerdict(
@@ -434,7 +438,9 @@ export function omahaStrongHandRaiseVerdict(
     const bettor = (gs.players ?? []).find((p) => p.seat === spot.bettorSeat);
     // A raise needs someone who can match it.
     if (!bettor || bettor.is_all_in || !fin(bettor.stack) || !(bettor.stack > 0.005)) return null;
-    if (!omahaStrongHandNow(hero, gs)) return null;
+    // Owner rulings 2026-11-14 (hand 59401453) and 2026-11-15 12:52/12:53
+    // (hand 59534208): facing a bet, a raise only with the nuts.
+    if (!omahaNutClassNow(hero, gs)) return null;
     const menu = Array.isArray(gs.legalActions) ? gs.legalActions : null;
     const canRaise = menu === null || menu.includes('raise');
     const canShove = menu === null || menu.includes('all_in');
