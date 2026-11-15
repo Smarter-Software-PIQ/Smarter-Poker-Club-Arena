@@ -445,6 +445,10 @@ export interface DecisionReadOptions {
    *  durable shown river record the decision's pooled row carried (HorseLongShownMemory.mergeLongShownBuckets). Only
    *  an explicit true engages; absent, the style read is what it was. */
   styleLongShownMemory?: boolean;
+  /** THE PROFILE COMPLETENESS CAP (2026-11-15, HorseDecideOpts.holdemProfileCompletenessCap): the style read takes
+   *  the incomplete-profile cap for a pooled row the decision's state names (pooledProfileIncomplete). Only an
+   *  explicit true engages; absent, the read is what it was. */
+  holdemProfileCompletenessCap?: boolean;
   /** TIGHT BEYOND VPIP (2026-11-15, HorseDecideOpts.styleTightMultiSignal): the style read admits the multi-signal
    *  tight route (HorseOpponentStyle.tightMultiSignalRead). Only an explicit true engages; absent, the read is what
    *  it was. */
@@ -826,6 +830,12 @@ export interface HorseMindSandbox {
    *  carry styleLongShownMemory, so with the option off nothing is carried. Travels with the decision's own state
    *  and its read frame (v16), never in a process-wide map. Absent when the read carried none. */
   pooledShownRiver?: Map<string, ShownRiverRead>;
+  /** THE PROFILE COMPLETENESS CAP ON THE POOLED PUBLIC PATH (2026-11-15, option holdemProfileCompletenessCap): the
+   *  pooled exact and donor rows in `exploit` (opponentMemoryKey) whose stored profile is not complete
+   *  (HorseOpponentStyle.profileQualification: back-fill pending, or no public domain on file). Set by the observer
+   *  reads only for a decision whose options carry the option, so with it off nothing is carried. Travels with the
+   *  decision's own state and its read frame (v17). Absent when the read carried none. */
+  pooledProfileIncomplete?: Map<string, true>;
 }
 
 /** What one pre-repair keyed pooled row carries into a decision; see HorseMindSandbox.pooledProvenance. */
@@ -1288,6 +1298,8 @@ export class HorseMind {
   /** The sandbox's durable shown river reads (HorseMindSandbox.pooledShownRiver) while one is installed; null outside
    *  a sandbox and for a sandbox that carries none. */
   private static pooledShownRiver: Map<string, ShownRiverRead> | null = null;
+  /** The sandbox's incomplete pooled rows (HorseMindSandbox.pooledProfileIncomplete) while one is installed. */
+  private static pooledProfileIncomplete: Map<string, true> | null = null;
   private static decisionVariant: string | null = null;
   /** Read calibration options of the decision in flight (DecisionReadOptions). */
   private static decisionReadOptions: DecisionReadOptions = {};
@@ -2198,8 +2210,20 @@ export class HorseMind {
       : [];
     const known = keys.filter((k) => this.durableProfileComplete.has(k));
     const exactKey = keys[0];
-    const complete: boolean | null =
-      exactKey !== undefined && this.durableProfileComplete.has(exactKey)
+    // PROFILE COMPLETENESS CAP (2026-11-15, holdemProfileCompletenessCap): the pooled rows this decision reads carry
+    // their qualification with the decision's own state. The exact row governs; a donor's counts only while the
+    // exact row is not among the counters the read stands on. Absent (option off), `complete` is what it was.
+    const pooledIncomplete =
+      this.decisionReadOptions.holdemProfileCompletenessCap === true &&
+      this.pooledProfileIncomplete !== null &&
+      exactKey !== undefined &&
+      (this.exploitCounters.has(exactKey)
+        ? this.pooledProfileIncomplete.has(exactKey)
+        : keys.slice(1).some((k) => this.pooledProfileIncomplete!.has(k)));
+    if (pooledIncomplete) noteFire('holdem_profile_completeness_cap_seen');
+    const complete: boolean | null = pooledIncomplete
+      ? false
+      : exactKey !== undefined && this.durableProfileComplete.has(exactKey)
         ? (this.durableProfileComplete.get(exactKey) as boolean)
         : durableMemoryOn
           ? null
@@ -2659,6 +2683,7 @@ export class HorseMind {
       this.durableOpponentMemory,
       this.probeAwareAggression,
       this.pooledProvenance,
+      this.pooledProfileIncomplete,
       this.donorStaleness,
       this.sandboxDepth,
     ];
@@ -3372,6 +3397,9 @@ export class HorseMind {
             // And the same durable shown river read (exact rows only; donors never carry one).
             const rowShown = row ? this.pooledShownRiver?.get(key) : undefined;
             if (rowShown) (view.pooledShownRiver ??= new Map()).set(key, structuredClone(rowShown));
+            // And the same completeness cap (exact row).
+            if (row && this.pooledProfileIncomplete?.has(key))
+              (view.pooledProfileIncomplete ??= new Map()).set(key, true);
             // The second look reads exactly what the first did, so the donor
             // contexts opponentRead may borrow travel with the exact one.
             if (!memoryContext) continue;
@@ -3382,6 +3410,8 @@ export class HorseMind {
               const donorAge = this.donorStaleness?.get(donorKey);
               if (donor && donorAge !== undefined)
                 (view.donorStaleness ??= new Map()).set(donorKey, donorAge);
+              if (donor && this.pooledProfileIncomplete?.has(donorKey))
+                (view.pooledProfileIncomplete ??= new Map()).set(donorKey, true);
               const donorProvenance = donor ? this.pooledProvenance?.get(donorKey) : undefined;
               if (donorProvenance)
                 (view.pooledProvenance ??= new Map()).set(donorKey, {
@@ -3451,11 +3481,13 @@ export class HorseMind {
       donorStaleness: this.donorStaleness,
       pooledProvenance: this.pooledProvenance,
       pooledShownRiver: this.pooledShownRiver,
+      pooledProfileIncomplete: this.pooledProfileIncomplete,
     };
     this.stats = sandbox.stats;
     this.donorStaleness = sandbox.donorStaleness ?? null;
     this.pooledProvenance = sandbox.pooledProvenance ?? null;
     this.pooledShownRiver = sandbox.pooledShownRiver ?? null;
+    this.pooledProfileIncomplete = sandbox.pooledProfileIncomplete ?? null;
     // A sandbox built before the exploit layer (or by a caller that only
     // knows the older fields) reads as "no exploit memory", never as live.
     this.exploitCounters = sandbox.exploit ?? new Map();
@@ -3492,6 +3524,7 @@ export class HorseMind {
       this.donorStaleness = live.donorStaleness;
       this.pooledProvenance = live.pooledProvenance;
       this.pooledShownRiver = live.pooledShownRiver;
+      this.pooledProfileIncomplete = live.pooledProfileIncomplete;
       this.scoped = live.scoped;
       this.dirtyScoped = live.dirtyScoped;
       this.exploitCounters = live.exploit;

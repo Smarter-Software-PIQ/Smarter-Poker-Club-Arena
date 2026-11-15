@@ -3340,6 +3340,25 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'simulated restart; until it exists, aShownRiverBettorIsRememberedAcrossARestart.law.test.ts and its worker ' +
       'test (FAST, DEEP and exact replay) are the evidence.',
   },
+  // 2026-11-15 (Hold'em Strategy lane): the profile completeness cap. Refused, not
+  // dealt: the rows it reads do not exist in a league hand.
+  {
+    name: 'nlh_profile_completeness_cap',
+    variant: 'nlh',
+    seats: 6,
+    a: { holdemProfileCompletenessCap: true },
+    b: {},
+    reason:
+      'Unanswerable by this league: the option reads one thing, the qualification of the pooled public rows ' +
+      '(initialized, public_memory_domain) that a live worker decision carries ' +
+      '(horseDecision/observerReads -> HorseMindSandbox.pooledProfileIncomplete). playHand calls HorseLogic.decide ' +
+      'directly, with no pooled public rows and no worker, so no row is ever named and both arms read the same ' +
+      'style confidence. MEASURED 2026-11-15 (runMatchup, seed 20261115): 0 of 300 pairs diverged, 0.00 bb/100, ' +
+      'stderr 0. The option is DEFAULT OFF (read as === true). ' +
+      'What would change this: a league that seats opponents from stored pooled profiles with mixed ' +
+      'qualification; until it exists, anIncompleteProfileIsCappedThroughTheWorker.test.ts (FAST, DEEP and exact ' +
+      'replay) is the evidence.',
+  },
   // 2026-11-14 (Fixed-Limit lane, SPEC-FL-01..03): three default-off
   // fixed-limit arms. Refused, not dealt: this league cannot ask the question.
   ...(

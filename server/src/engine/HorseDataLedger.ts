@@ -1125,6 +1125,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseMind.styleRead via HorseLogic.decide and horseDecision/observerReads'
   ),
   flag(
+    'holdemProfileCompletenessCap',
+    "2026-11-15 THE PROFILE COMPLETENESS CAP: a pooled opponent row whose stored profile is not complete (legacy back-fill pending, or no public memory domain on file; HorseOpponentStyle.profileQualification) caps the style read's confidence at incompleteProfileCap (0.4) for the decision instead of counting at full weight. The exact row governs over a sibling donor row. The rows are named in the decision's own detached state by horseDecision/observerReads and travel in read frame v17, so FAST, DEEP and exact replay agree. Until now the cap never applied on the live path (every pooled read reported complete). Read only as === true: default OFF.",
+    '2026-11-15',
+    'HorseMind.styleProvenanceOf via horseDecision/observerReads'
+  ),
+  flag(
     'styleCarryOverWeight',
     "2026-11-13 STYLE READ cross-format transfer: weight (0 to 1) of the same player's other-format counters in the style read; default 0 = format-specific evidence only; one player being tighter in tournaments does not establish that everyone is, so a non-zero weight needs validation first",
     '2026-11-13'
@@ -1505,6 +1511,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'holdem_call_down_needs_style_evidence_seen',
     'HorseMind.legacyExploit (holdemCallDownNeedsStyleEvidence)',
     'the legacy maniac multiplier was held neutral because the pooled tallies answered and the style read had no supported individual read; counts reads; named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
+    'holdem_profile_completeness_cap_seen',
+    'HorseMind.styleProvenanceOf (profile completeness cap)',
+    'behind holdemProfileCompletenessCap, a style read stood on a pooled row whose stored profile is not complete and took the incomplete-profile confidence cap; counts reads; named *_seen',
     '2026-11-15'
   ),
   receipt(

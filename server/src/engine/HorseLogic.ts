@@ -3417,6 +3417,12 @@ export interface HorseDecideOpts {
    *  in-process 72-hour bucket; never their sum. Receipts style_long_shown_memory_seen and
    *  style_long_shown_memory_older_seen. Default off; explicit true only. */
   styleLongShownMemory?: boolean;
+  /** THE PROFILE COMPLETENESS CAP (2026-11-15): a pooled opponent row whose stored profile is not complete (back-fill
+   *  pending, or no public domain on file; HorseOpponentStyle.profileQualification) caps the style read's confidence
+   *  at incompleteProfileCap (0.4) for this decision. The exact row governs over a donor row. Carried by the decision's
+   *  pooled public rows (horseDecision/observerReads), read frame v17. Receipt holdem_profile_completeness_cap_seen.
+   *  Default off; explicit true only. */
+  holdemProfileCompletenessCap?: boolean;
   /** STYLE READ A4 (2026-11-13): value extraction against a credible caller (HorseOpponentStyle.valueExtraction).
    *  Receipt style_value_extraction_seen. Default off; explicit true only. */
   styleValueExtraction?: boolean;
@@ -7020,6 +7026,10 @@ export class HorseLogic {
       // LONG SHOWN RIVER MEMORY (2026-11-15): only an explicit true adds the key (HorseLongShownMemory).
       ...(opts.styleLongShownMemory === true && opts.mind !== false
         ? { styleLongShownMemory: true }
+        : {}),
+      // PROFILE COMPLETENESS CAP (2026-11-15): only an explicit true adds the key.
+      ...(opts.holdemProfileCompletenessCap === true && opts.mind !== false
+        ? { holdemProfileCompletenessCap: true }
         : {}),
       // TIGHT BEYOND VPIP (2026-11-15, opponent classifier): plumbing only, key added only when true.
       ...(opts.styleTightMultiSignal === true ? { styleTightMultiSignal: true } : {}),
