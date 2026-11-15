@@ -2944,7 +2944,7 @@ export interface HorseDecideOpts {
    *  the rule aside), times the 0.85 realisation, covers the rake-aware pot
    *  odds. Widen-only and call-only; 4-bets, jams, three or more dealt and
    *  tournaments unchanged. Default OFF: only explicit true turns it on
-   *  (league human_hu_opener_defends_vs_threebet_40bb). */
+   *  (league human_hu_opener_defends_vs_wide_40bb). */
   huOpenerDefendsToPrice?: boolean;
   /** HU LIMPER DEFENDS TO ITS PRICE (2026-11-14, HU-NLH-011,
    *  HorseHuBbDefence): heads-up no-limit hold'em cash, hero limped the small

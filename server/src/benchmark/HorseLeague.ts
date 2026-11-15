@@ -2983,9 +2983,14 @@ LEAGUE_MATCHUPS.push(...HU_READS_OFF_CARDS);
  * default-OFF options, one card each, heads-up 40bb with the live cash Hybrid
  * persona and the deal-seeded mood clock, arm A the option on and arm B the
  * live default:
- *  - huOpenerDefendsToPrice against hu_three_bet_every_hand_v1, the persona
- *    that re-raises every open, which is the line the opener's fold to a
- *    3-bet pays.
+ *  - huOpenerDefendsToPrice against hu_wide_sb_aggressor_v1, the persona
+ *    whose big blind 3-bets light but not every hand. Until 2026-11-15 this
+ *    card faced hu_three_bet_every_hand_v1 and was INERT on the nightly (0 of
+ *    12,000 pairs diverged on 2026-11-15, engine 54c9aac8): against a player
+ *    who re-raises every open the engaged read already decides the opener's
+ *    answer, so the option never changed one. That question is retired into
+ *    UNMEASURABLE_MATCHUPS with its measurements; this card asks the one the
+ *    option exists for, a 3-bettor inside the realistic band.
  *  - huLimpDefendsToPrice against hu_minraise_every_button_v1. No heads-up
  *    persona raises every limp; each raises a limp with the wide profile's
  *    top 35%, and this is the one whose raise is the minimum (to 2bb), the
@@ -2994,11 +2999,13 @@ LEAGUE_MATCHUPS.push(...HU_READS_OFF_CARDS);
  * The cards only measure. Both options stay default OFF and neither is
  * proposed for activation: the owner's preflop range hold governs.
  */
+export const HUMAN_HU_OPENER_DEFENDS_VS_WIDE_40BB = `${HUMAN_FIELD_NAME_PREFIX}hu_opener_defends_vs_wide_40bb`;
+/** Retired 2026-11-15 (inert): see its UNMEASURABLE_MATCHUPS entry. */
 export const HUMAN_HU_OPENER_DEFENDS_VS_THREEBET_40BB = `${HUMAN_FIELD_NAME_PREFIX}hu_opener_defends_vs_threebet_40bb`;
 export const HUMAN_HU_LIMP_DEFENDS_VS_MINRAISE_40BB = `${HUMAN_FIELD_NAME_PREFIX}hu_limp_defends_vs_minraise_40bb`;
 export const HU_DEFENCE_CARDS: readonly LeagueMatchup[] = Object.freeze([
   {
-    name: HUMAN_HU_OPENER_DEFENDS_VS_THREEBET_40BB,
+    name: HUMAN_HU_OPENER_DEFENDS_VS_WIDE_40BB,
     seats: 2,
     stackBB: 40,
     pairs: HUMAN_FIELD_PAIRS,
@@ -3007,7 +3014,7 @@ export const HU_DEFENCE_CARDS: readonly LeagueMatchup[] = Object.freeze([
     a: { huOpenerDefendsToPrice: true },
     b: {},
     opponentPopulation: HUMAN_CALIBRATED_POPULATION_ID,
-    humanPersona: HU_THREE_BET_EVERY_HAND_PERSONA,
+    humanPersona: HU_WIDE_SB_AGGRESSOR_PERSONA,
   },
   {
     name: HUMAN_HU_LIMP_DEFENDS_VS_MINRAISE_40BB,
@@ -3208,6 +3215,29 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'protocol (development, selection and final seed classes). What would change this: a ' +
       'league context that deals the Lightning contract (fast-fold pool, big-blind ante of one ' +
       'big blind, a new table every hand) and sets the domain.',
+  },
+  {
+    // 2026-11-15 (heads-up lane, round 2): retired from HU_DEFENCE_CARDS.
+    name: HUMAN_HU_OPENER_DEFENDS_VS_THREEBET_40BB,
+    seats: 2,
+    stackBB: 40,
+    a: { huOpenerDefendsToPrice: true },
+    b: {},
+    reason:
+      'Inert against this opponent. huOpenerDefendsToPrice is DEFAULT OFF (HorseLogic: ' +
+      'opts.huOpenerDefendsToPrice === true). This card dealt it heads-up at 40bb against the ' +
+      'human field with the hu_three_bet_every_hand_v1 persona, which re-raises every open. ' +
+      "Against that player the engaged opponent read already decides the opener's answer, so " +
+      'the option never changes a decision: the nightly of 2026-11-15 (engine 54c9aac8) ' +
+      'reported status inert, 0 of 12,000 pairs diverged, both arms +123.90 bb/100. ' +
+      'Divergence probes 2026-11-15 on b262fd3e0 (heads-up lane, round 2): 0 of 2,000 pairs ' +
+      "at that night's seed and 1 of 4,000 pairs at seed 20261115 with reads on; with memory " +
+      'learning off (no read, the 20% reference) the same card diverged in 82 of 4,000 pairs, ' +
+      'so the read, not the spot, is what stands the option aside. The option is measured ' +
+      'where it acts: human_hu_opener_defends_vs_wide_40bb (hu_wide_sb_aggressor_v1, a big ' +
+      'blind that 3-bets light but not every hand). What would change this: a change to the ' +
+      'opener read or to the option that lets the price, not the read, answer an every-hand ' +
+      '3-bettor; re-probe this matchup before moving it back to the card.',
   },
   {
     name: 'hu_break_even_bluff',
