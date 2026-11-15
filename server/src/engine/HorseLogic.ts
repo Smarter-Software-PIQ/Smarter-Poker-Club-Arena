@@ -5594,6 +5594,22 @@ function omahaReraisedPotFold(
     // all-in equity against the holdings actually shown (PLO4 n38, PLO5 n22),
     // so it waits for its declared evaluation. The preflop cell's folds were
     // negative-equity calls in the same probe (PLO4 n4, PLO5 n2) and it is on.
+    // A measured maniac re-raiser (raise or re-raise width past the maniac
+    // bar on his own read; presumption never counts) is not given the fold:
+    // against him a 4-bet is not aces, and the maniac laws forbid the
+    // raise-fold (HorseManiacPressure.law.test.ts).
+    if (street === 'preflop' && opts.mind !== false) {
+      const history = gs.actionHistory ?? [];
+      for (let k = history.length - 1; k >= 0; k--) {
+        const a = history[k]!;
+        if (a.stage !== 'preflop' || a.seat === player.seat) continue;
+        if (a.action !== 'raise' && a.action !== 'all_in' && a.action !== 'bet') continue;
+        const raiser = gs.players.find((p) => p.seat === a.seat);
+        const read = raiser ? HorseMind.opponentRead(raiser.user_id) : null;
+        if (read && read.presumed !== true && maniacRaiseWidth(read) !== null) return decision;
+        break;
+      }
+    }
     const verdict =
       street === 'preflop'
         ? omahaReraisedPreflopCell(input)

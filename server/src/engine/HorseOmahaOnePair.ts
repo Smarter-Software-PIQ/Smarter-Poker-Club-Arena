@@ -231,6 +231,19 @@ export function omahaOnePairDiscipline(
       return same;
     if (stackSized) {
       if (!can('fold')) return same;
+      // A measured postflop over-bluffer (the maniac who pots every street)
+      // is called down by equity, as the maniac laws require
+      // (HorseManiacPressure.law.test.ts); presumption never counts.
+      const streetBets = new Map<number, number>();
+      for (const p of gs.players ?? [])
+        if (Number.isFinite(p.bet) && (p.bet ?? 0) > 0) streetBets.set(p.seat, p.bet ?? 0);
+      const faced = v81StreetWager(gs.actionHistory, street, streetBets, pot);
+      if (
+        faced !== null &&
+        faced.bettorSeat !== hero.seat &&
+        ctx.bettorOverBluffs(faced.bettorSeat)
+      )
+        return same;
       return {
         decision: asFold(decision),
         changed: isRaise ? 'one_pair_raise_folded' : 'one_pair_stack_off_folded',
