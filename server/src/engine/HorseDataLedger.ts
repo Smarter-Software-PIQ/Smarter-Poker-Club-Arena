@@ -1120,6 +1120,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     '2026-11-15'
   ),
   flag(
+    'styleLongShownMemory',
+    "2026-11-15 STYLE READ long shown river memory (HorseLongShownMemory): the style read's river size buckets (river first bets by size, shown, shown strong) may take a bucket from the opponent's durable shown river record (horse_exact_profiles.shown_river, migration 20261115144258, written by the accepted-hand learner, a half-life of 40 shown river bets, forward only with no back-fill) when that bucket holds more shown bets than the in-process 72-hour bucket, never their sum; the record reaches the decision on its pooled public row (accepted before the decision's own time) and read frame v16; cash and tournament, table sizes, variants and public domains apart; Horses and humans alike; receipts style_long_shown_memory_seen and style_long_shown_memory_older_seen; default off, explicit true only",
+    '2026-11-15',
+    'HorseMind.styleRead via HorseLogic.decide and horseDecision/observerReads'
+  ),
+  flag(
     'styleCarryOverWeight',
     "2026-11-13 STYLE READ cross-format transfer: weight (0 to 1) of the same player's other-format counters in the style read; default 0 = format-specific evidence only; one player being tighter in tournaments does not establish that everyone is, so a non-zero weight needs validation first",
     '2026-11-13'
@@ -1405,6 +1411,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorsePreflop via HorseLogic (STYLE READ #6)',
     'facing a 3-bet or more from a credibly tight re-raiser the 4-bet and call bars rose, bounded; named *_seen',
     '2026-11-13'
+  ),
+  receipt(
+    'style_long_shown_memory_seen',
+    'HorseMind.styleRead (STYLE READ, long shown river memory)',
+    "behind styleLongShownMemory, a style read took at least one river size bucket from the opponent's durable shown river record (horse_exact_profiles.shown_river, carried by the decision's pooled public row) because it held more shown bets than the in-process 72-hour bucket; counts reads; named *_seen",
+    '2026-11-15'
+  ),
+  receipt(
+    'style_long_shown_memory_older_seen',
+    'HorseMind.styleRead (STYLE READ, long shown river memory)',
+    "as style_long_shown_memory_seen, and the record began more than 72 hours before the decision's own time: the read used shown river evidence the 72-hour boot rebuild cannot hold; counts reads; named *_seen",
+    '2026-11-15'
   ),
   receipt(
     'style_long_participation_seen',

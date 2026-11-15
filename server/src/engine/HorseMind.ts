@@ -25,6 +25,7 @@ import {
   type MemorySize,
   type MemoryVariant,
 } from './HorseOpponentMemory.js';
+import { mergeLongShownBuckets, type ShownRiverRead } from './HorseLongShownMemory.js';
 import {
   respectWinner,
   isProvenWinner,
@@ -438,6 +439,10 @@ export interface DecisionReadOptions {
    *  the scope so the style read itself applies the pre-repair discount to the pooled rows it reads. Only an
    *  explicit true engages; absent, the style read is what it was. */
   styleFoldRatePreRepair?: boolean;
+  /** A LONG MEMORY OF SHOWN RIVER STRENGTH (2026-11-15): the style read's river size buckets may take a bucket from the
+   *  durable shown river record the decision's pooled row carried (HorseLongShownMemory.mergeLongShownBuckets). Only
+   *  an explicit true engages; absent, the style read is what it was. */
+  styleLongShownMemory?: boolean;
 }
 /** Decayed postflop facing-bet opportunities before the postflop fold rate reads. */
 export const FOLD_READ_MIN_OPPS = 8;
@@ -779,6 +784,12 @@ export interface HorseMindSandbox {
    *  state, never in a process-wide map, so two decisions never see each other's rows and a second look or an
    *  exact replay reads what the first look read. Absent when the read carried no such row. */
   pooledProvenance?: Map<string, PooledRowProvenance>;
+  /** A LONG MEMORY OF SHOWN RIVER STRENGTH (2026-11-15): for each pooled EXACT row in `exploit` (opponentMemoryKey)
+   *  that carries a durable shown river record (horse_exact_profiles.shown_river), the read of it at this decision's
+   *  own time (HorseLongShownMemory.shownRiverReadOf). Set by the observer reads only for a decision whose options
+   *  carry styleLongShownMemory, so with the option off nothing is carried. Travels with the decision's own state
+   *  and its read frame (v16), never in a process-wide map. Absent when the read carried none. */
+  pooledShownRiver?: Map<string, ShownRiverRead>;
 }
 
 /** What one pre-repair keyed pooled row carries into a decision; see HorseMindSandbox.pooledProvenance. */
@@ -1235,6 +1246,9 @@ export class HorseMind {
   /** The sandbox's pooled pre-repair provenance (HorseMindSandbox.pooledProvenance) while one is installed;
    *  null outside a sandbox and for a sandbox that carries none. */
   private static pooledProvenance: Map<string, PooledRowProvenance> | null = null;
+  /** The sandbox's durable shown river reads (HorseMindSandbox.pooledShownRiver) while one is installed; null outside
+   *  a sandbox and for a sandbox that carries none. */
+  private static pooledShownRiver: Map<string, ShownRiverRead> | null = null;
   private static decisionVariant: string | null = null;
   /** Read calibration options of the decision in flight (DecisionReadOptions). */
   private static decisionReadOptions: DecisionReadOptions = {};
@@ -2542,9 +2556,22 @@ export class HorseMind {
     // H1 (review 2026-11-13): evidence of THIS format and variant only. Shown strength comes from this context's
     // river size buckets. The scoped lifetime tallies (variant and table size, but cash and tournament mixed) enter
     // only as an explicit carry-over at styleCarryWeight (default 0); the all-variant pooled fallback never does.
-    const sizeBuckets = variant
+    const windowSizeBuckets = variant
       ? (this.styleSizeShown.get(styleSizeKey(userId, variant, mode, size)) ?? null)
       : null;
+    // LONG SHOWN RIVER MEMORY (2026-11-15): behind styleLongShownMemory, a bucket whose durable record (carried by
+    // this decision's pooled row) holds more shown bets than the in-process 72-hour bucket is read from the record;
+    // never the sum of the two (HorseLongShownMemory, the dedupe rule).
+    const longShown =
+      variant && this.decisionReadOptions.styleLongShownMemory === true
+        ? this.pooledShownRiver?.get(opponentMemoryKey(userId, variant, mode, size))
+        : undefined;
+    const longMerge = longShown ? mergeLongShownBuckets(windowSizeBuckets, longShown) : null;
+    const sizeBuckets = longMerge ? longMerge.buckets : windowSizeBuckets;
+    if (longMerge?.used) {
+      noteFire('style_long_shown_memory_seen');
+      if (longShown!.older) noteFire('style_long_shown_memory_older_seen');
+    }
     const s = carryWeight > 0 ? this.scoped.get(`${scope}|${userId}`) : undefined;
     const w = carryWeight;
     const agg = variant
@@ -3171,6 +3198,9 @@ export class HorseMind {
                 preRepair: rowProvenance.preRepair,
                 postRelease: { ...rowProvenance.postRelease },
               });
+            // And the same durable shown river read (exact rows only; donors never carry one).
+            const rowShown = row ? this.pooledShownRiver?.get(key) : undefined;
+            if (rowShown) (view.pooledShownRiver ??= new Map()).set(key, structuredClone(rowShown));
             // The second look reads exactly what the first did, so the donor
             // contexts opponentRead may borrow travel with the exact one.
             if (!memoryContext) continue;
@@ -3249,10 +3279,12 @@ export class HorseMind {
       planFingerprints: this.planFingerprints,
       donorStaleness: this.donorStaleness,
       pooledProvenance: this.pooledProvenance,
+      pooledShownRiver: this.pooledShownRiver,
     };
     this.stats = sandbox.stats;
     this.donorStaleness = sandbox.donorStaleness ?? null;
     this.pooledProvenance = sandbox.pooledProvenance ?? null;
+    this.pooledShownRiver = sandbox.pooledShownRiver ?? null;
     // A sandbox built before the exploit layer (or by a caller that only
     // knows the older fields) reads as "no exploit memory", never as live.
     this.exploitCounters = sandbox.exploit ?? new Map();
@@ -3288,6 +3320,7 @@ export class HorseMind {
       this.planFingerprints = live.planFingerprints;
       this.donorStaleness = live.donorStaleness;
       this.pooledProvenance = live.pooledProvenance;
+      this.pooledShownRiver = live.pooledShownRiver;
       this.scoped = live.scoped;
       this.dirtyScoped = live.dirtyScoped;
       this.exploitCounters = live.exploit;

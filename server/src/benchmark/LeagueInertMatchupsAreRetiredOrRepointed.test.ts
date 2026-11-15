@@ -55,6 +55,9 @@ describe('UNMEASURABLE_MATCHUPS', () => {
         'flh_call_is_not_a_commitment',
         'flo8_hilo_low_half_floor',
         'flo8_no_omaha_presumption',
+        // Hold'em Strategy lane (2026-11-15): the long shown river memory reads a durable
+        // record no league hand has (no pooled public rows, no worker); its reason states it.
+        'nlh_long_shown_river_memory',
       ].sort()
     );
     const card = new Set(LEAGUE_MATCHUPS.map((m) => m.name));
