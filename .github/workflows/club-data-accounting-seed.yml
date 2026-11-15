@@ -1,0 +1,52 @@
+name: Club Data accounting history load
+run-name: Club Data accounting history ${{ inputs.from }} to ${{ inputs.through }}
+# 20261115020010 / 20261115020011. An explicit, finite load of the accounting
+# read model's history after its live projection is attached, one accounting
+# day per REPEATABLE READ transaction, resumable through ca_club_acct_seed_log. Dispatched by the
+# owning agent from main only; never on a schedule (CLAUDE.md 10.85, 10.12).
+on:
+  workflow_dispatch:
+    inputs:
+      from:
+        description: First accounting day (YYYY-MM-DD, 02:00 America/Chicago)
+        required: true
+        type: string
+      through:
+        description: Last accounting day (YYYY-MM-DD), at most 120 days after from
+        required: true
+        type: string
+      rebuild:
+        description: Load days already loaded again (replaces their load rows; makes a day whole after a recorded projection failure)
+        required: false
+        default: false
+        type: boolean
+permissions:
+  contents: read
+concurrency:
+  group: club-data-accounting-seed
+  cancel-in-progress: false
+jobs:
+  load:
+    # A person dispatches it from main; the job token can neither dispatch nor
+    # re-run it (tests/unit/aJobTokenCannotStartTrustedWork.law.test.ts). A
+    # person's re-run is safe: a loaded day is skipped.
+    if: (github.actor != 'github-actions[bot]' && github.triggering_actor != 'github-actions[bot]') && github.ref == 'refs/heads/main' && !(github.run_attempt != '1' && github.triggering_actor == 'github-actions[bot]')
+    runs-on: ubuntu-latest
+    environment: ci-main
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # Pinned to the version package-lock.json resolves; install scripts off.
+      - run: npm i pg@8.20.0 --no-save --ignore-scripts --no-audit --no-fund
+      - name: Load each unseeded accounting day once
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SEED_FROM: ${{ inputs.from }}
+          SEED_THROUGH: ${{ inputs.through }}
+          SEED_REBUILD: ${{ inputs.rebuild }}
+        run: node scripts/ci/club-data-accounting-seed.mjs "$SEED_FROM" "$SEED_THROUGH" "$SEED_REBUILD"
