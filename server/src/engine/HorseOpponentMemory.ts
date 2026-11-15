@@ -2,7 +2,14 @@ import {
   publicMemoryDomainIsValid,
   type HorsePublicMemoryDomain,
 } from './HorsePublicMemoryDomain.js';
-import { EXPLOIT_COUNTER_FIELDS, type ExploitCounters } from './HorseOpponentExploit.js';
+import {
+  EXPLOIT_COUNTER_FIELDS,
+  EXPLOIT_LONG_FIELDS,
+  hasLongParticipation,
+  type ExploitCounters,
+  type ExploitCountersWithLong,
+  type ExploitLongCounters,
+} from './HorseOpponentExploit.js';
 
 export const MEMORY_VARIANTS = [
   'nlh',
@@ -29,6 +36,62 @@ export interface DurableOpponentProfile {
   observed_hands: number;
   initialized: boolean;
   counters: ExploitCounters;
+  /**
+   * 2026-11-15 the long participation window of this exact row
+   * (horse_exact_profiles.long_counters: lHands, lVpip, lPfr at a 120-hand
+   * half-life, written by the accepted-hand learner from the hand after the
+   * column was installed). Null or absent: the row has learned no hand since
+   * then (or the column is not installed, or it is a legacy-table row), and the
+   * read keeps the 30-hand window alone. Kept apart from `counters` so the
+   * 27-key counters JSON every reader validates keeps its exact shape.
+   */
+  long_counters?: ExploitLongCounters | null;
+}
+
+/** A profile's long participation window, valid or not: exactly lHands, lVpip, lPfr, finite and non-negative,
+ *  VPIP and PFR never above hands. Null and absent are valid (no window yet). */
+export function validLongCounters(value: unknown): boolean {
+  if (value === undefined || value === null) return true;
+  if (typeof value !== 'object' || Array.isArray(value)) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    Object.keys(v).length === EXPLOIT_LONG_FIELDS.length &&
+    EXPLOIT_LONG_FIELDS.every(
+      (f) => typeof v[f] === 'number' && Number.isFinite(v[f]) && (v[f] as number) >= 0
+    ) &&
+    (v.lVpip as number) <= (v.lHands as number) + 1e-9 &&
+    (v.lPfr as number) <= (v.lHands as number) + 1e-9
+  );
+}
+
+/** The counters a read takes from one durable row: its 27 counters plus, when the row has one, its long
+ *  participation window (the database's long_counters column; an engine-built row may carry it inside its
+ *  counters instead, and the column wins when both are present). A fresh object; the profile is not touched. */
+export function durableProfileCounters(p: DurableOpponentProfile): ExploitCountersWithLong {
+  const out: ExploitCountersWithLong = { ...p.counters };
+  if (p.long_counters) for (const f of EXPLOIT_LONG_FIELDS) out[f] = p.long_counters[f];
+  return out;
+}
+
+/** A copy of a profile's long window for a stored copy of the profile: absent stays absent, null stays null. */
+export function copyLongCounters(
+  p: DurableOpponentProfile
+): Pick<DurableOpponentProfile, 'long_counters'> {
+  return p.long_counters === undefined
+    ? {}
+    : { long_counters: p.long_counters === null ? null : { ...p.long_counters } };
+}
+
+/** Blend the long window of an exact row and a donor at the donor's weight, as every other field blends. A
+ *  window neither row carries stays absent. */
+function blendLong(
+  out: ExploitCountersWithLong,
+  exact: ExploitCountersWithLong | undefined,
+  donor: ExploitCountersWithLong,
+  weight: number
+): void {
+  if (!hasLongParticipation(exact) && !hasLongParticipation(donor)) return;
+  for (const f of EXPLOIT_LONG_FIELDS) out[f] = (exact?.[f] ?? 0) + weight * (donor[f] ?? 0);
 }
 
 export function memoryVariant(value: unknown): MemoryVariant | null {
@@ -88,9 +151,19 @@ export function validOpponentProfile(value: unknown): value is DurableOpponentPr
     Number.isSafeInteger(p.observed_hands) &&
     p.observed_hands >= 0 &&
     typeof p.initialized === 'boolean' &&
+    validLongCounters(p.long_counters) &&
     !!p.counters &&
     typeof p.counters === 'object' &&
-    Object.keys(p.counters).length === EXPLOIT_COUNTER_FIELDS.length &&
+    // The 27 counters; an engine-built row (a counter row of this process) may also carry its long window inside
+    // them, all three fields or none. The database's counters JSON is always the 27 (long_counters is apart).
+    (Object.keys(p.counters).length === EXPLOIT_COUNTER_FIELDS.length ||
+      (Object.keys(p.counters).length ===
+        EXPLOIT_COUNTER_FIELDS.length + EXPLOIT_LONG_FIELDS.length &&
+        validLongCounters(
+          Object.fromEntries(
+            EXPLOIT_LONG_FIELDS.map((f) => [f, (p.counters as ExploitCountersWithLong)[f]])
+          )
+        ))) &&
     EXPLOIT_COUNTER_FIELDS.every((f) => Number.isFinite(p.counters[f]) && p.counters[f] >= 0) &&
     (
       [
@@ -159,6 +232,7 @@ export function blendOpponentMemory(
   const out = {} as ExploitCounters;
   for (const f of EXPLOIT_COUNTER_FIELDS)
     out[f] = (exact?.[f] ?? 0) + OPPONENT_MEMORY_DONOR_WEIGHT * (best[f] ?? 0);
+  blendLong(out, exact, best, OPPONENT_MEMORY_DONOR_WEIGHT);
   return out;
 }
 
@@ -223,6 +297,7 @@ export function blendOpponentMemoryWithExpiry(
   const out = {} as ExploitCounters;
   for (const f of EXPLOIT_COUNTER_FIELDS)
     out[f] = (exact?.[f] ?? 0) + effectiveWeight * (best[f] ?? 0);
+  blendLong(out, exact, best, effectiveWeight);
   return out;
 }
 

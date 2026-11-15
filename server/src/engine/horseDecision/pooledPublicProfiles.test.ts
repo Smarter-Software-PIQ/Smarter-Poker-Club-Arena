@@ -246,6 +246,8 @@ it.each(['77777777-7777-4777-8777-777777777777', null])(
       observed_hands: 60,
       initialized: true,
       last_accepted_hand_id: lastHand,
+      // The long window can be installed before event lineage.
+      long_counters: lastHand ? null : { lHands: 48, lVpip: 48, lPfr: 48 },
       counters,
     };
     const req = requestAt();
@@ -277,7 +279,12 @@ it.each(['77777777-7777-4777-8777-777777777777', null])(
         priorParticipation: lastHand ? 'accepted_profile_present' : 'unresolved',
       },
     ]);
+    expect(req.savedProfilePresence?.exactProfiles?.[0]?.long_counters).toEqual(
+      profile.long_counters
+    );
     for (const invalid of [
+      { ...profile, long_counters: { lHands: 1, lPfr: -1, lVpip: 1 } },
+      { ...profile, long_counters: null, counters: { ...counters, lHands: 1, lPfr: 0, lVpip: 1 } },
       { ...profile, observed_hands: 1 },
       { ...profile, counters: { ...counters, hands: 0 } },
       { ...profile, counters: { ...counters, fHands: 61 } },
@@ -290,7 +297,13 @@ it.each(['77777777-7777-4777-8777-777777777777', null])(
       expect(v?.exactProfiles).toBeUndefined();
     }
     let consumed = false;
+    let decisionCounters: unknown;
     const h = workerHarness({
+      snapshotDecisionReads: (...args) => {
+        const view = HorseMind.snapshotDecisionReads(...args);
+        decisionCounters = view.exploit?.get('nlh:cash:hu|' + opponentId);
+        return view;
+      },
       decide: (...args) => {
         const decision = HorseLogic.decide(...args);
         HorseMind.setDecisionScope('holdem:hu', 'nlh', 'cash');
@@ -302,6 +315,7 @@ it.each(['77777777-7777-4777-8777-777777777777', null])(
       req.decisionKey = buildHorseDecisionKey(req);
       expect((await h.fast(req)).type).toBe('FAST_RESULT');
       expect(consumed).toBe(true);
+      expect(decisionCounters).toEqual({ ...counters, ...profile.long_counters });
       const evidence = h.captures.at(-1)!.observerReads;
       expect(evidence).toMatchObject({
         pooledPublicProfiles: {
@@ -655,6 +669,21 @@ describe('exact public rule domains', () => {
     expect(pool.read(r)?.receipt.availableAtMs).toBe(100);
     r.decisionTimeMs = 99;
     expect(pool.read(r)).toBeNull();
+
+    // An equal version and accepted ID cannot carry a different long window
+    // under the earlier timestamp, even when the original 27 counters match.
+    const long = { lHands: 8, lVpip: 2, lPfr: 1 };
+    for (const previous of [null, long]) {
+      now = 100;
+      const changed = new PooledPublicProfiles(() => now);
+      earlier.durableOpponentProfiles![0]!.long_counters = previous;
+      later.durableOpponentProfiles![0]!.long_counters = { ...long, lVpip: 3 };
+      expect(changed.observe(earlier)).toBe(1);
+      now = 200;
+      expect(changed.observe(later)).toBe(0);
+      r.decisionTimeMs = now;
+      expect(changed.read(r)).toBeNull();
+    }
   });
   it('isolates speed and ante, preserving the original decision cutoff', () => {
     const pool = new PooledPublicProfiles(() => 100);

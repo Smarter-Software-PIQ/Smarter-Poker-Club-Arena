@@ -1280,6 +1280,7 @@ interface TablePageProps {
     handNumber?: number;
     buttonTheme?: string;
     isAutoRebuyEnabled?: boolean;
+    standUpNextBB?: boolean;
     /**
      * PokerBros parity (Dan 2026-08-20, from live multi-table footage): each
      * tab previews the hero's hole cards AT THAT TABLE. Reported as ONE
@@ -15169,6 +15170,12 @@ function LiveTablePage({
     setShowTournamentLobby(true);
   });
   const [standUpNextBB, setStandUpNextBB] = useState(false);
+  /* The tab bar's Stand Up Next Big Blind badge reads this off the tab. It was
+     never reported, so the row toggled the real setting and showed nothing
+     (2026-11-14). Same route as isAutoRebuyEnabled. */
+  useEffect(() => {
+    onTableInfoUpdate?.({ standUpNextBB });
+  }, [standUpNextBB, onTableInfoUpdate]);
 
   const [sharedHandData, setSharedHandData] = useState<any>(null);
   /* SHARE AS VIDEO (Phase 9.1): the hand_history id behind sharedHandData
@@ -18559,7 +18566,13 @@ function LiveTablePage({
     // already arrives through useTableSettings (applyGateChanges -> setEnabled).
     // Off goes through the engine, which also returns the Safari audio session
     // to "ambient", so a player's music is not left paused.
-    if (s.soundEnabled === false) {
+    /* AND ONLY FROM THE SETTINGS PAGE'S OWN SAVE (2026-11-14). The same event
+       is also sent by the account sync and by the theme mirror, each carrying
+       the cached copy described above. A player who had once muted in Settings
+       and then turned Sounds ON at the table was muted again by the next of
+       those, with every switch still reading ON. A cached copy is not a
+       choice; the page's save is. */
+    if (payload?.source === 'settings-page' && s.soundEnabled === false) {
       soundService.setEnabled(false);
     }
     // 2026-08-18: a `deckStyle` branch used to live here writing
@@ -32937,7 +32950,8 @@ function LiveTablePage({
               /* No seat was bought: there is no room for this tab to follow. */
               if (anchorLightningClusterId) clearLightningEntryIntent(tableId);
               const message =
-                cashBuyInRefusalText(outcome.error) ?? 'The Server Refused This Buy-In.';
+                cashBuyInRefusalText(outcome.error, { leftWith: cashoutMinBuyIn }) ??
+                'The Server Refused This Buy-In.';
               if (
                 /^SEAT_RESERVED:/.test(
                   String(

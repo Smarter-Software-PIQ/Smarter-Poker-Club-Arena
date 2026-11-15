@@ -1,4 +1,9 @@
-import { validOpponentProfile, type DurableOpponentProfile } from '../HorseOpponentMemory.js';
+import { EXPLOIT_COUNTER_FIELDS } from '../HorseOpponentExploit.js';
+import {
+  copyLongCounters,
+  validOpponentProfile,
+  type DurableOpponentProfile,
+} from '../HorseOpponentMemory.js';
 import {
   horseDecisionHandCoordinates,
   horseJournalLeaseIdentityIsValid,
@@ -168,6 +173,8 @@ function usableProfile(
     publicMemoryDomainKey(raw.public_memory_domain) !== publicMemoryDomainKey(deal.domain) ||
     raw.last_accepted_hand_id === undefined ||
     raw.observed_hands < 1 ||
+    // SQL stores the long window separately; only engine-built rows can embed it.
+    Object.keys(raw.counters).length !== EXPLOIT_COUNTER_FIELDS.length ||
     !possibleExactCounters(raw)
   )
     return null;
@@ -180,6 +187,7 @@ function usableProfile(
     observed_hands: raw.observed_hands,
     initialized: raw.initialized,
     counters: { ...raw.counters },
+    ...copyLongCounters(raw),
     last_accepted_hand_id: raw.last_accepted_hand_id,
   };
 }

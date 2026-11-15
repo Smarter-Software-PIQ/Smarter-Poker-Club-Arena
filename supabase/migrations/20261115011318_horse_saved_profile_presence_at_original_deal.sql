@@ -29,7 +29,11 @@ BEGIN
     END, CASE WHEN exact.user_id IS NOT NULL THEN jsonb_build_object(
       'user_id',exact.user_id,'variant',exact.variant,'mode',exact.mode,'size',exact.size,
       'public_memory_domain',exact.public_memory_domain,'observed_hands',exact.observed_hands,
-      'initialized',exact.initialized,'last_accepted_hand_id',exact.last_accepted_hand_id,'counters',exact.counters
+      'initialized',exact.initialized,'counters',exact.counters,
+      -- Both columns are additive and may be installed independently.
+      -- Extract only these keys; an absent column projects as JSON null.
+      'last_accepted_hand_id',to_jsonb(exact)->'last_accepted_hand_id',
+      'long_counters',to_jsonb(exact)->'long_counters'
     ) END
     FROM unnest(p_user_ids) ids(actor) LEFT JOIN public.horse_exact_profiles exact
       ON exact.user_id=ids.actor AND exact.variant=p_variant AND exact.mode=p_mode

@@ -56,7 +56,24 @@ describe('cashBuyInRefusalText', () => {
     );
   });
 
-  it('quotes the rejoin floor as a number and nothing else (chip continuity, 2026-09-04)', () => {
+  /* Dan, 2026-11-14: "I think the issue is that he is trying to buy in for
+     less than he left the table with. And if so, it should say that
+     specifically." */
+  it('names what the player left with when the client knows that is the reason', () => {
+    const raw = 'BUYIN_BELOW_FLOOR: minimum buy-in for this game right now is 2,500.00';
+    expect(cashBuyInRefusalText(raw, { leftWith: 2500 })).toBe(
+      'You Left This Game With 2,500.00. Your Buy In Must Be At Least 2,500.00.'
+    );
+    // The door quotes a different number: it is the table minimum, not his stack.
+    expect(cashBuyInRefusalText(raw, { leftWith: 1800 })).toBe(
+      'The Minimum Buy In For This Game Right Now Is 2,500.00'
+    );
+    expect(cashBuyInRefusalText(raw, { leftWith: 0 })).toBe(
+      'The Minimum Buy In For This Game Right Now Is 2,500.00'
+    );
+  });
+
+  it('quotes the minimum as a number when no reason is known (chip continuity, 2026-09-04)', () => {
     expect(
       cashBuyInRefusalText('BUYIN_BELOW_FLOOR: minimum buy-in for this game right now is 2,500')
     ).toBe('The Minimum Buy In For This Game Right Now Is 2,500');

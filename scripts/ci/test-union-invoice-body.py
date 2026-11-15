@@ -20,6 +20,7 @@ import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 MIGRATION = ROOT / 'supabase/migrations/20261115011424_union_invoice_views_show_the_week_and_who_pays.sql'
+FOLLOW_UP = ROOT / 'supabase/migrations/20261115030918_union_invoice_views_subtract_credits_from_balances_totals.sql'
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--output', type=pathlib.Path, required=True)
 out = parser.parse_args().output.resolve()
@@ -105,6 +106,13 @@ ROWS = [
               {'weekly_player_results': {'version': 1, 'cash_net_loss': 19148.89, 'tournament_net_loss': 18011.94,
                                          'total_net_loss': 37160.83, 'rakeback_credit': 23268.80, 'eco_charge': 6042.96,
                                          'weekly_net_due_to_union': 19934.99, 'sign_convention': 'positive_club_owes_union'}}), None),
+    ('10000000-0000-4000-8000-000000000050', KC, 'union_weekly_squareup', 'MIDWAY-2026-000050', 'club', KC, 'union', U, '1000.00', 'generated', '2026-11-19 08:00Z',
+     squareup(KC, 'club owes union', 0, 0, 0, -10000, -10000, -1000, -10000, -1000, eco(-1000, 10000, 0, 0),
+              {'period_start': '2026-11-09T08:00:00+00:00', 'period_end': '2026-11-16T08:00:00+00:00'}, {'paid_total': 150.5}), None),
+    ('10000000-0000-4000-8000-000000000051', KC, 'union_weekly_credit_note', 'MIDWAY-2026-000051', 'union', U, 'club', KC, '200.00', 'generated', None,
+     {'union_id': U, 'union_name': 'Midway Union', 'club_id': KC, 'original_invoice_id': '10000000-0000-4000-8000-000000000050',
+      'credit_note_for': 'MIDWAY-2026-000050', 'period_start': '2026-11-09T08:00:00+00:00', 'period_end': '2026-11-16T08:00:00+00:00'},
+     '10000000-0000-4000-8000-000000000050'),
     ('10000000-0000-4000-8000-000000000099', DS, 'club_weekly_accounting', 'CA-1', 'club', DS, 'union', U, '1.00', 'generated', None, {}, None),
 ]
 
@@ -145,6 +153,14 @@ CREATE TABLE public.settlement_invoices(
     start = source.index('CREATE OR REPLACE FUNCTION smarter_private.union_statement_figure(')
     end = source.index('CREATE FUNCTION pg_temp.ca_patch(')
     run('BEGIN;\n' + source[start:end] + '\nCOMMIT;')
+    # The follow-up patches the body exactly as installed by 20261115011424:
+    # its md5 guard must accept this definition, and its anchors must apply.
+    follow = FOLLOW_UP.read_text()
+    patcher = follow[follow.index('CREATE FUNCTION pg_temp.ca_patch('):follow.index('-- 1. The board')]
+    body_patch = follow[follow.index("SELECT pg_temp.ca_patch(\n  'smarter_private.union_weekly_invoice_body(uuid)'"):follow.index('DROP FUNCTION pg_temp.ca_patch')]
+    run('BEGIN;\n' + patcher + body_patch + '\nCOMMIT;')
+    grants_after = run("SELECT has_function_privilege('authenticated', 'smarter_private.union_weekly_invoice_body(uuid)', 'EXECUTE');")
+    check('the follow-up patch keeps the body private', grants_after == 'f', grants_after)
 
     def body(n):
         return run(f"SELECT smarter_private.union_weekly_invoice_body(id) FROM public.settlement_invoices WHERE invoice_number='{n}';")
@@ -161,10 +177,12 @@ CREATE TABLE public.settlement_invoices(
                  'Amount Due Is What Remains: Combined ECO -96,919.54 Plus Recorded Presettlements 0.00 Equals -96,919.54']:
         check(f'club pays: {line}', line in ds, ds)
     check('club pays: no transfer claim for the whole figure', 'already moved during the week' not in ds, ds)
+    check('club pays: remaining unpaid balance', 'Remaining Unpaid Balance: 96,919.54' in ds and 'Paid So Far' not in ds, ds)
 
     sv = body('MIDWAY-2026-000037')
     check('square says nothing is due', 'Amount Due: Square, Nothing Due' in sv and '\nDue: ' not in sv, sv)
     check('square says no rakeback was paid', 'No Rakeback Was Paid To The Club For This Week' in sv, sv)
+    check('square has nothing unpaid', 'Remaining Unpaid Balance: 0.00' in sv, sv)
 
     house = body('MIDWAY-2026-000040')
     for line in ['Midway Union House Club Statement MIDWAY-2026-000040',
@@ -177,6 +195,7 @@ CREATE TABLE public.settlement_invoices(
                  'Credited By: MIDWAY-2026-000018 (126,153.66)', 'Less Credit Notes 126,153.66 Leaves 0.00 Due',
                  'Week: Mon Sep 28, 2026 2:00 AM to Mon Oct 5, 2026 2:00 AM Chicago Time']:
         check(f'credited invoice: {line}', line in credited, credited)
+    check('credited invoice: nothing remains unpaid', 'Remaining Unpaid Balance: 0.00' in credited, credited)
     check('credited invoice never reads as owing its full amount',
           'Pays Midway Union 126,153.66' not in credited and '\nDue: ' not in credited, credited)
 
@@ -187,10 +206,17 @@ CREATE TABLE public.settlement_invoices(
 
     dst = body('MIDWAY-2026-000034')
     for line in ['Week: Mon Oct 26, 2026 2:00 AM to Mon Nov 2, 2026 2:00 AM Chicago Time',
-                 'Positive Means Players Lost Or The Club Pays.', 'Cash Player Net Loss: 19,148.89',
+                 'The Net Loss, ECO Charge And Full Weekly Net Lines Below Are Counted From The Club\'s Side: Positive Means Players Lost Or The Club Pays.',
+                 'Less Club Rakeback Credit Is The Rakeback The Union Paid The Club, Subtracted In The Full Weekly Net.',
+                 'Cash Player Net Loss: 19,148.89',
                  'ECO Charge Or Credit (Positive Means The Club Pays): 6,042.96',
                  'Full Weekly Net (Positive Club Owes Union): 19,934.99']:
         check(f'daylight-saving week with split: {line}', line in dst, dst)
+
+    part = body('MIDWAY-2026-000050')
+    for line in ['Amount Due: KINGS CLUB Pays Midway Union 800.00 Chips After Credit',
+                 'Credited By: MIDWAY-2026-000051 (200.00)', 'Paid So Far: 150.50', 'Remaining Unpaid Balance: 649.50']:
+        check(f'part credited and part paid: {line}', line in part, part)
 
     figures = run("SELECT string_agg(smarter_private.union_statement_figure(x), '|' ORDER BY o) FROM (VALUES "
                   "(1, 1.005::numeric), (2, 0), (3, -0.07), (4, 1234567890123456789.12), (5, 452206.43000000000000000000), (6, NULL)) v(o, x);")

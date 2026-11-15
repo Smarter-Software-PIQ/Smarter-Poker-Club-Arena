@@ -96,11 +96,14 @@ async function loadRows({ clubId, unionId, tableId, asset }: Props): Promise<Row
       for (const p of prices) rows.push({ ...base, dealt: p.players, rate: p.percent, cap: p.cap });
     } else {
       const override = resolveRakeOverride(table, club);
+      if (override?.scope === 'midway' && sb === 5 && bb === 10) continue;
       const config = getRakeConfig(
         bb,
         table.game_variant,
         sb,
-        version === 1 ? override : { ...override, scope: undefined }
+        version === 1 || version === 2
+          ? { ...override, policyVersion: version }
+          : { ...override, scope: undefined }
       );
       if (!chip?.data) throw new Error('Missing chip rake rules');
       for (const price of chipPrices(
@@ -189,7 +192,7 @@ export function BBJRakeSchedule(props: Props) {
     );
   const { stakes, brackets } = groupByStakes(rows);
   return (
-    <div className="bbj-basic">
+    <div className="bbj-basic bbj-rake">
       <p className="bbj-basic__rules">Rake % / Cap In {asset === 'chips' ? 'Chips' : 'Diamonds'}</p>
       <div className="bbj-basic__scroll">
         <table className="bbj-basic__table" aria-label="Rake Schedule By Stakes">

@@ -1,6 +1,6 @@
 import { execFile, execFileSync } from 'node:child_process';
 import { existsSync, lstatSync, readdirSync, statfsSync } from 'node:fs';
-import { dirname, isAbsolute, join } from 'node:path';
+import { basename, dirname, isAbsolute, join } from 'node:path';
 
 /** A closed window of capture time whose published segments the ring never
  * retires. Resolved once, when a writer opens with it, to the published
@@ -147,6 +147,92 @@ function evidenceHold(value: string | undefined): HorseJournalArchiveHold | null
   )
     throw Error('Invalid Horse archive evidence hold');
   return { fromMs, untilMs };
+}
+
+/* A DECLARED CAPTURE HOLD (2026-11-15). The hold above is one environment
+   variable, read when a writer opens, and on production it still names the
+   2026-09 Phase 6A/6B window: a capture declared for a later release had no
+   protection from the ring. On 2026-11-14 the oldest journal files were
+   retired at up to 1.3 times real time, and the capture owner byte-copied
+   every segment file of a twelve-hour window hourly to keep it.
+   A declared hold is a file `<journal>/holds/<id>.json`, beside the archive
+   directories, so every shard's writer sees the same declarations:
+     {"version":1,"fromUtc":"2026-11-14T22:10:00Z","untilUtc":"2026-11-15T10:10:00Z",
+      "expiresUtc":"2026-11-22T10:10:00Z","operator":"Human-vs-Horse capture owner"}
+   Exactly those five keys; whole UTC seconds; untilUtc after fromUtc and at
+   most 48 hours later; expiresUtc after untilUtc and at most 14 days later,
+   so no declaration can hold anything for good. The file must be a private
+   regular file of at most 2 KiB with one link, owned by the writer's user,
+   in a private directory, like every other archive path. Each writer reads
+   the directory at most once every HORSE_JOURNAL_DECLARED_HOLD_REFRESH_MS,
+   outside its write transaction; at most four declarations apply (the first
+   four valid ones by file name). A file that fails any rule is refused by
+   name in the writer's log and changes nothing; capture never stops for one.
+   The declared windows share the hold budget below with the configured hold
+   (that one first), keep their oldest segments when it is reached, and are
+   released to the ring when they expire. Read-only readers never read them. */
+export const HORSE_JOURNAL_DECLARED_HOLDS_DIRECTORY = 'holds';
+export const HORSE_JOURNAL_DECLARED_HOLD_REFRESH_MS = 30_000;
+export const HORSE_JOURNAL_DECLARED_HOLD_MAX_WINDOW_MS = 48 * 3_600_000;
+export const HORSE_JOURNAL_DECLARED_HOLD_MAX_RETENTION_MS = 14 * 86_400_000;
+export const HORSE_JOURNAL_DECLARED_HOLDS_MAX = 4;
+export const HORSE_JOURNAL_DECLARED_HOLD_FILE_BYTES = 2048;
+export interface HorseJournalDeclaredHold {
+  id: string;
+  fromMs: number;
+  untilMs: number;
+  expiresAtMs: number;
+}
+const DECLARED_HOLD_NAME = /^([a-z0-9][a-z0-9-]{0,62})\.json$/;
+const DECLARED_HOLD_KEYS = ['expiresUtc', 'fromUtc', 'operator', 'untilUtc', 'version'];
+function holdInstant(value: unknown): number | null {
+  if (typeof value !== 'string' || !HOLD_INSTANT.test(value)) return null;
+  const ms = Date.parse(value);
+  return Number.isSafeInteger(ms) && new Date(ms).toISOString() === value.replace('Z', '.000Z')
+    ? ms
+    : null;
+}
+/** The declared hold in one file, or the reason it is refused. Pure: no
+ * clock, no filesystem; expiry and file safety are the writer's checks. */
+export function parseHorseJournalDeclaredHold(
+  fileName: string,
+  text: string
+): HorseJournalDeclaredHold | string {
+  const name = DECLARED_HOLD_NAME.exec(fileName);
+  if (!name) return 'name';
+  let body: unknown;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    return 'json';
+  }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return 'schema';
+  const value = body as Record<string, unknown>;
+  if (Object.keys(value).sort().join(',') !== DECLARED_HOLD_KEYS.join(',')) return 'schema';
+  if (value.version !== 1) return 'version';
+  if (typeof value.operator !== 'string' || !/^[\x20-\x7e]{1,200}$/.test(value.operator))
+    return 'operator';
+  const fromMs = holdInstant(value.fromUtc),
+    untilMs = holdInstant(value.untilUtc),
+    expiresAtMs = holdInstant(value.expiresUtc);
+  if (fromMs === null || untilMs === null || expiresAtMs === null) return 'instant';
+  if (!(fromMs < untilMs)) return 'window';
+  if (untilMs - fromMs > HORSE_JOURNAL_DECLARED_HOLD_MAX_WINDOW_MS) return 'window_too_long';
+  if (
+    !(expiresAtMs > untilMs) ||
+    expiresAtMs - untilMs > HORSE_JOURNAL_DECLARED_HOLD_MAX_RETENTION_MS
+  )
+    return 'expiry';
+  return { id: name[1]!, fromMs, untilMs, expiresAtMs };
+}
+/** Where a shard's writer looks for declared holds: `holds` beside the shard's
+ * archive directory, the journal directory every shard shares. Null for an
+ * archive directory that is not one of the journal's own shard names (a
+ * test or tool layout), which then has no declared holds. */
+export function horseJournalDeclaredHoldsDirectory(archiveDirectory: string): string | null {
+  return /^archive(-shard-[1-9][0-9]*)?$/.test(basename(archiveDirectory))
+    ? join(dirname(archiveDirectory), HORSE_JOURNAL_DECLARED_HOLDS_DIRECTORY)
+    : null;
 }
 
 /** ONE CATALOG PER DECISION-SHARD WRITER (2026-09-28). Every Horse decision

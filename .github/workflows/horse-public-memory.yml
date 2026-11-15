@@ -14,6 +14,7 @@ on:
       - supabase/migrations/20261115010037_bind_horse_exact_profiles_to_their_accepted_hand.sql
       - supabase/migrations/20261115011318_horse_saved_profile_presence_at_original_deal.sql
       - scripts/ci/fixtures/horse-saved-profile-presence.sql
+      - supabase/migrations/20261115015341_the_exact_opponent_profile_keeps_a_long_participation_window.sql
 concurrency:
   group: horse-public-memory-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true

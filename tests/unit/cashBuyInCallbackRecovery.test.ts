@@ -100,6 +100,7 @@ function fixture() {
     isDeadSessionRefusal,
     isCashBuyInStorageFailure,
     clearLightningEntryIntent: vi.fn(),
+    cashoutMinBuyIn: 0,
     askToSignInAgain: vi.fn(),
     applyBalanceDelta: vi.fn(),
     totalBuyInRef: ref(0),
