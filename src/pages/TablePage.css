@@ -5242,11 +5242,6 @@ button.post-bb-overlay-button {
 /* Nine player phone tables leave a cap row above the skin. Shorten only
    from the top so the bottom seat and controller keep their shared floor. */
 @media (min-width: 481px) and (max-width: 640px) and (orientation: portrait) {
-  /* A spectator has one footer. The tournament dock fits in the space
-     occupied by a seated player's controls, without shortening the rail. */
-  .table-page--tournament[data-seats='9'][data-hero='false'] .table-container {
-    --sp-action-reserve: var(--sp-seated-row-reserve);
-  }
   .table-page[data-seats='9'] .table-scaler {
     /* Preserve the width for side wagers around the board on height-limited phones. */
     width: min(88%, calc(var(--sp-table-h, 100svh) * 0.725));
@@ -5259,6 +5254,11 @@ button.post-bb-overlay-button {
     );
     height: calc(var(--sp-table-h, 100svh) - var(--sp-nine-cap-room));
     margin-top: var(--sp-nine-cap-room);
+  }
+  /* A spectator has one footer. The tournament dock fits in the space
+     occupied by a seated player's controls, without shortening the rail. */
+  .table-page--tournament[data-seats='9'][data-hero='false'] .table-container {
+    --sp-action-reserve: var(--sp-seated-row-reserve);
   }
 }
 
