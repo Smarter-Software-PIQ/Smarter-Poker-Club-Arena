@@ -21,6 +21,12 @@ November 11 MTT winnings in the owner's transcription were 138.71; the original 
 
 At audit time coverage was complete but provisional: no settlement period/invoice or retained closing-boundary certificate existed for this week, and November 15 was awaiting boundary certification. Matching original transaction totals is not a claim that an issued invoice or its deferred tournament boundary holdings have been finalized. No financial close, payout, repair, certification or ledger mutation was initiated.
 
+### Midway union BBJ reconciliation
+
+For the same window, original cash rake sources total 817368.93 and 46673 recognized tournament fee sources total 98047.08, independently reproducing the page's 915416.01 fee. Gross BBJ collections are 166462.81: both the 548132 pool contribution records and the corresponding rake records give that amount. Participant attribution independently gives the same amount, including 639.04 for Kings. Qualified original BBJ award records give 25611.60 returned to players. Thus cash losses reconcile exactly: 958220.14 = 817368.93 rake + 166462.81 collected - 25611.60 awarded.
+
+Original posted tournament flows give 1132696.00 funded and 1045467.21 returned; the retained opening boundary holds 15725.60 of deferred entries. Returns minus funding minus opening holdings give the page's -102954.39 tournament result. This differs from tournament fees by 4907.31 while the closing boundary remains provisional. Therefore combined loss minus fee, 145758.52, is gross BBJ minus awards plus that tournament difference, not a BBJ collection metric. The owner's 145755.52 transcription is also 3.00 below that subtraction; the supplied screenshot contains no separate BBJ-collected figure. No number was changed to force reconciliation.
+
 ## Source correction
 
 The existing accounting day subtracted two hours from Chicago wall time. On fall-back Sunday, 2026-11-01T07:30Z, that gave October 31 even though it was November 1 at 00:30 Pacific. Both the database producer boundary and client mirror now use America/Los_Angeles directly. The weekly invoice function already uses Pacific and is preserved. All viewers of a given accounting report share this boundary; authorization/downline scope is preserved.
@@ -30,5 +36,7 @@ The migration updates the reporting metadata and invalidates only seed receipts 
 Explicit Chicago timestamp displays remain Chicago. Their date-picker boundary labels are calculated from the actual selected date, including the one-AM Chicago clock display of Pacific midnight on fall-back Sunday. The reporting help states Pacific days and Monday–Sunday weeks. The legacy calendar basis for historical/non-union reporting remains explicitly Chicago; this change does not relabel those aggregates as Pacific.
 
 ## Validation and delivery
+
+The owner explicitly increased the existing 52000-hand benchmark budget from eight to twelve seconds after CI took 8326 ms with all correctness assertions passing. Its maintained test now uses a named twelve-second base, with the existing hosted-CI strictness and bounded local load scaling tested at that base. The hand population, illegal-action, strategy and outcome assertions are unchanged. This is verification-only and introduces no engine runtime change. A finite budget reduces timing sensitivity; it cannot guarantee success on an arbitrarily slow runner.
 
 The existing isolated PostgreSQL accounting qualification reproduces the old error, installs the new migration, verifies the Pacific boundary, detects invalid historical receipts, rebuilds both affected fixture days through the maintained loader and proves conservation with each boundary event counted once. It also verifies the real screen's metadata and coverage. Existing client date/window and component tests and TypeScript checks passed before submission. Protected merge, installation, historical rebuild, client publication and live proof are recorded in the task's external checkpoint; this source changelog alone does not assert deployment.
