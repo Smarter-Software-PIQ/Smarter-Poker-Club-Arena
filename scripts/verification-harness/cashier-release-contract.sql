@@ -20,6 +20,8 @@ DECLARE
   v_security_definer boolean;
   v_search_path_pinned boolean;
   v_columns text[];
+  v_promo_tickets_installed boolean;
+  v_promo_returns_installed boolean;
 BEGIN
   SELECT string_agg(required.version, ', ' ORDER BY required.version)
   INTO v_missing
@@ -196,12 +198,45 @@ BEGIN
     RAISE EXCEPTION 'cashier 2026-11-14 successor migration history drift';
   END IF;
 
+  -- Promo source successors are queued independently of this client. Keep the
+  -- exact previous bodies until their own atomic migration history exists;
+  -- afterward accept only the qualified successor, never either body blindly.
+  SELECT EXISTS (
+    SELECT 1 FROM supabase_migrations.schema_migrations
+     WHERE version = '20261116154719'
+  ) INTO v_promo_tickets_installed;
+  IF v_promo_tickets_installed AND NOT EXISTS (
+    SELECT 1 FROM supabase_migrations.schema_migrations
+     WHERE version = '20261116154719'
+       AND name = 'promo_tickets_require_cashable_wallets_and_direct_entries_retain_principal'
+       AND cardinality(statements) = 1
+       AND md5(statements[1]) = '45ee3d7701acb4401325a12eaeb7a3fd'
+  ) THEN
+    RAISE EXCEPTION 'cashier promo tickets successor migration history drift';
+  END IF;
+
+  SELECT EXISTS (
+    SELECT 1 FROM supabase_migrations.schema_migrations
+     WHERE version = '20261116154841'
+  ) INTO v_promo_returns_installed;
+  IF v_promo_returns_installed AND NOT EXISTS (
+    SELECT 1 FROM supabase_migrations.schema_migrations
+     WHERE version = '20261116154841'
+       AND name = 'expired_and_departed_promo_principal_returns_to_its_original'
+       AND cardinality(statements) = 1
+       AND md5(statements[1]) = 'c6c6598be04765d7bb2e165d4762028a'
+  ) THEN
+    RAISE EXCEPTION 'cashier promo returns successor migration history drift';
+  END IF;
+
   v_contract := jsonb_build_array(
     jsonb_build_object(
       'signature', 'public.fn_club_wallet_claim_back(uuid,uuid,numeric,text,text,text,uuid,uuid)',
       -- Qualified 160320 destination/credit/replay body with only the 164937
       -- actor=holder exception; all three agent tiers passed native proof.
       'hash', '54450c4c6f5e6ca4d3b7804a669bf0cc',
+      'promo_successor_version', '20261116154841',
+      'promo_successor_hash', 'ed52d9c36de610678fcd443acbeb8191',
       'owner', 'postgres'
     ),
     jsonb_build_object(
@@ -258,7 +293,9 @@ BEGIN
       'signature', 'public.fn_cashier_batch_transfer(uuid,text,jsonb,uuid)',
       -- Installed 20261016024912 binds the explicitly selected source and
       -- destination wallets. Qualified full definition read back live.
-      'hash', '859bb844228d65085bf134c4dbd8b32b'
+      'hash', '859bb844228d65085bf134c4dbd8b32b',
+      'promo_successor_version', '20261116154719',
+      'promo_successor_hash', '69cfd09ce2eb7f7d5ae80f53c2c3b584'
     ),
     jsonb_build_object(
       'signature', 'public.fn_club_cashier_members_page_v3(uuid,integer,uuid,integer)',
@@ -443,7 +480,9 @@ BEGIN
     ),
     jsonb_build_object(
       'signature', 'public.fn_agent_wallet_self_stake(uuid,numeric,text,uuid)',
-      'hash', '438f699e38c8e2e6a9949c76e526731b'
+      'hash', '438f699e38c8e2e6a9949c76e526731b',
+      'promo_successor_version', '20261116154841',
+      'promo_successor_hash', '2c83736aa78b0513e142daa2927e0aef'
     ),
     jsonb_build_object(
       'signature', 'public.fn_respond_chip_request(uuid,text)',
@@ -468,7 +507,9 @@ BEGIN
       -- 2026-11-12: only that successor is accepted.
       -- 20261112235138 preserves that body and adds the refund wallet to
       -- replay receipts plus the exact missing-promo-wallet error.
-      'hash', '25b182e8905f859ba5de2467957a4eda'
+      'hash', '25b182e8905f859ba5de2467957a4eda',
+      'promo_successor_version', '20261116154719',
+      'promo_successor_hash', 'ee4d56f3a7495971cba4586d3f6235de'
     ),
     jsonb_build_object(
       'signature', 'public.fn_club_bank_ledger(uuid,integer,integer,text[])',
@@ -518,6 +559,8 @@ BEGIN
       -- Full definition derived from the merged migration and read back live
       -- by post-deploy run 38929938237.
       'hash', 'e54e4f3949335c61d4c1492d81b5ca21',
+      'promo_successor_version', '20261116154841',
+      'promo_successor_hash', '05904c3ee91fd2929cc9e7acadfa0796',
       'search_path', 'search_path=public'
     ),
     jsonb_build_object(
@@ -577,6 +620,10 @@ BEGIN
 
   FOR v_item IN SELECT value FROM jsonb_array_elements(v_contract)
   LOOP
+    IF (v_item ->> 'promo_successor_version' = '20261116154719' AND v_promo_tickets_installed)
+       OR (v_item ->> 'promo_successor_version' = '20261116154841' AND v_promo_returns_installed) THEN
+      v_item := jsonb_set(v_item, '{hash}', v_item -> 'promo_successor_hash');
+    END IF;
     v_oid := to_regprocedure(v_item ->> 'signature');
     IF v_oid IS NULL THEN
       RAISE EXCEPTION 'cashier function missing: %', v_item ->> 'signature';

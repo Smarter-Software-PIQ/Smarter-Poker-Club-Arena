@@ -79,6 +79,8 @@ jobs:
     name: Promo play-through lock ledger and fee meter
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      TMPDIR: ${{ runner.temp }}
     steps:
       - uses: actions/checkout@v4
       - name: Install PostgreSQL 17 from the signed PGDG source only

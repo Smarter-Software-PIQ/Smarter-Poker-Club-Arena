@@ -5,6 +5,9 @@ import { parse } from 'yaml';
 const read = (path: string) => readFileSync(join(__dirname, '..', path), 'utf8');
 const promo = parse(read('.github/workflows/promo-play-through.yml'));
 describe('promo returns and expiry retain their original owners', () => {
+  it('gives every nested financial fixture the short private runner temporary directory', () => {
+    expect(promo.jobs['promo-play-through'].env?.TMPDIR).toBe('${{ runner.temp }}');
+  });
   it('runs real journal and isolation proof after the promo stock builder', () => {
     const steps = promo.jobs['promo-play-through'].steps;
     const index = steps.findIndex((step: any) =>
