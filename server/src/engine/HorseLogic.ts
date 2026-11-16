@@ -101,6 +101,7 @@ import {
   omahaUnderpairFlopCell,
 } from './HorseOmahaUnderpair.js';
 import { omahaCardImpactDecision, omahaCardImpactScope } from './HorseOmahaCardImpact.js';
+import { omahaTurnRiverTablesClear, omahaTurnRiverTablesHeld } from './HorseOmahaRiverTables.js';
 import { omahaFacingBetEvSpot, omahaFacingBetEvVerdict } from './HorseOmahaFacingBetEv.js';
 import {
   omahaBetVsCheckEv,
@@ -6285,10 +6286,6 @@ let riverBluffDeclaredPending = false;
  * decision's bet: omahaNoRiverBluffIntoValueLeader leaves that spot to it. Cleared at the
  * start of every decision; it changes no decision by itself. */
 let v86NutBlockerBluffPending = false;
-/** An owner-ruled, discipline or street-plan check turned a wager into a check in this decision
- * (omahaOwnBetRules): the big-draw rule may ask whether its bet would be vetoed before pricing it
- * (omahaBigDrawBetIsVetoed). Cleared at the start of every decision; it changes no decision. */
-let omahaRuledCheckPending = false;
 // barrelContinuationOutlook receipt state: a river decision that read a turn
 // outlook while the flag is on, not yet consumed by the V7 continuation.
 let barrelOutlookRiverPending = false;
@@ -7803,7 +7800,7 @@ export function omahaBigDrawAggression(
       icmRisk: omahaTournamentIcmRisk(player, gs),
       allInOrFold: gs.allInOrFold === true,
       wagersCapped: gs.wagersCapped === true,
-      ...(decision.action === 'check' && omahaRuledCheckPending
+      ...(decision.action === 'check'
         ? {
             finalCheckVetoes: (w: { action: 'bet' | 'raise' | 'all_in'; amount?: number }) =>
               omahaBigDrawBetIsVetoed(decision, w, player, gs, opts),
@@ -7844,9 +7841,9 @@ export function omahaBigDrawAggression(
 /**
  * Lazy big-draw pricing (2026-11-16; no decision changes): would the bet
  * the big-draw rule can make from this check be replaced by the check in the
- * final decision anyway? Asked only when an owner-ruled, discipline or
- * street-plan check already turned a wager into a check in this decision
- * (omahaRuledCheckPending), and answered by the same outermost rule that
+ * final decision anyway? Asked for every check the rule would price (an
+ * owner-ruled, discipline or street-plan check made in this decision, or one
+ * those rules would make of the bet), and answered by the same outermost rule that
  * would replace it (omahaOwnerRuledFinal, quiet: no receipt, no random
  * number), on the exact wager the verdict would make. Where the slowplay mix
  * sits between the draw rules and omahaOwnerRuledFinal it must leave that
@@ -7866,11 +7863,16 @@ function omahaBigDrawBetIsVetoed(
     if (w.amount === undefined) delete wagered.amount;
     else wagered.amount = w.amount;
     const quiet: HorseDecideOpts = { ...opts, telemetry: false };
-    if (opts.omahaStrongHandSlowplayMix === true) {
-      const mixed = omahaStrongHandSlowplayMixRule(wagered, player, gs, quiet);
-      if (mixed.action !== wagered.action || mixed.amount !== wagered.amount) return false;
-    }
-    return omahaOwnerRuledFinal(wagered, player, gs, quiet).action === 'check';
+    // Quiet throughout: the read receipts the question's rules would fire are
+    // not counted (the telemetry suspended), so a question answered no leaves
+    // every count as the priced decision makes it.
+    return withBrainTelemetrySuspended(() => {
+      if (opts.omahaStrongHandSlowplayMix === true) {
+        const mixed = omahaStrongHandSlowplayMixRule(wagered, player, gs, quiet);
+        if (mixed.action !== wagered.action || mixed.amount !== wagered.amount) return false;
+      }
+      return omahaOwnerRuledFinal(wagered, player, gs, quiet).action === 'check';
+    });
   } catch {
     return false;
   }
@@ -8861,9 +8863,7 @@ function omahaOwnBetRules(
   gs: HorseGameStateV2,
   opts: HorseDecideOpts
 ): HorseDecision {
-  const out = omahaOwnBetRulesCore(decision, player, gs, opts);
-  if (out.action === 'check' && omahaIsWager(decision)) omahaRuledCheckPending = true;
-  return out;
+  return omahaOwnBetRulesCore(decision, player, gs, opts);
 }
 
 function omahaOwnBetRulesCore(
@@ -9658,6 +9658,7 @@ function omahaClearDecisionMemos(): void {
   omahaStreetPlanRiverMemo = null;
   omahaStreetPlanFlopMemo = null;
   omahaStreetPlanThreeWayMemo = null;
+  omahaTurnRiverTablesClear();
 }
 
 /** The per-decision memos that hold a value now, by name. Exported for its tests. */
@@ -9670,6 +9671,7 @@ export function omahaDecisionMemosHeld(): string[] {
   if (omahaStreetPlanRiverMemo !== null) held.push('omahaStreetPlanRiverMemo');
   if (omahaStreetPlanFlopMemo !== null) held.push('omahaStreetPlanFlopMemo');
   if (omahaStreetPlanThreeWayMemo !== null) held.push('omahaStreetPlanThreeWayMemo');
+  if (omahaTurnRiverTablesHeld()) held.push('omahaTurnRiverTables');
   return held;
 }
 
@@ -11382,7 +11384,6 @@ export class HorseLogic {
     barrelOutlookRiverPending = false;
     riverBluffDeclaredPending = false;
     v86NutBlockerBluffPending = false;
-    omahaRuledCheckPending = false;
     v53IcmAppliedPending = false;
     plo6RefusalHandOffPending = null;
     huDefendToPricePending = null;
@@ -11559,7 +11560,6 @@ export class HorseLogic {
     v87HollywoodEligible = false;
     v87RiverBlockTrapPending = false;
     v86NutBlockerBluffPending = false;
-    omahaRuledCheckPending = false;
     styleRespectFoldPending = false;
     maniacPriceReceiptPending = null;
     const graph = new HorsePolicyGraph(undefined, tele);

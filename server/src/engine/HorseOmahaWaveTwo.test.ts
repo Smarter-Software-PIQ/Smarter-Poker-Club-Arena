@@ -25,6 +25,13 @@ import { replayProfiles, stateAt, type ComplaintFixture } from './HorseComplaint
 import { omahaMultiwayWeakHandSpot } from './HorseOmahaMultiwayDiscipline.js';
 import { omahaStreetPlanThreeWaySpot } from './HorseOmahaStreetPlan.js';
 import { omahaBigDrawVerdict, type OmahaBigDrawInput } from './HorseOmahaBigDrawAggression.js';
+import {
+  omahaHandRiverScore,
+  omahaTurnRiverTables,
+  omahaTurnRiverTablesClear,
+  omahaTurnRiverTablesHeld,
+} from './HorseOmahaRiverTables.js';
+import { scoreOmahaHi, scoreOmahaHiPartial } from './HorseEval.js';
 import type { Card, CardRank, CardSuit } from '../types.js';
 
 const SUIT: Record<string, CardSuit> = { c: 'clubs', d: 'diamonds', h: 'hearts', s: 'spades' };
@@ -306,5 +313,69 @@ describe('Omaha Wave Two: Lazy Big-Draw Pricing', () => {
       })!.withheld
     ).toBe('multiway');
     expect(asked).toEqual([]);
+  });
+});
+
+describe('Omaha Wave Two: The Shared Turn River Tables', () => {
+  // flush-heavy, paired, connected and dry turn boards, four- and five-card hands, a dead card
+  const SPOTS: [string, string, string][] = [
+    ['AhJh9s7c', 'Th8h2c3h', ''],
+    ['KsKc7d7c3h', 'Td9d4d2s', ''],
+    ['QsQcTd9h', '5s5d8s8h', ''],
+    ['9s3dAs9hKh', 'ThQd4h7h', '2d'],
+    ['4c3d9cTd8h', '7h5c6h8c', ''],
+  ];
+  it('Every Entry Is The Engine Evaluator’s Score Of That Pair On That River, Bit For Bit', () => {
+    for (const [hole, board, dead] of SPOTS) {
+      omahaTurnRiverTablesClear();
+      const B = cards(board);
+      const t = omahaTurnRiverTables(cards(hole), B, cards(dead))!;
+      expect(t.n).toBe(52 - hole.length / 2 - 4 - dead.length / 2);
+      const two: Card[] = [t.unseen[0], t.unseen[0]];
+      for (let r = 0; r < t.n; r += 5) {
+        const five = [...B, t.unseen[r]];
+        for (let i = 0; i < t.n; i++)
+          for (let j = i + 1; j < t.n; j++) {
+            two[0] = t.unseen[i];
+            two[1] = t.unseen[j];
+            const want = i === r || j === r ? 0 : scoreOmahaHiPartial(two, five);
+            expect(t.river[r][i * t.n + j]).toBe(want);
+            expect(t.river[r][j * t.n + i]).toBe(want);
+            if (r === 0) expect(t.now[i * t.n + j]).toBe(scoreOmahaHiPartial(two, B));
+          }
+      }
+    }
+  });
+
+  it('A Hand’s River Score Is scoreOmahaHi’s, And The Entry Is Kept Only For Its Own Cards', () => {
+    const [hole, board] = SPOTS[3];
+    omahaTurnRiverTablesClear();
+    expect(omahaTurnRiverTablesHeld()).toBe(false);
+    const t = omahaTurnRiverTables(cards(hole), cards(board))!;
+    expect(omahaTurnRiverTables(cards(hole), cards(board))).toBe(t);
+    for (let k = 0; k < 40; k++) {
+      const hand = [
+        k % t.n,
+        (k * 7 + 1) % t.n,
+        (k * 13 + 2) % t.n,
+        (k * 17 + 3) % t.n,
+        (k * 19 + 4) % t.n,
+      ];
+      if (new Set(hand).size !== 5) continue;
+      for (let r = 0; r < t.n; r++) {
+        if (hand.includes(r)) continue;
+        expect(omahaHandRiverScore(t, hand, r)).toBe(
+          scoreOmahaHi(
+            hand.map((i) => t.unseen[i]),
+            [...cards(board), t.unseen[r]]
+          )
+        );
+      }
+    }
+    // other cards: a new entry, not the old one
+    expect(omahaTurnRiverTables(cards(SPOTS[0][0]), cards(SPOTS[0][1]))).not.toBe(t);
+    expect(omahaTurnRiverTables(cards(hole), cards('ThQd4h'))).toBeNull();
+    omahaTurnRiverTablesClear();
+    expect(omahaTurnRiverTablesHeld()).toBe(false);
   });
 });

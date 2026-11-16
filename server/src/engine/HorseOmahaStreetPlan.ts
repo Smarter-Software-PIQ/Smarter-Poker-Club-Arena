@@ -71,6 +71,7 @@ import {
   omahaPostflopOrder,
 } from './HorseOmahaOopReraisedPot.js';
 import { RANKS, SUITS } from './PokerEngine.js';
+import { omahaHandRiverScore, omahaTurnRiverTables } from './HorseOmahaRiverTables.js';
 import { omahaCashOnlyExcludes } from './HorseOmahaTournamentScope.js';
 import {
   omahaStrategyGameInScope,
@@ -333,13 +334,18 @@ export function omahaStreetPlan(input: OmahaPlanInput): OmahaStreetPlan | null {
     full[4] = unseen[r];
     heroRank[r] = scoreOmahaHi(hole, full);
   }
+  // The decision's shared exact count (HorseOmahaRiverTables): each sampled
+  // hand's river score is its best pair there, the value scoreOmahaHi gives.
+  const tables = omahaTurnRiverTables(hole, board, input.dead ?? []);
+  const shared = tables !== null && tables.n === R ? tables : null;
   for (let m = 0; m < M; m++) {
     const cards = hands[m].map((i) => unseen[i]);
     const own = hands[m];
     for (let r = 0; r < R; r++) {
       if (own.includes(r)) continue;
       full[4] = unseen[r];
-      ranks[m * R + r] = scoreOmahaHi(cards, full);
+      ranks[m * R + r] =
+        shared !== null ? omahaHandRiverScore(shared, own, r) : scoreOmahaHi(cards, full);
     }
   }
   // Per river: the sampled hands that can hold it, best first.
@@ -1873,6 +1879,9 @@ function threeWayPlanCoreBuild(
   const M = OMAHA_STREET_PLAN_THREE_WAY_SAMPLE;
   const rnd = planGenerator(hole, board);
   const idx = unseen.map((_, i) => i);
+  // The decision's shared exact count (HorseOmahaRiverTables), as the turn layer.
+  const tables = omahaTurnRiverTables(hole, board, dead ?? []);
+  const shared = tables !== null && tables.n === R ? tables : null;
   const heroRank = new Float64Array(R);
   const full: Card[] = [...board, board[0]];
   for (let r = 0; r < R; r++) {
@@ -1897,7 +1906,8 @@ function threeWayPlanCoreBuild(
       for (let r = 0; r < R; r++) {
         if (own.includes(r)) continue;
         full[4] = unseen[r];
-        ranks[m * R + r] = scoreOmahaHi(cards, full);
+        ranks[m * R + r] =
+          shared !== null ? omahaHandRiverScore(shared, own, r) : scoreOmahaHi(cards, full);
       }
     }
     // turn strength: mean river percentile
