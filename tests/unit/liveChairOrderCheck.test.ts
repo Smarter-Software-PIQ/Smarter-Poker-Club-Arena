@@ -76,7 +76,22 @@ it('rejects a lower-right nine-seat player drawn inward beside the middle-right 
   expect(readMobileTableLayout({}).violations).toContain('Chair 6 Left Its Nine-Max Rail Anchor');
 });
 
-it('refuses a top nine-seat portrait that extends down onto the table', () => {
+it('rejects a side chair and its wrapper drifting together off the artwork', () => {
+  mount(RING);
+  const table = document.querySelector<HTMLElement>('.table-page')!;
+  table.dataset.seats = '9';
+  vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList);
+  table.insertAdjacentHTML('beforeend', '<img class="table-art" data-box="60,100,480,900">');
+  const seat = table.querySelector<HTMLElement>('[data-seat-num="9"]')!;
+  const wrapper = seat.parentElement!;
+  const violation = 'Chair 9 Outside Painted Nine-Max Rail';
+  seat.dataset.box = wrapper.dataset.box = '2,520,80,100';
+  expect(readMobileTableLayout({}).violations).toContain(violation);
+  seat.dataset.box = wrapper.dataset.box = '40,520,80,100';
+  expect(readMobileTableLayout({}).violations).not.toContain(violation);
+});
+
+it('checks top nameplates against the painted rail in both directions', () => {
   mount(RING);
   const table = document.querySelector<HTMLElement>('.table-page')!;
   table.dataset.seats = '9';
@@ -85,10 +100,12 @@ it('refuses a top nine-seat portrait that extends down onto the table', () => {
   const wrapper = seat.parentElement!;
   wrapper.classList.add('seat-wrapper--cap');
   wrapper.dataset.box = seat.dataset.box;
-  seat.innerHTML = '<div class="seat__info" data-box="120,128,84,30"></div>';
-  const violation = 'Chair 2 Top Portrait Inside Nine-Max Table';
+  seat.innerHTML = '<div class="seat__info" data-box="120,180,84,30"></div>';
+  const violation = 'Chair 2 Misses Nine-Max Top Rail';
   expect(readMobileTableLayout({}).violations).toContain(violation);
   seat.querySelector<HTMLElement>('.seat__info')!.dataset.box = '120,112,84,30';
+  expect(readMobileTableLayout({}).violations).toContain(violation);
+  seat.querySelector<HTMLElement>('.seat__info')!.dataset.box = '120,139,84,30';
   expect(readMobileTableLayout({}).violations).not.toContain(violation);
 });
 

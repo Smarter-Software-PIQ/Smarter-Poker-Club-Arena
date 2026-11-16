@@ -1100,7 +1100,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'plo6ManiacPriceRefusalToRangePlay',
-    '2026-11-14 PLO6 cash preflop: when the raiser faced is an observed maniac and not all in and the call is under 40% of the stack, a refusal by the price arithmetic is decided by the range play, the play made against every other opponent, instead of an outright fold (PLO6-AUDIT-013, production hand 58751512; evidence docs/horse-default-on.d/plo6ManiacPriceRefusalToRangePlay.md)',
+    '2026-11-14 PLO6 cash preflop: when the raiser faced is an observed maniac and not all in and the call is under 40% of the stack, a refusal by the price arithmetic is decided by the range play, the play made against every other opponent, instead of an outright fold (PLO6-AUDIT-013, production hand 58751512; evidence docs/horse-default-on.d/plo6ManiacPriceRefusalToRangePlay.md). Default OFF (opt-in) since 2026-11-16: its reach row was not met by the deadline Hand Analysis set',
     'V92'
   ),
   flag(
@@ -6409,6 +6409,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'HorseLogic V87 turn takeaway (holdemPersonaPostflop)',
     "default-off holdemPersonaPostflop: the turn takeaway (a stab at a capped checked range) was taken with the archetype's stab scale in force.",
     'PersonaPostflop'
+  ),
+  receipt(
+    'holdem_persona_postflop_cbet_seen',
+    'HorseLogic V87 dry-board range c-bet (holdemPersonaPostflop)',
+    "default-off holdemPersonaPostflop: the dry-board range c-bet branch was entered with the persona's c-bet scale in force; an occurrence counter with no floor, named *_seen (a scale below 1 that kept the branch out is not counted)",
+    'PersonaPostflop'
+  ),
+  receipt(
+    'holdem_persona_postflop_check_raise_seen',
+    'HorseLogic V87 flop check-raise into a stabber (holdemPersonaPostflop)',
+    "default-off holdemPersonaPostflop: the flop check-raise into a high-frequency stabber was made with the persona's trap threshold in force; an occurrence counter with no floor, named *_seen",
+    'PersonaPostflop'
+  ),
+  receipt(
+    'tournament_utility_stack_scaled_margin_seen',
+    'HorseLogic -> HorseTournamentUtility (tournamentUtilityStackScaledMargin)',
+    'default-off tournamentUtilityStackScaledMargin: a tournament decision was selected by the utility comparison with the stack-scaled equity margin in force; an occurrence counter with no floor, named *_seen (how often the margin changed the selection shows in phase7_utility_override)',
+    'Phase7'
   ),
   receipt(
     'holdem_persona_3bet_bluff_eligible_seen',

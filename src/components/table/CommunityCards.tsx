@@ -1,3 +1,4 @@
+import { TableAnimationClock } from './tableAnimationClock';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  *  COMMUNITY CARDS — Flop/Turn/River Display (PNG Custom Deck)
@@ -10,10 +11,20 @@
  * - Uses CardImage component for custom deck rendering
  */
 
-import React, { useMemo, useEffect, useLayoutEffect, useRef, useState, useId, memo } from 'react';
+import { SharedBoardObserver } from '../../lib/sharedBoardTiming';
+import React, {
+  useContext,
+  useMemo,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useId,
+  memo,
+} from 'react';
 import { CardImage, CardBack, cardBackImageUrl, getCardImagePath, type Card } from './CardImage';
 import { haptic, soundService } from '../../services/SoundService';
-import { getAnimationSpeed, prefersReducedMotion } from '../../utils/animationSpeed';
+import { prefersReducedMotion } from '../../utils/animationSpeed';
 import {
   cardPresentationEngine,
   detectPlatform,
@@ -628,7 +639,14 @@ function CommunityCardsComponent({
   isFocused = true,
   isVisible = true,
 }: CommunityCardsProps) {
+  const getAnimationSpeed = React.useContext(TableAnimationClock);
   const visibleCount = Math.min(getVisibleCardCount(stage), cards.length);
+  const observeBoard = useContext(SharedBoardObserver);
+  useLayoutEffect(() => {
+    if (boardIndex === 0 && isFocused && isVisible && handId != null && visibleCount >= 3) {
+      observeBoard?.(handId, visibleCount);
+    }
+  }, [observeBoard, handId, boardIndex, isFocused, isVisible, visibleCount]);
   const rabbitStart = Math.max(visibleCount, Math.min(4, rabbitStartIndex ?? visibleCount));
   // RIVER SQUEEZE 2026-09-04: a board without a real table id (sim page,
   // tests) still needs a lane of its own so two boards never share keys.

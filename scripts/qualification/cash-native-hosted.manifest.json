@@ -528,8 +528,8 @@
       "sha256": "9114887e38f889c588699df1fd9747f74d724d3abd184af5e6af6c9262680003"
     },
     "scripts/qualification/ci-admission-inputs.json": {
-      "bytes": 77121,
-      "sha256": "8275cc6a48e74b21dc56c8d4ed5a143cb9dae6ffabba8dca65366d4920007887"
+      "bytes": 77087,
+      "sha256": "b4d3141961326370748f7691482ecdebaf5448055f3915c57fb0a8e3d2dc2fe3"
     },
     "scripts/ci/qualification-input-projections.py": {
       "bytes": 9270,
@@ -7286,5 +7286,20 @@
     ],
     "financialRecertification": false,
     "executionPerformed": false
+  },
+  "whatAHarnessReadsAdmitsItsJob20261115": {
+    "reason": "Reviewed exact diff: classify-ci-changes.mjs's accountingJobInputs() now also admits every file listed in scripts/ci/accounting-harness-reads.json, the generated set of repository files that an accounting_postgres harness names (a path spelled out in full, or a quoted relative name joined to a directory the same harness spells out; never a whole directory; routing law tests and test files are not followed as reads), followed through the scripts/ci|dev/test-* harnesses one of them starts; unit-suite admission is unchanged. ci-admission-inputs.json changes only in 34 cases, each server false -> true (phase4 unchanged); regenerated with qualification-input-projections.py --write. It only widens job admission; no job is skipped that ran before. Financial inputs, assertions and historical qualification states unchanged; source identity only, no financial recertification. 2026-11-15: #10888 changed scripts/verification-harness/cashier-release-contract.sql and its fixture; neither is named in the accounting block, the change admitted no job, and scripts/ci/test-promo-downline-limit-postgres.py, which reads both, broke on main (fixed forward by #10916). Owner 2026-11-14 23:10 Chicago: applicable cashier changes must select the accounting proofs they affect.",
+    "changes": {
+      "scripts/qualification/ci-admission-inputs.json": {
+        "previous": {
+          "bytes": 77121,
+          "sha256": "8275cc6a48e74b21dc56c8d4ed5a143cb9dae6ffabba8dca65366d4920007887"
+        },
+        "current": {
+          "bytes": 77087,
+          "sha256": "b4d3141961326370748f7691482ecdebaf5448055f3915c57fb0a8e3d2dc2fe3"
+        }
+      }
+    }
   }
 }

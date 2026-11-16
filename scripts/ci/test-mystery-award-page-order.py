@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Exercise the actual mystery award reader and exact migration in isolated PG17."""
 from pathlib import Path
-import argparse, hashlib, json, os, shutil, subprocess, tempfile
+import argparse, hashlib, json, os, shutil, subprocess, sys, tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
 CANDIDATE = ROOT / 'supabase/migrations/20261031224551_mystery_award_pages_have_a_stable_identity_order.sql'
@@ -66,6 +66,14 @@ GRANT EXECUTE ON FUNCTION public.fn_mystery_bounty_awards(uuid,integer,integer) 
         if started:
             run([str(pg/'pg_ctl'), '-D', str(base/'data'), '-m','fast','-w','stop'])
         shutil.rmtree(base)
+
+    # The existing required Mystery native entry point also owns settlement proof.
+    subprocess.run(
+        [sys.executable, str(ROOT / 'scripts/ci/test-mystery-whole-chip-marker.py')],
+        env=dict(os.environ, PG_BIN=str(pg), TMPDIR=str(args.scratch.resolve())),
+        check=True,
+        timeout=90,
+    )
 
 if __name__ == '__main__':
     main()

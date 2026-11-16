@@ -1203,7 +1203,11 @@ for (const [width, heightOverride] of occupiedViewports)
             1.75, 1.8, 1.85, 1.9, 1.95, 2, 2.05, 2.1, 2.15, 2.2, 2.25, 2.3, 2.35, 2.4, 2.45, 2.5,
           ]).toContain(seat.paintScale);
           expect(
-            Math.abs(seat.height / seat.paintScale - heroArt.height / heroArt.paintScale)
+            Math.abs(
+              (seat.height / seat.paintScale) *
+                (!seat.hero && count === 9 && width > 480 && width <= 640 ? 4 / 3 : 1) -
+                heroArt.height / heroArt.paintScale
+            )
           ).toBeLessThan(0.05);
           expect(seat.height).toBeLessThanOrEqual(heroArt.height + 0.05);
         }

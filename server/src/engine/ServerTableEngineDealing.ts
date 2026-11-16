@@ -3853,6 +3853,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
         if (this.returningFromSitout.size > 0) {
           for (const p of players) {
             if (!this.returningFromSitout.has(p.user_id)) continue;
+            if (this.postingBBToEnter.has(p.user_id)) continue;
             if (p.seat_number === sbSeat || p.seat_number === bbSeat) continue;
             this.disconnectEngine.noteBlindChargedWhileAway(this.tableId, p.user_id, 'sb');
             this.disconnectEngine.noteBlindChargedWhileAway(this.tableId, p.user_id, 'bb');
@@ -3871,12 +3872,8 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
       // Entry posting belongs exclusively to cash games. Tournament moves and
       // late registration never add a live BB outside the natural blind seats,
       // even if an old in-memory arrival marker remains.
-      const bbOnlyPostSeats: { seat: number }[] = [];
-      if (!this.isTournamentTable() && this.postingBBToEnter.size > 0) {
-        for (const p of players) {
-          if (this.postingBBToEnter.has(p.user_id)) bbOnlyPostSeats.push({ seat: p.seat_number });
-        }
-      }
+      const entryCharges = this.entryChargeSeats(players);
+      const bbOnlyPostSeats = entryCharges.bbOnlyPosts;
 
       /* ── KILL POT (rule manifest kill-v1) ────────────────────────────────
          Decided HERE, once, at the hand boundary, from the settings the table
@@ -3965,10 +3962,10 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
         straddles: bombPotConfig || straddleResults.length === 0 ? undefined : straddleResults,
         // Bible V8 §4.2: Dead blinds for players returning from sit-out
         deadBlinds:
-          !this.isTournamentTable() && this.returningFromSitout.size > 0
-            ? players
-                .filter((p) => this.returningFromSitout.has(p.user_id))
-                .map((p) => ({ seat: p.seat_number }))
+          !this.isTournamentTable() &&
+          this.returningFromSitout.size > 0 &&
+          entryCharges.deadBlinds.length > 0
+            ? entryCharges.deadBlinds
             : undefined,
         // AUDIT FIX 2026-07-19: "Post BB to enter" players post a live BB only.
         // Cash only: tournament arrivals never post to enter.
@@ -6394,4 +6391,40 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
     if (this.lightningObserverCluster() !== clusterId) return;
     await this.evictExpiredSitOuts({ countOrbit: false, sitOutOnly: true, onlyUsers: confirmed });
   }
+  /**
+   * THE ENTRY CHARGES OF ONE DEAL, AND A SEAT HOLDS AT MOST ONE OF THEM
+   * (2026-11-15, hand #59634000).
+   *
+   * Two different debts are billed outside the blind seats on a cash table:
+   *
+   *   bbOnlyPosts  a new entrant who chose Post Big Blind: ONE live big blind.
+   *   deadBlinds   a player back from sit-out who missed blinds: a dead small
+   *                blind plus a live big blind.
+   *
+   * They were built from two unrelated sets with nothing keeping them apart,
+   * and HandController billed a seat named in both for all of it. The entry
+   * post wins: a seat posting to enter has never been dealt here, so it has
+   * missed nothing. Tournaments bill neither.
+   */
+  protected entryChargeSeats(players: ReadonlyArray<{ user_id: string; seat_number: number }>): {
+    deadBlinds: { seat: number }[];
+    bbOnlyPosts: { seat: number }[];
+  } {
+    const deadBlinds: { seat: number }[] = [];
+    const bbOnlyPosts: { seat: number }[] = [];
+    if (!this.isTournamentTable() && this.postingBBToEnter.size > 0) {
+      for (const p of players) {
+        if (this.postingBBToEnter.has(p.user_id)) bbOnlyPosts.push({ seat: p.seat_number });
+      }
+    }
+    if (!this.isTournamentTable() && this.returningFromSitout.size > 0) {
+      for (const p of players) {
+        if (this.returningFromSitout.has(p.user_id) && !this.postingBBToEnter.has(p.user_id)) {
+          deadBlinds.push({ seat: p.seat_number });
+        }
+      }
+    }
+    return { deadBlinds, bbOnlyPosts };
+  }
+
 }
