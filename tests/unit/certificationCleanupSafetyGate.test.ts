@@ -67,6 +67,7 @@ import {
 } from '../../scripts/ci/await-certification-cleanup-safety.mjs';
 const installed = () => ({
   history: [{ version: VERSION, name: NAME }],
+  settlement_history: [],
   definitions: { ...EXPECTED },
   helper_owner_only: true,
   helper_hash: HELPER_HASH,
@@ -83,6 +84,30 @@ describe('catalog proof admits no unsafe fixture', () => {
     }
     expect(Object.keys(EXPECTED)).toHaveLength(5);
     expect(classifyProof(installed())).toBe('ready');
+  });
+  it('requires the exact retired-club guard for the recorded settlement migration', () => {
+    const settlement = [
+      { version: '20261116131652', name: 'retired_clubs_settle_their_final_earned_week' },
+    ];
+    const prior = installed();
+    const signature = 'public.fn_guard_retired_club_mutation()';
+    const updated = { ...prior.definitions, [signature]: '8c7ad1d34e6893f5c43b9c1204afc390' };
+    expect(classifyProof({ ...prior, settlement_history: settlement, definitions: updated })).toBe(
+      'ready'
+    );
+    expect(() => classifyProof({ ...prior, definitions: updated })).toThrow(/function identity/);
+    expect(() => classifyProof({ ...prior, settlement_history: settlement })).toThrow(
+      /function identity/
+    );
+    for (const history of [
+      null,
+      [{ ...settlement[0], name: 'wrong' }],
+      [...settlement, ...settlement],
+    ]) {
+      expect(() =>
+        classifyProof({ ...prior, settlement_history: history, definitions: updated })
+      ).toThrow(/history identity/);
+    }
   });
   it.each([null, {}, { history: null }, { history: 'missing' }])(
     'refuses unreadable history %j',
@@ -217,7 +242,13 @@ describe('catalog proof admits no unsafe fixture', () => {
         PROOF_SQL,
         'ROLLBACK',
       ]);
-      expect(calls[1][1]).toEqual([VERSION, NAME, Object.keys(EXPECTED)]);
+      expect(calls[1][1]).toEqual([
+        VERSION,
+        NAME,
+        Object.keys(EXPECTED),
+        '20261116131652',
+        'retired_clubs_settle_their_final_earned_week',
+      ]);
     }
     expect(PROOF_SQL).not.toMatch(/\b(?:INSERT|UPDATE|DELETE|CALL|CREATE|ALTER|DROP)\b/i);
     expect(PROOF_SQL).toContain('aclexplode');

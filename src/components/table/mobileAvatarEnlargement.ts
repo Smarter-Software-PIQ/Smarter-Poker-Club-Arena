@@ -1107,11 +1107,11 @@ export function enlargeMobileAvatars(
       })
     );
     const shared = sharedSizes.get(sizeType);
-    // Qualify dense nine-chair phones at the seated limit even when the
-    // observer has no private fan. Two-card hands leave a wider clear lane.
+    // The nine-chair phone rail already sets a common enlarged character size
+    // after decoding every portrait. A second, discretionary zoom here made
+    // the identical opponent change size with a vacant chair or a private fan.
     const densePhone = page.dataset.seats === '9' && innerWidth <= 640;
-    const seatedLimit = page.dataset.holeCardCount === '2' ? 1.05 : 1.02;
-    const maxScale = densePhone ? seatedLimit : MOBILE_AVATAR_MAX_SCALE;
+    const maxScale = densePhone ? 1 : MOBILE_AVATAR_MAX_SCALE;
     const rungs = [
       2.5, 2.45, 2.4, 2.35, 2.3, 2.25, 2.2, 2.15, 2.1, 2.05, 2, 1.95, 1.9, 1.85, 1.8, 1.75, 1.7,
       1.65, 1.6, 1.55, 1.5, 1.45, 1.4, 1.35, 1.3, 1.25, 1.2, 1.15, 1.1, 1.05, 1.02, 1,

@@ -7,8 +7,16 @@ run-name: Club Data accounting history ${{ inputs.from }} to ${{ inputs.through 
 on:
   workflow_dispatch:
     inputs:
+      basis:
+        description: Report projection; legacy Pacific inputs are UTC source days, reconstructed from original event timestamps
+        required: true
+        default: union_accounting
+        type: choice
+        options:
+          - union_accounting
+          - legacy_pacific
       from:
-        description: First accounting day (YYYY-MM-DD, 02:00 America/Chicago)
+        description: First accounting day (YYYY-MM-DD, midnight America/Los_Angeles)
         required: true
         type: string
       through:
@@ -49,4 +57,5 @@ jobs:
           SEED_FROM: ${{ inputs.from }}
           SEED_THROUGH: ${{ inputs.through }}
           SEED_REBUILD: ${{ inputs.rebuild }}
-        run: node scripts/ci/club-data-accounting-seed.mjs "$SEED_FROM" "$SEED_THROUGH" "$SEED_REBUILD"
+          SEED_BASIS: ${{ inputs.basis }}
+        run: node scripts/ci/club-data-accounting-seed.mjs "$SEED_FROM" "$SEED_THROUGH" "$SEED_REBUILD" "$SEED_BASIS"

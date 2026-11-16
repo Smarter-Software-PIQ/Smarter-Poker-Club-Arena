@@ -8,7 +8,7 @@ export const CLUB_DATA_CACHE_PREFIX = 'club_data_swr_v1_';
 export const CLUB_DATA_CACHE_TTL_MS = 2 * 60_000;
 
 interface CacheEnvelope<T> {
-  reportingVersion: 2;
+  reportingVersion: 3;
   userId: string;
   clubId: string;
   queryKey: string;
@@ -39,7 +39,7 @@ export function readClubDataCache<T>(
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<CacheEnvelope<T>>;
     if (
-      parsed.reportingVersion !== 2 ||
+      parsed.reportingVersion !== 3 ||
       parsed.userId !== userId ||
       parsed.clubId !== clubId ||
       parsed.queryKey !== queryKey ||
@@ -109,7 +109,7 @@ export function writeClubDataCache<T>(
   try {
     purgeExpiredClubDataCaches(userId, clubId, now);
     const envelope: CacheEnvelope<T> = {
-      reportingVersion: 2,
+      reportingVersion: 3,
       userId,
       clubId,
       queryKey,

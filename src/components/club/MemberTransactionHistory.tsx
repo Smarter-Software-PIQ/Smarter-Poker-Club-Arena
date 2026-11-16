@@ -20,6 +20,7 @@ import {
 interface Entry extends ChipTransactionLike {
   id: string;
   created_at: string;
+  entry_source?: 'receipt' | 'movement';
   amount_text: string;
   from_name: string | null;
   to_name: string | null;
@@ -42,7 +43,7 @@ const chicagoReceiptTime = new Intl.DateTimeFormat(undefined, {
   timeZoneName: 'short',
 });
 
-type Cursor = Pick<Entry, 'created_at' | 'id'>;
+type Cursor = Pick<Entry, 'created_at' | 'id' | 'entry_source'>;
 
 function memberTitle(row: Entry, memberId: string | null): string {
   if (memberId === null) {
@@ -57,6 +58,14 @@ function memberTitle(row: Entry, memberId: string | null): string {
       .join(' · ');
   }
   const incoming = row.to_user_id === memberId;
+  if (row.entry_source === 'movement') {
+    const kind = toTitleCase((row.transaction_type || 'Wallet Movement').replace(/_/g, ' '));
+    if (incoming && row.from_user_id !== memberId)
+      return `${kind} Received${row.from_name ? ` From ${row.from_name}` : ''}`;
+    if (row.from_user_id === memberId && !incoming)
+      return `${kind} Sent${row.to_name ? ` To ${row.to_name}` : ''}`;
+    return kind;
+  }
   const outgoing = row.from_user_id === memberId;
   const from = row.from_name || 'A Member';
   const to = row.to_name || 'A Member';
@@ -108,7 +117,7 @@ export default function MemberTransactionHistory({ clubId, memberId, revision, s
   const [failed, setFailed] = useState(false);
   const limit = expanded ? 25 : 6;
   const cursor = cursors[cursors.length - 1];
-  let kind = 'all';
+  let kind = memberId ? 'member_all' : 'all';
   if (expanded && memberId && (player || wallet !== 'member_all')) kind = wallet;
   if (!memberId && wallet !== 'member_all') kind = wallet.replace('member_', 'funded_');
 
@@ -122,7 +131,7 @@ export default function MemberTransactionHistory({ clubId, memberId, revision, s
         const { data, error } = await runWithRequestDeadline(
           (signal) =>
             selectTextTwins(
-              supabase.rpc('fn_cashier_history_feed', {
+              supabase.rpc(memberId ? 'fn_member_transaction_history' : 'fn_cashier_history_feed', {
                 p_club_id: clubId,
                 p_scope: scope,
                 p_person: memberId,
@@ -132,6 +141,9 @@ export default function MemberTransactionHistory({ clubId, memberId, revision, s
                 p_search: expanded && player ? player : null,
                 p_before_at: cursor?.created_at ?? null,
                 p_before_id: cursor?.id ?? null,
+                ...(memberId
+                  ? { p_before_source: cursor ? (cursor.entry_source ?? 'receipt') : null }
+                  : {}),
                 p_limit: limit + 1,
               }),
               '*,amount_text:amount::text'
@@ -279,7 +291,7 @@ export default function MemberTransactionHistory({ clubId, memberId, revision, s
             row.transaction_type === 'promo_wallet_send' && row.metadata?.promo_used_after_send;
           const direction = ledgerDirection(row, memberId);
           return (
-            <div className="mm-stat" key={row.id}>
+            <div className="mm-stat" key={`${row.entry_source ?? 'receipt'}:${row.id}`}>
               <span className="mm-stat__label">
                 {memberTitle(row, memberId)}
                 <br />

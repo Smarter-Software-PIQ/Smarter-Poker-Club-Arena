@@ -1,0 +1,7 @@
+{
+  "_owner": "Union membership owns games and weekly scope selection.",
+  "functions": [
+    "smarter_private.guard_member_club_standalone_game",
+    "smarter_private.standalone_week_belongs_to_union"
+  ]
+}

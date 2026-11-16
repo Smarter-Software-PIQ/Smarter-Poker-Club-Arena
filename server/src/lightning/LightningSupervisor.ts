@@ -352,6 +352,24 @@ export class LightningSupervisor {
     return [...this.workers.keys()].sort();
   }
 
+  /**
+   * The durable table ids under which occupied Lightning pools commit hands.
+   * Anchor engines are deliberately halted while these workers deal, so the
+   * ordinary table-loop census cannot see them. Count each pool once, never
+   * its transient hand hosts; the verifier still asks hand_history for proof.
+   */
+  expectedDealingTableIds(): string[] {
+    if (this.frozen()) return [];
+    const tables = new Set<string>();
+    for (const [clusterId, worker] of this.workers) {
+      if (!worker.isRunning || worker.mode !== 'form' || worker.currentHold !== null) continue;
+      const front = this.cachedFrontTable(clusterId);
+      if (!front || !this.deps.hosting?.leaseFor(front)) continue;
+      if (this.presence.snapshot(clusterId).connected.length >= 2) tables.add(front);
+    }
+    return [...tables].sort();
+  }
+
   workerFor(clusterId: string): LightningClusterWorker | undefined {
     return this.workers.get(clusterId);
   }

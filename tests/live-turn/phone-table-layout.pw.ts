@@ -70,6 +70,7 @@ const NAMES = [
 ];
 
 interface Scenario {
+  heroDealerWithBet?: boolean;
   name: string;
   width: number;
   height: number;
@@ -115,7 +116,7 @@ function snapshot(s: Scenario, heroSeat: number) {
       equipped_frame: '',
       equipped_aura: '',
       stack: hero ? (s.heroStack ?? 1000) : 1000,
-      bet: omaha && seat === 4 ? 4 : 0,
+      bet: s.heroDealerWithBet && hero ? 8 : omaha && seat === 4 ? 4 : 0,
       totalInvested: 0,
       cards: [],
       is_folded: false,
@@ -173,7 +174,7 @@ function snapshot(s: Scenario, heroSeat: number) {
     ante_mode: null,
     current_bet: omaha ? 4 : 0,
     current_player: s.pricedOffTurn ? players.find((p) => p.user_id !== PLAYER)!.user_id : PLAYER,
-    dealer_seat: omaha ? 4 : s.seats,
+    dealer_seat: s.heroDealerWithBet ? heroSeat : omaha ? 4 : s.seats,
     stage: 'flop',
     winner_ids: [],
     winners: [],
@@ -1432,4 +1433,60 @@ test('Lightning restores the newly owed final-hand choice after reload and Stay 
   } finally {
     engine.dispose();
   }
+});
+
+test.describe('six seated phone chairs', () => {
+  test.use({
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true,
+    deviceScaleFactor: 1,
+  });
+  test('lower opponents share a row with the hero dealer left and wager above', async ({
+    page,
+  }) => {
+    const engine = await openTable(page, {
+      name: 'six seated geometry',
+      width: 390,
+      height: 844,
+      seats: 6,
+      heroDealerWithBet: true,
+      art: { hero: 'wolf', opponents: ['aztec', 'wolf'] },
+    });
+    try {
+      await expect
+        .poll(async () =>
+          page.evaluate(() => {
+            const chairs = [...document.querySelectorAll<HTMLElement>('.seat-wrapper')];
+            const lower = chairs.filter(
+              (w) => parseFloat(w.style.top) > 50 && parseFloat(w.style.left) !== 50
+            );
+            const rect = (el: Element | null) => el?.getBoundingClientRect();
+            const hero = rect(document.querySelector('.seat--hero .seat__avatar-img'));
+            const chip = rect(document.querySelector('.seat--hero .seat__bet-chips'));
+            const dealer = rect(document.querySelector('.dealer-button'));
+            if (
+              !hero ||
+              !chip ||
+              !dealer ||
+              lower.length !== 2 ||
+              !hero.height ||
+              !chip.height ||
+              !dealer.height
+            )
+              return false;
+            const plates = lower.map((w) => rect(w.querySelector('.seat__info')));
+            return (
+              plates.every(Boolean) &&
+              Math.abs(plates[0]!.top - plates[1]!.top) < 1 &&
+              dealer.right <= hero.left &&
+              chip.bottom <= hero.top
+            );
+          })
+        )
+        .toBe(true);
+    } finally {
+      await engine.dispose();
+    }
+  });
 });
