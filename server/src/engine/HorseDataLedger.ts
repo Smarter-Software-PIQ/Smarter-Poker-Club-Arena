@@ -5913,6 +5913,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'Phase7'
   ),
   receipt(
+    'second_look_*',
+    'BrainTelemetry.noteSecondLookFires (HorseDecisionWorkerRuntime.executeDeep)',
+    'second_look_<key>_seen (the suffix is not doubled for a key already ending in _seen): a DEEP second look evaluation fired the receipt <key>. The second look decides with telemetry on inside a capture, so <key> itself is not counted there (the FAST look is its one count per decision) and each key counts at most once per second look. It does not say the second look action was executed: the decision journal records that. A zero on <key> and on its second_look_ counter means no live evaluation, first or second, fired it. second_look_receipt_fold_failed_seen: counting the collected keys threw after the second look was made (the decision is unaffected). Occurrence counters; named *_seen',
+    '2026-11-16'
+  ),
+  receipt(
     'v44_second_look',
     'HorseDecisionWorkerRuntime.executeDeep',
     'a second look completed at increased equity depth with the original HorseMind reads; declined, missing-read, cancelled and failed work is not a completed evaluation',
