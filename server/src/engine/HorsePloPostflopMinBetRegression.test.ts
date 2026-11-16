@@ -794,4 +794,248 @@ describe('Live PLO5 Madness regressions (#59717970, #59725321, #59728213, #59728
     expect(cf.action).toBe('fold');
     expect(horseDecisionReceiptRefusal(cf, 'plo5', { player: hero, gameState: gs })).toBeNull();
   });
+
+  it('BUG-5 (#59709936 & #59719920): withholds v53_pressure_four_bet without AA or coordinated premium against a measured valueLeader, while keeping AA/premium 4-bets', () => {
+    const villainId = '66666666-0000-4000-8000-000000000006';
+    const makeSpot = (holeSpec: string, stack = 491.65, curBet = 55, myBet = 10, pot = 90) => {
+      const hero: SeatPlayer = {
+        seat: 5,
+        user_id: '55555555-0000-4000-8000-000000000005',
+        username: 'Bob77',
+        stack,
+        bet: myBet,
+        totalInvested: myBet,
+        cards: cards(holeSpec),
+        is_folded: false,
+        is_all_in: false,
+        is_sitting_out: false,
+        is_horse: true,
+      };
+      const villain: SeatPlayer = {
+        seat: 3,
+        user_id: villainId,
+        username: 'V3',
+        stack: 2000,
+        bet: curBet,
+        totalInvested: curBet,
+        cards: [],
+        is_folded: false,
+        is_all_in: false,
+        is_sitting_out: false,
+      };
+      const gs = {
+        stateSchemaVersion: 1,
+        gameVariant: 'plo5',
+        gameMode: 'cash',
+        bettingStructure: 'pot_limit',
+        stage: 'preflop',
+        pot,
+        bigBlind: 2,
+        smallBlind: 1,
+        currentBet: curBet,
+        toCall: curBet - myBet,
+        minRaiseTo: 100,
+        maxRaiseTo: 190,
+        legalActions: ['fold', 'call', 'raise'],
+        dealerSeat: 5,
+        communityCards: [],
+        players: [villain, { ...hero, cards: [] }],
+        actionHistory: [
+          {
+            stage: 'preflop',
+            seat: 5,
+            userId: hero.user_id,
+            action: 'raise',
+            amount: myBet,
+            isFullRaise: true,
+            timestamp: 1,
+          },
+          {
+            stage: 'preflop',
+            seat: 3,
+            userId: villainId,
+            action: 'raise',
+            amount: curBet,
+            isFullRaise: true,
+            timestamp: 2,
+          },
+        ] as ActionRecord[],
+      } as unknown as HorseGameStateV2;
+      return { hero, gs };
+    };
+
+    const fakeManiacValueLeader = {
+      hands: 44,
+      presumed: false,
+      stats: {
+        vpip: { n: 44, mean: 0.85 },
+        pfr: { n: 44, mean: 0.58 },
+        rfi: { n: 22, mean: 0.8 },
+        threeBet: { n: 9, mean: 0.34 },
+        foldTo3Bet: { n: 6, mean: 0.05 },
+        betCheckedTo: { n: 39, mean: 0.3 },
+        foldToBet: { n: 18, mean: 0.45 },
+        riverCall: { n: 3, mean: 0.23 },
+      },
+    };
+    vi.spyOn(HorseMind, 'opponentRead').mockImplementation((uid) =>
+      uid === villainId ? (fakeManiacValueLeader as never) : null
+    );
+    vi.spyOn(HorseMind, 'omahaReadConditionalOf').mockImplementation((uid) =>
+      uid === villainId
+        ? ({
+            measured: true,
+            valueLeader: true,
+            wideReRaiser: true,
+            postflopAggressor: false,
+          } as never)
+        : null
+    );
+    vi.spyOn(HorseMind, 'bandsForOpponents').mockImplementation(() => [[0.35, 1]]);
+
+    // #59709936 JJ2KQ (Qs 2h Jh Kd Js) & #59719920 ragged KKds (Ts Ks 3d 6d Kh):
+    // without AA or coordinated premium, they flat call (or fold) instead of potting to $190.
+    for (const spec of ['Qs 2h Jh Kd Js', 'Ts Ks 3d 6d Kh']) {
+      const { hero, gs } = makeSpot(spec);
+      seedFastRandom(59719920);
+      const d = structuredClone(
+        HorseLogic.decide(hero, gs, 'balanced', {}, {
+          observeMind: false,
+          omahaPressureNeedsPostflopAggression: true,
+        } as never)
+      );
+      expect(d.action).not.toBe('raise');
+      expect(d.action).not.toBe('all_in');
+      expect(horseDecisionReceiptRefusal(d, 'plo5', { player: hero, gameState: gs })).toBeNull();
+    }
+
+    // Control: AA double-suited (Ah Ac Kh Qc Jd) still 4-bets for value!
+    const aaSpot = makeSpot('Ah Ac Kh Qc Jd');
+    seedFastRandom(59719920);
+    const dAa = structuredClone(
+      HorseLogic.decide(aaSpot.hero, aaSpot.gs, 'balanced', {}, {
+        observeMind: false,
+        omahaPressureNeedsPostflopAggression: true,
+      } as never)
+    );
+    expect(dAa.action).toBe('raise');
+    expect(
+      horseDecisionReceiptRefusal(dAa, 'plo5', { player: aaSpot.hero, gameState: aaSpot.gs })
+    ).toBeNull();
+  });
+
+  it('BUG-6 (#59732319) & BUG-7 (#59719347 / #59728834): folds IP cold-3B flat with uncoordinated cards and raises $2-$3 limped-pot flop bets to >= 2 BB', () => {
+    // BUG-6: IP cold-call of a 3-bet with uncoordinated Js Ah 6d Ts 4h folds
+    const coldVerdict = omahaOopReraisedCallCell({
+      variant: 'plo5',
+      hole: cards('Js Ah 6d Ts 4h'),
+      dead: [],
+      outOfPosition: false,
+      coldCall: true,
+      preflopRaises: 2,
+      toCall: 36,
+      stack: 390,
+      pot: 60,
+      band: [0.4, 1],
+      hiLo: false,
+      multiBoard: false,
+      bombPot: false,
+      tournament: false,
+      allInOrFold: false,
+    });
+    expect(coldVerdict).not.toBeNull();
+    expect(coldVerdict!.fold).toBe(true);
+    expect(coldVerdict!.reason).toBe('uncoordinated');
+
+    // Control: opener calling a 3-bet IP (coldCall = false, outOfPosition = false) remains null (unchanged)
+    const openerIpVerdict = omahaOopReraisedCallCell({
+      variant: 'plo5',
+      hole: cards('Js Ah 6d Ts 4h'),
+      dead: [],
+      outOfPosition: false,
+      coldCall: false,
+      preflopRaises: 2,
+      toCall: 26,
+      stack: 390,
+      pot: 60,
+      band: [0.4, 1],
+      hiLo: false,
+      multiBoard: false,
+      bombPot: false,
+      tournament: false,
+      allInOrFold: false,
+    });
+    expect(openerIpVerdict).toBeNull();
+
+    // BUG-7: $2 flop bet into $9 limped pot (1/2 PLO5) sizes up to >= $4 (2 BB) when omahaBigBetIsPotShare is ON
+    const hero: SeatPlayer = {
+      seat: 2,
+      user_id: '77777777-0000-4000-8000-000000000007',
+      username: 'Bob77',
+      stack: 400,
+      bet: 0,
+      totalInvested: 2,
+      cards: cards('9h Qs As Ts 6c'),
+      is_folded: false,
+      is_all_in: false,
+      is_sitting_out: false,
+      is_horse: true,
+    };
+    const opp: SeatPlayer = {
+      seat: 4,
+      user_id: '88888888-0000-4000-8000-000000000008',
+      username: 'MrBear',
+      stack: 400,
+      bet: 0,
+      totalInvested: 2,
+      cards: [],
+      is_folded: false,
+      is_all_in: false,
+      is_sitting_out: false,
+    };
+    const gs = {
+      stateSchemaVersion: 1,
+      gameVariant: 'plo5',
+      gameMode: 'cash',
+      bettingStructure: 'pot_limit',
+      stage: 'flop',
+      pot: 9,
+      bigBlind: 2,
+      smallBlind: 1,
+      currentBet: 0,
+      toCall: 0,
+      minRaise: 2,
+      minRaiseTo: 2,
+      maxRaiseTo: 9,
+      legalActions: ['check', 'bet'],
+      dealerSeat: 4,
+      communityCards: cards('Kh Ks Tc'),
+      players: [{ ...hero, cards: [] }, opp],
+      actionHistory: [] as ActionRecord[],
+    } as unknown as HorseGameStateV2;
+
+    let sawBet = false;
+    for (let s = 1; s <= 30; s++) {
+      seedFastRandom(59719347 + s);
+      const d = structuredClone(
+        HorseLogic.decide(
+          hero,
+          gs,
+          'balanced',
+          {},
+          {
+            mind: false,
+            telemetry: false,
+            omahaBigBetIsPotShare: true,
+          }
+        )
+      );
+      expect(horseDecisionReceiptRefusal(d, 'plo5', { player: hero, gameState: gs })).toBeNull();
+      if (d.action === 'bet') {
+        sawBet = true;
+        expect(d.amount).toBeGreaterThanOrEqual(4);
+      }
+    }
+    expect(sawBet).toBe(true);
+  });
 });
