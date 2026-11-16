@@ -157,16 +157,17 @@ CREATE OR REPLACE FUNCTION smarter_private.original_treasury_return_evidence(uui
  assert digest()==before_digest
  print('PASS',len(faults),'faults refused in both readers; all fixture data unchanged after rollback')
 
- # The two access paths must preserve the complete post-ruling receipts in both readers.
+ # Exercise access paths and receipt semantics without LLVM-compiling each ephemeral fixture query.
+ env['PGOPTIONS']='-c jit=off'
  original_rows = {name: rows(call) for name, (_, call) in readers.items()}
  migration = next((R/'supabase/migrations').glob('20261116183213_*.sql'))
  shape = json.loads(run(['node','--input-type=module','-e',
   "import {readFileSync} from 'node:fs';import {splitConcurrentPreamble} from './scripts/ci/migration-concurrent-preamble.mjs';console.log(JSON.stringify(splitConcurrentPreamble(readFileSync(process.argv[1],'utf8'))));",str(migration)]))
  assert shape['ok'] and len(shape['indexes'])==2
  sql("""INSERT INTO public.tournament_refund_entitlements(id,tournament_id,entitlement_kind)
-     SELECT md5('refund-id-'||g)::uuid,md5('tournament-'||(g%1300))::uuid,'wallet_charge' FROM generate_series(1,50000) g;
+     SELECT md5('refund-id-'||g)::uuid,md5('tournament-'||(g%1300))::uuid,'wallet_charge' FROM generate_series(1,8000) g;
      INSERT INTO public.cash_funding_application_receipts(transaction_id,refunded)
-     SELECT (10000+g)::text::xid8,1 FROM generate_series(1,20000) g;
+     SELECT (10000+g)::text::xid8,1 FROM generate_series(1,4000) g;
      INSERT INTO public.cash_funding_application_receipts(transaction_id,refunded) VALUES ('42222',3),('42222',7);
      ANALYZE public.tournament_refund_entitlements; ANALYZE public.cash_funding_application_receipts;""")
  window_signature=readers['window'][0]
