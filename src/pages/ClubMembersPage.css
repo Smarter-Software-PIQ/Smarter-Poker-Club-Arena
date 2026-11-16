@@ -1409,16 +1409,16 @@ body:has([data-players-mode='simple']) nav[aria-label='Club Operations Sections'
   }
   .members-simple .member-simple-balance {
     max-width: 76px;
-    gap: 2px;
+    gap: 1px;
   }
   .members-simple .member-simple-balance strong,
   .members-simple .member-simple-balance > .member-simple-balance__winloss {
     font-size: 14px;
-    line-height: 1.15;
+    line-height: 1.1;
   }
   .members-simple .member-simple-balance > span {
     font-size: 10px;
-    line-height: 1.15;
+    line-height: 1;
   }
   .members-simple .member-simple-balance > .member-simple-balance__downline {
     white-space: normal;
