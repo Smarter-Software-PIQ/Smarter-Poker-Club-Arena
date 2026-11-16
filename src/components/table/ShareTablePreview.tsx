@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import './ShareHand.css';
 import type { ShareableHand } from './ShareHand';
 import { replayFromShareable, shareUserId } from '../../lib/shareHandModel';
 import { buildReplayFrames } from '../../utils/replayFrames';
