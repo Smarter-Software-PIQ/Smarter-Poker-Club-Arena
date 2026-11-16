@@ -13,6 +13,7 @@ import { performance } from 'node:perf_hooks';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HorseLogic } from '../HorseLogic.js';
 import { HorseMind } from '../HorseMind.js';
+import { horsePlanBatchBindingFromRequest, horsePlanContextKey } from '../HorsePlanHandIdentity.js';
 import { equityGovernor } from '../EquityLoadGovernor.js';
 import { restoreFastRandom, saveFastRandom } from '../HorseEval.js';
 import { enableBrainTelemetry } from '../BrainTelemetry.js';
@@ -172,7 +173,13 @@ async function throughTheWorker(
   log: Seen[],
   complete = false,
   switched?: 'on' | 'off',
-  issued?: { receipt?: unknown; ranInIssuedView?: boolean; payload?: unknown }
+  issued?: {
+    receipt?: unknown;
+    ranInIssuedView?: boolean;
+    payload?: unknown;
+    withPlanEffect?: boolean;
+    after?: HorseDecisionWorkerResponse[];
+  }
 ): Promise<Outcome> {
   HorseMind.reset();
   restoreFastRandom(SEED);
@@ -193,9 +200,44 @@ async function throughTheWorker(
       return readiness();
     },
     async stopServices() {},
-    decide: HorseLogic.decide.bind(HorseLogic),
+    decide: issued?.withPlanEffect
+      ? (...args: Parameters<typeof HorseLogic.decide>) => {
+          // the real decision runs (its reads are what this file watches); the wager is then fixed to a legal bet
+          // so the worker issues a plan batch for it
+          HorseLogic.decide(...args);
+          const wager = { action: 'bet' as const, amount: request.gameState.pot };
+          return {
+            ...wager,
+            thinkTime: 500,
+            // the reference wager retained to the end: the shape the worker requires before it issues a plan batch
+            policyGraph: {
+              version: 'horse-policy-order-v3',
+              transitions: [{ node: 'reference', after: wager }],
+              finalAction: wager,
+            },
+          } as never;
+        }
+      : HorseLogic.decide.bind(HorseLogic),
     decideDiscard: HorseLogic.decideDiscard.bind(HorseLogic),
-    captureDecisionEffects: (fn) => HorseMind.captureDecisionEffects(fn),
+    captureDecisionEffects: (fn) => {
+      const captured = HorseMind.captureDecisionEffects(fn);
+      return issued?.withPlanEffect
+        ? {
+            ...captured,
+            effects: [
+              ...captured.effects,
+              {
+                type: 'plan' as const,
+                handKey: horsePlanContextKey(
+                  horsePlanBatchBindingFromRequest(request).planContext
+                )!,
+                userId: request.player.user_id,
+                barrelIntent: true,
+              },
+            ],
+          }
+        : captured;
+    },
     applyDecisionEffects: () => {},
     saveRng: saveFastRandom,
     restoreRng: restoreFastRandom,
@@ -246,6 +288,24 @@ async function throughTheWorker(
     issued.receipt = views.receipt(request);
     issued.ranInIssuedView = views.runIssued(request, () => true);
     issued.payload = payloads[0];
+    if (issued.withPlanEffect) {
+      runtime.receive({
+        type: 'COMMIT_DECISION_EFFECTS',
+        requestId: request.requestId + 1,
+        planBinding: fast.planBinding,
+        generation: request.generation,
+        fence: request.fence,
+        effects: fast.effects,
+        acceptance: {
+          version: 'horse-plan-acceptance-v1',
+          action: fast.decision.action,
+          amount: fast.decision.amount ?? 0,
+          witness: null,
+        },
+      } as never);
+      await runtime.drain();
+      issued.after = messages.slice(messages.indexOf(fast) + 1);
+    }
   }
   const deepDraft = {
     ...request,
@@ -364,6 +424,30 @@ describe('an incomplete pooled profile through the decision worker', () => {
     expect(issued.receipt).toBeTruthy();
     expect((issued.payload as { observerReads?: unknown }).observerReads).toBeTruthy();
     expect(issued.ranInIssuedView).toBe(true);
+  });
+
+  it('a live switch row ON alone: an issued plan batch commits (applied_volatile), with its receipt', async () => {
+    const id = villain();
+    const log = watchStyle(() => id);
+    const issued: {
+      receipt?: unknown;
+      ranInIssuedView?: boolean;
+      payload?: unknown;
+      withPlanEffect: boolean;
+      after?: HorseDecisionWorkerResponse[];
+    } = { withPlanEffect: true };
+    const rowOn = await throughTheWorker(false, log, false, 'on', issued);
+    expect(rowOn.frameVersion).toBe('horse-decision-reads-v17');
+    // the FAST issued a plan batch for a retained reference wager ...
+    expect(rowOn.fast.planIssueDisposition).toBe('issued');
+    expect(rowOn.fast.effects.length).toBe(1);
+    expect(issued.receipt).toBeTruthy();
+    // ... and the table's commit of exactly that batch is applied, never an error
+    expect(issued.after?.filter((m) => m.type === 'ERROR')).toEqual([]);
+    expect(issued.after?.find((m) => m.type === 'ACK')).toMatchObject({
+      operation: 'COMMIT_DECISION_EFFECTS',
+      planDisposition: 'applied_volatile',
+    });
   });
 
   it('the option off: the same incomplete row is read uncapped, the frame is not v17, as with a complete row', async () => {

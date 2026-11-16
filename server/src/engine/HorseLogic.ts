@@ -11413,6 +11413,8 @@ export class HorseLogic {
                 decision = { ...selected, tournamentUtility: result.ledger };
                 if (tele) {
                   noteFire('phase7_tournament_utility');
+                  if (phase8UtilityInput.stackScaledMargin === true)
+                    noteFire('tournament_utility_stack_scaled_margin_seen');
                   noteFire(`phase7_objective_${result.ledger.objective}`);
                   noteFire(`phase7_icm_${result.ledger.icmMethod}`);
                   if (result.ledger.overrodeBaseline) noteFire('phase7_utility_override');
@@ -18472,6 +18474,9 @@ export class HorseLogic {
           exploit.bluffMod >= 0.9 &&
           unit87('rangecbet') < (cat <= 1 ? 0.52 : 0.58) * (personaPost87?.cbet ?? 1)
         ) {
+          // counted where the persona's c-bet scale let the range c-bet branch in (a scale below 1 that kept it
+          // out is not an event this branch can see)
+          if (tele15 && personaPost87) noteFire('holdem_persona_postflop_cbet_seen');
           let rangeCbetBlocked87 = stationValue;
           if (useMind && singleOpp87) {
             try {
@@ -22371,6 +22376,7 @@ export class HorseLogic {
         this.v78CommitsWithoutJam(raiseTo87 * params.sizingMultiplier, player, gs, vi, opts);
       if (!commits87) {
         if (tele15) noteFire('v87_flop_stab_check_raise');
+        if (tele15 && personaPost87) noteFire('holdem_persona_postflop_check_raise_seen');
         planBarrel(equity);
         return this.raiseTo(planHandKey, raiseTo87 * params.sizingMultiplier, player, gs, vi);
       }
