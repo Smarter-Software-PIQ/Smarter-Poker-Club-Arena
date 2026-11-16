@@ -42,3 +42,15 @@ DO $$BEGIN
  EXCEPTION WHEN invalid_parameter_value THEN NULL;END;
 END$$;
 SELECT 'PASS future receipt kinds, distinct same-time wallet movements, malformed cursor refusal';
+
+-- A real promo writer uses separate clock timestamps for one operation.
+INSERT INTO chip_transactions VALUES('20000000-0000-4000-8000-000000000007','10000000-0000-4000-8000-000000000001','2026-11-16 02:00:00.0166Z','promo_wallet_send',50,'00000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000003',NULL,'{"source":"promo_wallet","destination":"player_wallet","op_id":"40000000-0000-4000-8000-000000000007"}');
+INSERT INTO chip_ledger(id,club_id,created_at,category,amount,from_entity_id,to_entity_id,from_type,to_type,status,correlation_id)
+VALUES('30000000-0000-4000-8000-000000000007','10000000-0000-4000-8000-000000000001','2026-11-16 02:00Z','promo_send',50,'00000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000003','promo_wallet','player_wallet','posted','40000000-0000-4000-8000-000000000007');
+INSERT INTO chip_ledger SELECT '30000000-0000-4000-8000-000000000008',club_id,created_at,category,amount,from_entity_id,to_entity_id,'agent_wallet',to_type,notes,metadata,status,idempotency_key,correlation_id,from_label FROM chip_ledger WHERE id='30000000-0000-4000-8000-000000000007';
+DO $$BEGIN
+ PERFORM set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000002',true);
+ IF EXISTS(SELECT 1 FROM fn_member_transaction_history('10000000-0000-4000-8000-000000000001','mine','00000000-0000-4000-8000-000000000002') WHERE id='30000000-0000-4000-8000-000000000007') THEN RAISE EXCEPTION 'correlated millisecond promo mirror duplicated';END IF;
+ IF NOT EXISTS(SELECT 1 FROM fn_member_transaction_history('10000000-0000-4000-8000-000000000001','mine','00000000-0000-4000-8000-000000000002') WHERE id='30000000-0000-4000-8000-000000000008') THEN RAISE EXCEPTION 'distinct correlated funding wallet hidden';END IF;
+END$$;
+SELECT 'PASS correlated millisecond receipts deduplicate only the matching wallet leg';
