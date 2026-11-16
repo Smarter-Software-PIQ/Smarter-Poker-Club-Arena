@@ -329,6 +329,20 @@ describe('omahaReraisedFoldVsTight outside PLO4/PLO5 high (conflict sweep 2026-1
   });
 });
 
+describe('omahaReraisedFoldVsTight in PLO6 with omahaStrategyInPlo6 on (PLO6 lane 2026-11-16, SPEC-B 3.27: skipped)', () => {
+  it('the same 4-bet spot the PLO4/PLO5 rows below change: silent for six cards, tight read or none', () => {
+    const build = () => fourBetGs('plo6', 'KsKdQhJhTc9c');
+    const GATE: HorseDecideOpts = { omahaStrategyInPlo6: true };
+    for (const reads of [() => null, () => tightRead]) {
+      const off = playMany(build, GATE, reads as never);
+      const on = playMany(build, { ...GATE, omahaReraisedFoldVsTight: true }, reads as never);
+      expect(on.bytes).toEqual(off.bytes);
+      expect(hasFire(on, 'omaha_reraised_fold_vs_tight_withheld')).toBe(0);
+      expect(hasFire(on, 'omaha_reraised_fold_vs_tight')).toBe(0);
+    }
+  });
+});
+
 describe.each(PREFLOP)(
   'omahaReraisedFoldVsTight, $variant $hole ($stack behind) facing a 4-bet',
   (p) => {

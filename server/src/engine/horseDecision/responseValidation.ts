@@ -59,7 +59,11 @@ import {
 import { omahaReraiseRuleProducesCall } from '../HorseOmahaOopReraisedPot.js';
 import { omahaDrawRaiseBarOf } from '../HorseOmahaBigDrawAggression.js';
 import { shortAllInSpot } from '../HorseShortAllInCallFloor.js';
-import { OMAHA_FACING_BET_EV_VARIANTS, omahaFacingBetEvSpot } from '../HorseOmahaFacingBetEv.js';
+import {
+  OMAHA_FACING_BET_EV_VARIANTS,
+  omahaFacingBetEvSpot,
+  omahaPlo6FacingBetEvFoldStands,
+} from '../HorseOmahaFacingBetEv.js';
 import {
   OMAHA_RAISE_NEEDS_NUTS_VARIANTS,
   omahaRaiseNeedsNutsAdmitsCall,
@@ -1418,7 +1422,21 @@ function policyGraphIsValidInScope(
       String(context.gameState.gameVariant).toLowerCase() === variant &&
       (() => {
         const spot = omahaFacingBetEvSpot(context.player, context.gameState);
-        return spot !== null && !spot.allIn && spot.paid === transition.after.amount;
+        if (spot === null || spot.allIn || spot.paid !== transition.after.amount) return false;
+        // PLO6 (six cards): the rule's own guard is pure, so it is re-run on
+        // the request: where the river fold test stands the rule cannot have
+        // called, and an uncountable six-card hand is not admitted either.
+        // (Both tests on: the request does not carry V58/V59.)
+        if (variant === 'plo6')
+          return (
+            omahaPlo6FacingBetEvFoldStands(
+              spot,
+              context.player.cards ?? [],
+              context.gameState.communityCards ?? [],
+              context.player.knownDeadCards ?? []
+            ) === false
+          );
+        return true;
       })();
     // Owner 2026-11-15 12:52 / 12:53 (HorseOmahaTurnRiverRaiseNeedsNuts,
     // option omahaTurnRiverRaiseNeedsNuts): on the PLO4/PLO5 cash turn and

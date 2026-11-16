@@ -4,11 +4,16 @@
  * The six-card values and class tests the Omaha strategy options need before
  * any of them may act in PLO6. No PLO4 or PLO5 value is changed by it.
  *
- * One reader (2026-11-16): HorseLogic.decide calls
+ * Readers (2026-11-16): HorseLogic.decide calls
  * applyPlo6OmahaStrategyCalibration with the decision's omahaStrategyInPlo6
- * gate (see the end of this file). With the gate off (the option is OFF-ONLY)
- * nothing here is registered and every PLO6 decision reads what it read
- * before. The class tests and the remaining entries are still read by nothing.
+ * gate (see the end of this file), and the receipt validator registers the
+ * same values for the re-run of a decision whose context carries that gate,
+ * then takes them back. The class tests are read by the six-card branches of
+ * the Omaha strategy modules (re-raised pots, the pricing rules through
+ * HorsePlo6PricingPort.ts, the strong-hand class), each reached only with the
+ * gate on. With the gate off (the option is OFF-ONLY) nothing here is
+ * registered and every PLO6 decision reads what it read before. The draw-out
+ * helpers and the entries no rule reads yet are documented where they stand.
  *
  * Sources: SPEC-A (options 3.1 to 3.16, helpers H1-H26, measured inputs M1-M5)
  * and SPEC-B (options 3.17 to 3.31, helpers H27-H39, counts N1-N3), written for
@@ -790,9 +795,11 @@ export function clearPlo6OmahaStrategyCalibration(): void {
 }
 
 /**
- * The one production caller of the two functions above: HorseLogic.decide,
+ * The decision's caller of the two functions above: HorseLogic.decide,
  * before anything else of the decision, with the decision's own gate
- * (opts.omahaStrategyInPlo6 === true).
+ * (opts.omahaStrategyInPlo6 === true). The receipt validator calls the two
+ * functions itself, around the re-run of a decision whose context carries the
+ * gate (register, then clear in a finally).
  *
  * The values are registered ONLY for a decision whose gate is on, and taken
  * back at the next decision whose gate is off. So with the option unset or

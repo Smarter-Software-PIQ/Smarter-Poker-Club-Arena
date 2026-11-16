@@ -23,23 +23,22 @@ Written, each a PLO6-only branch reached only with this gate on (gate off, PLO4 
 - Pricing (`HorseOmahaUnderpair.ts`, `HorseOmahaFacingBetEv.ts`, `HorseOmahaRiverMediumBetCalls.ts`, glue in `HorsePlo6PricingPort.ts`): the underpair rule admits six cards at the PLO5 constants (unmeasured for six cards); the facing-bet EV rule admits six cards on the river only, cash only, no bomb pot, and the measured river fold test (`plo6FacingBetEvFoldStands`) stands over an EV call; the river medium-bet call uses the six-card beaten-share bars (`plo6RiverMediumBetCalls`), cash only, no bomb pot.
 - Skipped options never act in PLO6, gate on or off: `omahaRiverNutBlockerBluffReachable`, `omahaEliteContinuesVsMeasuredWideThreeBettor`, `omahaReraisedFoldVsTight`, `omahaSmallBlindSteal`, and `omahaReraisedPotDiscipline` (not a catalogue option).
 - Adaptations hooked: the paired-board fold and the measured river fold test in the river-plan look-ahead (`omahaRiverShoveFoldVerdict`, verdict `plo6_river_m1`) and in the street-plan call veto; the paired-board price exception is arm (a) only; a strong hand for value is nut class only (`plo6StrongHandForValue`); the out-of-position re-raised strong range stands aside against a measured (not presumed) maniac raiser.
-- Validator (`horseDecision/responseValidation.ts`): PLO6 is admitted to the day's admissions only when the receipt context carries `omahaStrategyInPlo6 === true`; without it the path is the old one. `HorseOmahaStrategyGame.ts` is not changed.
+- PLO6 tournaments stay out (SPEC-A 3.15 item 6), also with `omahaStrategyInTournaments` on: the tournament extension never holds for six cards (`omahaTournamentExtensionSpot`), so every cash-scoped rule stands aside there and no survival premium is priced. PLO4/PLO5 tournaments are unchanged.
+- The facing-bet EV guard is off where the live river fold rule is off: the paired-board test with `v58Plo6RiverNuts` false, the unpaired-board test with `v59Plo6RiverUnpaired` false, as the two plan hooks read them.
+- Validator (`horseDecision/responseValidation.ts`): PLO6 is admitted to the day's admissions only when the receipt context carries `omahaStrategyInPlo6 === true`; without it the path is the old one. A PLO6 fold-to-call by the facing-bet EV rule is admitted only when the rule's six-card guard, re-run on the request, does not stand. `HorseOmahaStrategyGame.ts` is not changed.
 
 Still owed before the hold may be lifted:
 
 - PLO Strategy's acceptance of the lines in its modules and Hand Analysis's review.
-- Behavioural tests for the three preflop changes (the two skipped re-raise callers and the maniac stand-aside): today they are pinned by source only, because the recorded PLO6 fixture has no preflop node.
 - Whole-decision timing for six cards with the options on. Measured on one recorded node, four seeds, not a benchmark: the river plan about 60 to 95 ms per decision (2 to 3 ms when it does not run), the street plan about 150 to 195 ms with the river fold test in the veto (about 95 ms without).
 - The validator client knows the gate from the request options only. If the gate is ever driven by a live switch row, the client must pass the switched value; that belongs to the change that lifts the hold.
 - The validator's replay takes the PLO6 river fold options (V58, V59) as on; a decision made with either off would replay differently (the same limit the existing fields have).
 - A league card with the ported options on in both arms, and the value, continuation and reach rows.
 - From the independent pre-review of the port (archive `followup/review-plo6-six-card-port/PRE-REVIEW.md`, ACCEPT WITH NOTES, nothing blocking), open with the gate on only:
-  - the facing-bet EV guard applies the river fold test even when `v58Plo6RiverNuts` or `v59Plo6RiverUnpaired` is off (the fold direction, but not consistent with the two plan hooks, which honour them);
   - two measures of the beaten share are in use (sampled in the plan hooks, exact in the EV guard and the medium-bet call); near a bar they can disagree, and the order of the rules then decides;
-  - the validator admits a PLO6 fold-to-call by the EV rule on the spot alone, without re-running the six-card guard;
+  - the validator re-runs the EV rule's six-card guard with both river fold tests on (the request does not carry V58/V59): an EV call made with one of them off, on a board whose test would stand, is refused;
   - the validator's replay cost for six cards on the main thread is not measured;
   - the six-card constants stay in the accessor after a gate-on decision until the next decision or validation sets them (not reachable in the live client);
-  - with `omahaStrategyInTournaments` also on, the six-card branches other than the EV rule, the medium-bet call and the strong-hand class act in PLO6 tournaments; SPEC-A 3.15 keeps PLO6 tournaments out.
 
 ## The specifications
 

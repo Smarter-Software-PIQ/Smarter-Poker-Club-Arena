@@ -9220,6 +9220,9 @@ function omahaFacingBetEvCount(
           street: 'turn',
           inPosition: actsLastPostflop(player.seat, gs.dealerSeat, gs.players ?? []),
         }),
+        // PLO6 six-card guard: off where the live river fold rule is off.
+        plo6RiverNuts: opts.v58Plo6RiverNuts !== false,
+        plo6RiverUnpaired: opts.v59Plo6RiverUnpaired !== false,
       }
     );
     if (verdict) answer = { spot, verdict };

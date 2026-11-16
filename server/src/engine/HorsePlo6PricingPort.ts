@@ -41,15 +41,17 @@ export function plo6PricingExcludes(gs: HorseGameStateV2): boolean {
 export function plo6EvFoldStands(
   beatenShare: number,
   board: readonly Card[],
-  price: number
+  price: number,
+  tests: { paired?: boolean; unpaired?: boolean } = {}
 ): boolean {
   if (board.length !== 5) return true;
-  return plo6FacingBetEvFoldStands(
-    beatenShare,
-    plo6BoardPaired(board),
-    plo6BoardFlushPossible(board),
-    price
-  );
+  const paired = plo6BoardPaired(board);
+  // The guard is the live river fold rule's own test, so it is off where that
+  // rule is off: the paired-board test with v58Plo6RiverNuts false, the
+  // unpaired-board test with v59Plo6RiverUnpaired false (as the river-plan
+  // and street-plan hooks read them). Absent: on.
+  if (paired ? tests.paired === false : tests.unpaired === false) return false;
+  return plo6FacingBetEvFoldStands(beatenShare, paired, plo6BoardFlushPossible(board), price);
 }
 
 /** SPEC-A 3.13: the fold may become a call; `holds` is omahaRiverHoldsShare (1 - beaten). */

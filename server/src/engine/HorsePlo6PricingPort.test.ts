@@ -14,11 +14,20 @@ import {
   omahaRiverMediumBetCall,
   omahaRiverMediumBetSpot,
 } from './HorseOmahaRiverMediumBetCalls.js';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import {
   omahaEvHandCounts,
   omahaFacingBetEvSpot,
   omahaFacingBetEvVerdict,
+  omahaPlo6FacingBetEvFoldStands,
 } from './HorseOmahaFacingBetEv.js';
+import {
+  omahaCashOnlyExcludes,
+  omahaTournamentExtensionSpot,
+  omahaTournamentIcmPremium,
+  withOmahaTournamentScope,
+} from './HorseOmahaTournamentScope.js';
 import {
   plo6BoardFlushPossible,
   plo6BoardPaired,
@@ -359,5 +368,114 @@ describe('PLO6 port: omahaFacingBetEv (SPEC-A 3.12)', () => {
       expect(v.plo6FoldStands).toBeUndefined();
       expect(v.call).toBe(v.ev > v.margin);
     }
+  });
+});
+
+// ─── pre-review notes of the port (2026-11-16) ──────────────────────────────
+
+describe('PLO6 port: PLO6 tournaments stay out with both gates on (SPEC-A 3.15 item 6)', () => {
+  const bothOn = <T>(fn: () => T): T =>
+    gateOn(() => withOmahaTournamentScope({ extension: true, icmRisk: 0.05 }, fn));
+  const MTT = { more: { gameMode: 'tournament' } };
+  it('the tournament extension never holds for six cards, so every cash-scoped rule stands aside', () => {
+    const { hero, gs } = river(K_STRAIGHT[0], K_STRAIGHT[1], MTT);
+    bothOn(() => {
+      expect(omahaTournamentExtensionSpot(hero, gs)).toBe(false);
+      expect(omahaCashOnlyExcludes(hero, gs)).toBe(true);
+      expect(omahaTournamentIcmPremium(hero, gs, 50)).toBe(0);
+    });
+  });
+  it('the PLO5 twin is inside the extension, as before', () => {
+    const { hero, gs } = river('Kh 9d 7c 6s 2h', K_STRAIGHT[1], { variant: 'plo5', ...MTT });
+    bothOn(() => {
+      expect(omahaTournamentExtensionSpot(hero, gs)).toBe(true);
+      expect(omahaCashOnlyExcludes(hero, gs)).toBe(false);
+    });
+  });
+  it('the ported pricing rules are silent in a PLO6 tournament; the cash twin is live', () => {
+    const cash = river(K_STRAIGHT[0], K_STRAIGHT[1]);
+    const mtt = river(K_STRAIGHT[0], K_STRAIGHT[1], MTT);
+    bothOn(() => {
+      expect(omahaFacingBetEvSpot(cash.hero, cash.gs)).not.toBeNull();
+      expect(omahaRiverMediumBetSpot(cash.hero, cash.gs)).not.toBeNull();
+      expect(omahaFacingBetEvSpot(mtt.hero, mtt.gs)).toBeNull();
+      expect(omahaRiverMediumBetSpot(mtt.hero, mtt.gs)).toBeNull();
+      const fold = { action: 'fold' } as never;
+      expect(omahaRiverMediumBetCall(fold, mtt.hero, mtt.gs, true).changed).toBeNull();
+    });
+  });
+});
+
+describe('PLO6 port: the EV guard is off where the live river fold rule is off (V58, V59)', () => {
+  const run = (h: readonly [string, string], ctx: object) => {
+    const { hero, gs } = river(h[0], h[1]);
+    const spot = gateOn(() => omahaFacingBetEvSpot(hero, gs))!;
+    return omahaFacingBetEvVerdict(spot, cs(h[0]), cs(h[1]), [], null, ctx)!;
+  };
+  it('the pure guard: each board class has its own switch', () => {
+    const paired = cs(TRIPS_PAIRED[1]);
+    const unpaired = cs(TOP_SET_DRY[1]);
+    expect(plo6EvFoldStands(0.262, paired, 0.25)).toBe(true);
+    expect(plo6EvFoldStands(0.262, paired, 0.25, { paired: false })).toBe(false);
+    expect(plo6EvFoldStands(0.262, paired, 0.25, { unpaired: false })).toBe(true);
+    expect(plo6EvFoldStands(0.342, unpaired, 0.25)).toBe(true);
+    expect(plo6EvFoldStands(0.342, unpaired, 0.25, { unpaired: false })).toBe(false);
+    expect(plo6EvFoldStands(0.342, unpaired, 0.25, { paired: false })).toBe(true);
+  });
+  it('the verdict: paired board, the guard stands unless v58Plo6RiverNuts is off', () => {
+    expect(run(TRIPS_PAIRED, {}).plo6FoldStands).toBe(true);
+    expect(run(TRIPS_PAIRED, { plo6RiverUnpaired: false }).plo6FoldStands).toBe(true);
+    const off = run(TRIPS_PAIRED, { plo6RiverNuts: false });
+    expect(off.plo6FoldStands).toBeUndefined();
+    expect(off.call).toBe(off.ev > off.margin);
+  });
+  it('the verdict: unpaired board, the guard stands unless v59Plo6RiverUnpaired is off', () => {
+    expect(run(TOP_SET_DRY, {}).plo6FoldStands).toBe(true);
+    expect(run(TOP_SET_DRY, { plo6RiverNuts: false }).plo6FoldStands).toBe(true);
+    const off = run(TOP_SET_DRY, { plo6RiverUnpaired: false });
+    expect(off.plo6FoldStands).toBeUndefined();
+    expect(off.call).toBe(off.ev > off.margin);
+  });
+  it('HorseLogic hands the verdict the decision’s own V58 and V59', () => {
+    const src = readFileSync(fileURLToPath(new URL('./HorseLogic.ts', import.meta.url)), 'utf8');
+    expect(src).toContain('plo6RiverNuts: opts.v58Plo6RiverNuts !== false,');
+    expect(src).toContain('plo6RiverUnpaired: opts.v59Plo6RiverUnpaired !== false,');
+  });
+});
+
+describe('PLO6 port: the validator re-runs the six-card guard before admitting an EV call', () => {
+  const guard = (h: readonly [string, string], o = {}) => {
+    const { hero, gs } = river(h[0], h[1], o);
+    const spot = gateOn(() => omahaFacingBetEvSpot(hero, gs))!;
+    return omahaPlo6FacingBetEvFoldStands(spot, cs(h[0]), cs(h[1]), []);
+  };
+  it('the guard alone: stands where the river fold test holds, not where it does not', () => {
+    expect(guard(TRIPS_PAIRED)).toBe(true);
+    expect(guard(TOP_SET_DRY)).toBe(true);
+    expect(guard(BOAT_PAIRED)).toBe(false);
+    // a cheap price is never the fold test's (0.10 of the final pot or less)
+    expect(guard(TRIPS_PAIRED, { bet: 10, potBefore: 100 })).toBe(false);
+  });
+  it('not a six-card river hand: null, which the validator does not admit', () => {
+    const { hero, gs } = river('Kh 9d 7c 6s 2h', K_STRAIGHT[1], { variant: 'plo5' });
+    const spot = omahaFacingBetEvSpot(hero, gs)!;
+    expect(
+      omahaPlo6FacingBetEvFoldStands(spot, hero.cards as Card[], cs(K_STRAIGHT[1]), [])
+    ).toBeNull();
+    expect(
+      omahaPlo6FacingBetEvFoldStands(spot, cs(K_STRAIGHT[0]), cs('Qs Jh Tc 4d'), [])
+    ).toBeNull();
+  });
+  it('the admission asks it for plo6 only (source pin: no decide-level PLO6 fold-to-call fixture)', () => {
+    const src = readFileSync(
+      fileURLToPath(new URL('./horseDecision/responseValidation.ts', import.meta.url)),
+      'utf8'
+    );
+    const at = src.indexOf('const omahaFacingBetEvCalled =');
+    expect(at).toBeGreaterThan(-1);
+    const block = src.slice(at, at + 1400);
+    expect(block).toContain("if (variant === 'plo6')");
+    expect(block).toContain('omahaPlo6FacingBetEvFoldStands(');
+    expect(block).toContain(') === false');
   });
 });

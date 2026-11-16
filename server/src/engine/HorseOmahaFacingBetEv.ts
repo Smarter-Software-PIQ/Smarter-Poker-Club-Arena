@@ -1130,8 +1130,41 @@ export interface OmahaFacingBetEvContext {
    * price plus the premium). 0 or absent: the cash arithmetic exactly.
    */
   riskPremium?: number;
+  /**
+   * PLO6 only (six cards): the decision's v58Plo6RiverNuts and
+   * v59Plo6RiverUnpaired, read `!== false`. With one off, the six-card guard
+   * does not apply that board's river fold test. Absent: on.
+   */
+  plo6RiverNuts?: boolean;
+  plo6RiverUnpaired?: boolean;
   /** the engine's realization factor for a turn call with chips behind */
   realization?: number;
+}
+
+/**
+ * PLO6 only: the six-card guard alone, on the request's own cards (pure: no
+ * read, no option). True when the river fold test stands, so the EV rule
+ * cannot have turned the fold into a call; false when it does not stand; null
+ * when the hand is not a six-card river hand that can be counted. The receipt
+ * validator re-runs it (both tests on: it does not know V58/V59).
+ */
+export function omahaPlo6FacingBetEvFoldStands(
+  spot: OmahaFacingBetEvSpot,
+  hole: Card[],
+  board: Card[],
+  dead: Card[]
+): boolean | null {
+  if (!Array.isArray(hole) || hole.length !== 6 || !Array.isArray(board) || board.length !== 5)
+    return null;
+  let counted: OmahaEvHandCounts | null;
+  try {
+    counted = omahaEvHandCounts(hole, board, dead, spot.valueShare);
+  } catch {
+    counted = null;
+  }
+  if (!counted) return null;
+  const price = spot.paid / (spot.winnable + spot.paid);
+  return plo6EvFoldStands(1 - counted.all.win - counted.all.tie, board, price);
 }
 
 /** The decision: call when EV(call) exceeds the one margin. Null when the hand cannot be counted. */
@@ -1193,7 +1226,11 @@ export function omahaFacingBetEvVerdict(
   // M1's beat probability (H17).
   const price = spot.paid / (spot.winnable + spot.paid);
   const plo6FoldStands =
-    hole.length === 6 && plo6EvFoldStands(1 - counted.all.win - counted.all.tie, board, price);
+    hole.length === 6 &&
+    plo6EvFoldStands(1 - counted.all.win - counted.all.tie, board, price, {
+      paired: ctx.plo6RiverNuts !== false,
+      unpaired: ctx.plo6RiverUnpaired !== false,
+    });
   return {
     call: ev > margin && !plo6FoldStands,
     ...(plo6FoldStands ? { plo6FoldStands: true } : {}),
