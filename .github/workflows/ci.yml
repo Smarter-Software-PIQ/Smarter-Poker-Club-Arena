@@ -3019,19 +3019,6 @@ jobs:
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 scripts/ci/test-profile-account-postgres.py
-      - name: Terms acceptance records the exact reviewed revision
-        id: terms_revision
-        if: matrix.shard == 1
-        env:
-          PG_BIN: /usr/lib/postgresql/17/bin
-        run: python3 -B scripts/ci/test-terms-revision-postgres.py --output artifacts/terms-revision
-      - name: Retain exact terms revision native proof
-        if: always() && matrix.shard == 1 && contains(fromJSON('["success", "failure", "cancelled"]'), steps.terms_revision.outcome)
-        uses: actions/upload-artifact@v4
-        with:
-          name: terms-revision-${{ github.run_id }}-${{ github.run_attempt }}
-          path: artifacts/terms-revision/
-          if-no-files-found: error
       - name: Parked tables retain canonical movement custody
         id: f06_movement_admission
         if: matrix.shard == 3

@@ -636,6 +636,7 @@
     "scripts/ci/test-spin-conservation-postgres.py",
     "scripts/ci/test-spin-owner-command.py",
     "scripts/ci/test-superseded-retention-progress.py",
+    "scripts/ci/test-terms-revision-postgres.py",
     "scripts/ci/test-thaw-preserves-retired-clubs.py",
     "scripts/ci/test-ticket-refund-pnl-postgres.py",
     "scripts/ci/test-tournament-abort.py",
