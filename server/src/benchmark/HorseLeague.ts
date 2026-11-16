@@ -3942,12 +3942,22 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
   })),
   // 2026-11-14 (Fixed-Limit lane, adaptation fix F2, the call price): a default-off
   // fixed-limit arm. Refused, not dealt: this league cannot ask the question.
+  // 2026-11-16: the option is scoped to fixed-limit hold'em cash, so the flo8 arm is inert by scope.
   ...(
     [
-      ['flo8_call_is_not_a_commitment', 'flo8', 6, { fixedLimitCallIsNotACommitment: true }, 11],
-      ['flh_call_is_not_a_commitment', 'flh', 6, { fixedLimitCallIsNotACommitment: true }, 6],
+      [
+        'flo8_call_is_not_a_commitment',
+        'flo8',
+        6,
+        { fixedLimitCallIsNotACommitment: true },
+        0,
+        ' (11 of 300 on 2026-11-15, before the scope: since 2026-11-16 the option acts only on ' +
+          "fixed-limit hold'em at a cash table, HorseLogic fixedLimitCallIsNotACommitmentInScope, so " +
+          'at flo8 it changes nothing)',
+      ],
+      ['flh_call_is_not_a_commitment', 'flh', 6, { fixedLimitCallIsNotACommitment: true }, 6, ''],
     ] as const
-  ).map(([name, variant, seats, a, d]) => ({
+  ).map(([name, variant, seats, a, d, note]) => ({
     name,
     variant,
     seats,
@@ -3957,8 +3967,8 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'Unanswerable by this league: playHand deals no-limit and pot-limit betting and has no ' +
       'fixed-limit street unit, wager cap or controller menu, and every gate of this option ' +
       'requires a fixed-limit state (HorseLogic: vi.isFixedLimit). The option is DEFAULT OFF (read as === true). ' +
-      'Measured 2026-11-15 by running this refused matchup through runMatchup (seed 20261115, 300 pairs): ' +
-      `${d} of 300 pairs diverged. The league deals the variant's cards with its own betting while ` +
+      'Measured 2026-11-15 and again 2026-11-16 by running this refused matchup through runMatchup (seed 20261115, 300 pairs): ' +
+      `${d} of 300 pairs diverged${note}. The league deals the variant's cards with its own betting while ` +
       'HorseLogic takes the fixed-limit path from the variant name, so that divergence is not a ' +
       'fixed-limit measurement and decides nothing. ' +
       'What would change this: a fixed-limit duplicate league (real ' +
