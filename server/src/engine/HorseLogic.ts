@@ -365,9 +365,11 @@ import {
   tightLimperIsoWiden,
 } from './HorseTightPlayerExploit.js';
 import {
+  noteStyleEngaged,
   noteStyleOptionApplied,
   noteStyleShadowEngaged,
   styleShadowArm,
+  withStyleRecordsKept,
 } from './HorseStyleShadow.js';
 
 /**
@@ -438,6 +440,7 @@ import {
   v85OpenTargetShare,
 } from './HorseGtoOpeningRanges.js';
 import { lightningParticipationCtx } from './HorseLightningParticipation.js';
+import { lightningCheapEntryCtx } from './HorseLightningCheapEntry.js';
 import {
   omahaDecisionRaises,
   omahaRaiseNeedsNutsCall,
@@ -445,6 +448,10 @@ import {
   omahaRaiseNeedsNutsPriceFolds,
   omahaRaiseNeedsNutsScope,
 } from './HorseOmahaTurnRiverRaiseNeedsNuts.js';
+import {
+  lightningFoldThroughFrame,
+  lightningFoldThroughSeats,
+} from './HorseLightningFoldThrough.js';
 import {
   huBbEquityVsOpener,
   huDefenceWidthPct,
@@ -823,6 +830,8 @@ interface StyleParams {
   tightness: number;
   /** Opening-only multiplier transported to the preflop decision owner. */
   nlhOpeningTightness?: number;
+  /** Persona tightness before vpipFloorMul scaling, preserved for Lightning cheap-entry. */
+  unflooredTightness?: number;
   /** scales bluff / semi-bluff frequencies */
   bluffFreq: number;
   /** scales 3-bet / raise aggression */
@@ -3938,6 +3947,25 @@ export interface HorseDecideOpts {
    *  cells by seat, players dealt and depth, and the big blind's continue
    *  range by price against one raise (HorseLightningParticipation). */
   lightningParticipationOmaha?: boolean;
+  /** LIGHTNING EARLY FOLD NEEDS THE FOLD-THROUGH (2026-11-15, default OFF;
+   *  true enables it). Lightning cash only, before the river: a fold to a
+   *  priced decision asked while live seats before the Horse still have to
+   *  act (an early look) stands only if the same policy also folds on the
+   *  frame where those seats fold; otherwise the frame's answer is returned
+   *  and the host lets the Horse decide afresh on its turn
+   *  (HorseLightningFoldThrough.ts). No effect at the Horse's own turn. */
+  lightningEarlyFoldNeedsFoldThrough?: boolean;
+  /** LIGHTNING CHEAP ENTRY, hold'em (2026-11-15, default OFF; true enables
+   *  it). Lightning cash no-limit hold'em only, the participation predicate
+   *  (HorseLightningParticipation): where the unopened branch folds, the
+   *  small blind folded to completes, and the small blind or the button
+   *  behind limpers over-limps, when the price covers the hand's equity after
+   *  realisation, raise risk behind and drop (HorseLightningCheapEntry).
+   *  Never a raise; no own-participation input. */
+  lightningCheapEntryHoldem?: boolean;
+  /** LIGHTNING CHEAP ENTRY, Omaha (2026-11-15, default OFF; true enables
+   *  it). Lightning cash PLO4 / PLO5 only, same predicate and rule. */
+  lightningCheapEntryOmaha?: boolean;
   /** FACING A CLOSED ALL-IN RE-RAISE (2026-11-08, default ON): facing a
    *  3-bet or 4-bet made all in with every other live opponent all in or
    *  folded, the 3-bet node's 35% and the 4-bet node's 30% stack caps no
@@ -4409,6 +4437,13 @@ export interface HorseDecideOpts {
    *  Receipts style_tight_opener_respect_seen and
    *  style_tight_reraiser_respect_seen. Default off; explicit true only. */
   styleTightReRaiserRespect?: boolean;
+  /** L-016 (2026-11-15): on a Lightning decision (gs.publicMemoryDomain.speed 'lightning') the style read takes
+   *  postflop street aggression, river size buckets and the Horse reference from Lightning-only maps (filled from
+   *  Lightning hands only), instead of the maps that pool Lightning and Classic (table-speed) cash. Classic and
+   *  tournament decisions are untouched. Receipts style_lightning_separate_read_seen and
+   *  style_lightning_separate_empty_seen. Changes nothing unless a style consumer option reads the style.
+   *  Default off; explicit true only. */
+  lightningStyleReadSeparate?: boolean;
   /**
    * 2026-11-13 STYLE READ SHADOW: the style options in shadow for this decision (HorseStyleShadow). Each computes
    * its adjustment and applies nothing; one that would have changed its input records that it engaged. Set by the
@@ -5626,6 +5661,9 @@ function maniacShortStackJam(
  * single-threaded, and the consumer resets it every read.
  */
 let difficultyHint = 0;
+/** True only while HorseLogic.decide runs the Lightning fold-through frame ask (a side ask, never the committed
+ *  decision): the safety net then reports its failure under its own name, not HorseLogic.decide_threw. */
+let lightningFoldThroughFrameAsk = false;
 let v87HollywoodEligible = false;
 /** LATER LAYERS KEEP THE STYLE READ (2026-11-15): set by decidePreflopV7Glue
  *  when this preflop fold was produced by the tight opener / re-raiser respect
@@ -6759,6 +6797,9 @@ function pairedBoardFold(
       toCall: gs.toCall,
       pot: gs.pot,
       icmRisk: omahaTournamentIcmRisk(player, gs),
+      stage: String(gs.stage ?? ''),
+      heroSeat: player.seat,
+      actionHistory: gs.actionHistory,
     })
   ) {
     // The receipt describes the final action: a later rule can still fold
@@ -7495,10 +7536,24 @@ function omahaOopReraisedPotStrongRange(
       break;
     }
     if (!raiser || raiser.is_folded || raiser.is_all_in) return decision;
-    // In position against him a call of a 3-bet is unchanged (the cell's scope).
-    const outOfPosition =
-      postflopOrder(player.seat, gs.dealerSeat) < postflopOrder(raiser.seat, gs.dealerSeat);
+    // In position against him and every live player already voluntarily in the
+    // pot, a call of a 3-bet is unchanged (the cell's scope). A sandwiched
+    // blind cold-calling with live EP/MP raisers/callers still to act behind it
+    // is out of position against the pot (Hand #59728571).
     const bb = gs.bigBlind || 1;
+    const myOrder = postflopOrder(player.seat, gs.dealerSeat);
+    const outOfPosition =
+      myOrder < postflopOrder(raiser.seat, gs.dealerSeat) ||
+      (gs.players ?? []).some(
+        (p) =>
+          p.seat !== player.seat &&
+          p.seat !== raiser.seat &&
+          !p.is_folded &&
+          !p.is_sitting_out &&
+          !p.is_all_in &&
+          (p.bet ?? 0) > bb + 0.005 &&
+          postflopOrder(p.seat, gs.dealerSeat) > myOrder
+      );
     let band: [number, number] | null = null;
     if (opts.mind !== false) {
       try {
@@ -9956,7 +10011,15 @@ function omahaStrongHandValueRule(
 ): { decision: HorseDecision; priced: boolean } {
   const same = { decision, priced: false };
   if (opts.omahaStrongHandValue !== true) return same;
-  if (decision.action !== 'check' && decision.action !== 'call') return same;
+  const undersizedBet =
+    decision.action === 'bet' &&
+    Number.isFinite(decision.amount) &&
+    Number.isFinite(gs.pot) &&
+    gs.pot > 0 &&
+    Number.isFinite(player.stack) &&
+    (decision.amount as number) < gs.pot * 0.25 - 0.005 &&
+    (decision.amount as number) < player.stack - 0.005;
+  if (decision.action !== 'check' && decision.action !== 'call' && !undersizedBet) return same;
   try {
     const userOf = (seat: number): string | null =>
       opts.mind === false
@@ -10883,6 +10946,12 @@ export class HorseLogic {
       ...(opts.holdemCallDownNeedsStyleEvidence === true
         ? { holdemCallDownNeedsStyleEvidence: true }
         : {}),
+      // L-016 (2026-11-15): Lightning style evidence apart. Only an explicit true on a Lightning decision adds the
+      // key, so with it off (or on a Classic or tournament decision) the options are exactly what they were.
+      ...(opts.lightningStyleReadSeparate === true &&
+      gameState.publicMemoryDomain?.speed === 'lightning'
+        ? { lightningStyleReadSeparate: true }
+        : {}),
     });
     // V3: ingest the action stream into the opponent-intelligence layer.
     // Wrapped so observation can never take down a decision.
@@ -10914,6 +10983,62 @@ export class HorseLogic {
     planReadCapture?: HorsePlanReadCapture,
     deepDiveCapture?: HorseDeepDiveCapture
   ): HorseDecision {
+    // LIGHTNING EARLY FOLD NEEDS THE FOLD-THROUGH (2026-11-15, default OFF;
+    // HorseLightningFoldThrough.ts): the decision is asked as before; only a
+    // fold with live seats still to act before the Horse is asked once more,
+    // on the frame where those seats fold (never learned: observeMind false).
+    if (opts.lightningEarlyFoldNeedsFoldThrough === true) {
+      const inner: HorseDecideOpts = { ...opts, lightningEarlyFoldNeedsFoldThrough: false };
+      const first = HorseLogic.decide(
+        player,
+        gameState,
+        style,
+        mods,
+        inner,
+        rangeCapture,
+        planReadCapture,
+        deepDiveCapture
+      );
+      if (String(first.action) !== 'fold') return first;
+      // A malformed state, or a frame ask that fails, keeps the early fold (the option-off answer).
+      let through: HorseDecision;
+      try {
+        const seats = lightningFoldThroughSeats(gameState, player.seat);
+        const frame = seats.length
+          ? lightningFoldThroughFrame(gameState, seats, opts.decisionTimeMs ?? 0)
+          : null;
+        if (!frame) return first;
+        // The frame ask is a side ask: no brain receipt, no decide_threw / phase15_brain_exception count, and no
+        // style record of its own (the decision keeps the first ask's records). Only the two fold-through
+        // receipts below are counted for it.
+        const wasFrameAsk = lightningFoldThroughFrameAsk;
+        lightningFoldThroughFrameAsk = true;
+        try {
+          through = withStyleRecordsKept(() =>
+            withBrainTelemetrySuspended(() =>
+              HorseLogic.decide(player, frame, style, mods, {
+                ...inner,
+                observeMind: false,
+                telemetry: false,
+              })
+            )
+          );
+        } finally {
+          lightningFoldThroughFrameAsk = wasFrameAsk;
+        }
+      } catch (err) {
+        reportError(err, 'HorseLogic.lightning_fold_through_frame_threw');
+        return first;
+      }
+      // The safety net answered the frame (already reported there; it can call on fixed limit): the fold stays.
+      if (through.policyFallback === 'brain_exception') return first;
+      if (String(through.action) === 'fold') {
+        if (telemetryOn(opts)) noteFire('lightning_fold_through_kept');
+        return first;
+      }
+      if (telemetryOn(opts)) noteFire('lightning_fold_through_released');
+      return through;
+    }
     // icmBustPaysPlace (2026-11-15, default OFF): the paid-bust ICM valuation for
     // this decision only. It also covers the survival premium read below.
     // nashPushFoldIcm implies it (Hand Analysis D1): its payout read prices through the same bubble factor.
@@ -11073,7 +11198,14 @@ export class HorseLogic {
       // the whole fleet would silently degrade to check/fold while every
       // dashboard stayed green. Every other automated-action path in the
       // engine reports; this one now does too.
-      reportError(err, 'HorseLogic.decide_threw');
+      // The Lightning fold-through frame ask is a side ask: its failure keeps the early fold (HorseLogic.decide)
+      // and is reported under its own name, not as a failed decision.
+      reportError(
+        err,
+        lightningFoldThroughFrameAsk
+          ? 'HorseLogic.lightning_fold_through_frame_threw'
+          : 'HorseLogic.decide_threw'
+      );
       // V13: the think-time hint is a module global, normally consumed and
       // cleared by computeThinkTime. The safety net returns WITHOUT calling
       // it, so a throw stranded the value and the NEXT horse to act — a
@@ -11282,6 +11414,11 @@ export class HorseLogic {
     // `_satisfied` means the horse is over the floor and its own style is
     // back in charge. A floored table showing only `_prior` for ever means
     // ownVpip is not reaching the brain.
+    // Unfloored persona tightness, preserved before vpipFloorMul scales
+    // params.tightness so Lightning range options (HorseLightningCheapEntry,
+    // HorseLightningParticipation) never inherit an ownVpip deficit even if a
+    // caller ever attaches a VPIP floor to a Lightning snapshot.
+    params.unflooredTightness = params.tightness;
     {
       const applyFloorMul = (vfMul: number): void => {
         params.tightness *= vfMul;
@@ -12466,10 +12603,20 @@ export class HorseLogic {
           noteFire('omaha_one_pair_stack_off_folded');
         return r.decision;
       };
-      // Price missed checked-to turn boat and river value against the controller's menu.
+      // Price missed checked-to turn boat and river value against the controller's menu
+      // (including any undersized <25%-pot lead left by an earlier node).
+      const missedOrUndersizedValue =
+        finalWager.action === 'check' ||
+        (finalWager.action === 'bet' &&
+          Number.isFinite(finalWager.amount) &&
+          Number.isFinite(gs.pot) &&
+          gs.pot > 0 &&
+          Number.isFinite(player.stack) &&
+          (finalWager.amount as number) < gs.pot * 0.25 - 0.005 &&
+          (finalWager.amount as number) < player.stack - 0.005);
       if (
         !strongHand.priced &&
-        finalWager.action === 'check' &&
+        missedOrUndersizedValue &&
         (gs.stage === 'turn' || gs.stage === 'river') &&
         gs.stateSchemaVersion === 1 &&
         !gs.wagersCapped &&
@@ -14123,6 +14270,8 @@ export class HorseLogic {
               ) {
                 exploitOpenerBeforeStyle = exploitOpener;
                 styleOpenerApplied = true;
+                // LIVE RECEIPTS (2026-11-15): the on arm records that it applied (telemetry only)
+                noteStyleEngaged('styleTightReRaiserRespect', style.confidenceCap, 'on');
                 noteStyleOptionApplied('styleTightReRaiserRespect');
                 exploitOpener = {
                   wide: false,
@@ -14138,7 +14287,10 @@ export class HorseLogic {
               const tightRe = tightReRaiserRespect(style) ?? undefined;
               if (armTr === 'on') {
                 styleTightReRaiser = tightRe;
-                if (tightRe) noteStyleOptionApplied('styleTightReRaiserRespect');
+                if (tightRe) {
+                  noteStyleEngaged('styleTightReRaiserRespect', style.confidenceCap, 'on');
+                  noteStyleOptionApplied('styleTightReRaiserRespect');
+                }
               } else if (tightRe)
                 noteStyleShadowEngaged('styleTightReRaiserRespect', style.confidenceCap);
             }
@@ -15111,6 +15263,9 @@ export class HorseLogic {
       // horsePlayStyles: the three scales are 1 (no multiplication is made)
       // unless the option is on and this Horse plays a non-current style here.
       tightness: stylePre ? params.tightness * stylePre.tightnessMul : params.tightness,
+      unflooredTightness: stylePre
+        ? (params.unflooredTightness ?? params.tightness) * stylePre.tightnessMul
+        : (params.unflooredTightness ?? params.tightness),
       ...(stylePre
         ? { valueRaiseTightness: params.tightness * stylePre.valueRaiseTightnessMul }
         : {}),
@@ -15301,6 +15456,23 @@ export class HorseLogic {
               {
                 holdem: opts.lightningParticipationHoldem === true,
                 omaha: opts.lightningParticipationOmaha === true,
+              },
+              gs,
+              {
+                heroUserId: player.user_id,
+                dealt: dealtHorseTableSize(gs, player.seat),
+                behind: preflopPlayersBehind(player.seat, gs, opts.v13 !== false),
+                mind: opts.mind !== false,
+                telemetry: telemetryOn(opts),
+              }
+            )
+          : undefined,
+      lightningCheapEntry:
+        opts.lightningCheapEntryHoldem === true || opts.lightningCheapEntryOmaha === true
+          ? lightningCheapEntryCtx(
+              {
+                holdem: opts.lightningCheapEntryHoldem === true,
+                omaha: opts.lightningCheapEntryOmaha === true,
               },
               gs,
               {
@@ -16645,6 +16817,7 @@ export class HorseLogic {
             if (mul !== null && mul !== 1 && armFb === 'shadow')
               noteStyleShadowEngaged('styleFoldBluff', fbStyle.confidenceCap);
             else if (mul !== null && mul !== 1) {
+              noteStyleEngaged('styleFoldBluff', fbStyle.confidenceCap, 'on');
               exploit = {
                 ...exploit,
                 bluffMod: exploit.bluffMod * mul,
@@ -16756,6 +16929,7 @@ export class HorseLogic {
           if (ve && armVe === 'shadow')
             noteStyleShadowEngaged('styleValueExtraction', veStyle.confidenceCap);
           else if (ve) {
+            noteStyleEngaged('styleValueExtraction', veStyle.confidenceCap, 'on');
             exploitValueSize *= ve.sizeMul;
             styleThinShift = ve.thinShift;
             noteStyleOptionApplied('styleValueExtraction');
@@ -17036,6 +17210,7 @@ export class HorseLogic {
             if (armVh === 'shadow')
               noteStyleShadowEngaged('styleRaiseRespect', vhStyle.confidenceCap);
             else {
+              noteStyleEngaged('styleRaiseRespect', vhStyle.confidenceCap, 'on');
               styleRaiseWeight = weightVh;
               noteStyleOptionApplied('styleRaiseRespect');
               styleRaiseReads = oppReads.map((read) =>
@@ -22046,6 +22221,7 @@ export class HorseLogic {
               noteStyleShadowEngaged('styleRaiseRespect', rrStyle.confidenceCap);
             styleRaiseShade = 0;
           } else if (styleRaiseShade > 0) {
+            noteStyleEngaged('styleRaiseRespect', rrStyle.confidenceCap, 'on');
             noteStyleOptionApplied('styleRaiseRespect');
             if (tele15) noteFire('style_raise_respect_seen');
           }
@@ -23449,6 +23625,7 @@ export class HorseLogic {
             if (styleAdd > 0 && armBb === 'shadow')
               noteStyleShadowEngaged('styleBigBetHonesty', bbStyle.confidenceCap);
             else if (styleAdd > 0) {
+              noteStyleEngaged('styleBigBetHonesty', bbStyle.confidenceCap, 'on');
               respect += styleAdd;
               noteStyleOptionApplied('styleBigBetHonesty');
               if (telemetryOn(opts)) noteFire('style_big_bet_honesty_seen');
@@ -23466,6 +23643,7 @@ export class HorseLogic {
             if (cap !== null && armBb === 'shadow')
               noteStyleShadowEngaged('styleBigBetHonesty', capStyle.confidenceCap);
             else if (cap !== null) {
+              noteStyleEngaged('styleBigBetHonesty', capStyle.confidenceCap, 'on');
               const ko = styleBountyContext(trustedTournament)
                 ? styleKnockoutCredit(gs, player, bettorId, opts)
                 : 0;

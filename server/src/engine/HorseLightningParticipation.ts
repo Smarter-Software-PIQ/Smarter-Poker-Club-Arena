@@ -135,28 +135,34 @@ export function lightningParticipationCtx(
     return undefined;
   }
   if (seat.telemetry) noteFire('lightning_participation_eligible');
-  let observedManiac = false;
-  if (seat.mind) {
-    try {
-      for (const p of table.players ?? []) {
-        if (p.user_id === seat.heroUserId || p.is_folded || p.is_sitting_out) continue;
-        const read = HorseMind.opponentRead(p.user_id);
-        if (read && read.presumed !== true && maniacRaiseWidth(read) !== null) {
-          observedManiac = true;
-          break;
-        }
-      }
-    } catch {
-      /* reads are best-effort, as in HorseLogic */
-    }
-  }
   return {
     family: e.family,
     dealt: seat.dealt,
     behind: seat.behind,
-    observedManiac,
+    observedManiac: seat.mind ? lightningObservedManiac(table, seat.heroUserId) : false,
     telemetry: seat.telemetry,
   };
+}
+
+/**
+ * A live opponent at the table reads as a maniac on its own record (never the
+ * presumption). Shared with HorseLightningCheapEntry; best-effort, as in
+ * HorseLogic.
+ */
+export function lightningObservedManiac(
+  table: LightningParticipationTable,
+  heroUserId: string
+): boolean {
+  try {
+    for (const p of table.players ?? []) {
+      if (p.user_id === heroUserId || p.is_folded || p.is_sitting_out) continue;
+      const read = HorseMind.opponentRead(p.user_id);
+      if (read && read.presumed !== true && maniacRaiseWidth(read) !== null) return true;
+    }
+  } catch {
+    /* reads are best-effort, as in HorseLogic */
+  }
+  return false;
 }
 
 // ── The cells ────────────────────────────────────────────────────────────

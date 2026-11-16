@@ -194,7 +194,9 @@ describe('the lobby comes first, the cash-out follows', () => {
     expect(nav).toBeGreaterThan(-1);
     expect(emit).toBeGreaterThan(-1);
     expect(nav, 'the lobby goes up before the cash-out is even requested').toBeLessThan(emit);
-    expect(body).toMatch(/remaining\.length === 0/);
+    expect(body).toContain('const next = remaining.find(isTableTab)');
+    expect(body.indexOf('setActiveIndex(tablesRef.current.indexOf(next))')).toBeLessThan(emit);
+    expect(body).toContain('tablesRef.current[activeIndexRef.current]?.id === tabId');
     // goToLobby (the TABLE_LEFT tail) is idempotent against that early navigation
     const lobby = multi.slice(
       multi.indexOf('const goToLobby = useCallback('),

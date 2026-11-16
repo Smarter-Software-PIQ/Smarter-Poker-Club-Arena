@@ -128,5 +128,23 @@ for scenario in qualification evidence-matrix pending-snapshot independent-pendi
   P -f "$FIX/$scenario.sql"
 done
 P -f "$FIX/watermark-refusals.sql"
+# The original validator remains an independent oracle for the joined reader.
+P -Atc "SELECT replace(pg_get_functiondef('public.fn_pko_claim_predecessor_status_v1(uuid,uuid,uuid,uuid,bigint,timestamptz)'::regprocedure),'public.fn_pko_claim_predecessor_status_v1(', 'pg_temp.fixture_original_predecessor(')||';'" >"$TMP/original-predecessor.sql"
+# pg_temp oracle and its calls must share one connection.
+P -f "$FIX/admission-guard-before.sql"
+node --input-type=module - "$ROOT" >"$TMP/joined-guarded.sql" <<'JS'
+import { readFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
+const root=process.argv[2];
+const file='supabase/migrations/20261116195435_pko_predecessor_evidence_is_read_in_one_bounded_joined_query.sql';
+const {stalePinGuardSQL}=await import(pathToFileURL(root+'/scripts/ci/migration-stale-pins.mjs'));
+const source=readFileSync(root+'/'+file,'utf8');
+process.stdout.write(stalePinGuardSQL(file,source,source));
+JS
+P -f "$TMP/original-predecessor.sql" -f "$TMP/joined-guarded.sql" -f "$FIX/batched-evidence.sql" -f "$FIX/batched-cost.sql"
+P -c 'DROP FUNCTION fixture_causal_snapshot(uuid)'
+for scenario in qualification evidence-matrix pending-snapshot independent-pending multiple-predecessors watermark-refusals; do
+  P -f "$FIX/$scenario.sql"
+done
 python3 -B "$FIX/full-native.py" --root "$ROOT" --evidence "$TMP/full-financial" --pg-bin "$BIN"
 echo 'PASS: causal PKO admission, immutable replay and bounded native concurrency'

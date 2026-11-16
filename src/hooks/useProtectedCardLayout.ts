@@ -1126,7 +1126,7 @@ export function useProtectedCardLayout(
           const top = Math.max(pageBox.top, header?.getBoundingClientRect().bottom ?? 0);
           const protectedBoxes = Array.from(
             page.querySelectorAll(
-              '.seat__info,.seat__cards .seat__card,.community-area,.pot-display,.bbj-widget,.bbj-mini-plate,.spectator-footer-bar,.action-panel'
+              '.seat__info,.seat__cards .seat__card,.community-area,.pot-display,.bbj-widget,.bbj-mini-plate,.spectator-footer-bar,.action-panel,.chat-collapsed,.mtp-lobby-btn'
             )
           )
             .map((node) => node.getBoundingClientRect())
@@ -1143,12 +1143,26 @@ export function useProtectedCardLayout(
             };
             const plate = seat.querySelector('.seat__info')?.getBoundingClientRect();
             if (!plate || !rect.width) continue;
-            const left = Math.max(pageBox.left, plate.left - rect.width / 2);
+            // A full-size reveal can occupy the entire lane above its plate.
+            // Include one caption width beside that same plate so the fixed
+            // header cannot force the tag back through the shown cards.
+            const shown = Array.from(
+              seat.querySelectorAll('.seat__cards--revealed .seat__card')
+            ).map((card) => card.getBoundingClientRect());
+            const captionReach = rect.width + 1;
+            const left = Math.max(
+              pageBox.left,
+              Math.min(plate.left, ...shown.map((card) => card.left)) - captionReach
+            );
             const ceiling = Math.max(top, natural.top - rect.height);
             const bounds = {
               left,
               top: ceiling,
-              width: Math.min(pageBox.right, plate.right + rect.width / 2) - left,
+              width:
+                Math.min(
+                  pageBox.right,
+                  Math.max(plate.right, ...shown.map((card) => card.right)) + captionReach
+                ) - left,
               height: plate.top - ceiling,
             };
             const next = placeProtectedCardRow(natural, protectedBoxes, bounds, 1);

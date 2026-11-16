@@ -81,7 +81,19 @@ def notice_refusal(repo, window, now):
         if not any(job['name'] == PUBLISH_JOB and job['conclusion'] == 'success' and job.get('completed_at')
                    and epoch(job['completed_at']) <= horizon for job in jobs):
             continue
-        if carries_notice(run['head_sha'], window):
+        # The publisher resolves protected main after its trigger. Its immutable
+        # same-run bundle records what actually reached production, not head_sha.
+        source = api(f'repos/{repo}/actions/runs/{run["id"]}')
+        repository = api(f'repos/{repo}')
+        verifier = str(Path(__file__).with_name('production-e2e-provenance.mjs'))
+        identity = [str(run['id']), run['head_sha'], str(repository['id'])]
+        subprocess.check_output(['node', verifier, 'publisher-run', *identity],
+                                input=json.dumps(source).encode(), timeout=45, stderr=subprocess.PIPE)
+        artifacts = api(f'repos/{repo}/actions/runs/{run["id"]}/artifacts?per_page=100')
+        selected = subprocess.check_output(['node', verifier, 'publisher-artifact', *identity],
+                                          input=json.dumps(artifacts).encode(), timeout=45,
+                                          stderr=subprocess.PIPE).decode().strip()
+        if carries_notice(selected, window):
             return None
         return 'the client served the required lead ago did not carry the notice'
     return 'no client publication is known to have served the notice for its required lead'

@@ -160,3 +160,15 @@ it('keeps the live character gesture and card cover through a public recording',
   });
   expect(JSON.stringify(recorded)).not.toContain('local-only');
 });
+
+it('keeps the filmed turn-to-river interval when an action arrives late', () => {
+  const frames = [
+    { key: 'deal', board: [] },
+    { key: 'street-turn', board: Array(4) },
+    { key: 'row-check', board: Array(4), row: { atMs: 50000 } },
+    { key: 'street-river', board: Array(5) },
+  ] as ReplayFrame[];
+  const offsets = recordedFrameOffsets(frames, { turn: 43849, river: 45982 }, () => 500);
+  expect(offsets[3] - offsets[1]).toBe(2133);
+  expect(offsets[2]).toBeLessThanOrEqual(offsets[3]);
+});

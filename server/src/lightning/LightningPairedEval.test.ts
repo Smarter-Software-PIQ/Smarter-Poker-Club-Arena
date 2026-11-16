@@ -202,6 +202,37 @@ describe('the paired Lightning evaluation harness', () => {
     ).rejects.toThrow(/is final, the configuration is development/);
   });
 
+  it('refuses arms that dealt different stacks on the same hand (#11050 N2)', async () => {
+    const config: LightningEvalConfig = {
+      name: 'pairing-check',
+      seedClass: 'development',
+      seeds: [LIGHTNING_EVAL_SEEDS.development[0]!],
+      handsPerCell: 2,
+      cells: [{ variant: 'nlh', players: 4, stackBB: 100, stackMix: 'mixed', field: 'all_horse' }],
+      baselineDecideOpts: {},
+    };
+    let armIdx = 0;
+    await expect(
+      runLightningPairedEval({
+        config,
+        candidate: NULL_CANDIDATE,
+        playArm: async (input) => {
+          const played = await playArm(input);
+          if (armIdx++ === 1 && played.hands.length > 0) {
+            const first = played.hands[0]!;
+            played.hands[0] = {
+              ...first,
+              stacksBB: (first.stacksBB ?? [100, 100, 100, 100]).map((s, j) =>
+                j === 0 ? s + 1 : s
+              ),
+            };
+          }
+          return played;
+        },
+      })
+    ).rejects.toThrow(/pairing broken: hand 0 of cell 0 .* dealt different stacks/);
+  });
+
   it('classifies every entry once, and an all-in is a raise only when it is a full raise (D5, D9)', () => {
     const a = (userId: string, action: string, isFullRaise?: boolean) => ({
       userId,

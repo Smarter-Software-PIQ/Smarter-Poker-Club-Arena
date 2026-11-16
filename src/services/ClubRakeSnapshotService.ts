@@ -143,7 +143,12 @@ export interface RakeDownlineRow {
 export type RakeBreakdownRow = RakeClubRow | RakeAgentRow | RakeDownlineRow;
 
 export interface RakeSnapshot {
-  accounting_basis?: 'utc_net_money_flow' | 'chicago_net_money_flow' | 'pacific_net_money_flow';
+  accounting_basis?:
+    | 'utc_net_money_flow'
+    | 'chicago_net_money_flow'
+    | 'pacific_net_money_flow'
+    | 'union_invoice_accounting';
+  accounting_coverage?: { complete?: boolean; provisional?: boolean };
   day_basis?: string;
   previous_coverage?: { complete?: boolean };
   scope: RakeScope;

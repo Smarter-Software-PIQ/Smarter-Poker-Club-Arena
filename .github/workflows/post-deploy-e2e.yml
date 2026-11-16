@@ -2667,9 +2667,6 @@ jobs:
             finish_trace() {
               sudo cat "$trace/trace"
               sudo rmdir "$trace"
-              if sudo test -e /sys/kernel/tracing/events/live_table_webkit/process_exit_status; then
-                echo '-:live_table_webkit/process_exit_status' | sudo tee -a /sys/kernel/tracing/kprobe_events >/dev/null
-              fi
             }
             trap finish_trace EXIT
             if sudo bash -eu -s -- "$trace" <<'TRACE'
@@ -2680,15 +2677,13 @@ jobs:
           echo "$filter" > events/sched/sched_process_exit/filter
           echo 1 > events/signal/signal_generate/enable
           echo 1 > events/sched/sched_process_exit/enable
-          # sched_process_exit identifies the exiting thread but omits the wait
-          # status. WPE may exit voluntarily, or a differently named thread may
-          # receive the fatal signal. do_exit receives the encoded wait status.
-          if echo 'p:live_table_webkit/process_exit_status do_exit status=$arg1:s32 comm=$comm' >> /sys/kernel/tracing/kprobe_events; then
-            echo "$filter" > events/live_table_webkit/process_exit_status/filter
-            echo 1 > events/live_table_webkit/process_exit_status/enable
-          else
-            echo '::warning::WebKit numeric exit status unavailable on this kernel'
-          fi
+          # WPE exited with code 1 in a failed menu interaction. These built-in
+          # syscall events retain voluntary exit codes in this instance. The
+          # signal and scheduler events above record fatal signals and exits.
+          for event in sys_enter_exit_group sys_enter_exit; do
+            echo '(COMM ~ "WebKit*" || COMM ~ "WPE*" || COMM ~ "MiniBrowser*")' > "events/syscalls/$event/filter"
+            echo 1 > "events/syscalls/$event/enable"
+          done
           TRACE
             then
               echo "WebKit process signal/exit capture enabled; runner uptime: $(cut -d' ' -f1 /proc/uptime)s"
@@ -2711,13 +2706,13 @@ jobs:
           fi
 
       - name: Record WebKit process failures from the runner kernel
-        if: failure() && steps.continuity.outcome == 'failure'
+        if: always() && (steps.continuity.outcome == 'success' || steps.continuity.outcome == 'failure')
         run: |
           started=$(cat "$RUNNER_TEMP/live-table-webkit-start")
           # An empty search is expected on a voluntary process exit. Preserve
           # journal read failures, and report an empty search as such.
           journal="$RUNNER_TEMP/live-table-kernel-journal"
-          sudo journalctl --kernel --since="@$started" --no-pager > "$journal"
+          sudo journalctl --dmesg --since="@$started" --no-pager > "$journal"
           if ! grep -Ei 'Out of memory|oom-kill|Killed process|WebKit.*segfault|WPE.*segfault|MiniBrowser.*segfault' "$journal"; then
             echo 'No matching kernel OOM or segmentation-fault message.'
           fi

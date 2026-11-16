@@ -52,7 +52,7 @@ export async function loadLegacyPacific(client, days, rebuild) {
         'legacy Pacific finite runtime budget exhausted; remaining days stay incomplete'
       );
     const existing = await client.query(
-      'SELECT 1 FROM public.ca_club_data_pacific_seed_log WHERE utc_day=$1',
+      'SELECT 1 FROM public.ca_club_data_pacific_seed_log WHERE utc_day=$1 AND basis_version=1',
       [day]
     );
     if (existing.rowCount && !rebuild) {

@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { declaredProofs, proofIsRunnable } from '../scripts/ci/check-migrations-are-live.mjs';
 import { classifyChangedPaths } from '../scripts/ci/classify-ci-changes.mjs';
 
 const read = (p: string) => readFileSync(p, 'utf8');
@@ -80,5 +81,84 @@ describe('all Data report bases use Pacific dates without rewriting money', () =
     expect(driver).toContain("'REPEATABLE READ', '240s'");
     expect(driver).toContain('legacy Pacific source evidence incomplete');
     expect(driver).toContain('250 * 60_000');
+  });
+});
+
+describe('canonical funded cash report ownership', () => {
+  const fix = read(
+    'supabase/migrations/20261116181617_pacific_data_cash_follows_original_funded_source_ownership.sql'
+  );
+  it('uses immutable source authority and original raw contribution amounts', () => {
+    expect(fix).toContain('accounting_cash_funding_contract_admissions');
+    expect(fix).toContain('s.rake_record_id=p_record AND s.player_id=p_user');
+    expect(fix).toContain('e.amount*e.c/sum(e.c) OVER()');
+    expect(fix).not.toMatch(
+      /(?:UPDATE|DELETE FROM) public\.(?:wallet_transactions|rake_records|rake_attributions|accounting_cash_rake_sources|accounting_cash_funding_contract_admissions)\b/i
+    );
+    expect(fix).not.toContain('CREATE TRIGGER');
+    expect(fix).toContain('EXIT original_projection');
+  });
+  it('keeps receipt appends nonblocking and coverage tied to qualified source version', () => {
+    const tables = fix.slice(fix.indexOf('CREATE TABLE'), fix.indexOf('CREATE FUNCTION'));
+    expect(tables).not.toMatch(/PRIMARY KEY|UNIQUE/);
+    expect(fix).toContain('basis_version=1');
+    expect(fix).toContain('WITH facts AS NOT MATERIALIZED(');
+    expect(fix).toContain('WITH unfinished AS MATERIALIZED(');
+    expect(fix).toContain('JOIN expected e USING(rake_record_id,user_id)');
+    expect(fix).toContain('EXCEPT SELECT rake_record_id,user_id FROM qualified');
+    expect(fix).toContain("f.source IN(''live_fact'',''live_hand'',''live_cash_source'')");
+    expect(fix).toContain('cash_records r');
+    expect(fix).toContain('ca_club_data_pacific_cash_complete');
+    expect(fix).toContain('WITH affected AS NOT MATERIALIZED(');
+    expect(fix).toContain('n.stage>o.stage OFFSET 0');
+    expect(read(native)).toContain(
+      'moving one full-source participant retains unchanged participant club hand'
+    );
+    expect(fix).toContain('ca_club_data_pacific_cash_participants');
+    expect(fix).toContain('captured:=true;');
+    expect(fix).toContain('CASE WHEN captured THEN p_club END');
+    expect(read(native)).toContain(
+      'split callback participant witnesses make exact source readable after commit'
+    );
+    expect(read(native)).toContain(
+      'later ambiguity scopes refusal to captured original baseline club too'
+    );
+    expect(read('scripts/ci/club-data-accounting-seed.mjs')).toContain(
+      'utc_day=$1 AND basis_version=1'
+    );
+    expect(read(native)).toContain(
+      'late admission removes historical former-owner phantom game atomically'
+    );
+    expect(read(native)).toContain(
+      'concurrent duplicate source callbacks stay nonblocking and idempotent'
+    );
+  });
+});
+
+describe('restored Pacific source context is nullable at every UUID cast', () => {
+  it('normalizes every cast under exact production preimages without changing captures', () => {
+    const fix = read(
+      'supabase/migrations/20261116203318_pacific_data_empty_rake_context_is_null.sql'
+    );
+    const proofs = declaredProofs(fix);
+    expect(proofs).toHaveLength(1);
+    expect(proofIsRunnable(proofs[0])).toBe(true);
+    expect(proofs[0]).toContain('count(*)=2');
+    expect(proofs[0]).toContain('bool_and');
+    expect(proofs[0]).toContain('public.fn_ca_club_data_fact_put(');
+    expect(proofs[0]).toContain('public.fn_ca_club_data_hand_put(');
+    expect(proofs[0]).toContain('IN p.prosrc)=0');
+    expect(fix).toContain('caf725b26e6115f60b80412183c61be0');
+    expect(fix).toContain('246735d855771ebedf6278a514a4bffe');
+    expect(fix).toContain("nullif(current_setting(''ca.pacific_rake_record'',true),'''')::uuid");
+    expect(fix).toContain('replace(d,old_cast,new_cast)');
+    expect(fix).toContain('WHERE id=true');
+    expect(fix).not.toMatch(
+      /DELETE FROM|UPDATE public\.(?:ca_club_data_pacific_fact|wallet_transactions|rake_records)\b/i
+    );
+    expect(read(native)).toContain('original fact/hand empty-context callback defect reproduced');
+    expect(read(native)).toContain(
+      'fixed empty-context fact and hand callbacks create no UUID failures'
+    );
   });
 });

@@ -20,8 +20,8 @@
       ],
       "declarationFiles": {
         "tests/a-waiting-release-withdrawal-keeps-its-original-owner.law.test.ts": "b1beb1219ded11daf9abb6ddc798c0a1583036cf85b4206dd4df08e91f658e79",
-        "tests/operations/waiting-engine-release-withdrawal.test.py": "980fd0655f6b6a1ba670719af916c364b51e9b8fa743a9942a1259f09051adee",
-        "tests/operations/pinned-history-sources.py": "534cfc7996005284817106218e91a5f669bed5fc2bc5803b7d0c48c8a21b5f91",
+        "tests/operations/waiting-engine-release-withdrawal.test.py": "c1da2df51686ee3b5d7a31b6f1f0bffdd89dcc1fcbb547f6526f0e9f38bd2ef7",
+        "tests/operations/pinned-history-sources.py": "f095d619a956c8689e69d8b68ce7593cac827684b70ac2c3f5a048ff22fa689e",
         "scripts/ci/withdraw-waiting-engine-release.py": "4f5fc5c4ab3b3d0637557f1d38499e713456039ea07d220c0f90de5adb9bb7c5"
       },
       "replacement": null,

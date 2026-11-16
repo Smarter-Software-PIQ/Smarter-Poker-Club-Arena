@@ -9,6 +9,7 @@ import {
   JOINT_ACTION_PACK,
   JOINT_ACTION_PACK_ROUND2,
   JOINT_SELECTION_RULE,
+  jointSingleBoardCashActs,
 } from './JointActionModel.js';
 import {
   JOINT_RESPONSE_CALIBRATION,
@@ -201,7 +202,7 @@ describe('Phase 13 round 3: the response pack measured on the horse population',
       z: 2,
       minEdgeBigBlinds: 0.1,
       actsWhen: 'nothing_to_call',
-      singleBoardCashKeepsVariantBrain: ['nlh', 'plo4'],
+      singleBoardCashKeepsVariantBrain: ['nlh', 'plo4', 'plo5', 'plo6'],
     });
     let changed = 0;
     for (const variant of VARIANTS)
@@ -212,25 +213,45 @@ describe('Phase 13 round 3: the response pack measured on the horse population',
           const result = evaluateJointLivePolicy(hero, state, baseline, 'candidate', () => 0);
           const model = result.receipt.actionModel;
           if (!model) continue;
+          const keepsVariantBrain = boards === 1 && !jointSingleBoardCashActs(variant);
+          const minSizedPostflopBet =
+            street !== 'preflop' &&
+            state.bettingStructure !== 'fixed_limit' &&
+            typeof state.maxRaiseTo === 'number' &&
+            state.maxRaiseTo > (state.minRaiseTo ?? state.bigBlind) + 1e-6 &&
+            state.pot > 0
+              ? Math.min(state.maxRaiseTo, Math.max(state.minRaiseTo ?? 0, state.pot * 0.25))
+              : null;
+          const selectable = (c: (typeof model.candidates)[number]) =>
+            c.pairedEdge !== null &&
+            c.id !== model.baselineCandidateId &&
+            !(
+              minSizedPostflopBet !== null &&
+              c.action === 'bet' &&
+              c.amount !== null &&
+              c.amount < minSizedPostflopBet - 1e-6
+            );
           if (result.receipt.changed) {
+            expect(keepsVariantBrain).toBe(false);
             changed++;
             const row = model.candidates.find(
               (c) =>
                 c.action === result.proposal.action &&
                 (!['bet', 'raise'].includes(c.action) || c.amount === result.proposal.amount)
             )!;
+            expect(selectable(row)).toBe(true);
             expect(row.pairedEdge! - 2 * row.pairedStandardError!).toBeGreaterThan(
               0.1 * state.bigBlind
             );
             for (const other of model.candidates)
-              if (other.pairedEdge !== null && other.id !== model.baselineCandidateId)
-                expect(other.pairedEdge - 2 * other.pairedStandardError!).toBeLessThanOrEqual(
+              if (selectable(other))
+                expect(other.pairedEdge! - 2 * other.pairedStandardError!).toBeLessThanOrEqual(
                   row.pairedEdge! - 2 * row.pairedStandardError! + 1e-12
                 );
-          } else
+          } else if (!keepsVariantBrain)
             for (const other of model.candidates)
-              if (other.pairedEdge !== null && other.id !== model.baselineCandidateId)
-                expect(other.pairedEdge - 2 * other.pairedStandardError!).toBeLessThanOrEqual(
+              if (selectable(other))
+                expect(other.pairedEdge! - 2 * other.pairedStandardError!).toBeLessThanOrEqual(
                   0.1 * state.bigBlind
                 );
           // Facing a wager the same spot keeps the baseline call whatever the rows say.

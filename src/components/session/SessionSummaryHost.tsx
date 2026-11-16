@@ -204,10 +204,53 @@ export function SessionSummaryHost() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recapKey, currentUserId, publishedPayload?.plPending, retryRecap]);
 
+  const chipReceipt =
+    !target &&
+    !publishedPayload?.tournament &&
+    publishedPayload?.arenaAsset !== 'diamonds' &&
+    publishedPayload?.handStatsTarget?.userId === currentUserId &&
+    publishedPayload?.closeOccupancyId
+      ? publishedPayload.closeOccupancyId
+      : null;
+  const chipTable = publishedPayload?.closeTableId;
+  const chipKey = chipReceipt ? `${currentUserId}/${chipTable}/${chipReceipt}` : null;
+  const [chipResult, setChipResult] = useState<{
+    key: string;
+    money: { funding: number; net: number } | null;
+  } | null>(null);
+  useEffect(() => {
+    if (!chipKey || !chipReceipt || !chipTable || publishedPayload?.plPending) return;
+    let current = true;
+    void (async () => {
+      try {
+        const { data, error } = await supabase.rpc('fn_my_settled_chip_result', {
+          p_table_id: chipTable,
+          p_occupancy_id: chipReceipt,
+        });
+        if (error) throw error;
+        if (current)
+          setChipResult({
+            key: chipKey,
+            money: data && Number.isFinite(data.funding) && Number.isFinite(data.net) ? data : null,
+          });
+      } catch {
+        if (current) setChipResult({ key: chipKey, money: null });
+      }
+    })();
+    return () => {
+      current = false;
+    };
+  }, [chipKey, chipReceipt, chipTable, publishedPayload?.plPending, retryRecap]);
+  const chipMoney = chipResult?.key === chipKey ? chipResult?.money : null;
   const ownsRecap = !target || currentUserId === target.userId;
   const recordedRecap = ownsRecap && recapRead.key === recapKey ? recapRead.data : null;
-  const recordedReady = ownsRecap && (!target || recordedRecap?.status === 'settled');
-  const recapFailed = !!target && recapRead.key === recapKey && recapRead.state === 'error';
+  const recordedReady =
+    ownsRecap &&
+    (!target || recordedRecap?.status === 'settled') &&
+    (!chipKey || !!publishedPayload?.plPending || !!chipMoney);
+  const recapFailed =
+    (!!target && recapRead.key === recapKey && recapRead.state === 'error') ||
+    (!!chipKey && chipResult?.key === chipKey && !chipMoney);
   const payload = useMemo<SessionSummaryPayload | null>(
     () =>
       !ownsRecap
@@ -227,8 +270,10 @@ export function SessionSummaryHost() {
               totalRebuys: recordedRecap.totalRebuys,
               plPending: false,
             }
-          : publishedPayload,
-    [publishedPayload, recordedRecap, ownsRecap]
+          : publishedPayload && chipMoney
+            ? { ...publishedPayload, totalBuyIn: chipMoney.funding, profitLoss: chipMoney.net }
+            : publishedPayload,
+    [publishedPayload, recordedRecap, ownsRecap, chipMoney]
   );
 
   const handStatsTarget = publishedPayload?.handStatsTarget;

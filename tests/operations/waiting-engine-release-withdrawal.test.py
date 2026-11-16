@@ -144,8 +144,19 @@ class HistoricalSourceHydration(unittest.TestCase):
             pid_file = root / 'transport-child.pid'
             wrapper.write_text('#!/bin/sh\nsleep 30 &\necho $! > ' + shlex.quote(str(pid_file)) + '\nwait\n')
             started = time.monotonic()
-            with self.assertRaises(subprocess.TimeoutExpired):
-                hydrate_historical_sources(client, [revision], ['unrequested.txt'], budget_seconds=2)
+            group_kills = []
+            original_killpg = os.killpg
+            def record_group_kill(pid, sig):
+                group_kills.append((pid, sig))
+                return original_killpg(pid, sig)
+            with patch.object(history.os, 'killpg', side_effect=record_group_kill):
+                with self.assertRaises(subprocess.TimeoutExpired):
+                    hydrate_historical_sources(client, [revision], ['unrequested.txt'], budget_seconds=2)
+            # A completed cleanup must never signal the retired group again:
+            # macOS can return EPERM there and mask the original timeout.
+            self.assertTrue(group_kills)
+            self.assertEqual(len(group_kills), len({pid for pid, _ in group_kills}))
+            self.assertTrue(all(sig == signal.SIGKILL for _, sig in group_kills))
             self.assertLess(time.monotonic() - started, 2.5)
             child = int(pid_file.read_text())
             expiry = time.monotonic() + 1

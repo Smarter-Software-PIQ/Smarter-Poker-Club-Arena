@@ -10,7 +10,14 @@
     "ca_club_data_pacific_failures",
     "ca_club_data_pacific_fact_ct",
     "ca_club_data_pacific_game_ct",
-    "ca_club_data_pacific_hands_ct"
+    "ca_club_data_pacific_hands_ct",
+    "ca_club_data_pacific_cash_records",
+    "ca_club_data_pacific_cash_observations",
+    "ca_club_data_pacific_cash_current",
+    "ca_club_data_pacific_cash_live",
+    "ca_club_data_pacific_cash_hands_live",
+    "ca_club_data_pacific_cash_participants",
+    "ca_club_data_pacific_cash_complete"
   ],
   "functions": [
     "ca_club_data_player_totals_pacific_basis",
@@ -60,6 +67,13 @@
     "fn_ca_rake_felt_pacific_v2",
     "fn_ca_rake_series_pacific_v2",
     "fn_ca_rake_window_pacific_v2",
-    "fn_ca_rake_windows_pacific_v3"
+    "fn_ca_rake_windows_pacific_v3",
+    "fn_ca_club_data_pacific_cash_parts",
+    "fn_ca_club_data_pacific_cash_owner",
+    "fn_ca_club_data_pacific_cash_register",
+    "fn_ca_club_data_pacific_cash_observe",
+    "fn_ca_club_data_pacific_cash_hand_delta",
+    "fn_ca_rake_invoice_windows_v3",
+    "fn_ca_rake_invoice_series_v2"
   ]
 }

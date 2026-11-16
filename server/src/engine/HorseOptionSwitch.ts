@@ -304,6 +304,8 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaTightOpponentSteal',
   'lightningParticipationHoldem',
   'lightningParticipationOmaha',
+  'lightningCheapEntryHoldem',
+  'lightningCheapEntryOmaha',
   'v16Hu',
   'v16Ratio',
   'v17RiverProbe',
@@ -437,6 +439,8 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
   huLimpDefendsToPrice: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
   // 2026-11-16 Heads Up R2-N1 (Hand Analysis): changes a big-blind preflop range, same owner hold as its siblings.
   huBbDefendsUnreadToPrice: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
+  lightningCheapEntryHoldem: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
+  lightningCheapEntryOmaha: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
   // 2026-11-16 Fixed-Limit (P2 delta review, REVIEW-P2-739a9bb9 finding 1): the priced fixed-limit preflop changes
   // first-in and blind-defence ranges, so it is under the same owner hold as its siblings until the owner lifts it
   // by name (OPTION_SWITCH_PREFLOP_HOLD_LIFTED).
@@ -675,6 +679,10 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
     'Heads Up',
     'NLH heads-up, small blind first in vs a tight big blind',
   ],
+  lightningStyleReadSeparate: ['Lightning', 'Lightning style read (NLH/PLO4/PLO5)'],
+  lightningEarlyFoldNeedsFoldThrough: ['Lightning', 'Lightning early folds before the river'],
+  lightningCheapEntryHoldem: ['Lightning', 'Lightning NLH small blind complete / over-limp'],
+  lightningCheapEntryOmaha: ['Lightning', 'Lightning PLO4/PLO5 small blind complete / over-limp'],
   fixedLimitBetsAreNeverProbes: [
     'Fixed-Limit',
     'Fixed limit (flh, flo8), opponent probe tallies, every Horse process',

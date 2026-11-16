@@ -49,13 +49,24 @@ export function recordedFrameOffsets(
   endAtMs?: number
 ) {
   const offsets: number[] = frames.map(() => 0);
+  // Engine action stamps can arrive after the following street was already painted.
+  // The recorded board is the visual boundary. Fit untimed actions inside it.
+  let nextBoard = Infinity;
+  const deadlines = frames.map(() => Infinity);
+  for (let i = frames.length - 1; i >= 0; i--) {
+    if (frames[i].key.startsWith('street-') && board) {
+      const at = recordedFrameTime(frames[i], board);
+      if (at !== undefined) nextBoard = at;
+    }
+    deadlines[i] = nextBoard;
+  }
   let anchor = 0;
   let weight = 0;
   for (let i = 1; i < frames.length; i++) {
     weight += Math.max(1, defaultMs(frames[i - 1]));
     offsets[i] = offsets[anchor] + weight;
     const observed = frames[i].isShowdown ? endAtMs : recordedFrameTime(frames[i], board);
-    if (observed === undefined || observed < offsets[anchor]) continue;
+    if (observed === undefined || observed < offsets[anchor] || observed > deadlines[i]) continue;
     const start = offsets[anchor];
     for (let j = anchor + 1; j <= i; j++) {
       offsets[j] = start + ((offsets[j] - start) / weight) * (observed - start);

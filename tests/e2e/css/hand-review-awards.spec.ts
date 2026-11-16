@@ -16,6 +16,7 @@ for (const viewport of [
     await page.setViewportSize(viewport);
     await page.route('http://hand-review.fixture/**', async (route) => {
       const pathname = new URL(route.request().url()).pathname;
+      if (fixture.assets?.[pathname]) return route.fulfill({ body: fixture.assets[pathname] });
       if (pathname === '/')
         return route.fulfill({
           contentType: 'text/html',

@@ -4297,6 +4297,49 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'big blind, a new table every hand) and sets the domain.',
   },
   {
+    // L-016 (2026-11-15, Lightning lane): the style consumers are on in BOTH arms, so the one-arm question is the
+    // Lightning-separate style read itself.
+    name: 'nlh_style_lightning_separate',
+    a: {
+      lightningStyleReadSeparate: true,
+      styleRaiseRespect: true,
+      styleBigBetHonesty: true,
+      styleValueBettorNotManiac: true,
+    },
+    b: { styleRaiseRespect: true, styleBigBetHonesty: true, styleValueBettorNotManiac: true },
+    reason:
+      'No Lightning domain in the league table. lightningStyleReadSeparate is DEFAULT OFF (HorseLogic: ' +
+      'opts.lightningStyleReadSeparate === true) and it reaches the style read only on a decision whose ' +
+      'gs.publicMemoryDomain.speed is "lightning" (HorseLogic.prepareOriginalReads); the style read then takes ' +
+      'postflop aggression, river size buckets and the Horse reference from the Lightning-only maps, which the ' +
+      'learner fills only from hands it is given with speed "lightning". The league deals its own tables, sets ' +
+      'no public memory domain and learns its hands without a speed, so both arms read the pooled maps and play ' +
+      'identical poker (style_lightning_separate_read_seen never fires) and the card would report 0.00 +/- 0.00 ' +
+      'every night. Measured 2026-11-15 on this matchup as written (style consumers on in both arms): 0 of ' +
+      '2,000 pairs diverged six-handed and 0 of 2,000 pairs diverged heads-up (run seed 20261115). It is ' +
+      'pinned where the domain exists: lightning/aLightningStyleReadKeepsItsOwnEvidence.law.test.ts (constructed ' +
+      'Lightning and Classic evidence of one player: the Lightning 4x turn check-raise is called 24/24 pooled, ' +
+      'folded 24/24 with the option). What would change this: a league context that deals the Lightning ' +
+      'contract and sets the domain, with a field whose Lightning and Classic play differ, learned with the ' +
+      'speed; the paired Lightning harness (lightning/LightningPairedEval.test.ts) is the place to measure it.',
+  },
+  {
+    name: 'nlh_lightning_early_fold_needs_fold_through',
+    a: { lightningEarlyFoldNeedsFoldThrough: true },
+    b: {},
+    reason:
+      'No Lightning domain and no early look in the league table. lightningEarlyFoldNeedsFoldThrough is ' +
+      'DEFAULT OFF (HorseLogic.decide: opts.lightningEarlyFoldNeedsFoldThrough === true) and acts only on a ' +
+      'Lightning cash decision (gs.publicMemoryDomain.speed === "lightning") asked while live seats before the ' +
+      'Horse still have to act, which only the Lightning host asks (its early look, off the turn). The league ' +
+      'asks every decision on its own turn with no public memory domain, so both arms would play identical ' +
+      'poker and the card would report 0.00 +/- 0.00 every night. Measured 2026-11-15 on this matchup as ' +
+      'written: 0 of 2,000 pairs diverged (run seed 20261114). It is measured where the early look exists: ' +
+      'the beyond-big-blind Lightning probe (all-Horse LightningHandHost tables, development seeds, ' +
+      'counterfactual re-asks of the real turn, and a hero-scope paired arm). What would change this: a league ' +
+      'context that runs the Lightning host (early looks off the turn) and sets the domain.',
+  },
+  {
     name: 'nlh_lightning_participation_holdem',
     a: { lightningParticipationHoldem: true },
     b: {},
@@ -4357,6 +4400,45 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'blind that 3-bets light but not every hand). What would change this: a change to the ' +
       'opener read or to the option that lets the price, not the read, answer an every-hand ' +
       '3-bettor; re-probe this matchup before moving it back to the card.',
+  },
+  {
+    name: 'plo4_lightning_cheap_entry_omaha',
+    variant: 'plo4',
+    a: { lightningCheapEntryOmaha: true },
+    b: {},
+    reason:
+      'No Lightning domain in the league table. lightningCheapEntryOmaha is DEFAULT OFF (HorseLogic: ' +
+      'opts.lightningCheapEntryOmaha === true) and it reads the one Lightning predicate ' +
+      '(HorseLightningParticipation.lightningParticipationEligibility, through HorseLightningCheapEntry): ' +
+      'gs.publicMemoryDomain.speed === "lightning" with a big-blind ante, four to six dealt, cash. ' +
+      'The league deals its own tables and no league context carries a public memory domain, so ' +
+      'both arms would play identical poker (the option refuses with ' +
+      'lightning_cheap_entry_refused_not_lightning_seen) and the card would report 0.00 +/- 0.00 ' +
+      'every night. Measured 2026-11-15 by running this refused matchup through runMatchup: 0 of 300 pairs diverged ' +
+      '(run seed 20261115). It is measured where the domain exists: the paired Lightning harness ' +
+      '(lightning/LightningPairedEval.test.ts, LIGHTNING_EVAL_CANDIDATE) under the declared ' +
+      'protocol (development, selection and final seed classes). What would change this: a ' +
+      'league context that deals the Lightning contract (fast-fold pool, big-blind ante of one ' +
+      'big blind, a new table every hand) and sets the domain.',
+  },
+  {
+    name: 'nlh_lightning_cheap_entry_holdem',
+    a: { lightningCheapEntryHoldem: true },
+    b: {},
+    reason:
+      'No Lightning domain in the league table. lightningCheapEntryHoldem is DEFAULT OFF (HorseLogic: ' +
+      'opts.lightningCheapEntryHoldem === true) and it reads the one Lightning predicate ' +
+      '(HorseLightningParticipation.lightningParticipationEligibility, through HorseLightningCheapEntry): ' +
+      'gs.publicMemoryDomain.speed === "lightning" with a big-blind ante, four to six dealt, cash. ' +
+      'The league deals its own tables and no league context carries a public memory domain, so ' +
+      'both arms would play identical poker (the option refuses with ' +
+      'lightning_cheap_entry_refused_not_lightning_seen) and the card would report 0.00 +/- 0.00 ' +
+      'every night. Measured 2026-11-15 by running this refused matchup through runMatchup: 0 of 300 pairs diverged ' +
+      '(run seed 20261115). It is measured where the domain exists: the paired Lightning harness ' +
+      '(lightning/LightningPairedEval.test.ts, LIGHTNING_EVAL_CANDIDATE) under the declared ' +
+      'protocol (development, selection and final seed classes). What would change this: a ' +
+      'league context that deals the Lightning contract (fast-fold pool, big-blind ante of one ' +
+      'big blind, a new table every hand) and sets the domain.',
   },
   {
     name: 'hu_break_even_bluff',
