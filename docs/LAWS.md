@@ -189,6 +189,22 @@ whichever test the next agent notices first.
   `PresenceFollowsTheMove.test.ts` read the immutable 2026-09-05 migration
   files and describe history only. Do not restore a post for a moved player.
 
+- **An entry post is one obligation (2026-11-15, hand 59634000):** a new cash
+  seat waits for the big blind or posts ONE live big blind (Dan 2026-08-26).
+  The dead small blind plus live big blind belongs only to a seat that was
+  dealt a hand here, sat out and came back. From 2026-11-07 to 2026-11-15, 24
+  new players were billed both, or the missed-blind charge alone, because I'm
+  Back marked a never-dealt seat as returning from sit-out. Three things hold
+  it: `owesMissedBlindsOnReturn` (Seating) marks a return only for a seat in
+  `dealtInUserIds`, never one still entering; `entryChargeSeats` (Dealing)
+  puts a seat on one charge list or neither, the entry post winning; and
+  `HandController.postBlinds` bills a seat one entry charge, the entry post
+  when a caller names it on both lists. Pinned by `AnEntryPostIsOneObligation.test.ts`, which
+  drives the real requests in every order. A moved arrival is unchanged (the
+  ruling above). Do not mark a return on I'm Back without that oracle, and do
+  not build either list anywhere else. Record and per-case ledger:
+  `docs/changelog/2026-11-15-an-entry-post-is-one-obligation.md`.
+
 - **Lightning is six-seat Action and Madness only (ruled 2026-10-19, Dan):**
   "classic games never get lightning games, only action and madness, make all
   lightning games 6 handed." (19:44 Central). Classic never gets Lightning

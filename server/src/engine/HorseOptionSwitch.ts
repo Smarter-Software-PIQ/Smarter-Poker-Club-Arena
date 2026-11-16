@@ -245,7 +245,6 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_ON: readonly string[] = Object.freeze
   'v88CommitmentHonored',
   'omahaTournamentFirstIn',
   'tokenCallPrice',
-  'plo6ManiacPriceRefusalToRangePlay',
   'v64RiverRaiseNeedsTwoPair',
   'v63LargeRiverBetShade',
   'v74OmahaSemiBluffNeedsDraw',
@@ -297,6 +296,8 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_ON: readonly string[] = Object.freeze
   'omahaRiverNutRaiseOnly',
   'omahaTurnSetPound',
   'omahaNutClassValueSize',
+  // a process switch, not a decision option: the decision worker applies it before every job (HorseMind)
+  'fixedLimitBetsAreNeverProbes',
 ]);
 export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freeze([
   'omahaTightOpponentSteal',
@@ -311,6 +312,7 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'v55OmahaRiverTripsFlat',
   'omahaHiLoTournamentFirstIn',
   'plo6TopSetNutRealization',
+  'plo6ManiacPriceRefusalToRangePlay',
   'v62RiverBettorPolarity',
   'readPostflopFoldRate',
   'readShrinkResponse',
@@ -566,6 +568,11 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
   huSmallBlindStealsVsTightBigBlind: [
     'Heads Up',
     'NLH heads-up, small blind first in vs a tight big blind',
+  ],
+  fixedLimitBetsAreNeverProbes: [
+    'Fixed-Limit',
+    'Fixed limit (flh, flo8), opponent probe tallies, every Horse process',
+    'a fixed-limit checked-to bet is never counted as a probe (process switch, applied per job)',
   ],
 };
 

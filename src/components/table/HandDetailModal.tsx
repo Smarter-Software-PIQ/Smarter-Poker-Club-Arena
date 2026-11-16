@@ -862,6 +862,7 @@ export function HandDetailModal({
      before the history loaded was indistinguishable from a dead button. Open
      the panel and say why it is empty - and say WHICH why. */
   if (!hand) {
+    const awaitingHistory = loadState === 'idle' || loadState === 'loading';
     return (
       <div className="hdm-overlay" onClick={onClose}>
         <div
@@ -869,7 +870,7 @@ export function HandDetailModal({
           role="dialog"
           aria-modal="true"
           aria-label="Hand Detail"
-          aria-busy={loadState === 'loading'}
+          aria-busy={awaitingHistory}
           tabIndex={-1}
           ref={panelRef}
           style={sheetStyle}
@@ -885,7 +886,7 @@ export function HandDetailModal({
             foot="foot"
           >
             <div className="hdm-empty">
-              {loadState === 'loading'
+              {awaitingHistory
                 ? 'Loading The Hands For This Table'
                 : loadState === 'failed'
                   ? 'Could Not Load The Hands For This Table. Close And Try Again.'

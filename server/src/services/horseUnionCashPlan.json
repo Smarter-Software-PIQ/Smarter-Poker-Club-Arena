@@ -226,6 +226,30 @@
       "variant": "plo6",
       "smallBlind": 0.5,
       "bigBlind": 1.0
+    },
+    {
+      "id": "a7067b2e-50f9-47b4-975c-79468f907a65",
+      "name": "Classic Short Deck .50/1",
+      "window": "always",
+      "variant": "short_deck",
+      "smallBlind": 0.5,
+      "bigBlind": 1.0
+    },
+    {
+      "id": "be58fe80-1744-44fa-92e8-dfe3c7c7ba55",
+      "name": "Classic Pineapple .50/1",
+      "window": "always",
+      "variant": "pineapple",
+      "smallBlind": 0.5,
+      "bigBlind": 1.0
+    },
+    {
+      "id": "c1094914-d1cd-4a4e-940d-aba9e8acbcec",
+      "name": "Classic PLO8 .50/1",
+      "window": "always",
+      "variant": "plo8",
+      "smallBlind": 0.5,
+      "bigBlind": 1.0
     }
   ],
   "windows": {

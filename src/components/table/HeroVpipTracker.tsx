@@ -25,14 +25,6 @@ import { fetchMyLightningSession } from '../../lightning/lightningSession';
  * a slow backstop timer. One small RPC per hand per human.
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import {
-  HIT_RUN_COUNT_LABEL,
-  HIT_RUN_PAUSED_LABEL,
-  countdownPausedText,
-  pausedHandsLeftText,
-  handsOwedReasonText,
-  type HandsOwedReason,
-} from '../../lib/hitAndRun';
 import { supabase } from '../../lib/supabase';
 import VpipRequirementBadge from './VpipRequirementBadge';
 import './HeroVpipTracker.css';
@@ -223,18 +215,6 @@ interface Props {
   handNumber: number;
   /** Where the hero's seat is, percent of the table; the tracker sits to its left. */
   heroPos: { x: number; y: number } | null;
-  /**
-   * HIT AND RUN (owner 2026-11-06): hands still owed in profit before the
-   * hero may leave, counted down after every completed hand. Null: none.
-   */
-  handsOwed?: number | null;
-  /** Why they are owed (owner 2026-11-11): the countdown in profit, a +250 BB win, or both. */
-  handsReason?: HandsOwedReason | null;
-  /**
-   * THE COUNTDOWN RESUMES (owner 2026-11-13): hands left on a countdown that
-   * is paused while the hero is out of profit. Shown only when none are owed.
-   */
-  handsPaused?: number | null;
 }
 
 export default function HeroVpipTracker({
@@ -245,9 +225,6 @@ export default function HeroVpipTracker({
   isTournament,
   handNumber,
   heroPos,
-  handsOwed = null,
-  handsReason = null,
-  handsPaused = null,
 }: Props) {
   const enabled = Boolean(tableId) && heroSeated && !isTournament;
   const { status, freshness } = useHeroVpipStatus(tableId, enabled, handNumber, lightningClusterId);
@@ -255,9 +232,6 @@ export default function HeroVpipTracker({
   const vpip = status?.vpip == null ? null : Number(status.vpip);
   const floor = Number(status?.required ?? 0);
   const showVpip = Boolean(status?.ok && status.seated && floor > 0);
-  const showHands = !lightningLayout && typeof handsOwed === 'number' && handsOwed > 0;
-  // Owner 2026-11-15: preserve the stored count, hide it while no hands are owed.
-  const showPaused = false;
   // The grace only means anything while a warning is actually open, so it is
   // read from `warned` rather than from a number that could linger.
   const graceLeft =
@@ -322,19 +296,9 @@ export default function HeroVpipTracker({
       observer?.disconnect();
       mounts?.disconnect();
     };
-  }, [
-    lightningLayout,
-    tableId,
-    enabled,
-    heroPos?.x,
-    heroPos?.y,
-    showVpip,
-    showHands,
-    showPaused,
-    showGrace,
-  ]);
+  }, [lightningLayout, tableId, enabled, heroPos?.x, heroPos?.y, showVpip, showGrace]);
 
-  if (!enabled || !heroPos || (!showVpip && !showHands && !showPaused && !showGrace)) return null;
+  if (!enabled || !heroPos || !showVpip) return null;
 
   return (
     <div
@@ -361,27 +325,6 @@ export default function HeroVpipTracker({
         <div className="hero-vpip__clock" data-testid="hero-vpip-grace">
           <span>{VPIP_GRACE_COUNT_LABEL}</span>
           <time aria-label={`${VPIP_GRACE_COUNT_LABEL} ${graceLeft}`}>{graceLeft}</time>
-        </div>
-      )}
-      {showHands && (
-        <div className="hero-vpip__clock" data-testid="hero-hand-count">
-          <span>{HIT_RUN_COUNT_LABEL}</span>
-          <time aria-label={`${HIT_RUN_COUNT_LABEL} ${handsOwed}`}>{handsOwed}</time>
-          {handsOwedReasonText(handsReason) ? (
-            <small data-testid="hero-hand-count-reason">{handsOwedReasonText(handsReason)}</small>
-          ) : null}
-        </div>
-      )}
-      {showPaused && (
-        <div
-          className="hero-vpip__clock"
-          role="status"
-          aria-label={countdownPausedText(handsPaused as number)}
-          data-testid="hero-hand-count-paused"
-        >
-          <span>{HIT_RUN_PAUSED_LABEL}</span>
-          <time>{handsPaused}</time>
-          <small>{pausedHandsLeftText(handsPaused as number)}</small>
         </div>
       )}
     </div>

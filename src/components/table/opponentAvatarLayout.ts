@@ -1,6 +1,7 @@
 import { privateCardLane } from './heroPrivateReservations';
 import {
   crownActionReservation,
+  nineSeatHeroArtRatio,
   permanentAvatarFocusScale,
   restingAvatarBox,
   tableRenderScale,
@@ -1490,8 +1491,12 @@ export function createOpponentAvatarLayout(
     if (!hero) return false;
     const heroAlpha = resolved.get(source(hero));
     if (!heroAlpha) return false; // Preserve existing visible artwork if its public metadata is unavailable.
-    const target = subject(hero, heroAlpha, false).height;
-    const baseTarget = subject(hero, heroAlpha, false, undefined, false).height;
+    // Side portraits share the regular seat diameter. Using the enlarged
+    // hero as their target makes the side-clearance limit shrink the whole
+    // ring, cancelling the hero's gain on the actual painted character.
+    const heroPremium = nineSeatHeroArtRatio(page, hero);
+    const target = subject(hero, heroAlpha, false).height / heroPremium;
+    const baseTarget = subject(hero, heroAlpha, false, undefined, false).height / heroPremium;
     /* THE HERO'S CIRCLE IS THE CEILING (Dan 2026-11-09).
        Dan, with a PLO4 Lightning screenshot: "the 'hero' avatar is smaller then
        all the other avatars at the table, it should always be the same size."
