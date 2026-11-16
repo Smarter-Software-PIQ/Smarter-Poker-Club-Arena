@@ -15,6 +15,7 @@ import type { HandRecord as PanelHandRecord } from '../components/table/HandHist
 import type { ShareableHand } from '../components/table/ShareHand';
 import { toCardCodes, toCardCode } from '../utils/cardCode';
 import { buildReplay, type ReplayModel } from '../utils/handReplay';
+import { observedTable } from './sharedTableAppearance';
 import { shareableFromModel, toShareVariant } from './shareHandModel';
 
 /* Re-exported because this module was the only home `toShareVariant` ever had
@@ -387,9 +388,19 @@ export function adaptServiceHandToPanel(h: ServiceHandRecord, heroId: string): P
  * mapping (the table's copy knew four of the seven variants).
  */
 export function panelHandToShareable(hand: PanelHandRecord, tableName: string): ShareableHand {
-  return shareableFromModel(hand.replay, {
+  const share = shareableFromModel(hand.replay, {
     id: hand.id,
     tableName: tableName || hand.tableName || 'Club Arena',
     heroUserId: hand.heroId,
   });
+  const observed = observedTable(hand.tableId, hand.heroId, hand.handNumber);
+  if (observed) {
+    share.appearance = observed.appearance;
+    for (const player of share.players) {
+      const archived = hand.players.find((p) => p.seat === player.seat);
+      const seat = observed.seats.find((p) => p?.seat === player.seat && p.userId === archived?.id);
+      if (seat?.avatar) player.avatar = seat.avatar;
+    }
+  }
+  return share;
 }

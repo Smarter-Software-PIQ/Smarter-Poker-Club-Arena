@@ -543,6 +543,7 @@ import { useLightningJoinTiming } from '../lightning/useLightningJoinTiming';
 // payload, so it needs the types.
 import type { ShareableHand, ShareableAction } from '../components/table/ShareHand';
 import { shareBoardPrefix, shareExtraBoards, visibleShareCards } from '../lib/liveShareCards';
+import { rememberObservedTable } from '../lib/sharedTableAppearance';
 import { toShareVariant } from '../lib/shareHandModel';
 
 /**
@@ -21025,6 +21026,15 @@ function LiveTablePage({
             .filter(Boolean) as ShareableHand['players'];
 
           if (sharePlayers.length > 0) {
+            if (tableId && userId && st.handNumber && st.heroSeat > 0) {
+              rememberObservedTable(
+                tableId,
+                userId,
+                st.handNumber,
+                shareAppearanceRef.current,
+                st.players
+              );
+            }
             /* THE TABLE KNEW FOUR OF THE SEVEN GAMES. This list was
                ['NLH','PLO4','PLO5','PLO6'] with everything else falling to
                NLH, so a PLO8 hand shared from the felt reached the recipient

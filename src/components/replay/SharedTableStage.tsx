@@ -62,8 +62,15 @@ export default function SharedTableStage({
     if (!element) return;
     const measure = () => {
       const rect = element.getBoundingClientRect();
-      if (rect.width && rect.height)
-        setSize({ w: rect.width, h: rect.height, left: rect.left, viewport: window.innerWidth });
+      const stage = element.parentElement?.getBoundingClientRect();
+      if (stage?.width && rect.width && rect.height) {
+        setSize({
+          w: rect.width,
+          h: rect.height,
+          left: rect.left - stage.left,
+          viewport: stage.width,
+        });
+      }
     };
     measure();
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
