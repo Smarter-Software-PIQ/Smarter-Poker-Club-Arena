@@ -21,7 +21,7 @@ def _verify_union_periods(run,database):
   source=path.read_text()
   for name in ['accounting_effective_cash_rake_sources','accounting_effective_tournament_fee_sources','accounting_payable_earning_sources']:
    for match in re.finditer(r"CREATE(?: OR REPLACE)? VIEW public\."+name+r"\b.*?;",source,re.I|re.S):views[name]=match.group(0)
-  for table_name in ["accounting_cash_atomic_contract_admissions","accounting_cash_funding_contract_admissions","accounting_own_agent_interpretations"]:
+  for table_name in ["accounting_cash_atomic_contract_admissions","accounting_cash_funding_contract_admissions","accounting_own_agent_interpretations","accounting_tournament_week_attributions"]:
    for match in re.finditer(r"CREATE TABLE public\."+table_name+r"\s*\(.*?\n\);",source,re.I|re.S):admission_tables[table_name]=match.group(0)
   for name in ["fn_union_weekly_rakeback_close","fn_caller_is_engine","fn_accounting_union_earned_plan","fn_ca_launch_accounting_cutoff","fn_ca_launch_accounting_start","fn_ca_launch_accounting_accepts","fn_ca_launch_accounting_waived","fn_ca_launch_accounting_club_cutoffs"]:
    for match in re.finditer(r"CREATE(?: OR REPLACE)? FUNCTION public\."+name+r"\s*\(",source,re.I):
@@ -66,6 +66,11 @@ def _verify_union_periods(run,database):
  if 'accounting_effective_tournament_fee_sources' in views.get('accounting_payable_earning_sources',''):
   if 'accounting_effective_tournament_fee_sources' not in views:raise RuntimeError('Effective fee view missing')
   ddl+='\n'+views['accounting_effective_tournament_fee_sources']
+ # Start-week attribution (20261114192824): the payable view pays a straddler
+ # from its side table, so the actual view needs that actual table first.
+ if 'accounting_tournament_week_attributions' in views.get('accounting_payable_earning_sources',''):
+  if 'accounting_tournament_week_attributions' not in admission_tables:raise RuntimeError('Start-week attribution table missing')
+  ddl+='\n'+admission_tables['accounting_tournament_week_attributions']
  ddl+="\n"+"\n".join(definitions.values())+"\n"+views['accounting_payable_earning_sources']
  # This isolated empty journal begins before the fixture calendar. No historical
  # week is falsely certified, and the real earned-source owner proves the empty basis.
