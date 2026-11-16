@@ -13,17 +13,26 @@ Alone it changes nothing: it switches no option on. Unset or false, PLO6 is outs
 
 Default OFF in source (read `=== true`). OFF-ONLY in the switch registry (`OPTION_SWITCH_OFF_ONLY` in `server/src/engine/HorseOptionSwitch.ts`): an `on` row is refused by the database list, by the parser (the whole switched set is invalid) and by the decision options. Lifting the hold is a reviewed source change to that map, after the gaps below are closed. Only then can an option-switch row whose note cites this file and its sha256 (`authority: omahaStrategyInPlo6 docs/horse-option-authority.d/omahaStrategyInPlo6.md sha256 <digest>`) switch it on.
 
-## Why it is held: the known gaps (2026-11-16)
+## Why it is held (2026-11-16, after the six-card port was written)
 
-Each of these would make a rule wrong or silent for six cards if the gate were opened today.
+The six-card port is written on this branch and is NOT yet reviewed by PLO Strategy (the owner of the modules it touches) or by Hand Analysis. The hold stays until both accept it and the items under "Still owed" are closed.
 
-- `COORDINATED_MAX_GAPS` (`HorseOmahaOopReraisedPot.ts`) has rows for four and five cards only; a six-card hand reads 0 gaps allowed.
-- `omahaReraisedPremium` is too wide for six cards (the calibration's `plo6ReraisedPremium` is built and not hooked).
-- Literal four/five hole-count checks, which switch the rule off for six cards: `HorseOmahaUnderpair.ts` :189, `HorseOmahaReraisedPot.ts` :229, `HorseOmahaOopReraisedPot.ts` :258, :353 and :415, `HorseOmahaFacingBetEv.ts` :669, `HorseOmahaRiverMediumBetCalls.ts` :99 (lines as of the registering commit).
-- The `inScope` of `HorseOmahaReraisedPot.ts` reads its own variant set and is not routed through `omahaStrategyGameInScope`.
-- The four options the PLO6 port skips (`plo6StrategyOptionVerdict`: `omahaRiverNutBlockerBluffReachable`, `omahaReraisedFoldVsTight`, `omahaEliteContinuesVsMeasuredWideThreeBettor`, `omahaSmallBlindSteal`) are not yet excluded from PLO6 under this gate.
-- The PLO6 adaptations (the fourteen `adapt` verdicts of `plo6StrategyOptionVerdict`, among them the M1 river fold test, the M1 medium-bet bars, the nut-class-only strong hand and the straight-or-better arm of the paired-board fold) are built as functions in the calibration file and not hooked to the rules.
-- The receipt validator does not admit PLO6 to the day's admissions (`OMAHA_STRATEGY_GAME_SCOPE_ADMISSION.plo6` is `false`), so a worker decision changed by a ported rule would not be admitted.
+Written, each a PLO6-only branch reached only with this gate on (gate off, PLO4 and PLO5 are unchanged):
+
+- Re-raised pots (`HorseOmahaOopReraisedPot.ts`, `HorseOmahaReraisedPot.ts`): six cards read the calibration's premium class (`plo6ReraisedPremium`) and coordination (`plo6OopCoordinated`, three gaps: `COORDINATED_MAX_GAPS_PLO6`); the hole-count checks admit exactly six cards for PLO6; the preflop cell's scope goes through `omahaStrategyGameInScope`. The postflop stack-off cell stays PLO4/PLO5 (its options are not in the catalogue).
+- Pricing (`HorseOmahaUnderpair.ts`, `HorseOmahaFacingBetEv.ts`, `HorseOmahaRiverMediumBetCalls.ts`, glue in `HorsePlo6PricingPort.ts`): the underpair rule admits six cards at the PLO5 constants (unmeasured for six cards); the facing-bet EV rule admits six cards on the river only, cash only, no bomb pot, and the measured river fold test (`plo6FacingBetEvFoldStands`) stands over an EV call; the river medium-bet call uses the six-card beaten-share bars (`plo6RiverMediumBetCalls`), cash only, no bomb pot.
+- Skipped options never act in PLO6, gate on or off: `omahaRiverNutBlockerBluffReachable`, `omahaEliteContinuesVsMeasuredWideThreeBettor`, `omahaReraisedFoldVsTight`, `omahaSmallBlindSteal`, and `omahaReraisedPotDiscipline` (not a catalogue option).
+- Adaptations hooked: the paired-board fold and the measured river fold test in the river-plan look-ahead (`omahaRiverShoveFoldVerdict`, verdict `plo6_river_m1`) and in the street-plan call veto; the paired-board price exception is arm (a) only; a strong hand for value is nut class only (`plo6StrongHandForValue`); the out-of-position re-raised strong range stands aside against a measured (not presumed) maniac raiser.
+- Validator (`horseDecision/responseValidation.ts`): PLO6 is admitted to the day's admissions only when the receipt context carries `omahaStrategyInPlo6 === true`; without it the path is the old one. `HorseOmahaStrategyGame.ts` is not changed.
+
+Still owed before the hold may be lifted:
+
+- PLO Strategy's acceptance of the lines in its modules and Hand Analysis's review.
+- Behavioural tests for the three preflop changes (the two skipped re-raise callers and the maniac stand-aside): today they are pinned by source only, because the recorded PLO6 fixture has no preflop node.
+- Whole-decision timing for six cards with the options on. Measured on one recorded node, four seeds, not a benchmark: the river plan about 60 to 95 ms per decision (2 to 3 ms when it does not run), the street plan about 150 to 195 ms with the river fold test in the veto (about 95 ms without).
+- The validator client knows the gate from the request options only. If the gate is ever driven by a live switch row, the client must pass the switched value; that belongs to the change that lifts the hold.
+- The validator's replay takes the PLO6 river fold options (V58, V59) as on; a decision made with either off would replay differently (the same limit the existing fields have).
+- A league card with the ported options on in both arms, and the value, continuation and reach rows.
 
 ## The specifications
 

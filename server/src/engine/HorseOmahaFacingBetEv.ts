@@ -55,6 +55,7 @@ import { RANK_VALUES } from './PokerEngine.js';
 import { v81StreetWager } from './HorseOmahaBigBetCalls.js';
 import { omahaCashOnlyExcludes } from './HorseOmahaTournamentScope.js';
 import { omahaStrategyGameInScope, omahaStrategyConstant } from './HorseOmahaStrategyGame.js';
+import { plo6EvFoldStands, plo6PricingExcludes } from './HorsePlo6PricingPort.js';
 
 export const OMAHA_FACING_BET_EV_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
 
@@ -666,7 +667,10 @@ export function omahaEvHandCounts(
   valueShare: number
 ): OmahaEvHandCounts | null {
   if (!Array.isArray(hole) || !Array.isArray(board)) return null;
-  if (hole.length !== 4 && hole.length !== 5) return null;
+  // Six cards: the river only (SPEC-A 3.12 item 5, TIMING-PLO6: a six-card
+  // turn count costs about a second).
+  if (hole.length !== 4 && hole.length !== 5 && !(hole.length === 6 && board.length === 5))
+    return null;
   if (board.length !== 4 && board.length !== 5) return null;
   const deadCards = Array.isArray(dead) ? dead : [];
   const unseen = unseenCards(hole, board, deadCards);
@@ -940,6 +944,9 @@ export function omahaFacingBetEvSpot(
     const hole = player.cards ?? [];
     if (board.length !== (street === 'turn' ? 4 : 5) || hole.length !== Number(variant.at(-1)))
       return null;
+    // PLO6 (SPEC-A 3.12 items 5 and 6): the river only, cash only; the six-card
+    // turn stays with today's brain.
+    if (hole.length === 6 && (street !== 'river' || plo6PricingExcludes(gs))) return null;
     // The league and offline states carry no toCall: it is the current bet less the Horse's own.
     const toCall = Number.isFinite(gs.toCall)
       ? (gs.toCall as number)
@@ -1088,6 +1095,8 @@ export function omahaFacingBetEvSpot(
 
 export interface OmahaFacingBetEvVerdict {
   call: boolean;
+  /** PLO6 only, present when true: the M1 river fold test holds, so `call` is false whatever the EV. */
+  plo6FoldStands?: true;
   /** EV of the call in chips, and the margin it had to exceed. */
   ev: number;
   margin: number;
@@ -1178,8 +1187,16 @@ export function omahaFacingBetEvVerdict(
   const margin =
     (omahaStrategyConstant('facingBetEvMargin', { gameVariant: `plo${hole.length}` }) + premium) *
     (spot.winnable + spot.paid);
+  // PLO6 (SPEC-A 3.12 item 4, K1): where the M1 river fold test holds, the
+  // verdict is never a call, whatever the EV says. Against every holding
+  // (uniform) the hand is beaten 1 - win - tie of the time: the exact form of
+  // M1's beat probability (H17).
+  const price = spot.paid / (spot.winnable + spot.paid);
+  const plo6FoldStands =
+    hole.length === 6 && plo6EvFoldStands(1 - counted.all.win - counted.all.tie, board, price);
   return {
-    call: ev > margin,
+    call: ev > margin && !plo6FoldStands,
+    ...(plo6FoldStands ? { plo6FoldStands: true } : {}),
     ev,
     margin,
     pWin,

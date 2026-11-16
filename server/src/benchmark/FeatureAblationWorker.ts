@@ -553,6 +553,7 @@ export function createFeatureAblationWorker(
           horseDecisionReceiptRefusal(result.decision, request.gameState.gameVariant, {
             player: request.player,
             gameState: request.gameState,
+            ...(request.opts?.omahaStrategyInPlo6 === true ? { omahaStrategyInPlo6: true } : {}),
           }) ??
           horsePhase6AttributionMismatch(result.decision, request) ??
           horsePhase7EvidenceMismatch(result.decision, request);

@@ -27,7 +27,11 @@
  */
 import type { Card, SeatPlayer } from '../types.js';
 import { omahaDrawQuality, scoreOmahaHiPartial } from './HorseEval.js';
-import { omahaStrategyGameInScope, omahaStrategyConstant } from './HorseOmahaStrategyGame.js';
+import {
+  omahaStrategyGameInScope,
+  omahaStrategyConstant,
+  omahaStrategyHoleCount,
+} from './HorseOmahaStrategyGame.js';
 
 export const PLO_PAIRED_BOARD_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5', 'plo6']);
 const FULL_HOUSE = 7;
@@ -176,6 +180,12 @@ export function ploPairedBoardFoldRespectsPrice(i: PairedBoardFoldPriceInput): b
     if (!Array.isArray(hole) || hole.length < 4) return false;
     const category = Math.floor(scoreOmahaHiPartial(hole, i.board) / 0x100000);
     if (category >= STRAIGHT) return true;
+    // PLO6 (reached only with omahaStrategyInPlo6 on; PLO6 lane SPEC-A 3.15,
+    // adapt): arm (a) only. The committed-stack arm below would call off a
+    // stack on a paired board with two pair or trips, the call the owner's
+    // PLO6 ruling names; in six-card games it needs a straight or better
+    // too, which is arm (a).
+    if (omahaStrategyHoleCount(i) === 6) return false;
     const stack = Number.isFinite(i.hero.stack) ? Math.max(0, i.hero.stack) : 0;
     const toCall = Number.isFinite(i.toCall)
       ? Math.max(0, i.toCall as number)

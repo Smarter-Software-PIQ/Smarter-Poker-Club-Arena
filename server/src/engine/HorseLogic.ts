@@ -154,7 +154,10 @@ import {
 } from './HorseTokenCallPrice.js';
 import { plo6TopSetIsCurrentNuts } from './HorsePlo6TopSetNut.js';
 import { plo6NoMultiwayBetWithWeakMadeHand } from './HorsePlo6MultiwayWeakBet.js';
-import { applyPlo6OmahaStrategyCalibration } from './HorsePlo6StrategyCalibration.js';
+import {
+  applyPlo6OmahaStrategyCalibration,
+  plo6RiverM1Fold,
+} from './HorsePlo6StrategyCalibration.js';
 import {
   FIXED_LIMIT_ONE_BET_RAISE_BREAK_EVEN,
   fixedLimitFullBetRead,
@@ -732,6 +735,7 @@ import {
   omahaStrategyConstant,
   omahaStrategyGameInScope,
   omahaStrategyGameScopeOf,
+  omahaStrategyHoleCount,
   withOmahaStrategyGameScope,
 } from './HorseOmahaStrategyGame.js';
 
@@ -7133,6 +7137,10 @@ function omahaReraisedPotFold(
 ): HorseDecision {
   const reraisedOn = opts.omahaReraisedPotDiscipline === true;
   if (!reraisedOn) return decision;
+  // PLO6 never, omahaStrategyInPlo6 on or not: this option is not one of the
+  // options the PLO6 lane ported (SPEC-B section 6); the preflop cell admits
+  // PLO6 with that gate for omahaNoCallColdFourBetWithoutPremium (3.26) only.
+  if (String(gs.gameVariant ?? '').toLowerCase() === 'plo6') return decision;
   if (decision.action !== 'call' && decision.action !== 'raise' && decision.action !== 'all_in')
     return decision;
   try {
@@ -7322,6 +7330,16 @@ function omahaOopReraisedPotStrongRange(
       break;
     }
     if (!raiser || raiser.is_folded || raiser.is_all_in) return decision;
+    // PLO6 only (reached with omahaStrategyInPlo6 on; PLO6 lane SPEC-B 3.24
+    // item 7): against a measured maniac raiser (his own read; presumption
+    // never counts) the rule stands aside, the exemption
+    // omahaNoCallColdFourBetWithoutPremium has. In six-card games a refused
+    // maniac price goes to the range play, and its call is not folded here.
+    if (String(gs.gameVariant ?? '').toLowerCase() === 'plo6' && opts.mind !== false) {
+      const raiserRead = HorseMind.opponentRead(raiser.user_id);
+      if (raiserRead && raiserRead.presumed !== true && maniacRaiseWidth(raiserRead) !== null)
+        return decision;
+    }
     // In position against him a call of a 3-bet is unchanged (the cell's scope).
     const outOfPosition =
       postflopOrder(player.seat, gs.dealerSeat) < postflopOrder(raiser.seat, gs.dealerSeat);
@@ -7618,6 +7636,10 @@ function omahaReraisedFoldVsTight(
 ): HorseDecision {
   if (opts.omahaReraisedFoldVsTight !== true || opts.omahaReraisedPotDiscipline === true)
     return decision;
+  // PLO6 never, omahaStrategyInPlo6 on or not (PLO6 lane SPEC-B 3.27, skip:
+  // the six-card tight response is held). The cell's own game gate may admit
+  // PLO6 with that gate; this option does not follow it.
+  if (String(gs.gameVariant ?? '').toLowerCase() === 'plo6') return decision;
   if (opts.mind === false) return decision;
   if (decision.action !== 'call' && decision.action !== 'raise' && decision.action !== 'all_in')
     return decision;
@@ -8847,6 +8869,8 @@ function omahaOopCheckRules(
         v81: opts.v81OmahaBigBetCalls !== false,
         v86: opts.v86PloOverhaul !== false && opts.v40Omaha !== false,
         riverSetCell: opts.omahaRiverNutRaiseOnly !== false,
+        plo6RiverNuts: opts.v58Plo6RiverNuts !== false,
+        plo6RiverUnpaired: opts.v59Plo6RiverUnpaired !== false,
         bettorOverBluffs: overBluffs,
         bettorManiac:
           overBluffs ||
@@ -9528,6 +9552,9 @@ function omahaStreetPlanCallVeto(
   const quiet: HorseDecideOpts = { ...opts, telemetry: false, omahaFacingBetEv: false };
   const board = gs.communityCards ?? [];
   const num = (v: unknown): number => (Number.isFinite(v) ? Number(v) : 0);
+  // PLO6 only (below): the share of random six-card hands that beat the
+  // Horse on each river, counted once per river card whatever the bet size.
+  const plo6Beaten = new Map<string, number | null>();
   return (river, pot, bet, turnBet) => {
     try {
       if (!(turnBet > 0)) return false;
@@ -9599,7 +9626,55 @@ function omahaStreetPlanCallVeto(
         actionHistory: history,
       } as unknown as HorseGameStateV2;
       const call: HorseDecision = { action: 'call', amount: bet, thinkTime: 0 };
-      return omahaBigBetCallFold(call, hero, riverGs, quiet).action === 'fold';
+      if (omahaBigBetCallFold(call, hero, riverGs, quiet).action === 'fold') return true;
+      // PLO6 (reached only with omahaStrategyInPlo6 on; PLO6 lane SPEC-A 3.10,
+      // adapt): the big-bet call folds reach neither of the two six-card
+      // river folds the real decision runs, so the plan would count as calls
+      // rivers the Horse folds. The veto asks them too, each as the decision
+      // reads it: the paired-board fold with its price exception, then the M1
+      // fold test (plo6RiverNutDiscipline, V58/V59) with that rule's own
+      // beaten share and price.
+      if (omahaStrategyHoleCount(gs) !== 6) return false;
+      const riverBoard = [...board, river];
+      if (
+        opts.ploPairedBoardFold !== false &&
+        ploPairedBoardMustFold({
+          gameVariant: gs.gameVariant,
+          hiLo: false,
+          multiBoard: false,
+          board: riverBoard,
+          hero,
+          players,
+          currentBet: bet,
+          toCall: bet,
+          pot: pot + bet,
+          v86MultiStreetUnblocked: opts.v86MultiStreetUnblocked !== false,
+        }) &&
+        !(
+          opts.omahaPairedBoardFoldRespectsPrice === true &&
+          ploPairedBoardFoldRespectsPrice({
+            gameVariant: gs.gameVariant,
+            board: riverBoard,
+            hero,
+            players,
+            currentBet: bet,
+            toCall: bet,
+            pot: pot + bet,
+          })
+        )
+      )
+        return true;
+      const paired = new Set(riverBoard.map((c) => c.rank)).size < riverBoard.length;
+      if (paired ? opts.v58Plo6RiverNuts === false : opts.v59Plo6RiverUnpaired === false)
+        return false;
+      const riverKey = `${river.rank}${river.suit}`;
+      if (!plo6Beaten.has(riverKey))
+        plo6Beaten.set(riverKey, omahaRiverBeatProbability(player.cards, riverBoard, 6));
+      const beaten = plo6Beaten.get(riverKey) ?? null;
+      if (beaten === null) return false;
+      const callChips = Math.min(bet, hero.stack);
+      if (!(callChips > 0.005)) return false;
+      return plo6RiverM1Fold(beaten, paired, callChips / Math.max(1e-9, pot + bet + callChips));
     } catch {
       return false;
     }
@@ -13637,9 +13712,10 @@ export class HorseLogic {
             opts.omahaEliteContinuesVsMeasuredWideThreeBettor === true &&
             opts.mind !== false &&
             vi.isOmaha &&
-            (vi.holeCount === 4 ||
-              vi.holeCount === 5 ||
-              (vi.holeCount === 6 && omahaStrategyGameInScope(OMAHA_STRATEGY_PLO45, gs, opts))) &&
+            // PLO4/PLO5 only. PLO6 never, omahaStrategyInPlo6 on or not (PLO6
+            // lane SPEC-B 3.28, skip: plo6ManiacPriceRefusalToRangePlay
+            // answers this spot in six-card games).
+            (vi.holeCount === 4 || vi.holeCount === 5) &&
             !(gs.variantRules ? gs.variantRules.splitLow8OrBetter : vi.isHiLo) &&
             !omahaCashOnlyExcludes(player, gs) &&
             gs.bombPot !== true &&
@@ -19392,9 +19468,9 @@ export class HorseLogic {
         // PLO4/PLO5 cash only (audit 2026-11-15).
         cat <=
           (opts.omahaRiverNutBlockerBluffReachable === true &&
-          (vi.holeCount === 4 ||
-            vi.holeCount === 5 ||
-            (vi.holeCount === 6 && omahaStrategyGameInScope(OMAHA_STRATEGY_PLO45, gs, opts))) &&
+          // PLO4/PLO5 only. PLO6 never, omahaStrategyInPlo6 on or not (PLO6
+          // lane SPEC-B 3.19, skip: no PLO6 equity window, adds bluff chips).
+          (vi.holeCount === 4 || vi.holeCount === 5) &&
           !omahaCashOnlyExcludes(player, gs)
             ? 2
             : 1) &&

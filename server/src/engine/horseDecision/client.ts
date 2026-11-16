@@ -2193,7 +2193,15 @@ export class LiveHorseDecisionWorkerClient {
       const receiptRefusal = horseDecisionReceiptRefusal(
         message.decision,
         active.request.gameState.gameVariant,
-        { player: active.request.player, gameState: active.request.gameState }
+        {
+          player: active.request.player,
+          gameState: active.request.gameState,
+          // PLO6 lane: the validator admits PLO6 to the Omaha strategy
+          // admissions only for a request whose own gate is on.
+          ...(active.request.opts?.omahaStrategyInPlo6 === true
+            ? { omahaStrategyInPlo6: true }
+            : {}),
+        }
       );
       if (receiptRefusal !== null) {
         this.refuseDecision(

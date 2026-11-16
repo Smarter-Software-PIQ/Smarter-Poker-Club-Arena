@@ -40,6 +40,8 @@
  */
 import type { Card } from '../types.js';
 import { omahaDrawQuality, omahaMadeClass, scoreOmahaHi } from './HorseEval.js';
+import { omahaStrategyGameInScope, omahaStrategyGameScopeNow } from './HorseOmahaStrategyGame.js';
+import { PLO6_HOLE_CARDS, plo6ReraisedPremium } from './HorsePlo6StrategyCalibration.js';
 
 export const RERAISED_POT_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
 /** Preflop raises (open = 1) that make a pot "4-bet or more". */
@@ -91,8 +93,16 @@ function doubleSuited(hole: readonly Card[]): boolean {
  * double-suited; or a double-suited rundown (four distinct ranks inside a
  * span of four, the lowest seven or higher). Everything else, including the
  * ace-high broadway hands of the ruling, is not premium here.
+ *
+ * PLO6 (six-card port, SPEC-B H27 and 3.22; only inside a decision whose
+ * omahaStrategyInPlo6 gate is on): a six-card hand is judged by the PLO6
+ * definition (plo6ReraisedPremium: the same structure required of the SAME
+ * cards; 11.63% of six-card hands against 20.25% unchanged, N1). With the
+ * gate off, and for four or five cards, the text above is unchanged.
  */
 export function omahaReraisedPremium(hole: readonly Card[]): boolean {
+  if (hole.length === PLO6_HOLE_CARDS && omahaStrategyGameScopeNow().plo6)
+    return plo6ReraisedPremium(hole);
   const ranks = hole.map((c) => RANK_VALUE[c.rank] ?? 0);
   const count = (r: number) => ranks.filter((x) => x === r).length;
   if (count(14) >= 2) return true;
@@ -223,10 +233,25 @@ export type OmahaReraisedVerdict =
   | { fold: true; cell: 'preflop' | 'postflop'; equity: number | null; price: number }
   | { fold: false; cell: 'preflop' | 'postflop'; equity: number; price: number };
 
+/**
+ * PLO6 (six-card port, SPEC-B H28 and 3.26): the PREFLOP cell also serves
+ * PLO6 with six hole cards, only inside a decision whose omahaStrategyInPlo6
+ * gate is on (omahaStrategyGameInScope). The postflop cell stays PLO4/PLO5:
+ * its stack-off options are not in the PLO6 port catalogue.
+ */
+function plo6PreflopInScope(i: OmahaReraisedInput): boolean {
+  return (
+    i.variant === 'plo6' &&
+    i.street === 'preflop' &&
+    omahaStrategyGameInScope(RERAISED_POT_VARIANTS, { gameVariant: i.variant })
+  );
+}
+
 function inScope(i: OmahaReraisedInput): boolean {
-  if (!RERAISED_POT_VARIANTS.has(i.variant)) return false;
+  const plo6 = plo6PreflopInScope(i);
+  if (!plo6 && !RERAISED_POT_VARIANTS.has(i.variant)) return false;
   if (i.hiLo || i.multiBoard || i.bombPot || i.tournament || i.allInOrFold) return false;
-  if (i.hole.length !== (i.variant === 'plo4' ? 4 : 5)) return false;
+  if (i.hole.length !== (plo6 ? PLO6_HOLE_CARDS : i.variant === 'plo4' ? 4 : 5)) return false;
   if (i.preflopRaises < RERAISED_MIN_PREFLOP_RAISES) return false;
   if (i.action !== 'call' && i.action !== 'raise' && i.action !== 'all_in') return false;
   return i.toCall > 0.005 && i.stack > 0 && Number.isFinite(i.pot) && i.pot > 0;

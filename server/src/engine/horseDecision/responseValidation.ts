@@ -77,9 +77,12 @@ import {
 } from '../HorseOmahaTournamentScope.js';
 import {
   OMAHA_STRATEGY_GAME_SCOPE_ADMISSION,
+  OMAHA_STRATEGY_PLO45,
   omahaStrategyGameInScope,
+  omahaStrategyGameScopeOf,
   withOmahaStrategyGameScope,
 } from '../HorseOmahaStrategyGame.js';
+import { applyPlo6OmahaStrategyCalibration } from '../HorsePlo6StrategyCalibration.js';
 
 const ACTIONS = ['fold', 'check', 'call', 'bet', 'raise', 'all_in'] as const;
 type RecordValue = Record<string, unknown>;
@@ -968,6 +971,15 @@ function phase7Selection(value: RecordValue): Pick<HorseDecision, 'action' | 'am
 export interface HorseDecisionReceiptContext {
   player: SeatPlayer;
   gameState: HorseGameStateV2;
+  /**
+   * PLO6 lane 2026-11-16: the decision's own omahaStrategyInPlo6 gate, read
+   * `=== true`. Only then is PLO6 admitted to the day's PLO4/PLO5 Omaha
+   * strategy admissions (each still re-run on the request), with the
+   * six-card constants in the accessor for the re-run. Absent or false (every
+   * caller that does not know the decision's options, and every decision
+   * today: the option is off-only), the validator is exactly as before.
+   */
+  omahaStrategyInPlo6?: boolean;
 }
 
 /** V58/V59 may cap a PLO6 river raise/jam at the call. When the original
@@ -1101,11 +1113,27 @@ function policyGraphIsValid(
   expectedVariant?: string,
   context?: HorseDecisionReceiptContext
 ): boolean {
-  return withOmahaStrategyGameScope(OMAHA_STRATEGY_GAME_SCOPE_ADMISSION, () =>
-    withOmahaTournamentScope(OMAHA_TOURNAMENT_SCOPE_ADMISSION, () =>
-      policyGraphIsValidInScope(value, expectedVariant, context)
-    )
-  );
+  // PLO6 joins the day's admissions only for a decision whose own gate was
+  // on, known from the request (context.omahaStrategyInPlo6 === true). The
+  // rules are then re-run with the six-card constants the decision read, and
+  // the accessor is emptied again afterwards (a validation is never nested in
+  // a decision; every decision sets the accessor itself at its start).
+  if (context?.omahaStrategyInPlo6 !== true)
+    return withOmahaStrategyGameScope(OMAHA_STRATEGY_GAME_SCOPE_ADMISSION, () =>
+      withOmahaTournamentScope(OMAHA_TOURNAMENT_SCOPE_ADMISSION, () =>
+        policyGraphIsValidInScope(value, expectedVariant, context)
+      )
+    );
+  applyPlo6OmahaStrategyCalibration(true);
+  try {
+    return withOmahaStrategyGameScope(omahaStrategyGameScopeOf({ omahaStrategyInPlo6: true }), () =>
+      withOmahaTournamentScope(OMAHA_TOURNAMENT_SCOPE_ADMISSION, () =>
+        policyGraphIsValidInScope(value, expectedVariant, context)
+      )
+    );
+  } finally {
+    applyPlo6OmahaStrategyCalibration(false);
+  }
 }
 
 function policyGraphIsValidInScope(
@@ -1467,7 +1495,7 @@ function policyGraphIsValidInScope(
     // on it turns the raise into a call of the same amount.
     const omahaReraiseToCall =
       transition.node === 'wager_rules' &&
-      (variant === 'plo4' || variant === 'plo5') &&
+      omahaStrategyGameInScope(OMAHA_STRATEGY_PLO45, { gameVariant: variant }) &&
       transition.after.action === 'call' &&
       previous !== null &&
       ['raise', 'all_in'].includes(previous.action) &&
@@ -1479,7 +1507,7 @@ function policyGraphIsValidInScope(
     // call. Admitted only with the request, where the bar re-run on it agrees.
     const omahaDrawRaiseToCall =
       transition.node === 'wager_rules' &&
-      (variant === 'plo4' || variant === 'plo5') &&
+      omahaStrategyGameInScope(OMAHA_STRATEGY_PLO45, { gameVariant: variant }) &&
       transition.after.action === 'call' &&
       previous !== null &&
       ['raise', 'all_in'].includes(previous.action) &&

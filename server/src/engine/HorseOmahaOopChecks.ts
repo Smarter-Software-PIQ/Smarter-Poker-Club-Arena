@@ -77,6 +77,7 @@ import {
   omahaBoatPosition,
   omahaMadeClass,
   omahaNutStatus,
+  omahaRiverBeatProbability,
   restoreFastRandom,
   saveFastRandom,
   seedFastRandom,
@@ -98,7 +99,12 @@ import {
 import { v81Cell, v86OmahaUnderboatOrDominatedFold } from './HorseOmahaBigBetCalls.js';
 import { horsePolicyDealtPlayers } from './multiway/DealtSeatCensus.js';
 import { omahaCashOnlyExcludes, omahaTournamentIcmPremium } from './HorseOmahaTournamentScope.js';
-import { omahaStrategyGameInScope, omahaStrategyConstant } from './HorseOmahaStrategyGame.js';
+import {
+  omahaStrategyGameInScope,
+  omahaStrategyConstant,
+  omahaStrategyHoleCount,
+} from './HorseOmahaStrategyGame.js';
+import { plo6RiverM1Fold } from './HorsePlo6StrategyCalibration.js';
 
 export const OMAHA_OOP_CHECK_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
 
@@ -438,9 +444,13 @@ export interface OmahaRiverShoveEnv {
   bettorOverBluffs?: boolean;
   /** bettorOverBluffs, or a measured maniac raise width of 0.62 or more (default false). */
   bettorManiac?: boolean;
+  /** PLO6 only: v58Plo6RiverNuts is on (the paired-river M1 fold; default true). */
+  plo6RiverNuts?: boolean;
+  /** PLO6 only: v59Plo6RiverUnpaired is on (the unpaired-river M1 fold; default true). */
+  plo6RiverUnpaired?: boolean;
 }
 
-export type OmahaRiverShoveFold = 'paired_board' | 'big_bet_v81' | 'big_bet_v86';
+export type OmahaRiverShoveFold = 'paired_board' | 'big_bet_v81' | 'big_bet_v86' | 'plo6_river_m1';
 
 /**
  * THE ONE QUESTION of the river look-ahead, and its single seam: after the
@@ -523,6 +533,19 @@ export function omahaRiverShoveFoldVerdict(
   const bb = gs.bigBlind > 0 ? gs.bigBlind : 1;
   const callable = Math.min(shove, heroAfter.stack);
   const callPrice = callable / (pot + callable);
+  // PLO6 (reached only with omahaStrategyInPlo6 on; PLO6 lane SPEC-A 3.9,
+  // adapt): the six-card river folds facing a bet are the paired-board fold
+  // above and the M1 fold test (HorseLogic.plo6RiverNutDiscipline, V58/V59),
+  // asked here with the function and the price that rule reads; a river
+  // priced at or under its cheap price is not a fold. PLO6 is not routed
+  // through the PLO4/PLO5 big-bet cells below.
+  if (omahaStrategyHoleCount(gs) === 6) {
+    const paired = omahaBoardShape(board).paired;
+    if (paired ? env.plo6RiverNuts === false : env.plo6RiverUnpaired === false) return null;
+    const beaten = omahaRiverBeatProbability(hero.cards ?? [], board, 6);
+    if (beaten === null) return null;
+    return plo6RiverM1Fold(beaten, paired, callPrice) ? 'plo6_river_m1' : null;
+  }
   const overBluffs = env.bettorOverBluffs === true;
   if (
     env.v81 !== false &&
