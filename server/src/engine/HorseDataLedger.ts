@@ -4809,6 +4809,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
+    'omaha_big_draw_aggression_final_check_unpriced',
+    'HorseLogic wager_rules (HorseOmahaBigDrawAggression.omahaBigDrawVerdict finalCheckVetoes, omahaBigDrawAggression)',
+    'a check with a declared big draw after an owner-ruled, discipline or street-plan check in the same decision, where the one bet the rule could make would be replaced by that check in the final decision (omahaOwnerRuledFinal): the bet was not priced (no equity count) and the check stands, the decision the veto would have given',
+    'V94'
+  ),
+  receipt(
     'omaha_no_draw_raise_ft_semibluff',
     'HorseLogic (HorseOmahaBigDrawAggression.omahaDrawRaiseBar, omahaNoDrawRaiseOutOfPosition)',
     'PLO4/PLO5 cash flop or turn, the baseline flop/turn semi-bluff raise with a draw out of position, or in position with a bare flush draw: not made, the hand went on to the call-or-fold verdict',

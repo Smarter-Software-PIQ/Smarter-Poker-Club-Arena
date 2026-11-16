@@ -6285,6 +6285,10 @@ let riverBluffDeclaredPending = false;
  * decision's bet: omahaNoRiverBluffIntoValueLeader leaves that spot to it. Cleared at the
  * start of every decision; it changes no decision by itself. */
 let v86NutBlockerBluffPending = false;
+/** An owner-ruled, discipline or street-plan check turned a wager into a check in this decision
+ * (omahaOwnBetRules): the big-draw rule may ask whether its bet would be vetoed before pricing it
+ * (omahaBigDrawBetIsVetoed). Cleared at the start of every decision; it changes no decision. */
+let omahaRuledCheckPending = false;
 // barrelContinuationOutlook receipt state: a river decision that read a turn
 // outlook while the flag is on, not yet consumed by the V7 continuation.
 let barrelOutlookRiverPending = false;
@@ -7799,11 +7803,22 @@ export function omahaBigDrawAggression(
       icmRisk: omahaTournamentIcmRisk(player, gs),
       allInOrFold: gs.allInOrFold === true,
       wagersCapped: gs.wagersCapped === true,
+      ...(decision.action === 'check' && omahaRuledCheckPending
+        ? {
+            finalCheckVetoes: (w: { action: 'bet' | 'raise' | 'all_in'; amount?: number }) =>
+              omahaBigDrawBetIsVetoed(decision, w, player, gs, opts),
+          }
+        : {}),
     });
     if (verdict === null) return decision;
     const tele = telemetryOn(opts);
     if (verdict.wager === null) {
-      if (tele) noteFire('omaha_big_draw_aggression_withheld');
+      if (tele)
+        noteFire(
+          verdict.withheld === 'final_check'
+            ? 'omaha_big_draw_aggression_final_check_unpriced'
+            : 'omaha_big_draw_aggression_withheld'
+        );
       return decision;
     }
     const raised = decision.action === 'call';
@@ -7826,6 +7841,41 @@ export function omahaBigDrawAggression(
     return wagered;
   } catch {
     return decision;
+  }
+}
+
+/**
+ * Lazy big-draw pricing (2026-11-16; no decision changes): would the bet
+ * the big-draw rule can make from this check be replaced by the check in the
+ * final decision anyway? Asked only when an owner-ruled, discipline or
+ * street-plan check already turned a wager into a check in this decision
+ * (omahaRuledCheckPending), and answered by the same outermost rule that
+ * would replace it (omahaOwnerRuledFinal, quiet: no receipt, no random
+ * number), on the exact wager the verdict would make. Where the slowplay mix
+ * sits between the draw rules and omahaOwnerRuledFinal it must leave that
+ * wager alone too. True: the verdict skips its equity count (the costly
+ * part, about 100 ms on a PLO5 flop) and the check stands, as it would have
+ * after the veto. A failure answers false (the verdict is priced as before).
+ */
+function omahaBigDrawBetIsVetoed(
+  decision: HorseDecision,
+  w: { action: 'bet' | 'raise' | 'all_in'; amount?: number },
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): boolean {
+  try {
+    const wagered: HorseDecision = { ...decision, action: w.action };
+    if (w.amount === undefined) delete wagered.amount;
+    else wagered.amount = w.amount;
+    const quiet: HorseDecideOpts = { ...opts, telemetry: false };
+    if (opts.omahaStrongHandSlowplayMix === true) {
+      const mixed = omahaStrongHandSlowplayMixRule(wagered, player, gs, quiet);
+      if (mixed.action !== wagered.action || mixed.amount !== wagered.amount) return false;
+    }
+    return omahaOwnerRuledFinal(wagered, player, gs, quiet).action === 'check';
+  } catch {
+    return false;
   }
 }
 
@@ -8809,6 +8859,17 @@ function omahaDisciplineOwnBetRule(
  * rules gave.
  */
 function omahaOwnBetRules(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
+  const out = omahaOwnBetRulesCore(decision, player, gs, opts);
+  if (out.action === 'check' && omahaIsWager(decision)) omahaRuledCheckPending = true;
+  return out;
+}
+
+function omahaOwnBetRulesCore(
   decision: HorseDecision,
   player: SeatPlayer,
   gs: HorseGameStateV2,
@@ -11324,6 +11385,7 @@ export class HorseLogic {
     barrelOutlookRiverPending = false;
     riverBluffDeclaredPending = false;
     v86NutBlockerBluffPending = false;
+    omahaRuledCheckPending = false;
     v53IcmAppliedPending = false;
     plo6RefusalHandOffPending = null;
     huDefendToPricePending = null;
@@ -11500,6 +11562,7 @@ export class HorseLogic {
     v87HollywoodEligible = false;
     v87RiverBlockTrapPending = false;
     v86NutBlockerBluffPending = false;
+    omahaRuledCheckPending = false;
     styleRespectFoldPending = false;
     maniacPriceReceiptPending = null;
     const graph = new HorsePolicyGraph(undefined, tele);
