@@ -29494,7 +29494,7 @@ function LiveTablePage({
 
             <div
               className="table-brand"
-              aria-hidden={!(lightningRoom || lightningCapableClusterId)}
+              aria-hidden={!(lightningRoom || lightningCapableClusterId || heroHandsOwed)}
             >
               <img
                 className="table-brand__logo"
@@ -29728,14 +29728,12 @@ function LiveTablePage({
                           <span className="table-brand__hand">Hand #{tableState.handNumber}</span>
                         </span>
                       )}
-                      {(lightningRoom || lightningCapableClusterId) && (
-                        <HitRunCountPill
-                          retryRead={heroHandCount.retryRead}
-                          hands={heroHandsOwed}
-                          reason={heroHandCount.reason ?? null}
-                          paused={heroHandCount.paused ?? null}
-                        />
-                      )}
+                      <HitRunCountPill
+                        retryRead={heroHandCount.retryRead}
+                        hands={heroHandsOwed}
+                        reason={heroHandCount.reason ?? null}
+                        paused={heroHandCount.paused ?? null}
+                      />
                     </>
                   );
                 })()}
@@ -31171,9 +31169,6 @@ function LiveTablePage({
             heroSeated={tableState.heroSeat > 0}
             isTournament={tableState.isTournament}
             lightningLayout={Boolean(lightningRoom || lightningCapableClusterId)}
-            handsOwed={heroHandsOwed}
-            handsReason={heroHandCount.reason ?? null}
-            handsPaused={heroHandCount.paused ?? null}
             handNumber={tableState.handNumber ?? 0}
             heroPos={
               tableState.heroSeat > 0 ? (seatPositions[tableState.heroSeat - 1] ?? null) : null

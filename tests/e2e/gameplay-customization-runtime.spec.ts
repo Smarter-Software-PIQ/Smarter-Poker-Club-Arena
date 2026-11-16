@@ -172,6 +172,7 @@ async function installEngineProjection(
             {
               seat: 1,
               user_id: heroId,
+              hit_run_hands_remaining: 2,
               username: 'RuntimeHero',
               stack: 500,
               bet: 1,
@@ -988,7 +989,7 @@ async function verifyPublishedLightning(
     contentType: 'image/png',
   });
   await expect(page.getByTestId('vpip-badge')).toContainText('60%');
-  await expect(page.getByTestId('hero-vpip-hand-count')).toHaveCount(0);
+  await expect(page.locator('.hero-vpip')).not.toContainText('Hands Before You Can Leave');
   const countdown = page.getByTestId('hit-run-count-pill');
   await expect(countdown).toBeVisible();
   await expect(page.locator('.table-brand').getByRole('status')).toContainText(
@@ -1732,6 +1733,13 @@ test.describe('production routed gameplay customization', () => {
 
       await expect(writerRoot).toBeVisible({ timeout: 30_000 });
       await expect(readerRoot).toBeVisible({ timeout: 30_000 });
+      const classicCount = writerRoot.locator('.table-brand__line--hand + [role="status"]');
+      await expect(
+        classicCount.getByRole('button', { name: /Hands Before You Can Leave: 2/ })
+      ).toBeVisible();
+      await expect(writerRoot.getByText('Hands Before You Can Leave', { exact: true })).toHaveCount(
+        1
+      );
       await expect(writerTableArt).toBeVisible({ timeout: 30_000 });
       await expect
         .poll(
