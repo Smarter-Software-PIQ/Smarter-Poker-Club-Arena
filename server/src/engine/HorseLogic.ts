@@ -456,6 +456,7 @@ import {
 } from './BettingStructure.js';
 import {
   fixedLimitCallRequiredEquity,
+  fixedLimitRaiseBehindRate,
   fixedLimitRemainingAction,
 } from './HorseFixedLimitCallPrice.js';
 import { omahaTournamentPressure } from './HorseOmahaTournamentPressure.js';
@@ -20210,6 +20211,7 @@ export class HorseLogic {
                   ),
             stackAfterCall: stack - toCall,
             deduction: callDeductionFraction ?? rakeMarg,
+            raiseBehindRate: fixedLimitRaiseBehindRate({ hiLo: vi.isHiLo === true, stage: street }),
           })
         : null;
     const shadeFlCall = flCallPrice ? Math.max(0, flCallPrice.required - flCallPrice.bare) : 0;
