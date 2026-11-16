@@ -571,5 +571,8 @@ describe('scripts/agent-push.sh stops its own process tree', () => {
     // review of b18e25b7, finding 1: the long steps run git itself, not a function
     expect(src).toMatch(/owned "\$\{REMOTE_GIT\[@\]\}" push -u/);
     expect(src).not.toMatch(/owned remote_git/);
+    // bash 5.2: a bare return inside a signal trap returns the status of the
+    // command the trap interrupted, so every return in the stop path is explicit
+    expect(src).not.toMatch(/^\s*return\s*$/m);
   });
 });

@@ -187,8 +187,10 @@ ours() {
   now=$(pid_start "$1")
   [ -n "$now" ] || return 1
   if [ -n "${2:-}" ]; then
+    # explicit status: a bare return inside a signal trap returns the status
+    # of the command the trap interrupted (bash 5.2), not this test's
     [ "$now" = "$2" ]
-    return
+    return $?
   fi
   [ -n "$MAIN_PGID" ] || return 1
   case "$(ps -o ppid= -o pgid= -p "$1" 2>/dev/null | awk '{ print $1 " " $2 }')" in

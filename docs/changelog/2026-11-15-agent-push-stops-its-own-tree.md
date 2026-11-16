@@ -100,6 +100,15 @@ stopped by a SIGTERM. A test launches it that way, under both bashes, and
 expects a verified push and that line; with SIGTERM in place of SIGKILL it
 hangs (measured: both cases fail at the 60-second limit).
 
+Run under Linux bash 5.2 (a cloud session's shell), four stop cases failed:
+a bare `return` inside a function called from a signal trap returns the status
+of the command the trap interrupted (the step's `wait`), not the function's
+last test, so the start-time check that recognizes the step answered "not
+ours" and the helper signalled nothing until the watcher's first snapshot
+existed. macOS bash 3.2 and 5.3 do not do this. The check now returns its
+status explicitly (`return $?`), and no bare `return` is left in the script;
+the same suite passes under bash 5.2 on Linux.
+
 ## The detached-launch rule (review B2)
 
 One rule, independent of timing: the helper stops when its parent process
