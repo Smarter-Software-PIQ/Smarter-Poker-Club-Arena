@@ -16,6 +16,14 @@ describe('the cancellation lane is taken when a gap appears', () => {
     expect(call).toHaveBeenCalledTimes(3);
   });
 
+  it('retains the last authoritative refusal when its owner stops during admission', async () => {
+    const call = vi.fn().mockResolvedValue(busy);
+    const current = vi.fn().mockReturnValue(false);
+    expect(await throughCancellationLane(call, noPause, current)).toBe(busy);
+    expect(call).toHaveBeenCalledTimes(1);
+    expect(current).toHaveBeenCalledTimes(1);
+  });
+
   it('never repeats any other answer', async () => {
     for (const answer of [
       ok,

@@ -24,7 +24,8 @@ type LaneResult = { error?: { code?: string | null } | null };
 
 export async function throughCancellationLane<T extends LaneResult>(
   call: () => PromiseLike<T>,
-  pause: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+  pause: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  canContinue: () => boolean = () => true
 ): Promise<T> {
   let result = await call();
   for (
@@ -33,6 +34,8 @@ export async function throughCancellationLane<T extends LaneResult>(
     attempt++
   ) {
     await pause(CANCELLATION_LANE_PAUSE_MS);
+    // A stopped owner or maintenance boundary cannot begin another attempt.
+    if (!canContinue()) break;
     result = await call();
   }
   return result;
