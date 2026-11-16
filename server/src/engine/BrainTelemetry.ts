@@ -202,6 +202,22 @@ export function withSecondLookFireCapture<T>(fn: () => T): {
 }
 
 /**
+ * Runs fn with no second-look capture in force, then puts the capture back. For an OFFLINE evidence harness that
+ * reads one evaluation's fires under their own names for the fast and the deep look alike (the feature-ablation
+ * worker, which forces telemetry on for both and drains the counters after each evaluation). Production never
+ * calls it: a live second look stays inside its capture.
+ */
+export function outsideSecondLookCapture<T>(fn: () => T): T {
+  const held = secondLookCapture;
+  secondLookCapture = null;
+  try {
+    return fn();
+  } finally {
+    secondLookCapture = held;
+  }
+}
+
+/**
  * True while a second look's decide runs inside withSecondLookFireCapture. For the few places where
  * "telemetry on" also means "this is the live decision" (the Phase 8 safety sentinel): a second look counts
  * its receipts, and must neither feed nor obey process-wide live state, exactly as when it ran with telemetry off.

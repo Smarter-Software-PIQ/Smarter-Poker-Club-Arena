@@ -48,3 +48,7 @@ No decision, no option, no switch. The second look receives the same options as 
 `BrainTelemetry.test.ts` (capture collects and does not count; once per second look; a paused evaluation, a style read receipt, a watchcounter and latency add nothing; a decision is identical with the gate off, on, and on inside the capture). `workerRuntime.test.ts` (a rule reached only by the second look is counted under `second_look_`, the first look's count is not repeated). `HorseDataLedger.test.ts` (the family is registered and fired).
 
 `SecondLookIsNotLive.test.ts`: a tournament postflop second look leaves the Phase 8 sentinel untouched and ignores a tripped one, while the first look feeds and obeys it; the whole decision (without its wall-clock fields) is the same with the counters off and on inside the capture on a tournament flop, an Omaha river and four preflop spots at five seeds; the length guard; the source law.
+
+## Offline harnesses that read a look's own fires
+
+A harness that supplies its own `decide` and drains the counters after each look (the feature-ablation worker, and the V87 ablation test's in-process seam) used to see the second look's fires under their own names, because it forced telemetry on. Inside the runtime's capture those fires are collected, not counted, so such a harness now decides through `outsideSecondLookCapture` (BrainTelemetry.ts): both looks are read under their own names there, as before. Production never calls it. `HoldemV87FeatureAblation.test.ts` was changed for this reason only; what it asserts is unchanged.
