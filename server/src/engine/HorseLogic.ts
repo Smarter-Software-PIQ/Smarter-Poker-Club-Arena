@@ -460,12 +460,14 @@ import {
 } from './HorseTournamentPreflop.js';
 import {
   bettingStructureFor,
+  failureFallbackAction,
   fixedLimitBetSize,
   fixedLimitStreetBounds,
   potLimitRaiseTo,
 } from './BettingStructure.js';
 import {
   fixedLimitCallRequiredEquity,
+  fixedLimitRaiseBehindRate,
   fixedLimitRemainingAction,
 } from './HorseFixedLimitCallPrice.js';
 import { omahaTournamentPressure } from './HorseOmahaTournamentPressure.js';
@@ -5909,9 +5911,10 @@ function capturePhase7Equity(
  * bounds null) when the stack cannot reach the minimum. In pot limit an
  * all-in above the pot cap is advertised only as a legal raise to the cap, so
  * the sized wager is then on the menu too: the button without a sized wager is
- * always the whole stack. In fixed limit the same menu is also shown on a
- * capped street and to a seat that may not reopen, where the clamp turns the
- * button into a call, so the clamp's own test decides it
+ * always the whole stack. In fixed limit the same menu was until 2026-11-15
+ * also shown on a capped street and to a seat that may not reopen, where the
+ * clamp turns the button into a call; the controller no longer lists all_in
+ * there, and the clamp's own test still decides it here as well
  * (HandController.clampToStructure): the street is not capped and the whole
  * stack reaches no further than the standing bet plus the street's legal
  * increment. Anything unknown answers false, which is the candidate set as it
@@ -10599,9 +10602,23 @@ export class HorseLogic {
       phase12DecisionEquityCeiling = null;
       const toCall = Math.max(0, (gameState.currentBet || 0) - (player.bet || 0));
       if (telemetryOn(opts)) noteFire('phase15_brain_exception');
+      // 2026-11-15: on FIXED LIMIT the safety net is price-aware - a call at a
+      // price of 4 to 1 or better when the menu offers `call`, else fold
+      // (BettingStructure.failureFallbackAction). Other structures fold.
+      const fallbackAction: 'check' | 'call' | 'fold' =
+        toCall === 0
+          ? 'check'
+          : failureFallbackAction({
+              structure: gameState.bettingStructure ?? bettingStructureFor(gameState.gameVariant),
+              toCall,
+              pot: gameState.pot,
+              legalActions: gameState.legalActions,
+            });
+      const fallbackAmount =
+        fallbackAction === 'call' ? Math.min(toCall, Math.max(0, player.stack || 0)) : undefined;
       // PUBLIC-ONLY ACTION TIME: the safety net's fixed 1,500 ms is a mark of
       // which path answered. With the option on it is paced like any other
-      // check or fold in this public spot.
+      // action in this public spot (labelled with the action actually taken).
       let netThinkTime = 1500;
       if (opts.horseActionTimeIsPublicOnly === true) {
         try {
@@ -10609,8 +10626,8 @@ export class HorseLogic {
             HorseLogic.publicTimingSpot(
               gameState,
               player.user_id,
-              toCall === 0 ? 'check' : 'fold',
-              undefined,
+              fallbackAction,
+              fallbackAmount,
               [1400, 4200],
               {
                 useTiming: (opts.v9Timing ?? opts.v9) !== false,
@@ -10624,9 +10641,14 @@ export class HorseLogic {
           netThinkTime = 1500;
         }
       }
-      return toCall === 0
-        ? { action: 'check', thinkTime: netThinkTime, policyFallback: 'brain_exception' }
-        : { action: 'fold', thinkTime: netThinkTime, policyFallback: 'brain_exception' };
+      return fallbackAction === 'call'
+        ? {
+            action: 'call',
+            amount: fallbackAmount,
+            thinkTime: netThinkTime,
+            policyFallback: 'brain_exception',
+          }
+        : { action: fallbackAction, thinkTime: netThinkTime, policyFallback: 'brain_exception' };
     } finally {
       omahaProposedReceipts = [];
       barrelOutlookRiverPending = false;
@@ -20448,6 +20470,7 @@ export class HorseLogic {
                   ),
             stackAfterCall: stack - toCall,
             deduction: callDeductionFraction ?? rakeMarg,
+            raiseBehindRate: fixedLimitRaiseBehindRate({ hiLo: vi.isHiLo === true, stage: street }),
           })
         : null;
     const shadeFlCall = flCallPrice ? Math.max(0, flCallPrice.required - flCallPrice.bare) : 0;
