@@ -54,5 +54,11 @@ describe('PKO joined evidence preserves the accepted proof and its native gate',
     expect(read('scripts/dev/fixtures/causal-pko-predecessors/batched-cost.sql')).toContain(
       "'1255 scope and all proof details equal the original'"
     );
+    expect(read('scripts/dev/fixtures/causal-pko-predecessors/batched-cost.sql')).toContain(
+      'ARRAY[9999,10000]'
+    );
+    expect(read('scripts/dev/fixtures/causal-pko-predecessors/batched-cost.sql')).toContain(
+      "'maximum and overflow complete verdict equal original at '"
+    );
   });
 });
