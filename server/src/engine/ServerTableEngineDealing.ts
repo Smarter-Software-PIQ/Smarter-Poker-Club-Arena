@@ -14,6 +14,7 @@ import { publicMemoryDomainFromRules } from './HorsePublicMemoryDomain.js';
 import { noteFire } from './BrainTelemetry.js';
 import { resolvePersona, wantsStraddle } from './HorsePersona.js';
 import { HandController } from './HandController.js';
+import { structureAllowsStraddle } from './BettingStructure.js';
 import {
   HandContinuationLane,
   type ContinuationEvent,
@@ -1280,7 +1281,10 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
 
         // Deal hand (self-transition: running → running for next hand)
         this.setLoopPhase('dealing');
+        this.beginCompletionPresentation(activePlayers);
         await this.dealHand(activePlayers);
+        // completionPresentation (Seating): the chair stays until its pot is pushed.
+        if (!this.running) this.endCompletionPresentation();
         this.consecutiveErrors = 0;
 
         // Bible V8 §4.23: Formal cleanup timing between hands.
@@ -1371,6 +1375,8 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           // mucked.
           this.setLoopPhase('post_hand_hold');
           await this.awaitHandCompletionDisplay(resultDisplayMs);
+          // The pot has been pushed: deferred leavers' chairs may go now.
+          this.endCompletionPresentation();
           // Phase 2: the hand-free broadcast. Clients animate the board clear
           // from it, and it is what makes the Rabbit Hunt button visible.
           this.broadcastCurrentState(); // Sends clean state (no hand in progress)
@@ -1689,6 +1695,8 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
           }
         }
       } catch (err) {
+        // A hand that died never reaches its completion hold (completionPresentation).
+        this.endCompletionPresentation();
         const errMsg =
           err instanceof Error
             ? err.message
@@ -2201,6 +2209,10 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
   protected async prepareNextHand(): Promise<SeatedPlayer[]> {
     const releaseSeatBoundary = await this.acquireSeatBoundary();
     try {
+      // A SEAT STAYS UNTIL ITS POT HAS BEEN PUSHED (2026-11-15): a horse that
+      // banked the win in the hand just presented leaves now, before the roster
+      // read, through the same door settlement would have used.
+      if (!this.isTournamentTable()) await this.runDeferredBankTheWinExits();
       /* ═══ A LEAVE THE PLAYER ASKED FOR STILL HAPPENS UNDER A HALT ═════
          (Lightning 2.0 Phase 5 remediation, 2026-09-25. JUDGED, NOT MISSED.)
 
@@ -3417,7 +3429,11 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
 
       // Bible V8 §4.4: Process straddles before hand starts
       let straddleResults: { seat: number; amount: number }[] = [];
-      if (this.tableInfo.straddle_enabled) {
+      // Fixed limit refuses a straddle (BettingStructure.structureAllowsStraddle):
+      // it is not counted as a fixed-limit wager, so a straddled limit preflop
+      // took five levels. None is collected for a fixed-limit hand, whatever
+      // the table row says; a mixed table still straddles its other games.
+      if (this.tableInfo.straddle_enabled && structureAllowsStraddle(this.dealtGameVariant())) {
         // Build seat order starting from UTG (left of BB)
         const utgSeat = this.getNextSeat(bbSeat, players);
 

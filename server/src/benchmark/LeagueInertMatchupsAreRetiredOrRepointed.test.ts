@@ -36,6 +36,8 @@ describe('UNMEASURABLE_MATCHUPS', () => {
     expect(names.sort()).toEqual(
       [
         'hu_break_even_bluff',
+        // 2026-11-15: inert against the every-hand 3-bettor; repointed at the wide persona.
+        'human_hu_opener_defends_vs_threebet_40bb',
         // 2026-11-15: the league deals no Lightning domain (HorseLightningParticipation).
         'nlh_lightning_participation_holdem',
         'plo4_lightning_participation_omaha',
@@ -55,6 +57,19 @@ describe('UNMEASURABLE_MATCHUPS', () => {
         'flh_call_is_not_a_commitment',
         'flo8_hilo_low_half_floor',
         'flo8_no_omaha_presumption',
+        // PLO Strategy (2026-11-15): the league seats no VPIP-floor table.
+        'plo4_omaha_vpip_floor_by_limp',
+        'plo5_omaha_vpip_floor_by_limp',
+        // Hold'em Strategy lane (2026-11-15): the long shown river memory reads a durable
+        // record no league hand has (no pooled public rows, no worker); its reason states it.
+        'nlh_long_shown_river_memory',
+        // Hold'em Strategy (2026-11-15): the completeness cap reads pooled-row qualification no league hand has.
+        'nlh_profile_completeness_cap',
+        // Hold'em Strategy (2026-11-15): no All-In-Or-Fold table.
+        'aof_closing_seat_nash_call',
+        // PLO Strategy (2026-11-15): the public-only action time changes no action or amount,
+        // and the league has no clock.
+        'nlh_horse_action_time_is_public_only',
       ].sort()
     );
     const card = new Set(LEAGUE_MATCHUPS.map((m) => m.name));

@@ -350,15 +350,20 @@ describe('the engine wiring (source pins - each one is a leak that shipped once 
       body.indexOf("runStep('horse_cashouts'"),
       body.indexOf("runStep('deferred_sitouts'")
     );
-    expect(horse).toContain('await this.cashoutVoluntaryStay(horse)');
-    expect(horse).toContain('if (!exit) continue');
+    // 2026-11-15: the exit moved into bankTheWinExit so it can also run after
+    // the presentation hold; the door it uses is pinned there, stricter.
+    expect(horse).toContain('await this.bankTheWinExit(horse)');
+    const door = sliceMethod(SETTLEMENT, 'protected async bankTheWinExit(');
+    expect(door).toContain('await this.cashoutVoluntaryStay(horse)');
+    expect(door).toContain('if (!exit) return;');
+    expect(door).toContain("exit.code === 'LEAVE_LOCKED'");
+    expect(blankNonCode(door)).not.toContain('markSeatAsLeft');
     const stay = sliceMethod(BASE, 'protected async cashoutVoluntaryStay(');
     expect(stay).toContain(
       'await atomicCashoutVoluntary(user_id, this.tableId, seat_number, occupancy_id)'
     );
     expect(stay).toContain('return mayReflect() ? result : null');
     expect(blankNonCode(horse)).not.toContain('markSeatAsLeft');
-    expect(horse).toContain("exit.code === 'LEAVE_LOCKED'");
   });
 
   it('a leave_pending seat is cashed out through the guarded door and a refusal keeps the seat', () => {

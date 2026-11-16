@@ -415,6 +415,20 @@ it('wallet events update the displayed member without replacing a dirty note or 
   expect(state.getMemberDetail).toHaveBeenCalledTimes(1);
   expect(state.getDownline).toHaveBeenCalledTimes(1);
 });
+it('each downline row shows the player balance under the fees', async () => {
+  let view!: ReturnType<typeof render>;
+  await act(async () => {
+    view = render(<MemberManagementPage />);
+  });
+  await screen.findByRole('textbox', { name: 'Nickname' });
+  const money = view.container.querySelector('.mm-downline__row .mm-downline__money');
+  expect(money).not.toBeNull();
+  const [fees, balance] = Array.from(money!.children);
+  expect(fees).toHaveClass('mm-downline__fees');
+  expect(fees).toHaveTextContent('Fees4.00');
+  expect(balance).toHaveClass('mm-downline__balance');
+  expect(balance).toHaveTextContent('Balance100.00');
+});
 it('late wallet refresh cannot restore old-viewer financial access', async () => {
   const pending = deferred<typeof memberDetail>();
   let view!: ReturnType<typeof render>;

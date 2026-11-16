@@ -48,6 +48,8 @@ import { reportError } from '../../utils/errorReporter';
 import styles from './ClubDataSimplePage.module.css';
 import { clubDataRangeDays, clubDataRangeError } from '../../lib/clubDataRange';
 import ClubDataTotalsBreakdown from './ClubDataTotalsBreakdown';
+import DataHelpTip from '../../components/club/DataHelpTip';
+import ClubDataByClub, { isClubRows, type ClubDataClubRow } from './ClubDataByClub';
 import { useClubGameHost } from '../../hooks/useClubGameHost';
 import { usePageTitle } from '../../hooks/usePageTitle';
 import { ClubRosterService, type RosterMember } from '../../services/ClubRosterService';
@@ -142,6 +144,8 @@ interface Snapshot {
   accounting_coverage?: ClubDataCoverage | null;
   /** First day the per-club facts cover. */
   facts_from?: string | null;
+  /** The union's own answer only (20261115205153): each club's and the union account's figures. */
+  clubs?: ClubDataClubRow[];
 }
 
 const PRESETS: Preset[] = [1, 7, 14];
@@ -240,7 +244,8 @@ export function isSnapshot(value: unknown): value is Snapshot {
     ['games', 'total_winnings', 'mtt_winnings', 'fee'].every((k) =>
       Number.isFinite(Number(s[k]))
     ) &&
-    Array.isArray(v.rows)
+    Array.isArray(v.rows) &&
+    (v.clubs === undefined || isClubRows(v.clubs))
   );
 }
 
@@ -721,10 +726,6 @@ export default function ClubDataSimplePage() {
               required
             />
           </label>
-          <p>
-            {clubDataDayRule(answerBasis)}. The Window Starts At {boundaryClock} On The Start Date
-            And Stops At {boundaryClock} On The End Date. Up To 93 Days.
-          </p>
           {rangeError && <p role="alert">{rangeError}</p>}
           <button type="button" className={styles.retry} onClick={() => setEditingDates(false)}>
             Cancel
@@ -829,6 +830,9 @@ export default function ClubDataSimplePage() {
           </dd>
         </div>
       </dl>
+      {visibleSnapshot?.reporting_scope === 'union' && visibleSnapshot.clubs && (
+        <ClubDataByClub clubs={visibleSnapshot.clubs} end={endDate} start={customStart} />
+      )}
       {breakdown && visibleSnapshot && clubUuid && userId && (
         <ClubDataTotalsBreakdown
           key={scopeKey}
@@ -843,27 +847,11 @@ export default function ClubDataSimplePage() {
           onClose={() => setBreakdown(null)}
         />
       )}
-      {visibleSnapshot?.scope === 'downline' &&
-        (downlineAccountingFees ? (
-          <p className={styles.liveLine}>
-            Downline Fees Are The Rake Credited For You And Your Downline On The Union Invoice
-            Basis, Before Agent Shares, Across All Games For This Window.
-          </p>
-        ) : (
-          <p className={styles.liveLine}>
-            Your Fees After Shares And Adjustments, Across All Games For These UTC Dates. Game Rows
-            Show Downline Fees Generated.
-          </p>
-        ))}
       {summary &&
         summary.running_mtt_entries !== undefined &&
         summary.running_mtt_entries !== null && (
           <dl className={styles.runningLine} aria-label="Unfinished MTT Entries">
-            <dt>
-              {unionBasis
-                ? 'Unfinished MTT Entries (Buy-Ins For MTTs Not Yet Finished, In Total Winnings)'
-                : 'Unfinished MTT Entries'}
-            </dt>
+            <dt>Unfinished MTT Entries</dt>
             <dd
               className={inkFor(summary.running_mtt_entries)}
               title={formatMoney(summary.running_mtt_entries)}
@@ -874,55 +862,69 @@ export default function ClubDataSimplePage() {
         )}
       {unionBasis && summary && typeof summary.on_felt === 'number' && (
         <dl className={styles.runningLine} aria-label="Chips On The Felt">
-          <dt>On The Felt Now (Not In Total Winnings)</dt>
+          <dt>On The Felt Now</dt>
           <dd title={formatMoney(summary.on_felt)}>{formatMoney(summary.on_felt)}</dd>
         </dl>
       )}
 
-      <div className={styles.liveLine} role="status">
-        {error ? (
-          <span className={styles.inkLoss}>{error}</span>
-        ) : loading && !snapshot ? (
-          <span>Reading Live Data</span>
-        ) : (
-          <>
-            <span className={styles.liveDot} aria-hidden="true" />
-            <span>
-              Live{updatedLabel ? ` - Updated ${updatedLabel} ${CLUB_DATA_ZONE_LABEL}` : ''}
-              {liveCount > 0 ? ` - ${liveCount} Game${liveCount === 1 ? '' : 's'} In Play` : ''}
-            </span>
-          </>
-        )}
+      <div className={styles.liveRow}>
+        <div className={styles.liveLine} role="status">
+          {error ? (
+            <span className={styles.inkLoss}>{error}</span>
+          ) : loading && !snapshot ? (
+            <span>Reading Live Data</span>
+          ) : (
+            <>
+              <span className={styles.liveDot} aria-hidden="true" />
+              <span>
+                Live{updatedLabel ? ` - Updated ${updatedLabel} ${CLUB_DATA_ZONE_LABEL}` : ''}
+                {liveCount > 0 ? ` - ${liveCount} Game${liveCount === 1 ? '' : 's'} In Play` : ''}
+              </span>
+            </>
+          )}
+        </div>
+        <DataHelpTip alert={Boolean(notices.incomplete)}>
+          <p>
+            {clubDataDayRule(answerBasis)}. The Window Starts At {boundaryClock} On The Start Date
+            And Stops At {boundaryClock} On The End Date. Up To 93 Days.
+          </p>
+          {visibleSnapshot && unionBasis && <p>{UNION_BASIS_DEFINITIONS}</p>}
+          {unionBasis && (
+            <p>
+              Unfinished MTT Entries Are Buy-Ins For MTTs Not Yet Finished, Included In Total
+              Winnings. On The Felt Now Is Not In Total Winnings.
+            </p>
+          )}
+          {visibleSnapshot?.scope === 'downline' &&
+            (downlineAccountingFees ? (
+              <p>
+                Downline Fees Are The Rake Credited For You And Your Downline On The Union Invoice
+                Basis, Before Agent Shares, Across All Games For This Window.
+              </p>
+            ) : (
+              <p>
+                Your Fees After Shares And Adjustments, Across All Games For These UTC Dates. Game
+                Rows Show Downline Fees Generated.
+              </p>
+            ))}
+          {notices.provisional && <p role="status">{notices.provisional}</p>}
+          {notices.incomplete && (
+            <p className={styles.inkLoss} role="alert">
+              {notices.incomplete}
+            </p>
+          )}
+          {visibleSnapshot?.accounting_basis === 'chicago_net_money_flow' && (
+            <p>
+              Net Entries And Payouts In Chicago Time. MTT Winnings Count Finished MTTs Only.
+              Unfinished MTT Entries Are Buy-Ins For MTTs Still Running Or Not Yet Started.
+            </p>
+          )}
+          {visibleSnapshot?.accounting_basis === 'utc_net_money_flow' && (
+            <p>Net Entries And Payouts In UTC. Unfinished Event Entries Included.</p>
+          )}
+          {factsFrom && startDate < factsFrom && <p>Figures Begin {factsFrom}</p>}
+        </DataHelpTip>
       </div>
-      {visibleSnapshot && unionBasis && (
-        <p className={styles.liveLine}>
-          {clubDataDayRule('accounting')}. {UNION_BASIS_DEFINITIONS}
-        </p>
-      )}
-      {notices.provisional && (
-        <p className={styles.liveLine} role="status">
-          {notices.provisional}
-        </p>
-      )}
-      {notices.incomplete && (
-        <p className={`${styles.liveLine} ${styles.inkLoss}`} role="alert">
-          {notices.incomplete}
-        </p>
-      )}
-      {visibleSnapshot?.accounting_basis === 'chicago_net_money_flow' && (
-        <p className={styles.liveLine}>
-          Net Entries And Payouts In Chicago Time. MTT Winnings Count Finished MTTs Only. Unfinished
-          MTT Entries Are Buy-Ins For MTTs Still Running Or Not Yet Started.
-        </p>
-      )}
-      {visibleSnapshot?.accounting_basis === 'utc_net_money_flow' && (
-        <p className={styles.liveLine}>
-          Net Entries And Payouts In UTC. Unfinished Event Entries Included.
-        </p>
-      )}
-      {factsFrom && startDate < factsFrom && (
-        <p className={styles.liveLine}>Figures Begin {factsFrom}</p>
-      )}
 
       <label className={styles.search}>
         <input
