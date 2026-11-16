@@ -2294,6 +2294,13 @@ export const MemberRow = memo(function MemberRow({
               </strong>
               <span>{feeLabel}</span>
               <span
+                className="member-simple-balance__wallet"
+                title="Player Wallet Balance"
+                aria-label={`Player Wallet Balance ${walletFigure(member.player_wallet)}`}
+              >
+                {walletFigure(member.player_wallet)}
+              </span>
+              <span
                 className={`member-simple-balance__secondary${secondaryTone}`}
                 aria-label={`${secondaryWinLossLabel} W/L ${secondaryText}`}
               >

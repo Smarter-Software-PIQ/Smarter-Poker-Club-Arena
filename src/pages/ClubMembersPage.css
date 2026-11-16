@@ -1200,7 +1200,7 @@
   display: block;
   color: #45adff;
 }
-/* Five financial lines must fit inside the 116px virtual row at every width.
+/* Six financial lines must fit inside the 116px virtual row at every width.
    Inherited body leading previously pushed both the final figure and the
    adjacent identity subline below the card above the phone breakpoint. */
 .member-simple-balance {
@@ -1209,7 +1209,7 @@
   flex-direction: column;
   grid-column: 2;
   grid-row: 1 / 3;
-  gap: 5px;
+  gap: 3px;
   text-align: right;
 }
 .member-simple-balance strong {
@@ -1220,6 +1220,11 @@
 .member-simple-balance > span {
   color: #9aa5b3;
   font-size: 10px;
+}
+.member-simple-balance > .member-simple-balance__wallet {
+  color: #f4f7fb;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
 }
 .member-simple-balance > .member-simple-balance__downline {
   color: #7fb2ff;
