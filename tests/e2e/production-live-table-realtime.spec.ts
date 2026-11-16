@@ -2463,10 +2463,14 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
         const remaining = [...selected.tables];
         while (remaining.length) {
           const { candidate } = takeNextLayoutCandidate(remaining, capacities)!;
-          await page.goto(`table/${candidate.id}`, { waitUntil: 'domcontentloaded' });
           const table = page.locator('.table-page:visible').first();
-          await expect(table).toBeVisible({ timeout: 30_000 });
-          await expect(page.getByTestId('table-connection-banner')).toBeHidden({ timeout: 30_000 });
+          await test.step(`Open occupied table at ${phoneWidth}px and render its connected view`, async () => {
+            await page.goto(`table/${candidate.id}`, { waitUntil: 'domcontentloaded' });
+            await expect(table).toBeVisible({ timeout: 30_000 });
+            await expect(page.getByTestId('table-connection-banner')).toBeHidden({
+              timeout: 30_000,
+            });
+          });
           const capacity = await table.getAttribute('data-seats');
           if (!capacity || !['6', '9'].includes(capacity) || capacities.has(capacity)) continue;
           await expect(table.locator('.seat__avatar-img')).not.toHaveCount(0);
