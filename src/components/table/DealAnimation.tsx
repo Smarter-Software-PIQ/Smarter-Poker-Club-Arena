@@ -71,6 +71,7 @@ import './DealAnimation.css';
 // =================================================================================
 
 export interface DealAnimationProps {
+  onPaint?: (frame: DealFrame) => void;
   /** Active when a new hand just started */
   active: boolean;
   /** Observation identity only; never a deal trigger. */
@@ -135,7 +136,7 @@ interface DealRun {
 }
 
 /** What is actually on screen for the current run. */
-interface DealFrame {
+export interface DealFrame {
   id: number;
   handNumber: number;
   cards: FlyingCard[];
@@ -284,6 +285,7 @@ function buildDealCards(
 // =================================================================================
 
 function DealAnimationComponent({
+  onPaint,
   active,
   handNumber = 0,
   activeSeats,
@@ -499,14 +501,29 @@ function DealAnimationComponent({
   );
 
   useLayoutEffect(() => {
+    if (frame) onPaint?.(frame);
     if (frame)
       observeDealPresentationTiming({
         handNumber: frame.handNumber,
         phase: 'frame-committed',
         cardCount: frame.cards.length,
       });
-  }, [frame]);
+  }, [frame, onPaint]);
 
+  return frame ? <DealFlight frame={frame} /> : null;
+}
+
+export function DealFlight({
+  frame,
+  rate = 1,
+  startOffset = 0,
+  paused = false,
+}: {
+  frame: DealFrame;
+  rate?: number;
+  startOffset?: number;
+  paused?: boolean;
+}) {
   if (!frame || frame.cards.length === 0) return null;
 
   return (
@@ -516,7 +533,7 @@ function DealAnimationComponent({
       aria-hidden="true"
       /* JS is the single source of truth for flight duration -- see
          flightDurationMs(). Inline var out-specifies the CSS breakpoints. */
-      style={{ '--da-flight-duration': `${frame.flightMs}ms` } as React.CSSProperties}
+      style={{ '--da-flight-duration': `${frame.flightMs / rate}ms` } as React.CSSProperties}
     >
       {frame.cards.map((card) => (
         <div
@@ -528,7 +545,8 @@ function DealAnimationComponent({
               '--origin-y': `${card.originY}%`,
               '--target-x': `${card.targetX}%`,
               '--target-y': `${card.targetY}%`,
-              '--delay': `${card.delay}ms`,
+              '--delay': `${(card.delay - startOffset) / rate}ms`,
+              animationPlayState: paused ? 'paused' : undefined,
             } as React.CSSProperties
           }
         />

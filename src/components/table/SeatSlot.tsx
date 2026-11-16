@@ -1,3 +1,5 @@
+import { SharedSeatObserver } from '../../lib/sharedSeatPresentation';
+import { TableAnimationClock } from './tableAnimationClock';
 /**
  * ♠ CLUB ARENA — Seat Slot Component
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -32,7 +34,7 @@ import {
   useActionClockSeconds,
   type ActionClockStore,
 } from '../../hooks/actionClockStore';
-import { getAnimationSpeed, prefersReducedMotion } from '../../utils/animationSpeed';
+import { prefersReducedMotion } from '../../utils/animationSpeed';
 import RiveAvatar from './RiveAvatar';
 import { ActionTimerRing } from './ActionTimerRing';
 import { SeatPlayerName } from './SeatPlayerName';
@@ -975,6 +977,11 @@ export const SeatSlot = memo(
       showPickedCardIndexes,
       onToggleShowCard,
     } = props;
+    const getAnimationSpeed = React.useContext(TableAnimationClock);
+    const observePaint = React.useContext(SharedSeatObserver);
+    useLayoutEffect(() => {
+      observePaint?.(props);
+    }, [observePaint, props]);
     const wagerFmt = (n: number) => formatSeatWager(n, showStackInBB, bigBlind);
 
     /**

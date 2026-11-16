@@ -185,8 +185,13 @@ describe('without the payload, the page is what it is today', () => {
       heroUserId: HERO,
     });
     hand.players[0].avatar = '/avatars/free/sample.webp';
+    hand.players[0].frame = 'frame-gold';
+    hand.players[0].aura = 'aura-fire';
     hand.appearance = {
       skin: 'ocean_blue',
+      buttonSkin: 'gray-d-gear',
+      boardTiming: { flop: 8920 },
+      animationSpeed: 1.5,
       background: 'royal_indigo',
       cardBack: 'classic_blue',
       maxPlayers: 9,
@@ -197,9 +202,17 @@ describe('without the payload, the page is what it is today', () => {
     hand.preflop[0].atMs = 725;
     const encoded = encodeHand(hand);
     expect(decodeHandFromUrl(encoded)?.preflop[0]).toEqual(hand.preflop[0]);
+    expect(decodeHandFromUrl(encoded)?.appearance).toMatchObject({
+      boardTiming: { flop: 8920 },
+      animationSpeed: 1.5,
+    });
     await openPage(`?h=${encoded}`);
     await screen.findByText('Hand #77');
     expect(document.querySelector('.shared-table-stage')?.getAttribute('data-seats')).toBe('9');
+    expect(
+      document.querySelector('.shared-table-stage .table-surface .community-area')
+    ).not.toBeNull();
+    expect(document.querySelector('.shared-table-stage .frame-gold')).not.toBeNull();
     expect(document.querySelector('.shared-table-stage .table-art')?.getAttribute('src')).toBe(
       resolveSkin('ocean_blue')
     );

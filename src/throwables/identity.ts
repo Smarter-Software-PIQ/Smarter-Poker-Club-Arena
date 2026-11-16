@@ -1,3 +1,4 @@
+import { throwSeed } from '../lib/sharedThrows';
 /** Optional metadata beside the unchanged legacy chat message text. */
 export function isThrowableEventId(value: unknown): value is string {
   return (
@@ -13,8 +14,6 @@ const ANSWERS = [
 ] as const;
 
 /** Integer arithmetic gives all clients the same answer for the same throw. */
-export function magicEightBallAnswer(throwId: string): readonly string[] {
-  let hash = 2166136261;
-  for (const char of throwId.toLowerCase()) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619);
-  return ANSWERS[(hash >>> 0) % ANSWERS.length];
+export function magicEightBallAnswer(throwId: string, seed?: number): readonly string[] {
+  return ANSWERS[(seed ?? throwSeed(throwId.toLowerCase())) % ANSWERS.length];
 }
