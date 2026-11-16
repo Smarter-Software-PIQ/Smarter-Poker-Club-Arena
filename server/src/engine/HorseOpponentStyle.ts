@@ -1365,7 +1365,7 @@ export function tightMultiSignalRead(i: TightMultiSignalInput): TightMultiSignal
  *  2. VPIP of that window at or below the method line of the table size (full 0.18, short 0.30; heads-up has no
  *     line and never qualifies);
  *  3. VPIP credibly below the Horse VPIP mean of the cell: P(rate < mean) >= 0.90 (the method line alone, a point
- *     estimate, would name about one average player in four tight at 50 hands);
+ *     estimate, would name about one average player in three tight at 50 hands);
  *  4. the player does not raise more than the average Horse: PFR of the window at or below the Horse PFR mean;
  *  5. no contrary evidence: VPIP and call share not high.
  * Unlike the multi-signal route it needs no corroborating raise share, so a tight player who mostly calls qualifies:

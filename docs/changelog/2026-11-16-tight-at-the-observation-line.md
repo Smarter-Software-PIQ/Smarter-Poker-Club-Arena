@@ -19,7 +19,7 @@ Participation is unchanged when an earlier route calls it tight or loose. When e
 
 Confidence is n / (n + 50), under the same low-side cap as every tight read.
 
-Why condition 3 stays: the method line is a point estimate. At 50 hands, a player whose true VPIP equals the Horse mean (0.2133 full) shows 0.18 or less about one time in four. The observation works on lifetime counts (the graded people had more than 1,000 hands); the engine reads a 120-hand window, so it keeps a credibility test. The margin below the mean is what is dropped.
+Why condition 3 stays: the method line is a point estimate. At 50 hands, a player whose true VPIP equals the Horse mean (0.2133 full) shows 0.18 or less about one time in three (exact binomial: 0.355). The observation works on lifetime counts (the graded people had more than 1,000 hands); the engine reads a 120-hand window, so it keeps a credibility test. The margin below the mean is what is dropped.
 
 Why no corroboration: a tight player who raises about half of what he plays is exactly who the observation kept finding. Condition 4 keeps out players who raise more than the average Horse; the existing routes already read those.
 

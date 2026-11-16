@@ -45,7 +45,7 @@ league card nlh_style_tight_method_line.
 
 ## Limits
 
-- A point-estimate line would name about one average player in four tight at 50 hands; the 90% test against the
+- A point-estimate line would name about one average player in three tight at 50 hands; the 90% test against the
   Horse mean is kept for that reason, so a 0.167 player on a thin window can stay neutral.
 - The observation uses lifetime counts; the engine reads a 120-hand window. The two will still disagree on players
   whose recent window differs from their lifetime rate.
