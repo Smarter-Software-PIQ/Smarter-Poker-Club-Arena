@@ -12,6 +12,10 @@ The style and exploit reads judge an opponent against the Horse population cell 
 
 With the option on, a fixed-limit decision (`bettingStructureFor(variant) === 'fixed_limit'`) reads its own frozen cell `${variant}:${size}`; every other read, and every read with the option off or outside a decision, is exactly main's envelope. Thresholds, margins, minimum hands and credibility are unchanged. The option travels beside the decision scope (`HorseMind.setDecisionReadOptions`) and is part of the style memo key; read frames and receipts name the envelope version they used. Receipt `fixed_limit_population_cell_read`; live switch entry owned by Fixed-Limit (migration `20261116043627_horse_option_switch_fixed_limit_population_cells.sql`, a follow-up of the option switch generator); refused league matchups `flh_population_cells` and `flo8_population_cells` (the league deals no fixed limit). Law `AFixedLimitPopulationCells.law.test.ts`.
 
+## Finding: today's fixed-limit tight labels are mostly false
+
+Every Horse's own decayed counters from the same export, replayed through the style read (share of Horse identities, option off -> on; participation tight / tight-opener respect): flh heads-up 2.6% -> 1.1% / 0 -> 0; flh short-handed 8.1% -> 3.9% / 1.1% -> 0.3%; flh full ring 35.2% -> 18.2% / 14.1% -> 0.9%; flo8 heads-up 4.9% -> 2.4%; flo8 short-handed 57.2% -> 15.0%; flo8 full ring 73.8% -> 26.7% (tight-opener respect never acts in an Omaha scope). With the current cells a large share of ordinary Horses reads tight; the option lowers every count. The participation label reads tight relative to half the band, not outside it, so part of the Horse distribution keeps the label with the option on; that rule is unchanged.
+
 ## Not done
 
 Turning it on is a change under `docs/HORSE-DECISION-CHANGE-EVIDENCE.md`. No store is read or written differently.

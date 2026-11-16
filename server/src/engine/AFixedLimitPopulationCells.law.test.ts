@@ -11,17 +11,38 @@
  * and credibility are unchanged.
  *
  * (1) With the option on, every no-limit and pot-limit read gets exactly main's envelope (same object), at every
- *     size; a fixed-limit read gets its own measured cell; outside a decision the option cannot engage.
+ *     size; a fixed-limit read gets its own measured cell; outside a decision the option cannot engage. The cell is
+ *     taken only when the variant's betting structure is fixed limit: a decision whose variant has a frozen cell but
+ *     whose structure is not fixed limit (here a stubbed structure: today bettingStructureFor derives the structure
+ *     from the variant name, so no production state can carry flh without fixed limit) gets main's envelope.
  * (2) The census (every Horse's own decayed counters, built as the learner builds them, fixture
- *     fixed-limit-population-census.json) replayed through the style read: with the option on, no flh cell
- *     engages the tight consumers (tight-opener and tight-reraiser respect) or the tight participation side on more
- *     Horses than with it off; at full-ring flh the tight-opener respect engages on at most 1% of Horses (the P1
- *     share); at full-ring flo8 the tight participation side falls.
+ *     fixed-limit-population-census.json) replayed through the style read: with the option on, NO cell (flh and flo8,
+ *     heads-up, short-handed and full ring) reads more Horses tight on the participation read, or engages
+ *     tight-opener or tight-reraiser respect on more Horses, than with it off; at full-ring flo8 the participation
+ *     tight reads fall; at full-ring flh tight-opener respect engages on at most 1% of Horses.
+ *     Measured at the 2026-11-16 head (share of census Horses, off -> on; participation tight / tight-opener):
+ *       flh hu 2.6% -> 1.1% / 0 -> 0; flh short 8.1% -> 3.9% / 1.1% -> 0.3%; flh full 35.2% -> 18.2% / 14.1% -> 0.9%;
+ *       flo8 hu 4.9% -> 2.4%; flo8 short 57.2% -> 15.0%; flo8 full 73.8% -> 26.7% (tight-opener respect never acts in
+ *       an Omaha scope). The participation label reads "tight" relative to half the band (score below the tight
+ *       threshold and credible), not "outside the band", so the lower part of the Horse distribution keeps that label
+ *       with the option on; that rule is unchanged here, and the option only ever lowers these counts.
  * (3) A synthetic 10% VPIP / 6% PFR history reads tight by its 40th hand at full-ring flh and flo8 with the option
  *     on; a 20% (flh) or 28% (flo8) history never does.
  * (4) The option is registered in the live switch, release default OFF, owner Fixed-Limit.
  */
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+// A stubbed betting structure for law (1): empty = the real bettingStructureFor; a variant added here reads no_limit.
+const structureStub = vi.hoisted(() => ({ noLimit: new Set<string>() }));
+vi.mock('./BettingStructure.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./BettingStructure.js')>();
+  return {
+    ...real,
+    bettingStructureFor: (variant?: string | null) =>
+      structureStub.noLimit.has((variant || '').toLowerCase())
+        ? ('no_limit' as const)
+        : real.bettingStructureFor(variant),
+  };
+});
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { HorseMind, readScopeOf } from './HorseMind.js';
@@ -48,6 +69,7 @@ import {
 } from './HorseOpponentStyle.js';
 import { OPTION_SWITCH_REGISTRY, optionSwitchOffOnly } from './HorseOptionSwitch.js';
 import { HORSE_DATA_LEDGER } from './HorseDataLedger.js';
+import { bettingStructureFor } from './BettingStructure.js';
 import type { ReadScope } from './HorseMind.js';
 
 const SIZES = ['hu', 'short', 'full'] as const;
@@ -113,6 +135,26 @@ describe('(1) only a fixed-limit read moves, and only with the option on inside 
     expect(
       inDecision(full, 'flo8', true, () => exploitEnvelopeFor(full, 'flo8'))!.vpip.mean
     ).toBeLessThan(0.4);
+  });
+
+  it('a decision whose variant has a frozen cell but whose structure is not fixed limit gets main envelope', () => {
+    structureStub.noLimit.add('flh');
+    try {
+      expect(bettingStructureFor('flh')).toBe('no_limit');
+      for (const size of SIZES) {
+        const scope = readScopeOf('flh', DEALT[size]);
+        expect(FIXED_LIMIT_POPULATION_ENVELOPE[`flh:${size}`]).toBeDefined();
+        const on = inDecision(scope, 'flh', true, () => exploitEnvelopeFor(scope, 'flh'));
+        expect(on, `flh:${size} no-limit`).toBe(mainEnvelope(scope, 'flh'));
+        expect(on, `flh:${size} no-limit`).not.toBe(FIXED_LIMIT_POPULATION_ENVELOPE[`flh:${size}`]);
+        expect(inDecision(scope, 'flh', true, () => exploitEnvelopeVersionFor(scope, 'flh'))).toBe(
+          OPPONENT_EXPLOIT_ENVELOPE_VERSION
+        );
+      }
+    } finally {
+      structureStub.noLimit.clear();
+    }
+    expect(bettingStructureFor('flh')).toBe('fixed_limit');
   });
 
   it('outside a decision the option cannot engage', () => {
@@ -182,22 +224,23 @@ describe('(2) the recorded Horse census through the style read', () => {
     );
   });
 
-  it('no flh cell reads more Horses tight, or engages a tight consumer on more Horses, with the option on', () => {
-    for (const size of SIZES) {
-      const off = tally(`flh:${size}`, false);
-      const on = tally(`flh:${size}`, true);
-      expect(on.tight, `flh:${size} tight`).toBeLessThanOrEqual(off.tight);
-      expect(on.opener, `flh:${size} tight-opener`).toBeLessThanOrEqual(off.opener);
-      expect(on.reRaiser, `flh:${size} tight-reraiser`).toBeLessThanOrEqual(off.reRaiser);
-    }
+  it('no cell reads more Horses tight, or engages a tight consumer on more Horses, with the option on', () => {
+    for (const v of FIXED_LIMIT)
+      for (const size of SIZES) {
+        const off = tally(`${v}:${size}`, false);
+        const on = tally(`${v}:${size}`, true);
+        expect(on.tight, `${v}:${size} participation tight`).toBeLessThanOrEqual(off.tight);
+        expect(on.opener, `${v}:${size} tight-opener`).toBeLessThanOrEqual(off.opener);
+        expect(on.reRaiser, `${v}:${size} tight-reraiser`).toBeLessThanOrEqual(off.reRaiser);
+      }
   });
 
-  it('full-ring flh: the tight-opener respect engages on at most the P1 share of Horses', () => {
+  it('full-ring flh: tight-opener respect engages on at most 1% of Horses', () => {
     const on = tally('flh:full', true);
     expect(on.opener / on.horses).toBeLessThanOrEqual(0.01);
   });
 
-  it('full-ring flo8: the false tight reads fall', () => {
+  it('full-ring flo8: the participation tight reads fall', () => {
     const off = tally('flo8:full', false);
     const on = tally('flo8:full', true);
     expect(on.tight).toBeLessThan(off.tight);
