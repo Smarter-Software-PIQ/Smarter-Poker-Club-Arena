@@ -32,7 +32,7 @@ it('previews six entries and pages the selected agent’s full club history usin
   fireEvent.click(await screen.findByRole('button', { name: 'Next' }));
   await screen.findByText('Sent To Player 26');
   expect(rpc).toHaveBeenLastCalledWith(
-    'fn_cashier_history_feed',
+    'fn_member_transaction_history',
     expect.objectContaining({
       p_person: 'agent',
       p_club_id: 'club',
@@ -148,7 +148,7 @@ it('combines full-history filters, resets the cursor on changes and clears them 
   fireEvent.click(screen.getByRole('button', { name: 'Apply Filters' }));
   const expectQuery = (player: string | null, wallet: string, cursor: string | null) =>
     expect(rpc).toHaveBeenLastCalledWith(
-      'fn_cashier_history_feed',
+      'fn_member_transaction_history',
       expect.objectContaining({
         p_search: player,
         p_kind: wallet,
@@ -165,10 +165,10 @@ it('combines full-history filters, resets the cursor on changes and clears them 
   fireEvent.click(screen.getByRole('button', { name: 'Apply Filters' }));
   await waitFor(() => expectQuery('Sliceoflife', 'member_union_promo_wallet', null));
   fireEvent.click(screen.getByRole('button', { name: 'Clear Filters' }));
-  await waitFor(() => expectQuery(null, 'all', null));
+  await waitFor(() => expectQuery(null, 'member_all', null));
   expect(screen.getByLabelText('Player Search')).toHaveValue('');
   fireEvent.click(screen.getByRole('button', { name: 'Show Recent' }));
-  await waitFor(() => expectQuery(null, 'all', null));
+  await waitFor(() => expectQuery(null, 'member_all', null));
 });
 
 it('retires old receipts when a refresh fails and keeps them hidden until Retry succeeds', async () => {
@@ -300,6 +300,86 @@ it('applies inclusive Chicago dates with the funding wallet across combined page
         p_to: null,
         p_before_id: null,
       })
+    )
+  );
+});
+
+it('shows incoming commission and outgoing rakeback with exact routes, receipts and a mixed-source cursor', async () => {
+  rpc.mockImplementation((_name, args) => ({
+    abortSignal: async () => ({
+      data: [
+        {
+          id: 'ledger-1',
+          entry_source: 'movement',
+          transaction_type: 'commission',
+          amount_text: '1234.56',
+          created_at: '2026-11-16T01:00:00Z',
+          to_user_id: 'agent',
+          from_user_id: null,
+          from_name: 'Club Bank',
+          to_name: 'Agent',
+          metadata: {
+            history_source: 'movement',
+            source: 'club_treasury',
+            destination: 'agent_wallet',
+          },
+        },
+        {
+          id: 'ledger-2',
+          entry_source: 'movement',
+          transaction_type: 'rakeback',
+          amount_text: '50.25',
+          created_at: '2026-11-16T00:00:00Z',
+          from_user_id: 'agent',
+          to_user_id: 'player',
+          from_name: 'Agent',
+          to_name: 'Player',
+          metadata: {
+            history_source: 'movement',
+            source: 'agent_wallet',
+            destination: 'player_wallet',
+          },
+        },
+      ],
+    }),
+  }));
+  render(<MemberTransactionHistory clubId="club" memberId="agent" revision={0} scope="club" />);
+  const incoming = (await screen.findByText('Commission Received From Club Bank')).closest(
+    '.mm-stat'
+  );
+  expect(incoming).toHaveTextContent('+1,234.56');
+  expect(incoming).toHaveTextContent('From Club Bank To Agent Wallet');
+  const outgoing = screen.getByText('Rakeback Sent To Player').closest('.mm-stat');
+  expect(outgoing).toHaveTextContent('-50.25');
+  expect(outgoing).toHaveTextContent('From Agent Wallet To Player Wallet');
+  expect(rpc).toHaveBeenLastCalledWith(
+    'fn_member_transaction_history',
+    expect.objectContaining({ p_kind: 'member_all', p_before_source: null })
+  );
+});
+
+it('carries the source of the last displayed movement into the next page', async () => {
+  rpc.mockImplementation((_name, args) => ({
+    abortSignal: async () => ({
+      data: Array.from({ length: args.p_limit }, (_, index) => ({
+        id: String(index + 1),
+        entry_source: 'movement',
+        transaction_type: 'rakeback',
+        created_at: '2026-11-16T00:00:00Z',
+        from_user_id: 'agent',
+        to_user_id: 'player',
+        to_name: 'Player',
+        amount_text: '1.25',
+      })),
+    }),
+  }));
+  render(<MemberTransactionHistory clubId="club" memberId="agent" revision={0} scope="club" />);
+  fireEvent.click(await screen.findByRole('button', { name: 'See All' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Next' }));
+  await waitFor(() =>
+    expect(rpc).toHaveBeenLastCalledWith(
+      'fn_member_transaction_history',
+      expect.objectContaining({ p_before_id: '25', p_before_source: 'movement' })
     )
   );
 });

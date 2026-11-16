@@ -480,22 +480,27 @@ try:
     schedule = health.get('horseWorkSchedule')
     if not isinstance(schedule, dict):
         raise ValueError('engine cash population policy is unavailable')
+    # v1 compatibility is selected by a proven immutable release, but its
+    # identity is the admission semantics, not that build. This fingerprint
+    # was calculated with the engine's v1 algorithm over that release's full
+    # 1,440-minute curve and variant/stake matrix (retained regression fixture).
+    legacy_release = '3529e86663daa427b380a8ab9bd09347270c670e'
+    legacy_population = 2624902867899093
     if 'policyFingerprint' in schedule:
         population = schedule['policyFingerprint']
         if type(population) is not int or not 0 <= population < 2**52:
             raise ValueError('engine cash population policy is unavailable')
     else:
-        # Versioned reader compatibility: this immutable production release
-        # predates the field added by #11081. Its policy is source-owned in
-        # HorseWorkSchedule/HorseRegulars/HorseCashSchedule/StableHand. Give that
-        # exact release its own domain-separated cohort, never SQL-only history
-        # or a guessed population. Unknown releases and corrupt new fields
-        # remain unreadable. This also supports rollback to this predecessor.
-        legacy_releases = {'3529e86663daa427b380a8ab9bd09347270c670e'}
-        release = health.get('releaseSha')
-        if not isinstance(release, str) or release not in legacy_releases:
+        if health.get('releaseSha') != legacy_release:
             raise ValueError('engine cash population policy is unavailable')
-        population = 'legacy-release:' + release
+        population = legacy_population
+    # Keep the already-published key for these exact semantics, including a
+    # routine replacement that adds the fingerprint field and a rollback.
+    # The string is a stable wire alias, never the currently serving SHA.
+    # Different population fingerprints or SQL definitions remain different
+    # cohorts; unknown releases and malformed fields still fail closed.
+    if population == legacy_population:
+        population = 'legacy-release:' + legacy_release
     fingerprint = int(hashlib.sha256(f'{fingerprint}:{population}'.encode()).hexdigest()[:13], 16)
     lines = ['# HELP poker_lightning_admission_policy_fingerprint Exact 52-bit SQL admission and engine population-policy cohort; not a numeric capacity.',
              '# TYPE poker_lightning_admission_policy_fingerprint gauge',

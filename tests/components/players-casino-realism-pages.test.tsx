@@ -409,7 +409,7 @@ describe('Players detail surfaces', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: /Player Statistics/i }));
     expect(state.navigate).toHaveBeenCalledWith(
-      `/clubs/shark-club/members/11111111-1111-4111-8111-111111111111/statistics?range=custom&from=${lastDaysRange(1).from}&to=${lastDaysRange(1).to}`
+      `/clubs/shark-club/members/11111111-1111-4111-8111-111111111111/statistics?range=day`
     );
   });
 

@@ -19,6 +19,12 @@ on:
       - supabase/migrations/*_promo_principal_follows_*.sql
       - supabase/migrations/*_suspect_promo_chip_dumping_*.sql
       - tests/fixtures/promo-notices/**
+      - supabase/migrations/*_promo_funded_fees_*.sql
+      - scripts/ci/test-promo-fee-basis.py
+      - tests/fixtures/promo-fee-basis/**
+      - scripts/ci/fixtures/unpaid-atomic-cash-contract-columns.json
+      - scripts/ci/fixtures/rakeback-cascade-real-guards/production-relations.json
+      - scripts/ci/fixtures/rakeback-cascade-real-guards/world.py
       - .github/workflows/promo-play-through.yml
 
 permissions:
@@ -45,6 +51,8 @@ jobs:
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 scripts/ci/test-promo-notices.py --output artifacts/promo-notices
+      - name: Promo fees preserve gross rake and exclude free earnings
+        run: python3 -B scripts/ci/test-promo-fee-basis.py --pg-bin /usr/lib/postgresql/17/bin --output artifacts/promo-fee-basis
       - name: Retain the regression evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -55,5 +63,6 @@ jobs:
             artifacts/promo-notices/RESULTS.json
             artifacts/promo-notices/INPUTS.json
             artifacts/promo-notices/PERFORMANCE.json
+            artifacts/promo-fee-basis/RESULTS.json
           retention-days: 7
           if-no-files-found: warn

@@ -147,3 +147,13 @@ PG_BIN="${PG_BIN:-${PG17_BINDIR:-/usr/lib/postgresql/17/bin}}" \
 PG_BIN="${PG_BIN:-${PG17_BINDIR:-/usr/lib/postgresql/17/bin}}" \
   TMPDIR="$DATA_CONSOLE_PG_SCRATCH_PARENT" \
   python3 -B "$repo/scripts/ci/test-club-data-player-totals-postgres.py"
+
+# Member histories include every posted wallet movement and deduplicate receipts.
+PG_BIN="${PG_BIN:-${PG17_BINDIR:-/usr/lib/postgresql/17/bin}}" \
+  TMPDIR="$DATA_CONSOLE_PG_SCRATCH_PARENT" \
+  python3 -B "$repo/scripts/ci/test-member-transaction-history.py"
+
+# Exact Ledger Window breakdown for the agent and every recursive descendant.
+PG_BIN="${PG_BIN:-${PG17_BINDIR:-/usr/lib/postgresql/17/bin}}" \
+  TMPDIR="$DATA_CONSOLE_PG_SCRATCH_PARENT" \
+  python3 -B "$repo/scripts/ci/test-member-activity-breakdown.py"
