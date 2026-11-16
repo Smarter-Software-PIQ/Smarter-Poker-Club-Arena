@@ -204,6 +204,14 @@ try:
  assert replay.returncode==0,replay.stderr.read()
  assert json.loads(replay.stdout.read().strip())==original_receipt
  assert_sql(f"(SELECT count(*)=1 FROM cash_hourly_table_closures WHERE operation_id='{second_op}')",'one original closure')
+ # A multirow producer is still one original transaction: neither global
+ # starts nor a new table's individual arrivals can bypass pacing in a batch.
+ q("ALTER TABLE table_seats DISABLE TRIGGER roster_guard;UPDATE table_seats SET left_at=now() WHERE left_at IS NULL;ALTER TABLE table_seats ENABLE TRIGGER roster_guard;UPDATE cash_hourly_table_pacing SET next_open_at='-infinity';INSERT INTO tables(id) VALUES(md5('batch1')::uuid),(md5('batch2')::uuid),(md5('batch-human')::uuid);")
+ refuses("INSERT INTO table_seats(table_id,user_id,seat_number) VALUES(md5('batch1')::uuid,md5('horse191')::uuid,1),(md5('batch2')::uuid,md5('horse192')::uuid,1);",'cash_hourly_table_start_paced')
+ assert_sql("NOT EXISTS(SELECT 1 FROM table_seats WHERE table_id IN(md5('batch1')::uuid,md5('batch2')::uuid))",'batch floor starts roll back together')
+ q("INSERT INTO table_seats(table_id,user_id,seat_number) VALUES(md5('batch-human')::uuid,md5('human')::uuid,1);")
+ refuses("INSERT INTO table_seats(table_id,user_id,seat_number) VALUES(md5('batch-human')::uuid,md5('horse193')::uuid,2),(md5('batch-human')::uuid,md5('horse194')::uuid,3);",'cash_hourly_horse_arrival_paced')
+ assert_sql("(SELECT count(*)=1 FROM table_seats WHERE table_id=md5('batch-human')::uuid)",'batch arrivals roll back together')
  q("UPDATE engine_leader SET instance_id='older-rollback';")
  assert_sql('NOT fn_cash_hourly_table_enabled()','older rollback does not inherit unsupported drains')
  assert_sql('fn_cash_hourly_table_drain_candidate() IS NULL','rollback does not park pooled hands')

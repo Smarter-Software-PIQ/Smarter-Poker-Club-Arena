@@ -5,7 +5,7 @@ BEGIN;
 SET LOCAL lock_timeout='1s';
 SET LOCAL statement_timeout='8s';
 
-CREATE FUNCTION public.fn_cash_hourly_table_range(p_at timestamptz DEFAULT now())
+CREATE FUNCTION public.fn_cash_hourly_table_range(p_at timestamptz DEFAULT clock_timestamp())
 RETURNS TABLE(local_hour integer,target_min integer,table_cap integer)
 LANGUAGE sql STABLE SET search_path=pg_catalog,public AS $fn$
  SELECT h,lo[h+1],hi[h+1] FROM
