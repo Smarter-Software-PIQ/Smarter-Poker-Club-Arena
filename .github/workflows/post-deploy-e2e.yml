@@ -2656,6 +2656,9 @@ jobs:
           ENGINE_HEALTH_URL: https://engine.smarter.poker/health
           EXPECTED_ENGINE_SHA: ${{ steps.engine.outputs.sha }}
           PLAYWRIGHT_JSON_OUTPUT_NAME: e2e-report/live-table-realtime.json
+          # Retain stderr from this job's own browser. Kernel evidence showed
+          # voluntary WPE exit(1), without a signal or OOM; its reason is native.
+          DEBUG: pw:browser
         run: |
           # A page crash loses renderer evidence from the Playwright trace.
           # Keep kernel evidence scoped to this browser invocation on a failed run.
