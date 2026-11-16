@@ -196,6 +196,34 @@ describe('the rake snapshot on a union', () => {
     expect(screen.getAllByText('Chicago Time').length).toBeGreaterThan(0);
   });
 
+  it('labels invoice accounting and provisional totals without a cashflow claim', async () => {
+    const report = {
+      ...payload('club', [clubRow(CLUB_A, 'SHARK CLUB')]),
+      day_basis: 'America/Los_Angeles 00:00',
+      accounting_basis: 'union_invoice_accounting',
+      accounting_coverage: { complete: true, provisional: true },
+      breakdown_live: true,
+    };
+    rpcMock.mockImplementation((fn: string) =>
+      Promise.resolve({ data: fn === 'ca_rake_snapshot_pacific_v2' ? report : null, error: null })
+    );
+    render(
+      <RakeSnapshotPanel
+        clubId={null}
+        unionId={UNION_ID}
+        userId={USER_ID}
+        scopes={['union']}
+        reportBasis="pacific"
+      />
+    );
+    expect(await screen.findByText(/Invoice Accounting In Pacific Time/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Totals Are Provisional Until The Billing Cycle Is Final/)
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Net Entries And Payouts In Pacific Time/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Rollup Written Hourly/)).not.toBeInTheDocument();
+  });
+
   it('names its headline as the caller says, "Rake / Fee" by default', async () => {
     const report = payload('club', [clubRow(CLUB_A, 'SHARK CLUB')]);
     rpcMock.mockImplementation((fn: string) =>

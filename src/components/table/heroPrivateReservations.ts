@@ -18,6 +18,7 @@ export function heroPrivateReservations(input: {
   boardCardWidth?: number;
   scale: number;
   counts?: readonly number[];
+  bottomAligned?: boolean;
 }): { boxes: Array<ReservationBox & { count: number; index: number }>; maxSixShift: number } {
   const p = Math.max(input.plateMinWidth, (input.avatarSize * 8) / 7);
   const w = Math.min(
@@ -31,7 +32,7 @@ export function heroPrivateReservations(input: {
   const maxSixShift = counts.includes(6)
     ? Math.max(0, p / 2 + 12 + board * 3.25 - input.viewportWidth / 2)
     : 0;
-  const cy = (input.seatHeight / 2 + input.heroClear + input.barInset) / 2;
+  const bandCentre = (input.seatHeight / 2 + input.heroClear + input.barInset) / 2;
   const boxes: Array<ReservationBox & { count: number; index: number }> = [];
   for (const count of counts) {
     const [width, height, step] =
@@ -42,6 +43,7 @@ export function heroPrivateReservations(input: {
           : count === 4
             ? [w, w * 1.4, w * 0.45]
             : [w, w * 1.4, w * 0.72];
+    const cy = input.bottomAligned ? input.seatHeight - height / 2 : bandCentre;
     const rowWidth = width + (count - 1) * step;
     const rowLeft = input.seatWidth + 8 - (count === 6 ? maxSixShift : 0);
     // cardPeekLift transforms the ROW about its default 50% 50% origin.
@@ -105,6 +107,9 @@ export function privateCardLane(
     heroClear: cssLength(seat, '--sp-hero-clear', 60),
     barInset: cssLength(seat, '--sp-bar-inset', 0),
     boardCardWidth: cssLength(scaler, '--sp-board-card-w', scaler.offsetWidth * 0.088),
+    bottomAligned: matchMedia(
+      '(max-device-width: 480px) and (min-width: 481px) and (max-width: 640px) and (orientation: portrait)'
+    ).matches,
     scale: ratio,
   });
 }

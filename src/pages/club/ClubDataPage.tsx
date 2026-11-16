@@ -375,7 +375,7 @@ interface CachedPlayerLedger {
 
 /** The Rake Snapshot's basis, said beside a union club's invoice-basis figures. */
 const AGENT_RAKE_PRODUCTION_NOTE =
-  'Agent Rake Production: Seat Club And Agent Downline, Pacific Midnight Days. Not The Union Invoice Basis.';
+  'Invoice Headlines Include All Recorded Fees. Agent Rows Show Gross Cash Rake By Seat Club And Downline In Pacific Midnight Days.';
 
 /** What a money tile shows when there is no figure to show. Never "0.00". */
 const NO_VALUE = '-';
@@ -3516,7 +3516,6 @@ export default function ClubDataPage() {
         {clubUuid && (
           <RakeSnapshotPanel
             reportBasis="pacific"
-            headlineLabel={unionBasis ? 'Agent Rake Production' : undefined}
             unframed
             clubId={clubUuid}
             userId={userId}

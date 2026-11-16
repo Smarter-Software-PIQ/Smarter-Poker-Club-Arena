@@ -1781,6 +1781,7 @@
     "supabase/migrations/20261116154719_promo_tickets_require_cashable_wallets_and_direct_entries_retain_principal.sql",
     "supabase/migrations/20261116154831_promo_funded_fees_keep_gross_rake_but_earn_no_commission_or_.sql",
     "supabase/migrations/20261116154841_expired_and_departed_promo_principal_returns_to_its_original.sql",
+    "supabase/migrations/20261116195435_pko_predecessor_evidence_is_read_in_one_bounded_joined_query.sql",
     "supabase/migrations/20261116195541_club_arena_terms_acceptance_records_the_exact_reviewed_revis.sql",
     "supabase/tests/fixed_limit_buyin_policy.sql",
     "tests/fixtures/accounting-agreement-history/bootstrap.sql",

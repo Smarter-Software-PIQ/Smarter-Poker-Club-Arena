@@ -12,6 +12,7 @@ ROOT=Path(__file__).resolve().parents[4]
 sys.path.insert(0,str(ROOT/'scripts/ci'))
 from satellite_qualifier_fixture import compose,module,sha
 MIGRATION='supabase/migrations/20260918083150_pko_independent_head_watermark_admission.sql'
+BATCH_MIGRATION='supabase/migrations/20261116195435_pko_predecessor_evidence_is_read_in_one_bounded_joined_query.sql'
 FIX=Path('scripts/dev/fixtures/causal-pko-predecessors')
 SIGNATURE='public.fn_pko_watermark_admission_status_v1(uuid,uuid,uuid,uuid,bigint,timestamp with time zone,jsonb)'
 
@@ -67,12 +68,42 @@ def qualify_installation(e,root,db):
   code,out,err=e.sql(case,'SET ROLE '+role+'; SELECT public.fn_pko_watermark_admission_status_v1(NULL,NULL,NULL,NULL,NULL,NULL,NULL);',label='private-'+role,check=False)
   if code==0 or 'permission denied for function fn_pko_watermark_admission_status_v1' not in err:raise RuntimeError('private helper grants broadened')
  e.discard(case);e.report['installation']={'only_helper_definition_changed':True,'data_unchanged':True,'exact_replay':True,'private_roles_refused':3}
+
+def qualify_batch_installation(e,root,db):
+ case=e.database(db);e.sql(case,file=root/MIGRATION,label='batch-foundation-watermark')
+ before=e.snapshot(case,'batch-before-data');catalog=e.catalog_snapshot(case,'batch-before-catalog')
+ e.sql(case,file=root/BATCH_MIGRATION,label='batch-installation')
+ after=e.catalog_snapshot(case,'batch-after-catalog')
+ old={x[1]:x for x in catalog['functions']};new={x[1]:x for x in after['functions']}
+ added=set(new)-set(old);changed={k for k in old if old[k]!=new.get(k)}
+ bulk='fn_pko_predecessor_accepted_scopes_v1(uuid,uuid)'
+ predecessor='fn_pko_claim_predecessor_status_v1(uuid,uuid,uuid,uuid,bigint,timestamp with time zone)'
+ if added!={bulk} or changed!={predecessor}:raise RuntimeError('batch installation changed unexpected function')
+ if old[predecessor][3:]!=new[predecessor][3:] or any(catalog[k]!=after[k] for k in catalog if k!='functions') or e.snapshot(case,'batch-after-data')!=before:raise RuntimeError('batch installation changed metadata/business state')
+ e.sql(case,file=root/BATCH_MIGRATION,label='batch-exact-replay')
+ if e.snapshot(case,'batch-replay-data')!=before or e.catalog_snapshot(case,'batch-replay-catalog')!=after:raise RuntimeError('batch replay differs')
+ signatures=[bulk,predecessor,'fn_pko_candidate_accepted_scope_v1(uuid,uuid)']
+ for signature in signatures:
+  for kind in ['body','acl']:
+   drift=e.database(case)
+   sql=("DO $$ BEGIN EXECUTE replace(pg_get_functiondef('public."+signature+"'::regprocedure),'AS $function$','AS $function$'||chr(10)||'-- Native unreviewed drift'||chr(10)); END $$;") if kind=='body' else 'GRANT EXECUTE ON FUNCTION public.'+signature+' TO service_role;'
+   e.sql(drift,sql,label='batch-drift-'+kind)
+   data=e.snapshot(drift,'batch-drift-data');cat=e.catalog_snapshot(drift,'batch-drift-catalog')
+   code,out,err=e.sql(drift,file=root/BATCH_MIGRATION,label='batch-refusal-'+kind,check=False)
+   if code==0 or 'PKO batched evidence unreviewed source or metadata' not in err:raise RuntimeError('batch migration accepted drift')
+   if e.snapshot(drift,'batch-refused-data')!=data or e.catalog_snapshot(drift,'batch-refused-catalog')!=cat:raise RuntimeError('batch refusal changed state')
+   e.discard(drift)
+ for role in ['anon','authenticated','service_role']:
+  code,out,err=e.sql(case,'SET ROLE '+role+'; SELECT public.fn_pko_predecessor_accepted_scopes_v1(NULL,NULL);',label='batch-private-'+role,check=False)
+  if code==0 or 'permission denied' not in err:raise RuntimeError('batch private helper grants broadened')
+ e.discard(case);e.report['batch_installation']={'one_changed_one_added':True,'data_unchanged':True,'exact_replay':True,'private_roles_refused':3,'body_acl_refusals':6}
+
 def main():
  p=argparse.ArgumentParser(description=__doc__);p.add_argument('--root',type=Path,default=ROOT);p.add_argument('--evidence',type=Path,required=True);p.add_argument('--pg-bin',type=Path,required=True);a=p.parse_args()
  root=a.root.resolve();out=a.evidence.resolve();out.mkdir(parents=True,exist_ok=False)
  if sha(Path(__file__))!=sha(root/FIX/'full-native.py'):raise ValueError('executed source differs')
  manifest=compose(root);(out/'foundation.sql').write_text(manifest.pop('sql'));manifest.pop('entry_sql')
- paths=[MIGRATION,*[str(FIX/f) for f in ['full-native.py','full-opening.sql','full-cases.sql','full-race.spec','watermark-commuting.sql','watermark-refusals.sql']],'scripts/dev/probe-causal-pko-predecessors-pg17.sh','tests/unit/fixtureNativeCi.test.ts','scripts/qualification/cash-native-hosted.manifest.json','scripts/ci/probes/bounty-rebuy-generation-atomicity.sql','scripts/ci/probes/atomic-terminal-rehearsal-fixture.sql','scripts/ci/test-mtt-unlimited.py','scripts/ci/mtt_isolation_results.py','scripts/ci/mtt_format_qualification.py','scripts/ci/mtt_historical_freebuy_proof.py']
+ paths=[MIGRATION,BATCH_MIGRATION,*[str(FIX/f) for f in ['full-native.py','full-opening.sql','full-cases.sql','full-race.spec','watermark-commuting.sql','watermark-refusals.sql','batched-evidence.sql','batched-cost.sql']],'scripts/dev/probe-causal-pko-predecessors-pg17.sh','tests/unit/fixtureNativeCi.test.ts','scripts/qualification/cash-native-hosted.manifest.json','scripts/ci/probes/bounty-rebuy-generation-atomicity.sql','scripts/ci/probes/atomic-terminal-rehearsal-fixture.sql','scripts/ci/test-mtt-unlimited.py','scripts/ci/mtt_isolation_results.py','scripts/ci/mtt_format_qualification.py','scripts/ci/mtt_historical_freebuy_proof.py']
  manifest['source_sha256'].update({s:sha(root/s) for s in paths})
  (out/'source-manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
  seed=(root/'scripts/ci/probes/bounty-rebuy-generation-atomicity.sql').read_text()
@@ -86,11 +117,14 @@ def main():
   e.start();db=e.database();e.sql(db,file=out/'foundation.sql',label='real-financial-foundation',seconds=180)
   e.sql(db,file=root/'scripts/ci/probes/atomic-terminal-rehearsal-fixture.sql',label='structural-opening')
   qualify_installation(e,root,db)
+  qualify_batch_installation(e,root,db)
   for shared in [False,True]:
    scene=e.database(db)
    e.sql(scene,"SET fixture.watermark_shared='"+str(shared).lower()+"';\n"+seed,label='opening-'+str(shared))
    for repaired in [False,True]:
-    if repaired:e.sql(scene,file=root/MIGRATION,label='guarded-migration')
+    if repaired:
+     e.sql(scene,file=root/MIGRATION,label='guarded-migration')
+     e.sql(scene,file=root/BATCH_MIGRATION,label='joined-evidence-migration')
     before=e.snapshot(scene,'before-data');catalog=e.catalog_snapshot(scene,'before-catalog')
     code,stdout,stderr=e.sql(scene,"SET fixture.watermark_shared='"+str(shared).lower()+"'; SET fixture.watermark_repaired='"+str(repaired).lower()+"';\n"+(root/FIX/'full-cases.sql').read_text(),label=f'public-shared-{shared}-repaired-{repaired}',seconds=120,check=False)
     if code or any(x in stderr for x in ['ERROR:','FATAL:','PANIC:','WARNING:']) or stdout.splitlines().count('PKO_WATERMARK_PUBLIC_CASES_PASS')!=1:
@@ -107,6 +141,6 @@ def main():
   for s in native.CANCELLATION_SIGNALS:signal.signal(s,signal.SIG_IGN)
   try:e.close()
   except BaseException as exc:e.report['cleanup_failure']=repr(exc);e.report['status']='failed'
-  e.report['ended_at']=datetime.datetime.now(datetime.timezone.utc).isoformat();(out/'result.json').write_text(json.dumps(e.report,indent=2)+'\n');print(json.dumps({k:e.report.get(k) for k in ['status','failure','public_cases','races','installation','migration_refusals','cleanup']}),flush=True)
+  e.report['ended_at']=datetime.datetime.now(datetime.timezone.utc).isoformat();(out/'result.json').write_text(json.dumps(e.report,indent=2)+'\n');print(json.dumps({k:e.report.get(k) for k in ['status','failure','public_cases','races','installation','migration_refusals','batch_installation','cleanup']}),flush=True)
  return 0 if e.report['status']=='passed' else 1
 if __name__=='__main__':sys.exit(main())

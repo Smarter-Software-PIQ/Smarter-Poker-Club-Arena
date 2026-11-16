@@ -323,6 +323,9 @@ export function Review() {
                         isActive={i === activeSeat}
                         isWinner={document.documentElement.dataset.winnerSeat === String(i + 1)}
                         winningHandName="Two Pair"
+                        handStrength={
+                          i === 0 ? document.documentElement.dataset.handStrength : undefined
+                        }
                         lastAction={
                           document.documentElement.dataset.actionPills === 'none'
                             ? null
