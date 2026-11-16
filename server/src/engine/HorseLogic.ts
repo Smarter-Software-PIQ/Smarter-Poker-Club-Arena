@@ -4069,7 +4069,10 @@ export interface HorseDecideOpts {
   /** FIXED-LIMIT PRICED PREFLOP (Fixed-Limit lane W5, 2026-11-15): at
    *  fixed-limit CASH tables only (inert at every tournament table: the
    *  !isTournamentMode(gs) gate at the priced-context entry and the pack
-   *  precedence), first in the seat raises the stated reference share by
+   *  precedence) and only at the cash table types with a credited PASS cell
+   *  (fixedLimitPreflopInScope's allow-list, AB-EVALUATION-2 0.22 with rule
+   *  0.3's sizes: flh dealt 2/5/6/8/9 unfloored and 2/3/5/6/7/8/9 floored,
+   *  flo8 dealt 5/6 unfloored), first in the seat raises the stated reference share by
    *  players behind (the small blind folded to also completes a band; the
    *  heads-up button raises flh 85% / flo8 70%), and a blind's fold facing
    *  exactly one raise becomes a call when its realized equity against the
@@ -4081,7 +4084,8 @@ export interface HorseDecideOpts {
   fixedLimitPricedPreflop?: boolean;
   /** FIXED-LIMIT STEAL VS TIGHT BLINDS (Fixed-Limit lane W5, 2026-11-15): at
    *  fixed-limit CASH tables only (inert at every tournament table: it shares
-   *  the priced preflop's !isTournamentMode(gs) entry), first in from the
+   *  the priced preflop's entry, fixedLimitPreflopInScope, so it also acts only
+   *  at the priced preflop's credited cash table types), first in from the
    *  cutoff, button or small blind (or the
    *  heads-up button), when every player still to act is a read over-folder
    *  (own exploit read, foldToBet engaged high on adequate decayed
@@ -5970,6 +5974,84 @@ function dealtHorseTableSize(gs: HorseGameStateV2, heroSeat: number): number {
   return gs.dealtSeatIds === undefined
     ? gs.players.length
     : horsePolicyDealtPlayers(gs.players, heroSeat, gs.dealtSeatIds).length;
+}
+
+/**
+ * P's credited scope (fixedLimitPricedPreflop, and fixedLimitStealVsTightBlinds,
+ * which shares this entry): the fixed-limit CASH table types with a credited
+ * PASS cell, keyed by variant, floored or not, and the dealt seat count (Phase
+ * 2, AB-EVALUATION-2 0.22 "use of the result", lane owner decision
+ * 2026-11-16, as corrected by the lane owner the same day: see Sizes below).
+ * At every other cash table type, and at every tournament table, a Horse
+ * decides exactly as with the option off.
+ *
+ * "Dealt" is dealtHorseTableSize(gs, heroSeat): the players of gs.players
+ * whose seat is in the hand's dealt census gs.dealtSeatIds, which the table
+ * engine fills with the seats HandController dealt cards to
+ * (ServerTableEngineTurns: players with cards); a dealt seat that has since
+ * folded or sat out still counts. It is the count the evaluation strata use:
+ * the league v4d harness deals every one of its FL_SEATS seats and builds
+ * gs.dealtSeatIds with the same expression, and the live strata of
+ * AB-EVALUATION-2 2.4 (ab/p6_live_sizes.py) count the seats of the hand's
+ * public node, HandController's dealt roster. "Floored" is gs.vpipFloor > 0,
+ * the VPIP floor rule's own test (harness C2F FL_VPIP; live, the public
+ * node's vpipFloor).
+ *
+ * Sizes (lane owner correction 2026-11-16 of the 07:53Z decision, which had
+ * called dealt 5 and 8 "never measured"): AB-EVALUATION-2 rule 0.3 maps
+ * harness 6 seats to live dealt 5-6 and harness 9 seats to live dealt 8-9, so
+ * a credited 6-seat cell credits dealt 5 and 6, and a credited 9-seat cell
+ * dealt 8 and 9. Dealt 3 and 7 are credited by their own cells (3.16), whose
+ * strata are per size (2.4), so they credit no neighbouring size.
+ *
+ * Not listed, so inert: dealt 4 everywhere (unfloored flh 4 and flo8 4: 3.16
+ * group HARM, no PASS of their own; floored flh 4: 3.16 diagnostic only, big
+ * blind defence NOT VALID in 2.4); unfloored flh 3 and 7 (3.16: group HARM, no
+ * PASS); unfloored flo8 2 (0.10 / 0.18: heads-up big blind defence not
+ * judged), 3 (2.4: no preflop class judgeable), 7 to 9 (no cell: rule 0.3,
+ * flo8 has no 7-9 tables); floored flo8 of any size (3.6: diagnostic only,
+ * rule 0.16a).
+ */
+const FIXED_LIMIT_PRICED_PREFLOP_CREDITED: Readonly<
+  Record<'flh' | 'flo8', Readonly<Record<'unfloored' | 'floored', readonly number[]>>>
+> = Object.freeze({
+  flh: Object.freeze({
+    unfloored: Object.freeze([
+      2, // AB-EVALUATION-2 3.4: unfloored flh heads-up (P PASS, pooled +1.44 +/- 0.09)
+      5, // 3.4: unfloored flh 6, by rule 0.3 (harness 6 seats <-> live dealt 5-6)
+      6, // 3.4: unfloored flh 6
+      8, // 3.4: unfloored flh 9, by rule 0.3 (harness 9 seats <-> live dealt 8-9)
+      9, // 3.4: unfloored flh 9
+    ]),
+    floored: Object.freeze([
+      2, // 3.12: floored flh heads-up (PASS, pooled +2.04 +/- 0.11)
+      3, // 3.16: floored flh 3 (group P22F PASS, pooled +0.79 +/- 0.20; 2.4 per-size stratum)
+      5, // 3.6: floored flh 6, by rule 0.3 (harness 6 seats <-> live dealt 5-6)
+      6, // 3.6: floored flh 6 (PASS, pooled +0.88 +/- 0.22)
+      7, // 3.16: floored flh 7 (group P22F PASS; 2.4 per-size stratum)
+      8, // 3.6: floored flh 9, by rule 0.3 (harness 9 seats <-> live dealt 8-9)
+      9, // 3.6: floored flh 9
+    ]),
+  }),
+  flo8: Object.freeze({
+    unfloored: Object.freeze([
+      5, // 3.4: unfloored flo8 6, by rule 0.3 (harness 6 seats <-> live dealt 5-6)
+      6, // 3.4: unfloored flo8 6
+    ]),
+    floored: Object.freeze([]), // none: floored flo8 is diagnostic only (3.6, rule 0.16a)
+  }),
+});
+
+function fixedLimitPreflopInScope(
+  variant: 'flh' | 'flo8',
+  gs: HorseGameStateV2,
+  heroSeat: number
+): boolean {
+  if (isTournamentMode(gs)) return false;
+  const floored = Number(gs.vpipFloor ?? 0) > 0;
+  return FIXED_LIMIT_PRICED_PREFLOP_CREDITED[variant][floored ? 'floored' : 'unfloored'].includes(
+    dealtHorseTableSize(gs, heroSeat)
+  );
 }
 
 /**
@@ -11398,10 +11480,15 @@ export class HorseLogic {
               phase12DecisionEquityCeiling ?? 1,
               true,
               readStation,
-              // W5 cash only: a fixed-limit tournament table keeps today's pack (isTournamentMode)
+              // P scope: cash only, and only at a credited table type
+              // (fixedLimitPreflopInScope's allow-list); elsewhere today's pack
               opts.fixedLimitPricedPreflop === true &&
                 vi.isFixedLimit === true &&
-                !isTournamentMode(gs)
+                (vi.isOmaha
+                  ? vi.isHiLo === true && fixedLimitPreflopInScope('flo8', gs, player.seat)
+                  : player.cards.length === 2 &&
+                    !vi.isShortDeck &&
+                    fixedLimitPreflopInScope('flh', gs, player.seat))
             )
           : null;
       if (phase12) {
@@ -14119,8 +14206,9 @@ export class HorseLogic {
     // HorseFixedLimitPreflop: fixed limit only, CASH only (a fixed-limit
     // tournament table plays exactly as before: no separately evaluated
     // tournament policy exists; same isTournamentMode test as every other
-    // cash/tournament split here), never in a bomb pot, a straddled pot or
-    // All-In-Or-Fold. The reads are the players still to act
+    // cash/tournament split here), only at a credited cash table type
+    // (fixedLimitPreflopInScope's allow-list, AB 0.22), never in a bomb
+    // pot, a straddled pot or All-In-Or-Fold. The reads are the players still to act
     // (folded and sitting-out players are not), each its own exploit read.
     let fixedLimitPriced: FixedLimitPricedCtx | undefined;
     let fixedLimitStealOpenWiden: number | undefined;
@@ -14135,8 +14223,9 @@ export class HorseLogic {
       : null;
     if (
       flVariant !== null &&
-      !isTournamentMode(gs) &&
+      // the option first: with both off the scope is never read (off is main)
       (opts.fixedLimitPricedPreflop === true || opts.fixedLimitStealVsTightBlinds === true) &&
+      fixedLimitPreflopInScope(flVariant, gs, player.seat) &&
       gs.bombPot !== true &&
       gs.allInOrFold !== true &&
       gs.straddleActive !== true
