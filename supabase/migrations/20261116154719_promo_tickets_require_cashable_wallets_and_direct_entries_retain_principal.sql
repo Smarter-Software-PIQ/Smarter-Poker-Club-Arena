@@ -1,5 +1,5 @@
 -- @install-window: daily-maintenance
--- @locks: public.chip_ledger, public.tournaments, smarter_private.free_buy_ticket_redemptions
+-- @locks: public.chip_ledger, public.ca_promo_play_through_grants, public.tournaments, smarter_private.free_buy_ticket_redemptions
 -- @live-proof: EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='smarter_private.free_buy_ticket_redemptions'::regclass AND tgname='ca_promo_free_buy_principal' AND tgenabled='O')
 -- Promo may enter tournaments directly, but cannot purchase a gifted ticket.
 -- Original event principal follows entry, earned awards, refund and full loss.
@@ -129,7 +129,7 @@ BEGIN
   OR l.from_type<>'prize_liability' THEN RAISE EXCEPTION 'invalid_promo_refund_return'; END IF;
  FOR r IN SELECT s.grant_id,s.amount,g.granted_at FROM public.ca_promo_event_realization_slices s
   JOIN public.ca_promo_play_through_grants g ON g.id=s.grant_id
-  WHERE s.ledger_id=l.id AND g.closed_at IS NULL ORDER BY g.granted_at,g.id LOOP
+  WHERE s.ledger_id=l.id ORDER BY g.granted_at,g.id LOOP
   paid:=public.fn_ca_promo_return_principal(r.grant_id,'player_wallet','returned',r.amount,'event_refund:'||l.id||':'||r.grant_id);
   total:=total+paid;
  END LOOP;

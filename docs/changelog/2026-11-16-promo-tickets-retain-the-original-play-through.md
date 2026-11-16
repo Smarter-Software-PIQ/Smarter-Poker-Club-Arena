@@ -22,3 +22,8 @@ beside captures. No production financial writes or programme activation occur.
 The native proof also loads the actual immutable fee-funding and eligibility
 owners, asserting surviving original principal through direct satellite and
 earned-ticket entry. It does not substitute a numeric fee capture adapter.
+
+Exact refund return replays use the original ledger/grant receipt after closure,
+so the canonical returned amount stays stable without another money movement.
+The event principal tables and grant closure trigger declare their actual grant
+relation for the maintained daily-window dependency ordering.
