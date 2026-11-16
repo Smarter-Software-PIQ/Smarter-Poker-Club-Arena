@@ -73,6 +73,8 @@ import { soundService } from '../../services/SoundService';
 import { useAuthUser } from '../../hooks/useAuthUser';
 import { reportError } from '../../utils/errorReporter';
 import { fitClipRate, type ClipFit } from '../../lib/clipMode';
+import SharedTableStage from './SharedTableStage';
+import type { SharedTableAppearance } from '../../lib/sharedTableAppearance';
 import './HandReplay.css';
 
 /**
@@ -90,6 +92,7 @@ import './HandReplay.css';
  * logged in) watch it.
  */
 export interface ReplaySource {
+  sharedTable?: SharedTableAppearance | null;
   model: ReplayModel;
   tableName: string | null;
   handNumber: string | number | null;
@@ -819,12 +822,17 @@ export default function HandReplay({
     }
     /* The clip was timed at animation speed 1 (`fitClipRate`), so that is
        the speed start() plays it at, whatever the viewer's setting says. */
-    const beat = replayBeatMs(frame, clipMode ? 1 : getAnimationSpeed(), rate);
+    const nowAt = frame?.key === 'deal' ? 0 : frame?.row?.atMs;
+    const nextAt = frames[step + 1]?.row?.atMs;
+    const beat =
+      !clipMode && nowAt != null && nextAt != null && nextAt >= nowAt
+        ? (nextAt - nowAt) / rate
+        : replayBeatMs(frame, clipMode ? 1 : getAnimationSpeed(), rate);
     playbackRef.current = setTimeout(() => go((s) => Math.min(last, s + 1), true), beat);
     return () => {
       if (playbackRef.current) clearTimeout(playbackRef.current);
     };
-  }, [isPlaying, tab, step, last, frames.length, frame, rate, go, clipMode]);
+  }, [isPlaying, tab, step, last, frames, frame, rate, go, clipMode]);
 
   const togglePlay = useCallback(() => {
     if (step >= last) go(0, false);
@@ -1125,16 +1133,28 @@ export default function HandReplay({
           id="hr-panel-replay"
           aria-labelledby="hr-tab-replay"
         >
-          {frame && motion && (
-            <Felt
-              model={model}
-              frame={frame}
-              prev={prevFrame}
-              motion={motion}
-              heroId={heroId}
-              privateOwnerTag={privateOwnerTag}
-            />
-          )}
+          {frame &&
+            motion &&
+            (source.sharedTable !== undefined ? (
+              <SharedTableStage
+                model={model}
+                frame={frame}
+                motion={motion}
+                heroId={heroId}
+                privateOwnerTag={privateOwnerTag}
+                appearance={source.sharedTable}
+                holeCount={holdingSize(model)}
+              />
+            ) : (
+              <Felt
+                model={model}
+                frame={frame}
+                prev={prevFrame}
+                motion={motion}
+                heroId={heroId}
+                privateOwnerTag={privateOwnerTag}
+              />
+            ))}
 
           <div className="hand-replay__caption" aria-live="polite">
             <span className="hand-replay__caption-street">{frame?.streetLabel}</span>
