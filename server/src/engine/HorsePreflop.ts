@@ -417,6 +417,15 @@ export interface PreflopCtx {
    */
   huTightBigBlindSteal?: { pFoldLower: number; breakEven: number };
   /**
+   * HU SMALL BLIND STEALS VS A TIGHT BIG BLIND (2026-11-15, D6, option
+   * huSmallBlindStealsVsTightBigBlind, HorseHuTightBigBlindSteal): set only
+   * for the heads-up no-limit hold'em small blind first in when the big
+   * blind is a proven tight folder whose estimated fold share clears the
+   * largest heads-up open's break-even on folds alone. Every hand opens.
+   * Undefined = unchanged.
+   */
+  huTightBigBlindSteal?: { pFoldLower: number; breakEven: number };
+  /**
    * FIXED-LIMIT PRICED PREFLOP (Fixed-Limit lane W5, 2026-11-15, option
    * fixedLimitPricedPreflop, default off; HorseFixedLimitPreflop): present
    * only in fixed limit with the option on. First in, the seat raises its

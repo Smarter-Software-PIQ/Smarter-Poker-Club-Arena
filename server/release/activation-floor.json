@@ -1,9 +1,9 @@
 {
   "schema": "engine-release-activation-floor/v2-owner-window",
-  "preparationAt": "2026-11-15T22:45:00Z",
-  "activationAt": "2026-11-15T22:45:00Z",
-  "expiresAt": "2026-11-16T02:30:00Z",
+  "preparationAt": "2026-11-16T01:06:00Z",
+  "activationAt": "2026-11-16T01:06:00Z",
+  "expiresAt": "2026-11-16T05:00:00Z",
   "timeZone": "America/Chicago",
-  "ownerWindowId": "2026-11-15-owner-offcycle-engine-2245z",
-  "clientPublicationAt": "2026-11-15T22:45:00Z"
+  "ownerWindowId": "2026-11-16-owner-offcycle-engine-0106z",
+  "clientPublicationAt": "2026-11-16T01:06:00Z"
 }
