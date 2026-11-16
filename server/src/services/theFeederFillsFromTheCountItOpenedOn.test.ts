@@ -112,14 +112,16 @@ describe('3. no lone horse, judged on the outcome', () => {
     expect(SEED).not.toContain('((horseTables.get(horse.id)?.size ?? 0) === 0 && seatClub');
   });
 
-  it('an empty cluster table that ends with ONE seated draws again from the pool, then says so', () => {
+  it('an unpaced established opening can draw a partner; a paced new game waits for its next arrival', () => {
     const draw = SEED.slice(
       SEED.indexOf('NO LONE HORSE, JUDGED ON THE OUTCOME'),
       SEED.indexOf('if (diag) diag.seated = seated;')
     );
-    expect(draw).toContain(
-      'if (table.cluster_id && currentCount === 0 && seated === 1 && seatBudget > 0)'
-    );
+    expect(draw).toMatch(/if \(\s*hourly\.maxHorses !== 1 &&\s*table\.cluster_id &&/);
+    expect(draw).toContain('currentCount === 0 &&');
+    expect(draw).toContain('seated === 1 &&');
+    expect(draw).toContain('seatBudget > 0');
+    expect(SEED).toContain('cleared.splice(hourly.maxHorses)');
     expect(draw).toContain('for (const h of pool)');
     expect(draw).toContain('if (tried.has(h.id)) continue;');
     expect(draw).toContain('const v = sitVerdictFor(h.id, table, sitCtx);');

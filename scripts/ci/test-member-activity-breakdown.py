@@ -23,7 +23,7 @@ try:
  q((ROOT/'scripts/ci/fixtures/member-stats-chicago/bootstrap.sql').read_text())
  import json
  q('\n'.join(x+';' for x in json.loads((ROOT/'scripts/ci/fixtures/member-stats-chicago/functions-before.json').read_text()).values()))
- q("ALTER TABLE chip_transactions ADD COLUMN id uuid DEFAULT gen_random_uuid(), ADD COLUMN metadata jsonb DEFAULT '{}'::jsonb; ALTER TABLE chip_ledger ADD COLUMN id uuid DEFAULT gen_random_uuid();")
+ q("ALTER TABLE chip_transactions ADD COLUMN id uuid DEFAULT gen_random_uuid(), ADD COLUMN metadata jsonb DEFAULT '{}'::jsonb; ALTER TABLE chip_ledger ADD COLUMN id uuid DEFAULT gen_random_uuid(), ADD COLUMN correlation_id uuid;")
  def function(path,name,tag='$function$;'):
   text=path.read_text();start=text.index(name);delimiter=tag.rstrip(';');opening=text.index(delimiter,start);closing=text.index(delimiter,opening+len(delimiter));return text[start:closing+len(delimiter)]+';'
  q(function(BASE,'CREATE FUNCTION public.ca_member_record_chicago_facts(', '$chicago$;'))
@@ -37,6 +37,8 @@ try:
  assert q("SELECT ca_club_member_detail(md5('club')::uuid,md5('agent')::uuid,'2026-11-16','2026-11-16') ? 'activity_breakdown'")=='f'
  print('PASS before: actual installed member record omits downline activity',flush=True)
  q(MIG.read_text())
+ followup=next((ROOT/'supabase/migrations').glob('*_member_receipt_correlation_survives_writer_millisecond_times.sql')).read_text()
+ q('DO $activity$'+followup.split('DO $activity$',1)[1].split('END $activity$;',1)[0]+'END $activity$;')
  print(q(checks),flush=True)
 finally:
  if started: run([PG/'pg_ctl','-D',scratch/'data','-m','immediate','-w','stop'])

@@ -40,6 +40,8 @@ try:
  assert q("SELECT to_regprocedure('fn_member_transaction_history(uuid,text,uuid,text,text,timestamptz,timestamptz,timestamptz,uuid,integer,text)') IS NULL")=='t'
  print('PASS before: complete member feed absent',flush=True)
  q(MIG.read_text())
+ followup=next((ROOT/'supabase/migrations').glob('*_member_receipt_correlation_survives_writer_millisecond_times.sql')).read_text()
+ q('DO $history$'+followup.split('DO $history$',1)[1].split('END $history$;',1)[0]+'END $history$;')
  print(q((ROOT/'tests/fixtures/member-transaction-history.sql').read_text()),flush=True)
 finally:
  if started: run([PG/'pg_ctl','-D',scratch/'data','-m','immediate','-w','stop'])

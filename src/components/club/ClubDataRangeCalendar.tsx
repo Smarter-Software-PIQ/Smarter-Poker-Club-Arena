@@ -33,6 +33,7 @@ export default function ClubDataRangeCalendar({
   end,
   today,
   zoneLabel,
+  maxDays = 93,
   onApply,
   onClose,
 }: {
@@ -40,6 +41,7 @@ export default function ClubDataRangeCalendar({
   end: string;
   today: string;
   zoneLabel: string;
+  maxDays?: number;
   onApply: (first: string, last: string) => void;
   onClose: () => void;
 }) {
@@ -127,7 +129,7 @@ export default function ClubDataRangeCalendar({
             primary: {
               label: 'Apply Dates',
               onClick: () => {
-                const problem = clubDataRangeError(first, last, today);
+                const problem = clubDataRangeError(first, last, today, maxDays);
                 setError(problem);
                 if (!problem) onApply(first, last);
               },

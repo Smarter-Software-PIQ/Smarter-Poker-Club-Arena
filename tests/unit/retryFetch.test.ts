@@ -70,3 +70,25 @@ describe('retryFetch', () => {
     expect(fn).toHaveBeenCalledTimes(3);
   });
 });
+
+describe('caller-owned domain refusal', () => {
+  it('returns an explicitly non-retryable domain result after one read', async () => {
+    const response = { data: null, error: { code: 'P0001', message: 'incomplete-source-window' } };
+    const fn = vi.fn().mockResolvedValue(response);
+    expect(
+      await retryFetch(fn, {
+        maxRetries: 3,
+        baseDelayMs: 0,
+        shouldRetryError: (error) =>
+          (error as { message?: string }).message !== 'incomplete-source-window',
+      })
+    ).toBe(response);
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+  it('keeps the existing retry behavior for other callers of the same error code', async () => {
+    const response = { data: null, error: { code: 'P0001', message: 'other-domain-condition' } };
+    const fn = vi.fn().mockResolvedValue(response);
+    expect(await retryFetch(fn, { maxRetries: 1, baseDelayMs: 0 })).toBe(response);
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
+});
