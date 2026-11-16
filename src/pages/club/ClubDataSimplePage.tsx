@@ -51,6 +51,8 @@ import { clubDataRangeDays, clubDataRangeError, readClubDataRange } from '../../
 import ClubDataTotalsBreakdown from './ClubDataTotalsBreakdown';
 import DataHelpTip from '../../components/club/DataHelpTip';
 import ClubDataRangeCalendar from '../../components/club/ClubDataRangeCalendar';
+import ClubDataReconciliation from '../../components/club/ClubDataReconciliation';
+import type { ClubDataReconciliation as Reconciliation } from '../../lib/clubDataReconciliation';
 import { useClubDataDayRollover } from '../../hooks/useClubDataDayRollover';
 import ClubDataByClub, { isClubRows, type ClubDataClubRow } from './ClubDataByClub';
 import { useClubGameHost } from '../../hooks/useClubGameHost';
@@ -89,6 +91,7 @@ type GameFilter = 'ALL' | 'HOLDEM' | 'OMAHA' | 'MIXED' | 'MTT' | 'SNG';
 type StakesFilter = 'ALL' | 'MICRO' | 'SMALL' | 'MID' | 'HIGH';
 
 export interface ClubDataSummary {
+  reconciliation?: Reconciliation | null;
   games: number;
   total_winnings: number;
   mtt_winnings: number;
@@ -791,6 +794,14 @@ export default function ClubDataSimplePage() {
           </dd>
         </div>
       </dl>
+      {visibleSnapshot && !isDownline && (
+        <ClubDataReconciliation
+          basis={visibleSnapshot.accounting_basis}
+          coverage={visibleSnapshot.accounting_coverage}
+          range={visibleSnapshot.range}
+          reconciliation={summary?.reconciliation}
+        />
+      )}
       {visibleSnapshot?.reporting_scope === 'union' && visibleSnapshot.clubs && (
         <ClubDataByClub clubs={visibleSnapshot.clubs} end={endDate} start={startDate} />
       )}
