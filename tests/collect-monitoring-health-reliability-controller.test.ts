@@ -13,6 +13,8 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
+import { runInNewContext } from 'node:vm';
+import ts from 'typescript';
 
 const ROOT = resolve(__dirname, '..');
 const SCRIPT = join(ROOT, 'server/scripts/collect-monitoring-health.sh');
@@ -234,6 +236,131 @@ describe('installed cash admission cohort', () => {
     });
     expect(out).not.toMatch(/^poker_lightning_admission_policy_fingerprint /m);
     expect(out).toMatch(/^poker_lightning_admission_policy_collect_ok 0$/m);
+  });
+
+  const legacyPolicy = JSON.parse(
+    readFileSync(join(ROOT, 'tests/fixtures/cash-policy/legacy-v1.json'), 'utf8')
+  );
+  const cohortOf = (out: string) =>
+    out.match(/^poker_lightning_admission_policy_fingerprint (\d+)$/m)?.[1];
+
+  it('keeps the population fingerprint wire format stable for a fixed complete policy', () => {
+    // Recorded from the real immutable predecessor's functions, all 1,440
+    // minutes and the full variant/stake matrix. Future policy changes can
+    // change those inputs without changing the wire identity of these inputs.
+    const emitted = ts.transpileModule(
+      readFileSync(join(ROOT, 'server/src/services/HorseCashPopulationPolicy.ts'), 'utf8'),
+      {
+        compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+      }
+    ).outputText;
+    const fingerprintFor = (policy: typeof legacyPolicy) => {
+      const exports: Record<string, unknown> = {};
+      const blinds = [0.1, 0.5, 1, 2, 5, 10];
+      const inputs = {
+        './StableHand.js': {
+          occupancyTargetForHost: (_n: number, hour: number, minute: number) => {
+            const [target, min, max] = policy.curve[hour * 60 + minute];
+            return { target, min, max };
+          },
+          hostSeatCeiling: (_max: number, hour: number, minute: number) =>
+            policy.curve[hour * 60 + minute][3],
+        },
+        './HorseCashSchedule.js': {
+          cashActivityScaleAt: () => policy.scale,
+          horseCashGameAllowed: (table: { game_variant: string; big_blind: number }) => {
+            const row = policy.admission.find((r: unknown[]) => r[0] === table.game_variant);
+            const stake = blinds.indexOf(table.big_blind);
+            if (!row || stake < 0) throw new Error('Unversioned admission input');
+            return row[stake + 1];
+          },
+        },
+        'node:crypto': { createHash },
+      };
+      runInNewContext(emitted, {
+        exports,
+        require: (name: keyof typeof inputs) => {
+          if (!(name in inputs)) throw new Error('Unexpected dependency ' + name);
+          return inputs[name];
+        },
+      });
+      const calculate = exports.horseCashPopulationPolicyFingerprint as (at: number) => number;
+      return calculate(Date.parse('2026-11-16T12:00Z'));
+    };
+    expect(fingerprintFor(legacyPolicy)).toBe(legacyPolicy.fingerprint);
+    const changedCurve = structuredClone(legacyPolicy);
+    changedCurve.curve[600][3] += 1;
+    expect(fingerprintFor(changedCurve)).not.toBe(legacyPolicy.fingerprint);
+    const changedAdmission = structuredClone(legacyPolicy);
+    changedAdmission.admission[0][1] = !changedAdmission.admission[0][1];
+    expect(fingerprintFor(changedAdmission)).not.toBe(legacyPolicy.fingerprint);
+  });
+
+  it('keeps the accumulating cohort across legacy-to-modern publication, routine builds and rollback', () => {
+    const sql = { CASH_POLICY_ANSWER: JSON.stringify([{ fingerprint: 10 }]) };
+    const predecessor = collect([HEALTHY], {
+      ...sql,
+      CASH_POPULATION_ANSWER: JSON.stringify({
+        releaseSha: legacyPolicy.sourceRevision,
+        horseWorkSchedule: {},
+      }),
+    });
+    for (const releaseSha of ['a'.repeat(40), 'b'.repeat(40)]) {
+      const modern = collect([HEALTHY], {
+        ...sql,
+        CASH_POPULATION_ANSWER: JSON.stringify({
+          releaseSha,
+          version: releaseSha.slice(0, 8),
+          uptime: 1,
+          horseWorkSchedule: { policyFingerprint: legacyPolicy.fingerprint },
+          unrelatedStrategyVersion: releaseSha,
+        }),
+      });
+      expect(cohortOf(modern)).toBe(cohortOf(predecessor));
+      expect(cohortOf(modern)).toBeDefined();
+    }
+  });
+
+  it.each([1, 4503599627370495])('modern build metadata never changes policy %s', (fingerprint) => {
+    const cohorts = ['a'.repeat(40), 'b'.repeat(40)].map((releaseSha, i) =>
+      cohortOf(
+        collect([HEALTHY], {
+          CASH_POLICY_ANSWER: JSON.stringify([{ fingerprint: 10 }]),
+          CASH_POPULATION_ANSWER: JSON.stringify({
+            releaseSha,
+            version: releaseSha.slice(0, 8),
+            uptime: 1 + i * 10000,
+            horseWorkSchedule: { policyFingerprint: fingerprint },
+            unrelatedStrategyVersion: i,
+          }),
+        })
+      )
+    );
+    expect(cohorts[0]).toBeDefined();
+    expect(cohorts[1]).toBe(cohorts[0]);
+  });
+
+  it('still separates real SQL and population policy changes from the compatible cohort', () => {
+    const body = JSON.stringify({
+      horseWorkSchedule: { policyFingerprint: legacyPolicy.fingerprint },
+    });
+    const original = collect([HEALTHY], {
+      CASH_POPULATION_ANSWER: body,
+      CASH_POLICY_ANSWER: JSON.stringify([{ fingerprint: 10 }]),
+    });
+    const changedSql = collect([HEALTHY], {
+      CASH_POPULATION_ANSWER: body,
+      CASH_POLICY_ANSWER: JSON.stringify([{ fingerprint: 11 }]),
+    });
+    const changedPopulation = collect([HEALTHY], {
+      CASH_POPULATION_ANSWER: JSON.stringify({
+        horseWorkSchedule: { policyFingerprint: legacyPolicy.fingerprint + 1 },
+      }),
+      CASH_POLICY_ANSWER: JSON.stringify([{ fingerprint: 10 }]),
+    });
+    expect(cohortOf(original)).toBeDefined();
+    expect(cohortOf(changedSql)).not.toBe(cohortOf(original));
+    expect(cohortOf(changedPopulation)).not.toBe(cohortOf(original));
   });
 
   it('a changed engine curve is a different cohort even when SQL pacing is unchanged', () => {
