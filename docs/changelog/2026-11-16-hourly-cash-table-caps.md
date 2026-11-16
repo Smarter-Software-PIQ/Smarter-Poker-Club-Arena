@@ -40,8 +40,9 @@ number limits Horse-started capacity. Human-started games can expand beyond it.
 
 ## Implementation and acceptance plan
 
-1. Count occupied cash tables from actual live seat rows, including single
-   chairs and sit-outs. Empty lobby doors and tournaments consume no cash slot.
+1. Maintain the occupied cash census from actual live seat rows, including
+   single chairs and sit-outs. Only a recorded human-started game with a human
+   still present is extra capacity. Empty lobby doors and tournaments consume no cash slot.
    Preserve any table with a human; missing identity is protected too. A human
    anywhere in a shared Lightning pool protects that shared game.
 2. Enforce first-Horse entry in the original seat-admission trigger. Existing
@@ -58,6 +59,13 @@ number limits Horse-started capacity. Human-started games can expand beyond it.
    buys no seat and spends no chips. Human entry and existing game rules remain
    authoritative. A human who sits at an empty table grants that table support
    beyond the hourly cap, never permission for unrelated autonomous games.
+   Record whether the first actual occupant was human. While a human remains
+   in that human-started game, it is additional capacity and does not displace
+   an established game inside the cap. A human joining a Horse-started game
+   protects that game but does not free an unrelated autonomous slot. After
+   the last human leaves, the extra game counts again and may gradually close
+   after its current hand. An empty table restarted by a Horse loses any old
+   human-start exception. Reciprocal swaps preserve the original game origin.
 3. Persist a 2-4 minute gap between autonomous new games, and separate 2-4 minute
    Horse arrivals while each new game assembles. The fleet reads one advisory
    projection, buys at most its permitted chairs and no longer invokes its old

@@ -97,7 +97,7 @@ try:
  migration=(ROOT/'supabase/migrations/20261116153902_enforce_owner_hourly_cash_table_caps_with_human_expansion.sql').read_text()
  q(migration)
  assert_sql('NOT fn_cash_hourly_table_enabled()','migration alone leaves serving predecessor unchanged')
- for table in ['cash_hourly_table_pacing','cash_hourly_table_starts','cash_hourly_table_closures']:
+ for table in ['cash_hourly_table_pacing','cash_hourly_table_starts','cash_hourly_table_closures','cash_hourly_table_origins']:
   assert_sql("NOT has_table_privilege('service_role','"+table+"','SELECT,INSERT,UPDATE,DELETE')",'engine uses definer doors, no direct pacing/receipt writes')
 
  assert q('SET ROLE service_role;SELECT count(*) FROM fn_cash_hourly_table_admissions();')=='0'
@@ -134,6 +134,31 @@ try:
  assert_sql(f"(SELECT NOT allowed FROM fn_cash_hourly_table_admissions() WHERE table_id=md5('table{cap+3}')::uuid)",'fleet waits for the next individual arrival')
  refuses(f"INSERT INTO table_seats(table_id,user_id,seat_number) VALUES(md5('table{cap+3}')::uuid,md5('horse191')::uuid,3);",'cash_hourly_horse_arrival_paced')
  assert_sql(f"NOT fn_cash_hourly_table_excess(md5('table{cap+3}')::uuid)",'human protected')
+ # Human-started expansion is additional capacity, not a reason to displace
+ # another established game. A human joining a Horse-started game grants no
+ # unrelated autonomous opening. The exception ends when its last human leaves.
+ q(f"""BEGIN;
+ UPDATE table_seats SET left_at=now() WHERE table_id IN(md5('table{cap+1}')::uuid,md5('table{cap+2}')::uuid);
+ DO $$BEGIN IF fn_cash_hourly_table_drain_candidate() IS NOT NULL THEN
+ RAISE EXCEPTION 'human-started extra game displaces a retained Horse game';END IF;END$$;
+ INSERT INTO tables(id) VALUES(md5('unrelated-extra')::uuid);
+ UPDATE cash_hourly_table_pacing SET next_open_at='-infinity';
+ DO $$BEGIN IF (SELECT allowed FROM fn_cash_hourly_table_admissions() WHERE table_id=md5('unrelated-extra')::uuid) THEN
+ RAISE EXCEPTION 'human expansion opens an unrelated Horse game';END IF;END$$;
+ INSERT INTO table_seats(table_id,user_id,seat_number) VALUES(md5('table1')::uuid,md5('human')::uuid,2);
+ DO $$BEGIN IF (SELECT allowed FROM fn_cash_hourly_table_admissions() WHERE table_id=md5('unrelated-extra')::uuid) THEN
+ RAISE EXCEPTION 'joining a Horse-started game expands autonomous capacity';END IF;END$$;
+ UPDATE table_seats SET left_at=now() WHERE table_id=md5('table{cap+3}')::uuid AND user_id=md5('human')::uuid;
+ DO $$BEGIN IF NOT fn_cash_hourly_table_excess(md5('table{cap+3}')::uuid) THEN
+ RAISE EXCEPTION 'human expansion stays exempt after the last human leaves';END IF;END$$;
+ UPDATE table_seats SET left_at=now() WHERE table_id IN(md5('table{cap+3}')::uuid,md5('table2')::uuid);
+ UPDATE cash_hourly_table_starts SET next_horse_at='-infinity';
+ INSERT INTO table_seats(table_id,user_id,seat_number) VALUES(md5('table{cap+3}')::uuid,md5('horse191')::uuid,1);
+ INSERT INTO table_seats(table_id,user_id,seat_number) VALUES(md5('table{cap+3}')::uuid,md5('human')::uuid,2);
+ DO $$BEGIN IF (SELECT human_started FROM cash_hourly_table_origins WHERE table_id=md5('table{cap+3}')::uuid)
+ OR (SELECT count(*) FROM fn_cash_hourly_table_capacity_census())<>{cap} THEN
+ RAISE EXCEPTION 'a new Horse start inherits an old human expansion';END IF;END$$;
+ ROLLBACK;""")
  # A late human, including sit-out, cancels eligibility immediately.
  q(f"INSERT INTO table_seats(table_id,user_id,seat_number,is_sitting_out) VALUES('{candidate}',md5('human')::uuid,2,true);")
  assert_sql(f"fn_cash_hourly_table_drain_candidate() IS DISTINCT FROM '{candidate}'::uuid",'late human protected')
@@ -258,7 +283,7 @@ try:
  assert_sql('NOT fn_cash_hourly_table_enabled()','older rollback does not inherit unsupported drains')
  assert_sql('fn_cash_hourly_table_drain_candidate() IS NULL','rollback does not park pooled hands')
  refuses(migration,'already exists')
- print(json.dumps({'passed':True,'postgres_version_num':q('SHOW server_version_num;'),'hours':24,'dst':True,'human_start_and_late_arrival':True,'arrival_and_game_pacing':True,'lightning_original_legality':True,'current_hand_preserved':True,'closure_replay_once':True,'conservation_forwarding':True,'tournaments_excluded':True,'restart_and_addmore':True,'financial_kernel_changed':False}))
+ print(json.dumps({'passed':True,'postgres_version_num':q('SHOW server_version_num;'),'hours':24,'dst':True,'human_start_and_late_arrival':True,'human_expansion_is_additional':True,'arrival_and_game_pacing':True,'lightning_original_legality':True,'current_hand_preserved':True,'closure_replay_once':True,'conservation_forwarding':True,'tournaments_excluded':True,'restart_and_addmore':True,'financial_kernel_changed':False}))
 finally:
  if (w/'d/postmaster.pid').exists():run([PG/'pg_ctl','-D',w/'d','-m','immediate','-w','stop'])
  shutil.rmtree(w)

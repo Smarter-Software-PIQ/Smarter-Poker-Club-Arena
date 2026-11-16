@@ -33,16 +33,6 @@ LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp
  AND t.status IN('waiting','running') GROUP BY t.id;
 $fn$;
 
-CREATE FUNCTION public.fn_cash_hourly_table_excess(p_table_id uuid)
-RETURNS boolean LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $fn$
- WITH floor AS MATERIALIZED(SELECT * FROM public.fn_cash_hourly_table_census()),
- budget AS(SELECT greatest(0,r.table_cap-(SELECT count(*) FROM floor WHERE humans>0)) n
- FROM public.fn_cash_hourly_table_range() r),
- ranked AS(SELECT table_id,row_number() OVER(ORDER BY opened_at NULLS LAST,table_id) n
- FROM floor WHERE humans=0)
- SELECT EXISTS(SELECT 1 FROM ranked,budget WHERE table_id=p_table_id AND ranked.n>budget.n);
-$fn$;
-
 -- These records are admission state, not a repair queue. All writes happen in
 -- the original seating/closing transaction and roll back with a refusal.
 CREATE TABLE public.cash_hourly_table_pacing(
@@ -52,14 +42,38 @@ INSERT INTO public.cash_hourly_table_pacing(scope) VALUES('floor');
 CREATE TABLE public.cash_hourly_table_starts(
  table_id uuid PRIMARY KEY,started_at timestamptz NOT NULL,
  next_horse_at timestamptz NOT NULL);
+CREATE TABLE public.cash_hourly_table_origins(
+ table_id uuid PRIMARY KEY,human_started boolean NOT NULL);
 CREATE TABLE public.cash_hourly_table_closures(
  operation_id uuid PRIMARY KEY,table_id uuid NOT NULL,
  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),receipt jsonb NOT NULL);
 ALTER TABLE public.cash_hourly_table_pacing ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.cash_hourly_table_starts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.cash_hourly_table_closures ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.cash_hourly_table_origins ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.cash_hourly_table_pacing,public.cash_hourly_table_starts,
- public.cash_hourly_table_closures FROM PUBLIC,anon,authenticated,service_role;
+ public.cash_hourly_table_closures,public.cash_hourly_table_origins FROM PUBLIC,anon,authenticated,service_role;
+
+-- Only an actual first human seat creates extra capacity. Joining a
+-- Horse-started table protects that game but never opens an unrelated feeder.
+-- A human-started game returns to counted capacity when its last human leaves.
+CREATE FUNCTION public.fn_cash_hourly_table_capacity_census()
+RETURNS TABLE(table_id uuid,occupied bigint,humans bigint,opened_at timestamptz)
+LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $fn$
+ SELECT c.* FROM public.fn_cash_hourly_table_census() c
+ LEFT JOIN public.cash_hourly_table_origins o USING(table_id)
+ WHERE NOT(coalesce(o.human_started,false) AND c.humans>0);
+$fn$;
+
+CREATE FUNCTION public.fn_cash_hourly_table_excess(p_table_id uuid)
+RETURNS boolean LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $fn$
+ WITH floor AS MATERIALIZED(SELECT * FROM public.fn_cash_hourly_table_capacity_census()),
+ budget AS(SELECT greatest(0,r.table_cap-(SELECT count(*) FROM floor WHERE humans>0)) n
+ FROM public.fn_cash_hourly_table_range() r),
+ ranked AS(SELECT table_id,row_number() OVER(ORDER BY opened_at NULLS LAST,table_id) n
+ FROM floor WHERE humans=0)
+ SELECT EXISTS(SELECT 1 FROM ranked,budget WHERE table_id=p_table_id AND ranked.n>budget.n);
+$fn$;
 
 -- Migration-first and rollback compatibility: only a serving leader that has
 -- entered the new hand-boundary door activates this policy. An older rollback
@@ -80,7 +94,7 @@ $fn$;
 -- without interrupting another anchor or any human's shared Lightning pool.
 CREATE FUNCTION public.fn_cash_hourly_table_drain_candidate()
 RETURNS uuid LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $fn$
- WITH floor AS MATERIALIZED(SELECT * FROM public.fn_cash_hourly_table_census()),
+ WITH floor AS MATERIALIZED(SELECT * FROM public.fn_cash_hourly_table_capacity_census()),
  budget AS(SELECT greatest(0,r.table_cap-(SELECT count(*) FROM floor WHERE humans>0)) n
  FROM public.fn_cash_hourly_table_range() r),
  ranked AS(SELECT table_id,opened_at,row_number() OVER(ORDER BY opened_at NULLS LAST,table_id) n
@@ -106,11 +120,6 @@ BEGIN
  SELECT * INTO t FROM public.tables WHERE id=p_table_id FOR NO KEY UPDATE;
  IF t.status='closed' OR t.lifecycle='closed' THEN
   RAISE EXCEPTION 'cash_hourly_table_closed' USING ERRCODE='42501'; END IF;
- IF NOT EXISTS(SELECT 1 FROM public.profiles WHERE id=p_user_id AND is_horse) THEN RETURN; END IF;
- SELECT NOT EXISTS(SELECT 1 FROM public.table_seats WHERE table_id=p_table_id AND left_at IS NULL)
- INTO empty;
- SELECT EXISTS(SELECT 1 FROM public.table_seats s LEFT JOIN public.profiles p ON p.id=s.user_id
- WHERE s.table_id=p_table_id AND s.left_at IS NULL AND p.is_horse IS DISTINCT FROM true) INTO human;
  -- The original atomic swap temporarily clears BOTH old chairs first. Its
  -- reciprocal, ready, unexpired plans prove a headcount-neutral exchange;
  -- never mistake that temporary empty state for a newly started game.
@@ -125,6 +134,21 @@ BEGIN
  AND m.ready_at IS NOT NULL AND partner.ready_at IS NOT NULL
  AND m.expires_at>now_at AND partner.expires_at>now_at) INTO neutral_swap;
  IF neutral_swap THEN RETURN; END IF;
+ SELECT NOT EXISTS(SELECT 1 FROM public.table_seats WHERE table_id=p_table_id AND left_at IS NULL)
+ INTO empty;
+ IF NOT EXISTS(SELECT 1 FROM public.profiles WHERE id=p_user_id AND is_horse) THEN
+  IF empty AND EXISTS(SELECT 1 FROM public.profiles WHERE id=p_user_id AND is_horse IS FALSE) THEN
+   INSERT INTO public.cash_hourly_table_origins(table_id,human_started) VALUES(p_table_id,true)
+   ON CONFLICT(table_id) DO UPDATE SET human_started=true;
+  END IF;
+  RETURN;
+ END IF;
+ IF empty THEN
+  INSERT INTO public.cash_hourly_table_origins(table_id,human_started) VALUES(p_table_id,false)
+  ON CONFLICT(table_id) DO UPDATE SET human_started=false;
+ END IF;
+ SELECT EXISTS(SELECT 1 FROM public.table_seats s LEFT JOIN public.profiles p ON p.id=s.user_id
+ WHERE s.table_id=p_table_id AND s.left_at IS NULL AND p.is_horse IS DISTINCT FROM true) INTO human;
  -- One-way funded moves into established games keep their ordinary behavior.
  -- An assembling game still admits one arrival per window, whoever funds it.
  -- The original one-way executor inserts before releasing its source chair.
@@ -147,7 +171,7 @@ BEGIN
   RAISE EXCEPTION 'cash_hourly_table_capacity_busy' USING ERRCODE='55P03'; END IF;
  IF NOT human THEN
   SELECT table_cap INTO STRICT cap FROM public.fn_cash_hourly_table_range();
-  SELECT count(*) INTO n FROM public.fn_cash_hourly_table_census();
+  SELECT count(*) INTO n FROM public.fn_cash_hourly_table_capacity_census();
   IF (empty AND n-CASE WHEN releases_source THEN 1 ELSE 0 END>=cap) OR (NOT empty AND public.fn_cash_hourly_table_excess(p_table_id)) THEN
    RAISE EXCEPTION 'cash_hourly_table_cap_reached:%',cap USING ERRCODE='42501'; END IF;
   IF empty THEN
@@ -185,8 +209,9 @@ CREATE FUNCTION public.fn_cash_hourly_table_admissions()
 RETURNS TABLE(table_id uuid,allowed boolean,max_horses integer,starts_game boolean)
 LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $fn$
  WITH floor AS MATERIALIZED(SELECT * FROM public.fn_cash_hourly_table_census()),
- budget AS(SELECT table_cap cap,(SELECT count(*) FROM floor) occupied,
- greatest(0,table_cap-(SELECT count(*) FROM floor WHERE humans>0)) retained
+ counted AS MATERIALIZED(SELECT * FROM public.fn_cash_hourly_table_capacity_census()),
+ budget AS(SELECT table_cap cap,(SELECT count(*) FROM counted) occupied,
+ greatest(0,table_cap-(SELECT count(*) FROM counted WHERE humans>0)) retained
  FROM public.fn_cash_hourly_table_range()),
  ranked AS(SELECT table_id,row_number() OVER(ORDER BY opened_at NULLS LAST,table_id) n FROM floor WHERE humans=0)
  SELECT t.id,
@@ -318,6 +343,7 @@ END $patch$;
 
 REVOKE ALL ON FUNCTION public.fn_cash_hourly_table_range(timestamptz),public.fn_cash_hourly_table_census(),
  public.fn_cash_hourly_table_excess(uuid),public.fn_cash_hourly_table_delay(uuid),
+ public.fn_cash_hourly_table_capacity_census(),
  public.fn_cash_hourly_table_drain_candidate(),
  public.fn_cash_hourly_table_admissions(),
  public.fn_cash_hourly_table_enabled(),
@@ -325,6 +351,7 @@ REVOKE ALL ON FUNCTION public.fn_cash_hourly_table_range(timestamptz),public.fn_
  FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_cash_hourly_table_range(timestamptz),public.fn_cash_hourly_table_census(),
  public.fn_cash_hourly_table_excess(uuid),public.fn_cash_hourly_table_delay(uuid),
+ public.fn_cash_hourly_table_capacity_census(),
  public.fn_cash_hourly_table_drain_candidate(),
  public.fn_cash_hourly_table_admissions(),
  public.fn_cash_hourly_table_enabled(),
