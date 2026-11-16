@@ -6,6 +6,7 @@
     "fn_ca_shared_hand_mark_sent",
     "fn_ca_shared_hand_open",
     "fn_ca_shared_hand_revoke",
-    "fn_ca_shared_hand_clean_preview"
+    "fn_ca_shared_hand_clean_preview",
+    "fn_ca_shared_hand_payload_fits"
   ]
 }
