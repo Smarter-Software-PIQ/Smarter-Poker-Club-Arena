@@ -92,3 +92,15 @@ CREATE TABLE tournament_unregistration_receipts(registration_id uuid PRIMARY KEY
 CREATE TABLE tournament_cancellation_receipts(tournament_id uuid PRIMARY KEY,total_rake_before numeric,total_rake_after numeric,fees_reversed numeric,fee_reversal_ids uuid[]);
 
 CREATE FUNCTION public.fn_club_bank_role(uuid) RETURNS text LANGUAGE sql AS $$SELECT role FROM public.club_members WHERE club_id=$1 AND user_id=auth.uid()$$;
+
+-- Actual Free Buy funding owners run against isolated store/escrow adapters.
+CREATE TABLE public.union_wallets(union_id uuid PRIMARY KEY,promo_wallet numeric,updated_at timestamptz);
+ALTER TABLE public.tournaments ADD COLUMN prize_pool_finalized boolean DEFAULT false,ADD COLUMN guaranteed_prize numeric DEFAULT 0,ADD COLUMN prize_pool numeric DEFAULT 0,ADD COLUMN bounty_pool numeric DEFAULT 0;
+ALTER TABLE public.tournament_players ADD COLUMN current_bounty numeric DEFAULT 0;
+ALTER TABLE public.chip_ledger ADD COLUMN IF NOT EXISTS from_label text,ADD COLUMN IF NOT EXISTS to_label text,ADD COLUMN IF NOT EXISTS performed_by uuid,ADD COLUMN IF NOT EXISTS description text;
+CREATE FUNCTION public.fn_ca_escrow_apply(uuid,text,p_gross_in numeric DEFAULT 0,p_bounty_in numeric DEFAULT 0) RETURNS void LANGUAGE plpgsql AS $$BEGIN RETURN;END$$;
+CREATE FUNCTION public.fn_ca_guarantee_funding(uuid) RETURNS jsonb LANGUAGE sql AS $$SELECT jsonb_build_object('house_due',greatest(0,guaranteed_prize-prize_pool)) FROM public.tournaments WHERE id=$1$$;
+CREATE OR REPLACE FUNCTION public.fn_ca_midway_free_buy_format(uuid) RETURNS text LANGUAGE sql STABLE AS $$SELECT CASE WHEN NOT is_free_buy THEN NULL WHEN is_pko THEN 'pko' WHEN is_mystery_bounty THEN 'mystery' ELSE 'regular' END FROM tournaments WHERE id=$1$$;
+
+CREATE TABLE public.hand_atomic_commits(hand_id uuid PRIMARY KEY,table_id uuid,hand_number bigint,committed_at timestamptz DEFAULT clock_timestamp());
+ALTER TABLE public.rake_attributions ADD COLUMN IF NOT EXISTS hand_id uuid;

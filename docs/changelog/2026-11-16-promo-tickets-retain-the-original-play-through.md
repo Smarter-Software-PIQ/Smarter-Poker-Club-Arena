@@ -10,7 +10,11 @@ Promo chips may still directly enter tournaments. Original principal retains
 one 4× target through exact per-entry refunds, partial prizes, earned satellite
 entitlements and terminal loss. Profit and unrelated cash remain unrestricted.
 Five daily Free Buy coupons keep their original book and deferred guarantee
-funding; actual coupon use records one prospective principal grant. Expired
+funding. Coupon use alone creates no debt. Actual original promo funding creates
+only the funded coupon face, capped at one chip, with a 4× target. A covered
+guarantee creates no grant; guarantee subsidy above the coupon face adds no
+player debt. Separate mystery bounty/prize halves retain their original source
+events and never reopen a spent earlier half. Expired
 prize principal reaches the wallet locked, then the original product expiry
 owner returns it in fund-before-member order. Active event or earned noncash
 principal prevents club departure until lawful maturity or unregister.

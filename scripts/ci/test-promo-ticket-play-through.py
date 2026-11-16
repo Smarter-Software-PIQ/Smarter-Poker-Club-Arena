@@ -30,7 +30,7 @@ def main():
   output=one(prefix+f"SET test.uid='{who}';SELECT {expression};")
   return json.loads(next(line for line in output.splitlines() if line.startswith('{')))
  def reset():
-  db.run("TRUNCATE ca_promo_event_principal_lots,ca_promo_event_realization_slices,ca_promo_event_realization_receipts,ca_promo_principal_custody,ca_promo_play_through_grants,chip_ledger,chip_transactions,tournament_tickets,tournament_ticket_entry_targets,tournament_players,rake_attributions,fixture_principal_returns,smarter_private.free_buy_ticket_redemptions,smarter_private.free_buy_ticket_days;SET fixture.skip_journal='1';UPDATE club_members SET chip_balance=100;UPDATE agents SET agent_wallet_balance=100,promo_wallet_balance=1000;UPDATE tournaments SET status='REGISTERING';UPDATE ca_promo_play_through_settings SET enforced_from=clock_timestamp()-interval '1 second';SET fixture.skip_journal='0';")
+  db.run("TRUNCATE ca_promo_free_buy_funding_slices,ca_promo_event_principal_lots,ca_promo_event_realization_slices,ca_promo_event_realization_receipts,ca_promo_principal_custody,ca_promo_play_through_grants,chip_ledger,chip_transactions,tournament_tickets,tournament_ticket_entry_targets,tournament_players,rake_attributions,fixture_principal_returns,smarter_private.free_buy_ticket_redemptions,smarter_private.free_buy_ticket_days;SET fixture.skip_journal='1';UPDATE club_members SET chip_balance=100;UPDATE agents SET agent_wallet_balance=100,promo_wallet_balance=1000;UPDATE tournaments SET status='REGISTERING';UPDATE ca_promo_play_through_settings SET enforced_from=clock_timestamp()-interval '1 second';SET fixture.skip_journal='0';")
  def held(kind='player_wallet',entity=A,who=A):return one(f"SELECT fn_ca_promo_locked_at('{C}','{who}','{kind}','{entity}')")
  def payout(event,value,category='tournament_prize',who=A,entitlement=None):
   context='' if entitlement is None else f"SET LOCAL app.ca_promo_refund_entitlement='{entitlement}';"
@@ -53,6 +53,9 @@ def main():
    db.run(r['definition'])
    sig=r['signature'] if '.' in r['signature'].split('(')[0] else 'public.'+r['signature']
    check('captured actual owner '+r['proname'],one(f"SELECT md5(pg_get_functiondef('{sig}'::regprocedure))"),r['md5'])
+  for r in json.loads((ROOT/'tests/fixtures/promo-ticket-play-through/free-buy-funding-owners.json').read_text()):
+   db.run(r['definition']);check('actual Free Buy funding owner '+r['signature'],one(f"SELECT md5(pg_get_functiondef('{r['signature']}'::regprocedure))"),r['definition_md5'])
+  db.run("INSERT INTO union_wallets VALUES('fade0000-0000-0000-0000-000000000001',10000,NULL)")
   fee=args.fee_migration.read_text();db.run(fee[:fee.index('DO $owners$')]+'COMMIT;')
   db.run(MIGRATION.read_text())
   check('private ticket owner is not browser callable',one("SELECT NOT has_function_privilege('authenticated','fn_ca_issue_cashable_ticket_owned(uuid,uuid,numeric,text,text,text)','EXECUTE')"),'t')
@@ -148,7 +151,9 @@ def main():
   for index in range(5):
    event=str(uuid.uuid4());registration=str(uuid.uuid4());events.append(event);registrations.append(registration)
    db.run(f"INSERT INTO tournaments(id,club_id,is_free_buy,buy_in_amount,buy_in_fee) VALUES('{event}','{C}',true,0,0);INSERT INTO tournament_players(id,tournament_id,user_id,status) VALUES('{registration}','{event}','{A}','registered');SELECT smarter_private.free_buy_ticket_redeem('{event}','{registration}');")
-  check('all five daily Free Buy redemptions create their original grants',one('SELECT count(*) FROM ca_promo_play_through_grants'),'5')
+  check('five original coupon redemptions move no promo principal',one('SELECT count(*) FROM ca_promo_play_through_grants'),'0')
+  for event in events:db.run(f"SELECT fn_ca_fund_free_buy_at_cutoff_locked('{event}')")
+  check('actual cutoff funds all five original coupon face values',one('SELECT count(*) FROM ca_promo_play_through_grants'),'5')
   check('each Free Buy records one face value and four fees',one('SELECT sum(amount)||\':\'||sum(fee_target) FROM ca_promo_play_through_grants'),'5:20.0000')
   check('Free Buy coupons do not lock unrelated real cash',held(),'0')
   event=str(uuid.uuid4());registration=str(uuid.uuid4())
@@ -157,7 +162,7 @@ def main():
   check('original five-per-day limit still refuses sixth coupon',refused.returncode!=0 and 'FREE_BUY_TICKETS_USED_TODAY' in refused.stderr,True)
   check('refused sixth coupon creates no grant',one('SELECT count(*) FROM ca_promo_play_through_grants'),'5')
   db.run(f"SELECT smarter_private.free_buy_ticket_restore('{registrations[0]}')")
-  check('original unplayed Free Buy return closes its own principal',one(f"SELECT close_reason FROM ca_promo_play_through_grants WHERE source_ref='free_buy_ticket:{registrations[0]}'"),'returned')
+  check('original unplayed Free Buy return closes its own principal',one(f"SELECT close_reason FROM ca_promo_play_through_grants WHERE id IN(SELECT grant_id FROM ca_promo_free_buy_funding_slices WHERE registration_id='{registrations[0]}')"),'returned')
   check('original unplayed return restores coupon allowance',one('SELECT used FROM smarter_private.free_buy_ticket_days'),'4')
   db.run(f"SELECT smarter_private.free_buy_ticket_redeem('{events[1]}','{registrations[1]}')")
   check('Free Buy book replay creates no duplicate target',one('SELECT count(*) FROM ca_promo_play_through_grants'),'5')
@@ -165,7 +170,37 @@ def main():
   check('a Free Buy locks at most its original one-chip value',held(),'1')
   check('Free Buy profit remains cashable',one(f"SELECT fn_ca_promo_play_through_summary('{C}','{A}')->>'cashable'"),'104')
   db.run(f"UPDATE tournaments SET status='COMPLETED' WHERE id='{events[2]}'")
-  check('a lost Free Buy coupon closes at terminal without touching other coupons',one(f"SELECT close_reason FROM ca_promo_play_through_grants WHERE source_ref='free_buy_ticket:{registrations[2]}'"),'spent')
+  check('a lost Free Buy coupon closes at terminal without touching other coupons',one(f"SELECT close_reason FROM ca_promo_play_through_grants WHERE id IN(SELECT grant_id FROM ca_promo_free_buy_funding_slices WHERE registration_id='{registrations[2]}')"),'spent')
+  reset()
+  guaranteed=str(uuid.uuid4());reg=str(uuid.uuid4())
+  db.run(f"INSERT INTO tournaments(id,club_id,is_free_buy,guaranteed_prize,prize_pool) VALUES('{guaranteed}','{C}',true,100,120);INSERT INTO tournament_players(id,tournament_id,user_id,status) VALUES('{reg}','{guaranteed}','{A}','registered');SELECT smarter_private.free_buy_ticket_redeem('{guaranteed}','{reg}');SELECT fn_ca_fund_free_buy_at_cutoff_locked('{guaranteed}')")
+  check('covered guarantee U zero creates no coupon debt',one('SELECT count(*) FROM ca_promo_play_through_grants'),'0')
+  db.run(f"UPDATE tournaments SET prize_pool=99.75 WHERE id='{guaranteed}';SELECT fn_ca_fund_free_buy_at_cutoff_locked('{guaranteed}')")
+  check('actual fractional guarantee subsidy creates only funded face',one("SELECT sum(amount)||':'||sum(fee_target) FROM ca_promo_play_through_grants"),'0.25:1.0000')
+  db.run(f"SELECT fn_ca_fund_free_buy_at_cutoff_locked('{guaranteed}')")
+  check('actual cutoff replay cannot mint another target',one('SELECT count(*) FROM ca_promo_play_through_grants'),'1')
+  reset();guaranteed=str(uuid.uuid4());ra=str(uuid.uuid4());rb=str(uuid.uuid4())
+  db.run(f"INSERT INTO tournaments(id,club_id,is_free_buy,guaranteed_prize,prize_pool) VALUES('{guaranteed}','{C}',true,100,99.99);INSERT INTO tournament_players(id,tournament_id,user_id,status) VALUES('{ra}','{guaranteed}','{A}','registered'),('{rb}','{guaranteed}','{B}','registered');SELECT smarter_private.free_buy_ticket_redeem('{guaranteed}','{ra}');SELECT smarter_private.free_buy_ticket_redeem('{guaranteed}','{rb}');SELECT fn_ca_fund_free_buy_at_cutoff_locked('{guaranteed}')")
+  check('aggregate subsidy cent allocation conserves exact original cent',one('SELECT sum(amount)=0.01 AND count(*)=1 FROM ca_promo_free_buy_funding_slices'),'t')
+  check('aggregate subsidy cent allocation uses canonical registration order',one(f"SELECT registration_id='{max(ra,rb)}'::uuid FROM ca_promo_free_buy_funding_slices"),'t')
+  check('original guarantee funding leaves max G C pool',one(f"SELECT prize_pool=100 FROM tournaments WHERE id='{guaranteed}'"),'t')
+  reset();guaranteed=str(uuid.uuid4());reg=str(uuid.uuid4())
+  db.run(f"INSERT INTO tournaments(id,club_id,is_free_buy,guaranteed_prize) VALUES('{guaranteed}','{C}',true,100);INSERT INTO tournament_players(id,tournament_id,user_id,status) VALUES('{reg}','{guaranteed}','{A}','registered');SELECT smarter_private.free_buy_ticket_redeem('{guaranteed}','{reg}');SELECT fn_ca_fund_free_buy_at_cutoff_locked('{guaranteed}')")
+  check('large guarantee subsidy never creates guarantee-sized player debt',one('SELECT sum(amount)=1 AND sum(fee_target)=4 FROM ca_promo_play_through_grants'),'t')
+  check('capped face does not reduce original guarantee pool',one(f"SELECT prize_pool=100 FROM tournaments WHERE id='{guaranteed}'"),'t')
+  reset();mystery=str(uuid.uuid4());reg=str(uuid.uuid4())
+  db.run(f"INSERT INTO tournaments(id,club_id,is_free_buy,is_mystery_bounty) VALUES('{mystery}','{C}',true,true);INSERT INTO tournament_players(id,tournament_id,user_id,status,current_bounty) VALUES('{reg}','{mystery}','{A}','registered',0.5);SELECT smarter_private.free_buy_ticket_redeem('{mystery}','{reg}');SELECT fn_ca_midway_free_buy_promo_head('{mystery}','{reg}')")
+  check('actual mystery bounty creates only first funded half',one('SELECT sum(amount)=0.5 FROM ca_promo_play_through_grants'),'t')
+  db.run(f"UPDATE tournaments SET status='COMPLETED' WHERE id='{mystery}'")
+  check('busted first mystery half closes permanently',one('SELECT close_reason FROM ca_promo_play_through_grants'),'spent')
+  db.run(f"SELECT fn_ca_fund_free_buy_at_cutoff_locked('{mystery}')")
+  check('later actual mystery cutoff creates second distinct gift',one("SELECT count(*)||':'||sum(amount)||':'||sum(fee_target) FROM ca_promo_play_through_grants"),'2:1.00:4.0000')
+  check('late mystery funding does not reopen first loss',one("SELECT count(*) FROM ca_promo_play_through_grants WHERE close_reason='spent'"),'1')
+  reset();pko=str(uuid.uuid4());reg=str(uuid.uuid4())
+  db.run(f"INSERT INTO tournaments(id,club_id,is_free_buy,is_pko) VALUES('{pko}','{C}',true,true);INSERT INTO tournament_players(id,tournament_id,user_id,status,current_bounty) VALUES('{reg}','{pko}','{A}','registered',1);SELECT smarter_private.free_buy_ticket_redeem('{pko}','{reg}');SELECT fn_ca_midway_free_buy_promo_head('{pko}','{reg}');SELECT fn_ca_midway_free_buy_promo_head('{pko}','{reg}')")
+  check('actual PKO bounty funds one original chip exactly once',one("SELECT count(*)=1 AND sum(amount)=1 FROM ca_promo_play_through_grants"),'t')
+  db.run(f"UPDATE tournaments SET bounty_pool=1 WHERE id='{pko}';SELECT fn_ca_midway_free_buy_promo_head('{pko}','{reg}',true)")
+  check('original unplayed funded PKO return closes its grant',one('SELECT close_reason FROM ca_promo_play_through_grants'),'returned')
   reset()
   with ThreadPoolExecutor(max_workers=2) as pool:
    replies=list(pool.map(lambda _:call(A,f"fn_issue_tournament_ticket_agent('{C}','{B}',40,NULL,'concurrent-agent-ticket')"),range(2)))
@@ -175,7 +210,7 @@ def main():
   check('concurrent agent ticket creates one escrow entitlement',one('SELECT count(*) FROM tournament_tickets'),'1')
   passed=True
  finally:
-  report={'status':'passed' if passed else 'failed','checks':checks,'production_mutations':False,'source_sha256':{str(MIGRATION.relative_to(ROOT)):hashlib.sha256(MIGRATION.read_bytes()).hexdigest(),str(args.custody_migration):hashlib.sha256(args.custody_migration.read_bytes()).hexdigest(),str(args.fee_migration):hashlib.sha256(args.fee_migration.read_bytes()).hexdigest()}}
+  report={'status':'passed' if passed else 'failed','checks':checks,'production_mutations':False,'source_sha256':{str(MIGRATION.relative_to(ROOT)):hashlib.sha256(MIGRATION.read_bytes()).hexdigest(),str(args.custody_migration):hashlib.sha256(args.custody_migration.read_bytes()).hexdigest(),str(args.fee_migration):hashlib.sha256(args.fee_migration.read_bytes()).hexdigest(),**{str(path.relative_to(ROOT)):hashlib.sha256(path.read_bytes()).hexdigest() for path in [Path(__file__),ROOT/'scripts/ci/fixtures/promo-ticket-play-through/setup.sql',*sorted((ROOT/'tests/fixtures/promo-ticket-play-through').glob('*.json'))]}}}
   (args.output/'RESULTS.json').write_text(json.dumps(report,indent=2)+'\n')
   if started:subprocess.run([pg/'pg_ctl','-D',tmp/'data','-m','immediate','-w','stop'],capture_output=True)
   shutil.rmtree(tmp)

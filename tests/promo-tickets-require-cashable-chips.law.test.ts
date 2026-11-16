@@ -44,4 +44,16 @@ describe('Tickets use cashable player or agent chips; promo enters tournaments d
       "else if (kind === 'ticket' && uncertainRecovery.source === 'agent_wallet')"
     );
   });
+  it('records Free Buy principal only from its original actual funding transition', () => {
+    expect(sql).toContain(
+      'CREATE TRIGGER ca_promo_free_buy_funded AFTER INSERT ON public.chip_ledger'
+    );
+    expect(sql).toContain("NEW.from_label IS DISTINCT FROM 'union_wallets.promo_wallet'");
+    expect(sql).toContain("'free_buy_funding:'||NEW.id||':'||r.id");
+    expect(sql).not.toContain("'free_buy_ticket:'||NEW.registration_id");
+    const native = read('scripts/ci/test-promo-ticket-play-through.py');
+    expect(native).toContain('free-buy-funding-owners.json');
+    expect(native).toContain('covered guarantee U zero creates no coupon debt');
+    expect(native).toContain('late mystery funding does not reopen first loss');
+  });
 });

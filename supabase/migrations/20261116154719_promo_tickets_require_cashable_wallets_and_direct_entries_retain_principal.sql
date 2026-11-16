@@ -149,33 +149,79 @@ REVOKE ALL ON FUNCTION public.fn_ca_promo_clear_closed_event_lots() FROM PUBLIC,
 CREATE TRIGGER ca_promo_clear_closed_event_lots AFTER UPDATE OF closed_at ON public.ca_promo_play_through_grants
  FOR EACH ROW EXECUTE FUNCTION public.fn_ca_promo_clear_closed_event_lots();
 
+-- Coupon allowance is not money. Principal starts only at the original
+-- actual promo debit, capped to the funded one-chip face of each coupon.
+CREATE TABLE public.ca_promo_free_buy_funding_slices (
+ ledger_id uuid NOT NULL REFERENCES public.chip_ledger(id),
+ registration_id uuid NOT NULL REFERENCES public.tournament_players(id),
+ grant_id uuid NOT NULL REFERENCES public.ca_promo_play_through_grants(id),
+ amount numeric NOT NULL CHECK(amount>0 AND amount<=1),
+ PRIMARY KEY(ledger_id,registration_id)
+);
+ALTER TABLE public.ca_promo_free_buy_funding_slices ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_promo_free_buy_funding_slices FROM PUBLIC,anon,authenticated,service_role;
+CREATE FUNCTION public.fn_ca_promo_free_buy_funded() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path='public','smarter_private','pg_temp' AS $$
+DECLARE r record;gid uuid;capacity numeric;budget numeric;take numeric;total_cents bigint;index_no bigint:=0;member_count bigint;
+BEGIN
+ IF NEW.category<>'promo_send' OR NEW.from_type<>'union_wallet' OR NEW.to_type<>'prize_liability'
+  OR NEW.metadata->>'kind' IS DISTINCT FROM 'midway_free_buy_promo_head'
+  OR NOT EXISTS(SELECT 1 FROM public.ca_promo_play_through_settings WHERE id AND enforced_from<=clock_timestamp()) THEN RETURN NULL; END IF;
+ IF NEW.from_entity_id IS DISTINCT FROM 'fade0000-0000-0000-0000-000000000001'::uuid
+  OR NEW.from_label IS DISTINCT FROM 'union_wallets.promo_wallet'
+  OR NEW.tournament_id IS DISTINCT FROM NEW.to_entity_id OR NEW.amount<=0 THEN RAISE EXCEPTION 'promo_free_buy_original_funding_conflict'; END IF;
+ IF NEW.metadata->>'stage'='cutoff' THEN
+  IF NEW.idempotency_key IS DISTINCT FROM 'tourney:'||NEW.tournament_id||':free_buy_cutoff_funding' THEN RAISE EXCEPTION 'promo_free_buy_original_cutoff_conflict'; END IF;
+ ELSE
+  IF NEW.idempotency_key IS DISTINCT FROM 'tourney:'||NEW.tournament_id||':promo_head:'||(NEW.metadata->>'registration_id') THEN RAISE EXCEPTION 'promo_free_buy_original_head_conflict'; END IF;
+ END IF;
+ -- Original funding owner already holds the tournament lock. Snapshot only
+ -- its valid redeemed registrations, sorted to make cent allocation stable.
+ SELECT count(*),COALESCE(sum(greatest(0,1-COALESCE((SELECT sum(f.amount) FROM public.ca_promo_free_buy_funding_slices f WHERE f.registration_id=p.id),0))),0)
+  INTO member_count,capacity FROM public.tournament_players p JOIN smarter_private.free_buy_ticket_redemptions d ON d.registration_id=p.id AND d.user_id=p.user_id AND d.tournament_id=p.tournament_id
+  WHERE p.tournament_id=NEW.tournament_id AND d.returned_at IS NULL
+   AND (NEW.metadata->>'stage'='cutoff' OR p.id::text=NEW.metadata->>'registration_id');
+ budget:=least(NEW.amount,capacity);total_cents:=floor(budget*100);
+ IF member_count=0 OR total_cents<=0 THEN RETURN NULL; END IF;
+ -- Allocate exact cents in canonical registration order.
+ -- Every previous source event consumes its face capacity even after loss/met.
+ FOR r IN SELECT p.id,p.user_id,t.club_id,greatest(0,1-COALESCE((SELECT sum(f.amount) FROM public.ca_promo_free_buy_funding_slices f WHERE f.registration_id=p.id),0)) available
+  FROM public.tournament_players p JOIN public.tournaments t ON t.id=p.tournament_id
+  JOIN smarter_private.free_buy_ticket_redemptions d ON d.registration_id=p.id AND d.user_id=p.user_id AND d.tournament_id=p.tournament_id
+  WHERE p.tournament_id=NEW.tournament_id AND d.returned_at IS NULL
+   AND (NEW.metadata->>'stage'='cutoff' OR p.id::text=NEW.metadata->>'registration_id') ORDER BY p.id LOOP
+  -- All coupons in a format have the same original funded components. The
+  -- remaining budget/capacity proportional cut also handles legacy mixtures.
+  IF capacity<=0 OR budget<=0 THEN EXIT; END IF;
+  take:=least(r.available,trunc(budget*r.available/capacity,2));
+  IF index_no=member_count-1 THEN take:=least(r.available,budget); END IF;
+  index_no:=index_no+1;capacity:=capacity-r.available;budget:=budget-take;
+  IF take<=0 THEN CONTINUE; END IF;
+  gid:=public.fn_ca_promo_play_through_record_grant(r.club_id,r.user_id,take,'promo_ticket_prize',
+   'free_buy_funding:'||NEW.id||':'||r.id,NEW.id,'union_wallet',NEW.from_entity_id,NULL);
+  IF gid IS NOT NULL THEN
+   UPDATE public.ca_promo_principal_custody SET kind='event',entity_id=NEW.tournament_id WHERE grant_id=gid AND kind='player_wallet' AND entity_id=r.user_id;
+   INSERT INTO public.ca_promo_event_principal_lots(grant_id,tournament_id,charge_ledger_id,source_ref,original_amount,remaining)
+    VALUES(gid,NEW.tournament_id,NEW.id,'free_buy_funding:'||NEW.id||':'||r.id,take,take);
+   INSERT INTO public.ca_promo_free_buy_funding_slices VALUES(NEW.id,r.id,gid,take);
+  END IF;
+ END LOOP;
+ RETURN NULL;
+END $$;
+REVOKE ALL ON FUNCTION public.fn_ca_promo_free_buy_funded() FROM PUBLIC,anon,authenticated,service_role;
+CREATE TRIGGER ca_promo_free_buy_funded AFTER INSERT ON public.chip_ledger FOR EACH ROW EXECUTE FUNCTION public.fn_ca_promo_free_buy_funded();
+INSERT INTO public.ca_declared_money_triggers(table_name,trigger_name,note) VALUES('chip_ledger','ca_promo_free_buy_funded','Actual original Free Buy promo funding captures at most each redeemed coupon face; allowance issuance creates no debt.');
 CREATE FUNCTION public.fn_ca_promo_free_buy_principal() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path='public','smarter_private','pg_temp' AS $$
-DECLARE club uuid;gid uuid;
 BEGIN
- IF TG_OP='INSERT' THEN
-  IF NEW.returned_at IS NOT NULL OR NOT EXISTS(SELECT 1 FROM public.ca_promo_play_through_settings WHERE id AND enforced_from<=clock_timestamp()) THEN RETURN NULL; END IF;
-  SELECT t.club_id INTO club FROM public.tournaments t JOIN public.tournament_players p ON p.tournament_id=t.id
-   WHERE t.id=NEW.tournament_id AND p.id=NEW.registration_id AND p.user_id=NEW.user_id;
-  IF club IS NULL THEN RAISE EXCEPTION 'promo_free_buy_requires_original_registration'; END IF;
-  gid:=public.fn_ca_promo_play_through_record_grant(club,NEW.user_id,1,'promo_ticket_prize',
-   'free_buy_ticket:'||NEW.registration_id,NULL,'union_wallet','fade0000-0000-0000-0000-000000000001',NULL);
-  IF gid IS NOT NULL THEN
-   UPDATE public.ca_promo_principal_custody SET kind='event',entity_id=NEW.tournament_id WHERE grant_id=gid AND kind='player_wallet' AND entity_id=NEW.user_id;
-   INSERT INTO public.ca_promo_event_principal_lots(grant_id,tournament_id,source_ref,original_amount,remaining)
-    VALUES(gid,NEW.tournament_id,'free_buy_ticket:'||NEW.registration_id,1,1);
-  END IF;
- ELSIF OLD.returned_at IS NULL AND NEW.returned_at IS NOT NULL THEN
-  SELECT id INTO gid FROM public.ca_promo_play_through_grants WHERE source_ref='free_buy_ticket:'||NEW.registration_id AND closed_at IS NULL FOR UPDATE;
-  IF gid IS NOT NULL THEN
-   UPDATE public.ca_promo_play_through_grants SET remaining=0,closed_at=clock_timestamp(),close_reason='returned',
-    close_note='Original unplayed Free Buy ticket restored' WHERE id=gid;
-  END IF;
+ IF OLD.returned_at IS NULL AND NEW.returned_at IS NOT NULL THEN
+  UPDATE public.ca_promo_play_through_grants g SET remaining=0,closed_at=clock_timestamp(),close_reason='returned',close_note='Original unplayed Free Buy funding returned'
+  FROM public.ca_promo_free_buy_funding_slices f WHERE f.registration_id=NEW.registration_id AND f.grant_id=g.id AND g.closed_at IS NULL;
  END IF;
  RETURN NULL;
 END $$;
 REVOKE ALL ON FUNCTION public.fn_ca_promo_free_buy_principal() FROM PUBLIC,anon,authenticated,service_role;
-CREATE TRIGGER ca_promo_free_buy_principal AFTER INSERT OR UPDATE OF returned_at ON smarter_private.free_buy_ticket_redemptions
+CREATE TRIGGER ca_promo_free_buy_principal AFTER UPDATE OF returned_at ON smarter_private.free_buy_ticket_redemptions
  FOR EACH ROW EXECUTE FUNCTION public.fn_ca_promo_free_buy_principal();
 
 -- Terminal status is already protected by original settlement/refund receipts.

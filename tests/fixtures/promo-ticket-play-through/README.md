@@ -7,7 +7,10 @@ The regression executes the original promo ticket send/batch refusal and old
 receipt replay, the original ticket owner with cashable player/agent sources,
 agent-source cancellation and replay, the actual wallet debit primitive,
 per-entry principal, partial prizes/refunds, earned satellite rollover, full
-loss and the private five-per-day Free Buy book. Bought tickets never create
+loss and the private five-per-day Free Buy book. Actual original Free Buy
+bounty/head and cutoff funding owners create source-ledger-backed coupon face
+slices. Coupon allowance alone creates no grant; guarantee zero/fractional/large
+subsidies and exact aggregate cents preserve the original funding formulas. Bought tickets never create
 new promo custody or a new play-through target.
 
 Fixture adapters are explicit: journal legs replace production autoledger and
@@ -17,3 +20,8 @@ custody. The lock-only source-fund adapter has no real fund journal. This proof
 does not qualify the production tally, full tournament entry accounting,
 original exact-refund closure or source-fund concurrency; the combined owning
 financial integration must qualify those before programme activation.
+
+Free Buy escrow updates and guarantee-funding reads are explicit isolated
+adapters. The actual original head/cutoff functions and their promo source
+balance debit, immutable journal, replay keys and pool update run unchanged.
+This is not a full production guarantee/escrow closure claim.
