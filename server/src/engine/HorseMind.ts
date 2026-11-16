@@ -5,6 +5,7 @@ import {
   type MultiwayRiverReadState,
 } from './HorseMultiwayRiverRead.js';
 import { omahaTightRead, type OmahaTightRead } from './HorseOmahaTightOpponent.js';
+import { huTightFolderRead, type HuTightFolderRead } from './HorseHuTightBigBlindSteal.js';
 import { omahaReadConditional, type OmahaReadConditional } from './HorseOmahaReadConditional.js';
 import type { OmahaFacingBetEvRead } from './HorseOmahaFacingBetEv.js';
 import {
@@ -113,6 +114,7 @@ import {
   looseCallerWidth,
   maniacRaiseWidth,
   withManiacSampleGate,
+  withManiacShortHandedReach,
   mergeExploitRows,
   mergeFlopStabRows,
   observeExploitRow,
@@ -421,6 +423,9 @@ export interface DecisionReadOptions {
    *  OMAHA_MANIAC_RERAISE_MIN_OPPS decayed opportunities, not at his whole
    *  raising width (see bandFor). Absent = unchanged. */
   omahaManiacReRaiseMeasured?: boolean;
+  /** The decision's telemetry gate for the receipt of the read above
+   *  (omaha_maniac_reraise_width_measured). Absent = no receipt. */
+  omahaManiacReRaiseReceipt?: boolean;
   shrinkResponseReads?: boolean;
   /** Break-even postflop bluffing (see BREAK_EVEN_BLUFF below). */
   breakEvenBluff?: boolean;
@@ -451,6 +456,10 @@ export interface DecisionReadOptions {
    *  durable shown river record the decision's pooled row carried (HorseLongShownMemory.mergeLongShownBuckets). Only
    *  an explicit true engages; absent, the style read is what it was. */
   styleLongShownMemory?: boolean;
+  /** THE PROFILE COMPLETENESS CAP (2026-11-15, HorseDecideOpts.holdemProfileCompletenessCap): the style read takes
+   *  the incomplete-profile cap for a pooled row the decision's state names (pooledProfileIncomplete). Only an
+   *  explicit true engages; absent, the read is what it was. */
+  holdemProfileCompletenessCap?: boolean;
   /** TIGHT BEYOND VPIP (2026-11-15, HorseDecideOpts.styleTightMultiSignal): the style read admits the multi-signal
    *  tight route (HorseOpponentStyle.tightMultiSignalRead). Only an explicit true engages; absent, the read is what
    *  it was. */
@@ -459,6 +468,10 @@ export interface DecisionReadOptions {
    *  evidence (HorseOpponentExploit.withManiacSampleGate), so maniacRaiseWidth needs 15 decayed hands and PFR credibly
    *  above the size's regular line. Only an explicit true engages; absent, every read is what it was. */
   holdemManiacSampleGate?: boolean;
+  /** SHORT-HANDED MANIAC REACH (2026-11-15, HorseDecideOpts.holdemManiacShortHandedReach): short-handed and heads-up
+   *  no-limit hold'em reads may take the maniac width from postflop evidence
+   *  (HorseOpponentExploit.withManiacShortHandedReach). Only an explicit true engages. */
+  holdemManiacShortHandedReach?: boolean;
   /** GEAR SHIFT REACH (2026-11-15, HorseDecideOpts.holdemGearShiftReach): no-limit hold'em reads from opponentRead
    *  judge a confirmed regime break on the fast window at the ordinary credibility (HorseOpponentExploit.
    *  GEAR_SHIFT_REACH). Only an explicit true engages; absent, every read is what it was. */
@@ -828,6 +841,12 @@ export interface HorseMindSandbox {
    *  carry styleLongShownMemory, so with the option off nothing is carried. Travels with the decision's own state
    *  and its read frame (v16), never in a process-wide map. Absent when the read carried none. */
   pooledShownRiver?: Map<string, ShownRiverRead>;
+  /** THE PROFILE COMPLETENESS CAP ON THE POOLED PUBLIC PATH (2026-11-15, option holdemProfileCompletenessCap): the
+   *  pooled exact and donor rows in `exploit` (opponentMemoryKey) whose stored profile is not complete
+   *  (HorseOpponentStyle.profileQualification: back-fill pending, or no public domain on file). Set by the observer
+   *  reads only for a decision whose options carry the option, so with it off nothing is carried. Travels with the
+   *  decision's own state and its read frame (v17). Absent when the read carried none. */
+  pooledProfileIncomplete?: Map<string, true>;
 }
 
 /** What one pre-repair keyed pooled row carries into a decision; see HorseMindSandbox.pooledProvenance. */
@@ -1171,8 +1190,11 @@ function importedWindow(
  * default of HorseMind.setFixedLimitBetsAreNeverProbes. ON since 2026-11-15
  * as a defect repair (fixed-limit maniac recognition), with its eight
  * evidence rows in docs/horse-default-on.d/fixedLimitBetsAreNeverProbes.md.
- * OFF (setFixedLimitBetsAreNeverProbes(false)) is the rollback: a fixed-limit
- * hand's bets are probe-counted exactly as before. See the switch's note.
+ * OFF is the rollback: a fixed-limit hand's bets are probe-counted exactly as
+ * before. Live, with no cutover: an off row for fixedLimitBetsAreNeverProbes in
+ * the option switch registry (HorseOptionSwitch.ts), which the decision worker
+ * applies before every job; clearing the row returns to this default. See the
+ * switch's note.
  */
 export const FIXED_LIMIT_BETS_ARE_NEVER_PROBES_DEFAULT = true;
 
@@ -1293,9 +1315,24 @@ export class HorseMind {
   /** The sandbox's durable shown river reads (HorseMindSandbox.pooledShownRiver) while one is installed; null outside
    *  a sandbox and for a sandbox that carries none. */
   private static pooledShownRiver: Map<string, ShownRiverRead> | null = null;
+  /** The sandbox's incomplete pooled rows (HorseMindSandbox.pooledProfileIncomplete) while one is installed. */
+  private static pooledProfileIncomplete: Map<string, true> | null = null;
   private static decisionVariant: string | null = null;
+  /** The betting structure of the decision in flight, as the game state
+   *  states it (HorseLogic.prepareOriginalReads); null when the caller gave
+   *  none, and then decisionBettingStructure() derives it from the variant.
+   *  Cleared with the scope. */
+  private static decisionStructure: BettingStructure | null = null;
+  /** F1b's own decide option for the decision in flight
+   *  (HorseDecideOpts.fixedLimitReadIgnoresProbes, default OFF; set by
+   *  HorseLogic.prepareOriginalReads beside the structure). False outside a
+   *  decision; cleared with the scope, at reset and across a sandbox exactly
+   *  like decisionStructure. */
+  private static decisionReadIgnoresProbes = false;
   /** Read calibration options of the decision in flight (DecisionReadOptions). */
   private static decisionReadOptions: DecisionReadOptions = {};
+  /** omaha_maniac_reraise_width_measured already fired in the decision in progress. */
+  private static maniacReRaiseReceiptFired = false;
   /** dedupe of processed ActionRecords across repeated decide() calls */
   private static seenActions = new Set<string>();
   /** per (handKey|userId) preflop-participation flags already counted */
@@ -2203,8 +2240,20 @@ export class HorseMind {
       : [];
     const known = keys.filter((k) => this.durableProfileComplete.has(k));
     const exactKey = keys[0];
-    const complete: boolean | null =
-      exactKey !== undefined && this.durableProfileComplete.has(exactKey)
+    // PROFILE COMPLETENESS CAP (2026-11-15, holdemProfileCompletenessCap): the pooled rows this decision reads carry
+    // their qualification with the decision's own state. The exact row governs; a donor's counts only while the
+    // exact row is not among the counters the read stands on. Absent (option off), `complete` is what it was.
+    const pooledIncomplete =
+      this.decisionReadOptions.holdemProfileCompletenessCap === true &&
+      this.pooledProfileIncomplete !== null &&
+      exactKey !== undefined &&
+      (this.exploitCounters.has(exactKey)
+        ? this.pooledProfileIncomplete.has(exactKey)
+        : keys.slice(1).some((k) => this.pooledProfileIncomplete!.has(k)));
+    if (pooledIncomplete) noteFire('holdem_profile_completeness_cap_seen');
+    const complete: boolean | null = pooledIncomplete
+      ? false
+      : exactKey !== undefined && this.durableProfileComplete.has(exactKey)
         ? (this.durableProfileComplete.get(exactKey) as boolean)
         : durableMemoryOn
           ? null
@@ -2379,14 +2428,23 @@ export class HorseMind {
    * whose betting structure is fixed limit; the tallies are pooled per player
    * across games, so excluding the fixed-limit hands at count time also stops
    * them diluting or inflating the same player's no-limit probe share.
+   * READ TIME (F1b): stopping his no-limit probe share discounting a
+   * fixed-limit read is a SEPARATE opt-in decide option since 2026-11-16
+   * (HorseDecideOpts.fixedLimitReadIgnoresProbes, default OFF; see
+   * fixedLimitReadIgnoresProbes below). With it off, every fixed-limit read is
+   * probe-adjusted exactly as before F1b, whatever this switch says.
    *
    * PROCESS-LEVEL, SOURCE DEFAULT ON (2026-11-15; off until then). Counting
    * happens outside a decision (the completed-hand learner, workerRuntime
    * observeCompletedHandInMind) as well as at the top of one, and the two paths share one dedupe, so a
    * per-decision option would count the same hand two ways. The switch is
    * therefore one value for the process: FIXED_LIMIT_BETS_ARE_NEVER_PROBES_DEFAULT
-   * is what production runs (live requests carry no decide options), and
+   * is what production runs while nothing is switched, and
    * setFixedLimitBetsAreNeverProbes is for tests, harnesses and replay.
+   * LIVE SWITCH (2026-11-15, owner rule 11:26): the option switch registry
+   * carries it as fixedLimitBetsAreNeverProbes, and the decision worker sets
+   * it from the registry before every job (applyFixedLimitBetsAreNeverProbesOption
+   * below, workerRuntime execute), so OFF and back ON need no cutover.
    * Turning it on in production was a default change under
    * docs/HORSE-DECISION-CHANGE-EVIDENCE.md: the eight evidence rows are in
    * docs/horse-default-on.d/fixedLimitBetsAreNeverProbes.md, and the law
@@ -2399,6 +2457,23 @@ export class HorseMind {
   }
   static fixedLimitBetsAreNeverProbesOn(): boolean {
     return this.fixedLimitBetsAreNeverProbes;
+  }
+  /**
+   * The registry's state for this process switch, as the decision options
+   * carry it (optionSwitchDecisionOpts: an off row gives false, an on row
+   * true; no row, an unreadable, invalid or stale read gives no key). No key
+   * is the source default, never the last value. Called by the decision
+   * worker before every job it runs: the only process that counts (the main
+   * thread decides nothing with the mind on).
+   */
+  static applyFixedLimitBetsAreNeverProbesOption(opts: {
+    readonly fixedLimitBetsAreNeverProbes?: boolean;
+  }): void {
+    this.setFixedLimitBetsAreNeverProbes(
+      typeof opts.fixedLimitBetsAreNeverProbes === 'boolean'
+        ? opts.fixedLimitBetsAreNeverProbes
+        : FIXED_LIMIT_BETS_ARE_NEVER_PROBES_DEFAULT
+    );
   }
 
   /**
@@ -2426,6 +2501,58 @@ export class HorseMind {
     return this.fixedLimitRiverBetsAreValueEvidence;
   }
 
+  /**
+   * A FIXED-LIMIT READ IS NEVER PROBE-DISCOUNTED (2026-11-15, Fixed-Limit
+   * lane, "F1b"; the read-time half of FIXED-LIMIT BETS ARE NEVER PROBES).
+   * OPT-IN since 2026-11-16: its own decide option
+   * HorseDecideOpts.fixedLimitReadIgnoresProbes, default OFF, registered in
+   * the live option switch; it engages only when that option is on for the
+   * decision AND the F1 process switch is on (the counting it relies on).
+   * Default OFF because its value is not demonstrated (Fixed-Limit lane
+   * AB-EVALUATION-2.md sections 3.1 and 3.10). The probe tallies are pooled per
+   * player across games and, with the switch on, hold only his no-limit and
+   * pot-limit bets; applying that share to a fixed-limit read discounted his
+   * fixed-limit betCheckedTo by how he min-bets at OTHER games, although every
+   * fixed-limit bet is the street's one legal size. True while the option is
+   * on for the decision, the switch is on and the decision in flight is fixed
+   * limit by its BETTING STRUCTURE
+   * (decisionBettingStructure: the game state's own structure, the variant
+   * only when the state gives none), so a fixed-limit Omaha of any card count
+   * is covered without naming its variant. No-limit and pot-limit reads, every
+   * read outside a decision and every read with the option or the switch off
+   * are unchanged.
+   */
+  private static fixedLimitReadIgnoresProbes(): boolean {
+    return (
+      this.decisionReadIgnoresProbes &&
+      this.fixedLimitBetsAreNeverProbes &&
+      this.decisionScope !== null &&
+      this.decisionBettingStructure() === 'fixed_limit'
+    );
+  }
+
+  /** The betting structure of the decision in flight: the game state's own
+   *  (setDecisionBettingStructure), else the variant's (bettingStructureFor). */
+  static decisionBettingStructure(): BettingStructure {
+    return this.decisionStructure ?? bettingStructureFor(this.decisionVariant);
+  }
+
+  /** Set by HorseLogic beside the decision scope from the game state's
+   *  bettingStructure; cleared with the scope. Ignored without a scope. */
+  static setDecisionBettingStructure(structure: BettingStructure | null | undefined): void {
+    this.decisionStructure =
+      this.decisionScope &&
+      (structure === 'fixed_limit' || structure === 'pot_limit' || structure === 'no_limit')
+        ? structure
+        : null;
+  }
+
+  /** Set by HorseLogic beside the structure from HorseDecideOpts.fixedLimitReadIgnoresProbes (=== true only);
+   *  cleared with the scope. Ignored without a scope. */
+  static setDecisionFixedLimitReadIgnoresProbes(on: boolean | undefined): void {
+    this.decisionReadIgnoresProbes = this.decisionScope !== null && on === true;
+  }
+
   private static probeAdjusted<T extends Partial<ExploitCounters>>(
     userId: string,
     counters: T | undefined
@@ -2433,6 +2560,11 @@ export class HorseMind {
     if (!counters || !this.probeAwareAggression) return counters;
     const pooled = this.stats.get(userId);
     const adjusted = probeAdjustedCounters(counters, pooled?.ctBets, pooled?.ctProbes);
+    if (adjusted !== counters && this.fixedLimitReadIgnoresProbes()) {
+      // F1b: the discount would have come from his other games' probes.
+      noteFire('fixed_limit_read_probe_discount_withheld');
+      return counters;
+    }
     if (adjusted !== counters) noteFire('opponent_read_probe_bets_discounted');
     return adjusted;
   }
@@ -2484,14 +2616,23 @@ export class HorseMind {
         : undefined
     );
     // MANIAC SAMPLE GATE (2026-11-15, option holdemManiacSampleGate, default off): no-limit hold'em only.
-    const read =
+    const gated =
       this.decisionReadOptions.holdemManiacSampleGate === true &&
       family === 'holdem' &&
       memoryVariant(this.decisionVariant) === 'nlh'
         ? withManiacSampleGate(ungated, readCounters, scope, this.decisionVariant)
         : ungated;
-    if (read !== ungated && maniacRaiseWidth(ungated) !== null && maniacRaiseWidth(read) === null)
+    if (gated !== ungated && maniacRaiseWidth(ungated) !== null && maniacRaiseWidth(gated) === null)
       noteFire('maniac_sample_gate_withheld_seen');
+    // SHORT-HANDED MANIAC REACH (2026-11-15, option holdemManiacShortHandedReach, default off): no-limit hold'em,
+    // short-handed and heads-up scopes only; absent, the read is what it was.
+    const read =
+      this.decisionReadOptions.holdemManiacShortHandedReach === true &&
+      family === 'holdem' &&
+      memoryVariant(this.decisionVariant) === 'nlh'
+        ? withManiacShortHandedReach(gated, readCounters, scope)
+        : gated;
+    if (read !== gated) noteFire('holdem_maniac_short_handed_reach_seen');
     if (read?.corroborated) noteFire('opponent_exploit_corroborated');
     // Owner update 2026-10-27: the same public-information policy applies
     // against people and horses. Every unknown Omaha opponent receives the
@@ -2516,7 +2657,7 @@ export class HorseMind {
     if (
       family === 'omaha' &&
       this.decisionReadOptions.fixedLimitOmahaNoPresumption === true &&
-      bettingStructureFor(this.decisionVariant) === 'fixed_limit'
+      this.decisionBettingStructure() === 'fixed_limit'
     ) {
       noteFire('fixed_limit_omaha_presumption_withheld');
       return read;
@@ -2557,10 +2698,43 @@ export class HorseMind {
     // probeAdjusted without its receipt: the same counters, no fire.
     const pooled = this.stats.get(userId);
     const counters =
-      raw && this.probeAwareAggression
+      raw && this.probeAwareAggression && !this.fixedLimitReadIgnoresProbes()
         ? probeAdjustedCounters(raw, pooled?.ctBets, pooled?.ctProbes)
         : raw;
     return omahaTightRead(
+      counters,
+      scope,
+      this.decisionVariant,
+      opponentExploitRead(counters, scope, this.decisionVariant)
+    );
+  }
+
+  /**
+   * HEADS-UP TIGHT FOLDER (2026-11-15, HorseHuTightBigBlindSteal, D6, default
+   * off): the tight-folder read of this opponent for a heads-up no-limit
+   * hold'em decision in flight, from the same decayed counters opponentRead
+   * reads (the exact context's durable row, probe-adjusted) and its high-side
+   * exploit read, exactly as omahaTightReadOf assembles them. Null outside a
+   * holdem:hu decision or below the evidence floor. Pure: no fires, no writes.
+   * Only HorseLogic calls it, and only with huSmallBlindStealsVsTightBigBlind on.
+   */
+  static huTightFolderReadOf(userId: string): HuTightFolderRead | null {
+    const scope = this.decisionScope;
+    if (scope !== 'holdem:hu') return null;
+    const variant = memoryVariant(this.decisionVariant);
+    const size = scope.split(':')[1] as MemorySize;
+    const durable = variant ? this.blendDurableRead(userId, variant, size, false) : undefined;
+    const raw =
+      durable ??
+      (this.durableOpponentMemory && variant
+        ? undefined
+        : this.exploitCounters.get(`${scope}|${userId}`));
+    const pooled = this.stats.get(userId);
+    const counters =
+      raw && this.probeAwareAggression
+        ? probeAdjustedCounters(raw, pooled?.ctBets, pooled?.ctProbes)
+        : raw;
+    return huTightFolderRead(
       counters,
       scope,
       this.decisionVariant,
@@ -2598,7 +2772,11 @@ export class HorseMind {
    * opponent-memory owner's to add. A raise and a turn bet have no such row.
    *
    * Null outside an Omaha decision. Pure: no fires, no writes. Only HorseLogic
-   * calls it, and only with omahaFacingBetEv on.
+   * calls it: with omahaFacingBetEv on (turn and river), with
+   * omahaTurnRiverRaiseNeedsNuts on (the same exact-hand count), and with
+   * omahaBareOverpairOopFlopCheck on for the continuation's FLOP decision,
+   * which passes street 'turn' (the street only selects the river
+   * size-shown cell, so a flop decision reads no such cell).
    */
   static omahaFacingBetEvReadOf(
     userId: string,
@@ -2747,6 +2925,9 @@ export class HorseMind {
       this.styleMemoEpoch,
       this.decisionScope,
       this.decisionVariant,
+      // F1b keys on the decision's structure and its own option (Hand Analysis D4, 2026-11-16).
+      this.decisionStructure,
+      this.decisionReadIgnoresProbes,
       this.decisionMode,
       this.decisionReadOptions,
       this.exploitCounters,
@@ -2755,8 +2936,13 @@ export class HorseMind {
       this.durableOpponentMemory,
       this.probeAwareAggression,
       this.pooledProvenance,
+      this.pooledProfileIncomplete,
       this.donorStaleness,
       this.sandboxDepth,
+      // F1 is live-switchable (fixedLimitBetsAreNeverProbes through the option switch registry): a memo entry must
+      // never serve a read computed under the other switch state. The decision's betting structure is keyed above
+      // (decisionVariant and, for F1b, decisionStructure).
+      this.fixedLimitBetsAreNeverProbes,
     ];
   }
   private static styleMemoValid(inputs: readonly unknown[]): boolean {
@@ -2792,7 +2978,7 @@ export class HorseMind {
     const own = this.decisionExploitCounters(userId);
     const pooled = this.stats.get(userId);
     const counters =
-      own && this.probeAwareAggression
+      own && this.probeAwareAggression && !this.fixedLimitReadIgnoresProbes()
         ? probeAdjustedCounters(own, pooled?.ctBets, pooled?.ctProbes)
         : own;
     const carryWeight = this.decisionReadOptions.styleCarryWeight ?? 0;
@@ -2930,6 +3116,8 @@ export class HorseMind {
     this.decisionMode = mode;
     this.decisionScope = scope;
     this.decisionVariant = scope ? variant : null;
+    this.decisionStructure = null;
+    this.decisionReadIgnoresProbes = false;
     if (!scope) this.decisionReadOptions = {};
     // C6: a style read memo lives inside one decision only.
     this.styleMemo = null;
@@ -2938,6 +3126,7 @@ export class HorseMind {
   /** Set by HorseLogic beside the decision scope; cleared with it. */
   static setDecisionReadOptions(options: DecisionReadOptions): void {
     this.decisionReadOptions = this.decisionScope ? { ...options } : {};
+    this.maniacReRaiseReceiptFired = false;
   }
 
   static currentDecisionReadOptions(): Readonly<DecisionReadOptions> {
@@ -3097,6 +3286,8 @@ export class HorseMind {
     this.decisionMode = 'cash';
     this.decisionScope = null;
     this.decisionVariant = null;
+    this.decisionStructure = null;
+    this.decisionReadIgnoresProbes = false;
   }
 
   // ───────────────────────────────────────────────────────────────────────
@@ -3468,6 +3659,9 @@ export class HorseMind {
             // And the same durable shown river read (exact rows only; donors never carry one).
             const rowShown = row ? this.pooledShownRiver?.get(key) : undefined;
             if (rowShown) (view.pooledShownRiver ??= new Map()).set(key, structuredClone(rowShown));
+            // And the same completeness cap (exact row).
+            if (row && this.pooledProfileIncomplete?.has(key))
+              (view.pooledProfileIncomplete ??= new Map()).set(key, true);
             // The second look reads exactly what the first did, so the donor
             // contexts opponentRead may borrow travel with the exact one.
             if (!memoryContext) continue;
@@ -3478,6 +3672,8 @@ export class HorseMind {
               const donorAge = this.donorStaleness?.get(donorKey);
               if (donor && donorAge !== undefined)
                 (view.donorStaleness ??= new Map()).set(donorKey, donorAge);
+              if (donor && this.pooledProfileIncomplete?.has(donorKey))
+                (view.pooledProfileIncomplete ??= new Map()).set(donorKey, true);
               const donorProvenance = donor ? this.pooledProvenance?.get(donorKey) : undefined;
               if (donorProvenance)
                 (view.pooledProvenance ??= new Map()).set(donorKey, {
@@ -3526,6 +3722,8 @@ export class HorseMind {
     }
     const liveScope = this.decisionScope;
     const liveVariant = this.decisionVariant;
+    const liveStructure = this.decisionStructure;
+    const liveReadIgnoresProbes = this.decisionReadIgnoresProbes;
     const liveMode = this.decisionMode;
     const liveDurable = this.durableOpponentMemory;
     this.durableOpponentMemory = false;
@@ -3547,11 +3745,13 @@ export class HorseMind {
       donorStaleness: this.donorStaleness,
       pooledProvenance: this.pooledProvenance,
       pooledShownRiver: this.pooledShownRiver,
+      pooledProfileIncomplete: this.pooledProfileIncomplete,
     };
     this.stats = sandbox.stats;
     this.donorStaleness = sandbox.donorStaleness ?? null;
     this.pooledProvenance = sandbox.pooledProvenance ?? null;
     this.pooledShownRiver = sandbox.pooledShownRiver ?? null;
+    this.pooledProfileIncomplete = sandbox.pooledProfileIncomplete ?? null;
     // A sandbox built before the exploit layer (or by a caller that only
     // knows the older fields) reads as "no exploit memory", never as live.
     this.exploitCounters = sandbox.exploit ?? new Map();
@@ -3572,6 +3772,8 @@ export class HorseMind {
     this.sandboxDepth = 1;
     this.decisionScope = null;
     this.decisionVariant = null;
+    this.decisionStructure = null;
+    this.decisionReadIgnoresProbes = false;
     try {
       return runWithWinnerReadState((sandbox.winnerReads ??= createWinnerReadState()), fn);
     } finally {
@@ -3588,6 +3790,7 @@ export class HorseMind {
       this.donorStaleness = live.donorStaleness;
       this.pooledProvenance = live.pooledProvenance;
       this.pooledShownRiver = live.pooledShownRiver;
+      this.pooledProfileIncomplete = live.pooledProfileIncomplete;
       this.scoped = live.scoped;
       this.dirtyScoped = live.dirtyScoped;
       this.exploitCounters = live.exploit;
@@ -3595,6 +3798,8 @@ export class HorseMind {
       this.sandboxDepth = 0;
       this.decisionScope = liveScope;
       this.decisionVariant = liveVariant;
+      this.decisionStructure = liveStructure;
+      this.decisionReadIgnoresProbes = liveReadIgnoresProbes;
       this.decisionMode = liveMode;
       this.durableOpponentMemory = liveDurable;
     }
@@ -3919,8 +4124,18 @@ export class HorseMind {
         read.stats.threeBet.n >= OMAHA_MANIAC_RERAISE_MIN_OPPS
           ? Math.min(maniacWhole, Math.max(0.02, read.stats.threeBet.mean))
           : null;
-      if (measuredReRaise !== null && measuredReRaise < maniacWhole!)
+      // The receipt obeys the decision's telemetry gate and fires once per
+      // decision, however many range reads the decision makes (audit
+      // 2026-11-15, item 10).
+      if (
+        measuredReRaise !== null &&
+        measuredReRaise < maniacWhole! &&
+        this.decisionReadOptions.omahaManiacReRaiseReceipt === true &&
+        !this.maniacReRaiseReceiptFired
+      ) {
+        this.maniacReRaiseReceiptFired = true;
         noteFire('omaha_maniac_reraise_width_measured');
+      }
       const maniac = measuredReRaise ?? maniacWhole;
       const width =
         line === 'open'
@@ -4097,7 +4312,10 @@ export class HorseMind {
         : undefined;
       if (counters && env && counters.betCheckedToOpp > 0) {
         const pooled = this.stats.get(userId);
-        const adjusted = probeAdjustedCounters(counters, pooled?.ctBets, pooled?.ctProbes);
+        // F1b: a fixed-limit read takes no probe share (fixedLimitReadIgnoresProbes).
+        const adjusted = this.fixedLimitReadIgnoresProbes()
+          ? counters
+          : probeAdjustedCounters(counters, pooled?.ctBets, pooled?.ctProbes);
         bct = statRead(adjusted.betCheckedTo, adjusted.betCheckedToOpp, env.betCheckedTo, ['high']);
       }
     }

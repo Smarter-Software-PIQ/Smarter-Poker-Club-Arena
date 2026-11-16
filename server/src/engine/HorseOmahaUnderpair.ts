@@ -45,6 +45,7 @@ import {
   RERAISED_POT_VARIANTS,
   type OmahaReraisedInput,
 } from './HorseOmahaReraisedPot.js';
+import { omahaStrategyGameInScope } from './HorseOmahaStrategyGame.js';
 
 /** The flop call is kept when it costs less than this share of the resulting pot. */
 export const UNDERPAIR_KEEP_PRICE = 0.1;
@@ -179,7 +180,11 @@ export interface OmahaUnderpairFlopInput {
 
 /** Null when the cell does not apply; otherwise fold, or kept on the small price. */
 export function omahaUnderpairFlopCell(i: OmahaUnderpairFlopInput): OmahaUnderpairVerdict | null {
-  if (i.street !== 'flop' || !RERAISED_POT_VARIANTS.has(i.variant)) return null;
+  if (
+    i.street !== 'flop' ||
+    !omahaStrategyGameInScope(RERAISED_POT_VARIANTS, { gameVariant: i.variant })
+  )
+    return null;
   if (i.hiLo || i.multiBoard || i.bombPot || i.tournament || i.allInOrFold) return null;
   if (i.hole.length !== (i.variant === 'plo4' ? 4 : 5)) return null;
   if (i.action !== 'call' && i.action !== 'raise' && i.action !== 'all_in') return null;

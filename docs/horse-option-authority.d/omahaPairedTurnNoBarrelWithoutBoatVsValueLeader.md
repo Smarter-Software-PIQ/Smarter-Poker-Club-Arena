@@ -21,6 +21,8 @@ Default OFF in source (read `=== true`). On live only by an option-switch row wh
 
 see ledger
 
+omaha_paired_turn_barrel_checked, omaha_paired_turn_barrel_withheld. Every other paired-turn line (2026-11-15 follow-up, omahaPairedBoardNoBoatSpot; each opponent a measured value leader, no nut-class hand): omaha_paired_board_no_boat_oop_bet_checked (out of position the bet is a check), omaha_paired_board_no_boat_ip_bet_checked_by_price (in position, heads-up, a check only when the priced comparison says the check is worth more).
+
 ## Tests
 
 HorseOmahaPairedTurnBarrel.test.ts, HorseOmahaStrategyPrecedence.test.ts (all pass on the PLO strategy head; server tsc 0).
@@ -30,3 +32,7 @@ HorseOmahaPairedTurnBarrel.test.ts, HorseOmahaStrategyPrecedence.test.ts (all pa
 - Mechanism, scope, visibility (receipts in HorseDataLedger.ts), tests: MET.
 - Option unset or false: decisions identical to the base (decision digest pin, plo4/plo5 x dev/horse, 150 pairs, seed 5560001: every option false at 55260db1f62 equals a5935a1a61e unset on all four cells).
 - Value, continuation, reach: NOT MET. No evaluation was run (evaluation NOT RUN); a live read is owed after the release.
+
+## Dependency on the card-impact model (stated 2026-11-16, review note N7)
+
+On the wider paired-board line (`omahaPairedBoardNoBoatSpot`: a paired turn or river, less than a full house, every live opponent a measured value leader) this option acts in two ways. Out of position the bet is a check, with no model. IN POSITION, heads-up, the bet is a check only when a priced comparison of the check and the bet says the check is worth more, and that comparison is the card-impact model (`omahaCardImpactDecision`, `HorseOmahaCardImpact.ts`, called by `omahaPairedBoardPricedCheck` in `HorseLogic.ts`). It runs for this option whether `omahaCardImpact` itself is on or off. The model's response constants (continue share by pot odds, 10% raise share, 45% bet when checked to, 30% bluff share) are UNFITTED PRIORS, not fitted to play (`docs/horse-default-on.d/omahaCardImpact.md`, Value NOT MET). So the in-position half of this option is not measured, and an evaluation of this option is also an evaluation of those priors.

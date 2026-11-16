@@ -21,6 +21,8 @@ owner 2026-11-15 11:55
 
 omaha_big_draw_aggression_bet and related (ledger)
 
+A receipt describes the final action (2026-11-15 follow-up): a verdict a later rule can still overturn is proposed and settled when the decision is final; its receipt fires when the final action is the verdict, and its `_vetoed` twin fires when a later rule replaced it. Vetoed twins: omaha_big_draw_aggression_bet_vetoed, omaha_big_draw_aggression_raise_vetoed.
+
 ## Tests
 
 HorseOmahaBigDrawAggression.test.ts, HorseOmahaStrategyPrecedence.test.ts (all pass on the PLO strategy head; server tsc 0).
@@ -34,3 +36,11 @@ HorseOmahaBigDrawAggression.test.ts, HorseOmahaStrategyPrecedence.test.ts (all p
 ## Limits
 
 No evaluation run; one-street model; the 0.8 out-of-position realisation and the 0.42 default fold rate are assumptions; the measured human fold to a Horse raise was 20 of 114.
+
+## The combo draw made precise (2026-11-16, owner 12:30 and 12:52)
+
+One definition (`omahaComboDrawForRaise`, `HorseOmahaBigDrawAggression.ts`) serves omahaTurnRiverRaiseNeedsNuts's in-position turn exception, omahaNoDrawRaiseOutOfPosition's bar and omahaBigDrawAggression's in-position raise: a hand below two pair holding a flush draw (five or more flush outs) together with a straight draw of eight or more outs, a 13+ out wrap with a flush draw included; straight outs are counted by rank under the two-card rule, a card that also completes the flush included (`omahaComboStraightOuts`). A pair adds nothing: a pair with the nut flush draw is not a combo draw, nor a pair with the nut flush draw and a gutshot (it does not raise), nor a pair with a wrap and no flush draw. Before this, a strong pair with any draw counted (and in the big-draw rule every class but the bare wrap). Tests: HorseOmahaBigDrawAggression.test.ts (`omahaComboDrawForRaise`).
+
+## Live change on this head (review B2, 2026-11-16)
+
+This option is ON live since 2026-11-16T02:55Z (option-switch row, Hand Analysis's owner-forced record); this change alters its live behaviour as follows: For this option the in-position raise with a big draw on a PLO4/PLO5 cash flop or turn no longer fires for a pair with the nut flush draw (with or without a gutshot) or a pair with a wrap and no flush draw: those decisions keep today's check, call or fold instead of the raise. Two pair with the nut flush draw or a nut wrap, which this rule raised in position live today, no longer gets this rule's raise either (the call stays): the one combo-draw definition is false at two pair or better. One raise is ADDED: a nut wrap (thirteen or more straight outs, nine or more to the nut straight) that also holds a non-nut flush draw, below two pair, was held as not a combo draw live (the call stood) and now counts as a combo draw, so in position facing a bet on the flop or turn this rule may turn that call into a raise. Nothing changes out of position (no raise, no new bet, as before).

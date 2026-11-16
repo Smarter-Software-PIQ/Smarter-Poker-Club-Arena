@@ -64,8 +64,22 @@ import {
   OMAHA_RAISE_NEEDS_NUTS_VARIANTS,
   omahaRaiseNeedsNutsAdmitsCall,
 } from '../HorseOmahaTurnRiverRaiseNeedsNuts.js';
+import {
+  OMAHA_SLOWPLAY_VARIANTS,
+  omahaSlowplayAdmitsCall,
+  omahaSlowplayAdmitsCheckWithRequest,
+} from '../HorseOmahaStrongHandSlowplayMix.js';
 import { holdemFourBetSpot } from '../HorseHoldemPremiumAggression.js';
 import { tournamentShoveDiscipline } from '../HorseTournamentShoveDiscipline.js';
+import {
+  OMAHA_TOURNAMENT_SCOPE_ADMISSION,
+  withOmahaTournamentScope,
+} from '../HorseOmahaTournamentScope.js';
+import {
+  OMAHA_STRATEGY_GAME_SCOPE_ADMISSION,
+  omahaStrategyGameInScope,
+  withOmahaStrategyGameScope,
+} from '../HorseOmahaStrategyGame.js';
 
 const ACTIONS = ['fold', 'check', 'call', 'bet', 'raise', 'all_in'] as const;
 type RecordValue = Record<string, unknown>;
@@ -1074,7 +1088,27 @@ function onePairRuleProduces(
   );
 }
 
+/**
+ * omahaStrategyInTournaments: the request carries neither the options nor the
+ * ICM inputs, so the admissions below re-run the day's Omaha spots with their
+ * public tournament scope admitted and no survival premium
+ * (OMAHA_TOURNAMENT_SCOPE_ADMISSION). The premium only removes chip-adding
+ * answers, so this admits every answer the rules can produce; in cash and
+ * outside the public scope every spot reads exactly as before.
+ */
 function policyGraphIsValid(
+  value: RecordValue,
+  expectedVariant?: string,
+  context?: HorseDecisionReceiptContext
+): boolean {
+  return withOmahaStrategyGameScope(OMAHA_STRATEGY_GAME_SCOPE_ADMISSION, () =>
+    withOmahaTournamentScope(OMAHA_TOURNAMENT_SCOPE_ADMISSION, () =>
+      policyGraphIsValidInScope(value, expectedVariant, context)
+    )
+  );
+}
+
+function policyGraphIsValidInScope(
   value: RecordValue,
   expectedVariant?: string,
   context?: HorseDecisionReceiptContext
@@ -1272,7 +1306,7 @@ function policyGraphIsValid(
     // the same call. Its whole-stack form is an all-in, a wager action.
     const omahaRiverMediumBetCalled =
       transition.node === 'wager_rules' &&
-      OMAHA_RIVER_MEDIUM_BET_VARIANTS.has(variant) &&
+      omahaStrategyGameInScope(OMAHA_RIVER_MEDIUM_BET_VARIANTS, { gameVariant: variant }) &&
       transition.after.action === 'call' &&
       previous !== null &&
       previous.action === 'fold' &&
@@ -1287,7 +1321,7 @@ function policyGraphIsValid(
     // context carries neither the options nor the opponent read).
     const omahaOopBetToCheck =
       transition.node === 'wager_rules' &&
-      OMAHA_OOP_CHECK_VARIANTS.has(variant) &&
+      omahaStrategyGameInScope(OMAHA_OOP_CHECK_VARIANTS, { gameVariant: variant }) &&
       transition.after.action === 'check' &&
       previous !== null &&
       ['bet', 'raise', 'all_in'].includes(previous.action) &&
@@ -1306,7 +1340,7 @@ function policyGraphIsValid(
     // is admitted by the paired-board fold's form above.)
     const oopTurnVerdict =
       transition.node === 'wager_rules' &&
-      OMAHA_OOP_CHECK_VARIANTS.has(variant) &&
+      omahaStrategyGameInScope(OMAHA_OOP_CHECK_VARIANTS, { gameVariant: variant }) &&
       transition.after.action === 'call' &&
       previous !== null &&
       ['fold', 'raise', 'all_in'].includes(previous.action) &&
@@ -1327,7 +1361,7 @@ function policyGraphIsValid(
     // the rule). Its fold is the paired-board fold's form above.
     const omahaBareOverpairContToCall =
       transition.node === 'wager_rules' &&
-      OMAHA_OOP_CHECK_VARIANTS.has(variant) &&
+      omahaStrategyGameInScope(OMAHA_OOP_CHECK_VARIANTS, { gameVariant: variant }) &&
       transition.after.action === 'call' &&
       previous !== null &&
       ['fold', 'raise', 'all_in'].includes(previous.action) &&
@@ -1342,7 +1376,7 @@ function policyGraphIsValid(
     // neither the options nor the opponent read).
     const omahaCardImpactBetToCheck =
       transition.node === 'wager_rules' &&
-      OMAHA_CARD_IMPACT_VARIANTS.has(variant) &&
+      omahaStrategyGameInScope(OMAHA_CARD_IMPACT_VARIANTS, { gameVariant: variant }) &&
       transition.after.action === 'check' &&
       previous !== null &&
       ['bet', 'all_in'].includes(previous.action) &&
@@ -1359,7 +1393,7 @@ function policyGraphIsValid(
     // all-in, a wager action.
     const omahaFacingBetEvCalled =
       transition.node === 'wager_rules' &&
-      OMAHA_FACING_BET_EV_VARIANTS.has(variant) &&
+      omahaStrategyGameInScope(OMAHA_FACING_BET_EV_VARIANTS, { gameVariant: variant }) &&
       transition.after.action === 'call' &&
       previous !== null &&
       previous.action === 'fold' &&
@@ -1379,7 +1413,7 @@ function policyGraphIsValid(
     // exact chips the call puts in (the whole-stack call is an all-in).
     const omahaRaiseNeedsNutsCalled =
       transition.node === 'wager_rules' &&
-      OMAHA_RAISE_NEEDS_NUTS_VARIANTS.has(variant) &&
+      omahaStrategyGameInScope(OMAHA_RAISE_NEEDS_NUTS_VARIANTS, { gameVariant: variant }) &&
       transition.after.action === 'call' &&
       previous !== null &&
       // the node entered as a fold when an owner inside it raised from a fold
@@ -1387,6 +1421,35 @@ function policyGraphIsValid(
       context !== undefined &&
       String(context.gameState.gameVariant).toLowerCase() === variant &&
       omahaRaiseNeedsNutsAdmitsCall(context.player, context.gameState, transition.after.amount);
+    // Owner 2026-11-15 14:13 (HorseOmahaStrongHandSlowplayMix, option
+    // omahaStrongHandSlowplayMix): in PLO4/PLO5 cash a raise facing a bet
+    // with a nut-class hand becomes a call at a mixed frequency. The draw and
+    // the opponent read are not in the request, so raise -> call is admitted
+    // only with the request, only in the mix's public spot with a hand that
+    // is nut class there, and only for the exact chips of the call.
+    const omahaSlowplayCalled =
+      transition.node === 'wager_rules' &&
+      omahaStrategyGameInScope(OMAHA_SLOWPLAY_VARIANTS, { gameVariant: variant }) &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      ['raise', 'all_in'].includes(previous.action) &&
+      context !== undefined &&
+      String(context.gameState.gameVariant).toLowerCase() === variant &&
+      omahaSlowplayAdmitsCall(context.player, context.gameState, transition.after.amount);
+    // The same option, the flop: a bet with a set on a very dry flop becomes
+    // a check at a mixed frequency. Admitted only with the request, only in
+    // the mix's spot re-run on it (the flop, nothing to call, one or two
+    // opponents, a set, three suits and three ranks at least five apart).
+    // With no request this admission admits nothing (review note N2,
+    // 2026-11-16); the older bet -> check admissions above keep their own
+    // no-request form (a check puts no chip in), unchanged here.
+    const omahaSlowplayBetToCheck =
+      transition.node === 'wager_rules' &&
+      omahaStrategyGameInScope(OMAHA_SLOWPLAY_VARIANTS, { gameVariant: variant }) &&
+      transition.after.action === 'check' &&
+      previous !== null &&
+      previous.action === 'bet' &&
+      omahaSlowplayAdmitsCheckWithRequest(variant, context);
     // Owner 2026-11-15 11:43 (HorseOmahaStreetPlan, default-off option): a
     // heads-up turn bet facing no wager becomes a check when the plan prices
     // the check line higher. A check puts no chip in; when the request is
@@ -1396,7 +1459,7 @@ function policyGraphIsValid(
     // option nor the opponent read).
     const omahaStreetPlanBetToCheck =
       transition.node === 'wager_rules' &&
-      OMAHA_STREET_PLAN_VARIANTS.has(variant) &&
+      omahaStrategyGameInScope(OMAHA_STREET_PLAN_VARIANTS, { gameVariant: variant }) &&
       transition.after.action === 'check' &&
       previous !== null &&
       ['bet', 'all_in'].includes(previous.action) &&
@@ -1445,6 +1508,8 @@ function policyGraphIsValid(
       !omahaCardImpactBetToCheck &&
       !omahaFacingBetEvCalled &&
       !omahaRaiseNeedsNutsCalled &&
+      !omahaSlowplayCalled &&
+      !omahaSlowplayBetToCheck &&
       !pairedBoardRiverCheck &&
       !omahaBeatenBetToCheck &&
       !omahaOopBetToCheck &&

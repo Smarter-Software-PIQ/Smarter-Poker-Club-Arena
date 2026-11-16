@@ -668,3 +668,13 @@ describe('previous hand footer actions', () => {
     expect(HDM_CSS).toContain('grid-template-columns: repeat(4, minmax(0, 1fr))');
   });
 });
+
+it('waits for this table’s first read before telling a seated player there are no completed hands', () => {
+  const props = { isOpen: true, onClose: () => {}, hands: [], heroId: HERO, viewerSeated: true };
+  const view = render(<HandDetailModal {...props} loadState="idle" />);
+  expect(view.getByRole('dialog').getAttribute('aria-busy')).toBe('true');
+  expect(view.queryByText(/No Completed Hands For You/)).toBeNull();
+  view.rerender(<HandDetailModal {...props} loadState="ready" />);
+  expect(view.getByText(/No Completed Hands For You/)).toBeTruthy();
+  view.unmount();
+});

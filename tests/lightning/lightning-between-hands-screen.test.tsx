@@ -110,10 +110,15 @@ describe('1. the Lightning notices are felt-level, so they show between hands', 
   });
 
   it('"Next Hand..." and "Lightning Is Ending" are one layer inside the felt surface', () => {
-    const surface = PAGE.indexOf('<div className="table-surface">');
+    expect(read('src/components/table/TableFelt.tsx')).toMatch(
+      /className="table-surface">\s*\{children\}/
+    );
+    const surface = PAGE.indexOf('<TableFelt');
+    const surfaceEnd = PAGE.indexOf('</TableFelt>', surface);
     const layer = PAGE.indexOf('className="lightning-felt-notices"');
     const board = PAGE.indexOf('<div className="community-area">');
     expect(surface).toBeGreaterThan(-1);
+    expect(surfaceEnd).toBeGreaterThan(board);
     expect(layer).toBeGreaterThan(surface);
     expect(layer).toBeLessThan(board);
     const block = sliceEnclosingBlock(PAGE, 'className="lightning-felt-notices"');

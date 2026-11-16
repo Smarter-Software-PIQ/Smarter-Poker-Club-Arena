@@ -31,6 +31,7 @@ import {
   type HorseDecideOpts,
 } from './HorseLogic.js';
 import { HorseMind } from './HorseMind.js';
+import { withoutMeasurements } from './HorseDeclaredWork.test-support.js';
 import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
 import {
   replayProfiles,
@@ -163,9 +164,7 @@ function playMany(ord: number, opts: HorseDecideOpts, v: Variation = {}): Outcom
     out.next.push(fastRandom());
     out.bytes.push(
       createHash('sha256')
-        .update(
-          JSON.stringify(d, (k, x) => (k === 'latencyMs' || k === 'elapsedMs' ? undefined : x))
-        )
+        .update(JSON.stringify(withoutMeasurements(d)))
         .digest('hex')
         .slice(0, 16)
     );
@@ -405,6 +404,38 @@ describe('first in on the button', () => {
       const at = { line: 'unopened' as const, hole, node: ownVpip(60) };
       expect(playMany(0, ON, at).actions).toEqual(all('fold'));
     }
+  });
+
+  it('audit item 4: the authority receipt records the intent swap, and only when the intent was swapped', () => {
+    const decide = (opts: HorseDecideOpts, hole: string, seed: number) => {
+      HorseMind.reset();
+      seedFastRandom(seed);
+      const st = spot(0, { line: 'unopened', hole });
+      return HorseLogic.decide(st.hero, st.gs, LIVE.style, LIVE.mods, { mind: false, ...opts });
+    };
+    let swapped = 0;
+    for (const hole of WEAK)
+      for (const seed of SEEDS) {
+        const on = decide(ON, hole, seed);
+        expect([hole, on.action]).toEqual([hole, 'call']);
+        // unset: no swap is ever recorded
+        expect(decide({}, hole, seed).preflopAuthority?.intentSwap).toBeUndefined();
+        const receipt = on.preflopAuthority!;
+        // the floored bar folded the hand: nothing was swapped (the call-down made the limp)
+        if (receipt.intentSwap === undefined) continue;
+        swapped++;
+        // the floored bar raised it: the limp replaced the raise, and the receipt says so
+        expect(receipt.intent).toEqual({ a: 'call' });
+        expect(receipt.intentSwap.by).toBe('omaha_vpip_floor_by_limp');
+        expect(['raiseTo', 'jam']).toContain(receipt.intentSwap.replaced.a);
+      }
+    expect(swapped).toBeGreaterThan(0);
+    // a hand the unfloored brain raises too: nothing was swapped
+    for (const hole of STRONG)
+      expect([hole, decide(ON, hole, SEEDS[0]!).preflopAuthority?.intentSwap]).toEqual([
+        hole,
+        undefined,
+      ]);
   });
 
   it('a premium and every hand the unfloored brain raises still raise', () => {

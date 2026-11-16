@@ -39,6 +39,14 @@ import {
   omahaPairedTurnBarrelSpot,
 } from './HorseOmahaOopChecks.js';
 import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
+import { horseDecisionReceiptRefusal } from './horseDecision/responseValidation.js';
+import { readFileSync } from 'node:fs';
+import {
+  OptionSwitchHolder,
+  optionSwitchDecisionOpts,
+  type OptionSwitchReading,
+} from './HorseOptionSwitch.js';
+import { STYLE_SWITCH_POLL_MS, STYLE_SWITCH_STALE_MS } from './HorseStyleSwitch.js';
 import {
   replayProfiles,
   stateAt,
@@ -60,7 +68,50 @@ const forced = vi.hoisted(() => ({
   evCall: null as boolean | null,
   evThrows: false,
   evCalls: 0,
+  /** card impact proposes the full pot where the engine bet less */
+  impactBigger: false,
+  /** the made-hand defence checks every wager facing no bet (its own test replaced) */
+  defenceChecks: false,
+  /** strong-hand value proposes a half-pot bet where the final answer is a check */
+  strongBet: false,
+  /** the turn river-plan test refuses a bet above this amount */
+  lacksPlanAbove: null as number | null,
+  /** the street plan prices the check line far above the bet line */
+  planChecks: false,
+  planRuns: 0,
+  /** the turn plan, re-read on the river, calls this river */
+  planCallsRiver: false,
+  /** the big-draw rule prices a half-pot bet above the check */
+  drawBet: false,
+  /** the paired-board fold wants every continuing decision folded */
+  pairedMustFold: false,
+  /** the paired-board fold's price test lets the reference decision stand */
+  pairedPriceOk: false,
 }));
+
+vi.mock('./HorsePloPairedBoardFold.js', async (original) => {
+  const real = await original<typeof import('./HorsePloPairedBoardFold.js')>();
+  return {
+    ...real,
+    ploPairedBoardMustFold: (...a: Parameters<typeof real.ploPairedBoardMustFold>) =>
+      forced.pairedMustFold || real.ploPairedBoardMustFold(...a),
+    ploPairedBoardFoldRespectsPrice: (
+      ...a: Parameters<typeof real.ploPairedBoardFoldRespectsPrice>
+    ) => forced.pairedPriceOk || real.ploPairedBoardFoldRespectsPrice(...a),
+  };
+});
+
+vi.mock('./HorseOmahaBigDrawAggression.js', async (original) => {
+  const real = await original<typeof import('./HorseOmahaBigDrawAggression.js')>();
+  return {
+    ...real,
+    omahaBigDrawVerdict: (input: { action: string; pot: number }, ...rest: unknown[]) => {
+      if (forced.drawBet && input.action === 'check')
+        return { wager: { action: 'bet', amount: Math.round(input.pot * 0.5) } };
+      return (real.omahaBigDrawVerdict as (...a: unknown[]) => unknown)(input, ...rest);
+    },
+  };
+});
 
 vi.mock('./HorseOmahaCardImpact.js', async (original) => {
   const real = await original<typeof import('./HorseOmahaCardImpact.js')>();
@@ -75,6 +126,11 @@ vi.mock('./HorseOmahaCardImpact.js', async (original) => {
         return {
           changed: 'press_bet',
           decision: { ...decision, action: 'bet', amount: Math.round(rest[1].pot * 0.5) },
+        };
+      if (forced.impactBigger && decision.action === 'bet')
+        return {
+          changed: 'resized',
+          decision: { ...decision, amount: Math.round(rest[1].pot) },
         };
       if (forced.impactCheck && decision.action !== 'check') {
         const checked = { ...decision, action: 'check' };
@@ -93,6 +149,65 @@ vi.mock('./HorseOmahaStreetPlan.js', async (original) => {
       if (forced.planThrows) throw new Error('forced street plan failure');
       return (real.omahaStreetPlanTurnSpot as (...x: unknown[]) => unknown)(...a);
     },
+    omahaStreetPlan: (...a: unknown[]) => {
+      forced.planRuns++;
+      const plan = (real.omahaStreetPlan as (...x: unknown[]) => unknown)(...a) as {
+        lines: { ev: number }[];
+      } | null;
+      if (!forced.planChecks || !plan || plan.lines.length < 2) return plan;
+      const lines = plan.lines.map((l, i) => (i === 0 ? { ...l, ev: plan.lines[1].ev + 1e6 } : l));
+      return { ...plan, lines };
+    },
+    omahaPlanRiverVerdict: (...a: unknown[]) =>
+      forced.planCallsRiver
+        ? 'call'
+        : (real.omahaPlanRiverVerdict as (...x: unknown[]) => unknown)(...a),
+  };
+});
+vi.mock('./HorseOmahaMadeHandDefense.js', async (original) => {
+  const real = await original<typeof import('./HorseOmahaMadeHandDefense.js')>();
+  return {
+    ...real,
+    omahaBeatenNoBet: (decision: HorseDecision, ...rest: unknown[]) => {
+      if (
+        forced.defenceChecks &&
+        rest[2] === true &&
+        ['bet', 'raise', 'all_in'].includes(decision.action)
+      ) {
+        const checked = { ...decision, action: 'check' };
+        delete checked.amount;
+        return { decision: checked, changed: 'river_check' };
+      }
+      return (real.omahaBeatenNoBet as (...x: unknown[]) => unknown)(decision, ...rest);
+    },
+  };
+});
+vi.mock('./HorseOmahaStrongHandValue.js', async (original) => {
+  const real = await original<typeof import('./HorseOmahaStrongHandValue.js')>();
+  return {
+    ...real,
+    omahaStrongHandValueDecision: (
+      decision: HorseDecision,
+      ...rest: [never, { pot: number }, never]
+    ) => {
+      if (forced.strongBet && decision.action === 'check')
+        return {
+          changed: 'value_bet',
+          priced: true,
+          decision: { ...decision, action: 'bet', amount: Math.round(rest[1].pot * 0.5) },
+        };
+      return (real.omahaStrongHandValueDecision as (...a: unknown[]) => unknown)(decision, ...rest);
+    },
+  };
+});
+vi.mock('./HorseOmahaOopChecks.js', async (original) => {
+  const real = await original<typeof import('./HorseOmahaOopChecks.js')>();
+  return {
+    ...real,
+    omahaTurnBetLacksRiverPlan: (...a: unknown[]) =>
+      forced.lacksPlanAbove !== null
+        ? Number(a[2]) > forced.lacksPlanAbove
+        : (real.omahaTurnBetLacksRiverPlan as (...x: unknown[]) => unknown)(...a),
   };
 });
 vi.mock('./HorseOmahaFacingBetEv.js', async (original) => {
@@ -133,6 +248,16 @@ afterEach(() => {
     evCall: null,
     evThrows: false,
     evCalls: 0,
+    impactBigger: false,
+    defenceChecks: false,
+    strongBet: false,
+    lacksPlanAbove: null,
+    planChecks: false,
+    planRuns: 0,
+    planCallsRiver: false,
+    drawBet: false,
+    pairedMustFold: false,
+    pairedPriceOk: false,
   });
   HorseMind.setDecisionScope(null);
   HorseMind.reset();
@@ -199,14 +324,17 @@ const leader = { measured: true, tightReRaiser: false, valueLeader: true } as Om
 
 interface Outcome {
   actions: string[];
+  amounts: (number | null)[];
   fires: string[][];
   bytes: string[];
+  /** the worker receipt validator's refusal of each decision (null = admitted) */
+  refusals: (string | null)[];
 }
 const bytesOf = (d: unknown): string =>
   JSON.stringify(d, (k, v) => (k === 'latencyMs' || k === 'elapsedMs' ? undefined : v));
 function play(build: () => Node, opts: HorseDecideOpts, valueLeader = true): Outcome {
   enableBrainTelemetry();
-  const out: Outcome = { actions: [], fires: [], bytes: [] };
+  const out: Outcome = { actions: [], amounts: [], fires: [], bytes: [], refusals: [] };
   for (const s of SEEDS) {
     HorseMind.reset();
     if (valueLeader)
@@ -219,7 +347,14 @@ function play(build: () => Node, opts: HorseDecideOpts, valueLeader = true): Out
       ...opts,
     } as never);
     out.actions.push(d.action);
+    out.amounts.push(d.amount ?? null);
     out.bytes.push(bytesOf(d));
+    out.refusals.push(
+      horseDecisionReceiptRefusal(structuredClone(d), String(st.gs.gameVariant), {
+        player: st.hero,
+        gameState: st.gs,
+      })
+    );
     out.fires.push(drainFires().map((f) => f.feature));
     vi.restoreAllMocks();
   }
@@ -273,6 +408,12 @@ const ARMS: [string, HorseDecideOpts][] = [
     { ...OWNER, omahaBigDrawAggression: true, omahaStreetPlan: true },
   ],
   ['every option on', ALL],
+  // horsePlayStyles (owner 2026-11-15 16:40 / 16:42): the style dials act
+  // before the owner-ruled chain, so every ruling below holds for every style.
+  ...(['tight', 'current', 'pressure'] as const).map((s): [string, HorseDecideOpts] => [
+    `every option on, the Horse's playing style ${s}`,
+    { ...ALL, horsePlayStyles: true, horsePlayStyleForce: s },
+  ]),
 ];
 
 /** A hand with no out on 5d 8d 9h 2h: aces, no flush draw, no straight draw. */
@@ -522,4 +663,467 @@ describe('audit 2026-11-15 item 2: omahaOopTurnCheckAfterFlopCall multiway, the 
       ).toEqual(SEEDS.map(() => 'fold'));
     }
   );
+});
+
+describe('conflict sweep 2026-11-15, the open findings', () => {
+  /** the nut straight on the unpaired turn 5d 8d 9h 2h: 7-6 for the nine-high straight */
+  const NUTS = 'AsAh7c6s4h';
+  const DEFENCE: HorseDecideOpts = { omahaMadeHandDefenseVsValueLeader: true };
+
+  it('B2: a check the made-hand defence makes stands over a card-impact bet and a strong-hand value bet', () => {
+    forced.defenceChecks = true;
+    for (const [pricing, flag] of [
+      [{ omahaCardImpact: true }, 'impactBet'],
+      [{ omahaStrongHandValue: true }, 'strongBet'],
+    ] as [HorseDecideOpts, 'impactBet' | 'strongBet'][]) {
+      forced.impactBet = false;
+      forced.strongBet = false;
+      forced[flag] = true;
+      const alone = play(() => nodeAt(ACES, RIVER), pricing);
+      const bets = alone.actions.filter((a) => a === 'bet').length;
+      const on = play(() => nodeAt(ACES, RIVER), { ...DEFENCE, ...pricing });
+      expect(on.actions).toEqual(SEEDS.map(() => 'check'));
+      if (flag === 'impactBet') {
+        // Sweep S4: on this paired river, without a full house, against a
+        // measured value leader the card-impact comparison no longer creates
+        // the bet itself, so there is nothing for the defence to overrule.
+        expect(bets).toBe(0);
+        expect(fired(alone, 'omaha_card_impact_paired_board_press_withheld')).toBeGreaterThan(0);
+      } else {
+        // the proposal is real: without the defence the pricing rule's bet is made
+        expect(bets).toBeGreaterThan(0);
+        expect(fired(on, 'omaha_owner_ruled_check_kept')).toBeGreaterThan(0);
+      }
+      expect(on.refusals).toEqual(SEEDS.map(() => null));
+      // not a measured value leader: the read-gated defence is withheld and the bet is made
+      const aloneNoRead = play(() => nodeAt(ACES, RIVER), pricing, false);
+      const noRead = play(() => nodeAt(ACES, RIVER), { ...DEFENCE, ...pricing }, false);
+      expect(noRead.actions).toEqual(aloneNoRead.actions);
+      expect(noRead.actions.some((a) => a === 'bet')).toBe(true);
+      // the unconditional defence needs no read
+      const always = play(
+        () => nodeAt(ACES, RIVER),
+        { omahaBeatenMadeHandDefense: true, ...pricing },
+        false
+      );
+      expect(all(always, 'check')).toBe(true);
+      // against no value leader the card-impact bet is proposed, and the defence's check stands over it
+      expect(fired(always, 'omaha_owner_ruled_check_kept')).toBeGreaterThan(0);
+    }
+  });
+
+  it('B3: the street plan never asks the facing-bet expected value on a hypothetical river, and runs once per bet size', () => {
+    const TRIPLE: HorseDecideOpts = {
+      omahaStreetPlan: true,
+      omahaFacingBetEv: true,
+      omahaBluffCatcherFoldVsValueLeader: true,
+    };
+    enableBrainTelemetry();
+    let planned = 0;
+    for (const s of SEEDS) {
+      HorseMind.reset();
+      seedFastRandom(s);
+      const st = nodeAt(ACES, TURN, NUTS);
+      forced.evCalls = 0;
+      forced.planRuns = 0;
+      const d = HorseLogic.decide(st.hero, st.gs, LIVE.style, LIVE.mods, {
+        telemetry: true,
+        ...TRIPLE,
+        omahaBigDrawAggression: true,
+        omahaCardImpact: true,
+      } as never);
+      // the turn decision faces no bet: nothing asks the exact-hand count
+      expect(forced.evCalls).toBe(0);
+      // one plan per bet size priced (the engine's and, at most, card impact's)
+      expect(forced.planRuns).toBeLessThanOrEqual(2);
+      if (forced.planRuns > 0) planned++;
+      expect(['bet', 'check', 'all_in']).toContain(d.action);
+    }
+    drainFires();
+    expect(planned).toBeGreaterThan(0);
+  });
+
+  it('B4: a nut-class turn bet is not re-checked by the street plan outermost, and the validator admits it', () => {
+    forced.planChecks = true;
+    const off = play(() => nodeAt(ACES, TURN, NUTS), {});
+    expect(off.actions.some((a) => a === 'bet')).toBe(true);
+    for (const opts of [
+      { omahaStreetPlan: true, omahaBigDrawAggression: true },
+      { omahaStreetPlan: true, omahaStrongHandValue: true },
+      { ...ALL, omahaCardImpact: false, omahaOopTurnCheckAfterFlopCall: false },
+    ] as HorseDecideOpts[]) {
+      const on = play(() => nodeAt(ACES, TURN, NUTS), opts);
+      expect(on.actions).toEqual(off.actions);
+      expect(on.amounts).toEqual(off.amounts);
+      expect(fired(on, 'omaha_nut_class_wager_kept')).toBe(
+        off.actions.filter((a) => a === 'bet').length
+      );
+      expect(fired(on, 'omaha_owner_ruled_check_kept')).toBe(0);
+      expect(on.refusals).toEqual(SEEDS.map(() => null));
+    }
+  });
+
+  it('S3: the outermost own-bet re-check runs with any pricing option on, not only the big-draw wager', () => {
+    forced.strongBet = true;
+    // the paired river without a full house into a value leader: the owner rule checks
+    const on = play(() => nodeAt(ACES, RIVER), { ...OWNER, omahaStrongHandValue: true });
+    expect(on.actions).toEqual(SEEDS.map(() => 'check'));
+    expect(fired(on, 'omaha_owner_ruled_check_kept')).toBe(SEEDS.length);
+    // no pricing option on: the rule does not run at all
+    const none = play(() => nodeAt(ACES, RIVER), OWNER);
+    expect(fired(none, 'omaha_owner_ruled_check_kept')).toBe(0);
+  });
+
+  it('S2: a bigger size the owner rules refuse leaves the bet they had let through, at its own size', () => {
+    const off = play(() => nodeAt(ACES, TURN), {});
+    const bets = off.actions.filter((a) => a === 'bet').length;
+    expect(bets).toBeGreaterThan(0);
+    forced.impactBigger = true;
+    // the river-plan test passes the engine's size and refuses the full pot
+    forced.lacksPlanAbove = Math.max(...off.amounts.map((a) => a ?? 0));
+    const on = play(() => nodeAt(ACES, TURN), {
+      omahaTurnBetNeedsRiverPlan: true,
+      omahaCardImpact: true,
+    });
+    expect(on.actions).toEqual(off.actions);
+    expect(on.amounts).toEqual(off.amounts);
+    expect(fired(on, 'omaha_owner_approved_bet_kept')).toBe(bets);
+    expect(fired(on, 'omaha_owner_ruled_check_kept')).toBe(0);
+    expect(on.refusals).toEqual(SEEDS.map(() => null));
+  });
+
+  it('S1: the facing-bet expected value yields to a turn plan that calls this river', () => {
+    const PLAN_EV: HorseDecideOpts = { omahaStreetPlan: true, omahaFacingBetEv: true };
+    forced.evCall = false;
+    // without a plan that calls, the verdict (a fold) is the single decider
+    const noPlan = play(() => facingAfterCheck(ACES, RIVER, 0.5), PLAN_EV, false);
+    expect(fired(noPlan, 'omaha_facing_bet_ev_fold')).toBe(SEEDS.length);
+    expect(all(noPlan, 'fold')).toBe(true);
+    forced.planCallsRiver = true;
+    const planOnly = play(
+      () => facingAfterCheck(ACES, RIVER, 0.5),
+      { omahaStreetPlan: true },
+      false
+    );
+    const both = play(() => facingAfterCheck(ACES, RIVER, 0.5), PLAN_EV, false);
+    expect(fired(both, 'omaha_facing_bet_ev_fold')).toBe(0);
+    expect(fired(both, 'omaha_facing_bet_ev_call')).toBe(0);
+    expect(both.actions).toEqual(planOnly.actions);
+    expect(fired(both, 'omaha_street_plan_followed')).toBe(
+      fired(planOnly, 'omaha_street_plan_followed')
+    );
+    // a followed plan ends in the call it planned
+    both.fires.forEach((f, i) => {
+      if (f.includes('omaha_street_plan_followed'))
+        expect(['call', 'all_in']).toContain(both.actions[i]);
+    });
+  });
+
+  it('audit item 7: the street plan attaches its record to a copy; the validator and a JSON round trip carry the field', () => {
+    let carried = 0;
+    for (const s of SEEDS) {
+      HorseMind.reset();
+      seedFastRandom(s);
+      const st = nodeAt(ACES, TURN, NUTS);
+      const d = HorseLogic.decide(st.hero, st.gs, LIVE.style, LIVE.mods, {
+        omahaStreetPlan: true,
+      } as never);
+      if (d.streetPlan === undefined) continue;
+      carried++;
+      const wire = JSON.parse(JSON.stringify(d)) as HorseDecision;
+      expect(wire.streetPlan).toEqual(JSON.parse(JSON.stringify(d.streetPlan)));
+      expect(
+        horseDecisionReceiptRefusal(wire, String(st.gs.gameVariant), {
+          player: st.hero,
+          gameState: st.gs,
+        })
+      ).toBeNull();
+    }
+    expect(carried).toBeGreaterThan(0);
+  });
+});
+
+describe('audit item 11: a switched-on option reaches the brain through the worker spread', () => {
+  const OPTION = 'omahaBareOverpairOopFlopCheck';
+  const v2 = (options: Record<string, unknown>) => ({
+    version: 2,
+    style: { version: 1, options: {} },
+    options,
+  });
+  const present = (raw: unknown, receivedAtMs: number): OptionSwitchReading => ({
+    kind: 'present',
+    raw,
+    receivedAtMs,
+  });
+  /** What workerRuntime spreads into the decision options after each reading, in order. */
+  function spread(readings: Array<OptionSwitchReading | 'throw'>): Record<string, boolean>[] {
+    let i = 0;
+    const h = new OptionSwitchHolder(
+      () => {
+        const r = readings[Math.min(i++, readings.length - 1)]!;
+        if (r === 'throw') throw new Error('unreadable');
+        return r;
+      },
+      () => undefined
+    );
+    return readings.map((_r, k) => ({
+      ...optionSwitchDecisionOpts(h.refresh(k * STYLE_SWITCH_POLL_MS)),
+    }));
+  }
+
+  it('the worker spreads the switched set into both looks, after the request options', () => {
+    const runtime = readFileSync(
+      new URL('./horseDecision/workerRuntime.ts', import.meta.url),
+      'utf8'
+    );
+    expect(runtime).toContain('const optionBrainOpts = optionSwitchDecisionOpts(optionStates);');
+    // the fast look, its mind observation, and the deep look
+    expect(runtime.match(/\.\.\.request\.opts,[\s\S]{0,600}?\.\.\.optionBrainOpts,/g)?.length).toBe(
+      2
+    );
+    expect(runtime).toMatch(
+      /\.\.\.request\.opts,[\s\S]{0,700}?\.\.\.optionSwitchDecisionOpts\(deepOptionStates\),/
+    );
+  });
+
+  it('on in the switch: the option decides; stale, unreadable, invalid or unknown: it stays off', () => {
+    const off = play(() => nodeAt(ACES, FLOP), {}, false);
+    expect(off.actions.some((a) => a !== 'check')).toBe(true);
+
+    const [on] = spread([present(v2({ [OPTION]: 'on' }), 0)]);
+    expect(on).toEqual({ [OPTION]: true });
+    // request.opts first, the switched set after it, as workerRuntime builds the options
+    const requestOpts: HorseDecideOpts = {};
+    const live = play(() => nodeAt(ACES, FLOP), { ...requestOpts, ...on }, false);
+    expect(live.actions).toEqual(SEEDS.map(() => 'check'));
+    expect(fired(live, 'omaha_bare_overpair_oop_flop_checked')).toBe(
+      off.actions.filter((a) => a !== 'check').length
+    );
+
+    const good = present(v2({ [OPTION]: 'on' }), 0);
+    for (const bad of [
+      present(v2({ [OPTION]: 'on' }), -STYLE_SWITCH_STALE_MS),
+      'throw' as const,
+      present({ nonsense: true }, STYLE_SWITCH_POLL_MS),
+      { kind: 'present', raw: v2({ [OPTION]: 'on' }) } as never,
+    ]) {
+      const [first, after] = spread([good, bad]);
+      expect(first).toEqual({ [OPTION]: true });
+      // nothing switched: the key is not passed and the code default (off) decides
+      expect(after).toEqual({});
+      const stale = play(() => nodeAt(ACES, FLOP), { ...requestOpts, ...after }, false);
+      expect(stale.bytes).toEqual(off.bytes);
+    }
+    // a name the registry does not know never becomes a decision option
+    const [unknown] = spread([present(v2({ omahaNoSuchOption: 'on' }), 0)]);
+    expect(unknown).toEqual({});
+    const [mixed] = spread([present(v2({ omahaNoSuchOption: 'on', [OPTION]: 'on' }), 0)]);
+    expect(Object.keys(mixed)).not.toContain('omahaNoSuchOption');
+    // an off-only option (an owner hold) cannot be switched on
+    const [held] = spread([present(v2({ omahaSmallBlindSteal: 'on' }), 0)]);
+    expect(held).toEqual({});
+  });
+});
+
+describe('omahaStrongHandSlowplayMix in the precedence chain (owner 2026-11-15 14:13)', () => {
+  const SLOW: HorseDecideOpts = { omahaStrongHandSlowplayMix: true };
+  /** the nut straight on the unpaired turn 5d 8d 9h 2h: 7-6 for the nine-high straight */
+  const NUT_STRAIGHT = 'AsAh7c6s4h';
+  const OWNER_CHECKS: [string, () => Node][] = [
+    ['59517323 flop', () => nodeAt(ACES, FLOP)],
+    ['59517323 turn', () => nodeAt(ACES, TURN)],
+    ['59517323 river', () => nodeAt(ACES, RIVER)],
+    ['59521326 pairing turn', () => nodeAt(STRAIGHT, TURN)],
+  ];
+  const FACING: [string, () => Node][] = [
+    [
+      'turn, the nut straight facing half pot',
+      () => facingAfterCheck(ACES, TURN, 0.5, NUT_STRAIGHT),
+    ],
+    ['turn, the nut draw facing half pot', () => facingAfterCheck(ACES, TURN, 0.5)],
+    ['river, aces up facing pot', () => facingAfterCheck(ACES, RIVER, 1)],
+  ];
+
+  it.each(OWNER_CHECKS)('%s: it never converts an owner-ruled check', (_n, build) => {
+    for (const opts of [
+      { ...OWNER, ...SLOW },
+      { ...ALL, ...SLOW },
+    ]) {
+      const o = play(build, opts);
+      expect(all(o, 'check')).toBe(true);
+    }
+  });
+
+  it.each([...OWNER_CHECKS, ...FACING])(
+    '%s: it never folds where the chain without it does not',
+    (_n, build) => {
+      const off = play(build, ALL, false);
+      const on = play(build, { ...ALL, ...SLOW }, false);
+      on.actions.forEach((a, i) => {
+        if (a === 'fold') expect(off.actions[i]).toBe('fold');
+      });
+    }
+  );
+
+  it.each(FACING)(
+    '%s: it sits inside omahaTurnRiverRaiseNeedsNuts (adds no raise; a slowplay call stays a call)',
+    (_n, build) => {
+      const RAISE_NUTS: HorseDecideOpts = { omahaTurnRiverRaiseNeedsNuts: true };
+      const alone = play(build, RAISE_NUTS, false);
+      const both = play(build, { ...RAISE_NUTS, ...SLOW }, false);
+      both.actions.forEach((a, i) => {
+        if (a === 'raise' || a === 'all_in')
+          expect(['raise', 'all_in']).toContain(alone.actions[i]);
+        if (both.fires[i].includes('omaha_strong_hand_slowplay_call'))
+          expect(['call', 'all_in']).toContain(a);
+        // the slowplay mix itself never folds
+        if (a === 'fold') expect(alone.actions[i]).toBe('fold');
+      });
+    }
+  );
+});
+
+/**
+ * Conflict sweep 2026-11-15: a receipt must describe the final action. A
+ * verdict a later rule can overturn is proposed and settled when the decision
+ * is final: the receipt fires when its verdict is the final action, and its
+ * `_vetoed` receipt fires when a later rule replaced it.
+ */
+describe('a receipt describes the final action', () => {
+  const NUTS = 'AsAh7c6s4h';
+
+  it('a card-impact bet the made-hand defence checks is recorded as vetoed, not as a press bet; a bet that is made is recorded as made', () => {
+    forced.impactBet = true;
+    forced.defenceChecks = true;
+    const vetoed = play(
+      () => nodeAt(ACES, RIVER),
+      { omahaBeatenMadeHandDefense: true, omahaCardImpact: true },
+      false
+    );
+    expect(all(vetoed, 'check')).toBe(true);
+    expect(fired(vetoed, 'omaha_card_impact_press_bet_vetoed')).toBeGreaterThan(0);
+    expect(fired(vetoed, 'omaha_card_impact_press_bet_vetoed')).toBe(
+      fired(vetoed, 'omaha_owner_ruled_check_kept')
+    );
+    expect(vetoed.fires.flat()).not.toContain('omaha_card_impact_press_bet');
+    expect(vetoed.fires.flat()).not.toContain('omaha_card_impact_changed');
+
+    forced.defenceChecks = false;
+    const made = play(() => nodeAt(ACES, RIVER), { omahaCardImpact: true }, false);
+    made.actions.forEach((a, i) => {
+      const press = made.fires[i].includes('omaha_card_impact_press_bet');
+      if (!press) return;
+      expect(a).toBe('bet');
+      expect(made.fires[i]).toContain('omaha_card_impact_changed');
+    });
+    expect(fired(made, 'omaha_card_impact_press_bet')).toBeGreaterThan(0);
+    expect(made.fires.flat().some((f) => f.endsWith('_vetoed'))).toBe(false);
+  });
+
+  it('a card-impact check a nut-class hand does not take is not recorded at all; one that is taken is', () => {
+    forced.impactCheck = true;
+    const taken = play(() => nodeAt(STRAIGHT, TURN), { omahaCardImpact: true }, false);
+    taken.actions.forEach((a, i) => {
+      if (taken.fires[i].includes('omaha_card_impact_defence_check')) expect(a).toBe('check');
+    });
+    expect(fired(taken, 'omaha_card_impact_defence_check')).toBeGreaterThan(0);
+    const nuts = play(() => nodeAt(ACES, TURN, NUTS), { omahaCardImpact: true }, false);
+    expect(nuts.fires.flat().filter((f) => f.startsWith('omaha_card_impact'))).toEqual([]);
+  });
+
+  it('a street-plan check a nut-class bet overrules is recorded as vetoed; a check that stands is recorded as the plan’s', () => {
+    forced.planChecks = true;
+    const kept = play(() => nodeAt(ACES, TURN, NUTS), { omahaStreetPlan: true }, false);
+    expect(kept.actions.every((a) => a === 'bet' || a === 'all_in')).toBe(true);
+    const plan = (o: Outcome, suffix = '') =>
+      fired(o, `omaha_street_plan_line_changed${suffix}`) +
+      fired(o, `omaha_street_plan_commit_avoided${suffix}`);
+    expect(plan(kept)).toBe(0);
+    expect(plan(kept, '_vetoed')).toBe(SEEDS.length);
+    expect(fired(kept, 'omaha_nut_class_wager_kept')).toBe(SEEDS.length);
+
+    const stands = play(() => nodeAt(STRAIGHT, TURN), { omahaStreetPlan: true }, false);
+    expect(all(stands, 'check')).toBe(true);
+    expect(plan(stands)).toBeGreaterThan(0);
+    expect(plan(stands, '_vetoed')).toBe(0);
+  });
+
+  it('a big-draw bet an owner-ruled check overrules is recorded as vetoed; one that is made is recorded as made', () => {
+    forced.drawBet = true;
+    const vetoed = play(() => nodeAt(ACES, TURN), { ...OWNER, omahaBigDrawAggression: true });
+    expect(all(vetoed, 'check')).toBe(true);
+    expect(fired(vetoed, 'omaha_big_draw_aggression_bet_vetoed')).toBeGreaterThan(0);
+    expect(vetoed.fires.flat()).not.toContain('omaha_big_draw_aggression_bet');
+
+    const made = play(() => nodeAt(ACES, TURN), { omahaBigDrawAggression: true }, false);
+    made.actions.forEach((a, i) => {
+      if (made.fires[i].includes('omaha_big_draw_aggression_bet'))
+        expect(['bet', 'all_in']).toContain(a);
+    });
+    expect(made.fires.flat()).not.toContain('omaha_big_draw_aggression_bet_vetoed');
+  });
+
+  it('a turn raise flatted and then folded by the facing-bet expected value is recorded as vetoed; a flat that stands is recorded as flatted', () => {
+    const opts: HorseDecideOpts = { omahaOopTurnCheckAfterFlopCall: true, omahaFacingBetEv: true };
+    const build = () => facingAfterCheck(STRAIGHT, TURN, 0.33);
+    expect(omahaOopTurnFacingBetVerdict(build().hero, build().gs)).toBe('no_raise');
+    const raises = play(build, {}, false).actions.filter((a) => a === 'raise' || a === 'all_in');
+    expect(raises.length).toBeGreaterThan(0);
+
+    forced.evCall = false;
+    const folded = play(build, opts, false);
+    expect(all(folded, 'fold')).toBe(true);
+    expect(fired(folded, 'omaha_oop_turn_check_raise_flatted_vetoed')).toBe(raises.length);
+    expect(folded.fires.flat()).not.toContain('omaha_oop_turn_check_raise_flatted');
+
+    forced.evCall = true;
+    const called = play(build, opts, false);
+    expect(all(called, 'call')).toBe(true);
+    expect(fired(called, 'omaha_oop_turn_check_raise_flatted')).toBe(raises.length);
+    expect(called.fires.flat()).not.toContain('omaha_oop_turn_check_raise_flatted_vetoed');
+  });
+
+  it('the paired-board price-respected receipt fires only when its verdict is final; folded by the owner-ruled turn fold it is recorded as vetoed', () => {
+    const RESPECTED = 'omaha_paired_board_fold_price_respected';
+    const VETOED = 'omaha_paired_board_fold_price_respected_vetoed';
+    // the paired-board fold wants this decision folded and the price lets the
+    // reference decision stand (both forced; the decision is the hand with no out)
+    const build = () => facingAfterCheck(ACES, TURN, 0.5, NO_OUT);
+    expect(omahaOopTurnFacingBetVerdict(build().hero, build().gs)).toBe('fold_no_outs');
+    const continues = play(build, {}, false).actions.filter((a) => a !== 'fold').length;
+    expect(continues).toBeGreaterThan(0);
+    forced.pairedMustFold = true;
+    forced.pairedPriceOk = true;
+
+    // alone, the price stands aside and the reference decision is final
+    const alone = play(build, { omahaPairedBoardFoldRespectsPrice: true }, false);
+    alone.fires.forEach((f, i) => {
+      if (f.includes(RESPECTED)) expect(alone.actions[i]).not.toBe('fold');
+      if (f.includes(VETOED)) expect(alone.actions[i]).toBe('fold');
+    });
+    expect(fired(alone, RESPECTED)).toBe(continues);
+    expect(alone.fires.flat()).not.toContain(VETOED);
+
+    // with the owner-ruled turn rule on, the hand with no out folds all the
+    // same: the receipt is recorded as vetoed, never as respected
+    const both = play(
+      build,
+      { omahaPairedBoardFoldRespectsPrice: true, omahaOopTurnCheckAfterFlopCall: true },
+      false
+    );
+    expect(all(both, 'fold')).toBe(true);
+    expect(fired(both, RESPECTED)).toBe(0);
+    expect(fired(both, VETOED)).toBe(continues);
+  });
+
+  it('every option off: nothing is proposed and no _vetoed receipt exists', () => {
+    for (const build of [
+      () => nodeAt(ACES, TURN),
+      () => nodeAt(ACES, RIVER),
+      () => nodeAt(STRAIGHT, TURN),
+    ]) {
+      const off = play(build, {});
+      expect(off.fires.flat().some((f) => f.endsWith('_vetoed'))).toBe(false);
+    }
+  });
 });

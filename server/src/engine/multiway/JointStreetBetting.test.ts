@@ -93,7 +93,14 @@ describe('joint street betting replicates the authoritative controller', () => {
           if (st().stage !== 'preflop') {
             const street = liveStreet(variant, st());
             const copy = { ...player };
-            const mine = jointLegalMenu(street, copy);
+            const mine = jointLegalMenu(
+              street,
+              copy,
+              st().players.every(
+                (p: SeatPlayer) =>
+                  p.seat === player.seat || p.is_folded || p.is_sitting_out || p.is_all_in
+              )
+            );
             expect(mine, JSON.stringify({ game, step, history: st().actionHistory })).toEqual({
               legalActions: auth.legalActions,
               toCall: auth.toCall,

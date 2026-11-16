@@ -59,3 +59,7 @@ default path (24 table states), and the module draws no random number there.
   every serving engine carries the name).
 - Tournaments, 3-bet pots, multiway pots and out-of-position play are untouched. While the option is on, reads of the
   opponent no longer move the c-bet or the checked-to turn bet in its spots. River play is the brain's own.
+
+## SSD2 Continuation On November 16
+
+Integrated current protected main and regenerated the unpushed option-list follow-up with the maintained generator as `20261116132813_horse_option_switch_holdem_heads_up_postflop_balance.sql`. The earlier unpushed list is superseded and retained in Git history. The correction remains off by default, and the river correction remains removed. Focused server checks, migration laws and the isolated PostgreSQL option-switch proof passed on the integrated source. Solver re-scoring of the river-removal candidate continues separately; nothing is enabled for live play.

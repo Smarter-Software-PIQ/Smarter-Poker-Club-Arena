@@ -62,6 +62,7 @@ import type { HorseGameStateV2 } from './HorseLogic.js';
 import { RANKS, SUITS } from './PokerEngine.js';
 import { omahaBoardShape, omahaBoatsAbove, omahaNutStatus, variantInfo } from './HorseEval.js';
 import { omahaCurrentNuts } from './HorseOmahaCurrentNuts.js';
+import { omahaStrategyConstant } from './HorseOmahaStrategyGame.js';
 import { riverNutWagerTarget } from './HorseRiverNuts.js';
 import {
   OMAHA_RIVER_NUT_RAISE_VARIANTS,
@@ -172,11 +173,29 @@ export function omahaNutClassNow(hero: SeatPlayer, gs: HorseGameStateV2): boolea
 }
 
 /**
+ * 0: a river card that makes any full house or better is an out of
+ * omahaTurnRedrawShare (the PLO4/PLO5 measure since 2026-11-14). 1: only a
+ * full house or better that no bigger full house beats is one. Read per game
+ * through omahaStrategyConstant('turnRedrawNutFullHouseOnly').
+ */
+export const OMAHA_TURN_REDRAW_NUT_FULL_HOUSE_ONLY = 0;
+
+/**
  * The share of the unseen river cards that lift a beaten turn hand over the
  * straights and flushes: to a full house or better, or to the nut flush or
  * nut straight on the board that card makes. 0 when it cannot be computed.
+ *
+ * `nutFullHouseOnly` (PLO6 lane 2026-11-15, H9; default false, the measure
+ * as it was): a full house or better counts only when no bigger full house
+ * is possible on that river (omahaBoatsAbove(...).boats === 0, the test
+ * omahaNutClassNow uses), so a river that makes an underfull is not an out.
  */
-export function omahaTurnRedrawShare(hole: Card[], board: Card[], dead: Card[] = []): number {
+export function omahaTurnRedrawShare(
+  hole: Card[],
+  board: Card[],
+  dead: Card[] = [],
+  nutFullHouseOnly = false
+): number {
   try {
     if (!Array.isArray(board) || board.length !== 4) return 0;
     const key = (c: Card) => `${c.rank}:${c.suit}`;
@@ -192,7 +211,7 @@ export function omahaTurnRedrawShare(hole: Card[], board: Card[], dead: Card[] =
         const st = omahaNutStatus(hole, river);
         const paired = new Set(river.map((c) => c.rank)).size < river.length;
         if (
-          st.category >= 7 ||
+          (st.category >= 7 && (!nutFullHouseOnly || omahaBoatsAbove(hole, river).boats === 0)) ||
           (st.category === 6 && st.higherFlushRanks === 0 && !paired) ||
           (st.category === 5 && st.straightIsNut && !st.flushPossible && !paired)
         )
@@ -202,6 +221,26 @@ export function omahaTurnRedrawShare(hole: Card[], board: Card[], dead: Card[] =
   } catch {
     return 0;
   }
+}
+
+/**
+ * omahaTurnRedrawShare with the out class of this game: PLO4/PLO5 (and every
+ * game without a calibration) count any full house, as before; PLO6 counts
+ * only the full houses no bigger one beats when its calibration sets
+ * turnRedrawNutFullHouseOnly to 1 (HorseOmahaStrategyGame.ts).
+ */
+export function omahaTurnRedrawShareOf(
+  gs: { gameVariant?: unknown } | null | undefined,
+  hole: Card[],
+  board: Card[],
+  dead: Card[] = []
+): number {
+  return omahaTurnRedrawShare(
+    hole,
+    board,
+    dead,
+    omahaStrategyConstant('turnRedrawNutFullHouseOnly', gs) === 1
+  );
 }
 
 export interface OmahaDefenseResult {

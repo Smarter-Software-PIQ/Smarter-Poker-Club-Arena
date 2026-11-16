@@ -49,6 +49,8 @@ import type { Card, HorseDecision, SeatPlayer } from '../types.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
 import { omahaMadeClass, scoreOmahaHiPartial } from './HorseEval.js';
 import { v81StreetWager } from './HorseOmahaBigBetCalls.js';
+import { omahaCashOnlyExcludes, omahaTournamentIcmPremium } from './HorseOmahaTournamentScope.js';
+import { omahaStrategyGameInScope, omahaStrategyConstant } from './HorseOmahaStrategyGame.js';
 
 export const OMAHA_RIVER_MEDIUM_BET_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
 /** The bet's share of the pot before it: the measured band, both ends included. */
@@ -188,12 +190,10 @@ export function omahaRiverMediumBetSpot(
 ): OmahaRiverMediumBetSpot | null {
   try {
     const variant = String(gs.gameVariant ?? '').toLowerCase();
-    if (!OMAHA_RIVER_MEDIUM_BET_VARIANTS.has(variant)) return null;
-    // Cash only, read as HorseLogic.isTournamentMode reads it.
-    const tournament = gs.gameMode
-      ? gs.gameMode === 'tournament'
-      : gs.tournament != null || (gs.bigBlind ?? 0) >= 10;
-    if (tournament) return null;
+    if (!omahaStrategyGameInScope(OMAHA_RIVER_MEDIUM_BET_VARIANTS, gs)) return null;
+    // Cash only, read as HorseLogic.isTournamentMode reads it;
+    // omahaStrategyInTournaments (HorseOmahaTournamentScope) opens its public tournament scope.
+    if (omahaCashOnlyExcludes(player, gs)) return null;
     if (
       gs.stage !== 'river' ||
       gs.variantRules?.splitLow8OrBetter ||
@@ -207,10 +207,14 @@ export function omahaRiverMediumBetSpot(
     const board = gs.communityCards ?? [];
     const hole = player.cards ?? [];
     if (board.length !== 5 || hole.length !== Number(variant.at(-1))) return null;
+    if (!Number.isFinite(player.bet) || !Number.isFinite(gs.currentBet)) return null;
+    // What the Horse owes: gs.toCall, or the current bet less its own chips
+    // when the state carries no toCall (the league; audit 2026-11-15, item 3).
+    const toCall = Number.isFinite(gs.toCall)
+      ? (gs.toCall as number)
+      : Math.max(0, gs.currentBet - player.bet);
     if (
-      !Number.isFinite(gs.toCall) ||
-      !(gs.toCall! > 0.005) ||
-      !Number.isFinite(gs.currentBet) ||
+      !(toCall > 0.005) ||
       !Number.isFinite(gs.pot) ||
       !Number.isFinite(player.stack) ||
       !(player.stack > 0) ||
@@ -222,7 +226,7 @@ export function omahaRiverMediumBetSpot(
       player.is_sitting_out
     )
       return null;
-    if (Math.abs(gs.currentBet - gs.toCall!) > 0.011) return null;
+    if (Math.abs(gs.currentBet - toCall) > 0.011) return null;
 
     // The street's opening bet and nothing over it.
     const wagers = (gs.actionHistory ?? []).filter(
@@ -262,12 +266,16 @@ export function omahaRiverMediumBetSpot(
     if (made.category < TWO_PAIR) return null;
     if (made.category === TWO_PAIR && (made.boardPaired || made.cls === 'board2p')) return null;
 
-    const allIn = player.stack <= gs.toCall! + 0.005;
-    const paid = Math.min(player.stack, gs.toCall!);
-    if (allIn ? !gs.legalActions?.includes('all_in') : !gs.legalActions?.includes('call'))
+    const allIn = player.stack <= toCall + 0.005;
+    const paid = Math.min(player.stack, toCall);
+    // A state without a menu (the league) allows the call, as the sibling rules read it.
+    if (
+      Array.isArray(gs.legalActions) &&
+      (allIn ? !gs.legalActions.includes('all_in') : !gs.legalActions.includes('call'))
+    )
       return null;
     // A short call wins only what it covers of the bet it faces.
-    const winnable = gs.pot - (others.length === 1 ? gs.toCall! - paid : 0);
+    const winnable = gs.pot - (others.length === 1 ? toCall - paid : 0);
     if (!(winnable > 0)) return null;
     const price = paid / (winnable + paid);
     const holds = omahaRiverHoldsShare(hole, board, player.knownDeadCards ?? []);
@@ -279,7 +287,11 @@ export function omahaRiverMediumBetSpot(
       price,
       category: made.category,
       holds,
-      priced: holds + 1e-12 >= OMAHA_RIVER_MEDIUM_BET_RANGE_FACTOR * price,
+      // omahaStrategyInTournaments: a tournament call also pays the survival premium.
+      priced:
+        holds + 1e-12 >=
+        omahaStrategyConstant('riverMediumBetRangeFactor', gs) * price +
+          omahaTournamentIcmPremium(player, gs, paid),
       allIn,
     };
   } catch {

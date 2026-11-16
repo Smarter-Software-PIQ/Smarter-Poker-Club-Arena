@@ -1755,8 +1755,10 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
       this.returnedFromSitOutAtMs.set(userId, Date.now());
       this.disconnectEngine.sitBack(this.tableId, userId);
       // Bible V8 §4.2: Mark player as returning — must post dead blind on next hand (cash tables only)
-      if (!this.isTournamentTable()) {
-        this.returningFromSitout.add(userId);
+      if (this.owesMissedBlindsOnReturn(userId)) {
+        if (!this.isTournamentTable()) {
+          this.returningFromSitout.add(userId);
+        }
       }
     }
 
@@ -1778,6 +1780,47 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
     }
 
     return { success: true, willFoldNextHand };
+  }
+
+  /**
+   * ONE ENTRY OBLIGATION PER SEAT (2026-11-15, hand #59634000).
+   *
+   * I'm Back used to mark EVERY cash seat as returning from sit-out, including
+   * a seat that had never been dealt a hand here. Two things followed, and 24
+   * new players paid for them between 2026-11-07 and 2026-11-15:
+   *
+   *   - Post Big Blind and I'm Back on the same arrival put the seat in both
+   *     postingBBToEnter and returningFromSitout. It was billed a dead small
+   *     blind, a live big blind and a second big blind (2.5 BB, 1 BB live).
+   *   - I'm Back before the dealing loop had registered the arrival skipped
+   *     the wait-for-big-blind registration altogether (the loop does not
+   *     register a seat already marked returning) and the new player was
+   *     dealt in for a dead small blind plus a big blind (1.5 BB).
+   *
+   * The published rule (Dan 2026-08-26, postBBToEnter above): a cash entrant
+   * waits for the big blind or posts ONE live big blind. The dead small blind
+   * belongs to a player who was playing here, sat out and MISSED blinds.
+   *
+   * `dealtInUserIds` is the oracle the sit-out and button rules already use:
+   * per table, written at the deal, seeded for veterans at boot, pruned when
+   * the occupancy ends. A seat not in it has missed nothing at this table.
+   *
+   * A MOVED arrival is deliberately left as it was. docs/LAWS.md "A moved
+   * player never posts to enter" still lets a moved player owe blinds they sat
+   * out and missed, and that seat carries no entry post that could overlap.
+   */
+  protected owesMissedBlindsOnReturn(userId: string): boolean {
+    if (
+      this.waitingForBB.has(userId) ||
+      this.postBBWhenClear.has(userId) ||
+      this.postingBBToEnter.has(userId) ||
+      this.pendingPostToEnter.has(userId)
+    ) {
+      return false;
+    }
+    if (this.dealtInUserIds.has(userId)) return true;
+    const seat = this.seatedPlayers.find((p) => p.user_id === userId);
+    return (seat as { entry_hold?: string | null } | undefined)?.entry_hold === 'moved';
   }
 
   /** Leave prevents another deal now, but the hand folds only on this seat's turn. */
@@ -1921,6 +1964,9 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
       this.currentHandShowdownResults.some((r) => r.userId === userId)
     );
   }
+
+  /** Bank-the-win exits deferred past the presentation (ServerTableEngineSettlement). */
+  protected async runDeferredBankTheWinExits(): Promise<void> {}
 
   /** True while this player's last hand is still being presented on the felt. */
   protected inCompletionPresentation(userId: string): boolean {

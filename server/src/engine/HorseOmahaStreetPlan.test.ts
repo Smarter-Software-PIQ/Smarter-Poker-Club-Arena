@@ -17,8 +17,14 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fastRandom, seedFastRandom } from './HorseEval.js';
-import { HorseLogic, type HorseDecideOpts } from './HorseLogic.js';
+import {
+  HorseLogic,
+  omahaStreetPlanAtTurn,
+  omahaStreetPlanFromRiver,
+  type HorseDecideOpts,
+} from './HorseLogic.js';
 import { HorseMind } from './HorseMind.js';
+import { withoutMeasurements } from './HorseDeclaredWork.test-support.js';
 import {
   omahaPlanCardBucket,
   omahaPlanHeroInPosition,
@@ -41,6 +47,26 @@ import STRAIGHT from './horseComplaints/plo5-straight-barrels-the-board-pairing-
 import ACES from './horseComplaints/plo5-aces-up-leads-the-board-pairing-river-into-a-two-street-caller.fixture.json';
 import QUEENS from './HorseOmahaUnderpair.fixture.json';
 
+/**
+ * The plan's facing-bet seam asks the Horse's big-bet call folds about every
+ * river. `seam.parity` 0 or 1 replaces the first of them (the V81 cell) with
+ * a fold on the river cards of even or odd rank and records what it was
+ * asked; null leaves the real cell.
+ */
+const seam = vi.hoisted(() => ({ parity: null as 0 | 1 | null, asked: [] as string[] }));
+vi.mock('./HorseOmahaBigBetCalls.js', async (original) => {
+  const real = await original<typeof import('./HorseOmahaBigBetCalls.js')>();
+  return {
+    ...real,
+    v81Cell: (i: { board: Card[]; street: string }) => {
+      if (seam.parity === null) return (real.v81Cell as (x: unknown) => string | null)(i);
+      seam.asked.push(JSON.stringify(i));
+      if (i.street !== 'river' || i.board.length !== 5) return null;
+      return '23456789TJQKA'.indexOf(i.board[4].rank) % 2 === seam.parity ? 'forced_cell' : null;
+    },
+  };
+});
+
 const FX = {
   straight: STRAIGHT as unknown as ComplaintFixture,
   aces: ACES as unknown as ComplaintFixture,
@@ -54,6 +80,8 @@ const SEEDS = [1, 7, 42, 99, 2026, 3, 11, 17, 23, 31, 101, 102, 103, 104, 105, 1
 const ON: HorseDecideOpts = { omahaStreetPlan: true };
 
 afterEach(() => {
+  seam.parity = null;
+  seam.asked = [];
   vi.restoreAllMocks();
   HorseMind.setDecisionScope(null);
   HorseMind.reset();
@@ -69,8 +97,7 @@ const nodeAt = (
   mutate?.(f);
   return stateAt(f, f.actions.find((a) => a.ord === ord)!);
 };
-const decisionBytes = (d: unknown): string =>
-  JSON.stringify(d, (k, v) => (k === 'latencyMs' || k === 'elapsedMs' ? undefined : v));
+const decisionBytes = (d: unknown): string => JSON.stringify(withoutMeasurements(d));
 interface Outcome {
   bytes: string[];
   wagers: string[];
@@ -358,6 +385,54 @@ describe('omahaStreetPlan: the river follows the turn plan', () => {
     expect(omahaPlanRiverVerdict(plan, back.river, back.faced)).toBe('call');
     // new information: a bet larger than the plan priced is not the planned spot
     expect(omahaPlanRiverVerdict(plan, back.river, back.faced * 1.5)).toBe('unplanned');
+  });
+
+  it('the river rebuilds the plan the turn bet was made under, facing-bet seam included', () => {
+    const turn = nodeAt(FX.straight, TURN);
+    const opp = omahaStreetPlanDomain(turn.hero, turn.gs)!;
+    const river = nodeAt(FX.straight, RIVER);
+    const back = omahaPlanTurnStateFromRiver(river.hero, river.gs)!;
+    // the turn node is rebuilt: chips, board, pot and the history before the bet
+    expect(back.turn.hero.stack).toBeCloseTo(turn.hero.stack, 6);
+    expect(back.turn.hero.bet).toBe(0);
+    expect(back.turn.hero.totalInvested).toBeCloseTo(turn.hero.totalInvested ?? 0, 6);
+    expect(back.turn.opp.stack).toBeCloseTo(opp.stack, 6);
+    expect(back.turn.opp.totalInvested).toBeCloseTo(opp.totalInvested ?? 0, 6);
+    expect(back.turn.gs.pot).toBeCloseTo(turn.gs.pot, 6);
+    expect(back.turn.gs.communityCards).toEqual(turn.gs.communityCards);
+    expect(back.turn.gs.actionHistory).toEqual(turn.gs.actionHistory);
+    const calls = (p: NonNullable<ReturnType<typeof omahaStreetPlan>>) =>
+      p.lines.find((l) => l.kind === 'bet')!.cardPlan.map((x) => x & 2);
+    for (const parity of [0, 1] as const) {
+      seam.parity = parity;
+      seam.asked = [];
+      const atTurn = omahaStreetPlanAtTurn(turn.hero, opp, turn.gs, {}, 373).plan!;
+      const askedAtTurn = seam.asked;
+      seam.asked = [];
+      const fromRiver = omahaStreetPlanFromRiver(river.hero, river.gs, {})!;
+      // the fold rule is asked the same questions, with the same inputs, in the same order
+      expect(askedAtTurn.length).toBeGreaterThan(10);
+      expect(seam.asked).toEqual(askedAtTurn);
+      // and the plan is the turn's plan, byte for byte
+      expect(JSON.stringify(fromRiver.plan)).toBe(JSON.stringify(atTurn));
+      // the seam bites: a plan built without it calls rivers the turn's plan folds
+      seam.parity = null;
+      expect(calls(omahaStreetPlan(back.input)!)).not.toEqual(calls(atTurn));
+      // the river that came is the ace: folded by the even-rank seam, called by the odd-rank one
+      expect(omahaPlanRiverVerdict(fromRiver.plan!, fromRiver.river, fromRiver.faced)).toBe(
+        parity === 0 ? 'fold' : 'call'
+      );
+    }
+  });
+
+  it('a river the turn plan folded because of its facing-bet seam is not followed; one it called is', () => {
+    seam.parity = 0;
+    const folds = play(() => nodeAt(FX.straight, RIVER), ON);
+    expect(hasFire(folds, 'omaha_street_plan_followed')).toBe(0);
+    expect(only(folds)).toEqual(['fold']);
+    seam.parity = 1;
+    const follows = play(() => nodeAt(FX.straight, RIVER), ON);
+    expect(hasFire(follows, 'omaha_street_plan_followed')).toBe(SEEDS.length);
   });
 
   it('59521326 off: the paired-board fold folds the straight; on: the fold stands aside and the reference decision (all in for the call) stands, admitted by the validator', () => {

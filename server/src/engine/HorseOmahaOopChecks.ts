@@ -51,6 +51,13 @@
  *  - omahaPairedRiverNoThinLeadVsValueLeader: river, the final board paired,
  *    less than a full house, a live opponent called the Horse's flop or turn
  *    bet; only when every live opponent is a MEASURED postflop value leader.
+ *  - both paired-board options, every other line (omahaPairedBoardNoBoatSpot;
+ *    conflict sweep S4): a paired turn or river board, less than a full
+ *    house, every live opponent a MEASURED postflop value leader. Out of
+ *    position the bet is a check; in position, heads-up, it is a check only
+ *    when the priced comparison of the check and the bet (the card-impact
+ *    model, HorseOmahaCardImpact) says the check is worth more. A nut-class
+ *    hand is left alone.
  *
  * Scope of all three: PLO4 and PLO5 cash, pot limit, one board, high only,
  * nothing to call, check legal. A call or fold facing a bet is touched in two
@@ -67,7 +74,9 @@ import {
   omahaAggressorTier,
   omahaBoardShape,
   omahaDrawQuality,
+  omahaBoatPosition,
   omahaMadeClass,
+  omahaNutStatus,
   restoreFastRandom,
   saveFastRandom,
   seedFastRandom,
@@ -75,16 +84,12 @@ import {
   variantInfo,
   type OppPostflopRead,
 } from './HorseEval.js';
-import {
-  OMAHA_FACING_BET_EV_MARGIN,
-  OMAHA_FACING_BET_EV_TRIVIAL_BEHIND,
-  omahaEvBluffShare,
-} from './HorseOmahaFacingBetEv.js';
+import { OMAHA_FACING_BET_EV_TRIVIAL_BEHIND, omahaEvBluffShare } from './HorseOmahaFacingBetEv.js';
 import { RANKS, SUITS } from './PokerEngine.js';
 import {
   omahaBeatenByBoard,
   omahaNutClassNow,
-  omahaTurnRedrawShare,
+  omahaTurnRedrawShareOf,
 } from './HorseOmahaMadeHandDefense.js';
 import {
   ploPairedBoardFoldRespectsPrice,
@@ -92,6 +97,8 @@ import {
 } from './HorsePloPairedBoardFold.js';
 import { v81Cell, v86OmahaUnderboatOrDominatedFold } from './HorseOmahaBigBetCalls.js';
 import { horsePolicyDealtPlayers } from './multiway/DealtSeatCensus.js';
+import { omahaCashOnlyExcludes, omahaTournamentIcmPremium } from './HorseOmahaTournamentScope.js';
+import { omahaStrategyGameInScope, omahaStrategyConstant } from './HorseOmahaStrategyGame.js';
 
 export const OMAHA_OOP_CHECK_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
 
@@ -111,7 +118,7 @@ export function omahaOopCheckStreet(hero: SeatPlayer, gs: HorseGameStateV2): Str
 /** The common scope; `facing` asks for a wager to call (fold and call legal) instead of none. */
 function scopeStreet(hero: SeatPlayer, gs: HorseGameStateV2, facing: boolean): Street | null {
   const variant = String(gs.gameVariant ?? '').toLowerCase();
-  if (!OMAHA_OOP_CHECK_VARIANTS.has(variant)) return null;
+  if (!omahaStrategyGameInScope(OMAHA_OOP_CHECK_VARIANTS, gs)) return null;
   const stage = String(gs.stage ?? '');
   if (stage !== 'flop' && stage !== 'turn' && stage !== 'river') return null;
   const vi = variantInfo(variant);
@@ -124,11 +131,9 @@ function scopeStreet(hero: SeatPlayer, gs: HorseGameStateV2, facing: boolean): S
   )
     return null;
   if (gs.allInOrFold === true) return null;
-  // Cash only (HorseLogic.isTournamentMode's own reading).
-  if (
-    gs.gameMode ? gs.gameMode === 'tournament' : gs.tournament != null || (gs.bigBlind ?? 0) >= 10
-  )
-    return null;
+  // Cash only (HorseLogic.isTournamentMode's own reading); omahaStrategyInTournaments
+  // opens its public tournament scope (HorseOmahaTournamentScope).
+  if (omahaCashOnlyExcludes(hero, gs)) return null;
   if ((gs.communityCards ?? []).length !== STREET_BOARD[stage]) return null;
   if (!Array.isArray(hero.cards) || hero.cards.length !== vi.holeCount) return null;
   const toCall = Number.isFinite(gs.toCall)
@@ -318,6 +323,35 @@ export function omahaPairedTurnBarrelSpot(hero: SeatPlayer, gs: HorseGameStateV2
     return omahaOpponentActsBehind(hero, gs);
   } catch {
     return false;
+  }
+}
+
+/**
+ * The wider public spot behind omahaPairedTurnNoBarrelWithoutBoatVsValueLeader
+ * and omahaPairedRiverNoThinLeadVsValueLeader (conflict sweep 2026-11-15, S4:
+ * the two spots above cover one line each, and the same bet was made in
+ * every other line): turn or river, nothing to call, the board paired on any
+ * street, the Horse holds less than a full house. `outOfPosition`: a live
+ * opponent still acts behind. `headsUp`: one live opponent. HorseLogic checks
+ * the bet out of position against measured value leaders; in position only
+ * when the priced comparison of the check and the bet says check.
+ */
+export function omahaPairedBoardNoBoatSpot(
+  hero: SeatPlayer,
+  gs: HorseGameStateV2
+): { street: 'turn' | 'river'; outOfPosition: boolean; headsUp: boolean } | null {
+  try {
+    const street = omahaOopCheckStreet(hero, gs);
+    if (street !== 'turn' && street !== 'river') return null;
+    const board: Card[] = gs.communityCards ?? [];
+    if (!omahaBoardShape(board).paired) return null;
+    const cat = category(hero.cards, board);
+    if (!(cat > 0) || cat >= FULL_HOUSE) return null;
+    const live = liveOpponents(hero, gs);
+    if (live.length === 0) return null;
+    return { street, outOfPosition: omahaOpponentActsBehind(hero, gs), headsUp: live.length === 1 };
+  } catch {
+    return null;
   }
 }
 
@@ -628,9 +662,11 @@ export function omahaTurnBetLacksRiverPlan(
  * (the Horse's bet or raise was called, or the Horse called his), not nut
  * class. With `outs` the unseen river cards that make the nut flush or nut
  * straight on the board that card makes, or a full house or better
- * (omahaTurnRedrawShare, Omaha's two-card rule), and `price` the call over
+ * (omahaTurnRedrawShareOf, Omaha's two-card rule), and `price` the call over
  * the pot after it:
- *  - 'call_nut_draw': outs >= OMAHA_OOP_TURN_MIN_NUT_OUTS (4) and
+ *  - 'call_nut_draw': outs >= OMAHA_OOP_TURN_MIN_NUT_OUTS (4) (PLO4/PLO5:
+ *    the graded sum of omahaGradedTurnOuts, a beaten full house counting a
+ *    share; 2026-11-16) and
  *    price <= outs / unseen + OMAHA_OOP_TURN_SHOWDOWN_CREDIT (0.15, a stated
  *    allowance for the made hand's showdown equity, not a measurement): the
  *    Horse calls, whatever the decision was;
@@ -641,6 +677,61 @@ export function omahaTurnBetLacksRiverPlan(
  *    raise becomes a call (the Horse never check-raises here).
  */
 export const OMAHA_OOP_TURN_MIN_NUT_OUTS = 4;
+
+/**
+ * Graded nut outs (PLO4/PLO5, omahaOopTurnCheckAfterFlopCall only; review
+ * note 2026-11-16 on H9: in the 3,000-hand turn sample about 80% of the
+ * full-house river outs are full houses a bigger full house beats). Every
+ * unseen river card is graded:
+ *  - 1 when it makes the nuts: the nut flush or the nut straight on a river
+ *    that leaves the board unpaired (the straight only with no flush
+ *    possible), quads or better, or a full house no bigger full house beats
+ *    (omahaBoatsAbove(...).boats === 0, the engine's nut-boat convention);
+ *  - for any other full house, the share of the opponent's full-house
+ *    holdings it beats: 1 - boatsAbove / total, floored at 0, with boatsAbove
+ *    the two-rank holdings that make a bigger full house (omahaBoatPosition
+ *    .boats, as omahaBoatsAbove counts it) and total the two-rank holdings
+ *    that make a full house or better on that river (bigger boats, quads and
+ *    smaller boats; an equal boat is not counted);
+ *  - 0 otherwise.
+ * The sum replaces the whole-card count for the 4-out call threshold of the
+ * 'call_nut_draw' verdict only; the price test and the 'fold_no_outs' test
+ * keep the whole-card share. The grading (counting a beaten full house by
+ * that share, the denominator of full-house holdings) is a stated choice,
+ * NOT measured against play.
+ */
+export function omahaGradedTurnOuts(hole: Card[], board: Card[], dead: Card[] = []): number {
+  try {
+    if (!Array.isArray(board) || board.length !== 4) return 0;
+    const key = (c: Card) => `${c.rank}:${c.suit}`;
+    const removed = new Set([...hole, ...board, ...dead].map(key));
+    let sum = 0;
+    for (const suit of SUITS)
+      for (const rank of RANKS) {
+        const card = { rank, suit } as Card;
+        if (removed.has(key(card))) continue;
+        const river = [...board, card];
+        const st = omahaNutStatus(hole, river);
+        const paired = new Set(river.map((c) => c.rank)).size < river.length;
+        if (st.category >= 7) {
+          const pos = omahaBoatPosition(hole, river);
+          if (!pos || pos.boats === 0) {
+            sum += 1;
+            continue;
+          }
+          const total = pos.boats + pos.quads + pos.lowerBoats;
+          sum += total > 0 ? Math.max(0, 1 - pos.boats / total) : 0;
+        } else if (
+          (st.category === 6 && st.higherFlushRanks === 0 && !paired) ||
+          (st.category === 5 && st.straightIsNut && !st.flushPossible && !paired)
+        )
+          sum += 1;
+      }
+    return sum;
+  } catch {
+    return 0;
+  }
+}
 export const OMAHA_OOP_TURN_SHOWDOWN_CREDIT = 0.15;
 export const OMAHA_OOP_TURN_TOKEN_PRICE = 0.15;
 
@@ -741,8 +832,16 @@ export function omahaOopTurnFacingBetVerdict(
     const board: Card[] = gs.communityCards ?? [];
     const unseen = omahaUnseenRiverCards(hero, board).length;
     if (unseen === 0) return null;
-    const share = omahaTurnRedrawShare(hero.cards, board, hero.knownDeadCards ?? []);
+    const share = omahaTurnRedrawShareOf(gs, hero.cards, board, hero.knownDeadCards ?? []);
     const outs = Math.round(share * unseen);
+    // PLO4/PLO5 (2026-11-16): the 4-out call threshold reads the GRADED sum,
+    // a non-nut full house counting only the share of the full-house holdings
+    // it beats (omahaGradedTurnOuts); PLO6 keeps its own out class.
+    const variant = String(gs.gameVariant ?? '').toLowerCase();
+    const callOuts =
+      variant === 'plo4' || variant === 'plo5'
+        ? omahaGradedTurnOuts(hero.cards, board, hero.knownDeadCards ?? [])
+        : outs;
     const stack = Number.isFinite(hero.stack) ? Math.max(0, hero.stack) : 0;
     // what is owed, derived when the state carries no toCall (the league)
     const owed = Number.isFinite(gs.toCall)
@@ -754,13 +853,15 @@ export function omahaOopTurnFacingBetVerdict(
     const livePot = Math.max(0, pot - (owed - call));
     const price = call / (livePot + call);
     if (
-      outs >= OMAHA_OOP_TURN_MIN_NUT_OUTS &&
-      price <= share + OMAHA_OOP_TURN_SHOWDOWN_CREDIT + 1e-9
+      callOuts >= omahaStrategyConstant('oopTurnMinNutOuts', gs) - 1e-9 &&
+      // a tournament call also pays the survival premium (0 in cash)
+      price + omahaTournamentIcmPremium(hero, gs, call) <=
+        share + omahaStrategyConstant('oopTurnShowdownCredit', gs) + 1e-9
     )
       return 'call_nut_draw';
     if (
       outs === 0 &&
-      price >= OMAHA_OOP_TURN_TOKEN_PRICE &&
+      price >= omahaStrategyConstant('oopTurnTokenPrice', gs) &&
       (category(hero.cards, board) <= ONE_PAIR || omahaBeatenByBoard(hero.cards, board))
     )
       return 'fold_no_outs';
@@ -775,9 +876,12 @@ export function omahaOopTurnFacingBetVerdict(
  * option, no option of its own): the flop was checked out of position with
  * the bare big pair and the one opponent bet. Owner 11:39: no blanket rule, the
  * call or fold is "hand and player dependant and pot size to value
- * dependant"; owner 12:09: no check-raise without the nuts. So, heads-up:
- * never a raise; a call when the expected value of the call clears its
- * margin, else a fold.
+ * dependant"; owner 12:09: no check-raise without the nuts. So, with one
+ * live opponent at the decision (a pot that began heads-up, or a multiway
+ * flop on which every other player has folded by then): never a raise; a
+ * call when the expected value of the call clears its margin, else a fold.
+ * With no verdict (null or a throw) HorseLogic's fail-safe keeps a fold or
+ * a call and turns a raise into the exact-chip call.
  *
  * The exact-hand facing-bet model (HorseOmahaFacingBetEv) counts holdings on a
  * turn or river board only: it has no flop form (two cards to come, and its
@@ -1039,7 +1143,11 @@ export function omahaBareOverpairFlopFacingBetVerdict(
     const rake = Math.max(0, Math.min(0.2, Number.isFinite(ctx.rake) ? (ctx.rake as number) : 0));
     const p = equity * realization;
     const ev = p * spot.pot * (1 - rake) - (1 - p) * spot.call;
-    const margin = OMAHA_FACING_BET_EV_MARGIN * (spot.pot + spot.call);
+    // omahaStrategyInTournaments: a tournament call also pays the survival premium (0 in cash).
+    const margin =
+      (omahaStrategyConstant('facingBetEvMargin', gs) +
+        omahaTournamentIcmPremium(hero, gs, spot.call)) *
+      (spot.pot + spot.call);
     return {
       call: ev > margin,
       ev,
@@ -1083,6 +1191,7 @@ export function omahaOopCheckSpot(hero: SeatPlayer, gs: HorseGameStateV2, bet?: 
     omahaBareOverpairOopFlopSpot(hero, gs) ||
     omahaOverpairOopTurnBarrelSpot(hero, gs) ||
     omahaPairedTurnBarrelSpot(hero, gs) ||
-    omahaPairedRiverThinLeadSpot(hero, gs)
+    omahaPairedRiverThinLeadSpot(hero, gs) ||
+    omahaPairedBoardNoBoatSpot(hero, gs) !== null
   );
 }

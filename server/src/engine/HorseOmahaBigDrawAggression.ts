@@ -65,21 +65,31 @@
  * HAPPEN OUT OF POSITION. ONLY IN POSITION WHEN ITS COMBO DRAWS, NOT NAKED
  * NUT FLUSH DRAWS." So this rule never raises out of position (any live
  * opponent acts after the Horse on later streets), raises in position only
- * with a combo draw (a flush draw with a straight draw, or a pair with a nut
- * draw: every class but the bare nut_wrap), and adds no bet out of position
+ * with a combo draw (omahaComboDrawForRaise: a flush draw with a straight
+ * draw of eight or more outs; since 2026-11-16 a pair with a nut flush draw
+ * and a pair with a wrap are not combo draws), and adds no bet out of position
  * either (today's play stays). omahaDrawRaiseBar is the same ruling for the
  * brain's EXISTING draw raises (option omahaNoDrawRaiseOutOfPosition): a hand
  * below two pair with a flush draw or 8+ straight outs does not raise out of
  * position, and in position does not raise a bare flush draw (no top pair or
- * better, under eight straight outs). Two pair or better is a made hand and
+ * better, under eight straight outs; since 2026-11-16 any flush draw without
+ * an eight-out straight draw, a pair or not). Two pair or better is a made hand and
  * is never barred.
  *
  * Pure: no state, no brain random draws, no telemetry.
  */
 import type { Card, SeatPlayer } from '../types.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
-import { RANKS, SUITS } from './PokerEngine.js';
+import { RANKS, RANK_VALUES, SUITS } from './PokerEngine.js';
+import { omahaRankMask, omahaStraightOutRanks } from './HorseOmahaCardImpact.js';
 import { omahaNutStatus, scoreOmahaHi, scoreOmahaHiPartial, variantInfo } from './HorseEval.js';
+import { omahaCashOnlyExcludes, omahaIcmPremiumOf } from './HorseOmahaTournamentScope.js';
+import {
+  omahaStrategyGameInScope,
+  omahaStrategyConstant,
+  omahaStrategyHoleCount,
+  omahaStrategyHoleCountServed,
+} from './HorseOmahaStrategyGame.js';
 
 export const OMAHA_BIG_DRAW_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
 /** Fold to a bet when no read exists. The sweep's humans, heads-up, folded to
@@ -174,11 +184,6 @@ function drawOuts(h: Card[], b: Card[], dead: readonly Card[]) {
   return { nutFlushOuts, nutStraightOuts, straightOuts, flushOuts };
 }
 
-/** A combo draw: a flush draw with a straight draw, or a pair with a nut draw. */
-export function omahaBigDrawIsCombo(cls: OmahaBigDrawClass): boolean {
-  return cls !== 'nut_wrap';
-}
-
 /**
  * In position after the flop: no live opponent acts after hero on a later
  * street (the button, or the live seat nearest before it, acts last).
@@ -195,11 +200,21 @@ export function omahaHeroInPosition(
 
 /**
  * THE ONE DEFINITION of the combo draw that may raise in position (owner
- * ruling 2026-11-15 12:30, read literally by the lane owner after the audit):
- * a draw below two pair (a flush draw, or eight or more straight outs) that is
- * a flush draw with eight or more straight outs, or a strong pair with a draw.
- * A bare flush draw and a bare straight draw or wrap are not. Used by the
- * draw-raise bar here and by omahaTurnRiverRaiseNeedsNuts's turn exception.
+ * rulings 2026-11-15 12:30 Chicago, "only in position when its combo draws,
+ * not naked nut flush draws", and 12:52, turn and river facing a bet raise
+ * only with the nuts; made precise 2026-11-16, review note on item 7): a hand
+ * below two pair holding a flush draw (five or more flush outs) TOGETHER with
+ * a straight draw of eight or more outs, a 13+ out wrap with a flush draw
+ * included. A made pair adds nothing: a pair with a nut flush draw is not a
+ * combo draw, nor a pair with a nut flush draw and a gutshot (it does not
+ * raise: the draw-raise bar makes the raise a call), nor
+ * a pair with a wrap and no flush draw, nor a bare flush draw or a bare wrap.
+ * Straight outs here are counted by rank under the two-card rule, a card that
+ * also completes the flush included (omahaComboStraightOuts), so the flush
+ * cards of an open-ender are not lost to the flush. Used by the draw-raise bar
+ * here (omahaNoDrawRaiseOutOfPosition), by omahaBigDrawVerdict's in-position
+ * raise (omahaBigDrawAggression) and by omahaTurnRiverRaiseNeedsNuts's turn
+ * exception.
  */
 export function omahaComboDrawForRaise(
   hole: readonly Card[],
@@ -210,16 +225,36 @@ export function omahaComboDrawForRaise(
     const h = [...hole];
     const b = [...board];
     if (b.length !== 3 && b.length !== 4) return false;
-    const cat = catOf(h, b);
-    if (cat >= 3) return false;
+    if (catOf(h, b) >= 3) return false;
     const o = drawOuts(h, b, dead);
-    const flush = o.flushOuts >= 5;
-    if (!flush && o.straightOuts < 8) return false;
-    if (flush && o.straightOuts >= 8) return true;
-    return strongPair(hole, board, cat);
+    if (o.flushOuts < 5) return false;
+    const straight = omahaComboStraightOuts(hole, board, dead);
+    return straight >= 8 || straight >= OMAHA_COMBO_WRAP_OUTS;
   } catch {
     return false;
   }
+}
+
+/** A wrap: thirteen or more straight outs (with a flush draw, a combo draw;
+ * every wrap is also an eight-out straight draw, so this names the case). */
+export const OMAHA_COMBO_WRAP_OUTS = 13;
+
+/**
+ * Unseen next cards that give the hand a straight under the two-card rule,
+ * counted by rank (a card that also completes a flush is counted), less the
+ * hand's own copies and the known dead cards of each such rank.
+ */
+export function omahaComboStraightOuts(
+  hole: readonly Card[],
+  board: readonly Card[],
+  dead: readonly Card[] = []
+): number {
+  const seen = new Set([...hole, ...board, ...dead].map(key));
+  let outs = 0;
+  for (const r of omahaStraightOutRanks(omahaRankMask(hole), omahaRankMask(board)))
+    for (const suit of SUITS)
+      for (const rank of RANKS) if (RANK_VALUES[rank] === r && !seen.has(`${rank}:${suit}`)) outs++;
+  return outs;
 }
 
 export type OmahaDrawRaiseBar = 'out_of_position' | 'bare_flush_draw' | 'bare_straight_draw';
@@ -246,10 +281,10 @@ export function omahaDrawRaiseBar(i: {
   allInOrFold: boolean;
 }): OmahaDrawRaiseBar | null {
   try {
-    if (!OMAHA_BIG_DRAW_VARIANTS.has(String(i.variant).toLowerCase())) return null;
+    if (!omahaStrategyGameInScope(OMAHA_BIG_DRAW_VARIANTS, { gameVariant: i.variant })) return null;
     if (i.street !== 'flop' && i.street !== 'turn') return null;
     if (i.hiLo || i.multiBoard || i.bombPot || i.tournament || i.allInOrFold) return null;
-    if (i.hole.length !== 4 && i.hole.length !== 5) return null;
+    if (i.hole.length !== omahaStrategyHoleCount({ gameVariant: i.variant })) return null;
     if (i.board.length !== 3 && i.board.length !== 4) return null;
     const h = [...i.hole];
     const b = [...i.board];
@@ -292,10 +327,9 @@ export function omahaDrawRaiseBarOf(
         : variantInfo(gs.gameVariant).isHiLo,
       multiBoard: !!(gs.communityCards2?.length || gs.communityCards3?.length),
       bombPot: gs.bombPot === true,
-      // HorseLogic.isTournamentMode: the engine's explicit mode wins.
-      tournament: gs.gameMode
-        ? gs.gameMode === 'tournament'
-        : gs.tournament != null || (gs.bigBlind ?? 0) >= 10,
+      // HorseLogic.isTournamentMode: the engine's explicit mode wins;
+      // omahaStrategyInTournaments opens its public tournament scope.
+      tournament: omahaCashOnlyExcludes(player, gs),
       allInOrFold: gs.allInOrFold === true,
     });
   } catch {
@@ -313,7 +347,7 @@ export function omahaBigDraw(
   dead: readonly Card[] = []
 ): OmahaBigDraw | null {
   try {
-    if (!Array.isArray(hole) || (hole.length !== 4 && hole.length !== 5)) return null;
+    if (!Array.isArray(hole) || !omahaStrategyHoleCountServed(hole.length)) return null;
     if (!Array.isArray(board) || (board.length !== 3 && board.length !== 4)) return null;
     if (!unpaired(board)) return null;
     const h = [...hole];
@@ -383,8 +417,37 @@ function drawSuits(board: readonly Card[]): Array<{ suit: string; top: number }>
   return out;
 }
 
-/** 0 = does not continue; 1 = continues against a bet; 2 = continues against a raise too. */
-export function omahaBigDrawContinues(opp: readonly Card[], board: readonly Card[]): 0 | 1 | 2 {
+/**
+ * The straight outs at which an opponent hand that holds nothing else of the
+ * continuing range continues against a bet; 0: straight draws are not in the
+ * continuing range (PLO4/PLO5, as the option was measured). Read per game
+ * through omahaStrategyConstant('bigDrawContinueStraightOuts'); the PLO6
+ * lane's value is 13, the wrap line of omahaBigDraw (H15).
+ */
+export const OMAHA_BIG_DRAW_CONTINUE_STRAIGHT_OUTS = 0;
+
+/**
+ * The next cards that give this hand a straight under the two-card rule: for
+ * every rank that completes one, the four cards of it less the copies the
+ * hand holds itself. By rank (a card that also completes a flush is counted).
+ */
+export function omahaBigDrawStraightOutCards(opp: readonly Card[], board: readonly Card[]): number {
+  let outs = 0;
+  for (const r of omahaStraightOutRanks(omahaRankMask(opp), omahaRankMask(board)))
+    outs += 4 - opp.filter((c) => RANK_VALUES[c.rank] === r).length;
+  return outs;
+}
+
+/**
+ * 0 = does not continue; 1 = continues against a bet; 2 = continues against a raise too.
+ * `straightOutsToContinue` (default 0: off, the range as it was): a hand
+ * outside the range with at least that many straight outs continues against a bet.
+ */
+export function omahaBigDrawContinues(
+  opp: readonly Card[],
+  board: readonly Card[],
+  straightOutsToContinue = 0
+): 0 | 1 | 2 {
   const cat = catOf([...opp], [...board]);
   if (cat >= 4) return 2;
   let fd = false;
@@ -402,6 +465,11 @@ export function omahaBigDrawContinues(opp: readonly Card[], board: readonly Card
   }
   if (nfd) return cat === 2 ? 2 : 1;
   if (cat === 2 && fd && strongPair(opp, board, cat)) return 1;
+  if (
+    straightOutsToContinue > 0 &&
+    omahaBigDrawStraightOutCards(opp, board) >= straightOutsToContinue
+  )
+    return 1;
   return 0;
 }
 
@@ -442,11 +510,15 @@ export function omahaBigDrawEquities(
   const won = [0, 0, 0];
   const got = [0, 0, 0];
   const h = [...hole];
+  // Straight draws in the continuing range: none in PLO4/PLO5 (the key reads 0).
+  const continueStraightOuts = omahaStrategyConstant('bigDrawContinueStraightOuts', {
+    gameVariant: `plo${size}`,
+  });
   for (let k = 0; k < samples; k++) {
     const d = deck.slice();
     draw(size, d, 0);
     const opp = d.slice(0, size);
-    const level = omahaBigDrawContinues(opp, board);
+    const level = omahaBigDrawContinues(opp, board, continueStraightOuts);
     let share = 0;
     for (let r = 0; r < OMAHA_BIG_DRAW_RUNOUTS; r++) {
       draw(need, d, size);
@@ -501,6 +573,13 @@ export interface OmahaBigDrawInput {
   tournament: boolean;
   allInOrFold: boolean;
   wagersCapped: boolean;
+  /**
+   * omahaStrategyInTournaments: the engine's tournament survival premium
+   * (icmRisk, HorseOmahaTournamentScope.omahaTournamentIcmRisk); 0 or absent
+   * in cash. Each line is charged premium x sqrt(stack share risked) on the
+   * money at stake when it goes to showdown.
+   */
+  icmRisk?: number;
 }
 
 export type OmahaBigDrawWithheld =
@@ -532,7 +611,7 @@ const fin = (v: unknown): number => (Number.isFinite(v) ? Math.max(0, v as numbe
  * names why the passive decision stands.
  */
 export function omahaBigDrawVerdict(i: OmahaBigDrawInput): OmahaBigDrawVerdict | null {
-  if (!OMAHA_BIG_DRAW_VARIANTS.has(String(i.variant).toLowerCase())) return null;
+  if (!omahaStrategyGameInScope(OMAHA_BIG_DRAW_VARIANTS, { gameVariant: i.variant })) return null;
   if (i.street !== 'flop' && i.street !== 'turn') return null;
   if (i.hiLo || i.multiBoard || i.bombPot || i.tournament || i.allInOrFold || i.wagersCapped)
     return null;
@@ -562,7 +641,8 @@ export function omahaBigDrawVerdict(i: OmahaBigDrawInput): OmahaBigDrawVerdict |
   // Owner 2026-11-15 12:30: no draw raise and no new draw lead out of
   // position; in position a raise only with a combo draw.
   if (!i.inPosition) return held('out_of_position');
-  if (toCall > 0.005 && !omahaBigDrawIsCombo(draw.cls)) return held('not_combo');
+  if (toCall > 0.005 && !omahaComboDrawForRaise(i.hole, i.board, i.dead ?? []))
+    return held('not_combo');
   const facing = toCall > 0.005;
   const total = heroBet + stack;
   const max = fin(i.maxRaiseTo);
@@ -597,13 +677,25 @@ export function omahaBigDrawVerdict(i: OmahaBigDrawInput): OmahaBigDrawVerdict |
     foldEquity *= facing ? f * OMAHA_BIG_DRAW_RAISE_FOLD_SCALE : f;
   }
   const called = facing ? equities.raise : equities.bet;
-  const evAggressive = foldEquity * pot + (1 - foldEquity) * (called * (pot + cost + x) - cost);
+  const risk = Number.isFinite(i.icmRisk) && (i.icmRisk as number) > 0 ? (i.icmRisk as number) : 0;
+  const stackNow = fin(i.stack);
+  const charge = (chips: number, atStake: number): number =>
+    risk > 0 ? omahaIcmPremiumOf(risk, chips, stackNow) * atStake : 0;
+  const evAggressive =
+    foldEquity * pot +
+    (1 - foldEquity) * (called * (pot + cost + x) - cost - charge(cost, pot + cost + x));
   const realised = i.inPosition ? 1 : OMAHA_BIG_DRAW_OOP_REALISATION;
   const evPassive = facing
-    ? realised * equities.bet * (pot + toCall) - toCall
+    ? realised * equities.bet * (pot + toCall) - toCall - charge(toCall, pot + toCall)
     : realised * equities.all * pot;
   const numbers = { foldEquity, equities, evAggressive, evPassive };
-  if (!(evAggressive > evPassive + OMAHA_BIG_DRAW_MARGIN * pot) || !(evAggressive > 0))
+  if (
+    !(
+      evAggressive >
+      evPassive + omahaStrategyConstant('bigDrawMargin', { gameVariant: i.variant }) * pot
+    ) ||
+    !(evAggressive > 0)
+  )
     return held('passive_ev', numbers);
   const allIn = jam && legal('all_in') && to >= total - 0.005;
   return {

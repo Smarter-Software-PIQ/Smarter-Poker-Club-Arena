@@ -9,8 +9,9 @@
  * for more than the call) stands only when the hand is nut class right now
  * (omahaNutClassNow, HorseOmahaMadeHandDefense.ts). The one exception, turn
  * only: an in-position combo-draw raise that the 12:30 rule permits (a draw
- * below two pair with a flush draw and a straight draw of 8+ outs or a strong
- * pair; never a made hand, never out of position, never a bare flush draw).
+ * below two pair with a flush draw and a straight draw of 8+ outs; since
+ * 2026-11-16 a pair adds nothing; never a made hand, never out of position,
+ * never a bare flush draw, never a pair with only a flush draw).
  * Every other raise becomes a call or a fold priced by the hand, the bettor
  * and the price (HorseLogic.omahaTurnRiverRaiseNeedsNutsRule).
  *
@@ -22,6 +23,8 @@ import type { HorseGameStateV2 } from './HorseLogic.js';
 import { variantInfo } from './HorseEval.js';
 import { omahaNutClassNow } from './HorseOmahaMadeHandDefense.js';
 import { omahaComboDrawForRaise } from './HorseOmahaBigDrawAggression.js';
+import { omahaCashOnlyExcludes } from './HorseOmahaTournamentScope.js';
+import { omahaStrategyGameInScope, omahaStrategyConstant } from './HorseOmahaStrategyGame.js';
 
 export const OMAHA_RAISE_NEEDS_NUTS_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
 
@@ -69,15 +72,13 @@ export function omahaRaiseNeedsNutsScope(
 ): OmahaRaiseNeedsNutsScope | null {
   try {
     const variant = String(gs.gameVariant ?? '').toLowerCase();
-    if (!OMAHA_RAISE_NEEDS_NUTS_VARIANTS.has(variant)) return null;
+    if (!omahaStrategyGameInScope(OMAHA_RAISE_NEEDS_NUTS_VARIANTS, gs)) return null;
     const vi = variantInfo(variant);
     if (!vi.isOmaha || vi.isFixedLimit || gs.bettingStructure === 'fixed_limit') return null;
     if (gs.variantRules ? gs.variantRules.splitLow8OrBetter : vi.isHiLo) return null;
-    // Cash only (HorseLogic.isTournamentMode's own reading).
-    if (
-      gs.gameMode ? gs.gameMode === 'tournament' : gs.tournament != null || (gs.bigBlind ?? 0) >= 10
-    )
-      return null;
+    // Cash only (HorseLogic.isTournamentMode's own reading); omahaStrategyInTournaments
+    // opens its public tournament scope (HorseOmahaTournamentScope).
+    if (omahaCashOnlyExcludes(player, gs)) return null;
     if (
       (gs.boardCount ?? 1) !== 1 ||
       (gs.communityCards2?.length ?? 0) > 0 ||
@@ -126,10 +127,12 @@ export function omahaDecisionRaises(
 /**
  * The 12:30 exception, turn only: the Horse is in position and the hand is the
  * combo draw that may raise there, by the ONE definition in
- * HorseOmahaBigDrawAggression.omahaComboDrawForRaise (a draw below two pair
- * that is a flush draw with an 8+ out straight draw, or a strong pair with a
- * draw). A made hand, a draw out of position, a bare flush draw and a bare
- * wrap are not excepted.
+ * HorseOmahaBigDrawAggression.omahaComboDrawForRaise (a hand below two pair
+ * holding a flush draw together with a straight draw of eight or more outs,
+ * a 13+ out wrap included; 2026-11-16: a pair adds nothing). A made hand, a
+ * draw out of position, a bare flush draw, a bare wrap, a pair with the nut
+ * flush draw (with or without a gutshot) and a pair with a wrap are not
+ * excepted.
  */
 export function omahaTurnComboDrawRaisePermitted(
   player: SeatPlayer,
@@ -164,9 +167,14 @@ export function omahaRaiseNeedsNutsKeeps(
 }
 
 /** Fallback price verdict: fold when the call is at least a third of the pot after it. */
-export function omahaRaiseNeedsNutsPriceFolds(scope: OmahaRaiseNeedsNutsScope): boolean {
+export function omahaRaiseNeedsNutsPriceFolds(
+  scope: OmahaRaiseNeedsNutsScope,
+  gs?: { gameVariant?: unknown }
+): boolean {
   if (!(scope.potAfterCall > 0)) return true;
-  return scope.paid / scope.potAfterCall >= OMAHA_RAISE_NEEDS_NUTS_FOLD_PRICE - 1e-9;
+  return (
+    scope.paid / scope.potAfterCall >= omahaStrategyConstant('raiseNeedsNutsFoldPrice', gs) - 1e-9
+  );
 }
 
 /** The exact legal call for the scope: a call of what is owed, or the all-in when it is the stack. */

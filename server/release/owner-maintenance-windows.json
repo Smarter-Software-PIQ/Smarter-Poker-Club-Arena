@@ -1428,6 +1428,21 @@
         "path": "server/release/activation-floor.json",
         "sha256": "f2adda241059edb6876b28c6501c4a62741ad2f49d9ff02b625b1a3ef6f66030"
       }
+    },
+    {
+      "id": "2026-11-16-owner-offcycle-engine-0106z",
+      "ownerOrder": "Dan in Claude session_01BbZPDgQSQowhbYXFcZzu9V directed at 09:44 Chicago November 15, 2026: \"PLEASE PICK UP WHERE THE OTHER AGENT LEFT OFF WITH: ENGINE CUT OVER.\", and this session holds sole release custody. The single-use window 2026-11-15-owner-offcycle-engine-2245z was booked for 630a109651cf348e8c9332afeaed79db941c0869 (the Hold'em strategy package, the option switch registry and the rest of protected main at 21:48 UTC); this booking is merged only after that release is SEALED, and that window is not extended, renewed or replayed. At 12:33 Chicago November 15 Dan wrote to the PLO Strategy chat (Claude session_01BbZPDiECZa3wsdKb9dnGJa), verbatim: \"FINISH UP ANYTHING AND EVERYTHING NEEDED TO BE DONE NOW, LAUNCH A SWARM TO GET IT DONE, AND SCHEDULE THE NEXT ENGINE CUT OVER AS SOON AS ITS READY, COORDINATE WITH THE ENGINE CUT OVER TO GET THIS DONE IN THE NEXT HOUR OR 2 MAX\", and at 14:16 and 14:17 Chicago to this session, verbatim: \"STOP PUSHING MY CUT OVER BACK AND GET IT DONE!\" and \"LAUNCH IT AS SOON AS ITS READY!\". The Omaha strategy head missed the 2245z candidate by about forty minutes of required checks. No release, pending seal, finalization or awaiting-certificate owner is active when this booking merges. One fresh SINGLE-USE engine activation of exact serving 630a109651cf348e8c9332afeaed79db941c0869, containing at minimum protected main 630a109651cf348e8c9332afeaed79db941c0869; the release custodian starts the one Stage operation for the certified candidate that contains the Omaha strategy head (with its option-list migration installed) and whatever else has been merged through its protected review before this booking merges; an item not merged by then is named with its owner as not delivered. Strategy options change state only as their own reviewed source defaults and the owner's recorded orders provide; a cutover by itself activates none of them, and switching afterward goes only through the audited setter. Admission opens 19:06 Chicago November 15 after the twenty-minute notice and expires at 23:00 Chicago November 15; the later expiry exists only so that one re-certification can still be used if the production schema or release controls move. The maintained announcement guard (:05:30 to :49:00) is unchanged. Independently observe twenty minutes of the actual primary public notice; later publication delays admission within fixed expiry. Require compatible current-schema Backup with full 1800-second soak and both-direction rehearsal against the actual predecessor, exact protected target/control, all four qualification shards, immutable candidate and rollback images, 120s last-hand notice, hand-boundary drain, durable freeze, 300s break, full 285s proof/rollback reserve, one-use custody, SEALED identity, v3 thaw, gameplay verification and fresh post-seal Backup. Pillar 2, R7/R8, leak maps, withdrawn rules, excluded held-out datasets and unapproved defence, persona or exploitation candidates stay disabled; report zero opportunities honestly. The single shared Human vs Horse capture is not duplicated; the capture declared on the predecessor ends at the last whole minute before the announcement and the new build gets its own declaration. No migration in this window, new tournament-start hold, direct restart, automatic renewal, watcher or competing dispatcher.",
+      "contains": "630a109651cf348e8c9332afeaed79db941c0869",
+      "playerNoticeAt": "2026-11-16T00:45:00Z",
+      "notBefore": "2026-11-16T01:06:00Z",
+      "notAfter": "2026-11-16T05:00:00Z",
+      "announcementPolicy": "earliest-certified",
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "e7c55d77b69bdf083bf0877eb600f5021769682563fbf1a04eb7c2ae98087eea"
+      }
     }
   ],
   "databaseWindows": [

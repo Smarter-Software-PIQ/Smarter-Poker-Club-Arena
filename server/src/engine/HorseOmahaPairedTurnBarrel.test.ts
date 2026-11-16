@@ -16,6 +16,11 @@
  *    today's decision (withheld receipt);
  *  - a full house, the Horse in position, a turn card that does not pair the
  *    board: today's decision;
+ *  - every other line on a paired board without a full house against a
+ *    measured value leader (conflict sweep S4): out of position the bet is a
+ *    check; in position it is a check only when the priced comparison says
+ *    the check is worth more; and omahaCardImpact does not create a bet or a
+ *    bigger bet there;
  *  - facing a turn bet after the check nothing changes; what today's brain
  *    does there is pinned: all in over a third of the pot, and the
  *    2026-10-25 paired-board fold folds the straight to half the pot or more.
@@ -25,7 +30,7 @@ import { fastRandom, seedFastRandom } from './HorseEval.js';
 import { HorseLogic, type HorseDecideOpts } from './HorseLogic.js';
 import { HorseMind } from './HorseMind.js';
 import type { OmahaReadConditional } from './HorseOmahaReadConditional.js';
-import { omahaPairedTurnBarrelSpot } from './HorseOmahaOopChecks.js';
+import { omahaPairedBoardNoBoatSpot, omahaPairedTurnBarrelSpot } from './HorseOmahaOopChecks.js';
 import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
 import { horseDecisionReceiptRefusal } from './horseDecision/responseValidation.js';
 import {
@@ -308,5 +313,126 @@ describe('facing a turn bet after the check', () => {
         expect(hasFire(big, 'plo_paired_board_fold')).toBe(SEEDS.length);
       }
     }
+  });
+});
+
+/**
+ * Conflict sweep 2026-11-15, S4 / the broad form of invariant I6. The two
+ * paired-board options covered one line each (the turn card pairs the board
+ * after the Horse's flop bet was called out of position; a river lead into a
+ * caller). The same bet was made in every other line, and omahaCardImpact
+ * added bets and bigger bets there.
+ */
+describe('a paired board without a full house against a measured value leader, every other line', () => {
+  // The board paired on the flop (2-4-4), the turn a nine: not the turn-card spot.
+  const oopOverpair = () => turnNode({ board: '2d4h4s9d', hole: 'AcAh9sKhQs' });
+  const oopTrips = () => turnNode({ board: '2d4h4s9d', hole: '4cAh8sKhQs' });
+  const ipOverpair = () => turnNode({ inPosition: true, board: '2d4h4s9d', hole: 'AcAh8sKhQs' });
+  const ipStraight = () => turnNode({ inPosition: true });
+  const ipFlush = () => turnNode({ inPosition: true, board: '2d7dKd7s', hole: 'AdQd9s8h3c' });
+  const CI: HorseDecideOpts = { omahaCardImpact: true };
+
+  it('the public spot: paired board, less than a full house, with who acts behind', () => {
+    for (const build of [oopOverpair, oopTrips]) {
+      const st = build();
+      expect(omahaPairedTurnBarrelSpot(st.hero, st.gs)).toBe(false);
+      expect(omahaPairedBoardNoBoatSpot(st.hero, st.gs)).toEqual({
+        street: 'turn',
+        outOfPosition: true,
+        headsUp: true,
+      });
+    }
+    const ip = ipOverpair();
+    expect(omahaPairedBoardNoBoatSpot(ip.hero, ip.gs)?.outOfPosition).toBe(false);
+    const boat = turnNode({ hole: '5c5hAs3hQs' });
+    expect(omahaPairedBoardNoBoatSpot(boat.hero, boat.gs)).toBeNull();
+    const unpaired = turnNode({ board: '2d4h5s9d' });
+    expect(omahaPairedBoardNoBoatSpot(unpaired.hero, unpaired.gs)).toBeNull();
+    const st = turnNode();
+    for (const over of [
+      { gameVariant: 'plo6' },
+      { gameMode: 'tournament' },
+      { variantRules: { splitLow8OrBetter: true } },
+      { toCall: 40, currentBet: 40 },
+    ])
+      expect(omahaPairedBoardNoBoatSpot(st.hero, { ...st.gs, ...over } as never)).toBeNull();
+  });
+
+  it('out of position in a line the narrow spot does not cover: the bet is a check at every seed, with its receipt, the random stream untouched', () => {
+    for (const build of [oopOverpair, oopTrips]) {
+      const off = play(build, {}, () => leader);
+      const on = play(build, ON, () => leader);
+      expect(wagers(off)).toBeGreaterThan(0);
+      expect(wagers(on)).toBe(0);
+      expect(hasFire(on, 'omaha_paired_board_no_boat_oop_bet_checked')).toBe(wagers(off));
+      expect(on.next).toEqual(off.next);
+      // not a leader, presumed, unknown, the mind off: today's decision
+      for (const reads of [() => null, () => presumed, () => notLeader])
+        expect(play(build, ON, reads as Reads).bytes).toEqual(
+          play(build, {}, reads as Reads).bytes
+        );
+      expect(play(build, { ...ON, mind: false }, () => leader).bytes).toEqual(
+        play(build, { mind: false }, () => leader).bytes
+      );
+    }
+  });
+
+  it('in position: a check only where the priced comparison says the check is worth more', () => {
+    // An overpair on the paired board: better hands call more than worse ones. A check.
+    const off = play(ipOverpair, {}, () => leader);
+    const on = play(ipOverpair, ON, () => leader);
+    expect(wagers(off)).toBe(SEEDS.length);
+    expect(wagers(on)).toBe(0);
+    expect(hasFire(on, 'omaha_paired_board_no_boat_ip_bet_checked_by_price')).toBe(SEEDS.length);
+    expect(on.next).toEqual(off.next);
+    expect(play(ipOverpair, ON, () => notLeader).bytes).toEqual(
+      play(ipOverpair, {}, () => notLeader).bytes
+    );
+    // The straight and the nut flush in position: the comparison keeps the bet. No blanket rule.
+    for (const build of [ipStraight, ipFlush]) {
+      const kept = play(build, ON, () => leader);
+      expect(kept.bytes).toEqual(play(build, {}, () => leader).bytes);
+      expect(wagers(kept)).toBe(SEEDS.length);
+    }
+  });
+
+  it('the checks are admitted by the worker receipt validator', () => {
+    for (const build of [oopOverpair, ipOverpair]) {
+      for (const s of SEEDS.slice(0, 6)) {
+        HorseMind.reset();
+        vi.spyOn(HorseMind, 'omahaReadConditionalOf').mockImplementation((() => leader) as never);
+        seedFastRandom(s);
+        const st = build();
+        const d = structuredClone(HorseLogic.decide(st.hero, st.gs, LIVE.style, LIVE.mods, ON));
+        vi.restoreAllMocks();
+        expect(d.action).toBe('check');
+        expect(
+          horseDecisionReceiptRefusal(structuredClone(d), 'plo5', {
+            player: st.hero,
+            gameState: st.gs,
+          })
+        ).toBeNull();
+      }
+    }
+  });
+
+  it('omahaCardImpact does not create a bigger bet there: against a value leader the decision is the one given, against anyone else it presses', () => {
+    const base = play(ipFlush, {}, () => leader);
+    const vsLeader = play(ipFlush, CI, () => leader);
+    expect(vsLeader.bytes).toEqual(base.bytes);
+    expect(hasFire(vsLeader, 'omaha_card_impact_paired_board_press_withheld')).toBe(SEEDS.length);
+    expect(hasFire(vsLeader, 'omaha_card_impact_press_bet')).toBe(0);
+    expect(hasFire(vsLeader, 'omaha_card_impact_changed')).toBe(0);
+    const vsOther = play(ipFlush, CI, () => notLeader);
+    expect(hasFire(vsOther, 'omaha_card_impact_press_bet')).toBe(SEEDS.length);
+    expect(hasFire(vsOther, 'omaha_card_impact_paired_board_press_withheld')).toBe(0);
+    const amount = (bytes: string) => (JSON.parse(bytes) as { amount?: number }).amount ?? 0;
+    vsOther.bytes.forEach((b, i) =>
+      expect(amount(b)).toBeGreaterThan(amount(play(ipFlush, {}, () => notLeader).bytes[i]))
+    );
+    // the defence check is still the comparison's to make against a value leader
+    const defence = play(ipOverpair, CI, () => leader);
+    expect(wagers(defence)).toBe(0);
+    expect(hasFire(defence, 'omaha_card_impact_defence_check')).toBe(SEEDS.length);
   });
 });

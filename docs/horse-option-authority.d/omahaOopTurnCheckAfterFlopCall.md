@@ -4,7 +4,7 @@ Owner order of 2026-11-15 12:10 America/Chicago. Evidence NOT MET; a live read i
 
 ## What it does
 
-Out of position on the turn after the flop bet was called (heads-up, or multiway with the Horse first to act and every live opponent a caller): a bet becomes a check (nut class keeps betting); facing the bet it never raises, calls with 4+ nut outs at its price, folds with no out at 0.15 or more. Owner-ruled and final over every later rule.
+Out of position on the turn after the flop bet was called (heads-up, or multiway with the Horse first to act and every live opponent a caller): a bet becomes a check (nut class keeps betting); facing the bet it never raises, calls with 4+ nut outs at its price (PLO4/PLO5 since 2026-11-16: the graded sum, a non-nut full house counting the share of full-house holdings it beats; `omahaGradedTurnOuts`, stated, not measured), folds with no out at 0.15 or more. Owner-ruled and final over every later rule.
 
 Default OFF in source (read `=== true`). On live only by an option-switch row whose note cites this file and its sha256 (`authority: omahaOopTurnCheckAfterFlopCall docs/horse-option-authority.d/omahaOopTurnCheckAfterFlopCall.md sha256 <digest>`). The maintained rollback (switch row off, about 30 s) applies if harm is established.
 
@@ -22,6 +22,8 @@ Default OFF in source (read `=== true`). On live only by an option-switch row wh
 
 omaha_oop_turn_check_after_flop_call, omaha_oop_turn_check_call_nut_draw, omaha_oop_turn_check_fold_no_outs, omaha_oop_turn_check_raise_flatted
 
+A receipt describes the final action (2026-11-15 follow-up): a verdict a later rule can still overturn is proposed and settled when the decision is final; its receipt fires when the final action is the verdict, and its `_vetoed` twin fires when a later rule replaced it. Vetoed twins: omaha_oop_turn_check_call_nut_draw_vetoed, omaha_oop_turn_check_fold_no_outs_vetoed, omaha_oop_turn_check_raise_flatted_vetoed.
+
 ## Tests
 
 HorseOmahaOopTurnCheckAfterFlopCall.test.ts, HorseOmahaStrategyPrecedence.test.ts (all pass on the PLO strategy head; server tsc 0).
@@ -35,3 +37,7 @@ HorseOmahaOopTurnCheckAfterFlopCall.test.ts, HorseOmahaStrategyPrecedence.test.t
 ## Limits
 
 No evaluation run. The 0.15 showdown credit and the 0.15 price floor on the no-outs fold are the builder's constants, not measured.
+
+## Live change on this head (review B2, 2026-11-16)
+
+This option is ON live since 2026-11-16T02:55Z (option-switch row, Hand Analysis's owner-forced record); this change alters its live behaviour as follows: the "four or more nut outs" forced call facing the turn bet (out of position, after the flop bet was called, PLO4/PLO5 cash) now counts GRADED nut outs (`omahaGradedTurnOuts`): a river card counts 1 only when it makes the nuts, and a card that makes a non-nut full house counts only the share of the opponent's full-house holdings it beats. Live today every card that improved the hand to a full house or better counted whole. Over the 3,000-hand H9 turn sample (two pair, trips or a set) the hands at or over the threshold fall from 2,393 to 686 in PLO4 (1,707, about 57% of the sample, lose the forced call) and from 2,568 to 941 in PLO5 (1,627, about 54%, lose it). A hand that loses the forced call keeps today's call or fold (it folds where today's decision folds), and a raise there still becomes a call. The turn bet that becomes a check, the price test and the no-out fold (whole-card count) are unchanged. PLO6 keeps its own out class.

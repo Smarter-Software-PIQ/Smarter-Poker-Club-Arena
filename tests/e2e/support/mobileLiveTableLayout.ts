@@ -512,24 +512,39 @@ export function readMobileTableLayout(crowns: Readonly<Record<string, number>>) 
         if (distance > 2) violations.push('Nine-Max Resting Wager Collection Misses Pot');
       }
     }
+    const heroAvatar = table.querySelector<HTMLElement>('.seat--hero .seat__avatar');
+    if (heroAvatar && ring instanceof HTMLElement && ring.offsetWidth) {
+      const base = Math.min(124, Math.max(50, ring.offsetWidth * 0.158));
+      if (parseFloat(getComputedStyle(heroAvatar).height) < (base * 4) / 3 - 1)
+        violations.push('Nine-Max Hero Avatar Below Full Diameter');
+    }
     for (const wrapper of table.querySelectorAll('.seat-wrapper:not(.seat-wrapper--hero)')) {
       const seat = wrapper.querySelector<HTMLElement>('.seat:not(.seat--empty)');
       if (!seat || !visible(seat) || !visible(wrapper)) continue;
       const cap = wrapper.matches('.seat-wrapper--cap,.seat-wrapper--top');
       if (ring && cap) {
         const plate = seat.querySelector('.seat__info');
-        if (
-          plate &&
-          visible(plate) &&
-          box(plate).top >
-            box(ring).top +
-              12 * (box(ring).width / ((ring as HTMLElement).offsetWidth || box(ring).width)) +
-              2
-        )
-          violations.push(`Chair ${seat.dataset.seatNum} Top Portrait Inside Nine-Max Table`);
+        if (plate && visible(plate)) {
+          const chassis = box(ring),
+            label = box(plate);
+          const centre = (label.top + label.height / 2 - chassis.top) / chassis.height;
+          if (centre < 0.045 || centre > 0.08)
+            violations.push(`Chair ${seat.dataset.seatNum} Misses Nine-Max Top Rail`);
+        }
       }
       const anchor = box(wrapper);
       const pod = box(seat);
+      const art = table.querySelector('.table-art');
+      if (!cap && art && visible(art)) {
+        const skin = box(art);
+        const x = (pod.left + pod.width / 2 - skin.left) / skin.width;
+        const y = (pod.top + pod.height / 2 - skin.top) / skin.height;
+        // The outer edge at the lower shoulder is farther in than the
+        // straight side. Compare with the actual painted chassis bounds.
+        const inset = Math.min(x, 1 - x);
+        if (inset < (y > 0.75 ? 0.065 : 0.033) - 1 / skin.width || inset > 0.16)
+          violations.push(`Chair ${seat.dataset.seatNum} Outside Painted Nine-Max Rail`);
+      }
       const dx = pod.left + pod.width / 2 - (anchor.left + anchor.width / 2);
       const dy = pod.top + pod.height / 2 - (anchor.top + anchor.height / 2);
       if (Math.abs(dx) > 2 || (!cap && Math.abs(dy) > 2))

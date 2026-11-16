@@ -14,9 +14,11 @@
  * bettor's 40 to 70 percent river bets) and one ahead 19 times in 24 (his 70
  * percent and larger river bets).
  */
+import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HorseLogic, type HorseDecideOpts } from './HorseLogic.js';
 import { HorseMind } from './HorseMind.js';
+import { withoutMeasurements } from './HorseDeclaredWork.test-support.js';
 import { scoreOmahaHiPartial, seedFastRandom } from './HorseEval.js';
 import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
 import { replayProfiles, stateAt } from './HorseComplaintReplay.js';
@@ -29,6 +31,7 @@ import {
   omahaBetSizeBucket,
   omahaEvBluffShare,
   omahaEvHandCounts,
+  omahaEvHandCountsResetCache,
   omahaFacingBetEvSpot,
   omahaFacingBetEvVerdict,
   type OmahaFacingBetEvRead,
@@ -65,8 +68,7 @@ function at(r: RecordedFacingBet, change?: (r: RecordedFacingBet) => void) {
   const { fx, node } = expand(copy);
   return stateAt(fx, node);
 }
-const decisionBytes = (d: unknown): string =>
-  JSON.stringify(d, (k, v) => (k === 'latencyMs' || k === 'elapsedMs' ? undefined : v));
+const decisionBytes = (d: unknown): string => JSON.stringify(withoutMeasurements(d));
 
 interface Outcome {
   bytes: string[];
@@ -628,17 +630,170 @@ describe('the size read comes from the existing river size-bucket tallies, when 
     }
   }, 600000);
 
-  it('a caller whose calls were shown weak is modelled wider; one always best, narrower (no reader supplies it today)', () => {
+  it('a caller is modelled on the population share; the context takes no per-caller read (audit item 8)', () => {
     const r = rec(59484381, 5);
     const st = at(r);
     const spot = omahaFacingBetEvSpot(st.hero, st.gs as never)!;
     expect(spot.callerSeats).toEqual([4]);
-    const run = (callerShown: Array<{ shown: number; best: number } | null>) =>
-      omahaFacingBetEvVerdict(spot, st.hero.cards, st.gs.communityCards, [], null, { callerShown })!
+    const run = (ctx: Record<string, unknown>) =>
+      omahaFacingBetEvVerdict(spot, st.hero.cards, st.gs.communityCards, [], null, ctx as never)!
         .field;
-    const base = run([null]);
-    expect(run([{ shown: 3, best: 0 }])).toBe(base);
-    expect(run([{ shown: 16, best: 2 }])).toBeGreaterThan(base);
-    expect(run([{ shown: 16, best: 16 }])).toBeLessThan(base);
+    const base = run({});
+    expect(base).toBeLessThan(1);
+    // the removed input is not read: an object that still carries it changes nothing
+    expect(run({ callerShown: [{ shown: 16, best: 2 }] })).toBe(base);
+    expect(run({ callerShown: [{ shown: 16, best: 16 }] })).toBe(base);
+  });
+});
+
+/**
+ * The count is the costliest step of a turn decision (a PLO5 turn took about
+ * 200 ms). It walks groups of interchangeable cards, scores each river card
+ * once per rank pair and remembers the last few hands. None of that may move
+ * a number: the digests below were recorded from the count as it was before
+ * (every pair scored on every river card, every holding walked card by card).
+ */
+describe('the exact count is cheaper and gives the same numbers', () => {
+  const bruteWithout = (m: number, n: number, pairs: Array<[number, number]>, skip: number) => {
+    const barred = new Set(pairs.map(([a, b]) => a * 64 + b));
+    let total = 0;
+    const pick: number[] = [];
+    const walk = (start: number) => {
+      if (pick.length === n) {
+        total++;
+        return;
+      }
+      for (let i = start; i < m; i++) {
+        if (i === skip) continue;
+        if (pick.some((p) => barred.has(p * 64 + i))) continue;
+        pick.push(i);
+        walk(i + 1);
+        pick.pop();
+      }
+    };
+    walk(0);
+    return total;
+  };
+  const rng = (seed: number) => {
+    let a = seed >>> 0;
+    return () => {
+      a = (a + 0x6d2b79f5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  };
+
+  it('interchangeable cards (ranks of four cards, one suit apart) are counted as listing them counts', () => {
+    // 36 cards: rank = i % 9, suit = i / 9. Rank pairs are barred whatever the
+    // suits, some pocket pairs are barred, and suit 0 has its own barred pairs.
+    for (const seed of [1, 2, 3, 4, 5, 6]) {
+      const r = rng(seed);
+      const m = 36;
+      const rankBar = new Set<number>();
+      for (let a = 0; a < 9; a++)
+        for (let b = a; b < 9; b++) if (r() < 0.12 + 0.05 * seed) rankBar.add(a * 9 + b);
+      const pairs: Array<[number, number]> = [];
+      for (let i = 0; i < m; i++)
+        for (let j = i + 1; j < m; j++) {
+          const a = Math.min(i % 9, j % 9);
+          const b = Math.max(i % 9, j % 9);
+          const flush = i < 9 && j < 9 && r() < 0.3;
+          if (rankBar.has(a * 9 + b) || flush) pairs.push([i, j]);
+        }
+      const bar = new PairSet(m);
+      for (const [a, b] of pairs) bar.add(a, b);
+      for (const n of [4, 5])
+        for (const skip of [-1, 3, 20, 35])
+          expect(countHoldingsWithout(m, n, bar, skip)).toBe(bruteWithout(m, n, pairs, skip));
+    }
+  });
+
+  it('cards with no two alike are counted as listing them counts, past 32 cards', () => {
+    for (const seed of [11, 12, 13]) {
+      const r = rng(seed);
+      const m = 35;
+      const pairs: Array<[number, number]> = [];
+      for (let i = 0; i < m; i++) for (let j = i + 1; j < m; j++) if (r() < 0.1) pairs.push([i, j]);
+      const bar = new PairSet(m);
+      for (const [a, b] of pairs) bar.add(a, b);
+      for (const skip of [-1, 0, 33])
+        expect(countHoldingsWithout(m, 4, bar, skip)).toBe(bruteWithout(m, 4, pairs, skip));
+    }
+  });
+
+  const RANKS13 = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A'];
+  const SUITS4 = ['clubs', 'diamonds', 'hearts', 'spades'];
+  const digest = (holeN: number, boardN: number): string => {
+    const rows: string[] = [];
+    for (let k = 0; k < 40; k++) {
+      const r = rng(1234 + k * 77 + holeN * 1000 + boardN);
+      const deck: Card[] = [];
+      for (const s of SUITS4) for (const x of RANKS13) deck.push({ rank: x, suit: s } as Card);
+      for (let i = deck.length - 1; i > 0; i--) {
+        const j = Math.floor(r() * (i + 1));
+        [deck[i], deck[j]] = [deck[j]!, deck[i]!];
+      }
+      const c = omahaEvHandCounts(
+        deck.slice(0, holeN),
+        deck.slice(holeN, holeN + boardN),
+        [],
+        [0.2, 0.35, 0.5][k % 3]!
+      )!;
+      const top = [c.top(0.5), c.top(0.25)];
+      rows.push(
+        JSON.stringify([
+          c.all,
+          c.value,
+          c.other,
+          c.valueShare,
+          top,
+          c.pairsScored,
+          c.counts,
+          c.holdings,
+        ])
+      );
+    }
+    return createHash('sha256').update(JSON.stringify(rows)).digest('hex');
+  };
+
+  it('forty PLO5 turns, forty PLO4 turns and forty PLO5 rivers give the recorded numbers, byte for byte', () => {
+    omahaEvHandCountsResetCache();
+    expect(digest(5, 4)).toBe('f67e8d6da6b3ebc50f7c2ec9c36ee693fd5d6471d121276fb2e636f6c03f4fc2');
+    expect(digest(4, 4)).toBe('cfe9094c91cc03545a9e0a1ee6de7c2e35045590d55664c9b2128168d3c6a847');
+    expect(digest(5, 5)).toBe('98ff2193b95f68927192865bb21d7fe2cd9bbba96ab2c314cf20b2972d38e74a');
+  });
+
+  it('a hand asked again, with the same or another value share, answers as a hand asked first', () => {
+    const hole = cardsOf('QcAcQdAhTs');
+    const board = cardsOf('4c2s8s3c');
+    const ask = (share: number) => {
+      const c = omahaEvHandCounts(hole, board, [], share)!;
+      return JSON.stringify([
+        c.all,
+        c.value,
+        c.other,
+        c.valueShare,
+        c.top(0.5),
+        c.top(0.25),
+        c.pairsScored,
+        c.counts,
+      ]);
+    };
+    const fresh: Record<string, string> = {};
+    for (const share of [0.2, 0.35, 0.5]) {
+      omahaEvHandCountsResetCache();
+      fresh[share] = ask(share);
+    }
+    omahaEvHandCountsResetCache();
+    for (const share of [0.5, 0.2, 0.35, 0.2, 0.5]) expect(ask(share)).toBe(fresh[share]);
+    // and the remembered hand costs under half of the first ask
+    omahaEvHandCountsResetCache();
+    const t0 = performance.now();
+    ask(0.35);
+    const first = performance.now() - t0;
+    const t1 = performance.now();
+    for (let i = 0; i < 5; i++) ask(0.35);
+    expect((performance.now() - t1) / 5).toBeLessThan(first / 2);
   });
 });
