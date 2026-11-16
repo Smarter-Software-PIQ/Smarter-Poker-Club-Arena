@@ -535,7 +535,7 @@
   max-height: 94dvh;
   overflow-y: auto;
   padding: 18px clamp(12px, 4vw, 26px);
-  border: 3px ridge #afbecb;
+  box-sizing: border-box;
   border-radius: 18px;
   background: #101318;
   border: 12px solid transparent;
@@ -590,11 +590,12 @@
   text-transform: uppercase;
 }
 .share-hand__result strong {
+  color: white;
   font-size: 1.4rem;
   overflow-wrap: anywhere;
 }
 .share-hand__result div:last-child strong {
-  color: #4ef188;
+  color: #3fb950;
 }
 .share-hand__board {
   margin: 0;
@@ -608,6 +609,7 @@
 .share-hand__table-picture .table-page.shared-table-stage {
   width: 200%;
   height: 200%;
+  min-height: 0;
   transform: scale(0.5);
   transform-origin: top left;
 }

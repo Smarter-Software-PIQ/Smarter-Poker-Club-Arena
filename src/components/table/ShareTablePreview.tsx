@@ -13,7 +13,7 @@ export default function ShareTablePreview({ hand }: { hand: ShareableHand }) {
   const hero = hand.players.find((player) => player.isHero);
   if (!frame || !model.players.length) return null;
   return (
-    <div className="share-hand__table-picture" inert aria-label="Table at the end of the hand">
+    <div className="share-hand__table-picture" inert aria-label="Table At The End Of The Hand">
       <SharedTableStage
         model={model}
         frame={frame}
