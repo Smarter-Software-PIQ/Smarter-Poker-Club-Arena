@@ -140,7 +140,7 @@ describe('daylight saving comes from the zone database, never from +24 hours', (
     );
   });
 
-  it('a club in no union keeps Chicago midnight days across both changes', () => {
+  it('older Chicago answers retain their stated boundaries across both changes', () => {
     expect(iso(chicagoDayStart('2026-11-01'))).toBe('2026-11-01T05:00:00.000Z');
     expect(iso(chicagoDayStart('2026-11-02'))).toBe('2026-11-02T06:00:00.000Z');
     expect(iso(chicagoDayStart('2027-03-14'))).toBe('2027-03-14T06:00:00.000Z');
@@ -275,5 +275,35 @@ describe('figures are exact: never K/M, never rounded, never summed in floats', 
     expect(sumFigures([1951998.47, -2029901, 7218.35, -30942.59])).toBe('-101626.77');
     expect(sumFigures(['99999999999999999.99', 0.01])).toBe('100000000000000000.00');
     expect(sumFigures([])).toBe('0');
+  });
+});
+
+describe('standalone and pre-union Data reports share Pacific boundaries', () => {
+  it('keeps net-flow definitions distinct from union invoice accounting', () => {
+    expect(
+      clubDataDayBasis({
+        accounting_basis: 'pacific_net_money_flow',
+        day_basis: 'America/Los_Angeles 00:00',
+      })
+    ).toBe('pacific');
+    expect(
+      clubDataDayBasis({
+        accounting_basis: 'union_invoice_accounting',
+        day_basis: 'America/Los_Angeles 00:00',
+      })
+    ).toBe('accounting');
+    expect(clubDataDayOn('pacific', '2026-11-16T07:59:59Z')).toBe('2026-11-15');
+    expect(clubDataDayOn('pacific', '2026-11-16T08:00:00Z')).toBe('2026-11-16');
+  });
+  it('uses the same 25-hour and 23-hour days for every current report basis', () => {
+    for (const day of ['2026-11-01', '2027-03-14']) {
+      const standalone = clubDataWindow(day, day, 'pacific')!;
+      const invoice = clubDataWindow(day, day, 'accounting')!;
+      expect(standalone.start.toISOString()).toBe(invoice.start.toISOString());
+      expect(standalone.end.toISOString()).toBe(invoice.end.toISOString());
+    }
+    expect(clubDataWindowLabel('2026-11-09', '2026-11-15', 'pacific')).toBe(
+      'Nov 9, 2026 2:00 AM To Nov 16, 2026 2:00 AM'
+    );
   });
 });

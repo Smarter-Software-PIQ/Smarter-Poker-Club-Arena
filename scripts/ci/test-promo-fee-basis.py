@@ -69,6 +69,9 @@ def main():
    q('REVOKE ALL ON FUNCTION '+r['signature']+' FROM PUBLIC,anon,authenticated,service_role;')
    for acl in (r['acl'] or '{}').strip('{}').split(','):
     if acl.startswith(('anon=','authenticated=','service_role=')):q('GRANT EXECUTE ON FUNCTION '+r['signature']+' TO '+acl.split('=')[0])
+  admission=json.loads((ROOT/'tests/fixtures/promo-fee-basis/mtt-admission-guard.json').read_text())
+  q(admission['definition']);q('REVOKE ALL ON FUNCTION public.fn_ca_guard_mtt_admission_contract() FROM PUBLIC,anon,authenticated,service_role;')
+  check('actual admission guard preimage is preserved before the migration',q("SELECT md5(pg_get_functiondef('public.fn_ca_guard_mtt_admission_contract()'::regprocedure))"),admission['md5'])
   for name in ['accounting_effective_cash_rake_sources','accounting_effective_tournament_fee_sources','accounting_payable_earning_sources']:
    r=next(r for r in captured['views'] if r['relname']==name);q('CREATE VIEW public.'+name+' AS '+r['definition'])
   q('CREATE TRIGGER commission_source_guard BEFORE INSERT ON agent_commissions FOR EACH ROW EXECUTE FUNCTION fn_accounting_cash_commission_source_guard();')
@@ -84,7 +87,18 @@ def main():
   mixed,hm=cash('mixed',50);full,hf=cash('full',100);real,hr=cash('real')
   check('baseline pays commission on gross promo-funded rake',q(f"SELECT (fn_accounting_cash_commission_plan('{mixed}')->'players'->0->'tiers'->0->>'amount')::numeric"),'50.00')
   q('ALTER TABLE ca_promo_cash_hand_funding RENAME TO fixture_pre_custody;')
-  q(MIGRATION.read_text())
+  def guarded(sql):
+   # Use the real protected applier's before/after guard, not an imitation.
+   script="import{stalePinGuardSQL}from'./scripts/ci/migration-stale-pins.mjs';let s='';for await(const b of process.stdin)s+=b;process.stdout.write(stalePinGuardSQL(process.argv[1],s,s));"
+   return subprocess.run(['node','--input-type=module','-e',script,str(MIGRATION)],input=sql,text=True,capture_output=True,check=True,cwd=ROOT).stdout
+  migration=MIGRATION.read_text();pin_start=migration.index('DO $admission_pin$');pin_end=migration.index('END $admission_pin$;',pin_start)+len('END $admission_pin$;')
+  q(guarded(migration[:pin_start]+migration[pin_end:]),'migration_left_a_stale_pin')
+  check('real stale-pin guard refuses the former migration and rolls back all new funding DDL',q("SELECT to_regclass('public.ca_promo_entry_fee_funding') IS NULL"),'t')
+  q(guarded(migration))
+  next_hash=q("SELECT md5(pg_get_functiondef('public.fn_capture_accounting_tournament_fee(uuid,jsonb)'::regprocedure))")
+  expected=admission['definition'].replace('e83638c8e5401469c336fe378505fbac',next_hash)
+  check('admission guard changes only the exact earning-owner body pin',q("SELECT md5(pg_get_functiondef('public.fn_ca_guard_mtt_admission_contract()'::regprocedure))"),hashlib.md5(expected.encode()).hexdigest())
+  check('admission guard owner and original private ACL remain unchanged',q("SELECT pg_get_userbyid(proowner)||':'||proacl::text FROM pg_proc WHERE oid='public.fn_ca_guard_mtt_admission_contract()'::regprocedure"),admission['owner']+':'+admission['acl'])
   check('installs and reads safely before custody table while enforcement is off',q(f"SELECT fn_accounting_cash_commission_plan('{mixed}')->'players'->0->'tiers'->0->>'amount'"),'50.00')
   q("ALTER TABLE fixture_pre_custody RENAME TO ca_promo_cash_hand_funding;UPDATE ca_promo_play_through_settings SET enforced_from=now()-interval '1 day';")
   check('mixed source still records full gross credit',q(f"SELECT fn_accounting_cash_commission_plan('{mixed}')->'players'->0->>'rake_credit'"),'100')
@@ -179,7 +193,7 @@ def main():
   q("SET request.jwt.claim.role='authenticated';SELECT fn_accounting_cash_commission_plan('"+mixed+"');",'service_role_required')
   successful=True
  finally:
-  inputs=[Path(__file__).resolve(),FIXTURE,MIGRATION,ROOT/'tests/fixtures/promo-fee-basis/owner-basis-dependency.sql',ROOT/'tests/fixtures/promo-fee-basis/tournament-commission-guard.sql',ROOT/'scripts/ci/fixtures/unpaid-atomic-cash-contract-columns.json',ROOT/'scripts/ci/fixtures/rakeback-cascade-real-guards/production-relations.json',ROOT/'scripts/ci/fixtures/rakeback-cascade-real-guards/world.py',ROOT/'supabase/migrations/20261115210559_promo_play_through_lock_ledger_and_fee_meter.sql']
+  inputs=[Path(__file__).resolve(),FIXTURE,MIGRATION,ROOT/'tests/fixtures/promo-fee-basis/mtt-admission-guard.json',ROOT/'scripts/ci/migration-stale-pins.mjs',ROOT/'tests/fixtures/promo-fee-basis/owner-basis-dependency.sql',ROOT/'tests/fixtures/promo-fee-basis/tournament-commission-guard.sql',ROOT/'scripts/ci/fixtures/unpaid-atomic-cash-contract-columns.json',ROOT/'scripts/ci/fixtures/rakeback-cascade-real-guards/production-relations.json',ROOT/'scripts/ci/fixtures/rakeback-cascade-real-guards/world.py',ROOT/'supabase/migrations/20261115210559_promo_play_through_lock_ledger_and_fee_meter.sql']
   (a.output/'RESULTS.json').write_text(json.dumps({'status':'passed' if successful else 'failed','production_mutations':False,'checks':checks,'source_sha256':{str(x.relative_to(ROOT)):hashlib.sha256(x.read_bytes()).hexdigest() for x in inputs}},indent=2)+'\n')
   if started:subprocess.run([pg/'pg_ctl','-D',scratch/'data','-m','immediate','-w','stop'],capture_output=True)
   shutil.rmtree(scratch)

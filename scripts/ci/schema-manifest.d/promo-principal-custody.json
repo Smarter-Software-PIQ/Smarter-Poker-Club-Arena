@@ -1,0 +1,5 @@
+{
+  "_owner": "agent/promo-custody-01a1e4d3",
+  "_comment": "The accepted-hand owner replaces the final-balance real-credit estimate in 20261116153059.",
+  "removedFunctions": ["fn_ca_promo_play_through_on_real_chips"]
+}

@@ -831,13 +831,11 @@ function CashierTradeWorkspace() {
   transferRecoveryRef.current = transferRecovery;
   const [amount, setAmount] = useState('');
   const [sendSource, setSendSource] = useState<SendSource>('agent_wallet');
-  /* Dan 2026-11-12: AGENTS SHOULD BE ABLE TO SEND TICKETS TO THEIR DOWNLINES
-     USING PROMO CHIPS (50 MAX). A ticket is funded by the sender's player
-     wallet or by their own promo wallet; the server caps agent promo at the
-     shared 50 chips per downline in any 7 days. */
-  const [ticketSource, setTicketSource] = useState<'player_wallet' | 'promo_wallet'>(
-    'player_wallet'
-  );
+  // New tickets use cashable player/agent chips. Promo remains a type only
+  // for exact recovery of a historical submitted intent, never a new choice.
+  const [ticketSource, setTicketSource] = useState<
+    'player_wallet' | 'agent_wallet' | 'promo_wallet'
+  >('player_wallet');
   /* What the 50 chip promo allowance will answer for each selected downline,
      read from the server before the send (fn_cashier_promo_allowance). null
      means not read (or not capped: staff promo has no allowance). */
@@ -3077,9 +3075,14 @@ function CashierTradeWorkspace() {
         );
         return;
       }
-    } else if (kind === 'ticket' && total > myBalance) {
+    } else if (
+      kind === 'ticket' &&
+      (ticketSource === 'agent_wallet'
+        ? agentWallet === null || total > agentWallet
+        : total > myBalance)
+    ) {
       toast?.error?.(
-        `Insufficient Chips: Sending ${exactChipFigure(total)} Needs More Than ${exactChipFigure(myBalance)}`
+        `Insufficient Chips: Sending ${exactChipFigure(total)} Needs More Than ${exactChipFigure(ticketSource === 'agent_wallet' ? (agentWallet ?? 0) : myBalance)}`
       );
       return;
     }
@@ -3298,15 +3301,17 @@ function CashierTradeWorkspace() {
                         op_id: opIdFor(target.userId),
                       }
                     : {
+                        source:
+                          uncertainRecovery.source === 'agent_wallet'
+                            ? 'agent_wallet'
+                            : 'player_wallet',
                         note: uncertainRecovery.ticketNote || `Cashier ticket for ${target.name}`,
                         idempotency_key: `ticket:${clubUuid}:${submissionId}:${target.userId}:${parsedAmount.amounts[target.userId]}`,
                       }),
                 }
           );
-          /* A promo funded value ticket has its own door: the promo wallet is
-             debited into the ticket escrow and the receipt counts toward the
-             downline's shared promo allowance. One round trip per chunk, each
-             recipient with the retry key the wallet batch would have carried. */
+          /* Only an unresolved historical promo intent uses this old door.
+             Exact receipt replay remains supported; new purchases refuse. */
           const promoTicket =
             kind === 'ticket' && !boundTournamentId && uncertainRecovery.source === 'promo_wallet';
           let data: unknown;
@@ -3326,6 +3331,15 @@ function CashierTradeWorkspace() {
             // An unanswered call is an unknown outcome: retry replays by key.
             if (promoError) throw promoError;
             data = promoBatch;
+          } else if (kind === 'ticket' && uncertainRecovery.source === 'agent_wallet') {
+            // A distinct RPC refuses safely on an older server; its legacy
+            // ticket batch would otherwise ignore source and debit player chips.
+            const { data: agentBatch, error: agentError } = await supabase.rpc(
+              'fn_cashier_agent_ticket_batch',
+              { p_club_id: clubUuid, p_kind: kind, p_items: items, p_batch_id: submissionId }
+            );
+            if (agentError) throw agentError;
+            data = agentBatch;
           } else {
             const { data: batch, error } = await supabase.rpc('fn_cashier_batch_transfer', {
               p_club_id: clubUuid,
@@ -4201,7 +4215,13 @@ function CashierTradeWorkspace() {
     setSelected(new Set(pendingTargets));
     if (saved.tournamentId) setTicketTournamentId(saved.tournamentId);
     if (saved.kind === 'ticket')
-      setTicketSource(saved.source === 'promo_wallet' ? 'promo_wallet' : 'player_wallet');
+      setTicketSource(
+        saved.source === 'promo_wallet'
+          ? 'promo_wallet'
+          : saved.source === 'agent_wallet'
+            ? 'agent_wallet'
+            : 'player_wallet'
+      );
     setTransferRecovery(saved);
     // Persisted recovery deliberately omits names and raw server messages.
     // Restore names only from the freshly authorized roster for this club.
@@ -6385,7 +6405,9 @@ function CashierTradeWorkspace() {
                     amountModal === 'ticket'
                       ? ticketSource === 'promo_wallet'
                         ? `From ${SEND_SOURCE_LABELS.promo_wallet}`
-                        : 'From Your Player Wallet'
+                        : ticketSource === 'agent_wallet'
+                          ? 'From Your Agent Wallet'
+                          : 'From Your Player Wallet'
                       : amountModal === 'send'
                         ? `From ${SEND_SOURCE_LABELS[sendSource]}`
                         : null;
@@ -6393,7 +6415,9 @@ function CashierTradeWorkspace() {
                     amountModal === 'ticket'
                       ? ticketSource === 'promo_wallet'
                         ? promoBalances.own
-                        : myBalance
+                        : ticketSource === 'agent_wallet'
+                          ? agentWallet
+                          : myBalance
                       : selectedSourceBalance;
                   return (
                     <>
@@ -6448,24 +6472,30 @@ function CashierTradeWorkspace() {
                               disabled={busy || Boolean(transferRecovery)}
                               onChange={(event) => {
                                 setTicketSource(
-                                  event.target.value === 'promo_wallet'
-                                    ? 'promo_wallet'
+                                  event.target.value === 'agent_wallet'
+                                    ? 'agent_wallet'
                                     : 'player_wallet'
                                 );
                                 setTransferFailures([]);
                               }}
                             >
                               <option value="player_wallet">
-                                From Your Player Wallet: {formatWalletChips(myBalance)}
+                                From Your Player Wallet: {formatWalletChips(myBalance)} (Cashable
+                                Chips Only)
                               </option>
-                              {!selfSelected && (
-                                <option value="promo_wallet">
-                                  From {SEND_SOURCE_LABELS.promo_wallet}:{' '}
-                                  {promoBalances.own === null
-                                    ? 'Unavailable'
-                                    : formatWalletChips(promoBalances.own)}
-                                </option>
-                              )}
+                              <option value="agent_wallet">
+                                From Your Agent Wallet:{' '}
+                                {agentWallet === null
+                                  ? 'Unavailable'
+                                  : formatWalletChips(agentWallet)}{' '}
+                                (Cashable Chips Only)
+                              </option>
+                              {transferRecovery?.kind === 'ticket' &&
+                                transferRecovery.source === 'promo_wallet' && (
+                                  <option value="promo_wallet" disabled>
+                                    Historical Promo Ticket Recovery
+                                  </option>
+                                )}
                             </select>
                           )}
                         </CashierWalletRow>
@@ -6673,7 +6703,9 @@ function CashierTradeWorkspace() {
                                     ? (selectedSourceBalance ?? Number.POSITIVE_INFINITY)
                                     : ticketSource === 'promo_wallet'
                                       ? (promoBalances.own ?? Number.POSITIVE_INFINITY)
-                                      : myBalance)
+                                      : ticketSource === 'agent_wallet'
+                                        ? (agentWallet ?? 0)
+                                        : myBalance)
                                 ? 'Insufficient Chips In The Funding Wallet'
                                 : ''}
                     </div>

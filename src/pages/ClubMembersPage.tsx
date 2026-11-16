@@ -1,6 +1,7 @@
 import { hasPromoWithdrawalRestriction } from '../utils/promoPlayThroughVisibility';
 import { PromoPlayThroughInline } from '../components/wallet/PromoPlayThroughProgress';
 import { useMemberPromoPlayThrough } from '../hooks/useMemberPromoPlayThrough';
+import { PromoPlayThroughInline } from '../components/wallet/PromoPlayThroughProgress';
 import type { PromoPlayThroughSummary } from '../services/PromoPlayThroughService';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';

@@ -234,3 +234,5 @@ r2again=json.loads(one("SELECT public.fn_settle_accounting_commission_stage('uni
 assert r2again.get('duplicate') is True and one("SELECT rr.digest()||':'||rr.money()||':'||(SELECT count(*) FROM public.chip_ledger)")==before and one("SELECT count(*)=7 AND sum(remaining)=0 AND sum(reserved)=121.50 FROM smarter_private.weekly_payout_wallet_reserves")=='t',r2again
 case('rerun: round 2 called again after finalize returns its recorded result as a duplicate and sends nothing; reserves stay released')
 case('a second pass of ticks after finalize (three more minutes, 11:30Z and 16:00Z; shards, readiness, runner) answers NULL and moves nothing: balances, journal, receipts, payouts, round and run rows unchanged')
+
+exec((F/'released-scheduler.py').read_text())

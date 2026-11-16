@@ -301,9 +301,11 @@ import {
   type StyleShadowEngagement,
 } from '../HorseStyleShadow.js';
 import {
+  noteSecondLookFires,
   withBrainTelemetrySuspended,
   withDecisionFireScope,
   withOncePerDecisionReceiptsSuppressed,
+  withSecondLookFireCapture,
 } from '../BrainTelemetry.js';
 import { noteHorseUpgradeDecision } from '../HorseUpgradeEvidence.js';
 import { reportError } from '../../services/errorReporter.js';
@@ -2933,7 +2935,8 @@ export class HorseDecisionWorkerRuntime {
    * fallback included. Not counted: an execution that threw (no decision), the
    * style-shadow re-decision (it runs with the counters suspended, so its
    * fires never reach the scope), DEEP second looks (executeDeep is outside
-   * the scope and runs with telemetry off) and discards.
+   * the scope; its fires are collected and counted under second_look_) and
+   * discards.
    */
   private executeFastWithUpgradeEvidence(request: FastHorseDecisionRequest): HorseLifecycleOutcome {
     const scoped = withDecisionFireScope(() => this.executeFast(request));
@@ -3168,8 +3171,8 @@ export class HorseDecisionWorkerRuntime {
       }
     }
     // One telemetry-on brain evaluation finished: the denominator of the
-    // brain-stage clamps it may have counted. Deep second looks replay with
-    // telemetry off and are not counted (BrainTelemetry opportunity reasons).
+    // brain-stage clamps it may have counted. Deep second looks record no
+    // watchcounter and are not counted (BrainTelemetry opportunity reasons).
     noteHorseTelemetryOpportunity(
       request.gameState.gameVariant,
       request.gameState.gameMode === 'tournament' ? 'tournament' : 'cash',
@@ -3700,54 +3703,62 @@ export class HorseDecisionWorkerRuntime {
     let decision;
     let rngAfter: number | null = null;
     let governorScale!: number;
+    const secondLook: { fired: ReadonlySet<string> | null } = { fired: null };
     try {
       const player = deepFreeze(request.player);
       const gameState = deepFreeze(request.gameState);
-      // R1 (2026-11-15, audit C 7): the second look runs with telemetry off, but the read-time style receipts
-      // are not telemetry-gated; the FAST look already counted them, so here they are suppressed.
+      // R1 (2026-11-15, audit C 7): the read-time style receipts are not telemetry-gated; the FAST look already
+      // counted them, so here they are suppressed.
+      // SECOND-LOOK RECEIPTS (2026-11-16): the second look decides with telemetry on INSIDE a capture, so no
+      // receipt is counted under its own name here (the FAST look is that count); the keys it fired are
+      // collected and counted once each under second_look_<key>_seen after the decision is made.
       const run = this.atGovernorScale(() =>
-        withOncePerDecisionReceiptsSuppressed(() =>
-          HorseMind.runInSandbox(
-            readView,
-            () =>
-              this.deps.captureDecisionEffects(() =>
-                this.deps.decide(
-                  player,
-                  gameState,
-                  request.style,
-                  request.mods,
-                  {
-                    ...request.opts,
-                    ...features.flags,
-                    multiwayRiverBluffCheckRaise: features.flags.multiwayRiverBluffCheckRaise,
-                    // STYLE READ LIVE SWITCH: the second look runs the options ON; shadow is evaluated on the fast look
-                    ...styleSwitchBrainOpts(
-                      styleSwitchDecisionOpts(deepStyleStates, request.player.user_id, false)
-                    ),
-                    ...optionSwitchDecisionOpts(deepOptionStates),
-                    v53PloTourneyIcm: this.tournamentFlagOn(request),
-                    phase8Postflop: phase8Guard.selected ? phase8Guard.mode : phase8.mode,
-                    phase8PolicyFamily: phase8Guard.selected
-                      ? 'catastrophe_guard_v1'
-                      : 'continuation_v2',
-                    phase10Plo4: phase10.mode,
-                    phase11Omaha: phase11.mode,
-                    phase12Remaining: phase12.mode,
-                    phase13Joint: phase13.mode,
-                    phase14Corrective: phase14.evaluator ?? undefined,
-                    decisionTimeMs: request.decisionTimeMs,
-                    telemetry: false,
-                    deepEquity: request.deepEquity,
-                    observeMind: false,
-                    mindPlanContext: planContext,
-                  },
-                  rangeCapture,
-                  planReadCapture,
-                  deepDiveCapture
-                )
-              ).value
-          )
-        )
+        withOncePerDecisionReceiptsSuppressed(() => {
+          const captured = withSecondLookFireCapture(() =>
+            HorseMind.runInSandbox(
+              readView,
+              () =>
+                this.deps.captureDecisionEffects(() =>
+                  this.deps.decide(
+                    player,
+                    gameState,
+                    request.style,
+                    request.mods,
+                    {
+                      ...request.opts,
+                      ...features.flags,
+                      multiwayRiverBluffCheckRaise: features.flags.multiwayRiverBluffCheckRaise,
+                      // STYLE READ LIVE SWITCH: the second look runs the options ON; shadow is evaluated on the fast look
+                      ...styleSwitchBrainOpts(
+                        styleSwitchDecisionOpts(deepStyleStates, request.player.user_id, false)
+                      ),
+                      ...optionSwitchDecisionOpts(deepOptionStates),
+                      v53PloTourneyIcm: this.tournamentFlagOn(request),
+                      phase8Postflop: phase8Guard.selected ? phase8Guard.mode : phase8.mode,
+                      phase8PolicyFamily: phase8Guard.selected
+                        ? 'catastrophe_guard_v1'
+                        : 'continuation_v2',
+                      phase10Plo4: phase10.mode,
+                      phase11Omaha: phase11.mode,
+                      phase12Remaining: phase12.mode,
+                      phase13Joint: phase13.mode,
+                      phase14Corrective: phase14.evaluator ?? undefined,
+                      decisionTimeMs: request.decisionTimeMs,
+                      telemetry: true,
+                      deepEquity: request.deepEquity,
+                      observeMind: false,
+                      mindPlanContext: planContext,
+                    },
+                    rangeCapture,
+                    planReadCapture,
+                    deepDiveCapture
+                  )
+                ).value
+            )
+          );
+          secondLook.fired = captured.fired;
+          return captured.value;
+        })
       );
       decision = run.value;
       governorScale = run.scale;
@@ -3766,6 +3777,12 @@ export class HorseDecisionWorkerRuntime {
     const computeMs = Math.max(0, this.deps.now() - startedAt);
     this.deps.noteDecision(`deep:${request.gameState.gameVariant || 'nlh'}`, computeMs);
     this.deps.noteFeature('v44_second_look');
+    // Measurement only, after the decision is made; a failure here must not lose the second look.
+    try {
+      if (secondLook.fired) noteSecondLookFires(secondLook.fired);
+    } catch {
+      this.deps.noteFeature('second_look_receipt_fold_failed_seen');
+    }
     if (decision.tournamentUtility?.evidence) {
       decision = {
         ...decision,

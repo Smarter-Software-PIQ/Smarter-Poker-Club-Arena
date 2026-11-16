@@ -10,6 +10,15 @@ import {
   telemetryOn,
   drainFires,
   restoreFires,
+  noteDecisionMs,
+  noteHorseActionClamped,
+  noteSecondLookFires,
+  peekBrainWatchcounters,
+  peekDecisionLatency,
+  secondLookReceiptKey,
+  withBrainTelemetrySuspended,
+  withDecisionFireScope,
+  withSecondLookFireCapture,
 } from './BrainTelemetry.js';
 import { HorseLogic, type HorseGameStateV2 } from './HorseLogic.js';
 import { seedFastRandom } from './HorseEval.js';
@@ -46,6 +55,26 @@ const opp = (): SeatPlayer =>
     is_sitting_out: false,
     is_horse: true,
   }) as never as SeatPlayer;
+
+function decideFlop(opts: Record<string, unknown>, seed: number) {
+  seedFastRandom(seed);
+  const hero = mkPlayer([c('A', 'spades'), c('K', 'spades')]);
+  const gs: HorseGameStateV2 = {
+    players: [hero, opp()],
+    communityCards: [c('Q', 'hearts'), c('8', 'diamonds'), c('3', 'clubs')],
+    pot: 12,
+    currentBet: 0,
+    minRaise: 2,
+    stage: 'flop',
+    gameVariant: 'nlh',
+    bigBlind: 2,
+    dealerSeat: 1,
+    actionHistory: [],
+    gameMode: 'cash',
+    format: 'cash',
+  } as HorseGameStateV2;
+  return HorseLogic.decide(hero, gs, 'balanced', {}, opts as never);
+}
 
 function decideOnce(opts: Record<string, unknown>): void {
   seedFastRandom(4242);
@@ -167,5 +196,96 @@ describe('league deep-reads harness', () => {
     for (let s = 1; s <= 6; s++) {
       expect(HorseMind.foldToCbetOf(`league-${s}`)).toBeNull();
     }
+  });
+});
+
+describe('BrainTelemetry - second-look receipts (2026-11-16)', () => {
+  beforeEach(() => {
+    enableBrainTelemetry();
+    drainFires();
+  });
+
+  it('inside the capture a fire is collected and not counted; the rule keeps its one count', () => {
+    noteFire('rule_a'); // the FAST look
+    const captured = withSecondLookFireCapture(() => {
+      noteFire('rule_a');
+      noteFire('rule_a');
+      noteFire('rule_b_seen');
+      return 7;
+    });
+    expect(captured.value).toBe(7);
+    expect([...captured.fired].sort()).toEqual(['rule_a', 'rule_b_seen']);
+    expect(drainFires()).toEqual([{ feature: 'rule_a', fires: 1 }]);
+  });
+
+  it('the collected keys count once each under second_look_<key>_seen, the suffix not doubled', () => {
+    expect(secondLookReceiptKey('rule_a')).toBe('second_look_rule_a_seen');
+    expect(secondLookReceiptKey('rule_b_seen')).toBe('second_look_rule_b_seen');
+    const { fired } = withSecondLookFireCapture(() => {
+      noteFire('rule_a');
+      noteFire('rule_a');
+      noteFire('rule_b_seen');
+    });
+    noteSecondLookFires(fired);
+    const rows = drainFires().sort((x, y) => x.feature.localeCompare(y.feature));
+    expect(rows).toEqual([
+      { feature: 'second_look_rule_a_seen', fires: 1 },
+      { feature: 'second_look_rule_b_seen', fires: 1 },
+    ]);
+  });
+
+  it('a paused evaluation and a once-per-decision read receipt add nothing to the capture', () => {
+    const { fired } = withSecondLookFireCapture(() => {
+      withBrainTelemetrySuspended(() => noteFire('shadow_rule'));
+      noteFire('style_fold_bluff_seen');
+      noteFire('style_label_maniac_seen');
+    });
+    expect([...fired]).toEqual([]);
+    expect(drainFires()).toEqual([]);
+  });
+
+  it('no watchcounter and no latency is recorded inside the capture', () => {
+    const clampedBefore = JSON.stringify(peekBrainWatchcounters());
+    const latencyBefore = JSON.stringify(peekDecisionLatency());
+    withSecondLookFireCapture(() => {
+      noteHorseActionClamped('plo6', 'cash', 'second_look_probe');
+      noteDecisionMs('second_look_probe', 12);
+    });
+    expect(JSON.stringify(peekBrainWatchcounters())).toBe(clampedBefore);
+    expect(JSON.stringify(peekDecisionLatency())).toBe(latencyBefore);
+  });
+
+  it('the capture closes on a throw, and an open fire scope does not see captured keys', () => {
+    const scoped = withDecisionFireScope(() => {
+      expect(() =>
+        withSecondLookFireCapture(() => {
+          noteFire('rule_a');
+          throw new Error('x');
+        })
+      ).toThrow('x');
+      noteFire('rule_c');
+    });
+    expect([...scoped.fired]).toEqual(['rule_c']);
+    expect(drainFires()).toEqual([{ feature: 'rule_c', fires: 1 }]);
+  });
+
+  it('a decision is the same with telemetry off, on, and on inside the capture', () => {
+    for (const seed of [11, 4242, 90210, 7, 31337]) {
+      const off = decideFlop({ mind: false }, seed);
+      const on = decideFlop({ mind: false, telemetry: true }, seed);
+      const captured = withSecondLookFireCapture(() =>
+        decideFlop({ mind: false, telemetry: true }, seed)
+      );
+      // the receipts carry wall-clock latency fields; the played action is what must not move
+      const played = (d: { action: string; amount?: number }) => ({
+        action: d.action,
+        amount: d.amount,
+      });
+      expect(played(on), `seed ${seed}`).toEqual(played(off));
+      expect(played(captured.value), `seed ${seed}`).toEqual(played(off));
+      expect(captured.fired.has('decide'), `seed ${seed}`).toBe(true);
+    }
+    // only the telemetry-on decisions outside the capture counted
+    expect(drainFires().find((r) => r.feature === 'decide')?.fires).toBe(5);
   });
 });

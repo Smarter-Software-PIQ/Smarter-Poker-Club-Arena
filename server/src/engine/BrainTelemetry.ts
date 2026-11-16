@@ -28,10 +28,17 @@ const fires = new Map<string, number>();
 let enabled = false;
 /** The open per-decision fire scope, or null (withDecisionFireScope below). */
 let decisionScope: Set<string> | null = null;
+/** The open second-look capture, or null (withSecondLookFireCapture below). */
+let secondLookCapture: Set<string> | null = null;
 
 /** Armed once by the flush service at engine boot. */
 export function enableBrainTelemetry(): void {
   enabled = true;
+}
+
+/** Tests only: put the process back to "not armed", so a test that armed the counters does not leak into the next. */
+export function disarmBrainTelemetryForTest(): void {
+  enabled = false;
 }
 
 /**
@@ -65,6 +72,12 @@ export function withBrainTelemetrySuspended<T>(fn: () => T): T {
 
 export function noteFire(feature: string): void {
   if (!enabled) return;
+  if (secondLookCapture) {
+    // A DEEP second look: the key is collected, never counted under its own name (the FAST look is the one
+    // count of a decision). The read-time style receipts stay uncounted, as before.
+    if (!isOncePerDecisionReceipt(feature)) secondLookCapture.add(feature);
+    return;
+  }
   if (isOncePerDecisionReceipt(feature)) {
     // R1 (2026-11-15, audit C 6-7): a read-time style receipt counts at most once per decision. Inside a FAST
     // decision's fire scope a second read of the same receipt is not counted again; a suppressed evaluation (the
@@ -155,6 +168,90 @@ export function withDecisionFireScope<T>(fn: () => T): { value: T; fired: Readon
   }
 }
 
+/**
+ * SECOND-LOOK RECEIPTS (2026-11-16, PLO6 lane). The DEEP second look re-decides a turn the FAST look already
+ * answered, and its action can be the one the table executes. It used to run with telemetry off, so a rule that
+ * acted only in the second look left no count anywhere: a zero on a rule's counter did not show the rule never
+ * decided a played action.
+ *
+ * While fn runs (the second look's decide, called with telemetry on), every key noteFire would count is
+ * collected here INSTEAD of counted: the rule's own counter keeps its meaning (one count per FAST decision that
+ * fired it), and nothing is counted twice. Watchcounters and decision latency are not recorded inside the
+ * capture (the FAST look is their one record). The caller then counts each collected key once under
+ * second_look_<key>_seen (noteSecondLookFires).
+ *
+ * What a second_look_ count says: a second look's evaluation fired that receipt. It does not say the second
+ * look's action was executed (the table decides that; the decision journal records it). A zero on a rule's own
+ * counter AND on its second_look_ counter says no live evaluation, first or second, fired it.
+ *
+ * A paused evaluation inside fn (withBrainTelemetrySuspended) and a nested decide with telemetry off add
+ * nothing, as for a count. Synchronous fn only, re-entrant, restored on a throw (as withDecisionFireScope).
+ */
+export function withSecondLookFireCapture<T>(fn: () => T): {
+  value: T;
+  fired: ReadonlySet<string>;
+} {
+  const outer = secondLookCapture;
+  const fired = new Set<string>();
+  secondLookCapture = fired;
+  try {
+    return { value: fn(), fired };
+  } finally {
+    secondLookCapture = outer;
+  }
+}
+
+/**
+ * Runs fn with no second-look capture in force, then puts the capture back. For an OFFLINE evidence harness that
+ * reads one evaluation's fires under their own names for the fast and the deep look alike (the feature-ablation
+ * worker, which forces telemetry on for both and drains the counters after each evaluation). Production never
+ * calls it: a live second look stays inside its capture.
+ */
+export function outsideSecondLookCapture<T>(fn: () => T): T {
+  const held = secondLookCapture;
+  secondLookCapture = null;
+  try {
+    return fn();
+  } finally {
+    secondLookCapture = held;
+  }
+}
+
+/**
+ * True while a second look's decide runs inside withSecondLookFireCapture. For the few places where
+ * "telemetry on" also means "this is the live decision" (the Phase 8 safety sentinel): a second look counts
+ * its receipts, and must neither feed nor obey process-wide live state, exactly as when it ran with telemetry off.
+ */
+export function inSecondLookCapture(): boolean {
+  return secondLookCapture !== null;
+}
+
+/** The second_look_ key of a receipt; it ends in _seen (an occurrence counter: quiet days are normal). */
+export function secondLookReceiptKey(feature: string): string {
+  return `second_look_${feature}${feature.endsWith('_seen') ? '' : '_seen'}`;
+}
+
+/** The telemetry writer refuses a feature name longer than this, and the publisher then drops the whole batch. */
+export const BRAIN_TELEMETRY_FEATURE_MAX_LENGTH = 128;
+/** Counted once per second look that collected at least one key whose second_look_ name would be too long. */
+export const SECOND_LOOK_KEY_TOO_LONG_RECEIPT = 'second_look_receipt_key_too_long_seen';
+
+/**
+ * Count each key a second look collected, once per second look, under its second_look_ name. A key whose
+ * second_look_ name would exceed the writer's limit is not counted under that name (one refused name would
+ * take every other counter of its batch with it); the second look counts SECOND_LOOK_KEY_TOO_LONG_RECEIPT once.
+ */
+export function noteSecondLookFires(fired: ReadonlySet<string>): void {
+  if (!enabled || secondLookCapture) return;
+  let tooLong = false;
+  for (const feature of fired) {
+    const key = secondLookReceiptKey(feature);
+    if (key.length > BRAIN_TELEMETRY_FEATURE_MAX_LENGTH) tooLong = true;
+    else noteFire(key);
+  }
+  if (tooLong) noteFire(SECOND_LOOK_KEY_TOO_LONG_RECEIPT);
+}
+
 /** True when the caller opted this decision into telemetry. */
 export function telemetryOn(opts: { telemetry?: boolean } | undefined): boolean {
   return enabled && opts?.telemetry === true;
@@ -230,6 +327,7 @@ function accumulatorFor(scope: string): LatencyAccumulator {
  */
 export function noteDecisionMs(scope: string, ms: number): void {
   if (!enabled) return;
+  if (secondLookCapture) return;
   if (!Number.isFinite(ms) || ms < 0) return;
   const acc = accumulatorFor(scope);
   acc.samples++;
@@ -445,7 +543,7 @@ export const HORSE_STREET_PREWARM_REASONS = [
  * - `decision_evaluated`: a decision worker finished one telemetry-on brain
  *   evaluation (DECIDE_FAST: table turns, Lightning turns and Lightning early
  *   looks). It is the denominator of the brain-stage clamps the same
- *   evaluation counts. A deep second look replays with telemetry off and is
+ *   evaluation counts. A deep second look records no watchcounter and is
  *   not counted. An evaluation whose answer is later fenced out still counts.
  * - `commit_evaluated`: a decision counted by `decision_started` reached the
  *   host's commit stage for its seat (the turn was still its own and the
@@ -648,6 +746,8 @@ function recordWatchcounter(
     count = typeof modeArg === 'number' ? modeArg : (countArg ?? 1);
   }
   if (!Number.isFinite(count) || count <= 0) return;
+  // A DEEP second look records no watchcounter: the FAST look is the one record of a decision.
+  if (secondLookCapture) return;
   // Per-decision evidence: the upgrade that declares this metric was exercised by the open decision.
   // After the count check (nothing counted, nothing collected) and keyed by metric, not reason.
   if (enabled) decisionScope?.add(metric);

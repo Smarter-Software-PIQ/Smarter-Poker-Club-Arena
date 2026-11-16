@@ -55,7 +55,11 @@ const TABLE = 'fa300000-0000-4000-8000-0000000000f1';
 //   'flop_price'    -> 4 raise, 3 calls (pot 16); flop SB bets one small bet;
 //                      the BB (seat 3) faces 2 into 18, 0.1.
 //   'flop_free'     -> same preflop; the SB (seat 2) opens the flop: free.
-function harness(gameVariant: string, spot: 'preflop_price' | 'flop_price' | 'flop_free') {
+function harness(
+  gameVariant: string,
+  spot: 'preflop_price' | 'flop_price' | 'flop_free',
+  premium = false
+) {
   const players = [200, 200, 200, 200].map((stack, i) => ({
     seat: i + 1,
     user_id: `fa400000-0000-4000-8000-0000000000f${i + 1}`,
@@ -88,6 +92,18 @@ function harness(gameVariant: string, spot: 'preflop_price' | 'flop_price' | 'fl
     expect(hc.performAction(3, 'call')).toBe(true);
     expect(hc.getState().stage).toBe('flop');
     if (spot === 'flop_price') expect(hc.performAction(2, 'bet', 2)).toBe(true);
+  }
+  if (premium) {
+    const live = (hc as unknown as { state: any }).state;
+    live.communityCards = [
+      { rank: '2', suit: 'hearts' },
+      { rank: '7', suit: 'spades' },
+      { rank: '9', suit: 'diamonds' },
+    ];
+    live.players.find((p: SeatPlayer) => p.seat === 2).cards = [
+      { rank: 'A', suit: 'spades' },
+      { rank: 'A', suit: 'clubs' },
+    ];
   }
   const state = hc.getState();
   const seat = state.currentPlayerSeat!;
@@ -215,6 +231,14 @@ it('no-limit and pot-limit are the old worker rule for every amount owed (toCall
 });
 
 describe('a failed decision worker', () => {
+  it('keeps its free check when the random deal would qualify for a premium value bet', async () => {
+    const h = harness('nlh', 'flop_free', true);
+    worker.decideFast.mockRejectedValueOnce(new HorseDecisionExpiredError());
+    await h.run();
+    expect(worker.decideFast).toHaveBeenCalledOnce();
+    expect(h.accepted()).toHaveLength(1);
+    expect(h.accepted()[0]).toMatchObject({ seat: h.seat, action: 'check' });
+  });
   it.each([
     ['flh', 'flop_price', 'call'],
     ['flo8', 'flop_price', 'call'],

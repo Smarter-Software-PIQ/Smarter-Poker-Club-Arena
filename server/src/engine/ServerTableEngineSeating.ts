@@ -369,7 +369,11 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
     const player = this.seatedPlayers.find((p) => p.user_id === userId);
     if (!player) return { success: false, error: 'Player not seated' };
     const maxBuyIn = this.getMaxBuyIn();
-    const midHand = !!this.handController;
+    // HAND_COMPLETE clears the controller before the original hand commit.
+    // Queue until that commit finishes, as the Diamond owner already does:
+    // a direct credit here never played and must not join this hand's loss
+    // or promo funding basis. The original pending owner applies it later.
+    const midHand = !!this.handController || this.hasSettlementInFlight();
     const addOnKey = `addon:${this.tableId}:${userId}:${opId || randomUUID()}`;
     const recover = async (replayed: boolean): Promise<AddChipsResult | null> => {
       const receipt = await this.readCashAddonReceipt(this.tableId, userId, addOnKey);

@@ -43,12 +43,51 @@ async function inTransaction(client, isolation, timeouts, fn) {
   }
 }
 
+export async function loadLegacyPacific(client, days, rebuild) {
+  const failed = [];
+  const deadline = Date.now() + 250 * 60_000;
+  for (const day of days) {
+    if (Date.now() > deadline)
+      throw new Error(
+        'legacy Pacific finite runtime budget exhausted; remaining days stay incomplete'
+      );
+    const existing = await client.query(
+      'SELECT 1 FROM public.ca_club_data_pacific_seed_log WHERE utc_day=$1',
+      [day]
+    );
+    if (existing.rowCount && !rebuild) {
+      const failures = await client.query(
+        'SELECT count(*)::int AS n FROM public.ca_club_data_pacific_failures WHERE utc_day=$1',
+        [day]
+      );
+      if (failures.rows[0].n) failed.push(day);
+      console.log(`[seed] Pacific UTC source ${day} already loaded; original receipt retained`);
+      continue;
+    }
+    const result = await inTransaction(client, 'REPEATABLE READ', '240s', () =>
+      client.query('SELECT public.fn_ca_club_data_pacific_seed($1::date,$2::boolean) AS receipt', [
+        day,
+        rebuild,
+      ])
+    );
+    const receipt = result.rows[0].receipt;
+    console.log(`[seed] Pacific UTC source ${day} ${JSON.stringify(receipt)}`);
+    if (!receipt.complete) failed.push(day);
+  }
+  // A reconciled later day is useful even when earlier retained evidence is
+  // incomplete. Every day is attempted once; unresolved days remain explicit.
+  if (failed.length)
+    throw new Error(`legacy Pacific source evidence incomplete: ${failed.join(', ')}`);
+}
+
 async function main() {
-  const [from, through, rebuildArg] = process.argv.slice(2);
+  const [from, through, rebuildArg, basisArg = 'union_accounting'] = process.argv.slice(2);
   const days = parseRange(from, through);
   if (![undefined, '', 'true', 'false'].includes(rebuildArg))
     throw new Error('rebuild must be true or false');
   const rebuild = rebuildArg === 'true';
+  if (!['union_accounting', 'legacy_pacific'].includes(basisArg))
+    throw new Error('unknown report basis');
   if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is not set');
   const client = new pg.Client({
     connectionString: process.env.DATABASE_URL,
@@ -56,6 +95,10 @@ async function main() {
   });
   await client.connect();
   try {
+    if (basisArg === 'legacy_pacific') {
+      await loadLegacyPacific(client, days, rebuild);
+      return;
+    }
     const live = await inTransaction(client, 'READ COMMITTED', '10s', () =>
       client.query('SELECT live_from FROM public.ca_club_acct_state')
     );

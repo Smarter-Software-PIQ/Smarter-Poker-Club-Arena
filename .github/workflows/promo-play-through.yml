@@ -13,6 +13,9 @@ on:
     branches: [main]
     paths:
       - supabase/migrations/*_promo_play_through_*.sql
+      - supabase/migrations/*_signup_promo_*.sql
+      - scripts/ci/test-signup-promo-identity.py
+      - tests/fixtures/signup-promo-identity/**
       - scripts/ci/test-promo-play-through.py
       - supabase/migrations/*_promo_grant_notices_*.sql
       - scripts/ci/test-promo-notices.py
@@ -20,7 +23,22 @@ on:
       - supabase/migrations/*_promo_principal_follows_*.sql
       - supabase/migrations/*_suspect_promo_chip_dumping_*.sql
       - tests/fixtures/promo-notices/**
+      - supabase/migrations/*_promo_tickets_*.sql
+      - supabase/migrations/*_promo_principal_*.sql
+      - scripts/ci/test-promo-custody.py
+      - scripts/ci/test-promo-custody-accepted-hand.py
+      - tests/fixtures/promo-custody-inventory-pin.json
+      - scripts/ci/migration-stale-pins.mjs
+      - scripts/ci/test-accepted-hand-roster.py
+      - scripts/ci/test-hand-submission.py
+      - scripts/ci/probes/accepted-hand-roster-fixture.sql
+      - scripts/ci/fixtures/hand-submission/**
+      - tests/fixtures/ev-cashout-lifecycle/captured-authorities.json
       - supabase/migrations/*_promo_funded_fees_*.sql
+      - supabase/migrations/20260917230925_cash_funding_retains_original_participant_custody.sql
+      - scripts/ci/test-promo-ticket-play-through.py
+      - scripts/ci/fixtures/promo-ticket-play-through/**
+      - tests/fixtures/promo-ticket-play-through/**
       - scripts/ci/test-promo-fee-basis.py
       - tests/fixtures/promo-fee-basis/**
       - scripts/ci/fixtures/unpaid-atomic-cash-contract-columns.json
@@ -56,6 +74,20 @@ jobs:
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 scripts/ci/test-promo-notices.py --output artifacts/promo-notices
+      - name: Promo tickets preserve their original grant through the money owners
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/test-promo-ticket-play-through.py --output artifacts/promo-ticket-play-through
+      - name: Promo principal follows wallet and table custody
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/test-promo-custody.py --output artifacts/promo-custody
+      - name: Promo custody runs in the original accepted hand
+        run: python3 -B scripts/ci/test-promo-custody-accepted-hand.py --pg-bin /usr/lib/postgresql/17/bin --output artifacts/promo-custody-accepted-hand
+      - name: Signup promo identity and credit transaction
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 scripts/ci/test-signup-promo-identity.py --output artifacts/signup-promo-identity
       - name: Promo fees preserve gross rake and exclude free earnings
         run: python3 -B scripts/ci/test-promo-fee-basis.py --pg-bin /usr/lib/postgresql/17/bin --output artifacts/promo-fee-basis
       - name: Promo expiry retains its original time through bounded maintenance thaw
@@ -74,6 +106,10 @@ jobs:
             artifacts/promo-notices/RESULTS.json
             artifacts/promo-notices/INPUTS.json
             artifacts/promo-notices/PERFORMANCE.json
+            artifacts/promo-ticket-play-through/RESULTS.json
+            artifacts/promo-custody/RESULTS.json
+            artifacts/promo-custody-accepted-hand/RESULTS.json
+            artifacts/signup-promo-identity/RESULTS.json
             artifacts/promo-fee-basis/RESULTS.json
           retention-days: 7
           if-no-files-found: warn

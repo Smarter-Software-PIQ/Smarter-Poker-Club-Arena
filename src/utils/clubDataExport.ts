@@ -20,7 +20,8 @@ export type ClubDataExportStartRpc =
   | 'ca_club_game_export_start'
   | 'ca_club_player_export_start'
   | 'ca_rake_export_start'
-  | 'ca_rake_export_start_v2';
+  | 'ca_rake_export_start_v2'
+  | 'ca_rake_export_start_pacific_v2';
 
 interface StartPayload {
   export_id?: unknown;

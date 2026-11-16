@@ -51,3 +51,12 @@ DO $$DECLARE d jsonb;BEGIN
  IF d->'activity_breakdown'->'combined'->'total_winnings'<>'null'::jsonb OR d->'activity_breakdown'->'downline'->'total_winnings'<>'null'::jsonb THEN RAISE EXCEPTION 'unknown downline winnings coerced to zero';END IF;
 END$$;
 SELECT 'PASS exact aggregate decimal text, mirrored rakeback once, private helper ACL and unknown cash result propagation';
+
+-- The same operation can book its receipt milliseconds after its wallet leg.
+INSERT INTO chip_transactions(club_id,from_user_id,to_user_id,transaction_type,amount,created_at,metadata) VALUES(md5('club')::uuid,md5('agent')::uuid,md5('child')::uuid,'promo_wallet_send',50,'2026-11-16 16:02:00.0166Z',jsonb_build_object('source','promo_wallet','destination','player_wallet','op_id',md5('promo-op')::uuid::text));
+INSERT INTO chip_ledger(club_id,to_entity_id,from_entity_id,to_type,from_type,status,amount,created_at,category,correlation_id) VALUES(md5('club')::uuid,md5('child')::uuid,md5('agent')::uuid,'player_wallet','promo_wallet','posted',50,'2026-11-16 16:02Z','promo_send',md5('promo-op')::uuid), (md5('club')::uuid,md5('child')::uuid,md5('agent')::uuid,'player_wallet','agent_wallet','posted',50,'2026-11-16 16:02Z','agent_send',md5('promo-op')::uuid);
+DO $$DECLARE total numeric;BEGIN
+ SELECT sent_out INTO total FROM ca_member_activity_tx_totals(md5('club')::uuid,ARRAY[md5('agent')::uuid],'2026-11-16 06:00Z','2026-11-17 06:00Z');
+ IF total<>110 THEN RAISE EXCEPTION 'correlated promo mirror or distinct wallet counted incorrectly: %',total;END IF;
+END$$;
+SELECT 'PASS activity counts correlated millisecond transfer once and preserves distinct wallets';

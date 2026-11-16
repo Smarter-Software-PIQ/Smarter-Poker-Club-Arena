@@ -1,4 +1,6 @@
 import { confirmedHuman } from './HorseConfirmedSeatRole.js';
+import { randomUUID } from 'node:crypto';
+import { closeHourlyCashTable } from '../services/supabase/cashHourlyTables.js';
 import { horseSavedProfilePresence } from '../services/HorseSavedProfilePresence.js';
 import { publicMemoryDomainFromRules } from './HorsePublicMemoryDomain.js';
 /**
@@ -147,6 +149,87 @@ type PreparedHandNumberOutcome =
   | null;
 
 export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
+  private hourlyCashOperationId: string | null = null;
+  private hourlyCashErrorAt = 0;
+
+  /** Both the startup wait and ordinary dealer use the original boundary. */
+  protected override async passOperatorFloorBoundary(): Promise<boolean> {
+    if (await super.passOperatorFloorBoundary()) return true;
+    return this.passHourlyCashBoundary();
+  }
+
+  /** Cash only. Never called by a timer or from inside an active hand. */
+  protected async passHourlyCashBoundary(): Promise<boolean> {
+    const authority = this.getEngineLeaseAuthority();
+    if (
+      this.isTournamentTable() ||
+      !this.lifecycleCanMutate() ||
+      !this.isBetweenHands() ||
+      this.postHandTasksPromise ||
+      isMaintenanceFrozen() ||
+      this.weeklyPayoutPauseOwners.size > 0 ||
+      this.maintenancePaused ||
+      !authority ||
+      !authority.verified ||
+      authority.scope !== 'cash'
+    )
+      return false;
+    const releaseBoundary = await this.acquireSeatBoundary();
+    try {
+      if (!this.lifecycleCanMutate() || !this.isBetweenHands() || isMaintenanceFrozen())
+        return false;
+      this.hourlyCashOperationId ??= randomUUID();
+      const result = await closeHourlyCashTable(
+        this.tableId,
+        this.hourlyCashOperationId,
+        INSTANCE_ID,
+        authority.generation
+      );
+      if (!this.lifecycleCanMutate()) return true;
+      this.hourlyCashOperationId = null;
+      if (!result.closed) return false;
+      const departed = result.departures.map((r) => ({
+        userId: r.user_id,
+        occupancyId: r.occupancy_id,
+      }));
+      this.releaseDepartedSeats(departed);
+      for (const receipt of result.departures) {
+        this.hub?.emitEvent(this.tableId, {
+          type: 'seat_left',
+          table_id: this.tableId,
+          seat: receipt.seat_number,
+          user_id: receipt.user_id,
+          mid_hand: false,
+          timestamp: Date.now(),
+        });
+      }
+      this.broadcastCurrentState();
+      console.log(
+        `[CashHourlyCap] Closed ${this.tableId} after its hand; ${departed.length} occupancy receipts`
+      );
+      // stop joins this original dealer; never await our own loop here.
+      void this.stop().catch((error) => reportError(error, 'cash_hourly_close_stop_failed'));
+      return true;
+    } catch (error) {
+      const e = error as { code?: string; message?: string };
+      // Authoritative transaction refusals rolled back every exit. In
+      // particular, a pooled Lightning hand completes before another attempt.
+      if (e.code === '55P03' || e.message?.includes('LIGHTNING_HAND_IN_PROGRESS')) {
+        this.hourlyCashOperationId = null;
+        return false;
+      }
+      // Unknown acknowledgment retains its original id, and cannot deal a
+      // new hand from seats that the original transaction may have cashed out.
+      this.markProgress();
+      if (Date.now() - this.hourlyCashErrorAt > 60_000) {
+        this.hourlyCashErrorAt = Date.now();
+        reportError(error, 'cash_hourly_close_outcome_pending', { table_id: this.tableId });
+      }
+      return true;
+    } finally {
+      releaseBoundary();
+    }
+  }
   protected abstract activateRetainedTurn(): Promise<void>;
   /** Measure before the original continuation queues this street behind retention. */
   protected captureStreetIntegrityEvent(event: HandEvent, controller: HandController): HandEvent {
@@ -5794,6 +5877,7 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
   protected override async passWhileDealingHalted(): Promise<void> {
     await super.passWhileDealingHalted();
     if (!this.lifecycleCanMutate() || this.isTournamentTable() || isMaintenanceFrozen()) return;
+    if (await this.passHourlyCashBoundary()) return;
     // Only a busted anchor can need this boundary. Funded parked tables keep
     // their existing halt contract; a paid bust rebuy must not await a deal.
     const busted = this.seatedPlayers.filter((p) => p.user_id && Number(p.stack) === 0);
@@ -6426,5 +6510,4 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
     }
     return { deadBlinds, bbOnlyPosts };
   }
-
 }
