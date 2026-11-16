@@ -82,3 +82,36 @@ describe('all Data report bases use Pacific dates without rewriting money', () =
     expect(driver).toContain('250 * 60_000');
   });
 });
+
+describe('canonical funded cash report ownership', () => {
+  const fix = read(
+    'supabase/migrations/20261116181617_pacific_data_cash_follows_original_funded_source_ownership.sql'
+  );
+  it('uses immutable source authority and original raw contribution amounts', () => {
+    expect(fix).toContain('accounting_cash_funding_contract_admissions');
+    expect(fix).toContain('s.rake_record_id=p_record AND s.player_id=p_user');
+    expect(fix).toContain('e.amount*e.c/sum(e.c) OVER()');
+    expect(fix).not.toMatch(
+      /(?:UPDATE|DELETE FROM) public\.(?:wallet_transactions|rake_records|rake_attributions|accounting_cash_rake_sources|accounting_cash_funding_contract_admissions)\b/i
+    );
+    expect(fix).not.toContain('CREATE TRIGGER');
+    expect(fix).toContain('EXIT original_projection');
+  });
+  it('keeps receipt appends nonblocking and coverage tied to qualified source version', () => {
+    const tables = fix.slice(fix.indexOf('CREATE TABLE'), fix.indexOf('CREATE FUNCTION'));
+    expect(tables).not.toMatch(/PRIMARY KEY|UNIQUE/);
+    expect(fix).toContain('basis_version=1');
+    expect(fix).toContain("f.source IN(''live_fact'',''live_hand'',''live_cash_source'')");
+    expect(fix).toContain('cash_records r');
+    expect(fix).toContain('c.full_source');
+    expect(read('scripts/ci/club-data-accounting-seed.mjs')).toContain(
+      'utc_day=$1 AND basis_version=1'
+    );
+    expect(read(native)).toContain(
+      'late admission removes historical former-owner phantom game atomically'
+    );
+    expect(read(native)).toContain(
+      'concurrent duplicate source callbacks stay nonblocking and idempotent'
+    );
+  });
+});

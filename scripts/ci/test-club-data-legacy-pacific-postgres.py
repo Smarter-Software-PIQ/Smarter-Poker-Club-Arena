@@ -219,6 +219,108 @@ CREATE FUNCTION ca_club_member_fee_totals(uuid,date,date,uuid) RETURNS TABLE(use
   if x['proname'].endswith('_chicago_basis'):
    name=x['proname'].replace('_chicago_basis','_pacific_basis_core')
    check(q(f"SELECT count(*) FROM pg_proc WHERE pronamespace='public'::regnamespace AND proname='{name}'"),'1',name+' installed from qualified original')
+ # Qualify the permanent canonical cash ownership follow-up against the exact
+ # installed report and original statement-hook preimages.
+ q("SET check_function_bodies=false; CREATE TABLE accounting_cash_rake_sources(id uuid PRIMARY KEY,rake_record_id uuid,player_id uuid,club_id uuid,UNIQUE(rake_record_id,player_id)); CREATE TABLE accounting_cash_funding_contract_admissions(source_id uuid PRIMARY KEY,funding_club_id uuid); ALTER TABLE rake_attributions ADD COLUMN id uuid DEFAULT gen_random_uuid();")
+ originals=json.loads((FIX/'cash-source-preimages.json').read_text())
+ q('SET check_function_bodies=false;'+''.join(x['definition']+';\n' for x in originals if x['proname'].startswith('trg_')))
+ # Frozen source and admission already exist before this attachment; delayed
+ # auxiliary attribution must never replay an already source-seeded transition.
+ PB='00000000-0000-0000-0000-0000000000b1';BR='00000000-0000-0000-0000-0000000000b2';BS='00000000-0000-0000-0000-0000000000b3'
+ q(f"INSERT INTO tables(id,club_id,name,game_variant,big_blind) VALUES('{PB}','{C}','Already funded history','nlh',2); INSERT INTO rake_records(id,table_id,rake_amount,created_at,player_contributions) VALUES('{BR}','{PB}',0.25,'2026-11-16T12:00Z','{{\"{U}\":1}}'); INSERT INTO accounting_cash_rake_sources VALUES('{BS}','{BR}','{U}','{C}'); INSERT INTO accounting_cash_funding_contract_admissions VALUES('{BS}','{B}'); INSERT INTO ca_club_data_fact VALUES('{C}','2026-11-16','CASH','{PB}','{U}',0.25,0,0,0,'2026-11-16T12:00Z');")
+ q((ROOT/'supabase/migrations/20261116181617_pacific_data_cash_follows_original_funded_source_ownership.sql').read_text())
+ print('PASS: canonical cash follow-up installs on exact qualified preimages',flush=True)
+ q(f"SELECT fn_ca_club_data_pacific_require('{B}','2026-11-10','2026-11-10');",'CLUB_DATA_PACIFIC_WINDOW_INCOMPLETE')
+ receipt=json.loads(seed('2026-11-10'))
+ check((receipt.get('already_loaded',False),q("SELECT basis_version FROM ca_club_data_pacific_seed_log WHERE utc_day='2026-11-10'")),(False,'1'),'old basis0 receipt is rebuilt and cannot return already_loaded')
+ # New ownership fixtures use a separate immutable game and never current
+ # membership. Wrong UNIQUE UTC ownership must not win over original RA.
+ K='00000000-0000-0000-0000-000000000081';F='00000000-0000-0000-0000-000000000082';NG='00000000-0000-0000-0000-000000000083';NR='00000000-0000-0000-0000-000000000084';NS='00000000-0000-0000-0000-000000000085'
+ q(f"INSERT INTO clubs VALUES('{K}','Wrong parent fallback',NULL),('{F}','Original funded club',NULL); INSERT INTO tables(id,club_id,name,game_variant,big_blind) VALUES('{NG}','{K}','Funded child parent','nlh',2); INSERT INTO rake_records(id,table_id,rake_amount,created_at,player_contributions) VALUES('{NR}','{NG}',0.5,'2026-11-16T09:00Z','{{\"{U}\":1,\"{V}\":2}}'); INSERT INTO rake_attributions(rake_record_id,player_id,club_id,rake_amount,created_at) SELECT '{NR}',u::uuid,'{F}',0.17,'2026-11-16T09:00Z' FROM(VALUES('{U}'),('{V}'))x(u); INSERT INTO ca_club_data_fact VALUES('{K}','2026-11-16','CASH','{NG}','{U}',0.5/3,0,0,0,'2026-11-16T09:00Z'),('{K}','2026-11-16','CASH','{NG}','{V}',0.5*2/3,0,0,0,'2026-11-16T09:00Z');")
+ q(f"INSERT INTO ca_club_data_pacific_fact VALUES('{K}','2026-11-16','2026-11-16','CASH','{NG}','{U}',0.5/3,0,0,0,'2026-11-16T09:00Z',0,true,1),('{K}','2026-11-16','2026-11-16','CASH','{NG}','{V}',0.5*2/3,0,0,0,'2026-11-16T09:00Z',0,true,1); INSERT INTO club_table_daily(club_id,table_id,stat_date,hands) VALUES('{K}','{NG}','2026-11-16',3);")
+ check(json.loads(seed('2026-11-16',True))['complete'],True,'canonical immutable cash owner qualifies despite wrong UNIQUE UTC club')
+ check(q(f"SELECT count(DISTINCT game_id) FROM ca_club_data_pacific_fact_ct WHERE club_id='{K}' AND stat_date='2026-11-16'"),'0','wrong original club has no phantom game after rebuild')
+ check(q(f"SELECT sum(fee)||':'||sum(hands)||':'||count(DISTINCT game_id) FROM ca_club_data_pacific_fact_ct WHERE club_id='{F}' AND stat_date='2026-11-16'"),'0.50000000000000000000:2:1','canonical owner keeps raw fractional fees and participant hands')
+ check(json.loads(q(f"SELECT ca_club_data_screen('{K}','2026-11-16','2026-11-16')"))['summary']['games'],0,'actual screen omits wrong-club game after signed source correction')
+ check(q("SELECT basis_version FROM ca_club_data_pacific_seed_log WHERE utc_day='2026-11-16'"),'1','new source-qualified history receipt records basis version1')
+ check(json.loads(seed('2026-11-16'))['already_loaded'],True,'same source basis receipt remains idempotent')
+ # Fresh callbacks own the new projection; repeated observers are idempotent.
+ q(f"SELECT fn_ca_club_data_pacific_cash_observe('[{{\"rake_record_id\":\"{NR}\",\"user_id\":\"{U}\"}},{{\"rake_record_id\":\"{NR}\",\"user_id\":\"{V}\"}}]');")
+
+ q(f"INSERT INTO accounting_cash_rake_sources VALUES('{NS}','{NR}','{U}','{F}'); INSERT INTO accounting_cash_funding_contract_admissions VALUES('{NS}','{K}'); SELECT fn_ca_club_data_pacific_cash_observe('[{{\"rake_record_id\":\"{NR}\",\"user_id\":\"{U}\",\"event\":\"funding_admission\"}}]');")
+ check(q(f"SELECT club_id||':'||stage FROM ca_club_data_pacific_cash_current WHERE rake_record_id='{NR}' AND user_id='{U}'"),K+':3','original funded admission dominates frozen source and RA')
+
+ # A pre-attachment record was already source-rebuilt under its original
+ # owner. A later authorized admission moves the original event atomically.
+ LG='00000000-0000-0000-0000-0000000000a1';PR='00000000-0000-0000-0000-0000000000a2';PS='00000000-0000-0000-0000-0000000000a3'
+ q(f"INSERT INTO tables(id,club_id,name,game_variant,big_blind) VALUES('{LG}','{F}','Late funded receipt','nlh',2); INSERT INTO rake_records(id,table_id,rake_amount,created_at,player_contributions) VALUES('{PR}','{LG}',1,'2026-11-16T11:00Z','{{\"{U}\":1}}'); INSERT INTO rake_attributions(rake_record_id,player_id,club_id,rake_amount,created_at) VALUES('{PR}','{U}','{F}',1,'2026-11-16T11:00Z'); INSERT INTO ca_club_data_fact VALUES('{F}','2026-11-16','CASH','{LG}','{U}',1,0,0,0,'2026-11-16T11:00Z');")
+ seed('2026-11-16',True)
+ # Existing statement-hook wiring, not a direct helper-only simulation.
+ q("CREATE TRIGGER native_cash_ra AFTER INSERT ON rake_attributions REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION trg_ca_club_rake_daily_user_insert(); CREATE TRIGGER native_cash_source AFTER INSERT ON accounting_cash_rake_sources REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION trg_ca_club_acct_cash_fee(); CREATE TRIGGER native_cash_admission AFTER INSERT ON accounting_cash_funding_contract_admissions REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION trg_ca_club_acct_admission(); CREATE TRIGGER native_cash_rake AFTER INSERT ON rake_records FOR EACH ROW EXECUTE FUNCTION trg_ca_club_data_fact_rake();")
+ LR='00000000-0000-0000-0000-000000000091';LS='00000000-0000-0000-0000-000000000092'
+ q(f"INSERT INTO rake_records(id,table_id,rake_amount,created_at,player_contributions) VALUES('{LR}','{NG}',0.5,'2026-11-16T10:00Z','{{\"{U}\":1}}');")
+ check(q(f"SELECT count(*) FROM ca_club_data_pacific_cash_records WHERE rake_record_id='{LR}'"),'1','actual original rake trigger registers canonical pending source')
+ q(f"SELECT fn_ca_club_data_pacific_require('{K}','2026-11-16','2026-11-16');",'CLUB_DATA_PACIFIC_WINDOW_INCOMPLETE')
+ q(f"INSERT INTO rake_attributions(rake_record_id,player_id,club_id,rake_amount,created_at) VALUES('{LR}','{U}','{F}',0.5,'2026-11-16T10:00Z');")
+ check(q(f"SELECT club_id||':'||fee FROM ca_club_data_pacific_cash_current WHERE rake_record_id='{LR}'"),F+':0.50000000000000000000','actual RA statement hook supplies original owner after legacy callback')
+ q(f"INSERT INTO accounting_cash_rake_sources VALUES('{LS}','{LR}','{U}','{F}'); INSERT INTO accounting_cash_funding_contract_admissions VALUES('{LS}','{K}');")
+ check(q(f"SELECT club_id||':'||stage FROM ca_club_data_pacific_cash_current WHERE rake_record_id='{LR}'"),K+':3','actual admission hook atomically supersedes original source owner')
+ check(q(f"SELECT count(*) FROM ca_club_data_pacific_cash_current WHERE rake_record_id='{LR}' AND club_id='{F}'"),'0','late original admission immediately suppresses former club presence')
+ q(f"INSERT INTO accounting_cash_rake_sources VALUES('{PS}','{PR}','{U}','{F}'); INSERT INTO accounting_cash_funding_contract_admissions VALUES('{PS}','{K}');")
+ check(q(f"SELECT count(DISTINCT game_id) FROM ca_club_data_pacific_fact_ct WHERE club_id='{F}' AND game_id='{LG}'"),'0','late admission removes historical former-owner phantom game atomically')
+ check(q(f"SELECT sum(fee)||':'||count(DISTINCT game_id) FROM ca_club_data_pacific_fact_ct WHERE club_id='{K}' AND game_id='{LG}'"),'1.00000000000000000000:1','late admission adds exact historical source to funded club once')
+ q(f"INSERT INTO rake_attributions(rake_record_id,player_id,club_id,rake_amount,created_at) VALUES('{BR}','{U}','{C}',0.25,'2026-11-16T12:00Z'); SELECT fn_ca_club_data_pacific_cash_observe('[{{\"rake_record_id\":\"{BR}\",\"user_id\":\"{U}\"}}]');")
+ check(q(f"SELECT sum(fee)||':'||sum(hands)||':'||count(DISTINCT game_id) FROM ca_club_data_pacific_fact_ct WHERE club_id='{B}' AND game_id='{PB}'"),'0.25000000000000000000:1:1','delayed RA and generic replay cannot double-apply an already funded seed')
+ check(q(f"SELECT count(DISTINCT game_id) FROM ca_club_data_pacific_fact_ct WHERE club_id='{C}' AND game_id='{PB}'"),'0','delayed attribution leaves former owner game absent')
+ # A report observer never contends on an idempotency receipt. The same
+ # original key can be observed in concurrent transactions without waiting.
+ holder=subprocess.Popen([str(x) for x in command()],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,env=ENV)
+ payload=json.dumps([{'rake_record_id':LR,'user_id':U}])
+ holder.stdin.write(f"BEGIN; SELECT fn_ca_club_data_pacific_cash_observe('{payload}');\n\\echo OBSERVED\nSELECT pg_sleep(2); COMMIT;\n");holder.stdin.close()
+ while holder.stdout.readline().strip()!='OBSERVED':
+  if holder.poll() is not None:raise AssertionError('cash source concurrency fixture failed')
+ t=time.monotonic();q(f"SET lock_timeout='100ms'; SELECT fn_ca_club_data_pacific_cash_observe('{payload}');")
+ assert time.monotonic()-t<1,'canonical cash observer waited for same source receipt'
+ holder.wait(timeout=5)
+ check(q(f"SELECT count(*) FROM ca_club_data_pacific_cash_current WHERE rake_record_id='{LR}'"),'1','concurrent duplicate source callbacks stay nonblocking and idempotent')
+ # A finite qualified source rebuild can retire an observer's transient
+ # error. An unrelated missing-owner source remains refused in that snapshot.
+ UC='00000000-0000-0000-0000-0000000000c1';UG='00000000-0000-0000-0000-0000000000c2';UR='00000000-0000-0000-0000-0000000000c3'
+ q(f"INSERT INTO clubs VALUES('{UC}','Unresolved source',NULL); INSERT INTO tables(id,club_id,name,game_variant,big_blind) VALUES('{UG}','{UC}','Missing canonical owner','nlh',2); INSERT INTO rake_records(id,table_id,rake_amount,created_at,player_contributions) VALUES('{UR}','{UG}',1,'2026-11-16T13:00Z','{{\"{V}\":1}}'); INSERT INTO ca_club_data_fact VALUES('{UC}','2026-11-16','CASH','{UG}','{V}',1,0,0,0,'2026-11-16T13:00Z'); INSERT INTO ca_club_data_pacific_failures(club_id,utc_day,source,detail) VALUES('{F}','2026-11-16','live_cash_source','resolved original observer failure'),('{UC}','2026-11-16','live_cash_source','missing original owner remains unresolved');")
+ check(json.loads(seed('2026-11-16',True))['complete'],False,'unresolved original source remains explicit during scoped recovery')
+ check(q(f"SELECT count(*) FROM ca_club_data_pacific_failures WHERE club_id='{F}' AND utc_day='2026-11-16' AND source='live_cash_source'"),'0','qualified source rebuild retires same-snapshot resolved cash observer failure')
+ check(q(f"SELECT count(*) FROM ca_club_data_pacific_failures WHERE club_id='{UC}' AND utc_day='2026-11-16' AND source='live_cash_source'"),'1','rebuild preserves unrelated unresolved cash source failure')
+ q(f"SELECT fn_ca_club_data_pacific_require('{UC}','2026-11-16','2026-11-16');",'CLUB_DATA_PACIFIC_WINDOW_INCOMPLETE')
+ # An error committed after the rebuild's established snapshot is outside
+ # its source qualification and must survive that transaction's cleanup.
+ snapshot=subprocess.Popen([str(x) for x in command()],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,env=ENV)
+ snapshot.stdin.write("BEGIN ISOLATION LEVEL REPEATABLE READ; SELECT count(*) FROM clubs;\n\\echo SNAPSHOT_READY\n");snapshot.stdin.flush()
+ while snapshot.stdout.readline().strip()!='SNAPSHOT_READY':
+  if snapshot.poll() is not None:raise AssertionError('source recovery snapshot fixture failed')
+ q(f"INSERT INTO ca_club_data_pacific_failures(club_id,utc_day,source,detail) VALUES('{B}','2026-11-16','live_cash_source','committed after original source snapshot');")
+ snapshot.stdin.write("SELECT fn_ca_club_data_pacific_seed('2026-11-16',true); COMMIT;\n");snapshot.stdin.close();snapshot.wait(timeout=5)
+ assert snapshot.returncode==0,snapshot.stderr.read()
+ check(q(f"SELECT count(*) FROM ca_club_data_pacific_failures WHERE club_id='{B}' AND utc_day='2026-11-16' AND source='live_cash_source'"),'1','rebuild cannot retire a cash error committed after its source snapshot')
+ # Historical ambiguity has no new registration. Every immutable candidate
+ # must remain refused, even when the old aggregate named only a third club.
+ AR='00000000-0000-0000-0000-0000000000c4'
+ q(f"ALTER TABLE rake_records DISABLE TRIGGER native_cash_rake; INSERT INTO rake_records(id,table_id,rake_amount,created_at,player_contributions) VALUES('{AR}','{UG}',2,'2026-11-16T14:00Z','{{\"{U}\":1}}'); ALTER TABLE rake_records ENABLE TRIGGER native_cash_rake; INSERT INTO rake_attributions(rake_record_id,player_id,club_id,rake_amount,created_at) SELECT '{AR}','{U}',c::uuid,1,'2026-11-16T14:00Z' FROM(VALUES('{F}'),('{K}'))x(c); INSERT INTO ca_club_data_fact VALUES('{UC}','2026-11-16','CASH','{UG}','{U}',2,0,0,0,'2026-11-16T14:00Z'); INSERT INTO ca_club_data_pacific_failures(club_id,utc_day,source,detail) VALUES('{F}','2026-11-16','live_cash_source','ambiguous historical owner'),('{K}','2026-11-16','live_cash_source','ambiguous historical owner');")
+ seed('2026-11-16',True)
+ check(q(f"SELECT count(DISTINCT club_id) FROM ca_club_data_pacific_failures WHERE utc_day='2026-11-16' AND club_id IN('{F}','{K}') AND source='live_cash_source'"),'2','ambiguous historical original owners both retain observer failures')
+ check(q(f"SELECT count(DISTINCT club_id) FROM ca_club_data_pacific_failures WHERE utc_day='2026-11-16' AND club_id IN('{F}','{K}') AND source='history'"),'2','history failure scope includes every immutable cash owner candidate')
+ q(f"SELECT fn_ca_club_data_pacific_require('{B}','2026-11-16','2026-11-16');")
+ # Conflicting same-authority receipts cannot be guessed into true totals;
+ # pending visibility is scoped, so an unrelated qualified club stays usable.
+ q(f"INSERT INTO ca_club_data_pacific_cash_observations SELECT rake_record_id,user_id,utc_day,stat_date,game_id,source_at,stage,'{F}',old_club_id,fee,legacy_recorded,full_source FROM ca_club_data_pacific_cash_current WHERE rake_record_id='{LR}';")
+ q(f"SELECT fn_ca_club_data_pacific_require('{K}','2026-11-16','2026-11-16');",'CLUB_DATA_PACIFIC_WINDOW_INCOMPLETE')
+ q(f"SELECT fn_ca_club_data_pacific_require('{B}','2026-11-16','2026-11-16');")
+ print('PASS: source conflict refuses affected window without global club outage',flush=True)
+ q(f"INSERT INTO ca_club_data_pacific_fact VALUES('{K}','2026-11-16','2026-11-16','TOURNAMENT','{T}','{U}',0,0,0,0,'2026-11-16T09:00Z',0,true,0);")
+ check(q(f"SELECT count(DISTINCT game_id) FROM ca_club_data_pacific_fact_ct WHERE club_id='{K}' AND kind='TOURNAMENT' AND game_id='{T}'"),'1','legitimate zero-fee tournament source retains game presence')
+ check(q("SELECT bool_and(NOT has_table_privilege('authenticated',c.oid,'SELECT')) FROM pg_class c WHERE relname IN('ca_club_data_pacific_cash_records','ca_club_data_pacific_cash_observations')"),'t','canonical source receipts remain private to report owner')
+ plan=q(f"SET enable_seqscan=off; EXPLAIN SELECT * FROM ca_club_data_pacific_cash_current WHERE club_id='{K}' AND stat_date BETWEEN '2026-11-09' AND '2026-11-15';")
+ assert 'ca_club_data_pacific_cash_observations_read_idx' in plan and 'ca_club_data_pacific_cash_observations_source_idx' in plan,plan
+ print('PASS: one-club week uses scoped day and source-dominance indexes',flush=True)
  print('PASS: legacy Pacific native PostgreSQL qualification')
 finally:
  if started:run([PG/'pg_ctl','-D',cluster/'data','-m','fast','-w','stop'])
