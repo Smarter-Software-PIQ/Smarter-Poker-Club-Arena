@@ -21,10 +21,10 @@ Unchanged by the scope head. The replay (`r2/R2-METHOD.md` with the firewall ame
 
 The option now acts only at fixed-limit hold'em cash tables, and only hold'em value is claimed. Paired league cells (validated portion, big bets per 100 hands +/- SE, scripted opponents): rule 0.21 (AB-EVALUATION-2.md 3.15, origin/main 401c576d, fresh seeds from 500001): flh 6 vs maniac +9.34 +/- 4.10, flh 9 vs maniac +24.31 +/- 7.41; harm controls flh 6 horse +0.01 +/- 0.01, flh 6 tv +0.04 +/- 0.03, flh 9 horse +0.02 +/- 0.02, flh 9 tv +0.11 +/- 0.08. Rule 0.14 (3.7, code 4d19f867, seeds from 1): flh 9 vs maniac +14.46 +/- 6.65, flh 6 horse +0.02 +/- 0.02, flh 6 tv +0.00 +/- 0.00. Omaha hi-lo showed no value on either seed range (flo8 6 vs maniac +1.07 +/- 3.46 in 3.15, -7.09 +/- 4.28 in 3.7): that gap is closed by the gate (the option does nothing at flo8), not by value.
 
-Status: MET for hold'em as recorded in AV, with these qualifications, stated plainly:
+Status: NOT MET as `docs/HORSE-DECISION-CHANGE-EVIDENCE.md` reads this row (line 13). That rule does not count either of two things: a league result reported by first-divergence street without a per-node table, or a gain from one opponent range. Both apply here. The hold'em league PASS stays recorded as measured. What is missing is a per-node value table and a gain against more than the scripted maniac. (Corrected 2026-11-16 after the independent review of 450ca325; AV and CHECKPOINT had recorded MET.) Qualifications:
 
 - The 0.21 PASS was predeclared as a pool over three maniac cells INCLUDING flo8 6 (+6.75 +/- 2.49). A flh-only pool (+12.85 +/- 3.59) is post hoc; each flh maniac cell is above 2 SE on its own (z 2.28 and 3.28).
-- Against the row's own wording: the gain comes from one opponent range (the scripted maniac; horse and tv near 0), the league reports aggregates by first-divergence street rather than a per-node table, and the direction that carries the maniac gain (mostly OFF fold > F2 call; 3.15 check) is not the direction production reaches (recorded-hand changes are almost all call > fold, see Reach).
+- Against the row's own wording: the gain comes from one opponent range (the scripted maniac; horse and tv near 0), the league reports aggregates by first-divergence street rather than a per-node table, and the first divergences against the maniac are mixed: fold > call is the larger count at 9 seats, and the counts are about even at 6 seats (31 call > fold vs 29 fold > call). These are counts, not money: in this head's seed 1-300 dumps, call > fold carries more of the flh 9 gain. So the league does not show which direction earns the gain, and production reaches mostly one direction (recorded-hand changes are almost all call > fold, see Reach).
 - No value cell was run at this head. Its flh cash decisions equal origin/main bd08e7d9's on every one of 900 paired deals (league v4b, seeds 1-300, flh 6 and 9 vs maniac, flh 6 vs tv: deals, cards, action logs and nets identical in both arms); the 3.15 cells ran at 401c576d, and HorseLogic changed between 401c576d and bd08e7d9 (other lanes), so 3.15 speaks for this head only as far as that base change leaves flh cash decisions alone, which was not re-measured.
 
 ## Continuation
@@ -46,11 +46,12 @@ Receipts registered in `HORSE_DATA_LEDGER` (FixedLimitAdaptation), fired only on
 ## Limits
 
 - Value is from scripted opponents and Horse identities with empty durable profiles, against one favourable range (the maniac); no person has played fixed limit since 2026-11-03, so nothing here measures a person.
-- The league gain is mostly folds the option turns into calls against the maniac; on recorded Horse-only hands the option changes about 0.16 % of flh trials, almost all calls it folds. A production gain is not shown.
+- The league gain comes from both directions against the maniac (first-divergence counts, not a money split); on recorded Horse-only hands the option changes about 0.16 % of flh trials, almost all calls it folds. A production gain is not shown.
 - The predeclared 0.21 pool included flo8, which the gate now excludes; the flh-only reading is post hoc. No value cell ran at this exact head.
 - Heads-up and VPIP-floored flh cash tables have no value or harm cell; 65 % of recorded decisions and 19 of the 21 changed replay decisions are on floored tables.
 - Raise-behind rates are Horse-only upper bounds per street; the hold'em row would also price non-hi-lo fixed-limit Omaha if such tables existed, but the scope gate keeps the option off for every Omaha table.
 - The replay does not reproduce the worker's opponent reads, the authored persona, the second look, the decision hour or the phase13 joint policy.
+- With the gate, the flo8 commitment mispricing that first motivated F2 is addressed by no option. Hi-lo tables keep main's behaviour.
 - This file states the limits; no ON pull request carries them yet, because none is proposed.
 
 ## Carrying head
