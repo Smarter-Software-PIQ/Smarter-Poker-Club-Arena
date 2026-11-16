@@ -352,8 +352,6 @@ BEGIN
  def:=replace(def,'p_idempotency_key text DEFAULT NULL::text)', 'p_idempotency_key text DEFAULT NULL::text, p_source_wallet text DEFAULT ''player_wallet''::text)');
  def:=replace(def,E'  v_after numeric;\n',E'  v_after numeric;\n  v_before numeric;\n  v_locked numeric;\n');
  def:=replace(def,E'begin\n  if v_me is null', E'begin\n  IF p_source_wallet IS NULL OR p_source_wallet NOT IN (''player_wallet'',''agent_wallet'') THEN RETURN jsonb_build_object(''success'',false,''error'',''Tickets Require A Player Or Agent Wallet''); END IF;\n  if v_me is null');
- def:=replace(def,$old$  perform pg_advisory_xact_lock(hashtextextended('cashier-hierarchy:'$old$, $new$  perform pg_advisory_xact_lock(hashtextextended('agent-agreement:'||p_club_id::text,0));
-  perform pg_advisory_xact_lock(hashtextextended('cashier-hierarchy:'$new$);
  def:=replace(def,E'         or v_prior.amount is distinct from p_value\n',E'         or v_prior.amount is distinct from p_value\n         or COALESCE(v_prior.metadata->>''funding_source'',''player_wallet'') IS DISTINCT FROM p_source_wallet\n');
  needle:=E'  v_ticket_id:=gen_random_uuid();\n';
  IF length(def)-length(replace(def,needle,''))<>length(needle) THEN RAISE EXCEPTION 'promo_cash_ticket_guard_anchor_changed'; END IF;
