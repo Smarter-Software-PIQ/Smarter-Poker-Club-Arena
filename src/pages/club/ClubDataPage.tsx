@@ -29,17 +29,12 @@ import { usePlayerPreference } from '../../hooks/usePlayerPreference';
  *
  * The client gate below is cosmetic. The RPCs raise 42501 on their own.
  *
- * THE DAY (stage 2 reader contract, 2026-11-15). For a Midway Union member
- * club, or the union itself, every reader answers on the union invoice's
- * ACCOUNTING day, 02:00 to 02:00 America/Chicago, daylight saving included
- * (owner, 2026-11-14), from the invoice's own accounting records. Any other
- * club keeps Chicago midnight days. The answer states its basis
- * (accounting_basis / day_basis) and the page counts "today", labels and
- * windows by it. The page carries the first and last day (what the readers
- * take) and shows the window by its boundaries: the range chip reads
- * "Nov 2, 2026 2:00 AM To Nov 9, 2026 2:00 AM", and the end the owner picks
- * is the boundary the window stops at, so that pair is the seven-day
- * invoice week. Exports carry the same window in every row.
+ * THE DAY: all Data windows use America/Los_Angeles calendar midnight.
+ * Union accounting and standalone net-flow reports retain distinct financial
+ * definitions, stated by accounting_basis. The calendar selects inclusive
+ * first/last dates; readers and exports use the following midnight as the
+ * exclusive upper boundary. Chicago clock labels display those real instants,
+ * including the 23-hour and 25-hour Pacific days at daylight-saving changes.
  */
 
 import {
@@ -117,6 +112,8 @@ import ClubDataRangeCalendar from '../../components/club/ClubDataRangeCalendar';
 import { useClubDataDayRollover } from '../../hooks/useClubDataDayRollover';
 import { clubDataRangeDays, readClubDataRange } from '../../lib/clubDataRange';
 import {
+  CLUB_DATA_PACIFIC_INCOMPLETE_COPY,
+  isClubDataPacificIncomplete,
   CLUB_GAMES_UNAVAILABLE_COPY,
   CLUB_PLAYERS_UNAVAILABLE_COPY,
   clubDataListState,
@@ -198,6 +195,7 @@ interface Snapshot {
   day_basis?: string;
   /** fn_ca_club_acct_coverage (union basis only). */
   accounting_coverage?: ClubDataCoverage | null;
+  previous_coverage?: ClubDataCoverage | null;
 }
 
 interface PlayerRow {
@@ -377,7 +375,7 @@ interface CachedPlayerLedger {
 
 /** The Rake Snapshot's basis, said beside a union club's invoice-basis figures. */
 const AGENT_RAKE_PRODUCTION_NOTE =
-  'Agent Rake Production: Seat Club And Agent Downline, Chicago Midnight Days. Not The Union Invoice Basis.';
+  'Agent Rake Production: Seat Club And Agent Downline, Pacific Midnight Days. Not The Union Invoice Basis.';
 
 /** What a money tile shows when there is no figure to show. Never "0.00". */
 const NO_VALUE = '-';
@@ -436,6 +434,7 @@ function coldRead<T>(
     maxRetries,
     baseDelayMs: COLD_READ_RETRY_DELAY_MS,
     isMountedRef,
+    shouldRetryError: (error) => !isClubDataPacificIncomplete(error),
   });
 }
 
@@ -1003,18 +1002,16 @@ export default function ClubDataPage() {
   const [clubName, setClubName] = useState<string>('');
   const gameHost = useClubGameHost(clubUuid, !!userId && !isHydrating);
   const [preset, setPreset] = useState<PresetId>(1);
-  // The day this club counts, as its last verified answer stated it: the
-  // 02:00 Chicago accounting day for a union club, Chicago midnight days for
-  // any other. Calendar until an answer says otherwise.
-  const [dayBasis, setDayBasis] = useState<ClubDataDayBasis>('calendar');
-  const dayBasisRef = useRef<ClubDataDayBasis>('calendar');
+  // Every Data report begins on the Pacific calendar day; verified answers
+  // retain their distinct accounting or net-flow financial basis.
+  const [dayBasis, setDayBasis] = useState<ClubDataDayBasis>('pacific');
+  const dayBasisRef = useRef<ClubDataDayBasis>('pacific');
   dayBasisRef.current = dayBasis;
   const [endDate, setEndDate] = useState<string>(
-    () =>
-      readClubDataRange(searchParams, clubDataDayOn('calendar'))?.end ?? clubDataDayOn('calendar')
+    () => readClubDataRange(searchParams, clubDataDayOn('pacific'))?.end ?? clubDataDayOn('pacific')
   );
   const [customStart, setCustomStart] = useState<string | null>(
-    () => readClubDataRange(searchParams, clubDataDayOn('calendar'))?.start ?? null
+    () => readClubDataRange(searchParams, clubDataDayOn('pacific'))?.start ?? null
   );
   const customStartRef = useRef(customStart);
   customStartRef.current = customStart;
@@ -1214,7 +1211,7 @@ export default function ClubDataPage() {
   const mountedRef = useRef(false);
   const manualRefreshingRef = useRef(false);
   const manualRefreshVersion = useRef(0);
-  const observedUtcDayRef = useRef(clubDataDayOn('calendar'));
+  const observedUtcDayRef = useRef(clubDataDayOn('pacific'));
   const gamesTabRef = useRef<HTMLButtonElement>(null);
   const playersTabRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -1233,13 +1230,13 @@ export default function ClubDataPage() {
   }, []);
   useEffect(() => {
     snapshotRef.current = snapshot;
-    // "Today" follows the club (isUnionClubAnswer): once a union club is
-    // known its today is the 2:00 AM day, and nothing moves it back.
+    // Both verified Data bases use the same Pacific calendar day.
     if (isUnionClubAnswer(snapshot)) setDayBasis('accounting');
+    else if (clubDataDayBasis(snapshot) === 'pacific') setDayBasis('pacific');
   }, [snapshot]);
-  // Another club or account starts from the calendar day until it answers.
+  // Every new club or account begins on the current Pacific day.
   useEffect(() => {
-    setDayBasis('calendar');
+    setDayBasis('pacific');
   }, [clubUuid, userId]);
   // When the answer moves the day (a union club between midnight and 02:00
   // Chicago), an owner pinned to "today" follows; a chosen past day stays.
@@ -1613,7 +1610,15 @@ export default function ClubDataPage() {
         const data = snapshotResult.data;
         const page = pageResult?.data as GamePage | null | undefined;
         if (rpcError) {
-          if (isAuthzError(rpcError)) {
+          if (isClubDataPacificIncomplete(rpcError)) {
+            reportError(rpcError, 'ClubDataPage.pacific_coverage');
+            removeClubDataCaches(userId, clubUuid);
+            setSnapshot(null);
+            setPlayers(null);
+            setPlayersError(CLUB_DATA_PACIFIC_INCOMPLETE_COPY);
+            setLedgerSource('cold');
+            setError(CLUB_DATA_PACIFIC_INCOMPLETE_COPY);
+          } else if (isAuthzError(rpcError)) {
             setError('You need to be an owner or admin of this club to see its data.');
             removeClubDataCaches(userId, clubUuid);
             setLedgerSource('cold');
@@ -2010,7 +2015,15 @@ export default function ClubDataPage() {
         const data = breakdownResult.data;
         const page = pageResult.data as PlayerPage | null;
         if (rpcError) {
-          if (isAuthzError(rpcError)) {
+          if (isClubDataPacificIncomplete(rpcError)) {
+            reportError(rpcError, 'ClubDataPage.pacific_player_coverage');
+            removeClubDataCaches(userId, clubUuid);
+            setPlayers(null);
+            setSnapshot(null);
+            setLedgerSource('cold');
+            setError(CLUB_DATA_PACIFIC_INCOMPLETE_COPY);
+            setPlayersError(CLUB_DATA_PACIFIC_INCOMPLETE_COPY);
+          } else if (isAuthzError(rpcError)) {
             setPlayersError('You need to be an owner or admin of this club to see player data.');
             removeClubDataCaches(userId, clubUuid);
           } else {
@@ -2286,6 +2299,16 @@ export default function ClubDataPage() {
         whileCurrent(mountedRef, stale)
       );
       if (stale()) return;
+      if (isClubDataPacificIncomplete(pageError)) {
+        reportError(pageError, 'ClubDataPage.pacific_pagination_coverage');
+        removeClubDataCaches(userId, clubUuid);
+        setSnapshot(null);
+        setPlayers(null);
+        setLedgerSource('cold');
+        setError(CLUB_DATA_PACIFIC_INCOMPLETE_COPY);
+        setPlayersError(CLUB_DATA_PACIFIC_INCOMPLETE_COPY);
+        return;
+      }
       const page = data as GamePage | null;
       if (
         pageError ||
@@ -2401,6 +2424,16 @@ export default function ClubDataPage() {
         PLAYER_REQUEST_TIMEOUT_MS
       );
       if (stale()) return;
+      if (isClubDataPacificIncomplete(pageError)) {
+        reportError(pageError, 'ClubDataPage.pacific_pagination_coverage');
+        removeClubDataCaches(userId, clubUuid);
+        setSnapshot(null);
+        setPlayers(null);
+        setLedgerSource('cold');
+        setError(CLUB_DATA_PACIFIC_INCOMPLETE_COPY);
+        setPlayersError(CLUB_DATA_PACIFIC_INCOMPLETE_COPY);
+        return;
+      }
       const page = data as PlayerPage | null;
       if (
         pageError ||
@@ -2523,7 +2556,7 @@ export default function ClubDataPage() {
   // near-real-time: re-poll on an interval and whenever the tab regains focus
   useEffect(() => {
     if (!clubUuid || isHydrating || !userId) return;
-    // Roll `endDate` forward across Chicago midnight. It was set once at mount, so
+    // Roll `endDate` forward across the reporting midnight. It was set once at mount, so
     // a page left open overnight polled YESTERDAY's window forever: the owner
     // watched live rake stop growing and the forward arrow silently arm itself.
     // Only for someone still pinned to today - a deliberate step back stays.
@@ -3098,8 +3131,8 @@ export default function ClubDataPage() {
   );
 
   const summary = snapshot?.summary;
-  // Every label states the basis the visible answer was given on (a union
-  // club's window that starts before it joined reads its Chicago basis);
+  // Every label states the basis the visible answer was given on, including
+  // older Chicago answers during a compatible rollout;
   // before an answer, the basis "today" is counted on.
   const answerBasis: ClubDataDayBasis = snapshot ? clubDataDayBasis(snapshot) : dayBasis;
   // The window by its real boundaries: the reader's own instants when it
@@ -3122,7 +3155,7 @@ export default function ClubDataPage() {
     }
   }, [latestInvoice]);
   const unionOwesClub = latestInvoice?.direction === 'union owes club';
-  const delta = snapshot?.delta;
+  const delta = snapshot?.previous_coverage?.complete === false ? undefined : snapshot?.delta;
   const prevRange = snapshot?.previous_range;
 
   const onTabKeyDown = useCallback((event: React.KeyboardEvent<HTMLButtonElement>) => {
@@ -3473,11 +3506,8 @@ export default function ClubDataPage() {
           )}
         </SpadeConsole>
 
-        {/* The rake snapshot keeps its own basis (lead, 2026-11-15): agent and
-          club rake production by seat club and agent downline on Chicago
-          midnight days, the basis for agent commissions. For a union club it
-          sits beside invoice-basis figures, so it says so and its headline is
-          never called "Fee". Other clubs are unchanged. */}
+        {/* Rake production and invoice results retain their own financial
+          definitions, while this Data panel shares the Pacific date window. */}
         {clubUuid && unionBasis && (
           <DataHelpTip label="About Agent Rake Production">
             <p data-testid="rake-snapshot-basis">{AGENT_RAKE_PRODUCTION_NOTE}</p>
@@ -3485,6 +3515,7 @@ export default function ClubDataPage() {
         )}
         {clubUuid && (
           <RakeSnapshotPanel
+            reportBasis="pacific"
             headlineLabel={unionBasis ? 'Agent Rake Production' : undefined}
             unframed
             clubId={clubUuid}
@@ -3625,7 +3656,11 @@ export default function ClubDataPage() {
               end={endDate}
               today={clubDataDayOn(dayBasis)}
               zoneLabel={
-                answerBasis === 'accounting' ? 'Pacific Accounting Dates' : 'Chicago Calendar Dates'
+                answerBasis === 'accounting'
+                  ? 'Pacific Accounting Dates'
+                  : answerBasis === 'pacific'
+                    ? 'Pacific Calendar Dates'
+                    : 'Chicago Calendar Dates'
               }
               onClose={() => setEditingDates(false)}
               onApply={(first, last) => {

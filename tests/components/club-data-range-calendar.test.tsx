@@ -70,3 +70,10 @@ describe('One Inclusive Reporting Calendar', () => {
     expect(close).toHaveBeenCalledOnce();
   });
 });
+
+it('preserves the existing two-year custom range ceiling for the Data rake panel', () => {
+  const apply = vi.fn();
+  render(<Calendar {...base} start="2026-08-01" maxDays={731} onApply={apply} onClose={vi.fn()} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Apply Dates' }));
+  expect(apply).toHaveBeenCalledWith('2026-08-01', '2026-11-15');
+});

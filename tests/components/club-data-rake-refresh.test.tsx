@@ -1,10 +1,10 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Club Data counts America/Chicago days (20261022120121): today is the Chicago date.
-const chicagoToday = (): string =>
+// Current Data reports count Pacific calendar dates for every club.
+const pacificToday = (): string =>
   new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Chicago',
+    timeZone: 'America/Los_Angeles',
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -12,7 +12,7 @@ const chicagoToday = (): string =>
 
 const CLUB_ID = 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4';
 
-const TEST_END_DATE = chicagoToday();
+const TEST_END_DATE = pacificToday();
 const testRangeStart = new Date(`${TEST_END_DATE}T00:00:00Z`);
 testRangeStart.setUTCDate(testRangeStart.getUTCDate());
 const TEST_START_DATE = testRangeStart.toISOString().slice(0, 10);
@@ -330,6 +330,7 @@ import { periodToRange } from '../../src/services/ClubRakeSnapshotService';
 function rakePayload(name = 'Rake Agent') {
   return {
     scope: 'club',
+    day_basis: 'America/Los_Angeles 00:00',
     scope_label: 'Shark Club',
     club_id: CLUB_ID,
     union_id: null,
@@ -372,13 +373,16 @@ function abortable<T>(promise: Promise<T>, onSignal?: (signal: AbortSignal) => v
     },
   });
 }
-const rakeCalls = () => rpcMock.mock.calls.filter(([fn]) => fn === 'ca_rake_snapshot_v2');
+const rakeCalls = () =>
+  rpcMock.mock.calls.filter(
+    ([fn]) => fn === 'ca_rake_snapshot_v2' || fn === 'ca_rake_snapshot_pacific_v2'
+  );
 
 it('does not amplify failed rake reads through successful ledger invalidations', async () => {
   const ledger = rpcMock.getMockImplementation()!;
   let fail = true;
   rpcMock.mockImplementation((fn: string, args?: Record<string, unknown>) => {
-    if (fn === 'ca_rake_snapshot_v2')
+    if (fn === 'ca_rake_snapshot_pacific_v2')
       return abortable(
         Promise.resolve(
           fail
@@ -395,6 +399,7 @@ it('does not amplify failed rake reads through successful ledger invalidations',
   await screen.findByText('Shark Table One');
   fireEvent.click(screen.getByRole('button', { name: 'Advanced', exact: true }));
   await waitFor(() => expect(rakeCalls()).toHaveLength(1));
+  expect(rakeCalls()[0][0]).toBe('ca_rake_snapshot_pacific_v2');
   await waitFor(() =>
     expect(document.body.textContent).toMatch(/snapshot could not|statement timeout/i)
   );
@@ -460,11 +465,60 @@ it('aborts retired reads while preserving the selected reporting period across S
 it('issues no hidden rake reads in default Simple mode', async () => {
   const ledger = rpcMock.getMockImplementation()!;
   rpcMock.mockImplementation((fn: string, args?: Record<string, unknown>) =>
-    fn === 'ca_rake_snapshot_v2'
+    fn === 'ca_rake_snapshot_pacific_v2'
       ? abortable(Promise.resolve({ data: rakePayload(), error: null }))
       : ledger(fn, args)
   );
   render(<ClubDataPage />);
   await screen.findByText('Shark Table One');
   expect(rakeCalls()).toHaveLength(0);
+});
+
+it('uses one inclusive calendar for the Pacific Data rake panel', async () => {
+  rpcMock.mockImplementation(() =>
+    abortable(Promise.resolve({ data: rakePayload(), error: null }))
+  );
+  render(
+    <RakeSnapshotPanel reportBasis="pacific" clubId={CLUB_ID} userId="owner-1" scopes={['club']} />
+  );
+  await screen.findByText('Rake Agent');
+  fireEvent.click(screen.getByRole('button', { name: 'Custom', exact: true }));
+  expect(screen.getAllByRole('grid')).toHaveLength(1);
+  expect(screen.queryByLabelText('Range Start')).toBeNull();
+  expect(screen.queryByLabelText('Range End')).toBeNull();
+  const name = new Date(`${TEST_END_DATE}T12:00:00Z`).toLocaleDateString('en-US', {
+    timeZone: 'UTC',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+  fireEvent.click(screen.getByRole('button', { name }));
+  fireEvent.click(screen.getByRole('button', { name: 'Apply Dates' }));
+  await waitFor(() =>
+    expect(rakeCalls().at(-1)?.[1]).toMatchObject({ p_start: TEST_END_DATE, p_end: TEST_END_DATE })
+  );
+  expect(screen.queryByRole('dialog')).toBeNull();
+});
+
+it('keeps current totals while refusing an unqualified previous-period comparison', async () => {
+  rpcMock.mockImplementation(() =>
+    abortable(
+      Promise.resolve({
+        data: {
+          ...rakePayload(),
+          previous_coverage: { complete: false },
+          delta: { fee_pct: 99, games_pct: 99, winnings_abs: 99, fee_abs: 99 },
+        },
+        error: null,
+      })
+    )
+  );
+  render(
+    <RakeSnapshotPanel reportBasis="pacific" clubId={CLUB_ID} userId="owner-1" scopes={['club']} />
+  );
+  await screen.findByText('Rake Agent');
+  expect(
+    screen.getByText('Previous Period Data Is Incomplete. Comparisons Are Unavailable.')
+  ).toBeInTheDocument();
+  expect(screen.queryByText(/99% Vs Prev/)).toBeNull();
 });
