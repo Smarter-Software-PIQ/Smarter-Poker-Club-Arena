@@ -1,14 +1,17 @@
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { expect, it } from 'vitest';
 
 it('loads the real candidate feature dependency graph before refusing an absent private fixture', () => {
   const run = spawnSync(
     process.execPath,
     [
-      new URL(
-        '../../../scripts/ci/probes/horse-phase4-certified-solver/run-public215-feature-parity.mjs',
-        import.meta.url
-      ).pathname,
+      fileURLToPath(
+        new URL(
+          '../../../scripts/ci/probes/horse-phase4-certified-solver/run-public215-feature-parity.mjs',
+          import.meta.url
+        )
+      ),
     ],
     {
       env: { ...process.env, PGHOST: '', V31_FEATURE_PRIVATE_FIXTURE_ROOT: '' },
