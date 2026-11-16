@@ -14,6 +14,7 @@ import { publicMemoryDomainFromRules } from './HorsePublicMemoryDomain.js';
 import { noteFire } from './BrainTelemetry.js';
 import { resolvePersona, wantsStraddle } from './HorsePersona.js';
 import { HandController } from './HandController.js';
+import { structureAllowsStraddle } from './BettingStructure.js';
 import {
   HandContinuationLane,
   type ContinuationEvent,
@@ -3428,7 +3429,11 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
 
       // Bible V8 §4.4: Process straddles before hand starts
       let straddleResults: { seat: number; amount: number }[] = [];
-      if (this.tableInfo.straddle_enabled) {
+      // Fixed limit refuses a straddle (BettingStructure.structureAllowsStraddle):
+      // it is not counted as a fixed-limit wager, so a straddled limit preflop
+      // took five levels. None is collected for a fixed-limit hand, whatever
+      // the table row says; a mixed table still straddles its other games.
+      if (this.tableInfo.straddle_enabled && structureAllowsStraddle(this.dealtGameVariant())) {
         // Build seat order starting from UTG (left of BB)
         const utgSeat = this.getNextSeat(bbSeat, players);
 
