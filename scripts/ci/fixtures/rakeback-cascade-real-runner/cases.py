@@ -100,6 +100,7 @@ for i in range(0,44):
         snap_r2=one(SNAP); exec((F/'between-rounds.py').read_text())
         assert one(SNAP)==snap_r2,'a between-rounds probe left something behind'
         armed=('round 3 killed at the TQ player leg',arm("NEW.to_entity_id=rr.u('TQ') AND NEW.category='rakeback'",'round 3 killed at TQ'))
+        exec((F/'credit-cutoff.py').read_text())
 assert interrupts==['round 2 killed at its last leg, AG -> SUB','round 3 killed at the TQ player leg'],interrupts
 case('interruption: round 2 killed at its last leg and round 3 killed after paying some players each roll back whole (balances, journal, receipts, reserves unchanged); the next tick pays each round once')
 if A.stop_after=='run': raise SystemExit(0)
