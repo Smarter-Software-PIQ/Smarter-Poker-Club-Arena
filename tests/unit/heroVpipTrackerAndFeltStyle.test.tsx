@@ -66,7 +66,7 @@ describe('the tracker', () => {
     error: null,
   });
 
-  it('reads Lightning VPIP through its real anchor and keeps the tracker and hands after ten', async () => {
+  it('reads Lightning VPIP through its real anchor and keeps the tracker after ten', async () => {
     rpc.mockImplementation((name: string) =>
       Promise.resolve(
         name === 'fn_lightning_my_session'
@@ -87,19 +87,18 @@ describe('the tracker', () => {
       isTournament: false,
       heroPos: { x: 50, y: 100 },
     };
-    const { rerender } = render(<HeroVpipTracker {...props} handNumber={10} handsOwed={1} />);
+    const { rerender } = render(<HeroVpipTracker {...props} handNumber={10} />);
     await act(async () => {
       await Promise.resolve();
     });
     expect(rpc).toHaveBeenCalledWith('fn_cash_vpip_status', {
       p_table_id: '11111111-1111-4111-8111-111111111111',
     });
-    rerender(<HeroVpipTracker {...props} handNumber={11} handsOwed={0} />);
+    rerender(<HeroVpipTracker {...props} handNumber={11} />);
     await act(async () => {
       vi.advanceTimersByTime(VPIP_REFRESH_DELAY_MS);
     });
     expect(screen.getByTestId('vpip-badge').textContent).toContain('60%');
-    expect(screen.queryByTestId('hero-vpip-hand-count')).toBeNull();
     expect(rpc.mock.calls.filter((c) => c[0] === 'fn_lightning_my_session')).toHaveLength(1);
   });
 
@@ -560,14 +559,14 @@ describe('the game line fits its box (2026-09-09)', () => {
   });
 });
 
-describe('the retired stay clock never prints; the hand count does', () => {
+describe('the hero seat only shows VPIP information', () => {
   beforeEach(() =>
     rpc.mockResolvedValue({
       data: { ok: true, seated: true, required: 30, vpip: 100 },
       error: null,
     })
   );
-  it('shows the hands owed and no time clock', async () => {
+  it('keeps the leave counter and retired time clock off the seat', async () => {
     const props = {
       tableId: 't1',
       heroSeated: true,
@@ -575,11 +574,9 @@ describe('the retired stay clock never prints; the hand count does', () => {
       handNumber: 1,
       heroPos: { x: 50, y: 95 },
     };
-    const view = render(<HeroVpipTracker {...props} handsOwed={7} />);
-    expect(screen.getByTestId('hero-hand-count')).toHaveTextContent('7');
+    render(<HeroVpipTracker {...props} />);
     expect(screen.queryByTestId('hero-profit-clock')).not.toBeInTheDocument();
     expect(screen.queryByText('Your Time Clock Has Started')).not.toBeInTheDocument();
-    view.rerender(<HeroVpipTracker {...props} handsOwed={0} />);
     expect(screen.queryByTestId('hero-hand-count')).not.toBeInTheDocument();
     await act(async () => {
       await Promise.resolve();

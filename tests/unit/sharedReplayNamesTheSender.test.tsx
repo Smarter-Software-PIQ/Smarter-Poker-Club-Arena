@@ -19,6 +19,7 @@ vi.mock('@/services/SoundService', () => ({
   soundService: new Proxy({}, { get: () => vi.fn() }),
   haptic: new Proxy({}, { get: () => vi.fn() }),
 }));
+vi.mock('@/lib/publicReplayAvatar', () => ({ publicReplayAvatar: vi.fn() }));
 vi.mock('@/hooks/useAuthUser', () => ({ useAuthUser: () => ({ user: null }) }));
 vi.mock('@/services/HandHistoryService', () => ({ handHistoryService: { getHand: vi.fn() } }));
 
@@ -50,7 +51,12 @@ const ROW = {
 const model = () =>
   buildReplay(
     replayInputFromRow(ROW as never, {
-      privateHoleCards: { [SENDER]: [{ rank: 'K', suit: 'hearts' }, { rank: '4', suit: 'clubs' }] as never },
+      privateHoleCards: {
+        [SENDER]: [
+          { rank: 'K', suit: 'hearts' },
+          { rank: '4', suit: 'clubs' },
+        ] as never,
+      },
     })
   );
 
