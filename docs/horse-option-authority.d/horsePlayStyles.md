@@ -29,9 +29,9 @@ The style dials act before the owner-ruled chain (omahaOwnBetRules, omahaOwnerRu
 
 `horsePlayStyleForce` is a league and test lever (it names the style of a seat; league seat ids are league-N). It is not boolean and is not a switchable option.
 
-Default OFF in source (read `=== true`). On live only by an option-switch row whose note cites this file and its sha256 (`authority: horsePlayStyles docs/horse-option-authority.d/horsePlayStyles.md sha256 <digest>`). The option is not yet registered in the live switch: the switch migration must be regenerated to include it. The maintained rollback (switch row off, about 30 s) applies if harm is established.
+Default OFF in source (read `=== true`). On live only by an option-switch row whose note cites this file and its sha256 (`authority: horsePlayStyles docs/horse-option-authority.d/horsePlayStyles.md sha256 <digest>`). The option is registered in the live switch (on and off; follow-up list migration 20261116021500 names it) and is OFF unless such a row is written. The maintained rollback (switch row off, about 30 s) applies if harm is established.
 
-The tight and pressure styles change how many hands a Horse opens and calls with. The owner's preflop range hold covers range changes; whether the order below lifts it for this option is to be recorded by the owner's lane before the switch row is written.
+The tight and pressure styles change how many hands a Horse opens and calls with, so the option falls under the owner's preflop range hold. The owner's 16:42 order below lifts that hold for this option alone (Hand Analysis ruling, inbox 2026-11-16T03:06:28Z, B1). The lift is recorded in source, not in a note: `OPTION_SWITCH_PREFLOP_HOLD_LIFTED.horsePlayStyles` in server/src/engine/HorseOptionSwitch.ts cites the 16:42 text, OWNER-TEXT-20261115-1000-PLO-CHAT-VERBATIM.md and its full sha256 at the time it was read (7921dea5df9daf5992faacb5a585f2fa67e2ae1c878936f040a3e7b0eea58b39, 2026-11-16T03:22:11Z; the file is append-only, so its digest moves). Every other option under the preflop hold stays off-only (HorseOptionSwitchPreflopHoldLift.test.ts).
 
 ## The owner's orders it rests on (verbatim)
 

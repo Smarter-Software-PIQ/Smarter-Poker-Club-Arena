@@ -485,6 +485,40 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
     source: 'PLO Strategy: made-hand defense repair',
   }),
 });
+/** A named lift of the owner preflop range hold: which option, and the owner text that lifts it. */
+export interface OptionSwitchPreflopHoldLift {
+  readonly source: string;
+  readonly file: string;
+  /** Full sha256 of the owner-text file when it was read; the file is append-only, so its digest moves later. */
+  readonly sha256: string;
+  readonly readAt: string;
+}
+/**
+ * LIFTS OF THE OWNER PREFLOP RANGE HOLD (PREFLOP_HOLD_SOURCE), BY NAME. An option that changes a preflop range is
+ * held off-only (OPTION_SWITCH_OFF_ONLY) until the owner lifts the hold for it by name; a lift is recorded HERE, in
+ * source, never in a note. A name in this map is registered on/off (it must not be in OPTION_SWITCH_OFF_ONLY), and
+ * the lift covers that name alone: every other PREFLOP_HOLD_SOURCE entry stays off-only.
+ * horsePlayStyles (the three Horse playing styles, default OFF): its tight and pressure styles move preflop entry
+ * and 3-bet/4-bet bars. Lifted by the owner's 2026-11-15 16:42 Chicago text, ruled sufficient for this option alone
+ * by Hand Analysis (inbox 2026-11-16T03:06:28Z, B1).
+ */
+export const OPTION_SWITCH_PREFLOP_HOLD_LIFTED: Readonly<
+  Record<string, OptionSwitchPreflopHoldLift>
+> = Object.freeze({
+  horsePlayStyles: Object.freeze({
+    source:
+      'owner 2026-11-15 16:42 Chicago, "I WANT YOU TO TAKE CONTROL OF THIS AND MAKE ALL 3 PERSONA\'S AND RANDOMLY ASSIGN EACH HORSE A PLAYING TYPE ... PUT TOGETHER A PLAN AND EXECUTE ON THIS IDEA"',
+    file: 'OWNER-TEXT-20261115-1000-PLO-CHAT-VERBATIM.md',
+    sha256: '7921dea5df9daf5992faacb5a585f2fa67e2ae1c878936f040a3e7b0eea58b39',
+    readAt: '2026-11-16T03:22:11Z (15,830 bytes; append-only, the digest moves as the file grows)',
+  }),
+});
+/** The names whose off-only entry is the owner preflop range hold (used by the lift law test). */
+export const OPTION_SWITCH_PREFLOP_HELD_NAMES: readonly string[] = Object.freeze(
+  Object.keys(OPTION_SWITCH_OFF_ONLY).filter(
+    (name) => OPTION_SWITCH_OFF_ONLY[name]!.source === PREFLOP_HOLD_SOURCE
+  )
+);
 /**
  * Off-only names that are not ledger options YET: covered by exact name so they are off-only the moment they land.
  * The law allows an OPTION_SWITCH_OFF_ONLY name outside the ledger only when it is listed here.
