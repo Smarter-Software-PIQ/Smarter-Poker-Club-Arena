@@ -16,5 +16,8 @@
 /** The Terms of Service page and the acceptance modal that summarises them. */
 export const TERMS_LAST_UPDATED = 'November 16, 2026';
 
+/** Exact rendered Terms revision acknowledged by the canonical acceptance endpoint. */
+export const TERMS_REVISION = '2026-11-16-87a8e57589a09136';
+
 /** The Privacy Policy page. */
 export const PRIVACY_LAST_UPDATED = 'September 16, 2026';

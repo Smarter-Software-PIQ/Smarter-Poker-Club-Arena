@@ -10,6 +10,7 @@ import { masterBus } from '../core/MasterBus';
 import { reportError } from '../utils/errorReporter';
 import { playerDisplayName, PLAYER_NAME_COLUMNS } from '../utils/playerDisplayName';
 import { resolveVipStatus, type VipStatus } from '../utils/vipStatus';
+import { TERMS_REVISION } from '../components/legal/legalDates';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -250,7 +251,8 @@ class ProfileServiceClass {
   }
 
   /**
-   * Whether this user has accepted the Club Arena Terms of Service.
+   * Whether this user has accepted the exact current Club Arena Terms revision.
+   * A stamp for older words, even from the same day, is not renewed consent.
    *
    * 2026-08-16: THIS READ WAS LOOKING IN THE WRONG PLACE.
    *
@@ -275,7 +277,7 @@ class ProfileServiceClass {
     try {
       const { data, error } = await supabase
         .from('profiles')
-        .select('club_arena_tos_accepted_at')
+        .select('club_arena_tos_accepted_at, club_arena_tos_revision')
         .eq('id', userId)
         .maybeSingle();
 
@@ -285,7 +287,12 @@ class ProfileServiceClass {
       }
       // A missing profile row is not an error and not consent. It is a user we
       // have no acceptance on file for.
-      return data?.club_arena_tos_accepted_at ? 'accepted' : 'not_accepted';
+      const acceptedAt = data?.club_arena_tos_accepted_at;
+      return data?.club_arena_tos_revision === TERMS_REVISION &&
+        typeof acceptedAt === 'string' &&
+        Number.isFinite(Date.parse(acceptedAt))
+        ? 'accepted'
+        : 'not_accepted';
     } catch (err: unknown) {
       reportError(err, 'ProfileService.getTOSStatus', { userId });
       return 'unknown';
