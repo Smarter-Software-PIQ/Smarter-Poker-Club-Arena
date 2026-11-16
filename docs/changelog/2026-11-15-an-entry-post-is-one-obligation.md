@@ -56,14 +56,21 @@ closed whatever the trigger was.
 - `ServerTableEngineDealing.entryChargeSeats`: one place decides each seat's
   entry charge for a deal; a seat is on one list or neither, and the entry
   post wins.
-- `HandController.postBlinds`: a seat is billed the first entry charge that
-  reaches it and no other, whichever host built the lists, a repeated entry
-  included.
-- `AnEntryPostIsOneObligation.test.ts`: 17 tests driving the real request
-  handlers and the real hand in every order. Against the old behaviour 11
-  fail (Burls: 197.50 left of 200 instead of 199; fresco: 13.58 instead of
-  13.93) and the 6 that pin legitimate missed-blind returns, moved arrivals
-  and tournaments pass both before and after.
+- `HandController.postBlinds`: a seat is billed one entry charge, whichever
+  host built the lists, a repeated entry included.
+- `AnEntryPostIsOneObligation.test.ts`: 19 tests driving the real request
+  handlers and the real hand in every order. With the three guards removed
+  and nothing else changed, 11 fail on billing (Burls: 197.50 left of 200
+  instead of 199; fresco: 13.58 instead of 13.93); the tests that pin
+  legitimate missed-blind returns, moved arrivals and tournaments pass both
+  ways. Against untouched main nearly all fail, most because
+  `entryChargeSeats` does not exist there.
+- `HandController.postBlinds` bills a seat named on both lists the entry post.
+
+Known and not changed here (found by the independent review, older than this
+defect): a seat present on a restarted engine's first loop pass is treated as
+already dealt, so a seat that was seated but never dealt before a restart
+could still be marked returning. No audited hand shows it.
 
 ## Burls, hand 59634000
 
@@ -199,6 +206,9 @@ and compares every hand row before and after. No pot, rake, jackpot drop,
 winner or hand record changes.
 
 Proved against production on 2026-11-16 in one self-aborting call (CLAUDE.md
-11.5): `PROBE OK (rolled back): 19 cases, 24.92 paid, bank 146706041.98 ->
-146706017.06`. Read back afterwards: no adjustment, no ledger leg, bank
+11.5), on the final bytes after the independent review's findings were
+applied (each wallet receipt is matched once, a manifest with a missing field
+refuses the file, a "won" case must show the returned big blind): `PROBE OK
+(rolled back): 19 cases, 24.92 paid, bank 146706041.98 -> 146706017.06, 19
+distinct receipts`. Read back afterwards: no adjustment, no ledger leg, bank
 146706041.98.

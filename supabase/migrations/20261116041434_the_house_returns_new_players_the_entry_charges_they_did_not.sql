@@ -83,7 +83,7 @@
 --   SET LOCAL ca.entry_post_make_good_probe = 'on';
 -- the closing exception MUST abort the transaction (CLAUDE.md 11.5).
 --
--- @live-proof: (SELECT count(*) FROM public.ca_manual_adjustments WHERE decision_note = 'migration 20261116041434_the_house_returns_new_players_the_entry_charges_they_did_not' AND status = 'settled') = 19 AND (SELECT sum(amount) FROM public.ca_manual_adjustments WHERE decision_note = 'migration 20261116041434_the_house_returns_new_players_the_entry_charges_they_did_not' AND status = 'settled') = 24.92 AND (SELECT count(*) FROM public.chip_ledger WHERE idempotency_key LIKE 'entry-post-overcharge-make-good:%') = 19
+-- @live-proof: (SELECT count(*) FROM public.ca_manual_adjustments WHERE decision_note = 'migration 20261116041434_the_house_returns_new_players_the_entry_charges_they_did_not' AND status = 'settled') = 19 AND (SELECT sum(amount) FROM public.ca_manual_adjustments WHERE decision_note = 'migration 20261116041434_the_house_returns_new_players_the_entry_charges_they_did_not' AND status = 'settled') = 24.92
 
 BEGIN;
 SET LOCAL lock_timeout = '5s';
@@ -127,6 +127,7 @@ DECLARE
   v_h public.hand_history%ROWTYPE; v_part jsonb;
   v_hands_before text; v_hands_after text;
   v_paid numeric := 0; v_n integer := 0;
+  v_seen_tx uuid[] := ARRAY[]::uuid[];
 BEGIN
   IF (SELECT count(*) FROM jsonb_to_recordset(c_cases) AS c(hand_number bigint, hand_id uuid, user_id uuid, username text, bb numeric, live numeric, dead numeric, basis text, amount numeric)) <> c_count
      OR (SELECT sum(amount) FROM jsonb_to_recordset(c_cases) AS c(hand_number bigint, hand_id uuid, user_id uuid, username text, bb numeric, live numeric, dead numeric, basis text, amount numeric)) <> c_total THEN
@@ -186,6 +187,8 @@ BEGIN
      WHERE m.table_id = v_h.table_id AND m.hand_number = r.hand_number
        AND p->>'user_id' = r.user_id::text;
     IF v_part IS NULL
+       OR v_part->>'seat_joined_at' IS NULL
+       OR jsonb_typeof(v_part->'funding_lineage'->'moves') IS DISTINCT FROM 'array'
        OR (v_part->>'is_horse')::boolean IS NOT FALSE
        OR COALESCE(jsonb_array_length(v_part->'funding_lineage'->'moves'), 0) <> 0
        OR (v_part->>'seat_joined_at')::timestamptz NOT BETWEEN v_h.started_at - interval '10 minutes' AND v_h.started_at
@@ -203,7 +206,7 @@ BEGIN
         RAISE EXCEPTION 'hand %: not a lost hand owed live + dead - one big blind', r.hand_number;
       END IF;
     ELSIF r.basis = 'won' THEN
-      IF v_winners <> 1 OR v_won <= 0 OR r.live <> 2 * r.bb
+      IF v_winners <> 1 OR v_won <= 0 OR r.live <> 2 * r.bb OR v_returned < r.bb
          OR COALESCE(array_length(v_h.community_cards, 1), 0) < 3
          OR v_h.rake_amount <> round(v_h.pot_size * 10) / 100
          OR r.amount <> v_h.rake_amount - round((v_h.pot_size - r.dead) * 10) / 100 THEN
@@ -271,11 +274,11 @@ BEGIN
          WHERE k.key = v_key AND k.user_id = r.user_id AND k.amount = r.amount) <> 1 THEN
       RAISE EXCEPTION 'hand %: the idempotency receipt is missing', r.hand_number;
     END IF;
-    SELECT w.id INTO v_tx FROM public.wallet_transactions w
+    SELECT w.id INTO STRICT v_tx FROM public.wallet_transactions w
      WHERE w.user_id = r.user_id AND w.created_at = now() AND w.amount = r.amount
        AND w.type = 'credit' AND w.category = 'settlement' AND w.description = c_desc
-     ORDER BY w.id DESC LIMIT 1;
-    IF v_tx IS NULL THEN RAISE EXCEPTION 'hand %: the wallet receipt is missing', r.hand_number; END IF;
+       AND w.id <> ALL (v_seen_tx);
+    v_seen_tx := v_seen_tx || v_tx;
     UPDATE public.ca_manual_adjustments SET status = 'settled' WHERE id = v_adj AND status = 'approved';
     IF NOT FOUND THEN RAISE EXCEPTION 'hand %: the adjustment did not settle', r.hand_number; END IF;
 
