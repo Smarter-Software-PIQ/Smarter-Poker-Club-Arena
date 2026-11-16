@@ -842,16 +842,48 @@ CREATE TABLE public.ca_promo_profit_entry_loss_overlap_slices (
  candidate_id uuid NOT NULL,charge_ledger_id uuid NOT NULL,grant_id uuid NOT NULL,case_id uuid NOT NULL,amount numeric NOT NULL CHECK(amount>0),PRIMARY KEY(candidate_id,charge_ledger_id,grant_id,case_id)
 );
 CREATE TABLE public.ca_promo_profit_entry_fee_refunds(entitlement_id uuid PRIMARY KEY,charge_ledger_id uuid NOT NULL UNIQUE,amount numeric NOT NULL CHECK(amount>=0));
-DO $profit_event_acl$ DECLARE n text;BEGIN
- FOREACH n IN ARRAY ARRAY['ca_promo_profit_event_lots','ca_promo_profit_event_overlap_lots','ca_promo_profit_event_charge_receipts','ca_promo_profit_entry_fee_spends','ca_promo_profit_entry_fee_slices','ca_promo_profit_entry_fee_overlap_slices','ca_promo_profit_entry_loss_slices','ca_promo_profit_entry_loss_overlap_slices','ca_promo_profit_entry_fee_refunds'] LOOP
- EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY',n);
- EXECUTE format('REVOKE ALL ON public.%I FROM PUBLIC,anon,authenticated,service_role',n);
- EXECUTE format('GRANT SELECT ON public.%I TO service_role',n);
- IF n NOT IN('ca_promo_profit_event_lots','ca_promo_profit_event_overlap_lots') THEN
- EXECUTE format('CREATE TRIGGER immutable_row BEFORE UPDATE OR DELETE ON public.%I FOR EACH ROW EXECUTE FUNCTION public.fn_ca_promo_integrity_immutable()',n);
- EXECUTE format('CREATE TRIGGER immutable_table BEFORE TRUNCATE ON public.%I FOR EACH STATEMENT EXECUTE FUNCTION public.fn_ca_promo_integrity_immutable()',n);END IF;
- END LOOP;
-END $profit_event_acl$;
+-- Explicit cold-table access preserves owner-only writes and service-role reads.
+ALTER TABLE public.ca_promo_profit_event_lots ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_promo_profit_event_lots FROM PUBLIC,anon,authenticated,service_role;
+GRANT SELECT ON public.ca_promo_profit_event_lots TO service_role;
+ALTER TABLE public.ca_promo_profit_event_overlap_lots ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_promo_profit_event_overlap_lots FROM PUBLIC,anon,authenticated,service_role;
+GRANT SELECT ON public.ca_promo_profit_event_overlap_lots TO service_role;
+ALTER TABLE public.ca_promo_profit_event_charge_receipts ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_promo_profit_event_charge_receipts FROM PUBLIC,anon,authenticated,service_role;
+GRANT SELECT ON public.ca_promo_profit_event_charge_receipts TO service_role;
+CREATE TRIGGER immutable_row BEFORE UPDATE OR DELETE ON public.ca_promo_profit_event_charge_receipts FOR EACH ROW EXECUTE FUNCTION public.fn_ca_promo_integrity_immutable();
+CREATE TRIGGER immutable_table BEFORE TRUNCATE ON public.ca_promo_profit_event_charge_receipts FOR EACH STATEMENT EXECUTE FUNCTION public.fn_ca_promo_integrity_immutable();
+ALTER TABLE public.ca_promo_profit_entry_fee_spends ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_promo_profit_entry_fee_spends FROM PUBLIC,anon,authenticated,service_role;
+GRANT SELECT ON public.ca_promo_profit_entry_fee_spends TO service_role;
+CREATE TRIGGER immutable_row BEFORE UPDATE OR DELETE ON public.ca_promo_profit_entry_fee_spends FOR EACH ROW EXECUTE FUNCTION public.fn_ca_promo_integrity_immutable();
+CREATE TRIGGER immutable_table BEFORE TRUNCATE ON public.ca_promo_profit_entry_fee_spends FOR EACH STATEMENT EXECUTE FUNCTION public.fn_ca_promo_integrity_immutable();
+ALTER TABLE public.ca_promo_profit_entry_fee_slices ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_promo_profit_entry_fee_slices FROM PUBLIC,anon,authenticated,service_role;
+GRANT SELECT ON public.ca_promo_profit_entry_fee_slices TO service_role;
+CREATE TRIGGER immutable_row BEFORE UPDATE OR DELETE ON public.ca_promo_profit_entry_fee_slices FOR EACH ROW EXECUTE FUNCTION public.fn_ca_promo_integrity_immutable();
+CREATE TRIGGER immutable_table BEFORE TRUNCATE ON public.ca_promo_profit_entry_fee_slices FOR EACH STATEMENT EXECUTE FUNCTION public.fn_ca_promo_integrity_immutable();
+ALTER TABLE public.ca_promo_profit_entry_fee_overlap_slices ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_promo_profit_entry_fee_overlap_slices FROM PUBLIC,anon,authenticated,service_role;
+GRANT SELECT ON public.ca_promo_profit_entry_fee_overlap_slices TO service_role;
+CREATE TRIGGER immutable_row BEFORE UPDATE OR DELETE ON public.ca_promo_profit_entry_fee_overlap_slices FOR EACH ROW EXECUTE FUNCTION public.fn_ca_promo_integrity_immutable();
+CREATE TRIGGER immutable_table BEFORE TRUNCATE ON public.ca_promo_profit_entry_fee_overlap_slices FOR EACH STATEMENT EXECUTE FUNCTION public.fn_ca_promo_integrity_immutable();
+ALTER TABLE public.ca_promo_profit_entry_loss_slices ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_promo_profit_entry_loss_slices FROM PUBLIC,anon,authenticated,service_role;
+GRANT SELECT ON public.ca_promo_profit_entry_loss_slices TO service_role;
+CREATE TRIGGER immutable_row BEFORE UPDATE OR DELETE ON public.ca_promo_profit_entry_loss_slices FOR EACH ROW EXECUTE FUNCTION public.fn_ca_promo_integrity_immutable();
+CREATE TRIGGER immutable_table BEFORE TRUNCATE ON public.ca_promo_profit_entry_loss_slices FOR EACH STATEMENT EXECUTE FUNCTION public.fn_ca_promo_integrity_immutable();
+ALTER TABLE public.ca_promo_profit_entry_loss_overlap_slices ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_promo_profit_entry_loss_overlap_slices FROM PUBLIC,anon,authenticated,service_role;
+GRANT SELECT ON public.ca_promo_profit_entry_loss_overlap_slices TO service_role;
+CREATE TRIGGER immutable_row BEFORE UPDATE OR DELETE ON public.ca_promo_profit_entry_loss_overlap_slices FOR EACH ROW EXECUTE FUNCTION public.fn_ca_promo_integrity_immutable();
+CREATE TRIGGER immutable_table BEFORE TRUNCATE ON public.ca_promo_profit_entry_loss_overlap_slices FOR EACH STATEMENT EXECUTE FUNCTION public.fn_ca_promo_integrity_immutable();
+ALTER TABLE public.ca_promo_profit_entry_fee_refunds ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_promo_profit_entry_fee_refunds FROM PUBLIC,anon,authenticated,service_role;
+GRANT SELECT ON public.ca_promo_profit_entry_fee_refunds TO service_role;
+CREATE TRIGGER immutable_row BEFORE UPDATE OR DELETE ON public.ca_promo_profit_entry_fee_refunds FOR EACH ROW EXECUTE FUNCTION public.fn_ca_promo_integrity_immutable();
+CREATE TRIGGER immutable_table BEFORE TRUNCATE ON public.ca_promo_profit_entry_fee_refunds FOR EACH STATEMENT EXECUTE FUNCTION public.fn_ca_promo_integrity_immutable();
 CREATE FUNCTION public.fn_ca_promo_profit_consume_entry_fee(p_charge uuid) RETURNS boolean
 LANGUAGE plpgsql SECURITY DEFINER SET search_path='public','pg_temp' AS $$
 DECLARE paid public.ca_promo_event_fee_consumption_receipts%ROWTYPE;source public.ca_promo_profit_event_charge_receipts%ROWTYPE;r record;o record;
@@ -1214,15 +1246,27 @@ CREATE FUNCTION public.fn_ca_promo_profit_movement_is_final() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path='public','pg_temp' AS $$
 BEGIN RAISE EXCEPTION 'original_winnings_movement_receipt_is_immutable';END $$;
 REVOKE ALL ON FUNCTION public.fn_ca_promo_profit_movement_is_final() FROM PUBLIC,anon,authenticated,service_role;
-DO $receipt_acl$ DECLARE n text;BEGIN
- FOREACH n IN ARRAY ARRAY['ca_promo_profit_funding_sources','ca_promo_profit_funding_lots','ca_promo_profit_pending_sources','ca_promo_profit_pending_lots'] LOOP
-  EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY',n);
-  EXECUTE format('REVOKE ALL ON public.%I FROM PUBLIC,anon,authenticated,service_role',n);
-  EXECUTE format('GRANT SELECT ON public.%I TO service_role',n);
-  EXECUTE format('CREATE TRIGGER immutable_row BEFORE UPDATE OR DELETE ON public.%I FOR EACH ROW EXECUTE FUNCTION public.fn_ca_promo_profit_movement_is_final()',n);
-  EXECUTE format('CREATE TRIGGER immutable_table BEFORE TRUNCATE ON public.%I FOR EACH STATEMENT EXECUTE FUNCTION public.fn_ca_promo_profit_movement_is_final()',n);
- END LOOP;
-END $receipt_acl$;
+-- Explicit cold-table access preserves owner-only writes and service-role reads.
+ALTER TABLE public.ca_promo_profit_funding_sources ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_promo_profit_funding_sources FROM PUBLIC,anon,authenticated,service_role;
+GRANT SELECT ON public.ca_promo_profit_funding_sources TO service_role;
+CREATE TRIGGER immutable_row BEFORE UPDATE OR DELETE ON public.ca_promo_profit_funding_sources FOR EACH ROW EXECUTE FUNCTION public.fn_ca_promo_profit_movement_is_final();
+CREATE TRIGGER immutable_table BEFORE TRUNCATE ON public.ca_promo_profit_funding_sources FOR EACH STATEMENT EXECUTE FUNCTION public.fn_ca_promo_profit_movement_is_final();
+ALTER TABLE public.ca_promo_profit_funding_lots ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_promo_profit_funding_lots FROM PUBLIC,anon,authenticated,service_role;
+GRANT SELECT ON public.ca_promo_profit_funding_lots TO service_role;
+CREATE TRIGGER immutable_row BEFORE UPDATE OR DELETE ON public.ca_promo_profit_funding_lots FOR EACH ROW EXECUTE FUNCTION public.fn_ca_promo_profit_movement_is_final();
+CREATE TRIGGER immutable_table BEFORE TRUNCATE ON public.ca_promo_profit_funding_lots FOR EACH STATEMENT EXECUTE FUNCTION public.fn_ca_promo_profit_movement_is_final();
+ALTER TABLE public.ca_promo_profit_pending_sources ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_promo_profit_pending_sources FROM PUBLIC,anon,authenticated,service_role;
+GRANT SELECT ON public.ca_promo_profit_pending_sources TO service_role;
+CREATE TRIGGER immutable_row BEFORE UPDATE OR DELETE ON public.ca_promo_profit_pending_sources FOR EACH ROW EXECUTE FUNCTION public.fn_ca_promo_profit_movement_is_final();
+CREATE TRIGGER immutable_table BEFORE TRUNCATE ON public.ca_promo_profit_pending_sources FOR EACH STATEMENT EXECUTE FUNCTION public.fn_ca_promo_profit_movement_is_final();
+ALTER TABLE public.ca_promo_profit_pending_lots ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_promo_profit_pending_lots FROM PUBLIC,anon,authenticated,service_role;
+GRANT SELECT ON public.ca_promo_profit_pending_lots TO service_role;
+CREATE TRIGGER immutable_row BEFORE UPDATE OR DELETE ON public.ca_promo_profit_pending_lots FOR EACH ROW EXECUTE FUNCTION public.fn_ca_promo_profit_movement_is_final();
+CREATE TRIGGER immutable_table BEFORE TRUNCATE ON public.ca_promo_profit_pending_lots FOR EACH STATEMENT EXECUTE FUNCTION public.fn_ca_promo_profit_movement_is_final();
 
 -- The original P owner takes this exact advisory before grant rows. Acquire
 -- every relevant scope nonblocking first; grant NOWAIT never reverses that order.
@@ -1563,13 +1607,22 @@ CREATE TABLE public.ca_promo_profit_event_winnings_returns (
 CREATE TABLE public.ca_promo_profit_event_winnings_receipts (
  ledger_id uuid PRIMARY KEY,source_id uuid,user_id uuid NOT NULL,club_id uuid NOT NULL,destination_kind text NOT NULL,destination_id uuid NOT NULL,returned numeric NOT NULL,new_winnings numeric NOT NULL CHECK(returned>=0 AND new_winnings>=0)
 );
-DO $event_winnings_receipts$ DECLARE n text;BEGIN
- FOREACH n IN ARRAY ARRAY['ca_promo_profit_event_integrity_overlap_returns','ca_promo_profit_event_winnings_returns','ca_promo_profit_event_winnings_receipts'] LOOP
- EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY',n);EXECUTE format('REVOKE ALL ON public.%I FROM PUBLIC,anon,authenticated,service_role',n);EXECUTE format('GRANT SELECT ON public.%I TO service_role',n);
- EXECUTE format('CREATE TRIGGER immutable_row BEFORE UPDATE OR DELETE ON public.%I FOR EACH ROW EXECUTE FUNCTION public.fn_ca_promo_integrity_immutable()',n);
- EXECUTE format('CREATE TRIGGER immutable_table BEFORE TRUNCATE ON public.%I FOR EACH STATEMENT EXECUTE FUNCTION public.fn_ca_promo_integrity_immutable()',n);
- END LOOP;
-END $event_winnings_receipts$;
+-- Explicit cold-table access preserves owner-only writes and service-role reads.
+ALTER TABLE public.ca_promo_profit_event_integrity_overlap_returns ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_promo_profit_event_integrity_overlap_returns FROM PUBLIC,anon,authenticated,service_role;
+GRANT SELECT ON public.ca_promo_profit_event_integrity_overlap_returns TO service_role;
+CREATE TRIGGER immutable_row BEFORE UPDATE OR DELETE ON public.ca_promo_profit_event_integrity_overlap_returns FOR EACH ROW EXECUTE FUNCTION public.fn_ca_promo_integrity_immutable();
+CREATE TRIGGER immutable_table BEFORE TRUNCATE ON public.ca_promo_profit_event_integrity_overlap_returns FOR EACH STATEMENT EXECUTE FUNCTION public.fn_ca_promo_integrity_immutable();
+ALTER TABLE public.ca_promo_profit_event_winnings_returns ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_promo_profit_event_winnings_returns FROM PUBLIC,anon,authenticated,service_role;
+GRANT SELECT ON public.ca_promo_profit_event_winnings_returns TO service_role;
+CREATE TRIGGER immutable_row BEFORE UPDATE OR DELETE ON public.ca_promo_profit_event_winnings_returns FOR EACH ROW EXECUTE FUNCTION public.fn_ca_promo_integrity_immutable();
+CREATE TRIGGER immutable_table BEFORE TRUNCATE ON public.ca_promo_profit_event_winnings_returns FOR EACH STATEMENT EXECUTE FUNCTION public.fn_ca_promo_integrity_immutable();
+ALTER TABLE public.ca_promo_profit_event_winnings_receipts ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_promo_profit_event_winnings_receipts FROM PUBLIC,anon,authenticated,service_role;
+GRANT SELECT ON public.ca_promo_profit_event_winnings_receipts TO service_role;
+CREATE TRIGGER immutable_row BEFORE UPDATE OR DELETE ON public.ca_promo_profit_event_winnings_receipts FOR EACH ROW EXECUTE FUNCTION public.fn_ca_promo_integrity_immutable();
+CREATE TRIGGER immutable_table BEFORE TRUNCATE ON public.ca_promo_profit_event_winnings_receipts FOR EACH STATEMENT EXECUTE FUNCTION public.fn_ca_promo_integrity_immutable();
 CREATE FUNCTION public.fn_ca_promo_profit_record_nonwallet_event(p_ledger uuid,p_user uuid) RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path='public','pg_temp' AS $$
 DECLARE l public.chip_ledger%ROWTYPE;club uuid;entrant uuid;r record;o record;n numeric;oh numeric;total numeric:=0;overlap numeric:=0;

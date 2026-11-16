@@ -66,11 +66,35 @@ CREATE TABLE public.ca_promo_profit_earning_credit_links (
 CREATE FUNCTION public.fn_ca_promo_profit_generation_immutable() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN RAISE EXCEPTION 'original_tournament_earning_evidence_is_immutable' USING ERRCODE='23514';END $$;
 REVOKE ALL ON FUNCTION public.fn_ca_promo_profit_generation_immutable() FROM PUBLIC,anon,authenticated,service_role;
+ALTER TABLE public.ca_promo_profit_event_generations ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_promo_profit_event_generations FROM PUBLIC,anon,authenticated,service_role;
+GRANT SELECT ON public.ca_promo_profit_event_generations TO service_role;
+ALTER TABLE public.ca_promo_profit_generation_heads ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_promo_profit_generation_heads FROM PUBLIC,anon,authenticated,service_role;
+GRANT SELECT ON public.ca_promo_profit_generation_heads TO service_role;
+ALTER TABLE public.ca_promo_profit_charge_generations ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_promo_profit_charge_generations FROM PUBLIC,anon,authenticated,service_role;
+GRANT SELECT ON public.ca_promo_profit_charge_generations TO service_role;
+ALTER TABLE public.ca_promo_profit_tournament_hand_clocks ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_promo_profit_tournament_hand_clocks FROM PUBLIC,anon,authenticated,service_role;
+GRANT SELECT ON public.ca_promo_profit_tournament_hand_clocks TO service_role;
+ALTER TABLE public.ca_promo_profit_tournament_hand_sources ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_promo_profit_tournament_hand_sources FROM PUBLIC,anon,authenticated,service_role;
+GRANT SELECT ON public.ca_promo_profit_tournament_hand_sources TO service_role;
+ALTER TABLE public.ca_promo_profit_obligation_earnings ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_promo_profit_obligation_earnings FROM PUBLIC,anon,authenticated,service_role;
+GRANT SELECT ON public.ca_promo_profit_obligation_earnings TO service_role;
+ALTER TABLE public.ca_promo_profit_earning_sources ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_promo_profit_earning_sources FROM PUBLIC,anon,authenticated,service_role;
+GRANT SELECT ON public.ca_promo_profit_earning_sources TO service_role;
+ALTER TABLE public.ca_promo_profit_earning_source_slices ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_promo_profit_earning_source_slices FROM PUBLIC,anon,authenticated,service_role;
+GRANT SELECT ON public.ca_promo_profit_earning_source_slices TO service_role;
+ALTER TABLE public.ca_promo_profit_earning_credit_links ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_promo_profit_earning_credit_links FROM PUBLIC,anon,authenticated,service_role;
+GRANT SELECT ON public.ca_promo_profit_earning_credit_links TO service_role;
 DO $protect$ DECLARE rel text;BEGIN
  FOREACH rel IN ARRAY ARRAY['ca_promo_profit_event_generations','ca_promo_profit_generation_heads','ca_promo_profit_charge_generations','ca_promo_profit_tournament_hand_clocks','ca_promo_profit_tournament_hand_sources','ca_promo_profit_obligation_earnings','ca_promo_profit_earning_sources','ca_promo_profit_earning_source_slices','ca_promo_profit_earning_credit_links'] LOOP
-  EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY',rel);
-  EXECUTE format('REVOKE ALL ON public.%I FROM PUBLIC,anon,authenticated,service_role',rel);
-  EXECUTE format('GRANT SELECT ON public.%I TO service_role',rel);
   IF rel<>'ca_promo_profit_generation_heads' THEN
    EXECUTE format('CREATE TRIGGER original_earning_immutable BEFORE UPDATE OR DELETE ON public.%I FOR EACH ROW EXECUTE FUNCTION public.fn_ca_promo_profit_generation_immutable()',rel);
   END IF;
