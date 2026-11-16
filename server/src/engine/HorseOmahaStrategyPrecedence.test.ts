@@ -408,6 +408,12 @@ const ARMS: [string, HorseDecideOpts][] = [
     { ...OWNER, omahaBigDrawAggression: true, omahaStreetPlan: true },
   ],
   ['every option on', ALL],
+  // horsePlayStyles (owner 2026-11-15 16:40 / 16:42): the style dials act
+  // before the owner-ruled chain, so every ruling below holds for every style.
+  ...(['tight', 'current', 'pressure'] as const).map((s): [string, HorseDecideOpts] => [
+    `every option on, the Horse's playing style ${s}`,
+    { ...ALL, horsePlayStyles: true, horsePlayStyleForce: s },
+  ]),
 ];
 
 /** A hand with no out on 5d 8d 9h 2h: aces, no flush draw, no straight draw. */

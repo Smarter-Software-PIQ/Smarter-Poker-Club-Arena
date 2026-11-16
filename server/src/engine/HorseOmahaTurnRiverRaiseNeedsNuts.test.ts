@@ -328,3 +328,30 @@ describe('end to end: the recorded turn check-raise (top set on a four-straight 
     console.log(`[fixture node 20] base raises=${baseRaises} of ${SEEDS.length}`);
   });
 });
+
+// horsePlayStyles (owner 2026-11-15 16:40 / 16:42): the style dials act before
+// this rule, so it is final for the tight, the current and the pressure style,
+// in and out of position (the pressure style differs from current in position).
+describe.each(['tight', 'current', 'pressure'] as const)(
+  "the Horse's playing style %s: no raise without the nuts on the turn or the river",
+  (style) => {
+    const STYLED: HorseDecideOpts = { ...ON, horsePlayStyles: true, horsePlayStyleForce: style };
+    it('over the classes, both positions and the seeds no non-nut raise is left and every receipt validates', () => {
+      for (const s of [EXACT, ...NON_NUT.map((x) => x[1])])
+        for (const inPosition of [false, true]) {
+          const st = spot({ ...s, inPosition });
+          for (const seed of SEEDS) {
+            const d = decide(st, STYLED, seed);
+            expect(RAISES.has(d.action)).toBe(false);
+            legal(st, d);
+            expect(
+              horseDecisionReceiptRefusal(structuredClone(d), 'plo5', {
+                player: st.hero,
+                gameState: st.gs,
+              })
+            ).toBeNull();
+          }
+        }
+    });
+  }
+);

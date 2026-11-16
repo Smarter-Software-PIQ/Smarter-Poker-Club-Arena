@@ -549,6 +549,27 @@ describe('draw raises by class and position (both options on, many seeds)', () =
     ).toBe(0);
   });
 
+  // horsePlayStyles (owner 2026-11-15 16:40 / 16:42): the style dials act
+  // before the ruling, so no style raises a draw out of position.
+  it.each(
+    FACING.flatMap((f) =>
+      (['tight', 'current', 'pressure'] as const).map((s) => [s, ...f] as const)
+    )
+  )(
+    "the Horse's playing style %s, out of position facing a bet never raises: %s",
+    (s, _n, fx, ord) => {
+      const styled = { horsePlayStyles: true, horsePlayStyleForce: s };
+      for (const opts of [
+        { ...BOTH, ...styled },
+        { omahaNoDrawRaiseOutOfPosition: true, ...styled },
+      ]) {
+        const on = play(fx, ord, opts, undefined, undefined, 'oop', MANY);
+        expect(raises(on)).toBe(0);
+        expect(on.refusals.every((r) => r === null)).toBe(true);
+      }
+    }
+  );
+
   it("out of position the brain's existing draw raise is converted, with its receipt", () => {
     const off = play(NUT_WRAP, 12, {}, undefined, undefined, 'oop', MANY);
     const on = play(

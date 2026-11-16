@@ -309,6 +309,14 @@ export interface PreflopCtx {
   stackBB: number;
   /** style parameters (already modifier-scaled by the caller) */
   tightness: number;
+  /**
+   * horsePlayStyles (HorseOmahaPlayStyle, default off): the tightness the
+   * VALUE re-raise bars read (the 3-bet and 4-bet bars) when the Horse's
+   * playing style scaled `tightness` for the entry bars only. A tight Horse
+   * enters fewer hands but re-raises its strong hands as today. Absent (every
+   * decision without the option, and the current style): `tightness`.
+   */
+  valueRaiseTightness?: number;
   bluffFreq: number;
   aggression: number;
   slowplayFreq: number;
@@ -1599,8 +1607,15 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
   // V53: a bar priced by the action's own ICM cost instead of the flat
   // premium. Absent the read, exactly t() / tCall().
   const ploIcm = ctx.ploIcm;
-  const t53 = (x: number, family: keyof OmahaPressureShifts): number =>
-    ploIcm ? capBar(x * ctx.tightness + ploIcm[family]) : t(x);
+  // horsePlayStyles: the value re-raise bars read their own tightness when
+  // the playing style supplied one; absent, exactly ctx.tightness.
+  const valueTightness = ctx.valueRaiseTightness ?? ctx.tightness;
+  const tv = (x: number) => capBar(x * valueTightness + ctx.riskAdd);
+  const t53 = (x: number, family: keyof OmahaPressureShifts): number => {
+    const tightness =
+      family === 'threeBet' || family === 'fourBet' ? valueTightness : ctx.tightness;
+    return capBar(x * tightness + (ploIcm ? ploIcm[family] : ctx.riskAdd));
+  };
   // No-limit hold'em only: the closed all-in exception and the 4-bet-node
   // tightness clamp were measured there and nowhere else.
   const noLimitHoldem = !ctx.isOmaha && ctx.isFixedLimit !== true && ctx.isShortDeck !== true;
@@ -3054,7 +3069,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     if (pressure) {
       threeBetThresh = Math.min(
         threeBetThresh,
-        t(pressureIp ? pressure.ipThreeBetBar : pressure.oopThreeBetBar)
+        tv(pressureIp ? pressure.ipThreeBetBar : pressure.oopThreeBetBar)
       );
       if (unblocked86 && !pressureIp && ctx.isOmaha) {
         callThresh += 0.03;
@@ -3094,9 +3109,9 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
           // survival premium still prices every candidate through t().
           const actionShift =
             (ctx.tableSize === 6 || ctx.tableSize === 9) && position !== 'sb' ? 0.02 : 0;
-          threeBetThresh = Math.min(threeBetThresh, t(aggroBar - actionShift));
+          threeBetThresh = Math.min(threeBetThresh, tv(aggroBar - actionShift));
         }
-      } else if (aggroBar !== null) threeBetThresh = Math.min(threeBetThresh, t(aggroBar));
+      } else if (aggroBar !== null) threeBetThresh = Math.min(threeBetThresh, tv(aggroBar));
       else threeBetThresh -= 0.03;
       if (position === 'late' && stackBB >= 25) callThresh -= 0.03;
     } else if (tAggroPlo && (vs === 'late' || vs === 'sb')) {
@@ -3137,7 +3152,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
         ctx.noteLayer?.('v60_cash_pressure_facing_open_superseded');
       } else if (cashBar !== null) {
         const beforeV60 = threeBetThresh;
-        threeBetThresh = Math.min(threeBetThresh, t(cashBar) - 0.05 * hunted);
+        threeBetThresh = Math.min(threeBetThresh, tv(cashBar) - 0.05 * hunted);
         ctx.noteLayer?.(
           threeBetThresh !== beforeV60
             ? 'v60_cash_pressure_facing_open'

@@ -62,6 +62,21 @@ import {
   omahaHeroInPosition,
   type OmahaDrawRaiseBar,
 } from './HorseOmahaBigDrawAggression.js';
+import {
+  horsePlayStyleFallback,
+  horsePlayStyleFor,
+  isHorsePlayStyle,
+  type HorsePlayStyle,
+} from './HorsePlayStyle.js';
+import {
+  OMAHA_PLAY_STYLE_NEUTRAL,
+  OMAHA_TIGHT_EXPECTED_VPIP_PCT,
+  omahaPlayStyleIndifferenceAggressionBias,
+  omahaPlayStyleMapped,
+  omahaPlayStylePersona,
+  omahaPlayStylePostflopDials,
+  omahaPlayStylePreflopDials,
+} from './HorseOmahaPlayStyle.js';
 import type { OmahaReadConditional } from './HorseOmahaReadConditional.js';
 import { omahaRiverMediumBetCall } from './HorseOmahaRiverMediumBetCalls.js';
 import {
@@ -3391,6 +3406,32 @@ export interface HorseDecideOpts {
    * are not widened. The owner-ruled precedence chain is unchanged. Default
    * OFF (read `=== true`). */
   omahaStrategyInTournaments?: boolean;
+  /** Owner 2026-11-15 16:40 and 16:42 (three winning Horse styles, one tight,
+   * one exactly as now, one other, each Horse assigned one at random after it
+   * has been created; a tight Horse does not play a 50% VPIP game tight):
+   * every Horse has a playing style for life (HorsePlayStyle.horsePlayStyleFor:
+   * a hash of its id, uniform thirds, or the authored persona.playStyle) and
+   * the game's mapping reads it. Omaha (HorseOmahaPlayStyle, PLO4/PLO5 cash,
+   * three seats or more): 'tight' raises the preflop ENTRY bars (first in,
+   * call) and lowers the bluff volume, keeps the value 3-bet and 4-bet bars
+   * and reads the TAG Crusher gears; 'pressure' lowers the preflop bars and
+   * raises bluff volume, aggression and the continuation-bet frequency IN
+   * POSITION only, reading the LAG Shark gears there; 'current' is today's
+   * play exactly.
+   * Every dial is a bounded scale on an existing frequency (0.75..1.25) and
+   * acts before the owner-ruled chain, which stays final. Every style plays
+   * 'current' in tournaments, in Lightning, at 50 bb effective or less and
+   * in games with no mapping (Hold'em until its lane maps it, hi-lo, PLO6,
+   * bomb pots, All-In-Or-Fold, heads-up); 'tight' also at a table whose VPIP
+   * floor is above its expected VPIP. Default OFF (opt-in, read `=== true`);
+   * league cards plo4/plo5 _horse_play_style_tight and _pressure. */
+  horsePlayStyles?: boolean;
+  /** A LEAGUE AND TEST LEVER, not a live option: the style this decision's
+   * Horse plays instead of the one its id deals, so a league card can seat a
+   * named style (league seat ids are league-N). Read only when
+   * horsePlayStyles is on; the table rule still applies. It is not boolean,
+   * so the live option switch refuses it. */
+  horsePlayStyleForce?: HorsePlayStyle;
   /** Owner 2026-11-15 12:16 (the earlier all-hands playbook's PLO4/PLO5 cash
    * entries, HorseOmahaStrongHandValue.ts): on the river, one board, high
    * only, with a full house or better or a nut-class hand, three decisions
@@ -7987,6 +8028,63 @@ function omahaOopTurnFacingBetRule(
 /** The continuation verdict of the decision in progress, computed once (the
  *  rule runs in omahaOopCheckRules and again outermost). Cleared at the start
  *  of every decision (decideInternal). */
+/** horsePlayStyles: the playing style of the decision in progress, after the
+ *  table rule. 'current' with the option off. Set once per decision
+ *  (decideInternal) and read by the preflop glue and decidePostflop. */
+let horsePlayStylePending: HorsePlayStyle = 'current';
+
+/**
+ * horsePlayStyles (owner 2026-11-15 16:40 / 16:42, default off): the style
+ * this Horse plays THIS decision. Off, or the Horse's style is 'current':
+ * 'current', and nothing else is read.
+ */
+function resolveHorsePlayStyle(
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  vi: VariantInfo,
+  opts: HorseDecideOpts,
+  mods: HorseProfileMods
+): HorsePlayStyle {
+  if (opts.horsePlayStyles !== true) return 'current';
+  const assigned = isHorsePlayStyle(opts.horsePlayStyleForce)
+    ? opts.horsePlayStyleForce
+    : horsePlayStyleFor(player.user_id, mods.persona?.playStyle);
+  if (assigned === 'current') return 'current';
+  const bb = gs.bigBlind > 0 ? gs.bigBlind : 2;
+  // The stack each seat started the hand with: what it holds plus what it put in.
+  const startStack = (p: SeatPlayer): number =>
+    Math.max(0, p.stack ?? 0) + Math.max(0, p.bet ?? 0, p.totalInvested ?? 0);
+  let cover = 0;
+  for (const p of gs.players) {
+    if (p.seat === player.seat || p.is_folded) continue;
+    if (p.is_sitting_out && !p.is_all_in) continue;
+    cover = Math.max(cover, startStack(p));
+  }
+  const mapped = omahaPlayStyleMapped({
+    gameVariant: gs.gameVariant,
+    isOmaha: vi.isOmaha,
+    isHiLo: vi.isHiLo,
+    allInOrFold: gs.allInOrFold,
+    bombPot: gs.bombPot,
+    dealtSeats: dealtHorseTableSize(gs, player.seat),
+  });
+  const fallback = horsePlayStyleFallback(assigned, {
+    vpipFloorPct: Number(gs.vpipFloor ?? 0),
+    tournament: isTournamentMode(gs),
+    lightning: gs.publicMemoryDomain?.speed === 'lightning',
+    effectiveStackBB: Math.min(startStack(player), cover) / bb,
+    tightExpectedVpipPct: mapped
+      ? (OMAHA_TIGHT_EXPECTED_VPIP_PCT[String(gs.gameVariant)] ?? null)
+      : null,
+  });
+  if (telemetryOn(opts)) {
+    if (fallback !== null) noteFire('horse_play_style_table_fallback_seen');
+    else if (assigned === 'tight') noteFire('horse_play_style_tight_seen');
+    else noteFire('horse_play_style_pressure_seen');
+  }
+  return fallback === null ? assigned : 'current';
+}
+
 let omahaBareOverpairContMemo: {
   player: SeatPlayer;
   gs: HorseGameStateV2;
@@ -10496,6 +10594,7 @@ export class HorseLogic {
   ): HorseDecision {
     omahaClearDecisionMemos();
     omahaProposedReceipts = [];
+    horsePlayStylePending = 'current';
     // omahaVpipFloorByLimp's pending fold is per decision: a decision that
     // threw between setting and reading it must not hand it to the next one.
     vpipFloorLimpFoldPending = false;
@@ -10558,6 +10657,9 @@ export class HorseLogic {
     // V48 + V86 Hybrid v1: unified solver adherence across the Hybrid v1 fleet
     // (referenceNlhOpenings === true -> 1.0), preserving explicit persona override in standalone tests.
     params.gtoAdherence = resolveHorseHybridSolverAdherence(mods);
+    // horsePlayStyles (default off): the Horse's own playing style at this
+    // table, read by the preflop glue and decidePostflop. 'current' = today.
+    horsePlayStylePending = resolveHorsePlayStyle(player, gs, vi, opts, mods);
     if (mods.referenceNlhOpenings === true) {
       params.evIndifference = {
         horseId: player.user_id,
@@ -12235,6 +12337,13 @@ export class HorseLogic {
     const position = classifyGamePosition(player.seat, gs, opts.v13 !== false);
     const raiserPosition: PreflopPosition | null =
       lastRaiserSeat >= 0 ? classifyGamePosition(lastRaiserSeat, gs, opts.v13 !== false) : null;
+    // horsePlayStyles (HorseOmahaPlayStyle, default off): null unless this
+    // Horse plays 'tight', or 'pressure' on the cutoff or button, at this table.
+    const stylePre = (() => {
+      if (horsePlayStylePending === 'current') return null;
+      const dials = omahaPlayStylePreflopDials(horsePlayStylePending, position === 'late');
+      return dials === OMAHA_PLAY_STYLE_NEUTRAL ? null : dials;
+    })();
     // V13: a sitting-out player counted as an opponent, so a two-handed table
     // with one sitter reported oppsLeft = 2 and switched OFF the heads-up and
     // blind-vs-blind ranges entirely — the SB opened on 0.44 instead of 0.24
@@ -14091,9 +14200,14 @@ export class HorseLogic {
       bigBlind: bb,
       stack: player.stack,
       stackBB,
-      tightness: params.tightness,
-      bluffFreq: params.bluffFreq,
-      aggression: params.aggression,
+      // horsePlayStyles: the three scales are 1 (no multiplication is made)
+      // unless the option is on and this Horse plays a non-current style here.
+      tightness: stylePre ? params.tightness * stylePre.tightnessMul : params.tightness,
+      ...(stylePre
+        ? { valueRaiseTightness: params.tightness * stylePre.valueRaiseTightnessMul }
+        : {}),
+      bluffFreq: stylePre ? params.bluffFreq * stylePre.bluffFreqMul : params.bluffFreq,
+      aggression: stylePre ? params.aggression * stylePre.aggressionMul : params.aggression,
       slowplayFreq: params.slowplayFreq,
       sizingMultiplier: params.sizingMultiplier,
       isOmaha: vi.isOmaha,
@@ -14696,7 +14810,18 @@ export class HorseLogic {
             lagBullyIpBehind,
             ...(observedExtremeManiac ? { observedExtremeManiac: true } : {}),
             ...(omahaElite ? { omahaElite } : {}),
-            ...(ploPersona ? { ploPersona3BetMix: ploPersona.plo3BetMix } : {}),
+            ...(ploPersona
+              ? {
+                  ploPersona3BetMix: (stylePre
+                    ? omahaPlayStylePersona(
+                        player.user_id,
+                        horsePlayStylePending,
+                        position === 'late'
+                      )
+                    : ploPersona
+                  ).plo3BetMix,
+                }
+              : {}),
             plo3BetRoll: v86Hash01(
               `${player.user_id}:${Math.round((gs.pot / Math.max(1e-6, bb)) * 100)}:${player.cards.map((c) => `${c.rank}${c.suit[0]}`).join('')}`,
               8601
@@ -15279,6 +15404,37 @@ export class HorseLogic {
     rangeCapture?: HorseRangeConsumptionCapture,
     planReadCapture?: HorsePlanReadCapture
   ): HorseDecision {
+    // horsePlayStyles (HorseOmahaPlayStyle, default off): 'tight' anywhere and
+    // 'pressure' when no live opponent acts after the Horse scale the bluff
+    // volume and the aggression before any rule reads them; the owner-ruled
+    // chain runs on the result. 'current' touches nothing.
+    const styleInPosition =
+      horsePlayStylePending !== 'current' &&
+      omahaHeroInPosition(
+        player.seat,
+        gs.dealerSeat,
+        gs.players
+          .filter((p) => p.seat !== player.seat && !p.is_folded && !p.is_sitting_out)
+          .map((p) => p.seat)
+      );
+    let styleCbetMul = 1;
+    if (horsePlayStylePending !== 'current') {
+      const dials = omahaPlayStylePostflopDials(horsePlayStylePending, styleInPosition);
+      styleCbetMul = dials.cbetFreqMul;
+      const aggressionBias = omahaPlayStyleIndifferenceAggressionBias(
+        horsePlayStylePending,
+        styleInPosition
+      );
+      if (dials !== OMAHA_PLAY_STYLE_NEUTRAL)
+        params = {
+          ...params,
+          bluffFreq: params.bluffFreq * dials.bluffFreqMul,
+          aggression: params.aggression * dials.aggressionMul,
+          ...(aggressionBias !== undefined && params.evIndifference
+            ? { evIndifference: { ...params.evIndifference, aggressionBias } }
+            : {}),
+        };
+    }
     const planHandKey = horsePlanHandKey(gs.actionHistory, opts.mindPlanContext);
     const evIndifference = (): HorseEvIndifferenceContext | undefined =>
       params.evIndifference && {
@@ -15340,7 +15496,11 @@ export class HorseLogic {
     const useRake10 = (opts.v10Rake ?? opts.v10) !== false;
     const useThin10 = (opts.v10ThinValue ?? opts.v10) !== false;
     const v86 = opts.v86PloOverhaul !== false;
-    const ploPersona = v86 ? ploPersonaFor(player.user_id) : null;
+    const ploPersona = v86
+      ? horsePlayStylePending !== 'current'
+        ? omahaPlayStylePersona(player.user_id, horsePlayStylePending, styleInPosition)
+        : ploPersonaFor(player.user_id)
+      : null;
     const v86PostflopBb = Math.max(1e-6, gs.bigBlind || 2);
     const v86SeedKey = v86
       ? `${player.user_id}:${gs.stage}:${Math.round((gs.pot / v86PostflopBb) * 100)}:${player.cards.map((c) => `${c.rank}${c.suit[0]}`).join('')}:${(gs.communityCards ?? []).map((c) => `${c.rank}${c.suit[0]}`).join('')}`
@@ -19876,6 +20036,8 @@ export class HorseLogic {
         );
       }
       let cbetFreqMult = boardFavorsAggressor ? 1.35 : 1.0;
+      // horsePlayStyles: the pressure style in position c-bets and barrels more often.
+      if (styleCbetMul !== 1) cbetFreqMult *= styleCbetMul;
       // V16 DEEP READS: heads-up, c-bet the player in front of you, not the
       // population average. 0.6 + ftc maps a 75% folder to x1.35 and a 30%
       // station to x0.9, clamped to keep the read a reshaping, not a switch.
