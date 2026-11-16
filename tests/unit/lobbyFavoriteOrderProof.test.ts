@@ -164,6 +164,25 @@ describe('the selected run takes registrations while the journey runs', () => {
     ).toBe(true);
   });
 
+  it('reads a thousands separator in a moved count and refuses a count that is not a number', () => {
+    const big = (id: string, entries: string) => {
+      const base = row(id, 0);
+      const [name, price, , start, pin] = JSON.parse(base.sortKey);
+      return { ...base, sortKey: JSON.stringify([name, price, entries, start, pin]) };
+    };
+    const top = big('top', '1,200');
+    const bottom = big('bottom', '900');
+    const seen = [top, big('chosen', '1,000'), bottom];
+    expect(
+      sameUnchangedLobbyOrder([top, big('chosen', '1,001'), bottom], seen, 'chosen', READ_AT)
+    ).toBe(true);
+    for (const unreadable of ['', '...', 'n/a']) {
+      expect(
+        sameUnchangedLobbyOrder([top, big('chosen', unreadable), bottom], seen, 'chosen', READ_AT)
+      ).toBe(false);
+    }
+  });
+
   it('refuses a selected run whose name, price, start or pin changed', () => {
     const chosen = row('chosen', 349);
     const [name, price, players, start, pin] = JSON.parse(chosen.sortKey);

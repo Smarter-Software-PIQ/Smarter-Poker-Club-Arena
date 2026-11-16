@@ -35,15 +35,19 @@ export function sameUnchangedLobbyOrder(
   const [name0, price0, entries0, start0, pin0] = JSON.parse(then.sortKey);
   const [name1, price1, entries1, start1, pin1] = JSON.parse(now.sortKey);
   if (name0 !== name1 || price0 !== price1 || start0 !== start1 || pin0 !== pin1) return false;
-  const moved = String(entries0) !== String(entries1);
-  const low = Math.min(Number(entries0), Number(entries1));
-  const high = Math.max(Number(entries0), Number(entries1));
-  if (moved && !(Number.isFinite(low) && Number.isFinite(high))) return false;
+  const moved = entries0 !== entries1;
+  const count0 = entryCount(entries0);
+  const count1 = entryCount(entries1);
+  // A moved count must read as a whole number both times ("1,000" reads as 1000);
+  // missing, empty or unknown text ("...") refuses rather than widening the band.
+  if (moved && (count0 === null || count1 === null)) return false;
+  const low = Math.min(count0 ?? 0, count1 ?? 0);
+  const high = Math.max(count0 ?? 0, count1 ?? 0);
   const tradesPlaces = (row: LobbyOrderRow) => {
     if (!moved) return false;
     const [, price, entries] = JSON.parse(row.sortKey);
-    const count = Number(entries);
-    return price === price1 && count >= low && count <= high;
+    const count = entryCount(entries);
+    return price === price1 && count !== null && count >= low && count <= high;
   };
   const stable = new Set(
     current
@@ -59,4 +63,11 @@ export function sameUnchangedLobbyOrder(
   const a = current.filter((row) => stable.has(row.id)).map((row) => row.id);
   const b = reference.filter((row) => stable.has(row.id)).map((row) => row.id);
   return a.join() === b.join();
+}
+
+/** The lobby's Entries text as a whole number ("1,000" -> 1000), or null when it is not one. */
+function entryCount(value: unknown): number | null {
+  if (typeof value !== 'string' && typeof value !== 'number') return null;
+  const text = String(value).replace(/,/g, '').trim();
+  return /^\d+$/.test(text) ? Number(text) : null;
 }
