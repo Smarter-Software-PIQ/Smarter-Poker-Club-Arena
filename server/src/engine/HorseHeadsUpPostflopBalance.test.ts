@@ -361,6 +361,7 @@ describe('holdemHeadsUpPostflopBalance through HorseLogic.decide', () => {
   }, 120_000);
   it('ON: changes decisions in every spot it owns, and the worker receipt admits each one', () => {
     const changed: Record<string, number> = {};
+    let requestBoundChecks = 0;
     for (const spot of OWNED)
       for (const hole of HOLES)
         for (let s = 0; s < 3; s++) {
@@ -374,8 +375,17 @@ describe('holdemHeadsUpPostflopBalance through HorseLogic.decide', () => {
           expect(
             horseDecisionReceiptRefusal(on.decision, 'nlh', { player: on.hero, gameState: on.gs })
           ).toBeNull();
+          const betToCheck = on.decision.policyGraph?.transitions.some(
+            (t) =>
+              t.node === 'wager_rules' && t.before?.action === 'bet' && t.after.action === 'check'
+          );
+          if (betToCheck) {
+            requestBoundChecks++;
+            expect(horseDecisionReceiptRefusal(on.decision, 'nlh')).not.toBeNull();
+          }
         }
     for (const spot of OWNED) expect(changed[spot[0]] ?? 0, spot[0]).toBeGreaterThan(0);
+    expect(requestBoundChecks).toBeGreaterThan(0);
   }, 180_000);
   it('ON at a checked-to river: the same action, amount and random stream as the default path', () => {
     const river = SPOTS.find((spot) => spot[0] === 'river_checked_to')!;

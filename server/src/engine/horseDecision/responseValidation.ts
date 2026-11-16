@@ -1294,9 +1294,9 @@ function policyGraphIsValidInScope(
     // HV31 FLOP-5 D1 (HorseHeadsUpPostflopBalance, option
     // holdemHeadsUpPostflopBalance, default OFF): a heads-up in-position NLH
     // cash bet becomes a check on a flop or turn checked to hero (its river
-    // part was removed after the solver score). A check puts no chip in;
-    // when the request is known, only where the rule's own spot test, re-run
-    // on it, says so (the paired-board river check's form).
+    // part was removed after the solver score). Admit it only with the
+    // original request, where the rule's own public spot test agrees. A
+    // request-less receipt cannot establish the heads-up cash scope.
     // Its flop fold to a check-raise that becomes a call is admitted only
     // with the request, in that spot (the short all-in call floor's form).
     const huBalanceSpotOfRequest =
@@ -1307,9 +1307,8 @@ function policyGraphIsValidInScope(
       transition.after.action === 'check' &&
       previous !== null &&
       previous.action === 'bet' &&
-      (context === undefined ||
-        huBalanceSpotOfRequest === 'flop_cbet' ||
-        huBalanceSpotOfRequest === 'turn_checked_to');
+      context !== undefined &&
+      (huBalanceSpotOfRequest === 'flop_cbet' || huBalanceSpotOfRequest === 'turn_checked_to');
     const huBalanceFoldToCall =
       transition.node === 'wager_rules' &&
       variant === 'nlh' &&
