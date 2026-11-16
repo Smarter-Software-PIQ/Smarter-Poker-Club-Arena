@@ -221,6 +221,7 @@ function wireActions(model: ReplayModel, key: string): ShareableAction[] {
        the uncalled bet sitting in the recipient's pot. */
     if (row.amount !== 0) action.amount = Math.abs(row.amount);
     if (row.dead) action.dead = true;
+    if (row.atMs !== undefined) action.atMs = row.atMs;
     out.push(action);
   }
   return out;
@@ -267,6 +268,7 @@ export function shareableFromModel(
     const player: ShareablePlayer = {
       seat: p.seat,
       name: p.username,
+      avatar: p.avatarUrl ?? undefined,
     };
     if (p.startStack !== null && p.startStack !== undefined) player.stack = p.startStack;
     /* Only holdings the TABLE saw travel as shown cards. The sharer's own
@@ -408,6 +410,7 @@ export function replayFromShareable(hand: ShareableHand): ReplayModel {
         (a): ReplayActionInput => ({
           seat: a.seat,
           userId: idOf(a.seat),
+          atMs: a.atMs,
           action: MODEL_VERB[a.action] || String(a.action).toLowerCase(),
           amount: a.amount,
           stage: street,
@@ -516,6 +519,7 @@ export function replayFromShareable(hand: ShareableHand): ReplayModel {
     players: hand.players.map((p) => ({
       userId: idOf(p.seat),
       username: p.name,
+      avatarUrl: p.avatar,
       seat: p.seat,
       /* The wire carries the STARTING stack; the settled one is not shared,
          and is not guessed. `startStacks` is what the felt counts down from. */

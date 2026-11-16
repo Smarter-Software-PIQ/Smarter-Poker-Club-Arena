@@ -97,6 +97,7 @@ export interface ReplayPlayerInput {
 }
 
 export interface ReplayActionInput {
+  atMs?: number;
   seat: number;
   userId: string;
   action: string;
@@ -282,6 +283,7 @@ export type ReplayVerb =
   | 'unknown';
 
 export interface ReplayRow {
+  atMs?: number;
   key: string;
   seat: number;
   userId: string;
@@ -936,6 +938,7 @@ export function buildReplay(input: ReplayInput): ReplayModel {
 
     rows.push({
       key: `a-${i}`,
+      atMs: a.atMs,
       stage,
       seat,
       userId: a.userId || bySeat.get(seat)?.userId || '',
