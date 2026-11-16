@@ -2255,13 +2255,36 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
         });
         const { candidate } = selected.tables[0];
         const tableId = candidate.id;
+        /* THE LOBBY'S SNAPSHOT IS NOT THE TABLE PAGE'S (2026-11-16). The lobby
+           opens its own game socket and pre-subscribes up to three visible
+           cash tables, so it can already hold a SNAPSHOT for this table. The
+           full-page navigation below closes that socket and the table page
+           opens its own. An unbounded wait took the lobby's stale frame, so
+           `initial` named a socket that was already gone and the one-socket
+           check at arming failed on three releases (expected [1], received
+           [2]). Only a SNAPSHOT received after the navigation began, on a
+           socket that was not already open then, is the table page's own. */
+        const navigationStartedAt = Date.now();
+        const socketsOpenBeforeNavigation = journal.transportIdsOpenAt(navigationStartedAt);
+        const tablePageSnapshots = () =>
+          journal
+            .matchingFrames({
+              direction: 'received',
+              tableId,
+              type: 'SNAPSHOT',
+              since: navigationStartedAt,
+            })
+            .filter((frame) => !socketsOpenBeforeNavigation.includes(frame.socketId));
         await page.goto(`table/${tableId}`);
         await expect(page).toHaveURL((url) => url.pathname.endsWith(`/table/${tableId}`));
-        const initial = await journal.waitForFrame(
-          { direction: 'received', tableId, type: 'SNAPSHOT' },
-          30_000,
-          'Missing predecessor snapshot'
-        );
+        await expect
+          .poll(() => tablePageSnapshots().length, {
+            timeout: 30_000,
+            intervals: [50, 100, 250, 500],
+            message: 'Missing predecessor snapshot',
+          })
+          .toBeGreaterThan(0);
+        const initial = tablePageSnapshots().at(-1)!;
         expect(await subject()).toBe(fixture.id);
         const before = await identity();
         const admission = admit(before);

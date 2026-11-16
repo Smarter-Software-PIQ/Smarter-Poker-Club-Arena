@@ -1,3 +1,4 @@
+import { TableAnimationClock } from './tableAnimationClock';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  *  DEALER BUTTON — Animated "D" chip on the table felt
@@ -29,7 +30,6 @@ import {
   type Size,
 } from './tableGeometry';
 import { soundService } from '../../services/SoundService';
-import { getAnimationSpeed } from '../../utils/animationSpeed';
 
 /* ═══════════════════════════════════════════════════════════════════════════
    THE PUCK NEVER STANDS ON A NAME PLATE
@@ -448,6 +448,7 @@ export function DealerButton({
    * position and then visibly GLIDE to the measured one, because the class
    * carries a 0.6s transition on left/top.
    */
+  const getAnimationSpeed = React.useContext(TableAnimationClock);
   const elRef = useRef<HTMLDivElement | null>(null);
   const [scalerSize, setScalerSize] = useState<Size | null>(null);
   useLayoutEffect(() => {

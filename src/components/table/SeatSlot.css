@@ -5253,7 +5253,7 @@
 }
 
 @media (min-width: 481px) and (max-width: 640px) and (orientation: portrait) {
-  .table-page:where([data-seats='6'], [data-seats='9']) .seat--hero {
+  .table-page[data-seats='6'] .seat--hero {
     --seat-avatar-hero-ratio: 1;
   }
 }
@@ -5431,5 +5431,14 @@
     filter: var(--sp-portrait-scene-filter, brightness(1))
       var(--sp-portrait-attention-filter, brightness(1))
       var(--sp-portrait-status-filter, var(--sp-mobile-filter, brightness(1)));
+  }
+}
+
+/* Bring the six-max top plate and its card fan up together. The plate
+   covers the lower bust while the crown and action caption keep their lane. */
+@media (max-width: 640px) and (orientation: portrait) {
+  .table-page[data-seats='6'] .seat-wrapper--cap .seat:has(> .seat__avatar-wrap--bust) {
+    --sp-six-cap-overlap: calc(var(--seat-avatar-size) * 0.25);
+    --sp-wrap-overlap: var(--sp-six-cap-overlap);
   }
 }

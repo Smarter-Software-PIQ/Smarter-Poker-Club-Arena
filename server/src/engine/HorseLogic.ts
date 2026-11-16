@@ -3472,7 +3472,8 @@ export interface HorseDecideOpts {
    * call is under 40% of the stack: a refusal by the price arithmetic goes
    * to the range play instead of folding outright (PLO6-AUDIT-013,
    * docs/horse-default-on.d/plo6ManiacPriceRefusalToRangePlay.md). Default
-   * on; false only for the regression's non-vacuity control. */
+   * OFF (opt-in) since 2026-11-16: its reach row was not met by the deadline
+   * Hand Analysis set (production changed-decision count not shown). */
   plo6ManiacPriceRefusalToRangePlay?: boolean;
   /** PLO6 cash, one board, no bomb pot: in the solverless flop/turn call
    * menu a top set that is the current nuts (board unpaired, no three of a
@@ -3991,6 +3992,13 @@ export interface HorseDecideOpts {
    *  applies it to the process switch before every job (HorseMind.applyFixedLimitBetsAreNeverProbesOption)
    *  and the whole thread counts with one value. Absent: the source default (on). */
   fixedLimitBetsAreNeverProbes?: boolean;
+  /** A FIXED-LIMIT READ IS NEVER PROBE-DISCOUNTED ("F1b", 2026-11-15, own
+   *  option since 2026-11-16, Fixed-Limit lane): at a fixed-limit decision,
+   *  with the F1 process switch on, an opponent's pooled no-limit/pot-limit
+   *  probe share does not discount his fixed-limit aggression reads
+   *  (HorseMind.fixedLimitReadIgnoresProbes, four read sites). Read only as
+   *  === true: default OFF; registered in the live option switch. */
+  fixedLimitReadIgnoresProbes?: boolean;
   /** Hi-lo river bluffs with a low possible (2026-11-07,
    *  HorseRiverBluffRange.ts): the nut low with no high bets the freeroll;
    *  air bluffs the whole pot only when the opponent is unlikely to hold a
@@ -10408,6 +10416,14 @@ export class HorseLogic {
       typeof gameState.gameVariant === 'string' ? gameState.gameVariant : null,
       gameState.gameMode === 'tournament' || gameState.tournament ? 'tournament' : 'cash'
     );
+    // The decision's betting structure, as the state states it (the same
+    // value observe() counts with below), so the fixed-limit reads key on the
+    // structure and not on the variant name. Cleared with the scope.
+    HorseMind.setDecisionBettingStructure(
+      gameState.bettingStructure ?? bettingStructureFor(gameState.gameVariant)
+    );
+    // F1b's own option (default OFF): with it off every fixed-limit read is probe-adjusted as before F1b.
+    HorseMind.setDecisionFixedLimitReadIgnoresProbes(opts.fixedLimitReadIgnoresProbes === true);
     // Read calibration options travel with the scope and are cleared with it.
     HorseMind.setDecisionReadOptions({
       postflopFoldRate: opts.readPostflopFoldRate === true,
@@ -11321,6 +11337,8 @@ export class HorseLogic {
                 decision = { ...selected, tournamentUtility: result.ledger };
                 if (tele) {
                   noteFire('phase7_tournament_utility');
+                  if (phase8UtilityInput.stackScaledMargin === true)
+                    noteFire('tournament_utility_stack_scaled_margin_seen');
                   noteFire(`phase7_objective_${result.ledger.objective}`);
                   noteFire(`phase7_icm_${result.ledger.icmMethod}`);
                   if (result.ledger.overrodeBaseline) noteFire('phase7_utility_override');
@@ -13440,8 +13458,10 @@ export class HorseLogic {
           // the raiser is not all in), a refusal hands the decision to the
           // range play below. PLO6 cash only: the evidence is one PLO6 cash
           // node (docs/horse-default-on.d/plo6ManiacPriceRefusalToRangePlay.md).
+          // Opt-in since 2026-11-16 (=== true): its reach row was not met by the
+          // deadline Hand Analysis set; unset, the refusal folds as before.
           const refusalToRangePlay38 =
-            opts.plo6ManiacPriceRefusalToRangePlay !== false &&
+            opts.plo6ManiacPriceRefusalToRangePlay === true &&
             vi.isOmaha &&
             !vi.isHiLo &&
             vi.holeCount === 6 &&
@@ -18379,6 +18399,9 @@ export class HorseLogic {
           exploit.bluffMod >= 0.9 &&
           unit87('rangecbet') < (cat <= 1 ? 0.52 : 0.58) * (personaPost87?.cbet ?? 1)
         ) {
+          // counted where the persona's c-bet scale let the range c-bet branch in (a scale below 1 that kept it
+          // out is not an event this branch can see)
+          if (tele15 && personaPost87) noteFire('holdem_persona_postflop_cbet_seen');
           let rangeCbetBlocked87 = stationValue;
           if (useMind && singleOpp87) {
             try {
@@ -22278,6 +22301,7 @@ export class HorseLogic {
         this.v78CommitsWithoutJam(raiseTo87 * params.sizingMultiplier, player, gs, vi, opts);
       if (!commits87) {
         if (tele15) noteFire('v87_flop_stab_check_raise');
+        if (tele15 && personaPost87) noteFire('holdem_persona_postflop_check_raise_seen');
         planBarrel(equity);
         return this.raiseTo(planHandKey, raiseTo87 * params.sizingMultiplier, player, gs, vi);
       }
