@@ -24,3 +24,5 @@ update notice per gift. It refreshes the recipient through the existing channel
 without a wallet balance change, private review note, earned-fee claim or H release.
 
 Support controls consume two separate authoritative booleans. An original grant club can offer its support override while W is held elsewhere, without showing a local balance or percentage. A review section appears only for an actual pending selected case, including evidence-only cases; mere backend review capability no longer leaves an empty card after completion. Missing flags are false and malformed flags are unavailable. Backend authorization and separate H review remain mandatory.
+
+The controlled published-client session fixture now supplies the actual terms revision, so its isolated profile remains accepted under the new reader. The existing setup failure observer recognizes both the prior timestamp query and the exact revision query while retaining only its original scrubbed path/status evidence. Production preflight continues to accept through the real UI and verify persistence in a fresh document.
