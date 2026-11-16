@@ -14482,7 +14482,9 @@ export class HorseLogic {
       ...(stylePre
         ? { valueRaiseTightness: params.tightness * stylePre.valueRaiseTightnessMul }
         : {}),
-      ...(styleEntryBarCredit !== undefined ? { styleEntryBarCredit } : {}),
+      ...(styleEntryBarCredit !== undefined
+        ? { styleEntryBarCredit, styleCallTightness: params.tightness }
+        : {}),
       bluffFreq: stylePre ? params.bluffFreq * stylePre.bluffFreqMul : params.bluffFreq,
       aggression: stylePre ? params.aggression * stylePre.aggressionMul : params.aggression,
       slowplayFreq: params.slowplayFreq,

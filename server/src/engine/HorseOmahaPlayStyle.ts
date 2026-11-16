@@ -100,7 +100,9 @@ export const OMAHA_TIGHT_POSTFLOP: OmahaPlayStyleDials = Object.freeze({
 /** pressure, cutoff and button, before the flop. */
 export const OMAHA_PRESSURE_PREFLOP_IP: OmahaPlayStyleDials = Object.freeze({
   tightnessMul: 0.75,
-  valueRaiseTightnessMul: 0.9,
+  // 2026-11-16: at the bound, so the added cutoff and button entries are
+  // re-raises (the call bars stay at today's width, styleCallTightness).
+  valueRaiseTightnessMul: 0.75,
   bluffFreqMul: 1.2,
   aggressionMul: 1.1,
   cbetFreqMul: 1,
@@ -244,14 +246,15 @@ export function omahaPlayStyleIndifferenceAggressionBias(
  *                       0.24 BB instead of 0.12 BB). The candidate must still
  *                       sit inside the engine's mixing window, and the pick
  *                       is still the engine's weighted mix.
- *   entry-bar credit    before the flop, on the cutoff and button, every
- *                       entry bar (first in, limp, cold call, call of a
- *                       re-raise; NOT the value 3-bet and 4-bet bars) is
- *                       lowered by OMAHA_PRESSURE_PREFLOP_IP_ENTRY_BAR_CREDIT
+ *   raise-bar credit    before the flop, on the cutoff and button, the
+ *                       RAISE bars (first-in open and isolation, the value
+ *                       3-bet) are lowered by OMAHA_PRESSURE_PREFLOP_IP_ENTRY_BAR_CREDIT
  *                       (at most 0.04 on the hand-strength scale, the
- *                       share-shift bound of the scope note). It is the
- *                       position's realisation credit stated as a bar: the
- *                       tightness scale is already at its 0.75 bound.
+ *                       share-shift bound of the scope note), and the value
+ *                       re-raise tightness is at its 0.75 bound; the CALL bars
+ *                       (cold call, call of a re-raise, call-off) stay at
+ *                       today's width (PreflopCtx.styleCallTightness), so the
+ *                       added entries are re-raises, not flat calls.
  *
  * Realisation (realizationFactor) is NOT biased: it prices the check and the
  * bet alike, so a style credit there would not favour the bet.
@@ -259,7 +262,7 @@ export function omahaPlayStyleIndifferenceAggressionBias(
 export const OMAHA_PRESSURE_IP_FOLD_EQUITY_MUL = 1.25;
 export const OMAHA_PRESSURE_IP_TIE_BAND_MUL = 2;
 export const OMAHA_PLAY_STYLE_TIE_BAND_MUL_MAX = 2;
-export const OMAHA_PRESSURE_PREFLOP_IP_ENTRY_BAR_CREDIT = 0.03;
+export const OMAHA_PRESSURE_PREFLOP_IP_ENTRY_BAR_CREDIT = 0.04;
 export const OMAHA_PLAY_STYLE_ENTRY_BAR_CREDIT_MAX = 0.04;
 
 /** The fold-equity prior multiplier of this decision, or undefined (none). */
