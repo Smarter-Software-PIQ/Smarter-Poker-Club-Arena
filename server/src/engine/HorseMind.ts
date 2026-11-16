@@ -464,6 +464,10 @@ export interface DecisionReadOptions {
    *  tight route (HorseOpponentStyle.tightMultiSignalRead). Only an explicit true engages; absent, the read is what
    *  it was. */
   styleTightMultiSignal?: boolean;
+  /** TIGHT AT THE OBSERVATION LINE (2026-11-16, HorseDecideOpts.styleTightMethodLine): the style read admits the
+   *  method-line tight route (HorseOpponentStyle.tightMethodLineRead). Only an explicit true engages; absent, the
+   *  read is what it was. */
+  styleTightMethodLine?: boolean;
   /** MANIAC SAMPLE GATE (2026-11-15, HorseDecideOpts.holdemManiacSampleGate): no-limit hold'em reads carry the gate's
    *  evidence (HorseOpponentExploit.withManiacSampleGate), so maniacRaiseWidth needs 15 decayed hands and PFR credibly
    *  above the size's regular line. Only an explicit true engages; absent, every read is what it was. */
@@ -2849,6 +2853,9 @@ export class HorseMind {
     // 2026-11-15: the multi-signal route (styleTightMultiSignal) read this opponent tight.
     if (style.receipt.tightMultiSignal?.startsWith('tight:'))
       noteFire('style_tight_multi_signal_seen');
+    // 2026-11-16: the observation-line route (styleTightMethodLine) read this opponent tight.
+    if (style.receipt.tightMethodLine?.startsWith('tight:'))
+      noteFire('style_tight_method_line_seen');
   }
 
   /**
@@ -2935,6 +2942,7 @@ export class HorseMind {
       ...(this.decisionReadOptions.styleTightMultiSignal === true
         ? { tightMultiSignal: true }
         : {}),
+      ...(this.decisionReadOptions.styleTightMethodLine === true ? { tightMethodLine: true } : {}),
       sizeBuckets,
       streetAggression: agg ?? null,
       horseStreetReference: variant

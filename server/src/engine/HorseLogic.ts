@@ -4093,6 +4093,12 @@ export interface HorseDecideOpts {
    *  contrary evidence (HorseOpponentStyle.tightMultiSignalRead). Receipt style_tight_multi_signal_seen. Read only
    *  as === true: default OFF. */
   styleTightMultiSignal?: boolean;
+  /** TIGHT AT THE OBSERVATION LINE (2026-11-16, opponent classifier): the style read's participation axis is also
+   *  tight for a no-limit hold'em player with 50 or more hands in the window whose VPIP is at or below the
+   *  observation method's line (0.18 full, 0.30 short), credibly below the Horse mean, with PFR not above the Horse
+   *  mean and no contrary evidence (HorseOpponentStyle.tightMethodLineRead). Receipt style_tight_method_line_seen.
+   *  Read only as === true: default OFF. */
+  styleTightMethodLine?: boolean;
   /** MANIAC SAMPLE GATE (2026-11-15, opponent classifier C3): a no-limit hold'em opponent has a preflop maniac width
    *  (maniacRaiseWidth) only after 15 decayed hands, with PFR credibly above the size's regular line (Horse PFR P99 +
    *  0.10) or 8+ decayed 3-bet opportunities for the re-raise route (HorseOpponentExploit.withManiacSampleGate).
@@ -10255,6 +10261,8 @@ export class HorseLogic {
         : {}),
       // TIGHT BEYOND VPIP (2026-11-15, opponent classifier): plumbing only, key added only when true.
       ...(opts.styleTightMultiSignal === true ? { styleTightMultiSignal: true } : {}),
+      // TIGHT AT THE OBSERVATION LINE (2026-11-16): plumbing only, key added only when true.
+      ...(opts.styleTightMethodLine === true ? { styleTightMethodLine: true } : {}),
       // MANIAC SAMPLE GATE (2026-11-15, opponent classifier): plumbing only, key added only when true.
       ...(opts.holdemManiacSampleGate === true ? { holdemManiacSampleGate: true } : {}),
       // SHORT-HANDED MANIAC REACH (2026-11-15): plumbing only, key added only when true.

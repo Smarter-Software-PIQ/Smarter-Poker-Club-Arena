@@ -1635,6 +1635,17 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     '2026-11-15'
   ),
   flag(
+    'styleTightMethodLine',
+    "2026-11-16 TIGHT AT THE OBSERVATION LINE (opponent classifier): the style read's participation axis, when every earlier route leaves it neutral, is tight for a no-limit hold'em player whose read window (the 120-hand long window when it holds more hands than the decayed counters) holds 50 or more hands with VPIP at or below the human-vs-Horse observation method's line (0.18 at a full table, 0.30 short-handed; heads-up has no line), VPIP credibly (90%) below the Horse VPIP mean of the cell, PFR at or below the Horse PFR mean, and VPIP and call share not high; no raise-share corroboration is needed, so a tight player who mostly calls qualifies; never overrides a loose read; consumers unchanged; default OFF, read === true only; evidence docs/horse-default-on.d/styleTightMethodLine.md",
+    '2026-11-16'
+  ),
+  receipt(
+    'style_tight_method_line_seen',
+    'HorseMind.styleRead (styleTightMethodLine)',
+    'a style read was made tight by the observation-line route (50 or more hands, VPIP at or below the method line and credibly below the Horse mean, PFR not above the Horse mean); receipt.tightMethodLine carries the line, hands, rates and posterior; counts reads; named *_seen',
+    '2026-11-16'
+  ),
+  flag(
     'holdemManiacSampleGate',
     "2026-11-15 A REGULAR IS NOT A MANIAC (opponent classifier C3): no-limit hold'em reads from HorseMind.opponentRead carry the maniac sample gate (HorseOpponentExploit.withManiacSampleGate) and maniacRaiseWidth then needs at least 15 decayed hands; its opener route needs PFR credibly (90%) above the size's regular line (Horse PFR P99 of the cell plus 0.10: full 0.2985, short 0.4566, heads-up 0.5326), first-in raising alone no longer qualifies; its re-raise route needs at least 8 decayed 3-bet opportunities; every maniac response keyed on maniacRaiseWidth sees the gated read; Omaha and fixed-limit untouched; default OFF, read === true only; evidence docs/horse-default-on.d/holdemManiacSampleGate.md",
     '2026-11-15'
