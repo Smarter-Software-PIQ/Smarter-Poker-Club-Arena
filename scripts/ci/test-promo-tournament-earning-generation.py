@@ -9,7 +9,7 @@ import argparse,os,json,subprocess,tempfile,hashlib,uuid
 from pathlib import Path
 R=Path(__file__).resolve().parents[2]
 MIGRATION=R/'supabase/migrations/20261116200638_tournament_winnings_retain_original_earning_generation_and_c.sql'
-p=argparse.ArgumentParser(description=__doc__);p.add_argument('--output',type=Path,required=True);p.add_argument('--pg-bin',type=Path,default=Path(os.environ.get('PG_BIN','/usr/lib/postgresql/17/bin')));args=p.parse_args()
+p=argparse.ArgumentParser(description=__doc__);p.add_argument('--output',type=Path,required=True);p.add_argument('--migration',type=Path,default=MIGRATION);p.add_argument('--pg-bin',type=Path,default=Path(os.environ.get('PG_BIN','/usr/lib/postgresql/17/bin')));args=p.parse_args();MIGRATION=args.migration.resolve()
 if os.uname().sysname=='Darwin' and not os.environ.get('TMPDIR','').startswith('/Volumes/'):raise SystemExit('external TMPDIR required')
 PG=args.pg_bin;out=args.output;out.mkdir(parents=True,exist_ok=False);tmp=Path(tempfile.mkdtemp(prefix='peg-'));checks=[]
 inputs=[MIGRATION,R/'tests/fixtures/promo-ticket-play-through/generation-owners.json',R/'tests/fixtures/promo-ticket-play-through/generation-nonwallet-owners.json',R/'tests/fixtures/promo-ticket-play-through/generation-admission-guard.json',Path(__file__)]
@@ -45,6 +45,7 @@ try:
  CREATE TABLE chip_ledger(id uuid PRIMARY KEY,from_type text,to_type text,from_entity_id uuid,to_entity_id uuid,amount numeric,category text,tournament_id uuid,status text,club_id uuid,metadata jsonb,idempotency_key text);
  CREATE TABLE tournament_tickets(id uuid PRIMARY KEY,holder_id uuid,value numeric,source_satellite_id uuid,redemption_mode text);
  CREATE TABLE tournament_payouts(id uuid PRIMARY KEY,tournament_id uuid,user_id uuid,amount numeric,source text,metadata jsonb);
+ CREATE TABLE tournament_participant_funding_receipts(registration_id uuid,ledger_id uuid,entitlement_id uuid,tournament_id uuid,user_id uuid,asset text,amount numeric,registration_snapshot jsonb);
  CREATE TABLE tournament_obligation_events(obligation_id uuid,registration_snapshot jsonb,event_id bigint);
  CREATE TABLE wallet_credit_idempotency(key text PRIMARY KEY,user_id uuid,amount numeric);
  ''')
@@ -71,7 +72,14 @@ try:
  newguard=one("SELECT pg_get_functiondef('public.fn_ca_guard_mtt_admission_contract()'::regprocedure)")
  import re
  expected=re.sub(r'("signature":"public.process_tournament_rebuy\(uuid,uuid,text,numeric,numeric,integer,text\)","definition_md5":")[0-9a-f]{32}',lambda m:m[1]+new_hash,guard['definition'])
- check('original admission contract changes only exact reentry pin',newguard.strip(),expected.strip())
+ collect_hash=one("SELECT md5(pg_get_functiondef('public.fn_collect_bounty(uuid,uuid,uuid,jsonb)'::regprocedure))")
+ expected=re.sub(r'("signature":"public.fn_collect_bounty\(uuid,uuid,uuid,jsonb\)","definition_md5":")[0-9a-f]{32}',lambda m:m[1]+collect_hash,expected)
+ check('original admission contract changes only exact changed original-owner pins',newguard.strip(),expected.strip())
+ check('actual public PKO owner receives earned-head callback',one("SELECT position('fn_ca_promo_profit_add_earned_head' in pg_get_functiondef('public.fn_collect_bounty(uuid,uuid,uuid,jsonb)'::regprocedure))>0"),'t')
+ check('actual public PKO owner receives exact head-retirement callback',one("SELECT position('fn_ca_promo_profit_retire_knocked_out_head' in pg_get_functiondef('public.fn_collect_bounty(uuid,uuid,uuid,jsonb)'::regprocedure))>0"),'t')
+ check('actual public mystery owner scopes original bounty context',one("SELECT position('v_promo_bounty_prior' in pg_get_functiondef('public.fn_mystery_bounty_pay(uuid)'::regprocedure))>0"),'t')
+ check('retired unguarded PKO core is unchanged',one("SELECT md5(pg_get_functiondef('public.fn_collect_bounty_unguarded_20260907(uuid,uuid,uuid,jsonb)'::regprocedure))"),'70f5f8d3d8a16ebb84ca06eda6cce33b')
+
 
  run(f"UPDATE ca_promo_play_through_settings SET enforced_from=clock_timestamp()-interval '1hour';INSERT INTO tournament_players VALUES('{REG}','{T}','{U}','{C}',0,0,clock_timestamp(),0,NULL,false);INSERT INTO tables VALUES('{TB}','{T}');INSERT INTO tournament_refund_entitlements VALUES('{uid(40)}','{CH}','{REG}','{T}','{U}',0);INSERT INTO ca_promo_event_fee_consumption_receipts VALUES('{CH}','{uid(40)}','{C}',clock_timestamp());INSERT INTO ca_promo_play_through_grants VALUES('{uid(41)}','{U}');INSERT INTO ca_promo_event_principal_lots VALUES('{uid(41)}','{T}','{CH}',45,45)")
  check('original entry charge owns initial registration generation',one(f"SELECT generation_id FROM ca_promo_profit_charge_generations WHERE charge_ledger_id='{CH}'"),REG)
@@ -175,6 +183,20 @@ try:
  run(f"INSERT INTO tournament_tickets VALUES('{ticket}','{U}',100,'{T}','tournament_entry_only');INSERT INTO tournament_payouts VALUES('{payoutid}','{T}','{U}',100,'satellite_ticket','{{\"ticket_id\":\"{ticket}\"}}');BEGIN;SELECT set_config('app.ca_promo_profit_nonwallet_source',fn_ca_promo_profit_prepare_nonwallet_earning('{T}','{U}',100,'{top}','ticket','{ticket}',NULL,'{payoutid}')::text,true);INSERT INTO chip_ledger VALUES('{tled}','prize_liability','escrow','{T}','{ticket}',100,'ticket_issue','{T}','posted','{C}','{meta}','{top}');SELECT fn_ca_promo_profit_bind_nonwallet_earning('{tled}','{U}');COMMIT")
  check('original earned ticket freezes same exact generation and face',one(f"SELECT s.generation_id='{CAND}' AND s.amount=100 AND s.charge_ledger_ids=ARRAY(SELECT DISTINCT charge_ledger_id FROM ca_promo_profit_charge_generations WHERE generation_id='{CAND}' ORDER BY charge_ledger_id) FROM ca_promo_profit_earning_credit_links l JOIN ca_promo_profit_earning_sources s USING(source_id) WHERE l.ledger_id='{tled}'"),'t')
  check('noncash face has one exact earning slice, no invented original grant',one(f"SELECT sum(x.amount)=100 AND count(*)=1 FROM ca_promo_profit_earning_source_slices x JOIN ca_promo_profit_earning_credit_links l USING(source_id) WHERE l.ledger_id='{tled}'"),'t')
+ # A zero-P initial wallet charge may precede original registration.
+ # The canonical participant receipt, not a guessed or cached row, completes it.
+ late_user,late_reg,late_charge,late_ent=uid(110),uid(111),uid(112),uid(113)
+ snap=json.dumps({'id':late_reg,'tournament_id':T,'user_id':late_user,'club_id':C})
+ run(f"BEGIN;INSERT INTO tournament_refund_entitlements VALUES('{late_ent}','{late_charge}',NULL,'{T}','{late_user}',0);INSERT INTO ca_promo_event_fee_consumption_receipts VALUES('{late_charge}','{late_ent}','{C}',clock_timestamp());INSERT INTO tournament_players VALUES('{late_reg}','{T}','{late_user}','{C}',100,0,clock_timestamp(),0,NULL,false);INSERT INTO tournament_participant_funding_receipts VALUES('{late_reg}','{late_charge}','{late_ent}','{T}','{late_user}','chips',10,'{snap}');COMMIT")
+ check('late original registration binds from canonical funding receipt',one(f"SELECT registration_id='{late_reg}' AND generation_id='{late_reg}' FROM ca_promo_profit_charge_generations WHERE charge_ledger_id='{late_charge}'"),'t')
+ # An unbound original debit cannot commit an invented clean source.
+ missing_ent,missing_charge=uid(114),uid(115)
+ bad=run(f"BEGIN;INSERT INTO tournament_refund_entitlements VALUES('{missing_ent}','{missing_charge}',NULL,'{T}','{uid(116)}',0);INSERT INTO ca_promo_event_fee_consumption_receipts VALUES('{missing_charge}','{missing_ent}','{C}',clock_timestamp());COMMIT",False)
+ check('missing original paid registration witness refuses whole transaction',bad.returncode!=0 and 'original_paid_charge_generation_not_recorded' in bad.stderr,True)
+ # A delayed old mystery payment cannot retire the new real entry head.
+ oldcomponent,newcomponent,lossbo=uid(117),uid(118),uid(119)
+ run(f"INSERT INTO ca_promo_profit_head_components(id,operation_ref,tournament_id,user_id,head_generation_id,generation_id,earning_club_id,charge_ledger_ids,amount,source_kind,earned_at) VALUES('{oldcomponent}','old head','{T}','{U}','{REG}','{REG}','{C}',ARRAY['{CH}'::uuid],5,'bought_head',clock_timestamp()),('{newcomponent}','new head','{T}','{U}','{CAND}','{CAND}','{C}',ARRAY['{CH2}'::uuid],2,'bought_head',clock_timestamp());INSERT INTO tournament_bounty_obligations VALUES('{lossbo}','{T}','{user2}','[]','{H}','{TB}','{U}',5,clock_timestamp());SET app.bounty_obligation_id='{lossbo}';SELECT fn_ca_promo_profit_retire_knocked_out_head('{T}','{U}',5)")
+ check('delayed old head retires original accepted generation only',one(f"SELECT EXISTS(SELECT 1 FROM ca_promo_profit_head_retirements WHERE component_id='{oldcomponent}') AND NOT EXISTS(SELECT 1 FROM ca_promo_profit_head_retirements WHERE component_id='{newcomponent}')"),'t')
  print(json.dumps({'status':'passed','checks':len(checks)}));(out/'RESULTS.json').write_text(json.dumps({'status':'passed','checks':checks},indent=2)+'\n')
 finally:
  if started:subprocess.run([PG/'pg_ctl','-D',tmp/'data','-m','fast','-w','stop'],capture_output=True)

@@ -1,5 +1,5 @@
 -- @install-window: daily-maintenance
--- @locks: public.ca_promo_event_fee_consumption_receipts, public.ca_promo_free_buy_funding_slices, public.tournament_obligations
+-- @locks: public.ca_promo_event_fee_consumption_receipts, public.ca_promo_free_buy_funding_slices, public.tournament_obligations, public.tournament_participant_funding_receipts
 -- @live-proof: to_regprocedure('public.fn_ca_promo_profit_bind_earning_ledger(uuid)') IS NOT NULL AND EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid='public.tournament_obligations'::regclass AND tgname='zzzz_promo_original_obligation_earning' AND tgenabled='O')
 -- Version reserved by scripts/new-migration.mjs against remote versions.
 -- Preserve original financial owners. Snapshot entry generation, exact original
@@ -134,25 +134,69 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION public.fn_ca_promo_profit_apply_generation(uuid,jsonb) FROM PUBLIC,anon,authenticated,service_role;
 
-CREATE FUNCTION public.fn_ca_promo_profit_assign_charge() RETURNS trigger
+CREATE FUNCTION public.fn_ca_promo_profit_record_charge_generation(p_charge uuid,p_registration uuid DEFAULT NULL) RETURNS uuid
 LANGUAGE plpgsql SECURITY DEFINER SET search_path='public','pg_temp' AS $$
-DECLARE e public.tournament_refund_entitlements%ROWTYPE;gid uuid;ctx jsonb;prior uuid;
+DECLARE f public.ca_promo_event_fee_consumption_receipts%ROWTYPE;e public.tournament_refund_entitlements%ROWTYPE;r public.tournament_players%ROWTYPE;gid uuid;ctx jsonb;prior uuid;registration uuid:=p_registration;
 BEGIN
  IF NOT EXISTS(SELECT 1 FROM public.ca_promo_play_through_settings WHERE id AND enforced_from IS NOT NULL) THEN RETURN NULL;END IF;
- SELECT * INTO STRICT e FROM public.tournament_refund_entitlements WHERE id=NEW.entitlement_id AND source_ledger_id=NEW.charge_ledger_id;
+ SELECT * INTO f FROM public.ca_promo_event_fee_consumption_receipts WHERE charge_ledger_id=p_charge;
+ IF NOT FOUND THEN RETURN NULL;END IF;
+ SELECT * INTO STRICT e FROM public.tournament_refund_entitlements WHERE id=f.entitlement_id AND source_ledger_id=f.charge_ledger_id;
  ctx:=NULLIF(current_setting('app.ca_promo_profit_admission',true),'')::jsonb;
- gid:=public.fn_ca_promo_profit_apply_generation(e.registration_id,ctx);
- INSERT INTO public.ca_promo_profit_charge_generations(charge_ledger_id,registration_id,generation_id) VALUES(NEW.charge_ledger_id,e.registration_id,gid) ON CONFLICT DO NOTHING;
- SELECT generation_id INTO STRICT prior FROM public.ca_promo_profit_charge_generations WHERE charge_ledger_id=NEW.charge_ledger_id AND registration_id=e.registration_id;
- IF prior<>gid THEN RAISE EXCEPTION 'original_charge_generation_reused';END IF;
+ IF registration IS NOT NULL AND e.registration_id IS NOT NULL AND registration<>e.registration_id THEN RAISE EXCEPTION 'original_charge_registration_witness_conflicts';END IF;
+ registration:=COALESCE(registration,e.registration_id,(ctx->>'registration_id')::uuid);
+ IF registration IS NULL THEN SELECT tp.id INTO registration FROM public.tournament_players tp WHERE tp.tournament_id=e.tournament_id AND tp.user_id=e.user_id AND tp.club_id=f.club_id;END IF;
+ IF registration IS NULL THEN
+  SELECT p.registration_id INTO registration FROM public.tournament_participant_funding_receipts p WHERE p.ledger_id=p_charge AND p.entitlement_id=e.id;
+ END IF;
+ -- An initial wallet charge precedes its original registration/funding
+ -- recorder. The other original rendezvous must complete this same charge.
+ IF registration IS NULL THEN RETURN NULL;END IF;
+ SELECT * INTO STRICT r FROM public.tournament_players WHERE id=registration AND tournament_id=e.tournament_id AND user_id=e.user_id AND club_id=f.club_id;
+ SELECT generation_id INTO prior FROM public.ca_promo_profit_charge_generations WHERE charge_ledger_id=p_charge AND registration_id=registration;
+ IF FOUND THEN
+  IF ctx IS NOT NULL AND ctx->>'candidate_id' IS DISTINCT FROM prior::text THEN RAISE EXCEPTION 'original_charge_generation_intent_reused';END IF;
+  RETURN prior;
+ END IF;
+ gid:=public.fn_ca_promo_profit_apply_generation(registration,ctx);
+ INSERT INTO public.ca_promo_profit_charge_generations(charge_ledger_id,registration_id,generation_id) VALUES(p_charge,registration,gid);
  IF e.refund_bounty>0 THEN
   INSERT INTO public.ca_promo_profit_head_components(operation_ref,tournament_id,user_id,head_generation_id,generation_id,earning_club_id,charge_ledger_ids,amount,source_kind,earned_at)
-  VALUES('bought_head:'||NEW.charge_ledger_id,e.tournament_id,e.user_id,gid,gid,NEW.club_id,ARRAY[NEW.charge_ledger_id],e.refund_bounty,'bought_head',NEW.earned_at);
+  VALUES('bought_head:'||p_charge,e.tournament_id,e.user_id,gid,gid,f.club_id,ARRAY[p_charge],e.refund_bounty,'bought_head',f.earned_at);
+ END IF;
+ RETURN gid;
+END $$;
+REVOKE ALL ON FUNCTION public.fn_ca_promo_profit_record_charge_generation(uuid,uuid) FROM PUBLIC,anon,authenticated,service_role;
+CREATE FUNCTION public.fn_ca_promo_profit_assign_charge() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path='public','pg_temp' AS $$
+BEGIN PERFORM public.fn_ca_promo_profit_record_charge_generation(NEW.charge_ledger_id);RETURN NULL;END $$;
+REVOKE ALL ON FUNCTION public.fn_ca_promo_profit_assign_charge() FROM PUBLIC,anon,authenticated,service_role;
+CREATE TRIGGER zzzz_promo_original_entry_generation AFTER INSERT ON public.ca_promo_event_fee_consumption_receipts FOR EACH ROW EXECUTE FUNCTION public.fn_ca_promo_profit_assign_charge();
+CREATE FUNCTION public.fn_ca_promo_profit_funding_generation() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path='public','pg_temp' AS $$
+BEGIN
+ IF NEW.asset='chips' AND NEW.amount>0 THEN
+  IF NEW.registration_id IS NULL OR NEW.ledger_id IS NULL OR NEW.entitlement_id IS NULL
+   OR NEW.registration_snapshot->>'id' IS DISTINCT FROM NEW.registration_id::text
+   OR NEW.registration_snapshot->>'user_id' IS DISTINCT FROM NEW.user_id::text
+   OR NEW.registration_snapshot->>'tournament_id' IS DISTINCT FROM NEW.tournament_id::text THEN RAISE EXCEPTION 'original_participant_funding_generation_witness_invalid';END IF;
+  PERFORM public.fn_ca_promo_profit_record_charge_generation(NEW.ledger_id,NEW.registration_id);
  END IF;
  RETURN NULL;
 END $$;
-REVOKE ALL ON FUNCTION public.fn_ca_promo_profit_assign_charge() FROM PUBLIC,anon,authenticated,service_role;
-CREATE TRIGGER zzzz_promo_original_entry_generation AFTER INSERT ON public.ca_promo_event_fee_consumption_receipts FOR EACH ROW EXECUTE FUNCTION public.fn_ca_promo_profit_assign_charge();
+REVOKE ALL ON FUNCTION public.fn_ca_promo_profit_funding_generation() FROM PUBLIC,anon,authenticated,service_role;
+CREATE TRIGGER zzzz_promo_original_participant_generation AFTER INSERT ON public.tournament_participant_funding_receipts FOR EACH ROW EXECUTE FUNCTION public.fn_ca_promo_profit_funding_generation();
+CREATE FUNCTION public.fn_ca_promo_profit_charge_generation_complete() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path='public','pg_temp' AS $$
+BEGIN
+ IF EXISTS(SELECT 1 FROM public.ca_promo_play_through_settings WHERE id AND enforced_from IS NOT NULL)
+ AND NOT EXISTS(SELECT 1 FROM public.ca_promo_profit_charge_generations WHERE charge_ledger_id=NEW.charge_ledger_id) THEN
+  RAISE EXCEPTION 'original_paid_charge_generation_not_recorded';
+ END IF;
+ RETURN NULL;
+END $$;
+REVOKE ALL ON FUNCTION public.fn_ca_promo_profit_charge_generation_complete() FROM PUBLIC,anon,authenticated,service_role;
+CREATE CONSTRAINT TRIGGER original_paid_charge_generation_complete AFTER INSERT ON public.ca_promo_event_fee_consumption_receipts DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.fn_ca_promo_profit_charge_generation_complete();
 
 CREATE FUNCTION public.fn_ca_promo_profit_assign_free_buy_face() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path='public','pg_temp' AS $$
@@ -385,14 +429,19 @@ REVOKE ALL ON FUNCTION public.fn_ca_promo_profit_add_earned_head(uuid,uuid,numer
 
 CREATE FUNCTION public.fn_ca_promo_profit_retire_knocked_out_head(p_tournament uuid,p_user uuid,p_head numeric) RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path='public','pg_temp' AS $$
-DECLARE r public.tournament_players%ROWTYPE;container uuid;total numeric;bo public.tournament_bounty_obligations%ROWTYPE;
+DECLARE r public.tournament_players%ROWTYPE;container uuid;total numeric;bo public.tournament_bounty_obligations%ROWTYPE;hand public.ca_promo_profit_tournament_hand_clocks%ROWTYPE;enabled timestamptz;
 BEGIN
  IF NOT EXISTS(SELECT 1 FROM public.ca_promo_play_through_settings WHERE id AND enforced_from IS NOT NULL) THEN RETURN;END IF;
  SELECT * INTO STRICT bo FROM public.tournament_bounty_obligations WHERE id=NULLIF(current_setting('app.bounty_obligation_id',true),'')::uuid AND tournament_id=p_tournament;
  IF bo.eliminated_user_id IS DISTINCT FROM p_user OR bo.head_amount IS DISTINCT FROM p_head THEN RAISE EXCEPTION 'original_knocked_out_head_identity_mismatch';END IF;
- SELECT * INTO STRICT r FROM public.tournament_players WHERE tournament_id=p_tournament AND user_id=p_user;
- PERFORM public.fn_ca_promo_profit_capture_legacy_head(r.id);
- container:=public.fn_ca_promo_profit_apply_generation(r.id);
+ SELECT * INTO hand FROM public.ca_promo_profit_tournament_hand_clocks WHERE hand_id=bo.hand_id AND table_id=bo.table_id AND tournament_id=p_tournament;
+ IF NOT FOUND THEN
+  SELECT enforced_from INTO enabled FROM public.ca_promo_play_through_settings WHERE id;
+  IF bo.created_at<enabled THEN RETURN;END IF;
+  RAISE EXCEPTION 'original_knocked_out_head_generation_missing';
+ END IF;
+ container:=(hand.participant_scope->p_user::text->>'generation_id')::uuid;
+ IF container IS NULL OR NOT EXISTS(SELECT 1 FROM public.ca_promo_profit_event_generations WHERE id=container AND tournament_id=p_tournament AND user_id=p_user) THEN RAISE EXCEPTION 'original_knocked_out_head_generation_mismatch';END IF;
  SELECT COALESCE(sum(h.amount),0) INTO total FROM public.ca_promo_profit_head_components h WHERE h.head_generation_id=container AND NOT EXISTS(SELECT 1 FROM public.ca_promo_profit_head_retirements x WHERE x.component_id=h.id);
  IF total IS DISTINCT FROM p_head THEN RAISE EXCEPTION 'original_knocked_out_head_components_missing';END IF;
  INSERT INTO public.ca_promo_profit_head_retirements(component_id,reason,operation_ref)
@@ -542,28 +591,36 @@ DO $obligation_credit_owner$ DECLARE def text;needle text;BEGIN
 END $obligation_credit_owner$;
 
 DO $mystery_earning_owner$ DECLARE def text;needle text;BEGIN
- SELECT pg_get_functiondef('public.fn_mystery_bounty_pay_unguarded_20260907(uuid)'::regprocedure) INTO def;
- IF md5(def)<>'08dbef536a3d77b74a5aa00b0a031f64' THEN RAISE EXCEPTION 'original_mystery_earning_owner_changed';END IF;
+ SELECT pg_get_functiondef('public.fn_mystery_bounty_pay(uuid)'::regprocedure) INTO def;
+ IF md5(def)<>'d666baf91b06f9305191fcbc0b9c7aee' THEN RAISE EXCEPTION 'original_mystery_earning_owner_changed';END IF;
  def:=replace(def,E'DECLARE\n',E'DECLARE\n  v_promo_bounty_prior text;\n');
  needle:='    v_settle := public.fn_settle_tournament_obligation(';
  IF strpos(def,needle)=0 THEN RAISE EXCEPTION 'original_mystery_earning_boundary_missing';END IF;
  def:=replace(def,needle,E'    v_promo_bounty_prior:=current_setting(''app.bounty_obligation_id'',true);\n    PERFORM set_config(''app.bounty_obligation_id'',COALESCE(v_a.bounty_obligation_id::text,''''),true);\n'||needle);
- needle:=E'      ''fn_mystery_bounty_pay'', ''Mystery bounty revealed from eliminated player'');';
+ needle:=E'      ''fn_mystery_bounty_pay'',\n      ''Mystery bounty revealed from eliminated player'');';
  IF strpos(def,needle)=0 THEN RAISE EXCEPTION 'original_mystery_earning_restore_boundary_missing';END IF;
  def:=replace(def,needle,needle||E'\n    PERFORM set_config(''app.bounty_obligation_id'',COALESCE(v_promo_bounty_prior,''''),true);');
+ needle:=E'  RETURN jsonb_build_object(\n    ''ok'', true, ''already'', false, ''award_id'', p_award_id,';
+ IF strpos(def,needle)=0 THEN RAISE EXCEPTION 'original_mystery_head_retirement_boundary_missing';END IF;
+ def:=replace(def,needle,E'  IF v_a.bounty_obligation_id IS NOT NULL THEN\n    v_promo_bounty_prior:=current_setting(''app.bounty_obligation_id'',true);\n    PERFORM set_config(''app.bounty_obligation_id'',v_a.bounty_obligation_id::text,true);\n    PERFORM public.fn_ca_promo_profit_retire_knocked_out_head(v_a.tournament_id,v_a.eliminated_user_id,(SELECT head_amount FROM public.tournament_bounty_obligations WHERE id=v_a.bounty_obligation_id));\n    PERFORM set_config(''app.bounty_obligation_id'',COALESCE(v_promo_bounty_prior,''''),true);\n  END IF;\n'||needle);
  EXECUTE def;
 END $mystery_earning_owner$;
 
-DO $pko_head_owner$ DECLARE def text;needle text;BEGIN
- SELECT pg_get_functiondef('public.fn_collect_bounty_unguarded_20260907(uuid,uuid,uuid,jsonb)'::regprocedure) INTO def;
- IF md5(def)<>'70f5f8d3d8a16ebb84ca06eda6cce33b' THEN RAISE EXCEPTION 'original_pko_head_owner_changed';END IF;
- needle:='    IF v_cash > 0 THEN';
+DO $pko_head_owner$ DECLARE def text;needle text;guard text;new_hash text;BEGIN
+ SELECT pg_get_functiondef('public.fn_collect_bounty(uuid,uuid,uuid,jsonb)'::regprocedure) INTO def;
+ IF md5(def)<>'e76385f1c13c9a8e88165d231bda7d6a' THEN RAISE EXCEPTION 'original_pko_head_owner_changed';END IF;
+ needle:='      IF v_cash > 0 THEN';
  IF strpos(def,needle)=0 THEN RAISE EXCEPTION 'original_pko_head_earning_boundary_missing';END IF;
- def:=replace(def,needle,E'    PERFORM public.fn_ca_promo_profit_add_earned_head(p_tournament_id,c.uid,v_to_head);\n'||needle);
- needle:='  UPDATE tournament_players SET current_bounty = 0';
+ def:=replace(def,needle,E'      PERFORM public.fn_ca_promo_profit_add_earned_head(p_tournament_id,c.uid,v_to_head);\n'||needle);
+ needle:='    UPDATE tournament_players SET current_bounty = 0';
  IF strpos(def,needle)=0 THEN RAISE EXCEPTION 'original_pko_head_retirement_boundary_missing';END IF;
- def:=replace(def,needle,E'  PERFORM public.fn_ca_promo_profit_retire_knocked_out_head(p_tournament_id,p_eliminated_user_id,v_head);\n'||needle);
+ def:=replace(def,needle,E'    PERFORM public.fn_ca_promo_profit_retire_knocked_out_head(p_tournament_id,p_eliminated_user_id,v_head);\n'||needle);
  EXECUTE def;
+ SELECT md5(pg_get_functiondef('public.fn_collect_bounty(uuid,uuid,uuid,jsonb)'::regprocedure)) INTO new_hash;
+ SELECT pg_get_functiondef('public.fn_ca_guard_mtt_admission_contract()'::regprocedure) INTO guard;
+ IF strpos(guard,'"signature":"public.fn_collect_bounty(uuid,uuid,uuid,jsonb)"')=0 THEN RAISE EXCEPTION 'original_pko_head_pin_missing';END IF;
+ guard:=regexp_replace(guard,'("signature":"public.fn_collect_bounty\(uuid,uuid,uuid,jsonb\)","definition_md5":")[0-9a-f]{32}("|$)','\1'||new_hash||'\2');
+ EXECUTE guard;
 END $pko_head_owner$;
 
 DO $legacy_noncash_award_owner$ DECLARE def text;needle text;BEGIN
