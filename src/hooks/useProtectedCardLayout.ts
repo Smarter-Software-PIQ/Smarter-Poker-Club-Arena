@@ -907,9 +907,17 @@ export function useProtectedCardLayout(
               level = Math.min(level, top);
           }
           if (inwardFans && page.getAttribute('data-seats') === '9') {
-            // Both cap plates sit twelve pixels into the outer rail. Their
-            // portraits extend upward into the dedicated cap row.
-            entry.shift = (scaler.getBoundingClientRect().top - entry.plateTop) / scale + 12;
+            // The cap stations are six percent down the chassis. Centre each
+            // nameplate on that rail even when the observer footer changes height.
+            const ring = scaler.getBoundingClientRect();
+            const plate = entry.pod.querySelector('.seat__info')?.getBoundingClientRect();
+            if (plate)
+              entry.shift =
+                (ring.top +
+                  (ring.height * parseFloat(railLine(entry.pod))) / 100 -
+                  plate.height / 2 -
+                  entry.plateTop) /
+                scale;
           } else entry.shift = Math.max(entry.floor, (level - entry.plateTop) / scale);
         }
         for (const { pod, shift } of placed) {

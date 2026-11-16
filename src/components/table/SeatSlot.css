@@ -5253,7 +5253,7 @@
 }
 
 @media (min-width: 481px) and (max-width: 640px) and (orientation: portrait) {
-  .table-page:where([data-seats='6'], [data-seats='9']) .seat--hero {
+  .table-page[data-seats='6'] .seat--hero {
     --seat-avatar-hero-ratio: 1;
   }
 }

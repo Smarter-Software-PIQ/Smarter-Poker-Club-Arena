@@ -1086,7 +1086,7 @@ export function enlargeMobileAvatars(
     };
     // The game type's displayed height, shared by every table of that type.
     // Earlier nine-seat records were limited by transparent dealer-puck corners.
-    const ringVersion = page.dataset.seats === '9' ? '|round-puck' : '';
+    const ringVersion = page.dataset.seats === '9' ? '|table-rail' : '';
     const sizeType = `${profileKey.split('|').slice(0, 2).join('|')}|${innerWidth}${ringVersion}`;
     // Include the CSS bust gain and normalized slot, but remove the retained
     // paint zoom. offsetHeight alone omits the new preallocated portrait gain.

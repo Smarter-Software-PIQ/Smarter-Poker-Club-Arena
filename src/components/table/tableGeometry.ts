@@ -490,13 +490,13 @@ export function seatPodPx(
   const pod = isHero ? rung.hero : rung.villain;
   if (!canvasWidthPx || !Number.isFinite(canvasWidthPx)) return pod;
   const avatar = Math.min(124, Math.max(50, canvasWidthPx * 0.158));
-  // Six/nine portrait tables use the same hero slot as the other chairs.
+  // Six-seat portrait tables use the same hero slot as the other chairs.
   // Match SeatSlot.css so marker clearance measures the actual player pod.
   const heroRatio =
     viewportWidthPx > PHONE_TABLE_MAX_DEVICE_WIDTH_PX &&
     viewportWidthPx <= 640 &&
     (ring?.canvasHeightPx ?? 0) > canvasWidthPx &&
-    [6, 9].includes(ring?.seats ?? 0)
+    ring?.seats === 6
       ? 1
       : 4 / 3;
   const proportionalWidth = isHero ? avatar * heroRatio * (8 / 7) : avatar * 1.143;
@@ -559,7 +559,12 @@ export function fitSeatToViewport(
   // The middle side chair is halfway between the two corner chairs.
   if (maxPlayers === 9 && viewportWidthPx > 480 && viewportWidthPx <= 640 && canvas.h > canvas.w) {
     const y = seat.y === 58 ? (25 + 82.5) / 2 : seat.y;
-    const x = seat.y >= 20 && seat.y < 100 ? (seat.x < 50 ? minX : maxX) : seat.x;
+    // The viewport is a clipping boundary. Side chairs belong to the
+    // painted rail, even when the shorter observer canvas leaves wide gutters.
+    // The 605px chassis has opaque side rail at x=20 and the lower
+    // shoulder begins at x=40. Keep the chair axis just inside that rim.
+    const rail = seat.y === 82.5 ? 7.5 : 4;
+    const x = seat.y >= 20 && seat.y < 100 ? (seat.x < 50 ? rail : 100 - rail) : seat.x;
     return { x: Math.max(minX, Math.min(maxX, x)), y };
   }
   const portraitPhone = viewportWidthPx <= 480 && canvas.h > canvas.w;

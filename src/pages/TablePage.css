@@ -5186,7 +5186,7 @@ button.post-bb-overlay-button {
    below the rail: .1075 - (.158 / 6) = .0811667 of the felt width.
    Solve the height-bound .7 rail cap against the same reduced reserve. */
 @media (max-device-width: 480px) and (min-width: 481px) and (max-width: 640px) and (orientation: portrait) {
-  .table-page:where([data-seats='6'], [data-seats='9']) .table-container {
+  .table-page[data-seats='6'] .table-container {
     --sp-hero-clear: min(
       calc(0.0811667 * 88vw + 45px),
       calc(
