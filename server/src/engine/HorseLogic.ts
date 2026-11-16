@@ -1840,6 +1840,35 @@ function isTournamentMode(gs: HorseGameStateV2): boolean {
 }
 
 /**
+ * F2 SCOPE (2026-11-16, Fixed-Limit lane owner's ruling): the opt-in
+ * fixedLimitCallIsNotACommitment acts only on a fixed-limit HOLD'EM decision
+ * (fixed-limit betting structure, two hole cards, a full deck, not Omaha:
+ * in production exactly flh) at a CASH table (isTournamentMode, the test the
+ * W5 options use). Fixed-limit Omaha hi-lo showed no value on two seed
+ * ranges (flo8 six seats against the maniac: -7.09 +/- 4.28 and
+ * +1.07 +/- 3.46 big bets per 100, AB-EVALUATION-2.md 3.7 and 3.15), and no
+ * fixed-limit tournament case was evaluated for it, so at a flo8 table and
+ * at every tournament table both of its read sites (the call price and the
+ * commitment test in decidePostflop) decide exactly as with the option off.
+ * Keyed on the structure and the card rules, not on a variant name
+ * (AFixedLimitFixKeysOnTheBettingStructure.law.test.ts).
+ */
+function fixedLimitCallIsNotACommitmentInScope(
+  opts: HorseDecideOpts,
+  vi: VariantInfo,
+  gs: HorseGameStateV2
+): boolean {
+  return (
+    opts.fixedLimitCallIsNotACommitment === true &&
+    vi.isFixedLimit === true &&
+    !vi.isOmaha &&
+    !vi.isShortDeck &&
+    vi.holeCount === 2 &&
+    !isTournamentMode(gs)
+  );
+}
+
+/**
  * Phase 6 keeps partial tournament snapshots on the decision payload so the
  * engine can emit an honest `TOURNAMENT_CONTEXT_INCOMPLETE` receipt.  Those
  * observable facts are not strategy inputs until the complete-context
@@ -4069,7 +4098,10 @@ export interface HorseDecideOpts {
    *  stack-to-pot or invested-share term, no V20 multiway commit bar); it is
    *  priced on the chips to call plus the expected further wagers of the
    *  street while a player left to act can still raise
-   *  (HorseFixedLimitCallPrice.ts). Read only as === true: default OFF. */
+   *  (HorseFixedLimitCallPrice.ts). Scope (2026-11-16): fixed-limit
+   *  hold'em CASH only (fixedLimitCallIsNotACommitmentInScope); at a flo8
+   *  table and at every tournament table it changes nothing. Read only as
+   *  === true: default OFF. */
   fixedLimitCallIsNotACommitment?: boolean;
   /** FIXED-LIMIT MANIAC CAP NEEDS VALUE (2026-11-15, Fixed-Limit lane): in a
    *  fixed-limit game, a V53 pressure raise that would be the preflop cap
@@ -21203,8 +21235,9 @@ export class HorseLogic {
     // capped). The excess over the bare raked price is a shade on the equity
     // the V38 verdicts are handed, as V61/V65/V66 shades are. A closing call
     // (nobody behind, street capped, caller all in) carries no shade.
+    // Fixed-limit hold'em cash only (fixedLimitCallIsNotACommitmentInScope).
     const flCallPrice =
-      opts.fixedLimitCallIsNotACommitment === true && vi.isFixedLimit && toCall > 0
+      fixedLimitCallIsNotACommitmentInScope(opts, vi, gs) && toCall > 0
         ? fixedLimitCallRequiredEquity({
             ...fixedLimitRemainingAction({
               players: gs.players,
@@ -21903,9 +21936,10 @@ export class HorseLogic {
     // folds). With the option on, a fixed-limit call is never committed: no
     // stack-to-pot or invested-share term. It goes to the V38 verdicts, which
     // price it with the remaining action of the street (flCallPrice above,
-    // HorseFixedLimitCallPrice.ts).
-    const fixedLimitCallNotCommitted =
-      opts.fixedLimitCallIsNotACommitment === true && vi.isFixedLimit;
+    // HorseFixedLimitCallPrice.ts). Fixed-limit hold'em cash only (2026-11-16,
+    // fixedLimitCallIsNotACommitmentInScope): a flo8 or tournament call keeps
+    // the commitment test.
+    const fixedLimitCallNotCommitted = fixedLimitCallIsNotACommitmentInScope(opts, vi, gs);
     const committedByStack =
       spr < 1.2 ||
       toCall >= stack ||
