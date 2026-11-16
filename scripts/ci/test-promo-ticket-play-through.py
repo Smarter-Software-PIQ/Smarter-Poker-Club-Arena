@@ -49,6 +49,9 @@ def main():
   captures=json.loads((ROOT/'tests/fixtures/ev-cashout-lifecycle/captured-authorities.json').read_text())['functions']
   db.run(next(r['definition'] for r in captures if r['signature'].split('(')[0]=='fn_ca_commit_hand_settlement'))
   inventory=json.loads(inventory_capture.read_text())
+  for r in inventory['funding_owners']:
+   db.run(r['definition']+';REVOKE ALL ON FUNCTION public.'+r['signature']+' FROM PUBLIC,anon,authenticated,service_role;')
+   check('actual custody prerequisite '+r['signature'],one(f"SELECT md5(pg_get_functiondef('public.{r['signature']}'::regprocedure))"),r['md5'])
   db.run('CREATE SCHEMA IF NOT EXISTS smarter_private;'+inventory['definition']+';REVOKE ALL ON FUNCTION smarter_private.original_inventory_proof_sources_match() FROM PUBLIC,anon,authenticated,service_role;')
   db.run(args.custody_migration.read_text())
   owners=json.loads((ROOT/'tests/fixtures/promo-ticket-play-through/current-owners.json').read_text())+json.loads((ROOT/'tests/fixtures/promo-ticket-play-through/additional-owners.json').read_text())+json.loads((ROOT/'tests/fixtures/promo-ticket-play-through/restricted-owner.json').read_text())+json.loads((ROOT/'tests/fixtures/promo-ticket-play-through/batch-owner.json').read_text())+json.loads((ROOT/'tests/fixtures/promo-ticket-play-through/promo-batch-owner.json').read_text())
