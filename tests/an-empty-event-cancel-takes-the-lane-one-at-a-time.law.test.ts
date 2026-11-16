@@ -38,6 +38,14 @@ describe('an empty-event cancel takes the lane one at a time', () => {
   });
 
   it('still cancels only through the database cancellation authority', () => {
-    expect(engine).toContain("await supabase.rpc('atomic_cancel_tournament', {");
+    const cancel = engine.slice(
+      engine.indexOf(
+        'const { data: receipt, error: cancelError } = await throughCancellationLane('
+      ),
+      engine.indexOf('if (cancelError && isCancellationLaneBusy(cancelError)) {')
+    );
+    expect(cancel).toContain("supabase.rpc('atomic_cancel_tournament', {");
+    expect(cancel).toContain('canContinue');
+    expect(lane).toContain('await work(canStart);');
   });
 });

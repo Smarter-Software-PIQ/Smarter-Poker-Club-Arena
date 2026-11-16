@@ -127,7 +127,7 @@ describe('the tab X asks on its own table', () => {
     const i = mt.indexOf('if (handsOwedAt(tabId) !== null) {');
     expect(i).toBeGreaterThan(0);
     // The owed branch runs before the last-table lobby branch, and ends at it.
-    const end = mt.indexOf('if (remaining.length === 0) {', i);
+    const end = mt.indexOf('if (tablesRef.current[activeIndexRef.current]?.id === tabId)', i);
     expect(end).toBeGreaterThan(i);
     const block = mt.slice(i, end);
     expect(block).toContain('setActiveIndex(idx)');

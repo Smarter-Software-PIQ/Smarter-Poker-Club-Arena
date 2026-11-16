@@ -2711,13 +2711,13 @@ jobs:
           fi
 
       - name: Record WebKit process failures from the runner kernel
-        if: failure() && steps.continuity.outcome == 'failure'
+        if: always() && (steps.continuity.outcome == 'success' || steps.continuity.outcome == 'failure')
         run: |
           started=$(cat "$RUNNER_TEMP/live-table-webkit-start")
           # An empty search is expected on a voluntary process exit. Preserve
           # journal read failures, and report an empty search as such.
           journal="$RUNNER_TEMP/live-table-kernel-journal"
-          sudo journalctl --kernel --since="@$started" --no-pager > "$journal"
+          sudo journalctl --dmesg --since="@$started" --no-pager > "$journal"
           if ! grep -Ei 'Out of memory|oom-kill|Killed process|WebKit.*segfault|WPE.*segfault|MiniBrowser.*segfault' "$journal"; then
             echo 'No matching kernel OOM or segmentation-fault message.'
           fi
