@@ -124,6 +124,23 @@ describe('the canary hole: a fleet that empties must not silence the alarm', () 
     expect(v.snapshot().belowFloorChecks).toBe(3);
   });
 
+  it('checks durable hands for Lightning fronts as well as ordinary table loops', async () => {
+    const ids = ['classic', ...Array.from({ length: 7 }, (_, i) => `lightning-front-${i}`)];
+    const v = new DealRateVerifier(() => ids);
+    pastBoot(v);
+    hands(150);
+    await v.check();
+    expect(v.snapshot().tablesExpectedDealing).toBe(8);
+    expect(handHistory.in).toHaveBeenCalledWith('table_id', ids);
+    expect(resolved).toContain('ClubArenaFleetFloorLost');
+    expect(raised).toEqual([]);
+    hands(0);
+    await v.check();
+    await v.check();
+    await v.check();
+    expect(raised.map((a) => a.alertname)).toContain('ClubArenaFleetSilent');
+  });
+
   it('resolves the floor alarm when the fleet comes back', async () => {
     let size = 1;
     const v = new DealRateVerifier(() => tables(size));

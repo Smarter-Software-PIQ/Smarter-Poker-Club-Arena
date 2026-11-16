@@ -298,7 +298,11 @@ function play(
       })
     ).toBeNull();
     out.bytes.push(
-      JSON.stringify(d, (k, x) => (k === 'latencyMs' || k === 'elapsedMs' ? undefined : x))
+      // Nested range analysis records wall-clock duration too. Keep every
+      // decision/equity/sample field; elapsed instrumentation is not policy.
+      JSON.stringify(d, (k, x) =>
+        k === 'latencyMs' || k === 'elapsedMs' || k === 'analysisMs' ? undefined : x
+      )
     );
     out.actions.push(d.action);
     out.fires.push(
