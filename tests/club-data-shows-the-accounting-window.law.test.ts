@@ -31,6 +31,7 @@ import { describe, expect, it } from 'vitest';
 import {
   accountingDay,
   accountingDayStart,
+  clubDataBoundaryClock,
   chicagoDay,
   chicagoDayStart,
   clubDataDayBasis,
@@ -104,16 +105,22 @@ describe('the invoice week is exactly [Nov 2 02:00, Nov 9 02:00) Chicago', () =>
 });
 
 describe('daylight saving comes from the zone database, never from +24 hours', () => {
-  it('fall back, Sunday 2026-11-01: Oct 31 runs 25 hours; 01:30 happens twice and is Oct 31', () => {
+  it('fall back: Pacific November 1 runs 25 hours and starts at 07:00Z', () => {
     expect(iso(accountingDayStart('2026-10-31'))).toBe('2026-10-31T07:00:00.000Z');
-    expect(iso(accountingDayStart('2026-11-01'))).toBe('2026-11-01T08:00:00.000Z');
-    const w = clubDataWindow('2026-10-31', '2026-10-31', 'accounting')!;
-    expect((w.end.getTime() - w.start.getTime()) / HOUR).toBe(25);
-    expect(accountingDay('2026-11-01T06:30:00Z')).toBe('2026-10-31'); // 01:30 CDT
-    expect(accountingDay('2026-11-01T07:30:00Z')).toBe('2026-10-31'); // 01:30 CST
-    expect(accountingDay('2026-11-01T07:59:59.999Z')).toBe('2026-10-31');
-    expect(accountingDay('2026-11-01T08:00:00Z')).toBe('2026-11-01');
-    // The week across the change is still seven accounting days, 169 hours.
+    expect(iso(accountingDayStart('2026-11-01'))).toBe('2026-11-01T07:00:00.000Z');
+    expect(
+      (clubDataWindow('2026-10-31', '2026-10-31', 'accounting')!.end.getTime() -
+        clubDataWindow('2026-10-31', '2026-10-31', 'accounting')!.start.getTime()) /
+        HOUR
+    ).toBe(24);
+    const day = clubDataWindow('2026-11-01', '2026-11-01', 'accounting')!;
+    expect((day.end.getTime() - day.start.getTime()) / HOUR).toBe(25);
+    expect(accountingDay('2026-11-01T06:59:59.999Z')).toBe('2026-10-31');
+    expect(accountingDay('2026-11-01T07:00:00Z')).toBe('2026-11-01');
+    expect(accountingDay('2026-11-01T07:30:00Z')).toBe('2026-11-01');
+    expect(accountingDay('2026-11-01T08:30:00Z')).toBe('2026-11-01');
+    expect(clubDataBoundaryClock('accounting', '2026-11-01')).toBe('1:00 AM');
+    expect(clubDataBoundaryClock('accounting', '2026-11-02')).toBe('2:00 AM');
     const week = clubDataWindow('2026-10-26', '2026-11-01', 'accounting')!;
     expect((week.end.getTime() - week.start.getTime()) / HOUR).toBe(169);
   });

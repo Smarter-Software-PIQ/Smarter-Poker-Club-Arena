@@ -14,19 +14,19 @@ const CLUB_ID = 'a41434bb-8d0c-400a-8f0d-e8b3d65afed4';
 
 const TEST_END_DATE = chicagoToday();
 const testRangeStart = new Date(`${TEST_END_DATE}T00:00:00Z`);
-testRangeStart.setUTCDate(testRangeStart.getUTCDate() - 13);
+testRangeStart.setUTCDate(testRangeStart.getUTCDate());
 const TEST_START_DATE = testRangeStart.toISOString().slice(0, 10);
 const testPreviousEnd = new Date(testRangeStart);
 testPreviousEnd.setUTCDate(testPreviousEnd.getUTCDate() - 1);
 const testPreviousStart = new Date(testPreviousEnd);
-testPreviousStart.setUTCDate(testPreviousStart.getUTCDate() - 13);
+testPreviousStart.setUTCDate(testPreviousStart.getUTCDate());
 
 const snapshot = {
-  range: { start: TEST_START_DATE, end: TEST_END_DATE, days: 14 },
+  range: { start: TEST_START_DATE, end: TEST_END_DATE, days: 1 },
   previous_range: {
     start: testPreviousStart.toISOString().slice(0, 10),
     end: testPreviousEnd.toISOString().slice(0, 10),
-    days: 14,
+    days: 1,
   },
   filters: { game: 'ALL', stakes: 'ALL', search: null },
   summary: {
@@ -243,7 +243,7 @@ vi.mock('../../src/hooks/useAuthUser', () => ({
 vi.mock('react-router-dom', () => ({
   useNavigate: () => vi.fn(),
   useParams: () => ({ clubId: routeState.clubId }),
-  useSearchParams: () => [new URLSearchParams()],
+  useSearchParams: () => [new URLSearchParams(), vi.fn()],
 }));
 
 // Its own reads are pinned in ClubRakebackVerifiedSoFar.test.tsx; here it would

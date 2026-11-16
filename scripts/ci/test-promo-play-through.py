@@ -72,12 +72,16 @@ CREATE TABLE public.chip_ledger (
   from_label text, to_type text, to_entity_id uuid, to_label text, amount numeric,
   category text, club_id uuid, status text DEFAULT 'posted', metadata jsonb,
   created_at timestamptz DEFAULT now());
-CREATE TABLE public.tables (id uuid PRIMARY KEY, tournament_id uuid);
+CREATE TABLE public.tables (id uuid PRIMARY KEY, tournament_id uuid, club_id uuid);
 CREATE TABLE public.table_seats (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(), table_id uuid, user_id uuid,
   stack numeric, left_at timestamptz);
 CREATE TABLE public.tournament_players (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tournament_id uuid, user_id uuid, status text);
+CREATE FUNCTION public.ca_club_roster_access(p_club uuid,p_target uuid) RETURNS text
+LANGUAGE sql STABLE AS $$ SELECT CASE WHEN EXISTS (
+ SELECT 1 FROM public.club_members WHERE club_id=p_club AND user_id=auth.uid()
+ AND role IN ('owner','co_owner','admin')) THEN 'staff' ELSE 'identity' END $$;
 CREATE TABLE public.ca_declared_money_triggers (
   table_name text, trigger_name text, note text, PRIMARY KEY (table_name, trigger_name));
 INSERT INTO public.club_members VALUES
@@ -372,7 +376,7 @@ def main():
               db.one("SELECT remaining::text || ':' || COALESCE(close_reason, 'open') "
                      f"FROM public.ca_promo_play_through_grants WHERE user_id = '{lost}'"), "10:open")
         seated = promo_then(2, 10)
-        db.run(f"INSERT INTO public.tables VALUES ('{TOUR_A}', NULL); "
+        db.run(f"INSERT INTO public.tables VALUES ('{TOUR_A}', NULL, '{CLUB}'); "
                f"INSERT INTO public.table_seats (table_id, user_id, stack) VALUES ('{TOUR_A}', '{seated}', 40)")
         check("promo still on a cash table keeps its lock when real chips arrive",
               arrive(seated, 110, "club_treasury", "club_bank_send", 100),
@@ -394,6 +398,26 @@ def main():
               (arrive(busted, 25, "club_treasury", "rakeback", 25),
                db.one(f"SELECT close_reason FROM public.ca_promo_play_through_grants WHERE user_id = '{busted}'")),
               ({"locked": 0.0, "wallet": 25.0, "cashable": 25.0}, "spent"))
+
+        # Multiple credit legs share one final wallet; subtract all of them.
+        batched = promo_then(6, 10)
+        db.run(f"BEGIN; UPDATE public.club_members SET chip_balance=210 WHERE club_id='{CLUB}' AND user_id='{batched}'; "
+               f"INSERT INTO public.chip_ledger (from_type, from_entity_id, to_type, to_entity_id, amount, category, club_id) "
+               f"VALUES ('agent_wallet','{BOB}','player_wallet','{batched}',100,'agent_send','{CLUB}'), "
+               f"('club_treasury','{BOB}','player_wallet','{batched}',100,'club_bank_send','{CLUB}'); COMMIT;")
+        check("batched real credits never keep lost promo locked", summary(user=batched)["cashable"], 200.0)
+        elsewhere = promo_then(7, 10)
+        db.run(f"INSERT INTO public.tables VALUES ('{TOUR_B}',NULL,'{OTHER_CLUB}'); "
+               f"INSERT INTO public.table_seats (table_id,user_id,stack) VALUES ('{TOUR_B}','{elsewhere}',500)")
+        check("a stack in another club cannot lock this club's real chips",
+              arrive(elsewhere,110,"agent_wallet","agent_send",100)["cashable"],100.0)
+
+        check("an owner can read the member's promo figure",
+              db.json(f"SET test.uid='{ALICE}'; SELECT public.fn_ca_members_promo_play_through('{CLUB}',ARRAY['{lost}'::uuid])")["members"][lost]["locked"],10)
+        check("a player cannot read another member's promo figure",
+              db.json(f"SET test.uid='{BOB}'; SELECT public.fn_ca_members_promo_play_through('{CLUB}',ARRAY['{lost}'::uuid])")["members"],{})
+        check("an unauthenticated caller cannot read member figures",
+              db.json(f"SET test.uid=''; SELECT public.fn_ca_members_promo_play_through('{CLUB}',ARRAY['{lost}'::uuid])")["success"],False)
 
         # 12. A browser role reaches only its own door.
         denied = db.run("SET ROLE authenticated; SELECT count(*) FROM public.ca_promo_play_through_grants", check=False)
