@@ -2414,6 +2414,16 @@
       "issue": "https://github.com/Smarter-Software-PIQ/Smarter-Poker-Club-Arena/pull/10884",
       "refusedBy": [],
       "liveVerdict": "Active-outage exception (PUBLISHING.md): applied directly through the Supabase MCP at 00:13 UTC on 2026-11-15 to end the 2026-11-14 mystery bounty stall (incidents f241ad73 fn_ca_tournament_dark_while_running and b4a1b5d7 MttPlayStopped; Union Mystery Bounty PLO5 a5957f99 and Evening Mystery Bounty PLO5 a88c4be4 dealt nothing while fn_mystery_bounty_seed raised 42883 on every sweep). One DO block that casts the sealed-ladder pool argument to bigint in fn_mystery_bounty_seed, nothing else. PR #10884 first committed an edited copy (header, BEGIN/COMMIT, an idempotency check) instead of these bytes; this row and file replace it with the byte-exact recording. Read against PRODUCTION read-only on 2026-11-15: fn_mystery_bounty_seed contains the ::bigint cast (and the 20261115015453 failure report patched over it), smarter_private.fn_ca_unresolved_function_calls reports no unresolved call in it, and both events activated their chests, paid all 7 awards each and completed. check-definer-authorization, check-money-trigger-declared, check-no-new-band-aids and check-explicit-table-access pass on it as an ordinary migration; it is recorded here because a recording cannot be edited to add its @live-proof line."
+    },
+    {
+      "version": "20261116044125",
+      "name": "a_shared_mystery_chest_settles_in_the_whole_chips_it_was_split_in",
+      "file": "supabase/migrations/20261116044125_a_shared_mystery_chest_settles_in_the_whole_chips_it_was_split_in.sql",
+      "md5": "9a0873e9cb36e6800c9436bd7dd76c6f",
+      "recoveredOn": "2026-11-16",
+      "recoveredFrom": "public.fn_ca_migration_text(20261116044125), byte-identical body; 9442 UTF-8 bytes, no appended newline. Independent schema_migrations.statements recovery agrees.",
+      "refusedBy": [],
+      "liveVerdict": "Read production 2026-11-16 04:41-04:43 UTC: marker definition MD5 11700b51aab5116d79a8dc0078242def; postgres-owned, STABLE SECURITY DEFINER, search_path public/pg_temp, ACL postgres/service_role only unchanged. No triggers created. Adds one-common-unit whole-chip mystery allocations while retaining canonical cent allocations for legacy awards; all exact total, paid, claimant and non-mystery guards remain. Existing reservation producer forces GREATEST(100, unit). Original 1100-cent award paid 600+500 at 04:42:27.896280 UTC through its existing outbox; no manual payment by this recording task. Installed version was first observed at 04:41:42; actor, original installation route and exact installation timestamp are unknown, with no standard Apply receipt found. Recording is not endorsement of that route. The historical header names 44800 and a 04:45 pre-install measurement; those comments are preserved byte-exact and are not independently asserted by this recording. No migration is replayed."
     }
   ]
 }
