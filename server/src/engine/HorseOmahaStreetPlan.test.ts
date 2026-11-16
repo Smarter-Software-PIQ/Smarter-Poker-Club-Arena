@@ -24,6 +24,7 @@ import {
   type HorseDecideOpts,
 } from './HorseLogic.js';
 import { HorseMind } from './HorseMind.js';
+import { withoutMeasurements } from './HorseDeclaredWork.test-support.js';
 import {
   omahaPlanCardBucket,
   omahaPlanHeroInPosition,
@@ -96,8 +97,7 @@ const nodeAt = (
   mutate?.(f);
   return stateAt(f, f.actions.find((a) => a.ord === ord)!);
 };
-const decisionBytes = (d: unknown): string =>
-  JSON.stringify(d, (k, v) => (k === 'latencyMs' || k === 'elapsedMs' ? undefined : v));
+const decisionBytes = (d: unknown): string => JSON.stringify(withoutMeasurements(d));
 interface Outcome {
   bytes: string[];
   wagers: string[];

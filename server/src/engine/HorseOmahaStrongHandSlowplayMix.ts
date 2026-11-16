@@ -684,3 +684,21 @@ export function omahaSlowplayCheckDecision(
 export function omahaSlowplayAdmitsCheck(hero: SeatPlayer, gs: HorseGameStateV2): boolean {
   return omahaSlowplayCheckScope(hero, gs) !== null;
 }
+
+/**
+ * The validator's admission of the mix's bet -> check (review note N2,
+ * 2026-11-16): only WITH the request the receipt came with, in the receipt's
+ * game, in the check mix's spot re-run on that request. With no request the
+ * mix admits nothing: the two production validators (the decision client and
+ * the ablation worker) always pass the request, so no caller is cut off.
+ */
+export function omahaSlowplayAdmitsCheckWithRequest(
+  variant: string,
+  request: { player: SeatPlayer; gameState: HorseGameStateV2 } | undefined
+): boolean {
+  return (
+    request !== undefined &&
+    String(request.gameState.gameVariant).toLowerCase() === variant &&
+    omahaSlowplayAdmitsCheck(request.player, request.gameState)
+  );
+}

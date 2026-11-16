@@ -2805,7 +2805,11 @@ export class HorseMind {
    * opponent-memory owner's to add. A raise and a turn bet have no such row.
    *
    * Null outside an Omaha decision. Pure: no fires, no writes. Only HorseLogic
-   * calls it, and only with omahaFacingBetEv on.
+   * calls it: with omahaFacingBetEv on (turn and river), with
+   * omahaTurnRiverRaiseNeedsNuts on (the same exact-hand count), and with
+   * omahaBareOverpairOopFlopCheck on for the continuation's FLOP decision,
+   * which passes street 'turn' (the street only selects the river
+   * size-shown cell, so a flop decision reads no such cell).
    */
   static omahaFacingBetEvReadOf(
     userId: string,
