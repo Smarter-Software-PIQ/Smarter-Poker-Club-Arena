@@ -1,3 +1,7 @@
+import {
+  verifyPublishedControllerSettings,
+  expectPublishedControllerSettings,
+} from './support/actionControllerSettingsProof';
 import { verifyLightningStaleCashout } from './support/lightningStaleCashout';
 import { verifyLightningPreviousHandReview } from './support/lightningPreviousHandReview';
 import { tapLightningFold, verifyLightningFoldFrames } from './support/lightningFoldFrames';
@@ -1849,6 +1853,21 @@ test.describe('production routed gameplay customization', () => {
 
       const settings = await openTableSettings(writer);
       const studio = await openStudio(settings);
+      await verifyPublishedControllerSettings(studio, async () => {
+        const result = await account!.client
+          .from('user_page_preferences')
+          .select('value')
+          .eq('user_id', account!.id)
+          .eq('preference_key', 'action-controller:global')
+          .maybeSingle();
+        if (result.error) throw result.error;
+        return result.data?.value ?? null;
+      });
+      await expect(
+        studio
+          .getByRole('region', { name: 'Action Controller', exact: true })
+          .getByRole('button', { name: 'Casino Emerald', exact: true })
+      ).toHaveAttribute('aria-pressed', 'true');
       await tapReady(studio.getByRole('tab', { name: 'Buttons', exact: true }));
       await expect(studio.getByRole('button', { name: 'White D', exact: true })).toHaveAttribute(
         'aria-pressed',
@@ -2079,6 +2098,15 @@ test.describe('production routed gameplay customization', () => {
         '[gameplay-customization] private authenticated table signal reconciled the second table'
       );
       console.log('[gameplay-customization] every selected graphic survived a cold route reload');
+      await expectPublishedControllerSettings(await openTableSettings(writer));
+      await reader.reload({ waitUntil: 'domcontentloaded', timeout: RESPONSE_TIMEOUT });
+      await expect(
+        reader.locator('.multi-table-page__table-slot--active .table-page')
+      ).toHaveAttribute('data-felt-theme', 'carbon_red', { timeout: RESPONSE_TIMEOUT });
+      await expectPublishedControllerSettings(await openTableSettings(reader));
+      console.log(
+        '[action-controller] all six palettes rendered; custom preflop/postflop amounts persisted in the account and cold-rehydrated on both devices'
+      );
     } catch (error) {
       journeyFailure = error;
       // Evidence must not replace the original journey failure, retry its

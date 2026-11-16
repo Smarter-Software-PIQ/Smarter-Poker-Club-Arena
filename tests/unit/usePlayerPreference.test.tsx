@@ -472,3 +472,25 @@ it('leaves an identity updater idle while the account preference is loading', as
   await act(async () => {});
   expect(state.writes).toEqual([]);
 });
+
+it('keeps Action Controller colors and both preset groups account-wide across mounted tables and remount', async () => {
+  const { useActionControllerSettings } =
+    await import('../../src/hooks/useActionControllerSettings');
+  const first = renderHook(() => useActionControllerSettings(), { wrapper });
+  const second = renderHook(() => useActionControllerSettings(), { wrapper });
+  await act(async () => {});
+  act(() => first.result.current.update({ color: 'navy' }));
+  act(() => second.result.current.update({ preflop: [2, 2.2, 5, 6] }));
+  act(() => first.result.current.update({ postflop: [25, 40, 60, 125] }));
+  const expected = { color: 'navy', preflop: [2, 2.2, 5, 6], postflop: [25, 40, 60, 125] };
+  expect(second.result.current.settings).toEqual(expected);
+  first.unmount();
+  second.unmount();
+  await waitFor(() => expect(state.writes.at(-1)?.value).toEqual(expected));
+  expect(state.writes.at(-1)?.preference_key).toBe('action-controller:global');
+  const remount = renderHook(() => useActionControllerSettings(), { wrapper });
+  expect(remount.result.current.settings).toEqual(expected);
+  act(() => useUserStore.setState({ user: { id: 'preference-b' } as any }));
+  expect(remount.result.current.settings.color).toBe('blue');
+  expect(remount.result.current.settings.preflop).toEqual([2.5, 3, 3.5, 4]);
+});

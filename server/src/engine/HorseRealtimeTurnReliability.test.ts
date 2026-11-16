@@ -359,7 +359,12 @@ describe('W1.1 ServerTableEngineTurns pre-commit legalizer & side-game snapshot 
     }
   );
 
-  it('populates gameState.killPot and gameState.straddleSeat from real HandController getKillHandState() + getLastStraddleSeat()', async () => {
+  // 2026-11-15: this fixed-limit kill hand used to carry a posted straddle and
+  // pinned straddleSeat 3. A fixed-limit hand now refuses its straddle
+  // (AFixedLimitHandNeverPostsAStraddle.law.test.ts), so the real controller
+  // reports none and the snapshot forwards none; straddleSeat forwarding on a
+  // structure that straddles stays pinned by the legalizer test above.
+  it('populates gameState.killPot from real HandController getKillHandState(), and no straddleSeat for a fixed-limit hand that refused its straddle', async () => {
     vi.useFakeTimers();
     try {
       const engine = new ServerTableEngine(TABLE_ID) as any;
@@ -461,7 +466,7 @@ describe('W1.1 ServerTableEngineTurns pre-commit legalizer & side-game snapshot 
       expect((realState as unknown as Record<string, unknown>).killPot).toBeUndefined();
       expect((realState as unknown as Record<string, unknown>).straddleSeat).toBeUndefined();
       expect(hc.getKillHandState()).toEqual(killState);
-      expect(hc.getLastStraddleSeat()).toBe(3);
+      expect(hc.getLastStraddleSeat()).toBeNull();
 
       const horseSeat = realState.currentPlayerSeat;
       const horseSeatPlayer = realState.players.find((p) => p.seat === horseSeat)!;
@@ -514,7 +519,7 @@ describe('W1.1 ServerTableEngineTurns pre-commit legalizer & side-game snapshot 
       await vi.advanceTimersByTimeAsync(1_500);
 
       expect(capturedSnapshot?.gameState?.killPot).toEqual(killState);
-      expect(capturedSnapshot?.gameState?.straddleSeat).toBe(3);
+      expect(capturedSnapshot?.gameState?.straddleSeat).toBeUndefined();
       expect(capturedSnapshot?.gameState?.sevenDeuceEnabled).toBe(true);
       expect(capturedSnapshot?.gameState?.sevenDeuceBountyBB).toBe(4);
     } finally {

@@ -1,0 +1,50 @@
+# Omaha: three bets that become checks (hand 59517323)
+
+Date: 2026-11-15. Lane: PLO Strategy. Owner complaint and rulings 2026-11-15 (America/Chicago) on hand 59517323 (PLO5 1/2 cash). Three new options, all off by default (read `=== true`): `omahaBareOverpairOopFlopCheck`, `omahaOverpairNoOopBarrelVsValueLeader`, `omahaPairedRiverNoThinLeadVsValueLeader`.
+
+## What happened
+
+A Horse 4-bet aces before the flop and was called by one player who had position. It bet the 5-8-9 two-tone flop (99 into 357) with the bare overpair, bet the turn (233 into 555) with the overpair and a flush draw it had picked up, and on the river that paired the board bet 256 into 1,021 with aces up. The player, who had called both streets, moved all in with a full house; the Horse called 161.9 more and lost.
+
+## Root cause
+
+Each bet came from an equity bar: the flop EV comparator, the turn value and barrel branches, the river out-of-position block bet. Position enters them as a frequency or realisation factor, and none asks what the hands that called are. The 2026-11-06 paired-board river check needs the board paired by the turn; the made-hand defence's river check needs an opponent who bet or raised earlier. The unconditional river fix of 2026-11-14 (`ploPairedRiverCheckAfterCalled`, never delivered) failed its evaluation against a field that calls river bets whatever the board.
+
+## What changed
+
+New `server/src/engine/HorseOmahaOopChecks.ts` (three public-information spots) and `omahaOopCheckRules` in `HorseLogic.ts` (wager_rules node, after the paired-board river check). PLO4 and PLO5 cash, one board, high only, nothing to call:
+
+1. `omahaBareOverpairOopFlopCheck`: flop, an opponent still acts behind, one pair only, no flush draw and under eight straight outs, the flop two-tone or connected: the bet becomes a check. No opponent read. Receipt `omaha_bare_overpair_oop_flop_checked`.
+2. `omahaOverpairNoOopBarrelVsValueLeader`: turn, heads-up, the opponent acts behind and called the flop bet, still one pair (a draw picked up does not count), a straight possible on the board: the bet becomes a check, only against a measured postflop value leader. Receipts `omaha_overpair_oop_turn_barrel_checked`, `_withheld`.
+3. `omahaPairedRiverNoThinLeadVsValueLeader`: river, the final board paired, less than a full house, a live opponent called the flop or turn bet: the bet becomes a check, only when every live opponent is a measured postflop value leader. Receipts `omaha_paired_river_thin_lead_checked`, `_withheld`.
+
+No decision facing a bet changes. With all three unset or false the brain plays exactly as before. League cards plo4/plo5 for each; evidence files in `docs/horse-default-on.d/`.
+
+## Addition: hand 59521326
+
+A fourth option, `omahaPairedTurnNoBarrelWithoutBoatVsValueLeader` (off by default): turn, heads-up, out of position, the flop bet or raise called, the turn card pairs the board, less than a full house: the bet becomes a check, only against a measured postflop value leader. Receipts `omaha_paired_turn_barrel_checked`, `_withheld`. In that hand the river fold of the nut straight came from the 2026-10-25 paired-board fold, which overrode the reference decision's call at a price of 0.213; that rule is unchanged here.
+
+Two more options from the same hand, both off by default:
+
+- `omahaPairedBoardFoldRespectsPrice`: in PLO4/PLO5 cash the 2026-10-25 paired-board fold ("IT'S A FOLD 100% OF THE TIME", `2026-10-25-plo5-plo6-no-full-house-folds-on-a-paired-board.md`) does not override the reference decision when the call price is at most 0.25 and the Horse holds a straight or a flush, or the call is for the rest of an effective stack at least 60% in. Receipt `omaha_paired_board_fold_price_respected`. It narrows a binding owner rule and needs his ruling before it is switched on.
+- `omahaTurnBetNeedsRiverPlan`: a heads-up turn bet that would leave less than half the resulting pot behind becomes a check when the Horse's own river fold rules (one function, `omahaRiverShoveFoldVerdict`: the paired-board fold, then the big-bet tier) would fold more than 35% of the rivers to an all-in for what is left. In that geometry the all-in is under half the pot, so the big-bet tier cannot fold today. Receipt `omaha_turn_bet_without_river_plan_checked`.
+
+## Addition: hand 59526261
+
+`omahaPressureNeedsPostflopAggression` (off by default): in PLO4/PLO5 cash after the flop the V53 pressure play facing a bet and the preflop-width maniac call-down apply only when the bettor's own postflop betting is measured high; a preflop-wide or presumed-aggressive bettor who is a value leader or unmeasured after the flop gets none (receipt `omaha_pressure_withheld_value_leader`). With it, a turn or river value raise with a hand a possible straight or flush already beats becomes a call without a fresh scare card (receipt `omaha_value_raise_beaten_by_board_flatted`).
+
+## Addition: owner ruling 12:09
+
+`omahaOopTurnCheckAfterFlopCall` (off by default, no opponent read): heads-up and out of position on the turn after the flop bet or raise was called, a Horse without a nut-class hand checks. Having checked and facing the turn bet (also after calling a flop raise) it never raises, calls with four or more nut outs at a price within their share plus 0.15, folds with no nut out and one pair or a hand the board already beats at a price of 0.15 or more, and otherwise keeps today's call or fold. Receipts `omaha_oop_turn_check_after_flop_call`, `omaha_oop_turn_check_call_nut_draw`, `omaha_oop_turn_check_fold_no_outs`, `omaha_oop_turn_check_raise_flatted`.
+
+## The continuation of the flop check (same day, inside `omahaBareOverpairOopFlopCheck`)
+
+No new option. With `omahaBareOverpairOopFlopCheck` on, heads-up, having checked the bare pair out of position and facing the flop bet, the Horse never raises; it calls when the expected value of the call clears 2 percent of the final pot and folds otherwise (owner 11:39: hand, player, price and pot dependent, no blanket rule; owner 12:09: no check-raise without the nuts). The expected value is the Horse's exact cards against the bettor's range by his bet size, moved by his measured read, at the price, with a 0.75 out-of-position realisation discount, which is a stated constant and not measured. The turn and river facing-bet expected-value model has no flop form, so the flop uses the engine's equity helper on a private seeded stream. Receipts: `omaha_bare_overpair_oop_flop_check_called`, `omaha_bare_overpair_oop_flop_check_folded`, `omaha_bare_overpair_oop_flop_check_raise_flatted`. Multiway, the whole-stack call and a raise war on the flop keep today's decision; `omahaTurnRiverRaiseNeedsNuts` and the owner-ruled turn and river rules are not touched. Before and after tables: evidence archive `plo-handoff-review-01a1cbbd/overpaircont-20261115/MEASURE.md`. Not evaluated as value.
+
+## The spot redefined (owner 14:19 and 14:23, same day)
+
+Owner: "IT SHOULD BE ALL BIG PAIRS, KK AND QQ AS WELL WHEN THE HORSE HAS THE BETTING LEAD AND CONTROL OF THE HAND." The spot of `omahaBareOverpairOopFlopCheck`, for the check and for the continuation, is now: PLO4/PLO5 cash flop, the Horse was the last preflop aggressor (it has the betting lead: its raise, 3-bet or 4-bet was called), an opponent still acts behind, and its hand is a bare big pair: a pocket pair that is an overpair to the flop, or pocket queens or better (AA, KK, QQ) with at most one overcard on the flop; exactly one pair made, no flush draw and fewer than eight straight outs (backdoor draws only). Any flop texture. The check applies heads-up and multiway; the continuation stays heads-up and priced (coordinator decision: no never-fold floor). Without the lead, with top pair made by a board card, a small pair, a real draw or a set, the option does nothing. The earlier form in item 1 above (any single pair, a two-tone or connected flop, no lead test) is superseded.
+
+## Evaluation
+
+Not run. To be declared in the evidence archive (`plo-handoff-review-01a1cbbd/pairedriver-20261115/`) before any graded run; the verdicts are added here when they are read.

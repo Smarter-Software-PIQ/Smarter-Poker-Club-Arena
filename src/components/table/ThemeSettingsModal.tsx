@@ -1,3 +1,4 @@
+import { ActionControllerSettings } from './ActionControllerSettings';
 import { usePlayerPreference } from '../../hooks/usePlayerPreference';
 import {
   pendingAppearancePatch,
@@ -2274,6 +2275,7 @@ export function ThemeSettingsModal({
             </aside>
 
             <section className="tsc__catalog" data-theme-tab={activeTab}>
+              <ActionControllerSettings />
               {/* Tab Bar */}
               <div
                 className="theme-modal__tabs"

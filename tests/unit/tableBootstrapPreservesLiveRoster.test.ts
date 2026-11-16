@@ -50,6 +50,7 @@ function bootstrapHarness() {
       state = update(state);
     },
     setTableLoadFailure: vi.fn(),
+    setShoveOrFoldTable: vi.fn(),
     reportError: vi.fn(),
     parseTableArenaIdentity: () => ({ asset: 'chips', id: 'club-a' }),
     cashBuyInRange: () => ({ min: 10, max: 100 }),
@@ -89,6 +90,7 @@ function bootstrapHarness() {
           max_players: 2,
           game_type: 'tournament',
           tournament_id: tournamentId,
+          all_in_or_fold: true,
           small_blind: 15,
           big_blind: 30,
         },
@@ -122,6 +124,7 @@ describe('late table bootstrap cannot erase a live engine roster', () => {
     for (const key of ['players', 'positions', 'lastActions', 'lastBetAmounts']) {
       expect(h.read()[key], key).toBe(live[key]);
     }
+    expect(h.env.setShoveOrFoldTable).toHaveBeenCalledWith('table-a');
     expect(h.read().tableName).toBe('Heads Up');
     expect(h.read().blinds).toBe('150/300');
     expect(h.read().isFinalTable).toBe(true);

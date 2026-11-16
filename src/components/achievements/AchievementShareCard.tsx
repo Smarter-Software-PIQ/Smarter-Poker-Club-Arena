@@ -14,7 +14,7 @@
 
 import React, { useRef, useCallback, useState, useEffect } from 'react';
 import { downloadBlob } from '../../utils/downloadCsv';
-import { shareFile } from '../../lib/share';
+import { shareButtonLabel, shareFile } from '../../lib/share';
 import { haptic } from '../../services/HapticService';
 import './AchievementShareCard.css';
 import { reportError } from '../../utils/errorReporter';
@@ -249,7 +249,7 @@ export const AchievementShareCard: React.FC<AchievementShareCardProps> = ({
           plates={{
             secondary: { label: 'Close', onClick: onClose },
             primary: {
-              label: sharing ? 'Sharing...' : 'Share',
+              label: sharing ? 'Sharing...' : shareButtonLabel('image'),
               ink: 'white',
               onClick: handleShare,
               disabled: sharing,

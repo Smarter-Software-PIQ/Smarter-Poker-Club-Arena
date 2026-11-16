@@ -198,6 +198,25 @@ describe('the public measures', () => {
   });
 });
 
+describe('the default brain (both options off by default after their evaluations)', () => {
+  it('neither the made-hand defence nor the nut-class size fires with the options unset', () => {
+    for (const s of [spot(FA, 19), spot(FA, 22)]) {
+      const runs = decideMany(s, {
+        omahaBeatenMadeHandDefense: undefined,
+        omahaNutClassValueSize: undefined,
+      });
+      for (const feature of [
+        'omaha_turn_beaten_raise_flatted',
+        'omaha_turn_beaten_raise_fold_restored',
+        'omaha_beaten_fresh_card_check',
+        'omaha_beaten_river_no_value_bet',
+        'omaha_nut_class_pot_wager',
+      ])
+        expect(fired(runs, feature), feature).toBe(0);
+    }
+  });
+});
+
 describe('hand 59414191, turn: a set facing a pot-sized lead on the straight card', () => {
   it('the node is the recorded one', () => {
     const s = spot(FA, 19);
@@ -408,14 +427,18 @@ describe('the worker receipt', () => {
       horseDecisionReceiptRefusal(structuredClone(d), 'plo5', { player: s.hero, gameState: s.gs })
     ).toBeNull();
     expect(horseDecisionReceiptRefusal(structuredClone(d), 'plo5')).toBe('policy_graph');
-    // Against a request in which the Horse holds the nut straight it is refused.
+    // Against a request in which the Horse holds the nut straight it is
+    // admitted since omahaStrongHandSlowplayMix (owner 2026-11-15 14:13): a
+    // nut-class raise facing a bet becomes the call at a mixed frequency, and
+    // the request carries neither the option nor the draw, so the validator
+    // admits that call for its exact chips (omahaSlowplayAdmitsCall).
     const nuts = spot(FB5, 19, { hole: 'QsJc6d7c2d' });
     expect(
       horseDecisionReceiptRefusal(structuredClone(d), 'plo5', {
         player: nuts.hero,
         gameState: nuts.gs,
       })
-    ).toBe('policy_graph');
+    ).toBeNull();
   });
 
   it('the bet that became a check is admitted with the request that produces it', () => {

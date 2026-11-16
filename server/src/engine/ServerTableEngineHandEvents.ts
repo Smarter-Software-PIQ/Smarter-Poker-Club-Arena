@@ -1367,6 +1367,9 @@ export abstract class ServerTableEngineHandEvents extends ServerTableEngineSettl
         if (persistenceGeneration === undefined) {
           throw new Error(`HAND_COMPLETE for table ${this.tableId} has no persistence generation`);
         }
+        // A SEAT STAYS UNTIL ITS POT HAS BEEN PUSHED (2026-11-15): the
+        // presentation window opens here, before settlement is started.
+        this.markHandCompletedForPresentation();
         await this.handleHandCompleteEvent(event, players, persistenceGeneration);
         break;
       }

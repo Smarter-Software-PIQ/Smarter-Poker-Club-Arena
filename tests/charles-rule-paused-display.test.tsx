@@ -108,14 +108,10 @@ describe('the status read', () => {
   });
 });
 
-describe('the felt shows the pause', () => {
-  it('the Lightning pill shows the paused count, and the owed count wins over it', () => {
+describe('the felt hides the paused count until profit returns', () => {
+  it('the Lightning pill is absent out of profit and returns with the same owed count', () => {
     const view = render(<HitRunCountPill hands={null} paused={7} />);
-    const pill = screen.getByTestId('hit-run-paused-pill');
-    expect(pill).toHaveTextContent('Countdown Paused');
-    expect(pill).toHaveTextContent('7');
-    expect(pill).toHaveTextContent('Hands Left When You Are Back In Profit');
-    expect(pill).toHaveAttribute('aria-label', 'Countdown Paused - 7 Hands Left');
+    expect(view.container).toBeEmptyDOMElement();
     view.rerender(<HitRunCountPill hands={7} paused={7} />);
     expect(screen.queryByTestId('hit-run-paused-pill')).not.toBeInTheDocument();
     expect(screen.getByTestId('hit-run-count-pill')).toHaveTextContent('7');
@@ -123,7 +119,7 @@ describe('the felt shows the pause', () => {
     expect(view.container).toBeEmptyDOMElement();
   });
 
-  it('the seat-side tracker shows the paused count beside the hero', async () => {
+  it('the seat-side tracker hides the paused count and restores the owed count', async () => {
     rpc.mockResolvedValue({ data: { ok: true, seated: true, required: 0 }, error: null });
     const props = {
       tableId: 't1',
@@ -133,10 +129,7 @@ describe('the felt shows the pause', () => {
       heroPos: { x: 50, y: 95 },
     };
     const view = render(<HeroVpipTracker {...props} handsOwed={null} handsPaused={7} />);
-    const paused = screen.getByTestId('hero-hand-count-paused');
-    expect(paused).toHaveTextContent('Countdown Paused');
-    expect(paused).toHaveTextContent('7');
-    expect(paused).toHaveAttribute('aria-label', 'Countdown Paused - 7 Hands Left');
+    expect(screen.queryByTestId('hero-hand-count-paused')).not.toBeInTheDocument();
     expect(screen.queryByTestId('hero-hand-count')).not.toBeInTheDocument();
     view.rerender(<HeroVpipTracker {...props} handsOwed={7} handsPaused={7} />);
     expect(screen.queryByTestId('hero-hand-count-paused')).not.toBeInTheDocument();
