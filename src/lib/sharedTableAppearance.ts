@@ -1,3 +1,5 @@
+import { visibleShareCards } from './liveShareCards';
+import type { ShareableCard } from '../components/table/ShareHand';
 import { readSharedChips, type SharedChip } from './sharedChipFlights';
 import { readSharedDeal, type SharedDeal } from './sharedDeal';
 import { readSeatPaints, type SeatPaintEvent } from './sharedSeatPresentation';
@@ -19,6 +21,7 @@ export interface SharedTableAppearance {
   showAvatars: boolean;
   fourColor: boolean;
   maxPlayers: number;
+  positions?: (string | null)[];
   chips?: SharedChip[];
   deal?: SharedDeal;
   boardTiming?: SharedBoardTiming;
@@ -47,6 +50,15 @@ export function readSharedTableAppearance(value: unknown): SharedTableAppearance
   )
     return;
   return {
+    positions:
+      Array.isArray(v.positions) &&
+      v.positions.length <= 10 &&
+      v.positions.every(
+        (position) =>
+          position === null || /^(?:D|BTN|SB|BB|UTG(?:\+[12])?|MP(?:\+1)?|HJ|CO)$/.test(position)
+      )
+        ? v.positions
+        : undefined,
     skin: v.skin,
     background: v.background,
     cardBack: v.cardBack,
@@ -127,6 +139,7 @@ interface ObservedTable {
   appearance: SharedTableAppearance;
   seats: ObservedSeat[];
   timing?: StreetTiming;
+  viewerCards?: ShareableCard[];
 }
 
 // Keep cosmetics only. Financial facts and visible cards always come from the archive.
@@ -141,12 +154,17 @@ export function rememberObservedTable(
   hand: number,
   appearance: SharedTableAppearance,
   seats: ReadonlyArray<{ id: string; avatar?: string; frame?: string; aura?: string } | null>,
-  timing?: StreetTiming
+  timing?: StreetTiming,
+  viewerCards?: ShareableCard[]
 ) {
   if (!table || !viewer || !Number.isSafeInteger(hand) || hand < 1) return;
+  const previous = observedTable(table, viewer, hand);
+  // A background mount can finish the same hand after the visible table.
+  if (previous?.appearance.seatPaints?.length && !appearance.seatPaints?.length) return;
   const observation: ObservedTable = {
     table,
     viewer,
+    viewerCards: viewerCards?.length ? viewerCards : previous?.viewerCards,
     hand: String(hand),
     appearance,
     timing,
@@ -183,5 +201,10 @@ export function observedTable(
     return;
   const appearance = readSharedTableAppearance(saved.appearance);
   if (!appearance) return;
-  return { appearance, seats: saved.seats, timing: saved.timing };
+  return {
+    appearance,
+    seats: saved.seats,
+    timing: saved.timing,
+    viewerCards: visibleShareCards(saved.viewerCards).slice(0, 6),
+  };
 }

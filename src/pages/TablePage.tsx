@@ -11222,6 +11222,19 @@ function LiveTablePage({
       ]);
     }
   }, [activeThrows, isActive, tableState.handNumber, v8Settings.emoji_enabled]);
+  const visibleHeroCards = useRef<{
+    hand: number;
+    user: string;
+    cards: ReturnType<typeof visibleShareCards>;
+  } | null>(null);
+  useLayoutEffect(() => {
+    const hand = tableState.handNumber;
+    const player = tableState.players[tableState.heroSeat - 1];
+    if (!hand || !userId || !isActive || player?.id !== userId || heroCardsHandRef.current !== hand)
+      return;
+    const cards = visibleShareCards(player.holeCards);
+    if (cards.length) visibleHeroCards.current = { hand, user: userId, cards };
+  }, [tableState.handNumber, tableState.players, tableState.heroSeat, userId, isActive]);
   const visibleBoard = useRef<{ hand: number; times: SharedBoardTiming }>({ hand: 0, times: {} });
   const observeSharedBoard = useCallback((hand: string | number, count: number) => {
     const street = boardStreet(count);
@@ -21174,6 +21187,7 @@ function LiveTablePage({
           if (sharePlayers.length > 0) {
             const appearance = {
               ...shareAppearanceRef.current,
+              positions: st.positions.slice(),
               deal: paintedDeal.current,
               chips: [...paintedChips.current.paths],
               throws:
@@ -21221,7 +21235,11 @@ function LiveTablePage({
                   completedHand,
                   value,
                   completedSeats,
-                  completedTiming
+                  completedTiming,
+                  visibleHeroCards.current?.hand === completedHand &&
+                    visibleHeroCards.current.user === userId
+                    ? visibleHeroCards.current.cards
+                    : undefined
                 );
             };
             persistAppearance(appearance);
