@@ -414,6 +414,24 @@ $agent$||needle);
  EXECUTE def;
 END $ticket_batch_owner$;
 
+-- A distinct entry point makes a newer client's agent choice fail safely on
+-- an older database that ignores ticket source in the legacy batch envelope.
+-- It delegates to the same original batch and per-ticket monetary owner.
+INSERT INTO public.ca_money_rpc_registry(proname,status,notes) VALUES
+ ('fn_cashier_agent_ticket_batch','approved','Compatibility wrapper for explicit agent ticket funding; delegates the original shared cashier batch, never falls back to player funding.')
+ON CONFLICT(proname) DO UPDATE SET status=EXCLUDED.status,notes=EXCLUDED.notes;
+CREATE FUNCTION public.fn_cashier_agent_ticket_batch(p_club_id uuid,p_kind text,p_items jsonb,p_batch_id uuid)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path='public','pg_temp' AS $$
+BEGIN
+ IF auth.uid() IS NULL THEN RETURN jsonb_build_object('success',false,'error','Not Authenticated'); END IF;
+ IF p_kind IS DISTINCT FROM 'ticket' OR jsonb_typeof(p_items) IS DISTINCT FROM 'array'
+  OR EXISTS(SELECT 1 FROM jsonb_array_elements(p_items) item WHERE item->>'source' IS DISTINCT FROM 'agent_wallet') THEN
+  RETURN jsonb_build_object('success',false,'error','Choose Agent Wallet Ticket Funding'); END IF;
+ RETURN public.fn_cashier_batch_transfer(p_club_id,p_kind,p_items,p_batch_id);
+END $$;
+REVOKE ALL ON FUNCTION public.fn_cashier_agent_ticket_batch(uuid,text,jsonb,uuid) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.fn_cashier_agent_ticket_batch(uuid,text,jsonb,uuid) TO authenticated,service_role;
+
 -- Cancellation returns a new agent-funded ticket to its recorded source.
 -- Historical player and promo ticket refund branches remain unchanged.
 DO $ticket_cancel_owner$

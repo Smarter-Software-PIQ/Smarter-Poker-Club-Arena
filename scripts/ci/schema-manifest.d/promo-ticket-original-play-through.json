@@ -18,6 +18,7 @@
     "fn_ca_promo_nonwallet_entry",
     "fn_issue_tournament_ticket_phase2_core_20260831",
     "fn_issue_tournament_ticket_agent",
-    "fn_ca_issue_cashable_ticket_owned"
+    "fn_ca_issue_cashable_ticket_owned",
+    "fn_cashier_agent_ticket_batch"
   ]
 }

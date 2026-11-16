@@ -38,5 +38,10 @@ describe('Tickets use cashable player or agent chips; promo enters tournaments d
     expect(sql).toContain('fn_ca_promo_integrity_locked_at');
     expect(sql).toContain('promo_refund_entitlement_does_not_match_credit');
     expect(sql).toContain('fn_ca_promo_lock_grant_funds');
+    expect(sql).toContain('CREATE FUNCTION public.fn_cashier_agent_ticket_batch');
+    expect(page).toContain("'fn_cashier_agent_ticket_batch'");
+    expect(page).toContain(
+      "else if (kind === 'ticket' && uncertainRecovery.source === 'agent_wallet')"
+    );
   });
 });

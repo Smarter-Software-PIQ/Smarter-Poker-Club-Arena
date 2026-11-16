@@ -82,7 +82,7 @@ def main():
   check('player ticket keeps locked original promo in sender wallet',held(),'50')
   reset()
   batch=str(uuid.uuid4());items=json.dumps([{'user_id':B,'amount':40,'source':'agent_wallet','idempotency_key':'agent-ticket-40'}])
-  result=call(A,f"fn_cashier_batch_transfer('{C}','ticket','{items}'::jsonb,'{batch}')")
+  result=call(A,f"fn_cashier_agent_ticket_batch('{C}','ticket','{items}'::jsonb,'{batch}')")
   check('existing batch accepts cashable agent wallet ticket',result['results'][0].get('success'),True)
   tid=result['results'][0]['ticket_id']
   check('agent ticket debits original agent wallet only',one(f"SELECT agent_wallet_balance FROM agents WHERE club_id='{C}' AND user_id='{A}'"),'60')

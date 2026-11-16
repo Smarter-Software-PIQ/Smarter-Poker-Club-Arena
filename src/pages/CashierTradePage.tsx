@@ -3310,10 +3310,8 @@ function CashierTradeWorkspace() {
                       }),
                 }
           );
-          /* A promo funded value ticket has its own door: the promo wallet is
-             debited into the ticket escrow and the receipt counts toward the
-             downline's shared promo allowance. One round trip per chunk, each
-             recipient with the retry key the wallet batch would have carried. */
+          /* Only an unresolved historical promo intent uses this old door.
+             Exact receipt replay remains supported; new purchases refuse. */
           const promoTicket =
             kind === 'ticket' && !boundTournamentId && uncertainRecovery.source === 'promo_wallet';
           let data: unknown;
@@ -3333,6 +3331,15 @@ function CashierTradeWorkspace() {
             // An unanswered call is an unknown outcome: retry replays by key.
             if (promoError) throw promoError;
             data = promoBatch;
+          } else if (kind === 'ticket' && uncertainRecovery.source === 'agent_wallet') {
+            // A distinct RPC refuses safely on an older server; its legacy
+            // ticket batch would otherwise ignore source and debit player chips.
+            const { data: agentBatch, error: agentError } = await supabase.rpc(
+              'fn_cashier_agent_ticket_batch',
+              { p_club_id: clubUuid, p_kind: kind, p_items: items, p_batch_id: submissionId }
+            );
+            if (agentError) throw agentError;
+            data = agentBatch;
           } else {
             const { data: batch, error } = await supabase.rpc('fn_cashier_batch_transfer', {
               p_club_id: clubUuid,
