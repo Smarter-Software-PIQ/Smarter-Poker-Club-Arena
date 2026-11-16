@@ -22,6 +22,7 @@ import { HorseLogic, type HorseDecideOpts } from './HorseLogic.js';
 import { HorseMind } from './HorseMind.js';
 import type { OmahaReadConditional } from './HorseOmahaReadConditional.js';
 import {
+  omahaGradedTurnOuts,
   omahaOopTurnCheckAfterFlopCallSpot,
   omahaOopTurnFacingBetVerdict,
 } from './HorseOmahaOopChecks.js';
@@ -180,6 +181,7 @@ const WAGERS = ['bet', 'raise', 'all_in'];
 const wagers = (o: Outcome) => o.actions.filter((a) => WAGERS.includes(a)).length;
 const hasFire = (o: Outcome, f: string) => o.fires.filter((x) => x.includes(f)).length;
 const only = (o: Outcome) => [...new Set(o.actions)].sort();
+const BEATEN_BOATS = '9s5sKcJc3c'; // two pair, nines and fives, on 5d 8d 9h 2h
 const NO_OUTS = 'AsAdQs7c4c'; // aces, no flush draw, no nut straight out, on 5d 8d 9h 2h
 const NUTS = 'As6s7cQs4h'; // 6-7: the nut straight on 5d 8d 9h 2h
 
@@ -278,6 +280,28 @@ describe('facing the turn bet after the check', () => {
     );
     const token = () => facingTurnBet(FX_ACES, TURN, 60, NO_OUTS);
     expect(omahaOopTurnFacingBetVerdict(token().hero, token().gs)).toBe('no_raise');
+  });
+
+  it('graded nut outs (PLO4/PLO5): a two-pair hand whose four full-house outs a bigger full house beats does not reach the 4-out call; a nut full house counts whole', () => {
+    const board = cards('5d8d9h2h');
+    // nines and fives: four river cards fill it, every one beaten by a bigger full house
+    expect(omahaGradedTurnOuts(cards(BEATEN_BOATS), board)).toBeCloseTo(2.8, 6);
+    // a set of nines: ten river cards, every full house or quads the nuts or beaten by none
+    expect(omahaGradedTurnOuts(cards('9s9cKcJs3c'), board)).toBe(10);
+    // the aces' seven nut outs (flush and straight) count whole
+    expect(omahaGradedTurnOuts(cards('AsAhQs7c4h'), board)).toBe(7);
+    const build = () => facingTurnBet(FX_ACES, TURN, 185, BEATEN_BOATS);
+    // the whole-card count is four (the threshold); the graded sum is 2.8
+    expect(omahaOopTurnFacingBetVerdict(build().hero, build().gs)).toBe('no_raise');
+    const off = play(build, {});
+    const on = play(build, ON);
+    expect(wagers(on)).toBe(0);
+    on.actions.forEach((a, i) => {
+      // no forced call: today's call or fold stands, a raise becomes a call
+      if (off.actions[i] === 'fold' || off.actions[i] === 'call') expect(a).toBe(off.actions[i]);
+      else expect(a).toBe('call');
+    });
+    expect(hasFire(on, 'omaha_oop_turn_check_call_nut_draw')).toBe(0);
   });
 
   it('59526261, top set after calling the flop raise: the turn is a check, then a CALL of the 162 bet, never the raise', () => {
