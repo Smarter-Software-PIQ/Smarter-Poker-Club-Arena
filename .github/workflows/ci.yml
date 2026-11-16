@@ -1991,6 +1991,12 @@ jobs:
           PG_BIN: /usr/lib/postgresql/17/bin
           TMPDIR: ${{ runner.temp }}
         run: python3 scripts/ci/test-union-send-db-postgres.py
+      - name: Weekly Rakeback Status reads only records and real deadlines (20261116020505)
+        if: matrix.shard == 2
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+          TMPDIR: ${{ runner.temp }}
+        run: python3 scripts/ci/test-weekly-rakeback-status-postgres.py
       - name: A cashier list names a member by the arena name (20261010005048)
         if: matrix.shard == 2
         env:

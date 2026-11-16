@@ -15,11 +15,13 @@ import { formatWalletChips } from '../../utils/format';
 import { titleCase } from '../../utils/titleCase';
 import { chicagoDayLabel, chicagoInstantLabel } from '../../utils/unionStatementBoard';
 import {
+  elapsedLabel,
   parseWeeklyRakebackStatus,
   weeklyRakebackOverall,
   WEEKLY_RAKEBACK_REFRESH_MS,
   type RakebackStage,
   type RakebackStageState,
+  type WeeklyRakebackOverall,
   type WeeklyRakebackStatus as Status,
 } from '../../utils/weeklyRakebackStatus';
 import { SpadeConsole, type ConsoleInk } from '../console/SpadeConsole';
@@ -28,16 +30,19 @@ import styles from '../../pages/UnionStatementsPage.module.css';
 const STATE_WORD: Record<RakebackStageState, string> = {
   waiting: 'Waiting',
   running: 'Running',
+  not_finished: 'Not Finished Yet',
+  not_checked: 'Not Checked Yet',
   done: 'Done',
   late: 'Late',
   failed: 'Failed',
 };
 
-const OVERALL_INK: Record<ReturnType<typeof weeklyRakebackOverall>, ConsoleInk> = {
+const OVERALL_INK: Record<WeeklyRakebackOverall, ConsoleInk> = {
   Failed: 'red',
   Late: 'gold',
   Running: 'blue',
   Done: 'green',
+  'Not Finished': 'silver',
   Waiting: 'silver',
 };
 
@@ -75,6 +80,22 @@ function StageRow({ stage }: { stage: RakebackStage }) {
             <StateWord state={stage.state} />
             {stage.detail && <span>{stage.detail}</span>}
             {stage.at && <span>{chicagoInstantLabel(stage.at)} Chicago Time</span>}
+            {stage.state !== 'done' && stage.state !== 'waiting' && stage.scheduled_at && (
+              <span>Scheduled {chicagoInstantLabel(stage.scheduled_at)} Chicago Time</span>
+            )}
+            {stage.state !== 'done' && stage.elapsed_seconds !== null && (
+              <span>{elapsedLabel(stage.elapsed_seconds)} Elapsed</span>
+            )}
+            {stage.state !== 'done' &&
+              stage.state !== 'failed' &&
+              (stage.deadline_at ? (
+                <span>
+                  Deadline {chicagoInstantLabel(stage.deadline_at)} Chicago Time
+                  {stage.deadline_source ? ` (${stage.deadline_source})` : ''}
+                </span>
+              ) : (
+                <span>No Deadline Set</span>
+              ))}
           </div>
         </div>
         {stage.amount !== null && (
@@ -160,6 +181,11 @@ export default function WeeklyRakebackStatus({ unionId }: { unionId: string }) {
           <div className={styles.periodBar}>
             <div className={`sc-label sc-ink--blue ${styles.periodLabel}`}>
               Week Ending {chicagoDayLabel(status.period.end)}
+            </div>
+            <div className={`sc-ink--silver ${styles.unionName}`}>
+              Accounting Period{' '}
+              {status.period.label ??
+                `${chicagoInstantLabel(status.period.start)} To ${chicagoInstantLabel(status.period.end)} (America/Chicago)`}
             </div>
             {status.scheduled_for && (
               <div className={`sc-ink--silver ${styles.unionName}`}>

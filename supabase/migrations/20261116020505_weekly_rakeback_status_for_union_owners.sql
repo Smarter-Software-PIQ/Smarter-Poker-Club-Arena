@@ -15,12 +15,48 @@
 -- WHAT THIS ADDS. ONE new read-only function,
 -- public.ca_union_weekly_rakeback_status(p_union_id, p_period_end default
 -- NULL = the most recent week, public.fn_union_week_start(now())). It returns
--- {period, scheduled_for, in_progress, stages[], statements[], last_updated,
--- generated_at}; the seven stages are Preparation, Clubs Paid, Agents Paid,
--- Players Paid, Statements Sent, Invoices Match Club Data and Books Closed,
--- each {key,label,state,at,amount,count,detail} with state one of
--- waiting / running / done / late / failed. Sources, all read with plain
--- SELECTs:
+-- {union_id, period{start,end,time_zone,start_local,end_local,label},
+-- scheduled_for, scheduled_for_local, in_progress, stages[], statements[],
+-- last_updated, generated_at}. The accounting period runs from 2:00 AM
+-- America/Chicago Monday to 2:00 AM America/Chicago the next Monday, and the
+-- label names it with its zone, e.g. "Mon Nov 9, 2026 2:00 AM CST To Mon Nov
+-- 16, 2026 2:00 AM CST (America/Chicago)". The seven stages are Preparation,
+-- Clubs Paid, Agents Paid, Players Paid, Statements Sent, Invoices Match Club
+-- Data and Books Closed, each {key, label, state, at, amount, count, detail,
+-- scheduled_at, deadline_at, deadline_source, elapsed_seconds}.
+--
+-- STATES COME ONLY FROM RECORDS AND FROM DEADLINES THE SYSTEM ALREADY HAS.
+--   done          a record says so (a round receipt, a delivery row for every
+--                 club statement, a matching Club Data check for every club
+--                 statement, a complete and successful book close row).
+--   failed        a record says it failed (a released payout run whose result
+--                 says success false / paid false / error; a Club Data check
+--                 that differs or could not read the screen; a book close row
+--                 with status 'failed').
+--   late          ONLY past a deadline the payout code itself enforces:
+--                   * a booked round-runner run's money_deadline_at (booked
+--                     time + 20 hours, written by
+--                     smarter_private.weekly_payout_next_round and applied to
+--                     every round as app.weekly_accounting_scope_deadline);
+--                   * the automatic payout window, run time + 24 hours: the
+--                     round runner (cron job weekly-payout-rounds) returns
+--                     NULL from then on, the slot path stops after its 24
+--                     hourly slots and raises WeeklyPayoutUnpaidAfterLastSlot.
+--                 A round's deadline is the earlier of the two once a run is
+--                 booked, the window close before that.
+--   running       a record shows the work under way (run phase 'paying' for
+--                 the next unpaid round, a pausing run, a book close row with
+--                 status 'running').
+--   not_finished  past the run time, nothing recorded yet, and the stage has
+--                 no deadline of its own (Statements Sent), or its deadline
+--                 has not passed: shown with the run time and elapsed time.
+--   not_checked   Invoices Match Club Data and Books Closed with no
+--                 verification record for the week (never green by default).
+--   waiting       before the run time.
+-- No threshold is invented here: Statements Sent, Invoices Match Club Data
+-- and Books Closed have no authoritative deadline, so they are never late.
+--
+-- SOURCES, all read with plain SELECTs:
 --   weekly_accounting_payout_pauses (instance 'weekly-payout-rounds': phase,
 --     money_starts_at, money_deadline_at, result->'rounds'),
 --   union_settlement_rounds (the per-round receipt, written as each round
@@ -29,13 +65,11 @@
 --   settlement_invoices union_weekly_squareup + union_weekly_credit_note with
 --     accounting_invoice_deliveries (delivered = a delivery row exists, the
 --     rule of 20261115151821),
---   smarter_private.weekly_invoice_club_data_checks (statement vs Club Data),
---   union_accounting_runs (book close status).
+--   smarter_private.weekly_invoice_club_data_checks (statement vs Club Data,
+--     the row must name the statement shown),
+--   union_accounting_runs (book close status, finished_at, result success).
 -- Round figures are the union scope only, exactly as the owner notices of
 -- 20261115205037 count them; receipts win over the pauses result.
--- Late rules: no round 1 by run time + 30 minutes (the payout_late notice
--- rule); a later round not paid by the pause's money deadline; statements
--- not all delivered and books not closed 24 hours after the run time.
 --
 -- WHO MAY CALL IT. Exactly the caller rule of the Union Statements board
 -- reader public.ca_union_statement_board: IF NOT ca_can_oversee_union(
@@ -48,13 +82,14 @@
 -- takes only ACCESS SHARE locks that cannot block the payout, and it runs
 -- with statement_timeout 5s and lock_timeout 1s.
 --
--- MEASURED (production, read-only, 2026-11-15, the exact body run in a
--- rolled-back DO block as the union owner) for the week ending 2026-11-09
--- 08:00Z: Clubs Paid 840,213.67 to 3 clubs, Agents Paid 695.49 to 20 agents,
--- Players Paid 642,268.52 to 1,339 payees, statements MIDWAY-2026-000037..041
+-- PRODUCTION RECORDS (read-only SELECTs, 2026-11-15/16) for the week ending
+-- 2026-11-09 08:00Z: round receipts 840,213.67 to 3 clubs, 695.49 to 20
+-- agents, 642,268.52 to 1,339 payees; statements MIDWAY-2026-000037..041
 -- with the four club statements delivered (000040 is the union's own house
--- row, record-only), Invoices Match Club Data waiting (the self-check
--- started after that week), Books Closed done 2026-11-11 09:06Z.
+-- row, record-only); no Club Data check rows (the self-check started after
+-- that week), so Invoices Match Club Data reads Not Checked Yet; book close
+-- row complete, success true, finished 2026-11-11 09:06Z. This body was
+-- proved only on the native PostgreSQL fixture, never run on production.
 --
 -- @live-proof: to_regprocedure('public.ca_union_weekly_rakeback_status(uuid,timestamp with time zone)') IS NOT NULL AND has_function_privilege('authenticated','public.ca_union_weekly_rakeback_status(uuid,timestamp with time zone)','EXECUTE') AND NOT has_function_privilege('anon','public.ca_union_weekly_rakeback_status(uuid,timestamp with time zone)','EXECUTE') AND position('ca_can_oversee_union(p_union_id)' IN pg_get_functiondef('public.ca_union_weekly_rakeback_status(uuid,timestamp with time zone)'::regprocedure))>0
 BEGIN;
@@ -74,24 +109,31 @@ DECLARE
   v_end timestamptz;
   v_start timestamptz;
   v_due timestamptz;
+  v_window_end timestamptz;
   v_day date;
   v_phase text;
   v_announced timestamptz;
   v_money_start timestamptz;
-  v_deadline timestamptz;
+  v_money_deadline timestamptz;
   v_ack timestamptz;
   v_result jsonb;
   v_has_pz boolean := false;
+  v_has_bk boolean := false;
   v_bk_status text;
   v_bk_attempts int;
   v_bk_started timestamptz;
   v_bk_finished timestamptz;
+  v_bk_success text;
   rp record;
   st record;
   v_round record;
   v_r jsonb[] := ARRAY[NULL, NULL, NULL]::jsonb[];
   v_state text;
   v_detail text;
+  v_at timestamptz;
+  v_deadline timestamptz;
+  v_deadline_source text;
+  v_elapsed bigint;
   v_prev_done boolean;
   v_paying boolean;
   v_failed_run boolean;
@@ -100,10 +142,12 @@ DECLARE
   v_round_labels text[] := ARRAY['Clubs Paid','Agents Paid','Players Paid'];
   v_round_keys text[] := ARRAY['clubs_paid','agents_paid','players_paid'];
   v_round_noun text[] := ARRAY['Club','Agent','Payee'];
-  v_late_at timestamptz;
+  v_window_source text := 'Automatic Payout Window Closes (Run Time Plus 24 Hours)';
   v_all_done boolean;
   v_any_running boolean;
   v_last timestamptz;
+  v_start_local text;
+  v_end_local text;
   v_out jsonb;
 BEGIN
   IF NOT ca_can_oversee_union(p_union_id) THEN
@@ -113,11 +157,13 @@ BEGIN
   v_end := COALESCE(p_period_end, fn_union_week_start(v_now));
   v_start := fn_union_week_start(v_end - interval '1 day');
   v_due := fn_union_accounting_run_at(v_end);
+  v_window_end := v_due + interval '24 hours';
   v_day := fn_ca_accounting_day(v_start);
+  v_elapsed := CASE WHEN v_now >= v_due THEN floor(extract(epoch FROM v_now - v_due))::bigint END;
 
   -- The week's payout run (the newest attempt of the round runner).
   SELECT p.phase, p.announced_at, p.money_starts_at, p.money_deadline_at, p.acknowledged_at, p.result
-    INTO v_phase, v_announced, v_money_start, v_deadline, v_ack, v_result
+    INTO v_phase, v_announced, v_money_start, v_money_deadline, v_ack, v_result
     FROM weekly_accounting_payout_pauses p
    WHERE p.period_end = v_end AND p.instance_id = 'weekly-payout-rounds'
    ORDER BY p.attempt_no DESC NULLS LAST, p.created_at DESC
@@ -125,7 +171,7 @@ BEGIN
   v_has_pz := FOUND;
   v_paying := v_has_pz AND v_phase = 'paying';
   v_failed_run := v_has_pz AND v_phase = 'released'
-    AND COALESCE(v_result->>'success' = 'false' OR v_result ? 'error', false);
+    AND COALESCE(v_result->>'success' = 'false' OR v_result->>'paid' = 'false' OR v_result ? 'error', false);
 
   -- Each round: the receipt first, then the routed run, then the run result.
   FOR i IN 1..3 LOOP
@@ -168,35 +214,53 @@ BEGIN
      AND (r.club_id = p_union_id
           OR r.club_id IN (SELECT uc.club_id FROM union_clubs uc WHERE uc.union_id = p_union_id));
 
-  -- 1. Preparation.
-  IF v_has_pz AND (v_phase IN ('paying','released') OR v_r[1] IS NOT NULL) THEN
+  -- 1. Preparation. Deadline: the automatic payout window.
+  v_deadline := v_window_end;
+  v_deadline_source := v_window_source;
+  v_at := NULL;
+  IF v_has_pz AND v_phase <> 'draining' THEN
     v_state := 'done';
-    v_detail := 'Games Paused And Payout Released';
-  ELSIF v_has_pz THEN
-    v_state := 'running';
-    v_detail := 'Pausing Games Before The Payout';
+    v_detail := 'Payout Run Booked';
+    v_at := COALESCE(v_ack, v_money_start, v_announced);
   ELSIF v_r[1] IS NOT NULL THEN
     v_state := 'done';
     v_detail := 'Payout Released';
-  ELSIF v_now >= v_due + interval '30 minutes' THEN
-    v_state := 'late';
-    v_detail := 'The Payout Has Not Started';
-  ELSE
+    v_at := (v_r[1]->>'at')::timestamptz;
+  ELSIF v_has_pz THEN
+    v_state := 'running';
+    v_detail := 'Pausing Games Before The Payout';
+    v_at := v_announced;
+  ELSIF v_now < v_due THEN
     v_state := 'waiting';
-    v_detail := 'Starts Monday At 4:00 AM Chicago Time';
+    v_detail := 'Starts At The Scheduled Run Time';
+  ELSIF v_now >= v_deadline THEN
+    v_state := 'late';
+    v_detail := 'No Payout Run Was Booked Before The Automatic Payout Window Closed';
+  ELSE
+    v_state := 'not_finished';
+    v_detail := 'Not Finished Yet: No Payout Run Booked';
   END IF;
   v_stages := v_stages || jsonb_build_object('key', 'preparation', 'label', 'Preparation', 'state', v_state,
-    'at', COALESCE(v_ack, v_money_start, v_announced),
-    'amount', NULL, 'count', rp.n,
-    'detail', v_detail || ' (' || to_char(rp.n, 'FM999,999,990') || ' Rakeback Periods)');
+    'at', v_at, 'amount', NULL, 'count', rp.n,
+    'detail', v_detail || ' (' || to_char(rp.n, 'FM999,999,990') || ' Rakeback Periods)',
+    'scheduled_at', v_due, 'deadline_at', v_deadline, 'deadline_source', v_deadline_source,
+    'elapsed_seconds', CASE WHEN v_state IN ('done', 'waiting') THEN NULL ELSE v_elapsed END);
 
-  -- 2-4. The three payment rounds.
+  -- 2-4. The three payment rounds. Deadline: the booked run's money deadline,
+  -- never later than the automatic payout window; the window before booking.
+  IF v_has_pz AND v_money_deadline IS NOT NULL AND v_money_deadline < v_window_end THEN
+    v_deadline := v_money_deadline;
+    v_deadline_source := 'Payout Run Money Deadline (Booked Time Plus 20 Hours)';
+  ELSE
+    v_deadline := v_window_end;
+    v_deadline_source := v_window_source;
+  END IF;
   v_prev_done := true;
   FOR i IN 1..3 LOOP
-    v_late_at := CASE WHEN i = 1 THEN v_due + interval '30 minutes'
-                      ELSE COALESCE(v_deadline, v_due + interval '24 hours') END;
+    v_at := NULL;
     IF v_r[i] IS NOT NULL THEN
       v_state := 'done';
+      v_at := (v_r[i]->>'at')::timestamptz;
       v_detail := to_char((v_r[i]->>'payees')::bigint, 'FM999,999,990') || ' '
         || v_round_noun[i] || CASE WHEN (v_r[i]->>'payees')::bigint = 1 THEN '' ELSE 's' END || ' Paid';
       IF i = 3 AND rp.n > 0 THEN
@@ -205,20 +269,26 @@ BEGIN
       END IF;
     ELSIF v_failed_run THEN
       v_state := 'failed';
-      v_detail := 'The Payout Run Stopped Before This Round';
-    ELSIF v_now >= v_late_at AND v_now >= v_due THEN
+      v_detail := 'The Payout Run Recorded A Failure Before This Round';
+    ELSIF v_now >= v_deadline THEN
       v_state := 'late';
-      v_detail := 'Not Paid By ' || to_char(v_late_at AT TIME ZONE 'America/Chicago', 'FMHH12:MI AM') || ' Chicago Time';
+      v_detail := 'Not Paid By ' || to_char(v_deadline AT TIME ZONE 'America/Chicago', 'Dy Mon FMDD FMHH12:MI AM')
+        || ' Chicago Time';
     ELSIF v_paying AND v_prev_done THEN
       v_state := 'running';
       v_detail := 'Paying Now';
-    ELSE
+    ELSIF v_now < v_due THEN
       v_state := 'waiting';
       v_detail := CASE WHEN i = 1 THEN 'Waiting For The Payout To Start' ELSE 'Waiting For ' || v_round_labels[i - 1] END;
+    ELSE
+      v_state := 'not_finished';
+      v_detail := CASE WHEN v_prev_done THEN 'Not Finished Yet' ELSE 'Not Finished Yet: Waiting For ' || v_round_labels[i - 1] END;
     END IF;
     v_prev_done := v_r[i] IS NOT NULL;
     v_stages := v_stages || jsonb_build_object('key', v_round_keys[i], 'label', v_round_labels[i], 'state', v_state,
-      'at', v_r[i]->'at', 'amount', v_r[i]->'amount', 'count', v_r[i]->'payees', 'detail', v_detail);
+      'at', v_at, 'amount', v_r[i]->'amount', 'count', v_r[i]->'payees', 'detail', v_detail,
+      'scheduled_at', v_due, 'deadline_at', v_deadline, 'deadline_source', v_deadline_source,
+      'elapsed_seconds', CASE WHEN v_state IN ('done', 'waiting') THEN NULL ELSE v_elapsed END);
   END LOOP;
 
   -- The week's statements (house row included and marked) with credit notes.
@@ -245,7 +315,8 @@ BEGIN
            'number', d.invoice_number, 'club', d.club_name, 'club_id', d.club_id, 'house', d.house,
            'direction', d.direction, 'amount', round(COALESCE(d.net_amount, 0), 2), 'status', d.status,
            'delivered', d.delivered, 'delivered_at', d.delivered_at,
-           'matches_club_data', CASE WHEN d.read_error IS NOT NULL THEN false ELSE d.matches END,
+           'matches_club_data', CASE WHEN NOT d.checked THEN NULL WHEN d.read_error IS NOT NULL THEN false ELSE d.matches END,
+           'checked_at', d.checked_at,
            'credit_notes', COALESCE((
              SELECT jsonb_agg(jsonb_build_object('number', cn.invoice_number, 'amount', round(cn.net_amount, 2),
                       'delivered', EXISTS (SELECT 1 FROM accounting_invoice_deliveries x WHERE x.invoice_id = cn.id))
@@ -259,86 +330,111 @@ BEGIN
          max(d.delivered_at) FILTER (WHERE NOT d.house) AS delivered_at,
          count(*) FILTER (WHERE NOT d.house AND d.checked) AS checked,
          count(*) FILTER (WHERE NOT d.house AND d.checked AND d.matches IS TRUE AND d.read_error IS NULL) AS ok,
-         max(d.checked_at) FILTER (WHERE NOT d.house) AS checked_at,
-         string_agg(CASE WHEN NOT d.house AND d.checked AND (d.matches IS NOT TRUE OR d.read_error IS NOT NULL)
-                         THEN COALESCE(d.club_name, d.invoice_number) END, ', ' ORDER BY d.invoice_number) AS differ
+         count(*) FILTER (WHERE NOT d.house AND d.checked AND d.read_error IS NULL AND d.matches IS FALSE) AS mismatched,
+         count(*) FILTER (WHERE NOT d.house AND d.checked AND d.read_error IS NOT NULL) AS unread,
+         max(d.checked_at) FILTER (WHERE NOT d.house AND d.checked) AS checked_at,
+         string_agg(CASE WHEN NOT d.house AND d.checked AND d.read_error IS NULL AND d.matches IS FALSE
+                         THEN COALESCE(d.club_name, d.invoice_number) END, ', ' ORDER BY d.invoice_number) AS differ,
+         string_agg(CASE WHEN NOT d.house AND d.checked AND d.read_error IS NOT NULL
+                         THEN COALESCE(d.club_name, d.invoice_number) END, ', ' ORDER BY d.invoice_number) AS unread_names
     INTO st
     FROM d;
   v_statements := st.list;
 
-  -- 5. Statements Sent (club statements; the house row is record-only).
+  -- 5. Statements Sent (club statements; the house row is record-only). No
+  -- authoritative deadline: never late.
+  v_at := NULL;
   IF st.n > 0 AND st.delivered = st.n THEN
     v_state := 'done';
     v_detail := st.delivered || ' Of ' || st.n || ' Club Statements Delivered';
-  ELSIF v_now >= v_due + interval '24 hours' THEN
-    v_state := 'late';
-    v_detail := CASE WHEN st.n = 0 THEN 'No Statements Issued Yet'
-                     ELSE st.delivered || ' Of ' || st.n || ' Club Statements Delivered' END;
-  ELSIF st.n > 0 THEN
-    v_state := 'running';
-    v_detail := st.delivered || ' Of ' || st.n || ' Club Statements Delivered';
-  ELSE
+    v_at := st.delivered_at;
+  ELSIF v_now < v_due AND st.n = 0 THEN
     v_state := 'waiting';
     v_detail := 'Statements Are Issued After The Payout';
+  ELSE
+    v_state := 'not_finished';
+    v_detail := 'Not Finished Yet: ' || CASE WHEN st.n = 0 THEN 'No Statements Issued Yet'
+      ELSE st.delivered || ' Of ' || st.n || ' Club Statements Delivered' END;
   END IF;
   v_stages := v_stages || jsonb_build_object('key', 'statements_sent', 'label', 'Statements Sent', 'state', v_state,
-    'at', CASE WHEN v_state = 'done' THEN st.delivered_at END, 'amount', NULL, 'count', st.delivered, 'detail', v_detail);
+    'at', v_at, 'amount', NULL, 'count', st.delivered, 'detail', v_detail,
+    'scheduled_at', v_due, 'deadline_at', NULL, 'deadline_source', NULL,
+    'elapsed_seconds', CASE WHEN v_state IN ('done', 'waiting') THEN NULL ELSE v_elapsed END);
 
-  -- 6. Invoices Match Club Data.
-  IF st.n > 0 AND st.checked > st.ok THEN
+  -- 6. Invoices Match Club Data: only the check rows decide.
+  v_at := CASE WHEN st.checked > 0 THEN st.checked_at END;
+  IF st.mismatched + st.unread > 0 THEN
     v_state := 'failed';
-    v_detail := 'Differs From Club Data: ' || COALESCE(st.differ, '');
-  ELSIF st.n > 0 AND st.checked = st.n THEN
+    v_detail := concat_ws('. ',
+      CASE WHEN st.mismatched > 0 THEN 'Differs From Club Data: ' || st.differ END,
+      CASE WHEN st.unread > 0 THEN 'Club Data Could Not Be Read: ' || st.unread_names END);
+  ELSIF st.n > 0 AND st.ok = st.n THEN
     v_state := 'done';
     v_detail := st.ok || ' Of ' || st.n || ' Club Statements Match';
-  ELSIF st.checked > 0 THEN
-    v_state := 'running';
-    v_detail := st.checked || ' Of ' || st.n || ' Club Statements Checked';
   ELSE
-    v_state := 'waiting';
-    v_detail := CASE WHEN st.n = 0 THEN 'Checked Once The Statements Are Issued' ELSE 'Not Checked Yet' END;
+    v_state := 'not_checked';
+    v_detail := 'Not Checked Yet' || CASE WHEN st.n = 0 THEN ': No Club Statements Issued Yet'
+      ELSE ': ' || st.checked || ' Of ' || st.n || ' Club Statements Checked' END;
   END IF;
   v_stages := v_stages || jsonb_build_object('key', 'invoices_match', 'label', 'Invoices Match Club Data', 'state', v_state,
-    'at', CASE WHEN st.checked > 0 THEN st.checked_at END, 'amount', NULL, 'count', st.ok, 'detail', v_detail);
+    'at', v_at, 'amount', NULL, 'count', st.ok, 'detail', v_detail,
+    'scheduled_at', v_due, 'deadline_at', NULL, 'deadline_source', NULL,
+    'elapsed_seconds', CASE WHEN v_state IN ('done', 'waiting') THEN NULL ELSE v_elapsed END);
 
-  -- 7. Books Closed.
-  SELECT a.status, a.attempts, a.started_at, a.finished_at
-    INTO v_bk_status, v_bk_attempts, v_bk_started, v_bk_finished
+  -- 7. Books Closed: only the union's book close row decides.
+  SELECT a.status, a.attempts, a.started_at, a.finished_at, a.result->>'success'
+    INTO v_bk_status, v_bk_attempts, v_bk_started, v_bk_finished, v_bk_success
     FROM union_accounting_runs a
    WHERE a.period_end = v_end AND a.scope_kind = 'union' AND a.scope_id = p_union_id
    ORDER BY a.finished_at DESC NULLS FIRST
    LIMIT 1;
-  IF v_bk_status = 'complete' THEN
+  v_has_bk := FOUND;
+  IF v_bk_status = 'complete' AND v_bk_finished IS NOT NULL AND v_bk_success = 'true' THEN
     v_state := 'done';
     v_detail := 'Week Closed';
+    v_at := v_bk_finished;
   ELSIF v_bk_status = 'failed' THEN
     v_state := 'failed';
-    v_detail := 'Close Failed After ' || COALESCE(v_bk_attempts, 0) || ' Attempts';
+    v_detail := 'The Last Close Attempt Failed (' || COALESCE(v_bk_attempts, 0) || ' Attempts)';
+    v_at := COALESCE(v_bk_finished, v_bk_started);
   ELSIF v_bk_status = 'running' THEN
-    v_state := CASE WHEN v_now >= v_due + interval '24 hours' THEN 'late' ELSE 'running' END;
+    v_state := 'running';
     v_detail := 'Closing The Week';
-  ELSIF v_now >= v_due + interval '24 hours' THEN
-    v_state := 'late';
-    v_detail := 'The Week Has Not Closed';
+    v_at := v_bk_started;
   ELSE
-    v_state := 'waiting';
-    v_detail := 'Closes After The Payout';
+    v_state := 'not_checked';
+    v_detail := CASE WHEN v_has_bk THEN 'Not Checked Yet: The Close Record Does Not Show A Successful Close'
+      ELSE 'Not Checked Yet: No Book Close Record For This Week' END;
+    v_at := v_bk_started;
   END IF;
   v_stages := v_stages || jsonb_build_object('key', 'books_closed', 'label', 'Books Closed', 'state', v_state,
-    'at', CASE WHEN v_bk_status = 'complete' THEN v_bk_finished ELSE v_bk_started END,
-    'amount', NULL, 'count', NULL, 'detail', v_detail);
+    'at', v_at, 'amount', NULL, 'count', NULL, 'detail', v_detail,
+    'scheduled_at', v_due, 'deadline_at', NULL, 'deadline_source', NULL,
+    'elapsed_seconds', CASE WHEN v_state IN ('done', 'waiting') THEN NULL ELSE v_elapsed END);
 
   SELECT bool_and(e->>'state' = 'done'), bool_or(e->>'state' = 'running'),
          max(CASE WHEN e->>'at' IS NOT NULL THEN (e->>'at')::timestamptz END)
     INTO v_all_done, v_any_running, v_last
     FROM jsonb_array_elements(v_stages) e;
 
+  v_start_local := to_char(v_start AT TIME ZONE 'America/Chicago', 'Dy Mon FMDD, YYYY FMHH12:MI AM')
+    || CASE WHEN (v_start AT TIME ZONE 'America/Chicago') - (v_start AT TIME ZONE 'UTC') = interval '-5 hours'
+            THEN ' CDT' ELSE ' CST' END;
+  v_end_local := to_char(v_end AT TIME ZONE 'America/Chicago', 'Dy Mon FMDD, YYYY FMHH12:MI AM')
+    || CASE WHEN (v_end AT TIME ZONE 'America/Chicago') - (v_end AT TIME ZONE 'UTC') = interval '-5 hours'
+            THEN ' CDT' ELSE ' CST' END;
+
   v_out := jsonb_build_object(
     'union_id', p_union_id,
-    'period', jsonb_build_object('start', v_start, 'end', v_end),
+    'period', jsonb_build_object('start', v_start, 'end', v_end, 'time_zone', 'America/Chicago',
+      'start_local', v_start_local, 'end_local', v_end_local,
+      'label', v_start_local || ' To ' || v_end_local || ' (America/Chicago)'),
     'scheduled_for', v_due,
+    'scheduled_for_local', to_char(v_due AT TIME ZONE 'America/Chicago', 'Dy Mon FMDD, YYYY FMHH12:MI AM')
+      || CASE WHEN (v_due AT TIME ZONE 'America/Chicago') - (v_due AT TIME ZONE 'UTC') = interval '-5 hours'
+              THEN ' CDT' ELSE ' CST' END,
     'in_progress', COALESCE(v_any_running, false)
-      OR (v_now >= v_due AND v_now < v_due + interval '24 hours' AND NOT COALESCE(v_all_done, false)),
+      OR (v_now >= v_due AND v_now < v_window_end AND NOT COALESCE(v_all_done, false)),
     'stages', v_stages,
     'statements', v_statements,
     'last_updated', v_last,

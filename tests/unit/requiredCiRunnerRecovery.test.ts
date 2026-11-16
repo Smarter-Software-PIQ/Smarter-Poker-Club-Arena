@@ -1236,7 +1236,8 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
       // Retain both original top-up receipt and funded satellite qualifications.
       // Every other normalized job and prior accounting command is unchanged.
       // November 12: retain the exact added #10498 real PostgreSQL socket-loss step.
-      accounting_postgres: 'f2cde001f3fe6542ceb807b51c0fce3d65f26610fdc43a8234a995f9bda29620',
+      // November 15: retain the exact added Weekly Rakeback Status PostgreSQL step (shard 2).
+      accounting_postgres: 'ab92dde4ec8a7d961b1a539afe4b108d636461dc0d7e7877fe5399aef7b5638a',
       server_shards: '0d259b20866a7d0b2eb6a3245894908e52e210c9852c4b63519086461724ac0f',
       server: '2f21fe942c1e2397520fe372a5b46b95e252bc6276e017f95013a2a24a62d9c1',
       verdict: '51ff5df41add022dc51ea5bcacb648971c4db7b63fd03990b47a99ece3a5c529',

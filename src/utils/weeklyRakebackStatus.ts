@@ -6,7 +6,19 @@
  * may read it again. Nothing here moves chips.
  */
 
-export type RakebackStageState = 'waiting' | 'running' | 'done' | 'late' | 'failed';
+/**
+ * done / failed come only from records; late only past a deadline the payout
+ * code enforces; not_finished is past the run time with no deadline passed;
+ * not_checked is a verification stage with no verification record.
+ */
+export type RakebackStageState =
+  | 'waiting'
+  | 'running'
+  | 'not_finished'
+  | 'not_checked'
+  | 'done'
+  | 'late'
+  | 'failed';
 
 export interface RakebackStage {
   key: string;
@@ -16,6 +28,11 @@ export interface RakebackStage {
   amount: number | null;
   count: number | null;
   detail: string;
+  scheduled_at: string | null;
+  /** Null when the system has no authoritative deadline for this stage. */
+  deadline_at: string | null;
+  deadline_source: string | null;
+  elapsed_seconds: number | null;
 }
 
 export interface RakebackCreditNote {
@@ -37,7 +54,7 @@ export interface RakebackStatement {
 
 export interface WeeklyRakebackStatus {
   union_id: string;
-  period: { start: string; end: string };
+  period: { start: string; end: string; time_zone: string | null; label: string | null };
   scheduled_for: string | null;
   in_progress: boolean;
   stages: RakebackStage[];
@@ -49,7 +66,15 @@ export interface WeeklyRakebackStatus {
 /** The page reads again at most this often, and only while a run is in progress. */
 export const WEEKLY_RAKEBACK_REFRESH_MS = 60_000;
 
-const STATES: readonly RakebackStageState[] = ['waiting', 'running', 'done', 'late', 'failed'];
+const STATES: readonly RakebackStageState[] = [
+  'waiting',
+  'running',
+  'not_finished',
+  'not_checked',
+  'done',
+  'late',
+  'failed',
+];
 
 type JsonRecord = Record<string, unknown>;
 
@@ -113,6 +138,10 @@ export function parseWeeklyRakebackStatus(value: unknown): WeeklyRakebackStatus 
       amount: amount(s.amount, `Stage ${i + 1} amount`),
       count: count(s.count, `Stage ${i + 1} count`),
       detail: typeof s.detail === 'string' ? s.detail : '',
+      scheduled_at: instant(s.scheduled_at, `Stage ${i + 1} scheduled time`),
+      deadline_at: instant(s.deadline_at, `Stage ${i + 1} deadline`),
+      deadline_source: optionalText(s.deadline_source),
+      elapsed_seconds: count(s.elapsed_seconds, `Stage ${i + 1} elapsed time`),
     };
   });
   const statements = root.statements.map((raw, i): RakebackStatement => {
@@ -141,6 +170,8 @@ export function parseWeeklyRakebackStatus(value: unknown): WeeklyRakebackStatus 
     period: {
       start: instant(period.start, 'Period start') ?? '',
       end: text(period.end, 'Period end'),
+      time_zone: optionalText(period.time_zone),
+      label: optionalText(period.label),
     },
     scheduled_for: instant(root.scheduled_for, 'Scheduled time'),
     in_progress: root.in_progress === true,
@@ -151,14 +182,37 @@ export function parseWeeklyRakebackStatus(value: unknown): WeeklyRakebackStatus 
   };
 }
 
-/** One word for the whole week: the worst stage wins. */
-export function weeklyRakebackOverall(
-  status: WeeklyRakebackStatus
-): 'Failed' | 'Late' | 'Running' | 'Done' | 'Waiting' {
+/** "1 Hr 5 Min" for an elapsed time in seconds. */
+export function elapsedLabel(seconds: number): string {
+  const minutes = Math.floor(seconds / 60);
+  const days = Math.floor(minutes / 1440);
+  const hours = Math.floor((minutes % 1440) / 60);
+  const mins = minutes % 60;
+  const parts: string[] = [];
+  if (days) parts.push(`${days} ${days === 1 ? 'Day' : 'Days'}`);
+  if (hours) parts.push(`${hours} Hr`);
+  if (mins || parts.length === 0) parts.push(`${mins} Min`);
+  return parts.join(' ');
+}
+
+export type WeeklyRakebackOverall =
+  | 'Failed'
+  | 'Late'
+  | 'Running'
+  | 'Done'
+  | 'Not Finished'
+  | 'Waiting';
+
+/**
+ * One word for the whole week: the worst stage wins. Green ("Done") only when
+ * every stage, both verification stages included, is done by its record.
+ */
+export function weeklyRakebackOverall(status: WeeklyRakebackStatus): WeeklyRakebackOverall {
   const states = status.stages.map((s) => s.state);
   if (states.includes('failed')) return 'Failed';
   if (states.includes('late')) return 'Late';
-  if (status.in_progress || states.includes('running')) return 'Running';
+  if (states.includes('running')) return 'Running';
   if (states.length > 0 && states.every((s) => s === 'done')) return 'Done';
-  return 'Waiting';
+  if (states.every((s) => s === 'waiting' || s === 'not_checked')) return 'Waiting';
+  return 'Not Finished';
 }

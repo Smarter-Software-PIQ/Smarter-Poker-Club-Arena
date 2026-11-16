@@ -8,18 +8,21 @@ the tables it reads, the production body of public.ca_can_oversee_union
 (captured 2026-11-15, pg_get_functiondef) with a stub overseer check, and a
 week clock whose run time the test moves around now(). Then it proves:
 
-  * before the run: every stage waiting, nothing in progress;
-  * late: no payout 30 minutes after the run time -> Preparation and Clubs
-    Paid late, in progress;
-  * mid-run after round 1: Preparation and Clubs Paid done with the round 1
-    receipt (840,213.67 to 3 clubs), Agents Paid running, the rest waiting,
-    in progress; club-scoped round rows are ignored;
-  * all done: every stage done, statements listed in number order with the
-    house row marked and record-only, delivery from delivery rows, credit
-    notes under their statement, Club Data match per statement, and round 3
-    taken from the payout result when no receipt exists;
-  * a statement that differs from Club Data fails that stage; a failed run
-    fails the unpaid rounds; a failed close fails Books Closed;
+  * the period is named exactly, 2:00 AM America/Chicago to 2:00 AM
+    America/Chicago, with its zone;
+  * before the run: payout stages waiting, the two verification stages
+    (Invoices Match Club Data, Books Closed) Not Checked Yet, never green;
+  * past the run time with nothing recorded: Not Finished Yet with the run
+    time, elapsed time and the deadline, NOT late; late only once a deadline
+    the payout code enforces has passed (the automatic window, run time + 24
+    hours, or a booked run's money_deadline_at);
+  * mid-run after round 1: Agents Paid running, club-scoped rows ignored;
+  * no verification record, partial checks and a check of an older statement
+    stay Not Checked Yet; a mismatching or unreadable check fails the stage;
+  * Statements Sent has no deadline: still Not Finished Yet three days later;
+  * books not closed (no row, pending, complete without success) are Not
+    Checked Yet; running is running; failed is failed; a failed run fails
+    the unpaid rounds;
   * only the union overseer or a platform admin may read it (42501
     otherwise, the Union Statements board rule), anon and PUBLIC cannot
     execute it, authenticated can;
@@ -157,7 +160,7 @@ try:
         adjusts_invoice_id uuid, created_at timestamptz DEFAULT now());
       CREATE TABLE public.accounting_invoice_deliveries(invoice_id uuid, recipient_id uuid, delivered_at timestamptz DEFAULT now());
       CREATE TABLE public.union_accounting_runs(union_id uuid, period_start timestamptz, period_end timestamptz,
-        status text, attempts int, started_at timestamptz, finished_at timestamptz, scope_kind text, scope_id uuid);
+        status text, attempts int, started_at timestamptz, finished_at timestamptz, scope_kind text, scope_id uuid, result jsonb);
       CREATE TABLE smarter_private.weekly_invoice_club_data_checks(period_end timestamptz NOT NULL, club_id uuid NOT NULL,
         invoice_id uuid NOT NULL, invoice_number text, matches boolean, read_error text,
         checked_at timestamptz NOT NULL DEFAULT clock_timestamp(), PRIMARY KEY (period_end, club_id));
@@ -191,23 +194,54 @@ try:
     assert r.returncode != 0 and 'permission denied' in r.stderr, r.stderr
     assert status(ADMIN)['union_id'] == UNION
 
-    # 1. Before the run.
+    LABEL = 'Mon Nov 9, 2026 2:00 AM CST To Mon Nov 16, 2026 2:00 AM CST (America/Chicago)'
+
+    # 1. Before the run: nothing ran, the two verification stages say Not Checked Yet.
     due('1 hour')
     s = status()
-    assert set(states(s).values()) == {'waiting'}, states(s)
+    st = states(s)
+    assert st == {'preparation': 'waiting', 'clubs_paid': 'waiting', 'agents_paid': 'waiting',
+                  'players_paid': 'waiting', 'statements_sent': 'waiting', 'invoices_match': 'not_checked',
+                  'books_closed': 'not_checked'}, st
     assert s['in_progress'] is False and s['statements'] == [] and s['last_updated'] is None, s
     assert stage(s, 'preparation')['count'] == 5 and s['period']['end'].startswith('2026-11-16T08:00:00'), s
+    assert s['period']['start'].startswith('2026-11-09T08:00:00'), s
+    assert s['period']['time_zone'] == 'America/Chicago' and s['period']['label'] == LABEL, s['period']
+    assert s['period']['start_local'] == 'Mon Nov 9, 2026 2:00 AM CST', s['period']
+    assert stage(s, 'invoices_match')['detail'] == 'Not Checked Yet: No Club Statements Issued Yet', s
+    assert stage(s, 'books_closed')['detail'] == 'Not Checked Yet: No Book Close Record For This Week', s
+    assert all(x['elapsed_seconds'] is None for x in s['stages'] if x['state'] == 'waiting'), s
 
-    # 2. Late: nothing 30 minutes after the run time.
+    # 2. An hour past the run time with no run: NOT late (no deadline has passed),
+    #    Not Finished Yet with the run time, elapsed time and the window deadline.
     due('-1 hour')
     s = status()
     st = states(s)
-    assert st['preparation'] == 'late' and st['clubs_paid'] == 'late' and st['agents_paid'] == 'waiting', st
-    assert st['statements_sent'] == 'waiting' and st['books_closed'] == 'waiting', st
+    assert st['preparation'] == 'not_finished' and st['clubs_paid'] == 'not_finished', st
+    assert 'late' not in st.values() and 'done' not in st.values(), st
+    assert st['statements_sent'] == 'not_finished', st
+    assert st['invoices_match'] == 'not_checked' and st['books_closed'] == 'not_checked', st
     assert s['in_progress'] is True
+    p = stage(s, 'preparation')
+    assert 3590 <= p['elapsed_seconds'] <= 3700, p
+    assert p['detail'] == 'Not Finished Yet: No Payout Run Booked (5 Rakeback Periods)', p
+    assert p['scheduled_at'] == s['scheduled_for'] and p['deadline_source'].startswith('Automatic Payout Window'), p
+    c = stage(s, 'clubs_paid')
+    assert c['deadline_at'] == p['deadline_at'] and c['detail'] == 'Not Finished Yet', c
+    ss = stage(s, 'statements_sent')
+    assert ss['deadline_at'] is None and ss['deadline_source'] is None and ss['elapsed_seconds'] >= 3590, ss
+
+    # 3. Late only past the authoritative window close (run time + 24 hours).
+    due('-25 hours')
+    s = status()
+    st = states(s)
+    assert st['preparation'] == 'late' and st['clubs_paid'] == 'late' and st['players_paid'] == 'late', st
+    assert st['statements_sent'] == 'not_finished' and st['books_closed'] == 'not_checked', st
+    assert s['in_progress'] is False, s
     assert stage(s, 'clubs_paid')['detail'].startswith('Not Paid By '), s
 
-    # 3. Mid-run after round 1 (club-scoped rows ignored).
+    # 4. Mid-run after round 1 (club-scoped rows ignored): a booked run carries
+    #    its own money deadline; the later rounds are not late before it.
     due('-20 minutes')
     psql(f"""INSERT INTO public.weekly_accounting_payout_pauses(period_end, instance_id, attempt_no, phase, announced_at,
                money_starts_at, money_deadline_at, acknowledged_at, result) VALUES
@@ -215,19 +249,28 @@ try:
        now() + interval '20 hours', now() - interval '23 minutes',
        '{{"rounds":[{{"round":1,"amount":0.10,"payees":0,"scope_kind":"club","scope_id":"{KINGS}"}}],"success":true}}'),
       ('{WEEK}', 'weekly-payout-rounds', 2, 'paying', now() - interval '21 minutes', now() - interval '19 minutes',
-       now() + interval '20 hours', now() - interval '19 minutes', NULL);
+       now() + interval '19 hours 41 minutes', now() - interval '19 minutes', NULL);
       INSERT INTO public.union_settlement_rounds(union_id, period_end, round_no, payees, amount, executed_at)
         VALUES ('{UNION}', '{WEEK}', 1, 3, 840213.67, now() - interval '10 minutes');""")
     s = status()
     st = states(s)
-    assert st == {'preparation': 'done', 'clubs_paid': 'done', 'agents_paid': 'running', 'players_paid': 'waiting',
-                  'statements_sent': 'waiting', 'invoices_match': 'waiting', 'books_closed': 'waiting'}, st
+    assert st == {'preparation': 'done', 'clubs_paid': 'done', 'agents_paid': 'running', 'players_paid': 'not_finished',
+                  'statements_sent': 'not_finished', 'invoices_match': 'not_checked', 'books_closed': 'not_checked'}, st
     c = stage(s, 'clubs_paid')
     assert c['amount'] == 840213.67 and c['count'] == 3 and c['detail'] == '3 Clubs Paid', c
-    assert stage(s, 'players_paid')['detail'] == 'Waiting For Agents Paid'
+    a = stage(s, 'agents_paid')
+    assert a['detail'] == 'Paying Now' and a['deadline_source'].startswith('Payout Run Money Deadline'), a
+    assert stage(s, 'players_paid')['detail'] == 'Not Finished Yet: Waiting For Agents Paid'
     assert s['in_progress'] is True and s['last_updated'] == c['at'], s
 
-    # 4. All done: round 2 receipt, round 3 only in the payout result, statements, checks, close.
+    # 5. A booked run past its money deadline: the unpaid rounds are late.
+    psql("UPDATE public.weekly_accounting_payout_pauses SET money_deadline_at = now() - interval '1 minute' WHERE attempt_no = 2;")
+    st = states(status())
+    assert st['clubs_paid'] == 'done' and st['agents_paid'] == 'late' and st['players_paid'] == 'late', st
+    psql("UPDATE public.weekly_accounting_payout_pauses SET money_deadline_at = now() + interval '19 hours' WHERE attempt_no = 2;")
+
+    # 6. Rounds paid, statements issued, not all delivered, NO verification
+    #    record: Invoices Match and Books Closed stay Not Checked Yet.
     psql(f"""INSERT INTO public.union_settlement_rounds(union_id, period_end, round_no, payees, amount)
         VALUES ('{UNION}', '{WEEK}', 2, 20, 695.49);
       UPDATE public.weekly_accounting_payout_pauses SET phase = 'released',
@@ -254,22 +297,58 @@ try:
       ('00000000-0000-4000-8000-000000000145');""")
     s = status()
     st = states(s)
-    assert st['players_paid'] == 'done' and st['statements_sent'] == 'running' and st['invoices_match'] == 'waiting', st
-    assert stage(s, 'statements_sent')['detail'] == '3 Of 4 Club Statements Delivered', s
+    assert st['players_paid'] == 'done' and st['statements_sent'] == 'not_finished', st
+    assert st['invoices_match'] == 'not_checked' and st['books_closed'] == 'not_checked', st
+    assert stage(s, 'statements_sent')['detail'] == 'Not Finished Yet: 3 Of 4 Club Statements Delivered', s
+    assert stage(s, 'invoices_match')['detail'] == 'Not Checked Yet: 0 Of 4 Club Statements Checked', s
+    assert all(x['matches_club_data'] is None for x in s['statements']), s
     p = stage(s, 'players_paid')
     assert p['amount'] == 642268.52 and p['count'] == 1339 and p['at'] == '2026-11-16T14:42:22.282777+00:00', p
     assert p['detail'] == '1,339 Payees Paid (5 Of 5 Rakeback Periods Paid)', p
+
+    # 7. Still not delivered three days after the run: no deadline, so never late.
+    due('-3 days')
+    s = status()
+    ss = stage(s, 'statements_sent')
+    assert ss['state'] == 'not_finished' and ss['deadline_at'] is None and ss['elapsed_seconds'] >= 3 * 86400 - 60, ss
+    due('-20 minutes')
+
+    # 8. Partial checks (all matching so far) are still Not Checked Yet; a
+    #    check row for an older statement of the club does not count.
     psql(f"""INSERT INTO public.accounting_invoice_deliveries(invoice_id) VALUES ('00000000-0000-4000-8000-000000000141');
       INSERT INTO smarter_private.weekly_invoice_club_data_checks(period_end, club_id, invoice_id, invoice_number, matches)
       SELECT '{WEEK}', i.club_id, i.id, i.invoice_number, true FROM public.settlement_invoices i
-       WHERE i.invoice_type = 'union_weekly_squareup' AND i.club_id <> '{UNION}' AND i.invoice_number >= 'MIDWAY-2026-000037';
-      INSERT INTO public.union_accounting_runs(union_id, period_end, status, attempts, started_at, finished_at, scope_kind, scope_id)
-        VALUES ('{UNION}', '{WEEK}', 'complete', 1, now() - interval '2 minutes', now() - interval '1 minute', 'union', '{UNION}');""")
+       WHERE i.invoice_type = 'union_weekly_squareup' AND i.club_id <> '{UNION}'
+         AND i.invoice_number IN ('MIDWAY-2026-000037', 'MIDWAY-2026-000038', 'MIDWAY-2026-000039');
+      INSERT INTO smarter_private.weekly_invoice_club_data_checks(period_end, club_id, invoice_id, invoice_number, matches)
+        VALUES ('{WEEK}', '{FELT}', '00000000-0000-4000-8000-000000000136', 'MIDWAY-2026-000036', true);""")
+    s = status()
+    assert stage(s, 'statements_sent')['state'] == 'done', s
+    im = stage(s, 'invoices_match')
+    assert im['state'] == 'not_checked' and im['detail'] == 'Not Checked Yet: 3 Of 4 Club Statements Checked', im
+
+    # 9. Books not closed: a close row that is not complete and successful is
+    #    Not Checked Yet; 'running' is running; 'complete' without success is not done.
+    psql(f"""INSERT INTO public.union_accounting_runs(union_id, period_end, status, attempts, started_at, finished_at, scope_kind, scope_id, result)
+        VALUES ('{UNION}', '{WEEK}', 'pending', 0, NULL, NULL, 'union', '{UNION}', NULL);""")
+    b = stage(status(), 'books_closed')
+    assert b['state'] == 'not_checked' and b['detail'] == 'Not Checked Yet: The Close Record Does Not Show A Successful Close', b
+    psql("UPDATE public.union_accounting_runs SET status = 'running', attempts = 1, started_at = now();")
+    assert stage(status(), 'books_closed')['state'] == 'running'
+    psql("UPDATE public.union_accounting_runs SET status = 'complete', finished_at = now(), result = '{\"success\":false}';")
+    assert stage(status(), 'books_closed')['state'] == 'not_checked'
+
+    # 10. All done: every check matches and the close succeeded.
+    psql(f"""DELETE FROM smarter_private.weekly_invoice_club_data_checks WHERE club_id = '{FELT}';
+      INSERT INTO smarter_private.weekly_invoice_club_data_checks(period_end, club_id, invoice_id, invoice_number, matches)
+        VALUES ('{WEEK}', '{FELT}', '00000000-0000-4000-8000-000000000141', 'MIDWAY-2026-000041', true);
+      UPDATE public.union_accounting_runs SET result = '{{"success":true}}', finished_at = now() - interval '1 minute';""")
     s = status()
     assert set(states(s).values()) == {'done'}, states(s)
     assert s['in_progress'] is False, s
     assert stage(s, 'statements_sent')['detail'] == '4 Of 4 Club Statements Delivered'
     assert stage(s, 'invoices_match')['detail'] == '4 Of 4 Club Statements Match'
+    assert all(x['elapsed_seconds'] is None for x in s['stages']), s
     nums = [(x['number'], x['house'], x['delivered'], x['matches_club_data']) for x in s['statements']]
     assert nums == [('MIDWAY-2026-000037', False, True, True), ('MIDWAY-2026-000038', False, True, True),
                     ('MIDWAY-2026-000039', False, True, True), ('MIDWAY-2026-000040', True, False, None),
@@ -278,14 +357,19 @@ try:
     assert k['club'] == 'KINGS CLUB' and k['amount'] == 6042.96 and k['direction'] == 'club owes union', k
     assert k['credit_notes'] == [{'number': 'MIDWAY-2026-000045', 'amount': 21.25, 'delivered': True}], k
 
-    # 5. Failures: a statement differing from Club Data, a failed close, a failed run.
+    # 11. Failures from records: a mismatching check, an unreadable check, a
+    #     failed close, a failed run.
     psql(f"UPDATE smarter_private.weekly_invoice_club_data_checks SET matches = false WHERE invoice_number = 'MIDWAY-2026-000041';"
+         f"UPDATE smarter_private.weekly_invoice_club_data_checks SET matches = NULL, read_error = 'timeout' WHERE invoice_number = 'MIDWAY-2026-000038';"
          f"UPDATE public.union_accounting_runs SET status = 'failed', attempts = 7;")
     s = status()
-    assert stage(s, 'invoices_match')['state'] == 'failed', s
-    assert stage(s, 'invoices_match')['detail'] == 'Differs From Club Data: The Felt Society', s
-    assert stage(s, 'books_closed')['state'] == 'failed' and stage(s, 'books_closed')['detail'] == 'Close Failed After 7 Attempts'
+    im = stage(s, 'invoices_match')
+    assert im['state'] == 'failed', im
+    assert im['detail'] == 'Differs From Club Data: The Felt Society. Club Data Could Not Be Read: Deep Stack Society', im
+    b = stage(s, 'books_closed')
+    assert b['state'] == 'failed' and b['detail'] == 'The Last Close Attempt Failed (7 Attempts)', b
     assert next(x for x in s['statements'] if x['number'] == 'MIDWAY-2026-000041')['matches_club_data'] is False
+    assert next(x for x in s['statements'] if x['number'] == 'MIDWAY-2026-000038')['matches_club_data'] is False
     psql("DELETE FROM public.union_settlement_rounds WHERE round_no = 2;"
          "UPDATE public.weekly_accounting_payout_pauses SET result = '{\"success\":false,\"error\":\"x\"}' WHERE attempt_no = 2;")
     s = status()
@@ -305,9 +389,12 @@ try:
         'migration': MIGRATION.name,
         'server_version': psql('SHOW server_version;'),
         'checks': ['privileges_as_board_reader', 'own_limits', 'overseer_or_admin_only', 'before_run_waiting',
-                   'late_after_30_minutes', 'mid_run_after_round_1', 'club_scope_ignored', 'round_3_from_result',
-                   'all_done', 'statements_house_credit_notes', 'club_data_mismatch_failed', 'close_failed',
-                   'run_failed', 'access_share_only'],
+                   'period_label_america_chicago', 'past_run_time_not_finished_not_late', 'late_only_after_window_close',
+                   'mid_run_after_round_1', 'club_scope_ignored', 'late_after_booked_money_deadline',
+                   'no_verification_record_not_checked', 'round_3_from_result', 'no_deadline_never_late',
+                   'partial_and_stale_checks_not_checked', 'books_not_closed_not_checked', 'books_running',
+                   'all_done', 'statements_house_credit_notes', 'club_data_mismatch_failed', 'club_data_unread_failed',
+                   'close_failed', 'run_failed', 'access_share_only'],
     }))
 finally:
     if start_attempted:

@@ -46,7 +46,12 @@ function stage(key: string, label: string, state: string, extra: Record<string, 
 function lastWeek(inProgress = false, override: Record<string, unknown>[] | null = null) {
   return {
     union_id: UNION,
-    period: { start: '2026-11-02T08:00:00+00:00', end: '2026-11-09T08:00:00+00:00' },
+    period: {
+      start: '2026-11-02T08:00:00+00:00',
+      end: '2026-11-09T08:00:00+00:00',
+      time_zone: 'America/Chicago',
+      label: 'Mon Nov 2, 2026 2:00 AM CST To Mon Nov 9, 2026 2:00 AM CST (America/Chicago)',
+    },
     scheduled_for: '2026-11-09T10:00:00+00:00',
     in_progress: inProgress,
     stages: override ?? [
@@ -74,9 +79,11 @@ function lastWeek(inProgress = false, override: Record<string, unknown>[] | null
         count: 4,
         detail: '4 Of 4 Club Statements Delivered',
       }),
-      stage('invoices_match', 'Invoices Match Club Data', 'waiting', {
+      stage('invoices_match', 'Invoices Match Club Data', 'not_checked', {
         count: 0,
-        detail: 'Not Checked Yet',
+        detail: 'Not Checked Yet: 0 Of 4 Club Statements Checked',
+        scheduled_at: '2026-11-09T10:00:00+00:00',
+        elapsed_seconds: 3900,
       }),
       stage('books_closed', 'Books Closed', 'done', { at: '2026-11-11T09:06:09.542475+00:00' }),
     ],
@@ -157,6 +164,14 @@ describe('Weekly Rakeback Status', () => {
     expect(screen.getByText('642,268.52')).toBeTruthy();
     expect(screen.getByText('Mon Nov 9, 2026 4:52 AM Chicago Time')).toBeTruthy();
     expect(screen.getByText('Week Ending Mon Nov 9')).toBeTruthy();
+    expect(
+      screen.getByText(
+        'Accounting Period Mon Nov 2, 2026 2:00 AM CST To Mon Nov 9, 2026 2:00 AM CST (America/Chicago)'
+      )
+    ).toBeTruthy();
+    expect(screen.getByText('Not Checked Yet')).toBeTruthy();
+    expect(screen.getByText('Not Checked Yet: 0 Of 4 Club Statements Checked')).toBeTruthy();
+    expect(screen.getByText('1 Hr 5 Min Elapsed')).toBeTruthy();
     expect(screen.getByText('Payout Scheduled Mon Nov 9, 2026 4:00 AM Chicago Time')).toBeTruthy();
     expect(screen.getByText('6,042.96')).toBeTruthy();
     expect(screen.getAllByText('Club Owes Union')).toHaveLength(2);
@@ -164,8 +179,41 @@ describe('Weekly Rakeback Status', () => {
     expect(screen.getByText('Union House Statement, Record Only')).toBeTruthy();
     expect(screen.getByText('Differs From Club Data')).toBeTruthy();
     expect(screen.getAllByText('Club Data Not Checked')).toHaveLength(1);
-    expect(screen.getByTestId('pill').textContent).toBe('Waiting');
+    // Never green while a verification stage has no record.
+    expect(screen.getByTestId('pill').textContent).toBe('Not Finished');
     expect(testState.reportError).not.toHaveBeenCalled();
+  });
+
+  it('shows a stage with no deadline as Not Finished Yet with its run time and elapsed time, never Late', async () => {
+    testState.rpc.mockResolvedValue({
+      data: lastWeek(true, [
+        stage('statements_sent', 'Statements Sent', 'not_finished', {
+          detail: 'Not Finished Yet: 3 Of 4 Club Statements Delivered',
+          scheduled_at: '2026-11-09T10:00:00+00:00',
+          elapsed_seconds: 2 * 86400 + 3 * 3600 + 7 * 60,
+        }),
+        stage('agents_paid', 'Agents Paid', 'not_finished', {
+          scheduled_at: '2026-11-09T10:00:00+00:00',
+          deadline_at: '2026-11-10T10:00:00+00:00',
+          deadline_source: 'Automatic Payout Window Closes (Run Time Plus 24 Hours)',
+          elapsed_seconds: 120,
+        }),
+      ]),
+      error: null,
+    });
+    render(<WeeklyRakebackStatus unionId={UNION} />);
+    await flush();
+    expect(screen.getAllByText('Not Finished Yet')).toHaveLength(2);
+    expect(screen.getByText('2 Days 3 Hr 7 Min Elapsed')).toBeTruthy();
+    expect(screen.getAllByText('Scheduled Mon Nov 9, 2026 4:00 AM Chicago Time')).toHaveLength(2);
+    expect(screen.getByText('No Deadline Set')).toBeTruthy();
+    expect(
+      screen.getByText(
+        'Deadline Tue Nov 10, 2026 4:00 AM Chicago Time (Automatic Payout Window Closes (Run Time Plus 24 Hours))'
+      )
+    ).toBeTruthy();
+    expect(screen.queryByText('Late')).toBeNull();
+    expect(screen.getByTestId('pill').textContent).toBe('Not Finished');
   });
 
   it('never refreshes on its own when nothing is running', async () => {
@@ -185,10 +233,10 @@ describe('Weekly Rakeback Status', () => {
       stage('preparation', 'Preparation', 'done'),
       stage('clubs_paid', 'Clubs Paid', 'done', { amount: 840213.67, count: 3 }),
       stage('agents_paid', 'Agents Paid', 'running', { detail: 'Paying Now' }),
-      stage('players_paid', 'Players Paid', 'waiting'),
-      stage('statements_sent', 'Statements Sent', 'waiting'),
-      stage('invoices_match', 'Invoices Match Club Data', 'waiting'),
-      stage('books_closed', 'Books Closed', 'waiting'),
+      stage('players_paid', 'Players Paid', 'not_finished'),
+      stage('statements_sent', 'Statements Sent', 'not_finished'),
+      stage('invoices_match', 'Invoices Match Club Data', 'not_checked'),
+      stage('books_closed', 'Books Closed', 'not_checked'),
     ]);
     testState.rpc
       .mockResolvedValueOnce({ data: running, error: null })
@@ -243,6 +291,21 @@ describe('Weekly Rakeback Status', () => {
       lastWeek(false, [stage('books_closed', 'Books Closed', 'done')])
     );
     expect(weeklyRakebackOverall(done)).toBe('Done');
+    const unchecked = parseWeeklyRakebackStatus(
+      lastWeek(false, [
+        stage('statements_sent', 'Statements Sent', 'done'),
+        stage('invoices_match', 'Invoices Match Club Data', 'not_checked'),
+        stage('books_closed', 'Books Closed', 'not_checked'),
+      ])
+    );
+    expect(weeklyRakebackOverall(unchecked)).toBe('Not Finished');
+    const before = parseWeeklyRakebackStatus(
+      lastWeek(false, [
+        stage('clubs_paid', 'Clubs Paid', 'waiting'),
+        stage('books_closed', 'Books Closed', 'not_checked'),
+      ])
+    );
+    expect(weeklyRakebackOverall(before)).toBe('Waiting');
     expect(() =>
       parseWeeklyRakebackStatus(
         lastWeek(false, [stage('clubs_paid', 'Clubs Paid', 'done', { amount: 1.005 })])

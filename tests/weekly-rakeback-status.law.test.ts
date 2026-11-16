@@ -73,6 +73,35 @@ describe('weekly rakeback status only reads', () => {
     expect(client).not.toMatch(/#[0-9a-f]{3,8}\b|rgb\(|hsl\(/i);
   });
 
+  it('derives Late only from deadlines the payout code enforces, never an invented threshold', () => {
+    // The only interval constants: the week arithmetic (1 day) and the
+    // automatic payout window (run time + 24 hours, weekly_payout_next_round).
+    expect([...code.matchAll(/interval '([^']+)'/g)].map((m) => m[1]).sort()).toEqual([
+      '-5 hours',
+      '-5 hours',
+      '-5 hours',
+      '1 day',
+      '24 hours',
+    ]);
+    expect(code).toContain("v_window_end := v_due + interval '24 hours';");
+    expect(code).toContain('v_deadline := v_money_deadline;');
+    // Stages with no authoritative deadline carry none and are never late.
+    for (const key of ['statements_sent', 'invoices_match', 'books_closed']) {
+      const block = code.slice(code.indexOf(`'key', '${key}'`));
+      expect(block.slice(0, block.indexOf(');'))).toContain("'deadline_at', NULL");
+    }
+  });
+
+  it('shows the verification stages green only from their records', () => {
+    expect(code).toContain("v_state := 'not_checked';");
+    expect(code).toMatch(/IF st\.mismatched \+ st\.unread > 0 THEN\s+v_state := 'failed';/);
+    expect(code).toMatch(/ELSIF st\.n > 0 AND st\.ok = st\.n THEN\s+v_state := 'done';/);
+    expect(code).toContain(
+      "IF v_bk_status = 'complete' AND v_bk_finished IS NOT NULL AND v_bk_success = 'true' THEN"
+    );
+    expect(code).toContain("'time_zone', 'America/Chicago'");
+  });
+
   it('carries no banned dash character', () => {
     expect(sql).not.toMatch(/[‒-―]/);
     expect(client).not.toMatch(/[‒-―]/);
