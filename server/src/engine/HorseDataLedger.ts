@@ -1923,7 +1923,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'fixedLimitCallIsNotACommitment',
-    '2026-11-14 default OFF: a fixed-limit call is never priced in the committed branch (no stack-to-pot or invested-share term, so no V20 multiway commit bar or stack-off shade); it is priced on its incremental cost plus the remaining action of the street (HorseFixedLimitCallPrice.ts: the chips to call now plus the expected further wagers if a player left to act raises before the cap, at a per-player raise rate MEASURED on recorded Horse-only fixed-limit hands (2026-11-15: 95% upper bounds per street, flh 1.4/3.3/4.2%, flo8 0.8/1.9/2.7% flop/turn/river; was an assumed 0.12); a closing call is the bare raked price), as a shade on the equity the V38 river and flop/turn verdicts are handed; diagnostic harness before (L-ADAPTATION-DIAGNOSIS section 3): flo8 six seats, every river fold took the committed branch, required 3.4 x the price; refused by the league (it deals no fixed limit), see UNMEASURABLE_MATCHUPS',
+    "2026-11-14 default OFF: a fixed-limit call is never priced in the committed branch (no stack-to-pot or invested-share term, so no V20 multiway commit bar or stack-off shade); it is priced on its incremental cost plus the remaining action of the street (HorseFixedLimitCallPrice.ts: the chips to call now plus the expected further wagers if a player left to act raises before the cap, at a per-player raise rate MEASURED on recorded Horse-only fixed-limit hands (2026-11-15: 95% upper bounds per street, flh 1.4/3.3/4.2%, flo8 0.8/1.9/2.7% flop/turn/river; was an assumed 0.12); a closing call is the bare raked price), as a shade on the equity the V38 river and flop/turn verdicts are handed; scope since 2026-11-16: fixed-limit hold'em cash only (HorseLogic fixedLimitCallIsNotACommitmentInScope), so at flo8 and at every tournament table it changes nothing (flo8 showed no value: AB-EVALUATION-2 3.7 and 3.15); diagnostic harness before (L-ADAPTATION-DIAGNOSIS section 3): flo8 six seats, every river fold took the committed branch, required 3.4 x the price; refused by the league (it deals no fixed limit), see UNMEASURABLE_MATCHUPS",
     'FixedLimitAdaptation'
   ),
   flag(
@@ -6028,6 +6028,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'Phase7'
   ),
   receipt(
+    'second_look_*',
+    'BrainTelemetry.noteSecondLookFires (HorseDecisionWorkerRuntime.executeDeep)',
+    'second_look_<key>_seen (the suffix is not doubled for a key already ending in _seen): a DEEP second look evaluation fired the receipt <key>. The second look decides with telemetry on inside a capture, so <key> itself is not counted there (the FAST look is its one count per decision) and each key counts at most once per second look. It does not say the second look action was executed: the decision journal records that. A zero on <key> and on its second_look_ counter means no live evaluation, first or second, fired it. second_look_receipt_fold_failed_seen: counting the collected keys threw after the second look was made (the decision is unaffected). Occurrence counters; named *_seen',
+    '2026-11-16'
+  ),
+  receipt(
     'v44_second_look',
     'HorseDecisionWorkerRuntime.executeDeep',
     'a second look completed at increased equity depth with the original HorseMind reads; declined, missing-read, cancelled and failed work is not a completed evaluation',
@@ -6681,7 +6687,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   // No floor: fixed-limit calls with a player left to act, with the opt-in option on.
   receipt(
     'fixed_limit_call_priced_remaining_action_seen',
-    'HorseLogic facing-a-bet call price (fixedLimitCallIsNotACommitment, HorseFixedLimitCallPrice.ts)',
+    "HorseLogic facing-a-bet call price (fixedLimitCallIsNotACommitment, HorseFixedLimitCallPrice.ts; fixed-limit hold'em cash only)",
     'a fixed-limit call with a live player left to act on an uncapped street was priced above the bare call by the expected further wagers of the street',
     'FixedLimitAdaptation'
   ),
@@ -6695,7 +6701,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   // No floor: fixed-limit calls only, with the opt-in option on.
   receipt(
     'fixed_limit_call_not_a_commitment_seen',
-    'HorseLogic facing-a-bet commitment test (fixedLimitCallIsNotACommitment)',
+    "HorseLogic facing-a-bet commitment test (fixedLimitCallIsNotACommitment; fixed-limit hold'em cash only)",
     'a fixed-limit call the stack-to-pot or invested test would have priced as a commitment was priced as the one bet it is',
     'FixedLimitAdaptation'
   ),
