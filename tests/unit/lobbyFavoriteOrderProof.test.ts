@@ -181,6 +181,15 @@ describe('the selected run takes registrations while the journey runs', () => {
         sameUnchangedLobbyOrder([top, big('chosen', unreadable), bottom], seen, 'chosen', READ_AT)
       ).toBe(false);
     }
+    // From a plain count too: empty text must not read as 0 and widen the band over a peer.
+    const high = big('high', '400');
+    const low = big('low', '300');
+    const plain = [high, big('chosen', '349'), low];
+    for (const unreadable of ['', '...']) {
+      expect(
+        sameUnchangedLobbyOrder([high, big('chosen', unreadable), low], plain, 'chosen', READ_AT)
+      ).toBe(false);
+    }
   });
 
   it('refuses a selected run whose name, price, start or pin changed', () => {

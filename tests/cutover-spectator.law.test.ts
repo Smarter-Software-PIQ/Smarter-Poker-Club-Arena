@@ -268,9 +268,9 @@ describe('authenticated cutover spectator', () => {
     expect(body).toContain(
       '.filter((frame) => !socketsOpenBeforeNavigation.includes(frame.socketId));'
     );
-    expect(body.indexOf('const socketsOpenBeforeNavigation')).toBeLessThan(
-      body.indexOf('await page.goto(`table/${tableId}`);')
-    );
+    const socketsDeclaredAt = body.indexOf('const socketsOpenBeforeNavigation');
+    expect(socketsDeclaredAt).toBeGreaterThan(-1);
+    expect(socketsDeclaredAt).toBeLessThan(body.indexOf('await page.goto(`table/${tableId}`);'));
     // The late path writes its own file and skips; it cannot reach the witness.
     expect(body.indexOf('await notObserved(')).toBeLessThan(
       body.indexOf('const { tableId, initial')
