@@ -13,6 +13,9 @@ on:
     branches: [main]
     paths:
       - supabase/migrations/*_promo_play_through_*.sql
+      - supabase/migrations/*_signup_promo_*.sql
+      - scripts/ci/test-signup-promo-identity.py
+      - tests/fixtures/signup-promo-identity/**
       - scripts/ci/test-promo-play-through.py
       - .github/workflows/promo-play-through.yml
 
@@ -36,11 +39,17 @@ jobs:
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 scripts/ci/test-promo-play-through.py --output artifacts/promo-play-through
+      - name: Signup promo identity and credit transaction
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 scripts/ci/test-signup-promo-identity.py --output artifacts/signup-promo-identity
       - name: Retain the regression evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: promo-play-through-${{ github.run_id }}-${{ github.run_attempt }}
-          path: artifacts/promo-play-through/RESULTS.json
+          path: |
+            artifacts/promo-play-through/RESULTS.json
+            artifacts/signup-promo-identity/RESULTS.json
           retention-days: 7
           if-no-files-found: warn
