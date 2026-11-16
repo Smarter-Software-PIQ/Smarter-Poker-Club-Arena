@@ -20,7 +20,9 @@ HANDS=[('O','OP1',100,'2026-11-10 03:10:00+00'),('O','OP2',80,'2026-11-11 05:20:
        ('W','WP1',60,'2026-11-10 09:40:00+00'),('W','WP1',40,'2026-11-13 11:50:00+00'),('W','WP2',50,'2026-11-14 13:00:00+00'),
        ('T','TP',70,'2026-11-09 15:10:00+00'),('T','TP',30,'2026-11-15 17:20:00+00'),('T','TR',50,'2026-11-12 19:30:00+00'),('T','TQ',60,'2026-11-16 01:40:00+00'),('T','TN',200,'2026-11-12 07:30:00+00')]
 clock('2026-11-16 07:00:00+00')
-for c,p,rake,at in HANDS: q(f"SELECT rr.hand('{c}','{p}',{rake},'{at}');")
+for c,p,rake,at in HANDS:
+    if p=='TN': clock('2026-11-16 08:00:10+00')  # final cash source posted after cutoff
+    q(f"SELECT rr.hand('{c}','{p}',{rake},'{at}');")
 case('the real earning producer accrued every seeded hand (sources, contracts, commissions, recompute requests)',
   ok("(SELECT count(*) FROM public.accounting_cash_rake_sources)=10 AND (SELECT sum(rake_credit) FROM public.accounting_cash_rake_sources)=740","ten sources, 740.00 of rake")
   +ok("(SELECT round(sum(amount),2) FROM public.agent_commissions) IS NOT NULL ","commission accrued")
@@ -98,6 +100,7 @@ for i in range(0,44):
         armed=('round 2 killed at its last leg, AG -> SUB',arm("NEW.to_entity_id=rr.u('SUB') AND NEW.from_type='agent_wallet'",'round 2 killed at AG to SUB'))
     if stage(r)=='round_paid' and json.loads(r['out'])['round']==2:
         snap_r2=one(SNAP); exec((F/'between-rounds.py').read_text())
+        exec((F/'stale-player-window.py').read_text())
         assert one(SNAP)==snap_r2,'a between-rounds probe left something behind'
         armed=('round 3 killed at the TQ player leg',arm("NEW.to_entity_id=rr.u('TQ') AND NEW.category='rakeback'",'round 3 killed at TQ'))
         exec((F/'credit-cutoff.py').read_text())
