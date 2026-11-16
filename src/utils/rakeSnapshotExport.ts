@@ -8,7 +8,10 @@ import type {
   RakeSortKey,
 } from '../services/ClubRakeSnapshotService';
 import { chicagoDay, accountingDay, type ClubDataCoverage } from '../lib/clubDataDay';
-import { parseClubDataReconciliation, type ClubDataReconciliation } from '../lib/clubDataReconciliation';
+import {
+  parseClubDataReconciliation,
+  type ClubDataReconciliation,
+} from '../lib/clubDataReconciliation';
 import {
   fetchClubDataExport,
   type ClubDataExportProgress,
@@ -294,9 +297,11 @@ export function parseRakeExportMetadata(
     !isTimestamp(value.generated_at) ||
     !isNonEmptyString(value.scope_label) ||
     !isFiniteNumber(value.breakdown_total) ||
-    (value.reconciliation !== undefined && value.reconciliation !== null &&
+    (value.reconciliation !== undefined &&
+      value.reconciliation !== null &&
       !parseClubDataReconciliation(value.reconciliation)) ||
-    (value.accounting_coverage !== undefined && value.accounting_coverage !== null &&
+    (value.accounting_coverage !== undefined &&
+      value.accounting_coverage !== null &&
       !validAccountingCoverage(value.accounting_coverage)) ||
     !isNullableFiniteNumber(value.commission_total) ||
     typeof value.contains_admin_commission !== 'boolean' ||
@@ -314,8 +319,14 @@ function validAccountingCoverage(value: unknown): value is ClubDataCoverage {
   for (const key of ['complete', 'provisional']) {
     if (value[key] !== undefined && typeof value[key] !== 'boolean') return false;
   }
-  for (const key of ['missing_days', 'failed_days', 'not_invoice_exact_days', 'awaiting_boundary_days']) {
-    if (value[key] !== undefined && (!Array.isArray(value[key]) || !value[key].every(isIsoDate))) return false;
+  for (const key of [
+    'missing_days',
+    'failed_days',
+    'not_invoice_exact_days',
+    'awaiting_boundary_days',
+  ]) {
+    if (value[key] !== undefined && (!Array.isArray(value[key]) || !value[key].every(isIsoDate)))
+      return false;
   }
   return true;
 }
@@ -489,22 +500,51 @@ function metadataCsv(result: RakeSnapshotExportResult): string[] {
 
 export function rakeSnapshotExportToCsv(result: RakeSnapshotExportResult): string {
   const lines = metadataCsv(result);
-  lines.push('', 'reconciliation_available', String(result.metadata.reconciliation?.complete === true));
+  lines.push(
+    '',
+    'reconciliation_available',
+    String(result.metadata.reconciliation?.complete === true)
+  );
   if (result.metadata.reconciliation) {
     const r = result.metadata.reconciliation;
     const keys = [
-      'complete', 'missing_days', 'bbj_gross', 'bbj_awards', 'bbj_net', 'cash_fee',
-      'cash_winnings', 'tournament_fee', 'tournament_winnings', 'cash_residual', 'tournament_flow_difference',
+      'complete',
+      'missing_days',
+      'bbj_gross',
+      'bbj_awards',
+      'bbj_net',
+      'cash_fee',
+      'cash_winnings',
+      'tournament_fee',
+      'tournament_winnings',
+      'cash_residual',
+      'tournament_flow_difference',
     ] as const;
     lines.push('', keys.map((key) => `reconciliation_${key}`).join(','));
-    lines.push(keys.map((key) => csvEscape(key === 'missing_days' ? JSON.stringify(r[key]) : r[key])).join(','));
+    lines.push(
+      keys
+        .map((key) => csvEscape(key === 'missing_days' ? JSON.stringify(r[key]) : r[key]))
+        .join(',')
+    );
   }
   if (result.metadata.accounting_coverage) {
     const c = result.metadata.accounting_coverage;
-    lines.push('', 'accounting_complete,accounting_provisional,awaiting_boundary_days,missing_days,failed_days,not_invoice_exact_days');
-    lines.push([c.complete, c.provisional, JSON.stringify(c.awaiting_boundary_days ?? []),
-      JSON.stringify(c.missing_days ?? []), JSON.stringify(c.failed_days ?? []),
-      JSON.stringify(c.not_invoice_exact_days ?? [])].map(csvEscape).join(','));
+    lines.push(
+      '',
+      'accounting_complete,accounting_provisional,awaiting_boundary_days,missing_days,failed_days,not_invoice_exact_days'
+    );
+    lines.push(
+      [
+        c.complete,
+        c.provisional,
+        JSON.stringify(c.awaiting_boundary_days ?? []),
+        JSON.stringify(c.missing_days ?? []),
+        JSON.stringify(c.failed_days ?? []),
+        JSON.stringify(c.not_invoice_exact_days ?? []),
+      ]
+        .map(csvEscape)
+        .join(',')
+    );
   }
   lines.push('');
 

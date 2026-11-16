@@ -41,9 +41,18 @@ export default function ClubDataReconciliation({ basis, coverage, range, reconci
         Games Count Unique Games Across This Range. A Game Played On Multiple Days Counts Once.
       </p>
       <dl className={styles.rows} aria-label="BBJ Totals">
-        <div className={styles.row}><dt>BBJ Collected</dt><dd>{money(bbjReady ? values.bbj_gross : null)}</dd></div>
-        <div className={styles.row}><dt>BBJ Awards Paid</dt><dd>{money(bbjReady ? values.bbj_awards : null)}</dd></div>
-        <div className={styles.row}><dt>BBJ Net After Awards</dt><dd>{money(bbjReady ? values.bbj_net : null)}</dd></div>
+        <div className={styles.row}>
+          <dt>BBJ Collected</dt>
+          <dd>{money(bbjReady ? values.bbj_gross : null)}</dd>
+        </div>
+        <div className={styles.row}>
+          <dt>BBJ Awards Paid</dt>
+          <dd>{money(bbjReady ? values.bbj_awards : null)}</dd>
+        </div>
+        <div className={styles.row}>
+          <dt>BBJ Net After Awards</dt>
+          <dd>{money(bbjReady ? values.bbj_net : null)}</dd>
+        </div>
       </dl>
       {!bbjReady && (
         <p className={styles.note} role="status">
@@ -53,23 +62,45 @@ export default function ClubDataReconciliation({ basis, coverage, range, reconci
       )}
       <details className={styles.details}>
         <summary>How These Totals Reconcile</summary>
-        <p className={styles.note}>These Figures Use The Same Dates, Scope And Filters As The Totals Above.</p>
+        <p className={styles.note}>
+          These Figures Use The Same Dates, Scope And Filters As The Totals Above.
+        </p>
         <dl className={styles.rows} aria-label="Cash And Tournament Reconciliation">
-          <div className={styles.row}><dt>Cash Rake</dt><dd>{money(values?.cash_fee)}</dd></div>
-          <div className={styles.row}><dt>Cash Winnings</dt><dd>{money(values?.cash_winnings)}</dd></div>
-          <div className={styles.row}><dt>Cash Result Difference</dt><dd>{money(bbjReady ? values.cash_residual : null)}</dd></div>
-          <div className={styles.row}><dt>Tournament Fees</dt><dd>{money(values?.tournament_fee)}</dd></div>
-          <div className={styles.row}><dt>Tournament Winnings</dt><dd>{money(values?.tournament_winnings)}</dd></div>
-          <div className={styles.row}><dt>Tournament Flow Difference</dt><dd>{money(values?.tournament_flow_difference)}</dd></div>
+          <div className={styles.row}>
+            <dt>Cash Rake</dt>
+            <dd>{money(values?.cash_fee)}</dd>
+          </div>
+          <div className={styles.row}>
+            <dt>Cash Winnings</dt>
+            <dd>{money(values?.cash_winnings)}</dd>
+          </div>
+          <div className={styles.row}>
+            <dt>Cash Result Difference</dt>
+            <dd>{money(bbjReady ? values.cash_residual : null)}</dd>
+          </div>
+          <div className={styles.row}>
+            <dt>Tournament Fees</dt>
+            <dd>{money(values?.tournament_fee)}</dd>
+          </div>
+          <div className={styles.row}>
+            <dt>Tournament Winnings</dt>
+            <dd>{money(values?.tournament_winnings)}</dd>
+          </div>
+          <div className={styles.row}>
+            <dt>Tournament Flow Difference</dt>
+            <dd>{money(values?.tournament_flow_difference)}</dd>
+          </div>
         </dl>
         <p className={styles.note}>
-          BBJ Net After Awards Is Collected Minus Awards Paid, Not The Jackpot Pool Balance. Cash Result
-          Difference Is Player Cash Losses Minus Cash Rake And BBJ After Awards. A Filtered Group Can
-          Win Or Lose Against Players Outside That Group. Tournament Flow Difference Is Tournament
-          Player Losses Minus Tournament Fees. Entries, Payouts And Closing Adjustments Can Affect
-          That Difference. Neither Difference Is BBJ Collected.
+          BBJ Net After Awards Is Collected Minus Awards Paid, Not The Jackpot Pool Balance. Cash
+          Result Difference Is Player Cash Losses Minus Cash Rake And BBJ After Awards. A Filtered
+          Group Can Win Or Lose Against Players Outside That Group. Tournament Flow Difference Is
+          Tournament Player Losses Minus Tournament Fees. Entries, Payouts And Closing Adjustments
+          Can Affect That Difference. Neither Difference Is BBJ Collected.
         </p>
-        <p className={styles.note}>Use The Existing Game And Player Breakdowns To Inspect The Results Behind These Totals.</p>
+        <p className={styles.note}>
+          Use The Existing Game And Player Breakdowns To Inspect The Results Behind These Totals.
+        </p>
       </details>
     </section>
   );

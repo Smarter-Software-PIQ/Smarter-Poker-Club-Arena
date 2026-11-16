@@ -174,12 +174,30 @@ describe('helpers', () => {
 
 describe('ClubDataSimplePage', () => {
   it('renders reconciliation from the same accepted headline snapshot', async () => {
-    rpcMock.mockResolvedValue({ data: { ...live, accounting_basis: 'union_invoice_accounting',
-      accounting_coverage: { complete: true, provisional: true, awaiting_boundary_days: [today] },
-      summary: { ...live.summary, reconciliation: { complete: true, missing_days: [],
-        bbj_gross: 12.50, bbj_awards: 3.25, bbj_net: 9.25, cash_fee: 987.25,
-        cash_winnings: -1444.5, tournament_fee: 0, tournament_winnings: 210,
-        cash_residual: 448, tournament_flow_difference: -210 } } }, error: null });
+    rpcMock.mockResolvedValue({
+      data: {
+        ...live,
+        accounting_basis: 'union_invoice_accounting',
+        accounting_coverage: { complete: true, provisional: true, awaiting_boundary_days: [today] },
+        summary: {
+          ...live.summary,
+          reconciliation: {
+            complete: true,
+            missing_days: [],
+            bbj_gross: 12.5,
+            bbj_awards: 3.25,
+            bbj_net: 9.25,
+            cash_fee: 987.25,
+            cash_winnings: -1444.5,
+            tournament_fee: 0,
+            tournament_winnings: 210,
+            cash_residual: 448,
+            tournament_flow_difference: -210,
+          },
+        },
+      },
+      error: null,
+    });
     render(<ClubDataSimplePage />);
     expect(await screen.findByText('BBJ Collected')).toBeInTheDocument();
     expect(screen.getByText('12.50')).toBeInTheDocument();
