@@ -109,7 +109,8 @@
   /* Seated: the action bar's own floor, plus the home-indicator strip its
      wrapper pads itself by. Identical to the wrapper's `min-height`
      (ActionPanel.css), which is what it is standing in for. */
-  --sp-action-reserve: calc(
+  --sp-action-reserve: var(--sp-seated-row-reserve);
+  --sp-seated-row-reserve: calc(
     var(--sp-bottom-row-h, 96px) + var(--sp-bar-inset, env(safe-area-inset-bottom, 0px))
   );
   position: fixed;
@@ -5253,6 +5254,11 @@ button.post-bb-overlay-button {
     );
     height: calc(var(--sp-table-h, 100svh) - var(--sp-nine-cap-room));
     margin-top: var(--sp-nine-cap-room);
+  }
+  /* A spectator has one footer. The tournament dock fits in the space
+     occupied by a seated player's controls, without shortening the rail. */
+  .table-page--tournament[data-seats='9'][data-hero='false'] .table-container {
+    --sp-action-reserve: var(--sp-seated-row-reserve);
   }
 }
 

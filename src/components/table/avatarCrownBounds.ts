@@ -301,7 +301,8 @@ export function permanentAvatarFocusScale(_image: HTMLElement): number {
  * reference, so neither can cancel that ratio on a later layout. */
 export function nineSeatHeroArtRatio(page: HTMLElement, image: HTMLImageElement): number {
   return page.dataset.seats === '9' &&
-    image.closest('.seat--hero .seat__avatar--bust') &&
+    (image.closest('.seat--hero .seat__avatar--bust') ||
+      image.closest('.table-page--tournament .seat-wrapper--hero .seat__avatar--bust')) &&
     matchMedia('(min-width: 481px) and (max-width: 640px) and (orientation: portrait)').matches
     ? 4 / 3
     : 1;

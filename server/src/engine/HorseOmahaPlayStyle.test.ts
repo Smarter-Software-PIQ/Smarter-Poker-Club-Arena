@@ -298,10 +298,19 @@ function play(
       })
     ).toBeNull();
     out.bytes.push(
-      // Nested range analysis records wall-clock duration too. Keep every
-      // decision/equity/sample field; elapsed instrumentation is not policy.
+      // wall-clock measurements are left out, the list the declared-work law leaves out
+      // (HorseDeclaredWork.test-support.ts): omahaVariantPolicy.equity.analysisMs is a
+      // performance.now() difference and differs between two runs of the same decision
       JSON.stringify(d, (k, x) =>
-        k === 'latencyMs' || k === 'elapsedMs' || k === 'analysisMs' ? undefined : x
+        typeof x === 'number' &&
+        (k === 'latencyMs' ||
+          k === 'analysisMs' ||
+          k === 'simulationMs' ||
+          k === 'policyMs' ||
+          k === 'utilityLatencyMs' ||
+          k === 'elapsedMs')
+          ? undefined
+          : x
       )
     );
     out.actions.push(d.action);
