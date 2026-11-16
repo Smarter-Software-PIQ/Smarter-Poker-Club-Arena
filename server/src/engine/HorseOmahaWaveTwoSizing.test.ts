@@ -173,7 +173,7 @@ const recordedTendency = (t: unknown) =>
     ? { foldToBet: t[0], aggression: t[1], riverCall: t[2], valueLeader: t[3] === 1 }
     : null;
 
-function flopClass(stack?: number) {
+function flopClass(stack?: number, extra: HorseDecideOpts = {}) {
   let bets = 0;
   let planChecks = 0;
   let commits = 0;
@@ -183,7 +183,9 @@ function flopClass(stack?: number) {
         const build = () => node(fx, ord, deal, stack);
         const st0 = build();
         if (!omahaStreetPlanFlopSpot(st0.hero, st0.gs)) continue;
-        const { d, st, fires } = decide(build, SIZED, seed, seed * 31);
+        const { d, st, fires } = decide(build, { ...SIZED, ...extra }, seed, seed * 31);
+        if (extra.horsePlayStyles === true)
+          expect(fires.filter((f) => f.startsWith('horse_play_style_')).length).toBe(1);
         const label = `${ord} #${deal} seed ${seed}: ${d.action} ${d.amount ?? ''}`;
         const rec = (
           d as HorseDecision & {
@@ -273,6 +275,16 @@ describe('Omaha Wave Two: The Public Bet Size And The Street Plan', () => {
       }
     expect(admitted).toBeGreaterThan(0);
   });
+});
+
+describe('Omaha Wave Two: The Plan And The Public Size Hold For Every Play Style', () => {
+  for (const force of ['current', 'tight', 'pressure'] as const)
+    it(`Style ${force}: Plan Checks Final, Bets At The Priced Public Size, Short Stacks Included`, () => {
+      const opts = { horsePlayStyles: true, horsePlayStyleForce: force } as HorseDecideOpts;
+      const deep = flopClass(undefined, opts);
+      const short = flopClass(60, opts);
+      expect(deep.bets + deep.planChecks + short.bets + short.planChecks).toBeGreaterThan(0);
+    });
 });
 
 describe('Omaha Wave Two: All 39 On, The Size Still Carries No Hand Information', () => {

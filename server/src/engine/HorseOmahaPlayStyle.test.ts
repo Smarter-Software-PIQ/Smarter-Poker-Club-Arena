@@ -784,3 +784,33 @@ describe('2026-11-16: the pressure style biases the EV engine inputs in position
     }
   });
 });
+
+describe('wave two: the pressure style widens its 3-bets, not its 4-bets', () => {
+  const RAISE = new Set(['raise', 'all_in']);
+  /** Decision 13: the button (cutoff/button: pressure in position) 3-bet and faces the 4-bet. */
+  const facingReRaise = (hole: string) => () => recorded(13, { hole, node: noFloor });
+
+  it('with the bluffs off, the button facing a re-raise re-raises exactly the hands and seeds the current style does', () => {
+    const noBluff = { ...LIVE.mods, bluffFreq: 0 };
+    let current = 0;
+    const PREMIUM = [
+      'AsAhKsKhQd',
+      'AdAcKdKcJh',
+      'AsAdKsQsJd',
+      'AhAcJhTc9h',
+      'KsKhQsQhJs',
+      'AsAhQsJhTd',
+      'AdAhKcQcJd',
+      'KdKcQdJcTd',
+    ];
+    for (const hole of [...PREMIUM, ...HANDS.slice(0, 60)]) {
+      const c = play(facingReRaise(hole), {}, SEEDS, noBluff);
+      const p = play(facingReRaise(hole), style('pressure'), SEEDS, noBluff);
+      c.actions.forEach((a, i) =>
+        expect([hole, i, RAISE.has(p.actions[i])]).toEqual([hole, i, RAISE.has(a)])
+      );
+      current += c.actions.filter((a) => RAISE.has(a)).length;
+    }
+    expect(current).toBeGreaterThan(0);
+  });
+});

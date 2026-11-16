@@ -251,12 +251,18 @@ export function omahaStrongHandCheckedTo(
   hero: SeatPlayer,
   gs: HorseGameStateV2,
   scope: OmahaStrongHandCheckScope,
-  reads: ReadonlyMap<number, OmahaReadConditional | null> = new Map()
+  reads: ReadonlyMap<number, OmahaReadConditional | null> = new Map(),
+  /** omahaBetSizeByPublicState: the one bet size priced (the public size), or the all-in. */
+  publicBet?: number | 'all_in'
 ): OmahaStrongHandCheckVerdict | null {
   const pot = gs.pot;
-  // Sizes: the engine's pot fractions, legal against the deepest opponent.
+  // Sizes: the engine's pot fractions, legal against the deepest opponent
+  // (with the public size on, that size alone).
   const deepest = scope.opponents.reduce((a, b) => (b.stack > a.stack ? b : a));
-  const amounts = omahaCardImpactAmounts(hero, deepest, gs);
+  const amounts =
+    publicBet !== undefined
+      ? [round2(publicBet === 'all_in' ? hero.stack : publicBet)]
+      : omahaCardImpactAmounts(hero, deepest, gs);
   if (amounts.length === 0) return null;
   const impacts: OmahaCardImpact[] = [];
   const closes: boolean[] = [];
@@ -419,6 +425,8 @@ export interface OmahaStrongHandRaiseContext {
   callRead?: OmahaReadConditional | null;
   /** the marginal rake on the pot, as a fraction */
   rake?: number;
+  /** omahaBetSizeByPublicState: the one raise-to size priced (the public size), or the all-in. */
+  publicRaiseTo?: number | 'all_in';
 }
 
 /**
@@ -456,7 +464,12 @@ export function omahaStrongHandRaiseVerdict(
     const minTo = fin(gs.minRaiseTo) ? gs.minRaiseTo : cur * 2;
     const whole = (gs.bigBlind ?? 1) >= 1;
     const sizes: number[] = [];
-    if (maxTo + 0.005 < minTo) {
+    if (ctx.publicRaiseTo !== undefined) {
+      // omahaBetSizeByPublicState: the public size is the size raised.
+      const to = ctx.publicRaiseTo === 'all_in' ? round2(heroAll) : round2(ctx.publicRaiseTo);
+      const shove = to >= heroAll - 0.005;
+      if (shove ? canShove : canRaise) sizes.push(to);
+    } else if (maxTo + 0.005 < minTo) {
       // Only the short all-in raise is left.
       if (canShove && heroAll <= maxTo + 0.005) sizes.push(round2(heroAll));
     } else
@@ -540,6 +553,13 @@ export interface OmahaStrongHandValueReads {
   facingBet: (seat: number, potFrac: number) => OmahaFacingBetEvRead | null;
   /** the marginal rake on the pot, as a fraction */
   rake?: number;
+  /**
+   * omahaBetSizeByPublicState (wave two): the public size of a bet and of a
+   * raise here (an amount, or the all-in). Present, it is the one size priced
+   * (the public size replaces any other). Absent: every size as before.
+   */
+  publicBet?: number | 'all_in';
+  publicRaiseTo?: number | 'all_in';
 }
 
 export interface OmahaStrongHandValueResult {
@@ -569,7 +589,7 @@ export function omahaStrongHandValueDecision(
       if (!scope) return same;
       const map = new Map<number, OmahaReadConditional | null>();
       for (const o of scope.opponents) map.set(o.seat, reads.conditional(o.seat));
-      const check = omahaStrongHandCheckedTo(hero, gs, scope, map);
+      const check = omahaStrongHandCheckedTo(hero, gs, scope, map, reads.publicBet);
       if (!check) return same;
       if (check.action === 'check')
         return { decision, priced: true, changed: check.changed, check };
@@ -585,6 +605,7 @@ export function omahaStrongHandValueDecision(
         bettorRead: reads.facingBet(spot.bettorSeat, spot.potFrac),
         callRead: reads.conditional(spot.bettorSeat),
         rake: reads.rake,
+        ...(reads.publicRaiseTo !== undefined ? { publicRaiseTo: reads.publicRaiseTo } : {}),
       });
       if (!raise) return same;
       if (!raise.raise) return { decision, priced: true, changed: null, raise };

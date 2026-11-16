@@ -379,3 +379,20 @@ describe('Omaha Wave Two: The Shared Turn River Tables', () => {
     expect(omahaTurnRiverTablesHeld()).toBe(false);
   });
 });
+
+describe('Omaha Wave Two: The Play Styles Leave Every Ruled Check Final', () => {
+  const TOP_PAIR = () => multiwayTurn('AsKd8c3h');
+  for (const force of ['current', 'tight', 'pressure'] as const)
+    it(`Style ${force}: The Weak-Hand And Three-Way Checks Stand, And One Style Receipt Fires Per Decision`, () => {
+      const on = play(TOP_PAIR, {
+        ...BOTH,
+        horsePlayStyles: true,
+        horsePlayStyleForce: force,
+      } as HorseDecideOpts);
+      SEEDS.forEach((_, i) => {
+        expect(isBet(on.actions[i])).toBe(false);
+        expect(on.fires[i].filter((f) => f.startsWith('horse_play_style_')).length).toBe(1);
+        expect(on.refusals[i]).toBeNull();
+      });
+    });
+});

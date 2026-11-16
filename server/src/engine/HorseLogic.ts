@@ -7822,6 +7822,16 @@ export function omahaBigDrawAggression(
       icmRisk: omahaTournamentIcmRisk(player, gs),
       allInOrFold: gs.allInOrFold === true,
       wagersCapped: gs.wagersCapped === true,
+      ...((): { publicTo?: number | 'all_in' } => {
+        const pub = omahaPublicSizeOf(
+          decision.action === 'call' ? 'raise' : 'bet',
+          decision,
+          player,
+          gs,
+          opts
+        );
+        return pub === undefined ? {} : { publicTo: pub };
+      })(),
       ...(decision.action === 'check'
         ? {
             finalCheckVetoes: (w: { action: 'bet' | 'raise' | 'all_in'; amount?: number }) =>
@@ -9575,7 +9585,7 @@ function omahaPublicSizeUnitOf(): number {
 }
 
 /**
- * The bet the public size makes of this own bet facing no wager when
+ * The wager the public size makes of this own bet or raise when
  * omahaBetSizeByPublicState is on: the decision with the public amount (or
  * the all-in it commits to), the decision itself where the rule leaves it
  * (off, out of its game, a nut-class size kept, unusable bounds). Quiet.
@@ -9586,7 +9596,8 @@ function omahaPublicSizedBet(
   gs: HorseGameStateV2,
   opts: HorseDecideOpts
 ): HorseDecision {
-  if (opts.omahaBetSizeByPublicState !== true || decision.action !== 'bet') return decision;
+  if (opts.omahaBetSizeByPublicState !== true) return decision;
+  if (decision.action !== 'bet' && decision.action !== 'raise') return decision;
   try {
     return HorseLogic.omahaPublicBetSizeQuiet(decision, player, gs, opts);
   } catch {
@@ -9602,6 +9613,27 @@ function omahaPlanRecordPriced<T extends object>(
   amount: number
 ): T {
   return sized === decision ? record : { ...record, publicSize: Math.round(amount * 100) / 100 };
+}
+
+/**
+ * The public size of a wager of this kind the rule could make here
+ * (omahaBetSizeByPublicState on): a bet or raise-to amount, or the all-in it
+ * commits to; undefined where the public rule would leave the size (off, out
+ * of its game, a nut-class size kept, unusable bounds).
+ */
+function omahaPublicSizeOf(
+  kind: 'bet' | 'raise',
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): number | 'all_in' | undefined {
+  if (opts.omahaBetSizeByPublicState !== true) return undefined;
+  const probe: HorseDecision = { ...decision, action: kind, amount: 0 };
+  const pub = omahaPublicSizedBet(probe, player, gs, opts);
+  if (pub === probe) return undefined;
+  if (pub.action === 'all_in') return 'all_in';
+  return Number.isFinite(pub.amount) ? (pub.amount as number) : undefined;
 }
 
 /** The chips a bet or an all-in puts in. */
@@ -10381,6 +10413,18 @@ function omahaStrongHandValueRule(
       rake: isTournamentMode(gs)
         ? 0
         : rakeDrag(gs.pot, gs.bigBlind, gs.rakeConfig, dealtHorseTableSize(gs, player.seat)),
+      // omahaBetSizeByPublicState: the value bet or raise is priced at the public size.
+      ...((): { publicBet?: number | 'all_in'; publicRaiseTo?: number | 'all_in' } => {
+        const pub = omahaPublicSizeOf(
+          decision.action === 'call' ? 'raise' : 'bet',
+          decision,
+          player,
+          gs,
+          opts
+        );
+        if (pub === undefined) return {};
+        return decision.action === 'call' ? { publicRaiseTo: pub } : { publicBet: pub };
+      })(),
     });
     if (telemetryOn(opts)) {
       if (result.changed === 'value_bet') noteFire('omaha_strong_hand_value_bet');
@@ -15307,7 +15351,13 @@ export class HorseLogic {
         ? { valueRaiseTightness: params.tightness * stylePre.valueRaiseTightnessMul }
         : {}),
       ...(styleEntryBarCredit !== undefined
-        ? { styleEntryBarCredit, styleCallTightness: params.tightness }
+        ? {
+            styleEntryBarCredit,
+            styleCallTightness: params.tightness,
+            // wave two: the 3-bet widening does not widen the 4-bet node
+            styleFourBetTightness: params.tightness,
+            styleFourBetAggression: params.aggression,
+          }
         : {}),
       bluffFreq: stylePre ? params.bluffFreq * stylePre.bluffFreqMul : params.bluffFreq,
       aggression: stylePre ? params.aggression * stylePre.aggressionMul : params.aggression,
