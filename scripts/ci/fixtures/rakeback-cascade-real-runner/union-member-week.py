@@ -21,7 +21,7 @@ q('SET search_path TO pg_catalog,public;\n'+'\n'.join(sequences+tables+defaults+
 # Install alongside an ordinary short game writer, as on the serving database.
 from concurrent.futures import ThreadPoolExecutor
 with ThreadPoolExecutor(max_workers=1) as writer_pool:
-    writer = writer_pool.submit(q, "BEGIN; SET LOCAL application_name='member_week_writer'; LOCK public.cash_games IN ROW EXCLUSIVE MODE; SELECT pg_sleep(2.5); COMMIT;")
+    writer = writer_pool.submit(q, "BEGIN; SET LOCAL application_name='member_week_writer'; LOCK public.tables IN ROW EXCLUSIVE MODE; SELECT pg_sleep(2.5); LOCK public.cash_games IN ROW EXCLUSIVE MODE; COMMIT;")
     until = time.monotonic()+5
     while one("SELECT EXISTS(SELECT FROM pg_stat_activity WHERE application_name='member_week_writer' AND wait_event='PgSleep')")!='t':
         assert time.monotonic()<until, 'fixture writer did not take the game lock'
