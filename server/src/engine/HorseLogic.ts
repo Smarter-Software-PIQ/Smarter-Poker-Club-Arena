@@ -139,6 +139,7 @@ import {
 } from './HorseTokenCallPrice.js';
 import { plo6TopSetIsCurrentNuts } from './HorsePlo6TopSetNut.js';
 import { plo6NoMultiwayBetWithWeakMadeHand } from './HorsePlo6MultiwayWeakBet.js';
+import { applyPlo6OmahaStrategyCalibration } from './HorsePlo6StrategyCalibration.js';
 import {
   FIXED_LIMIT_ONE_BET_RAISE_BREAK_EVEN,
   fixedLimitFullBetRead,
@@ -3474,6 +3475,40 @@ export interface HorseDecideOpts {
    * (docs/horse-option-authority.d/plo6NoMultiwayBetWithWeakMadeHand.md);
    * league card plo6_no_multiway_bet_with_weak_made_hand. */
   plo6NoMultiwayBetWithWeakMadeHand?: boolean;
+  /** PLO6 lane 2026-11-16: the game gate of the 2026-11-15 Omaha strategy
+   * options (owner 2026-11-15 13:16, "shared with PLO6"). On, each PLO4/PLO5
+   * strategy option that is itself ON also acts in PLO6: every game-scope gate
+   * of those options asks omahaStrategyGameInScope, which admits 'plo6' only
+   * here (HorseOmahaStrategyGame.ts reads this field `=== true`), and the
+   * six-card constants of HorsePlo6StrategyCalibration.ts are registered with
+   * omahaStrategyConstant for that decision only
+   * (applyPlo6OmahaStrategyCalibration). Alone it changes nothing: it switches
+   * no option on. Unset or false, PLO6 is outside every one of those scopes
+   * and reads no six-card constant, exactly as before.
+   *
+   * Default OFF and OFF-ONLY in the live switch until the six-card port is
+   * complete and reviewed. Known gaps (2026-11-16), each of which would make a
+   * rule wrong or silent for six cards:
+   *  - COORDINATED_MAX_GAPS (HorseOmahaOopReraisedPot.ts) has no six-card row;
+   *  - omahaReraisedPremium is too wide for six cards (plo6ReraisedPremium is
+   *    not hooked);
+   *  - literal 4/5 hole-count checks: HorseOmahaUnderpair.ts :189,
+   *    HorseOmahaReraisedPot.ts :229, HorseOmahaOopReraisedPot.ts :258, :353,
+   *    :415, HorseOmahaFacingBetEv.ts :669, HorseOmahaRiverMediumBetCalls.ts
+   *    :99 (lines as of this commit);
+   *  - the HorseOmahaReraisedPot.ts inScope is not routed through
+   *    omahaStrategyGameInScope;
+   *  - the four options the PLO6 port skips (omahaRiverNutBlockerBluffReachable,
+   *    omahaReraisedFoldVsTight, omahaEliteContinuesVsMeasuredWideThreeBettor,
+   *    omahaSmallBlindSteal) are not yet excluded from PLO6 under this gate;
+   *  - the PLO6 adaptations (the "adapt" verdicts of
+   *    plo6StrategyOptionVerdict) are not hooked;
+   *  - the receipt validator does not admit PLO6
+   *    (OMAHA_STRATEGY_GAME_SCOPE_ADMISSION.plo6 is false).
+   * Authority and evidence rows:
+   * docs/horse-option-authority.d/omahaStrategyInPlo6.md. League: the refused
+   * matchup plo6_omaha_strategy_in_plo6. */
+  omahaStrategyInPlo6?: boolean;
   /** Fixed limit, river, facing a wager (SPEC-FL-01): the wagerer's read is
    * marked a FULL bet (a raise as a raise) so the range samplers stop
    * pricing a fixed bet as a small no-limit bet (HorseFixedLimitWagerRead.ts).
@@ -10289,6 +10324,10 @@ export class HorseLogic {
       // omahaStrategyGameInScope: PLO6 joins the day's PLO4/PLO5 scopes only
       // with the PLO6 lane's own option (omahaStrategyInPlo6 === true).
       const gameScope = omahaStrategyGameScopeOf(opts);
+      // The six-card constants are in the accessor only for a decision whose
+      // gate is on (the same read as gameScope.plo6); unset or false, every
+      // PLO6 read is the default, as before.
+      applyPlo6OmahaStrategyCalibration(opts.omahaStrategyInPlo6 === true);
       if (opts.omahaStrategyInTournaments !== true || !isTournamentMode(gameState))
         return withOmahaStrategyGameScope(gameScope, () =>
           withOmahaTournamentScope(OMAHA_TOURNAMENT_SCOPE_OFF, decideIt)

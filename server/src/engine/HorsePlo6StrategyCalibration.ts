@@ -2,8 +2,13 @@
  * PLO6 STRATEGY CALIBRATION (PLO6 port of the PLO Strategy catalogue, 2026-11-15).
  *
  * The six-card values and class tests the Omaha strategy options need before
- * any of them may act in PLO6. DEFAULT-INERT: nothing reads this file yet; no
- * PLO4 or PLO5 value is changed by it.
+ * any of them may act in PLO6. No PLO4 or PLO5 value is changed by it.
+ *
+ * One reader (2026-11-16): HorseLogic.decide calls
+ * applyPlo6OmahaStrategyCalibration with the decision's omahaStrategyInPlo6
+ * gate (see the end of this file). With the gate off (the option is OFF-ONLY)
+ * nothing here is registered and every PLO6 decision reads what it read
+ * before. The class tests and the remaining entries are still read by nothing.
  *
  * Sources: SPEC-A (options 3.1 to 3.16, helpers H1-H26, measured inputs M1-M5)
  * and SPEC-B (options 3.17 to 3.31, helpers H27-H39, counts N1-N3), written for
@@ -22,6 +27,12 @@
 import type { Card } from '../types.js';
 import { omahaBoatsAbove, omahaNutStatus, scoreOmahaHiPartial } from './HorseEval.js';
 import { handClassRead, omahaEliteClassRead } from './HorseHandClasses.js';
+import {
+  OMAHA_STRATEGY_CONSTANT_DEFAULTS,
+  type OmahaPlo6StrategyCalibration,
+  type OmahaStrategyConstantKey,
+  registerOmahaPlo6StrategyCalibration,
+} from './HorseOmahaStrategyGame.js';
 
 export const PLO6_HOLE_CARDS = 6;
 /** C(6,2): the two-card holdings inside one six-card hand. */
@@ -687,3 +698,113 @@ export type Plo6CatalogueOption = keyof typeof VERDICTS;
  */
 export const plo6StrategyOptionVerdict: Readonly<Record<Plo6CatalogueOption, Plo6OptionRuling>> =
   deepFreeze(VERDICTS);
+
+// ── The Omaha strategy accessor (HorseOmahaStrategyGame.ts) ──
+export interface Plo6AccessorValue {
+  /** The entry of PLO6_OMAHA_STRATEGY_CONSTANTS the value is taken from; null: the specs list none. */
+  readonly source: Plo6StrategyConstantKey | null;
+  /** The PLO6 number for the accessor key; null when there is no entry or the entry is not one number. */
+  readonly value: number | null;
+}
+const numberOf = (source: Plo6StrategyConstantKey): Plo6AccessorValue => {
+  const v: Plo6CalibrationValue = CONSTANTS[source].value;
+  return { source, value: typeof v === 'number' ? v : null };
+};
+/** A 0-or-1 accessor switch: 1 when the entry names the six-card form. */
+const switchOf = (source: Plo6StrategyConstantKey, sixCardForm: string): Plo6AccessorValue => ({
+  source,
+  value: CONSTANTS[source].value === sixCardForm ? 1 : 0,
+});
+/**
+ * Each of the accessor's 17 keys (omahaStrategyConstant) with the PLO6 value
+ * this file holds for it and the entry it comes from. Nothing is restated:
+ * every number is read from CONSTANTS above.
+ *  - riverMediumBetRangeFactor: the PLO6 rule is not a factor (the entry is
+ *    the M1 beaten bars of plo6RiverMediumBetCalls), so there is no number.
+ *  - eliteContinueMaxPotOdds, tournamentPushFoldMaxBB: the specs list no
+ *    six-card value.
+ *  - pairedFoldRespectedInvestedShare: the share; the entry's `armNeeds`
+ *    (a straight or better) is an adaptation the accessor cannot carry.
+ */
+export const PLO6_OMAHA_STRATEGY_ACCESSOR_VALUES: Readonly<
+  Record<OmahaStrategyConstantKey, Plo6AccessorValue>
+> = deepFreeze({
+  facingBetEvMargin: numberOf('OMAHA_FACING_BET_EV_MARGIN'),
+  riverMediumBetRangeFactor: numberOf('OMAHA_RIVER_MEDIUM_BET_RANGE_FACTOR'),
+  pairedFoldRespectedMaxPrice: numberOf('PAIRED_FOLD_RESPECTED_MAX_PRICE'),
+  pairedFoldRespectedInvestedShare: {
+    source: 'PAIRED_FOLD_RESPECTED_INVESTED_SHARE',
+    value: CONSTANTS.PAIRED_FOLD_RESPECTED_INVESTED_SHARE.value.share,
+  },
+  oopTurnMinNutOuts: numberOf('OMAHA_OOP_TURN_MIN_NUT_OUTS'),
+  oopTurnShowdownCredit: numberOf('OMAHA_OOP_TURN_SHOWDOWN_CREDIT'),
+  oopTurnTokenPrice: numberOf('OMAHA_OOP_TURN_TOKEN_PRICE'),
+  cardImpactMargin: numberOf('OMAHA_CARD_IMPACT_MARGIN'),
+  streetPlanMarginPotShare: numberOf('OMAHA_STREET_PLAN_MARGIN_POT_SHARE'),
+  bigDrawMargin: numberOf('OMAHA_BIG_DRAW_MARGIN'),
+  raiseNeedsNutsFoldPrice: numberOf('OMAHA_RAISE_NEEDS_NUTS_FOLD_PRICE'),
+  eliteContinueMaxPotOdds: { source: null, value: null },
+  bigBetPotShare: numberOf('OMAHA_BIG_BET_POT_SHARE'),
+  tournamentPushFoldMaxBB: { source: null, value: null },
+  /** H9. */
+  turnRedrawNutFullHouseOnly: switchOf(
+    'omahaTurnRedrawShare',
+    'full_house_only_when_no_bigger_full_house'
+  ),
+  /** H19. */
+  cardImpactDistinctDrawOuts: switchOf('outsOf', 'distinct_unseen_completing_cards_each_once'),
+  /** H15: the wrap line is the first of the module's own out classes (13). */
+  bigDrawContinueStraightOuts: {
+    source: 'omahaBigDrawContinues',
+    value:
+      CONSTANTS.omahaBigDrawContinues.value === 'plo5_class_plus_13_straight_out_wraps'
+        ? (CONSTANTS['omahaBigDrawAggression.outClasses'].value[0] ?? 0)
+        : 0,
+  },
+});
+
+/**
+ * What is registered: the keys whose PLO6 value is a number that differs
+ * from the accessor default. A key left out reads the PLO4/PLO5 default.
+ */
+export function plo6OmahaStrategyAccessorCalibration(): OmahaPlo6StrategyCalibration {
+  const out: OmahaPlo6StrategyCalibration = {};
+  for (const key of Object.keys(OMAHA_STRATEGY_CONSTANT_DEFAULTS) as OmahaStrategyConstantKey[]) {
+    const v = PLO6_OMAHA_STRATEGY_ACCESSOR_VALUES[key].value;
+    if (v !== null && v !== OMAHA_STRATEGY_CONSTANT_DEFAULTS[key]) out[key] = v;
+  }
+  return out;
+}
+
+const ACCESSOR_CALIBRATION = Object.freeze(plo6OmahaStrategyAccessorCalibration());
+const NO_CALIBRATION: OmahaPlo6StrategyCalibration = Object.freeze({});
+
+/** Hands the accessor the PLO6 values: from here a PLO6 read of a registered key returns it. */
+export function registerPlo6OmahaStrategyCalibration(): void {
+  registerOmahaPlo6StrategyCalibration(ACCESSOR_CALIBRATION);
+}
+
+/** Takes them back: every PLO6 read returns the PLO4/PLO5 default again. */
+export function clearPlo6OmahaStrategyCalibration(): void {
+  registerOmahaPlo6StrategyCalibration(NO_CALIBRATION);
+}
+
+/**
+ * The one production caller of the two functions above: HorseLogic.decide,
+ * before anything else of the decision, with the decision's own gate
+ * (opts.omahaStrategyInPlo6 === true).
+ *
+ * The values are registered ONLY for a decision whose gate is on, and taken
+ * back at the next decision whose gate is off. So with the option unset or
+ * false the accessor holds no PLO6 value at any read of that decision, and a
+ * process in which the option is never on never registers anything: PLO6
+ * plays exactly as it did before this hookup, whatever reads the accessor.
+ * It does not rest on each reader's own game gate. (One reader does run for
+ * PLO6 with the gate off: HorseLogic's bluff-catcher argument computes
+ * omahaTurnRedrawShareOf before omahaBluffCatcherCell refuses the game.)
+ * No state is kept here: each call sets the accessor to what its gate says.
+ */
+export function applyPlo6OmahaStrategyCalibration(gateOn: boolean): void {
+  if (gateOn === true) registerPlo6OmahaStrategyCalibration();
+  else clearPlo6OmahaStrategyCalibration();
+}

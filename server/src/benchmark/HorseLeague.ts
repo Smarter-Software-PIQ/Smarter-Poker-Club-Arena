@@ -3724,6 +3724,29 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'law and the property test (200 private hands on three public states give one think-time distribution). ' +
       'What would change this: a league opponent that conditions its play on the recorded think time.',
   },
+  // 2026-11-16 (PLO6 lane): omahaStrategyInPlo6, default off and off-only.
+  // Refused, not dealt: alone the gate switches no option on, and the port
+  // it would open is not finished.
+  {
+    name: 'plo6_omaha_strategy_in_plo6',
+    variant: 'plo6',
+    seats: 6,
+    a: { omahaStrategyInPlo6: true },
+    b: {},
+    reason:
+      'Unanswerable as a one-option card: omahaStrategyInPlo6 is a game gate, not a rule. On, it lets each ' +
+      'PLO4/PLO5 strategy option of 2026-11-15 that is itself on also act in PLO6 (omahaStrategyGameInScope) ' +
+      'and registers the six-card constants for that decision; every one of those options is default off, so ' +
+      'with only the gate on no rule is in scope and the two arms play the same poker. ' +
+      'The option is DEFAULT OFF (read as === true) and OFF-ONLY in the live switch. ' +
+      'Measured 2026-11-16 by running this refused matchup through runMatchup (seed 20261116, 300 pairs): ' +
+      '0 of 300 pairs diverged (inert, as the structure says). ' +
+      'A card that also switches the strategy options on in both arms is not dealt yet on purpose: the ' +
+      'six-card port is incomplete (docs/horse-option-authority.d/omahaStrategyInPlo6.md lists the gaps), so ' +
+      'it would measure rules known to be wrong or silent for six cards. ' +
+      'What would change this: the port complete and reviewed; then this refusal is replaced by a PLO6 card ' +
+      'with the ported options on in both arms and the gate on in one.',
+  },
   // 2026-11-15 (PLO Strategy, hand 59518335): omahaVpipFloorByLimp,
   // default off. Refused, not dealt: this league seats no VPIP-floor table.
   ...(['plo4', 'plo5'] as const).map((variant) => ({

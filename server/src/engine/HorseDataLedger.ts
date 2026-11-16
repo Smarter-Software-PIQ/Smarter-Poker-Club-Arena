@@ -1114,6 +1114,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaStrategyInPlo6',
+    'opt-in, default off (PLO6 lane 2026-11-16; owner 2026-11-15 13:16, the PLO strategy work shared with PLO6): the game gate of the 2026-11-15 Omaha strategy options. On, each PLO4/PLO5 strategy option that is itself on also acts in PLO6 (omahaStrategyGameInScope, HorseOmahaStrategyGame.ts), with the six-card constants of HorsePlo6StrategyCalibration.ts registered for that decision only (turnRedrawNutFullHouseOnly 1, cardImpactDistinctDrawOuts 1, bigDrawContinueStraightOuts 13). It switches no option on. Unset or false, PLO6 is outside every one of those scopes and reads no six-card constant, as before. Default OFF (read === true) and OFF-ONLY in the live switch: the six-card port is not complete (no six-card coordination row, the re-raised premium too wide, literal four/five hole-count checks, PLO6 adaptations not hooked, four skipped options not excluded, no receipt admission; docs/horse-option-authority.d/omahaStrategyInPlo6.md)',
+    'V94'
+  ),
+  flag(
     'fixedLimitRiverFullBetRead',
     "opt-in arm, default off (2026-11-14): fixed limit, river, facing a wager: the wagerer is read as having made a full bet (a raise as a raise) instead of a small no-limit bet, in the range samplers only (HorseFixedLimitWagerRead.ts; SPEC-FL-01). Hold'em contact sampler at its ceiling; Omaha high and hi-lo on a no-low board step the aggressor tier and draw the made-hand stratum exactly; hi-lo heads-up keeps the low half under the weak-high cap. Fixtures and a mechanism only, so production never sets it",
     'V94'
