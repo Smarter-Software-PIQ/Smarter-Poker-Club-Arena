@@ -1080,7 +1080,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'horsePlayStyles',
-    "Owner 2026-11-15 16:40 and 16:42 (three winning Horse styles for PLO and Hold'em, one tight, one exactly as they are now, one other, each Horse assigned one at random after it has been created; tight Horses do not play 50% VPIP games tight): every Horse has one playing style for life, tight, current or pressure, a third of the fleet each by a hash of its id with its own salt (HorsePlayStyle.horsePlayStyleFor; an authored persona.playStyle wins; no storage, no production write). Omaha mapping (HorseOmahaPlayStyle, PLO4/PLO5 cash, high only, three seats or more): tight (tight-aggressive) multiplies the preflop entry bars (first in, limp, cold call, call of a re-raise) by 1.15 and the bluff volume by 0.80, leaves the value 3-bet and 4-bet bars and every size as they are, and reads the TAG Crusher gears (its own if it is a Nit Hunter) with the higher of its own and that band's elite re-raise mix; pressure, on the cutoff and button before the flop and when last to act after it, multiplies the preflop entry bars by 0.75, the value re-raise bars by 0.90, the bluff volume by 1.20 (1.25 after the flop), the aggression by 1.10 (1.20 after the flop) and the continuation-bet frequency by 1.25, takes the top of the EV engine's aggression tie-break range (+0.12 BB) and reads the LAG Shark gears, and out of position is the current style exactly; current changes nothing. Every scale lies in 0.75 to 1.25 and acts before the owner-ruled chain, which stays final for every style. Every style plays current in tournaments, in Lightning, at 50 bb effective or less and in games with no mapping (Hold'em until its lane maps it, hi-lo, PLO6, bomb pots, All-In-Or-Fold, heads-up); tight also plays current at a table whose VPIP floor is above its expected VPIP. horsePlayStyleForce is the league and test lever that names a seat's style; it is not a switchable option. Default OFF, opt-in.",
+    "Owner 2026-11-15 16:40 and 16:42 (three winning Horse styles for PLO and Hold'em, one tight, one exactly as they are now, one other, each Horse assigned one at random after it has been created; tight Horses do not play 50% VPIP games tight): every Horse has one playing style for life, tight, current or pressure, a third of the fleet each by a hash of its id with its own salt (HorsePlayStyle.horsePlayStyleFor; an authored persona.playStyle wins; no storage, no production write). Omaha mapping (HorseOmahaPlayStyle, PLO4/PLO5 cash, high only, three seats or more): tight (tight-aggressive) multiplies the preflop entry bars (first in, limp, cold call, call of a re-raise) by 1.15 and the bluff volume by 0.80, leaves the value 3-bet and 4-bet bars and every size as they are, and reads the TAG Crusher gears (its own if it is a Nit Hunter) with the higher of its own and that band's elite re-raise mix; pressure, on the cutoff and button before the flop and when last to act after it, multiplies the preflop entry bars by 0.75, the value re-raise bars by 0.90, the bluff volume by 1.20 (1.25 after the flop), the aggression by 1.10 (1.20 after the flop) and the continuation-bet frequency by 1.25, takes the top of the EV engine's aggression tie-break range (+0.12 BB) and reads the LAG Shark gears, and (2026-11-16) biases the EV engine's own in-position inputs: each opponent's fold-equity prior x1.25 on the bet candidates (the check priced as today), the indifference band x2 (0.24 BB) for a candidate more aggressive than the best, and before the flop an entry-bar credit of 0.03 (at most 0.04) on every entry bar but the value re-raise bars, and out of position is the current style exactly; current changes nothing. Every scale lies in 0.75 to 1.25 and acts before the owner-ruled chain, which stays final for every style. Every style plays current in tournaments, in Lightning, at 50 bb effective or less and in games with no mapping (Hold'em until its lane maps it, hi-lo, PLO6, bomb pots, All-In-Or-Fold, heads-up); tight also plays current at a table whose VPIP floor is above its expected VPIP. horsePlayStyleForce is the league and test lever that names a seat's style; it is not a switchable option. Default OFF, opt-in.",
     'V94'
   ),
   flag(
@@ -4695,21 +4695,51 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   receipt(
-    'horse_play_style_tight_seen',
-    'HorseLogic decideInternal (HorsePlayStyle, HorseOmahaPlayStyle, horsePlayStyles)',
-    'a decision by a Horse whose playing style is tight at a table where the tight style applies (PLO4/PLO5 cash, deeper than 50 bb, no VPIP floor above its expected VPIP): the preflop bars and the bluff volume carried the tight scales',
+    'horse_play_style_tight',
+    'HorseLogic decideInternal (HorsePlayStyle.horsePlayStyleReceipt, horsePlayStyles)',
+    'per-style tracking (2026-11-16): a decision with horsePlayStyles on by a Horse whose playing style is tight, at a table where the tight style applies (PLO4/PLO5 cash, deeper than 50 bb, no VPIP floor above its expected VPIP): the preflop entry bars and the bluff volume carried the tight scales. Read per style with the Horse id joined to horsePlayStyleFor (server/scripts/horse-play-style-for.ts)',
     'V94'
   ),
   receipt(
-    'horse_play_style_pressure_seen',
-    'HorseLogic decideInternal (HorsePlayStyle, HorseOmahaPlayStyle, horsePlayStyles)',
-    'a decision by a Horse whose playing style is pressure at a table where the style applies (PLO4/PLO5 cash, deeper than 50 bb): in position the preflop bars, the bluff volume and the aggression carried the pressure scales, out of position nothing changed',
+    'horse_play_style_current',
+    'HorseLogic decideInternal (HorsePlayStyle.horsePlayStyleReceipt, horsePlayStyles)',
+    "per-style tracking (2026-11-16): a decision with horsePlayStyles on by a Horse whose playing style is current (today's play, nothing scaled); counted in every game, the control arm of the per-style reads",
     'V94'
   ),
   receipt(
-    'horse_play_style_table_fallback_seen',
-    'HorseLogic decideInternal (HorsePlayStyle.horsePlayStyleFallback, horsePlayStyles)',
-    'a decision by a tight or pressure Horse that played the current style because of the table: a tournament, Lightning, 50 bb effective or less, a game with no mapping, or (tight only) a VPIP floor above the tight expected VPIP',
+    'horse_play_style_pressure',
+    'HorseLogic decideInternal (HorsePlayStyle.horsePlayStyleReceipt, horsePlayStyles)',
+    "per-style tracking (2026-11-16): a decision with horsePlayStyles on by a Horse whose playing style is pressure, at a table where the style applies (PLO4/PLO5 cash, deeper than 50 bb): in position the preflop entry bars (tightness scale and entry-bar credit), the bluff volume, the aggression, the c-bet frequency and the EV engine's fold-equity prior and aggressive tie-break band carried the pressure biases; out of position nothing changed",
+    'V94'
+  ),
+  receipt(
+    'horse_play_style_fallback_current_floor_seen',
+    'HorseLogic decideInternal (HorsePlayStyle.horsePlayStyleReceipt, horsePlayStyles)',
+    'per-style tracking (2026-11-16): a decision with horsePlayStyles on by a tight or pressure Horse that played the current style because of the table: a VPIP floor above the tight style expected VPIP (tight only); named *_seen (occurrence, its quiet days are normal)',
+    'V94'
+  ),
+  receipt(
+    'horse_play_style_fallback_current_tournament_seen',
+    'HorseLogic decideInternal (HorsePlayStyle.horsePlayStyleReceipt, horsePlayStyles)',
+    'per-style tracking (2026-11-16): a decision with horsePlayStyles on by a tight or pressure Horse that played the current style because of the table: a tournament hand; named *_seen (occurrence, its quiet days are normal)',
+    'V94'
+  ),
+  receipt(
+    'horse_play_style_fallback_current_lightning_seen',
+    'HorseLogic decideInternal (HorsePlayStyle.horsePlayStyleReceipt, horsePlayStyles)',
+    'per-style tracking (2026-11-16): a decision with horsePlayStyles on by a tight or pressure Horse that played the current style because of the table: a Lightning table; named *_seen (occurrence, its quiet days are normal)',
+    'V94'
+  ),
+  receipt(
+    'horse_play_style_fallback_current_short_stack_seen',
+    'HorseLogic decideInternal (HorsePlayStyle.horsePlayStyleReceipt, horsePlayStyles)',
+    'per-style tracking (2026-11-16): a decision with horsePlayStyles on by a tight or pressure Horse that played the current style because of the table: 50 bb effective or less; named *_seen (occurrence, its quiet days are normal)',
+    'V94'
+  ),
+  receipt(
+    'horse_play_style_fallback_current_unmapped_seen',
+    'HorseLogic decideInternal (HorsePlayStyle.horsePlayStyleReceipt, horsePlayStyles)',
+    "per-style tracking (2026-11-16): a decision with horsePlayStyles on by a tight or pressure Horse that played the current style because of the table: a game with no mapping (Hold'em until its lane maps it, hi-lo, PLO6, bomb pots, All-In-Or-Fold, heads-up); named *_seen (occurrence, its quiet days are normal)",
     'V94'
   ),
   receipt(

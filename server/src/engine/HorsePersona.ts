@@ -265,6 +265,12 @@ export interface IndifferenceSpotContext {
   bubbleFactor?: number;
   handKey?: string | number;
   street?: string;
+  /**
+   * horsePlayStyles (default off): the band is multiplied by this (1..2).
+   * Set by the EV engine only for a candidate more aggressive than the best
+   * when the pressure style plays in position. Absent: the band as it is.
+   */
+  bandMul?: number;
 }
 
 export function resolveIndifferenceTieBreak(
@@ -277,7 +283,10 @@ export function resolveIndifferenceTieBreak(
     spot?.bubbleFactor !== undefined && Number.isFinite(spot.bubbleFactor) && spot.bubbleFactor > 1
       ? spot.bubbleFactor
       : 1;
-  const effectiveBand = HORSE_INDIFFERENCE_EV_BAND_BB / Math.min(2, Math.sqrt(bf));
+  const effectiveBand =
+    spot?.bandMul !== undefined && Number.isFinite(spot.bandMul)
+      ? (HORSE_INDIFFERENCE_EV_BAND_BB / Math.min(2, Math.sqrt(bf))) * clamp(spot.bandMul, 1, 2)
+      : HORSE_INDIFFERENCE_EV_BAND_BB / Math.min(2, Math.sqrt(bf));
   if (evGapBB > effectiveBand) return true;
   if (evGapBB < -effectiveBand) return false;
   let jitter = 0;

@@ -319,6 +319,14 @@ export interface PreflopCtx {
    * decision without the option, and the current style): `tightness`.
    */
   valueRaiseTightness?: number;
+  /**
+   * horsePlayStyles (HorseOmahaPlayStyle.omahaPlayStyleEntryBarCredit, default
+   * off, 2026-11-16): the pressure style on the cutoff and button lowers every
+   * bar that reads `tightness` (the entry bars: first in, limp, cold call, call
+   * of a re-raise) by this much (0..0.04). The value 3-bet and 4-bet bars do
+   * not read it. Absent on every other decision: nothing is subtracted.
+   */
+  styleEntryBarCredit?: number;
   bluffFreq: number;
   aggression: number;
   slowplayFreq: number;
@@ -1626,8 +1634,19 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
   // achievable hand is not "tight", it is a dead branch.
   const BAR_CAP = 0.965;
   const capBar = (x: number) => Math.min(BAR_CAP, clamp01(x));
-  const t = (x: number) => capBar(x * ctx.tightness + ctx.riskAdd);
-  const tCall = (x: number) => capBar(x * ctx.tightness + riskScaled);
+  // horsePlayStyles: the entry-bar credit, only when the style supplied one.
+  const entryCredit =
+    ctx.styleEntryBarCredit !== undefined && Number.isFinite(ctx.styleEntryBarCredit)
+      ? Math.max(0, Math.min(0.04, ctx.styleEntryBarCredit))
+      : undefined;
+  const t = (x: number) =>
+    entryCredit !== undefined
+      ? capBar(x * ctx.tightness + ctx.riskAdd - entryCredit)
+      : capBar(x * ctx.tightness + ctx.riskAdd);
+  const tCall = (x: number) =>
+    entryCredit !== undefined
+      ? capBar(x * ctx.tightness + riskScaled - entryCredit)
+      : capBar(x * ctx.tightness + riskScaled);
   // V53: a bar priced by the action's own ICM cost instead of the flat
   // premium. Absent the read, exactly t() / tCall().
   const ploIcm = ctx.ploIcm;
@@ -1636,8 +1655,10 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
   const valueTightness = ctx.valueRaiseTightness ?? ctx.tightness;
   const tv = (x: number) => capBar(x * valueTightness + ctx.riskAdd);
   const t53 = (x: number, family: keyof OmahaPressureShifts): number => {
-    const tightness =
-      family === 'threeBet' || family === 'fourBet' ? valueTightness : ctx.tightness;
+    const value = family === 'threeBet' || family === 'fourBet';
+    const tightness = value ? valueTightness : ctx.tightness;
+    if (entryCredit !== undefined && !value)
+      return capBar(x * tightness + (ploIcm ? ploIcm[family] : ctx.riskAdd) - entryCredit);
     return capBar(x * tightness + (ploIcm ? ploIcm[family] : ctx.riskAdd));
   };
   // No-limit hold'em only: the closed all-in exception and the 4-bet-node
