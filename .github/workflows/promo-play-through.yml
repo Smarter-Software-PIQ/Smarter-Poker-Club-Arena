@@ -20,6 +20,13 @@ on:
       - scripts/ci/fixtures/unpaid-atomic-cash-contract-columns.json
       - scripts/ci/fixtures/rakeback-cascade-real-guards/production-relations.json
       - scripts/ci/fixtures/rakeback-cascade-real-guards/world.py
+      - supabase/migrations/*_suspect_promo_chip_dumping_*.sql
+      - scripts/ci/test-promo-integrity.py
+      - scripts/ci/test-promo-integrity-accepted-hand.py
+      - tests/fixtures/promo-integrity-*.json
+      - scripts/ci/test-mtt-unlimited.py
+      - scripts/ci/test-accepted-hand-roster.py
+      - scripts/ci/probes/accepted-hand-roster-fixture.sql
       - .github/workflows/promo-play-through.yml
 
 permissions:
@@ -44,6 +51,17 @@ jobs:
         run: python3 scripts/ci/test-promo-play-through.py --output artifacts/promo-play-through
       - name: Promo fees preserve gross rake and exclude free earnings
         run: python3 -B scripts/ci/test-promo-fee-basis.py --pg-bin /usr/lib/postgresql/17/bin --output artifacts/promo-fee-basis
+      - name: Build the stock PostgreSQL isolation client
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/build_pg17_isolationtester.py
+      - name: Review holds follow actual restricted principal
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+          PG_ISOLATION_TESTER: ${{ github.workspace }}/artifacts/postgresql-17-isolationtester/toolchain/lib/pgxs/src/test/isolation/isolationtester
+        run: python3 -B scripts/ci/test-promo-integrity.py --output artifacts/promo-integrity
+      - name: Actual accepted hands and response-loss replay preserve review custody
+        run: python3 -B scripts/ci/test-promo-integrity-accepted-hand.py --pg-bin /usr/lib/postgresql/17/bin --output artifacts/promo-integrity-accepted-hand
       - name: Retain the regression evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -52,5 +70,8 @@ jobs:
           path: |
             artifacts/promo-play-through/RESULTS.json
             artifacts/promo-fee-basis/RESULTS.json
+            artifacts/promo-integrity/RESULTS.json
+            artifacts/promo-integrity/review-race-*.log
+            artifacts/promo-integrity-accepted-hand/RESULTS.json
           retention-days: 7
           if-no-files-found: warn
