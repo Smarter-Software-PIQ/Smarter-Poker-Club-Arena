@@ -1,5 +1,5 @@
 -- @install-window: daily-maintenance
--- @locks: public.chip_ledger, public.ca_promo_play_through_grants, public.tournaments, smarter_private.free_buy_ticket_redemptions
+-- @locks: public.chip_ledger, public.ca_promo_play_through_grants, public.tournaments, public.tournament_players, smarter_private.free_buy_ticket_redemptions
 -- @live-proof: EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='smarter_private.free_buy_ticket_redemptions'::regclass AND tgname='ca_promo_free_buy_principal' AND tgenabled='O')
 -- Promo may enter tournaments directly, but cannot purchase a gifted ticket.
 -- Original event principal follows entry, earned awards, refund and full loss.
