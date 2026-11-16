@@ -1,0 +1,9 @@
+{
+  "_owner": "agent/promo-play-through-01a1e4d3",
+  "_comment": "Own progress is installed by 20261115210559; scoped roster progress is added by 20261116145205.",
+  "functions": [
+    "fn_ca_my_promo_play_through",
+    "fn_ca_members_promo_play_through",
+    "fn_ca_promo_play_through_on_real_chips"
+  ]
+}

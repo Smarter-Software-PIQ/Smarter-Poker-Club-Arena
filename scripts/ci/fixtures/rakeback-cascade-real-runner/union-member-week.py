@@ -18,7 +18,16 @@ for contract, definition in cash_contracts.items():
         q('SET check_function_bodies=off;'+definition['def']+';')
 sequences, tables, defaults, checks, indexes, _, _=world.tables_sql({'public.cash_games':extra['public.cash_games']})
 q('SET search_path TO pg_catalog,public;\n'+'\n'.join(sequences+tables+defaults+checks+indexes))
-q(migration.read_text())
+# Install alongside an ordinary short game writer, as on the serving database.
+from concurrent.futures import ThreadPoolExecutor
+with ThreadPoolExecutor(max_workers=1) as writer_pool:
+    writer = writer_pool.submit(q, "BEGIN; SET LOCAL application_name='member_week_writer'; LOCK public.tables IN ROW EXCLUSIVE MODE; SELECT pg_sleep(2.5); LOCK public.cash_games IN ROW EXCLUSIVE MODE; COMMIT;")
+    until = time.monotonic()+5
+    while one("SELECT EXISTS(SELECT FROM pg_stat_activity WHERE application_name='member_week_writer' AND wait_event='PgSleep')")!='t':
+        assert time.monotonic()<until, 'fixture writer did not take the game lock'
+        time.sleep(0.05)
+    q(migration.read_text())
+    writer.result()
 assert one(member_plan)=='f'
 assert one("SELECT NOT smarter_private.standalone_week_belongs_to_union(rr.u('O'),rr.ws()-interval '7 days') AND smarter_private.standalone_week_belongs_to_union(rr.u('O'),rr.ws())")=='t'
 assert one(MONEY)==before_money

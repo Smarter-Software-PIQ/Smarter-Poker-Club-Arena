@@ -1,3 +1,5 @@
+import { useMemberPromoPlayThrough } from '../hooks/useMemberPromoPlayThrough';
+import type { PromoPlayThroughSummary } from '../services/PromoPlayThroughService';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -1265,6 +1267,10 @@ export default function ClubMembersPage() {
     viewportHeight: 696,
     buffer: 5,
   });
+  const promoProgress = useMemberPromoPlayThrough(
+    resolvedClubId,
+    virtual.visibleItems.filter((m) => m.can_view_financials).map((m) => m.user_id)
+  );
   const resetVirtual = virtual.reset;
 
   useEffect(() => {
@@ -2071,6 +2077,11 @@ export default function ClubMembersPage() {
               <MemberRow
                 key={member.user_id}
                 member={member}
+                promo={
+                  promoProgress.members === undefined
+                    ? undefined
+                    : (promoProgress.members?.[member.user_id] ?? null)
+                }
                 position={virtual.startIndex + index + 1}
                 total={filteredTotal}
                 query={debouncedSearch}
@@ -2123,6 +2134,7 @@ function highlight(value: string, query: string) {
 
 export const MemberRow = memo(function MemberRow({
   member,
+  promo,
   position,
   total,
   query,
@@ -2154,6 +2166,7 @@ export const MemberRow = memo(function MemberRow({
   secondaryWinLossUnavailable?: boolean;
   secondaryWinLossLabel?: string;
   member: RosterMember;
+  promo?: PromoPlayThroughSummary | null;
   position: number;
   total: number;
   query: string;
@@ -2234,6 +2247,23 @@ export const MemberRow = memo(function MemberRow({
                 {highlight(member.upline_name, query)}
               </span>
             )}
+            {member.can_view_financials &&
+              (promo === null || promo === undefined || promo.locked > 0) && (
+                <span
+                  className="member-promo"
+                  title={
+                    promo
+                      ? `${walletFigure(promo.locked)} Locked · ${walletFigure(promo.fee_remaining)} In Fees To Go`
+                      : undefined
+                  }
+                >
+                  {promo === undefined
+                    ? 'Reading Promo...'
+                    : promo === null
+                      ? 'Promo Unavailable'
+                      : `Promo Locked ${walletFigure(promo.locked)} · ${promo.percent}%`}
+                </span>
+              )}
           </span>
           <span className="member-subline">
             {(!simpleMode || member.role !== 'player') && (

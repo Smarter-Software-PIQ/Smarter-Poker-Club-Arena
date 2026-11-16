@@ -1486,3 +1486,15 @@ body:has([data-players-mode='simple']) nav[aria-label='Club Operations Sections'
   font-size: inherit;
   line-height: inherit;
 }
+
+.member-promo {
+  display: block;
+  flex-basis: 100%;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--members-cyan);
+  font-size: 0.68rem;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

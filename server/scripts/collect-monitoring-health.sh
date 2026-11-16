@@ -461,8 +461,8 @@ CASH_POLICY_BODY=$(curl -sS --max-time "$TIMEOUT_SEC" \
 # Unknown/missing policy is not an old-policy sample and never becomes zero.
 CASH_POPULATION_BODY=$(curl -sS --max-time "$TIMEOUT_SEC" \
   "http://127.0.0.1:8080/health" 2>/dev/null) || CASH_POPULATION_BODY=''
-CASH_POLICY_RENDERED=$(python3 - "$CASH_POLICY_BODY" "$CASH_POPULATION_BODY" <<'PY'
-import hashlib, json, sys
+CASH_POLICY_RENDERED=$(python3 - "$CASH_POLICY_BODY" 3<<<"$CASH_POPULATION_BODY" <<'PY'
+import hashlib, json, os, sys
 lines = []
 ok = 0
 try:
@@ -472,9 +472,30 @@ try:
     fingerprint = rows[0].get('fingerprint')
     if type(fingerprint) is not int or not 0 <= fingerprint < 2**52:
         raise ValueError('policy fingerprint is unavailable')
-    population = json.loads(sys.argv[2]).get('horseWorkSchedule', {}).get('policyFingerprint')
-    if type(population) is not int or not 0 <= population < 2**52:
+    # Health includes growing diagnostics; never put it in argv (Linux's
+    # per-argument limit is 128 KiB). FD 3 streams it independently of the
+    # Python program on stdin, with no intermediate health file.
+    with os.fdopen(3) as health_stream:
+        health = json.load(health_stream)
+    schedule = health.get('horseWorkSchedule')
+    if not isinstance(schedule, dict):
         raise ValueError('engine cash population policy is unavailable')
+    if 'policyFingerprint' in schedule:
+        population = schedule['policyFingerprint']
+        if type(population) is not int or not 0 <= population < 2**52:
+            raise ValueError('engine cash population policy is unavailable')
+    else:
+        # Versioned reader compatibility: this immutable production release
+        # predates the field added by #11081. Its policy is source-owned in
+        # HorseWorkSchedule/HorseRegulars/HorseCashSchedule/StableHand. Give that
+        # exact release its own domain-separated cohort, never SQL-only history
+        # or a guessed population. Unknown releases and corrupt new fields
+        # remain unreadable. This also supports rollback to this predecessor.
+        legacy_releases = {'3529e86663daa427b380a8ab9bd09347270c670e'}
+        release = health.get('releaseSha')
+        if not isinstance(release, str) or release not in legacy_releases:
+            raise ValueError('engine cash population policy is unavailable')
+        population = 'legacy-release:' + release
     fingerprint = int(hashlib.sha256(f'{fingerprint}:{population}'.encode()).hexdigest()[:13], 16)
     lines = ['# HELP poker_lightning_admission_policy_fingerprint Exact 52-bit SQL admission and engine population-policy cohort; not a numeric capacity.',
              '# TYPE poker_lightning_admission_policy_fingerprint gauge',

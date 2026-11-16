@@ -50,7 +50,9 @@ writeFileSync(
   join(bin, 'curl'),
   `#!/usr/bin/env bash
 case "$*" in
-  *127.0.0.1:8080/health*) printf '%s' "$CASH_POPULATION_ANSWER" ;;
+  *127.0.0.1:8080/health*)
+    if [ -n "\${CASH_POPULATION_FILE:-}" ]; then cat "$CASH_POPULATION_FILE"; exit; fi
+    printf '%s' "$CASH_POPULATION_ANSWER" ;;
   *fn_monitoring_health_snapshot*) printf '%s' '${MONEY}' ;;
   *fn_lightning_admission_policy*)
     if [ -n "\${CASH_POLICY_FAILS:-}" ]; then exit 22; fi
@@ -181,6 +183,59 @@ describe('installed cash admission cohort', () => {
     expect(out).toMatch(/^poker_money_undeclared_triggers 0$/m);
     expect(out).toMatch(/^reliability_controller_collect_ok 1$/m);
   });
+  it('streams a health response larger than the OS argument limit', () => {
+    const healthFile = join(dir, 'large-health.json');
+    writeFileSync(
+      healthFile,
+      JSON.stringify({
+        horseWorkSchedule: { policyFingerprint: 1 },
+        unrelatedDiagnostics: 'x'.repeat(3 * 1024 * 1024),
+      })
+    );
+    const out = collect([HEALTHY], {
+      CASH_POLICY_ANSWER: JSON.stringify([{ fingerprint: 10 }]),
+      CASH_POPULATION_FILE: healthFile,
+    });
+    expect(out).toMatch(/^poker_lightning_admission_policy_collect_ok 1$/m);
+    expect(out).toMatch(/^poker_lightning_admission_policy_fingerprint \d+$/m);
+  });
+
+  it('recognizes the exact pre-fingerprint serving release as a separate cohort', () => {
+    const out = collect([HEALTHY], {
+      CASH_POLICY_ANSWER: JSON.stringify([{ fingerprint: 10 }]),
+      CASH_POPULATION_ANSWER: JSON.stringify({
+        releaseSha: '3529e86663daa427b380a8ab9bd09347270c670e',
+        horseWorkSchedule: { lastCycle: { supply: [] } },
+      }),
+    });
+    const combined = Number.parseInt(
+      createHash('sha256')
+        .update('10:legacy-release:3529e86663daa427b380a8ab9bd09347270c670e')
+        .digest('hex')
+        .slice(0, 13),
+      16
+    );
+    expect(out).toContain(`poker_lightning_admission_policy_fingerprint ${combined}\n`);
+    expect(out).toMatch(/^poker_lightning_admission_policy_collect_ok 1$/m);
+  });
+
+  it.each([
+    { releaseSha: 'a'.repeat(40), horseWorkSchedule: {} },
+    { releaseSha: '3529e866', horseWorkSchedule: {} },
+    { releaseSha: '3529e86663daa427b380a8ab9bd09347270c670e' },
+    {
+      releaseSha: '3529e86663daa427b380a8ab9bd09347270c670e',
+      horseWorkSchedule: { policyFingerprint: null },
+    },
+  ])('does not substitute a legacy identity for unknown or corrupt policy: %j', (body) => {
+    const out = collect([HEALTHY], {
+      CASH_POLICY_ANSWER: JSON.stringify([{ fingerprint: 10 }]),
+      CASH_POPULATION_ANSWER: JSON.stringify(body),
+    });
+    expect(out).not.toMatch(/^poker_lightning_admission_policy_fingerprint /m);
+    expect(out).toMatch(/^poker_lightning_admission_policy_collect_ok 0$/m);
+  });
+
   it('a changed engine curve is a different cohort even when SQL pacing is unchanged', () => {
     const extra = { CASH_POLICY_ANSWER: JSON.stringify([{ fingerprint: 10 }]) };
     const first = collect([HEALTHY], extra);
