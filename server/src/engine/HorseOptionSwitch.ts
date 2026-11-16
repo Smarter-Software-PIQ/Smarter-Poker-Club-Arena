@@ -567,6 +567,8 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
     'Heads Up',
     'NLH heads-up, small blind first in vs a tight big blind',
   ],
+  lightningStyleReadSeparate: ['Lightning', 'Lightning style read (NLH/PLO4/PLO5)'],
+  lightningEarlyFoldNeedsFoldThrough: ['Lightning', 'Lightning early folds before the river'],
 };
 
 const STYLE_DESCRIPTION: Readonly<Record<StyleSwitchOption, readonly [string, string]>> = {
