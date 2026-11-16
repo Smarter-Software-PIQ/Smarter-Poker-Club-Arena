@@ -750,10 +750,9 @@ export function useProtectedCardLayout(
       const sixMax = page.getAttribute('data-seats') === '6' && pageBox.width > 480;
       for (const pod of scaler.querySelectorAll('.seat-wrapper--cap, .seat-wrapper--top')) {
         const seat = pod.querySelector<HTMLElement>('.seat');
-        // Keep the character connected to its plate with the existing 3px
-        // minimum overlap. Reclaim only the extra overlap for the full PLO
-        // row, whose bottom reads this same shared token.
-        if (sixMax) seat?.style.setProperty('--sp-wrap-overlap', '3px');
+        // The portrait top seat raises its plate and fan together. Other
+        // six-max layouts keep the 3px overlap for the full PLO row.
+        if (sixMax) seat?.style.setProperty('--sp-wrap-overlap', 'var(--sp-six-cap-overlap, 3px)');
         else seat?.style.removeProperty('--sp-wrap-overlap');
       }
       topPods().forEach((pod) => {
