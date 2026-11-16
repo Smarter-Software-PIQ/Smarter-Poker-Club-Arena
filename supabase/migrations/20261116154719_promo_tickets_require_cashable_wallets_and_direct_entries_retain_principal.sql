@@ -1,5 +1,5 @@
 -- @install-window: daily-maintenance
--- @locks: public.chip_ledger, public.ca_promo_play_through_grants, public.tournaments, public.tournament_players, smarter_private.free_buy_ticket_redemptions
+-- @locks: public.chip_ledger, public.ca_promo_play_through_grants, public.tournaments, smarter_private.free_buy_ticket_redemptions
 -- @live-proof: EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='smarter_private.free_buy_ticket_redemptions'::regclass AND tgname='ca_promo_free_buy_principal' AND tgenabled='O')
 -- Promo may enter tournaments directly, but cannot purchase a gifted ticket.
 -- Original event principal follows entry, earned awards, refund and full loss.
@@ -153,7 +153,7 @@ CREATE TRIGGER ca_promo_clear_closed_event_lots AFTER UPDATE OF closed_at ON pub
 -- actual promo debit, capped to the funded one-chip face of each coupon.
 CREATE TABLE public.ca_promo_free_buy_funding_slices (
  ledger_id uuid NOT NULL REFERENCES public.chip_ledger(id),
- registration_id uuid NOT NULL REFERENCES public.tournament_players(id),
+ registration_id uuid NOT NULL, -- original unregister lawfully deletes its registration
  grant_id uuid NOT NULL REFERENCES public.ca_promo_play_through_grants(id),
  amount numeric NOT NULL CHECK(amount>0 AND amount<=1),
  PRIMARY KEY(ledger_id,registration_id)

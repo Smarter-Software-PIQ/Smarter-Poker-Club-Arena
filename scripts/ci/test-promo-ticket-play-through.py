@@ -201,6 +201,9 @@ def main():
   check('actual PKO bounty funds one original chip exactly once',one("SELECT count(*)=1 AND sum(amount)=1 FROM ca_promo_play_through_grants"),'t')
   db.run(f"UPDATE tournaments SET bounty_pool=1 WHERE id='{pko}';SELECT fn_ca_midway_free_buy_promo_head('{pko}','{reg}',true)")
   check('original unplayed funded PKO return closes its grant',one('SELECT close_reason FROM ca_promo_play_through_grants'),'returned')
+  db.run(f"DELETE FROM tournament_players WHERE id='{reg}'")
+  check('lawful unregister can delete its original registration after funded return',one(f"SELECT count(*) FROM tournament_players WHERE id='{reg}'"),'0')
+  check('original funding receipt survives lawful registration deletion',one(f"SELECT count(*) FROM ca_promo_free_buy_funding_slices WHERE registration_id='{reg}'"),'1')
   reset()
   with ThreadPoolExecutor(max_workers=2) as pool:
    replies=list(pool.map(lambda _:call(A,f"fn_issue_tournament_ticket_agent('{C}','{B}',40,NULL,'concurrent-agent-ticket')"),range(2)))
