@@ -303,9 +303,13 @@ describe('an ALL IN press where only a call is legal is the call (owner ruling 2
       expect(h.act(1, 'call')).toBe(true);
       expect(h.act(2, 'all_in')).toBe(true); // 0.99 over: under half a bet
       expect(h.act(3, 'call')).toBe(true);
-      // Fixed limit has advertised this press since 2026-08-23, because its
-      // structure clamp already turned it into the call.
-      expect(h.menu(4)).toEqual(['fold', 'call', 'all_in']);
+      // Fixed limit advertised this press from 2026-08-23 to 2026-11-15
+      // because its structure clamp already turned it into the call. That
+      // listed all_in where it only calls, which contradicted the menu's own
+      // rule (A2-CONTRACT D3), so the menu no longer lists it
+      // (AFixedLimitMenuOffersWhatItExecutes.law.test.ts). The press is
+      // unchanged: it is still accepted and executed as the call below.
+      expect(h.menu(4)).toEqual(['fold', 'call']);
       const before = snapshot(h, 4);
       expect(h.act(4, 'all_in')).toBe(true);
       expectPlainCall(h, 4, before, 0.99);
@@ -533,6 +537,86 @@ describe('the press reaches the engine from a real client request', () => {
       expect(h.last()).toMatchObject({ seat: 3, action: 'raise', amount: 100 });
       expect(h.seat(3)).toMatchObject({ stack: 100, is_all_in: false });
       expect(h.chips()).toBe(h.start);
+    } finally {
+      engine.preciseTimer?.dispose();
+    }
+  });
+});
+
+describe('fixed limit, a capped street: the typed whole-stack wager vs the ALL IN press (W3, 2026-11-15)', () => {
+  // flh 1/2, three-handed (1 = button and first to act, 2 = SB, 3 = BB).
+  // 1 raises to 4, 2 to 6, 3 to 8: four wagers, the street is capped and
+  // seat 1 has 4 in and owes 4. `extra` is what seat 1 holds behind after
+  // its 4.
+  function cappedSpot(extra: number) {
+    const h = harness([4 + extra, 200, 200], { gameVariant: 'flh', smallBlind: 1, bigBlind: 2 });
+    h.hc.start();
+    expect(h.act(1, 'raise', 4)).toBe(true);
+    expect(h.act(2, 'raise', 6)).toBe(true);
+    expect(h.act(3, 'raise', 8)).toBe(true);
+    expect(h.st().currentBet).toBe(8);
+    expect(h.seat(1)).toMatchObject({ bet: 4, stack: extra });
+    return h;
+  }
+  function flhEngine(h: ReturnType<typeof harness>) {
+    const engine = new ServerTableEngine('fl-capped-whole-stack') as any;
+    engine.handController = h.hc;
+    engine.tableInfo = { big_blind: 2, small_blind: 1, max_players: 3, game_variant: 'flh' };
+    engine.showHandCards = new Map();
+    engine.hub = { publish: vi.fn(), emitEvent: vi.fn() };
+    engine.lifecycleCanMutate = () => true;
+    engine.requestSnapshot = vi.fn();
+    return engine;
+  }
+
+  it('stack 5 (covers the call, less than one more bet behind): the menu is fold/call; a typed whole-stack raise is refused (INVALID_ACTION), nothing moves, the seat still acts; ALL IN calls', () => {
+    const h = cappedSpot(5);
+    expect(h.menu(1)).toEqual(['fold', 'call']);
+    const engine = flhEngine(h);
+    try {
+      engine.turnFSM.transition('timer_running');
+      const frozen = JSON.stringify(h.hc.getState());
+      expect(engine.handlePlayerAction('u1', 'raise', 9)).toMatchObject({
+        success: false,
+        code: 'INVALID_ACTION',
+      });
+      expect(JSON.stringify(h.hc.getState())).toBe(frozen);
+      expect(h.st().currentPlayerSeat).toBe(1);
+      const before = snapshot(h, 1);
+      expect(engine.handlePlayerAction('u1', 'allin', 5)).toEqual({ success: true });
+      expectPlainCall(h, 1, before, 4);
+    } finally {
+      engine.preciseTimer?.dispose();
+    }
+  });
+
+  it('stack 3 (cannot cover the call): unchanged: all_in is offered and a typed whole-stack raise still runs as the all-in call for less', () => {
+    const h = cappedSpot(3);
+    expect(h.menu(1)).toEqual(['fold', 'call', 'all_in']);
+    const engine = flhEngine(h);
+    try {
+      engine.turnFSM.transition('timer_running');
+      expect(engine.handlePlayerAction('u1', 'raise', 7)).toEqual({ success: true });
+      expect(h.seat(1)).toMatchObject({ stack: 0, is_all_in: true });
+      expect(h.seat(1).bet).toBe(7);
+      expect(h.chips()).toBe(h.start);
+    } finally {
+      engine.preciseTimer?.dispose();
+    }
+  });
+
+  it('a deep stack (196 behind): the menu is fold/call and a typed raise is refused, as before', () => {
+    const h = cappedSpot(196);
+    expect(h.menu(1)).toEqual(['fold', 'call']);
+    const engine = flhEngine(h);
+    try {
+      engine.turnFSM.transition('timer_running');
+      const frozen = JSON.stringify(h.hc.getState());
+      expect(engine.handlePlayerAction('u1', 'raise', 200)).toMatchObject({ success: false });
+      expect(JSON.stringify(h.hc.getState())).toBe(frozen);
+      const before = snapshot(h, 1);
+      expect(engine.handlePlayerAction('u1', 'allin', 196)).toEqual({ success: true });
+      expectPlainCall(h, 1, before, 4);
     } finally {
       engine.preciseTimer?.dispose();
     }
