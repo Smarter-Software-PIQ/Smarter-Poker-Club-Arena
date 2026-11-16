@@ -26,7 +26,7 @@
 import { describe, expect, it } from 'vitest';
 import { migrationCorpus, migrationNames, migrationText } from './helpers/migrationCorpus';
 
-const SLUG = '_a_shared_mystery_chest_settles_in_the_whole_chips_it_was_split_in.sql';
+const SLUG = '_a_shared_mystery_chest_settles_in_its_whole_chip_split.sql';
 const hits = migrationNames().filter((n) => n.endsWith(SLUG));
 const NAME = hits.at(-1);
 if (!NAME) throw new Error('the shared-chest marker migration is missing');

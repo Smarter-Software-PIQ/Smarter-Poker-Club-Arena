@@ -2418,7 +2418,7 @@
     {
       "version": "20261116044125",
       "name": "a_shared_mystery_chest_settles_in_the_whole_chips_it_was_split_in",
-      "file": "supabase/migrations/20261116044125_a_shared_mystery_chest_settles_in_the_whole_chips_it_was_split_in.sql",
+      "file": "supabase/migrations/20261116044125_a_shared_mystery_chest_settles_in_its_whole_chip_split.sql",
       "md5": "9a0873e9cb36e6800c9436bd7dd76c6f",
       "recoveredOn": "2026-11-16",
       "recoveredFrom": "public.fn_ca_migration_text(20261116044125), byte-identical body; 9442 UTF-8 bytes, no appended newline. Independent schema_migrations.statements recovery agrees.",

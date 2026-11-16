@@ -23,3 +23,7 @@ rejects incomplete or inconsistent allocations. It also checks cent and
 Diamond regular/PKO cases. Its tournament unit lookup is controlled fixture
 input. It does not exercise a wallet payer or claim full financial settlement
 coverage. Production adoption and actual payment readback are separate proof.
+
+The existing required Mystery native entry point, `test-mystery-award-page-order.py`,
+invokes this regression with its selected PostgreSQL binary and scratch path.
+The workflow and qualification projections remain unchanged.

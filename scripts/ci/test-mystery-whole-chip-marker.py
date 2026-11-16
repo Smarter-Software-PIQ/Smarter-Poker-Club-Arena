@@ -12,7 +12,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[2]
 MIGRATIONS = ROOT / 'supabase/migrations'
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--migration', type=Path, default=MIGRATIONS / '20261116044125_a_shared_mystery_chest_settles_in_the_whole_chips_it_was_split_in.sql')
+parser.add_argument('--migration', type=Path, default=MIGRATIONS / '20261116044125_a_shared_mystery_chest_settles_in_its_whole_chip_split.sql')
 args = parser.parse_args()
 pg = Path(os.environ.get('PG_BIN', '/opt/homebrew/opt/postgresql@17/bin' if os.uname().sysname == 'Darwin' else '/usr/lib/postgresql/17/bin'))
 parent = os.environ.get('TMPDIR') or os.environ.get('RUNNER_TEMP')
