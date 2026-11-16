@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { writeClipboard } from '../../lib/share';
 import { Modal } from '../common/Modal';
 import { TapHaptic } from '../haptics/TapHaptic';
 import { soundService } from '../../services/SoundService';
@@ -184,7 +185,7 @@ export function DeviceCheck({ isOpen, onClose }: { isOpen: boolean; onClose: () 
   const copy = useCallback(async () => {
     const text = reportText(rows);
     try {
-      await navigator.clipboard.writeText(text);
+      await writeClipboard(text);
       setCopied('Report Copied. Paste It Anywhere To Share It.');
       setFallback(null);
     } catch {

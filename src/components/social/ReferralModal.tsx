@@ -10,6 +10,7 @@
  */
 
 import React, { useState, useRef, useEffect } from 'react';
+import { writeClipboard } from '../../lib/share';
 import { SpadeConsole } from '../console/SpadeConsole';
 import { compactChips } from '../../utils/format';
 import './ReferralModal.css';
@@ -77,7 +78,7 @@ export function ReferralModal({
     const request = ++copyRequest.current;
     setCopyError(false);
     try {
-      await navigator.clipboard.writeText(referralLink);
+      await writeClipboard(referralLink);
     } catch (error) {
       reportError(error, 'ReferralModal.copy');
       if (request === copyRequest.current) setCopyError(true);

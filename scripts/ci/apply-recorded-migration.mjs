@@ -60,6 +60,7 @@ import { join } from 'node:path';
 import { supersededBy } from './check-migrations-are-live.mjs';
 import { minutesBeforeBreakWindow } from './migration-concurrent-preamble.mjs';
 import { migrationTransactionShape } from './migration-transaction-shape.mjs';
+import { classifyMigration } from './recording-only.mjs';
 import { migrationCostRisks, isCostChecked } from './migration-cost-shape.mjs';
 import { observeWheelWalletReaders, WHEEL_WALLET_CUTOVER } from './wheel-wallet-lock-observation.mjs';
 import { stalePinParts } from './migration-stale-pins.mjs';
@@ -227,7 +228,24 @@ try {
 // which the merge-time check tests/unit/aMergedMigrationIsInstallable.test.ts
 // shares, so a file the applier would refuse cannot merge.
 const shape = migrationTransactionShape(file, sql);
-if (!shape.ok) refused(shape.reason);
+// A VERIFIED RECORDING ANSWERS FROM THE HISTORY (2026-11-15). A row in
+// scripts/ci/recorded-migrations.manifest.json is the byte-exact SQL production
+// already ran (recording-only.mjs, manifestMatched), and that SQL may carry no
+// BEGIN/COMMIT: wrapping it would make it a different migration. The
+// dispatcher sends a MODIFIED file on the stated contract that an installed
+// version answers ALREADY-APPLIED and sends nothing, so a recording's shape
+// refusal waits for the history read below: installed -> ALREADY-APPLIED,
+// nothing sent; not installed -> refused for its shape exactly as before
+// (20261115001336, PR #10913, was refused here with nothing sent). Every other
+// file is still refused on the spot.
+let deferredShapeRefusal = null;
+if (!shape.ok) {
+  // Judge the bytes this run read (relative to its working directory), against
+  // the manifest beside them, as the applier itself does.
+  if (classifyMigration(path, { repo: process.cwd() }).manifestMatched === true)
+    deferredShapeRefusal = shape.reason;
+  else refused(shape.reason);
+}
 // A migration that cannot finish inside the install budget is refused before
 // anything is sent (migration-cost-shape.mjs, shared with the merge check
 // tests/unit/aMigrationFitsTheInstallBudget.test.ts).
@@ -235,7 +253,7 @@ if (isCostChecked(file)) {
   const risks = migrationCostRisks(file, sql);
   if (risks.length) refused(risks.join('\n'));
 }
-const preamble = shape.indexes;
+const preamble = shape.ok ? shape.indexes : [];
 let serialJournalIndex;
 try {
   serialJournalIndex = validateSerialJournalIndex({
@@ -407,6 +425,12 @@ try {
 } catch (e) {
   await client.end().catch(() => {});
   unknown(`could not read schema_migrations: ${e.message}`);
+}
+
+// A recording production does not hold is refused for its shape, as any file.
+if (deferredShapeRefusal && already.length === 0) {
+  await client.end().catch(() => {});
+  refused(deferredShapeRefusal);
 }
 
 if (batches) {

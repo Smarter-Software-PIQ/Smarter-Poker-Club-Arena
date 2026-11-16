@@ -21,11 +21,19 @@ import { usePlayerPreference } from '../../hooks/usePlayerPreference';
  * tab comes back into view. A read that fails keeps the last good figures on
  * screen and says so; it never paints zeros.
  *
- * Days are America/Chicago calendar days, daylight saving included (Dan,
- * 2026-10-22), because the server buckets every figure by the Chicago day
- * (20261022103651, 20261022120121). Times on the page are Chicago time too.
- * MTT Winnings are finished MTTs only; a running MTT's entries are shown as
- * Unfinished MTT Entries, and both are inside Total Winnings.
+ * THE DAY (stage 2 reader contract, 2026-11-15). For a Midway Union member
+ * club, or the union itself, a day is the union invoice's ACCOUNTING day,
+ * 02:00 to 02:00 America/Chicago, daylight saving included (owner,
+ * 2026-11-14), and every figure comes from the invoice's own accounting
+ * records: Fee is the rake credited to the club, Total Winnings the players'
+ * accounting result. Any other club keeps Chicago midnight days. The reader
+ * says which basis it answered on, and the page labels and counts by it.
+ * The page carries the first and last day (what the readers take); it SHOWS
+ * and SELECTS the window by its boundaries, and the end date is the boundary
+ * the window stops at: Nov 2 to Nov 9 is [Nov 2 02:00, Nov 9 02:00), seven
+ * days, the invoice week, never eight. The URL carries the same pair
+ * (dataStart, dataUntil); a legacy dataEnd is still read as the last day.
+ * Times on the page are Chicago time.
  * The full operator report (union statement, per-player breakdown, export)
  * lives one tap away at ./advanced.
  */
@@ -40,6 +48,8 @@ import { reportError } from '../../utils/errorReporter';
 import styles from './ClubDataSimplePage.module.css';
 import { clubDataRangeDays, clubDataRangeError } from '../../lib/clubDataRange';
 import ClubDataTotalsBreakdown from './ClubDataTotalsBreakdown';
+import DataHelpTip from '../../components/club/DataHelpTip';
+import ClubDataByClub, { isClubRows, type ClubDataClubRow } from './ClubDataByClub';
 import { useClubGameHost } from '../../hooks/useClubGameHost';
 import { usePageTitle } from '../../hooks/usePageTitle';
 import { ClubRosterService, type RosterMember } from '../../services/ClubRosterService';
@@ -47,12 +57,25 @@ import { titleCase } from '../../utils/titleCase';
 import { playerDisplayName } from '../../utils/playerDisplayName';
 import { useFitText } from '../../components/lobby/game-cards/useFitText';
 import {
+  ACCOUNTING_DAY_BASIS,
   CLUB_DATA_ZONE_LABEL,
   addCalendarDays,
   chicagoClock,
-  chicagoDay,
   chicagoStamp,
+  clubDataBoundaryClock,
+  clubDataDayBasis,
+  clubDataDayOn,
+  clubDataDayRule,
+  clubDataWindowLabel,
+  coverageNotices,
+  coverageWindowLabel,
+  isCalendarDate,
+  isUnionClubAnswer,
+  UNION_BASIS_DEFINITIONS,
+  type ClubDataCoverage,
+  type ClubDataDayBasis,
 } from '../../lib/clubDataDay';
+import { figureDigits, formatWalletChips, type FigureInput } from '../../utils/format';
 
 type Preset = 1 | 7 | 14;
 type GameFilter = 'ALL' | 'HOLDEM' | 'OMAHA' | 'MIXED' | 'MTT' | 'SNG';
@@ -101,7 +124,11 @@ interface Snapshot {
     cash_fees: number;
     tournament_fees: number;
     total_fees: number;
+    /** 'UTC' (the viewer's own earned fees) or 'America/Chicago 02:00'. */
     day_basis: string;
+    /** 'downline_accounting_fees' on the union basis (stage 2). */
+    definition?: string;
+    source?: string;
   } | null;
   rows: ClubDataRow[];
   generated_at?: string;
@@ -109,9 +136,16 @@ interface Snapshot {
   scope?: 'club' | 'downline';
   club_name?: string | null;
   reporting_scope?: 'club' | 'union';
-  accounting_basis?: 'utc_net_money_flow' | 'chicago_net_money_flow';
+  /** The club's union, when it is in one (or is one). Decides "today". */
+  union_id?: string | null;
+  accounting_basis?: 'utc_net_money_flow' | 'chicago_net_money_flow' | 'union_invoice_accounting';
+  day_basis?: string;
+  /** fn_ca_club_acct_coverage (union basis only). */
+  accounting_coverage?: ClubDataCoverage | null;
   /** First day the per-club facts cover. */
   facts_from?: string | null;
+  /** The union's own answer only (20261115205153): each club's and the union account's figures. */
+  clubs?: ClubDataClubRow[];
 }
 
 const PRESETS: Preset[] = [1, 7, 14];
@@ -136,39 +170,51 @@ export function refreshIntervalMs(preset: Preset): number {
   return preset === 1 ? 15_000 : 60_000;
 }
 
-/** Today on the Club Data clock: the America/Chicago calendar day. */
-export function clubDataToday(now: Date = new Date()): string {
-  return chicagoDay(now);
+/**
+ * Today on the Club Data clock for a basis: the 02:00 Chicago accounting day
+ * for a union club, the Chicago calendar day for any other club.
+ */
+export function clubDataToday(
+  now: Date = new Date(),
+  basis: ClubDataDayBasis = 'calendar'
+): string {
+  return clubDataDayOn(basis, now);
 }
 
 export function addDays(iso: string, days: number): string {
   return addCalendarDays(iso, days);
 }
 
-export function formatMoney(n: number | null | undefined): string {
-  const v = Number(n);
-  if (!Number.isFinite(v)) return '-';
-  return v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+/**
+ * The window a date picker asks for: from the start of `start` to the start
+ * of `until` (the boundary it stops at), so the readers get the last day
+ * `until - 1`. Null when the pair is not a window the readers accept.
+ */
+export function clubDataWindowError(start: string, until: string, today: string): string | null {
+  if (!isCalendarDate(until)) return 'Choose A Start And End Date.';
+  if (start && until <= start) return 'The End Must Be After The Start.';
+  if (addDays(until, -1) > today) return 'The Window Can End No Later Than When Today Closes.';
+  return clubDataRangeError(start, addDays(until, -1), today);
 }
 
 /**
- * A total in a quarter of a 375px strip. Seen on a phone on 2026-10-15:
- * SHARK CLUB's day read "-55,66..." and "149,60..." because six digits and two
- * decimals do not fit. Below 10,000 the figure is exact to the cent; above it
- * the tile shows 149.6K / 3.54M and the exact amount stays in the title and
- * the accessible name, and in every game row below.
+ * Money exactly as the reader sent it, digit for digit with separators and at
+ * least two decimals (decimal text prints with no float in between); a dash
+ * when there is no figure. Never K/M (Dan 2026-11-13).
  */
-export function formatTotal(n: number | null | undefined): string {
-  const v = Number(n);
-  if (!Number.isFinite(v)) return '-';
-  // Exact to the cent at every size, never K/M (Dan 2026-11-13).
-  return formatMoney(v);
+export function formatMoney(n: FigureInput): string {
+  return formatWalletChips(n);
 }
 
-function inkFor(n: number | null | undefined): string {
-  const v = Number(n);
-  if (!Number.isFinite(v) || v === 0) return styles.inkNeutral;
-  return v > 0 ? styles.inkWin : styles.inkLoss;
+/** A tile total: the same exact figure as everywhere else on the page. */
+export function formatTotal(n: FigureInput): string {
+  return formatMoney(n);
+}
+
+function inkFor(n: FigureInput): string {
+  const d = figureDigits(n);
+  if (!d || !/[1-9]/.test(d.whole + d.fraction)) return styles.inkNeutral;
+  return d.negative ? styles.inkLoss : styles.inkWin;
 }
 
 function kindLabel(row: ClubDataRow): string {
@@ -198,7 +244,8 @@ export function isSnapshot(value: unknown): value is Snapshot {
     ['games', 'total_winnings', 'mtt_winnings', 'fee'].every((k) =>
       Number.isFinite(Number(s[k]))
     ) &&
-    Array.isArray(v.rows)
+    Array.isArray(v.rows) &&
+    (v.clubs === undefined || isClubRows(v.clubs))
   );
 }
 
@@ -213,24 +260,39 @@ export default function ClubDataSimplePage() {
 
   const [clubUuid, setClubUuid] = useState<string | null>(isUUID(clubParam) ? clubParam : null);
   const [preset, setPreset] = usePlayerPreference<Preset>('club/ClubDataSimplePage:preset', 1);
+  // The day this club counts, as its last answer stated it (calendar until an
+  // answer says otherwise). A union club's day starts at 02:00 Chicago.
+  const [dayBasis, setDayBasis] = useState<ClubDataDayBasis>('calendar');
+  const dayBasisRef = useRef<ClubDataDayBasis>('calendar');
+  dayBasisRef.current = dayBasis;
   const [currentDay, setCurrentDay] = useState(() => clubDataToday());
+  const today = clubDataToday(new Date(), dayBasis);
   // Access hydration can unmount this page. Public date filters belong to the
   // route so refreshes and browser history retain the requested reporting window.
-  const requestedEnd = searchParams.get('dataEnd') ?? '';
+  // dataUntil is the boundary the window stops at (the date the picker shows);
+  // a legacy dataEnd is the last day itself.
+  const requestedUntil = searchParams.get('dataUntil');
+  const requestedEnd =
+    requestedUntil !== null
+      ? isCalendarDate(requestedUntil)
+        ? addDays(requestedUntil, -1)
+        : ''
+      : (searchParams.get('dataEnd') ?? '');
   const requestedStart = searchParams.get('dataStart');
-  const validRange = !clubDataRangeError(
-    requestedStart ?? requestedEnd,
-    requestedEnd,
-    clubDataToday()
-  );
+  const validRange =
+    (requestedUntil === null ||
+      !clubDataWindowError(requestedStart ?? requestedEnd, requestedUntil, today)) &&
+    !clubDataRangeError(requestedStart ?? requestedEnd, requestedEnd, today);
   const endDate = validRange ? requestedEnd : currentDay;
   const customStart = validRange ? requestedStart : null;
   const selectDates = (start: string | null, end: string) => {
     const next = new URLSearchParams(searchParams);
     if (start !== null) next.set('dataStart', start);
     else next.delete('dataStart');
-    if (start !== null || end !== clubDataToday()) next.set('dataEnd', end);
-    else next.delete('dataEnd');
+    next.delete('dataEnd');
+    if (start !== null || end !== clubDataToday(new Date(), dayBasisRef.current)) {
+      next.set('dataUntil', addDays(end, 1));
+    } else next.delete('dataUntil');
     setSearchParams(next);
   };
   const [editingDates, setEditingDates] = useState(false);
@@ -267,7 +329,6 @@ export default function ClubDataSimplePage() {
   const [clubName, setClubName] = useState<string | null>(null);
 
   const gameHost = useClubGameHost(clubUuid, !!userId && !isHydrating);
-  const today = clubDataToday();
   const isToday = endDate >= today;
   const startDate = customStart ?? addDays(endDate, -(preset - 1));
   const rangeDays = clubDataRangeDays(startDate, endDate);
@@ -402,6 +463,9 @@ export default function ClubDataSimplePage() {
         return;
       }
       setSnapshot(data);
+      // "Today" follows the club (isUnionClubAnswer): once a union club is
+      // known its today is the 2:00 AM day, and nothing moves it back.
+      if (isUnionClubAnswer(data)) setDayBasis('accounting');
       setPlayerSearchAccess(identityKey);
       setSnapshotScope(requestScope);
       if (data.club_name) setClubName(data.club_name);
@@ -479,10 +543,21 @@ export default function ClubDataSimplePage() {
     };
   }, [load, preset, isToday]);
 
-  // When the Chicago day turns over on an open "today" view, follow it.
+  // Another club or account starts from the calendar day until it answers.
+  useEffect(() => {
+    setDayBasis('calendar');
+  }, [identityKey]);
+
+  // A club whose answer says it counts the 02:00 accounting day moves "today"
+  // to that day at once (they differ between midnight and 02:00 Chicago).
+  useEffect(() => {
+    setCurrentDay(clubDataToday(new Date(), dayBasis));
+  }, [dayBasis]);
+
+  // When the day turns over on an open "today" view, follow it.
   useEffect(() => {
     const followDay = () => {
-      const now = clubDataToday();
+      const now = clubDataToday(new Date(), dayBasisRef.current);
       setCurrentDay(now);
     };
     const onVisible = () => {
@@ -510,6 +585,22 @@ export default function ClubDataSimplePage() {
 
   const summary = visibleSnapshot?.summary ?? null;
   const isDownline = visibleSnapshot?.scope === 'downline';
+  // Every label states the basis the visible answer was given on.
+  const answerBasis: ClubDataDayBasis = visibleSnapshot
+    ? clubDataDayBasis(visibleSnapshot)
+    : dayBasis;
+  const unionBasis = answerBasis === 'accounting';
+  // Stage 2: on the union basis member_fees is the downline's fees from the
+  // accounting records on the same 02:00 days (equal to the screen's fee),
+  // not the viewer's own earned share on UTC days.
+  const downlineAccountingFees =
+    visibleSnapshot?.member_fees?.definition === 'downline_accounting_fees' ||
+    visibleSnapshot?.member_fees?.day_basis === ACCOUNTING_DAY_BASIS;
+  const notices = coverageNotices(visibleSnapshot?.accounting_coverage);
+  const windowLabel =
+    (visibleSnapshot && coverageWindowLabel(visibleSnapshot.accounting_coverage)) ||
+    clubDataWindowLabel(startDate, endDate, answerBasis);
+  const boundaryClock = clubDataBoundaryClock(answerBasis);
   const feeText = isDownline
     ? formatMoney(visibleSnapshot?.member_fees?.total_fees)
     : summary
@@ -575,14 +666,14 @@ export default function ClubDataSimplePage() {
           aria-controls="club-data-date-range"
           onClick={() => {
             setDraftStart(startDate);
-            setDraftEnd(endDate);
+            // The end the owner picks is the 02:00 boundary the window stops
+            // at, the day after the last accounting day it holds.
+            setDraftEnd(addDays(endDate, 1));
             setRangeError(null);
             setEditingDates((open) => !open);
           }}
         >
-          <span>{startDate}</span>
-          <span className={styles.rangeDash}>-</span>
-          <span>{endDate}</span>
+          <span>{windowLabel}</span>
           <span className={styles.rangeTz}>{CLUB_DATA_ZONE_LABEL}</span>
         </button>
         <button
@@ -604,10 +695,11 @@ export default function ClubDataSimplePage() {
           className={styles.dateEditor}
           onSubmit={(event) => {
             event.preventDefault();
-            const problem = clubDataRangeError(draftStart, draftEnd, today);
+            // draftEnd is the boundary; the readers take the last day it closes.
+            const problem = clubDataWindowError(draftStart, draftEnd, today);
             setRangeError(problem);
             if (problem) return;
-            selectDates(draftStart, draftEnd);
+            selectDates(draftStart, addDays(draftEnd, -1));
             setEditingDates(false);
           }}
         >
@@ -617,7 +709,7 @@ export default function ClubDataSimplePage() {
               type="date"
               aria-label="Start Date"
               value={draftStart}
-              max={draftEnd || today}
+              max={draftEnd ? addDays(draftEnd, -1) : today}
               onChange={(event) => setDraftStart(event.target.value)}
               required
             />
@@ -628,13 +720,12 @@ export default function ClubDataSimplePage() {
               type="date"
               aria-label="End Date"
               value={draftEnd}
-              min={draftStart}
-              max={today}
+              min={draftStart ? addDays(draftStart, 1) : undefined}
+              max={addDays(today, 1)}
               onChange={(event) => setDraftEnd(event.target.value)}
               required
             />
           </label>
-          <p>Chicago Time. Up To 93 Days.</p>
           {rangeError && <p role="alert">{rangeError}</p>}
           <button type="button" className={styles.retry} onClick={() => setEditingDates(false)}>
             Cancel
@@ -712,7 +803,11 @@ export default function ClubDataSimplePage() {
         <div className={styles.stat}>
           <dt className={styles.statLabel}>
             {isDownline ? (
-              'My Fees Earned'
+              downlineAccountingFees ? (
+                'Downline Fees'
+              ) : (
+                'My Fees Earned'
+              )
             ) : (
               <button
                 type="button"
@@ -728,43 +823,29 @@ export default function ClubDataSimplePage() {
           <dd
             className={styles.statValue}
             ref={feeRef}
-            title={
-              visibleSnapshot?.scope === 'downline'
-                ? formatMoney(visibleSnapshot.member_fees?.total_fees)
-                : summary
-                  ? formatMoney(summary.fee)
-                  : undefined
-            }
-            aria-label={
-              visibleSnapshot?.scope === 'downline'
-                ? formatMoney(visibleSnapshot.member_fees?.total_fees)
-                : summary
-                  ? formatMoney(summary.fee)
-                  : undefined
-            }
+            title={isDownline || summary ? feeText : undefined}
+            aria-label={isDownline || summary ? feeText : undefined}
           >
             {feeText}
           </dd>
         </div>
       </dl>
+      {visibleSnapshot?.reporting_scope === 'union' && visibleSnapshot.clubs && (
+        <ClubDataByClub clubs={visibleSnapshot.clubs} end={endDate} start={customStart} />
+      )}
       {breakdown && visibleSnapshot && clubUuid && userId && (
         <ClubDataTotalsBreakdown
           key={scopeKey}
           clubId={clubUuid}
           start={startDate}
           end={endDate}
+          basis={answerBasis}
           game={game}
           stakes={stakesApply ? stakes : 'ALL'}
           search={search || null}
           metric={breakdown}
           onClose={() => setBreakdown(null)}
         />
-      )}
-      {visibleSnapshot?.scope === 'downline' && (
-        <p className={styles.liveLine}>
-          Your Fees After Shares And Adjustments, Across All Games For These UTC Dates. Game Rows
-          Show Downline Fees Generated.
-        </p>
       )}
       {summary &&
         summary.running_mtt_entries !== undefined &&
@@ -779,36 +860,71 @@ export default function ClubDataSimplePage() {
             </dd>
           </dl>
         )}
+      {unionBasis && summary && typeof summary.on_felt === 'number' && (
+        <dl className={styles.runningLine} aria-label="Chips On The Felt">
+          <dt>On The Felt Now</dt>
+          <dd title={formatMoney(summary.on_felt)}>{formatMoney(summary.on_felt)}</dd>
+        </dl>
+      )}
 
-      <div className={styles.liveLine} role="status">
-        {error ? (
-          <span className={styles.inkLoss}>{error}</span>
-        ) : loading && !snapshot ? (
-          <span>Reading Live Data</span>
-        ) : (
-          <>
-            <span className={styles.liveDot} aria-hidden="true" />
-            <span>
-              Live{updatedLabel ? ` - Updated ${updatedLabel} ${CLUB_DATA_ZONE_LABEL}` : ''}
-              {liveCount > 0 ? ` - ${liveCount} Game${liveCount === 1 ? '' : 's'} In Play` : ''}
-            </span>
-          </>
-        )}
+      <div className={styles.liveRow}>
+        <div className={styles.liveLine} role="status">
+          {error ? (
+            <span className={styles.inkLoss}>{error}</span>
+          ) : loading && !snapshot ? (
+            <span>Reading Live Data</span>
+          ) : (
+            <>
+              <span className={styles.liveDot} aria-hidden="true" />
+              <span>
+                Live{updatedLabel ? ` - Updated ${updatedLabel} ${CLUB_DATA_ZONE_LABEL}` : ''}
+                {liveCount > 0 ? ` - ${liveCount} Game${liveCount === 1 ? '' : 's'} In Play` : ''}
+              </span>
+            </>
+          )}
+        </div>
+        <DataHelpTip alert={Boolean(notices.incomplete)}>
+          <p>
+            {clubDataDayRule(answerBasis)}. The Window Starts At {boundaryClock} On The Start Date
+            And Stops At {boundaryClock} On The End Date. Up To 93 Days.
+          </p>
+          {visibleSnapshot && unionBasis && <p>{UNION_BASIS_DEFINITIONS}</p>}
+          {unionBasis && (
+            <p>
+              Unfinished MTT Entries Are Buy-Ins For MTTs Not Yet Finished, Included In Total
+              Winnings. On The Felt Now Is Not In Total Winnings.
+            </p>
+          )}
+          {visibleSnapshot?.scope === 'downline' &&
+            (downlineAccountingFees ? (
+              <p>
+                Downline Fees Are The Rake Credited For You And Your Downline On The Union Invoice
+                Basis, Before Agent Shares, Across All Games For This Window.
+              </p>
+            ) : (
+              <p>
+                Your Fees After Shares And Adjustments, Across All Games For These UTC Dates. Game
+                Rows Show Downline Fees Generated.
+              </p>
+            ))}
+          {notices.provisional && <p role="status">{notices.provisional}</p>}
+          {notices.incomplete && (
+            <p className={styles.inkLoss} role="alert">
+              {notices.incomplete}
+            </p>
+          )}
+          {visibleSnapshot?.accounting_basis === 'chicago_net_money_flow' && (
+            <p>
+              Net Entries And Payouts In Chicago Time. MTT Winnings Count Finished MTTs Only.
+              Unfinished MTT Entries Are Buy-Ins For MTTs Still Running Or Not Yet Started.
+            </p>
+          )}
+          {visibleSnapshot?.accounting_basis === 'utc_net_money_flow' && (
+            <p>Net Entries And Payouts In UTC. Unfinished Event Entries Included.</p>
+          )}
+          {factsFrom && startDate < factsFrom && <p>Figures Begin {factsFrom}</p>}
+        </DataHelpTip>
       </div>
-      {visibleSnapshot?.accounting_basis === 'chicago_net_money_flow' && (
-        <p className={styles.liveLine}>
-          Net Entries And Payouts In Chicago Time. MTT Winnings Count Finished MTTs Only. Unfinished
-          MTT Entries Are Buy-Ins For MTTs Still Running Or Not Yet Started.
-        </p>
-      )}
-      {visibleSnapshot?.accounting_basis === 'utc_net_money_flow' && (
-        <p className={styles.liveLine}>
-          Net Entries And Payouts In UTC. Unfinished Event Entries Included.
-        </p>
-      )}
-      {factsFrom && startDate < factsFrom && (
-        <p className={styles.liveLine}>Figures Begin {factsFrom}</p>
-      )}
 
       <label className={styles.search}>
         <input

@@ -13,6 +13,8 @@
  * any chip: nothing here spends.
  */
 import { useEffect, useState } from 'react';
+import { webAppUrl } from '../../lib/appBase';
+import { shareButtonLabel, shareLink } from '../../lib/share';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -123,7 +125,11 @@ function LightningResult({ summary, name }: { summary: Summary; name?: string | 
 }
 
 function useShareResult(summary: Summary | null, name?: string | null) {
-  const [label, setLabel] = useState('Share');
+  /* The status word ("Copied", "Retry Share") used to stay on the
+     button for good, so a resting button read like a report. It now returns
+     to the resting word, which says what the tap does. */
+  const [status, setStatus] = useState<string | null>(null);
+  const label = status ?? shareButtonLabel();
   const onClick = async () => {
     const text = [
       name || 'Lightning Session',
@@ -131,17 +137,18 @@ function useShareResult(summary: Summary | null, name?: string | null) {
         ? lightningStatRows(summary, 'summary').map((row) => row.label + ': ' + row.value)
         : []),
     ].join('\n');
-    try {
-      if (navigator.share) await navigator.share({ title: 'Session Results', text });
-      else {
-        await navigator.clipboard.writeText(text);
-        setLabel('Copied');
-      }
-    } catch (error) {
-      if (!(error instanceof DOMException && error.name === 'AbortError')) setLabel('Retry Share');
+    const outcome = await shareLink({
+      source: 'LightningSessionSummary.share',
+      title: 'Session Results',
+      text,
+      url: webAppUrl(),
+    });
+    if (outcome === 'copied' || outcome === 'failed') {
+      setStatus(outcome === 'copied' ? 'Copied' : 'Retry Share');
+      window.setTimeout(() => setStatus(null), 1800);
     }
   };
-  return { label, onClick };
+  return { label, status, onClick };
 }
 
 function LightningReport({

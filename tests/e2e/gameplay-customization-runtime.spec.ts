@@ -1,3 +1,8 @@
+import {
+  verifyPublishedControllerSettings,
+  expectPublishedControllerSettings,
+} from './support/actionControllerSettingsProof';
+import { verifyLightningStaleCashout } from './support/lightningStaleCashout';
 import { verifyLightningPreviousHandReview } from './support/lightningPreviousHandReview';
 import { tapLightningFold, verifyLightningFoldFrames } from './support/lightningFoldFrames';
 import { verifyHeroCelebrations } from './support/heroCelebrationProof';
@@ -905,13 +910,15 @@ async function verifyPublishedLightning(
         },
       ]);
     }
-    if (path.endsWith('/fn_lightning_resume_playing')) {
-      expect(request.postDataJSON()).toEqual({ p_cluster_id: cluster });
+    if (path.endsWith('/fn_lightning_resume_room_playing')) {
+      expect(request.postDataJSON()).toEqual({ p_cluster_id: cluster, p_pool_session_id: room });
       resumes++;
+      if (resumes === 1)
+        return route.fulfill({ status: 400, json: { code: 'PGRST202', message: 'No receipt' } });
       return fulfillJson(route, { ok: true, withdrawn: true });
     }
-    if (path.endsWith('/fn_lightning_stop_playing')) {
-      expect(request.postDataJSON()).toEqual({ p_cluster_id: cluster });
+    if (path.endsWith('/fn_lightning_stop_room_playing')) {
+      expect(request.postDataJSON()).toEqual({ p_cluster_id: cluster, p_pool_session_id: room });
       stopRequests.push(
         await page.evaluate(() => ({
           hand: document.querySelector('.table-brand__hand')?.textContent?.trim() ?? null,
@@ -1217,6 +1224,17 @@ async function verifyPublishedLightning(
   const finishingLeave = page.getByRole('button', { name: 'Leaving After This Hand', exact: true });
   await finishingLeave.click();
   await expect.poll(() => resumes).toBe(1);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        ({ id, room }) =>
+          localStorage.getItem('ca:lightning-leave-after-hand:v1:' + id + ':' + room),
+        { id: account.id, room }
+      )
+    )
+    .toBe('resuming');
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect.poll(() => resumes).toBe(2);
   await expect(page.getByRole('button', { name: 'Leave Next Hand', exact: true })).toBeVisible();
   const readsBeforeReplay = countReads;
   // A delayed earlier settlement must refresh the authoritative count without
@@ -1295,6 +1313,12 @@ async function verifyPublishedLightning(
         active.map((socket) => socket.close({ code: 1012, reason: 'Service Restart' }))
       );
     },
+  });
+  await verifyLightningStaleCashout(page, {
+    tableId: anchorTableId,
+    seatNumber: 1,
+    occupancyId: '55555555-5555-4555-8555-555555555555',
+    poolSessionId: room,
   });
   expect(receiptToReadMs.length).toBeGreaterThanOrEqual(4);
   return receiptToReadMs;
@@ -1413,6 +1437,48 @@ test.describe('published hero showdown celebrations', () => {
           );
           // The virtual browser hand cannot write a real settlement. Independently
           // time the actual read RPC with the same disposable authenticated account.
+          // A new, unfunded account has no pool session. The deployed database
+          // must refuse both commands before calling either underlying mutation.
+          for (const rpc of [
+            'fn_lightning_stop_room_playing',
+            'fn_lightning_resume_room_playing',
+          ]) {
+            const result = await account.client.rpc(rpc, {
+              p_cluster_id: crypto.randomUUID(),
+              p_pool_session_id: crypto.randomUUID(),
+            });
+            expect(result.error, rpc).toBeNull();
+            expect(result.data, rpc).toMatchObject({ ok: false, reason: 'SESSION_CHANGED' });
+          }
+          const stoppedAnchor = await account.client.rpc('fn_lightning_stopped_leave_anchor', {
+            p_cluster_id: crypto.randomUUID(),
+            p_pool_session_id: crypto.randomUUID(),
+            p_occupancy_id: crypto.randomUUID(),
+          });
+          expect(stoppedAnchor.error).toBeNull();
+          expect(stoppedAnchor.data).toBeNull();
+          const auth = await account.client.auth.getSession();
+          if (auth.error || !auth.data.session)
+            throw new Error('The witness account lost its session');
+          // No identifiers are sent: this exercises the deployed authenticated
+          // ingress, which must refuse before looking up a seat or moving chips.
+          const missingRoom = await fetch(
+            'https://engine.smarter.poker/leave-lightning-occupancy',
+            {
+              method: 'POST',
+              headers: {
+                Authorization: 'Bearer ' + auth.data.session.access_token,
+                'Content-Type': 'application/json',
+              },
+              body: '{}',
+              signal: AbortSignal.timeout(10_000),
+            }
+          );
+          expect(missingRoom.status).toBe(400);
+          expect(await missingRoom.json()).toMatchObject({
+            success: false,
+            error: 'Original Lightning room required',
+          });
           const rpcStarted = performance.now();
           const actualRead = await account.client.rpc('fn_my_hit_run_status', {
             p_table_id: tableId,
@@ -1787,6 +1853,21 @@ test.describe('production routed gameplay customization', () => {
 
       const settings = await openTableSettings(writer);
       const studio = await openStudio(settings);
+      await verifyPublishedControllerSettings(studio, async () => {
+        const result = await account!.client
+          .from('user_page_preferences')
+          .select('value')
+          .eq('user_id', account!.id)
+          .eq('preference_key', 'action-controller:global')
+          .maybeSingle();
+        if (result.error) throw result.error;
+        return result.data?.value ?? null;
+      });
+      await expect(
+        studio
+          .getByRole('region', { name: 'Action Controller', exact: true })
+          .getByRole('button', { name: 'Casino Emerald', exact: true })
+      ).toHaveAttribute('aria-pressed', 'true');
       await tapReady(studio.getByRole('tab', { name: 'Buttons', exact: true }));
       await expect(studio.getByRole('button', { name: 'White D', exact: true })).toHaveAttribute(
         'aria-pressed',
@@ -2017,6 +2098,15 @@ test.describe('production routed gameplay customization', () => {
         '[gameplay-customization] private authenticated table signal reconciled the second table'
       );
       console.log('[gameplay-customization] every selected graphic survived a cold route reload');
+      await expectPublishedControllerSettings(await openTableSettings(writer));
+      await reader.reload({ waitUntil: 'domcontentloaded', timeout: RESPONSE_TIMEOUT });
+      await expect(
+        reader.locator('.multi-table-page__table-slot--active .table-page')
+      ).toHaveAttribute('data-felt-theme', 'carbon_red', { timeout: RESPONSE_TIMEOUT });
+      await expectPublishedControllerSettings(await openTableSettings(reader));
+      console.log(
+        '[action-controller] all six palettes rendered; custom preflop/postflop amounts persisted in the account and cold-rehydrated on both devices'
+      );
     } catch (error) {
       journeyFailure = error;
       // Evidence must not replace the original journey failure, retry its

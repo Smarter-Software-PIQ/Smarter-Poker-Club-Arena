@@ -281,3 +281,39 @@ describe('Previous Hand reads a Lightning pool session, not a physical table', (
     expect(calls).toContainEqual(['range', 1, 1]);
   });
 });
+
+describe('certified observer review at a physical or projected table', () => {
+  it('uses server entitlements and keeps unshown opponent cards private', async () => {
+    const observed = row(A, 30, 'host-table');
+    observed.players = [{ userId: 'villain', seat: 2, stack: 10 }];
+    const select = vi.fn().mockResolvedValue({ data: [observed], error: null });
+    state.facts = [];
+    state.rpc.mockImplementation((name) =>
+      name === 'ca_table_review_hands' ? { select } : Promise.resolve({ data: [], error: null })
+    );
+    const hands = await handHistoryService.getPlayerHands(HERO, 50, {
+      tableId: 'watched-room',
+      includeObserved: true,
+      beforeHandNumber: 31,
+      throwOnError: true,
+    });
+    expect(state.rpc).toHaveBeenCalledWith('ca_table_review_hands', {
+      p_table_id: 'watched-room',
+      p_before: 31,
+      p_limit: 50,
+      p_game_mode: null,
+      p_offset: 0,
+    });
+    expect(hands.map((hand) => hand.id)).toEqual([A]);
+    expect(hands[0].players[0].hole_cards).toEqual([]);
+    expect(hands[0].players[0].private_hole_cards).toBeUndefined();
+    select.mockResolvedValue({ data: null, error: { message: 'Review Unavailable' } });
+    await expect(
+      handHistoryService.getPlayerHands(HERO, 50, {
+        tableId: 'watched-room',
+        includeObserved: true,
+        throwOnError: true,
+      })
+    ).rejects.toMatchObject({ message: 'Review Unavailable' });
+  });
+});

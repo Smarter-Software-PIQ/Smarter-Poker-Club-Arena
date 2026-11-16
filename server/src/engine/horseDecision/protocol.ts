@@ -50,6 +50,8 @@ export type LiveHorseDecideOpts = Omit<
 >;
 
 export interface LiveHorseDecisionSnapshot extends HorseDecisionFence {
+  /** Private original-seat classification. Omitted legacy snapshots cannot prove eligibility. */
+  savedProfileHumanIds?: string[];
   /** Private accepted-history prefix captured beside the live turn. Diagnostic
    * binding only; excluded from strategy sampling, included in input validation. */
   handJournalContext?: import('../HorseDecisionHandBinding.js').HorseHandJournalContext | null;
@@ -193,6 +195,8 @@ export function validatedHorsePolicySamplingKey(
 }
 
 export interface FastHorseDecisionRequest extends LiveHorseDecisionSnapshot {
+  /** Private diagnostic on the original journal snapshot, never a strategy input. */
+  savedProfilePresence?: import('./savedProfilePresence.js').SavedPresenceReceipt;
   /** Private individual read hydration, not a caller policy control or action authority. */
   ownPublicHistory?: import('./ownPublicHistory.js').HorseOwnPublicHistoryPacket;
   ownPublicHistoryState?: 'pending' | 'available' | 'unavailable';
@@ -234,6 +238,11 @@ export interface CompletedHandObservation extends HorseDecisionFence {
    * (HorseOpponentMemory.opponentProfileVersion).
    * Empty means unavailable; presence suppresses non-durable family pooling. */
   durableOpponentProfiles?: import('../HorseOpponentMemory.js').DurableOpponentProfile[];
+  /** 'failed' only when the completed-hand profile read itself failed (busy, timeout, query error or
+   * an invalid receipt). An empty durableOpponentProfiles is then not a successful read that found no
+   * saved row, and pooledPublicProfiles keeps a briefly stale shared row instead of dropping it.
+   * Absent: the read succeeded or was not attempted. */
+  durableOpponentProfilesRead?: 'failed';
   /** UUID returned by the accepted hand transaction; absent on legacy replay. */
   committedHandId?: string;
   handKey: string;

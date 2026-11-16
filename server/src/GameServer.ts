@@ -6477,7 +6477,7 @@ export class GameServer {
       // ONE RAKE SPEC (R7): both checksums and whether they last agreed.
       // Informational: a drift alerts, it never holds a table.
       rakeSpec: rakeSpecDriftState(),
-      cashRakePolicyVersion: 2,
+      cashRakePolicyVersion: 3,
       // Public liveness comes from the worker-owned store. The main thread no
       // longer hydrates a second solver artifact whose status could look healthy
       // while the live action path was empty or failed.
@@ -14962,6 +14962,11 @@ export class GameServer {
       reportError(err, 'GameServer.lightning_anchor_lookup_failed');
       return null;
     }
+  }
+
+  /** Wake the existing matcher from the original acknowledged seat transition. */
+  lightningSeatReady(clusterId: string): void {
+    this.lightningSupervisor.admit(clusterId);
   }
 
   /** Is this id a table engine here, or a Lightning room this process serves? */

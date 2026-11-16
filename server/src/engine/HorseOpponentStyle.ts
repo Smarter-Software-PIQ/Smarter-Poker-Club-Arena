@@ -56,6 +56,21 @@
  *       river raise, a short stack-to-pot ratio), never a trait of the player.
  *       It is never folded into the axes.
  *
+ * LONG PARTICIPATION WINDOW (2026-11-15). VPIP, PFR and the call share may
+ * read the 120-hand long window (ExploitCounters lHands / lVpip / lPfr,
+ * HorseOpponentExploit.EXPLOIT_LONG_HALF_LIFE_HANDS) instead of the 30-hand
+ * window, so an ordinary tight regular becomes readable: at 30 hands the
+ * evidence saturates at 43.8 decayed hands and full ring calls tight only at
+ * VPIP <= 0.119; at 120 hands it is 173.6 and 0.156 (short-handed 0.231 ->
+ * 0.279, heads-up 0.302 -> 0.354). The long window speaks for one statistic
+ * only when (1) it holds more decayed hands than the 30-hand window, (2) its
+ * posterior mean is at or below the Horse mean and (3) the 30-hand posterior
+ * mean is too: it can strengthen a low (tight) read, never make a loose or
+ * aggressive one, and it stands down the moment the recent 30 hands lean the
+ * other way. Credibility, margins, prior pseudo-hands, the 15-hand unknown
+ * gate (still the 30-hand count) and release (the 8-hand fast window) are
+ * unchanged. receipt.longWindow names the statistics it supplied.
+ *
  * FORMAT-SPECIFIC BY DEFAULT. A player who is tighter in tournaments tells us
  * nothing about everyone else. Cross-format carry-over exists as an option whose
  * weight defaults to ZERO (STYLE_THRESHOLDS.carryWeight); any non-zero weight
@@ -101,11 +116,15 @@
 import {
   EXPLOIT_COUNTER_FIELDS,
   EXPLOIT_FAST_MIN_N,
+  EXPLOIT_LONG_FIELDS,
+  hasLongParticipation,
+  type ExploitCountersWithLong,
   EXPLOIT_PRIOR_STRENGTH,
   OPPONENT_EXPLOIT_ENVELOPE_VERSION,
   betaCdf,
   exploitEnvelopeFor,
   exploitHandIncrements,
+  learnablePublicAction,
   type ExploitCounters,
   type ExploitHandAction,
   type ExploitEnvelopeCell,
@@ -648,6 +667,9 @@ export interface OpponentStyleInput {
   /** #4 (M2): the Horse population's counts in the same variant, format and table size (its reference) */
   horseStreetReference?: StreetAggression | null;
   provenance?: StyleProvenance | null;
+  /** TIGHT BEYOND VPIP (2026-11-15, HorseDecideOpts.styleTightMultiSignal, default off): only an explicit true
+   *  admits the multi-signal tight route (tightMultiSignalRead). Absent, the read is byte for byte what it was. */
+  tightMultiSignal?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -795,6 +817,12 @@ export interface StyleReceipt {
   };
   /** side:mean:n of every statistic, rounded for telemetry */
   readonly signals: Readonly<Record<string, string>>;
+  /** the statistics read from the 120-hand long participation window (vpip, pfr, callShare), in that order;
+   *  empty when every one read the 30-hand window */
+  readonly longWindow: readonly string[];
+  /** TIGHT BEYOND VPIP (2026-11-15): present only when styleTightMultiSignal asked for the route. route:vpipBelow:
+   *  raiseShare:foldTo3Bet, each the posterior probability that decided it (see tightMultiSignalRead). */
+  readonly tightMultiSignal?: string;
   /** features the decision-time counters cannot carry; consumers condition on them at the decision */
   readonly notAvailable: readonly string[];
 }
@@ -894,6 +922,14 @@ interface Posterior {
   pBelow: number;
 }
 
+/** The posterior mean alone (posterior().mean, without the two tail probabilities). */
+function shrunkMean(successes: number, opps: number, horse: number): number {
+  const prior = clamp(horse, 0.01, 0.99);
+  const n = Math.max(0, num(opps));
+  const s = clamp(num(successes), 0, n);
+  return (prior * EXPLOIT_PRIOR_STRENGTH + s) / (EXPLOIT_PRIOR_STRENGTH + n);
+}
+
 /** Beta posterior shrunk toward the Horse mean (EXPLOIT_PRIOR_STRENGTH pseudo-observations). */
 function posterior(successes: number, opps: number, horse: number, margin: number): Posterior {
   const prior = clamp(horse, 0.01, 0.99);
@@ -959,8 +995,12 @@ export function carryOverCounters(
   const taper = Math.max(0, 1 - num(ownRow?.hands) / STYLE_THRESHOLDS.preflopMinHands);
   const w = clamp(weight, 0, 1) * taper;
   if (!(w > 1e-6)) return { counters: ownRow, weight: 0 };
-  const out = {} as ExploitCounters;
+  const out = {} as ExploitCountersWithLong;
   for (const f of EXPLOIT_COUNTER_FIELDS) out[f] = num(ownRow?.[f]) + w * num(other[f]);
+  const ownLong: ExploitCountersWithLong | undefined = ownRow;
+  const otherLong: ExploitCountersWithLong = other;
+  if (hasLongParticipation(ownLong) || hasLongParticipation(otherLong))
+    for (const f of EXPLOIT_LONG_FIELDS) out[f] = num(ownLong?.[f]) + w * num(otherLong[f]);
   return { counters: out, weight: w };
 }
 
@@ -1047,6 +1087,8 @@ function buildRead(
     label: StyleLabel;
     pattern?: StylePattern | null;
     callingRelease?: number;
+    longWindow?: readonly string[];
+    tightMultiSignal?: string;
   }
 ): OpponentStyleRead {
   const prior = populationPriorFor(family, hands);
@@ -1093,6 +1135,8 @@ function buildRead(
       riverCall: brief(sg.riverCall),
       shownStrength: `${sg.shownStrength.side ?? 'none'}:${round4(sg.shownStrength.share)}:${sg.shownStrength.shown}`,
     }),
+    longWindow: Object.freeze([...(parts.longWindow ?? [])]),
+    ...(parts.tightMultiSignal !== undefined ? { tightMultiSignal: parts.tightMultiSignal } : {}),
     notAvailable: NOT_AVAILABLE,
   });
   return Object.freeze({
@@ -1228,6 +1272,78 @@ export function unknownStyle(
  * returns null; a player nothing reliable is known about is the neutral,
  * explicitly uncertain unknownStyle.
  */
+/**
+ * TIGHT BEYOND VPIP (2026-11-15, Hold'em Strategy lane, builder C item C2; option styleTightMultiSignal, read === true,
+ * default off). CLASS DEFINITION, declared before measurement (docs/changelog/2026-11-15-tight-beyond-vpip.md, section
+ * CLASS-DEFINITIONS): TIGHT by this route iff all of
+ *  1. VPIP credibly below the Horse VPIP mean of the cell: P(rate < mean) >= 0.90 on at least 15 decayed hands (the
+ *     window the VPIP signal reads);
+ *  2. corroborated, at 0.90 on at least 8 decayed opportunities, by raise share (PFR / VPIP over the VPIP hands of the
+ *     same window) credibly above the Horse share (PFR mean / VPIP mean) plus 0.02, OR fold to 3-bet credibly above
+ *     the Horse mean plus 0.04;
+ *  3. no contrary evidence: VPIP and call share not high, raise share not credibly below the Horse share minus 0.02
+ *     (a caller-heavy player is never tight here).
+ * Confidence: the smaller of the VPIP confidence (n / (n + 15)) and the deciding corroborator's (n / (n + 8)).
+ * Pure.
+ */
+export const TIGHT_MULTI_SIGNAL = Object.freeze({
+  minHands: 15,
+  credibility: 0.9,
+  /** VPIP is judged against the Horse mean itself: the 0.18 observation line at 90% would need VPIP <= ~0.145 */
+  vpipMargin: 0,
+  minOpps: 8,
+  raiseShareMargin: 0.02,
+  foldTo3BetMargin: 0.04,
+});
+export interface TightMultiSignalInput {
+  vpipSuccesses: number;
+  pfrSuccesses: number;
+  hands: number;
+  foldTo3Bet: number;
+  foldTo3BetOpp: number;
+  vpipMean: number;
+  pfrMean: number;
+  foldTo3BetMean: number;
+  contrary: boolean;
+}
+export interface TightMultiSignal {
+  tight: boolean;
+  confidence: number;
+  /** compact receipt: vpipBelow:raiseShareAbove:raiseShareBelow:foldTo3BetAbove (posterior probabilities) */
+  receipt: string;
+}
+export function tightMultiSignalRead(i: TightMultiSignalInput): TightMultiSignal {
+  const M = TIGHT_MULTI_SIGNAL;
+  const hands = Math.max(0, num(i.hands));
+  const vp = clamp(num(i.vpipSuccesses), 0, hands);
+  const pf = clamp(num(i.pfrSuccesses), 0, vp);
+  const vpipBelow = posterior(vp, hands, i.vpipMean, M.vpipMargin).pBelow;
+  const share = clamp(i.pfrMean / Math.max(1e-9, i.vpipMean), 0.01, 0.99);
+  const rs = posterior(pf, vp, share, M.raiseShareMargin);
+  const f3Opp = Math.max(0, num(i.foldTo3BetOpp));
+  const f3 = posterior(
+    clamp(num(i.foldTo3Bet), 0, f3Opp),
+    f3Opp,
+    i.foldTo3BetMean,
+    M.foldTo3BetMargin
+  );
+  const vpipOk = hands >= M.minHands && vpipBelow >= M.credibility;
+  const raiseOk = vp >= M.minOpps && rs.pAbove >= M.credibility;
+  const foldOk = f3Opp >= M.minOpps && f3.pAbove >= M.credibility;
+  const callerHeavy = vp >= M.minOpps && rs.pBelow >= M.credibility;
+  const tight = vpipOk && (raiseOk || foldOk) && !callerHeavy && !i.contrary;
+  const conf = (n: number, min: number): number => (n > 0 ? n / (n + min) : 0);
+  const corroboration = Math.max(
+    raiseOk ? conf(vp, M.minOpps) : 0,
+    foldOk ? conf(f3Opp, M.minOpps) : 0
+  );
+  return {
+    tight,
+    confidence: tight ? Math.min(conf(hands, M.minHands), corroboration) : 0,
+    receipt: [vpipBelow, rs.pAbove, rs.pBelow, f3.pAbove].map(round4).join(':'),
+  };
+}
+
 export function classifyOpponentStyle(input: OpponentStyleInput): OpponentStyleRead {
   const T = STYLE_THRESHOLDS;
   const scope = input.scope;
@@ -1277,9 +1393,31 @@ export function classifyOpponentStyle(input: OpponentStyleInput): OpponentStyleR
   const pfrCell = envelope.pfr;
   const callHorse = Math.max(0.01, vpipCell.mean - pfrCell.mean);
   const prefMin = T.preflopMinHands;
+  // LONG PARTICIPATION WINDOW (2026-11-15, see the module header). One statistic reads the 120-hand window only
+  // when that window holds more evidence than the 30-hand one and both lean low or even against the Horse mean.
+  const cl: ExploitCountersWithLong | undefined = c;
+  const longHands = Math.max(0, num(cl?.lHands));
+  const lowOrEven = (successes: number, opps: number, horse: number): boolean =>
+    shrunkMean(successes, opps, horse) <= horse;
+  const longSpeaks = (longSuccesses: number, shortSuccesses: number, horse: number): boolean =>
+    longHands > counterHands &&
+    lowOrEven(longSuccesses, longHands, horse) &&
+    lowOrEven(shortSuccesses, counterHands, horse);
+  const longVpip = longSpeaks(num(cl?.lVpip), num(c?.vpip), vpipCell.mean);
+  const longPfr = longSpeaks(num(cl?.lPfr), num(c?.pfr), pfrCell.mean);
+  const longCall = longSpeaks(
+    Math.max(0, num(cl?.lVpip) - num(cl?.lPfr)),
+    Math.max(0, num(c?.vpip) - num(c?.pfr)),
+    callHorse
+  );
+  const longWindow = [
+    ...(longVpip ? ['vpip'] : []),
+    ...(longPfr ? ['pfr'] : []),
+    ...(longCall ? ['callShare'] : []),
+  ];
   const vpip = signal(
-    num(c?.vpip),
-    counterHands,
+    longVpip ? num(cl?.lVpip) : num(c?.vpip),
+    longVpip ? longHands : counterHands,
     vpipCell.mean,
     halfBandOf(vpipCell),
     T.margin.vpip * ms,
@@ -1288,8 +1426,8 @@ export function classifyOpponentStyle(input: OpponentStyleInput): OpponentStyleR
     callable
   );
   const pfr = signal(
-    num(c?.pfr),
-    counterHands,
+    longPfr ? num(cl?.lPfr) : num(c?.pfr),
+    longPfr ? longHands : counterHands,
     pfrCell.mean,
     halfBandOf(pfrCell),
     T.margin.pfr * ms,
@@ -1298,8 +1436,10 @@ export function classifyOpponentStyle(input: OpponentStyleInput): OpponentStyleR
     callable
   );
   const callShare = signal(
-    Math.max(0, num(c?.vpip) - num(c?.pfr)),
-    counterHands,
+    longCall
+      ? Math.max(0, num(cl?.lVpip) - num(cl?.lPfr))
+      : Math.max(0, num(c?.vpip) - num(c?.pfr)),
+    longCall ? longHands : counterHands,
     callHorse,
     (halfBandOf(vpipCell) + halfBandOf(pfrCell)) / 2,
     T.margin.callShare * ms,
@@ -1495,6 +1635,30 @@ export function classifyOpponentStyle(input: OpponentStyleInput): OpponentStyleR
     (vpip.side === 'low' || callShare.side === 'low')
   )
     participationSide = 'tight';
+  // TIGHT BEYOND VPIP (2026-11-15, styleTightMultiSignal, default off): a player the VPIP-only route leaves neutral
+  // is tight when VPIP is credibly below the Horse mean AND an independent signal (raise share or fold to 3-bet) is
+  // credibly on the selective side, with no contrary evidence. Never overrides a loose read; never reached with the
+  // option off (the read is then exactly what it was).
+  const multi =
+    input.tightMultiSignal === true
+      ? tightMultiSignalRead({
+          vpipSuccesses: longVpip ? num(cl?.lVpip) : num(c?.vpip),
+          pfrSuccesses: longVpip ? num(cl?.lPfr) : num(c?.pfr),
+          hands: longVpip ? longHands : counterHands,
+          foldTo3Bet: repairOf('foldTo3Bet').excluded
+            ? 0
+            : num(c?.foldTo3Bet) * repairOf('foldTo3Bet').weight,
+          foldTo3BetOpp: repairOf('foldTo3Bet').excluded
+            ? 0
+            : num(c?.foldTo3BetOpp) * repairOf('foldTo3Bet').weight,
+          vpipMean: vpipCell.mean,
+          pfrMean: pfrCell.mean,
+          foldTo3BetMean: envelope.foldTo3Bet.mean,
+          contrary: vpip.side === 'high' || callShare.side === 'high',
+        })
+      : null;
+  const multiTight = participationSide === 'neutral' && multi !== null && multi.tight;
+  if (multiTight) participationSide = 'tight';
   const participation: StyleAxis<'tight' | 'loose'> = {
     score: participationScore,
     side: participationSide,
@@ -1502,8 +1666,10 @@ export function classifyOpponentStyle(input: OpponentStyleInput): OpponentStyleR
     confidence:
       participationSide === 'neutral'
         ? 0
-        : Math.max(vpip.confidence, callShare.confidence) *
-          (participationSide === 'tight' ? capLow : capHigh),
+        : multiTight
+          ? multi!.confidence * capLow
+          : Math.max(vpip.confidence, callShare.confidence) *
+            (participationSide === 'tight' ? capLow : capHigh),
   };
 
   // ── AGGRESSION ───────────────────────────────────────────────────────
@@ -1660,6 +1826,10 @@ export function classifyOpponentStyle(input: OpponentStyleInput): OpponentStyleR
     label,
     pattern,
     callingRelease,
+    longWindow,
+    ...(multi !== null
+      ? { tightMultiSignal: `${multiTight ? 'tight' : 'none'}:${multi.receipt}` }
+      : {}),
   });
 }
 
@@ -2278,7 +2448,10 @@ export function postflopAggressionIncrements(
       wager = 0;
     }
     if (a.stage !== 'flop' && a.stage !== 'turn' && a.stage !== 'river') continue;
-    if (!a.userId || a.origin === 'forced') continue;
+    // FORCED-ACTION COUNTING (2026-11-15): the same provenance rule as the exploit counters
+    // (learnablePublicAction): a forced action is skipped, and a fold counts only when its source is a player, his
+    // own pre-action or the Horse policy. A timed-out, fallback or unattributed fold is not a raise opportunity.
+    if (!a.userId || !learnablePublicAction(a)) continue;
     const amt = Math.max(0, num(a.amount));
     const raising =
       a.action === 'bet' || a.action === 'raise' || (a.action === 'all_in' && amt > wager);

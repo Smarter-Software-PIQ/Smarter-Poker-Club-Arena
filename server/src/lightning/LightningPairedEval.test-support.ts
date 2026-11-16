@@ -183,6 +183,38 @@ export const LIGHTNING_EVAL_SEEDS = Object.freeze({
   final: Object.freeze([58210001, 58210002, 58210003, 58210004, 58210005]),
 });
 
+/**
+ * Hands per cell and seed for the selection and final stages (protocol draft
+ * 2, section 7). From the development run of the participation candidate
+ * (seed 20261114, 1,000 hands per cell): the pooled primary standard error
+ * over four primary cells (4,000 paired hands) was 2.2 (NLH), 9.3 (PLO4) and
+ * 10.6 (PLO5) bb/100. The worst variant needs 4,000 x (10.6 / 1.5)^2 = about
+ * 200,000 primary paired hands for a pooled standard error of 1.5 bb/100;
+ * the declared matrix has 18 primary cells per variant and five seeds, so
+ * 200,000 / (18 x 5) = 2,220, rounded to 2,200.
+ */
+export const LIGHTNING_EVAL_STAGE_HANDS_PER_CELL = 2200;
+
+/** The selection stage: the declared matrix on the selection seeds only. */
+export const LIGHTNING_EVAL_SELECTION: LightningEvalConfig = Object.freeze({
+  name: 'selection',
+  seedClass: 'selection',
+  seeds: LIGHTNING_EVAL_SEEDS.selection,
+  handsPerCell: LIGHTNING_EVAL_STAGE_HANDS_PER_CELL,
+  cells: fullCells(),
+  baselineDecideOpts: LIGHTNING_EVAL_SERVED_STYLE_OPTS_20261114,
+} satisfies LightningEvalConfig);
+
+/** The final stage: dealt once, by the one chosen frozen candidate. */
+export const LIGHTNING_EVAL_FINAL: LightningEvalConfig = Object.freeze({
+  name: 'final',
+  seedClass: 'final',
+  seeds: LIGHTNING_EVAL_SEEDS.final,
+  handsPerCell: LIGHTNING_EVAL_STAGE_HANDS_PER_CELL,
+  cells: fullCells(),
+  baselineDecideOpts: LIGHTNING_EVAL_SERVED_STYLE_OPTS_20261114,
+} satisfies LightningEvalConfig);
+
 export function lightningEvalSeedClassOf(
   seed: number
 ): 'development' | 'selection' | 'final' | null {

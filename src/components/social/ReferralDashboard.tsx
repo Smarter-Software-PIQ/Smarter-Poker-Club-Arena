@@ -5,6 +5,8 @@
  */
 
 import { useState, useEffect, useRef } from 'react';
+import { copyText, shareLink } from '../../lib/share';
+import { ShareLinkFallback } from '../common/ShareLinkFallback';
 import { useIsMounted } from '../../hooks/useIsMounted';
 import { useMasterBusSubscription } from '../../hooks/useMasterBusSubscription';
 import {
@@ -30,6 +32,7 @@ export default function ReferralDashboard({ userId }: ReferralDashboardProps) {
   const [milestones, setMilestones] = useState<ReferralMilestone[]>([]);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [shareFallbackUrl, setShareFallbackUrl] = useState('');
   const toast = useToast();
   const isMounted = useIsMounted();
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -67,7 +70,7 @@ export default function ReferralDashboard({ userId }: ReferralDashboardProps) {
   const handleCopy = async () => {
     if (!stats.code) return;
     try {
-      await navigator.clipboard.writeText(stats.code);
+      if (!(await copyText(stats.code, 'ReferralDashboard.copy'))) throw new Error('copy refused');
       if (!isMounted.current) return;
       setCopied(true);
       if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
@@ -114,28 +117,23 @@ export default function ReferralDashboard({ userId }: ReferralDashboardProps) {
 
   const handleShare = async () => {
     const url = referralUrl();
+    setShareFallbackUrl('');
     /* Diamonds, and the number the server actually pays a new player. Dan
        2026-09-05: nothing on this platform earns chips. */
     const shareText = `Join me on Club Arena. Use my referral code ${stats.code} to start with bonus diamonds.`;
-    try {
-      if (navigator.share) {
-        await navigator.share({
-          title: 'Join Club Arena',
-          text: shareText,
-          // The code is in here now, so a target that keeps only the url still
-          // credits the referrer.
-          url,
-        });
-      } else {
-        // The clipboard fallback gets both, in the order somebody would paste
-        // them: the pitch, then the link that carries the code.
-        await navigator.clipboard.writeText(`${shareText} ${url}`);
-        if (isMounted.current) toast.success('Invite link copied!');
-      }
-    } catch (err) {
-      reportError(err, 'ReferralDashboard.Error');
-      // user cancelled
-    }
+    // The code rides in the url, so a target that keeps only the url still
+    // credits the referrer; the clipboard gets the pitch, then the link.
+    const outcome = await shareLink({
+      source: 'ReferralDashboard.share',
+      title: 'Join Club Arena',
+      text: shareText,
+      url,
+    });
+    if (!isMounted.current) return;
+    if (outcome === 'copied') toast.success('Invite Link Copied');
+    // On the page, not in the toast: an error toast is sanitised and the URL
+    // never reached the player (components/common/ShareLinkFallback.tsx).
+    else if (outcome === 'failed') setShareFallbackUrl(url);
   };
 
   if (loading) {
@@ -187,6 +185,7 @@ export default function ReferralDashboard({ userId }: ReferralDashboardProps) {
       <button className="refd-share-btn" onClick={handleShare}>
         Invite Friends
       </button>
+      {shareFallbackUrl && <ShareLinkFallback url={shareFallbackUrl} label="Invite Link" />}
     </div>
   );
 }

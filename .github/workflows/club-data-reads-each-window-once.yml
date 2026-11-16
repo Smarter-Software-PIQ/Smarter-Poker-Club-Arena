@@ -18,6 +18,23 @@ on:
       - supabase/migrations/20261027145338_club_data_shows_member_earned_fees_from_the_player_managemen.sql
       - supabase/migrations/20261022165130_club_data_and_union_data_read_each_window_once.sql
       - supabase/migrations/20261027002505_legacy_rake_data_authorizes_every_club_separately.sql
+      - supabase/migrations/20261114235606_club_data_reads_the_union_invoice_week.sql
+      - supabase/migrations/20261114235607_a_renamed_club_keeps_its_old_slug.sql
+      - tests/fixtures/club-data-union-weeks/**
+      - supabase/migrations/20261115020010_club_data_accounting_read_model.sql
+      - supabase/migrations/20261115020011_club_data_accounting_read_model_goes_live.sql
+      - supabase/migrations/20261115034141_club_data_accounting_reader_views.sql
+      - supabase/migrations/20261115034142_club_data_readers_route_union_clubs_to_the_accounting_model.sql
+      - supabase/migrations/20261115063000_club_data_history_loads_a_day_in_bounded_parts.sql
+      - supabase/migrations/20261115080136_club_data_boundary_side_reconciled_to_its_invoice.sql
+      - supabase/migrations/20261115075440_club_data_history_load_reads_each_row_once.sql
+      - supabase/migrations/20261115164547_club_data_union_screen_reads_the_window_twice_not_six_times.sql
+      - supabase/migrations/20261115205153_club_data_union_screen_shows_each_club.sql
+      - scripts/ci/club-data-accounting-seed.mjs
+      - supabase/migrations/20261115015159_union_pnl_boundary_certificates_are_kept.sql
+      - tests/fixtures/club-data-accounting/**
+      - scripts/ci/test-club-data-accounting-read-model.py
+      - scripts/ci/test-club-data-union-invoice-week.py
       - tests/fixtures/club-data-fact-db/**
       - tests/fixtures/club-data-report-db/**
       - scripts/ci/test-club-data-reads-each-window-once.py
@@ -54,3 +71,17 @@ jobs:
           PG_BIN: /usr/lib/postgresql/17/bin
           AGENT_BOUNDARY_SCRATCH: ${{ runner.temp }}
         run: python3 scripts/ci/test-agent-data-boundary-postgres.py
+      # 20261114235606 / 20261114235607: a union invoice week on Club Data is
+      # the issued invoice, on the 02:00 Chicago boundary, and a renamed club
+      # keeps its old slug.
+      - name: Club Data reads the union invoice week from the invoice
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 scripts/ci/test-club-data-union-invoice-week.py
+      # 20261115020010 / 20261115020011: Club Data's accounting read model
+      # carries the invoice's own records on the 02:00 Chicago day; the seed
+      # and the live projection never overlap.
+      - name: Club Data accounting read model
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 scripts/ci/test-club-data-accounting-read-model.py

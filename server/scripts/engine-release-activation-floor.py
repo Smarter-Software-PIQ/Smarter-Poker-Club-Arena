@@ -25,9 +25,9 @@ CERTIFIED_END = 1793854800
 
 # The directly authorized receipt successor binds its own fresh single-use claim.
 # Prior immutable controls and entries keep their original authority and expiry.
-NOV7_OWNER_ID = '2026-11-14-owner-offcycle-engine-1706z'
-NOV7_MANIFEST_DIGEST = 'b10fae7096ac38e638c1ef135718712f50c0ec5844374b3c37e8d337565fab9c'
-NOV7_ORDER_DIGEST = 'fb530dfd2b42d3b32c5827908c8d2ca22cb036a40a9149e61a8993f0fc6fc459'
+NOV7_OWNER_ID = '2026-11-16-owner-offcycle-engine-0106z'
+NOV7_MANIFEST_DIGEST = 'e7c55d77b69bdf083bf0877eb600f5021769682563fbf1a04eb7c2ae98087eea'
+NOV7_ORDER_DIGEST = '543b2a89cf9da9fa4c0ca28efffbd983b5e13f8420929470d7857cdea705edb7'
 
 
 

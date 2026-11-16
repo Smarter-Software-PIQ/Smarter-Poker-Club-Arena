@@ -2767,12 +2767,6 @@
     /* 2026-08-23 mobile pass: 36px was under the 44px tap minimum */
     min-height: 44px;
   }
-
-  /* Floating HUD button (absolute-positioned — enlarging cannot reflow the felt) */
-  .add-chips-icon-btn {
-    width: 44px;
-    height: 44px;
-  }
 }
 
 @media (max-width: 480px) {
@@ -3748,44 +3742,6 @@
 .hud-bl-row .tbc-widget,
 .hud-bl-row .rabbit-hunt {
   order: 1;
-}
-
-.add-chips-icon-btn {
-  background: rgba(0, 0, 0, 0.55);
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  color: #fff;
-  /* 2026-08-28: the @media(max-width:768px) rule earlier in this file sets
-     44px for exactly this button, and it LOST — same specificity, and this
-     base rule comes later, so source order decided it and every phone got a
-     38px target. That is under the 44px tap minimum this file enforces eight
-     lines above it for .control-strip__btn. Sized from the same floor here so
-     the media block and the base agree instead of fighting; the button is
-     absolutely positioned, so growing it cannot reflow the felt. */
-  width: 44px;
-  height: 44px;
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  transition:
-    background 0.2s,
-    transform 0.1s;
-}
-.add-chips-icon-btn:active {
-  transform: scale(0.95);
-  background: rgba(255, 255, 255, 0.25);
-}
-/* Custom add-screen icon image */
-.add-chips-icon-btn__img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  border-radius: inherit;
-  display: block;
 }
 
 /* .floating-im-back / .floating-action-br DELETED 2026-09-04 with the third
@@ -4833,8 +4789,7 @@ button.post-bb-overlay-button {
    Dan 2026-08-26: Remove all baked CSS backgrounds/borders on image buttons 
    since the new 3D assets come with them built-in
    ═══════════════════════════════════════════════════════════════════════════════ */
-.control-strip__btn--icon-img,
-.add-chips-icon-btn {
+.control-strip__btn--icon-img {
   background: transparent !important;
   border: none !important;
   box-shadow: none !important;
@@ -4842,16 +4797,12 @@ button.post-bb-overlay-button {
   -webkit-backdrop-filter: none !important;
 }
 
-/* Dan 2026-08-28 (icon backgrounds sweep): two leftovers the 2026-08-26 pass
-   missed. The :active rule at line ~3407 still flashed a white box on every
-   tap of the add-screen button, and the control strip's ::after "glass"
-   gradient repainted a faint tile over buttons whose own background had been
-   stripped — a pseudo-element is untouched by `background: none` on the
-   button itself. */
-.add-chips-icon-btn:active {
-  background: transparent !important;
-  filter: brightness(0.9);
-}
+/* Dan 2026-08-28 (icon backgrounds sweep): a leftover the 2026-08-26 pass
+   missed. The control strip's ::after "glass" gradient repainted a faint tile
+   over buttons whose own background had been stripped — a pseudo-element is
+   untouched by `background: none` on the button itself. (The add-screen
+   button's own rules went on 2026-11-14 with the button: it stood beside a
+   table menu no table rendered.) */
 .control-strip__btn--icon-img::after,
 .control-strip__btn::after {
   display: none !important;
@@ -5025,12 +4976,6 @@ button.post-bb-overlay-button {
   }
 }
 
-.table-page .add-chips-icon-btn {
-  width: var(--sp-game-tool-size, 40px);
-  height: var(--sp-game-tool-size, 40px);
-  min-width: 0;
-  min-height: 0;
-}
 @media (max-width: 480px) {
   .table-page {
     --sp-game-tool-size: 48px;
@@ -5303,4 +5248,10 @@ button.post-bb-overlay-button {
     height: calc(var(--sp-table-h, 100svh) - var(--sp-nine-cap-room));
     margin-top: var(--sp-nine-cap-room);
   }
+}
+
+/* Sizing is a DOM state. Hide the tools in the same paint as the overlay,
+   including the frame before the child effect reports its mode to React. */
+.table-page:has(.action-panel--raise) .table-hud__lower {
+  display: none;
 }

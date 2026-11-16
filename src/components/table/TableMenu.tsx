@@ -24,6 +24,7 @@ import {
   SettingsIcon,
   HelpIcon,
   LeaveTableIcon,
+  AddOnIcon,
 } from './TableMenuIcons';
 import { reportError } from '../../utils/errorReporter';
 import { isSoundAllowed } from '../../utils/soundGate';
@@ -76,7 +77,29 @@ export interface MenuAction {
    * PLAYING PAGE").
    */
   keepOpen?: boolean;
+  /**
+   * A switch's state, for assistive technology. Every `keepOpen` row is
+   * announced as a checkbox; when this is absent the row's ON badge decides.
+   */
+  checked?: boolean;
 }
+
+/**
+ * Rows that act on the hero's SEAT. A spectator has none, so each of these
+ * either did nothing (Stand Up Next Big Blind flipped a flag nothing read) or
+ * reached the page only to be told there is no seat. Dropped when the table
+ * page reports the hero is not seated; absent keeps them, as with
+ * `canAddFunds`. Leave Table stays: it is how a spectator closes the table.
+ */
+const SEAT_ONLY_ROWS = new Set([
+  'sitout',
+  'standup-bb',
+  'straddle',
+  'rebuy',
+  'addon',
+  'auto-top-up',
+  'leave-next-hand',
+]);
 
 export interface MenuSection {
   title?: string;
@@ -95,6 +118,13 @@ export interface TableMenuProps {
   onToggle: () => void;
   sections: MenuSection[];
   seatChangeEnabled?: boolean;
+  /**
+   * Seat Change is off because this is a Lightning game, not because the
+   * table's mode is still loading. The row is then shown, disabled, saying so,
+   * rather than vanishing (2026-11-15): a row that is there on one table and
+   * gone on the next reads as a bug.
+   */
+  seatChangeOffInLightning?: boolean;
   position?: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
   tableName?: string;
   /** WebSocket connection status */
@@ -134,6 +164,9 @@ export function createDefaultMenuSections(
     onSitOut?: () => void;
     onShowTournamentDock?: () => void;
     onStandUpBB?: () => void;
+    /** Present only at a seat the table page reports can straddle. */
+    onToggleStraddle?: () => void;
+    onOpenMarketplace?: () => void;
     onRebuy?: () => void;
     onAutoTopUp?: () => void;
     onAddOn?: () => void;
@@ -157,6 +190,9 @@ export function createDefaultMenuSections(
   },
   state?: {
     standUpBBBadge?: string;
+    straddleBadge?: string;
+    /** 'ON' while a leave is queued for the end of the hand. */
+    leaveNextHandBadge?: string;
     autoTopUpBadge?: string;
     isTournament?: boolean;
     soundsBadge?: string;
@@ -171,9 +207,13 @@ export function createDefaultMenuSections(
      * yet) keeps both, exactly as before.
      */
     canAddFunds?: boolean;
+    /** The table page's own answer to "does the hero hold a seat here". */
+    heroSeated?: boolean;
+    /** A straddle change is in flight; the row waits for the engine. */
+    straddleBusy?: boolean;
   }
 ): MenuSection[] {
-  return [
+  const sections: MenuSection[] = [
     {
       title: 'Quick Actions',
       actions: [
@@ -191,6 +231,23 @@ export function createDefaultMenuSections(
           keepOpen: true,
           onClick: handlers.onStandUpBB || (() => {}),
         },
+        /* STRADDLE, IN THE MENU PLAYERS ACTUALLY HAVE (2026-11-14). The 09-15
+           fix put this row in TablePage's own TableMenu. Every table is drawn
+           embedded in MultiTablePage, where that menu was never rendered, so
+           straddling stayed unreachable. This is the only table menu now. */
+        ...(handlers.onToggleStraddle
+          ? [
+              {
+                id: 'straddle',
+                label: 'Straddle',
+                icon: <AddOnIcon />,
+                badge: state?.straddleBadge,
+                disabled: state?.straddleBusy === true,
+                keepOpen: true,
+                onClick: handlers.onToggleStraddle,
+              },
+            ]
+          : []),
         ...(state?.canAddFunds === false
           ? []
           : [
@@ -205,12 +262,27 @@ export function createDefaultMenuSections(
                    seat's own menu still says "Rebuy": that one knows what kind
                    of table it is on. */
                 id: 'rebuy',
-                label: 'Top Up',
+                /* A tournament seat rebuys; it does not top up. The row said
+                   "Top Up" there because the wording lived in TablePage's own
+                   menu, which no table rendered (2026-11-14). */
+                label: state?.isTournament ? 'Rebuy' : 'Top Up',
                 icon: <RebuyIcon />,
                 onClick: handlers.onRebuy || (() => {}),
               },
+              /* `onAddOn` was passed by the tab bar and placed on no row, the
+                 same dropped handler as `onToggleAlias` above. The page
+                 answers ADD_ON and says why when an add-on is not open. */
               ...(state?.isTournament
-                ? []
+                ? handlers.onAddOn
+                  ? [
+                      {
+                        id: 'addon',
+                        label: 'Add-On',
+                        icon: <AddOnIcon />,
+                        onClick: handlers.onAddOn,
+                      },
+                    ]
+                  : []
                 : [
                     {
                       id: 'auto-top-up',
@@ -222,6 +294,16 @@ export function createDefaultMenuSections(
                     },
                   ]),
             ]),
+        ...(handlers.onOpenMarketplace
+          ? [
+              {
+                id: 'marketplace',
+                label: 'Club Marketplace',
+                icon: <SettingsIcon />,
+                onClick: handlers.onOpenMarketplace,
+              },
+            ]
+          : []),
       ],
     },
     {
@@ -249,7 +331,11 @@ export function createDefaultMenuSections(
           icon: <LeaderboardIcon />,
           onClick: handlers.onLeaderboard || (() => {}),
         },
-        ...(handlers.onSessionStats
+        /* Not at a tournament. This opens the cash session ledger (time at the
+           table, blinds, bought in, up or down), which has nothing to say
+           about a tournament entry. TablePage's own menu withheld it there;
+           that rule was lost with the menu nobody could open. */
+        ...(handlers.onSessionStats && !state?.isTournament
           ? [
               {
                 id: 'session-stats',
@@ -316,6 +402,7 @@ export function createDefaultMenuSections(
           id: 'leave-next-hand',
           label: 'Leave Table Next Hand',
           icon: <LeaveTableIcon />,
+          badge: state?.leaveNextHandBadge,
           onClick: handlers.onLeaveTableNextHand || (() => {}),
           disabled: !handlers.onLeaveTableNextHand,
         },
@@ -329,6 +416,13 @@ export function createDefaultMenuSections(
       ],
     },
   ];
+  if (state?.heroSeated !== false) return sections;
+  return sections
+    .map((section) => ({
+      ...section,
+      actions: section.actions.filter((action) => !SEAT_ONLY_ROWS.has(action.id)),
+    }))
+    .filter((section) => section.actions.length > 0);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -341,6 +435,7 @@ export function TableMenu({
   onToggle,
   sections: propSections,
   seatChangeEnabled = true,
+  seatChangeOffInLightning = false,
   position = 'top-right',
   tableName,
   connectionStatus = 'connected',
@@ -476,6 +571,7 @@ export function TableMenu({
           icon: <NameTagIcon />,
           badge: useRealName ? 'Real Name' : 'Username',
           keepOpen: true,
+          checked: useRealName,
           onClick: handleUseRealNameToggle,
         },
         ...(onOpenIdentity
@@ -513,7 +609,18 @@ export function TableMenu({
                 onClick: () => setSeatChangeVisible(!seatChangeVisible),
               },
             ]
-          : []),
+          : seatChangeOffInLightning
+            ? [
+                {
+                  id: 'seat-change-visibility',
+                  label: 'Seat Change',
+                  icon: <SettingsIcon />,
+                  badge: 'Off In Lightning',
+                  disabled: true,
+                  onClick: () => {},
+                },
+              ]
+            : []),
       ],
     },
   ];
@@ -692,17 +799,9 @@ export function TableMenu({
                       return (
                         <button
                           key={action.id}
-                          role={
-                            action.id === 'seat-change-visibility' || action.id === 'auto-time-bank'
-                              ? 'menuitemcheckbox'
-                              : 'menuitem'
-                          }
+                          role={action.keepOpen ? 'menuitemcheckbox' : 'menuitem'}
                           aria-checked={
-                            action.id === 'seat-change-visibility'
-                              ? seatChangeVisible
-                              : action.id === 'auto-time-bank'
-                                ? playerSettings.auto_time_bank
-                                : undefined
+                            action.keepOpen ? (action.checked ?? action.badge === 'ON') : undefined
                           }
                           className={`table-menu__action ${action.danger ? 'table-menu__action--danger' : ''} ${action.disabled ? 'table-menu__action--disabled' : ''}`}
                           onClick={() => handleActionClick(action)}

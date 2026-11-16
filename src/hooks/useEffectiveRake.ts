@@ -108,7 +108,7 @@ export function useEffectiveRake(
           parsed.bb,
           gameType || 'nlh',
           parsed.sb,
-          version === 1 || version === 2
+          version !== null && version !== 0
             ? { ...override, policyVersion: version }
             : { rakePercent: override?.rakePercent, rakeCapBB: override?.rakeCapBB }
         );

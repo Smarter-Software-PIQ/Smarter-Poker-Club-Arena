@@ -101,7 +101,7 @@ async function loadRows({ clubId, unionId, tableId, asset }: Props): Promise<Row
         bb,
         table.game_variant,
         sb,
-        version === 1 || version === 2
+        version !== null && version !== 0
           ? { ...override, policyVersion: version }
           : { ...override, scope: undefined }
       );

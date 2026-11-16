@@ -43,6 +43,7 @@ import { vipStatusLabel } from '../utils/vipStatus';
 import type { ArenaRecord } from '../utils/arenaRecord';
 import { readSeparatedPublicArenaRecord } from '../services/PublicArenaRecordRead';
 import { formatCount, formatPct, formatMemberSince } from '../utils/format';
+import { shareButtonLabel, shareLink } from '../lib/share';
 
 export default function PublicProfilePage() {
   const { userId } = useParams<{ userId: string }>();
@@ -321,19 +322,13 @@ export default function PublicProfilePage() {
   const handleShare = async () => {
     if (!userId) return;
     const link = playerStatusService.generateProfileLink(userId);
-    try {
-      if (typeof navigator.share === 'function') {
-        await navigator.share({ title: 'Smarter Poker Player', url: link });
-        return;
-      }
-      await navigator.clipboard.writeText(link);
-      toast.success('Profile link copied!');
-    } catch (err) {
-      // A cancelled share sheet is the player's choice, not a failure.
-      if ((err as Error)?.name === 'AbortError') return;
-      reportError(err, 'PublicProfilePage.Share_failed');
-      toast.error('Could not copy the link. Scan the QR code instead.');
-    }
+    const outcome = await shareLink({
+      source: 'PublicProfilePage.share',
+      title: 'Smarter Poker Player',
+      url: link,
+    });
+    if (outcome === 'copied') toast.success('Profile Link Copied');
+    if (outcome === 'failed') toast.error('Could Not Copy The Link. Scan The QR Code Instead.');
   };
 
   if (loading) {
@@ -552,7 +547,7 @@ export default function PublicProfilePage() {
             stylesheet loaded, Share left the grid and floated. `actionBtn` is
             its real styling. */}
         <button type="button" className={styles.actionBtn} onClick={handleShare}>
-          Share
+          {shareButtonLabel()}
         </button>
       </div>
 

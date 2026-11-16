@@ -50,6 +50,10 @@ import {
   type UnionStatementBoard as Board,
   type UnionStatementClub as BoardClub,
 } from '../utils/unionStatementBoard';
+import {
+  buildUnionStatementDocument,
+  printUnionStatementDocument,
+} from '../utils/unionStatementDocument';
 import { parseUnionInsurancePnl, type UnionInsurancePnl } from '../utils/unionInsurancePnl';
 import {
   parseUnionPresettlementReceipt,
@@ -1018,6 +1022,24 @@ export default function UnionStatementsPage() {
               >
                 Open Club Data
               </button>
+              {c.status !== 'missing' && (
+                <button
+                  type="button"
+                  className={styles.linkBtn}
+                  onClick={() =>
+                    printUnionStatementDocument(
+                      buildUnionStatementDocument(
+                        c,
+                        board?.union_name ?? null,
+                        periodLabel.replace(/^Week: /, '')
+                      )
+                    )
+                  }
+                  aria-label={`Download ${clubLabel} Statement`}
+                >
+                  Download Statement
+                </button>
+              )}
               <button
                 type="button"
                 className={styles.linkBtn}

@@ -30,6 +30,8 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { webAppUrl } from '../../lib/appBase';
+import { shareButtonLabel, shareLink } from '../../lib/share';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import HouseAdRotator from '../ads/HouseAdRotator';
@@ -558,7 +560,10 @@ export function SessionSummaryHost() {
      The split is on the data, not a flag: a tournament cannot fall through to
      the cash summary and report a chip profit on a seat where chips are not
      money. */
-  const [shareLabel, setShareLabel] = useState('Share');
+  /* null = resting, worded for what the tap does (Share or Copy Link). A
+     status word ("Copied") shows for a moment and the resting word returns. */
+  const [shareStatus, setShareStatus] = useState<string | null>(null);
+  const shareLabel = shareStatus ?? shareButtonLabel();
 
   const share = useCallback(async () => {
     if (
@@ -573,17 +578,17 @@ export function SessionSummaryHost() {
       `${payload.tableName || 'Table Session'} - ${money}${payload.arenaAsset === 'diamonds' ? ' Diamonds' : ''} over ` +
       `${displayedHands} hands on Smarter.Poker`;
 
-    try {
-      if (typeof navigator !== 'undefined' && navigator.share) {
-        await navigator.share({ title: 'Session Complete', text });
-        return;
-      }
-      await navigator.clipboard.writeText(text);
-      setShareLabel('Copied');
-      window.setTimeout(() => setShareLabel('Share'), 1800);
-    } catch {
-      /* A cancelled share sheet rejects. That is the player changing their
-         mind, not a failure, and it must not raise anything at them. */
+    /* src/lib/share.ts: the sentence now travels with a link, and a sheet
+       that refuses falls through to the clipboard instead of ending the tap. */
+    const outcome = await shareLink({
+      source: 'SessionSummaryHost.share',
+      title: 'Session Complete',
+      text,
+      url: webAppUrl(),
+    });
+    if (outcome === 'copied' || outcome === 'failed') {
+      setShareStatus(outcome === 'copied' ? 'Copied' : 'Retry Share');
+      window.setTimeout(() => setShareStatus(null), 1800);
     }
   }, [payload, recordedReady, target, recordedRecap, displayedHands]);
 
@@ -644,6 +649,7 @@ export function SessionSummaryHost() {
             onView={() => setDetailOpen(true)}
             share={{
               label: shareLabel,
+              status: shareStatus,
               onClick: share,
               disabled: displayedHands === null || (!!target && recordedRecap?.handsPlayed == null),
             }}
