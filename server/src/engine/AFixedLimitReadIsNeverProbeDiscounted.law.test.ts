@@ -12,13 +12,19 @@
  * no-limit probe share although every fixed-limit bet is the street's one
  * legal size.
  *
- * Law, under the same process switch (one switch governs fixed-limit probe
- * handling; source default ON): when the decision in flight is fixed limit by
- * its BETTING STRUCTURE (the game state's bettingStructure, the variant only
- * when the state gives none), no probe discount is applied to the read and
- * the withholding is receipted (fixed_limit_read_probe_discount_withheld).
- * No-limit and pot-limit reads are byte-identical with the switch on or off.
- * Switched off, the fixed-limit read is discounted exactly as before.
+ * Law: F1b is its OWN decide option since 2026-11-16,
+ * HorseDecideOpts.fixedLimitReadIgnoresProbes, default OFF and registered in
+ * the live option switch (owner Fixed-Limit), because its value is not
+ * demonstrated (AB-EVALUATION-2.md 3.1, 3.10). (a) With the option off (the
+ * default) every fixed-limit read is probe-adjusted exactly as main reads it
+ * with the F1 process switch on. (b) With the option on AND the F1 switch on,
+ * when the decision in flight is fixed limit by its BETTING STRUCTURE (the
+ * game state's bettingStructure, the variant only when the state gives none),
+ * no probe discount is applied to the read and the withholding is receipted
+ * (fixed_limit_read_probe_discount_withheld); with the switch off the
+ * fixed-limit read is discounted exactly as before. (c) No-limit and
+ * pot-limit reads are byte-identical in every state of the option and the
+ * switch. (d) The option's default is off.
  *
  * The structure, not the variant name: a four-card fixed-limit Omaha built as
  * plo4 card rules with fixed-limit betting (main cannot deal flo4; #10865 adds
@@ -40,6 +46,7 @@ import {
 } from './HorseOpponentExploit.js';
 import { omahaTightRead } from './HorseOmahaTightOpponent.js';
 import { HorseLogic, type HorseGameStateV2 } from './HorseLogic.js';
+import { OPTION_SWITCH_REGISTRY } from './HorseOptionSwitch.js';
 import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
 import type { BettingStructure } from './BettingStructure.js';
 import type { ActionRecord, SeatPlayer } from '../types.js';
@@ -129,6 +136,8 @@ function buildPlayer(fl: { scope: ReadScope; variant: string; structure: Betting
   return { nlScope, nlVariant, nlStructure };
 }
 
+/** The F1b option for the reads below: the (b) cases run it on; the (a) cases set it off. */
+let f1bOption = true;
 function readAt(
   scope: ReadScope,
   variant: string,
@@ -137,6 +146,7 @@ function readAt(
 ) {
   HorseMind.setDecisionScope(scope, variant, 'cash');
   if (structure) HorseMind.setDecisionBettingStructure(structure);
+  HorseMind.setDecisionFixedLimitReadIgnoresProbes(f1bOption);
   try {
     return read();
   } finally {
@@ -155,22 +165,120 @@ function expected(scope: ReadScope, variant: string, discounted: boolean) {
 }
 
 afterEach(() => {
+  f1bOption = true;
   HorseMind.setFixedLimitBetsAreNeverProbes(FIXED_LIMIT_BETS_ARE_NEVER_PROBES_DEFAULT);
   HorseMind.setDecisionScope(null);
   HorseMind.reset();
 });
 
 describe('a fixed-limit read is never probe-discounted', () => {
-  it('is governed by the fixed-limit probe switch, whose source default is on', () => {
+  it('(d) is its own option, registered default OFF (owner Fixed-Limit), on top of the F1 switch whose source default is on', () => {
     expect(FIXED_LIMIT_BETS_ARE_NEVER_PROBES_DEFAULT).toBe(true);
     expect(HorseMind.fixedLimitBetsAreNeverProbesOn()).toBe(true);
+    const entry = OPTION_SWITCH_REGISTRY.find((e) => e.name === 'fixedLimitReadIgnoresProbes');
+    expect(entry?.releaseDefault).toBe('off');
+    expect(entry?.owner).toBe('Fixed-Limit');
+    expect(entry?.offOnly).toBeUndefined();
+    // Without the setter in a fresh scope the option is off: the read is discounted.
+    buildPlayer({ scope: 'holdem:hu', variant: 'flh', structure: 'fixed_limit' });
+    HorseMind.setDecisionScope('holdem:hu', 'flh', 'cash');
+    HorseMind.setDecisionBettingStructure('fixed_limit');
+    try {
+      expect(HorseMind.opponentRead(OPP)).toEqual(expected('holdem:hu', 'flh', true));
+    } finally {
+      HorseMind.setDecisionScope(null);
+    }
+    // The option does not outlive its scope.
+    HorseMind.setDecisionScope('holdem:hu', 'flh', 'cash');
+    HorseMind.setDecisionFixedLimitReadIgnoresProbes(true);
+    HorseMind.setDecisionScope('holdem:hu', 'flh', 'cash');
+    HorseMind.setDecisionBettingStructure('fixed_limit');
+    try {
+      expect(HorseMind.opponentRead(OPP)).toEqual(expected('holdem:hu', 'flh', true));
+    } finally {
+      HorseMind.setDecisionScope(null);
+    }
   });
 
   for (const fl of [
     { name: 'flh', scope: 'holdem:hu', variant: 'flh', structure: 'fixed_limit' },
     { name: 'flo8', scope: 'omaha:hu', variant: 'flo8', structure: 'fixed_limit' },
   ] as const) {
-    it(`${fl.name}: a heavy no-limit prober's fixed-limit read is not discounted (switch on), and is discounted exactly as before (switch off)`, () => {
+    it(`(a) ${fl.name}: with the option off (default) and F1 on, the fixed-limit read is probe-adjusted exactly as main`, () => {
+      enableBrainTelemetry();
+      buildPlayer(fl);
+      drainFires();
+      f1bOption = false;
+      const off = readAt(fl.scope, fl.variant) as ReturnType<typeof expected>;
+      const fires = drainFires().map((f) => f.feature);
+      expect(fires).not.toContain('fixed_limit_read_probe_discount_withheld');
+      expect(fires).toContain('opponent_read_probe_bets_discounted');
+      expect(off!.stats.betCheckedTo.mean).toBeCloseTo(
+        expected(fl.scope, fl.variant, true)!.stats.betCheckedTo.mean,
+        12
+      );
+      if (fl.variant === 'flh') {
+        expect(off).toEqual(expected(fl.scope, fl.variant, true));
+        expect(isPostflopManiac(off)).toBe(false);
+      }
+      // Identical to the F1-switch-off read (main before F1b), whatever the switch says.
+      HorseMind.setFixedLimitBetsAreNeverProbes(false);
+      expect(readAt(fl.scope, fl.variant)).toEqual(off);
+    });
+  }
+
+  it('(a) with the option off, the Omaha tight read, the style read and the streetBullyRead fallback are probe-adjusted as main', () => {
+    buildPlayer({ scope: 'omaha:hu', variant: 'flo8', structure: 'fixed_limit' });
+    const raw = HorseMind.getExploitCounters(OPP, 'omaha:hu')!;
+    const s = HorseMind.getStats(OPP)!;
+    const adjusted = probeAdjustedCounters(raw, s.ctBets, s.ctProbes);
+    f1bOption = false;
+    const tight = readAt('omaha:hu', 'flo8', undefined, () => HorseMind.omahaTightReadOf(OPP));
+    expect(tight).toEqual(
+      omahaTightRead(
+        adjusted,
+        'omaha:hu',
+        'flo8',
+        opponentExploitRead(adjusted, 'omaha:hu', 'flo8')
+      )
+    );
+    const style = readAt('omaha:hu', 'flo8', undefined, () => HorseMind.styleRead(OPP));
+    const bully = readAt('omaha:hu', 'flo8', 'fixed_limit', () => HorseMind.streetBullyRead(OPP));
+    HorseMind.setFixedLimitBetsAreNeverProbes(false);
+    expect(readAt('omaha:hu', 'flo8', undefined, () => HorseMind.styleRead(OPP))).toEqual(style);
+    expect(readAt('omaha:hu', 'flo8', 'fixed_limit', () => HorseMind.streetBullyRead(OPP))).toEqual(
+      bully
+    );
+  });
+
+  it('(c) no-limit and pot-limit reads are byte-identical in every state of the option and the switch', () => {
+    const { nlScope, nlVariant } = buildPlayer({
+      scope: 'holdem:hu',
+      variant: 'flh',
+      structure: 'fixed_limit',
+    });
+    f1bOption = false;
+    const base = readAt(nlScope, nlVariant);
+    const ploStyle = readAt('omaha:hu', 'plo4', 'pot_limit', () => HorseMind.styleRead(OPP));
+    const ploRead = readAt('omaha:hu', 'plo4', 'pot_limit');
+    expect(base).toEqual(expected(nlScope, nlVariant, true));
+    for (const option of [false, true])
+      for (const sw of [false, true]) {
+        f1bOption = option;
+        HorseMind.setFixedLimitBetsAreNeverProbes(sw);
+        expect(readAt(nlScope, nlVariant)).toEqual(base);
+        expect(readAt('omaha:hu', 'plo4', 'pot_limit')).toEqual(ploRead);
+        expect(readAt('omaha:hu', 'plo4', 'pot_limit', () => HorseMind.styleRead(OPP))).toEqual(
+          ploStyle
+        );
+      }
+  });
+
+  for (const fl of [
+    { name: 'flh', scope: 'holdem:hu', variant: 'flh', structure: 'fixed_limit' },
+    { name: 'flo8', scope: 'omaha:hu', variant: 'flo8', structure: 'fixed_limit' },
+  ] as const) {
+    it(`${fl.name}: (b) option on: a heavy no-limit prober's fixed-limit read is not discounted (switch on), and is discounted exactly as before (switch off)`, () => {
       enableBrainTelemetry();
       buildPlayer(fl);
       drainFires();
@@ -357,13 +465,17 @@ describe('a fixed-limit read is never probe-discounted', () => {
       { seat: 2, user_id: OPP },
     ] as SeatPlayer[];
     const prepare = (bettingStructure?: BettingStructure) =>
-      HorseLogic.prepareOriginalReads(players[0]!, {
-        gameVariant: 'plo4',
-        ...(bettingStructure ? { bettingStructure } : {}),
-        players,
-        actionHistory: fixedLimitManiacHand(),
-        bigBlind: BB,
-      } as unknown as HorseGameStateV2);
+      HorseLogic.prepareOriginalReads(
+        players[0]!,
+        {
+          gameVariant: 'plo4',
+          ...(bettingStructure ? { bettingStructure } : {}),
+          players,
+          actionHistory: fixedLimitManiacHand(),
+          bigBlind: BB,
+        } as unknown as HorseGameStateV2,
+        { fixedLimitReadIgnoresProbes: true }
+      );
     prepare('fixed_limit');
     try {
       expect(HorseMind.decisionBettingStructure()).toBe('fixed_limit');
@@ -377,6 +489,84 @@ describe('a fixed-limit read is never probe-discounted', () => {
     try {
       expect(HorseMind.decisionBettingStructure()).toBe('pot_limit');
       expect(HorseMind.getStats(OPP)!.ctBets).toBe(3);
+    } finally {
+      HorseMind.setDecisionScope(null);
+    }
+  });
+
+  it('HorseLogic carries the option to the read: off by default, on only with fixedLimitReadIgnoresProbes', () => {
+    buildPlayer({ scope: 'holdem:hu', variant: 'flh', structure: 'fixed_limit' });
+    const players = [
+      { seat: 1, user_id: HERO },
+      { seat: 2, user_id: OPP },
+    ] as SeatPlayer[];
+    const readThrough = (opts: { fixedLimitReadIgnoresProbes?: boolean }) => {
+      HorseLogic.prepareOriginalReads(
+        players[0]!,
+        {
+          gameVariant: 'flh',
+          bettingStructure: 'fixed_limit',
+          players,
+          actionHistory: [],
+          bigBlind: BB,
+        } as unknown as HorseGameStateV2,
+        opts
+      );
+      try {
+        expect(HorseMind.currentScope()).toBe('holdem:hu');
+        return HorseMind.opponentRead(OPP);
+      } finally {
+        HorseMind.setDecisionScope(null);
+      }
+    };
+    expect(readThrough({})).toEqual(expected('holdem:hu', 'flh', true));
+    expect(readThrough({ fixedLimitReadIgnoresProbes: false })).toEqual(
+      expected('holdem:hu', 'flh', true)
+    );
+    expect(readThrough({ fixedLimitReadIgnoresProbes: true })).toEqual(
+      expected('holdem:hu', 'flh', false)
+    );
+  });
+
+  it('a style read is never served across a change of the option or the structure inside one decision (memo key, Hand Analysis D4)', () => {
+    buildPlayer({ scope: 'omaha:hu', variant: 'flo8', structure: 'fixed_limit' });
+    // References, each from a fresh scope.
+    f1bOption = false;
+    const offRef = readAt('omaha:hu', 'flo8', undefined, () => HorseMind.styleRead(OPP));
+    f1bOption = true;
+    const onRef = readAt('omaha:hu', 'flo8', undefined, () => HorseMind.styleRead(OPP));
+    expect(onRef).not.toEqual(offRef);
+    const plo4Ref = readAt('omaha:hu', 'plo4', undefined, () => HorseMind.styleRead(OPP));
+    const plo4FlRef = readAt('omaha:hu', 'plo4', 'fixed_limit', () => HorseMind.styleRead(OPP));
+    expect(plo4FlRef).not.toEqual(plo4Ref);
+    // The option flips inside one decision with the memo open (as HorseLogic opens it): the read after each flip is
+    // recomputed, and an unchanged repeat is a memo hit (so the memo is live in this case).
+    HorseMind.setDecisionScope('omaha:hu', 'flo8', 'cash');
+    HorseMind.beginStyleReadMemo();
+    HorseMind.takeStyleReadMemoCounts();
+    try {
+      HorseMind.setDecisionFixedLimitReadIgnoresProbes(false);
+      expect(HorseMind.styleRead(OPP)).toEqual(offRef);
+      expect(HorseMind.styleRead(OPP)).toEqual(offRef);
+      expect(HorseMind.takeStyleReadMemoCounts()).toEqual({ hits: 1, misses: 1 });
+      HorseMind.setDecisionFixedLimitReadIgnoresProbes(true);
+      expect(HorseMind.styleRead(OPP)).toEqual(onRef);
+      HorseMind.setDecisionFixedLimitReadIgnoresProbes(false);
+      expect(HorseMind.styleRead(OPP)).toEqual(offRef);
+      expect(HorseMind.takeStyleReadMemoCounts()).toEqual({ hits: 0, misses: 2 });
+    } finally {
+      HorseMind.setDecisionScope(null);
+    }
+    // The structure changes inside one decision (option on, memo open): recomputed too.
+    HorseMind.setDecisionScope('omaha:hu', 'plo4', 'cash');
+    HorseMind.beginStyleReadMemo();
+    HorseMind.takeStyleReadMemoCounts();
+    try {
+      HorseMind.setDecisionFixedLimitReadIgnoresProbes(true);
+      expect(HorseMind.styleRead(OPP)).toEqual(plo4Ref);
+      HorseMind.setDecisionBettingStructure('fixed_limit');
+      expect(HorseMind.styleRead(OPP)).toEqual(plo4FlRef);
+      expect(HorseMind.takeStyleReadMemoCounts()).toEqual({ hits: 0, misses: 2 });
     } finally {
       HorseMind.setDecisionScope(null);
     }

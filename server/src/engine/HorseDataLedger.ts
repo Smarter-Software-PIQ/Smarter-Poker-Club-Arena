@@ -1826,6 +1826,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'FixedLimitAdaptation'
   ),
   flag(
+    'fixedLimitReadIgnoresProbes',
+    '2026-11-16 default OFF (Fixed-Limit lane W4, "F1b", its own option since 2026-11-16): at a fixed-limit decision, with the F1 process switch on (fixedLimitBetsAreNeverProbes), an opponent pooled no-limit/pot-limit probe share does not discount his fixed-limit aggression reads (HorseMind.fixedLimitReadIgnoresProbes: probeAdjusted, omahaTightReadOf, style read, streetBullyRead fallback); no-limit and pot-limit reads unchanged; measured (AB-EVALUATION-2.md 3.1, 3.10): no harm at six seats, gains against a seeded maniac (flh +17.29 +/- 6.71, flo8 +29.23 +/- 19.67) but value NOT DEMONSTRATED over three seeded ranges (tight-value and gear-changer cells inert or slightly negative), so it stays off',
+    'FixedLimitAdaptation'
+  ),
+  flag(
     'fixedLimitHiLoLowHalfFloor',
     '2026-11-14 default OFF: on a fixed-limit hi-lo river the V40 weak-high pressure cap never goes below half of the sampled low share (HorseHiLoLowHalf.ts), heads-up and multiway; the share already carries ties, so a quartered low keeps its quarter; measured before (L-ADAPTATION-DIAGNOSIS section 3): flo8 six seats, pair+low and high+low river hands with a low half of 0.46 and 0.59 were capped to 0.10 and 0.13 at a price of 0.05 and folded 66 of 83; refused by the league (it deals no fixed limit), see UNMEASURABLE_MATCHUPS',
     'FixedLimitAdaptation'
@@ -6342,10 +6347,10 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'a checked-to postflop bet in a fixed-limit hand was counted without a probe tally (neither ctBets nor ctProbes), so it stays whole in betCheckedTo',
     'FixedLimitAdaptation'
   ),
-  // No floor: fixed-limit decisions against a player with a no-limit/pot-limit probe history (same process switch).
+  // No floor: fixed-limit decisions against a player with a no-limit/pot-limit probe history, with the opt-in option on.
   receipt(
     'fixed_limit_read_probe_discount_withheld',
-    'HorseMind.probeAdjusted (A FIXED-LIMIT READ IS NEVER PROBE-DISCOUNTED, F1b, under the process switch HorseMind.setFixedLimitBetsAreNeverProbes, source default FIXED_LIMIT_BETS_ARE_NEVER_PROBES_DEFAULT = true)',
+    'HorseMind.probeAdjusted (A FIXED-LIMIT READ IS NEVER PROBE-DISCOUNTED, F1b: opt-in decide option fixedLimitReadIgnoresProbes, default OFF, with the process switch HorseMind.setFixedLimitBetsAreNeverProbes on)',
     "a fixed-limit decision's opponent read was left whole although the player's pooled no-limit/pot-limit probe share would have discounted his betCheckedTo",
     'FixedLimitAdaptation'
   ),

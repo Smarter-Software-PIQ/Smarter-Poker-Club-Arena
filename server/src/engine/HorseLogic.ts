@@ -3826,6 +3826,13 @@ export interface HorseDecideOpts {
    *  (presumedAggressorRead) is not applied; the opponent's own measured read
    *  stands (HorseMind.opponentRead). Read only as === true: default OFF. */
   fixedLimitOmahaNoPresumption?: boolean;
+  /** A FIXED-LIMIT READ IS NEVER PROBE-DISCOUNTED ("F1b", 2026-11-15, own
+   *  option since 2026-11-16, Fixed-Limit lane): at a fixed-limit decision,
+   *  with the F1 process switch on, an opponent's pooled no-limit/pot-limit
+   *  probe share does not discount his fixed-limit aggression reads
+   *  (HorseMind.fixedLimitReadIgnoresProbes, four read sites). Read only as
+   *  === true: default OFF; registered in the live option switch. */
+  fixedLimitReadIgnoresProbes?: boolean;
   /** Hi-lo river bluffs with a low possible (2026-11-07,
    *  HorseRiverBluffRange.ts): the nut low with no high bets the freeroll;
    *  air bluffs the whole pot only when the opponent is unlikely to hold a
@@ -9615,6 +9622,8 @@ export class HorseLogic {
     HorseMind.setDecisionBettingStructure(
       gameState.bettingStructure ?? bettingStructureFor(gameState.gameVariant)
     );
+    // F1b's own option (default OFF): with it off every fixed-limit read is probe-adjusted as before F1b.
+    HorseMind.setDecisionFixedLimitReadIgnoresProbes(opts.fixedLimitReadIgnoresProbes === true);
     // Read calibration options travel with the scope and are cleared with it.
     HorseMind.setDecisionReadOptions({
       postflopFoldRate: opts.readPostflopFoldRate === true,

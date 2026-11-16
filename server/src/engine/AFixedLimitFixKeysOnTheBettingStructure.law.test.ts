@@ -25,6 +25,7 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { HorseMind } from './HorseMind.js';
+import { bettingStructureFor } from './BettingStructure.js';
 import { enableBrainTelemetry, withDecisionFireScope } from './BrainTelemetry.js';
 import { decideSpot, fixedLimitRiverFacingOneBet } from './FixedLimitRiverCallSpot.test-support.js';
 import type { Table } from './HuVariantSpot.test-support.js';
@@ -47,6 +48,45 @@ describe('the fixed-limit fixes key on the betting structure', () => {
     expect(gs.variantRules).toMatchObject({ holeCardsDealt: 4, splitLow8OrBetter: false });
     expect(Number(gs.fixedBetSize)).toBeGreaterThan(0);
   }, 120_000);
+
+  it("in production the structure is the variant's own, so today the structure key selects exactly the hands the variant key did", async () => {
+    const { readFileSync } = await import('node:fs');
+    // The decision worker refuses any state whose bettingStructure is not bettingStructureFor(gameVariant) ...
+    const worker = readFileSync(
+      new URL('./horseDecision/workerRuntime.ts', import.meta.url),
+      'utf8'
+    );
+    expect(worker).toMatch(
+      /gs\.bettingStructure !== bettingStructureFor\(gs\.gameVariant\)\s*\)\s*\{\s*throw new Error\('horse state bettingStructure is invalid'\)/
+    );
+    // ... and HorseLogic hands the decision the state's structure (the variant's only when the state has none).
+    const logic = readFileSync(new URL('./HorseLogic.ts', import.meta.url), 'utf8');
+    expect(logic).toContain(
+      'gameState.bettingStructure ?? bettingStructureFor(gameState.gameVariant)'
+    );
+    // So for every production decision decisionBettingStructure() is bettingStructureFor(variant): fixed limit for
+    // flh and flo8 and for nothing else that main deals.
+    for (const [variant, scope] of [
+      ['flh', 'holdem:full'],
+      ['flo8', 'omaha:full'],
+      ['nlh', 'holdem:full'],
+      ['plo4', 'omaha:full'],
+      ['plo5', 'omaha:full'],
+      ['plo6', 'omaha:full'],
+      ['plo8', 'omaha:full'],
+    ] as const) {
+      HorseMind.setDecisionScope(scope, variant, 'cash');
+      try {
+        HorseMind.setDecisionBettingStructure(bettingStructureFor(variant));
+        expect(HorseMind.decisionBettingStructure()).toBe(bettingStructureFor(variant));
+        expect(HorseMind.decisionBettingStructure() === 'fixed_limit').toBe(
+          variant === 'flh' || variant === 'flo8'
+        );
+      } finally {
+        HorseMind.setDecisionScope(null);
+      }
+    }
+  });
 
   it('F2: a fixed-limit call is not a commitment on plo4 card rules with fixed-limit betting', () => {
     enableBrainTelemetry();

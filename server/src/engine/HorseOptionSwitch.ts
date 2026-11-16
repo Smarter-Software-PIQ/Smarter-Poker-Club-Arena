@@ -337,6 +337,7 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'fixedLimitHiLoNutLowRiverBet',
   'fixedLimitRiverOneBetValueRaise',
   'fixedLimitCallIsNotACommitment',
+  'fixedLimitReadIgnoresProbes',
   'fixedLimitHiLoLowHalfFloor',
   'fixedLimitOmahaNoPresumption',
 ]);
@@ -547,6 +548,11 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
     HOLDEM,
     'All, opponent read bucket',
     'a thin read answers from its own game scope, shrunk',
+  ],
+  fixedLimitReadIgnoresProbes: [
+    'Fixed-Limit',
+    'Fixed limit (flh, flo8), opponent aggression reads, with the F1 switch on',
+    'a fixed-limit read is never discounted by the player no-limit/pot-limit probe share (F1b)',
   ],
   omahaNeutralUnknown: [
     'PLO Strategy',

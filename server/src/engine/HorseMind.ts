@@ -1299,6 +1299,12 @@ export class HorseMind {
    *  none, and then decisionBettingStructure() derives it from the variant.
    *  Cleared with the scope. */
   private static decisionStructure: BettingStructure | null = null;
+  /** F1b's own decide option for the decision in flight
+   *  (HorseDecideOpts.fixedLimitReadIgnoresProbes, default OFF; set by
+   *  HorseLogic.prepareOriginalReads beside the structure). False outside a
+   *  decision; cleared with the scope, at reset and across a sandbox exactly
+   *  like decisionStructure. */
+  private static decisionReadIgnoresProbes = false;
   /** Read calibration options of the decision in flight (DecisionReadOptions). */
   private static decisionReadOptions: DecisionReadOptions = {};
   /** dedupe of processed ActionRecords across repeated decide() calls */
@@ -2384,9 +2390,11 @@ export class HorseMind {
    * whose betting structure is fixed limit; the tallies are pooled per player
    * across games, so excluding the fixed-limit hands at count time also stops
    * them diluting or inflating the same player's no-limit probe share.
-   * READ TIME (F1b, 2026-11-15): the same switch also stops his no-limit
-   * probe share discounting a fixed-limit read (fixedLimitReadIgnoresProbes
-   * below), so one switch governs fixed-limit probe handling at both ends.
+   * READ TIME (F1b): stopping his no-limit probe share discounting a
+   * fixed-limit read is a SEPARATE opt-in decide option since 2026-11-16
+   * (HorseDecideOpts.fixedLimitReadIgnoresProbes, default OFF; see
+   * fixedLimitReadIgnoresProbes below). With it off, every fixed-limit read is
+   * probe-adjusted exactly as before F1b, whatever this switch says.
    *
    * PROCESS-LEVEL, SOURCE DEFAULT ON (2026-11-15; off until then). Counting
    * happens outside a decision (the completed-hand learner, workerRuntime
@@ -2436,20 +2444,28 @@ export class HorseMind {
 
   /**
    * A FIXED-LIMIT READ IS NEVER PROBE-DISCOUNTED (2026-11-15, Fixed-Limit
-   * lane, "F1b"; the read-time half of FIXED-LIMIT BETS ARE NEVER PROBES and
-   * governed by the same process switch). The probe tallies are pooled per
+   * lane, "F1b"; the read-time half of FIXED-LIMIT BETS ARE NEVER PROBES).
+   * OPT-IN since 2026-11-16: its own decide option
+   * HorseDecideOpts.fixedLimitReadIgnoresProbes, default OFF, registered in
+   * the live option switch; it engages only when that option is on for the
+   * decision AND the F1 process switch is on (the counting it relies on).
+   * Default OFF because its value is not demonstrated (Fixed-Limit lane
+   * AB-EVALUATION-2.md sections 3.1 and 3.10). The probe tallies are pooled per
    * player across games and, with the switch on, hold only his no-limit and
    * pot-limit bets; applying that share to a fixed-limit read discounted his
    * fixed-limit betCheckedTo by how he min-bets at OTHER games, although every
-   * fixed-limit bet is the street's one legal size. True while the switch is
-   * on and the decision in flight is fixed limit by its BETTING STRUCTURE
+   * fixed-limit bet is the street's one legal size. True while the option is
+   * on for the decision, the switch is on and the decision in flight is fixed
+   * limit by its BETTING STRUCTURE
    * (decisionBettingStructure: the game state's own structure, the variant
    * only when the state gives none), so a fixed-limit Omaha of any card count
    * is covered without naming its variant. No-limit and pot-limit reads, every
-   * read outside a decision and every read with the switch off are unchanged.
+   * read outside a decision and every read with the option or the switch off
+   * are unchanged.
    */
   private static fixedLimitReadIgnoresProbes(): boolean {
     return (
+      this.decisionReadIgnoresProbes &&
       this.fixedLimitBetsAreNeverProbes &&
       this.decisionScope !== null &&
       this.decisionBettingStructure() === 'fixed_limit'
@@ -2470,6 +2486,12 @@ export class HorseMind {
       (structure === 'fixed_limit' || structure === 'pot_limit' || structure === 'no_limit')
         ? structure
         : null;
+  }
+
+  /** Set by HorseLogic beside the structure from HorseDecideOpts.fixedLimitReadIgnoresProbes (=== true only);
+   *  cleared with the scope. Ignored without a scope. */
+  static setDecisionFixedLimitReadIgnoresProbes(on: boolean | undefined): void {
+    this.decisionReadIgnoresProbes = this.decisionScope !== null && on === true;
   }
 
   private static probeAdjusted<T extends Partial<ExploitCounters>>(
@@ -2798,6 +2820,9 @@ export class HorseMind {
       this.styleMemoEpoch,
       this.decisionScope,
       this.decisionVariant,
+      // F1b keys on the decision's structure and its own option (Hand Analysis D4, 2026-11-16).
+      this.decisionStructure,
+      this.decisionReadIgnoresProbes,
       this.decisionMode,
       this.decisionReadOptions,
       this.exploitCounters,
@@ -2982,6 +3007,7 @@ export class HorseMind {
     this.decisionScope = scope;
     this.decisionVariant = scope ? variant : null;
     this.decisionStructure = null;
+    this.decisionReadIgnoresProbes = false;
     if (!scope) this.decisionReadOptions = {};
     // C6: a style read memo lives inside one decision only.
     this.styleMemo = null;
@@ -3150,6 +3176,7 @@ export class HorseMind {
     this.decisionScope = null;
     this.decisionVariant = null;
     this.decisionStructure = null;
+    this.decisionReadIgnoresProbes = false;
   }
 
   // ───────────────────────────────────────────────────────────────────────
@@ -3580,6 +3607,7 @@ export class HorseMind {
     const liveScope = this.decisionScope;
     const liveVariant = this.decisionVariant;
     const liveStructure = this.decisionStructure;
+    const liveReadIgnoresProbes = this.decisionReadIgnoresProbes;
     const liveMode = this.decisionMode;
     const liveDurable = this.durableOpponentMemory;
     this.durableOpponentMemory = false;
@@ -3627,6 +3655,7 @@ export class HorseMind {
     this.decisionScope = null;
     this.decisionVariant = null;
     this.decisionStructure = null;
+    this.decisionReadIgnoresProbes = false;
     try {
       return runWithWinnerReadState((sandbox.winnerReads ??= createWinnerReadState()), fn);
     } finally {
@@ -3651,6 +3680,7 @@ export class HorseMind {
       this.decisionScope = liveScope;
       this.decisionVariant = liveVariant;
       this.decisionStructure = liveStructure;
+      this.decisionReadIgnoresProbes = liveReadIgnoresProbes;
       this.decisionMode = liveMode;
       this.durableOpponentMemory = liveDurable;
     }

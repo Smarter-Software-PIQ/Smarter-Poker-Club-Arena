@@ -3789,6 +3789,33 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'and maniac fields); until it is built, the fixtures in ' +
       'AFixedLimitOmahaHasNoPresumption.law.test.ts and the Fixed-Limit lane diagnostic-harness measurements are the only evidence.',
   },
+  // 2026-11-16 (Fixed-Limit lane W4, "F1b", the read-time probe guard, its own option): a
+  // default-off fixed-limit arm. Refused, not dealt: this league cannot ask the question.
+  ...(
+    [
+      ['flh_read_ignores_probes', 'flh', 6, { fixedLimitReadIgnoresProbes: true }, 0],
+      ['flo8_read_ignores_probes', 'flo8', 6, { fixedLimitReadIgnoresProbes: true }, 0],
+    ] as const
+  ).map(([name, variant, seats, a, d]) => ({
+    name,
+    variant,
+    seats,
+    a,
+    b: {},
+    reason:
+      'Unanswerable by this league: playHand deals no-limit and pot-limit betting and has no ' +
+      'fixed-limit street unit, wager cap or controller menu, and the option acts only on a ' +
+      "fixed-limit decision (HorseMind.fixedLimitReadIgnoresProbes: decisionBettingStructure() === 'fixed_limit', " +
+      'with the F1 process switch on) and only against a player whose pooled no-limit/pot-limit ' +
+      'probe share is non-zero. The option is DEFAULT OFF (read as === true). ' +
+      'Measured 2026-11-16 by running this refused matchup through runMatchup (seed 20261115, 300 pairs): ' +
+      `${d} of 300 pairs diverged. The league deals the variant's cards with its own betting while ` +
+      'HorseMind reads the variant name as fixed limit, so that divergence is not a fixed-limit ' +
+      'measurement and decides nothing. What would change this: a fixed-limit duplicate league ' +
+      '(real HandController, flh and flo8, six seats) with opponents carrying a no-limit probe ' +
+      'history; until it is built, the fixtures in AFixedLimitReadIsNeverProbeDiscounted.law.test.ts ' +
+      'and the Fixed-Limit lane diagnostic-harness measurements (AB-EVALUATION-2.md 3.1, 3.10) are the only evidence.',
+  })),
   {
     name: 'plo4_lightning_participation_omaha',
     variant: 'plo4',
