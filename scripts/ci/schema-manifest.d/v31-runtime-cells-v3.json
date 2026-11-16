@@ -9,6 +9,7 @@
     "fn_gto_v31_cell_contract_of_coverage",
     "fn_gto_v31_cell_payload_valid_matrix_v3",
     "fn_gto_v31_complete_public_state_v3",
+    "fn_gto_v31_dataset_cell_contract_immutable",
     "fn_gto_v31_evaluation_cells_v3",
     "fn_gto_v31_node_line_class_v3",
     "fn_gto_v31_node_line_proof_v3",
