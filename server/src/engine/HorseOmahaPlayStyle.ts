@@ -47,13 +47,14 @@ export const OMAHA_PLAY_STYLE_VARIANTS: readonly string[] = ['plo4', 'plo5'];
 /**
  * The tight style's VPIP at a six-seat 100 bb cash table with no floor, in
  * percent, rounded down. Measured 2026-11-15 in the league harness (three
- * tight seats against today's brain, 1,500 mirrored pairs, seed 5570001):
- * PLO4 24.3% over 8,711 dealt hands (today's brain 27.9%), PLO5 24.5% over
- * 8,716 (today's brain 28.5%). A table whose VPIP floor is above this sends
- * the tight Horse to the current style; the floors in use are 30 and 50.
+ * tight seats against today's brain, the live Hybrid profile, the 27 sealed
+ * options on, 1,500 mirrored pairs, seed 5570001): PLO4 23.6% over 8,691
+ * dealt hands (today's brain 26.8%), PLO5 24.2% over 8,710 (today's brain
+ * 27.4%). A table whose VPIP floor is above this sends the tight Horse to the
+ * current style; the floors in use are 30 and 50.
  */
 export const OMAHA_TIGHT_EXPECTED_VPIP_PCT: Readonly<Record<string, number>> = {
-  plo4: 24,
+  plo4: 23,
   plo5: 24,
 };
 
