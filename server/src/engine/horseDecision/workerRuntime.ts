@@ -358,7 +358,11 @@ export interface HorseDecisionWorkerDependencies {
   decide: typeof HorseLogic.decide;
   prepareOriginalReads?: typeof HorseLogic.prepareOriginalReads;
   decideDiscard: typeof HorseLogic.decideDiscard;
-  runDecisionReadView?<T>(request: FastHorseDecisionRequest, fn: () => T): T;
+  runDecisionReadView?<T>(
+    request: FastHorseDecisionRequest,
+    fn: () => T,
+    carriedOpts?: FastHorseDecisionRequest['opts']
+  ): T;
   captureDecisionEffects<T>(fn: () => T): CapturedHorseMindDecision<T>;
   applyDecisionEffects(effects: readonly HorseMindDecisionEffect[]): void;
   /**
@@ -957,9 +961,9 @@ export class HorseDecisionWorkerRuntime {
    * record (and, for holdemProfileCompletenessCap, the incomplete-row names) into the decision's detached state only for a decision whose options turn that option on
    * (observerReads.run). The live option switch delivers its value inside the worker, after the request was built,
    * so the read view is given the EFFECTIVE value: the switch row when there is one (on or off), else the request's
-   * own. With no row for the option the request passes through untouched, so nothing changes.
+   * own. With no row for the option the request's own options are returned, so nothing changes.
    */
-  private readViewRequest(request: FastHorseDecisionRequest): FastHorseDecisionRequest {
+  private readViewOpts(request: FastHorseDecisionRequest): FastHorseDecisionRequest['opts'] {
     // The options whose evidence the observer reads carry only when the decision's options turn them on.
     const carried = ['styleLongShownMemory', 'holdemProfileCompletenessCap'] as const;
     let switched: Partial<Record<(typeof carried)[number], boolean | undefined>>;
@@ -968,7 +972,7 @@ export class HorseDecisionWorkerRuntime {
       const readViewStates = this.optionSwitch.refresh(performance.now());
       switched = optionSwitchDecisionOpts(readViewStates);
     } catch {
-      return request;
+      return request.opts;
     }
     let opts = request.opts;
     for (const name of carried) {
@@ -976,7 +980,9 @@ export class HorseDecisionWorkerRuntime {
       if (value === undefined || value === (request.opts?.[name] === true)) continue;
       opts = { ...opts, [name]: value };
     }
-    return opts === request.opts ? request : { ...request, opts };
+    // Only the options are handed on. The request object itself is never copied: the observer view is stored under
+    // the original object, and the receipt, the history acknowledgement and every effect commit look it up there.
+    return opts;
   }
 
   private get optionSwitch(): OptionSwitchHolder {
@@ -1410,7 +1416,7 @@ export class HorseDecisionWorkerRuntime {
       if (request.type === 'DECIDE_FAST')
         outcome = (
           this.deps.runDecisionReadView ?? this.observerReads.run.bind(this.observerReads)
-        )(this.readViewRequest(request), () => this.executeFastWithUpgradeEvidence(request));
+        )(request, () => this.executeFastWithUpgradeEvidence(request), this.readViewOpts(request));
       else if (request.type === 'DECIDE_DEEP') outcome = this.executeDeep(request);
       else if (request.type === 'OBSERVE_REQUEST_RETIREMENT') {
         // Canonical shape and attribution are checked without executing a

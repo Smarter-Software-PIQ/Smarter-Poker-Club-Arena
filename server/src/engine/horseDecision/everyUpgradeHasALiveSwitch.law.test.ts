@@ -959,7 +959,7 @@ describe('condition 2: the switch is fleet-wide per option', () => {
       m[1]!.trim()
     );
     // readViewStates (2026-11-15): the FAST read view is given the same fleet-wide switched set, so the observer
-    // reads carry an option's evidence when a switch row turns it on (workerRuntime.readViewRequest).
+    // reads carry an option's evidence when a switch row turns it on (workerRuntime.readViewOpts).
     expect(calls.sort()).toEqual(['deepOptionStates', 'optionStates', 'readViewStates']);
     const refreshes = [...runtime.matchAll(/this\.optionSwitch\.refresh\(([^;]*)\);/g)].map((m) =>
       m[1]!.trim()

@@ -42,7 +42,9 @@ const result = (
 ): HorseRetainedEffectsQualification => ({ status, reason, batchSize, applicationVerified: false });
 
 export type HorseRetainedPlanContext =
-  { kind: 'legacy' } | { kind: 'current'; context: HorsePlanContext } | { kind: 'invalid' };
+  | { kind: 'legacy' }
+  | { kind: 'current'; context: HorsePlanContext }
+  | { kind: 'invalid' };
 
 /** Only this explicitly versioned producer captured a known empty DEEP batch.
  * This validates emission metadata, not source custody of the original FAST. */
