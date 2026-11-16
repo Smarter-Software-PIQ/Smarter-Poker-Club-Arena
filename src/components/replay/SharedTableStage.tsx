@@ -22,6 +22,7 @@ import {
 import logo from '../../assets/smarter-poker-letter-logo.png';
 import '../../styles/table-design-tokens.css';
 import '../../pages/TablePage.css';
+import './HandReplay.css';
 import './SharedTableStage.css';
 
 function seatAction(verb?: ReplayVerb): LastAction {
