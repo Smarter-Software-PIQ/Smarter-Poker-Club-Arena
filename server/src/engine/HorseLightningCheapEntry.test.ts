@@ -19,6 +19,7 @@
  *
  * Fixed public states through HorseLogic.decide, seeded hands, no database.
  */
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -192,8 +193,18 @@ function gsOf(s: Spot, cards: Card[]): { hero: SeatPlayer; gs: HorseGameStateV2 
   return { hero, gs };
 }
 
+const MEASURED_TIMING_KEYS = new Set([
+  'latencyMs',
+  'analysisMs',
+  'simulationMs',
+  'policyMs',
+  'utilityLatencyMs',
+  'elapsedMs',
+]);
 const bytes = (d: unknown): string =>
-  JSON.stringify(d, (k, v) => (k === 'latencyMs' || k === 'elapsedMs' ? undefined : v));
+  JSON.stringify(d, (k, v) =>
+    MEASURED_TIMING_KEYS.has(k) && typeof v === 'number' ? undefined : v
+  );
 
 interface Played {
   bytes: string;
@@ -568,16 +579,26 @@ describe('Lightning cheap entry through HorseLogic.decide', () => {
       buttonBehindLimp('plo4'),
       buttonBehindLimp('plo5', 4, [3]),
     ]) {
+      let raisesOff = 0;
+      let raisesOn = 0;
       for (let i = 0; i < HANDS; i++) {
         const off = play(s, i, OFF);
         const on = play(s, i, ON);
+        if (off.action === 'raise' || off.action === 'all_in') raisesOff++;
+        if (on.action === 'raise' || on.action === 'all_in') raisesOn++;
         if (on.action !== off.action) {
           expect(off.action, `${JSON.stringify(s)} hand ${i}`).toBe('fold');
           expect(on.action).toBe('call');
           expect(on.branches).toContain('lightning_cheap_entry_over_limp');
+          expect(on.fires.get('lightning_cheap_entry_changed_seen')).toBe(1);
           if (s.heroSeat === 1) sbChanged++;
-        } else expect(on.branches.some(isCheap)).toBe(false);
+        } else {
+          expect(on.branches.some(isCheap)).toBe(false);
+          expect(on.fires.has('lightning_cheap_entry_changed_seen')).toBe(false);
+          expect(on.bytes, `${JSON.stringify(s)} hand ${i}`).toBe(off.bytes);
+        }
       }
+      expect(raisesOn, `${JSON.stringify(s)}: the option never adds a raise`).toBe(raisesOff);
     }
     expect(sbChanged).toBeGreaterThan(0);
   }, 480_000);
@@ -820,7 +841,71 @@ describe('Lightning cheap entry: the source reads no own-participation input', (
     );
     expect(pre.match(/lightningCheapEntry\(/g)!.length).toBe(1);
     expect(pre).toMatch(
-      /lightningCheapEntry\(ctx\.lightningCheapEntry,[\s\S]{0,900}?\)\s*\)\s*return \{ a: 'call' \};\s*return \{ a: 'fold' \};/
+      /lightningCheapEntry\(ctx\.lightningCheapEntry,[\s\S]{0,900}?tightness:\s*ctx\.unflooredTightness\s*\?\?\s*ctx\.tightness,[\s\S]{0,300}?\)\s*\)\s*return \{ a: 'call' \};\s*return \{ a: 'fold' \};/
     );
   });
+
+  it('the cheap-entry bar uses unfloored persona tightness even if a snapshot carries vpipFloor + ownVpip (bdbcc60c N3)', () => {
+    const s = sbFoldedTo('nlh');
+    for (let i = 0; i < 60; i++) {
+      HorseMind.reset();
+      seedFastRandom(7000 + i);
+      const base = gsOf(s, hole(i, 2));
+      const dUnfloored = HorseLogic.decide(base.hero, base.gs, 'balanced', {}, ON);
+      if (dUnfloored.action !== 'fold') continue;
+      // Inject a synthetic VPIP floor + severe deficit on the same Lightning snapshot:
+      // base opens remain narrow enough to fold this hand only if unflooredTightness
+      // keeps the cheap-entry bar from scaling down by vpipFloorMul.
+      HorseMind.reset();
+      seedFastRandom(7000 + i);
+      const flooredGs = {
+        ...base.gs,
+        vpipFloor: 40,
+        vpipWindowHands: 10,
+        ownVpip: { hands: 20, vpip: 5 },
+      } as HorseGameStateV2;
+      // Verify the cheap-entry effective bar recorded on a clearing hand is identical
+      // with and without vpipFloor/ownVpip.
+      expect(flooredGs.ownVpip?.vpip).toBe(5);
+      break;
+    }
+    let checkedClearingBar = 0;
+    for (let i = 0; i < 80; i++) {
+      const clean = play(s, i, ON);
+      const cheapEv = clean.events.find((e) => e.branch === 'lightning_cheap_entry_sb_complete');
+      if (!cheapEv) continue;
+      HorseMind.reset();
+      seedFastRandom(7000 + i);
+      const { hero, gs } = gsOf(s, hole(i, 2));
+      const dFloored = HorseLogic.decide(
+        hero,
+        { ...gs, vpipFloor: 40, vpipWindowHands: 10, ownVpip: { hands: 20, vpip: 5 } },
+        'balanced',
+        {},
+        ON
+      ) as {
+        preflopAuthority?: {
+          events: Array<{ branch: string; effectiveThreeBetThreshold: number }>;
+        };
+      };
+      const flooredEv = dFloored.preflopAuthority?.events.find(
+        (e) => e.branch === 'lightning_cheap_entry_sb_complete'
+      );
+      if (flooredEv) {
+        expect(flooredEv.effectiveThreeBetThreshold).toBe(cheapEv.effectiveThreeBetThreshold);
+        checkedClearingBar++;
+      }
+    }
+    expect(checkedClearingBar).toBeGreaterThan(0);
+  });
+
+  it('LIGHTNING_CHEAP_ENTRY_EQUITY matches scripts/generate-lightning-cheap-entry-equity.ts (bdbcc60c N6)', () => {
+    const scriptPath = fileURLToPath(
+      new URL('../../scripts/generate-lightning-cheap-entry-equity.ts', import.meta.url)
+    );
+    const out = execFileSync(process.execPath, ['--import', 'tsx', scriptPath, '--check'], {
+      encoding: 'utf8',
+    });
+    expect(out).toContain('OK: LIGHTNING_CHEAP_ENTRY_EQUITY matches generator');
+  }, 120_000);
 });

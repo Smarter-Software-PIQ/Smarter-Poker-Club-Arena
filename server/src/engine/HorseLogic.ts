@@ -823,6 +823,8 @@ interface StyleParams {
   tightness: number;
   /** Opening-only multiplier transported to the preflop decision owner. */
   nlhOpeningTightness?: number;
+  /** Persona tightness before vpipFloorMul scaling, preserved for Lightning cheap-entry. */
+  unflooredTightness?: number;
   /** scales bluff / semi-bluff frequencies */
   bluffFreq: number;
   /** scales 3-bet / raise aggression */
@@ -11107,6 +11109,11 @@ export class HorseLogic {
     // `_satisfied` means the horse is over the floor and its own style is
     // back in charge. A floored table showing only `_prior` for ever means
     // ownVpip is not reaching the brain.
+    // Unfloored persona tightness, preserved before vpipFloorMul scales
+    // params.tightness so Lightning range options (HorseLightningCheapEntry,
+    // HorseLightningParticipation) never inherit an ownVpip deficit even if a
+    // caller ever attaches a VPIP floor to a Lightning snapshot.
+    params.unflooredTightness = params.tightness;
     {
       const applyFloorMul = (vfMul: number): void => {
         params.tightness *= vfMul;
@@ -14823,6 +14830,9 @@ export class HorseLogic {
       // horsePlayStyles: the three scales are 1 (no multiplication is made)
       // unless the option is on and this Horse plays a non-current style here.
       tightness: stylePre ? params.tightness * stylePre.tightnessMul : params.tightness,
+      unflooredTightness: stylePre
+        ? (params.unflooredTightness ?? params.tightness) * stylePre.tightnessMul
+        : (params.unflooredTightness ?? params.tightness),
       ...(stylePre
         ? { valueRaiseTightness: params.tightness * stylePre.valueRaiseTightnessMul }
         : {}),

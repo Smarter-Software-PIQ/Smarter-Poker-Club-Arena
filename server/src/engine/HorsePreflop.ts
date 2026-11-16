@@ -497,6 +497,8 @@ export interface PreflopCtx {
   lightningParticipation?: LightningParticipationCtx;
   /** See HorseLightningCheapEntry. Absent = the option is off or the hand is outside its predicate. */
   lightningCheapEntry?: LightningCheapEntryCtx;
+  /** Persona tightness before any table VPIP-floor multiplier, so Lightning range modules never read ownVpip. */
+  unflooredTightness?: number;
   /** V77 (2026-11-02): the V70 open width (percent of 1,326 combos) of the
    *  seat that made the ONLY raise hero faces, dealt-census indexed and
    *  ante-aware. Supplied by HorseLogic for no-limit hold'em facing exactly
@@ -3059,7 +3061,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
             : 0,
         depthBB: Math.min(stackBB, ctx.effectiveStackBB ?? stackBB),
         strength,
-        tightness: ctx.tightness,
+        tightness: ctx.unflooredTightness ?? ctx.tightness,
         noteAuthority: ctx.noteAuthority,
       })
     )

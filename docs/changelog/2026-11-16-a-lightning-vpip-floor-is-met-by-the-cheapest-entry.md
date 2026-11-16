@@ -17,6 +17,6 @@ Both options change a preflop range, so they are registered in the live switch a
 
 - Nearly inert without `lightningEarlyFoldNeedsFoldThrough`: on its own, the small blind's early look folds before the pot is folded to it. The development figures below had the fold-through on in both arms.
 - Development only (seed 20261114, 1,000 hands per cell, six-handed, 100 bb): small-blind VPIP NLH 26.9 to 29.3, PLO4 32.3 to 53.3, PLO5 29.9 to 44.9; no chip figure is significant. The button over-limp path fired 0 times and is unmeasured.
-- The equity table and the raise-risk figures behind the bars are inherited and were not re-measured; no generator check pins the table.
-- "No own-VPIP input" holds because the Lightning snapshot carries no VPIP floor. The bar multiplies by persona tightness, which on a floored table is scaled by the Horse's own VPIP; a Lightning table is never floored today.
+- The equity table `LIGHTNING_CHEAP_ENTRY_EQUITY` is pinned against `scripts/generate-lightning-cheap-entry-equity.ts --check`; the raise-risk constants remain measured Horse-population figures.
+- `HorsePreflop` passes `unflooredTightness` (captured before `vpipFloorMul` in `HorseLogic`) into `lightningCheapEntry`, so even if a caller attached `vpipFloor` and `ownVpip` to a Lightning snapshot, the cheap-entry bar never reads `ownVpip`.
 - On a released fold-through frame answer the style records describe the first (fold) ask, and the frame's style-read time still counts.

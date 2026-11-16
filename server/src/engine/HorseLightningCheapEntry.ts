@@ -74,7 +74,11 @@
  *
  * No input reads the Horse's own participation, its folds or hands since it
  * sat: the bar is a function of the public price, the players in the pot,
- * depth, the variant's table, the hand and the persona's tightness only.
+ * depth, the variant's table, the hand and the unfloored persona tightness
+ * only (`HorseLogic` captures `unflooredTightness` before `vpipFloorMul`).
+ * Note: without `lightningEarlyFoldNeedsFoldThrough` (`L-019`) the small blind
+ * early-folds at the deal before the pot is folded to it, so this option moves
+ * participation materially only alongside `lightningEarlyFoldNeedsFoldThrough`.
  * Opponent reads stay on top: an observed maniac at the table (never the
  * presumption) keeps the base fold.
  */

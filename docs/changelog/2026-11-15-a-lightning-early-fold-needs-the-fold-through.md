@@ -31,4 +31,5 @@ cannot be built from, keep the early fold (the option-off answer). Only `lightni
 - The durable shown-river record has no speed key. With `lightningStyleReadSeparate` and `styleLongShownMemory` both on, the long shown river merge can bring a Classic showdown into the Lightning read.
 - `HorseMind.omahaFacingBetEvReadOf` (option `omahaFacingBetEv`) still reads the pooled size map on a Lightning decision, also with `lightningStyleReadSeparate` on.
 - The fold-through frame keeps the original turn owner (`currentPlayerSeat`), so it is close to, but not exactly, the question of the real turn (a rule that reads "it is my turn" stays out on the frame as on the early look). The frame ask also draws its own strength jitter, so a hand within jitter of a bar can still fold early.
+- On a released early-fold answer, the decision object retains the first (fold) ask's style records, and the frame ask's style-read elapsed time still contributes to `takeStyleReadMs`.
 - The `style_lightning_separate_*` receipts fire where the read is computed, so they do not fire again when a decision takes the read from its per-decision memo: with the option on they count fresh reads.
