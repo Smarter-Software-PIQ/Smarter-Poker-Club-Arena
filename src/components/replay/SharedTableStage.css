@@ -5,6 +5,7 @@
   height: clamp(480px, 78dvh, 860px);
   min-height: 0;
   isolation: isolate;
+  container-type: size;
   overflow: hidden;
   display: grid;
   place-items: center;

@@ -68,6 +68,7 @@ import {
   type ReplayRate,
 } from '../../utils/replayMotion';
 import { blindLabel, gameTypeLabel, moneyForHand, stamp } from '../../utils/handFormat';
+import { recordedFrameOffsets } from '../../lib/sharedBoardTiming';
 import { getAnimationSpeed } from '../../utils/animationSpeed';
 import { soundService } from '../../services/SoundService';
 import { useAuthUser } from '../../hooks/useAuthUser';
@@ -779,8 +780,33 @@ export default function HandReplay({
   const heroName = model?.players.find((p) => p.userId === heroId)?.username?.trim() || '';
   const privateOwnerTag = propSource && heroName ? `${heroName}'s` : 'Yours';
   const frames = useMemo(() => (model ? buildReplayFrames(model) : []), [model]);
+  const appearance = source?.sharedTable;
+  const offsets = useMemo(
+    () =>
+      appearance
+        ? recordedFrameOffsets(
+            frames,
+            appearance.boardTiming,
+            (f) => replayBeatMs(f, appearance.animationSpeed ?? 1, 1),
+            appearance.endAtMs
+          )
+        : null,
+    [frames, appearance]
+  );
+  const playOrigin = useRef<{ offsets: number[]; rate: number; epoch: number } | null>(null);
   const jumps = useMemo(() => streetJumps(frames), [frames]);
   const winnerSeats = useMemo(() => (model ? winnerSeatsOf(model) : []), [model]);
+  const presentationEnd = useMemo(() => {
+    if (!appearance || !offsets?.length) return 0;
+    const deal = appearance.deal;
+    let end = offsets[offsets.length - 1];
+    for (const chip of appearance.chips ?? [])
+      end = Math.max(end, chip[0] + chip[6] + (chip[7] === 2 ? 600 : 400) + 100);
+    for (const paint of appearance.seatPaints ?? []) end = Math.max(end, paint[0]);
+    if (deal) for (const path of deal.paths) end = Math.max(end, deal.at + path[4] + deal.flightMs);
+    return end;
+  }, [offsets, appearance]);
+  const [finishedTimeline, setFinishedTimeline] = useState(false);
   const last = Math.max(0, frames.length - 1);
   const at = Math.min(step, last);
   const frame = frames[at] ?? null;
@@ -815,24 +841,47 @@ export default function HandReplay({
   // the replay's own rate. Each tick is a STEP, so it moves and sounds.
   useEffect(() => {
     if (playbackRef.current) clearTimeout(playbackRef.current);
-    if (!isPlaying || tab !== 'replay' || frames.length === 0) return;
+    if (!isPlaying || tab !== 'replay' || frames.length === 0) {
+      playOrigin.current = null;
+      return;
+    }
+    if (step < last) setFinishedTimeline(false);
     if (step >= last) {
+      const origin = playOrigin.current;
+      if (offsets && origin && presentationEnd > offsets[last]) {
+        playbackRef.current = setTimeout(
+          () => {
+            setFinishedTimeline(true);
+            setIsPlaying(false);
+          },
+          Math.max(0, origin.epoch + presentationEnd / rate - performance.now())
+        );
+        return () => {
+          if (playbackRef.current) clearTimeout(playbackRef.current);
+        };
+      }
       setIsPlaying(false);
       return;
     }
     /* The clip was timed at animation speed 1 (`fitClipRate`), so that is
        the speed start() plays it at, whatever the viewer's setting says. */
-    const nowAt = frame?.key === 'deal' ? 0 : frame?.row?.atMs;
-    const nextAt = frames[step + 1]?.row?.atMs;
-    const beat =
-      !clipMode && nowAt != null && nextAt != null && nextAt >= nowAt
-        ? (nextAt - nowAt) / rate
-        : replayBeatMs(frame, clipMode ? 1 : getAnimationSpeed(), rate);
+    let beat = replayBeatMs(frame, clipMode ? 1 : getAnimationSpeed(), rate);
+    if (!clipMode && offsets) {
+      const now = performance.now();
+      if (playOrigin.current?.offsets !== offsets || playOrigin.current.rate !== rate) {
+        playOrigin.current = { offsets, rate, epoch: now - offsets[step] / rate };
+      }
+      beat = Math.max(0, playOrigin.current.epoch + offsets[step + 1] / rate - now);
+    } else if (!clipMode) {
+      const nowAt = frame?.key === 'deal' ? 0 : frame?.row?.atMs;
+      const nextAt = frames[step + 1]?.row?.atMs;
+      if (nowAt != null && nextAt != null && nextAt >= nowAt) beat = (nextAt - nowAt) / rate;
+    }
     playbackRef.current = setTimeout(() => go((s) => Math.min(last, s + 1), true), beat);
     return () => {
       if (playbackRef.current) clearTimeout(playbackRef.current);
     };
-  }, [isPlaying, tab, step, last, frames, frame, rate, go, clipMode]);
+  }, [isPlaying, tab, step, last, frames, frame, rate, go, clipMode, offsets, presentationEnd]);
 
   const togglePlay = useCallback(() => {
     if (step >= last) go(0, false);
@@ -1143,6 +1192,13 @@ export default function HandReplay({
                 heroId={heroId}
                 privateOwnerTag={privateOwnerTag}
                 appearance={source.sharedTable}
+                playing={isPlaying}
+                rate={rate}
+                offset={
+                  finishedTimeline && step === last && !isPlaying
+                    ? presentationEnd
+                    : (offsets?.[step] ?? 0)
+                }
                 holeCount={holdingSize(model)}
               />
             ) : (
