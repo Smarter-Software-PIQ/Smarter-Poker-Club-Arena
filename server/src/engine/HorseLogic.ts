@@ -43,6 +43,7 @@ import {
 import { HorsePolicyGraph } from './HorsePolicyGraph.js';
 import { decisionGravity } from './horseDecisionGravity.js';
 import { horsePublicActionTimeMs, type HorsePublicTimingSpot } from './horsePublicActionTime.js';
+import { horsePublicBetSizeTo, type HorsePublicBetSizeSpot } from './horsePublicBetSize.js';
 import { riverNutsRaise, fullPotNearPotWager, hasRiverNuts } from './HorseRiverNuts.js';
 import { hiLoCappedRiverShare, hiLoRiverLowHalfFloor } from './HorseHiLoLowHalf.js';
 import { omahaCurrentNutsRaise } from './HorseOmahaCurrentNuts.js';
@@ -2515,6 +2516,19 @@ export interface HorseDecideOpts {
    *  stream no longer reach it. Default OFF (opt-in): only an explicit true
    *  switches it on; unset or false is the shipped computeThinkTime. */
   horseActionTimeIsPublicOnly?: boolean;
+  /** PLO Strategy lane 2026-11-16 (owner 2026-11-15: "HE GETS THEM TO FOLD
+   *  WHEN HE WANTS A FOLD, AND GETS A CALL WHEN HE WANTS A CALL"; bet size is
+   *  a tell, sizing-20261116/MEASURE.md): in PLO4/PLO5 cash, pot limit, high
+   *  only, one board, the size of the Horse's own postflop bet or raise is
+   *  chosen by horsePublicBetSize from public information only (street, board
+   *  class, pot, chips, legal bounds, opponents, position, the heads-up
+   *  opponent's measured fold-to-bet read) and a random stream of its own, so
+   *  value hands and bluffs in one public spot share one size distribution.
+   *  The bet-or-check decision is unchanged; a check, a call and an all-in
+   *  are untouched (a commitment-size spot wagers the legal maximum); with omahaNutClassValueSize on, a nut-class
+   *  wager keeps that option's size. Default OFF (opt-in): only an explicit
+   *  true switches it on. */
+  omahaBetSizeByPublicState?: boolean;
   v9Mood?: boolean;
   /** disable the V10 strategy layer: range-advantage c-bets, SPR-scaled
    *  commitment / pot control, river blocker bluff-catching, rake-aware pot
@@ -11800,6 +11814,11 @@ export class HorseLogic {
         : null;
     if (preflopAuthority) decision.preflopAuthority = preflopAuthority;
     if (preflopReadReceipt) decision.preflopReadReceipt = preflopReadReceipt;
+    // omahaBetSizeByPublicState (default off): the size of the node's final
+    // own bet or raise, chosen from public information only, after every
+    // owner rule has decided bet or check (never turns a check into a bet).
+    const publicSized = (d: HorseDecision): HorseDecision =>
+      this.omahaBetSizeByPublicStateRule(d, player, gs, vi, opts, tele);
     decision = graph.run('wager_rules', decision, () => {
       const shoveDisciplined = tournamentShoveDiscipline(decision, player, gs);
       const blockTrap87 =
@@ -11998,16 +12017,18 @@ export class HorseLogic {
           vi
         );
         return {
-          decision: omahaOwnerRuledFinal(
-            omahaDrawRules(
-              onePair({ ...finalWager, action: legal.action, amount: legal.amount }),
+          decision: publicSized(
+            omahaOwnerRuledFinal(
+              omahaDrawRules(
+                onePair({ ...finalWager, action: legal.action, amount: legal.amount }),
+                player,
+                gs,
+                opts
+              ),
               player,
               gs,
               opts
-            ),
-            player,
-            gs,
-            opts
+            )
           ),
         };
       }
@@ -12022,10 +12043,15 @@ export class HorseLogic {
       // it only turns the final raise into a call or the final flop bet into
       // a check, so an owner-ruled check or fold is never its to change.
       return {
-        decision: omahaTurnRiverRaiseNeedsNutsRule(
-          omahaOwnerRuledFinal(
-            omahaStrongHandSlowplayMixRule(
-              omahaDrawRules(onePair(strongHand.decision), player, gs, opts),
+        decision: publicSized(
+          omahaTurnRiverRaiseNeedsNutsRule(
+            omahaOwnerRuledFinal(
+              omahaStrongHandSlowplayMixRule(
+                omahaDrawRules(onePair(strongHand.decision), player, gs, opts),
+                player,
+                gs,
+                opts
+              ),
               player,
               gs,
               opts
@@ -12033,10 +12059,7 @@ export class HorseLogic {
             player,
             gs,
             opts
-          ),
-          player,
-          gs,
-          opts
+          )
         ),
       };
     }).decision;
@@ -23902,6 +23925,159 @@ export class HorseLogic {
   // ─────────────────────────────────────────────────────────────────────
   // THINK TIME — humanlike pacing, style- and situation-aware
   // ─────────────────────────────────────────────────────────────────────
+
+  /**
+   * omahaBetSizeByPublicState (default OFF, read `=== true`): the size of the
+   * Horse's own postflop bet or raise in PLO4/PLO5 cash comes from
+   * horsePublicBetSizeTo on the public spot alone. Only a bet stays a bet and
+   * a raise a raise (the bet-or-check and raise-or-call decisions are the
+   * engine's); a check, a call, a fold and an all-in are never touched. The
+   * one private read here is the owner option omahaNutClassValueSize's own
+   * gate: with that option on, a nut-class wager keeps its size, as that
+   * option says. The size itself never sees the hand
+   * (aBetSizeIsPublicInformationOnly.law.test.ts).
+   *
+   * Where the public size commits the stack (60% or more of the chips), every
+   * betting hand wagers the largest legal amount; when that is every chip the
+   * legalizer makes it the all-in, the one action change this rule makes.
+   *
+   * Receipts: omaha_public_bet_size_applied, omaha_public_bet_size_committed,
+   * omaha_public_bet_size_unchanged (valid no-change),
+   * omaha_public_bet_size_nut_class_kept, omaha_public_bet_size_illegal_kept.
+   */
+  private static omahaBetSizeByPublicStateRule(
+    decision: HorseDecision,
+    player: SeatPlayer,
+    gs: HorseGameStateV2,
+    vi: VariantInfo,
+    opts: HorseDecideOpts,
+    tele: boolean
+  ): HorseDecision {
+    if (opts.omahaBetSizeByPublicState !== true) return decision;
+    if (decision.action !== 'bet' && decision.action !== 'raise') return decision;
+    try {
+      if (!HorseLogic.publicBetSizeInGame(gs, vi, opts)) return decision;
+      if (opts.omahaNutClassValueSize === true && omahaNutClassNow(player, gs)) {
+        if (tele) noteFire('omaha_public_bet_size_nut_class_kept');
+        return decision;
+      }
+      const spot = HorseLogic.publicBetSizeSpot(
+        gs,
+        player.user_id,
+        decision.action,
+        opts.mind !== false
+      );
+      if (spot === null) return decision;
+      const to = horsePublicBetSizeTo(spot);
+      if (to === null) {
+        if (tele) noteFire('omaha_public_bet_size_illegal_kept');
+        return decision;
+      }
+      const legal = this.legalize({ ...decision, amount: to }, player, gs, vi);
+      // The same kind of wager at the public size, or - where the public size is
+      // the seat's whole stack - the all-in the legalizer makes of it.
+      const sameKind = legal.action === decision.action && Number.isFinite(legal.amount);
+      const committed = legal.action === 'all_in';
+      if (!sameKind && !committed) {
+        if (tele) noteFire('omaha_public_bet_size_illegal_kept');
+        return decision;
+      }
+      if (sameKind && legal.amount === decision.amount) {
+        if (tele) noteFire('omaha_public_bet_size_unchanged');
+        return decision;
+      }
+      if (committed) {
+        if (tele) noteFire('omaha_public_bet_size_committed');
+        const shoved: HorseDecision = { ...decision, action: legal.action };
+        delete shoved.amount;
+        return shoved;
+      }
+      if (tele) noteFire('omaha_public_bet_size_applied');
+      return { ...decision, amount: legal.amount };
+    } catch {
+      return decision;
+    }
+  }
+
+  /** PLO4/PLO5 (omahaStrategyGameInScope) cash, pot limit, high only, one board, no bomb pot, not Lightning, postflop. */
+  private static publicBetSizeInGame(
+    gs: HorseGameStateV2,
+    vi: VariantInfo,
+    opts: HorseDecideOpts
+  ): boolean {
+    if (!omahaStrategyGameInScope(OMAHA_STRATEGY_PLO45, gs, opts)) return false;
+    if (!vi.isOmaha || vi.isFixedLimit || !vi.isPotLimit || gs.bettingStructure === 'fixed_limit')
+      return false;
+    if (gs.variantRules ? gs.variantRules.splitLow8OrBetter : vi.isHiLo) return false;
+    if (isTournamentMode(gs)) return false;
+    if (
+      (gs.boardCount ?? 1) !== 1 ||
+      (gs.communityCards2?.length ?? 0) > 0 ||
+      (gs.communityCards3?.length ?? 0) > 0 ||
+      gs.bombPot === true ||
+      (gs as { allInOrFold?: boolean }).allInOrFold === true
+    )
+      return false;
+    const speed = (gs as { publicMemoryDomain?: { speed?: string } }).publicMemoryDomain?.speed;
+    if (speed === 'lightning') return false;
+    if (gs.stateSchemaVersion !== 1 || gs.wagersCapped === true) return false;
+    if (gs.stage !== 'flop' && gs.stage !== 'turn' && gs.stage !== 'river') return false;
+    return (gs.communityCards ?? []).length === { flop: 3, turn: 4, river: 5 }[gs.stage];
+  }
+
+  /**
+   * PUBLIC-ONLY BET SIZE: the spot the table can see, for
+   * horsePublicBetSizeTo. Reads the public game state, the seat's id, the
+   * kind of wager about to be shown and the heads-up opponent's measured
+   * fold-to-bet read. It takes no hole cards, no hand class, no equity, no
+   * proposed amount and no receipt of which rule decided (the law test reads
+   * this function's source).
+   */
+  static publicBetSizeSpot(
+    gs: HorseGameStateV2,
+    seatUserId: string,
+    kind: 'bet' | 'raise',
+    useReads: boolean
+  ): HorsePublicBetSizeSpot | null {
+    if (gs.stage !== 'flop' && gs.stage !== 'turn' && gs.stage !== 'river') return null;
+    const seat = gs.players.find((p) => p.user_id === seatUserId);
+    if (!seat) return null;
+    const live = gs.players.filter(
+      (p) => p !== seat && !p.is_folded && (!p.is_sitting_out || p.is_all_in)
+    );
+    const toAct = live.filter((p) => !p.is_all_in);
+    // Clockwise distance from the button; the button itself acts last postflop.
+    const span = Math.max(10, ...gs.players.map((p) => p.seat + 1));
+    const dealer = Number.isFinite(gs.dealerSeat) ? (gs.dealerSeat as number) : null;
+    const order = (s: number): number => {
+      const d = dealer === null ? 0 : (((s - dealer) % span) + span) % span;
+      return d === 0 ? span : d;
+    };
+    const inPosition = dealer !== null && toAct.every((p) => order(p.seat) < order(seat.seat));
+    let opponentFoldToBet: 'high' | 'low' | null = null;
+    if (useReads && live.length === 1) {
+      try {
+        const read = HorseMind.omahaReadConditionalOf(live[0].user_id);
+        if (read !== null && read.measured) opponentFoldToBet = read.foldToBet.engaged;
+      } catch {
+        opponentFoldToBet = null;
+      }
+    }
+    return {
+      street: gs.stage,
+      kind,
+      board: Array.isArray(gs.communityCards) ? gs.communityCards : [],
+      pot: Number.isFinite(gs.pot) ? Math.max(0, gs.pot) : 0,
+      currentBet: Number.isFinite(gs.currentBet) ? Math.max(0, gs.currentBet) : 0,
+      seatBet: Number.isFinite(seat.bet) ? Math.max(0, seat.bet) : 0,
+      seatStack: Number.isFinite(seat.stack) ? Math.max(0, seat.stack) : 0,
+      minTo: Number.isFinite(gs.minRaiseTo) ? (gs.minRaiseTo as number) : NaN,
+      maxTo: Number.isFinite(gs.maxRaiseTo) ? (gs.maxRaiseTo as number) : NaN,
+      opponents: live.length,
+      inPosition,
+      opponentFoldToBet,
+    };
+  }
 
   /**
    * PUBLIC-ONLY ACTION TIME (owner order 2026-11-15): the spot the table can
