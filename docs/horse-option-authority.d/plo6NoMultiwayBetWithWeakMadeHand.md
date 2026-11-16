@@ -12,7 +12,7 @@ The overpair class is not PLO Strategy's `omahaBareOverpairOopFlopCheck` (`Horse
 
 Where it runs: first in `omahaOwnBetRules` (`HorseLogic.ts`, both decision paths), with the owner-ruled own-bet checks, so the pricing rules never see the bet; `omahaOwnerRuledFinal` keeps the check when a later rule proposes a bet in the spot (receipt `omaha_owner_ruled_check_kept`). The decision receiver admits the bet-to-check transition only in PLO6 and, when the request is known, only where the spot re-run on it holds (`responseValidation.ts`).
 
-Default OFF in source (read `=== true`). Registered in the option switch (follow-up migration `20261115221700_horse_option_switch_plo6_multiway_weak_bet`), switchable live, not off-only. On live only by an option-switch row whose note cites this file and its sha256 (`authority: plo6NoMultiwayBetWithWeakMadeHand docs/horse-option-authority.d/plo6NoMultiwayBetWithWeakMadeHand.md sha256 <digest>`). The maintained rollback (switch row off, about 30 s) applies if harm is established.
+Default OFF in source (read `=== true`). Registered in the option switch (follow-up migration `20261116005201_horse_option_switch_plo6_multiway_weak_bet`), switchable live, not off-only. On live only by an option-switch row whose note cites this file and its sha256 (`authority: plo6NoMultiwayBetWithWeakMadeHand docs/horse-option-authority.d/plo6NoMultiwayBetWithWeakMadeHand.md sha256 <digest>`). The maintained rollback (switch row off, about 30 s) applies if harm is established.
 
 ## The owner's orders it rests on (cited by file, not quoted)
 
