@@ -43,7 +43,11 @@ import {
 import { HorsePolicyGraph } from './HorsePolicyGraph.js';
 import { decisionGravity } from './horseDecisionGravity.js';
 import { horsePublicActionTimeMs, type HorsePublicTimingSpot } from './horsePublicActionTime.js';
-import { horsePublicBetSizeTo, type HorsePublicBetSizeSpot } from './horsePublicBetSize.js';
+import {
+  horseBetSizeRandom,
+  horsePublicBetSizeTo,
+  type HorsePublicBetSizeSpot,
+} from './horsePublicBetSize.js';
 import { riverNutsRaise, fullPotNearPotWager, hasRiverNuts } from './HorseRiverNuts.js';
 import { hiLoCappedRiverShare, hiLoRiverLowHalfFloor } from './HorseHiLoLowHalf.js';
 import { omahaCurrentNutsRaise } from './HorseOmahaCurrentNuts.js';
@@ -8913,12 +8917,16 @@ function omahaOwnBetRulesCore(
         );
       priced = planned;
     }
+    // omahaBetSizeByPublicState: the bet the owner rules let through is
+    // compared at the size it will be bet (the public size), so a plan or
+    // card impact bet at that size is not a smaller nut-class bet.
+    const ruledBet = omahaPublicSizedBet(ruled, player, gs, opts);
     if (
       omahaIsWager(ruled) &&
       (!omahaIsWager(priced) ||
         (typeof priced.amount === 'number' &&
-          typeof ruled.amount === 'number' &&
-          priced.amount < ruled.amount - 0.005)) &&
+          typeof ruledBet.amount === 'number' &&
+          priced.amount < ruledBet.amount - 0.005)) &&
       omahaNutClassNow(player, gs)
     ) {
       if (telemetryOn(opts)) noteFire('omaha_nut_class_wager_kept');
@@ -9522,6 +9530,59 @@ export function omahaTurnRiverRaiseNeedsNutsRule(
 }
 
 /**
+ * omahaBetSizeByPublicState with the pricing rules (wave two, 2026-11-16).
+ * The public size is final for every own bet that stands, so a rule that
+ * prices bet against check (the street plan's turn, flop and three-way
+ * layers, omahaCardImpact) prices the size the public policy will bet, not
+ * the engine's. The decision's one size draw is taken once, on first use,
+ * and serves the pricing rules and the final sizing alike (the public size
+ * the plan priced is the size bet). Held across the decision's nested
+ * decides (omahaDecideDepth) and cleared when the outermost decision starts
+ * and ends.
+ */
+let omahaPublicSizeUnit: number | null = null;
+let omahaDecideDepth = 0;
+function omahaPublicSizeUnitOf(): number {
+  if (omahaPublicSizeUnit === null) omahaPublicSizeUnit = horseBetSizeRandom();
+  return omahaPublicSizeUnit;
+}
+
+/**
+ * The bet the public size makes of this own bet facing no wager when
+ * omahaBetSizeByPublicState is on: the decision with the public amount (or
+ * the all-in it commits to), the decision itself where the rule leaves it
+ * (off, out of its game, a nut-class size kept, unusable bounds). Quiet.
+ */
+function omahaPublicSizedBet(
+  decision: HorseDecision,
+  player: SeatPlayer,
+  gs: HorseGameStateV2,
+  opts: HorseDecideOpts
+): HorseDecision {
+  if (opts.omahaBetSizeByPublicState !== true || decision.action !== 'bet') return decision;
+  try {
+    return HorseLogic.omahaPublicBetSizeQuiet(decision, player, gs, opts);
+  } catch {
+    return decision;
+  }
+}
+
+/** A plan record that names the public size it priced (omahaBetSizeByPublicState), for the receipt validator's re-run. */
+function omahaPlanRecordPriced<T extends object>(
+  record: T,
+  sized: HorseDecision,
+  decision: HorseDecision,
+  amount: number
+): T {
+  return sized === decision ? record : { ...record, publicSize: Math.round(amount * 100) / 100 };
+}
+
+/** The chips a bet or an all-in puts in. */
+function omahaBetChips(d: HorseDecision, player: SeatPlayer): number {
+  return d.action === 'all_in' ? player.stack : (d.amount ?? 0);
+}
+
+/**
  * Owner 2026-11-15 11:41, HorseOmahaCardImpact.ts (omahaCardImpact, default
  * OFF): at a PLO4/PLO5 cash heads-up turn or river decision with nothing to
  * call, the chosen check or bet is priced beside a check and every bet size
@@ -9552,7 +9613,22 @@ function omahaCardImpactRule(
         read = null;
       }
     }
-    const result = omahaCardImpactDecision(decision, player, gs, read);
+    // omahaBetSizeByPublicState: the public size is the one size an own bet
+    // will have, so the comparison is the check against that size only (a
+    // bet priced at the public size; a check priced against a bet of it).
+    let asked = decision;
+    let sizes: number[] | undefined;
+    if (opts.omahaBetSizeByPublicState === true) {
+      if (decision.action === 'bet') {
+        asked = omahaPublicSizedBet(decision, player, gs, opts);
+        sizes = [];
+      } else if (decision.action === 'check') {
+        const probe: HorseDecision = { ...decision, action: 'bet', amount: 0 };
+        const pub = omahaPublicSizedBet(probe, player, gs, opts);
+        if (pub !== probe) sizes = [Math.round(omahaBetChips(pub, player) * 100) / 100];
+      }
+    }
+    const result = omahaCardImpactDecision(asked, player, gs, read, sizes);
     if (!result || result.changed === null) return decision;
     // Owner order 2026-11-15 00:32: a nut-class bet is the full pot; it is
     // never checked or made smaller here.
@@ -9864,7 +9940,9 @@ function omahaStreetPlanRules(
     if (omahaCashOnlyExcludes(player, gs) || !omahaStreetPlanTurnSpot(player, gs)) return decision;
     const opp = omahaStreetPlanDomain(player, gs);
     if (!opp) return decision;
-    const amount = decision.action === 'all_in' ? player.stack : (decision.amount ?? 0);
+    // omahaBetSizeByPublicState: the size priced is the size the public policy bets.
+    const sized = omahaPublicSizedBet(decision, player, gs, opts);
+    const amount = omahaBetChips(sized, player);
     if (!(amount > 0)) return decision;
     if (
       omahaStreetPlanMemo === null ||
@@ -9900,13 +9978,26 @@ function omahaStreetPlanRules(
       const checked: HorseDecision = {
         ...decision,
         action: 'check',
-        streetPlan: omahaStreetPlanRecord(plan, check, bet, tendency),
+        streetPlan: omahaPlanRecordPriced(
+          omahaStreetPlanRecord(plan, check, bet, tendency),
+          sized,
+          decision,
+          amount
+        ),
       };
       delete checked.amount;
       return checked;
     }
     // A copy: the decision handed in is never written to (audit 2026-11-15, item 7).
-    return { ...decision, streetPlan: omahaStreetPlanRecord(plan, bet, bet, tendency) };
+    return {
+      ...sized,
+      streetPlan: omahaPlanRecordPriced(
+        omahaStreetPlanRecord(plan, bet, bet, tendency),
+        sized,
+        decision,
+        amount
+      ),
+    };
   } catch {
     if (telemetryOn(opts)) noteFire('omaha_strategy_rule_failed');
     return decision;
@@ -9953,7 +10044,9 @@ function omahaStreetPlanFlopRules(
     if (omahaCashOnlyExcludes(player, gs) || !omahaStreetPlanFlopSpot(player, gs)) return decision;
     const opp = omahaStreetPlanDomain(player, gs);
     if (!opp) return decision;
-    const amount = decision.action === 'all_in' ? player.stack : (decision.amount ?? 0);
+    // omahaBetSizeByPublicState: the size priced is the size the public policy bets.
+    const sized = omahaPublicSizedBet(decision, player, gs, opts);
+    const amount = omahaBetChips(sized, player);
     if (!(amount > 0)) return decision;
     if (
       omahaStreetPlanFlopMemo === null ||
@@ -9966,7 +10059,9 @@ function omahaStreetPlanFlopRules(
       const tendency = omahaStreetPlanTendency(opp, opts);
       hit = {
         tendency,
-        plan: omahaStreetPlanFlop(omahaFlopPlanInputAt(player, opp, gs, amount, tendency)),
+        plan: omahaStreetPlanFlop(
+          omahaFlopPlanInputAt(player, opp, gs, amount, tendency, sized !== decision)
+        ),
       };
       omahaStreetPlanFlopMemo.bySize.set(amount, hit);
     }
@@ -9996,7 +10091,12 @@ function omahaStreetPlanFlopRules(
       const checked: HorseDecision = {
         ...decision,
         action: 'check',
-        streetPlan: omahaFlopPlanRecord(plan, plan.lines[0], tendency),
+        streetPlan: omahaPlanRecordPriced(
+          omahaFlopPlanRecord(plan, plan.lines[0], tendency),
+          sized,
+          decision,
+          amount
+        ),
       };
       delete checked.amount;
       return checked;
@@ -10007,7 +10107,12 @@ function omahaStreetPlanFlopRules(
         ...decision,
         action: 'bet',
         amount: line.amount,
-        streetPlan: omahaFlopPlanRecord(plan, line, tendency),
+        streetPlan: omahaPlanRecordPriced(
+          omahaFlopPlanRecord(plan, line, tendency),
+          sized,
+          decision,
+          amount
+        ),
       };
       if (tele)
         omahaProposeReceipt(
@@ -10017,7 +10122,15 @@ function omahaStreetPlanFlopRules(
         );
       return resized;
     }
-    return { ...decision, streetPlan: omahaFlopPlanRecord(plan, plan.lines[1], tendency) };
+    return {
+      ...sized,
+      streetPlan: omahaPlanRecordPriced(
+        omahaFlopPlanRecord(plan, plan.lines[1], tendency),
+        sized,
+        decision,
+        amount
+      ),
+    };
   } catch {
     if (telemetryOn(opts)) noteFire('omaha_strategy_rule_failed');
     return decision;
@@ -10045,7 +10158,9 @@ function omahaStreetPlanThreeWayRules(
       return decision;
     const opps = omahaStreetPlanThreeWayDomain(player, gs);
     if (!opps) return decision;
-    const amount = decision.action === 'all_in' ? player.stack : (decision.amount ?? 0);
+    // omahaBetSizeByPublicState: the size priced is the size the public policy bets.
+    const sized = omahaPublicSizedBet(decision, player, gs, opts);
+    const amount = omahaBetChips(sized, player);
     if (!(amount > 0)) return decision;
     if (
       omahaStreetPlanThreeWayMemo === null ||
@@ -10081,12 +10196,25 @@ function omahaStreetPlanThreeWayRules(
       const checked: HorseDecision = {
         ...decision,
         action: 'check',
-        streetPlan: omahaThreeWayPlanRecord(plan, check, bet, tendencies),
+        streetPlan: omahaPlanRecordPriced(
+          omahaThreeWayPlanRecord(plan, check, bet, tendencies),
+          sized,
+          decision,
+          amount
+        ),
       };
       delete checked.amount;
       return checked;
     }
-    return { ...decision, streetPlan: omahaThreeWayPlanRecord(plan, bet, bet, tendencies) };
+    return {
+      ...sized,
+      streetPlan: omahaPlanRecordPriced(
+        omahaThreeWayPlanRecord(plan, bet, bet, tendencies),
+        sized,
+        decision,
+        amount
+      ),
+    };
   } catch {
     if (telemetryOn(opts)) noteFire('omaha_strategy_rule_failed');
     return decision;
@@ -11204,6 +11332,9 @@ export class HorseLogic {
     planReadCapture?: HorsePlanReadCapture
   ): HorseDecision {
     HorseMind.setProbeAwareAggression(opts.probeAwareAggression !== false);
+    // omahaBetSizeByPublicState: the outermost decision owns the size draw.
+    if (omahaDecideDepth === 0) omahaPublicSizeUnit = null;
+    omahaDecideDepth++;
     try {
       if (
         !horsePolicyRegistration(
@@ -11358,6 +11489,8 @@ export class HorseLogic {
           }
         : { action: fallbackAction, thinkTime: netThinkTime, policyFallback: 'brain_exception' };
     } finally {
+      omahaDecideDepth = Math.max(0, omahaDecideDepth - 1);
+      if (omahaDecideDepth === 0) omahaPublicSizeUnit = null;
       omahaProposedReceipts = [];
       omahaClearDecisionMemos();
       barrelOutlookRiverPending = false;
@@ -24614,6 +24747,19 @@ export class HorseLogic {
    * omaha_public_bet_size_unchanged (valid no-change),
    * omaha_public_bet_size_nut_class_kept, omaha_public_bet_size_illegal_kept.
    */
+  /** The public size of an own bet, quiet (no receipt), with the decision's size draw. */
+  static omahaPublicBetSizeQuiet(
+    decision: HorseDecision,
+    player: SeatPlayer,
+    gs: HorseGameStateV2,
+    opts: HorseDecideOpts
+  ): HorseDecision {
+    const vi = variantInfo(String(gs.gameVariant ?? '').toLowerCase());
+    return withBrainTelemetrySuspended(() =>
+      HorseLogic.omahaBetSizeByPublicStateRule(decision, player, gs, vi, opts, false)
+    );
+  }
+
   private static omahaBetSizeByPublicStateRule(
     decision: HorseDecision,
     player: SeatPlayer,
@@ -24637,7 +24783,7 @@ export class HorseLogic {
         opts.mind !== false
       );
       if (spot === null) return decision;
-      const to = horsePublicBetSizeTo(spot);
+      const to = horsePublicBetSizeTo(spot, omahaPublicSizeUnitOf);
       if (to === null) {
         if (tele) noteFire('omaha_public_bet_size_illegal_kept');
         return decision;

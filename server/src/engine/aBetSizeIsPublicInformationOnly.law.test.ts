@@ -83,7 +83,15 @@ describe('a Horse bet size is public information only', () => {
       'private static publicBetSizeInGame('
     );
     expect(rule).toMatch(/if \(opts\.omahaBetSizeByPublicState !== true\) return decision;/);
-    expect(rule.match(/horsePublicBetSizeTo\(([^)]*)\)/g)).toEqual(['horsePublicBetSizeTo(spot)']);
+    // The draw is the decision's one size draw (wave two: the pricing rules
+    // price the size the public policy bets, so they share it), and that draw
+    // is the size module's own stream and nothing else.
+    expect(rule.match(/horsePublicBetSizeTo\(([^)]*)\)/g)).toEqual([
+      'horsePublicBetSizeTo(spot, omahaPublicSizeUnitOf)',
+    ]);
+    const unit = body(LOGIC, 'function omahaPublicSizeUnitOf(', '\n}');
+    expect(unit).toMatch(/omahaPublicSizeUnit = horseBetSizeRandom\(\)/);
+    expect(unit).not.toMatch(PRIVATE);
     expect(rule).toMatch(
       /const spot = HorseLogic\.publicBetSizeSpot\(\s*gs,\s*player\.user_id,\s*decision\.action,\s*opts\.mind !== false\s*\)/
     );
@@ -102,8 +110,11 @@ describe('a Horse bet size is public information only', () => {
   });
 
   it('the option is read only as an explicit true, and the rule closes the wager_rules node', () => {
+    // Every read is an explicit true (the rule, and the pricing rules that
+    // price the public size: omahaPublicSizedBet and omahaCardImpactRule).
     const reads = LOGIC.match(/opts\.omahaBetSizeByPublicState\b[^;\n]*/g) ?? [];
-    expect(reads).toEqual(['opts.omahaBetSizeByPublicState !== true) return decision']);
+    expect(reads.length).toBeGreaterThan(0);
+    for (const r of reads) expect(r).toMatch(/^opts\.omahaBetSizeByPublicState [!=]== true\b/);
     const node = body(
       LOGIC,
       "decision = graph.run('wager_rules'",

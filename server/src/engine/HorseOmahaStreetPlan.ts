@@ -636,6 +636,8 @@ export function omahaPlanLineUncommitted(line: OmahaPlanLine): boolean {
 
 /** The bounded diagnostic record of a plan (no card of any player, no opponent identity). */
 export interface OmahaStreetPlanRecord {
+  /** omahaBetSizeByPublicState: the public size the plan priced (absent when it priced the engine's bet). */
+  publicSize?: number;
   version: 1;
   street: 'turn';
   chosen: 'check' | 'bet';
@@ -728,6 +730,24 @@ export const omahaPlanMultiplier = (v: number): number =>
   Math.round(clamp(Number.isFinite(v) ? v : 1, 0.5, 1.5) * 1000) / 1000;
 
 /**
+ * The bet a recorded plan priced: the public size it names
+ * (omahaBetSizeByPublicState: the public size is the one size bet, so the plan
+ * priced it, the flop layer alone), else the request's bet. A recorded size
+ * must be a legal-looking own bet: finite, positive, at most the seat's chips.
+ */
+function omahaRecordedPricedBet(
+  hero: SeatPlayer,
+  bet: number | undefined,
+  record: unknown
+): { bet: number | undefined; onlyThisSize: boolean } {
+  const p = (record as { publicSize?: unknown } | null | undefined)?.publicSize;
+  if (p === undefined) return { bet, onlyThisSize: false };
+  if (typeof p !== 'number' || !Number.isFinite(p) || !(p > 0) || p > hero.stack + 0.005)
+    return { bet: undefined, onlyThisSize: false };
+  return { bet: p, onlyThisSize: true };
+}
+
+/**
  * What the worker receipt validator re-runs: a turn bet of `bet` became a
  * check under the plan recorded on the decision. The request carries no
  * opponent read, so the recorded multipliers are used (they must be the
@@ -745,6 +765,7 @@ export function omahaStreetPlanAdmitsCheck(
   try {
     if (!omahaStreetPlanTurnSpot(hero, gs)) return false;
     const opp = omahaStreetPlanDomain(hero, gs);
+    bet = omahaRecordedPricedBet(hero, bet, record).bet;
     if (!opp || !Number.isFinite(bet) || !((bet as number) > 0)) return false;
     const rec = record as Partial<OmahaStreetPlanRecord> | null | undefined;
     if (!rec || rec.version !== 1 || rec.chosen !== 'check') return false;
@@ -1623,6 +1644,8 @@ export function omahaFlopPlanChoice(
 
 /** The bounded diagnostic record of a flop plan (no card of any player, no opponent identity). */
 export interface OmahaFlopPlanRecord {
+  /** omahaBetSizeByPublicState: the public size the plan priced (absent when it priced the engine's bet). */
+  publicSize?: number;
   version: 1;
   street: 'flop';
   chosen: 'check' | 'bet';
@@ -1706,7 +1729,8 @@ export function omahaFlopPlanInputAt(
   opp: SeatPlayer,
   gs: HorseGameStateV2,
   engineBet: number,
-  tendency: OmahaPlanTendency | null
+  tendency: OmahaPlanTendency | null,
+  onlyThisSize = false
 ): OmahaFlopPlanInput {
   return {
     hole: hero.cards,
@@ -1717,7 +1741,8 @@ export function omahaFlopPlanInputAt(
     oppStack: opp.stack,
     heroInvested: Number.isFinite(hero.totalInvested) ? (hero.totalInvested ?? 0) : 0,
     heroInPosition: omahaPlanHeroInPosition(opp, gs, 'flop'),
-    bets: omahaFlopPlanSizes(hero, opp, gs, engineBet),
+    // omahaBetSizeByPublicState: the public size is the one size bet, so it alone is priced.
+    bets: onlyThisSize ? [engineBet] : omahaFlopPlanSizes(hero, opp, gs, engineBet),
     oppLine: omahaPlanOppLine(hero, opp, gs, 'preflop'),
     tendency,
   };
@@ -1747,12 +1772,16 @@ export function omahaStreetPlanFlopAdmitsCheck(
   try {
     if (!omahaStreetPlanFlopSpot(hero, gs)) return false;
     const opp = omahaStreetPlanDomain(hero, gs);
+    const priced = omahaRecordedPricedBet(hero, bet, record);
+    bet = priced.bet;
     if (!opp || !Number.isFinite(bet) || !((bet as number) > 0)) return false;
     const rec = record as Partial<OmahaFlopPlanRecord> | null | undefined;
     if (!rec || rec.version !== 1 || rec.street !== 'flop' || rec.chosen !== 'check') return false;
     const tendency = recordedTendency(rec.tendency);
     if (tendency === undefined) return false;
-    const plan = omahaStreetPlanFlop(omahaFlopPlanInputAt(hero, opp, gs, bet as number, tendency));
+    const plan = omahaStreetPlanFlop(
+      omahaFlopPlanInputAt(hero, opp, gs, bet as number, tendency, priced.onlyThisSize)
+    );
     if (!plan) return false;
     return (
       omahaFlopPlanChoice(plan, omahaStrategyConstant('streetPlanFlopMarginPotShare', gs) * gs.pot)
@@ -2096,6 +2125,8 @@ export function omahaStreetPlanThreeWay(input: OmahaThreeWayPlanInput): OmahaThr
 
 /** The bounded diagnostic record of a three-way turn plan (no card, no identity). */
 export interface OmahaThreeWayPlanRecord {
+  /** omahaBetSizeByPublicState: the public size the plan priced (absent when it priced the engine's bet). */
+  publicSize?: number;
   version: 1;
   street: 'turn';
   layer: 'three_way';
@@ -2210,6 +2241,7 @@ export function omahaStreetPlanThreeWayAdmitsCheck(
   try {
     if (!omahaStreetPlanThreeWaySpot(hero, gs)) return false;
     const opps = omahaStreetPlanThreeWayDomain(hero, gs);
+    bet = omahaRecordedPricedBet(hero, bet, record).bet;
     if (!opps || !Number.isFinite(bet) || !((bet as number) > 0)) return false;
     const rec = record as Partial<OmahaThreeWayPlanRecord> | null | undefined;
     if (!rec || rec.version !== 1 || rec.layer !== 'three_way' || rec.chosen !== 'check')

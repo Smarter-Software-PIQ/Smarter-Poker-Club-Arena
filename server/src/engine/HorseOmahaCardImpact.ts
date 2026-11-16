@@ -965,13 +965,15 @@ export function omahaCardImpactDecision(
   decision: HorseDecision,
   hero: SeatPlayer,
   gs: HorseGameStateV2,
-  read: OmahaReadConditional | null
+  read: OmahaReadConditional | null,
+  /** omahaBetSizeByPublicState: the only sizes to price beside the decision's own (the public size). */
+  sizes?: readonly number[]
 ): OmahaCardImpactDecision | null {
   const scope = omahaCardImpactScope(hero, gs);
   if (!scope) return null;
   if (decision.action !== 'check' && decision.action !== 'bet' && decision.action !== 'all_in')
     return null;
-  const amounts = omahaCardImpactAmounts(hero, scope.opponent, gs);
+  const amounts = sizes ? [...sizes] : omahaCardImpactAmounts(hero, scope.opponent, gs);
   const legacyAmount =
     decision.action === 'all_in'
       ? hero.stack
