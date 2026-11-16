@@ -36,6 +36,8 @@ on:
       - tests/fixtures/ev-cashout-lifecycle/captured-authorities.json
       - supabase/migrations/*_promo_funded_fees_*.sql
       - supabase/migrations/20260917230925_cash_funding_retains_original_participant_custody.sql
+      - supabase/migrations/*_tournament_winnings_retain_original_*.sql
+      - scripts/ci/test-promo-tournament-earning-generation.py
       - scripts/ci/test-promo-ticket-play-through.py
       - scripts/ci/fixtures/promo-ticket-play-through/**
       - tests/fixtures/promo-ticket-play-through/**
@@ -82,6 +84,10 @@ jobs:
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 -B scripts/ci/test-promo-ticket-play-through.py --output artifacts/promo-ticket-play-through
+      - name: Tournament earnings retain their original entry generation
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/test-promo-tournament-earning-generation.py --output artifacts/promo-tournament-earning-generation
       - name: Promo principal follows wallet and table custody
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
@@ -122,6 +128,8 @@ jobs:
             artifacts/promo-notices/INPUTS.json
             artifacts/promo-notices/PERFORMANCE.json
             artifacts/promo-ticket-play-through/RESULTS.json
+            artifacts/promo-tournament-earning-generation/RESULTS.json
+            artifacts/promo-tournament-earning-generation/INPUTS.json
             artifacts/promo-custody/RESULTS.json
             artifacts/promo-custody-accepted-hand/RESULTS.json
             artifacts/signup-promo-identity/RESULTS.json
