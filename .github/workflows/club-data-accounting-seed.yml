@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       from:
-        description: First accounting day (YYYY-MM-DD, 02:00 America/Chicago)
+        description: First accounting day (YYYY-MM-DD, midnight America/Los_Angeles)
         required: true
         type: string
       through:
