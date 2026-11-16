@@ -958,11 +958,20 @@ describe('condition 2: the switch is fleet-wide per option', () => {
     const calls = [...runtime.matchAll(/optionSwitchDecisionOpts\(([^()]*)\)/g)].map((m) =>
       m[1]!.trim()
     );
-    expect(calls.sort()).toEqual(['deepOptionStates', 'optionStates']);
+    // the fast and the deep decision; readViewStates (2026-11-15): the FAST read view is given the same fleet-wide
+    // switched set, so the observer reads carry an option's evidence when a switch row turns it on
+    // (workerRuntime.readViewOpts); and (2026-11-15, F1 live switch) the process switches applied before every
+    // job (applyProcessSwitches): the same holder, the same clock, the same switched set and nothing else
+    expect(calls.sort()).toEqual(['deepOptionStates', 'optionStates', 'readViewStates', 'states']);
     const refreshes = [...runtime.matchAll(/this\.optionSwitch\.refresh\(([^;]*)\);/g)].map((m) =>
       m[1]!.trim()
     );
-    expect(refreshes).toEqual(['performance.now()', 'performance.now()']);
+    expect(refreshes).toEqual([
+      'performance.now()',
+      'performance.now()',
+      'performance.now()',
+      'performance.now()',
+    ]);
   });
 });
 

@@ -34,6 +34,7 @@ import {
   fixedLimitStreetBounds,
   potLimitBettingPot,
   isFixedLimitCapped,
+  structureAllowsStraddle,
 } from './BettingStructure.js';
 import {
   deckSizeFor,
@@ -262,6 +263,21 @@ export class HandController {
         );
         config = { ...config, killPot: undefined };
       }
+    }
+    /* FIXED LIMIT REFUSES A STRADDLE (2026-11-15): a straddle is not counted
+       as a fixed-limit wager, so posting one gave the preflop five levels
+       instead of four. The dealer no longer collects one for a fixed-limit
+       hand (BettingStructure.structureAllowsStraddle); if a config ever
+       carries one anyway it is refused HERE, before any chip is posted. */
+    if ((config.straddles?.length ?? 0) > 0 && !structureAllowsStraddle(config.gameVariant)) {
+      reportError(
+        new Error(
+          `[HandController] hand ${config.handNumber} refused its straddle: ` +
+            `variant ${config.gameVariant} is fixed limit`
+        ),
+        'HandController.fixed_limit_straddle_refused'
+      );
+      config = { ...config, straddles: undefined };
     }
     if (config.asset === 'diamonds') {
       const amounts = [
@@ -684,16 +700,29 @@ export class HandController {
       Math.round((smallBlindDeficit + (bigBlind - (bbPlayer?.bet ?? 0))) * 100) / 100;
 
     // Bible V8 §4.2: Dead blinds — players returning from sit-out post SB+BB (SB is dead money)
+    // ONE ENTRY CHARGE PER SEAT (2026-11-15, hand #59634000). A seat listed
+    // under BOTH deadBlinds and bbOnlyPosts was billed twice: the dead-blind
+    // block took a dead SB plus a live BB, then the post-to-enter block took a
+    // second BB and OVERWROTE `bet` instead of adding to it. The player was
+    // out 2.5 BB with only 1 BB counted toward the call. Whatever a caller
+    // lists, a seat is billed ONE entry charge, a repeated entry included, and
+    // a seat named on both lists is billed the entry post: it is posting to
+    // enter, so it has never been dealt here and has missed nothing.
+    const entryCharged = new Set<number>();
+    const postingToEnter = new Set((this.config.bbOnlyPosts ?? []).map((b) => b.seat));
     if (this.config.deadBlinds && this.config.deadBlinds.length > 0) {
       for (const db of this.config.deadBlinds) {
         const dbPlayer = this.state.players.find((p) => p.seat === db.seat);
         if (
           dbPlayer &&
+          !entryCharged.has(dbPlayer.seat) &&
+          !postingToEnter.has(dbPlayer.seat) &&
           !dbPlayer.is_sitting_out &&
           dbPlayer.seat !== sbSeat &&
           dbPlayer.seat !== bbSeat &&
           dbPlayer.seat !== killerSeat
         ) {
+          entryCharged.add(dbPlayer.seat);
           // Dead SB goes straight to pot (dead money, not a live bet)
           const deadSBAmount = Math.min(smallBlind, dbPlayer.stack);
           dbPlayer.totalInvested += deadSBAmount;
@@ -720,11 +749,13 @@ export class HandController {
         const p = this.state.players.find((pl) => pl.seat === bp.seat);
         if (
           p &&
+          !entryCharged.has(p.seat) &&
           p.seat !== sbSeat &&
           p.seat !== bbSeat &&
           p.seat !== killerSeat &&
           !p.is_sitting_out
         ) {
+          entryCharged.add(p.seat);
           const amt = Math.min(bigBlind, p.stack);
           p.bet = amt;
           p.totalInvested += amt;
@@ -3642,9 +3673,18 @@ export class HandController {
     // 2026-08-23 (fixed limit): once a street has taken its bet and three
     // raises the round is capped — fold and call are the only moves. Withheld
     // here as well as rejected in validateAction so the button never appears.
+    const isFixed = isFixedLimitVariant(this.config.gameVariant);
     const wagersCapped =
-      isFixedLimitVariant(this.config.gameVariant) &&
+      isFixed &&
       isFixedLimitCapped(this.state.actionHistory, this.state.stage, this.streetBetSize());
+    // 2026-11-15 (fixed limit): a raise needs someone to answer it. When every
+    // other live player is already all in, a fixed-limit raise is only an
+    // uncalled excess returned at once, so it is not offered. performAction
+    // still accepts it (the excess comes back exactly as before); only the
+    // menu stops advertising a move nobody can respond to. No-limit and
+    // pot-limit menus are unchanged.
+    const noOpponentCanRespond =
+      isFixed && !this.getActivePlayers().some((p) => p.seat !== player.seat && !p.is_all_in);
     if (toCall === 0) {
       actions.push('check');
 
@@ -3654,7 +3694,7 @@ export class HandController {
       // exercising their option preflop — the legal move is a `raise`, not a
       // `bet` (validateAction rejects `bet` while currentBet>0). Offering `bet`
       // there left the option un-actionable from the menu.
-      if (player.stack > 0 && !wagersCapped) {
+      if (player.stack > 0 && !wagersCapped && !noOpponentCanRespond) {
         if (this.state.currentBet === 0) actions.push('bet');
         else if (this.canReopenBetting(player)) actions.push('raise');
       }
@@ -3664,7 +3704,12 @@ export class HandController {
       // when the player can legally REOPEN betting. A sub-full-raise all-in does
       // not reopen action for a player who has already voluntarily acted this
       // street and is not now facing a full raise since their last action.
-      if (player.stack > toCall && !wagersCapped && this.canReopenBetting(player))
+      if (
+        player.stack > toCall &&
+        !wagersCapped &&
+        !noOpponentCanRespond &&
+        this.canReopenBetting(player)
+      )
         actions.push('raise');
     }
 
@@ -3688,6 +3733,19 @@ export class HandController {
     // match: all_in is advertised only where it is a real shove, so anything
     // that chooses from this list (horses, solvers, the fuzzer) never picks
     // "all in" and gets a call. Everything offered here is still accepted.
+    //
+    // 2026-11-15 (fixed limit): that sentence was not true for fixed limit.
+    // The probe below accepted the press because the CLAMPED action (a call)
+    // validates, so a capped street and a deep stack that may not reopen
+    // both listed all_in where pressing it only calls. On fixed limit the
+    // button is now listed only where the clamp leaves it something other
+    // than a call or check. It is deliberately still listed where it executes
+    // as a wager (a deep stack's one bet or raise to the street's ceiling,
+    // including into opponents who are all all in, where the excess is
+    // returned): an absent all_in must mean the press is passive, which is
+    // what HandFuzzer INV-ALLIN-IS-CALL holds every structure to. Pot-limit
+    // and no-limit are unchanged, and performAction still executes a pressed
+    // ALL IN exactly as before.
     if (player.stack > 0) {
       // 2026-08-23: probe through the SAME clamp performAction uses, so the
       // menu and the rule cannot drift apart — that drift is exactly what the
@@ -3701,7 +3759,9 @@ export class HandController {
       const legal =
         validateAction(probe.action, probe.amount, player.stack, bettingState).valid &&
         (!raisesBet || this.canReopenBetting(player));
-      if (legal) {
+      const fixedLimitButtonOnlyCalls =
+        isFixed && (probe.action === 'call' || probe.action === 'check');
+      if (legal && !fixedLimitButtonOnlyCalls) {
         actions.push('all_in');
       }
     }

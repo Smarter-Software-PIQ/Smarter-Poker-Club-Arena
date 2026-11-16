@@ -4429,39 +4429,19 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
         });
 
         for (const horse of cashedOutHorses) {
-          // CHIP CONTINUITY / HORSES ARE PLAYERS (CLAUDE.md 10.5): a horse
-          // that has hit its target is a player choosing to leave while
-          // ahead, so it goes through the same door a human does and waits
-          // out the same stay clock. A refusal simply means "not this
-          // orbit" - the target still stands and it tries again when the big
-          // blind comes back around, exactly as a human would.
           if (!this.lifecycleCanMutate()) return;
-          const exit = await this.cashoutVoluntaryStay(horse);
-          if (!this.lifecycleCanMutate()) return;
-          if (!exit) continue;
-          if (!exit.ok) {
-            if (exit.code === 'LEAVE_LOCKED') {
-              this.chipContinuity.noteRefusal(horse.user_id, exit.stayRemainingMs);
-              console.log(
-                `[ServerTableEngine:${this.tableId}] Bankroll Management: Horse ${horse.username} at target but stay clock has ${exit.stayRemainingMs}ms left - stays seated`
-              );
-            }
+          /* A SEAT STAYS UNTIL ITS POT HAS BEEN PUSHED (2026-11-15). This step
+             runs while the hand is still being presented, and a horse that
+             banks the win is, by construction, usually the player the pot is
+             about to fly to. The decision stands; the cash-out waits for the
+             completion hold and runs at the next-hand boundary (no seat move
+             may carry the seat away meanwhile). */
+          if (horse.occupancy_id && this.holdsSeatForPresentation(horse.user_id)) {
+            this.deferredBankTheWin.set(horse.user_id, horse);
+            this.noteHeldDeparture(horse.user_id, horse.occupancy_id);
             continue;
           }
-          this.chipContinuity.forget(horse.user_id);
-          // Round 57: clear FSM tracking on profit-target cashout too.
-          this.disconnectEngine.unregisterPlayer(this.tableId, horse.user_id);
-          // Round 64: same for TimeBankEngine, bank and metadata together.
-          this.forgetTimeBank(horse.user_id);
-          // Round 66: same for StraddleEngine.
-          this.straddleEngine.removePlayer(this.tableId, horse.user_id);
-          this.preActionEngine.removePlayer(this.tableId, horse.user_id);
-          this.horseRebuys.delete(horse.user_id);
-          this.horseHandsSinceBigPot.delete(horse.user_id);
-          bankrollEvent('session_book_win');
-          console.log(
-            `[ServerTableEngine:${this.tableId}] Bankroll Management: Horse ${horse.username} hit profit target (${Math.floor(horse.stack)} chips) and cashed out before posting the Big Blind.`
-          );
+          if ((await this.bankTheWinExit(horse)) === 'stop') return;
         }
       }
     });
@@ -4704,6 +4684,84 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
       this.preActionEngine.removePlayer(this.tableId, userId);
       this.leaveHeldByClock.delete(userId);
       this.chipContinuity.forget(userId);
+    }
+  }
+
+  /** Horses whose bank-the-win exit waits for the completion hold (see above). */
+  protected deferredBankTheWin: Map<string, SeatedPlayer> = new Map();
+
+  /** One bankroll-management exit through the ordinary voluntary door. */
+  protected async bankTheWinExit(horse: SeatedPlayer): Promise<'stop' | 'left' | void> {
+    // CHIP CONTINUITY / HORSES ARE PLAYERS (CLAUDE.md 10.5): a horse
+    // that has hit its target is a player choosing to leave while
+    // ahead, so it goes through the same door a human does and waits
+    // out the same stay clock. A refusal simply means "not this
+    // orbit" - the target still stands and it tries again when the big
+    // blind comes back around, exactly as a human would.
+    if (!this.lifecycleCanMutate()) return 'stop';
+    const exit = await this.cashoutVoluntaryStay(horse);
+    if (!this.lifecycleCanMutate()) return 'stop';
+    if (!exit) return;
+    if (!exit.ok) {
+      if (exit.code === 'LEAVE_LOCKED') {
+        this.chipContinuity.noteRefusal(horse.user_id, exit.stayRemainingMs);
+        console.log(
+          `[ServerTableEngine:${this.tableId}] Bankroll Management: Horse ${horse.username} at target but stay clock has ${exit.stayRemainingMs}ms left - stays seated`
+        );
+      }
+      return;
+    }
+    this.chipContinuity.forget(horse.user_id);
+    // Round 57: clear FSM tracking on profit-target cashout too.
+    this.disconnectEngine.unregisterPlayer(this.tableId, horse.user_id);
+    // Round 64: same for TimeBankEngine, bank and metadata together.
+    this.forgetTimeBank(horse.user_id);
+    // Round 66: same for StraddleEngine.
+    this.straddleEngine.removePlayer(this.tableId, horse.user_id);
+    this.preActionEngine.removePlayer(this.tableId, horse.user_id);
+    this.horseRebuys.delete(horse.user_id);
+    this.horseHandsSinceBigPot.delete(horse.user_id);
+    bankrollEvent('session_book_win');
+    console.log(
+      `[ServerTableEngine:${this.tableId}] Bankroll Management: Horse ${horse.username} hit profit target (${Math.floor(horse.stack)} chips) and cashed out before posting the Big Blind.`
+    );
+    return 'left';
+  }
+
+  /**
+   * Runs the bank-the-win exits deferred by the presentation hold, at the
+   * next-hand boundary under the seat boundary, through the same door. A
+   * refusal (stay clock) keeps the horse seated exactly as it would have at
+   * settlement; either way the move block is lifted.
+   */
+  protected override async runDeferredBankTheWinExits(): Promise<void> {
+    if (!this.deferredBankTheWin?.size) return;
+    const due = [...this.deferredBankTheWin.values()];
+    this.deferredBankTheWin.clear();
+    try {
+      for (const horse of due) {
+        if (!this.lifecycleCanMutate()) return;
+        const current = this.seatedPlayers.find((p) => p.user_id === horse.user_id);
+        if (!current || current.occupancy_id !== horse.occupancy_id) continue;
+        let outcome: 'stop' | 'left' | void;
+        try {
+          outcome = await this.bankTheWinExit(current);
+        } catch (err) {
+          // Non-critical, as the settlement step it came from: the horse stays
+          // seated and decides again next orbit. Never breaks the next deal.
+          reportError(err, 'ServerTableEngine.' + this.tableId + '.deferred_bank_the_win_failed');
+          continue;
+        }
+        if (outcome === 'left' && horse.occupancy_id) {
+          // Out of this boundary's roster, seat_left announced, move block lifted.
+          this.releaseDepartedSeats([{ userId: horse.user_id, occupancyId: horse.occupancy_id }]);
+        }
+        if (outcome === 'stop') return;
+      }
+    } finally {
+      // Whatever happened, no deferred exit leaves a seat-move block behind.
+      for (const horse of due)
+        if (horse.occupancy_id) this.heldDepartures.delete(horse.occupancy_id);
     }
   }
 

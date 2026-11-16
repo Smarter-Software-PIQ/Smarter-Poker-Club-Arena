@@ -15,7 +15,6 @@ const rpc = vi.fn();
 vi.mock('../src/lib/supabase', () => ({ supabase: { rpc: (...a: unknown[]) => rpc(...a) } }));
 
 import HitRunCountPill from '../src/components/table/HitRunCountPill';
-import HeroVpipTracker from '../src/components/table/HeroVpipTracker';
 import {
   HAND_COUNT_REFRESH_DELAY_MS,
   useCountdownResumed,
@@ -119,27 +118,8 @@ describe('the felt hides the paused count until profit returns', () => {
     expect(view.container).toBeEmptyDOMElement();
   });
 
-  it('the seat-side tracker hides the paused count and restores the owed count', async () => {
-    rpc.mockResolvedValue({ data: { ok: true, seated: true, required: 0 }, error: null });
-    const props = {
-      tableId: 't1',
-      heroSeated: true,
-      isTournament: false,
-      handNumber: 4,
-      heroPos: { x: 50, y: 95 },
-    };
-    const view = render(<HeroVpipTracker {...props} handsOwed={null} handsPaused={7} />);
-    expect(screen.queryByTestId('hero-hand-count-paused')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('hero-hand-count')).not.toBeInTheDocument();
-    view.rerender(<HeroVpipTracker {...props} handsOwed={7} handsPaused={7} />);
-    expect(screen.queryByTestId('hero-hand-count-paused')).not.toBeInTheDocument();
-    expect(screen.getByTestId('hero-hand-count')).toHaveTextContent('7');
-    await act(async () => {});
-  });
-
-  it('TablePage passes the pause to both, and announces the resume', () => {
+  it('TablePage passes the pause to the felt, and announces the resume', () => {
     const page = flat('src/pages/TablePage.tsx');
-    expect(page).toContain('handsPaused={heroHandCount.paused ?? null}');
     expect(page).toContain('paused={heroHandCount.paused ?? null}');
     expect(page).toContain(
       'useCountdownResumed(heroHandCount, (hands) => toast.info(countdownResumedText(hands)))'

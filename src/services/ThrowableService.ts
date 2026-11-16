@@ -90,6 +90,7 @@ export interface Throwable {
 }
 
 export interface ThrowEvent {
+  particleSeed?: number;
   id: string;
   fromSeat: number;
   toSeat: number;

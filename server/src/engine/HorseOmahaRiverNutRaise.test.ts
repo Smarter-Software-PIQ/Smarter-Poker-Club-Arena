@@ -32,6 +32,12 @@ import {
 } from './HorseOmahaRiverNutRaise.js';
 import { V81_RIVER_SET_CELL, v81Cell, type V81Input } from './HorseOmahaBigBetCalls.js';
 import { horseDecisionReceiptRefusal } from './horseDecision/responseValidation.js';
+import {
+  omahaSlowplayAdmitsCall,
+  omahaSlowplayCallScope,
+} from './HorseOmahaStrongHandSlowplayMix.js';
+import { omahaNutClassNow } from './HorseOmahaMadeHandDefense.js';
+import { omahaRaiseNeedsNutsAdmitsCall } from './HorseOmahaTurnRiverRaiseNeedsNuts.js';
 import type { Card, CardRank, CardSuit, HorseDecision, SeatPlayer } from '../types.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
 import FIXTURE from './horseComplaints/plo5-top-set-jams-over-a-pot-river-lead.fixture.json';
@@ -317,19 +323,70 @@ describe('the worker receipt for the raise that became a call', () => {
     expect(horseDecisionReceiptRefusal(structuredClone(d), 'plo5')).toBe('policy_graph');
   });
 
-  it('is refused when the request it came with would not have produced it', () => {
+  it('is admitted against a nut-class request (the slow-play mix), and refused against a request that could not have produced it', () => {
     const s = spot(smaller);
     const d = decideOne(s);
-    // The same receipt against a request in which the Horse holds the nuts.
+    // The same receipt against a request in which the Horse holds the nuts is
+    // admitted since omahaStrongHandSlowplayMix (owner 2026-11-15 14:13): a
+    // nut-class raise facing a bet may become the call, and the request
+    // carries neither the option nor the draw (omahaSlowplayAdmitsCall).
     const nuts = spot({ ...smaller, hole: NUT_STRAIGHT });
     expect(
       horseDecisionReceiptRefusal(structuredClone(d), 'plo5', {
         player: nuts.hero,
         gameState: nuts.gs,
       })
+    ).toBeNull();
+    // STILL REFUSED, PLO5, a hand that is NOT nut class: the same raise that
+    // became a call of 100 against the recorded request, in which 184 is owed
+    // (three aces, no nut-class hand). No rule turns a raise into a call of
+    // chips the request does not owe, and the slow-play admission needs a
+    // nut-class hand.
+    const owes184 = spot();
+    expect(owes184.gs.toCall).toBe(184);
+    expect(omahaRiverRaiseLicense(owes184.hero, owes184.gs)).toBeNull();
+    expect(
+      horseDecisionReceiptRefusal(structuredClone(d), 'plo5', {
+        player: owes184.hero,
+        gameState: owes184.gs,
+      })
     ).toBe('policy_graph');
     // And never in a game the rule does not govern.
     expect(horseDecisionReceiptRefusal(structuredClone(d), 'nlh')).not.toBeNull();
+  });
+});
+
+describe('the slow-play admission on the river needs a nut-class hand (review note N4)', () => {
+  const smaller: Variation = {
+    actions: (fx) => {
+      fx.actions.find((a) => a.ord === 22)!.amount = 100;
+    },
+    node: (pn) => {
+      pn.pot = 284;
+      pn.toCall = 100;
+      pn.currentBet = 100;
+      pn.seats[0] = [1, 934.8, 100, 178, 2, 0, 0];
+    },
+  };
+
+  it('refuses the exact call of 100 in the same river spot with a hand that is not nut class; the whole receipt is admitted there only by the turn-and-river raise rule', () => {
+    // The recorded river, 100 owed, the Horse's own cards: three aces, not nut class.
+    const s = spot(smaller);
+    expect(s.gs.toCall).toBe(100);
+    expect(omahaNutClassNow(s.hero, s.gs)).toBe(false);
+    // The mix's spot holds for exactly these chips; only the nut-class condition fails.
+    expect(omahaSlowplayCallScope(s.hero, s.gs)).toMatchObject({ street: 'river', paid: 100 });
+    expect(omahaSlowplayAdmitsCall(s.hero, s.gs, 100)).toBe(false);
+    // The same chips with the nut straight: admitted by the mix.
+    const nuts = spot({ ...smaller, hole: NUT_STRAIGHT });
+    expect(omahaNutClassNow(nuts.hero, nuts.gs)).toBe(true);
+    expect(omahaSlowplayAdmitsCall(nuts.hero, nuts.gs, 100)).toBe(true);
+    // On the river the turn-and-river raise rule (omahaTurnRiverRaiseNeedsNuts)
+    // turns every non-nut raise facing a bet into a call, so the whole
+    // validator admits this receipt through that rule, not through the mix.
+    // There is no river request that isolates the mix at the receipt level;
+    // the turn case is in HorseOmahaMadeHandDefense.test.ts.
+    expect(omahaRaiseNeedsNutsAdmitsCall(s.hero, s.gs, 100)).toBe(true);
   });
 });
 

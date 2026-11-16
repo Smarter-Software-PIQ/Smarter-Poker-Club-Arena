@@ -262,6 +262,15 @@ describe('authenticated cutover spectator', () => {
       'expect(journal.transportIdsOpenAt(freeze)).toEqual([initial.socketId]);'
     );
     expect(body).toContain(".gte('break_started_at', new Date(armedAt).toISOString())");
+    // The initial snapshot is the table page's own: received after the table navigation began,
+    // on a socket that was not already open (the lobby's socket can hold a stale SNAPSHOT).
+    expect(body).toContain('since: navigationStartedAt,');
+    expect(body).toContain(
+      '.filter((frame) => !socketsOpenBeforeNavigation.includes(frame.socketId));'
+    );
+    const socketsDeclaredAt = body.indexOf('const socketsOpenBeforeNavigation');
+    expect(socketsDeclaredAt).toBeGreaterThan(-1);
+    expect(socketsDeclaredAt).toBeLessThan(body.indexOf('await page.goto(`table/${tableId}`);'));
     // The late path writes its own file and skips; it cannot reach the witness.
     expect(body.indexOf('await notObserved(')).toBeLessThan(
       body.indexOf('const { tableId, initial')
