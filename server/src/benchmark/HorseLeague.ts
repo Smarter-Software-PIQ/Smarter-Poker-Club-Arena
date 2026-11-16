@@ -2208,6 +2208,23 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     },
     b: { styleValueBettorNotManiac: true, styleTightReRaiserRespect: true },
   },
+  // 2026-11-16 TIGHT AT THE OBSERVATION LINE (styleTightMethodLine, default
+  // OFF): a reads a neutral player tight at the observation method's VPIP
+  // line (50 or more hands, credibly below the Horse mean, PFR not above the
+  // mean); b is today's read. Both arms switch on the two consumers that see
+  // the tight side, as the multi-signal card does. Against a Horse field the
+  // route is expected to be near inert: the card is a harm check.
+  {
+    name: 'nlh_style_tight_method_line',
+    pairs: 6000,
+    productionStyles: true,
+    a: {
+      styleTightMethodLine: true,
+      styleValueBettorNotManiac: true,
+      styleTightReRaiserRespect: true,
+    },
+    b: { styleValueBettorNotManiac: true, styleTightReRaiserRespect: true },
+  },
   // 2026-11-15 HOLD'EM RIVER FULL HOUSE VALUE (holdemRiverFullHouseValue,
   // default OFF): a leads a qualifying river full house out of position into
   // the prior aggressor (70%); b checks it, as today. Full houses in that seat
