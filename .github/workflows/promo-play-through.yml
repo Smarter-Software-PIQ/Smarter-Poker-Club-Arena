@@ -79,8 +79,6 @@ jobs:
     name: Promo play-through lock ledger and fee meter
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    env:
-      TMPDIR: ${{ runner.temp }}
     steps:
       - uses: actions/checkout@v4
       - name: Install PostgreSQL 17 from the signed PGDG source only
@@ -99,6 +97,7 @@ jobs:
         run: python3 -B scripts/ci/test-promo-ticket-play-through.py --output artifacts/promo-ticket-play-through
       - name: Tournament earnings retain their original entry generation
         env:
+          TMPDIR: ${{ runner.temp }}
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 -B scripts/ci/test-promo-tournament-earning-generation.py --output artifacts/promo-tournament-earning-generation
       - name: Promo principal follows wallet and table custody
@@ -142,14 +141,17 @@ jobs:
         run: python3 -B scripts/ci/test-promo-profit-accepted-hand.py --pg-bin /usr/lib/postgresql/17/bin --output artifacts/promo-profit-accepted-hand
       - name: Original jackpot recipients preserve source and transaction locks
         env:
+          TMPDIR: ${{ runner.temp }}
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 -B scripts/ci/test-promo-profit-bbj.py --output artifacts/promo-profit-bbj
       - name: Original guarded money owners preserve promo custody through transfers and cashout
         env:
+          TMPDIR: ${{ runner.temp }}
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 -B scripts/ci/test-promo-profit-movements-financial.py --pg-bin /usr/lib/postgresql/17/bin --output artifacts/promo-profit-movements
       - name: Original noncash refunds return promo principal to its original fund
         env:
+          TMPDIR: ${{ runner.temp }}
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 -B scripts/ci/test-promo-ticket-principal-returns.py --pg-bin /usr/lib/postgresql/17/bin --output artifacts/promo-ticket-principal-returns
       - name: Retain the regression evidence

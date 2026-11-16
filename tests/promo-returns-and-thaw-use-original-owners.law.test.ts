@@ -5,8 +5,20 @@ import { parse } from 'yaml';
 const read = (path: string) => readFileSync(join(__dirname, '..', path), 'utf8');
 const promo = parse(read('.github/workflows/promo-play-through.yml'));
 describe('promo returns and expiry retain their original owners', () => {
-  it('gives every nested financial fixture the short private runner temporary directory', () => {
-    expect(promo.jobs['promo-play-through'].env?.TMPDIR).toBe('${{ runner.temp }}');
+  it('gives nested financial fixtures the short private runner directory in step scope', () => {
+    expect(promo.jobs['promo-play-through'].env).toBeUndefined();
+    const steps = promo.jobs['promo-play-through'].steps;
+    for (const name of [
+      'test-promo-tournament-earning-generation.py',
+      'test-promo-profit-bbj.py',
+      'test-promo-profit-movements-financial.py',
+      'test-promo-ticket-principal-returns.py',
+      'test-promo-principal-returns.py',
+    ]) {
+      expect(steps.find((step: any) => step.run?.includes(name)).env.TMPDIR).toBe(
+        '${{ runner.temp }}'
+      );
+    }
   });
   it('runs real journal and isolation proof after the promo stock builder', () => {
     const steps = promo.jobs['promo-play-through'].steps;
