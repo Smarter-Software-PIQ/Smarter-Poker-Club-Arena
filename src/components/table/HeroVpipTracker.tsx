@@ -256,8 +256,8 @@ export default function HeroVpipTracker({
   const floor = Number(status?.required ?? 0);
   const showVpip = Boolean(status?.ok && status.seated && floor > 0);
   const showHands = !lightningLayout && typeof handsOwed === 'number' && handsOwed > 0;
-  const showPaused =
-    !lightningLayout && !showHands && typeof handsPaused === 'number' && handsPaused > 0;
+  // Owner 2026-11-15: preserve the stored count, hide it while no hands are owed.
+  const showPaused = false;
   // The grace only means anything while a warning is actually open, so it is
   // read from `warned` rather than from a number that could linger.
   const graceLeft =

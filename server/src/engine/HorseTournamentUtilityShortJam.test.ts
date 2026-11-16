@@ -398,10 +398,12 @@ describe('on real controller menus the claim is the executed all-in', () => {
       expect(wrong.slice(0, 3)).toEqual([]);
       expect(wrong.length).toBe(0);
       expect(shoves).toBeGreaterThan(0);
-      // Pot limit shows this menu only for the whole-stack shove; fixed limit
-      // also shows it where the button is a call.
-      if (structure === 'pot_limit') expect(calls).toBe(0);
-      else expect(calls).toBeGreaterThan(0);
+      // Both structures show this menu only for the whole-stack shove. Until
+      // 2026-11-15 fixed limit also showed it where the button is a call; the
+      // fixed-limit menu no longer lists all_in where it only calls
+      // (AFixedLimitMenuOffersWhatItExecutes.law.test.ts), so the claim and
+      // the menu now agree with no call in between.
+      expect(calls).toBe(0);
     },
     240_000
   );
@@ -415,12 +417,14 @@ describe('on real controller menus the claim is the executed all-in', () => {
     ['flh', 62],
     ['flo8', 62],
   ] as const)(
-    '%s, %d chips: uncapped, a seat that may not reopen holds the same menu and the button is a call',
+    '%s, %d chips: uncapped, a seat that may not reopen is offered fold and call and the button is a call',
     (variant, deepStack) => {
       // The flop bettor faces a short all-in raise of less than half a bet:
-      // 5 more to call, no raise allowed, chips behind. The menu is fold,
-      // call and all_in with no bounds on a street that is not capped, and
-      // the controller executes the button as the call.
+      // 5 more to call, no raise allowed, chips behind. The menu is fold and
+      // call with no bounds on a street that is not capped (until 2026-11-15
+      // it also listed all_in, which only calls here: see
+      // AFixedLimitMenuOffersWhatItExecutes.law.test.ts), and the controller
+      // still executes a pressed button as the call.
       const config: HandConfig = {
         tableId: `short-jam-${variant}`,
         handNumber: 1,
@@ -463,7 +467,7 @@ describe('on real controller menus the claim is the executed all-in', () => {
         }
         expect(spot?.hero.seat).toBe(bettor);
         const { hero, state: s } = spot!;
-        expect(s.legalActions).toEqual(['fold', 'call', 'all_in']);
+        expect(s.legalActions).toEqual(['fold', 'call']);
         expect([s.minRaiseTo, s.maxRaiseTo, s.wagersCapped, s.toCall, s.fixedBetSize]).toEqual([
           null,
           null,

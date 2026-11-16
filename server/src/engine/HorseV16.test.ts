@@ -7,6 +7,7 @@ import { HorseLogic, type HorseGameStateV2 } from './HorseLogic.js';
 import { decidePreflopV7 } from './HorsePreflop.js';
 import { HorseMind } from './HorseMind.js';
 import { seedFastRandom, omahaDrawQuality } from './HorseEval.js';
+import { bubbleFactor, premiumFromBubbleFactor, withIcmBustPaysPlace } from './IcmModel.js';
 import type { Card, SeatPlayer, ActionRecord } from '../types.js';
 
 const c = (rank: string, suit: string): Card => ({ rank, suit }) as Card;
@@ -80,6 +81,24 @@ describe('V16 real ICM', () => {
   it('a confirmed one-place Spin retains zero survival premium', () => {
     const gs = { ...baseGs([5000, 5000, 5000], [100]), format: 'spin' } as HorseGameStateV2;
     expect(icmRisk(gs, 50, true)).toBe(0);
+  });
+
+  it('an in-the-money short stack is charged for the payouts above its place, not all of them', () => {
+    // Hand 59441335 (2026-11-15): nine left, 13 paid. The 2.1bb stack busts
+    // ninth and is paid ninth either way; its premium was the cap (factor 5,
+    // 0.14) because the bust was priced at zero. It now reads the factor of
+    // the payouts above ninth (about 1.17), the premium of that factor.
+    const stacks = [342_381, 310_173, 191_640, 126_232, 124_308, 74_332, 69_856, 38_469, 12_609];
+    const pays = [25.14, 14.44, 10.44, 8.3, 6.94, 6.0, 5.31, 4.77, 4.34, 3.99, 3.69, 3.44, 3.2];
+    const gs = baseGs(stacks, pays);
+    // option icmBustPaysPlace on (HorseLogic.decide scopes it per decision)
+    const [prem, bf] = withIcmBustPaysPlace(true, () => [
+      icmRisk(gs, 126.09, true),
+      bubbleFactor(stacks, pays, 8, 12_609),
+    ]);
+    expect(bf).toBeLessThan(1.3);
+    expect(prem).toBeCloseTo(premiumFromBubbleFactor(bf), 12);
+    expect(prem).toBeLessThan(0.02);
   });
 
   it('a confirmed multi-place Spin retains genuine ICM pressure', () => {

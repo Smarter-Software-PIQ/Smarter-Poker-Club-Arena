@@ -1149,3 +1149,22 @@ describe('LAW: the reveal packet outlives the hold the engine actually keeps', (
     expect(blankNonCode(beat)).not.toMatch(/catch\s*\{\s*\}/);
   });
 });
+
+describe('LAW: the pot ships to a winner who has already stood up (Dan 2026-11-15)', () => {
+  /* Hand 59517030: the winner left 1.26 s after the hand ended, so pot_win
+     found no seat and the pot pill hit `if (idx < 0) return;`. The pot must
+     still travel, to the chair it was won from. */
+  it('POT_WIN resolves winners through the last-known seat, not the live roster alone', () => {
+    expect(TABLE_PAGE).toContain('const winnerSeatIdx = useCallback(');
+    expect(TABLE_PAGE).toContain('lastSeatIdxByPlayerRef.current.get(playerId)');
+    expect(TABLE_PAGE).toContain('const seatIdx = winnerSeatIdx(w.userId);');
+    expect(TABLE_PAGE).toContain('const seatIdx = winnerSeatIdx(wid);');
+    expect(TABLE_PAGE).toContain('const idx = winnerSeatIdx(wid);');
+  });
+  it('the pot pill never returns silently because the winner has no live seat', () => {
+    // The whole startPush closure, bounded by its own braces.
+    const push = sliceEnclosingBlock(TABLE_PAGE, 'const idx = winnerSeatIdx(wid);');
+    expect(push).toContain('setPotCollectTo(');
+    expect(push).not.toMatch(/if \(idx < 0\) return;/);
+  });
+});

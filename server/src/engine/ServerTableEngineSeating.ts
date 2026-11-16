@@ -1572,6 +1572,88 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
     }
   }
 
+  private readonly explicitSitOutRequests = new Map<
+    string,
+    Promise<{ success: boolean; [key: string]: unknown }>
+  >();
+
+  /** The original database transaction commits before local eligibility changes. */
+  public async sitOutAndWait(
+    userId: string,
+    sittingOut: boolean,
+    proof?: { completedLightningOccupancyId?: string; requestedByClient?: boolean }
+  ): Promise<{ success: boolean; [k: string]: unknown }> {
+    const occupancy = this.seatedPlayers.find((p) => p.user_id === userId)?.occupancy_id;
+    if (!occupancy) return { success: false, error: 'Original Seat Required' };
+    const key = `${this.tableId}:${userId}:${occupancy}`;
+    const prior = this.explicitSitOutRequests.get(key) ?? Promise.resolve();
+    const current = prior
+      .catch(() => undefined)
+      .then(async () => {
+        const ownsSeat = () =>
+          this.seatedPlayers.some((p) => p.user_id === userId && p.occupancy_id === occupancy);
+        if (!ownsSeat())
+          return {
+            success: false,
+            error: 'Your Seat Changed. Refresh The Table Before Trying Again.',
+          };
+        const refusal = this.sitOutRefusal(userId, sittingOut, proof);
+        if (refusal) return refusal;
+        // Existing live-hand outbound requests remain deferred until settlement.
+        if (sittingOut && this.handController !== null)
+          return this.applySitOut(userId, sittingOut, proof);
+        const state = this.disconnectEngine.getState(this.tableId, userId);
+        const version = state ? (this.seatSitOutVersions.get(state) ?? 0) : 0;
+        const currentIntent = () => {
+          const currentState = this.disconnectEngine.getState(this.tableId, userId);
+          return (
+            currentState === state &&
+            (!state || (this.seatSitOutVersions.get(state) ?? 0) === version)
+          );
+        };
+        const receipt = await this.seatSitOutPersistence.persist(
+          this.tableId,
+          userId,
+          occupancy,
+          sittingOut,
+          () => ownsSeat() && currentIntent()
+        );
+        if (!receipt || !ownsSeat())
+          return {
+            success: false,
+            error: 'Could Not Confirm Your Seat. Refresh The Table Before Trying Again.',
+          };
+        if (!currentIntent())
+          return {
+            success: false,
+            code: 'SITOUT_SUPERSEDED',
+            error: 'Your Seat State Changed. Please Try Again.',
+          };
+        // A newer forced transition on this same chair must not be undone by
+        // an earlier explicit ACK. Missing restart presence registers only now.
+        if (!state) this.disconnectEngine.registerPlayer(this.tableId, userId);
+        const committedState = this.disconnectEngine.getState(this.tableId, userId);
+        if (committedState) this.seatSitOutVersions.set(committedState, version + 1);
+        this.committedSeatSitOut.add(key);
+        try {
+          return {
+            ...this.applySitOut(userId, sittingOut, proof),
+            blindOff: receipt.blind_off,
+            hands_remaining: receipt.hands_remaining,
+            lightningClusterId: receipt.cluster_id,
+          };
+        } finally {
+          this.committedSeatSitOut.delete(key);
+        }
+      });
+    this.explicitSitOutRequests.set(key, current);
+    const cleanup = () => {
+      if (this.explicitSitOutRequests.get(key) === current) this.explicitSitOutRequests.delete(key);
+    };
+    void current.then(cleanup).catch(cleanup);
+    return current;
+  }
+
   /**
    * POST /sitout — Bible V8 §7.12: Player sits out or back in
    */
@@ -1580,6 +1662,16 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
     sitOut: boolean,
     proof?: { completedLightningOccupancyId?: string; requestedByClient?: boolean }
   ): { success: boolean; error?: string; code?: string; willFoldNextHand: boolean } {
+    const refusal = this.sitOutRefusal(userId, sitOut, proof);
+    if (refusal) return refusal;
+    return this.applySitOut(userId, sitOut, proof);
+  }
+
+  private sitOutRefusal(
+    userId: string,
+    sitOut: boolean,
+    proof?: { completedLightningOccupancyId?: string; requestedByClient?: boolean }
+  ): { success: false; error: string; code?: string; willFoldNextHand: false } | null {
     if (this.weeklyHandPause.held())
       return { success: false, error: 'Weekly Accounting Pause', willFoldNextHand: false };
     const player = this.seatedPlayers.find((p) => p.user_id === userId);
@@ -1629,6 +1721,14 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
       };
     }
 
+    return null;
+  }
+
+  private applySitOut(
+    userId: string,
+    sitOut: boolean,
+    proof?: { completedLightningOccupancyId?: string; requestedByClient?: boolean }
+  ): { success: boolean; willFoldNextHand: boolean } {
     if (sitOut) {
       // FIX 143: Bible V8 §7.12 — Can't fold mid-hand.
       // If a hand is in progress, defer the sit-out until after the hand completes.
@@ -1712,6 +1812,127 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
       `[ServerTableEngine:${this.tableId}] Player ${userId} could not fold yet - auto_fold queued`
     );
     return true;
+  }
+
+  /**
+   * ═══════════════════════════════════════════════════════════════════════
+   *  A SEAT STAYS UNTIL ITS POT HAS BEEN PUSHED (Dan 2026-11-15, binding)
+   * ═══════════════════════════════════════════════════════════════════════
+   *
+   * Dan: "THE PREVIOUS HAND PLAYED, DID NOT AWARD THE POT, OR SHIP IT TO THE
+   * WINNING PLAYER ANIMATION... GET TO THE ROOT CAUSE."
+   *
+   * Hand 59517030 (Kings Club, Madness PLO5 1/2, 2026-11-15 16:57 UTC): the
+   * seat-4 winner's leave arrived 1.26 s after HAND_COMPLETE, while the
+   * four-way showdown was still being read. The hand controller is nulled at
+   * HAND_COMPLETE, so leaveTable took the between-hands branch and cashed the
+   * seat out at once (ca_seat_stack_exits 16:57:06.55). Every client then
+   * lost the winner's chair before pot_win, and the pot had nowhere to go.
+   *
+   * Dan's hand-completion law (2026-08-21) says the hand is NOT complete
+   * until the pot has been pushed to the winner, and his leave ruling
+   * (2026-10-25) says an avatar does not leave until its part is finished.
+   * So from the deal until the completion hold ends, everybody who was dealt
+   * into the hand is a participant of a hand still being presented. A leave
+   * from one of them is handled exactly like a mid-hand leave of a folded
+   * seat: the PLAYER leaves now (the durable departure request is written and
+   * the reply is a success), the SEAT stays on the felt until the push has
+   * landed, and the next-hand sweep cashes it out through the same
+   * occupancy-keyed door. Horses and humans take the same door (CLAUDE.md
+   * 10.5); nothing here reads a horse marker.
+   */
+  protected completionPresentation: {
+    players: Set<string>;
+    /** Set at HAND_COMPLETE. Before it, nothing is being presented. */
+    completed: boolean;
+    /** userId -> occupancy and whether its departure request is written. */
+    deferred: Map<string, { occupancyId: string; written: boolean }>;
+  } | null = null;
+
+  /**
+   * Called by the dealing loop as a hand is dealt: records who is in it. The
+   * window itself opens only at HAND_COMPLETE (markHandCompletedForPresentation),
+   * so a leave that lands before or during the deal takes its ordinary path.
+   */
+  protected beginCompletionPresentation(dealt: Array<{ user_id: string }>): void {
+    // A held occupancy that is no longer seated has left by whatever path.
+    for (const occupancyId of [...this.heldDepartures.keys()]) {
+      if (!this.seatedPlayers.some((p) => p.occupancy_id === occupancyId))
+        this.heldDepartures.delete(occupancyId);
+    }
+    this.completionPresentation = {
+      players: new Set(dealt.map((p) => p.user_id)),
+      completed: false,
+      deferred: new Map(),
+    };
+  }
+
+  /** HAND_COMPLETE: the hand is settled and its presentation begins. */
+  protected markHandCompletedForPresentation(): void {
+    if (this.completionPresentation) this.completionPresentation.completed = true;
+  }
+
+  /** The hold reaches seat moves and the seat_left announcement through Base. */
+  protected noteHeldDeparture(userId: string, occupancyId: string): void {
+    const seat = this.seatedPlayers.find(
+      (p) => p.user_id === userId && p.occupancy_id === occupancyId
+    );
+    if (seat) this.heldDepartures.set(occupancyId, { userId, seatNumber: seat.seat_number });
+  }
+
+  /**
+   * Called when the completion hold ends (or the hand is abandoned). The
+   * deferred leavers are taken out of the next deal now; their seats are
+   * cashed out by the next-hand leave_pending sweep.
+   */
+  protected endCompletionPresentation(): void {
+    const presentation = this.completionPresentation;
+    this.completionPresentation = null;
+    if (!presentation) return;
+    for (const [userId, { occupancyId, written }] of presentation.deferred) {
+      // An unwritten request is finished by its own leaveTable call, which
+      // sits the player out only once the departure is durable.
+      if (!written) continue;
+      if (this.seatedPlayers.some((p) => p.user_id === userId && p.occupancy_id === occupancyId))
+        this.disconnectEngine.sitOut(this.tableId, userId, 'voluntary');
+    }
+  }
+
+  /**
+   * Settlement asks this for every leave_pending seat it is about to cash out.
+   * True keeps the seat until the completion hold ends: a player whose leave
+   * was deferred here, a pot recipient, or a player whose hand is tabled at
+   * showdown. A player who folded out of the hand on a mid-hand leave has
+   * already left the felt (seat_left) and is cashed out at settlement as
+   * before. Decided from the engine's own hand record, never a client ack.
+   */
+  protected holdsSeatForPresentation(userId: string): boolean {
+    const presentation = this.completionPresentation;
+    if (
+      !presentation ||
+      !presentation.completed ||
+      !this.running ||
+      !presentation.players.has(userId)
+    )
+      return false;
+    if (presentation.deferred.has(userId)) return true;
+    return (
+      this.currentHandPerPotAwards.some((a) => a.userId === userId && a.amount > 0) ||
+      this.currentHandShowdownResults.some((r) => r.userId === userId)
+    );
+  }
+
+  /** Bank-the-win exits deferred past the presentation (ServerTableEngineSettlement). */
+  protected async runDeferredBankTheWinExits(): Promise<void> {}
+
+  /** True while this player's last hand is still being presented on the felt. */
+  protected inCompletionPresentation(userId: string): boolean {
+    return (
+      this.running === true &&
+      this.handController === null &&
+      this.completionPresentation?.completed === true &&
+      this.completionPresentation.players.has(userId)
+    );
   }
 
   /**
@@ -1818,7 +2039,10 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
   protected withdrawBlindOff(userId: string): void {
     const had = this.leaveHeldByClock.delete(userId);
     this.chipContinuity.markBlindOff(userId, false);
-    if (had) void setCashSessionBlindOff(this.tableId, userId, false);
+    // Lightning's same original sit-back transaction clears the durable flag.
+    // A separate unawaited write could arrive after a later Sit Out.
+    if (had && !this.isLightningAnchorNow())
+      void setCashSessionBlindOff(this.tableId, userId, false);
   }
 
   public isClientSitOut(userId: string): boolean {
@@ -2350,6 +2574,60 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
          mid-hand, and it was the silent one. */
           this.broadcastCurrentState();
 
+          return { success: true, immediate: false };
+        } else if (
+          this.inCompletionPresentation(userId) &&
+          player.occupancy_id &&
+          !opts.forced &&
+          !opts.admin
+        ) {
+          // A SEAT STAYS UNTIL ITS POT HAS BEEN PUSHED (2026-11-15): see
+          // completionPresentation. The leave is accepted and durable now; the
+          // chair, and the pot flying to it, stay until the hold ends. The hold
+          // is recorded BEFORE the durable write, so a settlement sweep that
+          // reads the new leave_pending row can never cash this seat out early.
+          const presentation = this.completionPresentation;
+          presentation?.deferred.set(userId, { occupancyId: player.occupancy_id, written: false });
+          // And no seat move may carry it away while the request is in flight.
+          // Undone below only if THIS call added it: settlement may hold it too.
+          const addedHold = !this.heldDepartures.has(player.occupancy_id);
+          this.noteHeldDeparture(userId, player.occupancy_id);
+          try {
+            await requestSeatDeparture(
+              userId,
+              this.tableId,
+              player.seat_number,
+              player.occupancy_id,
+              'voluntary'
+            );
+          } catch {
+            presentation?.deferred.delete(userId);
+            if (addedHold) this.heldDepartures.delete(player.occupancy_id);
+            return {
+              success: false,
+              immediate: false,
+              error: 'Could Not Confirm Your Leave Request. Please Try Again.',
+            };
+          }
+          if (
+            this.seatedPlayers.some(
+              (p) => p.user_id === userId && p.occupancy_id !== player.occupancy_id
+            )
+          ) {
+            presentation?.deferred.delete(userId);
+            if (addedHold) this.heldDepartures.delete(player.occupancy_id);
+            return stale();
+          }
+          player.leave_pending = true;
+          const entry = presentation?.deferred.get(userId);
+          if (entry) entry.written = true;
+          if (this.completionPresentation !== presentation || !presentation) {
+            // The hold ended while the request was being written.
+            this.disconnectEngine.sitOut(this.tableId, userId, 'voluntary');
+          }
+          console.log(
+            `[ServerTableEngine:${this.tableId}] ${userId} leaving while the hand they played is still being presented - the seat stays until the pot is pushed, then cashes out`
+          );
           return { success: true, immediate: false };
         } else {
           // Between hands: remove immediately via atomic cashout.

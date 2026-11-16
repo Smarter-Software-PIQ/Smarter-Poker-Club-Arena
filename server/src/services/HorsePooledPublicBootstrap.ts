@@ -2,6 +2,7 @@ import { publicMemoryDomainKey } from '../engine/HorsePublicMemoryDomain.js';
 import { supabase } from './supabase.js';
 import {
   copyLongCounters,
+  copyShownRiver,
   validOpponentProfile,
   type DurableOpponentProfile,
 } from '../engine/HorseOpponentMemory.js';
@@ -111,6 +112,8 @@ export async function readHorsePooledPublicBootstrap(
             ? { last_accepted_hand_id: row.last_accepted_hand_id }
             : {}),
           ...copyLongCounters(row),
+          // 2026-11-15 the durable shown river record (shown_river), kept when well formed.
+          ...copyShownRiver(row),
         });
         kept++;
       }

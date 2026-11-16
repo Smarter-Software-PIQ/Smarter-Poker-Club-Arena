@@ -217,6 +217,56 @@ export function substituteOnCappedStreet(action: ActionType, toCall: number): Ac
 }
 
 /**
+ * FIXED LIMIT REFUSES A STRADDLE (2026-11-15).
+ *
+ * The fixed-limit cap counts the big blind as wager 1 preflop, and forced
+ * posts are not in `actionHistory`, so a straddle raised `currentBet` without
+ * counting as a wager: a straddled limit pot took the blind, the straddle and
+ * three raises - five levels where the rules allow four. Fixed limit has no
+ * straddle in this engine at all: the dealer does not collect one for a
+ * fixed-limit hand, and HandController refuses to post one it is handed.
+ * No-limit and pot-limit are unchanged.
+ */
+export function structureAllowsStraddle(variant?: string | null): boolean {
+  return !isFixedLimitVariant(variant);
+}
+
+/**
+ * The price at or below which a FIXED-LIMIT seat whose decision failed (the
+ * decision worker refused or died, or the brain threw) calls instead of
+ * folding: toCall / (pot + toCall) <= 0.2, i.e. the pot already lays at least
+ * 4 to 1. A fixed-limit bet is one small unit into a pot that is usually many
+ * units, and folding such a price throws away a pot for a single bet.
+ */
+export const FIXED_LIMIT_FAILURE_FALLBACK_CALL_PRICE = 0.2;
+
+/**
+ * The liveness action for a seat whose decision could not be computed. Free
+ * (nothing owed: toCall <= 0, or not a number) means check. Owing anything
+ * means fold, except on fixed limit, where a call is taken when the price is
+ * at or below FIXED_LIMIT_FAILURE_FALLBACK_CALL_PRICE and the seat's menu
+ * offers `call`. `pot` is every chip already in the middle, the bet being
+ * faced included. No-limit and pot-limit are exactly the old worker rule
+ * (`toCall > 0 ? 'fold' : 'check'`), any remainder included: no dust
+ * tolerance on any structure (Hand Analysis W3 review N4, 2026-11-15).
+ */
+export function failureFallbackAction(input: {
+  structure: BettingStructure;
+  toCall: number;
+  pot: number;
+  legalActions?: readonly ActionType[] | null;
+}): 'fold' | 'check' | 'call' {
+  const toCall = Number(input.toCall);
+  if (!(toCall > 0)) return 'check';
+  if (input.structure !== 'fixed_limit') return 'fold';
+  if (!Array.isArray(input.legalActions) || !input.legalActions.includes('call')) return 'fold';
+  const pot = Number(input.pot);
+  if (!Number.isFinite(pot) || pot < 0 || !Number.isFinite(toCall)) return 'fold';
+  const price = toCall / (pot + toCall);
+  return price <= FIXED_LIMIT_FAILURE_FALLBACK_CALL_PRICE + 1e-9 ? 'call' : 'fold';
+}
+
+/**
  * How a table's stakes read to a player.
  *
  * Fixed-limit games are posted by BET size, not blind size: blinds 1/2 is a

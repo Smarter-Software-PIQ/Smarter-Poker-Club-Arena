@@ -124,10 +124,11 @@ export function useProtectedCardLayout(
           settled.current.podKey === geometry
             ? settled.current.podPoses
             : new WeakMap<HTMLElement, string>();
+        const retainedDealer = settled.current.podKey === geometry ? settled.current.dealer : null;
         settled.current = {
           key,
           podKey: geometry,
-          dealer: null,
+          dealer: retainedDealer,
           rows: new WeakMap(),
           pods: retainedPods,
           podPoses: retainedPoses,
@@ -749,10 +750,9 @@ export function useProtectedCardLayout(
       const sixMax = page.getAttribute('data-seats') === '6' && pageBox.width > 480;
       for (const pod of scaler.querySelectorAll('.seat-wrapper--cap, .seat-wrapper--top')) {
         const seat = pod.querySelector<HTMLElement>('.seat');
-        // Keep the character connected to its plate with the existing 3px
-        // minimum overlap. Reclaim only the extra overlap for the full PLO
-        // row, whose bottom reads this same shared token.
-        if (sixMax) seat?.style.setProperty('--sp-wrap-overlap', '3px');
+        // The portrait top seat raises its plate and fan together. Other
+        // six-max layouts keep the 3px overlap for the full PLO row.
+        if (sixMax) seat?.style.setProperty('--sp-wrap-overlap', 'var(--sp-six-cap-overlap, 3px)');
         else seat?.style.removeProperty('--sp-wrap-overlap');
       }
       topPods().forEach((pod) => {
@@ -1319,15 +1319,26 @@ export function useProtectedCardLayout(
           .filter((bet) => settled.current.wagers.get(bet)?.landed)
           .map(visibleBox)
           .filter((box): box is CardBox => box !== null);
-        const reservedDealer = placeDealerButton(
-          scaler,
-          canvas,
-          scale,
-          getPoints,
-          obstacles.concat(retainedWagerBoxes),
-          hardObstacles.concat(retainedWagerBoxes),
-          retainedWagerBoxes
-        );
+        // A landed wager must use the dealer's reserved lane as an obstacle,
+        // never displace the button after the player puts chips in.
+        const fixedDealer =
+          settled.current.dealer?.owner ===
+          `${dealerElement?.dataset.ownerX}:${dealerElement?.dataset.ownerY}`;
+        const reservedDealer =
+          fixedDealer && dealerElement
+            ? // Preserve the reserved point through wager changes. A portrait
+              // can settle after artwork decodes or a reveal changes its pod;
+              // recheck ownership without allowing chips to displace the point.
+              placeDealerButton(scaler, canvas, scale, getPoints, obstacles, hardObstacles)
+            : placeDealerButton(
+                scaler,
+                canvas,
+                scale,
+                getPoints,
+                obstacles.concat(retainedWagerBoxes),
+                hardObstacles.concat(retainedWagerBoxes),
+                retainedWagerBoxes
+              );
         if (reservedDealer) {
           obstacles.push(reservedDealer);
           hardObstacles.push(reservedDealer);
