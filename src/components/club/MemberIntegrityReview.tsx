@@ -32,8 +32,17 @@ export function MemberIntegrityReview({
   const [pending, setPending] = useState<string | null>(null);
   const controller = useRef<AbortController | null>(null);
   const alive = useRef(true);
-  const inFlight = useRef(false);
+  const inFlight = useRef<symbol | null>(null);
+  useEffect(() => {
+    inFlight.current = null;
+    setPending(null);
+    setReasons({});
+    setMessage(null);
+    setReview(null);
+    setError(false);
+  }, [scope]);
   const load = useCallback(async () => {
+    if (liveScope.current !== scope) return;
     controller.current?.abort();
     const request = new AbortController();
     controller.current = request;
@@ -41,14 +50,25 @@ export function MemberIntegrityReview({
     setError(false);
     try {
       const current = await readPromoIntegrityReview(clubId, userId, request.signal);
-      if (!request.signal.aborted && alive.current) setReview(current);
+      if (
+        !request.signal.aborted &&
+        alive.current &&
+        liveScope.current === scope &&
+        controller.current === request
+      )
+        setReview(current);
     } catch (failure) {
-      if (!request.signal.aborted && alive.current) {
+      if (
+        !request.signal.aborted &&
+        alive.current &&
+        liveScope.current === scope &&
+        controller.current === request
+      ) {
         reportError(failure, 'MemberIntegrityReview.read');
         setError(true);
       }
     }
-  }, [clubId, userId]);
+  }, [clubId, userId, scope]);
   useEffect(() => {
     alive.current = true;
     void load();
@@ -66,12 +86,14 @@ export function MemberIntegrityReview({
       !review?.cases.some((item) => item.case_id === caseId && item.can_release)
     )
       return;
-    inFlight.current = true;
+    const operation = Symbol();
+    inFlight.current = operation;
     setPending(caseId);
     setMessage(null);
     try {
       await releasePromoIntegrityCase(caseId, reason);
-      if (!alive.current || liveScope.current !== requestScope) return;
+      if (!alive.current || liveScope.current !== requestScope || inFlight.current !== operation)
+        return;
       setMessage(
         'Source Review Recorded. The Separate Promo Play Through Requirement Still Applies.'
       );
@@ -80,15 +102,18 @@ export function MemberIntegrityReview({
       await load();
     } catch (failure) {
       reportError(failure, 'MemberIntegrityReview.release');
-      if (!alive.current || liveScope.current !== requestScope) return;
+      if (!alive.current || liveScope.current !== requestScope || inFlight.current !== operation)
+        return;
       setMessage(
         failure instanceof Error ? failure.message : 'Source Review Could Not Be Confirmed'
       );
       setReasons({});
       await load();
     } finally {
-      inFlight.current = false;
-      if (alive.current && liveScope.current === requestScope) setPending(null);
+      if (inFlight.current === operation) {
+        inFlight.current = null;
+        if (alive.current && liveScope.current === requestScope) setPending(null);
+      }
     }
   };
   return (

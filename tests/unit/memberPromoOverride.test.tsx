@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 const mock = vi.hoisted(() => ({
   override: vi.fn(),
   reload: vi.fn(),
@@ -97,4 +97,42 @@ describe('existing owner promo override', () => {
     await Promise.resolve();
     expect(mock.reload).not.toHaveBeenCalled();
   });
+  it.each(['success', 'unknown'])(
+    'ignores the previous member pending %s override',
+    async (outcome) => {
+      let finish!: (value?: unknown) => void;
+      mock.override
+        .mockReturnValueOnce(
+          new Promise((resolve, reject) => {
+            finish =
+              outcome === 'success' ? resolve : () => reject(new Error('Old Unknown Result'));
+          })
+        )
+        .mockResolvedValue({ success: true });
+      const view = render(<MemberPromoPlayThrough {...props} canOverride />);
+      fireEvent.change(screen.getByLabelText('Reason For Promo Unlock'), {
+        target: { value: 'Old Reason' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Unlock Promo With Reason' }));
+      view.rerender(<MemberPromoPlayThrough {...props} userId={props.clubId} canOverride />);
+      const input = screen.getByLabelText('Reason For Promo Unlock') as HTMLInputElement;
+      expect(input.disabled).toBe(false);
+      expect(input.value).toBe('');
+      fireEvent.change(input, { target: { value: 'New Member Reason' } });
+      await act(async () => {
+        finish({ success: true });
+      });
+      expect(mock.reload).not.toHaveBeenCalled();
+      expect(input.value).toBe('New Member Reason');
+      expect(screen.queryByRole('status')).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: 'Unlock Promo With Reason' }));
+      await waitFor(() => expect(mock.reload).toHaveBeenCalledTimes(1));
+      expect(mock.override).toHaveBeenLastCalledWith(
+        props.clubId,
+        props.clubId,
+        'New Member Reason'
+      );
+      expect(mock.override).toHaveBeenCalledTimes(2);
+    }
+  );
 });

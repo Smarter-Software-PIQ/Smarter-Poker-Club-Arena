@@ -24,7 +24,16 @@ export function MemberPromoPlayThrough({
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const active = useRef(true);
-  const requestInFlight = useRef(false);
+  const scope = `${clubId}:${userId}`;
+  const liveScope = useRef(scope);
+  liveScope.current = scope;
+  const requestInFlight = useRef<symbol | null>(null);
+  useEffect(() => {
+    requestInFlight.current = null;
+    setPending(false);
+    setReason('');
+    setMessage(null);
+  }, [scope]);
   useEffect(() => {
     active.current = true;
     return () => {
@@ -33,25 +42,39 @@ export function MemberPromoPlayThrough({
   }, []);
   const unlock = async () => {
     if (!canOverride || requestInFlight.current || !reason.trim()) return;
-    requestInFlight.current = true;
+    const requestScope = scope;
+    const operation = Symbol();
+    requestInFlight.current = operation;
     setPending(true);
     setMessage(null);
     try {
       await overrideMemberPromoPlayThrough(clubId, userId, reason);
-      if (!active.current) return;
+      if (
+        !active.current ||
+        liveScope.current !== requestScope ||
+        requestInFlight.current !== operation
+      )
+        return;
       setReason('');
       setMessage('Promo Override Recorded. Source Review Holds Require Their Own Review.');
       reload();
     } catch (error) {
       reportError(error, 'MemberPromoPlayThrough.unlock');
-      if (!active.current) return;
+      if (
+        !active.current ||
+        liveScope.current !== requestScope ||
+        requestInFlight.current !== operation
+      )
+        return;
       // Re-read after an unknown outcome; do not replay a financial action.
       reload();
       setReason('');
       setMessage(error instanceof Error ? error.message : 'Promo Unlock Could Not Be Confirmed');
     } finally {
-      requestInFlight.current = false;
-      if (active.current) setPending(false);
+      if (requestInFlight.current === operation) {
+        requestInFlight.current = null;
+        if (active.current && liveScope.current === requestScope) setPending(false);
+      }
     }
   };
   return (

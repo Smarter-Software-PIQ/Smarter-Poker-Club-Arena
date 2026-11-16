@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 const mock = vi.hoisted(() => ({ read: vi.fn(), release: vi.fn() }));
 vi.mock('../../src/lib/supabase', () => ({ supabase: {} }));
 vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
@@ -130,4 +130,44 @@ describe('source review in the member record', () => {
     await Promise.resolve();
     expect(screen.queryByLabelText('Reason For Source Review')).toBeNull();
   });
+  it.each(['success', 'unknown'])(
+    'keeps the next member usable after a pending %s release',
+    async (outcome) => {
+      let finish!: (value?: unknown) => void;
+      mock.read.mockResolvedValue(review);
+      mock.release
+        .mockReturnValueOnce(
+          new Promise((resolve, reject) => {
+            finish =
+              outcome === 'success' ? resolve : () => reject(new Error('Old Unknown Result'));
+          })
+        )
+        .mockResolvedValue({ success: true });
+      const changed = vi.fn();
+      const view = render(
+        <MemberIntegrityReview clubId={clubId} userId={userId} revision={1} onChanged={changed} />
+      );
+      await screen.findByLabelText('Reason For Source Review');
+      fireEvent.change(screen.getByLabelText('Reason For Source Review'), {
+        target: { value: 'Old Reason' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Mark Reviewed And Release Hold' }));
+      view.rerender(
+        <MemberIntegrityReview clubId={clubId} userId={clubId} revision={1} onChanged={changed} />
+      );
+      const input = (await screen.findByLabelText('Reason For Source Review')) as HTMLInputElement;
+      expect(input.disabled).toBe(false);
+      expect(input.value).toBe('');
+      fireEvent.change(input, { target: { value: 'New Member Reason' } });
+      await act(async () => {
+        finish({ success: true });
+      });
+      expect(changed).not.toHaveBeenCalled();
+      expect(mock.read).toHaveBeenCalledTimes(2);
+      expect(input.value).toBe('New Member Reason');
+      fireEvent.click(screen.getByRole('button', { name: 'Mark Reviewed And Release Hold' }));
+      await waitFor(() => expect(changed).toHaveBeenCalledTimes(1));
+      expect(mock.release).toHaveBeenCalledTimes(2);
+    }
+  );
 });
