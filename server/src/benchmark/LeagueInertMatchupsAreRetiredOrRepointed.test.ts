@@ -60,6 +60,9 @@ describe('UNMEASURABLE_MATCHUPS', () => {
         // Fixed-Limit lane W8 (2026-11-15): the strong river lead.
         'flh_river_strong_hand_leads',
         'flo8_river_strong_hand_leads',
+        // Fixed-Limit lane (2026-11-16): F1b, the read-time probe guard, its own default-off option.
+        'flh_read_ignores_probes',
+        'flo8_read_ignores_probes',
         // PLO Strategy (2026-11-15): the league seats no VPIP-floor table.
         'plo4_omaha_vpip_floor_by_limp',
         'plo5_omaha_vpip_floor_by_limp',

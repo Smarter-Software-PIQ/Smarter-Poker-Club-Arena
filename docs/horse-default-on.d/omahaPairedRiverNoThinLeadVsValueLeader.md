@@ -54,3 +54,4 @@ Status: MET
 - "Value-heavy" is read from frequencies (bet when checked to, fold to a bet, river call); the counters hold no showdown strength.
 - Every live opponent must be a measured value leader; a pot with any unknown player keeps today's play.
 - Live behaviour is unverified: the option is off.
+- In position, heads-up, on the wider paired-board line (`omahaPairedBoardNoBoatSpot`), the check is decided by a priced comparison run through the card-impact model (`omahaCardImpactDecision`, called by `omahaPairedBoardPricedCheck`), whether `omahaCardImpact` is on or off. That model's response constants are unfitted priors (`omahaCardImpact.md`, Value NOT MET), so the in-position comparison is not measured (stated 2026-11-16, review note N7).

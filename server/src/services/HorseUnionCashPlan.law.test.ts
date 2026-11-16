@@ -12,6 +12,7 @@ import {
   resetHumanPresenceMemoryForTest,
 } from './HorseUnionCashPlan.js';
 import { secondTablePicked } from './HorseBehavior.js';
+import { CASH_VARIANTS_RESTORED_START_MS as restored } from './HorseCashSchedule.js';
 
 const at = (s: string) => Date.parse(s);
 const allowed = (table: CashPlanTable, humans: number, now: number) =>
@@ -35,13 +36,13 @@ const high = {
 
 describe('the union cash floor follows the November 11 relaunch (zero game-count restrictions)', () => {
   it('schedules every plan game at every hour of every day, with the target tripled', () => {
-    expect(plan.games).toHaveLength(28);
+    expect(plan.games).toHaveLength(31);
     expect(plan.games.every((game) => game.window === 'always')).toBe(true);
     expect(plan.weeklyRakeTarget).toBe(600000);
     for (let hour = 0; hour < 168; hour++) {
       const now = at('2026-11-09T00:00:00-06:00') + hour * 3600000 + 30 * 60000;
       const scheduled = scheduledHorseCashGames(now);
-      expect(scheduled.size).toBe(28);
+      expect(scheduled.size).toBe(31);
       const variants = plan.games
         .filter((game) => scheduled.has(game.id))
         .map((game) => game.variant);
@@ -113,7 +114,7 @@ describe('the union cash floor follows the November 11 relaunch (zero game-count
       '2027-11-07T01:30:00-05:00',
       '2027-11-07T01:30:00-06:00',
     ])
-      expect(scheduledHorseCashGames(at(date)).size).toBe(28);
+      expect(scheduledHorseCashGames(at(date)).size).toBe(31);
   });
   it('does not turn lower-stakes games into human-only games', () => {
     const now = at('2026-11-04T05:00:00-06:00');
@@ -155,6 +156,46 @@ describe('the union cash floor follows the November 11 relaunch (zero game-count
     expect(allowed({ ...high, game_variant: 'flh', small_blind: 5, big_blind: 10 }, 1, now)).toBe(
       true
     );
+    // After the November 14 restore the three variants keep the .50/1 ceiling:
+    // a human at a higher-stakes table never lets a Horse past it.
+    for (const later of [restored, restored + 30 * 86400000])
+      for (const game_variant of ['pineapple', 'short_deck', 'plo8']) {
+        expect(allowed({ ...high, game_variant }, 1, later)).toBe(false);
+        expect(
+          allowed({ ...high, game_variant, small_blind: 0.75, big_blind: 1.5 }, 1, later)
+        ).toBe(false);
+      }
+  });
+  /* Owner direction November 14 (19:07, 19:10 and 20:42 Chicago): short deck,
+     pineapple and PLO8 cash made operational (overwatch decision, 19:22 delegation).
+     One Midway Classic .50/1 game per variant joins the plan on the existing
+     around-the-clock window; nothing else about the plan changes. */
+  const restoredGames = [
+    ['a7067b2e-50f9-47b4-975c-79468f907a65', 'short_deck'],
+    ['be58fe80-1744-44fa-92e8-dfe3c7c7ba55', 'pineapple'],
+    ['c1094914-d1cd-4a4e-940d-aba9e8acbcec', 'plo8'],
+  ] as const;
+  it('schedules one Midway Classic .50/1 game for each restored variant, around the clock', () => {
+    for (const [id, variant] of restoredGames) {
+      const game = plan.games.find((g) => g.id === id);
+      expect(game).toMatchObject({ window: 'always', variant, smallBlind: 0.5, bigBlind: 1 });
+      expect(plan.games.filter((g) => g.variant === variant)).toHaveLength(1);
+    }
+  });
+  it('seats Horses at a restored game Main 1 from the owner direction on, with no human needed', () => {
+    for (const [cluster_id, game_variant] of restoredGames) {
+      const main1 = { ...low, id: `main-${game_variant}`, cluster_id, game_variant };
+      const table = { ...main1, small_blind: 0.5, big_blind: 1 };
+      for (const hour of [0, 4, 9, 13, 18, 23])
+        expect(allowed(table, 0, restored + hour * 3600000)).toBe(true);
+      // Before the restore the November 1 exclusion still answers, as it did.
+      expect(allowed(table, 0, restored - 1)).toBe(false);
+      // The plan names the game, the stake and Main 1; nothing else is seeded.
+      expect(allowed({ ...table, small_blind: 0.25, big_blind: 0.5 }, 0, restored)).toBe(false);
+      expect(allowed({ ...table, main_index: 2 }, 0, restored)).toBe(false);
+      expect(allowed({ ...table, role: 'feeder', main_index: null }, 0, restored)).toBe(false);
+      expect(allowed({ ...table, game_variant: 'nlh' }, 0, restored)).toBe(false);
+    }
   });
   it('preserves non-union games, tournaments, Spins and pre-policy behavior', () => {
     const now = at('2026-11-04T05:00:00-06:00');
@@ -274,6 +315,33 @@ describe('a game may run a second table (Dan 2026-11-06)', () => {
     const primary = horseCashPlanPrimaryTables([main1, bad]);
     const second = horseCashPlanSecondTables([main1, bad], primary, () => true);
     expect(horseUnionCashTableAllowed(bad, 0, now, primary, null, null, second)).toBe(false);
+  });
+  it('a restored variant second table follows its Main 1 inside the .50/1 ceiling only', () => {
+    const restoredMain = {
+      ...main1,
+      cluster_id: 'a7067b2e-50f9-47b4-975c-79468f907a65',
+      game_variant: 'short_deck',
+      small_blind: 0.5,
+      big_blind: 1,
+    };
+    const restoredFeeder = {
+      ...feeder,
+      ...restoredMain,
+      id: 'f1',
+      role: 'feeder',
+      main_index: null,
+    };
+    const all = [restoredMain, restoredFeeder];
+    const primary = horseCashPlanPrimaryTables(all);
+    const second = horseCashPlanSecondTables(all, primary, () => true, restored);
+    expect([...second]).toEqual(['f1']);
+    expect(
+      horseUnionCashTableAllowed(restoredFeeder, 0, restored, primary, null, null, second)
+    ).toBe(true);
+    const tooHigh = { ...restoredFeeder, small_blind: 1, big_blind: 2 };
+    expect(horseUnionCashTableAllowed(tooHigh, 0, restored, primary, null, null, second)).toBe(
+      false
+    );
   });
 });
 

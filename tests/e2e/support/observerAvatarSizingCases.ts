@@ -1,3 +1,4 @@
+import { readMobileTableLayout } from './mobileLiveTableLayout';
 import { checkFixedMobileArtwork, FIXED_MOBILE_ARTWORK_CASES } from './mobileAvatarSizingCases';
 import { test, expect } from '@playwright/test';
 import { buildSync } from 'esbuild';
@@ -10,6 +11,7 @@ export function registerObserverAvatarSizingCases() {
   for (const [width, height, emptyBottom, mobileArtwork] of [
     [320, 568, false, undefined],
     [467, 994, false, undefined],
+    [600, 1277, true, undefined],
     [600, 1277, false, undefined], // The production phone's desktop-reference viewport.
     [652, 996, false, undefined],
     [652, 996, true, undefined],
@@ -231,6 +233,12 @@ export function registerObserverAvatarSizingCases() {
               ].map(rect),
             };
           }, alphaRows);
+        if (width === 600) {
+          const report = await page.evaluate(readMobileTableLayout, {});
+          expect(report.violations.filter((v) => /Nine-Max.*Rail|Rail.*Nine-Max/.test(v))).toEqual(
+            []
+          );
+        }
         const before = await measure();
         expect(Math.max(...before.heights) - Math.min(...before.heights)).toBeLessThan(0.05);
         const footer = await page.locator('.spectator-footer-bar').boundingBox();

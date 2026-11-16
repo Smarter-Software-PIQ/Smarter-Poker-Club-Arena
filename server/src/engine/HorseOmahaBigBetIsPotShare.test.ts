@@ -12,6 +12,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { HorseLogic, OMAHA_BIG_BET_POT_SHARE, type HorseDecideOpts } from './HorseLogic.js';
 import { HorseMind } from './HorseMind.js';
+import { withoutMeasurements } from './HorseDeclaredWork.test-support.js';
 import { omahaAggressorTier, seedFastRandom, type OppPostflopRead } from './HorseEval.js';
 import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
 import { replayProfiles, stateAt } from './HorseComplaintReplay.js';
@@ -47,9 +48,7 @@ function play(
       observeMind: false,
       ...opts,
     } as never);
-    out.bytes.push(
-      JSON.stringify(d, (k, v) => (k === 'latencyMs' || k === 'elapsedMs' ? undefined : v))
-    );
+    out.bytes.push(JSON.stringify(withoutMeasurements(d)));
     out.actions.push(d.action);
     out.fires.push(drainFires().map((f) => f.feature));
   }
@@ -183,9 +182,7 @@ describe('omahaBigBetIsPotShare in the decision', () => {
             observeMind: false,
             ...opts,
           } as never);
-          bytes.push(
-            JSON.stringify(d, (k, v) => (k === 'latencyMs' || k === 'elapsedMs' ? undefined : v))
-          );
+          bytes.push(JSON.stringify(withoutMeasurements(d)));
         }
         return bytes;
       };

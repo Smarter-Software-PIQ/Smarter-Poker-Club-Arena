@@ -52,3 +52,25 @@ describe('nine-seat lanes on a 320px phone', () => {
     }
   });
 });
+
+describe('nine-seat full-game phone canvas', () => {
+  it.each([0, 0.25])(
+    'keeps side chairs on the table when page gutters widen (taper %s)',
+    (portraitTaper) => {
+      const sides = seatLayoutFor(9).filter((seat) => seat.y >= 20 && seat.y < 100);
+      expect(sides).toHaveLength(6);
+      for (const seat of sides) {
+        const canvas = { w: 450, h: 630, portraitTaper };
+        const pod = seatPodPx(600, false, canvas.w, { seats: 9, canvasHeightPx: canvas.h });
+        const fitted = fitSeatToViewport(seat, canvas, 600, pod, 75, 9);
+        const distanceFromSide = Math.min(fitted.x, 100 - fitted.x);
+        expect(distanceFromSide).toBeGreaterThanOrEqual(seat.y === 82.5 ? 7 : 3.5);
+        expect(distanceFromSide).toBeLessThan(16);
+      }
+    }
+  );
+  it('reserves the enlarged nine-seat hero diameter in marker geometry', () => {
+    const hero = seatPodPx(600, true, 500, { seats: 9, canvasHeightPx: 720 });
+    expect(hero.w).toBeGreaterThanOrEqual((((500 * 0.158 * 4) / 3) * 8) / 7 - 0.01);
+  });
+});

@@ -372,6 +372,8 @@ export interface ChipAnimationEvent {
 }
 
 interface ChipAnimationManagerProps {
+  onPaint?: (events: ChipAnimationEvent[]) => void;
+  playbackRate?: number;
   animations: ChipAnimationEvent[];
   floats?: Array<{
     id: number;
@@ -396,6 +398,8 @@ export function ChipAnimationManager(props: ChipAnimationManagerProps) {
 function ActiveChipAnimationManager({
   animations,
   floats = NO_POT_FLOATS,
+  onPaint,
+  playbackRate = 1,
   onAnimationComplete,
 }: ChipAnimationManagerProps) {
   const frameRef = useRef<HTMLDivElement>(null);
@@ -433,6 +437,9 @@ function ActiveChipAnimationManager({
       window.removeEventListener('resize', measure);
     };
   }, []);
+  useLayoutEffect(() => {
+    if (measured) onPaint?.(animations);
+  }, [measured, onPaint, animations]);
   const local = (point: Position) =>
     viewportPointInFrame(point, frame, frame.localWidth, frame.localHeight);
   // Children capture their initial coordinates on mount; measure the scaled
@@ -471,7 +478,7 @@ function ActiveChipAnimationManager({
           chipColor={anim.chipColor}
           denomValue={anim.denomValue}
           delay={anim.delay || 0}
-          duration={anim.type === 'to-winner' ? 600 : 400}
+          duration={(anim.type === 'to-winner' ? 600 : 400) / playbackRate}
           useArc={anim.type !== 'straight'}
           arcHeight={anim.type === 'to-winner' ? -0.3 : -0.4}
           showLabel={anim.showLabel !== false}

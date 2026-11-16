@@ -12,7 +12,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { seedFastRandom } from './HorseEval.js';
-import { HorseLogic, type HorseDecideOpts } from './HorseLogic.js';
+import { HorseLogic, omahaStreetPlanFromRiver, type HorseDecideOpts } from './HorseLogic.js';
 import { withOmahaTournamentScope } from './HorseOmahaTournamentScope.js';
 
 type HorseDecision = ReturnType<typeof HorseLogic.decide>;
@@ -69,6 +69,8 @@ const forced = vi.hoisted(() => ({
   planRuns: 0,
   /** the turn plan, re-read on the river, calls this river */
   planCallsRiver: false,
+  /** how often the plan's river verdict was asked */
+  planRiverVerdicts: 0,
   /** the big-draw rule prices a half-pot bet above the check */
   drawBet: false,
 }));
@@ -130,10 +132,12 @@ vi.mock('./HorseOmahaStreetPlan.js', async (original) => {
       const lines = plan.lines.map((l, i) => (i === 0 ? { ...l, ev: plan.lines[1].ev + 1e6 } : l));
       return { ...plan, lines };
     },
-    omahaPlanRiverVerdict: (...a: unknown[]) =>
-      forced.planCallsRiver
+    omahaPlanRiverVerdict: (...a: unknown[]) => {
+      forced.planRiverVerdicts++;
+      return forced.planCallsRiver
         ? 'call'
-        : (real.omahaPlanRiverVerdict as (...x: unknown[]) => unknown)(...a),
+        : (real.omahaPlanRiverVerdict as (...x: unknown[]) => unknown)(...a);
+    },
   };
 });
 vi.mock('./HorseOmahaMadeHandDefense.js', async (original) => {
@@ -227,6 +231,7 @@ afterEach(() => {
     planChecks: false,
     planRuns: 0,
     planCallsRiver: false,
+    planRiverVerdicts: 0,
     drawBet: false,
   });
   HorseMind.setDecisionScope(null);
@@ -787,33 +792,37 @@ describe('TOURNAMENT conflict sweep 2026-11-15, the open findings', () => {
     expect(on.refusals).toEqual(SEEDS.map(() => null));
   });
 
-  // Cash-only by design in a tournament hand: the street plan's river follow
-  // (the plan that calls this river) does not run there, so nothing yields.
-  it.skip('S1: the facing-bet expected value yields to a turn plan that calls this river', () => {
+  // The street plan's river follow (the turn plan that calls this river) is
+  // cash-only by design: in a tournament hand it does not run, so the
+  // facing-bet expected value yields to nothing and stays the single decider.
+  it('S1 in a tournament: the street plan’s river follow does not run, even when a plan asked there would call', () => {
     const PLAN_EV: HorseDecideOpts = { omahaStreetPlan: true, omahaFacingBetEv: true };
+    const build = () => facingAfterCheck(ACES, RIVER, 0.5);
     forced.evCall = false;
-    // without a plan that calls, the verdict (a fold) is the single decider
-    const noPlan = play(() => facingAfterCheck(ACES, RIVER, 0.5), PLAN_EV, false);
-    expect(fired(noPlan, 'omaha_facing_bet_ev_fold')).toBe(SEEDS.length);
-    expect(all(noPlan, 'fold')).toBe(true);
+    // the verdict alone (a fold) decides
+    const evOnly = play(build, { omahaFacingBetEv: true }, false);
+    expect(all(evOnly, 'fold')).toBe(true);
+    // a plan that, if it were asked on this river, would answer "call"
     forced.planCallsRiver = true;
-    const planOnly = play(
-      () => facingAfterCheck(ACES, RIVER, 0.5),
-      { omahaStreetPlan: true },
-      false
-    );
-    const both = play(() => facingAfterCheck(ACES, RIVER, 0.5), PLAN_EV, false);
-    expect(fired(both, 'omaha_facing_bet_ev_fold')).toBe(0);
+    forced.planRiverVerdicts = 0;
+    const st = build();
+    expect(
+      omahaStreetPlanFromRiver(st.hero, st.gs, { omahaStrategyInTournaments: true, ...PLAN_EV })
+    ).toBeNull();
+    const both = play(build, PLAN_EV, false);
+    const planOnly = play(build, { omahaStreetPlan: true }, false);
+    const neither = play(build, {}, false);
+    // the plan's river verdict is never asked, and no decision follows a plan
+    expect(forced.planRiverVerdicts).toBe(0);
+    expect(fired(both, 'omaha_street_plan_followed')).toBe(0);
+    expect(fired(planOnly, 'omaha_street_plan_followed')).toBe(0);
+    // with the plan on, every decision is the decision without it
+    expect(both.actions).toEqual(evOnly.actions);
+    expect(both.amounts).toEqual(evOnly.amounts);
+    expect(fired(both, 'omaha_facing_bet_ev_fold')).toBe(fired(evOnly, 'omaha_facing_bet_ev_fold'));
     expect(fired(both, 'omaha_facing_bet_ev_call')).toBe(0);
-    expect(both.actions).toEqual(planOnly.actions);
-    expect(fired(both, 'omaha_street_plan_followed')).toBe(
-      fired(planOnly, 'omaha_street_plan_followed')
-    );
-    // a followed plan ends in the call it planned
-    both.fires.forEach((f, i) => {
-      if (f.includes('omaha_street_plan_followed'))
-        expect(['call', 'all_in']).toContain(both.actions[i]);
-    });
+    expect(planOnly.actions).toEqual(neither.actions);
+    expect(planOnly.amounts).toEqual(neither.amounts);
   });
 
   it('audit item 7: the street plan attaches its record to a copy; the validator and a JSON round trip carry the field', () => {

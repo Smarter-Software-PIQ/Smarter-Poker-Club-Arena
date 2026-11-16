@@ -199,6 +199,11 @@ describe('the felt reserves stay fixed through hand and action states', () => {
     // table is doing right now, and the table must look the same doing any of it.
     const STATE =
       /\[data-|:has\(|\.ca-raising|--hero-turn|--allin|--winner|--active|--open|:hover|:focus|:active|\bbody\./;
+    const sixSeatSelector = ".table-page[data-seats='6'] .table-container";
+    const sixSeatReserves = [
+      '64px',
+      'min( calc(0.0811667 * 88vw + 45px), calc( (0.0568167 * (var(--sp-page-h) - var(--sp-table-top) - var(--sp-action-reserve)) + 45px) / 1.0568167 ) )',
+    ];
     const offenders: string[] = [];
     for (const prop of GEOMETRY_PROPS) {
       for (const d of declarationsOf(prop)) {
@@ -206,22 +211,17 @@ describe('the felt reserves stay fixed through hand and action states', () => {
         // reserve clears the permanent hero plate, independent of hand state.
         const fixedShortRing =
           prop === '--sp-hero-clear' &&
-          d.selector === ".table-page[data-seats='6'] .table-container" &&
-          d.value === '64px';
-        // The equal-portrait phone reserve is also fixed table configuration:
-        // neither seat occupancy nor hero/hand/action state selects it.
-        const fixedPortraitRing =
-          prop === '--sp-hero-clear' &&
-          d.selector === ".table-page:where([data-seats='6'], [data-seats='9']) .table-container";
-        if (!fixedShortRing && !fixedPortraitRing && STATE.test(d.selector))
+          d.selector === sixSeatSelector &&
+          sixSeatReserves.includes(d.value.replace(/\s+/g, ' '));
+        if (!fixedShortRing && STATE.test(d.selector))
           offenders.push(`${prop} declared on "${d.selector}"`);
       }
     }
     expect(
-      declarationsOf('--sp-hero-clear').filter(
-        (d) => d.selector === ".table-page[data-seats='6'] .table-container"
-      )
-    ).toEqual([{ selector: ".table-page[data-seats='6'] .table-container", value: '64px' }]);
+      declarationsOf('--sp-hero-clear')
+        .filter((d) => d.selector === sixSeatSelector)
+        .map((d) => d.value.replace(/\s+/g, ' '))
+    ).toEqual(sixSeatReserves);
     expect(ALL_CSS).toMatch(
       /@media\s*\(max-width:\s*375px\)\s*and\s*\(max-height:\s*700px\)\s*and\s*\(orientation:\s*portrait\)\s*\{\s*\.table-page\[data-seats='6'\]\s+\.table-container\s*\{\s*--sp-hero-clear:\s*64px;/
     );

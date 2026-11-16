@@ -66,6 +66,10 @@ function anchorEngine() {
     pendingSitOut: new Set(),
     leaveHeldByClock: new Map(),
     returningFromSitout: new Set(),
+    waitingForBB: new Set(),
+    postBBWhenClear: new Set(),
+    postingBBToEnter: new Set(),
+    pendingPostToEnter: new Set(),
     disconnectEngine: disconnectEngine(),
     chipContinuity: {
       evaluate: vi.fn(async () => []),
