@@ -70,7 +70,7 @@ export function derivePositions(
   out[at(2)] = 'BB';
 
   const middleCount = n - 3;
-  const labels = MIDDLE_LABELS[middleCount];
+  const labels = n === 8 ? ['UTG', 'UTG+1', 'MP', 'MP+1', 'CO'] : MIDDLE_LABELS[middleCount];
   for (let i = 0; i < middleCount; i += 1) {
     // Fall back to UTG+k for tables bigger than any label list.
     out[at(3 + i)] = labels ? labels[i] : i === 0 ? 'UTG' : `UTG+${i}`;
