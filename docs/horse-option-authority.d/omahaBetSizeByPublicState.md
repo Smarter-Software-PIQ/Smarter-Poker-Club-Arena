@@ -23,13 +23,13 @@ omaha_public_bet_size_applied, omaha_public_bet_size_committed, omaha_public_bet
 
 ## Tests
 
-HorseBetSizeByPublicState.test.ts (200 private hands on two recorded public states give one size per public draw and one size distribution; the action equals the option-off action; unset, false and truthy non-boolean are byte-identical; no illegal size on 2,000 random public spots), aBetSizeIsPublicInformationOnly.law.test.ts (the size function and its spot take no private input).
+HorseBetSizeByPublicState.test.ts (all pass; 200 private hands on two recorded public states give one size per public draw and one size distribution; the action equals the option-off action; unset, false and truthy non-boolean are byte-identical; no illegal size on 2,000 random public spots), aBetSizeIsPublicInformationOnly.law.test.ts (the size function and its spot take no private input).
 
 ## Evidence rows
 
 - Mechanism, scope, visibility (receipts), tests: MET.
-- Option unset: decisions identical to the base (decision digest, plo4/plo5 x dev/horse, 150 pairs, seed 5560001).
-- Chips: league check sizing-20261116/PROTOCOL.md (3 seeds x 4,000 pairs, PLO4 and PLO5, the day's live options at every seat). The league's opponents do not read bet sizes, so it can only show the public sizes do not cost chips against Horses; it cannot show the tell is closed against people.
+- Option unset or false: decisions identical to the base (decision digest, plo4/plo5 x dev/horse, 150 pairs, seed 5560001, on e7e5f5dbc28: b5031a14 / 1adfd8e3 / 5b8cac9c / f5ed6fa1, the same four cells unset and false; sizing-20261116/fp-unset.json, fp-false.json).
+- Chips: MET (does not cost chips). League check sizing-20261116/PROTOCOL.md on e7e5f5dbc28: 6 seats, 100 bb, hybrid baseline, the day's 32 live options at every seat, 3 seeds (5590001-3) x 4,000 mirrored pairs per game, option on (3 seats) over off (3 seats). PLO4 +0.34 bb/100, SE 1.07, band [-1.80, +2.48] (seeds +0.08 / +0.00 / +0.94); PLO5 -0.72 bb/100, SE 1.09, band [-2.90, +1.46] (seeds +4.05 / -2.94 / -3.25). Neither loses beyond 2 SE; 918-1,010 of 4,000 pairs diverge per run; 0 illegal, 0 truncated, 0 fallbacks. The league's opponents do not read bet sizes, so this shows only that the public sizes do not cost chips against Horses; it cannot show the tell is closed against people. (A first run on b6f1786e15b was void: the option was inert in the league, fixed in e7e5f5dbc28.)
 - Value against humans, reach: NOT MET; a live read is owed.
 
 ## Limits
