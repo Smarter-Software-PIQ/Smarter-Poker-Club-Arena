@@ -236,7 +236,11 @@ describe('P12.3 completion reader, stage 2: the record admission reads', () => {
     expect(record.releaseSha).toBe(head);
     expect(record.policyDigest).toBe(
       horsePhase12PolicyDigestOf('short_deck', (file) =>
-        execFileSync('git', ['show', `${head}:server/${file}`], { cwd: serverRoot })
+        execFileSync('git', ['show', `${head}:server/${file}`], {
+          cwd: serverRoot,
+          // HorseLogic.ts passed the 1 MiB default on 2026-11-15; the command itself reads with 64 MiB.
+          maxBuffer: 64 * 1024 * 1024,
+        })
       )
     );
     expect(JSON.parse(run.stderr.trim().split('\n').at(-1)!)).toMatchObject({ records: 5 });
