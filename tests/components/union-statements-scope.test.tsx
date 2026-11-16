@@ -102,6 +102,11 @@ vi.mock('../../src/components/agent/UnionAccountingRunStatus', () => ({
   default: ({ unionId }: { unionId: string }) => <div>Accounting {unionId}</div>,
 }));
 
+// The Weekly Rakeback Status section has its own reader and its own test.
+vi.mock('../../src/components/union/WeeklyRakebackStatus', () => ({
+  default: ({ unionId }: { unionId: string }) => <div>Weekly Rakeback {unionId}</div>,
+}));
+
 import UnionStatementsPage from '../../src/pages/UnionStatementsPage';
 
 function deferred<T>() {

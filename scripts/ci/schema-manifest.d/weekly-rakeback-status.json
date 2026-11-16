@@ -1,0 +1,4 @@
+{
+  "_owner": "feat/weekly-rakeback-status. Migration 20261116020505: the read-only Weekly Rakeback Status reader for the Union Statements page. Installed through apply-merged-migration after merge.",
+  "functions": ["ca_union_weekly_rakeback_status"]
+}
