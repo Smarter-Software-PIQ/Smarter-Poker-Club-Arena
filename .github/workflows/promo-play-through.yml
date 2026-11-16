@@ -17,6 +17,16 @@ on:
       - scripts/ci/test-signup-promo-identity.py
       - tests/fixtures/signup-promo-identity/**
       - scripts/ci/test-promo-play-through.py
+      - supabase/migrations/*_promo_principal_*.sql
+      - scripts/ci/test-promo-custody.py
+      - scripts/ci/test-promo-custody-accepted-hand.py
+      - tests/fixtures/promo-custody-inventory-pin.json
+      - scripts/ci/migration-stale-pins.mjs
+      - scripts/ci/test-accepted-hand-roster.py
+      - scripts/ci/test-hand-submission.py
+      - scripts/ci/probes/accepted-hand-roster-fixture.sql
+      - scripts/ci/fixtures/hand-submission/**
+      - tests/fixtures/ev-cashout-lifecycle/captured-authorities.json
       - supabase/migrations/*_promo_funded_fees_*.sql
       - scripts/ci/test-promo-fee-basis.py
       - tests/fixtures/promo-fee-basis/**
@@ -45,6 +55,12 @@ jobs:
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 scripts/ci/test-promo-play-through.py --output artifacts/promo-play-through
+      - name: Promo principal follows wallet and table custody
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/test-promo-custody.py --output artifacts/promo-custody
+      - name: Promo custody runs in the original accepted hand
+        run: python3 -B scripts/ci/test-promo-custody-accepted-hand.py --pg-bin /usr/lib/postgresql/17/bin --output artifacts/promo-custody-accepted-hand
       - name: Signup promo identity and credit transaction
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
@@ -58,6 +74,8 @@ jobs:
           name: promo-play-through-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             artifacts/promo-play-through/RESULTS.json
+            artifacts/promo-custody/RESULTS.json
+            artifacts/promo-custody-accepted-hand/RESULTS.json
             artifacts/signup-promo-identity/RESULTS.json
             artifacts/promo-fee-basis/RESULTS.json
           retention-days: 7
