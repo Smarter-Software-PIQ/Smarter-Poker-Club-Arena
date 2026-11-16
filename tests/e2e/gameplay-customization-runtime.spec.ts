@@ -1,3 +1,4 @@
+import { countdownPlacementError } from './support/countdownFeltGeometry';
 import {
   verifyPublishedControllerSettings,
   expectPublishedControllerSettings,
@@ -1680,9 +1681,43 @@ test.describe('production routed gameplay customization', () => {
           await blockProjectedTableWrites(page);
           await page.goto(`table/${tableId}`, { waitUntil: 'domcontentloaded' });
           expect(await page.evaluate(() => screen.width)).toBe(393);
-          await expectClassicCountdownOnFelt(
-            page.locator('.multi-table-page__table-slot--active .table-page')
-          );
+          const root = page.locator('.multi-table-page__table-slot--active .table-page');
+          await expectClassicCountdownOnFelt(root);
+          await expect(root.locator('.table-art-cover')).toBeHidden({ timeout: 30_000 });
+          await expect(root.locator('.seat-wrapper--hero .seat__info')).toBeVisible();
+          const geometry = await root.evaluate((el) => {
+            const rect = (selector: string) => {
+              const target = el.querySelector(selector);
+              if (!target) throw new Error('Missing layout element: ' + selector);
+              return target.getBoundingClientRect().toJSON();
+            };
+            return {
+              pill: rect('[data-testid="hit-run-count-pill"] button'),
+              felt: rect('.table-surface'),
+              hand: rect('.table-brand__line--hand'),
+              heroPanels: [
+                rect('.seat-wrapper--hero .seat__info'),
+                ...Array.from(
+                  el.querySelectorAll('.hero-vpip [data-testid="vpip-badge"]'),
+                  (badge) => badge.getBoundingClientRect().toJSON()
+                ).filter((box) => box.width && box.height),
+              ],
+            };
+          });
+          console.log('[393px-countdown-geometry]', JSON.stringify(geometry));
+          await test.info().attach('393px-countdown-geometry', {
+            contentType: 'application/json',
+            body: JSON.stringify(geometry),
+          });
+          expect(
+            countdownPlacementError(
+              geometry.pill,
+              geometry.felt,
+              geometry.hand,
+              geometry.heroPanels
+            ),
+            JSON.stringify(geometry)
+          ).toBeNull();
         } finally {
           await phone.close();
         }
