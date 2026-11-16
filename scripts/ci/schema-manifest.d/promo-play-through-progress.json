@@ -4,7 +4,6 @@
   "functions": [
     "fn_ca_my_promo_play_through",
     "fn_ca_members_promo_play_through",
-    "fn_ca_promo_play_through_on_real_chips",
     "fn_ca_promo_play_through_override",
     "fn_ca_promo_daily_digest",
     "fn_ca_promo_integrity_read",

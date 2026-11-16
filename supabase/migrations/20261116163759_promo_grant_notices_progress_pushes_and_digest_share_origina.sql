@@ -1,6 +1,6 @@
 -- @install-window: daily-maintenance
 -- @locks: public.rake_attributions, public.accounting_tournament_fee_sources, public.ledger_reconcile_log
--- @live-proof: EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.rake_attributions'::regclass AND tgname='ca_promo_fee_notice' AND tgenabled='O') AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.accounting_tournament_fee_sources'::regclass AND tgname='ca_promo_entry_notice' AND tgenabled='O') AND EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public.ledger_reconcile_log'::regclass AND conname='ledger_reconcile_log_entity_type_check' AND convalidated AND position('promo_principal_custody' in pg_get_constraintdef(oid))>0) AND EXISTS (SELECT 1 FROM pg_proc WHERE oid='public.reconcile_ledger_nightly()'::regprocedure AND position('fn_ca_promo_custody_reconcile_rows' in prosrc)>0) AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.ca_promo_integrity_releases'::regclass AND tgname='ca_promo_integrity_release_notice' AND tgenabled='O') AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.ca_promo_event_fee_consumption_receipts'::regclass AND tgname='ca_promo_paid_entry_notice' AND tgenabled='O') AND to_regprocedure('public.fn_ca_promo_notice_profit_unlocked(uuid,timestamptz)') IS NOT NULL AND NOT has_function_privilege('authenticated','public.fn_ca_promo_notice_profit_unlocked(uuid,timestamptz)','EXECUTE')
+-- @live-proof: EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.rake_attributions'::regclass AND tgname='ca_promo_fee_notice' AND tgenabled='O') AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.accounting_tournament_fee_sources'::regclass AND tgname='ca_promo_entry_notice' AND tgenabled='O') AND EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public.ledger_reconcile_log'::regclass AND conname='ledger_reconcile_log_entity_type_check' AND convalidated AND position('promo_principal_custody' in pg_get_constraintdef(oid))>0) AND EXISTS (SELECT 1 FROM pg_proc WHERE oid='public.reconcile_ledger_nightly()'::regprocedure AND position('FROM public.ca_promo_play_through_grants g LEFT JOIN public.ca_promo_principal_custody c' in prosrc)>0) AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.ca_promo_integrity_releases'::regclass AND tgname='ca_promo_integrity_release_notice' AND tgenabled='O') AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.ca_promo_event_fee_consumption_receipts'::regclass AND tgname='ca_promo_paid_entry_notice' AND tgenabled='O') AND to_regprocedure('public.fn_ca_promo_notice_profit_unlocked(uuid,timestamptz)') IS NOT NULL AND NOT has_function_privilege('authenticated','public.fn_ca_promo_notice_profit_unlocked(uuid,timestamptz)','EXECUTE')
 -- Existing notification delivery owns push preferences, caps and devices.
 -- Notices observe original grants and accepted fees; they never settle a grant,
 -- acquire a member wallet lock, return chips or change an earned fee.
@@ -234,15 +234,6 @@ REVOKE ALL ON FUNCTION public.fn_ca_promo_integrity_release_notice() FROM PUBLIC
 CREATE TRIGGER ca_promo_integrity_release_notice AFTER INSERT ON public.ca_promo_integrity_releases
  FOR EACH ROW EXECUTE FUNCTION public.fn_ca_promo_integrity_release_notice();
 
-CREATE FUNCTION public.fn_ca_promo_custody_reconcile_rows()
-RETURNS TABLE(grant_id uuid,club_id uuid,user_id uuid,remaining numeric,custody numeric)
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path='public','pg_temp' AS $$
- SELECT g.id,g.club_id,g.user_id,g.remaining,COALESCE(sum(c.amount),0)
- FROM public.ca_promo_play_through_grants g LEFT JOIN public.ca_promo_principal_custody c ON c.grant_id=g.id
- GROUP BY g.id HAVING g.closed_at IS NULL OR COALESCE(sum(c.amount),0)<>0;
-$$;
-REVOKE ALL ON FUNCTION public.fn_ca_promo_custody_reconcile_rows() FROM PUBLIC,anon,authenticated,service_role;
-
 CREATE FUNCTION public.fn_ca_promo_daily_digest(p_day date DEFAULT NULL)
 RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path='public','pg_temp' AS $$
 DECLARE day date:=COALESCE(p_day,(clock_timestamp() AT TIME ZONE 'America/Chicago')::date-1);lo timestamptz;hi timestamptz;rows jsonb;clubs jsonb;
@@ -308,7 +299,11 @@ BEGIN
   SELECT 'promo_principal_custody',p.grant_id,p.remaining,p.custody,
    CASE WHEN p.remaining=p.custody THEN 'ok' ELSE 'critical' END,
    jsonb_build_object('source','reconcile_ledger_nightly','club_id',p.club_id,'user_id',p.user_id)
-  FROM public.fn_ca_promo_custody_reconcile_rows() p;
+  FROM (
+   SELECT g.id AS grant_id,g.club_id,g.user_id,g.remaining,COALESCE(sum(c.amount),0) AS custody
+   FROM public.ca_promo_play_through_grants g LEFT JOIN public.ca_promo_principal_custody c ON c.grant_id=g.id
+   GROUP BY g.id HAVING g.closed_at IS NULL OR COALESCE(sum(c.amount),0)<>0
+  ) p;
 
 $addition$||needle);
 END $patch$;

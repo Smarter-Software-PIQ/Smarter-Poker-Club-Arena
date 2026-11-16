@@ -432,6 +432,7 @@ BEGIN
  EXECUTE replace(def,needle,E'  PERFORM public.fn_ca_promo_leave_principal(p_club_id,p_user_id);\n  SELECT COALESCE(chip_balance,0) INTO v_chips FROM public.club_members WHERE club_id=p_club_id AND user_id=p_user_id;\n'||needle);
 END $departure$;
 
+-- periodic-work: Executes the owner-requested 30-day promo expiration, returning expired wallet-held principal to its original fund through the exact financial owner.
 SELECT cron.schedule('promo-principal-product-expiry','*/15 * * * *',
  'SELECT public.fn_ca_promo_expire_principal(100)');
 

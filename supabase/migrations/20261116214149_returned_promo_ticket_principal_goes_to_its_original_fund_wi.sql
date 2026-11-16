@@ -415,6 +415,9 @@ END;
 $function$
 ;
 
+-- Internal original issuer: only the owning financial request calls it.
+REVOKE ALL ON FUNCTION public.fn_ca_return_satellite_entitlement_as_ticket(uuid,text,text) FROM PUBLIC,anon,authenticated,service_role;
+
 DO $admission_preimage$ BEGIN IF md5(pg_get_functiondef('public.fn_ca_register_for_tournament_with_ticket_for(uuid,uuid,uuid)'::regprocedure))<>'aecdb2201062f680a6196b3d68f132ed' THEN RAISE EXCEPTION 'original_net_ticket_admission_preimage_changed';END IF;END $admission_preimage$;
 CREATE OR REPLACE FUNCTION public.fn_ca_register_for_tournament_with_ticket_for(p_tournament_id uuid, p_ticket_id uuid, p_beneficiary_id uuid)
  RETURNS jsonb
@@ -458,7 +461,9 @@ BEGIN
   END IF;
 
   PERFORM public.fn_ca_lock_settlement_lane_for_tournament(p_tournament_id);
-  PERFORM pg_advisory_xact_lock_shared(530090,1);
+  IF NOT pg_try_advisory_xact_lock_shared(530090,1) THEN
+    RAISE EXCEPTION 'ticket_admission_platform_freeze_busy' USING ERRCODE='55P03';
+  END IF;
   PERFORM public.fn_ca_lock_mtt_admission_contract();
   IF public.fn_entry_purchases_frozen() THEN
     RETURN jsonb_build_object('ok',false,'reason','platform_frozen');
@@ -952,6 +957,9 @@ END;
 $function$
 ;
 
+
+-- Internal beneficiary admission keeps its captured postgres-only EXECUTE ACL.
+REVOKE ALL ON FUNCTION public.fn_ca_register_for_tournament_with_ticket_for(uuid,uuid,uuid) FROM PUBLIC,anon,authenticated,service_role;
 
 DO $net_ticket_admission_pin$
 DECLARE def text;needle text;replacement text;

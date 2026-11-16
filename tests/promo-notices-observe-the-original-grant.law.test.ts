@@ -89,7 +89,13 @@ describe('promo notices observe original financial authority', () => {
       "sb('/rest/v1/rpc/fn_ca_promo_daily_digest'"
     );
     expect(sql).toContain('ca_promo_integrity_source_grants');
-    expect(sql).toContain('fn_ca_promo_custody_reconcile_rows()');
+    expect(sql).not.toContain('CREATE FUNCTION public.fn_ca_promo_custody_reconcile_rows');
+    expect(sql).toContain(
+      'FROM public.ca_promo_play_through_grants g LEFT JOIN public.ca_promo_principal_custody c'
+    );
+    expect(sql).toContain(
+      'GROUP BY g.id HAVING g.closed_at IS NULL OR COALESCE(sum(c.amount),0)<>0'
+    );
     expect(sql).toContain(
       'ca_promo_integrity_release_notice AFTER INSERT ON public.ca_promo_integrity_releases'
     );
