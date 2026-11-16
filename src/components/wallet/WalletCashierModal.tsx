@@ -1910,6 +1910,13 @@ export default function WalletCashierModal({
             </div>
 
             <div className="cbc-body">
+              {tab === 'send' && spendWallet === 'promo_wallet' && (
+                <p className="cbc-note">
+                  Promo Chips Stay Locked Until Their Full Fee Target Is Met, Normally 4 Times The
+                  Grant. Profit Above The Locked Amount Can Be Cashed Out.
+                </p>
+              )}
+
               {walletType === 'agent_wallet' && tab === 'send' && holdsPlayerWallet(viewerRole) && (
                 <button
                   type="button"

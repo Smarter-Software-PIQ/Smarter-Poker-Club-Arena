@@ -56,6 +56,7 @@ import {
   omahaTurnRedrawShareOf,
 } from './HorseOmahaMadeHandDefense.js';
 import { omahaOnePairDiscipline } from './HorseOmahaOnePair.js';
+import { holdemHeadsUpPostflopBalance } from './HorseHeadsUpPostflopBalance.js';
 import {
   omahaBigDrawVerdict,
   omahaDrawRaiseBarOf,
@@ -561,7 +562,7 @@ import {
   gtoV31PotType,
   gtoV31UtilityContext,
   type GtoV31FacingKind,
-  type GtoV31NodeRole,
+  type GtoV31NodeRoleV3,
   type GtoV31Position,
   type GtoV31PotType,
   type GtoV31SizeBucket,
@@ -2432,9 +2433,13 @@ export interface GtoV31DecisionStateReceipt {
   stackBb: number;
   depthBucket: number;
   textureClass: string;
-  nodeRole: GtoV31NodeRole;
+  /** 'donk' only for a cell contract v3 decision (FLOP-5 D6, dormant). */
+  nodeRole: GtoV31NodeRoleV3;
   facingKind: GtoV31FacingKind;
   facingSizeBucket: GtoV31SizeBucket;
+  /** Set only for a cell contract v3 decision (FLOP-5 D6, dormant): its cell contract and public line. */
+  cellContract?: 'v3';
+  lineClass?: string;
   hand: string;
   handKey: string;
   cell: string;
@@ -2450,7 +2455,7 @@ export interface GtoV31DecisionReceipt {
   datasetId: string;
   datasetChecksum: string;
   decisionState: GtoV31DecisionStateReceipt;
-  nodeRole: GtoV31NodeRole;
+  nodeRole: GtoV31NodeRoleV3;
   cell: string;
   handKey: string;
   actionId: string;
@@ -2794,6 +2799,10 @@ export interface HorseDecideOpts {
    *  bucketed answer. Spots beyond the ceiling still fire
    *  gto_served_beyond_depth_ceiling. Set true to measure it again. */
   v33DepthCeiling?: boolean;
+  /** V31 cell contract v3 serving (FLOP-5 D6, 2026-11-15): passed only by the live option switch (registered,
+   *  off-only under the owner R7/R8 hold). true: the certified consult of a store that declares cell contract v3
+   *  is keyed by the v3 cell (GtoV31CellContractV3Serving.ts). Unset or false: the v2 consult, exactly as before. */
+  gtoV31CellContractV3Serving?: boolean;
   /** V37 (2026-09-02): satellite play — flat prizes are survival, not a
    *  ladder. A locked seat folds everything, a stack below the line jams
    *  wider, a table captain open-jams into stacks that cannot call. Disable
@@ -3001,6 +3010,17 @@ export interface HorseDecideOpts {
    * FAILED (2026-11-15): Horse-only PLO4 -0.77 bb/100 (z -2.30); the
    * development human field leaned positive (+0.79, z +1.89). */
   omahaOnePairDiscipline?: boolean;
+  /** HV31 FLOP-5 D1 (2026-11-15): no-limit hold'em cash, heads-up single-raised
+   * pot, hero in position: the flop c-bet after a check is one 0.75-pot size
+   * at a frequency by hand tier, a flop fold to a check-raise with a middle
+   * pair or better or a strong draw becomes a call, and a turn checked to
+   * hero bets 0.70 of the pot at a frequency by tier
+   * (HorseHeadsUpPostflopBalance.ts; solver evidence FLOP-3 B9/B6, FLOP-4
+   * C1). The river is not covered: its full-pot part was removed after the
+   * FLOP-5 D1 solver score. Default OFF (opt-in): only an explicit true
+   * switches it on; off, it draws no random number. League card
+   * nlh_hu_postflop_balance. */
+  holdemHeadsUpPostflopBalance?: boolean;
   /** Owner 2026-11-15 01:03 (play a maniac and a tight player differently;
    * fix the problem, not particular folds): the preflop 4-bet fold of
    * omahaReraisedPotDiscipline (omahaReraisedPreflopCell, unchanged) applies
@@ -12226,7 +12246,22 @@ export class HorseLogic {
     if (preflopAuthority) decision.preflopAuthority = preflopAuthority;
     if (preflopReadReceipt) decision.preflopReadReceipt = preflopReadReceipt;
     decision = graph.run('wager_rules', decision, () => {
-      const shoveDisciplined = tournamentShoveDiscipline(decision, player, gs);
+      // HV31 FLOP-5 D1 (HorseHeadsUpPostflopBalance, default OFF): the heads-up
+      // in-position hold'em postflop balance runs first, so every owner rule
+      // below still judges the action it leaves.
+      const huBalanced = holdemHeadsUpPostflopBalance(
+        decision,
+        player,
+        gs,
+        opts.holdemHeadsUpPostflopBalance === true,
+        (d) => this.legalize(d, player, gs, vi)
+      );
+      if (tele && huBalanced.changed === 'flop_cbet') noteFire('hu_postflop_balance_flop_cbet');
+      if (tele && huBalanced.changed === 'check_raise_defend')
+        noteFire('hu_postflop_balance_check_raise_defend');
+      if (tele && huBalanced.changed === 'later_street')
+        noteFire('hu_postflop_balance_later_street');
+      const shoveDisciplined = tournamentShoveDiscipline(huBalanced.decision, player, gs);
       const blockTrap87 =
         v87RiverBlockTrapPending &&
         opts.v87HoldemOverhaul !== false &&

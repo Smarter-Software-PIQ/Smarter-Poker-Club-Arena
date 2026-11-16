@@ -304,6 +304,22 @@ try:
     assert alerts() == 1
     assert psql(f"SELECT count(*) FROM public.notifications WHERE data->>'period_end' LIKE '2026-11-23%' AND data->>'milestone' = 'payout_late';") == '0'
 
+    # An accepted lock-screen banner cannot be recalled. Update the originating
+    # bell and still-pending carriers without generating another delivery.
+    _, promo_source = newest_block('CREATE OR REPLACE FUNCTION public.fn_midway_weekly_horse_promo_due(', 'END $function$;')
+    psql('SET check_function_bodies=off; ' + promo_source.replace('horses that played raked cash or tournament hands', 'active Midway horses'))
+    psql("""CREATE TABLE public.push_outbox(related_entity_id uuid,event text,status text,title text,body text);
+      INSERT INTO public.push_outbox SELECT id,type,'sent',title,message FROM public.notifications WHERE data->>'milestone'='players_paid';
+      INSERT INTO public.push_outbox SELECT id,type,'pending',title,message FROM public.notifications WHERE data->>'milestone'='agents_paid';""")
+    before_count = len(notes())
+    psql(next(MIGRATIONS.glob('20261116164001_*.sql')).read_text())
+    assert len(notes()) == before_count
+    assert psql("SELECT count(*) FROM public.push_outbox") == '2'
+    assert psql("SELECT count(*) FROM public.notifications WHERE data->>'milestone'='players_paid' AND title LIKE 'Player Rakeback Paid (% Players,%' AND message LIKE 'Player Rakeback for % players,%' AND message NOT ILIKE '%horse%'") == '1'
+    assert psql("SELECT count(*) FROM public.push_outbox WHERE status='sent' AND body LIKE 'Player and horse rakeback%'") == '1'
+    assert psql("SELECT count(*) FROM public.push_outbox WHERE status='pending' AND body LIKE 'Agent Rakeback for %'") == '1'
+    assert psql(f"SELECT bool_and(title ~ '^(Club|Agent|Player) Rakeback Paid' AND message !~* 'horse') FROM smarter_private.weekly_payout_owner_milestones('{WEEK}','{WEEK}','{UNION}') WHERE milestone IN ('clubs_paid','agents_paid','players_paid')") == 't'
+
     print(json.dumps({
         'ok': True,
         'migration': MIGRATION.name,

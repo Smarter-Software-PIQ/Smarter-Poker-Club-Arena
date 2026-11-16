@@ -408,6 +408,30 @@ export function walletRoute(row: ChipTransactionLike): string | null {
   const shown = presentChipTransaction(row);
   const type = String(shown.transaction_type ?? '');
   const meta = shown.metadata ?? {};
+  if (meta.history_source === 'movement') {
+    const accountName = (value: unknown): string => {
+      if (typeof value !== 'string') return 'Unrecorded Wallet';
+      return (
+        (
+          {
+            player_wallet: 'Player Wallet',
+            agent_wallet: 'Agent Wallet',
+            promo_wallet: 'Promo Wallet',
+            club_treasury: 'Club Bank',
+            union_wallet: 'Union Wallet',
+            table_stack: 'Table Stack',
+            prize_liability: 'Prize Pool',
+            escrow: 'Held Cash-Out',
+          } as Record<string, string>
+        )[value] ??
+        value
+          .split('_')
+          .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+          .join(' ')
+      );
+    };
+    return `${accountName(meta.source)} To ${accountName(meta.destination)}`;
+  }
   switch (type) {
     case 'tournament_ticket_issue':
       // The cashier debits the issuer and records the remaining Player Wallet balance.

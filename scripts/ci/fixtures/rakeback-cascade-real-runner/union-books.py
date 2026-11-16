@@ -110,4 +110,5 @@ assert all(r['rc']==0 and r['out']=='' and not r['changed'] for r in done),done
 assert books('2026-11-16 22:00:20+00')['out']=='' and one("SELECT count(*) FROM public.chip_ledger WHERE category='rakeback'")==RAKEBACK_ROWS
 case(f'union books tick, fixed, once the union\'s close for the week is complete: every tick (to the end of the twelve-hour window and after it) returns NULL and writes nothing; across all {len(old)+len(later)+len(done)+5} ticks the chip ledger keeps its {RAKEBACK_ROWS} rakeback rows and no payout, receipt or period changes')
 record.append({'union_books':[{k:r[k] for k in ('at','rc','stage','out','err')} for r in old+[t1]+later+done]})
+exec((F/'union-member-week.py').read_text())
 DB='postgres'; q("DROP DATABASE books;")

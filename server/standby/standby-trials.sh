@@ -272,7 +272,7 @@ wait_pretrial_dealing() {
   # The old sequential waits allowed 300 seconds for play plus 900 for maintenance.
   local baseline current sha="$1"
   baseline=$(swap_target_identity "$sha") || return 1
-  local start now previous eligible=0 was_playing=0 since h phase hands live db
+  local start now previous eligible=0 was_playing=0 since h phase live db
   start=$(date +%s); previous=$start; since=$((start + 1))
   while :; do
     now=$(date +%s)
@@ -309,14 +309,16 @@ SQL_PRETRIAL
         # Start a new evidence interval after observing the release.
         since=$((now + 1))
       elif [ "$db" = hand ]; then
-        hands=$(printf '%s' "$h" | health_field dealRate.handsInWindow) || return 1
-        if [[ "$hands" =~ ^[0-9]+$ ]] && [ "$hands" -gt 0 ]; then
-          current=$(swap_target_identity "$sha") || return 1
-          [ "$current" = "$baseline" ] || return 1
-          now=$(date +%s)
-          (( now - start < 1200 && eligible + now - previous < 300 ))
-          return
-        fi
+        # The original SQL proves a new committed hand after open play began.
+        # Older serving engines publish no fleet metric below three tables;
+        # that statistical denominator must not invalidate a real hand during
+        # the exact predecessor's rollback rehearsal. Keep runtime identity,
+        # health, maintenance and both time budgets as independent guards.
+        current=$(swap_target_identity "$sha") || return 1
+        [ "$current" = "$baseline" ] || return 1
+        now=$(date +%s)
+        (( now - start < 1200 && eligible + now - previous < 300 ))
+        return
       fi
     fi
     sleep 5

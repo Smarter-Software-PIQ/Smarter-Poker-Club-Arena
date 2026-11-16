@@ -124,6 +124,52 @@ describe('the canary hole: a fleet that empties must not silence the alarm', () 
     expect(v.snapshot().belowFloorChecks).toBe(3);
   });
 
+  it.each([1, 2])(
+    'publishes committed hands below the alarm denominator (%s tables)',
+    async (size) => {
+      const v = new DealRateVerifier(() => tables(size));
+      hands(5);
+      // A young isolated Backup must expose real dealing before its rehearsal;
+      // startup grace suppresses a floor verdict, not an observed hand count.
+      await v.check();
+      expect(v.snapshot().handsInWindow).toBe(5);
+      expect(v.snapshot().belowFloorChecks).toBe(0);
+      pastBoot(v);
+      await v.check();
+      await v.check();
+      await v.check();
+      expect(v.snapshot().handsInWindow).toBe(5);
+      expect(v.snapshot().silentChecks).toBe(0);
+      expect(raised.map((r) => r.alertname)).toEqual(['ClubArenaFleetFloorLost']);
+      // A small silent sample never declares the fleet dead; the floor owns it.
+      hands(0);
+      await v.check();
+      expect(v.snapshot().handsInWindow).toBe(0);
+      expect(v.snapshot().dbConfirmedDead).toBe(false);
+      hands(null, { message: 'unavailable' });
+      await v.check();
+      expect(v.snapshot().handsInWindow).toBeNull();
+      expect(v.snapshot().dbConfirmedDead).toBe(false);
+    }
+  );
+
+  it('checks durable hands for Lightning fronts as well as ordinary table loops', async () => {
+    const ids = ['classic', ...Array.from({ length: 7 }, (_, i) => `lightning-front-${i}`)];
+    const v = new DealRateVerifier(() => ids);
+    pastBoot(v);
+    hands(150);
+    await v.check();
+    expect(v.snapshot().tablesExpectedDealing).toBe(8);
+    expect(handHistory.in).toHaveBeenCalledWith('table_id', ids);
+    expect(resolved).toContain('ClubArenaFleetFloorLost');
+    expect(raised).toEqual([]);
+    hands(0);
+    await v.check();
+    await v.check();
+    await v.check();
+    expect(raised.map((a) => a.alertname)).toContain('ClubArenaFleetSilent');
+  });
+
   it('resolves the floor alarm when the fleet comes back', async () => {
     let size = 1;
     const v = new DealRateVerifier(() => tables(size));

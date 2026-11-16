@@ -111,6 +111,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       "the default-off responses to a credibly tight player (styleTightPlayerExploit, 2026-11-15): the checked-to bluff scale on the turn and river and the tight-limper isolation widening in no-limit hold'em",
     'src/engine/HorseLongShownMemory.ts':
       "the default-off durable shown river record (styleLongShownMemory, 2026-11-15): which river size bucket the style read takes from the opponent's record instead of the 72-hour window",
+    'src/engine/HorseHeadsUpPostflopBalance.ts':
+      'the default-off heads-up hold’em postflop balance (holdemHeadsUpPostflopBalance, HV31 FLOP-5): the in-position flop continuation-bet mix, bounded flop check-raise defence and checked-to turn bet mix; river decisions remain unchanged',
     'src/engine/HorseHoldemPersonaPostflop.ts':
       "the default-off persona postflop scales (holdemPersonaPostflop, 2026-11-15): the persona's check-trap threshold and the archetype's turn-takeaway and range continuation-bet multipliers in no-limit hold'em",
     'src/engine/HorseHoldemPersonaPreflop.ts':
@@ -172,6 +174,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
     'src/engine/GtoCharts.ts': 'the open-jam and big-blind-versus-small-blind jam charts',
     'src/engine/GtoPostflop.ts': 'the heads-up NLH postflop solver consult',
     'src/engine/GtoPostflopV31.ts': 'the V31 solver consult',
+    'src/engine/GtoV31CellContractV3Serving.ts':
+      'the default-OFF cell contract v3 serving switch (FLOP-5 D6): whether a store declaring cell contract v3 is consulted with the v3 context',
     'src/engine/HorseV31CertifiedPolicy.ts':
       'the V31 certified playbook consult (eligibility, lookup, sampling, legalization), moved out of HorseLogic 2026-11-06',
     'src/engine/HorseGtoExecution.ts':

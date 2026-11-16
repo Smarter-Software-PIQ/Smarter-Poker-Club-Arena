@@ -1984,6 +1984,7 @@ export async function createProductionE2EAccount({
   fetchImpl = fetch,
   wait = (milliseconds) => new Promise((done) => setTimeout(done, milliseconds)),
   firstRun = false,
+  spectator = false,
 } = {}) {
   const configuration = requireEnvironment(environment);
   if (!environment.GITHUB_ENV) throw new Error('GITHUB_ENV is required to share the account.');
@@ -2008,6 +2009,7 @@ export async function createProductionE2EAccount({
           email,
           password,
           email_confirm: true,
+          ...(spectator && { app_metadata: { ca_certification_purpose: 'table-spectator' } }),
           user_metadata: {
             username: alias,
             poker_alias: alias,
@@ -2063,6 +2065,7 @@ export async function createProductionE2EAccount({
 
 export async function main(command = process.argv[2], options = {}) {
   if (command === 'create') return createProductionE2EAccount();
+  if (command === 'create-spectator') return createProductionE2EAccount({ spectator: true });
   if (command === 'create-first-run') return createProductionE2EAccount({ firstRun: true });
   if (command === 'cleanup-first-run')
     return cleanupProductionE2EAccount({
@@ -2116,7 +2119,7 @@ export async function main(command = process.argv[2], options = {}) {
     return true;
   }
   throw new Error(
-    'Usage: production-e2e-account.mjs <create|create-first-run|cleanup-first-run|prepare-staff|prepare-spectator|prepare-lightning-staff|prepare-template-staff|retire-create-clubs|cleanup|sweep-stale-residue>'
+    'Usage: production-e2e-account.mjs <create|create-spectator|create-first-run|cleanup-first-run|prepare-staff|prepare-spectator|prepare-lightning-staff|prepare-template-staff|retire-create-clubs|cleanup|sweep-stale-residue>'
   );
 }
 

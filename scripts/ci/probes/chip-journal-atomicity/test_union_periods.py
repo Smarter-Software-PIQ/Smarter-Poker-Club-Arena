@@ -14,6 +14,7 @@ def verify_union_periods(run):
 def _verify_union_periods(run,database):
  here=Path(__file__).resolve().parent
  definitions={}
+ promo_definitions={}
  views={}
  admission_tables={}
  for path in sorted((here.parents[3]/"supabase/migrations").glob("*.sql")):
@@ -21,12 +22,16 @@ def _verify_union_periods(run,database):
   source=path.read_text()
   for name in ['accounting_effective_cash_rake_sources','accounting_effective_tournament_fee_sources','accounting_payable_earning_sources']:
    for match in re.finditer(r"CREATE(?: OR REPLACE)? VIEW public\."+name+r"\b.*?;",source,re.I|re.S):views[name]=match.group(0)
-  for table_name in ["accounting_cash_atomic_contract_admissions","accounting_cash_funding_contract_admissions","accounting_own_agent_interpretations"]:
+  for table_name in ["accounting_cash_atomic_contract_admissions","accounting_cash_funding_contract_admissions","accounting_own_agent_interpretations","ca_promo_play_through_settings","ca_promo_entry_fee_funding"]:
    for match in re.finditer(r"CREATE TABLE public\."+table_name+r"\s*\(.*?\n\);",source,re.I|re.S):admission_tables[table_name]=match.group(0)
   for name in ["fn_union_weekly_rakeback_close","fn_caller_is_engine","fn_accounting_union_earned_plan","fn_ca_launch_accounting_cutoff","fn_ca_launch_accounting_start","fn_ca_launch_accounting_accepts","fn_ca_launch_accounting_waived","fn_ca_launch_accounting_club_cutoffs"]:
    for match in re.finditer(r"CREATE(?: OR REPLACE)? FUNCTION public\."+name+r"\s*\(",source,re.I):
     tail=source[match.start():];body=re.search(r"\bAS\s+(\$[A-Za-z0-9_]*\$)",tail,re.I)
     end=tail.find(body.group(1),body.end());definitions[name]=tail[:end+len(body.group(1))]+";"
+  for name in ['fn_ca_promo_payable_contract','fn_ca_promo_cash_payable_contract','fn_ca_promo_tournament_payable_contract']:
+   for match in re.finditer(r"CREATE(?: OR REPLACE)? FUNCTION public\."+name+r"\s*\(",source,re.I):
+    tail=source[match.start():];body=re.search(r"\bAS\s+(\$[A-Za-z0-9_]*\$)",tail,re.I)
+    end=tail.find(body.group(1),body.end());promo_definitions[name]=tail[:end+len(body.group(1))]+";"
  if "fn_union_weekly_rakeback_close" not in definitions:raise RuntimeError("Union period declarations missing")
  bootstrap=here.parents[1]/"fixtures/launch-reset/original-bootstrap.sql"
  ddl=bootstrap.read_text()
@@ -51,6 +56,17 @@ def _verify_union_periods(run,database):
   table=re.search(r"CREATE TABLE public\.ca_launch_accounting_boundaries\s*\(.*?\n\);",candidate.read_text(),re.S)
   if table is None:raise RuntimeError("Original launch boundary table declaration missing")
   ddl+="\n"+table.group(0)
+ # Current static views use the actual source-time promo eligibility helpers.
+ # Install their cold relations and original definitions, with enforcement off,
+ # before resolving those same view expressions. This calendar proof still
+ # executes every admission/period/payout guard below without a replacement view.
+ if any('fn_ca_promo_' in source for source in views.values()):
+  for name in ['ca_promo_play_through_settings','ca_promo_entry_fee_funding']:
+   if name not in admission_tables:raise RuntimeError('Promo view relation missing: '+name)
+   ddl+='\n'+admission_tables[name]
+  for name in ['fn_ca_promo_payable_contract','fn_ca_promo_cash_payable_contract','fn_ca_promo_tournament_payable_contract']:
+   if name not in promo_definitions:raise RuntimeError('Promo view helper missing: '+name)
+   ddl+='\n'+promo_definitions[name]
  # The latest payable view now admits immutable atomic-history resolutions.
  # Load its actual static relation dependencies before that same actual view;
  # an older view or an EXECUTE string is not its financial source contract.

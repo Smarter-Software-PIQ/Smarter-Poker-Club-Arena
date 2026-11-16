@@ -655,6 +655,8 @@ function public215Row(feature: string, cell: 'v2' | 'v3', over: Record<string, u
     node_role: row.node_role,
     facing_kind: row.facing_kind,
     facing_size_bucket: row.facing_size_bucket,
+    // a v3 cell's template is authored over the v3 cell (World Hub ties them)
+    ...(cell === 'v3' ? { cell_contract: 'v3', line_class: row.line_class } : {}),
   });
   row.public_training_provenance.feature_schema_checksum = row.feature_schema_checksum;
   row.public_model.feature_count = WIDTH[feature];
