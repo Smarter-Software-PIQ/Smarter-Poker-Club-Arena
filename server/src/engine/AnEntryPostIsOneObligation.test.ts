@@ -287,10 +287,26 @@ describe('a legitimate missed-blind return is untouched', () => {
   });
 
   it('a moved arrival keeps the treatment it had (docs/LAWS.md, 2026-11-15)', () => {
-    const { engine } = table({ heroHold: 'moved' });
+    const { engine, rows } = table({ heroHold: 'moved' });
     engine.sitOut(NEW, false);
     expect(engine.returningFromSitout.has(NEW)).toBe(true);
     expect(engine.postingBBToEnter.has(NEW)).toBe(false);
+    const r = deal(engine, rows);
+    expect(r.charges).toEqual({ deadBlinds: [{ seat: HERO_SEAT }], bbOnlyPosts: [] });
+    expect(r.hero!.totalInvested).toBe(1.5);
+  });
+
+  it('a seat that leaves and sits again is new again', () => {
+    const { engine, rows } = table({ heroId: VET });
+    // The occupancy ended: the roster reconcile drops the veteran record.
+    engine.dealtInUserIds.delete(VET);
+    register(engine, VET);
+    engine.postBBToEnter(VET);
+    engine.sitOut(VET, false);
+    expect(engine.returningFromSitout.has(VET)).toBe(false);
+    const r = deal(engine, rows);
+    expect(r.charges).toEqual({ deadBlinds: [], bbOnlyPosts: [{ seat: HERO_SEAT }] });
+    expect(r.hero!.totalInvested).toBe(1);
   });
 
   it('a tournament seat is billed neither charge', () => {
@@ -338,14 +354,13 @@ describe('the hand itself never bills one seat two entry charges', () => {
     return { hero: state.players.find((p) => p.seat === HERO_SEAT)!, pot: state.pot };
   }
 
-  it('a seat named as both a dead blind and a post-to-enter (any host, any caller)', () => {
+  it('a seat named as both a dead blind and a post-to-enter is billed the entry post (any host, any caller)', () => {
     const { hero, pot } = start({ deadBlinds: [{ seat: 4 }], bbOnlyPosts: [{ seat: 4 }] });
-    expect(hero.stack).toBe(198.5);
+    expect(hero.stack).toBe(199);
     expect(hero.bet).toBe(1);
-    expect(hero.totalInvested).toBe(1.5);
-    // Every chip that left the stack is the live bet or declared dead.
-    expect(hero.totalInvested - (hero.deadInvested ?? 0)).toBe(hero.bet);
-    expect(pot).toBe(3);
+    expect(hero.totalInvested).toBe(1);
+    expect(hero.deadInvested ?? 0).toBe(0);
+    expect(pot).toBe(2.5);
   });
 
   it('a duplicated post-to-enter entry bills one big blind', () => {

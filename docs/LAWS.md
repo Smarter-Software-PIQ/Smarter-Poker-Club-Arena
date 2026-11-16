@@ -198,8 +198,8 @@ whichever test the next agent notices first.
   it: `owesMissedBlindsOnReturn` (Seating) marks a return only for a seat in
   `dealtInUserIds`, never one still entering; `entryChargeSeats` (Dealing)
   puts a seat on one charge list or neither, the entry post winning; and
-  `HandController.postBlinds` bills a seat the first entry charge that reaches
-  it and no other. Pinned by `AnEntryPostIsOneObligation.test.ts`, which
+  `HandController.postBlinds` bills a seat one entry charge, the entry post
+  when a caller names it on both lists. Pinned by `AnEntryPostIsOneObligation.test.ts`, which
   drives the real requests in every order. A moved arrival is unchanged (the
   ruling above). Do not mark a return on I'm Back without that oracle, and do
   not build either list anywhere else. Record and per-case ledger:

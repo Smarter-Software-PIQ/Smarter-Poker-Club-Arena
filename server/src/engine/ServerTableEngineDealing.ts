@@ -3961,7 +3961,12 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
          */
         straddles: bombPotConfig || straddleResults.length === 0 ? undefined : straddleResults,
         // Bible V8 §4.2: Dead blinds for players returning from sit-out
-        deadBlinds: entryCharges.deadBlinds.length > 0 ? entryCharges.deadBlinds : undefined,
+        deadBlinds:
+          !this.isTournamentTable() &&
+          this.returningFromSitout.size > 0 &&
+          entryCharges.deadBlinds.length > 0
+            ? entryCharges.deadBlinds
+            : undefined,
         // AUDIT FIX 2026-07-19: "Post BB to enter" players post a live BB only.
         // Cash only: tournament arrivals never post to enter.
         bbOnlyPosts: bbOnlyPostSeats.length > 0 ? bbOnlyPostSeats : undefined,
@@ -6407,10 +6412,17 @@ export abstract class ServerTableEngineDealing extends ServerTableEngineRunout {
   } {
     const deadBlinds: { seat: number }[] = [];
     const bbOnlyPosts: { seat: number }[] = [];
-    if (this.isTournamentTable()) return { deadBlinds, bbOnlyPosts };
-    for (const p of players) {
-      if (this.postingBBToEnter.has(p.user_id)) bbOnlyPosts.push({ seat: p.seat_number });
-      else if (this.returningFromSitout.has(p.user_id)) deadBlinds.push({ seat: p.seat_number });
+    if (!this.isTournamentTable() && this.postingBBToEnter.size > 0) {
+      for (const p of players) {
+        if (this.postingBBToEnter.has(p.user_id)) bbOnlyPosts.push({ seat: p.seat_number });
+      }
+    }
+    if (!this.isTournamentTable() && this.returningFromSitout.size > 0) {
+      for (const p of players) {
+        if (this.returningFromSitout.has(p.user_id) && !this.postingBBToEnter.has(p.user_id)) {
+          deadBlinds.push({ seat: p.seat_number });
+        }
+      }
     }
     return { deadBlinds, bbOnlyPosts };
   }

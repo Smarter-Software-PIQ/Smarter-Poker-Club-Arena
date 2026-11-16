@@ -705,15 +705,18 @@ export class HandController {
     // block took a dead SB plus a live BB, then the post-to-enter block took a
     // second BB and OVERWROTE `bet` instead of adding to it. The player was
     // out 2.5 BB with only 1 BB counted toward the call. Whatever a caller
-    // lists, a seat is billed the first entry charge that reaches it and no
-    // other, a repeated entry included.
+    // lists, a seat is billed ONE entry charge, a repeated entry included, and
+    // a seat named on both lists is billed the entry post: it is posting to
+    // enter, so it has never been dealt here and has missed nothing.
     const entryCharged = new Set<number>();
+    const postingToEnter = new Set((this.config.bbOnlyPosts ?? []).map((b) => b.seat));
     if (this.config.deadBlinds && this.config.deadBlinds.length > 0) {
       for (const db of this.config.deadBlinds) {
         const dbPlayer = this.state.players.find((p) => p.seat === db.seat);
         if (
           dbPlayer &&
           !entryCharged.has(dbPlayer.seat) &&
+          !postingToEnter.has(dbPlayer.seat) &&
           !dbPlayer.is_sitting_out &&
           dbPlayer.seat !== sbSeat &&
           dbPlayer.seat !== bbSeat &&
