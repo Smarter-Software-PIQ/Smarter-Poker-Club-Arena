@@ -373,6 +373,10 @@ export interface MemberDetail {
         mtt_winnings: number;
       } & ExactTwins<(typeof DETAIL_STATS_KEYS)[number]>)
     | null;
+  activity_breakdown?: {
+    downline: NonNullable<MemberDetail['stats']>;
+    combined: NonNullable<MemberDetail['stats']>;
+  };
   range: { from: string | null; to: string | null; is_overall: boolean };
   capabilities: {
     access: 'none' | 'identity' | 'downline' | 'staff' | 'service';
@@ -949,6 +953,31 @@ export const ClubRosterService = {
       )
     )
       throw new Error('The Member Response Was Incomplete');
+    const breakdown = d.activity_breakdown;
+    if (
+      breakdown !== undefined &&
+      (!sensitive ||
+        !['downline', 'combined'].every(
+          (group) =>
+            hasMetrics(
+              breakdown?.[group],
+              ['hands', 'mtt_hands', ...DETAIL_STATS_KEYS],
+              ['total_winnings']
+            ) && ['hands', 'mtt_hands'].every((key) => isRosterCount(breakdown?.[group]?.[key]))
+        ))
+    )
+      throw new Error('The Agent Activity Breakdown Was Incomplete');
+    const activityStats = (source: Record<string, any>): NonNullable<MemberDetail['stats']> => ({
+      hands: num(source.hands),
+      mtt_hands: num(source.mtt_hands),
+      total_fee: num(source.total_fee),
+      mtt_fee: num(source.mtt_fee),
+      claimed_back: num(source.claimed_back),
+      sent_out: num(source.sent_out),
+      total_winnings: source.total_winnings === null ? null : num(source.total_winnings),
+      mtt_winnings: num(source.mtt_winnings),
+      ...exactTwins(source, DETAIL_STATS_KEYS),
+    });
     return {
       identity: {
         user_id: d.identity?.user_id ?? null,
@@ -1001,6 +1030,14 @@ export const ClubRosterService = {
             ...exactTwins(d.stats, DETAIL_STATS_KEYS),
           }
         : null,
+      ...(breakdown
+        ? {
+            activity_breakdown: {
+              downline: activityStats(breakdown.downline),
+              combined: activityStats(breakdown.combined),
+            },
+          }
+        : {}),
       range: {
         from: d.range?.from ?? null,
         to: d.range?.to ?? null,
