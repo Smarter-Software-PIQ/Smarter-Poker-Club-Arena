@@ -65,6 +65,36 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the final Omaha high river rule (Dan 2026-11-14, hand 59401453): a raise facing a wager stands only with the nuts or an effective-nut hand, every other raise becomes a call, before the call-discipline folds',
     'src/engine/HorseOmahaReraisedPot.ts':
       'the default-off Omaha re-raised-pot discipline (owner ruling 2026-11-14 23:49): facing a 4-bet or more preflop a hand without aces or a premium structure folds, and in such a pot one pair or two pair below top two does not stack off unless priced against a declared strong range; the outermost call-discipline fold',
+    'src/engine/HorseOmahaOopReraisedPot.ts':
+      'the default-off Omaha out-of-position re-raised-pot calling range (owner 2026-11-15 11:49 and 11:51): a preflop call of a 3-bet or more out of position against the last raiser stands only with suited aces, as a priced commitment, or with a coordinated hand whose equity clears the price plus the realization margin, a call of a 4-bet in position likewise (omahaOopReraisedPotStrongRange); and the flop rule that a caller in a re-raised pot continues only with two pair or better, a pair with a nut-leaning draw or a strong draw (omahaReraisedPotFlopContinueNeedsEquityShape); and the rule that a 3-bet or 4-bet out of position or from early position needs suited aces or a declared premium structure and otherwise calls or folds (omahaReraiseRangeOutOfPosition and omahaReraiseRangeEarlyPosition, switched separately)',
+    'src/engine/HorseOmahaReadConditional.ts':
+      'the default-off Omaha read-conditional defence (owner 2026-11-15 01:03): the measured tight re-raiser read that lets the re-raised-pot preflop fold apply (omahaReraisedFoldVsTight) and the measured postflop value-leader read that lets the turn no-raise and scare-card checks apply (omahaMadeHandDefenseVsValueLeader) and the bluff-catcher folds apply against the player faced (omahaBluffCatcherFoldVsValueLeader), and the measured wide re-raiser read that lets an elite-class hand call instead of folding to his 3-bet (omahaEliteContinuesVsMeasuredWideThreeBettor); a presumed read never counts',
+    'src/engine/HorseOmahaRiverMediumBetCalls.ts':
+      'the default-off Omaha river medium-bet call (PLO Strategy lane 2026-11-15, omahaRiverMediumBetStrongHandCalls): a PLO4/PLO5 cash river fold of two pair or better facing the opening bet of 40 to 70 percent of the pot, heads-up or closing the action, becomes a call when the hand holds up against the bettor’s possible holdings 1.5 times as often as the price asks; the outermost call-discipline rule, withheld against a measured value leader',
+    'src/engine/HorseOmahaOopChecks.ts':
+      'the default-off Omaha bet-to-check spots (owner 2026-11-15, hands 59517323 and 59521326; the paired-turn barrel without a full house, omahaPairedTurnNoBarrelWithoutBoatVsValueLeader, among them): the bare overpair out of position on the flop (omahaBareOverpairOopFlopCheck), the unimproved pair on the turn after the flop bet was called and the less-than-full-house lead on a paired river into a caller, the last two only against measured postflop value leaders (omahaOverpairNoOopBarrelVsValueLeader, omahaPairedRiverNoThinLeadVsValueLeader)',
+    'src/engine/HorseOmahaUnderpair.ts':
+      'the default-off Omaha underpair rules (owner complaint 2026-11-15, hand 59518335): a Horse whose own re-raise is re-raised cold folds a hand without aces or a premium structure unless the call is priced by commitment (omahaNoCallColdFourBetWithoutPremium), and one pair below the top card of the flop with no flush draw or nut open-ended or wrap draw folds to a bet and a call (omahaUnderpairNoMultiwayFlopContinue)',
+    'src/engine/HorseOmahaCardImpact.ts':
+      'the default-off Omaha card impact (owner 2026-11-15 11:41, omahaCardImpact): what the last turn or river card did to the hand and to the opponent range, and the check-or-bet-size comparison priced against that range, heads-up with nothing to call',
+    'src/engine/HorseOmahaStrongHandSlowplayMix.ts':
+      'the default-off Omaha strong-hand slowplay mix (owner 2026-11-15 14:13, omahaStrongHandSlowplayMix): in PLO4/PLO5 cash a final raise facing a bet with a nut-class hand becomes a call, and a final flop bet with a set on a very dry flop becomes a check, each at a mixed frequency of the spot (next cards that keep the nuts or hurt the set, the opponent read, position, stacks) drawn from a stream derived from the strategy stream without advancing it; inside the owner-ruled final and the turn and river nut rule',
+    'src/engine/HorseOmahaStrongHandValue.ts':
+      "the default-off Omaha strong-hand value decisions (owner 2026-11-15 12:16, omahaStrongHandValue; the earlier playbook's PLO4/PLO5 cash entries): on the river with a full house or better or a nut-class hand, a check priced against every value bet against each opponent left, and a call facing one bettor priced against every value raise on the exact count of the holdings that continue; the last rule of the wager_rules node",
+    'src/engine/HorseOmahaFacingBetEv.ts':
+      "the default-off Omaha facing-bet expected-value decision (owner 2026-11-15 11:39, omahaFacingBetEv): in PLO4/PLO5 cash on the turn and the river, a fold or a call facing a bet or a raise is replaced by one EV verdict on the exact count of holdings that beat the hand, the bettor's range from his bet size, line and measured tendencies, and the actual price; the outermost call-discipline rule, it never raises",
+    'src/engine/HorseOmahaTurnRiverRaiseNeedsNuts.ts':
+      'the default-off Omaha turn and river raise rule (owner 2026-11-15 12:52 / 12:53, hand 59534208, omahaTurnRiverRaiseNeedsNuts): in PLO4/PLO5 cash facing a bet or a raise on the turn or the river, a raise stands only with a nut-class hand (on the turn also an in-position combo draw the 12:30 rule permits); every other raise becomes the exact-hand facing-bet EV call or fold, the outermost conversion on that path',
+    'src/engine/HorseOmahaStreetPlan.ts':
+      'the default-off Omaha street plan (owner 2026-11-15 11:43, omahaStreetPlan), first layer: a heads-up PLO4/PLO5 cash turn bet is priced against the check as a whole line with the opponent responses and every river card planned, and the river after that bet follows the recomputed plan where the paired-board fold would otherwise fold',
+    'src/engine/horsePublicActionTime.ts':
+      'the default-off public-only action time (owner 2026-11-15 12:16, horseActionTimeIsPublicOnly): the think time of every game is produced from the street, board, pot, price, stacks, players in, the action and amount shown, the seat tempo and its own random stream, never from the private hand',
+    'src/engine/HorseOmahaStrategyGame.ts':
+      "the game scope of the 2026-11-15 Omaha strategy options (one gate, omahaStrategyGameInScope: PLO4/PLO5 as before, PLO6 only with the PLO6 lane's omahaStrategyInPlo6) and their hand-size dependent constants (omahaStrategyConstant: PLO4/PLO5 the modules' own values, PLO6 from the PLO6 lane's registered calibration)",
+    'src/engine/HorseOmahaTournamentScope.ts':
+      'the default-off Omaha tournament scope (owner 2026-11-15 13:16, omahaStrategyInTournaments): where the cash-scoped PLO4/PLO5 rules of 2026-11-15 also run in a tournament hand (high only, one board, not All-In-Or-Fold, not Lightning, deeper than the 14 big blind push/fold line), and the tournament survival premium (icmRisk x sqrt(stack share)) a chip-adding conversion adds to its price',
+    'src/engine/HorseOmahaBigDrawAggression.ts':
+      'the default-off Omaha big-draw aggression (owner 2026-11-15 11:55): on a PLO4/PLO5 cash flop or turn a check or call with a declared big draw becomes a pot-sized bet or raise only when its expected value (measured fold equity, equity against the continuing range) is above the passive line; the outermost wager rule',
     'src/engine/HorseOmahaMadeHandDefense.ts':
       'the final Omaha made-hand rules (Dan 2026-11-14, hands 59414191 and 59416584): a hand a possible straight or flush beats does not raise a turn wager or bet into the fresh card out of position, and a nut-class wager is the full pot, right after the river nut-raise rule',
     'src/engine/HorseOmahaOnePair.ts':
@@ -73,6 +103,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       "the default-off responses to a credibly tight player (styleTightPlayerExploit, 2026-11-15): the checked-to bluff scale on the turn and river and the tight-limper isolation widening in no-limit hold'em",
     'src/engine/HorseLongShownMemory.ts':
       "the default-off durable shown river record (styleLongShownMemory, 2026-11-15): which river size bucket the style read takes from the opponent's record instead of the 72-hour window",
+    'src/engine/HorseHoldemPersonaPostflop.ts':
+      "the default-off persona postflop scales (holdemPersonaPostflop, 2026-11-15): the persona's check-trap threshold and the archetype's turn-takeaway and range continuation-bet multipliers in no-limit hold'em",
     'src/engine/HorseHoldemPersonaPreflop.ts':
       "the off-only persona preflop layer (holdemPersonaPreflop, owner preflop range hold): persona 3-bet and squeeze mix, deep cash opening-range offsets and the Nit Hunter loose-opener response in no-limit hold'em",
     'src/engine/HorseHoldemRiverFullHouseValue.ts':
@@ -188,6 +220,8 @@ export const HORSE_REFERENCE_DECISION_SOURCE_REASONS: Readonly<Record<string, st
       'the Nash push/fold V2 table (jam and caller thresholds by players behind, dead ante and bubble factor), generated by server/scripts/nash-push-fold/solve.py --v2',
     'src/engine/HorseHuBbDefence.ts':
       "the default-off heads-up big blind price defence: each Hold'em class's equity against the heads-up open range by width, and the realisation the price is read with",
+    'src/engine/HorseHuTightBigBlindSteal.ts':
+      'the default-off, off-only heads-up small blind steal against a proven tight big blind (Heads Up D6, huSmallBlindStealsVsTightBigBlind): the tight-folder read from the decayed heads-up counters and the open that replaces a would-be limp or fold',
     'src/engine/HorseFixedLimitCallPrice.ts':
       'the default-off fixed-limit call price (2026-11-14, Fixed-Limit lane): a fixed-limit call is never a stack commitment; its price is the chips to call plus the expected further wagers of the street while a player left to act can still raise',
     'src/engine/HorseFixedLimitRiverLead.ts':
