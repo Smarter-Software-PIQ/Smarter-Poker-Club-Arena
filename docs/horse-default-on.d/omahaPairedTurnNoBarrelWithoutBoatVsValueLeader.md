@@ -54,3 +54,4 @@ Status: MET
 - Heads-up only; a board already paired on the flop is not the spot.
 - No stack-plan guard: the option does not look at what the bet leaves behind.
 - Live behaviour is unverified: the option is off.
+- In position, heads-up, on the wider paired-board line (`omahaPairedBoardNoBoatSpot`), the check is decided by a priced comparison run through the card-impact model (`omahaCardImpactDecision`, called by `omahaPairedBoardPricedCheck`), whether `omahaCardImpact` is on or off. That model's response constants are unfitted priors (`omahaCardImpact.md`, Value NOT MET), so the in-position comparison is not measured (stated 2026-11-16, review note N7).
