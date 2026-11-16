@@ -1,0 +1,9 @@
+# The lobby favorite proof allows the starred game's own sign-ups (2026-11-16)
+
+The production lobby check "tournament favorites stay below current pins across sorting and reload" (`tests/e2e/production-mobile-lobby-chrome.spec.ts`) failed 3 times in its last 10 tries (five runs, two browsers each), all in the evening sign-up window (Post-Deploy E2E runs 43771208157 and 43781951342). Each time it failed at the second Stakes: High To Low check, after Most Players.
+
+The lobby was right every time. The starred tournament stayed exactly where it was. The test picks a popular Free Buy event, and another player signed up for it while the test ran, so its Entries count went up by one (330 to 331, 349 to 350, 352 to 353). The order check (`tests/e2e/support/lobbyFavoriteOrderProof.ts`) only trusted rows whose name, price, entries, start and pin were all unchanged. Once the starred game's own count moved, the check threw that game out and failed. The count did not go back down, so waiting longer could not help.
+
+The check now lets the starred game's own entry count change. It still fails if that game's name, price, start time or pin changes, or if the game is missing or has already started. The board sorts by buy-in, then players, then name. So when the starred game's count moves, a game at the same price whose count lies between the old and new value may fairly swap places with it, and only those games are left out of the comparison. Every other unchanged game that has not started is still compared. Moving the starred game to the top, or even one place past a game it could not fairly pass, is still refused. The check still fails when no comparison game is left.
+
+Test only. The lobby and the spec file are unchanged. Pinned by four new cases in `tests/unit/lobbyFavoriteOrderProof.test.ts`. Two of them fail on the old check.

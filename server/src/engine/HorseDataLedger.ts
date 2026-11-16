@@ -1100,7 +1100,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'plo6ManiacPriceRefusalToRangePlay',
-    '2026-11-14 PLO6 cash preflop: when the raiser faced is an observed maniac and not all in and the call is under 40% of the stack, a refusal by the price arithmetic is decided by the range play, the play made against every other opponent, instead of an outright fold (PLO6-AUDIT-013, production hand 58751512; evidence docs/horse-default-on.d/plo6ManiacPriceRefusalToRangePlay.md)',
+    '2026-11-14 PLO6 cash preflop: when the raiser faced is an observed maniac and not all in and the call is under 40% of the stack, a refusal by the price arithmetic is decided by the range play, the play made against every other opponent, instead of an outright fold (PLO6-AUDIT-013, production hand 58751512; evidence docs/horse-default-on.d/plo6ManiacPriceRefusalToRangePlay.md). Default OFF (opt-in) since 2026-11-16: its reach row was not met by the deadline Hand Analysis set',
     'V92'
   ),
   flag(
@@ -1914,6 +1914,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'fixedLimitOmahaNoPresumption',
     '2026-11-14 default OFF: on a fixed-limit Omaha decision (flo8) HorseMind.opponentRead does not apply the shared aggressive raise presumption (presumedAggressorRead, a pot-limit policy that prices a pot-sized raise); the opponent own measured read stands; pot-limit Omaha unchanged; measured before (O-TIGHT-FL-DIAGNOSIS): a 21-27 percent flo8 raiser (tight-value script) stayed presumed at 1,000 hands and the Horse opened 159 of 400 first-in buttons against him versus 202 with memory off; refused by the league (it deals no fixed limit), see UNMEASURABLE_MATCHUPS',
     'FixedLimitAdaptation'
+  ),
+  flag(
+    'fixedLimitBetsAreNeverProbes',
+    '2026-11-15 source default ON since 652726c8 (FIXED_LIMIT_BETS_ARE_NEVER_PROBES_DEFAULT): the live switch of the process switch HorseMind.setFixedLimitBetsAreNeverProbes, not a decision option; the decision worker applies the registry state before every job, so the in-decision observation, the observer reads and the completed-hand learner of the thread count with one value: off counts a fixed-limit checked-to bet as a probe again (main before 2026-11-14), on or no row, unreadable or stale is the source default; no-limit and pot-limit counting identical in every state; evidence docs/horse-default-on.d/fixedLimitBetsAreNeverProbes.md',
+    'FixedLimitAdaptation',
+    'HorseMind.observe via HorseMind.applyFixedLimitBetsAreNeverProbesOption (decision worker, every job)'
   ),
   flag(
     'lightningParticipationHoldem',

@@ -357,9 +357,10 @@ describe('the actual cash selector scans across lobby tabs', () => {
     let active = 'default';
     let cashSectionOpen = false;
     const readiness: string[] = [];
+    const navigationFrom = source.indexOf('    // The engine-progress wait above can outlast');
     const navigation = source.slice(
-      source.indexOf('    // The engine-progress wait above can outlast'),
-      source.indexOf('    const navigationStartedAt = Date.now();')
+      navigationFrom,
+      source.indexOf('    const navigationStartedAt = Date.now();', navigationFrom)
     );
     const visited: string[] = [];
     const reads: string[][] = [];
