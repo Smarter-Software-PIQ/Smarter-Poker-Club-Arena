@@ -568,6 +568,26 @@ export function fixedLimitTournamentFirstInBar(
 }
 
 /**
+ * Why the tournament version stands aside for a built context at hero's stack
+ * (big blinds), or null when it prices the spot: the table-level stand-asides
+ * HorseLogic set (All-In-Or-Fold, a locked satellite seat), then 10 big blinds
+ * or less, then a context without a bubble factor. The one test both the
+ * intent below and HorseLogic's phase12 precedence read, so the precedence
+ * holds exactly where the option itself prices the spot.
+ */
+export function fixedLimitTournamentStandAside(
+  priced: FixedLimitTournamentPricedCtx,
+  stackBB: number
+): FixedLimitTournamentStandAside | null {
+  const tableLevel = priced.standAside ?? null;
+  if (tableLevel !== null) return tableLevel;
+  if (!(stackBB > FIXED_LIMIT_TOURNAMENT_STAND_ASIDE_BB)) return 'short_stack';
+  if (priced.bubbleFactor === null || !Number.isFinite(priced.bubbleFactor))
+    return 'incomplete_context';
+  return null;
+}
+
+/**
  * The tournament answer for this spot. Null when the spot is not one of the
  * two families (the persona's answer `inner` stands, no receipt). A result
  * with intent null is a stand-aside (the persona's answer stands, receipted).
@@ -593,13 +613,7 @@ export function fixedLimitTournamentPricedPreflopIntent(
     spot.toCall > 0 &&
     !p.openerAllIn;
   if (!firstIn && !defence) return null;
-  const standAside: FixedLimitTournamentStandAside | null =
-    p.standAside ??
-    (!(spot.stackBB > FIXED_LIMIT_TOURNAMENT_STAND_ASIDE_BB)
-      ? 'short_stack'
-      : p.bubbleFactor === null || !Number.isFinite(p.bubbleFactor)
-        ? 'incomplete_context'
-        : null);
+  const standAside = fixedLimitTournamentStandAside(p, spot.stackBB);
   if (standAside !== null) {
     return { intent: null, receipt: `fixed_limit_tournament_priced_stand_aside_${standAside}` };
   }

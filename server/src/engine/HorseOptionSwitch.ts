@@ -422,6 +422,9 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
   huLimpDefendsToPrice: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
   // 2026-11-16 Heads Up R2-N1 (Hand Analysis): changes a big-blind preflop range, same owner hold as its siblings.
   huBbDefendsUnreadToPrice: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
+  // 2026-11-16 Fixed-Limit lane Phase 4: widens and tightens fixed-limit tournament first-in ranges and the blind
+  // defence, so it is under the same owner hold (evaluation AB-EVALUATION-2 3.14: no demonstrated gain).
+  fixedLimitPricedPreflopTournament: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
   // owner 21:30: the Omaha tight responses
   omahaTightOpponent: hold(
     OMAHA_TIGHT_SOURCE,
@@ -568,7 +571,7 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
   fixedLimitPricedPreflopTournament: [
     'Fixed-Limit',
     'Fixed limit (flh, flo8) preflop, tournament tables only (cash inert by code)',
-    'fixed-limit tournament preflop: widens the persona first in to the reference share over the bubble factor, blind defence at price x bubble factor (Phase 4)',
+    'fixed-limit tournament preflop: first-in share / bubble factor, blind defence at price x bubble factor (Phase 4; off-only, preflop hold)',
   ],
   v16Hu: ['Heads Up', 'Heads-up postflop', 'heads-up postflop overlay'],
   v16Ratio: [HOLDEM, 'All (dead by precedence under V38)', 'V16 call/fold ratio rescale'],

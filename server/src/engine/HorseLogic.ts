@@ -327,6 +327,7 @@ import {
   fixedLimitStealStrengthWiden,
   fixedLimitStealWiden,
   type FixedLimitPricedCtx,
+  fixedLimitTournamentStandAside,
   type FixedLimitTournamentPricedCtx,
 } from './HorseFixedLimitPreflop.js';
 import {
@@ -4033,8 +4034,11 @@ export interface HorseDecideOpts {
    *  only when the bubble factor is above 1.15, the share is scaled down under 25 big
    *  blinds), and a blind's fold facing exactly one raise becomes a call when its realized
    *  equity covers the raw price times the bubble factor (HorseFixedLimitPreflop.ts).
-   *  Stands aside at 10 big blinds or less, All-In-Or-Fold, a locked satellite seat and
-   *  a context without a bubble factor. Read only as === true: default OFF. */
+   *  Never built in a bomb pot or a straddled pot. Stands aside at 10 big blinds or less,
+   *  All-In-Or-Fold, a locked satellite seat and a context without a bubble factor; only
+   *  where it does not stand aside does the phase12 pack's round-3 first-in precedence
+   *  keep the reference. Off-only by the owner preflop range hold. Read only as === true:
+   *  default OFF. */
   fixedLimitPricedPreflopTournament?: boolean;
   /** FIXED-LIMIT BETS ARE NEVER PROBES, live switch (2026-11-15, Fixed-Limit lane, owner rule
    *  11:26): the registry's on/off for the PROCESS switch HorseMind.setFixedLimitBetsAreNeverProbes.
@@ -6390,6 +6394,10 @@ let nearNutFlatExceptionUsed = false;
 let plo6RefusalHandOffPending: 'floored' | 'unfloored' | null = null;
 // barrelContinuationOutlook changed the reference choice; judged at the end.
 let barrelOutlookAppliedPending = false;
+// fixedLimitPricedPreflopTournament (Phase 4): this decision built the
+// tournament context and the option did not stand aside, so the phase12
+// pack's round-3 first-in rules keep the reference (read after the reference).
+let fixedLimitTournamentPrecedencePending = false;
 
 function plo6RiverNutDiscipline(
   decision: HorseDecision,
@@ -10878,6 +10886,7 @@ export class HorseLogic {
       huDefendToPricePending = null;
       nearNutFlatExceptionUsed = false;
       barrelOutlookAppliedPending = false;
+      fixedLimitTournamentPrecedencePending = false;
       phase7EquityEvidence = null;
       phase10EquityEvidence = null;
       phase11DecisionEquityCeiling = null;
@@ -10913,6 +10922,7 @@ export class HorseLogic {
     huDefendToPricePending = null;
     nearNutFlatExceptionUsed = false;
     barrelOutlookAppliedPending = false;
+    fixedLimitTournamentPrecedencePending = false;
     // Authored JSON and older direct callers can supply arbitrary strings.
     // Inherited object keys are not styles; keep every downstream style
     // branch on the same valid fallback as the numerical parameters.
@@ -11199,6 +11209,8 @@ export class HorseLogic {
     huDefendToPricePending = null;
     const barrelOutlookApplied = barrelOutlookAppliedPending;
     barrelOutlookAppliedPending = false;
+    const fixedLimitTournamentPrecedence = fixedLimitTournamentPrecedencePending;
+    fixedLimitTournamentPrecedencePending = false;
     const v54StationCheck = v54StationChecks.has(decision);
     const preflopAuthority = decision.preflopAuthority;
     const preflopReadReceipt = decision.preflopReadReceipt;
@@ -11303,11 +11315,14 @@ export class HorseLogic {
               phase12DecisionEquityCeiling ?? 1,
               true,
               readStation,
-              // W5 cash only: a fixed-limit tournament table keeps today's pack (isTournamentMode);
-              // the Phase 4 tournament version holds the same precedence at tournament tables only
+              // W5 cash only: a fixed-limit tournament table keeps today's pack (isTournamentMode).
+              // The Phase 4 tournament version holds the same precedence at a tournament table
+              // only where THIS decision built its context and it did not stand aside (10 big
+              // blinds or less, All-In-Or-Fold, a locked satellite seat, no bubble factor):
+              // at every stand-aside the persona's answer and today's pack stand.
               vi.isFixedLimit === true &&
                 ((opts.fixedLimitPricedPreflop === true && !isTournamentMode(gs)) ||
-                  (opts.fixedLimitPricedPreflopTournament === true && isTournamentMode(gs)))
+                  (fixedLimitTournamentPrecedence && isTournamentMode(gs)))
             )
           : null;
       if (phase12) {
@@ -14100,6 +14115,9 @@ export class HorseLogic {
           standAside:
             gs.allInOrFold === true ? 'all_in_or_fold' : lockedFlT ? 'satellite_locked' : null,
         };
+        // The phase12 precedence holds only where the option prices this spot.
+        fixedLimitTournamentPrecedencePending =
+          fixedLimitTournamentStandAside(fixedLimitTournamentPriced, stackBB) === null;
       } catch {
         /* reads are best-effort */
       }

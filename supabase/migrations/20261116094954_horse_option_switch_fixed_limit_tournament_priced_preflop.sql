@@ -116,8 +116,8 @@ BEGIN
     'huBbDefendsToPrice', 'huBbDefendsUnreadToPrice', 'huOpenerDefendsToPrice',
     'huLimpDefendsToPrice', 'huSmallBlindStealsVsTightBigBlind', 'committedStackPricedIn',
     'holdemPersonaPreflop', 'aofClosingSeatNashCall', 'nashPushFoldIcm', 'facingOpenFullRingZone',
-    'vs3BetShortStack', 'omahaCommitZoneThreeBetPriceRelief', 'fixedLimitStealVsTightBlinds',
-    'lightningParticipationOmaha', 'commitUnderPot'
+    'vs3BetShortStack', 'omahaCommitZoneThreeBetPriceRelief', 'fixedLimitPricedPreflopTournament',
+    'fixedLimitStealVsTightBlinds', 'lightningParticipationOmaha', 'commitUnderPot'
     -- registry:off-only-options:end
     ) THEN
       RAISE EXCEPTION 'switch row % is on and the option is now off-only: set it off or clear it before this migration',
@@ -238,8 +238,8 @@ ALTER TABLE public.ca_horse_style_switch
     'huBbDefendsToPrice', 'huBbDefendsUnreadToPrice', 'huOpenerDefendsToPrice',
     'huLimpDefendsToPrice', 'huSmallBlindStealsVsTightBigBlind', 'committedStackPricedIn',
     'holdemPersonaPreflop', 'aofClosingSeatNashCall', 'nashPushFoldIcm', 'facingOpenFullRingZone',
-    'vs3BetShortStack', 'omahaCommitZoneThreeBetPriceRelief', 'fixedLimitStealVsTightBlinds',
-    'lightningParticipationOmaha', 'commitUnderPot'
+    'vs3BetShortStack', 'omahaCommitZoneThreeBetPriceRelief', 'fixedLimitPricedPreflopTournament',
+    'fixedLimitStealVsTightBlinds', 'lightningParticipationOmaha', 'commitUnderPot'
     -- registry:off-only-options:end
     ))
     OR option IN (
@@ -275,8 +275,8 @@ AS $function$
     'huBbDefendsToPrice', 'huBbDefendsUnreadToPrice', 'huOpenerDefendsToPrice',
     'huLimpDefendsToPrice', 'huSmallBlindStealsVsTightBigBlind', 'committedStackPricedIn',
     'holdemPersonaPreflop', 'aofClosingSeatNashCall', 'nashPushFoldIcm', 'facingOpenFullRingZone',
-    'vs3BetShortStack', 'omahaCommitZoneThreeBetPriceRelief', 'fixedLimitStealVsTightBlinds',
-    'lightningParticipationOmaha', 'commitUnderPot'
+    'vs3BetShortStack', 'omahaCommitZoneThreeBetPriceRelief', 'fixedLimitPricedPreflopTournament',
+    'fixedLimitStealVsTightBlinds', 'lightningParticipationOmaha', 'commitUnderPot'
     -- registry:off-only-options:end
     )
       THEN ARRAY['off']
@@ -380,8 +380,8 @@ BEGIN
     'huBbDefendsToPrice', 'huBbDefendsUnreadToPrice', 'huOpenerDefendsToPrice',
     'huLimpDefendsToPrice', 'huSmallBlindStealsVsTightBigBlind', 'committedStackPricedIn',
     'holdemPersonaPreflop', 'aofClosingSeatNashCall', 'nashPushFoldIcm', 'facingOpenFullRingZone',
-    'vs3BetShortStack', 'omahaCommitZoneThreeBetPriceRelief', 'fixedLimitStealVsTightBlinds',
-    'lightningParticipationOmaha', 'commitUnderPot'
+    'vs3BetShortStack', 'omahaCommitZoneThreeBetPriceRelief', 'fixedLimitPricedPreflopTournament',
+    'fixedLimitStealVsTightBlinds', 'lightningParticipationOmaha', 'commitUnderPot'
     -- registry:off-only-options:end
        ]::text[]) AS n
        WHERE public.fn_ca_horse_option_switch_states(n) IS DISTINCT FROM ARRAY['off'])
