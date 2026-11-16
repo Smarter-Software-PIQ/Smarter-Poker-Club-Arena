@@ -98,6 +98,7 @@ for i in range(0,44):
         armed=('round 2 killed at its last leg, AG -> SUB',arm("NEW.to_entity_id=rr.u('SUB') AND NEW.from_type='agent_wallet'",'round 2 killed at AG to SUB'))
     if stage(r)=='round_paid' and json.loads(r['out'])['round']==2:
         snap_r2=one(SNAP); exec((F/'between-rounds.py').read_text())
+        exec((F/'stale-player-window.py').read_text())
         assert one(SNAP)==snap_r2,'a between-rounds probe left something behind'
         armed=('round 3 killed at the TQ player leg',arm("NEW.to_entity_id=rr.u('TQ') AND NEW.category='rakeback'",'round 3 killed at TQ'))
 assert interrupts==['round 2 killed at its last leg, AG -> SUB','round 3 killed at the TQ player leg'],interrupts
