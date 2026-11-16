@@ -2,7 +2,7 @@ import { deflateSync, inflateSync, strToU8, strFromU8 } from 'fflate';
 
 // The decoder always allocates a caller-sized output buffer. One extra byte
 // detects overlong streams without letting public input select an allocation.
-const MAX_BYTES = 512 * 1024;
+const MAX_BYTES = 1536 * 1024;
 export function encodePresentation(value: object): string {
   const plain = strToU8(JSON.stringify(value));
   if (plain.length > MAX_BYTES)

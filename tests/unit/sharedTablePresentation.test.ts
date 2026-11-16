@@ -128,3 +128,32 @@ it('round trips a nine-seat hand with the dealt paths and the award after settle
   expect(readSharedDeal({ ...deal, paths: [[0, 1, 2, 3, -1]] })).toBeUndefined();
   expect(readSharedChips([[...chip.slice(0, 7), 25, ...chip.slice(8)]])).toBeUndefined();
 });
+
+it('keeps the live character gesture and card cover through a public recording', async () => {
+  const { seatPaint, seatPaintProps } = await import('@/lib/sharedSeatPresentation');
+  const state = seatPaint({
+    seatNumber: 4,
+    player: {
+      id: 'local-only',
+      name: 'A',
+      status: 'active',
+      stack: 220,
+      isHero: true,
+      showCards: false,
+    },
+    lastAction: 'check',
+    isActive: true,
+    recordedGesture: 'alert',
+    recordedCardsCovered: true,
+  } as Parameters<typeof seatPaint>[0])!;
+  const recorded = readSeatPaints(
+    decodePresentation(encodePresentation({ seats: [[218, 4, ...state]] }))?.seats
+  )!;
+  expect(seatPaintProps(recorded[0])).toMatchObject({
+    gesture: 'alert',
+    covered: true,
+    stack: 220,
+    action: 'check',
+  });
+  expect(JSON.stringify(recorded)).not.toContain('local-only');
+});

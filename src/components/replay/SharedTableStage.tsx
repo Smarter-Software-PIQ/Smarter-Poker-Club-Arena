@@ -367,6 +367,8 @@ export default function SharedTableStage({
                     deckStyle={deckStyle}
                     cardBack={appearance?.cardBack}
                     playSounds={false}
+                    recordedGesture={recorded?.gesture}
+                    recordedCardsCovered={recorded?.covered}
                     {...recorded?.bits}
                   />
                   {own && !revealed && !!cards?.length && (

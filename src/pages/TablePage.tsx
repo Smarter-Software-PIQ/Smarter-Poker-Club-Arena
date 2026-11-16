@@ -11105,6 +11105,11 @@ function LiveTablePage({
     Array<{ seat: number; action: string; amount?: number; street: string; atMs?: number }>
   >([]);
   const shareStartedAt = useRef<number | null>(null);
+  const paintedSeats = useRef<{
+    hand: number;
+    latest: Map<number, SeatPaint>;
+    events: SeatPaintEvent[];
+  }>({ hand: 0, latest: new Map(), events: [] });
   const paintedChips = useRef<{ seen: Set<string>; paths: SharedChip[] }>({
     seen: new Set(),
     paths: [],
@@ -11160,11 +11165,6 @@ function LiveTablePage({
       refreshCompletedPresentation.current = null;
     };
   }, [tableId, userId]);
-  const paintedSeats = useRef<{
-    hand: number;
-    latest: Map<number, SeatPaint>;
-    events: SeatPaintEvent[];
-  }>({ hand: 0, latest: new Map(), events: [] });
   const observeShareSeat = useCallback(
     (props: SeatSlotProps) => {
       const journal = paintedSeats.current;

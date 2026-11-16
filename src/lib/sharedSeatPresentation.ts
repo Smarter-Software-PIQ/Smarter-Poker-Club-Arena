@@ -1,5 +1,10 @@
 import { createContext } from 'react';
-import type { LastAction, PlayerStatus, SeatSlotProps } from '../components/table/SeatSlot';
+import type {
+  AvatarGesture,
+  LastAction,
+  PlayerStatus,
+  SeatSlotProps,
+} from '../components/table/SeatSlot';
 
 const statuses: PlayerStatus[] = [
   'active',
@@ -10,6 +15,7 @@ const statuses: PlayerStatus[] = [
   'disconnected',
 ];
 const actions: LastAction[] = [null, 'fold', 'check', 'call', 'bet', 'raise', 'all_in', 'discard'];
+const gestures: AvatarGesture[] = [null, 'push', 'check', 'fold', 'celebrate', 'lose', 'alert'];
 const switches = [
   'isActive',
   'isCollectingChips',
@@ -41,7 +47,9 @@ export const SharedSeatObserver = createContext<ObserveSeat | null>(null);
 export function seatPaint(props: SeatSlotProps): SeatPaint | undefined {
   const player = props.player;
   if (!player) return;
-  const flags = switches.reduce((bits, key, i) => (props[key] ? bits | (1 << i) : bits), 0);
+  const stateBits = switches.reduce((bits, key, i) => (props[key] ? bits | (1 << i) : bits), 0);
+  const gesture = gestures.indexOf(props.recordedGesture ?? null);
+  const flags = stateBits | (gesture << 12) | (props.recordedCardsCovered ? 1 << 15 : 0);
   // Only the visibility of each authorized card. Card values come from the ordinary share.
   const mask =
     player.isHero || player.showCards
@@ -75,7 +83,8 @@ export function readSeatPaints(input: unknown): SeatPaintEvent[] | undefined {
       seat < 1 ||
       seat > 10 ||
       flags < 0 ||
-      flags >= 1 << switches.length ||
+      flags >= 65536 ||
+      ((flags >> 12) & 7) >= gestures.length ||
       !statuses[status] ||
       action < 0 ||
       action >= actions.length ||
@@ -97,5 +106,15 @@ export function seatPaintProps(event: SeatPaintEvent) {
     (typeof switches)[number],
     boolean
   >;
-  return { bits, status: statuses[status], action: actions[action], stack, bet, net, mask };
+  return {
+    bits,
+    gesture: gestures[(flags >> 12) & 7],
+    covered: !!(flags & (1 << 15)),
+    status: statuses[status],
+    action: actions[action],
+    stack,
+    bet,
+    net,
+    mask,
+  };
 }
