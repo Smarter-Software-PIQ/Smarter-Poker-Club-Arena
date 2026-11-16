@@ -1090,7 +1090,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'holdemHeadsUpPostflopBalance',
-    "HV31 FLOP-5 D1 (2026-11-15): no-limit hold'em cash, heads-up single-raised pot, hero in position, effective stack 20 bb or more: the flop c-bet after a check is one 0.75-pot size at a frequency by hand tier; a flop fold to a check-raise after the c-bet with a middle pair or better or a flush or open-ended straight draw becomes a call; a turn or river checked to hero bets one size (0.70 pot, full pot) at a frequency by tier (HorseHeadsUpPostflopBalance.ts; solver evidence FLOP-3 B9/B6, FLOP-4 C1). Default OFF (opt-in): only an explicit true switches it on. League card nlh_hu_postflop_balance",
+    "HV31 FLOP-5 D1 (2026-11-15): no-limit hold'em cash, heads-up single-raised pot, hero in position, effective stack 20 bb or more: the flop c-bet after a check is one 0.75-pot size at a frequency by hand tier; a flop fold to a check-raise after the c-bet with a middle pair or better or a flush or open-ended straight draw becomes a call; a turn checked to hero bets one 0.70-pot size at a frequency by tier; the river is not covered (its full-pot part was removed 2026-11-16 after the solver score: 11 of 41 river games of the FLOP-5 D1 bank got worse by more than 5 points of the pot) (HorseHeadsUpPostflopBalance.ts; solver evidence FLOP-3 B9/B6, FLOP-4 C1, FLOP-5 D1). Default OFF (opt-in): only an explicit true switches it on. League card nlh_hu_postflop_balance",
     'V94'
   ),
   flag(
@@ -4028,7 +4028,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   receipt(
     'hu_postflop_balance_later_street',
     'HorseLogic wager_rules (HorseHeadsUpPostflopBalance)',
-    'holdemHeadsUpPostflopBalance on: a heads-up in-position NLH cash turn or river decision after a check (single-raised pot) was replaced by one size (0.70 pot turn, full pot river) or a check at the tier frequency',
+    'holdemHeadsUpPostflopBalance on: a heads-up in-position NLH cash turn decision after a check (single-raised pot) was replaced by the one 0.70-pot size or a check at the tier frequency (the river is not covered)',
     'V94'
   ),
   receipt(

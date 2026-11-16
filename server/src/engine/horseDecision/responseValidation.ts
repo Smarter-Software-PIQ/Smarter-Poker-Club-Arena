@@ -1243,9 +1243,10 @@ function policyGraphIsValid(
           onePairRuleProduces(previous, transition.after, context));
     // HV31 FLOP-5 D1 (HorseHeadsUpPostflopBalance, option
     // holdemHeadsUpPostflopBalance, default OFF): a heads-up in-position NLH
-    // cash bet becomes a check on a street checked to hero. A check puts no
-    // chip in; when the request is known, only where the rule's own spot
-    // test, re-run on it, says so (the paired-board river check's form).
+    // cash bet becomes a check on a flop or turn checked to hero (its river
+    // part was removed after the solver score). A check puts no chip in;
+    // when the request is known, only where the rule's own spot test, re-run
+    // on it, says so (the paired-board river check's form).
     // Its flop fold to a check-raise that becomes a call is admitted only
     // with the request, in that spot (the short all-in call floor's form).
     const huBalanceSpotOfRequest =
@@ -1258,8 +1259,7 @@ function policyGraphIsValid(
       previous.action === 'bet' &&
       (context === undefined ||
         huBalanceSpotOfRequest === 'flop_cbet' ||
-        huBalanceSpotOfRequest === 'turn_checked_to' ||
-        huBalanceSpotOfRequest === 'river_checked_to');
+        huBalanceSpotOfRequest === 'turn_checked_to');
     const huBalanceFoldToCall =
       transition.node === 'wager_rules' &&
       variant === 'nlh' &&

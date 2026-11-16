@@ -2926,11 +2926,13 @@ export interface HorseDecideOpts {
   /** HV31 FLOP-5 D1 (2026-11-15): no-limit hold'em cash, heads-up single-raised
    * pot, hero in position: the flop c-bet after a check is one 0.75-pot size
    * at a frequency by hand tier, a flop fold to a check-raise with a middle
-   * pair or better or a strong draw becomes a call, and a turn or river
-   * checked to hero bets one size (0.70 pot, full pot) at a frequency by
-   * tier (HorseHeadsUpPostflopBalance.ts; solver evidence FLOP-3 B9/B6,
-   * FLOP-4 C1). Default OFF (opt-in): only an explicit true switches it on;
-   * off, it draws no random number. League card nlh_hu_postflop_balance. */
+   * pair or better or a strong draw becomes a call, and a turn checked to
+   * hero bets 0.70 of the pot at a frequency by tier
+   * (HorseHeadsUpPostflopBalance.ts; solver evidence FLOP-3 B9/B6, FLOP-4
+   * C1). The river is not covered: its full-pot part was removed after the
+   * FLOP-5 D1 solver score. Default OFF (opt-in): only an explicit true
+   * switches it on; off, it draws no random number. League card
+   * nlh_hu_postflop_balance. */
   holdemHeadsUpPostflopBalance?: boolean;
   /** Owner 2026-11-15 01:03 (play a maniac and a tight player differently;
    * fix the problem, not particular folds): the preflop 4-bet fold of

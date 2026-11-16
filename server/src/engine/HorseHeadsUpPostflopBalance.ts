@@ -33,9 +33,17 @@
  *    flop and was raised. A fold becomes a call with a middle pair or better
  *    or a flush draw or open-ended straight draw; with less than top pair
  *    the call must cost at most half of hero's stack. Any other action stays.
- *  - TURN AND RIVER CHECKED TO: a check or bet becomes: bet with the tier's
- *    frequency (turn 0.70 pot, river the full pot), otherwise check.
+ *  - TURN CHECKED TO: a check or bet becomes: bet 0.70 of the pot with the
+ *    tier's frequency, otherwise check.
  * An all-in, a raise or a call chosen by the brain is never touched here.
+ *
+ * The river is NOT covered (revised 2026-11-16). A river part (bet the full
+ * pot when checked to, by tier) was built and removed after its solver score
+ * on the HV31 turn and river bank B1X-TR1: the river mean X fell, but 11 of
+ * 41 river games got worse by more than 5 points of the pot (worst +17.5),
+ * which fails the bank's own regression rule. A river rule is left for a
+ * later redesign scored on fresh river games. With the option on, a river
+ * decision is returned unchanged and draws no random number.
  *
  * Tiers come from hero's two cards and the public board only (no opponent
  * card, no identity): nutted (two pair with both hole cards, a set, trips,
@@ -52,14 +60,10 @@ import type { Card, HorseDecision, SeatPlayer } from '../types.js';
 import type { HorseGameStateV2 } from './HorseLogic.js';
 import { fastRandom } from './HorseEval.js';
 
-export type HuBalanceSpot =
-  | 'flop_cbet'
-  | 'flop_vs_check_raise'
-  | 'turn_checked_to'
-  | 'river_checked_to';
+export type HuBalanceSpot = 'flop_cbet' | 'flop_vs_check_raise' | 'turn_checked_to';
 export type HuBalanceTier = 'nutted' | 'top' | 'mid' | 'weak' | 'draw' | 'air';
 export type HuBalanceChange = 'flop_cbet' | 'check_raise_defend' | 'later_street' | null;
-type CheckedToSpot = 'flop_cbet' | 'turn_checked_to' | 'river_checked_to';
+type CheckedToSpot = 'flop_cbet' | 'turn_checked_to';
 
 /** Bet frequency per tier when the street is checked to hero. */
 export const HU_BALANCE_BET_FREQUENCY: Readonly<
@@ -67,13 +71,11 @@ export const HU_BALANCE_BET_FREQUENCY: Readonly<
 > = {
   flop_cbet: { nutted: 0.9, top: 0.7, mid: 0.4, weak: 0.4, draw: 0.55, air: 0.4 },
   turn_checked_to: { nutted: 0.75, top: 0.4, mid: 0.25, weak: 0.25, draw: 0.45, air: 0.25 },
-  river_checked_to: { nutted: 0.9, top: 0.5, mid: 0.2, weak: 0.2, draw: 0.45, air: 0.45 },
 };
 /** The one bet size per street, as a fraction of the pot before the bet. */
 export const HU_BALANCE_BET_SIZE: Readonly<Record<CheckedToSpot, number>> = {
   flop_cbet: 0.75,
   turn_checked_to: 0.7,
-  river_checked_to: 1.0,
 };
 /** Minimum effective stack, in big blinds, for any part of the rule. */
 export const HU_BALANCE_MIN_DEPTH_BB = 20;
@@ -109,7 +111,7 @@ function heroToCall(player: SeatPlayer, gs: HorseGameStateV2): number {
     : Math.max(0, (gs.currentBet || 0) - (player.bet || 0));
 }
 
-/** The spot this rule covers, from public state only, or null. */
+/** The spot this rule covers, from public state only, or null (always null on the river). */
 export function huBalanceSpot(player: SeatPlayer, gs: HorseGameStateV2): HuBalanceSpot | null {
   try {
     if (String(gs.gameVariant ?? '').toLowerCase() !== 'nlh') return null;
@@ -119,7 +121,8 @@ export function huBalanceSpot(player: SeatPlayer, gs: HorseGameStateV2): HuBalan
     if ((gs.communityCards2?.length ?? 0) > 0 || (gs.communityCards3?.length ?? 0) > 0) return null;
     const stage = gs.stage;
     const board = gs.communityCards ?? [];
-    const need = stage === 'flop' ? 3 : stage === 'turn' ? 4 : stage === 'river' ? 5 : -1;
+    // The river is not covered (its part was removed after the solver score).
+    const need = stage === 'flop' ? 3 : stage === 'turn' ? 4 : -1;
     if (need < 0 || board.length !== need) return null;
     if ((player.cards?.length ?? 0) !== 2 || player.is_folded || player.is_all_in) return null;
     if (!(player.stack > 0)) return null;
@@ -143,7 +146,7 @@ export function huBalanceSpot(player: SeatPlayer, gs: HorseGameStateV2): HuBalan
       street.length === 1 && street[0].seat === opp.seat && street[0].action === 'check';
     if (oppChecked && toCall <= 0.005) {
       if (stage === 'flop') return heroRaisedPreflop ? 'flop_cbet' : null;
-      return stage === 'turn' ? 'turn_checked_to' : 'river_checked_to';
+      return 'turn_checked_to';
     }
     if (
       stage === 'flop' &&
@@ -225,8 +228,9 @@ export function huBalanceTier(hole: readonly Card[], board: readonly Card[]): Hu
 
 /**
  * The rule. `legalize` is the brain's own legalizer (HorseLogic.legalize); a
- * candidate it changes is returned in its legal form. With `on` false the
- * decision is returned as is and no random number is drawn.
+ * candidate it changes is returned in its legal form. With `on` false, or
+ * outside its spots (every river decision among them), the decision is
+ * returned as is and no random number is drawn.
  */
 export function holdemHeadsUpPostflopBalance(
   decision: HorseDecision,

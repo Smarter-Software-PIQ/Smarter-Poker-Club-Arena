@@ -2,7 +2,10 @@
  * HV31 FLOP-5 D1: holdemHeadsUpPostflopBalance (HorseHeadsUpPostflopBalance.ts).
  * Pins: default OFF changes nothing and draws no random number (unit and
  * through HorseLogic.decide on real HandController states); the spot test; the
- * tiers; the three parts of the rule; the worker receipt admits what it does.
+ * tiers; the three parts of the rule; the worker receipt admits what it does;
+ * the river is not covered (its part was removed after the solver score): with
+ * the option on, a checked-to river decision is returned unchanged and draws no
+ * random number.
  */
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
@@ -171,7 +174,7 @@ describe('huBalanceTier', () => {
 });
 
 describe('huBalanceSpot', () => {
-  it('names the four spots from public state', () => {
+  it('names the three spots from public state; a checked-to river is not one', () => {
     const f = spotState(FLOP_CBET, 'Ks7c2d');
     expect(huBalanceSpot(f.actor, f.gs)).toBe('flop_cbet');
     const x = spotState(FLOP_XR, 'Ks7c2d');
@@ -179,7 +182,7 @@ describe('huBalanceSpot', () => {
     const t = spotState(TURN_CHECKED, 'Ks7c2d4h');
     expect(huBalanceSpot(t.actor, t.gs)).toBe('turn_checked_to');
     const r = spotState(RIVER_CHECKED, 'Ks7c2d4h9s');
-    expect(huBalanceSpot(r.actor, r.gs)).toBe('river_checked_to');
+    expect(huBalanceSpot(r.actor, r.gs)).toBeNull();
   });
   it('is null in a 3-bet pot, a tournament, another variant, out of position and short', () => {
     const three = spotState([{ who: 'OOP', action: 'check' }], 'Ks7c2d', { threeBet: true });
@@ -260,7 +263,7 @@ describe('holdemHeadsUpPostflopBalance (unit)', () => {
       ).decision
     ).toBe(raise);
   });
-  it('turn and river: one size (0.70 pot, full pot) or a check; a call or all-in is never touched', () => {
+  it('turn: one 0.70-pot size or a check; a call or all-in is never touched', () => {
     const t = spotState(TURN_CHECKED, 'Ks7c2d4h');
     const tb = holdemHeadsUpPostflopBalance(
       { action: 'check', thinkTime: 1 },
@@ -274,27 +277,40 @@ describe('holdemHeadsUpPostflopBalance (unit)', () => {
       changed: 'later_street',
       decision: { action: 'bet', amount: Math.round(t.gs.pot * 0.7) },
     });
-    const r = spotState(RIVER_CHECKED, 'Ks7c2d4h9s');
-    const rb = holdemHeadsUpPostflopBalance(
-      { action: 'check', thinkTime: 1 },
-      { ...r.actor, cards: cards('AhKd') },
-      r.gs,
-      true,
-      identity,
-      () => 0
-    );
-    expect(rb.decision).toMatchObject({ action: 'bet', amount: r.gs.pot });
     const jam: HorseDecision = { action: 'all_in', amount: 9725, thinkTime: 1 };
     expect(
       holdemHeadsUpPostflopBalance(
         jam,
-        { ...r.actor, cards: cards('AhKd') },
-        r.gs,
+        { ...t.actor, cards: cards('AhKd') },
+        t.gs,
         true,
         identity,
         () => 0
       ).decision
     ).toBe(jam);
+  });
+  it('river ON: a checked-to river decision is returned unchanged and draws no random number', () => {
+    const r = spotState(RIVER_CHECKED, 'Ks7c2d4h9s');
+    const decisions: HorseDecision[] = [
+      { action: 'check', thinkTime: 1 },
+      { action: 'bet', amount: 200, thinkTime: 1 },
+      { action: 'all_in', amount: 9725, thinkTime: 1 },
+    ];
+    for (const hole of ['AhKd', '7h6h', '2h3h', 'Kh7h', '9h8d'])
+      for (const d of decisions) {
+        let draws = 0;
+        const out = holdemHeadsUpPostflopBalance(
+          d,
+          { ...r.actor, cards: cards(hole) },
+          r.gs,
+          true,
+          identity,
+          () => (draws++, 0)
+        );
+        expect(out.decision).toBe(d);
+        expect(out.changed).toBeNull();
+        expect(draws).toBe(0);
+      }
   });
 });
 
@@ -319,6 +335,8 @@ describe('holdemHeadsUpPostflopBalance through HorseLogic.decide', () => {
     ['turn_checked_to', TURN_CHECKED, 'Ks7c2d4h'],
     ['river_checked_to', RIVER_CHECKED, 'Ks7c2d4h9s'],
   ];
+  // The spots the rule owns; the checked-to river (last in SPOTS) is not one.
+  const OWNED = SPOTS.filter((spot) => spot[0] !== 'river_checked_to');
   function run(opts: HorseDecideOpts, spot: (typeof SPOTS)[number], hole: string, s: number) {
     const { gs, actor } = spotState(spot[1], spot[2]);
     const hero = { ...actor, cards: cards(hole) };
@@ -343,7 +361,7 @@ describe('holdemHeadsUpPostflopBalance through HorseLogic.decide', () => {
   }, 120_000);
   it('ON: changes decisions in every spot it owns, and the worker receipt admits each one', () => {
     const changed: Record<string, number> = {};
-    for (const spot of SPOTS)
+    for (const spot of OWNED)
       for (const hole of HOLES)
         for (let s = 0; s < 3; s++) {
           const off = run({}, spot, hole, s);
@@ -357,6 +375,19 @@ describe('holdemHeadsUpPostflopBalance through HorseLogic.decide', () => {
             horseDecisionReceiptRefusal(on.decision, 'nlh', { player: on.hero, gameState: on.gs })
           ).toBeNull();
         }
-    for (const spot of SPOTS) expect(changed[spot[0]] ?? 0, spot[0]).toBeGreaterThan(0);
+    for (const spot of OWNED) expect(changed[spot[0]] ?? 0, spot[0]).toBeGreaterThan(0);
   }, 180_000);
+  it('ON at a checked-to river: the same action, amount and random stream as the default path', () => {
+    const river = SPOTS.find((spot) => spot[0] === 'river_checked_to')!;
+    for (const hole of HOLES)
+      for (let s = 0; s < 2; s++) {
+        const off = run({}, river, hole, s);
+        const on = run({ holdemHeadsUpPostflopBalance: true }, river, hole, s);
+        expect([on.decision.action, on.decision.amount ?? null, on.next]).toEqual([
+          off.decision.action,
+          off.decision.amount ?? null,
+          off.next,
+        ]);
+      }
+  }, 120_000);
 });
