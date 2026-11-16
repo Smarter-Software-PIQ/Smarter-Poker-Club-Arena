@@ -236,7 +236,7 @@ export default function SharedTableStage({
                         width: 'min(80cqw, calc(77cqh * ' + geometry.width / geometry.height + '))',
                       }
                     : {}),
-              } as CSSProperties
+              } as CSSProperties & Record<'--table-w' | '--table-h', string>
             }
           >
             <TableFelt src={resolveSkin(appearance?.skin ?? '')}>
