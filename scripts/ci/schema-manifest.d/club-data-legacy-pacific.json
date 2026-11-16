@@ -15,7 +15,9 @@
     "ca_club_data_pacific_cash_observations",
     "ca_club_data_pacific_cash_current",
     "ca_club_data_pacific_cash_live",
-    "ca_club_data_pacific_cash_hands_live"
+    "ca_club_data_pacific_cash_hands_live",
+    "ca_club_data_pacific_cash_participants",
+    "ca_club_data_pacific_cash_complete"
   ],
   "functions": [
     "ca_club_data_player_totals_pacific_basis",

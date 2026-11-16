@@ -31,6 +31,18 @@ CREATE INDEX ca_club_data_pacific_cash_observations_correction_idx ON public.ca_
 ALTER TABLE public.ca_club_data_pacific_cash_observations ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.ca_club_data_pacific_cash_observations FROM PUBLIC,anon,authenticated,service_role;
 
+-- Immutable completion witnesses append without shared receipt-row ownership.
+CREATE TABLE public.ca_club_data_pacific_cash_participants(rake_record_id uuid NOT NULL,user_id uuid NOT NULL,stat_date date NOT NULL);
+CREATE INDEX ca_club_data_pacific_cash_participants_key_idx ON public.ca_club_data_pacific_cash_participants(rake_record_id,user_id);
+ALTER TABLE public.ca_club_data_pacific_cash_participants ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_club_data_pacific_cash_participants FROM PUBLIC,anon,authenticated,service_role;
+CREATE TABLE public.ca_club_data_pacific_cash_complete(rake_record_id uuid NOT NULL,stat_date date NOT NULL);
+CREATE INDEX ca_club_data_pacific_cash_complete_key_idx ON public.ca_club_data_pacific_cash_complete(rake_record_id);
+ALTER TABLE public.ca_club_data_pacific_cash_complete ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_club_data_pacific_cash_complete FROM PUBLIC,anon,authenticated,service_role;
+CREATE INDEX ca_club_data_pacific_cash_observations_delta_idx ON public.ca_club_data_pacific_cash_observations(club_id,stat_date,rake_record_id) WHERE stage>0 AND old_club_id IS DISTINCT FROM club_id;
+CREATE INDEX ca_club_data_pacific_cash_observations_old_delta_idx ON public.ca_club_data_pacific_cash_observations(old_club_id,stat_date,rake_record_id) WHERE stage>0 AND old_club_id IS DISTINCT FROM club_id;
+
 CREATE FUNCTION public.fn_ca_club_data_pacific_cash_parts(p_record uuid)
 RETURNS TABLE(game_id uuid,user_id uuid,source_at timestamptz,fee numeric)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $$
@@ -79,7 +91,7 @@ REVOKE ALL ON FUNCTION public.fn_ca_club_data_pacific_cash_register(uuid) FROM P
 
 CREATE FUNCTION public.fn_ca_club_data_pacific_cash_observe(p_pairs jsonb) RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
-DECLARE r record;o record;p record;v_full boolean;
+DECLARE r record;o record;p record;v_full boolean;baseline_count integer;
 BEGIN
  FOR r IN SELECT DISTINCT x.rake_record_id,x.user_id,x.event FROM jsonb_to_recordset(coalesce(p_pairs,'[]'))x(rake_record_id uuid,user_id uuid,event text)
  WHERE x.rake_record_id IS NOT NULL AND x.user_id IS NOT NULL ORDER BY 1,2 LOOP
@@ -91,7 +103,11 @@ BEGIN
    -- Pre-attachment raw captures already live in the aggregate/history. Only
    -- a new original funded admission changes their report ownership.
    CONTINUE WHEN NOT v_full AND (coalesce(o.stage,0)<2 OR coalesce(r.event,'') NOT IN('cash_source','funding_admission'));
-   IF NOT v_full THEN
+   IF v_full THEN
+    SELECT count(DISTINCT i.club_id),min(i.club_id::text)::uuid INTO baseline_count,o.old_club_id
+    FROM public.ca_club_data_pacific_cash_observations i WHERE i.rake_record_id=r.rake_record_id AND i.user_id=r.user_id AND i.stage=0;
+    IF baseline_count>1 THEN RAISE EXCEPTION 'cash_source_baseline_not_unique'; END IF;
+   ELSE
     -- A newly frozen cash source can precede its funded admission. Preserve
     -- the first immutable pre-transition owner through both authority stages.
     SELECT coalesce((SELECT i.old_club_id FROM public.ca_club_data_pacific_cash_observations i
@@ -105,19 +121,31 @@ BEGIN
    INSERT INTO public.ca_club_data_pacific_cash_observations
    VALUES(r.rake_record_id,r.user_id,(p.source_at AT TIME ZONE 'UTC')::date,public.fn_ca_club_data_pacific_day(p.source_at),
    p.game_id,p.source_at,o.stage,o.club_id,o.old_club_id,p.fee,NULL,v_full);
+   IF v_full THEN INSERT INTO public.ca_club_data_pacific_cash_participants VALUES(r.rake_record_id,r.user_id,public.fn_ca_club_data_pacific_day(p.source_at)); END IF;
   EXCEPTION WHEN OTHERS THEN
    INSERT INTO public.ca_club_data_pacific_failures(club_id,utc_day,source,detail)
    SELECT DISTINCT c.club,(rr.created_at AT TIME ZONE 'UTC')::date,'live_cash_source',SQLSTATE||':'||SQLERRM
    FROM public.rake_records rr CROSS JOIN LATERAL(
     SELECT a.club_id club FROM public.rake_attributions a WHERE a.rake_record_id=rr.id AND a.player_id=r.user_id
+    UNION SELECT i.club_id FROM public.ca_club_data_pacific_cash_observations i WHERE i.rake_record_id=rr.id AND i.user_id=r.user_id
+    UNION SELECT i.old_club_id FROM public.ca_club_data_pacific_cash_observations i WHERE i.rake_record_id=rr.id AND i.user_id=r.user_id
     UNION SELECT s.club_id FROM public.accounting_cash_rake_sources s WHERE s.rake_record_id=rr.id AND s.player_id=r.user_id
     UNION SELECT a.funding_club_id FROM public.accounting_cash_rake_sources s JOIN public.accounting_cash_funding_contract_admissions a ON a.source_id=s.id WHERE s.rake_record_id=rr.id AND s.player_id=r.user_id
    )c WHERE rr.id=r.rake_record_id AND c.club IS NOT NULL;
   END;
  END LOOP;
+ -- Whole-record fast path. Concurrent split callbacks can each append their
+ -- participant receipt; the reader combines only records without this witness.
+ INSERT INTO public.ca_club_data_pacific_cash_complete
+ SELECT DISTINCT z.rake_record_id,z.stat_date FROM public.ca_club_data_pacific_cash_records z
+ JOIN (SELECT DISTINCT x.rake_record_id FROM jsonb_to_recordset(coalesce(p_pairs,'[]')) x(rake_record_id uuid)) x USING(rake_record_id)
+ WHERE NOT EXISTS(SELECT 1 FROM public.ca_club_data_pacific_cash_complete d WHERE d.rake_record_id=z.rake_record_id)
+ AND NOT EXISTS(SELECT 1 FROM unnest(z.players) u WHERE NOT EXISTS(SELECT 1 FROM public.ca_club_data_pacific_cash_participants w WHERE w.rake_record_id=z.rake_record_id AND w.user_id=u));
 END $$;
 REVOKE ALL ON FUNCTION public.fn_ca_club_data_pacific_cash_observe(jsonb) FROM PUBLIC,anon,authenticated,service_role;
 
+-- OFFSET 0 retains bounded source-key probes: a global hash anti-join would
+-- scan unrelated retained history even after the outer club/date restriction.
 -- Stage dominance uses source-key index probes, not report-row locks. Club and
 -- day remain grouping keys, so caller predicates push into the append heap.
 CREATE VIEW public.ca_club_data_pacific_cash_current WITH(security_invoker=true) AS
@@ -127,20 +155,21 @@ CREATE VIEW public.ca_club_data_pacific_cash_current WITH(security_invoker=true)
  WHERE i.rake_record_id=o.rake_record_id AND i.user_id=o.user_id AND i.stage=0),false) legacy_recorded
  FROM public.ca_club_data_pacific_cash_observations o WHERE o.stage>0 AND o.club_id IS NOT NULL
  AND NOT EXISTS(SELECT 1 FROM public.ca_club_data_pacific_cash_observations n
- WHERE n.rake_record_id=o.rake_record_id AND n.user_id=o.user_id AND n.stage>o.stage)
+ WHERE n.rake_record_id=o.rake_record_id AND n.user_id=o.user_id AND n.stage>o.stage OFFSET 0)
  AND NOT EXISTS(SELECT 1 FROM public.ca_club_data_pacific_cash_observations n
  WHERE n.rake_record_id=o.rake_record_id AND n.user_id=o.user_id AND n.stage=o.stage
- AND (n.club_id IS DISTINCT FROM o.club_id OR n.fee<>o.fee OR n.source_at<>o.source_at OR n.full_source<>o.full_source))
+ AND (n.club_id IS DISTINCT FROM o.club_id OR n.fee<>o.fee OR n.source_at<>o.source_at OR n.full_source<>o.full_source) OFFSET 0)
  GROUP BY o.rake_record_id,o.user_id,o.utc_day,o.stat_date,o.game_id,o.source_at,o.stage,o.club_id,o.old_club_id,o.full_source;
 REVOKE ALL ON public.ca_club_data_pacific_cash_current FROM PUBLIC,anon,authenticated,service_role;
 CREATE VIEW public.ca_club_data_pacific_cash_live WITH(security_invoker=true) AS
  SELECT c.club_id,c.utc_day,c.stat_date,'CASH'::text kind,c.game_id,c.user_id,c.fee,0::numeric buyins,0::numeric cashouts,
- 0::numeric winnings,c.source_at last_at,0::smallint src,c.legacy_recorded,1::bigint hands
- FROM public.ca_club_data_pacific_cash_current c WHERE c.full_source AND public.fn_ca_launch_accounting_accepts(c.club_id,c.source_at)
+ 0::numeric winnings,c.source_at last_at,0::smallint src,CASE WHEN c.old_club_id IS NULL THEN c.legacy_recorded ELSE true END legacy_recorded,1::bigint hands
+ FROM public.ca_club_data_pacific_cash_current c WHERE c.old_club_id IS DISTINCT FROM c.club_id
+ AND public.fn_ca_launch_accounting_accepts(c.club_id,c.source_at)
  UNION ALL
- SELECT d.club_id,c.utc_day,c.stat_date,'CASH',c.game_id,c.user_id,c.fee*d.sign,0,0,0,c.source_at,0,true,d.sign::bigint
- FROM public.ca_club_data_pacific_cash_current c CROSS JOIN LATERAL(VALUES(c.old_club_id,-1),(c.club_id,1))d(club_id,sign)
- WHERE NOT c.full_source AND c.old_club_id IS DISTINCT FROM c.club_id AND d.club_id IS NOT NULL AND public.fn_ca_launch_accounting_accepts(d.club_id,c.source_at);
+ SELECT c.old_club_id,c.utc_day,c.stat_date,'CASH',c.game_id,c.user_id,-c.fee,0,0,0,c.source_at,0,true,-1::bigint
+ FROM public.ca_club_data_pacific_cash_current c WHERE c.old_club_id IS DISTINCT FROM c.club_id
+ AND c.old_club_id IS NOT NULL AND public.fn_ca_launch_accounting_accepts(c.old_club_id,c.source_at);
 REVOKE ALL ON public.ca_club_data_pacific_cash_live FROM PUBLIC,anon,authenticated,service_role;
 
 CREATE FUNCTION public.fn_ca_club_data_pacific_cash_hand_delta(p_record uuid)
@@ -151,27 +180,48 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $$
  WHERE rake_record_id=p_record AND NOT full_source GROUP BY user_id),
  owners AS MATERIALIZED(SELECT p.*,o.club_id current_club,coalesce(prior.club,o.club_id) prior_club
  FROM parts p CROSS JOIN LATERAL public.fn_ca_club_data_pacific_cash_owner(p_record,p.user_id)o LEFT JOIN prior USING(user_id)),
+ baseline AS(SELECT DISTINCT i.club_id club FROM public.ca_club_data_pacific_cash_observations i WHERE i.rake_record_id=p_record AND i.stage=0
+ AND i.user_id='00000000-0000-0000-0000-000000000000'::uuid AND i.club_id IS NOT NULL
+ UNION SELECT DISTINCT prior_club FROM owners WHERE NOT EXISTS(SELECT 1 FROM public.ca_club_data_pacific_cash_records r WHERE r.rake_record_id=p_record)),
  presence AS(SELECT current_club club,1 delta FROM owners WHERE public.fn_ca_launch_accounting_accepts(current_club,source_at) GROUP BY current_club
- UNION ALL SELECT prior_club,-1 FROM owners WHERE public.fn_ca_launch_accounting_accepts(prior_club,source_at) GROUP BY prior_club)
+ UNION ALL SELECT club,-1 FROM baseline WHERE club IS NOT NULL)
  SELECT q.club,(min(p.source_at) AT TIME ZONE 'UTC')::date,public.fn_ca_club_data_pacific_day(min(p.source_at)),min(p.game_id::text)::uuid,sum(q.delta)::bigint,0::smallint
  FROM presence q CROSS JOIN(SELECT min(source_at) source_at,min(game_id::text)::uuid game_id FROM parts)p
  WHERE q.club IS NOT NULL GROUP BY q.club HAVING sum(q.delta)<>0
  $$;
 REVOKE ALL ON FUNCTION public.fn_ca_club_data_pacific_cash_hand_delta(uuid) FROM PUBLIC,anon,authenticated,service_role;
 CREATE VIEW public.ca_club_data_pacific_cash_hands_live WITH(security_invoker=true) AS
- SELECT c.club_id,c.utc_day,c.stat_date,c.game_id table_id,count(DISTINCT c.rake_record_id)::bigint hands,0::smallint src
- FROM public.ca_club_data_pacific_cash_current c WHERE c.full_source AND public.fn_ca_launch_accounting_accepts(c.club_id,c.source_at)
- GROUP BY c.club_id,c.utc_day,c.stat_date,c.game_id
+ WITH affected AS NOT MATERIALIZED(
+ SELECT DISTINCT rake_record_id,club_id,utc_day,stat_date,game_id FROM public.ca_club_data_pacific_cash_current WHERE full_source AND old_club_id IS DISTINCT FROM club_id
+ UNION SELECT DISTINCT rake_record_id,old_club_id,utc_day,stat_date,game_id FROM public.ca_club_data_pacific_cash_current WHERE full_source AND old_club_id IS DISTINCT FROM club_id AND old_club_id IS NOT NULL),
+ presence AS NOT MATERIALIZED(
+ SELECT a.rake_record_id,a.club_id,a.utc_day,a.stat_date,a.game_id,1 delta FROM affected a
+ JOIN public.ca_club_data_pacific_cash_observations o ON o.rake_record_id=a.rake_record_id AND o.club_id=a.club_id
+ WHERE o.full_source AND o.stage>0 AND public.fn_ca_launch_accounting_accepts(o.club_id,o.source_at)
+ AND NOT EXISTS(SELECT 1 FROM public.ca_club_data_pacific_cash_observations n WHERE n.rake_record_id=o.rake_record_id AND n.user_id=o.user_id AND n.stage>o.stage OFFSET 0)
+ AND NOT EXISTS(SELECT 1 FROM public.ca_club_data_pacific_cash_observations n WHERE n.rake_record_id=o.rake_record_id AND n.user_id=o.user_id AND n.stage=o.stage
+ AND(n.club_id IS DISTINCT FROM o.club_id OR n.fee<>o.fee OR n.source_at<>o.source_at OR n.full_source<>o.full_source) OFFSET 0)
+ GROUP BY a.rake_record_id,a.club_id,a.utc_day,a.stat_date,a.game_id
  UNION ALL
- SELECT d.* FROM(SELECT DISTINCT rake_record_id FROM public.ca_club_data_pacific_cash_current WHERE NOT full_source)c
- CROSS JOIN LATERAL public.fn_ca_club_data_pacific_cash_hand_delta(c.rake_record_id)d;
+ SELECT a.rake_record_id,a.club_id,a.utc_day,a.stat_date,a.game_id,-1 FROM affected a
+ JOIN public.ca_club_data_pacific_cash_observations i ON i.rake_record_id=a.rake_record_id AND i.club_id=a.club_id
+ AND i.stage=0 AND i.user_id='00000000-0000-0000-0000-000000000000'::uuid
+ GROUP BY a.rake_record_id,a.club_id,a.utc_day,a.stat_date,a.game_id)
+ SELECT club_id,utc_day,stat_date,game_id table_id,sum(delta)::bigint hands,0::smallint src FROM presence
+ GROUP BY club_id,utc_day,stat_date,game_id HAVING sum(delta)<>0
+ UNION ALL
+ SELECT d.* FROM(
+ SELECT DISTINCT rake_record_id,club_id candidate,stat_date FROM public.ca_club_data_pacific_cash_current WHERE NOT full_source AND old_club_id IS DISTINCT FROM club_id
+ UNION SELECT DISTINCT rake_record_id,old_club_id,stat_date FROM public.ca_club_data_pacific_cash_current WHERE NOT full_source AND old_club_id IS DISTINCT FROM club_id AND old_club_id IS NOT NULL)c
+ CROSS JOIN LATERAL public.fn_ca_club_data_pacific_cash_hand_delta(c.rake_record_id)d
+ WHERE d.club_id=c.candidate AND d.stat_date=c.stat_date;
 REVOKE ALL ON public.ca_club_data_pacific_cash_hands_live FROM PUBLIC,anon,authenticated,service_role;
 
 -- Fold CASH across seed/live sources before deciding game presence. Signed
 -- ownership deltas must not leave a phantom game at its former wrong club.
 -- Tournament source rows remain intact, including legitimate zero-fee entries.
 CREATE OR REPLACE VIEW public.ca_club_data_pacific_fact_ct WITH(security_invoker=true) AS
- WITH facts AS(SELECT * FROM public.ca_club_data_pacific_fact UNION ALL SELECT * FROM public.ca_club_data_pacific_journal
+ WITH facts AS NOT MATERIALIZED(SELECT * FROM public.ca_club_data_pacific_fact UNION ALL SELECT * FROM public.ca_club_data_pacific_journal
  UNION ALL SELECT * FROM public.ca_club_data_pacific_cash_live)
  SELECT club_id,stat_date,'CASH'::text kind,game_id,user_id,sum(fee) fee,sum(buyins) buyins,sum(cashouts) cashouts,
  sum(winnings) winnings,max(last_at) last_at,0::smallint src,sum(hands)::bigint hands FROM facts WHERE kind='CASH'
@@ -208,14 +258,18 @@ DO $fact_capture$ DECLARE d text;
 BEGIN
  d:=pg_get_functiondef('public.fn_ca_club_data_fact_put(uuid,date,text,uuid,uuid,numeric,numeric,numeric,numeric,timestamptz)'::regprocedure);
  IF md5(d)<>'51f848b45580cce2731ba4922135364c' THEN RAISE EXCEPTION 'PACIFIC_CASH_CAPTURE_PREIMAGE_CHANGED'; END IF;
- d:=replace(d,' d:=public.fn_ca_club_data_pacific_day(a);', $capture$ d:=public.fn_ca_club_data_pacific_day(a);
+ d:=replace(d,'DECLARE ok boolean:=true;', 'DECLARE captured boolean:=false; ok boolean:=true;');
+ d:=replace(d,' END IF;'||chr(10)||' EXCEPTION WHEN OTHERS THEN',' END IF; captured:=true;'||chr(10)||' EXCEPTION WHEN OTHERS THEN');
+ d:=replace(d,'END $function$', $capture$ BEGIN
  IF p_kind='CASH' AND p_fee>0 AND p_user IS NOT NULL AND nullif(current_setting('ca.pacific_rake_record',true),'') IS NOT NULL
  AND EXISTS(SELECT 1 FROM public.ca_club_data_pacific_cash_records c WHERE c.rake_record_id=current_setting('ca.pacific_rake_record')::uuid
  AND c.game_id=p_game AND p_user=ANY(c.players) AND c.source_at=a) THEN
   INSERT INTO public.ca_club_data_pacific_cash_observations
-  VALUES(current_setting('ca.pacific_rake_record')::uuid,p_user,p_day,d,p_game,a,0,p_club,NULL,p_fee,ok,true);
-  RETURN;
- END IF;$capture$);
+  VALUES(current_setting('ca.pacific_rake_record')::uuid,p_user,p_day,d,p_game,a,0,CASE WHEN captured THEN p_club END,NULL,p_fee,ok,true);
+ END IF;
+ EXCEPTION WHEN OTHERS THEN INSERT INTO public.ca_club_data_pacific_failures(club_id,utc_day,source,detail) VALUES(p_club,p_day,'live_cash_source',SQLSTATE||':'||SQLERRM); END;
+END $function$$capture$);
+
  EXECUTE d;
 END $fact_capture$;
 REVOKE ALL ON FUNCTION public.fn_ca_club_data_fact_put(uuid,date,text,uuid,uuid,numeric,numeric,numeric,numeric,timestamptz) FROM PUBLIC,anon,authenticated;
@@ -224,10 +278,18 @@ DO $hand_capture$ DECLARE d text;
 BEGIN
  d:=pg_get_functiondef('public.fn_ca_club_data_hand_put(uuid,uuid,timestamptz)'::regprocedure);
  IF md5(d)<>'cca5e6789e50034650ca7a375f991d33' THEN RAISE EXCEPTION 'PACIFIC_CASH_HAND_PREIMAGE_CHANGED'; END IF;
- d:=replace(d,' IF p_club IS NULL', $capture$ IF nullif(current_setting('ca.pacific_rake_record',true),'') IS NOT NULL
+ d:=replace(d,'DECLARE d date','DECLARE captured boolean:=false; d date');
+ d:=replace(d,' END IF;'||chr(10)||' EXCEPTION WHEN OTHERS THEN',' END IF; captured:=true;'||chr(10)||' EXCEPTION WHEN OTHERS THEN');
+ d:=replace(d,'END $function$', $capture$ BEGIN
+ IF nullif(current_setting('ca.pacific_rake_record',true),'') IS NOT NULL
  AND EXISTS(SELECT 1 FROM public.ca_club_data_pacific_cash_records c WHERE c.rake_record_id=current_setting('ca.pacific_rake_record')::uuid
- AND c.game_id=p_table AND c.source_at=p_at) THEN RETURN; END IF;
- IF p_club IS NULL$capture$);
+ AND c.game_id=p_table AND c.source_at=p_at) THEN
+  INSERT INTO public.ca_club_data_pacific_cash_observations
+  VALUES(current_setting('ca.pacific_rake_record')::uuid,'00000000-0000-0000-0000-000000000000'::uuid,u,d,p_table,p_at,0,CASE WHEN captured THEN p_club END,NULL,0,true,true);
+ END IF;
+ EXCEPTION WHEN OTHERS THEN INSERT INTO public.ca_club_data_pacific_failures(club_id,utc_day,source,detail) VALUES(p_club,u,'live_cash_source',SQLSTATE||':'||SQLERRM); END;
+END $function$$capture$);
+
  EXECUTE d;
 END $hand_capture$;
 REVOKE ALL ON FUNCTION public.fn_ca_club_data_hand_put(uuid,uuid,timestamptz) FROM PUBLIC,anon,authenticated;
@@ -324,10 +386,15 @@ BEGIN
  d:=pg_get_functiondef('public.fn_ca_club_data_pacific_require(uuid,date,date,integer)'::regprocedure);
  IF md5(d)<>'454850c7342992884a202ffcf194a8e6' THEN RAISE EXCEPTION 'PACIFIC_CASH_COVERAGE_PREIMAGE_CHANGED'; END IF;
  d:=replace(d,'WHERE l.utc_day=d::date)', 'WHERE l.utc_day=d::date AND l.basis_version=1)');
- d:=replace(d,' OR EXISTS(SELECT 1 FROM public.ca_club_data_pacific_failures f', $pending$ OR EXISTS(SELECT 1 FROM public.ca_club_data_pacific_cash_records r
- WHERE r.stat_date BETWEEN a AND b AND r.candidate_clubs&&public.fn_ca_club_data_clubs(p_club)
- AND EXISTS(SELECT 1 FROM unnest(r.players) u WHERE NOT EXISTS(
- SELECT 1 FROM public.ca_club_data_pacific_cash_current c WHERE c.rake_record_id=r.rake_record_id AND c.user_id=u AND c.full_source)))
+ d:=replace(d,' OR EXISTS(SELECT 1 FROM public.ca_club_data_pacific_failures f', $pending$ OR EXISTS(
+ WITH unfinished AS MATERIALIZED(
+  SELECT DISTINCT r.rake_record_id,r.players FROM public.ca_club_data_pacific_cash_records r
+  WHERE r.stat_date BETWEEN a AND b AND r.candidate_clubs&&public.fn_ca_club_data_clubs(p_club)
+  AND NOT EXISTS(SELECT 1 FROM public.ca_club_data_pacific_cash_complete d WHERE d.rake_record_id=r.rake_record_id)),
+ expected AS MATERIALIZED(SELECT DISTINCT r.rake_record_id,u.user_id FROM unfinished r CROSS JOIN LATERAL unnest(r.players)u(user_id)),
+ qualified AS MATERIALIZED(SELECT DISTINCT w.rake_record_id,w.user_id FROM public.ca_club_data_pacific_cash_participants w JOIN expected e USING(rake_record_id,user_id))
+ SELECT 1 FROM(SELECT rake_record_id,user_id FROM expected EXCEPT SELECT rake_record_id,user_id FROM qualified) missing)
+
  OR EXISTS(SELECT 1 FROM public.ca_club_data_pacific_failures f$pending$);
  EXECUTE d;
 END $coverage$;

@@ -101,9 +101,27 @@ describe('canonical funded cash report ownership', () => {
     const tables = fix.slice(fix.indexOf('CREATE TABLE'), fix.indexOf('CREATE FUNCTION'));
     expect(tables).not.toMatch(/PRIMARY KEY|UNIQUE/);
     expect(fix).toContain('basis_version=1');
+    expect(fix).toContain('WITH facts AS NOT MATERIALIZED(');
+    expect(fix).toContain('WITH unfinished AS MATERIALIZED(');
+    expect(fix).toContain('JOIN expected e USING(rake_record_id,user_id)');
+    expect(fix).toContain('EXCEPT SELECT rake_record_id,user_id FROM qualified');
     expect(fix).toContain("f.source IN(''live_fact'',''live_hand'',''live_cash_source'')");
     expect(fix).toContain('cash_records r');
-    expect(fix).toContain('c.full_source');
+    expect(fix).toContain('ca_club_data_pacific_cash_complete');
+    expect(fix).toContain('WITH affected AS NOT MATERIALIZED(');
+    expect(fix).toContain('n.stage>o.stage OFFSET 0');
+    expect(read(native)).toContain(
+      'moving one full-source participant retains unchanged participant club hand'
+    );
+    expect(fix).toContain('ca_club_data_pacific_cash_participants');
+    expect(fix).toContain('captured:=true;');
+    expect(fix).toContain('CASE WHEN captured THEN p_club END');
+    expect(read(native)).toContain(
+      'split callback participant witnesses make exact source readable after commit'
+    );
+    expect(read(native)).toContain(
+      'later ambiguity scopes refusal to captured original baseline club too'
+    );
     expect(read('scripts/ci/club-data-accounting-seed.mjs')).toContain(
       'utc_day=$1 AND basis_version=1'
     );
