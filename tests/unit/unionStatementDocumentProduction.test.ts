@@ -50,7 +50,11 @@ const EXPECTED = {
       'Already Settled In Chips': '11,962.21',
       Outstanding: '6,042.96',
     },
-    adjustments: [{ kind: 'Credit Note', number: 'MIDWAY-2026-000045', amount: '-21.25' }],
+    // The board row carries no note dates; the statement document reader
+    // does (tests/unit/unionStatementDownload.test.ts).
+    adjustments: [
+      { kind: 'Credit Note', number: 'MIDWAY-2026-000045', date: 'Not Recorded', amount: '-21.25' },
+    ],
     afterAdjustments: '6,021.71',
   },
   'MIDWAY-2026-000041': {
