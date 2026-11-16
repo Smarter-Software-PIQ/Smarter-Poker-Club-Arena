@@ -4737,7 +4737,8 @@
 }
 
 /* The top pod clears Mini BBJ and spends less of the centre pot lane. */
-.seat-wrapper--top .seat {
+.seat-wrapper--top .seat,
+.table-page--tournament[data-seats='9'][data-hero='false'] .seat-wrapper--cap .seat {
   --seat-plate-min-width: clamp(62px, calc(var(--table-w, 360px) * 0.2), 96px);
 }
 .seat-wrapper--top .seat__info {
@@ -5253,6 +5254,15 @@
 }
 
 @media (min-width: 481px) and (max-width: 640px) and (orientation: portrait) {
+  /* The bottom chair keeps its visual prominence for a tournament observer.
+     Identity, private cards and controls still belong only to the actual hero. */
+  .table-page--tournament[data-seats='9'] .seat-wrapper--hero .seat:not(.seat--empty) {
+    --seat-avatar-size: calc(var(--seat-avatar-base) * var(--seat-avatar-hero-ratio, 1.3333));
+    width: max(var(--seat-plate-min-width), calc(var(--seat-avatar-size) * 8 / 7)) !important;
+  }
+  .table-page--tournament[data-seats='9'] .seat-wrapper--hero .seat__info {
+    width: min(100%, max(100px, calc(var(--seat-avatar-size) * 0.95)));
+  }
   .table-page[data-seats='6'] .seat--hero {
     --seat-avatar-hero-ratio: 1;
   }
