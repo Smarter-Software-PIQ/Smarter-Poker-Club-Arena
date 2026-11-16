@@ -1190,8 +1190,11 @@ function importedWindow(
  * default of HorseMind.setFixedLimitBetsAreNeverProbes. ON since 2026-11-15
  * as a defect repair (fixed-limit maniac recognition), with its eight
  * evidence rows in docs/horse-default-on.d/fixedLimitBetsAreNeverProbes.md.
- * OFF (setFixedLimitBetsAreNeverProbes(false)) is the rollback: a fixed-limit
- * hand's bets are probe-counted exactly as before. See the switch's note.
+ * OFF is the rollback: a fixed-limit hand's bets are probe-counted exactly as
+ * before. Live, with no cutover: an off row for fixedLimitBetsAreNeverProbes in
+ * the option switch registry (HorseOptionSwitch.ts), which the decision worker
+ * applies before every job; clearing the row returns to this default. See the
+ * switch's note.
  */
 export const FIXED_LIMIT_BETS_ARE_NEVER_PROBES_DEFAULT = true;
 
@@ -2420,8 +2423,12 @@ export class HorseMind {
    * observeCompletedHandInMind) as well as at the top of one, and the two paths share one dedupe, so a
    * per-decision option would count the same hand two ways. The switch is
    * therefore one value for the process: FIXED_LIMIT_BETS_ARE_NEVER_PROBES_DEFAULT
-   * is what production runs (live requests carry no decide options), and
+   * is what production runs while nothing is switched, and
    * setFixedLimitBetsAreNeverProbes is for tests, harnesses and replay.
+   * LIVE SWITCH (2026-11-15, owner rule 11:26): the option switch registry
+   * carries it as fixedLimitBetsAreNeverProbes, and the decision worker sets
+   * it from the registry before every job (applyFixedLimitBetsAreNeverProbesOption
+   * below, workerRuntime execute), so OFF and back ON need no cutover.
    * Turning it on in production was a default change under
    * docs/HORSE-DECISION-CHANGE-EVIDENCE.md: the eight evidence rows are in
    * docs/horse-default-on.d/fixedLimitBetsAreNeverProbes.md, and the law
@@ -2434,6 +2441,23 @@ export class HorseMind {
   }
   static fixedLimitBetsAreNeverProbesOn(): boolean {
     return this.fixedLimitBetsAreNeverProbes;
+  }
+  /**
+   * The registry's state for this process switch, as the decision options
+   * carry it (optionSwitchDecisionOpts: an off row gives false, an on row
+   * true; no row, an unreadable, invalid or stale read gives no key). No key
+   * is the source default, never the last value. Called by the decision
+   * worker before every job it runs: the only process that counts (the main
+   * thread decides nothing with the mind on).
+   */
+  static applyFixedLimitBetsAreNeverProbesOption(opts: {
+    readonly fixedLimitBetsAreNeverProbes?: boolean;
+  }): void {
+    this.setFixedLimitBetsAreNeverProbes(
+      typeof opts.fixedLimitBetsAreNeverProbes === 'boolean'
+        ? opts.fixedLimitBetsAreNeverProbes
+        : FIXED_LIMIT_BETS_ARE_NEVER_PROBES_DEFAULT
+    );
   }
 
   /**
@@ -2839,6 +2863,10 @@ export class HorseMind {
       this.pooledProfileIncomplete,
       this.donorStaleness,
       this.sandboxDepth,
+      // F1 is live-switchable (fixedLimitBetsAreNeverProbes through the option switch registry): a memo entry must
+      // never serve a read computed under the other switch state. The decision's betting structure is keyed through
+      // decisionVariant above (the read derives it with bettingStructureFor).
+      this.fixedLimitBetsAreNeverProbes,
     ];
   }
   private static styleMemoValid(inputs: readonly unknown[]): boolean {

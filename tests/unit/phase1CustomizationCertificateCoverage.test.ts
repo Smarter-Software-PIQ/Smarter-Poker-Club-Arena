@@ -324,6 +324,73 @@ describe('the Phase 1 seal is owed exactly when its own condition holds', () => 
     expect(verdictJob).toMatch(/permissions:\n(?:\s+#.*\n)*\s+actions: read\n\s+contents: read/);
   });
 
+  it('runs the gameplay journey alone: its grep selects the contracted case and no other', () => {
+    // Post-Deploy E2E 43635213490, 43643304336 and 43652573106: the file ran
+    // whole, so its report held two specs and the coverage contract (exactly
+    // one) answered NON-VERDICT. In 43643304336 both cases passed; in the
+    // other two the celebration case failed on a release-identity mismatch.
+    // The celebration case now runs as its own suite in the same sweep.
+    const sweep = workflowStep('Run the specs that need a deployed page');
+    const line = sweep
+      .split('\n')
+      .find((text) => text.trim().startsWith('run_suite gameplay-customization-runtime.json'));
+    const grep = /--grep=(\S+)/.exec(line ?? '')?.[1];
+    expect(grep).toBeDefined();
+    const pattern = new RegExp(grep!);
+    const spec = readFileSync(
+      join(ROOT, 'tests/e2e/gameplay-customization-runtime.spec.ts'),
+      'utf8'
+    );
+    // Every case in the file, by its Playwright title path: describe, then test.
+    const cases: string[] = [];
+    let describe = '';
+    for (const text of spec.split('\n')) {
+      const d = /^test\.describe\('([^']+)'/.exec(text);
+      if (d) describe = d[1];
+      const t = /^ {2}test\('([^']+)'/.exec(text);
+      if (t) cases.push(`${describe} ${t[1]}`);
+    }
+    expect(cases.length).toBeGreaterThanOrEqual(2);
+    // Playwright greps the title path (project, file, describe, test) joined by
+    // spaces, so the pattern is not anchored at the describe.
+    const selected = cases.filter((title) => pattern.test(title));
+    const contract = contracts.find((c) => c.report === 'gameplay-customization-runtime.json')!;
+    expect(selected).toEqual([`production routed gameplay customization ${contract.title}`]);
+    // The other case still runs on every publication: its own suite and
+    // report, after the bracket, selecting only that case, and its failure
+    // still fails the sweep.
+    const other = sweep
+      .split('\n')
+      .find((text) => text.trim().startsWith('run_suite gameplay-hero-celebration.json'));
+    const otherPattern = new RegExp(/--grep=(\S+)/.exec(other ?? '')?.[1] ?? '$^');
+    expect(cases.filter((title) => otherPattern.test(title))).toEqual(
+      cases.filter((title) => !pattern.test(title))
+    );
+    expect(cases.filter((title) => !pattern.test(title))).toHaveLength(1);
+    expect(sweep.indexOf('run_suite gameplay-hero-celebration.json')).toBeGreaterThan(
+      sweep.indexOf('read_release release-bracket/phase1-after.json')
+    );
+    expect(sweep).toContain(
+      'gameplay_hero_celebration_rc=$?; [ $gameplay_hero_celebration_rc -ne 0 ] && rc=$gameplay_hero_celebration_rc'
+    );
+    // A skip exits 0 and the shared check counts by spec file, so this report
+    // is also checked alone, in its own step with the shared check's condition,
+    // after that shared check; a report that executed nothing fails the job.
+    const alone = workflowStep('Did the hero celebration case actually execute?');
+    expect(alone).toContain(
+      'run: node scripts/ci/assert-e2e-actually-ran.mjs e2e-report/gameplay-hero-celebration.json'
+    );
+    expect(alone).not.toMatch(/continue-on-error|\|\| *(true|:)/);
+    const shared = workflowStep('Did the suite actually verify production?');
+    expect(/\n\s+if: (.*)/.exec(alone)?.[1]).toBe(/\n\s+if: (.*)/.exec(shared)?.[1]);
+    expect(
+      WORKFLOW.indexOf('- name: Did the hero celebration case actually execute?')
+    ).toBeGreaterThan(WORKFLOW.indexOf('- name: Did the suite actually verify production?'));
+    expect(workflowStep('Did the suite actually verify production?')).toContain(
+      'e2e-report/gameplay-hero-celebration.json'
+    );
+  });
+
   it('brackets the three journeys, and runs them before every other sweep suite', () => {
     const sweep = workflowStep('Run the specs that need a deployed page');
     const before = sweep.indexOf('read_release release-bracket/phase1-before.json');

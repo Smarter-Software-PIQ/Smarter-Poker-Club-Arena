@@ -16,6 +16,7 @@
  * treated as possibly absent rather than assumed.
  */
 import { describe, it, expect } from 'vitest';
+import { rememberObservedTable } from '../../src/lib/sharedTableAppearance';
 import {
   adaptServiceHandToPanel,
   panelHandToShareable,
@@ -571,4 +572,32 @@ describe('the share variant label', () => {
     expect(toShareVariant(undefined)).toBe('NLH');
     expect(toShareVariant('badugi')).toBe('NLH');
   });
+});
+
+it('uses the observed table art only for the same hand, viewer and occupied seat', () => {
+  const hand = adaptServiceHandToPanel(baseHand({ table_id: 'table-a' }), HERO);
+  rememberObservedTable(
+    'table-a',
+    HERO,
+    hand.handNumber,
+    {
+      skin: 'ocean_blue',
+      background: 'midnight',
+      cardBack: 'classic_red',
+      faceDeck: 'ivory-club',
+      maxPlayers: 9,
+      fourColor: true,
+      showAvatars: true,
+    },
+    [
+      { id: HERO, avatar: '/avatars/free/burls.webp' },
+      { id: 'another-player', avatar: '/avatars/free/other.webp' },
+    ]
+  );
+  const shared = panelHandToShareable(hand, 'Classic');
+  expect(shared.appearance?.faceDeck).toBe('ivory-club');
+  expect(shared.players.find((p) => p.seat === 1)?.avatar).toBe('/avatars/free/burls.webp');
+  expect(shared.players.find((p) => p.seat === 2)?.avatar).toBeUndefined();
+  expect(panelHandToShareable({ ...hand, tableId: 'other' }, 'Classic').appearance).toBeUndefined();
+  expect(panelHandToShareable({ ...hand, heroId: VILLAIN }, 'Classic').appearance).toBeUndefined();
 });
