@@ -435,3 +435,221 @@ export function fixedLimitPricedPreflopIntent(
   }
   return null;
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// THE TOURNAMENT VERSION (fixedLimitPricedPreflopTournament, Fixed-Limit lane
+// Phase 4, 2026-11-16, DEFAULT OFF)
+// ─────────────────────────────────────────────────────────────────────────
+//
+// MEASURED (lane evidence P4-TOURNAMENT-PRICED-PREFLOP.md, AB 3.6): the cash
+// priced first in, applied at a six-seat fixed-limit hold'em tournament table
+// against a maniac field, REPLACED the tournament persona's wider first-in
+// range with the cash chart and so folded under-the-gun hands the persona
+// opened (11 of 11 direct first-in differences; the rest of the loss was
+// memory knock-on). The tournament version therefore never tightens the
+// persona at chip value:
+//
+//  1. FIRST IN (no raise, no limper, no caller, not the big blind): a persona
+//     FOLD (or check) becomes a raise when the hand sits inside the seat's
+//     reference share divided by hero's bubble factor bf (IcmModel through
+//     HorseLogic.heroBubbleFactor on the trusted tournament context; 1 = chip
+//     EV). A persona open is kept, except under real payout pressure
+//     (bf > FIXED_LIMIT_TOURNAMENT_TIGHTEN_BF), where an open outside the
+//     share at bf folds: the only tightening this module does. Below
+//     FIXED_LIMIT_TOURNAMENT_SHORT_BB big blinds the share is scaled by
+//     (0.8 + 0.2 x min(1, (stackBB - 10) / 15)): a fixed-limit raise commits
+//     more of a short stack.
+//  2. A BLIND FACING EXACTLY ONE RAISE (no limper, no caller, raiser not all
+//     in): a persona FOLD becomes a call when the realized equity against the
+//     opener's reference range covers the raw pot price times bf (the cash
+//     rule with the ICM risk premium as a multiplier; the realization factors
+//     are the cash calibration, flh 0.65, flo8 0.55, until measured).
+//
+// STANDS ASIDE (the persona's answer, with a receipt naming why): a stack of
+// FIXED_LIMIT_TOURNAMENT_STAND_ASIDE_BB big blinds or less (the push/fold and
+// jam modules own that zone), an All-In-Or-Fold table, a satellite seat that is
+// locked (V37 satelliteRead), and a tournament context that cannot give a
+// bubble factor (incomplete context). The flat riskAdd survival premium is not
+// added again: bf is the pressure term here.
+//
+// Pure: no random draws, no state. HorseLogic builds the context only at a
+// fixed-limit TOURNAMENT table with the option on; cash tables never reach it.
+
+/** At or below this stack (big blinds) the tournament version stands aside. */
+export const FIXED_LIMIT_TOURNAMENT_STAND_ASIDE_BB = 10;
+/** Below this stack (big blinds) the first-in share is scaled down. */
+export const FIXED_LIMIT_TOURNAMENT_SHORT_BB = 25;
+/** Only above this bubble factor may a persona open fold. */
+export const FIXED_LIMIT_TOURNAMENT_TIGHTEN_BF = 1.15;
+
+export type FixedLimitTournamentStandAside =
+  | 'short_stack'
+  | 'all_in_or_fold'
+  | 'satellite_locked'
+  | 'incomplete_context';
+
+/** What HorseLogic hands HorsePreflop (PreflopCtx.fixedLimitTournamentPriced). */
+export interface FixedLimitTournamentPricedCtx {
+  variant: FixedLimitPreflopVariant;
+  /** hands dealt in */
+  dealt: number;
+  /** players still to act behind hero (preflopPlayersBehind), null unknown */
+  behind: number | null;
+  /** players behind the single raiser when it raised, null unknown */
+  openerBehind: number | null;
+  /** the single raiser is all in */
+  openerAllIn: boolean;
+  /** hero's bubble factor (>= 1), null when the context cannot give it */
+  bubbleFactor: number | null;
+  /** set by HorseLogic for the table-level stand-asides (AIOF, locked seat) */
+  standAside: FixedLimitTournamentStandAside | null;
+}
+
+export interface FixedLimitTournamentPricedSpot {
+  priced: FixedLimitTournamentPricedCtx;
+  strength: number;
+  tightness: number;
+  stackBB: number;
+  raises: number;
+  limpers: number;
+  callers: number;
+  toCall: number;
+  bigBlind: number;
+  currentBet: number;
+  blind: 'sb' | 'bb' | null;
+  /** the RAW pot price of calling, call / (pot + call) */
+  odds: number;
+  /** a maniac behind: the open bar may not go below this (strength) */
+  maniacOpenBar?: number;
+}
+
+export type FixedLimitTournamentPricedReceipt =
+  | 'fixed_limit_tournament_priced_first_in'
+  | 'fixed_limit_tournament_priced_blind_defence'
+  | `fixed_limit_tournament_priced_stand_aside_${FixedLimitTournamentStandAside}`;
+
+export interface FixedLimitTournamentPricedResult {
+  /** null: the persona's answer stands (a stand-aside, receipted) */
+  intent: { a: 'fold' | 'check' | 'call' | 'raiseTo'; to?: number } | null;
+  receipt: FixedLimitTournamentPricedReceipt;
+  share?: number;
+  bar?: number;
+  bubbleFactor?: number;
+  equity?: number;
+  required?: number;
+}
+
+/** The short-stack scaling of a first-in share (1 at 25 big blinds and deeper). */
+export function fixedLimitTournamentShortStackMul(stackBB: number): number {
+  if (!(stackBB < FIXED_LIMIT_TOURNAMENT_SHORT_BB)) return 1;
+  const span = FIXED_LIMIT_TOURNAMENT_SHORT_BB - FIXED_LIMIT_TOURNAMENT_STAND_ASIDE_BB;
+  return 0.8 + 0.2 * clamp((stackBB - FIXED_LIMIT_TOURNAMENT_STAND_ASIDE_BB) / span, 0, 1);
+}
+
+/** The tournament first-in share and raise bar for a seat under bubble factor bf, or null. */
+export function fixedLimitTournamentFirstInBar(
+  priced: FixedLimitTournamentPricedCtx,
+  tightness: number,
+  stackBB: number,
+  bf: number
+): { share: number; raiseBar: number } | null {
+  const ref = fixedLimitOpenShare(priced.variant, priced.dealt, priced.behind);
+  if (!ref) return null;
+  const pressure = Number.isFinite(bf) && bf > 1 ? bf : 1;
+  const share = clamp(
+    (ref.raise *
+      fixedLimitPersonaShareMul(tightness) *
+      fixedLimitTournamentShortStackMul(stackBB)) /
+      pressure,
+    0,
+    1
+  );
+  return { share, raiseBar: fixedLimitStrengthAtTopShare(priced.variant, share) };
+}
+
+/**
+ * The tournament answer for this spot. Null when the spot is not one of the
+ * two families (the persona's answer `inner` stands, no receipt). A result
+ * with intent null is a stand-aside (the persona's answer stands, receipted).
+ */
+export function fixedLimitTournamentPricedPreflopIntent(
+  spot: FixedLimitTournamentPricedSpot,
+  inner: { a: string }
+): FixedLimitTournamentPricedResult | null {
+  const p = spot.priced;
+  const bb = spot.bigBlind > 0 ? spot.bigBlind : 1;
+  const firstIn =
+    spot.raises === 0 &&
+    spot.limpers === 0 &&
+    spot.callers === 0 &&
+    spot.blind !== 'bb' &&
+    spot.currentBet <= bb * 1.05;
+  const defence =
+    inner.a === 'fold' &&
+    spot.raises === 1 &&
+    spot.limpers === 0 &&
+    spot.callers === 0 &&
+    spot.blind !== null &&
+    spot.toCall > 0 &&
+    !p.openerAllIn;
+  if (!firstIn && !defence) return null;
+  const standAside: FixedLimitTournamentStandAside | null =
+    p.standAside ??
+    (!(spot.stackBB > FIXED_LIMIT_TOURNAMENT_STAND_ASIDE_BB)
+      ? 'short_stack'
+      : p.bubbleFactor === null || !Number.isFinite(p.bubbleFactor)
+        ? 'incomplete_context'
+        : null);
+  if (standAside !== null) {
+    return { intent: null, receipt: `fixed_limit_tournament_priced_stand_aside_${standAside}` };
+  }
+  const bf = Math.max(1, p.bubbleFactor as number);
+  if (firstIn) {
+    const bars = fixedLimitTournamentFirstInBar(p, spot.tightness, spot.stackBB, bf);
+    if (!bars) return null;
+    const raiseBar =
+      spot.maniacOpenBar !== undefined
+        ? Math.max(bars.raiseBar, spot.maniacOpenBar)
+        : bars.raiseBar;
+    const base = {
+      receipt: 'fixed_limit_tournament_priced_first_in' as const,
+      share: bars.share,
+      bar: raiseBar,
+      bubbleFactor: bf,
+    };
+    const personaWagers = inner.a === 'raiseTo' || inner.a === 'jam';
+    if (personaWagers) {
+      // Never tighter than the persona at chip value; under real payout
+      // pressure an open outside the share at bf folds.
+      if (bf > FIXED_LIMIT_TOURNAMENT_TIGHTEN_BF && spot.strength < raiseBar)
+        return { ...base, intent: spot.toCall > 0 ? { a: 'fold' } : { a: 'check' } };
+      return null;
+    }
+    if (inner.a === 'fold' || inner.a === 'check') {
+      if (spot.strength >= raiseBar)
+        return { ...base, intent: { a: 'raiseTo', to: spot.currentBet + bb } };
+    }
+    return null;
+  }
+  // A BLIND FACING EXACTLY ONE RAISE: the persona's fold becomes a call when
+  // the realized equity covers the price times the bubble factor.
+  const d = fixedLimitBlindDefence({
+    variant: p.variant,
+    dealt: p.dealt,
+    strength: spot.strength,
+    openerBehind: p.openerBehind,
+    behind: spot.blind === 'sb' ? Math.max(0, p.behind ?? 1) : 0,
+    odds: spot.odds,
+    riskAdd: 0,
+  });
+  if (!d) return null;
+  const required = spot.odds * bf;
+  if (!(d.realized >= required)) return null;
+  return {
+    intent: { a: 'call' },
+    receipt: 'fixed_limit_tournament_priced_blind_defence',
+    equity: d.equity,
+    required,
+    bubbleFactor: bf,
+  };
+}

@@ -78,6 +78,9 @@ describe('UNMEASURABLE_MATCHUPS', () => {
         'flo8_priced_preflop',
         'flh_steal_vs_tight_blinds',
         'flo8_steal_vs_tight_blinds',
+        // Fixed-Limit lane Phase 4 (2026-11-16): the tournament priced preflop.
+        'flh_priced_preflop_tournament',
+        'flo8_priced_preflop_tournament',
       ].sort()
     );
     const card = new Set(LEAGUE_MATCHUPS.map((m) => m.name));

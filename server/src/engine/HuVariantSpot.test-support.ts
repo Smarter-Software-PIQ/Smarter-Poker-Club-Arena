@@ -96,7 +96,13 @@ export function menuOf(t: Table) {
   const actor = t.controller.getCurrentPlayer()!;
   return t.controller.getAuthoritativeActionState(actor.user_id)!;
 }
-export function decide(t: Table, seed: number, extraOpts: Partial<HorseDecideOpts> = {}) {
+export function decide(
+  t: Table,
+  seed: number,
+  extraOpts: Partial<HorseDecideOpts> = {},
+  /** optional edit of the built state before the decision (a law's spot variant) */
+  patch?: (gs: HorseGameStateV2) => void
+) {
   const { controller, variant, fmt } = t;
   const state = controller.getState();
   const actor = controller.getCurrentPlayer()!;
@@ -181,6 +187,7 @@ export function decide(t: Table, seed: number, extraOpts: Partial<HorseDecideOpt
         }
       : {}),
   } as unknown as HorseGameStateV2;
+  patch?.(gs);
   const prof = HORSE_HYBRID_PROFILES[fmt];
   HorseMind.reset();
   seedFastRandom(seed);

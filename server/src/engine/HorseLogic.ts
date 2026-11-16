@@ -312,6 +312,7 @@ import {
   fixedLimitStealStrengthWiden,
   fixedLimitStealWiden,
   type FixedLimitPricedCtx,
+  type FixedLimitTournamentPricedCtx,
 } from './HorseFixedLimitPreflop.js';
 import {
   HU_STEAL_CASH_OPEN_CEILING_BB,
@@ -3983,6 +3984,16 @@ export interface HorseDecideOpts {
    *  widens by up to 15 points of hands (HorseFixedLimitPreflop.ts). Read
    *  only as === true: default OFF. */
   fixedLimitStealVsTightBlinds?: boolean;
+  /** FIXED-LIMIT TOURNAMENT PRICED PREFLOP (Fixed-Limit lane Phase 4, 2026-11-16): at
+   *  fixed-limit TOURNAMENT tables only (inert at cash: HorseLogic builds the context only
+   *  where isTournamentMode(gs)), first in a persona fold becomes a raise inside the seat's
+   *  reference share divided by hero's bubble factor (heroBubbleFactor; a persona open folds
+   *  only when the bubble factor is above 1.15, the share is scaled down under 25 big
+   *  blinds), and a blind's fold facing exactly one raise becomes a call when its realized
+   *  equity covers the raw price times the bubble factor (HorseFixedLimitPreflop.ts).
+   *  Stands aside at 10 big blinds or less, All-In-Or-Fold, a locked satellite seat and
+   *  a context without a bubble factor. Read only as === true: default OFF. */
+  fixedLimitPricedPreflopTournament?: boolean;
   /** FIXED-LIMIT BETS ARE NEVER PROBES, live switch (2026-11-15, Fixed-Limit lane, owner rule
    *  11:26): the registry's on/off for the PROCESS switch HorseMind.setFixedLimitBetsAreNeverProbes.
    *  The decision never reads it: counting also happens outside a decision, so the decision worker
@@ -11113,10 +11124,11 @@ export class HorseLogic {
               phase12DecisionEquityCeiling ?? 1,
               true,
               readStation,
-              // W5 cash only: a fixed-limit tournament table keeps today's pack (isTournamentMode)
-              opts.fixedLimitPricedPreflop === true &&
-                vi.isFixedLimit === true &&
-                !isTournamentMode(gs)
+              // W5 cash only: a fixed-limit tournament table keeps today's pack (isTournamentMode);
+              // the Phase 4 tournament version holds the same precedence at tournament tables only
+              vi.isFixedLimit === true &&
+                ((opts.fixedLimitPricedPreflop === true && !isTournamentMode(gs)) ||
+                  (opts.fixedLimitPricedPreflopTournament === true && isTournamentMode(gs)))
             )
           : null;
       if (phase12) {
@@ -13861,6 +13873,47 @@ export class HorseLogic {
         /* reads are best-effort */
       }
     }
+    // ═══ FIXED-LIMIT TOURNAMENT PRICED PREFLOP (Phase 4, 2026-11-16, default off) ═══
+    // HorseFixedLimitPreflop.fixedLimitTournamentPricedPreflopIntent: built
+    // only at a fixed-limit TOURNAMENT table (cash tables keep W5's context
+    // above and never reach this one), never in a bomb pot or a straddled pot.
+    // An All-In-Or-Fold table and a locked satellite seat are table-level
+    // stand-asides; hero's bubble factor (heroBubbleFactor on the trusted
+    // tournament context; null = incomplete context, also a stand-aside) is
+    // the pressure term.
+    let fixedLimitTournamentPriced: FixedLimitTournamentPricedCtx | undefined;
+    if (
+      flVariant !== null &&
+      isTournamentMode(gs) &&
+      opts.fixedLimitPricedPreflopTournament === true &&
+      gs.bombPot !== true &&
+      gs.straddleActive !== true
+    ) {
+      try {
+        const raiserFlT =
+          raises === 1 && lastRaiserSeat >= 0
+            ? gs.players.find((p) => p.seat === lastRaiserSeat)
+            : undefined;
+        const lockedFlT =
+          gs.allInOrFold !== true &&
+          satelliteRead(gs, player, stackBB, (opts.v37Satellite ?? true) !== false).locked;
+        const bfFlT = heroBubbleFactor(gs, stackBB, player.user_id);
+        fixedLimitTournamentPriced = {
+          variant: flVariant,
+          dealt: dealtHorseTableSize(gs, player.seat),
+          behind: preflopPlayersBehind(player.seat, gs, opts.v13 !== false),
+          openerBehind: raiserFlT
+            ? preflopPlayersBehind(raiserFlT.seat, gs, opts.v13 !== false)
+            : null,
+          openerAllIn: raiserFlT?.is_all_in === true,
+          bubbleFactor: bfFlT !== null && Number.isFinite(bfFlT) ? Math.max(1, bfFlT) : null,
+          standAside:
+            gs.allInOrFold === true ? 'all_in_or_fold' : lockedFlT ? 'satellite_locked' : null,
+        };
+      } catch {
+        /* reads are best-effort */
+      }
+    }
     // ═══ HU SMALL BLIND STEALS VS A TIGHT BIG BLIND (2026-11-15, D6, default off) ═══
     // HorseHuTightBigBlindSteal: the heads-up no-limit hold'em small blind
     // first in, against a big blind the existing counters prove a tight
@@ -14686,6 +14739,7 @@ export class HorseLogic {
       ...(omahaTightReRaiser ? { omahaTightReRaiser } : {}),
       ...(omahaTightSteal ? { omahaTightSteal: { openWiden: omahaTightSteal.openWiden } } : {}),
       ...(fixedLimitPriced ? { fixedLimitPriced } : {}),
+      ...(fixedLimitTournamentPriced ? { fixedLimitTournamentPriced } : {}),
       ...(fixedLimitStealOpenWiden !== undefined ? { fixedLimitStealOpenWiden } : {}),
       ...(huTightBigBlindSteal ? { huTightBigBlindSteal } : {}),
       ...(styleTightIsoWiden !== undefined ? { styleTightIsoWiden } : {}),
@@ -14791,6 +14845,18 @@ export class HorseLogic {
               noteFire('fixed_limit_priced_blind_defence');
             else if (layer === 'fixed_limit_steal_vs_tight_blinds')
               noteFire('fixed_limit_steal_vs_tight_blinds');
+            else if (layer === 'fixed_limit_tournament_priced_first_in')
+              noteFire('fixed_limit_tournament_priced_first_in');
+            else if (layer === 'fixed_limit_tournament_priced_blind_defence')
+              noteFire('fixed_limit_tournament_priced_blind_defence');
+            else if (layer === 'fixed_limit_tournament_priced_stand_aside_short_stack')
+              noteFire('fixed_limit_tournament_priced_stand_aside_short_stack');
+            else if (layer === 'fixed_limit_tournament_priced_stand_aside_all_in_or_fold')
+              noteFire('fixed_limit_tournament_priced_stand_aside_all_in_or_fold');
+            else if (layer === 'fixed_limit_tournament_priced_stand_aside_satellite_locked')
+              noteFire('fixed_limit_tournament_priced_stand_aside_satellite_locked');
+            else if (layer === 'fixed_limit_tournament_priced_stand_aside_incomplete_context')
+              noteFire('fixed_limit_tournament_priced_stand_aside_incomplete_context');
             else if (layer === 'holdem_persona_3bet_bluff_eligible_seen')
               noteFire('holdem_persona_3bet_bluff_eligible_seen');
             else if (layer === 'holdem_persona_3bet_bluff_changed_seen')

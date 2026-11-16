@@ -64,6 +64,8 @@ import { fixedLimitHasNoJamOrFold } from './HorseFixedLimitStructure.js';
 import {
   fixedLimitPricedPreflopIntent,
   type FixedLimitPricedCtx,
+  fixedLimitTournamentPricedPreflopIntent,
+  type FixedLimitTournamentPricedCtx,
 } from './HorseFixedLimitPreflop.js';
 import {
   OMAHA_TOURNAMENT_FIRST_IN,
@@ -234,6 +236,12 @@ export type PreflopLayerReceipt =
   | 'fixed_limit_priced_first_in'
   | 'fixed_limit_priced_blind_defence'
   | 'fixed_limit_steal_vs_tight_blinds'
+  | 'fixed_limit_tournament_priced_first_in'
+  | 'fixed_limit_tournament_priced_blind_defence'
+  | 'fixed_limit_tournament_priced_stand_aside_short_stack'
+  | 'fixed_limit_tournament_priced_stand_aside_all_in_or_fold'
+  | 'fixed_limit_tournament_priced_stand_aside_satellite_locked'
+  | 'fixed_limit_tournament_priced_stand_aside_incomplete_context'
   | 'holdem_persona_3bet_bluff_eligible_seen'
   | 'holdem_persona_3bet_bluff_changed_seen'
   | 'holdem_persona_3bet_bluff_capped_seen'
@@ -426,6 +434,19 @@ export interface PreflopCtx {
    * unchanged.
    */
   fixedLimitPriced?: FixedLimitPricedCtx;
+  /**
+   * FIXED-LIMIT TOURNAMENT PRICED PREFLOP (Fixed-Limit lane Phase 4,
+   * 2026-11-16, option fixedLimitPricedPreflopTournament, default off;
+   * HorseFixedLimitPreflop): present only at a fixed-limit TOURNAMENT table
+   * with the option on. First in, a persona fold becomes a raise inside the
+   * seat's reference share divided by the bubble factor (a persona open folds
+   * only under bubble factor above 1.15); a blind's fold facing exactly one
+   * raise becomes a call when the realized equity covers the price times the
+   * bubble factor. Stands aside (persona's answer, receipted) at 10 big blinds
+   * or less, All-In-Or-Fold, a locked satellite seat, or no bubble factor.
+   * Absent = unchanged.
+   */
+  fixedLimitTournamentPriced?: FixedLimitTournamentPricedCtx;
   /**
    * FIXED-LIMIT STEAL VS TIGHT BLINDS with the priced option OFF (option
    * fixedLimitStealVsTightBlinds, default off): every player left to act is a
@@ -1337,6 +1358,47 @@ export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
         ctx.noteLayer?.('fixed_limit_steal_vs_tight_blinds');
       if (priced.intent.a !== 'fold') return priced.intent;
       out = priced.intent;
+    }
+  }
+  // ═══ FIXED-LIMIT TOURNAMENT PRICED PREFLOP (Phase 4, default off) ═══
+  // HorseFixedLimitPreflop.fixedLimitTournamentPricedPreflopIntent: only at a
+  // fixed-limit tournament table (the cash version above is never built
+  // there). It widens the persona first in, tightens an open only under
+  // payout pressure, and defends a blind to price x bubble factor; a
+  // stand-aside keeps the answer above and leaves a receipt.
+  if (
+    ctx.fixedLimitTournamentPriced !== undefined &&
+    ctx.isFixedLimit === true &&
+    ctx.mode === 'tournament'
+  ) {
+    const pricePotFlT = Number.isFinite(ctx.contestablePot)
+      ? Math.max(0, ctx.contestablePot as number)
+      : ctx.pot;
+    const effCallFlT = Math.min(ctx.toCall, ctx.stack);
+    const tPriced = fixedLimitTournamentPricedPreflopIntent(
+      {
+        priced: ctx.fixedLimitTournamentPriced,
+        strength: ctx.strength,
+        tightness: ctx.tightness,
+        stackBB: ctx.stackBB,
+        raises: ctx.raises,
+        limpers: ctx.limpers,
+        callers: ctx.callers,
+        toCall: ctx.toCall,
+        bigBlind: ctx.bigBlind,
+        currentBet: ctx.currentBet,
+        blind: ctx.position === 'sb' || ctx.position === 'bb' ? ctx.position : null,
+        odds: effCallFlT > 0 ? effCallFlT / Math.max(1e-9, pricePotFlT + effCallFlT) : 1,
+        maniacOpenBar: ctx.maniacOpenBar,
+      },
+      out
+    );
+    if (tPriced) {
+      ctx.noteLayer?.(tPriced.receipt);
+      if (tPriced.intent) {
+        if (tPriced.intent.a !== 'fold') return tPriced.intent;
+        out = tPriced.intent;
+      }
     }
   }
   // ═══ OMAHA TOURNAMENT SHORT-HANDED FIRST-IN (Dan 2026-11-12) ═══

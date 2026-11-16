@@ -344,6 +344,7 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'fixedLimitOmahaNoPresumption',
   'fixedLimitPricedPreflop',
   'fixedLimitStealVsTightBlinds',
+  'fixedLimitPricedPreflopTournament',
 ]);
 /** Decided by code: a parent option, a variant gate or a mixed read (see each ledger note). */
 export const OPTION_SWITCH_RELEASE_DEFAULT_CODE: readonly string[] = Object.freeze([
@@ -527,6 +528,11 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
     'Fixed-Limit',
     'Fixed limit (flh, flo8) cash preflop first-in, every player behind an own-evidence over-folder',
     'fixed-limit first-in steal from over-folding blinds (W5 S; off-only by the steal hold)',
+  ],
+  fixedLimitPricedPreflopTournament: [
+    'Fixed-Limit',
+    'Fixed limit (flh, flo8) preflop, tournament tables only (cash inert by code)',
+    'fixed-limit tournament preflop: widens the persona first in to the reference share over the bubble factor, blind defence at price x bubble factor (Phase 4)',
   ],
   v16Hu: ['Heads Up', 'Heads-up postflop', 'heads-up postflop overlay'],
   v16Ratio: [HOLDEM, 'All (dead by precedence under V38)', 'V16 call/fold ratio rescale'],

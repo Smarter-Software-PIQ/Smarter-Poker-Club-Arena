@@ -4073,6 +4073,31 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       '(real HandController, flh and flo8, heads-up and six seats, tight-passive and over-folding ' +
       `fields); until it is built, the fixtures in ${law}.law.test.ts are the only evidence.`,
   })),
+  // 2026-11-16 (Fixed-Limit lane Phase 4, the tournament priced preflop):
+  // default-off fixed-limit TOURNAMENT arms. Refused, not dealt: this league
+  // deals no fixed limit and no tournament context with a bubble factor.
+  ...(
+    [
+      ['flh_priced_preflop_tournament', 'flh'],
+      ['flo8_priced_preflop_tournament', 'flo8'],
+    ] as const
+  ).map(([name, variant]) => ({
+    name,
+    variant,
+    seats: 6,
+    a: { fixedLimitPricedPreflopTournament: true },
+    b: {},
+    reason:
+      'Unanswerable by this league: playHand deals no-limit and pot-limit betting and has no ' +
+      'fixed-limit street unit, wager cap or controller menu, and the option is built only at a ' +
+      'fixed-limit TOURNAMENT table (HorseLogic: vi.isFixedLimit and isTournamentMode) with a ' +
+      'trusted tournament context that gives a bubble factor. The option is DEFAULT OFF (read as === true). ' +
+      'Measured 2026-11-16 by running this refused matchup through runMatchup (seed 20261115, 300 pairs): ' +
+      '0 of 300 pairs diverged (the league table is cash, where the option is inert by code). ' +
+      'What would change this: a fixed-limit duplicate tournament league (real HandController, flh ' +
+      'and flo8, six seats, tournament stacks and a payout table); until it is built, the fixtures in ' +
+      'AFixedLimitTournamentPricedPreflop.law.test.ts and the lane harness cells (AB 0.20) are the only evidence.',
+  })),
   {
     name: 'plo4_lightning_participation_omaha',
     variant: 'plo4',
