@@ -5173,10 +5173,8 @@ button.post-bb-overlay-button {
 
 /* Portrait layout: recover rail space without shrinking controls. */
 @media (min-width: 481px) and (max-width: 640px) and (orientation: portrait) {
-  .table-page:where([data-seats='6'], [data-seats='9']) .table-scaler {
-    width: min(88%, calc(var(--sp-table-h, 100svh) * 0.7));
-  }
   .table-page[data-seats='6'] .table-scaler {
+    width: min(88%, calc(var(--sp-table-h, 100svh) * 0.7));
     height: calc(var(--sp-table-h, 100svh) * 0.88);
     margin-top: calc(var(--sp-table-h, 100svh) * 0.12);
   }
@@ -5244,6 +5242,8 @@ button.post-bb-overlay-button {
    from the top so the bottom seat and controller keep their shared floor. */
 @media (min-width: 481px) and (max-width: 640px) and (orientation: portrait) {
   .table-page[data-seats='9'] .table-scaler {
+    /* Preserve the width for side wagers around the board on height-limited phones. */
+    width: min(88%, calc(var(--sp-table-h, 100svh) * 0.76));
     --sp-nine-cap-room: clamp(108px, 18vw, 120px);
     height: calc(var(--sp-table-h, 100svh) - var(--sp-nine-cap-room));
     margin-top: var(--sp-nine-cap-room);
