@@ -34,6 +34,7 @@ import { downloadCsv, csvEscape } from '../utils/downloadCsv';
 import { useToast } from '../components/common/Toast';
 import styles from './UnionStatementsPage.module.css';
 import UnionAccountingRunStatus from '../components/agent/UnionAccountingRunStatus';
+import WeeklyRakebackStatus from '../components/union/WeeklyRakebackStatus';
 import CasinoSurfaceHeader from '../components/rewards/RewardsSurfaceHeader';
 import { SpadeConsole } from '../components/console/SpadeConsole';
 import { useIsMounted } from '../hooks/useIsMounted';
@@ -1121,6 +1122,14 @@ export default function UnionStatementsPage() {
             unionId={unionId}
             periodEnd={board.period_end}
           />
+        </div>
+      )}
+
+      {/* WEEKLY RAKEBACK STATUS (owner, 2026-11-15): the Monday payout stage by
+          stage; refreshes once a minute only while the payout is running. */}
+      {unionId && (
+        <div className={styles.consoleBand}>
+          <WeeklyRakebackStatus key={unionId} unionId={unionId} />
         </div>
       )}
 
