@@ -100,6 +100,11 @@ const REGISTER = {
       PRESUME_ROSTER +
       ' The explicit offline human-field profile passes the same roster to the real decision consumer; horse-only populations remain unchanged.',
   },
+  'server/src/benchmark/FixedLimitPopulationEnvelope.ts': {
+    allowed: 2,
+    kind: 'IDENTIFICATION',
+    why: 'Offline population-envelope measurement only: selects recorded Horse-only fixed-limit cash hands and Horse seats when computing the reference population band for FIXED_LIMIT_POPULATION_ENVELOPE (HorseOpponentExploit.ts) and the census law test. It never runs in live table play, seating, funding, payouts or timing, and denies no Horse anything.',
+  },
   'server/src/benchmark/OmahaAdversarialStress.test.ts': {
     allowed: 1,
     kind: 'IDENTIFICATION',
