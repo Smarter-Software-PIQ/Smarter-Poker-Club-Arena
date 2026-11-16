@@ -298,7 +298,20 @@ function play(
       })
     ).toBeNull();
     out.bytes.push(
-      JSON.stringify(d, (k, x) => (k === 'latencyMs' || k === 'elapsedMs' ? undefined : x))
+      // wall-clock measurements are left out, the list the declared-work law leaves out
+      // (HorseDeclaredWork.test-support.ts): omahaVariantPolicy.equity.analysisMs is a
+      // performance.now() difference and differs between two runs of the same decision
+      JSON.stringify(d, (k, x) =>
+        typeof x === 'number' &&
+        (k === 'latencyMs' ||
+          k === 'analysisMs' ||
+          k === 'simulationMs' ||
+          k === 'policyMs' ||
+          k === 'utilityLatencyMs' ||
+          k === 'elapsedMs')
+          ? undefined
+          : x
+      )
     );
     out.actions.push(d.action);
     out.fires.push(
