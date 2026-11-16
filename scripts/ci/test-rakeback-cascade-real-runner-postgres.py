@@ -99,9 +99,15 @@ horse promo once, enters the close (fn_process_weekly_accounting_scope) under it
 union's close is complete, never moving a chip. Byte-exact additions: union-books.json, union-books-relations.json. Stand-ins
 there are marked. The close itself is not run (see below).
 
-NOT RUN: the union's weekly close itself (job 272 union-weekly-rakeback-close and the close job 564 enters: P&L,
-documents, invoices; about 357 production functions this fixture does not carry), tournaments, standalone
-clubs, row level security, grants, foreign keys.
+UNION CLOSE EXECUTED (fixtures/.../union-close.py): on another copy of the paid and released week, job 564's ticks drive
+the REAL close (about 250 more production functions byte-exact, union-close.json; its relations, triggers and grants):
+the original P&L inventory is sealed week by week, the paid week is visited as a post-paid P&L qualification, its flows
+and hand parts are proved window by window, and the close then stops at finding C1 (for a union other than Midway the
+earned-plan advance carries a NULL inventory generation, weekly_hand_parts_read answers NULL for it, and every attempt
+stays 'certifying'). Nothing is paid, issued or delivered; the square-up statements and their delivery are not reached.
+
+NOT RUN: job 272 (union-weekly-rakeback-close), the square-up statements and their delivery (past C1), tournaments,
+standalone clubs, row level security, foreign keys.
 
 The last stdout line is the verdict: {"status":"passed","cases":N}.
 """
@@ -303,6 +309,7 @@ try:
     if A.stop_after=='install': raise SystemExit(0)
     exec((F/'cases.py').read_text())
     exec((F/'union-books.py').read_text())
+    exec((F/'union-close.py').read_text())
     exec((F/'club-isolation.py').read_text())
     if A.usage_out: A.usage_out.write_text(json.dumps(usage(),indent=0))
     unshifted={k.split('(')[0] for k,v in FUNCS.items() if re.search(r'\b(CURRENT_DATE|CURRENT_TIMESTAMP|CURRENT_TIME|LOCALTIMESTAMP|LOCALTIME)\b',v['def'],re.I)}&set(usage()['functions'])
