@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
+  CASH_VARIANTS_RESTORED_START_MS as restored,
   HORSE_CASH_POLICY_START_MS as start,
   RELAUNCH_CASH_POLICY_START_MS as relaunch,
   RELAUNCHED_CASH_ACTIVITY_SCALE,
@@ -50,14 +51,70 @@ describe('November 2 owner cash schedule', () => {
     ).toBe(80);
   });
   it.each(['pineapple', 'crazy_pineapple', 'short_deck', 'shortdeck', '6+', 'plo8'])(
-    'excludes all %s cash, preserving tournaments and the previous date',
+    'excluded all %s cash from November 2 until the November 14 owner direction, preserving tournaments and the previous date',
     (variant) => {
       const table = { game_variant: variant, small_blind: 0.25, big_blind: 0.5 };
       expect(horseCashGameAllowed(table, start - 1)).toBe(true);
       expect(horseCashGameAllowed(table, start)).toBe(false);
+      expect(horseCashGameAllowed(table, restored - 1)).toBe(false);
       expect(horseCashGameAllowed({ ...table, tournament_id: 'event' }, start)).toBe(true);
     }
   );
+  /* Owner direction November 14 (19:07, 19:10 and 20:42 Chicago): short deck,
+     pineapple and PLO8 cash made operational; overwatch's decision on the
+     owner's 19:22 delegation lifts only their exclusion. The November 1 stake
+     ceiling still holds them at .50/1 or below, and tournaments are unchanged. */
+  it('restores the three variants at 19:07 Chicago on November 14, not earlier', () => {
+    expect(restored).toBe(Date.parse('2026-11-14T19:07:00-06:00'));
+    expect(restored).toBeGreaterThan(relaunch);
+  });
+  it.each(['pineapple', 'crazy_pineapple', 'short_deck', 'shortdeck', '6+', 'plo8'])(
+    'admits %s cash again at or below .50/1 only, preserving tournaments',
+    (variant) => {
+      for (const now of [restored, restored + 365 * 86400000]) {
+        for (const [sb, bb, allowed] of [
+          [0.1, 0.25, true],
+          [0.25, 0.5, true],
+          [0.5, 1, true],
+          [0.75, 1, false],
+          [0.5, 1.01, false],
+          [1, 2, false],
+          [2, 5, false],
+          [5, 10, false],
+        ] as const)
+          expect(
+            horseCashGameAllowed({ game_variant: variant, small_blind: sb, big_blind: bb }, now)
+          ).toBe(allowed);
+        expect(horseCashGameAllowed({ game_variant: variant, big_blind: 1 }, now)).toBe(false);
+        expect(horseCashGameAllowed({ game_variant: variant, small_blind: 0.5 }, now)).toBe(false);
+        expect(
+          horseCashGameAllowed(
+            { game_variant: variant, small_blind: 2, big_blind: 5, tournament_id: 'event' },
+            now
+          )
+        ).toBe(true);
+      }
+    }
+  );
+  it('keeps every other variant on its own ceiling after the restore', () => {
+    for (const variant of ['nlh', 'plo4', 'plo5', 'plo6']) {
+      expect(
+        horseCashGameAllowed({ game_variant: variant, small_blind: 1, big_blind: 2 }, restored)
+      ).toBe(true);
+      expect(
+        horseCashGameAllowed({ game_variant: variant, small_blind: 2, big_blind: 5 }, restored)
+      ).toBe(false);
+    }
+    for (const variant of ['flh', 'flo8']) {
+      expect(
+        horseCashGameAllowed({ game_variant: variant, small_blind: 5, big_blind: 10 }, restored)
+      ).toBe(true);
+      expect(
+        horseCashGameAllowed({ game_variant: variant, small_blind: 5, big_blind: 10.01 }, restored)
+      ).toBe(false);
+    }
+    expect(cashActivityScaleAt(restored)).toBeCloseTo(0.6, 12);
+  });
   it.each(['plo4', 'plo5', 'plo6', 'nlh', 'flh', 'flo8', 'stud', 'unknown'])(
     'enforces the owner-selected actual-blind ceiling for %s',
     (variant) => {
