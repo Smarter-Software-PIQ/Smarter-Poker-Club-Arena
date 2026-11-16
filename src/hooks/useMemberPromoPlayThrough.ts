@@ -22,7 +22,7 @@ export function useMemberPromoPlayThrough(
     members: Record<string, PromoPlayThroughSummary> | null;
   } | null>(null);
   useMasterBusSubscriptions(
-    ['BALANCE_UPDATED', 'WALLET_REFRESHED', 'HAND_COMPLETED'],
+    ['BALANCE_UPDATED', 'WALLET_REFRESHED', 'HAND_COMPLETED', 'REALTIME_CONNECTED'],
     () => setAttempt((n) => n + 1),
     { debounce: 250 }
   );

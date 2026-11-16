@@ -45,7 +45,7 @@ export function usePromoPlayThrough(clubId: string | null | undefined, userId: s
       'WALLET_REFRESHED',
       'HAND_COMPLETED',
       'TOURNAMENT_REGISTERED',
-      'PLAYER_RECONNECTED',
+      'REALTIME_CONNECTED',
     ],
     () => {
       void load();
