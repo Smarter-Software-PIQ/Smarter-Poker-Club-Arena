@@ -10822,6 +10822,8 @@ export class HorseLogic {
               pot: gameState.pot,
               legalActions: gameState.legalActions,
             });
+      if (fallbackAction === 'call' && telemetryOn(opts))
+        noteFire('fixed_limit_failure_fallback_call');
       const fallbackAmount =
         fallbackAction === 'call' ? Math.min(toCall, Math.max(0, player.stack || 0)) : undefined;
       // PUBLIC-ONLY ACTION TIME: the safety net's fixed 1,500 ms is a mark of
