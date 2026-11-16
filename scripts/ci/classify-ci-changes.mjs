@@ -209,6 +209,12 @@ const ROUTING_LAW = /\.law\.test\.[cm]?[jt]s$/;
 // that names one hashes it as data (tests/unit/fixtureNativeCi.test.ts in the
 // f06 qualification probes), so naming it does not admit this job.
 const TEST_FILE = /\.(?:test|spec)\.[cm]?[jt]sx?$|\.test\.py$/;
+// A harness usually reads a fixture as `FIXTURES / 'name.sql'`: the directory
+// and the file name are two literals. A quoted relative name is joined to each
+// directory the same harness spells out, and admits the file only when that
+// joined path is an existing file (a name built at run time still admits
+// nothing).
+const QUOTED_NAME = /(['"`])([A-Za-z0-9_][\w.\/-]*\.[A-Za-z0-9]{1,8})\1/g;
 const HARNESS_LITERAL = /\b(?:scripts|tests|server\/scripts|operations|supabase)\/[\w./-]+/g;
 export function accountingHarnessReads(root, named) {
   const files = new Set();
@@ -223,6 +229,14 @@ export function accountingHarnessReads(root, named) {
     } catch {
       continue;
     }
+    const directories = new Set();
+    const admit = (path) => {
+      if (!named.has(path) && !TEST_FILE.test(path)) files.add(path);
+      if (!seen.has(path) && STARTED_HARNESS.test(path)) {
+        seen.add(path);
+        queue.push(path);
+      }
+    };
     for (const literal of source.match(HARNESS_LITERAL) || []) {
       const path = literal.replace(/[./]+$/, '');
       let stat;
@@ -231,11 +245,19 @@ export function accountingHarnessReads(root, named) {
       } catch {
         continue;
       }
-      if (stat.isFile()) {
-        if (!named.has(path) && !TEST_FILE.test(path)) files.add(path);
-        if (!seen.has(path) && STARTED_HARNESS.test(path)) {
-          seen.add(path);
-          queue.push(path);
+      if (stat.isFile()) admit(path);
+      else if (stat.isDirectory()) directories.add(path);
+    }
+    if (directories.size) {
+      for (const [, , name] of source.matchAll(QUOTED_NAME)) {
+        if (name.startsWith('/') || name.includes('..')) continue;
+        for (const directory of directories) {
+          const path = `${directory}/${name}`;
+          try {
+            if (statSync(resolve(root, path)).isFile()) admit(path);
+          } catch {
+            // not a file under that directory
+          }
         }
       }
     }

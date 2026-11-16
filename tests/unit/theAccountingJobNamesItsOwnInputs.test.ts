@@ -88,6 +88,12 @@ describe('the accounting job names its own inputs', () => {
       expect(
         classifyChangedPaths(['scripts/ci/fixtures/chip-wallet-choice/setup.sql']).server
       ).toBe(true);
+      // A fixture read as `fixture / 'name.sql'` (test-promo-downline-limit-postgres.py):
+      // the directory and the quoted name, joined, admit the file.
+      expect(
+        classifyChangedPaths(['scripts/ci/fixtures/chip-wallet-choice/fn_promo_wallet_send.sql'])
+          .server
+      ).toBe(true);
       // A neighbour no harness names, in a directory a harness lists.
       expect(
         classifyChangedPaths(['scripts/ci/fixtures/chip-wallet-choice/not-read-by-any-harness.md'])

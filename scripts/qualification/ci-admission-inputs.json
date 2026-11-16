@@ -1150,19 +1150,19 @@
     },
     "tests/fixtures/cash-participant-funding/captured-hand-preimages.json": {
       "phase4": false,
-      "server": false
+      "server": true
     },
     "tests/fixtures/cash-participant-funding/captured-integration-preimages.json": {
       "phase4": false,
-      "server": false
+      "server": true
     },
     "tests/fixtures/cash-participant-funding/captured-preimages.json": {
       "phase4": false,
-      "server": false
+      "server": true
     },
     "tests/fixtures/cash-participant-funding/captured-reader-preimages.json": {
       "phase4": false,
-      "server": false
+      "server": true
     },
     "tests/fixtures/cash-participant-funding/captured-retention-preimages.json": {
       "phase4": false,
@@ -1706,15 +1706,15 @@
     },
     "tests/fixtures/original-unchanged-stack/cents-preimage.sql": {
       "phase4": false,
-      "server": false
+      "server": true
     },
     "tests/fixtures/original-unchanged-stack/lineage-preimage.sql": {
       "phase4": false,
-      "server": false
+      "server": true
     },
     "tests/fixtures/original-unchanged-stack/schema-additions.sql": {
       "phase4": false,
-      "server": false
+      "server": true
     },
     "tests/fixtures/pnl-evidence/PROTECTED-QUALIFICATION.md": {
       "phase4": false,
@@ -2098,7 +2098,7 @@
     },
     "tests/fixtures/union-pnl-blocked-resolution/schema.sql": {
       "phase4": false,
-      "server": false
+      "server": true
     },
     "tests/fixtures/union-pnl-inventory/README.md": {
       "phase4": false,
