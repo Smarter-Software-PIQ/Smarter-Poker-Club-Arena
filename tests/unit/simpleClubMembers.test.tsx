@@ -354,7 +354,7 @@ it('shows authorized period fees and player wallet, and opens the existing manag
   expect(screen.getByText('12,345.00')).toBeInTheDocument();
   expect(screen.getByText('Fees This Week')).toBeInTheDocument();
   expect(screen.queryByText('98.7K')).not.toBeInTheDocument();
-  expect(screen.queryByText('Player Wallet')).not.toBeInTheDocument();
+  expect(screen.getByText('Wallet Balance 98,765.00')).toBeInTheDocument();
   expect(screen.getByText(/ID: 3258017/)).toBeInTheDocument();
   expect(screen.getByRole('link', { name: 'Applicants' })).toHaveAttribute(
     'href',
