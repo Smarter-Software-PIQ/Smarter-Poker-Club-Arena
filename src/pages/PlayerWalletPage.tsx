@@ -79,6 +79,7 @@ import { useDiamondLedger, type DiamondLedgerRow } from '../hooks/useDiamondLedg
    there with the end line that reads it, so this page no longer imports it. */
 import { DiamondLedgerMore } from '../components/wallet/DiamondLedgerMore';
 import { uuid } from '../utils/uuid';
+import { PromoPlayThroughProgress } from '../components/wallet/PromoPlayThroughProgress';
 import './PlayerWalletPage.css';
 import { publicOrigin } from '../lib/appBase';
 import { copyText as copyTextShared } from '../lib/share';
@@ -1345,6 +1346,7 @@ function PlayerWalletAccount({
           {/* WALLETS */}
           {activeTab === 'overview' && (
             <div className="wallet-rows">
+              <PromoPlayThroughProgress clubId={currentClubId} />
               <DiamondPlate
                 diamonds={diamonds}
                 summary={walletSummary}

@@ -91,6 +91,7 @@ import ClubRosterService, {
 } from '../services/ClubRosterService';
 import './MemberManagementPage.css';
 import MemberCreditWalletRows from '../components/club/MemberCreditWalletRows';
+import { MemberPromoPlayThrough } from '../components/club/MemberPromoPlayThrough';
 
 const MEMBER_CREDENTIAL_ART = `${import.meta.env.BASE_URL}images/club-members/member-credential-v1.webp`;
 
@@ -1225,6 +1226,13 @@ export default function MemberManagementPage() {
               value={formatWalletChips(wallets.promo_wallet_text ?? wallets.promo_wallet)}
             />
           </section>
+        )}
+        {wallets && resolvedClubId && userId && (
+          <MemberPromoPlayThrough
+            clubId={resolvedClubId}
+            userId={userId}
+            revision={recordRevision}
+          />
         )}
         {wallets && resolvedClubId && userId && isAgentRole(identity!.role) && (
           <MemberCreditWalletRows

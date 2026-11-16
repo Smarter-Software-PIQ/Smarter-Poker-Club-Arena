@@ -2613,7 +2613,7 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/ci/production-e2e-account.mjs create
+        run: node scripts/ci/production-e2e-account.mjs create-spectator
 
       # Union boards (MTT, SPIN, SNG) are readable only by members of a club in
       # the union's scope. Without this the identity could read the platform

@@ -32,6 +32,7 @@ import { titleCase, enumToTitleCase } from '../../utils/titleCase';
 import { SpadeConsole } from '../console/SpadeConsole';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { presentChipTransaction } from './describeChipTransaction';
+import { PromoPlayThroughProgress } from './PromoPlayThroughProgress';
 import './WalletCashierModal.css';
 
 const PAGE = 40;
@@ -376,6 +377,7 @@ export default function PlayerWalletModal({ isOpen, onClose, clubId }: PlayerWal
           </div>
 
           <div className="cbc-body">
+            <PromoPlayThroughProgress clubId={clubId} />
             {error && <div className="cbc-empty cbc-empty--bad">{error}</div>}
 
             {/* Every balance the member holds in this club, one per line. The
