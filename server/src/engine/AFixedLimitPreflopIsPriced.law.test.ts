@@ -26,6 +26,12 @@
  * 3.6): at a fixed-limit tournament table the option, and the steal with it,
  * is inert (every first-in and big-blind decision equals off, no W5 receipt
  * fires); at cash tables on the same spots and seeds it still acts.
+ *
+ * HI-LO SCOPE (2026-11-16, Phase 2, AB-EVALUATION-2 0.18): in hi-lo the option
+ * acts only at an unfloored table dealt three seats or more; at a flo8 table
+ * dealt two seats, or with a VPIP floor, it is inert (every decision equals
+ * off, no W5 receipt fires), because the harness cannot validate those table
+ * types. Hold'em is not narrowed; flo8 six-max unfloored still acts.
  */
 import { describe, expect, it } from 'vitest';
 import type { Card } from '../types.js';
@@ -102,6 +108,8 @@ describe('first in, the fixed-limit open is the reference range by seat (option 
     it(`${variant}: every seat's raise share lands in the reference band`, () => {
       const rows: string[] = [];
       for (const [dealt, seat, behind] of SEATS) {
+        // flo8 heads-up is out of scope (AB 0.18): see the hi-lo scope block.
+        if (variant === 'flo8' && dealt <= 2) continue;
         const ref = fixedLimitOpenShare(variant, dealt, behind)!;
         const on = firstIn(variant, dealt, seat, ON);
         rows.push(`${dealt}-handed behind ${behind}: ref ${ref.raise} on ${on.raise.toFixed(3)}`);
@@ -148,7 +156,8 @@ function bbSpot(variant: string, n: number, i: number) {
 
 describe('the big blind defends to its price (option on)', () => {
   for (const variant of VARIANTS) {
-    for (const n of [6, 2]) {
+    // flo8 heads-up is out of scope (AB 0.18): see the hi-lo scope block.
+    for (const n of variant === 'flo8' ? [6] : [6, 2]) {
       it(`${variant} ${n === 2 ? 'heads-up (3 to 1)' : 'vs the button (3.5 to 1)'}: no hand above the price folds; fewer folds than main`, () => {
         enableBrainTelemetry();
         let foldsOn = 0;
@@ -464,11 +473,8 @@ describe('2026-11-15 fix: the blind defends to its price under production rake a
       }, 240_000);
     }
   }
-  it('flo8 heads-up big blind (3 to 1): defends at least the generated width (-5 points), and it fires', () => {
-    const r = defenceRun('flo8', 2, 1, 1, 2, 0);
-    expect(r.defend).toBeGreaterThanOrEqual(r.width - FIXED_LIMIT_OPEN_BAND);
-    expect(r.fires).toBeGreaterThan(0);
-  }, 240_000);
+  // flo8 heads-up big blind: out of scope since AB 0.18 (the option is inert
+  // there); pinned in the hi-lo scope block below.
   // The small blind is in scope (the design defends "a blind"): with the big
   // blind still to act its realization is discounted once (0.85). It never
   // folds a hand above its own verdict and never folds a hand the old code
@@ -640,6 +646,119 @@ describe('cash tables only: at a fixed-limit tournament table the option is iner
       expect(changedBlind, `${variant} big-blind decisions changed`).toBeGreaterThan(0);
       expect(firstInFires).toBeGreaterThan(0);
       expect(defenceFires).toBeGreaterThan(0);
+    }, 240_000);
+  }
+});
+
+// ─── HI-LO SCOPE (Phase 2, AB-EVALUATION-2 0.18; owner order 2026-11-16T04:08Z) ───
+// The options act only where a validated paired result exists. In hi-lo the
+// harness cannot validate heads-up (big blind defence not judged) or a floored
+// table (floored big blind defence NOT VALID), so at a flo8 table dealt two
+// seats, or with a VPIP floor, P (and S with it) is inert: every decision
+// equals off and no W5 receipt fires. Hold'em is not narrowed, and flo8
+// six-max unfloored still acts. HorseLogic: fixedLimitPreflopInScope, read at
+// the priced-context entry and at the pack precedence.
+const SCOPE_DEALS = 40;
+const FLOOR = {
+  flh: { vpipFloor: 15, vpipWindowHands: 30 },
+  flo8: { vpipFloor: 25, vpipWindowHands: 30 },
+};
+
+/** First in from every seat of an n-handed table, plus the big blind facing one button raise. */
+function scopeSpots(variant: string, n: number, i: number) {
+  const spots: { label: string; t: Table }[] = [];
+  const seats = n === 2 ? [1] : n === 6 ? [4, 5, 6, 1, 2] : [4, 6, 8, 9, 1, 2];
+  for (const seat of seats) {
+    const t = fmtTable(variant, 'cash', n, 21000 + i * 11 + seat);
+    foldTo(t, seat);
+    spots.push({ label: `first in seat ${seat} of ${n}`, t });
+  }
+  const t = fmtTable(variant, 'cash', n, 22000 + i * 3 + n);
+  foldTo(t, 1);
+  t.controller.performAction(1, 'raise', menuOf(t).minRaiseTo ?? undefined, 'player');
+  if (n > 2) t.controller.performAction(2, 'fold', undefined, 'player');
+  expect(t.controller.getCurrentPlayer()!.seat).toBe(n > 2 ? 3 : 2);
+  spots.push({ label: n > 2 ? 'big blind vs the button' : 'heads-up big blind', t });
+  return spots;
+}
+
+describe('hi-lo scope: P is inert at flo8 heads-up and at floored flo8 tables', () => {
+  const OUT: { label: string; n: number; floored: boolean }[] = [
+    { label: 'heads-up unfloored', n: 2, floored: false },
+    { label: 'heads-up floored', n: 2, floored: true },
+    { label: 'six-max floored', n: 6, floored: true },
+  ];
+  for (const { label, n, floored } of OUT) {
+    it(`flo8 ${label}: with the option on (and with the steal too) every decision equals off, and no W5 receipt fires`, () => {
+      enableBrainTelemetry();
+      const gsExtra = floored ? FLOOR.flo8 : {};
+      let count = 0;
+      for (let i = 0; i < SCOPE_DEALS; i++) {
+        for (const spot of scopeSpots('flo8', n, i)) {
+          const seed = 23000 + i;
+          const off = decide(spot.t, seed, { telemetry: true }, gsExtra).d;
+          drainFires();
+          const on = decide(spot.t, seed, { ...ON, telemetry: true }, gsExtra).d;
+          const fired = drainFires().filter((f) => W5_FIRES.test(f.feature));
+          const both = decide(
+            spot.t,
+            seed,
+            { fixedLimitPricedPreflop: true, fixedLimitStealVsTightBlinds: true, telemetry: true },
+            gsExtra
+          ).d;
+          const firedBoth = drainFires().filter((f) => W5_FIRES.test(f.feature));
+          expect(pick(on), `flo8 ${label} ${spot.label} deal ${i}`).toEqual(pick(off));
+          expect(pick(both), `flo8 ${label} ${spot.label} deal ${i} (steal too)`).toEqual(
+            pick(off)
+          );
+          expect(
+            fired.map((f) => f.feature),
+            `flo8 ${label} ${spot.label} deal ${i}`
+          ).toEqual([]);
+          expect(
+            firedBoth.map((f) => f.feature),
+            `flo8 ${label} ${spot.label} deal ${i}`
+          ).toEqual([]);
+          count++;
+        }
+      }
+      expect(count).toBe(SCOPE_DEALS * (n === 2 ? 2 : 6));
+    }, 240_000);
+  }
+
+  const IN: { variant: 'flh' | 'flo8'; n: number; floored: boolean }[] = [
+    { variant: 'flo8', n: 6, floored: false },
+    { variant: 'flh', n: 2, floored: false },
+    { variant: 'flh', n: 2, floored: true },
+    { variant: 'flh', n: 6, floored: false },
+    { variant: 'flh', n: 6, floored: true },
+    { variant: 'flh', n: 9, floored: false },
+    { variant: 'flh', n: 9, floored: true },
+  ];
+  for (const { variant, n, floored } of IN) {
+    it(`${variant} ${n}-handed ${floored ? 'floored' : 'unfloored'}: the option still acts and its receipts fire`, () => {
+      enableBrainTelemetry();
+      const gsExtra = floored ? FLOOR[variant] : {};
+      let changed = 0;
+      let fires = 0;
+      for (let i = 0; i < SCOPE_DEALS; i++) {
+        for (const spot of scopeSpots(variant, n, i)) {
+          const seed = 23000 + i;
+          const off = decide(spot.t, seed, { telemetry: true }, gsExtra).d;
+          drainFires();
+          const on = decide(spot.t, seed, { ...ON, telemetry: true }, gsExtra).d;
+          if (drainFires().some((f) => W5_FIRES.test(f.feature))) fires++;
+          if (on.action !== off.action) changed++;
+        }
+      }
+      expect(
+        changed,
+        `${variant} ${n} ${floored ? 'floored' : 'unfloored'} decisions changed`
+      ).toBeGreaterThan(0);
+      expect(
+        fires,
+        `${variant} ${n} ${floored ? 'floored' : 'unfloored'} receipts`
+      ).toBeGreaterThan(0);
     }, 240_000);
   }
 });

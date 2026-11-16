@@ -3963,7 +3963,8 @@ export interface HorseDecideOpts {
   /** FIXED-LIMIT PRICED PREFLOP (Fixed-Limit lane W5, 2026-11-15): at
    *  fixed-limit CASH tables only (inert at every tournament table: the
    *  !isTournamentMode(gs) gate at the priced-context entry and the pack
-   *  precedence), first in the seat raises the stated reference share by
+   *  precedence) and, in hi-lo, only at an unfloored table dealt three seats or
+   *  more (fixedLimitPreflopInScope, AB-EVALUATION-2 0.18), first in the seat raises the stated reference share by
    *  players behind (the small blind folded to also completes a band; the
    *  heads-up button raises flh 85% / flo8 70%), and a blind's fold facing
    *  exactly one raise becomes a call when its realized equity against the
@@ -3975,7 +3976,8 @@ export interface HorseDecideOpts {
   fixedLimitPricedPreflop?: boolean;
   /** FIXED-LIMIT STEAL VS TIGHT BLINDS (Fixed-Limit lane W5, 2026-11-15): at
    *  fixed-limit CASH tables only (inert at every tournament table: it shares
-   *  the priced preflop's !isTournamentMode(gs) entry), first in from the
+   *  the priced preflop's entry, fixedLimitPreflopInScope, so in hi-lo it also
+   *  acts only at an unfloored table dealt three seats or more), first in from the
    *  cutoff, button or small blind (or the
    *  heads-up button), when every player still to act is a read over-folder
    *  (own exploit read, foldToBet engaged high on adequate decayed
@@ -5857,6 +5859,28 @@ function dealtHorseTableSize(gs: HorseGameStateV2, heroSeat: number): number {
   return gs.dealtSeatIds === undefined
     ? gs.players.length
     : horsePolicyDealtPlayers(gs.players, heroSeat, gs.dealtSeatIds).length;
+}
+
+/**
+ * W5 scope (fixedLimitPricedPreflop and fixedLimitStealVsTightBlinds; Phase 2,
+ * AB-EVALUATION-2 0.18). The options act only at fixed-limit table types with a
+ * validated paired result: never at a tournament table (cash only), and in
+ * hi-lo only at an unfloored table dealt three seats or more. A flo8 table
+ * dealt two seats, or a flo8 table that runs the VPIP floor, plays exactly as
+ * with the options off (the harness cannot validate those: flo8 heads-up big
+ * blind defence is not judged, floored flo8 big blind defence is NOT VALID).
+ * Hold'em is not narrowed here. Same floor test as the VPIP floor itself
+ * (gs.vpipFloor > 0) and the same dealt-seat count the W5 tables use.
+ */
+function fixedLimitPreflopInScope(
+  variant: 'flh' | 'flo8',
+  gs: HorseGameStateV2,
+  heroSeat: number
+): boolean {
+  if (isTournamentMode(gs)) return false;
+  if (variant !== 'flo8') return true;
+  if (Number(gs.vpipFloor ?? 0) > 0) return false;
+  return dealtHorseTableSize(gs, heroSeat) > 2;
 }
 
 /**
@@ -11113,10 +11137,15 @@ export class HorseLogic {
               phase12DecisionEquityCeiling ?? 1,
               true,
               readStation,
-              // W5 cash only: a fixed-limit tournament table keeps today's pack (isTournamentMode)
+              // W5 scope: cash only, and hi-lo only unfloored with three or more
+              // dealt seats (fixedLimitPreflopInScope); elsewhere today's pack
               opts.fixedLimitPricedPreflop === true &&
                 vi.isFixedLimit === true &&
-                !isTournamentMode(gs)
+                (vi.isOmaha
+                  ? vi.isHiLo === true && fixedLimitPreflopInScope('flo8', gs, player.seat)
+                  : player.cards.length === 2 &&
+                    !vi.isShortDeck &&
+                    fixedLimitPreflopInScope('flh', gs, player.seat))
             )
           : null;
       if (phase12) {
@@ -13788,8 +13817,9 @@ export class HorseLogic {
     // HorseFixedLimitPreflop: fixed limit only, CASH only (a fixed-limit
     // tournament table plays exactly as before: no separately evaluated
     // tournament policy exists; same isTournamentMode test as every other
-    // cash/tournament split here), never in a bomb pot, a straddled pot or
-    // All-In-Or-Fold. The reads are the players still to act
+    // cash/tournament split here), in hi-lo only at an unfloored table dealt
+    // three seats or more (fixedLimitPreflopInScope, AB 0.18), never in a bomb
+    // pot, a straddled pot or All-In-Or-Fold. The reads are the players still to act
     // (folded and sitting-out players are not), each its own exploit read.
     let fixedLimitPriced: FixedLimitPricedCtx | undefined;
     let fixedLimitStealOpenWiden: number | undefined;
@@ -13804,7 +13834,7 @@ export class HorseLogic {
       : null;
     if (
       flVariant !== null &&
-      !isTournamentMode(gs) &&
+      fixedLimitPreflopInScope(flVariant, gs, player.seat) &&
       (opts.fixedLimitPricedPreflop === true || opts.fixedLimitStealVsTightBlinds === true) &&
       gs.bombPot !== true &&
       gs.allInOrFold !== true &&
