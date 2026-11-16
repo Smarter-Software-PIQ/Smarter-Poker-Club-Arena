@@ -87,4 +87,3 @@ BEGIN
  result:=jsonb_build_object('success',true,'replayed',false,'transaction_id',tx,'op_id',p_op_id,'amount',v_amount,'source',p_source,'destination',p_destination,'credit_repaid',repay,'returned_amount',v_amount-repay,'holder_balance_after',holder_after,'destination_balance_after',destination_after);
  RETURN public.fn_cashier_exact_intent_finish(p_op_id,result);
 END $function$
-

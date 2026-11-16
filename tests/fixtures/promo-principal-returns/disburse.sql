@@ -228,4 +228,3 @@ BEGIN
     'lands_as', v_lands_as);
 END
 $function$
-

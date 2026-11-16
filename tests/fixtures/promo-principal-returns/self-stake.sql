@@ -110,4 +110,3 @@ begin
     'agent_wallet_after',v_wallet_after,'player_wallet_after',v_player_after);
 end
 $function$
-

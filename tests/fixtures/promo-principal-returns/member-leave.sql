@@ -104,4 +104,3 @@ BEGIN
   RETURN jsonb_build_object('success', true, 'chips_returned', COALESCE(v_chips, 0));
 END;
 $function$
-

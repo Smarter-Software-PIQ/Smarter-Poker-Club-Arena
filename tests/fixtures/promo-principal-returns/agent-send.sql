@@ -239,4 +239,3 @@ exception
       'credit_limit', (v_prior.metadata ->> 'credit_limit')::numeric);
 end
 $function$
-
