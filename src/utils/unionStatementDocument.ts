@@ -57,9 +57,13 @@ const chips = (value: number | null | undefined): string =>
 
 const cents = (value: number): number => Math.round(value * 100);
 
-function statusLabel(club: StatementForDocument): string {
+/* A statement with nothing left to settle (square, or credited to zero) is
+   never overdue and has no due date, whatever the board's flag says: the
+   statement's own message body (union_weekly_invoice_body) prints a due date
+   only when something remains. */
+function statusLabel(club: StatementForDocument, nothingDue: boolean): string {
   if (club.payment_details_available === false) return 'Paid Record Only';
-  if (club.overdue) return 'Overdue';
+  if (club.overdue && !nothingDue) return 'Overdue';
   return titleCase(club.status);
 }
 
@@ -81,6 +85,7 @@ export function buildUnionStatementDocument(
   const adjusted = credits.length > 0 || charges.length > 0;
   const original = Math.abs(club.amount);
   const toSettle = square ? 0 : adjusted ? (club.remaining_after_credits ?? null) : original;
+  const nothingDue = toSettle !== null && cents(toSettle) <= 0;
   const eco = (activity: 'cash' | 'tournament') =>
     club.eco_components?.find((component) => component.activity === activity) ?? null;
   const cash = eco('cash');
@@ -103,9 +108,13 @@ export function buildUnionStatementDocument(
     },
     {
       label: 'Due',
-      value: club.due_at ? `${chicagoInstantLabel(club.due_at)} Chicago Time` : NOT_RECORDED,
+      value: nothingDue
+        ? 'Nothing Due'
+        : club.due_at
+          ? `${chicagoInstantLabel(club.due_at)} Chicago Time`
+          : NOT_RECORDED,
     },
-    { label: 'Status', value: statusLabel(club) },
+    { label: 'Status', value: statusLabel(club, nothingDue) },
     { label: 'Who Pays Whom', value: unionStatementPayLine(club, clubLabel, union) },
     { label: 'Amount To Settle', value: chips(toSettle) },
   ];
