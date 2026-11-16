@@ -415,6 +415,9 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
   huLimpDefendsToPrice: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
   // 2026-11-16 Heads Up R2-N1 (Hand Analysis): changes a big-blind preflop range, same owner hold as its siblings.
   huBbDefendsUnreadToPrice: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
+  // 2026-11-16 Fixed-Limit lane (lane owner, after the independent re-review of e437b075): the frozen fixed-limit cells
+  // move the preflop tight-opener and tight-reraiser respect at flh cash, so the option is under the same owner hold.
+  fixedLimitPopulationCells: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
   // owner 21:30: the Omaha tight responses
   omahaTightOpponent: hold(
     OMAHA_TIGHT_SOURCE,

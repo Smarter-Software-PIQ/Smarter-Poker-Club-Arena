@@ -55,15 +55,19 @@
  *     only with ON; the sample gates are identical ON and OFF at every hand: the evidence state and the three-bet
  *     opportunities are the same, and with too few hands (fewer than 15 decayed hands, or fewer than 8 three-bet
  *     opportunities for the three-bet side) neither arm fires.
- * (4) The option is registered in the live switch, release default OFF, owner Fixed-Limit. It may be switched on (the
- *     owner's standing rule: every option is switchable); turning it on still needs the owner to lift the preflop
- *     range hold for it by name, Hand Analysis's exact-head ACCEPT and the recorded evidence row.
+ * (4) The option is registered in the live switch, release default OFF, owner Fixed-Limit, and OFF-ONLY under the
+ *     owner's preflop range hold (main's rule: an option that changes a preflop range is off-only until the owner lifts
+ *     the hold for it by name, in source). Turning it on needs that lift, then Hand Analysis's route (its exact-head
+ *     ACCEPT and the recorded evidence row).
  * (5) flo8 is inert with the option on: every flo8 envelope is main's (full ring still borrows flo8 short), every
  *     flo8 census read equals the read with the option off, and seeded flo8 cash and tournament decision streams are
  *     identical with the option on and off (the same comparison sees the option at flh cash).
  * (6) Tournament flh is inert with the option on: HorseLogic adds no key at a tournament table (gameMode tournament,
  *     or a tournament snapshot without a mode), every read there is main's envelope and names main's version, and a
  *     seeded flh tournament decision stream is identical with the option on and off.
+ * (7) The frozen table is pinned by value: every mean, lo and hi of all six cells equals the generator's output for
+ *     version fixed-limit-population-2026-11-16, and the table holds nothing else. Law (2b) catches only a change that
+ *     moves a consumer of the tight reads; this catches any change to a cell value (a postflop mean, a band edge).
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 // A stubbed betting structure for law (1): empty = the real bettingStructureFor; a variant added here reads no_limit.
@@ -85,6 +89,7 @@ import { HorseLogic } from './HorseLogic.js';
 import {
   EXPLOIT_COUNTER_FIELDS,
   EXPLOIT_LONG_FIELDS,
+  EXPLOIT_STATS,
   FIXED_LIMIT_POPULATION_ENVELOPE,
   FIXED_LIMIT_POPULATION_ENVELOPE_VERSION,
   FIXED_LIMIT_POPULATION_CELLS_IN_SCOPE,
@@ -152,6 +157,75 @@ function flhState(extra: Readonly<Record<string, unknown>>) {
     ...extra,
   };
 }
+
+/**
+ * (7) The frozen table, by value: the generator's output for version fixed-limit-population-2026-11-16
+ * (server/src/scripts/fixedLimitPopulationEnvelope.ts over the archived 1,008 ten-minute slices; agent evidence
+ * fixed-limit-01Gw7aDr/p3-population/out/envelope.ts.txt, sha256 45ffc9510036e2b2, which the independent review rebuilt
+ * byte-identical), [mean, lo, hi] per statistic in EXPLOIT_STATS order. A new measurement gets a new version.
+ */
+const GENERATOR_OUTPUT: Readonly<Record<string, readonly (readonly [number, number, number])[]>> = {
+  'flh:hu': [
+    [0.7164, 0.6364, 0.7964], // vpip
+    [0.4658, 0.3858, 0.5458], // pfr
+    [0.7338, 0.6538, 0.8138], // rfi
+    [0.0997, 0.0197, 0.1797], // threeBet
+    [0, 0, 0.08], // foldTo3Bet
+    [0.3228, 0.1719, 0.4737], // betCheckedTo
+    [0.3546, 0.2746, 0.4346], // foldToBet
+    [0.5884, 0.3386, 0.8381], // riverCall
+  ],
+  'flh:short': [
+    [0.3471, 0.2142, 0.4576], // vpip
+    [0.2055, 0.1219, 0.3103], // pfr
+    [0.2662, 0.1612, 0.3934], // rfi
+    [0.0762, 0.0131, 0.1504], // threeBet
+    [0.0075, 0, 0.0875], // foldTo3Bet
+    [0.383, 0.2223, 0.5702], // betCheckedTo
+    [0.3569, 0.2177, 0.4852], // foldToBet
+    [0.599, 0.519, 0.679], // riverCall
+  ],
+  'flh:full': [
+    [0.2143, 0.1352, 0.3216], // vpip
+    [0.1066, 0.0675, 0.1578], // pfr
+    [0.1298, 0.0788, 0.1991], // rfi
+    [0.0527, 0.0126, 0.1032], // threeBet
+    [0.0032, 0, 0.0832], // foldTo3Bet
+    [0.3576, 0.2274, 0.5222], // betCheckedTo
+    [0.3324, 0.2039, 0.4751], // foldToBet
+    [0.653, 0.528, 0.817], // riverCall
+  ],
+  'flo8:hu': [
+    [0.4769, 0.3015, 0.5866], // vpip
+    [0.2716, 0.1698, 0.3759], // pfr
+    [0.3163, 0.2363, 0.3963], // rfi
+    [0.101, 0.021, 0.181], // threeBet
+    [0, 0, 0.08], // foldTo3Bet
+    [0.3939, 0.218, 0.5698], // betCheckedTo
+    [0.17, 0.09, 0.25], // foldToBet
+    [0.6573, 0.5773, 0.7373], // riverCall
+  ],
+  'flo8:short': [
+    [0.3471, 0.1795, 0.4865], // vpip
+    [0.1642, 0.0671, 0.26], // pfr
+    [0.1955, 0.095, 0.3111], // rfi
+    [0.0722, 0.0175, 0.1708], // threeBet
+    [0.0026, 0, 0.0826], // foldTo3Bet
+    [0.3564, 0.1669, 0.5435], // betCheckedTo
+    [0.2065, 0.0928, 0.3013], // foldToBet
+    [0.6879, 0.5968, 0.7791], // riverCall
+  ],
+  'flo8:full': [
+    [0.3116, 0.1838, 0.5417], // vpip
+    [0.1412, 0.0784, 0.2018], // pfr
+    [0.1782, 0.115, 0.2558], // rfi
+    [0.0654, 0, 0.1424], // threeBet
+    [0.0076, 0, 0.0876], // foldTo3Bet
+    [0.307, 0.1726, 0.4481], // betCheckedTo
+    [0.211, 0.1033, 0.3169], // foldToBet
+    [0.7007, 0.5838, 0.8028], // riverCall
+  ],
+};
 
 /** The six per-Horse consumers of the tight reads, as booleans. */
 function tightConsumers(s: OpponentStyleRead) {
@@ -615,9 +689,9 @@ describe('(3b) early samples: ON against OFF on seeded full-ring flh histories; 
 });
 
 describe('(4) registered, release default OFF, owner Fixed-Limit', () => {
-  // Switchable ON and OFF by the owner's standing rule; ON still needs the owner to lift the preflop range hold for
-  // it by name, Hand Analysis's exact-head ACCEPT and the recorded evidence row.
-  it('is a ledger flag, a registry entry that may be switched on, released OFF', () => {
+  // Off-only under the owner's preflop range hold until the owner lifts it by name in source; then Hand Analysis's
+  // route (exact-head ACCEPT and the recorded evidence row).
+  it('is a ledger flag and a registry entry, released OFF, off-only under the owner preflop range hold', () => {
     expect(
       HORSE_DATA_LEDGER.some((e) => e.kind === 'flag' && e.key === 'fixedLimitPopulationCells')
     ).toBe(true);
@@ -625,7 +699,12 @@ describe('(4) registered, release default OFF, owner Fixed-Limit', () => {
     expect(entry).toBeDefined();
     expect(entry!.releaseDefault).toBe('off');
     expect(entry!.owner).toBe('Fixed-Limit');
-    expect(optionSwitchOffOnly('fixedLimitPopulationCells')).toBeNull();
+    expect(optionSwitchOffOnly('fixedLimitPopulationCells')).toEqual({
+      status: 'hold',
+      source: 'owner preflop range hold',
+      reason: 'changes a preflop range: held until the owner lifts it by name',
+    });
+    expect(entry!.states).toEqual(['off']);
   });
 });
 
@@ -719,4 +798,35 @@ describe('(6) cash only: a tournament flh decision never takes a population cell
     const off = playNeutralityRun('flh', 'tournament', 200);
     expect(playNeutralityRun('flh', 'tournament', 200, undefined, on)).toEqual(off);
   }, 180_000);
+});
+
+describe('(7) the frozen table is pinned by value', () => {
+  it('every mean, lo and hi of all six cells equals the generator output, and nothing else is in the table', () => {
+    expect([...EXPLOIT_STATS]).toEqual([
+      'vpip',
+      'pfr',
+      'rfi',
+      'threeBet',
+      'foldTo3Bet',
+      'betCheckedTo',
+      'foldToBet',
+      'riverCall',
+    ]);
+    const expected = Object.fromEntries(
+      Object.entries(GENERATOR_OUTPUT).map(([cell, rows]) => [
+        cell,
+        Object.fromEntries(
+          EXPLOIT_STATS.map((stat, i) => [
+            stat,
+            { mean: rows[i]![0], lo: rows[i]![1], hi: rows[i]![2] },
+          ])
+        ),
+      ])
+    );
+    expect(Object.keys(FIXED_LIMIT_POPULATION_ENVELOPE).sort()).toEqual(
+      ['flh:full', 'flh:hu', 'flh:short', 'flo8:full', 'flo8:hu', 'flo8:short'].sort()
+    );
+    expect(JSON.parse(JSON.stringify(FIXED_LIMIT_POPULATION_ENVELOPE))).toStrictEqual(expected);
+    expect(FIXED_LIMIT_POPULATION_ENVELOPE_VERSION).toBe('fixed-limit-population-2026-11-16');
+  });
 });

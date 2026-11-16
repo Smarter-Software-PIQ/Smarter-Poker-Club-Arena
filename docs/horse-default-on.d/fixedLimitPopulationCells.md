@@ -16,7 +16,11 @@ The cells are measured from 107,538 recorded Horse-only fixed-limit cash hands (
 
 ## Value
 
-Status: MET for flh under the pre-declared rule; the flh-only pool is a post-hoc diagnostic
+Status: PASS as pre-declared under rule 0.19, but that verdict pooled the three tt cells including flo8, which is now out of scope; the flh cells pass individually; the flh-only pool is a post-hoc diagnostic; the pre-declared engagement check used the participation count only, and on the tight-reraiser count the flh 6 Horse-field false-positive control rose 3.2 % of decisions, above the rule's 1 % line (not part of the pre-declared check; see Limits)
+
+- The flh true-tight cells each pass on their own, more than 2 SE above zero: flh 6 +0.26 +/- 0.08, flh 9 +0.21 +/- 0.09.
+- The pre-declared 0.19 PASS (+0.16 +/- 0.05) pooled the three tt cells, flo8 6 included; flo8 is now out of scope by code. The flh-only pool (+0.23 +/- 0.06) was chosen after the results were read, so it is a post-hoc diagnostic, not a new PASS.
+- The pre-declared engagement check counted "a hero decision with any live opponent read tight" (the participation read) and passed on that count. On the tight-reraiser count, the flh 6 Horse-field cell, a false-positive control, rose from 104 to 528 hero decisions (+424, 3.2 % of 13,319 decisions), above the rule's 1 % line. That count was not part of the pre-declared check, so it decides nothing under 0.19; it is recorded under Limits.
 
 Validated portion, BB per 100 hands, arm A option on minus arm B off, 70 s cells (AB-EVALUATION-2 3.13; the flh results stand for the scoped head: identical deals, see Reach):
 
@@ -29,7 +33,7 @@ Validated portion, BB per 100 hands, arm A option on minus arm B off, 70 s cells
 | loose-passive            | +0.29 +/- 0.85   | +1.05 +/- 0.76   |
 | maniac (harm control)    | +12.16 +/- 10.81 | +45.26 +/- 19.88 |
 
-The pre-declared verdict pooled the three tt cells including flo8 (+0.16 +/- 0.05, PASS). Pooling only the two flh tt cells gives +0.23 +/- 0.06; that number is chosen after the results were read, so it is a diagnostic, not a new PASS. No flh cell is below -1 - 2 SE.
+No flh cell is below -1 - 2 SE (no HARM).
 
 Engagement (the declared count, a hero decision with any live opponent read tight, arm A minus arm B): flh 6 tt +124 (+0.29 % of decisions), flh 9 tt +46 (+0.12 %); Horse field -346 and -1,245; loose-passive +4 (+0.03 %) and -1. The split by seat read (diagnostic): the tt script is read tight in about 92 % of hero decisions in both arms; the option's large effect is removing tight reads of Horse seats (-4.1 % and -13.6 % of decisions in the Horse-field cells) and of the tight-passive and tight-value scripts.
 
@@ -74,8 +78,10 @@ Receipt `fixed_limit_population_cell_read` (registered in HorseDataLedger), and 
 
 Scripted opponents and Horse identities, no humans; the cells are Horse play, so a real tight person's distribution is not measured; maniac cells have wide standard errors; tournaments are out of scope by code and were not evaluated; the flh-only pool is post hoc; the census participation label still reads part of the Horse distribution tight with the option on (unchanged rule).
 
-The census law (law (2)) holds for the frozen census snapshot only. It does not bound play: tight-reraiser respect engages more often with the option on (flh 6 against the Horse field 528 against 104 hero decisions; against tight-passive 26,288 against 25,338), tight reads of a Horse seat rise at flh 6 against tight-passive (252 -> 885), and tight-opener respect against the true-tight target falls (flh 6 23,216 against 39,048). The only absolute bound is tight-opener respect at or under 1 % of census Horses at full-ring flh; the exact census counts are pinned (law (2b)), so any change to a cell fails the law, but no law bounds early-sample or in-play engagement. Every flh statistic moves, not only the tight reads, and no law bounds the loose, postflop or exploit-read movement.
+The census law (law (2)) holds for the frozen census snapshot only. It does not bound play: tight-reraiser respect engages more often with the option on (flh 6 against the Horse field 528 against 104 hero decisions; against tight-passive 26,288 against 25,338), tight reads of a Horse seat rise at flh 6 against tight-passive (252 -> 885), and tight-opener respect against the true-tight target falls (flh 6 23,216 against 39,048). The only absolute bound is tight-opener respect at or under 1 % of census Horses at full-ring flh. Two things are pinned exactly: the frozen table by value (law (7): every mean, lo and hi of all six cells equals the generator output, so any change to a cell value fails the law), and the per-consumer census counts on and off (law (2b): participation tight, tight-opener, tight-reraiser, isValueBettor, tightPassiveFolder, tightNotAggressive). Law (3b) records early-sample counts exactly but does not bound them, and no law bounds in-play engagement.
+
+The pre-declared engagement check of rule 0.19 counted the participation read only. On the tight-reraiser count the flh 6 Horse-field false-positive control rose 3.2 % of decisions (528 against 104), above the rule's 1 % line. That count was not part of the pre-declared check, so it decides nothing here; it is a reason an ON case needs its own pre-declared engagement check on the tight-reraiser count (and on the tight-opener count), not only on the participation read. Every flh statistic moves, not only the tight reads, and no law bounds the loose, postflop or exploit-read movement.
 
 ## Turning it on
 
-The option stays registered as switchable ON and OFF in the live switch (the owner's standing rule that every option is switchable; it is not in the off-only map). That registration does not make it ready: it is under the owner's preflop range hold, and turning it on needs all three of: the owner lifting the preflop range hold for this option by name; Hand Analysis's ACCEPT at the exact head being turned on; and the recorded evidence row the switch requires (migration `20261116004500`). Nothing in this file or branch turns it on.
+The option is registered off-only under the owner's preflop range hold (main's rule: an option that changes a preflop range is off-only until the owner lifts the hold for it by name; `OPTION_SWITCH_OFF_ONLY` in `HorseOptionSwitch.ts`, `hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON)`). The live switch therefore refuses ON for it. Turning it on needs, in order: the owner lifting the hold for this option by name, recorded in source (the lift moves it out of the off-only map); then Hand Analysis's route: its ACCEPT at the exact head being turned on, and the recorded evidence row the switch requires (migration `20261116004500`). Nothing in this file or branch turns it on.
