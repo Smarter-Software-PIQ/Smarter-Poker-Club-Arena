@@ -31,6 +31,7 @@ import {
   omahaBetVsCheckOpponents,
   omahaMultiwayRiverCallSpot,
   omahaMultiwayRiverCallVerdict,
+  omahaMultiwayValueShare,
   omahaMultiwayWeakHandSpot,
   omahaRiverBluffIntoValueLeaderSpot,
   omahaShownRangeShare,
@@ -433,6 +434,43 @@ describe('Omaha Multiway River Call Needs Strength', () => {
       const off = play(build, {});
       const on = play(build, MW);
       expect(on.bytes).toEqual(off.bytes);
+    }
+  });
+});
+
+describe('Omaha Multiway River Call Needs Strength: The Multiway Value Region', () => {
+  it('Is Derived, Not Stated: Heads-Up It Is The Share, Into N Players Its Weakest Hand Is Best Against All N As Often As Heads-Up', () => {
+    for (const v1 of [0.45, 0.3, 0.2, 0.12, 0.1]) {
+      expect(omahaMultiwayValueShare(v1, 1)).toBe(v1);
+      let last = v1;
+      for (const n of [2, 3, 4]) {
+        const vn = omahaMultiwayValueShare(v1, n);
+        expect((1 - vn) ** n).toBeCloseTo(1 - v1, 12);
+        expect(vn).toBeLessThan(last);
+        last = vn;
+      }
+    }
+    expect(omahaMultiwayValueShare(0.3, 0)).toBe(0.3);
+    expect(omahaMultiwayValueShare(Number.NaN, 2)).toBe(0);
+  });
+
+  it('The Verdict Prices The Bettor With It: One Caller Beside Him Is Two Players Bet Into', () => {
+    for (const bet of RIVER_BETS) {
+      const st = riverFacing(TRIPS, bet);
+      const mw = omahaMultiwayRiverCallSpot(st.hero, st.gs)!;
+      const v = omahaMultiwayRiverCallVerdict(st.hero, st.gs, mw, null, new Map())!;
+      expect(v.valueShare).toBeCloseTo(omahaMultiwayValueShare(mw.spot.valueShare, 2), 4);
+      expect(v.valueShare).toBeLessThan(mw.spot.valueShare);
+    }
+  });
+
+  it('Does Not Over-Fold Near-Nut Hands: The Second-Nut Flush Still Calls A Bet And A Call At Every Size Here', () => {
+    // ThQd4h7h2d: Kh Jh is the king-high flush, beaten only by the ace-high flush
+    for (const bet of RIVER_BETS) {
+      const st = riverFacing('KhJh9c8s3d', bet);
+      const mw = omahaMultiwayRiverCallSpot(st.hero, st.gs)!;
+      expect(mw).not.toBeNull();
+      expect(omahaMultiwayRiverCallVerdict(st.hero, st.gs, mw, null, new Map())!.call).toBe(true);
     }
   });
 });

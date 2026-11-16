@@ -23,7 +23,9 @@
  *    one still to act behind), a hand that is not nut class: the call is the
  *    exact-hand facing-bet EV of HorseOmahaFacingBetEv against the bettor
  *    (his value region and bluff share by size and line, moved by his
- *    measured read, the population prior without one) multiplied by the
+ *    measured read, the population prior without one; the value region is
+ *    the multiway one, omahaMultiwayValueShare: a bet into n players needs
+ *    a stronger hand, Vn = 1 - (1 - V1)^(1/n)) multiplied by the
  *    chance of beating every other player's continuing range. Each such
  *    range is the strongest share of all holdings on this board: a caller of
  *    this bet OMAHA_EV_CALLER_SHARE.river, a player still to act
@@ -507,6 +509,29 @@ export interface OmahaMultiwayRiverCallVerdict {
     measured: boolean;
   }[];
   price: number;
+  /** the bettor's value region used: his heads-up share made multiway (omahaMultiwayValueShare) */
+  valueShare: number;
+}
+
+/**
+ * DERIVED (2026-11-16, wave two): the bettor's value region when he bets into
+ * n live opponents. The heads-up value region V1 (OMAHA_EV_VALUE_SHARE by
+ * size, times the line factors) holds the hands he bets for value against one
+ * opponent; its weakest hand beats 1 - V1 of all holdings. Under this
+ * module's own independence assumption that hand is best against n
+ * opponents with probability (1 - V1)^n, so against n players he needs a
+ * stronger hand for the same chance of being best: the weakest value hand
+ * beats 1 - Vn of holdings with (1 - Vn)^n = 1 - V1, that is
+ * Vn = 1 - (1 - V1)^(1/n). Heads-up (n = 1) it is V1; it never widens the
+ * region and adds no constant. Read only by omahaMultiwayRiverCallVerdict
+ * (omahaMultiwayRiverCallNeedsStrength, default OFF); the facing-bet EV
+ * option keeps its heads-up region.
+ */
+export function omahaMultiwayValueShare(headsUpShare: number, opponents: number): number {
+  const v1 = clamp(fin(headsUpShare) ? headsUpShare : 0, 0, 1);
+  const n = fin(opponents) ? Math.max(1, Math.floor(opponents)) : 1;
+  if (n === 1) return v1;
+  return 1 - Math.pow(1 - v1, 1 / n);
 }
 
 /** A field player's continuing share: the population share, moved by his measured river-call rate. */
@@ -551,12 +576,16 @@ export function omahaMultiwayRiverCallVerdict(
   const hole = hero.cards ?? [];
   const board = gs.communityCards ?? [];
   const dead = hero.knownDeadCards ?? [];
+  // The bettor bet into the Horse and every field player: his value region
+  // is the multiway one (omahaMultiwayValueShare), not the heads-up share.
+  const valueShare = omahaMultiwayValueShare(spot.valueShare, 1 + mw.field.length);
   const alone: OmahaFacingBetEvSpot = {
     ...spot,
     callers: 0,
     allIns: 0,
     behind: 0,
     callerSeats: [],
+    valueShare,
   };
   const hu = omahaFacingBetEvVerdict(alone, hole, board, dead, bettorRead, {
     ...ctx,
@@ -565,7 +594,7 @@ export function omahaMultiwayRiverCallVerdict(
   if (!hu) return null;
   let counts: OmahaEvHandCounts | null;
   try {
-    counts = omahaEvHandCounts(hole, board, dead, spot.valueShare);
+    counts = omahaEvHandCounts(hole, board, dead, valueShare);
   } catch {
     counts = null;
   }
@@ -594,5 +623,6 @@ export function omahaMultiwayRiverCallVerdict(
     field: round4(field),
     shares,
     price: round4(hu.price),
+    valueShare: round4(valueShare),
   };
 }
