@@ -213,14 +213,27 @@ describe('the Report tables are written by the club the money moved through', ()
       'SELECT x.funding_club_id FROM public.cash_participant_funding_receipts x'
     );
     const seat = b.indexOf('SELECT ts.club_id FROM public.table_seats ts');
-    const guess = b.indexOf('ORDER BY cm.joined_at ASC');
+    // Owner rule 2026-11-15 (20261116021751): once the seat row is gone the
+    // SAME seat is read from its exit record, then from the player's own
+    // attribution earlier in that sitting, and only then the table's club.
+    // The first-joined-club membership guess is gone, not merely last.
+    const exit = b.indexOf('SELECT e.club_id FROM public.ca_seat_stack_exits e');
+    const sitting = b.indexOf('SELECT pa.club_id FROM public.rake_attributions pa');
+    const table = b.indexOf('b.table_club) AS club_id');
     expect(ra).toBeGreaterThan(-1);
     expect(receipt).toBeGreaterThan(ra);
     expect(seat).toBeGreaterThan(receipt);
-    expect(guess).toBeGreaterThan(seat);
+    expect(exit).toBeGreaterThan(seat);
+    expect(sitting).toBeGreaterThan(exit);
+    expect(table).toBeGreaterThan(sitting);
     expect(b).toContain('x.seat_joined_at <= b.created_at');
     expect(b).toContain('ts.joined_at <= b.created_at');
+    expect(b).toContain('e.occurred_at >= b.created_at');
+    expect(b).toContain('pa.created_at <= b.created_at');
+    expect(b).toContain('px.occurred_at > pa.created_at AND px.occurred_at < b.created_at');
     expect(b).not.toContain('fn_ca_cash_seat_club(');
+    expect(b).not.toMatch(/joined_at ASC/);
+    expect(b).not.toContain('club_members');
   });
 
   it('every rebuild of a covered day is a rebuild from the facts', () => {

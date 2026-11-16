@@ -149,9 +149,36 @@ try:
                       "AND NOT has_function_privilege('authenticated', 'public.fn_ca_club_rake_daily_compute(timestamptz,timestamptz,uuid[])', 'EXECUTE') "
                       "AND has_function_privilege('service_role', 'public.fn_ca_club_rake_daily_compute(timestamptz,timestamptz,uuid[])', 'EXECUTE')") == "t",
             "the history calculator preserves operator-only execution")
+    seat_club = ["a zero contribution counted the hand for the first-joined club",
+                 "the vacated seat did not keep the hand in its club",
+                 "the same sitting did not keep the hand in its club",
+                 "a hand with no club evidence left the table club"]
+    mid = run(psql("live"), history, expect_fail="history regression:")
+    require(all(m in mid.stderr for m in seat_club)
+            and "later receipt moved historical rake" not in mid.stderr
+            and "later seat moved historical rake" not in mid.stderr
+            and "zero-contribution rows moved rake" not in mid.stderr,
+            "the funding-at-the-hand calculator still counts a zero contribution for the first-joined club, and only that")
+    seat_mig = (ROOT / "supabase/migrations/20261116021751_a_club_rake_day_counts_the_hand_for_the_seat_club.sql").read_text()
+    run(psql("live"), "SET ROLE authenticated;\n" + seat_mig, expect_fail="ERROR")
+    run(psql("live"), seat_mig.replace("\nCOMMIT;", "\nROLLBACK;"))
+    require(q("live", "SELECT position('club_members' IN pg_get_functiondef('public.fn_ca_club_rake_daily_compute(timestamptz,timestamptz,uuid[])'::regprocedure))>0") == "t",
+            "a rolled-back or browser-role seat-club run installs nothing")
+    run(psql("live"), seat_mig)
+    require(q("live", "SELECT NOT has_function_privilege('anon', 'public.fn_ca_club_rake_daily_compute(timestamptz,timestamptz,uuid[])', 'EXECUTE') "
+                      "AND NOT has_function_privilege('authenticated', 'public.fn_ca_club_rake_daily_compute(timestamptz,timestamptz,uuid[])', 'EXECUTE') "
+                      "AND has_function_privilege('service_role', 'public.fn_ca_club_rake_daily_compute(timestamptz,timestamptz,uuid[])', 'EXECUTE') "
+                      "AND (SELECT prosecdef AND provolatile='s' AND proconfig=ARRAY['search_path=public'] AND proowner='postgres'::regrole "
+                      "FROM pg_proc WHERE oid='public.fn_ca_club_rake_daily_compute(timestamptz,timestamptz,uuid[])'::regprocedure)") == "t",
+            "the seat-club calculator keeps operator-only execution, SECURITY DEFINER, STABLE, search_path and owner")
+    seat_proof = next(l for l in seat_mig.splitlines() if l.startswith("-- @live-proof: "))[len("-- @live-proof: "):]
+    require(q("live", f"SELECT {seat_proof}") == "t", "the seat-club migration's live proof holds once installed")
+    run(psql("live"), seat_mig, expect_fail="CLUB_RAKE_SEAT_CLUB_PREIMAGE_CHANGED")
+    require(True, "a replay of the seat-club migration is refused by its preimage")
     after = run(psql("live"), history)
     require("HISTORY SCENARIO PASSED" in after.stderr + after.stdout,
-            "historical receipts and seats, decimal contributions, witness precedence and conservation")
+            "historical receipts and seats, decimal contributions, witness precedence, conservation, and a "
+            "multi-club player's zero contribution counted for the hand's club, never the first-joined club")
     precision = (ROOT / "tests/fixtures/club-data-report-db/precision-scenario.sql").read_text()
     before = run(psql("live"), precision, expect_fail="Precision regression:")
     require("200.0000" in before.stderr and "200.009800" in before.stderr,
