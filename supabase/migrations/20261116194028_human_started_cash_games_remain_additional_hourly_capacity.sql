@@ -62,16 +62,16 @@ $fn$;
 CREATE OR REPLACE FUNCTION public.fn_cash_hourly_table_admit(p_table_id uuid,p_user_id uuid)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $fn$
 DECLARE t public.tables%ROWTYPE; n integer; cap integer; human boolean; empty boolean;
- funded_move boolean; releases_source boolean; neutral_swap boolean;
+ funded_move boolean; releases_source boolean; neutral_swap boolean; policy_enabled boolean;
  now_at timestamptz:=clock_timestamp(); pace public.cash_hourly_table_starts%ROWTYPE;
 BEGIN
  SELECT * INTO t FROM public.tables WHERE id=p_table_id;
  IF NOT FOUND OR t.tournament_id IS NOT NULL OR coalesce(t.is_spins,false) THEN RETURN; END IF;
- IF NOT public.fn_cash_hourly_table_enabled() THEN RETURN; END IF;
+ policy_enabled:=public.fn_cash_hourly_table_enabled();
  -- A first human seat and boundary close share this lock. Existing stack,
  -- settlement and departure updates bypass this function in the caller.
  SELECT * INTO t FROM public.tables WHERE id=p_table_id FOR NO KEY UPDATE;
- IF t.status='closed' OR t.lifecycle='closed' THEN
+ IF policy_enabled AND (t.status='closed' OR t.lifecycle='closed') THEN
   RAISE EXCEPTION 'cash_hourly_table_closed' USING ERRCODE='42501'; END IF;
  -- The original atomic swap temporarily clears BOTH old chairs first. Its
  -- reciprocal, ready, unexpired plans prove a headcount-neutral exchange;
@@ -100,6 +100,9 @@ BEGIN
   INSERT INTO public.cash_hourly_table_origins(table_id,human_started) VALUES(p_table_id,false)
   ON CONFLICT(table_id) DO UPDATE SET human_started=false;
  END IF;
+ -- Origin follows actual first seating across cold starts/older rollbacks;
+ -- capacity and arrival restrictions still remain inactive for that leader.
+ IF NOT policy_enabled THEN RETURN; END IF;
  SELECT EXISTS(SELECT 1 FROM public.table_seats s LEFT JOIN public.profiles p ON p.id=s.user_id
  WHERE s.table_id=p_table_id AND s.left_at IS NULL AND p.is_horse IS DISTINCT FROM true) INTO human;
  -- One-way funded moves into established games keep their ordinary behavior.

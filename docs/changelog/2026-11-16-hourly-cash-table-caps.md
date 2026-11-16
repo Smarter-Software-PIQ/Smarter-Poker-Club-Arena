@@ -66,6 +66,9 @@ number limits Horse-started capacity. Human-started games can expand beyond it.
    the last human leaves, the extra game counts again and may gradually close
    after its current hand. An empty table restarted by a Horse loses any old
    human-start exception. Reciprocal swaps preserve the original game origin.
+   First-seat origin is also recorded while capacity enforcement is inactive
+   across a cold start or older rollback, so a reused table cannot inherit an
+   obsolete human exception. Pacing and caps still wait for the compatible leader.
 3. Persist a 2-4 minute gap between autonomous new games, and separate 2-4 minute
    Horse arrivals while each new game assembles. The fleet reads one advisory
    projection, buys at most its permitted chairs and no longer invokes its old

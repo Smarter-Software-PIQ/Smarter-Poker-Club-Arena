@@ -292,6 +292,10 @@ try:
  q("UPDATE engine_leader SET instance_id='older-rollback';")
  assert_sql('NOT fn_cash_hourly_table_enabled()','older rollback does not inherit unsupported drains')
  assert_sql('fn_cash_hourly_table_drain_candidate() IS NULL','rollback does not park pooled hands')
+ # Origin is seating truth, including while an older leader disables caps.
+ # Reusing an emptied human-started table must not preserve its old exception.
+ q("UPDATE table_seats SET left_at=now() WHERE table_id=md5('batch-human')::uuid AND left_at IS NULL;INSERT INTO table_seats(table_id,user_id,seat_number) VALUES(md5('batch-human')::uuid,md5('horse188')::uuid,1);")
+ assert_sql("(SELECT human_started IS FALSE FROM cash_hourly_table_origins WHERE table_id=md5('batch-human')::uuid)",'inactive leader seating resets an old human origin')
  refuses(migration,'already exists')
  refuses(successor,'cash_hourly_human_expansion_predecessor_changed')
  print(json.dumps({'passed':True,'postgres_version_num':q('SHOW server_version_num;'),'hours':24,'dst':True,'human_start_and_late_arrival':True,'human_expansion_is_additional':True,'arrival_and_game_pacing':True,'lightning_original_legality':True,'current_hand_preserved':True,'closure_replay_once':True,'conservation_forwarding':True,'tournaments_excluded':True,'restart_and_addmore':True,'financial_kernel_changed':False}))
