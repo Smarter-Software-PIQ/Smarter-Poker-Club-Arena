@@ -1,0 +1,37 @@
+# omahaMultiwayRiverCallNeedsStrength: authority for the live switch
+
+Lane brief of 2026-11-16 (PLO4/PLO5 defence, part 2). Evidence NOT MET: evaluation NOT RUN.
+
+## What it does
+
+PLO4/PLO5 cash, one board, high only, the river, facing a bet with at least one other opponent live beside the bettor (one who called the bet in front, one all in from an earlier street, or one still to act behind), with a hand that is not nut class (`omahaNutClassNow`): a call or a raise is replaced by the multiway exact-hand verdict (`HorseOmahaMultiwayDiscipline.omahaMultiwayRiverCallVerdict`). The verdict is the facing-bet EV of `HorseOmahaFacingBetEv` against the bettor alone (his value region and bluff share by bet size and line, moved by his measured read; the population prior when he is unmeasured) multiplied by the chance of beating every other player's continuing range: a caller of this bet holds the strongest 0.35 of all holdings, a player still to act continues with the strongest 0.25 (and is there only with that share), an earlier all-in holds the strongest 0.5; a caller's or a player behind's share is moved by his measured river-call rate against the population continue rate 0.39 (bounded 0.5x to 1.5x). The ranges are taken as INDEPENDENT (the product of the shares, as omahaStrongHandValue's multiway pricing does); joint card removal between opponents is not modelled. The call is made when EV(call) clears the facing-bet margin (2% of the final pot); otherwise the hand folds. It never raises: a raise becomes the call the verdict allows, else a fold. A fold is never turned into a call.
+
+Precedence: inside the owner-ruled chain (`omahaOwnerRuledFinal`, after the owner-ruled turn and flop verdicts), so no later rule raises over it; `omahaTurnRiverRaiseNeedsNuts` runs outside it and finds a call or a fold.
+
+Default OFF in source (read `=== true`). On live only by an option-switch row whose note cites this file and its sha256 (`authority: omahaMultiwayRiverCallNeedsStrength docs/horse-option-authority.d/omahaMultiwayRiverCallNeedsStrength.md sha256 <digest>`). The option name is not yet in the option-switch lists: it needs registration (no migration is generated with this change). The maintained rollback (switch row off, about 30 s) applies if harm is established.
+
+## The owner's orders it rests on
+
+The owner's principles of 2026-11-15, as the lane brief of 2026-11-16 relays them (in substance, not verbatim): no blanket rules, the decision is hand, player, price and pot dependent; play defence on bad cards; an owner-ruled check or fold is final; facing a bet on the turn or the river, raise only with the nuts. No verbatim owner order names this option; the brief that ordered it is the lane's (2026-11-16).
+
+## Recorded hands and rulings it answers
+
+Full sweep 2026-11-15 (archive full-sweep-20261115/SWEEP.md), family R: a river call of 10 bb or more without the nuts with three or more players live, 19 calls in 4,573 PLO4/PLO5 cash hands with a person seated, hand net -1,987 bb, 74% rule mistakes. Replayed through the verdict alone (archive defense2-20261116/R19-verdicts.txt; the sweep holds no action history before the river, so each state is rebuilt from the recorded pot, bet, players live and closing flag, the bettor with no earlier aggression and the population prior): 5 of the 19 now fold (59266920 straight, 59482217 top pair, 58476336 two pair, 58946767 flush, 58463768 set; every one of those five hands lost, together -329.5 bb); 14 still call, among them the costly non-nut flushes (59446997, 59484381) and full houses, which the verdict prices as calls at their price. None of the 19 is nut class.
+
+## Receipts
+
+omaha_multiway_river_call_folded, omaha_multiway_river_raise_flatted. A receipt describes the final action: each is proposed and settled when the decision is final; its `_vetoed` twin (omaha_multiway_river_call_folded_vetoed, omaha_multiway_river_raise_flatted_vetoed) fires when a later rule replaced the verdict.
+
+## Tests
+
+HorseOmahaMultiwayDiscipline.test.ts (16 seeds per class: trips facing a bet and a caller fold at every seed; every multiway river decision is the verdict, never a raise, a fold stays a fold; the field never raises the win share; heads-up, nut class unchanged; unset, false and truthy non-booleans byte-identical; no random number drawn; every decision admitted by the receipt validator).
+
+## Evidence rows
+
+- Mechanism, scope, visibility (receipts in HorseDataLedger.ts), tests: MET.
+- Option unset or false: decisions identical to the base (decision digest pin, plo4/plo5 x dev/horse, 150 pairs, seed 5560001, the strategy-head method: unset and all three options false both give b5031a14 / 1adfd8e3 / 5b8cac9c / f5ed6fa1, 446 / 2714 / 428 / 2844 decisions, 0 illegal, 0 fallbacks; archive defense2-20261116/fp-\*.json).
+- Value, continuation, reach: NOT MET. Evaluation NOT RUN (league cards plo4/plo5 `_omaha_multiway_river_call_needs_strength` dealt, not run).
+
+## Limits
+
+The constants are the facing-bet module's population shares (0.35 / 0.25 / 0.5), not measured for multiway fields; the 0.5x to 1.5x bounds on the caller read are stated, not measured; 0.39 is the sweep's heads-up continue rate to a Horse river bet (138 of 353), not a multiway rate. Independence of the ranges is a simplification. The sweep replay is a reconstruction, not the recorded state.
