@@ -3936,11 +3936,13 @@ export interface HorseDecideOpts {
    *  (presumedAggressorRead) is not applied; the opponent's own measured read
    *  stands (HorseMind.opponentRead). Read only as === true: default OFF. */
   fixedLimitOmahaNoPresumption?: boolean;
-  /** FIXED-LIMIT POPULATION CELLS (2026-11-16, Fixed-Limit lane): on a fixed-limit decision every style and
-   *  exploit read is judged against FIXED_LIMIT_POPULATION_ENVELOPE (HorseOpponentExploit.ts: the game's own
+  /** FIXED-LIMIT POPULATION CELLS (2026-11-16, Fixed-Limit lane): on a fixed-limit hold'em decision every style
+   *  and exploit read is judged against FIXED_LIMIT_POPULATION_ENVELOPE (HorseOpponentExploit.ts: the game's own
    *  measured Horse cell at its own table size, measured 2026-11-09..16 from Horse-only fixed-limit cash hands)
-   *  instead of the 2026-10-16 cells (sparse, and flo8 full ring borrowed flo8 short). No-limit and pot-limit
-   *  reads unchanged. Read only as === true: default OFF. */
+   *  instead of the 2026-10-16 cells (sparse, measured from a few horses). flh only: flo8 is out of scope by code
+   *  (FIXED_LIMIT_POPULATION_CELLS_IN_SCOPE; AB-EVALUATION-2 3.13), and no-limit and pot-limit reads are unchanged.
+   *  It moves tight-player reads that feed preflop decisions (tight-opener and tight-reraiser respect), so it is
+   *  under the owner's preflop range hold. Read only as === true: default OFF. */
   fixedLimitPopulationCells?: boolean;
   /** Hi-lo river bluffs with a low possible (2026-11-07,
    *  HorseRiverBluffRange.ts): the nut low with no high bets the freeroll;

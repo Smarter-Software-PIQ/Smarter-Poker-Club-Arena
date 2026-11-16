@@ -570,8 +570,8 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
   ],
   fixedLimitPopulationCells: [
     'Fixed-Limit',
-    'Fixed-limit style and exploit reads (flh, flo8)',
-    'fixed-limit reads judged against the measured fixed-limit Horse cells',
+    "Fixed-limit hold'em style and exploit reads (flh; flo8 out of scope by code)",
+    "fixed-limit hold'em reads judged against the measured fixed-limit Horse cells",
   ],
 };
 

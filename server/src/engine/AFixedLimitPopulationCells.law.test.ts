@@ -10,25 +10,31 @@
  * (2026-11-09..16, public actions only), at the decision's own game and size; thresholds, margins, minimum hands
  * and credibility are unchanged.
  *
+ * SCOPE (2026-11-16, lane owner's decision on AB-EVALUATION-2 section 3.13): fixed-limit hold'em only. flo8 was
+ * measured and is out of scope by code (FIXED_LIMIT_POPULATION_CELLS_IN_SCOPE): at six seats against the Horse field
+ * the option lost 2.29 +/- 0.71 BB/100, almost all preflop.
+ *
  * (1) With the option on, every no-limit and pot-limit read gets exactly main's envelope (same object), at every
- *     size; a fixed-limit read gets its own measured cell; outside a decision the option cannot engage. The cell is
- *     taken only when the variant's betting structure is fixed limit: a decision whose variant has a frozen cell but
+ *     size; a flh read gets its own measured cell; outside a decision the option cannot engage. The cell is taken
+ *     only when the variant's betting structure is fixed limit: a decision whose variant has a frozen cell but
  *     whose structure is not fixed limit (here a stubbed structure: today bettingStructureFor derives the structure
  *     from the variant name, so no production state can carry flh without fixed limit) gets main's envelope.
  * (2) The census (every Horse's own decayed counters, built as the learner builds them, fixture
- *     fixed-limit-population-census.json) replayed through the style read: with the option on, NO cell (flh and flo8,
- *     heads-up, short-handed and full ring) reads more Horses tight on the participation read, or engages
- *     tight-opener or tight-reraiser respect on more Horses, than with it off; at full-ring flo8 the participation
- *     tight reads fall; at full-ring flh tight-opener respect engages on at most 1% of Horses.
- *     Measured at the 2026-11-16 head (share of census Horses, off -> on; participation tight / tight-opener):
- *       flh hu 2.6% -> 1.1% / 0 -> 0; flh short 8.1% -> 3.9% / 1.1% -> 0.3%; flh full 35.2% -> 18.2% / 14.1% -> 0.9%;
- *       flo8 hu 4.9% -> 2.4%; flo8 short 57.2% -> 15.0%; flo8 full 73.8% -> 26.7% (tight-opener respect never acts in
- *       an Omaha scope). The participation label reads "tight" relative to half the band (score below the tight
- *       threshold and credible), not "outside the band", so the lower part of the Horse distribution keeps that label
- *       with the option on; that rule is unchanged here, and the option only ever lowers these counts.
- * (3) A synthetic 10% VPIP / 6% PFR history reads tight by its 40th hand at full-ring flh and flo8 with the option
- *     on; a 20% (flh) or 28% (flo8) history never does.
+ *     fixed-limit-population-census.json) replayed through the style read: with the option on, no cell reads more
+ *     Horses tight on the participation read, or engages tight-opener or tight-reraiser respect on more Horses, than
+ *     with it off; at full-ring flh tight-opener respect engages on at most 1% of Horses.
+ *     Measured at 3c2a13338a83, before the scope (share of census Horses, off -> on; participation tight /
+ *     tight-opener): flh hu 2.6% -> 1.1% / 0 -> 0; flh short 8.1% -> 3.9% / 1.1% -> 0.3%; flh full 35.2% -> 18.2%
+ *     / 14.1% -> 0.9%; and with the flo8 cells, now unused: flo8 hu 4.9% -> 2.4%; flo8 short 57.2% -> 15.0%;
+ *     flo8 full 73.8% -> 26.7% (tight-opener respect never acts in an Omaha scope). The participation label reads
+ *     "tight" relative to half the band (score below the tight threshold and credible), not "outside the band", so
+ *     the lower part of the Horse distribution keeps that label with the option on; that rule is unchanged here.
+ * (3) A synthetic 10% VPIP / 6% PFR history reads tight by its 40th hand at full-ring flh with the option on; a 20%
+ *     history never does.
  * (4) The option is registered in the live switch, release default OFF, owner Fixed-Limit.
+ * (5) flo8 is inert with the option on: every flo8 envelope is main's (full ring still borrows flo8 short), every
+ *     flo8 census read equals the read with the option off, and seeded flo8 cash and tournament decision streams are
+ *     identical with the option on and off (the same comparison sees the option at flh).
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 // A stubbed betting structure for law (1): empty = the real bettingStructureFor; a variant added here reads no_limit.
@@ -52,6 +58,7 @@ import {
   EXPLOIT_LONG_FIELDS,
   FIXED_LIMIT_POPULATION_ENVELOPE,
   FIXED_LIMIT_POPULATION_ENVELOPE_VERSION,
+  FIXED_LIMIT_POPULATION_CELLS_IN_SCOPE,
   OPPONENT_EXPLOIT_ENVELOPE,
   OPPONENT_EXPLOIT_ENVELOPE_VERSION,
   exploitEnvelopeFor,
@@ -70,6 +77,7 @@ import {
 import { OPTION_SWITCH_REGISTRY, optionSwitchOffOnly } from './HorseOptionSwitch.js';
 import { HORSE_DATA_LEDGER } from './HorseDataLedger.js';
 import { bettingStructureFor } from './BettingStructure.js';
+import { playNeutralityRun } from './HorseOpponentExploitNeutrality.test-support.js';
 import type { ReadScope } from './HorseMind.js';
 
 const SIZES = ['hu', 'short', 'full'] as const;
@@ -113,28 +121,20 @@ describe('(1) only a fixed-limit read moves, and only with the option on inside 
       }
   });
 
-  it('a fixed-limit read gets its own measured cell with the option on, and main envelope with it off', () => {
-    for (const v of FIXED_LIMIT)
-      for (const size of SIZES) {
-        const scope = readScopeOf(v, DEALT[size]);
-        const on = inDecision(scope, v, true, () => exploitEnvelopeFor(scope, v));
-        expect(on, `${v}:${size}`).toBe(FIXED_LIMIT_POPULATION_ENVELOPE[`${v}:${size}`]);
-        expect(on, `${v}:${size}`).toBeDefined();
-        expect(inDecision(scope, v, false, () => exploitEnvelopeFor(scope, v))).toBe(
-          mainEnvelope(scope, v)
-        );
-        expect(inDecision(scope, v, true, () => exploitEnvelopeVersionFor(scope, v))).toBe(
-          FIXED_LIMIT_POPULATION_ENVELOPE_VERSION
-        );
-      }
-    // the flo8 full-ring read no longer borrows flo8 short
-    const full = readScopeOf('flo8', 6);
-    expect(inDecision(full, 'flo8', false, () => exploitEnvelopeFor(full, 'flo8'))).toBe(
-      OPPONENT_EXPLOIT_ENVELOPE['flo8:short']
-    );
-    expect(
-      inDecision(full, 'flo8', true, () => exploitEnvelopeFor(full, 'flo8'))!.vpip.mean
-    ).toBeLessThan(0.4);
+  it('a flh read gets its own measured cell with the option on, and main envelope with it off', () => {
+    for (const size of SIZES) {
+      const scope = readScopeOf('flh', DEALT[size]);
+      const on = inDecision(scope, 'flh', true, () => exploitEnvelopeFor(scope, 'flh'));
+      expect(on, `flh:${size}`).toBe(FIXED_LIMIT_POPULATION_ENVELOPE[`flh:${size}`]);
+      expect(on, `flh:${size}`).toBeDefined();
+      expect(inDecision(scope, 'flh', false, () => exploitEnvelopeFor(scope, 'flh'))).toBe(
+        mainEnvelope(scope, 'flh')
+      );
+      expect(inDecision(scope, 'flh', true, () => exploitEnvelopeVersionFor(scope, 'flh'))).toBe(
+        FIXED_LIMIT_POPULATION_ENVELOPE_VERSION
+      );
+    }
+    expect([...FIXED_LIMIT_POPULATION_CELLS_IN_SCOPE]).toEqual(['flh']);
   });
 
   it('a decision whose variant has a frozen cell but whose structure is not fixed limit gets main envelope', () => {
@@ -239,12 +239,6 @@ describe('(2) the recorded Horse census through the style read', () => {
     const on = tally('flh:full', true);
     expect(on.opener / on.horses).toBeLessThanOrEqual(0.01);
   });
-
-  it('full-ring flo8: the participation tight reads fall', () => {
-    const off = tally('flo8:full', false);
-    const on = tally('flo8:full', true);
-    expect(on.tight).toBeLessThan(off.tight);
-  });
 });
 
 describe('(3) synthetic histories: a tight player is read tight, an ordinary one never', () => {
@@ -282,17 +276,14 @@ describe('(3) synthetic histories: a tight player is read tight, an ordinary one
     return -1;
   }
 
-  it('a 10% VPIP / 6% PFR player reads tight by his 40th hand at full-ring flh and flo8', () => {
-    for (const v of FIXED_LIMIT) {
-      const n = firstTight(v, 0.1, 0.06);
-      expect(n, v).toBeGreaterThan(0);
-      expect(n, v).toBeLessThanOrEqual(40);
-    }
+  it('a 10% VPIP / 6% PFR player reads tight by his 40th hand at full-ring flh', () => {
+    const n = firstTight('flh', 0.1, 0.06);
+    expect(n).toBeGreaterThan(0);
+    expect(n).toBeLessThanOrEqual(40);
   });
 
-  it('an ordinary player (20% flh, 28% flo8) never reads tight', () => {
+  it('an ordinary player (20%) never reads tight at full-ring flh', () => {
     expect(firstTight('flh', 0.2, 0.1)).toBe(-1);
-    expect(firstTight('flo8', 0.28, 0.14)).toBe(-1);
   });
 });
 
@@ -307,4 +298,58 @@ describe('(4) registered, release default OFF, owner Fixed-Limit', () => {
     expect(entry!.owner).toBe('Fixed-Limit');
     expect(optionSwitchOffOnly('fixedLimitPopulationCells')).toBeNull();
   });
+});
+
+describe('(5) flo8 is out of scope: inert with the option on', () => {
+  it('every flo8 envelope is main envelope (same object), at every size, and names main version', () => {
+    for (const size of SIZES) {
+      const scope = readScopeOf('flo8', DEALT[size]);
+      const on = inDecision(scope, 'flo8', true, () => exploitEnvelopeFor(scope, 'flo8'));
+      expect(on, `flo8:${size}`).toBe(mainEnvelope(scope, 'flo8'));
+      expect(on, `flo8:${size}`).toBe(
+        inDecision(scope, 'flo8', false, () => exploitEnvelopeFor(scope, 'flo8'))
+      );
+      expect(inDecision(scope, 'flo8', true, () => exploitEnvelopeVersionFor(scope, 'flo8'))).toBe(
+        OPPONENT_EXPLOIT_ENVELOPE_VERSION
+      );
+    }
+    const full = readScopeOf('flo8', 6);
+    expect(inDecision(full, 'flo8', true, () => exploitEnvelopeFor(full, 'flo8'))).toBe(
+      OPPONENT_EXPLOIT_ENVELOPE['flo8:short']
+    );
+  });
+
+  it('every flo8 census read is the read with the option off', () => {
+    const fx = JSON.parse(
+      readFileSync(
+        resolve(process.cwd(), 'src/engine/fixtures/fixed-limit-population-census.json'),
+        'utf8'
+      )
+    ) as { cells: Record<string, number[][]> };
+    const fields = [...EXPLOIT_COUNTER_FIELDS, ...EXPLOIT_LONG_FIELDS] as string[];
+    for (const size of SIZES) {
+      const scope = readScopeOf('flo8', DEALT[size]);
+      for (const r of fx.cells[`flo8:${size}`]!) {
+        const counters = Object.fromEntries(
+          fields.map((f, i) => [f, r[i]])
+        ) as unknown as ExploitCounters;
+        const read = (on: boolean) =>
+          inDecision(scope, 'flo8', on, () =>
+            classifyOpponentStyle({ scope, variant: 'flo8', domain: 'cash', counters })
+          );
+        expect(read(true), `flo8:${size}`).toEqual(read(false));
+      }
+    }
+  });
+
+  it('seeded flo8 decision streams are identical with the option on and off; the same comparison sees it at flh', () => {
+    const on = { fixedLimitPopulationCells: true };
+    for (const mode of ['cash', 'tournament'] as const) {
+      const off = playNeutralityRun('flo8', mode, 200);
+      expect(playNeutralityRun('flo8', mode, 200, undefined, on), `flo8 ${mode}`).toEqual(off);
+    }
+    expect(playNeutralityRun('flh', 'cash', 200, undefined, on).chain).not.toEqual(
+      playNeutralityRun('flh', 'cash', 200).chain
+    );
+  }, 180_000);
 });

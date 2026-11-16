@@ -3991,8 +3991,9 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'and maniac fields); until it is built, the fixtures in ' +
       'AFixedLimitOmahaHasNoPresumption.law.test.ts and the Fixed-Limit lane diagnostic-harness measurements are the only evidence.',
   },
-  // 2026-11-16 (Fixed-Limit lane, Phase 3 population cells): default-off fixed-limit arms.
-  // Refused, not dealt: this league cannot ask the question.
+  // 2026-11-16 (Fixed-Limit lane, Phase 3 population cells): a default-off fixed-limit hold'em arm.
+  // Refused, not dealt: this league cannot ask the question. The option is out of scope at flo8 by
+  // code (FIXED_LIMIT_POPULATION_CELLS_IN_SCOPE), so a flo8 card would be inert and has none.
   {
     name: 'flh_population_cells',
     variant: 'flh',
@@ -4010,26 +4011,6 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'the read takes the fixed-limit cell from the variant name, so that divergence is not a fixed-limit ' +
       'measurement and decides nothing. What would change this: a fixed-limit duplicate league (real ' +
       'HandController, flh, heads-up and six seats, tight, passive and maniac fields); until it is built, the census and ' +
-      'synthetic histories in AFixedLimitPopulationCells.law.test.ts and the Fixed-Limit lane diagnostic-harness ' +
-      'measurements are the only evidence.',
-  },
-  {
-    name: 'flo8_population_cells',
-    variant: 'flo8',
-    seats: 6,
-    a: { fixedLimitPopulationCells: true },
-    b: {},
-    reason:
-      'Unanswerable by this league: playHand deals no-limit and pot-limit betting and has no ' +
-      'fixed-limit street unit, wager cap or controller menu, and the option acts only on a ' +
-      "fixed-limit decision (HorseOpponentExploit.fixedLimitPopulationCellFor: bettingStructureFor(variant) === 'fixed_limit'), " +
-      'where it swaps the Horse population cell the style and exploit reads judge a flo8 opponent against. ' +
-      'The option is DEFAULT OFF (read as === true). ' +
-      'Measured 2026-11-16 by running this refused matchup through runMatchup (seed 20261115, 300 pairs, six seats): ' +
-      "82 of 300 pairs diverged. The league deals the variant's cards with its own betting while " +
-      'the read takes the fixed-limit cell from the variant name, so that divergence is not a fixed-limit ' +
-      'measurement and decides nothing. What would change this: a fixed-limit duplicate league (real ' +
-      'HandController, flo8, heads-up and six seats, tight, passive and maniac fields); until it is built, the census and ' +
       'synthetic histories in AFixedLimitPopulationCells.law.test.ts and the Fixed-Limit lane diagnostic-harness ' +
       'measurements are the only evidence.',
   },
