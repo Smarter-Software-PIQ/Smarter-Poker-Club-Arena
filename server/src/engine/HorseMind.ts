@@ -5,6 +5,7 @@ import {
   type MultiwayRiverReadState,
 } from './HorseMultiwayRiverRead.js';
 import { omahaTightRead, type OmahaTightRead } from './HorseOmahaTightOpponent.js';
+import { huTightFolderRead, type HuTightFolderRead } from './HorseHuTightBigBlindSteal.js';
 import { omahaReadConditional, type OmahaReadConditional } from './HorseOmahaReadConditional.js';
 import type { OmahaFacingBetEvRead } from './HorseOmahaFacingBetEv.js';
 import {
@@ -421,6 +422,9 @@ export interface DecisionReadOptions {
    *  OMAHA_MANIAC_RERAISE_MIN_OPPS decayed opportunities, not at his whole
    *  raising width (see bandFor). Absent = unchanged. */
   omahaManiacReRaiseMeasured?: boolean;
+  /** The decision's telemetry gate for the receipt of the read above
+   *  (omaha_maniac_reraise_width_measured). Absent = no receipt. */
+  omahaManiacReRaiseReceipt?: boolean;
   shrinkResponseReads?: boolean;
   /** Break-even postflop bluffing (see BREAK_EVEN_BLUFF below). */
   breakEvenBluff?: boolean;
@@ -1299,6 +1303,8 @@ export class HorseMind {
   private static decisionVariant: string | null = null;
   /** Read calibration options of the decision in flight (DecisionReadOptions). */
   private static decisionReadOptions: DecisionReadOptions = {};
+  /** omaha_maniac_reraise_width_measured already fired in the decision in progress. */
+  private static maniacReRaiseReceiptFired = false;
   /** dedupe of processed ActionRecords across repeated decide() calls */
   private static seenActions = new Set<string>();
   /** per (handKey|userId) preflop-participation flags already counted */
@@ -2593,6 +2599,39 @@ export class HorseMind {
   }
 
   /**
+   * HEADS-UP TIGHT FOLDER (2026-11-15, HorseHuTightBigBlindSteal, D6, default
+   * off): the tight-folder read of this opponent for a heads-up no-limit
+   * hold'em decision in flight, from the same decayed counters opponentRead
+   * reads (the exact context's durable row, probe-adjusted) and its high-side
+   * exploit read, exactly as omahaTightReadOf assembles them. Null outside a
+   * holdem:hu decision or below the evidence floor. Pure: no fires, no writes.
+   * Only HorseLogic calls it, and only with huSmallBlindStealsVsTightBigBlind on.
+   */
+  static huTightFolderReadOf(userId: string): HuTightFolderRead | null {
+    const scope = this.decisionScope;
+    if (scope !== 'holdem:hu') return null;
+    const variant = memoryVariant(this.decisionVariant);
+    const size = scope.split(':')[1] as MemorySize;
+    const durable = variant ? this.blendDurableRead(userId, variant, size, false) : undefined;
+    const raw =
+      durable ??
+      (this.durableOpponentMemory && variant
+        ? undefined
+        : this.exploitCounters.get(`${scope}|${userId}`));
+    const pooled = this.stats.get(userId);
+    const counters =
+      raw && this.probeAwareAggression
+        ? probeAdjustedCounters(raw, pooled?.ctBets, pooled?.ctProbes)
+        : raw;
+    return huTightFolderRead(
+      counters,
+      scope,
+      this.decisionVariant,
+      opponentExploitRead(counters, scope, this.decisionVariant)
+    );
+  }
+
+  /**
    * OMAHA READ-CONDITIONAL DEFENCE (2026-11-15, HorseOmahaReadConditional,
    * default off): whether this opponent is a measured tight re-raiser and a
    * measured postflop value leader for the decision in flight, from the same
@@ -2966,6 +3005,7 @@ export class HorseMind {
   /** Set by HorseLogic beside the decision scope; cleared with it. */
   static setDecisionReadOptions(options: DecisionReadOptions): void {
     this.decisionReadOptions = this.decisionScope ? { ...options } : {};
+    this.maniacReRaiseReceiptFired = false;
   }
 
   static currentDecisionReadOptions(): Readonly<DecisionReadOptions> {
@@ -3947,8 +3987,18 @@ export class HorseMind {
         read.stats.threeBet.n >= OMAHA_MANIAC_RERAISE_MIN_OPPS
           ? Math.min(maniacWhole, Math.max(0.02, read.stats.threeBet.mean))
           : null;
-      if (measuredReRaise !== null && measuredReRaise < maniacWhole!)
+      // The receipt obeys the decision's telemetry gate and fires once per
+      // decision, however many range reads the decision makes (audit
+      // 2026-11-15, item 10).
+      if (
+        measuredReRaise !== null &&
+        measuredReRaise < maniacWhole! &&
+        this.decisionReadOptions.omahaManiacReRaiseReceipt === true &&
+        !this.maniacReRaiseReceiptFired
+      ) {
+        this.maniacReRaiseReceiptFired = true;
         noteFire('omaha_maniac_reraise_width_measured');
+      }
       const maniac = measuredReRaise ?? maniacWhole;
       const width =
         line === 'open'

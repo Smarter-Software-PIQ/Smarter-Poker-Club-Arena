@@ -121,6 +121,7 @@ import {
   omahaFacingBetEvVerdict,
   type OmahaFacingBetEvRead,
 } from './HorseOmahaFacingBetEv.js';
+import { omahaStrategyGameInScope } from './HorseOmahaStrategyGame.js';
 
 export const OMAHA_STRONG_HAND_VALUE_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
 /** A value raise must be worth more than the call by this share of the pot. */
@@ -138,7 +139,7 @@ const fin = (x: unknown): x is number => typeof x === 'number' && Number.isFinit
 /** The option's game: PLO4/PLO5 cash, pot limit, high only, one board, the river. */
 function inGame(hero: SeatPlayer, gs: HorseGameStateV2): boolean {
   const variant = String(gs.gameVariant ?? '').toLowerCase();
-  if (!OMAHA_STRONG_HAND_VALUE_VARIANTS.has(variant)) return false;
+  if (!omahaStrategyGameInScope(OMAHA_STRONG_HAND_VALUE_VARIANTS, gs)) return false;
   if (String(gs.stage ?? '') !== 'river') return false;
   const vi = variantInfo(variant);
   if (!vi.isOmaha || vi.isFixedLimit || gs.bettingStructure === 'fixed_limit') return false;

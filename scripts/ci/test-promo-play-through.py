@@ -7,7 +7,10 @@ proves the rule: a promo grant locks its own amount until the holder has paid
 amount x multiplier in fees, profit above the locked amount stays cashable,
 fees fill the oldest grant first, refunded fees leave the meter, and promo
 received before go-live is never locked. Phase 2: a promo chip's own ledger row records its grant, in
-the crediting transaction, whichever door sent it.
+the crediting transaction, whichever door sent it. Phase 3: a cash-out
+request, agent claim-back or player transfer that would take locked chips is
+refused at commit and moves nothing; play is never refused; a club-bank claim
+is allowed and reduces the lock; the owner can unlock with a reason.
 
 Usage: python3 scripts/ci/test-promo-play-through.py [--output DIR]
   PG_BIN            directory holding initdb/pg_ctl (default: newest under
@@ -51,7 +54,7 @@ GRANT USAGE ON SCHEMA auth TO anon, authenticated, service_role;
 GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
 CREATE TABLE public.club_members (
   club_id uuid NOT NULL, user_id uuid NOT NULL, chip_balance numeric DEFAULT 0,
-  PRIMARY KEY (club_id, user_id));
+  role text DEFAULT 'member', PRIMARY KEY (club_id, user_id));
 CREATE TABLE public.rake_attributions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(), player_id uuid, club_id uuid,
   rake_amount numeric, created_at timestamptz DEFAULT now());
@@ -278,7 +281,61 @@ def main():
         check("the ledger trigger is declared as a money trigger",
               db.one("SELECT count(*) FROM public.ca_declared_money_triggers WHERE trigger_name = 'zz_ca_promo_play_through_grant'"), "1")
 
-        # 10. A browser role reaches only its own door.
+        # 10. Phase 3: the exits. Carl holds 95.5 locked.
+        def leave(wallet_after, to_type, category, amount, to_user="NULL"):
+            target = "NULL" if to_user == "NULL" else f"'{to_user}'"
+            return db.run(
+                f"BEGIN; UPDATE public.club_members SET chip_balance = {wallet_after} "
+                f"WHERE club_id = '{CLUB}' AND user_id = '{CARL}'; "
+                f"INSERT INTO public.chip_ledger (from_type, from_entity_id, to_type, to_entity_id, amount, category, club_id) "
+                f"VALUES ('player_wallet', '{CARL}', '{to_type}', {target}, {amount}, '{category}', '{CLUB}'); COMMIT;",
+                check=False)
+
+        def carl_wallet():
+            return db.one(f"SELECT chip_balance FROM public.club_members WHERE club_id = '{CLUB}' AND user_id = '{CARL}'")
+
+        db.run(f"UPDATE public.club_members SET chip_balance = 120 WHERE club_id = '{CLUB}' AND user_id = '{CARL}'")
+        check("profit above the lock can be cashed out", leave(100, "escrow", "escrow_hold", 20).returncode, 0)
+        refused = leave(90, "escrow", "escrow_hold", 10)
+        check("a cash-out request into the locked chips is refused",
+              (refused.returncode != 0, "Promo Play Through" in refused.stderr), (True, True))
+        check("a refused cash-out moves nothing", carl_wallet(), "100")
+        check("an agent claim-back into the locked chips is refused",
+              leave(50, "agent_wallet", "club_bank_claim", 50, BOB).returncode != 0, True)
+        check("a transfer to another player into the locked chips is refused",
+              leave(50, "player_wallet", "transfer", 50, BOB).returncode != 0, True)
+        check("a refused claim-back and transfer move nothing", carl_wallet(), "100")
+        check("buying into a table with locked chips is never refused",
+              leave(0, "table_stack", "buyin", 100).returncode, 0)
+        check("entering a tournament with locked chips is never refused",
+              leave(0, "prize_liability", "tournament_buyin", 0.01).returncode, 0)
+        db.run(f"UPDATE public.club_members SET chip_balance = 100 WHERE club_id = '{CLUB}' AND user_id = '{CARL}'")
+        check("the club bank's claim is allowed", leave(40, "club_treasury", "club_bank_claim", 60).returncode, 0)
+        check("the club bank's claim returns the newest promo first and leaves the rest locked",
+              (summary(user=CARL)["locked"],
+               db.one("SELECT string_agg(source_kind || ':' || remaining::text || ':' || COALESCE(close_reason, 'open'), ',' "
+                      f"ORDER BY granted_at, id) FROM public.ca_promo_play_through_grants WHERE user_id = '{CARL}'")),
+              (40.0, "union_promo:25:open,wheel_prize:7.5:open,other_promo:3:open,club_promo:4.5:open,agent_promo:0:returned"))
+        db.run(f"UPDATE public.club_members SET role = 'owner' WHERE club_id = '{CLUB}' AND user_id = '{ALICE}'")
+        check("a member cannot unlock promo chips",
+              db.json(f"SET test.uid = '{BOB}'; SELECT public.fn_ca_promo_play_through_override('{CLUB}', '{CARL}', 'support case')")["success"], False)
+        check("the owner cannot unlock without a reason",
+              db.json(f"SET test.uid = '{ALICE}'; SELECT public.fn_ca_promo_play_through_override('{CLUB}', '{CARL}', ' ')")["success"], False)
+        check("the owner unlocks with a reason, recorded on the grants",
+              (db.json(f"SET test.uid = '{ALICE}'; SELECT public.fn_ca_promo_play_through_override('{CLUB}', '{CARL}', 'support case 41')")["unlocked_grants"],
+               summary(user=CARL)["locked"],
+               db.one(f"SELECT count(*) FROM public.ca_promo_play_through_grants WHERE user_id = '{CARL}' "
+                      f"AND close_reason = 'override' AND closed_by = '{ALICE}' AND close_note = 'support case 41'")),
+              (4, 0.0, "4"))
+        check("after the unlock the whole wallet can leave", leave(0, "escrow", "escrow_hold", 40).returncode, 0)
+        check("a member with no promo is never refused",
+              db.run(f"BEGIN; UPDATE public.club_members SET chip_balance = 0 WHERE club_id = '{OTHER_CLUB}' AND user_id = '{ALICE}'; "
+                     f"INSERT INTO public.chip_ledger (from_type, from_entity_id, to_type, amount, category, club_id) "
+                     f"VALUES ('player_wallet', '{ALICE}', 'escrow', 10, 'escrow_hold', '{OTHER_CLUB}'); COMMIT;", check=False).returncode, 0)
+        check("the exit trigger is declared as a money trigger",
+              db.one("SELECT count(*) FROM public.ca_declared_money_triggers WHERE trigger_name = 'zz_ca_promo_play_through_exit'"), "1")
+
+        # 11. A browser role reaches only its own door.
         denied = db.run("SET ROLE authenticated; SELECT count(*) FROM public.ca_promo_play_through_grants", check=False)
         check("a browser cannot read the grant table", denied.returncode != 0, True)
         denied = db.run(f"SET ROLE authenticated; SELECT public.fn_ca_promo_play_through_record_grant("

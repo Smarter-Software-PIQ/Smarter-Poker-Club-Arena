@@ -21,6 +21,8 @@ owner 2026-11-15 11:55
 
 omaha_big_draw_aggression_bet and related (ledger)
 
+A receipt describes the final action (2026-11-15 follow-up): a verdict a later rule can still overturn is proposed and settled when the decision is final; its receipt fires when the final action is the verdict, and its `_vetoed` twin fires when a later rule replaced it. Vetoed twins: omaha_big_draw_aggression_bet_vetoed, omaha_big_draw_aggression_raise_vetoed.
+
 ## Tests
 
 HorseOmahaBigDrawAggression.test.ts, HorseOmahaStrategyPrecedence.test.ts (all pass on the PLO strategy head; server tsc 0).

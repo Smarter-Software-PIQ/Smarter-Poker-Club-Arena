@@ -217,6 +217,23 @@ describe('the recorded 4-bet (decision 10) against the measured winner', () => {
     expect(hasFire(on, RECEIPT)).toBe(SEEDS.length);
   });
 
+  it('audit item 10: the receipt obeys the telemetry gate and fires once per decision', () => {
+    enableBrainTelemetry();
+    for (const telemetry of [true, false]) {
+      for (const s of SEEDS) {
+        HorseMind.reset();
+        remember(WINNER);
+        drainFires();
+        seedFastRandom(s);
+        const fx = JSON.parse(JSON.stringify(FX)) as ComplaintFixture;
+        const st = stateAt(fx, fx.actions.find((a) => a.ord === 10)!);
+        HorseLogic.decide(st.hero, st.gs, LIVE.style, LIVE.mods, { ...ON, telemetry });
+        const fires = drainFires().find((f) => f.feature === RECEIPT)?.fires ?? 0;
+        expect([telemetry, fires]).toEqual([telemetry, telemetry ? 1 : 0]);
+      }
+    }
+  });
+
   it('a strong hand still 4-bets him with the option on', () => {
     const strong = { hole: 'JhQcQh9c' };
     expect(count(playMany(10, {}, strong), 'raise')).toBe(SEEDS.length);
