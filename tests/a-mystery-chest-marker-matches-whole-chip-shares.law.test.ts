@@ -2,14 +2,15 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 describe('LAW: the shared Mystery marker has retained native regression coverage', () => {
-  it('runs the actual PostgreSQL marker and acknowledgement proof in the required accounting shard', () => {
+  it('runs the marker and acknowledgement proof through the required Mystery native entry point', () => {
     const native = readFileSync('scripts/ci/test-mystery-whole-chip-marker.py', 'utf8');
+    const runner = readFileSync('scripts/ci/test-mystery-award-page-order.py', 'utf8');
     const workflow = readFileSync('.github/workflows/ci.yml', 'utf8');
     expect(workflow).toContain(
-      'Shared mystery chests retain exact whole-chip and legacy settlement proof'
+      'python3 -B scripts/ci/test-mystery-award-page-order.py --pg-bin "$PG_BIN" --scratch "${{ runner.temp }}"'
     );
-    expect(workflow).toMatch(
-      /Shared mystery chests retain exact whole-chip and legacy settlement proof\s+if: matrix\.shard == 2\s+env:\s+PG_BIN: \/usr\/lib\/postgresql\/17\/bin\s+TMPDIR: \$\{\{ runner\.temp \}\}\s+run: python3 -B scripts\/ci\/test-mystery-whole-chip-marker\.py/
+    expect(runner).toMatch(
+      /subprocess\.run\(\s*\[sys\.executable, str\(ROOT \/ 'scripts\/ci\/test-mystery-whole-chip-marker\.py'\)\],\s*env=dict\(os\.environ, PG_BIN=str\(pg\), TMPDIR=str\(args\.scratch\.resolve\(\)\)\),\s*check=True/
     );
     expect(native).toContain("'fn_ack_bounty_obligation_from_award'");
     expect(native).toContain("'fn_bounty_obligation_has_complete_marker'");
