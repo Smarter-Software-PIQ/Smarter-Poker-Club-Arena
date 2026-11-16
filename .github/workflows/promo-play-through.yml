@@ -14,6 +14,14 @@ on:
     paths:
       - supabase/migrations/*_promo_play_through_*.sql
       - scripts/ci/test-promo-play-through.py
+      - supabase/migrations/*_promo_principal_*.sql
+      - scripts/ci/test-promo-custody.py
+      - scripts/ci/test-promo-custody-accepted-hand.py
+      - scripts/ci/test-accepted-hand-roster.py
+      - scripts/ci/test-hand-submission.py
+      - scripts/ci/probes/accepted-hand-roster-fixture.sql
+      - scripts/ci/fixtures/hand-submission/**
+      - tests/fixtures/ev-cashout-lifecycle/captured-authorities.json
       - .github/workflows/promo-play-through.yml
 
 permissions:
@@ -36,11 +44,20 @@ jobs:
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 scripts/ci/test-promo-play-through.py --output artifacts/promo-play-through
+      - name: Promo principal follows wallet and table custody
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 -B scripts/ci/test-promo-custody.py --output artifacts/promo-custody
+      - name: Promo custody runs in the original accepted hand
+        run: python3 -B scripts/ci/test-promo-custody-accepted-hand.py --pg-bin /usr/lib/postgresql/17/bin --output artifacts/promo-custody-accepted-hand
       - name: Retain the regression evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: promo-play-through-${{ github.run_id }}-${{ github.run_attempt }}
-          path: artifacts/promo-play-through/RESULTS.json
+          path: |
+            artifacts/promo-play-through/RESULTS.json
+            artifacts/promo-custody/RESULTS.json
+            artifacts/promo-custody-accepted-hand/RESULTS.json
           retention-days: 7
           if-no-files-found: warn
