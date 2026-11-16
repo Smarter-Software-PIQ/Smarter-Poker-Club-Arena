@@ -226,7 +226,11 @@ describe('omahaBluffCatcherFoldVsValueLeader', () => {
       expect(folds(on)).toBe(SEEDS.length);
       expect(hasFire(on, APPLIED)).toBe(SEEDS.length);
       expect(hasFire(on, WITHHELD)).toBe(0);
-      expect(hasFire(on, 'omaha_bluff_catcher_raise_fold')).toBe(SEEDS.length);
+      // its own receipt only: the unconditional option's receipt belongs to that option
+      expect(hasFire(on, 'omaha_bluff_catcher_raise_fold')).toBe(0);
+      const unconditional = play(build, { omahaBluffCatcherRaiseFold: true }, () => leader);
+      expect(hasFire(unconditional, 'omaha_bluff_catcher_raise_fold')).toBe(SEEDS.length);
+      expect(hasFire(unconditional, APPLIED)).toBe(0);
       // the rule draws nothing from the brain's random stream
       expect(on.next).toEqual(off.next);
     }

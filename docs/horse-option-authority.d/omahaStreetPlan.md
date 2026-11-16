@@ -21,6 +21,10 @@ Default OFF in source (read `=== true`). On live only by an option-switch row wh
 
 omaha_street_plan_line_changed, omaha_street_plan_commit_avoided, omaha_street_plan_followed
 
+A receipt describes the final action (2026-11-15 follow-up): a verdict a later rule can still overturn is proposed and settled when the decision is final; its receipt fires when the final action is the verdict, and its `_vetoed` twin fires when a later rule replaced it. Vetoed twins: omaha_street_plan_line_changed_vetoed, omaha_street_plan_commit_avoided_vetoed.
+
+omaha_owner_approved_bet_kept: a size omahaCardImpact proposed for a bet this plan kept is refused where the plan (or an owner-ruled check, or the made-hand defence) checks that size; the bet stands at the size it had.
+
 ## Tests
 
 HorseOmahaStreetPlan.test.ts, HorseOmahaStrategyPrecedence.test.ts (all pass on the PLO strategy head; server tsc 0).
