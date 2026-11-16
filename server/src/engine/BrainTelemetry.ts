@@ -201,16 +201,39 @@ export function withSecondLookFireCapture<T>(fn: () => T): {
   }
 }
 
+/**
+ * True while a second look's decide runs inside withSecondLookFireCapture. For the few places where
+ * "telemetry on" also means "this is the live decision" (the Phase 8 safety sentinel): a second look counts
+ * its receipts, and must neither feed nor obey process-wide live state, exactly as when it ran with telemetry off.
+ */
+export function inSecondLookCapture(): boolean {
+  return secondLookCapture !== null;
+}
+
 /** The second_look_ key of a receipt; it ends in _seen (an occurrence counter: quiet days are normal). */
 export function secondLookReceiptKey(feature: string): string {
   return `second_look_${feature}${feature.endsWith('_seen') ? '' : '_seen'}`;
 }
 
-/** Count each key a second look collected, once per second look, under its second_look_ name. */
+/** The telemetry writer refuses a feature name longer than this, and the publisher then drops the whole batch. */
+export const BRAIN_TELEMETRY_FEATURE_MAX_LENGTH = 128;
+/** Counted once per second look that collected at least one key whose second_look_ name would be too long. */
+export const SECOND_LOOK_KEY_TOO_LONG_RECEIPT = 'second_look_receipt_key_too_long_seen';
+
+/**
+ * Count each key a second look collected, once per second look, under its second_look_ name. A key whose
+ * second_look_ name would exceed the writer's limit is not counted under that name (one refused name would
+ * take every other counter of its batch with it); the second look counts SECOND_LOOK_KEY_TOO_LONG_RECEIPT once.
+ */
 export function noteSecondLookFires(fired: ReadonlySet<string>): void {
   if (!enabled || secondLookCapture) return;
-  for (const feature of fired)
-    noteFire(`second_look_${feature}${feature.endsWith('_seen') ? '' : '_seen'}`);
+  let tooLong = false;
+  for (const feature of fired) {
+    const key = secondLookReceiptKey(feature);
+    if (key.length > BRAIN_TELEMETRY_FEATURE_MAX_LENGTH) tooLong = true;
+    else noteFire(key);
+  }
+  if (tooLong) noteFire(SECOND_LOOK_KEY_TOO_LONG_RECEIPT);
 }
 
 /** True when the caller opted this decision into telemetry. */
