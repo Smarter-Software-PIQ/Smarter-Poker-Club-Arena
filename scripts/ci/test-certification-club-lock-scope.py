@@ -66,7 +66,7 @@ def await_marker(key):
 try:
     for args in [AS_PG + [str(PG / 'initdb'), '-D', str(work / 'data'), '-U', 'postgres', '-A', 'trust'],
                  AS_PG + [str(PG / 'pg_ctl'), '-D', str(work / 'data'), '-l', str(work / 'postgres.log'),
-                          '-w', '-o', f"-p {port} -c listen_addresses=127.0.0.1 -c unix_socket_directories='' -c fsync=off", 'start']]:
+                          '-w', '-o', f"-p {port} -c max_prepared_transactions=1 -c listen_addresses=127.0.0.1 -c unix_socket_directories='' -c fsync=off", 'start']]:
         r = command(args)
         if r.returncode:
             raise RuntimeError(r.stderr)
@@ -188,6 +188,13 @@ try {
     readiness('helper identity differs')
     sql(helper_definition)
     readiness('ready')
+    # The public join and cleanup must also avoid an unrelated agent payout row.
+    sql('CREATE DATABASE spectator_scope;')
+    result = command([str(PG / 'psql'), '-Xq', '-v', 'ON_ERROR_STOP=1', '-h', '127.0.0.1',
+                      '-p', port, '-U', 'postgres', '-d', 'spectator_scope',
+                      '-f', str(PREIMAGES.with_name('spectator-payout.sql'))], timeout=30)
+    expect('spectator joins and leaves while the weekly payout keeps its row lock',
+           result.returncode == 0, detail=result.stderr.strip())
     passed = True
 finally:
     for thread in threads:
