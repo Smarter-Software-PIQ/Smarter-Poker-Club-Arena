@@ -517,6 +517,7 @@ import {
 // actually executed. Gated on opts.telemetry — league/benchmark/tests never
 // count. See engine/BrainTelemetry.ts.
 import {
+  inSecondLookCapture,
   noteDecisionMs,
   noteFire,
   noteHorseActionClamped,
@@ -11299,6 +11300,11 @@ export class HorseLogic {
 
     const v7 = opts.v7 !== false;
     const tele = telemetryOn(opts);
+    // "Live" where telemetry also stands for the live FAST decision (the Phase 8
+    // sentinel, the evidence-mode clocks and budgets): a DEEP second look counts its
+    // receipts with telemetry on inside a capture and is NOT live in that sense. At
+    // those places it behaves exactly as it did when it ran with telemetry off.
+    const teleLive = tele && !inSecondLookCapture();
     if (tele) {
       noteFire('decide');
       noteFire(`decide_${vi.isOmaha ? 'omaha' : vi.isShortDeck ? 'short_deck' : 'nlh'}`);
@@ -11482,7 +11488,7 @@ export class HorseLogic {
               decision,
               phase10EquityEvidence,
               opts.phase10Plo4 ?? 'shadow',
-              opts.phase10EvidenceMode && !tele ? () => 0 : undefined,
+              opts.phase10EvidenceMode && !teleLive ? () => 0 : undefined,
               (d) => this.legalize(d, player, gs, vi),
               readStation
             )
@@ -11508,7 +11514,7 @@ export class HorseLogic {
               decision,
               null,
               opts.phase11Omaha ?? 'shadow',
-              opts.phase11EvidenceMode && !tele ? () => 0 : undefined,
+              opts.phase11EvidenceMode && !teleLive ? () => 0 : undefined,
               phase11DecisionEquityCeiling ?? 1,
               true,
               (d) => this.legalize(d, player, gs, vi),
@@ -11537,7 +11543,7 @@ export class HorseLogic {
               decision,
               null,
               opts.phase12Remaining ?? 'shadow',
-              opts.phase12EvidenceMode && !tele ? () => 0 : undefined,
+              opts.phase12EvidenceMode && !teleLive ? () => 0 : undefined,
               phase12DecisionEquityCeiling ?? 1,
               true,
               readStation,
@@ -11583,7 +11589,7 @@ export class HorseLogic {
     // Its immutable population may be reused below; marginal board draws never
     // enter this path. The existing offline clock control remains offline only.
     let phase7JointAcquisition: JointSampleAcquisition | undefined;
-    const jointNow = opts.phase13EvidenceMode && !tele ? () => 0 : () => performance.now();
+    const jointNow = opts.phase13EvidenceMode && !teleLive ? () => 0 : () => performance.now();
     const multiBoard =
       (gs.communityCards2?.length ?? 0) > 0 ||
       (gs.communityCards3?.length ?? 0) > 0 ||
@@ -11684,7 +11690,7 @@ export class HorseLogic {
                     (opts.phase10EvidenceMode ||
                       opts.phase11EvidenceMode ||
                       opts.phase12EvidenceMode) &&
-                    !tele
+                    !teleLive
                       ? () => true
                       : () => performance.now() - shadowStart < 4,
                 });
@@ -11835,7 +11841,11 @@ export class HorseLogic {
         isTournamentMode(gs) &&
         gs.stage !== 'preflop'
       ) {
-        const disabledReason = tele ? liveHorsePhase8Safety.disabledReason : null;
+        // "Live" for the Phase 8 sentinel is the FAST look only: a DEEP second look
+        // counts its receipts (telemetry on inside a capture) and neither obeys nor
+        // feeds the process-wide sentinel, exactly as when it ran with telemetry off.
+        const phase8Live = teleLive;
+        const disabledReason = phase8Live ? liveHorsePhase8Safety.disabledReason : null;
         const phase8 = evaluateTournamentPostflop(
           player,
           gs,
@@ -11858,7 +11868,7 @@ export class HorseLogic {
         } else decision = phase8.decision;
         decision = { ...decision, tournamentPostflop: phase8.ledger };
         if (tele) {
-          liveHorsePhase8Safety.observe(phase8.ledger);
+          if (phase8Live) liveHorsePhase8Safety.observe(phase8.ledger);
           noteFire('phase8_seen');
           noteDecisionMs('phase8', phase8.ledger.latencyMs);
           noteFire(`phase8_format_${gs.format ?? 'unknown'}`);
@@ -12024,7 +12034,7 @@ export class HorseLogic {
               gs,
               decision,
               opts.phase13Joint ?? 'shadow',
-              opts.phase13EvidenceMode && !tele ? () => 0 : undefined,
+              opts.phase13EvidenceMode && !teleLive ? () => 0 : undefined,
               phase7JointAcquisition,
               // P13.1: every candidate is priced, ranked and recorded in the
               // exact form this legalizer executes.
@@ -12084,7 +12094,7 @@ export class HorseLogic {
                 splitLow: horseVariantRulesFor(gs.gameVariant).splitLow8OrBetter,
               };
               input.withinBudget =
-                opts.phase13EvidenceMode && !tele
+                opts.phase13EvidenceMode && !teleLive
                   ? () => true
                   : () => performance.now() - utilityStarted < 4;
               const evaluated = evaluateTournamentUtilityDetailed(input);
@@ -15752,7 +15762,15 @@ export class HorseLogic {
     if (ploIcm53 && telemetryOn(opts)) {
       const rng53 = saveFastRandom();
       try {
-        v53IcmOff = decidePreflopV7({ ...intentCtx7, ploIcm: undefined, noteLayer: undefined });
+        // Inside a second look the rewound call must not write deep-dive rule
+        // receipts into the second look's own capture (before, a second look did
+        // not run it at all): the collector is detached there. The FAST look is
+        // unchanged.
+        const icmOff53 = () =>
+          decidePreflopV7({ ...intentCtx7, ploIcm: undefined, noteLayer: undefined });
+        v53IcmOff = inSecondLookCapture()
+          ? withHorseDeepDiveCapture(undefined, false, icmOff53)
+          : icmOff53();
       } catch {
         v53IcmOff = null;
       } finally {
@@ -17065,7 +17083,12 @@ export class HorseLogic {
             captureContinuation:
               (opts.phase8Postflop ?? 'shadow') !== 'off' &&
               gs.gameVariant === 'nlh' &&
-              !(telemetryOn(opts) && liveHorsePhase8Safety.disabledReason),
+              // the sentinel is obeyed by the FAST look only (a second look ignored it before)
+              !(
+                telemetryOn(opts) &&
+                !inSecondLookCapture() &&
+                liveHorsePhase8Safety.disabledReason
+              ),
             samples: [],
           }
         : undefined;

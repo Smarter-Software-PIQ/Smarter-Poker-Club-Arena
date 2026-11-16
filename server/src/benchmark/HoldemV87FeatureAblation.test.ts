@@ -37,7 +37,11 @@ import {
   winnerReadScopeOf,
 } from '../engine/HorseWinnerRead.js';
 import { restoreFastRandom, saveFastRandom, seedFastRandom } from '../engine/HorseEval.js';
-import { drainFires, enableBrainTelemetry } from '../engine/BrainTelemetry.js';
+import {
+  drainFires,
+  enableBrainTelemetry,
+  outsideSecondLookCapture,
+} from '../engine/BrainTelemetry.js';
 import {
   HorseDecisionWorkerRuntime,
   defaultHorseDecisionWorkerDependencies,
@@ -426,11 +430,16 @@ async function workerArm(
       HorseMind.setDecisionScope(null);
       // Trusted in-process worker seam: preserve the SAME request/sampling key
       // while changing only this policy. No live IPC control is being tested.
-      const decision = HorseLogic.decide(args[0], args[1], args[2], args[3], {
-        ...args[4],
-        telemetry: true,
-        v87FlopStabCheckRaise: checkRaisePolicy,
-      });
+      // The runtime's second look decides inside its fire capture (second-look receipts, 2026-11-16): its
+      // fires are collected there and counted as second_look_<key>_seen afterwards. This seam reads each
+      // look's fires under their own names, so both looks decide outside that capture.
+      const decision = outsideSecondLookCapture(() =>
+        HorseLogic.decide(args[0], args[1], args[2], args[3], {
+          ...args[4],
+          telemetry: true,
+          v87FlopStabCheckRaise: checkRaisePolicy,
+        })
+      );
       observed.push({
         ...loadedReads,
         fires: Object.fromEntries(drainFires().map((r) => [r.feature, r.fires])),

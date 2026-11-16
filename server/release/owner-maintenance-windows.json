@@ -1443,6 +1443,21 @@
         "path": "server/release/activation-floor.json",
         "sha256": "e7c55d77b69bdf083bf0877eb600f5021769682563fbf1a04eb7c2ae98087eea"
       }
+    },
+    {
+      "id": "2026-11-16-owner-offcycle-engine-1906z",
+      "ownerOrder": "Owner directly in Codex chat 01a1e47c-2fdf-7502-aa3f-4909dda71603 on November 16, 2026 ordered verbatim: \"I AUTHORIZE ONE PROTECTED OFF-CYCLE ENGINE CUTOVER AS SOON AS IT IS SAFE AND QUALIFIED. DO NOT WAIT UNTIL 4 AM. FINISH THE DEPLOYMENT, VERIFY IT LIVE, AND CONFIRM THIS INCIDENT CLEARS AND STAYS CLEAR.\" This books one protected single-use replacement of serving predecessor 3529e86663daa427b380a8ab9bd09347270c670e containing the missed owed build and permanent qualification repair e64245636f838352751f79ce7e2e366e972685b8. Operational execution preserves actual primary public notice for twenty minutes, exact current-schema Backup with full 1800-second soak and both-direction seated-player rollback/forward rehearsal, immutable image qualification, original Stage/receiver custody, durable drain/freeze, full 285s admission and rollback reserve, seal, v3 thaw, live gameplay and post-seal Backup. The fixed expiry is not extended; this is one operation, never an automatic retry, renewal, new-start hold or second publisher. Pillar 2, R7/R8, leak maps, held-out packs and default-off strategy options remain disabled; zero opportunities remain explicit evidence gaps. Release-control inputs and ordinary migration installation are held only from booking merge until this operation seals, is abandoned or expires, then the maintained resume route reconciles every missed ordinary migration. Existing financial operations and immutable receipts are preserved.",
+      "contains": "e64245636f838352751f79ce7e2e366e972685b8",
+      "playerNoticeAt": "2026-11-16T18:40:00Z",
+      "notBefore": "2026-11-16T19:06:00Z",
+      "notAfter": "2026-11-16T23:00:00Z",
+      "announcementPolicy": "earliest-certified",
+      "supersedesPhase1Schedule": true,
+      "migrations": [],
+      "releaseWitness": {
+        "path": "server/release/activation-floor.json",
+        "sha256": "6ee5bc5788057aa2f6e8ee9b9b42beb9e598bcbd4684133a59e7e1b02e146d70"
+      }
     }
   ],
   "databaseWindows": [
