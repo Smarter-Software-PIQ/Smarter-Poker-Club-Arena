@@ -18,7 +18,7 @@ It hid for three weeks because the writer and the proof agree whenever a chest d
 
 ## The fix
 
-`20261116044125_a_shared_mystery_chest_settles_in_the_whole_chips_it_was_split_in.sql` changes the mystery-chest branch of the proof. It now accepts a split that exactly matches one of two canonical cuts, claimant by claimant:
+`20261116044125_a_shared_mystery_chest_settles_in_its_whole_chip_split.sql` changes the mystery-chest branch of the proof. It now accepts a split that exactly matches one of two canonical cuts, claimant by claimant:
 
 - the whole-chip cut the current writer makes;
 - the money-unit cut the writer made before 2026-10-22, so every chest settled under the old rule still proves.
@@ -30,6 +30,8 @@ The fix went to the proof and not the writer because whole-chip shares are the o
 ## Delivery
 
 The fix went in as an active-outage direct apply (CLAUDE.md section 2, rule 11), because a live event could not break tables, and this PR is the byte-exact recording. The statement's md5 in `schema_migrations` is `9a0873e9cb36e6800c9436bd7dd76c6f`, the same as the file.
+
+Production holds the row under the same version with the longer name `a_shared_mystery_chest_settles_in_the_whole_chips_it_was_split_in`. That name is 65 characters, over the repository's 60-character limit, so the file carries a shorter name under the same version. The applier and the recorded-migration gate both match on the version first.
 
 Before installing, a `pg_temp` copy of the new body ran against production:
 
