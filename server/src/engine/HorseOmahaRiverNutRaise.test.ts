@@ -317,7 +317,7 @@ describe('the worker receipt for the raise that became a call', () => {
     expect(horseDecisionReceiptRefusal(structuredClone(d), 'plo5')).toBe('policy_graph');
   });
 
-  it('is refused when the request it came with would not have produced it', () => {
+  it('is admitted against a nut-class request (the slow-play mix), and refused against a request that could not have produced it', () => {
     const s = spot(smaller);
     const d = decideOne(s);
     // The same receipt against a request in which the Horse holds the nuts is
@@ -331,6 +331,20 @@ describe('the worker receipt for the raise that became a call', () => {
         gameState: nuts.gs,
       })
     ).toBeNull();
+    // STILL REFUSED, PLO5, a hand that is NOT nut class: the same raise that
+    // became a call of 100 against the recorded request, in which 184 is owed
+    // (three aces, no nut-class hand). No rule turns a raise into a call of
+    // chips the request does not owe, and the slow-play admission needs a
+    // nut-class hand.
+    const owes184 = spot();
+    expect(owes184.gs.toCall).toBe(184);
+    expect(omahaRiverRaiseLicense(owes184.hero, owes184.gs)).toBeNull();
+    expect(
+      horseDecisionReceiptRefusal(structuredClone(d), 'plo5', {
+        player: owes184.hero,
+        gameState: owes184.gs,
+      })
+    ).toBe('policy_graph');
     // And never in a game the rule does not govern.
     expect(horseDecisionReceiptRefusal(structuredClone(d), 'nlh')).not.toBeNull();
   });

@@ -417,7 +417,7 @@ describe('the worker receipt', () => {
     );
   };
 
-  it('the turn raise that became a call is admitted with the request only', () => {
+  it('the turn raise that became a call is admitted with its request and with a nut-class request (the slow-play mix), and refused with no request or one that could not have produced it', () => {
     const s = spot(FB5, 19);
     const d = decideOne(s);
     expect({ action: d.action, amount: d.amount }).toEqual({ action: 'call', amount: 212 });
@@ -439,6 +439,24 @@ describe('the worker receipt', () => {
         gameState: nuts.gs,
       })
     ).toBeNull();
+    // STILL REFUSED, PLO5, a hand that is NOT nut class: the same raise that
+    // became a call of 212 against a request with the same cards in which 300
+    // is owed. No rule turns a raise into a call of chips the request does
+    // not owe, and the slow-play admission needs a nut-class hand.
+    const owes300 = spot(FB5, 19, {
+      node: (pn) => {
+        pn.pot += 300 - (pn.toCall ?? 0);
+        pn.toCall = 300;
+        pn.currentBet = 300;
+      },
+    });
+    expect(owes300.gs.toCall).toBe(300);
+    expect(
+      horseDecisionReceiptRefusal(structuredClone(d), 'plo5', {
+        player: owes300.hero,
+        gameState: owes300.gs,
+      })
+    ).toBe('policy_graph');
   });
 
   it('the bet that became a check is admitted with the request that produces it', () => {
