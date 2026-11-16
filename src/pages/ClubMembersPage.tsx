@@ -1,3 +1,4 @@
+import { hasPromoWithdrawalRestriction } from '../utils/promoPlayThroughVisibility';
 import { PromoPlayThroughInline } from '../components/wallet/PromoPlayThroughProgress';
 import { useMemberPromoPlayThrough } from '../hooks/useMemberPromoPlayThrough';
 import type { PromoPlayThroughSummary } from '../services/PromoPlayThroughService';
@@ -2310,11 +2311,14 @@ export const MemberRow = memo(function MemberRow({
               <span>{feeLabel}</span>
               <span
                 className="member-simple-balance__wallet"
-                title="Player Wallet Balance"
-                aria-label={`Player Wallet Balance ${walletFigure(member.player_wallet)}`}
+                title="Balance"
+                aria-label={`Balance ${walletFigure(member.player_wallet)}`}
               >
-                {walletFigure(member.player_wallet)}
+                Balance {walletFigure(member.player_wallet)}
               </span>
+              {promo && hasPromoWithdrawalRestriction(promo) && (
+                <span>Withdrawable Balance {walletFigure(promo.cashable)}</span>
+              )}
               <span
                 className={`member-simple-balance__secondary${secondaryTone}`}
                 aria-label={`${secondaryWinLossLabel} W/L ${secondaryText}`}
@@ -2382,9 +2386,12 @@ export const MemberRow = memo(function MemberRow({
                     value={walletFigure(member.agent_wallet_text ?? member.agent_wallet)}
                   />
                   <Metric
-                    label="Player Wallet"
+                    label="Balance"
                     value={walletFigure(member.player_wallet_text ?? member.player_wallet)}
                   />
+                  {promo && hasPromoWithdrawalRestriction(promo) && (
+                    <Metric label="Withdrawable Balance" value={walletFigure(promo.cashable)} />
+                  )}
                 </>
               )}
             </span>

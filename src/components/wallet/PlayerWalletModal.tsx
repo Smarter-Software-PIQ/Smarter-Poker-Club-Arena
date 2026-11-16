@@ -372,7 +372,7 @@ export default function PlayerWalletModal({ isOpen, onClose, clubId }: PlayerWal
           foot="foot"
         >
           <div className="cbc-bank">
-            <span>Player Wallet Balance</span>
+            <span>Balance</span>
             <strong aria-live="polite">{balanceText}</strong>
           </div>
 

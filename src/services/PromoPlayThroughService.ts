@@ -4,6 +4,15 @@ import { isUUID, resolveClubUUID } from '../utils/clubIdResolver';
 
 export interface PromoPlayThroughSummary {
   locked: number;
+  wallet_locked?: number;
+  agent_locked?: number;
+  wallet_profit_locked?: number;
+  agent_profit_locked?: number;
+  profit_locked?: number;
+  profit_fee_target?: number;
+  profit_fee_progress?: number;
+  profit_fee_remaining?: number;
+  profit_percent?: number;
   expired_locked?: number;
   integrity_available?: boolean;
   integrity_held?: number;
@@ -54,8 +63,18 @@ export function parsePromoPlayThrough(raw: unknown): PromoPlayThroughSummary {
     'agent_integrity_held',
     'integrity_total_held',
     'expired_locked',
+    'wallet_locked',
+    'agent_locked',
+    'wallet_profit_locked',
+    'agent_profit_locked',
+    'profit_locked',
+    'profit_fee_target',
+    'profit_fee_progress',
+    'profit_fee_remaining',
+    'profit_percent',
   ] as const) {
-    const value = row[key] === undefined ? 0 : row[key];
+    // Older principal-only servers did not distinguish wallet custody.
+    const value = row[key] === undefined ? (key === 'wallet_locked' ? result.locked : 0) : row[key];
     if (
       (typeof value !== 'number' && typeof value !== 'string') ||
       (typeof value === 'string' && value.trim() === '') ||
@@ -63,11 +82,17 @@ export function parsePromoPlayThrough(raw: unknown): PromoPlayThroughSummary {
       Number(value) < 0
     )
       throw new Error(
-        key === 'expired_locked' ? 'Expired Promo Is Unavailable' : 'Review Hold Is Unavailable'
+        key === 'expired_locked'
+          ? 'Expired Promo Is Unavailable'
+          : key.startsWith('integrity_') || key === 'agent_integrity_held'
+            ? 'Review Hold Is Unavailable'
+            : 'Promo Progress Is Unavailable'
       );
     result[key] = Number(value);
   }
   if (
+    (result.profit_percent ?? 0) > 100 ||
+    (result.profit_fee_progress ?? 0) > (result.profit_fee_target ?? 0) ||
     result.percent > 100 ||
     !Number.isInteger(result.open_grants) ||
     result.cashable > result.wallet ||

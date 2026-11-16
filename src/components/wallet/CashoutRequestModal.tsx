@@ -571,7 +571,7 @@ function CashoutRequestContent({
               never abbreviated: it is the ceiling the request is measured by.
               An unreadable balance says so; it never prints as zero. */}
           <div className="cro-row">
-            <span className="sc-label sc-ink--blue">Available Balance</span>
+            <span className="sc-label sc-ink--blue">Balance</span>
             <strong className={`cro-value ${balanceAvailable ? 'sc-ink--silver' : 'sc-ink--red'}`}>
               {balanceAvailable ? `${formatWalletChips(currentBalance)} Chips` : 'Unavailable'}
             </strong>

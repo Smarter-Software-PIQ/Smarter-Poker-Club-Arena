@@ -23,7 +23,7 @@ describe('promo play-through progress', () => {
     expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('62');
     expect(screen.getByText('124.00 Of 200.00 In Fees')).toBeTruthy();
     expect(screen.getByText('76.00 To Go · 50.00 Locked')).toBeTruthy();
-    expect(screen.getByText('30.00 Cashable')).toBeTruthy();
+    expect(screen.getByText('Withdrawable Balance: 30.00')).toBeTruthy();
   });
   it('prints integrity review holds separately from the promo fee target', () => {
     render(
@@ -73,4 +73,24 @@ describe('promo play-through progress', () => {
   ])('refuses missing or malformed money: %j', (row) => {
     expect(() => parsePromoPlayThrough(row)).toThrow();
   });
+});
+
+it('parses exact wallet custody and optional two-times profit fields without guessing from balance differences', () => {
+  expect(parsePromoPlayThrough(progress).wallet_profit_locked).toBe(0);
+  expect(
+    parsePromoPlayThrough({
+      ...progress,
+      wallet_locked: 0,
+      wallet_profit_locked: '10',
+      profit_locked: 10,
+      profit_fee_target: 100,
+      profit_fee_progress: 50,
+      profit_fee_remaining: 50,
+      profit_percent: 50,
+    }).wallet_locked
+  ).toBe(0);
+  expect(() => parsePromoPlayThrough({ ...progress, wallet_profit_locked: null })).toThrow();
+  expect(() =>
+    parsePromoPlayThrough({ ...progress, profit_fee_target: 100, profit_fee_progress: 101 })
+  ).toThrow();
 });

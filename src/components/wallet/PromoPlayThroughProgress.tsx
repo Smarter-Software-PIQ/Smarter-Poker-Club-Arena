@@ -4,6 +4,9 @@ import { formatWalletChips } from '../../utils/format';
 import type { PromoPlayThroughSummary } from '../../services/PromoPlayThroughService';
 import {
   activePromoPercent,
+  activePromoProfitPercent,
+  hasActivePromoProfit,
+  hasPromoWithdrawalRestriction,
   hasActivePromoPlayThrough,
   hasPromoRestrictionDetails,
   sourceReviewHeld,
@@ -54,8 +57,18 @@ export function PromoPlayThroughFigure({ summary }: { summary: PromoPlayThroughS
               {formatWalletChips(summary.fee_remaining)} To Go · {formatWalletChips(summary.locked)}{' '}
               Locked
             </span>
-            <span>{formatWalletChips(summary.cashable)} Cashable</span>
           </>
+        )}
+        {hasActivePromoProfit(summary) && (
+          <span>
+            Promo Profit Fee Progress: {activePromoProfitPercent(summary)}% ·{' '}
+            {formatWalletChips(summary.profit_fee_progress ?? 0)} Of{' '}
+            {formatWalletChips(summary.profit_fee_target ?? 0)} In Fees ·{' '}
+            {formatWalletChips(summary.profit_fee_remaining ?? 0)} To Go
+          </span>
+        )}
+        {hasPromoWithdrawalRestriction(summary) && (
+          <span>Withdrawable Balance: {formatWalletChips(summary.cashable)}</span>
         )}
         {(summary.integrity_held ?? 0) > 0 && (
           <span>{formatWalletChips(summary.integrity_held ?? 0)} Held For Source Review</span>
@@ -107,6 +120,11 @@ export function PromoPlayThroughInline({
           title={`${formatWalletChips(summary.locked)} Locked · ${formatWalletChips(summary.fee_remaining)} In Fees To Go`}
         >
           Promo Locked {formatWalletChips(summary.locked)} · {activePromoPercent(summary)}%
+        </span>
+      )}
+      {hasActivePromoProfit(summary) && (
+        <span className="member-promo">
+          Promo Profit Fee Progress: {activePromoProfitPercent(summary)}%
         </span>
       )}
       {(summary.expired_locked ?? 0) > 0 && (

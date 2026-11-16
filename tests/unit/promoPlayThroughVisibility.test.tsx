@@ -130,3 +130,50 @@ it('a refunded unfinished fee still shows the real remaining requirement', () =>
   expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('10');
   expect(screen.getByText('180.00 To Go · 50.00 Locked')).toBeTruthy();
 });
+
+it('shows a second balance only for wallet principal or restricted promo profits, never a review-only difference', () => {
+  const view = render(
+    <PromoPlayThroughFigure summary={{ ...active, wallet_locked: 0, locked: 50 }} />
+  );
+  expect(screen.queryByText(/Withdrawable Balance/)).toBeNull();
+  view.rerender(
+    <PromoPlayThroughFigure
+      summary={{ ...active, wallet_locked: 0, locked: 0, integrity_held: 20 }}
+    />
+  );
+  expect(screen.queryByText(/Withdrawable Balance/)).toBeNull();
+  view.rerender(<PromoPlayThroughFigure summary={{ ...active, wallet_locked: 20 }} />);
+  expect(screen.getByText('Withdrawable Balance: 30.00')).toBeTruthy();
+  view.rerender(
+    <PromoPlayThroughFigure
+      summary={{
+        ...active,
+        locked: 0,
+        wallet_locked: 0,
+        wallet_profit_locked: 10,
+        profit_locked: 10,
+        profit_fee_target: 100,
+        profit_fee_progress: 99.999,
+        profit_fee_remaining: 0.001,
+      }}
+    />
+  );
+  expect(screen.getByText('Withdrawable Balance: 30.00')).toBeTruthy();
+  expect(screen.getByText(/Promo Profit Fee Progress: 99.99%/)).toBeTruthy();
+  expect(screen.queryByRole('progressbar')).toBeNull();
+  view.rerender(
+    <PromoPlayThroughFigure
+      summary={{
+        ...active,
+        locked: 0,
+        wallet_locked: 0,
+        wallet_profit_locked: 0,
+        profit_locked: 0,
+        profit_fee_target: 100,
+        profit_fee_progress: 100,
+        profit_fee_remaining: 0,
+      }}
+    />
+  );
+  expect(view.container.textContent).toBe('');
+});

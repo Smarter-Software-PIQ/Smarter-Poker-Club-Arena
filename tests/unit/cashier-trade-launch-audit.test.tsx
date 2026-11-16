@@ -2169,7 +2169,7 @@ it.each(['player', 'agent'])(
     await waitFor(() => expect(entry).toHaveTextContent('6,000.00 Chips'));
     fireEvent.click(entry);
     const sheet = await screen.findByRole('dialog', { name: 'Request Cashout' });
-    expect(within(sheet).getByText('Available Balance')).toBeInTheDocument();
+    expect(within(sheet).getByText('Balance')).toBeInTheDocument();
     expect(within(sheet).getByText('6,000.00 Chips')).toBeInTheDocument();
     expect(within(sheet).getByRole('textbox', { name: /Amount/i })).toBeInTheDocument();
     expect(
