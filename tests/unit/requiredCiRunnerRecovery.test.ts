@@ -36,6 +36,23 @@ const normalizeRetainedOwnerScheduling = (job: { steps: Array<Record<string, unk
   job.steps.splice(index, 1);
 };
 
+const hourlyCashStep = {
+  name: 'Hourly cash caps preserve humans and pace starts and closures',
+  if: 'matrix.shard == 1',
+  'working-directory': '.',
+  env: { PG_BIN: '/usr/lib/postgresql/16/bin' },
+  run: 'python3 -B scripts/ci/test-hourly-cash-caps-postgres.py',
+};
+const normalizeHourlyCashAddition = (job: { steps: Array<Record<string, unknown>> }) => {
+  const index = job.steps.findIndex((step) => step.name === hourlyCashStep.name);
+  expect(job.steps.filter((step) => step.name === hourlyCashStep.name)).toHaveLength(1);
+  expect(job.steps[index]).toStrictEqual(hourlyCashStep);
+  expect(job.steps[index - 1]?.name).toBe('TypeScript Check (server scripts)');
+  expect(job.steps[index + 1]?.name).toBe('Freeze + watchdog + restart-gate regression suite');
+  // Pin this exact added proof; every original engine job field stays fingerprinted.
+  job.steps.splice(index, 1);
+};
+
 const backupSequenceStep = {
   name: 'Backup restore aligns standalone sequence owners',
   if: 'matrix.shard == 4',
@@ -1152,6 +1169,7 @@ describe('required CI uses a closed standard hosted capacity recovery', () => {
     accountingSteps.splice(fixedLimitIndex, 1);
     expect(normalized.jobs.server_shards['timeout-minutes']).toBe(40);
     normalized.jobs.server_shards['timeout-minutes'] = 25;
+    normalizeHourlyCashAddition(normalized.jobs.server_shards);
     normalizeRetainedOwnerScheduling(normalized.jobs.server_shards);
     normalizeUndrawnSpinAddition(normalized.jobs.accounting_postgres);
     normalizeFinishUnionAddition(normalized.jobs.accounting_postgres);
@@ -1718,28 +1736,39 @@ it('refuses missing, duplicated, moved or broadened retained-owner scheduling', 
   }
 });
 
-it('refuses a missing, duplicated, moved or weakened cash queue regression', () => {
-  for (const mutate of [
-    (job: any, index: number) => job.steps.splice(index, 1),
-    (job: any, index: number) => job.steps.push(structuredClone(job.steps[index])),
-    (job: any, index: number) => {
-      job.steps[index].if = 'false';
-    },
-    (job: any, index: number) => {
-      job.steps[index]['continue-on-error'] = true;
-    },
-    (job: any, index: number) => {
-      job.steps[index].run += ' || true';
-    },
-    (job: any, index: number) => {
-      [job.steps[index], job.steps[index + 1]] = [job.steps[index + 1], job.steps[index]];
-    },
-  ]) {
-    const job = structuredClone(ci.jobs.accounting_postgres);
-    mutate(
-      job,
-      job.steps.findIndex((step: any) => step.name === cashQueueFeedbackStep.name)
-    );
-    expect(() => normalizeCashQueueFeedbackAddition(job)).toThrow();
+it.each([
+  [
+    'cash queue',
+    ci.jobs.accounting_postgres,
+    cashQueueFeedbackStep,
+    normalizeCashQueueFeedbackAddition,
+  ],
+  ['hourly cash cap', ci.jobs.server_shards, hourlyCashStep, normalizeHourlyCashAddition],
+] as const)(
+  'refuses a missing, duplicated, moved or weakened %s regression',
+  (_name, original, step, normalize) => {
+    for (const mutate of [
+      (job: any, index: number) => job.steps.splice(index, 1),
+      (job: any, index: number) => job.steps.push(structuredClone(job.steps[index])),
+      (job: any, index: number) => {
+        job.steps[index].if = 'false';
+      },
+      (job: any, index: number) => {
+        job.steps[index]['continue-on-error'] = true;
+      },
+      (job: any, index: number) => {
+        job.steps[index].run += ' || true';
+      },
+      (job: any, index: number) => {
+        [job.steps[index], job.steps[index + 1]] = [job.steps[index + 1], job.steps[index]];
+      },
+    ]) {
+      const job = structuredClone(original);
+      mutate(
+        job,
+        job.steps.findIndex((actual: any) => actual.name === step.name)
+      );
+      expect(() => normalize(job)).toThrow();
+    }
   }
-});
+);
