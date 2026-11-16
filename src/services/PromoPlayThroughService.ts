@@ -6,6 +6,8 @@ export interface PromoPlayThroughSummary {
   locked: number;
   wallet_locked?: number;
   agent_locked?: number;
+  agent_wallet?: number | null;
+  agent_cashable?: number | null;
   wallet_profit_locked?: number;
   agent_profit_locked?: number;
   profit_locked?: number;
@@ -90,6 +92,24 @@ export function parsePromoPlayThrough(raw: unknown): PromoPlayThroughSummary {
       );
     result[key] = Number(value);
   }
+  for (const key of ['agent_wallet', 'agent_cashable'] as const) {
+    const value = row[key];
+    if (value === undefined || value === null) {
+      result[key] = null;
+    } else if (
+      (typeof value !== 'number' && typeof value !== 'string') ||
+      (typeof value === 'string' && value.trim() === '') ||
+      !Number.isFinite(Number(value)) ||
+      Number(value) < 0
+    ) {
+      throw new Error('Agent Wallet Is Unavailable');
+    } else result[key] = Number(value);
+  }
+  if (
+    (result.agent_wallet === null) !== (result.agent_cashable === null) ||
+    (result.agent_cashable ?? 0) > (result.agent_wallet ?? 0)
+  )
+    throw new Error('Agent Wallet Is Unavailable');
   if (
     (result.profit_percent ?? 0) > 100 ||
     (result.profit_fee_progress ?? 0) > (result.profit_fee_target ?? 0) ||

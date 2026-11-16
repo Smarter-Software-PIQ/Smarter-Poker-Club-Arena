@@ -1,6 +1,6 @@
 -- @install-window: daily-maintenance
 -- @locks: public.rake_attributions, public.accounting_tournament_fee_sources, public.ledger_reconcile_log
--- @live-proof: EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.rake_attributions'::regclass AND tgname='ca_promo_fee_notice' AND tgenabled='O') AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.accounting_tournament_fee_sources'::regclass AND tgname='ca_promo_entry_notice' AND tgenabled='O') AND EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public.ledger_reconcile_log'::regclass AND conname='ledger_reconcile_log_entity_type_check' AND convalidated AND position('promo_principal_custody' in pg_get_constraintdef(oid))>0) AND EXISTS (SELECT 1 FROM pg_proc WHERE oid='public.reconcile_ledger_nightly()'::regprocedure AND position('fn_ca_promo_custody_reconcile_rows' in prosrc)>0) AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.ca_promo_integrity_releases'::regclass AND tgname='ca_promo_integrity_release_notice' AND tgenabled='O') AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.ca_promo_event_fee_consumption_receipts'::regclass AND tgname='ca_promo_paid_entry_notice' AND tgenabled='O')
+-- @live-proof: EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.rake_attributions'::regclass AND tgname='ca_promo_fee_notice' AND tgenabled='O') AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.accounting_tournament_fee_sources'::regclass AND tgname='ca_promo_entry_notice' AND tgenabled='O') AND EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public.ledger_reconcile_log'::regclass AND conname='ledger_reconcile_log_entity_type_check' AND convalidated AND position('promo_principal_custody' in pg_get_constraintdef(oid))>0) AND EXISTS (SELECT 1 FROM pg_proc WHERE oid='public.reconcile_ledger_nightly()'::regprocedure AND position('fn_ca_promo_custody_reconcile_rows' in prosrc)>0) AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.ca_promo_integrity_releases'::regclass AND tgname='ca_promo_integrity_release_notice' AND tgenabled='O') AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.ca_promo_event_fee_consumption_receipts'::regclass AND tgname='ca_promo_paid_entry_notice' AND tgenabled='O') AND to_regprocedure('public.fn_ca_promo_notice_profit_unlocked(uuid,timestamptz)') IS NOT NULL AND NOT has_function_privilege('authenticated','public.fn_ca_promo_notice_profit_unlocked(uuid,timestamptz)','EXECUTE')
 -- Existing notification delivery owns push preferences, caps and devices.
 -- Notices observe original grants and accepted fees; they never settle a grant,
 -- acquire a member wallet lock, return chips or change an earned fee.
@@ -20,7 +20,7 @@ DO $dependencies$ BEGIN
 END $dependencies$;
 CREATE TABLE public.ca_promo_notice_milestones (
  grant_id uuid NOT NULL,
- milestone text NOT NULL CHECK(milestone IN('received','half','near','unlocked','manual_release')),
+ milestone text NOT NULL CHECK(milestone IN('received','half','near','unlocked','manual_release','profit_unlocked','support_override')),
  notification_id uuid UNIQUE,
  principal_amount numeric NOT NULL CHECK(principal_amount>=0),
  fee_progress numeric NOT NULL CHECK(fee_progress>=0),
@@ -61,7 +61,7 @@ BEGIN
   -- A jump to ninety gets one useful push, and a later refund cannot create
   -- an out-of-order fifty-percent message after the near-completion receipt.
   IF p_milestone='half' AND EXISTS(SELECT 1 FROM public.ca_promo_notice_milestones WHERE grant_id=p_grant AND milestone='near') THEN RETURN false; END IF;
-  title:=CASE p_milestone WHEN 'near' THEN 'Promo Play Through Almost Complete' ELSE 'Promo Play Through Halfway' END;
+  title:=CASE p_milestone WHEN 'near' THEN 'Original Promo Principal Almost Unlocked' ELSE 'Original Promo Principal Halfway' END;
   body:=trim(to_char(LEAST(p_progress,p_target),'FM999999999999990.00'))||' Of '||trim(to_char(p_target,'FM999999999999990.00'))||' In Fees Earned. The Remaining Promo Principal Unlocks When The Full Requirement Is Met.';
  END IF;
  INSERT INTO public.ca_promo_notice_milestones(grant_id,milestone,notification_id,principal_amount,fee_progress,fee_target)
@@ -75,6 +75,70 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION public.fn_ca_promo_emit_notice(uuid,text,numeric,numeric,numeric) FROM PUBLIC,anon,authenticated,service_role;
 
+-- The later W owner invokes this only on its immutable earned transition.
+-- Dynamic reads allow this private callback to install before that owner; no
+-- trigger is attached to a future table and no ratio can manufacture a release.
+CREATE FUNCTION public.fn_ca_promo_notice_profit_unlocked(p_grant uuid,p_unlocked_at timestamptz)
+RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path='public','pg_temp' AS $$
+DECLARE g public.ca_promo_play_through_grants%ROWTYPE;actual_at timestamptz;
+ n uuid:=gen_random_uuid();profit numeric;holder_clubs jsonb;notice_club uuid;target numeric;
+BEGIN
+ IF p_grant IS NULL OR p_unlocked_at IS NULL OR NOT isfinite(p_unlocked_at) THEN
+  RAISE EXCEPTION 'original_profit_earned_transition_required' USING ERRCODE='22023';END IF;
+ EXECUTE 'SELECT unlocked_at FROM public.ca_promo_profit_gates WHERE grant_id=$1' INTO actual_at USING p_grant;
+ IF actual_at IS DISTINCT FROM p_unlocked_at THEN RAISE EXCEPTION 'original_profit_earned_transition_required' USING ERRCODE='23514';END IF;
+ SELECT * INTO STRICT g FROM public.ca_promo_play_through_grants WHERE id=p_grant;
+ EXECUTE 'SELECT COALESCE(sum(amount),0),COALESCE(jsonb_agg(DISTINCT club_id),''[]''::jsonb),
+ COALESCE(min(club_id::text) FILTER(WHERE kind IN(''player_wallet'',''agent_wallet'')),min(club_id::text))::uuid
+ FROM public.ca_promo_profit_custody WHERE grant_id=$1 AND user_id=$2 AND amount>0'
+ INTO profit,holder_clubs,notice_club USING p_grant,g.user_id;
+ notice_club:=COALESCE(notice_club,g.club_id);target:=g.amount*2;
+ IF NOT EXISTS(SELECT 1 FROM public.profiles WHERE id=g.user_id) THEN n:=NULL;END IF;
+ -- This is not released original principal and never enters its digest total.
+ INSERT INTO public.ca_promo_notice_milestones(grant_id,milestone,notification_id,principal_amount,fee_progress,fee_target)
+ VALUES(g.id,'profit_unlocked',n,0,target,target) ON CONFLICT(grant_id,milestone) DO NOTHING;
+ IF NOT FOUND OR n IS NULL THEN RETURN false;END IF;
+ INSERT INTO public.notifications(id,user_id,type,title,message,link,action_url,data)
+ VALUES(n,g.user_id,'promo_play_through','Promo Profit Fee Requirement Met',
+ 'Qualifying Fees Equal To Twice The Original Grant Have Been Earned. Separate Source Review Holds Still Apply.',
+ '/hub/club-arena/wallet?club='||notice_club::text,'/hub/club-arena/wallet?club='||notice_club::text,
+ jsonb_build_object('club_id',notice_club,'source_club_id',g.club_id,'holder_club_ids',holder_clubs,
+ 'grant_id',g.id,'milestone','profit_unlocked','profit_amount',profit,'fee_target',target,'earned_at',p_unlocked_at));
+ RETURN true;
+END $$;
+REVOKE ALL ON FUNCTION public.fn_ca_promo_notice_profit_unlocked(uuid,timestamptz) FROM PUBLIC,anon,authenticated,service_role;
+
+-- A reasoned support decision refreshes the recipient without pretending
+-- that either qualifying-fee target was earned or releasing a review hold.
+CREATE FUNCTION public.fn_ca_promo_notice_support_override(p_grant uuid)
+RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path='public','pg_temp' AS $$
+DECLARE g public.ca_promo_play_through_grants%ROWTYPE;verified boolean:=false;
+ n uuid:=gen_random_uuid();notice_club uuid;
+BEGIN
+ SELECT * INTO STRICT g FROM public.ca_promo_play_through_grants WHERE id=p_grant;
+ verified:=g.closed_at IS NOT NULL AND g.close_reason='override';
+ IF NOT verified AND to_regclass('public.ca_promo_profit_overrides') IS NOT NULL THEN
+  EXECUTE 'SELECT EXISTS(SELECT 1 FROM public.ca_promo_profit_overrides WHERE grant_id=$1)' INTO verified USING p_grant;
+ END IF;
+ IF NOT COALESCE(verified,false) THEN RAISE EXCEPTION 'original_support_override_required' USING ERRCODE='23514';END IF;
+ IF to_regclass('public.ca_promo_profit_custody') IS NOT NULL THEN
+  EXECUTE 'SELECT COALESCE(min(club_id::text) FILTER(WHERE kind IN(''player_wallet'',''agent_wallet'')),min(club_id::text))::uuid
+   FROM public.ca_promo_profit_custody WHERE grant_id=$1 AND user_id=$2 AND amount>0' INTO notice_club USING p_grant,g.user_id;
+ END IF;
+ notice_club:=COALESCE(notice_club,g.club_id);
+ IF NOT EXISTS(SELECT 1 FROM public.profiles WHERE id=g.user_id) THEN n:=NULL;END IF;
+ INSERT INTO public.ca_promo_notice_milestones(grant_id,milestone,notification_id,principal_amount,fee_progress,fee_target)
+ VALUES(g.id,'support_override',n,0,0,g.fee_target) ON CONFLICT(grant_id,milestone) DO NOTHING;
+ IF NOT FOUND OR n IS NULL THEN RETURN false;END IF;
+ INSERT INTO public.notifications(id,user_id,type,title,message,link,action_url,data)
+ VALUES(n,g.user_id,'promo_play_through','Promo Restrictions Updated By Support',
+ 'Your Promo Restrictions Were Updated By Support. Separate Source Review Holds Still Apply.',
+ '/hub/club-arena/wallet?club='||notice_club::text,'/hub/club-arena/wallet?club='||notice_club::text,
+ jsonb_build_object('club_id',notice_club,'source_club_id',g.club_id,'grant_id',g.id,'milestone','support_override'));
+ RETURN true;
+END $$;
+REVOKE ALL ON FUNCTION public.fn_ca_promo_notice_support_override(uuid) FROM PUBLIC,anon,authenticated,service_role;
+
 CREATE FUNCTION public.fn_ca_promo_grant_notice() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path='public','pg_temp' AS $$
 BEGIN
@@ -87,6 +151,7 @@ BEGIN
   -- or sending the earned-completion push.
   INSERT INTO public.ca_promo_notice_milestones(grant_id,milestone,principal_amount,fee_progress,fee_target)
   VALUES(NEW.id,'manual_release',OLD.remaining,0,NEW.fee_target) ON CONFLICT DO NOTHING;
+  PERFORM public.fn_ca_promo_notice_support_override(NEW.id);
  END IF;
  RETURN NULL;
 END $$;

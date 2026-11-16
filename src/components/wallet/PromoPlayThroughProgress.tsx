@@ -7,6 +7,7 @@ import {
   activePromoProfitPercent,
   hasActivePromoProfit,
   hasPromoWithdrawalRestriction,
+  hasAgentPromoWithdrawalRestriction,
   hasActivePromoPlayThrough,
   hasPromoRestrictionDetails,
   sourceReviewHeld,
@@ -70,6 +71,15 @@ export function PromoPlayThroughFigure({ summary }: { summary: PromoPlayThroughS
         {hasPromoWithdrawalRestriction(summary) && (
           <span>Withdrawable Balance: {formatWalletChips(summary.cashable)}</span>
         )}
+        {hasAgentPromoWithdrawalRestriction(summary) &&
+          summary.agent_wallet != null &&
+          summary.agent_cashable != null && (
+            <div aria-label="Agent Wallet Restrictions">
+              <span>Agent Wallet: {formatWalletChips(summary.agent_wallet)}</span>
+              <br />
+              <span>Withdrawable Balance: {formatWalletChips(summary.agent_cashable)}</span>
+            </div>
+          )}
         {(summary.integrity_held ?? 0) > 0 && (
           <span>{formatWalletChips(summary.integrity_held ?? 0)} Held For Source Review</span>
         )}

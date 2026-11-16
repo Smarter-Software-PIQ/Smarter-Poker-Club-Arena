@@ -44,6 +44,24 @@ describe('promo notices observe original financial authority', () => {
     expect(sql).toContain("NEW.close_reason='override'");
     expect(sql).toContain("'manual_release',OLD.remaining,0,NEW.fee_target");
   });
+  it('announces the exact earned W transition separately from principal and support overrides', () => {
+    const callback = sql
+      .split('CREATE FUNCTION public.fn_ca_promo_notice_profit_unlocked(')[1]
+      .split('END $$;')[0];
+    expect(callback).toContain('actual_at IS DISTINCT FROM p_unlocked_at');
+    expect(callback).toContain('public.ca_promo_profit_gates');
+    expect(callback).toContain('public.ca_promo_profit_custody');
+    expect(callback).toContain("VALUES(g.id,'profit_unlocked',n,0,target,target)");
+    expect(callback).toContain('target:=g.amount*2');
+    expect(callback).not.toMatch(
+      /UPDATE\s+public\.|FOR\s+UPDATE|fn_ca_promo_play_through_settle|pg_advisory/
+    );
+    expect(sql).not.toMatch(/CREATE TRIGGER.*ON public\.ca_promo_profit_gates/);
+    expect(sql).toContain('Original Promo Principal Halfway');
+    expect(sql).toContain('original_support_override_required');
+    expect(sql).toContain("VALUES(g.id,'support_override',n,0,0,g.fee_target)");
+    expect(sql).toContain('fn_ca_promo_notice_support_override(NEW.id)');
+  });
   it('shows review holds separately and uses the existing authorized override', () => {
     expect(read('src/components/wallet/PromoPlayThroughProgress.tsx')).toContain(
       'Held For Source Review'

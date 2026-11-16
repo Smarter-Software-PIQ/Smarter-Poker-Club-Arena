@@ -94,3 +94,46 @@ it('parses exact wallet custody and optional two-times profit fields without gue
     parsePromoPlayThrough({ ...progress, profit_fee_target: 100, profit_fee_progress: 101 })
   ).toThrow();
 });
+
+it('reads authoritative optional agent balances without borrowing the player wallet', () => {
+  expect(parsePromoPlayThrough(progress).agent_wallet).toBeNull();
+  expect(
+    parsePromoPlayThrough({ ...progress, agent_wallet: null, agent_cashable: null }).agent_cashable
+  ).toBeNull();
+  const summary = parsePromoPlayThrough({
+    ...progress,
+    wallet_locked: 0,
+    agent_locked: 12,
+    agent_wallet: '70',
+    agent_cashable: '53',
+    agent_profit_locked: 5,
+  });
+  render(<PromoPlayThroughFigure summary={summary} />);
+  expect(screen.getByText('Agent Wallet: 70.00')).toBeTruthy();
+  expect(screen.getByText('Withdrawable Balance: 53.00')).toBeTruthy();
+  expect(screen.queryByText('Withdrawable Balance: 30.00')).toBeNull();
+  expect(() =>
+    parsePromoPlayThrough({ ...progress, agent_wallet: 70, agent_cashable: 71 })
+  ).toThrow();
+  expect(() => parsePromoPlayThrough({ ...progress, agent_wallet: 70 })).toThrow();
+});
+it('hides agent balance duplication after actual P and W restrictions end while keeping source review separate', () => {
+  const summary = {
+    ...parsePromoPlayThrough(progress),
+    wallet_locked: 0,
+    locked: 0,
+    agent_locked: 0,
+    agent_profit_locked: 5,
+    agent_wallet: 70,
+    agent_cashable: 53,
+    agent_integrity_held: 12,
+  };
+  const view = render(<PromoPlayThroughFigure summary={summary} />);
+  expect(screen.getByText('Agent Wallet: 70.00')).toBeTruthy();
+  view.rerender(
+    <PromoPlayThroughFigure summary={{ ...summary, agent_profit_locked: 0, agent_cashable: 58 }} />
+  );
+  expect(screen.queryByText(/Agent Wallet:/)).toBeNull();
+  expect(screen.queryByText(/Withdrawable Balance/)).toBeNull();
+  expect(screen.getByText('12.00 Agent Chips Held For Source Review')).toBeTruthy();
+});

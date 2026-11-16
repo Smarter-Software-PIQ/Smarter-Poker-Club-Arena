@@ -45,7 +45,8 @@ CREATE FUNCTION fn_ca_raise_drift_incident(p_source text,p_classification text,p
 RETURNS uuid LANGUAGE sql AS $$INSERT INTO test_promo_incidents(classification,entity_id,expected,actual) VALUES(p_classification,p_entity_id,p_expected,p_actual) RETURNING id$$;
 """
 def main():
- p=argparse.ArgumentParser();p.add_argument('--output',type=Path,required=True);p.add_argument('--custody-migration',type=Path,default=ROOT/'supabase/migrations/20261116153059_promo_principal_follows_its_original_grant_through_wallet_an.sql');p.add_argument('--ticket-migration',type=Path,default=ROOT/'supabase/migrations/20261116154719_promo_tickets_require_cashable_wallets_and_direct_entries_retain_principal.sql');p.add_argument('--integrity-migration',type=Path,default=ROOT/'supabase/migrations/20261116161707_suspect_promo_chip_dumping_holds_only_attributable_incoming_.sql');args=p.parse_args()
+ p=argparse.ArgumentParser();p.add_argument('--output',type=Path,required=True);p.add_argument('--custody-migration',type=Path,default=ROOT/'supabase/migrations/20261116153059_promo_principal_follows_its_original_grant_through_wallet_an.sql');p.add_argument('--ticket-migration',type=Path,default=ROOT/'supabase/migrations/20261116154719_promo_tickets_require_cashable_wallets_and_direct_entries_retain_principal.sql');p.add_argument('--integrity-migration',type=Path,default=ROOT/'supabase/migrations/20261116161707_suspect_promo_chip_dumping_holds_only_attributable_incoming_.sql');p.add_argument('--profit-migration',type=Path,default=ROOT/'supabase/migrations/20261116190221_promo_winnings_retain_original_source_until_two_times_paid_f.sql');args=p.parse_args()
+ if not args.profit_migration.exists():raise SystemExit('original profit earned transition prerequisite unavailable; provide --profit-migration')
  if not args.ticket_migration.exists():raise SystemExit('original paid fee source prerequisite unavailable; provide --ticket-migration')
  if not args.integrity_migration.exists():
   raise SystemExit('integrity source prerequisite unavailable; provide --integrity-migration')
@@ -99,6 +100,7 @@ def main():
    check('actual original bridge creates durable push',db.one("SELECT count(*) FROM push_outbox WHERE event='promo_play_through'"),'1')
    fee(99);check('below halfway does not notify',milestones(),'received')
    fee(1);check('actual cash fee crosses halfway',milestones(),'received,half')
+   check('halfway notice names original principal rather than claiming profit completion',db.one(f"SELECT title FROM notifications WHERE data->>'grant_id'='{g}' AND data->>'milestone'='half'"),'Original Promo Principal Halfway')
    fee(80);check('actual cash fee crosses ninety percent',milestones(),'received,half,near')
    fee(20);check('met_pending is not represented as completed unlock',milestones(),'received,half,near')
    check('notice reads do not close grant',db.one(f"SELECT closed_at IS NULL AND remaining=50 FROM ca_promo_play_through_grants WHERE id='{g}'"),'t')
@@ -134,6 +136,7 @@ def main():
    db.run(f"SELECT set_config('test.uid','{A}',false); SELECT fn_ca_promo_play_through_override('{C}','{base.BOB}','Reviewed Original Grant')")
    check('manual release retains exact digest principal without claiming earned unlock',db.one(f"SELECT milestone||':'||principal_amount FROM ca_promo_notice_milestones WHERE grant_id='{gb}' AND milestone='manual_release'"),'manual_release:50')
    check('manual override does not send earned completion notice',db.one(f"SELECT count(*) FROM ca_promo_notice_milestones WHERE grant_id='{gb}' AND milestone='unlocked'"),'0')
+   check('original P support decision sends a non-earned recipient refresh',db.one(f"SELECT count(*) FROM notifications WHERE data->>'grant_id'='{gb}' AND data->>'milestone'='support_override'"),'1')
    db.run(f"INSERT INTO club_members VALUES('{C}','{base.CARL}',80,'member')")
    gc=db.one(f"SELECT fn_ca_promo_play_through_record_grant('{C}','{base.CARL}',50,'club_promo',gen_random_uuid()::text,NULL,'promo_wallet','{A}',NULL)")
    concurrent=f"WITH clock AS(INSERT INTO ca_promo_cash_hand_clocks VALUES(gen_random_uuid(),'{C}',1,clock_timestamp()) RETURNING hand_id) INSERT INTO rake_attributions(hand_id,player_id,club_id,rake_amount) SELECT hand_id,'{base.CARL}','{C}',100 FROM clock"
@@ -266,6 +269,43 @@ def main():
    db.run(f"DELETE FROM profiles WHERE id='{base.STRANGER}'; WITH clock AS(INSERT INTO ca_promo_cash_hand_clocks VALUES(gen_random_uuid(),'{C}',1,clock_timestamp()) RETURNING hand_id) INSERT INTO rake_attributions(hand_id,player_id,club_id,rake_amount) SELECT hand_id,'{base.STRANGER}','{C}',40 FROM clock; SELECT fn_ca_promo_play_through_settle('{C}','{base.STRANGER}')")
    check('deleted recipient never blocks original completed closure',db.one(f"SELECT close_reason FROM ca_promo_play_through_grants WHERE id='{orphan}'"),'met')
    check('orphan completion retains accounting without claiming push delivery',db.one(f"SELECT notification_id IS NULL AND principal_amount=10 FROM ca_promo_notice_milestones WHERE grant_id='{orphan}' AND milestone='unlocked'"),'t')
+
+   # Install selected actual W gate/custody and original transition owners only
+   # after the unchanged principal-meter proof. No new fee allocator adapter.
+   profit_source=args.profit_migration.read_text()
+   profit_components={}
+   for table in ['ca_promo_profit_gates','ca_promo_profit_overrides','ca_promo_profit_fee_phases','ca_promo_profit_custody']:
+    ddl=re.search(r'CREATE TABLE public\.'+table+r' \(.*?\n\);',profit_source,re.S).group(0)
+    db.run(ddl);profit_components[table]=hashlib.sha256(ddl.encode()).hexdigest()
+   for name in ['fn_ca_promo_profit_seed','fn_ca_promo_profit_gate_is_final','fn_ca_promo_profit_earned_notice','fn_ca_promo_profit_override_member','fn_ca_promo_profit_override_notice']:
+    ddl=function(profit_source,name);db.run(ddl);profit_components[name]=hashlib.sha256(ddl.encode()).hexdigest()
+   for name in ['ca_promo_profit_seed','ca_promo_profit_gate_final','ca_promo_profit_earned_notice','ca_promo_profit_override_notice']:
+    ddl=re.search(r'CREATE TRIGGER '+name+r' .*?;',profit_source,re.S).group(0)
+    db.run(ddl);profit_components[name]=hashlib.sha256(ddl.encode()).hexdigest()
+   inputs=json.loads((args.output/'INPUTS.json').read_text());inputs.update({'profit_migration_sha256':hashlib.sha256(profit_source.encode()).hexdigest(),'profit_notice_components_sha256':profit_components});(args.output/'INPUTS.json').write_text(json.dumps(inputs,indent=2)+'\n')
+   check('profit earned callback is private',db.one("SELECT has_function_privilege('authenticated','fn_ca_promo_notice_profit_unlocked(uuid,timestamptz)','EXECUTE')"),'f')
+   wg=grant()
+   check('unmet profit gate cannot claim earned completion','original_profit_earned_transition_required' in db.run(f"SELECT fn_ca_promo_notice_profit_unlocked('{wg}',clock_timestamp())",check=False).stderr,True)
+   foreign='60000000-0000-4000-8000-000000000001'
+   db.run(f"INSERT INTO ca_promo_profit_custody VALUES('{wg}','{foreign}','{A}','agent_wallet','{A}',12)")
+   stamp=db.one(f"UPDATE ca_promo_profit_gates SET unlocked_at=clock_timestamp() WHERE grant_id='{wg}' RETURNING unlocked_at")
+   check('actual original earned transition produces one profit milestone before principal completion',db.one(f"SELECT count(*) FROM ca_promo_notice_milestones n JOIN ca_promo_play_through_grants g ON g.id=n.grant_id WHERE n.grant_id='{wg}' AND n.milestone='profit_unlocked' AND g.closed_at IS NULL AND n.principal_amount=0 AND n.fee_target=100"),'1')
+   check('earned profit notice binds actual foreign holder without substituting source club',db.one(f"SELECT user_id='{A}' AND data->>'club_id'='{foreign}' AND data->>'source_club_id'='{C}' AND data->>'profit_amount'='12' AND message LIKE '%Source Review Holds Still Apply%' FROM notifications WHERE data->>'grant_id'='{wg}' AND data->>'milestone'='profit_unlocked'"),'t')
+   db.run(f"SELECT fn_ca_promo_notice_profit_unlocked('{wg}','{stamp}'::timestamptz)")
+   check('same earned gate replay sends exactly one notification and original push',db.one(f"SELECT (SELECT count(*) FROM notifications WHERE data->>'grant_id'='{wg}' AND data->>'milestone'='profit_unlocked')=1 AND (SELECT count(*) FROM push_outbox WHERE related_entity_id IN(SELECT id FROM notifications WHERE data->>'grant_id'='{wg}' AND data->>'milestone'='profit_unlocked'))=1"),'t')
+   manual=grant()
+   db.run(f"INSERT INTO ca_promo_profit_custody VALUES('{manual}','{C}','{A}','player_wallet','{A}',5); SELECT set_config('test.uid','{A}',false); SELECT fn_ca_promo_profit_override_member('{C}','{A}','{A}','Private Support Review Detail')")
+   check('actual authorized W support decision reaches recipient refresh without leaking its note',db.one(f"SELECT n.user_id='{A}' AND n.data->>'milestone'='support_override' AND n.message NOT LIKE '%Private Support Review Detail%' AND w.unlocked_at IS NULL FROM notifications n JOIN ca_promo_profit_gates w ON w.grant_id='{manual}' WHERE n.data->>'grant_id'='{manual}' AND n.data->>'milestone'='support_override'"),'t')
+   db.run(f"SELECT fn_ca_promo_play_through_override('{C}','{A}','Private Principal Review Detail')")
+   check('P and W support decisions on one original gift deduplicate their refresh notice and push',db.one(f"SELECT (SELECT count(*) FROM notifications WHERE data->>'grant_id'='{manual}' AND data->>'milestone'='support_override')=1 AND (SELECT count(*) FROM push_outbox o JOIN notifications n ON n.id=o.related_entity_id WHERE n.data->>'grant_id'='{manual}' AND n.data->>'milestone'='support_override')=1"),'t')
+   check('support override receipt never forges earned profit completion',db.one(f"SELECT count(*) FROM ca_promo_notice_milestones WHERE grant_id='{manual}' AND milestone='profit_unlocked'"),'0')
+   empty=grant()
+   db.run(f"UPDATE ca_promo_profit_gates SET unlocked_at=clock_timestamp() WHERE grant_id='{empty}'")
+   check('earned empty-position gate still notifies original recipient with zero profit amount',db.one(f"SELECT user_id='{A}' AND data->>'club_id'='{C}' AND data->>'profit_amount'='0' FROM notifications WHERE data->>'grant_id'='{empty}' AND data->>'milestone'='profit_unlocked'"),'t')
+   check('profit milestone is excluded from original principal release totals',db.one("SELECT count(*) FROM ca_promo_notice_milestones WHERE milestone='profit_unlocked' AND principal_amount<>0"),'0')
+   removed=grant()
+   db.run(f"DELETE FROM profiles WHERE id='{A}'; UPDATE ca_promo_profit_gates SET unlocked_at=clock_timestamp() WHERE grant_id='{removed}'")
+   check('deleted recipient preserves earned profit milestone without inventing delivery',db.one(f"SELECT notification_id IS NULL AND principal_amount=0 FROM ca_promo_notice_milestones WHERE grant_id='{removed}' AND milestone='profit_unlocked'"),'t')
 
   finally:
    (args.output/'RESULTS.json').write_text(json.dumps(results,indent=2)+'\n')

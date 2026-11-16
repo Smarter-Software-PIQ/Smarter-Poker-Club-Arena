@@ -1,1 +1,18 @@
 Original production function definitions captured read-only on November 16, 2026. No data or credentials. The native test compiles and source-pins the actual nightly/daily owners, patches them with the candidate migration, and executes the nightly owner's added observation statement through the actual incident classification trigger. Only final incident storage is a test adapter. It loads the current original FIFO meter and canonical cash clocks from the custody dependency, plus the actual notification-to-push bridge. Minimal unrelated empty notification/accounting relations let the unchanged bridge resolve its original source lookup. This proves durable milestone/notification/outbox receipts, source-time fee attribution, original-funder digest arithmetic, authorization and observation; it does not send a device push or run the old unrelated nightly financial reconciliations. Full accepted-hand custody integration remains a separate maintained prerequisite. It also loads the actual original paid-fee receipt DDL/member-clock index and the original reader plus its maintained meter patch from the ticket dependency. Synthetic charge/entitlement/receipt and refund-tranche rows qualify immediate no-agreement progress, canonical-source deduplication, refund reversal and notice replay; the separate full financial proof owns the real charge producer. A thirty-thousand-row load-only set explicitly bypasses producer triggers in the disposable database to qualify the actual bounded reader plan. No earning agreement is synthesized.
+
+The earned-profit extension loads the selected actual gate/custody/phase DDL,
+seed, finality guard and earned-transition callback owner/trigger from the W
+migration. The notice callback is installed before those tables exist. Original
+earned transitions produce a separate per-grant `profit_unlocked` receipt and
+actual notification/outbox; override-only records never manufacture completion.
+Foreign physical holders and empty/deleted recipient boundaries retain original
+identity. W amounts remain separate from principal digest totals. Gate transition
+rows are typed test inputs here; actual 2× fee allocation/earning producers are
+qualified by the separate W source suite. This test does not claim that manual
+gate writes reproduce the complete fee-settlement producer.
+
+The original P override and actual guarded W override helper also qualify one
+non-earned `support_override` notification per gift. The private callback checks
+the original closed reason or immutable W override receipt, never accepts an
+admin note as delivery copy, and never touches earned timestamps or H custody.
+The existing recipient event refreshes restrictions without a wallet delta.

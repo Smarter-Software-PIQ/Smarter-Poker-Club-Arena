@@ -7,6 +7,8 @@ type VisibilitySummary = Pick<
   expired_locked?: number;
   wallet_locked?: number;
   wallet_profit_locked?: number;
+  agent_locked?: number;
+  agent_profit_locked?: number;
   profit_locked?: number;
   profit_fee_target?: number;
   profit_fee_progress?: number;
@@ -37,6 +39,10 @@ export function activePromoPercent(summary: VisibilitySummary): number {
 /** Only the authoritative restrictions in this wallet justify a second balance. */
 export function hasPromoWithdrawalRestriction(summary: VisibilitySummary): boolean {
   return (summary.wallet_locked ?? summary.locked) > 0 || (summary.wallet_profit_locked ?? 0) > 0;
+}
+
+export function hasAgentPromoWithdrawalRestriction(summary: VisibilitySummary): boolean {
+  return (summary.agent_locked ?? 0) > 0 || (summary.agent_profit_locked ?? 0) > 0;
 }
 
 export function hasActivePromoProfit(summary: VisibilitySummary): boolean {
@@ -71,6 +77,7 @@ export function hasPromoRestrictionDetails(summary: VisibilitySummary): boolean 
     hasActivePromoPlayThrough(summary) ||
     hasActivePromoProfit(summary) ||
     hasPromoWithdrawalRestriction(summary) ||
+    hasAgentPromoWithdrawalRestriction(summary) ||
     (summary.expired_locked ?? 0) > 0 ||
     sourceReviewHeld(summary) > 0
   );

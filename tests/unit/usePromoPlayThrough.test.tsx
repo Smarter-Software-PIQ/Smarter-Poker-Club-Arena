@@ -119,3 +119,45 @@ it('a stale active reply cannot resurrect a completed rendered meter, and a new 
   act(() => state.refresh?.());
   expect(await screen.findByRole('progressbar')).toBeTruthy();
 });
+
+it.each(['profit_unlocked', 'support_override'])(
+  'refreshes the actual %s notice while preserving an independent review hold and principal target',
+  async (milestone) => {
+    state.read.mockResolvedValueOnce({
+      ...figure(50),
+      wallet_profit_locked: 10,
+      integrity_held: 5,
+      cashable: 15,
+      agent_wallet: 70,
+      agent_cashable: 53,
+      agent_profit_locked: 5,
+    });
+    state.read.mockResolvedValueOnce({
+      ...figure(50),
+      wallet_profit_locked: 0,
+      integrity_held: 5,
+      cashable: 25,
+      agent_wallet: 70,
+      agent_cashable: 58,
+      agent_profit_locked: 0,
+    });
+    const hook = renderHook(() => usePromoPlayThrough('club-a', 'user-a'));
+    await waitFor(() => expect(hook.result.current.summary?.cashable).toBe(15));
+    act(() =>
+      state.refresh?.({
+        notification: {
+          type: 'promo_play_through',
+          data: {
+            milestone,
+            club_id: 'physical-club-b',
+            source_club_id: 'club-a',
+          },
+        },
+      })
+    );
+    await waitFor(() => expect(hook.result.current.summary?.cashable).toBe(25));
+    expect(hook.result.current.summary?.integrity_held).toBe(5);
+    expect(hook.result.current.summary?.fee_target).toBe(200);
+    expect(hook.result.current.summary?.agent_cashable).toBe(58);
+  }
+);
