@@ -53,6 +53,9 @@ body='''
  seed=(root/'scripts/ci/probes/bounty-rebuy-generation-atomicity.sql').read_text().split('SET LOCAL session_replication_role=origin;')[0]
  seed+=(args.ticket_tree/'tests/fixtures/promo-ticket-play-through/generation-public-financial.sql').read_text()
  e.sql(db,seed,label='actual-public-pko-entry-and-source',seconds=60)
+ terminal_case=args.ticket_tree/'tests/fixtures/promo-ticket-play-through/generation-terminal-cash-refund.sql';remember(terminal_case)
+ e.sql(db,file=terminal_case,label='actual-terminal-principal-cash-refund',seconds=60)
+ e.report['native'].append({'case':'actual-terminal-principal-cash-refund-safe-refusal','assertions':10,'limit':'Already funded terminal entry and prior refund liability are explicit openings; original fee/terminal loss and immutable financial refusal are actual. No positive postterminal refund claim.'})
  e.report['status']='passed';e.report['scope']='Actual public PKO P1 plus W1.5 payout and mystery payouts, fresh reentry/rebuy and exact replay under original financial guards; initial source investment/head/accepted hand are explicit openings.'
 finally:
  e.report['source_sha256']={**manifest['source_sha256'],**tested}
