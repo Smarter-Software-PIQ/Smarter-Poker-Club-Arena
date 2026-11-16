@@ -31,6 +31,7 @@ import {
   type HorseDecideOpts,
 } from './HorseLogic.js';
 import { HorseMind } from './HorseMind.js';
+import { withoutMeasurements } from './HorseDeclaredWork.test-support.js';
 import { drainFires, enableBrainTelemetry } from './BrainTelemetry.js';
 import {
   replayProfiles,
@@ -163,9 +164,7 @@ function playMany(ord: number, opts: HorseDecideOpts, v: Variation = {}): Outcom
     out.next.push(fastRandom());
     out.bytes.push(
       createHash('sha256')
-        .update(
-          JSON.stringify(d, (k, x) => (k === 'latencyMs' || k === 'elapsedMs' ? undefined : x))
-        )
+        .update(JSON.stringify(withoutMeasurements(d)))
         .digest('hex')
         .slice(0, 16)
     );

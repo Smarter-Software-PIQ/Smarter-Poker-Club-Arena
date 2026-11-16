@@ -67,7 +67,7 @@ import {
 import {
   OMAHA_SLOWPLAY_VARIANTS,
   omahaSlowplayAdmitsCall,
-  omahaSlowplayAdmitsCheck,
+  omahaSlowplayAdmitsCheckWithRequest,
 } from '../HorseOmahaStrongHandSlowplayMix.js';
 import { holdemFourBetSpot } from '../HorseHoldemPremiumAggression.js';
 import { tournamentShoveDiscipline } from '../HorseTournamentShoveDiscipline.js';
@@ -1426,18 +1426,19 @@ function policyGraphIsValidInScope(
       String(context.gameState.gameVariant).toLowerCase() === variant &&
       omahaSlowplayAdmitsCall(context.player, context.gameState, transition.after.amount);
     // The same option, the flop: a bet with a set on a very dry flop becomes
-    // a check at a mixed frequency. A check puts no chip in; when the request
-    // is known, only in the mix's spot (the flop, nothing to call, one or two
+    // a check at a mixed frequency. Admitted only with the request, only in
+    // the mix's spot re-run on it (the flop, nothing to call, one or two
     // opponents, a set, three suits and three ranks at least five apart).
+    // With no request this admission admits nothing (review note N2,
+    // 2026-11-16); the older bet -> check admissions above keep their own
+    // no-request form (a check puts no chip in), unchanged here.
     const omahaSlowplayBetToCheck =
       transition.node === 'wager_rules' &&
       omahaStrategyGameInScope(OMAHA_SLOWPLAY_VARIANTS, { gameVariant: variant }) &&
       transition.after.action === 'check' &&
       previous !== null &&
       previous.action === 'bet' &&
-      (context === undefined ||
-        (String(context.gameState.gameVariant).toLowerCase() === variant &&
-          omahaSlowplayAdmitsCheck(context.player, context.gameState)));
+      omahaSlowplayAdmitsCheckWithRequest(variant, context);
     // Owner 2026-11-15 11:43 (HorseOmahaStreetPlan, default-off option): a
     // heads-up turn bet facing no wager becomes a check when the plan prices
     // the check line higher. A check puts no chip in; when the request is
