@@ -18,6 +18,10 @@ const f = vi.hoisted(() => ({
 }));
 vi.mock('../../src/hooks/useAuthUser', () => ({ useAuthUser: () => f.actor }));
 vi.mock('../../src/hooks/useProfilePresence', () => ({ useOnlineNow: () => false }));
+// These cases isolate wallet events; promo progress owns a separately scoped read.
+vi.mock('../../src/hooks/useMemberPromoPlayThrough', () => ({
+  useMemberPromoPlayThrough: () => ({ members: {}, reload: vi.fn() }),
+}));
 vi.mock('../../src/hooks/useMasterBusSubscription', () => ({
   useMasterBusSubscriptions: (events: string[], callback: (p: unknown) => void) => {
     if (events.includes('BALANCE_UPDATED')) f.balanceSignal = callback;

@@ -20,6 +20,14 @@ import {
 
 const bounds = { left: 0, top: 80, width: 400, height: 720 };
 describe('only the necessary opponent spacing changes', () => {
+  it('keeps a fixed lower row even when moving down would avoid a marker', () => {
+    const field = { left: 0, top: 0, width: 50, height: 200 };
+    const pod = { left: 0, top: 90, width: 50, height: 24 };
+    const marker = { left: 0, top: 86, width: 50, height: 10 };
+    const seat = { parts: [pod], side: 1, outwardOnly: true };
+    expect(jointOpponentShifts([seat], [marker], field)).not.toBeNull();
+    expect(jointOpponentShifts([{ ...seat, fixedRow: true }], [marker], field)).toBeNull();
+  });
   it('fits the widest decoded middle bust between the fixed rail and the board at 430px', () => {
     const viewport = { left: 0, top: 0, width: 600, height: 1188 };
     const board = { left: 115.95, top: 500.75, width: 367.16, height: 100.94 };

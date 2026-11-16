@@ -675,6 +675,48 @@ try:
                       "AND NOT has_table_privilege('anon','public.ca_club_acct_fact','select') "
                       "AND NOT has_function_privilege('authenticated','public.fn_ca_club_acct_seed_day(date,boolean)','execute')") == "t",
             "no signed-in caller reads the model or runs the seed directly")
+    # Owner 2026-11-16: Pacific midnight, including fall-back Sunday. Exercise
+    # the real projection, stale seed receipts, the maintained rebuild, the
+    # screen and coverage on PostgreSQL; never install a production probe.
+    run(psql("live"), """
+      CREATE FUNCTION public.ca_club_data_snapshot_v2_union_basis(uuid,date,date,text,text,text,integer)
+        RETURNS jsonb LANGUAGE sql STABLE AS $f$ SELECT '{"day_basis":"America/Chicago 02:00"}'::jsonb $f$;
+      CREATE FUNCTION public.ca_club_data_player_totals_union_basis(uuid,date,date,text,text,text)
+        RETURNS jsonb LANGUAGE sql STABLE AS $f$ SELECT '{"day_basis":"America/Chicago 02:00"}'::jsonb $f$;
+      INSERT INTO public.accounting_cash_rake_sources
+        (id,rake_record_id,player_id,club_id,union_id,earned_at,rake_credit) VALUES
+        ('5c000000-0000-0000-0000-000000009001','e0000000-0000-0000-0000-000000000001',
+         '11111111-0000-0000-0000-000000000001','a41434bb-8d0c-400a-8f0d-e8b3d65afed4',
+         'fade0000-0000-0000-0000-000000000001','2026-11-01 06:59:59.999999+00',1),
+        ('5c000000-0000-0000-0000-000000009002','e0000000-0000-0000-0000-000000000001',
+         '11111111-0000-0000-0000-000000000001','a41434bb-8d0c-400a-8f0d-e8b3d65afed4',
+         'fade0000-0000-0000-0000-000000000001','2026-11-01 07:00:00+00',2);
+    """)
+    require(q("live", "SELECT fn_ca_accounting_day('2026-11-01 07:30+00')") == "2026-10-31",
+            "preimage reproduces the wrong date for Pacific November 1 at 00:30")
+    run(psql("live"), load("2026-10-31", True))
+    pacific = (M / "20261116141640_club_data_accounting_days_use_pacific_midnight.sql").read_text()
+    run(psql("live"), pacific)
+    require(q("live", "SELECT fn_ca_accounting_day('2026-11-01 07:30+00') = date '2026-11-01' "
+                      "AND fn_ca_accounting_day_start('2026-11-01') = timestamptz '2026-11-01 07:00+00' "
+                      "AND fn_ca_accounting_day_start('2026-11-02') - fn_ca_accounting_day_start('2026-11-01') = interval '25 hours'") == "t",
+            "Pacific midnight and its 25-hour fall-back day agree with the zone database")
+    require(q("live", "SELECT NOT EXISTS(SELECT FROM ca_club_acct_seed_log WHERE acct_day IN ('2026-10-31','2026-11-01')) "
+                      "AND EXISTS(SELECT FROM ca_club_acct_seed_log WHERE acct_day='2026-11-02')") == "t",
+            "only receipts whose day boundaries changed are invalidated; unrelated history stays certified")
+    require(q("live", "SELECT fn_ca_club_acct_coverage('a41434bb-8d0c-400a-8f0d-e8b3d65afed4','2026-10-31','2026-11-01')->>'complete'") == "false",
+            "affected history is explicitly incomplete until rebuilt from source")
+    run(psql("live"), load("2026-10-31", True) + load("2026-11-01", True))
+    require(q("live", "SELECT string_agg(acct_day::text || ':' || fee, ',' ORDER BY acct_day) FROM "
+                      "(SELECT acct_day,sum(fee) fee FROM ca_club_acct_fact WHERE club_id='a41434bb-8d0c-400a-8f0d-e8b3d65afed4' "
+                      "AND acct_day IN ('2026-10-31','2026-11-01') GROUP BY 1) s") == "2026-10-31:1,2026-11-01:3.00",
+            "maintained history rebuild moves the boundary event exactly once and preserves the pair's total")
+    require(q("live", "SELECT ca_club_data_screen_union_basis('a41434bb-8d0c-400a-8f0d-e8b3d65afed4', '2026-11-02','2026-11-08')->>'day_basis'")
+            == "America/Los_Angeles 00:00",
+            "the real screen states the Pacific basis after metadata replacement")
+    require(q("live", "SELECT (fn_ca_club_acct_coverage('a41434bb-8d0c-400a-8f0d-e8b3d65afed4','2026-11-02','2026-11-08')->>'day_zone') "
+                      "|| '/' || (fn_ca_club_acct_coverage('a41434bb-8d0c-400a-8f0d-e8b3d65afed4','2026-11-02','2026-11-08')->>'day_boundary')")
+            == "America/Los_Angeles/00:00", "coverage states the real Pacific boundary")
     print('{"native_fixture": "passed", "production_installation": false}')
 finally:
     if started:

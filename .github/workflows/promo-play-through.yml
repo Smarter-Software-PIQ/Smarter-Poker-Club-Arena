@@ -22,6 +22,11 @@ on:
       - scripts/ci/fixtures/promo-ticket-play-through/**
       - tests/fixtures/promo-ticket-play-through/**
       - tests/fixtures/ev-cashout-lifecycle/captured-authorities.json
+      - scripts/ci/test-promo-fee-basis.py
+      - tests/fixtures/promo-fee-basis/**
+      - scripts/ci/fixtures/unpaid-atomic-cash-contract-columns.json
+      - scripts/ci/fixtures/rakeback-cascade-real-guards/production-relations.json
+      - scripts/ci/fixtures/rakeback-cascade-real-guards/world.py
       - .github/workflows/promo-play-through.yml
 
 permissions:
@@ -48,6 +53,8 @@ jobs:
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 -B scripts/ci/test-promo-ticket-play-through.py --output artifacts/promo-ticket-play-through
+      - name: Promo fees preserve gross rake and exclude free earnings
+        run: python3 -B scripts/ci/test-promo-fee-basis.py --pg-bin /usr/lib/postgresql/17/bin --output artifacts/promo-fee-basis
       - name: Retain the regression evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -56,5 +63,6 @@ jobs:
           path: |
             artifacts/promo-play-through/RESULTS.json
             artifacts/promo-ticket-play-through/RESULTS.json
+            artifacts/promo-fee-basis/RESULTS.json
           retention-days: 7
           if-no-files-found: warn
