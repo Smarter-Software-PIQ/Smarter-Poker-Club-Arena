@@ -3949,6 +3949,14 @@ jobs:
       - name: TypeScript Check (server scripts)
         run: npx tsc -p tsconfig.scripts.json --noEmit
 
+      # Exercise the cash policy on the runner's installed PostgreSQL as well
+      # as native PG17; the driver discovers the bundled major without a new
+      # runner, service, install step or skip when ubuntu-latest advances.
+      - name: Hourly cash caps preserve humans and pace starts and closures
+        if: matrix.shard == 1
+        working-directory: .
+        run: python3 -B scripts/ci/test-hourly-cash-caps-postgres.py
+
       # BLOCKING. Named explicitly so it is obvious in the job log which
       # regressions are being defended, and so deleting them is a visible diff.
       # PHASE 2 (2026-09-02): the restart gate's pins ride the named regression

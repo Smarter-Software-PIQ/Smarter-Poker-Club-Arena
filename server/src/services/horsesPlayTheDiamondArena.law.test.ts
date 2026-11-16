@@ -116,8 +116,10 @@ describe('the arena never reaches a chip-floor planner', () => {
   it('the chip table list is unchanged and the arena joins only the seeding walk', () => {
     expect(SEED).toContain('const tables = tablePage.rows.filter(isChipFleetTable);');
     expect(SEED).toContain('const orderedTables = [...tables, ...diamondTables].sort(');
-    // every chip-floor planner is handed `tables`, never the arena list
-    expect(SEED).toMatch(/this\.claimOfferedSeats\(\s*tables,/);
+    // Hourly admission may narrow the original chip list, never add arena tables.
+    expect(SEED).toMatch(
+      /this\.claimOfferedSeats\(\s*tables\.filter\(\(table\) => hourlyAdmissions\.has\(table\.id\)\),/
+    );
     expect(SEED).not.toMatch(/claimOfferedSeats\(\s*\[\.\.\.tables, \.\.\.diamondTables\]/);
     expect(FLEET).not.toMatch(/openPlannedTables\([^)]*diamondTables/);
     expect(FLEET).not.toMatch(/fn_cash_game_ensure[\s\S]{0,400}diamondTables/);
