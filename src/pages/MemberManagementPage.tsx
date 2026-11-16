@@ -1229,6 +1229,8 @@ export default function MemberManagementPage() {
         )}
         {wallets && resolvedClubId && userId && (
           <MemberPromoPlayThrough
+            key={`${resolvedClubId}:${userId}`}
+            canOverride={myRoleLoaded && ['owner', 'co_owner', 'admin'].includes(myRole)}
             clubId={resolvedClubId}
             userId={userId}
             revision={recordRevision}

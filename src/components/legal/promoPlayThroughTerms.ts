@@ -1,0 +1,3 @@
+/** Shared by the actual pre-play agreement and its published full terms. */
+export const PROMO_PLAY_THROUGH_TERMS =
+  'Promo Chips Require Fees Equal To Four Times The Original Grant Before The Remaining Promo Principal Can Be Cashed Out, Transferred Or Claimed Back By An Agent. Profit And Your Own Chips Stay Cashable. Unrestricted Chips Are Used First; Losing All Remaining Promo Principal Ends That Grant Permanently. Remaining Promo Principal Expires After 30 Days, With Maintenance Time Preserved. Purchased Or Sent Tickets Must Use Cashable Chips. Direct Promo-Funded Tournament Entries Keep The Same Requirement. Suspected Chip Dumping May Place Received Chips Under A Separate Source Review Hold.';

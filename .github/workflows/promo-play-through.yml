@@ -14,6 +14,11 @@ on:
     paths:
       - supabase/migrations/*_promo_play_through_*.sql
       - scripts/ci/test-promo-play-through.py
+      - supabase/migrations/*_promo_grant_notices_*.sql
+      - scripts/ci/test-promo-notices.py
+      - supabase/migrations/*_promo_principal_follows_*.sql
+      - supabase/migrations/*_suspect_promo_chip_dumping_*.sql
+      - tests/fixtures/promo-notices/**
       - .github/workflows/promo-play-through.yml
 
 permissions:
@@ -36,11 +41,19 @@ jobs:
         env:
           PG_BIN: /usr/lib/postgresql/17/bin
         run: python3 scripts/ci/test-promo-play-through.py --output artifacts/promo-play-through
+      - name: Promo notices use original fees and the existing push bridge
+        env:
+          PG_BIN: /usr/lib/postgresql/17/bin
+        run: python3 scripts/ci/test-promo-notices.py --output artifacts/promo-notices
       - name: Retain the regression evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: promo-play-through-${{ github.run_id }}-${{ github.run_attempt }}
-          path: artifacts/promo-play-through/RESULTS.json
+          path: |
+            artifacts/promo-play-through/RESULTS.json
+            artifacts/promo-notices/RESULTS.json
+            artifacts/promo-notices/INPUTS.json
+            artifacts/promo-notices/PERFORMANCE.json
           retention-days: 7
           if-no-files-found: warn

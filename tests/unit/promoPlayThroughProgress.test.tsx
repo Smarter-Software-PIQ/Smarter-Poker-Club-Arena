@@ -25,6 +25,37 @@ describe('promo play-through progress', () => {
     expect(screen.getByText('76.00 To Go · 50.00 Locked')).toBeTruthy();
     expect(screen.getByText('30.00 Cashable')).toBeTruthy();
   });
+  it('prints integrity review holds separately from the promo fee target', () => {
+    render(
+      <PromoPlayThroughFigure
+        summary={parsePromoPlayThrough({
+          ...progress,
+          integrity_held: 12,
+          agent_integrity_held: '7',
+        })}
+      />
+    );
+    expect(screen.getByText('12.00 Held For Source Review')).toBeTruthy();
+    expect(screen.getByText('7.00 Agent Chips Held For Source Review')).toBeTruthy();
+    expect(screen.getByText('124.00 Of 200.00 In Fees')).toBeTruthy();
+  });
+  it('shows expired principal awaiting return separately from fee progress', () => {
+    render(
+      <PromoPlayThroughFigure
+        summary={parsePromoPlayThrough({ ...progress, expired_locked: 10 })}
+      />
+    );
+    expect(
+      screen.getByText('10.00 Expired Promo Awaiting Return To Its Original Fund')
+    ).toBeTruthy();
+    expect(screen.getByText('124.00 Of 200.00 In Fees')).toBeTruthy();
+    expect(parsePromoPlayThrough(progress).expired_locked).toBe(0);
+    expect(() => parsePromoPlayThrough({ ...progress, expired_locked: null })).toThrow();
+  });
+  it('refuses a malformed review hold instead of dropping it', () => {
+    expect(() => parsePromoPlayThrough({ ...progress, integrity_held: null })).toThrow();
+    expect(() => parsePromoPlayThrough({ ...progress, agent_integrity_held: -1 })).toThrow();
+  });
   it('accepts numeric database values without rounding money', () => {
     expect(parsePromoPlayThrough({ ...progress, locked: '50.25' }).locked).toBe(50.25);
   });

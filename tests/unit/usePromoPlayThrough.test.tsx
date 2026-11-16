@@ -1,11 +1,16 @@
 import { act, renderHook, waitFor, cleanup } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-const state = vi.hoisted(() => ({ read: vi.fn(), refresh: null as null | (() => void) }));
+const state = vi.hoisted(() => ({
+  read: vi.fn(),
+  refresh: null as null | ((payload?: unknown) => void),
+  events: [] as string[],
+}));
 vi.mock('../../src/services/PromoPlayThroughService', () => ({
   readMyPromoPlayThrough: state.read,
 }));
 vi.mock('../../src/hooks/useMasterBusSubscription', () => ({
-  useMasterBusSubscriptions: (_events: unknown, callback: () => void) => {
+  useMasterBusSubscriptions: (events: string[], callback: (payload?: unknown) => void) => {
+    state.events = events;
     state.refresh = callback;
   },
 }));
@@ -70,4 +75,22 @@ it('a later refresh wins over an earlier in-flight response', async () => {
   await waitFor(() => expect(hook.result.current.summary?.locked).toBe(0));
   await act(async () => older(figure(50)));
   expect(hook.result.current.summary?.locked).toBe(0);
+});
+
+it('refreshes a reviewed hold from its actual notification event without changing the promo target', async () => {
+  state.read.mockResolvedValueOnce({ ...figure(50), integrity_held: 20, cashable: 10 });
+  state.read.mockResolvedValueOnce({ ...figure(50), integrity_held: 0, cashable: 30 });
+  const hook = renderHook(() => usePromoPlayThrough('club-a', 'user-a'));
+  await waitFor(() => expect(hook.result.current.summary?.cashable).toBe(10));
+  expect(state.events).toContain('NOTIFICATION_RECEIVED');
+  act(() => state.refresh?.({ notification: { type: 'chat_message' } }));
+  expect(state.read).toHaveBeenCalledTimes(1);
+  act(() =>
+    state.refresh?.({
+      notification: { type: 'promo_play_through', metadata: { event: 'source_review_released' } },
+    })
+  );
+  await waitFor(() => expect(hook.result.current.summary?.cashable).toBe(30));
+  expect(hook.result.current.summary?.locked).toBe(50);
+  expect(hook.result.current.summary?.fee_target).toBe(200);
 });

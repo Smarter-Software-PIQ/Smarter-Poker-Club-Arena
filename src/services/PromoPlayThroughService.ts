@@ -4,6 +4,11 @@ import { isUUID, resolveClubUUID } from '../utils/clubIdResolver';
 
 export interface PromoPlayThroughSummary {
   locked: number;
+  expired_locked?: number;
+  integrity_available?: boolean;
+  integrity_held?: number;
+  agent_integrity_held?: number;
+  integrity_total_held?: number;
   open_grants: number;
   fee_target: number;
   fee_progress: number;
@@ -40,6 +45,26 @@ export function parsePromoPlayThrough(raw: unknown): PromoPlayThroughSummary {
     ) {
       throw new Error('Promo Progress Is Unavailable');
     }
+    result[key] = Number(value);
+  }
+  result.integrity_available =
+    row.integrity_held !== undefined && row.agent_integrity_held !== undefined;
+  for (const key of [
+    'integrity_held',
+    'agent_integrity_held',
+    'integrity_total_held',
+    'expired_locked',
+  ] as const) {
+    const value = row[key] === undefined ? 0 : row[key];
+    if (
+      (typeof value !== 'number' && typeof value !== 'string') ||
+      (typeof value === 'string' && value.trim() === '') ||
+      !Number.isFinite(Number(value)) ||
+      Number(value) < 0
+    )
+      throw new Error(
+        key === 'expired_locked' ? 'Expired Promo Is Unavailable' : 'Review Hold Is Unavailable'
+      );
     result[key] = Number(value);
   }
   if (
@@ -97,4 +122,26 @@ export async function readMemberPromoPlayThrough(
     if (data.members[id]) members[id] = parsePromoPlayThrough(data.members[id]);
   }
   return members;
+}
+
+/** Existing owner/admin door records its actor and required reason atomically. */
+export async function overrideMemberPromoPlayThrough(
+  clubId: string,
+  userId: string,
+  reason: string
+) {
+  if (!isUUID(clubId) || !isUUID(userId) || !reason.trim())
+    throw new Error('A Member And An Unlock Reason Are Required');
+  const { data, error } = await runWithRequestDeadline((signal) =>
+    supabase
+      .rpc('fn_ca_promo_play_through_override', {
+        p_club_id: clubId,
+        p_user_id: userId,
+        p_note: reason.trim(),
+      })
+      .abortSignal(signal)
+  );
+  if (error) throw error;
+  if (data?.success !== true) throw new Error(data?.error || 'Promo Unlock Could Not Be Confirmed');
+  return data;
 }

@@ -40,6 +40,27 @@ export function PromoPlayThroughFigure({ summary }: { summary: PromoPlayThroughS
           Locked
         </span>
         <span>{formatWalletChips(summary.cashable)} Cashable</span>
+        {(summary.integrity_held ?? 0) > 0 && (
+          <span>{formatWalletChips(summary.integrity_held ?? 0)} Held For Source Review</span>
+        )}
+        {(summary.agent_integrity_held ?? 0) > 0 && (
+          <span>
+            {formatWalletChips(summary.agent_integrity_held ?? 0)} Agent Chips Held For Source
+            Review
+          </span>
+        )}
+        {(summary.integrity_total_held ?? 0) >
+          (summary.integrity_held ?? 0) + (summary.agent_integrity_held ?? 0) && (
+          <span>
+            {formatWalletChips(summary.integrity_total_held ?? 0)} Total Held For Source Review
+          </span>
+        )}
+        {(summary.expired_locked ?? 0) > 0 && (
+          <span>
+            {formatWalletChips(summary.expired_locked ?? 0)} Expired Promo Awaiting Return To Its
+            Original Fund
+          </span>
+        )}
         {summary.next_expiry_at && (
           <span>Next Expiry: {new Date(summary.next_expiry_at).toLocaleDateString()}</span>
         )}
