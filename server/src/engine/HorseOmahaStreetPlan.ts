@@ -52,6 +52,13 @@ import type { HorseGameStateV2 } from './HorseLogic.js';
 import type { SeatPlayer } from '../types.js';
 import { omahaBoardShape, scoreOmahaHi, variantInfo } from './HorseEval.js';
 import { RANKS, SUITS } from './PokerEngine.js';
+import { omahaCashOnlyExcludes } from './HorseOmahaTournamentScope.js';
+import {
+  omahaStrategyGameInScope,
+  omahaStrategyConstant,
+  omahaStrategyHoleCount,
+  omahaStrategyHoleCountServed,
+} from './HorseOmahaStrategyGame.js';
 
 export const OMAHA_STREET_PLAN_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
 
@@ -269,7 +276,7 @@ const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.m
  */
 export function omahaStreetPlan(input: OmahaPlanInput): OmahaStreetPlan | null {
   const { hole, board } = input;
-  if (board.length !== 4 || (hole.length !== 4 && hole.length !== 5)) return null;
+  if (board.length !== 4 || !omahaStrategyHoleCountServed(hole.length)) return null;
   const pot = input.pot;
   const eff = Math.min(input.heroStack, input.oppStack);
   if (!(pot > 0) || !(eff > 0)) return null;
@@ -656,8 +663,14 @@ const live = (hero: SeatPlayer, gs: HorseGameStateV2): SeatPlayer[] =>
 export function omahaStreetPlanDomain(hero: SeatPlayer, gs: HorseGameStateV2): SeatPlayer | null {
   try {
     const variant = String(gs.gameVariant ?? '').toLowerCase();
-    if (!OMAHA_STREET_PLAN_VARIANTS.has(variant)) return null;
-    if (gs.gameMode !== undefined && gs.gameMode !== 'cash') return null;
+    if (!omahaStrategyGameInScope(OMAHA_STREET_PLAN_VARIANTS, gs)) return null;
+    // Cash only; omahaStrategyInTournaments opens its public tournament scope.
+    if (
+      gs.gameMode !== undefined &&
+      gs.gameMode !== 'cash' &&
+      !(gs.gameMode === 'tournament' && !omahaCashOnlyExcludes(hero, gs))
+    )
+      return null;
     if (gs.bettingStructure !== undefined && gs.bettingStructure !== 'pot_limit') return null;
     if ((gs.boardCount ?? 1) !== 1 || gs.communityCards2?.length || gs.communityCards3?.length)
       return null;
@@ -666,8 +679,7 @@ export function omahaStreetPlanDomain(hero: SeatPlayer, gs: HorseGameStateV2): S
     if (hiLo) return null;
     const opp = live(hero, gs);
     if (opp.length !== 1 || opp[0].is_all_in || !(opp[0].stack > 0)) return null;
-    if (!Array.isArray(hero.cards) || (hero.cards.length !== 4 && hero.cards.length !== 5))
-      return null;
+    if (!Array.isArray(hero.cards) || hero.cards.length !== omahaStrategyHoleCount(gs)) return null;
     return opp[0];
   } catch {
     return null;
@@ -734,7 +746,10 @@ export function omahaStreetPlanAdmitsCheck(
       callVeto: () => true,
     });
     if (!plan || !plan.lines[1]) return false;
-    return plan.lines[0].ev > plan.lines[1].ev + OMAHA_STREET_PLAN_MARGIN_POT_SHARE * gs.pot;
+    return (
+      plan.lines[0].ev >
+      plan.lines[1].ev + omahaStrategyConstant('streetPlanMarginPotShare', gs) * gs.pot
+    );
   } catch {
     return false;
   }
@@ -796,9 +811,12 @@ export function omahaPlanHeroInPosition(
  * THE PLAN PERSISTS BY RECOMPUTATION. On the river, facing a bet after the
  * Horse's own turn bet was called, this rebuilds the turn decision from the
  * public action history (pot, stacks, position, the opponent's flop line) so
- * the caller can recompute the plan the turn bet was made under. Null when
- * the hand did not go: Horse bets the turn, opponent calls, Horse has put
- * nothing in on the river, opponent bets.
+ * the caller can recompute the plan the turn bet was made under. `turn` is
+ * the turn decision node itself as the Horse saw it (its own seat, the
+ * opponent's and the game state before the bet), which the caller needs to
+ * rebuild the plan's facing-bet seam (callVeto) exactly as the turn built it.
+ * Null when the hand did not go: Horse bets the turn, opponent calls, Horse
+ * has put nothing in on the river, opponent bets.
  */
 export function omahaPlanTurnStateFromRiver(
   hero: SeatPlayer,
@@ -808,6 +826,7 @@ export function omahaPlanTurnStateFromRiver(
   input: Omit<OmahaPlanInput, 'tendency' | 'callVeto'>;
   river: Card;
   faced: number;
+  turn: { hero: SeatPlayer; opp: SeatPlayer; gs: HorseGameStateV2 };
 } | null {
   try {
     const board = gs.communityCards ?? [];
@@ -834,10 +853,38 @@ export function omahaPlanTurnStateFromRiver(
       ...gs,
       actionHistory: (gs.actionHistory ?? []).filter((a) => String((a as Act).stage) !== 'river'),
     } as HorseGameStateV2;
+    // The turn node before the bet: chips back in the stacks, the bet and the
+    // call taken out of the history, four board cards, nothing to call.
+    const heroAtTurn: SeatPlayer = {
+      ...hero,
+      stack: cent(hero.stack + bet),
+      bet: 0,
+      totalInvested: cent(Math.max(0, Number(hero.totalInvested ?? 0) - bet)),
+    };
+    const oppAtTurn: SeatPlayer = {
+      ...opp,
+      stack: cent(opp.stack + oppIn + bet),
+      bet: 0,
+      totalInvested: cent(Math.max(0, Number(opp.totalInvested ?? 0) - oppIn - bet)),
+      is_all_in: false,
+    };
+    const gsAtTurn = {
+      ...gs,
+      stage: 'turn',
+      communityCards: board.slice(0, 4),
+      pot,
+      currentBet: 0,
+      toCall: 0,
+      players: (gs.players ?? []).map((p) =>
+        p.seat === hero.seat ? heroAtTurn : p.seat === opp.seat ? oppAtTurn : p
+      ),
+      actionHistory: (turnGs.actionHistory ?? []).filter((a) => a !== mine && a !== his),
+    } as unknown as HorseGameStateV2;
     return {
       opp,
       river: board[4],
       faced,
+      turn: { hero: heroAtTurn, opp: oppAtTurn, gs: gsAtTurn },
       input: {
         hole: hero.cards,
         board: board.slice(0, 4),

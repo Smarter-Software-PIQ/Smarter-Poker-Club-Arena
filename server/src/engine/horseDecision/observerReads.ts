@@ -25,6 +25,7 @@ import {
   type HorseWinnerReadState,
 } from '../HorseWinnerRead.js';
 import type { FlopStabCounters } from '../HorseOpponentExploit.js';
+import { profileQualification } from '../HorseOpponentStyle.js';
 import type { FastHorseDecisionRequest, ObserveCompletedHandRequest } from './protocol.js';
 
 export interface HorseObserverReadReceipt {
@@ -650,6 +651,18 @@ export class HorseObserverReads {
             read
           );
       }
+    // THE PROFILE COMPLETENESS CAP (2026-11-15, option holdemProfileCompletenessCap, default off): a pooled exact or
+    // donor row whose stored profile is not complete (back-fill pending, or no public domain on file) is named in
+    // the decision's own detached state, so the style read caps its confidence. With the option off nothing is
+    // carried, so the state, the read frame and the decision are exactly what they were.
+    const pooledProfileIncomplete = new Map<string, true>();
+    if (pooled && request.opts?.holdemProfileCompletenessCap === true)
+      for (const row of [...pooled.rows, ...pooled.donors.map((d) => d.profile)])
+        if (!profileQualification(row).complete)
+          pooledProfileIncomplete.set(
+            opponentMemoryKey(row.user_id, row.variant, row.mode, row.size),
+            true
+          );
     // Public counters use a detached map. Individual observations, dedupe
     // and private plans retain this horse's original ownership.
     const executionState =
@@ -662,6 +675,7 @@ export class HorseObserverReads {
                   ...(pooled.donors.length ? { donorStaleness: new Map<string, number>() } : {}),
                   ...(pooledProvenance.size ? { pooledProvenance } : {}),
                   ...(pooledShownRiver.size ? { pooledShownRiver } : {}),
+                  ...(pooledProfileIncomplete.size ? { pooledProfileIncomplete } : {}),
                   ...(floorBootEligible ? { flopStab: new Map(entry.state.flopStab ?? []) } : {}),
                 }
               : {}),

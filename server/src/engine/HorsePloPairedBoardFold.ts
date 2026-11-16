@@ -27,6 +27,7 @@
  */
 import type { Card, SeatPlayer } from '../types.js';
 import { omahaDrawQuality, scoreOmahaHiPartial } from './HorseEval.js';
+import { omahaStrategyGameInScope, omahaStrategyConstant } from './HorseOmahaStrategyGame.js';
 
 export const PLO_PAIRED_BOARD_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5', 'plo6']);
 const FULL_HOUSE = 7;
@@ -133,6 +134,12 @@ export interface PairedBoardFoldPriceInput {
   currentBet: number;
   toCall?: number;
   pot: number;
+  /**
+   * omahaStrategyInTournaments: the engine's tournament survival premium
+   * (icmRisk); the price exception then asks price + icmRisk x sqrt(stack
+   * share of the call) to be within its bar. 0 or absent: cash, unchanged.
+   */
+  icmRisk?: number;
 }
 
 /** The call price the exception reads: the call over the pot after it, uncalled excess removed. */
@@ -151,10 +158,20 @@ export function ploPairedBoardCallPrice(i: PairedBoardFoldPriceInput): number | 
 /** True when the paired-board fold stands aside for the price (the caller checks the fold itself, cash and the option). */
 export function ploPairedBoardFoldRespectsPrice(i: PairedBoardFoldPriceInput): boolean {
   try {
-    if (!PAIRED_FOLD_RESPECTED_VARIANTS.has(String(i.gameVariant ?? '').toLowerCase()))
-      return false;
-    const price = ploPairedBoardCallPrice(i);
-    if (price === null || price > PAIRED_FOLD_RESPECTED_MAX_PRICE + 1e-9) return false;
+    if (!omahaStrategyGameInScope(PAIRED_FOLD_RESPECTED_VARIANTS, i)) return false;
+    const price0 = ploPairedBoardCallPrice(i);
+    if (price0 === null) return false;
+    const risk =
+      Number.isFinite(i.icmRisk) && (i.icmRisk as number) > 0 ? (i.icmRisk as number) : 0;
+    const heroStack = Number.isFinite(i.hero.stack) ? Math.max(0, i.hero.stack) : 0;
+    const owed = Number.isFinite(i.toCall)
+      ? Math.max(0, i.toCall as number)
+      : Math.max(0, (i.currentBet || 0) - (i.hero.bet || 0));
+    const callChips = Math.min(owed, heroStack);
+    const price =
+      price0 +
+      (risk > 0 && heroStack > 0 ? risk * Math.sqrt(Math.min(1, callChips / heroStack)) : 0);
+    if (price > omahaStrategyConstant('pairedFoldRespectedMaxPrice', i) + 1e-9) return false;
     const hole = i.hero.cards;
     if (!Array.isArray(hole) || hole.length < 4) return false;
     const category = Math.floor(scoreOmahaHiPartial(hole, i.board) / 0x100000);
@@ -175,7 +192,10 @@ export function ploPairedBoardFoldRespectsPrice(i: PairedBoardFoldPriceInput): b
     const invested = Number.isFinite(i.hero.totalInvested)
       ? Math.max(0, i.hero.totalInvested as number)
       : 0;
-    return invested / (invested + call) >= PAIRED_FOLD_RESPECTED_INVESTED_SHARE - 1e-9;
+    return (
+      invested / (invested + call) >=
+      omahaStrategyConstant('pairedFoldRespectedInvestedShare', i) - 1e-9
+    );
   } catch {
     return false;
   }

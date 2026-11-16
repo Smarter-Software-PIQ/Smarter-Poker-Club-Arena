@@ -129,12 +129,14 @@ import {
 } from './HorseEval.js';
 import { omahaNutClassOuts } from './HorseOmahaOnePair.js';
 import { handClassRead, omahaEliteClassRead } from './HorseHandClasses.js';
+import { omahaCashOnlyExcludes } from './HorseOmahaTournamentScope.js';
 import {
   RERAISED_POT_VARIANTS,
   omahaReraisedEquity,
   omahaReraisedPremium,
   preflopRaiseCount,
 } from './HorseOmahaReraisedPot.js';
+import { omahaStrategyGameInScope } from './HorseOmahaStrategyGame.js';
 
 /** Stack-to-pot ratio after the call under which the call is a commitment. */
 export const OOP_COMMIT_MAX_SPR = 1;
@@ -251,7 +253,7 @@ export interface OmahaOopReraisedVerdict {
  * is a call and that the last raiser is not all in.
  */
 export function omahaOopReraisedCallCell(i: OmahaOopReraisedInput): OmahaOopReraisedVerdict | null {
-  if (!RERAISED_POT_VARIANTS.has(i.variant)) return null;
+  if (!omahaStrategyGameInScope(RERAISED_POT_VARIANTS, { gameVariant: i.variant })) return null;
   if (i.hiLo || i.multiBoard || i.bombPot || i.tournament || i.allInOrFold) return null;
   if (i.hole.length !== 4 && i.hole.length !== 5) return null;
   if (i.preflopRaises < 2) return null;
@@ -346,7 +348,7 @@ export interface OmahaFlopContinueInput {
 export function omahaReraisedFlopContinueCell(
   i: OmahaFlopContinueInput
 ): { fold: boolean; reason: OmahaFlopContinueReason } | null {
-  if (!RERAISED_POT_VARIANTS.has(i.variant)) return null;
+  if (!omahaStrategyGameInScope(RERAISED_POT_VARIANTS, { gameVariant: i.variant })) return null;
   if (i.hiLo || i.multiBoard || i.bombPot || i.tournament) return null;
   if (i.hole.length !== 4 && i.hole.length !== 5) return null;
   if (i.board.length !== 3) return null;
@@ -408,7 +410,7 @@ export type OmahaReraiseByPositionVerdict =
 export function omahaReraiseByPositionCell(
   i: OmahaReraiseByPositionInput
 ): OmahaReraiseByPositionVerdict | null {
-  if (!RERAISED_POT_VARIANTS.has(i.variant)) return null;
+  if (!omahaStrategyGameInScope(RERAISED_POT_VARIANTS, { gameVariant: i.variant })) return null;
   if (i.hiLo || i.multiBoard || i.bombPot || i.tournament || i.allInOrFold) return null;
   if (i.hole.length !== 4 && i.hole.length !== 5) return null;
   if (i.preflopRaises !== 1 && i.preflopRaises !== 2) return null;
@@ -517,9 +519,8 @@ export function omahaReraiseByPositionSpot(
   const stillToAct = live.some(
     (p) => !p.is_all_in && Number.isFinite(p.bet) && (p.bet ?? 0) < price - 0.005
   );
-  const tournament = gs.gameMode
-    ? gs.gameMode === 'tournament'
-    : gs.tournament != null || (gs.bigBlind ?? 0) >= 10;
+  // Cash only; omahaStrategyInTournaments opens its public tournament scope.
+  const tournament = omahaCashOnlyExcludes(player, gs);
   return {
     raiserSeat,
     toCall,

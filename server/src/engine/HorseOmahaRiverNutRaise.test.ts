@@ -320,14 +320,17 @@ describe('the worker receipt for the raise that became a call', () => {
   it('is refused when the request it came with would not have produced it', () => {
     const s = spot(smaller);
     const d = decideOne(s);
-    // The same receipt against a request in which the Horse holds the nuts.
+    // The same receipt against a request in which the Horse holds the nuts is
+    // admitted since omahaStrongHandSlowplayMix (owner 2026-11-15 14:13): a
+    // nut-class raise facing a bet may become the call, and the request
+    // carries neither the option nor the draw (omahaSlowplayAdmitsCall).
     const nuts = spot({ ...smaller, hole: NUT_STRAIGHT });
     expect(
       horseDecisionReceiptRefusal(structuredClone(d), 'plo5', {
         player: nuts.hero,
         gameState: nuts.gs,
       })
-    ).toBe('policy_graph');
+    ).toBeNull();
     // And never in a game the rule does not govern.
     expect(horseDecisionReceiptRefusal(structuredClone(d), 'nlh')).not.toBeNull();
   });

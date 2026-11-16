@@ -21,6 +21,8 @@ Default OFF in source (read `=== true`). On live only by an option-switch row wh
 
 omaha_paired_river_thin_lead (see ledger)
 
+omaha_paired_river_thin_lead_checked, omaha_paired_river_thin_lead_withheld. Every other paired-river line (2026-11-15 follow-up, omahaPairedBoardNoBoatSpot; each opponent a measured value leader, no nut-class hand): omaha_paired_board_no_boat_oop_bet_checked (out of position the bet is a check), omaha_paired_board_no_boat_ip_bet_checked_by_price (in position, heads-up, a check only when the priced comparison says the check is worth more).
+
 ## Tests
 
 HorseOmahaOopChecks.test.ts, HorseOmahaStrategyPrecedence.test.ts (all pass on the PLO strategy head; server tsc 0).

@@ -35,6 +35,7 @@ import {
 } from './workerRuntime.js';
 import { counters } from '../HorseOpponentStyle.test-support.js';
 import { addShownRiverEvidence, type ShownRiverRecord } from '../HorseLongShownMemory.js';
+import { OptionSwitchHolder, optionSwitchSourceFromStates } from '../HorseOptionSwitch.js';
 import {
   STYLE_SWITCH_OPTIONS,
   StyleSwitchHolder,
@@ -185,7 +186,12 @@ interface Outcome {
   record: ReturnType<typeof makeHorseJournalRecord>;
 }
 
-async function throughTheWorker(on: boolean, log: Seen[], withRecord = true): Promise<Outcome> {
+async function throughTheWorker(
+  on: boolean,
+  log: Seen[],
+  withRecord = true,
+  switched?: 'on' | 'off'
+): Promise<Outcome> {
   HorseMind.reset();
   restoreFastRandom(SEED);
   const request = riverRequest(on);
@@ -220,6 +226,15 @@ async function throughTheWorker(on: boolean, log: Seen[], withRecord = true): Pr
     noteFeature: () => {},
     now: () => performance.now(),
     styleSwitch: new StyleSwitchHolder(styleSwitchSourceFromStates(allOn()), () => {}),
+    // the live option switch (HorseOptionSwitch): a row for styleLongShownMemory, or none
+    ...(switched
+      ? {
+          optionSwitch: new OptionSwitchHolder(
+            optionSwitchSourceFromStates({ styleLongShownMemory: switched }),
+            () => {}
+          ),
+        }
+      : {}),
   };
   enableBrainTelemetry();
   const runtime = new HorseDecisionWorkerRuntime((m) => messages.push(m), deps);
@@ -360,5 +375,45 @@ describe('a shown river bettor through the decision worker, after a restart', ()
     ]);
     expect([none.deepAction, none.deepAmount]).toEqual([off.deepAction, off.deepAmount]);
     expect(none.frameJson).toBe(off.frameJson);
+  });
+
+  it('a live switch row ON alone (nothing in the request) carries the record: FAST, DEEP and exact replay read it', async () => {
+    const id = villain();
+    const log = watchStyle(() => id);
+    const on = await throughTheWorker(false, log, true, 'on');
+    for (const look of [on.reads.fast, on.reads.deep]) {
+      expect(look.length).toBeGreaterThan(0);
+      expect(look.every((r) => r.largeShown > 11 && r.largeSide === 'value')).toBe(true);
+    }
+    expect(on.frameVersion).toBe('horse-decision-reads-v16');
+    expect(on.deepAction).toBe(on.fast.decision.action);
+    HorseMind.reset();
+    log.length = 0;
+    const verdict = await exactReplayHorseDecisionRecord(on.record, { runningSource: SOURCE });
+    expect(verdict.outcome, verdict.firstDifference ?? '').toBe('replayed_exact');
+    expect(log.length).toBeGreaterThan(0);
+    expect(log.every((r) => r.largeShown > 11 && r.largeSide === 'value')).toBe(true);
+  });
+
+  it('a live switch row OFF wins over the request: nothing is carried, the frame is not v16, the decision is the off decision', async () => {
+    const id = villain();
+    const off = await throughTheWorker(
+      true,
+      watchStyle(() => id),
+      true,
+      'off'
+    );
+    for (const look of [off.reads.fast, off.reads.deep])
+      expect(look.every((r) => r.largeShown === 0 && r.largeSide === null)).toBe(true);
+    expect(off.frameVersion).not.toBe('horse-decision-reads-v16');
+    const plain = await throughTheWorker(
+      false,
+      watchStyle(() => id)
+    );
+    expect([off.fast.decision.action, off.fast.decision.amount ?? null]).toEqual([
+      plain.fast.decision.action,
+      plain.fast.decision.amount ?? null,
+    ]);
+    expect(off.frameJson).toBe(plain.frameJson);
   });
 });

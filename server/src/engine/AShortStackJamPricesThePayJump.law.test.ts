@@ -100,6 +100,15 @@ describe('nashPushFoldIcm is default OFF: unset is the chip-EV decision', () => 
   });
 });
 
+describe('nashPushFoldIcm implies the paid-bust valuation (Hand Analysis D1)', () => {
+  it('nashPushFoldIcm alone decides exactly as the pair, seed for seed', () => {
+    for (const hand of ['85o', '72o', '32o', 'A5o', 'KQo', '66'])
+      expect(decideSeeds({ hand }, 15, { nashPushFoldIcm: true }), hand).toEqual(
+        decideSeeds({ hand }, 15, ON)
+      );
+  });
+});
+
 describe('hand 59441335: with the option on, the jam reads the payouts', () => {
   it('builds the repository ladder for 86 entrants: 13 places summing to 100', () => {
     expect(PAYOUT_86).toHaveLength(13);
