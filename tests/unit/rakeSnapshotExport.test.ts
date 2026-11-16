@@ -516,7 +516,10 @@ describe('complete immutable Rake exports', () => {
 
 describe('Pacific Data report exports keep their source date basis', () => {
   it('uses the Pacific start door and retains its basis in the immutable CSV metadata', async () => {
-    const meta = metadata('club', { day_basis: 'America/Los_Angeles 00:00' });
+    const meta = metadata('club', {
+      day_basis: 'America/Los_Angeles 00:00',
+      accounting_basis: 'union_invoice_accounting',
+    });
     const rpc = vi.fn((name: string) => {
       if (name === 'ca_rake_export_start_pacific_v2') return result(receipt('club', 1, meta));
       if (name === 'ca_club_data_export_page')
@@ -536,6 +539,7 @@ describe('Pacific Data report exports keep their source date basis', () => {
     });
     expect(rpc).toHaveBeenCalledWith('ca_rake_export_start_pacific_v2', expect.any(Object));
     expect(rakeSnapshotExportToCsv(exported)).toContain('America/Los_Angeles 00:00');
+    expect(rakeSnapshotExportToCsv(exported)).toContain('union_invoice_accounting');
   });
   it('refuses a legacy receipt when a Pacific report was requested', async () => {
     const rpc = vi.fn((name: string) =>

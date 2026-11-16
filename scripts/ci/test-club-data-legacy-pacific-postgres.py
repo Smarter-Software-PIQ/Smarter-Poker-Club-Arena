@@ -372,6 +372,76 @@ CREATE FUNCTION ca_club_member_fee_totals(uuid,date,date,uuid) RETURNS TABLE(use
  assert 'WITH unfinished AS MATERIALIZED(' in require_body and 'JOIN expected e USING(rake_record_id,user_id)' in require_body
  assert 'FROM unnest(r.players) u WHERE NOT EXISTS' not in require_body
  print('PASS: actual completeness reader joins scoped expected sources as sets',flush=True)
+ # Real non-rake callbacks run after the original rake wrapper restored its
+ # local source context to ''. Every UUID cast must tolerate that state.
+ before_errors=int(q("SELECT count(*) FROM ca_club_data_pacific_failures WHERE source='live_cash_source' AND detail LIKE '22P02:%'"))
+ q(f"BEGIN; INSERT INTO rake_records(table_id,rake_amount,created_at,player_contributions) VALUES('{G}',0,'2026-11-16T17:00Z','{{}}'); SELECT fn_ca_club_data_fact_put('{C}','2026-11-16','CASH','{G}','{U}',0.25,0,0,0,'2026-11-16T17:00Z'); SELECT fn_ca_club_data_hand_put('{C}','{G}','2026-11-16T17:00Z'); COMMIT;")
+ reproduced=int(q("SELECT count(*) FROM ca_club_data_pacific_failures WHERE source='live_cash_source' AND detail LIKE '22P02:%'"))
+ assert reproduced>before_errors,'original empty-context callback error was not reproduced'
+ print('PASS: original fact/hand empty-context callback defect reproduced',flush=True)
+ captured_before=q(f"SELECT sum(fee)||':'||sum(hands) FROM ca_club_data_pacific_fact_ct WHERE club_id='{C}' AND game_id='{G}' AND stat_date='2026-11-16'")
+ hand_before=q(f"SELECT coalesce(sum(hands),0) FROM ca_club_data_pacific_hands_ct WHERE club_id='{C}' AND table_id='{G}' AND stat_date='2026-11-16'")
+ attached=q("SELECT attached_at FROM ca_club_data_pacific_state")
+ q((ROOT/'supabase/migrations/20261116203318_pacific_data_empty_rake_context_is_null.sql').read_text())
+ check(q("SELECT attached_at FROM ca_club_data_pacific_state"),attached,'context repair preserves original attachment date')
+ q(f"BEGIN; INSERT INTO rake_records(table_id,rake_amount,created_at,player_contributions) VALUES('{G}',0,'2026-11-16T17:00Z','{{}}'); SELECT fn_ca_club_data_fact_put('{C}','2026-11-16','CASH','{G}','{U}',0.25,0,0,0,'2026-11-16T17:00Z'); SELECT fn_ca_club_data_hand_put('{C}','{G}','2026-11-16T17:00Z'); COMMIT;")
+ check(int(q("SELECT count(*) FROM ca_club_data_pacific_failures WHERE source='live_cash_source' AND detail LIKE '22P02:%'")),reproduced,'fixed empty-context fact and hand callbacks create no UUID failures')
+ check(q(f"SELECT sum(fee)||':'||sum(hands) FROM ca_club_data_pacific_fact_ct WHERE club_id='{C}' AND game_id='{G}' AND stat_date='2026-11-16'"),'0.50:2','empty-context repair retains exact aggregate fee and participant totals')
+ check(q(f"SELECT coalesce(sum(hands),0) FROM ca_club_data_pacific_hands_ct WHERE club_id='{C}' AND table_id='{G}' AND stat_date='2026-11-16'"),str(int(hand_before)+1),'empty-context repair retains the ordinary club hand increment')
+
+
+ # Data Rake union headlines use the same recorded invoice facts as Data,
+ # while the legacy wallet/felt and agent production contracts stay separate.
+ IC='00000000-0000-0000-0000-0000000000f1';IU='00000000-0000-0000-0000-0000000000f2';IG='00000000-0000-0000-0000-0000000000f3';IT='00000000-0000-0000-0000-0000000000f4';IC2='00000000-0000-0000-0000-0000000000f5';LG='00000000-0000-0000-0000-0000000000f6';IR='00000000-0000-0000-0000-0000000000f7'
+ q("""ALTER TABLE clubs ADD COLUMN code text,ADD COLUMN avatar_url text,ADD COLUMN logo_url text;
+ CREATE TABLE invoice_basis(id uuid,basis_from date,complete boolean,provisional boolean);
+ CREATE OR REPLACE FUNCTION fn_ca_club_data_reads_union_basis(uuid,date,date) RETURNS boolean LANGUAGE sql STABLE AS $$SELECT coalesce((SELECT $2>=basis_from FROM invoice_basis WHERE id=$1),false)$$;
+ CREATE OR REPLACE FUNCTION fn_ca_club_acct_coverage(uuid,date,date) RETURNS jsonb LANGUAGE sql STABLE AS $$SELECT jsonb_build_object('complete',coalesce((SELECT complete FROM invoice_basis WHERE id=$1),false),'provisional',coalesce((SELECT provisional FROM invoice_basis WHERE id=$1),false),'missing_days','[]'::jsonb,'failed_days','[]'::jsonb,'not_invoice_exact_days','[]'::jsonb,'awaiting_boundary_days','[]'::jsonb,'day_zone','America/Los_Angeles','day_boundary','00:00')$$;
+ CREATE OR REPLACE FUNCTION ca_can_read_whole_club_production(uuid) RETURNS boolean LANGUAGE sql STABLE AS $$SELECT auth.uid() IS NOT NULL AND current_setting('test.denied',true) IS DISTINCT FROM 'true'$$;
+ CREATE OR REPLACE FUNCTION ca_can_read_club_production(uuid) RETURNS boolean LANGUAGE sql STABLE AS $$SELECT ca_can_read_whole_club_production($1)$$;
+ CREATE OR REPLACE FUNCTION ca_can_oversee_union(uuid) RETURNS boolean LANGUAGE sql STABLE AS $$SELECT ca_can_read_whole_club_production($1)$$;
+ CREATE TABLE ca_club_acct_fact_ct(club_id uuid,stat_date date,kind text,game_id uuid,user_id uuid,fee numeric,buyins numeric,cashouts numeric,winnings numeric,last_at timestamptz,src smallint,hands bigint);
+ CREATE TABLE ca_club_acct_hands_ct(club_id uuid,stat_date date,table_id uuid,hands bigint,src smallint);
+ """)
+ q(f"INSERT INTO clubs(id,name) VALUES('{IC}','Invoice club'),('{IU}','Invoice union'),('{IC2}','Second invoice club'); INSERT INTO unions VALUES('{IU}','Invoice union'); INSERT INTO union_clubs VALUES('{IU}','{IC}'),('{IU}','{IC2}'); INSERT INTO invoice_basis VALUES('{IC}','2026-11-10',true,true),('{IU}','2026-11-10',true,true); INSERT INTO tables(id,club_id,name,game_variant,big_blind) VALUES('{IG}','{IC}','Shared invoice game','nlh',2),('{LG}','{IC}','Wallet-only game','nlh',2); INSERT INTO tournaments(id,club_id,name,tournament_type,status) VALUES('{IT}','{IC}','Finished MTT','MTT','COMPLETED'); INSERT INTO ca_club_acct_fact_ct VALUES('{IC}','2026-11-10','CASH','{IG}','{U}',6.67,0,0,212.91,'2026-11-10T12:00Z',0,1),('{IC}','2026-11-10','CASH','{IG}','00000000-0000-0000-0000-000000000000',0,0,0,50,'2026-11-10T12:00Z',0,0),('{IC}','2026-11-10','TOURNAMENT','{IT}','{U}',13.65,100,192.50,92.50,'2026-11-10T12:00Z',0,0),('{IC2}','2026-11-10','CASH','{IG}','{V}',0.33,0,0,-12,'2026-11-10T12:00Z',0,1); INSERT INTO ca_club_acct_hands_ct VALUES('{IC}','2026-11-10','{IG}',1,0),('{IC2}','2026-11-10','{IG}',1,0); INSERT INTO ca_club_data_pacific_fact VALUES('{IC}','2026-11-10','2026-11-10','CASH','{LG}','{U}',0,100,0,-100,'2026-11-10T12:00Z',0,true,0); INSERT INTO table_seats(table_id,user_id,club_id,stack,joined_at) VALUES('{LG}','{U}','{IC}',900,'2026-11-10T12:00Z'); INSERT INTO rake_records(id,table_id,rake_amount,created_at,player_contributions) VALUES('{IR}','{IG}',7,'2026-11-10T12:00Z',jsonb_build_object('{U}',20.01,'{V}',1)); INSERT INTO rake_attributions(rake_record_id,player_id,club_id,rake_amount,created_at) VALUES('{IR}','{U}','{IC}',6.67,'2026-11-10T12:00Z'),('{IR}','{V}','{IC2}',0.33,'2026-11-10T12:00Z');")
+ q(f"CREATE OR REPLACE FUNCTION fn_ca_club_data_clubs(uuid) RETURNS uuid[] LANGUAGE sql STABLE AS $$SELECT CASE WHEN $1='{IU}'::uuid THEN ARRAY['{IC}'::uuid,'{IC2}'::uuid,'{IU}'::uuid] ELSE ARRAY[$1] END$$;")
+ production_before=q("SELECT md5(pg_get_functiondef('fn_ca_rake_by_agent_pacific(uuid,date,date,integer,integer,text,text)'::regprocedure))||':'||md5(pg_get_functiondef('fn_ca_club_pacific_member_fee_totals(uuid,date,date,uuid)'::regprocedure))")
+ q('\n'.join(line for line in (ROOT/'tests/fixtures/club-data-report-db/rake-v2-fixture.sql').read_text().splitlines() if line.startswith(('CREATE TABLE ca_club_data_exports','CREATE TABLE ca_club_data_export_rows','CREATE OR REPLACE FUNCTION ca_prune_expired'))))
+ q((ROOT/'supabase/migrations/20261116205043_data_rake_union_headlines_use_invoice_accounting.sql').read_text())
+ q("SELECT fn_ca_rake_invoice_windows_v3(ARRAY[]::uuid[],'2026-11-10','2026-11-10',true)")
+ club=json.loads(q(f"SELECT ca_rake_snapshot_pacific_v2('club','{IC}',NULL,'2026-11-10','2026-11-10')"))
+ check((club['summary']['games'],club['summary']['fee'],club['summary']['total_winnings'],club['summary']['mtt_winnings'],club['summary']['hands']),(2,20.32,355.41,92.50,1),'invoice club uses rounded fees and hand result plus BBJ, no wallet/felt replay')
+ check((club['accounting_basis'],club['accounting_coverage']['provisional'],club['previous_coverage']['complete']),('union_invoice_accounting',True,False),'invoice basis retains provisional state and independently unqualified previous window')
+ check(club['delta']['winnings_abs'],None,'unqualified comparison never fabricates invoice deltas')
+ check(club['series'][0]['winnings'],355.41,'invoice series and headline answer the same original source question')
+ union=json.loads(q(f"SELECT ca_rake_snapshot_pacific_v2('union',NULL,'{IU}','2026-11-10','2026-11-10')"))
+ check((union['summary']['games'],union['summary']['fee'],union['summary']['total_winnings'],union['summary']['hands']),(2,20.65,343.41,1),'union totals deduplicate shared games and raw hands across member clubs')
+ check(sum(x['fee'] for x in union['breakdown']),20.65,'union club breakdown reads exactly the same accounting window')
+ check(q("SELECT md5(pg_get_functiondef('fn_ca_rake_by_agent_pacific(uuid,date,date,integer,integer,text,text)'::regprocedure))||':'||md5(pg_get_functiondef('fn_ca_club_pacific_member_fee_totals(uuid,date,date,uuid)'::regprocedure))"),production_before,'agent gross production and personal net fee source bodies remain untouched')
+ standalone=json.loads(q(f"SELECT ca_rake_snapshot_pacific_v2('club','{B}',NULL,'2026-11-16','2026-11-16')"))
+ check(standalone['accounting_basis'],'pacific_net_money_flow','standalone reporting retains its original Pacific money-flow basis')
+ q(f"UPDATE invoice_basis SET complete=false WHERE id='{IC}'; SELECT ca_rake_snapshot_pacific_v2('club','{IC}',NULL,'2026-11-10','2026-11-10');",'CLUB_DATA_PACIFIC_WINDOW_INCOMPLETE')
+ q(f"SET test.denied='true'; SELECT ca_rake_snapshot_pacific_v2('club','{IC}',NULL,'2026-11-10','2026-11-10');",'not authorized')
+ check(q("SELECT has_function_privilege('authenticated','fn_ca_rake_invoice_windows_v3(uuid[],date,date,boolean)','EXECUTE')"),'f','browser cannot bypass public invoice scope through private helper')
+ q(f"UPDATE invoice_basis SET complete=true WHERE id='{IC}';")
+ req='00000000-0000-0000-0000-0000000000fa';old_export='00000000-0000-0000-0000-0000000000fb'
+ q(f"INSERT INTO ca_club_data_exports(id,user_id,request_id,kind,scope_type,scope_id,status,metadata) VALUES('{old_export}',auth.uid(),md5('ca-data-pacific:'||'{req}')::uuid,'rake','union','{IU}','ready',jsonb_build_object('day_basis','America/Los_Angeles 00:00','accounting_basis','pacific_net_money_flow'));")
+ q(f"SELECT ca_rake_export_start_pacific_v2('union','{IU}','2026-11-10','2026-11-10',NULL,NULL,'rake','{req}')",'already being prepared')
+ q(f"UPDATE ca_club_data_exports SET expires_at=now()-interval '1 minute' WHERE id='{old_export}';")
+ exported=json.loads(q(f"SELECT ca_rake_export_start_pacific_v2('union','{IU}','2026-11-10','2026-11-10',NULL,NULL,'rake','{req}')"))
+ check(exported['metadata']['accounting_basis'],'union_invoice_accounting','actual frozen export receipt states the invoice accounting question')
+ assert exported['export_id']!=old_export,'invoice request resumed an old wallet-flow receipt'
+ check(q(f"SELECT metadata_fingerprint=md5(metadata::text) FROM ca_club_data_exports WHERE id='{exported['export_id']}'"),'t','invoice export basis is frozen before metadata fingerprint')
+ repeated=json.loads(q(f"SELECT ca_rake_export_start_pacific_v2('union','{IU}','2026-11-10','2026-11-10',NULL,NULL,'rake','{req}')"))
+ check(repeated['export_id'],exported['export_id'],'same invoice export request resumes its immutable original receipt')
+ seed('2026-11-09',True)
+ preunion=json.loads(q(f"SELECT ca_rake_snapshot_pacific_v2('club','{IC}',NULL,'2026-11-09','2026-11-09')"))
+ check(preunion['accounting_basis'],'pacific_net_money_flow','the same club before its recorded eligibility keeps legacy Pacific reporting')
+ boundary=json.loads(q(f"SELECT ca_rake_snapshot_pacific_v2('club','{IC}',NULL,'2026-11-10','2026-11-10')"))
+ check((boundary['previous_coverage']['basis_mismatch'],boundary['delta']['winnings_abs']),(True,None),'a qualified pre-union cashflow window is not compared with invoice PNL')
+ same_basis=json.loads(q(f"SELECT ca_rake_snapshot_pacific_v2('club','{IC}',NULL,'2026-11-11','2026-11-11')"))
+ check((same_basis['previous_coverage']['complete'],same_basis['previous']['fee']),(True,20.32),'previous invoice window resolves independently and retains exact fees')
+
  print('PASS: legacy Pacific native PostgreSQL qualification')
 finally:
  if started:run([PG/'pg_ctl','-D',cluster/'data','-m','fast','-w','stop'])

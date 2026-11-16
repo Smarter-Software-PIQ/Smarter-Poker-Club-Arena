@@ -29,6 +29,21 @@ describe('Data rake snapshots have an explicit Pacific contract', () => {
       ClubRakeSnapshotService.get({ ...question, reportBasis: 'pacific' })
     ).rejects.toThrow('Different Day Basis');
   });
+  it('retains the invoice question and provisional coverage under the Pacific calendar', async () => {
+    rpc.mockResolvedValue({
+      data: {
+        day_basis: 'America/Los_Angeles 00:00',
+        accounting_basis: 'union_invoice_accounting',
+        accounting_coverage: { complete: true, provisional: true },
+        breakdown: [],
+        series: [],
+      },
+      error: null,
+    });
+    const answer = await ClubRakeSnapshotService.get({ ...question, reportBasis: 'pacific' });
+    expect(answer.accounting_basis).toBe('union_invoice_accounting');
+    expect(answer.accounting_coverage).toEqual({ complete: true, provisional: true });
+  });
   it('preserves the existing financial caller without a Pacific opt-in', async () => {
     rpc.mockResolvedValue({
       data: { accounting_basis: 'chicago_net_money_flow', breakdown: [] },

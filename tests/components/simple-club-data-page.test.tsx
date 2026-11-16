@@ -692,9 +692,9 @@ it('a union club reads the 02:00 accounting window and says what it counts', asy
     expect(screen.getByTestId('rake-snapshot-basis').closest('details')).not.toBeNull();
     // The rake snapshot keeps its own basis and never reads as the Fee tile.
     expect(screen.getByTestId('rake-snapshot-basis')).toHaveTextContent(
-      'Agent Rake Production: Seat Club And Agent Downline, Pacific Midnight Days. Not The Union Invoice Basis.'
+      'Invoice Headlines Include All Recorded Fees. Agent Rows Show Gross Cash Rake By Seat Club And Downline In Pacific Midnight Days.'
     );
-    expect(rakePanelProps.current?.headlineLabel).toBe('Agent Rake Production');
+    expect(rakePanelProps.current?.headlineLabel).toBeUndefined();
   } finally {
     cleanup();
     vi.useRealTimers();
