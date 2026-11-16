@@ -679,10 +679,13 @@ export class DealRateVerifier {
     // This call is bounded by the below-floor branch to at most two ids.
     if (!tableIds.length || this.lifecycleEnded(generation)) return;
     try {
+      if (tableIds.length >= FLEET_FLOOR_TABLES) {
+        throw new Error('Small-fleet observation exceeded its bounded table set');
+      }
       const { count, error } = await supabase
         .from('hand_history')
         .select('id', { count: 'exact', head: true })
-        .in('table_id', tableIds)
+        .in('table_id', tableIds.slice(0, FLEET_FLOOR_TABLES - 1))
         .gt('created_at', new Date(Date.now() - LOOKBACK_MS).toISOString());
       if (this.lifecycleEnded(generation)) return;
       if (error) throw new Error(error.message);
