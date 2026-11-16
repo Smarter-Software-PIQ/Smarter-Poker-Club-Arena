@@ -372,6 +372,23 @@ CREATE FUNCTION ca_club_member_fee_totals(uuid,date,date,uuid) RETURNS TABLE(use
  assert 'WITH unfinished AS MATERIALIZED(' in require_body and 'JOIN expected e USING(rake_record_id,user_id)' in require_body
  assert 'FROM unnest(r.players) u WHERE NOT EXISTS' not in require_body
  print('PASS: actual completeness reader joins scoped expected sources as sets',flush=True)
+ # Real non-rake callbacks run after the original rake wrapper restored its
+ # local source context to ''. Every UUID cast must tolerate that state.
+ before_errors=int(q("SELECT count(*) FROM ca_club_data_pacific_failures WHERE source='live_cash_source' AND detail LIKE '22P02:%'"))
+ q(f"BEGIN; INSERT INTO rake_records(table_id,rake_amount,created_at,player_contributions) VALUES('{G}',0,'2026-11-16T17:00Z','{{}}'); SELECT fn_ca_club_data_fact_put('{C}','2026-11-16','CASH','{G}','{U}',0.25,0,0,0,'2026-11-16T17:00Z'); SELECT fn_ca_club_data_hand_put('{C}','{G}','2026-11-16T17:00Z'); COMMIT;")
+ reproduced=int(q("SELECT count(*) FROM ca_club_data_pacific_failures WHERE source='live_cash_source' AND detail LIKE '22P02:%'"))
+ assert reproduced>before_errors,'original empty-context callback error was not reproduced'
+ print('PASS: original fact/hand empty-context callback defect reproduced',flush=True)
+ captured_before=q(f"SELECT sum(fee)||':'||sum(hands) FROM ca_club_data_pacific_fact_ct WHERE club_id='{C}' AND game_id='{G}' AND stat_date='2026-11-16'")
+ hand_before=q(f"SELECT coalesce(sum(hands),0) FROM ca_club_data_pacific_hands_ct WHERE club_id='{C}' AND table_id='{G}' AND stat_date='2026-11-16'")
+ attached=q("SELECT attached_at FROM ca_club_data_pacific_state")
+ q((ROOT/'supabase/migrations/20261116203318_pacific_data_empty_rake_context_is_null.sql').read_text())
+ check(q("SELECT attached_at FROM ca_club_data_pacific_state"),attached,'context repair preserves original attachment date')
+ q(f"BEGIN; INSERT INTO rake_records(table_id,rake_amount,created_at,player_contributions) VALUES('{G}',0,'2026-11-16T17:00Z','{{}}'); SELECT fn_ca_club_data_fact_put('{C}','2026-11-16','CASH','{G}','{U}',0.25,0,0,0,'2026-11-16T17:00Z'); SELECT fn_ca_club_data_hand_put('{C}','{G}','2026-11-16T17:00Z'); COMMIT;")
+ check(int(q("SELECT count(*) FROM ca_club_data_pacific_failures WHERE source='live_cash_source' AND detail LIKE '22P02:%'")),reproduced,'fixed empty-context fact and hand callbacks create no UUID failures')
+ check(q(f"SELECT sum(fee)||':'||sum(hands) FROM ca_club_data_pacific_fact_ct WHERE club_id='{C}' AND game_id='{G}' AND stat_date='2026-11-16'"),'0.50:2','empty-context repair retains exact aggregate fee and participant totals')
+ check(q(f"SELECT coalesce(sum(hands),0) FROM ca_club_data_pacific_hands_ct WHERE club_id='{C}' AND table_id='{G}' AND stat_date='2026-11-16'"),str(int(hand_before)+1),'empty-context repair retains the ordinary club hand increment')
+
 
  # Data Rake union headlines use the same recorded invoice facts as Data,
  # while the legacy wallet/felt and agent production contracts stay separate.
