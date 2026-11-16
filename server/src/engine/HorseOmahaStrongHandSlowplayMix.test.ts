@@ -33,6 +33,7 @@ import {
   OMAHA_SLOWPLAY_VULNERABLE_CAP,
   omahaSlowplayAdmitsCall,
   omahaSlowplayAdmitsCheck,
+  omahaSlowplayAdmitsCheckWithRequest,
   omahaSlowplayCallDecision,
   omahaSlowplayCallFrequency,
   omahaSlowplayCallScope,
@@ -663,6 +664,23 @@ describe('scope, precedence and identity', () => {
     expect(omahaSlowplayAdmitsCall(mid.hero, mid.gs, mid.gs.toCall as number)).toBe(false);
     const ls = slowplayState(lead('KsKdQc9s5h', 'Kh8c3d'));
     expect(omahaSlowplayAdmitsCheck(ls.hero, ls.gs)).toBe(true);
+  });
+
+  it('the bet that became a check is admitted by the mix only with the request it came with', () => {
+    const ls = slowplayState(lead('KsKdQc9s5h', 'Kh8c3d'));
+    const request = { player: ls.hero, gameState: ls.gs };
+    const game = String(ls.gs.gameVariant).toLowerCase();
+    expect(omahaSlowplayAdmitsCheckWithRequest(game, request)).toBe(true);
+    // no request: nothing is admitted on the mix's account
+    expect(omahaSlowplayAdmitsCheckWithRequest(game, undefined)).toBe(false);
+    // a request of another game, and a request outside the mix's spot
+    expect(omahaSlowplayAdmitsCheckWithRequest(game === 'plo5' ? 'plo4' : 'plo5', request)).toBe(
+      false
+    );
+    const wet = slowplayState(lead('9s9dQc3s2h', '9h8h6c'));
+    expect(omahaSlowplayAdmitsCheckWithRequest(game, { player: wet.hero, gameState: wet.gs })).toBe(
+      false
+    );
   });
 
   it('it stands aside when omahaNutClassValueSize is on', () => {

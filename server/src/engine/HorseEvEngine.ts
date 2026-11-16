@@ -115,6 +115,14 @@ export interface HorseEvIndifferenceContext {
   handKey?: string | number;
   /** Count this decision's indifference evidence (live telemetry-on decisions only). */
   telemetry?: boolean;
+  /**
+   * horsePlayStyles (HorseOmahaPlayStyle, default off): the aggression
+   * tie-break of this decision in place of the Horse's own seed, clamped to
+   * the seed's own range (plus or minus HORSE_INDIFFERENCE_EV_BAND_BB). Like
+   * the seed it acts only among candidates inside the indifference band.
+   * Absent on every decision without the option: the Horse's own seed.
+   */
+  aggressionBias?: number;
 }
 
 export interface EvSpot {
@@ -246,8 +254,12 @@ function personallyIndifferent(
   if (!(band > 0) || !Number.isFinite(gapBB) || gapBB < -band) return false;
   const seeds = indifferenceStyleSeedsFor(context.horseId, context.mode);
   const size = (a: EvAction) => ('amount' in a ? a.amount / Math.max(0.01, maxWager) : 0);
+  const aggressionBias =
+    context.aggressionBias !== undefined && Number.isFinite(context.aggressionBias)
+      ? clamp(context.aggressionBias, -HORSE_INDIFFERENCE_EV_BAND_BB, HORSE_INDIFFERENCE_EV_BAND_BB)
+      : seeds.indifferenceAggressionBias;
   const bias =
-    (actionPressure(candidate) - actionPressure(best)) * seeds.indifferenceAggressionBias +
+    (actionPressure(candidate) - actionPressure(best)) * aggressionBias +
     (size(candidate) - size(best)) * seeds.sizingMixBias;
   return resolveIndifferenceTieBreak(gapBB, bias, {
     bubbleFactor: context.mode === 'tournament' ? context.bubbleFactor : undefined,

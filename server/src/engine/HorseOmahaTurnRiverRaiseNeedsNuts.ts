@@ -9,8 +9,9 @@
  * for more than the call) stands only when the hand is nut class right now
  * (omahaNutClassNow, HorseOmahaMadeHandDefense.ts). The one exception, turn
  * only: an in-position combo-draw raise that the 12:30 rule permits (a draw
- * below two pair with a flush draw and a straight draw of 8+ outs or a strong
- * pair; never a made hand, never out of position, never a bare flush draw).
+ * below two pair with a flush draw and a straight draw of 8+ outs; since
+ * 2026-11-16 a pair adds nothing; never a made hand, never out of position,
+ * never a bare flush draw, never a pair with only a flush draw).
  * Every other raise becomes a call or a fold priced by the hand, the bettor
  * and the price (HorseLogic.omahaTurnRiverRaiseNeedsNutsRule).
  *
@@ -126,10 +127,12 @@ export function omahaDecisionRaises(
 /**
  * The 12:30 exception, turn only: the Horse is in position and the hand is the
  * combo draw that may raise there, by the ONE definition in
- * HorseOmahaBigDrawAggression.omahaComboDrawForRaise (a draw below two pair
- * that is a flush draw with an 8+ out straight draw, or a strong pair with a
- * draw). A made hand, a draw out of position, a bare flush draw and a bare
- * wrap are not excepted.
+ * HorseOmahaBigDrawAggression.omahaComboDrawForRaise (a hand below two pair
+ * holding a flush draw together with a straight draw of eight or more outs,
+ * a 13+ out wrap included; 2026-11-16: a pair adds nothing). A made hand, a
+ * draw out of position, a bare flush draw, a bare wrap, a pair with the nut
+ * flush draw (with or without a gutshot) and a pair with a wrap are not
+ * excepted.
  */
 export function omahaTurnComboDrawRaisePermitted(
   player: SeatPlayer,
