@@ -700,16 +700,26 @@ export class HandController {
       Math.round((smallBlindDeficit + (bigBlind - (bbPlayer?.bet ?? 0))) * 100) / 100;
 
     // Bible V8 §4.2: Dead blinds — players returning from sit-out post SB+BB (SB is dead money)
+    // ONE ENTRY CHARGE PER SEAT (2026-11-15, hand #59634000). A seat listed
+    // under BOTH deadBlinds and bbOnlyPosts was billed twice: the dead-blind
+    // block took a dead SB plus a live BB, then the post-to-enter block took a
+    // second BB and OVERWROTE `bet` instead of adding to it. The player was
+    // out 2.5 BB with only 1 BB counted toward the call. Whatever a caller
+    // lists, a seat is billed the first entry charge that reaches it and no
+    // other, a repeated entry included.
+    const entryCharged = new Set<number>();
     if (this.config.deadBlinds && this.config.deadBlinds.length > 0) {
       for (const db of this.config.deadBlinds) {
         const dbPlayer = this.state.players.find((p) => p.seat === db.seat);
         if (
           dbPlayer &&
+          !entryCharged.has(dbPlayer.seat) &&
           !dbPlayer.is_sitting_out &&
           dbPlayer.seat !== sbSeat &&
           dbPlayer.seat !== bbSeat &&
           dbPlayer.seat !== killerSeat
         ) {
+          entryCharged.add(dbPlayer.seat);
           // Dead SB goes straight to pot (dead money, not a live bet)
           const deadSBAmount = Math.min(smallBlind, dbPlayer.stack);
           dbPlayer.totalInvested += deadSBAmount;
@@ -732,23 +742,17 @@ export class HandController {
     // AUDIT FIX 2026-07-19: "Post BB to enter" — new players post ONLY a live
     // BB (no dead SB). They act on it like a normal blind.
     if (this.config.bbOnlyPosts && this.config.bbOnlyPosts.length > 0) {
-      // ONE ENTRY CHARGE PER SEAT (2026-11-15, hand #59634000). A seat listed
-      // under BOTH deadBlinds and bbOnlyPosts was billed twice: the dead-blind
-      // block above took a dead SB plus a live BB, then this block took a
-      // second BB and OVERWROTE `bet` instead of adding to it. The player was
-      // out 2.5 BB with only 1 BB counted toward the call. A seat the
-      // dead-blind block has already charged posts nothing more here.
-      const alreadyPostedDeadBlind = new Set((this.config.deadBlinds ?? []).map((d) => d.seat));
       for (const bp of this.config.bbOnlyPosts) {
         const p = this.state.players.find((pl) => pl.seat === bp.seat);
         if (
           p &&
-          !alreadyPostedDeadBlind.has(p.seat) &&
+          !entryCharged.has(p.seat) &&
           p.seat !== sbSeat &&
           p.seat !== bbSeat &&
           p.seat !== killerSeat &&
           !p.is_sitting_out
         ) {
+          entryCharged.add(p.seat);
           const amt = Math.min(bigBlind, p.stack);
           p.bet = amt;
           p.totalInvested += amt;
