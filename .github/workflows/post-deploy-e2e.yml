@@ -2661,12 +2661,15 @@ jobs:
           # Keep kernel evidence scoped to this browser invocation on a failed run.
           date +%s > "$RUNNER_TEMP/live-table-webkit-start"
           # Record kernel-generated and user-sent signals without attaching to WebKit.
-          # Only this ephemeral VM's private trace instance is changed.
+          # The probe records process names and numeric status in a private runner trace.
           trace=/sys/kernel/tracing/instances/live-table-webkit
           if sudo mkdir "$trace"; then
             finish_trace() {
               sudo cat "$trace/trace"
               sudo rmdir "$trace"
+              if sudo test -e /sys/kernel/tracing/events/live_table_webkit/process_exit_status; then
+                echo '-:live_table_webkit/process_exit_status' | sudo tee -a /sys/kernel/tracing/kprobe_events >/dev/null
+              fi
             }
             trap finish_trace EXIT
             if sudo bash -eu -s -- "$trace" <<'TRACE'
@@ -2677,6 +2680,15 @@ jobs:
           echo "$filter" > events/sched/sched_process_exit/filter
           echo 1 > events/signal/signal_generate/enable
           echo 1 > events/sched/sched_process_exit/enable
+          # sched_process_exit identifies the exiting thread but omits the wait
+          # status. WPE may exit voluntarily, or a differently named thread may
+          # receive the fatal signal. do_exit receives the encoded wait status.
+          if echo 'p:live_table_webkit/process_exit_status do_exit status=$arg1:s32 comm=$comm' >> /sys/kernel/tracing/kprobe_events; then
+            echo "$filter" > events/live_table_webkit/process_exit_status/filter
+            echo 1 > events/live_table_webkit/process_exit_status/enable
+          else
+            echo '::warning::WebKit numeric exit status unavailable on this kernel'
+          fi
           TRACE
             then
               echo "WebKit process signal/exit capture enabled; runner uptime: $(cut -d' ' -f1 /proc/uptime)s"
@@ -2702,8 +2714,13 @@ jobs:
         if: failure() && steps.continuity.outcome == 'failure'
         run: |
           started=$(cat "$RUNNER_TEMP/live-table-webkit-start")
-          sudo journalctl --kernel --since="@$started" --no-pager \
-            --grep='Out of memory|oom-kill|Killed process|WebKit.*segfault|MiniBrowser.*segfault'
+          # An empty search is expected on a voluntary process exit. Preserve
+          # journal read failures, and report an empty search as such.
+          journal="$RUNNER_TEMP/live-table-kernel-journal"
+          sudo journalctl --kernel --since="@$started" --no-pager > "$journal"
+          if ! grep -Ei 'Out of memory|oom-kill|Killed process|WebKit.*segfault|WPE.*segfault|MiniBrowser.*segfault' "$journal"; then
+            echo 'No matching kernel OOM or segmentation-fault message.'
+          fi
 
       # The move notice is presentation-only. Exercise the actual served
       # consumer in this lane's reserved spectator browser, without moving
