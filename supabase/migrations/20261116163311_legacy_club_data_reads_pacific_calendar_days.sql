@@ -96,6 +96,8 @@ DO $copy$ DECLARE d text; BEGIN
  d:=pg_get_functiondef('public.fn_ca_club_data_hand_put(uuid,uuid,timestamptz)'::regprocedure);
  EXECUTE replace(d,'FUNCTION public.fn_ca_club_data_hand_put(','FUNCTION public.fn_ca_club_data_hand_put_pre_pacific(');
 END $copy$;
+REVOKE ALL ON FUNCTION public.fn_ca_club_data_fact_put_pre_pacific(uuid,date,text,uuid,uuid,numeric,numeric,numeric,numeric,timestamptz) FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION public.fn_ca_club_data_hand_put_pre_pacific(uuid,uuid,timestamptz) FROM PUBLIC,anon,authenticated,service_role;
 
 CREATE OR REPLACE FUNCTION public.fn_ca_club_data_fact_put(p_club uuid,p_day date,p_kind text,p_game uuid,p_user uuid,p_fee numeric,p_buyins numeric,p_cashouts numeric,p_winnings numeric,p_at timestamptz)
  RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
@@ -643,12 +645,19 @@ BEGIN
  END IF;
  END LOOP;
 END $rake$;
+REVOKE ALL ON FUNCTION public.fn_ca_club_data_fact_put(uuid,date,text,uuid,uuid,numeric,numeric,numeric,numeric,timestamptz) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_ca_club_data_fact_put(uuid,date,text,uuid,uuid,numeric,numeric,numeric,numeric,timestamptz) TO service_role;
+REVOKE ALL ON FUNCTION public.fn_ca_club_data_hand_put(uuid,uuid,timestamptz) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_ca_club_data_hand_put(uuid,uuid,timestamptz) TO service_role;
 -- New internals are not browser-callable; public routers retain original ACLs.
-DO $grants$ DECLARE p record; BEGIN
- FOR p IN SELECT oid::regprocedure sig FROM pg_proc WHERE pronamespace='public'::regnamespace AND
- (proname LIKE 'fn_ca_club_data_pacific_%' OR proname IN('fn_ca_club_data_fact_put_pre_pacific','fn_ca_club_data_hand_put_pre_pacific')) LOOP
- EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC,anon,authenticated,service_role',p.sig);
- END LOOP;
-END $grants$;
+REVOKE ALL ON FUNCTION public.fn_ca_club_data_pacific_day(timestamptz) FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION public.fn_ca_club_data_pacific_day_start(date) FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION public.fn_ca_club_data_pacific_fact_window(uuid[],date,date) FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION public.fn_ca_club_data_pacific_own(text) FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION public.fn_ca_club_data_pacific_leg_club(uuid,numeric,text,timestamptz,uuid) FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION public.fn_ca_club_data_pacific_seed(date,boolean) FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION public.fn_ca_club_data_pacific_require(uuid,date,date,integer) FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION public.fn_ca_club_data_pacific_coverage(uuid,date,date,integer) FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION public.fn_ca_club_data_pacific_cash_gross(uuid,timestamptz,timestamptz) FROM PUBLIC,anon,authenticated,service_role;
 REVOKE ALL ON public.ca_club_data_pacific_fact_ct,public.ca_club_data_pacific_game_ct,public.ca_club_data_pacific_hands_ct FROM PUBLIC,anon,authenticated,service_role;
 COMMIT;
