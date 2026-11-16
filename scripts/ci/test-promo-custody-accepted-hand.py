@@ -38,6 +38,10 @@ try:
  funding_end=original_funding.index('-- This is a prospective game/roster snapshot',funding_start)
  e.sql(db,original_funding[funding_start:funding_end],label='original-cash-funding-owner')
  for f in sorted((root/'supabase/migrations').glob('*_promo_play_through_*.sql')):e.sql(db,file=f,label=f.stem[:35])
+ inventory=json.loads((root/'tests/fixtures/promo-custody-inventory-pin.json').read_text())
+ for source in inventory['funding_owners']:
+  e.sql(db,source['definition']+';',label='actual-'+source['signature'].split('(')[0])
+ e.sql(db,'CREATE SCHEMA IF NOT EXISTS smarter_private;'+inventory['definition']+';REVOKE ALL ON FUNCTION smarter_private.original_inventory_proof_sources_match() FROM PUBLIC,anon,authenticated,service_role;',label='actual-inventory-funding-pin')
  e.sql(db,file=root/'supabase/migrations/20261116153059_promo_principal_follows_its_original_grant_through_wallet_an.sql',label='custody')
  probe='BEGIN;\n'+(out/'opening.sql').read_text()+(root/roster.FIXTURE).read_text()+'''
 UPDATE ca_promo_play_through_settings SET enforced_from=clock_timestamp()-interval '1 second';
@@ -58,7 +62,7 @@ ROLLBACK;'''
  e.sql(db,probe,label='actual-accepted-cash-hand',seconds=120)
  e.report['status']='passed'
  e.report['native'].append({'case':'actual-accepted-cash-hand-and-replay','assertions':2})
- inputs=[Path(__file__).resolve(),root/'supabase/migrations/20261116153059_promo_principal_follows_its_original_grant_through_wallet_an.sql',
+ inputs=[Path(__file__).resolve(),root/'tests/fixtures/promo-custody-inventory-pin.json',root/'supabase/migrations/20261116153059_promo_principal_follows_its_original_grant_through_wallet_an.sql',
   root/'scripts/ci/test-accepted-hand-roster.py',root/roster.CAPTURE,root/roster.LIGHTNING,
   root/roster.RETIRED_CASH,root/roster.RAKED_DIAMOND,root/roster.MIGRATION,root/roster.FIXTURE]
  inputs+=sorted((root/'supabase/migrations').glob('*_promo_play_through_*.sql'))

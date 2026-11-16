@@ -397,14 +397,31 @@ DO $funding$
 DECLARE def text;needle text:=E' RETURN v_id;';signature text:='public.fn_cash_record_original_funding(text,text,uuid,uuid,uuid,uuid,uuid,numeric,numeric,uuid)';
 BEGIN
  SELECT pg_get_functiondef(signature::regprocedure) INTO def;
+ IF md5(def)<>'d01404c53405fd1826de26e58b04f4b1' THEN RAISE EXCEPTION 'original_cash_funding_promo_preimage_changed'; END IF;
  IF length(def)-length(replace(def,needle,''))<>length(needle) THEN RAISE EXCEPTION 'original_cash_funding_promo_anchor_changed'; END IF;
  EXECUTE replace(def,needle,E' PERFORM public.fn_ca_promo_apply_original_cash_funding(v_id);\n'||needle);
  signature:='public.fn_cash_record_funding_application(uuid,numeric,numeric,uuid)';
  SELECT pg_get_functiondef(signature::regprocedure) INTO def;
+ IF md5(def)<>'9e2c3da48c54fa1e51612fe2b8126771' THEN RAISE EXCEPTION 'original_pending_cash_funding_promo_preimage_changed'; END IF;
  needle:=' VALUES(p_pending,f.id,f.occupancy_id,p_occupancy,p_applied,p_refunded);';
  IF length(def)-length(replace(def,needle,''))<>length(needle) THEN RAISE EXCEPTION 'original_pending_cash_funding_promo_anchor_changed'; END IF;
  EXECUTE replace(def,needle,needle||E'\n PERFORM public.fn_ca_promo_apply_pending_cash_funding(p_pending);');
 END $funding$;
+
+-- Original inventory certification binds the same private funding owner.
+-- Preserve all sixty-nine signatures and checks; advance only this exact
+-- reviewed funding body fingerprint after its transactional custody hook.
+DO $inventory_pin$
+DECLARE def text;needle text;replacement text;
+BEGIN
+ SELECT pg_get_functiondef('smarter_private.original_inventory_proof_sources_match()'::regprocedure) INTO def;
+ IF md5(def)<>'2115cc50e91b586e152baa0ba6395b58' THEN RAISE EXCEPTION 'promo_original_inventory_guard_changed'; END IF;
+ needle:='(''public.fn_cash_record_original_funding(text,text,uuid,uuid,uuid,uuid,uuid,numeric,numeric,uuid)'',''d01404c53405fd1826de26e58b04f4b1'')';
+ IF length(def)-length(replace(def,needle,''))<>length(needle) THEN RAISE EXCEPTION 'promo_original_inventory_funding_pin_changed'; END IF;
+ replacement:='(''public.fn_cash_record_original_funding(text,text,uuid,uuid,uuid,uuid,uuid,numeric,numeric,uuid)'','''
+  ||md5(pg_get_functiondef('public.fn_cash_record_original_funding(text,text,uuid,uuid,uuid,uuid,uuid,numeric,numeric,uuid)'::regprocedure))||''')';
+ EXECUTE replace(def,needle,replacement);
+END $inventory_pin$;
 
 CREATE FUNCTION public.fn_ca_promo_locked_at(p_club uuid,p_user uuid,p_kind text,p_entity uuid)
 RETURNS numeric LANGUAGE sql STABLE SECURITY DEFINER SET search_path='public','pg_temp' AS $$

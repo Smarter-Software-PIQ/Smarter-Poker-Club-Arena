@@ -5,7 +5,7 @@ No production endpoint, credentials or money. Minimal balance/journal relations
 isolate custody; the captured actual accepted-hand owner is compiled and patched.
 The full accepted-hand qualification remains a separate required integration.
 """
-import argparse, importlib.util, json, os, subprocess, tempfile, uuid, time
+import argparse, importlib.util, json, os, subprocess, tempfile, uuid, time, hashlib
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[2]
@@ -104,7 +104,25 @@ def main():
   grant();db.run(f"UPDATE club_members SET chip_balance=50 WHERE club_id='{C}' AND user_id='{A}';"+ledger('player_wallet','table_stack',50,'buyin',dest=T))
   check('baseline reproduces real wallet locked while promo is on table',one(f"SELECT fn_ca_promo_play_through_summary('{C}','{A}')->>'cashable'"),'0')
   db.run('TRUNCATE ca_promo_play_through_grants,chip_ledger;UPDATE ca_promo_play_through_settings SET enforced_from=NULL;')
-  db.run(MIGRATION.read_text())
+  inventory=json.loads((ROOT/'tests/fixtures/promo-custody-inventory-pin.json').read_text())
+  for source in inventory['funding_owners']:
+   db.run(source['definition']+';')
+   check('actual funding owner preimage '+source['signature'],one("SELECT md5(pg_get_functiondef('public."+source['signature']+"'::regprocedure))"),source['md5'])
+  db.run('CREATE SCHEMA IF NOT EXISTS smarter_private;'+inventory['definition']+';REVOKE ALL ON FUNCTION smarter_private.original_inventory_proof_sources_match() FROM PUBLIC,anon,authenticated,service_role;')
+  check('actual original inventory guard preimage',one("SELECT md5(pg_get_functiondef('smarter_private.original_inventory_proof_sources_match()'::regprocedure))"),inventory['md5'])
+  def guarded(sql):
+   script="import{stalePinGuardSQL}from'./scripts/ci/migration-stale-pins.mjs';let s='';for await(const b of process.stdin)s+=b;process.stdout.write(stalePinGuardSQL(process.argv[1],s,s));"
+   return subprocess.run(['node','--input-type=module','-e',script,str(MIGRATION)],input=sql,text=True,capture_output=True,check=True,cwd=ROOT).stdout
+  migration=MIGRATION.read_text();pin_start=migration.index('DO $inventory_pin$');pin_end=migration.index('END $inventory_pin$;',pin_start)+len('END $inventory_pin$;')
+  refused=db.run(guarded(migration[:pin_start]+migration[pin_end:]),check=False)
+  (args.output/'stale-pin-before.stderr').write_text(refused.stderr)
+  check('real applier refuses the former stale funding pin',refused.returncode!=0 and 'migration_left_a_stale_pin' in refused.stderr,True)
+  check('refused stale funding pin rolls back custody DDL',one("SELECT to_regclass('public.ca_promo_principal_custody') IS NULL"),'t')
+  db.run(guarded(migration))
+  next_hash=one("SELECT md5(pg_get_functiondef('public.fn_cash_record_original_funding(text,text,uuid,uuid,uuid,uuid,uuid,numeric,numeric,uuid)'::regprocedure))")
+  expected=inventory['definition'].replace('d01404c53405fd1826de26e58b04f4b1',next_hash)
+  check('inventory guard changes only the original funding fingerprint',one("SELECT md5(pg_get_functiondef('smarter_private.original_inventory_proof_sources_match()'::regprocedure))"),hashlib.md5(expected.encode()).hexdigest())
+  check('inventory guard retains its original private owner and ACL',one("SELECT pg_get_userbyid(proowner)||':'||proacl::text FROM pg_proc WHERE oid='smarter_private.original_inventory_proof_sources_match()'::regprocedure"),'postgres:{postgres=X/postgres}')
   db.run(fund(20,before=50))
   check('disabled programme preserves original cash admission',one('SELECT principal_before||\':\'||principal_moved FROM ca_promo_funding_custody_receipts'),'0:0')
   # Ticket/fee owners have their own native integration. These isolated
@@ -419,6 +437,8 @@ def main():
    refused=db.run(ledger('promo_wallet','player_wallet',f"'{bad_amount}'::numeric",'promo_send'),check=False)
    check(bad_amount+' cannot become promo principal',refused.returncode!=0 and 'ca_promo_principal_is_finite' in refused.stderr,True)
  finally:
+  sources=[Path(__file__),MIGRATION,ROOT/'tests/fixtures/promo-custody-inventory-pin.json',ROOT/'scripts/ci/migration-stale-pins.mjs']
+  (args.output/'INPUTS.json').write_text(json.dumps({str(path.relative_to(ROOT)):hashlib.sha256(path.read_bytes()).hexdigest() for path in sources},indent=2)+'\n')
   (args.output/'RESULTS.json').write_text(json.dumps(checks,indent=2)+'\n')
   if started:subprocess.run([pg/'pg_ctl','-D',tmp/'data','-m','immediate','-w','stop'],capture_output=True)
   import shutil;shutil.rmtree(tmp)

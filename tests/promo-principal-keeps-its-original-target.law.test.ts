@@ -23,4 +23,15 @@ describe('An original promo grant keeps one target through its custody', () => {
     expect(proof).toContain("'actual-accepted-cash-hand-and-replay'");
     expect(proof).toContain("e.report['status']='passed'");
   });
+
+  it('preserves the actual inventory funding authority and its protected applier check', () => {
+    const proof = read('scripts/ci/test-promo-custody.py');
+    expect(proof).toContain('stalePinGuardSQL');
+    expect(proof).toContain('migration_left_a_stale_pin');
+    expect(proof).toContain("inventory['funding_owners']");
+    expect(proof).toContain('inventory guard retains its original private owner and ACL');
+    expect(read('.github/workflows/promo-play-through.yml')).toContain(
+      'tests/fixtures/promo-custody-inventory-pin.json'
+    );
+  });
 });

@@ -17,6 +17,8 @@ on:
       - supabase/migrations/*_promo_principal_*.sql
       - scripts/ci/test-promo-custody.py
       - scripts/ci/test-promo-custody-accepted-hand.py
+      - tests/fixtures/promo-custody-inventory-pin.json
+      - scripts/ci/migration-stale-pins.mjs
       - scripts/ci/test-accepted-hand-roster.py
       - scripts/ci/test-hand-submission.py
       - scripts/ci/probes/accepted-hand-roster-fixture.sql

@@ -34,6 +34,10 @@ of the old cashability result, full-grant FIFO unlocking, uncalled chips,
 Lightning mapping, replay, refusal rollback, conservation and privileges.
 The maintained full hand authority fixture also executes actual accepted
 cash-hand settlement and replay. Both proofs run in the existing promo CI.
+The actual current funding owners retain their original treasury-gift proof.
+Their existing 69-source inventory guard advances only the exact changed
+funding-body fingerprint; the real protected applier reproduces refusal of
+the former stale pin and verifies atomic rollback, the preserved guard and ACL.
 
 This installs only before programme activation and requires the daily window
 for ledger triggers. Ticket/event finalization, fee exclusion consumers,
