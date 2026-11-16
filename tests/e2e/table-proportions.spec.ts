@@ -3825,7 +3825,7 @@ for (const [width, height] of [
 
             expect
               .soft(before.labelGap, `${label}: complete hand label clears frame`)
-              .toBeGreaterThanOrEqual(1);
+              .toBeGreaterThanOrEqual(2 / scale);
             expect
               .soft(before.labelGap, `${label}: no dead strip below hero`)
               .toBeLessThanOrEqual(12 / scale);

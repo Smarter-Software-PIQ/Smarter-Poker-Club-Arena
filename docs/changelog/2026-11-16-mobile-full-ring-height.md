@@ -24,3 +24,8 @@ The static-reserve unit suite snapshots its unchanged source corpus once, as it
 already does for CSS, instead of rereading every source file for seven assertions.
 This removes the observed shared-SSD timeout without changing coverage, assertions
 or timeout limits.
+
+The built-app phone gate also checks the complete hero and HUD at a minimum of
+two physical pixels above the frame. Its 320px/390px cases caught a layout-pixel
+conversion shortfall before publication. Four layout pixels retain that minimum
+at the smallest phone scale; the guard remains unchanged.
