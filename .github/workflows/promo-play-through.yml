@@ -22,6 +22,12 @@ on:
       - scripts/ci/probes/accepted-hand-roster-fixture.sql
       - scripts/ci/fixtures/hand-submission/**
       - tests/fixtures/ev-cashout-lifecycle/captured-authorities.json
+      - supabase/migrations/*_promo_funded_fees_*.sql
+      - scripts/ci/test-promo-fee-basis.py
+      - tests/fixtures/promo-fee-basis/**
+      - scripts/ci/fixtures/unpaid-atomic-cash-contract-columns.json
+      - scripts/ci/fixtures/rakeback-cascade-real-guards/production-relations.json
+      - scripts/ci/fixtures/rakeback-cascade-real-guards/world.py
       - .github/workflows/promo-play-through.yml
 
 permissions:
@@ -50,6 +56,8 @@ jobs:
         run: python3 -B scripts/ci/test-promo-custody.py --output artifacts/promo-custody
       - name: Promo custody runs in the original accepted hand
         run: python3 -B scripts/ci/test-promo-custody-accepted-hand.py --pg-bin /usr/lib/postgresql/17/bin --output artifacts/promo-custody-accepted-hand
+      - name: Promo fees preserve gross rake and exclude free earnings
+        run: python3 -B scripts/ci/test-promo-fee-basis.py --pg-bin /usr/lib/postgresql/17/bin --output artifacts/promo-fee-basis
       - name: Retain the regression evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -57,7 +65,11 @@ jobs:
           name: promo-play-through-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             artifacts/promo-play-through/RESULTS.json
+<<<<<<< HEAD
             artifacts/promo-custody/RESULTS.json
             artifacts/promo-custody-accepted-hand/RESULTS.json
+=======
+            artifacts/promo-fee-basis/RESULTS.json
+>>>>>>> origin/main
           retention-days: 7
           if-no-files-found: warn
