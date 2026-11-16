@@ -2577,6 +2577,27 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaStreetPlan: true },
     b: {},
   })),
+  // 2026-11-15 OMAHA STREET PLAN, the flop, the turn three-way and the
+  // preflop stack-to-pot layers (HorseOmahaStreetPlan, owner 11:43, each
+  // default OFF, switched separately). a switches one on, b is today's brain;
+  // the live cash Hybrid persona on both arms (hybridBaseline). Declared, not
+  // run: the constants are unmeasured.
+  ...(['plo4', 'plo5'] as const).flatMap((variant) =>
+    (
+      [
+        ['omaha_street_plan_flop', { omahaStreetPlanFlop: true }],
+        ['omaha_street_plan_three_way', { omahaStreetPlanThreeWay: true }],
+        ['omaha_preflop_stack_plan', { omahaPreflopStackPlan: true }],
+      ] as const
+    ).map(([card, a]) => ({
+      name: `${variant}_${card}`,
+      variant,
+      pairs: 6000,
+      hybridBaseline: true,
+      a: { ...a },
+      b: {},
+    }))
+  ),
   // 2026-11-15 (default OFF, switched separately): a 3-bet or 4-bet out of
   // position (omahaReraiseRangeOutOfPosition) or from early position
   // (omahaReraiseRangeEarlyPosition) needs suited aces, committed aces or a

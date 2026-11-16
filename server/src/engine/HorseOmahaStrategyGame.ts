@@ -47,6 +47,8 @@ export const OMAHA_STRATEGY_CONSTANT_DEFAULTS = Object.freeze({
   cardImpactMargin: 0.04,
   /** HorseOmahaStreetPlan OMAHA_STREET_PLAN_MARGIN_POT_SHARE */
   streetPlanMarginPotShare: 0.02,
+  /** HorseOmahaStreetPlan OMAHA_FLOP_PLAN_MARGIN_POT_SHARE */
+  streetPlanFlopMarginPotShare: 0.02,
   /** HorseOmahaBigDrawAggression OMAHA_BIG_DRAW_MARGIN */
   bigDrawMargin: 0.02,
   /** HorseOmahaTurnRiverRaiseNeedsNuts OMAHA_RAISE_NEEDS_NUTS_FOLD_PRICE */

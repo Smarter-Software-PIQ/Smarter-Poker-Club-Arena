@@ -1059,6 +1059,21 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'omahaStreetPlanFlop',
+    'Owner 2026-11-15 11:43 (Horses always think about future streets, plan ahead, protect and grow the stack; no blanket rules): PLO4/PLO5 cash, heads-up, one board, high only. A flop bet facing no wager is priced against the check, and against the smaller sizes of the engine menu, as two-street lines: the opponent fold / call / raise (his preflop line, measured tendencies, a population prior otherwise), the turn card by texture class (eight representative cards weighted by their exact share, each good / neutral / bad by the equity change), the planned turn action per class by the turn layer line model and eight sampled rivers under each. A line that commits the stack (stack-to-pot after the call at or under 1.5) with a hand that folds to the expected raise or continues on under 65% of turn cards is not made; otherwise the bet stands only when it beats the check line by 2% of the pot, and a smaller size replaces the engine size only when it beats it by the same margin. Only a bet becomes a check or a smaller bet. The owner flop checks stay final. No engine random number (HorseOmahaStreetPlan.ts). Default OFF (read === true); constants unmeasured, evaluation NOT RUN; league cards plo4/plo5 _omaha_street_plan_flop',
+    'V94'
+  ),
+  flag(
+    'omahaStreetPlanThreeWay',
+    'Owner 2026-11-15 11:43: the turn street plan for exactly two live opponents (PLO4/PLO5 cash, one board, high only). Each opponent has his own independent range and measured tendency; a turn bet facing no wager wins at once only when both fold, otherwise it must beat every caller at showdown on every river card (no river betting modelled three-way). The bet becomes a check when the check line is worth more by 2% of the pot. No engine random number (HorseOmahaStreetPlan.ts). Default OFF (read === true); constants unmeasured, evaluation NOT RUN; league cards plo4/plo5 _omaha_street_plan_three_way',
+    'V94'
+  ),
+  flag(
+    'omahaPreflopStackPlan',
+    'Owner 2026-11-15 11:43 (protect the stack; hand, player, price and pot dependent): PLO4/PLO5, preflop, a call of a raise heads-up against the raiser that creates a stack-to-pot ratio under 3 is priced as the stack it commits: (equity against the raiser band - charge) x final pot - chips put in, against 0 for the fold; the charge is the engine realisation margin by position scaled by the ratio (halved for a nut-making hand: coordinated or a suited ace) plus 0.06 for a hand that makes mostly one pair. A negative value folds the call; only a call becomes a fold, never a wider range. Runs before the day 3-bet / 4-bet options, which keep precedence (HorseOmahaStreetPlan.ts). Default OFF (read === true); constants unmeasured, evaluation NOT RUN; league cards plo4/plo5 _omaha_preflop_stack_plan',
+    'V94'
+  ),
+  flag(
     'omahaBigDrawAggression',
     'Owner 2026-11-15 11:55 (play the combo draws and nut draws hard and fast; too many conservative plays with huge-equity draws): on a PLO4/PLO5 cash flop or turn a check or a call with a declared big draw (nut flush draw with a wrap, a straight draw or a pair; a 13+ out wrap with nine nut outs; a pair or a flush draw with nine nut straight outs; never a paired board, a made hand, a bare or non-nut draw) becomes a pot-sized bet or raise, or the stack when a later street puts it in anyway, only when its expected value is the higher one: fold equity from each opponent measured fold to a bet (population prior without a read), equity against the range that continues; passive against three or more opponents and against two without the nut end (HorseOmahaBigDrawAggression.ts). Default OFF (opt-in); league cards plo4/plo5 _omaha_big_draw_aggression',
     'V94'
@@ -4638,6 +4653,66 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_street_plan_followed',
     'HorseLogic.decide (HorseOmahaStreetPlan, omahaStreetPlan; inside the paired-board fold)',
     'PLO4/PLO5 cash heads-up river call after the Horse turn bet was called: the turn plan, recomputed from the public history, calls this river card for this bet or less, so the paired-board fold stood aside and the reference decision stood',
+    'V94'
+  ),
+  receipt(
+    'omaha_street_plan_flop_checked',
+    'HorseLogic wager_rules (HorseOmahaStreetPlan, omahaStreetPlanFlop)',
+    'PLO4/PLO5 cash heads-up flop bet facing no wager whose two-street line (opponent responses, the turn by card class with the planned turn action, sampled rivers) did not beat the check line by 2% of the pot: turned into a check',
+    'V94'
+  ),
+  receipt(
+    'omaha_street_plan_flop_commit_avoided',
+    'HorseLogic wager_rules (HorseOmahaStreetPlan, omahaStreetPlanFlop)',
+    'the same flop bet turned into a check where the bet line commits the stack (stack-to-pot after the call at or under 1.5) with a hand that folds to the expected raise or continues on under 65% of turn cards, and no smaller size of the engine menu was worth making',
+    'V94'
+  ),
+  receipt(
+    'omaha_street_plan_flop_resized',
+    'HorseLogic wager_rules (HorseOmahaStreetPlan, omahaStreetPlanFlop)',
+    'the same flop bet made at a smaller size of the engine menu whose line beat the engine size by 2% of the pot (or the engine size commits without a plan)',
+    'V94'
+  ),
+  receipt(
+    'omaha_street_plan_flop_checked_vetoed',
+    'HorseLogic.decide, settled at the final decision (HorseOmahaStreetPlan, omahaStreetPlanFlop)',
+    'the flop plan turned a flop bet into a check and the final decision of HorseLogic.decide was not that verdict (a later rule replaced it); fired in place of the proposing receipt, which fires only when its verdict is the final action',
+    'V94'
+  ),
+  receipt(
+    'omaha_street_plan_flop_commit_avoided_vetoed',
+    'HorseLogic.decide, settled at the final decision (HorseOmahaStreetPlan, omahaStreetPlanFlop)',
+    'the flop plan turned a committing flop bet into a check and the final decision of HorseLogic.decide was not that verdict (a later rule replaced it); fired in place of the proposing receipt, which fires only when its verdict is the final action',
+    'V94'
+  ),
+  receipt(
+    'omaha_street_plan_flop_resized_vetoed',
+    'HorseLogic.decide, settled at the final decision (HorseOmahaStreetPlan, omahaStreetPlanFlop)',
+    'the flop plan made a flop bet smaller and the final decision of HorseLogic.decide was not that verdict (a later rule replaced it); fired in place of the proposing receipt, which fires only when its verdict is the final action',
+    'V94'
+  ),
+  receipt(
+    'omaha_street_plan_three_way_checked',
+    'HorseLogic wager_rules (HorseOmahaStreetPlan, omahaStreetPlanThreeWay)',
+    'PLO4/PLO5 cash turn bet facing no wager with exactly two live opponents whose three-way line (both must fold, or the Horse must beat every caller on every river card) was worth less than the check line by more than 2% of the pot: turned into a check',
+    'V94'
+  ),
+  receipt(
+    'omaha_street_plan_three_way_checked_vetoed',
+    'HorseLogic.decide, settled at the final decision (HorseOmahaStreetPlan, omahaStreetPlanThreeWay)',
+    'the three-way turn plan turned a turn bet into a check and the final decision of HorseLogic.decide was not that verdict (a later rule replaced it); fired in place of the proposing receipt, which fires only when its verdict is the final action',
+    'V94'
+  ),
+  receipt(
+    'omaha_preflop_stack_plan_folded',
+    'HorseLogic wager_rules (HorseOmahaStreetPlan, omahaPreflopStackPlan; first inside omahaOopReraisedPotStrongRange)',
+    'PLO4/PLO5 preflop call of a raise heads-up against the raiser that creates a stack-to-pot ratio under 3 and whose committed-stack value (equity against his band less the playability charge) is negative: turned into a fold',
+    'V94'
+  ),
+  receipt(
+    'omaha_preflop_stack_plan_folded_vetoed',
+    'HorseLogic.decide, settled at the final decision (HorseOmahaStreetPlan, omahaPreflopStackPlan)',
+    'the preflop stack plan turned a call into a fold and the final decision of HorseLogic.decide was not that verdict (a later rule replaced it); fired in place of the proposing receipt, which fires only when its verdict is the final action',
     'V94'
   ),
   receipt(

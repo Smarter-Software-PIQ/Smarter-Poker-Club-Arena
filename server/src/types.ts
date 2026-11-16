@@ -1076,8 +1076,12 @@ export interface HorseDecision {
     | 'preflop_priced_refusal';
   plo4Policy?: import('./engine/plo4/Plo4LivePolicy.js').Plo4LiveReceipt;
   omahaVariantPolicy?: import('./engine/omaha/OmahaVariantLivePolicy.js').OmahaVariantReceipt;
-  /** omahaStreetPlan (default off): the bounded plan a turn decision was made under; no card, no identity. */
-  streetPlan?: import('./engine/HorseOmahaStreetPlan.js').OmahaStreetPlanRecord;
+  /** omahaStreetPlan, omahaStreetPlanFlop, omahaStreetPlanThreeWay (default off): the bounded plan a
+   * flop or turn decision was made under; no card, no identity. */
+  streetPlan?:
+    | import('./engine/HorseOmahaStreetPlan.js').OmahaStreetPlanRecord
+    | import('./engine/HorseOmahaStreetPlan.js').OmahaFlopPlanRecord
+    | import('./engine/HorseOmahaStreetPlan.js').OmahaThreeWayPlanRecord;
   remainingVariantPolicy?: import('./engine/remainingVariants/RemainingVariantLivePolicy.js').RemainingVariantReceipt;
   jointPolicy?: import('./engine/multiway/JointLivePolicy.js').JointPolicyReceipt;
   tournamentPostflop?: import('./engine/HorseTournamentPostflop.js').HorseTournamentPostflopLedger;
