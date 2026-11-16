@@ -45,7 +45,7 @@ BEGIN
   -- as unpaid.
   UPDATE public.sp_signup_welcome_back_awards a
      SET status = 'closed', last_error = 'Played A Hand Before The Chips Were Paid', updated_at = now()
-   WHERE a.status IN ('no_club', 'failed') AND public.fn_sp_player_has_played(a.user_id);
+   WHERE a.status IN ('no_club', 'failed') AND NOT smarter_private.weekly_kings_member(a.user_id) AND public.fn_sp_player_has_played(a.user_id);
   GET DIAGNOSTICS v_closed = ROW_COUNT;
 
   -- Welcome Back Chips is only for a player who has never received a chip
@@ -53,14 +53,14 @@ BEGIN
   -- anyone is closed: not retried, not nudged, not reported as unpaid.
   UPDATE public.sp_signup_welcome_back_awards a
      SET status = 'closed', last_error = 'Already Received Chips Before Welcome Back', updated_at = now()
-   WHERE a.status IN ('no_club', 'failed') AND public.fn_sp_player_has_received_chips(a.user_id);
+   WHERE a.status IN ('no_club', 'failed') AND NOT smarter_private.weekly_kings_member(a.user_id) AND public.fn_sp_player_has_received_chips(a.user_id);
   GET DIAGNOSTICS v_closed_chips = ROW_COUNT;
   v_closed := v_closed + v_closed_chips;
 
   FOR c IN
     SELECT h.id, h.username, h.created_at, h.phone_verified
       FROM smarter_private.sp_real_humans h
-     WHERE h.created_at <= now() - make_interval(mins => (v_hours * 60)::int)
+     WHERE NOT smarter_private.weekly_kings_member(h.id) AND h.created_at <= now() - make_interval(mins => (v_hours * 60)::int)
        AND h.created_at >= v_since
        AND NOT public.fn_sp_player_has_played(h.id)
        -- Never received a chip from anyone, ever (Dan, 2026-11-14).
@@ -85,6 +85,16 @@ BEGIN
               h.created_at
      LIMIT GREATEST(1, LEAST(COALESCE(p_limit, 50), 500))
   LOOP
+
+    -- A newly approved KINGS membership now belongs to the weekly owner.
+    -- Share the normal join owner's per-user lock. A pending membership's
+    -- status can also be approved separately, so serialize that row.
+    IF NOT pg_try_advisory_xact_lock(hashtextextended(c.id::text,77431)) THEN CONTINUE; END IF;
+    BEGIN
+      PERFORM 1 FROM public.club_members WHERE club_id=v_kings AND user_id=c.id FOR UPDATE NOWAIT;
+    EXCEPTION WHEN lock_not_available THEN CONTINUE;
+    END;
+    IF smarter_private.weekly_kings_member(c.id) THEN CONTINUE; END IF;
     v_scanned := v_scanned + 1;
     -- One op per player for life: fn_promo_disburse replays an op_id it has
     -- already paid, so a crash between the credit and this row's insert can

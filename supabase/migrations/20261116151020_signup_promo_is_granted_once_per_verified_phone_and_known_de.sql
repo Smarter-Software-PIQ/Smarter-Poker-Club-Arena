@@ -180,7 +180,7 @@ DECLARE
       END IF;
     EXCEPTION WHEN OTHERS THEN$after$;
 BEGIN
-  IF md5(d)<>'e1d4ed9955a87803e7093b057409fb2d' THEN
+  IF md5(d)<>'51629e5f1ef59835c3719ec553356eb8' THEN
     RAISE EXCEPTION 'Signup promo owner changed; reconcile the identity claim with its current credit transaction';
   END IF;
   IF position(old_block in d)=0 OR length(d)-length(replace(d,old_block,''))<>length(old_block) THEN
@@ -189,5 +189,19 @@ BEGIN
   EXECUTE replace(d,old_block,new_block);
 END;
 $patch$;
+
+-- The existing weekly owner now pays the KINGS branch of this same campaign.
+-- Reserve the same identity in that original payment transaction as well;
+-- refusing one gift does not block the remaining eligible recipients.
+DO $weekly$
+DECLARE d text;needle text:=E'    payment:=public.fn_promo_disburse(';
+BEGIN
+ SELECT pg_get_functiondef('smarter_private.weekly_kings_welcome_due()'::regprocedure) INTO d;
+ IF md5(d)<>'290c1c3f6c23a1341fe61eb453c0510f' THEN
+  RAISE EXCEPTION 'Weekly signup promo owner changed; reconcile its original identity and credit transaction';
+ END IF;
+ IF length(d)-length(replace(d,needle,''))<>length(needle) THEN RAISE EXCEPTION 'weekly_signup_promo_credit_anchor_changed'; END IF;
+ EXECUTE replace(d,needle,E'    DECLARE identity_result jsonb; BEGIN\n      identity_result:=public.fn_ca_signup_promo_claim_identity(member.user_id,op);\n      IF identity_result->>''success'' IS DISTINCT FROM ''true'' THEN CONTINUE; END IF;\n    END;\n'||needle);
+END $weekly$;
 
 COMMIT;

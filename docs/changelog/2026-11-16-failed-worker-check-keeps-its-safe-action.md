@@ -23,3 +23,8 @@ owner now queues while settlement remains in flight, matching the Diamond
 owner. Two regressions exercise the actual settlement collection, including
 settlement beginning while the add-on waits for its seat boundary. This fix
 must be serving before promo enforcement is activated.
+
+The current weekly KINGS gift owner shares the same signup campaign identity
+reservation as its hourly sibling. Both original credit transactions keep
+their existing timing and membership checks. A refused identity skips only
+that weekly gift, while a failed payment rolls its identity claim back.

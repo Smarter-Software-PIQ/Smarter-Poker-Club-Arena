@@ -22,6 +22,7 @@ native=importlib.util.module_from_spec(spec)
 spec.loader.exec_module(native)
 MIGRATION=next((ROOT/'supabase/migrations').glob('*_signup_promo_is_granted_once_per_verified_phone_and_known_de.sql'))
 OWNER=ROOT/'tests/fixtures/signup-promo-identity/signup-owner.sql'
+WEEKLY_OWNER=ROOT/'tests/fixtures/signup-promo-identity/weekly-owner.sql'
 
 def uid(n): return f'00000000-0000-0000-0000-{n:012d}'
 
@@ -57,6 +58,7 @@ DO $$ BEGIN
 END $$;
 CREATE SCHEMA auth;
 CREATE SCHEMA extensions;
+CREATE SCHEMA smarter_private;
 CREATE EXTENSION pgcrypto WITH SCHEMA extensions;
 CREATE FUNCTION auth.role() RETURNS text LANGUAGE sql STABLE AS $$SELECT nullif(current_setting('request.jwt.claim.role',true),'')$$;
 CREATE FUNCTION fn_caller_is_engine() RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT coalesce(auth.role(),'service_role')='service_role' $$;
@@ -66,16 +68,20 @@ CREATE TABLE anti_cheat_device_sightings(user_id uuid,device_id text);
 CREATE TABLE ca_promo_play_through_settings(id boolean PRIMARY KEY,enforced_from timestamptz);
 INSERT INTO ca_promo_play_through_settings VALUES(true,NULL);
 CREATE TABLE fixture_credits(user_id uuid,operation_id uuid PRIMARY KEY,amount numeric);
+CREATE TABLE chip_transactions(id uuid PRIMARY KEY,to_user_id uuid,club_id uuid,transaction_type text,amount numeric,metadata jsonb);
 CREATE TABLE sp_signup_welcome_back_awards(user_id uuid PRIMARY KEY,phone text,status text);
 CREATE FUNCTION fn_promo_disburse(text,uuid,text,uuid,numeric,text,uuid,uuid) RETURNS jsonb LANGUAGE plpgsql AS $$
 BEGIN
  IF current_setting('test.credit_fails',true)='on' THEN RETURN jsonb_build_object('success',false,'error','Native Credit Refused'); END IF;
  INSERT INTO fixture_credits VALUES($4,$8,$5) ON CONFLICT(operation_id) DO NOTHING;
- RETURN jsonb_build_object('success',true);
+ INSERT INTO chip_transactions VALUES($8,$4,$7,'promo_disbursement',$5,jsonb_build_object('op_id',$8)) ON CONFLICT(id) DO NOTHING;
+ RETURN jsonb_build_object('success',true,'replayed',false,'transaction_id',$8);
 END $$;
 """)
         query(OWNER.read_text())
-        check('source snapshot is the measured current signup owner',query("SELECT md5(pg_get_functiondef('fn_sp_signup_welcome_back_run(integer,date)'::regprocedure))")=='e1d4ed9955a87803e7093b057409fb2d')
+        query(WEEKLY_OWNER.read_text())
+        check('source snapshot is the measured current signup owner',query("SELECT md5(pg_get_functiondef('fn_sp_signup_welcome_back_run(integer,date)'::regprocedure))")=='51629e5f1ef59835c3719ec553356eb8')
+        check('weekly source snapshot is the installed original campaign owner',query("SELECT md5(pg_get_functiondef('smarter_private.weekly_kings_welcome_due()'::regprocedure))")=='290c1c3f6c23a1341fe61eb453c0510f')
         query(MIGRATION.read_text())
         definition=query("SELECT pg_get_functiondef('fn_sp_signup_welcome_back_run(integer,date)'::regprocedure)")
         start=definition.index('    BEGIN\n      v_res := public.fn_ca_signup_promo_claim_identity')
@@ -89,6 +95,16 @@ DECLARE c record; v_op uuid:=p_operation; v_res jsonb; v_err text;
  v_union uuid:='fade0000-0000-0000-0000-000000000001'; v_amount numeric:=25; v_amount_txt text:='25';
 BEGIN SELECT p_user id INTO c;
 """+block+"\nRETURN v_res; END $probe$;")
+        weekly=query("SELECT pg_get_functiondef('smarter_private.weekly_kings_welcome_due()'::regprocedure)")
+        start=weekly.index("    op:=md5('signup-welcome-back:'")
+        end=weekly.index('    INSERT INTO public.sp_signup_welcome_back_awards',start)
+        weekly_block=weekly[start:end]
+        check('the original weekly credit validates the same identity before its payment',weekly_block.index('fn_ca_signup_promo_claim_identity')<weekly_block.index('fn_promo_disburse'))
+        query("""CREATE FUNCTION public.fixture_weekly_signup_probe(p_users uuid[]) RETURNS jsonb LANGUAGE plpgsql AS $probe$
+DECLARE member record;op uuid;payment jsonb;result jsonb:='[]';
+ midway constant uuid:='fade0000-0000-0000-0000-000000000001';kings constant uuid:='a41434bb-8d0c-400a-8f0d-e8b3d65afed4';
+BEGIN FOR member IN SELECT unnest(p_users) user_id LOOP
+"""+weekly_block+"\nresult:=result||jsonb_build_array(payment); END LOOP;RETURN result;END $probe$;")
         # Calls below use the same actual owner block in its isolated wrapper.
         def call(user,op=None,fail=False):
             return j(f"SET request.jwt.claim.role='service_role'; SET test.credit_fails='{'on' if fail else 'off'}'; SELECT fixture_signup_credit_probe('{user}','{op or user}');")
@@ -150,6 +166,16 @@ BEGIN SELECT p_user id INTO c;
         check('oversized history reserves no key',query(f"SELECT count(*) FROM ca_signup_promo_identity_claims WHERE user_id='{crowded}'")=='0')
         check('the definer owner does not override browser request authorization',db.run(f"SET request.jwt.claim.role='authenticated'; SELECT fn_ca_signup_promo_claim_identity('{missing}','{missing}')",check=False).returncode!=0)
         check('no raw phone number is stored in identity claims',query("SELECT count(*) FROM information_schema.columns WHERE table_name='ca_signup_promo_identity_claims' AND column_name='phone'")=='0')
+        weekly_duplicate,weekly_ok,weekly_fail=uid(31),uid(32),uid(33)
+        capture(weekly_duplicate,'+15555550002');device(weekly_duplicate,uid(3100))
+        capture(weekly_ok,'+15555550032');device(weekly_ok,uid(3200))
+        paid=j(f"SET request.jwt.claim.role='service_role';SET test.credit_fails='off';SELECT fixture_weekly_signup_probe(ARRAY['{weekly_duplicate}'::uuid,'{weekly_ok}'::uuid]);")
+        check('a used signup phone is refused across hourly and weekly campaign paths',query(f"SELECT count(*) FROM fixture_credits WHERE user_id='{weekly_duplicate}'")=='0')
+        check('one refused weekly gift does not block the next eligible recipient',len(paid)==1 and query(f"SELECT count(*) FROM fixture_credits WHERE user_id='{weekly_ok}'")=='1')
+        capture(weekly_fail,'+15555550033');device(weekly_fail,uid(3300))
+        rejected=db.run(f"SET request.jwt.claim.role='service_role';SET test.credit_fails='on';SELECT fixture_weekly_signup_probe(ARRAY['{weekly_fail}'::uuid]);",check=False)
+        check('a failed original weekly credit rolls back its new identity claim',rejected.returncode!=0 and query(f"SELECT count(*) FROM ca_signup_promo_identity_claims WHERE user_id='{weekly_fail}'")=='0')
+        check('the failed weekly credit leaves no gift receipt',query(f"SELECT count(*) FROM fixture_credits WHERE user_id='{weekly_fail}'")=='0')
     finally:
         subprocess.run([str(Path(binaries)/'pg_ctl'),'-D',str(data),'-m','fast','stop'],capture_output=True)
         shutil.rmtree(scratch,ignore_errors=True)

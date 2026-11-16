@@ -25,6 +25,8 @@ try:
     q(damage)
     assert one(probe)=='f','reproduce the stale window accepted by the old reader'
     q(migration)
+    q((R/'supabase/migrations/20261116161800_probe_only_new_cash_when_reusing_weekly_player_windows.sql').read_text())
+    assert one("SELECT strpos(pg_get_functiondef('public.fn_settle_accounting_rakeback_pairs(text,uuid,timestamptz,timestamptz)'::regprocedure),'ORDER BY s.recorded_at OFFSET 0') > 0")=='t', 'late-post detection must retain recorded-time index order before filtering a closed week'
     assert one(probe)=='t', 'a contradictory count must force validation against the original earning rows'
     # Restore the synthetic unexplained mismatch. Then reproduce a real late
     # earning in TN's window: snapshot after cutoff, before the source posted.

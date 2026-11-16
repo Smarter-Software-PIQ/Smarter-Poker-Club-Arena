@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module';
 import { isMainThread } from 'node:worker_threads';
 import { boardRelativeFeaturesV2 } from './GtoBoardRelativeFeaturesV2.js';
+import { gtoV31LineClassValidV3 } from './GtoDecisionContext.js';
 import descriptor from './GtoPublicHist215FeatureDescriptor.json' with { type: 'json' };
 import descriptorV2 from './GtoPublicHist215FeatureDescriptorV2.json' with { type: 'json' };
 import {
@@ -82,6 +83,10 @@ const CONTEXT_KEYS = [
   'texture_class',
   'utility_context',
 ] as const;
+/** A hist215-v3 template is authored over a cell contract v3 cell: the 13 keys
+ * plus cell_contract "v3" and its line_class. Only the v3 contract admits them. */
+const CONTEXT_KEYS_V3 = [...CONTEXT_KEYS, 'cell_contract', 'line_class'] as const;
+const CELL_CONTRACT_KEYS = ['cell_contract', 'line_class'];
 export interface Public215Context {
   depth_bucket: number;
   table_size: number;
@@ -201,7 +206,15 @@ export function compilePublic215Template(
     public215Digest(t) !== expectedSha256
   )
     return fail('TEMPLATE_IDENTITY');
-  const c = strictObject(t.context, CONTEXT_KEYS);
+  const c = strictObject(
+    t.context,
+    featureContract === PUBLIC_HIST215_V3 ? CONTEXT_KEYS_V3 : CONTEXT_KEYS
+  );
+  if (
+    featureContract === PUBLIC_HIST215_V3 &&
+    (c.cell_contract !== 'v3' || !gtoV31LineClassValidV3(c.line_class, c.street))
+  )
+    return fail('CELL_CONTRACT_V3');
   if (
     !Number.isSafeInteger(c.depth_bucket) ||
     (c.depth_bucket as number) <= 0 ||
@@ -223,7 +236,7 @@ export function compilePublic215Template(
     return fail('CONTEXT_STREET');
   for (const [k, v] of Object.entries(c))
     if (
-      !['texture_class', 'depth_bucket', 'table_size'].includes(k) &&
+      !['texture_class', 'depth_bucket', 'table_size', ...CELL_CONTRACT_KEYS].includes(k) &&
       !categories.has(k + '=' + v)
     )
       return fail('UNKNOWN_PUBLIC_CATEGORY');
@@ -287,9 +300,25 @@ export function compilePublic215Template(
  * Runtime pot, ranges, rake or other players' private cards are never inputs. */
 export function public215TemplateMatchesContext(
   template: CompiledPublic215Template,
-  context: Public215Context
+  context: Public215Context & {
+    cell_contract?: unknown;
+    cell_contract_version?: unknown;
+    line_class?: unknown;
+  }
 ): boolean {
-  return CONTEXT_KEYS.every((k) => Object.is(template.context[k], context[k]));
+  if (!CONTEXT_KEYS.every((k) => Object.is(template.context[k], context[k]))) return false;
+  // Cell contract v3: a v3 template matches only a v3 cell (a runtime row's
+  // cell_contract_version or a context's cell_contract) of its own line, and a
+  // v3 cell only a v3 template. Without either, the original comparison.
+  const t = template.context as unknown as Record<string, unknown>;
+  const declared = context.cell_contract_version ?? context.cell_contract ?? null;
+  if (!('line_class' in t) && declared === null && context.line_class == null) return true;
+  return (
+    t.cell_contract === 'v3' &&
+    declared === 'v3' &&
+    typeof t.line_class === 'string' &&
+    t.line_class === context.line_class
+  );
 }
 
 function numeric(h: string[], b: string[]): Record<string, number> {
