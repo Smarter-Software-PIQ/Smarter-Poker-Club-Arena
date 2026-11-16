@@ -726,14 +726,26 @@ try:
                                if line.startswith(('CREATE TABLE ca_club_data_exports', 'CREATE TABLE ca_club_data_export_rows'))))
     run(psql('live'), 'SET check_function_bodies=false;' + '\n'.join(x['definition'] + ';' for x in defs))
     run(psql('live'), (recon / 'before.sql').read_text())
+    upgrade = (M / '20261116230906_data_reconciliation_exposes_original_bbj_contributions_and_a.sql').read_text()
+    split = json.loads(run([shutil.which('node'), '--input-type=module', '-e',
+        "import {readFileSync} from 'node:fs';import {splitConcurrentPreamble} from './scripts/ci/migration-concurrent-preamble.mjs';console.log(JSON.stringify(splitConcurrentPreamble(readFileSync(process.argv[1],'utf8'))));",
+        str(M / '20261116230906_data_reconciliation_exposes_original_bbj_contributions_and_a.sql')]).stdout)
+    require(split['ok'] and len(split['indexes']) == 1, 'the maintained concurrent preamble selects exactly one sparse report index')
+    run(psql('live'), split['body'], expect_fail='CLUB_DATA_BBJ_SPARSE_INDEX_NOT_QUALIFIED')
+    run(psql('live'), "CREATE INDEX CONCURRENTLY ca_club_bbj_only_commit_span ON hand_atomic_commits ((1/(hand_number-hand_number)));", expect_fail='division by zero')
+    require(q('live', "SELECT NOT indisvalid FROM pg_index WHERE indexrelid='ca_club_bbj_only_commit_span'::regclass") == 't', 'failed concurrent build leaves its original INVALID catalog receipt visible')
+    run(psql('live'), split['body'], expect_fail='CLUB_DATA_BBJ_SPARSE_INDEX_NOT_QUALIFIED')
+    require(q('live', "SELECT to_regprocedure('public.fn_ca_club_acct_bbj_gap_days(uuid,date,date)') IS NULL AND NOT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name='ca_club_acct_fact' AND column_name='bbj_gross')") == 't', 'an absent or INVALID sparse index refuses before installing fields or readers')
+    run(psql('live'), 'DROP INDEX ca_club_bbj_only_commit_span;')
+    for index in split['indexes']:
+        run(psql('live'), index['statement'])
     old_recon = background()
     old_recon.stdin.write("BEGIN ISOLATION LEVEL REPEATABLE READ; SELECT pg_current_xact_id(); SELECT count(*) FROM clubs;\n\\echo RECON_SNAPSHOT\n")
     old_recon.stdin.flush()
     while old_recon.stdout.readline().strip() != 'RECON_SNAPSHOT':
         if old_recon.poll() is not None:
             raise AssertionError('pre-attachment BBJ snapshot did not open')
-    upgrade = (M / '20261116230906_data_reconciliation_exposes_original_bbj_contributions_and_a.sql').read_text()
-    run(psql('live'), upgrade)
+    run(psql('live'), split['body'])
     run(psql('live'), parts('2026-11-10', True), expect_fail='CLUB_DATA_BBJ_PREATTACHMENT_TRANSACTION_STILL_OPEN')
     finish(old_recon, 'COMMIT;')
     require(True, 'BBJ history waits for every pre-attachment original-source snapshot')
@@ -770,6 +782,15 @@ try:
     run(psql('live'), (recon / 'check.sql').read_text())
     require(q('live', "SELECT NOT has_function_privilege('authenticated','fn_ca_club_acct_reconciliation(uuid,date,date,jsonb,uuid[],uuid[])','EXECUTE') AND NOT has_function_privilege('service_role','fn_ca_club_acct_bbj_source_missing(uuid,uuid)','EXECUTE')") == 't',
             'no browser or service role bypasses reconciliation reader scope')
+    run(psql('live'), (recon / 'bbj-only.sql').read_text())
+    require(True, 'BBJ-only source gaps mask only reconciliation on original accepted/bank dates, keeping posted headlines unchanged')
+    predicate = split['indexes'][0]['statement'].split(' WHERE ', 1)[1].rstrip(';')
+    plan = json.loads(q('live', "EXPLAIN(ANALYZE,BUFFERS,FORMAT JSON) SELECT hand_id FROM hand_atomic_commits WHERE " + predicate +
+        " AND tstzrange(committed_at,coalesce(post_commit_completed_at,'infinity'::timestamptz),'[]') && tstzrange('2026-11-10 08:00Z','2026-11-11 08:00Z','[)')"))
+    require('ca_club_bbj_only_commit_span' in json.dumps(plan), 'normal planner scopes the sparse BBJ interval index with 20k regular and 1k older sparse decoys')
+    require(q('live', "SELECT NOT has_function_privilege('authenticated','fn_ca_club_acct_bbj_gap_days(uuid,date,date)','EXECUTE')") == 't',
+            'the sparse original-source qualification helper remains private')
+    print('BBJ sparse candidate plan: ' + json.dumps(plan), flush=True)
     print('{"native_fixture": "passed", "production_installation": false}')
 finally:
     if started:

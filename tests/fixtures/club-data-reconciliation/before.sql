@@ -1,4 +1,10 @@
 -- Finalized RA evidence is read when its original accounting source commits.
+CREATE TABLE hand_atomic_commits(table_id uuid,hand_number bigint,hand_id uuid UNIQUE,committed_at timestamptz,post_commit_completed_at timestamptz,post_commit_payload jsonb,PRIMARY KEY(table_id,hand_number));
+CREATE TABLE bbj_pools(id uuid PRIMARY KEY,union_id uuid,club_id uuid);
+CREATE TABLE bbj_contributions(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),pool_id uuid,hand_id uuid,table_id uuid,hand_number bigint,amount numeric,created_at timestamptz);
+CREATE INDEX fixture_bbj_hand ON bbj_contributions(hand_id);
+CREATE INDEX fixture_bbj_table_hand ON bbj_contributions(table_id,hand_number);
+INSERT INTO hand_atomic_commits VALUES('c0000000-0000-0000-0000-000000000001',9000,'eeeeeeee-0000-0000-0000-000000009000','2026-11-10 12:00Z','2026-11-10 12:00:01Z','{"rake":{"amount":1},"bbj_contribution":{"amount":1}}');
 ALTER TABLE rake_records ADD COLUMN bbj_contribution numeric DEFAULT 0,ADD COLUMN hand_id uuid;
 CREATE TABLE rake_attributions(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),rake_record_id uuid,player_id uuid,club_id uuid,hand_id uuid,bbj_attributed_contribution numeric);
 CREATE INDEX fixture_ra_record_player ON rake_attributions(rake_record_id,player_id);

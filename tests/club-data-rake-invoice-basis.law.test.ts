@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { declaredProofs, proofIsRunnable } from '../scripts/ci/check-migrations-are-live.mjs';
+import { splitConcurrentPreamble } from '../scripts/ci/migration-concurrent-preamble.mjs';
 const sql = readFileSync(
   'supabase/migrations/20261116205043_data_rake_union_headlines_use_invoice_accounting.sql',
   'utf8'
@@ -30,6 +31,21 @@ describe('Data Rake agrees with the invoice-backed Data question', () => {
     const driver = readFileSync('scripts/ci/club-data-accounting-seed.mjs', 'utf8');
     expect(driver).toContain('seeded.rows[0].bbj_version === 1');
     expect(driver).toContain('rebuild || seeded.rowCount > 0');
+    const split = splitConcurrentPreamble(recon);
+    expect(split.ok).toBe(true);
+    if (!split.ok) throw new Error(split.reason);
+    expect(split.indexes).toHaveLength(1);
+    expect(split.indexes[0].name).toBe('ca_club_bbj_only_commit_span');
+    expect(split.body.indexOf('CLUB_DATA_BBJ_SPARSE_INDEX_NOT_QUALIFIED')).toBeLessThan(
+      split.body.indexOf('ALTER TABLE public.ca_club_acct_fact')
+    );
+    expect(recon).toContain('i.indisvalid AND i.indisready AND i.indislive');
+    expect(recon).toContain("am.amname='gist'");
+    expect(recon).toContain("'bbj_original_source_gap'");
+    expect(recon).toContain('b.created_at>=v_lo AND b.created_at<v_hi');
+    expect(recon).toContain("o.game_scope->>'game_union_id'=v_union::text");
+    expect(recon).not.toContain('CREATE TRIGGER');
+    expect(recon).not.toContain('FUNCTION public.bbj_record_contribution(');
   });
   it('routes by recorded window eligibility without changing the financial producers', () => {
     expect(sql).toContain('public.fn_ca_club_data_reads_union_basis(v_context,v_start,v_end)');

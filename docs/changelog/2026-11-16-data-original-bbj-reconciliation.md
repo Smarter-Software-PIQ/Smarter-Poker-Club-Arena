@@ -40,3 +40,37 @@ idempotent finite reconstruction, public Data totals and filters, downline scope
 and private access. Four focused law/unit files passed 30 tests; app TypeScript
 passed. Installation, finite production reconstruction and publication are owned
 by the task's existing delivery owner.
+
+## BBJ-Only Source Qualification
+
+The original accepted-hand contract can charge BBJ independently of a positive
+rake obligation. Such a hand has no finalized accounting cash rake source.
+A sparse built-in GiST interval index now selects only original positive BBJ
+obligations without a proven positive rake obligation. The existing maintained
+concurrent-index preamble builds it before the migration transaction; the body
+refuses an absent, INVALID or mismatched index before installing any field or
+reader. No hot-table trigger, money writer or engine code changes.
+
+The interval is only a candidate filter. Read-only qualification matches the
+actual original acceptance date or exact BBJ bank receipt date, and the original
+outcome or pool union. Delayed banking does not mask intermediate days or the
+completion clock's next day. Other unions and explicitly standalone hands do
+not affect this union. Genuinely unknown original scope is unavailable only on
+its actual acceptance date. Missing or zero rake fields are never mistaken for
+a proven positive original rake obligation.
+
+An unsupported hand sets reconciliation source `bbj_original_source_gap`, marks
+its dates missing and returns null BBJ figures. Existing posted fee/winnings
+headlines and their original source/billing coverage remain unchanged. No
+allocation is invented. Original sparse evidence survives any report rebuild,
+so a version-one receipt cannot erase this qualification condition.
+
+The changed maintained native driver passed 73 top-level assertions plus SQL
+scenarios, retaining the previous 67. It exercised the actual concurrent
+preamble, an INVALID build refusing the body, late banking across midnight,
+scope and pending boundaries, and unchanged public headlines with unknown BBJ.
+With 20,000 regular and 1,000 older sparse synthetic decoys, the normal planner
+selected the GiST index and read two candidate rows in three shared-hit blocks
+(0.059 ms warm private execution). This is index-shape evidence, not a production
+latency guarantee. The existing four focused files passed 30 tests and the
+maintained concurrent-preamble tests passed 21.

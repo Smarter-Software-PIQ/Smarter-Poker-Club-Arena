@@ -7,7 +7,11 @@
     "ca_club_acct_seed_log",
     "ca_club_acct_seed_parts"
   ],
-  "functions": ["fn_ca_club_acct_bbj_source_missing", "fn_ca_club_acct_reconciliation"],
+  "functions": [
+    "fn_ca_club_acct_bbj_source_missing",
+    "fn_ca_club_acct_reconciliation",
+    "fn_ca_club_acct_bbj_gap_days"
+  ],
   "columns": {
     "ca_club_acct_fact": ["bbj_gross", "bbj_awards"],
     "ca_club_acct_fact_journal": ["bbj_gross", "bbj_awards"],

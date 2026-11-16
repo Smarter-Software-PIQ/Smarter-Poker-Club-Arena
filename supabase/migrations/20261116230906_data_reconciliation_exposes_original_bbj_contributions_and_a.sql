@@ -2,10 +2,36 @@
 -- Report-only extension of the existing atomic aggregate/journal and finite loader.
 -- Old rows are not zero BBJ: versioned source coverage refuses their reconciliation
 -- until the original accounting day is reconstructed by the maintained loader.
--- @live-proof: EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='ca_club_acct_fact' AND column_name='bbj_gross') AND to_regprocedure('public.fn_ca_club_acct_reconciliation(uuid,date,date,jsonb,uuid[],uuid[])') IS NOT NULL AND EXISTS(SELECT 1 FROM pg_proc WHERE oid=to_regprocedure('public.fn_ca_club_acct_cash_fee_rows(jsonb)') AND position('bbj_attributed_contribution' IN prosrc)>0)
+-- @live-proof: EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='ca_club_acct_fact' AND column_name='bbj_gross') AND to_regprocedure('public.fn_ca_club_acct_reconciliation(uuid,date,date,jsonb,uuid[],uuid[])') IS NOT NULL AND EXISTS(SELECT 1 FROM pg_proc WHERE oid=to_regprocedure('public.fn_ca_club_acct_cash_fee_rows(jsonb)') AND position('bbj_attributed_contribution' IN prosrc)>0) AND EXISTS(SELECT 1 FROM pg_index WHERE indexrelid=to_regclass('public.ca_club_bbj_only_commit_span') AND indisvalid AND indisready AND indislive) AND to_regprocedure('public.fn_ca_club_acct_bbj_gap_days(uuid,date,date)') IS NOT NULL
+-- Sparse original BBJ-only obligations, including later original bank receipts.
+-- Built by the maintained ordinary CONCURRENTLY preamble, never a hot trigger.
+CREATE INDEX CONCURRENTLY IF NOT EXISTS ca_club_bbj_only_commit_span ON public.hand_atomic_commits
+ USING gist(tstzrange(committed_at,coalesce(post_commit_completed_at,'infinity'::timestamptz),'[]'))
+ INCLUDE(committed_at,table_id,hand_number,hand_id) WHERE CASE WHEN jsonb_typeof(post_commit_payload->'bbj_contribution')='object' AND jsonb_typeof(post_commit_payload#>'{bbj_contribution,amount}')='number' THEN (post_commit_payload#>>'{bbj_contribution,amount}')::numeric>0 ELSE false END AND NOT CASE WHEN jsonb_typeof(post_commit_payload->'rake')='object' AND jsonb_typeof(post_commit_payload#>'{rake,amount}')='number' THEN (post_commit_payload#>>'{rake,amount}')::numeric>0 ELSE false END;
 BEGIN;
 SET LOCAL lock_timeout='1s';
 SET LOCAL statement_timeout='60s';
+DO $sparse_guard$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid JOIN pg_am am ON am.oid=c.relam
+ WHERE i.indexrelid=to_regclass('public.ca_club_bbj_only_commit_span')
+ AND i.indrelid='public.hand_atomic_commits'::regclass AND i.indisvalid AND i.indisready AND i.indislive
+ AND NOT i.indisunique AND NOT i.indisexclusion AND c.reloptions IS NULL AND am.amname='gist' AND i.indnkeyatts=1 AND i.indnatts=5
+ AND pg_get_indexdef(i.indexrelid,1,true)=$key$tstzrange(committed_at, COALESCE(post_commit_completed_at, 'infinity'::timestamp with time zone), '[]'::text)$key$
+ AND pg_get_indexdef(i.indexrelid,2,true)='committed_at'
+ AND pg_get_indexdef(i.indexrelid,3,true)='table_id'
+ AND pg_get_indexdef(i.indexrelid,4,true)='hand_number'
+ AND pg_get_indexdef(i.indexrelid,5,true)='hand_id'
+ AND pg_get_expr(i.indpred,i.indrelid)=$predicate$(
+CASE
+    WHEN ((jsonb_typeof((post_commit_payload -> 'bbj_contribution'::text)) = 'object'::text) AND (jsonb_typeof((post_commit_payload #> '{bbj_contribution,amount}'::text[])) = 'number'::text)) THEN (((post_commit_payload #>> '{bbj_contribution,amount}'::text[]))::numeric > (0)::numeric)
+    ELSE false
+END AND (NOT
+CASE
+    WHEN ((jsonb_typeof((post_commit_payload -> 'rake'::text)) = 'object'::text) AND (jsonb_typeof((post_commit_payload #> '{rake,amount}'::text[])) = 'number'::text)) THEN (((post_commit_payload #>> '{rake,amount}'::text[]))::numeric > (0)::numeric)
+    ELSE false
+END))$predicate$) THEN
+ RAISE EXCEPTION 'CLUB_DATA_BBJ_SPARSE_INDEX_NOT_QUALIFIED'; END IF;
+END $sparse_guard$;
 
 ALTER TABLE public.ca_club_acct_fact ADD COLUMN bbj_gross numeric NOT NULL DEFAULT 0, ADD COLUMN bbj_awards numeric NOT NULL DEFAULT 0;
 ALTER TABLE public.ca_club_acct_fact_journal ADD COLUMN bbj_gross numeric NOT NULL DEFAULT 0, ADD COLUMN bbj_awards numeric NOT NULL DEFAULT 0;
@@ -511,9 +537,41 @@ $function$
 ;
 REVOKE ALL ON FUNCTION public.fn_ca_club_acct_coverage(uuid,date,date) FROM PUBLIC,anon,authenticated,service_role;
 
+-- Qualification only. This never allocates unsupported BBJ or edits money.
+-- The indexed interval is only a candidate prefilter: final acceptance/bank
+-- dates below prevent pending or delayed hands from masking intermediate days.
+CREATE FUNCTION public.fn_ca_club_acct_bbj_gap_days(p_context uuid,p_from date,p_through date)
+RETURNS date[] LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=public AS $function$
+DECLARE v_union uuid:=public.fn_ca_club_data_union_of(p_context);v_day date;v_lo timestamptz;v_hi timestamptz;
+ v_missing date[]:=ARRAY[]::date[];v_gap boolean;
+BEGIN
+ IF v_union IS NULL THEN RETURN v_missing; END IF;
+ FOR v_day IN SELECT g::date FROM generate_series(p_from,p_through,interval '1 day')g LOOP
+  v_lo:=public.fn_ca_accounting_day_start(v_day);v_hi:=public.fn_ca_accounting_day_start(v_day+1);
+  SELECT EXISTS(
+   SELECT 1 FROM public.hand_atomic_commits c
+   LEFT JOIN public.union_pnl_cash_outcomes o ON o.table_id=c.table_id AND o.hand_number=c.hand_number
+   WHERE CASE WHEN jsonb_typeof(post_commit_payload->'bbj_contribution')='object' AND jsonb_typeof(post_commit_payload#>'{bbj_contribution,amount}')='number' THEN (post_commit_payload#>>'{bbj_contribution,amount}')::numeric>0 ELSE false END AND NOT CASE WHEN jsonb_typeof(post_commit_payload->'rake')='object' AND jsonb_typeof(post_commit_payload#>'{rake,amount}')='number' THEN (post_commit_payload#>>'{rake,amount}')::numeric>0 ELSE false END
+    AND tstzrange(c.committed_at,coalesce(c.post_commit_completed_at,'infinity'::timestamptz),'[]') && tstzrange(v_lo,v_hi,'[)')
+    AND ((c.committed_at>=v_lo AND c.committed_at<v_hi) OR EXISTS(
+     SELECT 1 FROM public.bbj_contributions b WHERE ((c.hand_id IS NOT NULL AND b.hand_id=c.hand_id) OR (b.table_id=c.table_id AND b.hand_number=c.hand_number))
+      AND b.amount>0 AND b.created_at>=v_lo AND b.created_at<v_hi))
+    AND (o.game_scope->>'game_union_id'=v_union::text OR EXISTS(
+     SELECT 1 FROM public.bbj_contributions b JOIN public.bbj_pools p ON p.id=b.pool_id
+     WHERE ((c.hand_id IS NOT NULL AND b.hand_id=c.hand_id) OR (b.table_id=c.table_id AND b.hand_number=c.hand_number)) AND p.union_id=v_union)
+     OR ((o.table_id IS NULL OR NOT(o.game_scope?'game_union_id')) AND NOT EXISTS(
+      SELECT 1 FROM public.bbj_contributions b WHERE ((c.hand_id IS NOT NULL AND b.hand_id=c.hand_id) OR (b.table_id=c.table_id AND b.hand_number=c.hand_number)))))
+   LIMIT 1) INTO v_gap;
+  IF v_gap THEN v_missing:=array_append(v_missing,v_day);END IF;
+ END LOOP;
+ RETURN v_missing;
+END;
+$function$;
+REVOKE ALL ON FUNCTION public.fn_ca_club_acct_bbj_gap_days(uuid,date,date) FROM PUBLIC,anon,authenticated,service_role;
+
 CREATE FUNCTION public.fn_ca_club_acct_reconciliation(p_context uuid,p_start date,p_end date,p_summary jsonb,p_users uuid[] DEFAULT NULL,p_games uuid[] DEFAULT NULL)
 RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=public AS $function$
-DECLARE v_missing date[];v_complete boolean;v_gross numeric;v_awards numeric;v_coverage jsonb;v_clubs uuid[];
+DECLARE v_missing date[];v_bbj_gaps date[];v_complete boolean;v_gross numeric;v_awards numeric;v_coverage jsonb;v_clubs uuid[];
  v_cash_fee numeric:=coalesce((p_summary->>'cash_fee')::numeric,0);
  v_cash_win numeric:=coalesce((p_summary->>'cash_winnings')::numeric,0);
  v_tour_fee numeric:=coalesce((p_summary->>'tournament_fee')::numeric,0);
@@ -532,6 +590,10 @@ BEGIN
  WHERE NOT EXISTS(SELECT 1 FROM public.ca_club_acct_state st
    WHERE public.fn_ca_accounting_day_start(d.report_day)>=st.bbj_live_from)
  AND NOT EXISTS(SELECT 1 FROM public.ca_club_acct_seed_log l WHERE l.acct_day=d.report_day AND l.bbj_version=1);
+ -- Source gaps affect only BBJ reconciliation. Posted fee/winnings and
+ -- original accounting coverage retain their existing definitions.
+ v_bbj_gaps:=public.fn_ca_club_acct_bbj_gap_days(p_context,p_start,p_end);
+ v_missing:=ARRAY(SELECT DISTINCT d FROM unnest(v_missing||v_bbj_gaps)d ORDER BY d);
  v_complete:=cardinality(v_missing)=0 AND coalesce((v_coverage->>'complete')::boolean,false);
  IF v_complete THEN
    v_clubs:=public.fn_ca_club_data_clubs(p_context);
@@ -541,6 +603,7 @@ BEGIN
     AND (p_users IS NULL OR f.user_id=ANY(p_users)) AND(p_games IS NULL OR f.game_id=ANY(p_games));
  END IF;
  RETURN jsonb_build_object('complete',v_complete,'missing_days',v_missing,
+ 'source',CASE WHEN cardinality(v_bbj_gaps)>0 THEN 'bbj_original_source_gap' ELSE 'ca_club_acct_fact' END,
  'bbj_gross',round(v_gross,2),'bbj_awards',round(v_awards,2),'bbj_net',round(v_gross-v_awards,2),
  'cash_fee',v_cash_fee,'cash_winnings',v_cash_win,'tournament_fee',v_tour_fee,'tournament_winnings',v_tour_win,
  'cash_residual',round(-v_cash_win-v_cash_fee-(v_gross-v_awards),2),
