@@ -1,5 +1,10 @@
 import { privateCardLane } from './heroPrivateReservations';
-import { crownActionReservation, restingAvatarBox, tableRenderScale } from './avatarCrownBounds';
+import {
+  nineSeatHeroArtRatio,
+  crownActionReservation,
+  restingAvatarBox,
+  tableRenderScale,
+} from './avatarCrownBounds';
 import { buttonRadiusWidthPct } from './tableGeometry';
 import {
   dealerSeatReservations,
@@ -1091,7 +1096,12 @@ export function enlargeMobileAvatars(
     // Include the CSS bust gain and normalized slot, but remove the retained
     // paint zoom. offsetHeight alone omits the new preallocated portrait gain.
     const restingHeight = Math.max(
-      ...prepared.map((item) => restingAvatarBox(item.e.image, ratio).height / ratio)
+      ...prepared.map((item) => {
+        const height = restingAvatarBox(item.e.image, ratio).height / ratio;
+        // Store the regular portrait height across observer and seated visits.
+        // The hero's larger slot is a presentation of that same calibration.
+        return height / nineSeatHeroArtRatio(page, item.e.image);
+      })
     );
     const shared = sharedSizes.get(sizeType);
     const rungs = [

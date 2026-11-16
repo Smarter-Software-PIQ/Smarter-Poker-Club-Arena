@@ -563,7 +563,7 @@ export function fitSeatToViewport(
     // painted rail, even when the shorter observer canvas leaves wide gutters.
     // The 605px chassis has opaque side rail at x=20 and the lower
     // shoulder begins at x=40. Keep the chair axis just inside that rim.
-    const rail = seat.y === 82.5 ? 7.5 : 4;
+    const rail = seat.y === 82.5 ? 8 : 6;
     const x = seat.y >= 20 && seat.y < 100 ? (seat.x < 50 ? rail : 100 - rail) : seat.x;
     return { x: Math.max(minX, Math.min(maxX, x)), y };
   }
