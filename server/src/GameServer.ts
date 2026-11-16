@@ -4235,10 +4235,14 @@ export class GameServer {
    * freeze there is nothing to verify, not a fleet of zero.
    */
   private dealRateVerifier = new DealRateVerifier(
-    () =>
-      this.tableLivenessSnapshot()
-        .filter((t) => t.dealable >= 2 && !t.paused)
-        .map((t) => t.tableId),
+    () => [
+      ...new Set([
+        ...this.tableLivenessSnapshot()
+          .filter((t) => t.dealable >= 2 && !t.paused)
+          .map((t) => t.tableId),
+        ...this.lightningSupervisor.expectedDealingTableIds(),
+      ]),
+    ],
     // The horse fleet's own pulse, so a seeding loop that stops while the
     // process lives is a page rather than a silence (Dan 2026-09-11).
     () => this.horseFleet.heartbeatAgeSeconds()

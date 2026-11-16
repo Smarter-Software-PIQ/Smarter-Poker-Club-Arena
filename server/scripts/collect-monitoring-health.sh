@@ -457,8 +457,12 @@ CASH_POLICY_BODY=$(curl -sS --max-time "$TIMEOUT_SEC" \
   -H "Authorization: Bearer $SERVICE_KEY" \
   -H 'Content-Type: application/json' \
   -H 'Accept: application/json' -d '{}' 2>&1) || CASH_POLICY_BODY=''
-CASH_POLICY_RENDERED=$(python3 - "$CASH_POLICY_BODY" <<'PY'
-import json, sys
+# The engine's planned population/seat curve is a separate admission owner.
+# Unknown/missing policy is not an old-policy sample and never becomes zero.
+CASH_POPULATION_BODY=$(curl -sS --max-time "$TIMEOUT_SEC" \
+  "http://127.0.0.1:8080/health" 2>/dev/null) || CASH_POPULATION_BODY=''
+CASH_POLICY_RENDERED=$(python3 - "$CASH_POLICY_BODY" "$CASH_POPULATION_BODY" <<'PY'
+import hashlib, json, sys
 lines = []
 ok = 0
 try:
@@ -468,7 +472,11 @@ try:
     fingerprint = rows[0].get('fingerprint')
     if type(fingerprint) is not int or not 0 <= fingerprint < 2**52:
         raise ValueError('policy fingerprint is unavailable')
-    lines = ['# HELP poker_lightning_admission_policy_fingerprint Exact 52-bit installed admission-definition cohort; not a numeric capacity.',
+    population = json.loads(sys.argv[2]).get('horseWorkSchedule', {}).get('policyFingerprint')
+    if type(population) is not int or not 0 <= population < 2**52:
+        raise ValueError('engine cash population policy is unavailable')
+    fingerprint = int(hashlib.sha256(f'{fingerprint}:{population}'.encode()).hexdigest()[:13], 16)
+    lines = ['# HELP poker_lightning_admission_policy_fingerprint Exact 52-bit SQL admission and engine population-policy cohort; not a numeric capacity.',
              '# TYPE poker_lightning_admission_policy_fingerprint gauge',
              f'poker_lightning_admission_policy_fingerprint {fingerprint:d}']
     ok = 1

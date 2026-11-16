@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 /**
  * The Reliability Controller's health rides the money-health collector
  * (2026-11-09). The controller lives in the database it reports through, so
@@ -49,6 +50,7 @@ writeFileSync(
   join(bin, 'curl'),
   `#!/usr/bin/env bash
 case "$*" in
+  *127.0.0.1:8080/health*) printf '%s' "$CASH_POPULATION_ANSWER" ;;
   *fn_monitoring_health_snapshot*) printf '%s' '${MONEY}' ;;
   *fn_lightning_admission_policy*)
     if [ -n "\${CASH_POLICY_FAILS:-}" ]; then exit 22; fi
@@ -69,6 +71,7 @@ function collect(answer: unknown, extra: Record<string, string> = {}): string {
       ENGINE_ENV_FILE: envFile,
       DRY_RUN: '1',
       RELIABILITY_ANSWER: JSON.stringify(answer),
+      CASH_POPULATION_ANSWER: JSON.stringify({ horseWorkSchedule: { policyFingerprint: 1 } }),
       ...extra,
     },
     encoding: 'utf8',
@@ -165,15 +168,43 @@ describe('collect-monitoring-health reliability controller gauges', () => {
 });
 
 describe('installed cash admission cohort', () => {
-  it('preserves every bit of the installed policy fingerprint', () => {
+  it('binds the full SQL identity and the engine population policy', () => {
     const out = collect([HEALTHY], {
       CASH_POLICY_ANSWER: JSON.stringify([{ fingerprint: 4503599627370495 }]),
     });
-    expect(out).toMatch(/^poker_lightning_admission_policy_fingerprint 4503599627370495$/m);
+    const combined = Number.parseInt(
+      createHash('sha256').update('4503599627370495:1').digest('hex').slice(0, 13),
+      16
+    );
+    expect(out).toContain(`poker_lightning_admission_policy_fingerprint ${combined}\n`);
     expect(out).toMatch(/^poker_lightning_admission_policy_collect_ok 1$/m);
     expect(out).toMatch(/^poker_money_undeclared_triggers 0$/m);
     expect(out).toMatch(/^reliability_controller_collect_ok 1$/m);
   });
+  it('a changed engine curve is a different cohort even when SQL pacing is unchanged', () => {
+    const extra = { CASH_POLICY_ANSWER: JSON.stringify([{ fingerprint: 10 }]) };
+    const first = collect([HEALTHY], extra);
+    const next = collect([HEALTHY], {
+      ...extra,
+      CASH_POPULATION_ANSWER: JSON.stringify({ horseWorkSchedule: { policyFingerprint: 2 } }),
+    });
+    const cohort = (out: string) =>
+      out.match(/^poker_lightning_admission_policy_fingerprint (\d+)$/m)?.[1];
+    expect(cohort(first)).toBeDefined();
+    expect(cohort(next)).not.toEqual(cohort(first));
+  });
+  it.each([{}, { horseWorkSchedule: {} }, { horseWorkSchedule: { policyFingerprint: '2' } }])(
+    'an older or unreadable engine policy never reuses historical SQL-only cohorts: %j',
+    (body) => {
+      const out = collect([HEALTHY], {
+        CASH_POLICY_ANSWER: JSON.stringify([{ fingerprint: 10 }]),
+        CASH_POPULATION_ANSWER: JSON.stringify(body),
+      });
+      expect(out).not.toMatch(/^poker_lightning_admission_policy_fingerprint /m);
+      expect(out).toMatch(/^poker_lightning_admission_policy_collect_ok 0$/m);
+      expect(out).toMatch(/^poker_money_undeclared_triggers 0$/m);
+    }
+  );
   it.each([
     null,
     [],
