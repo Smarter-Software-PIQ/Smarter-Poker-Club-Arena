@@ -21,7 +21,7 @@ out=args.output.resolve();out.mkdir(parents=True,exist_ok=False)
 manifest=hs.prepare(root,out)
 (out/'current-chain.sql').write_text(roster.current_chain(root))
 e=native.Execution(root,out,args.pg_bin.resolve(),Path(os.environ.get('TMPDIR',str(out))),600,
- socket_parent=Path(os.environ.get('TMPDIR',str(out))))
+ socket_parent=Path(os.environ['TMPDIR']) if os.environ.get('TMPDIR') else None)
 try:
  e.start();db=e.database()
  for f,label in [(out/'foundation.sql','foundation'),(out/'current-authorities.sql','authorities'),(root/'scripts/ci/probes/atomic-terminal-rehearsal-fixture.sql','structural'),(root/roster.SUBMISSION,'submission'),(out/'current-chain.sql','chain'),(root/roster.RAKED_DIAMOND,'diamond'),(root/roster.MIGRATION,'roster')]:
