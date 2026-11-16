@@ -95,6 +95,7 @@ $fn$;
 CREATE FUNCTION public.fn_cash_hourly_table_admit(p_table_id uuid,p_user_id uuid)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $fn$
 DECLARE t public.tables%ROWTYPE; n integer; cap integer; human boolean; empty boolean;
+ funded_move boolean; releases_source boolean;
  now_at timestamptz:=clock_timestamp(); pace public.cash_hourly_table_starts%ROWTYPE;
 BEGIN
  SELECT * INTO t FROM public.tables WHERE id=p_table_id;
@@ -110,12 +111,27 @@ BEGIN
  INTO empty;
  SELECT EXISTS(SELECT 1 FROM public.table_seats s LEFT JOIN public.profiles p ON p.id=s.user_id
  WHERE s.table_id=p_table_id AND s.left_at IS NULL AND p.is_horse IS DISTINCT FROM true) INTO human;
+ -- Original funded must-moves change chairs, not player admission. Preserve
+ -- occupied destinations and paired moves; only a genuinely new table uses
+ -- the floor opening clock/cap. The executor inserts before releasing source.
+ SELECT coalesce(public.fn_caller_is_engine(),false)
+ AND current_setting('app.cash_seat_move',true)='on' AND t.cluster_id IS NOT NULL
+ AND EXISTS(SELECT 1 FROM public.table_seats s JOIN public.tables src ON src.id=s.table_id
+ WHERE s.user_id=p_user_id AND s.left_at IS NULL AND src.id<>t.id
+ AND src.cluster_id=t.cluster_id AND src.tournament_id IS NULL AND NOT coalesce(src.is_spins,false))
+ INTO funded_move;
+ IF funded_move AND NOT empty THEN RETURN; END IF;
+ SELECT coalesce(funded_move,false) AND EXISTS(
+ SELECT 1 FROM public.table_seats s JOIN public.tables src ON src.id=s.table_id
+ WHERE s.user_id=p_user_id AND s.left_at IS NULL AND src.id<>t.id AND src.cluster_id=t.cluster_id
+ AND NOT EXISTS(SELECT 1 FROM public.table_seats other WHERE other.table_id=src.id
+ AND other.left_at IS NULL AND other.id<>s.id)) INTO releases_source;
  IF NOT pg_try_advisory_xact_lock(hashtextextended('cash_hourly_table_capacity',0)) THEN
   RAISE EXCEPTION 'cash_hourly_table_capacity_busy' USING ERRCODE='55P03'; END IF;
  IF NOT human THEN
   SELECT table_cap INTO STRICT cap FROM public.fn_cash_hourly_table_range();
   SELECT count(*) INTO n FROM public.fn_cash_hourly_table_census();
-  IF (empty AND n>=cap) OR (NOT empty AND public.fn_cash_hourly_table_excess(p_table_id)) THEN
+  IF (empty AND n-CASE WHEN releases_source THEN 1 ELSE 0 END>=cap) OR (NOT empty AND public.fn_cash_hourly_table_excess(p_table_id)) THEN
    RAISE EXCEPTION 'cash_hourly_table_cap_reached:%',cap USING ERRCODE='42501'; END IF;
   IF empty THEN
    IF EXISTS(SELECT 1 FROM public.cash_hourly_table_pacing WHERE scope='floor' AND next_open_at>now_at) THEN

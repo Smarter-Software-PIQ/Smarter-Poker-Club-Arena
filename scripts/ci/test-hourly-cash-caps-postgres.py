@@ -212,6 +212,16 @@ try:
  q("INSERT INTO table_seats(table_id,user_id,seat_number) VALUES(md5('batch-human')::uuid,md5('human')::uuid,1);")
  refuses("INSERT INTO table_seats(table_id,user_id,seat_number) VALUES(md5('batch-human')::uuid,md5('horse193')::uuid,2),(md5('batch-human')::uuid,md5('horse194')::uuid,3);",'cash_hourly_horse_arrival_paced')
  assert_sql("(SELECT count(*)=1 FROM table_seats WHERE table_id=md5('batch-human')::uuid)",'batch arrivals roll back together')
+ # Existing funded movement is not new admission: occupied destinations and
+ # a pair moved into one new table remain atomic, without buying another seat.
+ q("INSERT INTO cash_games(id) VALUES(md5('moves')::uuid);INSERT INTO tables(id,cluster_id) SELECT md5(x)::uuid,md5('moves')::uuid FROM unnest(ARRAY['move-src','move-dst','move-extra'])x;UPDATE cash_hourly_table_pacing SET next_open_at='-infinity';ALTER TABLE table_seats DISABLE TRIGGER roster_guard;INSERT INTO table_seats(table_id,user_id,seat_number) VALUES(md5('move-src')::uuid,md5('horse195')::uuid,1),(md5('move-src')::uuid,md5('horse196')::uuid,2);ALTER TABLE table_seats ENABLE TRIGGER roster_guard;")
+ q("BEGIN;SET LOCAL app.cash_seat_move='on';INSERT INTO table_seats(table_id,user_id,seat_number) VALUES(md5('move-dst')::uuid,md5('horse195')::uuid,1);UPDATE table_seats SET stack=0,left_at=now() WHERE table_id=md5('move-src')::uuid AND user_id=md5('horse195')::uuid;INSERT INTO table_seats(table_id,user_id,seat_number) VALUES(md5('move-dst')::uuid,md5('horse196')::uuid,2);UPDATE table_seats SET stack=0,left_at=now() WHERE table_id=md5('move-src')::uuid AND user_id=md5('horse196')::uuid;COMMIT;")
+ assert_sql("(SELECT count(*)=2 AND sum(stack)=200 FROM table_seats WHERE table_id=md5('move-dst')::uuid AND left_at IS NULL)",'funded pair survives original insert-before-release order')
+ refuses("INSERT INTO table_seats(table_id,user_id,seat_number) VALUES(md5('move-dst')::uuid,md5('horse197')::uuid,3);",'cash_hourly_horse_arrival_paced')
+ refuses("BEGIN;SET LOCAL app.cash_seat_move='on';INSERT INTO table_seats(table_id,user_id,seat_number) VALUES(md5('move-extra')::uuid,md5('horse195')::uuid,1);COMMIT;",'cash_hourly_table_start_paced')
+ # Fill to cap through predecessor setup: a split cannot expand over it.
+ q("ALTER TABLE table_seats DISABLE TRIGGER roster_guard;UPDATE cash_hourly_table_pacing SET next_open_at='-infinity';INSERT INTO tables(id) SELECT md5('move-cap'||i)::uuid FROM generate_series(1,"+str(cap)+")i;INSERT INTO table_seats(table_id,user_id,seat_number) SELECT md5('move-cap'||i)::uuid,md5('horse180')::uuid,1 FROM generate_series(1,"+str(cap)+")i;ALTER TABLE table_seats ENABLE TRIGGER roster_guard;")
+ refuses("BEGIN;SET LOCAL app.cash_seat_move='on';INSERT INTO table_seats(table_id,user_id,seat_number) VALUES(md5('move-extra')::uuid,md5('horse195')::uuid,1);COMMIT;",'cash_hourly_table_cap_reached')
  q("UPDATE engine_leader SET instance_id='older-rollback';")
  assert_sql('NOT fn_cash_hourly_table_enabled()','older rollback does not inherit unsupported drains')
  assert_sql('fn_cash_hourly_table_drain_candidate() IS NULL','rollback does not park pooled hands')
