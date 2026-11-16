@@ -319,6 +319,20 @@ export interface PreflopCtx {
    * decision without the option, and the current style): `tightness`.
    */
   valueRaiseTightness?: number;
+  /**
+   * horsePlayStyles (HorseOmahaPlayStyle.omahaPlayStyleEntryBarCredit, default
+   * off, 2026-11-16): the pressure style on the cutoff and button lowers the
+   * RAISE bars (first-in open and isolation, the value 3-bet) by this much
+   * (0..0.04). No call bar and no 4-bet bar reads it. Absent on every other
+   * decision: nothing is subtracted.
+   */
+  styleEntryBarCredit?: number;
+  /**
+   * horsePlayStyles (2026-11-16): the tightness the CALL bars read (cold call,
+   * call of a re-raise, call-off) when the style keeps them at today's width
+   * (the pressure style on the cutoff and button). Absent: `tightness`.
+   */
+  styleCallTightness?: number;
   bluffFreq: number;
   aggression: number;
   slowplayFreq: number;
@@ -1626,18 +1640,38 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
   // achievable hand is not "tight", it is a dead branch.
   const BAR_CAP = 0.965;
   const capBar = (x: number) => Math.min(BAR_CAP, clamp01(x));
+  // horsePlayStyles (2026-11-16): the pressure style's entry-bar credit, only
+  // when the style supplied one. It lowers the RAISE bars (first-in open,
+  // isolation, the value 3-bet) and never a call bar; the call bars read
+  // `styleCallTightness` (today's tightness) when the style supplied it, so a
+  // pressure Horse's added entries are raises, not flat calls.
+  const entryCredit =
+    ctx.styleEntryBarCredit !== undefined && Number.isFinite(ctx.styleEntryBarCredit)
+      ? Math.max(0, Math.min(0.04, ctx.styleEntryBarCredit))
+      : undefined;
+  const callTightness =
+    ctx.styleCallTightness !== undefined && Number.isFinite(ctx.styleCallTightness)
+      ? ctx.styleCallTightness
+      : ctx.tightness;
   const t = (x: number) => capBar(x * ctx.tightness + ctx.riskAdd);
-  const tCall = (x: number) => capBar(x * ctx.tightness + riskScaled);
+  const tCall = (x: number) => capBar(x * callTightness + riskScaled);
   // V53: a bar priced by the action's own ICM cost instead of the flat
   // premium. Absent the read, exactly t() / tCall().
   const ploIcm = ctx.ploIcm;
   // horsePlayStyles: the value re-raise bars read their own tightness when
   // the playing style supplied one; absent, exactly ctx.tightness.
   const valueTightness = ctx.valueRaiseTightness ?? ctx.tightness;
-  const tv = (x: number) => capBar(x * valueTightness + ctx.riskAdd);
+  const tv = (x: number) =>
+    entryCredit !== undefined
+      ? capBar(x * valueTightness + ctx.riskAdd - entryCredit)
+      : capBar(x * valueTightness + ctx.riskAdd);
   const t53 = (x: number, family: keyof OmahaPressureShifts): number => {
-    const tightness =
-      family === 'threeBet' || family === 'fourBet' ? valueTightness : ctx.tightness;
+    const value = family === 'threeBet' || family === 'fourBet';
+    const call = family === 'call' || family === 'commitCall';
+    const tightness = value ? valueTightness : call ? callTightness : ctx.tightness;
+    const raise = family === 'open' || family === 'threeBet';
+    if (entryCredit !== undefined && raise)
+      return capBar(x * tightness + (ploIcm ? ploIcm[family] : ctx.riskAdd) - entryCredit);
     return capBar(x * tightness + (ploIcm ? ploIcm[family] : ctx.riskAdd));
   };
   // No-limit hold'em only: the closed all-in exception and the 4-bet-node
@@ -1731,7 +1765,7 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     (noLimitHoldem || (unblocked86 && ctx.isOmaha)) &&
     (ctx.effectiveStackBB ?? Infinity) <= CLOSED_ALL_IN_MAX_EFFECTIVE_BB;
   const tCall53 = (x: number): number =>
-    ploIcm ? capBar(x * ctx.tightness + ploIcm.call) : tCall(x);
+    ploIcm ? capBar(x * callTightness + ploIcm.call) : tCall(x);
   // V35: the game's own width. Zero for hold'em and for every ablation.
   const base35 = ctx.variantShift ?? { open: 0, threeBet: 0, fourBet: 0, coldCall: 0, bbDefend: 0 };
   // V46: the class shift rides on top of the variant shift, in the same

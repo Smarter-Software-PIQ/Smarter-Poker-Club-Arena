@@ -72,12 +72,16 @@ import {
   horsePlayStyleFor,
   isHorsePlayStyle,
   type HorsePlayStyle,
+  type HorsePlayStyleFallback,
 } from './HorsePlayStyle.js';
 import {
   OMAHA_PLAY_STYLE_NEUTRAL,
   OMAHA_TIGHT_EXPECTED_VPIP_PCT,
+  omahaPlayStyleEntryBarCredit,
+  omahaPlayStyleFoldEquityMul,
   omahaPlayStyleIndifferenceAggressionBias,
   omahaPlayStyleMapped,
+  omahaPlayStyleTieBandMul,
   omahaPlayStylePersona,
   omahaPlayStylePostflopDials,
   omahaPlayStylePreflopDials,
@@ -8293,6 +8297,27 @@ function omahaOopTurnFacingBetRule(
 let horsePlayStylePending: HorsePlayStyle = 'current';
 
 /**
+ * Per-style tracking (2026-11-16): one receipt per decision with the option
+ * on, named by HorsePlayStyle.horsePlayStyleReceipt (each name is written out
+ * here so the ledger contract sees it).
+ */
+function noteHorsePlayStyleReceipt(
+  assigned: HorsePlayStyle,
+  fallback: HorsePlayStyleFallback | null
+): void {
+  if (fallback === 'vpip_floor') noteFire('horse_play_style_fallback_current_floor_seen');
+  else if (fallback === 'tournament') noteFire('horse_play_style_fallback_current_tournament_seen');
+  else if (fallback === 'lightning') noteFire('horse_play_style_fallback_current_lightning_seen');
+  else if (fallback === 'short_stack')
+    noteFire('horse_play_style_fallback_current_short_stack_seen');
+  else if (fallback === 'unmapped_game')
+    noteFire('horse_play_style_fallback_current_unmapped_seen');
+  else if (assigned === 'tight') noteFire('horse_play_style_tight');
+  else if (assigned === 'pressure') noteFire('horse_play_style_pressure');
+  else noteFire('horse_play_style_current');
+}
+
+/**
  * horsePlayStyles (owner 2026-11-15 16:40 / 16:42, default off): the style
  * this Horse plays THIS decision. Off, or the Horse's style is 'current':
  * 'current', and nothing else is read.
@@ -8308,7 +8333,11 @@ function resolveHorsePlayStyle(
   const assigned = isHorsePlayStyle(opts.horsePlayStyleForce)
     ? opts.horsePlayStyleForce
     : horsePlayStyleFor(player.user_id, mods.persona?.playStyle);
-  if (assigned === 'current') return 'current';
+  if (assigned === 'current') {
+    // Per-style tracking (2026-11-16): the style in force, every decision.
+    if (telemetryOn(opts)) noteHorsePlayStyleReceipt('current', null);
+    return 'current';
+  }
   const bb = gs.bigBlind > 0 ? gs.bigBlind : 2;
   // The stack each seat started the hand with: what it holds plus what it put in.
   const startStack = (p: SeatPlayer): number =>
@@ -8336,11 +8365,9 @@ function resolveHorsePlayStyle(
       ? (OMAHA_TIGHT_EXPECTED_VPIP_PCT[String(gs.gameVariant)] ?? null)
       : null,
   });
-  if (telemetryOn(opts)) {
-    if (fallback !== null) noteFire('horse_play_style_table_fallback_seen');
-    else if (assigned === 'tight') noteFire('horse_play_style_tight_seen');
-    else noteFire('horse_play_style_pressure_seen');
-  }
+  // Per-style tracking (2026-11-16): the style in force, or the current style
+  // the table rule forced and its reason.
+  if (telemetryOn(opts)) noteHorsePlayStyleReceipt(assigned, fallback);
   return fallback === null ? assigned : 'current';
 }
 
@@ -13283,6 +13310,11 @@ export class HorseLogic {
       const dials = omahaPlayStylePreflopDials(horsePlayStylePending, position === 'late');
       return dials === OMAHA_PLAY_STYLE_NEUTRAL ? null : dials;
     })();
+    // 2026-11-16: the pressure style's entry-bar credit on the cutoff and button.
+    const styleEntryBarCredit =
+      horsePlayStylePending === 'current'
+        ? undefined
+        : omahaPlayStyleEntryBarCredit(horsePlayStylePending, position === 'late');
     // V13: a sitting-out player counted as an opponent, so a two-handed table
     // with one sitter reported oppsLeft = 2 and switched OFF the heads-up and
     // blind-vs-blind ranges entirely — the SB opened on 0.44 instead of 0.24
@@ -15274,6 +15306,9 @@ export class HorseLogic {
       ...(stylePre
         ? { valueRaiseTightness: params.tightness * stylePre.valueRaiseTightnessMul }
         : {}),
+      ...(styleEntryBarCredit !== undefined
+        ? { styleEntryBarCredit, styleCallTightness: params.tightness }
+        : {}),
       bluffFreq: stylePre ? params.bluffFreq * stylePre.bluffFreqMul : params.bluffFreq,
       aggression: stylePre ? params.aggression * stylePre.aggressionMul : params.aggression,
       slowplayFreq: params.slowplayFreq,
@@ -16489,20 +16524,31 @@ export class HorseLogic {
           .map((p) => p.seat)
       );
     let styleCbetMul = 1;
+    // 2026-11-16: the pressure style's fold-equity prior on the EV engine's
+    // bet candidates (undefined in every other case: the engine as today).
+    let styleFoldEquityMul: number | undefined;
     if (horsePlayStylePending !== 'current') {
       const dials = omahaPlayStylePostflopDials(horsePlayStylePending, styleInPosition);
       styleCbetMul = dials.cbetFreqMul;
+      styleFoldEquityMul = omahaPlayStyleFoldEquityMul(horsePlayStylePending, styleInPosition);
       const aggressionBias = omahaPlayStyleIndifferenceAggressionBias(
         horsePlayStylePending,
         styleInPosition
       );
+      const aggressionBandMul = omahaPlayStyleTieBandMul(horsePlayStylePending, styleInPosition);
       if (dials !== OMAHA_PLAY_STYLE_NEUTRAL)
         params = {
           ...params,
           bluffFreq: params.bluffFreq * dials.bluffFreqMul,
           aggression: params.aggression * dials.aggressionMul,
           ...(aggressionBias !== undefined && params.evIndifference
-            ? { evIndifference: { ...params.evIndifference, aggressionBias } }
+            ? {
+                evIndifference: {
+                  ...params.evIndifference,
+                  aggressionBias,
+                  ...(aggressionBandMul !== undefined ? { aggressionBandMul } : {}),
+                },
+              }
             : {}),
         };
     }
@@ -20944,6 +20990,8 @@ export class HorseLogic {
           } else if (turnScareBlocker86) {
             foldMul *= 1.24;
           }
+          // horsePlayStyles: the pressure style in position (fold-equity prior).
+          if (styleFoldEquityMul !== undefined) foldMul *= styleFoldEquityMul;
           models38.push({ foldMul, canRespond });
         }
         const drawy38 = cat <= 1 && drawsLive && equity >= (street === 'flop' ? 0.3 : 0.2);
