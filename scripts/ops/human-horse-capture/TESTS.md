@@ -1,4 +1,5 @@
 # Toolkit v2 tests, 2026-11-14 (offline against the completed 533608409f capture; no journal read, no new capture)
+
 - origins: 159 of 159 pairs read, identical to tight-maniac-faced-origins.json of record.
 - build_packet with those origins: witnesses sha256 9ed51f29a9ab84e396fdb8db5568838cf1faa388d7991f63b3b8d4d3a7d038c1 = packet of record (v2).
 - batches at target 3,000: 1 witness batch (724 hands), roll-up batches 1,200 / 1,200 / 600 keys, 0 failed key lookups.
@@ -7,51 +8,75 @@
 - build_packet unit tests: 7 of 7.
 - run-capture-steps.sh: 10-minute rehearsal on the serving build (scratch, not evidence): see result line appended below.
   RESULT 2026-11-14T07:20:05Z: exit clean through step6-build on 06d45e7d [06:30Z, 06:40Z): 10 of 10 slices, 2,419 hands, 23 human-facing, 23 keys, Lightning complete, 28 export targets in 2 batches. Scratch only: SmarterWork/.../hvh-takeover-01UxDLnK/toolkit-v2-rehearsal-steps (README marks it not evidence).
+
 ## Style-read addition, 2026-11-14T16:04:09Z (classification only; before the 06d45e7d read)
+
 - witness-reader.mjs: per-human engine read now carries style (HorseMind.styleRead on the same read frame; tightOpenerRespect / tightReRaiserRespect predicates). Module imported separately, so older builds give style null and nothing else changes.
 - build_packet.py: a tight witness with a style tight predicate true grades tight_style_read_no_change_needs_replay (baseline kept) or tight_style_change_needs_replay (adjustment); all other paths unchanged.
 - Reproduction: 533608409f originals rebuild to witnesses sha256 9ed51f29a9ab84e3..., identical to packet v2 of record.
 - Unit tests: 8 of 8 (new: tight style recognition).
 - Live-image rehearsal on hvh-reader:06d45e7d5b, 23 human hands from [06:30Z, 06:40Z) (BEFORE the declared window; scratch /Volumes/SmarterWork/agent-work/extreme-capacity/hvh-takeover-01UxDLnK/style-rehearsal-160258): 209 witness rows, 0 missing, 23 reconciled; style computed on 299 of 299 per-human reads, 0 errors; tightReRaiserRespect true on 50, tightOpenerRespect true on 0.
-- Limitation: style_* fire counters are process-level (BrainTelemetry) and are not in the journal, so per-decision receipts cannot be bound; recognition is recomputed, and action attribution to the style read needs the owner's replay (switch OFF vs ON).
-Previous versions: versions/pre-style/.
+- Limitation: style\_\* fire counters are process-level (BrainTelemetry) and are not in the journal, so per-decision receipts cannot be bound; recognition is recomputed, and action attribution to the style read needs the owner's replay (switch OFF vs ON).
+  Previous versions: versions/pre-style/.
 - keys_light (originals before census): on [06:30Z, 06:40Z) returns the same 23 (hand, key) pairs as the census-based human_keys.py, 0 extra, 0 missing.
 - keys_batch: a witness batch built from the keys_light file has the same reader body as batches() (byte-identical after the selection line).
+
 ## Host-side originals runner, 2026-11-15T00:01:44Z (session 01Gw7aDs)
+
 - Live use on 06d45e7d: three roll-up batches run on ca-engine (1,200 / 1,200 / 600 keys): 3,000 hands found, 0 missing, 0 cut by the time limit, 28,956 decisions; 9.5, 9.5 and 4.7 minutes. collect copied the three outputs with sha256 equal to the host files.
 - Scratch rehearsal of start, status, collect and the double-start refusal on 6 already-read 06d45e7d keys (SmarterWork/.../hvh-takeover-01Gw7aDs/hostrun-test, marked not evidence): started, exit 0, 20 rows, collected with matching sha, second start refused (exit 9). Host scratch folder removed.
 - Not changed: reader modules, container limits, method digest af0bd14cbae3d66a.
+
 ## Operator lock, 2026-11-15T00:24:44Z (session 01Gw7aDs)
+
 Scratch (hvh-takeover-01Gw7aDs/lock-test, not evidence): (1) no HVH_OPERATOR: run-capture-steps.sh refused, exit 7; (2) lock held by another operator: refused, exit 7; (3) run-originals-host.sh start against that lock: refused, exit 7, nothing created on ca-engine; (4) the real a7965514 capture folder with the previous session's id: refused, exit 7, no file written; (5) run-originals.sh without HVH_OPERATOR: refused, exit 7.
+
 ## Run lock, 2026-11-15T00:42:04Z (session 01Gw7aDs): test_operator_lock.sh in scratch (hvh-takeover-01Gw7aDs/lock-test2, not evidence)
+
 A success path: lock taken with pid/host/step/operator. B same operator overlapping: refused, exit 8. C1 released on exit; C2 the same operator afterwards succeeds and releases again. D other operator: exit 7. E no operator: exit 7. F stale lock with a dead pid: refused, exit 8, not taken over. G ten simultaneous starts by one operator: exactly 1 ran, 9 refused with exit 8. ALL PASS. Real script success path: run-originals-host.sh collect on an empty scratch folder took the operator lock, ran (collected 0, exit 0) and left no run lock; nothing was created on ca-engine.
+
 ## witness-reader preflopEvents, 2026-11-15T01:00:12Z (session 01Gw7aDs)
+
 Change: each witness row also keeps the per-decision preflop authority events already stored in the journal (branch, strength, threeBetThreshold, effectiveThreeBetThreshold, premiumValue, pressure). Nothing else in a row changes. Test on already-read 06d45e7d hands (scratch, hvh-reader:06d45e7d5b, not evidence): 6 hands, 48 decisions, all 48 byte-identical to the originals of record apart from the new field; 12 facing-open hands, 133 decisions: the field is filled where the journal has events (1 premium_value event: strength 0.875, threshold 0.681, effective 0.641) and null otherwise. Limitation found: the journal writes these events only when a value or 3-bet branch fires, not for folds or flats, and the recorded threshold is the value after every adjustment; which layer moved it is not recorded (proposal to the strategy owner).
+
 ## Repository port, 2026-11-15T01:07:00Z (session 01Gw7aDs, scripts/ops/human-horse-capture)
+
 Paths made configurable (README.md); behaviour otherwise unchanged; the archive copy is untouched. Test synthetic IDs in manifest/test_postseal_selection.py replaced by neutral ones (the test's assertions unchanged). New tests: test_segments.py (4), test_merge_census.py (6: merge, gap, uncovered window, mixed source, duplicate hand, no overwrite), test_reconcile.py (4), test_verify_release.sh (4: ancestry per inventory row, worker revision mismatch FAIL, missing releaseSha exit 2, unknown serving commit exit 3), test_preserve_window.sh (7: exact in-range copies verified with link count 1, rerun refused 9, other operator refused 7, failed part repeated from the same start then DONE, second instance refused 8, real parts across a window copy each file once, disk floor stops with DISK-LOW). Local results: Python 22 + manifest 20 OK; operator lock ALL PASS; verify-release ALL PASS; preserve-window ALL PASS on Linux (engine host scratch, removed).
+
 ## Archive record carried over at the refresh (capture-toolkit-v2 TESTS.md, sections after the repository port, verbatim)
+
 ## run-originals-host.sh stdin fix, 2026-11-15T11:04:18Z (session 01Gw7aDs, during the a7965514 read)
+
 Defect found live: in "start", the ssh call that verifies each copied batch's sha256 read the job loop's stdin, so only the FIRST batch was copied and queued (a7965514: 1 of 7). The 06d45e7d support reads had one batch each, so it never showed. Fix: that ssh reads /dev/null. Live proof: the restart queued all 6 remaining batches (capture/host-jobs.txt). The reader, limits and outputs are unchanged.
+
 ## Toolkit v3, 2026-11-15T14:22:03Z (session 01Gw7aDs). Previous files: versions/pre-v3/
+
 - window.py (ISO-only times; epochs only here; boundary rule): test_window.py 13 of 13, including the regression (10:15Z = 1794737700; 1794730500 = 08:15Z, the a7965514 mistake) and the custodian receipt 1794748404630 ms = 13:13:24.630Z.
 - preserve-host.sh + host/preserve-window.sh + host/preserve-part.sh (generic, END file, close without restart, RING-GAP line, reader image retained at declaration): scratch releases test-v3a/test-v3b/ce3ad9df/00000000/7e8688d4 on ca-engine, all removed after. Bad ISO refused (2); no operator (7); bad release (2); past window ran 1 part, 2,195 files, verify failed=0 missing=0 linksOver1=0, DONE; double start refused (9); second host instance refused (8); provisional END closed to the past by close: next pass ran to END (7,272 files verified) and DONE; reader tag retained with revision label checked (ce3ad9df); missing engine image -> WARNING exit 4; HVH_SHA not matching release refused before anything starts (4).
 - Live migration: the 7e8688d3 job moved to the v3 script at 14:15Z from its state (13:59:06Z, part 1 verified), END 2026-11-16T10:15:00Z provisional; 54c9aac8 preserved (86,128 files, verified) before v3.
-- run-capture-steps.sh resume: stub harness (scratch, removed): run 1 with segment 2 incomplete; run 2 kept segments 1 and 3, renamed segment 2 to attempt0-incomplete-* and reran only it (4 census calls in total, not 6).
+- run-capture-steps.sh resume: stub harness (scratch, removed): run 1 with segment 2 incomplete; run 2 kept segments 1 and 3, renamed segment 2 to attempt0-incomplete-\* and reran only it (4 census calls in total, not 6).
 - witness-reader.mjs carries decision.preflopReadReceipt: live on 7e8688d3 [13:20Z, 13:30Z) scratch (hvh-reader:7e8688d360): 11 hands, 0 missing, 139 decisions, 44 with a range_play receipt; null on older builds.
 - near_tight.py (report only): test_near_tight.py 8 of 8; on a7965514: 106 tight faced witnesses (64 counting) from 4 humans, engine participation neutral 81 / loose 25, tight respect 0; receipts absent on that build.
+
 ## v3 additions, 2026-11-15T15:07:59Z: post_capture.py keys_variant (cash hands of one variant, Horse-only included), witness rows carry vpipFloor, plo6_maniac_price.py (report only)
+
 - Live scratch on 7e8688d3 plo6 cash [13:20Z, 14:20Z) (removed): 136 hands, 0 missing, 1,685 decisions, 876 preflop plo6 cash, receipts range_play 556, maniac_price 0 (agrees with the plo6 counter unchanged at 14:41Z); vpipFloor present on 1,685 of 1,685.
 - test_plo6_maniac_price.py 9 of 9 (selects only six-card cash preflop maniac_price; anonymises; no cards).
+
 ## PLO6 two-set read, 2026-11-15T16:05Z (session 01BbZPDhhqSDALp7kec7EfDM). Previous files: versions/pre-plo6-two-set/
+
 - Why: PLO6 15:11:35Z item 1: a hand-off clears the maniac_price receipt, so a second set is needed: consumer 'range_play' with 'maniac_raise_width' in layers AND the public price gate.
 - witness-reader.mjs: each row adds streetAggressions (bet/raise/all_in on the current street before the decision) and lastAggressor.allIn; nothing else changes.
 - plo6_maniac_price.py v2: set (a) maniac_price as before; set (b) CANDIDATE hand-offs by the gate; gateUnknown counted when a row lacks the new fields; candidates are not confirmed (no first-pass telemetry in the reader).
 - test_plo6_maniac_price.py 15 of 15 (boundaries 25% in, 40% out, raiser all in out, plo5 out, unknown gate counted, refusal on existing output).
 - Live-image rehearsal on the CLOSED, already-read 54c9aac8 window (hvh-reader:54c9aac87f, 8 plo6 cash hands [12:40Z, 13:13Z), scratch hvh-resume-01BbZPDh/rehearsal-reader-v2, not evidence): 72 rows, 0 missing, 8 reconciled; streetAggressions on 72 of 72, lastAggressor.allIn on 30 of 30; receipts null on that build as expected; plo6 tool ran (41 preflop six-card cash, a 0, b 0).
 - TOOLS.sha256 digest a4dade9d928499d9. Method af0bd14cbae3d66a unchanged.
+
 ## Repository refresh to archive digest a4dade9d928499d9, 2026-11-15T16:25:31Z (session 01BbZPDhhqSDALp7kec7EfDM, scripts/ops/human-horse-capture)
+
 Refreshed from capture-toolkit-v2 TOOLS.sha256 sha256 a4dade9d928499d91964904b070a46e6cc4d8becf484d6aafa3d308669fc1ad4 (port was ac697de2f39e5149); what changed is in README.md.
 Run on the owner's Mac (macOS, niced, one at a time; no production read, no psql, ssh, docker or network; scratch under SmarterWork/.../hvh-resume-01BbZPDh/toolkit-port-tmp, removed):
+
 - `PYTHONPATH=. python3 -B -m unittest discover -s tests -p 'test_*.py'`: 25 tests OK (build_packet 8, merge_census 6, reconcile 4, segments 4, and the three ported archive tests:
   test_window 13 of 13 checks, test_near_tight 8 of 8, test_plo6_maniac_price 15 of 15; the same three also pass run directly as scripts).
 - manifest/ unittest (fleet_reconciliation, lightning_outcomes, metrics_window, postseal_census, postseal_selection): 20 tests OK.
@@ -62,4 +87,13 @@ Run on the owner's Mac (macOS, niced, one at a time; no production read, no psql
   and 6 FAIL there only because macOS find has no -printf (no files listed), openrsync and padded wc output; they need GNU/Linux and are unverified until CI runs them.
 
 ## Atomic close (2026-11-15T16:40Z, session 01BbZPDhhqSDALp7kec7EfDM)
+
 `preserve-host.sh close` writes END.new and renames it over END, so the running job (which re-reads END every loop) never reads a half-written END. Same change as the archive copy (its TESTS.md 16:38Z: tested on the engine host with a scratch work folder; END correct, no END.new left).
+
+## Review fixes (2026-11-16T00:30Z, session 01BbZPDhhqSDALp7kec7EfDM; Hand Analysis 00:11:53Z on bfb4c205)
+
+- B1: every engine-host ssh is `ssh -o BatchMode=yes -o ConnectTimeout=N ca-engine` (run-originals.sh, run-originals-host.sh, preserve-host.sh, verify-release.sh, manifest/run-export-batch.sh); HVH_ENGINE_HOST only selects `none` in verify-release.
+- N2: `preserve-host.sh close` fails (exit 3) unless the END rewrite and the log line are confirmed.
+- N5: HVH_OPERATOR, HVH_SHA and HVH_IMAGE are validated before any value reaches a root shell on the engine host.
+- N6: README line about .prettierignore corrected.
+- Repository copy is stricter than the archive copy on B1/N2/N5; the archive copy runs only through the alias, whose ~/.ssh/config settings are fail-closed.

@@ -75,4 +75,4 @@ the port above was `ac697de2f39e5149`). The archive copy is untouched. Every fil
   `WORK_DIR PRESERVE_DIR FROM END` arguments are gone; `tests/test_preserve_window.sh` uses the new interface.
 - archive tests ported to `tests/` (checks unchanged; wrapped for `unittest discover`; scratch under `HVH_TEST_TMP`, default the system temporary directory, always
   removed): `test_window.py` (13 checks), `test_near_tight.py` (8), `test_plo6_maniac_price.py` (15). Results are in TESTS.md.
-- `.prettierignore` now lists this directory's `*.md`: the pre-commit formatter would otherwise merge the runbook's numbered command lines and rewrite the carried test record.
+- `.prettierignore` is NOT changed (it is a pinned source file); these docs are committed as they are.

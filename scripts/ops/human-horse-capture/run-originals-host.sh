@@ -5,12 +5,12 @@
 #        run-originals-host.sh collect CAPTURE_DIR HOST_DIR   (copies finished outputs back, verifies sha256 against the host, chmod 400; never overwrites)
 #        run-originals-host.sh status  CAPTURE_DIR HOST_DIR
 # Same container limits as run-originals.sh: 1 CPU, 1 GB, no network, read-only journal mount, one attempt per batch. Outputs: originals-witness-N.jsonl, originals-N.jsonl, rollup-rows-N.jsonl.
-set -u; MODE=${1:?mode}; C=${2:?capture dir}; H=${3:?host dir}; umask 077; . "$(dirname "$0")/operator-lock.sh"; [ "$MODE" = status ] || hvh_operator_lock "$C" || exit $?; SSH="ssh -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 ca-engine"; JDIR=${HVH_JOURNAL_DIR:-/var/lib/club-arena/horse-decisions}
+set -u; MODE=${1:?mode}; C=${2:?capture dir}; H=${3:?host dir}; umask 077; . "$(dirname "$0")/operator-lock.sh"; [ "$MODE" = status ] || hvh_operator_lock "$C" || exit $?; SSH="ssh -o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 ca-engine"; JDIR=${HVH_JOURNAL_DIR:-/var/lib/club-arena/horse-decisions}
 case "$H" in /root/hvh-*|/var/lib/club-arena/hvh-*) ;; *) echo "refused: host dir must be an hvh- work folder"; exit 2;; esac
 jobs(){ for b in "$C"/witness-batch-*.mjs; do [ -e "$b" ] && echo "$(basename $b) originals-witness-$(basename $b .mjs | sed 's/witness-batch-//').jsonl 1300"; done
         for n in 1 2; do [ -e "$C/batches/export-batch-$n.mjs" ] && echo "export-batch-$n.mjs originals-$n.jsonl 120"; done
         for b in "$C"/rollup-batch-*.mjs; do [ -e "$b" ] && echo "$(basename $b) rollup-rows-$(basename $b .mjs | sed 's/rollup-batch-//').jsonl 1300"; done; }
-if [ "$MODE" = start ]; then SHA=${HVH_SHA:?}; IMG=${HVH_IMAGE:?}
+if [ "$MODE" = start ]; then SHA=${HVH_SHA:?}; IMG=${HVH_IMAGE:?}; [[ $SHA =~ ^[0-9a-f]{40}$ ]] && [[ $IMG =~ ^hvh-reader:[0-9a-f]{10}$ ]] || { echo "refused: HVH_SHA must be 40 hex and HVH_IMAGE hvh-reader:<10 hex>"; exit 2; }
   $SSH "sudo mkdir -p $H && sudo chmod 700 $H && { sudo mkdir $H/.operation.lock 2>/dev/null && echo $HVH_OPERATOR | sudo tee $H/.operation.lock/OPERATOR >/dev/null || sudo grep -qx $HVH_OPERATOR $H/.operation.lock/OPERATOR; } && sudo test ! -e $H/runner.sh" || { echo "refused: $H/runner.sh exists (already started)"; exit 9; }
   jobs | while read in out t; do [ -e "$C/$out" ] && continue; src="$C/$in"; [ -e "$src" ] || src="$C/batches/$in"
     $SSH "sudo tee $H/$in >/dev/null" < "$src" || exit 3; [ "$($SSH "sudo sha256sum $H/$in" < /dev/null | cut -c1-64)" = "$(shasum -a 256 "$src" | cut -c1-64)" ] || { echo "copy mismatch $in"; exit 3; }; echo "$in $out $t"; done > "$C/host-jobs.txt" || exit 3

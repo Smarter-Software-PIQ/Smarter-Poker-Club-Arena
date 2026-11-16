@@ -6,6 +6,7 @@
 #    (mv .run.lock .run.lock.stale-<UTC>), which leaves a record.
 hvh_operator_lock(){ local cap=$1 l=$1/.operation.lock
   [ -n "${HVH_OPERATOR:-}" ] || { echo "refused: HVH_OPERATOR is required (one named operator per capture)"; return 7; }
+  [[ $HVH_OPERATOR =~ ^[A-Za-z0-9_.-]{1,80}$ ]] || { echo "refused: HVH_OPERATOR must be [A-Za-z0-9_.-], at most 80"; return 7; }
   if mkdir "$l" 2>/dev/null; then printf '%s\n' "$HVH_OPERATOR" > "$l/OPERATOR"; date -u +%FT%TZ > "$l/TAKEN_AT"; else
     [ "$(cat "$l/OPERATOR" 2>/dev/null)" = "$HVH_OPERATOR" ] || { echo "refused: capture $cap is operated by $(cat "$l/OPERATOR" 2>/dev/null); verify its outputs instead of reading again"; return 7; }; fi
   hvh_run_lock "$cap" "${HVH_STEP:-$(basename "$0")}"; }

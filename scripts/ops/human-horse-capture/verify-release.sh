@@ -28,7 +28,7 @@ if [ $o -eq 1 ]; then
 fi
 echo "manifest: $(printf '%s' "$H" | grep -o '"manifestDigest":"[0-9a-f]*"' | head -1)  workers ready: $(printf '%s' "$H" | grep -o '"byMode":{[^}]*}' | head -1)"
 echo "memory-domain series and rule (engine host Prometheus):"
-EH=${HVH_ENGINE_HOST:-ca-engine}; [ "$EH" = none ] && echo "  skipped (HVH_ENGINE_HOST=none)" || ssh -o ConnectTimeout=8 "$EH" "curl -s -G 'http://127.0.0.1:9090/api/v1/query' --data-urlencode 'query=count(poker_hand_memory_domain_logged_total)'; echo; curl -s -G 'http://127.0.0.1:9090/api/v1/query' --data-urlencode 'query=sum(poker_hand_memory_domain_missing_total{mode=\"cash\",reached_showdown=\"true\",reason=~\"absent|invalid\"})'; echo; curl -s -G 'http://127.0.0.1:9090/api/v1/query' --data-urlencode 'query=ALERTS{alertname=\"HandMemoryDomainMissingOnCashShowdown\"}'" 2>/dev/null | cut -c1-260
+EH=${HVH_ENGINE_HOST:-ca-engine}; [ "$EH" = none ] && echo "  skipped (HVH_ENGINE_HOST=none)" || ssh -o BatchMode=yes -o ConnectTimeout=8 ca-engine "curl -s -G 'http://127.0.0.1:9090/api/v1/query' --data-urlencode 'query=count(poker_hand_memory_domain_logged_total)'; echo; curl -s -G 'http://127.0.0.1:9090/api/v1/query' --data-urlencode 'query=sum(poker_hand_memory_domain_missing_total{mode=\"cash\",reached_showdown=\"true\",reason=~\"absent|invalid\"})'; echo; curl -s -G 'http://127.0.0.1:9090/api/v1/query' --data-urlencode 'query=ALERTS{alertname=\"HandMemoryDomainMissingOnCashShowdown\"}'" 2>/dev/null | cut -c1-260
 echo "worker fleet readback (every live decision worker must run the serving revision):"
 printf '%s' "$H" | python3 -c '
 import json,sys

@@ -10,7 +10,7 @@ set -u; M=${1:?mode}; R=${2:?release8}; T=$(cd "$(dirname "$0")" && pwd); SSH="s
 case "$R" in *[!0-9a-z-]*|"") echo "refused: release"; exit 2;; esac; H=/root/hvh-work-$R
 [ "$M" = status ] || [ -n "${HVH_OPERATOR:-}" ] || { echo "refused: HVH_OPERATOR"; exit 7; }
 case $M in
-start) [ -z "${HVH_SHA:-}" ] || case "$HVH_SHA" in $R*) ;; *) echo "refused: HVH_SHA does not start with $R"; exit 4;; esac
+start) [ -z "${HVH_SHA:-}" ] || [[ $HVH_SHA =~ ^[0-9a-f]{40}$ ]] || { echo "refused: HVH_SHA must be 40 hex"; exit 4; }; [ -z "${HVH_SHA:-}" ] || case "$HVH_SHA" in $R*) ;; *) echo "refused: HVH_SHA does not start with $R"; exit 4;; esac
   read FE EE < <(python3 $T/window.py epochs "$3" "$4") || exit 2
   $SSH "sudo test ! -e $H/FROM" < /dev/null || { echo "refused: $H already started (use close/status)"; exit 9; }
   $SSH "sudo mkdir -p $H && sudo chmod 700 $H && sudo tee $H/preserve-window.sh >/dev/null" < $T/host/preserve-window.sh && $SSH "sudo tee $H/preserve-part.sh >/dev/null" < $T/host/preserve-part.sh || exit 3
@@ -23,7 +23,7 @@ start) [ -z "${HVH_SHA:-}" ] || case "$HVH_SHA" in $R*) ;; *) echo "refused: HVH
   else echo "WARNING: HVH_SHA not set: reader image not retained"; fi;;
 close) F=$($SSH "sudo cat $H/FROM" < /dev/null); [ -n "$F" ] || { echo "refused: not started"; exit 2; }
   read FE EE < <(python3 $T/window.py epochs "$(python3 $T/window.py iso $F)" "$3") || exit 2
-  $SSH "echo $EE | sudo tee $H/END.new >/dev/null && sudo mv -f $H/END.new $H/END; echo 'closed END $3 at '\$(date -u +%FT%TZ) | sudo tee -a $H/WINDOW.iso >/dev/null; echo \"\$(date -u +%FT%TZ) CLOSE: END set to $3 ($EE)\" | sudo tee -a $H/window.log >/dev/null" < /dev/null && echo "closed $R at $3 ($EE)";;
+  $SSH "echo $EE | sudo tee $H/END.new >/dev/null && sudo mv -f $H/END.new $H/END && echo 'closed END $3 at '\$(date -u +%FT%TZ) | sudo tee -a $H/WINDOW.iso >/dev/null; echo \"\$(date -u +%FT%TZ) CLOSE: END set to $3 ($EE)\" | sudo tee -a $H/window.log >/dev/null" < /dev/null && echo "closed $R at $3 ($EE)" || { echo "close FAILED: END not confirmed on the host"; exit 3; };;
 stop) $SSH "sudo touch $H/STOP" < /dev/null && echo "stop requested";;
 status) $SSH "sudo cat $H/WINDOW.iso; sudo tail -4 $H/window.log; ls $H/DONE 2>/dev/null; pgrep -fa '^bash $H/preserve-window.sh' || echo 'not running'" < /dev/null;;
 *) echo "unknown mode"; exit 2;;
