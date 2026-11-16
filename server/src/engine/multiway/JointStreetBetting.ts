@@ -188,8 +188,17 @@ export interface JointLegalMenu {
 }
 
 /** HandController.getAvailableActions plus getAuthoritativeActionState's
- * sized-wager interval, for a seat that may act on a post-flop street. */
-export function jointLegalMenu(street: JointStreet, player: SeatPlayer): JointLegalMenu {
+ * sized-wager interval, for a seat that may act on a post-flop street.
+ *
+ * 2026-11-15 (fixed limit, as the controller): `all_in` is not listed where
+ * the clamp executes it as a call or check, and `bet`/`raise` are not listed
+ * when every other live seat is all in (`everyOtherLiveSeatAllIn`; the street
+ * replica holds no seats, so a caller that knows them says so). */
+export function jointLegalMenu(
+  street: JointStreet,
+  player: SeatPlayer,
+  everyOtherLiveSeatAllIn = false
+): JointLegalMenu {
   const bs = jointBettingState(street, player);
   const cents = (value: number) => Math.round(value * 100) / 100;
   if (player.is_folded || player.is_all_in || player.is_sitting_out || player.stack <= 0)
@@ -201,18 +210,19 @@ export function jointLegalMenu(street: JointStreet, player: SeatPlayer): JointLe
     };
   const actions: ActionType[] = ['fold'];
   const toCall = street.currentBet - player.bet;
-  const capped =
-    street.structure === 'fixed_limit' &&
-    isFixedLimitCapped(street.history, street.stage, streetBetSize(street));
+  const fixed = street.structure === 'fixed_limit';
+  const capped = fixed && isFixedLimitCapped(street.history, street.stage, streetBetSize(street));
+  const noOpponentCanRespond = fixed && everyOtherLiveSeatAllIn;
   if (toCall === 0) {
     actions.push('check');
-    if (player.stack > 0 && !capped) {
+    if (player.stack > 0 && !capped && !noOpponentCanRespond) {
       if (street.currentBet === 0) actions.push('bet');
       else if (jointMayReopen(street, player)) actions.push('raise');
     }
   } else {
     actions.push('call');
-    if (player.stack > toCall && !capped && jointMayReopen(street, player)) actions.push('raise');
+    if (player.stack > toCall && !capped && !noOpponentCanRespond && jointMayReopen(street, player))
+      actions.push('raise');
   }
   if (player.stack > 0) {
     const probe = clampJointAllIn(street, player, bs);
@@ -220,7 +230,8 @@ export function jointLegalMenu(street: JointStreet, player: SeatPlayer): JointLe
       probe.action === 'raise' || (probe.action === 'all_in' && player.stack > bs.toCall + EPS);
     if (
       validateAction(probe.action, probe.amount, player.stack, bs).valid &&
-      (!raisesBet || jointMayReopen(street, player))
+      (!raisesBet || jointMayReopen(street, player)) &&
+      !(fixed && (probe.action === 'call' || probe.action === 'check'))
     )
       actions.push('all_in');
   }
@@ -379,9 +390,10 @@ export function jointOneWager(
     if (exact) return { action: exact.kind as 'bet' | 'raise', amount: exact.amount! };
   }
   // The builder folds near-stack sizes into its canonical jam; a stack below
-  // the minimum wager can raise only by moving all in. The all-in button is
-  // on the menu even where the controller executes it as a call (a capped
-  // fixed-limit street), so only an all-in that actually wagers counts.
+  // the minimum wager can raise only by moving all in. Only an all-in that
+  // actually wagers counts. (Until 2026-11-15 the fixed-limit menu also listed
+  // the button where the controller executes it as a call; it no longer
+  // does, and this probe still refuses any all-in that does not wager.)
   if (jam) {
     const probe = clampJointAllIn(street, player, jointBettingState(street, player));
     const wagers =

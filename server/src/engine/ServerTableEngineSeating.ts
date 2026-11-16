@@ -1922,6 +1922,9 @@ export abstract class ServerTableEngineSeating extends ServerTableEngineBase {
     );
   }
 
+  /** Bank-the-win exits deferred past the presentation (ServerTableEngineSettlement). */
+  protected async runDeferredBankTheWinExits(): Promise<void> {}
+
   /** True while this player's last hand is still being presented on the felt. */
   protected inCompletionPresentation(userId: string): boolean {
     return (

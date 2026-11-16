@@ -704,8 +704,18 @@ async function runSpot(
       'fixture: not first to act'
     );
   } else if (spec.kind === 'facing') {
+    // 2026-11-15: a fixed-limit menu no longer offers a raise when every other
+    // live player is all in, because nobody is left to answer it
+    // (AFixedLimitMenuOffersWhatItExecutes.law.test.ts). The deep Horse facing
+    // the short shove on fixed limit is offered fold and call (and the all_in
+    // button, which wagers to the ceiling and has its excess returned).
+    const nobodyCanAnswer =
+      structure === 'fixed_limit' && others.length > 0 && others.every((p) => p.is_all_in);
     owe(
-      toCall > 0 && ['fold', 'call', 'raise'].every((a) => menu.includes(a as ActionType)),
+      toCall > 0 &&
+        (nobodyCanAnswer
+          ? sized === null && ['fold', 'call'].every((a) => menu.includes(a as ActionType))
+          : ['fold', 'call', 'raise'].every((a) => menu.includes(a as ActionType))),
       'fixture: not facing a bet with a raise available'
     );
   } else if (spec.kind === 'short') {
