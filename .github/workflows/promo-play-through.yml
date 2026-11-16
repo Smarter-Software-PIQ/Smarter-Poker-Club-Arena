@@ -65,11 +65,8 @@ jobs:
           name: promo-play-through-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             artifacts/promo-play-through/RESULTS.json
-<<<<<<< HEAD
             artifacts/promo-custody/RESULTS.json
             artifacts/promo-custody-accepted-hand/RESULTS.json
-=======
             artifacts/promo-fee-basis/RESULTS.json
->>>>>>> origin/main
           retention-days: 7
           if-no-files-found: warn

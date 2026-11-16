@@ -21,7 +21,10 @@ Source-backed refunds reverse unfinished progress, while an earned completed
 unlock is final. Withdrawals spend cashable profit first.
 Cash fees use their original accepted hand's clock, retained independently of
 the eight-day hand archive. Delayed posting cannot fill a later grant, and an
-expired grant cannot pass its unearned target to a new gift.
+expired grant cannot pass its unearned target to a new gift. Expired wallet
+principal cannot fund another entry while its original-fund return is pending;
+own chips and unexpired gifts remain usable. The summary identifies expired
+principal separately from active play-through targets.
 Physical Lightning seat mappings remain authoritative. Table profit does not
 create more principal. Deferred constraints require all places to sum to the
 grant's remaining principal. Helpers are private to the original money owners.

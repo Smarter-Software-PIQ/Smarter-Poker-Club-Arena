@@ -305,7 +305,7 @@ GRANT SELECT ON public.ca_promo_funding_custody_receipts TO service_role;
 CREATE FUNCTION public.fn_ca_promo_fund_from_balance(p_ledger uuid,p_before numeric,p_kind text,p_entity uuid,p_covered numeric DEFAULT 0)
 RETURNS numeric LANGUAGE plpgsql SECURITY DEFINER SET search_path='public','pg_temp' AS $$
 DECLARE l public.chip_ledger%ROWTYPE;prior public.ca_promo_funding_custody_receipts%ROWTYPE;
- ids uuid[];locked numeric:=0;requested numeric;moved numeric:=0;
+ ids uuid[];active_ids uuid[];expired_ids uuid[];locked numeric:=0;expired numeric:=0;requested numeric;moved numeric:=0;
 BEGIN
  SELECT * INTO STRICT l FROM public.chip_ledger WHERE id=p_ledger;
  IF l.from_type NOT IN('player_wallet','agent_wallet') OR l.amount<=0 OR l.club_id IS NULL
@@ -321,12 +321,22 @@ BEGIN
  END IF;
  IF EXISTS(SELECT 1 FROM public.ca_promo_play_through_settings WHERE id AND enforced_from<=clock_timestamp()) THEN
   PERFORM public.fn_ca_promo_play_through_settle(l.club_id,l.from_entity_id);
-  SELECT array_agg(s.grant_id) INTO ids FROM public.fn_ca_promo_play_through_state(l.club_id,l.from_entity_id) s
+  SELECT array_agg(s.grant_id),array_agg(s.grant_id) FILTER(WHERE s.state='locked'),
+   array_agg(s.grant_id) FILTER(WHERE s.state='expired_pending') INTO ids,active_ids,expired_ids
+   FROM public.fn_ca_promo_play_through_state(l.club_id,l.from_entity_id) s
    WHERE s.state IN('locked','expired_pending');
-  SELECT COALESCE(sum(c.amount),0) INTO locked FROM public.ca_promo_principal_custody c
+  SELECT COALESCE(sum(c.amount),0),COALESCE(sum(c.amount) FILTER(WHERE c.grant_id=ANY(expired_ids)),0)
+   INTO locked,expired FROM public.ca_promo_principal_custody c
    WHERE c.grant_id=ANY(ids) AND c.kind=l.from_type AND c.entity_id=l.from_entity_id;
+  -- Table exits remain unconditional. A new admission cannot renew expired
+  -- principal while its original fund return awaits the bounded expiry tick.
+  IF p_kind IN('table_stack','pending_addon','event') AND l.amount>p_before-expired THEN
+   RAISE EXCEPTION 'Expired Promo Is Awaiting Return To Its Original Fund. Use Your Cashable Chips Or Unexpired Promo For A New Entry.'
+    USING ERRCODE='P0001',HINT='expired_promo_cannot_fund_new_play';
+  END IF;
   requested:=LEAST(locked,GREATEST(l.amount-GREATEST(p_before-locked,0),0));
-  moved:=public.fn_ca_promo_move_selected_custody(l.club_id,l.from_entity_id,l.from_type,l.from_entity_id,p_kind,p_entity,requested,'spent',ids);
+  moved:=public.fn_ca_promo_move_selected_custody(l.club_id,l.from_entity_id,l.from_type,l.from_entity_id,p_kind,p_entity,requested,'spent',
+   CASE WHEN p_kind IN('table_stack','pending_addon','event') THEN active_ids ELSE ids END);
  END IF;
  INSERT INTO public.ca_promo_funding_custody_receipts(ledger_id,source_balance_before,amount,covered_amount,destination_kind,destination_id,principal_before,principal_moved)
   VALUES(l.id,p_before,l.amount,p_covered,p_kind,p_entity,locked,moved);
@@ -513,11 +523,20 @@ DROP FUNCTION public.fn_ca_promo_play_through_on_real_chips();
 DELETE FROM public.ca_declared_money_triggers WHERE table_name='chip_ledger' AND trigger_name='zz_ca_promo_play_through_real_chips';
 
 DO $summary$
-DECLARE def text;needle text:=E'''cashable'',      GREATEST(v_balance - v_locked, 0),';
+DECLARE def text;needle text:=E'''cashable'',      GREATEST(v_balance - v_locked, 0),';anchor text;
 BEGIN
  SELECT pg_get_functiondef('public.fn_ca_promo_play_through_summary(uuid,uuid)'::regprocedure) INTO def;
  IF length(def)-length(replace(def,needle,''))<>length(needle) THEN RAISE EXCEPTION 'promo_summary_custody_anchor_changed'; END IF;
- def:=replace(def,needle,E'''cashable'', GREATEST(v_balance - public.fn_ca_promo_locked_at(p_club_id,p_user_id,''player_wallet'',p_user_id),0),\n    ''wallet_locked'',public.fn_ca_promo_locked_at(p_club_id,p_user_id,''player_wallet'',p_user_id),\n    ''agent_locked'',public.fn_ca_promo_locked_at(p_club_id,p_user_id,''agent_wallet'',p_user_id),');
+ def:=replace(def,needle,E'''cashable'', GREATEST(v_balance - public.fn_ca_promo_locked_at(p_club_id,p_user_id,''player_wallet'',p_user_id),0),\n    ''expired_locked'',v_expired,\n    ''wallet_locked'',public.fn_ca_promo_locked_at(p_club_id,p_user_id,''player_wallet'',p_user_id),\n    ''agent_locked'',public.fn_ca_promo_locked_at(p_club_id,p_user_id,''agent_wallet'',p_user_id),');
+ anchor:=E'  v_progress    numeric := 0;';
+ IF length(def)-length(replace(def,anchor,''))<>length(anchor) THEN RAISE EXCEPTION 'promo_summary_expired_variable_changed'; END IF;
+ def:=replace(def,anchor,anchor||E'\n  v_expired numeric := 0;');
+ anchor:=E'         count(*) FILTER (WHERE s.state IN (''locked'', ''expired_pending'')),';
+ IF length(def)-length(replace(def,anchor,''))<>length(anchor) THEN RAISE EXCEPTION 'promo_summary_expired_source_changed'; END IF;
+ def:=replace(def,anchor,anchor||E'\n         COALESCE(sum(s.remaining) FILTER (WHERE s.state = ''expired_pending''),0),');
+ anchor:='INTO v_locked, v_target, v_fees, v_open, v_next_expiry';
+ IF length(def)-length(replace(def,anchor,''))<>length(anchor) THEN RAISE EXCEPTION 'promo_summary_expired_result_changed'; END IF;
+ def:=replace(def,anchor,'INTO v_locked, v_target, v_fees, v_open, v_expired, v_next_expiry');
  EXECUTE def;
 END $summary$;
 
