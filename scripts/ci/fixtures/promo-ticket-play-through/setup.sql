@@ -46,15 +46,17 @@ BEGIN
 END $$;
 CREATE TRIGGER promo_ticket_fixture_member_journal AFTER UPDATE OF chip_balance ON club_members FOR EACH ROW EXECUTE FUNCTION promo_ticket_fixture_member_journal();
 CREATE FUNCTION public.promo_ticket_fixture_agent_journal() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE category text:=current_setting('app.ledger_category',true);cp text:=current_setting('app.ledger_counterparty',true);entity uuid:=NULLIF(current_setting('app.ledger_counterparty_entity',true),'')::uuid;delta numeric;
 BEGIN
- IF NEW.promo_wallet_balance<>OLD.promo_wallet_balance AND current_setting('fixture.skip_journal',true) IS DISTINCT FROM '1' THEN
+ IF current_setting('fixture.skip_journal',true)='1' THEN RETURN NULL; END IF;
+ delta:=NEW.agent_wallet_balance-OLD.agent_wallet_balance;
+ IF delta<>0 THEN
   INSERT INTO chip_ledger(from_type,from_entity_id,to_type,to_entity_id,amount,category,club_id)
-  VALUES('escrow',NULLIF(current_setting('app.ledger_counterparty_entity',true),'')::uuid,'promo_wallet',NEW.user_id,
-  NEW.promo_wallet_balance-OLD.promo_wallet_balance,current_setting('app.ledger_category',true),NEW.club_id);
- END IF;
- RETURN NULL;
+  VALUES(CASE WHEN delta<0 THEN 'agent_wallet' ELSE cp END,CASE WHEN delta<0 THEN NEW.user_id ELSE entity END,
+   CASE WHEN delta<0 THEN cp ELSE 'agent_wallet' END,CASE WHEN delta<0 THEN entity ELSE NEW.user_id END,abs(delta),category,NEW.club_id);
+ END IF;RETURN NULL;
 END $$;
-CREATE TRIGGER promo_ticket_fixture_agent_journal AFTER UPDATE OF promo_wallet_balance ON agents FOR EACH ROW EXECUTE FUNCTION promo_ticket_fixture_agent_journal();
+CREATE TRIGGER promo_ticket_fixture_agent_journal AFTER UPDATE OF promo_wallet_balance,agent_wallet_balance ON agents FOR EACH ROW EXECUTE FUNCTION promo_ticket_fixture_agent_journal();
 
 CREATE TABLE public.fixture_fee_funding(ledger_id uuid PRIMARY KEY,promo numeric);
 CREATE FUNCTION public.fn_ca_promo_capture_entry_funding(uuid,numeric) RETURNS void LANGUAGE plpgsql AS $$
@@ -91,3 +93,5 @@ ALTER TABLE accounting_tournament_fee_sources ADD COLUMN rake_record_id uuid;
 ALTER TABLE rake_records ADD COLUMN source text;
 CREATE TABLE tournament_unregistration_receipts(registration_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),tournament_id uuid,user_id uuid,fees_reversed numeric,fee_reversal_ids uuid[],fee_source_rake_record_ids uuid[]);
 CREATE TABLE tournament_cancellation_receipts(tournament_id uuid PRIMARY KEY,total_rake_before numeric,total_rake_after numeric,fees_reversed numeric,fee_reversal_ids uuid[]);
+
+CREATE FUNCTION public.fn_club_bank_role(uuid) RETURNS text LANGUAGE sql AS $$SELECT role FROM public.club_members WHERE club_id=$1 AND user_id=auth.uid()$$;

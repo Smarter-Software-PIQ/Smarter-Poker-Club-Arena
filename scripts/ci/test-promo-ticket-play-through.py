@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""PG17 promo ticket custody through actual captured ticket and debit owners.
+"""PG17 ticket cashability and direct-entry principal through actual money owners.
 
-A minimal journal/registration adapter exposes original declared legs; this is
-not production tally or full registration/accounting qualification. Actual
-redemption, cancellation, forced-entry wrapper, debit primitive, Free Buy book,
-new custody/lots and fee handoff run unchanged from maintained source.
+The actual promo ticket money door refuses new purchases; the original ticket
+owner accepts explicit cashable player/agent sources. The native fixture runs
+original cancellation, debit and Free Buy owners with documented journal,
+registration, fee capture and original-source-return intent adapters.
 """
 from concurrent.futures import ThreadPoolExecutor
 import argparse,hashlib,importlib.util,json,os,subprocess,tempfile,uuid,shutil
@@ -15,7 +15,7 @@ def module(path,name):
 base=module(ROOT/'scripts/ci/test-promo-play-through.py','ticket_promo_base')
 C,A,B=base.CLUB,base.ALICE,base.BOB
 T='71000000-0000-0000-0000-000000000001';F='71000000-0000-0000-0000-000000000002'
-MIGRATION=ROOT/'supabase/migrations/20261116154719_promo_tickets_retain_one_original_lock_through_redemption_an.sql'
+MIGRATION=ROOT/'supabase/migrations/20261116154719_promo_tickets_require_cashable_wallets_and_direct_entries_retain_principal.sql'
 
 def main():
  p=argparse.ArgumentParser(description=__doc__);p.add_argument('--output',type=Path,required=True);p.add_argument('--custody-migration',type=Path,default=ROOT/'supabase/migrations/20261116153059_promo_principal_follows_its_original_grant_through_wallet_an.sql');args=p.parse_args()
@@ -29,16 +29,7 @@ def main():
   output=one(prefix+f"SET test.uid='{who}';SELECT {expression};")
   return json.loads(next(line for line in output.splitlines() if line.startswith('{')))
  def reset():
-  db.run("TRUNCATE ca_promo_ticket_entry_bridges,ca_promo_event_principal_lots,ca_promo_event_realization_slices,ca_promo_event_realization_receipts,ca_promo_principal_custody,ca_promo_play_through_grants,chip_ledger,chip_transactions,tournament_tickets,tournament_ticket_entry_targets,tournament_players,rake_attributions,fixture_fee_funding,fixture_principal_returns,smarter_private.free_buy_ticket_redemptions,smarter_private.free_buy_ticket_days;SET fixture.skip_journal='1';UPDATE club_members SET chip_balance=100;UPDATE agents SET agent_wallet_balance=100,promo_wallet_balance=1000;UPDATE tournaments SET status='REGISTERING';UPDATE ca_promo_play_through_settings SET enforced_from=clock_timestamp()-interval '1 second';")
- def issue(value=20,holder=A,key=None):
-  key=key or str(uuid.uuid4())
-  db.run(f"""BEGIN;SET fixture.skip_journal='1';UPDATE agents SET promo_wallet_balance=promo_wallet_balance-{value} WHERE club_id='{C}' AND user_id='{B}';SET fixture.skip_journal='0';
-   INSERT INTO chip_ledger(from_type,from_entity_id,to_type,to_entity_id,amount,category,club_id) VALUES('promo_wallet','{B}','escrow','{key}',{value},'ticket_issue','{C}');
-   INSERT INTO tournament_tickets(id,club_id,issued_by,holder_id,value) VALUES('{key}','{C}','{B}','{holder}',{value});
-   INSERT INTO chip_transactions(club_id,from_user_id,to_user_id,amount,transaction_type,metadata)
-    VALUES('{C}','{B}','{holder}',{value},'promo_wallet_send',jsonb_build_object('ticket_id','{key}','destination','tournament_ticket','escrow_entity_id','{key}'));
-   COMMIT;""")
-  return key
+  db.run("TRUNCATE ca_promo_event_principal_lots,ca_promo_event_realization_slices,ca_promo_event_realization_receipts,ca_promo_principal_custody,ca_promo_play_through_grants,chip_ledger,chip_transactions,tournament_tickets,tournament_ticket_entry_targets,tournament_players,rake_attributions,fixture_fee_funding,fixture_principal_returns,smarter_private.free_buy_ticket_redemptions,smarter_private.free_buy_ticket_days;SET fixture.skip_journal='1';UPDATE club_members SET chip_balance=100;UPDATE agents SET agent_wallet_balance=100,promo_wallet_balance=1000;UPDATE tournaments SET status='REGISTERING';UPDATE ca_promo_play_through_settings SET enforced_from=clock_timestamp()-interval '1 second';SET fixture.skip_journal='0';")
  def held(kind='player_wallet',entity=A,who=A):return one(f"SELECT fn_ca_promo_locked_at('{C}','{who}','{kind}','{entity}')")
  def payout(event,value,category='tournament_prize',who=A,entitlement=None):
   context='' if entitlement is None else f"SET LOCAL app.ca_promo_refund_entitlement='{entitlement}';"
@@ -56,74 +47,99 @@ def main():
   captures=json.loads((ROOT/'tests/fixtures/ev-cashout-lifecycle/captured-authorities.json').read_text())['functions']
   db.run(next(r['definition'] for r in captures if r['signature'].split('(')[0]=='fn_ca_commit_hand_settlement'))
   db.run(args.custody_migration.read_text())
-  owners=json.loads((ROOT/'tests/fixtures/promo-ticket-play-through/current-owners.json').read_text())+json.loads((ROOT/'tests/fixtures/promo-ticket-play-through/additional-owners.json').read_text())
+  owners=json.loads((ROOT/'tests/fixtures/promo-ticket-play-through/current-owners.json').read_text())+json.loads((ROOT/'tests/fixtures/promo-ticket-play-through/additional-owners.json').read_text())+json.loads((ROOT/'tests/fixtures/promo-ticket-play-through/restricted-owner.json').read_text())+json.loads((ROOT/'tests/fixtures/promo-ticket-play-through/batch-owner.json').read_text())+json.loads((ROOT/'tests/fixtures/promo-ticket-play-through/promo-batch-owner.json').read_text())
   for r in owners:
    db.run(r['definition'])
    sig=r['signature'] if '.' in r['signature'].split('(')[0] else 'public.'+r['signature']
    check('captured actual owner '+r['proname'],one(f"SELECT md5(pg_get_functiondef('{sig}'::regprocedure))"),r['md5'])
   db.run(MIGRATION.read_text())
-  check('private helpers cannot be invoked by a browser',one("SELECT NOT has_function_privilege('authenticated','fn_ca_promo_ticket_entry_funding(uuid)','EXECUTE')"),'t')
-  reset();tid=issue()
-  check('ticket issue creates one original grant',one('SELECT count(*) FROM ca_promo_play_through_grants'),'1')
-  check('ticket value is pending custody',held('ticket',tid),'20')
-  check('pending ticket does not lock unrelated cash',held(),'0')
-  check('pending ticket original target is four times face value',one('SELECT fee_target FROM ca_promo_play_through_grants'),'80.0000')
-  result=call(A,f"fn_redeem_tournament_ticket('{tid}')")
-  check('actual direct redemption succeeds',result.get('success'),True)
-  check('redemption moves only original principal into wallet',held(),'20')
-  check('redemption creates no second grant',one('SELECT count(*) FROM ca_promo_play_through_grants'),'1')
-  check('redemption leaves own cash cashable',one(f"SELECT fn_ca_promo_play_through_summary('{C}','{A}')->>'cashable'"),'100')
-  result=call(A,f"fn_redeem_tournament_ticket('{tid}')")
-  check('actual redemption response-loss replay is idempotent',result.get('replayed'),True)
-  check('redemption replay does not duplicate principal',held(),'20')
-  reset();tid=issue();result=call(B,f"fn_cancel_tournament_ticket('{tid}')")
-  check('actual original issuer cancellation succeeds',result.get('success'),True)
-  check('original cancellation returns its own promo source',one(f"SELECT promo_wallet_balance FROM agents WHERE club_id='{C}' AND user_id='{B}'"),'1000')
-  check('cancellation closes the original ticket grant',one('SELECT close_reason FROM ca_promo_play_through_grants'),'returned')
-  reset();tid=issue();result=call(A,f"fn_ca_use_cashier_entry_ticket('{T}','{tid}','{A}')")
-  check('actual forced-entry wrapper succeeds',result.get('ok'),True)
-  check('forced entry keeps ticket principal against its event',held('event',T),'20')
-  check('forced entry never reserves unrelated real wallet',held(),'0')
-  check('forced entry retains one original target',one('SELECT count(*)||\':\'||sum(fee_target) FROM ca_promo_play_through_grants'),'1:80.0000')
-  check('fee handoff receives original promo-funded full charge',one('SELECT promo FROM fixture_fee_funding'),'20')
-  check('entry restores scoped ticket context',one("SELECT COALESCE(current_setting('app.ca_promo_ticket_entry',true),'')=''"),'t')
-  payout(T,7);check('partial event winnings realize original principal once',held(),'7')
-  check('partial event win retains unreturned event principal',held('event',T),'13')
-  payout(T,30);check('event profit never creates additional principal',held(),'20')
-  check('event cashable profit remains unrestricted',one(f"SELECT fn_ca_promo_play_through_summary('{C}','{A}')->>'cashable'"),'117')
-  reset();tid=issue();result=call(A,f"fn_ca_use_cashier_entry_ticket('{T}','{tid}','{A}')",prefix="SET fixture.refuse_entry='1';")
-  check('original refused registration remains refused',result.get('ok'),False)
-  check('failed entry restores original ticket',one(f"SELECT status FROM tournament_tickets WHERE id='{tid}'"),'issued')
-  check('failed entry restores pending principal',held('ticket',tid),'20')
-  check('failed entry leaves no bridge or realized cash',one('SELECT count(*) FROM ca_promo_ticket_entry_bridges'),'0')
-  check('failed entry restores original own balance',one(f"SELECT chip_balance FROM club_members WHERE club_id='{C}' AND user_id='{A}'"),'100')
-  reset();tid=issue();call(A,f"fn_ca_use_cashier_entry_ticket('{T}','{tid}','{A}')")
+  check('private ticket owner is not browser callable',one("SELECT NOT has_function_privilege('authenticated','fn_ca_issue_cashable_ticket_owned(uuid,uuid,numeric,text,text,text)','EXECUTE')"),'t')
+  reset()
+  result=call(A,f"fn_cashier_promo_ticket_send('{C}','{B}',20,'new-promo-ticket')")
+  check('original promo ticket door refuses new purchases',result.get('error_code'),'promo_ticket_purchase_forbidden')
+  check('refused promo purchase moves no balance or ticket',one('SELECT count(*) FROM tournament_tickets'),'0')
+  check('refused promo purchase preserves promo wallet',one(f"SELECT promo_wallet_balance FROM agents WHERE club_id='{C}' AND user_id='{A}'"),'1000')
+  items=json.dumps([{'user_id':B,'amount':20,'idempotency_key':'new-promo-batch-ticket'}]);batch=str(uuid.uuid4())
+  result=call(A,f"fn_cashier_promo_ticket_batch('{C}','{items}'::jsonb,'{batch}')")
+  check('original promo batch cannot bypass its restricted money door',result['results'][0].get('error_code'),'promo_ticket_purchase_forbidden')
+  db.run(f"INSERT INTO chip_transactions(club_id,from_user_id,to_user_id,amount,transaction_type,metadata) VALUES('{C}','{A}','{B}',20,'promo_wallet_send',jsonb_build_object('idempotency_key','historical-ticket','destination','tournament_ticket','ticket_id',gen_random_uuid(),'sender_promo_after',980))")
+  result=call(A,f"fn_cashier_promo_ticket_send('{C}','{B}',20,'historical-ticket')")
+  check('historical committed promo ticket answers exact receipt replay',result.get('replayed'),True)
+  check('historical replay never creates a new entitlement',one('SELECT count(*) FROM tournament_tickets'),'0')
+  historical=str(uuid.uuid4())
+  db.run(f"INSERT INTO tournament_tickets(id,club_id,issued_by,holder_id,value,note) VALUES('{historical}','{C}','{B}','{A}',20,'Promo Cashier Ticket');INSERT INTO chip_transactions(club_id,from_user_id,to_user_id,amount,transaction_type,metadata) VALUES('{C}','{B}','{A}',20,'promo_wallet_send',jsonb_build_object('ticket_id','{historical}','destination','tournament_ticket','escrow_entity_id','{historical}'))")
+  result=call(A,f"fn_redeem_tournament_ticket('{historical}')")
+  check('historical promo-funded ticket remains redeemable by its original holder',result.get('success'),True)
+  check('historical ticket redemption creates no retroactive grant',one('SELECT count(*) FROM ca_promo_play_through_grants'),'0')
+  check('historical ticket redemption preserves original face value',one(f"SELECT chip_balance FROM club_members WHERE club_id='{C}' AND user_id='{A}'"),'120')
+  reset()
+  # Old player clients keep their original cashable payment owner.
+  db.run(f"SELECT fn_ca_promo_play_through_record_grant('{C}','{A}',50,'club_promo','player-cashability')")
+  result=call(A,f"fn_issue_tournament_ticket_phase2_core_20260831('{C}','{B}',60,NULL,'locked-player-ticket')")
+  check('locked promo inside player wallet cannot purchase a ticket',result.get('success'),False)
+  result=call(A,f"fn_issue_tournament_ticket_phase2_core_20260831('{C}','{B}',40,NULL,'cash-player-ticket')")
+  check('unrestricted player chips can purchase a ticket',result.get('success'),True)
+  check('player ticket keeps locked original promo in sender wallet',held(),'50')
+  reset()
+  batch=str(uuid.uuid4());items=json.dumps([{'user_id':B,'amount':40,'source':'agent_wallet','idempotency_key':'agent-ticket-40'}])
+  result=call(A,f"fn_cashier_batch_transfer('{C}','ticket','{items}'::jsonb,'{batch}')")
+  check('existing batch accepts cashable agent wallet ticket',result['results'][0].get('success'),True)
+  tid=result['results'][0]['ticket_id']
+  check('agent ticket debits original agent wallet only',one(f"SELECT agent_wallet_balance FROM agents WHERE club_id='{C}' AND user_id='{A}'"),'60')
+  check('agent ticket preserves player wallet',one(f"SELECT chip_balance FROM club_members WHERE club_id='{C}' AND user_id='{A}'"),'100')
+  check('agent ticket journals exact original funding leg',one("SELECT from_type||':'||to_type||':'||amount FROM chip_ledger WHERE category='ticket_issue'"),'agent_wallet:escrow:40')
+  result=call(A,f"fn_issue_tournament_ticket_agent('{C}','{B}',40,NULL,'agent-ticket-40')")
+  check('agent ticket lost-response retry replays once',result.get('replayed'),True)
+  result=call(A,f"fn_issue_tournament_ticket_phase2_core_20260831('{C}','{B}',40,NULL,'agent-ticket-40')")
+  check('same retry key cannot silently change source wallet',result.get('success'),False)
+  result=call(A,f"fn_cancel_tournament_ticket('{tid}')")
+  check('original cancellation returns agent-funded escrow to agent wallet',result.get('refund_wallet'),'agent_wallet')
+  check('agent cancellation conserves original source balance',one(f"SELECT agent_wallet_balance FROM agents WHERE club_id='{C}' AND user_id='{A}'"),'100')
+  result=call(A,f"fn_cancel_tournament_ticket('{tid}')")
+  check('agent cancellation replay is idempotent',result.get('replayed'),True)
+  reset();db.run(f"SELECT fn_ca_promo_play_through_record_grant('{C}','{A}',80,'club_promo','agent-cashability');UPDATE ca_promo_principal_custody SET kind='agent_wallet';")
+  result=call(A,f"fn_issue_tournament_ticket_agent('{C}','{B}',30,NULL,'agent-locked')")
+  check('locked promo inside agent wallet cannot purchase a ticket',result.get('success'),False)
+  # Actual direct entry spends promo after available unrestricted cash.
+  reset();db.run(f"SET fixture.skip_journal='1';UPDATE club_members SET chip_balance=20 WHERE club_id='{C}' AND user_id='{A}';SELECT fn_ca_promo_play_through_record_grant('{C}','{A}',20,'club_promo','direct-entry');SET fixture.skip_journal='0';")
+  result=call(A,f"fn_register_for_tournament_before_terminal_seat_gate('{T}',false)")
+  check('promo can enter a tournament directly',result.get('ok'),True)
+  check('direct entry moves original principal to its event',held('event',T),'20')
+  check('direct entry locks no unrelated wallet money',held(),'0')
+  check('direct promo fee handoff preserves original amount',one('SELECT promo FROM fixture_fee_funding'),'20')
+  original_charge=one('SELECT charge_ledger_id FROM ca_promo_event_principal_lots')
+  payout(T,7);payout(T,30)
+  check('partial prizes retain only original principal',held(),'20')
+  check('prize profit stays cashable',one(f"SELECT fn_ca_promo_play_through_summary('{C}','{A}')->>'cashable'"),'17')
+  check('prizes create no second grant or target',one("SELECT count(*)||':'||sum(fee_target) FROM ca_promo_play_through_grants"),'1:80.0000')
+  reset();db.run(f"SET fixture.skip_journal='1';UPDATE club_members SET chip_balance=20 WHERE club_id='{C}' AND user_id='{A}';SELECT fn_ca_promo_play_through_record_grant('{C}','{A}',20,'club_promo','lost-entry');SET fixture.skip_journal='0';")
+  call(A,f"fn_register_for_tournament_before_terminal_seat_gate('{T}',false)")
   db.run(f"UPDATE tournaments SET status='COMPLETED' WHERE id='{T}'")
-  check('a ticket with no winnings closes spent at actual terminal transition',one('SELECT close_reason FROM ca_promo_play_through_grants'),'spent')
-  check('terminal loss removes the pending obligation',held('event',T),'0')
-  db.run(f"SET fixture.skip_journal='1';UPDATE club_members SET chip_balance=chip_balance+25 WHERE club_id='{C}' AND user_id='{A}';")
-  check('a later real credit never revives a busted ticket',held(),'0')
-  reset();tid=issue();call(A,f"fn_ca_use_cashier_entry_ticket('{T}','{tid}','{A}')");payout(T,7)
-  db.run(f"UPDATE tournaments SET status='COMPLETED' WHERE id='{T}'")
-  check('terminal loss removes only unrealized principal',one('SELECT remaining FROM ca_promo_play_through_grants'),'7')
-  check('already won principal remains one original lock',held(),'7')
-  reset();db.run(f"SELECT fn_ca_promo_play_through_record_grant('{C}','{A}',50,'club_promo','gift-guard')")
-  result=call(A,f"fn_issue_tournament_ticket_phase2_core_20260831('{C}','{B}',60,NULL,'guarded-gift')")
-  check('actual ordinary ticket gift cannot carry locked principal',result.get('success'),False)
-  check('refused gift moves no wallet or ticket',one('SELECT count(*) FROM tournament_tickets'),'0')
-  result=call(A,f"fn_issue_tournament_ticket_phase2_core_20260831('{C}','{B}',40,NULL,'cash-gift')")
-  check('actual ordinary gift can spend unrestricted cash',result.get('success'),True)
-  check('cash gift leaves original promo in original wallet',held(),'50')
-  reset();tid=issue();db.run("UPDATE ca_promo_play_through_grants SET expires_at=clock_timestamp()-interval '1 second';")
-  check('unused cash ticket expiry uses original cancellation owner',one('SELECT fn_ca_promo_expire_tickets(100)'),'1')
-  check('unused ticket expiry returns original source balance',one(f"SELECT promo_wallet_balance FROM agents WHERE club_id='{C}' AND user_id='{B}'"),'1000')
-  check('unused ticket expiry closes principal as expired',one('SELECT close_reason FROM ca_promo_play_through_grants'),'expired')
-  check('expiry replay cannot return funds twice',one('SELECT fn_ca_promo_expire_tickets(100)'),'0')
-  reset();tid=issue();db.run(f"SELECT fn_ca_promo_leave_tickets('{C}','{A}')")
-  check('club departure cancels unused original promo ticket',one(f"SELECT status FROM tournament_tickets WHERE id='{tid}'"),'cancelled')
-  reset();tid=issue();call(A,f"fn_ca_use_cashier_entry_ticket('{T}','{tid}','{A}')")
-  refused=db.run(f"SELECT fn_ca_promo_leave_tickets('{C}','{A}')",check=False)
-  check('club departure cannot discard active event principal',refused.returncode!=0 and 'promo_event_still_active' in refused.stderr,True)
+  check('full event loss permanently closes its original grant',one('SELECT close_reason FROM ca_promo_play_through_grants'),'spent')
+  db.run(f"SET fixture.skip_journal='1';UPDATE club_members SET chip_balance=25 WHERE club_id='{C}' AND user_id='{A}';")
+  check('later real or rakeback credit never revives lost promo',held(),'0')
+  reset();db.run(f"SET fixture.skip_journal='1';UPDATE club_members SET chip_balance=20 WHERE club_id='{C}' AND user_id='{A}';SELECT fn_ca_promo_play_through_record_grant('{C}','{A}',20,'club_promo','refund-entry');SET fixture.skip_journal='0';")
+  call(A,f"fn_register_for_tournament_before_terminal_seat_gate('{T}',false)")
+  original_charge=one('SELECT charge_ledger_id FROM ca_promo_event_principal_lots');ent=str(uuid.uuid4());other_charge=str(uuid.uuid4())
+  db.run(f"INSERT INTO tournament_refund_entitlements VALUES('{ent}','{T}','{A}','{C}',10,'{other_charge}')")
+  payout(T,10,'refund',entitlement=ent)
+  check('real-entry refund cannot realize another entry promo',held(),'0')
+  check('real-entry refund preserves original event lot',held('event',T),'20')
+  ent=str(uuid.uuid4());db.run(f"INSERT INTO tournament_refund_entitlements VALUES('{ent}','{T}','{A}','{C}',8,'{original_charge}')")
+  payout(T,8,'refund',entitlement=ent)
+  check('partial exact-entry refund realizes its own principal',held(),'8')
+  check('partial exact-entry refund leaves original remainder',held('event',T),'12')
+  target=str(uuid.uuid4());db.run(f"INSERT INTO tournaments(id,club_id) VALUES('{target}','{C}');INSERT INTO chip_ledger(from_type,from_entity_id,to_type,to_entity_id,amount,category,club_id,metadata) VALUES('prize_liability','{T}','prize_liability','{target}',30,'tournament_buyin','{C}',jsonb_build_object('user_id','{A}'))")
+  check('earned satellite entry retains surviving original principal',held('event',target),'12')
+  check('earned satellite entry creates no new target',one("SELECT count(*)||':'||sum(fee_target) FROM ca_promo_play_through_grants"),'1:80.0000')
+  earned=str(uuid.uuid4());next_event=str(uuid.uuid4())
+  db.run(f"INSERT INTO chip_ledger(from_type,from_entity_id,to_type,to_entity_id,amount,category,club_id,metadata) VALUES('prize_liability','{target}','escrow','{earned}',30,'ticket_issue','{C}',jsonb_build_object('user_id','{A}'));INSERT INTO tournament_tickets(id,club_id,issued_by,holder_id,value,redemption_mode,source_tournament_id) VALUES('{earned}','{C}','{B}','{A}',30,'tournament_entry_only','{target}');")
+  check('earned noncash award holds surviving original principal',held('ticket',earned),'12')
+  db.run(f"INSERT INTO tournaments(id,club_id) VALUES('{next_event}','{C}');INSERT INTO chip_ledger(from_type,from_entity_id,to_type,to_entity_id,amount,category,club_id,metadata) VALUES('escrow','{earned}','prize_liability','{next_event}',30,'ticket_redeem','{C}',jsonb_build_object('user_id','{A}'))")
+  check('earned satellite award can enter with its original principal',held('event',next_event),'12')
+  check('earned award redemption does not create another target',one("SELECT count(*)||':'||sum(fee_target) FROM ca_promo_play_through_grants"),'1:80.0000')
+  refused=db.run(f"SELECT fn_ca_promo_leave_events('{C}','{A}')",check=False)
+  check('club departure cannot discard active event or earned entry principal',refused.returncode!=0 and 'promo_event_still_active' in refused.stderr,True)
   reset();registrations=[];events=[]
   for index in range(5):
    event=str(uuid.uuid4());registration=str(uuid.uuid4());events.append(event);registrations.append(registration)
@@ -146,36 +162,13 @@ def main():
   check('Free Buy profit remains cashable',one(f"SELECT fn_ca_promo_play_through_summary('{C}','{A}')->>'cashable'"),'104')
   db.run(f"UPDATE tournaments SET status='COMPLETED' WHERE id='{events[2]}'")
   check('a lost Free Buy coupon closes at terminal without touching other coupons',one(f"SELECT close_reason FROM ca_promo_play_through_grants WHERE source_ref='free_buy_ticket:{registrations[2]}'"),'spent')
-  reset();tid=issue();db.run(f"INSERT INTO rake_attributions(player_id,club_id,rake_amount) VALUES('{A}','{C}',80)")
-  call(A,f"fn_ca_use_cashier_entry_ticket('{T}','{tid}','{A}')")
-  check('a fully met original ticket creates no new lock on redemption',held('event',T),'0')
-  check('already earned ticket unlock captures explicit zero promo fee basis',one('SELECT promo FROM fixture_fee_funding'),'0')
-  # Two independent actual requests must serialize the original entitlement.
-  reset();tid=issue()
+  reset()
   with ThreadPoolExecutor(max_workers=2) as pool:
-   replies=list(pool.map(lambda _:call(A,f"fn_redeem_tournament_ticket('{tid}')"),range(2)))
-  check('concurrent actual redemption has one first result',sum(x.get('replayed') is False for x in replies),1)
-  check('concurrent redemption credits principal once',held(),'20')
-  check('concurrent redemption books one immutable receipt',one("SELECT count(*) FROM chip_transactions WHERE transaction_type='tournament_ticket_redeem'"),'1')
-  # Exact refund lots must never take another purchase's principal.
-  reset();tid=issue();call(A,f"fn_ca_use_cashier_entry_ticket('{T}','{tid}','{A}')")
-  original_charge=one('SELECT charge_ledger_id FROM ca_promo_ticket_entry_bridges')
-  real_charge=str(uuid.uuid4());ent=str(uuid.uuid4())
-  db.run(f"INSERT INTO tournament_refund_entitlements VALUES('{ent}','{T}','{A}','{C}',10,'{real_charge}')")
-  payout(T,10,'refund',entitlement=ent)
-  check('unrelated real-entry refund realizes no promo principal',held(),'0')
-  check('unrelated refund preserves original promo entry lot',held('event',T),'20')
-  ent=str(uuid.uuid4());db.run(f"INSERT INTO tournament_refund_entitlements VALUES('{ent}','{T}','{A}','{C}',8,'{original_charge}')")
-  payout(T,8,'refund',entitlement=ent)
-  check('partial exact-entry refund realizes only its original slice',held(),'8')
-  check('partial exact-entry refund leaves remaining original slice',held('event',T),'12')
-  # A satellite rollover changes custody, never the original grant/fee target.
-  reset();tid=issue();call(A,f"fn_ca_use_cashier_entry_ticket('{T}','{tid}','{A}')")
-  target=str(uuid.uuid4());db.run(f"INSERT INTO tournaments(id,club_id) VALUES('{target}','{C}');INSERT INTO chip_ledger(from_type,from_entity_id,to_type,to_entity_id,amount,category,club_id,metadata) VALUES('prize_liability','{T}','prize_liability','{target}',30,'tournament_buyin','{C}',jsonb_build_object('user_id','{A}'))")
-  check('satellite rollover retains just original principal',held('event',target),'20')
-  check('satellite rollover leaves no duplicate source position',held('event',T),'0')
-  check('satellite rollover retains one original four-times target',one("SELECT count(*)||':'||sum(fee_target) FROM ca_promo_play_through_grants"),'1:80.0000')
-  check('satellite fee handoff excludes winnings above original principal',one("SELECT promo FROM fixture_fee_funding JOIN chip_ledger l ON l.id=ledger_id WHERE l.from_type='prize_liability'"),'20')
+   replies=list(pool.map(lambda _:call(A,f"fn_issue_tournament_ticket_agent('{C}','{B}',40,NULL,'concurrent-agent-ticket')"),range(2)))
+  check('concurrent agent ticket has one original financial result',sum(x.get('replayed') is False for x in replies),1)
+  check('concurrent agent ticket has one replay',sum(x.get('replayed') is True for x in replies),1)
+  check('concurrent agent ticket debits once',one(f"SELECT agent_wallet_balance FROM agents WHERE club_id='{C}' AND user_id='{A}'"),'60')
+  check('concurrent agent ticket creates one escrow entitlement',one('SELECT count(*) FROM tournament_tickets'),'1')
   passed=True
  finally:
   report={'status':'passed' if passed else 'failed','checks':checks,'production_mutations':False,'source_sha256':{str(MIGRATION.relative_to(ROOT)):hashlib.sha256(MIGRATION.read_bytes()).hexdigest(),str(args.custody_migration):hashlib.sha256(args.custody_migration.read_bytes()).hexdigest()}}
