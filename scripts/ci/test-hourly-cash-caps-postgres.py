@@ -32,6 +32,15 @@ try:
  current_players integer,max_players integer DEFAULT 6,cluster_id uuid,game_variant text DEFAULT 'nlh',small_blind numeric DEFAULT 1,big_blind numeric DEFAULT 2);
  CREATE TABLE table_seats(id uuid DEFAULT gen_random_uuid() PRIMARY KEY,table_id uuid,user_id uuid,seat_number integer,
  occupancy_id uuid DEFAULT gen_random_uuid(),left_at timestamptz,active_game_scope text,stack numeric DEFAULT 100,is_sitting_out boolean DEFAULT false,leave_pending boolean DEFAULT false);
+ ALTER TABLE table_seats ADD COLUMN member_id uuid,ADD COLUMN sit_out_at timestamptz,
+ ADD COLUMN is_away boolean,ADD COLUMN joined_at timestamptz DEFAULT now(),ADD COLUMN horse_id uuid,
+ ADD COLUMN status text,ADD COLUMN auto_rebuy boolean,ADD COLUMN time_bank_remaining integer,
+ ADD COLUMN time_bank_uses_remaining integer,ADD COLUMN club_id uuid,ADD COLUMN entry_hold text,
+ ADD COLUMN entry_post_agreed boolean;
+ CREATE TABLE cash_seat_moves(id uuid PRIMARY KEY,game_id uuid,player_id uuid,from_table_id uuid,
+ to_table_id uuid,swap_move_id uuid,state text DEFAULT 'pending',ready_at timestamptz DEFAULT now(),
+ expires_at timestamptz DEFAULT now()+interval '10 minutes',note text,executed_at timestamptz,to_seat_number integer);
+ CREATE TABLE cash_cluster_events(game_id uuid,table_id uuid,kind text,payload jsonb);
  CREATE TABLE cash_games(id uuid PRIMARY KEY,cluster_mode text DEFAULT 'must_move',cluster_epoch integer DEFAULT 1,enabled boolean DEFAULT true,lightning_enabled boolean DEFAULT true,variant text,sb numeric,bb numeric);
  CREATE TABLE ca_horse_fleet_register(horse_id uuid,retired_at timestamptz);
  CREATE TABLE ca_horse_active_roster(horse_id uuid);
@@ -47,7 +56,7 @@ try:
  CREATE TABLE ca_operator_policy(restrictions_enforced boolean);
  CREATE TABLE lightning_pool_session(id uuid,cluster_id uuid,player_id uuid,state text,cluster_epoch integer,anchor_seat_id uuid,stop_requested_at timestamptz,entered_at timestamptz,exited_at timestamptz,cash_player_session_id uuid);
  CREATE TABLE lightning_pool_slot(id uuid,cluster_id uuid,player_id uuid,closed_at timestamptz,cluster_epoch integer,pool_session_id uuid);
- CREATE TABLE cash_player_session(id uuid,closed_at timestamptz);
+ CREATE TABLE cash_player_session(id uuid,closed_at timestamptz,closed_reason text,player_id uuid,scope_type text,scope_id uuid,table_id uuid);
  CREATE TABLE lightning_reservation(cluster_id uuid,player_id uuid,state text,lightning_instance_id uuid);
  CREATE TABLE lightning_instance(id uuid,state text);
  CREATE FUNCTION fn_lightning_config(uuid) RETURNS jsonb LANGUAGE sql AS $$SELECT '{}'::jsonb$$;
@@ -74,7 +83,7 @@ try:
  INSERT INTO test_cashouts VALUES(p_occupancy_id,s.stack,r);RETURN r;END$$;
  ''')
  fixtures=ROOT/'scripts/ci/fixtures/hourly-cash-caps'
- q((fixtures/'roster.sql').read_text());q((fixtures/'lightning-legality.sql').read_text())
+ q((fixtures/'roster.sql').read_text());q((fixtures/'lightning-legality.sql').read_text());q((fixtures/'seat-swap.sql').read_text())
  q('CREATE TRIGGER roster_guard BEFORE INSERT OR UPDATE OF user_id,table_id,left_at ON table_seats FOR EACH ROW WHEN(NEW.left_at IS NULL) EXECUTE FUNCTION fn_ca_horse_roster_seat_guard();')
  migration=(ROOT/'supabase/migrations/20261116153902_enforce_owner_hourly_cash_table_caps_with_human_expansion.sql').read_text()
  q(migration)
@@ -217,14 +226,19 @@ try:
  q("INSERT INTO table_seats(table_id,user_id,seat_number) VALUES(md5('batch-human')::uuid,md5('human')::uuid,1);")
  refuses("INSERT INTO table_seats(table_id,user_id,seat_number) VALUES(md5('batch-human')::uuid,md5('horse193')::uuid,2),(md5('batch-human')::uuid,md5('horse194')::uuid,3);",'cash_hourly_horse_arrival_paced')
  assert_sql("(SELECT count(*)=1 FROM table_seats WHERE table_id=md5('batch-human')::uuid)",'batch arrivals roll back together')
- # Existing funded movement is not new admission: occupied destinations and
- # a pair moved into one new table remain atomic, without buying another seat.
- q("INSERT INTO cash_games(id) VALUES(md5('moves')::uuid);INSERT INTO tables(id,cluster_id) SELECT md5(x)::uuid,md5('moves')::uuid FROM unnest(ARRAY['move-src','move-dst','move-extra'])x;UPDATE cash_hourly_table_pacing SET next_open_at='-infinity';ALTER TABLE table_seats DISABLE TRIGGER roster_guard;INSERT INTO table_seats(table_id,user_id,seat_number) VALUES(md5('move-src')::uuid,md5('horse195')::uuid,1),(md5('move-src')::uuid,md5('horse196')::uuid,2);ALTER TABLE table_seats ENABLE TRIGGER roster_guard;")
- q("BEGIN;SET LOCAL app.cash_seat_move='on';INSERT INTO table_seats(table_id,user_id,seat_number) VALUES(md5('move-dst')::uuid,md5('horse195')::uuid,1);UPDATE table_seats SET stack=0,left_at=now() WHERE table_id=md5('move-src')::uuid AND user_id=md5('horse195')::uuid;INSERT INTO table_seats(table_id,user_id,seat_number) VALUES(md5('move-dst')::uuid,md5('horse196')::uuid,2);UPDATE table_seats SET stack=0,left_at=now() WHERE table_id=md5('move-src')::uuid AND user_id=md5('horse196')::uuid;COMMIT;")
- assert_sql("(SELECT count(*)=2 AND sum(stack)=200 FROM table_seats WHERE table_id=md5('move-dst')::uuid AND left_at IS NULL)",'funded pair survives original insert-before-release order')
- refuses("INSERT INTO table_seats(table_id,user_id,seat_number) VALUES(md5('move-dst')::uuid,md5('horse197')::uuid,3);",'cash_hourly_horse_arrival_paced')
+ # Actual original swaps clear both chairs before revival, even when both
+ # games are still assembling and both opening/arrival clocks are held.
+ q("INSERT INTO cash_games(id) VALUES(md5('moves')::uuid);INSERT INTO tables(id,cluster_id) SELECT md5(x)::uuid,md5('moves')::uuid FROM unnest(ARRAY['move-src','move-dst','move-extra'])x;ALTER TABLE table_seats DISABLE TRIGGER roster_guard;INSERT INTO table_seats(table_id,user_id,seat_number) VALUES(md5('move-src')::uuid,md5('horse195')::uuid,1),(md5('move-dst')::uuid,md5('horse196')::uuid,1);ALTER TABLE table_seats ENABLE TRIGGER roster_guard;INSERT INTO cash_hourly_table_starts VALUES(md5('move-src')::uuid,now(),now()+interval '1 hour'),(md5('move-dst')::uuid,now(),now()+interval '1 hour');UPDATE cash_hourly_table_pacing SET next_open_at=now()+interval '1 hour';INSERT INTO cash_seat_moves(id,game_id,player_id,from_table_id,to_table_id,swap_move_id) VALUES(md5('swap1')::uuid,md5('moves')::uuid,md5('horse195')::uuid,md5('move-src')::uuid,md5('move-dst')::uuid,md5('swap2')::uuid),(md5('swap2')::uuid,md5('moves')::uuid,md5('horse196')::uuid,md5('move-dst')::uuid,md5('move-src')::uuid,md5('swap1')::uuid);")
+ assert_sql("(fn_cash_seat_swap_execute_before_maintenance_gate(md5('swap1')::uuid)->>'ok')::boolean",'original atomic swap completes through the real roster trigger')
+ assert_sql("(SELECT count(*)=2 AND sum(stack)=200 FROM table_seats WHERE table_id IN(md5('move-src')::uuid,md5('move-dst')::uuid) AND left_at IS NULL)",'original swap preserves both chairs and stacks')
+ assert_sql("EXISTS(SELECT 1 FROM table_seats WHERE table_id=md5('move-dst')::uuid AND user_id=md5('horse195')::uuid AND left_at IS NULL)",'swap actually moved its player')
+ # A one-way transfer is an arrival into an assembling game. It may not
+ # turn the old funded-seat exemption into an instant ring.
+ refuses("BEGIN;SET LOCAL app.cash_seat_move='on';INSERT INTO table_seats(table_id,user_id,seat_number) VALUES(md5('move-dst')::uuid,md5('horse196')::uuid,2);COMMIT;",'cash_hourly_horse_arrival_paced')
+ q("UPDATE cash_hourly_table_starts SET next_horse_at='-infinity' WHERE table_id=md5('move-dst')::uuid;")
+ q("BEGIN;SET LOCAL app.cash_seat_move='on';INSERT INTO table_seats(table_id,user_id,seat_number) VALUES(md5('move-dst')::uuid,md5('horse196')::uuid,2);UPDATE table_seats SET stack=0,left_at=now() WHERE table_id=md5('move-src')::uuid AND user_id=md5('horse196')::uuid;COMMIT;")
+ assert_sql("(SELECT count(*)=2 AND sum(stack)=200 FROM table_seats WHERE table_id=md5('move-dst')::uuid AND left_at IS NULL)",'one-way funded arrival succeeds at its later permitted window')
  refuses("BEGIN;SET LOCAL app.cash_seat_move='on';INSERT INTO table_seats(table_id,user_id,seat_number) VALUES(md5('move-extra')::uuid,md5('horse195')::uuid,1);COMMIT;",'cash_hourly_table_start_paced')
- # Fill to cap through predecessor setup: a split cannot expand over it.
  q("ALTER TABLE table_seats DISABLE TRIGGER roster_guard;UPDATE cash_hourly_table_pacing SET next_open_at='-infinity';INSERT INTO tables(id) SELECT md5('move-cap'||i)::uuid FROM generate_series(1,"+str(cap)+")i;INSERT INTO table_seats(table_id,user_id,seat_number) SELECT md5('move-cap'||i)::uuid,md5('horse180')::uuid,1 FROM generate_series(1,"+str(cap)+")i;ALTER TABLE table_seats ENABLE TRIGGER roster_guard;")
  refuses("BEGIN;SET LOCAL app.cash_seat_move='on';INSERT INTO table_seats(table_id,user_id,seat_number) VALUES(md5('move-extra')::uuid,md5('horse195')::uuid,1);COMMIT;",'cash_hourly_table_cap_reached')
  q("UPDATE engine_leader SET instance_id='older-rollback';")

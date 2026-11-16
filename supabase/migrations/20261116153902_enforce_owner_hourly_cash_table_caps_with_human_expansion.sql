@@ -95,7 +95,7 @@ $fn$;
 CREATE FUNCTION public.fn_cash_hourly_table_admit(p_table_id uuid,p_user_id uuid)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $fn$
 DECLARE t public.tables%ROWTYPE; n integer; cap integer; human boolean; empty boolean;
- funded_move boolean; releases_source boolean;
+ funded_move boolean; releases_source boolean; neutral_swap boolean;
  now_at timestamptz:=clock_timestamp(); pace public.cash_hourly_table_starts%ROWTYPE;
 BEGIN
  SELECT * INTO t FROM public.tables WHERE id=p_table_id;
@@ -111,16 +111,33 @@ BEGIN
  INTO empty;
  SELECT EXISTS(SELECT 1 FROM public.table_seats s LEFT JOIN public.profiles p ON p.id=s.user_id
  WHERE s.table_id=p_table_id AND s.left_at IS NULL AND p.is_horse IS DISTINCT FROM true) INTO human;
- -- Original funded must-moves change chairs, not player admission. Preserve
- -- occupied destinations and paired moves; only a genuinely new table uses
- -- the floor opening clock/cap. The executor inserts before releasing source.
+ -- The original atomic swap temporarily clears BOTH old chairs first. Its
+ -- reciprocal, ready, unexpired plans prove a headcount-neutral exchange;
+ -- never mistake that temporary empty state for a newly started game.
+ SELECT coalesce(public.fn_caller_is_engine(),false)
+ AND current_setting('app.cash_seat_move',true)='on' AND t.cluster_id IS NOT NULL
+ AND EXISTS(SELECT 1 FROM public.cash_seat_moves m JOIN public.cash_seat_moves partner
+ ON partner.id=m.swap_move_id AND partner.swap_move_id=m.id
+ WHERE m.player_id=p_user_id AND m.to_table_id=t.id AND m.game_id=t.cluster_id
+ AND partner.game_id=m.game_id AND partner.from_table_id=m.to_table_id
+ AND partner.to_table_id=m.from_table_id AND partner.player_id<>m.player_id
+ AND m.state='pending' AND partner.state='pending'
+ AND m.ready_at IS NOT NULL AND partner.ready_at IS NOT NULL
+ AND m.expires_at>now_at AND partner.expires_at>now_at) INTO neutral_swap;
+ IF neutral_swap THEN RETURN; END IF;
+ -- One-way funded moves into established games keep their ordinary behavior.
+ -- An assembling game still admits one arrival per window, whoever funds it.
+ -- The original one-way executor inserts before releasing its source chair.
  SELECT coalesce(public.fn_caller_is_engine(),false)
  AND current_setting('app.cash_seat_move',true)='on' AND t.cluster_id IS NOT NULL
  AND EXISTS(SELECT 1 FROM public.table_seats s JOIN public.tables src ON src.id=s.table_id
  WHERE s.user_id=p_user_id AND s.left_at IS NULL AND src.id<>t.id
  AND src.cluster_id=t.cluster_id AND src.tournament_id IS NULL AND NOT coalesce(src.is_spins,false))
  INTO funded_move;
- IF funded_move AND NOT empty THEN RETURN; END IF;
+ IF funded_move AND NOT empty
+ AND NOT EXISTS(SELECT 1 FROM public.cash_hourly_table_starts WHERE table_id=t.id)
+ AND EXISTS(SELECT 1 FROM public.table_seats s JOIN public.profiles p ON p.id=s.user_id
+ WHERE s.table_id=t.id AND s.left_at IS NULL AND p.is_horse) THEN RETURN; END IF;
  SELECT coalesce(funded_move,false) AND EXISTS(
  SELECT 1 FROM public.table_seats s JOIN public.tables src ON src.id=s.table_id
  WHERE s.user_id=p_user_id AND s.left_at IS NULL AND src.id<>t.id AND src.cluster_id=t.cluster_id

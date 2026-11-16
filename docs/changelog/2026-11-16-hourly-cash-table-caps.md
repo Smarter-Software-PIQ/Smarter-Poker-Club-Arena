@@ -46,7 +46,10 @@ number limits Horse-started capacity. Human-started games can expand beyond it.
    anywhere in a shared Lightning pool protects that shared game.
 2. Enforce first-Horse entry in the original seat-admission trigger. Existing
    stack/settlement/departure updates keep their original early return. Original
-   funded same-game moves retain their atomic transfer and paired-move behavior.
+   funded same-game moves retain their atomic transfer and reciprocal-swap behavior.
+   The actual swap owner temporarily clears both chairs; reciprocal ready plans
+   preserve that headcount-neutral exchange. One-way moves into an assembling
+   game still wait for its individual arrival window.
    A transfer opening another occupied table still takes the global start clock
    and cap; a source that empties in that transfer releases its counted slot.
    Empty lobby doors remain available for humans, but cannot bypass first-seat
