@@ -336,11 +336,15 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'omahaReraisedPotStackOffRealistic',
   'omahaOnePairDiscipline',
   'fixedLimitRiverFullBetRead',
+  'fixedLimitRiverStrongHandLeads',
   'fixedLimitHiLoNutLowRiverBet',
   'fixedLimitRiverOneBetValueRaise',
   'fixedLimitCallIsNotACommitment',
+  'fixedLimitReadIgnoresProbes',
   'fixedLimitHiLoLowHalfFloor',
   'fixedLimitOmahaNoPresumption',
+  'fixedLimitPricedPreflop',
+  'fixedLimitStealVsTightBlinds',
 ]);
 /** Decided by code: a parent option, a variant gate or a mixed read (see each ledger note). */
 export const OPTION_SWITCH_RELEASE_DEFAULT_CODE: readonly string[] = Object.freeze([
@@ -515,6 +519,16 @@ export function optionSwitchOffOnly(name: string): OptionSwitchOffOnly | null {
 /** Owner, scope and description where the activation inventory records them; else 'Programme' and the ledger. */
 type Override = readonly [owner: OptionSwitchOwner, scope: string, description?: string];
 const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Override>>> = {
+  fixedLimitPricedPreflop: [
+    'Fixed-Limit',
+    'Fixed limit (flh, flo8) preflop, cash tables only (tournament inert by code)',
+    'fixed-limit preflop priced at fixed-limit odds: first-in, facing a raise, big-blind defence (W5 P)',
+  ],
+  fixedLimitStealVsTightBlinds: [
+    'Fixed-Limit',
+    'Fixed limit (flh, flo8) cash preflop first-in, every player behind an own-evidence over-folder',
+    'fixed-limit first-in steal from over-folding blinds (W5 S; off-only by the steal hold)',
+  ],
   v16Hu: ['Heads Up', 'Heads-up postflop', 'heads-up postflop overlay'],
   v16Ratio: [HOLDEM, 'All (dead by precedence under V38)', 'V16 call/fold ratio rescale'],
   v17RiverProbe: [HOLDEM, 'River probe', 'river probe into a capped field'],
@@ -525,6 +539,11 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
     'PLO Strategy',
     'Omaha river',
     'river Omaha weak sets/trips keep call pricing without re-shoving',
+  ],
+  fixedLimitRiverStrongHandLeads: [
+    'Fixed-Limit',
+    'Fixed limit (flh, flo8) river, first to act, nothing to call',
+    'a first-to-act fixed-limit river full house or better that few holdings beat leads one big bet (W8)',
   ],
   commitUnderPot: [
     'Heads Up',
@@ -551,6 +570,11 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
     HOLDEM,
     'All, opponent read bucket',
     'a thin read answers from its own game scope, shrunk',
+  ],
+  fixedLimitReadIgnoresProbes: [
+    'Fixed-Limit',
+    'Fixed limit (flh, flo8), opponent aggression reads, with the F1 switch on',
+    'a fixed-limit read is never discounted by the player no-limit/pot-limit probe share (F1b)',
   ],
   omahaNeutralUnknown: [
     'PLO Strategy',
