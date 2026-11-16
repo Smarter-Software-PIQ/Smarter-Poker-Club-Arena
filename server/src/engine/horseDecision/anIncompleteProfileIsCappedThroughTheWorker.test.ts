@@ -171,7 +171,8 @@ async function throughTheWorker(
   on: boolean,
   log: Seen[],
   complete = false,
-  switched?: 'on' | 'off'
+  switched?: 'on' | 'off',
+  issued?: { receipt?: unknown; ranInIssuedView?: boolean; payload?: unknown }
 ): Promise<Outcome> {
   HorseMind.reset();
   restoreFastRandom(SEED);
@@ -234,6 +235,18 @@ async function throughTheWorker(
     throw new Error(`no journaled FAST decision: ${JSON.stringify(messages.at(-1))}`);
   const fastReads = [...log];
   log.length = 0;
+  if (issued) {
+    // What every effect commit of this decision does first (workerRuntime, COMMIT_DECISION_EFFECTS): run inside the
+    // observer view issued for THIS request object. It throws when the view was stored under any other object.
+    const views = (
+      runtime as unknown as {
+        observerReads: { runIssued<T>(r: unknown, fn: () => T): T; receipt(r: unknown): unknown };
+      }
+    ).observerReads;
+    issued.receipt = views.receipt(request);
+    issued.ranInIssuedView = views.runIssued(request, () => true);
+    issued.payload = payloads[0];
+  }
   const deepDraft = {
     ...request,
     type: 'DECIDE_DEEP' as const,
@@ -337,6 +350,20 @@ describe('an incomplete pooled profile through the decision worker', () => {
     log.length = 0;
     const rowOff = await throughTheWorker(true, log, false, 'off');
     expect(rowOff.frameVersion).not.toBe('horse-decision-reads-v17');
+  });
+
+  it('a live switch row ON alone: the decision keeps the observer view issued for its own request', async () => {
+    const id = villain();
+    const log = watchStyle(() => id);
+    const issued: { receipt?: unknown; ranInIssuedView?: boolean; payload?: unknown } = {};
+    const rowOn = await throughTheWorker(false, log, false, 'on', issued);
+    // the row did turn the cap on for this decision
+    expect(rowOn.frameVersion).toBe('horse-decision-reads-v17');
+    // and the view is stored under the ORIGINAL request: its receipt is found, the journal carries the reads, and
+    // the effect-commit path (runIssued) finds the view instead of throwing "view unavailable"
+    expect(issued.receipt).toBeTruthy();
+    expect((issued.payload as { observerReads?: unknown }).observerReads).toBeTruthy();
+    expect(issued.ranInIssuedView).toBe(true);
   });
 
   it('the option off: the same incomplete row is read uncapped, the frame is not v17, as with a complete row', async () => {
