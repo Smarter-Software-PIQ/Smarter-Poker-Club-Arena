@@ -146,3 +146,25 @@ it('does not invent wallet principal from an aggregate table/event lock when the
   expect(screen.getByRole('progressbar')).toBeTruthy();
   expect(screen.queryByText(/Withdrawable Balance/)).toBeNull();
 });
+
+it('reads original-club support eligibility only from its authoritative boolean', () => {
+  expect(parsePromoPlayThrough(progress).override_available).toBe(false);
+  expect(parsePromoPlayThrough({ ...progress, override_available: true }).override_available).toBe(
+    true
+  );
+  expect(parsePromoPlayThrough({ ...progress, override_available: false }).override_available).toBe(
+    false
+  );
+  expect(() => parsePromoPlayThrough({ ...progress, override_available: 'true' })).toThrow();
+  expect(() => parsePromoPlayThrough({ ...progress, override_available: null })).toThrow();
+});
+
+it('requires an actual pending review boolean rather than inferring one from schema support', () => {
+  const row = { ...progress, integrity_held: 0, agent_integrity_held: 0 };
+  expect(parsePromoPlayThrough(row).integrity_available).toBe(true);
+  expect(parsePromoPlayThrough(row).integrity_review_available).toBe(false);
+  expect(
+    parsePromoPlayThrough({ ...row, integrity_review_available: true }).integrity_review_available
+  ).toBe(true);
+  expect(() => parsePromoPlayThrough({ ...row, integrity_review_available: 1 })).toThrow();
+});

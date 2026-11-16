@@ -82,8 +82,9 @@ export function MemberPromoPlayThrough({
     }
   };
   const activePromo = summary ? hasActivePromoPlayThrough(summary) : false;
-  const showReview = canOverride && summary?.integrity_available;
-  if (summary && !hasPromoRestrictionDetails(summary) && !showReview) return null;
+  const showReview = canOverride && summary?.integrity_review_available === true;
+  const showOverride = canOverride && summary?.override_available === true;
+  if (summary && !hasPromoRestrictionDetails(summary) && !showReview && !showOverride) return null;
   return (
     <section
       className="mm-card mm-stats"
@@ -102,7 +103,7 @@ export function MemberPromoPlayThrough({
           </button>
         </p>
       )}
-      {canOverride && summary && activePromo && (
+      {showOverride && (
         <div className="mm-field">
           <label className="mm-field__label" htmlFor="promo-override-reason">
             Reason For Promo Unlock

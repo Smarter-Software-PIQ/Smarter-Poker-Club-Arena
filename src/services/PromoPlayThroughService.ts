@@ -17,6 +17,8 @@ export interface PromoPlayThroughSummary {
   profit_percent?: number;
   expired_locked?: number;
   integrity_available?: boolean;
+  override_available?: boolean;
+  integrity_review_available?: boolean;
   integrity_held?: number;
   agent_integrity_held?: number;
   integrity_total_held?: number;
@@ -57,6 +59,11 @@ export function parsePromoPlayThrough(raw: unknown): PromoPlayThroughSummary {
       throw new Error('Promo Progress Is Unavailable');
     }
     result[key] = Number(value);
+  }
+  for (const key of ['override_available', 'integrity_review_available'] as const) {
+    if (row[key] !== undefined && typeof row[key] !== 'boolean')
+      throw new Error('Promo Support Is Unavailable');
+    result[key] = row[key] === true;
   }
   result.integrity_available =
     row.integrity_held !== undefined && row.agent_integrity_held !== undefined;

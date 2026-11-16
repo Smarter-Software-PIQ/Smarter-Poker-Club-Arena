@@ -22,3 +22,5 @@ balance regressions are retained; full W financial allocation is a separate proo
 The original P override and the W override receipt share one non-earned support
 update notice per gift. It refreshes the recipient through the existing channel
 without a wallet balance change, private review note, earned-fee claim or H release.
+
+Support controls consume two separate authoritative booleans. An original grant club can offer its support override while W is held elsewhere, without showing a local balance or percentage. A review section appears only for an actual pending selected case, including evidence-only cases; mere backend review capability no longer leaves an empty card after completion. Missing flags are false and malformed flags are unavailable. Backend authorization and separate H review remain mandatory.

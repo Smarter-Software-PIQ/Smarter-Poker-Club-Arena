@@ -4,6 +4,7 @@ const mock = vi.hoisted(() => ({
   override: vi.fn(),
   reload: vi.fn(),
   summary: {
+    override_available: true,
     locked: 50,
     open_grants: 1,
     fee_target: 200,
@@ -24,6 +25,9 @@ vi.mock('../../src/hooks/useMemberPromoPlayThrough', () => ({
     reload: mock.reload,
   }),
 }));
+vi.mock('../../src/components/club/MemberIntegrityReview', () => ({
+  MemberIntegrityReview: () => <div>Source Review Controls</div>,
+}));
 vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
 import { MemberPromoPlayThrough } from '../../src/components/club/MemberPromoPlayThrough';
 const props = {
@@ -31,7 +35,9 @@ const props = {
   userId: 'a0000000-0000-0000-0000-000000000001',
   revision: 1,
 };
+const originalSummary = { ...mock.summary };
 afterEach(() => {
+  Object.assign(mock.summary, originalSummary);
   cleanup();
   vi.clearAllMocks();
 });
@@ -135,4 +141,68 @@ describe('existing owner promo override', () => {
       expect(mock.override).toHaveBeenCalledTimes(2);
     }
   );
+});
+
+describe('support authority follows the original grant club', () => {
+  it('keeps the source-club support action reachable without inventing a local balance or meter', () => {
+    Object.assign(mock.summary, {
+      locked: 0,
+      open_grants: 0,
+      fee_target: 0,
+      fee_progress: 0,
+      fee_remaining: 0,
+      percent: 100,
+      wallet: 0,
+      cashable: 0,
+      override_available: true,
+    });
+    render(<MemberPromoPlayThrough {...props} canOverride />);
+    expect(screen.getByRole('button', { name: 'Unlock Promo With Reason' })).toBeTruthy();
+    expect(screen.queryByRole('progressbar')).toBeNull();
+    expect(screen.queryByText(/Withdrawable Balance/)).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Promo Play Through' })).toBeNull();
+  });
+  it('honors authoritative lack of an overridable original gift even when aggregate promo is visible', () => {
+    mock.summary.override_available = false;
+    render(<MemberPromoPlayThrough {...props} canOverride />);
+    expect(screen.queryByRole('button', { name: 'Unlock Promo With Reason' })).toBeNull();
+  });
+});
+
+it('hides completed owner cards when review support exists but there is no pending case', () => {
+  Object.assign(mock.summary, {
+    locked: 0,
+    open_grants: 0,
+    fee_target: 0,
+    fee_progress: 0,
+    fee_remaining: 0,
+    percent: 100,
+    wallet: 0,
+    cashable: 0,
+    override_available: false,
+    integrity_available: true,
+    integrity_review_available: false,
+  });
+  const view = render(<MemberPromoPlayThrough {...props} canOverride />);
+  expect(view.container.textContent).toBe('');
+});
+
+it('keeps a real evidence-only review reachable without a promo percentage', () => {
+  Object.assign(mock.summary, {
+    locked: 0,
+    open_grants: 0,
+    fee_target: 0,
+    fee_progress: 0,
+    fee_remaining: 0,
+    percent: 100,
+    wallet: 0,
+    cashable: 0,
+    override_available: false,
+    integrity_available: true,
+    integrity_review_available: true,
+  });
+  render(<MemberPromoPlayThrough {...props} canOverride />);
+  expect(screen.getByText('Source Review Controls')).toBeTruthy();
+  expect(screen.queryByRole('progressbar')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Unlock Promo With Reason' })).toBeNull();
 });
