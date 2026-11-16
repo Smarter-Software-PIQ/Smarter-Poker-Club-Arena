@@ -1,3 +1,7 @@
+import {
+  hasActivePromoPlayThrough,
+  hasPromoRestrictionDetails,
+} from '../../utils/promoPlayThroughVisibility';
 import { MemberIntegrityReview } from './MemberIntegrityReview';
 import { useEffect, useRef, useState } from 'react';
 import { overrideMemberPromoPlayThrough } from '../../services/PromoPlayThroughService';
@@ -77,9 +81,15 @@ export function MemberPromoPlayThrough({
       }
     }
   };
+  const activePromo = summary ? hasActivePromoPlayThrough(summary) : false;
+  const showReview = canOverride && summary?.integrity_available;
+  if (summary && !hasPromoRestrictionDetails(summary) && !showReview) return null;
   return (
-    <section className="mm-card mm-stats" aria-label="Promo Play Through">
-      <h2 className="mm-card__title">Promo Play Through</h2>
+    <section
+      className="mm-card mm-stats"
+      aria-label={activePromo || !summary ? 'Promo Play Through' : 'Chip Restrictions'}
+    >
+      {(activePromo || !summary) && <h2 className="mm-card__title">Promo Play Through</h2>}
       {members === undefined ? (
         <p role="status">Reading Promo Progress...</p>
       ) : summary ? (
@@ -92,7 +102,7 @@ export function MemberPromoPlayThrough({
           </button>
         </p>
       )}
-      {canOverride && summary && summary.open_grants > 0 && (
+      {canOverride && summary && activePromo && (
         <div className="mm-field">
           <label className="mm-field__label" htmlFor="promo-override-reason">
             Reason For Promo Unlock
@@ -118,7 +128,7 @@ export function MemberPromoPlayThrough({
         </div>
       )}
       {message && <p role="status">{formatPopupText(message)}</p>}
-      {canOverride && summary?.integrity_available && (
+      {showReview && (
         <MemberIntegrityReview
           clubId={clubId}
           userId={userId}

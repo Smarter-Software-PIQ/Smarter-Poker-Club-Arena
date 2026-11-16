@@ -1,3 +1,4 @@
+import { PromoPlayThroughInline } from '../components/wallet/PromoPlayThroughProgress';
 import { useMemberPromoPlayThrough } from '../hooks/useMemberPromoPlayThrough';
 import type { PromoPlayThroughSummary } from '../services/PromoPlayThroughService';
 import { usePlayerPreference } from '../hooks/usePlayerPreference';
@@ -2247,23 +2248,7 @@ export const MemberRow = memo(function MemberRow({
                 {highlight(member.upline_name, query)}
               </span>
             )}
-            {member.can_view_financials &&
-              (promo === null || promo === undefined || promo.locked > 0) && (
-                <span
-                  className="member-promo"
-                  title={
-                    promo
-                      ? `${walletFigure(promo.locked)} Locked · ${walletFigure(promo.fee_remaining)} In Fees To Go`
-                      : undefined
-                  }
-                >
-                  {promo === undefined
-                    ? 'Reading Promo...'
-                    : promo === null
-                      ? 'Promo Unavailable'
-                      : `Promo Locked ${walletFigure(promo.locked)} · ${promo.percent}%`}
-                </span>
-              )}
+            {member.can_view_financials && <PromoPlayThroughInline summary={promo} />}
           </span>
           <span className="member-subline">
             {(!simpleMode || member.role !== 'player') && (

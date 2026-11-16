@@ -1,4 +1,4 @@
-import { act, renderHook, waitFor, cleanup } from '@testing-library/react';
+import { act, render, screen, renderHook, waitFor, cleanup } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 const state = vi.hoisted(() => ({
   read: vi.fn(),
@@ -16,6 +16,7 @@ vi.mock('../../src/hooks/useMasterBusSubscription', () => ({
 }));
 vi.mock('../../src/utils/errorReporter', () => ({ reportError: vi.fn() }));
 import { usePromoPlayThrough } from '../../src/hooks/usePromoPlayThrough';
+import { PromoPlayThroughFigure } from '../../src/components/wallet/PromoPlayThroughProgress';
 const figure = (locked: number) => ({
   locked,
   open_grants: 1,
@@ -93,4 +94,28 @@ it('refreshes a reviewed hold from its actual notification event without changin
   await waitFor(() => expect(hook.result.current.summary?.cashable).toBe(30));
   expect(hook.result.current.summary?.locked).toBe(50);
   expect(hook.result.current.summary?.fee_target).toBe(200);
+});
+
+it('a stale active reply cannot resurrect a completed rendered meter, and a new grant can appear', async () => {
+  let oldReply!: (value: unknown) => void;
+  state.read.mockReturnValueOnce(
+    new Promise((resolve) => {
+      oldReply = resolve;
+    })
+  );
+  state.read.mockResolvedValueOnce({ ...figure(0), fee_target: 0, fee_remaining: 0, percent: 100 });
+  const Surface = () => {
+    const { summary } = usePromoPlayThrough('club-a', 'user-a');
+    return summary ? <PromoPlayThroughFigure summary={summary} /> : null;
+  };
+  const view = render(<Surface />);
+  act(() => state.refresh?.());
+  await waitFor(() => expect(state.read).toHaveBeenCalledTimes(2));
+  await act(async () => {
+    oldReply(figure(50));
+  });
+  expect(view.container.textContent).toBe('');
+  state.read.mockResolvedValueOnce(figure(25));
+  act(() => state.refresh?.());
+  expect(await screen.findByRole('progressbar')).toBeTruthy();
 });
