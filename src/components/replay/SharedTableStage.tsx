@@ -373,7 +373,11 @@ export default function SharedTableStage({
                       showCards: recorded ? !own && recorded.mask > 0 : revealed,
                       holeCards: cards ?? undefined,
                     }}
-                    position={p.position as PositionBadge}
+                    position={
+                      (appearance?.positions
+                        ? appearance.positions[p.seat - 1]
+                        : p.position) as PositionBadge
+                    }
                     isActive={active}
                     lastAction={recorded ? recorded.action : action}
                     lastBetAmount={recorded?.bet ?? frame.committed[p.seat]}

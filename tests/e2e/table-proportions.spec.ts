@@ -2727,379 +2727,398 @@ test.describe('embedded mobile action-row geometry', () => {
         });
 });
 
-// Owner screenshot October 22: the spectator phone must use the broad, tall
-// desktop preview instead of inheriting the seated player's compact canvas.
-// Each seat count owns its seven viewport cases (plus two tournament cases
-// for dense rings). One 60-case test consumed 136 of its 150 seconds on the
-// successful baseline and timed out on the same assertions under CI load.
-// Partition the work; preserve every geometry and dock-state assertion.
-for (const spectatorSeats of [2, 3, 4, 5, 6, 7, 8, 9]) {
-  test.describe(`${spectatorSeats}-seat observer canvas`, () => {
-    // These CPU-bound cold allocations must not compete with one another.
-    // Default mode still runs every case after a failure; all original
-    // viewport/dock assertions and each 60s deadline remain unchanged.
-    if (spectatorSeats === 9) test.describe.configure({ mode: 'default' });
-    // Dense observer rings have nine independent cold mounts. Keep the original
-    // deadline per bounded batch; every viewport and dock assertion still runs.
-    for (const spectatorBatch of spectatorSeats === 9
-      ? Array.from({ length: 9 }, (_, index) => `viewport ${index + 1}`)
-      : ['all'])
-      test(`mobile spectators fill the desktop-reference canvas through hand and dock states at ${spectatorSeats} seats (${spectatorBatch})`, async ({
-        page,
-      }, testInfo) => {
-        // Preserve the protected-main budget for the smallest dense canvas.
-        // The default-mode group also prevents concurrent cold allocations.
-        test.setTimeout(spectatorSeats === 9 && spectatorBatch === 'viewport 1' ? 150_000 : 60_000);
-        const { buildSync } = await import('esbuild');
-        const built = buildSync({
-          entryPoints: ['tests/e2e/support/portraitRailFixture.tsx'],
-          jsx: 'automatic',
-          outfile: 'spectator.js',
-          bundle: true,
-          write: false,
-          metafile: true,
-          format: 'iife',
-          platform: 'browser',
-          loader: {
-            '.css': 'empty',
-            '.png': 'dataurl',
-            '.webp': 'dataurl',
-            '.svg': 'dataurl',
-            '.jpg': 'dataurl',
-          },
-          define: {
-            'import.meta.env': JSON.stringify({
-              VITE_SUPABASE_URL: 'https://dummy.supabase.co',
-              VITE_SUPABASE_ANON_KEY: 'local-fixture',
-              DEV: true,
-            }),
-            'process.env.NODE_ENV': '"test"',
-          },
-        });
-        const readStyle = (file: string): string =>
-          readFileSync(resolve(ROOT, file), 'utf8').replace(
-            /^\s*@import\s+(?:url\()?['"]([^'"]+)['"]\)?\s*;/gm,
-            (_, imported: string) => readStyle(resolve(dirname(file), imported))
-          );
-        const sheets = [
-          ...new Set([
-            'src/styles/club-engine.css',
-            'src/styles/animations.css',
-            'src/styles/metallic-popups.css',
-            'src/styles/reducedMotion.css',
-            'src/pages/MultiTablePage.css',
-            'src/components/table/TableTabBar.css',
-            'src/pages/TablePage.css',
-            'src/components/table/ActionPanel.css',
-            'src/components/tournament/TournamentHUD.css',
-            ...Object.keys(built.metafile!.inputs).filter((f) => f.endsWith('.css')),
-            'src/components/table/TableVisualHotfix.css',
-          ]),
-        ];
-        const fontSheet = await page.request.get('https://ca-static.smarter.poker/fonts/fonts.css');
-        expect(fontSheet.ok()).toBe(true);
-        const inter = [...(await fontSheet.text()).matchAll(/@font-face\s*\{[^}]+\}/g)]
-          .map((m) => m[0])
-          .find((face) => face.includes("font-family: 'Inter'") && face.includes('U+0000-00FF'))!;
-        const fontPath = /url\(([^)]+)\)/.exec(inter)![1];
-        const fontResponse = await page.request.get(
-          new URL(fontPath.replace('/hub/club-arena/', '/'), 'https://ca-static.smarter.poker').href
-        );
-        expect(fontResponse.ok()).toBe(true);
-        const fontFace = inter
-          .replace(/font-weight:\s*\d+;/, 'font-weight: 100 900;')
-          .replace(
-            fontPath,
-            `data:font/woff2;base64,${(await fontResponse.body()).toString('base64')}`
-          );
-        const realCss = fontFace + '\n' + sheets.map(readStyle).join('\n');
-        const avatar = readFileSync(tableArtFixture('vip_wolf@2x.webp'));
-        await page.route('**/avatars/table/**', (route) =>
-          route.fulfill({ body: avatar, contentType: 'image/webp' })
-        );
-        await page.route('**/rest/v1/**', (route) => route.fulfill({ json: [] }));
-        await page.route('**/cards/**', (route) => {
-          const card = new URL(route.request().url()).pathname.split('/cards/')[1];
-          const original = resolve(ROOT, 'public/cards', card);
-          const fallback = original.replace(/\.webp$/, '.png');
-          return route.fulfill({
-            body: readFileSync(existsSync(original) ? original : fallback),
-            contentType:
-              existsSync(original) && original.endsWith('.webp') ? 'image/webp' : 'image/png',
-          });
-        });
-        const viewports = [
-          [320, 568],
-          [375, 667],
-          [393, 852],
-          [430, 932],
-          [480, 975],
-          [393, 852, 47, 34],
-          [430, 932, 59, 34],
-        ];
-        const cases = viewports.map((viewport) => [spectatorSeats, ...viewport]);
-        if (spectatorSeats === 6 || spectatorSeats >= 8)
-          cases.push([spectatorSeats, 393, 852, 47, 34, 1], [spectatorSeats, 430, 932, 59, 34, 1]);
-        const batchCases = cases.filter(
-          (_, index) =>
-            spectatorBatch === 'all' || index === Number(spectatorBatch.split(' ')[1]) - 1
-        );
-        expect(batchCases.length).toBeGreaterThan(0);
-        for (const [
-          seats,
-          width,
-          height,
-          insetTop = 0,
-          insetBottom = 0,
-          tournament = 0,
-        ] of batchCases) {
-          await page.setViewportSize({ width, height });
-          await page.route('http://spectator.fixture/', (route) =>
-            route.fulfill({
-              contentType: 'text/html',
-              body: `<html data-seats="${seats}" data-tournament="${tournament === 1}" data-spectator="true" data-revealed="false" data-jackpot="none"><head><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>${applyInsets(realCss, insetTop, insetBottom)}</style></head><body><div id="root"></div></body></html>`,
-            })
-          );
-          await page.goto('http://spectator.fixture/');
-          await page.addScriptTag({
-            content: built.outputFiles.find((f) => f.path.endsWith('.js'))!.text,
-          });
-          await expect(page.locator('.seat__info')).toHaveCount(seats);
-          await page.waitForFunction(() => {
-            const e = document.querySelector<HTMLElement>('.table-scaler')!;
-            return (
-              Math.abs(
-                parseFloat(e.style.getPropertyValue('--table-w')) - e.getBoundingClientRect().width
-              ) < 0.5
-            );
-          });
-          await page.evaluate(async () => {
-            await document.fonts.load('600 14px Inter');
-            await document.fonts.ready;
-          });
-          // Font readiness alone does not complete asynchronous portrait decoding
-          // and the original finite chair allocation. Observe its real output.
-          await page.waitForFunction(() => {
-            const images = [...document.querySelectorAll<HTMLImageElement>('.seat__avatar-img')];
-            return (
-              images.length > 0 &&
-              images.every((image) => {
-                if (!image.complete || !image.naturalWidth) return false;
-                if (image.closest('.seat-wrapper--hero')) return true;
-                return Boolean(
-                  image
-                    .closest<HTMLElement>('.seat__avatar')
-                    ?.style.getPropertyValue('--sp-opponent-art-scale') &&
-                  image.closest<HTMLElement>('.seat')?.style.getPropertyValue('--sp-opponent-x')
-                );
-              })
-            );
-          });
-          await page.evaluate(
-            () =>
-              new Promise<void>((done) =>
-                requestAnimationFrame(() => requestAnimationFrame(() => done()))
-              )
-          );
-          const boardCollisions = await page.evaluate(() => {
-            const board = document.querySelector('.community-area')!.getBoundingClientRect();
-            return [...document.querySelectorAll('.seat__info,.seat__action')]
-              .filter((el) => {
-                const r = el.getBoundingClientRect();
-                return (
-                  r.left < board.right &&
-                  r.right > board.left &&
-                  r.top < board.bottom &&
-                  r.bottom > board.top
-                );
-              })
-              .map((el) => el.className);
-          });
-          expect(boardCollisions, `${width}px spectator board stays clear of players`).toEqual([]);
-          const footer = await page.locator('.spectator-footer-bar').boundingBox();
-          const plates = await page
-            .locator('.seat__info')
-            .evaluateAll((els) => els.map((el) => el.getBoundingClientRect().bottom));
-          expect(
-            Math.max(...plates),
-            `${width}px bottom observer seat clears the footer`
-          ).toBeLessThanOrEqual(footer!.y);
-          const canvas = await page.locator('.table-scaler').boundingBox();
-          expect(canvas!.width, `${width}px spectator reaches both screen edges`).toBeCloseTo(
-            width,
-            0
-          );
-          const perspective = await page.locator('.table-art').evaluate((el) => {
-            const m = new DOMMatrixReadOnly(getComputedStyle(el).transform);
-            return { x: m.m11, y: m.m22, w: m.m44, perspective: m.m24 };
-          });
-          expect(perspective).toEqual({ x: 1, y: 1, w: 1, perspective: 0 });
-          expect(
-            canvas!.y + canvas!.height,
-            `${seats}-seat spectator reaches the lower screen`
-          ).toBeGreaterThan(height * 0.7);
-          for (const state of ['none', 'waiting', 'active']) {
-            await page.locator('.table-page').evaluate((el, value) => {
-              el.setAttribute('data-hero-action', value);
-              el.setAttribute('data-tdock', value === 'active' ? 'open' : 'collapsed');
-            }, state);
-            const next = await page.locator('.table-scaler').boundingBox();
-            expect(next!.width).toBeCloseTo(canvas!.width, 1);
-            expect(next!.height).toBeCloseTo(canvas!.height, 1);
-          }
-          expect(
-            await page.evaluate(() => document.documentElement.scrollWidth)
-          ).toBeLessThanOrEqual(width);
-          if (width === 393) {
-            const screenshot = await page.screenshot({
-              path: testInfo.outputPath(
-                `mobile-spectator-${seats}-${insetTop ? 'real-insets' : 'after'}.png`
-              ),
-            });
-            await testInfo.attach('mobile-spectator-after', {
-              body: screenshot,
-              contentType: 'image/png',
-            });
-          }
-          await page.unroute('http://spectator.fixture/');
-        }
-      });
-  });
-}
-
-// Shared notice containment is part of the existing felt browser gate.
 import { registerAddOnNoticeContainmentCases } from './support/addOnNoticeContainmentCases';
-registerAddOnNoticeContainmentCases();
+import { registerObserverAvatarSizingCases } from './support/observerAvatarSizingCases';
 
-// Full table captions: owner October 26, 2026. Included in the existing CSS Beat gate.
-const fullCaptionCss =
-  readFileSync('src/styles/club-engine.css', 'utf8').replace(/@import\s+[^;]+;/g, '') +
-  buildCss(process.cwd()) +
-  '\n' +
-  readFileSync('src/components/table/PotDisplay.css', 'utf8');
-const event = 'Morning Free Buy (NLH) · Free Buy';
-const longEvent = 'Sunday Morning No Limit Holdem Championship Celebration · 1,000 Buy-In';
-const name = 'Alexandria Championship';
-const brand = (title: string) => `<div class="table-brand"><div class="table-brand__meta">
+// These cold allocations share the same renderer CPU budget. Separate default
+// groups still competed on hosted workers and starved two 60s fixtures. Keep
+// this bounded family together; default mode runs every case after a failure,
+// with all existing assertions and individual deadlines unchanged.
+test.describe('cold observer and phone geometry', () => {
+  test.describe.configure({ mode: 'default' });
+  // Owner screenshot October 22: the spectator phone must use the broad, tall
+  // desktop preview instead of inheriting the seated player's compact canvas.
+  // Each seat count owns its seven viewport cases (plus two tournament cases
+  // for dense rings). One 60-case test consumed 136 of its 150 seconds on the
+  // successful baseline and timed out on the same assertions under CI load.
+  // Partition the work; preserve every geometry and dock-state assertion.
+  for (const spectatorSeats of [2, 3, 4, 5, 6, 7, 8, 9]) {
+    test.describe(`${spectatorSeats}-seat observer canvas`, () => {
+      // These CPU-bound cold allocations must not compete with one another.
+      // Default mode still runs every case after a failure; all original
+      // viewport/dock assertions and each 60s deadline remain unchanged.
+      if (spectatorSeats === 9) test.describe.configure({ mode: 'default' });
+      // Dense observer rings have nine independent cold mounts. Keep the original
+      // deadline per bounded batch; every viewport and dock assertion still runs.
+      for (const spectatorBatch of spectatorSeats === 9
+        ? Array.from({ length: 9 }, (_, index) => `viewport ${index + 1}`)
+        : ['all'])
+        test(`mobile spectators fill the desktop-reference canvas through hand and dock states at ${spectatorSeats} seats (${spectatorBatch})`, async ({
+          page,
+        }, testInfo) => {
+          // Preserve the protected-main budget for the smallest dense canvas.
+          // The default-mode group also prevents concurrent cold allocations.
+          test.setTimeout(
+            spectatorSeats === 9 && spectatorBatch === 'viewport 1' ? 150_000 : 60_000
+          );
+          const { buildSync } = await import('esbuild');
+          const built = buildSync({
+            entryPoints: ['tests/e2e/support/portraitRailFixture.tsx'],
+            jsx: 'automatic',
+            outfile: 'spectator.js',
+            bundle: true,
+            write: false,
+            metafile: true,
+            format: 'iife',
+            platform: 'browser',
+            loader: {
+              '.css': 'empty',
+              '.png': 'dataurl',
+              '.webp': 'dataurl',
+              '.svg': 'dataurl',
+              '.jpg': 'dataurl',
+            },
+            define: {
+              'import.meta.env': JSON.stringify({
+                VITE_SUPABASE_URL: 'https://dummy.supabase.co',
+                VITE_SUPABASE_ANON_KEY: 'local-fixture',
+                DEV: true,
+              }),
+              'process.env.NODE_ENV': '"test"',
+            },
+          });
+          const readStyle = (file: string): string =>
+            readFileSync(resolve(ROOT, file), 'utf8').replace(
+              /^\s*@import\s+(?:url\()?['"]([^'"]+)['"]\)?\s*;/gm,
+              (_, imported: string) => readStyle(resolve(dirname(file), imported))
+            );
+          const sheets = [
+            ...new Set([
+              'src/styles/club-engine.css',
+              'src/styles/animations.css',
+              'src/styles/metallic-popups.css',
+              'src/styles/reducedMotion.css',
+              'src/pages/MultiTablePage.css',
+              'src/components/table/TableTabBar.css',
+              'src/pages/TablePage.css',
+              'src/components/table/ActionPanel.css',
+              'src/components/tournament/TournamentHUD.css',
+              ...Object.keys(built.metafile!.inputs).filter((f) => f.endsWith('.css')),
+              'src/components/table/TableVisualHotfix.css',
+            ]),
+          ];
+          const fontSheet = await page.request.get(
+            'https://ca-static.smarter.poker/fonts/fonts.css'
+          );
+          expect(fontSheet.ok()).toBe(true);
+          const inter = [...(await fontSheet.text()).matchAll(/@font-face\s*\{[^}]+\}/g)]
+            .map((m) => m[0])
+            .find((face) => face.includes("font-family: 'Inter'") && face.includes('U+0000-00FF'))!;
+          const fontPath = /url\(([^)]+)\)/.exec(inter)![1];
+          const fontResponse = await page.request.get(
+            new URL(fontPath.replace('/hub/club-arena/', '/'), 'https://ca-static.smarter.poker')
+              .href
+          );
+          expect(fontResponse.ok()).toBe(true);
+          const fontFace = inter
+            .replace(/font-weight:\s*\d+;/, 'font-weight: 100 900;')
+            .replace(
+              fontPath,
+              `data:font/woff2;base64,${(await fontResponse.body()).toString('base64')}`
+            );
+          const realCss = fontFace + '\n' + sheets.map(readStyle).join('\n');
+          const avatar = readFileSync(tableArtFixture('vip_wolf@2x.webp'));
+          await page.route('**/avatars/table/**', (route) =>
+            route.fulfill({ body: avatar, contentType: 'image/webp' })
+          );
+          await page.route('**/rest/v1/**', (route) => route.fulfill({ json: [] }));
+          await page.route('**/cards/**', (route) => {
+            const card = new URL(route.request().url()).pathname.split('/cards/')[1];
+            const original = resolve(ROOT, 'public/cards', card);
+            const fallback = original.replace(/\.webp$/, '.png');
+            return route.fulfill({
+              body: readFileSync(existsSync(original) ? original : fallback),
+              contentType:
+                existsSync(original) && original.endsWith('.webp') ? 'image/webp' : 'image/png',
+            });
+          });
+          const viewports = [
+            [320, 568],
+            [375, 667],
+            [393, 852],
+            [430, 932],
+            [480, 975],
+            [393, 852, 47, 34],
+            [430, 932, 59, 34],
+          ];
+          const cases = viewports.map((viewport) => [spectatorSeats, ...viewport]);
+          if (spectatorSeats === 6 || spectatorSeats >= 8)
+            cases.push(
+              [spectatorSeats, 393, 852, 47, 34, 1],
+              [spectatorSeats, 430, 932, 59, 34, 1]
+            );
+          const batchCases = cases.filter(
+            (_, index) =>
+              spectatorBatch === 'all' || index === Number(spectatorBatch.split(' ')[1]) - 1
+          );
+          expect(batchCases.length).toBeGreaterThan(0);
+          for (const [
+            seats,
+            width,
+            height,
+            insetTop = 0,
+            insetBottom = 0,
+            tournament = 0,
+          ] of batchCases) {
+            await page.setViewportSize({ width, height });
+            await page.route('http://spectator.fixture/', (route) =>
+              route.fulfill({
+                contentType: 'text/html',
+                body: `<html data-seats="${seats}" data-tournament="${tournament === 1}" data-spectator="true" data-revealed="false" data-jackpot="none"><head><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>${applyInsets(realCss, insetTop, insetBottom)}</style></head><body><div id="root"></div></body></html>`,
+              })
+            );
+            await page.goto('http://spectator.fixture/');
+            await page.addScriptTag({
+              content: built.outputFiles.find((f) => f.path.endsWith('.js'))!.text,
+            });
+            await expect(page.locator('.seat__info')).toHaveCount(seats);
+            await page.waitForFunction(() => {
+              const e = document.querySelector<HTMLElement>('.table-scaler')!;
+              return (
+                Math.abs(
+                  parseFloat(e.style.getPropertyValue('--table-w')) -
+                    e.getBoundingClientRect().width
+                ) < 0.5
+              );
+            });
+            await page.evaluate(async () => {
+              await document.fonts.load('600 14px Inter');
+              await document.fonts.ready;
+            });
+            // Font readiness alone does not complete asynchronous portrait decoding
+            // and the original finite chair allocation. Observe its real output.
+            await page.waitForFunction(() => {
+              const images = [...document.querySelectorAll<HTMLImageElement>('.seat__avatar-img')];
+              return (
+                images.length > 0 &&
+                images.every((image) => {
+                  if (!image.complete || !image.naturalWidth) return false;
+                  if (image.closest('.seat-wrapper--hero')) return true;
+                  return Boolean(
+                    image
+                      .closest<HTMLElement>('.seat__avatar')
+                      ?.style.getPropertyValue('--sp-opponent-art-scale') &&
+                    image.closest<HTMLElement>('.seat')?.style.getPropertyValue('--sp-opponent-x')
+                  );
+                })
+              );
+            });
+            await page.evaluate(
+              () =>
+                new Promise<void>((done) =>
+                  requestAnimationFrame(() => requestAnimationFrame(() => done()))
+                )
+            );
+            const boardCollisions = await page.evaluate(() => {
+              const board = document.querySelector('.community-area')!.getBoundingClientRect();
+              return [...document.querySelectorAll('.seat__info,.seat__action')]
+                .filter((el) => {
+                  const r = el.getBoundingClientRect();
+                  return (
+                    r.left < board.right &&
+                    r.right > board.left &&
+                    r.top < board.bottom &&
+                    r.bottom > board.top
+                  );
+                })
+                .map((el) => el.className);
+            });
+            expect(boardCollisions, `${width}px spectator board stays clear of players`).toEqual(
+              []
+            );
+            const footer = await page.locator('.spectator-footer-bar').boundingBox();
+            const plates = await page
+              .locator('.seat__info')
+              .evaluateAll((els) => els.map((el) => el.getBoundingClientRect().bottom));
+            expect(
+              Math.max(...plates),
+              `${width}px bottom observer seat clears the footer`
+            ).toBeLessThanOrEqual(footer!.y);
+            const canvas = await page.locator('.table-scaler').boundingBox();
+            expect(canvas!.width, `${width}px spectator reaches both screen edges`).toBeCloseTo(
+              width,
+              0
+            );
+            const perspective = await page.locator('.table-art').evaluate((el) => {
+              const m = new DOMMatrixReadOnly(getComputedStyle(el).transform);
+              return { x: m.m11, y: m.m22, w: m.m44, perspective: m.m24 };
+            });
+            expect(perspective).toEqual({ x: 1, y: 1, w: 1, perspective: 0 });
+            expect(
+              canvas!.y + canvas!.height,
+              `${seats}-seat spectator reaches the lower screen`
+            ).toBeGreaterThan(height * 0.7);
+            for (const state of ['none', 'waiting', 'active']) {
+              await page.locator('.table-page').evaluate((el, value) => {
+                el.setAttribute('data-hero-action', value);
+                el.setAttribute('data-tdock', value === 'active' ? 'open' : 'collapsed');
+              }, state);
+              const next = await page.locator('.table-scaler').boundingBox();
+              expect(next!.width).toBeCloseTo(canvas!.width, 1);
+              expect(next!.height).toBeCloseTo(canvas!.height, 1);
+            }
+            expect(
+              await page.evaluate(() => document.documentElement.scrollWidth)
+            ).toBeLessThanOrEqual(width);
+            if (width === 393) {
+              const screenshot = await page.screenshot({
+                path: testInfo.outputPath(
+                  `mobile-spectator-${seats}-${insetTop ? 'real-insets' : 'after'}.png`
+                ),
+              });
+              await testInfo.attach('mobile-spectator-after', {
+                body: screenshot,
+                contentType: 'image/png',
+              });
+            }
+            await page.unroute('http://spectator.fixture/');
+          }
+        });
+    });
+  }
+
+  // Shared notice containment is part of the existing felt browser gate.
+  registerAddOnNoticeContainmentCases();
+
+  // Full table captions: owner October 26, 2026. Included in the existing CSS Beat gate.
+  const fullCaptionCss =
+    readFileSync('src/styles/club-engine.css', 'utf8').replace(/@import\s+[^;]+;/g, '') +
+    buildCss(process.cwd()) +
+    '\n' +
+    readFileSync('src/components/table/PotDisplay.css', 'utf8');
+  const event = 'Morning Free Buy (NLH) · Free Buy';
+  const longEvent = 'Sunday Morning No Limit Holdem Championship Celebration · 1,000 Buy-In';
+  const name = 'Alexandria Championship';
+  const brand = (title: string) => `<div class="table-brand"><div class="table-brand__meta">
   <span class="table-brand__line table-brand__line--identity"><span class="table-brand__club"><span class="table-brand__club-name">Kings Club</span> <span class="table-brand__union">· Midway Union</span></span></span>
   <span class="table-brand__line table-brand__line--level"><span class="table-brand__game">${title}</span><span class="table-brand__hand">Hand #48909509</span></span>
 </div></div>`;
 
-for (const [width, height] of [
-  [320, 667],
-  [375, 667],
-  [393, 852],
-  [430, 932],
-  [844, 390],
-  [1440, 900],
-]) {
-  for (const title of [event, longEvent]) {
-    test(`full captions at ${width}x${height}: ${title}`, async ({ page }) => {
-      await page.setViewportSize({ width, height });
-      let html = buildHtml(fullCaptionCss).replace(
-        'table-page--embedded"',
-        'table-page--embedded table-page--tournament"'
-      );
-      html = html.replace(
-        '<div class="table-scaler">',
-        `<div class="table-scaler"><div class="table-surface">${brand(title)}</div>`
-      );
-      await page.setContent(html);
-      // The name now has a real measured fitting renderer. Static span markup
-      // cannot exercise its layout hook and would test an unmounted component.
-      const { buildSync } = await import('esbuild');
-      const bundled = buildSync({
-        stdin: {
-          contents: `import React from 'react'; import {createRoot} from 'react-dom/client';
+  for (const [width, height] of [
+    [320, 667],
+    [375, 667],
+    [393, 852],
+    [430, 932],
+    [844, 390],
+    [1440, 900],
+  ]) {
+    for (const title of [event, longEvent]) {
+      test(`full captions at ${width}x${height}: ${title}`, async ({ page }) => {
+        await page.setViewportSize({ width, height });
+        let html = buildHtml(fullCaptionCss).replace(
+          'table-page--embedded"',
+          'table-page--embedded table-page--tournament"'
+        );
+        html = html.replace(
+          '<div class="table-scaler">',
+          `<div class="table-scaler"><div class="table-surface">${brand(title)}</div>`
+        );
+        await page.setContent(html);
+        // The name now has a real measured fitting renderer. Static span markup
+        // cannot exercise its layout hook and would test an unmounted component.
+        const { buildSync } = await import('esbuild');
+        const bundled = buildSync({
+          stdin: {
+            contents: `import React from 'react'; import {createRoot} from 'react-dom/client';
             import {SeatPlayerName} from './src/components/table/SeatPlayerName';
             createRoot(document.querySelector('.seat__info')).render(<>
               <SeatPlayerName name={${JSON.stringify(name)}} />
               <span className="seat__stack">1,000</span>
             </>);`,
-          resolveDir: ROOT,
-          loader: 'tsx',
-        },
-        jsx: 'automatic',
-        bundle: true,
-        write: false,
-        format: 'iife',
-        // The complete real stylesheet is already loaded by fullCaptionCss.
-        loader: { '.css': 'empty' },
-        define: { 'process.env.NODE_ENV': '"test"' },
+            resolveDir: ROOT,
+            loader: 'tsx',
+          },
+          jsx: 'automatic',
+          bundle: true,
+          write: false,
+          format: 'iife',
+          // The complete real stylesheet is already loaded by fullCaptionCss.
+          loader: { '.css': 'empty' },
+          define: { 'process.env.NODE_ENV': '"test"' },
+        });
+        await page.addScriptTag({ content: bundled.outputFiles[0].text });
+        await page.evaluate(() => document.fonts.ready);
+        await expect(page.locator('.seat__name-text')).toHaveText(name);
+        await expect
+          .poll(() =>
+            page.locator('.seat__name-text').evaluate((el) => {
+              const well = el.closest('.seat__name')!;
+              const box = well.getBoundingClientRect();
+              const range = document.createRange();
+              range.selectNodeContents(el);
+              const ink = [...range.getClientRects()].filter(
+                (rect) => rect.width > 0 && rect.height > 0
+              );
+              return (
+                ink.length > 0 &&
+                new Set(ink.map((rect) => Math.round(rect.top * 2) / 2)).size === 1 &&
+                ink.every((rect) => rect.left >= box.left - 1 && rect.right <= box.right + 1) &&
+                getComputedStyle(el).whiteSpace === 'nowrap' &&
+                well.getAttribute('title') === el.textContent
+              );
+            })
+          )
+          .toBe(true);
+        await expect(page.locator('.table-brand__game')).toHaveText(title);
+        await expect(page.locator('.seat__name')).toHaveText(name);
+        const results = await page
+          .locator(
+            '.table-brand__game, .table-brand__hand, .table-brand__line--identity, .seat__name'
+          )
+          .evaluateAll((nodes) =>
+            nodes.map((node) => {
+              const el = node as HTMLElement;
+              const style = getComputedStyle(el);
+              const range = document.createRange();
+              range.selectNodeContents(el);
+              const box = el.getBoundingClientRect();
+              return {
+                text: el.textContent,
+                overflow: style.overflow,
+                ellipsis: style.textOverflow,
+                inside: [...range.getClientRects()].every(
+                  (r) => r.left >= box.left - 1 && r.right <= box.right + 1
+                ),
+                widthFits: el.scrollWidth <= el.clientWidth + 1,
+              };
+            })
+          );
+        for (const result of results) {
+          expect(result, result.text || '').toMatchObject({ inside: true, widthFits: true });
+          expect(result.ellipsis).not.toBe('ellipsis');
+          expect(result.overflow).not.toBe('hidden');
+        }
+        const game = await page.locator('.table-brand__game').boundingBox();
+        const hand = await page.locator('.table-brand__hand').boundingBox();
+        expect(hand!.y).toBeGreaterThanOrEqual(game!.y + game!.height - 1);
       });
-      await page.addScriptTag({ content: bundled.outputFiles[0].text });
-      await page.evaluate(() => document.fonts.ready);
-      await expect(page.locator('.seat__name-text')).toHaveText(name);
-      await expect
-        .poll(() =>
-          page.locator('.seat__name-text').evaluate((el) => {
-            const well = el.closest('.seat__name')!;
-            const box = well.getBoundingClientRect();
-            const range = document.createRange();
-            range.selectNodeContents(el);
-            const ink = [...range.getClientRects()].filter(
-              (rect) => rect.width > 0 && rect.height > 0
-            );
-            return (
-              ink.length > 0 &&
-              new Set(ink.map((rect) => Math.round(rect.top * 2) / 2)).size === 1 &&
-              ink.every((rect) => rect.left >= box.left - 1 && rect.right <= box.right + 1) &&
-              getComputedStyle(el).whiteSpace === 'nowrap' &&
-              well.getAttribute('title') === el.textContent
-            );
-          })
-        )
-        .toBe(true);
-      await expect(page.locator('.table-brand__game')).toHaveText(title);
-      await expect(page.locator('.seat__name')).toHaveText(name);
-      const results = await page
-        .locator(
-          '.table-brand__game, .table-brand__hand, .table-brand__line--identity, .seat__name'
-        )
-        .evaluateAll((nodes) =>
-          nodes.map((node) => {
-            const el = node as HTMLElement;
-            const style = getComputedStyle(el);
-            const range = document.createRange();
-            range.selectNodeContents(el);
-            const box = el.getBoundingClientRect();
-            return {
-              text: el.textContent,
-              overflow: style.overflow,
-              ellipsis: style.textOverflow,
-              inside: [...range.getClientRects()].every(
-                (r) => r.left >= box.left - 1 && r.right <= box.right + 1
-              ),
-              widthFits: el.scrollWidth <= el.clientWidth + 1,
-            };
-          })
-        );
-      for (const result of results) {
-        expect(result, result.text || '').toMatchObject({ inside: true, widthFits: true });
-        expect(result.ellipsis).not.toBe('ellipsis');
-        expect(result.overflow).not.toBe('hidden');
-      }
-      const game = await page.locator('.table-brand__game').boundingBox();
-      const hand = await page.locator('.table-brand__hand').boundingBox();
-      expect(hand!.y).toBeGreaterThanOrEqual(game!.y + game!.height - 1);
-    });
+    }
   }
-}
 
-for (const [paneWidth, paneHeight] of [
-  [320, 300],
-  [164, 320],
-  [500, 150],
-]) {
-  test(`full bubble text stays in a ${paneWidth}x${paneHeight} pane`, async ({ page }) => {
-    const errors: string[] = [];
-    page.on('pageerror', (error) => errors.push(error.message));
-    const { build } = await import('esbuild');
-    const message = 'Every Word Must Remain Visible On The Table. '.repeat(5).slice(0, 200);
-    const playerName = 'Alexandria Championship Player With A Long Display Name';
-    const built = await build({
-      stdin: {
-        contents: `import React from 'react'; import {createRoot} from 'react-dom/client';
+  for (const [paneWidth, paneHeight] of [
+    [320, 300],
+    [164, 320],
+    [500, 150],
+  ]) {
+    test(`full bubble text stays in a ${paneWidth}x${paneHeight} pane`, async ({ page }) => {
+      const errors: string[] = [];
+      page.on('pageerror', (error) => errors.push(error.message));
+      const { build } = await import('esbuild');
+      const message = 'Every Word Must Remain Visible On The Table. '.repeat(5).slice(0, 200);
+      const playerName = 'Alexandria Championship Player With A Long Display Name';
+      const built = await build({
+        stdin: {
+          contents: `import React from 'react'; import {createRoot} from 'react-dom/client';
           import {ChatBubble} from './src/components/table/ChatBubble';
           createRoot(document.getElementById('fixture')).render(<div className="table-page" style={{position:'relative',width:${paneWidth},height:${paneHeight},minHeight:0}}>
           <div style={{position:'absolute',left:0,top:'50%',width:58,height:48}}>
@@ -3107,168 +3126,168 @@ for (const [paneWidth, paneHeight] of [
           </div><div style={{position:'absolute',right:0,top:10,width:58,height:48}}>
           <ChatBubble text={${JSON.stringify(message)}} playerName={${JSON.stringify(playerName)}} placement="below" isOwn />
           </div></div>);`,
-        resolveDir: ROOT,
-        loader: 'tsx',
-      },
-      jsx: 'automatic',
-      bundle: true,
-      write: false,
-      outfile: 'bubble.js',
-      format: 'iife',
-      loader: { '.css': 'empty' },
-      define: { 'process.env.NODE_ENV': '"test"' },
+          resolveDir: ROOT,
+          loader: 'tsx',
+        },
+        jsx: 'automatic',
+        bundle: true,
+        write: false,
+        outfile: 'bubble.js',
+        format: 'iife',
+        loader: { '.css': 'empty' },
+        define: { 'process.env.NODE_ENV': '"test"' },
+      });
+      await page.setViewportSize({
+        width: Math.max(375, paneWidth),
+        height: Math.max(500, paneHeight),
+      });
+      const bubbleCss = readFileSync('src/components/table/ChatBubble.css', 'utf8');
+      await page.setContent(
+        `<style>body{margin:0;font-family:Inter,sans-serif}${bubbleCss}</style><div id="fixture"></div>`
+      );
+      await page.addScriptTag({ content: built.outputFiles[0].text });
+      await expect(page.locator('.chat-bubble__text')).toHaveCount(2);
+      await expect(page.locator('.chat-bubble').first()).toBeVisible();
+      await page.evaluate(
+        () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+      );
+      const boxes = await page.locator('.chat-bubble').evaluateAll((nodes) =>
+        nodes.map((node) => {
+          const el = node as HTMLElement;
+          const box = el.getBoundingClientRect();
+          const pane = el.closest('.table-page')!.getBoundingClientRect();
+          return {
+            text: el.querySelector('.chat-bubble__text')!.textContent,
+            name: el.querySelector('.chat-bubble__name')!.textContent,
+            fits:
+              box.left >= pane.left &&
+              box.right <= pane.right &&
+              box.top >= pane.top &&
+              box.bottom <= pane.bottom,
+            complete: [...el.querySelectorAll('span:not(.chat-bubble__tail)')].every(
+              (span) => span.scrollHeight <= span.clientHeight + 1
+            ),
+          };
+        })
+      );
+      for (const box of boxes)
+        expect(box).toEqual({ text: message, name: playerName, fits: true, complete: true });
+      expect(errors).toEqual([]);
     });
-    await page.setViewportSize({
-      width: Math.max(375, paneWidth),
-      height: Math.max(500, paneHeight),
-    });
-    const bubbleCss = readFileSync('src/components/table/ChatBubble.css', 'utf8');
-    await page.setContent(
-      `<style>body{margin:0;font-family:Inter,sans-serif}${bubbleCss}</style><div id="fixture"></div>`
-    );
-    await page.addScriptTag({ content: built.outputFiles[0].text });
-    await expect(page.locator('.chat-bubble__text')).toHaveCount(2);
-    await expect(page.locator('.chat-bubble').first()).toBeVisible();
-    await page.evaluate(
-      () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
-    );
-    const boxes = await page.locator('.chat-bubble').evaluateAll((nodes) =>
-      nodes.map((node) => {
-        const el = node as HTMLElement;
-        const box = el.getBoundingClientRect();
-        const pane = el.closest('.table-page')!.getBoundingClientRect();
-        return {
-          text: el.querySelector('.chat-bubble__text')!.textContent,
-          name: el.querySelector('.chat-bubble__name')!.textContent,
-          fits:
-            box.left >= pane.left &&
-            box.right <= pane.right &&
-            box.top >= pane.top &&
-            box.bottom <= pane.bottom,
-          complete: [...el.querySelectorAll('span:not(.chat-bubble__tail)')].every(
-            (span) => span.scrollHeight <= span.clientHeight + 1
-          ),
-        };
-      })
-    );
-    for (const box of boxes)
-      expect(box).toEqual({ text: message, name: playerName, fits: true, complete: true });
-    expect(errors).toEqual([]);
-  });
-}
+  }
 
-test('full run-it-twice and jackpot names wrap on a narrow phone', async ({ page }) => {
-  await page.setViewportSize({ width: 375, height: 667 });
-  const css = ['RunItTwice', 'BBJCelebration']
-    .map((file) =>
-      readFileSync(`src/components/table/${file}.css`, 'utf8').replace(/@import\s+[^;]+;/g, '')
-    )
-    .join('\n');
-  await page.setContent(`<style>body{font-family:Inter,sans-serif}${css}</style>
+  test('full run-it-twice and jackpot names wrap on a narrow phone', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
+    const css = ['RunItTwice', 'BBJCelebration']
+      .map((file) =>
+        readFileSync(`src/components/table/${file}.css`, 'utf8').replace(/@import\s+[^;]+;/g, '')
+      )
+      .join('\n');
+    await page.setContent(`<style>body{font-family:Inter,sans-serif}${css}</style>
     <div style="width:110px;display:flex"><span style="width:20px;flex-shrink:0">A</span><span class="rit-panel__player-name">Alexandria Championship</span><span style="width:20px;flex-shrink:0">50%</span></div>
     <div style="width:70px"><div class="bbj-breakdown-name">Alexandria Championship</div></div>`);
-  for (const selector of ['.rit-panel__player-name', '.bbj-breakdown-name']) {
-    await expect(page.locator(selector)).toBeVisible();
-    const result = await page.locator(selector).evaluate((el) => {
-      const range = document.createRange();
-      range.selectNodeContents(el);
-      const box = el.getBoundingClientRect();
-      return {
-        ellipsis: getComputedStyle(el).textOverflow,
-        fits: [...range.getClientRects()].every(
-          (r) => r.left >= box.left - 1 && r.right <= box.right + 1
-        ),
-      };
+    for (const selector of ['.rit-panel__player-name', '.bbj-breakdown-name']) {
+      await expect(page.locator(selector)).toBeVisible();
+      const result = await page.locator(selector).evaluate((el) => {
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const box = el.getBoundingClientRect();
+        return {
+          ellipsis: getComputedStyle(el).textOverflow,
+          fits: [...range.getClientRects()].every(
+            (r) => r.left >= box.left - 1 && r.right <= box.right + 1
+          ),
+        };
+      });
+      expect(result.fits).toBe(true);
+      expect(result.ellipsis).not.toBe('ellipsis');
+    }
+  });
+
+  test('painted coverage rejects opaque avatar pixels through rotation and clipping, while transparent canvas stays clear', async ({
+    page,
+  }) => {
+    await page.setContent(
+      `<div class="table-page" style="position:relative;width:200px;height:200px"><div class="community-area" style="position:absolute;left:70px;top:20px;width:20px;height:20px"></div><img class="seat__avatar-img" style="position:absolute;left:0;top:0;width:100px;height:100px;object-fit:contain;object-position:50% 50%"></div>`
+    );
+    const covered = async () =>
+      (await page.evaluate(readMobileTableLayout, {})).violations.some((value) =>
+        value.startsWith('Player Or Bet Covers Board')
+      );
+    const paint = async (x: number, y: number, width: number, height: number) =>
+      page.evaluate(
+        async ({ x, y, width, height }) => {
+          const canvas = document.createElement('canvas');
+          canvas.width = 100;
+          canvas.height = 100;
+          const context = canvas.getContext('2d')!;
+          context.fillStyle = '#ff0000';
+          context.fillRect(x, y, width, height);
+          const image = document.querySelector<HTMLImageElement>('.seat__avatar-img')!;
+          image.src = `${canvas.toDataURL()}#/avatars/table/vip_wolf.webp`;
+          await image.decode();
+        },
+        { x, y, width, height }
+      );
+    await paint(0, 0, 20, 100);
+    expect(await covered(), 'Transparent canvas is not a player').toBe(false);
+    await paint(70, 25, 5, 5);
+    expect(await covered(), 'Real opaque coverage is still refused').toBe(true);
+    expect(await page.locator('.seat__avatar-img').getAttribute('src')).toMatch(
+      /\/avatars\/table\/vip_wolf\.webp$/
+    );
+    const staleMetadata = await page.evaluate(readMobileTableLayout, { 'vip_wolf.webp': 0.95 });
+    expect(
+      staleMetadata.violations.some((value) => value.startsWith('Player Or Bet Covers Board')),
+      'Old crown metadata cannot hide newly painted pixels'
+    ).toBe(true);
+    await paint(0, 0, 20, 100);
+    await page.locator('.seat__avatar-img').evaluate((element) => {
+      element.style.transformOrigin = '0 0';
+      element.style.transform = 'translate(100px,0) rotate(90deg)';
     });
-    expect(result.fits).toBe(true);
-    expect(result.ellipsis).not.toBe('ellipsis');
-  }
-});
+    await page.locator('.community-area').evaluate((element) => {
+      element.style.left = '40px';
+      element.style.top = '60px';
+    });
+    expect(await covered(), 'Rotation must not fill transparent canvas').toBe(false);
+    await page.locator('.community-area').evaluate((element) => {
+      element.style.top = '5px';
+    });
+    expect(await covered(), 'Rotated opaque pixels remain protected').toBe(true);
+    await page.locator('.seat__avatar-img').evaluate((element) => {
+      element.style.transform = 'none';
+      element.style.clipPath = 'inset(0 0 60% 0)';
+    });
+    await paint(0, 0, 100, 100);
+    await page.locator('.community-area').evaluate((element) => {
+      element.style.top = '60px';
+    });
+    expect(await covered(), 'The clipped nameplate is not a visible player').toBe(false);
+    await page.locator('.community-area').evaluate((element) => {
+      element.style.top = '10px';
+    });
+    expect(await covered(), 'Visible pixels above the clip remain protected').toBe(true);
+    await page.locator('.community-area').evaluate((element) => {
+      element.style.top = '60px';
+    });
+    await page.locator('.seat__avatar-img').evaluate((element) => {
+      element.style.transform = 'perspective(300px) rotateY(20deg)';
+    });
+    expect(await covered(), 'Unsupported 3D geometry retains the conservative refusal').toBe(true);
+    await page.locator('.seat__avatar-img').evaluate((element) => {
+      element.style.transform = 'none';
+    });
+    await page.evaluate(() => {
+      HTMLCanvasElement.prototype.getContext = (() =>
+        null) as typeof HTMLCanvasElement.prototype.getContext;
+    });
+    expect(await covered(), 'Unreadable pixels fail closed under the original bounds').toBe(true);
+  });
 
-test('painted coverage rejects opaque avatar pixels through rotation and clipping, while transparent canvas stays clear', async ({
-  page,
-}) => {
-  await page.setContent(
-    `<div class="table-page" style="position:relative;width:200px;height:200px"><div class="community-area" style="position:absolute;left:70px;top:20px;width:20px;height:20px"></div><img class="seat__avatar-img" style="position:absolute;left:0;top:0;width:100px;height:100px;object-fit:contain;object-position:50% 50%"></div>`
-  );
-  const covered = async () =>
-    (await page.evaluate(readMobileTableLayout, {})).violations.some((value) =>
-      value.startsWith('Player Or Bet Covers Board')
-    );
-  const paint = async (x: number, y: number, width: number, height: number) =>
-    page.evaluate(
-      async ({ x, y, width, height }) => {
-        const canvas = document.createElement('canvas');
-        canvas.width = 100;
-        canvas.height = 100;
-        const context = canvas.getContext('2d')!;
-        context.fillStyle = '#ff0000';
-        context.fillRect(x, y, width, height);
-        const image = document.querySelector<HTMLImageElement>('.seat__avatar-img')!;
-        image.src = `${canvas.toDataURL()}#/avatars/table/vip_wolf.webp`;
-        await image.decode();
-      },
-      { x, y, width, height }
-    );
-  await paint(0, 0, 20, 100);
-  expect(await covered(), 'Transparent canvas is not a player').toBe(false);
-  await paint(70, 25, 5, 5);
-  expect(await covered(), 'Real opaque coverage is still refused').toBe(true);
-  expect(await page.locator('.seat__avatar-img').getAttribute('src')).toMatch(
-    /\/avatars\/table\/vip_wolf\.webp$/
-  );
-  const staleMetadata = await page.evaluate(readMobileTableLayout, { 'vip_wolf.webp': 0.95 });
-  expect(
-    staleMetadata.violations.some((value) => value.startsWith('Player Or Bet Covers Board')),
-    'Old crown metadata cannot hide newly painted pixels'
-  ).toBe(true);
-  await paint(0, 0, 20, 100);
-  await page.locator('.seat__avatar-img').evaluate((element) => {
-    element.style.transformOrigin = '0 0';
-    element.style.transform = 'translate(100px,0) rotate(90deg)';
-  });
-  await page.locator('.community-area').evaluate((element) => {
-    element.style.left = '40px';
-    element.style.top = '60px';
-  });
-  expect(await covered(), 'Rotation must not fill transparent canvas').toBe(false);
-  await page.locator('.community-area').evaluate((element) => {
-    element.style.top = '5px';
-  });
-  expect(await covered(), 'Rotated opaque pixels remain protected').toBe(true);
-  await page.locator('.seat__avatar-img').evaluate((element) => {
-    element.style.transform = 'none';
-    element.style.clipPath = 'inset(0 0 60% 0)';
-  });
-  await paint(0, 0, 100, 100);
-  await page.locator('.community-area').evaluate((element) => {
-    element.style.top = '60px';
-  });
-  expect(await covered(), 'The clipped nameplate is not a visible player').toBe(false);
-  await page.locator('.community-area').evaluate((element) => {
-    element.style.top = '10px';
-  });
-  expect(await covered(), 'Visible pixels above the clip remain protected').toBe(true);
-  await page.locator('.community-area').evaluate((element) => {
-    element.style.top = '60px';
-  });
-  await page.locator('.seat__avatar-img').evaluate((element) => {
-    element.style.transform = 'perspective(300px) rotateY(20deg)';
-  });
-  expect(await covered(), 'Unsupported 3D geometry retains the conservative refusal').toBe(true);
-  await page.locator('.seat__avatar-img').evaluate((element) => {
-    element.style.transform = 'none';
-  });
-  await page.evaluate(() => {
-    HTMLCanvasElement.prototype.getContext = (() =>
-      null) as typeof HTMLCanvasElement.prototype.getContext;
-  });
-  expect(await covered(), 'Unreadable pixels fail closed under the original bounds').toBe(true);
-});
-
-test('six-seat compact crown proof reserves only its bounded card lane', async ({ page }) => {
-  await page.setViewportSize({ width: 600, height: 1000 });
-  await page.setContent(`<style>body{margin:0}</style>
+  test('six-seat compact crown proof reserves only its bounded card lane', async ({ page }) => {
+    await page.setViewportSize({ width: 600, height: 1000 });
+    await page.setContent(`<style>body{margin:0}</style>
     <div class="table-page" data-seats="6" style="position:relative;width:600px;height:1000px">
       <div class="bbj-mini-plate" style="position:absolute;top:0;left:0;width:100px;height:20px"></div>
       <div class="table-scaler" style="width:500px;height:900px;--sp-tabled-card-w:60px">
@@ -3278,387 +3297,592 @@ test('six-seat compact crown proof reserves only its bounded card lane', async (
         </div>
       </div>
     </div>`);
-  const refused = async () =>
-    (await page.evaluate(readMobileTableLayout, {})).violations.includes(
-      'Six-Max Crown Does Not Meet The Top Bar'
+    const refused = async () =>
+      (await page.evaluate(readMobileTableLayout, {})).violations.includes(
+        'Six-Max Crown Does Not Meet The Top Bar'
+      );
+    expect(await refused(), 'The compact shown-card lane is allowed').toBe(false);
+    await page.locator('.seat-wrapper--cap').evaluate((pod) => {
+      (pod as HTMLElement).style.translate = '0 100px';
+    });
+    expect(await refused(), 'Moving the whole pod below its reserved lane is refused').toBe(true);
+    await page.locator('.seat-wrapper--cap').evaluate((pod) => {
+      (pod as HTMLElement).style.translate = '0 -100px';
+    });
+    expect(await refused(), 'Clipping more than the crown is still refused').toBe(true);
+    await page.locator('.seat-wrapper--cap').evaluate((pod) => {
+      (pod as HTMLElement).style.translate = 'none';
+    });
+    await page.setViewportSize({ width: 1024, height: 1000 });
+    expect(await refused(), 'The wide desktop still requires the top-bar crop').toBe(true);
+    await page.setViewportSize({ width: 600, height: 1000 });
+    await page.locator('.table-scaler').evaluate((scaler) => {
+      (scaler as HTMLElement).style.removeProperty('--sp-tabled-card-w');
+    });
+    expect(await refused(), 'No declared card lane grants no extra crown gap').toBe(true);
+  });
+
+  test('nine-seat top proximity measures decoded crowns and still rejects overlap, distance and unreadable paint', async ({
+    page,
+  }) => {
+    await page.setContent(
+      `<div class="table-page" data-seats="9" style="position:relative;width:200px;height:200px"><div class="bbj-mini-plate" style="position:absolute;left:0;top:50px;width:100px;height:20px"></div><div class="seat-wrapper--top"><img class="seat__avatar-img" style="position:absolute;left:0;top:60px;width:100px;height:100px;object-fit:contain"></div></div>`
     );
-  expect(await refused(), 'The compact shown-card lane is allowed').toBe(false);
-  await page.locator('.seat-wrapper--cap').evaluate((pod) => {
-    (pod as HTMLElement).style.translate = '0 100px';
-  });
-  expect(await refused(), 'Moving the whole pod below its reserved lane is refused').toBe(true);
-  await page.locator('.seat-wrapper--cap').evaluate((pod) => {
-    (pod as HTMLElement).style.translate = '0 -100px';
-  });
-  expect(await refused(), 'Clipping more than the crown is still refused').toBe(true);
-  await page.locator('.seat-wrapper--cap').evaluate((pod) => {
-    (pod as HTMLElement).style.translate = 'none';
-  });
-  await page.setViewportSize({ width: 1024, height: 1000 });
-  expect(await refused(), 'The wide desktop still requires the top-bar crop').toBe(true);
-  await page.setViewportSize({ width: 600, height: 1000 });
-  await page.locator('.table-scaler').evaluate((scaler) => {
-    (scaler as HTMLElement).style.removeProperty('--sp-tabled-card-w');
-  });
-  expect(await refused(), 'No declared card lane grants no extra crown gap').toBe(true);
-});
-
-test('nine-seat top proximity measures decoded crowns and still rejects overlap, distance and unreadable paint', async ({
-  page,
-}) => {
-  await page.setContent(
-    `<div class="table-page" data-seats="9" style="position:relative;width:200px;height:200px"><div class="bbj-mini-plate" style="position:absolute;left:0;top:50px;width:100px;height:20px"></div><div class="seat-wrapper--top"><img class="seat__avatar-img" style="position:absolute;left:0;top:60px;width:100px;height:100px;object-fit:contain"></div></div>`
-  );
-  const paint = async (top: number) =>
-    page.evaluate(async (top) => {
-      const canvas = document.createElement('canvas');
-      canvas.width = canvas.height = 100;
-      canvas.getContext('2d')!.fillRect(20, top, 60, 100 - top);
-      const image = document.querySelector<HTMLImageElement>('img')!;
-      image.src = canvas.toDataURL();
-      await image.decode();
-    }, top);
-  const refused = async () =>
-    (await page.evaluate(readMobileTableLayout, {})).violations.includes(
-      'Top Player Does Not Sit Immediately Below Mini BBJ'
+    const paint = async (top: number) =>
+      page.evaluate(async (top) => {
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = 100;
+        canvas.getContext('2d')!.fillRect(20, top, 60, 100 - top);
+        const image = document.querySelector<HTMLImageElement>('img')!;
+        image.src = canvas.toDataURL();
+        await image.decode();
+      }, top);
+    const refused = async () =>
+      (await page.evaluate(readMobileTableLayout, {})).violations.includes(
+        'Top Player Does Not Sit Immediately Below Mini BBJ'
+      );
+    await paint(20);
+    expect(
+      await refused(),
+      'Transparent canvas may cross Mini BBJ while its crown stays close'
+    ).toBe(false);
+    await paint(0);
+    expect(await refused(), 'Opaque overlap is still refused').toBe(true);
+    await paint(40);
+    expect(await refused(), 'A distant painted crown is still refused').toBe(true);
+    await paint(20);
+    await page.evaluate(() => {
+      HTMLCanvasElement.prototype.getContext = (() =>
+        null) as typeof HTMLCanvasElement.prototype.getContext;
+    });
+    expect(await refused(), 'Unreadable pixels retain the original conservative refusal').toBe(
+      true
     );
-  await paint(20);
-  expect(await refused(), 'Transparent canvas may cross Mini BBJ while its crown stays close').toBe(
-    false
-  );
-  await paint(0);
-  expect(await refused(), 'Opaque overlap is still refused').toBe(true);
-  await paint(40);
-  expect(await refused(), 'A distant painted crown is still refused').toBe(true);
-  await paint(20);
-  await page.evaluate(() => {
-    HTMLCanvasElement.prototype.getContext = (() =>
-      null) as typeof HTMLCanvasElement.prototype.getContext;
   });
-  expect(await refused(), 'Unreadable pixels retain the original conservative refusal').toBe(true);
-});
 
-test('painted action coverage protects the pill face without inventing paint in its rounded corners', async ({
-  page,
-}) => {
-  await page.setContent(
-    `<div class="table-page" style="position:relative;width:200px;height:100px"><div class="community-area" style="position:absolute;left:99px;top:0;width:20px;height:2px"></div><div class="seat__action" style="position:absolute;left:0;top:0;width:100px;height:20px;border-radius:999px;background:#fff"></div></div>`
-  );
-  const covered = async () =>
-    (await page.evaluate(readMobileTableLayout, {})).violations.some((value) =>
-      value.startsWith('Player Or Bet Covers Board')
+  test('painted action coverage protects the pill face without inventing paint in its rounded corners', async ({
+    page,
+  }) => {
+    await page.setContent(
+      `<div class="table-page" style="position:relative;width:200px;height:100px"><div class="community-area" style="position:absolute;left:99px;top:0;width:20px;height:2px"></div><div class="seat__action" style="position:absolute;left:0;top:0;width:100px;height:20px;border-radius:999px;background:#fff"></div></div>`
     );
-  expect(await covered(), 'An empty rounded corner does not cover a board').toBe(false);
-  await page.locator('.community-area').evaluate((element) => {
-    element.style.left = '80px';
-    element.style.top = '8px';
-    element.style.width = '10px';
-    element.style.height = '4px';
+    const covered = async () =>
+      (await page.evaluate(readMobileTableLayout, {})).violations.some((value) =>
+        value.startsWith('Player Or Bet Covers Board')
+      );
+    expect(await covered(), 'An empty rounded corner does not cover a board').toBe(false);
+    await page.locator('.community-area').evaluate((element) => {
+      element.style.left = '80px';
+      element.style.top = '8px';
+      element.style.width = '10px';
+      element.style.height = '4px';
+    });
+    expect(await covered(), 'The opaque pill face still refuses coverage').toBe(true);
   });
-  expect(await covered(), 'The opaque pill face still refuses coverage').toBe(true);
-});
 
-test('the phone action clock uses stationary ink and compositor clips at its real deadline', async ({
-  page,
-}) => {
-  const { buildSync } = await import('esbuild');
-  const built = buildSync({
-    stdin: {
-      contents: `import React from 'react';import {createRoot} from 'react-dom/client';import {ActionTimerRing} from './src/components/table/ActionTimerRing';const root=createRoot(document.getElementById('root'));window.clockRender=(seconds,delay)=>root.render(<div className="seat seat--active"><div className="seat__info" data-motion="keep" style={{width:120,height:60,position:'relative','--sp-timer-duration':seconds+'s','--sp-timer-delay':delay+'s'}}><ActionTimerRing timing={{'--sp-timer-duration':seconds+'s','--sp-timer-delay':delay+'s'}}/></div></div>);window.clockRender(15,0);`,
-      resolveDir: process.cwd(),
-      loader: 'tsx',
-    },
-    bundle: true,
-    write: false,
-    format: 'iife',
-    jsx: 'automatic',
-    // The fixture installs the real stylesheet below.
-    loader: { '.css': 'empty' },
-    define: { 'process.env.NODE_ENV': '"production"' },
-  });
-  await page.setViewportSize({ width: 393, height: 852 });
-  await page.setContent('<div id="root"></div>');
-  await page.addStyleTag({
-    content: readFileSync(resolve(ROOT, 'src/components/table/SeatSlot.css'), 'utf8'),
-  });
-  await page.addScriptTag({ content: built.outputFiles[0].text });
-  await expect(page.locator('.seat__timer-wipe')).toHaveCount(5);
-  await page.waitForFunction(
-    () => (document.querySelector('.seat__timer-wipe')?.getBoundingClientRect().width ?? 0) > 0
-  );
-  const sample = async (ms: number) =>
-    page.evaluate((ms) => {
-      for (const a of document.getAnimations()) {
-        a.pause();
-        a.currentTime = ms;
-      }
-      return [...document.querySelectorAll<HTMLElement>('.seat__timer-wipe')].map((w) => {
-        const ink = w.querySelector<HTMLElement>('.seat__timer-ink')!;
-        const wt = new DOMMatrixReadOnly(getComputedStyle(w).transform),
-          it = new DOMMatrixReadOnly(getComputedStyle(ink).transform);
-        const sector = w.parentElement!;
-        const endX = parseFloat(getComputedStyle(sector).getPropertyValue('--sp-wipe-x'));
-        const endY = parseFloat(getComputedStyle(sector).getPropertyValue('--sp-wipe-y'));
-        return {
-          spent: endX ? wt.m41 / endX : wt.m42 / endY,
-          xDrift: wt.m41 + it.m41,
-          yDrift: wt.m42 + it.m42,
-          duration: parseFloat(getComputedStyle(sector).getPropertyValue('--sp-segment-duration')),
-        };
-      });
-    }, ms);
-  for (const ms of [0, 1875, 3750, 7500, 10000, 14999, 15000]) {
-    const runs = await sample(ms);
-    expect(runs.reduce((n, r) => n + r.duration, 0)).toBeCloseTo(15, 5);
-    const spent = runs.reduce((n, r) => n + r.spent * r.duration, 0);
-    expect(spent, `clock at ${ms}ms`).toBeCloseTo(ms / 1000, 3);
-    for (const run of runs) {
-      expect(run.xDrift).toBeCloseTo(0, 4);
-      expect(run.yDrift).toBeCloseTo(0, 4);
-    }
-  }
-  const first = await page.locator('.seat__timer-wipe').first().elementHandle();
-  await page.evaluate(() => (window as any).clockRender(35, 0));
-  await expect(page.locator('.seat__info')).toHaveCSS('--sp-timer-duration', '35s');
-  expect(await first!.evaluate((el) => el === document.querySelector('.seat__timer-wipe'))).toBe(
-    true
-  );
-  expect((await sample(7500)).reduce((n, r) => n + r.spent * r.duration, 0)).toBeCloseTo(7.5, 3);
-  await page.evaluate(() =>
-    ['width', 'min-width', 'max-width'].forEach((p) =>
-      document.querySelector<HTMLElement>('.seat__info')!.style.setProperty(p, '180px', 'important')
-    )
-  );
-  await expect(page.locator('.seat__timer-ring')).toHaveCSS('width', '184px');
-  expect((await sample(10000)).reduce((n, r) => n + r.spent * r.duration, 0)).toBeCloseTo(10, 3);
-});
-
-test('the phone pot shine and on-turn avatar scan retain their paths without repainting backgrounds', async ({
-  page,
-}, testInfo) => {
-  const { buildSync } = await import('esbuild');
-  const built = buildSync({
-    stdin: {
-      contents: `import React from 'react';import {createRoot} from 'react-dom/client';import SeatSlot from './src/components/table/SeatSlot';import PotDisplay from './src/components/table/PotDisplay';const now=Date.now();createRoot(document.getElementById('root')).render(<><SeatSlot seatNumber={1} position="BTN" player={{id:'energy',name:'Player',stack:100,status:'active',showCards:false,isHero:true,avatar:'https://smarter.poker/avatars/table/vip_wolf@2x.webp'}} isActive lastAction={null} turnStartTimeMs={now} turnDeadlineMs={now+15000}/><PotDisplay mainPot={82} bigBlind={2}/></>);`,
-      resolveDir: ROOT,
-      loader: 'tsx',
-    },
-    bundle: true,
-    write: false,
-    outfile: 'energy.js',
-    format: 'iife',
-    jsx: 'automatic',
-    loader: { '.css': 'empty', '.png': 'dataurl', '.webp': 'dataurl', '.svg': 'dataurl' },
-    define: {
-      'process.env.NODE_ENV': '"production"',
-      'import.meta.env': JSON.stringify({
-        DEV: false,
-        PROD: true,
-        VITE_SUPABASE_URL: 'https://dummy.supabase.co',
-        VITE_SUPABASE_ANON_KEY: 'fixture',
-      }),
-    },
-  });
-  await page.route('**/avatars/table/**', (route) =>
-    route.fulfill({ path: tableArtFixture('vip_wolf@2x.webp') })
-  );
-  await page.route('**/rest/v1/**', (route) => route.fulfill({ json: [] }));
-  await page.setViewportSize({ width: 393, height: 852 });
-  await page.setContent('<div id="root"></div>');
-  for (const file of ['SeatSlot.css', 'avatarChoreography.css', 'PotDisplay.css'])
+  test('the phone action clock uses stationary ink and compositor clips at its real deadline', async ({
+    page,
+  }) => {
+    const { buildSync } = await import('esbuild');
+    const built = buildSync({
+      stdin: {
+        contents: `import React from 'react';import {createRoot} from 'react-dom/client';import {ActionTimerRing} from './src/components/table/ActionTimerRing';const root=createRoot(document.getElementById('root'));window.clockRender=(seconds,delay)=>root.render(<div className="seat seat--active"><div className="seat__info" data-motion="keep" style={{width:120,height:60,position:'relative','--sp-timer-duration':seconds+'s','--sp-timer-delay':delay+'s'}}><ActionTimerRing timing={{'--sp-timer-duration':seconds+'s','--sp-timer-delay':delay+'s'}}/></div></div>);window.clockRender(15,0);`,
+        resolveDir: process.cwd(),
+        loader: 'tsx',
+      },
+      bundle: true,
+      write: false,
+      format: 'iife',
+      jsx: 'automatic',
+      // The fixture installs the real stylesheet below.
+      loader: { '.css': 'empty' },
+      define: { 'process.env.NODE_ENV': '"production"' },
+    });
+    await page.setViewportSize({ width: 393, height: 852 });
+    await page.setContent('<div id="root"></div>');
     await page.addStyleTag({
-      content: readFileSync(resolve(ROOT, 'src/components/table', file), 'utf8'),
+      content: readFileSync(resolve(ROOT, 'src/components/table/SeatSlot.css'), 'utf8'),
     });
-  await page.addStyleTag({
-    content:
-      'body{background:black;color:white}.seat{position:relative!important;left:0!important;top:0!important;margin:80px 100px;--table-w:366px}.pot-display{position:relative!important;left:0!important;top:0!important}',
-  });
-  await page.addScriptTag({ content: built.outputFiles[0].text });
-  await expect(page.locator('.seat__holo')).toHaveCount(1);
-  await expect(page.locator('.seat__avatar-img')).toBeVisible();
-  const result = await page.evaluate(() => {
-    const holo = document.querySelector<HTMLElement>('.seat__holo')!;
-    const pot = document.querySelector<HTMLElement>('.pot-display__main')!;
-    const animations = document.getAnimations();
-    const scan = animations.find((a) => (a as CSSAnimation).animationName === 'spAvatarHolo')!;
-    const shine = animations.find((a) => (a as CSSAnimation).animationName === 'pdGlassSweep')!;
-    const scanFrames = (scan.effect as KeyframeEffect).getKeyframes();
-    const shineFrames = (shine.effect as KeyframeEffect).getKeyframes();
-    for (const a of animations) {
-      a.pause();
-      a.currentTime = 3700;
+    await page.addScriptTag({ content: built.outputFiles[0].text });
+    await expect(page.locator('.seat__timer-wipe')).toHaveCount(5);
+    await page.waitForFunction(
+      () => (document.querySelector('.seat__timer-wipe')?.getBoundingClientRect().width ?? 0) > 0
+    );
+    const sample = async (ms: number) =>
+      page.evaluate((ms) => {
+        for (const a of document.getAnimations()) {
+          a.pause();
+          a.currentTime = ms;
+        }
+        return [...document.querySelectorAll<HTMLElement>('.seat__timer-wipe')].map((w) => {
+          const ink = w.querySelector<HTMLElement>('.seat__timer-ink')!;
+          const wt = new DOMMatrixReadOnly(getComputedStyle(w).transform),
+            it = new DOMMatrixReadOnly(getComputedStyle(ink).transform);
+          const sector = w.parentElement!;
+          const endX = parseFloat(getComputedStyle(sector).getPropertyValue('--sp-wipe-x'));
+          const endY = parseFloat(getComputedStyle(sector).getPropertyValue('--sp-wipe-y'));
+          return {
+            spent: endX ? wt.m41 / endX : wt.m42 / endY,
+            xDrift: wt.m41 + it.m41,
+            yDrift: wt.m42 + it.m42,
+            duration: parseFloat(
+              getComputedStyle(sector).getPropertyValue('--sp-segment-duration')
+            ),
+          };
+        });
+      }, ms);
+    for (const ms of [0, 1875, 3750, 7500, 10000, 14999, 15000]) {
+      const runs = await sample(ms);
+      expect(runs.reduce((n, r) => n + r.duration, 0)).toBeCloseTo(15, 5);
+      const spent = runs.reduce((n, r) => n + r.spent * r.duration, 0);
+      expect(spent, `clock at ${ms}ms`).toBeCloseTo(ms / 1000, 3);
+      for (const run of runs) {
+        expect(run.xDrift).toBeCloseTo(0, 4);
+        expect(run.yDrift).toBeCloseTo(0, 4);
+      }
     }
-    const style = getComputedStyle(holo, '::after');
-    return {
-      mask: getComputedStyle(holo).maskImage,
-      scanDuration: scan.effect!.getTiming().duration,
-      scanDelay: scan.effect!.getTiming().delay,
-      shineDuration: shine.effect!.getTiming().duration,
-      scanTransforms: scanFrames.map((f) => f.transform).filter(Boolean),
-      shineTransforms: shineFrames.map((f) => f.transform).filter(Boolean),
-      scanPaintsBackground: scanFrames.some((f) => 'backgroundPosition' in f),
-      shineMovesLayout: shineFrames.some((f) => 'left' in f),
-      opacity: Number(style.opacity),
-      scanY: new DOMMatrixReadOnly(style.transform).m42,
-      stripHeight: parseFloat(style.height),
-      potWidth: pot.getBoundingClientRect().width,
-    };
-  });
-  expect(result.mask).toContain('vip_wolf');
-  expect(result.scanDuration).toBe(7000);
-  expect(result.scanDelay).toBeCloseTo(3000, -1);
-  expect(result.shineDuration).toBe(8000);
-  expect(result.scanTransforms).toContain('translateY(480%)');
-  expect(result.shineTransforms).toEqual([
-    'translateX(-200%)',
-    'translateX(400%)',
-    'translateX(-200%)',
-    'translateX(-200%)',
-  ]);
-  expect(result.scanPaintsBackground).toBe(false);
-  expect(result.shineMovesLayout).toBe(false);
-  expect(result.opacity).toBe(1);
-  expect(result.scanY / result.stripHeight).toBeCloseTo(2.4, 1);
-  expect(result.potWidth).toBeGreaterThan(0);
-  await page.screenshot({ path: testInfo.outputPath('phone-energy-cues.png') });
-});
-
-// Spectator artwork shares the occupied bottom chair's unchanged display size.
-import { registerObserverAvatarSizingCases } from './support/observerAvatarSizingCases';
-test.describe('observer avatar artwork allocations', () => {
-  // Match the dense-ring groups above: cold portrait decoding and layout must
-  // not compete across four workers for the same browser CPU budget. Default
-  // mode retains every independent case after a failure, all assertions and
-  // each existing 60s deadline; the rest of this file remains parallel/sharded.
-  test.describe.configure({ mode: 'default' });
-  registerObserverAvatarSizingCases();
-});
-
-test('six-max dealer stays fixed through hero wagers and sizing tools stay behind the raise panel', async ({
-  page,
-}, testInfo) => {
-  test.setTimeout(90_000);
-  const { buildSync } = await import('esbuild');
-  const built = buildSync({
-    entryPoints: ['tests/e2e/support/portraitRailFixture.tsx'],
-    jsx: 'automatic',
-    outfile: 'seat-ui.js',
-    bundle: true,
-    write: false,
-    metafile: true,
-    format: 'iife',
-    platform: 'browser',
-    loader: {
-      '.css': 'empty',
-      '.png': 'dataurl',
-      '.webp': 'dataurl',
-      '.svg': 'dataurl',
-      '.jpg': 'dataurl',
-    },
-    define: {
-      'import.meta.env': JSON.stringify({
-        VITE_SUPABASE_URL: 'https://kuklfnapbkmacvwxktbh.supabase.co',
-        VITE_SUPABASE_ANON_KEY: 'local-fixture',
-        DEV: true,
-      }),
-      'process.env.NODE_ENV': '"test"',
-    },
-  });
-  const readStyle = (file: string): string =>
-    readFileSync(resolve(process.cwd(), file), 'utf8').replace(
-      /^\s*@import\s+(?:url\()?['"]([^'"]+)['"]\)?\s*;/gm,
-      (_, child: string) => readStyle(resolve(dirname(file), child))
+    const first = await page.locator('.seat__timer-wipe').first().elementHandle();
+    await page.evaluate(() => (window as any).clockRender(35, 0));
+    await expect(page.locator('.seat__info')).toHaveCSS('--sp-timer-duration', '35s');
+    expect(await first!.evaluate((el) => el === document.querySelector('.seat__timer-wipe'))).toBe(
+      true
     );
-  const sheets = [
-    ...new Set([
-      'src/styles/club-engine.css',
-      'src/styles/animations.css',
-      'src/styles/metallic-popups.css',
-      'src/pages/MultiTablePage.css',
-      'src/components/table/TableTabBar.css',
-      'src/pages/TablePage.css',
-      'src/components/table/ActionPanel.css',
-      ...Object.keys(built.metafile!.inputs).filter((f) => f.endsWith('.css')),
-      'src/components/table/TableChat.css',
-      'src/components/table/TableVisualHotfix.css',
-    ]),
-  ];
-  const realCss = sheets.map(readStyle).join('\n');
-  await page.setViewportSize({ width: 393, height: 852 });
-  await page.route('**/avatars/table/**', (route) =>
-    route.fulfill({
-      body: readFileSync(tableArtFixture('vip_wolf@2x.webp')),
-      contentType: 'image/webp',
-    })
-  );
-  await page.route('**/cards/**', (route) => {
-    const name = new URL(route.request().url()).pathname.split('/cards/')[1];
-    const file = resolve(process.cwd(), 'public/cards', name);
-    return route.fulfill({
-      body: readFileSync(existsSync(file) ? file : file.replace(/\.webp$/, '.png')),
-      contentType: file.endsWith('.png') ? 'image/png' : 'image/webp',
-    });
-  });
-  await page.route('**/rest/v1/**', (route) => route.fulfill({ json: [] }));
-  await page.route('**/buttons/black/icon-*.webp', (route) => {
-    const name = new URL(route.request().url()).pathname.split('/').pop()!;
-    const file = tableArtFixture(name);
-    return route.fulfill(
-      existsSync(file)
-        ? { body: readFileSync(file), contentType: 'image/webp' }
-        : { status: 404, body: '' }
-    );
-  });
-  await page.route('https://smarter.poker/hub/club-arena/__seat_ui', (route) =>
-    route.fulfill({
-      contentType: 'text/html',
-      body: `<html data-seats="6" data-cards="4" data-revealed="false" data-jackpot="none" data-dealer="0" data-bets="" data-action="active"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${realCss}</style></head><body><div id="root"></div></body></html>`,
-    })
-  );
-  await page.goto('https://smarter.poker/hub/club-arena/__seat_ui');
-  await page.addScriptTag({ content: built.outputFiles.find((f) => f.path.endsWith('.js'))!.text });
-  await page.waitForFunction(
-    () =>
-      document.querySelectorAll('.seat__avatar-img').length === 6 &&
-      [...document.querySelectorAll<HTMLImageElement>('.seat__avatar-img')].every(
-        (i) => i.complete && i.naturalWidth > 0
+    expect((await sample(7500)).reduce((n, r) => n + r.spent * r.duration, 0)).toBeCloseTo(7.5, 3);
+    await page.evaluate(() =>
+      ['width', 'min-width', 'max-width'].forEach((p) =>
+        document
+          .querySelector<HTMLElement>('.seat__info')!
+          .style.setProperty(p, '180px', 'important')
       )
-  );
-  const settle = () =>
-    page.evaluate(async () => {
-      for (let i = 0; i < 3; i++) {
-        await Promise.all(
-          document
-            .getAnimations()
-            .filter((a) => a.effect?.getComputedTiming().iterations !== Infinity)
-            .map((a) => a.finished.catch(() => {}))
+    );
+    await expect(page.locator('.seat__timer-ring')).toHaveCSS('width', '184px');
+    expect((await sample(10000)).reduce((n, r) => n + r.spent * r.duration, 0)).toBeCloseTo(10, 3);
+  });
+
+  test('the phone pot shine and on-turn avatar scan retain their paths without repainting backgrounds', async ({
+    page,
+  }, testInfo) => {
+    const { buildSync } = await import('esbuild');
+    const built = buildSync({
+      stdin: {
+        contents: `import React from 'react';import {createRoot} from 'react-dom/client';import SeatSlot from './src/components/table/SeatSlot';import PotDisplay from './src/components/table/PotDisplay';const now=Date.now();createRoot(document.getElementById('root')).render(<><SeatSlot seatNumber={1} position="BTN" player={{id:'energy',name:'Player',stack:100,status:'active',showCards:false,isHero:true,avatar:'https://smarter.poker/avatars/table/vip_wolf@2x.webp'}} isActive lastAction={null} turnStartTimeMs={now} turnDeadlineMs={now+15000}/><PotDisplay mainPot={82} bigBlind={2}/></>);`,
+        resolveDir: ROOT,
+        loader: 'tsx',
+      },
+      bundle: true,
+      write: false,
+      outfile: 'energy.js',
+      format: 'iife',
+      jsx: 'automatic',
+      loader: { '.css': 'empty', '.png': 'dataurl', '.webp': 'dataurl', '.svg': 'dataurl' },
+      define: {
+        'process.env.NODE_ENV': '"production"',
+        'import.meta.env': JSON.stringify({
+          DEV: false,
+          PROD: true,
+          VITE_SUPABASE_URL: 'https://dummy.supabase.co',
+          VITE_SUPABASE_ANON_KEY: 'fixture',
+        }),
+      },
+    });
+    await page.route('**/avatars/table/**', (route) =>
+      route.fulfill({ path: tableArtFixture('vip_wolf@2x.webp') })
+    );
+    await page.route('**/rest/v1/**', (route) => route.fulfill({ json: [] }));
+    await page.setViewportSize({ width: 393, height: 852 });
+    await page.setContent('<div id="root"></div>');
+    for (const file of ['SeatSlot.css', 'avatarChoreography.css', 'PotDisplay.css'])
+      await page.addStyleTag({
+        content: readFileSync(resolve(ROOT, 'src/components/table', file), 'utf8'),
+      });
+    await page.addStyleTag({
+      content:
+        'body{background:black;color:white}.seat{position:relative!important;left:0!important;top:0!important;margin:80px 100px;--table-w:366px}.pot-display{position:relative!important;left:0!important;top:0!important}',
+    });
+    await page.addScriptTag({ content: built.outputFiles[0].text });
+    await expect(page.locator('.seat__holo')).toHaveCount(1);
+    await expect(page.locator('.seat__avatar-img')).toBeVisible();
+    const result = await page.evaluate(() => {
+      const holo = document.querySelector<HTMLElement>('.seat__holo')!;
+      const pot = document.querySelector<HTMLElement>('.pot-display__main')!;
+      const animations = document.getAnimations();
+      const scan = animations.find((a) => (a as CSSAnimation).animationName === 'spAvatarHolo')!;
+      const shine = animations.find((a) => (a as CSSAnimation).animationName === 'pdGlassSweep')!;
+      const scanFrames = (scan.effect as KeyframeEffect).getKeyframes();
+      const shineFrames = (shine.effect as KeyframeEffect).getKeyframes();
+      for (const a of animations) {
+        a.pause();
+        a.currentTime = 3700;
+      }
+      const style = getComputedStyle(holo, '::after');
+      return {
+        mask: getComputedStyle(holo).maskImage,
+        scanDuration: scan.effect!.getTiming().duration,
+        scanDelay: scan.effect!.getTiming().delay,
+        shineDuration: shine.effect!.getTiming().duration,
+        scanTransforms: scanFrames.map((f) => f.transform).filter(Boolean),
+        shineTransforms: shineFrames.map((f) => f.transform).filter(Boolean),
+        scanPaintsBackground: scanFrames.some((f) => 'backgroundPosition' in f),
+        shineMovesLayout: shineFrames.some((f) => 'left' in f),
+        opacity: Number(style.opacity),
+        scanY: new DOMMatrixReadOnly(style.transform).m42,
+        stripHeight: parseFloat(style.height),
+        potWidth: pot.getBoundingClientRect().width,
+      };
+    });
+    expect(result.mask).toContain('vip_wolf');
+    expect(result.scanDuration).toBe(7000);
+    expect(result.scanDelay).toBeCloseTo(3000, -1);
+    expect(result.shineDuration).toBe(8000);
+    expect(result.scanTransforms).toContain('translateY(480%)');
+    expect(result.shineTransforms).toEqual([
+      'translateX(-200%)',
+      'translateX(400%)',
+      'translateX(-200%)',
+      'translateX(-200%)',
+    ]);
+    expect(result.scanPaintsBackground).toBe(false);
+    expect(result.shineMovesLayout).toBe(false);
+    expect(result.opacity).toBe(1);
+    expect(result.scanY / result.stripHeight).toBeCloseTo(2.4, 1);
+    expect(result.potWidth).toBeGreaterThan(0);
+    await page.screenshot({ path: testInfo.outputPath('phone-energy-cues.png') });
+  });
+
+  // Spectator artwork shares the occupied bottom chair's unchanged display size.
+  test.describe('observer avatar artwork allocations', () => {
+    // Match the dense-ring groups above: cold portrait decoding and layout must
+    // not compete across four workers for the same browser CPU budget. Default
+    // mode retains every independent case after a failure, all assertions and
+    // each existing 60s deadline. The earlier independent suites stay parallel/sharded.
+    test.describe.configure({ mode: 'default' });
+    registerObserverAvatarSizingCases();
+  });
+
+  test('six-max dealer stays fixed through hero wagers and sizing tools stay behind the raise panel', async ({
+    page,
+  }, testInfo) => {
+    test.setTimeout(90_000);
+    const { buildSync } = await import('esbuild');
+    const built = buildSync({
+      entryPoints: ['tests/e2e/support/portraitRailFixture.tsx'],
+      jsx: 'automatic',
+      outfile: 'seat-ui.js',
+      bundle: true,
+      write: false,
+      metafile: true,
+      format: 'iife',
+      platform: 'browser',
+      loader: {
+        '.css': 'empty',
+        '.png': 'dataurl',
+        '.webp': 'dataurl',
+        '.svg': 'dataurl',
+        '.jpg': 'dataurl',
+      },
+      define: {
+        'import.meta.env': JSON.stringify({
+          VITE_SUPABASE_URL: 'https://kuklfnapbkmacvwxktbh.supabase.co',
+          VITE_SUPABASE_ANON_KEY: 'local-fixture',
+          DEV: true,
+        }),
+        'process.env.NODE_ENV': '"test"',
+      },
+    });
+    const readStyle = (file: string): string =>
+      readFileSync(resolve(process.cwd(), file), 'utf8').replace(
+        /^\s*@import\s+(?:url\()?['"]([^'"]+)['"]\)?\s*;/gm,
+        (_, child: string) => readStyle(resolve(dirname(file), child))
+      );
+    const sheets = [
+      ...new Set([
+        'src/styles/club-engine.css',
+        'src/styles/animations.css',
+        'src/styles/metallic-popups.css',
+        'src/pages/MultiTablePage.css',
+        'src/components/table/TableTabBar.css',
+        'src/pages/TablePage.css',
+        'src/components/table/ActionPanel.css',
+        ...Object.keys(built.metafile!.inputs).filter((f) => f.endsWith('.css')),
+        'src/components/table/TableChat.css',
+        'src/components/table/TableVisualHotfix.css',
+      ]),
+    ];
+    const realCss = sheets.map(readStyle).join('\n');
+    await page.setViewportSize({ width: 393, height: 852 });
+    await page.route('**/avatars/table/**', (route) =>
+      route.fulfill({
+        body: readFileSync(tableArtFixture('vip_wolf@2x.webp')),
+        contentType: 'image/webp',
+      })
+    );
+    await page.route('**/cards/**', (route) => {
+      const name = new URL(route.request().url()).pathname.split('/cards/')[1];
+      const file = resolve(process.cwd(), 'public/cards', name);
+      return route.fulfill({
+        body: readFileSync(existsSync(file) ? file : file.replace(/\.webp$/, '.png')),
+        contentType: file.endsWith('.png') ? 'image/png' : 'image/webp',
+      });
+    });
+    await page.route('**/rest/v1/**', (route) => route.fulfill({ json: [] }));
+    await page.route('**/buttons/black/icon-*.webp', (route) => {
+      const name = new URL(route.request().url()).pathname.split('/').pop()!;
+      const file = tableArtFixture(name);
+      return route.fulfill(
+        existsSync(file)
+          ? { body: readFileSync(file), contentType: 'image/webp' }
+          : { status: 404, body: '' }
+      );
+    });
+    await page.route('https://smarter.poker/hub/club-arena/__seat_ui', (route) =>
+      route.fulfill({
+        contentType: 'text/html',
+        body: `<html data-seats="6" data-cards="4" data-revealed="false" data-jackpot="none" data-dealer="0" data-bets="" data-action="active"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${realCss}</style></head><body><div id="root"></div></body></html>`,
+      })
+    );
+    await page.goto('https://smarter.poker/hub/club-arena/__seat_ui');
+    await page.addScriptTag({
+      content: built.outputFiles.find((f) => f.path.endsWith('.js'))!.text,
+    });
+    await page.waitForFunction(
+      () =>
+        document.querySelectorAll('.seat__avatar-img').length === 6 &&
+        [...document.querySelectorAll<HTMLImageElement>('.seat__avatar-img')].every(
+          (i) => i.complete && i.naturalWidth > 0
+        )
+    );
+    const settle = () =>
+      page.evaluate(async () => {
+        for (let i = 0; i < 3; i++) {
+          await Promise.all(
+            document
+              .getAnimations()
+              .filter((a) => a.effect?.getComputedTiming().iterations !== Infinity)
+              .map((a) => a.finished.catch(() => {}))
+          );
+          await new Promise<void>((done) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => done()))
+          );
+        }
+      });
+    await settle();
+    const initial = await page.locator('.dealer-button').boundingBox();
+    expect(initial).not.toBeNull();
+    await page.screenshot({ path: testInfo.outputPath('before-wager.png') });
+    for (const amount of ['2', '12', '120000']) {
+      await page.evaluate((value) => {
+        document.documentElement.dataset.bets = '0';
+        document.documentElement.dataset.betAmount = value;
+        document.dispatchEvent(new Event('fixture-runout'));
+      }, amount);
+      await settle();
+      const current = await page.locator('.dealer-button').boundingBox();
+      expect(current!.x, 'A hero wager cannot move the dealer horizontally').toBeCloseTo(
+        initial!.x,
+        1
+      );
+      expect(current!.y, 'A hero wager cannot move the dealer vertically').toBeCloseTo(
+        initial!.y,
+        1
+      );
+    }
+    await page.screenshot({ path: testInfo.outputPath('after-wager.png') });
+    await page.getByRole('button', { name: /Open .* Panel/ }).click();
+    await expect(page.locator('.action-panel--raise')).toBeVisible();
+    await expect(page.locator('.table-hud__lower')).toBeHidden();
+    await page.screenshot({ path: testInfo.outputPath('raise-tools-behind.png') });
+  });
+
+  // Real phone screen + the production 600px layout viewport. A desktop 600px
+  // page misses max-device-width rules and previously certified equal rings.
+  for (const [width, height, inset, chrome] of [
+    [375, 667],
+    [393, 852],
+    [430, 932],
+  ].flatMap(([width, height]) =>
+    [0, 34].flatMap((inset) => [0, 100].map((chrome) => [width, height, inset, chrome]))
+  ))
+    test(`scaled phone full ring stays longer and hero cards share the plate floor above actions at ${width}px inset${inset} chrome${chrome}`, async ({
+      browser,
+    }, testInfo) => {
+      test.setTimeout(120_000);
+      const { buildSync } = await import('esbuild');
+      const built = buildSync({
+        entryPoints: ['tests/e2e/support/portraitRailFixture.tsx'],
+        bundle: true,
+        write: false,
+        jsx: 'automatic',
+        metafile: true,
+        format: 'iife',
+        platform: 'browser',
+        outfile: 'floor.js',
+        loader: {
+          '.css': 'empty',
+          '.png': 'dataurl',
+          '.webp': 'dataurl',
+          '.svg': 'dataurl',
+          '.jpg': 'dataurl',
+        },
+        define: {
+          'import.meta.env': JSON.stringify({
+            VITE_SUPABASE_URL: 'https://dummy.supabase.co',
+            VITE_SUPABASE_ANON_KEY: 'fixture',
+            DEV: true,
+          }),
+          'process.env.NODE_ENV': '"test"',
+        },
+      });
+      const sheets = [
+        ...new Set([
+          'src/styles/club-engine.css',
+          'src/styles/animations.css',
+          'src/styles/metallic-popups.css',
+          'src/styles/reducedMotion.css',
+          'src/pages/MultiTablePage.css',
+          'src/components/table/TableTabBar.css',
+          'src/pages/TablePage.css',
+          'src/components/table/ActionPanel.css',
+          ...Object.keys(built.metafile!.inputs).filter((f) => f.endsWith('.css')),
+          'src/components/table/TableChat.css',
+          'src/components/table/TableVisualHotfix.css',
+        ]),
+      ];
+      const read = (file: string): string =>
+        readFileSync(resolve(ROOT, file), 'utf8').replace(
+          /^\s*@import\s+(?:url\()?['"]([^'"]+)['"]\)?\s*;/gm,
+          (_, imported: string) => read(resolve(dirname(file), imported))
         );
-        await new Promise<void>((done) =>
-          requestAnimationFrame(() => requestAnimationFrame(() => done()))
+      const request = await (await import('@playwright/test')).request.newContext();
+      const fontSheet = await request.get('https://ca-static.smarter.poker/fonts/fonts.css');
+      expect(fontSheet.ok()).toBe(true);
+      const inter = [...(await fontSheet.text()).matchAll(/@font-face\s*\{[^}]+\}/g)]
+        .map((m) => m[0])
+        .find((face) => face.includes("font-family: 'Inter'") && face.includes('U+0000-00FF'))!;
+      const fontPath = /url\(([^)]+)\)/.exec(inter)![1];
+      const font = await request.get(
+        new URL(fontPath.replace('/hub/club-arena/', '/'), 'https://ca-static.smarter.poker').href
+      );
+      expect(font.ok()).toBe(true);
+      const face = inter
+        .replace(/font-weight:\s*\d+;/, 'font-weight: 100 900;')
+        .replace(fontPath, `data:font/woff2;base64,${(await font.body()).toString('base64')}`);
+      await request.dispose();
+      const styles = face + '\n' + sheets.map(read).join('\n');
+
+      const context = await browser.newContext({
+        viewport: { width, height },
+        screen: { width, height },
+        isMobile: true,
+      });
+      const page = await context.newPage();
+      await page.route('**/avatars/table/**', (route) =>
+        route.fulfill({
+          body: readFileSync(tableArtFixture('vip_wolf@2x.webp')),
+          contentType: 'image/webp',
+        })
+      );
+      for (const icon of ['chat', 'timebank', 'rabbit', 'prevhand']) {
+        await page.route(`**/buttons/black/icon-${icon}.webp`, (route) =>
+          route.fulfill({
+            body: readFileSync(tableArtFixture(`icon-${icon}.webp`)),
+            contentType: 'image/webp',
+          })
         );
       }
+      await page.route('**/rest/v1/**', (route) => route.fulfill({ json: [] }));
+      await page.route('**/cards/**', (route) => {
+        const path = new URL(route.request().url()).pathname.split('/cards/')[1];
+        const file = resolve(ROOT, 'public/cards', path);
+        return existsSync(file)
+          ? route.fulfill({ body: readFileSync(file), contentType: 'image/png' })
+          : route.abort();
+      });
+      // Four cold scenes per bounded case retain every device/inset/chrome combination.
+      {
+        const boxes: Record<number, { top: number; height: number }> = {};
+        for (const seats of [6, 9])
+          for (const cards of [2, 6]) {
+            const scale = width / 600;
+            const safe = inset / scale;
+            const css = applyInsets(styles, inset ? 47 / scale : 0, safe);
+            await page.route('https://floor.fixture/', (route) =>
+              route.fulfill({
+                contentType: 'text/html',
+                body: `<html data-seats="${seats}" data-cards="${cards}" data-hand-strength="Ace High" data-revealed="false" data-action="active" data-jackpot="none"><head><meta name="viewport" content="width=600,initial-scale=${scale},minimum-scale=${scale},maximum-scale=${scale},viewport-fit=cover"><style>${css}</style></head><body><div id="root"></div></body></html>`,
+              })
+            );
+            await page.goto('https://floor.fixture/', { waitUntil: 'domcontentloaded' });
+            // Safari may retain a smaller stable viewport while its visible slot
+            // grows as browser chrome retracts. Both rings must use that slot floor.
+            await page.evaluate(
+              (chrome) =>
+                document.documentElement.style.setProperty(
+                  '--sp-table-stable-viewport-h',
+                  `${innerHeight - chrome}px`
+                ),
+              chrome
+            );
+            await page.addScriptTag({
+              content: built.outputFiles.find((f) => f.path.endsWith('.js'))!.text,
+            });
+            await page.locator('.seat__strength').waitFor();
+            await page.evaluate(async () => {
+              await document.fonts.ready;
+              await new Promise<void>((resolve) =>
+                requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+              );
+            });
+            const measure = () =>
+              page.evaluate(() => {
+                const box = (selector: string) =>
+                  document.querySelector(selector)!.getBoundingClientRect();
+                const scaler = box('.table-scaler'),
+                  plate = box('.seat--hero .seat__info'),
+                  label = box('.seat__strength'),
+                  bar = box('.action-panel');
+                const cards = [...document.querySelectorAll('.seat--hero .seat__card')].map((e) =>
+                  e.getBoundingClientRect()
+                );
+                return {
+                  top: scaler.top,
+                  height: scaler.height,
+                  plateGap: bar.top - plate.bottom,
+                  labelGap: bar.top - label.bottom,
+                  cardDelta: Math.max(...cards.map((c) => c.bottom)) - plate.bottom,
+                };
+              });
+            const before = await measure();
+            const label = `${width}px ${seats}-max ${cards} cards inset${inset} chrome${chrome}`;
+            expect.soft(before.cardDelta, `${label}: card and plate bottoms`).toBeCloseTo(0, 0);
+
+            expect
+              .soft(before.labelGap, `${label}: complete hand label clears frame`)
+              .toBeGreaterThanOrEqual(2 / scale);
+            expect
+              .soft(before.labelGap, `${label}: no dead strip below hero`)
+              .toBeLessThanOrEqual(12 / scale);
+            expect
+              .soft(before.plateGap, `${label}: hero sits just above controller`)
+              .toBeLessThanOrEqual(26 / scale);
+            boxes[seats] = before;
+            await page
+              .locator('.table-page')
+              .evaluate((el) => el.setAttribute('data-hero-action', 'waiting'));
+            const after = await measure();
+            expect.soft(after.top).toBeCloseTo(before.top, 1);
+            expect.soft(after.height).toBeCloseTo(before.height, 1);
+            if (width === 393 && !inset && !chrome && cards === 2)
+              await page.screenshot({
+                path: testInfo.outputPath(`phone-layout-${seats}max.png`),
+              });
+          }
+        expect
+          .soft(boxes[9].height, `${width}px: full ring must be visibly longer`)
+          .toBeGreaterThan(boxes[6].height + 20);
+        expect
+          .soft(boxes[9].top, `${width}px: full ring gains length above shared hero floor`)
+          .toBeLessThan(boxes[6].top);
+      }
+      await context.close();
     });
-  await settle();
-  const initial = await page.locator('.dealer-button').boundingBox();
-  expect(initial).not.toBeNull();
-  await page.screenshot({ path: testInfo.outputPath('before-wager.png') });
-  for (const amount of ['2', '12', '120000']) {
-    await page.evaluate((value) => {
-      document.documentElement.dataset.bets = '0';
-      document.documentElement.dataset.betAmount = value;
-      document.dispatchEvent(new Event('fixture-runout'));
-    }, amount);
-    await settle();
-    const current = await page.locator('.dealer-button').boundingBox();
-    expect(current!.x, 'A hero wager cannot move the dealer horizontally').toBeCloseTo(
-      initial!.x,
-      1
-    );
-    expect(current!.y, 'A hero wager cannot move the dealer vertically').toBeCloseTo(initial!.y, 1);
-  }
-  await page.screenshot({ path: testInfo.outputPath('after-wager.png') });
-  await page.getByRole('button', { name: /Open .* Panel/ }).click();
-  await expect(page.locator('.action-panel--raise')).toBeVisible();
-  await expect(page.locator('.table-hud__lower')).toBeHidden();
-  await page.screenshot({ path: testInfo.outputPath('raise-tools-behind.png') });
 });

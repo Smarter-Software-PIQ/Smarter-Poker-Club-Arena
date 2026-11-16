@@ -169,10 +169,10 @@ describe('Phase 6 real roster row render budget', () => {
     expect(item).toHaveAttribute('aria-posinset', '61');
     expect(item).toHaveAttribute('aria-setsize', '419');
     expect(item.querySelector('mark')).toHaveTextContent('Player');
-    // Simple mode leads with fees generated, never a wallet balance.
+    // Simple mode keeps fees primary and adds the player wallet (owner, November 16).
     expect(screen.getByText('87.50')).toBeVisible();
     expect(screen.getByText('Fees This Week')).toBeVisible();
-    expect(screen.queryByText('250.00')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Player Wallet Balance 250.00')).toBeVisible();
     expect(screen.queryByText('Player Wallet')).not.toBeInTheDocument();
     expect(screen.queryByText('Agent Wallet')).not.toBeInTheDocument();
     view.rerender(

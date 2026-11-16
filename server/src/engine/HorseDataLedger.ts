@@ -756,6 +756,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V32'
   ),
   flag('v33DepthCeiling', 'solver depth ceiling (300bb)', 'V33'),
+  flag(
+    'gtoV31CellContractV3Serving',
+    'V31 cell contract v3 serving (FLOP-5 D6): true reads the v3 cell readers and keys the certified consult by the v3 cell (line class, donk, 200 bb) when the loaded store declares cell contract v3; unset or false is the v2 path exactly. Off-only under the owner R7/R8 hold (V31 serving is registration-gated); a v3 store also needs a sealed, promoted and bound v3 dataset',
+    'V31 cell contract v3',
+    'HorseV31CertifiedPolicy.decideV31Certified, GtoPostflopV31Loader'
+  ),
   flag('v37Satellite', 'satellite survival play', 'V37'),
   flag('v38Ev', 'the EV engine arbiter for solverless games and the MDF river', 'V38'),
   flag(
@@ -1109,6 +1115,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'V94'
   ),
   flag(
+    'holdemHeadsUpPostflopBalance',
+    "HV31 FLOP-5 D1 (2026-11-15): no-limit hold'em cash, heads-up single-raised pot, hero in position, effective stack 20 bb or more: the flop c-bet after a check is one 0.75-pot size at a frequency by hand tier; a flop fold to a check-raise after the c-bet with a middle pair or better or a flush or open-ended straight draw becomes a call; a turn checked to hero bets one 0.70-pot size at a frequency by tier; the river is not covered (its full-pot part was removed 2026-11-16 after the solver score: 11 of 41 river games of the FLOP-5 D1 bank got worse by more than 5 points of the pot) (HorseHeadsUpPostflopBalance.ts; solver evidence FLOP-3 B9/B6, FLOP-4 C1, FLOP-5 D1). Default OFF (opt-in): only an explicit true switches it on. League card nlh_hu_postflop_balance",
+    'V94'
+  ),
+  flag(
     'plo6ManiacPriceRefusalToRangePlay',
     '2026-11-14 PLO6 cash preflop: when the raiser faced is an observed maniac and not all in and the call is under 40% of the stack, a refusal by the price arithmetic is decided by the range play, the play made against every other opponent, instead of an outright fold (PLO6-AUDIT-013, production hand 58751512; evidence docs/horse-default-on.d/plo6ManiacPriceRefusalToRangePlay.md). Default OFF (opt-in) since 2026-11-16: its reach row was not met by the deadline Hand Analysis set',
     'V92'
@@ -1278,6 +1289,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'styleRaiseRespect',
     '2026-11-13 STYLE READ #4: a flop or turn raise from a player whose postflop bet-and-raise share is credibly below the Horse mean (the raise-frequency proxy) shades a one-pair-or-worse call by up to 0.06 equity, scaled by the DECISION-TIME stack-to-pot ratio (effective stack behind before the decision over the pot including his bet): nothing at SPR 2 or below (one pair is a correct stack-off), full from SPR 6; heads-up, no side pots, no bounty event, no maniac read; released proportionally by the fast window; only ever adds a shade (never widens a call); default off, explicit true only. #4b (2026-11-14), same switch: in cash, heads-up, on the turn and river only, two pair or worse that bet and was raised by a credibly passive player (aggression axis passive at confidence 0.5 or more with its postflop bet-and-raise share credibly low, at least 8 of his raise opportunities on the street against a Horse reference and 20 on turn and river together) blends an estimate against a value-raise stratum into its equity, by a weight that is 1 at or below the Horse raise rate and 0 at twice it, times a raise-size weight (full from 3x the bet, half at 2x); the blend decides only when it is under the price laid; on the turn, when the call leaves the raiser a quarter of the pot or less, the price is the whole commitment and a continuing hand puts the rest in (overriding the call-once plan); never the flop, never tournaments, never an unknown, neutral or aggressive read; receipts style_value_raise_respect_seen and style_commitment_priced_seen',
     '2026-11-13'
+  ),
+  flag(
+    'lightningStyleReadSeparate',
+    "2026-11-15 default OFF (L-016): on a Lightning decision (public memory domain speed lightning) the style read takes postflop street aggression, river size buckets and the Horse population reference from Lightning-only maps, which the learner fills from Lightning hands IN ADDITION to the pooled maps (same keys, own caps; the pooled maps and their eviction are unchanged) and the boot rebuild fills from Lightning-domain hand_history rows; without it a Lightning style read pools Lightning and Classic (table-speed) cash evidence while the exploit and profile counters it reads beside them are per domain. Classic and tournament decisions are untouched; it changes a decision only through a style consumer option. Constructed evidence (aLightningStyleReadKeepsItsOwnEvidence.law.test.ts): a Lightning 4x turn check-raise folded 24/24 on the Lightning record alone is called 24/24 once the same player's Classic raises pool in; with this on it folds 24/24. Receipts style_lightning_separate_read_seen and style_lightning_separate_empty_seen. Refused league matchup (no Lightning domain in the league)",
+    '2026-11-15'
   ),
   flag(
     'styleTightReRaiserRespect',
@@ -1494,6 +1510,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     '2026-11-13'
   ),
   receipt(
+    'style_boot_lightning_failed_seen',
+    'HorseExploitHydrator (STYLE READ boot inputs, L-016)',
+    'the boot rebuild of the Lightning-only style maps (size buckets, aggression, Horse reference from Lightning-domain rows) threw; the pooled rebuilds had already run; occurrence counter; named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
     'style_boot_size_from_players_seen',
     'HorseExploitHydrator (STYLE READ boot inputs)',
     'unless HORSE_STYLE_BOOT_RELEASE_START_MS is `off`, at least one boot row had no stored dealt-in count (horse_exploit_dealt_count), so its table size came from the players list instead of the count the live scope uses; once per boot; occurrence counter; named *_seen',
@@ -1516,6 +1538,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'horseDecision workerRuntime (STYLE READ shadow)',
     'style_shadow.<opt>.<c|t>.<variant>.<p|f|t|r>.<actual>.<wouldBe>.<s|c>_seen: an AGGREGATE counter over a fixed key set of at most 68,600 keys (no hand, seat or amount), one fire per changed decision of a style option in shadow (the one re-decision with that option on differs from the committed one in action or amount; a size-only change has <actual> = <wouldBe> and is counted apart from the 30-decision evaluation gate); per-decision detail is reconstructed from the decision journal (replay state carries the switch state) joined to ca_hand_facts; style_shadow_unchanged_seen: the re-decision kept the action; style_shadow_rotated_out_seen: another engaged option of the same decision was not re-decided (one re-decision per decision, rotated by decision key); style_shadow_skipped_backlog_seen / _skipped_budget_seen / _skipped_scale_seen: no re-decision because work was queued, the committed decision exceeded the 15 ms budget, or the governor scale moved; style_shadow_scale_mismatch_seen: the re-decision ran at another scale and was discarded; style_shadow_redecide_over_budget_seen: a re-decision took more than 15 ms; style_shadow_redecide_failed_seen / _unencodable_seen: a re-decision or its receipt threw (nothing committed changes); occurrence counters; named *_seen',
     '2026-11-13'
+  ),
+  receipt(
+    'style_engaged_*',
+    'horseDecision workerRuntime (STYLE READ engagement receipts)',
+    'style_engaged_<opt>_<c|t|l>_seen: an option that is ON applied its adjustment in one live fast decision (the same non-neutral condition its shadow arm records under), by format (c Classic cash, t tournament, l Lightning: publicMemoryDomain.speed lightning); one fire per engaged ON option per decision, a per-decision engagement count only: no re-decision runs and the committed decision is unchanged; 21 keys (opt vb bb rr tr fr ve fb x 3 formats); occurrence counter; named *_seen',
+    '2026-11-15'
   ),
   receipt(
     'style_read_timed_seen',
@@ -1632,6 +1660,72 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     '2026-11-15'
   ),
   receipt(
+    'lightning_fold_through_kept',
+    'HorseLogic.decide via HorseLightningFoldThrough (lightningEarlyFoldNeedsFoldThrough; default off)',
+    'a Lightning fold asked while live seats before the Horse still had to act (an early look) also folded on the fold-through frame (those seats folded), so the early fold stood and lands right away',
+    '2026-11-15'
+  ),
+  receipt(
+    'lightning_fold_through_released',
+    'HorseLogic.decide via HorseLightningFoldThrough (lightningEarlyFoldNeedsFoldThrough; default off)',
+    'a Lightning fold asked while live seats before the Horse still had to act (an early look) did NOT fold on the fold-through frame, so the frame answer was returned and the host left the Horse to decide afresh on its own turn',
+    '2026-11-15'
+  ),
+  receipt(
+    'lightning_cheap_entry_eligible_seen',
+    'HorseLightningCheapEntry via HorseLogic / HorsePreflop (lightningCheapEntryHoldem, lightningCheapEntryOmaha; default off)',
+    'a preflop decision with a Lightning cheap entry option on and the hand inside the shared Lightning predicate (Lightning cash NLH / PLO4 / PLO5, four to six dealt, big-blind ante): the opportunity count; zero in Lightning with the option on is an unwired option; named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
+    'lightning_cheap_entry_asked_seen',
+    'HorseLightningCheapEntry via HorseLogic / HorsePreflop (lightningCheapEntryHoldem, lightningCheapEntryOmaha; default off)',
+    'the unopened branch folded in a cheap-entry spot (the small blind folded to, or the small blind or the button behind one or more limpers with no raise, the call one big blind or less) and the option was asked; counts the spots it can reach; named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
+    'lightning_cheap_entry_changed_seen',
+    'HorseLightningCheapEntry via HorseLogic / HorsePreflop (lightningCheapEntryHoldem, lightningCheapEntryOmaha; default off)',
+    'a Lightning cheap entry turned the base fold into a call (small-blind completion or over-limp, never a raise); the decision carries lightning_cheap_entry_sb_complete or lightning_cheap_entry_over_limp on its preflop authority trail; named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
+    'lightning_cheap_entry_refused_not_lightning_seen',
+    'HorseLightningCheapEntry via HorseLogic / HorsePreflop (lightningCheapEntryHoldem, lightningCheapEntryOmaha; default off)',
+    'option on, hand not in a Lightning public memory domain (Classic tables): the option stayed out; named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
+    'lightning_cheap_entry_refused_format_seen',
+    'HorseLightningCheapEntry via HorseLogic / HorsePreflop (lightningCheapEntryHoldem, lightningCheapEntryOmaha; default off)',
+    'option on, Lightning domain but not cash preflop or an all-in-or-fold table: the option stayed out; named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
+    'lightning_cheap_entry_refused_variant_seen',
+    'HorseLightningCheapEntry via HorseLogic / HorsePreflop (lightningCheapEntryHoldem, lightningCheapEntryOmaha; default off)',
+    "option on, a variant that is not no-limit hold'em, PLO4 or PLO5: the option stayed out; named *_seen",
+    '2026-11-15'
+  ),
+  receipt(
+    'lightning_cheap_entry_refused_dealt_count_seen',
+    'HorseLightningCheapEntry via HorseLogic / HorsePreflop (lightningCheapEntryHoldem, lightningCheapEntryOmaha; default off)',
+    'option on, fewer than four or more than six dealt: the option stayed out; named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
+    'lightning_cheap_entry_refused_not_bb_ante_seen',
+    'HorseLightningCheapEntry via HorseLogic / HorsePreflop (lightningCheapEntryHoldem, lightningCheapEntryOmaha; default off)',
+    'option on, no big-blind ante: the option stayed out; named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
+    'lightning_cheap_entry_refused_opponent_read_seen',
+    'HorseLightningCheapEntry via HorseLogic / HorsePreflop (lightningCheapEntryHoldem, lightningCheapEntryOmaha; default off)',
+    'a cheap-entry spot with an observed maniac live at the table (its own record, never the presumption): the base fold stood; named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
     'style_tight_opener_respect_seen',
     'HorsePreflop via HorseLogic (STYLE READ #6)',
     'facing one open from a credibly tight opener the 3-bet bar moved up and the call bar rose, bounded; named *_seen',
@@ -1731,6 +1825,18 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'style_long_participation_seen',
     'HorseMind.styleRead (STYLE READ, long participation window)',
     'a style read took VPIP, PFR or the call share from the 120-hand long participation window (ExploitCounters lHands / lVpip / lPfr, horse_exact_profiles.long_counters) because it held more evidence than the 30-hand window and both leaned low or even; receipt.longWindow names which; counts reads; named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
+    'style_lightning_separate_read_seen',
+    'HorseMind.styleRead (STYLE READ, L-016; lightningStyleReadSeparate, default off)',
+    'a style read on a Lightning decision with lightningStyleReadSeparate on took postflop aggression, river size buckets and the Horse reference from the Lightning-only maps; counts reads (expected 0 until switched on; then never 0 in Lightning while a style consumer option is on); named *_seen',
+    '2026-11-15'
+  ),
+  receipt(
+    'style_lightning_separate_empty_seen',
+    'HorseMind.styleRead (STYLE READ, L-016; lightningStyleReadSeparate, default off)',
+    'a Lightning-separate style read found no Lightning row for the player (aggression or size buckets) or for the Horse reference where the pooled map held one: the read saw less evidence than the pooled read would have; counts reads; named *_seen',
     '2026-11-15'
   ),
   receipt(
@@ -1912,7 +2018,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   ),
   flag(
     'fixedLimitCallIsNotACommitment',
-    '2026-11-14 default OFF: a fixed-limit call is never priced in the committed branch (no stack-to-pot or invested-share term, so no V20 multiway commit bar or stack-off shade); it is priced on its incremental cost plus the remaining action of the street (HorseFixedLimitCallPrice.ts: the chips to call now plus the expected further wagers if a player left to act raises before the cap, at a per-player raise rate MEASURED on recorded Horse-only fixed-limit hands (2026-11-15: 95% upper bounds per street, flh 1.4/3.3/4.2%, flo8 0.8/1.9/2.7% flop/turn/river; was an assumed 0.12); a closing call is the bare raked price), as a shade on the equity the V38 river and flop/turn verdicts are handed; diagnostic harness before (L-ADAPTATION-DIAGNOSIS section 3): flo8 six seats, every river fold took the committed branch, required 3.4 x the price; refused by the league (it deals no fixed limit), see UNMEASURABLE_MATCHUPS',
+    "2026-11-14 default OFF: a fixed-limit call is never priced in the committed branch (no stack-to-pot or invested-share term, so no V20 multiway commit bar or stack-off shade); it is priced on its incremental cost plus the remaining action of the street (HorseFixedLimitCallPrice.ts: the chips to call now plus the expected further wagers if a player left to act raises before the cap, at a per-player raise rate MEASURED on recorded Horse-only fixed-limit hands (2026-11-15: 95% upper bounds per street, flh 1.4/3.3/4.2%, flo8 0.8/1.9/2.7% flop/turn/river; was an assumed 0.12); a closing call is the bare raked price), as a shade on the equity the V38 river and flop/turn verdicts are handed; scope since 2026-11-16: fixed-limit hold'em cash only (HorseLogic fixedLimitCallIsNotACommitmentInScope), so at flo8 and at every tournament table it changes nothing (flo8 showed no value: AB-EVALUATION-2 3.7 and 3.15); diagnostic harness before (L-ADAPTATION-DIAGNOSIS section 3): flo8 six seats, every river fold took the committed branch, required 3.4 x the price; refused by the league (it deals no fixed limit), see UNMEASURABLE_MATCHUPS",
     'FixedLimitAdaptation'
   ),
   flag(
@@ -1960,6 +2066,21 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'lightningParticipationOmaha',
     '2026-11-15 default OFF: Lightning cash PLO4 / PLO5 only (same predicate): first-in raise cells by players still to act (PLO4 20 / 24 / 34 / 42 button / 34 small blind percent of hands, PLO5 20 / 24 / 34 / 40 / 32, +1 point per seat missing from six, x0.9 at 50bb), raise or fold with no new limp, superseding only the raise width PRESUMED of an unread Omaha opponent (an observed maniac or a confirmed aggressive player in position behind keeps the base answer); and where the facing-one-raise branch folds the big blind, a continue range by price (40 / 44 / 50 / 56 percent against an early / middle / late / small-blind raiser at a pot-sized price of 0.33, 120 points per unit of price, -6 per caller capped at 36 multiway, x0.85 at 50bb); 3-bet, 4-bet, stack-off bars, sizing and postflop untouched; no own-participation input; development evidence only, so it stays off',
     'Lightning participation'
+  ),
+  flag(
+    'lightningEarlyFoldNeedsFoldThrough',
+    "2026-11-15 default OFF: Lightning cash only (public memory domain speed lightning), preflop, flop and turn: a fold to a priced decision asked while live seats before the Horse still have to act (the Lightning host's early look, which a fold makes final) stands only if the same policy also folds on the fold-through frame (those seats folded; built from public state only, never learned by the opponent model); otherwise the frame answer is returned and the host drops the early fold so the Horse decides afresh on its own turn; no effect at the Horse's own turn, on the river or outside Lightning; measured by the beyond-big-blind probe (development seeds, all-Horse tables), so it stays off; live switch registration via the option switch follow-up migration",
+    'Lightning early fold'
+  ),
+  flag(
+    'lightningCheapEntryHoldem',
+    "2026-11-15 default OFF, release default OFF (off-only under preflop hold; materially engages alongside lightningEarlyFoldNeedsFoldThrough because without it the small blind early-folds at the deal): Lightning cash no-limit hold'em only (the Lightning participation predicate: public memory domain speed lightning, four to six dealt, big-blind ante, cash preflop, not all-in-or-fold); owner principle 5 (2026-11-15: a VPIP floor is met by the cheapest entry, never by raising): where the unopened branch folds, the small blind folded to completes and the small blind or the button behind one or more limpers (no raise, a call of one big blind or less) over-limps when (1 - r) x R x equity(k random hands) x (pot + call + added behind) x (1 - rake and jackpot fee share) covers the call (R 0.70 out of position, x0.94 at 200bb, 0.80 on the button; r per player behind 0.30 / 0.31 / 0.37 for NLH / PLO4 / PLO5, the measured share of small-blind completions the Horses' own big blind raises in Lightning; equity from the generated 40-bin table on the brain's own preflop order, k the players who can see the flop); never a raise, no other seat, no raised pot, raise ranges, 3-bets, sizing and postflop untouched; an observed maniac keeps the fold; uses unflooredTightness so no own-participation input or floor ever enters; at the Lightning price (engine rake and jackpot fee) the folded-to small blind takes the top 82.5% of hold'em hands at 50-100bb (62.5% at 200bb) and the button over-limp is not cleared; development evidence only (HorseLightningCheapEntry.ts), so it stays off",
+    'Lightning cheap entry'
+  ),
+  flag(
+    'lightningCheapEntryOmaha',
+    '2026-11-15 default OFF, release default OFF: Lightning cash PLO4 / PLO5 only, the same predicate and the same rule as lightningCheapEntryHoldem with the variant equity table and raise risk (complete or over-limp only where the unopened branch folds; never a raise; composes after the participation first-in raise cells); the folded-to small blind takes every PLO4 hand and the top 77.5% of PLO5 hands at 50-100bb; no own-participation input; development evidence only, so it stays off',
+    'Lightning cheap entry'
   ),
   flag(
     'facingClosedAllIn',
@@ -2441,8 +2562,8 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   state('bigBlindAnte', 'BB-ante structure'),
   state(
     'publicMemoryDomain',
-    'public rules of the hand being played (speed table / lightning, ante kind); the Lightning participation predicate reads speed and nothing else reads it at decision time',
-    'HorseLightningParticipation.lightningParticipationCtx (called by HorseLogic.decide; options lightningParticipationHoldem / lightningParticipationOmaha, default off)'
+    'public rules of the hand being played (speed table / lightning, ante kind); the Lightning participation predicate (for the participation and the cheap entry options) the Lightning-separate style read (L-016) and the Lightning fold-through (L-019) read speed and nothing else reads it at decision time',
+    'HorseLightningParticipation.lightningParticipationCtx and HorseLightningCheapEntry.lightningCheapEntryCtx (called by HorseLogic.decide; options lightningParticipationHoldem / lightningParticipationOmaha / lightningCheapEntryHoldem / lightningCheapEntryOmaha, default off); HorseLogic.prepareOriginalReads -> HorseMind.styleRead (option lightningStyleReadSeparate, default off); HorseLightningFoldThrough.lightningFoldThroughSeats (called by HorseLogic.decide; option lightningEarlyFoldNeedsFoldThrough, default off)'
   ),
   state('allInOrFold', 'all-in-or-fold table'),
   state('straddleActive', 'a straddle is posted (V18)'),
@@ -4138,6 +4259,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_one_pair_raise_folded',
     'HorseLogic wager_rules (HorseOmahaOnePair)',
     'a PLO4/PLO5 flop or turn raise with one pair and fewer than four nut-class outs, the call costing more than half the effective stack: became a fold',
+    'V94'
+  ),
+  receipt(
+    'hu_postflop_balance_flop_cbet',
+    'HorseLogic wager_rules (HorseHeadsUpPostflopBalance)',
+    'holdemHeadsUpPostflopBalance on: a heads-up in-position NLH cash flop c-bet decision after a check (single-raised pot) was replaced by the one 0.75-pot size or a check at the tier frequency',
+    'V94'
+  ),
+  receipt(
+    'hu_postflop_balance_check_raise_defend',
+    'HorseLogic wager_rules (HorseHeadsUpPostflopBalance)',
+    'holdemHeadsUpPostflopBalance on: a heads-up NLH cash flop fold to a check-raise after the horse c-bet, with a middle pair or better or a flush or open-ended straight draw, became a call',
+    'V94'
+  ),
+  receipt(
+    'hu_postflop_balance_later_street',
+    'HorseLogic wager_rules (HorseHeadsUpPostflopBalance)',
+    'holdemHeadsUpPostflopBalance on: a heads-up in-position NLH cash turn decision after a check (single-raised pot) was replaced by the one 0.70-pot size or a check at the tier frequency (the river is not covered)',
     'V94'
   ),
   receipt(
@@ -6005,6 +6144,12 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'Phase7'
   ),
   receipt(
+    'second_look_*',
+    'BrainTelemetry.noteSecondLookFires (HorseDecisionWorkerRuntime.executeDeep)',
+    'second_look_<key>_seen (the suffix is not doubled for a key already ending in _seen): a DEEP second look evaluation fired the receipt <key>. The second look decides with telemetry on inside a capture, so <key> itself is not counted there (the FAST look is its one count per decision) and each key counts at most once per second look. It does not say the second look action was executed: the decision journal records that. A zero on <key> and on its second_look_ counter means no live evaluation, first or second, fired it. second_look_receipt_fold_failed_seen: counting the collected keys threw after the second look was made (the decision is unaffected). Occurrence counters; named *_seen',
+    '2026-11-16'
+  ),
+  receipt(
     'v44_second_look',
     'HorseDecisionWorkerRuntime.executeDeep',
     'a second look completed at increased equity depth with the original HorseMind reads; declined, missing-read, cancelled and failed work is not a completed evaluation',
@@ -6658,7 +6803,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   // No floor: fixed-limit calls with a player left to act, with the opt-in option on.
   receipt(
     'fixed_limit_call_priced_remaining_action_seen',
-    'HorseLogic facing-a-bet call price (fixedLimitCallIsNotACommitment, HorseFixedLimitCallPrice.ts)',
+    "HorseLogic facing-a-bet call price (fixedLimitCallIsNotACommitment, HorseFixedLimitCallPrice.ts; fixed-limit hold'em cash only)",
     'a fixed-limit call with a live player left to act on an uncapped street was priced above the bare call by the expected further wagers of the street',
     'FixedLimitAdaptation'
   ),
@@ -6672,7 +6817,7 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
   // No floor: fixed-limit calls only, with the opt-in option on.
   receipt(
     'fixed_limit_call_not_a_commitment_seen',
-    'HorseLogic facing-a-bet commitment test (fixedLimitCallIsNotACommitment)',
+    "HorseLogic facing-a-bet commitment test (fixedLimitCallIsNotACommitment; fixed-limit hold'em cash only)",
     'a fixed-limit call the stack-to-pot or invested test would have priced as a commitment was priced as the one bet it is',
     'FixedLimitAdaptation'
   ),

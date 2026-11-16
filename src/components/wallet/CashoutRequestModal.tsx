@@ -29,6 +29,7 @@ import {
 } from '../../hooks/usePreparedCashoutOperations';
 import { formatRelativeShort } from '@/lib/date';
 import { SpadeConsole } from '../console/SpadeConsole';
+import { PromoPlayThroughProgress } from './PromoPlayThroughProgress';
 import './CashoutRequestModal.css';
 import { reportError } from '../../utils/errorReporter';
 import { fireVibration } from '../../utils/vibrationGate';
@@ -561,6 +562,7 @@ function CashoutRequestContent({
         >
           {/* The receipt checks print unstyled markup; this hook types it on
               the glass (display: contents, so it adds no box and no gap). */}
+          <PromoPlayThroughProgress clubId={clubId} />
           <div className="cro-receipts">
             <CashoutReceiptChecks checks={receiptChecks} />
           </div>

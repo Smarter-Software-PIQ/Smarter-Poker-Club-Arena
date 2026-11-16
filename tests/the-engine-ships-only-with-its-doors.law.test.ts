@@ -96,6 +96,25 @@ describe('the extractor finds every door the engine calls, and only those', () =
     );
   });
 
+  it('the shared hourly policy keeps both actual doors visible to the maintained extractor', async () => {
+    const { doorsIn, engineDoors } = await load();
+    const names = ['fn_cash_hourly_table_admissions', 'fn_cash_hourly_table_close'];
+    const policy = readFileSync(resolve(root, 'server/src/services/CashHourlyPolicy.ts'), 'utf8');
+    const found = doorsIn(policy);
+    const scanned = engineDoors(resolve(root, 'server/src'));
+    for (const name of names) {
+      expect(found.has(name), name).toBe(true);
+      expect(scanned.has(name), name).toBe(true);
+    }
+    const consumer = readFileSync(
+      resolve(root, 'server/src/services/supabase/cashHourlyTables.ts'),
+      'utf8'
+    );
+    expect(consumer).toContain('supabase.rpc(hourlyCashAdmissionRpcName)');
+    expect(consumer).toContain('supabase.rpc(hourlyCashCloseRpcName,');
+    expect(consumer).toContain("from '../CashHourlyPolicy.js'");
+  });
+
   it('sees both call sites that shipped without their function', async () => {
     const { engineDoors } = await load();
     const doors = engineDoors(resolve(root, 'server/src'));

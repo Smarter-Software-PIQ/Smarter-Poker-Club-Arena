@@ -212,7 +212,8 @@ describe('a style action-change receipt names a changed action', () => {
       observeMind: false,
       styleShadow: [],
     });
-    expect(r.calls[2]).toMatchObject({ styleBigBetHonesty: true, telemetry: false });
+    // the second look: counters on, inside the second-look capture (workerRuntime.executeDeep)
+    expect(r.calls[2]).toMatchObject({ styleBigBetHonesty: true, telemetry: true });
   });
 
   it('an amount alone counts as a change', async () => {
@@ -287,8 +288,11 @@ describe('a style action-change receipt names a changed action', () => {
     expect(r.fires['style_label_tight-passive_seen']).toBe(1);
     expect(r.fires['deep:style_fold_bluff_seen']).toBeUndefined();
     expect(r.fires['deep:style_label_tight-passive_seen']).toBeUndefined();
-    // an ordinary receipt is untouched: counted at each call in the FAST look, and in the second look as before
+    // an ordinary receipt: counted at each call in the FAST look. In the second look (2026-11-16, second-look
+    // receipts) it is no longer counted under its own name; it counts once under second_look_<key>_seen.
     expect(r.fires['v16_reads_cbet']).toBe(2);
-    expect(r.fires['deep:v16_reads_cbet']).toBe(2);
+    expect(r.fires['deep:v16_reads_cbet']).toBeUndefined();
+    expect(r.fires['deep:second_look_v16_reads_cbet_seen']).toBe(1);
+    expect(r.fires['deep:second_look_style_fold_bluff_seen']).toBeUndefined();
   });
 });

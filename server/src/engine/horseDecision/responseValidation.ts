@@ -41,6 +41,7 @@ import {
 import { omahaBeatenMustCheck, omahaBeatenNoRaise } from '../HorseOmahaMadeHandDefense.js';
 import { OMAHA_STREET_PLAN_VARIANTS, omahaStreetPlanAdmitsCheck } from '../HorseOmahaStreetPlan.js';
 import { omahaOnePairDiscipline } from '../HorseOmahaOnePair.js';
+import { huBalanceSpot } from '../HorseHeadsUpPostflopBalance.js';
 import {
   OMAHA_RIVER_MEDIUM_BET_VARIANTS,
   omahaRiverMediumBetCall,
@@ -1330,6 +1331,31 @@ function policyGraphIsValidInScope(
         ? transition.after.action === 'check'
         : String(context.gameState.gameVariant).toLowerCase() === variant &&
           onePairRuleProduces(previous, transition.after, context));
+    // HV31 FLOP-5 D1 (HorseHeadsUpPostflopBalance, option
+    // holdemHeadsUpPostflopBalance, default OFF): a heads-up in-position NLH
+    // cash bet becomes a check on a flop or turn checked to hero (its river
+    // part was removed after the solver score). Admit it only with the
+    // original request, where the rule's own public spot test agrees. A
+    // request-less receipt cannot establish the heads-up cash scope.
+    // Its flop fold to a check-raise that becomes a call is admitted only
+    // with the request, in that spot (the short all-in call floor's form).
+    const huBalanceSpotOfRequest =
+      context === undefined ? null : huBalanceSpot(context.player, context.gameState);
+    const huBalanceBetToCheck =
+      transition.node === 'wager_rules' &&
+      variant === 'nlh' &&
+      transition.after.action === 'check' &&
+      previous !== null &&
+      previous.action === 'bet' &&
+      context !== undefined &&
+      (huBalanceSpotOfRequest === 'flop_cbet' || huBalanceSpotOfRequest === 'turn_checked_to');
+    const huBalanceFoldToCall =
+      transition.node === 'wager_rules' &&
+      variant === 'nlh' &&
+      transition.after.action === 'call' &&
+      previous !== null &&
+      previous.action === 'fold' &&
+      huBalanceSpotOfRequest === 'flop_vs_check_raise';
     // PLO Strategy lane 2026-11-15 (HorseOmahaRiverMediumBetCalls): fold ->
     // call, admitted only with the request, where the rule re-run on it makes
     // the same call. Its whole-stack form is an all-in, a wager action.
@@ -1551,6 +1577,8 @@ function policyGraphIsValidInScope(
       changed &&
       !omahaDrawRaiseToCall &&
       !pairedBoardFold &&
+      !huBalanceBetToCheck &&
+      !huBalanceFoldToCall &&
       !omahaRiverMediumBetCalled &&
       !omahaCardImpactBetToCheck &&
       !omahaFacingBetEvCalled &&

@@ -138,5 +138,9 @@ _unshifted={k.split('(')[0] for k,v in UC['functions'].items() if re.search(r'\b
 assert not _unshifted,('a close function that reads a clock form the fixture clock does not shift was executed',sorted(_unshifted))
 case(f"union close, executed, the boundary (finding C1): the paid week's visit is the post-paid P&L qualification; it proves the week's original flows (84 windows) and hand parts (84 windows), then every later tick to 13:06Z ({len(visits)-last-1} ticks) returns the same certifying step, proves nothing new and pays nothing: for a union other than Midway the earned-plan advance carries a NULL inventory generation and weekly_hand_parts_read answers NULL for it, so the advance is false on every attempt (reproduced in one attempt). No square-up statement is issued, no delivery is recorded, the chip ledger keeps its {RAKEBACK_ROWS} rakeback rows. Past the boundary the report names ECO terms and original hand capture this fixture does not carry")
 record.append({'union_close':[{k:r.get(k) for k in ('at','rc','out','err','parts','run')} for r in closes]})
+exec((F/'weekly-invoices-promo.py').read_text())
+exec((F/'weekly-kings-welcome.py').read_text())
+exec((F/'weekly-agent-statements.py').read_text())
+exec((F/'weekly-club-statements.py').read_text())
 DB='postgres'
 if not A.keep: q("DROP DATABASE close;")  # author aid: --keep leaves it for inspection

@@ -2072,13 +2072,35 @@ function evaluateWithWorkspace(
     }
     return right.ledger.chipEv - left.ledger.chipEv;
   });
-  let selected = ranked[0].ledger;
   const baselineCandidate = evaluated.find((result) =>
     sameDecision(result.ledger, input.baseline)
   )?.ledger;
   if (!baselineCandidate) {
     return { result: null, unavailableReason: 'baseline_not_modeled' };
   }
+  const minSizedPostflopBet =
+    input.street !== 'preflop' &&
+    input.bettingStructure !== 'fixed_limit' &&
+    typeof input.maxRaiseTo === 'number' &&
+    Number.isFinite(input.maxRaiseTo) &&
+    typeof input.minRaiseTo === 'number' &&
+    Number.isFinite(input.minRaiseTo) &&
+    input.maxRaiseTo > input.minRaiseTo + EPS &&
+    Number.isFinite(input.pot) &&
+    input.pot > 0
+      ? Math.min(input.maxRaiseTo, Math.max(input.minRaiseTo, input.pot * 0.25))
+      : null;
+  const nonTinyRanked =
+    minSizedPostflopBet === null
+      ? ranked
+      : ranked.filter(
+          (item) =>
+            sameDecision(item.ledger, input.baseline) ||
+            item.ledger.action !== 'bet' ||
+            item.ledger.amount === null ||
+            item.ledger.amount >= minSizedPostflopBet - EPS
+        );
+  let selected = (nonTinyRanked[0] ?? ranked[0]).ledger;
   let baselineRetainedForUncertainty = false;
   let baselineRetainedForContinuation = false;
   if (

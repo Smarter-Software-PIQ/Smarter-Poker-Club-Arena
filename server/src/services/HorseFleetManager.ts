@@ -1,5 +1,6 @@
 import { readPloLightningDemand } from './PloLightningDemandRead.js';
 import { horseCashGameAllowed } from './HorseCashSchedule.js';
+import { readHourlyCashAdmissions } from './supabase/cashHourlyTables.js';
 import {
   horseCashPlanPrimaryTables,
   horseCashPlanSecondTables,
@@ -2918,10 +2919,13 @@ export class HorseFleetManager {
          hold belongs to fn_offer_open_seat's own sweep, which expires it and
          passes the seat to the next player in line. A draining table is still
          never answered, whatever the policy says. */
+      const hourlyAdmissions = await readHourlyCashAdmissions();
+      if (!readIsCurrent()) return;
+      let hourlyAutonomousStarted = false;
       const claimed = cycleWithheld
         ? 0
         : await this.claimOfferedSeats(
-            tables,
+            tables.filter((table) => hourlyAdmissions.has(table.id)),
             allActiveSeats,
             bankrolls,
             bankrollsLoaded,
@@ -3161,6 +3165,11 @@ export class HorseFleetManager {
       }
       for (const table of tablesToSeed) {
         if (!readIsCurrent()) break;
+        const hourly = hourlyAdmissions.get(table.id);
+        if (!hourly || (hourly.startsGame && hourlyAutonomousStarted)) {
+          beat.withheldTables++;
+          continue;
+        }
         let diag: OpeningFeederDiag | null = null;
         try {
           /* THE DIAGNOSTIC IS OPENED FIRST (2026-09-06). It used to be created
@@ -4141,6 +4150,7 @@ export class HorseFleetManager {
              refused anything a human is not - the OPORD holds a one-buyer
              opening for a partner too. Counted and logged once per cycle. */
           if (
+            hourly.maxHorses !== 1 &&
             refusesLoneSeat({
               clusterTable: !!table.cluster_id,
               currentCount,
@@ -4188,11 +4198,12 @@ export class HorseFleetManager {
             }
             if (
               cleared.length === 0 ||
-              refusesLoneSeat({
-                clusterTable: !!table.cluster_id,
-                currentCount,
-                sittable: cleared.length,
-              })
+              (hourly.maxHorses !== 1 &&
+                refusesLoneSeat({
+                  clusterTable: !!table.cluster_id,
+                  currentCount,
+                  sittable: cleared.length,
+                }))
             ) {
               for (const c of cleared) seatPicker.release(c.seatNumber);
               seatCeilingSkipped++;
@@ -4201,6 +4212,10 @@ export class HorseFleetManager {
             }
           }
 
+          // New games fill one chair per persisted 2-4 minute arrival window.
+          // This deliberately supersedes the old simultaneous partner draw.
+          for (const c of cleared.slice(hourly.maxHorses)) seatPicker.release(c.seatNumber);
+          cleared.splice(hourly.maxHorses);
           // Seat each horse at an ACTUAL empty seat
           let seated = 0;
           /* ONE SEATING, ONE PLACE. The main pass below and the lone-seat
@@ -4258,6 +4273,7 @@ export class HorseFleetManager {
               }
             );
             if (!success) return false;
+            if (hourly.startsGame) hourlyAutonomousStarted = true;
             seated++;
             totalSeated++;
             seatBudget--;
@@ -4322,7 +4338,13 @@ export class HorseFleetManager {
              cluster table ends this pass with exactly one horse, the rest of
              the pool is asked, in order, until a second one sits or the pool
              is spent. Same verdict, same door, same bookkeeping. */
-          if (table.cluster_id && currentCount === 0 && seated === 1 && seatBudget > 0) {
+          if (
+            hourly.maxHorses !== 1 &&
+            table.cluster_id &&
+            currentCount === 0 &&
+            seated === 1 &&
+            seatBudget > 0
+          ) {
             const tried = new Set(cleared.map((c) => c.horse.id));
             let secondDrawTried = 0;
             for (const h of pool) {

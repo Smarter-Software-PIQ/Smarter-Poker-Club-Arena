@@ -618,7 +618,11 @@ export function readMobileTableLayout(crowns: Readonly<Record<string, number>>) 
       const header = document.querySelector('.multi-table-page__tab-bar-wrapper');
       if (caption.top < (header ? box(header).bottom : 0) - 0.5 || caption.bottom > innerHeight + 1)
         violations.push('Action Caption Outside Playable Viewport');
-      for (const protectedNode of [...cards, ...plates])
+      for (const protectedNode of [
+        ...cards,
+        ...plates,
+        ...table.querySelectorAll('.chat-collapsed,.mtp-lobby-btn'),
+      ])
         if (intersects(box(action), box(protectedNode)))
           violations.push(`Action Caption Covers ${protectedNode.className}`);
     }

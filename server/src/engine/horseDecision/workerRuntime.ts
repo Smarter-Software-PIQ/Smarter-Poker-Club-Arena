@@ -118,6 +118,7 @@ import {
 
 import { HorseLogic } from '../HorseLogic.js';
 import { HorseMind } from '../HorseMind.js';
+import { publicMemoryDomainIsValid } from '../HorsePublicMemoryDomain.js';
 import { completedHandActionsForMind } from './completedHandActions.js';
 import { HorseMindMirror, type HorseMindMirrorOutcome } from './mindMirror.js';
 import { readReturnedRosterTransport } from '../../services/horseAcceptedRoster/schema.js';
@@ -249,6 +250,7 @@ import {
   startGtoPostflopV31Loader,
   stopGtoPostflopV31Loader,
 } from '../../services/GtoPostflopV31Loader.js';
+import { noteGtoV31CellContractV3ServingSwitch } from '../GtoV31CellContractV3Serving.js';
 import {
   solverPolicyArtifactStatus,
   startSolverPolicyArtifactLoader,
@@ -293,16 +295,22 @@ import {
   type StyleActionReceiptOption,
   STYLE_READ_BUDGET_MS,
   STYLE_SHADOW_REDECIDE_BUDGET_MS,
+  styleReceiptFormat,
+  styleReceiptFormatCode,
   styleShadowAggregateKey,
+  styleShadowOptionCode,
   styleShadowPick,
+  takeStyleLiveEngaged,
   takeStyleReadMs,
   takeStyleShadowEngaged,
   type StyleShadowEngagement,
 } from '../HorseStyleShadow.js';
 import {
+  noteSecondLookFires,
   withBrainTelemetrySuspended,
   withDecisionFireScope,
   withOncePerDecisionReceiptsSuppressed,
+  withSecondLookFireCapture,
 } from '../BrainTelemetry.js';
 import { noteHorseUpgradeDecision } from '../HorseUpgradeEvidence.js';
 import { reportError } from '../../services/errorReporter.js';
@@ -679,8 +687,22 @@ function observeCompletedHandInMind(request: ObserveCompletedHandRequest): void 
     request.riverCallContext,
     request.retainedRiverCalls,
     styleMemoryModeOf(request),
-    request.styleHasHuman === true
+    request.styleHasHuman === true,
+    styleSpeedOf(request)
   );
+}
+
+/**
+ * L-016 (2026-11-15): the hand's public memory domain speed for the style learner, from the accepted hand's own
+ * public rules (the Lightning host sends {speed:'lightning'}, a Classic table {speed:'table'}). Absent or invalid:
+ * undefined, and the learner files the hand into the pooled maps only, as before. Exported for the wiring test.
+ */
+export function styleSpeedOf(request: {
+  publicMemoryDomain?: unknown;
+}): 'table' | 'lightning' | undefined {
+  return publicMemoryDomainIsValid(request.publicMemoryDomain)
+    ? request.publicMemoryDomain.speed
+    : undefined;
 }
 
 /**
@@ -2932,7 +2954,8 @@ export class HorseDecisionWorkerRuntime {
    * fallback included. Not counted: an execution that threw (no decision), the
    * style-shadow re-decision (it runs with the counters suspended, so its
    * fires never reach the scope), DEEP second looks (executeDeep is outside
-   * the scope and runs with telemetry off) and discards.
+   * the scope; its fires are collected and counted under second_look_) and
+   * discards.
    */
   private executeFastWithUpgradeEvidence(request: FastHorseDecisionRequest): HorseLifecycleOutcome {
     const scoped = withDecisionFireScope(() => this.executeFast(request));
@@ -3042,6 +3065,8 @@ export class HorseDecisionWorkerRuntime {
     const optionBrainOpts = optionSwitchDecisionOpts(optionStates);
     // the decision's own observation counts with the state this decision journals (process switch, see above)
     HorseMind.applyFixedLimitBetsAreNeverProbesOption(optionBrainOpts);
+    // The V31 loader has no decision: it follows the value this read gives the v3 serving option (FLOP-5 D6).
+    noteGtoV31CellContractV3ServingSwitch(optionBrainOpts.gtoV31CellContractV3Serving);
     // P15-A step 4: the worker-owned state this decision reads besides its
     // request and read frame, journaled beside it for exact replay. Capture
     // only; the decision below reads the same values it always has.
@@ -3108,6 +3133,7 @@ export class HorseDecisionWorkerRuntime {
     clearStyleOptionsApplied();
     let styleApplied: StyleActionReceiptOption[] = [];
     let styleEngaged: StyleShadowEngagement[] = [];
+    let styleLiveEngaged: StyleShadowEngagement[] = [];
     let fastOpts: Parameters<HorseDecisionWorkerDependencies['decide']>[4] | undefined;
     const player = deepFreeze(request.player);
     const gameState = deepFreeze(request.gameState);
@@ -3154,6 +3180,7 @@ export class HorseDecisionWorkerRuntime {
       styleApplied = takeStyleOptionsApplied();
       if (styleActive) {
         styleEngaged = takeStyleShadowEngaged();
+        styleLiveEngaged = takeStyleLiveEngaged();
         // LATENCY (2026-11-13): the style read's own time in this decision, against the 0.25 ms budget. Counted only
         // when a consumer read a style (M2 note: a decision where none ran would dilute the over-budget share).
         const styleMs = takeStyleReadMs();
@@ -3165,8 +3192,8 @@ export class HorseDecisionWorkerRuntime {
       }
     }
     // One telemetry-on brain evaluation finished: the denominator of the
-    // brain-stage clamps it may have counted. Deep second looks replay with
-    // telemetry off and are not counted (BrainTelemetry opportunity reasons).
+    // brain-stage clamps it may have counted. Deep second looks record no
+    // watchcounter and are not counted (BrainTelemetry opportunity reasons).
     noteHorseTelemetryOpportunity(
       request.gameState.gameVariant,
       request.gameState.gameMode === 'tournament' ? 'tournament' : 'cash',
@@ -3393,6 +3420,16 @@ export class HorseDecisionWorkerRuntime {
       throw error;
     }
     this.deps.noteFeature(`phase15_plan_issue_${planIssueDisposition}`);
+    // LIVE ENGAGEMENT RECEIPTS (2026-11-15): an option that is ON and applied its adjustment in this decision is
+    // counted by format, once per engaged option per decision. Telemetry only: nothing re-decides because of an ON
+    // option (the live counterfactual is Hold'em Strategy's R1), and the shadow below is unchanged.
+    const styleFormat =
+      styleLiveEngaged.length > 0 ? styleReceiptFormat(request.gameState) : 'cash';
+    // style_engaged_<opt>_<c|t|l>_seen: 7 options x 3 formats = 21 keys
+    for (const e of styleLiveEngaged)
+      this.deps.noteFeature(
+        `style_engaged_${styleShadowOptionCode(e.option)}_${styleReceiptFormatCode(styleFormat)}_seen`
+      );
     // SHADOW (2026-11-13): after the committed result is sent, before this turn of the loop ends (so Horse memory
     // is exactly what the decision read). M2: at most ONE re-decision per decision, never with work queued behind
     // this one, never when the committed decision already took longer than the budget, and only at the committed
@@ -3697,54 +3734,62 @@ export class HorseDecisionWorkerRuntime {
     let decision;
     let rngAfter: number | null = null;
     let governorScale!: number;
+    const secondLook: { fired: ReadonlySet<string> | null } = { fired: null };
     try {
       const player = deepFreeze(request.player);
       const gameState = deepFreeze(request.gameState);
-      // R1 (2026-11-15, audit C 7): the second look runs with telemetry off, but the read-time style receipts
-      // are not telemetry-gated; the FAST look already counted them, so here they are suppressed.
+      // R1 (2026-11-15, audit C 7): the read-time style receipts are not telemetry-gated; the FAST look already
+      // counted them, so here they are suppressed.
+      // SECOND-LOOK RECEIPTS (2026-11-16): the second look decides with telemetry on INSIDE a capture, so no
+      // receipt is counted under its own name here (the FAST look is that count); the keys it fired are
+      // collected and counted once each under second_look_<key>_seen after the decision is made.
       const run = this.atGovernorScale(() =>
-        withOncePerDecisionReceiptsSuppressed(() =>
-          HorseMind.runInSandbox(
-            readView,
-            () =>
-              this.deps.captureDecisionEffects(() =>
-                this.deps.decide(
-                  player,
-                  gameState,
-                  request.style,
-                  request.mods,
-                  {
-                    ...request.opts,
-                    ...features.flags,
-                    multiwayRiverBluffCheckRaise: features.flags.multiwayRiverBluffCheckRaise,
-                    // STYLE READ LIVE SWITCH: the second look runs the options ON; shadow is evaluated on the fast look
-                    ...styleSwitchBrainOpts(
-                      styleSwitchDecisionOpts(deepStyleStates, request.player.user_id, false)
-                    ),
-                    ...optionSwitchDecisionOpts(deepOptionStates),
-                    v53PloTourneyIcm: this.tournamentFlagOn(request),
-                    phase8Postflop: phase8Guard.selected ? phase8Guard.mode : phase8.mode,
-                    phase8PolicyFamily: phase8Guard.selected
-                      ? 'catastrophe_guard_v1'
-                      : 'continuation_v2',
-                    phase10Plo4: phase10.mode,
-                    phase11Omaha: phase11.mode,
-                    phase12Remaining: phase12.mode,
-                    phase13Joint: phase13.mode,
-                    phase14Corrective: phase14.evaluator ?? undefined,
-                    decisionTimeMs: request.decisionTimeMs,
-                    telemetry: false,
-                    deepEquity: request.deepEquity,
-                    observeMind: false,
-                    mindPlanContext: planContext,
-                  },
-                  rangeCapture,
-                  planReadCapture,
-                  deepDiveCapture
-                )
-              ).value
-          )
-        )
+        withOncePerDecisionReceiptsSuppressed(() => {
+          const captured = withSecondLookFireCapture(() =>
+            HorseMind.runInSandbox(
+              readView,
+              () =>
+                this.deps.captureDecisionEffects(() =>
+                  this.deps.decide(
+                    player,
+                    gameState,
+                    request.style,
+                    request.mods,
+                    {
+                      ...request.opts,
+                      ...features.flags,
+                      multiwayRiverBluffCheckRaise: features.flags.multiwayRiverBluffCheckRaise,
+                      // STYLE READ LIVE SWITCH: the second look runs the options ON; shadow is evaluated on the fast look
+                      ...styleSwitchBrainOpts(
+                        styleSwitchDecisionOpts(deepStyleStates, request.player.user_id, false)
+                      ),
+                      ...optionSwitchDecisionOpts(deepOptionStates),
+                      v53PloTourneyIcm: this.tournamentFlagOn(request),
+                      phase8Postflop: phase8Guard.selected ? phase8Guard.mode : phase8.mode,
+                      phase8PolicyFamily: phase8Guard.selected
+                        ? 'catastrophe_guard_v1'
+                        : 'continuation_v2',
+                      phase10Plo4: phase10.mode,
+                      phase11Omaha: phase11.mode,
+                      phase12Remaining: phase12.mode,
+                      phase13Joint: phase13.mode,
+                      phase14Corrective: phase14.evaluator ?? undefined,
+                      decisionTimeMs: request.decisionTimeMs,
+                      telemetry: true,
+                      deepEquity: request.deepEquity,
+                      observeMind: false,
+                      mindPlanContext: planContext,
+                    },
+                    rangeCapture,
+                    planReadCapture,
+                    deepDiveCapture
+                  )
+                ).value
+            )
+          );
+          secondLook.fired = captured.fired;
+          return captured.value;
+        })
       );
       decision = run.value;
       governorScale = run.scale;
@@ -3763,6 +3808,12 @@ export class HorseDecisionWorkerRuntime {
     const computeMs = Math.max(0, this.deps.now() - startedAt);
     this.deps.noteDecision(`deep:${request.gameState.gameVariant || 'nlh'}`, computeMs);
     this.deps.noteFeature('v44_second_look');
+    // Measurement only, after the decision is made; a failure here must not lose the second look.
+    try {
+      if (secondLook.fired) noteSecondLookFires(secondLook.fired);
+    } catch {
+      this.deps.noteFeature('second_look_receipt_fold_failed_seen');
+    }
     if (decision.tournamentUtility?.evidence) {
       decision = {
         ...decision,

@@ -1515,6 +1515,21 @@ body[data-ca-pinned-bar='1'] [data-fullscreen-overlay] {
   color: #e4e7ec;
   font-size: 12px;
 }
+/* Following a tournament player adds a status control in the upper gutter.
+   It must not insert another row above the same nine seats. */
+@media (min-width: 481px) and (max-width: 640px) and (orientation: portrait) {
+  .multi-table-page:has(
+      .multi-table-page__table-slot--active .table-page--tournament[data-seats='9']
+    )
+    .mtp-player-follow {
+    flex: 0 0 0;
+    height: 0;
+    padding-block: 0;
+    align-items: baseline;
+    position: relative;
+    z-index: 2;
+  }
+}
 .mtp-player-follow span {
   min-width: 0;
   overflow: hidden;

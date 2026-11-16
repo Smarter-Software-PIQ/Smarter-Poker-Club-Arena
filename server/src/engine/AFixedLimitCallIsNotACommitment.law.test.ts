@@ -20,6 +20,15 @@
  * call, by the expected further wagers. Facing one fixed river bet, a Horse
  * continues or folds exactly as it does with a deep stack. With the option
  * off (main) the short stack folds hands the deep stack calls.
+ *
+ * Scope (2026-11-16, the Fixed-Limit lane owner's ruling; HorseLogic
+ * fixedLimitCallIsNotACommitmentInScope): the option acts only on fixed-limit
+ * HOLD'EM at a CASH table. Hi-lo showed no value (flo8 six seats against the
+ * maniac -7.09 +/- 4.28 and +1.07 +/- 3.46 big bets per 100, agent evidence
+ * fixed-limit-01Gw7aDr AB-EVALUATION-2.md 3.7 and 3.15) and no fixed-limit
+ * tournament case was evaluated, so with the option on a flo8 decision (cash
+ * or tournament) and a flh tournament decision equal the option off and no
+ * F2 receipt fires; at flh cash it still changes the decisions it changed.
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { HorseMind } from './HorseMind.js';
@@ -31,10 +40,36 @@ import {
   fixedLimitRaiseBehindRate,
   fixedLimitRemainingAction,
 } from './HorseFixedLimitCallPrice.js';
-import { menuOf } from './HuVariantSpot.test-support.js';
+import { menuOf, type Fmt } from './HuVariantSpot.test-support.js';
 
 const ON = { fixedLimitCallIsNotACommitment: true } as const;
 const continues = (a: string) => a !== 'fold';
+const F2_RECEIPTS = [
+  'fixed_limit_call_priced_remaining_action_seen',
+  'fixed_limit_call_not_a_commitment_seen',
+] as const;
+
+/** Option on vs off on the same spot and seed: action and amount, and the F2 receipts of the on arm. */
+function onVsOff(o: {
+  variant: 'flh' | 'flo8';
+  seats: number;
+  stack: number;
+  fmt: Fmt;
+  seed: number;
+}) {
+  const spot = () => fixedLimitRiverFacingOneBet(o);
+  const a = spot();
+  const b = spot();
+  if (!a || !b) return null;
+  const on = withDecisionFireScope(() => decideSpot(a, 500 + o.seed, { ...ON, telemetry: true }));
+  const off = withDecisionFireScope(() => decideSpot(b, 500 + o.seed, { telemetry: true }));
+  return {
+    seed: o.seed,
+    on: `${on.value.d.action}:${on.value.d.amount ?? ''}`,
+    off: `${off.value.d.action}:${off.value.d.amount ?? ''}`,
+    receipts: F2_RECEIPTS.filter((f) => on.fired.has(f) || off.fired.has(f)),
+  };
+}
 
 afterEach(() => HorseMind.reset());
 
@@ -186,7 +221,7 @@ describe('a fixed-limit call is not a commitment', () => {
   it('a call with a player left to act is priced above the bare call; the closing call is not', () => {
     enableBrainTelemetry();
     const priced = (hero: number | undefined) => {
-      const t = fixedLimitRiverFacingOneBet({ variant: 'flo8', seats: 4, stack: 1000, seed: 3 })!;
+      const t = fixedLimitRiverFacingOneBet({ variant: 'flh', seats: 4, stack: 1000, seed: 3 })!;
       if (hero === 1) {
         expect(t.controller.performAction(3, 'call', undefined, 'player')).toBe(true);
         expect(t.controller.performAction(4, 'call', undefined, 'player')).toBe(true);
@@ -197,11 +232,7 @@ describe('a fixed-limit call is not a commitment', () => {
     expect(priced(1).has('fixed_limit_call_priced_remaining_action_seen')).toBe(false);
   }, 120_000);
 
-  for (const [variant, seats] of [
-    ['flo8', 6],
-    ['flo8', 4],
-    ['flh', 4],
-  ] as const) {
+  for (const [variant, seats] of [['flh', 4]] as const) {
     it(`${variant} ${seats} seats: a one-bet river call is judged at its price whatever the stack`, () => {
       const rows = sweep(variant, seats, ON);
       expect(rows.length).toBeGreaterThanOrEqual(30);
@@ -226,14 +257,59 @@ describe('a fixed-limit call is not a commitment', () => {
     enableBrainTelemetry();
     let fired = 0;
     for (let seed = 1; seed <= 10; seed++) {
-      const t = fixedLimitRiverFacingOneBet({ variant: 'flo8', seats: 6, stack: 40, seed });
+      const t = fixedLimitRiverFacingOneBet({ variant: 'flh', seats: 6, stack: 40, seed });
       if (!t) continue;
       const on = withDecisionFireScope(() => decideSpot(t, 500 + seed, { ...ON, telemetry: true }));
       if (on.fired.has('fixed_limit_call_not_a_commitment_seen')) fired++;
-      const t2 = fixedLimitRiverFacingOneBet({ variant: 'flo8', seats: 6, stack: 40, seed })!;
+      const t2 = fixedLimitRiverFacingOneBet({ variant: 'flh', seats: 6, stack: 40, seed })!;
       const off = withDecisionFireScope(() => decideSpot(t2, 500 + seed, { telemetry: true }));
       expect(off.fired.has('fixed_limit_call_not_a_commitment_seen')).toBe(false);
     }
     expect(fired).toBeGreaterThan(0);
   }, 120_000);
+
+  // SCOPE (2026-11-16): fixed-limit hold'em cash only.
+  for (const [variant, fmt] of [
+    ['flo8', 'cash'],
+    ['flo8', 'tournament'],
+    ['flh', 'tournament'],
+  ] as const) {
+    it(`scope: ${variant} ${fmt}, with the option on every decision equals the option off and no F2 receipt fires`, () => {
+      enableBrainTelemetry();
+      let decided = 0;
+      const changed: string[] = [];
+      const receipts: string[] = [];
+      for (const seats of [4, 6])
+        for (const stack of [40, 1000])
+          for (let seed = 1; seed <= 20; seed++) {
+            const r = onVsOff({ variant, seats, stack, fmt, seed });
+            if (!r) continue;
+            decided++;
+            const at = `${seats} seats, stack ${stack}, seed ${seed}`;
+            if (r.on !== r.off) changed.push(`${at}: ${r.off} > ${r.on}`);
+            if (r.receipts.length > 0) receipts.push(`${at}: ${r.receipts.join(', ')}`);
+          }
+      expect(decided).toBeGreaterThanOrEqual(60);
+      expect(changed).toEqual([]);
+      expect(receipts).toEqual([]);
+    }, 240_000);
+  }
+
+  it('scope: at flh cash the option still changes decisions, with its receipts', () => {
+    enableBrainTelemetry();
+    const changed: string[] = [];
+    let fired = 0;
+    for (const seats of [4, 6])
+      for (let seed = 1; seed <= 20; seed++) {
+        const r = onVsOff({ variant: 'flh', seats, stack: 40, fmt: 'cash', seed });
+        if (!r) continue;
+        if (r.receipts.length > 0) fired++;
+        if (r.on !== r.off) changed.push(`${seats} seats seed ${seed}: ${r.off} > ${r.on}`);
+      }
+    expect(fired).toBeGreaterThan(0);
+    // Measured 2026-11-16 at the scope head: 4 seats seeds 4, 6 and 18, 6 seats seeds 8, 16 and 19.
+    expect(changed.length, changed.join('; ')).toBeGreaterThan(0);
+    // Every change is a short-stack continue the commitment surcharge had refused (fold or a stack-off shove becomes the one-bet call).
+    for (const c of changed) expect(c).toMatch(/: (fold|all_in):\d* > call:\d+$/);
+  }, 240_000);
 });

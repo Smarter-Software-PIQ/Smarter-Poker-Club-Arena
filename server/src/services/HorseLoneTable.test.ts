@@ -7,6 +7,10 @@
  * a hand, and the lobby showed dozens of games with "1" where nothing was
  * happening.
  *
+ * Owner November 16: a newly assembling cash game deliberately seats one
+ * Horse every 2-4 minutes. Its hourly admission projection supersedes the
+ * simultaneous partner draw; the ten-minute abandoned-lone rule stays.
+ * The legacy arithmetic below still applies to unpaced established games.
  * Two rules, both pinned here:
  *   THE SEEDING RULE - a cluster table is seeded to a dealable minimum or not
  *     at all (HorseFleetManager, via seatsToDealable / refusesLoneSeat);

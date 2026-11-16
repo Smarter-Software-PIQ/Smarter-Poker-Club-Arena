@@ -57,6 +57,18 @@ describe('a Backup copy is certified by the migrations it holds', () => {
     );
   }, 120000);
 
+  it('qualifies recorded-name authority and checks every ordinary migration before dispatch', () => {
+    const manifest = 'scripts/ci/recorded-migrations.manifest.json';
+    expect(backup.on.push.paths).toContain(manifest);
+    expect(
+      parse(read('.github/workflows/engine-release-prequalification.yml')).on.push.paths
+    ).toContain(manifest);
+    expect(read('scripts/ci/read-engine-prequalification.py')).toContain(`"${manifest}"`);
+    expect(read('docs/ENGINE-OWNER-WINDOW-CUTOVER-PLAYBOOK.md')).toContain('candidate-ready');
+    expect(read('PUBLISHING.md')).toContain('candidate-ready');
+    expect(read('docs/ENGINE-RELEASE-RUNBOOK.md')).toContain('candidate-ready');
+  });
+
   it('the selector no longer decides on commit time against restore time', () => {
     const fn = SELECTOR.slice(
       SELECTOR.indexOf('def current_schema('),

@@ -527,3 +527,99 @@
   font-weight: 600;
   color: #ff6b6b;
 }
+
+/* Same artwork as the Session Results card. Keep the full share controls reachable on short screens. */
+.share-hand-modal {
+  width: min(95vw, 470px);
+  max-width: none;
+  max-height: 94dvh;
+  overflow-y: auto;
+  padding: 18px clamp(12px, 4vw, 26px);
+  box-sizing: border-box;
+  border-radius: 18px;
+  background: #101318;
+  border: 12px solid transparent;
+  border-image: url('/assets/results/session-frame.webp') 25 27 / 12px stretch;
+  font-family: 'Arial Narrow', 'Roboto Condensed', sans-serif;
+}
+.share-hand__header,
+.share-hand__result {
+  border: 2px ridge #9eafbc;
+  background: #121419 url('/assets/results/session-quilt.webp') center / cover;
+}
+.share-hand__header {
+  justify-content: center;
+  position: relative;
+  padding: 10px 44px;
+}
+.share-hand__header .share-hand__title {
+  font-family: Impact, 'Arial Narrow', sans-serif;
+  font-size: 1.8rem;
+  text-transform: uppercase;
+}
+.share-hand__header .share-hand__close {
+  position: absolute;
+  right: 4px;
+  color: white;
+  background: #181b21;
+}
+.share-hand__preview {
+  margin: 0;
+  padding: 0;
+  background: #090b0d;
+  border: 0;
+}
+.share-hand__game {
+  background: linear-gradient(#213046, #05070a, #172e43);
+  color: white;
+  padding: 5px;
+}
+.share-hand__result {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  gap: 8px;
+  padding: 8px;
+}
+.share-hand__result small,
+.share-hand__result strong {
+  display: block;
+}
+.share-hand__result small {
+  color: #c1cbd1;
+  text-transform: uppercase;
+}
+.share-hand__result strong {
+  color: white;
+  font-size: 1.4rem;
+  overflow-wrap: anywhere;
+}
+.share-hand__result div:last-child strong {
+  color: #3fb950;
+}
+.share-hand__board {
+  margin: 0;
+  padding: 6px;
+}
+.share-hand__table-picture {
+  height: clamp(130px, 24dvh, 220px);
+  overflow: hidden;
+  position: relative;
+}
+.share-hand__table-picture .table-page.shared-table-stage {
+  width: 200%;
+  height: 200%;
+  min-height: 0;
+  transform: scale(0.5);
+  transform-origin: top left;
+}
+.share-hand-modal .share-hand__copy-btn,
+.share-hand-modal .share-hand__native-share,
+.share-hand-modal .share-hand__copy-embed {
+  color: white;
+  background: #101721 url('/assets/results/session-button.webp') center / 100% 100%;
+}
+.share-hand__tabs,
+.share-hand__content {
+  background: #0d1016;
+}

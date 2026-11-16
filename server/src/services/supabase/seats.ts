@@ -78,7 +78,7 @@ export interface SeatCashoutReceipt {
 }
 
 /** A receipt must prove the exact occupancy this request was authorized for. */
-function confirmedCashout(data: unknown, scope: CashoutScope): SeatCashoutReceipt {
+export function confirmedCashout(data: unknown, scope: CashoutScope): SeatCashoutReceipt {
   if (!data || typeof data !== 'object' || Array.isArray(data)) {
     throw new Error('Cash-out receipt missing; departure unconfirmed');
   }

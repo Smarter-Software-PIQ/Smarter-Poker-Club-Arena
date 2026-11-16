@@ -2259,6 +2259,20 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaNutClassValueSize: true },
     b: {},
   })),
+  // 2026-11-15 HV31 FLOP-5 D1 HEADS-UP POSTFLOP BALANCE
+  // (holdemHeadsUpPostflopBalance, default OFF): a switches on the heads-up
+  // in-position hold'em c-bet, check-raise defence and turn balance
+  // (HorseHeadsUpPostflopBalance.ts; its river part was removed after the
+  // solver score); b is today's brain. The solver-side before/after measure
+  // is the HV31 B1 tool (flop) and its turn/river bank.
+  {
+    name: 'nlh_hu_postflop_balance',
+    variant: 'nlh',
+    pairs: 6000,
+    productionStyles: true,
+    a: { holdemHeadsUpPostflopBalance: true },
+    b: {},
+  },
   // 2026-11-15 OMAHA MADE-HAND DEFENCE (omahaBeatenMadeHandDefense) and
   // ONE-PAIR DISCIPLINE (omahaOnePairDiscipline), default OFF after their
   // declared evaluations failed: a switches the rule on, b is today's brain.
@@ -4057,12 +4071,22 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
   })),
   // 2026-11-14 (Fixed-Limit lane, adaptation fix F2, the call price): a default-off
   // fixed-limit arm. Refused, not dealt: this league cannot ask the question.
+  // 2026-11-16: the option is scoped to fixed-limit hold'em cash, so the flo8 arm is inert by scope.
   ...(
     [
-      ['flo8_call_is_not_a_commitment', 'flo8', 6, { fixedLimitCallIsNotACommitment: true }, 11],
-      ['flh_call_is_not_a_commitment', 'flh', 6, { fixedLimitCallIsNotACommitment: true }, 6],
+      [
+        'flo8_call_is_not_a_commitment',
+        'flo8',
+        6,
+        { fixedLimitCallIsNotACommitment: true },
+        0,
+        ' (11 of 300 on 2026-11-15, before the scope: since 2026-11-16 the option acts only on ' +
+          "fixed-limit hold'em at a cash table, HorseLogic fixedLimitCallIsNotACommitmentInScope, so " +
+          'at flo8 it changes nothing)',
+      ],
+      ['flh_call_is_not_a_commitment', 'flh', 6, { fixedLimitCallIsNotACommitment: true }, 6, ''],
     ] as const
-  ).map(([name, variant, seats, a, d]) => ({
+  ).map(([name, variant, seats, a, d, note]) => ({
     name,
     variant,
     seats,
@@ -4072,8 +4096,8 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'Unanswerable by this league: playHand deals no-limit and pot-limit betting and has no ' +
       'fixed-limit street unit, wager cap or controller menu, and every gate of this option ' +
       'requires a fixed-limit state (HorseLogic: vi.isFixedLimit). The option is DEFAULT OFF (read as === true). ' +
-      'Measured 2026-11-15 by running this refused matchup through runMatchup (seed 20261115, 300 pairs): ' +
-      `${d} of 300 pairs diverged. The league deals the variant's cards with its own betting while ` +
+      'Measured 2026-11-15 and again 2026-11-16 by running this refused matchup through runMatchup (seed 20261115, 300 pairs): ' +
+      `${d} of 300 pairs diverged${note}. The league deals the variant's cards with its own betting while ` +
       'HorseLogic takes the fixed-limit path from the variant name, so that divergence is not a ' +
       'fixed-limit measurement and decides nothing. ' +
       'What would change this: a fixed-limit duplicate league (real ' +
@@ -4252,6 +4276,49 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'big blind, a new table every hand) and sets the domain.',
   },
   {
+    // L-016 (2026-11-15, Lightning lane): the style consumers are on in BOTH arms, so the one-arm question is the
+    // Lightning-separate style read itself.
+    name: 'nlh_style_lightning_separate',
+    a: {
+      lightningStyleReadSeparate: true,
+      styleRaiseRespect: true,
+      styleBigBetHonesty: true,
+      styleValueBettorNotManiac: true,
+    },
+    b: { styleRaiseRespect: true, styleBigBetHonesty: true, styleValueBettorNotManiac: true },
+    reason:
+      'No Lightning domain in the league table. lightningStyleReadSeparate is DEFAULT OFF (HorseLogic: ' +
+      'opts.lightningStyleReadSeparate === true) and it reaches the style read only on a decision whose ' +
+      'gs.publicMemoryDomain.speed is "lightning" (HorseLogic.prepareOriginalReads); the style read then takes ' +
+      'postflop aggression, river size buckets and the Horse reference from the Lightning-only maps, which the ' +
+      'learner fills only from hands it is given with speed "lightning". The league deals its own tables, sets ' +
+      'no public memory domain and learns its hands without a speed, so both arms read the pooled maps and play ' +
+      'identical poker (style_lightning_separate_read_seen never fires) and the card would report 0.00 +/- 0.00 ' +
+      'every night. Measured 2026-11-15 on this matchup as written (style consumers on in both arms): 0 of ' +
+      '2,000 pairs diverged six-handed and 0 of 2,000 pairs diverged heads-up (run seed 20261115). It is ' +
+      'pinned where the domain exists: lightning/aLightningStyleReadKeepsItsOwnEvidence.law.test.ts (constructed ' +
+      'Lightning and Classic evidence of one player: the Lightning 4x turn check-raise is called 24/24 pooled, ' +
+      'folded 24/24 with the option). What would change this: a league context that deals the Lightning ' +
+      'contract and sets the domain, with a field whose Lightning and Classic play differ, learned with the ' +
+      'speed; the paired Lightning harness (lightning/LightningPairedEval.test.ts) is the place to measure it.',
+  },
+  {
+    name: 'nlh_lightning_early_fold_needs_fold_through',
+    a: { lightningEarlyFoldNeedsFoldThrough: true },
+    b: {},
+    reason:
+      'No Lightning domain and no early look in the league table. lightningEarlyFoldNeedsFoldThrough is ' +
+      'DEFAULT OFF (HorseLogic.decide: opts.lightningEarlyFoldNeedsFoldThrough === true) and acts only on a ' +
+      'Lightning cash decision (gs.publicMemoryDomain.speed === "lightning") asked while live seats before the ' +
+      'Horse still have to act, which only the Lightning host asks (its early look, off the turn). The league ' +
+      'asks every decision on its own turn with no public memory domain, so both arms would play identical ' +
+      'poker and the card would report 0.00 +/- 0.00 every night. Measured 2026-11-15 on this matchup as ' +
+      'written: 0 of 2,000 pairs diverged (run seed 20261114). It is measured where the early look exists: ' +
+      'the beyond-big-blind Lightning probe (all-Horse LightningHandHost tables, development seeds, ' +
+      'counterfactual re-asks of the real turn, and a hero-scope paired arm). What would change this: a league ' +
+      'context that runs the Lightning host (early looks off the turn) and sets the domain.',
+  },
+  {
     name: 'nlh_lightning_participation_holdem',
     a: { lightningParticipationHoldem: true },
     b: {},
@@ -4312,6 +4379,45 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'blind that 3-bets light but not every hand). What would change this: a change to the ' +
       'opener read or to the option that lets the price, not the read, answer an every-hand ' +
       '3-bettor; re-probe this matchup before moving it back to the card.',
+  },
+  {
+    name: 'plo4_lightning_cheap_entry_omaha',
+    variant: 'plo4',
+    a: { lightningCheapEntryOmaha: true },
+    b: {},
+    reason:
+      'No Lightning domain in the league table. lightningCheapEntryOmaha is DEFAULT OFF (HorseLogic: ' +
+      'opts.lightningCheapEntryOmaha === true) and it reads the one Lightning predicate ' +
+      '(HorseLightningParticipation.lightningParticipationEligibility, through HorseLightningCheapEntry): ' +
+      'gs.publicMemoryDomain.speed === "lightning" with a big-blind ante, four to six dealt, cash. ' +
+      'The league deals its own tables and no league context carries a public memory domain, so ' +
+      'both arms would play identical poker (the option refuses with ' +
+      'lightning_cheap_entry_refused_not_lightning_seen) and the card would report 0.00 +/- 0.00 ' +
+      'every night. Measured 2026-11-15 by running this refused matchup through runMatchup: 0 of 300 pairs diverged ' +
+      '(run seed 20261115). It is measured where the domain exists: the paired Lightning harness ' +
+      '(lightning/LightningPairedEval.test.ts, LIGHTNING_EVAL_CANDIDATE) under the declared ' +
+      'protocol (development, selection and final seed classes). What would change this: a ' +
+      'league context that deals the Lightning contract (fast-fold pool, big-blind ante of one ' +
+      'big blind, a new table every hand) and sets the domain.',
+  },
+  {
+    name: 'nlh_lightning_cheap_entry_holdem',
+    a: { lightningCheapEntryHoldem: true },
+    b: {},
+    reason:
+      'No Lightning domain in the league table. lightningCheapEntryHoldem is DEFAULT OFF (HorseLogic: ' +
+      'opts.lightningCheapEntryHoldem === true) and it reads the one Lightning predicate ' +
+      '(HorseLightningParticipation.lightningParticipationEligibility, through HorseLightningCheapEntry): ' +
+      'gs.publicMemoryDomain.speed === "lightning" with a big-blind ante, four to six dealt, cash. ' +
+      'The league deals its own tables and no league context carries a public memory domain, so ' +
+      'both arms would play identical poker (the option refuses with ' +
+      'lightning_cheap_entry_refused_not_lightning_seen) and the card would report 0.00 +/- 0.00 ' +
+      'every night. Measured 2026-11-15 by running this refused matchup through runMatchup: 0 of 300 pairs diverged ' +
+      '(run seed 20261115). It is measured where the domain exists: the paired Lightning harness ' +
+      '(lightning/LightningPairedEval.test.ts, LIGHTNING_EVAL_CANDIDATE) under the declared ' +
+      'protocol (development, selection and final seed classes). What would change this: a ' +
+      'league context that deals the Lightning contract (fast-fold pool, big-blind ante of one ' +
+      'big blind, a new table every hand) and sets the domain.',
   },
   {
     name: 'hu_break_even_bluff',

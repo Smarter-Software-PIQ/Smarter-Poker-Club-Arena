@@ -127,6 +127,12 @@ export function Review() {
           <img className="mtp-lobby-btn__img" src={lobbyArt} alt="" draggable={false} />
         </button>
       </div>
+      {spectator && document.documentElement.dataset.follow === 'true' && (
+        <div className="mtp-player-follow" role="status">
+          <span>Following KingFish</span>
+          <button>Stop Following</button>
+        </div>
+      )}
       <div
         className="multi-table-page__container"
         style={{
@@ -317,6 +323,9 @@ export function Review() {
                         isActive={i === activeSeat}
                         isWinner={document.documentElement.dataset.winnerSeat === String(i + 1)}
                         winningHandName="Two Pair"
+                        handStrength={
+                          i === 0 ? document.documentElement.dataset.handStrength : undefined
+                        }
                         lastAction={
                           document.documentElement.dataset.actionPills === 'none'
                             ? null

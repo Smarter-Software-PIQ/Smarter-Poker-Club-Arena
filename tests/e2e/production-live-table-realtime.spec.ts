@@ -2460,14 +2460,44 @@ test.describe('production mobile WebKit live-table realtime continuity', () => {
           perVariantLimit: 3,
         });
         const capacities = new Set<string>();
-        const remaining = [...selected.tables];
+        // Keep the reported 393px navigation in coverage while that table is
+        // still dealing. The lobby rotates its cluster representative, so the
+        // first full nine-seat card can otherwise exercise a different URL.
+        const remaining: { candidate: Pick<RunningTableCandidate, 'id' | 'capacityHint'> }[] =
+          selected.tables.map(({ candidate }) => ({ candidate }));
+        if (phoneWidth === 393) {
+          const reportedId = 'e78717a2-294d-4b8f-a6ce-d42ec54b237f';
+          const health = await readEngineHealth(request, { candidateTableIds: [reportedId] });
+          if (healthyRunningTable(health, reportedId, 'cash')) {
+            const existing = remaining.findIndex(({ candidate }) => candidate.id === reportedId);
+            if (existing >= 0) remaining.splice(existing, 1);
+            // The opened page still has to establish its actual seat count.
+            remaining.unshift({ candidate: { id: reportedId, capacityHint: '9' } });
+          }
+        }
         while (remaining.length) {
           const { candidate } = takeNextLayoutCandidate(remaining, capacities)!;
-          await page.goto(`table/${candidate.id}`, { waitUntil: 'domcontentloaded' });
           const table = page.locator('.table-page:visible').first();
-          await expect(table).toBeVisible({ timeout: 30_000 });
-          await expect(page.getByTestId('table-connection-banner')).toBeHidden({ timeout: 30_000 });
+          await test.step(`Open occupied table ${candidate.id} at ${phoneWidth}px and render its connected view`, async () => {
+            const document = await page.goto(`table/${candidate.id}`, {
+              waitUntil: 'domcontentloaded',
+            });
+            expect(document?.ok(), 'the selected table document must respond successfully').toBe(
+              true
+            );
+            expect(new URL(page.url()).pathname).toMatch(new RegExp(`/table/${candidate.id}/?$`));
+            await expect(table).toBeVisible({ timeout: 30_000 });
+            await expect(page.getByTestId('table-connection-banner')).toBeHidden({
+              timeout: 30_000,
+            });
+          });
           const capacity = await table.getAttribute('data-seats');
+          if (phoneWidth === 393) {
+            await testInfo.attach(`393px-navigation-${candidate.id}`, {
+              contentType: 'application/json',
+              body: JSON.stringify({ tableId: candidate.id, capacity, committed: true }),
+            });
+          }
           if (!capacity || !['6', '9'].includes(capacity) || capacities.has(capacity)) continue;
           await expect(table.locator('.seat__avatar-img')).not.toHaveCount(0);
           await certifyMobileLiveTableLayout(page, testInfo, {

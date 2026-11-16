@@ -44,13 +44,14 @@ const READERS = [
   'ca_rake_export_start_v2',
 ];
 
-describe('the live writer files every event under its Chicago day', () => {
-  it('writes the Chicago bucket in the same statement as the UTC one', () => {
+describe('the original Chicago projection remains compatible beside Pacific Data reports', () => {
+  it('keeps the original UTC/Chicago writer and captures a Pacific report projection', () => {
     const b = squash(latest('fn_ca_club_data_fact_put'));
-    expect(b).toContain('INSERT INTO public.ca_club_data_fact AS f');
-    expect(b).toContain('INSERT INTO public.ca_club_data_fact_ct AS c');
-    expect(b).toContain('INSERT INTO public.ca_club_data_game_ct AS g');
-    expect(b).toContain('public.fn_ca_chicago_day(COALESCE(p_at, now()))');
+    expect(b).toContain('public.fn_ca_club_data_fact_put_pre_pacific(');
+    expect(b).toContain('INSERT INTO public.ca_club_data_pacific_fact AS f');
+    expect(b).toContain('INSERT INTO public.ca_club_data_pacific_journal');
+    expect(b).toContain('public.fn_ca_club_data_pacific_day(a)');
+    expect(b).toContain('public.fn_ca_club_data_pacific_own(');
   });
 
   it('a Chicago day is the zone database day, DST included', () => {
@@ -116,7 +117,7 @@ describe('MTT Winnings are finished MTTs; running MTT entries are their own figu
     // 20261022165130: fn_ca_rake_window_v2 delegates to the one-pass reader,
     // which carries the split for the whole union and for every club.
     expect(squash(latest('fn_ca_rake_window_v2'))).toContain(
-      'public.fn_ca_rake_windows_v3(p_clubs, p_start, p_end, false)->\'all\''
+      "public.fn_ca_rake_windows_v3(p_clubs, p_start, p_end, false)->'all'"
     );
     const b = squash(latest('fn_ca_rake_windows_v3'));
     expect(b).toContain("bool_or(COALESCE(tr.status IN ('COMPLETED','CANCELLED'),false)) finished");
@@ -131,7 +132,7 @@ describe('the union reads count each thing once (20261022134523)', () => {
   it('the per-club list reads each club window once', () => {
     // 20261022165130: once for every club together, not once per club.
     const b = squash(latest('fn_ca_rake_by_club_v2'));
-    expect(b).toContain('public.fn_ca_rake_windows_v3(p_clubs, p_start, p_end, true)->\'clubs\'');
+    expect(b).toContain("public.fn_ca_rake_windows_v3(p_clubs, p_start, p_end, true)->'clubs'");
     expect(b).not.toContain('CROSS JOIN LATERAL');
   });
 

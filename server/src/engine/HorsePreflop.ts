@@ -4,6 +4,7 @@ import {
   lightningParticipationFirstIn,
   type LightningParticipationCtx,
 } from './HorseLightningParticipation.js';
+import { lightningCheapEntry, type LightningCheapEntryCtx } from './HorseLightningCheapEntry.js';
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  * HORSE PREFLOP V7 — Position-Pair Preflop Mastery (2026-07-24)
@@ -103,7 +104,9 @@ export interface PreflopAuthorityEvent {
     | 'v87_ep_limp_reraise_bluff'
     | 'v87_ep_limp_call_iso'
     | 'lightning_participation_first_in'
-    | 'lightning_participation_bb_defend';
+    | 'lightning_participation_bb_defend'
+    | 'lightning_cheap_entry_sb_complete'
+    | 'lightning_cheap_entry_over_limp';
   strength: number;
   threeBetThreshold: number;
   effectiveThreeBetThreshold: number;
@@ -492,6 +495,10 @@ export interface PreflopCtx {
   omahaCommitZoneThreeBetPriceRelief?: boolean;
   /** See HorseLightningParticipation. Absent = the option is off or the hand is outside its predicate. */
   lightningParticipation?: LightningParticipationCtx;
+  /** See HorseLightningCheapEntry. Absent = the option is off or the hand is outside its predicate. */
+  lightningCheapEntry?: LightningCheapEntryCtx;
+  /** Persona tightness before any table VPIP-floor multiplier, so Lightning range modules never read ownVpip. */
+  unflooredTightness?: number;
   /** V77 (2026-11-02): the V70 open width (percent of 1,326 combos) of the
    *  seat that made the ONLY raise hero faces, dealt-census indexed and
    *  ante-aware. Supplied by HorseLogic for no-limit hold'em facing exactly
@@ -3032,6 +3039,33 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     ) {
       ctx.noteLayer?.('v87_deep_dive_discipline');
     }
+    // LIGHTNING CHEAP ENTRY (default off): where this branch folds, the small
+    // blind folded to or behind limpers, or the button behind limpers, asks
+    // whether the completion / over-limp pays at its price. Never a raise.
+    // Absent the option the answer is the fold, unchanged.
+    if (
+      lightningCheapEntry(ctx.lightningCheapEntry, {
+        isOmaha: ctx.isOmaha === true,
+        position,
+        isButton: ctx.isButton === true,
+        limpers,
+        raises,
+        straddled,
+        oppsLeft: ctx.oppsLeft,
+        toCall,
+        bigBlind: bb,
+        pot: pricePot,
+        drop:
+          ctx.mode === 'cash' && Number.isFinite(ctx.callDeductionFraction)
+            ? ctx.callDeductionFraction
+            : 0,
+        depthBB: Math.min(stackBB, ctx.effectiveStackBB ?? stackBB),
+        strength,
+        tightness: ctx.unflooredTightness ?? ctx.tightness,
+        noteAuthority: ctx.noteAuthority,
+      })
+    )
+      return { a: 'call' };
     return { a: 'fold' };
   }
 

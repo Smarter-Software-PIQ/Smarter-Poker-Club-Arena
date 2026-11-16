@@ -1,0 +1,38 @@
+{
+  "_owner": "hv31-d6-v3-dormant-01Gw7aDr",
+  "_comment": "Migration 20261115143957_v31_runtime_cells_store_cell_contract_v3_dormant adds the cell contract v3 columns, the v3 cell readers and the registration cell-contract read; installed through Apply Merged Migration after merge (dormant: read only when the registered option gtoV31CellContractV3Serving, off-only under the owner R7/R8 hold, is on). Migration 20261115162745_v31_cell_contract_v3_cells_are_built_and_sealed_and_hist215_ adds the v3 build and seal layer (generated v3 siblings of the v2 builders, validators and public215 encoding chain, and the cell-contract identity); dormant: reached only by an input that declares cell_contract or holdem-public-hist215-v3. Migration 20261115183033_v31_cell_contract_v3_sources_ingest_at_200_bb_only_for_a_v3_ lets a dataset whose declared coverage is all cell contract v3 ingest v3 source nodes up to 200 bb (generated v3 siblings of the source-node validators, the SQL line class, the coverage rule and a depth guard trigger); dormant: no dataset declares cell contract v3.",
+  "functions": [
+    "fn_gto_v31_active_cells_v3",
+    "fn_gto_v31_assert_source_contract_v3",
+    "fn_gto_v31_build_cell_matrix_v3",
+    "fn_gto_v31_cell_contract_identity",
+    "fn_gto_v31_cell_contract_of_coverage",
+    "fn_gto_v31_cell_payload_valid_matrix_v3",
+    "fn_gto_v31_complete_public_state_v3",
+    "fn_gto_v31_dataset_cell_contract_immutable",
+    "fn_gto_v31_evaluation_cells_v3",
+    "fn_gto_v31_node_line_class_v3",
+    "fn_gto_v31_node_line_proof_v3",
+    "fn_gto_v31_public215_audit_key_v3",
+    "fn_gto_v31_public215_audit_prediction_v3",
+    "fn_gto_v31_public215_build_cell_v3",
+    "fn_gto_v31_public215_compiled_raw_v3",
+    "fn_gto_v31_public215_encoding_implementation_v3",
+    "fn_gto_v31_public215_features_v3",
+    "fn_gto_v31_public215_prepare_audit_v3",
+    "fn_gto_v31_public215_required_audit_v3",
+    "fn_gto_v31_public215_template_valid_v3",
+    "fn_gto_v31_public215_v3_appended",
+    "fn_gto_v31_registration_cell_contract",
+    "fn_gto_v31_runtime_cell_contract_immutable",
+    "fn_gto_v31_source_artifact_depth_guard",
+    "fn_gto_v31_source_node_scalar_types_valid_v3",
+    "fn_gto_v31_source_node_v3_fields_valid_cell_v3",
+    "fn_gto_v31_source_node_v3_valid_cell_v3",
+    "fn_gto_v31_source_node_v4_valid_cell_v3",
+    "fn_gto_v31_source_node_valid_cell_v3"
+  ],
+  "columns": {
+    "gto_v31_runtime_cells": ["cell_contract_version", "line_class"]
+  }
+}

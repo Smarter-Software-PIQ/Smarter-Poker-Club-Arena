@@ -92,8 +92,18 @@ Run on the owner's Mac (macOS, niced, one at a time; no production read, no psql
 
 ## Review fixes (2026-11-16T00:30Z, session 01BbZPDhhqSDALp7kec7EfDM; Hand Analysis 00:11:53Z on bfb4c205)
 
-- B1: every engine-host ssh is `ssh -o BatchMode=yes -o ConnectTimeout=N ca-engine` (run-originals.sh, run-originals-host.sh, preserve-host.sh, verify-release.sh, manifest/run-export-batch.sh); HVH_ENGINE_HOST only selects `none` in verify-release.
+- B1: every engine-host ssh is `ssh -o BatchMode=yes -o ConnectTimeout=N ca-engine` (run-originals.sh, run-originals-host.sh, preserve-host.sh, verify-release.sh; manifest/run-export-batch.sh removed below); HVH_ENGINE_HOST only selects `none` in verify-release.
 - N2: `preserve-host.sh close` fails (exit 3) unless the END rewrite and the log line are confirmed.
 - N5: HVH_OPERATOR, HVH_SHA and HVH_IMAGE are validated before any value reaches a root shell on the engine host.
 - N6: README line about .prettierignore corrected.
 - Repository copy is stricter than the archive copy on B1/N2/N5; the archive copy runs only through the alias, whose ~/.ssh/config settings are fail-closed.
+
+## Review notes (2026-11-16T04:25Z, session 01BbZPDhhqSDALp7kec7EfDM; Hand Analysis 04:10:30Z on 5af6d75b)
+
+The two lines above for N2 and N5 overstated the 5af6d75b change; this section is what the code now does.
+
+- N1: manifest/run-export-batch.sh is removed. It ran docker exec into the live engine container and nothing in the toolkit called it.
+- N2: `preserve-host.sh close` joins every remote step with `&&` (END.new written, renamed over END, WINDOW.iso line, window.log line), so the remote exit status is the whole chain; any failed step prints `close FAILED` and exits 3.
+- N3: `close` and `stop` act only for the operator that started the job: `start` writes OPERATOR in the host work folder; for a job started before that file existed, the running job's own operator argument is used; an unknown or different operator is refused (exit 7).
+- N4: verify-release.sh's usage line now says it runs `git fetch origin main` in REPO (it writes nothing on production).
+- N5: `preserve-host.sh` refuses an HVH*OPERATOR outside `[A-Za-z0-9*.-]{1,80}`(the operator-lock.sh rule) and an HVH_JOURNAL_DIR that is not an absolute path of`[A-Za-z0-9._/-]`without`..`; run-originals-host.sh refuses the same HVH_OPERATOR rule at start, beside its HVH_SHA and HVH_IMAGE checks.

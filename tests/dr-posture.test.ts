@@ -939,10 +939,18 @@ describe('standby adoption authority and timing', () => {
       expect(result.status === 0, result.stderr + result.stdout).toBe(mode === 'exact');
     }
   );
-  it.each(['recovered', 'stale', 'silent', 'stuck', 'unknown', 'db-error', 'restarted'])(
-    'requires open play and a fresh recorded hand before a trial (%s)',
-    (mode) => {
-      const result = standbyShell(`source '${root('server/standby/standby-trials.sh')}'
+  it.each([
+    'recovered',
+    'below-floor',
+    'metric-lag',
+    'stale',
+    'silent',
+    'stuck',
+    'unknown',
+    'db-error',
+    'restarted',
+  ])('requires open play and a fresh recorded hand before a trial (%s)', (mode) => {
+    const result = standbyShell(`source '${root('server/standby/standby-trials.sh')}'
         clock=1000
         swap_target_identity() {
           if [ '${mode}' = restarted ] && [ "$clock" -gt 1000 ]; then echo new; else echo original; fi
@@ -955,20 +963,23 @@ describe('standby adoption authority and timing', () => {
           if [ "$clock" -ge 1100 ] && { [ "$clock" -lt 1600 ] || [ '${mode}' = stuck ]; }; then phase=counting_down; fi
           if [ '${mode}' = unknown ]; then phase=invalid; fi
           if [ '${mode}' = silent ]; then hands=0; fi
+          if [ '${mode}' = below-floor ]; then hands=null; fi
+          if [ '${mode}' = metric-lag ]; then hands=0; fi
           printf '{"liveness":"ok","maintenance":{"phase":"%s"},"dealRate":{"handsInWindow":%s}}' "$phase" "$hands"
         }
         psql_db() {
           cat >/dev/null
           [ '${mode}' != db-error ] || return 1
           if [ "$clock" -ge 1100 ] && [ "$clock" -lt 1600 ]; then echo maintenance
-          elif [ "$clock" -ge 1700 ] && [ "$3" = since=1601 ] && [ '${mode}' != stale ]; then echo hand
+          elif [ "$clock" -ge 1700 ] && [ "$3" = since=1601 ] && [ '${mode}' != stale ] && [ '${mode}' != silent ]; then echo hand
           else echo waiting; fi
         }
         wait_pretrial_dealing fixture
       `);
-      expect(result.status === 0, result.stderr).toBe(mode === 'recovered');
-    }
-  );
+    expect(result.status === 0, result.stderr).toBe(
+      ['recovered', 'below-floor', 'metric-lag'].includes(mode)
+    );
+  });
 
   it.each([
     'missing',

@@ -303,15 +303,31 @@ export function omahaOopReraisedCallCell(i: OmahaOopReraisedInput): OmahaOopRera
         : (i.outOfPosition ? OOP_REALIZATION_MARGIN : IP_REALIZATION_MARGIN) +
           (dominatedKeyCard ? DOMINATED_KEY_CARD_MARGIN : 0));
   // No equity is needed to fold a hand that is neither coordinated nor committed.
-  if (!commitment && coordination === null && elite.cls !== 'aa_dry')
+  // Facing a non-all-in 4-bet+ out of position at low post-call SPR (<= 2.5), a
+  // non-AA paired hand (KK/QQ/JJ with < n distinct ranks) cannot realize raw
+  // equity because omahaReraisedFlopContinueCell folds bare overpairs on flops
+  // without top set or a nut-leaning draw (Hand #59728213).
+  const nonAaPairedLowSprOopFourBet =
+    fourBet &&
+    i.outOfPosition &&
+    count('A') < 2 &&
+    new Set(i.hole.map((c) => c.rank)).size < i.hole.length &&
+    sprAfter <= 2.5;
+  if (
+    !commitment &&
+    ((coordination === null && elite.cls !== 'aa_dry') || nonAaPairedLowSprOopFourBet)
+  )
     return { ...base, fold: true, reason: 'uncoordinated', equity: null, required };
   const prior = fourBet ? OOP_PRIOR_BAND_FOUR_BET : OOP_PRIOR_BAND_THREE_BET;
   const [lo, hi] = i.band ?? prior;
-  // A 4-bet or more that no read has widened is the engine's declared 4-bet
-  // range (omahaReraisedPremium: aces, kings double-suited, double-suited
-  // rundowns), not a percentile band: the band ranks ace-king hands high and
-  // would call them live against the very aces that dominate them.
-  const declaredFourBet = fourBet && lo >= OOP_PRIOR_BAND_FOUR_BET[0] - 1e-9;
+  // A 4-bet or more that no read has widened (or faced out of position holding a
+  // dominated single A or K blocker) is priced against the engine's declared
+  // 4-bet range (omahaReraisedPremium: aces, kings double-suited, double-suited
+  // rundowns), not a loose open-widened percentile band that overrates A-K hands
+  // against the very aces that dominate them.
+  const declaredFourBet =
+    fourBet && (lo >= OOP_PRIOR_BAND_FOUR_BET[0] - 1e-9 || (i.outOfPosition && dominatedKeyCard));
+  const effLo = fourBet ? Math.max(lo, 0.7) : lo;
   const equity = omahaReraisedEquity(
     i.hole,
     [],
@@ -320,7 +336,7 @@ export function omahaOopReraisedCallCell(i: OmahaOopReraisedInput): OmahaOopRera
       ? (h) => omahaReraisedPremium(h)
       : (h) => {
           const p = omahaPreflopPercentile([...h], false);
-          return p >= lo && p <= hi;
+          return p >= effLo && p <= hi;
         },
     OOP_EQUITY_SAMPLES
   );

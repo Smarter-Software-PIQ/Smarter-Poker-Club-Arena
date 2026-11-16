@@ -2613,7 +2613,7 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/ci/production-e2e-account.mjs create
+        run: node scripts/ci/production-e2e-account.mjs create-spectator
 
       # Union boards (MTT, SPIN, SNG) are readable only by members of a club in
       # the union's scope. Without this the identity could read the platform
@@ -2657,6 +2657,42 @@ jobs:
           EXPECTED_ENGINE_SHA: ${{ steps.engine.outputs.sha }}
           PLAYWRIGHT_JSON_OUTPUT_NAME: e2e-report/live-table-realtime.json
         run: |
+          # A page crash loses renderer evidence from the Playwright trace.
+          # Keep kernel evidence scoped to this browser invocation on a failed run.
+          date +%s > "$RUNNER_TEMP/live-table-webkit-start"
+          # Record kernel-generated and user-sent signals without attaching to WebKit.
+          # The probe records process names and numeric status in a private runner trace.
+          trace=/sys/kernel/tracing/instances/live-table-webkit
+          if sudo mkdir "$trace"; then
+            finish_trace() {
+              sudo cat "$trace/trace"
+              sudo rmdir "$trace"
+            }
+            trap finish_trace EXIT
+            if sudo bash -eu -s -- "$trace" <<'TRACE'
+          cd "$1"
+          echo 64 > buffer_size_kb
+          filter='(comm ~ "WebKit*" || comm ~ "WPE*" || comm ~ "MiniBrowser*")'
+          echo "$filter && (sig == 4 || sig == 6 || sig == 7 || sig == 9 || sig == 11 || sig == 15)" > events/signal/signal_generate/filter
+          echo "$filter" > events/sched/sched_process_exit/filter
+          echo 1 > events/signal/signal_generate/enable
+          echo 1 > events/sched/sched_process_exit/enable
+          # WPE exited with code 1 in a failed menu interaction. These built-in
+          # syscall events retain voluntary exit codes in this instance. The
+          # signal and scheduler events above record fatal signals and exits.
+          for event in sys_enter_exit_group sys_enter_exit; do
+            echo '(COMM ~ "WebKit*" || COMM ~ "WPE*" || COMM ~ "MiniBrowser*")' > "events/syscalls/$event/filter"
+            echo 1 > "events/syscalls/$event/enable"
+          done
+          TRACE
+            then
+              echo "WebKit process signal/exit capture enabled; runner uptime: $(cut -d' ' -f1 /proc/uptime)s"
+            else
+              echo "::warning::WebKit kernel signal/exit capture unavailable on this image"
+            fi
+          else
+            echo "::warning::WebKit trace instance unavailable on this image"
+          fi
           if [ '${{ needs.publication-gate.outputs.tournament_only }}' = true ]; then
             npx playwright test tests/e2e/production-live-table-realtime.spec.ts \
               --grep 'an already-running (MTT|SPIN|SNG) table stays realtime and recovers one owner$' \
@@ -2667,6 +2703,18 @@ jobs:
             npx playwright test tests/e2e/production-live-table-realtime.spec.ts \
               --project=webkit-live-table-realtime --reporter=line,json --workers=1 --retries=0 \
               --output=test-results/live-table-realtime
+          fi
+
+      - name: Record WebKit process failures from the runner kernel
+        if: always() && (steps.continuity.outcome == 'success' || steps.continuity.outcome == 'failure')
+        run: |
+          started=$(cat "$RUNNER_TEMP/live-table-webkit-start")
+          # An empty search is expected on a voluntary process exit. Preserve
+          # journal read failures, and report an empty search as such.
+          journal="$RUNNER_TEMP/live-table-kernel-journal"
+          sudo journalctl --dmesg --since="@$started" --no-pager > "$journal"
+          if ! grep -Ei 'Out of memory|oom-kill|Killed process|WebKit.*segfault|WPE.*segfault|MiniBrowser.*segfault' "$journal"; then
+            echo 'No matching kernel OOM or segmentation-fault message.'
           fi
 
       # The move notice is presentation-only. Exercise the actual served

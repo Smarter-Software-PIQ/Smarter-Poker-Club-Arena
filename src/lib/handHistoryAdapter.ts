@@ -400,6 +400,16 @@ export function panelHandToShareable(hand: PanelHandRecord, tableName: string): 
     for (const player of share.players) {
       const archived = hand.players.find((p) => p.seat === player.seat);
       const seat = observed.seats.find((p) => p?.seat === player.seat && p.userId === archived?.id);
+      if (
+        seat &&
+        archived?.id === hand.heroId &&
+        player.isHero &&
+        !player.cards?.length &&
+        observed.viewerCards.length
+      ) {
+        player.cards = observed.viewerCards;
+        player.privateCards = true;
+      }
       if (seat?.avatar) player.avatar = seat.avatar;
       if (seat?.frame) player.frame = seat.frame;
       if (seat?.aura) player.aura = seat.aura;

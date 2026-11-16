@@ -137,3 +137,25 @@ describe('the Club Data clock', () => {
     expect(chicagoClock('not a time')).toBe('');
   });
 });
+
+describe('Club Data explicitly requests Pacific rake report periods', () => {
+  it('keeps the default Chicago financial caller separate before Pacific midnight', () => {
+    const at = new Date('2026-11-16T07:30:00Z');
+    expect(periodToRange('today', undefined, at, 'pacific')).toEqual({
+      start: '2026-11-15',
+      end: '2026-11-15',
+    });
+    expect(periodToRange('today', undefined, at)).toEqual({
+      start: '2026-11-16',
+      end: '2026-11-16',
+    });
+    expect(periodToRange('week', undefined, at, 'pacific')).toEqual({
+      start: '2026-11-09',
+      end: '2026-11-15',
+    });
+    expect(periodToRange('week', undefined, new Date('2026-11-16T08:00:00Z'), 'pacific')).toEqual({
+      start: '2026-11-16',
+      end: '2026-11-16',
+    });
+  });
+});

@@ -62,7 +62,13 @@ import {
   rakeSnapshotExportToCsv,
 } from '../../utils/rakeSnapshotExport';
 import { uuid } from '../../utils/uuid';
-import { CLUB_DATA_ZONE_LABEL, chicagoClock } from '../../lib/clubDataDay';
+import ClubDataRangeCalendar from './ClubDataRangeCalendar';
+import { useClubDataDayRollover } from '../../hooks/useClubDataDayRollover';
+import {
+  isClubDataPacificIncomplete,
+  CLUB_DATA_PACIFIC_INCOMPLETE_COPY,
+} from '../../pages/club/clubDataReadOutcome';
+import { CLUB_DATA_ZONE_LABEL, chicagoClock, clubDataDayOn } from '../../lib/clubDataDay';
 import { SpadeConsole } from '../console/SpadeConsole';
 import { ClubPageSection } from './ClubPageSection';
 import { titleCase } from '../../utils/titleCase';
@@ -197,11 +203,13 @@ export interface RakeSnapshotPanelProps {
   /**
    * The headline figure's label. Club Data passes "Agent Rake Production" for
    * a union club (2026-11-15): this panel is agent / club rake production
-   * (seat club and agent downline, Chicago midnight days), the basis for
-   * agent commissions, and must not read as the union invoice basis Fee tile
-   * beside it. Every other caller keeps "Rake / Fee".
+   * (seat club and agent downline), and must not read as the union invoice basis Fee tile
+   * beside it. reportBasis selects Pacific only for Data; other financial
+   * callers keep their existing Chicago dates and "Rake / Fee" label.
    */
   headlineLabel?: string;
+  /** Club Data uses Pacific report windows; other financial callers retain their basis. */
+  reportBasis?: 'calendar' | 'pacific';
 }
 
 export default function RakeSnapshotPanel({
@@ -214,11 +222,16 @@ export default function RakeSnapshotPanel({
   agentUserId = null,
   refreshToken = 0,
   headlineLabel = 'Rake / Fee',
+  reportBasis = 'calendar',
 }: RakeSnapshotPanelProps) {
   // Memoised: a fresh array identity on every render would re-run the effect
   // below on every render, and that effect can call setScope.
   const available = useMemo<RakeScope[]>(() => (scopes.length ? scopes : ['club']), [scopes]);
   const preferenceContext = clubId ?? unionId ?? 'global';
+  const [editingRange, setEditingRange] = useState(false);
+  const [reportToday, setReportToday] = useState(() => clubDataDayOn(reportBasis));
+  useClubDataDayRollover(reportBasis, setReportToday);
+  const rangeZoneLabel = reportBasis === 'pacific' ? 'Pacific Time' : CLUB_DATA_ZONE_LABEL;
   const [savedScope, setScope] = usePlayerPreference<RakeScope>(
     'rakeSnapshot.scope',
     available[0],
@@ -231,7 +244,7 @@ export default function RakeSnapshotPanel({
   );
   const [custom, setCustom] = usePlayerPreference(
     'rakeSnapshot.customRange',
-    () => periodToRange('month'),
+    () => periodToRange('month', undefined, new Date(), reportBasis),
     preferenceContext
   );
   const [snapshot, setSnapshot] = useState<RakeSnapshot | null>(null);
@@ -352,8 +365,8 @@ export default function RakeSnapshotPanel({
   }, [scope]);
 
   const range = useMemo(
-    () => (period === 'custom' ? periodToRange('custom', custom) : periodToRange(period)),
-    [period, custom]
+    () => periodToRange(period, period === 'custom' ? custom : undefined, new Date(), reportBasis),
+    [period, custom, reportBasis, reportToday]
   );
 
   const focusUserId = crumbs.length ? crumbs[crumbs.length - 1].userId : agentUserId;
@@ -408,6 +421,10 @@ export default function RakeSnapshotPanel({
     () =>
       clubDataQueryKey({
         kind: 'rake-snapshot',
+        ...(reportBasis === 'pacific' && scope !== 'agent'
+          ? { accountingContract: 'invoice-routing-v1' }
+          : {}),
+        reportBasis,
         scope,
         start: range.start,
         end: range.end,
@@ -422,7 +439,7 @@ export default function RakeSnapshotPanel({
         sort,
         q: query || null,
       }),
-    [scope, range.start, range.end, focusUserId, focusClubId, unionId, sort, query]
+    [scope, range.start, range.end, focusUserId, focusClubId, unionId, sort, query, reportBasis]
   );
 
   // Search, sort, range, scope and drill depth define the export question. If
@@ -482,6 +499,7 @@ export default function RakeSnapshotPanel({
       readControllers.current.add(controller);
       try {
         const next = await ClubRakeSnapshotService.get({
+          reportBasis,
           scope,
           clubId: focusClubId,
           unionId: unionId ?? null,
@@ -519,7 +537,13 @@ export default function RakeSnapshotPanel({
         // The previous snapshot stays on screen. A refusal for one scope must not
         // wipe the figure the operator was already reading.
         lastReadFailed.current = true;
-        setError(describeRakeSnapshotError(e));
+        if (isClubDataPacificIncomplete(e)) {
+          setSnapshot(null);
+          setSnapshotViewKey(null);
+          setRows([]);
+          if (userId && contextId) removeClubDataCaches(userId, contextId);
+          setError(CLUB_DATA_PACIFIC_INCOMPLETE_COPY);
+        } else setError(describeRakeSnapshotError(e));
         reportError(e, 'RakeSnapshotPanel.load');
       } finally {
         readControllers.current.delete(controller);
@@ -529,6 +553,7 @@ export default function RakeSnapshotPanel({
     },
     [
       active,
+      reportBasis,
       clubId,
       unionId,
       focusClubId,
@@ -558,6 +583,7 @@ export default function RakeSnapshotPanel({
     readControllers.current.add(controller);
     try {
       const next = await ClubRakeSnapshotService.get({
+        reportBasis,
         scope,
         clubId: focusClubId,
         unionId: unionId ?? null,
@@ -590,7 +616,14 @@ export default function RakeSnapshotPanel({
       });
     } catch (e) {
       if (cancelled.current || mine !== version.current) return;
-      setPageError(describeRakeSnapshotError(e));
+      if (isClubDataPacificIncomplete(e)) {
+        setSnapshot(null);
+        setSnapshotViewKey(null);
+        setRows([]);
+        if (userId && contextId) removeClubDataCaches(userId, contextId);
+        setError(CLUB_DATA_PACIFIC_INCOMPLETE_COPY);
+        setPageError(CLUB_DATA_PACIFIC_INCOMPLETE_COPY);
+      } else setPageError(describeRakeSnapshotError(e));
       reportError(e, 'RakeSnapshotPanel.loadMore');
     } finally {
       const ownsRead = readControllers.current.delete(controller);
@@ -598,9 +631,12 @@ export default function RakeSnapshotPanel({
     }
   }, [
     active,
+    reportBasis,
     clubId,
     unionId,
     focusClubId,
+    contextId,
+    userId,
     scope,
     range.start,
     range.end,
@@ -701,7 +737,8 @@ export default function RakeSnapshotPanel({
    * caveat nobody reads when they do.
    */
   const liveAhead = useMemo(() => {
-    if (!snapshot?.breakdown_live) return null;
+    if (!snapshot?.breakdown_live || snapshot.accounting_basis === 'union_invoice_accounting')
+      return null;
     const shown = Number(snapshot.breakdown_total);
     const headline = Number(snapshot.summary?.cash_fee ?? snapshot.summary?.fee);
     if (!Number.isFinite(shown) || !Number.isFinite(headline)) return null;
@@ -782,6 +819,7 @@ export default function RakeSnapshotPanel({
   }, [scope, clubCrumb, drillOrigin]);
 
   const deltaNote = (pct: number | null | undefined, abs: number | null | undefined) => {
+    if (snapshot?.previous_coverage?.complete === false) return null;
     const hasPct = pct !== null && pct !== undefined && Number.isFinite(Number(pct));
     const hasAbs = abs !== null && abs !== undefined && Number.isFinite(Number(abs));
     if (!hasPct && !hasAbs) return null;
@@ -795,7 +833,7 @@ export default function RakeSnapshotPanel({
         className={`${styles.delta} ${cls}`}
         title={
           snapshot
-            ? `Previous Period ${snapshot.previous_range.start} To ${snapshot.previous_range.end} ${CLUB_DATA_ZONE_LABEL}`
+            ? `Previous Period ${snapshot.previous_range.start} To ${snapshot.previous_range.end} ${rangeZoneLabel}`
             : undefined
         }
       >
@@ -850,6 +888,7 @@ export default function RakeSnapshotPanel({
 
     try {
       const result = await fetchRakeSnapshotExport({
+        reportBasis,
         rpc: supabase.rpc.bind(supabase),
         scope,
         scopeId,
@@ -1045,6 +1084,7 @@ export default function RakeSnapshotPanel({
             className={`${styles.period} ${wordInk(period === p.key)}`}
             onClick={() => {
               if (p.key === 'custom' && period !== 'custom') setCustom(range);
+              if (p.key === 'custom' && reportBasis === 'pacific') setEditingRange(true);
               setPeriod(p.key);
             }}
           >
@@ -1053,7 +1093,20 @@ export default function RakeSnapshotPanel({
         ))}
       </div>
 
-      {period === 'custom' ? (
+      {reportBasis === 'pacific' ? (
+        <button
+          type="button"
+          aria-label="Select Rake Date Range"
+          aria-expanded={editingRange}
+          className={`${styles.period} ${styles.rangeChip} ${styles.rangeTrigger} sc-ink--silver`}
+          onClick={() => setEditingRange(true)}
+        >
+          <span>{range.start}</span>
+          <span className={`sc-ink--muted ${styles.rangeDivider}`}>-</span>
+          <span>{range.end}</span>
+          <span className={`sc-label sc-ink--blue ${styles.rangeTz}`}>{rangeZoneLabel}</span>
+        </button>
+      ) : period === 'custom' ? (
         <div className={styles.customRange}>
           <label className={styles.dateField}>
             <span className={styles.srOnly}>Range Start</span>
@@ -1078,15 +1131,31 @@ export default function RakeSnapshotPanel({
               onChange={(e) => setCustom((c) => ({ ...c, end: e.target.value }))}
             />
           </label>
-          <span className={`sc-label sc-ink--blue ${styles.rangeTz}`}>{CLUB_DATA_ZONE_LABEL}</span>
+          <span className={`sc-label sc-ink--blue ${styles.rangeTz}`}>{rangeZoneLabel}</span>
         </div>
       ) : (
         <div className={`sc-ink--silver ${styles.rangeChip}`} aria-live="polite">
           <span>{snapshot?.range.start ?? range.start}</span>
           <span className={`sc-ink--muted ${styles.rangeDivider}`}>-</span>
           <span>{snapshot?.range.end ?? range.end}</span>
-          <span className={`sc-label sc-ink--blue ${styles.rangeTz}`}>{CLUB_DATA_ZONE_LABEL}</span>
+          <span className={`sc-label sc-ink--blue ${styles.rangeTz}`}>{rangeZoneLabel}</span>
         </div>
+      )}
+
+      {editingRange && reportBasis === 'pacific' && (
+        <ClubDataRangeCalendar
+          start={range.start}
+          end={range.end}
+          today={reportToday}
+          zoneLabel="Pacific Calendar Dates"
+          maxDays={731}
+          onApply={(start, end) => {
+            setCustom({ start, end });
+            setPeriod('custom');
+            setEditingRange(false);
+          }}
+          onClose={() => setEditingRange(false)}
+        />
       )}
 
       {error && (
@@ -1095,6 +1164,23 @@ export default function RakeSnapshotPanel({
         </p>
       )}
 
+      {snapshot?.accounting_basis === 'union_invoice_accounting' && !isAgent ? (
+        <p className={`sc-ink--muted ${styles.meta}`}>
+          Invoice Accounting In Pacific Time. Cash Winnings Include Hand Results And BBJ Awards. MTT
+          Winnings Count Finished MTTs Only.
+          {snapshot.accounting_coverage?.provisional
+            ? ' Totals Are Provisional Until The Billing Cycle Is Final.'
+            : ''}
+          {scope === 'union' ? ' All Member Clubs And Union Account.' : ''}
+        </p>
+      ) : null}
+      {snapshot?.accounting_basis === 'pacific_net_money_flow' && !isAgent ? (
+        <p className={`sc-ink--muted ${styles.meta}`}>
+          Net Entries And Payouts In Pacific Time. MTT Winnings Count Finished MTTs Only. Unfinished
+          MTT Entries Are Buy-Ins For MTTs Still Running Or Not Yet Started.
+          {scope === 'union' ? ' All Member Clubs And Union Account.' : ''}
+        </p>
+      ) : null}
       {snapshot?.accounting_basis === 'chicago_net_money_flow' && !isAgent ? (
         <p className={`sc-ink--muted ${styles.meta}`}>
           Net Entries And Payouts In Chicago Time. MTT Winnings Count Finished MTTs Only. Unfinished
@@ -1613,9 +1699,11 @@ export default function RakeSnapshotPanel({
       <p className={`sc-label sc-ink--muted ${styles.foot}`}>
         {loading && !snapshot
           ? 'Reading Rollups'
-          : snapshot
-            ? `Compared Against ${snapshot.previous_range.start} - ${snapshot.previous_range.end} ${CLUB_DATA_ZONE_LABEL}`
-            : 'No Snapshot Loaded'}
+          : snapshot?.previous_coverage?.complete === false
+            ? 'Previous Period Data Is Incomplete. Comparisons Are Unavailable.'
+            : snapshot
+              ? `Compared Against ${snapshot.previous_range.start} - ${snapshot.previous_range.end} ${rangeZoneLabel}`
+              : 'No Snapshot Loaded'}
       </p>
     </Section>
   );

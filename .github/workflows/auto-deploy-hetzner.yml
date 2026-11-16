@@ -331,7 +331,7 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node scripts/ci/production-e2e-account.mjs create
+        run: node scripts/ci/production-e2e-account.mjs create-spectator
       - name: Prepare its ordinary zero-balance membership
         if: steps.predecessor.outputs.admitted == 'true'
         env:

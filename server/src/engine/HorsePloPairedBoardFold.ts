@@ -25,7 +25,7 @@
  * shove for two of them. Hi-lo and multi-board pots are out of scope: half a
  * pot or one board of three is a different question.
  */
-import type { Card, SeatPlayer } from '../types.js';
+import type { ActionRecord, Card, SeatPlayer } from '../types.js';
 import { omahaDrawQuality, scoreOmahaHiPartial } from './HorseEval.js';
 import {
   omahaStrategyGameInScope,
@@ -144,6 +144,77 @@ export interface PairedBoardFoldPriceInput {
    * share of the call) to be within its bar. 0 or absent: cash, unchanged.
    */
   icmRisk?: number;
+  stage?: string;
+  heroSeat?: number;
+  actionHistory?: readonly ActionRecord[];
+}
+
+/**
+ * Hand #59730132: true when a defender who only called earlier postflop
+ * street(s) donk-leads >= 40% of the pot on a paired river directly into the
+ * turn aggressor before the aggressor has checked. Such a lead is polarized to
+ * full houses / quads rather than thin flush/straight value, so the 0.25 price
+ * exception does not bypass ploPairedBoardMustFold.
+ */
+function isPairedRiverDonkIntoTurnAggressor(i: PairedBoardFoldPriceInput): boolean {
+  if (i.stage !== 'river' || !Array.isArray(i.actionHistory) || typeof i.heroSeat !== 'number')
+    return false;
+  if (i.board.length !== 5 || new Set(i.board.map((c) => c.rank)).size >= 5) return false;
+  const heroBet = i.hero.bet || 0;
+  const owed = Number.isFinite(i.toCall)
+    ? Math.max(0, i.toCall as number)
+    : Math.max(0, (i.currentBet || 0) - heroBet);
+  const potBefore = Math.max(0, (i.pot || 0) - (i.currentBet || 0));
+  if (!(potBefore > 0) || owed / potBefore < 0.4 - 1e-9) return false;
+
+  let riverBettorSeat: number | null = null;
+  let riverWagers = 0;
+  let heroCheckedRiver = false;
+  for (const a of i.actionHistory) {
+    if (String(a.stage) !== 'river') continue;
+    if (a.seat === i.heroSeat && a.action === 'check') heroCheckedRiver = true;
+    if (a.action === 'bet' || a.action === 'raise' || a.action === 'all_in') {
+      riverWagers++;
+      if (riverBettorSeat === null) riverBettorSeat = a.seat;
+    }
+  }
+  if (
+    heroCheckedRiver ||
+    riverWagers !== 1 ||
+    riverBettorSeat === null ||
+    riverBettorSeat === i.heroSeat
+  )
+    return false;
+
+  const streetLine = (st: string, seat: number): { aggr: boolean; called: boolean } => {
+    let level = 0;
+    let aggr = false;
+    let called = false;
+    const totals = new Map<number, number>();
+    for (const a of i.actionHistory!) {
+      if (String(a.stage) !== st) continue;
+      const prev = totals.get(a.seat) ?? 0;
+      const amt = Number.isFinite(a.amount) ? Math.max(0, a.amount) : 0;
+      if (a.action === 'call') {
+        totals.set(a.seat, prev + amt);
+        if (a.seat === seat && amt > 0) called = true;
+      } else if (a.action === 'bet' || a.action === 'raise' || a.action === 'all_in') {
+        const now = Math.max(prev, amt);
+        totals.set(a.seat, now);
+        if (now > level + 0.005) {
+          level = now;
+          if (a.seat === seat) aggr = true;
+        } else if (a.seat === seat && now > prev) called = true;
+      }
+    }
+    return { aggr, called };
+  };
+
+  if (!streetLine('turn', i.heroSeat).aggr) return false;
+  const flopB = streetLine('flop', riverBettorSeat);
+  const turnB = streetLine('turn', riverBettorSeat);
+  if (flopB.aggr || turnB.aggr) return false;
+  return flopB.called || turnB.called;
 }
 
 /** The call price the exception reads: the call over the pot after it, uncalled excess removed. */
@@ -178,6 +249,7 @@ export function ploPairedBoardFoldRespectsPrice(i: PairedBoardFoldPriceInput): b
     if (price > omahaStrategyConstant('pairedFoldRespectedMaxPrice', i) + 1e-9) return false;
     const hole = i.hero.cards;
     if (!Array.isArray(hole) || hole.length < 4) return false;
+    if (isPairedRiverDonkIntoTurnAggressor(i)) return false;
     const category = Math.floor(scoreOmahaHiPartial(hole, i.board) / 0x100000);
     if (category >= STRAIGHT) return true;
     // PLO6 (reached only with omahaStrategyInPlo6 on; PLO6 lane SPEC-A 3.15,

@@ -728,3 +728,10 @@
 .panel[data-unframed] {
   --rake-unit: 4px;
 }
+
+/* A date control prints on the existing console glass and wraps on phones. */
+.rangeTrigger {
+  width: 100%;
+  flex-wrap: wrap;
+  white-space: normal;
+}

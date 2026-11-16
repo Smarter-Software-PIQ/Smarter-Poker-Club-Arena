@@ -1,3 +1,4 @@
+import { cashHourlyPolicy } from './CashHourlyPolicy.js';
 /**
  * ═══════════════════════════════════════════════════════════════════════════
  *  A HORSE KEEPS ITS WORK SCHEDULE AND ITS DAYS OFF (owner 2026-11-12)
@@ -32,6 +33,7 @@
  * The rule is pure and deterministic; the evidence counters below are the
  * only state, counts with no identities, read by /health.
  */
+import { horseCashPopulationPolicyFingerprint } from './HorseCashPopulationPolicy.js';
 import { availableNow } from './HorseRegulars.js';
 import { dailyCapReached, isRestDayFor, type HorseState } from './StableHandTags.js';
 
@@ -164,6 +166,8 @@ export function recordScheduleCycle(
 
 export function horseWorkScheduleEvidence() {
   return Object.freeze({
+    policyFingerprint: horseCashPopulationPolicyFingerprint(),
+    cashAdmissionContract: cashHourlyPolicy.contract,
     offDutyLeaves: Object.freeze({ ...leaves }),
     offDutyLeavesDeferred: leavesDeferred,
     seatCallsDeclined,

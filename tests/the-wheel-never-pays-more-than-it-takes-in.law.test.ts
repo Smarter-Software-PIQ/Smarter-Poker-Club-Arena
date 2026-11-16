@@ -816,3 +816,22 @@ describe('Crash at its 2.9x return keeps the wheel under 0.85 and the house keep
     }
   });
 });
+
+describe('the full-wallet race proves serialization before releasing its owner', () => {
+  it('uses an observed FIFO commit barrier without extending financial lock timeouts', () => {
+    const harness = readFileSync(
+      resolve(__dirname, '..', 'scripts/dev/test-diamond-wheel-single-spin-race.sh'),
+      'utf8'
+    );
+    expect(harness).toContain('mkfifo "$fifo"');
+    expect(harness).toContain("state='idle in transaction' AND wait_event='ClientRead'");
+    expect(harness).toContain('pg_blocking_pids(b.pid)');
+    expect(harness.indexOf("printf 'COMMIT;\\n' >&8")).toBeGreaterThan(
+      harness.indexOf('if [[ $blocked != 1 ]]')
+    );
+    expect(harness).not.toContain('SELECT pg_sleep');
+    expect(harness).not.toMatch(/SET LOCAL lock_timeout/);
+    expect(harness).toContain("SET LOCAL statement_timeout='10s'");
+    expect(harness).toContain('Concurrent balance, receipts or ticket ownership diverged');
+  });
+});

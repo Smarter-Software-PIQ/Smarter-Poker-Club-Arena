@@ -53,6 +53,7 @@ import {
   laneBusyCancelAskedAt,
   shouldCancelEmptyPastStartEvent,
 } from './tournament/emptyPastStartEvent.js';
+import { throughCancellationLane } from './tournament/cancellationLane.js';
 import { projectTournamentAdmission } from './tournament/tournamentAdmission.js';
 import {
   isFixedSngSatellite,
@@ -3880,7 +3881,7 @@ export class GameServer {
   private launchEmptyEventCancel(
     tournamentId: string,
     generation: number,
-    work: () => Promise<void>
+    work: (canContinue: () => boolean) => Promise<void>
   ): boolean {
     const canStart = () =>
       this.directAdmissionIsCurrent(generation) &&
@@ -3897,7 +3898,7 @@ export class GameServer {
     }
     const operation = Promise.resolve().then(async () => {
       if (!canStart()) return;
-      await work();
+      await work(canStart);
     });
     const tracked = operation.finally(() => {
       if (this.emptyEventCancelsInFlight.get(tournamentId) === tracked) {
@@ -4235,10 +4236,14 @@ export class GameServer {
    * freeze there is nothing to verify, not a fleet of zero.
    */
   private dealRateVerifier = new DealRateVerifier(
-    () =>
-      this.tableLivenessSnapshot()
-        .filter((t) => t.dealable >= 2 && !t.paused)
-        .map((t) => t.tableId),
+    () => [
+      ...new Set([
+        ...this.tableLivenessSnapshot()
+          .filter((t) => t.dealable >= 2 && !t.paused)
+          .map((t) => t.tableId),
+        ...this.lightningSupervisor.expectedDealingTableIds(),
+      ]),
+    ],
     // The horse fleet's own pulse, so a seeding loop that stops while the
     // process lives is a page rather than a silence (Dan 2026-09-11).
     () => this.horseFleet.heartbeatAgeSeconds()
@@ -9717,7 +9722,7 @@ export class GameServer {
                 tournament.format_contract === 'sng-v1' && isFixedSngSatellite(tournament);
               const askedAt = emptyClock?.cancelAskedAt ?? 0;
               if (now - askedAt >= EMPTY_PAST_START_CANCEL_RETRY_MS) {
-                this.launchEmptyEventCancel(tournament.id, generation, async () => {
+                this.launchEmptyEventCancel(tournament.id, generation, async (canContinue) => {
                   const settled = this.pastStartTopUpClock.get(tournament.id);
                   this.pastStartTopUpClock.set(tournament.id, {
                     at: settled?.at ?? now,
@@ -9726,14 +9731,21 @@ export class GameServer {
                   });
                   // A fixed feeder's start_time opens its fill window. Only its target
                   // going away can expire the board. Recheck target and roster under lock.
-                  const { data: receipt, error: cancelError } = fixedSatellite
-                    ? await supabase.rpc('fn_ca_expire_empty_fixed_sng_satellite', {
-                        p_tournament_id: tournament.id,
-                      })
-                    : await supabase.rpc('atomic_cancel_tournament', {
-                        p_tournament_id: tournament.id,
-                        p_admin_id: null,
-                      });
+                  // Admit this original cancellation through a hand-settlement gap,
+                  // retaining its single-flight owner and stop/freeze boundary.
+                  const { data: receipt, error: cancelError } = await throughCancellationLane(
+                    () =>
+                      fixedSatellite
+                        ? supabase.rpc('fn_ca_expire_empty_fixed_sng_satellite', {
+                            p_tournament_id: tournament.id,
+                          })
+                        : supabase.rpc('atomic_cancel_tournament', {
+                            p_tournament_id: tournament.id,
+                            p_admin_id: null,
+                          }),
+                    undefined,
+                    canContinue
+                  );
                   if (cancelError && isCancellationLaneBusy(cancelError)) {
                     // The lane's try-lock refused before any write: not a failure,
                     // just not now. Ask again in a minute, one event at a time.

@@ -7,7 +7,7 @@ import type {
   RakeSnapshot,
   RakeSortKey,
 } from '../services/ClubRakeSnapshotService';
-import { chicagoDay } from '../lib/clubDataDay';
+import { chicagoDay, accountingDay } from '../lib/clubDataDay';
 import {
   fetchClubDataExport,
   type ClubDataExportProgress,
@@ -31,6 +31,8 @@ export interface RakeExportMetadata {
   club_id: string | null;
   union_id: string | null;
   agent_user_id: string | null;
+  day_basis?: string;
+  accounting_basis?: RakeSnapshot['accounting_basis'];
   date_from: string;
   date_to: string;
   search: string | null;
@@ -58,6 +60,7 @@ export interface RakeSnapshotExportResult extends RakeExportReceipt {
 
 export interface FetchRakeSnapshotExportOptions {
   rpc: ClubDataExportRpc;
+  reportBasis?: 'calendar' | 'pacific';
   scope: RakeScope;
   scopeId: string;
   start: string;
@@ -74,6 +77,7 @@ export interface FetchRakeSnapshotExportOptions {
 }
 
 interface ExpectedRakeExportIdentity {
+  reportBasis: 'calendar' | 'pacific';
   scope: RakeScope;
   scopeId: string;
   start: string;
@@ -148,11 +152,15 @@ function shiftUtcDate(value: string, days: number): string {
 
 /** Mirrors the Rake start door's Chicago-day/two-year date normalization
  *  (ca_rake_export_start_v2 clamps to the America/Chicago date, 20261022120121). */
-function normalizeRakeExportRange(start: string, end: string): { start: string; end: string } {
+function normalizeRakeExportRange(
+  start: string,
+  end: string,
+  reportBasis: 'calendar' | 'pacific'
+): { start: string; end: string } {
   if (!isIsoDate(start) || !isIsoDate(end)) {
     throw new Error('The Rake export date range is invalid.');
   }
-  const today = chicagoDay();
+  const today = reportBasis === 'pacific' ? accountingDay() : chicagoDay();
   const normalizedEnd = end > today ? today : end;
   const earliest = shiftUtcDate(normalizedEnd, -730);
   let normalizedStart = start < earliest ? earliest : start;
@@ -236,6 +244,8 @@ function metadataIdentity(metadata: RakeExportMetadata): string {
     metadata.club_id,
     metadata.union_id,
     metadata.agent_user_id,
+    metadata.day_basis ?? null,
+    metadata.accounting_basis ?? null,
     metadata.date_from,
     metadata.date_to,
     metadata.search,
@@ -267,6 +277,7 @@ export function parseRakeExportMetadata(
     value.club_id !== expectedClubId ||
     value.union_id !== expectedUnionId ||
     value.agent_user_id !== expectedAgentId ||
+    (expected.reportBasis === 'pacific' && value.day_basis !== 'America/Los_Angeles 00:00') ||
     value.date_from !== expected.start ||
     value.date_to !== expected.end ||
     value.search !== expected.search ||
@@ -343,12 +354,17 @@ function rakePageMatchesReceipt(
 export async function fetchRakeSnapshotExport(
   options: FetchRakeSnapshotExportOptions
 ): Promise<RakeSnapshotExportResult> {
-  const range = normalizeRakeExportRange(options.start, options.end);
+  const range = normalizeRakeExportRange(
+    options.start,
+    options.end,
+    options.reportBasis ?? 'calendar'
+  );
   const sort = normalizeRakeExportSort(options.scope, options.sort);
   const search = normalizeRakeExportSearch(options.search);
   const agentUserId =
     options.scope === 'agent' ? (options.agentUserId ?? options.viewerUserId) : null;
   const expected: ExpectedRakeExportIdentity = {
+    reportBasis: options.reportBasis ?? 'calendar',
     scope: options.scope,
     scopeId: options.scopeId,
     start: range.start,
@@ -361,7 +377,10 @@ export async function fetchRakeSnapshotExport(
 
   const rows = await fetchClubDataExport<RakeBreakdownRow>({
     rpc: options.rpc,
-    startRpc: 'ca_rake_export_start_v2',
+    startRpc:
+      options.reportBasis === 'pacific'
+        ? 'ca_rake_export_start_pacific_v2'
+        : 'ca_rake_export_start_v2',
     startArgs: {
       p_scope_type: options.scope,
       p_scope_id: options.scopeId,
@@ -405,6 +424,8 @@ function metadataCsv(result: RakeSnapshotExportResult): string[] {
       'club_id',
       'union_id',
       'agent_user_id',
+      'day_basis',
+      'accounting_basis',
       'date_from',
       'date_to',
       'search',
@@ -426,6 +447,8 @@ function metadataCsv(result: RakeSnapshotExportResult): string[] {
       result.metadata.club_id,
       result.metadata.union_id,
       result.metadata.agent_user_id,
+      result.metadata.day_basis ?? 'America/Chicago 00:00',
+      result.metadata.accounting_basis ?? '',
       result.metadata.date_from,
       result.metadata.date_to,
       result.metadata.search,

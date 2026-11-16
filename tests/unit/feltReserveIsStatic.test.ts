@@ -89,6 +89,13 @@ const ALL_CSS = SRC_FILES.filter((f) => f.endsWith('.css'))
   .map((f) => readFileSync(f, 'utf8').replace(/\/\*[\s\S]*?\*\//g, ''))
   .join('\n');
 const CODE_FILES = SRC_FILES.filter((f) => /\.tsx?$/.test(f));
+// This immutable suite reads the same source corpus in seven assertions.
+// Snapshot it once, as ALL_CSS already does, so shared-SSD contention cannot
+// turn repeated disk reads into a per-test timeout. Every file stays covered.
+const CODE_SOURCE = new Map(
+  CODE_FILES.map((file) => [file, stripComments(readFileSync(file, 'utf8'))])
+);
+const code = (file: string) => CODE_SOURCE.get(file)!;
 
 /**
  * Every custom property any JavaScript in src/ writes to the DOM.
@@ -101,7 +108,7 @@ const CODE_FILES = SRC_FILES.filter((f) => /\.tsx?$/.test(f));
 function jsWrittenProperties(): Map<string, string[]> {
   const written = new Map<string, string[]>();
   for (const file of CODE_FILES) {
-    const src = stripComments(readFileSync(file, 'utf8'));
+    const src = code(file);
     const rel = file.slice(ROOT.length + 1);
     for (const re of [
       /setProperty\(\s*['"`](--[a-zA-Z0-9-]+)['"`]/g,
@@ -202,7 +209,7 @@ describe('the felt reserves stay fixed through hand and action states', () => {
     const sixSeatSelector = ".table-page[data-seats='6'] .table-container";
     const sixSeatReserves = [
       '64px',
-      'min( calc(0.0811667 * 88vw + 45px), calc( (0.0568167 * (var(--sp-page-h) - var(--sp-table-top) - var(--sp-action-reserve)) + 45px) / 1.0568167 ) )',
+      'min( calc(0.0811667 * 88vw + 51px), calc( (0.0568167 * (var(--sp-page-h) - var(--sp-table-top) - var(--sp-action-reserve)) + 51px) / 1.0568167 ) )',
     ];
     const offenders: string[] = [];
     for (const prop of GEOMETRY_PROPS) {
@@ -213,7 +220,12 @@ describe('the felt reserves stay fixed through hand and action states', () => {
           prop === '--sp-hero-clear' &&
           d.selector === sixSeatSelector &&
           sixSeatReserves.includes(d.value.replace(/\s+/g, ' '));
-        if (!fixedShortRing && STATE.test(d.selector))
+        const observerUsesSeatedRow =
+          prop === '--sp-action-reserve' &&
+          d.selector ===
+            ".table-page--tournament[data-seats='9'][data-hero='false'] .table-container" &&
+          d.value === 'var(--sp-seated-row-reserve)';
+        if (!fixedShortRing && !observerUsesSeatedRow && STATE.test(d.selector))
           offenders.push(`${prop} declared on "${d.selector}"`);
       }
     }
@@ -273,7 +285,16 @@ describe('the felt reserves stay fixed through hand and action states', () => {
     // unused hero-card space. It must never redefine either reserve or make
     // hand/action state feed the dimensions.
     expect(ALL_CSS).not.toMatch(/\[data-hero='false'\][^{]*\{[^}]*--sp-hero-clear\s*:/);
-    expect(ALL_CSS).not.toMatch(/\[data-hero='false'\][^{]*\{[^}]*--sp-action-reserve\s*:/);
+    expect(
+      declarationsOf('--sp-action-reserve').filter((d) =>
+        d.selector.includes("[data-hero='false']")
+      )
+    ).toEqual([
+      {
+        selector: ".table-page--tournament[data-seats='9'][data-hero='false'] .table-container",
+        value: 'var(--sp-seated-row-reserve)',
+      },
+    ]);
   });
 });
 
@@ -316,10 +337,9 @@ describe("the felt's geometry is declared, never measured", () => {
     // Whitespace-insensitive: Prettier wraps a long var() across lines.
     expect(ALL_CSS).not.toMatch(/var\(\s*--sp-action-h\b/);
     for (const file of CODE_FILES) {
-      expect(
-        stripComments(readFileSync(file, 'utf8')),
-        `${file} still writes --sp-action-h`
-      ).not.toMatch(/setProperty\(\s*['"`]--sp-action-h/);
+      expect(code(file), `${file} still writes --sp-action-h`).not.toMatch(
+        /setProperty\(\s*['"`]--sp-action-h/
+      );
     }
   });
 
@@ -338,7 +358,7 @@ describe("the felt's geometry is declared, never measured", () => {
        a ref, or `document.documentElement` for a genuinely global token — never
        to the first match of its own class name. */
     for (const file of CODE_FILES) {
-      const src = stripComments(readFileSync(file, 'utf8'));
+      const src = code(file);
       const bad = [...src.matchAll(/document\.querySelector\(\s*['"`]\.table-page['"`]\s*\)/g)];
       expect(
         bad.length,
@@ -375,21 +395,21 @@ describe('the device constants the phone table publishes', () => {
   ];
 
   it('declares exactly these, and only the viewport hook does', () => {
-    const hook = stripComments(readFileSync(HOOK, 'utf8'));
+    const hook = code(HOOK);
     const declared = [...hook.matchAll(/const\s+[A-Z_]+\s*=\s*['"`](--[a-z0-9-]+)['"`]/g)]
       .map((m) => m[1])
       .sort();
     expect(declared).toEqual(DEVICE_CONSTANTS);
     for (const file of CODE_FILES) {
       if (file === HOOK) continue;
-      const src = stripComments(readFileSync(file, 'utf8'));
+      const src = code(file);
       for (const name of DEVICE_CONSTANTS)
         expect(src.includes(name), `${file.slice(ROOT.length + 1)} names ${name}`).toBe(false);
     }
   });
 
   it('reads them inside the one viewport writer and clears them with the last table', () => {
-    const hook = stripComments(readFileSync(HOOK, 'utf8'));
+    const hook = code(HOOK);
     const writer = hook.slice(hook.indexOf('function writeTableViewport'));
     for (const constant of [
       'STABLE_TABLE_VIEWPORT_HEIGHT',

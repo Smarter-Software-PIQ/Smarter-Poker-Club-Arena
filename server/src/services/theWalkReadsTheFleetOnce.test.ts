@@ -799,6 +799,79 @@ describe('the top-ups beside the walk are bounded', () => {
     }
   });
 
+  it('admits an empty event cancellation through transient hand-settlement contention in its original request', async () => {
+    const row = boardRow('empty', {
+      current_players: 0,
+      start_time: new Date(DISCOVERY_NOW - 46 * 60_000).toISOString(),
+    });
+    const h = discoveryHarness([[row], [row]]);
+    h.server.readDurableEmptyTopUps.mockResolvedValue(new Map([['empty', 1]]));
+    let attempts = 0;
+    h.eligibilityRead.mockImplementation(async (name: string) => {
+      if (name !== 'atomic_cancel_tournament') return { data: true, error: null };
+      attempts++;
+      return attempts < 3
+        ? { data: null, error: { code: '55P03', message: 'CANCELLATION_GLOBAL_LANE_BUSY' } }
+        : { data: { ok: true, fully_settled: true }, error: null };
+    });
+    try {
+      h.start();
+      await flushDiscovery();
+      expect(h.server.recordPastStartTopUpOutcome).not.toHaveBeenCalled();
+      expect(h.server.emptyEventCancelsInFlight.size).toBe(1);
+      await vi.waitFor(
+        () => {
+          expect(h.server.recordPastStartTopUpOutcome).toHaveBeenCalledWith('empty', null);
+        },
+        { timeout: 2_000, interval: 20 }
+      );
+      expect(attempts).toBe(3);
+      expect(h.server.emptyEventCancelsInFlight.size).toBe(0);
+      expect(h.server.tournamentRecurring.topUpWithHorses).not.toHaveBeenCalled();
+      await h.advance(1);
+      expect(attempts).toBe(3);
+      expect(reportError).not.toHaveBeenCalled();
+    } finally {
+      await h.close();
+    }
+  });
+
+  it('does not repeat or clear an empty event cancellation with an unknown or refused outcome', async () => {
+    for (const code of ['55000', '57014']) {
+      const row = boardRow('empty', {
+        current_players: 0,
+        start_time: new Date(DISCOVERY_NOW - 46 * 60_000).toISOString(),
+      });
+      const h = discoveryHarness([[row], [row]]);
+      h.server.readDurableEmptyTopUps.mockResolvedValue(new Map([['empty', 1]]));
+      h.eligibilityRead.mockImplementation(async (name: string) =>
+        name === 'atomic_cancel_tournament'
+          ? { data: null, error: { code, message: 'cancellation did not return a receipt' } }
+          : { data: true, error: null }
+      );
+      try {
+        h.start();
+        await flushDiscovery();
+        await h.advance(1);
+        expect(
+          h.eligibilityRead.mock.calls.filter(
+            (call: unknown[]) => call[0] === 'atomic_cancel_tournament'
+          )
+        ).toHaveLength(1);
+        expect(h.server.recordPastStartTopUpOutcome).not.toHaveBeenCalled();
+        expect(reportError).toHaveBeenCalledWith(
+          expect.any(Error),
+          'GameServer.empty_past_start_event_cancel_refused',
+          { tournamentId: 'empty' }
+        );
+      } finally {
+        await h.close();
+        vi.restoreAllMocks();
+        vi.mocked(reportError).mockClear();
+      }
+    }
+  });
+
   /* THE EMPTY COUNT SURVIVES A RESTART (2026-10-26). A fresh process (empty
      pastStartTopUpClock) finds the previous process's empty top-up written
      down and cancels on its first pass, without asking the horse pool again:
