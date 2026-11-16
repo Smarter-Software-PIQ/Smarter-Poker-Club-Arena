@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Generates scripts/ci/accounting-harness-reads.json: every repository file or
-// directory an accounting_postgres harness reads (see accountingHarnessReads in
+// Generates scripts/ci/accounting-harness-reads.json: every repository file an
+// accounting_postgres harness reads (see accountingHarnessReads in
 // classify-ci-changes.mjs). --check fails when the committed file differs.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';

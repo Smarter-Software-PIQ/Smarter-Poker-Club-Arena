@@ -1146,51 +1146,51 @@
     },
     "tests/fixtures/cash-participant-funding/build-candidate.py": {
       "phase4": false,
-      "server": true
+      "server": false
     },
     "tests/fixtures/cash-participant-funding/captured-hand-preimages.json": {
       "phase4": false,
-      "server": true
+      "server": false
     },
     "tests/fixtures/cash-participant-funding/captured-integration-preimages.json": {
       "phase4": false,
-      "server": true
+      "server": false
     },
     "tests/fixtures/cash-participant-funding/captured-preimages.json": {
       "phase4": false,
-      "server": true
+      "server": false
     },
     "tests/fixtures/cash-participant-funding/captured-reader-preimages.json": {
       "phase4": false,
-      "server": true
+      "server": false
     },
     "tests/fixtures/cash-participant-funding/captured-retention-preimages.json": {
       "phase4": false,
-      "server": true
+      "server": false
     },
     "tests/fixtures/cash-participant-funding/new-authority.sql": {
       "phase4": false,
-      "server": true
+      "server": false
     },
     "tests/fixtures/cash-participant-funding/reader-legacy-regression.sql": {
       "phase4": false,
-      "server": true
+      "server": false
     },
     "tests/fixtures/cash-participant-funding/reader-regression.sql": {
       "phase4": false,
-      "server": true
+      "server": false
     },
     "tests/fixtures/cash-participant-funding/regression.sql": {
       "phase4": false,
-      "server": true
+      "server": false
     },
     "tests/fixtures/cash-participant-funding/retention-bootstrap.sql": {
       "phase4": false,
-      "server": true
+      "server": false
     },
     "tests/fixtures/cash-participant-funding/retention-regression.sql": {
       "phase4": false,
-      "server": true
+      "server": false
     },
     "tests/fixtures/cashier-document-authority/README.md": {
       "phase4": false,
@@ -1474,51 +1474,51 @@
     },
     "tests/fixtures/late-seat-flow/admission-preimages.sql": {
       "phase4": false,
-      "server": true
+      "server": false
     },
     "tests/fixtures/late-seat-flow/boundaries.sql": {
       "phase4": false,
-      "server": true
+      "server": false
     },
     "tests/fixtures/late-seat-flow/captured-moves.jsonb": {
       "phase4": false,
-      "server": true
+      "server": false
     },
     "tests/fixtures/late-seat-flow/captured.jsonb": {
       "phase4": false,
-      "server": true
+      "server": false
     },
     "tests/fixtures/late-seat-flow/compact-preimages.sql": {
       "phase4": false,
-      "server": true
+      "server": false
     },
     "tests/fixtures/late-seat-flow/consumer-preimage.sql": {
       "phase4": false,
-      "server": true
+      "server": false
     },
     "tests/fixtures/late-seat-flow/load-captured.py": {
       "phase4": false,
-      "server": true
+      "server": false
     },
     "tests/fixtures/late-seat-flow/retained-cases.sql": {
       "phase4": false,
-      "server": true
+      "server": false
     },
     "tests/fixtures/late-seat-flow/retained-key-preimage.sql": {
       "phase4": false,
-      "server": true
+      "server": false
     },
     "tests/fixtures/late-seat-flow/retained-preimages.sql": {
       "phase4": false,
-      "server": true
+      "server": false
     },
     "tests/fixtures/late-seat-flow/schema-additions.sql": {
       "phase4": false,
-      "server": true
+      "server": false
     },
     "tests/fixtures/late-seat-flow/unused-original-dependencies.sql": {
       "phase4": false,
-      "server": true
+      "server": false
     },
     "tests/fixtures/legacy-fee-finality/README.md": {
       "phase4": false,
@@ -1706,15 +1706,15 @@
     },
     "tests/fixtures/original-unchanged-stack/cents-preimage.sql": {
       "phase4": false,
-      "server": true
+      "server": false
     },
     "tests/fixtures/original-unchanged-stack/lineage-preimage.sql": {
       "phase4": false,
-      "server": true
+      "server": false
     },
     "tests/fixtures/original-unchanged-stack/schema-additions.sql": {
       "phase4": false,
-      "server": true
+      "server": false
     },
     "tests/fixtures/pnl-evidence/PROTECTED-QUALIFICATION.md": {
       "phase4": false,
@@ -2098,7 +2098,7 @@
     },
     "tests/fixtures/union-pnl-blocked-resolution/schema.sql": {
       "phase4": false,
-      "server": true
+      "server": false
     },
     "tests/fixtures/union-pnl-inventory/README.md": {
       "phase4": false,

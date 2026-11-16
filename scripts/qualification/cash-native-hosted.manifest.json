@@ -528,8 +528,8 @@
       "sha256": "9114887e38f889c588699df1fd9747f74d724d3abd184af5e6af6c9262680003"
     },
     "scripts/qualification/ci-admission-inputs.json": {
-      "bytes": 77067,
-      "sha256": "095e0a2f3157842e4116647327f4130e7529b8312ce2d96bf7908b489de7d667"
+      "bytes": 77095,
+      "sha256": "f792de5d7aaa2c85678df547950186d25eaf0682c286f2eae01326d685bd749d"
     },
     "scripts/ci/qualification-input-projections.py": {
       "bytes": 9270,
@@ -7288,7 +7288,7 @@
     "executionPerformed": false
   },
   "whatAHarnessReadsAdmitsItsJob20261115": {
-    "reason": "Reviewed exact diff: classify-ci-changes.mjs's accountingJobInputs() now also admits every file listed in scripts/ci/accounting-harness-reads.json, the generated set of repository files and directories that an accounting_postgres harness reads (followed through the scripts/ci|dev/test-* harnesses one of them starts), and every accounting input also admits the unit suite. ci-admission-inputs.json changes only in 54 cases, each server false -> true (phase4 unchanged); regenerated with qualification-input-projections.py --write. It only widens job admission; no job is skipped that ran before. Financial inputs, assertions and historical qualification states unchanged; source identity only, no financial recertification. 2026-11-15: #10888 changed scripts/verification-harness/cashier-release-contract.sql and its fixture; neither is named in the accounting block, the change admitted no job, and scripts/ci/test-promo-downline-limit-postgres.py, which reads both, broke on main (fixed forward by #10916). Owner 2026-11-14 23:10 Chicago: applicable cashier changes must select the accounting proofs they affect.",
+    "reason": "Reviewed exact diff: classify-ci-changes.mjs's accountingJobInputs() now also admits every file listed in scripts/ci/accounting-harness-reads.json, the generated set of repository files (not directories; routing law tests and test files are not followed as reads) that an accounting_postgres harness reads (followed through the scripts/ci|dev/test-* harnesses one of them starts); unit-suite admission is unchanged. ci-admission-inputs.json changes only in 26 cases, each server false -> true (phase4 unchanged); regenerated with qualification-input-projections.py --write. It only widens job admission; no job is skipped that ran before. Financial inputs, assertions and historical qualification states unchanged; source identity only, no financial recertification. 2026-11-15: #10888 changed scripts/verification-harness/cashier-release-contract.sql and its fixture; neither is named in the accounting block, the change admitted no job, and scripts/ci/test-promo-downline-limit-postgres.py, which reads both, broke on main (fixed forward by #10916). Owner 2026-11-14 23:10 Chicago: applicable cashier changes must select the accounting proofs they affect.",
     "changes": {
       "scripts/qualification/ci-admission-inputs.json": {
         "previous": {
@@ -7296,8 +7296,8 @@
           "sha256": "8275cc6a48e74b21dc56c8d4ed5a143cb9dae6ffabba8dca65366d4920007887"
         },
         "current": {
-          "bytes": 77067,
-          "sha256": "095e0a2f3157842e4116647327f4130e7529b8312ce2d96bf7908b489de7d667"
+          "bytes": 77095,
+          "sha256": "f792de5d7aaa2c85678df547950186d25eaf0682c286f2eae01326d685bd749d"
         }
       }
     }

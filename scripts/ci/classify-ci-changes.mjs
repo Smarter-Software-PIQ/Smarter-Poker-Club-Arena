@@ -144,8 +144,7 @@ export function accountingJobInputs(root = REPO_ROOT) {
     return (p) =>
       named.has(p) ||
       p === ACCOUNTING_HARNESS_READS ||
-      reads.files.has(p) ||
-      reads.directories.some((d) => p.startsWith(d));
+      reads.files.has(p);
   } catch {
     return null;
   }
@@ -162,25 +161,29 @@ export function accountingJobInputs(root = REPO_ROOT) {
 // broke on main. Restating the list by hand is how the gap opened, so the job
 // is read once more: every repository path a named harness spells out as a
 // literal, followed through the harnesses it starts, admits the job. A literal
-// that names an existing file admits that file; one that names an existing
-// directory admits everything under it; anything else (a partial name built at
-// run time) admits nothing. Only widens admission; never skips a job.
+// that names an existing file admits that file; a directory admits nothing by
+// itself (a harness that lists a whole fixture tree would otherwise buy the
+// job for every neighbour the routing laws keep out); anything else (a partial
+// name built at run time) admits nothing. Only widens admission; never skips a
+// job.
 //
 // Reading several hundred harnesses takes seconds on a busy disk, so the set
 // is generated into ACCOUNTING_HARNESS_READS (node
 // scripts/ci/accounting-harness-reads.mjs --write) and the classifier reads
 // that file. tests/unit/theAccountingJobNamesItsOwnInputs.test.ts regenerates
-// it and fails when it differs, and every accounting input admits the unit
-// suite, so a harness that starts reading a new file cannot merge unlisted.
+// it and fails when it differs. That law runs wherever the unit suite runs,
+// including the daily whole-branch run; a harness-only change does not run it
+// (the routing laws keep the unit suite out of accounting-only changes), so a
+// harness that starts reading a new file is caught there, not in its own PR.
 // Only harnesses the job starts are followed: a named one, or a
 // scripts/ci|dev/test-* harness one of them names.
 export const ACCOUNTING_HARNESS_READS = 'scripts/ci/accounting-harness-reads.json';
 export function accountingHarnessReadsManifest(root = REPO_ROOT) {
   try {
     const value = JSON.parse(readFileSync(resolve(root, ACCOUNTING_HARNESS_READS), 'utf8'));
-    return { files: new Set(value.files), directories: value.directories };
+    return { files: new Set(value.files) };
   } catch {
-    return { files: new Set(), directories: [] };
+    return { files: new Set() };
   }
 }
 export function accountingJobNamedInputs(root = REPO_ROOT) {
@@ -198,15 +201,22 @@ export function accountingJobNamedInputs(root = REPO_ROOT) {
 }
 const STARTED_HARNESS = /^scripts\/(?:ci|dev)\/test-[^/]+\.(?:py|sh|mjs)$/;
 const HARNESS_SOURCE = /\.(?:py|sh|mjs|js|ts|mts)$/;
+// A law test spells paths as routing data (which path admits which lane), not
+// as files it reads: tests/ci-tells-the-truth-faster.law.test.ts lists the
+// Diamond screenshot tools precisely to keep them OUT of this job.
+const ROUTING_LAW = /\.law\.test\.[cm]?[jt]s$/;
+// A test file is a unit-suite input whose routing those laws pin; a harness
+// that names one hashes it as data (tests/unit/fixtureNativeCi.test.ts in the
+// f06 qualification probes), so naming it does not admit this job.
+const TEST_FILE = /\.(?:test|spec)\.[cm]?[jt]sx?$|\.test\.py$/;
 const HARNESS_LITERAL = /\b(?:scripts|tests|server\/scripts|operations|supabase)\/[\w./-]+/g;
 export function accountingHarnessReads(root, named) {
   const files = new Set();
-  const directories = new Set();
   const queue = [...named];
   const seen = new Set(queue);
   while (queue.length) {
     const harness = queue.shift();
-    if (!HARNESS_SOURCE.test(harness)) continue;
+    if (!HARNESS_SOURCE.test(harness) || ROUTING_LAW.test(harness)) continue;
     let source;
     try {
       source = readFileSync(resolve(root, harness), 'utf8');
@@ -221,10 +231,8 @@ export function accountingHarnessReads(root, named) {
       } catch {
         continue;
       }
-      if (stat.isDirectory()) {
-        if (path.split('/').length >= 3) directories.add(`${path}/`);
-      } else if (stat.isFile()) {
-        if (!named.has(path)) files.add(path);
+      if (stat.isFile()) {
+        if (!named.has(path) && !TEST_FILE.test(path)) files.add(path);
         if (!seen.has(path) && STARTED_HARNESS.test(path)) {
           seen.add(path);
           queue.push(path);
@@ -232,7 +240,7 @@ export function accountingHarnessReads(root, named) {
       }
     }
   }
-  return { files: [...files].sort(), directories: [...directories].sort() };
+  return { files: [...files].sort() };
 }
 const accountingJobInput =
   accountingJobInputs() || ((p) => /^scripts\/(?:ci|dev)\/test-[^/]+$/.test(p));
@@ -702,10 +710,6 @@ export function classifyChangedPaths(paths) {
       matches(satelliteLedgerAuditIndex) ||
       matches(certificationPlayerIndex),
     tests:
-      // Every accounting input also runs the unit suite: unit tests pin the
-      // same contracts and fixtures (tests/config/cashier*Contract.test.ts),
-      // and the law that regenerates ACCOUNTING_HARNESS_READS lives there.
-      paths.some(accountingJobInput) ||
       // The existing Horse study wrapper discovers these Python regressions.
       // Source-only edits must execute it, not merely a skipped unit gate.
       matches(/^scripts\/ops\/(?:(?:test_)?horse[-_][^/]+|(?:test_)?omaha_reference)\.py$/) ||

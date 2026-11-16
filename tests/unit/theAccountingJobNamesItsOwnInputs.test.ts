@@ -66,23 +66,35 @@ describe('the accounting job names its own inputs', () => {
       );
     }, 180_000);
 
-    it('admits the accounting job and the unit suite for the #10888 files', () => {
+    it('admits the accounting job, not the unit suite, for the #10888 files', () => {
       for (const path of [
         'scripts/verification-harness/cashier-release-contract.sql',
         'scripts/ci/fixtures/world-hub-cashier-migrations-20261114.json',
         'scripts/ci/test-promo-downline-limit-postgres.py',
       ]) {
-        const flags = classifyChangedPaths([path]);
-        expect(flags.server, path).toBe(true);
-        expect(flags.tests, path).toBe(true);
+        expect(classifyChangedPaths([path]).server, path).toBe(true);
+      }
+      // The routing laws keep the unit suite out of accounting-only changes.
+      for (const path of [
+        'scripts/verification-harness/cashier-release-contract.sql',
+        'scripts/ci/test-promo-downline-limit-postgres.py',
+      ]) {
+        expect(classifyChangedPaths([path]).tests, path).toBe(false);
       }
     });
 
-    it('follows a harness one named harness starts, and a directory it reads', () => {
+    it('follows a harness one named harness starts; a directory or a routing law admits nothing', () => {
       expect(named).not.toContain('scripts/ci/test-promo-downline-limit-postgres.py');
       expect(
         classifyChangedPaths(['scripts/ci/fixtures/chip-wallet-choice/setup.sql']).server
       ).toBe(true);
+      // A neighbour no harness names, in a directory a harness lists.
+      expect(
+        classifyChangedPaths(['scripts/ci/fixtures/chip-wallet-choice/not-read-by-any-harness.md'])
+          .server
+      ).toBe(false);
+      // tests/ci-tells-the-truth-faster.law.test.ts names this tool to keep it out.
+      expect(classifyChangedPaths(['scripts/dev/diamond-test-shots.mjs']).server).toBe(false);
     });
 
     it('the list itself admits the job, and an unrelated file still admits nothing', () => {
