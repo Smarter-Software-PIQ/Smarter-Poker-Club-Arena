@@ -100,7 +100,8 @@ export function decide(
   t: Table,
   seed: number,
   extraOpts: Partial<HorseDecideOpts> = {},
-  gsExtra: Partial<HorseGameStateV2> = {}
+  /** optional state fields or edit callback before the decision (a law's spot variant) */
+  gsExtraOrPatch?: Partial<HorseGameStateV2> | ((gs: HorseGameStateV2) => void)
 ) {
   const { controller, variant, fmt } = t;
   const state = controller.getState();
@@ -185,8 +186,9 @@ export function decide(
           },
         }
       : {}),
-    ...gsExtra,
+    ...(typeof gsExtraOrPatch === 'object' && gsExtraOrPatch !== null ? gsExtraOrPatch : {}),
   } as unknown as HorseGameStateV2;
+  if (typeof gsExtraOrPatch === 'function') gsExtraOrPatch(gs);
   const prof = HORSE_HYBRID_PROFILES[fmt];
   HorseMind.reset();
   seedFastRandom(seed);

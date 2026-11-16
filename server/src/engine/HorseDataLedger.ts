@@ -1931,6 +1931,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'FixedLimitAdaptation'
   ),
   flag(
+    'fixedLimitPricedPreflopTournament',
+    "2026-11-16 default OFF (Fixed-Limit lane Phase 4): fixed-limit TOURNAMENT tables only (inert at cash: the context is built only where isTournamentMode), first in a persona fold becomes a raise inside the seat's reference share divided by hero's bubble factor (heroBubbleFactor; the share scaled by 0.8 + 0.2 x min(1, (stackBB - 10) / 15) under 25 big blinds), a persona open folds only above bubble factor 1.15, and a blind's fold facing exactly one raise becomes a call when its realized equity covers the raw price times the bubble factor (HorseFixedLimitPreflop.ts); never in a bomb pot or a straddled pot (no context is built there); stands aside at 10 big blinds or less, All-In-Or-Fold, a locked satellite seat and a context without a bubble factor; where the context is built and it does not stand aside, the phase12 round-3 FIRST-IN entry rules retain the reference at that fixed-limit tournament table (the W5 precedence, tournament half; at every stand-aside today's pack stands); off-only under the owner preflop range hold (evaluated AB-EVALUATION-2 3.14: no demonstrated gain, flh -0.71 +/- 0.20, z -3.5); measured before (AB 3.6, P4-TOURNAMENT-PRICED-PREFLOP.md): the cash priced first in at a flh six-seat tournament table vs a maniac field folded 11 under-the-gun persona opens; refused by the league (it deals no fixed limit), see UNMEASURABLE_MATCHUPS",
+    'FixedLimitAdaptation'
+  ),
+  flag(
     'fixedLimitStealVsTightBlinds',
     '2026-11-15 default OFF (Fixed-Limit lane W5): fixed-limit cash tables only (inert at every tournament table; it shares the fixedLimitPricedPreflop entry fixedLimitPreflopInScope, so only at its credited cash table types: flh dealt 2/5/6/8/9 unfloored and 2/3/5/6/7/8/9 floored, flo8 dealt 5/6 unfloored), first in from the cutoff, button or small blind (or the heads-up button), when every player still to act has an own adequate over-folder read (foldToBet engaged high on at least 15 decayed opportunities, not presumed, nothing preflop engaged wide) the open share widens by up to 15 points (HorseFixedLimitPreflop.fixedLimitStealWiden)',
     'FixedLimitAdaptation'
@@ -6698,6 +6703,42 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'fixed_limit_priced_blind_defence',
     'HorsePreflop decidePreflopV7 (fixedLimitPricedPreflop, HorseFixedLimitPreflop.ts)',
     "a fixed-limit blind's fold facing one raise became a call because its realized equity against the opener's reference range covered the price",
+    'FixedLimitAdaptation'
+  ),
+  receipt(
+    'fixed_limit_tournament_priced_first_in',
+    'HorsePreflop decidePreflopV7 (fixedLimitPricedPreflopTournament, HorseFixedLimitPreflop.ts)',
+    'a fixed-limit tournament first-in decision was taken by the tournament priced preflop (a persona fold raised inside the share at the bubble factor, or a persona open folded under bubble factor above 1.15)',
+    'FixedLimitAdaptation'
+  ),
+  receipt(
+    'fixed_limit_tournament_priced_blind_defence',
+    'HorsePreflop decidePreflopV7 (fixedLimitPricedPreflopTournament, HorseFixedLimitPreflop.ts)',
+    "a fixed-limit tournament blind's fold facing one raise became a call because its realized equity covered the raw price times the bubble factor",
+    'FixedLimitAdaptation'
+  ),
+  receipt(
+    'fixed_limit_tournament_priced_stand_aside_short_stack',
+    'HorsePreflop decidePreflopV7 (fixedLimitPricedPreflopTournament, HorseFixedLimitPreflop.ts)',
+    "the fixed-limit tournament priced preflop stood aside at a stack of 10 big blinds or less (the persona's answer stands)",
+    'FixedLimitAdaptation'
+  ),
+  receipt(
+    'fixed_limit_tournament_priced_stand_aside_all_in_or_fold',
+    'HorsePreflop decidePreflopV7 (fixedLimitPricedPreflopTournament, HorseFixedLimitPreflop.ts)',
+    "the fixed-limit tournament priced preflop stood aside at an All-In-Or-Fold table (the persona's answer stands)",
+    'FixedLimitAdaptation'
+  ),
+  receipt(
+    'fixed_limit_tournament_priced_stand_aside_satellite_locked',
+    'HorsePreflop decidePreflopV7 (fixedLimitPricedPreflopTournament, HorseFixedLimitPreflop.ts)',
+    "the fixed-limit tournament priced preflop stood aside for a locked satellite seat (the persona's answer stands)",
+    'FixedLimitAdaptation'
+  ),
+  receipt(
+    'fixed_limit_tournament_priced_stand_aside_incomplete_context',
+    'HorsePreflop decidePreflopV7 (fixedLimitPricedPreflopTournament, HorseFixedLimitPreflop.ts)',
+    "the fixed-limit tournament priced preflop stood aside because the tournament context gave no bubble factor (the persona's answer stands)",
     'FixedLimitAdaptation'
   ),
   receipt(

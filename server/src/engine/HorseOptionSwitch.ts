@@ -349,6 +349,7 @@ export const OPTION_SWITCH_RELEASE_DEFAULT_OFF: readonly string[] = Object.freez
   'fixedLimitPricedPreflop',
   'fixedLimitStealVsTightBlinds',
   'fixedLimitPopulationCells',
+  'fixedLimitPricedPreflopTournament',
 ]);
 /** Decided by code: a parent option, a variant gate or a mixed read (see each ledger note). */
 export const OPTION_SWITCH_RELEASE_DEFAULT_CODE: readonly string[] = Object.freeze([
@@ -431,6 +432,9 @@ export const OPTION_SWITCH_OFF_ONLY: Readonly<Record<string, OptionSwitchOffOnly
   // 2026-11-16 Fixed-Limit lane (lane owner, after the independent re-review of e437b075): the frozen fixed-limit cells
   // move the preflop tight-opener and tight-reraiser respect at flh cash, so the option is under the same owner hold.
   fixedLimitPopulationCells: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
+  // 2026-11-16 Fixed-Limit lane Phase 4: widens and tightens fixed-limit tournament first-in ranges and the blind
+  // defence, so it is under the same owner hold (evaluation AB-EVALUATION-2 3.14: no demonstrated gain).
+  fixedLimitPricedPreflopTournament: hold(PREFLOP_HOLD_SOURCE, PREFLOP_HOLD_REASON),
   // owner 21:30: the Omaha tight responses
   omahaTightOpponent: hold(
     OMAHA_TIGHT_SOURCE,
@@ -579,6 +583,11 @@ const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Overrid
     'Fixed-Limit',
     "Fixed limit cash preflop first-in, every player behind an own-evidence over-folder; only at the priced preflop's credited types (shared entry: flh dealt 2/5/6/8/9 unfloored and 2/3/5/6/7/8/9 floored, flo8 dealt 5/6 unfloored; others inert by code)",
     'fixed-limit first-in steal from over-folding blinds (W5 S; off-only by the steal hold)',
+  ],
+  fixedLimitPricedPreflopTournament: [
+    'Fixed-Limit',
+    'Fixed limit (flh, flo8) preflop, tournament tables only (cash inert by code)',
+    'fixed-limit tournament preflop: first-in share / bubble factor, blind defence at price x bubble factor (Phase 4; off-only, preflop hold)',
   ],
   v16Hu: ['Heads Up', 'Heads-up postflop', 'heads-up postflop overlay'],
   v16Ratio: [HOLDEM, 'All (dead by precedence under V38)', 'V16 call/fold ratio rescale'],
