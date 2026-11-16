@@ -24020,7 +24020,7 @@ export class HorseLogic {
       return false;
     const speed = (gs as { publicMemoryDomain?: { speed?: string } }).publicMemoryDomain?.speed;
     if (speed === 'lightning') return false;
-    if (gs.stateSchemaVersion !== 1 || gs.wagersCapped === true) return false;
+    if (gs.wagersCapped === true) return false;
     if (gs.stage !== 'flop' && gs.stage !== 'turn' && gs.stage !== 'river') return false;
     return (gs.communityCards ?? []).length === { flop: 3, turn: 4, river: 5 }[gs.stage];
   }
@@ -24063,16 +24063,34 @@ export class HorseLogic {
         opponentFoldToBet = null;
       }
     }
+    const pot = Number.isFinite(gs.pot) ? Math.max(0, gs.pot) : 0;
+    const currentBet = Number.isFinite(gs.currentBet) ? Math.max(0, gs.currentBet) : 0;
+    const seatBet = Number.isFinite(seat.bet) ? Math.max(0, seat.bet) : 0;
+    const seatStack = Number.isFinite(seat.stack) ? Math.max(0, seat.stack) : 0;
+    // The table's bounds when the state carries them (schema v1); otherwise the
+    // pot-limit bounds the engine itself enforces (minimum raise over the
+    // street's wager, at most the pot after the call, at most every chip).
+    const step = Math.max(gs.bigBlind || 0, gs.lastRaise || 0, gs.minRaise || 0, 0.01);
+    const derivedMax = Math.min(
+      seatBet + seatStack,
+      currentBet + pot + Math.max(0, currentBet - seatBet)
+    );
+    const maxTo = Number.isFinite(gs.maxRaiseTo)
+      ? (gs.maxRaiseTo as number)
+      : Math.floor(derivedMax * 100) / 100;
+    const minTo = Number.isFinite(gs.minRaiseTo)
+      ? (gs.minRaiseTo as number)
+      : Math.min(maxTo, Math.ceil((currentBet > 0 ? currentBet + step : step) * 100) / 100);
     return {
       street: gs.stage,
       kind,
       board: Array.isArray(gs.communityCards) ? gs.communityCards : [],
-      pot: Number.isFinite(gs.pot) ? Math.max(0, gs.pot) : 0,
-      currentBet: Number.isFinite(gs.currentBet) ? Math.max(0, gs.currentBet) : 0,
-      seatBet: Number.isFinite(seat.bet) ? Math.max(0, seat.bet) : 0,
-      seatStack: Number.isFinite(seat.stack) ? Math.max(0, seat.stack) : 0,
-      minTo: Number.isFinite(gs.minRaiseTo) ? (gs.minRaiseTo as number) : NaN,
-      maxTo: Number.isFinite(gs.maxRaiseTo) ? (gs.maxRaiseTo as number) : NaN,
+      pot,
+      currentBet,
+      seatBet,
+      seatStack,
+      minTo,
+      maxTo,
       opponents: live.length,
       inPosition,
       opponentFoldToBet,
