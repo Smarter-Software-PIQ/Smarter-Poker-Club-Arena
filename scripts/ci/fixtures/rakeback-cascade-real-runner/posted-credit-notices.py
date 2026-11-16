@@ -24,6 +24,21 @@ try:
     assert one("SELECT count(*)=10 FROM smarter_private.weekly_rakeback_credit_notices WHERE email_status='sent'")=='t'
     q("UPDATE smarter_private.weekly_rakeback_notice_rounds SET prepared_at=NULL; SELECT smarter_private.prepare_weekly_rakeback_credit_notices() FROM generate_series(1,4)")
     assert one("SELECT (SELECT count(*) FROM public.push_outbox)=12 AND NOT EXISTS(SELECT FROM public.claim_weekly_rakeback_credit_emails())")=='t'
+    # A seeded account with an enrolled device uses the ordinary player
+    # notification. Its verified synthetic mailbox is never a delivery address.
+    q("""ALTER TABLE public.push_outbox ADD COLUMN status text DEFAULT 'pending',ADD COLUMN failure_reason text;
+         CREATE TABLE public.push_subscriptions(user_id uuid,is_active boolean);
+         INSERT INTO public.push_subscriptions VALUES(rr.u('OP1'),true);
+         UPDATE auth.users SET email='horse-fixture@horses.smarter.poker' WHERE id=rr.u('OP1');""")
+    q(next((R/'supabase/migrations').glob('20261116164202_*.sql')).read_text())
+    q("SELECT smarter_private.prepare_weekly_rakeback_credit_notices() FROM generate_series(1,4)")
+    assert one("SELECT count(*)=1 AND bool_and(n.kind='player' AND n.title='Player Rakeback' AND n.email_status='skipped' AND p.status='pending' AND p.title='Player Rakeback') FROM smarter_private.weekly_rakeback_credit_notices n JOIN public.push_outbox p ON p.id=n.push_id WHERE n.user_id=rr.u('OP1')")=='t'
+    assert one("SELECT count(*)=13 FROM public.push_outbox")=='t'
+    assert one("SELECT count(*)=8 FROM smarter_private.weekly_rakeback_credit_notices WHERE kind='player'")=='t'
+    assert one("SELECT count(*)=0 FROM public.claim_weekly_rakeback_credit_emails()")=='t'
+    q("UPDATE auth.users SET email='verified@fixture.smarter.poker' WHERE id=rr.u('OP1')")
+    assert one("SELECT smarter_private.weekly_rakeback_email_destination(rr.u('OP1'),rr.u('O'),'player')='verified@fixture.smarter.poker'")=='t'
+    case('all paid player accounts share one label; only an actual enrolled device or verified nonsynthetic address is a delivery destination')
     case('posted rakeback notices: club bank, earned agent commission, human player wallet, deduplicated delivery, verified address and preference checks')
 finally:
     DB='postgres'
