@@ -50,12 +50,20 @@ CREATE INDEX ca_club_data_pacific_hands_journal_read_idx ON public.ca_club_data_
 CREATE TABLE public.ca_club_data_pacific_seed_log(utc_day date PRIMARY KEY, seeded_at timestamptz NOT NULL DEFAULT now(), facts bigint NOT NULL,hands bigint NOT NULL);
 CREATE TABLE public.ca_club_data_pacific_failures(club_id uuid, utc_day date NOT NULL, source text NOT NULL, detail text NOT NULL, created_at timestamptz NOT NULL DEFAULT clock_timestamp());
 CREATE INDEX ca_club_data_pacific_failures_read_idx ON public.ca_club_data_pacific_failures(utc_day,club_id);
-DO $private$ DECLARE n text; BEGIN
- FOREACH n IN ARRAY ARRAY['state','fact','journal','hands','hands_journal','seed_log','failures'] LOOP
-  EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY','ca_club_data_pacific_'||n);
-  EXECUTE format('REVOKE ALL ON public.%I FROM PUBLIC,anon,authenticated,service_role','ca_club_data_pacific_'||n);
- END LOOP;
-END $private$;
+ALTER TABLE public.ca_club_data_pacific_state ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_club_data_pacific_state FROM PUBLIC,anon,authenticated,service_role;
+ALTER TABLE public.ca_club_data_pacific_fact ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_club_data_pacific_fact FROM PUBLIC,anon,authenticated,service_role;
+ALTER TABLE public.ca_club_data_pacific_journal ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_club_data_pacific_journal FROM PUBLIC,anon,authenticated,service_role;
+ALTER TABLE public.ca_club_data_pacific_hands ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_club_data_pacific_hands FROM PUBLIC,anon,authenticated,service_role;
+ALTER TABLE public.ca_club_data_pacific_hands_journal ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_club_data_pacific_hands_journal FROM PUBLIC,anon,authenticated,service_role;
+ALTER TABLE public.ca_club_data_pacific_seed_log ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_club_data_pacific_seed_log FROM PUBLIC,anon,authenticated,service_role;
+ALTER TABLE public.ca_club_data_pacific_failures ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.ca_club_data_pacific_failures FROM PUBLIC,anon,authenticated,service_role;
 CREATE VIEW public.ca_club_data_pacific_fact_ct WITH(security_invoker=true) AS
  SELECT club_id,stat_date,min(kind) kind,game_id,user_id,sum(fee) fee,sum(buyins) buyins,sum(cashouts) cashouts,
  sum(winnings) winnings,max(last_at) last_at,src,sum(hands)::bigint hands FROM (
