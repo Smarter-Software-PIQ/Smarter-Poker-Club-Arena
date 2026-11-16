@@ -6301,6 +6301,24 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'PersonaPostflop'
   ),
   receipt(
+    'holdem_persona_postflop_cbet_seen',
+    'HorseLogic V87 dry-board range c-bet (holdemPersonaPostflop)',
+    "default-off holdemPersonaPostflop: the dry-board range c-bet branch was entered with the persona's c-bet scale in force; an occurrence counter with no floor, named *_seen (a scale below 1 that kept the branch out is not counted)",
+    'PersonaPostflop'
+  ),
+  receipt(
+    'holdem_persona_postflop_check_raise_seen',
+    'HorseLogic V87 flop check-raise into a stabber (holdemPersonaPostflop)',
+    "default-off holdemPersonaPostflop: the flop check-raise into a high-frequency stabber was made with the persona's trap threshold in force; an occurrence counter with no floor, named *_seen",
+    'PersonaPostflop'
+  ),
+  receipt(
+    'tournament_utility_stack_scaled_margin_seen',
+    'HorseLogic -> HorseTournamentUtility (tournamentUtilityStackScaledMargin)',
+    'default-off tournamentUtilityStackScaledMargin: a tournament decision was selected by the utility comparison with the stack-scaled equity margin in force; an occurrence counter with no floor, named *_seen (how often the margin changed the selection shows in phase7_utility_override)',
+    'Phase7'
+  ),
+  receipt(
     'holdem_persona_3bet_bluff_eligible_seen',
     'HorsePreflop via HorseLogic (holdemPersonaReRaiseMix)',
     "default-off holdemPersonaReRaiseMix: a no-limit hold'em 3-bet bluff decision (facing one open, no caller) reached its mix comparison with the persona present; an occurrence counter with no floor, named *_seen",

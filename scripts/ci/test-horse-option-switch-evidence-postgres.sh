@@ -176,6 +176,8 @@ check "the wide read names the off row and no cleared row" '{"v16Hu": "off"}' "$
 # the assertions above, which prove the switch as first installed. From here 'on' for a non-style option also needs
 # the sha256 its note cites to be recorded for that option. Not applied with OPTION_SWITCH_MIGRATION set.
 if [ -z "${OPTION_SWITCH_MIGRATION:-}" ]; then
+  # the live case: a NON-style option is already ON (written under the earlier rule) when this migration installs
+  q "SELECT public.fn_ca_horse_option_switch_set('readShrinkResponse', 'on', 'fixture', 'authority: readShrinkResponse $authority_tail')" >/dev/null
   evidence_migration="$(ls "$repo"/supabase/migrations/*_the_horse_option_switch_on_needs_a_recorded_evidence_row.sql)"
   "${psql[@]}" -f "$evidence_migration"
   "${psql[@]}" -f "$evidence_migration"
@@ -185,6 +187,9 @@ if [ -z "${OPTION_SWITCH_MIGRATION:-}" ]; then
   sha_c='cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc'
   ev='readScopedShrink'
   check "the style row survives the evidence migration" "on" "$(q "SELECT state FROM public.ca_horse_style_switch WHERE option = 'styleFoldBluff'")"
+  # the migration never touches the table: the earlier non-style row stays on, and clearing it still works
+  check "a non-style on row written before the evidence migration survives it" "on" "$(q "SELECT state FROM public.ca_horse_style_switch WHERE option = 'readShrinkResponse'")"
+  q "SELECT public.fn_ca_horse_option_switch_clear('readShrinkResponse', 'fixture', 'after the survival check')" >/dev/null
   expect_refusal "$ev: on with a well-formed citation and no evidence row is refused" "only after its evidence is recorded" "SELECT public.fn_ca_horse_option_switch_set('$ev', 'on', 'fixture', 'authority: $ev docs/x.md sha256 $sha_a')"
   expect_refusal "$ev: on with a junk note is still refused first" "cites its own authority" "SELECT public.fn_ca_horse_option_switch_set('$ev', 'on', 'fixture', 'try on')"
   q "SELECT public.fn_ca_horse_option_switch_record_evidence('$ev', 'docs/x.md', '$sha_a', 'evidence', 'Hand Analysis ACCEPT fixture', 'abcdef1', 'fixture')" >/dev/null
