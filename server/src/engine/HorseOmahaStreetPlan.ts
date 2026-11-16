@@ -1076,24 +1076,54 @@ export interface OmahaFlopPlan {
   riverCards: number;
 }
 
-/** The plan of the flop layer; null outside it (not a three-card board, no chips, no pot). */
-export function omahaStreetPlanFlop(input: OmahaFlopPlanInput): OmahaFlopPlan | null {
-  const { hole, board } = input;
-  if (board.length !== 3 || !omahaStrategyHoleCountServed(hole.length)) return null;
-  const pot = input.pot;
-  const eff = Math.min(input.heroStack, input.oppStack);
-  if (!(pot > 0) || !(eff > 0)) return null;
-  const P = OMAHA_STREET_PLAN_PRIOR;
-  const F = OMAHA_FLOP_PLAN_PRIOR;
-  const t = input.tendency ?? null;
-  const foldMul = t ? t.foldToBet : 1;
-  const aggr = t ? t.aggression : 1;
-  const callMul = t ? t.riverCall : 1;
-  const bluffMul = (t?.valueLeader ? 0.5 : 1) * aggr;
-
-  const unseen = omahaPlanUnseen(hole, board, input.dead);
-  const R = unseen.length;
+interface FlopPlanCore {
+  M: number;
+  K: number;
+  S: number;
+  KS: number;
+  weight: number[];
+  repTexture: OmahaPlanTexture[];
+  heroRank: Float64Array;
+  ranks: Float64Array;
+  order: Int32Array[];
+  byTurn: Int32Array[];
+  range: number[];
+}
+/**
+ * The part of the flop plan that depends only on the cards and the
+ * opponent's preflop line (the range sample, the turn classes, the sampled
+ * runouts and every exact hand rank on them): computed once per key and
+ * kept for the next call with the same key (one entry; the same decision
+ * asks again for other sizes, the owner-ruled final and the validator ask
+ * again for the same cards). Deterministic: the key fixes every number.
+ */
+let flopCoreMemo: { key: string; core: FlopPlanCore | null } | null = null;
+function flopPlanCore(
+  hole: Card[],
+  board: Card[],
+  dead: Card[] | undefined,
+  oppLine: OmahaPlanOppLine
+): FlopPlanCore | null {
+  const memoKey = [
+    hole.map(key).join(''),
+    board.map(key).join(''),
+    (dead ?? []).map(key).sort().join(''),
+    oppLine,
+  ].join('|');
+  if (flopCoreMemo !== null && flopCoreMemo.key === memoKey) return flopCoreMemo.core;
+  const core = flopPlanCoreBuild(hole, board, dead, oppLine);
+  flopCoreMemo = { key: memoKey, core };
+  return core;
+}
+function flopPlanCoreBuild(
+  hole: Card[],
+  board: Card[],
+  dead: Card[] | undefined,
+  oppLine: OmahaPlanOppLine
+): FlopPlanCore | null {
   const H = hole.length;
+  const unseen = omahaPlanUnseen(hole, board, dead);
+  const R = unseen.length;
   if (R < H + 3) return null;
   const rnd = planGenerator(hole, board);
 
@@ -1116,7 +1146,7 @@ export function omahaStreetPlanFlop(input: OmahaFlopPlanInput): OmahaFlopPlan | 
       false
     )
   );
-  const keepShare = clamp(OMAHA_FLOP_PLAN_PREFLOP_KEEP[input.oppLine] ?? 0.5, 0.05, 1);
+  const keepShare = clamp(OMAHA_FLOP_PLAN_PREFLOP_KEEP[oppLine] ?? 0.5, 0.05, 1);
   const byPre = pool.map((_, i) => i).sort((a, b) => pre[b] - pre[a] || a - b);
   const chosen = byPre
     .slice(0, Math.max(want, Math.round(pool.length * keepShare)))
@@ -1234,6 +1264,27 @@ export function omahaStreetPlanFlop(input: OmahaFlopPlanInput): OmahaFlopPlan | 
   const range = Array.from({ length: M }, (_, m) => m).sort(
     (a, b) => flopStrength[b] - flopStrength[a] || a - b
   );
+  return { M, K, S, KS, weight, repTexture, heroRank, ranks, order, byTurn, range };
+}
+
+/** The plan of the flop layer; null outside it (not a three-card board, no chips, no pot). */
+export function omahaStreetPlanFlop(input: OmahaFlopPlanInput): OmahaFlopPlan | null {
+  const { hole, board } = input;
+  if (board.length !== 3 || !omahaStrategyHoleCountServed(hole.length)) return null;
+  const pot = input.pot;
+  const eff = Math.min(input.heroStack, input.oppStack);
+  if (!(pot > 0) || !(eff > 0)) return null;
+  const P = OMAHA_STREET_PLAN_PRIOR;
+  const F = OMAHA_FLOP_PLAN_PRIOR;
+  const t = input.tendency ?? null;
+  const foldMul = t ? t.foldToBet : 1;
+  const aggr = t ? t.aggression : 1;
+  const callMul = t ? t.riverCall : 1;
+  const bluffMul = (t?.valueLeader ? 0.5 : 1) * aggr;
+
+  const core = flopPlanCore(hole, board, input.dead, input.oppLine);
+  if (!core) return null;
+  const { M, K, S, KS, weight, repTexture, heroRank, ranks, order, byTurn, range } = core;
   const N = range.length;
   const mask = (members: readonly number[]): Uint8Array => {
     const out = new Uint8Array(M);
@@ -1731,7 +1782,7 @@ export function omahaStreetPlanFlopAdmitsCheck(
 // ═══════════════════════════════════════════════════════════════════════════
 
 /** Hands in each opponent's independent sample. */
-export const OMAHA_STREET_PLAN_THREE_WAY_SAMPLE = 80;
+export const OMAHA_STREET_PLAN_THREE_WAY_SAMPLE = 64;
 
 export interface OmahaThreeWayOpp {
   stack: number;
@@ -1776,14 +1827,46 @@ export interface OmahaThreeWayPlan {
   sampled: number;
 }
 
-export function omahaStreetPlanThreeWay(input: OmahaThreeWayPlanInput): OmahaThreeWayPlan | null {
-  const { hole, board } = input;
-  if (board.length !== 4 || !omahaStrategyHoleCountServed(hole.length)) return null;
-  if (input.opps.length !== 2) return null;
-  const pot = input.pot;
-  if (!(pot > 0) || !(input.heroStack > 0)) return null;
-  const P = OMAHA_STREET_PLAN_PRIOR;
-  const unseen = omahaPlanUnseen(hole, board, input.dead);
+interface ThreeWaySideCore {
+  hands: number[][];
+  ranks: Float64Array;
+  /** sample members, best first by turn strength */
+  kept: number[];
+}
+interface ThreeWayCore {
+  R: number;
+  heroRank: Float64Array;
+  sides: ThreeWaySideCore[];
+}
+/** The card-only part of the three-way plan (samples and exact ranks), one entry, as the flop core. */
+let threeWayCoreMemo: { key: string; core: ThreeWayCore | null } | null = null;
+function threeWayPlanCore(
+  hole: Card[],
+  board: Card[],
+  dead: Card[] | undefined,
+  lines: [OmahaPlanOppLine, OmahaPlanOppLine],
+  range: OmahaPlanRangeModel | undefined
+): ThreeWayCore | null {
+  const memoKey = [
+    hole.map(key).join(''),
+    board.map(key).join(''),
+    (dead ?? []).map(key).sort().join(''),
+    lines.join(','),
+  ].join('|');
+  if (range === undefined && threeWayCoreMemo !== null && threeWayCoreMemo.key === memoKey)
+    return threeWayCoreMemo.core;
+  const core = threeWayPlanCoreBuild(hole, board, dead, lines, range);
+  if (range === undefined) threeWayCoreMemo = { key: memoKey, core };
+  return core;
+}
+function threeWayPlanCoreBuild(
+  hole: Card[],
+  board: Card[],
+  dead: Card[] | undefined,
+  lines: [OmahaPlanOppLine, OmahaPlanOppLine],
+  range: OmahaPlanRangeModel | undefined
+): ThreeWayCore | null {
+  const unseen = omahaPlanUnseen(hole, board, dead);
   const R = unseen.length;
   const H = hole.length;
   if (R < 2 * H + 1) return null;
@@ -1796,15 +1879,7 @@ export function omahaStreetPlanThreeWay(input: OmahaThreeWayPlanInput): OmahaThr
     full[4] = unseen[r];
     heroRank[r] = scoreOmahaHi(hole, full);
   }
-  interface Side {
-    hands: number[][];
-    ranks: Float64Array;
-    /** sample members, best first by turn strength */
-    kept: number[];
-    foldMul: number;
-    aggr: number;
-  }
-  const sides: Side[] = input.opps.map((opp) => {
+  const sides: ThreeWaySideCore[] = lines.map((line) => {
     const hands: number[][] = [];
     for (let m = 0; m < M; m++) {
       for (let k = 0; k < H; k++) {
@@ -1845,13 +1920,40 @@ export function omahaStreetPlanThreeWay(input: OmahaThreeWayPlanInput): OmahaThr
       }
     }
     for (let m = 0; m < M; m++) strength[m] = seen[m] > 0 ? strength[m] / seen[m] : 0;
-    const keep = clamp((input.range ?? planFallbackKeepShare).keepShare(opp.line), 0.05, 1);
+    const keep = clamp((range ?? planFallbackKeepShare).keepShare(line), 0.05, 1);
     const kept = Array.from({ length: M }, (_, m) => m)
       .sort((a, b) => strength[b] - strength[a] || a - b)
       .slice(0, Math.max(8, Math.round(M * keep)));
-    const t = opp.tendency ?? null;
-    return { hands, ranks, kept, foldMul: t ? t.foldToBet : 1, aggr: t ? t.aggression : 1 };
+    return { hands, ranks, kept };
   });
+  return { R, heroRank, sides };
+}
+
+export function omahaStreetPlanThreeWay(input: OmahaThreeWayPlanInput): OmahaThreeWayPlan | null {
+  const { hole, board } = input;
+  if (board.length !== 4 || !omahaStrategyHoleCountServed(hole.length)) return null;
+  if (input.opps.length !== 2) return null;
+  const pot = input.pot;
+  if (!(pot > 0) || !(input.heroStack > 0)) return null;
+  const P = OMAHA_STREET_PLAN_PRIOR;
+  const core = threeWayPlanCore(
+    hole,
+    board,
+    input.dead,
+    [input.opps[0].line, input.opps[1].line],
+    input.range
+  );
+  if (!core) return null;
+  const { R, heroRank } = core;
+  interface Side extends ThreeWaySideCore {
+    foldMul: number;
+    aggr: number;
+  }
+  const sides: Side[] = core.sides.map((c, i) => {
+    const t = input.opps[i].tendency ?? null;
+    return { ...c, foldMul: t ? t.foldToBet : 1, aggr: t ? t.aggression : 1 };
+  });
+  const M = OMAHA_STREET_PLAN_THREE_WAY_SAMPLE;
   /** per river: the Horse's share against a set of one side's hands (ties half) */
   const shareOn = (side: Side, members: readonly number[]): Float64Array => {
     const out = new Float64Array(R);
