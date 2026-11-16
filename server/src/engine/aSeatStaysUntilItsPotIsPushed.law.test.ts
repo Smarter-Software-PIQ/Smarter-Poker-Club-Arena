@@ -317,6 +317,20 @@ describe('a horse that banks the win waits for its own pot push (production 2026
     expect(e.heldDepartures.size).toBe(0);
   });
 
+  it('an unexpected error neither breaks the next deal nor leaves a move block behind', async () => {
+    const e = makeEngineInCompletionHold();
+    e.lifecycleCanMutate = () => true;
+    e.cashoutVoluntaryStay = vi.fn(async () => {
+      throw new Error('boom');
+    });
+    const horse = e.seatedPlayers.find((p: any) => p.user_id === HORSE);
+    e.deferredBankTheWin.set(HORSE, horse);
+    e.noteHeldDeparture(HORSE, OCC[HORSE]);
+    await expect(e.runDeferredBankTheWinExits()).resolves.toBeUndefined();
+    expect(e.heldDepartures.size).toBe(0);
+    expect(e.seatedPlayers.some((p: any) => p.user_id === HORSE)).toBe(true);
+  });
+
   it('settlement defers instead of cashing out, and the boundary runs it before the roster read', () => {
     const here = dirname(fileURLToPath(import.meta.url));
     const settlement = readFileSync(join(here, 'ServerTableEngineSettlement.ts'), 'utf8');

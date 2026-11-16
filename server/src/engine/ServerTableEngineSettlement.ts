@@ -4735,26 +4735,35 @@ export abstract class ServerTableEngineSettlement extends ServerTableEngineDeali
    * settlement; either way the move block is lifted.
    */
   protected override async runDeferredBankTheWinExits(): Promise<void> {
-    if (this.deferredBankTheWin.size === 0) return;
+    if (!this.deferredBankTheWin?.size) return;
     const due = [...this.deferredBankTheWin.values()];
     this.deferredBankTheWin.clear();
-    for (const horse of due) {
-      if (!this.lifecycleCanMutate()) return;
-      const current = this.seatedPlayers.find((p) => p.user_id === horse.user_id);
-      if (!current || current.occupancy_id !== horse.occupancy_id) {
-        if (horse.occupancy_id) this.heldDepartures.delete(horse.occupancy_id);
-        continue;
+    try {
+      for (const horse of due) {
+        if (!this.lifecycleCanMutate()) return;
+        const current = this.seatedPlayers.find((p) => p.user_id === horse.user_id);
+        if (!current || current.occupancy_id !== horse.occupancy_id) continue;
+        let outcome: 'stop' | 'left' | void;
+        try {
+          outcome = await this.bankTheWinExit(current);
+        } catch (err) {
+          // Non-critical, as the settlement step it came from: the horse stays
+          // seated and decides again next orbit. Never breaks the next deal.
+          reportError(err, 'ServerTableEngine.' + this.tableId + '.deferred_bank_the_win_failed');
+          continue;
+        }
+        if (outcome === 'left' && horse.occupancy_id) {
+          // Out of this boundary's roster, seat_left announced, move block lifted.
+          this.releaseDepartedSeats([{ userId: horse.user_id, occupancyId: horse.occupancy_id }]);
+        }
+        if (outcome === 'stop') return;
       }
-      const outcome = await this.bankTheWinExit(current);
-      if (outcome === 'left' && horse.occupancy_id) {
-        // Out of this boundary's roster, seat_left announced, move block lifted.
-        this.releaseDepartedSeats([{ userId: horse.user_id, occupancyId: horse.occupancy_id }]);
-      } else if (horse.occupancy_id) {
-        this.heldDepartures.delete(horse.occupancy_id);
-      }
-      if (outcome === 'stop') return;
+    } finally {
+      // Whatever happened, no deferred exit leaves a seat-move block behind.
+      for (const horse of due) if (horse.occupancy_id) this.heldDepartures.delete(horse.occupancy_id);
     }
   }
+
 
   /**
    * Read move candidates while the leave sweep runs. Candidates carry no cash
