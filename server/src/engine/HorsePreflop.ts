@@ -410,15 +410,6 @@ export interface PreflopCtx {
    */
   huTightBigBlindSteal?: { pFoldLower: number; breakEven: number };
   /**
-   * HU SMALL BLIND STEALS VS A TIGHT BIG BLIND (2026-11-15, D6, option
-   * huSmallBlindStealsVsTightBigBlind, HorseHuTightBigBlindSteal): set only
-   * for the heads-up no-limit hold'em small blind first in when the big
-   * blind is a proven tight folder whose estimated fold share clears the
-   * largest heads-up open's break-even on folds alone. Every hand opens.
-   * Undefined = unchanged.
-   */
-  huTightBigBlindSteal?: { pFoldLower: number; breakEven: number };
-  /**
    * 2026-10-24 V53 PRESSURE (HorseOpponentExploit.aggressiveOpenerPressure):
    * the single raiser is a credibly WIDE opener. Heads-up against them the
    * value 3-bet widens to these bars - in position the most - and the
