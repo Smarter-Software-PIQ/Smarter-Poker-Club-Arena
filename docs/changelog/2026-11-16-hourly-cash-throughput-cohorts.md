@@ -28,3 +28,8 @@ installs the real producer and checks all eleven changed or missing definitions,
 actual cap-curve and pacing changes, old base preservation and stable identity
 across activation and rollback. Existing cap and closure tests remain in that same
 CI path; no workflow or scheduler is added.
+
+The shared protocol retains literal RpcName exports so the existing engine-door
+extractor continues to discover both admission and closure prerequisites. The
+actual consumer imports and re-exports those constants; no parser, workflow or
+allowlist changes. A real extractor regression fails before and passes after.
