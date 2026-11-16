@@ -1505,6 +1505,12 @@ export interface OppPostflopRead {
   lastFrac?: number;
   /** V40: this opponent RAISED on the newest street (over a bet). */
   raised?: boolean;
+  /** omahaBigBetIsPotShare (opt-in, HorseLogic): the newest wager is on the
+   * turn or river and under 70 percent of the pot it went into, so the Omaha
+   * aggressor tier does not count the 20 big blind mark (`bigBet`) for it.
+   * Only omahaAggressorTier reads this; `bigBet` itself is left as it was
+   * for every other consumer. */
+  tierByPotShare?: boolean;
   /** V56 qualification arm: sample the declared made-hand stratum directly
    * instead of treating a bounded rejection miss as a value hand. */
   strictPressureRange?: boolean;
@@ -1986,7 +1992,9 @@ export function omahaAggressorTier(read: OppPostflopRead): number {
   if (streets <= 0 && !read.raised) return 0;
   const frac = read.lastFrac ?? (read.bigBet ? 1 : 0.5);
   let tier = 1;
-  if (frac >= 0.7 || read.bigBet || read.fullBet === true) tier++;
+  // omahaBigBetIsPotShare (opt-in): the 20 big blind mark does not tier a
+  // turn or river wager the decision marked as under 70 percent of the pot.
+  if (frac >= 0.7 || (read.bigBet && read.tierByPotShare !== true) || read.fullBet === true) tier++;
   if (streets >= 2) tier++;
   if (streets >= 3 || read.raised) tier++;
   return Math.min(3, tier);

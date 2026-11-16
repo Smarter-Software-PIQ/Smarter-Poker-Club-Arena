@@ -2255,6 +2255,353 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaReraisedPotStackOffFold: true },
     b: {},
   })),
+  // 2026-11-15 OMAHA READ-CONDITIONAL DEFENCE (HorseOmahaReadConditional,
+  // default OFF): the re-raised-pot preflop fold only against a measured tight
+  // re-raiser (omahaReraisedFoldVsTight) and the made-hand turn no-raise and
+  // scare-card checks only against measured postflop value leaders
+  // (omahaMadeHandDefenseVsValueLeader); a switches one on, b is today's brain.
+  // The mirror's memory learning is on (the league default), so the reads
+  // engage on the Horses' own measured play.
+  ...(['plo4', 'plo5'] as const).flatMap((variant) => [
+    {
+      name: `${variant}_omaha_reraised_fold_vs_tight`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { omahaReraisedFoldVsTight: true },
+      b: {},
+    },
+    {
+      name: `${variant}_omaha_made_hand_defense_vs_value_leader`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { omahaMadeHandDefenseVsValueLeader: true },
+      b: {},
+    },
+  ]),
+  // 2026-11-15 OMAHA BLUFF-CATCHER FOLD VS A VALUE LEADER
+  // (omahaBluffCatcherFoldVsValueLeader, default OFF, unmeasured): a makes the
+  // bluff-catcher folds of omahaBluffCatcherRaiseFold only when the player
+  // whose bet or raise is faced is a measured postflop value leader
+  // (HorseOmahaReadConditional); b is today's brain. Memory learning on (the
+  // league default), so the read engages on measured play.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_bluff_catcher_fold_vs_value_leader`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaBluffCatcherFoldVsValueLeader: true },
+    b: {},
+  })),
+  // 2026-11-15 OMAHA RIVER MEDIUM-BET CALL (HorseOmahaRiverMediumBetCalls,
+  // default OFF): a river fold of two pair or better facing the opening bet
+  // of 40 to 70 percent of the pot, heads-up or closing the action, becomes a
+  // call when the price-based requirement is met; a switches it on, b is
+  // today's brain. The mirror's memory learning is on (the league default),
+  // so the value-leader read withholds on the Horses' own measured play.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_river_medium_bet_strong_hand_calls`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaRiverMediumBetStrongHandCalls: true },
+    b: {},
+  })),
+  // 2026-11-15 OMAHA BIG BET IS A POT SHARE (default OFF): the Omaha aggressor
+  // tier does not count the 20 big blind big-bet mark for a turn or river
+  // wager under 70 percent of the pot; a switches it on, b is today's brain.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_big_bet_is_pot_share`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaBigBetIsPotShare: true },
+    b: {},
+  })),
+  // 2026-11-15 OMAHA BETS THAT BECOME CHECKS (HorseOmahaOopChecks, hand
+  // 59517323, default OFF): the paired-river lead and the unimproved turn
+  // barrel only against measured postflop value leaders, and the bare overpair
+  // out of position on the flop against anyone; a switches one on, b is
+  // today's brain. The mirror's memory learning is on (the league default).
+  ...(['plo4', 'plo5'] as const).flatMap((variant) => [
+    {
+      name: `${variant}_omaha_paired_river_no_thin_lead_vs_value_leader`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { omahaPairedRiverNoThinLeadVsValueLeader: true },
+      b: {},
+    },
+    {
+      name: `${variant}_omaha_overpair_no_oop_barrel_vs_value_leader`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { omahaOverpairNoOopBarrelVsValueLeader: true },
+      b: {},
+    },
+    {
+      name: `${variant}_omaha_paired_turn_no_barrel_without_boat_vs_value_leader`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { omahaPairedTurnNoBarrelWithoutBoatVsValueLeader: true },
+      b: {},
+    },
+    {
+      name: `${variant}_omaha_paired_board_fold_respects_price`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { omahaPairedBoardFoldRespectsPrice: true },
+      b: {},
+    },
+    {
+      name: `${variant}_omaha_turn_bet_needs_river_plan`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { omahaTurnBetNeedsRiverPlan: true },
+      b: {},
+    },
+    {
+      name: `${variant}_omaha_pressure_needs_postflop_aggression`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { omahaPressureNeedsPostflopAggression: true },
+      b: {},
+    },
+    {
+      name: `${variant}_omaha_oop_turn_check_after_flop_call`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { omahaOopTurnCheckAfterFlopCall: true },
+      b: {},
+    },
+    {
+      name: `${variant}_omaha_bare_overpair_oop_flop_check`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { omahaBareOverpairOopFlopCheck: true },
+      b: {},
+    },
+  ]),
+  // 2026-11-15 OMAHA UNDERPAIR RULES (HorseOmahaUnderpair, default OFF; owner
+  // complaint, hand 59518335): the fold of a hand without aces or a premium
+  // structure when the Horse's own re-raise is re-raised cold
+  // (omahaNoCallColdFourBetWithoutPremium) and the fold of an underpair with
+  // no real draw to a flop bet and a call
+  // (omahaUnderpairNoMultiwayFlopContinue); a switches one on, b is today's
+  // brain.
+  ...(['plo4', 'plo5'] as const).flatMap((variant) => [
+    {
+      name: `${variant}_omaha_no_call_cold_four_bet`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { omahaNoCallColdFourBetWithoutPremium: true },
+      b: {},
+    },
+    {
+      name: `${variant}_omaha_underpair_no_multiway_flop_continue`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { omahaUnderpairNoMultiwayFlopContinue: true },
+      b: {},
+    },
+  ]),
+  // 2026-11-15 OMAHA MANIAC RE-RAISE WIDTH (HorseMind.bandFor, default OFF;
+  // full sweep, the biggest winner): a measured maniac's 3-bet and 4-bet are
+  // read at his own counted re-raise rate instead of his whole raising width
+  // (omahaManiacReRaiseWidthMeasured); a switches it on, b is today's brain.
+  // The mirror's memory learning is on (the league default); the read engages
+  // only on a seat measured as a maniac with 12+ re-raise opportunities.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_maniac_reraise_width_measured`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaManiacReRaiseWidthMeasured: true },
+    b: {},
+  })),
+  // 2026-11-15 OMAHA ELITE CONTINUES VS A MEASURED WIDE 3-BETTOR (default
+  // OFF): a Horse that opened does not fold an elite-class hand to the
+  // maniac-price arithmetic facing one re-raise from a measured wide
+  // re-raiser; the fold becomes a call. a switches it on, b is today's brain.
+  // The mirror's memory learning is on (the league default).
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_elite_continues_vs_measured_wide_three_bettor`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaEliteContinuesVsMeasuredWideThreeBettor: true },
+    b: {},
+  })),
+  // 2026-11-15 OMAHA OUT-OF-POSITION RE-RAISED POT STRONG RANGE (default OFF):
+  // a preflop call of a 3-bet or more out of position against the last raiser
+  // stands only with suited aces, as a priced commitment, or with a
+  // coordinated hand clearing the price plus the out-of-position margin.
+  // a switches it on, b is today's brain.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_oop_reraised_pot_strong_range`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaOopReraisedPotStrongRange: true },
+    b: {},
+  })),
+  // 2026-11-15 (default OFF): the caller of a re-raised pot continues on the
+  // flop only with two pair or better, a pair with a nut-leaning draw or a
+  // strong draw. a switches it on, b is today's brain.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_reraised_pot_flop_continue_needs_equity_shape`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaReraisedPotFlopContinueNeedsEquityShape: true },
+    b: {},
+  })),
+  // 2026-11-15 OMAHA NUT-BLOCKER RIVER BLUFF REACHABLE
+  // (omahaRiverNutBlockerBluffReachable, default OFF): the v86 nut-blocker
+  // river bluff admits one pair (0.25-0.28 equity) instead of no pair only;
+  // a switches it on, b is today's brain, where the rule never fires.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_river_nut_blocker_bluff_reachable`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaRiverNutBlockerBluffReachable: true },
+    b: {},
+  })),
+  // 2026-11-15 OMAHA CARD IMPACT (HorseOmahaCardImpact, default OFF): the
+  // turn and river check-or-bet decision priced against the opponent range as
+  // the last card left it; a switches it on, b is today's brain. The mirror's
+  // memory learning is on (the league default).
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_card_impact`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaCardImpact: true },
+    b: {},
+  })),
+  // 2026-11-15 OMAHA FACING-BET EV (HorseOmahaFacingBetEv, default OFF): the
+  // PLO4/PLO5 cash turn and river fold-or-call decision facing a bet or a
+  // raise is one expected-value decision on the exact holdings count, the
+  // bettor's range and the price; a switches it on, b is today's brain. The
+  // mirror's memory learning is on (the league default), so the measured
+  // bet-when-checked-to read moves the bluff share on the Horses' own play.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_facing_bet_ev`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaFacingBetEv: true },
+    b: {},
+  })),
+  // 2026-11-15 OMAHA TURN/RIVER RAISE NEEDS NUTS (owner 12:52 / 12:53, hand
+  // 59534208, default OFF): facing a bet or a raise on the turn or the river a
+  // raise stands only nut class (or the in-position turn combo draw of 12:30);
+  // every other raise is the priced call or fold. a switches it on, b is
+  // today's brain.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_turn_river_raise_needs_nuts`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaTurnRiverRaiseNeedsNuts: true },
+    b: {},
+  })),
+  // 2026-11-15 OMAHA STREET PLAN (HorseOmahaStreetPlan, owner 11:43, default
+  // OFF), first layer: the heads-up turn bet priced against the check with
+  // the river planned, and the river following the plan. a switches it on,
+  // b is today's brain. The mirror's memory learning is on (the league
+  // default), so measured tendencies move the plan's shares.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_street_plan`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaStreetPlan: true },
+    b: {},
+  })),
+  // 2026-11-15 (default OFF, switched separately): a 3-bet or 4-bet out of
+  // position (omahaReraiseRangeOutOfPosition) or from early position
+  // (omahaReraiseRangeEarlyPosition) needs suited aces, committed aces or a
+  // declared premium structure; every other hand calls or folds by the calling
+  // rule. a switches one on, b is today's brain.
+  ...(['plo4', 'plo5'] as const).flatMap((variant) => [
+    {
+      name: `${variant}_omaha_reraise_range_out_of_position`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { omahaReraiseRangeOutOfPosition: true },
+      b: {},
+    },
+    {
+      name: `${variant}_omaha_reraise_range_early_position`,
+      variant,
+      pairs: 6000,
+      productionStyles: true,
+      a: { omahaReraiseRangeEarlyPosition: true },
+      b: {},
+    },
+  ]),
+  // 2026-11-15 OMAHA BIG-DRAW AGGRESSION (HorseOmahaBigDrawAggression, default
+  // OFF): a check or call with a declared big draw on a PLO4/PLO5 flop or turn
+  // becomes a pot-sized bet or raise when its expected value is the higher
+  // one; a switches it on, b is today's brain. The mirror's memory learning is
+  // on (the league default), so the fold equity is each opponent's measured one.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_big_draw_aggression`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaBigDrawAggression: true },
+    b: {},
+  })),
+  // 2026-11-15 12:30 owner ruling (no draw raise out of position, no bare
+  // flush draw raise in position), applied to the existing draw raises;
+  // default OFF. a switches it on, b is today's brain.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_no_draw_raise_out_of_position`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaNoDrawRaiseOutOfPosition: true },
+    b: {},
+  })),
+  // 2026-11-15 OMAHA STRONG HAND VALUE (HorseOmahaStrongHandValue, default
+  // OFF): the PLO4/PLO5 cash river check with a full house or better (or a
+  // nut-class hand) priced against every value bet, and the river call facing
+  // one bettor priced against every value raise; a switches it on, b is
+  // today's brain. The mirror's memory learning is on (the league default).
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_strong_hand_value`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaStrongHandValue: true },
+    b: {},
+  })),
+  // 2026-11-15 OMAHA STRONG HAND SLOWPLAY MIX (HorseOmahaStrongHandSlowplayMix,
+  // default OFF; owner 14:13): a nut-class raise facing a bet becomes a call,
+  // and a flop bet with a set on a very dry flop becomes a check, each at the
+  // mixed frequency of the spot; a switches it on, b is today's brain.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_strong_hand_slowplay_mix`,
+    variant,
+    pairs: 6000,
+    productionStyles: true,
+    a: { omahaStrongHandSlowplayMix: true },
+    b: {},
+  })),
   // V15 BOATS (2026-09-28): default OFF. a turns it on, b is today's brain.
   // Ship it default ON only after this resolves significant positive.
   // 2026-11-06: V15 boats is default ON in PLO5 cash (v15BoatsOn), so the
@@ -2403,6 +2750,56 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: {},
     b: { omahaTournamentFirstIn: false },
   })),
+  // 2026-11-15 OMAHA SMALL BLIND STEAL (omahaSmallBlindSteal, default OFF,
+  // off-only in the live switch while the blind-steal hold stands): four to
+  // eight dealt, PLO4/PLO5, the small blind folded to plays its top 40 percent
+  // at 20 BB or less. a switches it on, b is today's brain. The card only measures.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_mtt_6max_omaha_small_blind_steal_12bb`,
+    variant,
+    seats: 6,
+    stackBB: 12,
+    context: bigBlindAnteMttContext(6, 12),
+    pairs: 6000,
+    hybridBaseline: true,
+    moodClock: 'deal_seed' as const,
+    a: { omahaSmallBlindSteal: true },
+    b: {},
+  })),
+  // 2026-11-15 OMAHA STRATEGY IN TOURNAMENTS (omahaStrategyInTournaments,
+  // owner 13:16, default OFF): the day's PLO4/PLO5 options also run in a
+  // tournament hand, chip-adding conversions paying the survival premium.
+  // Both arms switch the day's options on; a also switches the extension on,
+  // so the card measures the tournament extension alone. 6-max MTT, 40 BB
+  // (deeper than the 14 BB push/fold line the extension stands aside at).
+  ...(['plo4', 'plo5'] as const).map((variant) => {
+    const day = {
+      omahaBareOverpairOopFlopCheck: true,
+      omahaOopTurnCheckAfterFlopCall: true,
+      omahaTurnRiverRaiseNeedsNuts: true,
+      omahaNoDrawRaiseOutOfPosition: true,
+      omahaFacingBetEv: true,
+      omahaCardImpact: true,
+      omahaStreetPlan: true,
+      omahaReraiseRangeOutOfPosition: true,
+      omahaReraiseRangeEarlyPosition: true,
+      omahaOopReraisedPotStrongRange: true,
+      omahaNoCallColdFourBetWithoutPremium: true,
+      omahaUnderpairNoMultiwayFlopContinue: true,
+    };
+    return {
+      name: `${variant}_mtt_6max_omaha_strategy_in_tournaments_40bb`,
+      variant,
+      seats: 6,
+      stackBB: 40,
+      context: bigBlindAnteMttContext(6, 40),
+      pairs: 6000,
+      hybridBaseline: true,
+      moodClock: 'deal_seed' as const,
+      a: { ...day, omahaStrategyInTournaments: true },
+      b: day,
+    };
+  }),
   // 2026-11-14 OMAHA HI-LO HEADS-UP TOURNAMENT FIRST-IN (HU-HILO-002),
   // default OFF: a is the option on, b today's brain. PLO8 heads-up final
   // table at 12 BB, where the small blind folds 83-85 percent first in and
@@ -3287,6 +3684,41 @@ export interface UnmeasurableMatchup extends Pick<
 }
 
 export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.freeze([
+  // 2026-11-15 (PLO Strategy, owner 12:16): horseActionTimeIsPublicOnly,
+  // default off. Refused, not dealt: this league has no clock.
+  {
+    name: 'nlh_horse_action_time_is_public_only',
+    variant: 'nlh',
+    seats: 6,
+    a: { horseActionTimeIsPublicOnly: true },
+    b: {},
+    reason:
+      'Unanswerable by this league: the option changes only the think time attached to a decision ' +
+      '(horsePublicActionTime), never the action or the amount, and playHand has no clock and no opponent ' +
+      'that reads a delay, so the two arms win and lose the same chips. The option is DEFAULT OFF (read as === true). ' +
+      'Measured 2026-11-15 by running this refused matchup through runMatchup (seed 20261115, 300 pairs): ' +
+      '0 of 300 pairs diverged (inert, as the structure says). The think-time claim itself rests on the source ' +
+      'law and the property test (200 private hands on three public states give one think-time distribution). ' +
+      'What would change this: a league opponent that conditions its play on the recorded think time.',
+  },
+  // 2026-11-15 (PLO Strategy, hand 59518335): omahaVpipFloorByLimp,
+  // default off. Refused, not dealt: this league seats no VPIP-floor table.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_vpip_floor_by_limp`,
+    variant,
+    a: { omahaVpipFloorByLimp: true },
+    b: {},
+    reason:
+      'Unanswerable by this league: the option only acts while a table VPIP floor is lowering the ' +
+      'preflop bars (HorseLogic.vpipFloorMul below 1), and playHand builds its decision state with ' +
+      'no vpipFloor, vpipWindowHands or ownVpip, so the multiplier is 1 at every decision and the ' +
+      'two arms play identical poker. The option is DEFAULT OFF (read as === true). ' +
+      'Measured 2026-11-15 by running this refused matchup through runMatchup (seed 20261115, 300 pairs): ' +
+      '0 of 300 pairs diverged. ' +
+      "What would change this: a league table that carries a VPIP floor and each seat's judged " +
+      'VPIP window (as the live Madness tables do); until it is built, the recorded-hand cases in ' +
+      'HorseOmahaVpipFloorByLimp.test.ts are the only evidence.',
+  })),
   // 2026-11-15 (Hold'em Strategy lane): the long shown river memory. Refused, not
   // dealt: the evidence it reads does not exist in a league hand.
   {
