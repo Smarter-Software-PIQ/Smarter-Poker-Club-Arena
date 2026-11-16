@@ -54,3 +54,9 @@ it does not claim a later prize or rakeback payment witness.
 definitions read on November16, with source hashes and no account records.
 The full closure loads these preimages before applying the maintained source
 patches, preserving the patched admission owner instead of replacing it later.
+
+Original earning-generation qualification (200638)
+
+`generation-owners.json`, `generation-admission-guard.json` and `generation-nonwallet-owners.json` are read-only November16 current production `pg_get_functiondef` captures. Their MD5 fields fingerprint the complete function definition, not `prosrc`. They contain definitions only, no account rows or credentials. The prospective source patches preserve the original money, auth, price, idempotency and terminal gates; only original earning metadata and the one changed reentry body pin are added.
+
+`test-promo-tournament-earning-generation.py` installs the actual200638 migration into PostgreSQL17 with typed financial openings. It proves exact entry generation, original accepted-hand charge prefixes, old owed bounty versus a new own-funded entry, later addons, partial and mixed-generation owed ranges, bought/earned PKO head components, residual ranges, actual noncash award recipient/ledger linkage, legacy compatibility, replay and private ACLs. Captured original money owners are compiled and their patch anchors and body pin checked. The harness deliberately uses `check_function_bodies=off` for those surrounding captured owners because it does not install their full HS schema. It executes the actual new metadata helpers; it does not claim a real wallet journal, terminal payer or W allocation proof. Those remain in the existing full-financial and W composition lanes. No production writes are performed.
