@@ -311,6 +311,12 @@ export function registerObserverAvatarSizingCases() {
           path: testInfo.outputPath(`observer-${width}${emptyBottom ? '-empty-bottom' : ''}.png`),
         });
         if (width === 600) {
+          const fitTransitions = await page
+            .locator('.seat__avatar--bust .seat__avatar-img')
+            .evaluateAll((images) =>
+              images.map((image) => getComputedStyle(image).transitionProperty)
+            );
+          expect(fitTransitions.every((property) => property === 'filter')).toBe(true);
           // Late registration replaces the Spectating label with the two-bay entry button.
           const entry = await page.locator('.spectator-footer-bar').evaluate((bar) => {
             const button = document.createElement('button');
