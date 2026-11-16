@@ -1,3 +1,4 @@
+-- @live-proof: (SELECT count(*)=2 AND bool_and((length(p.prosrc)-length(replace(p.prosrc,$ctx$nullif(current_setting('ca.pacific_rake_record',true),'')::uuid$ctx$,'')))/length($ctx$nullif(current_setting('ca.pacific_rake_record',true),'')::uuid$ctx$)=2 AND position($raw$current_setting('ca.pacific_rake_record')::uuid$raw$ IN p.prosrc)=0) FROM pg_proc p WHERE p.oid IN(to_regprocedure('public.fn_ca_club_data_fact_put(uuid,date,text,uuid,uuid,numeric,numeric,numeric,numeric,timestamptz)'),to_regprocedure('public.fn_ca_club_data_hand_put(uuid,uuid,timestamptz)')))
 -- A restored custom GUC is an empty string, not a UUID. PostgreSQL may
 -- evaluate the indexed EXISTS cast before an adjacent boolean guard.
 -- Normalize at every cast; preserve both aggregate writers and their ACLs.

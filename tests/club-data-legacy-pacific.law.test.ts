@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { declaredProofs, proofIsRunnable } from '../scripts/ci/check-migrations-are-live.mjs';
 import { classifyChangedPaths } from '../scripts/ci/classify-ci-changes.mjs';
 
 const read = (p: string) => readFileSync(p, 'utf8');
@@ -139,6 +140,14 @@ describe('restored Pacific source context is nullable at every UUID cast', () =>
     const fix = read(
       'supabase/migrations/20261116203318_pacific_data_empty_rake_context_is_null.sql'
     );
+    const proofs = declaredProofs(fix);
+    expect(proofs).toHaveLength(1);
+    expect(proofIsRunnable(proofs[0])).toBe(true);
+    expect(proofs[0]).toContain('count(*)=2');
+    expect(proofs[0]).toContain('bool_and');
+    expect(proofs[0]).toContain('public.fn_ca_club_data_fact_put(');
+    expect(proofs[0]).toContain('public.fn_ca_club_data_hand_put(');
+    expect(proofs[0]).toContain('IN p.prosrc)=0');
     expect(fix).toContain('caf725b26e6115f60b80412183c61be0');
     expect(fix).toContain('246735d855771ebedf6278a514a4bffe');
     expect(fix).toContain("nullif(current_setting(''ca.pacific_rake_record'',true),'''')::uuid");
