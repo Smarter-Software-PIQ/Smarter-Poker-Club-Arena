@@ -45,7 +45,8 @@ describe('assignment: a third of the fleet each, by the id alone', () => {
   });
 
   it('is stable: the same id answers the same style every time', () => {
-    for (const id of IDS.slice(0, 2000)) expect(horsePlayStyleFor(id)).toBe(horsePlayStyleFor(id));
+    for (const id of IDS.filter((_, i) => i < 2000))
+      expect(horsePlayStyleFor(id)).toBe(horsePlayStyleFor(id));
     // Pinned: a change of the hash or the salt re-deals the fleet and must be deliberate.
     expect(
       ['league-1', 'league-2', 'league-3', 'league-4', 'league-5', 'league-6'].map((id) =>
