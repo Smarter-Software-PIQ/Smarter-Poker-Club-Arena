@@ -2,8 +2,8 @@
 
 A portrait phone lays the table out at 600 CSS pixels. Its final full-ring cap
 reserved essentially the same 12% height as six-max, making both rings nearly
-equal in length. Full ring now reserves half that top band and uses the actual
-embedded slot down to the hero clearance when browser chrome retracts.
+equal in length. Full ring now reserves half that top band and uses the actual embedded slot
+down to the hero clearance when browser chrome retracts.
 
 Both phone layouts keep the hero frame just above the fixed controller, including
 the hand-strength label. Private cards share the frame's resting bottom edge;
@@ -29,3 +29,11 @@ The built-app phone gate also checks the complete hero and HUD at a minimum of
 two physical pixels above the frame. Its 320px/390px cases caught a layout-pixel
 conversion shortfall before publication. Four layout pixels retain that minimum
 at the smallest phone scale; the guard remains unchanged.
+
+The full-ring showdown guard caught a caption/card collision at the top caps.
+The existing caption placement now includes a complete label width beside
+its own plate and revealed-card envelope. The former half-label reach could not
+clear a board-sized reveal at the header, especially where cards overhang the
+plate. Every card, plate and fixed control remains a protected obstacle, and
+chairs and already shown cards retain their locked positions. The phone matrix uses bounded four-scene device/inset/chrome cases,
+retaining all 48 scenes and assertions without increasing any timeout.

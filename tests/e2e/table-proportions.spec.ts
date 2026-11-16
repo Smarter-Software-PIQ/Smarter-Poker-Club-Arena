@@ -3665,12 +3665,14 @@ test('six-max dealer stays fixed through hero wagers and sizing tools stay behin
 
 // Real phone screen + the production 600px layout viewport. A desktop 600px
 // page misses max-device-width rules and previously certified equal rings.
-for (const [width, height] of [
+for (const [width, height, inset, chrome] of [
   [375, 667],
   [393, 852],
   [430, 932],
-])
-  test(`scaled phone full ring stays longer and hero cards share the plate floor above actions at ${width}px`, async ({
+].flatMap(([width, height]) =>
+  [0, 34].flatMap((inset) => [0, 100].map((chrome) => [width, height, inset, chrome]))
+))
+  test(`scaled phone full ring stays longer and hero cards share the plate floor above actions at ${width}px inset${inset} chrome${chrome}`, async ({
     browser,
   }, testInfo) => {
     test.setTimeout(120_000);
@@ -3765,91 +3767,91 @@ for (const [width, height] of [
         ? route.fulfill({ body: readFileSync(file), contentType: 'image/png' })
         : route.abort();
     });
-    for (const inset of [0, 34])
-      for (const chrome of [0, 100]) {
-        const boxes: Record<number, { top: number; height: number }> = {};
-        for (const seats of [6, 9])
-          for (const cards of [2, 6]) {
-            const scale = width / 600;
-            const safe = inset / scale;
-            const css = applyInsets(styles, inset ? 47 / scale : 0, safe);
-            await page.route('https://floor.fixture/', (route) =>
-              route.fulfill({
-                contentType: 'text/html',
-                body: `<html data-seats="${seats}" data-cards="${cards}" data-hand-strength="Ace High" data-revealed="false" data-action="active" data-jackpot="none"><head><meta name="viewport" content="width=600,initial-scale=${scale},minimum-scale=${scale},maximum-scale=${scale},viewport-fit=cover"><style>${css}</style></head><body><div id="root"></div></body></html>`,
-              })
+    // Four cold scenes per bounded case retain every device/inset/chrome combination.
+    {
+      const boxes: Record<number, { top: number; height: number }> = {};
+      for (const seats of [6, 9])
+        for (const cards of [2, 6]) {
+          const scale = width / 600;
+          const safe = inset / scale;
+          const css = applyInsets(styles, inset ? 47 / scale : 0, safe);
+          await page.route('https://floor.fixture/', (route) =>
+            route.fulfill({
+              contentType: 'text/html',
+              body: `<html data-seats="${seats}" data-cards="${cards}" data-hand-strength="Ace High" data-revealed="false" data-action="active" data-jackpot="none"><head><meta name="viewport" content="width=600,initial-scale=${scale},minimum-scale=${scale},maximum-scale=${scale},viewport-fit=cover"><style>${css}</style></head><body><div id="root"></div></body></html>`,
+            })
+          );
+          await page.goto('https://floor.fixture/', { waitUntil: 'domcontentloaded' });
+          // Safari may retain a smaller stable viewport while its visible slot
+          // grows as browser chrome retracts. Both rings must use that slot floor.
+          await page.evaluate(
+            (chrome) =>
+              document.documentElement.style.setProperty(
+                '--sp-table-stable-viewport-h',
+                `${innerHeight - chrome}px`
+              ),
+            chrome
+          );
+          await page.addScriptTag({
+            content: built.outputFiles.find((f) => f.path.endsWith('.js'))!.text,
+          });
+          await page.locator('.seat__strength').waitFor();
+          await page.evaluate(async () => {
+            await document.fonts.ready;
+            await new Promise<void>((resolve) =>
+              requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
             );
-            await page.goto('https://floor.fixture/', { waitUntil: 'domcontentloaded' });
-            // Safari may retain a smaller stable viewport while its visible slot
-            // grows as browser chrome retracts. Both rings must use that slot floor.
-            await page.evaluate(
-              (chrome) =>
-                document.documentElement.style.setProperty(
-                  '--sp-table-stable-viewport-h',
-                  `${innerHeight - chrome}px`
-                ),
-              chrome
-            );
-            await page.addScriptTag({
-              content: built.outputFiles.find((f) => f.path.endsWith('.js'))!.text,
-            });
-            await page.locator('.seat__strength').waitFor();
-            await page.evaluate(async () => {
-              await document.fonts.ready;
-              await new Promise<void>((resolve) =>
-                requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+          });
+          const measure = () =>
+            page.evaluate(() => {
+              const box = (selector: string) =>
+                document.querySelector(selector)!.getBoundingClientRect();
+              const scaler = box('.table-scaler'),
+                plate = box('.seat--hero .seat__info'),
+                label = box('.seat__strength'),
+                bar = box('.action-panel');
+              const cards = [...document.querySelectorAll('.seat--hero .seat__card')].map((e) =>
+                e.getBoundingClientRect()
               );
+              return {
+                top: scaler.top,
+                height: scaler.height,
+                plateGap: bar.top - plate.bottom,
+                labelGap: bar.top - label.bottom,
+                cardDelta: Math.max(...cards.map((c) => c.bottom)) - plate.bottom,
+              };
             });
-            const measure = () =>
-              page.evaluate(() => {
-                const box = (selector: string) =>
-                  document.querySelector(selector)!.getBoundingClientRect();
-                const scaler = box('.table-scaler'),
-                  plate = box('.seat--hero .seat__info'),
-                  label = box('.seat__strength'),
-                  bar = box('.action-panel');
-                const cards = [...document.querySelectorAll('.seat--hero .seat__card')].map((e) =>
-                  e.getBoundingClientRect()
-                );
-                return {
-                  top: scaler.top,
-                  height: scaler.height,
-                  plateGap: bar.top - plate.bottom,
-                  labelGap: bar.top - label.bottom,
-                  cardDelta: Math.max(...cards.map((c) => c.bottom)) - plate.bottom,
-                };
-              });
-            const before = await measure();
-            const label = `${width}px ${seats}-max ${cards} cards inset${inset} chrome${chrome}`;
-            expect.soft(before.cardDelta, `${label}: card and plate bottoms`).toBeCloseTo(0, 0);
+          const before = await measure();
+          const label = `${width}px ${seats}-max ${cards} cards inset${inset} chrome${chrome}`;
+          expect.soft(before.cardDelta, `${label}: card and plate bottoms`).toBeCloseTo(0, 0);
 
-            expect
-              .soft(before.labelGap, `${label}: complete hand label clears frame`)
-              .toBeGreaterThanOrEqual(2 / scale);
-            expect
-              .soft(before.labelGap, `${label}: no dead strip below hero`)
-              .toBeLessThanOrEqual(12 / scale);
-            expect
-              .soft(before.plateGap, `${label}: hero sits just above controller`)
-              .toBeLessThanOrEqual(26 / scale);
-            boxes[seats] = before;
-            await page
-              .locator('.table-page')
-              .evaluate((el) => el.setAttribute('data-hero-action', 'waiting'));
-            const after = await measure();
-            expect.soft(after.top).toBeCloseTo(before.top, 1);
-            expect.soft(after.height).toBeCloseTo(before.height, 1);
-            if (width === 393 && !inset && !chrome && cards === 2)
-              await page.screenshot({
-                path: testInfo.outputPath(`phone-layout-${seats}max.png`),
-              });
-          }
-        expect
-          .soft(boxes[9].height, `${width}px: full ring must be visibly longer`)
-          .toBeGreaterThan(boxes[6].height + 20);
-        expect
-          .soft(boxes[9].top, `${width}px: full ring gains length above shared hero floor`)
-          .toBeLessThan(boxes[6].top);
-      }
+          expect
+            .soft(before.labelGap, `${label}: complete hand label clears frame`)
+            .toBeGreaterThanOrEqual(2 / scale);
+          expect
+            .soft(before.labelGap, `${label}: no dead strip below hero`)
+            .toBeLessThanOrEqual(12 / scale);
+          expect
+            .soft(before.plateGap, `${label}: hero sits just above controller`)
+            .toBeLessThanOrEqual(26 / scale);
+          boxes[seats] = before;
+          await page
+            .locator('.table-page')
+            .evaluate((el) => el.setAttribute('data-hero-action', 'waiting'));
+          const after = await measure();
+          expect.soft(after.top).toBeCloseTo(before.top, 1);
+          expect.soft(after.height).toBeCloseTo(before.height, 1);
+          if (width === 393 && !inset && !chrome && cards === 2)
+            await page.screenshot({
+              path: testInfo.outputPath(`phone-layout-${seats}max.png`),
+            });
+        }
+      expect
+        .soft(boxes[9].height, `${width}px: full ring must be visibly longer`)
+        .toBeGreaterThan(boxes[6].height + 20);
+      expect
+        .soft(boxes[9].top, `${width}px: full ring gains length above shared hero floor`)
+        .toBeLessThan(boxes[6].top);
+    }
     await context.close();
   });

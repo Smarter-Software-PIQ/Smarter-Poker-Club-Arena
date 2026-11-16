@@ -5236,8 +5236,8 @@ button.post-bb-overlay-button {
   }
 }
 
-/* Full ring uses the longer canvas; its top caps need half the headroom
-   of the shorter six-seat ring. Both end at the same reserved hero floor. */
+/* Full ring uses the longer canvas; top captions retain their own clear lane
+   in useProtectedCardLayout. Both rings end at the reserved hero floor. */
 @media (min-width: 481px) and (max-width: 640px) and (orientation: portrait) {
   .table-page[data-seats='9'] .table-scaler {
     width: min(88%, calc(var(--sp-table-h, 100svh) * 0.725));
