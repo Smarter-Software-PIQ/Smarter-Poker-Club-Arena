@@ -51,6 +51,7 @@ import {
   omahaOopCheckSpot,
   omahaOopTurnFacingBetVerdict,
 } from '../HorseOmahaOopChecks.js';
+import { plo6MultiwayWeakBetSpot } from '../HorsePlo6MultiwayWeakBet.js';
 import {
   OMAHA_CARD_IMPACT_VARIANTS,
   omahaCardImpactCheckAdmissible,
@@ -1213,6 +1214,21 @@ function policyGraphIsValidInScope(
       previous !== null &&
       ['raise', 'all_in'].includes(previous.action) &&
       plo6RiverCallIsPriced(transition.after, context);
+    // PLO6 lane 2026-11-15 (HorsePlo6MultiwayWeakBet, default-off option
+    // plo6NoMultiwayBetWithWeakMadeHand): a PLO6 flop or turn bet facing no
+    // wager against two or more live opponents with a weak made hand and no
+    // qualifying draw becomes a check. A check puts no chip in; when the
+    // request is known, only where the public spot, re-run on it, holds (the
+    // spot reads neither the option nor an opponent).
+    const plo6MultiwayWeakBetToCheck =
+      transition.node === 'wager_rules' &&
+      variant === 'plo6' &&
+      transition.after.action === 'check' &&
+      previous !== null &&
+      ['bet', 'raise', 'all_in'].includes(previous.action) &&
+      (context === undefined ||
+        (String(context.gameState.gameVariant).toLowerCase() === variant &&
+          plo6MultiwayWeakBetSpot(context.player, context.gameState) !== null));
     // Dan 2026-11-06 (HorsePloPairedBoardFold.ploPairedBoardRiverMustCheck):
     // a PLO4/5/6 river bet or raise without a full house, on a board paired
     // by the turn after the horse's own turn bet was called, becomes a check.
@@ -1491,6 +1507,7 @@ function policyGraphIsValidInScope(
       !shortAllInCall &&
       !noFourBetFold &&
       !plo6RiverRaiseToCall &&
+      !plo6MultiwayWeakBetToCheck &&
       !omahaRiverNutRaiseToCall &&
       !omahaReraiseToCall &&
       !(
