@@ -49,6 +49,7 @@ body=r'''
   promo=10 if mode=='active' else 20;cross=True;wallet_club='20000000-0000-0000-0000-000000000001';source_user='30000000-0000-0000-0000-000000000001';source_type='prize_liability';source_meta=json.dumps({'user_id':'10000000-0000-0000-0000-000000000001','registration_id':entitlement});label='ticket-'+mode
   e.sql(db,"UPDATE public.ca_promo_play_through_settings SET enforced_from=clock_timestamp()-interval '1 second';",label='prospective-native-programme-on')
   opening=eval('f'+chr(34)*3+seed_template+chr(34)*3)
+  if mode=='terminal':opening=opening.replace("'status','REGISTERING'","'status','COMPLETED'")
   if mode=='active':
    injection=f""" SELECT public.fn_ca_promo_profit_credit_owned('cash_win','{source}',id,'{wallet_club}','10000000-0000-0000-0000-000000000001','event','{event}',10) FROM public.ca_promo_play_through_grants WHERE source_ref='{label}';
  INSERT INTO public.ca_promo_profit_event_charge_receipts VALUES('{charge}','{wallet_club}','10000000-0000-0000-0000-000000000001',10,0);
@@ -62,7 +63,30 @@ body=r'''
   if mode=='lost':
    candidate=str(uuid.uuid4());e.sql(db,f"""BEGIN;INSERT INTO public.ca_promo_event_entry_loss_receipts(candidate_id,registration_id,tournament_id,club_id,user_id,table_id,hand_id,hand_number,operation_ref,principal,charge_ledger_ids) VALUES('{candidate}','{entitlement}','{event}','20000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000001',gen_random_uuid(),gen_random_uuid(),1,'typed-original-bust',18,ARRAY['{charge}'::uuid]);INSERT INTO public.ca_promo_event_entry_loss_slices SELECT '{candidate}',id,grant_id,charge_ledger_id,remaining FROM public.ca_promo_event_principal_lots WHERE charge_ledger_id='{charge}';UPDATE public.ca_promo_event_principal_lots SET remaining=0;UPDATE public.ca_promo_principal_custody SET amount=0;UPDATE public.ca_promo_play_through_grants SET remaining=0,closed_at=clock_timestamp(),close_reason='spent';COMMIT;""",label='typed-original-bust-opening')
   if mode=='terminal':
-   e.sql(db,f"""BEGIN;INSERT INTO public.ca_promo_event_terminal_loss_slices(tournament_id,lot_id,grant_id,charge_ledger_id,club_id,user_id,amount,terminal_status) SELECT tournament_id,id,grant_id,charge_ledger_id,'{wallet_club}','10000000-0000-0000-0000-000000000001',remaining,'CANCELLED' FROM public.ca_promo_event_principal_lots;UPDATE public.ca_promo_event_principal_lots SET remaining=0;UPDATE public.ca_promo_principal_custody SET amount=0;UPDATE public.ca_promo_play_through_grants SET remaining=0,closed_at=clock_timestamp(),close_reason='spent';COMMIT;""",label='typed-original-terminal-loss-opening')
+   e.sql(db,f"SELECT public.fn_ca_promo_profit_cleanup_settled_event('{event}','10000000-0000-0000-0000-000000000001');",label='actual-completed-event-cleanup')
+   snapshot=f"""jsonb_build_object('fund',(SELECT to_jsonb(c) FROM public.clubs c WHERE id='{wallet_club}'),'member',(SELECT to_jsonb(m) FROM public.club_members m WHERE club_id='{wallet_club}' AND user_id='10000000-0000-0000-0000-000000000001'),'event',(SELECT to_jsonb(t) FROM public.tournaments t WHERE id='{event}'),'escrow',(SELECT to_jsonb(x) FROM public.tournament_escrow x WHERE tournament_id='{event}'),'grants',(SELECT jsonb_agg(to_jsonb(g) ORDER BY g.id) FROM public.ca_promo_play_through_grants g),'custody',(SELECT jsonb_agg(to_jsonb(c) ORDER BY c.grant_id,c.kind,c.entity_id) FROM public.ca_promo_principal_custody c),'lots',(SELECT jsonb_agg(to_jsonb(c) ORDER BY c.id) FROM public.ca_promo_event_principal_lots c),'terminal',(SELECT jsonb_agg(to_jsonb(c) ORDER BY c.lot_id) FROM public.ca_promo_event_terminal_loss_slices c),'tickets',(SELECT jsonb_agg(to_jsonb(t) ORDER BY t.id) FROM public.tournament_tickets t),'ledger',(SELECT count(*) FROM public.chip_ledger),'transactions',(SELECT count(*) FROM public.chip_transactions),'returns',(SELECT jsonb_agg(to_jsonb(r) ORDER BY r.entitlement_id,r.grant_id) FROM public.ca_promo_ticket_principal_fee_returns r))"""
+   _,refusal,_=e.sql(db,f"""BEGIN;
+INSERT INTO public.ca_settle_sources(source,note) VALUES('atomic_cancel_tournament','DB caller') ON CONFLICT(source) DO NOTHING;
+DO $$DECLARE before_state jsonb;refusal text;context text;blocked boolean;BEGIN
+IF (SELECT status FROM public.tournaments WHERE id='{event}')<>'COMPLETED' THEN RAISE EXCEPTION 'terminal proof did not preserve completed event';END IF;
+IF (SELECT sum(amount) FROM public.ca_promo_event_terminal_loss_slices WHERE charge_ledger_id='{charge}')<>18 OR EXISTS(SELECT 1 FROM public.ca_promo_event_entry_loss_slices WHERE charge_ledger_id='{charge}') THEN RAISE EXCEPTION 'actual cleanup lacks disjoint original terminal eighteen';END IF;
+IF NOT EXISTS(SELECT 1 FROM public.ca_promo_play_through_grants WHERE source_ref='{label}' AND remaining=0 AND close_reason='spent' AND closed_at IS NOT NULL AND fee_target=80) THEN RAISE EXCEPTION 'actual cleanup did not finally close original gift';END IF;
+before_state:={snapshot};
+FOR attempt IN 1..2 LOOP
+ blocked:=false;
+ BEGIN PERFORM public.fn_ca_return_satellite_entitlement_as_ticket('{entitlement}','atomic_cancel_tournament','Original completed entry cannot be refunded');
+ EXCEPTION WHEN SQLSTATE '55000' THEN
+  GET STACKED DIAGNOSTICS refusal=MESSAGE_TEXT,context=PG_EXCEPTION_CONTEXT;
+  IF context NOT LIKE '%fn_satellite_transfer_ledger_is_immutable()%' OR refusal<>'completed satellite transfer journal is immutable' THEN RAISE EXCEPTION 'wrong noncash terminal refusal: % %',refusal,context;END IF;
+  blocked:=true;
+ END;
+ IF NOT blocked THEN RAISE EXCEPTION 'original terminal guard allowed a new noncash refund';END IF;
+ IF {snapshot} IS DISTINCT FROM before_state THEN RAISE EXCEPTION 'terminal refusal changed money, assets, journals or original closed gift';END IF;
+END LOOP;
+RAISE NOTICE 'Original terminal noncash refund safely refused: %',refusal;
+END$$;SET CONSTRAINTS ALL IMMEDIATE;COMMIT;""",label='actual-original-terminal-noncash-refusal')
+   e.report['native'].append({'case':'actual-completed-cleanup-and-noncash-refusal','assertions':7})
+   continue
   e.sql(db,"INSERT INTO public.ca_settle_sources(source,note) VALUES('atomic_cancel_tournament','DB caller') ON CONFLICT(source) DO NOTHING;",label='actual-authority-source')
   e.sql(db,f"""BEGIN;
 ALTER TABLE public.chip_ledger ADD CONSTRAINT ticket_return_native_fault CHECK(idempotency_key NOT LIKE 'promo_ticket_fee_return:%') NOT VALID;
@@ -108,7 +132,7 @@ END$$;SET CONSTRAINTS ALL IMMEDIATE;COMMIT;""",label='actual-original-net-ticket
  for path in list((root/'tests/fixtures/promo-ticket-principal-returns').glob('*.json'))+[Path(__file__),root/'scripts/ci/test-promo-principal-returns.py',root/'scripts/ci/migration-stale-pins.mjs',root/'tests/fixtures/promo-ticket-principal-returns/current-ticket-guards.json',args.ticket_tree/'tests/fixtures/promo-ticket-play-through/generation-nonwallet-owners.json']:remember(path)
  e.report['source_sha256']={**manifest['source_sha256'],**tested}
  e.report['current_function_pins']=len(current['functions']);e.report['current_financial_triggers']=len(current['triggers'])
- e.report['qualification_limits']=['Real original private returned-ticket issuer, escrow refund owner, original bank/journal/31financial guards plus actual ticket immutable/tally/deferred guards execute. Original paid noncash entry, earned completion, bust and terminal loss are explicit typed prior-state openings; this does not qualify their producers or public cancel/unregister reachability. Full W/H earning/movement and fee-return consumers are qualified separately; this source returns only exact original P cost. No player-wallet credit or cash refund tranche.']
+ e.report['qualification_limits']=['Real original private returned-ticket issuer, escrow refund owner, original bank/journal/31financial guards plus actual ticket immutable/tally/deferred guards execute. Original paid noncash entry, earned completion and bust are explicit typed prior-state openings. Actual cleanup on the retained COMPLETED opening creates immutable terminal loss18; original noncash refund then safely refuses with no money or evidence changes. This does not qualify the completion producer or public cancel/unregister reachability. Full W/H earning/movement and fee-return consumers are qualified separately; this source returns only exact original P cost. No player-wallet credit or cash refund tranche.']
 finally:
  e.close();(out/'RESULTS.json').write_text(json.dumps(e.report,indent=2)+'\n')
 '''

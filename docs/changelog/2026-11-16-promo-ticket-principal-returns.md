@@ -9,5 +9,8 @@ The private original issuer and ticket identity guard require their exact
 reviewed preimages. The guard admits only the source-bound immutable receipt
 and matching same-transaction journal split. The existing inventory guard and
 all unrelated ticket rails remain unchanged. The companion installs after the
-P/H/W/generation contracts. Four native financial flows cover conservation,
-original replay and late-journal atomic rollback under the existing guards.
+P/H/W/generation contracts. Three legal native refund flows cover conservation, original replay, net
+redemption and late-journal atomic rollback under the existing guards. A
+retained COMPLETED entry executes real terminal cleanup, then the original
+noncash refund safely refuses without changing funds or immutable evidence.
+No legal refund after terminal closure is claimed.
