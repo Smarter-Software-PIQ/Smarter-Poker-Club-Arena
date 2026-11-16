@@ -31,23 +31,24 @@ Written, each a PLO6-only branch reached only with this gate on (gate off, PLO4 
 - The six-card constants are in the accessor only inside a gate-on decision or validation: `HorseLogic.decide` and the validator put back what the accessor held before (safe for a decide entered inside another decide).
 - Validator and the live switch: the switch delivers its value inside the worker, so the client validates under the gate values the worker may have run (`omahaStrategyInPlo6GateCandidates`): the row in the configuration the client last delivered to that worker, then the request's own option when it differs (a worker whose configuration aged out runs the release default), then the row of the configuration delivered before the last change, for one worker poll interval after that change (`STYLE_SWITCH_POLL_MS`, 60 s: the worker reads its inbox at most once per interval, so it may still be deciding under the previous configuration; `deliveredSwitchConfigsNote` / `deliveredSwitchConfigsPrevious`). While the option is off-only an `on` row makes the whole switched set invalid and nothing is switched.
 - Lightning: a Lightning PLO6 cash table is a PLO6 cash table for the multiway weak-bet rule and for the port (tested; no port module reads the table speed, and the Lightning participation rules are preflop and Hold'em / PLO4 / PLO5 only).
-- League card `plo6_omaha_strategy_six_card_port`: the 27 ported options on in both arms, the gate on in arm A, six seats, production personas. Not yet measured: a first run (seed 20261116, 150 pairs) had not finished after 22 minutes at machine load 22; the diverged-pair count and the bb/100 difference are owed.
+- League card `plo6_omaha_strategy_six_card_port`: the 27 ported options on in both arms, the gate on in arm A, six seats, production personas. Smoke run measured 2026-11-16 on the re-stacked head over `3d37638a1ef4` (archive `phase1-play/plo-port-20261115/LEAGUE-SMOKE-150-20261116.json`; the earlier scratch runner had finished in 9.02 s and sat behind `tail -8` because `HorseLeague.ts` starts its check `setInterval` on import and the script omitted `process.exit(0)`): `{"name":"plo6_omaha_strategy_six_card_port","pairs":150,"hands":300,"seed":20261116,"seconds":9.088,"durationMs":9088,"bb100":-7.416666666666667,"stderr":15.263290704399871,"blockStderr":11.024194771971802,"stderrBlocks":6,"divergentPairs":38,"inert":false,"illegalActions":0,"truncatedStreets":0,"correctedActions":0,"brainExceptionFallbacks":0,"exceptions":0,"coerced":0}`. The full 6,000-pair run is still owed.
 
 Still owed before the hold may be lifted:
 
 - PLO Strategy's acceptance of the lines in its modules and Hand Analysis's review.
 - Whole-decision timing is measured, and two paths are slow enough to need a decision before the hold is lifted. Measured 2026-11-16 on the recorded PLO6 nodes of `HorsePlo6StrategyPortHooks.test.ts` (one recorded hand dealt as PLO6), 24 seeded random six-card hands per node, each decided once per arm with the gate-on arm first (cold caches), one process, 28 cores at load average 22 to 24 (other lanes' gates running), so the figures are upper bounds for this machine state. Median / 95th percentile / maximum per decision in milliseconds; base = no option, off = the 27 ported options on with the gate off, on = the same with the gate on:
 
-  | node | base | off | on | actions changed by the gate |
-  | --- | --- | --- | --- | --- |
-  | flop, checked to | 1.5 / 2.3 / 2.3 | 1.6 / 2.8 / 3.4 | 2.1 / 2.9 / 64.8 | 0 of 24 |
-  | flop, facing a bet | 2.2 / 2.7 / 3.0 | 2.4 / 3.1 / 3.1 | 2.6 / 4.1 / 10.2 | 2 of 24 |
-  | turn, first to act, paired board | 1.9 / 2.3 / 2.6 | 2.1 / 2.6 / 2.7 | 2.3 / 3.7 / 8.6 | 24 of 24 |
-  | turn, first to act, unpaired board | 2.1 / 2.7 / 2.8 | 2.3 / 3.0 / 4.4 | 3.6 / 322.9 / 371.8 | 18 of 24 |
-  | river, checked to | 1.8 / 2.7 / 4.5 | 2.2 / 3.4 / 3.4 | 9.1 / 22.9 / 25.0 | 2 of 24 |
-  | river, facing an all-in | 1.8 / 4.2 / 4.4 | 2.6 / 5.1 / 5.3 | 71.8 / 139.4 / 146.7 | 0 of 24 |
+  | node                               | base            | off             | on                   | actions changed by the gate |
+  | ---------------------------------- | --------------- | --------------- | -------------------- | --------------------------- |
+  | flop, checked to                   | 1.5 / 2.3 / 2.3 | 1.6 / 2.8 / 3.4 | 2.1 / 2.9 / 64.8     | 0 of 24                     |
+  | flop, facing a bet                 | 2.2 / 2.7 / 3.0 | 2.4 / 3.1 / 3.1 | 2.6 / 4.1 / 10.2     | 2 of 24                     |
+  | turn, first to act, paired board   | 1.9 / 2.3 / 2.6 | 2.1 / 2.6 / 2.7 | 2.3 / 3.7 / 8.6      | 24 of 24                    |
+  | turn, first to act, unpaired board | 2.1 / 2.7 / 2.8 | 2.3 / 3.0 / 4.4 | 3.6 / 322.9 / 371.8  | 18 of 24                    |
+  | river, checked to                  | 1.8 / 2.7 / 4.5 | 2.2 / 3.4 / 3.4 | 9.1 / 22.9 / 25.0    | 2 of 24                     |
+  | river, facing an all-in            | 1.8 / 4.2 / 4.4 | 2.6 / 5.1 / 5.3 | 71.8 / 139.4 / 146.7 | 0 of 24                     |
 
   The two slow paths: the exact six-card count facing a river wager (about 70 ms, up to about 150 ms) and the turn plan's river look-ahead when it runs (up to about 370 ms). Not measured: an idle machine, a worker under live load, the validator's replay of the same rules on the main thread.
+
 - The validator's replay takes the PLO6 river fold options (V58, V59) as on; a decision made with either off would replay differently (the same limit the existing fields have).
 - The value, continuation and reach rows: NOT MET. The league card above only measures; a full-size run and a human-table sample are owed.
 - From the independent pre-review of the port (archive `followup/review-plo6-six-card-port/PRE-REVIEW.md`, ACCEPT WITH NOTES, nothing blocking), open with the gate on only:
@@ -56,6 +57,7 @@ Still owed before the hold may be lifted:
 - From the second pre-review (archive `followup/review-plo6-six-card-port/PRE-REVIEW-2.md`, ACCEPT WITH NOTES, nothing blocking), still open:
   - in `decide`, the live test repeats the 20,000-sample share the live rule already computed for the same cards (same number, computed twice);
   - the sentence in `HorseOmahaStrategyGame.ts` that says the validator does not admit PLO6 is stale; that file is PLO Strategy's to correct.
+- `omahaStrongHandSlowplayMix` (`HorseOmahaStrongHandSlowplayMix.ts`, added after SPEC-A and SPEC-B) also asks `omahaStrategyGameInScope`, so turning both it and this gate on would admit six-card cash hands to the slow-play mix before six-card calibration or review (`horsePlayStyles` from `#11044` lists only `plo4` and `plo5` in `OMAHA_PLAY_STYLE_VARIANTS` without `omahaStrategyGameInScope`, so it stays outside PLO6 gate on or off).
 - Rules that run after the two pricing rules in the wager chain, read 2026-11-16: `omahaDrawRules` (flop and turn only, a check or a call), `omahaOwnerRuledFinal` (a wager becomes a check), `omahaStrongHandValueRule` (a check or a call only) and the slow-play mix (a bet becomes a check) cannot turn a PLO6 river fold into a call. Two legacy rules outside the port can, gate on or off, exactly as on main: `shortAllInCallFloor` and `callLargeRiverBoatWager`.
 
 ## Measured 2026-11-16 (archive `phase1-play/plo-port-20261115/FRESH-SAMPLE-20261116.md`)
@@ -107,7 +109,7 @@ Still pinned as source text because no behavioural route exists in a unit test: 
 - Option unset or false: the decision is identical to the base on the test's states at every seed. The lane's decision-digest pin on PLO6 cells is not recorded here.
 - Value: NOT MET. Nothing was evaluated.
 - Continuation: NOT MET.
-- Reach: NOT MET. League: the refused matchup `plo6_omaha_strategy_in_plo6` (the gate alone; seed 20261116, 300 pairs, 0 diverged). The card with the ported options on in both arms is `plo6_omaha_strategy_six_card_port` (above); its result is recorded there when a run finishes.
+- Reach: NOT MET. League: the refused matchup `plo6_omaha_strategy_in_plo6` (the gate alone; seed 20261116, 300 pairs, 0 diverged). Smoke run of `plo6_omaha_strategy_six_card_port` (the 27 ported options on in both arms, gate on in arm A; seed 20261116, 150 pairs / 300 hands, 9.088 s): 38 of 150 pairs diverged, `bb100` -7.42, `stderr` 15.26 (`blockStderr` 11.02 over 6 blocks), 0 illegal / truncated / coerced / exception fallbacks; full 6,000-pair run and human-table sample owed.
 
 ## Limits
 

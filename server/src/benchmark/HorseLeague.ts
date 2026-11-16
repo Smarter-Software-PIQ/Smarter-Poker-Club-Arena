@@ -2840,12 +2840,11 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
   // the four it skips stay off); arm A also opens the PLO6 gate, so the card
   // measures the port alone: in arm B those options are outside PLO6 and the
   // arm is today's six-card brain. Six seats, production personas, cash.
-  // NOT YET MEASURED at the card's own size. A reduced run (150 pairs, seed
-  // 20261116, a fortieth of the card) was started on 2026-11-16 on a machine
-  // at load 22 to 25 and had not finished after more than an hour; the
-  // diverged-pair count and the bb/100 difference with its interval are owed
-  // and are recorded here when a run ends. A six-seat PLO6 hand with the gate
-  // on is slow (see the timing table in the authority file).
+  // Smoke run measured 2026-11-16 (150 pairs / 300 hands, seed 20261116,
+  // 9.088 s at nice 19): 38 of 150 pairs diverged (inert false), bb100
+  // -7.42 +/- 15.26 (blockStderr 11.02 over 6 blocks), 0 illegalActions,
+  // 0 truncatedStreets, 0 correctedActions, 0 brainExceptionFallbacks. Not
+  // yet measured at the full 6,000-pair card size.
   // The card only measures; the gate stays off-only and no evidence row is
   // claimed from it.
   ...(() => {
