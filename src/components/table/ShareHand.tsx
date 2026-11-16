@@ -29,7 +29,15 @@ export interface ShareableCard {
   suit: 'h' | 'd' | 'c' | 's';
 }
 
+import {
+  sharedAvatar,
+  readSharedTableAppearance,
+  type SharedTableAppearance,
+} from '../../lib/sharedTableAppearance';
+
 export interface ShareableAction {
+  /** Milliseconds since this client observed the deal. */
+  atMs?: number;
   seat: number;
   /**
    * v3 (2026-09-05) adds the FORCED money and the returned bet. A shared hand
@@ -64,6 +72,7 @@ export interface ShareableAction {
 }
 
 export interface ShareablePlayer {
+  avatar?: string;
   seat: number;
   name: string;
   /**
@@ -109,6 +118,7 @@ export interface ShareablePlayer {
 }
 
 export interface ShareableHand {
+  appearance?: SharedTableAppearance;
   /** Recorded event identity. Undefined on older shared links. */
   tournamentId?: string | null;
   id: string;
@@ -329,6 +339,8 @@ function encodeAction(action: ShareableAction): string {
   if (action.amount !== undefined) {
     str += encodeMoney(action.amount);
   }
+  if (Number.isSafeInteger(action.atMs) && action.atMs! >= 0)
+    str += '.' + action.atMs!.toString(36);
   if (action.dead) str += DEAD_MARK;
   return str;
 }
@@ -354,7 +366,7 @@ function decodeActions(str: string | undefined, version: string): ShareableActio
   if (!str) return out;
   for (const rawToken of str.split(',')) {
     const dead = rawToken.endsWith(DEAD_MARK);
-    const token = dead ? rawToken.slice(0, -1) : rawToken;
+    const [token, timing] = (dead ? rawToken.slice(0, -1) : rawToken).split('.');
     const m = token.match(/^(\d+)([A-Z])(.*)$/);
     if (!m) continue;
     const seat = parseInt(m[1], 10);
@@ -368,6 +380,7 @@ function decodeActions(str: string | undefined, version: string): ShareableActio
       const amt = decodeMoney(m[3], version);
       if (Number.isFinite(amt)) action.amount = amt;
     }
+    if (timing && /^[0-9a-z]{1,6}$/.test(timing)) action.atMs = parseInt(timing, 36);
     if (dead) action.dead = true;
     out.push(action);
   }
@@ -481,7 +494,8 @@ export function encodeHand(hand: ShareableHand): string {
       const stack = p.stack == null ? '' : encodeMoney(p.stack);
       /* What this seat was PAID, after rake. Empty when they won nothing. */
       const won = p.won ? encodeMoney(p.won) : '';
-      return `${p.seat}:${b64utf8(clip(p.name, CAP_NAME))}:${stack}:${cards}:${flags}:${handName}:${won}`;
+      const avatar = sharedAvatar(p.avatar);
+      return `${p.seat}:${b64utf8(clip(p.name, CAP_NAME))}:${stack}:${cards}:${flags}:${handName}:${won}${avatar ? ':' + b64utf8(avatar) : ''}`;
     })
     .join(';');
   parts.push(playerStr);
@@ -557,6 +571,9 @@ export function encodeHand(hand: ShareableHand): string {
   // Recorded identity is optional; legacy links remain unclassified.
   parts.push(hand.tournamentId ? b64utf8(clip(hand.tournamentId, 64)) : '');
 
+  const appearance = readSharedTableAppearance(hand.appearance);
+  if (appearance) parts.push(b64utf8(JSON.stringify(appearance)));
+
   // Base64 URL-safe encode. Everything above is ASCII by construction (names
   // are base64'd), so btoa cannot throw here.
   const encoded = btoa(parts.join('~')).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
@@ -589,7 +606,8 @@ export function decodeHandFromUrl(encoded: string): ShareableHand | null {
       .split(';')
       .filter(Boolean)
       .map((ps) => {
-        const [seat, nameB64, stackB36, cardsStr, flags, handNameB64, wonB36] = ps.split(':');
+        const [seat, nameB64, stackB36, cardsStr, flags, handNameB64, wonB36, avatarB64] =
+          ps.split(':');
         const player: ShareablePlayer = {
           seat: parseInt(seat, 10) || 0,
           name: unb64utf8(nameB64) || `Seat ${seat}`,
@@ -605,6 +623,8 @@ export function decodeHandFromUrl(encoded: string): ShareableHand | null {
         }
         const handName = unb64utf8(handNameB64);
         if (handName) player.handName = handName;
+        const avatar = sharedAvatar(unb64utf8(avatarB64));
+        if (avatar) player.avatar = avatar;
         if (wonB36) player.won = decodeMoney(wonB36, version);
         return player;
       });
@@ -703,6 +723,7 @@ export function decodeHandFromUrl(encoded: string): ShareableHand | null {
       winners,
       wireVersion: version,
     };
+    if (parts[20]) hand.appearance = readSharedTableAppearance(JSON.parse(unb64utf8(parts[20])));
     if (extraBoards.length) hand.extraBoards = extraBoards;
     if (rakeStr) hand.rake = decodeMoney(rakeStr, version);
     if (bbjStr) hand.bbjFee = decodeMoney(bbjStr, version);
