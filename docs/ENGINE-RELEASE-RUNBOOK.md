@@ -260,6 +260,12 @@ In `server/standby/standby-engine.sh` `cmd_certify`:
    serving SHA to this one (`trial_swap` in `server/standby/standby-trials.sh`);
    an unreadable baseline or unavailable rehearsal is a failure
    (`docs/changelog/2026-11-07-backup-pretrial-dealing.md`).
+   Before each swap, the original SQL must witness a fresh committed hand after
+   open play resumes, with healthy and unchanged runtime identity. The existing
+   300-second open-play and 1,200-second overall limits remain. An older
+   predecessor's fleet metric is unavailable below three tables; that absence
+   does not negate the fresh database witness. Current engines publish the
+   observed count at that size while retaining the fleet-silence denominator.
 5. Crash test: SIGKILLs PID 1 through a pidfd and waits up to 600 s for
    Docker's restart policy to bring the same container back on the same SHA.
 6. Soak for `soak_s` (1800 from the workflow): running, liveness ok, no
