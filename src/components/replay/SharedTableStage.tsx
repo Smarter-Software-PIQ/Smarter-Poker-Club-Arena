@@ -1,9 +1,10 @@
-import { useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import type { ReplayModel, ReplayVerb } from '../../utils/handReplay';
 import type { ReplayFrame } from '../../utils/replayFrames';
 import type { FrameMotion } from '../../utils/replayMotion';
 import { rotateSeatsForHero, seatLayoutFor } from '../../lib/tableSeatGeometry';
 import { resolveBackgroundLayers, resolveSkin } from '../../lib/tableTheme';
+import { publicReplayAvatar } from '../../lib/publicReplayAvatar';
 import type { SharedTableAppearance } from '../../lib/sharedTableAppearance';
 import SeatSlot, { type LastAction, type PositionBadge } from '../table/SeatSlot';
 import PotDisplay from '../table/PotDisplay';
@@ -55,6 +56,31 @@ export default function SharedTableStage({
   appearance: SharedTableAppearance | null;
   holeCount: number;
 }) {
+  const [profiles, setProfiles] = useState<{
+    model: ReplayModel;
+    avatars: Map<string, string>;
+  } | null>(null);
+  useEffect(() => {
+    if (appearance) return;
+    const controller = new AbortController();
+    const names = [
+      ...new Set(model.players.filter((p) => !p.avatarUrl).map((p) => p.username)),
+    ].slice(0, 10);
+    if (!names.length) return;
+    void Promise.all(
+      names.map(
+        async (name) =>
+          [name, await publicReplayAvatar(name, model.playedAt, controller.signal)] as const
+      )
+    ).then((rows) => {
+      if (!controller.signal.aborted)
+        setProfiles({
+          model,
+          avatars: new Map(rows.flatMap(([name, avatar]) => (avatar ? [[name, avatar]] : []))),
+        });
+    });
+    return () => controller.abort();
+  }, [appearance, model]);
   const scaler = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 320, h: 520, left: 0, viewport: 390 });
   useLayoutEffect(() => {
@@ -87,7 +113,7 @@ export default function SharedTableStage({
   );
   const heroSeat = model.players.find((p) => p.userId === heroId)?.seat ?? 0;
   const seats = rotateSeatsForHero(ring, heroSeat);
-  const deckStyle = appearance?.fourColor ? '4color' : '2color';
+  const deckStyle = appearance?.fourColor === false ? '2color' : '4color';
   const button = seats[(model.buttonSeat ?? 0) - 1];
   const pods = ring.map((pos) =>
     seatPodPx(size.viewport, pos.y >= 100 && pos.x === 50, size.w, {
@@ -108,12 +134,21 @@ export default function SharedTableStage({
   const awardSlot = motion.potTo.length === 1 ? seats[motion.potTo[0] - 1] : null;
   const destination = awardSlot && fitted[awardSlot.visualIndex];
   const boards = [frame.board, ...frame.extraBoards];
+  const streetRows = model.streets.find((street) => street.key === frame.streetKey)?.rows ?? [];
+  const rowIndex = frame.row ? streetRows.indexOf(frame.row) : -1;
+  const actions = new Map<number, LastAction>();
+  for (const row of streetRows.slice(0, rowIndex + 1)) {
+    const action = seatAction(row.verb);
+    if (action) actions.set(row.seat, action);
+  }
+  const actingSeat = streetRows.slice(rowIndex + 1).find((row) => seatAction(row.verb))?.seat;
   return (
     <FaceDeckContext.Provider value={appearance?.faceDeck}>
       <section
         className="table-page shared-table-stage"
         aria-label={frame.caption}
         data-seats={ring.length}
+        data-boards={boards.length > 1 ? boards.length : undefined}
         data-hero={!!heroSeat}
         style={{ backgroundImage: resolveBackgroundLayers(appearance?.background) }}
       >
@@ -147,7 +182,7 @@ export default function SharedTableStage({
               streetBets={Object.values(frame.committed).reduce((sum, bet) => sum + bet, 0)}
             />
           </div>
-          <div className="shared-table-stage__boards">
+          <div className="community-area shared-table-stage__boards">
             {boards.map((board, index) => (
               <div key={index}>
                 {boards.length > 1 && <span>Run {index + 1}</span>}
@@ -186,12 +221,15 @@ export default function SharedTableStage({
             const index = seats[p.seat - 1]?.visualIndex;
             const spot = fitted[index];
             if (!spot) return null;
+            const avatar =
+              p.avatarUrl ??
+              (profiles?.model === model ? profiles.avatars.get(p.username) : undefined);
             const own = p.userId === heroId;
             const revealed = frame.revealed.includes(p.seat);
             const cards = own ? (p.hole ?? p.privateHole) : revealed ? p.hole : null;
             const folded = frame.folded.includes(p.seat);
-            const active = frame.activeSeat === p.seat;
-            const action = active ? seatAction(frame.row?.verb) : null;
+            const active = !frame.isShowdown && actingSeat === p.seat;
+            const action = actions.get(p.seat) ?? null;
             const stack = frame.stacks[p.seat];
             const winner = frame.isShowdown && p.won > 0;
             const bet = betChipOffsetPx(spot, markerSize, pods[index]);
@@ -220,7 +258,7 @@ export default function SharedTableStage({
                   player={{
                     id: p.userId,
                     name: p.username,
-                    avatar: p.avatarUrl ?? undefined,
+                    avatar,
                     stack: stack ?? 0,
                     stackPending: stack == null,
                     status: folded ? 'folded' : action === 'all_in' ? 'all_in' : 'active',
@@ -240,7 +278,7 @@ export default function SharedTableStage({
                   isWinner={winner}
                   winnerDisplayActive={winner}
                   netWinAmount={winner ? p.won : undefined}
-                  showAvatar={!!p.avatarUrl && appearance?.showAvatars !== false}
+                  showAvatar={!!avatar && appearance?.showAvatars !== false}
                   bigBlind={model.bigBlind}
                   deckStyle={deckStyle}
                   cardBack={appearance?.cardBack}
@@ -254,6 +292,11 @@ export default function SharedTableStage({
           })}
         </div>
       </section>
+      {profiles?.model === model && profiles.avatars.size > 0 && (
+        <p className="shared-table-stage__credit">
+          Original Appearance Unrecorded · Showing Current Club Arena Avatars
+        </p>
+      )}
     </FaceDeckContext.Provider>
   );
 }

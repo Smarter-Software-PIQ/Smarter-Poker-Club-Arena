@@ -41,7 +41,8 @@ export function readSharedTableAppearance(value: unknown): SharedTableAppearance
 export function sharedAvatar(value: unknown): string | undefined {
   if (typeof value !== 'string') return;
   const path = value.replace(/^https:\/\/smarter\.poker(?=\/avatars\/)/, '');
-  if (/^\/avatars\/(free|vip|table)\/[a-z0-9_-]{1,160}\.(png|webp)$/i.test(path)) return path;
+  if (/^\/avatars\/(free|vip|table)\/[a-z0-9_-]{1,160}(?:@2x)?\.(png|webp)$/i.test(path))
+    return path;
 }
 
 interface ObservedSeat {

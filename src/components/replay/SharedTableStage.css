@@ -25,12 +25,15 @@
 .shared-table-stage__boards {
   position: absolute;
   z-index: 5;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
 }
 .shared-table-stage__boards > div {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.shared-table-stage__credit {
+  margin: 0.4rem 0;
+  font-size: 0.75rem;
+  text-align: center;
 }
