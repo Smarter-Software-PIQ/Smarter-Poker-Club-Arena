@@ -14,27 +14,56 @@
  * measured and is out of scope by code (FIXED_LIMIT_POPULATION_CELLS_IN_SCOPE): at six seats against the Horse field
  * the option lost 2.29 +/- 0.71 BB/100, almost all preflop.
  *
+ * CASH ONLY (2026-11-16, lane owner's decision on the independent review, note 2): the cells were measured from cash
+ * hands only, so HorseLogic adds the option to the decision's read options only at a cash table (!isTournamentMode,
+ * the same cash/tournament test W5 uses); at a tournament table every read is main's envelope.
+ *
  * (1) With the option on, every no-limit and pot-limit read gets exactly main's envelope (same object), at every
- *     size; a flh read gets its own measured cell; outside a decision the option cannot engage. The cell is taken
- *     only when the variant's betting structure is fixed limit: a decision whose variant has a frozen cell but
- *     whose structure is not fixed limit (here a stubbed structure: today bettingStructureFor derives the structure
- *     from the variant name, so no production state can carry flh without fixed limit) gets main's envelope.
- * (2) The census (every Horse's own decayed counters, built as the learner builds them, fixture
- *     fixed-limit-population-census.json) replayed through the style read: with the option on, no cell reads more
- *     Horses tight on the participation read, or engages tight-opener or tight-reraiser respect on more Horses, than
- *     with it off; at full-ring flh tight-opener respect engages on at most 1% of Horses.
+ *     size; a flh read gets its own measured cell; outside a decision the option cannot engage, asserted at flh
+ *     (the variant it acts on), so a scope-less option that survived would fail here. The cell is taken only when
+ *     the variant's betting structure is fixed limit: a decision whose variant has a frozen cell but whose structure
+ *     is not fixed limit (here a stubbed structure: today bettingStructureFor derives the structure from the variant
+ *     name, so no production state can carry flh without fixed limit) gets main's envelope. Only an explicit true
+ *     engages: 'true', 1, 'yes', {} and [] add no key in HorseLogic and, set straight on the read options, take main's
+ *     envelope. Every read frame (opponentExploitRead, presumedAggressorRead) and the style receipt name the version
+ *     of the envelope they were judged against.
+ * (2) A PROPERTY OF THE FROZEN CENSUS ONLY: at the frozen census (every Horse's own decayed counters at the end of
+ *     the export window, built as the learner builds them, fixture fixed-limit-population-census.json), ON labels no
+ *     more players tight than OFF for each tight read (participation tight, tight-opener respect, tight-reraiser
+ *     respect), in every cell; at full-ring flh tight-opener respect engages on at most 1% of Horses. This is NOT a
+ *     general claim that ON never labels more players tight than OFF: in play and on early samples tight-reraiser
+ *     respect engages MORE often with ON (AB-EVALUATION-2 3.13: flh 6 against the Horse field 528 hero decisions on
+ *     against 104 off; a Horse seat read tight against the tight-passive script 885 against 252), because the ON
+ *     three-bet cell means are higher at every flh size (hu 0.0897 -> 0.0997, short 0.0623 -> 0.0762, full
+ *     0.0347 -> 0.0527), so "three-bet credibly low" is reached more easily; case (3b) shows it on seeded histories.
  *     Measured at 3c2a13338a83, before the scope (share of census Horses, off -> on; participation tight /
  *     tight-opener): flh hu 2.6% -> 1.1% / 0 -> 0; flh short 8.1% -> 3.9% / 1.1% -> 0.3%; flh full 35.2% -> 18.2%
  *     / 14.1% -> 0.9%; and with the flo8 cells, now unused: flo8 hu 4.9% -> 2.4%; flo8 short 57.2% -> 15.0%;
  *     flo8 full 73.8% -> 26.7% (tight-opener respect never acts in an Omaha scope). The participation label reads
  *     "tight" relative to half the band (score below the tight threshold and credible), not "outside the band", so
  *     the lower part of the Horse distribution keeps that label with the option on; that rule is unchanged here.
+ * (2b) REGRESSION PIN: the exact count of census Horses every consumer of the tight reads engages on, ON and OFF, in
+ *     every cell (participation tight, tight-opener respect, tight-reraiser respect, isValueBettor,
+ *     tightPassiveFolder, tightNotAggressive). Any change to a cell mean, band or threshold that moves one Horse fails
+ *     here, including a change that law (2) would let through (a full-ring three-bet mean raised to 0.09 keeps ON
+ *     under OFF but moves the count). One downstream consumer rises at the census: tightPassiveFolder at flh short,
+ *     0 -> 1.
  * (3) A synthetic 10% VPIP / 6% PFR history reads tight by its 40th hand at full-ring flh with the option on; a 20%
  *     history never does.
- * (4) The option is registered in the live switch, release default OFF, owner Fixed-Limit.
+ * (3b) EARLY SAMPLES: seeded full-ring flh preflop histories (150 seeds per profile; a Horse opens in front of him on
+ *     40% of hands) document tight-reraiser respect at hand 40, ON against OFF, including the players it engages on
+ *     only with ON; the sample gates are identical ON and OFF at every hand: the evidence state and the three-bet
+ *     opportunities are the same, and with too few hands (fewer than 15 decayed hands, or fewer than 8 three-bet
+ *     opportunities for the three-bet side) neither arm fires.
+ * (4) The option is registered in the live switch, release default OFF, owner Fixed-Limit. It may be switched on (the
+ *     owner's standing rule: every option is switchable); turning it on still needs the owner to lift the preflop
+ *     range hold for it by name, Hand Analysis's exact-head ACCEPT and the recorded evidence row.
  * (5) flo8 is inert with the option on: every flo8 envelope is main's (full ring still borrows flo8 short), every
  *     flo8 census read equals the read with the option off, and seeded flo8 cash and tournament decision streams are
- *     identical with the option on and off (the same comparison sees the option at flh).
+ *     identical with the option on and off (the same comparison sees the option at flh cash).
+ * (6) Tournament flh is inert with the option on: HorseLogic adds no key at a tournament table (gameMode tournament,
+ *     or a tournament snapshot without a mode), every read there is main's envelope and names main's version, and a
+ *     seeded flh tournament decision stream is identical with the option on and off.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 // A stubbed betting structure for law (1): empty = the real bettingStructureFor; a variant added here reads no_limit.
@@ -65,15 +94,20 @@ import {
   exploitEnvelopeVersionFor,
   exploitHandIncrements,
   observeExploitRow,
+  opponentExploitRead,
+  presumedAggressorRead,
   type ExploitCounters,
   type ExploitHandAction,
 } from './HorseOpponentExploit.js';
 import {
+  STYLE_THRESHOLDS,
   classifyOpponentStyle,
+  isValueBettor,
   tightOpenerRespect,
   tightReRaiserRespect,
   type OpponentStyleRead,
 } from './HorseOpponentStyle.js';
+import { tightNotAggressive, tightPassiveFolder } from './HorseTightPlayerExploit.js';
 import { OPTION_SWITCH_REGISTRY, optionSwitchOffOnly } from './HorseOptionSwitch.js';
 import { HORSE_DATA_LEDGER } from './HorseDataLedger.js';
 import { bettingStructureFor } from './BettingStructure.js';
@@ -103,6 +137,34 @@ function mainEnvelope(scope: ReadScope, variant: string) {
   }
   return OPPONENT_EXPLOIT_ENVELOPE[scope];
 }
+
+/** The sample gates, unchanged by the option: decayed hands before any side, three-bet opportunities. */
+const STYLE_MIN_HANDS = STYLE_THRESHOLDS.preflopMinHands;
+const STYLE_MIN_THREE_BET_OPPS = STYLE_THRESHOLDS.conditionedMinOpps;
+/** Truthy values that are not the boolean true: each is OFF (read as === true). */
+const TRUTHY_NOT_TRUE: readonly unknown[] = ['true', 1, 'yes', {}, []];
+const SEAT_A = { user_id: 'a', seat: 1 } as never;
+/** a six-handed flh decision state for HorseLogic.prepareOriginalReads */
+function flhState(extra: Readonly<Record<string, unknown>>) {
+  return {
+    gameVariant: 'flh',
+    players: ['a', 'b', 'c', 'd', 'e', 'f'].map((user_id, i) => ({ user_id, seat: i + 1 })),
+    ...extra,
+  };
+}
+
+/** The six per-Horse consumers of the tight reads, as booleans. */
+function tightConsumers(s: OpponentStyleRead) {
+  return {
+    participationTight: s.participation.side === 'tight' && s.participation.credible,
+    tightOpener: tightOpenerRespect(s) !== null,
+    tightReRaiser: tightReRaiserRespect(s) !== null,
+    valueBettor: isValueBettor(s),
+    tightPassiveFolder: tightPassiveFolder(s) !== null,
+    tightNotAggressive: tightNotAggressive(s) !== null,
+  };
+}
+type ConsumerCounts = Record<keyof ReturnType<typeof tightConsumers>, number>;
 
 afterEach(() => HorseMind.setDecisionScope(null));
 
@@ -157,39 +219,121 @@ describe('(1) only a fixed-limit read moves, and only with the option on inside 
     expect(bettingStructureFor('flh')).toBe('fixed_limit');
   });
 
-  it('outside a decision the option cannot engage', () => {
-    HorseMind.setDecisionScope(null);
-    HorseMind.setDecisionReadOptions({ fixedLimitPopulationCells: true });
-    const scope = readScopeOf('flo8', 6);
-    expect(exploitEnvelopeFor(scope, 'flo8')).toBe(mainEnvelope(scope, 'flo8'));
+  it('outside a decision the option cannot engage (asserted at flh, the variant it acts on)', () => {
+    for (const size of SIZES) {
+      const scope = readScopeOf('flh', DEALT[size]);
+      HorseMind.setDecisionScope(null);
+      HorseMind.setDecisionReadOptions({ fixedLimitPopulationCells: true });
+      expect(HorseMind.currentDecisionReadOptions(), `flh:${size}`).toEqual({});
+      expect(exploitEnvelopeFor(scope, 'flh'), `flh:${size}`).toBe(mainEnvelope(scope, 'flh'));
+      expect(exploitEnvelopeVersionFor(scope, 'flh')).toBe(OPPONENT_EXPLOIT_ENVELOPE_VERSION);
+      // a decision that ends takes its options with it
+      HorseMind.setDecisionScope(scope, 'flh', 'cash');
+      HorseMind.setDecisionReadOptions({ fixedLimitPopulationCells: true });
+      expect(exploitEnvelopeFor(scope, 'flh')).toBe(FIXED_LIMIT_POPULATION_ENVELOPE[`flh:${size}`]);
+      HorseMind.setDecisionScope(null);
+      expect(exploitEnvelopeFor(scope, 'flh'), `flh:${size} after`).toBe(
+        mainEnvelope(scope, 'flh')
+      );
+    }
   });
 
   it('HorseLogic carries the option beside the scope only when it is explicitly true', () => {
-    const gameState = {
-      gameVariant: 'flh',
-      players: [
-        { user_id: 'a', seat: 1 },
-        { user_id: 'b', seat: 2 },
-        { user_id: 'c', seat: 3 },
-        { user_id: 'd', seat: 4 },
-        { user_id: 'e', seat: 5 },
-        { user_id: 'f', seat: 6 },
-      ],
-    };
-    HorseLogic.prepareOriginalReads({ user_id: 'a', seat: 1 } as never, gameState as never, {
+    const gameState = flhState({ gameMode: 'cash' });
+    HorseLogic.prepareOriginalReads(SEAT_A, gameState as never, {
       fixedLimitPopulationCells: true,
       mind: false,
     });
     expect(HorseMind.currentDecisionReadOptions().fixedLimitPopulationCells).toBe(true);
+    const scope = HorseMind.currentScope()!;
+    expect(exploitEnvelopeFor(scope, 'flh')).toBe(
+      FIXED_LIMIT_POPULATION_ENVELOPE[`flh:${scope.slice(scope.indexOf(':') + 1)}`]
+    );
     HorseMind.setDecisionScope(null);
-    HorseLogic.prepareOriginalReads({ user_id: 'a', seat: 1 } as never, gameState as never, {
-      mind: false,
-    });
+    HorseLogic.prepareOriginalReads(SEAT_A, gameState as never, { mind: false });
     expect('fixedLimitPopulationCells' in HorseMind.currentDecisionReadOptions()).toBe(false);
+    HorseMind.setDecisionScope(null);
+    // truthy values that are not the boolean true are OFF: no key, main's envelope, main's version
+    for (const truthy of TRUTHY_NOT_TRUE) {
+      HorseLogic.prepareOriginalReads(SEAT_A, gameState as never, {
+        fixedLimitPopulationCells: truthy as never,
+        mind: false,
+      });
+      const label = JSON.stringify(truthy);
+      expect('fixedLimitPopulationCells' in HorseMind.currentDecisionReadOptions(), label).toBe(
+        false
+      );
+      const sc = HorseMind.currentScope()!;
+      expect(exploitEnvelopeFor(sc, 'flh'), label).toBe(mainEnvelope(sc, 'flh'));
+      expect(exploitEnvelopeVersionFor(sc, 'flh'), label).toBe(OPPONENT_EXPLOIT_ENVELOPE_VERSION);
+      HorseMind.setDecisionScope(null);
+    }
+  });
+
+  it('the decision probe reads only an explicit true: truthy read options take main envelope', () => {
+    for (const size of SIZES) {
+      const scope = readScopeOf('flh', DEALT[size]);
+      for (const truthy of TRUTHY_NOT_TRUE) {
+        HorseMind.setDecisionScope(scope, 'flh', 'cash');
+        HorseMind.setDecisionReadOptions({ fixedLimitPopulationCells: truthy as never });
+        try {
+          const label = `flh:${size} ${JSON.stringify(truthy)}`;
+          expect(exploitEnvelopeFor(scope, 'flh'), label).toBe(mainEnvelope(scope, 'flh'));
+          expect(exploitEnvelopeVersionFor(scope, 'flh'), label).toBe(
+            OPPONENT_EXPLOIT_ENVELOPE_VERSION
+          );
+        } finally {
+          HorseMind.setDecisionScope(null);
+        }
+      }
+    }
+  });
+
+  it('every read frame and the style receipt name the envelope version they were judged against', () => {
+    // a player who raises every hand: an engaged exploit read and a supported style read in both arms, every size
+    const rows = new Map<string, ExploitCounters>();
+    const id = '30000000-0000-4000-8000-000000000031';
+    for (let n = 0; n < 60; n++) {
+      const actions: ExploitHandAction[] = [
+        {
+          userId: id,
+          stage: 'preflop',
+          action: 'raise',
+          origin: 'player',
+          amount: 2,
+          isFullRaise: true,
+        },
+      ];
+      for (const [k, inc] of exploitHandIncrements(actions, true))
+        observeExploitRow(rows, k, inc, 1e9, true);
+    }
+    const counters = rows.get(id)!;
+    for (const size of SIZES) {
+      const scope = readScopeOf('flh', DEALT[size]);
+      for (const on of [true, false]) {
+        const want = on
+          ? FIXED_LIMIT_POPULATION_ENVELOPE_VERSION
+          : OPPONENT_EXPLOIT_ENVELOPE_VERSION;
+        const label = `flh:${size} ${on ? 'on' : 'off'}`;
+        inDecision(scope, 'flh', on, () => {
+          const frame = opponentExploitRead(counters, scope, 'flh');
+          expect(frame, label).not.toBeNull();
+          expect(frame!.envelope, label).toBe(want);
+          const presumed = presumedAggressorRead(null, undefined, scope, 'flh');
+          expect(presumed.outcome, label).toBe('presumed');
+          expect(presumed.read!.envelope, label).toBe(want);
+          const style = classifyOpponentStyle({ scope, variant: 'flh', domain: 'cash', counters });
+          expect(style.evidence.state, label).toBe('supported_individual_read');
+          expect(style.receipt.envelope, label).toBe(want);
+        });
+      }
+    }
+    expect(FIXED_LIMIT_POPULATION_ENVELOPE_VERSION).toBe('fixed-limit-population-2026-11-16');
+    expect(FIXED_LIMIT_POPULATION_ENVELOPE_VERSION).not.toBe(OPPONENT_EXPLOIT_ENVELOPE_VERSION);
   });
 });
 
-describe('(2) the recorded Horse census through the style read', () => {
+describe('(2) the frozen census through the style read (a property of the census snapshot only)', () => {
   const fx = JSON.parse(
     readFileSync(
       resolve(process.cwd(), 'src/engine/fixtures/fixed-limit-population-census.json'),
@@ -197,12 +341,17 @@ describe('(2) the recorded Horse census through the style read', () => {
     )
   ) as { fields: string[]; cells: Record<string, number[][]> };
   const fields = [...EXPLOIT_COUNTER_FIELDS, ...EXPLOIT_LONG_FIELDS] as string[];
-  const tally = (cell: string, on: boolean) => {
+  const tally = (cell: string, on: boolean): ConsumerCounts & { horses: number } => {
     const [variant, size] = cell.split(':') as [string, keyof typeof DEALT];
     const scope = readScopeOf(variant, DEALT[size]);
-    let tight = 0;
-    let opener = 0;
-    let reRaiser = 0;
+    const counts: ConsumerCounts = {
+      participationTight: 0,
+      tightOpener: 0,
+      tightReRaiser: 0,
+      valueBettor: 0,
+      tightPassiveFolder: 0,
+      tightNotAggressive: 0,
+    };
     for (const r of fx.cells[cell]!) {
       const counters = Object.fromEntries(
         fields.map((f, i) => [f, r[i]])
@@ -210,11 +359,10 @@ describe('(2) the recorded Horse census through the style read', () => {
       const s: OpponentStyleRead = inDecision(scope, variant, on, () =>
         classifyOpponentStyle({ scope, variant, domain: 'cash', counters })
       );
-      if (s.participation.side === 'tight' && s.participation.credible) tight++;
-      if (tightOpenerRespect(s)) opener++;
-      if (tightReRaiserRespect(s)) reRaiser++;
+      for (const [k, v] of Object.entries(tightConsumers(s)))
+        if (v) counts[k as keyof ConsumerCounts]++;
     }
-    return { horses: fx.cells[cell]!.length, tight, opener, reRaiser };
+    return { horses: fx.cells[cell]!.length, ...counts };
   };
 
   it('the fixture is the declared census: fields in wire order, all six cells', () => {
@@ -224,20 +372,56 @@ describe('(2) the recorded Horse census through the style read', () => {
     );
   });
 
-  it('no cell reads more Horses tight, or engages a tight consumer on more Horses, with the option on', () => {
+  it('at the frozen census, ON labels no more players tight than OFF for each tight read, in every cell', () => {
     for (const v of FIXED_LIMIT)
       for (const size of SIZES) {
         const off = tally(`${v}:${size}`, false);
         const on = tally(`${v}:${size}`, true);
-        expect(on.tight, `${v}:${size} participation tight`).toBeLessThanOrEqual(off.tight);
-        expect(on.opener, `${v}:${size} tight-opener`).toBeLessThanOrEqual(off.opener);
-        expect(on.reRaiser, `${v}:${size} tight-reraiser`).toBeLessThanOrEqual(off.reRaiser);
+        expect(on.participationTight, `${v}:${size} participation tight`).toBeLessThanOrEqual(
+          off.participationTight
+        );
+        expect(on.tightOpener, `${v}:${size} tight-opener`).toBeLessThanOrEqual(off.tightOpener);
+        expect(on.tightReRaiser, `${v}:${size} tight-reraiser`).toBeLessThanOrEqual(
+          off.tightReRaiser
+        );
       }
   });
 
-  it('full-ring flh: tight-opener respect engages on at most 1% of Horses', () => {
+  it('full-ring flh: tight-opener respect engages on at most 1% of census Horses', () => {
     const on = tally('flh:full', true);
-    expect(on.opener / on.horses).toBeLessThanOrEqual(0.01);
+    expect(on.tightOpener / on.horses).toBeLessThanOrEqual(0.01);
+  });
+
+  it('(2b) regression pin: the exact census count of every consumer of the tight reads, ON and OFF, every cell', () => {
+    // [participationTight, tightOpener, tightReRaiser, valueBettor, tightPassiveFolder, tightNotAggressive]
+    const pin: Record<string, { horses: number; off: number[]; on: number[] }> = {
+      'flh:hu': { horses: 189, off: [5, 0, 3, 5, 0, 5], on: [2, 0, 3, 5, 0, 2] },
+      'flh:short': { horses: 356, off: [29, 4, 12, 26, 0, 21], on: [14, 1, 11, 24, 1, 10] },
+      'flh:full': { horses: 455, off: [160, 64, 69, 264, 24, 155], on: [83, 4, 17, 117, 5, 75] },
+      // flo8 is out of scope: ON is OFF
+      'flo8:hu': { horses: 246, off: [12, 0, 0, 0, 0, 0], on: [12, 0, 0, 0, 0, 0] },
+      'flo8:short': { horses: 432, off: [247, 0, 0, 0, 0, 0], on: [247, 0, 0, 0, 0, 0] },
+      'flo8:full': { horses: 461, off: [340, 0, 0, 0, 0, 0], on: [340, 0, 0, 0, 0, 0] },
+    };
+    const order: (keyof ConsumerCounts)[] = [
+      'participationTight',
+      'tightOpener',
+      'tightReRaiser',
+      'valueBettor',
+      'tightPassiveFolder',
+      'tightNotAggressive',
+    ];
+    const measured: typeof pin = {};
+    for (const cell of Object.keys(pin)) {
+      const off = tally(cell, false);
+      const on = tally(cell, true);
+      measured[cell] = {
+        horses: off.horses,
+        off: order.map((k) => off[k]),
+        on: order.map((k) => on[k]),
+      };
+    }
+    expect(measured).toEqual(pin);
   });
 });
 
@@ -287,7 +471,152 @@ describe('(3) synthetic histories: a tight player is read tight, an ordinary one
   });
 });
 
+/**
+ * (3b) tight-reraiser respect over 150 seeded runs per profile, recorded 2026-11-16: engaged at hand 40, engaged at
+ * any hand up to 40, and engaged at hand 60; on/off = runs engaged in that arm, onOnly/offOnly = in that arm alone.
+ */
+const EARLY_SAMPLE_PIN = {
+  tight: {
+    at40: { on: 58, off: 89, onOnly: 4, offOnly: 35 },
+    anyBy40: { on: 79, off: 108, onOnly: 3, offOnly: 32 },
+    at60: { on: 85, off: 111, onOnly: 8, offOnly: 34 },
+  },
+  horseLike: {
+    at40: { on: 6, off: 11, onOnly: 2, offOnly: 7 },
+    anyBy40: { on: 19, off: 35, onOnly: 2, offOnly: 18 },
+    at60: { on: 31, off: 27, onOnly: 15, offOnly: 11 },
+  },
+  loose: {
+    at40: { on: 2, off: 1, onOnly: 2, offOnly: 1 },
+    anyBy40: { on: 3, off: 5, onOnly: 2, offOnly: 4 },
+    at60: { on: 24, off: 4, onOnly: 20, offOnly: 0 },
+  },
+};
+
+describe('(3b) early samples: ON against OFF on seeded full-ring flh histories; identical sample gates', () => {
+  const subject = '30000000-0000-4000-8000-000000000021';
+  const opener = '40000000-0000-4000-8000-000000000023';
+  /** a small seeded generator (mulberry32), so every run deals the same histories */
+  function rngOf(seed: number): () => number {
+    let a = seed >>> 0;
+    return () => {
+      a = (a + 0x6d2b79f5) >>> 0;
+      let t = a;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  type Profile = { salt: number; vpip: number; pfr: number; threeBet: number };
+  /** a Horse opens in front of him on 40% of hands (a three-bet opportunity); else he is first in */
+  const FACED = 0.4;
+  function hand(rng: () => number, p: Profile): ExploitHandAction[] {
+    const his = (a: 'raise' | 'call' | 'fold', amount: number): ExploitHandAction => ({
+      userId: subject,
+      stage: 'preflop',
+      action: a,
+      origin: 'player',
+      amount: a === 'fold' ? 0 : amount,
+      isFullRaise: a === 'raise' ? true : undefined,
+    });
+    if (rng() < FACED) {
+      const u = rng();
+      return [
+        {
+          userId: opener,
+          stage: 'preflop',
+          action: 'raise',
+          origin: 'horse_policy',
+          amount: 2,
+          isFullRaise: true,
+        },
+        u < p.threeBet ? his('raise', 4) : u < p.vpip ? his('call', 2) : his('fold', 0),
+      ];
+    }
+    const u = rng();
+    return [
+      u < p.pfr ? his('raise', 2) : u < p.vpip ? his('call', 1) : his('fold', 0),
+      { userId: opener, stage: 'preflop', action: 'fold', origin: 'horse_policy', amount: 0 },
+    ];
+  }
+  const PROFILES: Record<string, Profile> = {
+    tight: { salt: 1, vpip: 0.1, pfr: 0.06, threeBet: 0.03 },
+    horseLike: { salt: 2, vpip: 0.21, pfr: 0.11, threeBet: 0.05 },
+    loose: { salt: 3, vpip: 0.3, pfr: 0.15, threeBet: 0.07 },
+  };
+  const SEEDS = 150;
+  const HANDS = 60;
+  type Tally = { on: number; off: number; onOnly: number; offOnly: number };
+  const add = (t: Tally, on: boolean, off: boolean) => {
+    t.on += on ? 1 : 0;
+    t.off += off ? 1 : 0;
+    t.onOnly += on && !off ? 1 : 0;
+    t.offOnly += !on && off ? 1 : 0;
+  };
+
+  it('documents tight-reraiser respect by hand 40, ON against OFF, and holds the sample gates identical', () => {
+    expect([STYLE_MIN_HANDS, STYLE_MIN_THREE_BET_OPPS]).toEqual([15, 8]);
+    const scope = readScopeOf('flh', 6);
+    const measured: Record<string, { at40: Tally; anyBy40: Tally; at60: Tally }> = {};
+    for (const [name, p] of Object.entries(PROFILES)) {
+      const m = {
+        at40: { on: 0, off: 0, onOnly: 0, offOnly: 0 },
+        anyBy40: { on: 0, off: 0, onOnly: 0, offOnly: 0 },
+        at60: { on: 0, off: 0, onOnly: 0, offOnly: 0 },
+      };
+      for (let seed = 1; seed <= SEEDS; seed++) {
+        const rng = rngOf(seed * 7919 + p.salt);
+        const rows = new Map<string, ExploitCounters>();
+        let everOn = false;
+        let everOff = false;
+        for (let n = 1; n <= HANDS; n++) {
+          for (const [id, inc] of exploitHandIncrements(hand(rng, p), true))
+            observeExploitRow(rows, id, inc, 1e9, true);
+          const counters = rows.get(subject)!;
+          const read = (on: boolean) =>
+            inDecision(scope, 'flh', on, () =>
+              classifyOpponentStyle({ scope, variant: 'flh', domain: 'cash', counters })
+            );
+          const on = read(true);
+          const off = read(false);
+          const label = `${name} seed ${seed} hand ${n}`;
+          // the gates are the same in both arms
+          expect(on.evidence.state, label).toBe(off.evidence.state);
+          expect(on.signals.threeBet.n, label).toBe(off.signals.threeBet.n);
+          const cOn = tightConsumers(on);
+          const cOff = tightConsumers(off);
+          if (!(counters.hands >= STYLE_MIN_HANDS)) {
+            // too few hands: neither arm reads him, and no consumer fires in either
+            expect(on.evidence.supported, label).toBe(false);
+            expect(Object.values(cOn).some(Boolean), label).toBe(false);
+            expect(Object.values(cOff).some(Boolean), label).toBe(false);
+          }
+          if (on.signals.threeBet.n < STYLE_MIN_THREE_BET_OPPS) {
+            expect(on.signals.threeBet.side, label).toBeNull();
+            expect(off.signals.threeBet.side, label).toBeNull();
+          }
+          if (n <= 40) {
+            everOn ||= cOn.tightReRaiser;
+            everOff ||= cOff.tightReRaiser;
+          }
+          if (n === 40) {
+            add(m.at40, cOn.tightReRaiser, cOff.tightReRaiser);
+            add(m.anyBy40, everOn, everOff);
+          }
+          if (n === 60) add(m.at60, cOn.tightReRaiser, cOff.tightReRaiser);
+        }
+      }
+      measured[name] = m;
+    }
+    // Documented counts of 150 runs, not a bound. With ON the higher three-bet cell mean lets "three-bet credibly low"
+    // fire on players OFF does not engage on (onOnly): on loose histories by hand 60 it is on in 24 runs against 4.
+    expect(measured).toEqual(EARLY_SAMPLE_PIN);
+  });
+});
+
 describe('(4) registered, release default OFF, owner Fixed-Limit', () => {
+  // Switchable ON and OFF by the owner's standing rule; ON still needs the owner to lift the preflop range hold for
+  // it by name, Hand Analysis's exact-head ACCEPT and the recorded evidence row.
   it('is a ledger flag, a registry entry that may be switched on, released OFF', () => {
     expect(
       HORSE_DATA_LEDGER.some((e) => e.kind === 'flag' && e.key === 'fixedLimitPopulationCells')
@@ -351,5 +680,43 @@ describe('(5) flo8 is out of scope: inert with the option on', () => {
     expect(playNeutralityRun('flh', 'cash', 200, undefined, on).chain).not.toEqual(
       playNeutralityRun('flh', 'cash', 200).chain
     );
+  }, 180_000);
+});
+
+describe('(6) cash only: a tournament flh decision never takes a population cell', () => {
+  it('HorseLogic adds the option only at a cash table (isTournamentMode, the W5 test)', () => {
+    const on = { fixedLimitPopulationCells: true, mind: false };
+    // gameMode is trusted first: a cash table with a large blind still carries the option
+    HorseLogic.prepareOriginalReads(
+      SEAT_A,
+      flhState({ gameMode: 'cash', bigBlind: 20 }) as never,
+      on
+    );
+    expect(HorseMind.currentDecisionReadOptions().fixedLimitPopulationCells).toBe(true);
+    HorseMind.setDecisionScope(null);
+    for (const t of [
+      { gameMode: 'tournament' },
+      { gameMode: 'tournament', tournament: { schemaVersion: 1 } },
+      { tournament: { schemaVersion: 1 } },
+    ]) {
+      const label = JSON.stringify(t);
+      HorseLogic.prepareOriginalReads(SEAT_A, flhState(t) as never, on);
+      expect('fixedLimitPopulationCells' in HorseMind.currentDecisionReadOptions(), label).toBe(
+        false
+      );
+      const scope = HorseMind.currentScope()!;
+      expect(scope, label).toBe(readScopeOf('flh', 6));
+      expect(exploitEnvelopeFor(scope, 'flh'), label).toBe(mainEnvelope(scope, 'flh'));
+      expect(exploitEnvelopeVersionFor(scope, 'flh'), label).toBe(
+        OPPONENT_EXPLOIT_ENVELOPE_VERSION
+      );
+      HorseMind.setDecisionScope(null);
+    }
+  });
+
+  it('a seeded flh tournament decision stream is identical with the option on and off', () => {
+    const on = { fixedLimitPopulationCells: true };
+    const off = playNeutralityRun('flh', 'tournament', 200);
+    expect(playNeutralityRun('flh', 'tournament', 200, undefined, on)).toEqual(off);
   }, 180_000);
 });

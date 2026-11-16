@@ -452,7 +452,8 @@ export interface DecisionReadOptions {
   /** FIXED-LIMIT POPULATION CELLS (2026-11-16, Fixed-Limit lane, HorseDecideOpts.fixedLimitPopulationCells): on a
    *  fixed-limit hold'em decision every style and exploit read is judged against FIXED_LIMIT_POPULATION_ENVELOPE (the
    *  game's own measured cell at its own size) instead of the 2026-10-16 cells; flo8 is out of scope by code
-   *  (HorseOpponentExploit FIXED_LIMIT_POPULATION_CELLS_IN_SCOPE). Only an explicit true engages. */
+   *  (HorseOpponentExploit FIXED_LIMIT_POPULATION_CELLS_IN_SCOPE), and HorseLogic sets it only at a cash table
+   *  (isTournamentMode). Only an explicit true engages. */
   fixedLimitPopulationCells?: boolean;
   /** STYLE READ pre-repair (2026-11-14): the same switch as ExploitReadOptions.styleFoldRatePreRepair, carried with
    *  the scope so the style read itself applies the pre-repair discount to the pooled rows it reads. Only an
