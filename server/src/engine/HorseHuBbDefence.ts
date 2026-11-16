@@ -346,3 +346,39 @@ export function huBbDefendShare(
   }
   return (100 * c) / 1326;
 }
+
+/**
+ * ════════════════════════════════════════════════════════════════════════
+ * THE HEADS-UP BIG BLIND DEFENDS TO ITS PRICE AGAINST AN UNREAD OPENER
+ * (2026-11-15, HU-NLH-001d; flag huBbDefendsUnreadToPrice, default OFF)
+ * ════════════════════════════════════════════════════════════════════════
+ *
+ * huBbDefendsToPrice was neither supported nor shown harmful by its declared
+ * evaluation (HU-NLH-001c). The diagnosis (heads-up audit, round 2):
+ *  - the 58.7% fold at 15-50bb is the answer to an opener the Horse has NO
+ *    read on. Once a read engages, the live brain already adapts (against an
+ *    every-button min-raiser its fold falls to 2.2%), and the old flag only
+ *    second-guessed that adaptation. With reads off it gained about +16 to
+ *    +19 bb/100 against a min-raiser at 25-40bb;
+ *  - its 0.8 realisation is a range average, but the hands the rule adds are
+ *    the bottom of the defending range. The Horse mirror priced them at about
+ *    0.7 (each added call cost about 0.14bb at 40bb);
+ *  - at 80bb nothing was gained anywhere, and V85 already widens there.
+ *
+ * So this rule acts only while the opener is unread (no engaged RFI/PFR
+ * read; HorseOpponentExploit.openerRangeWidth is null), prices the call at
+ * the reference open width with a 0.7 realisation, and only at 20-50bb.
+ * Heads-up play with people is mostly a two-player tournament, where the
+ * payout is linear in chips (the engine's V23 endgame already collapses the
+ * survival premium at two left), so a tournament is in scope only when its
+ * trusted context says exactly two players are left in the event and it is
+ * not a satellite. Widen-only and call-only, like the rules above.
+ */
+export const HU_BB_UNREAD_REALIZATION = 0.7;
+/** Largest effective stack (big blinds) the unread rule answers. */
+export const HU_BB_UNREAD_MAX_STACK_BB = 50;
+
+/** The equity a class needs against this price under the unread rule. */
+export function huBbUnreadRequiredEquity(odds: number): number {
+  return odds / HU_BB_UNREAD_REALIZATION;
+}

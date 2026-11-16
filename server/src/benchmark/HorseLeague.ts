@@ -89,6 +89,8 @@ import {
   HU_LIMP_EVERY_BUTTON_PERSONA,
   HU_THREE_BET_EVERY_HAND_PERSONA,
   HU_SMALL_STAB_EVERY_STREET_PERSONA,
+  HU_NIT_BIG_BLIND_PERSONA,
+  HU_FOLD_SB_DEFEND_BB_PERSONA,
   OMAHA_TIGHT_FIELD_PERSONA,
   HUMAN_FIELD_PERSONAS,
   type HumanFieldPersona,
@@ -108,6 +110,8 @@ export {
   HU_LIMP_EVERY_BUTTON_PERSONA,
   HU_THREE_BET_EVERY_HAND_PERSONA,
   HU_SMALL_STAB_EVERY_STREET_PERSONA,
+  HU_NIT_BIG_BLIND_PERSONA,
+  HU_FOLD_SB_DEFEND_BB_PERSONA,
   OMAHA_TIGHT_FIELD_PERSONA,
   HUMAN_FIELD_PERSONAS,
   type HumanFieldPersona,
@@ -1785,6 +1789,27 @@ export function humanFieldPersonaProfile(
   // Strength is a percentile in [0, 1): a cutoff of 0 always passes and a
   // cutoff above 1 never does, so "every hand" and "never" are exact.
   switch (persona) {
+    case HU_NIT_BIG_BLIND_PERSONA:
+      return Object.freeze({
+        ...base,
+        id: `${base.id}-${persona}`,
+        preflop: Object.freeze({ ...base.preflop, freeRaise: 0.03 }),
+        cutoffs: Object.freeze({
+          ...(base.cutoffs ?? {}),
+          'preflop/unopened': { fold: 0.9, raise: 0.9 },
+          'preflop/facing_raise': { fold: 0.91, raise: 0.99 },
+        }),
+      });
+    case HU_FOLD_SB_DEFEND_BB_PERSONA:
+      return Object.freeze({
+        ...base,
+        id: `${base.id}-${persona}`,
+        cutoffs: Object.freeze({
+          ...(base.cutoffs ?? {}),
+          'preflop/unopened': { fold: 0.97, raise: 0.97 },
+          'preflop/facing_raise': { fold: 0.55, raise: 0.92 },
+        }),
+      });
     case HU_WIDE_SB_AGGRESSOR_PERSONA:
       return Object.freeze({ ...wide, cutoffs: Object.freeze(wideCutoffs) });
     case HU_MINRAISE_EVERY_BUTTON_PERSONA:
@@ -3619,9 +3644,14 @@ LEAGUE_MATCHUPS.push(...HU_READS_OFF_CARDS);
  * default-OFF options, one card each, heads-up 40bb with the live cash Hybrid
  * persona and the deal-seeded mood clock, arm A the option on and arm B the
  * live default:
- *  - huOpenerDefendsToPrice against hu_three_bet_every_hand_v1, the persona
- *    that re-raises every open, which is the line the opener's fold to a
- *    3-bet pays.
+ *  - huOpenerDefendsToPrice against hu_wide_sb_aggressor_v1, the persona
+ *    whose big blind 3-bets light but not every hand. Until 2026-11-15 this
+ *    card faced hu_three_bet_every_hand_v1 and was INERT on the nightly (0 of
+ *    12,000 pairs diverged on 2026-11-15, engine 54c9aac8): against a player
+ *    who re-raises every open the engaged read already decides the opener's
+ *    answer, so the option never changed one. That question is retired into
+ *    UNMEASURABLE_MATCHUPS with its measurements; this card asks the one the
+ *    option exists for, a 3-bettor inside the realistic band.
  *  - huLimpDefendsToPrice against hu_minraise_every_button_v1. No heads-up
  *    persona raises every limp; each raises a limp with the wide profile's
  *    top 35%, and this is the one whose raise is the minimum (to 2bb), the
@@ -3630,11 +3660,13 @@ LEAGUE_MATCHUPS.push(...HU_READS_OFF_CARDS);
  * The cards only measure. Both options stay default OFF and neither is
  * proposed for activation: the owner's preflop range hold governs.
  */
+export const HUMAN_HU_OPENER_DEFENDS_VS_WIDE_40BB = `${HUMAN_FIELD_NAME_PREFIX}hu_opener_defends_vs_wide_40bb`;
+/** Retired 2026-11-15 (inert): see its UNMEASURABLE_MATCHUPS entry. */
 export const HUMAN_HU_OPENER_DEFENDS_VS_THREEBET_40BB = `${HUMAN_FIELD_NAME_PREFIX}hu_opener_defends_vs_threebet_40bb`;
 export const HUMAN_HU_LIMP_DEFENDS_VS_MINRAISE_40BB = `${HUMAN_FIELD_NAME_PREFIX}hu_limp_defends_vs_minraise_40bb`;
 export const HU_DEFENCE_CARDS: readonly LeagueMatchup[] = Object.freeze([
   {
-    name: HUMAN_HU_OPENER_DEFENDS_VS_THREEBET_40BB,
+    name: HUMAN_HU_OPENER_DEFENDS_VS_WIDE_40BB,
     seats: 2,
     stackBB: 40,
     pairs: HUMAN_FIELD_PAIRS,
@@ -3643,7 +3675,7 @@ export const HU_DEFENCE_CARDS: readonly LeagueMatchup[] = Object.freeze([
     a: { huOpenerDefendsToPrice: true },
     b: {},
     opponentPopulation: HUMAN_CALIBRATED_POPULATION_ID,
-    humanPersona: HU_THREE_BET_EVERY_HAND_PERSONA,
+    humanPersona: HU_WIDE_SB_AGGRESSOR_PERSONA,
   },
   {
     name: HUMAN_HU_LIMP_DEFENDS_VS_MINRAISE_40BB,
@@ -3659,6 +3691,60 @@ export const HU_DEFENCE_CARDS: readonly LeagueMatchup[] = Object.freeze([
   },
 ] satisfies LeagueMatchup[]);
 LEAGUE_MATCHUPS.push(...HU_DEFENCE_CARDS);
+
+/**
+ * THE UNREAD BIG BLIND CARD (2026-11-15, HU-NLH-001d). huBbDefendsUnreadToPrice
+ * (default OFF) acts only while the opener has no engaged read, so the card
+ * that measures it keeps every read at its empty prior (memoryLearning 'off')
+ * for the whole card: heads-up 40bb against the hu_minraise_every_button_v1
+ * persona of the calibrated field (the near min-raise is the open heads-up
+ * players make in production), the live cash Hybrid persona and the
+ * deal-seeded mood clock, arm A the option on and arm B the live default.
+ * The card only measures; the option stays default OFF.
+ */
+export const HUMAN_HU_BB_DEFENDS_UNREAD_VS_MINRAISE_40BB = `${HUMAN_FIELD_NAME_PREFIX}hu_bb_defends_unread_vs_minraise_40bb`;
+export const HU_BB_UNREAD_CARDS: readonly LeagueMatchup[] = Object.freeze([
+  {
+    name: HUMAN_HU_BB_DEFENDS_UNREAD_VS_MINRAISE_40BB,
+    seats: 2,
+    stackBB: 40,
+    pairs: HUMAN_FIELD_PAIRS,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    memoryLearning: 'off',
+    a: { huBbDefendsUnreadToPrice: true },
+    b: {},
+    opponentPopulation: HUMAN_CALIBRATED_POPULATION_ID,
+    humanPersona: HU_MINRAISE_EVERY_BUTTON_PERSONA,
+  },
+] satisfies LeagueMatchup[]);
+LEAGUE_MATCHUPS.push(...HU_BB_UNREAD_CARDS);
+
+/**
+ * THE HEADS-UP STEAL CARD (2026-11-15, D6). huSmallBlindStealsVsTightBigBlind,
+ * default OFF, heads-up 40bb with the live cash Hybrid persona and the
+ * deal-seeded mood clock, arm A the option on and arm B the live default,
+ * against hu_nit_big_blind_v1, the big blind that folds about 91% of the time:
+ * the one opponent the option exists for. Memory learning on (the league
+ * default): the steal needs the read. The card only measures; the option stays
+ * default OFF and is not proposed for activation.
+ */
+export const HUMAN_HU_SB_STEALS_VS_NIT_40BB = `${HUMAN_FIELD_NAME_PREFIX}hu_sb_steals_vs_nit_40bb`;
+export const HU_STEAL_CARDS: readonly LeagueMatchup[] = Object.freeze([
+  {
+    name: HUMAN_HU_SB_STEALS_VS_NIT_40BB,
+    seats: 2,
+    stackBB: 40,
+    pairs: HUMAN_FIELD_PAIRS,
+    hybridBaseline: true,
+    moodClock: 'deal_seed',
+    a: { huSmallBlindStealsVsTightBigBlind: true },
+    b: {},
+    opponentPopulation: HUMAN_CALIBRATED_POPULATION_ID,
+    humanPersona: HU_NIT_BIG_BLIND_PERSONA,
+  },
+] satisfies LeagueMatchup[]);
+LEAGUE_MATCHUPS.push(...HU_STEAL_CARDS);
 
 /**
  * UNMEASURABLE MATCHUPS (2026-10-31). A matchup the league deliberately does
@@ -3890,6 +3976,31 @@ export const UNMEASURABLE_MATCHUPS: readonly UnmeasurableMatchup[] = Object.free
       'production All-In-Or-Fold tournament requests in AnAofClosingSeatCallsFromTheNashTable.test.ts ' +
       'and the HVH2D-NLH-005 equity rows. What would change this: a league context that deals ' +
       'All-In-Or-Fold tables (legal actions fold or all in, tournament stacks of 12 big blinds or less).',
+  },
+  {
+    // 2026-11-15 (heads-up lane, round 2): retired from HU_DEFENCE_CARDS.
+    name: HUMAN_HU_OPENER_DEFENDS_VS_THREEBET_40BB,
+    seats: 2,
+    stackBB: 40,
+    a: { huOpenerDefendsToPrice: true },
+    b: {},
+    reason:
+      'Inert against this opponent. huOpenerDefendsToPrice is DEFAULT OFF (HorseLogic: ' +
+      'opts.huOpenerDefendsToPrice === true). This card dealt it heads-up at 40bb against the ' +
+      'human field with the hu_three_bet_every_hand_v1 persona, which re-raises every open. ' +
+      "Against that player the engaged opponent read already decides the opener's answer, so " +
+      'the option never changes a decision: the nightly of 2026-11-15 (engine 54c9aac8) ' +
+      'reported status inert, 0 of 12,000 pairs diverged, both arms +123.90 bb/100. ' +
+      'Divergence probes 2026-11-15 on b262fd3e0 (heads-up lane, round 2): 0 of 2,000 pairs ' +
+      "at that night's seed and 1 of 4,000 pairs at seed 20261115 with reads on; with memory " +
+      'learning off (no read, the 20% reference) the same card diverged in 88 of 4,000 pairs ' +
+      "at seed 20261115 and 94 of 4,000 at that night's seed (raw outputs in the heads-up " +
+      'evidence folder hu-audit-01UxDLnM/round2/cards/probes), so the read, not the spot, is ' +
+      'what stands the option aside. The option is measured ' +
+      'where it acts: human_hu_opener_defends_vs_wide_40bb (hu_wide_sb_aggressor_v1, a big ' +
+      'blind that 3-bets light but not every hand). What would change this: a change to the ' +
+      'opener read or to the option that lets the price, not the read, answer an every-hand ' +
+      '3-bettor; re-probe this matchup before moving it back to the card.',
   },
   {
     name: 'hu_break_even_bluff',
