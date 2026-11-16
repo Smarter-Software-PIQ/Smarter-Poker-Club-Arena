@@ -42,6 +42,8 @@ Timestamps are printed as diagnostics only.
   certified --sha S                    the set the target's certificate names
   status --env-file F --repo R --sha S --certified D
                                        exit 0 unchanged, 1 refused, 3 unknown
+  candidate-ready --repo R --serving OLD --sha TARGET [--production F]
+                                       all ordinary candidate migrations installed
 
 THE COMPARABLE SET. A migration declaring "-- @install-window: daily-
 maintenance" installs only inside the 04:00 break, after certification and
@@ -77,6 +79,7 @@ SUPERSEDED_ANNOTATION = r'^--[[:blank:]]*SUPERSEDED BY[[:blank:]]+[0-9]{14}'
 DIGEST = re.compile(r'[0-9a-f]{64}')
 CERTIFIED = re.compile(r'; installed migrations ([0-9a-f]{64})$')
 FILE = re.compile(r'(\d{14})_([A-Za-z0-9_.-]+)\.sql')
+RECORDINGS = 'scripts/ci/recorded-migrations.manifest.json'
 READY, REFUSED, UNKNOWN = 0, 1, 3
 
 
@@ -189,28 +192,90 @@ def superseded_versions(repo, sha):
     return resolve_superseded(marks, present)
 
 
+def recorded_names(repo, target):
+    """Read claims from the exact target, not the operator's mutable checkout.
+
+    The working-tree recording-only.mjs guard permits unknown/malformed claims
+    to fall back to ordinary SQL review. Release admission cannot use that
+    fallback to guess an installed name. Reject ambiguous claims here; require
+    the same exact path/version/file-byte MD5 binding before using any name.
+    Historical trees without a manifest grant no recorded-name overrides.
+    """
+    if not git(repo, 'ls-tree', '--name-only', target, '--', RECORDINGS).strip():
+        return {}
+    def unique_object(pairs):
+        value = {}
+        for key, item in pairs:
+            if key in value:
+                raise ValueError('recorded migration manifest repeats a JSON field')
+            value[key] = item
+        return value
+    doc = json.loads(git(repo, 'show', target + ':' + RECORDINGS), object_pairs_hook=unique_object)
+    if not isinstance(doc, dict) or not isinstance(doc.get('recordings'), list):
+        raise ValueError('recorded migration manifest has no recordings array')
+    rows, paths = {}, set()
+    for row in doc['recordings']:
+        if not isinstance(row, dict):
+            raise ValueError('recorded migration claim is malformed')
+        version, path, name, md5 = (row.get(k) for k in ('version', 'file', 'name', 'md5'))
+        match = FILE.fullmatch(path[len(MIGRATIONS):]) if isinstance(path, str) and path.startswith(MIGRATIONS) else None
+        if (not isinstance(version, str) or not re.fullmatch(r'[0-9]{14}', version)
+                or not match or match[1] != version
+                or not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9_.-]+', name)
+                or not isinstance(md5, str) or not re.fullmatch(r'[0-9a-f]{32}', md5)):
+            raise ValueError('recorded migration claim has an invalid version, path, name or MD5')
+        if version in rows or path in paths:
+            raise ValueError('recorded migration manifest repeats a version or path')
+        rows[version] = row
+        paths.add(path)
+    return rows
+
+
 def required_by(repo, serving, target, skip=frozenset()):
     """{version: name} of the migration files the exact candidate adds or
     changes relative to serving, less `skip` (window files, installed inside
     the break) and less files the candidate marks SUPERSEDED BY a successor
     in its own tree (the applier refuses them; the successor is required in
-    their place). The protected applier records a file's version and its name
-    (the filename slug)."""
+    their place). Ordinary files use their filename slug. A byte-exact recording
+    instead names the immutable installed history entry in the target manifest;
+    it neither changes production history nor authorizes replaying the SQL."""
     for sha in (serving, target):
         if not re.fullmatch(r'[0-9a-f]{40}', sha):
             raise ValueError('expected exact commit SHAs')
     skip = set(skip) | superseded_versions(repo, target)
+    recordings = recorded_names(repo, target)
+    paths_by_version = {}
+    for path in git(repo, 'ls-tree', '-r', '--name-only', target, '--', MIGRATIONS).splitlines():
+        match = FILE.fullmatch(path.rsplit('/', 1)[-1])
+        if match:
+            paths_by_version.setdefault(match[1], []).append(path)
     required = {}
     for path in git(repo, 'diff', '--no-renames', '--name-only', '--diff-filter=AM', serving, target,
                     '--', MIGRATIONS).splitlines():
         match = FILE.fullmatch(path.rsplit('/', 1)[-1])
         if match and match[1] not in skip:
-            required[match[1]] = match[2]
+            version, name = match[1], match[2]
+            if paths_by_version.get(version) != [path]:
+                raise ValueError('candidate migration version collides: ' + version)
+            row = recordings.get(version)
+            if row:
+                if row['file'] != path:
+                    raise ValueError('recorded migration path differs from candidate: ' + version)
+                contents = git(repo, 'show', target + ':' + path).encode('utf-8')
+                if hashlib.md5(contents).hexdigest() != row['md5']:
+                    raise ValueError('recorded migration bytes differ from target manifest: ' + version)
+                name = row['name']
+            required[version] = name
     return required
 
 
 def comparable(rows, windows):
     return {v: n for v, n in rows.items() if v not in windows}
+
+
+def lacking_required(required, installed):
+    # Preserve the applier's historical 55-character name representation.
+    return sorted(v for v, name in required.items() if installed.get(v) not in (name, name[:55]))
 
 
 def compare(copy, production):
@@ -301,7 +366,7 @@ def judge(evidence_bytes, database, production, required=None):
         return False, 'Backup copy does not hold production\'s definition of ' + ', '.join(changed[:5])
     if callable(required):
         required = required()
-    lacking = sorted(v for v, name in (required or {}).items() if copy.get(v) not in (name, name[:55]))
+    lacking = lacking_required(required or {}, copy)
     if lacking:
         return False, 'Backup copy lacks the exact candidate migration(s) ' + ', '.join(lacking[:5])
     return True, f'Backup copy holds production\'s installed migrations {digest(copy)[:12]}'
@@ -500,7 +565,30 @@ def main(argv):
     s.add_argument('--repo', required=True)
     s.add_argument('--sha', required=True)
     s.add_argument('--certified', required=True)
+    p = sub.add_parser('candidate-ready')
+    p.add_argument('--repo', default='.')
+    p.add_argument('--serving', required=True)
+    p.add_argument('--sha', required=True)
+    p.add_argument('--production', help='saved installed rows or schema evidence; default: DATABASE_URL')
     args = parser.parse_args(argv)
+    if args.mode == 'candidate-ready':
+        try:
+            required = required_by(args.repo, args.serving, args.sha, window_versions(args.repo, args.sha))
+            if args.production:
+                with open(args.production, encoding='utf-8') as handle:
+                    saved = json.load(handle)
+                installed = rows_of(saved['migrations'] if isinstance(saved, dict) else saved)
+            else:
+                installed = read_production_psql()['migrations']
+            lacking = lacking_required(required, installed)
+        except (OSError, RuntimeError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as exc:
+            print(f'UNKNOWN - candidate migration requirements could not be proved: {str(exc)[:200]}')
+            return UNKNOWN
+        if lacking:
+            print('REFUSED - production lacks the exact candidate migration(s) ' + ', '.join(lacking[:5]))
+            return REFUSED
+        print(f'READY - production holds all {len(required)} ordinary candidate migrations by version and name')
+        return READY
     if args.mode == 'certified':
         try:
             print(certified_set(args.sha))

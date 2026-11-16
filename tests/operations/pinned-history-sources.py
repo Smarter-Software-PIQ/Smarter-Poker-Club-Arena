@@ -21,7 +21,15 @@ def hydrate_historical_sources(root, revisions, paths, budget_seconds=10, allow_
         command = ['git', '-c', 'maintenance.auto=false', '-c', 'gc.auto=0', '-C', str(root), *args]
         process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, env=env, start_new_session=True)
+        termination_attempted = False
         def terminate_group():
+            nonlocal termination_attempted
+            if termination_attempted:
+                return
+            # Joining may retire this PGID. Never signal it a second time from
+            # finally, and never replace an original timeout with that result.
+            # A first-attempt permission error still propagates fail closed.
+            termination_attempted = True
             try: os.killpg(process.pid, signal.SIGKILL)
             except ProcessLookupError: pass
         try:

@@ -218,6 +218,24 @@ class OwnerPolicy(unittest.TestCase):
 
 
 class ControlInputs(unittest.TestCase):
+    def test_recorded_names_change_release_and_physical_backup_inputs(self):
+        with tempfile.TemporaryDirectory() as folder:
+            def git(*args):
+                return subprocess.check_output(['git', '-C', folder, *args], text=True).strip()
+            git('init', '-q')
+            path = Path(folder) / 'scripts/ci/recorded-migrations.manifest.json'
+            path.parent.mkdir(parents=True)
+            def commit(name):
+                path.write_text(json.dumps({'recordings': [{'name': name}]}))
+                git('add', '.')
+                git('-c', 'user.name=fixture', '-c', 'user.email=fixture@example.invalid',
+                    'commit', '-qm', 'recorded name')
+                return git('rev-parse', 'HEAD')
+            before, after = commit('first'), commit('changed')
+            with patch.object(reader, 'git', side_effect=git):
+                self.assertNotEqual(reader.projection(before), reader.projection(after))
+                self.assertNotEqual(reader.backup_projection(before), reader.backup_projection(after))
+
     def test_real_git_projection_preserves_unrelated_changes_and_detects_release_inputs(self):
         with tempfile.TemporaryDirectory() as folder:
             def git(*args):

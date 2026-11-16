@@ -177,6 +177,127 @@ class InstalledDuringExport(unittest.TestCase):
         self.assertIn(PAYOUT, why)
 
 
+class RecordedCandidateNames(unittest.TestCase):
+    VERSION = '20261116044125'
+    FILE = 'supabase/migrations/20261116044125_whole_chip_split.sql'
+    NAME = 'a_shared_mystery_chest_settles_in_the_whole_chips_it_was_split_in'
+    MANIFEST = 'scripts/ci/recorded-migrations.manifest.json'
+    SQL = b'SELECT 1;\r\n'
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix='recorded-candidate-')
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = Path(self.tmp.name)
+        self.run_git('init', '-q')
+        self.run_git('config', 'user.email', 'fixture@example.invalid')
+        self.run_git('config', 'user.name', 'Migration fixture')
+        self.run_git('commit', '-qm', 'before', '--allow-empty')
+        self.before = self.run_git('rev-parse', 'HEAD')
+        self.row = {'version': self.VERSION, 'name': self.NAME, 'file': self.FILE,
+                    'md5': hashlib.md5(self.SQL).hexdigest()}
+
+    def run_git(self, *args):
+        return subprocess.check_output(['git', '-C', str(self.repo), *args], text=True).strip()
+
+    def commit(self, rows=None, raw=None, extra=None):
+        path = self.repo / self.FILE
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(self.SQL)
+        if extra:
+            (self.repo / extra).write_bytes(self.SQL)
+        manifest = self.repo / self.MANIFEST
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        manifest.write_text(raw if raw is not None else json.dumps(
+            {'recordings': [self.row] if rows is None else rows}))
+        self.run_git('add', '.')
+        self.run_git('commit', '-qm', 'candidate')
+        return self.run_git('rev-parse', 'HEAD')
+
+    def required(self, target):
+        return _real_required_by(str(self.repo), self.before, target)
+
+    def test_recorded_name_is_taken_from_exact_target_and_exact_bytes(self):
+        target = self.commit()
+        # Neither mutable checkout bytes nor a newer checkout manifest owns target.
+        (self.repo / self.FILE).write_bytes(b'changed after commit')
+        (self.repo / self.MANIFEST).write_text('{broken checkout')
+        required = self.required(target)
+        self.assertEqual(required, {self.VERSION: self.NAME})
+        live = {self.VERSION: self.NAME}
+        data = evidence(live)
+        self.assertTrue(im.judge(data, database(data), production(live), required)[0])
+        wrong = {self.VERSION: 'whole_chip_split'}
+        data = evidence(wrong)
+        self.assertFalse(im.judge(data, database(data), production(wrong), required)[0])
+
+    def test_unrecorded_and_matching_normal_files_keep_filename_names(self):
+        self.assertEqual(self.required(self.commit(rows=[])), {self.VERSION: 'whole_chip_split'})
+
+    def test_matching_filename_recording_is_still_byte_bound(self):
+        self.row['name'] = 'whole_chip_split'
+        self.assertEqual(self.required(self.commit()), {self.VERSION: 'whole_chip_split'})
+
+    def test_changed_recorded_bytes_refuse(self):
+        self.row['md5'] = hashlib.md5(b'other SQL').hexdigest()
+        with self.assertRaises(ValueError):
+            self.required(self.commit())
+
+    def test_malformed_manifest_refuses(self):
+        with self.assertRaises(ValueError):
+            self.required(self.commit(raw='{broken'))
+
+    def test_repeated_json_fields_refuse(self):
+        with self.assertRaises(ValueError):
+            self.required(self.commit(raw='{"recordings":[],"recordings":' + json.dumps([self.row]) + '}'))
+
+    def test_original_44_target_uses_its_recorded_installed_name(self):
+        required = _real_required_by(str(ROOT), '3529e86663daa427b380a8ab9bd09347270c670e',
+                                     '44c1bde95b30adf12cd11bc46c4bbfc4a6fc4e19')
+        self.assertEqual(required[self.VERSION], self.NAME)
+
+    def test_malformed_claims_refuse(self):
+        for field, value in [('version', 'not-a-version'), ('name', ''), ('md5', 'bad'),
+                             ('file', 'supabase/migrations/../outside.sql')]:
+            with self.subTest(field=field):
+                row = {**self.row, field: value}
+                with self.assertRaises(ValueError):
+                    self.required(self.commit(rows=[row]))
+
+    def test_duplicate_manifest_versions_refuse(self):
+        with self.assertRaises(ValueError):
+            self.required(self.commit(rows=[self.row, self.row]))
+
+    def test_manifest_path_version_and_candidate_path_must_match(self):
+        self.row['file'] = 'supabase/migrations/20261116044126_other.sql'
+        with self.assertRaises(ValueError):
+            self.required(self.commit())
+
+    def test_same_version_other_path_is_not_an_alias(self):
+        self.row['file'] = 'supabase/migrations/20261116044125_other.sql'
+        with self.assertRaises(ValueError):
+            self.required(self.commit())
+
+    def test_candidate_version_collision_refuses(self):
+        with self.assertRaises(ValueError):
+            self.required(self.commit(extra='supabase/migrations/20261116044125_other.sql'))
+
+    def test_operator_preflight_uses_the_same_all_ordinary_candidate_requirements(self):
+        target = self.commit()
+        saved = self.repo / 'production.json'
+        def run(rows):
+            saved.write_text(json.dumps({'migrations': rows}))
+            return subprocess.run(['python3', '-B', HELPER, 'candidate-ready', '--repo', str(self.repo),
+                                   '--serving', self.before, '--sha', target,
+                                   '--production', str(saved)], capture_output=True, text=True)
+        self.assertEqual(run([[self.VERSION, self.NAME]]).returncode, im.READY)
+        self.assertEqual(run([[self.VERSION, self.NAME[:55]]]).returncode, im.READY)
+        for rows in ([[self.VERSION, 'whole_chip_split']], [['20261116044126', 'other']]):
+            refused = run(rows)
+            self.assertEqual(refused.returncode, im.REFUSED, refused.stdout + refused.stderr)
+            self.assertIn(self.VERSION, refused.stdout)
+        self.assertEqual(run('unreadable').returncode, im.UNKNOWN)
+
+
 class Selector(unittest.TestCase):
     SERVING, TARGET, CONTROL = ('391f7bc0d57c71637bd4af5181f70520661e3593',
                                 '20c0ab1c93178c102a5b7353905fa1bee7b5ccb9',
