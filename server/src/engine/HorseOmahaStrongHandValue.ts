@@ -564,7 +564,15 @@ export function omahaStrongHandValueDecision(
 ): OmahaStrongHandValueResult {
   const same: OmahaStrongHandValueResult = { decision, priced: false, changed: null };
   try {
-    if (decision.action === 'check') {
+    const undersizedBet =
+      decision.action === 'bet' &&
+      fin(decision.amount) &&
+      fin(gs.pot) &&
+      gs.pot > 0 &&
+      fin(hero.stack) &&
+      decision.amount < gs.pot * 0.25 - 0.005 &&
+      decision.amount < hero.stack - 0.005;
+    if (decision.action === 'check' || undersizedBet) {
       const scope = omahaStrongHandCheckScope(hero, gs);
       if (!scope) return same;
       const map = new Map<number, OmahaReadConditional | null>();
@@ -572,7 +580,13 @@ export function omahaStrongHandValueDecision(
       const check = omahaStrongHandCheckedTo(hero, gs, scope, map);
       if (!check) return same;
       if (check.action === 'check')
-        return { decision, priced: true, changed: check.changed, check };
+        return undersizedBet ? same : { decision, priced: true, changed: check.changed, check };
+      if (
+        undersizedBet &&
+        check.action === 'bet' &&
+        check.amount <= (decision.amount as number) + 0.005
+      )
+        return { decision, priced: true, changed: null, check };
       const next: HorseDecision = { ...decision, action: check.action };
       if (check.action === 'bet') next.amount = check.amount;
       else delete next.amount;
