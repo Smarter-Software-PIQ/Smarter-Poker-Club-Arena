@@ -41,3 +41,11 @@ wallet destination and use the original financial transaction clock. Both
 same-transaction fee/gift orders, true-zero funding, exact 4× completion,
 partial/full canonical fee reversals and terminal loss before a later gift are
 qualified without treating delayed commission recognition as the paid clock.
+
+`bust-reentry.sql` runs the actual accepted-zero generation reentry after the
+maintained bounty opening and current original entitlement/funding owners in
+`entry-entitlement-owners.json`. The prior promo position is an explicit typed
+opening. The new real-funded purchase, original bounty marker, exact response
+replay, principal loss receipts and all financial journals/deferred guards are
+actual. It proves own100→90 stays cashable after old P8 is definitively lost;
+it does not claim a later prize or rakeback payment witness.
