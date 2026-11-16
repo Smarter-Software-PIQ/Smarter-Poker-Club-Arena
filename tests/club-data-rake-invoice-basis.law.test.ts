@@ -7,6 +7,30 @@ const sql = readFileSync(
 );
 const native = readFileSync('scripts/ci/test-club-data-legacy-pacific-postgres.py', 'utf8');
 describe('Data Rake agrees with the invoice-backed Data question', () => {
+  it('reports original BBJ independently and never treats an old projection as zero', () => {
+    const recon = readFileSync(
+      'supabase/migrations/20261116230906_data_reconciliation_exposes_original_bbj_contributions_and_a.sql',
+      'utf8'
+    );
+    expect(recon).toContain('ra.bbj_attributed_contribution');
+    expect(recon).toContain('COALESCE(a.funding_club_id, s.club_id)');
+    expect(recon).toContain("'bbj_awards', a.amount");
+    expect(recon).toContain('bbj_version=1');
+    expect(recon).toContain('pg_snapshot_xmin(v_snap)<=s.bbj_attachment_xid');
+    expect(recon).toContain("WHERE f.kind='CASH'");
+    expect(recon).toContain("WHERE fl.k='CASH'");
+    expect(recon).toContain('WHEN rr.id IS NOT NULL AND rr.bbj_contribution=0 THEN 0');
+    expect(recon).toContain('CLUB_DATA_BBJ_ORIGINAL_SOURCE_INCOMPLETE');
+    expect(recon).not.toMatch(
+      /(?:UPDATE|INSERT INTO|DELETE FROM) public\.(?:rake_attributions|rake_records|wallet_transactions|agent_commissions|accounting_cash_rake_sources)\b/i
+    );
+    const proofs = declaredProofs(recon);
+    expect(proofs).toHaveLength(1);
+    expect(proofIsRunnable(proofs[0])).toBe(true);
+    const driver = readFileSync('scripts/ci/club-data-accounting-seed.mjs', 'utf8');
+    expect(driver).toContain('seeded.rows[0].bbj_version === 1');
+    expect(driver).toContain('rebuild || seeded.rowCount > 0');
+  });
   it('routes by recorded window eligibility without changing the financial producers', () => {
     expect(sql).toContain('public.fn_ca_club_data_reads_union_basis(v_context,v_start,v_end)');
     expect(sql).toContain('public.ca_club_acct_fact_ct');
