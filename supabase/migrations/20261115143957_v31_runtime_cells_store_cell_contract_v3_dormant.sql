@@ -209,6 +209,11 @@ AS $function$
 $function$
 ;
 
+REVOKE ALL ON FUNCTION public.fn_gto_v31_active_cells_v3(integer,integer) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fn_gto_v31_active_cells_v3(integer,integer) TO service_role;
+REVOKE ALL ON FUNCTION public.fn_gto_v31_evaluation_cells_v3(uuid,integer,integer) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fn_gto_v31_evaluation_cells_v3(uuid,integer,integer) TO service_role;
+
 DO $readers$
 DECLARE r record; def text; e jsonb; hits integer; acl text;
 BEGIN
@@ -235,8 +240,6 @@ BEGIN
     IF pg_get_functiondef(to_regprocedure(r.dst)) IS DISTINCT FROM def THEN
       RAISE EXCEPTION '% differs from its reviewed source transformation', r.dst;
     END IF;
-    EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC, anon, authenticated, service_role', r.dst);
-    EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO service_role', r.dst);
     acl := (SELECT proacl::text FROM pg_proc WHERE oid = r.src);
     IF (SELECT proacl::text FROM pg_proc WHERE oid = to_regprocedure(r.dst)) IS DISTINCT FROM acl THEN
       RAISE EXCEPTION '% ACL % differs from its source ACL %', r.dst,
