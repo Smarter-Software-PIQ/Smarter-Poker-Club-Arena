@@ -366,3 +366,15 @@ test('mobile all-in equity badges are half size', async ({ page }) => {
     expect(mobile.trackH).toBe(3);
   }
 });
+
+test('six-max portrait top plate sits higher against the bust', async ({ page: browser }) => {
+  await browser.setViewportSize({ width: 600, height: 1140 });
+  await browser.setContent(page(TOP_CENTRE_Y, 'seat-wrapper--cap seat-wrapper--top', SMALL_RING));
+  const overlap = await browser.locator('.seat').evaluate((pod) => {
+    const slot = pod.querySelector('.seat__avatar-wrap')!.getBoundingClientRect();
+    const plate = pod.querySelector('.seat__info')!.getBoundingClientRect();
+    return (slot.bottom - plate.top) / slot.height;
+  });
+  expect(overlap).toBeGreaterThanOrEqual(0.2);
+  expect(overlap).toBeLessThan(0.3);
+});
