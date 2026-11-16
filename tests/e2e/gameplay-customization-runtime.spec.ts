@@ -8,6 +8,7 @@ import { tapLightningFold, verifyLightningFoldFrames } from './support/lightning
 import { verifyHeroCelebrations } from './support/heroCelebrationProof';
 import {
   devices,
+  webkit,
   expect,
   test,
   type BrowserContext,
@@ -493,6 +494,30 @@ async function publishTableAppearanceSignal(
       `Private table appearance broadcast failed (${response.status}): ${detail.slice(0, 300)}`
     );
   }
+}
+
+async function blockProjectedTableWrites(page: Page) {
+  await page.route('**/*', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    const projectedRead = [
+      '/rest/v1/rpc/fn_cash_effective_buyin',
+      '/rest/v1/rpc/fn_time_bank_allowance',
+      '/rest/v1/rpc/fn_maintenance_break_state',
+    ].includes(path);
+    if (!projectedRead && !['GET', 'HEAD', 'OPTIONS'].includes(route.request().method())) {
+      await route.abort('blockedbyclient');
+      return;
+    }
+    await route.fallback();
+  });
+}
+
+async function expectClassicCountdownOnFelt(root: Locator) {
+  const classicCount = root.locator('.table-brand .table-brand__line--hand + [role="status"]');
+  await expect(
+    classicCount.getByRole('button', { name: /Hands Before You Can Leave: 2/ })
+  ).toBeVisible();
+  await expect(root.getByText('Hands Before You Can Leave', { exact: true })).toHaveCount(1);
 }
 
 async function signIn(page: Page, baseURL: string, account: TemporaryCustomizationAccount) {
@@ -1396,19 +1421,7 @@ test.describe('published hero showdown celebrations', () => {
           // Block writes before the synthetic seat first renders: TablePage
           // starts an HTTP heartbeat independently of its projected socket.
           // These three reads are fulfilled locally by the projection above.
-          await page.route('**/*', async (route) => {
-            const path = new URL(route.request().url()).pathname;
-            const projectedRead = [
-              '/rest/v1/rpc/fn_cash_effective_buyin',
-              '/rest/v1/rpc/fn_time_bank_allowance',
-              '/rest/v1/rpc/fn_maintenance_break_state',
-            ].includes(path);
-            if (!projectedRead && !['GET', 'HEAD', 'OPTIONS'].includes(route.request().method())) {
-              await route.abort('blockedbyclient');
-              return;
-            }
-            await route.fallback();
-          });
+          await blockProjectedTableWrites(page);
           await page.goto(`table/${tableId}`, {
             waitUntil: 'domcontentloaded',
             timeout: 30_000,
@@ -1640,6 +1653,41 @@ test.describe('production routed gameplay customization', () => {
       await signIn(writer, baseURL, account);
       await signIn(reader, baseURL, account);
 
+      await test.step('open the cash table from the lobby on 393px WebKit', async () => {
+        const phone = await webkit.launch();
+        try {
+          const size = { width: 393, height: 852 };
+          const context = await phone.newContext({
+            ...devices['iPhone 13'],
+            screen: size,
+            viewport: size,
+            serviceWorkers: 'block',
+            baseURL,
+            storageState: await writerContext!.storageState(),
+          });
+          await installEngineProjection(context, tableId, account!.id, runtime);
+          await installRuntimeDataProjection(
+            context,
+            tableRow,
+            account!.id,
+            runtime,
+            new OneShotRequestGate(),
+            new OneShotRequestGate()
+          );
+          const page = await context.newPage();
+          await page.goto(`clubs/${CLUB_ID}`, { waitUntil: 'domcontentloaded' });
+          await expect(page.locator('.club-home')).toBeVisible();
+          await blockProjectedTableWrites(page);
+          await page.goto(`table/${tableId}`, { waitUntil: 'domcontentloaded' });
+          expect(await page.evaluate(() => screen.width)).toBe(393);
+          await expectClassicCountdownOnFelt(
+            page.locator('.multi-table-page__table-slot--active .table-page')
+          );
+        } finally {
+          await phone.close();
+        }
+      });
+
       await Promise.all([
         writer.goto(`table/${tableId}`, {
           waitUntil: 'domcontentloaded',
@@ -1733,13 +1781,7 @@ test.describe('production routed gameplay customization', () => {
 
       await expect(writerRoot).toBeVisible({ timeout: 30_000 });
       await expect(readerRoot).toBeVisible({ timeout: 30_000 });
-      const classicCount = writerRoot.locator('.table-brand__line--hand + [role="status"]');
-      await expect(
-        classicCount.getByRole('button', { name: /Hands Before You Can Leave: 2/ })
-      ).toBeVisible();
-      await expect(writerRoot.getByText('Hands Before You Can Leave', { exact: true })).toHaveCount(
-        1
-      );
+      await expectClassicCountdownOnFelt(writerRoot);
       await expect(writerTableArt).toBeVisible({ timeout: 30_000 });
       await expect
         .poll(
