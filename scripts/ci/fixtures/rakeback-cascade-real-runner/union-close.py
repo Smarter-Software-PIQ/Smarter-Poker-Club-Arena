@@ -49,10 +49,13 @@ _g=sigs(); _bad={k:(_g.get(k),v['md5']) for k,v in UC['functions'].items() if _g
 assert not _bad,('the close definitions did not load byte-exact',_bad)
 # Every production trigger on the close's own relations, as production has it (the close checks some of them).
 _byname={k.split('(')[0]:v for k,v in _g.items()}
+# The club-data projection on the boundary capture (a reporting sink, as the notification triggers) stays unwired.
+UC_UNWIRED={('public.ca_union_pnl_boundary_capture','ca_club_acct_boundary')}
 UC_TRG=[]
 for k in sorted(UC_REL):
     if k in _present: continue
     for t in UC_REL[k]['trg'] or []:
+        if (k,t['n']) in UC_UNWIRED: continue
         assert _byname.get(t['f'])==t['fm'],('a close trigger names a function whose loaded definition is not production\'s',k,t['n'],t['f'])
         sql=t['def']+';'
         if t['e']=='A': sql+=f"\nALTER TABLE {k.split('.')[0]}.{world.qi(UC_REL[k]['t'])} ENABLE ALWAYS TRIGGER {world.qi(t['n'])};"
@@ -103,6 +106,12 @@ C1_OLD={x:UC['functions'][_by[n]]['def'] for x,n in C1_FN.items()}
 assert {x:hashlib.md5(d.encode()).hexdigest() for x,d in C1_OLD.items()}=={'report':'26cb0f6e4912cd3e8980f657bb52d50c','memo_key':'28364d8f001236b1d0aefdf4aa2246fa',
   'advance':'276a23e5aaa880abab19217a33a8f69d','sources_match':'2115cc50e91b586e152baa0ba6395b58'}
 FNDEF="SELECT pg_get_functiondef('%s'::regproc)"
+def copy_db(src,dst):
+    global DB
+    keep=DB; DB='postgres'
+    q(f"CREATE DATABASE {dst} TEMPLATE {src};\n"+''.join(f"ALTER DATABASE {dst} SET {c.split('=',1)[0]} TO "+(c.split('=',1)[1] if c.startswith('search_path=') else f"$c${c.split('=',1)[1]}$c$")+";\n" for c in _cfg))
+    DB=keep
+copy_db('close','close_inst')  # production's bodies, before the fix: the install-mid-close proof below
 q('SET check_function_bodies=off;\n'+mig_c1)
 C1_NEW={x:q(FNDEF%n).stdout[:-1] for x,n in C1_FN.items()}
 # Byte for byte, the only changes: the Midway test leaves the generation condition (and a two-line note says so), the
@@ -132,50 +141,55 @@ case("union close, the fix (finding C1): 20261116033831 installs whole from disk
 # fixture cannot carry the 245 restoration certificates, so the generation source answers a fixed value of the same form,
 # and the sources check pins that stand-in instead of production's body. Every other pin of the sources check (68,
 # including the two 20261116033831 moved) is still checked live, by the hand witness, on every proof below.
-q("CREATE OR REPLACE FUNCTION smarter_private.original_inventory_basis_generation() RETURNS text LANGUAGE sql STABLE SET search_path TO 'pg_catalog' AS $$SELECT 'original-inventory-245-v1:'||md5('rakeback-cascade-real-runner fixture generation')$$;")
-_gen_md5=one("SELECT md5(pg_get_functiondef('smarter_private.original_inventory_basis_generation()'::regprocedure))")
-assert C1_NEW['sources_match'].count('58dc20e1ba380ccb9b9dee8809731d33')==1
-q(C1_NEW['sources_match'].replace('58dc20e1ba380ccb9b9dee8809731d33',_gen_md5)+';\n')
-assert one("SELECT smarter_private.original_inventory_proof_sources_match()")=='t'
+def standin(sources_body,label='rakeback-cascade-real-runner fixture generation'):
+    q("CREATE OR REPLACE FUNCTION smarter_private.original_inventory_basis_generation() RETURNS text LANGUAGE sql STABLE SET search_path TO 'pg_catalog' AS $$SELECT 'original-inventory-245-v1:'||md5('"+label+"')$$;")
+    gm=one("SELECT md5(pg_get_functiondef('smarter_private.original_inventory_basis_generation()'::regprocedure))")
+    assert sources_body.count('58dc20e1ba380ccb9b9dee8809731d33')==1
+    q(sources_body.replace('58dc20e1ba380ccb9b9dee8809731d33',gm)+';\n')
+    assert one("SELECT smarter_private.original_inventory_proof_sources_match()")=='t'
+standin(C1_NEW['sources_match'])
 GEN=one("SELECT smarter_private.original_inventory_basis_generation()")
 # ---------------------------------------------------------------- SEEDED (what the fixture lacked to close)
-# 1. The settler watermark (the engine's rakeback settler daemon writes it): the week's last rake record, as production
-#    holds its own (daemon_state 'rakeback_settler': high_water_mark and its record id).
-q("INSERT INTO public.daemon_state(daemon,high_water_mark,high_water_mark_id) SELECT 'rakeback_settler',created_at,id FROM public.rake_records ORDER BY created_at DESC,id DESC LIMIT 1;")
-# 2. The union's commercial (ECO) terms at week start, through production's own capture: both ECO triggers on public.unions
-#    (union-close-config.json, triggers) and one owner settings write on Wednesday 2026-11-04 12:00Z, before the week, with
-#    Midway's ECO values (cash and tournament ECO on at 10%, club cash profit, horses included). The history row is the
-#    opening coverage; the v2 terms take effect from the next book (2026-11-09 08:00Z).
-for t in UC_CFG['triggers']:
-    assert _byname.get(t['f'])==t['fm'] and t['e']=='O',t
-    q(t['def']+';')
-q("BEGIN;SELECT set_config('rf.clock_offset',(extract(epoch FROM ('2026-11-04 12:00:00+00'::timestamptz-pg_catalog.rf_real_clock()))::numeric(20,3))::text||' seconds',true);"
-  "UPDATE public.unions SET settings=settings||'{\"eco_enabled\":true,\"eco_base_mode\":\"club_cash_profit\",\"eco_rate\":0.10,\"eco_include_horses\":true,"
-  "\"eco_cash_enabled\":true,\"eco_cash_rate\":0.10,\"eco_tournament_enabled\":true,\"eco_tournament_rate\":0.10}'::jsonb WHERE id=rr.u('U');COMMIT;")
-assert one("SELECT count(*)||'|'||min(event_type)||'|'||min(observed_at)::text FROM public.accounting_agreement_history WHERE entity_type='unions' AND union_id=rr.u('U')").startswith('1|UPDATE|2026-11-04 12:00:00')
-assert one("SELECT count(*)||'|'||min(effective_from)::text FROM smarter_private.union_eco_v2_terms WHERE union_id=rr.u('U')")=='1|2026-11-09 08:00:00+00'
-# Terms that change during the week are refused by production, by design (the report's
-# eco_intraweek_changed_terms_require_original_allocation): a second write on Thursday 2026-11-12, in a rolled-back
-# transaction, makes the week's terms two segments, so such a week can never close as it stands.
-assert one("BEGIN;SELECT set_config('rf.clock_offset',(extract(epoch FROM ('2026-11-12 12:00:00+00'::timestamptz-pg_catalog.rf_real_clock()))::numeric(20,3))::text||' seconds',true);"
-  "UPDATE public.unions SET settings=settings||'{\"eco_rate\":0.20}'::jsonb WHERE id=rr.u('U');SELECT set_config('rf.clock_offset',(extract(epoch FROM ('2026-11-16 12:00:00+00'::timestamptz-pg_catalog.rf_real_clock()))::numeric(20,3))::text||' seconds',true);"
-  "SELECT (SELECT count(DISTINCT x->'terms') FROM jsonb_array_elements(e->'segments') x)||'|'||(e->>'status') FROM (SELECT public.fn_union_eco_terms_evidence(rr.u('U'),rr.ws(),rr.we()) e) z;ROLLBACK;")=='2|ready'
-assert one("SELECT count(*) FROM public.accounting_agreement_history WHERE entity_type='unions'")=='1'
-# 3. The engine's original hand capture: one union_pnl_cash_outcomes row per hand (what the capture trigger on
-#    hand_atomic_commits records for an accepted hand), in the hand's own transaction frame at the hand's instant, accepted
-#    rake equal to the hand's rake record. This fixture's hands carry no tables, seats or stacks (scenario.sql seeds rake
-#    records only), so each hand's one participant shows a stack delta of 0: the cash P&L is reconciled only in that
-#    degenerate shape (no buy-ins, no cash-outs, no seated boundary). Production's touch trigger writes the touch rows.
-_seed=q("SELECT format($f$BEGIN;SELECT set_config('rf.clock_offset',(extract(epoch FROM (%L::timestamptz-pg_catalog.rf_real_clock()))::numeric(20,3))::text||' seconds',true);"
-  "INSERT INTO public.union_pnl_cash_outcomes SELECT %L::uuid,1,%L::uuid,f.transaction_id,f.observed_at,md5(%L),s.scope,"
-  "jsonb_build_object('status','ready','basis_certified',true,'all_players_included',true,'game_scope',s.scope,'accepted_rake',%L,'accepted_bbj','0.00','accepted_external_net','0.00',"
-  "'participants',jsonb_build_array(jsonb_build_object('earning_club_id',%L,'user_id',%L,'observed_stack_delta',0))) FROM public.fn_union_pnl_original_frame() f,"
-  "(SELECT jsonb_build_object('host_club_id',%L,'game_union_id',%L,'is_private',false,'tournament_id',NULL,'asset','chips','unit_scale',2) scope) s;COMMIT;$f$,"
-  "r.created_at,md5('table:'||r.id::text)::uuid,r.hand_id,r.hand_id::text,r.rake_amount::numeric(18,2)::text,r.club_id,a.player_id,r.club_id,rr.u('U')) "
-  "FROM public.rake_records r JOIN public.rake_attributions a ON a.rake_record_id=r.id ORDER BY r.created_at;").stdout
-q(_seed)
-assert one("SELECT count(*)||'|'||sum((evidence->>'accepted_rake')::numeric)||'|'||(SELECT count(*) FROM public.union_pnl_cash_outcome_touches) FROM public.union_pnl_cash_outcomes")=='10|740.00|10'
-assert one("SELECT sum(rake_credit) FROM public.accounting_payable_earning_sources WHERE union_id=rr.u('U') AND earned_at>=rr.ws() AND earned_at<rr.we()")=='740'
+def seed():
+    # 1. The settler watermark (the engine's rakeback settler daemon writes it): the week's last rake record, as production
+    #    holds its own (daemon_state 'rakeback_settler': high_water_mark and its record id).
+    q("INSERT INTO public.daemon_state(daemon,high_water_mark,high_water_mark_id) SELECT 'rakeback_settler',created_at,id FROM public.rake_records ORDER BY created_at DESC,id DESC LIMIT 1;")
+    # 2. The union's commercial (ECO) terms at week start, through production's own capture: both ECO triggers on public.unions
+    #    (union-close-config.json, triggers) and one owner settings write on Wednesday 2026-11-04 12:00Z, before the week, with
+    #    Midway's ECO values (cash and tournament ECO on at 10%, club cash profit, horses included). The history row is the
+    #    opening coverage; the v2 terms take effect from the next book (2026-11-09 08:00Z).
+    for t in UC_CFG['triggers']:
+        assert _byname.get(t['f'])==t['fm'] and t['e']=='O',t
+        q(t['def']+';')
+    q("BEGIN;SELECT set_config('rf.clock_offset',(extract(epoch FROM ('2026-11-04 12:00:00+00'::timestamptz-pg_catalog.rf_real_clock()))::numeric(20,3))::text||' seconds',true);"
+      "UPDATE public.unions SET settings=settings||'{\"eco_enabled\":true,\"eco_base_mode\":\"club_cash_profit\",\"eco_rate\":0.10,\"eco_include_horses\":true,"
+      "\"eco_cash_enabled\":true,\"eco_cash_rate\":0.10,\"eco_tournament_enabled\":true,\"eco_tournament_rate\":0.10}'::jsonb WHERE id=rr.u('U');COMMIT;")
+    assert one("SELECT count(*)||'|'||min(event_type)||'|'||min(observed_at)::text FROM public.accounting_agreement_history WHERE entity_type='unions' AND union_id=rr.u('U')").startswith('1|UPDATE|2026-11-04 12:00:00')
+    assert one("SELECT count(*)||'|'||min(effective_from)::text FROM smarter_private.union_eco_v2_terms WHERE union_id=rr.u('U')")=='1|2026-11-09 08:00:00+00'
+    # Terms that change during the week are refused by production, by design (the report's
+    # eco_intraweek_changed_terms_require_original_allocation): a second write on Thursday 2026-11-12, in a rolled-back
+    # transaction, makes the week's terms two segments, so such a week can never close as it stands.
+    assert one("BEGIN;SELECT set_config('rf.clock_offset',(extract(epoch FROM ('2026-11-12 12:00:00+00'::timestamptz-pg_catalog.rf_real_clock()))::numeric(20,3))::text||' seconds',true);"
+      "UPDATE public.unions SET settings=settings||'{\"eco_rate\":0.20}'::jsonb WHERE id=rr.u('U');SELECT set_config('rf.clock_offset',(extract(epoch FROM ('2026-11-16 12:00:00+00'::timestamptz-pg_catalog.rf_real_clock()))::numeric(20,3))::text||' seconds',true);"
+      "SELECT (SELECT count(DISTINCT x->'terms') FROM jsonb_array_elements(e->'segments') x)||'|'||(e->>'status') FROM (SELECT public.fn_union_eco_terms_evidence(rr.u('U'),rr.ws(),rr.we()) e) z;ROLLBACK;")=='2|ready'
+    assert one("SELECT count(*) FROM public.accounting_agreement_history WHERE entity_type='unions'")=='1'
+    # 3. The engine's original hand capture: one union_pnl_cash_outcomes row per hand (what the capture trigger on
+    #    hand_atomic_commits records for an accepted hand), in the hand's own transaction frame at the hand's instant, accepted
+    #    rake equal to the hand's rake record. This fixture's hands carry no tables, seats or stacks (scenario.sql seeds rake
+    #    records only), so each hand's one participant shows a stack delta of 0: the cash P&L is reconciled only in that
+    #    degenerate shape (no buy-ins, no cash-outs, no seated boundary). Production's touch trigger writes the touch rows.
+    _seed=q("SELECT format($f$BEGIN;SELECT set_config('rf.clock_offset',(extract(epoch FROM (%L::timestamptz-pg_catalog.rf_real_clock()))::numeric(20,3))::text||' seconds',true);"
+      "INSERT INTO public.union_pnl_cash_outcomes SELECT %L::uuid,1,%L::uuid,f.transaction_id,f.observed_at,md5(%L),s.scope,"
+      "jsonb_build_object('status','ready','basis_certified',true,'all_players_included',true,'game_scope',s.scope,'accepted_rake',%L,'accepted_bbj','0.00','accepted_external_net','0.00',"
+      "'participants',jsonb_build_array(jsonb_build_object('earning_club_id',%L,'user_id',%L,'observed_stack_delta',0))) FROM public.fn_union_pnl_original_frame() f,"
+      "(SELECT jsonb_build_object('host_club_id',%L,'game_union_id',%L,'is_private',false,'tournament_id',NULL,'asset','chips','unit_scale',2) scope) s;COMMIT;$f$,"
+      "r.created_at,md5('table:'||r.id::text)::uuid,r.hand_id,r.hand_id::text,r.rake_amount::numeric(18,2)::text,r.club_id,a.player_id,r.club_id,rr.u('U')) "
+      "FROM public.rake_records r JOIN public.rake_attributions a ON a.rake_record_id=r.id ORDER BY r.created_at;").stdout
+    q(_seed)
+    assert one("SELECT count(*)||'|'||sum((evidence->>'accepted_rake')::numeric)||'|'||(SELECT count(*) FROM public.union_pnl_cash_outcome_touches) FROM public.union_pnl_cash_outcomes")=='10|740.00|10'
+    assert one("SELECT sum(rake_credit) FROM public.accounting_payable_earning_sources WHERE union_id=rr.u('U') AND earned_at>=rr.ws() AND earned_at<rr.we()")=='740'
+
+seed()
 case(f"union close, the seeds: the settler watermark at the week's last rake record; the union's ECO terms at week start through production's two capture triggers on unions (one owner write on 2026-11-04, Midway's values: cash and tournament ECO 10%, horses included; v2 terms effective 2026-11-09 08:00Z); a second write mid-week (rolled back) splits the week's terms in two, which production refuses to close by design; one original hand capture per hand (10 hands, accepted rake 740.00 = the 740.00 the earning sources hold); the generation stand-in answers {GEN[:30]}...")
 # ---------------------------------------------------------------- the close, tick by tick, until the books are complete
 STMT="SELECT COALESCE(string_agg(c.name||':'||i.invoice_number||':'||i.from_entity_type||'>'||i.to_entity_type||':'||i.net_amount::text||':'||(i.breakdown->>'direction')||':'||(i.breakdown->>'eco_amount'),',' ORDER BY i.invoice_number),'') FROM public.settlement_invoices i JOIN public.clubs c ON c.id=i.club_id WHERE i.invoice_type='union_weekly_squareup'"
@@ -207,20 +221,27 @@ def _close_tick(at,interrupt=False):
     lines=out.strip().split('\n'); rec={'at':at,'job':BOOKS,'rc':p.returncode,'out':lines[-1][:20000] if lines else '','err':err[:3000],'interrupted':killed}
     record.append(rec); return rec
 _mid_wallet=one("SELECT to_jsonb(w)::text FROM public.union_wallets w WHERE union_id='fade0000-0000-0000-0000-000000000001'")
-closes=[]; interrupted=None; t0=datetime.datetime(2026,11,16,12,8,20,tzinfo=datetime.timezone.utc)
-for i in range(90):  # one job 564 tick every two minutes from 12:08Z
-    at=(t0+datetime.timedelta(minutes=2*i)).strftime('%Y-%m-%d %H:%M:%S+00')
-    r=_close_tick(at,interrupt=interrupted is None)
-    if A.verbose: print('CLOSE',at,r['rc'],r['interrupted'],r['out'][-600:],r['err'][:600],flush=True)
-    if r['interrupted']:
-        # RETRY: the tick was cut off inside the close (at the statement numbering); everything it did rolled back.
-        assert r['rc']!=0 and one(STMT)=='' and one("SELECT count(*) FROM public.union_invoice_counters")=='0' and one("SELECT count(*) FROM public.accounting_invoice_deliveries")=='0',r
-        assert one(RUN_DONE)!='complete' and one(CMONEY)==cmoney0,r
-        interrupted=r; continue
-    r['parts']=one(PARTS); r['run']=one(RUN) if one("SELECT count(*) FROM public.union_accounting_runs WHERE union_id=rr.u('U')")=='1' else None; closes.append(r)
-    assert r['rc']==0 and 'ERROR' not in r['err'],('a close tick raised',r)
-    assert one(CMONEY)==cmoney0,('the close moved money or paid something again',r)
-    if one(RUN_DONE)=='complete': break
+t0=datetime.datetime(2026,11,16,12,8,20,tzinfo=datetime.timezone.utc)
+def run_close(interrupt=True,hook=None,maxt=90,tag='CLOSE',first=0):
+    closes=[]; interrupted=None
+    for i in range(maxt):  # one job 564 tick every two minutes from 12:08Z
+        at=(t0+datetime.timedelta(minutes=2*(first+i))).strftime('%Y-%m-%d %H:%M:%S+00')
+        r=_close_tick(at,interrupt=interrupt and interrupted is None)
+        if A.verbose: print(tag,DB,at,r['rc'],r['interrupted'],r['out'][-600:],r['err'][:600],flush=True)
+        if r['interrupted']:
+            # RETRY: the tick was cut off inside the close (at the statement numbering); everything it did rolled back.
+            assert r['rc']!=0 and one(STMT)=='' and one("SELECT count(*) FROM public.union_invoice_counters")=='0' and one("SELECT count(*) FROM public.accounting_invoice_deliveries")=='0',r
+            assert one(RUN_DONE)!='complete' and one(CMONEY)==cmoney0,r
+            interrupted=r; continue
+        r['parts']=one(PARTS); r['run']=one(RUN) if one("SELECT count(*) FROM public.union_accounting_runs WHERE union_id=rr.u('U')")=='1' else None; closes.append(r)
+        if hook and hook(len(closes)-1,r)=='stop': break
+        assert r['rc']==0 and 'ERROR' not in r['err'],('a close tick raised',r)
+        assert 'could not warm the rake rollup' not in r['err'] and 'pnl boundary capture failed' not in r['err'],('a close side step failed',r['err'][:600])
+        assert one(CMONEY)==cmoney0,('the close moved money or paid something again',r)
+        if one(RUN_DONE)=='complete': break
+    return closes,interrupted
+copy_db('close','close_mid'); copy_db('close','close_gen')  # the seeded board, before any close tick
+closes,interrupted=run_close()
 assert interrupted is not None,'no tick reached the statement numbering'
 assert one(RUN_DONE)=='complete',('the close did not finish',[c['run'] for c in closes[-5:]])
 # 12:08 the promo; 12:10 to 12:26 the original inventory is sealed one week a tick (as before the fix).
@@ -284,9 +305,68 @@ _again=json.loads(one("SELECT public.fn_union_issue_weekly_invoices(rr.u('U'),rr
 assert _again['success'] is True and _again['invoices']==3 and _again['notified']==0 and all(x['already_sent'] for x in _again['detail']),_again
 assert one(SNAP)==snap0 and one(CMONEY)==cmoney0,'a repeated issuance changed the books'
 case('union close, duplicate execution: after completion three sequential ticks, four concurrent ticks at one instant and a direct repeat of the statement issuance create no statement, number, delivery, message, notification, ECO record or ledger row, and move no money (every table compared whole)')
+# The side steps of the close ran (no longer missing from this copy): the rake rollup warm-up recorded the week's days, and
+# every ready boundary proof was captured once, with no capture failure.
+assert int(one("SELECT count(*) FROM public.union_rake_rollup_days WHERE union_id=rr.u('U')"))>0
+assert int(one("SELECT count(*) FROM public.ca_union_pnl_boundary_capture WHERE union_id=rr.u('U')"))>0 and one("SELECT count(*) FROM public.ca_union_pnl_boundary_capture_failures")=='0'
+STMT_MAIN=one(STMT); OUTCOME=("SELECT (SELECT string_agg(union_id::text||':'||year||':'||next_seq,',') FROM public.union_invoice_counters)||'|'||(SELECT count(*)||':'||count(DISTINCT (invoice_id,recipient_id)) FROM public.accounting_invoice_deliveries)"
+  "||'|'||(SELECT count(*) FROM public.settlement_invoices WHERE invoice_type='club_weekly_accounting')||'|'||(SELECT count(*) FROM smarter_private.union_eco_components)")
+OUTCOME_MAIN=one(OUTCOME)
+def same_close(label):
+    assert one(RUN_DONE)=='complete',(label,'not complete')
+    assert one(STMT)==STMT_MAIN and one(OUTCOME)==OUTCOME_MAIN and one(CMONEY)==cmoney0,(label,one(STMT),one(OUTCOME))
+case('union close, side steps: the rake rollup warm-up (fn_union_rake_rollup_refresh_day, now carried) records the week\'s days without a warning, and every ready boundary proof is captured once in ca_union_pnl_boundary_capture (now carried) with no capture failure')
+# ---------------------------------------------------------------- INSTALL DURING A CLOSE
+# (1) The migration installed in the middle of a stuck pre-fix close (database close_inst, production's bodies): the
+# pre-fix ticks prove the week's windows under a NULL generation and stop at C1; 20261116033831 is installed between two
+# ticks exactly as it would be on production (preimage check included); the next ticks re-prove the windows under the
+# generation and finish with the same statements, numbers, deliveries and ECO records as the main close.
+DB='close_inst'
+standin(C1_OLD['sources_match'])
+seed()
+pre,_=run_close(interrupt=False,maxt=16,tag='PREFIX')
+assert one(RUN_DONE)!='complete' and pre[-1]['run'].endswith('|certifying|club_settlements') and 'pnl_hands_window:84:' in pre[-1]['parts'],pre[-1]
+assert one("SELECT count(*) FROM public.accounting_close_partials WHERE kind='pnl_hands_window' AND value->>'generation' IS NULL")=='84'
+assert one(STMT)=='' and one(CMONEY)==cmoney0
+q(FUNCS['smarter_private.original_inventory_basis_generation()']['def'].rstrip()+';\n'+C1_OLD['sources_match']+';\n')  # production's generation source and sources check, as the install meets them
+q('SET check_function_bodies=off;\n'+mig_c1); standin(C1_NEW['sources_match'])
+post,_=run_close(interrupt=False,maxt=40,tag='POSTFIX',first=16)
+same_close('install mid-close')
+assert one("SELECT count(*) FROM public.accounting_close_partials WHERE kind='pnl_hands_window' AND value->>'generation' IS NULL")=='0'
+case(f"union close, install during a close: on a stuck pre-fix close ({len(pre)} ticks, 84 hand windows kept under a NULL generation) 20261116033831 installs between two ticks; within {len(post)} more ticks the windows are re-proved under the generation (none left under NULL) and the close finishes with exactly the main close's statements, numbers, deliveries, club statements and ECO records; no money moved")
+# (2) The generation changing in the middle of a fixed close (database close_gen): this is what the install does to a
+# Midway close in progress (the same code path; only the generation value changes). Proofs kept under the first value
+# stop being read, are proved again under the second, and the close finishes identically: no mixed state is used.
+DB='close_gen'; _sw={}
+def _swap(i,r):
+    if not _sw and 'pnl_hands_window:84:' in (r.get('parts') or '') and (r.get('run') or '').endswith('|certifying|club_settlements'):
+        standin(C1_NEW['sources_match'],label='a second fixture generation'); _sw['at']=i
+gen_closes,_=run_close(interrupt=False,hook=_swap,maxt=60,tag='GENSWAP')
+same_close('generation change mid-close')
+GEN2=one("SELECT smarter_private.original_inventory_basis_generation()"); assert GEN2!=GEN and 'at' in _sw
+assert one(f"SELECT count(*) FROM public.accounting_close_partials WHERE kind IN('pnl_hands_window','pnl_linked_window') AND value->>'generation'='{GEN2}'")=='168'
+assert one(f"SELECT count(*) FROM public.accounting_close_certificates WHERE value->>'_original_inventory_generation'='{GEN}' AND kind='pnl_clubs'")=='0'
+case(f"union close, generation change during a close (what installing does to a Midway close in progress): the generation moves after tick {_sw['at']+1}, with every hand window already proved under the first value; the close proves them again under the second (168 hand and linked windows), never certifies the week's clubs from the first, and finishes with exactly the main close's statements, numbers, deliveries and ECO records; no money moved")
+# ---------------------------------------------------------------- MID-WEEK TERMS CHANGE (database close_mid)
+# A real owner write on Thursday 2026-11-12, committed: the close must stop on a recorded refusal, not loop 'certifying'.
+DB='close_mid'
+q("BEGIN;SELECT set_config('rf.clock_offset',(extract(epoch FROM ('2026-11-12 12:00:00+00'::timestamptz-pg_catalog.rf_real_clock()))::numeric(20,3))::text||' seconds',true);"
+  "UPDATE public.unions SET settings=settings||'{\"eco_rate\":0.20}'::jsonb WHERE id=rr.u('U');COMMIT;")
+_ref=[]
+def _refused(i,r):
+    d=(detail(r)[1].get('detail') or [{}])[0].get('result',{})
+    if d.get('error')=='union_pnl_basis_uncertified': _ref.append((r['at'],d))
+    return 'stop' if len(_ref)>=3 else None
+mid,_=run_close(interrupt=False,hook=_refused,maxt=60,tag='MIDWEEK')
+assert len(_ref)==3 and all('eco_intraweek_changed_terms_require_original_allocation' in x[1].get('detail','') for x in _ref),_ref
+assert one(RUN_DONE)!='complete' and one(STMT)=='' and one("SELECT count(*) FROM public.accounting_invoice_deliveries")=='0' and one(CMONEY)==cmoney0
+MID_RUN=one("SELECT status||'|'||COALESCE(result->>'error','')||'|'||COALESCE(left(result->>'detail',400),'') FROM public.union_accounting_runs WHERE union_id=rr.u('U')")
+assert MID_RUN.startswith('failed|union_pnl_basis_uncertified|') and 'eco_intraweek_changed_terms_require_original_allocation' in MID_RUN,MID_RUN
+case(f"union close, mid-week terms change (a real owner write on 2026-11-12, committed): the close does not loop 'certifying'; from {_ref[0][0][11:16]}Z every tick records the refusal as the scope's outcome, error union_pnl_basis_uncertified naming eco_intraweek_changed_terms_require_original_allocation (the union's run is recorded failed with that reason); no statement, delivery or money movement")
+DB='close'
 _used={k for k in usage()['functions']}
 _unshifted={k.split('(')[0] for k,v in UC['functions'].items() if re.search(r'\b(CURRENT_DATE|CURRENT_TIMESTAMP|CURRENT_TIME|LOCALTIMESTAMP|LOCALTIME)\b',v['def'],re.I)}&_used
 assert not _unshifted,('a close function that reads a clock form the fixture clock does not shift was executed',sorted(_unshifted))
 record.append({'union_close':[{k:r.get(k) for k in ('at','rc','out','err','parts','run','interrupted')} for r in closes+[interrupted]]})
 DB='postgres'
-if not A.keep: q("DROP DATABASE close;")  # author aid: --keep leaves it for inspection
+if not A.keep: q("DROP DATABASE close;DROP DATABASE close_inst;DROP DATABASE close_mid;DROP DATABASE close_gen;")  # author aid: --keep leaves it for inspection
