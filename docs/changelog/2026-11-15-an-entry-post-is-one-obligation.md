@@ -14,17 +14,17 @@ once" (branch `fix/entry-post-never-double-billed`) and this restitution
 
 Read from the owner rulings recorded in the engine source and `docs/LAWS.md`.
 
-| Seat state on a cash table                                    | Owes on its first dealt hand                      | Live / dead      | Authority                                                               |
-| ------------------------------------------------------------- | ------------------------------------------------- | ---------------- | ----------------------------------------------------------------------- |
-| New buy-in, waits for the big blind                           | Its own big blind when the blind reaches the seat | Live             | Dan 2026-08-26, `EntryPostingAndButton.test.ts`                         |
-| New buy-in, Post Big Blind                                    | One big blind                                     | Live, no dead SB | Dan 2026-08-26, `postBBToEnter` ("LIVE BIG BLIND ONLY")                 |
-| New buy-in in the seat the small blind or button is reaching  | Nothing yet: held until both pass                 |                  | Dan 2026-08-29, `postBBWhenClear`                                       |
-| Played here, sat out, comes back                              | Dead small blind + live big blind                 | SB dead, BB live | Bible V8 4.2, `returningFromSitout`                                     |
-| Moved by must-move, break, balance or seat change             | Nothing to enter                                  |                  | Dan 2026-11-15, LAWS "A moved player never posts to enter"              |
-| Moved before 2026-11-15 17:02 UTC                             | One big blind                                     | Live             | Dan 2026-09-05 (superseded)                                             |
-| Short stack                                                   | The same charge, capped at the stack, all in      | Dead SB first    | `HandController.postBlinds`                                             |
-| Tournament seat                                               | Neither charge                                    |                  | Owner correction 2026-10-27                                             |
-| Lightning hand                                                | One big blind on a new player's first hand        | Live             | `LightningHandHost` (`bbOnlyPosts` only; no dead-blind list exists)     |
+| Seat state on a cash table                                   | Owes on its first dealt hand                      | Live / dead      | Authority                                                           |
+| ------------------------------------------------------------ | ------------------------------------------------- | ---------------- | ------------------------------------------------------------------- |
+| New buy-in, waits for the big blind                          | Its own big blind when the blind reaches the seat | Live             | Dan 2026-08-26, `EntryPostingAndButton.test.ts`                     |
+| New buy-in, Post Big Blind                                   | One big blind                                     | Live, no dead SB | Dan 2026-08-26, `postBBToEnter` ("LIVE BIG BLIND ONLY")             |
+| New buy-in in the seat the small blind or button is reaching | Nothing yet: held until both pass                 |                  | Dan 2026-08-29, `postBBWhenClear`                                   |
+| Played here, sat out, comes back                             | Dead small blind + live big blind                 | SB dead, BB live | Bible V8 4.2, `returningFromSitout`                                 |
+| Moved by must-move, break, balance or seat change            | Nothing to enter                                  |                  | Dan 2026-11-15, LAWS "A moved player never posts to enter"          |
+| Moved before 2026-11-15 17:02 UTC                            | One big blind                                     | Live             | Dan 2026-09-05 (superseded)                                         |
+| Short stack                                                  | The same charge, capped at the stack, all in      | Dead SB first    | `HandController.postBlinds`                                         |
+| Tournament seat                                              | Neither charge                                    |                  | Owner correction 2026-10-27                                         |
+| Lightning hand                                               | One big blind on a new player's first hand        | Live             | `LightningHandHost` (`bbOnlyPosts` only; no dead-blind list exists) |
 
 ## What the engine did
 
@@ -101,20 +101,20 @@ Seat 4, NLH 0.10/0.25 Classic Feeder. Bought in for 14.18 at 03:06:26 UTC
 live and 0.10 dead; owed 0.25. He folded the turn. Restitution 0.35 (the first
 report said 0.25).
 
-## The 53 entry posts of 2026-11-15 03:40 to 2026-11-16 03:40 UTC
+## The 53 entry posts of the 24 hours to 2026-11-16 03:35 UTC
 
 Every cash hand in the window was read. Each post was classified by the buy-in
 receipt or completed seat move that opened the occupancy, the hands the seat
 was dealt before it, and the hands it sat out.
 
-| Class                                                                 | Posts | Charge                 | Verdict                                         |
-| --------------------------------------------------------------------- | ----- | ---------------------- | ----------------------------------------------- |
-| New buy-in, first dealt hand, one live big blind                      | 6     | 1 BB                   | Correct                                         |
-| Moved player, first hand at the new table, before the 17:02 UTC ruling | 4     | 1 BB                   | Correct under the 2026-09-05 rule then in force |
-| Played here (7 to 690 hands), sat out 1 to 10 hands, came back        | 41    | Dead SB + live BB      | Missed-blind return as the engine implements it |
-| New buy-in, first dealt hand, both charges                            | 2     | Dead SB + 2 BB         | Overcharged (Burls, fresco)                     |
+| Class                                                                  | Posts | Charge            | Verdict                                         |
+| ---------------------------------------------------------------------- | ----- | ----------------- | ----------------------------------------------- |
+| New buy-in, first dealt hand, one live big blind                       | 6     | 1 BB              | Correct                                         |
+| Moved player, first hand at the new table, before the 17:02 UTC ruling | 5     | 1 BB              | Correct under the 2026-09-05 rule then in force |
+| Played here (2 to 690 hands), sat out 1 to 10 hands, came back         | 40    | Dead SB + live BB | Missed-blind return as the engine implements it |
+| New buy-in, first dealt hand, both charges                             | 2     | Dead SB + 2 BB    | Overcharged (Burls, fresco)                     |
 
-The 41 returns are returns by evidence: each seat had been dealt at that table
+The 40 returns are returns by evidence: each seat had been dealt at that table
 in the same occupancy and then missed at least one hand. The engine bills a
 return the dead small blind and big blind without checking that a blind
 actually passed the seat while it was out; that is the existing rule and is
@@ -122,11 +122,11 @@ not changed here.
 
 ## The historical audit
 
-| Population                                                                              | Range (UTC)                      | Read    | Flagged |
-| --------------------------------------------------------------------------------------- | -------------------------------- | ------- | ------- |
-| Every cash buy-in receipt, followed to the first retained hand its occupancy was dealt   | 2026-09-17 to 2026-11-16 04:00   | 254,129 receipts, 37,889 first hands | 24 |
-| Every completed seat move, followed the same way                                         | 2026-11-01 to 2026-11-16 04:00   | 11,857 moves | 0 |
-| Every cash hand, all posts (the table above)                                             | 2026-11-15 03:40 to 11-16 03:40  | 53 posts | the same 2 |
+| Population                                                                             | Range (UTC)                     | Read                                 | Flagged    |
+| -------------------------------------------------------------------------------------- | ------------------------------- | ------------------------------------ | ---------- |
+| Every cash buy-in receipt, followed to the first retained hand its occupancy was dealt | 2026-09-17 to 2026-11-16 04:00  | 254,129 receipts, 37,889 first hands | 24         |
+| Every completed seat move, followed the same way                                       | 2026-11-01 to 2026-11-16 04:00  | 11,857 moves                         | 0          |
+| Every cash hand, all posts (the table above)                                           | 2026-11-15 03:35 to 11-16 03:35 | 53 posts                             | the same 2 |
 
 - First affected hand: 56509493, 2026-11-07 19:01 UTC. Before it, 904 new
   seats posted to enter and every one paid exactly one big blind.
@@ -151,32 +151,32 @@ not changed here.
 uncalled (the hand's `return` exceeds the bet it refunds by one big blind) and
 the dead small blind came back in the pot, less the rake taken on it.
 
-| Hand     | UTC         | Player       | Table                        | BB   | Billed live + dead | Owed | Result | Restitution |
-| -------- | ----------- | ------------ | ---------------------------- | ---- | ------------------ | ---- | ------ | ----------- |
-| 56509493 | 11-07 19:01 | CMA          | PLO4 0.50/1 Classic Feeder   | 1.00 | 1.00 + 0.50        | 1.00 | lost   | 0.50        |
-| 56615162 | 11-07 22:50 | Rooster      | PLO6 1/2 Classic Feeder      | 2.00 | 4.00 + 1.00        | 2.00 | lost   | 3.00        |
-| 57126786 | 11-08 14:17 | Luvtasuck    | NLH 0.25/0.50 Classic Feeder | 0.50 | 1.00 + 0.25        | 0.50 | lost   | 0.75        |
-| 57279189 | 11-08 17:12 | Danimal      | NLH 0.25/0.50 Classic Feeder | 0.50 | 1.00 + 0.25        | 0.50 | lost   | 0.75        |
-| 57630371 | 11-09 00:35 | Bluffinbreed | NLH 0.50/1 Classic Feeder    | 1.00 | 2.00 + 0.50        | 1.00 | won    | 0.05        |
-| 58203391 | 11-09 22:21 | Donkey       | PLO5 0.10/0.25 Classic       | 0.25 | 0.50 + 0.10        | 0.25 | lost   | 0.35        |
-| 58222391 | 11-09 23:34 | MichaelJordan | NLH 0.25/0.50 Classic Feeder | 0.50 | 1.00 + 0.25       | 0.50 | won, no flop, no rake | 0.00 |
-| 58246229 | 11-10 01:28 | WooWoo       | PLO5 1/2 Madness             | 2.00 | 4.00 + 1.00        | 2.00 | won, rake at cap | 0.00 |
-| 58306954 | 11-10 05:44 | Burls        | NLH 1/2 Classic              | 2.00 | 4.00 + 1.00        | 2.00 | lost   | 3.00        |
-| 58316803 | 11-10 08:22 | Probyourmom  | NLH 1/2 Classic              | 2.00 | 4.00 + 1.00        | 2.00 | won    | 0.10        |
-| 58516060 | 11-11 07:40 | Probyourmom  | NLH 1/2 Classic Feeder       | 2.00 | 4.00 + 1.00        | 2.00 | lost   | 3.00        |
-| 58692649 | 11-12 01:32 | BarryWhite   | PLO6 0.10/0.25 Classic Feeder | 0.25 | 0.50 + 0.10       | 0.25 | lost   | 0.35        |
-| 58710591 | 11-12 02:58 | Twin2983     | NLH 1/2 Classic Feeder       | 2.00 | 4.00 + 1.00        | 2.00 | won, rake at cap | 0.00 |
-| 58711319 | 11-12 03:02 | FishyFish    | PLO6 1/2 Classic             | 2.00 | 4.00 + 1.00        | 2.00 | lost   | 3.00        |
-| 58808950 | 11-12 19:19 | Burls        | NLH 1/2 Classic Feeder       | 2.00 | 4.00 + 1.00        | 2.00 | lost   | 3.00        |
-| 58879713 | 11-13 01:43 | BarryWhite   | PLO4 0.25/0.50 Classic Feeder | 0.50 | 1.00 + 0.25       | 0.50 | won, rake at cap | 0.00 |
-| 58909662 | 11-13 03:42 | BarryWhite   | PLO6 0.10/0.25 Classic Feeder | 0.25 | 0.50 + 0.10       | 0.25 | lost   | 0.35        |
-| 58920420 | 11-13 04:31 | nickw        | PLO4 1/2 Classic Feeder      | 2.00 | 4.00 + 1.00        | 2.00 | lost   | 3.00        |
-| 59247360 | 11-14 05:04 | Bud33        | PLO5 1/2 Madness Feeder      | 2.00 | 4.00 + 1.00        | 2.00 | won, rake at cap | 0.00 |
-| 59253146 | 11-14 05:40 | twin2983     | NLH 0.50/1 Classic Feeder    | 1.00 | 2.00 + 0.50        | 1.00 | lost   | 1.50        |
-| 59390496 | 11-15 00:22 | Whytegold502 | PLO4 0.25/0.50 Classic Feeder | 0.50 | 1.00 + 0.25       | 0.50 | won    | 0.02        |
-| 59412541 | 11-15 02:20 | Svge0217     | NLH 0.10/0.25 Classic Feeder | 0.25 | 0.50 + 0.10        | 0.25 | lost   | 0.35        |
-| 59632824 | 11-16 03:07 | fresco       | NLH 0.10/0.25 Classic Feeder | 0.25 | 0.50 + 0.10        | 0.25 | lost   | 0.35        |
-| 59634000 | 11-16 03:12 | Burls        | NLH 0.50/1 Classic           | 1.00 | 2.00 + 0.50        | 1.00 | lost   | 1.50        |
+| Hand     | UTC         | Player        | Table                         | BB   | Billed live + dead | Owed | Result                | Restitution |
+| -------- | ----------- | ------------- | ----------------------------- | ---- | ------------------ | ---- | --------------------- | ----------- |
+| 56509493 | 11-07 19:01 | CMA           | PLO4 0.50/1 Classic Feeder    | 1.00 | 1.00 + 0.50        | 1.00 | lost                  | 0.50        |
+| 56615162 | 11-07 22:50 | Rooster       | PLO6 1/2 Classic Feeder       | 2.00 | 4.00 + 1.00        | 2.00 | lost                  | 3.00        |
+| 57126786 | 11-08 14:17 | Luvtasuck     | NLH 0.25/0.50 Classic Feeder  | 0.50 | 1.00 + 0.25        | 0.50 | lost                  | 0.75        |
+| 57279189 | 11-08 17:12 | Danimal       | NLH 0.25/0.50 Classic Feeder  | 0.50 | 1.00 + 0.25        | 0.50 | lost                  | 0.75        |
+| 57630371 | 11-09 00:35 | Bluffinbreed  | NLH 0.50/1 Classic Feeder     | 1.00 | 2.00 + 0.50        | 1.00 | won                   | 0.05        |
+| 58203391 | 11-09 22:21 | Donkey        | PLO5 0.10/0.25 Classic        | 0.25 | 0.50 + 0.10        | 0.25 | lost                  | 0.35        |
+| 58222391 | 11-09 23:34 | MichaelJordan | NLH 0.25/0.50 Classic Feeder  | 0.50 | 1.00 + 0.25        | 0.50 | won, no flop, no rake | 0.00        |
+| 58246229 | 11-10 01:28 | WooWoo        | PLO5 1/2 Madness              | 2.00 | 4.00 + 1.00        | 2.00 | won, rake at cap      | 0.00        |
+| 58306954 | 11-10 05:44 | Burls         | NLH 1/2 Classic               | 2.00 | 4.00 + 1.00        | 2.00 | lost                  | 3.00        |
+| 58316803 | 11-10 08:22 | Probyourmom   | NLH 1/2 Classic               | 2.00 | 4.00 + 1.00        | 2.00 | won                   | 0.10        |
+| 58516060 | 11-11 07:40 | Probyourmom   | NLH 1/2 Classic Feeder        | 2.00 | 4.00 + 1.00        | 2.00 | lost                  | 3.00        |
+| 58692649 | 11-12 01:32 | BarryWhite    | PLO6 0.10/0.25 Classic Feeder | 0.25 | 0.50 + 0.10        | 0.25 | lost                  | 0.35        |
+| 58710591 | 11-12 02:58 | Twin2983      | NLH 1/2 Classic Feeder        | 2.00 | 4.00 + 1.00        | 2.00 | won, rake at cap      | 0.00        |
+| 58711319 | 11-12 03:02 | FishyFish     | PLO6 1/2 Classic              | 2.00 | 4.00 + 1.00        | 2.00 | lost                  | 3.00        |
+| 58808950 | 11-12 19:19 | Burls         | NLH 1/2 Classic Feeder        | 2.00 | 4.00 + 1.00        | 2.00 | lost                  | 3.00        |
+| 58879713 | 11-13 01:43 | BarryWhite    | PLO4 0.25/0.50 Classic Feeder | 0.50 | 1.00 + 0.25        | 0.50 | won, rake at cap      | 0.00        |
+| 58909662 | 11-13 03:42 | BarryWhite    | PLO6 0.10/0.25 Classic Feeder | 0.25 | 0.50 + 0.10        | 0.25 | lost                  | 0.35        |
+| 58920420 | 11-13 04:31 | nickw         | PLO4 1/2 Classic Feeder       | 2.00 | 4.00 + 1.00        | 2.00 | lost                  | 3.00        |
+| 59247360 | 11-14 05:04 | Bud33         | PLO5 1/2 Madness Feeder       | 2.00 | 4.00 + 1.00        | 2.00 | won, rake at cap      | 0.00        |
+| 59253146 | 11-14 05:40 | twin2983      | NLH 0.50/1 Classic Feeder     | 1.00 | 2.00 + 0.50        | 1.00 | lost                  | 1.50        |
+| 59390496 | 11-15 00:22 | Whytegold502  | PLO4 0.25/0.50 Classic Feeder | 0.50 | 1.00 + 0.25        | 0.50 | won                   | 0.02        |
+| 59412541 | 11-15 02:20 | Svge0217      | NLH 0.10/0.25 Classic Feeder  | 0.25 | 0.50 + 0.10        | 0.25 | lost                  | 0.35        |
+| 59632824 | 11-16 03:07 | fresco        | NLH 0.10/0.25 Classic Feeder  | 0.25 | 0.50 + 0.10        | 0.25 | lost                  | 0.35        |
+| 59634000 | 11-16 03:12 | Burls         | NLH 0.50/1 Classic            | 1.00 | 2.00 + 0.50        | 1.00 | lost                  | 1.50        |
 
 24 hands, 17 players, 23 duplicate big blinds with an invalid dead small blind
 and 1 invalid dead small blind alone. 19 payments to 14 players, 24.92 chips.
