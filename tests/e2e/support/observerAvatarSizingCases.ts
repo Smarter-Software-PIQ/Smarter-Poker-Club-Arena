@@ -72,6 +72,7 @@ export function registerObserverAvatarSizingCases() {
             'src/pages/TablePage.css',
             'src/components/table/ActionPanel.css',
             'src/components/tournament/TournamentHUD.css',
+            'src/components/table/TournamentLateRegCallToAction.css',
             ...Object.keys(built.metafile!.inputs).filter((file) => file.endsWith('.css')),
             'src/components/table/TableChat.css',
             'src/components/table/TableVisualHotfix.css',
@@ -310,6 +311,23 @@ export function registerObserverAvatarSizingCases() {
           path: testInfo.outputPath(`observer-${width}${emptyBottom ? '-empty-bottom' : ''}.png`),
         });
         if (width === 600) {
+          const fitTransitions = await page
+            .locator('.seat__avatar--bust .seat__avatar-img')
+            .evaluateAll((images) =>
+              images.map((image) => getComputedStyle(image).transitionProperty)
+            );
+          expect(fitTransitions.every((property) => property === 'filter')).toBe(true);
+          // Late registration replaces the Spectating label with the two-bay entry button.
+          const entry = await page.locator('.spectator-footer-bar').evaluate((bar) => {
+            const button = document.createElement('button');
+            button.className = 'tournament-entry-holder';
+            bar.replaceChildren(button);
+            const { left, right } = button.getBoundingClientRect();
+            const bounds = bar.getBoundingClientRect();
+            return { left, right, start: bounds.left, end: bounds.right };
+          });
+          expect(entry.left).toBeGreaterThanOrEqual(entry.start - 1);
+          expect(entry.right).toBeLessThanOrEqual(entry.end + 1);
           // Cold-mount the seated reference with the same players and artwork.
           // Compare the actual screen rectangles, including the tournament dock
           // and any transparent margins, instead of percentages of each felt.

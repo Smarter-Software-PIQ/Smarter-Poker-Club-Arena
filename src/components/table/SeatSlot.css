@@ -5330,6 +5330,11 @@
   .table-page[data-seats='9'] .seat-wrapper {
     --sp-bust-scale: var(--sp-nine-rail-bust, 1.7);
   }
+  /* The rail fitter reads this transform to choose the next size. Interpolating
+     it feeds the previous frame back into the fit on a cold table mount. */
+  .table-page[data-seats='9'] .seat__avatar--bust .seat__avatar-img {
+    transition-property: filter;
+  }
 }
 
 /* The top pair's nearest-player lanes meet at the curved end of the felt.
