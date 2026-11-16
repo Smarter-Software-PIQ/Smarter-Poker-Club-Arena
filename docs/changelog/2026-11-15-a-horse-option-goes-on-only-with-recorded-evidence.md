@@ -4,7 +4,7 @@ The live option switch (#10999) wrote `on` for a non-style option whenever the n
 
 ## What Changed
 
-Migration `20261115234500_the_horse_option_switch_on_needs_a_recorded_evidence_row.sql` adds one table, `ca_horse_option_switch_evidence`, and one function that writes it. `fn_ca_horse_option_switch_set` now refuses `on` for a non-style option unless the sha256 its note cites is recorded for that same option.
+Migration `20261116004500_the_horse_option_switch_on_needs_a_recorded_evidence_row.sql` adds one table, `ca_horse_option_switch_evidence`, and one function that writes it. `fn_ca_horse_option_switch_set` now refuses `on` for a non-style option unless the sha256 its note cites is recorded for that same option.
 
 A record is one of two kinds:
 

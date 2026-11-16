@@ -36,6 +36,8 @@ describe('UNMEASURABLE_MATCHUPS', () => {
     expect(names.sort()).toEqual(
       [
         'hu_break_even_bluff',
+        // 2026-11-15: inert against the every-hand 3-bettor; repointed at the wide persona.
+        'human_hu_opener_defends_vs_threebet_40bb',
         // 2026-11-15: the league deals no Lightning domain (HorseLightningParticipation).
         'nlh_lightning_participation_holdem',
         'plo4_lightning_participation_omaha',

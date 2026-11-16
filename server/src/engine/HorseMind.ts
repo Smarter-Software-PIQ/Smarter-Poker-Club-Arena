@@ -5,6 +5,7 @@ import {
   type MultiwayRiverReadState,
 } from './HorseMultiwayRiverRead.js';
 import { omahaTightRead, type OmahaTightRead } from './HorseOmahaTightOpponent.js';
+import { huTightFolderRead, type HuTightFolderRead } from './HorseHuTightBigBlindSteal.js';
 import { omahaReadConditional, type OmahaReadConditional } from './HorseOmahaReadConditional.js';
 import type { OmahaFacingBetEvRead } from './HorseOmahaFacingBetEv.js';
 import {
@@ -2604,6 +2605,39 @@ export class HorseMind {
         ? probeAdjustedCounters(raw, pooled?.ctBets, pooled?.ctProbes)
         : raw;
     return omahaTightRead(
+      counters,
+      scope,
+      this.decisionVariant,
+      opponentExploitRead(counters, scope, this.decisionVariant)
+    );
+  }
+
+  /**
+   * HEADS-UP TIGHT FOLDER (2026-11-15, HorseHuTightBigBlindSteal, D6, default
+   * off): the tight-folder read of this opponent for a heads-up no-limit
+   * hold'em decision in flight, from the same decayed counters opponentRead
+   * reads (the exact context's durable row, probe-adjusted) and its high-side
+   * exploit read, exactly as omahaTightReadOf assembles them. Null outside a
+   * holdem:hu decision or below the evidence floor. Pure: no fires, no writes.
+   * Only HorseLogic calls it, and only with huSmallBlindStealsVsTightBigBlind on.
+   */
+  static huTightFolderReadOf(userId: string): HuTightFolderRead | null {
+    const scope = this.decisionScope;
+    if (scope !== 'holdem:hu') return null;
+    const variant = memoryVariant(this.decisionVariant);
+    const size = scope.split(':')[1] as MemorySize;
+    const durable = variant ? this.blendDurableRead(userId, variant, size, false) : undefined;
+    const raw =
+      durable ??
+      (this.durableOpponentMemory && variant
+        ? undefined
+        : this.exploitCounters.get(`${scope}|${userId}`));
+    const pooled = this.stats.get(userId);
+    const counters =
+      raw && this.probeAwareAggression
+        ? probeAdjustedCounters(raw, pooled?.ctBets, pooled?.ctProbes)
+        : raw;
+    return huTightFolderRead(
       counters,
       scope,
       this.decisionVariant,
