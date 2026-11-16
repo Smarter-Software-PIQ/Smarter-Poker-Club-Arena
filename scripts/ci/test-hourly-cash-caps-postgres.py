@@ -23,6 +23,7 @@ try:
  assert_sql("inet_server_addr() IS NULL AND current_setting('listen_addresses')=''",'socket only')
  q('''CREATE ROLE anon;CREATE ROLE authenticated;CREATE ROLE service_role;
  CREATE SCHEMA smarter_private;
+ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO service_role;
  CREATE TABLE profiles(id uuid PRIMARY KEY,is_horse boolean,status text,horse_status text,balance numeric DEFAULT 0);
  CREATE TABLE clubs(id uuid PRIMARY KEY,asset text,is_platform boolean,union_id uuid);
  CREATE TABLE tables(id uuid PRIMARY KEY,club_id uuid,union_id uuid,tournament_id uuid,is_spins boolean DEFAULT false,
@@ -78,6 +79,10 @@ try:
  migration=(ROOT/'supabase/migrations/20261116153902_enforce_owner_hourly_cash_table_caps_with_human_expansion.sql').read_text()
  q(migration)
  assert_sql('NOT fn_cash_hourly_table_enabled()','migration alone leaves serving predecessor unchanged')
+ for table in ['cash_hourly_table_pacing','cash_hourly_table_starts','cash_hourly_table_closures']:
+  assert_sql("NOT has_table_privilege('service_role','"+table+"','SELECT,INSERT,UPDATE,DELETE')",'engine uses definer doors, no direct pacing/receipt writes')
+
+ assert q('SET ROLE service_role;SELECT count(*) FROM fn_cash_hourly_table_admissions();')=='0'
  expected=[(18,25),(15,18),(15,18),(12,15),(7,10),(5,8),(5,7),(7,9),(9,11),(10,13),(12,16),(13,17),(15,17),(15,18),(15,18),(15,18),(15,20),(18,22),(22,30),(25,33),(30,40),(30,40),(30,40),(25,29)]
  for hour,(lo,hi) in enumerate(expected):
   assert q(f"SELECT target_min||','||table_cap FROM fn_cash_hourly_table_range('2026-11-16 {hour:02}:00 America/Chicago');")==f'{lo},{hi}'

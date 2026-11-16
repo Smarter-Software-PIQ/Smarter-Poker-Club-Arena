@@ -59,7 +59,7 @@ ALTER TABLE public.cash_hourly_table_pacing ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.cash_hourly_table_starts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.cash_hourly_table_closures ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.cash_hourly_table_pacing,public.cash_hourly_table_starts,
- public.cash_hourly_table_closures FROM PUBLIC,anon,authenticated;
+ public.cash_hourly_table_closures FROM PUBLIC,anon,authenticated,service_role;
 
 -- Migration-first and rollback compatibility: only a serving leader that has
 -- entered the new hand-boundary door activates this policy. An older rollback
