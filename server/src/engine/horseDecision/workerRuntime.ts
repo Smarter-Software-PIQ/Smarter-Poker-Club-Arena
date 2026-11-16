@@ -3041,10 +3041,10 @@ export class HorseDecisionWorkerRuntime {
     // not passed and the code default decides, exactly as before. The same for every Horse (no Horse id is read).
     const optionStates = this.optionSwitch.refresh(performance.now());
     const optionBrainOpts = optionSwitchDecisionOpts(optionStates);
-    // The V31 loader has no decision: it follows the value this read gives the v3 serving option (FLOP-5 D6).
-    noteGtoV31CellContractV3ServingSwitch(optionBrainOpts.gtoV31CellContractV3Serving);
     // the decision's own observation counts with the state this decision journals (process switch, see above)
     HorseMind.applyFixedLimitBetsAreNeverProbesOption(optionBrainOpts);
+    // The V31 loader has no decision: it follows the value this read gives the v3 serving option (FLOP-5 D6).
+    noteGtoV31CellContractV3ServingSwitch(optionBrainOpts.gtoV31CellContractV3Serving);
     // P15-A step 4: the worker-owned state this decision reads besides its
     // request and read frame, journaled beside it for exact replay. Capture
     // only; the decision below reads the same values it always has.
