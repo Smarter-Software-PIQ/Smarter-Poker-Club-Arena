@@ -521,7 +521,7 @@ type Override = readonly [owner: OptionSwitchOwner, scope: string, description?:
 const OVERRIDES: Readonly<Partial<Record<keyof HorseDecideOpts & string, Override>>> = {
   fixedLimitPricedPreflop: [
     'Fixed-Limit',
-    'Fixed limit (flh, flo8) preflop, cash tables only; hi-lo only unfloored and three or more dealt seats (others inert by code)',
+    'Fixed limit preflop, cash tables only, credited types only: flh dealt 2/6/9 unfloored and 2/3/6/7/9 floored, flo8 dealt 6 unfloored (others inert by code)',
     'fixed-limit preflop priced at fixed-limit odds: first-in, facing a raise, big-blind defence (W5 P)',
   ],
   fixedLimitStealVsTightBlinds: [

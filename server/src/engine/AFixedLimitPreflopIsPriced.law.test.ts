@@ -27,11 +27,13 @@
  * is inert (every first-in and big-blind decision equals off, no W5 receipt
  * fires); at cash tables on the same spots and seeds it still acts.
  *
- * HI-LO SCOPE (2026-11-16, Phase 2, AB-EVALUATION-2 0.18): in hi-lo the option
- * acts only at an unfloored table dealt three seats or more; at a flo8 table
- * dealt two seats, or with a VPIP floor, it is inert (every decision equals
- * off, no W5 receipt fires), because the harness cannot validate those table
- * types. Hold'em is not narrowed; flo8 six-max unfloored still acts.
+ * CREDITED SCOPE (2026-11-16, Phase 2, AB-EVALUATION-2 0.22 "use of the
+ * result"; it replaces the 0.18 hi-lo scope): the option acts only at the cash
+ * table types with a credited PASS cell, by variant, floor and dealt seats:
+ * flh dealt 2/6/9 unfloored and 2/3/6/7/9 floored, flo8 dealt 6 unfloored. At
+ * every other cash table type it is inert (every decision equals off, no W5
+ * receipt fires); at every listed type it still acts on the same spots and
+ * seeds.
  */
 import { describe, expect, it } from 'vitest';
 import type { Card } from '../types.js';
@@ -108,8 +110,9 @@ describe('first in, the fixed-limit open is the reference range by seat (option 
     it(`${variant}: every seat's raise share lands in the reference band`, () => {
       const rows: string[] = [];
       for (const [dealt, seat, behind] of SEATS) {
-        // flo8 heads-up is out of scope (AB 0.18): see the hi-lo scope block.
-        if (variant === 'flo8' && dealt <= 2) continue;
+        // flo8 is credited only at dealt 6 unfloored (AB 0.22): see the
+        // credited scope block (flo8 heads-up and full ring are inert).
+        if (variant === 'flo8' && dealt !== 6) continue;
         const ref = fixedLimitOpenShare(variant, dealt, behind)!;
         const on = firstIn(variant, dealt, seat, ON);
         rows.push(`${dealt}-handed behind ${behind}: ref ${ref.raise} on ${on.raise.toFixed(3)}`);
@@ -156,7 +159,7 @@ function bbSpot(variant: string, n: number, i: number) {
 
 describe('the big blind defends to its price (option on)', () => {
   for (const variant of VARIANTS) {
-    // flo8 heads-up is out of scope (AB 0.18): see the hi-lo scope block.
+    // flo8 is credited only at dealt 6 unfloored (AB 0.22): see the credited scope block.
     for (const n of variant === 'flo8' ? [6] : [6, 2]) {
       it(`${variant} ${n === 2 ? 'heads-up (3 to 1)' : 'vs the button (3.5 to 1)'}: no hand above the price folds; fewer folds than main`, () => {
         enableBrainTelemetry();
@@ -650,25 +653,35 @@ describe('cash tables only: at a fixed-limit tournament table the option is iner
   }
 });
 
-// ─── HI-LO SCOPE (Phase 2, AB-EVALUATION-2 0.18; owner order 2026-11-16T04:08Z) ───
-// The options act only where a validated paired result exists. In hi-lo the
-// harness cannot validate heads-up (big blind defence not judged) or a floored
-// table (floored big blind defence NOT VALID), so at a flo8 table dealt two
-// seats, or with a VPIP floor, P (and S with it) is inert: every decision
-// equals off and no W5 receipt fires. Hold'em is not narrowed, and flo8
-// six-max unfloored still acts. HorseLogic: fixedLimitPreflopInScope, read at
-// the priced-context entry and at the pack precedence.
+// ─── CREDITED SCOPE (Phase 2, AB-EVALUATION-2 0.22; lane owner 2026-11-16) ───
+// P (and S with it) acts only at the cash table types with a credited PASS
+// cell: HorseLogic's FIXED_LIMIT_PRICED_PREFLOP_CREDITED allow-list, keyed by
+// variant, floored (gs.vpipFloor > 0) and the dealt seat count
+// (dealtHorseTableSize: gs.dealtSeatIds, here the seats HandController dealt
+// cards to). At every other cash table type every decision with the option on
+// equals off and no W5 receipt fires; at every listed type the option still
+// changes a first-in or big-blind decision on the same spots and seeds, so this
+// block sees the difference if the allow-list is bypassed or widened.
+// HorseLogic: fixedLimitPreflopInScope, read at the priced-context entry and
+// at the pack precedence.
 const SCOPE_DEALS = 40;
 const FLOOR = {
   flh: { vpipFloor: 15, vpipWindowHands: 30 },
   flo8: { vpipFloor: 25, vpipWindowHands: 30 },
 };
 
+/** First-in seats of an n-handed table with the dealer at seat 1: UTG (4) round to the small blind. */
+function firstInSeats(n: number): number[] {
+  if (n === 2) return [1];
+  const seats: number[] = [];
+  for (let s = 4; s <= n; s++) seats.push(s);
+  return [...seats, 1, 2];
+}
+
 /** First in from every seat of an n-handed table, plus the big blind facing one button raise. */
 function scopeSpots(variant: string, n: number, i: number) {
   const spots: { label: string; t: Table }[] = [];
-  const seats = n === 2 ? [1] : n === 6 ? [4, 5, 6, 1, 2] : [4, 6, 8, 9, 1, 2];
-  for (const seat of seats) {
+  for (const seat of firstInSeats(n)) {
     const t = fmtTable(variant, 'cash', n, 21000 + i * 11 + seat);
     foldTo(t, seat);
     spots.push({ label: `first in seat ${seat} of ${n}`, t });
@@ -682,20 +695,29 @@ function scopeSpots(variant: string, n: number, i: number) {
   return spots;
 }
 
-describe('hi-lo scope: P is inert at flo8 heads-up and at floored flo8 tables', () => {
-  const OUT: { label: string; n: number; floored: boolean }[] = [
-    { label: 'heads-up unfloored', n: 2, floored: false },
-    { label: 'heads-up floored', n: 2, floored: true },
-    { label: 'six-max floored', n: 6, floored: true },
+type ScopeCase = { variant: 'flh' | 'flo8'; n: number; floored: boolean };
+const caseLabel = ({ variant, n, floored }: ScopeCase) =>
+  `${variant} dealt ${n} ${floored ? 'floored' : 'unfloored'}`;
+
+describe('credited scope: P acts only at the cash table types with a credited PASS cell', () => {
+  // Out of the allow-list: 3.16 HARM or no PASS, floored flh 4 diagnostic,
+  // flo8 3 not judgeable, dealt 5 and 8 never measured, flo8 heads-up and
+  // floored flo8 (0.18 / 3.6), flo8 7-9 never measured.
+  const OUT: ScopeCase[] = [
+    ...[3, 4, 5, 7, 8].map((n) => ({ variant: 'flh' as const, n, floored: false })),
+    ...[4, 5, 8].map((n) => ({ variant: 'flh' as const, n, floored: true })),
+    ...[2, 3, 4, 5, 7, 8, 9].map((n) => ({ variant: 'flo8' as const, n, floored: false })),
+    ...[2, 6].map((n) => ({ variant: 'flo8' as const, n, floored: true })),
   ];
-  for (const { label, n, floored } of OUT) {
-    it(`flo8 ${label}: with the option on (and with the steal too) every decision equals off, and no W5 receipt fires`, () => {
+  for (const c of OUT) {
+    it(`${caseLabel(c)}: with the option on (and with the steal too) every decision equals off, and no W5 receipt fires`, () => {
       enableBrainTelemetry();
-      const gsExtra = floored ? FLOOR.flo8 : {};
+      const gsExtra = c.floored ? FLOOR[c.variant] : {};
       let count = 0;
       for (let i = 0; i < SCOPE_DEALS; i++) {
-        for (const spot of scopeSpots('flo8', n, i)) {
+        for (const spot of scopeSpots(c.variant, c.n, i)) {
           const seed = 23000 + i;
+          const where = `${caseLabel(c)} ${spot.label} deal ${i}`;
           const off = decide(spot.t, seed, { telemetry: true }, gsExtra).d;
           drainFires();
           const on = decide(spot.t, seed, { ...ON, telemetry: true }, gsExtra).d;
@@ -707,42 +729,38 @@ describe('hi-lo scope: P is inert at flo8 heads-up and at floored flo8 tables', 
             gsExtra
           ).d;
           const firedBoth = drainFires().filter((f) => W5_FIRES.test(f.feature));
-          expect(pick(on), `flo8 ${label} ${spot.label} deal ${i}`).toEqual(pick(off));
-          expect(pick(both), `flo8 ${label} ${spot.label} deal ${i} (steal too)`).toEqual(
-            pick(off)
-          );
+          expect(pick(on), where).toEqual(pick(off));
+          expect(pick(both), `${where} (steal too)`).toEqual(pick(off));
           expect(
             fired.map((f) => f.feature),
-            `flo8 ${label} ${spot.label} deal ${i}`
+            where
           ).toEqual([]);
           expect(
             firedBoth.map((f) => f.feature),
-            `flo8 ${label} ${spot.label} deal ${i}`
+            `${where} (steal too)`
           ).toEqual([]);
           count++;
         }
       }
-      expect(count).toBe(SCOPE_DEALS * (n === 2 ? 2 : 6));
+      expect(count).toBe(SCOPE_DEALS * (firstInSeats(c.n).length + 1));
     }, 240_000);
   }
 
-  const IN: { variant: 'flh' | 'flo8'; n: number; floored: boolean }[] = [
+  // The allow-list, entry by entry (3.4: unfloored flh 2/6/9 and flo8 6;
+  // 3.6: floored flh 6/9; 3.12: floored flh 2; 3.16: floored flh 3/7).
+  const IN: ScopeCase[] = [
+    ...[2, 6, 9].map((n) => ({ variant: 'flh' as const, n, floored: false })),
+    ...[2, 3, 6, 7, 9].map((n) => ({ variant: 'flh' as const, n, floored: true })),
     { variant: 'flo8', n: 6, floored: false },
-    { variant: 'flh', n: 2, floored: false },
-    { variant: 'flh', n: 2, floored: true },
-    { variant: 'flh', n: 6, floored: false },
-    { variant: 'flh', n: 6, floored: true },
-    { variant: 'flh', n: 9, floored: false },
-    { variant: 'flh', n: 9, floored: true },
   ];
-  for (const { variant, n, floored } of IN) {
-    it(`${variant} ${n}-handed ${floored ? 'floored' : 'unfloored'}: the option still acts and its receipts fire`, () => {
+  for (const c of IN) {
+    it(`${caseLabel(c)}: the option still changes a first-in or big-blind decision, and its receipts fire`, () => {
       enableBrainTelemetry();
-      const gsExtra = floored ? FLOOR[variant] : {};
+      const gsExtra = c.floored ? FLOOR[c.variant] : {};
       let changed = 0;
       let fires = 0;
       for (let i = 0; i < SCOPE_DEALS; i++) {
-        for (const spot of scopeSpots(variant, n, i)) {
+        for (const spot of scopeSpots(c.variant, c.n, i)) {
           const seed = 23000 + i;
           const off = decide(spot.t, seed, { telemetry: true }, gsExtra).d;
           drainFires();
@@ -751,14 +769,8 @@ describe('hi-lo scope: P is inert at flo8 heads-up and at floored flo8 tables', 
           if (on.action !== off.action) changed++;
         }
       }
-      expect(
-        changed,
-        `${variant} ${n} ${floored ? 'floored' : 'unfloored'} decisions changed`
-      ).toBeGreaterThan(0);
-      expect(
-        fires,
-        `${variant} ${n} ${floored ? 'floored' : 'unfloored'} receipts`
-      ).toBeGreaterThan(0);
+      expect(changed, `${caseLabel(c)} decisions changed`).toBeGreaterThan(0);
+      expect(fires, `${caseLabel(c)} receipts`).toBeGreaterThan(0);
     }, 240_000);
   }
 });
