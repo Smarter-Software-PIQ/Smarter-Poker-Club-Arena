@@ -3,8 +3,10 @@
 -- starting under the membership never start a separate club book or payout.
 -- @live-proof: position('standalone_week_belongs_to_union' in pg_get_functiondef('smarter_private.weekly_payout_scope_plan(timestamptz,timestamptz)'::regprocedure))>0 AND position('standalone_week_belongs_to_union' in pg_get_functiondef('public.fn_process_weekly_accounting_scope(uuid,uuid)'::regprocedure))>0 AND (SELECT count(*)=5 FROM pg_catalog.pg_trigger WHERE tgname='member_club_standalone_game_guard' AND tgenabled='O' AND tgrelid IN ('public.tables'::regclass,'public.tournaments'::regclass,'public.union_clubs'::regclass,'public.cash_games'::regclass,'public.tournament_schedules'::regclass))
 BEGIN;
-SET LOCAL lock_timeout='1s';
-SET LOCAL statement_timeout='5s';
+-- Active game writers normally hold these relations for several seconds.
+-- Give the structural trigger install the bounded DDL budget used elsewhere.
+SET LOCAL lock_timeout='5s';
+SET LOCAL statement_timeout='15s';
 SET LOCAL search_path=pg_catalog,public;
 
 CREATE FUNCTION smarter_private.standalone_week_belongs_to_union(p_club uuid,p_from timestamptz)
