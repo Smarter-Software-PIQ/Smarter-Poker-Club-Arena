@@ -105,6 +105,10 @@ try:
  assert_sql('NOT fn_cash_hourly_table_enabled()','migration alone leaves serving predecessor unchanged')
  for table in ['cash_hourly_table_pacing','cash_hourly_table_starts','cash_hourly_table_closures','cash_hourly_table_origins']:
   assert_sql("NOT has_table_privilege('service_role','"+table+"','SELECT,INSERT,UPDATE,DELETE')",'engine uses definer doors, no direct pacing/receipt writes')
+ for signature in ['fn_cash_hourly_table_capacity_census()','fn_cash_hourly_table_excess(uuid)','fn_cash_hourly_table_drain_candidate()','fn_cash_hourly_table_admit(uuid,uuid)','fn_cash_hourly_table_admissions()']:
+  for role in ['anon','authenticated']:
+   assert_sql("NOT has_function_privilege('"+role+"','"+signature+"','EXECUTE')",'successor policy remains private')
+  assert_sql("has_function_privilege('service_role','"+signature+"','EXECUTE')",'original engine still executes policy')
 
  assert q('SET ROLE service_role;SELECT count(*) FROM fn_cash_hourly_table_admissions();')=='0'
  expected=[(18,25),(15,18),(15,18),(12,15),(7,10),(5,8),(5,7),(7,9),(9,11),(10,13),(12,16),(13,17),(15,17),(15,18),(15,18),(15,18),(15,20),(18,22),(22,30),(25,33),(30,40),(30,40),(30,40),(25,29)]

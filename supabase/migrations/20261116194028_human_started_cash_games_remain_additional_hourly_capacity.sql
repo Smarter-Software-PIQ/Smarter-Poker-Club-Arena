@@ -182,6 +182,11 @@ LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp
  AND t.status IN('waiting','running') AND coalesce(t.lifecycle,'') NOT IN('closed','breaking');
 $fn$;
 
-REVOKE ALL ON FUNCTION public.fn_cash_hourly_table_capacity_census() FROM PUBLIC,anon,authenticated;
-GRANT EXECUTE ON FUNCTION public.fn_cash_hourly_table_capacity_census() TO service_role;
+REVOKE ALL ON FUNCTION public.fn_cash_hourly_table_capacity_census(),
+ public.fn_cash_hourly_table_excess(uuid),public.fn_cash_hourly_table_drain_candidate(),
+ public.fn_cash_hourly_table_admit(uuid,uuid),public.fn_cash_hourly_table_admissions()
+ FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_cash_hourly_table_capacity_census(),
+ public.fn_cash_hourly_table_excess(uuid),public.fn_cash_hourly_table_drain_candidate(),
+ public.fn_cash_hourly_table_admit(uuid,uuid),public.fn_cash_hourly_table_admissions() TO service_role;
 COMMIT;
