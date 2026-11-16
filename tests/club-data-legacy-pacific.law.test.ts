@@ -133,3 +133,23 @@ describe('canonical funded cash report ownership', () => {
     );
   });
 });
+
+describe('restored Pacific source context is nullable at every UUID cast', () => {
+  it('normalizes every cast under exact production preimages without changing captures', () => {
+    const fix = read(
+      'supabase/migrations/20261116203318_pacific_data_empty_rake_context_is_null.sql'
+    );
+    expect(fix).toContain('caf725b26e6115f60b80412183c61be0');
+    expect(fix).toContain('246735d855771ebedf6278a514a4bffe');
+    expect(fix).toContain("nullif(current_setting(''ca.pacific_rake_record'',true),'''')::uuid");
+    expect(fix).toContain('replace(d,old_cast,new_cast)');
+    expect(fix).toContain('WHERE id=true');
+    expect(fix).not.toMatch(
+      /DELETE FROM|UPDATE public\.(?:ca_club_data_pacific_fact|wallet_transactions|rake_records)\b/i
+    );
+    expect(read(native)).toContain('original fact/hand empty-context callback defect reproduced');
+    expect(read(native)).toContain(
+      'fixed empty-context fact and hand callbacks create no UUID failures'
+    );
+  });
+});
