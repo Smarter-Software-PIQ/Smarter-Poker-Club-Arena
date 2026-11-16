@@ -308,7 +308,7 @@ it('labels lifetime fee criteria Overall while preserving current-week display a
   ).toBeInTheDocument();
 });
 
-it('shows the authorized period fees, never the wallet, and opens the existing management route', async () => {
+it('shows authorized period fees and player wallet, and opens the existing management route', async () => {
   f.period.mockResolvedValue(
     new Map([['player-1', { cash: 0, mtt: 0, net: 0, fees: 12345, downline_fees: 0 }]])
   );
