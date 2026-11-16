@@ -2715,6 +2715,19 @@ export const LEAGUE_MATCHUPS: LeagueMatchup[] = [
     a: { omahaStrongHandSlowplayMix: true },
     b: {},
   })),
+  // 2026-11-16 OMAHA BET SIZE BY PUBLIC STATE (horsePublicBetSize, default
+  // OFF): the size of an own postflop bet or raise comes from public
+  // information only; a switches it on, b is today's brain. The league's
+  // opponents do not read sizes, so this card asks only whether the public
+  // sizes cost chips, not whether they close the tell.
+  ...(['plo4', 'plo5'] as const).map((variant) => ({
+    name: `${variant}_omaha_bet_size_by_public_state`,
+    variant,
+    pairs: 6000,
+    hybridBaseline: true,
+    a: { omahaBetSizeByPublicState: true },
+    b: {},
+  })),
   // V15 BOATS (2026-09-28): default OFF. a turns it on, b is today's brain.
   // Ship it default ON only after this resolves significant positive.
   // 2026-11-06: V15 boats is default ON in PLO5 cash (v15BoatsOn), so the

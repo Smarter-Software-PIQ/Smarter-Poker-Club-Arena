@@ -656,6 +656,11 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     "Owner order 2026-11-15 (timing tell): every Horse think time, every variant and format, comes from horsePublicActionTimeMs: street, board, pot, price, stacks, players, the action shown, the seat tempo persona and a random stream of its own; the private difficulty hint, the hold'em made-hand Hollywood trigger and the strategy random stream no longer reach it. Default OFF (opt-in): only an explicit true switches it on",
     'V94'
   ),
+  flag(
+    'omahaBetSizeByPublicState',
+    "PLO Strategy lane 2026-11-16 (owner 2026-11-15: \"HE GETS THEM TO FOLD WHEN HE WANTS A FOLD, AND GETS A CALL WHEN HE WANTS A CALL\"; bet size measured as a tell, sizing-20261116/MEASURE.md): in PLO4/PLO5 cash, pot limit, high only, one board, not Lightning, the size of the Horse's own postflop bet or raise comes from horsePublicBetSize on public information only (street, board class, pot, the seat's chips, legal bounds, opponents, position, the heads-up opponent's measured fold-to-bet read) and a random stream of its own, as the last step of the wager_rules node, so every hand the engine bets in one public spot draws from one size distribution. Bet or check, raise or call stay the engine's; a check, call, fold or all-in is never touched; a size that commits 60% or more of the chips becomes the largest legal wager for every betting hand (every chip is the all-in); with omahaNutClassValueSize on, a nut-class wager keeps that option's size. Every constant is a builder's choice, none measured. Default OFF (opt-in): only an explicit true switches it on",
+    'V94'
+  ),
   flag('v9Mood', 'hourly mood gear-shift per horse', 'V9'),
   flag('v10', 'V10 master: c-bet read, SPR, rake, thin value, limp iso', 'V10'),
   flag('v10Cbet', 'range-advantage c-bet read', 'V10'),
@@ -4884,6 +4889,36 @@ export const HORSE_DATA_LEDGER: LedgerEntry[] = [
     'omaha_strong_hand_slowplay_check',
     'HorseLogic wager_rules (HorseOmahaStrongHandSlowplayMix, omahaStrongHandSlowplayMix)',
     'PLO4/PLO5 cash flop, nothing to call, a set on a very dry flop, one or two opponents, the final answer a bet: the mixed draw fell under the frequency of the spot and the bet became a check',
+    'V94'
+  ),
+  receipt(
+    'omaha_public_bet_size_applied',
+    'HorseLogic wager_rules (horsePublicBetSize, omahaBetSizeByPublicState)',
+    'PLO4/PLO5 cash postflop, the final answer an own bet or raise: its size was replaced by the public-state size (horsePublicBetSizeTo), legalized, the action kept',
+    'V94'
+  ),
+  receipt(
+    'omaha_public_bet_size_unchanged',
+    'HorseLogic wager_rules (horsePublicBetSize, omahaBetSizeByPublicState)',
+    'PLO4/PLO5 cash postflop, an own bet or raise whose size already equals the public-state size after legalizing (valid no-change)',
+    'V94'
+  ),
+  receipt(
+    'omaha_public_bet_size_committed',
+    'HorseLogic wager_rules (horsePublicBetSize, omahaBetSizeByPublicState)',
+    "PLO4/PLO5 cash postflop, the public-state size would put 60% or more of the seat's chips in: the bet or raise became the largest legal wager, every chip, an all-in",
+    'V94'
+  ),
+  receipt(
+    'omaha_public_bet_size_nut_class_kept',
+    'HorseLogic wager_rules (horsePublicBetSize, omahaBetSizeByPublicState)',
+    "PLO4/PLO5 cash postflop, omahaNutClassValueSize on and a nut-class hand: that owner option's wager size stands (valid no-change)",
+    'V94'
+  ),
+  receipt(
+    'omaha_public_bet_size_illegal_kept',
+    'HorseLogic wager_rules (horsePublicBetSize, omahaBetSizeByPublicState)',
+    "PLO4/PLO5 cash postflop, the public-state size did not legalize to the same action: the engine's own decision stands (valid no-change)",
     'V94'
   ),
   receipt(
