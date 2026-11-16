@@ -12,7 +12,6 @@ import { STYLE_SWITCH_OPTIONS } from './HorseStyleSwitch.js';
 import {
   OPTION_SWITCH_BASE_MIGRATION,
   OPTION_SWITCH_FOLLOW_UP_COMMAND,
-  OPTION_SWITCH_MIGRATIONS_DIR,
   OPTION_SWITCH_PROOF_SCRIPT,
   newestOptionSwitchListMigration,
   optionSwitchFollowUpRefusal,
@@ -37,14 +36,16 @@ describe('a Horse option added after the switch is installed ships as a follow-u
   it('(a) a ledger option missing from the newest list fails with a message naming the --follow-up command', () => {
     const sql = optionSwitchFollowUpSql(NAME);
     expect(optionSwitchListDrift(FOLLOW_UP, sql)).toBeNull();
-    // the newest list migration as it stands (the base until a follow-up ships) equals the registry today
-    const newest = newestOptionSwitchListMigration(
-      readdirSync(join(REPO, OPTION_SWITCH_MIGRATIONS_DIR)).map((name) => ({
-        name,
-        text: name.endsWith('.sql') ? read(`${OPTION_SWITCH_MIGRATIONS_DIR}/${name}`) : '',
-      }))
+    // the newest list migration on disk (the base, or the latest follow-up) equals the registry today
+    const onDisk = newestOptionSwitchListMigration(
+      readdirSync(join(REPO, 'supabase/migrations'))
+        .filter((name) => name.endsWith('.sql'))
+        .map((name) => ({
+          name,
+          text: read(`supabase/migrations/${name}`),
+        }))
     );
-    expect(optionSwitchListDrift(newest, read(newest))).toBeNull();
+    expect(optionSwitchListDrift(onDisk, read(onDisk))).toBeNull();
     // drop the last plain (switchable on/off) option from every plain list: the registry now has an option the
     // database whitelist does not
     const missing = OPTION_SWITCH_PLAIN_NAMES.filter(

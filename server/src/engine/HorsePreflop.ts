@@ -62,6 +62,7 @@ import { limpReraiseIsoBar } from './HorseLimpReraiseRead.js';
 import { fixedLimitHasNoJamOrFold } from './HorseFixedLimitStructure.js';
 import {
   OMAHA_TOURNAMENT_FIRST_IN,
+  omahaSmallBlindStealTable,
   omahaTournamentFirstIn,
   type OmahaTournamentFirstInParams,
 } from './HorseOmahaTournamentFirstIn.js';
@@ -203,6 +204,9 @@ export const OMAHA_HILO_TOURNAMENT_FIRST_IN: OmahaTournamentFirstInParams = Obje
   bigBlindMaxPrice: 0.5,
   bigBlindClosingShare: 0,
   payJumpBlindVsBlindShare: 0,
+  // The Omaha high full-table small-blind steal does not reach hi-lo.
+  fullTableSbStealShare: 0,
+  fullTableSbStealMaxStackBB: 0,
 });
 
 /** Layers that report through PreflopCtx.noteLayer (receipt only). */
@@ -214,8 +218,41 @@ export type PreflopLayerReceipt =
   | 'bluff_raise_refused_no_fold_equity_seen'
   | 'omaha_tournament_first_in'
   | 'omaha_hilo_tournament_first_in'
+  | 'omaha_full_table_sb_steal'
   | 'style_tight_opener_respect_seen'
-  | 'style_tight_reraiser_respect_seen';
+  | 'style_tight_reraiser_respect_seen'
+  | 'holdem_persona_3bet_bluff_eligible_seen'
+  | 'holdem_persona_3bet_bluff_changed_seen'
+  | 'holdem_persona_3bet_bluff_capped_seen'
+  | 'holdem_persona_squeeze_bluff_eligible_seen'
+  | 'holdem_persona_squeeze_bluff_changed_seen'
+  | 'holdem_persona_squeeze_bluff_capped_seen'
+  | 'holdem_persona_scale_held_by_style_seen';
+
+/**
+ * PERSONA RE-RAISE MIX, OFFLINE MEASUREMENT TAP. One event per persona
+ * comparison, with the numbers the comparison used. Null everywhere except
+ * the measuring harness (HoldemPersonaReRaiseProbe) and tests, which set it
+ * and clear it; no live process sets it. It observes and decides nothing.
+ */
+export interface HoldemPersonaReRaiseTapEvent {
+  kind: 'three_bet' | 'squeeze';
+  /** The site's unscaled probability. */
+  p: number;
+  /** The Horse's scale, and the scale the site used (held at 1 by a style read). */
+  scale: number;
+  scaleUsed: number;
+  unit: number;
+  /** The scaled answer, and the answer the unscaled comparison gave. */
+  fires: boolean;
+  unscaled: boolean;
+}
+let holdemPersonaReRaiseTap: ((event: HoldemPersonaReRaiseTapEvent) => void) | null = null;
+export function setHoldemPersonaReRaiseTap(
+  tap: ((event: HoldemPersonaReRaiseTapEvent) => void) | null
+): void {
+  holdemPersonaReRaiseTap = tap;
+}
 
 /**
  * Dan 2026-11-06 (PLO5 1/2 Madness, hand 55704472): "I JUST WATCHED NOODLE NOT
@@ -350,6 +387,9 @@ export interface PreflopCtx {
   omahaTightOpener?: { threeBetBar: number; maxBarMove: number; callBump: number };
   omahaTightReRaiser?: { fourBetBump: number; callBump: number };
   omahaTightSteal?: { openWiden: number };
+  /** RESPONSES TO TIGHT PLAYERS (2026-11-15, styleTightPlayerExploit): every limper is credibly tight and not
+   *  aggressive; the no-limit hold'em isolation bar from middle or late position comes down by this much. */
+  styleTightIsoWiden?: number;
   /**
    * 2026-10-24 V53 PRESSURE (HorseOpponentExploit.aggressiveOpenerPressure):
    * the single raiser is a credibly WIDE opener. Heads-up against them the
@@ -436,6 +476,30 @@ export interface PreflopCtx {
    *  the hand clears 0.26; a committed top-half hand whose call is all in is
    *  priced in to 0.18. Every other variant, and absent, = unchanged. */
   committedStackPricedIn?: boolean;
+  /** PERSONA RE-RAISE MIX (2026-11-14, D3 option C, flag
+   *  holdemPersonaReRaiseMix, default OFF). Present only with the flag on and
+   *  a two-card no-limit hold'em decision by a Horse with an id. `scale` is
+   *  the Horse's nlh3BetMix over the model mean (0.52 to 1.52). Each `u` is a
+   *  zero-draw hash in [0,1) of the Horse, the hand (table id and hand
+   *  number), its exact hole cards and a salt per behaviour: one value per
+   *  behaviour for the whole hand (HorseLogic.holdemPersonaReRaiseUnit; a
+   *  caller with no hand gets the named public-state fallback). The
+   *  3-bet bluff and the squeeze bluff still consume their random draw at the
+   *  same place and decide on `u < min(1, p * scale)`. Against an opener
+   *  the style read classifies as tight (heldByTightRead), the scale is held
+   *  at min(1, scale): the persona may lower a bluff there, never raise it.
+   *  Value 3-bets, value squeezes and every four-bet reshove do not read it
+   *  (shallow four-bet reshoves are not persona-specific: owner decision
+   *  R3-B, 2026-11-13). Absent = unchanged. */
+  holdemPersonaReRaise?: {
+    scale: number;
+    u3bet: number;
+    uSqueeze: number;
+    /** The opener / re-raiser is one the opponent-style read classifies as
+     *  tight (HorseLogic asks the read itself, whatever the style option's
+     *  state). The scale is then min(1, scale) at both sites. */
+    heldByTightRead?: boolean;
+  };
   /** Set with committedStackPricedIn only (HorseLogic.committedPayJumpLive): true when busting now can cost a pay
    *  jump (bubble, hand for hand, satellite, in the money, or an unknown payout context). The option makes a call that can
    *  bust the Horse (the crumbs clauses, the half-stack clause when the call is all in, the 0.18 all-in price) only
@@ -550,9 +614,18 @@ export interface PreflopCtx {
   cashActionSizes?: boolean;
   /** Dan 2026-10-24 NLH cash pressure (3-bet and defend wider); undefined = on. */
   cashAggression?: boolean;
-  /** Omaha high tournament: the hand's percentile among Omaha hands and,
-   *  for league arms only, replacement shares. Undefined = the rule is off. */
-  omahaTournamentFirstIn?: { percentile: number; params?: Partial<OmahaTournamentFirstInParams> };
+  /** Omaha high tournament: the hand's percentile among Omaha hands, its
+   *  hole-card count, the trusted stage flags the full-table small blind rule
+   *  stands aside on and, for league arms only, replacement shares.
+   *  Undefined = the rule is off. */
+  omahaTournamentFirstIn?: {
+    percentile: number;
+    holeCount?: number;
+    nearBubble?: boolean;
+    handForHand?: boolean;
+    satellite?: boolean;
+    params?: Partial<OmahaTournamentFirstInParams>;
+  };
   /** Pot-limit Omaha hi-lo tournament, heads-up (HU-HILO-002, default OFF):
    *  the hand's hi-lo percentile and, for league arms only, replacement
    *  shares. Undefined = the rule is off. */
@@ -1171,14 +1244,26 @@ export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
     !ctx.omahaHiLo &&
     ctx.mode === 'tournament'
   ) {
+    // A league arm may name only the parameters it changes: anything it
+    // leaves out keeps the published default (a partial object must never
+    // zero the other shares and silently switch the rule off).
+    const firstInParams = ctx.omahaTournamentFirstIn.params
+      ? {
+          ...OMAHA_TOURNAMENT_FIRST_IN,
+          ...Object.fromEntries(
+            Object.entries(ctx.omahaTournamentFirstIn.params).filter(([, v]) => v !== undefined)
+          ),
+        }
+      : OMAHA_TOURNAMENT_FIRST_IN;
+    // Unknown table size (a league ablation arm only) must not read as
+    // heads-up: NaN makes the rule stand aside.
+    const firstInTableSize = ctx.tableSize ?? Number.NaN;
     const widened = omahaTournamentFirstIn(
       {
         percentile: ctx.omahaTournamentFirstIn.percentile,
         position: ctx.position,
         liveOpponents: ctx.oppsLeft,
-        // Unknown table size (a league ablation arm only) must not read as
-        // heads-up: NaN makes the rule stand aside.
-        tableSize: ctx.tableSize ?? Number.NaN,
+        tableSize: firstInTableSize,
         // Unknown players-left must not read as a final table either.
         playersLeft: ctx.tournamentPlayersLeft ?? Number.NaN,
         paidPlacesLeft: ctx.tournamentPaidPlacesLeft ?? Number.NaN,
@@ -1192,21 +1277,21 @@ export function decidePreflopV7(ctx: PreflopCtx): PreflopIntent {
         riskPremium: ctx.riskAdd,
         allInOrFold: ctx.allInOrFold === true,
         satelliteLocked: ctx.satellite?.locked === true,
+        holeCount: ctx.omahaTournamentFirstIn.holeCount,
+        nearBubble: ctx.omahaTournamentFirstIn.nearBubble === true,
+        handForHand: ctx.omahaTournamentFirstIn.handForHand === true,
+        satellite: ctx.omahaTournamentFirstIn.satellite === true,
       },
-      // A league arm may name only the parameters it changes: anything it
-      // leaves out keeps the published default (a partial object must never
-      // zero the other shares and silently switch the rule off).
-      ctx.omahaTournamentFirstIn.params
-        ? {
-            ...OMAHA_TOURNAMENT_FIRST_IN,
-            ...Object.fromEntries(
-              Object.entries(ctx.omahaTournamentFirstIn.params).filter(([, v]) => v !== undefined)
-            ),
-          }
-        : OMAHA_TOURNAMENT_FIRST_IN
+      firstInParams
     );
     if (widened) {
-      ctx.noteLayer?.('omaha_tournament_first_in');
+      // Four to eight dealt only the full-table small blind rule acts, so it
+      // has its own receipt.
+      ctx.noteLayer?.(
+        omahaSmallBlindStealTable({ tableSize: firstInTableSize }, firstInParams)
+          ? 'omaha_full_table_sb_steal'
+          : 'omaha_tournament_first_in'
+      );
       return widened;
     }
   }
@@ -1520,6 +1605,65 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     v87 && ctx.holeCards && ctx.holeCards.length === 2
       ? holdemClass(ctx.holeCards[0], ctx.holeCards[1])
       : null;
+  // PERSONA RE-RAISE MIX (D3 option C, default OFF): undefined on every
+  // decision without the flag, and then nothing below is reached. `roll` is
+  // the draw the bluff site consumed (the caller draws it at the place it
+  // always drew it); with the persona present the draw is discarded and the
+  // Horse's own unit decides against the scaled probability.
+  const personaReRaise = ctx.holdemPersonaReRaise;
+  // THE PERSONA NEVER BLUFFS A TIGHT PLAYER MORE. Where the opponent-style
+  // read classifies the raiser as tight (persona.heldByTightRead,
+  // worked out by HorseLogic from the read itself, so it holds with the style
+  // option off, in shadow or on), the persona's scale is held at
+  // min(1, scale): it may lower a bluff there, never raise it.
+  const personaScaleUsed = (
+    persona: NonNullable<PreflopCtx['holdemPersonaReRaise']>,
+    respected: boolean
+  ): number => {
+    if (!respected || !(persona.scale > 1)) return persona.scale;
+    ctx.noteLayer?.('holdem_persona_scale_held_by_style_seen');
+    return 1;
+  };
+  const personaBluffFires = (
+    persona: NonNullable<PreflopCtx['holdemPersonaReRaise']>,
+    roll: number,
+    p: number,
+    kind: 'three_bet' | 'squeeze'
+  ): boolean => {
+    const scaleUsed = personaScaleUsed(persona, persona.heldByTightRead === true);
+    const unit = kind === 'squeeze' ? persona.uSqueeze : persona.u3bet;
+    const fires = unit < Math.min(1, p * scaleUsed);
+    holdemPersonaReRaiseTap?.({
+      kind,
+      p,
+      scale: persona.scale,
+      scaleUsed,
+      unit,
+      fires,
+      unscaled: roll < p,
+    });
+    ctx.noteLayer?.(
+      kind === 'squeeze'
+        ? 'holdem_persona_squeeze_bluff_eligible_seen'
+        : 'holdem_persona_3bet_bluff_eligible_seen'
+    );
+    if (fires !== roll < p)
+      ctx.noteLayer?.(
+        kind === 'squeeze'
+          ? 'holdem_persona_squeeze_bluff_changed_seen'
+          : 'holdem_persona_3bet_bluff_changed_seen'
+      );
+    // The cap held this comparison at 1: counted. (It is not the only place
+    // frequency is lost: once p is above 1 over the largest scale, a Horse
+    // below the average still bluffs less and nobody can bluff more.)
+    if (p * scaleUsed > 1)
+      ctx.noteLayer?.(
+        kind === 'squeeze'
+          ? 'holdem_persona_squeeze_bluff_capped_seen'
+          : 'holdem_persona_3bet_bluff_capped_seen'
+      );
+    return fires;
+  };
   const v87EpCand =
     v87 && ctx.holeCards && ctx.holeCards.length === 2
       ? classifyHoldemEpLimpCandidate(ctx.holeCards[0], ctx.holeCards[1])
@@ -2427,6 +2571,18 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
     ) {
       openThresh -= isoW + Math.min(limpers - 1, 2) * 0.01;
     }
+    // RESPONSES TO TIGHT PLAYERS (styleTightPlayerExploit): tight limpers fold to an isolation raise more
+    // often than the population, so the next-best hands below the bar isolate too. Never beside a limp-reraise
+    // read (that read raises the bar just below).
+    if (
+      ctx.styleTightIsoWiden !== undefined &&
+      noLimitHoldem &&
+      limpers >= 1 &&
+      !limpReraiser &&
+      (position === 'late' || position === 'middle')
+    ) {
+      openThresh -= Math.max(0, Math.min(0.04, ctx.styleTightIsoWiden));
+    }
     // LIMP-RERAISE READ: a limper seen to limp-reraise is isolated only with
     // hands that stand his re-raise (HorseLimpReraiseRead).
     if (limpReraiser) openThresh = limpReraiseIsoBar(openThresh, ctx.limpReraiseRate!);
@@ -3272,7 +3428,16 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       !noBluff3 &&
       ctx.maniacNoBluff !== true &&
       !tightOpener &&
-      rand() < bluffBudget * (ctx.isOmaha ? 0.22 : 0.3) * blockerMult &&
+      // Persona re-raise mix (default OFF): the draw is consumed here either
+      // way; with the persona present it is discarded for the Horse's unit.
+      (personaReRaise === undefined
+        ? rand() < bluffBudget * (ctx.isOmaha ? 0.22 : 0.3) * blockerMult
+        : personaBluffFires(
+            personaReRaise,
+            rand(),
+            bluffBudget * (ctx.isOmaha ? 0.22 : 0.3) * blockerMult,
+            'squeeze'
+          )) &&
       // The same test as the 3-bet bluff below, after the draw.
       bluffRaiseHasFoldEquity(toCall, stack, ctx)
     ) {
@@ -3336,7 +3501,17 @@ function decidePreflopV7Core(ctx: PreflopCtx): PreflopIntent {
       !noBluff3 &&
       ctx.maniacNoBluff !== true &&
       !tightOpener &&
-      rand() < (def72 ? bluff72 : bluffFreqHere) &&
+      // Persona re-raise mix (default OFF): the draw is consumed here either
+      // way; with the persona present it is discarded for the Horse's unit
+      // (the squeeze unit when this block is the V85 squeeze, callers >= 1).
+      (personaReRaise === undefined
+        ? rand() < (def72 ? bluff72 : bluffFreqHere)
+        : personaBluffFires(
+            personaReRaise,
+            rand(),
+            def72 ? bluff72 : bluffFreqHere,
+            callers >= 1 ? 'squeeze' : 'three_bet'
+          )) &&
       // Tested after the draw so the random stream is unchanged.
       bluffRaiseHasFoldEquity(toCall, stack, ctx)
     ) {

@@ -180,3 +180,96 @@ export function styleShadowActionCode(action: string): string {
 export function styleShadowStreetCode(street: string): string {
   return STREET_CODE[street] ?? 'x';
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// STYLE ACTION-CHANGE RECEIPTS (2026-11-15, R1). A read-time receipt says an
+// option's read was made or an input moved; it does not say the committed
+// action changed. Here an option that is ON records that it APPLIED a
+// non-neutral adjustment in this decision, and the worker re-decides the same
+// request once with that one option off (same RNG position, telemetry
+// suspended, Horse-memory effects discarded) to see whether the final action
+// handed to the validator differs. The registry is deterministic (no clock,
+// no telemetry), so an exact replay re-derives the same receipt.
+// ─────────────────────────────────────────────────────────────────────────
+
+/** The options an action-change receipt covers: the seven style options and the tight-player response. */
+export const STYLE_ACTION_RECEIPT_OPTIONS = Object.freeze([
+  'styleValueBettorNotManiac',
+  'styleBigBetHonesty',
+  'styleRaiseRespect',
+  'styleTightReRaiserRespect',
+  'styleFoldRatePreRepair',
+  'styleValueExtraction',
+  'styleFoldBluff',
+  'styleTightPlayerExploit',
+] as const);
+export type StyleActionReceiptOption = (typeof STYLE_ACTION_RECEIPT_OPTIONS)[number];
+
+const applied = new Set<StyleActionReceiptOption>();
+
+/** An ON option applied a non-neutral adjustment in the decision being made (first note per option wins). */
+export function noteStyleOptionApplied(option: StyleActionReceiptOption): void {
+  applied.add(option);
+}
+
+/** Take (and clear) the options applied in the last decision, in the fixed option order. */
+export function takeStyleOptionsApplied(): StyleActionReceiptOption[] {
+  const out = STYLE_ACTION_RECEIPT_OPTIONS.filter((o) => applied.has(o));
+  applied.clear();
+  return out;
+}
+
+export function clearStyleOptionsApplied(): void {
+  applied.clear();
+}
+
+/**
+ * The decision-level receipt (journal field HorseDecision.styleActionReceipt, version 1). `option` is the one
+ * applied option the decision re-decided without (chosen from `applied` by the decision key, like the shadow pick);
+ * `changed` is true exactly when the final action or amount differs. `without` is null when the re-decision failed
+ * or ran at another governor scale (then `changed` is false and nothing is counted).
+ */
+export interface StyleActionReceipt {
+  version: 1;
+  option: StyleActionReceiptOption;
+  applied: StyleActionReceiptOption[];
+  changed: boolean;
+  actual: { action: string; amount: number | null };
+  without: { action: string; amount: number | null } | null;
+}
+
+/** The one applied option a decision re-decides without: FNV-1a of the decision key, as styleShadowPick. */
+export function styleActionReceiptPick(
+  options: readonly StyleActionReceiptOption[],
+  decisionKey: string
+): StyleActionReceiptOption | null {
+  if (options.length === 0) return null;
+  let h = 0x811c9dc5;
+  const key = String(decisionKey);
+  for (let i = 0; i < key.length; i++) {
+    h ^= key.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return options[h % options.length]!;
+}
+
+/** Build the receipt from the committed decision and the re-decision without the option. */
+export function styleActionReceiptOf(
+  option: StyleActionReceiptOption,
+  appliedOptions: readonly StyleActionReceiptOption[],
+  actual: { action: string; amount?: number },
+  without: { action: string; amount?: number } | null
+): StyleActionReceipt {
+  const amt = (d: { amount?: number }): number | null =>
+    typeof d.amount === 'number' && Number.isFinite(d.amount) ? d.amount : null;
+  const a = { action: String(actual.action), amount: amt(actual) };
+  const w = without ? { action: String(without.action), amount: amt(without) } : null;
+  return {
+    version: 1,
+    option,
+    applied: [...appliedOptions],
+    changed: w !== null && (w.action !== a.action || (w.amount ?? 0) !== (a.amount ?? 0)),
+    actual: a,
+    without: w,
+  };
+}

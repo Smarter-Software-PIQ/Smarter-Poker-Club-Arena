@@ -100,7 +100,40 @@ vi.mock('./handProjection.js', () => ({
 const mockReportError = vi.fn();
 vi.mock('../errorReporter.js', () => ({
   reportError: (...args: unknown[]) => mockReportError(...args),
+  // Reached only by a failed completed-hand profile read (the durable-read cases below).
+  isOpponentMemoryBusyRefusal: (error: unknown) =>
+    error instanceof Error && error.message === 'opponent memory unavailable: busy',
+  reportThrottled: vi.fn(),
 }));
+// The completed-hand profile read, real by default; one case forces a schema and a failed read.
+const memoryMocks = vi.hoisted(() => ({
+  schema: vi.fn(),
+  readExact: vi.fn(),
+  readLegacy: vi.fn(),
+  completedGate: null as unknown,
+}));
+vi.mock('../HorseOpponentMemory.js', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../HorseOpponentMemory.js')>();
+  memoryMocks.schema.mockImplementation(() => original.horseOpponentMemorySchema());
+  memoryMocks.readLegacy.mockImplementation(original.readHorseOpponentProfiles);
+  memoryMocks.completedGate = original.admitCompletedHandExactRead;
+  return {
+    ...original,
+    horseOpponentMemorySchema: () => memoryMocks.schema(),
+    readHorseOpponentProfiles: (...args: Parameters<typeof original.readHorseOpponentProfiles>) =>
+      memoryMocks.readLegacy(...args),
+  };
+});
+vi.mock('../HorseExactOpponentMemory.js', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../HorseExactOpponentMemory.js')>();
+  memoryMocks.readExact.mockImplementation(original.readExactHorseOpponentProfiles);
+  return {
+    ...original,
+    readExactHorseOpponentProfiles: (
+      ...args: Parameters<typeof original.readExactHorseOpponentProfiles>
+    ) => memoryMocks.readExact(...args),
+  };
+});
 
 interface CompletedHandObservationPayload {
   horseTurnClocks?: CompletedHandObservation['horseTurnClocks'];
@@ -447,6 +480,58 @@ describe('logHandHistory - worker-owned completed-hand observation', () => {
       else expect(sent).not.toHaveProperty('styleMemoryMode');
     }
   );
+
+  // A FAILED REFRESH IS NOT A NEWER PROFILE (2026-11-15): the worker must be able to tell a failed
+  // completed-hand profile read from a read that found no saved row (MEMORY-READ-ROOT-CAUSE.md).
+  it.each([
+    [
+      'timed out',
+      Object.assign(new Error('exact public memory unavailable: 57014'), { code: '57014' }),
+    ],
+    ['refused busy', new Error('opponent memory unavailable: busy')],
+    // L1: the exact reader THROWS on a receipt that fails validation (HorseExactOpponentMemory.ts), so an
+    // invalid response is a failed read, never "no saved row".
+    ['an invalid receipt', new Error('exact public memory unavailable')],
+  ])('names a %s completed-hand profile read as failed', async (_kind, failure) => {
+    acceptAtomicHand();
+    memoryMocks.schema.mockResolvedValueOnce('installed');
+    memoryMocks.readExact.mockRejectedValueOnce(failure);
+    await logHandHistory({
+      ...identityParams(),
+      publicMemoryDomain: { version: 1, speed: 'table', ante: 'none' },
+    });
+    expect(memoryMocks.readExact).toHaveBeenCalled();
+    const sent = mockObserveCompletedHand.mock.calls[0][0] as CompletedHandObservation;
+    expect(sent.durableOpponentProfiles).toEqual([]);
+    expect(sent.durableOpponentProfilesRead).toBe('failed');
+  });
+  // M1: the legacy completed-hand read (no public memory domain) is admitted on the completed-hand gate.
+  it('admits the legacy completed-hand read on the completed-hand gate and names its failure', async () => {
+    acceptAtomicHand();
+    memoryMocks.schema.mockResolvedValueOnce('installed');
+    memoryMocks.readLegacy.mockRejectedValueOnce(
+      Object.assign(new Error('opponent memory unavailable: 57014'), { code: '57014' })
+    );
+    await logHandHistory(identityParams());
+    expect(memoryMocks.readLegacy).toHaveBeenCalled();
+    const args = memoryMocks.readLegacy.mock.calls.at(-1)!;
+    expect(args[5]).toBe(memoryMocks.completedGate);
+    const sent = mockObserveCompletedHand.mock.calls[0][0] as CompletedHandObservation;
+    expect(sent.durableOpponentProfilesRead).toBe('failed');
+  });
+  it('sends no failure mark when the completed-hand profile read succeeds empty', async () => {
+    acceptAtomicHand();
+    memoryMocks.schema.mockResolvedValueOnce('installed');
+    memoryMocks.readExact.mockResolvedValueOnce([]);
+    await logHandHistory({
+      ...identityParams(),
+      publicMemoryDomain: { version: 1, speed: 'table', ante: 'none' },
+    });
+    expect(memoryMocks.readExact).toHaveBeenCalled();
+    const sent = mockObserveCompletedHand.mock.calls[0][0] as CompletedHandObservation;
+    expect(sent.durableOpponentProfiles).toEqual([]);
+    expect(sent).not.toHaveProperty('durableOpponentProfilesRead');
+  });
 
   it('STYLE READ: a malformed public domain sends no style format', async () => {
     acceptAtomicHand();

@@ -43,10 +43,15 @@
   --sp-tdock-row-h: 44px;
   --sp-tdock-reserve: calc(var(--sp-tdock-line-h) + var(--sp-tdock-row-h));
   --sp-tdock-now: var(--sp-tdock-reserve);
+  --sp-tdock-gap: 8px;
+  --sp-tdock-clearance: max(
+    var(--sp-tdock-gap),
+    var(--sp-bar-inset, env(safe-area-inset-bottom, 0px))
+  );
   /* The same sum TablePage.css declares, plus the dock. Restated here rather
      than patched there so a cash table never evaluates a dock term at all. */
   --sp-action-reserve: calc(
-    var(--sp-bottom-row-h, 96px) + var(--sp-bar-inset, env(safe-area-inset-bottom, 0px)) +
+    var(--sp-bottom-row-h, 96px) + max(8px, var(--sp-bar-inset, env(safe-area-inset-bottom, 0px))) +
       var(--sp-tdock-reserve)
   );
 }
@@ -56,32 +61,21 @@
 }
 
 /* ─── THE BARS STAND ON THE DOCK ────────────────────────────────────────────
-   Every bottom row on this page is `position: fixed; bottom: 0` and pads
-   itself by the home-indicator inset. The dock sits in that same band, just
-   above the inset, so each row's bottom padding grows by the dock's current
-   height. `!important` because both rows restate `padding-bottom` inside
-   their own breakpoints (deliberately - see the "Flush" notes in
-   ActionPanel.css and PreActionBar.css) and this has to hold at all of them. */
+   Keep the inset or minimum gap between the controls and the visible dock.
+   The dock itself ends at the viewport edge. The bottom rows restate their
+   padding in breakpoint rules, so this reservation needs to take precedence. */
 .table-page--tournament .action-panel,
 .table-page--tournament .pre-action-bar,
 .table-page--tournament .action-panel-wrapper {
-  padding-bottom: calc(
-    var(--sp-bar-inset, env(safe-area-inset-bottom, 0px)) + var(--sp-tdock-now)
-  ) !important;
+  padding-bottom: calc(var(--sp-tdock-clearance) + var(--sp-tdock-now)) !important;
 }
 
 .table-page--tournament .action-panel-wrapper {
-  min-height: calc(
-    var(--sp-bottom-row-h, 96px) + var(--sp-bar-inset, env(safe-area-inset-bottom, 0px)) +
-      var(--sp-tdock-now)
-  );
+  min-height: calc(var(--sp-bottom-row-h, 96px) + var(--sp-tdock-clearance) + var(--sp-tdock-now));
 }
 
 .table-page--tournament.ca-raising .action-panel-wrapper {
-  height: calc(
-    var(--sp-bottom-row-h, 96px) + var(--sp-bar-inset, env(safe-area-inset-bottom, 0px)) +
-      var(--sp-tdock-now)
-  );
+  height: calc(var(--sp-bottom-row-h, 96px) + var(--sp-tdock-clearance) + var(--sp-tdock-now));
 }
 
 /* A spectator's wrapper has no floor of its own (ActionPanel.css); it still
@@ -97,11 +91,10 @@
   left: 0;
   right: 0;
   bottom: 0;
-  padding-bottom: var(--sp-bar-inset, env(safe-area-inset-bottom, 0px));
   /* Above the two bottom rows (--z-action-panel, 100) it sits beneath, below
      every sheet and modal on the page. */
   z-index: 101;
-  height: calc(var(--sp-tdock-now, 50px) + var(--sp-bar-inset, env(safe-area-inset-bottom, 0px)));
+  height: var(--sp-tdock-now, 80px);
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
@@ -258,6 +251,7 @@
 
 .table-page--tournament[data-tdock='closed'] {
   --sp-tdock-now: 0px;
+  --sp-tdock-gap: 0px;
 }
 
 .tournament-dock__close {

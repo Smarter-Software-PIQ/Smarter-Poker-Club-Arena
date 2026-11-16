@@ -25,6 +25,13 @@ import {
 } from './HorseOpponentExploit.js';
 import { PRE_REPAIR_STATS } from './HorseOpponentStyle.js';
 import {
+  SHOWN_RIVER_ROW_LENGTH,
+  shownRiverReadFromRow,
+  shownRiverRow,
+  validShownRiverRead,
+  type ShownRiverRead,
+} from './HorseLongShownMemory.js';
+import {
   normalizeHorseObservationWindow,
   type HorseObservationWindow,
 } from './HorseObservationWindow.js';
@@ -48,7 +55,8 @@ export interface HorseDecisionReadFrame {
     | 'horse-decision-reads-v12'
     | 'horse-decision-reads-v13'
     | 'horse-decision-reads-v14'
-    | 'horse-decision-reads-v15';
+    | 'horse-decision-reads-v15'
+    | 'horse-decision-reads-v16';
   readonly bytes: number;
   readonly sha256: string;
   readonly json: string;
@@ -114,7 +122,16 @@ const PRE_REPAIR_VERSION = 'horse-decision-reads-v14';
  * did. Written only when a row carries the window, so every snapshot without one keeps its exact v1-v14 bytes. A
  * v15 body always carries the v14 lists; its provenance and flop-stab lists may be empty. */
 const LONG_PARTICIPATION_VERSION = 'horse-decision-reads-v15';
-const longParticipated = (version: unknown) => version === LONG_PARTICIPATION_VERSION;
+/** 2026-11-15: v15 plus the durable shown river reads the decision carried (`shownRiver`: per pooled exact row whose
+ * record reached the decision behind styleLongShownMemory, [older, then bets, shown, strong per size bucket],
+ * HorseLongShownMemory.shownRiverRow), so a `DECIDE_DEEP` second look and an exact replay read the same river size
+ * buckets `DECIDE_FAST` did. Written only when the view carries such a read (never with the option off), so every
+ * snapshot without one keeps its exact v1-v15 bytes. A v16 body always carries the v15 lists; its long, provenance
+ * and flop-stab lists may be empty. */
+const SHOWN_RIVER_VERSION = 'horse-decision-reads-v16';
+const shownRivered = (version: unknown) => version === SHOWN_RIVER_VERSION;
+const longParticipated = (version: unknown) =>
+  version === LONG_PARTICIPATION_VERSION || shownRivered(version);
 const preRepaired = (version: unknown) =>
   version === PRE_REPAIR_VERSION || longParticipated(version);
 const flopStabbed = (version: unknown) => version === FLOP_STAB_VERSION || preRepaired(version);
@@ -234,9 +251,11 @@ type Body = {
     | typeof LIMP_RERAISE_VERSION
     | typeof FLOP_STAB_VERSION
     | typeof PRE_REPAIR_VERSION
-    | typeof LONG_PARTICIPATION_VERSION;
+    | typeof LONG_PARTICIPATION_VERSION
+    | typeof SHOWN_RIVER_VERSION;
   pooledProvenance?: Rows<number[]>;
   exploitLong?: Rows<number[]>;
+  shownRiver?: Rows<number[]>;
   scopedFlopStab?: Rows<number[]>;
   limpReraiseTallies?: Rows<number[]>;
   probeTallies?: Rows<number[]>;
@@ -355,6 +374,7 @@ function validateBody(
       ...(limpReraised(value.version) ? ['limpReraiseTallies'] : []),
       ...(preRepaired(value.version) ? ['pooledProvenance'] : []),
       ...(longParticipated(value.version) ? ['exploitLong'] : []),
+      ...(shownRivered(value.version) ? ['shownRiver'] : []),
       ...(flopStabbed(value.version) ? ['scopedFlopStab'] : []),
       ...(planContext === undefined ? [] : ['planContext']),
       'actors',
@@ -505,9 +525,24 @@ function validateBody(
       (v as number[])[2] <= (v as number[])[0] + 1e-9;
     if (
       !Array.isArray(value.exploitLong) ||
-      value.exploitLong.length === 0 ||
+      // A v16 body may carry an empty long list (it exists for its shown river rows).
+      (value.version === LONG_PARTICIPATION_VERSION && value.exploitLong.length === 0) ||
       !validRows(value.exploitLong, b.exploit, longValid) ||
       (value.exploitLong as Rows<number[]>).some(([id]) => !carried.has(id))
+    )
+      return fail();
+  }
+  if (shownRivered(value.version)) {
+    // [older, bets, shown, strong per bucket]: every row names an exploit row this same frame carries, and a v16 body
+    // carries at least one (or it would have been v15 or older).
+    const carried = new Set((value.exploit as Rows<number[]>).map(([id]) => id));
+    const shownValid = (v: unknown) =>
+      numbers(v, SHOWN_RIVER_ROW_LENGTH) && shownRiverReadFromRow(v as number[]) !== null;
+    if (
+      !Array.isArray(value.shownRiver) ||
+      value.shownRiver.length === 0 ||
+      !validRows(value.shownRiver, b.exploit, shownValid) ||
+      (value.shownRiver as Rows<number[]>).some(([id]) => !carried.has(id))
     )
       return fail();
   }
@@ -612,7 +647,15 @@ export function encodeHorseDecisionReads(
       id,
       EXPLOIT_LONG_FIELDS.map((f) => (row as ExploitCountersWithLong)[f]!),
     ]);
-  const hasLong = longRows.length > 0;
+  const shownRiverRows: Rows<number[]> = bounded(
+    view.pooledShownRiver ?? new Map<string, ShownRiverRead>(),
+    b.exploit.size
+  ).map(([id, row]: [string, ShownRiverRead]): [string, number[]] => {
+    if (!validShownRiverRead(row)) return fail();
+    return [id, shownRiverRow(row)];
+  });
+  const hasShownRiver = shownRiverRows.length > 0;
+  const hasLong = longRows.length > 0 || hasShownRiver;
   const flopStabRows: Rows<number[]> = bounded(view.flopStab ?? new Map(), b.scoped.size).map(
     ([id, row]: [string, FlopStabCounters]): [string, number[]] => {
       if (!object(row) || !exact(row, FLOP_STAB_FIELDS)) return fail();
@@ -712,6 +755,7 @@ export function encodeHorseDecisionReads(
   const body: Body = {
     ...(hasPreRepair ? { pooledProvenance: provenanceRows } : {}),
     ...(hasLong ? { exploitLong: longRows } : {}),
+    ...(hasShownRiver ? { shownRiver: shownRiverRows } : {}),
     ...(hasFlopStab ? { scopedFlopStab: flopStabRows } : {}),
     ...(hasLimpReraise ? { limpReraiseTallies: limpReraiseRows(view.stats) } : {}),
     ...(hasProbes ? { probeTallies: probeRows(view.stats) } : {}),
@@ -721,35 +765,37 @@ export function encodeHorseDecisionReads(
     ...(hasFastCalldown || hasMultiwayRiver
       ? { riverHu: huRows(view.stats), scopedRiverHu: huRows(view.scoped) }
       : {}),
-    version: hasLong
-      ? LONG_PARTICIPATION_VERSION
-      : hasPreRepair
-        ? PRE_REPAIR_VERSION
-        : hasFlopStab
-          ? FLOP_STAB_VERSION
-          : hasLimpReraise
-            ? LIMP_RERAISE_VERSION
-            : hasProbes
-              ? PROBE_VERSION
-              : hasFastCalldown
-                ? FAST_CALLDOWN_VERSION
-                : hasMultiwayRiver
-                  ? MULTIWAY_RIVER_VERSION
-                  : hasRiverRaise
-                    ? RIVER_RAISE_VERSION
-                    : hasRiverPosition
-                      ? RIVER_POSITION_VERSION
-                      : hasRiverCalls
-                        ? RIVER_CALL_VERSION
-                        : hasWinner
-                          ? WINNER_VERSION
-                          : hasExploit
-                            ? EXPLOIT_VERSION
-                            : hasWindows
-                              ? WINDOW_VERSION
-                              : planContext === undefined
-                                ? VERSION
-                                : ALLOCATED_VERSION,
+    version: hasShownRiver
+      ? SHOWN_RIVER_VERSION
+      : hasLong
+        ? LONG_PARTICIPATION_VERSION
+        : hasPreRepair
+          ? PRE_REPAIR_VERSION
+          : hasFlopStab
+            ? FLOP_STAB_VERSION
+            : hasLimpReraise
+              ? LIMP_RERAISE_VERSION
+              : hasProbes
+                ? PROBE_VERSION
+                : hasFastCalldown
+                  ? FAST_CALLDOWN_VERSION
+                  : hasMultiwayRiver
+                    ? MULTIWAY_RIVER_VERSION
+                    : hasRiverRaise
+                      ? RIVER_RAISE_VERSION
+                      : hasRiverPosition
+                        ? RIVER_POSITION_VERSION
+                        : hasRiverCalls
+                          ? RIVER_CALL_VERSION
+                          : hasWinner
+                            ? WINNER_VERSION
+                            : hasExploit
+                              ? EXPLOIT_VERSION
+                              : hasWindows
+                                ? WINDOW_VERSION
+                                : planContext === undefined
+                                  ? VERSION
+                                  : ALLOCATED_VERSION,
     ...(hasWindows
       ? { statsWindows: windows(view.stats), scopedWindows: windows(view.scoped) }
       : {}),
@@ -945,6 +991,10 @@ export function decodeHorseDecisionReads(
       EXPLOIT_LONG_FIELDS.forEach((f, i) => (row[f] = v[i]));
     }
   }
+  if (shownRivered(body.version))
+    view.pooledShownRiver = new Map(
+      body.shownRiver!.map(([id, v]) => [id, shownRiverReadFromRow(v) ?? fail()])
+    );
   if (winnered(body.version))
     view.winnerReads = { rows: new Map(body.winnerReads), seen: new Set() };
   return view;

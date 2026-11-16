@@ -102,6 +102,86 @@ export function ploPairedBoardMustFold(i: PairedBoardFoldInput): boolean {
 }
 
 /**
+ * THE PAIRED-BOARD FOLD RESPECTS THE PRICE (lane owner 2026-11-15, hand
+ * 59521326; option omahaPairedBoardFoldRespectsPrice, default OFF).
+ *
+ * In that hand a Horse that had put 700 of 1,224 in with the nut straight
+ * faced an all-in on a paired river for its last 524 into 1,939, a price of
+ * 0.213. Its own range model read 0.50 to 0.58 and the reference decision
+ * was a call; the fold above overrode it.
+ *
+ * With the option on, in PLO4/PLO5 cash only, the fold above stands aside,
+ * and the reference decision stands (it may still be a fold), when BOTH hold:
+ *  (a) the call price, the call over the pot after the call (the part of an
+ *      all-in the Horse cannot match is not counted), is at most 0.25; and
+ *  (b) the Horse holds a straight or a flush (two pair, trips and one pair do
+ *      not qualify), OR the call is for the rest of the effective stack
+ *      (it leaves the Horse all in, or the bettor is all in) of which the
+ *      Horse has already put in at least 60% this hand.
+ * Everything else folds exactly as before.
+ */
+export const PAIRED_FOLD_RESPECTED_MAX_PRICE = 0.25;
+export const PAIRED_FOLD_RESPECTED_INVESTED_SHARE = 0.6;
+export const PAIRED_FOLD_RESPECTED_VARIANTS: ReadonlySet<string> = new Set(['plo4', 'plo5']);
+const STRAIGHT = 5;
+
+export interface PairedBoardFoldPriceInput {
+  gameVariant: string | undefined;
+  board: Card[];
+  hero: Pick<SeatPlayer, 'cards' | 'stack' | 'bet' | 'user_id' | 'totalInvested'>;
+  players: Array<Pick<SeatPlayer, 'user_id' | 'is_folded' | 'is_all_in' | 'bet'>>;
+  currentBet: number;
+  toCall?: number;
+  pot: number;
+}
+
+/** The call price the exception reads: the call over the pot after it, uncalled excess removed. */
+export function ploPairedBoardCallPrice(i: PairedBoardFoldPriceInput): number | null {
+  const stack = Number.isFinite(i.hero.stack) ? Math.max(0, i.hero.stack) : 0;
+  const toCall = Number.isFinite(i.toCall)
+    ? Math.max(0, i.toCall as number)
+    : Math.max(0, (i.currentBet || 0) - (i.hero.bet || 0));
+  const call = Math.min(toCall, stack);
+  if (!(call > 0.005)) return null;
+  const pot = Number.isFinite(i.pot) ? Math.max(0, i.pot) : 0;
+  const livePot = Math.max(0, pot - (toCall - call));
+  return call / (livePot + call);
+}
+
+/** True when the paired-board fold stands aside for the price (the caller checks the fold itself, cash and the option). */
+export function ploPairedBoardFoldRespectsPrice(i: PairedBoardFoldPriceInput): boolean {
+  try {
+    if (!PAIRED_FOLD_RESPECTED_VARIANTS.has(String(i.gameVariant ?? '').toLowerCase()))
+      return false;
+    const price = ploPairedBoardCallPrice(i);
+    if (price === null || price > PAIRED_FOLD_RESPECTED_MAX_PRICE + 1e-9) return false;
+    const hole = i.hero.cards;
+    if (!Array.isArray(hole) || hole.length < 4) return false;
+    const category = Math.floor(scoreOmahaHiPartial(hole, i.board) / 0x100000);
+    if (category >= STRAIGHT) return true;
+    const stack = Number.isFinite(i.hero.stack) ? Math.max(0, i.hero.stack) : 0;
+    const toCall = Number.isFinite(i.toCall)
+      ? Math.max(0, i.toCall as number)
+      : Math.max(0, (i.currentBet || 0) - (i.hero.bet || 0));
+    const call = Math.min(toCall, stack);
+    const bettorAllIn = i.players.some(
+      (p) =>
+        p.user_id !== i.hero.user_id &&
+        !p.is_folded &&
+        p.is_all_in &&
+        (p.bet || 0) > (i.hero.bet || 0)
+    );
+    if (!(call >= stack - 0.005 || bettorAllIn)) return false;
+    const invested = Number.isFinite(i.hero.totalInvested)
+      ? Math.max(0, i.hero.totalInvested as number)
+      : 0;
+    return invested / (invested + call) >= PAIRED_FOLD_RESPECTED_INVESTED_SHARE - 1e-9;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * PLO4 / PLO5 / PLO6 PAIRED-BOARD RIVER CHECK (Dan 2026-11-06, BINDING).
  *
  * Dan, on a PLO5 1/2 Madness hand (55704472) where a horse held
