@@ -36,6 +36,9 @@ try:
     assert one("SELECT count(*)=13 FROM public.push_outbox")=='t'
     assert one("SELECT count(*)=8 FROM smarter_private.weekly_rakeback_credit_notices WHERE kind='player'")=='t'
     assert one("SELECT count(*)=0 FROM public.claim_weekly_rakeback_credit_emails()")=='t'
+    # Post-deploy fixtures can carry a verified auth identifier without an email domain.
+    q("UPDATE auth.users SET email='postdeploy-fixture' WHERE id=rr.u('WP1'); UPDATE auth.users SET email_confirmed_at=now() WHERE id=rr.u('WP1')")
+    assert one("SELECT smarter_private.weekly_rakeback_email_destination(rr.u('WP1'),rr.u('O'),'player') IS NULL")=='t'
     q("UPDATE auth.users SET email='verified@fixture.smarter.poker' WHERE id=rr.u('OP1')")
     assert one("SELECT smarter_private.weekly_rakeback_email_destination(rr.u('OP1'),rr.u('O'),'player')='verified@fixture.smarter.poker'")=='t'
     case('all paid player accounts share one label; only an actual enrolled device or verified nonsynthetic address is a delivery destination')

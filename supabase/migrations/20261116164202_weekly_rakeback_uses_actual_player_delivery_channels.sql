@@ -5,7 +5,7 @@ CREATE FUNCTION smarter_private.weekly_rakeback_email_destination(p_user uuid,p_
 RETURNS text LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $f$
  SELECT u.email FROM auth.users u JOIN public.profiles p ON p.id=u.id
  LEFT JOIN public.notification_preferences f ON f.user_id=u.id
- WHERE u.id=p_user AND u.email_confirmed_at IS NOT NULL AND u.deleted_at IS NULL AND nullif(trim(u.email),'') IS NOT NULL
+ WHERE u.id=p_user AND u.email_confirmed_at IS NOT NULL AND u.deleted_at IS NULL AND u.email ~ '^[^@[:space:]]+@[^@[:space:]]+[.][^@[:space:].]+$'
  AND (u.banned_until IS NULL OR u.banned_until<=now()) AND NOT public.fn_ca_is_cert_account(u.id)
  AND f.email_enabled IS DISTINCT FROM false AND f.mute_all IS NOT TRUE
  AND (p_kind<>'club' OR EXISTS(SELECT FROM public.clubs c WHERE c.id=p_club AND c.owner_id=u.id))
